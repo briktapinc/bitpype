@@ -577,6 +577,9 @@ async function main() {
 
   const platform = require('./server/platform');
   await platform.seedPlatformDefaults();
+  // Encrypt any platform secrets still stored as plaintext (audit M6 port).
+  const mig = await platform.migratePlatformSecrets().catch(() => ({ migrated: 0 }));
+  if (mig.migrated) console.log(`[platform] encrypted ${mig.migrated} plaintext secret(s) at rest`);
   console.log('[platform] settings seeded');
 
   await require('./server/captcha').assertProductionReady();

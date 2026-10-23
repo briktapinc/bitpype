@@ -90,6 +90,7 @@ for (const [k, v] of MIN_SETTINGS) seedSetting.run(k, v);
 
 const getSetting = (key) => {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+  if (row) row.value = require('./secretBox').decryptSetting(key, row.value);
   return row ? row.value : null;
 };
 const setSetting = (key, value) => {

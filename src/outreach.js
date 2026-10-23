@@ -152,7 +152,7 @@ function readSettings(db) {
   const out = {};
   try {
     for (const row of db.prepare('SELECT key, value FROM settings').all()) {
-      out[row.key] = row.value;
+      out[row.key] = require('./secretBox').decryptSetting(row.key, row.value);
     }
   } catch { /* settings table may not exist yet in tests */ }
   return out;
@@ -161,7 +161,7 @@ function readSettings(db) {
 function getSetting(db, key, fallback) {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-    return row ? row.value : fallback;
+    return row ? require('./secretBox').decryptSetting(key, row.value) : fallback;
   } catch {
     return fallback;
   }

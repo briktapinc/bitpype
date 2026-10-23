@@ -20,13 +20,13 @@ function withDb(workspaceId, fn) {
 
 function getSetting(db, key, fallback = '') {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-  return row ? row.value : fallback;
+  return row ? require('../src/secretBox').decryptSetting(key, row.value) : fallback;
 }
 
 function setSetting(db, key, value) {
   db.prepare(
     'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
-  ).run(key, value == null ? '' : String(value));
+  ).run(key, require('../src/secretBox').encryptSetting(key, value == null ? '' : String(value)));
 }
 
 function logActivity(db, area, message) {

@@ -145,7 +145,7 @@ function fromJson(text, fallback) {
 function getSetting(db, key, fallback) {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-    return row ? row.value : fallback;
+    return row ? require('./secretBox').decryptSetting(key, row.value) : fallback;
   } catch {
     return fallback;
   }

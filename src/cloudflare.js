@@ -35,14 +35,14 @@ const DOMAIN_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,
 function getSetting(db, key) {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-    return row && typeof row.value === 'string' ? row.value : null;
+    return row && typeof row.value === 'string' ? require('./secretBox').decryptSetting(key, row.value) : null;
   } catch (err) {
     return null;
   }
 }
 
 function setSetting(db, key, value) {
-  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value);
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, require('./secretBox').encryptSetting(key, value));
 }
 
 // Never include secrets in an error string.

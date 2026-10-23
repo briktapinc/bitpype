@@ -35,7 +35,7 @@ function requireDb(db, label = 'db') {
 function getSetting(key, def, db) {
   requireDb(db, 'db');
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-  return row ? row.value : def;
+  return row ? require('./secretBox').decryptSetting(key, row.value) : def;
 }
 
 function aiConfigured(db) {

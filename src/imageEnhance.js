@@ -21,6 +21,7 @@ function getFalKey(db) {
   if (!db) return '';
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('fal.api_key');
+    if (row) row.value = require('./secretBox').decryptSetting('fal.api_key', row.value);
     return row && row.value && row.value !== '***' ? String(row.value).trim() : '';
   } catch {
     return '';

@@ -139,6 +139,26 @@ function openWorkspaceDb(workspaceId) {
     }).catch(() => {});
   } catch { /* ignore */ }
 
+  // Lazy migration (port of audit M6): encrypt any secret settings
+  // still stored as plaintext. Runs on every open when an encryption
+  // key is configured; idempotent (enc:v1: values are skipped) and
+  // best-effort (a failure must never block opening the workspace).
+  try {
+    const secretBox = require('../src/secretBox');
+    if (secretBox.hasKey()) {
+      const { SECRET_KEYS } = require('./settingsKeys');
+      const rows = db.prepare('SELECT key, value FROM settings').all();
+      const upd = db.prepare('UPDATE settings SET value = ? WHERE key = ?');
+      for (const r of rows) {
+        if (SECRET_KEYS.includes(r.key) && r.value && !secretBox.isEncrypted(r.value)) {
+          upd.run(secretBox.encryptValue(r.value), r.key);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[workspaceDb] secret migration:', e.message);
+  }
+
   caches.set(id, db);
   return db;
 }

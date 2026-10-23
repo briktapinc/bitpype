@@ -12,6 +12,7 @@
 const fs = require('fs');
 const path = require('path');
 const { query } = require('./db');
+const secretBox = require('../src/secretBox');
 
 function platformDefaultsPath() {
   // Prefer the mounted workspaces volume so the snapshot survives container rebuilds.
@@ -138,12 +139,17 @@ async function ensurePlatformTables() {
   // no-op: migrate creates tables; kept for callers
 }
 
+function isPlatformSecret(key) {
+  const def = PLATFORM_SETTING_DEFS.find((d) => d.key === key);
+  return PLATFORM_SECRET_KEYS.includes(key) || !!(def && def.secret);
+}
+
 async function getPlatformSetting(key, fallback = '') {
   const rows = await query(
     'SELECT value FROM platform_settings WHERE `key` = :key LIMIT 1',
     { key }
   );
-  if (rows && rows[0]) return rows[0].value;
+  if (rows && rows[0]) return isPlatformSecret(key) ? secretBox.decryptValue(rows[0].value) : rows[0].value;
   const def = PLATFORM_SETTING_DEFS.find((d) => d.key === key);
   return def ? def.default : fallback;
 }
@@ -160,7 +166,7 @@ async function setPlatformSetting(key, value) {
     `INSERT INTO platform_settings (\`key\`, value)
      VALUES (:key, :value)
      ON DUPLICATE KEY UPDATE value = VALUES(value)`,
-    { key, value: v }
+    { key, value: isPlatformSecret(key) ? secretBox.encryptValue(v) : v }
   );
   return { key, set: true };
 }
@@ -194,7 +200,7 @@ async function getAllPlatformSettings({ redact = true } = {}) {
   const rows = await query('SELECT `key`, value FROM platform_settings');
   const map = {};
   for (const def of PLATFORM_SETTING_DEFS) map[def.key] = def.default;
-  for (const r of rows || []) map[r.key] = r.value;
+  for (const r of rows || []) map[r.key] = !redact && isPlatformSecret(r.key) ? secretBox.decryptValue(r.value) : r.value;
   if (redact) {
     for (const k of PLATFORM_SECRET_KEYS) {
       if (map[k]) map[k] = '***';
@@ -216,6 +222,24 @@ async function setPlatformSettingsBatch(entries, { secretsOnly = false } = {}) {
     out.push(key);
   }
   return { updated: out };
+}
+
+/**
+ * Lazy migration (port of audit M6): encrypt any platform secrets still
+ * stored as plaintext. Runs at boot when an encryption key is
+ * configured; idempotent (enc:v1: values are skipped).
+ */
+async function migratePlatformSecrets() {
+  if (!secretBox.hasKey()) return { migrated: 0 };
+  const rows = await query('SELECT `key`, value FROM platform_settings');
+  let migrated = 0;
+  for (const r of rows || []) {
+    if (isPlatformSecret(r.key) && r.value && !secretBox.isEncrypted(r.value)) {
+      await setPlatformSetting(r.key, r.value);
+      migrated++;
+    }
+  }
+  return { migrated };
 }
 
 async function audit(actorUserId, action, detail) {
@@ -263,6 +287,7 @@ module.exports = {
   getPlatformSetting,
   setPlatformSetting,
   seedPlatformDefaults,
+  migratePlatformSecrets,
   savePlatformDefaultsSnapshot,
   getAllPlatformSettings,
   setPlatformSettingsBatch,

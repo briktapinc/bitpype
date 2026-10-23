@@ -83,7 +83,7 @@ function ensureTables(db) {
 
 function getSetting(db, key, def) {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-  return row ? row.value : def;
+  return row ? require('./secretBox').decryptSetting(key, row.value) : def;
 }
 
 function logActivity(db, area, message) {

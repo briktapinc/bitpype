@@ -22,7 +22,7 @@ function fail(code, message) {
 
 function setting(db, key, fallback = '') {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-  return row && row.value != null ? String(row.value) : fallback;
+  return row && row.value != null ? String(require('./secretBox').decryptSetting(key, row.value)) : fallback;
 }
 
 function logActivity(db, message) {
@@ -678,7 +678,7 @@ async function sendWeeklyBatch(db, { campaignId, force = false, workspaceId = nu
   });
 
   const settings = {};
-  for (const r of db.prepare('SELECT key, value FROM settings').all()) settings[r.key] = r.value;
+  for (const r of db.prepare('SELECT key, value FROM settings').all()) settings[r.key] = require('./secretBox').decryptSetting(r.key, r.value);
   const { getProvider } = require('./email');
   const provider = getProvider(settings, db);
   let sent = false;

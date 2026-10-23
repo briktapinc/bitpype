@@ -12,7 +12,7 @@ const { simpleParser } = require('mailparser');
 function getSetting(db, key, def = '') {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-    if (row && row.value != null && String(row.value) !== '') return String(row.value);
+    if (row && row.value != null && String(row.value) !== '') return String(require('./secretBox').decryptSetting(key, row.value));
   } catch { /* ignore */ }
   return def;
 }

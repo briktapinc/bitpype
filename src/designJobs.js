@@ -2006,6 +2006,7 @@ async function addImages(db, jobId, opts = {}) {
     throw fail('AUTOMATION_PAUSED', 'Automation is paused. Resume it before pulling photos.');
   }
   const keyRow = db.prepare(`SELECT value FROM settings WHERE key = 'pexels.api_key'`).get();
+  if (keyRow) keyRow.value = require('./secretBox').decryptSetting('pexels.api_key', keyRow.value);
   const key = keyRow && keyRow.value ? String(keyRow.value).trim() : '';
   if (!key) throw fail('PEXELS_NOT_CONFIGURED', 'Pexels API key is not set. Add it in Settings.');
   const lead = row.lead_id ? db.prepare('SELECT * FROM leads WHERE id = ?').get(row.lead_id) : null;

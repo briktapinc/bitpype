@@ -15,7 +15,7 @@ let lastMeta = null;
 function getSetting(db, key, fallback = '') {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-    return row && row.value != null ? String(row.value) : fallback;
+    return row && row.value != null ? String(require('./secretBox').decryptSetting(key, row.value)) : fallback;
   } catch {
     return fallback;
   }
@@ -25,7 +25,7 @@ function setSetting(db, key, value) {
   db.prepare(
     `INSERT INTO settings (key, value) VALUES (?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`
-  ).run(key, String(value));
+  ).run(key, require('./secretBox').encryptSetting(key, String(value)));
 }
 
 function ensureToken(db) {

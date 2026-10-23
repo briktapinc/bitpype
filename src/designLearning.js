@@ -38,7 +38,7 @@ function fail(code, message) {
 function getSetting(db, key, def = '') {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-    if (row && row.value != null && String(row.value) !== '') return String(row.value);
+    if (row && row.value != null && String(row.value) !== '') return String(require('./secretBox').decryptSetting(key, row.value));
   } catch { /* ignore */ }
   return def;
 }
@@ -47,7 +47,7 @@ function setSetting(db, key, value) {
   db.prepare(
     `INSERT INTO settings (key, value) VALUES (?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`
-  ).run(key, String(value));
+  ).run(key, require('./secretBox').encryptSetting(key, String(value)));
 }
 
 function learningEnabled(db) {

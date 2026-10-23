@@ -109,7 +109,7 @@ async function getSetting(workspaceId, key, fallback = '') {
     'SELECT value FROM workspace_settings WHERE workspace_id = :workspaceId AND `key` = :key LIMIT 1',
     { workspaceId, key }
   );
-  return rows[0] ? rows[0].value : fallback;
+  return rows[0] ? require('../src/secretBox').decryptSetting(key, rows[0].value) : fallback;
 }
 
 async function setSetting(workspaceId, key, value) {
@@ -117,7 +117,7 @@ async function setSetting(workspaceId, key, value) {
     `INSERT INTO workspace_settings (workspace_id, \`key\`, value)
      VALUES (:workspaceId, :key, :value)
      ON DUPLICATE KEY UPDATE value = VALUES(value)`,
-    { workspaceId, key, value: value == null ? '' : String(value) }
+    { workspaceId, key, value: require('../src/secretBox').encryptSetting(key, value == null ? '' : String(value)) }
   );
 }
 

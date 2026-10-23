@@ -84,11 +84,11 @@ function register(ipcMain, db) {
   const getSetting = (key) => {
     needDb();
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-    return row ? row.value : null;
+    return row ? require('../../src/secretBox').decryptSetting(key, row.value) : null;
   };
   const setSetting = (key, value) => {
     needDb();
-    db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
+    db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, require('../../src/secretBox').encryptSetting(key, value));
   };
   const logActivity = (area, message) => {
     needDb();

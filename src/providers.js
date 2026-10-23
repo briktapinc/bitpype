@@ -674,6 +674,7 @@ function configureFromSettings(settingsOrDb) {
     if (settingsOrDb && typeof settingsOrDb.prepare === 'function') {
       try {
         const row = settingsOrDb.prepare('SELECT value FROM settings WHERE key = ?').get(k);
+        if (row) row.value = require('./secretBox').decryptSetting(k, row.value);
         return row && row.value != null ? String(row.value) : '';
       } catch { return ''; }
     }
