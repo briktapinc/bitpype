@@ -17,7 +17,7 @@ function build(file,known=true){
  const domain=new Proxy({}, {get:(_t,name)=>(...args)=>{assert(checked,'domain touched before workspace validation: '+name);calls++;if(name==='withDb')return args[1]({});return {ok:true,leadId:2}}});
  const mocks={express:{Router:()=>router},'../domain':domain,'../siteModules':{
   parseWorkspaceFromToken:t=>Number(String(t).split('_')[0]),
-  getPublicModuleByToken:()=>({ok:true}),getPublicModuleItem:()=>({ok:true}),getPublicBookingSlots:()=>({slots:[]}),createPublicBookingByToken:()=>({ok:true}),
+  getPublicModuleByToken:()=>({ok:true}),getPublicModuleItem:()=>({ok:true}),getPublicBookingSlots:()=>({slots:[]}),createPublicBookingByToken:()=>({ok:true}),createShopCheckoutByToken:()=>({ok:true}),getShopOrderBySession:()=>({id:1,status:'paid',product_name:'fixture',amount_cents:100,currency:'USD'}),
  },'../../src/socialMedia':{},'../workspaceExists':{assertWorkspaceExists:guard},
  '../billing':{workspacePlan:async()=> 'free'},'../appUrls':{socialReturnPath:()=>'/app#/social'},
  '../contactForms':{parseWorkspaceFromToken:t=>Number(String(t).split('_')[0]),getPublicFormByToken:()=>({}),acceptSubmission:async()=>({})},
@@ -33,7 +33,7 @@ async function invoke(b,route,req){
  return {status,body};
 }
 function request(file,id){
- const req={params:{token:`${id}_fixture`},query:{w:String(id),workspaceId:String(id),date:'2030-01-01',session:'fixture'},body:{w:id,action:'approve',message:'fixture'},get:()=> 'fixture'};
+ const req={params:{token:`${id}_fixture`},query:{w:String(id),workspaceId:String(id),date:'2030-01-01',session:'fixture',session_id:'fixture'},body:{w:id,action:'approve',message:'fixture'},get:()=> 'fixture'};
  if(file.includes('social'))req.params.token='fixture';return req;
 }
 async function main(){
