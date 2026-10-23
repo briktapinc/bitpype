@@ -883,10 +883,148 @@ function findDuplicates(db, lead) {
   return out;
 }
 
+/* ------------------------------------------------------------------ */
+/* Merge: dependent-table treatment                                    */
+/* ------------------------------------------------------------------ */
+
 /**
- * Merge duplicate leads into one keeper. Moves facts/events/scores to the
- * keeper, fills empty keeper fields from dropped leads, unions tags, appends
- * notes, then deletes the dropped leads. All in one transaction.
+ * Every table that carries a lead_id must be dealt with before the dropped
+ * lead row is deleted, or the delete fails (ai_usage's FK is ON DELETE
+ * NO ACTION and the app runs with foreign_keys=ON) or silently destroys
+ * data (the ON DELETE CASCADE tables). Treatment per table, inventoried
+ * from the live schema (PRAGMA foreign_key_list + index_list):
+ *
+ * MOVE — no per-lead uniqueness, plain reassignment to the keeper:
+ *   ai_usage, business_facts, lead_scores, lead_events, intent_scores,
+ *   prospect_events, campaign_messages, contact_forms, form_submissions,
+ *   design_jobs, design_learning_events, design_email_redesigns,
+ *   directory_listings, ecommerce_orders, faq_items, bookings,
+ *   booking_blocks, chatbot_escalations, chatbot_knowledge, chatbot_leads,
+ *   chatbot_messages, chatbot_sessions, leadscout_capture_failures,
+ *   leadscout_events, site_domains, site_screenshots, social_campaigns,
+ *   social_posts, social_weekly_batches, testimonials
+ *
+ * MOVE_DEDUPE — UNIQUE(lead_id, <keys>): rows whose key the keeper already
+ *   has are dropped (keeper wins); the rest are reassigned:
+ *   blog_posts[slug], booking_hours[weekday,start_time,end_time],
+ *   booking_services[slug], courses[slug], ecommerce_products[slug],
+ *   events[slug], gallery_albums[slug], team_members[slug],
+ *   site_module_embeds[module_type], social_accounts[platform,account_id]
+ *
+ * SINGLETON — lead_id is the PRIMARY KEY (one settings row per lead):
+ *   booking_settings, chatbot_settings. Keeper's row wins; if the keeper
+ *   has none, the dropped lead's row is reassigned.
+ *
+ * WEBSITES — lead_id is UNIQUE with ON DELETE CASCADE, and a merge must
+ *   never delete a website: reassigned when the keeper has none. If BOTH
+ *   leads own a website the merge aborts with a validation error — the
+ *   schema allows one website per lead, so a human must decide which site
+ *   survives before the leads can merge.
+ */
+const MERGE_MOVE_TABLES = [
+  'ai_usage',
+  'business_facts',
+  'lead_scores',
+  'lead_events',
+  'intent_scores',
+  'prospect_events',
+  'campaign_messages',
+  'contact_forms',
+  'form_submissions',
+  'design_jobs',
+  'design_learning_events',
+  'design_email_redesigns',
+  'directory_listings',
+  'ecommerce_orders',
+  'faq_items',
+  'bookings',
+  'booking_blocks',
+  'chatbot_escalations',
+  'chatbot_knowledge',
+  'chatbot_leads',
+  'chatbot_messages',
+  'chatbot_sessions',
+  'leadscout_capture_failures',
+  'leadscout_events',
+  'site_domains',
+  'site_screenshots',
+  'social_campaigns',
+  'social_posts',
+  'social_weekly_batches',
+  'testimonials',
+];
+
+const MERGE_DEDUPE_TABLES = {
+  blog_posts: ['slug'],
+  booking_hours: ['weekday', 'start_time', 'end_time'],
+  booking_services: ['slug'],
+  courses: ['slug'],
+  ecommerce_products: ['slug'],
+  events: ['slug'],
+  gallery_albums: ['slug'],
+  team_members: ['slug'],
+  site_module_embeds: ['module_type'],
+  social_accounts: ['platform', 'account_id'],
+};
+
+const MERGE_SINGLETON_TABLES = ['booking_settings', 'chatbot_settings'];
+
+function leadTableExists(db, table) {
+  return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
+}
+
+/**
+ * Move every dependent row of `dropId` onto `keepId`, per the treatment
+ * table above. Runs inside mergeLeads' transaction; any throw (website
+ * conflict, unexpected constraint) rolls the whole merge back.
+ */
+function reassignLeadDependents(db, keepId, dropId) {
+  // Websites first: the only treatment that can abort the merge.
+  if (leadTableExists(db, 'websites')) {
+    const keepSite = db.prepare('SELECT id FROM websites WHERE lead_id = ?').get(keepId);
+    const dropSite = db.prepare('SELECT id FROM websites WHERE lead_id = ?').get(dropId);
+    if (keepSite && dropSite) {
+      throw validationError(
+        `cannot merge lead ${dropId} into lead ${keepId}: both own a website ` +
+          `(keeper website ${keepSite.id}, dropped lead website ${dropSite.id}); ` +
+          'a merge never deletes a website — resolve the extra website first'
+      );
+    }
+    if (dropSite) db.prepare('UPDATE websites SET lead_id = ? WHERE lead_id = ?').run(keepId, dropId);
+  }
+
+  for (const table of MERGE_MOVE_TABLES) {
+    if (!leadTableExists(db, table)) continue; // older tenant DBs predate some tables
+    db.prepare(`UPDATE ${table} SET lead_id = ? WHERE lead_id = ?`).run(keepId, dropId);
+  }
+
+  for (const [table, keys] of Object.entries(MERGE_DEDUPE_TABLES)) {
+    if (!leadTableExists(db, table)) continue;
+    const keyMatch = keys.map((k) => `k.${k} IS d.${k}`).join(' AND ');
+    db.prepare(
+      `UPDATE ${table} AS d SET lead_id = @keep WHERE d.lead_id = @drop AND NOT EXISTS (
+         SELECT 1 FROM ${table} k WHERE k.lead_id = @keep AND ${keyMatch}
+       )`
+    ).run({ keep: keepId, drop: dropId });
+    // Whatever still points at the dropped lead conflicts with a keeper row
+    // on the unique key — the keeper's row wins, the duplicate is dropped.
+    db.prepare(`DELETE FROM ${table} WHERE lead_id = ?`).run(dropId);
+  }
+
+  for (const table of MERGE_SINGLETON_TABLES) {
+    if (!leadTableExists(db, table)) continue;
+    db.prepare(
+      `DELETE FROM ${table} WHERE lead_id = @drop AND EXISTS (SELECT 1 FROM ${table} WHERE lead_id = @keep)`
+    ).run({ keep: keepId, drop: dropId });
+    db.prepare(`UPDATE ${table} SET lead_id = ? WHERE lead_id = ?`).run(keepId, dropId);
+  }
+}
+
+/**
+ * Merge duplicate leads into one keeper. Moves every dependent row to the
+ * keeper (see reassignLeadDependents for per-table treatment), fills empty
+ * keeper fields from dropped leads, unions tags, appends notes, then
+ * deletes the dropped leads. All in one transaction.
  */
 function mergeLeads(db, keepId, dropIds) {
   const keep = getLead(db, keepId);
@@ -936,9 +1074,7 @@ function mergeLeads(db, keepId, dropIds) {
       if (drop.notes) noteParts.push(`--- merged from #${dropId} (${drop.business_name}) ---\n${drop.notes}`);
       noteParts.push(`merged lead #${dropId} (${drop.business_name}) on ${new Date().toISOString()}`);
 
-      db.prepare('UPDATE business_facts SET lead_id = ? WHERE lead_id = ?').run(keepId, dropId);
-      db.prepare('UPDATE lead_scores SET lead_id = ? WHERE lead_id = ?').run(keepId, dropId);
-      db.prepare('UPDATE lead_events SET lead_id = ? WHERE lead_id = ?').run(keepId, dropId);
+      reassignLeadDependents(db, keepId, dropId);
       db.prepare('DELETE FROM leads WHERE id = ?').run(dropId);
     }
 
