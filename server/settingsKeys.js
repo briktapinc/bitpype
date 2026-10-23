@@ -75,6 +75,7 @@ const SETTING_SEEDS = [
   ['hands_off.followup_days', '3'],
   ['hands_off.template_id', ''],
   ['hands_off.channel', 'both'],
+  ['hands_off.followup_interested_email', '1'],
   ['design.learning.playbook', '[]'],
   ['design.learning.last_learned_at', ''],
   ['design.learning.max_playbook', '24'],
@@ -177,6 +178,7 @@ const SETTABLE_KEYS = [
   'hands_off.followup_days',
   'hands_off.template_id',
   'hands_off.channel',
+  'hands_off.followup_interested_email',
 ];
 
 const PROMPT_SEEDS = [
@@ -401,7 +403,8 @@ function validateSetting(key, raw) {
       if (value.length > 64) return fail('must be 64 chars or fewer');
       if (value.trim() !== '' && !/^\d+$/.test(value.trim())) return fail('must be a numeric Meta App ID or empty');
       return { ok: true, value: value.trim() };
-    case 'hands_off.enabled': {
+    case 'hands_off.enabled':
+    case 'hands_off.followup_interested_email': {
       const v = String(value).trim().toLowerCase();
       if (['1', 'true', 'yes'].includes(v)) return { ok: true, value: '1' };
       if (['0', 'false', 'no', ''].includes(v)) return { ok: true, value: '0' };

@@ -5177,6 +5177,9 @@ async function pageSettings(param) {
             ${f('hands_off.template_id', 'Template id (optional)', { placeholder: 'first dual-channel template' })}
             ${f('hands_off.report_email', 'Digest email', { type: 'email', placeholder: 'falls back to support.email' })}
           </div>
+          <div class="row">
+            ${f('hands_off.followup_interested_email', 'Interested follow-up email', { options: onOff, def: '1', hint: 'When a lead clicks "I\'m interested" (email link or site claim popup), email them next steps — customizations, plan pricing, portal access and available domain names — and notify the digest email. Sent once per lead.' })}
+          </div>
           <div class="inline">
             ${save('sec-hands-off', 'Save Hands-off')}
             <button class="btn" type="button" data-act="hands-off-run">Run tick now</button>
