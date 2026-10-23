@@ -25,6 +25,23 @@ function fail(code, message) {
   return e;
 }
 
+/**
+ * Canonical job type. 'website' is the only type whose delivery materializes
+ * a website; every other label is a payload-only delivery (logo, social, …,
+ * or a caller's own label). Agents routinely guess 'new_site' for a website
+ * job, which used to create a generic payload job that accepted design.deliver
+ * but built nothing. Fold the website aliases onto 'website' at create so a
+ * new-site job delivers exactly like a website job.
+ */
+function normalizeJobType(value) {
+  const raw = String(value || '')
+    .trim()
+    .slice(0, 40);
+  const key = raw.toLowerCase().replace(/[\s_-]+/g, '');
+  if (key === 'newsite' || key === 'newwebsite') return 'website';
+  return raw;
+}
+
 function normalizeSiteShape(value) {
   if (value == null || value === '') return null;
   const s = String(value).trim().toLowerCase().replace(/[_-]/g, '');
@@ -611,9 +628,7 @@ function buildBrief(db, leadId, instructions, type, siteShape) {
 
 function createJob(db, input = {}) {
   ensureTables(db);
-  const type = String(input.type || '')
-    .trim()
-    .slice(0, 40);
+  const type = normalizeJobType(input.type);
   const title = String(input.title || '')
     .trim()
     .slice(0, 200);
@@ -2813,6 +2828,7 @@ module.exports = {
   submitClientForm,
   notifyAgentQueue,
   classify,
+  normalizeJobType,
   normalizeSiteShape,
   resolveSiteShape,
   defaultSiteShape,

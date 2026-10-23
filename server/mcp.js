@@ -941,7 +941,11 @@ function toolDefs({ clientScoped = false } = {}) {
       inputSchema: {
         type: 'object',
         properties: {
-          type: { type: 'string' },
+          type: {
+            type: 'string',
+            description:
+              'Job type. "website" is the only type whose delivery materializes a website; "new_site" is accepted and normalized to "website". Other labels (logo, social, flyer, brand, other, or a custom label) are payload-only deliveries.',
+          },
           title: { type: 'string' },
           instructions: { type: 'string' },
           leadId: { type: 'integer' },
