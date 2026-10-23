@@ -30,6 +30,7 @@ services:
       - scout_exports:/var/lib/website-scout-exports
     environment:
       NODE_ENV: production
+      SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:-}
       PORT: "3000"
       DB_DRIVER: mysql
       WORKSPACE_DATA_DIR: /app/data/workspaces
