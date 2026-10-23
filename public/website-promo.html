@@ -186,6 +186,33 @@
       .card { padding: 20px 18px; }
     }
 
+    /* Survey wizard: one step at a time with Back/Next and a progress
+       bar in the app accent. Same tokens as the rest of the page. */
+    .wizard-progress { margin: 0 0 20px; }
+    .wizard-progress[hidden] { display: none; }
+    .wizard-progress-text { margin: 0 0 8px; font-size: 0.85rem; font-weight: 650; color: var(--muted); }
+    .progress-track { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+    .progress-bar { height: 100%; width: 25%; border-radius: 999px; background: var(--accent); transition: width 0.25s ease; }
+    .step[hidden] { display: none; }
+    .step-title { font-size: 1.15rem; font-weight: 700; letter-spacing: -0.01em; color: var(--ink); margin: 0 0 4px; }
+    .step-title:focus-visible { outline-offset: 4px; }
+    .step-lede { margin: 0 0 16px; color: var(--muted); font-size: 0.95rem; }
+    .field-error { margin: 0; font-size: 0.85rem; font-weight: 600; color: var(--danger); }
+    input[aria-invalid='true'], textarea[aria-invalid='true'] { border-color: var(--danger); }
+    .wizard-nav { margin-top: 22px; }
+    .wizard-nav .spacer { flex: 1; }
+    .btn[hidden] { display: none; }
+    /* Secondary wizard button (Back): the staff .btn.soft treatment. */
+    .btn.soft {
+      background: var(--surface); border-color: var(--border-strong); color: var(--text);
+      box-shadow: none;
+    }
+    .btn.soft:hover:not(:disabled) { background: var(--surface-2); border-color: var(--border-strong); }
+    @media (max-width: 640px) {
+      .wizard-nav .btn { flex: 1 1 0; }
+      .wizard-nav .spacer { display: none; }
+    }
+
   </style>
 </head>
 <body>
@@ -207,65 +234,112 @@
         <p>Thanks — we received your details and will follow up soon.</p>
       </div>
 
+      <div class="wizard-progress" id="wizard-progress">
+        <p class="wizard-progress-text" id="progress-text">Step 1 of 4</p>
+        <div class="progress-track" id="progress-track" role="progressbar" aria-label="Form progress" aria-valuemin="1" aria-valuemax="4" aria-valuenow="1">
+          <div class="progress-bar" id="progress-bar"></div>
+        </div>
+      </div>
+
       <form class="form" id="promo-form" novalidate>
-        <div class="grid">
-          <div class="field">
-            <label for="name">Your name</label>
-            <input id="name" name="name" autocomplete="name" required maxlength="120" />
+        <section class="step" data-step="1" aria-label="Step 1 of 4: About you">
+          <h2 class="step-title" id="step-title-1" tabindex="-1">About you</h2>
+          <p class="step-lede">Who should we talk to about the website?</p>
+          <div class="grid">
+            <div class="field">
+              <label for="name">Your name</label>
+              <input id="name" name="name" autocomplete="name" required maxlength="120" />
+          
+              <p class="field-error" id="err-name" hidden></p>
+            </div>
+            <div class="field">
+              <label for="email">Email</label>
+              <input id="email" name="email" type="email" autocomplete="email" required maxlength="200" />
+          
+              <p class="field-error" id="err-email" hidden></p>
+            </div>
+            <div class="field">
+              <label for="phone">Phone</label>
+              <input id="phone" name="phone" type="tel" autocomplete="tel" required maxlength="40" />
+          
+              <p class="field-error" id="err-phone" hidden></p>
+            </div>
           </div>
-          <div class="field">
-            <label for="email">Email</label>
-            <input id="email" name="email" type="email" autocomplete="email" required maxlength="200" />
+        </section>
+        <section class="step" data-step="2" aria-label="Step 2 of 4: Your business" hidden>
+          <h2 class="step-title" id="step-title-2" tabindex="-1">Your business</h2>
+          <p class="step-lede">The basics we print on the site and use to set it up.</p>
+          <div class="grid">
+            <div class="field">
+              <label for="businessName">Business name</label>
+              <input id="businessName" name="businessName" required maxlength="200" />
+          
+              <p class="field-error" id="err-businessName" hidden></p>
+            </div>
+            <div class="field">
+              <label for="businessCategory">Business category</label>
+              <input id="businessCategory" name="businessCategory" placeholder="e.g. Plumbing, Salon, Law firm" required maxlength="120" />
+          
+              <p class="field-error" id="err-businessCategory" hidden></p>
+            </div>
+            <div class="field">
+              <label for="businessAddress">Business address</label>
+              <input id="businessAddress" name="businessAddress" autocomplete="street-address" maxlength="300" />
+            </div>
+            <div class="field">
+              <label for="city">City</label>
+              <input id="city" name="city" autocomplete="address-level2" required maxlength="100" />
+          
+              <p class="field-error" id="err-city" hidden></p>
+            </div>
+            <div class="field">
+              <label for="state">State</label>
+              <input id="state" name="state" autocomplete="address-level1" required maxlength="40" />
+          
+              <p class="field-error" id="err-state" hidden></p>
+            </div>
           </div>
-          <div class="field">
-            <label for="phone">Phone</label>
-            <input id="phone" name="phone" type="tel" autocomplete="tel" required maxlength="40" />
+        </section>
+        <section class="step" data-step="3" aria-label="Step 3 of 4: What you need" hidden>
+          <h2 class="step-title" id="step-title-3" tabindex="-1">What you need</h2>
+          <p class="step-lede">Tell us what the site should offer — you can change your mind later.</p>
+          <div class="grid">
+            <div class="field full">
+              <label for="services">Services <span class="hint">(comma or line separated)</span></label>
+              <textarea id="services" name="services" placeholder="e.g. Emergency repair, Installations, Maintenance" maxlength="4000"></textarea>
+            </div>
+            <div class="field full">
+              <label>Desired features</label>
+              <div class="features" id="features"></div>
+            </div>
           </div>
-          <div class="field">
-            <label for="businessName">Business name</label>
-            <input id="businessName" name="businessName" required maxlength="200" />
+        </section>
+        <section class="step" data-step="4" aria-label="Step 4 of 4: Brand materials" hidden>
+          <h2 class="step-title" id="step-title-4" tabindex="-1">Brand materials</h2>
+          <p class="step-lede">Anything you already have helps us match your brand.</p>
+          <div class="grid">
+            <div class="field full">
+              <label for="social">Social media handles <span class="hint">(optional — Instagram, Facebook, etc.)</span></label>
+              <textarea id="social" name="social" placeholder="instagram: @yourbiz&#10;facebook: facebook.com/yourbiz" maxlength="2000"></textarea>
+            </div>
+            <div class="field full">
+              <label for="brochure">Brochure / brand materials <span class="hint">(optional — PDF, Word, or image, max 8MB; we pull your brand colors from it for the design)</span></label>
+              <input id="brochure" name="brochure" type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp,application/pdf,image/png,image/jpeg,image/webp,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+              <p class="hint" id="brochure-status" role="status" hidden></p>
+            </div>
+            <div class="field full">
+              <div id="captcha-box" aria-label="Captcha"></div>
+            </div>
+
           </div>
-          <div class="field">
-            <label for="businessCategory">Business category</label>
-            <input id="businessCategory" name="businessCategory" placeholder="e.g. Plumbing, Salon, Law firm" required maxlength="120" />
-          </div>
-          <div class="field">
-            <label for="businessAddress">Business address</label>
-            <input id="businessAddress" name="businessAddress" autocomplete="street-address" maxlength="300" />
-          </div>
-          <div class="field">
-            <label for="city">City</label>
-            <input id="city" name="city" autocomplete="address-level2" required maxlength="100" />
-          </div>
-          <div class="field">
-            <label for="state">State</label>
-            <input id="state" name="state" autocomplete="address-level1" required maxlength="40" />
-          </div>
-          <div class="field full">
-            <label for="services">Services <span class="hint">(comma or line separated)</span></label>
-            <textarea id="services" name="services" placeholder="e.g. Emergency repair, Installations, Maintenance" maxlength="4000"></textarea>
-          </div>
-          <div class="field full">
-            <label for="social">Social media handles <span class="hint">(optional — Instagram, Facebook, etc.)</span></label>
-            <textarea id="social" name="social" placeholder="instagram: @yourbiz&#10;facebook: facebook.com/yourbiz" maxlength="2000"></textarea>
-          </div>
-          <div class="field full">
-            <label for="brochure">Brochure / brand materials <span class="hint">(optional — PDF, Word, or image, max 8MB; we pull your brand colors from it for the design)</span></label>
-            <input id="brochure" name="brochure" type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp,application/pdf,image/png,image/jpeg,image/webp,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
-            <p class="hint" id="brochure-status" role="status" hidden></p>
-          </div>
-          <div class="field full">
-            <label>Desired features</label>
-            <div class="features" id="features"></div>
-          </div>
-          <div class="field full">
-            <div id="captcha-box" aria-label="Captcha"></div>
-          </div>
+        </section>
+        <div class="actions wizard-nav">
+          <button type="button" class="btn soft" id="back-btn" hidden>Back</button>
+          <span class="spacer"></span>
+          <button type="button" class="btn" id="next-btn">Next</button>
+          <button type="submit" class="btn" id="submit-btn" hidden>Submit</button>
         </div>
-        <div class="actions">
-          <button type="submit" class="btn" id="submit-btn">Submit</button>
-          <p class="msg" id="msg" role="status"></p>
-        </div>
+        <p class="msg" id="msg" role="status"></p>
       </form>
     </div>
   </main>
@@ -369,6 +443,20 @@
 
       form.addEventListener('submit', async (ev) => {
         ev.preventDefault();
+        // Wizard gate: every step must validate before anything is sent;
+        // jump to the first invalid step and surface its inline errors.
+        for (let i = 0; i < steps.length; i++) {
+          const check = validateStep(i);
+          if (!check.ok) {
+            showStep(i, false);
+            if (check.firstBad) check.firstBad.focus();
+            return;
+          }
+        }
+        if (currentStep !== steps.length - 1) {
+          showStep(steps.length - 1, false);
+          return;
+        }
         setMsg('');
         btn.disabled = true;
         try {
@@ -400,6 +488,7 @@
             throw new Error((data && data.error) || 'Submit failed');
           }
           form.classList.add('is-hidden');
+          document.getElementById('wizard-progress').hidden = true;
           success.hidden = false;
           success.classList.add('is-on');
           setMsg('');
@@ -410,6 +499,113 @@
           btn.disabled = false;
         }
       });
+
+      // ---- Survey wizard -------------------------------------------------
+      // One <form> split into .step sections; Back/Next only move between
+      // sections and every field keeps its id/name, so the submit payload
+      // built above is unchanged. Required fields carry the `required`
+      // attribute (the same set the server enforces) plus an inline
+      // .field-error slot: a step must validate before Next advances, and
+      // the submit handler re-validates every step before sending. The
+      // captcha mounts on page load into #captcha-box, which lives on the
+      // final step — its container is never moved or re-created.
+      const steps = [...form.querySelectorAll('.step')];
+      const backBtn = document.getElementById('back-btn');
+      const nextBtn = document.getElementById('next-btn');
+      const progressText = document.getElementById('progress-text');
+      const progressTrack = document.getElementById('progress-track');
+      const progressBar = document.getElementById('progress-bar');
+      let currentStep = 0;
+
+      const FIELD_ERRORS = {
+        name: 'Name is required',
+        email: 'A valid email is required',
+        phone: 'Phone is required',
+        businessName: 'Business name is required',
+        businessCategory: 'Business category is required',
+        city: 'City is required',
+        state: 'State is required',
+      };
+
+      function setFieldError(input, message) {
+        const el = document.getElementById('err-' + input.id);
+        if (el) {
+          el.textContent = message || '';
+          el.hidden = !message;
+        }
+        if (message) input.setAttribute('aria-invalid', 'true');
+        else input.removeAttribute('aria-invalid');
+      }
+
+      function validateField(input) {
+        const v = input.value.trim();
+        let err = '';
+        if (!v) err = FIELD_ERRORS[input.id] || 'This field is required';
+        else if (input.id === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) err = FIELD_ERRORS.email;
+        setFieldError(input, err);
+        return !err;
+      }
+
+      function validateStep(idx) {
+        let ok = true;
+        let firstBad = null;
+        steps[idx].querySelectorAll('[required]').forEach((input) => {
+          if (!validateField(input)) {
+            ok = false;
+            if (!firstBad) firstBad = input;
+          }
+        });
+        return { ok, firstBad };
+      }
+
+      function showStep(idx, moveFocus = true) {
+        currentStep = idx;
+        steps.forEach((s, i) => {
+          s.hidden = i !== idx;
+        });
+        backBtn.hidden = idx === 0;
+        nextBtn.hidden = idx === steps.length - 1;
+        btn.hidden = idx !== steps.length - 1;
+        progressText.textContent = `Step ${idx + 1} of ${steps.length}`;
+        progressTrack.setAttribute('aria-valuenow', String(idx + 1));
+        progressBar.style.width = `${((idx + 1) / steps.length) * 100}%`;
+        if (moveFocus) {
+          const heading = steps[idx].querySelector('.step-title');
+          if (heading) heading.focus();
+        }
+      }
+
+      nextBtn.addEventListener('click', () => {
+        const check = validateStep(currentStep);
+        if (!check.ok) {
+          if (check.firstBad) check.firstBad.focus();
+          return;
+        }
+        showStep(currentStep + 1);
+      });
+
+      backBtn.addEventListener('click', () => {
+        if (currentStep > 0) showStep(currentStep - 1);
+      });
+
+      // Re-validate a field live as the visitor fixes it.
+      form.addEventListener('input', (ev) => {
+        if (ev.target && ev.target.hasAttribute && ev.target.hasAttribute('required')) validateField(ev.target);
+      });
+
+      // Enter on a non-final step means Next, not submit. Textarea Enter
+      // still inserts a newline; buttons keep their native click.
+      form.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Enter') return;
+        const t = ev.target;
+        if (!t || t.tagName === 'TEXTAREA' || t.tagName === 'BUTTON' || t.tagName === 'SELECT') return;
+        if (currentStep < steps.length - 1) {
+          ev.preventDefault();
+          nextBtn.click();
+        }
+      });
+
+      showStep(0, false);
 
       mountCaptcha();
     })();
