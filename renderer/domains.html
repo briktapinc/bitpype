@@ -1,0 +1,72 @@
+<div class="page-head">
+  <div>
+    <h1>Domains</h1>
+    <p class="lede">Search and buy domains via Cloudflare Registrar, then link them to a published site. Purchase bills your Cloudflare payment method.</p>
+  </div>
+</div>
+
+<div class="card" id="dom-cf-hint" hidden>
+  <p class="error">Cloudflare is not configured. Open <a href="#/settings">Settings → Cloudflare</a> and save an API token with Registrar + Pages permissions.</p>
+</div>
+
+<div class="card">
+  <h3>Search domains</h3>
+  <form id="dom-search-form" class="row end">
+    <div class="field" style="flex:2;min-width:200px">
+      <label for="dom-q">Keyword or name</label>
+      <input id="dom-q" name="q" required placeholder="acme plumbing" autocomplete="off" />
+    </div>
+    <div class="field" style="flex:1;min-width:180px">
+      <label for="dom-lead">Lead (optional)</label>
+      <select id="dom-lead" name="leadId">
+        <option value="">None</option>
+      </select>
+    </div>
+    <div class="field" style="flex:0 0 auto">
+      <label>&nbsp;</label>
+      <button class="btn primary" type="submit">Search</button>
+    </div>
+  </form>
+  <span class="msg" id="dom-search-msg"></span>
+  <div id="dom-search-results" style="margin-top:12px"></div>
+</div>
+
+<div class="card">
+  <h3>Link a domain to a site</h3>
+  <p class="hint">Domain must be on this Cloudflare account (bought here or already owned). Site is published to Pages if needed.</p>
+  <form id="dom-link-form" class="row end">
+    <div class="field">
+      <label for="dom-link-name">Domain</label>
+      <input id="dom-link-name" name="domain" required placeholder="example.com" />
+    </div>
+    <div class="field">
+      <label for="dom-link-site">Website</label>
+      <select id="dom-link-site" name="websiteId" required>
+        <option value="">Select…</option>
+      </select>
+    </div>
+    <div class="field" style="flex:0 0 auto">
+      <label>&nbsp;</label>
+      <button class="btn primary" type="submit">Link domain</button>
+    </div>
+  </form>
+  <div class="inline" style="margin-top:8px">
+    <button type="button" class="btn small" id="dom-refresh-owned">Load owned CF domains</button>
+    <span class="msg" id="dom-link-msg"></span>
+  </div>
+  <div id="dom-owned" style="margin-top:10px"></div>
+</div>
+
+<div class="card">
+  <h3>Linked &amp; registered</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Domain</th><th>Status</th><th>Website</th><th>Price</th><th></th></tr>
+      </thead>
+      <tbody id="dom-linked-body">
+        <tr><td colspan="5" class="empty">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>

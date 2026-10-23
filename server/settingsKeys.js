@@ -1,0 +1,103 @@
+'use strict';
+
+const SECRET_KEYS = [
+  'ai.api_key',
+  'smtp.pass',
+  'mail.imap.pass',
+  'cf.api_token',
+  'pexels.api_key',
+  'providers.tavily.api_key',
+  'fal.api_key',
+  'meta.app_secret',
+  'design.agent_webhook_secret',
+  'sms.auth_token',
+  'sms.api_key',
+];
+
+const SETTING_SEEDS = [
+  ['ai.api_key', ''],
+  ['ai.base_url', 'https://api.openai.com/v1'],
+  ['ai.model.default', 'gpt-4o-mini'],
+  ['ai.model.research', ''],
+  ['ai.model.generation', ''],
+  ['ai.model.scoring', ''],
+  ['ai.model.email', ''],
+  ['ai.model.qa', ''],
+  ['ai.model.editor', ''],
+  ['ai.model.followup', ''],
+  ['ai.model.image', 'gpt-image-2.5-sunburst'],
+  ['ai.model.vision', ''],
+  ['cost.daily_budget_usd', '10'],
+  ['cost.max_websites_per_day', '25'],
+  ['cost.max_outreach_per_day', '200'],
+  ['cost.per_1k_prompt', '0.0015'],
+  ['cost.per_1k_completion', '0.002'],
+  ['automation_paused', '0'],
+  ['design.agent_notify', '1'],
+  ['design.agent_trigger_command', ''],
+  ['design.agent_trigger_file', ''],
+  ['design.agent_webhook_url', ''],
+  ['design.agent_webhook_secret', ''],
+  ['design.learning.enabled', '1'],
+  ['providers.tavily.search_depth', 'advanced'],
+  ['smtp.host', 'in-v3.mailjet.com'],
+  ['smtp.port', '587'],
+  ['smtp.secure', '0'],
+  ['smtp.user', ''],
+  ['smtp.from_name', 'Bitpype'],
+  ['smtp.from_email', 'team@bitpype.com'],
+  ['mail.footer', 'Reply STOP to opt out of future messages.'],
+  ['mail.inbound_drop_dir', ''],
+  ['mail.imap.enabled', '1'],
+  ['mail.imap.host', ''],
+  ['mail.imap.port', '993'],
+  ['mail.imap.secure', '1'],
+  ['mail.imap.user', ''],
+  ['mail.imap.pass', ''],
+  ['mail.imap.mailbox', 'INBOX'],
+  ['mail.imap.auto_submit', '1'],
+  ['score.threshold_qualified', '50'],
+  ['score.threshold_hot', '70'],
+  ['app.name', 'Bitpype'],
+  ['cf.account_id', ''],
+  ['cf.project', ''],
+  ['cf.preview_domain', ''],
+  ['meta.app_id', ''],
+  ['meta.app_secret', ''],
+  ['social.image_price_usd', '1'],
+  ['hands_off.enabled', '0'],
+  ['hands_off.min_score', '50'],
+  ['hands_off.max_sites_per_day', '5'],
+  ['hands_off.report_email', ''],
+  ['hands_off.followup_days', '3'],
+  ['hands_off.template_id', ''],
+  ['hands_off.channel', 'both'],
+];
+const SETTABLE_KEYS = SETTING_SEEDS
+  .map(([k]) => k)
+  .filter((k) => !SECRET_KEYS.includes(k) && k !== 'automation_paused');
+
+const PROMPT_SEEDS = [
+  {
+    key: 'research_lead',
+    name: 'Research Lead',
+    body: 'Research the local business and return structured JSON facts. Never invent phone/address/hours.',
+  },
+  {
+    key: 'score_lead',
+    name: 'Score Lead',
+    body: 'Score the lead 0–100 with a short breakdown of signals.',
+  },
+  {
+    key: 'write_outreach',
+    name: 'Write Outreach',
+    body: 'Write a short personal outreach email. Respect opt-out language.',
+  },
+  {
+    key: 'build_website',
+    name: 'Build Website',
+    body: 'Design a clean static website JSON: name, theme, pages with html.',
+  },
+];
+
+module.exports = { SECRET_KEYS, SETTING_SEEDS, SETTABLE_KEYS, PROMPT_SEEDS };

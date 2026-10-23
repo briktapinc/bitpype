@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bitpype</title>
+  <link rel="stylesheet" href="/styles.css?v=preview-toolbar-row" />
+</head>
+<body>
+  <div id="auth-gate" class="auth-gate hidden"></div>
+
+  <div id="app-shell" class="app-shell hidden">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">BP</span>
+        <span class="brand-copy">
+          <span class="brand-name">Bitpype</span>
+          <span class="brand-tag">Local business desk</span>
+        </span>
+        <button type="button" class="sidebar-close" id="sidebar-close" aria-label="Close menu">&times;</button>
+      </div>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="#/dashboard" data-route="dashboard">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z"/></svg>
+          Dashboard
+        </a>
+        <a href="#/leads" data-route="leads">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm8 1a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM3 19c.4-2.6 2.6-4 5-4s4.6 1.4 5 4M14 15c2.1.2 3.8 1.4 4.4 4"/></svg>
+          Leads
+        </a>
+        <a href="#/websites" data-route="websites">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v12H4zM4 10h16M8 6V4m8 2V4"/></svg>
+          Websites
+        </a>
+        <a href="#/domains" data-route="domains">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 0c2.5 2.5 4 5.5 4 9s-1.5 6.5-4 9m0-18c-2.5 2.5-4 5.5-4 9s1.5 6.5 4 9M3.5 9h17M3.5 15h17"/></svg>
+          Domains
+        </a>
+        <a href="#/design" data-route="design">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 16l4-8 4 6 3-4 5 6H4zM8 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>
+          Design
+        </a>
+        <a href="#/social" data-route="social">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm10 2a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM3 19c.5-2.8 2.8-4.5 5.5-4.5S13.5 16.2 14 19M15 15.2c2.2.3 4 1.6 4.7 3.8"/></svg>
+          Social
+        </a>
+        <a href="#/outreach" data-route="outreach">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v12H4zM4 7l8 6 8-6"/></svg>
+          Outreach
+        </a>
+        <a href="#/pipeline" data-route="pipeline">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4v16H5zM10 8h4v12h-4zM15 6h4v14h-4z"/></svg>
+          Pipeline
+        </a>
+        <a href="#/jobs" data-route="jobs">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3 2"/></svg>
+          Jobs
+        </a>
+        <a href="#/mcp" data-route="mcp">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8V5a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2v3M8 16v3a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2v-3M4 12h6m4 0h6M9 9h6v6H9z"/></svg>
+          MCP
+        </a>
+        <a href="#/settings" data-route="settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h10M4 17h16M16 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"/></svg>
+          Settings
+        </a>
+        <a href="#/billing" data-route="billing">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18v10H3zM3 10h18M7 14h4"/></svg>
+          Billing
+        </a>
+        <a href="#/admin" data-route="admin" id="nav-admin" class="hidden" title="Platform super admin">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 8.5-8 9-4.5-.5-8-4-8-9V7l8-4zM9 12l2 2 4-4"/></svg>
+          Admin
+        </a>
+      </nav>
+      <a href="#/settings/automation" id="shell-automation" class="shell-status" title="Click to pause / resume automation">Checking automation…</a>
+    </aside>
+    <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
+
+    <div class="app-main">
+      <div class="app-top">
+        <button type="button" class="btn small menu-btn" id="menu-btn" aria-label="Open menu">Menu</button>
+        <span class="app-top-title" id="top-title"></span>
+        <div class="app-top-meta">
+          <label class="sr-only" for="workspace-select">Workspace</label>
+          <select id="workspace-select" aria-label="Workspace"></select>
+          <button type="button" id="logout-btn" class="btn small">Log out</button>
+        </div>
+      </div>
+      <div id="billing-banner" class="alert warn shell-banner hidden" role="status"></div>
+      <main id="view"></main>
+    </div>
+  </div>
+
+  <div id="toast-host" class="toast-host" aria-live="polite"></div>
+  <script src="/js/fonts.js?v=fonts1"></script>
+  <script src="/js/api.js?v=security-r9-errors1"></script>
+  <script src="/js/captcha.js"></script>
+  <script src="/js/app.js?v=security-r5-preview1"></script>
+</body>
+</html>

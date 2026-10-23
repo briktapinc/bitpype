@@ -1,0 +1,59 @@
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-scoutroot}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-website_scout}
+      MYSQL_USER: ${MYSQL_USER:-scout}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-scout}
+    volumes:
+      - scout_mysql:/var/lib/mysql
+    command: ["--default-authentication-plugin=mysql_native_password", "--character-set-server=utf8mb4"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-scoutroot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    image: bitpype:mobile-r50-20261022
+    build: .
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${APP_PORT:-3080}:3000"
+    volumes:
+      - scout_workspaces:/app/data/workspaces
+      - scout_exports:/var/lib/website-scout-exports
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DB_DRIVER: mysql
+      WORKSPACE_DATA_DIR: /app/data/workspaces
+      EXPORT_ROOT: /var/lib/website-scout-exports
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_USER: ${MYSQL_USER:-scout}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-scout}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-website_scout}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+      APP_URL: ${APP_URL:-https://bitpype.com}
+      PUPPETEER_EXECUTABLE_PATH: ${PUPPETEER_EXECUTABLE_PATH:-/usr/bin/chromium}
+      PUPPETEER_SKIP_DOWNLOAD: "true"
+      COOKIE_SECURE: ${COOKIE_SECURE:-1}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      BOOTSTRAP_EMAIL: ${BOOTSTRAP_EMAIL:-}
+      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:-}
+      BOOTSTRAP_WORKSPACE: ${BOOTSTRAP_WORKSPACE:-Primary}
+      BOOTSTRAP_SUPER_ADMIN: ${BOOTSTRAP_SUPER_ADMIN:-0}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRICE_ID: ${STRIPE_PRICE_ID:-}
+
+volumes:
+  scout_mysql:
+  scout_workspaces:
+  scout_exports:
