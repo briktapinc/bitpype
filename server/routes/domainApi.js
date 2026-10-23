@@ -47,9 +47,13 @@ function fail(res, e, status = 400) {
         ? msg
         : 'Delete blocked by a related record (foreign key)';
   }
+  const error = { code: errCode, message };
+  // Structured extras (e.g. DUPLICATE_EMAIL names the existing lead so
+  // agent callers can update it instead of retrying the create).
+  if (e && e.details && typeof e.details === 'object') error.details = e.details;
   res.status(http >= 400 && http < 600 ? http : 400).json({
     ok: false,
-    error: { code: errCode, message },
+    error,
   });
 }
 
