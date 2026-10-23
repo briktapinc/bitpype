@@ -235,6 +235,7 @@ const INTENT_POINTS = {
   // 0-point operational events (recorded for the timeline, not scored)
   'email.sent': 0,
   'email.failed': 0,
+  'email.followup_dispatched': 0, // interested follow-up email claimed/sent (idempotency marker)
   'sms.sent': 0,
   'sms.failed': 0,
 };
@@ -507,6 +508,44 @@ function buildInterestAnchor(workspaceId, leadId, action) {
   }
 }
 
+// ---- Interested follow-up hook -------------------------------------------
+// The hosted server registers a listener (server/interestedFollowup.js) that
+// sends the "you're interested — here are the next steps" email plus an owner
+// notification. Registration keeps this shared engine free of server-layer
+// dependencies (billing catalog, platform mailer, domain registrar): desktop
+// builds and tests run with no listener and interest handling is unchanged.
+// The listener is invoked SYNCHRONOUSLY from applyInterestResponse and must
+// claim its idempotency marker (an `email.followup_dispatched` prospect
+// event) before any await — applyInterestResponse itself is synchronous, so
+// the check-and-claim cannot interleave with a second click. Any async tail
+// is fire-and-forget: a follow-up failure must never break the click response
+// or the status flip, so errors are logged to the activity log, never thrown.
+let interestedListener = null;
+function setInterestedListener(fn) {
+  interestedListener = typeof fn === 'function' ? fn : null;
+}
+function notifyInterested(db, leadId) {
+  if (!interestedListener) return;
+  try {
+    const p = interestedListener({ db, leadId });
+    if (p && typeof p.catch === 'function') {
+      p.catch((e) => {
+        try {
+          logActivity(db, 'outreach', `Interested follow-up failed for lead #${leadId}: ${e.message}`);
+        } catch {
+          /* ignore */
+        }
+      });
+    }
+  } catch (e) {
+    try {
+      logActivity(db, 'outreach', `Interested follow-up failed for lead #${leadId}: ${e.message}`);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 /**
  * Apply a verified interest / not-interested click. Idempotent for status + events.
  * - interested → lead status `engaged` (does not demote claimed/trial/customer)
@@ -536,6 +575,12 @@ function applyInterestResponse(db, leadId, action) {
       'outreach',
       `${already ? 'Re-click' : 'Click'} interested: ${lead.business_name} (#${id}) → ${statusRow.status}`
     );
+    // The registered follow-up hook (hosted server) claims its own durable
+    // marker synchronously before dispatching, so repeat clicks via either
+    // path (email link / claim popup) can never re-send — while a click that
+    // arrived when the hook's gates were closed (hands-off off, automation
+    // paused) can still trigger it on a later click.
+    notifyInterested(db, id);
     return {
       action: act,
       leadId: id,
@@ -1408,6 +1453,7 @@ module.exports = {
   interestResponsePath,
   applyInterestResponse,
   applyClaimResponse,
+  setInterestedListener,
   listCampaigns,
   setCampaignStatus,
   cancelCampaign,
