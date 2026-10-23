@@ -141,10 +141,14 @@ const shopWebhook = require('./server/routes/shopWebhook');
 app.use('/api/v1/shop/webhook', express.raw({ type: 'application/json' }), shopWebhook);
 
 // Smaller default JSON; design/portal/website payloads need more room.
+// website-promo gets 12mb: its brochure upload rides base64-in-JSON
+// (~4/3 inflation), so an 8mb JSON cap would reject the documented 8MB
+// brochure before the route's own size check ever runs.
 app.use((req, res, next) => {
   const large = /^\/api\/v1\/(design|portal|websites|mcp|website-promo)/i.test(req.path || '');
+  const promo = /^\/api\/v1\/website-promo/i.test(req.path || '');
   const analytics = req.path.startsWith('/api/v1/site-analytics/public/');
-  return express.json({ limit: analytics ? '1kb' : large ? '8mb' : process.env.JSON_BODY_LIMIT || '1mb' })(
+  return express.json({ limit: analytics ? '1kb' : promo ? '12mb' : large ? '8mb' : process.env.JSON_BODY_LIMIT || '1mb' })(
     req,
     res,
     next
