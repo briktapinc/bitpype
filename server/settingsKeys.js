@@ -13,6 +13,8 @@ const SECRET_KEYS = [
   'sms.auth_token',
   'sms.api_key',
   'mcp.http_token',
+  'shop.stripe.secret_key',
+  'shop.stripe.webhook_secret',
 ];
 
 const SETTING_SEEDS = [
@@ -103,6 +105,9 @@ const SETTING_SEEDS = [
   ['cf.api_token', ''],
   ['mcp.public_url', ''],
   ['mcp.http_port', ''],
+  ['shop.stripe.publishable_key', ''],
+  ['shop.stripe.secret_key', ''],
+  ['shop.stripe.webhook_secret', ''],
 ];
 // Keys writable via the settings API (secrets and automation_paused
 // excluded, except design.agent_webhook_secret which is settable
@@ -142,6 +147,9 @@ const SETTABLE_KEYS = [
   'score.threshold_qualified',
   'score.threshold_hot',
   'app.name',
+  'shop.stripe.publishable_key',
+  'shop.stripe.secret_key',
+  'shop.stripe.webhook_secret',
   'cf.account_id',
   'cf.project',
   'cf.preview_domain',
@@ -418,6 +426,24 @@ function validateSetting(key, raw) {
       const v = String(value).trim().toLowerCase();
       if (['email', 'sms', 'both', ''].includes(v)) return { ok: true, value: v || 'both' };
       return fail('must be email, sms, or both');
+    }
+    case 'shop.stripe.publishable_key': {
+      const v = value.trim();
+      if (v && !/^pk_(test|live)_/.test(v)) return fail('must be a Stripe publishable key (pk_test_… or pk_live_…)');
+      if (v.length > 255) return fail('must be 255 chars or fewer');
+      return { ok: true, value: v };
+    }
+    case 'shop.stripe.secret_key': {
+      const v = value.trim();
+      if (v && !/^(sk|rk)_(test|live)_/.test(v)) return fail('must be a Stripe secret or restricted key (sk_… or rk_…)');
+      if (v.length > 255) return fail('must be 255 chars or fewer');
+      return { ok: true, value: v };
+    }
+    case 'shop.stripe.webhook_secret': {
+      const v = value.trim();
+      if (v && !/^whsec_/.test(v)) return fail('must be a Stripe webhook signing secret (whsec_…)');
+      if (v.length > 255) return fail('must be 255 chars or fewer');
+      return { ok: true, value: v };
     }
     default:
       return { ok: false, error: `No validator for setting "${key}".` };
