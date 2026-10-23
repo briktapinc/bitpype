@@ -204,7 +204,11 @@ async function ensureCustomer(user) {
       limit: 1,
     });
     if (found.data && found.data[0]) existingId = found.data[0].id;
-  } catch { /* Search API may be unavailable on some accounts */ }
+  } catch (e) {
+    // Falling through creates a NEW Stripe customer — log it so a
+    // duplicate-customer trail is visible (port of audit F-17).
+    console.warn('[billing] customers.search failed; will try list/create:', e.message);
+  }
 
   // Only reuse a Stripe customer when metadata.user_id matches — never bind by email alone.
   if (!existingId && user.email) {
@@ -214,7 +218,9 @@ async function ensureCustomer(user) {
         (c) => c.metadata && String(c.metadata.user_id) === String(user.id)
       );
       if (match) existingId = match.id;
-    } catch { /* ignore */ }
+    } catch (e) {
+      console.warn('[billing] customers.list failed; will create a new customer:', e.message);
+    }
   }
 
   if (!existingId) {

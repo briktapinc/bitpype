@@ -13,7 +13,8 @@ async function listWorkspaceIds() {
     const { query } = require('./db');
     const rows = await query('SELECT id FROM workspaces ORDER BY id ASC');
     return (rows || []).map((r) => Number(r.id)).filter((n) => n > 0);
-  } catch {
+  } catch (e) {
+    console.warn('[imapPoller] workspace query failed, falling back to folder scan:', e.message);
     // Fallback: folders under WORKSPACE_DATA_DIR
     try {
       const root = dataRoot();
