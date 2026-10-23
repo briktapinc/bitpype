@@ -54,7 +54,8 @@ function getClient(db) {
     throw notConfigured('Stripe is not configured for this shop (Settings → Shop payments).');
   }
   if (cached.client && cached.key === secretKey) return cached.client;
-  const client = new Stripe(secretKey);
+  // Bounded timeout/retries: a shopper's browser is waiting on this call.
+  const client = new Stripe(secretKey, { timeout: 15000, maxNetworkRetries: 1 });
   cached = { key: secretKey, client };
   return client;
 }
