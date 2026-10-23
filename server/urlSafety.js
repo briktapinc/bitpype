@@ -227,9 +227,46 @@ async function fetchPublic(rawUrl, opts = {}) {
   } finally { clearTimeout(timer); }
 }
 
+/**
+ * Validate an AI provider base URL (port of audit H4). The workspace's
+ * API key is sent to this URL as a Bearer credential, so the policy is
+ * stricter than ingest: https only, host must resolve to public
+ * addresses, and localhost is refused unless ALLOW_LOCAL_AI=1 (local
+ * model servers). Callers must also fetch with redirect:'error' — a
+ * redirect would carry the key to an unvalidated target.
+ */
+async function assertAiBaseUrl(rawUrl) {
+  let u;
+  try {
+    u = new URL(String(rawUrl || ''));
+  } catch {
+    const err = new Error('ai.base_url must be a valid URL');
+    err.code = 'INVALID_BASE_URL';
+    throw err;
+  }
+  const host = (u.hostname || '').toLowerCase();
+  const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+  if (isLocal) {
+    if (process.env.ALLOW_LOCAL_AI === '1') return u.toString();
+    const err = new Error(
+      'ai.base_url points at localhost; refusing to send the API key there (set ALLOW_LOCAL_AI=1 for local models)'
+    );
+    err.code = 'UNSAFE_BASE_URL';
+    throw err;
+  }
+  if (u.protocol !== 'https:') {
+    const err = new Error('ai.base_url must use https');
+    err.code = 'INVALID_BASE_URL';
+    throw err;
+  }
+  await assertPublicUrl(u.toString());
+  return u.toString();
+}
+
 module.exports = {
   normalizeIp,
   isPrivateIp,
   assertPublicUrl,
+  assertAiBaseUrl,
   fetchPublic,
 };

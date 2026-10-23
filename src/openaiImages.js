@@ -133,6 +133,12 @@ async function generateImages(db, prompt, opts = {}) {
   if (!/^https?:\/\//i.test(baseUrl)) {
     throw fail('INVALID_BASE_URL', 'ai.base_url must be an http(s) URL.');
   }
+  // Same key-carrying guard as ai.chat (port of audit H4).
+  try {
+    await require('../server/urlSafety').assertAiBaseUrl(baseUrl);
+  } catch (e) {
+    throw fail(e.code || 'UNSAFE_BASE_URL', e.message);
+  }
 
   const body = {
     model,
@@ -159,6 +165,7 @@ async function generateImages(db, prompt, opts = {}) {
   try {
     res = await fetch(`${baseUrl}/images/generations`, {
       method: 'POST',
+      redirect: 'error',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${key}`,
@@ -198,7 +205,11 @@ async function generateImages(db, prompt, opts = {}) {
     if (row.b64_json) {
       buf = Buffer.from(String(row.b64_json), 'base64');
     } else if (row.url && /^https?:\/\//i.test(row.url)) {
-      const imgRes = await fetch(row.url, { signal: AbortSignal.timeout(60000) });
+      // Provider-returned URL — fetch through the SSRF-safe fetcher
+      // (per-hop redirect validation, private destinations refused).
+      const imgRes = await require('../server/urlSafety').fetchPublic(row.url, {
+        signal: AbortSignal.timeout(60000),
+      });
       if (!imgRes.ok) throw fail('AI_DOWNLOAD_FAILED', `Could not download generated image (HTTP ${imgRes.status}).`);
       const ab = await imgRes.arrayBuffer();
       buf = Buffer.from(ab);

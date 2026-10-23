@@ -118,6 +118,14 @@ async function chat({ task, messages, maxTokens = 2000, leadId = null, note = nu
   if (!/^https?:\/\//i.test(baseUrl)) {
     throw fail('INVALID_BASE_URL', 'ai.base_url must be an http(s) URL.');
   }
+  // SSRF / key-exfiltration guard (port of audit H4): the API key rides
+  // on this request, so the base must be https and resolve to public
+  // addresses (see server/urlSafety.assertAiBaseUrl).
+  try {
+    await require('../server/urlSafety').assertAiBaseUrl(baseUrl);
+  } catch (e) {
+    throw fail(e.code || 'UNSAFE_BASE_URL', e.message);
+  }
 
   let model = getSetting(`ai.model.${task}`, '', db);
   if (!model || !String(model).trim()) {
@@ -139,6 +147,9 @@ async function chat({ task, messages, maxTokens = 2000, leadId = null, note = nu
   try {
     res = await fetch(url, {
       method: 'POST',
+      // Never follow redirects: the validated base is the only host the
+      // key may reach (port of audit H4).
+      redirect: 'error',
       headers: {
         'Content-Type': 'application/json',
         // Key is only ever placed in the Authorization header, never logged.
