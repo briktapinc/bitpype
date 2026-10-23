@@ -4,7 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Bitpype</title>
-  <link rel="stylesheet" href="/styles.css?v=preview-toolbar-row" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;550;600;700;750&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css?v=app-redesign1" />
 </head>
 <body>
   <div id="auth-gate" class="auth-gate hidden"></div>
@@ -20,10 +23,12 @@
         <button type="button" class="sidebar-close" id="sidebar-close" aria-label="Close menu">&times;</button>
       </div>
       <nav class="nav-links" aria-label="Primary">
+        <div class="nav-group">Overview</div>
         <a href="#/dashboard" data-route="dashboard">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z"/></svg>
           Dashboard
         </a>
+        <div class="nav-group">Work</div>
         <a href="#/leads" data-route="leads">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm8 1a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM3 19c.4-2.6 2.6-4 5-4s4.6 1.4 5 4M14 15c2.1.2 3.8 1.4 4.4 4"/></svg>
           Leads
@@ -52,6 +57,7 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4v16H5zM10 8h4v12h-4zM15 6h4v14h-4z"/></svg>
           Pipeline
         </a>
+        <div class="nav-group">System</div>
         <a href="#/jobs" data-route="jobs">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3 2"/></svg>
           Jobs
