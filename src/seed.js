@@ -6,100 +6,12 @@
 // PROMPT_SEEDS and SETTING_SEEDS are exported so prompts:reset / other
 // modules can restore seed bodies without duplicating content.
 
-const SETTING_SEEDS = [
-  // AI provider
-  ['ai.api_key', ''],
-  ['ai.base_url', 'https://api.openai.com/v1'],
-  ['ai.model.default', 'gpt-4o-mini'],
-  ['ai.model.research', ''],
-  ['ai.model.generation', ''],
-  ['ai.model.scoring', ''],
-  ['ai.model.email', ''],
-  ['ai.model.qa', ''],
-  ['ai.model.editor', ''],
-  ['ai.model.followup', ''],
-  ['ai.model.image', 'gpt-image-2.5-sunburst'],
-  ['ai.model.vision', ''],
-  // Cost controls
-  ['cost.daily_budget_usd', '10'],
-  ['cost.max_websites_per_day', '25'],
-  ['cost.max_outreach_per_day', '200'],
-  ['cost.per_1k_prompt', '0.0015'],
-  ['cost.per_1k_completion', '0.002'],
-  // Automation
-  ['automation_paused', '0'],
-  // Design agent auto-trigger (when a job becomes waiting_on_agent)
-  ['design.agent_notify', '1'],
-  ['design.agent_trigger_command', ''],
-  ['design.agent_trigger_file', ''],
-  ['design.agent_webhook_url', ''],
-  ['design.agent_webhook_secret', ''],
-  // Design learning (observe reviews / redesigns → playbook for agents)
-  ['design.learning.enabled', '1'],
-  ['design.learning.playbook', '[]'],
-  ['design.learning.last_learned_at', ''],
-  ['design.learning.max_playbook', '24'],
-  // Scheduled lead discovery (runs while the Electron app is open)
-  ['discovery.schedule.enabled', '0'],
-  ['discovery.schedule.mode', 'interval'],
-  ['discovery.schedule.interval_hours', '6'],
-  ['discovery.schedule.daily_time', '09:00'],
-  ['discovery.schedule.provider', 'tavily'],
-  ['discovery.schedule.category', '*'],
-  ['discovery.schedule.location', '19510'],
-  ['discovery.schedule.limit', '8'],
-  ['discovery.schedule.score', '1'],
-  ['discovery.schedule.group', ''],
-  ['discovery.schedule.website_presence', 'no'],
-  ['discovery.schedule.last_run', ''],
-  ['discovery.schedule.next_run', ''],
-  ['discovery.schedule.last_status', ''],
-  ['discovery.schedule.last_error', ''],
-  ['discovery.schedule.last_result', ''],
-  // Tavily discovery (API key is a secret; depth is a regular setting)
-  ['providers.tavily.search_depth', 'advanced'],
-  // SMTP / mail (credentials come from platform seed / secrets; not baked into git)
-  ['smtp.host', 'in-v3.mailjet.com'],
-  ['smtp.port', '587'],
-  ['smtp.secure', '0'],
-  ['smtp.user', ''],
-  ['smtp.pass', ''],
-  ['smtp.from_name', 'Bitpype'],
-  ['smtp.from_email', 'team@bitpype.com'],
-  ['meta.app_id', ''],
-  ['meta.app_secret', ''],
-  ['social.image_price_usd', '1'],
-  ['mail.footer', 'Reply STOP to opt out of future messages.'],
-  ['mail.inbound_drop_dir', ''],
-  ['mail.imap.enabled', '1'],
-  ['mail.imap.host', ''],
-  ['mail.imap.port', '993'],
-  ['mail.imap.secure', '1'],
-  ['mail.imap.user', ''],
-  ['mail.imap.pass', ''],
-  ['mail.imap.mailbox', 'INBOX'],
-  ['mail.imap.auto_submit', '0'],
-  // SMS / Twilio (platform Admin → SMS can seed these; stub-send when disabled)
-  ['sms.enabled', '0'],
-  ['sms.provider', 'twilio'],
-  ['sms.account_sid', ''],
-  ['sms.auth_token', ''],
-  ['sms.api_key', ''],
-  ['sms.from_number', ''],
-  ['sms.webhook_url', ''],
-  // Scoring
-  ['score.threshold_qualified', '50'],
-  ['score.threshold_hot', '70'],
-  // App
-  ['app.name', 'Bitpype'],
-  // Cloudflare Pages publishing (optional)
-  ['cf.api_token', ''],
-  ['cf.account_id', '2b529c9c689b4e139de72bba42d7148b'],
-  ['cf.project', ''],
-  ['cf.preview_domain', 'briktapinc.workers.dev'],
-];
+// Canonical seed list lives in server/settingsKeys.js (port of audit
+// D3). This module previously carried its own 78-entry copy, which had
+// drifted from the other two registries; it now re-exports the union.
+const { SETTING_SEEDS } = require('../server/settingsKeys');
 
-// Settings keys that settings:set is allowed to write (validated in ipc/system.js).
+// Settings keys that settings:set is allowed to write (validated in server/settingsKeys.js).
 // This whitelist is derived from SETTING_SEEDS.
 const SETTINGS_WHITELIST = SETTING_SEEDS.map(([key]) => key);
 

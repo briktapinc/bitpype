@@ -3679,7 +3679,7 @@ async function emailSend(workspaceId, messageId) {
 // ---------- Settings / prompts / AI ----------
 function settingsGetAll(workspaceId) {
   return withDb(workspaceId, (db) => {
-    const { SECRET_KEYS } = require('../src/ipc/system');
+    const { SECRET_KEYS } = require('./settingsKeys');
     const rows = db.prepare('SELECT key, value FROM settings').all();
     const out = {};
     for (const r of rows) out[r.key] = SECRET_KEYS.includes(r.key) && r.value ? '***' : r.value;
@@ -3687,7 +3687,7 @@ function settingsGetAll(workspaceId) {
   });
 }
 function settingsSet(workspaceId, key, value) {
-  const { SETTABLE_KEYS, validateSetting } = require('../src/ipc/system');
+  const { SETTABLE_KEYS, validateSetting } = require('./settingsKeys');
   if (!SETTABLE_KEYS.includes(key)) throw new Error(`Setting "${key}" is not writable`);
   const v = typeof validateSetting === 'function'
     ? validateSetting(String(key), value)
@@ -3711,7 +3711,7 @@ function settingsSet(workspaceId, key, value) {
 }
 function settingsSetSecret(workspaceId, key, value) {
   return withDb(workspaceId, (db) => {
-    const { SECRET_KEYS } = require('../src/ipc/system');
+    const { SECRET_KEYS } = require('./settingsKeys');
     if (!SECRET_KEYS.includes(key)) throw new Error(`"${key}" is not a secret`);
     setSetting(db, key, value);
     logActivity(db, 'settings', `Secret updated: ${key}`);

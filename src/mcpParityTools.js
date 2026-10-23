@@ -2089,7 +2089,7 @@ function createParityTools(ctx) {
         },
       },
       run(args = {}) {
-        const { SECRET_KEYS } = require('./ipc/system');
+        const { SECRET_KEYS } = require('../server/settingsKeys');
         const rows = db.prepare('SELECT key, value FROM settings').all();
         const out = {};
         const want = Array.isArray(args.keys) && args.keys.length
@@ -2114,7 +2114,7 @@ function createParityTools(ctx) {
         required: ['key', 'value'],
       },
       run(args) {
-        const { SETTABLE_KEYS } = require('./ipc/system');
+        const { SETTABLE_KEYS } = require('../server/settingsKeys');
         const key = String(args.key || '').trim();
         if (!SETTABLE_KEYS.includes(key)) {
           throw argError(`"${key}" is not writable via MCP (or is a secret). Use Settings in the app for secrets.`);
