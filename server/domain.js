@@ -3356,6 +3356,17 @@ async function designOpenPreview(workspaceId, id, opts = {}) {
 // ---------- Outreach ----------
 const outreach = () => require('../src/outreach');
 
+// Interested follow-up email: register the engine hook once at module load
+// so both public interest paths (outreach email link + claim popup, which
+// funnel into outreach.applyInterestResponse) trigger it. Server-layer
+// concerns (billing plans, platform mail, domain registrar) live in
+// server/interestedFollowup.js; src/outreach stays free of them.
+try {
+  require('./interestedFollowup').registerInterestedFollowup();
+} catch (e) {
+  console.warn('[interestedFollowup] registration failed:', e.message);
+}
+
 function campaignsList(workspaceId, args) {
   return withDb(workspaceId, (db) => outreach().listCampaigns(db, args));
 }
