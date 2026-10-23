@@ -14,6 +14,23 @@
  * { status: 'pending', palette: [] } and NEVER throws — a brochure whose
  * colors cannot be read must not cost the lead.
  *
+ * Palette paths, in order:
+ *  1. OpenAI vision (src/ai.js chat(), the workspace's own key/settings)
+ *     when the caller passes the workspace db — the model reads the
+ *     brochure like a person and reports the BRAND colors (logo/identity
+ *     colors, not incidental photo colors). Result carries
+ *     palette_source: 'openai'. For image brochures the same call also
+ *     returns the logo bounding box (logo_box) for the asset pass.
+ *  2. Deterministic histogram below (palette_source: 'histogram').
+ *  3. 'pending' when neither yields colors.
+ *
+ * Brand assets (extractBrochureAssets): the logo plus up to
+ * MAX_ASSETS complementing photos/graphics are lifted out of the
+ * brochure as image buffers — PDFs via their embedded images (vision
+ * classifies logo/photo/graphic/ignore), image brochures via a
+ * vision-returned logo crop. The route persists the buffers and points
+ * style_guide.logo / style_guide.assets at them. Same never-throw rule.
+ *
  * Formats:
  *  - PNG / JPEG / WebP — sampled with sharp (already a dependency).
  *  - PDF — embedded images + vector fill colors via pdfjs-dist (pinned in
@@ -28,6 +45,12 @@ const SAMPLE_EDGE = 96; // images are downscaled to at most this many px per sid
 const PDF_MAX_PAGES = 3;
 const PDF_MAX_IMAGES = 6;
 const PDF_FILL_WEIGHT = 600; // one flat fill op ≈ this many pixel samples in the histogram
+const VISION_MAX_EDGE = 512; // vision calls get at most this many px per side
+const OPENAI_TIMEOUT_MS = 20000; // per vision call; the deterministic path is the safety net
+const MAX_ASSETS = 6; // complementing assets kept per brochure (logo excluded)
+const ASSET_MIN_EDGE = 48; // embedded images smaller than this are junk (bullets, rules, spacers)
+const ASSET_MAX_EDGE = 1600; // stored assets are downscaled past this edge
+const ASSET_MAX_BYTES = 6 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Content sniffing — magic bytes only; the client-declared MIME is never
@@ -227,26 +250,473 @@ async function paletteFromPdfBuffer(buf) {
 }
 
 // ---------------------------------------------------------------------------
+// PDF embedded images as standalone buffers (shared by the vision palette
+// pass and the asset pass). Mirrors the image walk in paletteFromPdfBuffer
+// but keeps the pixels instead of histogramming them.
+// ---------------------------------------------------------------------------
+
+async function pdfEmbeddedImages(buf) {
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(buf), useSystemFonts: true, verbosity: 0 }).promise;
+  const OPS = pdfjs.OPS;
+  const images = [];
+  const pages = Math.min(doc.numPages || 0, PDF_MAX_PAGES);
+  for (let p = 1; p <= pages && images.length < PDF_MAX_IMAGES; p++) {
+    const page = await doc.getPage(p);
+    const opList = await page.getOperatorList();
+    for (let i = 0; i < opList.fnArray.length && images.length < PDF_MAX_IMAGES; i++) {
+      const fn = opList.fnArray[i];
+      const args = opList.argsArray[i] || [];
+      if (fn === OPS.paintImageXObject || fn === OPS.paintInlineImageXObject) {
+        try {
+          const img =
+            typeof args[0] === 'string' ? await new Promise((resolve) => page.objs.get(args[0], resolve)) : args[0];
+          if (img && img.data && img.width && img.height) {
+            images.push({ data: img.data, width: img.width, height: img.height });
+          }
+        } catch {
+          /* one unreadable image must not sink the rest */
+        }
+      }
+    }
+  }
+  return images;
+}
+
+async function rawImageToPngBuffer(img) {
+  const px = img.width * img.height;
+  if (!px || !img.data || img.data.length < px) return null;
+  const channels = Math.floor(img.data.length / px);
+  if (![1, 3, 4].includes(channels)) return null;
+  const sharp = require('sharp');
+  let buf = await sharp(Buffer.from(img.data), {
+    raw: { width: img.width, height: img.height, channels },
+  })
+    .png()
+    .toBuffer();
+  if (buf.length > ASSET_MAX_BYTES) {
+    buf = await sharp(buf).resize(ASSET_MAX_EDGE, ASSET_MAX_EDGE, { fit: 'inside' }).png().toBuffer();
+  }
+  return buf;
+}
+
+/** Embedded PDF images as PNG buffers with dims, first-seen order kept. */
+async function pdfCandidateImages(buf) {
+  const raw = await pdfEmbeddedImages(buf);
+  const out = [];
+  const seen = new Set();
+  const crypto = require('crypto');
+  for (const img of raw) {
+    const hash = crypto.createHash('md5').update(Buffer.from(img.data)).digest('hex');
+    if (seen.has(hash)) continue; // same image placed on several pages
+    seen.add(hash);
+    const buffer = await rawImageToPngBuffer(img).catch(() => null);
+    if (buffer) out.push({ buffer, width: img.width, height: img.height });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// OpenAI vision (primary palette path). Uses the shared AI client
+// (src/ai.js): the workspace's own ai.api_key / model settings, the
+// client's vision-model resolution, usage logging and budget checks all
+// apply. Every failure mode — no key, timeout, provider error, garbage
+// response — returns null and the caller falls back to the histogram.
+// ---------------------------------------------------------------------------
+
+function withTimeout(promise, ms) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), ms);
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(null);
+      }
+    );
+  });
+}
+
+async function visionChat(db, parts, { maxTokens, note, leadId }) {
+  const ai = require('./ai');
+  if (!ai.aiConfigured(db)) return null;
+  const call = Promise.resolve()
+    .then(() =>
+      ai.chat({
+        task: 'qa',
+        messages: [{ role: 'user', content: parts }],
+        maxTokens,
+        leadId: leadId || null,
+        note,
+        db,
+      })
+    )
+    .catch(() => null);
+  const res = await withTimeout(call, OPENAI_TIMEOUT_MS);
+  return res && res.text ? res.text : null;
+}
+
+async function visionDataUrl(buffer) {
+  const sharp = require('sharp');
+  const out = await sharp(buffer)
+    .resize(VISION_MAX_EDGE, VISION_MAX_EDGE, { fit: 'inside' })
+    .flatten({ background: '#ffffff' })
+    .jpeg({ quality: 82 })
+    .toBuffer();
+  return `data:image/jpeg;base64,${out.toString('base64')}`;
+}
+
+function parseJsonObject(text) {
+  if (!text || typeof text !== 'string') return null;
+  const cleaned = text.replace(/```(?:json)?/gi, '');
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try {
+    const obj = JSON.parse(cleaned.slice(start, end + 1));
+    return obj && typeof obj === 'object' ? obj : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeHexColor(v) {
+  if (typeof v !== 'string') return null;
+  const m = v.trim().match(/^#?([0-9a-f]{6})$/i);
+  return m ? `#${m[1].toLowerCase()}` : null;
+}
+
+function hexToRgb(hex) {
+  return [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
+}
+
+/** Exact + near-duplicate suppression, order preserved. */
+function dedupeColors(list) {
+  const out = [];
+  for (const hex of list) {
+    if (!hex) continue;
+    const [r, g, b] = hexToRgb(hex);
+    const nearDup = out.some((o) => {
+      const [or, og, ob] = hexToRgb(o);
+      return Math.abs(or - r) + Math.abs(og - g) + Math.abs(ob - b) < 60;
+    });
+    if (!nearDup) out.push(hex);
+  }
+  return out;
+}
+
+/**
+ * Validate a logo bounding box in 0–1000 normalized coordinates.
+ * Returns the clamped box, or null when the box is unusable (inverted,
+ * degenerate, or covering nearly the whole page — not a logo).
+ */
+function validateLogoBox(box) {
+  if (!box || typeof box !== 'object') return null;
+  const nums = ['x_min', 'y_min', 'x_max', 'y_max'].map((k) => Number(box[k]));
+  if (nums.some((n) => !Number.isFinite(n))) return null;
+  const clamp = (n) => Math.max(0, Math.min(1000, n));
+  const [xMin, yMin, xMax, yMax] = nums.map(clamp);
+  const w = xMax - xMin;
+  const h = yMax - yMin;
+  if (w < 20 || h < 20) return null; // under 2% of an edge — a speck, not a logo
+  if ((w * h) / 1000000 > 0.92) return null; // the whole page is not a crop
+  return { x_min: xMin, y_min: yMin, x_max: xMax, y_max: yMax };
+}
+
+function parseVisionPalette(text) {
+  const obj = parseJsonObject(text);
+  if (!obj) return null;
+  const ordered = dedupeColors([
+    normalizeHexColor(obj.primary),
+    normalizeHexColor(obj.secondary),
+    ...(Array.isArray(obj.palette) ? obj.palette.map(normalizeHexColor) : []),
+  ]).slice(0, MAX_COLORS);
+  if (!ordered.length) return null;
+  return {
+    palette: ordered,
+    primary: ordered[0] || null,
+    secondary: ordered[1] || null,
+    logoBox: validateLogoBox(obj.logo_box),
+  };
+}
+
+const PALETTE_PROMPT_IMAGE = [
+  'You are extracting the brand identity colors of a small business from its brochure image.',
+  'Focus on the LOGO and brand identity elements (logo, headings, brand color blocks, signage).',
+  'Ignore incidental colors from stock photography, product/food photos, skin tones, and the white page background.',
+  'Respond with ONLY a JSON object, no other text:',
+  '{"primary":"#rrggbb","secondary":"#rrggbb","palette":["#rrggbb"],"logo_box":{"x_min":0,"y_min":0,"x_max":0,"y_max":0}}',
+  'palette holds 3 to 5 hex colors, most important brand color first, including primary and secondary.',
+  'logo_box is the bounding box of the business logo in 0-1000 normalized coordinates, or null when no logo is visible.',
+].join(' ');
+
+const PALETTE_PROMPT_PDF = [
+  'You are extracting the brand identity colors of a small business from images pulled out of its brochure PDF.',
+  'Focus on logos and brand identity elements. Ignore incidental colors from stock photography, product/food photos, and white backgrounds.',
+  'Respond with ONLY a JSON object, no other text:',
+  '{"primary":"#rrggbb","secondary":"#rrggbb","palette":["#rrggbb"]}',
+  'palette holds 3 to 5 hex colors, most important brand color first, including primary and secondary.',
+].join(' ');
+
+async function paletteFromOpenAI(buf, kind, opts) {
+  const db = opts && opts.db;
+  if (!db) return null;
+  let images;
+  if (kind === 'pdf') {
+    const candidates = await pdfCandidateImages(buf).catch(() => []);
+    images = candidates
+      .slice()
+      .sort((a, b) => b.width * b.height - a.width * a.height)
+      .slice(0, 2)
+      .map((c) => c.buffer);
+  } else {
+    images = [buf];
+  }
+  if (!images.length) return null;
+  const parts = [{ type: 'text', text: kind === 'pdf' ? PALETTE_PROMPT_PDF : PALETTE_PROMPT_IMAGE }];
+  for (const buffer of images) {
+    parts.push({ type: 'image_url', image_url: { url: await visionDataUrl(buffer), detail: 'low' } });
+  }
+  const text = await visionChat(db, parts, {
+    maxTokens: 400,
+    note: 'website-promo brochure brand colors (vision)',
+    leadId: opts.leadId,
+  });
+  if (!text) return null;
+  return parseVisionPalette(text);
+}
+
+// ---------------------------------------------------------------------------
+// Brand assets: logo + complementing photos/graphics lifted from the
+// brochure. Returns image BUFFERS with metadata; persisting them (and
+// pointing style_guide at the stored files) is the route's job, matching
+// how saveBrochure owns the brochure file itself. Never throws.
+// ---------------------------------------------------------------------------
+
+const CLASSIFY_PROMPT = [
+  'You are sorting images extracted from a business brochure for reuse on its website.',
+  'Classify each image as exactly one of: "logo" (the business logo or brand mark),',
+  '"photo" (a real photograph of the business, its products, people, or premises),',
+  '"graphic" (an illustration, icon, badge, or decorative brand graphic), or',
+  '"ignore" (blank, filler, stock clipart, QR code, map screenshot, or unusable).',
+  'Respond with ONLY a JSON object, no other text:',
+  '{"images":[{"index":1,"type":"logo","label":"short 2-5 word label"}],"logo_index":1}',
+  'index is the 1-based image number announced before each image; logo_index is the index of the logo, or null.',
+].join(' ');
+
+const CLASSIFY_TYPES = new Set(['logo', 'photo', 'graphic', 'ignore']);
+
+function parseClassification(text, count) {
+  const obj = parseJsonObject(text);
+  if (!obj || !Array.isArray(obj.images)) return null;
+  const out = new Array(count).fill(null);
+  for (const item of obj.images) {
+    const idx = Number(item && item.index) - 1;
+    if (!Number.isInteger(idx) || idx < 0 || idx >= count) continue;
+    const type = CLASSIFY_TYPES.has(item.type) ? item.type : 'ignore';
+    const label = String((item && item.label) || '').trim().slice(0, 60);
+    out[idx] = { type, label };
+  }
+  // logo_index is a tiebreak/hint: honor it when nothing was typed logo.
+  if (!out.some((c) => c && c.type === 'logo')) {
+    const li = Number(obj.logo_index) - 1;
+    if (Number.isInteger(li) && li >= 0 && li < count) {
+      out[li] = { type: 'logo', label: (out[li] && out[li].label) || 'Logo' };
+    }
+  }
+  // At most one logo: later duplicates are demoted to graphics.
+  let seenLogo = false;
+  for (let i = 0; i < out.length; i++) {
+    if (out[i] && out[i].type === 'logo') {
+      if (seenLogo) out[i] = { type: 'graphic', label: out[i].label || 'Brand graphic' };
+      seenLogo = true;
+    }
+  }
+  return out;
+}
+
+async function classifyCandidateImages(candidates, opts) {
+  const db = opts && opts.db;
+  if (!db) return null;
+  const parts = [{ type: 'text', text: CLASSIFY_PROMPT }];
+  for (let i = 0; i < candidates.length; i++) {
+    parts.push({ type: 'text', text: `Image ${i + 1}` });
+    parts.push({ type: 'image_url', image_url: { url: await visionDataUrl(candidates[i].buffer), detail: 'low' } });
+  }
+  const text = await visionChat(db, parts, {
+    maxTokens: 600,
+    note: 'website-promo brochure image classification',
+    leadId: opts.leadId,
+  });
+  if (!text) return null;
+  return parseClassification(text, candidates.length);
+}
+
+/** Blank / near-solid images (blank scans, color swatches) are junk assets. */
+async function imageLooksBlank(buffer) {
+  try {
+    const sharp = require('sharp');
+    const stats = await sharp(buffer).stats();
+    return stats.channels.slice(0, 3).every((c) => (c.stdev || 0) < 2);
+  } catch {
+    return false;
+  }
+}
+
+async function assetsFromPdf(buf, opts) {
+  const candidates = [];
+  for (const c of await pdfCandidateImages(buf)) {
+    if (c.width < ASSET_MIN_EDGE || c.height < ASSET_MIN_EDGE) continue; // bullets, rules, spacers
+    if (await imageLooksBlank(c.buffer)) continue;
+    candidates.push(c);
+  }
+  if (!candidates.length) return { logo: null, assets: [] };
+  const classes = await classifyCandidateImages(candidates, opts).catch(() => null);
+  let logo = null;
+  const assets = [];
+  candidates.forEach((c, i) => {
+    const cls = classes && classes[i];
+    const type = cls ? cls.type : 'graphic'; // no vision → keep as unlabeled brand material, never guess a logo
+    if (type === 'ignore') return;
+    if (type === 'logo' && !logo) {
+      logo = {
+        buffer: c.buffer,
+        ext: '.png',
+        mimeType: 'image/png',
+        kind: 'logo',
+        label: (cls && cls.label) || 'Logo',
+        source: 'pdf-embed',
+      };
+      return;
+    }
+    if (assets.length < MAX_ASSETS) {
+      assets.push({
+        buffer: c.buffer,
+        ext: '.png',
+        mimeType: 'image/png',
+        kind: type,
+        label: (cls && cls.label) || (type === 'photo' ? 'Brochure photo' : 'Brochure graphic'),
+        source: 'pdf-embed',
+      });
+    }
+  });
+  return { logo, assets };
+}
+
+const LOGO_BOX_PROMPT = [
+  'Find the business logo in this brochure image.',
+  'Respond with ONLY a JSON object, no other text:',
+  '{"logo_box":{"x_min":0,"y_min":0,"x_max":0,"y_max":0}}',
+  'Coordinates are normalized to 0-1000. Use null for logo_box when no logo is visible.',
+].join(' ');
+
+async function logoBoxFromVision(buf, opts) {
+  const db = opts && opts.db;
+  if (!db) return null;
+  const parts = [
+    { type: 'text', text: LOGO_BOX_PROMPT },
+    { type: 'image_url', image_url: { url: await visionDataUrl(buf), detail: 'low' } },
+  ];
+  const text = await visionChat(db, parts, {
+    maxTokens: 200,
+    note: 'website-promo brochure logo locate (vision)',
+    leadId: opts.leadId,
+  });
+  if (!text) return null;
+  const obj = parseJsonObject(text);
+  return obj ? validateLogoBox(obj.logo_box) : null;
+}
+
+async function assetsFromImage(buf, opts) {
+  // opts.logoBox: a validated box from the palette vision call, null when
+  // that call already established there is no logo, undefined when the
+  // palette came from the deterministic path (ask vision directly).
+  let box = opts.logoBox;
+  if (box === undefined) {
+    box = await logoBoxFromVision(buf, opts).catch(() => null);
+  }
+  if (!box) return { logo: null, assets: [] };
+  const sharp = require('sharp');
+  const meta = await sharp(buf).metadata();
+  if (!meta.width || !meta.height) return { logo: null, assets: [] };
+  const left = Math.round((box.x_min / 1000) * meta.width);
+  const top = Math.round((box.y_min / 1000) * meta.height);
+  const width = Math.max(1, Math.round(((box.x_max - box.x_min) / 1000) * meta.width));
+  const height = Math.max(1, Math.round(((box.y_max - box.y_min) / 1000) * meta.height));
+  if (width < 8 || height < 8 || left + width > meta.width || top + height > meta.height) {
+    return { logo: null, assets: [] };
+  }
+  const cropped = await sharp(buf).extract({ left, top, width, height }).png().toBuffer();
+  return {
+    logo: { buffer: cropped, ext: '.png', mimeType: 'image/png', kind: 'logo', label: 'Logo', source: 'vision-crop' },
+    assets: [],
+  };
+}
+
+/**
+ * Lift the logo + complementing brand assets out of a brochure.
+ * @param {Buffer} buf brochure bytes
+ * @param {string} kind sniffed kind from sniffBrochureType()
+ * @param {{db?:object, leadId?:number, logoBox?:object|null}} [opts]
+ * @returns {Promise<{logo:object|null, assets:object[]}>} buffers + metadata; never throws
+ */
+async function extractBrochureAssets(buf, kind, opts = {}) {
+  try {
+    if (kind === 'pdf') return await assetsFromPdf(buf, opts);
+    if (kind === 'png' || kind === 'jpeg' || kind === 'webp') return await assetsFromImage(buf, opts);
+    return { logo: null, assets: [] };
+  } catch {
+    return { logo: null, assets: [] };
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 /**
  * @param {Buffer} buf brochure bytes
  * @param {string} kind sniffed kind from sniffBrochureType()
- * @returns {Promise<{status:'extracted'|'pending', palette:string[], primary:string|null, secondary:string|null}>}
+ * @param {{db?:object, leadId?:number}} [opts] workspace db enables the OpenAI vision path
+ * @returns {Promise<{status:'extracted'|'pending', palette:string[], primary:string|null, secondary:string|null, palette_source:'openai'|'histogram'|'pending', logo_box?:object|null}>}
  */
-async function extractBrochurePalette(buf, kind) {
+async function extractBrochurePalette(buf, kind, opts = {}) {
+  const pending = { status: 'pending', palette: [], primary: null, secondary: null, palette_source: 'pending' };
   try {
-    let palette = [];
-    if (kind === 'png' || kind === 'jpeg' || kind === 'webp') {
-      palette = await paletteFromImageBuffer(buf);
-    } else if (kind === 'pdf') {
-      palette = await paletteFromPdfBuffer(buf);
-    } else {
-      return { status: 'pending', palette: [], primary: null, secondary: null };
+    if (kind !== 'png' && kind !== 'jpeg' && kind !== 'webp' && kind !== 'pdf') return pending;
+
+    // Primary path: OpenAI vision on the workspace's own AI settings.
+    if (opts.db) {
+      const aiResult = await paletteFromOpenAI(buf, kind, opts).catch(() => null);
+      if (aiResult) {
+        const out = {
+          status: 'extracted',
+          palette: aiResult.palette,
+          primary: aiResult.primary,
+          secondary: aiResult.secondary,
+          palette_source: 'openai',
+        };
+        // The image-brochure vision call also locates the logo; hand the
+        // box to the asset pass so it does not need a second call. null
+        // means "vision looked, no logo" — distinct from "not asked".
+        if (kind !== 'pdf') out.logo_box = aiResult.logoBox || null;
+        return out;
+      }
     }
-    if (!palette.length) return { status: 'pending', palette: [], primary: null, secondary: null };
-    return { status: 'extracted', palette, primary: palette[0] || null, secondary: palette[1] || null };
+
+    // Fallback: deterministic histogram.
+    const palette = kind === 'pdf' ? await paletteFromPdfBuffer(buf) : await paletteFromImageBuffer(buf);
+    if (!palette.length) return pending;
+    return {
+      status: 'extracted',
+      palette,
+      primary: palette[0] || null,
+      secondary: palette[1] || null,
+      palette_source: 'histogram',
+    };
   } catch {
-    return { status: 'pending', palette: [], primary: null, secondary: null };
+    return pending;
   }
 }
 
@@ -255,6 +725,13 @@ module.exports = {
   declaredFamily,
   DECLARED_FAMILY_KINDS,
   extractBrochurePalette,
+  extractBrochureAssets,
   paletteFromImageBuffer,
   paletteFromPdfBuffer,
+  // internals exported for unit tests
+  parseVisionPalette,
+  parseClassification,
+  validateLogoBox,
+  normalizeHexColor,
+  pdfCandidateImages,
 };

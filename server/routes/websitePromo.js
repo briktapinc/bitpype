@@ -7,10 +7,15 @@
  * Optional brochure upload (base64 JSON, same convention as the portal logo
  * upload): the file is content-sniffed, stored under
  * EXPORT_ROOT/website-promo/ws-<id>/, and its brand colors are extracted
- * (src/brochurePalette.js) onto the lead as the `site.style_guide`
- * business fact — the fact the design brief builder reads — so the design
- * step picks the palette up with no extra glue. Extraction is best-effort
- * and never fails the submission.
+ * (src/brochurePalette.js — OpenAI vision on the workspace's AI settings
+ * first, deterministic histogram as fallback) onto the lead as the
+ * `site.style_guide` business fact — the fact the design brief builder
+ * reads — so the design step picks the palette up with no extra glue.
+ * The same passes lift the business's logo and complementing brand
+ * assets out of the brochure; they are stored next to the brochure and
+ * referenced from the same fact (guide.logo / guide.assets, following
+ * the siteIngest convention). Extraction is best-effort and never fails
+ * the submission.
  */
 
 const path = require('path');
@@ -20,7 +25,13 @@ const domain = require('../domain');
 const { requireCaptcha, getCaptchaConfig } = require('../captcha');
 const { rateLimit } = require('../rateLimit');
 const { assertWorkspaceExists } = require('../workspaceExists');
-const { sniffBrochureType, declaredFamily, DECLARED_FAMILY_KINDS, extractBrochurePalette } = require('../../src/brochurePalette');
+const {
+  sniffBrochureType,
+  declaredFamily,
+  DECLARED_FAMILY_KINDS,
+  extractBrochurePalette,
+  extractBrochureAssets,
+} = require('../../src/brochurePalette');
 
 const router = express.Router();
 const submitLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 });
@@ -147,6 +158,49 @@ function saveBrochure(workspaceId, brochure) {
   return { path: full, fileName: name, mimeType: sniffed.mimeType, bytes: buf.length, kind: sniffed.kind, buf };
 }
 
+/**
+ * Persist the logo / brand assets lifted out of a brochure (buffers from
+ * src/brochurePalette.js extractBrochureAssets) next to the brochure
+ * itself — same storage area, same server-generated naming. The returned
+ * `file` is the EXPORT_ROOT-relative locator written onto the lead's
+ * style_guide fact, the same "string that locates the image" convention
+ * siteIngest uses for guide.logo (there: an absolute URL). Best-effort:
+ * a failed write degrades that asset to absent, never fails the lead.
+ */
+function saveBrochureAssets(workspaceId, extracted) {
+  const out = { logo: null, assets: [] };
+  if (!extracted) return out;
+  const root = process.env.EXPORT_ROOT || path.join(process.cwd(), 'exports');
+  const dir = path.join(root, 'website-promo', `ws-${workspaceId}`);
+  const write = (item, prefix) => {
+    const name = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${item.ext}`;
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, name), item.buffer);
+    return {
+      file: `website-promo/ws-${workspaceId}/${name}`,
+      fileName: name,
+      mimeType: item.mimeType,
+      bytes: item.buffer.length,
+      kind: item.kind,
+      label: item.label,
+      source: item.source,
+    };
+  };
+  try {
+    if (extracted.logo) out.logo = write(extracted.logo, 'logo');
+  } catch (e) {
+    console.warn('website-promo: brochure logo save failed:', e && e.message);
+  }
+  for (const item of extracted.assets || []) {
+    try {
+      out.assets.push(write(item, 'asset'));
+    } catch (e) {
+      console.warn('website-promo: brochure asset save failed:', e && e.message);
+    }
+  }
+  return out;
+}
+
 router.get('/config', async (_req, res) => {
   try {
     const captchaCfg = await getCaptchaConfig();
@@ -212,11 +266,30 @@ router.post('/submit', submitLimit, captcha, async (req, res) => {
     }
 
     const brochureMeta = saveBrochure(workspaceId, body.brochure);
-    // Brand-color extraction is best-effort: extractBrochurePalette never
-    // throws, and a 'pending' result still leaves the brochure on the lead.
-    const brochurePalette = brochureMeta
-      ? await extractBrochurePalette(brochureMeta.buf, brochureMeta.kind)
-      : null;
+    // Brand extraction is best-effort: both passes never throw, and a
+    // 'pending' palette still leaves the brochure on the lead. The
+    // workspace db goes in so the palette pass can use the workspace's
+    // own OpenAI settings (src/ai.js) before the histogram fallback; the
+    // palette result's logo_box (image brochures) feeds the asset pass
+    // so the logo usually costs no extra vision call.
+    let brochurePalette = null;
+    let savedAssets = { logo: null, assets: [] };
+    if (brochureMeta) {
+      try {
+        const extracted = await domain.withDb(workspaceId, async (db) => {
+          const palette = await extractBrochurePalette(brochureMeta.buf, brochureMeta.kind, { db });
+          const assets = await extractBrochureAssets(brochureMeta.buf, brochureMeta.kind, {
+            db,
+            logoBox: palette && 'logo_box' in palette ? palette.logo_box : undefined,
+          });
+          return { palette, assets };
+        });
+        brochurePalette = extracted.palette;
+        savedAssets = saveBrochureAssets(workspaceId, extracted.assets);
+      } catch (e) {
+        console.warn('website-promo: brochure extraction failed:', e && e.message);
+      }
+    }
     const featureLabels = FEATURE_OPTIONS.filter((f) => features.includes(f.id)).map((f) => f.label);
 
     const noteParts = [
@@ -226,8 +299,13 @@ router.post('/submit', submitLimit, captcha, async (req, res) => {
       brochureMeta
         ? `Brochure: ${brochureMeta.fileName} (${brochureMeta.bytes} bytes)` +
           (brochurePalette && brochurePalette.status === 'extracted'
-            ? ` — brand colors: ${brochurePalette.palette.join(', ')}`
+            ? ` — brand colors: ${brochurePalette.palette.join(', ')}` +
+              (brochurePalette.palette_source === 'openai' ? ' (via OpenAI)' : '')
             : ' — brand colors pending')
+        : null,
+      savedAssets.logo ? `Logo extracted from brochure: ${savedAssets.logo.fileName}` : null,
+      savedAssets.assets.length
+        ? `Brand assets from brochure: ${savedAssets.assets.map((a) => a.fileName).join(', ')}`
         : null,
     ].filter(Boolean);
 
@@ -265,10 +343,26 @@ router.post('/submit', submitLimit, captcha, async (req, res) => {
           ink: null,
           palette: brochurePalette ? brochurePalette.palette : [],
           fonts: [],
-          logo: null,
+          // Same convention as siteIngest's guide.logo: a string that
+          // locates the logo image — here the EXPORT_ROOT-relative path
+          // of the logo lifted out of the brochure (null when none).
+          logo: savedAssets.logo ? savedAssets.logo.file : null,
           source: 'website-promo-brochure',
+          palette_source: brochurePalette ? brochurePalette.palette_source || 'pending' : 'pending',
           direction:
             'Brand colors extracted from the brochure the business uploaded with its promo form; use the palette as brand cues.',
+          // Complementing brand material from the same brochure (logo
+          // excluded — it is guide.logo). file is EXPORT_ROOT-relative;
+          // source is 'pdf-embed' (pulled from the PDF) — image-brochure
+          // logos come from a vision crop and land only in guide.logo.
+          assets: savedAssets.assets.map((a) => ({
+            file: a.file,
+            kind: a.kind,
+            label: a.label,
+            source: a.source,
+            mimeType: a.mimeType,
+            bytes: a.bytes,
+          })),
           brochure: {
             file: brochureMeta.fileName,
             mimeType: brochureMeta.mimeType,
@@ -287,6 +381,16 @@ router.post('/submit', submitLimit, captcha, async (req, res) => {
           domain.leadsAddFact(workspaceId, lead.id, {
             fact_key: 'site.brand.primary',
             value: brochurePalette.primary,
+            source: 'website-promo brochure upload',
+            confidence: 'medium',
+            claim_class: 'OWNER_PROVIDED',
+          });
+        }
+        // Mirror siteIngest's companion fact for the logo.
+        if (savedAssets.logo) {
+          domain.leadsAddFact(workspaceId, lead.id, {
+            fact_key: 'site.brand.logo',
+            value: savedAssets.logo.file,
             source: 'website-promo brochure upload',
             confidence: 'medium',
             claim_class: 'OWNER_PROVIDED',
