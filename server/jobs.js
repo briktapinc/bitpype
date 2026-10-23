@@ -1,5 +1,21 @@
 'use strict';
 
+/**
+ * Scheduled jobs (central db): discovery sweeps, outreach processing,
+ * design polling, IMAP polling, custom payloads.
+ *
+ * Schedules: interval_minutes (every N minutes) or cron_expr
+ * 'daily:HH:MM' (UTC); computeNextRun derives next_run_at, defaulting
+ * to every 6 hours when neither is set. tickDueJobs polls every 30s.
+ *
+ * Concurrency: executeJob serializes runs of the same job through
+ * jobExecutionLock.withJobLock; executeClaimedJob records each attempt
+ * as a job_runs row, first marking any stale 'running' row 'abandoned'
+ * (an interrupted execution may have left side effects to reconcile).
+ * Finishing a run stamps last_run_at/last_status and advances
+ * next_run_at in the same update.
+ */
+
 const { query, withConnection } = require('./db');
 const { getSetting, logActivity } = require('./workspace');
 

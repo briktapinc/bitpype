@@ -3314,6 +3314,10 @@ async function pageDesignDetail(id) {
   }
   fillChangeInstructionBoxes(job);
 
+  // Server contract: an EMPTY instruction box means "refresh" — the server
+  // re-runs the design against the latest answers/facts (refresh) and forces
+  // a fresh review (forceReview) unless the job already has one. Typed
+  // instructions request a targeted change instead (both flags false).
   const changeBody = (kind) => {
     const instr = $(kind === 'improvements' ? '#dd-improve' : '#dd-redesign').value.trim();
     return { instructions: instr || undefined, refresh: !instr, forceReview: !instr && !(job.review && job.review.at) };
@@ -5067,6 +5071,13 @@ async function pageSettings(param) {
   const activeSec = (SETTINGS_TABS.find(([k]) => k === settingsTab) || SETTINGS_TABS[0])[2];
   const showSec = (id) => (id === activeSec ? '' : ' hidden');
 
+  // Field factory shared by every Settings tab: f() renders a labelled
+  // control bound by data-key; secret() below renders a write-only
+  // password input bound by data-secret (the server only ever returns
+  // '***' for a stored secret, shown as the set/not-set badge). The
+  // saveSection collector submits every [data-key] value, but a
+  // [data-secret] only when its field is non-empty — so saving a tab
+  // never wipes a stored key the user didn't retype.
   const f = (key, label, o) => {
     const opt = o || {};
     const val = s[key] == null ? (opt.def == null ? '' : opt.def) : s[key];

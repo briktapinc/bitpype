@@ -1,10 +1,12 @@
 'use strict';
 
 /**
- * Website Engine (Workstream 3).
+ * Website Engine — component library + site builder for Website Scout.
  *
- * Pure component library + site builder for the single-user Website Scout
- * desktop app.
+ * One engine serves every surface of the web app (REST facade in
+ * server/domain.js, the MCP server, and the design-job pipeline): each
+ * function takes the workspace's better-sqlite3 db as its first argument
+ * — there is no global/current db anywhere in this module.
  *
  * Data model: a website is structured JSON —
  *   pages: [{ slug, title, sections?: [...], html?: string }]

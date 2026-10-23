@@ -1,9 +1,12 @@
 'use strict';
 
 /**
- * Per-workspace SQLite stores — reuse Electron domain engines (leadEngine,
- * designJobs, outreach, websiteEngine, …) with almost no SQL rewrite.
- * MySQL remains the source of truth for users / workspaces / auth tokens.
+ * Per-workspace SQLite stores: every tenant's domain data (leads, design
+ * jobs, websites, outreach, settings) lives in its own
+ * data/workspaces/<id>/websitescout.db, opened here and handed to the
+ * src/ engines. The CENTRAL db (server/db.js — MySQL in production,
+ * SQLite locally) holds only users / workspaces / auth tokens / billing.
+ * DB_DRIVER therefore does NOT move tenant data.
  */
 
 const fs = require('fs');

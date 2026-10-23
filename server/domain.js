@@ -1,7 +1,15 @@
 'use strict';
 
 /**
- * Thin facade over Electron domain modules, scoped to a workspace SQLite DB.
+ * Domain facade: the single entry point the REST API (routes/domainApi)
+ * and the MCP server (server/mcp.js) use to reach the src/ engines.
+ *
+ * Every function takes a workspace id, resolves that workspace's SQLite
+ * db via workspaceDb, and delegates — engines never see HTTP or session
+ * concepts, and callers never touch SQL. Cross-cutting rules that must
+ * hold on BOTH surfaces (role checks live in the routers; idempotency
+ * storage, settings validation, path confinement for publishing) are
+ * enforced here so the two surfaces cannot drift apart.
  */
 
 const path = require('path');
