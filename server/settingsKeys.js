@@ -55,7 +55,7 @@ const SETTING_SEEDS = [
   ['mail.imap.user', ''],
   ['mail.imap.pass', ''],
   ['mail.imap.mailbox', 'INBOX'],
-  ['mail.imap.auto_submit', '1'],
+  ['mail.imap.auto_submit', '0'],
   ['score.threshold_qualified', '50'],
   ['score.threshold_hot', '70'],
   ['app.name', 'Bitpype'],

@@ -78,7 +78,7 @@ const SETTING_SEEDS = [
   ['mail.imap.user', ''],
   ['mail.imap.pass', ''],
   ['mail.imap.mailbox', 'INBOX'],
-  ['mail.imap.auto_submit', '1'],
+  ['mail.imap.auto_submit', '0'],
   // SMS / Twilio (platform Admin → SMS can seed these; stub-send when disabled)
   ['sms.enabled', '0'],
   ['sms.provider', 'twilio'],

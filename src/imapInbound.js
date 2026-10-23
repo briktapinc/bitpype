@@ -95,8 +95,17 @@ function imapConfig(db) {
   const port = Number(getSetting(db, 'mail.imap.port', '993')) || 993;
   const secure = getSetting(db, 'mail.imap.secure', '1') !== '0';
   const mailbox = getSetting(db, 'mail.imap.mailbox', 'INBOX').trim() || 'INBOX';
-  const autoSubmit = getSetting(db, 'mail.imap.auto_submit', '1') !== '0';
+  // Secure default (port of audit H3): auto-submitting AI-interpreted
+  // redesigns from inbound mail is opt-in; workspaces must enable it.
+  const autoSubmit = getSetting(db, 'mail.imap.auto_submit', '0') === '1';
   return { enabled, host, user, pass, port, secure, mailbox, autoSubmit };
+}
+
+/** Bare lowercase address out of a From value ("Name <a@b.c>" or "a@b.c"). */
+function normalizeEmail(v) {
+  const s = String(v || '').trim().toLowerCase();
+  const angle = s.match(/<([^>]+)>/);
+  return (angle ? angle[1] : s).trim();
 }
 
 /**
@@ -118,6 +127,31 @@ async function processMessage(db, { fromEmail, subject, body, messageId, uid, ma
   } catch {
     markSeen(db, messageId, mailbox, uid, [{ type: 'job_not_found', jobId }]);
     return { ok: false, skipped: true, reason: 'job_not_found', jobId, subject };
+  }
+
+  // --- Sender authentication (port of audit H3) ----------------------------
+  // A [Job #N] reference authenticates nothing: ids are sequential and
+  // appear in every subject we send. Before this message may answer
+  // questions or queue a redesign, the sender must be the job's client —
+  // From must match the job's contact email (or its lead's email), and
+  // when the job has a reply token, the message must carry it.
+  // Mismatches are inert: recorded as seen, never actioned. Jobs with no
+  // contact email accept nothing.
+  const jobRow = db.prepare('SELECT contact_email, lead_id, reply_token FROM design_jobs WHERE id = ?').get(jobId);
+  let expected = normalizeEmail(jobRow && jobRow.contact_email);
+  if (!expected && jobRow && jobRow.lead_id) {
+    const lead = db.prepare('SELECT email FROM leads WHERE id = ?').get(jobRow.lead_id);
+    expected = normalizeEmail(lead && lead.email);
+  }
+  const sender = normalizeEmail(fromEmail);
+  if (!expected || !sender || sender !== expected) {
+    markSeen(db, messageId, mailbox, uid, [{ type: 'sender_mismatch', jobId }]);
+    return { ok: false, skipped: true, reason: 'sender_mismatch', jobId, subject };
+  }
+  const wantRef = jobRow && jobRow.reply_token ? String(jobRow.reply_token).toLowerCase() : null;
+  if (wantRef && emailRedesign.extractJobRef(subject, body) !== wantRef) {
+    markSeen(db, messageId, mailbox, uid, [{ type: 'ref_mismatch', jobId }]);
+    return { ok: false, skipped: true, reason: 'ref_mismatch', jobId, subject };
   }
 
   // 1) Answers to open questions

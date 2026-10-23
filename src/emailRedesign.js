@@ -167,6 +167,22 @@ function jobSubjectTag(jobId) {
   return `[Job #${Number(jobId)}]`;
 }
 
+// Per-job reply token (port of audit H3): outbound mail carries
+// "[Job #N] ref:<hex>" (see designJobs.replyTag). Inbound processing
+// requires the ref — together with a From match — before trusting a
+// message as the client's.
+const JOB_REF_RE = /\bref:\s*([a-f0-9]{16,64})\b/i;
+
+function extractJobRef(subject, body) {
+  const subjectText = String(subject || '');
+  const bodyText = String(body || '').split(/\nOn .+wrote:\n/)[0].split(/\n>/)[0];
+  for (const hay of [subjectText, bodyText]) {
+    const m = hay.match(JOB_REF_RE);
+    if (m) return m[1].toLowerCase();
+  }
+  return null;
+}
+
 function publicRow(row) {
   if (!row) return null;
   const kind = REQUEST_KINDS.includes(row.request_kind) ? row.request_kind : 'redesign';
@@ -657,6 +673,7 @@ module.exports = {
   looksLikeRedesignRequest,
   detectRequestKind,
   extractJobId,
+  extractJobRef,
   jobSubjectTag,
   stripQuotedEmail,
   interpretClientEmail,

@@ -169,6 +169,7 @@ function ensureTables(db) {
     }
   };
   addCol('design_jobs', 'contact_email', 'TEXT');
+  addCol('design_jobs', 'reply_token', 'TEXT');
   addCol('design_jobs', 'contact_phone', 'TEXT');
   addCol('design_jobs', 'questions_emailed_at', 'TEXT');
   addCol('design_jobs', 'delivery_emailed_at', 'TEXT');
@@ -1112,11 +1113,28 @@ async function submitClientForm(db, token, body = {}) {
   return out;
 }
 
+// Per-job reply token (port of audit H3): emailed to the client in the
+// subject tag and required — together with a From-address match — before
+// an inbound email may answer questions or queue a redesign. A bare
+// [Job #N] reference is sequential and public, so it authenticates
+// nothing on its own.
+function ensureReplyToken(db, row) {
+  if (row.reply_token) return String(row.reply_token);
+  const token = require('node:crypto').randomBytes(12).toString('hex');
+  db.prepare('UPDATE design_jobs SET reply_token = ? WHERE id = ?').run(token, row.id);
+  row.reply_token = token;
+  return token;
+}
+
+function replyTag(db, row) {
+  return `[Job #${row.id}] ref:${ensureReplyToken(db, row)}`;
+}
+
 function composeQuestionEmail(db, row, pending, { formUrl } = {}) {
   const lead = row.lead_id ? db.prepare('SELECT business_name, email FROM leads WHERE id = ?').get(row.lead_id) : null;
   const business = (lead && lead.business_name) || row.title;
   const to = String(row.contact_email || (lead && lead.email) || '').trim().toLowerCase();
-  const tag = `[Job #${row.id}]`;
+  const tag = replyTag(db, row);
   const subject = `${tag} Questions: ${row.title}`.slice(0, 200);
   const lines = pending.map((q, i) => `${i + 1}. ${q.question}`).join('\n');
   const footer = settingValue(db, 'mail.footer');
@@ -1298,7 +1316,7 @@ function formatDeliveryEmailBody(db, row, payload, { formUrl } = {}) {
     || row.title;
   const footer = settingValue(db, 'mail.footer');
   const sections = [];
-  sections.push(`[Job #${row.id}] — ${row.title}`);
+  sections.push(`${replyTag(db, row)} — ${row.title}`);
   sections.push(`Kind: ${row.type}`);
   sections.push(`For: ${business}`);
   if (formUrl) {
@@ -1406,7 +1424,7 @@ function composeDeliveryEmail(db, row, payload, { formUrl } = {}) {
     : null;
   const to = String(row.contact_email || (lead && lead.email) || '').trim().toLowerCase();
   const kindLabel = String(row.type || 'delivery').replace(/[-_]/g, ' ');
-  const tag = `[Job #${row.id}]`;
+  const tag = replyTag(db, row);
   const subject = `${tag} ${kindLabel} ready: ${row.title}`.slice(0, 200);
   const body = formatDeliveryEmailBody(db, row, payload, { formUrl });
   return { to, subject, body, formUrl: formUrl || null };
