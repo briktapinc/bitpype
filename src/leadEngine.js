@@ -404,9 +404,26 @@ function deleteLead(db, id) {
   const existing = getLead(db, id);
   if (!existing) throw validationError(`lead not found: ${id}`);
   const tx = db.transaction(() => {
-    db.prepare('DELETE FROM business_facts WHERE lead_id = ?').run(id);
-    db.prepare('DELETE FROM lead_scores WHERE lead_id = ?').run(id);
-    db.prepare('DELETE FROM lead_events WHERE lead_id = ?').run(id);
+    const drop = (table) => {
+      // Some tenant DBs predate a feature table; skip tables that do not exist.
+      const found = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
+      if (found) db.prepare(`DELETE FROM ${table} WHERE lead_id = ?`).run(id);
+    };
+    // Dependency order, all inside this one transaction: submissions belong
+    // to the lead's forms, so they go before the forms themselves. ai_usage
+    // is the hard blocker — its FK to leads has no ON DELETE CASCADE, so the
+    // lead delete failed FK_CONFLICT whenever a lead had AI usage rows.
+    // contact_forms / design_learning_events carry plain lead_id columns (no
+    // FK) and would otherwise be left orphaned. Websites and design jobs are
+    // deliberately NOT deleted here: websites follow their schema cascade
+    // and design jobs keep their own lifecycle.
+    drop('form_submissions');
+    drop('contact_forms');
+    drop('ai_usage');
+    drop('design_learning_events');
+    drop('business_facts');
+    drop('lead_scores');
+    drop('lead_events');
     db.prepare('DELETE FROM leads WHERE id = ?').run(id);
   });
   tx();
