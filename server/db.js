@@ -69,8 +69,39 @@ function getSqlite() {
   return sqliteDb;
 }
 
+// --- SQLite transaction serialization (port of audit F-03) ---------------
+// better-sqlite3 gives the whole process ONE connection, so the
+// MySQL-shaped facade below (per-caller BEGIN/COMMIT) was unsafe: two
+// concurrent callers either crashed with "cannot start a transaction
+// within a transaction" or had their writes swept into — and rolled
+// back with — a stranger's transaction. Fix: serialize top-level
+// withConnection calls behind a mutex, track transaction depth so
+// nested facades share the outer transaction, and make bare query()
+// writes wait out any open transaction they don't own. (Production
+// central runs MySQL, but sqlite mode — dev, tests, small installs —
+// hit this under concurrent registrations.)
+const { AsyncLocalStorage } = require('node:async_hooks');
+const sqliteTxContext = new AsyncLocalStorage();
+let sqliteMutex = Promise.resolve();
+let sqliteTxDepth = 0;
+
+function runSqliteExclusive(fn) {
+  const result = sqliteMutex.then(fn);
+  sqliteMutex = result.then(
+    () => undefined,
+    () => undefined
+  );
+  return result;
+}
+
 async function query(sql, params) {
   if (DRIVER === 'sqlite') {
+    // While another caller holds an open transaction, an unrelated
+    // write on the shared connection would silently join it. Wait for
+    // it to finish instead (calls from inside the transaction don't wait).
+    if (sqliteTxDepth > 0 && !sqliteTxContext.getStore()) {
+      await sqliteMutex;
+    }
     const db = getSqlite();
     let s = toSqliteSql(sql);
     // SQLite upsert rewrite for settings/sessions style inserts
@@ -109,9 +140,25 @@ async function withConnection(fn) {
   if (DRIVER === 'sqlite') {
     const db = getSqlite();
     const conn = {
-      beginTransaction: async () => db.exec('BEGIN'),
-      commit: async () => db.exec('COMMIT'),
-      rollback: async () => db.exec('ROLLBACK'),
+      // Depth-counted: nested facades join the outer transaction
+      // instead of issuing a second BEGIN (SQLite forbids it) or an
+      // early COMMIT.
+      beginTransaction: async () => {
+        if (sqliteTxDepth === 0) db.exec('BEGIN');
+        sqliteTxDepth++;
+      },
+      commit: async () => {
+        if (sqliteTxDepth > 0) {
+          sqliteTxDepth--;
+          if (sqliteTxDepth === 0) db.exec('COMMIT');
+        }
+      },
+      rollback: async () => {
+        if (sqliteTxDepth > 0) {
+          sqliteTxDepth = 0;
+          db.exec('ROLLBACK');
+        }
+      },
       execute: async (sql, paramsArr) => {
         // workspace.js uses positional ? arrays with conn.execute
         const s = toSqliteSql(sql);
@@ -127,7 +174,11 @@ async function withConnection(fn) {
         return [];
       },
     };
-    return fn(conn);
+    // Nested withConnection (called from inside another caller's
+    // callback) reuses the open transaction; top-level calls serialize
+    // on the mutex.
+    if (sqliteTxContext.getStore()) return fn(conn);
+    return runSqliteExclusive(() => sqliteTxContext.run({ tx: true }, () => fn(conn)));
   }
 
   const conn = await getMysqlPool().getConnection();
