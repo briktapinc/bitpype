@@ -149,7 +149,7 @@ function portalToolDefs() {
     {
       name: 'fonts.list',
       description:
-        'List curated Google Fonts for theme.font / theme.headingFont. Free local catalog (no API cost). Optional group: Sans|Serif|Display|Mono.',
+        'List curated Google Fonts available for theme.font / theme.headingFont (same catalog as the portal Theme bar). Free — local catalog only; no Google API key or billed calls. Optional group filter: Sans|Serif|Display|Mono. Pick a name then pass it to website.setTheme / theme.set / design.deliver theme.',
       inputSchema: schema({ group: STR }),
     },
     {

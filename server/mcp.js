@@ -543,9 +543,23 @@ function clientToolDefs() {
   ];
 }
 
+// First occurrence wins (port of audit F-12): the catalog is assembled
+// from several sources (portal defs, client defs, workspace defs) and a
+// tool defined twice shipped twice in tools/list — fonts.list rode in
+// both clientMcp and this file. Dedupe at assembly so a future
+// duplicate can never reach clients.
+function dedupeToolDefs(defs) {
+  const seen = new Set();
+  return defs.filter((t) => {
+    if (seen.has(t.name)) return false;
+    seen.add(t.name);
+    return true;
+  });
+}
+
 function toolDefs({ clientScoped = false } = {}) {
-  if (clientScoped) return clientToolDefs();
-  return [
+  if (clientScoped) return dedupeToolDefs(clientToolDefs());
+  return dedupeToolDefs([
     ...clientToolDefs(),
     { name: 'lead.search', description: 'Search outreach CRM leads (pipeline). Requires a workspace MCP token (ws_…). Client/portal tokens (cl_…, Claude OAuth) cannot use this — they only see LeadScout form contacts via leadscout.contacts.list, or their one linked lead via site.get.', inputSchema: { type: 'object', properties: { q: { type: 'string' }, status: { type: 'string' }, minScore: { type: 'integer' }, limit: { type: 'integer' } } } },
     { name: 'lead.get', description: 'Get one lead with facts/scores.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
@@ -613,7 +627,7 @@ function toolDefs({ clientScoped = false } = {}) {
     { name: 'handsOff.status', description: 'Hands-off Muse mode status: enabled, automation_paused, last run/digest, Muse key configured, scheduled jobs.', inputSchema: { type: 'object', properties: {} } },
     { name: 'handsOff.runNow', description: 'Run one Hands-off tick now (discover→score→design→Muse→publish→outreach). Honors automation_paused. Pass force:true to run even when hands_off.enabled is off (still blocked when paused).', inputSchema: { type: 'object', properties: { force: { type: 'boolean' } } } },
     ...parityToolDefs(),
-  ];
+  ]);
 }
 
 /** Tools added for Electron IPC / stdio-MCP parity. */
@@ -628,7 +642,6 @@ function parityToolDefs() {
     { name: 'website.edit', description: 'Edit a website. Full save: pass pages[] + optional theme + note. pages[].sections[]: { type, content: { … }, cols?, cells?[] }. theme.partials.{headerHtml,footerHtml} shared chrome; page.chromeOverride skips partials. Head/meta: page.description, page.ogImage, page.canonical; scripts: theme.customJs + page.customJs (before </body>); head tags: theme.customHead + page.customHead (before </head>). <script> inside section HTML is rejected with SECTION_SCRIPT — use customJs/customHead. Or pass instruction for safe structural edits. FORMS: no raw <form> — use contact_form / forms.create / website.addBlock (form).', inputSchema: schema({ id: ID, pages: { type: 'array' }, theme: { type: 'object' }, note: STR, author: STR, instruction: STR }, ['id']) },
     { name: 'website.setLogo', description: 'Set site header logo without regenerating the site. mode "text" restores the text brand; mode "image" accepts base64 (JPEG/PNG/WebP/GIF, max ~5.5MB), cover-crops, strips solid backgrounds when feasible, saves images/logo.png with theme.logoMode=image. Pass id or leadId.', inputSchema: schema({ id: ID, mode: { type: 'string', enum: ['text', 'image'] }, data: STR, mimeType: STR, brandName: STR, leadId: ID }) },
     { name: 'website.setTheme', description: 'Set theme colors, fonts, customCss/customJs/customHead, favicon, shared partials {headerHtml,footerHtml}. Pass id or leadId. customHead injects before </head>; customJs before </body>. Never put <script> inside section HTML — use these fields.', inputSchema: schema({ id: ID, leadId: ID, primary: STR, secondary: STR, bg: STR, text: STR, colors: { type: 'object' }, font: STR, headingFont: STR, customCss: STR, customJs: STR, customHead: STR, favicon: STR, partials: { type: 'object' }, baseCss: { type: 'boolean' }, note: STR }) },
-    { name: 'fonts.list', description: 'List curated Google Fonts available for theme.font / theme.headingFont (same catalog as the portal Theme bar). Free — local catalog only; no Google API key or billed calls. Optional group filter: Sans|Serif|Display|Mono. Pick a name then pass it to website.setTheme / theme.set / design.deliver theme.', inputSchema: schema({ group: STR }) },
     { name: 'website.replaceImage', description: 'Replace site image by replaceSrc under images/ or assets/: data or prompt. Optional crop. assets/ filenames stay stable.', inputSchema: schema({ id: ID, leadId: ID, replaceSrc: STR, src: STR, data: STR, mimeType: STR, prompt: STR, size: STR, quality: STR, crop: { type: 'object' } }) },
     { name: 'website.uploadAsset', description: 'Upload stable asset to assets/<filename> (ships on CF Pages /assets/*). Filename preserved. Optional setFavicon (injected into export <head>).', inputSchema: schema({ id: ID, websiteId: ID, leadId: ID, data: STR, mimeType: STR, mime: STR, filename: STR, name: STR, setFavicon: { type: 'boolean' } }, ['data', 'filename']) },
     { name: 'website.screenshot', description: 'PNG screenshot at viewport width (390|1440). Pass id, path, width.', inputSchema: schema({ id: ID, websiteId: ID, path: STR, width: { type: 'integer' }, height: { type: 'integer' }, previewUrl: STR }, ['width']) },
