@@ -117,6 +117,57 @@ function domainFromEmail(email) {
   return m ? m[1] : '';
 }
 
+/**
+ * Canonical email key for the one-email-one-lead rule. Mirrors the
+ * LeadScout portal-contacts normalization (server/portalContacts.js
+ * normEmail) so both stores agree on what "the same email" means:
+ * trim → lowercase → 240-char cap. '' means "no email" — empty-email
+ * leads never collide with each other.
+ */
+function normalizeEmail(email) {
+  return String(email || '')
+    .trim()
+    .toLowerCase()
+    .slice(0, 240);
+}
+
+/**
+ * Structured conflict for the one-email-one-lead rule. The message names
+ * the existing lead (id + business name) for humans; the same facts ride
+ * on the error object (existingLeadId / existingBusinessName / details)
+ * for API + MCP callers, so an agent can update the existing lead
+ * instead of retrying the create. HTTP layer maps err.status (409).
+ */
+function duplicateEmailError(existing, email) {
+  const err = new Error(
+    `email ${email} already belongs to lead #${existing.id} (${existing.business_name}) in this workspace — update that lead instead of creating a new one`
+  );
+  err.code = 'DUPLICATE_EMAIL';
+  err.status = 409;
+  err.existingLeadId = existing.id;
+  err.existingBusinessName = existing.business_name;
+  err.details = {
+    existing_lead_id: existing.id,
+    existing_business_name: existing.business_name,
+    email,
+  };
+  return err;
+}
+
+/**
+ * Translate a raw unique-index hit on leads.email_norm into the
+ * structured duplicate-email error (covers the check→write race when
+ * the DB-level safety net is in place). Returns the original error
+ * when the constraint was about something else.
+ */
+function translateEmailConstraint(db, e, emailNorm) {
+  if (emailNorm && /UNIQUE constraint|SQLITE_CONSTRAINT/i.test(String((e && e.message) || ''))) {
+    const clash = findLeadByEmail(db, emailNorm);
+    if (clash) return duplicateEmailError(clash, emailNorm);
+  }
+  return e;
+}
+
 /** Normalized address key for dedup. */
 function normalizeAddress(addr) {
   return String(addr || '')
@@ -179,11 +230,42 @@ function getSetting(db, key, fallback) {
   }
 }
 
-/** Ensure lead_group (and indexes) exist on older databases. */
+/** DB handles whose deferred-unique-index warning was already logged. */
+const emailIndexDeferredWarned = new WeakSet();
+
+/** Ensure lead_group / email_norm (and indexes) exist on older databases. */
 function ensureLeadColumns(db) {
   const cols = db.prepare('PRAGMA table_info(leads)').all();
-  if (cols.length && !cols.some((c) => c.name === 'lead_group')) {
+  if (!cols.length) return;
+  if (!cols.some((c) => c.name === 'lead_group')) {
     db.exec('ALTER TABLE leads ADD COLUMN lead_group TEXT');
+  }
+  // email_norm backs the one-email-one-lead rule (see normalizeEmail):
+  // every lead write maintains it, and a partial unique index over the
+  // non-empty values is the data-layer safety net.
+  if (!cols.some((c) => c.name === 'email_norm')) {
+    try {
+      db.exec("ALTER TABLE leads ADD COLUMN email_norm TEXT DEFAULT ''");
+    } catch {
+      /* ignore */
+    }
+  }
+  // Backfill / repair normalized emails. The SQL mirrors normalizeEmail
+  // for ASCII addresses (SQLite LOWER is ASCII-only); the domain-layer
+  // check always re-normalizes stored emails in JS, so enforcement does
+  // not depend on this column being perfect.
+  try {
+    db.exec(`
+      UPDATE leads
+      SET email_norm = SUBSTR(LOWER(TRIM(email)), 1, 240)
+      WHERE email IS NOT NULL AND TRIM(email) <> ''
+        AND (email_norm IS NULL OR email_norm <> SUBSTR(LOWER(TRIM(email)), 1, 240));
+      UPDATE leads
+      SET email_norm = ''
+      WHERE (email IS NULL OR TRIM(email) = '') AND email_norm IS NOT NULL AND email_norm <> '';
+    `);
+  } catch {
+    /* ignore */
   }
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_leads_group ON leads(lead_group)');
@@ -194,6 +276,24 @@ function ensureLeadColumns(db) {
     db.exec('CREATE INDEX IF NOT EXISTS idx_leads_category ON leads(category)');
   } catch {
     /* ignore */
+  }
+  // Safety net only — enforcement lives in createLead/updateLead. A
+  // tenant DB that still holds legacy duplicate emails cannot take the
+  // unique index; defer it (warn once per DB handle) instead of crashing
+  // startup. The index appears on its own once duplicates are merged.
+  try {
+    db.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_email_norm_unique ON leads(email_norm) WHERE email_norm <> ''"
+    );
+  } catch (e) {
+    if (!emailIndexDeferredWarned.has(db)) {
+      emailIndexDeferredWarned.add(db);
+      console.warn(
+        '[leads] unique email index deferred: this workspace still has duplicate lead emails — merge them to enable the index. Domain-layer enforcement is active regardless. (' +
+          (e && e.message) +
+          ')'
+      );
+    }
   }
 }
 
@@ -232,6 +332,33 @@ function logEvent(db, leadId, type, detail) {
   );
 }
 
+/**
+ * Find the lead that owns an email address (one-email-one-lead rule).
+ * Compares normalizeEmail() in JS against every row's stored email, so
+ * the rule holds even for rows written before the email_norm column
+ * existed. Returns the lead (rowToLead shape) or null. `excludeIds`
+ * (id or array of ids) lets update/merge ignore the lead being changed
+ * plus any leads about to be deleted into it.
+ */
+function findLeadByEmail(db, email, excludeIds) {
+  const norm = normalizeEmail(email);
+  if (!norm) return null;
+  ensureLeadColumns(db);
+  const excluded = new Set(
+    (Array.isArray(excludeIds) ? excludeIds : [excludeIds])
+      .map(Number)
+      .filter((n) => Number.isInteger(n) && n > 0)
+  );
+  const rows = db
+    .prepare("SELECT id, email FROM leads WHERE email IS NOT NULL AND TRIM(email) <> ''")
+    .all();
+  for (const r of rows) {
+    if (excluded.has(r.id)) continue;
+    if (normalizeEmail(r.email) === norm) return getLead(db, r.id);
+  }
+  return null;
+}
+
 /* ------------------------------------------------------------------ */
 /* CRUD                                                                */
 /* ------------------------------------------------------------------ */
@@ -268,6 +395,12 @@ function validateLeadInput(data) {
 function createLead(db, data) {
   const lead = validateLeadInput(data);
   ensureLeadColumns(db);
+  // One email = one lead per workspace. Empty emails never collide.
+  const emailNorm = normalizeEmail(lead.email);
+  if (emailNorm) {
+    const clash = findLeadByEmail(db, lead.email);
+    if (clash) throw duplicateEmailError(clash, emailNorm);
+  }
   const tags = Array.isArray(data.tags) ? data.tags.map(String) : [];
   const notes = data.notes != null ? String(data.notes).slice(0, 10000) : null;
   const status = LEAD_STATUSES.includes(data.status) ? data.status : 'new';
@@ -275,47 +408,54 @@ function createLead(db, data) {
 
   const stmt = db.prepare(`
     INSERT INTO leads
-      (business_name, category, phone, email, website, address, city, state,
+      (business_name, category, phone, email, email_norm, website, address, city, state,
        postal_code, country, latitude, longitude, rating, review_count,
        description, hours, services, social_links, source, source_ref,
        status, tags, lead_group, notes)
     VALUES
-      (@business_name, @category, @phone, @email, @website, @address, @city, @state,
+      (@business_name, @category, @phone, @email, @email_norm, @website, @address, @city, @state,
        @postal_code, @country, @latitude, @longitude, @rating, @review_count,
        @description, @hours, @services, @social_links, @source, @source_ref,
        @status, @tags, @lead_group, @notes)
   `);
-  const info = stmt.run({
-    // normalizeToLead() drops empty keys; default everything to null so no
-    // named parameter is ever missing from the INSERT.
-    business_name: null,
-    category: null,
-    phone: null,
-    email: null,
-    website: null,
-    address: null,
-    city: null,
-    state: null,
-    postal_code: null,
-    country: null,
-    latitude: null,
-    longitude: null,
-    rating: null,
-    review_count: null,
-    description: null,
-    source: null,
-    source_ref: null,
-    notes: null,
-    lead_group: null,
-    ...lead,
-    hours: toJson(lead.hours),
-    services: toJson(lead.services),
-    social_links: toJson(lead.social_links),
-    status,
-    tags: JSON.stringify(tags),
-    lead_group: leadGroup,
-    notes,
-  });
+  let info;
+  try {
+    info = stmt.run({
+      // normalizeToLead() drops empty keys; default everything to null so no
+      // named parameter is ever missing from the INSERT.
+      business_name: null,
+      category: null,
+      phone: null,
+      email: null,
+      website: null,
+      address: null,
+      city: null,
+      state: null,
+      postal_code: null,
+      country: null,
+      latitude: null,
+      longitude: null,
+      rating: null,
+      review_count: null,
+      description: null,
+      source: null,
+      source_ref: null,
+      notes: null,
+      lead_group: null,
+      ...lead,
+      email_norm: emailNorm,
+      hours: toJson(lead.hours),
+      services: toJson(lead.services),
+      social_links: toJson(lead.social_links),
+      status,
+      tags: JSON.stringify(tags),
+      lead_group: leadGroup,
+      notes,
+    });
+  } catch (e) {
+    // The unique index caught a duplicate the pre-check raced past.
+    throw translateEmailConstraint(db, e, emailNorm);
+  }
   logEvent(db, info.lastInsertRowid, 'created', `source=${lead.source || 'manual'}`);
   return getLead(db, info.lastInsertRowid);
 }
@@ -331,6 +471,14 @@ function updateLead(db, id, obj) {
   if (!existing) throw validationError(`lead not found: ${id}`);
   const merged = { ...existing, ...(obj || {}) };
   const lead = validateLeadInput(merged);
+  // One email = one lead: only a CHANGE to a different normalized email
+  // can collide. Re-saving the lead's own email (or editing other
+  // fields) never trips the rule — legacy duplicates stay editable.
+  const emailNorm = normalizeEmail(lead.email);
+  if (emailNorm && emailNorm !== normalizeEmail(existing.email)) {
+    const clash = findLeadByEmail(db, lead.email, existing.id);
+    if (clash) throw duplicateEmailError(clash, emailNorm);
+  }
   const tags = obj.tags !== undefined ? (Array.isArray(obj.tags) ? obj.tags.map(String) : null) : existing.tags;
   if (obj.tags !== undefined && !Array.isArray(obj.tags)) {
     throw validationError('tags must be an array');
@@ -350,11 +498,12 @@ function updateLead(db, id, obj) {
       ? normalizeGroupName(obj.lead_group !== undefined ? obj.lead_group : obj.group)
       : existing.lead_group || null;
 
-  db.prepare(
-    `
+  try {
+    db.prepare(
+        `
     UPDATE leads SET
       business_name=@business_name, category=@category, phone=@phone,
-      email=@email, website=@website, address=@address, city=@city,
+      email=@email, email_norm=@email_norm, website=@website, address=@address, city=@city,
       state=@state, postal_code=@postal_code, country=@country,
       latitude=@latitude, longitude=@longitude, rating=@rating,
       review_count=@review_count, description=@description,
@@ -363,38 +512,44 @@ function updateLead(db, id, obj) {
       tags=@tags, lead_group=@lead_group, notes=@notes, updated_at=datetime('now')
     WHERE id=@id
   `
-  ).run({
-    // normalizeToLead() drops empty keys; default everything to null so no
-    // named parameter is ever missing from the UPDATE.
-    business_name: null,
-    category: null,
-    phone: null,
-    email: null,
-    website: null,
-    address: null,
-    city: null,
-    state: null,
-    postal_code: null,
-    country: null,
-    latitude: null,
-    longitude: null,
-    rating: null,
-    review_count: null,
-    description: null,
-    source: null,
-    source_ref: null,
-    notes: null,
-    lead_group: null,
-    ...lead,
-    hours: toJson(lead.hours),
-    services: toJson(lead.services),
-    social_links: toJson(lead.social_links),
-    status,
-    tags: JSON.stringify(tags || []),
-    lead_group: leadGroup,
-    notes,
-    id,
-  });
+      )
+      .run({
+        // normalizeToLead() drops empty keys; default everything to null so no
+        // named parameter is ever missing from the UPDATE.
+        business_name: null,
+        category: null,
+        phone: null,
+        email: null,
+        website: null,
+        address: null,
+        city: null,
+        state: null,
+        postal_code: null,
+        country: null,
+        latitude: null,
+        longitude: null,
+        rating: null,
+        review_count: null,
+        description: null,
+        source: null,
+        source_ref: null,
+        notes: null,
+        lead_group: null,
+        ...lead,
+        email_norm: emailNorm,
+        hours: toJson(lead.hours),
+        services: toJson(lead.services),
+        social_links: toJson(lead.social_links),
+        status,
+        tags: JSON.stringify(tags || []),
+        lead_group: leadGroup,
+        notes,
+        id,
+      });
+  } catch (e) {
+    // The unique index caught a duplicate the pre-check raced past.
+    throw translateEmailConstraint(db, e, emailNorm);
+  }
   logEvent(db, id, 'updated', 'fields updated');
   return getLead(db, id);
 }
@@ -437,8 +592,10 @@ function deleteLead(db, id) {
 const CSV_MAX_BYTES = 1024 * 1024; // 1 MB
 
 /**
- * Import leads from CSV text. Returns { created, skipped, errors }.
- * Row-level failures never abort the whole import.
+ * Import leads from CSV text. Returns { created, skipped, duplicates, errors }.
+ * Row-level failures never abort the whole import. A row whose email
+ * already belongs to a lead (one-email-one-lead rule) is skipped — not
+ * fatal — and counted in `duplicates` with the existing lead's id.
  */
 function importCsv(db, text, opts = {}) {
   if (typeof text !== 'string' || !text.trim()) {
@@ -451,7 +608,7 @@ function importCsv(db, text, opts = {}) {
   const leadGroup = normalizeGroupName(opts.group || opts.lead_group);
   const provider = new CsvProvider();
   const raws = provider.parse(text);
-  const result = { created: 0, skipped: 0, errors: [], group: leadGroup };
+  const result = { created: 0, skipped: 0, duplicates: 0, errors: [], group: leadGroup };
   raws.forEach((raw, i) => {
     const lineNo = i + 2; // header is line 1
     if (!Object.values(raw).some((v) => String(v).trim() !== '')) {
@@ -467,7 +624,16 @@ function importCsv(db, text, opts = {}) {
       result.created++;
     } catch (e) {
       result.skipped++;
-      result.errors.push({ line: lineNo, error: e.message });
+      if (e && e.code === 'DUPLICATE_EMAIL') {
+        result.duplicates++;
+        result.errors.push({
+          line: lineNo,
+          error: e.message,
+          duplicate_of: e.existingLeadId != null ? e.existingLeadId : null,
+        });
+      } else {
+        result.errors.push({ line: lineNo, error: e.message });
+      }
     }
   });
   return result;
@@ -776,18 +942,27 @@ function mergeLeads(db, keepId, dropIds) {
       db.prepare('DELETE FROM leads WHERE id = ?').run(dropId);
     }
 
+    // The keeper may inherit an email from a dropped lead; it still may
+    // not collide with a THIRD lead that is not part of this merge.
+    const mergedEmailNorm = normalizeEmail(merged.email);
+    if (mergedEmailNorm && mergedEmailNorm !== normalizeEmail(keep.email)) {
+      const clash = findLeadByEmail(db, merged.email, [keepId, ...ids]);
+      if (clash) throw duplicateEmailError(clash, mergedEmailNorm);
+    }
+
     const setCols = FILL_FIELDS.map((f) => `${f} = @${f}`).join(', ');
     const params = {};
     for (const f of FILL_FIELDS) params[f] = merged[f] === undefined ? null : merged[f];
     db.prepare(
       `
-      UPDATE leads SET ${setCols}, tags=@tags, notes=@notes,
+      UPDATE leads SET ${setCols}, tags=@tags, notes=@notes, email_norm=@email_norm,
         updated_at=datetime('now') WHERE id=@id
     `
     ).run({
       ...params,
       tags: JSON.stringify([...tagSet]),
       notes: noteParts.join('\n\n').slice(0, 10000) || null,
+      email_norm: mergedEmailNorm,
       id: keepId,
     });
     logEvent(db, keepId, 'merged', `absorbed leads: ${ids.join(', ')}`);
@@ -1307,6 +1482,8 @@ module.exports = {
   CSV_MAX_BYTES,
   // helpers (exported for tests / other workstreams)
   normalizePhoneDigits,
+  normalizeEmail,
+  findLeadByEmail,
   normalizeName,
   domainFromWebsite,
   domainFromEmail,

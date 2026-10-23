@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS leads (
   category TEXT,
   phone TEXT,
   email TEXT,
+  email_norm TEXT DEFAULT '', -- normalizeEmail(email): trim+lowercase; one-email-one-lead key
   website TEXT,
   address TEXT,
   city TEXT,
@@ -34,6 +35,10 @@ CREATE TABLE IF NOT EXISTS leads (
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
+
+-- One email = one lead (per workspace DB): unique over non-empty
+-- normalized emails only; empty-email leads never collide.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_email_norm_unique ON leads(email_norm) WHERE email_norm <> '';
 
 CREATE TABLE IF NOT EXISTS lead_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
