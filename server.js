@@ -129,6 +129,8 @@ app.use(cors({
 // Stripe webhooks need the raw body for signature verification — mount before JSON parser.
 const stripeWebhook = require('./server/routes/stripeWebhook');
 app.use('/api/v1/billing/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
+const shopWebhook = require('./server/routes/shopWebhook');
+app.use('/api/v1/shop/webhook', express.raw({ type: 'application/json' }), shopWebhook);
 
 // Smaller default JSON; design/portal/website payloads need more room.
 app.use((req, res, next) => {

@@ -158,6 +158,21 @@ function ensureTables(db) {
       UNIQUE(lead_id, slug)
     );
 
+    CREATE TABLE IF NOT EXISTS ecommerce_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER NOT NULL,
+      product_id INTEGER,
+      product_name TEXT NOT NULL DEFAULT '',
+      amount_cents INTEGER NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'USD',
+      status TEXT NOT NULL DEFAULT 'pending',
+      stripe_session_id TEXT NOT NULL DEFAULT '',
+      stripe_payment_intent TEXT NOT NULL DEFAULT '',
+      customer_email TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS courses (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       lead_id INTEGER NOT NULL,
@@ -349,6 +364,8 @@ function ensureTables(db) {
 
     CREATE INDEX IF NOT EXISTS idx_blog_posts_lead ON blog_posts(lead_id);
     CREATE INDEX IF NOT EXISTS idx_ecom_products_lead ON ecommerce_products(lead_id);
+    CREATE INDEX IF NOT EXISTS idx_ecom_orders_lead ON ecommerce_orders(lead_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ecom_orders_session ON ecommerce_orders(stripe_session_id) WHERE stripe_session_id <> '';
     CREATE INDEX IF NOT EXISTS idx_courses_lead ON courses(lead_id);
     CREATE INDEX IF NOT EXISTS idx_course_lessons_course ON course_lessons(course_id);
     CREATE INDEX IF NOT EXISTS idx_gallery_albums_lead ON gallery_albums(lead_id);
@@ -2631,6 +2648,151 @@ function deleteProduct(db, leadId, id) {
   return { deleted: true, id: row.id };
 }
 
+/* ── Shop orders + Stripe checkout ── */
+
+function insertShopOrder(db, leadId, product) {
+  ensureTables(db);
+  const info = db.prepare(
+    `INSERT INTO ecommerce_orders (lead_id, product_id, product_name, amount_cents, currency, status)
+     VALUES (?, ?, ?, ?, ?, 'pending')`
+  ).run(Number(leadId), Number(product.id), String(product.name || ''), Number(product.price_cents) || 0, String(product.currency || 'USD'));
+  return db.prepare('SELECT * FROM ecommerce_orders WHERE id = ?').get(info.lastInsertRowid);
+}
+
+function updateShopOrder(db, orderId, patch) {
+  const sets = [];
+  const vals = [];
+  for (const [k, v] of Object.entries(patch || {})) {
+    if (!['status', 'stripe_session_id', 'stripe_payment_intent', 'customer_email'].includes(k)) continue;
+    sets.push(`${k} = ?`);
+    vals.push(v);
+  }
+  if (!sets.length) return;
+  sets.push("updated_at = datetime('now')");
+  vals.push(Number(orderId));
+  db.prepare(`UPDATE ecommerce_orders SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+}
+
+function getShopOrderBySession(db, sessionId) {
+  ensureTables(db);
+  return db.prepare('SELECT * FROM ecommerce_orders WHERE stripe_session_id = ?').get(String(sessionId || '')) || null;
+}
+
+function listShopOrders(db, leadId, { limit = 50 } = {}) {
+  ensureTables(db);
+  const n = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  return db.prepare('SELECT * FROM ecommerce_orders WHERE lead_id = ? ORDER BY id DESC LIMIT ?')
+    .all(Number(leadId), n);
+}
+
+/**
+ * Apply a verified Stripe webhook event to the matching shop order.
+ * Idempotent: orders are matched by checkout session id and terminal
+ * states are never downgraded. Returns { matched, orderId?, status? }.
+ */
+function applyShopStripeEvent(db, event) {
+  ensureTables(db);
+  const type = String((event && event.type) || '');
+  const obj = (event && event.data && event.data.object) || {};
+  let order = null;
+  if (type.startsWith('checkout.session.')) {
+    order = getShopOrderBySession(db, String(obj.id || ''));
+    if (!order) return { matched: false, reason: 'unknown session' };
+  } else if (type.startsWith('payment_intent.')) {
+    const oid = Number(obj.metadata && obj.metadata.bitpype_order_id);
+    if (!Number.isInteger(oid) || oid <= 0) return { matched: false, reason: 'no order reference' };
+    order = db.prepare('SELECT * FROM ecommerce_orders WHERE id = ?').get(oid) || null;
+    if (!order) return { matched: false, reason: 'unknown order' };
+  } else {
+    return { matched: false, reason: 'unhandled event type' };
+  }
+  if (order.status === 'paid') return { matched: true, orderId: order.id, status: 'paid' };
+  if (type === 'checkout.session.completed' || type === 'checkout.session.async_payment_succeeded') {
+    updateShopOrder(db, order.id, {
+      status: 'paid',
+      stripe_payment_intent: String(obj.payment_intent || order.stripe_payment_intent || ''),
+      customer_email: String((obj.customer_details && obj.customer_details.email) || obj.customer_email || order.customer_email || ''),
+    });
+    return { matched: true, orderId: order.id, status: 'paid' };
+  }
+  if (type === 'checkout.session.expired' || type === 'checkout.session.async_payment_failed') {
+    updateShopOrder(db, order.id, { status: type.endsWith('expired') ? 'expired' : 'failed' });
+    return { matched: true, orderId: order.id, status: type.endsWith('expired') ? 'expired' : 'failed' };
+  }
+  if (type === 'payment_intent.payment_failed') {
+    updateShopOrder(db, order.id, { status: 'failed' });
+    return { matched: true, orderId: order.id, status: 'failed' };
+  }
+  return { matched: true, orderId: order.id, status: order.status };
+}
+
+/**
+ * Create a Stripe Checkout Session for a shop product via the public
+ * module token. Prices are always read from the product row server-side.
+ * A product with a manual checkout_url keeps the legacy external-link
+ * behavior and never touches Stripe.
+ */
+async function createShopCheckoutByToken(db, token, { productId, returnUrl } = {}) {
+  ensureTables(db);
+  const row = db.prepare(
+    'SELECT * FROM site_module_embeds WHERE public_token = ?'
+  ).get(String(token || ''));
+  if (!row || row.module_type !== 'ecommerce') {
+    throw fail('NOT_FOUND', 'Shop module not found', 404);
+  }
+  const product = getProduct(db, row.lead_id, productId);
+  if (!product || product.status !== 'published') {
+    throw fail('NOT_FOUND', 'Product not found', 404);
+  }
+  if (product.checkout_url) {
+    return { mode: 'external', url: product.checkout_url };
+  }
+  const shopStripe = require('./shopStripe');
+  const stripe = shopStripe.getClient(db); // throws SHOP_STRIPE_NOT_CONFIGURED
+  const base = String(returnUrl || '').split('#')[0];
+  let parsed;
+  try { parsed = new URL(base); } catch { parsed = null; }
+  if (!parsed || !/^https?:$/.test(parsed.protocol)) {
+    throw fail('VALIDATION', 'A valid return URL is required for checkout', 400);
+  }
+  const sep = base.includes('?') ? '&' : '?';
+  const order = insertShopOrder(db, row.lead_id, product);
+  let session;
+  try {
+    session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      line_items: [{
+        quantity: 1,
+        price_data: {
+          currency: String(product.currency || 'USD').toLowerCase(),
+          unit_amount: Number(product.price_cents) || 0,
+          product_data: {
+            name: String(product.name || 'Product'),
+            ...(product.description ? { description: String(product.description).slice(0, 500) } : {}),
+            ...(product.image_url && /^https?:\/\//.test(product.image_url) ? { images: [product.image_url] } : {}),
+          },
+        },
+      }],
+      client_reference_id: String(order.id),
+      metadata: { bitpype_order_id: String(order.id), bitpype_lead_id: String(row.lead_id), bitpype_product_id: String(product.id) },
+      payment_intent_data: { metadata: { bitpype_order_id: String(order.id) } },
+      success_url: `${base}${sep}order=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${base}${sep}order=cancelled`,
+    });
+  } catch (e) {
+    updateShopOrder(db, order.id, { status: 'failed' });
+    const err = new Error(e && e.message ? `Stripe checkout failed: ${e.message}` : 'Stripe checkout failed');
+    err.code = 'SHOP_CHECKOUT_FAILED';
+    err.status = 502;
+    throw err;
+  }
+  updateShopOrder(db, order.id, {
+    stripe_session_id: String(session.id || ''),
+    stripe_payment_intent: String(session.payment_intent || ''),
+  });
+  return { mode: 'stripe', url: session.url, orderId: order.id, sessionId: session.id };
+}
+
 function formatPrice(cents, currency = 'USD') {
   const raw = Number(cents);
   if (!Number.isFinite(raw) || raw <= 0) return null;
@@ -4032,9 +4194,11 @@ function getPublicModuleByToken(db, token) {
     total_published = items.length;
     if (settings.post_limit != null) items = items.slice(0, settings.post_limit);
   } else if (type === 'ecommerce') {
+    const stripeReady = require('./shopStripe').isConfigured(db);
     items = listProducts(db, leadId, { includeDrafts: false }).map((p) => ({
       ...p,
       price_label: formatPrice(p.price_cents, p.currency),
+      stripe_checkout: stripeReady && !p.checkout_url,
     }));
   } else if (type === 'courses') items = listCourses(db, leadId, { includeDrafts: false, withLessons: true });
   else if (type === 'gallery') items = listAlbums(db, leadId, { includeDrafts: false, withImages: true });
@@ -4283,6 +4447,10 @@ module.exports = {
   getPublicModuleItem,
   getPublicBookingSlots,
   createPublicBookingByToken,
+  createShopCheckoutByToken,
+  listShopOrders,
+  applyShopStripeEvent,
+  getShopOrderBySession,
   portalSummary,
   embedBlockHtml,
 };

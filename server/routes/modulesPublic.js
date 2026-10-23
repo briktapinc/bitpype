@@ -15,6 +15,7 @@ const { assertWorkspaceExists } = require('../workspaceExists');
 const router = express.Router();
 const readLimit = rateLimit({ windowMs: 60 * 1000, max: 120 });
 const bookLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 40 });
+const checkoutLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 40 });
 const captcha = requireCaptcha();
 
 function fail(res, e, status = 400) {
@@ -68,6 +69,42 @@ router.get('/:token/slots', readLimit, async (req, res) => {
       serviceId: req.query.serviceId || req.query.service_id || null,
       serviceSlug: req.query.service || req.query.serviceSlug || null,
     }));
+    res.json({ ok: true, data: { ...data, workspaceId } });
+  } catch (e) { fail(res, e); }
+});
+
+/** Shop checkout: mint a Stripe Checkout Session for a product (price read server-side). */
+router.post('/:token/checkout', checkoutLimit, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    const body = req.body || {};
+    const data = await domain.withDb(workspaceId, (db) => siteModules.createShopCheckoutByToken(db, req.params.token, {
+      productId: body.productId || body.product_id || body.id,
+      returnUrl: body.returnUrl || body.return_url || '',
+    }));
+    res.json({ ok: true, data: { ...data, workspaceId } });
+  } catch (e) { fail(res, e); }
+});
+
+/** Shop order status for the post-checkout return page (session id is the credential). */
+router.get('/:token/order-status', readLimit, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    const sessionId = req.query.session_id || req.query.sessionId;
+    if (!sessionId) {
+      const err = new Error('session_id is required');
+      err.code = 'VALIDATION';
+      throw err;
+    }
+    const data = domain.withDb(workspaceId, (db) => {
+      const order = siteModules.getShopOrderBySession(db, sessionId);
+      if (!order) {
+        const e = new Error('Order not found');
+        e.code = 'NOT_FOUND';
+        throw e;
+      }
+      return { orderId: order.id, status: order.status, productName: order.product_name, amountCents: order.amount_cents, currency: order.currency };
+    });
     res.json({ ok: true, data: { ...data, workspaceId } });
   } catch (e) { fail(res, e); }
 });
