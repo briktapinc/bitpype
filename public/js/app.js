@@ -4104,6 +4104,7 @@ const SETTINGS_TABS = [
   ['sms', 'SMS', 'sec-sms'],
   ['social', 'Social', 'sec-meta'],
   ['cloudflare', 'Cloudflare', 'sec-cf'],
+  ['shop', 'Shop payments', 'sec-shop'],
   ['keys', 'Provider keys', 'sec-keys'],
   ['footer', 'Footer & scoring', 'sec-mail'],
 ];
@@ -4295,6 +4296,15 @@ async function pageSettings(param) {
           ${secret('cf.api_token', 'API token')}
           <div class="inline"><button class="btn primary" data-act="save" data-sec="sec-cf">Save Cloudflare settings</button><button class="btn" data-act="cf-test">Test connection</button><span class="msg" data-msg="sec-cf"></span></div>
           <div id="cf-out" class="hint" style="margin-top:8px"></div>
+        </section>
+
+        <section class="card" id="sec-shop"${showSec('sec-shop')}><h2>Shop payments (Stripe)</h2>
+          <p class="hint">Let shop customers pay by card through Stripe Checkout. Payments go directly to <b>your</b> Stripe account — BitPype never touches the money. Get the keys in your Stripe dashboard under Developers → API keys. A restricted key with only Checkout Sessions write permission is safest. Products that have their own checkout link keep using that link instead.</p>
+          ${f('shop.stripe.publishable_key', 'Publishable key', { placeholder: 'pk_live_…' })}
+          ${secret('shop.stripe.secret_key', 'Secret / restricted key', 'Write-only. Leave blank to keep the current value.')}
+          ${secret('shop.stripe.webhook_secret', 'Webhook signing secret', 'Write-only. From the webhook endpoint below.')}
+          <p class="hint">To record paid orders, add this endpoint in Stripe under Developers → Webhooks, subscribe to <code>checkout.session.completed</code>, <code>checkout.session.expired</code> and <code>payment_intent.payment_failed</code>, then paste its signing secret (whsec_…) above:<br><code>${esc((window.location.origin || '') + '/api/v1/shop/webhook/' + (api.getWorkspaceId() || ''))}</code></p>
+          ${save('sec-shop', 'Save shop payment settings')}
         </section>
 
         <section class="card" id="sec-keys"${showSec('sec-keys')}><h2>Provider keys</h2>

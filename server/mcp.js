@@ -227,6 +227,11 @@ function clientToolDefs() {
       inputSchema: schema({ id: ID, leadId: ID }, ['id']),
     },
     {
+      name: 'ecommerce.listOrders',
+      description: 'List Stripe checkout orders for a lead\'s shop (newest first). Orders are created by the public shop checkout and updated by the workspace\'s Stripe webhook. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, limit: { type: 'integer' } }),
+    },
+    {
       name: 'courses.list',
       description: 'List courses with lessons for a lead. Standard/Premium.',
       inputSchema: schema({ leadId: ID, includeDrafts: { type: 'boolean' } }),
@@ -1032,7 +1037,7 @@ async function callClientTool(ws, name, a, ctx = {}) {
   const moduleToolNames = new Set([
     'website.addModule', 'modules.list',
     'blog.list', 'blog.create', 'blog.update', 'blog.delete',
-    'ecommerce.list', 'ecommerce.create', 'ecommerce.update', 'ecommerce.delete',
+    'ecommerce.list', 'ecommerce.create', 'ecommerce.update', 'ecommerce.delete', 'ecommerce.listOrders',
     'courses.list', 'courses.create', 'courses.update', 'courses.delete', 'courses.addLesson',
     'gallery.list', 'gallery.create', 'gallery.update', 'gallery.delete', 'gallery.addImage',
     'directory.list', 'directory.create', 'directory.update', 'directory.delete',
@@ -1230,6 +1235,15 @@ async function callClientTool(ws, name, a, ctx = {}) {
       plan: planId,
       products: modules.listProducts(db, leadId, { includeDrafts: a.includeDrafts !== false })
         .map((p) => ({ ...p, price_label: modules.formatPrice(p.price_cents, p.currency) })),
+    }));
+  }
+  if (name === 'ecommerce.listOrders') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      stripe_configured: require('./shopStripe').isConfigured(db),
+      orders: modules.listShopOrders(db, leadId, { limit: a.limit || 50 }),
     }));
   }
   if (name === 'ecommerce.create') {
