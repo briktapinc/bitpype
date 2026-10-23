@@ -888,6 +888,37 @@ function buildNavLinks(pages, opts = {}) {
   return links;
 }
 
+/**
+ * Footer link tree — the FULL page set.
+ *
+ * Chrome rule (nav vs footer): both lists are built from the same pages[]
+ * in the same syncFreeformNavOrder pass. The primary nav (buildNavLinks)
+ * shows the navVisible subset — navVisible:false hides a page from the nav
+ * only. The footer shows every depth-0 page and its children, INCLUDING
+ * navVisible:false pages (the FAQ page belongs in the footer by platform
+ * convention) and pages inserted by modules (Shop, Blog, …), so a module
+ * page can never appear in the nav while missing from the footer.
+ * opts.excludeSlugs (slugs in any form) drops pages the caller hid during
+ * this same sync — syncSiteModuleEmbeds passes module shells whose module
+ * is inactive, which must leave BOTH chrome lists.
+ */
+function buildFooterLinks(pages, opts = {}) {
+  const list = Array.isArray(pages) ? pages : [];
+  const exclude = new Set((Array.isArray(opts.excludeSlugs) ? opts.excludeSlugs : []).map((s) => slugKey(s)));
+  const visual = menuVisualList(list);
+  const links = [];
+  visual.forEach((item) => {
+    if (item.depth !== 0) return;
+    if (exclude.has(slugKey(item.slug))) return;
+    const children = visual
+      .filter((c) => c.depth === 1 && slugKey(c.parentSlug) === pageSlugKey({ slug: item.slug }))
+      .filter((c) => !exclude.has(slugKey(c.slug)))
+      .map((c) => ({ label: c.title, href: c.file, slug: c.slug }));
+    links.push({ label: item.title, href: item.file, slug: item.slug, children });
+  });
+  return links;
+}
+
 function escapeHtml(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;')
@@ -1078,12 +1109,16 @@ function syncFreeformNavOrder(pages, opts = {}) {
   const fileSet = new Set(fileOrder);
   const hrefIndex = buildPageHrefIndex(list);
   const navLinks = buildNavLinks(list, { preview: false });
+  const footerLinks = buildFooterLinks(list, { excludeSlugs: opts.footerExcludeSlugs });
   const rebuildOpts = {
     activeModules: Array.isArray(opts.activeModules) ? opts.activeModules : [],
   };
   let rebuildPrimary = null;
+  let rebuildFooter = null;
   try {
-    rebuildPrimary = require('../server/siteModules').rebuildFreeformPrimaryNav;
+    const siteModules = require('../server/siteModules');
+    rebuildPrimary = siteModules.rebuildFreeformPrimaryNav;
+    rebuildFooter = siteModules.rebuildFreeformFooterLinks;
   } catch {
     /* electron / tests without server */
   }
@@ -1110,27 +1145,47 @@ function syncFreeformNavOrder(pages, opts = {}) {
       }
       try {
         const deduped = engine.assertAndDedupeNavHtml(html, `syncFreeformNavOrder:${page.slug || ''}`);
-        if (deduped !== html) next = Object.assign({}, next, { html: deduped });
+        if (deduped !== html) {
+          next = Object.assign({}, next, { html: deduped });
+          html = deduped;
+        }
       } catch {
         /* optional */
       }
+      // Same pass: footer link row follows the footer rule (full page set).
+      if (typeof rebuildFooter === 'function') {
+        const foot = rebuildFooter(html, footerLinks, list, rebuildOpts);
+        if (foot !== html) {
+          next = Object.assign({}, next, { html: foot });
+          html = foot;
+        }
+      }
     }
 
-    // Freestyle nav chrome lives in sections[nav].content.html on modular sites.
+    // Freestyle nav chrome lives in sections[nav].content.html on modular sites;
+    // footer chrome likewise in sections[footer].content.html — same pass.
     if (hasSections && typeof rebuildPrimary === 'function') {
       let sectionsChanged = false;
       const sections = page.sections.map((sec) => {
-        if (!sec || sec.type !== 'nav' || !sec.content || typeof sec.content.html !== 'string') {
+        if (!sec || !sec.content || typeof sec.content.html !== 'string') {
           return sec;
         }
+        const isNavSec = sec.type === 'nav';
+        const isFooterSec = sec.type === 'footer';
+        if (!isNavSec && !isFooterSec) return sec;
         let html = sec.content.html;
         if (!html.trim()) return sec;
-        const rebuilt = rebuildPrimary(html, navLinks, list, rebuildOpts);
-        if (rebuilt !== html) html = rebuilt;
-        try {
-          html = engine.assertAndDedupeNavHtml(html, `syncFreeformNavOrder:nav:${page.slug || ''}`);
-        } catch {
-          /* optional */
+        if (isNavSec) {
+          const rebuilt = rebuildPrimary(html, navLinks, list, rebuildOpts);
+          if (rebuilt !== html) html = rebuilt;
+          try {
+            html = engine.assertAndDedupeNavHtml(html, `syncFreeformNavOrder:nav:${page.slug || ''}`);
+          } catch {
+            /* optional */
+          }
+        } else if (typeof rebuildFooter === 'function') {
+          const rebuilt = rebuildFooter(html, footerLinks, list, rebuildOpts);
+          if (rebuilt !== html) html = rebuilt;
         }
         if (html === sec.content.html) return sec;
         sectionsChanged = true;
@@ -1178,6 +1233,7 @@ module.exports = {
   ensureUniquePageSlug,
   syncFreeformNavOrder,
   buildNavLinks,
+  buildFooterLinks,
   renderNavLinksHtml,
   moveItem,
 };

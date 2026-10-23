@@ -1934,15 +1934,42 @@ function managedNavRangesIn(html, container) {
 }
 
 /**
+ * Footer link row: the link list inside the page footer, never the header/nav.
+ * Picks the footer range whose row carries the most page links, mirroring
+ * choosePrimaryNav's container picking so the footer can be rebuilt with the
+ * same machinery against the footer link set.
+ */
+function chooseFooterLinkRow(html) {
+  let best = null;
+  for (const footer of collectRanges(html, 'footer')) {
+    const row = pickLinkRow(html, footer);
+    if (!row || row.pageLinks < 1) continue;
+    if (!best || row.pageLinks > best.pageLinks) {
+      best = {
+        scope: footer,
+        container: row.container,
+        links: row.links,
+        useLi: row.useLi,
+        pageLinks: row.pageLinks,
+        start: footer.start,
+      };
+    }
+  }
+  return best;
+}
+
+/**
  * Rebuild the primary header/nav link row to match portal menu order + navVisible.
  * Preserves logo/CTA outside the link row. Module pages (Blog/Shop/…) participate
  * like any other page via navLinks; old managed leftovers are cleared from the row.
+ * opts.region === 'footer' rebuilds the footer link row instead, against the
+ * footer link set (see buildFooterLinks in src/siteStructure.js for the rule).
  */
 function rebuildFreeformPrimaryNav(html, navLinks, pages, opts = {}) {
   const src = String(html || '');
   if (!src.trim() || !Array.isArray(pages) || pages.length < 2) return src;
   const links = Array.isArray(navLinks) ? navLinks : [];
-  const chosen = choosePrimaryNav(src);
+  const chosen = opts.region === 'footer' ? chooseFooterLinkRow(src) : choosePrimaryNav(src);
   if (!chosen || !chosen.container) return src;
 
   const container = chosen.container;
@@ -2064,12 +2091,23 @@ function rebuildFreeformPrimaryNav(html, navLinks, pages, opts = {}) {
   try {
     const eng = require('../src/websiteEngine');
     if (typeof eng.assertAndDedupeNavHtml === 'function') {
-      return eng.assertAndDedupeNavHtml(out, 'rebuildFreeformPrimaryNav');
+      return eng.assertAndDedupeNavHtml(
+        out,
+        opts.region === 'footer' ? 'rebuildFreeformFooterLinks' : 'rebuildFreeformPrimaryNav'
+      );
     }
   } catch {
     /* optional */
   }
   return out;
+}
+
+/**
+ * Rebuild the footer link row to the footer link set (full page set incl.
+ * module pages and navVisible:false pages) in the same sync pass as the nav.
+ */
+function rebuildFreeformFooterLinks(html, footerLinks, pages, opts = {}) {
+  return rebuildFreeformPrimaryNav(html, footerLinks, pages, Object.assign({}, opts, { region: 'footer' }));
 }
 
 function templateAnchor(anchors) {
@@ -2437,6 +2475,7 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
   // Detached / disabled module pages stay in the site but leave the menu.
   // attachModule passes revealSlugs so re-attach restores menu presence without
   // undoing a client hide while the module is still active.
+  const footerExcludeSlugs = [];
   for (const page of pages) {
     const slug = normalizeSlug(page && page.slug);
     if (!moduleDefaultSlugs.has(slug)) continue;
@@ -2447,6 +2486,9 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
       delete page.hidden_in_nav;
     } else if (!activeSlugs.has(slug) && pageIsModuleShell(page)) {
       page.navVisible = false;
+      // Hidden module shells leave the footer too — buildFooterLinks otherwise
+      // lists every page, including navVisible:false ones like FAQ (by design).
+      footerExcludeSlugs.push(slug);
     }
   }
 
@@ -2461,6 +2503,7 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
   try {
     pages = require('../src/siteStructure').syncFreeformNavOrder(pages, {
       activeModules: navItems,
+      footerExcludeSlugs,
     });
   } catch (e) {
     console.warn('[siteModules] syncFreeformNavOrder after module sync:', e && e.message);
@@ -4573,6 +4616,7 @@ module.exports = {
   syncSiteModuleEmbeds,
   syncPublishedModules,
   rebuildFreeformPrimaryNav,
+  rebuildFreeformFooterLinks,
   shellHtmlFromPages,
   fillShellMain,
   PAGE_CHROME_CSS,
