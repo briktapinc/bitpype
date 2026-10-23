@@ -1123,7 +1123,50 @@ function syncFreeformNavOrder(pages, opts = {}) {
     /* electron / tests without server */
   }
 
-  return list.map((page) => {
+  // Optional telemetry (opts.report): callers pass a report object and get
+  // back what normalization actually did — which page links were inserted /
+  // removed / deduped across nav + footer, and how many pages changed.
+  // Counting is keyed by target page (via hrefIndex), not raw href text, so
+  // '#anchor' → file rewrites from normalizePagesNavLinks don't read as churn.
+  const report = opts.report && typeof opts.report === 'object' ? opts.report : null;
+  if (report) {
+    if (!(report.inserted instanceof Set)) report.inserted = new Set();
+    if (!(report.removed instanceof Set)) report.removed = new Set();
+    if (!(report.touchedPages instanceof Set)) report.touchedPages = new Set();
+    if (typeof report.deduped !== 'number') report.deduped = 0;
+  }
+  const pageTargetCounts = (html) => {
+    const counts = new Map();
+    const re = /<a\b[^>]*\bhref\s*=\s*["']([^"']+)["']/gi;
+    let m;
+    const s = String(html || '');
+    while ((m = re.exec(s))) {
+      const pi = hrefPageIndex(m[1], hrefIndex);
+      if (pi != null) counts.set(pi, (counts.get(pi) || 0) + 1);
+    }
+    return counts;
+  };
+  const noteChunk = (pageIndex, beforeHtml, afterHtml) => {
+    if (!report || beforeHtml === afterHtml) return;
+    const before = pageTargetCounts(beforeHtml);
+    const after = pageTargetCounts(afterHtml);
+    // pagesChanged counts pages whose link SET changed; the rebuild
+    // re-renders chrome markup every pass, so byte churn alone is not a change.
+    let linkChanged = false;
+    for (const pi of new Set([...before.keys(), ...after.keys()])) {
+      const b = before.get(pi) || 0;
+      const a = after.get(pi) || 0;
+      if (a === b) continue;
+      linkChanged = true;
+      const file = fileOrder[pi];
+      if (a > b && b === 0) report.inserted.add(file);
+      else if (b > a && a === 0) report.removed.add(file);
+      else if (b > a) report.deduped += b - a;
+    }
+    if (linkChanged) report.touchedPages.add(pageIndex);
+  };
+
+  return list.map((page, pageIndex) => {
     if (!page) return page;
     let next = page;
     const hasSections = Array.isArray(page.sections) && page.sections.length > 0;
@@ -1160,6 +1203,7 @@ function syncFreeformNavOrder(pages, opts = {}) {
           html = foot;
         }
       }
+      noteChunk(pageIndex, page.html, html);
     }
 
     // Freestyle nav chrome lives in sections[nav].content.html on modular sites;
@@ -1187,6 +1231,7 @@ function syncFreeformNavOrder(pages, opts = {}) {
           const rebuilt = rebuildFooter(html, footerLinks, list, rebuildOpts);
           if (rebuilt !== html) html = rebuilt;
         }
+        noteChunk(pageIndex, sec.content.html, html);
         if (html === sec.content.html) return sec;
         sectionsChanged = true;
         return Object.assign({}, sec, {

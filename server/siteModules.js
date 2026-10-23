@@ -2275,6 +2275,41 @@ function pageIsModuleShell(page) {
   return false;
 }
 
+/**
+ * True when a sections-based page carries real authored copy outside its
+ * chrome (nav/footer) sections. pageIsModuleShell reads page.html only, so
+ * it calls every sections page a shell; a platform-created module shell's
+ * body is just the page title plus the default placeholder copy.
+ */
+function pageHasAuthoredContent(page) {
+  if (!page || !Array.isArray(page.sections)) return false;
+  const title = String(page.title || '')
+    .trim()
+    .toLowerCase();
+  let text = page.sections
+    .filter((sec) => sec && sec.type !== 'nav' && sec.type !== 'footer')
+    .map((sec) => {
+      const c = (sec && sec.content) || {};
+      return [c.html, c.body, c.text, c.headline, c.title].filter((v) => typeof v === 'string').join(' ');
+    })
+    .join(' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/add your content here\.?/gi, ' ')
+    .replace(/write this section,? or use \+ to add another\.?/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  // Platform-injected module intro copy is boilerplate, not authored content.
+  for (const intro of Object.values(MODULE_PAGE_INTRO)) {
+    text = text.split(String(intro).toLowerCase()).join(' ');
+  }
+  text = text.replace(/\s+/g, ' ').trim();
+  if (!text) return false;
+  return text !== title;
+}
+
 function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
   ensureTables(db);
   const site = db
@@ -2469,13 +2504,17 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
   const activeSlugs = new Set(navItems.map((it) => normalizeSlug(it.slug)));
   const moduleDefaultSlugs = new Set(
     Object.values(MODULE_META)
-      .map((m) => normalizeSlug(m.defaultSlug))
+      // Drop empty defaultSlugs BEFORE normalizing: '' normalizes to 'index',
+      // which would otherwise treat the home page as a module-default page.
+      .map((m) => String(m.defaultSlug || '').trim())
       .filter(Boolean)
+      .map((s) => normalizeSlug(s))
   );
   // Detached / disabled module pages stay in the site but leave the menu.
   // attachModule passes revealSlugs so re-attach restores menu presence without
   // undoing a client hide while the module is still active.
   const footerExcludeSlugs = [];
+  const navRevealed = [];
   for (const page of pages) {
     const slug = normalizeSlug(page && page.slug);
     if (!moduleDefaultSlugs.has(slug)) continue;
@@ -2484,11 +2523,16 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
       delete page.nav_visible;
       delete page.hiddenInNav;
       delete page.hidden_in_nav;
+      navRevealed.push(slug);
     } else if (!activeSlugs.has(slug) && pageIsModuleShell(page)) {
       page.navVisible = false;
       // Hidden module shells leave the footer too — buildFooterLinks otherwise
       // lists every page, including navVisible:false ones like FAQ (by design).
-      footerExcludeSlugs.push(slug);
+      // Only true shells are excluded: pageIsModuleShell cannot judge
+      // sections-based pages (it reads page.html only), so a sections page
+      // carrying real authored copy — e.g. a hand-written FAQ page at the faq
+      // slug — keeps its footer place.
+      if (!pageHasAuthoredContent(page)) footerExcludeSlugs.push(slug);
     }
   }
 
@@ -2500,11 +2544,24 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
     page.html = next;
   }
 
+  // Normalization telemetry: navInserted above only counts insertModuleNavLinks
+  // edits to freeform page.html, so on section-based sites it read 0 while
+  // syncFreeformNavOrder rewrote every nav. navSync reports what the
+  // normalization pass itself inserted / removed / deduped (nav + footer).
+  const navReport = { inserted: new Set(), removed: new Set(), deduped: 0, touchedPages: new Set() };
+  let navSync = null;
   try {
     pages = require('../src/siteStructure').syncFreeformNavOrder(pages, {
       activeModules: navItems,
       footerExcludeSlugs,
+      report: navReport,
     });
+    navSync = {
+      pagesChanged: navReport.touchedPages.size,
+      inserted: [...navReport.inserted].sort(),
+      removed: [...navReport.removed].sort(),
+      deduped: navReport.deduped,
+    };
   } catch (e) {
     console.warn('[siteModules] syncFreeformNavOrder after module sync:', e && e.message);
   }
@@ -2528,6 +2585,9 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
     embeds: embeds.length,
     pages: byPage.size,
     navInserted,
+    navSync,
+    navHidden: footerExcludeSlugs,
+    navRevealed,
     authorSkipped,
     authorMode: true,
     chatbot: chatbotSync,
