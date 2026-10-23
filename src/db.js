@@ -32,7 +32,11 @@ function initDb() {
 /** Close the database cleanly (call on app quit — avoids native teardown crashes). */
 function closeDb() {
   if (db) {
-    try { db.close(); } catch { /* already closed */ }
+    try {
+      db.close();
+    } catch {
+      /* already closed */
+    }
     db = null;
   }
 }

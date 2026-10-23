@@ -7,14 +7,19 @@ const { requireWorkspace, requireRole, requireSubscription } = require('../middl
 const router = express.Router();
 router.use(requireWorkspace, requireSubscription, requireRole('owner', 'admin'));
 
-function ok(res, data) { res.json({ ok: true, data }); }
+function ok(res, data) {
+  res.json({ ok: true, data });
+}
 function fail(res, e, status = 400) {
   res.status(e.code === 'NOT_FOUND' ? 404 : status).json({ ok: false, error: e.message || String(e), code: e.code });
 }
 
 router.get('/', async (req, res) => {
-  try { ok(res, { invites: await invites.listInvites(req.auth.workspaceId) }); }
-  catch (e) { fail(res, e, 500); }
+  try {
+    ok(res, { invites: await invites.listInvites(req.auth.workspaceId) });
+  } catch (e) {
+    fail(res, e, 500);
+  }
 });
 
 router.post('/', async (req, res) => {
@@ -26,7 +31,9 @@ router.post('/', async (req, res) => {
       invitedBy: req.auth.userId || req.session.userId,
     });
     ok(res, data);
-  } catch (e) { fail(res, e); }
+  } catch (e) {
+    fail(res, e);
+  }
 });
 
 module.exports = router;

@@ -47,10 +47,13 @@ function portalToolDefs() {
       name: 'site.editText',
       description:
         'Inline text edits from portal edit mode. Prefer restyle/reuse over duplicating nav CTAs or forms. edits: [{ id: "page:section:path", text: "…" }]. Locked paths (phone, email, address) are rejected.',
-      inputSchema: schema({
-        leadId: ID,
-        edits: { type: 'array', items: { type: 'object' } },
-      }, ['edits']),
+      inputSchema: schema(
+        {
+          leadId: ID,
+          edits: { type: 'array', items: { type: 'object' } },
+        },
+        ['edits']
+      ),
     },
     {
       name: 'site.editListItem',
@@ -70,29 +73,34 @@ function portalToolDefs() {
       name: 'site.replaceImage',
       description:
         'Replace a site image (replaceSrc e.g. images/hero.jpg) with base64 data + mimeType. Max ~5.5MB. Rematerializes previews.',
-      inputSchema: schema({
-        leadId: ID,
-        replaceSrc: STR,
-        src: STR,
-        data: STR,
-        mimeType: STR,
-      }, ['replaceSrc', 'data']),
+      inputSchema: schema(
+        {
+          leadId: ID,
+          replaceSrc: STR,
+          src: STR,
+          data: STR,
+          mimeType: STR,
+        },
+        ['replaceSrc', 'data']
+      ),
     },
     {
       name: 'site.generateImage',
       description:
         'AI-generate and replace a site image (replaceSrc + prompt). Premium: images included; Free/Standard may charge credits.',
-      inputSchema: schema({
-        leadId: ID,
-        replaceSrc: STR,
-        src: STR,
-        prompt: STR,
-      }, ['replaceSrc', 'prompt']),
+      inputSchema: schema(
+        {
+          leadId: ID,
+          replaceSrc: STR,
+          src: STR,
+          prompt: STR,
+        },
+        ['replaceSrc', 'prompt']
+      ),
     },
     {
       name: 'site.setLogo',
-      description:
-        'Set header logo: mode text (text brand) or image with data+mimeType. Optional brandName.',
+      description: 'Set header logo: mode text (text brand) or image with data+mimeType. Optional brandName.',
       inputSchema: schema({
         leadId: ID,
         mode: { type: 'string', enum: ['text', 'image'] },
@@ -111,19 +119,22 @@ function portalToolDefs() {
       name: 'pages.structure.update',
       description:
         'Reorder/nest menu or sections, toggle nav visibility, add page (+ nav), insert module section. Pass scope menu|sections; action move|nest|unnest|togglenav|addpage|insertmodule; fromIndex, direction ±1, pageIndex, title, slug, moduleType, afterIndex. Same body as portal POST /site/structure.',
-      inputSchema: schema({
-        leadId: ID,
-        scope: { type: 'string', enum: ['menu', 'sections'] },
-        action: STR,
-        fromIndex: { type: 'integer', minimum: 0 },
-        direction: { type: 'integer', enum: [-1, 1] },
-        pageIndex: { type: 'integer', minimum: 0 },
-        afterIndex: { type: 'integer', minimum: 0 },
-        title: STR,
-        slug: STR,
-        moduleType: STR,
-        module_type: STR,
-      }, ['scope']),
+      inputSchema: schema(
+        {
+          leadId: ID,
+          scope: { type: 'string', enum: ['menu', 'sections'] },
+          action: STR,
+          fromIndex: { type: 'integer', minimum: 0 },
+          direction: { type: 'integer', enum: [-1, 1] },
+          pageIndex: { type: 'integer', minimum: 0 },
+          afterIndex: { type: 'integer', minimum: 0 },
+          title: STR,
+          slug: STR,
+          moduleType: STR,
+          module_type: STR,
+        },
+        ['scope']
+      ),
     },
     {
       name: 'theme.get',
@@ -182,8 +193,7 @@ function portalToolDefs() {
     },
     {
       name: 'chatbot.getSession',
-      description:
-        'CLIENT MCP ONLY. Read one chat session + messages for the linked lead. sessionId required.',
+      description: 'CLIENT MCP ONLY. Read one chat session + messages for the linked lead. sessionId required.',
       inputSchema: schema({ leadId: ID, sessionId: ID, id: ID }),
     },
     {
@@ -262,22 +272,27 @@ function portalToolDefs() {
       name: 'modules.uploadImage',
       description:
         'Upload image for module item fields (cover, gallery, etc.): moduleType, field, data, mimeType. Returns public URL path.',
-      inputSchema: schema({
-        leadId: ID,
-        moduleType: STR,
-        field: STR,
-        data: STR,
-        mimeType: STR,
-      }, ['moduleType', 'data']),
+      inputSchema: schema(
+        {
+          leadId: ID,
+          moduleType: STR,
+          field: STR,
+          data: STR,
+          mimeType: STR,
+        },
+        ['moduleType', 'data']
+      ),
     },
     {
       name: 'social.accounts.list',
-      description: 'Connected Meta accounts for scheduling (read-only). Post scheduling tools require Premium socialMcpSchedule.',
+      description:
+        'Connected Meta accounts for scheduling (read-only). Post scheduling tools require Premium socialMcpSchedule.',
       inputSchema: schema({ leadId: ID }),
     },
     {
       name: 'social.calendar',
-      description: 'Social posts for a calendar month (same as portal Social tab). Premium socialMcpSchedule for MCP edits.',
+      description:
+        'Social posts for a calendar month (same as portal Social tab). Premium socialMcpSchedule for MCP edits.',
       inputSchema: schema({
         leadId: ID,
         year: { type: 'integer' },
@@ -316,10 +331,13 @@ function portalToolDefs() {
     {
       name: 'billing.changePlan',
       description: 'Switch between standard and premium on an active subscription (proration).',
-      inputSchema: schema({
-        leadId: ID,
-        planId: { type: 'string', enum: ['standard', 'premium'] },
-      }, ['planId']),
+      inputSchema: schema(
+        {
+          leadId: ID,
+          planId: { type: 'string', enum: ['standard', 'premium'] },
+        },
+        ['planId']
+      ),
     },
     {
       name: 'billing.cancel',
@@ -343,12 +361,15 @@ function portalToolDefs() {
       name: 'changes.submit',
       description:
         'Submit a design change request (portal Changes tab). Runs instruction-review first (inspect site → classify SAFE|BETTER_PATH|PUSH_BACK → plan). Returns classification, clientMessage, change_request_review log. kind redesign|improvements, message required. designChangeRequests entitlement.',
-      inputSchema: schema({
-        leadId: ID,
-        message: STR,
-        instructions: STR,
-        kind: { type: 'string', enum: ['redesign', 'improvements'] },
-      }, ['message']),
+      inputSchema: schema(
+        {
+          leadId: ID,
+          message: STR,
+          instructions: STR,
+          kind: { type: 'string', enum: ['redesign', 'improvements'] },
+        },
+        ['message']
+      ),
     },
     {
       name: 'leadscout.contacts.list',
@@ -374,8 +395,7 @@ function portalToolDefs() {
     },
     {
       name: 'leadscout.health',
-      description:
-        'LeadScout capture-health: open failures that need retry (never silently dropped).',
+      description: 'LeadScout capture-health: open failures that need retry (never silently dropped).',
       inputSchema: schema({ leadId: ID }),
     },
   ];
@@ -403,7 +423,9 @@ function assertLeadScope(ctx, leadId) {
  */
 async function resolveClientEmail(workspaceId, leadId, ctx = {}) {
   if (ctx && ctx.clientEmail) {
-    return String(ctx.clientEmail || '').trim().toLowerCase();
+    return String(ctx.clientEmail || '')
+      .trim()
+      .toLowerCase();
   }
   return portal.activeEmailForLead(workspaceId, leadId);
 }
@@ -427,9 +449,7 @@ async function dispatchPortalTool(ws, name, a, ctx = {}) {
   const portalNames = new Set(portalToolDefs().map((t) => t.name));
   if (!portalNames.has(name)) return undefined;
 
-  const leadScoutTools = new Set([
-    'leadscout.contacts.list', 'leadscout.contacts.get', 'leadscout.health',
-  ]);
+  const leadScoutTools = new Set(['leadscout.contacts.list', 'leadscout.contacts.get', 'leadscout.health']);
   // LeadScout can run workspace-wide without a pinned lead (ws_ tokens).
   // Client-scoped tokens still require / infer leadId for site-filtered lists.
   let leadId = resolveLeadId(ctx, a.leadId);
@@ -442,9 +462,7 @@ async function dispatchPortalTool(ws, name, a, ctx = {}) {
     a = { ...a, allSites: false };
   }
 
-  const clientEmail = leadId
-    ? await resolveClientEmail(ws, leadId, ctx)
-    : '';
+  const clientEmail = leadId ? await resolveClientEmail(ws, leadId, ctx) : '';
   const { planId, entitlements } = await planEntitlements(ws, clientEmail);
 
   const requireEnt = (key, msg) => {
@@ -454,11 +472,16 @@ async function dispatchPortalTool(ws, name, a, ctx = {}) {
   if (name === 'leadscout.contacts.list') {
     const allSites = !ctx.leadId && (a.allSites === true || !leadId);
     if (!leadId && !allSites) throw new Error('leadId is required (or pass allSites:true on a workspace token)');
-    const contacts = portal.listLeadScoutContacts(ws, leadId, {
-      q: a.q,
-      limit: a.limit,
-      offset: a.offset,
-    }, { workspaceWide: allSites });
+    const contacts = portal.listLeadScoutContacts(
+      ws,
+      leadId,
+      {
+        q: a.q,
+        limit: a.limit,
+        offset: a.offset,
+      },
+      { workspaceWide: allSites }
+    );
     const health = portal.leadScoutHealth(ws, leadId, { workspaceWide: allSites });
     return {
       plan: planId,
@@ -621,9 +644,10 @@ async function dispatchPortalTool(ws, name, a, ctx = {}) {
     return {
       plan: planId,
       embed_mode: 'js',
-      note: String(moduleType || '').toLowerCase() === 'chatbot'
-        ? 'Chatbot is injected sitewide (floating bubble). Call site.publish. Replies use chatbot.* client MCP tools only — not admin design.*/lead.*.'
-        : 'Call site.publish after attach so the public site picks up the mount.',
+      note:
+        String(moduleType || '').toLowerCase() === 'chatbot'
+          ? 'Chatbot is injected sitewide (floating bubble). Call site.publish. Replies use chatbot.* client MCP tools only — not admin design.*/lead.*.'
+          : 'Call site.publish after attach so the public site picks up the mount.',
       ...out,
     };
   }
@@ -704,9 +728,15 @@ async function dispatchPortalTool(ws, name, a, ctx = {}) {
   }
 
   const chatbotTools = new Set([
-    'chatbot.pending', 'chatbot.next', 'chatbot.getSession', 'chatbot.reply',
-    'chatbot.escalate', 'chatbot.knowledge.list', 'chatbot.knowledge.add',
-    'chatbot.knowledge.upload', 'chatbot.actions',
+    'chatbot.pending',
+    'chatbot.next',
+    'chatbot.getSession',
+    'chatbot.reply',
+    'chatbot.escalate',
+    'chatbot.knowledge.list',
+    'chatbot.knowledge.add',
+    'chatbot.knowledge.upload',
+    'chatbot.actions',
   ]);
   if (chatbotTools.has(name)) {
     requireEnt('chatbot', 'Chatbot requires Standard or Premium.');
@@ -778,13 +808,15 @@ async function dispatchPortalTool(ws, name, a, ctx = {}) {
     if (name === 'chatbot.knowledge.upload') {
       const storedList = await chat.storeKnowledgeUploads(ws, leadId, a);
       return domain.withDb(ws, (db) => {
-        const items = storedList.map((stored) => chat.addKnowledge(db, leadId, {
-          kind: 'doc',
-          title: a.title || stored.title,
-          content_text: stored.content_text,
-          file_name: stored.file_name,
-          file_path: stored.file_path,
-        }));
+        const items = storedList.map((stored) =>
+          chat.addKnowledge(db, leadId, {
+            kind: 'doc',
+            title: a.title || stored.title,
+            content_text: stored.content_text,
+            file_name: stored.file_name,
+            file_path: stored.file_path,
+          })
+        );
         return {
           plan: planId,
           item: items[0] || null,

@@ -6,9 +6,9 @@ const chatbot = require('../server/chatbot');
 const leadId = Number(process.argv[2] || 15);
 const dbPath = process.env.DB_PATH || '/app/data/scout.db';
 const db = new Database(dbPath);
-const row = db.prepare(
-  'SELECT id, lead_id, pages_json FROM websites WHERE lead_id=? ORDER BY id DESC LIMIT 1'
-).get(leadId);
+const row = db
+  .prepare('SELECT id, lead_id, pages_json FROM websites WHERE lead_id=? ORDER BY id DESC LIMIT 1')
+  .get(leadId);
 if (!row) {
   console.error('no website for lead', leadId);
   process.exit(1);

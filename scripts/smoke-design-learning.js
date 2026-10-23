@@ -36,29 +36,32 @@ learning.observeEmailMessage(db, {
   source: 'paste',
 });
 
-learning.maybeDistill(db, { force: true }).then((d) => {
-  console.log('distill', { ok: d.ok, reason: d.reason, ai_used: d.ai_used, playbook_count: d.playbook_count });
-  const playbook = learning.getPlaybook(db);
-  console.log('playbook len', playbook.length);
-  const brief = { constraints: [], job_type: 'website', site_shape: 'landing', instruction: 'Build site' };
-  learning.attachLessonsToBrief(db, brief);
-  console.log('learned_lessons', brief.learned_lessons && brief.learned_lessons.length);
-  console.log('status', learning.getStatus(db));
+learning
+  .maybeDistill(db, { force: true })
+  .then((d) => {
+    console.log('distill', { ok: d.ok, reason: d.reason, ai_used: d.ai_used, playbook_count: d.playbook_count });
+    const playbook = learning.getPlaybook(db);
+    console.log('playbook len', playbook.length);
+    const brief = { constraints: [], job_type: 'website', site_shape: 'landing', instruction: 'Build site' };
+    learning.attachLessonsToBrief(db, brief);
+    console.log('learned_lessons', brief.learned_lessons && brief.learned_lessons.length);
+    console.log('status', learning.getStatus(db));
 
-  const catalog = require('../src/mcpCatalog');
-  if (!catalog.tools.some((t) => t.name === 'design.lessons')) {
-    throw new Error('mcpCatalog missing design.lessons');
-  }
-  const mcpSrc = fs.readFileSync(path.join(__dirname, '../src/mcp.js'), 'utf8');
-  if (!mcpSrc.includes("'design.lessons'")) throw new Error('mcp.js missing design.lessons tool');
+    const catalog = require('../src/mcpCatalog');
+    if (!catalog.tools.some((t) => t.name === 'design.lessons')) {
+      throw new Error('mcpCatalog missing design.lessons');
+    }
+    const mcpSrc = fs.readFileSync(path.join(__dirname, '../src/mcp.js'), 'utf8');
+    if (!mcpSrc.includes("'design.lessons'")) throw new Error('mcp.js missing design.lessons tool');
 
-  // buildBrief path
-  const design = require('../src/designJobs');
-  design.ensureTables(db);
-  const b = design.buildBrief(db, null, 'Make a logo', 'logo', null);
-  if (!Array.isArray(b.learned_lessons)) throw new Error('buildBrief missing learned_lessons');
-  console.log('ok');
-}).catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+    // buildBrief path
+    const design = require('../src/designJobs');
+    design.ensureTables(db);
+    const b = design.buildBrief(db, null, 'Make a logo', 'logo', null);
+    if (!Array.isArray(b.learned_lessons)) throw new Error('buildBrief missing learned_lessons');
+    console.log('ok');
+  })
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });

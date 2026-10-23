@@ -24,9 +24,14 @@ async function main() {
     process.exit(1);
   }
   // underscore alias
-  const out2 = await callTool(1, 'lead_create', {
-    business_name: `${name} alias`,
-  }, ctx);
+  const out2 = await callTool(
+    1,
+    'lead_create',
+    {
+      business_name: `${name} alias`,
+    },
+    ctx
+  );
   if (!out2 || out2.ok !== true) {
     console.error('FAIL lead_create alias', out2);
     process.exit(1);

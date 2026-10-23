@@ -15,7 +15,11 @@ const HOST = 'api.pexels.com';
 const REMOTE_IMAGE_HOST_RE = /^https:\/\/(?:images\.pexels\.com|images\.unsplash\.com)\//i;
 
 function cleanQuery(q) {
-  return String(q || '').replace(/[\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100);
+  return String(q || '')
+    .replace(/[\u0000-\u001f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 100);
 }
 
 function clampCount(n, fallback = 5) {
@@ -54,8 +58,10 @@ function normalizePhoto(photo, alt) {
   const url = src.large || src.medium || '';
   if (typeof url !== 'string' || !url.startsWith('https://')) return null;
   const photographer = String(photo.photographer || '').trim();
-  const photographerUrl = typeof photo.photographer_url === 'string' && photo.photographer_url.startsWith('https://')
-    ? photo.photographer_url : '';
+  const photographerUrl =
+    typeof photo.photographer_url === 'string' && photo.photographer_url.startsWith('https://')
+      ? photo.photographer_url
+      : '';
   const pexelsUrl = typeof photo.url === 'string' && photo.url.startsWith('https://') ? photo.url : '';
   if (!photographer || !pexelsUrl) return null;
   return {
@@ -83,7 +89,11 @@ function httpsGet(reqOptions) {
         res.on('end', () => {
           const text = Buffer.concat(chunks).toString('utf8');
           let json = null;
-          try { json = text ? JSON.parse(text) : null; } catch { json = null; }
+          try {
+            json = text ? JSON.parse(text) : null;
+          } catch {
+            json = null;
+          }
           resolve({ statusCode: res.statusCode, json });
         });
       }
@@ -144,38 +154,42 @@ function downloadBuffer(url, redirects = 0) {
       return reject(e);
     }
     const lib = raw.startsWith('https') ? https : http;
-    const req = lib.get(raw, {
-      timeout: 45000,
-      headers: {
-        'User-Agent': 'BitPypeWebsiteScout/1.0',
-        Accept: 'image/*,*/*',
+    const req = lib.get(
+      raw,
+      {
+        timeout: 45000,
+        headers: {
+          'User-Agent': 'BitPypeWebsiteScout/1.0',
+          Accept: 'image/*,*/*',
+        },
       },
-    }, (res) => {
-      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && redirects < 5) {
-        const next = res.headers.location.startsWith('http')
-          ? res.headers.location
-          : new URL(res.headers.location, raw).href;
-        resolve(downloadBuffer(next, redirects + 1));
-        return;
-      }
-      if (!res.statusCode || res.statusCode >= 400) {
-        const e = new Error(`Image download failed (HTTP ${res.statusCode || 'unknown'}).`);
-        e.code = 'PEXELS_DOWNLOAD';
-        reject(e);
-        return;
-      }
-      const chunks = [];
-      res.on('data', (c) => chunks.push(c));
-      res.on('end', () => {
-        const buf = Buffer.concat(chunks);
-        if (!buf.length) {
-          const e = new Error('Image download returned empty body.');
-          e.code = 'PEXELS_DOWNLOAD';
-          return reject(e);
+      (res) => {
+        if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && redirects < 5) {
+          const next = res.headers.location.startsWith('http')
+            ? res.headers.location
+            : new URL(res.headers.location, raw).href;
+          resolve(downloadBuffer(next, redirects + 1));
+          return;
         }
-        resolve({ buffer: buf, contentType: res.headers['content-type'] || '' });
-      });
-    });
+        if (!res.statusCode || res.statusCode >= 400) {
+          const e = new Error(`Image download failed (HTTP ${res.statusCode || 'unknown'}).`);
+          e.code = 'PEXELS_DOWNLOAD';
+          reject(e);
+          return;
+        }
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const buf = Buffer.concat(chunks);
+          if (!buf.length) {
+            const e = new Error('Image download returned empty body.');
+            e.code = 'PEXELS_DOWNLOAD';
+            return reject(e);
+          }
+          resolve({ buffer: buf, contentType: res.headers['content-type'] || '' });
+        });
+      }
+    );
     req.on('error', () => {
       const e = new Error('Image download failed.');
       e.code = 'PEXELS_NETWORK';
@@ -193,7 +207,10 @@ function downloadBuffer(url, redirects = 0) {
 function safeImageName(prefix, url, contentType) {
   const ext = extFromUrlOrType(url, contentType);
   const hash = crypto.createHash('sha1').update(String(url)).digest('hex').slice(0, 10);
-  const base = String(prefix || 'pexels').replace(/[^a-z0-9_-]+/gi, '-').slice(0, 40) || 'pexels';
+  const base =
+    String(prefix || 'pexels')
+      .replace(/[^a-z0-9_-]+/gi, '-')
+      .slice(0, 40) || 'pexels';
   return `${base}-${hash}.${ext}`;
 }
 
@@ -261,13 +278,15 @@ async function localizePhotos(photos, imgDir, opts = {}) {
       const stored = await storeRemoteImage(photo.url, imgDir, {
         prefix: opts.prefix || `pexels-${i + 1}`,
       });
-      out.push(Object.assign({}, photo, {
-        url: stored.url,
-        path: stored.path,
-        name: stored.name,
-        source: 'pexels',
-        remote_url: stored.remoteUrl,
-      }));
+      out.push(
+        Object.assign({}, photo, {
+          url: stored.url,
+          path: stored.path,
+          name: stored.name,
+          source: 'pexels',
+          remote_url: stored.remoteUrl,
+        })
+      );
     } catch (e) {
       // Skip failed downloads rather than leaving a hotlink.
       console.warn('[pexels] localize skip:', e.message || e);
@@ -336,44 +355,51 @@ async function localizeUrlsInPages(pages, imgDir, opts = {}) {
 
   const next = [];
   for (const page of list) {
-    if (!page || typeof page !== 'object') { next.push(page); continue; }
+    if (!page || typeof page !== 'object') {
+      next.push(page);
+      continue;
+    }
     const copy = Object.assign({}, page);
     if (typeof copy.html === 'string' && copy.html.trim()) {
       copy.html = await rewriteText(copy.html);
     }
     if (Array.isArray(copy.sections)) {
-      copy.sections = await Promise.all(copy.sections.map(async (sec) => {
-        if (!sec || typeof sec !== 'object') return sec;
-        const sc = Object.assign({}, sec);
-        if (sc.content && typeof sc.content === 'object') {
-          const content = Object.assign({}, sc.content);
-          if (content.image && typeof content.image === 'object' && content.image.url) {
-            const u = await mapUrl(content.image.url);
-            content.image = Object.assign({}, content.image, { url: u });
+      copy.sections = await Promise.all(
+        copy.sections.map(async (sec) => {
+          if (!sec || typeof sec !== 'object') return sec;
+          const sc = Object.assign({}, sec);
+          if (sc.content && typeof sc.content === 'object') {
+            const content = Object.assign({}, sc.content);
+            if (content.image && typeof content.image === 'object' && content.image.url) {
+              const u = await mapUrl(content.image.url);
+              content.image = Object.assign({}, content.image, { url: u });
+            }
+            if (typeof content.backgroundImage === 'string') {
+              content.backgroundImage = await mapUrl(content.backgroundImage);
+            }
+            if (typeof content.background_image === 'string') {
+              content.background_image = await mapUrl(content.background_image);
+            }
+            if (content.background && typeof content.background === 'object') {
+              const bg = Object.assign({}, content.background);
+              if (typeof bg.url === 'string') bg.url = await mapUrl(bg.url);
+              if (typeof bg.src === 'string') bg.src = await mapUrl(bg.src);
+              content.background = bg;
+            }
+            if (Array.isArray(content.images)) {
+              content.images = await Promise.all(
+                content.images.map(async (im) => {
+                  if (!im || typeof im !== 'object' || !im.url) return im;
+                  const u = await mapUrl(im.url);
+                  return Object.assign({}, im, { url: u });
+                })
+              );
+            }
+            sc.content = content;
           }
-          if (typeof content.backgroundImage === 'string') {
-            content.backgroundImage = await mapUrl(content.backgroundImage);
-          }
-          if (typeof content.background_image === 'string') {
-            content.background_image = await mapUrl(content.background_image);
-          }
-          if (content.background && typeof content.background === 'object') {
-            const bg = Object.assign({}, content.background);
-            if (typeof bg.url === 'string') bg.url = await mapUrl(bg.url);
-            if (typeof bg.src === 'string') bg.src = await mapUrl(bg.src);
-            content.background = bg;
-          }
-          if (Array.isArray(content.images)) {
-            content.images = await Promise.all(content.images.map(async (im) => {
-              if (!im || typeof im !== 'object' || !im.url) return im;
-              const u = await mapUrl(im.url);
-              return Object.assign({}, im, { url: u });
-            }));
-          }
-          sc.content = content;
-        }
-        return sc;
-      }));
+          return sc;
+        })
+      );
     }
     next.push(copy);
   }

@@ -18,12 +18,14 @@ const { query } = require('../server/db');
   );
   console.log(
     'free_candidates',
-    JSON.stringify((free || []).map((u) => ({
-      id: u.id,
-      email: u.email,
-      status: u.subscription_status,
-      plan: u.billing_plan,
-    })))
+    JSON.stringify(
+      (free || []).map((u) => ({
+        id: u.id,
+        email: u.email,
+        status: u.subscription_status,
+        plan: u.billing_plan,
+      }))
+    )
   );
 
   const paid = await query(
@@ -37,14 +39,16 @@ const { query } = require('../server/db');
   );
   console.log(
     'paid_candidates',
-    JSON.stringify((paid || []).map((u) => ({
-      id: u.id,
-      email: u.email,
-      status: u.subscription_status,
-      plan: u.billing_plan,
-      price: u.subscription_price_id,
-      sub: u.stripe_subscription_id,
-    })))
+    JSON.stringify(
+      (paid || []).map((u) => ({
+        id: u.id,
+        email: u.email,
+        status: u.subscription_status,
+        plan: u.billing_plan,
+        price: u.subscription_price_id,
+        sub: u.stripe_subscription_id,
+      }))
+    )
   );
 
   const u = (free || [])[0];
@@ -89,9 +93,8 @@ const { query } = require('../server/db');
   if (p) {
     const live = await billing.getLiveSubscription(p);
     const prices = await require('../server/stripeClient').getConfiguredPriceIds();
-    const currentPrice = live && live.items && live.items.data && live.items.data[0]
-      ? live.items.data[0].price.id
-      : null;
+    const currentPrice =
+      live && live.items && live.items.data && live.items.data[0] ? live.items.data[0].price.id : null;
     const target = currentPrice === prices.premium ? 'standard' : 'premium';
     const targetPrice = target === 'premium' ? prices.premium : prices.standard;
     console.log(

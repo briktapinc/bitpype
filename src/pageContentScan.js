@@ -19,8 +19,7 @@ function forEachContentBlob(pages, visit) {
       if (typeof c.bitpype_embed_html === 'string') {
         visit(c.bitpype_embed_html, { page, section: sec, kind: 'section.embed' });
       }
-      const cells = Array.isArray(c.cells) ? c.cells
-        : (Array.isArray(c.columns) ? c.columns : []);
+      const cells = Array.isArray(c.cells) ? c.cells : Array.isArray(c.columns) ? c.columns : [];
       for (let i = 0; i < cells.length; i++) {
         const cell = cells[i];
         if (!cell || typeof cell !== 'object') continue;

@@ -34,21 +34,32 @@ function promoWorkspaceId() {
 }
 
 function fail(res, e, status = 400) {
-  const http = e.code === 'CAPTCHA_REQUIRED' || e.code === 'CAPTCHA_FAILED' || e.code === 'CAPTCHA_NOT_CONFIGURED' ? 403
-    : e.code === 'VALIDATION' || e.code === 'EMPTY' || e.code === 'INVALID' || e.code === 'TOO_LARGE' ? 400
-    : e.code === 'RATE_LIMITED' ? 429
-    : (typeof e.status === 'number' ? e.status : status);
-  const msg = http >= 500 ? 'Server error' : (e.message || String(e));
+  const http =
+    e.code === 'CAPTCHA_REQUIRED' || e.code === 'CAPTCHA_FAILED' || e.code === 'CAPTCHA_NOT_CONFIGURED'
+      ? 403
+      : e.code === 'VALIDATION' || e.code === 'EMPTY' || e.code === 'INVALID' || e.code === 'TOO_LARGE'
+        ? 400
+        : e.code === 'RATE_LIMITED'
+          ? 429
+          : typeof e.status === 'number'
+            ? e.status
+            : status;
+  const msg = http >= 500 ? 'Server error' : e.message || String(e);
   res.status(http).json({ ok: false, error: msg, code: e.code });
 }
 
 function clip(s, max) {
-  return String(s == null ? '' : s).trim().slice(0, max);
+  return String(s == null ? '' : s)
+    .trim()
+    .slice(0, max);
 }
 
 function parseServices(raw) {
   if (Array.isArray(raw)) {
-    return raw.map((s) => clip(s, 120)).filter(Boolean).slice(0, 40);
+    return raw
+      .map((s) => clip(s, 120))
+      .filter(Boolean)
+      .slice(0, 40);
   }
   return String(raw || '')
     .split(/[\n,;|]+/)
@@ -188,9 +199,7 @@ router.post('/submit', submitLimit, captcha, async (req, res) => {
     }
 
     const brochureMeta = saveBrochure(workspaceId, body.brochure);
-    const featureLabels = FEATURE_OPTIONS
-      .filter((f) => features.includes(f.id))
-      .map((f) => f.label);
+    const featureLabels = FEATURE_OPTIONS.filter((f) => features.includes(f.id)).map((f) => f.label);
 
     const noteParts = [
       'Website promo form (Facebook ad)',
@@ -215,9 +224,7 @@ router.post('/submit', submitLimit, captcha, async (req, res) => {
       tags: ['website-promo', 'facebook-ad', ...features.slice(0, 8)],
       lead_group: 'Website promo',
       notes: noteParts.join('\n'),
-      description: contactName
-        ? `Promo lead — contact ${contactName}`
-        : 'Promo lead from /website-promo',
+      description: contactName ? `Promo lead — contact ${contactName}` : 'Promo lead from /website-promo',
     });
 
     try {
@@ -227,7 +234,9 @@ router.post('/submit', submitLimit, captcha, async (req, res) => {
           `Website promo lead #${lead.id}: ${businessName} (${email})`
         );
       });
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     res.json({
       ok: true,

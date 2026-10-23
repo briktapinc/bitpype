@@ -17,18 +17,23 @@ const readLimit = rateLimit({ windowMs: 60 * 1000, max: 180 });
 const writeLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 80 });
 
 function fail(res, e, status = 400) {
-  const http = e.code === 'NOT_FOUND' ? 404
-    : e.code === 'FORBIDDEN' ? 403
-    : e.code === 'VALIDATION' ? 400
-    : (typeof e.status === 'number' ? e.status : status);
+  const http =
+    e.code === 'NOT_FOUND'
+      ? 404
+      : e.code === 'FORBIDDEN'
+        ? 403
+        : e.code === 'VALIDATION'
+          ? 400
+          : typeof e.status === 'number'
+            ? e.status
+            : status;
   res.status(http).json({ ok: false, error: e.message || String(e), code: e.code });
 }
 
 async function workspaceFromReq(req) {
   const fromToken = siteModules.parseWorkspaceFromToken(req.params.token);
   const fromQuery = Number(
-    (req.query && (req.query.w || req.query.workspaceId))
-    || (req.body && (req.body.w || req.body.workspaceId))
+    (req.query && (req.query.w || req.query.workspaceId)) || (req.body && (req.body.w || req.body.workspaceId))
   );
   const workspaceId = fromToken || fromQuery;
   if (!Number.isInteger(workspaceId) || workspaceId <= 0) {
@@ -45,7 +50,9 @@ router.get('/:token', readLimit, async (req, res) => {
     const workspaceId = await workspaceFromReq(req);
     const data = domain.withDb(workspaceId, (db) => chatbot.getPublicConfigByToken(db, req.params.token));
     res.json({ ok: true, data: { ...data, workspaceId } });
-  } catch (e) { fail(res, e); }
+  } catch (e) {
+    fail(res, e);
+  }
 });
 
 router.post('/:token/session', writeLimit, async (req, res) => {
@@ -61,7 +68,9 @@ router.post('/:token/session', writeLimit, async (req, res) => {
       return { session: chatbot.publicSession(row), settings: cfg.settings };
     });
     res.json({ ok: true, data: { ...data, workspaceId } });
-  } catch (e) { fail(res, e); }
+  } catch (e) {
+    fail(res, e);
+  }
 });
 
 router.post('/:token/message', writeLimit, async (req, res) => {
@@ -74,14 +83,18 @@ router.post('/:token/message', writeLimit, async (req, res) => {
       err.code = 'VALIDATION';
       throw err;
     }
-    const data = domain.withDb(workspaceId, (db) => chatbot.postVisitorMessage(db, req.params.token, {
-      sessionToken: body.session || body.sessionToken,
-      message,
-      visitor: body.visitor || null,
-      workspaceId,
-    }));
+    const data = domain.withDb(workspaceId, (db) =>
+      chatbot.postVisitorMessage(db, req.params.token, {
+        sessionToken: body.session || body.sessionToken,
+        message,
+        visitor: body.visitor || null,
+        workspaceId,
+      })
+    );
     res.json({ ok: true, data: { ...data, workspaceId } });
-  } catch (e) { fail(res, e); }
+  } catch (e) {
+    fail(res, e);
+  }
 });
 
 router.get('/:token/messages', readLimit, async (req, res) => {
@@ -93,12 +106,16 @@ router.get('/:token/messages', readLimit, async (req, res) => {
       err.code = 'VALIDATION';
       throw err;
     }
-    const data = domain.withDb(workspaceId, (db) => chatbot.getSessionHistory(db, req.params.token, {
-      sessionToken,
-      afterId: req.query.after || req.query.afterId || 0,
-    }));
+    const data = domain.withDb(workspaceId, (db) =>
+      chatbot.getSessionHistory(db, req.params.token, {
+        sessionToken,
+        afterId: req.query.after || req.query.afterId || 0,
+      })
+    );
     res.json({ ok: true, data: { ...data, workspaceId } });
-  } catch (e) { fail(res, e); }
+  } catch (e) {
+    fail(res, e);
+  }
 });
 
 router.post('/:token/lead', writeLimit, async (req, res) => {
@@ -113,7 +130,9 @@ router.post('/:token/lead', writeLimit, async (req, res) => {
         console.warn('[chatbotPublic] lead notify failed:', err && err.message ? err.message : err);
       });
     }
-  } catch (e) { fail(res, e); }
+  } catch (e) {
+    fail(res, e);
+  }
 });
 
 router.get('/:token/actions', readLimit, async (req, res) => {
@@ -128,7 +147,9 @@ router.get('/:token/actions', readLimit, async (req, res) => {
       };
     });
     res.json({ ok: true, data: { ...data, workspaceId } });
-  } catch (e) { fail(res, e); }
+  } catch (e) {
+    fail(res, e);
+  }
 });
 
 module.exports = router;

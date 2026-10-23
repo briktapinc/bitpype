@@ -37,8 +37,8 @@ const AI_FALLBACK_DELAY_MS = 2000;
 const MIN_VISITOR_TURNS_BEFORE_CAPTURE = 2;
 
 const LEAD_CAPTURE_THANKS =
-  'Thanks for sharing that. Our team can’t reply in this chat right away — '
-  + 'tap “Leave your details” below (or the Details tab) so we can call or email you back.';
+  'Thanks for sharing that. Our team can’t reply in this chat right away — ' +
+  'tap “Leave your details” below (or the Details tab) so we can call or email you back.';
 const LEAD_CAPTURE_SYSTEM =
   'Use the “Leave your details” button below, or open the Details tab, to share your contact info.';
 const LEAD_CAPTURE_FORM_META = { source: 'ai_fallback', open_lead_form: true };
@@ -50,21 +50,32 @@ function formatHoursForSupport(hours) {
   if (hours == null || hours === '') return '';
   if (typeof hours === 'string') return hours.trim();
   if (Array.isArray(hours)) {
-    return hours.map((h) => {
-      if (typeof h === 'string') return h.trim();
-      if (h && typeof h === 'object') {
-        const day = h.day || h.name || h.label || '';
-        const open = h.open || h.opens || h.from || '';
-        const close = h.close || h.closes || h.to || '';
-        if (day && open && close) return `${day}: ${open}–${close}`;
-        if (day && (open || close)) return `${day}: ${open || close}`;
-        try { return JSON.stringify(h); } catch { return ''; }
-      }
-      return String(h || '').trim();
-    }).filter(Boolean).join('; ');
+    return hours
+      .map((h) => {
+        if (typeof h === 'string') return h.trim();
+        if (h && typeof h === 'object') {
+          const day = h.day || h.name || h.label || '';
+          const open = h.open || h.opens || h.from || '';
+          const close = h.close || h.closes || h.to || '';
+          if (day && open && close) return `${day}: ${open}–${close}`;
+          if (day && (open || close)) return `${day}: ${open || close}`;
+          try {
+            return JSON.stringify(h);
+          } catch {
+            return '';
+          }
+        }
+        return String(h || '').trim();
+      })
+      .filter(Boolean)
+      .join('; ');
   }
   if (typeof hours === 'object') {
-    try { return JSON.stringify(hours); } catch { return ''; }
+    try {
+      return JSON.stringify(hours);
+    } catch {
+      return '';
+    }
   }
   return String(hours).trim();
 }
@@ -79,54 +90,66 @@ function loadBusinessSupportContext(db, leadId) {
   try {
     const engine = require('../src/leadEngine');
     if (typeof engine.getLead === 'function') lead = engine.getLead(db, lid);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   if (!lead) {
-    try { lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(lid) || null; } catch { lead = null; }
+    try {
+      lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(lid) || null;
+    } catch {
+      lead = null;
+    }
   }
 
   let brandName = '';
   let siteName = '';
   try {
-    const site = db.prepare(
-      'SELECT name, theme FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-    ).get(lid);
+    const site = db.prepare('SELECT name, theme FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(lid);
     if (site) {
       siteName = String(site.name || '').trim();
       let theme = {};
       try {
-        theme = typeof site.theme === 'string' ? JSON.parse(site.theme || '{}') : (site.theme || {});
-      } catch { theme = {}; }
+        theme = typeof site.theme === 'string' ? JSON.parse(site.theme || '{}') : site.theme || {};
+      } catch {
+        theme = {};
+      }
       brandName = String((theme && theme.brandName) || '').trim();
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   const factPick = {};
   try {
-    const rows = db.prepare(`
+    const rows = db
+      .prepare(
+        `
       SELECT fact_key, value FROM business_facts
       WHERE lead_id = ?
         AND UPPER(COALESCE(claim_class, '')) IN ('VERIFIED', 'OWNER_PROVIDED')
         AND fact_key IN ('address', 'phone', 'email', 'hours', 'description', 'site.about', 'category')
       ORDER BY id DESC
-    `).all(lid);
+    `
+      )
+      .all(lid);
     for (const r of rows) {
       const key = String(r.fact_key || '');
       const val = String(r.value || '').trim();
       if (!val || factPick[key]) continue;
       factPick[key] = val;
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
-  const businessName = brandName
-    || (lead && lead.business_name)
-    || siteName
-    || 'our business';
+  const businessName = brandName || (lead && lead.business_name) || siteName || 'our business';
   const category = (lead && lead.category) || factPick.category || '';
   const phone = (lead && lead.phone) || factPick.phone || '';
   const email = (lead && lead.email) || factPick.email || '';
-  const address = (lead && lead.address)
-    || factPick.address
-    || [lead && lead.city, lead && lead.state, lead && lead.postal_code].filter(Boolean).join(', ');
+  const address =
+    (lead && lead.address) ||
+    factPick.address ||
+    [lead && lead.city, lead && lead.state, lead && lead.postal_code].filter(Boolean).join(', ');
   const city = (lead && lead.city) || '';
   const state = (lead && lead.state) || '';
   const hours = formatHoursForSupport(lead && lead.hours) || factPick.hours || '';
@@ -135,7 +158,10 @@ function loadBusinessSupportContext(db, leadId) {
     .slice(0, 800);
   const website = (lead && lead.website) || '';
   const services = Array.isArray(lead && lead.services)
-    ? lead.services.map((s) => (typeof s === 'string' ? s : (s && s.name) || '')).filter(Boolean).slice(0, 12)
+    ? lead.services
+        .map((s) => (typeof s === 'string' ? s : (s && s.name) || ''))
+        .filter(Boolean)
+        .slice(0, 12)
     : [];
 
   const lines = [
@@ -170,14 +196,18 @@ function loadBusinessSupportContext(db, leadId) {
 function leadCaptureThanksFor(businessName) {
   const name = String(businessName || '').trim();
   if (name && !/^our business$/i.test(name)) {
-    return `Thanks for sharing that with ${name}. Our team can’t reply in this chat right away — `
-      + 'tap “Leave your details” below (or the Details tab) so we can call or email you back.';
+    return (
+      `Thanks for sharing that with ${name}. Our team can’t reply in this chat right away — ` +
+      'tap “Leave your details” below (or the Details tab) so we can call or email you back.'
+    );
   }
   return LEAD_CAPTURE_THANKS;
 }
 
 function isGreetingOnly(text) {
-  const t = String(text || '').trim().toLowerCase();
+  const t = String(text || '')
+    .trim()
+    .toLowerCase();
   if (!t || t.length > 40) return false;
   return /^(hi|hello|hey|howdy|yo|sup|good\s*(morning|afternoon|evening)|hiya|hola)[\s!.?]*$/i.test(t);
 }
@@ -321,14 +351,19 @@ function parseSettingsRow(row) {
   const base = { ...DEFAULT_SETTINGS };
   if (!row) return base;
   let extra = {};
-  try { extra = JSON.parse(row.settings_json || '{}') || {}; } catch { extra = {}; }
+  try {
+    extra = JSON.parse(row.settings_json || '{}') || {};
+  } catch {
+    extra = {};
+  }
   return {
     ...base,
     ...extra,
     greeting: row.greeting != null && String(row.greeting) !== '' ? String(row.greeting) : base.greeting,
-    bubble_label: row.bubble_label != null && String(row.bubble_label) !== ''
-      ? String(row.bubble_label).slice(0, 40)
-      : base.bubble_label,
+    bubble_label:
+      row.bubble_label != null && String(row.bubble_label) !== ''
+        ? String(row.bubble_label).slice(0, 40)
+        : base.bubble_label,
     primary_color: String(row.primary_color || ''),
     position: String(row.position || 'bottom-right'),
     escalate_email: String(row.escalate_email || ''),
@@ -354,19 +389,18 @@ function saveSettings(db, leadId, data = {}) {
     primary_color: data.primary_color != null ? String(data.primary_color).slice(0, 32) : cur.primary_color,
     position: data.position != null ? String(data.position).slice(0, 32) : cur.position,
     escalate_email: data.escalate_email != null ? String(data.escalate_email).slice(0, 200) : cur.escalate_email,
-    escalate_notify_portal: data.escalate_notify_portal != null
-      ? !!data.escalate_notify_portal
-      : cur.escalate_notify_portal,
-    suggest_lead_capture: data.suggest_lead_capture != null
-      ? !!data.suggest_lead_capture
-      : cur.suggest_lead_capture,
-    agent_timeout_hint_sec: data.agent_timeout_hint_sec != null
-      ? Math.min(600, Math.max(15, Number(data.agent_timeout_hint_sec) || 90))
-      : cur.agent_timeout_hint_sec,
+    escalate_notify_portal:
+      data.escalate_notify_portal != null ? !!data.escalate_notify_portal : cur.escalate_notify_portal,
+    suggest_lead_capture: data.suggest_lead_capture != null ? !!data.suggest_lead_capture : cur.suggest_lead_capture,
+    agent_timeout_hint_sec:
+      data.agent_timeout_hint_sec != null
+        ? Math.min(600, Math.max(15, Number(data.agent_timeout_hint_sec) || 90))
+        : cur.agent_timeout_hint_sec,
     ai_fallback: data.ai_fallback != null ? !!data.ai_fallback : cur.ai_fallback,
   };
   const extras = { ai_fallback: next.ai_fallback };
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO chatbot_settings (
       lead_id, greeting, bubble_label, primary_color, position, escalate_email,
       escalate_notify_portal, suggest_lead_capture, agent_timeout_hint_sec, settings_json, updated_at
@@ -382,7 +416,8 @@ function saveSettings(db, leadId, data = {}) {
       agent_timeout_hint_sec=excluded.agent_timeout_hint_sec,
       settings_json=excluded.settings_json,
       updated_at=datetime('now')
-  `).run(
+  `
+  ).run(
     Number(leadId),
     next.greeting,
     next.bubble_label,
@@ -425,16 +460,19 @@ function listKnowledge(db, leadId, { includeInactive = false } = {}) {
 function getKnowledge(db, leadId, id) {
   ensureTables(db);
   return publicKnowledge(
-    db.prepare('SELECT * FROM chatbot_knowledge WHERE lead_id = ? AND id = ?')
-      .get(Number(leadId), Number(id))
+    db.prepare('SELECT * FROM chatbot_knowledge WHERE lead_id = ? AND id = ?').get(Number(leadId), Number(id))
   );
 }
 
 function addKnowledge(db, leadId, data = {}) {
   ensureTables(db);
   const kind = String(data.kind || (data.url ? 'link' : 'doc')).toLowerCase() === 'doc' ? 'doc' : 'link';
-  const title = String(data.title || data.url || data.file_name || 'Knowledge').trim().slice(0, 200);
-  const url = String(data.url || '').trim().slice(0, 2000);
+  const title = String(data.title || data.url || data.file_name || 'Knowledge')
+    .trim()
+    .slice(0, 200);
+  const url = String(data.url || '')
+    .trim()
+    .slice(0, 2000);
   const content = String(data.content_text || data.content || data.body || '').slice(0, 200000);
   const fileName = String(data.file_name || data.fileName || '').slice(0, 200);
   const filePath = String(data.file_path || data.filePath || '').slice(0, 500);
@@ -444,49 +482,58 @@ function addKnowledge(db, leadId, data = {}) {
   if (kind === 'doc' && !content && !filePath) {
     throw fail('VALIDATION', 'content_text or uploaded file required for knowledge doc', 400);
   }
-  const info = db.prepare(`
+  const info = db
+    .prepare(
+      `
     INSERT INTO chatbot_knowledge
       (lead_id, kind, title, url, content_text, file_name, file_path, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
-  `).run(Number(leadId), kind, title || (kind === 'link' ? url : 'Document'), url, content, fileName, filePath);
+  `
+    )
+    .run(Number(leadId), kind, title || (kind === 'link' ? url : 'Document'), url, content, fileName, filePath);
   return getKnowledge(db, leadId, info.lastInsertRowid);
 }
 
 function updateKnowledge(db, leadId, id, data = {}) {
   ensureTables(db);
-  const row = db.prepare('SELECT * FROM chatbot_knowledge WHERE lead_id = ? AND id = ?')
+  const row = db
+    .prepare('SELECT * FROM chatbot_knowledge WHERE lead_id = ? AND id = ?')
     .get(Number(leadId), Number(id));
   if (!row) throw fail('NOT_FOUND', 'Knowledge item not found', 404);
-  const kind = data.kind != null
-    ? (String(data.kind).toLowerCase() === 'doc' ? 'doc' : 'link')
-    : row.kind;
+  const kind = data.kind != null ? (String(data.kind).toLowerCase() === 'doc' ? 'doc' : 'link') : row.kind;
   const title = data.title != null ? String(data.title).trim().slice(0, 200) : row.title;
   const url = data.url != null ? String(data.url).trim().slice(0, 2000) : row.url;
-  const content = data.content_text != null || data.content != null || data.body != null
-    ? String(data.content_text != null ? data.content_text : (data.content != null ? data.content : data.body)).slice(0, 200000)
-    : row.content_text;
-  const status = data.status != null
-    ? (String(data.status).toLowerCase() === 'inactive' ? 'inactive' : 'active')
-    : row.status;
-  db.prepare(`
+  const content =
+    data.content_text != null || data.content != null || data.body != null
+      ? String(data.content_text != null ? data.content_text : data.content != null ? data.content : data.body).slice(
+          0,
+          200000
+        )
+      : row.content_text;
+  const status =
+    data.status != null ? (String(data.status).toLowerCase() === 'inactive' ? 'inactive' : 'active') : row.status;
+  db.prepare(
+    `
     UPDATE chatbot_knowledge SET kind=?, title=?, url=?, content_text=?, status=?,
       updated_at=datetime('now') WHERE id=? AND lead_id=?
-  `).run(kind, title, url, content, status, row.id, Number(leadId));
+  `
+  ).run(kind, title, url, content, status, row.id, Number(leadId));
   return getKnowledge(db, leadId, row.id);
 }
 
 function deleteKnowledge(db, leadId, id) {
   ensureTables(db);
-  const row = db.prepare('SELECT * FROM chatbot_knowledge WHERE lead_id = ? AND id = ?')
+  const row = db
+    .prepare('SELECT * FROM chatbot_knowledge WHERE lead_id = ? AND id = ?')
     .get(Number(leadId), Number(id));
   if (!row) throw fail('NOT_FOUND', 'Knowledge item not found', 404);
   if (row.file_path) {
     try {
-      const abs = path.isAbsolute(row.file_path)
-        ? row.file_path
-        : path.join(process.cwd(), row.file_path);
+      const abs = path.isAbsolute(row.file_path) ? row.file_path : path.join(process.cwd(), row.file_path);
       if (fs.existsSync(abs)) fs.unlinkSync(abs);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
   db.prepare('DELETE FROM chatbot_knowledge WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
   return { deleted: true, id: row.id };
@@ -514,9 +561,7 @@ function knowledgeSnippets(db, leadId, { limit = 12, maxChars = 6000, query = ''
   for (const it of items) {
     const head = `[${it.kind}] ${it.title}${it.url ? ` (${it.url})` : ''}${it.file_name ? ` «${it.file_name}»` : ''}`;
     const raw = String(it.content_text || '').trim();
-    const body = q && raw.length > perDoc
-      ? extract.searchWindows(raw, q, { maxChars: perDoc })
-      : raw.slice(0, perDoc);
+    const body = q && raw.length > perDoc ? extract.searchWindows(raw, q, { maxChars: perDoc }) : raw.slice(0, perDoc);
     const piece = body ? `${head}\n${body}` : head;
     if (used + piece.length > maxChars) {
       const remain = Math.max(0, maxChars - used - 20);
@@ -543,7 +588,11 @@ function makeSessionToken() {
 function publicMessage(row) {
   if (!row) return null;
   let meta = null;
-  try { meta = row.meta_json ? JSON.parse(row.meta_json) : null; } catch { meta = null; }
+  try {
+    meta = row.meta_json ? JSON.parse(row.meta_json) : null;
+  } catch {
+    meta = null;
+  }
   return {
     id: row.id,
     session_id: row.session_id,
@@ -557,7 +606,11 @@ function publicMessage(row) {
 function publicSession(row, { withMessages = false, messages = null } = {}) {
   if (!row) return null;
   let visitor = null;
-  try { visitor = row.visitor_meta_json ? JSON.parse(row.visitor_meta_json) : null; } catch { visitor = null; }
+  try {
+    visitor = row.visitor_meta_json ? JSON.parse(row.visitor_meta_json) : null;
+  } catch {
+    visitor = null;
+  }
   const out = {
     id: row.id,
     lead_id: row.lead_id,
@@ -576,47 +629,48 @@ function publicSession(row, { withMessages = false, messages = null } = {}) {
 
 function getSessionByToken(db, token) {
   ensureTables(db);
-  return db.prepare('SELECT * FROM chatbot_sessions WHERE session_token = ?')
-    .get(String(token || ''));
+  return db.prepare('SELECT * FROM chatbot_sessions WHERE session_token = ?').get(String(token || ''));
 }
 
 function getSessionById(db, leadId, id) {
   ensureTables(db);
-  return db.prepare('SELECT * FROM chatbot_sessions WHERE lead_id = ? AND id = ?')
-    .get(Number(leadId), Number(id));
+  return db.prepare('SELECT * FROM chatbot_sessions WHERE lead_id = ? AND id = ?').get(Number(leadId), Number(id));
 }
 
 function listMessages(db, sessionId, { afterId = 0, limit = 100 } = {}) {
   ensureTables(db);
   const lim = Math.min(200, Math.max(1, Number(limit) || 100));
   const after = Number(afterId) || 0;
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT * FROM chatbot_messages
     WHERE session_id = ? AND id > ?
     ORDER BY id ASC LIMIT ?
-  `).all(Number(sessionId), after, lim).map(publicMessage);
+  `
+    )
+    .all(Number(sessionId), after, lim)
+    .map(publicMessage);
 }
 
 function addMessage(db, sessionId, leadId, role, body, meta = null) {
-  const text = String(body || '').trim().slice(0, 8000);
+  const text = String(body || '')
+    .trim()
+    .slice(0, 8000);
   if (!text) throw fail('VALIDATION', 'message body required', 400);
   const r = String(role || '').toLowerCase();
   if (!['visitor', 'agent', 'system'].includes(r)) {
     throw fail('VALIDATION', 'role must be visitor|agent|system', 400);
   }
-  const info = db.prepare(`
+  const info = db
+    .prepare(
+      `
     INSERT INTO chatbot_messages (session_id, lead_id, role, body, meta_json)
     VALUES (?, ?, ?, ?, ?)
-  `).run(
-    Number(sessionId),
-    Number(leadId),
-    r,
-    text,
-    meta != null ? JSON.stringify(meta) : null
-  );
-  return publicMessage(
-    db.prepare('SELECT * FROM chatbot_messages WHERE id = ?').get(info.lastInsertRowid)
-  );
+  `
+    )
+    .run(Number(sessionId), Number(leadId), r, text, meta != null ? JSON.stringify(meta) : null);
+  return publicMessage(db.prepare('SELECT * FROM chatbot_messages WHERE id = ?').get(info.lastInsertRowid));
 }
 
 function resolveEmbedForLead(db, leadId) {
@@ -629,9 +683,9 @@ function getPublicConfigByToken(db, token) {
   ensureTables(db);
   const modules = require('./siteModules');
   modules.ensureTables(db);
-  const row = db.prepare(
-    "SELECT * FROM site_module_embeds WHERE public_token = ? AND module_type = 'chatbot' AND published = 1"
-  ).get(String(token || ''));
+  const row = db
+    .prepare("SELECT * FROM site_module_embeds WHERE public_token = ? AND module_type = 'chatbot' AND published = 1")
+    .get(String(token || ''));
   if (!row || !row.embed_enabled) throw fail('NOT_FOUND', 'Chatbot not found', 404);
   const settings = getSettings(db, row.lead_id);
   return {
@@ -692,9 +746,11 @@ function listAllowedActions(db, leadId) {
   try {
     const forms = require('./contactForms');
     forms.ensureTables(db);
-    const formRows = db.prepare(
-      "SELECT id, name, public_token FROM contact_forms WHERE lead_id = ? AND status = 'published' AND public_token IS NOT NULL AND public_token != '' LIMIT 20"
-    ).all(Number(leadId));
+    const formRows = db
+      .prepare(
+        "SELECT id, name, public_token FROM contact_forms WHERE lead_id = ? AND status = 'published' AND public_token IS NOT NULL AND public_token != '' LIMIT 20"
+      )
+      .all(Number(leadId));
     for (const f of formRows) {
       actions.push({
         id: `form.submit.${f.id}`,
@@ -705,7 +761,9 @@ function listAllowedActions(db, leadId) {
         capability: 'forms',
       });
     }
-  } catch { /* forms optional */ }
+  } catch {
+    /* forms optional */
+  }
   if (byType.has('ecommerce')) {
     const emb = embeds.find((e) => e.module_type === 'ecommerce');
     actions.push({
@@ -725,7 +783,9 @@ function notifyClientAgent(db, message, meta = {}) {
     if (typeof process !== 'undefined' && process.stderr && process.stderr.write) {
       process.stderr.write(`[chatbot-agent] ${message}\n`);
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   try {
     const { fireAgentTriggers } = require('../src/designAgentTrigger');
     fireAgentTriggers(db, {
@@ -735,9 +795,12 @@ function notifyClientAgent(db, message, meta = {}) {
       message,
       leadId: meta.leadId,
       sessionId: meta.sessionId,
-      mcpHint: 'Client MCP only: chatbot.pending / chatbot.next / chatbot.reply / chatbot.escalate. Do not use admin design.* or lead.* tools.',
+      mcpHint:
+        'Client MCP only: chatbot.pending / chatbot.next / chatbot.reply / chatbot.escalate. Do not use admin design.* or lead.* tools.',
     });
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 function startOrGetSession(db, leadId, { sessionToken, visitor } = {}) {
@@ -749,14 +812,14 @@ function startOrGetSession(db, leadId, { sessionToken, visitor } = {}) {
   }
   if (!row) {
     const token = makeSessionToken();
-    const info = db.prepare(`
+    const info = db
+      .prepare(
+        `
       INSERT INTO chatbot_sessions (lead_id, session_token, status, needs_agent, visitor_meta_json)
       VALUES (?, ?, 'open', 0, ?)
-    `).run(
-      Number(leadId),
-      token,
-      visitor != null ? JSON.stringify(visitor) : null
-    );
+    `
+      )
+      .run(Number(leadId), token, visitor != null ? JSON.stringify(visitor) : null);
     row = db.prepare('SELECT * FROM chatbot_sessions WHERE id = ?').get(info.lastInsertRowid);
   }
   return row;
@@ -768,14 +831,17 @@ function postVisitorMessage(db, token, { sessionToken, message, visitor, workspa
   const leadId = cfg.embed.lead_id;
   const session = startOrGetSession(db, leadId, { sessionToken, visitor });
   const msg = addMessage(db, session.id, leadId, 'visitor', message);
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE chatbot_sessions
     SET needs_agent = 1, last_visitor_at = datetime('now'), updated_at = datetime('now'),
         visitor_meta_json = COALESCE(?, visitor_meta_json)
     WHERE id = ?
-  `).run(visitor != null ? JSON.stringify(visitor) : null, session.id);
+  `
+  ).run(visitor != null ? JSON.stringify(visitor) : null, session.id);
 
-  notifyClientAgent(db,
+  notifyClientAgent(
+    db,
     `Chatbot session #${session.id} needs a reply (lead ${leadId}). Client MCP: chatbot.next or chatbot.pending.`,
     { leadId, sessionId: session.id }
   );
@@ -809,7 +875,11 @@ function parseAiFallbackResponse(raw, opts = {}) {
   const allowCapture = opts.allowCapture !== false;
   const text = String(raw || '').trim();
   if (!text) {
-    return { action: allowCapture ? 'capture' : 'chat', found: false, reply: allowCapture ? thanks : 'What can we help you with today?' };
+    return {
+      action: allowCapture ? 'capture' : 'chat',
+      found: false,
+      reply: allowCapture ? thanks : 'What can we help you with today?',
+    };
   }
 
   const normalize = (action, reply) => {
@@ -840,12 +910,14 @@ function parseAiFallbackResponse(raw, opts = {}) {
         const reply = String(obj.reply || obj.message || obj.answer || '').trim();
         if (obj.action != null) return normalize(obj.action, reply);
         // Legacy found:true|false
-        const found = obj.found === true || obj.found === 'true' || obj.found === 1
-          || /^yes$/i.test(String(obj.found || ''));
+        const found =
+          obj.found === true || obj.found === 'true' || obj.found === 1 || /^yes$/i.test(String(obj.found || ''));
         if (found) return normalize('answer', reply);
         return normalize(allowCapture ? 'capture' : 'chat', reply || (allowCapture ? thanks : ''));
       }
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
   }
 
   const actionLine = text.match(/^\s*ACTION\s*:\s*(chat|answer|capture|lead)\s*$/im);
@@ -855,7 +927,7 @@ function parseAiFallbackResponse(raw, opts = {}) {
   if (actionLine) return normalize(actionLine[1], reply);
   if (foundLine) {
     const found = /^(yes|true)$/i.test(foundLine[1]);
-    return normalize(found ? 'answer' : (allowCapture ? 'capture' : 'chat'), reply);
+    return normalize(found ? 'answer' : allowCapture ? 'capture' : 'chat', reply);
   }
 
   if (/contact form is about to appear|opening a short contact form/i.test(text)) {
@@ -865,22 +937,32 @@ function parseAiFallbackResponse(raw, opts = {}) {
 }
 
 function postChatFallback(db, leadId, sessionId, replyText) {
-  const msg = addMessage(db, sessionId, leadId, 'agent', String(replyText || '').trim().slice(0, 4000), {
-    source: 'ai_fallback',
-    action: 'chat',
-  });
+  const msg = addMessage(
+    db,
+    sessionId,
+    leadId,
+    'agent',
+    String(replyText || '')
+      .trim()
+      .slice(0, 4000),
+    {
+      source: 'ai_fallback',
+      action: 'chat',
+    }
+  );
   // needs_agent cleared by claimNeedsAgent before applyFallbackAction.
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE chatbot_sessions
     SET last_agent_at = datetime('now'), updated_at = datetime('now')
     WHERE id = ?
-  `).run(Number(sessionId));
+  `
+  ).run(Number(sessionId));
   return msg;
 }
 
 function postLeadCaptureFallback(db, leadId, sessionId, replyText, businessName) {
-  const body = String(replyText || leadCaptureThanksFor(businessName)).trim()
-    || leadCaptureThanksFor(businessName);
+  const body = String(replyText || leadCaptureThanksFor(businessName)).trim() || leadCaptureThanksFor(businessName);
   // Agent warning first; client shows an in-chat button (Details tab) — never overlays messages.
   addMessage(db, sessionId, leadId, 'agent', body, {
     source: 'ai_fallback',
@@ -888,11 +970,13 @@ function postLeadCaptureFallback(db, leadId, sessionId, replyText, businessName)
     found: false,
   });
   const msg = addMessage(db, sessionId, leadId, 'system', LEAD_CAPTURE_SYSTEM, LEAD_CAPTURE_FORM_META);
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE chatbot_sessions
     SET last_agent_at = datetime('now'), updated_at = datetime('now')
     WHERE id = ?
-  `).run(Number(sessionId));
+  `
+  ).run(Number(sessionId));
   return msg;
 }
 
@@ -920,7 +1004,9 @@ function scheduleAiFallbackReply({ workspaceId, leadId, sessionId }) {
     runAiFallbackReply(ws, lid, sid).catch((err) => {
       try {
         process.stderr.write(`[chatbot-ai] fallback failed session=${sid}: ${err && err.message}\n`);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     });
   }, AI_FALLBACK_DELAY_MS);
   if (typeof timer.unref === 'function') timer.unref();
@@ -929,11 +1015,15 @@ function scheduleAiFallbackReply({ workspaceId, leadId, sessionId }) {
 
 /** Atomically claim needs_agent so AI fallback and live agent cannot both reply. */
 function claimNeedsAgent(db, sessionId) {
-  const info = db.prepare(`
+  const info = db
+    .prepare(
+      `
     UPDATE chatbot_sessions
     SET needs_agent = 0, last_agent_at = datetime('now'), updated_at = datetime('now')
     WHERE id = ? AND needs_agent = 1 AND status = 'open'
-  `).run(Number(sessionId));
+  `
+    )
+    .run(Number(sessionId));
   return Number(info && info.changes) > 0;
 }
 
@@ -953,11 +1043,13 @@ function applyFallbackAction(db, leadId, sessionId, parsed, businessName) {
       action: 'answer',
       found: true,
     });
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE chatbot_sessions
       SET last_agent_at = datetime('now'), updated_at = datetime('now')
       WHERE id = ?
-    `).run(Number(sessionId));
+    `
+    ).run(Number(sessionId));
     return { ok: true, action: 'answer', found: true, message: msg };
   }
   return {
@@ -1026,64 +1118,70 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
     });
   }
 
-  const historyLines = (snapshot.messages || []).slice(-12).map((m) => {
-    const who = m.role === 'visitor' ? 'Visitor' : m.role === 'agent' ? 'Agent' : 'System';
-    return `${who}: ${m.body}`;
-  }).join('\n');
+  const historyLines = (snapshot.messages || [])
+    .slice(-12)
+    .map((m) => {
+      const who = m.role === 'visitor' ? 'Visitor' : m.role === 'agent' ? 'Agent' : 'System';
+      return `${who}: ${m.body}`;
+    })
+    .join('\n');
 
   const bizBlock = (snapshot.business && snapshot.business.text) || `Business name: ${bizName || 'our business'}`;
-  const knowledgeBlock = (snapshot.knowledge && snapshot.knowledge.count > 0)
-    ? snapshot.knowledge.text
-    : '(no knowledge files uploaded yet)';
+  const knowledgeBlock =
+    snapshot.knowledge && snapshot.knowledge.count > 0 ? snapshot.knowledge.text : '(no knowledge files uploaded yet)';
 
   let raw = '';
   try {
-    const result = await domain.withDb(workspaceId, async (db) => chat({
-      task: 'qa',
-      db,
-      leadId,
-      note: `chatbot-fallback session=${sessionId}`,
-      maxTokens: 450,
-      messages: [
-        {
-          role: 'system',
-          content: [
-            `You are a friendly, professional customer-support agent for ${bizName || 'this business'}.`,
-            'Speak as their website chat support — not a generic AI. Use the business name naturally.',
-            'Goal: have a brief conversation, understand what the visitor needs, then (only when ready) hand off to a contact form because a human cannot reply in this chat immediately.',
-            '',
-            'Business profile (you may share contact/identity when asked):',
-            bizBlock,
-            '',
-            'Conversation rules:',
-            '- Greetings or vague hellos → action "chat": welcome them and ask what they need. NEVER open the form yet.',
-            '- If their need is unclear → action "chat": ask one short clarifying question.',
-            '- If knowledge clearly answers a factual question → action "answer" with a short reply.',
-            '- Factual claims (services, pricing, policies, availability) ONLY from knowledge excerpts. Do not invent.',
-            '- When you understand their need AND a human follow-up is the right next step → action "capture".',
-            '- On capture, the reply MUST warn that a short contact form is about to appear (it overlays the chat) so they are not surprised, and explain the team will call/email them back.',
-            allowCapture
-              ? '- Capture is ALLOWED now (visitor has shared a need across at least two turns).'
-              : '- Capture is NOT allowed yet — keep action "chat" until you understand their need.',
-            '',
-            'Respond with ONLY compact JSON:',
-            '{"action":"chat"|"answer"|"capture","reply":"..."}',
-            '',
-            'Knowledge excerpts:',
-            knowledgeBlock,
-          ].join('\n'),
-        },
-        {
-          role: 'user',
-          content: `Conversation:\n${historyLines}\n\nLatest visitor message:\n${snapshot.latestVisitor}`,
-        },
-      ],
-    }));
+    const result = await domain.withDb(workspaceId, async (db) =>
+      chat({
+        task: 'qa',
+        db,
+        leadId,
+        note: `chatbot-fallback session=${sessionId}`,
+        maxTokens: 450,
+        messages: [
+          {
+            role: 'system',
+            content: [
+              `You are a friendly, professional customer-support agent for ${bizName || 'this business'}.`,
+              'Speak as their website chat support — not a generic AI. Use the business name naturally.',
+              'Goal: have a brief conversation, understand what the visitor needs, then (only when ready) hand off to a contact form because a human cannot reply in this chat immediately.',
+              '',
+              'Business profile (you may share contact/identity when asked):',
+              bizBlock,
+              '',
+              'Conversation rules:',
+              '- Greetings or vague hellos → action "chat": welcome them and ask what they need. NEVER open the form yet.',
+              '- If their need is unclear → action "chat": ask one short clarifying question.',
+              '- If knowledge clearly answers a factual question → action "answer" with a short reply.',
+              '- Factual claims (services, pricing, policies, availability) ONLY from knowledge excerpts. Do not invent.',
+              '- When you understand their need AND a human follow-up is the right next step → action "capture".',
+              '- On capture, the reply MUST warn that a short contact form is about to appear (it overlays the chat) so they are not surprised, and explain the team will call/email them back.',
+              allowCapture
+                ? '- Capture is ALLOWED now (visitor has shared a need across at least two turns).'
+                : '- Capture is NOT allowed yet — keep action "chat" until you understand their need.',
+              '',
+              'Respond with ONLY compact JSON:',
+              '{"action":"chat"|"answer"|"capture","reply":"..."}',
+              '',
+              'Knowledge excerpts:',
+              knowledgeBlock,
+            ].join('\n'),
+          },
+          {
+            role: 'user',
+            content: `Conversation:\n${historyLines}\n\nLatest visitor message:\n${snapshot.latestVisitor}`,
+          },
+        ],
+      })
+    );
     raw = result && result.text ? result.text : '';
   } catch (err) {
     try {
       process.stderr.write(`[chatbot-ai] ChatGPT error session=${sessionId}: ${err && err.message}\n`);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     const heur = heuristicSupportReply(snapshot.latestVisitor, bizName, snapshot.messages);
     return domain.withDb(workspaceId, (db) => {
       if (!claimNeedsAgent(db, sessionId)) return { skipped: true, reason: 'race' };
@@ -1127,39 +1225,52 @@ function captureLead(db, token, data = {}) {
     const session = getSessionByToken(db, data.session || data.sessionToken);
     if (session && Number(session.lead_id) === Number(leadId)) sessionId = session.id;
   }
-  const name = String(data.name || '').trim().slice(0, 120);
-  const email = String(data.email || '').trim().slice(0, 200);
-  const phone = String(data.phone || '').trim().slice(0, 60);
-  const message = String(data.message || '').trim().slice(0, 4000);
+  const name = String(data.name || '')
+    .trim()
+    .slice(0, 120);
+  const email = String(data.email || '')
+    .trim()
+    .slice(0, 200);
+  const phone = String(data.phone || '')
+    .trim()
+    .slice(0, 60);
+  const message = String(data.message || '')
+    .trim()
+    .slice(0, 4000);
   if (!name && !email && !phone) {
     throw fail('VALIDATION', 'name, email, or phone required', 400);
   }
-  const info = db.prepare(`
+  const info = db
+    .prepare(
+      `
     INSERT INTO chatbot_leads (lead_id, session_id, name, email, phone, message, status)
     VALUES (?, ?, ?, ?, ?, ?, 'new')
-  `).run(Number(leadId), sessionId, name, email, phone, message);
+  `
+    )
+    .run(Number(leadId), sessionId, name, email, phone, message);
 
   if (sessionId) {
-    addMessage(db, sessionId, leadId, 'system',
-      'Thanks — we received your contact details and will follow up.');
+    addMessage(db, sessionId, leadId, 'system', 'Thanks — we received your contact details and will follow up.');
   }
 
   const settings = getSettings(db, leadId);
   if (settings.escalate_notify_portal) {
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO chatbot_escalations (lead_id, session_id, message, reason, status)
       VALUES (?, ?, ?, 'lead_capture', 'open')
-    `).run(
+    `
+    ).run(
       Number(leadId),
       sessionId,
       `Lead capture: ${[name, email, phone].filter(Boolean).join(' · ')}\n${message}`.slice(0, 4000)
     );
   }
 
-  notifyClientAgent(db,
-    `Chatbot lead captured for lead ${leadId} (session ${sessionId || 'n/a'}).`,
-    { leadId, sessionId }
-  );
+  notifyClientAgent(db, `Chatbot lead captured for lead ${leadId} (session ${sessionId || 'n/a'}).`, {
+    leadId,
+    sessionId,
+  });
 
   const business = loadBusinessSupportContext(db, leadId);
   let chatSummary = '';
@@ -1172,7 +1283,8 @@ function captureLead(db, token, data = {}) {
   }
 
   return {
-    lead: db.prepare('SELECT id, name, email, phone, message, status, created_at FROM chatbot_leads WHERE id = ?')
+    lead: db
+      .prepare('SELECT id, name, email, phone, message, status, created_at FROM chatbot_leads WHERE id = ?')
       .get(info.lastInsertRowid),
     message: 'Thanks — we will follow up shortly.',
     _notify: {
@@ -1201,9 +1313,14 @@ async function notifyOwnerOnChatLead(workspaceId, payload = {}) {
     const toEmail = String(payload.escalateEmail || biz.email || '').trim();
     const toPhone = String(biz.phone || '').trim();
     const visitorBits = [payload.name, payload.email, payload.phone].filter(Boolean).join(' · ');
-    const need = String(payload.visitorMessage || '').trim()
-      || String(payload.chatSummary || '').split('\n').filter((l) => /^Visitor:/i.test(l)).slice(-3).join(' | ')
-      || '(see chat)';
+    const need =
+      String(payload.visitorMessage || '').trim() ||
+      String(payload.chatSummary || '')
+        .split('\n')
+        .filter((l) => /^Visitor:/i.test(l))
+        .slice(-3)
+        .join(' | ') ||
+      '(see chat)';
 
     if (toEmail) {
       try {
@@ -1216,21 +1333,20 @@ async function notifyOwnerOnChatLead(workspaceId, payload = {}) {
             `A visitor on ${bizName}'s site asked for follow-up.`,
             `Contact: ${visitorBits || '(none)'}`,
             `What they need: ${need.slice(0, 800)}`,
-            payload.chatSummary
-              ? `Recent chat:\n${String(payload.chatSummary).slice(0, 1200)}`
-              : '',
+            payload.chatSummary ? `Recent chat:\n${String(payload.chatSummary).slice(0, 1200)}` : '',
             'Please call or email them when you can — the chat bot told them a human would follow up.',
           ].filter(Boolean),
-          text: [
-            `New chat lead for ${bizName}`,
-            `Contact: ${visitorBits}`,
-            `Need: ${need}`,
-            payload.chatSummary || '',
-          ].filter(Boolean).join('\n\n'),
+          text: [`New chat lead for ${bizName}`, `Contact: ${visitorBits}`, `Need: ${need}`, payload.chatSummary || '']
+            .filter(Boolean)
+            .join('\n\n'),
         });
       } catch (e) {
         out.email = { sent: false, error: e.message };
-        try { process.stderr.write(`[chatbot-notify] email failed: ${e.message}\n`); } catch { /* ignore */ }
+        try {
+          process.stderr.write(`[chatbot-notify] email failed: ${e.message}\n`);
+        } catch {
+          /* ignore */
+        }
       }
     }
 
@@ -1249,18 +1365,26 @@ async function notifyOwnerOnChatLead(workspaceId, payload = {}) {
           const resolved = await sms.resolveSmsSettings(settings);
           const provider = sms.getSmsProvider(resolved, null);
           const body = sms.plainSmsBody(
-            `${bizName}: new website chat lead — ${visitorBits || 'details in email'}. `
-            + `Need: ${String(need).slice(0, 120)}. Please call them back.`
+            `${bizName}: new website chat lead — ${visitorBits || 'details in email'}. ` +
+              `Need: ${String(need).slice(0, 120)}. Please call them back.`
           );
           out.sms = await provider.send({ to: phone, body });
         }
       } catch (e) {
         out.sms = { ok: false, error: e.message };
-        try { process.stderr.write(`[chatbot-notify] sms failed: ${e.message}\n`); } catch { /* ignore */ }
+        try {
+          process.stderr.write(`[chatbot-notify] sms failed: ${e.message}\n`);
+        } catch {
+          /* ignore */
+        }
       }
     }
   } catch (e) {
-    try { process.stderr.write(`[chatbot-notify] ${e.message}\n`); } catch { /* ignore */ }
+    try {
+      process.stderr.write(`[chatbot-notify] ${e.message}\n`);
+    } catch {
+      /* ignore */
+    }
   }
   return out;
 }
@@ -1270,12 +1394,16 @@ async function notifyOwnerOnChatLead(workspaceId, payload = {}) {
 function listPendingSessions(db, leadId, { limit = 10 } = {}) {
   ensureTables(db);
   const lim = Math.min(50, Math.max(1, Number(limit) || 10));
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT * FROM chatbot_sessions
     WHERE lead_id = ? AND needs_agent = 1 AND status = 'open'
     ORDER BY last_visitor_at ASC, id ASC
     LIMIT ?
-  `).all(Number(leadId), lim);
+  `
+    )
+    .all(Number(leadId), lim);
   const sessions = rows.map((r) => {
     const messages = listMessages(db, r.id, { limit: 40 });
     return publicSession(r, { withMessages: true, messages });
@@ -1313,11 +1441,13 @@ function agentReply(db, leadId, sessionId, message, meta = null, opts = {}) {
   const ws = opts && opts.workspaceId != null ? Number(opts.workspaceId) : null;
   if (Number.isInteger(ws) && ws > 0) cancelAiFallbackReply(ws, session.id);
   const msg = addMessage(db, session.id, leadId, 'agent', message, meta);
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE chatbot_sessions
     SET needs_agent = 0, last_agent_at = datetime('now'), updated_at = datetime('now')
     WHERE id = ?
-  `).run(session.id);
+  `
+  ).run(session.id);
   return {
     session: publicSession(getSessionById(db, leadId, session.id)),
     message: msg,
@@ -1329,22 +1459,40 @@ function escalateSession(db, leadId, { sessionId, message, reason } = {}) {
   ensureTables(db);
   const session = sessionId ? getSessionById(db, leadId, sessionId) : null;
   if (sessionId && !session) throw fail('NOT_FOUND', 'Session not found', 404);
-  const text = String(message || '').trim().slice(0, 4000)
-    || 'Agent requested human follow-up.';
+  const text =
+    String(message || '')
+      .trim()
+      .slice(0, 4000) || 'Agent requested human follow-up.';
   const why = String(reason || 'unsure').slice(0, 80);
-  const info = db.prepare(`
+  const info = db
+    .prepare(
+      `
     INSERT INTO chatbot_escalations (lead_id, session_id, message, reason, status)
     VALUES (?, ?, ?, ?, 'open')
-  `).run(Number(leadId), session ? session.id : null, text, why);
+  `
+    )
+    .run(Number(leadId), session ? session.id : null, text, why);
 
   if (session) {
-    addMessage(db, session.id, leadId, 'system',
-      'I am connecting you with the team — feel free to leave your contact details.');
-    addMessage(db, session.id, leadId, 'agent',
-      'I want to make sure you get the right help. A team member will follow up, or you can leave your name and email below.');
-    db.prepare(`
+    addMessage(
+      db,
+      session.id,
+      leadId,
+      'system',
+      'I am connecting you with the team — feel free to leave your contact details.'
+    );
+    addMessage(
+      db,
+      session.id,
+      leadId,
+      'agent',
+      'I want to make sure you get the right help. A team member will follow up, or you can leave your name and email below.'
+    );
+    db.prepare(
+      `
       UPDATE chatbot_sessions SET needs_agent = 0, updated_at = datetime('now') WHERE id = ?
-    `).run(session.id);
+    `
+    ).run(session.id);
   }
 
   return {
@@ -1370,23 +1518,30 @@ function listEscalations(db, leadId, { status = 'open', limit = 50 } = {}) {
 
 function resolveEscalation(db, leadId, id) {
   ensureTables(db);
-  const row = db.prepare('SELECT * FROM chatbot_escalations WHERE lead_id = ? AND id = ?')
+  const row = db
+    .prepare('SELECT * FROM chatbot_escalations WHERE lead_id = ? AND id = ?')
     .get(Number(leadId), Number(id));
   if (!row) throw fail('NOT_FOUND', 'Escalation not found', 404);
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE chatbot_escalations SET status = 'resolved', resolved_at = datetime('now')
     WHERE id = ? AND lead_id = ?
-  `).run(row.id, Number(leadId));
+  `
+  ).run(row.id, Number(leadId));
   return db.prepare('SELECT * FROM chatbot_escalations WHERE id = ?').get(row.id);
 }
 
 function listChatLeads(db, leadId, { limit = 50 } = {}) {
   ensureTables(db);
   const lim = Math.min(200, Math.max(1, Number(limit) || 50));
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT id, session_id, name, email, phone, message, status, created_at
     FROM chatbot_leads WHERE lead_id = ? ORDER BY id DESC LIMIT ?
-  `).all(Number(leadId), lim);
+  `
+    )
+    .all(Number(leadId), lim);
 }
 
 function portalChatbotSummary(db, leadId) {
@@ -1397,23 +1552,29 @@ function portalChatbotSummary(db, leadId) {
     settings: getSettings(db, leadId),
     knowledge: listKnowledge(db, leadId, { includeInactive: true }),
     embed: emb ? modules.publicEmbed(emb) : null,
-    pending_sessions: db.prepare(
-      "SELECT COUNT(*) AS c FROM chatbot_sessions WHERE lead_id = ? AND needs_agent = 1 AND status = 'open'"
-    ).get(Number(leadId)).c,
-    open_escalations: db.prepare(
-      "SELECT COUNT(*) AS c FROM chatbot_escalations WHERE lead_id = ? AND status = 'open'"
-    ).get(Number(leadId)).c,
+    pending_sessions: db
+      .prepare("SELECT COUNT(*) AS c FROM chatbot_sessions WHERE lead_id = ? AND needs_agent = 1 AND status = 'open'")
+      .get(Number(leadId)).c,
+    open_escalations: db
+      .prepare("SELECT COUNT(*) AS c FROM chatbot_escalations WHERE lead_id = ? AND status = 'open'")
+      .get(Number(leadId)).c,
     leads: listChatLeads(db, leadId, { limit: 20 }),
     escalations: listEscalations(db, leadId, { status: 'open', limit: 20 }),
     allowed_actions: listAllowedActions(db, leadId),
     agent_boundary: {
       mode: 'portal_client_mcp_only',
       tools: [
-        'chatbot.pending', 'chatbot.next', 'chatbot.getSession', 'chatbot.reply',
-        'chatbot.escalate', 'chatbot.knowledge.list', 'chatbot.knowledge.add',
+        'chatbot.pending',
+        'chatbot.next',
+        'chatbot.getSession',
+        'chatbot.reply',
+        'chatbot.escalate',
+        'chatbot.knowledge.list',
+        'chatbot.knowledge.add',
         'chatbot.actions',
       ],
-      forbidden: 'Admin MCP (lead.*, design.*, workspace tools) and workspace ws_ tokens must not be used for visitor chat.',
+      forbidden:
+        'Admin MCP (lead.*, design.*, workspace tools) and workspace ws_ tokens must not be used for visitor chat.',
       actions: 'Bookings/forms/products via public module/form APIs listed in allowed_actions.',
     },
   };
@@ -1432,7 +1593,7 @@ function chatScriptTag(appUrl) {
 
 function chatEmbedBlockHtml(embed, appUrl) {
   const base = String(appUrl || appBaseUrl()).replace(/\/$/, '');
-  const token = String(embed && embed.public_token || '');
+  const token = String((embed && embed.public_token) || '');
   if (!/^\d+_[A-Za-z0-9_-]+$/.test(token)) return '';
   return (
     `<div class="bitpype-chat-embed" ${CHAT_ATTR}="1" ${CHAT_TOKEN_ATTR}="${escapeAttr(token)}" ` +
@@ -1449,25 +1610,16 @@ function htmlHasChatToken(html, token) {
 
 function stripChatEmbedsFromHtml(html, { keepToken } = {}) {
   let s = String(html || '');
-  s = s.replace(
-    /<div\b[^>]*\bdata-bitpype-chat\s*=\s*["']?1["']?[^>]*>[\s\S]*?<\/div>/gi,
-    (block) => {
-      if (keepToken && htmlHasChatToken(block, keepToken)) return block;
-      return '';
-    }
-  );
-  s = s.replace(
-    /<div\b[^>]*\bdata-bitpype-chat\s*=\s*["']?1["']?[^>]*\/?>/gi,
-    (block) => {
-      if (keepToken && htmlHasChatToken(block, keepToken)) return block;
-      return '';
-    }
-  );
+  s = s.replace(/<div\b[^>]*\bdata-bitpype-chat\s*=\s*["']?1["']?[^>]*>[\s\S]*?<\/div>/gi, (block) => {
+    if (keepToken && htmlHasChatToken(block, keepToken)) return block;
+    return '';
+  });
+  s = s.replace(/<div\b[^>]*\bdata-bitpype-chat\s*=\s*["']?1["']?[^>]*\/?>/gi, (block) => {
+    if (keepToken && htmlHasChatToken(block, keepToken)) return block;
+    return '';
+  });
   if (!keepToken || !htmlHasChatToken(s, keepToken)) {
-    s = s.replace(
-      new RegExp(`<script\\b[^>]*\\b${CHAT_SCRIPT_ATTR}\\b[^>]*>\\s*<\\/script>`, 'gi'),
-      ''
-    );
+    s = s.replace(new RegExp(`<script\\b[^>]*\\b${CHAT_SCRIPT_ATTR}\\b[^>]*>\\s*<\\/script>`, 'gi'), '');
     s = s.replace(/<script\b[^>]*\/js\/chat-embed\.js[^>]*>\s*<\/script>/gi, '');
   }
   return s;
@@ -1477,10 +1629,7 @@ function ensureChatEmbedScript(html, appUrl) {
   const tag = chatScriptTag(appUrl);
   if (!tag) return String(html || '');
   let s = String(html || '');
-  s = s.replace(
-    new RegExp(`<script\\b[^>]*\\b${CHAT_SCRIPT_ATTR}\\b[^>]*>\\s*<\\/script>`, 'gi'),
-    ''
-  );
+  s = s.replace(new RegExp(`<script\\b[^>]*\\b${CHAT_SCRIPT_ATTR}\\b[^>]*>\\s*<\\/script>`, 'gi'), '');
   s = s.replace(/<script\b[^>]*\/js\/chat-embed\.js[^>]*>\s*<\/script>/gi, '');
   if (/<\/body>/i.test(s)) return s.replace(/<\/body>/i, `${tag}\n</body>`);
   return `${s}\n${tag}`;
@@ -1540,9 +1689,14 @@ function syncChatbotSitewide(db, leadId, pages, { appUrl } = {}) {
           },
         };
         // Prefer injecting into an existing freestyle body/html section before footer.
-        let bodySec = page.sections.find((s) => s && s.type === 'html'
-          && s.content && typeof s.content.html === 'string'
-          && !s.content.bitpype_module_managed);
+        let bodySec = page.sections.find(
+          (s) =>
+            s &&
+            s.type === 'html' &&
+            s.content &&
+            typeof s.content.html === 'string' &&
+            !s.content.bitpype_module_managed
+        );
         if (!bodySec) {
           bodySec = page.sections.find((s) => s && s.type === 'html' && s.content);
         }
@@ -1584,9 +1738,10 @@ async function storeKnowledgeUpload(workspaceId, leadId, { data, mimeType, fileN
   if (buf.length > KNOWLEDGE_MAX_BYTES) {
     throw fail('TOO_LARGE', 'Knowledge file max 5MB', 400);
   }
-  const safeName = String(fileName || 'doc.txt')
-    .replace(/[^a-zA-Z0-9._-]+/g, '_')
-    .slice(0, 80) || 'doc.txt';
+  const safeName =
+    String(fileName || 'doc.txt')
+      .replace(/[^a-zA-Z0-9._-]+/g, '_')
+      .slice(0, 80) || 'doc.txt';
   const dir = path.join(process.cwd(), 'data', 'workspaces', String(workspaceId), 'chatbot', String(leadId));
   fs.mkdirSync(dir, { recursive: true });
   const stored = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safeName}`;
@@ -1620,9 +1775,7 @@ async function storeKnowledgeUpload(workspaceId, leadId, { data, mimeType, fileN
  * Upload one or many knowledge files. Body may be a single file or { files: [...] }.
  */
 async function storeKnowledgeUploads(workspaceId, leadId, body = {}) {
-  const list = Array.isArray(body.files) && body.files.length
-    ? body.files
-    : (body.data ? [body] : []);
+  const list = Array.isArray(body.files) && body.files.length ? body.files : body.data ? [body] : [];
   if (!list.length) throw fail('VALIDATION', 'file data or files[] required', 400);
   if (list.length > 20) throw fail('VALIDATION', 'Max 20 files per upload', 400);
   const results = [];

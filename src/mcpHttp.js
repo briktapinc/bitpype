@@ -101,13 +101,19 @@ function detachDesignQueueWatcher(res) {
 
 function json(res, status, body, extraHeaders) {
   const data = JSON.stringify(body);
-  res.writeHead(status, Object.assign({
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(data),
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Authorization, Content-Type, Accept, Mcp-Session-Id',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  }, extraHeaders || {}));
+  res.writeHead(
+    status,
+    Object.assign(
+      {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Length': Buffer.byteLength(data),
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type, Accept, Mcp-Session-Id',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      },
+      extraHeaders || {}
+    )
+  );
   res.end(data);
 }
 
@@ -218,9 +224,22 @@ const server = http.createServer(async (req, res) => {
     if (!requireAuth(req, res)) return;
     if (req.method === 'GET') {
       openSse(res);
-      writeSse(res, 'message', { jsonrpc: '2.0', method: 'notifications/message', params: { level: 'info', data: 'website-scout-mcp sse ready — poll design.pending / design.next; this stream notifies when the design queue changes.' } });
+      writeSse(res, 'message', {
+        jsonrpc: '2.0',
+        method: 'notifications/message',
+        params: {
+          level: 'info',
+          data: 'website-scout-mcp sse ready — poll design.pending / design.next; this stream notifies when the design queue changes.',
+        },
+      });
       attachDesignQueueWatcher(res);
-      const keep = setInterval(() => { try { res.write(': ping\n\n'); } catch { /* closed */ } }, 25000);
+      const keep = setInterval(() => {
+        try {
+          res.write(': ping\n\n');
+        } catch {
+          /* closed */
+        }
+      }, 25000);
       req.on('close', () => {
         clearInterval(keep);
         detachDesignQueueWatcher(res);
@@ -255,7 +274,13 @@ const server = http.createServer(async (req, res) => {
     const endpoint = `/message?sessionId=${encodeURIComponent(sessionId)}`;
     writeSse(res, 'endpoint', endpoint);
     attachDesignQueueWatcher(res);
-    const keep = setInterval(() => { try { res.write(': ping\n\n'); } catch { /* closed */ } }, 25000);
+    const keep = setInterval(() => {
+      try {
+        res.write(': ping\n\n');
+      } catch {
+        /* closed */
+      }
+    }, 25000);
     req.on('close', () => {
       clearInterval(keep);
       detachDesignQueueWatcher(res);
@@ -285,9 +310,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-  process.stderr.write(
-    `[mcp-http] ${SERVER_INFO.name} listening on http://${HOST}:${PORT}/ws (db: ${DB_PATH})\n`
-  );
+  process.stderr.write(`[mcp-http] ${SERVER_INFO.name} listening on http://${HOST}:${PORT}/ws (db: ${DB_PATH})\n`);
   if (!TOKEN) {
     process.stderr.write('[mcp-http] WARNING: WS_MCP_TOKEN is empty — all MCP routes return 503 until set.\n');
   }

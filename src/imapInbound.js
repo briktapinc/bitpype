@@ -12,8 +12,11 @@ const { simpleParser } = require('mailparser');
 function getSetting(db, key, def = '') {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-    if (row && row.value != null && String(row.value) !== '') return String(require('./secretBox').decryptSetting(key, row.value));
-  } catch { /* ignore */ }
+    if (row && row.value != null && String(row.value) !== '')
+      return String(require('./secretBox').decryptSetting(key, row.value));
+  } catch {
+    /* ignore */
+  }
   return def;
 }
 
@@ -40,9 +43,9 @@ function alreadySeen(db, messageId, mailbox, uid) {
     if (row) return true;
   }
   if (uid != null) {
-    const row = db.prepare(
-      'SELECT id FROM design_inbound_seen WHERE mailbox = ? AND uid = ? LIMIT 1'
-    ).get(mailbox, Number(uid));
+    const row = db
+      .prepare('SELECT id FROM design_inbound_seen WHERE mailbox = ? AND uid = ? LIMIT 1')
+      .get(mailbox, Number(uid));
     if (row) return true;
   }
   return false;
@@ -103,7 +106,9 @@ function imapConfig(db) {
 
 /** Bare lowercase address out of a From value ("Name <a@b.c>" or "a@b.c"). */
 function normalizeEmail(v) {
-  const s = String(v || '').trim().toLowerCase();
+  const s = String(v || '')
+    .trim()
+    .toLowerCase();
   const angle = s.match(/<([^>]+)>/);
   return (angle ? angle[1] : s).trim();
 }
@@ -212,7 +217,9 @@ async function processMessage(db, { fromEmail, subject, body, messageId, uid, ma
       'design',
       `IMAP inbound for job #${jobId}: ${actions.map((a) => a.type).join(', ') || 'no-op'} (${fromEmail || 'unknown'})`
     );
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   return { ok: true, jobId, subject, fromEmail, actions };
 }
@@ -262,19 +269,31 @@ async function pollMailbox(db, opts = {}) {
           results.push({ ok: false, uid, error: e.message });
           continue;
         }
-        const messageId = String(parsed.messageId || '').trim().slice(0, 500);
+        const messageId = String(parsed.messageId || '')
+          .trim()
+          .slice(0, 500);
         if (alreadySeen(db, messageId, cfg.mailbox, uid)) {
           results.push({ ok: true, skipped: true, reason: 'already_seen', uid });
-          try { await client.messageFlagsAdd({ uid }, ['\\Seen']); } catch { /* ignore */ }
+          try {
+            await client.messageFlagsAdd({ uid }, ['\\Seen']);
+          } catch {
+            /* ignore */
+          }
           continue;
         }
         const fromEmail = extractAddress(parsed.from);
-        const subject = String(parsed.subject || '').trim().slice(0, 500);
+        const subject = String(parsed.subject || '')
+          .trim()
+          .slice(0, 500);
         const body = bodyText(parsed);
         if (!body) {
           markSeen(db, messageId, cfg.mailbox, uid, [{ type: 'empty_body' }]);
           results.push({ ok: false, skipped: true, reason: 'empty_body', uid, subject });
-          try { await client.messageFlagsAdd({ uid }, ['\\Seen']); } catch { /* ignore */ }
+          try {
+            await client.messageFlagsAdd({ uid }, ['\\Seen']);
+          } catch {
+            /* ignore */
+          }
           continue;
         }
         try {
@@ -289,7 +308,11 @@ async function pollMailbox(db, opts = {}) {
           });
           results.push({ uid, ...out });
           // Only mark IMAP Seen after durable processing (or intentional skip).
-          try { await client.messageFlagsAdd({ uid }, ['\\Seen']); } catch { /* ignore */ }
+          try {
+            await client.messageFlagsAdd({ uid }, ['\\Seen']);
+          } catch {
+            /* ignore */
+          }
         } catch (e) {
           // Leave unseen so the next poll can retry.
           results.push({ ok: false, uid, subject, error: e.message, code: e.code });
@@ -299,7 +322,11 @@ async function pollMailbox(db, opts = {}) {
       lock.release();
     }
   } finally {
-    try { await client.logout(); } catch { /* ignore */ }
+    try {
+      await client.logout();
+    } catch {
+      /* ignore */
+    }
   }
 
   return {

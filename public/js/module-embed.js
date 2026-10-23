@@ -224,13 +224,21 @@
       return { kicker: 'Gallery', title: 'No albums yet', text: 'Photo albums will appear here when published.' };
     }
     if (type === 'directory') {
-      return { kicker: 'Directory', title: 'No listings yet', text: 'Directory listings will show up here when published.' };
+      return {
+        kicker: 'Directory',
+        title: 'No listings yet',
+        text: 'Directory listings will show up here when published.',
+      };
     }
     if (type === 'faq') {
       return { kicker: 'FAQ', title: 'No questions yet', text: 'Published FAQs will appear here.' };
     }
     if (type === 'testimonials') {
-      return { kicker: 'Testimonials', title: 'No reviews yet', text: 'Customer testimonials will show up here when published.' };
+      return {
+        kicker: 'Testimonials',
+        title: 'No reviews yet',
+        text: 'Customer testimonials will show up here when published.',
+      };
     }
     if (type === 'team') {
       return { kicker: 'Team', title: 'No team members yet', text: 'Team profiles will appear here when published.' };
@@ -239,7 +247,11 @@
       return { kicker: 'Events', title: 'No events yet', text: 'Upcoming events will show up here when published.' };
     }
     if (type === 'bookings') {
-      return { kicker: 'Bookings', title: 'No services yet', text: 'Publish a bookable service to open the appointment calendar.' };
+      return {
+        kicker: 'Bookings',
+        title: 'No services yet',
+        text: 'Publish a bookable service to open the appointment calendar.',
+      };
     }
     return { kicker: 'Module', title: 'Nothing published yet', text: 'Published items will appear here.' };
   }
@@ -252,26 +264,46 @@
 
   function todayYmd() {
     var d = new Date();
-    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    return (
+      d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+    );
   }
 
   function renderEmpty(type) {
     var copy = emptyCopy(type);
     return (
-      '<div class="bp-mod-empty-card">'
-      + '<p class="bp-mod-empty-kicker">' + esc(copy.kicker) + '</p>'
-      + '<p class="bp-mod-empty-title">' + esc(copy.title) + '</p>'
-      + '<p class="bp-mod-empty-text">' + esc(copy.text) + '</p>'
-      + '</div>'
+      '<div class="bp-mod-empty-card">' +
+      '<p class="bp-mod-empty-kicker">' +
+      esc(copy.kicker) +
+      '</p>' +
+      '<p class="bp-mod-empty-title">' +
+      esc(copy.title) +
+      '</p>' +
+      '<p class="bp-mod-empty-text">' +
+      esc(copy.text) +
+      '</p>' +
+      '</div>'
     );
   }
 
   function coverHtml(href, imageUrl, label) {
     if (imageUrl) {
-      return '<a class="bp-mod-cover" href="' + esc(href) + '" style="background-image:url(\'' + esc(imageUrl) + '\')"></a>';
+      return (
+        '<a class="bp-mod-cover" href="' + esc(href) + '" style="background-image:url(\'' + esc(imageUrl) + '\')"></a>'
+      );
     }
-    var letter = String(label || '?').trim().charAt(0).toUpperCase() || '?';
-    return '<a class="bp-mod-cover bp-mod-cover-fallback" href="' + esc(href) + '" aria-hidden="true">' + esc(letter) + '</a>';
+    var letter =
+      String(label || '?')
+        .trim()
+        .charAt(0)
+        .toUpperCase() || '?';
+    return (
+      '<a class="bp-mod-cover bp-mod-cover-fallback" href="' +
+      esc(href) +
+      '" aria-hidden="true">' +
+      esc(letter) +
+      '</a>'
+    );
   }
 
   function apiBase(el) {
@@ -280,7 +312,9 @@
     try {
       var src = document.querySelector('script[data-bitpype-module-script],script[src*="module-embed.js"]');
       if (src && src.src) return new URL(src.src).origin;
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      /* ignore */
+    }
     return '';
   }
 
@@ -289,14 +323,21 @@
       var existing = document.querySelector('script[src="' + src + '"]');
       if (existing) {
         if (window.ScoutCaptcha) resolve();
-        else existing.addEventListener('load', function () { resolve(); });
+        else
+          existing.addEventListener('load', function () {
+            resolve();
+          });
         return;
       }
       var s = document.createElement('script');
       s.src = src;
       s.async = true;
-      s.onload = function () { resolve(); };
-      s.onerror = function () { reject(new Error('Could not load captcha helper')); };
+      s.onload = function () {
+        resolve();
+      };
+      s.onerror = function () {
+        reject(new Error('Could not load captcha helper'));
+      };
       document.head.appendChild(s);
     });
   }
@@ -305,13 +346,17 @@
     if (!iso) return '';
     try {
       return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-    } catch (e) { return ''; }
+    } catch (e) {
+      return '';
+    }
   }
 
   function currentItemKey() {
     try {
       return new URLSearchParams(location.search).get(ITEM_PARAM) || '';
-    } catch (e) { return ''; }
+    } catch (e) {
+      return '';
+    }
   }
 
   function listHref() {
@@ -360,7 +405,7 @@
     if (!here || here === '' || here === '/') here = 'index';
     if (here === slug) return '';
     if (slug === 'index') return 'index.html';
-    return slug.indexOf('.html') >= 0 ? slug : (slug + '.html');
+    return slug.indexOf('.html') >= 0 ? slug : slug + '.html';
   }
 
   function renderAlbumDetail(album, showBack) {
@@ -374,7 +419,14 @@
       html += '<div class="bp-mod-gallery">';
       for (var i = 0; i < imgs.length; i++) {
         var im = imgs[i];
-        html += '<a href="' + esc(im.image_url) + '" target="_blank" rel="noopener" style="background-image:url(\'' + esc(im.image_url) + '\')" title="' + esc(im.caption || '') + '"></a>';
+        html +=
+          '<a href="' +
+          esc(im.image_url) +
+          '" target="_blank" rel="noopener" style="background-image:url(\'' +
+          esc(im.image_url) +
+          '\')" title="' +
+          esc(im.caption || '') +
+          '"></a>';
       }
       html += '</div>';
     }
@@ -405,8 +457,13 @@
       html += '<div class="bp-mod-faq">';
       for (var fi = 0; fi < items.length; fi++) {
         var fq = items[fi];
-        html += '<details><summary>' + esc(fq.question) + '</summary>'
-          + '<div class="bp-mod-content">' + (fq.answer_html || '') + '</div></details>';
+        html +=
+          '<details><summary>' +
+          esc(fq.question) +
+          '</summary>' +
+          '<div class="bp-mod-content">' +
+          (fq.answer_html || '') +
+          '</div></details>';
       }
       html += '</div>';
       el.innerHTML = html;
@@ -418,74 +475,144 @@
       var key = it.slug || it.id;
       if (type === 'blog') {
         var blogSet = embedSettings(data);
-        html += '<article class="bp-mod-card">'
-          + coverHtml(itemHref(key), it.cover_image, it.title)
-          + '<div class="bp-mod-body"><h2><a href="' + esc(itemHref(key)) + '">' + esc(it.title) + '</a></h2>'
-          + '<p class="bp-mod-meta">' + esc(dateLabel(it.published_at || it.created_at)) + '</p>'
-          + (blogSet.show_excerpt && it.excerpt
-            ? '<p class="bp-mod-excerpt">' + esc(it.excerpt) + '</p>'
-            : '')
-          + '</div></article>';
+        html +=
+          '<article class="bp-mod-card">' +
+          coverHtml(itemHref(key), it.cover_image, it.title) +
+          '<div class="bp-mod-body"><h2><a href="' +
+          esc(itemHref(key)) +
+          '">' +
+          esc(it.title) +
+          '</a></h2>' +
+          '<p class="bp-mod-meta">' +
+          esc(dateLabel(it.published_at || it.created_at)) +
+          '</p>' +
+          (blogSet.show_excerpt && it.excerpt ? '<p class="bp-mod-excerpt">' + esc(it.excerpt) + '</p>' : '') +
+          '</div></article>';
       } else if (type === 'ecommerce') {
         var buy = it.checkout_url
           ? '<a class="bp-mod-btn" href="' + esc(it.checkout_url) + '" target="_blank" rel="noopener">Buy</a>'
-          : (it.stripe_checkout
+          : it.stripe_checkout
             ? '<button type="button" class="bp-mod-btn" data-bp-buy="' + esc(it.id) + '">Buy</button>'
-            : '<a class="bp-mod-btn ghost" href="' + esc(itemHref(key)) + '">View</a>');
-        html += '<article class="bp-mod-card">'
-          + coverHtml(itemHref(key), it.image_url, it.name)
-          + '<div class="bp-mod-body"><h2><a href="' + esc(itemHref(key)) + '">' + esc(it.name) + '</a></h2>'
-          + (it.price_label ? '<p class="bp-mod-price">' + esc(it.price_label) + '</p>' : '')
-          + '<p class="bp-mod-desc">' + esc((it.description || '').slice(0, 140)) + '</p>' + buy + '</div></article>';
+            : '<a class="bp-mod-btn ghost" href="' + esc(itemHref(key)) + '">View</a>';
+        html +=
+          '<article class="bp-mod-card">' +
+          coverHtml(itemHref(key), it.image_url, it.name) +
+          '<div class="bp-mod-body"><h2><a href="' +
+          esc(itemHref(key)) +
+          '">' +
+          esc(it.name) +
+          '</a></h2>' +
+          (it.price_label ? '<p class="bp-mod-price">' + esc(it.price_label) + '</p>' : '') +
+          '<p class="bp-mod-desc">' +
+          esc((it.description || '').slice(0, 140)) +
+          '</p>' +
+          buy +
+          '</div></article>';
       } else if (type === 'courses') {
         var n = (it.lessons || []).length;
-        html += '<article class="bp-mod-card">'
-          + coverHtml(itemHref(key), it.cover_image, it.title)
-          + '<div class="bp-mod-body"><h2><a href="' + esc(itemHref(key)) + '">' + esc(it.title) + '</a></h2>'
-          + '<p class="bp-mod-meta">' + n + ' lesson' + (n === 1 ? '' : 's') + '</p>'
-          + '<p class="bp-mod-desc">' + esc((it.description || '').slice(0, 140)) + '</p>'
-          + '<a class="bp-mod-btn ghost" href="' + esc(itemHref(key)) + '">View course</a></div></article>';
+        html +=
+          '<article class="bp-mod-card">' +
+          coverHtml(itemHref(key), it.cover_image, it.title) +
+          '<div class="bp-mod-body"><h2><a href="' +
+          esc(itemHref(key)) +
+          '">' +
+          esc(it.title) +
+          '</a></h2>' +
+          '<p class="bp-mod-meta">' +
+          n +
+          ' lesson' +
+          (n === 1 ? '' : 's') +
+          '</p>' +
+          '<p class="bp-mod-desc">' +
+          esc((it.description || '').slice(0, 140)) +
+          '</p>' +
+          '<a class="bp-mod-btn ghost" href="' +
+          esc(itemHref(key)) +
+          '">View course</a></div></article>';
       } else if (type === 'gallery') {
         var cover = (it.images && it.images[0] && it.images[0].image_url) || '';
         var count = (it.images || []).length;
-        html += '<article class="bp-mod-card">'
-          + coverHtml(itemHref(key), cover, it.title)
-          + '<div class="bp-mod-body"><h2><a href="' + esc(itemHref(key)) + '">' + esc(it.title) + '</a></h2>'
-          + '<p class="bp-mod-meta">' + count + ' photo' + (count === 1 ? '' : 's') + '</p></div></article>';
+        html +=
+          '<article class="bp-mod-card">' +
+          coverHtml(itemHref(key), cover, it.title) +
+          '<div class="bp-mod-body"><h2><a href="' +
+          esc(itemHref(key)) +
+          '">' +
+          esc(it.title) +
+          '</a></h2>' +
+          '<p class="bp-mod-meta">' +
+          count +
+          ' photo' +
+          (count === 1 ? '' : 's') +
+          '</p></div></article>';
       } else if (type === 'directory') {
-        html += '<article class="bp-mod-card">'
-          + (it.image_url
+        html +=
+          '<article class="bp-mod-card">' +
+          (it.image_url
             ? '<div class="bp-mod-cover" style="background-image:url(\'' + esc(it.image_url) + '\')"></div>'
-            : '<div class="bp-mod-cover bp-mod-cover-fallback" aria-hidden="true">' + esc(String(it.name || '?').charAt(0).toUpperCase()) + '</div>')
-          + '<div class="bp-mod-body"><h2>' + esc(it.name) + '</h2>'
-          + (it.category ? '<p class="bp-mod-meta">' + esc(it.category) + '</p>' : '')
-          + '<p class="bp-mod-desc">' + esc((it.description || '').slice(0, 160)) + '</p>'
-          + (it.website_url ? '<a class="bp-mod-btn ghost" href="' + esc(it.website_url) + '" target="_blank" rel="noopener">Visit</a>' : '')
-          + (it.contact_email ? '<p class="bp-mod-meta">' + esc(it.contact_email) + '</p>' : '')
-          + (it.contact_phone ? '<p class="bp-mod-meta">' + esc(it.contact_phone) + '</p>' : '')
-          + '</div></article>';
+            : '<div class="bp-mod-cover bp-mod-cover-fallback" aria-hidden="true">' +
+              esc(
+                String(it.name || '?')
+                  .charAt(0)
+                  .toUpperCase()
+              ) +
+              '</div>') +
+          '<div class="bp-mod-body"><h2>' +
+          esc(it.name) +
+          '</h2>' +
+          (it.category ? '<p class="bp-mod-meta">' + esc(it.category) + '</p>' : '') +
+          '<p class="bp-mod-desc">' +
+          esc((it.description || '').slice(0, 160)) +
+          '</p>' +
+          (it.website_url
+            ? '<a class="bp-mod-btn ghost" href="' + esc(it.website_url) + '" target="_blank" rel="noopener">Visit</a>'
+            : '') +
+          (it.contact_email ? '<p class="bp-mod-meta">' + esc(it.contact_email) + '</p>' : '') +
+          (it.contact_phone ? '<p class="bp-mod-meta">' + esc(it.contact_phone) + '</p>' : '') +
+          '</div></article>';
       } else if (type === 'testimonials') {
-        html += '<article class="bp-mod-card"><div class="bp-mod-body">'
-          + starsHtml(it.rating)
-          + '<p class="bp-mod-quote">“' + esc(it.quote) + '”</p>'
-          + '<p class="bp-mod-meta"><strong>' + esc(it.author_name || 'Client') + '</strong>'
-          + (it.author_title || it.author_company
+        html +=
+          '<article class="bp-mod-card"><div class="bp-mod-body">' +
+          starsHtml(it.rating) +
+          '<p class="bp-mod-quote">“' +
+          esc(it.quote) +
+          '”</p>' +
+          '<p class="bp-mod-meta"><strong>' +
+          esc(it.author_name || 'Client') +
+          '</strong>' +
+          (it.author_title || it.author_company
             ? ' · ' + esc([it.author_title, it.author_company].filter(Boolean).join(', '))
-            : '')
-          + '</p></div></article>';
+            : '') +
+          '</p></div></article>';
       } else if (type === 'team') {
-        html += '<article class="bp-mod-card">'
-          + coverHtml(itemHref(key), it.image_url, it.name)
-          + '<div class="bp-mod-body"><h2><a href="' + esc(itemHref(key)) + '">' + esc(it.name) + '</a></h2>'
-          + (it.role_title ? '<p class="bp-mod-meta">' + esc(it.role_title) + '</p>' : '')
-          + '<p class="bp-mod-desc">' + esc((it.bio || '').slice(0, 140)) + '</p></div></article>';
+        html +=
+          '<article class="bp-mod-card">' +
+          coverHtml(itemHref(key), it.image_url, it.name) +
+          '<div class="bp-mod-body"><h2><a href="' +
+          esc(itemHref(key)) +
+          '">' +
+          esc(it.name) +
+          '</a></h2>' +
+          (it.role_title ? '<p class="bp-mod-meta">' + esc(it.role_title) + '</p>' : '') +
+          '<p class="bp-mod-desc">' +
+          esc((it.bio || '').slice(0, 140)) +
+          '</p></div></article>';
       } else if (type === 'events') {
-        html += '<article class="bp-mod-card">'
-          + coverHtml(itemHref(key), it.image_url, it.title)
-          + '<div class="bp-mod-body"><h2><a href="' + esc(itemHref(key)) + '">' + esc(it.title) + '</a></h2>'
-          + '<p class="bp-mod-meta">' + esc(dateLabel(it.starts_at) || it.starts_at || '') + '</p>'
-          + (it.location ? '<p class="bp-mod-meta">' + esc(it.location) + '</p>' : '')
-          + '<p class="bp-mod-desc">' + esc((it.description || '').slice(0, 140)) + '</p></div></article>';
+        html +=
+          '<article class="bp-mod-card">' +
+          coverHtml(itemHref(key), it.image_url, it.title) +
+          '<div class="bp-mod-body"><h2><a href="' +
+          esc(itemHref(key)) +
+          '">' +
+          esc(it.title) +
+          '</a></h2>' +
+          '<p class="bp-mod-meta">' +
+          esc(dateLabel(it.starts_at) || it.starts_at || '') +
+          '</p>' +
+          (it.location ? '<p class="bp-mod-meta">' + esc(it.location) + '</p>' : '') +
+          '<p class="bp-mod-desc">' +
+          esc((it.description || '').slice(0, 140)) +
+          '</p></div></article>';
       }
     }
     html += '</div>';
@@ -508,31 +635,48 @@
     var maxDays = Number(settings.max_days_ahead) || 60;
     var maxDate = new Date();
     maxDate.setDate(maxDate.getDate() + maxDays);
-    var maxYmd = maxDate.getFullYear() + '-' + String(maxDate.getMonth() + 1).padStart(2, '0') + '-' + String(maxDate.getDate()).padStart(2, '0');
+    var maxYmd =
+      maxDate.getFullYear() +
+      '-' +
+      String(maxDate.getMonth() + 1).padStart(2, '0') +
+      '-' +
+      String(maxDate.getDate()).padStart(2, '0');
     var html = prefixHtml || '';
-    html += '<form class="bp-mod-book" data-bp-book="1">'
-      + '<div class="bp-mod-book-row"><label for="bp-svc">Service</label><select id="bp-svc" name="service_id" required>';
+    html +=
+      '<form class="bp-mod-book" data-bp-book="1">' +
+      '<div class="bp-mod-book-row"><label for="bp-svc">Service</label><select id="bp-svc" name="service_id" required>';
     for (var i = 0; i < services.length; i++) {
       var s = services[i];
-      html += '<option value="' + esc(s.id) + '">' + esc(s.name)
-        + (s.duration_label ? ' · ' + esc(s.duration_label) : '')
-        + (s.price_label ? ' · ' + esc(s.price_label) : '')
-        + '</option>';
+      html +=
+        '<option value="' +
+        esc(s.id) +
+        '">' +
+        esc(s.name) +
+        (s.duration_label ? ' · ' + esc(s.duration_label) : '') +
+        (s.price_label ? ' · ' + esc(s.price_label) : '') +
+        '</option>';
     }
-    html += '</select></div>'
-      + '<div class="bp-mod-book-row"><label for="bp-date">Date</label>'
-      + '<input id="bp-date" name="date" type="date" required min="' + esc(todayYmd()) + '" max="' + esc(maxYmd) + '" value="' + esc(todayYmd()) + '" /></div>'
-      + '<div class="bp-mod-book-row"><span>Available times</span><div class="bp-mod-slots" data-bp-slots></div>'
-      + '<p class="bp-mod-book-msg" data-bp-slot-msg>Pick a date to see open times.</p></div>'
-      + '<input type="hidden" name="starts_at" value="" />'
-      + '<div class="bp-mod-book-row"><label for="bp-name">Name</label><input id="bp-name" name="customer_name" required autocomplete="name" /></div>'
-      + '<div class="bp-mod-book-row"><label for="bp-email">Email</label><input id="bp-email" name="customer_email" type="email" autocomplete="email" /></div>'
-      + '<div class="bp-mod-book-row"><label for="bp-phone">Phone</label><input id="bp-phone" name="customer_phone" type="tel" autocomplete="tel" /></div>'
-      + '<div class="bp-mod-book-row"><label for="bp-notes">Notes</label><textarea id="bp-notes" name="notes" rows="3"></textarea></div>'
-      + '<div class="bp-mod-captcha" data-bp-captcha hidden></div>'
-      + '<button type="submit" class="bp-mod-btn">Request appointment</button>'
-      + '<p class="bp-mod-book-msg" data-bp-book-msg></p>'
-      + '</form>';
+    html +=
+      '</select></div>' +
+      '<div class="bp-mod-book-row"><label for="bp-date">Date</label>' +
+      '<input id="bp-date" name="date" type="date" required min="' +
+      esc(todayYmd()) +
+      '" max="' +
+      esc(maxYmd) +
+      '" value="' +
+      esc(todayYmd()) +
+      '" /></div>' +
+      '<div class="bp-mod-book-row"><span>Available times</span><div class="bp-mod-slots" data-bp-slots></div>' +
+      '<p class="bp-mod-book-msg" data-bp-slot-msg>Pick a date to see open times.</p></div>' +
+      '<input type="hidden" name="starts_at" value="" />' +
+      '<div class="bp-mod-book-row"><label for="bp-name">Name</label><input id="bp-name" name="customer_name" required autocomplete="name" /></div>' +
+      '<div class="bp-mod-book-row"><label for="bp-email">Email</label><input id="bp-email" name="customer_email" type="email" autocomplete="email" /></div>' +
+      '<div class="bp-mod-book-row"><label for="bp-phone">Phone</label><input id="bp-phone" name="customer_phone" type="tel" autocomplete="tel" /></div>' +
+      '<div class="bp-mod-book-row"><label for="bp-notes">Notes</label><textarea id="bp-notes" name="notes" rows="3"></textarea></div>' +
+      '<div class="bp-mod-captcha" data-bp-captcha hidden></div>' +
+      '<button type="submit" class="bp-mod-btn">Request appointment</button>' +
+      '<p class="bp-mod-book-msg" data-bp-book-msg></p>' +
+      '</form>';
     el.innerHTML = html;
     bindBookingForm(el, data);
   }
@@ -548,7 +692,13 @@
     var startsInput = form.querySelector('[name="starts_at"]');
     var captchaBox = form.querySelector('[data-bp-captcha]');
     var submitBtn = form.querySelector('button[type="submit"]');
-    var captcha = { enabled: false, getToken: async function () { return ''; }, reset: function () {} };
+    var captcha = {
+      enabled: false,
+      getToken: async function () {
+        return '';
+      },
+      reset: function () {},
+    };
     var selectedSlot = '';
 
     (async function () {
@@ -557,7 +707,9 @@
         if (window.ScoutCaptcha && captchaBox) {
           captcha = await window.ScoutCaptcha.mount(captchaBox, { apiBase: base });
         }
-      } catch (e) { /* captcha optional when disabled server-side */ }
+      } catch (e) {
+        /* captcha optional when disabled server-side */
+      }
     })();
 
     function setSlotMsg(text, kind) {
@@ -571,14 +723,27 @@
       if (p.length !== 3) return ymd;
       var dt = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
       dt.setDate(dt.getDate() + days);
-      return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-'
-        + String(dt.getDate()).padStart(2, '0');
+      return (
+        dt.getFullYear() +
+        '-' +
+        String(dt.getMonth() + 1).padStart(2, '0') +
+        '-' +
+        String(dt.getDate()).padStart(2, '0')
+      );
     }
 
     function fetchSlotsForDate(date, serviceId) {
-      var path = (base || '') + '/api/v1/modules/public/' + encodeURIComponent(token)
-        + '/slots?date=' + encodeURIComponent(date) + '&serviceId=' + encodeURIComponent(serviceId);
-      return fetch(path, { credentials: 'omit' }).then(function (r) { return r.json(); });
+      var path =
+        (base || '') +
+        '/api/v1/modules/public/' +
+        encodeURIComponent(token) +
+        '/slots?date=' +
+        encodeURIComponent(date) +
+        '&serviceId=' +
+        encodeURIComponent(serviceId);
+      return fetch(path, { credentials: 'omit' }).then(function (r) {
+        return r.json();
+      });
     }
 
     function findNextOpenDay(startDate, serviceId, maxDate) {
@@ -615,10 +780,17 @@
           if (slots.length) {
             setSlotMsg('Select a time.');
             if (!slotsBox) return;
-            slotsBox.innerHTML = slots.map(function (slot) {
-              return '<button type="button" class="bp-mod-slot" data-starts="' + esc(slot.starts_at) + '">'
-                + esc(slot.label) + '</button>';
-            }).join('');
+            slotsBox.innerHTML = slots
+              .map(function (slot) {
+                return (
+                  '<button type="button" class="bp-mod-slot" data-starts="' +
+                  esc(slot.starts_at) +
+                  '">' +
+                  esc(slot.label) +
+                  '</button>'
+                );
+              })
+              .join('');
             return;
           }
           var maxDate = form.date.max || '';
@@ -631,7 +803,9 @@
             try {
               var nd = new Date(next.date + 'T12:00:00');
               nice = nd.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-            } catch (e) { /* keep ymd */ }
+            } catch (e) {
+              /* keep ymd */
+            }
             setSlotMsg('Next opening: ' + nice + '. Jumping to that date…', 'ok');
             form.date.value = next.date;
             loadSlots();
@@ -656,15 +830,24 @@
     });
     form.addEventListener('submit', function (ev) {
       ev.preventDefault();
-      if (bookMsg) { bookMsg.textContent = ''; bookMsg.className = 'bp-mod-book-msg'; }
+      if (bookMsg) {
+        bookMsg.textContent = '';
+        bookMsg.className = 'bp-mod-book-msg';
+      }
       if (!selectedSlot) {
-        if (bookMsg) { bookMsg.textContent = 'Please choose an available time.'; bookMsg.className = 'bp-mod-book-msg err'; }
+        if (bookMsg) {
+          bookMsg.textContent = 'Please choose an available time.';
+          bookMsg.className = 'bp-mod-book-msg err';
+        }
         return;
       }
       var email = String(form.customer_email.value || '').trim();
       var phone = String(form.customer_phone.value || '').trim();
       if (!email && !phone) {
-        if (bookMsg) { bookMsg.textContent = 'Email or phone is required.'; bookMsg.className = 'bp-mod-book-msg err'; }
+        if (bookMsg) {
+          bookMsg.textContent = 'Email or phone is required.';
+          bookMsg.className = 'bp-mod-book-msg err';
+        }
         return;
       }
       if (submitBtn) submitBtn.disabled = true;
@@ -690,14 +873,20 @@
           var j = await r.json();
           if (!r.ok || !j || !j.ok) throw new Error((j && j.error) || 'Booking failed');
           var msg = (j.data && j.data.message) || 'Appointment requested.';
-          el.innerHTML = (shouldShowTitle(el)
-            ? '<h2 class="bp-mod-title">' + esc(data.title || 'Bookings') + '</h2>'
-            : '')
-            + '<div class="bp-mod-empty-card"><p class="bp-mod-empty-kicker">Booked</p>'
-            + '<p class="bp-mod-empty-title">' + esc(msg) + '</p>'
-            + '<p class="bp-mod-empty-text">' + esc((j.data.appointment && j.data.appointment.starts_at) || '') + '</p></div>';
+          el.innerHTML =
+            (shouldShowTitle(el) ? '<h2 class="bp-mod-title">' + esc(data.title || 'Bookings') + '</h2>' : '') +
+            '<div class="bp-mod-empty-card"><p class="bp-mod-empty-kicker">Booked</p>' +
+            '<p class="bp-mod-empty-title">' +
+            esc(msg) +
+            '</p>' +
+            '<p class="bp-mod-empty-text">' +
+            esc((j.data.appointment && j.data.appointment.starts_at) || '') +
+            '</p></div>';
         } catch (e) {
-          if (bookMsg) { bookMsg.textContent = e.message || 'Booking failed'; bookMsg.className = 'bp-mod-book-msg err'; }
+          if (bookMsg) {
+            bookMsg.textContent = e.message || 'Booking failed';
+            bookMsg.className = 'bp-mod-book-msg err';
+          }
           if (captcha.reset) captcha.reset();
         } finally {
           if (submitBtn) submitBtn.disabled = false;
@@ -712,84 +901,165 @@
     var it = data.item;
     var html = '<a class="bp-mod-back" href="' + esc(listHref()) + '">← Back</a>';
     if (type === 'blog') {
-      html += '<article class="bp-mod-detail">'
-        + (it.cover_image ? '<img class="bp-mod-hero" src="' + esc(it.cover_image) + '" alt="" />' : '')
-        + '<h1>' + esc(it.title) + '</h1>'
-        + '<p class="bp-mod-meta">' + esc(dateLabel(it.published_at || it.created_at)) + '</p>'
-        + '<div class="bp-mod-content">' + (it.body_html || '') + '</div></article>';
+      html +=
+        '<article class="bp-mod-detail">' +
+        (it.cover_image ? '<img class="bp-mod-hero" src="' + esc(it.cover_image) + '" alt="" />' : '') +
+        '<h1>' +
+        esc(it.title) +
+        '</h1>' +
+        '<p class="bp-mod-meta">' +
+        esc(dateLabel(it.published_at || it.created_at)) +
+        '</p>' +
+        '<div class="bp-mod-content">' +
+        (it.body_html || '') +
+        '</div></article>';
     } else if (type === 'ecommerce') {
-      html += '<article class="bp-mod-detail">'
-        + (it.image_url ? '<img class="bp-mod-hero" src="' + esc(it.image_url) + '" alt="" />' : '')
-        + '<h1>' + esc(it.name) + '</h1>'
-        + '<p class="bp-mod-price">' + esc(it.price_label || '') + '</p>'
-        + '<div class="bp-mod-content"><p>' + esc(it.description || '') + '</p></div>'
-        + (it.checkout_url ? '<p style="margin-top:16px"><a class="bp-mod-btn" href="' + esc(it.checkout_url) + '" target="_blank" rel="noopener">Buy now</a></p>' : (it.stripe_checkout ? '<p style="margin-top:16px"><button type="button" class="bp-mod-btn" data-bp-buy="' + esc(it.id) + '">Buy now</button></p>' : ''))
-        + '</article>';
+      html +=
+        '<article class="bp-mod-detail">' +
+        (it.image_url ? '<img class="bp-mod-hero" src="' + esc(it.image_url) + '" alt="" />' : '') +
+        '<h1>' +
+        esc(it.name) +
+        '</h1>' +
+        '<p class="bp-mod-price">' +
+        esc(it.price_label || '') +
+        '</p>' +
+        '<div class="bp-mod-content"><p>' +
+        esc(it.description || '') +
+        '</p></div>' +
+        (it.checkout_url
+          ? '<p style="margin-top:16px"><a class="bp-mod-btn" href="' +
+            esc(it.checkout_url) +
+            '" target="_blank" rel="noopener">Buy now</a></p>'
+          : it.stripe_checkout
+            ? '<p style="margin-top:16px"><button type="button" class="bp-mod-btn" data-bp-buy="' +
+              esc(it.id) +
+              '">Buy now</button></p>'
+            : '') +
+        '</article>';
     } else if (type === 'courses') {
-      html += '<article class="bp-mod-detail">'
-        + (it.cover_image ? '<img class="bp-mod-hero" src="' + esc(it.cover_image) + '" alt="" />' : '')
-        + '<h1>' + esc(it.title) + '</h1>'
-        + '<p class="bp-mod-desc">' + esc(it.description || '') + '</p>'
-        + (it.enrollment_url ? '<p style="margin-top:12px"><a class="bp-mod-btn" href="' + esc(it.enrollment_url) + '" target="_blank" rel="noopener">Enroll</a></p>' : '')
-        + '<ul class="bp-mod-lessons">';
+      html +=
+        '<article class="bp-mod-detail">' +
+        (it.cover_image ? '<img class="bp-mod-hero" src="' + esc(it.cover_image) + '" alt="" />' : '') +
+        '<h1>' +
+        esc(it.title) +
+        '</h1>' +
+        '<p class="bp-mod-desc">' +
+        esc(it.description || '') +
+        '</p>' +
+        (it.enrollment_url
+          ? '<p style="margin-top:12px"><a class="bp-mod-btn" href="' +
+            esc(it.enrollment_url) +
+            '" target="_blank" rel="noopener">Enroll</a></p>'
+          : '') +
+        '<ul class="bp-mod-lessons">';
       var lessons = it.lessons || [];
       for (var i = 0; i < lessons.length; i++) {
         var les = lessons[i];
-        html += '<li><strong>' + esc(les.title) + '</strong>'
-          + (les.lesson_url ? ' · <a href="' + esc(les.lesson_url) + '" target="_blank" rel="noopener">Open</a>' : '')
-          + (les.body_html ? '<div class="bp-mod-content" style="margin-top:8px">' + les.body_html + '</div>' : '')
-          + '</li>';
+        html +=
+          '<li><strong>' +
+          esc(les.title) +
+          '</strong>' +
+          (les.lesson_url ? ' · <a href="' + esc(les.lesson_url) + '" target="_blank" rel="noopener">Open</a>' : '') +
+          (les.body_html ? '<div class="bp-mod-content" style="margin-top:8px">' + les.body_html + '</div>' : '') +
+          '</li>';
       }
       html += '</ul></article>';
     } else if (type === 'gallery') {
       html += renderAlbumDetail(it, true);
     } else if (type === 'directory') {
-      html += '<article class="bp-mod-detail">'
-        + (it.image_url ? '<img class="bp-mod-hero" src="' + esc(it.image_url) + '" alt="" />' : '')
-        + '<h1>' + esc(it.name) + '</h1>'
-        + (it.category ? '<p class="bp-mod-meta">' + esc(it.category) + '</p>' : '')
-        + '<p class="bp-mod-desc">' + esc(it.description || '') + '</p>'
-        + (it.website_url ? '<p><a class="bp-mod-btn" href="' + esc(it.website_url) + '" target="_blank" rel="noopener">Visit</a></p>' : '')
-        + (it.contact_email ? '<p class="bp-mod-meta">' + esc(it.contact_email) + '</p>' : '')
-        + (it.contact_phone ? '<p class="bp-mod-meta">' + esc(it.contact_phone) + '</p>' : '')
-        + '</article>';
+      html +=
+        '<article class="bp-mod-detail">' +
+        (it.image_url ? '<img class="bp-mod-hero" src="' + esc(it.image_url) + '" alt="" />' : '') +
+        '<h1>' +
+        esc(it.name) +
+        '</h1>' +
+        (it.category ? '<p class="bp-mod-meta">' + esc(it.category) + '</p>' : '') +
+        '<p class="bp-mod-desc">' +
+        esc(it.description || '') +
+        '</p>' +
+        (it.website_url
+          ? '<p><a class="bp-mod-btn" href="' + esc(it.website_url) + '" target="_blank" rel="noopener">Visit</a></p>'
+          : '') +
+        (it.contact_email ? '<p class="bp-mod-meta">' + esc(it.contact_email) + '</p>' : '') +
+        (it.contact_phone ? '<p class="bp-mod-meta">' + esc(it.contact_phone) + '</p>' : '') +
+        '</article>';
     } else if (type === 'team') {
-      html += '<article class="bp-mod-detail">'
-        + (it.image_url ? '<img class="bp-mod-hero" src="' + esc(it.image_url) + '" alt="" />' : '')
-        + '<h1>' + esc(it.name) + '</h1>'
-        + (it.role_title ? '<p class="bp-mod-meta">' + esc(it.role_title) + '</p>' : '')
-        + '<div class="bp-mod-content"><p>' + esc(it.bio || '') + '</p></div>'
-        + (it.email ? '<p class="bp-mod-meta">' + esc(it.email) + '</p>' : '')
-        + (it.phone ? '<p class="bp-mod-meta">' + esc(it.phone) + '</p>' : '')
-        + (it.social_url ? '<p><a class="bp-mod-btn ghost" href="' + esc(it.social_url) + '" target="_blank" rel="noopener">Profile</a></p>' : '')
-        + '</article>';
+      html +=
+        '<article class="bp-mod-detail">' +
+        (it.image_url ? '<img class="bp-mod-hero" src="' + esc(it.image_url) + '" alt="" />' : '') +
+        '<h1>' +
+        esc(it.name) +
+        '</h1>' +
+        (it.role_title ? '<p class="bp-mod-meta">' + esc(it.role_title) + '</p>' : '') +
+        '<div class="bp-mod-content"><p>' +
+        esc(it.bio || '') +
+        '</p></div>' +
+        (it.email ? '<p class="bp-mod-meta">' + esc(it.email) + '</p>' : '') +
+        (it.phone ? '<p class="bp-mod-meta">' + esc(it.phone) + '</p>' : '') +
+        (it.social_url
+          ? '<p><a class="bp-mod-btn ghost" href="' +
+            esc(it.social_url) +
+            '" target="_blank" rel="noopener">Profile</a></p>'
+          : '') +
+        '</article>';
     } else if (type === 'events') {
-      html += '<article class="bp-mod-detail">'
-        + (it.image_url ? '<img class="bp-mod-hero" src="' + esc(it.image_url) + '" alt="" />' : '')
-        + '<h1>' + esc(it.title) + '</h1>'
-        + '<p class="bp-mod-meta">' + esc(dateLabel(it.starts_at) || it.starts_at || '')
-        + (it.ends_at ? ' – ' + esc(dateLabel(it.ends_at) || it.ends_at) : '') + '</p>'
-        + (it.location ? '<p class="bp-mod-meta">' + esc(it.location) + '</p>' : '')
-        + '<div class="bp-mod-content"><p>' + esc(it.description || '') + '</p></div>'
-        + (it.ticket_url ? '<p style="margin-top:16px"><a class="bp-mod-btn" href="' + esc(it.ticket_url) + '" target="_blank" rel="noopener">Tickets / RSVP</a></p>' : '')
-        + '</article>';
+      html +=
+        '<article class="bp-mod-detail">' +
+        (it.image_url ? '<img class="bp-mod-hero" src="' + esc(it.image_url) + '" alt="" />' : '') +
+        '<h1>' +
+        esc(it.title) +
+        '</h1>' +
+        '<p class="bp-mod-meta">' +
+        esc(dateLabel(it.starts_at) || it.starts_at || '') +
+        (it.ends_at ? ' – ' + esc(dateLabel(it.ends_at) || it.ends_at) : '') +
+        '</p>' +
+        (it.location ? '<p class="bp-mod-meta">' + esc(it.location) + '</p>' : '') +
+        '<div class="bp-mod-content"><p>' +
+        esc(it.description || '') +
+        '</p></div>' +
+        (it.ticket_url
+          ? '<p style="margin-top:16px"><a class="bp-mod-btn" href="' +
+            esc(it.ticket_url) +
+            '" target="_blank" rel="noopener">Tickets / RSVP</a></p>'
+          : '') +
+        '</article>';
     } else if (type === 'testimonials') {
-      html += '<article class="bp-mod-detail">'
-        + starsHtml(it.rating)
-        + '<p class="bp-mod-quote">“' + esc(it.quote) + '”</p>'
-        + '<p class="bp-mod-meta"><strong>' + esc(it.author_name || 'Client') + '</strong>'
-        + (it.author_title || it.author_company
+      html +=
+        '<article class="bp-mod-detail">' +
+        starsHtml(it.rating) +
+        '<p class="bp-mod-quote">“' +
+        esc(it.quote) +
+        '”</p>' +
+        '<p class="bp-mod-meta"><strong>' +
+        esc(it.author_name || 'Client') +
+        '</strong>' +
+        (it.author_title || it.author_company
           ? ' · ' + esc([it.author_title, it.author_company].filter(Boolean).join(', '))
-          : '')
-        + '</p></article>';
+          : '') +
+        '</p></article>';
     } else if (type === 'faq') {
-      html += '<article class="bp-mod-detail"><h1>' + esc(it.question) + '</h1>'
-        + '<div class="bp-mod-content">' + (it.answer_html || '') + '</div></article>';
+      html +=
+        '<article class="bp-mod-detail"><h1>' +
+        esc(it.question) +
+        '</h1>' +
+        '<div class="bp-mod-content">' +
+        (it.answer_html || '') +
+        '</div></article>';
     } else if (type === 'bookings') {
-      html += '<article class="bp-mod-detail"><h1>' + esc(it.name) + '</h1>'
-        + '<p class="bp-mod-meta">' + esc(it.duration_label || '') + (it.price_label ? ' · ' + esc(it.price_label) : '') + '</p>'
-        + '<p class="bp-mod-desc">' + esc(it.description || '') + '</p>'
-        + '<p><a class="bp-mod-btn" href="' + esc(listHref()) + '">Book this service</a></p></article>';
+      html +=
+        '<article class="bp-mod-detail"><h1>' +
+        esc(it.name) +
+        '</h1>' +
+        '<p class="bp-mod-meta">' +
+        esc(it.duration_label || '') +
+        (it.price_label ? ' · ' + esc(it.price_label) : '') +
+        '</p>' +
+        '<p class="bp-mod-desc">' +
+        esc(it.description || '') +
+        '</p>' +
+        '<p><a class="bp-mod-btn" href="' +
+        esc(listHref()) +
+        '">Book this service</a></p></article>';
     }
     el.innerHTML = html;
   }
@@ -824,7 +1094,9 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ productId: Number(productId), returnUrl: ret.toString() }),
       })
-        .then(function (r) { return r.json(); })
+        .then(function (r) {
+          return r.json();
+        })
         .then(function (j) {
           if (!j || !j.ok || !j.data || !j.data.url) throw new Error((j && j.error) || 'Checkout failed');
           window.location.href = j.data.url;
@@ -844,8 +1116,17 @@
         msg('Checkout cancelled — your card was not charged.');
       } else if (order === 'success' && sid) {
         msg('Processing your payment…');
-        fetch((base || '') + '/api/v1/modules/public/' + encodeURIComponent(token) + '/order-status?session_id=' + encodeURIComponent(sid), { credentials: 'omit' })
-          .then(function (r) { return r.json(); })
+        fetch(
+          (base || '') +
+            '/api/v1/modules/public/' +
+            encodeURIComponent(token) +
+            '/order-status?session_id=' +
+            encodeURIComponent(sid),
+          { credentials: 'omit' }
+        )
+          .then(function (r) {
+            return r.json();
+          })
           .then(function (j) {
             if (j && j.ok && j.data && j.data.status === 'paid') {
               msg('Payment received — thank you for your order!');
@@ -855,9 +1136,13 @@
               msg('Payment is processing — you will get an email receipt from Stripe.');
             }
           })
-          .catch(function () { msg('Payment is processing — you will get an email receipt from Stripe.'); });
+          .catch(function () {
+            msg('Payment is processing — you will get an email receipt from Stripe.');
+          });
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      /* ignore */
+    }
   }
 
   function mountOne(el) {
@@ -875,10 +1160,15 @@
     el.innerHTML = '<p class="bp-mod-loading">Loading…</p>';
     var base = apiBase(el);
     var item = currentItemKey();
-    var path = (base || '') + '/api/v1/modules/public/' + encodeURIComponent(token)
-      + (item ? '?slug=' + encodeURIComponent(item) : '');
+    var path =
+      (base || '') +
+      '/api/v1/modules/public/' +
+      encodeURIComponent(token) +
+      (item ? '?slug=' + encodeURIComponent(item) : '');
     fetch(path, { credentials: 'omit' })
-      .then(function (r) { return r.json(); })
+      .then(function (r) {
+        return r.json();
+      })
       .then(function (j) {
         if (!j || !j.ok) throw new Error((j && j.error) || 'Failed to load');
         var data = j.data;

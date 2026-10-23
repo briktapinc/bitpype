@@ -62,24 +62,19 @@ async function qrDataUrl(url, opts = {}) {
 }
 
 function slugify(name) {
-  return String(name || 'site')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48) || 'site';
+  return (
+    String(name || 'site')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 48) || 'site'
+  );
 }
 
 /**
  * Build postcard PDF (~4×6 in, landscape). Returns Buffer.
  */
-function buildPostcardPdf({
-  businessName,
-  pitch,
-  siteUrl,
-  claimUrl,
-  siteQrPng,
-  claimQrPng,
-}) {
+function buildPostcardPdf({ businessName, pitch, siteUrl, claimUrl, siteQrPng, claimQrPng }) {
   return new Promise((resolve, reject) => {
     // 6 × 4 inches landscape postcard (print-friendly)
     const W = 6 * 72;
@@ -105,21 +100,21 @@ function buildPostcardPdf({
 
     const pad = 22;
     const name = String(businessName || 'Your business').slice(0, 80);
-    const blurb = String(pitch || 'We built a website for your business. Scan to view it, or scan to claim it with a simple Yes or No.')
-      .slice(0, 220);
+    const blurb = String(
+      pitch || 'We built a website for your business. Scan to view it, or scan to claim it with a simple Yes or No.'
+    ).slice(0, 220);
 
-    doc.fillColor('#0b5442')
-      .font('Helvetica-Bold')
-      .fontSize(9)
-      .text('BITPYPE', pad, pad, { characterSpacing: 1.5 });
+    doc.fillColor('#0b5442').font('Helvetica-Bold').fontSize(9).text('BITPYPE', pad, pad, { characterSpacing: 1.5 });
 
-    doc.fillColor('#1a2420')
+    doc
+      .fillColor('#1a2420')
       .font('Helvetica-Bold')
       .fontSize(18)
       .text(name, pad, pad + 16, { width: W - pad * 2, lineGap: 2 });
 
     const titleBottom = doc.y + 6;
-    doc.fillColor('#33443d')
+    doc
+      .fillColor('#33443d')
       .font('Helvetica')
       .fontSize(9)
       .text(blurb, pad, titleBottom, { width: W - pad * 2, lineGap: 1.5 });
@@ -139,13 +134,15 @@ function buildPostcardPdf({
     }
 
     const labelY = qrTop + qrSize + 6;
-    doc.fillColor('#0b5442')
+    doc
+      .fillColor('#0b5442')
       .font('Helvetica-Bold')
       .fontSize(8)
       .text('VIEW YOUR SITE', leftX, labelY, { width: qrSize, align: 'center' });
     doc.text('SCAN TO CLAIM', rightX, labelY, { width: qrSize, align: 'center' });
 
-    doc.fillColor('#5a6b64')
+    doc
+      .fillColor('#5a6b64')
       .font('Helvetica')
       .fontSize(6.5)
       .text(String(siteUrl || '').slice(0, 72), leftX - 8, labelY + 12, {
@@ -157,7 +154,8 @@ function buildPostcardPdf({
       align: 'center',
     });
 
-    doc.fillColor('#7a8a83')
+    doc
+      .fillColor('#7a8a83')
       .font('Helvetica')
       .fontSize(7)
       .text('bitpype.com', pad, H - 18, { width: W - pad * 2, align: 'right' });
@@ -174,45 +172,47 @@ async function buildClaimKit(db, workspaceId, { leadId, websiteId, includePdf = 
   const lid = Number(leadId);
   if (!Number.isInteger(lid) || lid <= 0) throw new Error('leadId is required');
 
-  const lead = db.prepare(
-    'SELECT id, business_name, email, status, city, category FROM leads WHERE id = ?'
-  ).get(lid);
+  const lead = db.prepare('SELECT id, business_name, email, status, city, category FROM leads WHERE id = ?').get(lid);
   if (!lead) throw Object.assign(new Error('Lead not found'), { code: 'NOT_FOUND' });
 
   let site = null;
   const wid = websiteId != null ? Number(websiteId) : null;
   if (Number.isInteger(wid) && wid > 0) {
-    site = db.prepare(
-      `SELECT id, lead_id, name, preview_url, preview_path, status
+    site = db
+      .prepare(
+        `SELECT id, lead_id, name, preview_url, preview_path, status
        FROM websites WHERE id = ?`
-    ).get(wid);
+      )
+      .get(wid);
     if (!site) throw Object.assign(new Error('Website not found'), { code: 'NOT_FOUND' });
     if (Number(site.lead_id) !== lid) {
       throw Object.assign(new Error('Website does not belong to this lead'), { code: 'MISMATCH' });
     }
   } else {
     try {
-      site = db.prepare(
-        `SELECT id, lead_id, name, preview_url, preview_path, status, custom_domain
+      site = db
+        .prepare(
+          `SELECT id, lead_id, name, preview_url, preview_path, status, custom_domain
          FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1`
-      ).get(lid);
+        )
+        .get(lid);
     } catch {
-      site = db.prepare(
-        `SELECT id, lead_id, name, preview_url, preview_path, status
+      site = db
+        .prepare(
+          `SELECT id, lead_id, name, preview_url, preview_path, status
          FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1`
-      ).get(lid);
+        )
+        .get(lid);
     }
   }
 
-  const siteUrl = outreach.resolveWebsiteLink(db, lid)
-    || (site && site.preview_url && String(site.preview_url).trim())
-    || '';
+  const siteUrl =
+    outreach.resolveWebsiteLink(db, lid) || (site && site.preview_url && String(site.preview_url).trim()) || '';
   const claimUrl = buildClaimUrl(workspaceId, lid);
   if (!claimUrl) {
-    throw Object.assign(
-      new Error('APP_URL and SESSION_SECRET are required to build claim links'),
-      { code: 'MISCONFIGURED' }
-    );
+    throw Object.assign(new Error('APP_URL and SESSION_SECRET are required to build claim links'), {
+      code: 'MISCONFIGURED',
+    });
   }
 
   const businessName = lead.business_name || (site && site.name) || 'Your business';
@@ -247,10 +247,9 @@ async function buildClaimKit(db, workspaceId, { leadId, websiteId, includePdf = 
 
   if (includePdf) {
     if (!siteUrl) {
-      throw Object.assign(
-        new Error('No preview URL yet — publish or open Preview URL before generating a postcard.'),
-        { code: 'NO_SITE_URL' }
-      );
+      throw Object.assign(new Error('No preview URL yet — publish or open Preview URL before generating a postcard.'), {
+        code: 'NO_SITE_URL',
+      });
     }
     const pdf = await buildPostcardPdf({
       businessName,
@@ -275,9 +274,9 @@ function isIntentPositive(db, lead) {
   if (!lead) return false;
   const status = String(lead.status || '').toLowerCase();
   if (['engaged', 'claimed', 'trial', 'customer'].includes(status)) return true;
-  const interested = db.prepare(
-    `SELECT id FROM prospect_events WHERE lead_id = ? AND type = 'email.interested' LIMIT 1`
-  ).get(lead.id);
+  const interested = db
+    .prepare(`SELECT id FROM prospect_events WHERE lead_id = ? AND type = 'email.interested' LIMIT 1`)
+    .get(lead.id);
   if (interested) return true;
   const latest = outreach.getIntent(db, lead.id);
   const label = String((latest && latest.label) || '').toLowerCase();
@@ -291,20 +290,18 @@ function isIntentPositive(db, lead) {
  * Public claim-page meta (no session). Token must be claim action.
  */
 function claimPageMeta(db, workspaceId, leadId) {
-  const lead = db.prepare(
-    'SELECT id, business_name, status FROM leads WHERE id = ?'
-  ).get(Number(leadId));
+  const lead = db.prepare('SELECT id, business_name, status FROM leads WHERE id = ?').get(Number(leadId));
   if (!lead) throw Object.assign(new Error('Lead not found'), { code: 'NOT_FOUND' });
   const siteUrl = outreach.resolveWebsiteLink(db, lead.id) || null;
-  const interested = db.prepare(
-    `SELECT id FROM prospect_events WHERE lead_id = ? AND type = 'email.interested' LIMIT 1`
-  ).get(lead.id);
-  const uninterested = db.prepare(
-    `SELECT id FROM prospect_events WHERE lead_id = ? AND type = 'email.uninterested' LIMIT 1`
-  ).get(lead.id);
-  const laterRow = db.prepare(
-    `SELECT COUNT(*) AS c FROM prospect_events WHERE lead_id = ? AND type = 'claim.later'`
-  ).get(lead.id);
+  const interested = db
+    .prepare(`SELECT id FROM prospect_events WHERE lead_id = ? AND type = 'email.interested' LIMIT 1`)
+    .get(lead.id);
+  const uninterested = db
+    .prepare(`SELECT id FROM prospect_events WHERE lead_id = ? AND type = 'email.uninterested' LIMIT 1`)
+    .get(lead.id);
+  const laterRow = db
+    .prepare(`SELECT COUNT(*) AS c FROM prospect_events WHERE lead_id = ? AND type = 'claim.later'`)
+    .get(lead.id);
   const laterCount = Number(laterRow && laterRow.c) || 0;
   const intentPositive = isIntentPositive(db, lead);
   // Hide after Yes (positive) or No (uninterested). "Later" stays showClaimPrompt so
@@ -363,10 +360,7 @@ function injectClaimPreviewIntoExport(exportDir, workspaceId, leadId) {
       if (!fs.statSync(full).isFile()) continue;
       let html = fs.readFileSync(full, 'utf8');
       if (/bitpype-claim-preview/i.test(html)) {
-        html = html.replace(
-          /\n?<!-- bitpype-claim-preview -->[\s\S]*?<!-- \/bitpype-claim-preview -->\n?/i,
-          ''
-        );
+        html = html.replace(/\n?<!-- bitpype-claim-preview -->[\s\S]*?<!-- \/bitpype-claim-preview -->\n?/i, '');
       }
       if (/<\/body>/i.test(html)) {
         html = html.replace(/<\/body>/i, `${snippet}</body>`);

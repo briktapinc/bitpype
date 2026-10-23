@@ -20,9 +20,7 @@ for (const name of fs.readdirSync(root)) {
   const db = new Database(dbPath);
   let leads = [];
   try {
-    leads = db.prepare(
-      'SELECT DISTINCT lead_id FROM site_module_embeds'
-    ).all();
+    leads = db.prepare('SELECT DISTINCT lead_id FROM site_module_embeds').all();
   } catch (err) {
     console.log('workspace', name, 'skip', err.message);
     db.close();
@@ -49,7 +47,8 @@ for (const name of fs.readdirSync(root)) {
     // Ensure rows that already have a token are treated as published so sync
     // rewrites iframe → JS mount and upgrades bare module pages.
     try {
-      db.prepare(`
+      db.prepare(
+        `
         UPDATE site_module_embeds
         SET published = 1,
             embed_enabled = CASE WHEN embed_enabled IS NULL THEN 1 ELSE embed_enabled END,
@@ -58,8 +57,11 @@ for (const name of fs.readdirSync(root)) {
           AND public_token IS NOT NULL
           AND TRIM(public_token) != ''
           AND (published IS NULL OR published = 0)
-      `).run(row.lead_id);
-    } catch { /* ignore */ }
+      `
+      ).run(row.lead_id);
+    } catch {
+      /* ignore */
+    }
     const result = modules.syncSiteModuleEmbeds(db, row.lead_id);
     console.log('workspace', name, 'lead', row.lead_id, JSON.stringify(result));
   }

@@ -25,10 +25,7 @@ function listHtmlFiles(dir) {
 
 function replaceOrAppendBeforeBody(html, markerStart, markerEnd, snippet) {
   let out = String(html || '');
-  const re = new RegExp(
-    `\\n?<!-- ${markerStart} -->[\\s\\S]*?<!-- \\/${markerEnd} -->\\n?`,
-    'i'
-  );
+  const re = new RegExp(`\\n?<!-- ${markerStart} -->[\\s\\S]*?<!-- \\/${markerEnd} -->\\n?`, 'i');
   if (re.test(out)) out = out.replace(re, '');
   const block = `\n<!-- ${markerStart} -->\n${snippet}\n<!-- /${markerEnd} -->\n`;
   if (/<\/body>/i.test(out)) return out.replace(/<\/body>/i, `${block}</body>`);
@@ -77,7 +74,9 @@ function injectCookieBarIntoAllExports(rootDir) {
           files += r.injected;
         }
       }
-    } catch { /* skip */ }
+    } catch {
+      /* skip */
+    }
   }
   return { folders, files };
 }

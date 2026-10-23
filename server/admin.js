@@ -6,18 +6,12 @@ const platform = require('./platform');
 const { createUserWithWorkspace, slugify } = require('./workspace');
 
 async function isSuperAdmin(userId) {
-  const rows = await query(
-    'SELECT is_super_admin FROM users WHERE id = :id LIMIT 1',
-    { id: Number(userId) }
-  );
+  const rows = await query('SELECT is_super_admin FROM users WHERE id = :id LIMIT 1', { id: Number(userId) });
   return !!(rows[0] && Number(rows[0].is_super_admin) === 1);
 }
 
 async function setSuperAdmin(userId, on) {
-  await query(
-    'UPDATE users SET is_super_admin = :flag WHERE id = :id',
-    { id: Number(userId), flag: on ? 1 : 0 }
-  );
+  await query('UPDATE users SET is_super_admin = :flag WHERE id = :id', { id: Number(userId), flag: on ? 1 : 0 });
 }
 
 async function overview() {
@@ -87,10 +81,11 @@ async function getUser(id) {
 }
 
 async function createUser({ email, password, name, workspaceName, superAdmin = false }) {
-  const existing = await query(
-    'SELECT id FROM users WHERE email = :email LIMIT 1',
-    { email: String(email || '').trim().toLowerCase() }
-  );
+  const existing = await query('SELECT id FROM users WHERE email = :email LIMIT 1', {
+    email: String(email || '')
+      .trim()
+      .toLowerCase(),
+  });
   if (existing[0]) {
     const e = new Error('EMAIL_IN_USE');
     e.code = 'EMAIL_IN_USE';
@@ -108,7 +103,9 @@ async function createUser({ email, password, name, workspaceName, superAdmin = f
 
 /** Normalize status: UI "blocked" maps to DB status "disabled" (blocks sign-in). */
 function normalizeStatus(raw) {
-  const s = String(raw || '').trim().toLowerCase();
+  const s = String(raw || '')
+    .trim()
+    .toLowerCase();
   if (s === 'disabled' || s === 'blocked') return 'disabled';
   if (s === 'active' || s === 'enabled' || s === 'unblocked') return 'active';
   return null;
@@ -136,10 +133,7 @@ async function updateUser(id, patch = {}, { actorUserId = null } = {}) {
       e.code = 'INVALID_EMAIL';
       throw e;
     }
-    const existing = await query(
-      'SELECT id FROM users WHERE email = :email AND id != :id LIMIT 1',
-      { email, id: uid }
-    );
+    const existing = await query('SELECT id FROM users WHERE email = :email AND id != :id LIMIT 1', { email, id: uid });
     if (existing[0]) {
       const e = new Error('EMAIL_IN_USE');
       e.code = 'EMAIL_IN_USE';
@@ -300,10 +294,9 @@ async function listWorkspaces({ q = '', limit = 100 } = {}) {
 
 async function getWorkspace(id) {
   const wid = Number(id);
-  const rows = await query(
-    'SELECT id, name, slug, created_at, updated_at FROM workspaces WHERE id = :id LIMIT 1',
-    { id: wid }
-  );
+  const rows = await query('SELECT id, name, slug, created_at, updated_at FROM workspaces WHERE id = :id LIMIT 1', {
+    id: wid,
+  });
   if (!rows[0]) return null;
   const members = await query(
     `SELECT m.role, m.created_at, u.id AS user_id, u.email, u.name, u.status
@@ -317,23 +310,23 @@ async function getWorkspace(id) {
 }
 
 async function createWorkspace({ name, ownerUserId }) {
-  const wsName = String(name || 'Workspace').trim().slice(0, 160);
+  const wsName = String(name || 'Workspace')
+    .trim()
+    .slice(0, 160);
   const slug = slugify(wsName);
   return withConnection(async (conn) => {
     await conn.beginTransaction();
     try {
-      const [wsRes] = await conn.execute(
-        'INSERT INTO workspaces (name, slug) VALUES (?, ?)',
-        [wsName, slug]
-      );
+      const [wsRes] = await conn.execute('INSERT INTO workspaces (name, slug) VALUES (?, ?)', [wsName, slug]);
       const workspaceId = wsRes.insertId;
       const { seedWorkspaceDefaults } = require('./workspace');
       await seedWorkspaceDefaults(conn, workspaceId);
       if (ownerUserId) {
-        await conn.execute(
-          'INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, ?)',
-          [workspaceId, Number(ownerUserId), 'owner']
-        );
+        await conn.execute('INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, ?)', [
+          workspaceId,
+          Number(ownerUserId),
+          'owner',
+        ]);
       }
       await conn.commit();
       return { workspaceId, slug };
@@ -367,7 +360,9 @@ async function deleteWorkspace(id) {
     if (fs.existsSync(file)) fs.unlinkSync(file);
     const dir = path.dirname(file);
     if (fs.existsSync(dir)) fs.rmdirSync(dir, { recursive: true });
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return { deleted: wid };
 }
 
@@ -375,31 +370,30 @@ async function addMember(workspaceId, userId, role = 'member') {
   const r = ['owner', 'admin', 'member'].includes(role) ? role : 'member';
   const wid = Number(workspaceId);
   const uid = Number(userId);
-  await query(
-    'DELETE FROM workspace_members WHERE workspace_id = :workspaceId AND user_id = :userId',
-    { workspaceId: wid, userId: uid }
-  );
-  await query(
-    'INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (:workspaceId, :userId, :role)',
-    { workspaceId: wid, userId: uid, role: r }
-  );
+  await query('DELETE FROM workspace_members WHERE workspace_id = :workspaceId AND user_id = :userId', {
+    workspaceId: wid,
+    userId: uid,
+  });
+  await query('INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (:workspaceId, :userId, :role)', {
+    workspaceId: wid,
+    userId: uid,
+    role: r,
+  });
   return getWorkspace(workspaceId);
 }
 
 async function removeMember(workspaceId, userId) {
-  await query(
-    'DELETE FROM workspace_members WHERE workspace_id = :workspaceId AND user_id = :userId',
-    { workspaceId: Number(workspaceId), userId: Number(userId) }
-  );
+  await query('DELETE FROM workspace_members WHERE workspace_id = :workspaceId AND user_id = :userId', {
+    workspaceId: Number(workspaceId),
+    userId: Number(userId),
+  });
   return getWorkspace(workspaceId);
 }
 
 /** Push platform defaults into every workspace (MySQL settings + SQLite when present). */
 async function pushDefaultsToWorkspaces({ force = false, keys = null } = {}) {
   const seed = await platform.workspaceSeedFromPlatform();
-  const useKeys = Array.isArray(keys) && keys.length
-    ? keys.filter((k) => seed[k] != null)
-    : Object.keys(seed);
+  const useKeys = Array.isArray(keys) && keys.length ? keys.filter((k) => seed[k] != null) : Object.keys(seed);
   const workspaces = await query('SELECT id FROM workspaces');
   let updated = 0;
   for (const w of workspaces) {
@@ -436,7 +430,9 @@ async function pushDefaultsToWorkspaces({ force = false, keys = null } = {}) {
           'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
         ).run(key, value);
       }
-    } catch { /* workspace sqlite optional */ }
+    } catch {
+      /* workspace sqlite optional */
+    }
   }
   return { workspaces: workspaces.length, keys: useKeys.length, cellsUpdated: updated, force: !!force };
 }
@@ -449,7 +445,9 @@ async function touchLogin(userId) {
         : 'UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = :id',
       { id: Number(userId) }
     );
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 module.exports = {

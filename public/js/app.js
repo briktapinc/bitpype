@@ -12,10 +12,34 @@ const autoEl = document.getElementById('shell-automation');
 const topTitle = document.getElementById('top-title');
 const toastHost = document.getElementById('toast-host');
 
-const ROUTES = ['dashboard', 'leads', 'websites', 'domains', 'design', 'social', 'outreach', 'pipeline', 'jobs', 'mcp', 'settings', 'billing', 'admin'];
+const ROUTES = [
+  'dashboard',
+  'leads',
+  'websites',
+  'domains',
+  'design',
+  'social',
+  'outreach',
+  'pipeline',
+  'jobs',
+  'mcp',
+  'settings',
+  'billing',
+  'admin',
+];
 const ROUTE_LABELS = {
-  dashboard: 'Dashboard', leads: 'Leads', websites: 'Websites', design: 'Design', social: 'Social', outreach: 'Outreach',
-  pipeline: 'Pipeline', jobs: 'Jobs', mcp: 'MCP', settings: 'Settings', billing: 'Billing', admin: 'Admin',
+  dashboard: 'Dashboard',
+  leads: 'Leads',
+  websites: 'Websites',
+  design: 'Design',
+  social: 'Social',
+  outreach: 'Outreach',
+  pipeline: 'Pipeline',
+  jobs: 'Jobs',
+  mcp: 'MCP',
+  settings: 'Settings',
+  billing: 'Billing',
+  admin: 'Admin',
 };
 let currentUserIsSuperAdmin = false;
 let currentUserId = null;
@@ -23,12 +47,37 @@ let requireSubscription = false;
 let userSubscribed = true;
 let productAccess = true;
 let subscriptionStatus = 'none';
-const LEAD_STATUSES = ['new', 'researching', 'qualified', 'building', 'qa_pending', 'ready', 'outreach_pending',
-  'contacted', 'engaged', 'claimed', 'trial', 'customer', 'lost'];
+const LEAD_STATUSES = [
+  'new',
+  'researching',
+  'qualified',
+  'building',
+  'qa_pending',
+  'ready',
+  'outreach_pending',
+  'contacted',
+  'engaged',
+  'claimed',
+  'trial',
+  'customer',
+  'lost',
+];
 const DESIGN_STATUSES = ['draft', 'waiting_on_agent', 'questions_pending', 'in_progress', 'delivered'];
 const DESIGN_TYPES = ['website', 'logo', 'social', 'flyer', 'brand', 'other'];
-const INTENT_EVENTS = ['email.opened', 'email.clicked', 'preview.viewed', 'preview.viewed_twice', 'editor.opened',
-  'text.changed', 'logo.uploaded', 'site.claimed', 'pricing.viewed', 'domain.searched', 'domain.purchased', 'trial.activated'];
+const INTENT_EVENTS = [
+  'email.opened',
+  'email.clicked',
+  'preview.viewed',
+  'preview.viewed_twice',
+  'editor.opened',
+  'text.changed',
+  'logo.uploaded',
+  'site.claimed',
+  'pricing.viewed',
+  'domain.searched',
+  'domain.purchased',
+  'trial.activated',
+];
 const CLAIM_CLASSES = ['VERIFIED', 'AI_COPY', 'OWNER_PROVIDED', 'UNKNOWN'];
 const SUPPRESSION_REASONS = ['do-not-contact', 'unsubscribed', 'bounced', 'complaint'];
 const MODEL_TASKS = ['research', 'generation', 'scoring', 'email', 'qa', 'editor', 'followup', 'image', 'vision'];
@@ -52,7 +101,10 @@ function esc(s) {
 const $ = (sel, root) => (root || document).querySelector(sel);
 const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 const pretty = (s) => String(s == null ? '' : s).replace(/_/g, ' ');
-const fmtDate = (s) => String(s || '').slice(0, 16).replace('T', ' ');
+const fmtDate = (s) =>
+  String(s || '')
+    .slice(0, 16)
+    .replace('T', ' ');
 const money = (n) => '$' + (Number.isFinite(Number(n)) ? Number(n).toFixed(2) : '0.00');
 const statusBadge = (s) => `<span class="badge status-${esc(s)}">${esc(pretty(s) || '—')}</span>`;
 
@@ -64,13 +116,20 @@ function scorePill(score) {
 
 function debounce(fn, ms) {
   let t;
-  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
 }
 
 function parseJson(v, fallback) {
   if (v == null || v === '') return fallback;
   if (typeof v === 'object') return v;
-  try { return JSON.parse(v); } catch { return fallback; }
+  try {
+    return JSON.parse(v);
+  } catch {
+    return fallback;
+  }
 }
 
 function toast(text, kind) {
@@ -89,11 +148,16 @@ function setMsg(el, text, kind) {
 }
 
 function optionList(values, selected, labelFn) {
-  return values.map((v) => `<option value="${esc(v)}" ${String(v) === String(selected) ? 'selected' : ''}>${esc(labelFn ? labelFn(v) : pretty(v))}</option>`).join('');
+  return values
+    .map(
+      (v) =>
+        `<option value="${esc(v)}" ${String(v) === String(selected) ? 'selected' : ''}>${esc(labelFn ? labelFn(v) : pretty(v))}</option>`
+    )
+    .join('');
 }
 
 function kv(k, v, raw) {
-  const val = v == null || v === '' ? '—' : (raw ? v : esc(v));
+  const val = v == null || v === '' ? '—' : raw ? v : esc(v);
   return `<div class="kv"><span class="k">${esc(k)}</span><span>${val}</span></div>`;
 }
 
@@ -103,13 +167,17 @@ function jsonPre(obj) {
 
 function formObject(form) {
   const out = {};
-  new FormData(form).forEach((v, k) => { out[k] = typeof v === 'string' ? v.trim() : v; });
+  new FormData(form).forEach((v, k) => {
+    out[k] = typeof v === 'string' ? v.trim() : v;
+  });
   return out;
 }
 
 function dropEmpty(obj) {
   const out = {};
-  Object.keys(obj).forEach((k) => { if (obj[k] !== '' && obj[k] != null) out[k] = obj[k]; });
+  Object.keys(obj).forEach((k) => {
+    if (obj[k] !== '' && obj[k] != null) out[k] = obj[k];
+  });
   return out;
 }
 
@@ -118,7 +186,18 @@ function dropEmpty(obj) {
  * may nest the array under common keys (and one level of accidental double-wrap).
  */
 function asList(value, keys) {
-  const prefer = keys || ['rows', 'jobs', 'sites', 'leads', 'templates', 'tokens', 'items', 'requests', 'versions', 'prompts'];
+  const prefer = keys || [
+    'rows',
+    'jobs',
+    'sites',
+    'leads',
+    'templates',
+    'tokens',
+    'items',
+    'requests',
+    'versions',
+    'prompts',
+  ];
   if (Array.isArray(value)) return value;
   if (!value || typeof value !== 'object') return [];
   for (let i = 0; i < prefer.length; i++) {
@@ -151,11 +230,13 @@ function pager(host, { page, pages, total }, onPage) {
 }
 
 function isAuthRequired(err) {
-  return !!(err && err.status === 401 && (
-    err.code === 'AUTH_REQUIRED'
-    || (err.data && err.data.error === 'AUTH_REQUIRED')
-    || err.message === 'AUTH_REQUIRED'
-  ));
+  return !!(
+    err &&
+    err.status === 401 &&
+    (err.code === 'AUTH_REQUIRED' ||
+      (err.data && err.data.error === 'AUTH_REQUIRED') ||
+      err.message === 'AUTH_REQUIRED')
+  );
 }
 
 async function safeRun(btn, fn) {
@@ -164,7 +245,10 @@ async function safeRun(btn, fn) {
   try {
     return await fn();
   } catch (err) {
-    if (isAuthRequired(err)) { goToLogin(); return undefined; }
+    if (isAuthRequired(err)) {
+      goToLogin();
+      return undefined;
+    }
     toast(err && err.message ? err.message : String(err), 'err');
     return undefined;
   } finally {
@@ -217,13 +301,21 @@ function delegate(root, handlers) {
 
 function copyText(text) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    return navigator.clipboard.writeText(text).then(() => toast('Copied', 'ok'), () => toast('Copy failed', 'err'));
+    return navigator.clipboard.writeText(text).then(
+      () => toast('Copied', 'ok'),
+      () => toast('Copy failed', 'err')
+    );
   }
   const ta = document.createElement('textarea');
   ta.value = text;
   document.body.appendChild(ta);
   ta.select();
-  try { document.execCommand('copy'); toast('Copied', 'ok'); } catch { toast('Copy failed', 'err'); }
+  try {
+    document.execCommand('copy');
+    toast('Copied', 'ok');
+  } catch {
+    toast('Copy failed', 'err');
+  }
   ta.remove();
   return Promise.resolve();
 }
@@ -235,11 +327,17 @@ function openModal({ title, body, wide, buttons }) {
   bd.className = 'modal-backdrop';
   bd.innerHTML = `<div class="modal ${wide ? 'wide' : ''}" role="dialog" aria-modal="true">
     <h2>${esc(title)}</h2><div class="modal-body">${body || ''}</div><div class="modal-actions"></div></div>`;
-  const onKey = (e) => { if (e.key === 'Escape') m.close(); };
+  const onKey = (e) => {
+    if (e.key === 'Escape') m.close();
+  };
   const m = {
     el: bd.firstElementChild,
     body: $('.modal-body', bd),
-    close() { bd.remove(); document.removeEventListener('keydown', onKey); overlays.delete(m); },
+    close() {
+      bd.remove();
+      document.removeEventListener('keydown', onKey);
+      overlays.delete(m);
+    },
   };
   overlays.add(m);
   const actions = $('.modal-actions', bd);
@@ -251,7 +349,9 @@ function openModal({ title, body, wide, buttons }) {
     btn.onclick = () => (b.onClick ? safeRun(btn, () => b.onClick(m, btn)) : m.close());
     actions.appendChild(btn);
   });
-  bd.addEventListener('mousedown', (e) => { if (e.target === bd) m.close(); });
+  bd.addEventListener('mousedown', (e) => {
+    if (e.target === bd) m.close();
+  });
   document.addEventListener('keydown', onKey);
   document.body.appendChild(bd);
   return m;
@@ -264,15 +364,23 @@ function openDrawer({ title, html, actionsHtml }) {
     <div class="drawer-header"><h2>${esc(title)}</h2><button type="button" class="icon-btn" data-close aria-label="Close">&times;</button></div>
     <div class="drawer-body">${html || ''}</div>
     ${actionsHtml ? `<div class="drawer-actions">${actionsHtml}</div>` : ''}</div>`;
-  const onKey = (e) => { if (e.key === 'Escape') d.close(); };
+  const onKey = (e) => {
+    if (e.key === 'Escape') d.close();
+  };
   const d = {
     el,
     body: $('.drawer-body', el),
     title: $('.drawer-header h2', el),
-    close() { el.remove(); document.removeEventListener('keydown', onKey); overlays.delete(d); },
+    close() {
+      el.remove();
+      document.removeEventListener('keydown', onKey);
+      overlays.delete(d);
+    },
   };
   overlays.add(d);
-  el.addEventListener('mousedown', (e) => { if (e.target === el) d.close(); });
+  el.addEventListener('mousedown', (e) => {
+    if (e.target === el) d.close();
+  });
   $('[data-close]', el).onclick = () => d.close();
   document.addEventListener('keydown', onKey);
   document.body.appendChild(el);
@@ -309,19 +417,31 @@ function mountLeadPicker(host, opts) {
   }
 
   function renderSelected() {
-    if (!current) { selBox.classList.add('hidden'); input.classList.remove('hidden'); return; }
+    if (!current) {
+      selBox.classList.add('hidden');
+      input.classList.remove('hidden');
+      return;
+    }
     selBox.classList.remove('hidden');
     input.classList.add('hidden');
     const meta = leadMeta(current) || current.meta || '';
     selBox.innerHTML = `<span class="lp-selected-copy"><b>${esc(leadTitle(current))}</b> <span class="hint">#${esc(current.id)}</span>
       ${meta ? `<div class="hint">${esc(meta)}</div>` : ''}</span>
       <button type="button" class="btn small clear">Clear</button>`;
-    $('.clear', selBox).onclick = () => { current = null; renderSelected(); if (o.onChange) o.onChange(null); };
+    $('.clear', selBox).onclick = () => {
+      current = null;
+      renderSelected();
+      if (o.onChange) o.onChange(null);
+    };
   }
 
   const search = debounce(async () => {
     const q = input.value.trim();
-    if (!q) { ul.classList.add('hidden'); lastRows = []; return; }
+    if (!q) {
+      ul.classList.add('hidden');
+      lastRows = [];
+      return;
+    }
     try {
       const r = await api.leads({ q, pageSize: 8 });
       const rows = (r.data && r.data.leads) || [];
@@ -330,13 +450,17 @@ function mountLeadPicker(host, opts) {
       if (/^\d+$/.test(q)) {
         html += `<li><button type="button" data-id="${esc(q)}" data-fetch="1">Use lead id <b>#${esc(q)}</b></button></li>`;
       }
-      html += rows.map((l) => {
-        const meta = leadMeta(l);
-        return `<li><button type="button" data-id="${l.id}"><b>${esc(l.business_name)}</b> <span class="hint">#${l.id}${meta ? ` · ${esc(meta)}` : ''}</span></button></li>`;
-      }).join('');
+      html += rows
+        .map((l) => {
+          const meta = leadMeta(l);
+          return `<li><button type="button" data-id="${l.id}"><b>${esc(l.business_name)}</b> <span class="hint">#${l.id}${meta ? ` · ${esc(meta)}` : ''}</span></button></li>`;
+        })
+        .join('');
       ul.innerHTML = html || '<li class="empty">No matches</li>';
       ul.classList.remove('hidden');
-    } catch (e) { toast(e.message, 'err'); }
+    } catch (e) {
+      toast(e.message, 'err');
+    }
   }, 250);
 
   input.addEventListener('input', search);
@@ -351,7 +475,10 @@ function mountLeadPicker(host, opts) {
         const r = await api.leadGet(id);
         next = (r.data && r.data.lead) || r.data || next;
       } catch (err) {
-        if (!next) { toast(err.message || 'Lead not found', 'err'); return; }
+        if (!next) {
+          toast(err.message || 'Lead not found', 'err');
+          return;
+        }
       }
     }
     current = normalizeLead(next || { id, name: `Lead #${id}` });
@@ -362,8 +489,15 @@ function mountLeadPicker(host, opts) {
   });
   return {
     get: () => current,
-    set(lead) { current = normalizeLead(lead); renderSelected(); },
-    clear() { current = null; renderSelected(); if (o.onChange) o.onChange(null); },
+    set(lead) {
+      current = normalizeLead(lead);
+      renderSelected();
+    },
+    clear() {
+      current = null;
+      renderSelected();
+      if (o.onChange) o.onChange(null);
+    },
   };
 }
 
@@ -388,16 +522,25 @@ function mountPreview(host, renderFn, hooks) {
   let populated = false;
 
   function matchPageOption(slugOrFile) {
-    const want = String(slugOrFile || '').trim().replace(/^\//, '').replace(/\.html$/i, '');
+    const want = String(slugOrFile || '')
+      .trim()
+      .replace(/^\//, '')
+      .replace(/\.html$/i, '');
     if (!want || want === 'index' || want === 'home') {
-      const home = [...sel.options].find((o) => o.value && (o.value === '/' || o.value === 'home' || o.value === 'index'));
+      const home = [...sel.options].find(
+        (o) => o.value && (o.value === '/' || o.value === 'home' || o.value === 'index')
+      );
       return home || null;
     }
-    return [...sel.options].find((o) => {
-      if (!o.value) return false;
-      const v = String(o.value).replace(/^\//, '').replace(/\.html$/i, '');
-      return v === want || o.value === slugOrFile;
-    }) || null;
+    return (
+      [...sel.options].find((o) => {
+        if (!o.value) return false;
+        const v = String(o.value)
+          .replace(/^\//, '')
+          .replace(/\.html$/i, '');
+        return v === want || o.value === slugOrFile;
+      }) || null
+    );
   }
 
   async function load() {
@@ -408,10 +551,14 @@ function mountPreview(host, renderFn, hooks) {
       const pages = (r.data && r.data.pages) || [];
       if (!populated && pages.length) {
         populated = true;
-        sel.innerHTML = '<option value="">All pages</option>' + pages.map((p) => `<option value="${esc(p.slug)}">${esc(p.title || p.slug)}</option>`).join('');
+        sel.innerHTML =
+          '<option value="">All pages</option>' +
+          pages.map((p) => `<option value="${esc(p.slug)}">${esc(p.title || p.slug)}</option>`).join('');
       }
       setMsg(msg, '');
-    } catch (e) { setMsg(msg, e.message, 'err'); }
+    } catch (e) {
+      setMsg(msg, e.message, 'err');
+    }
   }
   sel.onchange = load;
   $('.pv-refresh', host).onclick = load;
@@ -438,7 +585,12 @@ function mountPreview(host, renderFn, hooks) {
   window.addEventListener('message', onPreviewNav);
   const onPreviewMsg = (ev) => {
     if (!frame.contentWindow || ev.source !== frame.contentWindow || ev.origin !== 'null') return;
-    if (!ev.data || ev.data.source !== 'ws-preview' || !['ready','element-select','element-font'].includes(ev.data.type)) return;
+    if (
+      !ev.data ||
+      ev.data.source !== 'ws-preview' ||
+      !['ready', 'element-select', 'element-font'].includes(ev.data.type)
+    )
+      return;
     if (hooks && typeof hooks.onPreview === 'function') hooks.onPreview(ev.data);
   };
   window.addEventListener('message', onPreviewMsg);
@@ -487,11 +639,15 @@ function bindFontToolbar(prefix, preview, getPages, getTheme, save) {
   let styling = false;
   let selectedId = '';
 
-
-
   function applyLive() {
     const picked = readFonts();
-    if (preview) preview.post({source:'ws-portal', type:'site-fonts', ...picked, fontHref:fonts.hrefFor([fonts.matchName(picked.font), fonts.matchName(picked.headingFont)].filter(Boolean))});
+    if (preview)
+      preview.post({
+        source: 'ws-portal',
+        type: 'site-fonts',
+        ...picked,
+        fontHref: fonts.hrefFor([fonts.matchName(picked.font), fonts.matchName(picked.headingFont)].filter(Boolean)),
+      });
   }
 
   function readFonts() {
@@ -571,7 +727,13 @@ function bindFontToolbar(prefix, preview, getPages, getTheme, save) {
         }
       }
       if (data.type === 'element-font') {
-        if (!styling || !selectedId || data.id !== selectedId || (data.html && (typeof data.html !== 'string' || data.html.length > 800000))) return;
+        if (
+          !styling ||
+          !selectedId ||
+          data.id !== selectedId ||
+          (data.html && (typeof data.html !== 'string' || data.html.length > 800000))
+        )
+          return;
         const id = String(data.id || '');
         const pages = getPages();
         const nextTheme = Object.assign({}, getTheme() || {});
@@ -618,7 +780,11 @@ function rememberReturnHash() {
   const hash = window.location.hash || '';
   const m = hash.match(/^#\/([a-z-]+)/);
   if (!m || PUBLIC_ROUTES.has(m[1])) return;
-  try { sessionStorage.setItem('scout.returnHash', hash); } catch { /* ignore */ }
+  try {
+    sessionStorage.setItem('scout.returnHash', hash);
+  } catch {
+    /* ignore */
+  }
 }
 
 function consumeReturnHash() {
@@ -626,7 +792,9 @@ function consumeReturnHash() {
   try {
     hash = sessionStorage.getItem('scout.returnHash') || '';
     sessionStorage.removeItem('scout.returnHash');
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   const m = hash.match(/^#\/([a-z-]+)/);
   if (!m || PUBLIC_ROUTES.has(m[1]) || !ROUTES.includes(m[1])) return '#/dashboard';
   return hash;
@@ -637,7 +805,11 @@ function goToLogin(opts) {
   shell.classList.add('hidden');
   const forget = !!(opts && opts.forgetReturn);
   if (forget) {
-    try { sessionStorage.removeItem('scout.returnHash'); } catch { /* ignore */ }
+    try {
+      sessionStorage.removeItem('scout.returnHash');
+    } catch {
+      /* ignore */
+    }
   }
   const { route } = parseHash();
   const onPublic = PUBLIC_ROUTES.has(route);
@@ -647,10 +819,10 @@ function goToLogin(opts) {
   }
   const modeNow = authHashMode().mode;
   if (
-    authGate
-    && !authGate.classList.contains('hidden')
-    && document.getElementById('auth-form')
-    && authGate.dataset.mode === modeNow
+    authGate &&
+    !authGate.classList.contains('hidden') &&
+    document.getElementById('auth-form') &&
+    authGate.dataset.mode === modeNow
   ) {
     return;
   }
@@ -731,9 +903,10 @@ function renderAuth(forcedMode) {
       $('#a-pass2', authGate).required = true;
     }
     submitBtn.textContent = isForgot ? 'Send reset link' : isReset ? 'Set new password' : 'Continue';
-    links.innerHTML = isForgot || isReset
-      ? '<button type="button" data-goto="login">Back to log in</button>'
-      : '<button type="button" data-goto="forgot">Forgot password?</button><a href="/legal/terms.html" target="_blank" rel="noopener">Terms</a>';
+    links.innerHTML =
+      isForgot || isReset
+        ? '<button type="button" data-goto="login">Back to log in</button>'
+        : '<button type="button" data-goto="forgot">Forgot password?</button><a href="/legal/terms.html" target="_blank" rel="noopener">Terms</a>';
     $$('[data-tab]', authGate).forEach((b) => b.classList.toggle('active', b.dataset.tab === mode));
     $$('[data-goto]', links).forEach((btn) => {
       btn.onclick = () => {
@@ -762,7 +935,11 @@ function renderAuth(forcedMode) {
     btn.addEventListener('click', () => {
       mode = btn.dataset.tab;
       paintMode();
-      try { authCaptcha.reset && authCaptcha.reset(); } catch { /* ignore */ }
+      try {
+        authCaptcha.reset && authCaptcha.reset();
+      } catch {
+        /* ignore */
+      }
     });
   });
 
@@ -777,7 +954,11 @@ function renderAuth(forcedMode) {
         const r = await api.forgotPassword(body.email, body.captchaToken);
         const data = r.data || {};
         setMsg(msg, 'If that email exists, a reset link was sent.', 'ok');
-        try { authCaptcha.reset && authCaptcha.reset(); } catch { /* ignore */ }
+        try {
+          authCaptcha.reset && authCaptcha.reset();
+        } catch {
+          /* ignore */
+        }
         return;
       }
       if (mode === 'reset') {
@@ -812,7 +993,11 @@ function renderAuth(forcedMode) {
       }
       await bootApp(res.data);
     } catch (err) {
-      try { authCaptcha.reset && authCaptcha.reset(); } catch { /* ignore */ }
+      try {
+        authCaptcha.reset && authCaptcha.reset();
+      } catch {
+        /* ignore */
+      }
       setMsg(msg, err.message, 'error');
     }
   });
@@ -840,9 +1025,12 @@ function updateBillingBanner() {
 
 function fillWorkspaces(workspaces, currentId) {
   if (!wsSelect) return;
-  wsSelect.innerHTML = asList(workspaces).map((w) =>
-    `<option value="${w.id}" ${Number(w.id) === Number(currentId) ? 'selected' : ''}>${esc(w.name)} (${esc(w.role)})</option>`
-  ).join('');
+  wsSelect.innerHTML = asList(workspaces)
+    .map(
+      (w) =>
+        `<option value="${w.id}" ${Number(w.id) === Number(currentId) ? 'selected' : ''}>${esc(w.name)} (${esc(w.role)})</option>`
+    )
+    .join('');
 }
 
 async function refreshAutomation() {
@@ -873,12 +1061,11 @@ async function bootApp(meData) {
   currentUserIsSuperAdmin = !!(meData.isSuperAdmin || (meData.user && meData.user.isSuperAdmin));
   currentUserId = meData.user && meData.user.id != null ? Number(meData.user.id) : null;
   requireSubscription = !!meData.requireSubscription;
-  userSubscribed = meData.subscribed != null
-    ? !!meData.subscribed
-    : !!(meData.user && meData.user.subscribed);
-  productAccess = meData.productAccess != null
-    ? !!meData.productAccess
-    : (userSubscribed || !!meData.workspaceSubscribed || currentUserIsSuperAdmin);
+  userSubscribed = meData.subscribed != null ? !!meData.subscribed : !!(meData.user && meData.user.subscribed);
+  productAccess =
+    meData.productAccess != null
+      ? !!meData.productAccess
+      : userSubscribed || !!meData.workspaceSubscribed || currentUserIsSuperAdmin;
   subscriptionStatus = (meData.user && meData.user.subscriptionStatus) || 'none';
   const navAdmin = document.getElementById('nav-admin');
   if (navAdmin) navAdmin.classList.toggle('hidden', !currentUserIsSuperAdmin);
@@ -900,7 +1087,11 @@ async function bootApp(meData) {
     }
   }
 
-  try { await refreshAutomation(); } catch { /* paywalled */ }
+  try {
+    await refreshAutomation();
+  } catch {
+    /* paywalled */
+  }
   navigate();
 }
 
@@ -922,9 +1113,7 @@ async function pageDashboard() {
   const d = st.data;
   const paused = !!d.automationPaused;
   automationPaused = paused;
-  const activity = asList(act && act.data, ['rows']).length
-    ? asList(act.data, ['rows'])
-    : asList(d.activity);
+  const activity = asList(act && act.data, ['rows']).length ? asList(act.data, ['rows']) : asList(d.activity);
   const byStatus = d.byStatus || {};
 
   view.innerHTML = `
@@ -947,15 +1136,28 @@ async function pageDashboard() {
     </div>
     <div class="card">
       <div class="panel-h"><h3>Leads by status</h3><a href="#/leads" class="btn small">Open leads</a></div>
-      <div class="chips">${Object.keys(byStatus).length
-        ? Object.keys(byStatus).map((s) => `<a class="chip" href="#/leads?status=${encodeURIComponent(s)}" style="text-decoration:none;color:inherit">${esc(pretty(s))}<span>${esc(byStatus[s])}</span></a>`).join('')
-        : '<span class="hint">No leads yet — run Discover on the Leads page.</span>'}</div>
+      <div class="chips">${
+        Object.keys(byStatus).length
+          ? Object.keys(byStatus)
+              .map(
+                (s) =>
+                  `<a class="chip" href="#/leads?status=${encodeURIComponent(s)}" style="text-decoration:none;color:inherit">${esc(pretty(s))}<span>${esc(byStatus[s])}</span></a>`
+              )
+              .join('')
+          : '<span class="hint">No leads yet — run Discover on the Leads page.</span>'
+      }</div>
     </div>
     <div class="card">
       <div class="panel-h"><h3>Recent activity</h3></div>
-      <ul class="list">${activity.length
-        ? activity.map((a) => `<li>${esc(a.message)}<div class="timestamp">${esc(a.area)} · ${esc(fmtDate(a.at))}</div></li>`).join('')
-        : '<li class="hint">No activity yet.</li>'}</ul>
+      <ul class="list">${
+        activity.length
+          ? activity
+              .map(
+                (a) => `<li>${esc(a.message)}<div class="timestamp">${esc(a.area)} · ${esc(fmtDate(a.at))}</div></li>`
+              )
+              .join('')
+          : '<li class="hint">No activity yet.</li>'
+      }</ul>
     </div>
     <div class="card">
       <h3>Emergency stop</h3>
@@ -968,8 +1170,14 @@ async function pageDashboard() {
     : '<button class="btn" data-act="pause">Pause automation</button>';
 
   delegate(view, {
-    pause: async () => { await setAutomation(true); pageDashboard(); },
-    resume: async () => { await setAutomation(false); pageDashboard(); },
+    pause: async () => {
+      await setAutomation(true);
+      pageDashboard();
+    },
+    resume: async () => {
+      await setAutomation(false);
+      pageDashboard();
+    },
     stop: async () => {
       if (!window.confirm('Pause ALL automation now: discovery, research, generation and outreach?')) return;
       await setAutomation(true);
@@ -983,12 +1191,23 @@ async function pageDashboard() {
 /* ------------------------------------------------------------------ */
 
 const leadsState = {
-  q: '', status: '', minScore: '', group: '', category: '', page: 1, pageSize: 25, total: 0,
-  selected: new Set(), facets: { groups: [], categories: [], tags: [] },
+  q: '',
+  status: '',
+  minScore: '',
+  group: '',
+  category: '',
+  page: 1,
+  pageSize: 25,
+  total: 0,
+  selected: new Set(),
+  facets: { groups: [], categories: [], tags: [] },
 };
 
 async function pageLeads(param, query) {
-  if (query && query.status !== undefined) { leadsState.status = query.status; leadsState.page = 1; }
+  if (query && query.status !== undefined) {
+    leadsState.status = query.status;
+    leadsState.page = 1;
+  }
 
   view.innerHTML = `
     <div class="page-head">
@@ -1035,19 +1254,35 @@ async function pageLeads(param, query) {
   const leadsGate = latestGate();
   async function loadFacets() {
     const mine = leadsGate();
-    try { leadsState.facets = (await api.leadFacets()).data.facets || leadsState.facets; } catch { /* optional */ }
+    try {
+      leadsState.facets = (await api.leadFacets()).data.facets || leadsState.facets;
+    } catch {
+      /* optional */
+    }
     if (!mine()) return;
     const g = $('#l-group');
     if (!g) return;
     const f = leadsState.facets;
     const usable = (items) => (items || []).filter((i) => i.name && !String(i.name).startsWith('('));
-    const opts = (items, all, cur) => `<option value="">${all}</option>` + usable(items).map((i) =>
-      `<option value="${esc(i.name)}" ${i.name === cur ? 'selected' : ''}>${esc(i.name)} (${i.count})</option>`).join('');
+    const opts = (items, all, cur) =>
+      `<option value="">${all}</option>` +
+      usable(items)
+        .map(
+          (i) =>
+            `<option value="${esc(i.name)}" ${i.name === cur ? 'selected' : ''}>${esc(i.name)} (${i.count})</option>`
+        )
+        .join('');
     g.innerHTML = opts(f.groups, 'All groups', leadsState.group);
     $('#l-cat').innerHTML = opts(f.categories, 'All categories', leadsState.category);
     const chips = usable(f.groups).slice(0, 8);
     $('#l-chips').innerHTML = chips.length
-      ? '<span class="hint">Hunts</span>' + chips.map((c) => `<button class="chip ${leadsState.group === c.name ? 'active' : ''}" data-act="chip" data-group="${esc(c.name)}">${esc(c.name)}<span>${c.count}</span></button>`).join('')
+      ? '<span class="hint">Hunts</span>' +
+        chips
+          .map(
+            (c) =>
+              `<button class="chip ${leadsState.group === c.name ? 'active' : ''}" data-act="chip" data-group="${esc(c.name)}">${esc(c.name)}<span>${c.count}</span></button>`
+          )
+          .join('')
       : '<span class="hint">No hunt groups yet — Discover or set a group on selected leads.</span>';
   }
 
@@ -1056,29 +1291,51 @@ async function pageLeads(param, query) {
     const body = $('#l-body');
     if (!body) return;
     const r = await api.leads({
-      q: leadsState.q, status: leadsState.status, minScore: leadsState.minScore,
-      group: leadsState.group, category: leadsState.category,
-      page: leadsState.page, pageSize: leadsState.pageSize,
+      q: leadsState.q,
+      status: leadsState.status,
+      minScore: leadsState.minScore,
+      group: leadsState.group,
+      category: leadsState.category,
+      page: leadsState.page,
+      pageSize: leadsState.pageSize,
     });
     if (!mine() || !$('#l-body')) return;
     const rows = asList(r.data, ['leads', 'rows']);
     leadsState.total = r.data.total || rows.length;
-    body.innerHTML = rows.map((l) => `<tr>
+    body.innerHTML =
+      rows
+        .map(
+          (l) => `<tr>
       <td><input type="checkbox" class="row-check" data-id="${l.id}" ${leadsState.selected.has(l.id) ? 'checked' : ''} aria-label="Select lead" /></td>
       <td><button class="link-btn" data-act="open" data-id="${l.id}">${esc(l.business_name)}</button>${l.qualified ? ' <span class="badge ok">qualified</span>' : ''}<div class="hint">${esc(l.email || '')}</div></td>
       <td>${esc(l.lead_group || '—')}</td>
       <td>${esc(l.category || '—')}</td>
-      <td>${(l.tags || []).slice(0, 3).map((t) => `<span class="tag-pill">${esc(t)}</span>`).join('') || '—'}</td>
+      <td>${
+        (l.tags || [])
+          .slice(0, 3)
+          .map((t) => `<span class="tag-pill">${esc(t)}</span>`)
+          .join('') || '—'
+      }</td>
       <td>${scorePill(l.score)}</td>
       <td>${statusBadge(l.status)}</td>
       <td>${esc(l.source || '—')}</td>
       <td>${esc(fmtDate(l.updated_at))}</td>
-    </tr>`).join('') || '<tr><td colspan="9" class="empty">No leads match these filters.</td></tr>';
+    </tr>`
+        )
+        .join('') || '<tr><td colspan="9" class="empty">No leads match these filters.</td></tr>';
     const pages = Math.max(1, Math.ceil(leadsState.total / leadsState.pageSize));
-    pager($('#l-pager'), { page: leadsState.page, pages, total: leadsState.total }, (p) => { leadsState.page = p; load(); });
+    pager($('#l-pager'), { page: leadsState.page, pages, total: leadsState.total }, (p) => {
+      leadsState.page = p;
+      load();
+    });
     updateBulk();
   }
-  leadsReload = () => { if ($('#l-body')) { load().catch((e) => toast(e.message, 'err')); loadFacets(); } };
+  leadsReload = () => {
+    if ($('#l-body')) {
+      load().catch((e) => toast(e.message, 'err'));
+      loadFacets();
+    }
+  };
 
   const applyFilters = () => {
     leadsState.q = $('#l-q').value.trim();
@@ -1098,14 +1355,16 @@ async function pageLeads(param, query) {
     const cb = e.target.closest('.row-check');
     if (!cb) return;
     const id = Number(cb.dataset.id);
-    if (cb.checked) leadsState.selected.add(id); else leadsState.selected.delete(id);
+    if (cb.checked) leadsState.selected.add(id);
+    else leadsState.selected.delete(id);
     updateBulk();
   });
   $('#l-all').addEventListener('change', (e) => {
     $$('.row-check', $('#l-body')).forEach((cb) => {
       cb.checked = e.target.checked;
       const id = Number(cb.dataset.id);
-      if (e.target.checked) leadsState.selected.add(id); else leadsState.selected.delete(id);
+      if (e.target.checked) leadsState.selected.add(id);
+      else leadsState.selected.delete(id);
     });
     updateBulk();
   });
@@ -1118,7 +1377,10 @@ async function pageLeads(param, query) {
     const ids = Array.from(leadsState.selected);
     if (!ids.length) return;
     if (action === 'delete' && !window.confirm(`Delete ${ids.length} lead(s)? This cannot be undone.`)) return;
-    if (['set_group', 'tag', 'untag'].includes(action) && !value) { toast('Enter a value first.', 'err'); return; }
+    if (['set_group', 'tag', 'untag'].includes(action) && !value) {
+      toast('Enter a value first.', 'err');
+      return;
+    }
     const r = await api.bulkLeads(action, ids, value);
     const b = r.data.bulk || {};
     toast(`Bulk ${action}: ${b.processed || 0} ok, ${b.failed || 0} failed`, b.failed ? 'err' : 'ok');
@@ -1130,11 +1392,19 @@ async function pageLeads(param, query) {
 
   delegate(view, {
     open: (t) => openLeadDrawer(Number(t.dataset.id)),
-    chip: (t) => { leadsState.group = leadsState.group === t.dataset.group ? '' : t.dataset.group; leadsState.page = 1; load(); loadFacets(); },
+    chip: (t) => {
+      leadsState.group = leadsState.group === t.dataset.group ? '' : t.dataset.group;
+      leadsState.page = 1;
+      load();
+      loadFacets();
+    },
     clear: () => {
       Object.assign(leadsState, { q: '', status: '', minScore: '', group: '', category: '', page: 1 });
-      $('#l-q').value = ''; $('#l-status').value = ''; $('#l-min').value = '';
-      load(); loadFacets();
+      $('#l-q').value = '';
+      $('#l-status').value = '';
+      $('#l-min').value = '';
+      load();
+      loadFacets();
     },
     discover: () => openDiscoverModal(),
     add: () => openAddLeadModal(),
@@ -1144,7 +1414,11 @@ async function pageLeads(param, query) {
     'b-untag': () => bulk('untag', $('#l-bulk-val').value.trim()),
     'b-research': () => bulk('research'),
     'b-delete': () => bulk('delete'),
-    'b-clear': () => { leadsState.selected.clear(); $('#l-all').checked = false; load(); },
+    'b-clear': () => {
+      leadsState.selected.clear();
+      $('#l-all').checked = false;
+      load();
+    },
     'b-campaign': () => {
       sessionStorage.setItem('scout.campaignLeadIds', JSON.stringify(Array.from(leadsState.selected)));
       outreachTab = 'campaigns';
@@ -1158,7 +1432,11 @@ async function pageLeads(param, query) {
 
 async function openDiscoverModal() {
   let providers = [];
-  try { providers = ((await api.providers()).data.providers || []).filter((p) => p.name !== 'csv' && p.name !== 'manual'); } catch { /* ignore */ }
+  try {
+    providers = ((await api.providers()).data.providers || []).filter((p) => p.name !== 'csv' && p.name !== 'manual');
+  } catch {
+    /* ignore */
+  }
   const preferred = providers.find((p) => p.configured) || providers[0];
   const m = openModal({
     title: 'Discover leads',
@@ -1180,29 +1458,43 @@ async function openDiscoverModal() {
     buttons: [
       { label: 'Close' },
       {
-        label: 'Run discovery', cls: 'primary',
+        label: 'Run discovery',
+        cls: 'primary',
         onClick: async (mm, btn) => {
           const category = $('#d-cat', mm.el).value.trim();
           const location = $('#d-loc', mm.el).value.trim();
           const msg = $('#d-msg', mm.el);
-          if (!category || !location) { setMsg(msg, 'Category and location are required.', 'err'); return; }
+          if (!category || !location) {
+            setMsg(msg, 'Category and location are required.', 'err');
+            return;
+          }
           setMsg(msg, 'Discovering… this can take a minute.');
           btn.textContent = 'Discovering…';
           try {
-            const r = await api.discover(dropEmpty({
-              provider: $('#d-prov', mm.el).value,
-              category, location,
-              group: $('#d-group', mm.el).value.trim(),
-              limit: Number($('#d-limit', mm.el).value) || 8,
-              score: $('#d-score', mm.el).checked,
-              websitePresence: $('#d-web', mm.el).value,
-            }));
+            const r = await api.discover(
+              dropEmpty({
+                provider: $('#d-prov', mm.el).value,
+                category,
+                location,
+                group: $('#d-group', mm.el).value.trim(),
+                limit: Number($('#d-limit', mm.el).value) || 8,
+                score: $('#d-score', mm.el).checked,
+                websitePresence: $('#d-web', mm.el).value,
+              })
+            );
             const x = r.data;
-            const names = (x.leads || []).slice(0, 8).map((l) => `#${l.id} ${esc(l.business_name)}${l.score != null ? ` (score ${esc(l.score)})` : ''}`).join('<br>');
+            const names = (x.leads || [])
+              .slice(0, 8)
+              .map((l) => `#${l.id} ${esc(l.business_name)}${l.score != null ? ` (score ${esc(l.score)})` : ''}`)
+              .join('<br>');
             msg.className = 'msg ok';
             msg.innerHTML = `Provider <b>${esc(x.provider)}</b>: created <b>${esc(x.created)}</b>, skipped <b>${esc(x.skipped)}</b>, scored <b>${esc(x.scored)}</b>, queried <b>${esc(x.queried)}</b>.${x.warning ? `<br>${esc(x.warning)}` : ''}${names ? `<br><span class="hint">${names}</span>` : ''}`;
             if (leadsReload) leadsReload();
-          } catch (err) { setMsg(msg, err.message, 'err'); } finally { btn.textContent = 'Run discovery'; }
+          } catch (err) {
+            setMsg(msg, err.message, 'err');
+          } finally {
+            btn.textContent = 'Run discovery';
+          }
         },
       },
     ],
@@ -1234,11 +1526,19 @@ function openAddLeadModal() {
     buttons: [
       { label: 'Cancel' },
       {
-        label: 'Create lead', cls: 'primary',
+        label: 'Create lead',
+        cls: 'primary',
         onClick: async (m) => {
           const obj = dropEmpty(formObject($('#al-form', m.el)));
-          if (!obj.business_name) { setMsg($('#al-msg', m.el), 'Business name is required.', 'err'); return; }
-          if (obj.tags) obj.tags = obj.tags.split(',').map((t) => t.trim()).filter(Boolean);
+          if (!obj.business_name) {
+            setMsg($('#al-msg', m.el), 'Business name is required.', 'err');
+            return;
+          }
+          if (obj.tags)
+            obj.tags = obj.tags
+              .split(',')
+              .map((t) => t.trim())
+              .filter(Boolean);
           await api.createLead(obj);
           toast('Lead created', 'ok');
           m.close();
@@ -1261,15 +1561,22 @@ function openImportModal() {
     buttons: [
       { label: 'Close' },
       {
-        label: 'Import', cls: 'primary',
+        label: 'Import',
+        cls: 'primary',
         onClick: async (m) => {
           const text = $('#im-text', m.el).value;
           const msg = $('#im-msg', m.el);
-          if (!text.trim()) { setMsg(msg, 'Paste CSV text or choose a file first.', 'err'); return; }
+          if (!text.trim()) {
+            setMsg(msg, 'Paste CSV text or choose a file first.', 'err');
+            return;
+          }
           const group = $('#im-group', m.el).value.trim();
           const r = await api.importLeads(text, group ? { group } : {});
           const x = r.data;
-          const errs = (x.errors || []).slice(0, 8).map((e) => `line ${esc(e.line)}: ${esc(e.error)}`).join('<br>');
+          const errs = (x.errors || [])
+            .slice(0, 8)
+            .map((e) => `line ${esc(e.line)}: ${esc(e.error)}`)
+            .join('<br>');
           msg.className = 'msg ok';
           msg.innerHTML = `Imported <b>${esc(x.created)}</b>, skipped <b>${esc(x.skipped)}</b>.${errs ? `<br><span class="hint">${errs}</span>` : ''}`;
           if (leadsReload) leadsReload();
@@ -1282,7 +1589,9 @@ function openImportModal() {
     const file = f.files && f.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => { $('#im-text').value = String(reader.result || ''); };
+    reader.onload = () => {
+      $('#im-text').value = String(reader.result || '');
+    };
     reader.onerror = () => toast('Could not read file.', 'err');
     reader.readAsText(file);
   });
@@ -1293,7 +1602,11 @@ async function openLeadDrawer(id) {
 
   async function reload() {
     const [leadR, tlR, psR, intR, siteR] = await Promise.allSettled([
-      api.leadGet(id), api.leadTimeline(id, 60), api.leadProspectScore(id), api.intentGet(id), api.websiteByLead(id),
+      api.leadGet(id),
+      api.leadTimeline(id, 60),
+      api.leadProspectScore(id),
+      api.intentGet(id),
+      api.websiteByLead(id),
     ]);
     if (leadR.status !== 'fulfilled') {
       dr.body.innerHTML = `<p class="error">${esc(leadR.reason && leadR.reason.message)}</p>`;
@@ -1302,13 +1615,13 @@ async function openLeadDrawer(id) {
     const data = leadR.value.data;
     const lead = data.lead || {};
     const facts = data.facts || [];
-    const timeline = tlR.status === 'fulfilled' ? (tlR.value.data.timeline || []) : (data.events || []);
+    const timeline = tlR.status === 'fulfilled' ? tlR.value.data.timeline || [] : data.events || [];
     const ps = psR.status === 'fulfilled' ? psR.value.data : null;
     const intent = intR.status === 'fulfilled' ? intR.value.data : null;
     const site = siteR.status === 'fulfilled' ? siteR.value.data.site : null;
     const breakdown = ps && ps.latest ? parseJson(ps.latest.breakdown, {}) : {};
 
-    dr.title.textContent = lead.business_name || ('Lead #' + id);
+    dr.title.textContent = lead.business_name || 'Lead #' + id;
     dr.body.innerHTML = `
       <div class="inline" style="margin:10px 0 0">
         <button class="btn small" data-act="score">Score</button>
@@ -1346,24 +1659,36 @@ async function openLeadDrawer(id) {
         ${kv('Score', ps ? `${ps.score} · ${ps.label}` : lead.score)}
         ${kv('Qualified', lead.qualified ? 'Yes' : 'No')}
         ${kv('Intent', intent ? `${intent.score} · ${intent.label}` : '')}
-        ${Object.keys(breakdown).map((k) => kv(k, '+' + breakdown[k])).join('')}
+        ${Object.keys(breakdown)
+          .map((k) => kv(k, '+' + breakdown[k]))
+          .join('')}
       </section>
       <section><h3>Website</h3>
-        ${site
-    ? `<p><a href="#/websites/${site.id}">${esc(site.name)}</a> ${statusBadge(site.status)}</p>
+        ${
+          site
+            ? `<p><a href="#/websites/${site.id}">${esc(site.name)}</a> ${statusBadge(site.status)}</p>
            <div class="inline" style="margin-top:8px">
              <button class="btn small" data-act="postcard">Postcard / QR</button>
            </div>
            <div id="ld-claim-kit" class="hint" style="margin-top:8px"></div>`
-    : `<p class="hint">No website yet.</p><button class="btn small" data-act="gen">Build template site</button>`}
+            : `<p class="hint">No website yet.</p><button class="btn small" data-act="gen">Build template site</button>`
+        }
       </section>
       <section><h3>Social (Facebook / Instagram)</h3>
         <p class="hint">Generate a month of posts, weekly client approval, then schedule to Meta. Images optional.</p>
         <a class="btn small" href="#/social?leadId=${esc(id)}">Open Social for this lead</a>
       </section>
       <section><h3>Facts &amp; provenance (${facts.length})</h3>
-        ${facts.map((f) => `<div class="kv"><span class="k">${esc(f.fact_key)}</span><span>${esc(String(f.value).slice(0, 400))} <span class="badge claim-${esc(f.claim_class)}">${esc(f.claim_class)}</span></span>
-          <span class="sub-line">source: ${esc(f.source)}${f.source_url ? ` · <a href="${esc(f.source_url)}" target="_blank" rel="noopener">link</a>` : ''} · ${esc(f.confidence)} · ${esc(fmtDate(f.fetched_at))}</span></div>`).join('') || '<p class="hint">No facts yet. Run Research.</p>'}
+        ${
+          facts
+            .map(
+              (
+                f
+              ) => `<div class="kv"><span class="k">${esc(f.fact_key)}</span><span>${esc(String(f.value).slice(0, 400))} <span class="badge claim-${esc(f.claim_class)}">${esc(f.claim_class)}</span></span>
+          <span class="sub-line">source: ${esc(f.source)}${f.source_url ? ` · <a href="${esc(f.source_url)}" target="_blank" rel="noopener">link</a>` : ''} · ${esc(f.confidence)} · ${esc(fmtDate(f.fetched_at))}</span></div>`
+            )
+            .join('') || '<p class="hint">No facts yet. Run Research.</p>'
+        }
         <details style="margin-top:10px"><summary>Add a fact</summary>
           <form id="ld-fact">
             <div class="row">
@@ -1390,7 +1715,9 @@ async function openLeadDrawer(id) {
         await api.patchLead(id, formObject(e.target));
         setMsg(msg, 'Saved', 'ok');
         if (leadsReload) leadsReload();
-      } catch (err) { setMsg(msg, err.message, 'err'); }
+      } catch (err) {
+        setMsg(msg, err.message, 'err');
+      }
     });
     guardSubmit($('#ld-fact', dr.el), async (e) => {
       e.preventDefault();
@@ -1403,35 +1730,61 @@ async function openLeadDrawer(id) {
   }
 
   delegate(dr.el, {
-    score: async () => { const r = await api.scoreLead(id); toast('Score: ' + r.data.score, 'ok'); await reload(); if (leadsReload) leadsReload(); },
+    score: async () => {
+      const r = await api.scoreLead(id);
+      toast('Score: ' + r.data.score, 'ok');
+      await reload();
+      if (leadsReload) leadsReload();
+    },
     qualify: async () => {
       const r = await api.qualifyLead(id);
       const q = r.data.lead || {};
-      toast(q.qualified ? 'QUALIFIED' : 'Not qualified — ' + (q.note || 'see qualification note'), q.qualified ? 'ok' : '');
-      await reload(); if (leadsReload) leadsReload();
+      toast(
+        q.qualified ? 'QUALIFIED' : 'Not qualified — ' + (q.note || 'see qualification note'),
+        q.qualified ? 'ok' : ''
+      );
+      await reload();
+      if (leadsReload) leadsReload();
     },
     research: async () => {
       toast('Researching…');
       const r = await api.researchLead(id);
-      toast(`Research complete${r.data && r.data.facts != null ? ': ' + (r.data.facts.length != null ? r.data.facts.length : r.data.facts) + ' facts' : ''}`, 'ok');
-      await reload(); if (leadsReload) leadsReload();
+      toast(
+        `Research complete${r.data && r.data.facts != null ? ': ' + (r.data.facts.length != null ? r.data.facts.length : r.data.facts) + ' facts' : ''}`,
+        'ok'
+      );
+      await reload();
+      if (leadsReload) leadsReload();
     },
     dupes: async () => {
       const box = $('#ld-merge', dr.el);
       const r = await api.leadDuplicates(id);
       const dups = r.data.duplicates || [];
-      if (!dups.length) { box.innerHTML = '<p class="hint">No duplicate candidates found.</p>'; return; }
-      box.innerHTML = `<h3 style="margin-top:14px">Merge into this lead (keeps this record)</h3>` + dups.map((d) =>
-        `<label class="pick-row"><input type="checkbox" class="merge-check" value="${d.id}" /><span><b>${esc(d.business_name)}</b> (#${d.id}) — matched on ${esc((d.matched_on || []).join(', '))}</span></label>`).join('') +
+      if (!dups.length) {
+        box.innerHTML = '<p class="hint">No duplicate candidates found.</p>';
+        return;
+      }
+      box.innerHTML =
+        `<h3 style="margin-top:14px">Merge into this lead (keeps this record)</h3>` +
+        dups
+          .map(
+            (d) =>
+              `<label class="pick-row"><input type="checkbox" class="merge-check" value="${d.id}" /><span><b>${esc(d.business_name)}</b> (#${d.id}) — matched on ${esc((d.matched_on || []).join(', '))}</span></label>`
+          )
+          .join('') +
         '<button class="btn danger small" data-act="merge" style="margin-top:8px">Merge selected</button>';
     },
     merge: async () => {
       const dropIds = $$('.merge-check:checked', dr.el).map((c) => Number(c.value));
-      if (!dropIds.length) { toast('Select at least one duplicate.', 'err'); return; }
+      if (!dropIds.length) {
+        toast('Select at least one duplicate.', 'err');
+        return;
+      }
       if (!window.confirm(`Merge ${dropIds.length} lead(s) into #${id}? Merged records are deleted.`)) return;
       await api.mergeLeads(id, dropIds);
       toast('Merged', 'ok');
-      await reload(); if (leadsReload) leadsReload();
+      await reload();
+      if (leadsReload) leadsReload();
     },
     pipeline: () => openIntentModal(id, reload),
     postcard: async () => {
@@ -1474,7 +1827,11 @@ async function openLeadDrawer(id) {
 
 async function openIntentModal(leadId, onDone) {
   let cur = null;
-  try { cur = (await api.intentGet(leadId)).data; } catch { /* optional */ }
+  try {
+    cur = (await api.intentGet(leadId)).data;
+  } catch {
+    /* optional */
+  }
   openModal({
     title: 'Record intent event',
     body: `<p class="hint">Current intent: <b>${esc(cur ? `${cur.score} · ${cur.label}` : '—')}</b></p>
@@ -1484,9 +1841,14 @@ async function openIntentModal(leadId, onDone) {
     buttons: [
       { label: 'Close' },
       {
-        label: 'Record', cls: 'primary',
+        label: 'Record',
+        cls: 'primary',
         onClick: async (m) => {
-          const r = await api.intentRecord(leadId, $('#in-ev', m.el).value, $('#in-note', m.el).value.trim() || undefined);
+          const r = await api.intentRecord(
+            leadId,
+            $('#in-ev', m.el).value,
+            $('#in-note', m.el).value.trim() || undefined
+          );
           setMsg($('#in-msg', m.el), `Intent now ${r.data.score} · ${r.data.label}`, 'ok');
           if (onDone) onDone();
         },
@@ -1502,13 +1864,20 @@ async function openIntentModal(leadId, onDone) {
 const sitesState = { page: 1, status: '' };
 
 async function assignDesignJob(leadId, shape) {
-  let instructions = 'Design a complete custom website for this business. Use verified facts for contact details; marketing glue as AI_COPY.';
+  let instructions =
+    'Design a complete custom website for this business. Use verified facts for contact details; marketing glue as AI_COPY.';
   try {
     const d = await api.designDefaultInstructions();
     if (d.data && d.data.website) instructions = d.data.website;
-  } catch { /* use fallback */ }
+  } catch {
+    /* use fallback */
+  }
   const r = await api.designCreate({
-    type: 'website', title: 'Website for lead #' + leadId, instructions, leadId, site_shape: shape || 'multipage',
+    type: 'website',
+    title: 'Website for lead #' + leadId,
+    instructions,
+    leadId,
+    site_shape: shape || 'multipage',
   });
   return r.data.job;
 }
@@ -1550,24 +1919,40 @@ async function pageWebsites(param) {
     if (!mine() || !body) return;
     const d = r.data || {};
     const sites = asList(d, ['sites', 'rows']);
-    body.innerHTML = sites.map((s) => `<tr>
+    body.innerHTML =
+      sites
+        .map(
+          (s) => `<tr>
       <td><button class="link-btn" data-act="open" data-id="${s.id}">${esc(s.name)}</button></td>
-      <td>${esc(s.business_name || ('#' + s.lead_id))}</td>
+      <td>${esc(s.business_name || '#' + s.lead_id)}</td>
       <td>${statusBadge(s.status)}</td><td>${esc(s.origin || '—')}</td><td>${esc(fmtDate(s.updated_at))}</td>
-      <td class="actions"><button type="button" class="btn small danger" data-act="delete" data-id="${s.id}" data-name="${esc(s.name)}">Delete</button></td></tr>`).join('')
-      || '<tr><td colspan="6" class="empty">No websites yet. Build one for a lead above.</td></tr>';
-    pager($('#w-pager'), { page: d.page || 1, pages: d.pages || 1, total: d.total || sites.length }, (p) => { sitesState.page = p; load(); });
+      <td class="actions"><button type="button" class="btn small danger" data-act="delete" data-id="${s.id}" data-name="${esc(s.name)}">Delete</button></td></tr>`
+        )
+        .join('') || '<tr><td colspan="6" class="empty">No websites yet. Build one for a lead above.</td></tr>';
+    pager($('#w-pager'), { page: d.page || 1, pages: d.pages || 1, total: d.total || sites.length }, (p) => {
+      sitesState.page = p;
+      load();
+    });
   }
-  $('#w-status').addEventListener('change', (e) => { sitesState.status = e.target.value; sitesState.page = 1; load(); });
+  $('#w-status').addEventListener('change', (e) => {
+    sitesState.status = e.target.value;
+    sitesState.page = 1;
+    load();
+  });
 
   delegate(view, {
-    open: (t) => { window.location.hash = '#/websites/' + t.dataset.id; },
+    open: (t) => {
+      window.location.hash = '#/websites/' + t.dataset.id;
+    },
     delete: async (t) => {
       const id = Number(t.dataset.id);
-      const name = t.dataset.name || ('#' + id);
-      if (!window.confirm(
-        `Delete website "${name}"?\n\nThis permanently removes the site record and all of its files/code from storage (export folders, previews, images, screenshots). This cannot be undone.`
-      )) return;
+      const name = t.dataset.name || '#' + id;
+      if (
+        !window.confirm(
+          `Delete website "${name}"?\n\nThis permanently removes the site record and all of its files/code from storage (export folders, previews, images, screenshots). This cannot be undone.`
+        )
+      )
+        return;
       try {
         await api.websiteDelete(id);
         toast(`Website #${id} deleted`, 'ok');
@@ -1580,7 +1965,10 @@ async function pageWebsites(param) {
     },
     assign: async () => {
       const lead = picker.get();
-      if (!lead) { setMsg($('#w-msg'), 'Select a lead first.', 'err'); return; }
+      if (!lead) {
+        setMsg($('#w-msg'), 'Select a lead first.', 'err');
+        return;
+      }
       setMsg($('#w-msg'), 'Assigning to the agent…');
       const job = await assignDesignJob(lead.id, $('#w-shape').value);
       setMsg($('#w-msg'), `Design job #${job.id} is ${pretty(job.status)}.`, 'ok');
@@ -1588,7 +1976,10 @@ async function pageWebsites(param) {
     },
     template: async () => {
       const lead = picker.get();
-      if (!lead) { setMsg($('#w-msg'), 'Select a lead first.', 'err'); return; }
+      if (!lead) {
+        setMsg($('#w-msg'), 'Select a lead first.', 'err');
+        return;
+      }
       if (!window.confirm('Build a local template site? This replaces an agent delivery for that lead.')) return;
       setMsg($('#w-msg'), 'Building from the template…');
       const r = await api.generateSite({ leadId: lead.id, force: true, fallback: true });
@@ -1601,11 +1992,17 @@ async function pageWebsites(param) {
 
 async function pageWebsiteDetail(id) {
   const [siteR, verR, cfR] = await Promise.all([
-    api.websiteGet(id), api.websiteVersions(id, { pageSize: 30 }).catch(() => null), api.cfGet().catch(() => null),
+    api.websiteGet(id),
+    api.websiteVersions(id, { pageSize: 30 }).catch(() => null),
+    api.cfGet().catch(() => null),
   ]);
   const site = siteR.data.site || {};
   let manifest = null;
-  try { manifest = (await api.websiteByLead(site.lead_id)).data.site; } catch { /* optional */ }
+  try {
+    manifest = (await api.websiteByLead(site.lead_id)).data.site;
+  } catch {
+    /* optional */
+  }
   let pages = parseJson(site.pages, []);
   const theme = parseJson(site.theme, {});
   const versions = verR ? asList(verR.data, ['versions', 'rows']) : [];
@@ -1673,17 +2070,29 @@ async function pageWebsiteDetail(id) {
         </div>
         <div class="card"><h3>Versions (${versions.length})</h3>
           <div class="shell-log shell-log-lines" tabindex="0">
-            ${versions.map((v) => `<div class="shell-log-line">
+            ${
+              versions
+                .map(
+                  (v) => `<div class="shell-log-line">
               <span class="shell-dim">v${esc(v.version_no)}</span><span class="shell-main">${esc(v.note || '—')}</span>
               <span class="shell-meta">${esc(fmtDate(v.created_at))} · <button type="button" class="shell-link" data-act="restore" data-v="${v.id}">Restore</button></span>
-            </div>`).join('') || '<p class="shell-empty">No versions saved yet.</p>'}
+            </div>`
+                )
+                .join('') || '<p class="shell-empty">No versions saved yet.</p>'
+            }
           </div>
         </div>
         <div class="card" id="wd-structure-card"><h3>Menu &amp; sections</h3>
           <p class="hint">Reorder (↑↓), nest submenu (→), or unnest (←). Home stays first; banner / hero / nav stay fixed.</p>
           <div id="wd-structure"></div>
           <span class="msg" id="wd-struct-msg"></span>
-          <div class="swatches" style="margin-top:10px">${['primary', 'secondary', 'bg', 'text'].filter((k) => theme[k]).map((k) => `<span class="swatch" title="${esc(k)} ${esc(theme[k])}" style="background:${esc(theme[k])}"></span>`).join('')}</div>
+          <div class="swatches" style="margin-top:10px">${['primary', 'secondary', 'bg', 'text']
+            .filter((k) => theme[k])
+            .map(
+              (k) =>
+                `<span class="swatch" title="${esc(k)} ${esc(theme[k])}" style="background:${esc(theme[k])}"></span>`
+            )
+            .join('')}</div>
         </div>
         <div class="card"><h3>Logo</h3>
           <p class="hint">Text brand name (default) or an uploaded image logo (transparent PNG, header-sized).</p>
@@ -1692,9 +2101,11 @@ async function pageWebsiteDetail(id) {
             <label><input type="radio" name="wd-logo-mode" value="image" ${theme.logoMode === 'image' && theme.logoUrl ? 'checked' : ''} /> Image</label>
           </div>
           <div id="wd-logo-preview" style="min-height:48px;margin:8px 0;display:flex;align-items:center">
-            ${theme.logoMode === 'image' && theme.logoUrl
-    ? `<img src="${esc(theme.logoUrl)}" alt="Logo" style="max-height:44px;max-width:200px;object-fit:contain;background:repeating-conic-gradient(#eee 0% 25%,#fff 0% 50%) 50%/12px 12px" />`
-    : `<strong>${esc(theme.brandName || site.name || 'Business')}</strong>`}
+            ${
+              theme.logoMode === 'image' && theme.logoUrl
+                ? `<img src="${esc(theme.logoUrl)}" alt="Logo" style="max-height:44px;max-width:200px;object-fit:contain;background:repeating-conic-gradient(#eee 0% 25%,#fff 0% 50%) 50%/12px 12px" />`
+                : `<strong>${esc(theme.brandName || site.name || 'Business')}</strong>`
+            }
           </div>
           <div class="inline" style="margin-top:8px">
             <button class="btn small" data-act="logo-upload" type="button">Upload logo</button>
@@ -1713,14 +2124,23 @@ async function pageWebsiteDetail(id) {
 
   let fontHooks = null;
   const preview = mountPreview($('#wd-preview'), (slug) => api.websiteRender(id, { editable: true, pageSlug: slug }), {
-    onPreview: (data) => { if (fontHooks) fontHooks.onPreview(data); },
+    onPreview: (data) => {
+      if (fontHooks) fontHooks.onPreview(data);
+    },
   });
-  fontHooks = bindFontToolbar('wd', preview, () => pages, () => theme, (nextPages, nextTheme) =>
-    api.websiteSave(id, { pages: nextPages, theme: nextTheme, note: 'Site fonts' }));
+  fontHooks = bindFontToolbar(
+    'wd',
+    preview,
+    () => pages,
+    () => theme,
+    (nextPages, nextTheme) => api.websiteSave(id, { pages: nextPages, theme: nextTheme, note: 'Site fonts' })
+  );
   const out = $('#wd-out');
   const PINNED_SEC = new Set(['nav', 'hero', 'banner']);
   function isHomeLikeAdmin(p, list) {
-    const slug = String((p && p.slug) || '').toLowerCase().replace(/\.html$/i, '');
+    const slug = String((p && p.slug) || '')
+      .toLowerCase()
+      .replace(/\.html$/i, '');
     if (slug === '' || slug === '/' || slug === 'home' || slug === 'index') return true;
     return Array.isArray(list) && list[0] === p;
   }
@@ -1748,38 +2168,44 @@ async function pageWebsiteDetail(id) {
       return;
     }
     if (structPageIdx >= pages.length) structPageIdx = Math.max(0, pages.length - 1);
-    const menuItems = Array.isArray(structMenu) && structMenu.length
-      ? structMenu
-      : pages.map((p, i) => ({
-        index: i,
-        depth: (p.menuParent || p.menu_parent) ? 1 : 0,
-        slug: p.slug,
-        title: p.title || p.slug,
-        pinned: isHomeLikeAdmin(p, pages) && i === 0,
-        canUp: i > 0 && !(isHomeLikeAdmin(pages[i - 1], pages) && (i - 1) === 0),
-        canDown: i < pages.length - 1 && !isHomeLikeAdmin(p, pages),
-        canNest: i > 0 && !(p.menuParent || p.menu_parent) && !isHomeLikeAdmin(p, pages),
-        canUnnest: !!(p.menuParent || p.menu_parent),
-      }));
-    const menuHtml = menuItems.map((item) => {
-      const pinned = !!item.pinned;
-      const depth = Number(item.depth) === 1 ? 1 : 0;
-      const from = item.index != null ? item.index : 0;
-      const canUp = !!item.canUp;
-      const canDown = !!item.canDown;
-      const canNest = !!item.canNest;
-      const canUnnest = !!item.canUnnest;
-      return `<div class="struct-row${pinned ? ' pinned' : ''}${depth === 1 ? ' depth-1' : ''}">
+    const menuItems =
+      Array.isArray(structMenu) && structMenu.length
+        ? structMenu
+        : pages.map((p, i) => ({
+            index: i,
+            depth: p.menuParent || p.menu_parent ? 1 : 0,
+            slug: p.slug,
+            title: p.title || p.slug,
+            pinned: isHomeLikeAdmin(p, pages) && i === 0,
+            canUp: i > 0 && !(isHomeLikeAdmin(pages[i - 1], pages) && i - 1 === 0),
+            canDown: i < pages.length - 1 && !isHomeLikeAdmin(p, pages),
+            canNest: i > 0 && !(p.menuParent || p.menu_parent) && !isHomeLikeAdmin(p, pages),
+            canUnnest: !!(p.menuParent || p.menu_parent),
+          }));
+    const menuHtml = menuItems
+      .map((item) => {
+        const pinned = !!item.pinned;
+        const depth = Number(item.depth) === 1 ? 1 : 0;
+        const from = item.index != null ? item.index : 0;
+        const canUp = !!item.canUp;
+        const canDown = !!item.canDown;
+        const canNest = !!item.canNest;
+        const canUnnest = !!item.canUnnest;
+        return `<div class="struct-row${pinned ? ' pinned' : ''}${depth === 1 ? ' depth-1' : ''}">
         <span class="struct-label"><strong>${esc(item.title || item.slug)}</strong> <span class="mono hint">${esc(item.slug || '')}${depth === 1 ? ' · sub' : ''}</span></span>
         <button type="button" class="btn small" data-act="menu-unnest" data-i="${from}" ${canUnnest ? '' : 'disabled'} title="Unnest">←</button>
         <button type="button" class="btn small" data-act="menu-nest" data-i="${from}" ${canNest ? '' : 'disabled'} title="Nest">→</button>
         <button type="button" class="btn small" data-act="menu-up" data-i="${from}" ${canUp ? '' : 'disabled'}>↑</button>
         <button type="button" class="btn small" data-act="menu-down" data-i="${from}" ${canDown ? '' : 'disabled'}>↓</button>
       </div>`;
-    }).join('');
-    const tabsHtml = pages.map((p, i) =>
-      `<button type="button" class="btn small${i === structPageIdx ? ' primary' : ''}" data-act="struct-page" data-i="${i}">${esc(p.title || p.slug)}</button>`
-    ).join(' ');
+      })
+      .join('');
+    const tabsHtml = pages
+      .map(
+        (p, i) =>
+          `<button type="button" class="btn small${i === structPageIdx ? ' primary' : ''}" data-act="struct-page" data-i="${i}">${esc(p.title || p.slug)}</button>`
+      )
+      .join(' ');
     const page = pages[structPageIdx];
     const secs = (page && page.sections) || [];
     const freeform = page && typeof page.html === 'string' && page.html.trim();
@@ -1787,16 +2213,20 @@ async function pageWebsiteDetail(id) {
     if (freeform && !secs.length) {
       secsHtml = '<p class="hint">Freeform HTML page — reorder via Menu above.</p>';
     } else {
-      secsHtml = secs.map((s, i) => {
-        const pinned = PINNED_SEC.has(String(s.type || '').toLowerCase());
-        let canUp = !pinned && i > 0 && !PINNED_SEC.has(String(secs[i - 1].type || '').toLowerCase());
-        let canDown = !pinned && i < secs.length - 1 && !PINNED_SEC.has(String(secs[i + 1].type || '').toLowerCase());
-        return `<div class="struct-row${pinned ? ' pinned' : ''}">
+      secsHtml =
+        secs
+          .map((s, i) => {
+            const pinned = PINNED_SEC.has(String(s.type || '').toLowerCase());
+            let canUp = !pinned && i > 0 && !PINNED_SEC.has(String(secs[i - 1].type || '').toLowerCase());
+            let canDown =
+              !pinned && i < secs.length - 1 && !PINNED_SEC.has(String(secs[i + 1].type || '').toLowerCase());
+            return `<div class="struct-row${pinned ? ' pinned' : ''}">
           <span class="struct-label">${esc(sectionLabelAdmin(s, i))}${pinned ? ' <span class="hint">fixed</span>' : ''}</span>
           <button type="button" class="btn small" data-act="sec-up" data-i="${i}" ${canUp ? '' : 'disabled'}>↑</button>
           <button type="button" class="btn small" data-act="sec-down" data-i="${i}" ${canDown ? '' : 'disabled'}>↓</button>
         </div>`;
-      }).join('') || '<p class="hint">No sections.</p>';
+          })
+          .join('') || '<p class="hint">No sections.</p>';
     }
     host.innerHTML = `<h4 style="margin:8px 0 6px;font-size:13px">Menu</h4>${menuHtml}
       <h4 style="margin:14px 0 6px;font-size:13px">Sections</h4>
@@ -1818,7 +2248,9 @@ async function pageWebsiteDetail(id) {
         host.innerHTML = '<p class="hint">No screenshots yet. Publish a preview, then Regenerate.</p>';
         return;
       }
-      const thumb = (s) => `<div class="shot-card" style="border:1px solid var(--border);border-radius:10px;padding:8px;min-width:140px;max-width:180px">
+      const thumb = (
+        s
+      ) => `<div class="shot-card" style="border:1px solid var(--border);border-radius:10px;padding:8px;min-width:140px;max-width:180px">
         <a href="${esc(s.publicUrl)}" target="_blank" rel="noopener"><img src="${esc(s.publicUrl)}" alt="" style="width:100%;height:90px;object-fit:cover;border-radius:6px;background:#eee" /></a>
         <div class="hint" style="margin-top:6px">${esc(s.page)} · ${esc(s.viewport)}${s.kind && s.kind !== 'capture' ? ' · ' + esc(s.kind) : ''}</div>
         <div class="hint">${esc(fmtDate(s.capturedAt))}${s.ready === false ? ' · <span class="error">not ready</span>' : ''}</div>
@@ -1874,13 +2306,28 @@ async function pageWebsiteDetail(id) {
   }
 
   delegate(view, {
-    'menu-up': async (t) => { await wdReorder('menu', Number(t.dataset.i), -1, 'move'); },
-    'menu-down': async (t) => { await wdReorder('menu', Number(t.dataset.i), 1, 'move'); },
-    'menu-nest': async (t) => { await wdReorder('menu', Number(t.dataset.i), 0, 'nest'); },
-    'menu-unnest': async (t) => { await wdReorder('menu', Number(t.dataset.i), 0, 'unnest'); },
-    'sec-up': async (t) => { await wdReorder('sections', Number(t.dataset.i), -1, 'move'); },
-    'sec-down': async (t) => { await wdReorder('sections', Number(t.dataset.i), 1, 'move'); },
-    'struct-page': (t) => { structPageIdx = Number(t.dataset.i) || 0; renderWdStructure(); },
+    'menu-up': async (t) => {
+      await wdReorder('menu', Number(t.dataset.i), -1, 'move');
+    },
+    'menu-down': async (t) => {
+      await wdReorder('menu', Number(t.dataset.i), 1, 'move');
+    },
+    'menu-nest': async (t) => {
+      await wdReorder('menu', Number(t.dataset.i), 0, 'nest');
+    },
+    'menu-unnest': async (t) => {
+      await wdReorder('menu', Number(t.dataset.i), 0, 'unnest');
+    },
+    'sec-up': async (t) => {
+      await wdReorder('sections', Number(t.dataset.i), -1, 'move');
+    },
+    'sec-down': async (t) => {
+      await wdReorder('sections', Number(t.dataset.i), 1, 'move');
+    },
+    'struct-page': (t) => {
+      structPageIdx = Number(t.dataset.i) || 0;
+      renderWdStructure();
+    },
     'shots-regen': async () => {
       const msg = $('#wd-shots-msg');
       setMsg(msg, 'Capturing (this can take a minute)…', '');
@@ -1906,8 +2353,12 @@ async function pageWebsiteDetail(id) {
       out.innerHTML = '<span class="hint">Running QA…</span>';
       const r = (await api.websiteQa(id)).data;
       out.innerHTML = `<p><strong class="${r.pass ? 'check-pass' : 'check-fail'}">${r.pass ? 'PASS' : 'FAIL'}</strong></p>
-        <table><thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead><tbody>${(r.checks || []).map((c) =>
-    `<tr><td class="mono">${esc(c.name)}</td><td class="${c.pass ? 'check-pass' : 'check-fail'}">${c.pass ? 'PASS' : 'FAIL'}</td><td class="hint">${esc(c.detail || '')}</td></tr>`).join('')}</tbody></table>`;
+        <table><thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead><tbody>${(r.checks || [])
+          .map(
+            (c) =>
+              `<tr><td class="mono">${esc(c.name)}</td><td class="${c.pass ? 'check-pass' : 'check-fail'}">${c.pass ? 'PASS' : 'FAIL'}</td><td class="hint">${esc(c.detail || '')}</td></tr>`
+          )
+          .join('')}</tbody></table>`;
     },
     export: async () => {
       out.textContent = 'Exporting…';
@@ -1972,10 +2423,11 @@ async function pageWebsiteDetail(id) {
       out.textContent = 'Optimizing images (resize/compress; may take a minute)…';
       try {
         const r = (await api.websiteOptimizeImages(id, {})).data || {};
-        const n = r.changed != null ? r.changed : (r.optimized != null ? r.optimized : r.count);
-        const saved = r.savedBytes != null ? r.savedBytes : (r.bytesSaved != null ? r.bytesSaved : r.saved_bytes);
-        out.innerHTML = `Image optimize finished${n != null ? `: <strong>${esc(String(n))}</strong> file(s) changed` : ''}${saved != null ? ` · saved ${esc(String(saved))} bytes` : ''}.`
-          + (r.pagesUpdated != null ? `<div class="hint">Pages updated: ${esc(String(r.pagesUpdated))}</div>` : '');
+        const n = r.changed != null ? r.changed : r.optimized != null ? r.optimized : r.count;
+        const saved = r.savedBytes != null ? r.savedBytes : r.bytesSaved != null ? r.bytesSaved : r.saved_bytes;
+        out.innerHTML =
+          `Image optimize finished${n != null ? `: <strong>${esc(String(n))}</strong> file(s) changed` : ''}${saved != null ? ` · saved ${esc(String(saved))} bytes` : ''}.` +
+          (r.pagesUpdated != null ? `<div class="hint">Pages updated: ${esc(String(r.pagesUpdated))}</div>` : '');
         preview.reload();
       } catch (e) {
         out.innerHTML = `<span class="error">${esc(e.message || 'Optimize failed')}</span>`;
@@ -2001,10 +2453,13 @@ async function pageWebsiteDetail(id) {
       out.innerHTML = `Published${r.url ? `: <a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url)}</a>` : ''}${r.project ? `<div class="hint">Project ${esc(r.project)}</div>` : ''}`;
     },
     delete: async () => {
-      const name = site.name || ('#' + id);
-      if (!window.confirm(
-        `Delete website "${name}"?\n\nThis permanently removes the site record and all of its files/code from storage (export folders, previews, images, screenshots). This cannot be undone.`
-      )) return;
+      const name = site.name || '#' + id;
+      if (
+        !window.confirm(
+          `Delete website "${name}"?\n\nThis permanently removes the site record and all of its files/code from storage (export folders, previews, images, screenshots). This cannot be undone.`
+        )
+      )
+        return;
       out.textContent = 'Deleting…';
       try {
         await api.websiteDelete(id);
@@ -2023,8 +2478,17 @@ async function pageWebsiteDetail(id) {
     save: async () => {
       const msg = $('#wd-save-msg');
       let parsed;
-      try { parsed = JSON.parse($('#wd-json').value); } catch (e) { setMsg(msg, 'Invalid JSON: ' + e.message, 'err'); return; }
-      const r = await api.websiteSave(id, { pages: parsed.pages, theme: parsed.theme, note: 'Manual edit from web UI' });
+      try {
+        parsed = JSON.parse($('#wd-json').value);
+      } catch (e) {
+        setMsg(msg, 'Invalid JSON: ' + e.message, 'err');
+        return;
+      }
+      const r = await api.websiteSave(id, {
+        pages: parsed.pages,
+        theme: parsed.theme,
+        note: 'Manual edit from web UI',
+      });
       setMsg(msg, `Saved as version ${r.data.version.version_no}`, 'ok');
       preview.reload();
     },
@@ -2080,9 +2544,13 @@ function erRowHtml(r, withJob) {
     <div class="hint">from ${esc(r.from_email || 'unknown')} · ${esc(fmtDate(r.received_at))}${withJob ? ` · job ${r.design_job_id ? `<a href="#/design/${r.design_job_id}">#${esc(r.design_job_id)}</a>` : 'unlinked'}` : ''}</div>
     <p style="white-space:pre-wrap;margin:6px 0">${esc(r.body_excerpt || r.body || '')}</p>
     <div class="inline">
-      ${r.status !== 'submitted' && r.status !== 'dismissed' ? `<button class="btn small primary" data-act="er-submit" data-id="${r.id}" data-job="${esc(r.design_job_id || '')}">Submit to agent</button>
+      ${
+        r.status !== 'submitted' && r.status !== 'dismissed'
+          ? `<button class="btn small primary" data-act="er-submit" data-id="${r.id}" data-job="${esc(r.design_job_id || '')}">Submit to agent</button>
       <button class="btn small" data-act="er-use" data-id="${r.id}">Use as instructions</button>
-      <button class="btn small danger" data-act="er-dismiss" data-id="${r.id}">Dismiss</button>` : ''}
+      <button class="btn small danger" data-act="er-dismiss" data-id="${r.id}">Dismiss</button>`
+          : ''
+      }
     </div></div>`;
 }
 
@@ -2090,9 +2558,10 @@ function erRowHtml(r, withJob) {
 function extractQueuedChangeText(instructions, kind) {
   const text = String(instructions || '');
   if (!text.trim()) return '';
-  const headers = kind === 'improvements'
-    ? ['=== IMPROVEMENTS REQUEST ===', '=== CLIENT CHANGE REQUEST ===']
-    : ['=== REDESIGN REQUEST ===', '=== CLIENT CHANGE REQUEST ==='];
+  const headers =
+    kind === 'improvements'
+      ? ['=== IMPROVEMENTS REQUEST ===', '=== CLIENT CHANGE REQUEST ===']
+      : ['=== REDESIGN REQUEST ===', '=== CLIENT CHANGE REQUEST ==='];
   for (const header of headers) {
     const start = text.indexOf(header);
     if (start < 0) continue;
@@ -2115,13 +2584,18 @@ function extractQueuedChangeText(instructions, kind) {
  */
 function resolveChangeBoxText(job, kind) {
   const review = job && job.review;
-  const reviewText = kind === 'improvements'
-    ? String((review && review.improvement_instructions) || '').trim()
-    : String((review && review.redesign_instructions) || '').trim();
+  const reviewText =
+    kind === 'improvements'
+      ? String((review && review.improvement_instructions) || '').trim()
+      : String((review && review.redesign_instructions) || '').trim();
 
-  const pending = (job && Array.isArray(job.email_redesigns) ? job.email_redesigns : [])
-    .filter((r) => r && (r.request_kind === kind || (!r.request_kind && kind === 'redesign'))
-      && r.status !== 'submitted' && r.status !== 'dismissed');
+  const pending = (job && Array.isArray(job.email_redesigns) ? job.email_redesigns : []).filter(
+    (r) =>
+      r &&
+      (r.request_kind === kind || (!r.request_kind && kind === 'redesign')) &&
+      r.status !== 'submitted' &&
+      r.status !== 'dismissed'
+  );
   if (pending.length) {
     const latest = pending[0];
     const body = String(latest.body || latest.body_excerpt || '').trim();
@@ -2137,9 +2611,7 @@ function resolveChangeBoxText(job, kind) {
 
 function fillChangeInstructionBoxes(job, reviewOverride) {
   const review = reviewOverride || (job && job.review) || null;
-  const viewJob = review && review !== (job && job.review)
-    ? Object.assign({}, job || {}, { review })
-    : job;
+  const viewJob = review && review !== (job && job.review) ? Object.assign({}, job || {}, { review }) : job;
   const redesignEl = $('#dd-redesign');
   const improveEl = $('#dd-improve');
   if (redesignEl) redesignEl.value = resolveChangeBoxText(viewJob, 'redesign');
@@ -2151,7 +2623,12 @@ async function mountLearning(host) {
   async function load() {
     host.innerHTML = '<p class="hint">Loading learning status…</p>';
     let res;
-    try { res = (await api.learningPlaybook()).data; } catch (e) { host.innerHTML = `<p class="error">Learning unavailable: ${esc(e.message)}</p>`; return; }
+    try {
+      res = (await api.learningPlaybook()).data;
+    } catch (e) {
+      host.innerHTML = `<p class="error">Learning unavailable: ${esc(e.message)}</p>`;
+      return;
+    }
     const st = res.status || {};
     const pb = res.playbook || [];
     host.innerHTML = `
@@ -2172,16 +2649,29 @@ async function mountLearning(host) {
     const msg = () => $('[data-lr-msg]', host);
     safeRun(b, async () => {
       const act = b.dataset.lr;
-      if (act === 'refresh') { await load(); return; }
+      if (act === 'refresh') {
+        await load();
+        return;
+      }
       if (act === 'distill') {
         const r = (await api.learningDistill(true)).data;
         await load();
         const m = msg();
-        if (r && r.ok === false) setMsg(m, `Distill: ${r.reason || 'failed'} (heuristic playbook still updates on each review/edit).`, 'err');
-        else setMsg(m, `Distilled${r && r.ai_used ? ' (AI)' : ''} — ${r && r.playbook_count != null ? r.playbook_count : '?'} lessons.`, 'ok');
+        if (r && r.ok === false)
+          setMsg(m, `Distill: ${r.reason || 'failed'} (heuristic playbook still updates on each review/edit).`, 'err');
+        else
+          setMsg(
+            m,
+            `Distilled${r && r.ai_used ? ' (AI)' : ''} — ${r && r.playbook_count != null ? r.playbook_count : '?'} lessons.`,
+            'ok'
+          );
         return;
       }
-      if (act === 'clear-playbook') { await api.learningClear('playbook'); await load(); return; }
+      if (act === 'clear-playbook') {
+        await api.learningClear('playbook');
+        await load();
+        return;
+      }
       if (act === 'clear-all') {
         if (!window.confirm('Clear all design learning events and the playbook?')) return;
         await api.learningClear('all');
@@ -2203,14 +2693,19 @@ async function pageDomains() {
   const linked = asList((linkedRes && linkedRes.data) || {}, ['domains', 'rows']);
   const sites = asList((sitesRes && sitesRes.data) || {}, ['websites', 'sites', 'rows']);
   const leads = asList((leadsRes && leadsRes.data) || {}, ['leads', 'rows']);
-  const siteOpts = sites.map((s) =>
-    `<option value="${esc(s.id)}">#${esc(s.id)} · ${esc(s.name || 'Site')}${s.lead_id ? ` · lead ${esc(s.lead_id)}` : ''}</option>`
-  ).join('');
-  const leadOpts = leads.map((l) => {
-    const name = l.business_name || l.name || ('Lead #' + l.id);
-    const city = l.city ? ` · ${l.city}` : '';
-    return `<option value="${esc(l.id)}">${esc(name)}${esc(city)}</option>`;
-  }).join('');
+  const siteOpts = sites
+    .map(
+      (s) =>
+        `<option value="${esc(s.id)}">#${esc(s.id)} · ${esc(s.name || 'Site')}${s.lead_id ? ` · lead ${esc(s.lead_id)}` : ''}</option>`
+    )
+    .join('');
+  const leadOpts = leads
+    .map((l) => {
+      const name = l.business_name || l.name || 'Lead #' + l.id;
+      const city = l.city ? ` · ${l.city}` : '';
+      return `<option value="${esc(l.id)}">${esc(name)}${esc(city)}</option>`;
+    })
+    .join('');
 
   view.innerHTML = `
     <div class="page-head">
@@ -2251,9 +2746,12 @@ async function pageDomains() {
       <h3>Linked &amp; registered</h3>
       <div class="table-wrap"><table>
         <thead><tr><th>Domain</th><th>Status</th><th>Website</th><th>Price</th><th></th></tr></thead>
-        <tbody id="dom-linked-body">${linked.map((d) => `
+        <tbody id="dom-linked-body">${
+          linked
+            .map(
+              (d) => `
           <tr>
-            <td><a href="${esc(d.publicUrl || ('https://' + d.domain))}" target="_blank" rel="noopener">${esc(d.domain)}</a>
+            <td><a href="${esc(d.publicUrl || 'https://' + d.domain)}" target="_blank" rel="noopener">${esc(d.domain)}</a>
               <div class="hint">${esc(d.pagesProject || '')}</div></td>
             <td>${esc(d.status)}${d.registrationState ? `<div class="hint">${esc(d.registrationState)}</div>` : ''}</td>
             <td>${d.websiteId ? `<a href="#/websites/${esc(d.websiteId)}">#${esc(d.websiteId)}</a>` : '—'}</td>
@@ -2263,7 +2761,10 @@ async function pageDomains() {
               ${d.status === 'registered' && d.websiteId ? `<button class="btn small" data-act="dom-link-row" data-domain="${esc(d.domain)}" data-site="${esc(d.websiteId)}">Link to site</button>` : ''}
               ${d.status === 'linked' ? `<button class="btn small danger" data-act="dom-unlink" data-domain="${esc(d.domain)}">Unlink</button>` : ''}
             </td>
-          </tr>`).join('') || '<tr><td colspan="5" class="empty">No domains yet — search above to get started.</td></tr>'}
+          </tr>`
+            )
+            .join('') || '<tr><td colspan="5" class="empty">No domains yet — search above to get started.</td></tr>'
+        }
         </tbody>
       </table></div>
     </div>`;
@@ -2278,12 +2779,15 @@ async function pageDomains() {
 
   function renderSearchResults(domains) {
     if (!domains.length) {
-      resultsEl.innerHTML = '<p class="hint">No suggestions. Try another keyword, then Check a full name like brand.com.</p>';
+      resultsEl.innerHTML =
+        '<p class="hint">No suggestions. Try another keyword, then Check a full name like brand.com.</p>';
       return;
     }
     resultsEl.innerHTML = `<div class="table-wrap"><table>
       <thead><tr><th>Domain</th><th>Available</th><th>Price</th><th></th></tr></thead>
-      <tbody>${domains.map((d) => `<tr>
+      <tbody>${domains
+        .map(
+          (d) => `<tr>
         <td class="mono">${esc(d.domain)}</td>
         <td class="${d.registrable ? 'check-pass' : 'check-fail'}">${d.registrable ? 'Yes' : 'No'}${d.reason ? `<div class="hint">${esc(d.reason)}</div>` : ''}</td>
         <td>${esc(priceLabel(d) || '—')}</td>
@@ -2292,7 +2796,9 @@ async function pageDomains() {
           <button type="button" class="btn small primary" data-act="dom-buy" data-domain="${esc(d.domain)}" ${d.registrable ? '' : 'disabled'}>Buy</button>
           <button type="button" class="btn small" data-act="dom-use-link" data-domain="${esc(d.domain)}">Use to link</button>
         </td>
-      </tr>`).join('')}</tbody></table></div>`;
+      </tr>`
+        )
+        .join('')}</tbody></table></div>`;
   }
 
   $('#dom-search-form').onsubmit = async (e) => {
@@ -2301,7 +2807,7 @@ async function pageDomains() {
     setMsg(searchMsg, 'Searching…', '');
     try {
       const r = await api.domainsSearch(body.q, body.leadId ? { leadId: Number(body.leadId) } : {});
-      const domains = ((r.data && r.data.domains) || []);
+      const domains = (r.data && r.data.domains) || [];
       setMsg(searchMsg, `${domains.length} suggestion(s)`, 'ok');
       renderSearchResults(domains);
     } catch (err) {
@@ -2320,7 +2826,7 @@ async function pageDomains() {
         websiteId: Number(body.websiteId),
         forcePublish: true,
       });
-      setMsg(msg, `Linked — ${((r.data && r.data.publicUrl) || body.domain)}`, 'ok');
+      setMsg(msg, `Linked — ${(r.data && r.data.publicUrl) || body.domain}`, 'ok');
       pageDomains();
     } catch (err) {
       setMsg(msg, err.message || 'Link failed', 'err');
@@ -2336,13 +2842,15 @@ async function pageDomains() {
       const domains = (r.data && r.data.domains) || [];
       setMsg(msg, `${domains.length} on Cloudflare Registrar`, 'ok');
       host.innerHTML = domains.length
-        ? `<div class="table-wrap"><table><thead><tr><th>Domain</th><th>Status</th><th></th></tr></thead><tbody>${
-          domains.map((d) => `<tr>
+        ? `<div class="table-wrap"><table><thead><tr><th>Domain</th><th>Status</th><th></th></tr></thead><tbody>${domains
+            .map(
+              (d) => `<tr>
             <td class="mono">${esc(d.domain)}</td>
             <td>${esc(d.status || '—')}${d.expiresAt ? `<div class="hint">expires ${esc(d.expiresAt)}</div>` : ''}</td>
             <td><button type="button" class="btn small" data-act="dom-use-link" data-domain="${esc(d.domain)}">Use to link</button></td>
-          </tr>`).join('')
-        }</tbody></table></div>`
+          </tr>`
+            )
+            .join('')}</tbody></table></div>`
         : '<p class="hint">No domains on this Cloudflare account yet.</p>';
     } catch (err) {
       setMsg(msg, err.message || 'Could not list owned domains', 'err');
@@ -2355,12 +2863,20 @@ async function pageDomains() {
       try {
         const r = await api.domainsCheck([t.dataset.domain]);
         const d = ((r.data && r.data.domains) || [])[0];
-        if (!d) { setMsg(searchMsg, 'No check result', 'err'); return; }
-        setMsg(searchMsg, d.registrable
-          ? `${d.domain} is registrable${d.registrationCost != null ? ` · ${d.registrationCost} ${d.currency || ''}/yr` : ''}`
-          : `${d.domain} not registrable${d.reason ? ': ' + d.reason : ''}`,
-        d.registrable ? 'ok' : 'err');
-      } catch (err) { setMsg(searchMsg, err.message, 'err'); }
+        if (!d) {
+          setMsg(searchMsg, 'No check result', 'err');
+          return;
+        }
+        setMsg(
+          searchMsg,
+          d.registrable
+            ? `${d.domain} is registrable${d.registrationCost != null ? ` · ${d.registrationCost} ${d.currency || ''}/yr` : ''}`
+            : `${d.domain} not registrable${d.reason ? ': ' + d.reason : ''}`,
+          d.registrable ? 'ok' : 'err'
+        );
+      } catch (err) {
+        setMsg(searchMsg, err.message, 'err');
+      }
     },
     'dom-buy': async (t) => {
       const domain = t.dataset.domain;
@@ -2368,17 +2884,29 @@ async function pageDomains() {
       const leadId = form && form.leadId ? Number(form.leadId.value) : null;
       const siteSel = document.querySelector('#dom-link-form select[name="websiteId"]');
       const websiteId = siteSel && siteSel.value ? Number(siteSel.value) : null;
-      if (!window.confirm(`Purchase ${domain} for 1 year on Cloudflare Registrar?\n\nThis bills the payment method on your Cloudflare account and is non-refundable.`)) return;
+      if (
+        !window.confirm(
+          `Purchase ${domain} for 1 year on Cloudflare Registrar?\n\nThis bills the payment method on your Cloudflare account and is non-refundable.`
+        )
+      )
+        return;
       setMsg(searchMsg, 'Registering…', '');
       try {
-        const r = await api.domainsRegister({ domain, years: 1, leadId: leadId || undefined, websiteId: websiteId || undefined });
+        const r = await api.domainsRegister({
+          domain,
+          years: 1,
+          leadId: leadId || undefined,
+          websiteId: websiteId || undefined,
+        });
         const st = (r.data && r.data.status) || 'registering';
         setMsg(searchMsg, `Registration ${st} for ${domain}`, 'ok');
         if (websiteId && st === 'registered') {
           await api.domainsLink({ domain, websiteId, forcePublish: true });
         }
         pageDomains();
-      } catch (err) { setMsg(searchMsg, err.message || 'Purchase failed', 'err'); }
+      } catch (err) {
+        setMsg(searchMsg, err.message || 'Purchase failed', 'err');
+      }
     },
     'dom-use-link': (t) => {
       const input = document.querySelector('#dom-link-form input[name="domain"]');
@@ -2389,14 +2917,18 @@ async function pageDomains() {
       try {
         await api.domainsStatus(t.dataset.domain);
         pageDomains();
-      } catch (err) { toast(err.message, 'err'); }
+      } catch (err) {
+        toast(err.message, 'err');
+      }
     },
     'dom-link-row': async (t) => {
       try {
         await api.domainsLink({ domain: t.dataset.domain, websiteId: Number(t.dataset.site), forcePublish: true });
         toast('Domain linked', 'ok');
         pageDomains();
-      } catch (err) { toast(err.message, 'err'); }
+      } catch (err) {
+        toast(err.message, 'err');
+      }
     },
     'dom-unlink': async (t) => {
       if (!window.confirm(`Unlink ${t.dataset.domain} from its site?`)) return;
@@ -2404,7 +2936,9 @@ async function pageDomains() {
         await api.domainsUnlink({ domain: t.dataset.domain });
         toast('Unlinked', 'ok');
         pageDomains();
-      } catch (err) { toast(err.message, 'err'); }
+      } catch (err) {
+        toast(err.message, 'err');
+      }
     },
   });
 }
@@ -2416,7 +2950,9 @@ async function pageDesign(param) {
     api.designList({ page: designState.page, pageSize: 25, status: designState.status }),
     api.emailRedesignList({ pendingOnly: 1 }).catch(() => null),
   ]);
-  const counts = pend ? (pend.data.counts || { waiting_on_agent: 0, questions_pending: 0 }) : { waiting_on_agent: 0, questions_pending: 0 };
+  const counts = pend
+    ? pend.data.counts || { waiting_on_agent: 0, questions_pending: 0 }
+    : { waiting_on_agent: 0, questions_pending: 0 };
   const jobs = asList(list.data, ['jobs', 'rows']);
   const ers = er ? asList(er.data, ['requests', 'rows']) : [];
 
@@ -2430,14 +2966,19 @@ async function pageDesign(param) {
     </div>
     <div class="table-wrap"><table>
       <thead><tr><th>#</th><th>Title</th><th>Type</th><th>Shape</th><th>Status</th><th>Questions</th><th>Updated</th><th></th></tr></thead>
-      <tbody>${jobs.map((j) => `<tr>
+      <tbody>${
+        jobs
+          .map(
+            (j) => `<tr>
         <td>${j.id}</td>
         <td><button class="link-btn" data-act="open" data-id="${j.id}">${esc(j.title)}</button>${j.lead_id ? `<div class="hint">lead #${esc(j.lead_id)}</div>` : ''}</td>
         <td>${esc(j.type)}</td><td>${esc(j.site_shape || '—')}</td><td>${statusBadge(j.status)}</td>
         <td>${j.pending_questions ? `<span class="badge warn">${esc(j.pending_questions)} pending</span>` : '—'}</td>
         <td>${esc(fmtDate(j.updated_at))}</td>
-        <td class="actions"><button class="btn small danger" data-act="delete" data-id="${j.id}">Delete</button></td></tr>`).join('')
-    || '<tr><td colspan="8" class="empty">No design jobs yet.</td></tr>'}</tbody>
+        <td class="actions"><button class="btn small danger" data-act="delete" data-id="${j.id}">Delete</button></td></tr>`
+          )
+          .join('') || '<tr><td colspan="8" class="empty">No design jobs yet.</td></tr>'
+      }</tbody>
     </table></div>
     <div class="pagination" id="dj-pager"></div>
     <div class="card">
@@ -2451,12 +2992,25 @@ async function pageDesign(param) {
     </div>
     <div class="card"><details><summary>Design learning</summary><div id="dj-learning" style="margin-top:8px"></div></details></div>`;
 
-  pager($('#dj-pager'), { page: list.data.page || 1, pages: list.data.pages || 1, total: list.data.total || 0 }, (p) => { designState.page = p; pageDesign(); });
-  $('#dj-status').addEventListener('change', (e) => { designState.status = e.target.value; designState.page = 1; pageDesign(); });
+  pager(
+    $('#dj-pager'),
+    { page: list.data.page || 1, pages: list.data.pages || 1, total: list.data.total || 0 },
+    (p) => {
+      designState.page = p;
+      pageDesign();
+    }
+  );
+  $('#dj-status').addEventListener('change', (e) => {
+    designState.status = e.target.value;
+    designState.page = 1;
+    pageDesign();
+  });
   mountLearning($('#dj-learning'));
 
   delegate(view, {
-    open: (t) => { window.location.hash = '#/design/' + t.dataset.id; },
+    open: (t) => {
+      window.location.hash = '#/design/' + t.dataset.id;
+    },
     new: () => openNewDesignModal(),
     delete: async (t) => {
       if (!window.confirm('Delete design job #' + t.dataset.id + '?')) return;
@@ -2471,9 +3025,13 @@ async function pageDesign(param) {
     },
     imap: async () => {
       const r = (await api.emailImapPoll({ force: true })).data;
-      if (r.skipped) toast(r.reason === 'imap_not_configured' || r.reason === 'imap_disabled'
-        ? 'Enable IMAP under Settings → Email first.'
-        : (r.reason || 'IMAP skipped'), 'err');
+      if (r.skipped)
+        toast(
+          r.reason === 'imap_not_configured' || r.reason === 'imap_disabled'
+            ? 'Enable IMAP under Settings → Email first.'
+            : r.reason || 'IMAP skipped',
+          'err'
+        );
       else toast(`IMAP: fetched ${r.fetched || 0}, processed ${r.processed || 0}.`, 'ok');
       pageDesign();
     },
@@ -2493,13 +3051,20 @@ async function pageDesign(param) {
       if (r && r.design_job_id) window.location.hash = '#/design/' + r.design_job_id;
       else toast('Link this request to a job first (submit with a job id).');
     },
-    'er-dismiss': async (t) => { await api.emailRedesignDismiss(Number(t.dataset.id)); pageDesign(); },
+    'er-dismiss': async (t) => {
+      await api.emailRedesignDismiss(Number(t.dataset.id));
+      pageDesign();
+    },
   });
 }
 
 async function openNewDesignModal() {
   let defaults = '';
-  try { defaults = (await api.designDefaultInstructions()).data.website || ''; } catch { /* optional */ }
+  try {
+    defaults = (await api.designDefaultInstructions()).data.website || '';
+  } catch {
+    /* optional */
+  }
   const m = openModal({
     title: 'New design job',
     wide: true,
@@ -2517,18 +3082,27 @@ async function openNewDesignModal() {
     buttons: [
       { label: 'Cancel' },
       {
-        label: 'Queue for agent', cls: 'primary',
+        label: 'Queue for agent',
+        cls: 'primary',
         onClick: async (mm) => {
           const type = $('#nd-type', mm.el).value;
           const title = $('#nd-title', mm.el).value.trim();
           const instructions = $('#nd-instr', mm.el).value.trim();
-          if (!title || !instructions) { setMsg($('#nd-msg', mm.el), 'Title and instructions are required.', 'err'); return; }
+          if (!title || !instructions) {
+            setMsg($('#nd-msg', mm.el), 'Title and instructions are required.', 'err');
+            return;
+          }
           const lead = picker.get();
-          const r = await api.designCreate(dropEmpty({
-            type, title, instructions, leadId: lead ? lead.id : undefined,
-            contactEmail: $('#nd-email', mm.el).value.trim(),
-            site_shape: type === 'website' ? $('#nd-shape', mm.el).value : undefined,
-          }));
+          const r = await api.designCreate(
+            dropEmpty({
+              type,
+              title,
+              instructions,
+              leadId: lead ? lead.id : undefined,
+              contactEmail: $('#nd-email', mm.el).value.trim(),
+              site_shape: type === 'website' ? $('#nd-shape', mm.el).value : undefined,
+            })
+          );
           toast(`Job #${r.data.job.id} queued`, 'ok');
           mm.close();
           window.location.hash = '#/design/' + r.data.job.id;
@@ -2548,7 +3122,8 @@ function reviewHtml(r) {
   if (!r) return '<p class="hint">No review yet. Run a review to get QA notes on the delivered site.</p>';
   const items = [];
   ['issues', 'findings', 'problems', 'notes', 'suggestions', 'recommendations'].forEach((k) => {
-    if (Array.isArray(r[k])) r[k].forEach((x) => items.push(typeof x === 'string' ? x : (x.message || x.text || x.issue || JSON.stringify(x))));
+    if (Array.isArray(r[k]))
+      r[k].forEach((x) => items.push(typeof x === 'string' ? x : x.message || x.text || x.issue || JSON.stringify(x)));
   });
   return `<p>${r.pass === true ? '<span class="check-pass">PASS</span>' : r.pass === false ? '<span class="check-fail">NEEDS WORK</span>' : ''} <span class="hint">${esc(fmtDate(r.at))}</span></p>
     ${r.summary ? `<p>${esc(r.summary)}</p>` : ''}
@@ -2560,9 +3135,14 @@ function reviewHtml(r) {
 function changeRequestReviewHtml(crr) {
   if (!crr || typeof crr !== 'object') return '';
   const cls = String(crr.classification || crr.class || '').toUpperCase();
-  const badge = cls === 'SAFE' ? 'check-pass'
-    : (cls === 'PUSH_BACK' || cls === 'PUSHBACK') ? 'check-fail'
-      : cls ? 'badge warn' : 'hint';
+  const badge =
+    cls === 'SAFE'
+      ? 'check-pass'
+      : cls === 'PUSH_BACK' || cls === 'PUSHBACK'
+        ? 'check-fail'
+        : cls
+          ? 'badge warn'
+          : 'hint';
   const plan = crr.plan || crr.agent_plan || '';
   const msg = crr.clientMessage || crr.client_message || '';
   return `<div class="card" style="margin:0 0 10px;padding:10px 12px;background:var(--surface-2,transparent)">
@@ -2601,18 +3181,30 @@ async function pageDesignDetail(id) {
       <div>
         <div class="card"><h3>Instructions</h3>
           <pre class="shell-log" tabindex="0">${esc(job.instructions || '') || '<span class="shell-empty">(no instructions)</span>'}</pre>
-          ${job.type === 'website' ? `<div class="shell-actions"><label class="lbl" for="dd-shape">Site shape</label>
+          ${
+            job.type === 'website'
+              ? `<div class="shell-actions"><label class="lbl" for="dd-shape">Site shape</label>
             <select id="dd-shape">${optionList(['multipage', 'landing'], job.site_shape || 'multipage')}</select>
-            <button type="button" class="shell-link" data-act="shape">Update shape</button></div>` : ''}
+            <button type="button" class="shell-link" data-act="shape">Update shape</button></div>`
+              : ''
+          }
         </div>
 
         <div class="card"><h3>Questions from the agent (${questions.length})</h3>
-          ${questions.map((q) => `<div class="q-card ${q.answer == null ? 'pending' : ''}">
+          ${
+            questions
+              .map(
+                (q) => `<div class="q-card ${q.answer == null ? 'pending' : ''}">
             <div><b>Q${esc(q.id)}:</b> ${esc(q.question)}</div>
-            ${q.answer != null
-    ? `<div class="hint" style="margin-top:4px">Answer${q.from_email ? ' from ' + esc(q.from_email) : ''} · ${esc(fmtDate(q.answered_at))}</div><div style="white-space:pre-wrap">${esc(q.answer)}</div>`
-    : `<textarea id="qa-${q.id}" placeholder="Your answer…"></textarea><button class="btn small primary" data-act="answer" data-q="${q.id}" style="margin-top:6px">Send answer</button>`}
-          </div>`).join('') || '<p class="hint">No questions.</p>'}
+            ${
+              q.answer != null
+                ? `<div class="hint" style="margin-top:4px">Answer${q.from_email ? ' from ' + esc(q.from_email) : ''} · ${esc(fmtDate(q.answered_at))}</div><div style="white-space:pre-wrap">${esc(q.answer)}</div>`
+                : `<textarea id="qa-${q.id}" placeholder="Your answer…"></textarea><button class="btn small primary" data-act="answer" data-q="${q.id}" style="margin-top:6px">Send answer</button>`
+            }
+          </div>`
+              )
+              .join('') || '<p class="hint">No questions.</p>'
+          }
         </div>
 
         <div class="card"><h3>Client contact</h3>
@@ -2651,8 +3243,11 @@ async function pageDesignDetail(id) {
 
       <div>
         <div class="card"><h3>Delivery</h3>
-          ${deliverable
-    ? `${hasSite ? `<div class="font-toolbar">
+          ${
+            deliverable
+              ? `${
+                  hasSite
+                    ? `<div class="font-toolbar">
                <p class="hint">Google fonts for this design. Preview updates as you pick; Save keeps site fonts. Style one element in the preview when needed.</p>
                <div class="font-toolbar-row">
                  <div class="field"><label class="lbl" for="dd-font-body">Site</label><select id="dd-font-body"></select></div>
@@ -2665,7 +3260,9 @@ async function pageDesignDetail(id) {
                  <div class="field"><label class="lbl" for="dd-font-element">This element</label><select id="dd-font-element" disabled></select></div>
                  <span class="msg" id="dd-font-msg"></span>
                </div>
-             </div><div id="dd-preview"></div>` : ''}
+             </div><div id="dd-preview"></div>`
+                    : ''
+                }
                <div class="inline" style="margin-top:8px">
                  ${job.type === 'website' ? '<button class="btn small" data-act="url">Preview URL</button>' : ''}
                  <button class="btn small" data-act="photos">Add Pexels photos</button>
@@ -2675,7 +3272,8 @@ async function pageDesignDetail(id) {
                <div id="dd-delivery-out" class="hint" style="margin-top:6px"></div>
                ${(job.claims || []).length ? `<details style="margin-top:8px"><summary>Claims (${job.claims.length})</summary>${jsonPre(job.claims)}</details>` : ''}
                <details style="margin-top:8px"><summary>Raw delivery</summary>${jsonPre(deliverable)}</details>`
-    : '<p class="hint">Nothing delivered yet. The MCP agent will deliver here.</p>'}
+              : '<p class="hint">Nothing delivered yet. The MCP agent will deliver here.</p>'
+          }
         </div>
 
         <div class="card"><h3>Email change requests</h3>
@@ -2695,13 +3293,24 @@ async function pageDesignDetail(id) {
 
   let designFontHooks = null;
   if (hasSite) {
-    const designPreview = mountPreview($('#dd-preview'), (slug) => api.designRender(id, { editable: true, pageSlug: slug }), {
-      onPreview: (data) => { if (designFontHooks) designFontHooks.onPreview(data); },
-    });
+    const designPreview = mountPreview(
+      $('#dd-preview'),
+      (slug) => api.designRender(id, { editable: true, pageSlug: slug }),
+      {
+        onPreview: (data) => {
+          if (designFontHooks) designFontHooks.onPreview(data);
+        },
+      }
+    );
     const designPages = deliverable.pages;
     const designTheme = deliverable.theme && typeof deliverable.theme === 'object' ? deliverable.theme : {};
-    designFontHooks = bindFontToolbar('dd', designPreview, () => designPages, () => designTheme, (nextPages, nextTheme) =>
-      api.designSaveWebsite(id, nextPages, nextTheme));
+    designFontHooks = bindFontToolbar(
+      'dd',
+      designPreview,
+      () => designPages,
+      () => designTheme,
+      (nextPages, nextTheme) => api.designSaveWebsite(id, nextPages, nextTheme)
+    );
   }
   fillChangeInstructionBoxes(job);
 
@@ -2716,10 +3325,17 @@ async function pageDesignDetail(id) {
       await api.designDelete(id);
       window.location.hash = '#/design';
     },
-    shape: async () => { await api.designUpdate(id, { site_shape: $('#dd-shape').value }); toast('Shape updated', 'ok'); pageDesignDetail(id); },
+    shape: async () => {
+      await api.designUpdate(id, { site_shape: $('#dd-shape').value });
+      toast('Shape updated', 'ok');
+      pageDesignDetail(id);
+    },
     answer: async (t) => {
       const text = $('#qa-' + t.dataset.q).value.trim();
-      if (!text) { toast('Write an answer first.', 'err'); return; }
+      if (!text) {
+        toast('Write an answer first.', 'err');
+        return;
+      }
       await api.designAnswer(Number(t.dataset.q), text);
       toast('Answer recorded', 'ok');
       pageDesignDetail(id);
@@ -2733,23 +3349,38 @@ async function pageDesignDetail(id) {
     },
     'email-q': async () => {
       const x = (await api.designEmailQuestions(id)).data;
-      const msg = x && x.error
-        ? x.error
-        : (x && x.sent ? `Sent to ${x.to}` : (x && (x.message || 'Questions email processed.')));
+      const msg =
+        x && x.error ? x.error : x && x.sent ? `Sent to ${x.to}` : x && (x.message || 'Questions email processed.');
       $('#dd-email-out').textContent = msg;
-      toast(x && x.sent ? `Questions emailed to ${x.to}` : (x && x.code === 'SMTP_NOT_CONFIGURED' ? 'SMTP not configured' : 'Questions email processed'), x && x.sent ? 'ok' : '');
+      toast(
+        x && x.sent
+          ? `Questions emailed to ${x.to}`
+          : x && x.code === 'SMTP_NOT_CONFIGURED'
+            ? 'SMTP not configured'
+            : 'Questions email processed',
+        x && x.sent ? 'ok' : ''
+      );
     },
     'email-d': async () => {
       const x = (await api.designEmailDelivery(id)).data;
-      const msg = x && x.error
-        ? x.error
-        : (x && x.sent ? `Sent to ${x.to}` : (x && (x.message || 'Delivery email processed.')));
+      const msg =
+        x && x.error ? x.error : x && x.sent ? `Sent to ${x.to}` : x && (x.message || 'Delivery email processed.');
       $('#dd-email-out').textContent = msg;
-      toast(x && x.sent ? `Delivery emailed to ${x.to}` : (x && x.code === 'SMTP_NOT_CONFIGURED' ? 'SMTP not configured' : 'Delivery email processed'), x && x.sent ? 'ok' : '');
+      toast(
+        x && x.sent
+          ? `Delivery emailed to ${x.to}`
+          : x && x.code === 'SMTP_NOT_CONFIGURED'
+            ? 'SMTP not configured'
+            : 'Delivery email processed',
+        x && x.sent ? 'ok' : ''
+      );
     },
     reply: async () => {
       const reply = $('#dd-reply').value.trim();
-      if (!reply) { toast('Paste the reply text.', 'err'); return; }
+      if (!reply) {
+        toast('Paste the reply text.', 'err');
+        return;
+      }
       await api.designReply(id, reply, $('#dd-rfrom').value.trim() || undefined);
       toast('Reply recorded', 'ok');
       pageDesignDetail(id);
@@ -2763,7 +3394,9 @@ async function pageDesignDetail(id) {
           await navigator.clipboard.writeText(x.url);
           toast('Client form link copied', 'ok');
         } else toast('Client form link ready', 'ok');
-      } catch { toast('Client form link ready', 'ok'); }
+      } catch {
+        toast('Client form link ready', 'ok');
+      }
     },
     review: async () => {
       $('#dd-review').innerHTML = '<p class="hint">Reviewing…</p>';
@@ -2788,7 +3421,8 @@ async function pageDesignDetail(id) {
       const link = x.url
         ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.url)}</a>`
         : esc(x.path || '');
-      $('#dd-delivery-out').innerHTML = `Public preview: ${link}${x.via ? `<div class="hint">via ${esc(x.via)}</div>` : ''}`;
+      $('#dd-delivery-out').innerHTML =
+        `Public preview: ${link}${x.via ? `<div class="hint">via ${esc(x.via)}</div>` : ''}`;
     },
     photos: async () => {
       const x = (await api.designImages(id, {})).data;
@@ -2800,17 +3434,33 @@ async function pageDesignDetail(id) {
       if (prompt === null) return;
       $('#dd-delivery-out').textContent = 'Generating image…';
       const x = (await api.designGenerateImages(id, { prompt: prompt.trim() || undefined, n: 1, quality: 'low' })).data;
-      $('#dd-delivery-out').textContent = `Generated ${x.count != null ? x.count : '?'} image(s)${x.model ? ' with ' + x.model : ''}.`;
+      $('#dd-delivery-out').textContent =
+        `Generated ${x.count != null ? x.count : '?'} image(s)${x.model ? ' with ' + x.model : ''}.`;
       pageDesignDetail(id);
     },
     'er-save': async () => {
       const body = $('#er-body').value.trim();
-      if (!body) { toast('Paste the email body.', 'err'); return; }
-      const x = (await api.emailRedesignIngest(dropEmpty({
-        designJobId: id, fromEmail: $('#er-from').value.trim(), subject: $('#er-subject').value.trim(),
-        body, source: 'paste', force: true, requestKind: $('#er-kind').value,
-      }))).data;
-      if (x.skipped) { toast(x.error || 'Not detected as a change request.', 'err'); return; }
+      if (!body) {
+        toast('Paste the email body.', 'err');
+        return;
+      }
+      const x = (
+        await api.emailRedesignIngest(
+          dropEmpty({
+            designJobId: id,
+            fromEmail: $('#er-from').value.trim(),
+            subject: $('#er-subject').value.trim(),
+            body,
+            source: 'paste',
+            force: true,
+            requestKind: $('#er-kind').value,
+          })
+        )
+      ).data;
+      if (x.skipped) {
+        toast(x.error || 'Not detected as a change request.', 'err');
+        return;
+      }
       toast('Request saved', 'ok');
       pageDesignDetail(id);
     },
@@ -2819,7 +3469,10 @@ async function pageDesignDetail(id) {
       toast('Submitted to the agent queue', 'ok');
       pageDesignDetail(id);
     },
-    'er-dismiss': async (t) => { await api.emailRedesignDismiss(Number(t.dataset.id)); pageDesignDetail(id); },
+    'er-dismiss': async (t) => {
+      await api.emailRedesignDismiss(Number(t.dataset.id));
+      pageDesignDetail(id);
+    },
     'er-use': (t) => {
       const x = ers.find((e) => String(e.id) === t.dataset.id);
       if (!x) return;
@@ -2912,7 +3565,10 @@ async function tabCampaigns(host) {
     </div>
     <div class="table-wrap"><table>
       <thead><tr><th>Name</th><th>Status</th><th>Queued</th><th>Sent</th><th>Failed</th><th>Suppressed</th><th>Rate/h</th><th></th></tr></thead>
-      <tbody>${rows.map((c) => `<tr>
+      <tbody>${
+        rows
+          .map(
+            (c) => `<tr>
         <td>${esc(c.name)}<div class="hint">#${esc(c.id)} · ${esc(fmtDate(c.created_at))}</div></td>
         <td>${statusBadge(c.status)}</td><td>${esc(c.queued)}</td><td>${esc(c.sent)}</td><td>${esc(c.failed)}</td><td>${esc(c.suppressed)}</td><td>${esc(c.rate_per_hour || '—')}</td>
         <td class="actions">
@@ -2921,49 +3577,68 @@ async function tabCampaigns(host) {
           ${c.status === 'paused' || c.status === 'draft' ? `<button class="btn small" data-act="resume" data-id="${c.id}">Resume</button>` : ''}
           ${canCancel(c.status) ? `<button class="btn small" data-act="cancel" data-id="${c.id}" data-name="${esc(c.name)}">Cancel</button>` : ''}
           <button class="btn small danger" data-act="delete" data-id="${c.id}" data-name="${esc(c.name)}">Delete</button>
-        </td></tr>`).join('') || '<tr><td colspan="8" class="empty">No campaigns yet.</td></tr>'}</tbody>
+        </td></tr>`
+          )
+          .join('') || '<tr><td colspan="8" class="empty">No campaigns yet.</td></tr>'
+      }</tbody>
     </table></div>`;
   delegate(host, {
     new: () => openCampaignModal(),
     compose: () => openComposeModal('email'),
     'compose-sms': () => openComposeModal('sms'),
     messages: (t) => openMessagesModal(Number(t.dataset.id), t.dataset.name),
-    pause: async (t) => { await api.campaignStatus(Number(t.dataset.id), 'paused'); tabCampaigns(host); },
-    resume: async (t) => { await api.campaignStatus(Number(t.dataset.id), 'active'); tabCampaigns(host); },
+    pause: async (t) => {
+      await api.campaignStatus(Number(t.dataset.id), 'paused');
+      tabCampaigns(host);
+    },
+    resume: async (t) => {
+      await api.campaignStatus(Number(t.dataset.id), 'active');
+      tabCampaigns(host);
+    },
     cancel: (t) => {
       const id = Number(t.dataset.id);
-      const name = t.dataset.name || ('#' + id);
-      confirmCampaignAction({
-        title: 'Cancel campaign',
-        body: `Cancel <strong>${esc(name)}</strong>? This permanently stops the campaign. Queued messages will not send. You cannot resume afterwards (unlike Pause).`,
-        confirmLabel: 'Cancel campaign',
-        danger: true,
-      }, async () => {
-        const res = await api.campaignCancel(id);
-        const n = (res.data && res.data.cancelledQueued) || 0;
-        toast(n ? `Campaign cancelled (${n} queued stopped)` : 'Campaign cancelled', 'ok');
-        tabCampaigns(host);
-      });
+      const name = t.dataset.name || '#' + id;
+      confirmCampaignAction(
+        {
+          title: 'Cancel campaign',
+          body: `Cancel <strong>${esc(name)}</strong>? This permanently stops the campaign. Queued messages will not send. You cannot resume afterwards (unlike Pause).`,
+          confirmLabel: 'Cancel campaign',
+          danger: true,
+        },
+        async () => {
+          const res = await api.campaignCancel(id);
+          const n = (res.data && res.data.cancelledQueued) || 0;
+          toast(n ? `Campaign cancelled (${n} queued stopped)` : 'Campaign cancelled', 'ok');
+          tabCampaigns(host);
+        }
+      );
     },
     delete: (t) => {
       const id = Number(t.dataset.id);
-      const name = t.dataset.name || ('#' + id);
-      confirmCampaignAction({
-        title: 'Delete campaign',
-        body: `Permanently delete <strong>${esc(name)}</strong> and all of its messages? This cannot be undone.`,
-        confirmLabel: 'Delete',
-        danger: true,
-      }, async () => {
-        await api.campaignDelete(id);
-        toast('Campaign deleted', 'ok');
-        tabCampaigns(host);
-      });
+      const name = t.dataset.name || '#' + id;
+      confirmCampaignAction(
+        {
+          title: 'Delete campaign',
+          body: `Permanently delete <strong>${esc(name)}</strong> and all of its messages? This cannot be undone.`,
+          confirmLabel: 'Delete',
+          danger: true,
+        },
+        async () => {
+          await api.campaignDelete(id);
+          toast('Campaign deleted', 'ok');
+          tabCampaigns(host);
+        }
+      );
     },
   });
 }
 
 async function openMessagesModal(campaignId, name) {
-  const m = openModal({ title: 'Messages — ' + name, wide: true, body: '<div id="cm-body"><p class="hint">Loading…</p></div>' });
+  const m = openModal({
+    title: 'Messages — ' + name,
+    wide: true,
+    body: '<div id="cm-body"><p class="hint">Loading…</p></div>',
+  });
   let page = 1;
   let status = '';
   const cmGate = latestGate();
@@ -2974,21 +3649,32 @@ async function openMessagesModal(campaignId, name) {
     if (!mine() || !body) return;
     body.innerHTML = `<div class="toolbar"><select id="cm-status"><option value="">All statuses</option>${optionList(['queued', 'sent', 'failed', 'suppressed'], status)}</select></div>
       <div class="table-wrap"><table><thead><tr><th>To</th><th>Channel</th><th>Subject / preview</th><th>Status</th><th>Scheduled</th><th>Sent</th><th></th></tr></thead>
-      <tbody>${(r.rows || []).map((x) => {
-        const ch = (x.channel || 'email') === 'sms' ? 'sms' : 'email';
-        const to = ch === 'sms' ? (x.to_phone || x.to_email) : x.to_email;
-        const preview = ch === 'sms' ? String(x.body || '').slice(0, 80) : x.subject;
-        return `<tr>
+      <tbody>${
+        (r.rows || [])
+          .map((x) => {
+            const ch = (x.channel || 'email') === 'sms' ? 'sms' : 'email';
+            const to = ch === 'sms' ? x.to_phone || x.to_email : x.to_email;
+            const preview = ch === 'sms' ? String(x.body || '').slice(0, 80) : x.subject;
+            return `<tr>
         <td>${esc(to)}<div class="hint">${esc(x.business_name || '')}</div></td>
         <td>${statusBadge(ch)}</td>
         <td>${esc(preview)}${x.error ? `<div class="error hint">${esc(x.error)}</div>` : ''}</td>
         <td>${statusBadge(x.status)}</td><td>${esc(fmtDate(x.scheduled_at))}</td><td>${esc(fmtDate(x.sent_at))}</td>
         <td>${x.status === 'queued' ? `<button class="btn small" data-act="send" data-id="${x.id}">Send now</button>` : ''}</td></tr>`;
-      }).join('') || '<tr><td colspan="7" class="empty">No messages.</td></tr>'}</tbody></table></div>
+          })
+          .join('') || '<tr><td colspan="7" class="empty">No messages.</td></tr>'
+      }</tbody></table></div>
       <div class="pagination" id="cm-pager"></div>`;
     $('#cm-status', m.el).value = status;
-    $('#cm-status', m.el).onchange = (e) => { status = e.target.value; page = 1; load(); };
-    pager($('#cm-pager', m.el), { page: r.page || 1, pages: r.pages || 1, total: r.total || 0 }, (p) => { page = p; load(); });
+    $('#cm-status', m.el).onchange = (e) => {
+      status = e.target.value;
+      page = 1;
+      load();
+    };
+    pager($('#cm-pager', m.el), { page: r.page || 1, pages: r.pages || 1, total: r.total || 0 }, (p) => {
+      page = p;
+      load();
+    });
   }
   delegate(m.el, {
     send: async (t) => {
@@ -3005,7 +3691,11 @@ async function openCampaignModal() {
   const tplR = await api.templates();
   let templates = tplR.data.templates || [];
   const selected = new Set();
-  try { (JSON.parse(sessionStorage.getItem('scout.campaignLeadIds') || '[]') || []).forEach((i) => selected.add(Number(i))); } catch { /* ignore */ }
+  try {
+    (JSON.parse(sessionStorage.getItem('scout.campaignLeadIds') || '[]') || []).forEach((i) => selected.add(Number(i)));
+  } catch {
+    /* ignore */
+  }
   sessionStorage.removeItem('scout.campaignLeadIds');
   let results = [];
 
@@ -3035,19 +3725,34 @@ async function openCampaignModal() {
     buttons: [
       { label: 'Cancel' },
       {
-        label: 'Create campaign', cls: 'primary',
+        label: 'Create campaign',
+        cls: 'primary',
         onClick: async (mm) => {
           const name = $('#cp-name', mm.el).value.trim();
           const templateId = Number($('#cp-tpl', mm.el).value);
           const channel = $('#cp-channel', mm.el).value || 'email';
           const msg = $('#cp-msg', mm.el);
-          if (!name) { setMsg(msg, 'Name is required.', 'err'); return; }
-          if (!templateId) { setMsg(msg, 'Choose a template.', 'err'); return; }
-          if (!selected.size) { setMsg(msg, 'Select at least one lead.', 'err'); return; }
-          const r = (await api.createCampaign({
-            name, templateId, channel, leadIds: Array.from(selected),
-            ratePerHour: Number($('#cp-rate', mm.el).value) || 30,
-          })).data;
+          if (!name) {
+            setMsg(msg, 'Name is required.', 'err');
+            return;
+          }
+          if (!templateId) {
+            setMsg(msg, 'Choose a template.', 'err');
+            return;
+          }
+          if (!selected.size) {
+            setMsg(msg, 'Select at least one lead.', 'err');
+            return;
+          }
+          const r = (
+            await api.createCampaign({
+              name,
+              templateId,
+              channel,
+              leadIds: Array.from(selected),
+              ratePerHour: Number($('#cp-rate', mm.el).value) || 30,
+            })
+          ).data;
           toast('Campaign created' + (r && r.queued != null ? `: ${r.queued} queued` : ''), 'ok');
           mm.close();
           pageOutreach();
@@ -3057,11 +3762,13 @@ async function openCampaignModal() {
   });
 
   function tplHasEmail(t) {
-    return !!(String(t.body || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+    return !!String(t.body || '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
   function tplHasSms(t) {
-    return !!(String(t.sms_body || '').trim()
-      || ((t.channel || '') === 'sms' && String(t.body || '').trim()));
+    return !!(String(t.sms_body || '').trim() || ((t.channel || '') === 'sms' && String(t.body || '').trim()));
   }
   function fillTemplates() {
     const ch = $('#cp-channel', m.el).value;
@@ -3070,47 +3777,69 @@ async function openCampaignModal() {
       if (ch === 'both') return tplHasEmail(t) && tplHasSms(t);
       return tplHasEmail(t);
     });
-    $('#cp-tpl', m.el).innerHTML = list.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join('')
-      || `<option value="">(no templates with ${ch === 'both' ? 'email + SMS' : ch} content)</option>`;
+    $('#cp-tpl', m.el).innerHTML =
+      list.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join('') ||
+      `<option value="">(no templates with ${ch === 'both' ? 'email + SMS' : ch} content)</option>`;
     const hint = $('#cp-elig-hint', m.el);
     if (hint) {
-      hint.textContent = ch === 'sms'
-        ? 'Leads without a phone number are never texted.'
-        : ch === 'both'
-          ? 'Email needs a non-suppressed address; SMS needs a phone. Missing either channel is suppressed for that channel only.'
-          : 'Leads without an email, or on the suppression list, are never sent.';
+      hint.textContent =
+        ch === 'sms'
+          ? 'Leads without a phone number are never texted.'
+          : ch === 'both'
+            ? 'Email needs a non-suppressed address; SMS needs a phone. Missing either channel is suppressed for that channel only.'
+            : 'Leads without an email, or on the suppression list, are never sent.';
     }
-    $('#cp-rate-label', m.el).textContent = ch === 'sms' ? 'Texts / hour' : (ch === 'both' ? 'Messages / hour' : 'Emails / hour');
+    $('#cp-rate-label', m.el).textContent =
+      ch === 'sms' ? 'Texts / hour' : ch === 'both' ? 'Messages / hour' : 'Emails / hour';
   }
   fillTemplates();
   $('#cp-channel', m.el).onchange = fillTemplates;
 
-  const count = () => { $('#cp-count', m.el).textContent = selected.size; };
+  const count = () => {
+    $('#cp-count', m.el).textContent = selected.size;
+  };
   function renderResults() {
     const ch = $('#cp-channel', m.el).value;
-    $('#cp-results', m.el).innerHTML = results.map((l) => {
-      const contact = ch === 'sms' ? (l.phone || 'no phone') : (l.email || 'no email');
-      return `<label class="pick-row"><input type="checkbox" data-lead="${l.id}" ${selected.has(l.id) ? 'checked' : ''} />
+    $('#cp-results', m.el).innerHTML =
+      results
+        .map((l) => {
+          const contact = ch === 'sms' ? l.phone || 'no phone' : l.email || 'no email';
+          return `<label class="pick-row"><input type="checkbox" data-lead="${l.id}" ${selected.has(l.id) ? 'checked' : ''} />
       <span><b>${esc(l.business_name)}</b> <span class="hint">#${l.id} · ${esc(contact)} · ${esc(l.status)}</span></span></label>`;
-    }).join('') || '<div class="empty">No leads found.</div>';
+        })
+        .join('') || '<div class="empty">No leads found.</div>';
   }
   const search = async () => {
-    const r = (await api.leads({ q: $('#cp-q', m.el).value.trim(), status: $('#cp-status', m.el).value, pageSize: 100 })).data;
+    const r = (
+      await api.leads({ q: $('#cp-q', m.el).value.trim(), status: $('#cp-status', m.el).value, pageSize: 100 })
+    ).data;
     results = r.leads || [];
     renderResults();
   };
-  $('#cp-q', m.el).addEventListener('input', debounce(() => safeRun(null, search), 300));
+  $('#cp-q', m.el).addEventListener(
+    'input',
+    debounce(() => safeRun(null, search), 300)
+  );
   $('#cp-status', m.el).addEventListener('change', () => safeRun(null, search));
   $('#cp-results', m.el).addEventListener('change', (e) => {
     const cb = e.target.closest('[data-lead]');
     if (!cb) return;
     const id = Number(cb.dataset.lead);
-    if (cb.checked) selected.add(id); else selected.delete(id);
+    if (cb.checked) selected.add(id);
+    else selected.delete(id);
     count();
   });
   delegate(m.el, {
-    addall: () => { results.forEach((l) => selected.add(l.id)); renderResults(); count(); },
-    clearsel: () => { selected.clear(); renderResults(); count(); },
+    addall: () => {
+      results.forEach((l) => selected.add(l.id));
+      renderResults();
+      count();
+    },
+    clearsel: () => {
+      selected.clear();
+      renderResults();
+      count();
+    },
   });
   count();
   if (selected.size) setMsg($('#cp-msg', m.el), `${selected.size} lead(s) preselected from the Leads page.`);
@@ -3122,13 +3851,18 @@ function looksLikeHtmlClient(s) {
 }
 
 function plainToEditorHtml(text) {
-  const t = String(text || '').replace(/\r\n/g, '\n').trim();
+  const t = String(text || '')
+    .replace(/\r\n/g, '\n')
+    .trim();
   if (!t) return '<p>Hi {{business_name}},</p><p>…</p>';
   if (looksLikeHtmlClient(t)) return t;
-  return t.split(/\n{2,}/).map((block) => {
-    const inner = esc(block).replace(/\n/g, '<br>');
-    return `<p>${inner}</p>`;
-  }).join('');
+  return t
+    .split(/\n{2,}/)
+    .map((block) => {
+      const inner = esc(block).replace(/\n/g, '<br>');
+      return `<p>${inner}</p>`;
+    })
+    .join('');
 }
 
 /**
@@ -3156,7 +3890,9 @@ function mountEmailBodyEditor(host, { initialHtml } = {}) {
   const hidden = $('.email-rte-hidden', wrap);
   const fileInput = $('.email-rte-file', wrap);
 
-  const sync = () => { hidden.value = surface.innerHTML.trim(); };
+  const sync = () => {
+    hidden.value = surface.innerHTML.trim();
+  };
   const setHtml = (html) => {
     surface.innerHTML = plainToEditorHtml(html);
     sync();
@@ -3232,7 +3968,10 @@ function mountEmailBodyEditor(host, { initialHtml } = {}) {
   };
 
   return {
-    getHtml: () => { sync(); return hidden.value; },
+    getHtml: () => {
+      sync();
+      return hidden.value;
+    },
     setHtml,
     el: wrap,
   };
@@ -3244,44 +3983,69 @@ async function openComposeModal(channel = 'email') {
   const all = (tplRes.data && tplRes.data.templates) || [];
   const templates = all.filter((t) => {
     if (ch === 'sms') {
-      return !!(String(t.sms_body || '').trim()
-        || ((t.channel || '') === 'sms' && String(t.body || '').trim()));
+      return !!(String(t.sms_body || '').trim() || ((t.channel || '') === 'sms' && String(t.body || '').trim()));
     }
-    return !!(String(t.body || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+    return !!String(t.body || '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   });
   const m = openModal({
     title: ch === 'sms' ? 'Compose a single SMS' : 'Compose a single email',
     wide: true,
     body: `<div class="field"><label>Lead</label><div id="cx-lead"></div></div>
       <div class="field"><label>Template</label><select id="cx-tpl">${templates.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join('') || '<option value="">(create a template with ' + (ch === 'sms' ? 'SMS' : 'email') + ' content first)</option>'}</select></div>
-      <div id="cx-prev" class="hint">${ch === 'sms'
-        ? 'Uses the template’s SMS body. {{website_link}} is the live preview URL. {{site_screenshot}} attaches that lead’s MMS JPEG when captured (falls back to text+link). The lead must have a phone number.'
-        : 'Uses the template’s email subject/body. {{website_link}} is the live preview URL. {{site_screenshot}} inserts that lead’s hosted preview image. {{interested}} / {{uninterested}} become signed response links.'}</div>`,
+      <div id="cx-prev" class="hint">${
+        ch === 'sms'
+          ? 'Uses the template’s SMS body. {{website_link}} is the live preview URL. {{site_screenshot}} attaches that lead’s MMS JPEG when captured (falls back to text+link). The lead must have a phone number.'
+          : 'Uses the template’s email subject/body. {{website_link}} is the live preview URL. {{site_screenshot}} inserts that lead’s hosted preview image. {{interested}} / {{uninterested}} become signed response links.'
+      }</div>`,
     buttons: [
       { label: 'Close' },
       {
         label: 'Preview',
         onClick: async (mm) => {
           const lead = picker.get();
-          if (!lead) { toast('Select a lead.', 'err'); return; }
+          if (!lead) {
+            toast('Select a lead.', 'err');
+            return;
+          }
           const tid = Number($('#cx-tpl', mm.el).value);
-          if (!tid) { toast('Choose a template.', 'err'); return; }
-          if (ch === 'sms' && !lead.phone) { toast('This lead has no phone number.', 'err'); return; }
+          if (!tid) {
+            toast('Choose a template.', 'err');
+            return;
+          }
+          if (ch === 'sms' && !lead.phone) {
+            toast('This lead has no phone number.', 'err');
+            return;
+          }
           const r = (await api.emailCompose(lead.id, tid, false, ch)).data;
-          const bodyHtml = ch === 'sms' || !looksLikeHtmlClient(r.body)
-            ? `<p style="white-space:pre-wrap">${esc(r.body)}</p>`
-            : `<div class="email-preview-body">${r.body}</div>`;
-          $('#cx-prev', mm.el).innerHTML = `<div class="q-card"><b>${esc(ch === 'sms' ? 'SMS' : r.subject)}</b>${bodyHtml}${(r.missing || []).length ? `<div class="hint">Missing: ${esc(r.missing.join(', '))}</div>` : ''}</div>`;
+          const bodyHtml =
+            ch === 'sms' || !looksLikeHtmlClient(r.body)
+              ? `<p style="white-space:pre-wrap">${esc(r.body)}</p>`
+              : `<div class="email-preview-body">${r.body}</div>`;
+          $('#cx-prev', mm.el).innerHTML =
+            `<div class="q-card"><b>${esc(ch === 'sms' ? 'SMS' : r.subject)}</b>${bodyHtml}${(r.missing || []).length ? `<div class="hint">Missing: ${esc(r.missing.join(', '))}</div>` : ''}</div>`;
         },
       },
       {
-        label: 'Queue & send now', cls: 'primary',
+        label: 'Queue & send now',
+        cls: 'primary',
         onClick: async (mm) => {
           const lead = picker.get();
-          if (!lead) { toast('Select a lead.', 'err'); return; }
+          if (!lead) {
+            toast('Select a lead.', 'err');
+            return;
+          }
           const tid = Number($('#cx-tpl', mm.el).value);
-          if (!tid) { toast('Choose a template.', 'err'); return; }
-          if (ch === 'sms' && !lead.phone) { toast('This lead has no phone number.', 'err'); return; }
+          if (!tid) {
+            toast('Choose a template.', 'err');
+            return;
+          }
+          if (ch === 'sms' && !lead.phone) {
+            toast('This lead has no phone number.', 'err');
+            return;
+          }
           if (!window.confirm(ch === 'sms' ? 'Send this SMS now?' : 'Send this email now?')) return;
           const q = (await api.emailCompose(lead.id, tid, true, ch)).data;
           const s = (await api.emailSend(q.messageId)).data;
@@ -3324,12 +4088,14 @@ function openAiWriteModal({ existingSubject, existingBody, onApplied }) {
           setMsg(msg, 'Generating with AI…');
           btn.textContent = 'Generating…';
           try {
-            const r = (await api.emailDraft({
-              prompt: brief || undefined,
-              leadId,
-              existingSubject,
-              existingBody: existingBody || '',
-            })).data;
+            const r = (
+              await api.emailDraft({
+                prompt: brief || undefined,
+                leadId,
+                existingSubject,
+                existingBody: existingBody || '',
+              })
+            ).data;
             if (typeof onApplied === 'function') onApplied(r, leadId || null);
             mm.close();
           } catch (err) {
@@ -3350,7 +4116,16 @@ function openAiWriteModal({ existingSubject, existingBody, onApplied }) {
 
 async function tabTemplates(host) {
   const templates = asList((await api.templates()).data, ['templates', 'rows']);
-  const emailVarChips = ['business_name', 'city', 'category', 'phone', 'website_link', 'site_screenshot', 'interested', 'uninterested']
+  const emailVarChips = [
+    'business_name',
+    'city',
+    'category',
+    'phone',
+    'website_link',
+    'site_screenshot',
+    'interested',
+    'uninterested',
+  ]
     .map((v) => `<code class="var-chip" data-var="{{${v}}}" data-target="email">{{${v}}}</code>`)
     .join(' ');
   const smsVarChips = ['business_name', 'city', 'category', 'phone', 'website_link', 'site_screenshot']
@@ -3387,17 +4162,25 @@ async function tabTemplates(host) {
         </form>
       </div>
       <div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>SMS</th><th></th></tr></thead>
-        <tbody>${templates.map((t) => {
-          const hasEmail = !!(String(t.body || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
-          const hasSms = !!(String(t.sms_body || '').trim()
-            || ((t.channel || '') === 'sms' && String(t.body || '').trim()));
-          const smsPrev = String(t.sms_body || ((t.channel || '') === 'sms' ? t.body : '') || '').slice(0, 40);
-          return `<tr><td>${esc(t.name)}<div class="hint">${esc(t.subject || '')}</div></td>
+        <tbody>${
+          templates
+            .map((t) => {
+              const hasEmail = !!String(t.body || '')
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+              const hasSms = !!(
+                String(t.sms_body || '').trim() ||
+                ((t.channel || '') === 'sms' && String(t.body || '').trim())
+              );
+              const smsPrev = String(t.sms_body || ((t.channel || '') === 'sms' ? t.body : '') || '').slice(0, 40);
+              return `<tr><td>${esc(t.name)}<div class="hint">${esc(t.subject || '')}</div></td>
             <td>${hasEmail ? statusBadge('email') : '<span class="hint">—</span>'}</td>
             <td>${hasSms ? `${statusBadge('sms')}<div class="hint">${esc(smsPrev)}</div>` : '<span class="hint">—</span>'}</td>
           <td class="actions"><button class="btn small" data-act="edit" data-id="${t.id}">Edit</button> <button class="btn small danger" data-act="delete" data-id="${t.id}">Delete</button></td></tr>`;
-        }).join('')
-    || '<tr><td colspan="4" class="empty">No templates yet.</td></tr>'}</tbody></table></div>
+            })
+            .join('') || '<tr><td colspan="4" class="empty">No templates yet.</td></tr>'
+        }</tbody></table></div>
     </div>`;
   const form = $('#tp-form', host);
   const editor = mountEmailBodyEditor($('#tp-body-host', host), {
@@ -3417,7 +4200,9 @@ async function tabTemplates(host) {
     const body = formObject(form);
     body.body = editor.getHtml();
     body.sms_body = ($('#tp-sms-body', host).value || '').trim();
-    const hasEmail = !!String(body.body || '').replace(/<[^>]+>/g, '').trim();
+    const hasEmail = !!String(body.body || '')
+      .replace(/<[^>]+>/g, '')
+      .trim();
     const hasSms = !!body.sms_body;
     if (!hasEmail && !hasSms) {
       setMsg($('#tp-msg', host), 'Provide an email body and/or SMS body.', 'err');
@@ -3428,12 +4213,15 @@ async function tabTemplates(host) {
       return;
     }
     delete body.channel;
-    if (!body.id) delete body.id; else body.id = Number(body.id);
+    if (!body.id) delete body.id;
+    else body.id = Number(body.id);
     try {
       await api.saveTemplate(body);
       toast('Template saved', 'ok');
       tabTemplates(host);
-    } catch (err) { setMsg($('#tp-msg', host), err.message, 'err'); }
+    } catch (err) {
+      setMsg($('#tp-msg', host), err.message, 'err');
+    }
   });
 
   host.querySelectorAll('.var-chip').forEach((chip) => {
@@ -3450,8 +4238,11 @@ async function tabTemplates(host) {
         return;
       }
       editor.el.querySelector('.email-rte-surface').focus();
-      try { document.execCommand('insertText', false, v); }
-      catch { editor.setHtml(editor.getHtml() + ' ' + v); }
+      try {
+        document.execCommand('insertText', false, v);
+      } catch {
+        editor.setHtml(editor.getHtml() + ' ' + v);
+      }
     };
   });
 
@@ -3459,8 +4250,14 @@ async function tabTemplates(host) {
     reset: () => tabTemplates(host),
     'queue-sms': async () => {
       const sms = ($('#tp-sms-body', host).value || '').trim();
-      if (!sms) { toast('Add an SMS body first.', 'err'); return; }
-      if (!draftLeadId) { toast('Use “Help me write with AI” with a lead selected, or compose SMS from Campaigns.', 'err'); return; }
+      if (!sms) {
+        toast('Add an SMS body first.', 'err');
+        return;
+      }
+      if (!draftLeadId) {
+        toast('Use “Help me write with AI” with a lead selected, or compose SMS from Campaigns.', 'err');
+        return;
+      }
       try {
         const q = (await api.smsQueue({ leadId: draftLeadId, body: sms })).data;
         openModal({
@@ -3470,7 +4267,10 @@ async function tabTemplates(host) {
           buttons: [
             {
               label: 'Keep queued',
-              onClick: (mm) => { toast('SMS queued', 'ok'); mm.close(); },
+              onClick: (mm) => {
+                toast('SMS queued', 'ok');
+                mm.close();
+              },
             },
             {
               label: 'Send now',
@@ -3510,9 +4310,9 @@ async function tabTemplates(host) {
           if (hint) {
             hint.textContent = r.has_phone
               ? `Lead has phone (${r.lead_phone || 'on file'}).`
-              : (leadId
+              : leadId
                 ? 'Lead has no phone — queue SMS will fail until a phone is added.'
-                : '');
+                : '';
           }
           setMsg($('#tp-msg', host), 'Draft ready — review email + SMS and save.', 'ok');
           toast(r.sms_body ? 'AI draft + SMS ready' : 'AI draft applied', 'ok');
@@ -3524,10 +4324,10 @@ async function tabTemplates(host) {
       if (!tpl) return;
       form.id.value = tpl.id;
       form.name.value = tpl.name;
-      form.subject.value = tpl.subject === '(SMS)' ? '' : (tpl.subject || '');
+      form.subject.value = tpl.subject === '(SMS)' ? '' : tpl.subject || '';
       const legacySms = (tpl.channel || '') === 'sms' && !String(tpl.sms_body || '').trim();
-      editor.setHtml(legacySms ? '<p></p>' : (tpl.body || '<p></p>'));
-      $('#tp-sms-body', host).value = legacySms ? (tpl.body || '') : (tpl.sms_body || '');
+      editor.setHtml(legacySms ? '<p></p>' : tpl.body || '<p></p>');
+      $('#tp-sms-body', host).value = legacySms ? tpl.body || '' : tpl.sms_body || '';
       updateSmsCount();
       $('#tp-title', host).textContent = 'Edit template #' + tpl.id;
       form.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -3554,16 +4354,30 @@ async function tabSuppression(host) {
       <p class="hint">Suppressed addresses are never emailed; queued messages to them are cancelled.</p>
     </div>
     <div class="table-wrap"><table><thead><tr><th>Email</th><th>Reason</th><th>Added</th><th></th></tr></thead>
-      <tbody>${rows.map((s) => `<tr><td>${esc(s.email)}</td><td>${esc(s.reason)}</td><td>${esc(fmtDate(s.created_at))}</td>
-        <td><button class="btn small" data-act="remove" data-id="${s.id}">Remove</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Suppression list is empty.</td></tr>'}</tbody></table></div>`;
+      <tbody>${
+        rows
+          .map(
+            (s) => `<tr><td>${esc(s.email)}</td><td>${esc(s.reason)}</td><td>${esc(fmtDate(s.created_at))}</td>
+        <td><button class="btn small" data-act="remove" data-id="${s.id}">Remove</button></td></tr>`
+          )
+          .join('') || '<tr><td colspan="4" class="empty">Suppression list is empty.</td></tr>'
+      }</tbody></table></div>`;
   guardSubmit($('#sp-form', host), async (e) => {
     e.preventDefault();
     const f = formObject(e.target);
-    try { await api.suppressionAdd(f.email, f.reason); toast('Added', 'ok'); tabSuppression(host); }
-    catch (err) { setMsg($('#sp-msg', host), err.message, 'err'); }
+    try {
+      await api.suppressionAdd(f.email, f.reason);
+      toast('Added', 'ok');
+      tabSuppression(host);
+    } catch (err) {
+      setMsg($('#sp-msg', host), err.message, 'err');
+    }
   });
   delegate(host, {
-    remove: async (t) => { await api.suppressionRemove(Number(t.dataset.id)); tabSuppression(host); },
+    remove: async (t) => {
+      await api.suppressionRemove(Number(t.dataset.id));
+      tabSuppression(host);
+    },
   });
 }
 
@@ -3578,19 +4392,31 @@ async function pagePipeline() {
   view.innerHTML = `
     <div class="page-head"><div><h1>Pipeline</h1><p class="lede">Move leads between stages and record intent events (opens, clicks, claims).</p></div>
       <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
-    <div class="kanban">${columns.map((col) => `
+    <div class="kanban">${
+      columns
+        .map(
+          (col) => `
       <div class="kanban-col" data-col="${esc(col.key)}">
         <div class="kanban-head"><span>${esc(col.title)}</span><span class="count">${esc(col.total)}</span></div>
-        ${asList(col.leads).map((l) => `
+        ${
+          asList(col.leads)
+            .map(
+              (l) => `
           <div class="kanban-card">
             <div class="title"><button class="link-btn" data-act="open" data-id="${l.id}">${esc(l.business_name)}</button></div>
             <div class="hint">${esc(l.category || '')}${l.email ? ' · ' + esc(l.email) : ''}</div>
             <div class="meta">${scorePill(l.score)}<span class="badge intent-${esc(String(l.intent_label || 'Cold').toLowerCase())}">${esc(l.intent_label || 'Cold')} ${esc(l.intent_score || 0)}</span></div>
             <div class="meta"><select data-status="${l.id}" aria-label="Status">${optionList(LEAD_STATUSES, l.status)}</select>
               <button class="btn small" data-act="intent" data-id="${l.id}">Intent</button></div>
-          </div>`).join('') || '<div class="hint" style="padding:8px">Empty</div>'}
+          </div>`
+            )
+            .join('') || '<div class="hint" style="padding:8px">Empty</div>'
+        }
         ${col.hasMore ? `<div class="hint">Showing ${esc(col.shown)} of ${esc(col.total)}.</div>` : ''}
-      </div>`).join('') || '<p class="hint">No pipeline columns.</p>'}</div>`;
+      </div>`
+        )
+        .join('') || '<p class="hint">No pipeline columns.</p>'
+    }</div>`;
 
   view.onchange = (e) => {
     const sel = e.target.closest('[data-status]');
@@ -3603,7 +4429,9 @@ async function pagePipeline() {
   };
   delegate(view, {
     refresh: () => pagePipeline(),
-    open: (t) => { window.location.hash = '#/leads?id=' + t.dataset.id; },
+    open: (t) => {
+      window.location.hash = '#/leads?id=' + t.dataset.id;
+    },
     intent: (t) => openIntentModal(Number(t.dataset.id), () => pagePipeline()),
   });
 }
@@ -3619,7 +4447,9 @@ async function pageSocial(_param, query = {}) {
   try {
     const lr = await api.leads({ pageSize: 200 });
     leads = asList(lr.data, ['leads', 'rows']);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   let detail = null;
   let selectedLeadId = leadIdQ;
@@ -3635,9 +4465,12 @@ async function pageSocial(_param, query = {}) {
     toast(`Meta connected: ${query.fb || 0} Facebook, ${query.ig || 0} Instagram`, 'ok');
   }
 
-  const accounts = detail && detail.accounts
-    ? detail.accounts
-    : (selectedLeadId ? ((await api.socialAccounts(selectedLeadId)).data.accounts || []) : []);
+  const accounts =
+    detail && detail.accounts
+      ? detail.accounts
+      : selectedLeadId
+        ? (await api.socialAccounts(selectedLeadId)).data.accounts || []
+        : [];
 
   view.innerHTML = `
     <div class="page-head">
@@ -3661,7 +4494,7 @@ async function pageSocial(_param, query = {}) {
         <div class="field"><label>Lead</label>
           <select id="soc-lead">
             <option value="">Select a lead…</option>
-            ${leads.map((l) => `<option value="${esc(l.id)}" ${Number(l.id) === selectedLeadId ? 'selected' : ''}>${esc(l.business_name || ('#' + l.id))}</option>`).join('')}
+            ${leads.map((l) => `<option value="${esc(l.id)}" ${Number(l.id) === selectedLeadId ? 'selected' : ''}>${esc(l.business_name || '#' + l.id)}</option>`).join('')}
           </select>
         </div>
       </div>
@@ -3670,11 +4503,20 @@ async function pageSocial(_param, query = {}) {
         <button class="btn" type="button" data-act="refresh">Refresh</button>
       </div>
       <div style="margin-top:12px">
-        ${(accounts || []).map((a) => `
+        ${
+          (accounts || [])
+            .map(
+              (a) => `
           <div class="kv"><span class="k">${esc(a.platform)}</span>
             <span>${esc(a.account_name || a.account_id)} ${statusBadge(a.status)}
               <button class="btn small danger" type="button" data-act="disconnect" data-id="${esc(a.id)}">Disconnect</button>
-            </span></div>`).join('') || (selectedLeadId ? '<p class="hint">No accounts connected yet.</p>' : '<p class="hint">Pick a lead to connect accounts.</p>')}
+            </span></div>`
+            )
+            .join('') ||
+          (selectedLeadId
+            ? '<p class="hint">No accounts connected yet.</p>'
+            : '<p class="hint">Pick a lead to connect accounts.</p>')
+        }
       </div>
     </div>
 
@@ -3710,13 +4552,19 @@ async function pageSocial(_param, query = {}) {
       <table class="data">
         <thead><tr><th>Campaign</th><th>Lead</th><th>Status</th><th>Images</th><th></th></tr></thead>
         <tbody>
-          ${(ov.campaigns || []).map((c) => `<tr>
-            <td>${esc(c.title || ('#' + c.id))}<div class="sub-line">${esc(c.month_start)}</div></td>
+          ${
+            (ov.campaigns || [])
+              .map(
+                (c) => `<tr>
+            <td>${esc(c.title || '#' + c.id)}<div class="sub-line">${esc(c.month_start)}</div></td>
             <td>${esc(c.business_name || c.lead_id)}</td>
             <td>${statusBadge(c.status)}</td>
             <td>${c.with_images ? 'Yes' : 'Optional/off'}</td>
             <td><button class="btn small" type="button" data-act="open-camp" data-id="${esc(c.id)}">Open</button></td>
-          </tr>`).join('') || '<tr><td colspan="5">No campaigns yet</td></tr>'}
+          </tr>`
+              )
+              .join('') || '<tr><td colspan="5">No campaigns yet</td></tr>'
+          }
         </tbody>
       </table>
     </div>
@@ -3748,7 +4596,9 @@ async function pageSocial(_param, query = {}) {
         });
         setMsg(msg, `Created campaign #${r.data.campaign.id} with ${r.data.posts.length} posts.`, 'ok');
         window.location.hash = `#/social?campaignId=${r.data.campaign.id}`;
-      } catch (err) { setMsg(msg, err.message, 'err'); }
+      } catch (err) {
+        setMsg(msg, err.message, 'err');
+      }
     };
   }
 
@@ -3765,7 +4615,9 @@ async function pageSocial(_param, query = {}) {
       toast('Disconnected', 'ok');
       pageSocial(_param, query);
     },
-    'open-camp': (t) => { window.location.hash = `#/social?campaignId=${t.dataset.id}`; },
+    'open-camp': (t) => {
+      window.location.hash = `#/social?campaignId=${t.dataset.id}`;
+    },
     'weekly-tick': async () => {
       const r = await api.socialWeeklyTick();
       toast(`Weekly tick: ${r.data.campaigns || 0} campaign(s)`, 'ok');
@@ -3798,7 +4650,10 @@ async function pageSocial(_param, query = {}) {
     },
     'approve-posts': async (t) => {
       const ids = [...view.querySelectorAll('.soc-post-pick:checked')].map((el) => Number(el.value));
-      if (!ids.length) { toast('Select posts', 'err'); return; }
+      if (!ids.length) {
+        toast('Select posts', 'err');
+        return;
+      }
       await api.socialApprovePosts(ids);
       toast('Scheduled ' + ids.length + ' posts', 'ok');
       pageSocial(_param, { campaignId: t.dataset.camp });
@@ -3812,9 +4667,7 @@ async function pageSocial(_param, query = {}) {
       const id = Number(t.dataset.id);
       const card = t.closest('.soc-post');
       const caption = $('.soc-cap', card).value;
-      const scheduled_at = $('.soc-when', card).value
-        ? new Date($('.soc-when', card).value).toISOString()
-        : null;
+      const scheduled_at = $('.soc-when', card).value ? new Date($('.soc-when', card).value).toISOString() : null;
       await api.socialUpdatePost(id, { caption, scheduled_at });
       toast('Post saved', 'ok');
     },
@@ -3827,18 +4680,23 @@ function renderSocialCampaignDetail(detail) {
   return `
     <div class="card">
       <div class="panel-h">
-        <h3>${esc(c.title || ('Campaign #' + c.id))}</h3>
+        <h3>${esc(c.title || 'Campaign #' + c.id)}</h3>
         <div class="inline">
           <button class="btn small primary" type="button" data-act="send-week" data-id="${esc(c.id)}">Send this week</button>
           <button class="btn small" type="button" data-act="approve-posts" data-camp="${esc(c.id)}">Approve selected → schedule</button>
-          ${c.status === 'active'
-    ? `<button class="btn small" type="button" data-act="camp-status" data-id="${esc(c.id)}" data-status="paused">Pause</button>`
-    : `<button class="btn small" type="button" data-act="camp-status" data-id="${esc(c.id)}" data-status="active">Activate</button>`}
+          ${
+            c.status === 'active'
+              ? `<button class="btn small" type="button" data-act="camp-status" data-id="${esc(c.id)}" data-status="paused">Pause</button>`
+              : `<button class="btn small" type="button" data-act="camp-status" data-id="${esc(c.id)}" data-status="active">Activate</button>`
+          }
         </div>
       </div>
       <p class="hint">${statusBadge(c.status)} · approval ${c.require_client_approval ? 'on' : 'off'} · images ${c.with_images ? 'on' : 'optional/off'} · ${esc(c.client_email || 'no client email')}</p>
       <div class="soc-posts">
-        ${posts.map((p) => `
+        ${
+          posts
+            .map(
+              (p) => `
           <div class="card soc-post" style="margin:10px 0">
             <label class="inline"><input type="checkbox" class="soc-post-pick" value="${esc(p.id)}" /> <strong>#${esc(p.day_index)}</strong> ${statusBadge(p.status)}</label>
             <div class="meta hint">${esc((p.platforms || []).join(', '))} · ${p.with_image ? 'photo' : 'text only'}${p.publish_error ? ` · <span class="error">${esc(p.publish_error)}</span>` : ''}</div>
@@ -3850,7 +4708,10 @@ function renderSocialCampaignDetail(detail) {
               <button class="btn small" type="button" data-act="save-post" data-id="${esc(p.id)}">Save</button>
               <button class="btn small" type="button" data-act="publish-one" data-id="${esc(p.id)}" data-camp="${esc(c.id)}">Publish now</button>
             </div>
-          </div>`).join('') || '<p class="hint">No posts</p>'}
+          </div>`
+            )
+            .join('') || '<p class="hint">No posts</p>'
+        }
       </div>
     </div>`;
 }
@@ -3871,9 +4732,20 @@ async function pageJobs() {
   const res = await api.jobsList();
   const d = res.data || {};
   const jobs = asList(d, ['jobs', 'rows']);
-  const types = (Array.isArray(d.types) && d.types.length)
-    ? d.types
-    : ['discovery', 'outreach_process', 'imap_poll', 'design_poll_notify', 'social_weekly', 'social_publish', 'hands_off', 'hands_off_digest', 'custom'];
+  const types =
+    Array.isArray(d.types) && d.types.length
+      ? d.types
+      : [
+          'discovery',
+          'outreach_process',
+          'imap_poll',
+          'design_poll_notify',
+          'social_weekly',
+          'social_publish',
+          'hands_off',
+          'hands_off_digest',
+          'custom',
+        ];
   view.innerHTML = `
     <div class="page-head"><div><h1>Jobs</h1><p class="lede">Schedule discovery, outreach, IMAP, social weekly send / publish, and custom work — also available via MCP <code>jobs.*</code>. Jobs honor the automation kill switch.</p></div></div>
     <div class="card"><h3>Create job</h3>
@@ -3889,7 +4761,10 @@ async function pageJobs() {
     </div>
     <div class="table-wrap"><table>
       <thead><tr><th>Name</th><th>Type</th><th>Next run</th><th>Last run</th><th></th></tr></thead>
-      <tbody>${jobs.map((j) => `<tr>
+      <tbody>${
+        jobs
+          .map(
+            (j) => `<tr>
         <td>${esc(j.name)}<div class="hint">${j.enabled ? 'enabled' : 'disabled'} · every ${esc(j.interval_minutes || '—')} min</div></td>
         <td>${esc(j.type)}</td><td>${esc(j.next_run_at || '—')}</td>
         <td>${esc(j.last_status || '—')}<div class="hint">${esc(j.last_run_at || '')}</div></td>
@@ -3897,22 +4772,46 @@ async function pageJobs() {
           <button class="btn small" data-act="run" data-id="${j.id}">Run now</button>
           <button class="btn small" data-act="toggle" data-id="${j.id}" data-en="${j.enabled ? 0 : 1}">${j.enabled ? 'Disable' : 'Enable'}</button>
           <button class="btn small danger" data-act="delete" data-id="${j.id}">Delete</button>
-        </td></tr>`).join('') || '<tr><td colspan="5" class="empty">No jobs yet.</td></tr>'}</tbody>
+        </td></tr>`
+          )
+          .join('') || '<tr><td colspan="5" class="empty">No jobs yet.</td></tr>'
+      }</tbody>
     </table></div>`;
 
   guardSubmit($('#job-form'), async (e) => {
     const body = formObject(e.target);
     body.interval_minutes = Number(body.interval_minutes) || null;
     // Invalid payload JSON must surface, not silently save as {} (audit A4).
-    try { body.payload = JSON.parse(body.payload || '{}'); }
-    catch { setMsg($('#job-msg'), 'Payload is not valid JSON — fix it or clear the field.', 'err'); return; }
-    try { await api.jobsCreate(body); toast('Job created', 'ok'); pageJobs(); }
-    catch (err) { setMsg($('#job-msg'), err.message, 'err'); }
+    try {
+      body.payload = JSON.parse(body.payload || '{}');
+    } catch {
+      setMsg($('#job-msg'), 'Payload is not valid JSON — fix it or clear the field.', 'err');
+      return;
+    }
+    try {
+      await api.jobsCreate(body);
+      toast('Job created', 'ok');
+      pageJobs();
+    } catch (err) {
+      setMsg($('#job-msg'), err.message, 'err');
+    }
   });
   delegate(view, {
-    run: async (t) => { await api.jobsRun(t.dataset.id); toast('Job executed', 'ok'); pageJobs(); },
-    toggle: async (t) => { await api.jobsUpdate(t.dataset.id, { enabled: Number(t.dataset.en) === 1 }); pageJobs(); },
-    delete: async (t) => { if (window.confirm('Delete job?')) { await api.jobsDelete(t.dataset.id); pageJobs(); } },
+    run: async (t) => {
+      await api.jobsRun(t.dataset.id);
+      toast('Job executed', 'ok');
+      pageJobs();
+    },
+    toggle: async (t) => {
+      await api.jobsUpdate(t.dataset.id, { enabled: Number(t.dataset.en) === 1 });
+      pageJobs();
+    },
+    delete: async (t) => {
+      if (window.confirm('Delete job?')) {
+        await api.jobsDelete(t.dataset.id);
+        pageJobs();
+      }
+    },
   });
 }
 
@@ -3921,23 +4820,29 @@ async function pageJobs() {
 /* ------------------------------------------------------------------ */
 
 function mcpCursorSnippet(endpoint, tokenPlaceholder) {
-  return JSON.stringify({
-    mcpServers: {
-      'website-scout': {
-        url: endpoint,
-        headers: { Authorization: 'Bearer ' + tokenPlaceholder },
+  return JSON.stringify(
+    {
+      mcpServers: {
+        'website-scout': {
+          url: endpoint,
+          headers: { Authorization: 'Bearer ' + tokenPlaceholder },
+        },
       },
     },
-  }, null, 2);
+    null,
+    2
+  );
 }
 
 function mcpGroupTools(data) {
   const groups = data.groups && typeof data.groups === 'object' ? data.groups : null;
   if (groups && Object.keys(groups).length) {
-    return Object.keys(groups).sort().map((key) => ({
-      key,
-      names: groups[key] || [],
-    }));
+    return Object.keys(groups)
+      .sort()
+      .map((key) => ({
+        key,
+        names: groups[key] || [],
+      }));
   }
   const names = data.tools || (data.catalog || []).map((t) => t.name);
   const map = {};
@@ -3946,7 +4851,9 @@ function mcpGroupTools(data) {
     if (!map[key]) map[key] = [];
     map[key].push(name);
   }
-  return Object.keys(map).sort().map((key) => ({ key, names: map[key] }));
+  return Object.keys(map)
+    .sort()
+    .map((key) => ({ key, names: map[key] }));
 }
 
 async function pageMcp() {
@@ -3962,7 +4869,9 @@ async function pageMcp() {
   const snippet = mcpCursorSnippet(endpoint, '<YOUR_WORKSPACE_TOKEN>');
   const grouped = mcpGroupTools(d);
   const catalogByName = {};
-  (d.catalog || []).forEach((t) => { catalogByName[t.name] = t.description || ''; });
+  (d.catalog || []).forEach((t) => {
+    catalogByName[t.name] = t.description || '';
+  });
 
   view.innerHTML = `
     <div class="page-head">
@@ -4024,13 +4933,19 @@ async function pageMcp() {
       </div>
       <div class="table-wrap"><table>
         <thead><tr><th>Name</th><th>Prefix</th><th>Last used</th><th>Created</th><th></th></tr></thead>
-        <tbody>${tokens.map((t) => `<tr>
+        <tbody>${
+          tokens
+            .map(
+              (t) => `<tr>
           <td>${esc(t.name)}</td>
           <td class="mono">${esc(t.token_prefix)}…</td>
           <td>${esc(fmtDate(t.last_used_at) || '—')}</td>
           <td>${esc(fmtDate(t.created_at) || '—')}</td>
           <td class="actions"><button class="btn small danger" type="button" data-act="revoke" data-id="${esc(t.id)}">Revoke</button></td>
-        </tr>`).join('') || '<tr><td colspan="5" class="empty">No tokens yet. Create one to connect Cursor.</td></tr>'}
+        </tr>`
+            )
+            .join('') || '<tr><td colspan="5" class="empty">No tokens yet. Create one to connect Cursor.</td></tr>'
+        }
         </tbody>
       </table></div>
     </div>
@@ -4041,16 +4956,24 @@ async function pageMcp() {
         <span class="hint">Same names <code>tools/list</code> returns over MCP</span>
       </div>
       <div class="mcp-tool-groups">
-        ${grouped.map((g) => `
+        ${
+          grouped
+            .map(
+              (g) => `
           <details class="mcp-tool-group"${g.names.length <= 12 ? ' open' : ''}>
             <summary><strong>${esc(g.key)}</strong> <span class="hint">${g.names.length}</span></summary>
             <ul class="mcp-tool-list">
-              ${g.names.map((name) => {
-                const desc = catalogByName[name];
-                return `<li><code>${esc(name)}</code>${desc ? ` <span class="hint">— ${esc(desc)}</span>` : ''}</li>`;
-              }).join('')}
+              ${g.names
+                .map((name) => {
+                  const desc = catalogByName[name];
+                  return `<li><code>${esc(name)}</code>${desc ? ` <span class="hint">— ${esc(desc)}</span>` : ''}</li>`;
+                })
+                .join('')}
             </ul>
-          </details>`).join('') || '<p class="hint">No tools reported.</p>'}
+          </details>`
+            )
+            .join('') || '<p class="hint">No tools reported.</p>'
+        }
       </div>
     </div>`;
 
@@ -4059,11 +4982,17 @@ async function pageMcp() {
     'copy-endpoint': () => copyText(endpoint),
     'copy-config': () => copyText(snippet),
     'copy-token': () => {
-      if (!lastToken) { toast('Mint a token first', 'err'); return; }
+      if (!lastToken) {
+        toast('Mint a token first', 'err');
+        return;
+      }
       return copyText(lastToken);
     },
     'copy-filled': () => {
-      if (!lastToken) { toast('Mint a token first', 'err'); return; }
+      if (!lastToken) {
+        toast('Mint a token first', 'err');
+        return;
+      }
       return copyText(mcpCursorSnippet(endpoint, lastToken));
     },
     mint: async () => {
@@ -4110,10 +5039,20 @@ const SETTINGS_TABS = [
 ];
 
 async function pageSettings(param) {
-  const safe = (p) => p.then((r) => r.data, () => null);
+  const safe = (p) =>
+    p.then(
+      (r) => r.data,
+      () => null
+    );
   const [setR, promptsR, schedR, provR, usageR, aiR, cfR, hoR] = await Promise.all([
-    api.settingsGet(), safe(api.prompts()), safe(api.discoveryGet()), safe(api.providers()),
-    safe(api.aiUsage(30)), safe(api.aiStatus()), safe(api.cfGet()), safe(api.handsOffStatus()),
+    api.settingsGet(),
+    safe(api.prompts()),
+    safe(api.discoveryGet()),
+    safe(api.providers()),
+    safe(api.aiUsage(30)),
+    safe(api.aiStatus()),
+    safe(api.cfGet()),
+    safe(api.handsOffStatus()),
   ]);
   const s = (setR.data && setR.data.settings) || {};
   const prompts = asList(promptsR, ['prompts', 'rows']);
@@ -4132,20 +5071,32 @@ async function pageSettings(param) {
     const opt = o || {};
     const val = s[key] == null ? (opt.def == null ? '' : opt.def) : s[key];
     let input;
-    if (opt.options) input = `<select data-key="${esc(key)}">${opt.options.map(([v, l]) => `<option value="${esc(v)}" ${String(val) === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+    if (opt.options)
+      input = `<select data-key="${esc(key)}">${opt.options.map(([v, l]) => `<option value="${esc(v)}" ${String(val) === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
     else if (opt.area) input = `<textarea data-key="${esc(key)}" rows="3">${esc(val)}</textarea>`;
-    else input = `<input data-key="${esc(key)}" type="${opt.type || 'text'}" value="${esc(val)}" ${opt.step ? `step="${opt.step}"` : ''} ${opt.min != null ? `min="${opt.min}"` : ''} ${opt.placeholder ? `placeholder="${esc(opt.placeholder)}"` : ''} autocomplete="off" />`;
+    else
+      input = `<input data-key="${esc(key)}" type="${opt.type || 'text'}" value="${esc(val)}" ${opt.step ? `step="${opt.step}"` : ''} ${opt.min != null ? `min="${opt.min}"` : ''} ${opt.placeholder ? `placeholder="${esc(opt.placeholder)}"` : ''} autocomplete="off" />`;
     return `<div class="field"><label>${esc(label)}</label>${input}${opt.hint ? `<div class="hint">${opt.hint}</div>` : ''}</div>`;
   };
-  const secret = (key, label, hint) => `<div class="field"><label>${esc(label)} <span class="badge ${s[key] === '***' ? 'ok' : ''}">${s[key] === '***' ? 'set' : 'not set'}</span></label>
+  const secret = (
+    key,
+    label,
+    hint
+  ) => `<div class="field"><label>${esc(label)} <span class="badge ${s[key] === '***' ? 'ok' : ''}">${s[key] === '***' ? 'set' : 'not set'}</span></label>
     <input data-secret="${esc(key)}" type="password" autocomplete="new-password" placeholder="${s[key] === '***' ? '(saved — enter to replace)' : 'Paste key'}" />${hint ? `<div class="hint">${hint}</div>` : ''}</div>`;
-  const save = (id, label) => `<div class="inline"><button class="btn primary" data-act="save" data-sec="${id}">${esc(label)}</button><span class="msg" data-msg="${id}"></span></div>`;
-  const onOff = [['1', 'On'], ['0', 'Off']];
+  const save = (id, label) =>
+    `<div class="inline"><button class="btn primary" data-act="save" data-sec="${id}">${esc(label)}</button><span class="msg" data-msg="${id}"></span></div>`;
+  const onOff = [
+    ['1', 'On'],
+    ['0', 'Off'],
+  ];
 
   view.innerHTML = `
     <div class="page-head"><div><h1>Settings</h1><p class="lede">Provider keys, spend limits, prompts, email, publishing and the kill switch for this workspace. Secrets are write-only: they are never shown again after saving. Changing settings requires an owner or admin role.</p></div></div>
-    <div class="tabs settings-tabs" id="settings-tabs" role="tablist" aria-label="Settings sections">${SETTINGS_TABS.map(([k, l]) =>
-      `<button type="button" role="tab" data-tab="${k}" class="${k === settingsTab ? 'active' : ''}" aria-selected="${k === settingsTab ? 'true' : 'false'}">${esc(l)}</button>`).join('')}</div>
+    <div class="tabs settings-tabs" id="settings-tabs" role="tablist" aria-label="Settings sections">${SETTINGS_TABS.map(
+      ([k, l]) =>
+        `<button type="button" role="tab" data-tab="${k}" class="${k === settingsTab ? 'active' : ''}" aria-selected="${k === settingsTab ? 'true' : 'false'}">${esc(l)}</button>`
+    ).join('')}</div>
     <div class="settings-main">
 
         <section class="card" id="sec-team"${showSec('sec-team')}><h2>Team invites</h2>
@@ -4205,7 +5156,13 @@ async function pageSettings(param) {
             ${f('hands_off.followup_days', 'Follow-up days', { type: 'number', min: 1, def: '3' })}
           </div>
           <div class="row">
-            ${f('hands_off.channel', 'Outreach channel', { options: [['both', 'Email + SMS'], ['email', 'Email only'], ['sms', 'SMS only']] })}
+            ${f('hands_off.channel', 'Outreach channel', {
+              options: [
+                ['both', 'Email + SMS'],
+                ['email', 'Email only'],
+                ['sms', 'SMS only'],
+              ],
+            })}
             ${f('hands_off.template_id', 'Template id (optional)', { placeholder: 'first dual-channel template' })}
             ${f('hands_off.report_email', 'Digest email', { type: 'email', placeholder: 'falls back to support.email' })}
           </div>
@@ -4258,7 +5215,13 @@ async function pageSettings(param) {
 
         <section class="card" id="sec-sms"${showSec('sec-sms')}><h2>SMS (Twilio)</h2>
           <p class="hint">Text-message outreach. When <code>sms.enabled</code> is off or credentials are missing, queued SMS is stub-sent (logged, marked sent) so drafts still work. Platform Admin → SMS can seed defaults for new workspaces.</p>
-          <div class="row">${f('sms.enabled', 'SMS enabled', { options: onOff })}${f('sms.provider', 'Provider', { options: [['twilio', 'Twilio'], ['vonage', 'Vonage (not implemented)'], ['custom', 'Custom → Twilio API']] })}</div>
+          <div class="row">${f('sms.enabled', 'SMS enabled', { options: onOff })}${f('sms.provider', 'Provider', {
+            options: [
+              ['twilio', 'Twilio'],
+              ['vonage', 'Vonage (not implemented)'],
+              ['custom', 'Custom → Twilio API'],
+            ],
+          })}</div>
           <div class="row">${f('sms.account_sid', 'Account SID')}${f('sms.from_number', 'From number', { placeholder: '+15551234567' })}</div>
           ${secret('sms.auth_token', 'Auth token')}
           ${f('sms.webhook_url', 'Inbound webhook URL (optional)', { placeholder: 'https://…' })}
@@ -4268,12 +5231,30 @@ async function pageSettings(param) {
         <section class="card" id="sec-smtp"${showSec('sec-smtp')}><h2>Email (SMTP + IMAP)</h2>
           <p class="hint">SMTP sends design/outreach mail. Each job email also includes a public <strong>client form</strong> link for answers and change requests (works without IMAP). Optional IMAP still polls replies with <code>[Job #N]</code>.</p>
           <h3 style="margin:12px 0 8px;font-size:15px">SMTP (outbound)</h3>
-          <div class="row">${f('smtp.host', 'Host', { placeholder: 'mail.example.com' })}${f('smtp.port', 'Port', { type: 'number', min: 1 })}${f('smtp.secure', 'Use TLS (port 465)', { options: [['0', 'No (STARTTLS / plain)'], ['1', 'Yes']] })}</div>
+          <div class="row">${f('smtp.host', 'Host', { placeholder: 'mail.example.com' })}${f('smtp.port', 'Port', { type: 'number', min: 1 })}${f(
+            'smtp.secure',
+            'Use TLS (port 465)',
+            {
+              options: [
+                ['0', 'No (STARTTLS / plain)'],
+                ['1', 'Yes'],
+              ],
+            }
+          )}</div>
           <div class="row">${f('smtp.user', 'Username')}${secret('smtp.pass', 'Password')}</div>
           <div class="row">${f('smtp.from_name', 'From name')}${f('smtp.from_email', 'From email')}</div>
           <h3 style="margin:18px 0 8px;font-size:15px">IMAP (inbound replies)</h3>
           <div class="row">${f('mail.imap.enabled', 'IMAP polling', { options: onOff })}${f('mail.imap.auto_submit', 'Auto-queue change requests', { options: onOff, hint: 'When on, redesign/improve replies are submitted to waiting_on_agent.' })}</div>
-          <div class="row">${f('mail.imap.host', 'IMAP host', { placeholder: '(defaults to SMTP host)' })}${f('mail.imap.port', 'Port', { type: 'number', min: 1, def: '993' })}${f('mail.imap.secure', 'TLS', { options: [['1', 'Yes (993)'], ['0', 'No']] })}</div>
+          <div class="row">${f('mail.imap.host', 'IMAP host', { placeholder: '(defaults to SMTP host)' })}${f('mail.imap.port', 'Port', { type: 'number', min: 1, def: '993' })}${f(
+            'mail.imap.secure',
+            'TLS',
+            {
+              options: [
+                ['1', 'Yes (993)'],
+                ['0', 'No'],
+              ],
+            }
+          )}</div>
           <div class="row">${f('mail.imap.user', 'IMAP username', { placeholder: '(defaults to SMTP user)' })}${secret('mail.imap.pass', 'IMAP password', 'Leave blank to reuse the SMTP password.')}</div>
           <div class="row">${f('mail.imap.mailbox', 'Mailbox', { def: 'INBOX' })}${f('mail.inbound_drop_dir', 'Drop folder (optional)', { placeholder: '(default: workspace data / inbound-email)' })}</div>
           <div class="inline">${save('sec-smtp', 'Save email settings')}<button class="btn" type="button" data-act="imap-test">Poll inbox now</button><span class="msg" data-msg="imap-test"></span></div>
@@ -4310,7 +5291,12 @@ async function pageSettings(param) {
         <section class="card" id="sec-keys"${showSec('sec-keys')}><h2>Provider keys</h2>
           <p class="hint">Write-only. Leave blank to keep the current value.</p>
           ${secret('providers.tavily.api_key', 'Tavily (lead discovery)', 'Required for Leads → Discover with the <code>tavily</code> provider.')}
-          ${f('providers.tavily.search_depth', 'Tavily search depth', { options: [['advanced', 'advanced (better relevance)'], ['basic', 'basic (faster / cheaper)']] })}
+          ${f('providers.tavily.search_depth', 'Tavily search depth', {
+            options: [
+              ['advanced', 'advanced (better relevance)'],
+              ['basic', 'basic (faster / cheaper)'],
+            ],
+          })}
           ${secret('pexels.api_key', 'Pexels (stock photos)')}
           ${secret('fal.api_key', 'fal.ai (image enhance)')}
           ${save('sec-keys', 'Save provider keys')}
@@ -4337,10 +5323,16 @@ async function pageSettings(param) {
     try {
       const rows = asList((await api.invitesList()).data, ['invites', 'rows']);
       host.innerHTML = `<table><thead><tr><th>Email</th><th>Role</th><th>Expires</th><th>Status</th></tr></thead><tbody>
-        ${rows.map((r) => `<tr>
+        ${
+          rows
+            .map(
+              (r) => `<tr>
           <td>${esc(r.email)}</td><td>${esc(r.role)}</td><td>${esc(fmtDate(r.expires_at))}</td>
           <td>${r.accepted_at ? '<span class="badge ok">accepted</span>' : '<span class="badge">pending</span>'}</td>
-        </tr>`).join('') || '<tr><td colspan="4">No invites yet</td></tr>'}
+        </tr>`
+            )
+            .join('') || '<tr><td colspan="4">No invites yet</td></tr>'
+        }
       </tbody></table>`;
     } catch (err) {
       host.innerHTML = `<p class="hint">${esc(err.message || 'Could not load invites')}</p>`;
@@ -4361,7 +5353,9 @@ async function pageSettings(param) {
         else setMsg(msg, data.emailed ? 'Invite emailed.' : 'Invite created.', 'ok');
         e.target.reset();
         refreshInvites();
-      } catch (err) { setMsg(msg, err.message, 'err'); }
+      } catch (err) {
+        setMsg(msg, err.message, 'err');
+      }
     });
   }
 
@@ -4379,11 +5373,16 @@ async function pageSettings(param) {
     try {
       for (const el of $$('[data-key]', sec)) await api.settingsSet(el.dataset.key, el.value);
       for (const el of $$('[data-secret]', sec)) {
-        if (el.value.trim()) { await api.settingsSecret(el.dataset.secret, el.value.trim()); el.value = ''; }
+        if (el.value.trim()) {
+          await api.settingsSecret(el.dataset.secret, el.value.trim());
+          el.value = '';
+        }
       }
       setMsg(msg, 'Saved', 'ok');
       toast('Settings saved', 'ok');
-    } catch (err) { setMsg(msg, err.message, 'err'); }
+    } catch (err) {
+      setMsg(msg, err.message, 'err');
+    }
     return btn;
   }
 
@@ -4420,8 +5419,10 @@ async function pageSettings(param) {
       const out = $('#cf-out');
       out.textContent = 'Testing connection…';
       const r = (await api.cfTest()).data;
-      if (r.ok === false) out.innerHTML = `<span class="error">${esc(r.error)}</span>${r.hint || r.detail ? ' — ' + esc(r.hint || r.detail) : ''}`;
-      else out.innerHTML = `<span class="check-pass">Connected.</span> Projects: ${esc((r.projects || []).join(', ') || 'none')}`;
+      if (r.ok === false)
+        out.innerHTML = `<span class="error">${esc(r.error)}</span>${r.hint || r.detail ? ' — ' + esc(r.hint || r.detail) : ''}`;
+      else
+        out.innerHTML = `<span class="check-pass">Connected.</span> Projects: ${esc((r.projects || []).join(', ') || 'none')}`;
     },
     'imap-test': async () => {
       const msg = $('[data-msg="imap-test"]');
@@ -4430,27 +5431,45 @@ async function pageSettings(param) {
         const r = (await api.emailImapPoll({ force: true })).data;
         if (r.skipped) setMsg(msg, r.reason || 'skipped', 'err');
         else setMsg(msg, `Fetched ${r.fetched || 0}, processed ${r.processed || 0}`, 'ok');
-      } catch (err) { setMsg(msg, err.message, 'err'); }
+      } catch (err) {
+        setMsg(msg, err.message, 'err');
+      }
     },
     'disc-save': async () => {
       const msg = $('#ds-msg');
       try {
-        const r = (await api.discoverySet({
-          enabled: $('#ds-enabled').value === '1', mode: $('#ds-mode').value,
-          interval_hours: Number($('#ds-interval').value) || 6, daily_time: $('#ds-daily').value || '09:00',
-          provider: $('#ds-provider').value, category: $('#ds-category').value.trim(), location: $('#ds-location').value.trim(),
-          limit: Number($('#ds-limit').value) || 8, score: $('#ds-score').value === '1',
-          group: $('#ds-group').value.trim(), websitePresence: $('#ds-web').value,
-        })).data.schedule || {};
+        const r =
+          (
+            await api.discoverySet({
+              enabled: $('#ds-enabled').value === '1',
+              mode: $('#ds-mode').value,
+              interval_hours: Number($('#ds-interval').value) || 6,
+              daily_time: $('#ds-daily').value || '09:00',
+              provider: $('#ds-provider').value,
+              category: $('#ds-category').value.trim(),
+              location: $('#ds-location').value.trim(),
+              limit: Number($('#ds-limit').value) || 8,
+              score: $('#ds-score').value === '1',
+              group: $('#ds-group').value.trim(),
+              websitePresence: $('#ds-web').value,
+            })
+          ).data.schedule || {};
         setMsg(msg, 'Saved', 'ok');
-        $('#ds-status').textContent = `${r.enabled ? 'Enabled' : 'Disabled'} · next: ${r.next_run || '—'} · last: ${r.last_run || '—'}`;
-      } catch (err) { setMsg(msg, err.message, 'err'); }
+        $('#ds-status').textContent =
+          `${r.enabled ? 'Enabled' : 'Disabled'} · next: ${r.next_run || '—'} · last: ${r.last_run || '—'}`;
+      } catch (err) {
+        setMsg(msg, err.message, 'err');
+      }
     },
     'disc-run': async () => {
       const msg = $('#ds-msg');
       setMsg(msg, 'Running discovery…');
       const r = (await api.discoveryRun()).data;
-      setMsg(msg, r && r.skipped ? `Skipped: ${r.reason}` : `Done${r && r.created != null ? ': ' + r.created + ' created' : ''}.`, 'ok');
+      setMsg(
+        msg,
+        r && r.skipped ? `Skipped: ${r.reason}` : `Done${r && r.created != null ? ': ' + r.created + ' created' : ''}.`,
+        'ok'
+      );
     },
     'hands-off-run': async () => {
       const msg = $('[data-msg="hands-off-run"]');
@@ -4458,8 +5477,15 @@ async function pageSettings(param) {
       try {
         const r = (await api.handsOffRun(false)).data;
         if (r && r.skipped) setMsg(msg, `Skipped: ${r.reason}`, 'err');
-        else setMsg(msg, `Done — discovered ${r.discovered || 0}, scored ${r.scored || 0}, delivered ${r.delivered || 0}.`, 'ok');
-      } catch (err) { setMsg(msg, err.message, 'err'); }
+        else
+          setMsg(
+            msg,
+            `Done — discovered ${r.discovered || 0}, scored ${r.scored || 0}, delivered ${r.delivered || 0}.`,
+            'ok'
+          );
+      } catch (err) {
+        setMsg(msg, err.message, 'err');
+      }
     },
   });
 }
@@ -4472,7 +5498,9 @@ function parseHash() {
   const m = (window.location.hash || '#/dashboard').match(/^#\/([a-z-]+)(?:\/([^?]*))?(?:\?(.*))?$/);
   if (!m) return { route: 'dashboard', param: '', query: {} };
   const query = {};
-  new URLSearchParams(m[3] || '').forEach((v, k) => { query[k] = v; });
+  new URLSearchParams(m[3] || '').forEach((v, k) => {
+    query[k] = v;
+  });
   return { route: m[1], param: m[2] || '', query };
 }
 
@@ -4484,7 +5512,8 @@ let adminTab = 'overview';
 
 async function pageAdmin(param) {
   if (!currentUserIsSuperAdmin) {
-    view.innerHTML = '<div class="card error-card"><h2>Super admin only</h2><p>Your account is not a platform administrator.</p></div>';
+    view.innerHTML =
+      '<div class="card error-card"><h2>Super admin only</h2><p>Your account is not a platform administrator.</p></div>';
     return;
   }
   const tab = (param && String(param).split('/')[0]) || adminTab || 'overview';
@@ -4507,8 +5536,9 @@ async function pageAdmin(param) {
     <div class="page-head">
       <div><h1>Platform admin</h1><p class="lede">Manage users, workspaces, and platform-wide defaults.</p></div>
     </div>
-    <div class="tabs" id="admin-tabs">${tabs.map(([k, l]) =>
-      `<button type="button" class="${k === tab ? 'active' : ''}" data-tab="${k}">${l}</button>`).join('')}</div>
+    <div class="tabs" id="admin-tabs">${tabs
+      .map(([k, l]) => `<button type="button" class="${k === tab ? 'active' : ''}" data-tab="${k}">${l}</button>`)
+      .join('')}</div>
     <div id="admin-body"><p class="hint">Loading…</p></div>`;
 
   $('#admin-tabs').onclick = (e) => {
@@ -4524,7 +5554,8 @@ async function pageAdmin(param) {
     else if (tab === 'workspaces') await renderAdminWorkspaces(body);
     else if (tab === 'payments') await renderAdminPayments(body);
     else if (tab === 'upsell') await renderAdminUpsellTips(body);
-    else if (tab === 'email' || tab === 'sms' || tab === 'keys' || tab === 'general' || tab === 'billing') await renderAdminSettings(body, tab);
+    else if (tab === 'email' || tab === 'sms' || tab === 'keys' || tab === 'general' || tab === 'billing')
+      await renderAdminSettings(body, tab);
     else if (tab === 'audit') await renderAdminAudit(body);
     else body.innerHTML = '<p class="hint">Unknown tab</p>';
   } catch (err) {
@@ -4554,16 +5585,19 @@ async function renderAdminOverview(el) {
         <div class="msg" id="admin-ov-msg"></div>
       </div>
     </div>`;
-  $('#admin-push').onclick = () => safeRun($('#admin-ov-msg'), async () => {
-    const r = await api.adminPushDefaults({ force: false });
-    $('#admin-ov-msg').textContent = `Updated ${r.data.cellsUpdated} setting cells across ${r.data.workspaces} workspaces.`;
-    $('#admin-ov-msg').className = 'msg ok';
-  });
+  $('#admin-push').onclick = () =>
+    safeRun($('#admin-ov-msg'), async () => {
+      const r = await api.adminPushDefaults({ force: false });
+      $('#admin-ov-msg').textContent =
+        `Updated ${r.data.cellsUpdated} setting cells across ${r.data.workspaces} workspaces.`;
+      $('#admin-ov-msg').className = 'msg ok';
+    });
   $('#admin-push-force').onclick = () => {
     if (!confirm('Overwrite workspace settings with platform defaults?')) return;
     safeRun($('#admin-ov-msg'), async () => {
       const r = await api.adminPushDefaults({ force: true });
-      $('#admin-ov-msg').textContent = `Force-updated ${r.data.cellsUpdated} cells across ${r.data.workspaces} workspaces.`;
+      $('#admin-ov-msg').textContent =
+        `Force-updated ${r.data.cellsUpdated} cells across ${r.data.workspaces} workspaces.`;
       $('#admin-ov-msg').className = 'msg ok';
     });
   };
@@ -4643,10 +5677,12 @@ async function renderAdminUsers(el) {
         <p class="hint" style="margin-bottom:0.75rem">Blocked users cannot sign in (stored as status <code>disabled</code>). Delete soft-removes the account and memberships; workspaces remain.</p>
         <table><thead><tr><th>Email</th><th>Name</th><th>Status</th><th>WS</th><th>Role</th><th></th></tr></thead>
         <tbody>
-          ${users.map((u) => {
-            const blocked = String(u.status || 'active') === 'disabled';
-            const isSelf = selfId != null && Number(u.id) === Number(selfId);
-            return `<tr>
+          ${
+            users
+              .map((u) => {
+                const blocked = String(u.status || 'active') === 'disabled';
+                const isSelf = selfId != null && Number(u.id) === Number(selfId);
+                return `<tr>
             <td>${esc(u.email)}${isSelf ? ' <span class="hint">(you)</span>' : ''}</td><td>${esc(u.name)}</td>
             <td>${esc(adminUserStatusLabel(u.status))}</td><td>${esc(u.workspace_count)}</td>
             <td>${Number(u.is_super_admin) ? 'super' : 'user'}</td>
@@ -4658,7 +5694,9 @@ async function renderAdminUsers(el) {
               ${isSelf ? '' : `<button class="btn danger small" data-del="${u.id}">Delete</button>`}
             </td>
           </tr>`;
-          }).join('') || '<tr><td colspan="6">No users</td></tr>'}
+              })
+              .join('') || '<tr><td colspan="6">No users</td></tr>'
+          }
         </tbody></table>
       </div>
     </div>`;
@@ -4685,57 +5723,81 @@ async function renderAdminUsers(el) {
       if (u) openAdminEditUser(u);
     };
   });
-  $$('[data-toggle-sa]').forEach((b) => b.onclick = async () => {
-    const promoting = Number(b.dataset.on) === 1;
-    const u = users.find((x) => Number(x.id) === Number(b.dataset.toggleSa));
-    const who = u ? u.email : 'this user';
-    if (!confirm(promoting
-      ? `Make ${who} a SUPER ADMIN? They will have full platform access, including all workspaces and platform settings.`
-      : `Remove super admin from ${who}? They will lose platform-wide access.`)) return;
-    await safeRun(b, async () => {
-      await api.adminUpdateUser(b.dataset.toggleSa, { is_super_admin: promoting });
-      toast(promoting ? 'Super admin granted' : 'Super admin removed', 'ok');
-      pageAdmin('users');
-    });
-  });
-  $$('[data-toggle-st]').forEach((b) => b.onclick = async () => {
-    const next = b.dataset.st;
-    const label = next === 'disabled' ? 'block' : 'unblock';
-    if (!confirm(`${label === 'block' ? 'Block' : 'Unblock'} this user? ${next === 'disabled' ? 'They will not be able to sign in.' : 'They will be able to sign in again.'}`)) return;
-    await safeRun(b, async () => {
-      await api.adminUpdateUser(b.dataset.toggleSt, { status: next });
-      toast(next === 'disabled' ? 'User blocked' : 'User unblocked', 'ok');
-      pageAdmin('users');
-    });
-  });
-  $$('[data-reset]').forEach((b) => b.onclick = async () => {
-    const password = prompt('New password (min 8 chars)');
-    if (!password) return;
-    try {
-      await api.adminUpdateUser(b.dataset.reset, { password });
-      toast('Password updated', 'ok');
-    } catch (err) { toast(err.message, 'err'); }
-  });
-  $$('[data-del]').forEach((b) => b.onclick = async () => {
-    const u = users.find((x) => Number(x.id) === Number(b.dataset.del));
-    const email = u ? u.email : b.dataset.del;
-    const wsNote = u && Number(u.workspace_count) > 0
-      ? ` They belong to ${u.workspace_count} workspace(s); memberships will be removed and sole-owned workspaces will have no owner (workspaces are kept).`
-      : '';
-    if (!confirm(`Delete user ${email}? This soft-deletes the account and cannot be undone from the UI.${wsNote}`)) return;
-    if (prompt('Type DELETE to confirm') !== 'DELETE') return;
-    await safeRun(b, async () => {
-      const r = await api.adminDeleteUser(b.dataset.del);
-      const sole = (r.data && r.data.soleOwnedWorkspaces) || [];
-      toast(
-        sole.length
-          ? `User deleted. ${sole.length} workspace(s) left without an owner.`
-          : 'User deleted',
-        'ok'
-      );
-      pageAdmin('users');
-    });
-  });
+  $$('[data-toggle-sa]').forEach(
+    (b) =>
+      (b.onclick = async () => {
+        const promoting = Number(b.dataset.on) === 1;
+        const u = users.find((x) => Number(x.id) === Number(b.dataset.toggleSa));
+        const who = u ? u.email : 'this user';
+        if (
+          !confirm(
+            promoting
+              ? `Make ${who} a SUPER ADMIN? They will have full platform access, including all workspaces and platform settings.`
+              : `Remove super admin from ${who}? They will lose platform-wide access.`
+          )
+        )
+          return;
+        await safeRun(b, async () => {
+          await api.adminUpdateUser(b.dataset.toggleSa, { is_super_admin: promoting });
+          toast(promoting ? 'Super admin granted' : 'Super admin removed', 'ok');
+          pageAdmin('users');
+        });
+      })
+  );
+  $$('[data-toggle-st]').forEach(
+    (b) =>
+      (b.onclick = async () => {
+        const next = b.dataset.st;
+        const label = next === 'disabled' ? 'block' : 'unblock';
+        if (
+          !confirm(
+            `${label === 'block' ? 'Block' : 'Unblock'} this user? ${next === 'disabled' ? 'They will not be able to sign in.' : 'They will be able to sign in again.'}`
+          )
+        )
+          return;
+        await safeRun(b, async () => {
+          await api.adminUpdateUser(b.dataset.toggleSt, { status: next });
+          toast(next === 'disabled' ? 'User blocked' : 'User unblocked', 'ok');
+          pageAdmin('users');
+        });
+      })
+  );
+  $$('[data-reset]').forEach(
+    (b) =>
+      (b.onclick = async () => {
+        const password = prompt('New password (min 8 chars)');
+        if (!password) return;
+        try {
+          await api.adminUpdateUser(b.dataset.reset, { password });
+          toast('Password updated', 'ok');
+        } catch (err) {
+          toast(err.message, 'err');
+        }
+      })
+  );
+  $$('[data-del]').forEach(
+    (b) =>
+      (b.onclick = async () => {
+        const u = users.find((x) => Number(x.id) === Number(b.dataset.del));
+        const email = u ? u.email : b.dataset.del;
+        const wsNote =
+          u && Number(u.workspace_count) > 0
+            ? ` They belong to ${u.workspace_count} workspace(s); memberships will be removed and sole-owned workspaces will have no owner (workspaces are kept).`
+            : '';
+        if (!confirm(`Delete user ${email}? This soft-deletes the account and cannot be undone from the UI.${wsNote}`))
+          return;
+        if (prompt('Type DELETE to confirm') !== 'DELETE') return;
+        await safeRun(b, async () => {
+          const r = await api.adminDeleteUser(b.dataset.del);
+          const sole = (r.data && r.data.soleOwnedWorkspaces) || [];
+          toast(
+            sole.length ? `User deleted. ${sole.length} workspace(s) left without an owner.` : 'User deleted',
+            'ok'
+          );
+          pageAdmin('users');
+        });
+      })
+  );
 }
 
 async function renderAdminWorkspaces(el) {
@@ -4760,14 +5822,20 @@ async function renderAdminWorkspaces(el) {
       <div class="panel-b">
         <table><thead><tr><th>Name</th><th>Slug</th><th>Members</th><th>Tokens</th><th></th></tr></thead>
         <tbody>
-          ${workspaces.map((w) => `<tr>
+          ${
+            workspaces
+              .map(
+                (w) => `<tr>
             <td>${esc(w.name)}</td><td class="mono">${esc(w.slug)}</td>
             <td>${esc(w.member_count)}</td><td>${esc(w.token_count)}</td>
             <td class="row actions">
               <button class="btn ghost small" data-ws-view="${w.id}">Members</button>
               <button class="btn danger small" data-ws-del="${w.id}">Delete</button>
             </td>
-          </tr>`).join('') || '<tr><td colspan="5">None</td></tr>'}
+          </tr>`
+              )
+              .join('') || '<tr><td colspan="5">None</td></tr>'
+          }
         </tbody></table>
         <div id="admin-ws-detail" style="margin-top:1rem"></div>
       </div>
@@ -4776,7 +5844,10 @@ async function renderAdminWorkspaces(el) {
   guardSubmit($('#admin-ws-form'), async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    const body = { name: fd.get('name'), ownerUserId: fd.get('ownerUserId') ? Number(fd.get('ownerUserId')) : undefined };
+    const body = {
+      name: fd.get('name'),
+      ownerUserId: fd.get('ownerUserId') ? Number(fd.get('ownerUserId')) : undefined,
+    };
     try {
       await api.adminCreateWorkspace(body);
       pageAdmin('workspaces');
@@ -4785,40 +5856,55 @@ async function renderAdminWorkspaces(el) {
       $('#admin-ws-msg').className = 'msg error';
     }
   });
-  $$('[data-ws-del]').forEach((b) => b.onclick = async () => {
-    if (!confirm('Delete this workspace and all its MySQL data?')) return;
-    await safeRun(b, async () => {
-      await api.adminDeleteWorkspace(b.dataset.wsDel);
-      toast('Workspace deleted', 'ok');
-      pageAdmin('workspaces');
-    });
-  });
-  $$('[data-ws-view]').forEach((b) => b.onclick = async () => {
-    const d = (await api.adminWorkspace(b.dataset.wsView)).data;
-    const detail = $('#admin-ws-detail');
-    detail.innerHTML = `
+  $$('[data-ws-del]').forEach(
+    (b) =>
+      (b.onclick = async () => {
+        if (!confirm('Delete this workspace and all its MySQL data?')) return;
+        await safeRun(b, async () => {
+          await api.adminDeleteWorkspace(b.dataset.wsDel);
+          toast('Workspace deleted', 'ok');
+          pageAdmin('workspaces');
+        });
+      })
+  );
+  $$('[data-ws-view]').forEach(
+    (b) =>
+      (b.onclick = async () => {
+        const d = (await api.adminWorkspace(b.dataset.wsView)).data;
+        const detail = $('#admin-ws-detail');
+        detail.innerHTML = `
       <h4>${esc(d.workspace.name)} members</h4>
       <table><thead><tr><th>Email</th><th>Role</th><th></th></tr></thead>
-      <tbody>${(d.members || []).map((m) => `<tr>
+      <tbody>${
+        (d.members || [])
+          .map(
+            (m) => `<tr>
         <td>${esc(m.email)}</td><td>${esc(m.role)}</td>
         <td><button class="btn ghost small" data-rm="${m.user_id}">Remove</button></td>
-      </tr>`).join('') || '<tr><td colspan="3">No members</td></tr>'}</tbody></table>
+      </tr>`
+          )
+          .join('') || '<tr><td colspan="3">No members</td></tr>'
+      }</tbody></table>
       <form id="admin-add-member" class="row actions" style="margin-top:0.75rem">
         <select name="userId" required>${users.map((u) => `<option value="${u.id}">${esc(u.email)}</option>`).join('')}</select>
         <select name="role"><option value="member">member</option><option value="admin">admin</option><option value="owner">owner</option></select>
         <button class="btn" type="submit">Add member</button>
       </form>`;
-    $$('[data-rm]', detail).forEach((btn) => btn.onclick = async () => {
-      await api.adminRemoveMember(d.workspace.id, btn.dataset.rm);
-      b.click();
-    });
-    $('#admin-add-member').onsubmit = async (ev) => {
-      ev.preventDefault();
-      const f = new FormData(ev.target);
-      await api.adminAddMember(d.workspace.id, Number(f.get('userId')), f.get('role'));
-      b.click();
-    };
-  });
+        $$('[data-rm]', detail).forEach(
+          (btn) =>
+            (btn.onclick = async () => {
+              await api.adminRemoveMember(d.workspace.id, btn.dataset.rm);
+              b.click();
+            })
+        );
+        $('#admin-add-member').onsubmit = async (ev) => {
+          ev.preventDefault();
+          const f = new FormData(ev.target);
+          await api.adminAddMember(d.workspace.id, Number(f.get('userId')), f.get('role'));
+          b.click();
+        };
+      })
+  );
 }
 
 async function renderAdminPayments(el) {
@@ -4831,14 +5917,20 @@ async function renderAdminPayments(el) {
       <div class="panel-b">
         <table><thead><tr><th>When</th><th>User</th><th>Amount</th><th>Status</th><th>Invoice</th><th></th></tr></thead>
         <tbody>
-          ${payments.map((p) => `<tr>
+          ${
+            payments
+              .map(
+                (p) => `<tr>
             <td>${esc(fmtDate(p.created_at))}</td>
             <td>${esc(p.user_email || p.user_id || '—')}</td>
             <td>${esc((Number(p.amount_cents || 0) / 100).toFixed(2))} ${esc(String(p.currency || '').toUpperCase())}</td>
             <td>${esc(p.status)}</td>
             <td class="mono">${esc(p.stripe_invoice_id || '')}</td>
             <td>${p.status === 'succeeded' ? `<button class="btn ghost small" data-refund="${p.id}">Refund</button>` : ''}</td>
-          </tr>`).join('') || '<tr><td colspan="6">No payments yet</td></tr>'}
+          </tr>`
+              )
+              .join('') || '<tr><td colspan="6">No payments yet</td></tr>'
+          }
         </tbody></table>
       </div>
     </div>
@@ -4847,56 +5939,78 @@ async function renderAdminPayments(el) {
       <div class="panel-b">
         <table><thead><tr><th>When</th><th>User</th><th>Amount</th><th>Status</th><th>Refund ID</th></tr></thead>
         <tbody>
-          ${refunds.map((r) => `<tr>
+          ${
+            refunds
+              .map(
+                (r) => `<tr>
             <td>${esc(fmtDate(r.created_at))}</td>
             <td>${esc(r.user_email || r.user_id || '—')}</td>
             <td>${esc((Number(r.amount_cents || 0) / 100).toFixed(2))} ${esc(String(r.currency || '').toUpperCase())}</td>
             <td>${esc(r.status)}</td>
             <td class="mono">${esc(r.stripe_refund_id || '')}</td>
-          </tr>`).join('') || '<tr><td colspan="5">No refunds yet</td></tr>'}
+          </tr>`
+              )
+              .join('') || '<tr><td colspan="5">No refunds yet</td></tr>'
+          }
         </tbody></table>
       </div>
     </div>`;
-  $$('[data-refund]').forEach((b) => b.onclick = async () => {
-    if (!confirm('Refund this payment in Stripe?')) return;
-    try {
-      await api.adminRefundPayment(b.dataset.refund, {});
-      toast('Refund created', 'ok');
-      pageAdmin('payments');
-    } catch (err) { toast(err.message, 'err'); }
-  });
+  $$('[data-refund]').forEach(
+    (b) =>
+      (b.onclick = async () => {
+        if (!confirm('Refund this payment in Stripe?')) return;
+        try {
+          await api.adminRefundPayment(b.dataset.refund, {});
+          toast('Refund created', 'ok');
+          pageAdmin('payments');
+        } catch (err) {
+          toast(err.message, 'err');
+        }
+      })
+  );
 }
 
 async function renderAdminSettings(el, group) {
   const res = await api.adminSettings();
   const settings = res.data.settings || {};
   const defs = (res.data.defs || []).filter((d) => d.group === group);
-  const title = {
-    email: 'Email / SMTP', sms: 'SMS', keys: 'Default API keys', general: 'General',
-    billing: 'Stripe & subscription',
-  }[group] || group;
-  const webhookHint = group === 'billing'
-    ? `<p class="hint">Webhook endpoint: <span class="mono">${esc(window.location.origin)}/api/v1/billing/webhook</span><br/>
+  const title =
+    {
+      email: 'Email / SMTP',
+      sms: 'SMS',
+      keys: 'Default API keys',
+      general: 'General',
+      billing: 'Stripe & subscription',
+    }[group] || group;
+  const webhookHint =
+    group === 'billing'
+      ? `<p class="hint">Webhook endpoint: <span class="mono">${esc(window.location.origin)}/api/v1/billing/webhook</span><br/>
        Events: <span class="mono">checkout.session.completed, checkout.session.async_payment_succeeded, customer.subscription.*, invoice.paid, invoice.payment_failed, charge.refunded, charge.dispute.created, radar.early_fraud_warning.created</span><br/>
        Credits: create a one-time Stripe Price, paste into <span class="mono">stripe.price_id_credits</span>, set pack size + per-image/content rates below.<br/>
        Create <strong>two Products</strong> in Stripe (Standard + Premium), each with one monthly Price. Paste <span class="mono">price_…</span> ids into the Standard/Premium fields. Leave keys empty until you paste real Dashboard values. Prefer a restricted API key (rk_…).</p>`
-    : '<span class="hint">Defaults apply to new workspaces. Secrets are write-only.</span>';
+      : '<span class="hint">Defaults apply to new workspaces. Secrets are write-only.</span>';
   el.innerHTML = `
     <div class="panel">
       <div class="panel-h"><h3>${esc(title)}</h3></div>
       <div class="panel-b" style="padding-bottom:0">${webhookHint}</div>
       <div class="panel-b">
         <form id="admin-set-form" class="stack">
-          ${defs.map((d) => {
-            const isSecret = d.secret;
-            const val = settings[d.key] || '';
-            return `<div>
+          ${
+            defs
+              .map((d) => {
+                const isSecret = d.secret;
+                const val = settings[d.key] || '';
+                return `<div>
               <label>${esc(d.label)} <span class="mono hint">${esc(d.key)}</span></label>
-              ${isSecret
-                ? `<input name="${esc(d.key)}" type="password" placeholder="${val === '***' ? 'Set (currently configured)' : 'Not set'}" autocomplete="new-password" />`
-                : `<input name="${esc(d.key)}" value="${esc(val)}" />`}
+              ${
+                isSecret
+                  ? `<input name="${esc(d.key)}" type="password" placeholder="${val === '***' ? 'Set (currently configured)' : 'Not set'}" autocomplete="new-password" />`
+                  : `<input name="${esc(d.key)}" value="${esc(val)}" />`
+              }
             </div>`;
-          }).join('') || '<p class="hint">No settings in this group</p>'}
+              })
+              .join('') || '<p class="hint">No settings in this group</p>'
+          }
           <div class="row actions"><button class="btn" type="submit">Save</button></div>
           <div class="msg" id="admin-set-msg"></div>
         </form>
@@ -4949,25 +6063,26 @@ async function pageBilling(param, query) {
 
   const currentPlan = String(summary.plan || 'free');
   const plans = Array.isArray(summary.plans) ? summary.plans : [];
-  const planCards = plans.map((p) => {
-    const isCurrent = p.id === currentPlan;
-    const canCheckout = p.checkout && p.priceConfigured && !summary.isSuperAdmin
-      && (!summary.subscribed || currentPlan !== p.id);
-    let cta = '';
-    if (p.id === 'free') {
-      cta = isCurrent
-        ? '<span class="hint">Current plan</span>'
-        : '<span class="hint">Downgrade via Manage billing after cancel</span>';
-    } else if (isCurrent && summary.subscribed) {
-      cta = '<span class="hint">Current plan</span>';
-    } else if (!p.priceConfigured) {
-      cta = '<span class="hint">Price not configured yet</span>';
-    } else if (canCheckout) {
-      cta = `<button class="btn" type="button" data-checkout-plan="${esc(p.id)}">Subscribe</button>`;
-    } else {
-      cta = '<span class="hint">Use Manage billing to change plans</span>';
-    }
-    return `<div class="plan-card${isCurrent ? ' is-current' : ''}${p.id === 'premium' ? ' is-featured' : ''}">
+  const planCards = plans
+    .map((p) => {
+      const isCurrent = p.id === currentPlan;
+      const canCheckout =
+        p.checkout && p.priceConfigured && !summary.isSuperAdmin && (!summary.subscribed || currentPlan !== p.id);
+      let cta = '';
+      if (p.id === 'free') {
+        cta = isCurrent
+          ? '<span class="hint">Current plan</span>'
+          : '<span class="hint">Downgrade via Manage billing after cancel</span>';
+      } else if (isCurrent && summary.subscribed) {
+        cta = '<span class="hint">Current plan</span>';
+      } else if (!p.priceConfigured) {
+        cta = '<span class="hint">Price not configured yet</span>';
+      } else if (canCheckout) {
+        cta = `<button class="btn" type="button" data-checkout-plan="${esc(p.id)}">Subscribe</button>`;
+      } else {
+        cta = '<span class="hint">Use Manage billing to change plans</span>';
+      }
+      return `<div class="plan-card${isCurrent ? ' is-current' : ''}${p.id === 'premium' ? ' is-featured' : ''}">
       <div class="plan-card-h">
         <h3>${esc(p.name)}</h3>
         <div class="plan-price">${esc(p.priceLabel || '')}</div>
@@ -4976,7 +6091,8 @@ async function pageBilling(param, query) {
       <ul class="plan-features">${(p.features || []).map((f) => `<li>${esc(f)}</li>`).join('')}</ul>
       <div class="plan-cta">${cta}</div>
     </div>`;
-  }).join('');
+    })
+    .join('');
 
   view.innerHTML = `
     <div class="page-head">
@@ -4995,25 +6111,33 @@ async function pageBilling(param, query) {
       <div class="stat-card"><div class="n" style="font-size:1.2rem">${esc(String((summary.credits && summary.credits.balance) != null ? summary.credits.balance : 0))}</div><div class="l">Credits</div></div>
       <div class="stat-card"><div class="n" style="font-size:1.05rem">${esc(fmtDate(summary.currentPeriodEnd) || '—')}</div><div class="l">Current period end</div></div>
     </div>
-    <div class="tabs" id="billing-tabs" role="tablist" aria-label="Billing sections">${billTabs.map(([k, l]) =>
-      `<button type="button" role="tab" data-tab="${k}" class="${k === billingTab ? 'active' : ''}" aria-selected="${k === billingTab ? 'true' : 'false'}">${esc(l)}</button>`).join('')}</div>
+    <div class="tabs" id="billing-tabs" role="tablist" aria-label="Billing sections">${billTabs
+      .map(
+        ([k, l]) =>
+          `<button type="button" role="tab" data-tab="${k}" class="${k === billingTab ? 'active' : ''}" aria-selected="${k === billingTab ? 'true' : 'false'}">${esc(l)}</button>`
+      )
+      .join('')}</div>
     <div class="panel" id="bill-panel-subscription"${billingTab === 'subscription' ? '' : ' hidden'}>
       <div class="panel-h"><h3>Choose a plan</h3>
         ${summary.hasCustomer ? '<button class="btn ghost" type="button" id="bill-portal">Manage billing</button>' : ''}
       </div>
       <div class="panel-b">
-        <p class="hint">${summary.isSuperAdmin
-          ? 'Super admins have Premium entitlements without a paid Stripe plan.'
-          : 'Free includes website + inline edits. Upgrade for support cadence and included social images. Card and cancel live in the Stripe customer portal.'}</p>
+        <p class="hint">${
+          summary.isSuperAdmin
+            ? 'Super admins have Premium entitlements without a paid Stripe plan.'
+            : 'Free includes website + inline edits. Upgrade for support cadence and included social images. Card and cancel live in the Stripe customer portal.'
+        }</p>
         <div class="plan-grid">${planCards || '<p class="hint">Plans unavailable</p>'}</div>
         <div class="msg" id="bill-msg"></div>
       </div>
     </div>
     <div class="panel" id="bill-panel-credits"${billingTab === 'credits' ? '' : ' hidden'}>
       <div class="panel-h"><h3>Social credits</h3>
-        ${(summary.credits && summary.credits.priceConfigured && !summary.isSuperAdmin)
-          ? '<button class="btn" type="button" id="bill-buy-credits">Buy credits</button>'
-          : ''}
+        ${
+          summary.credits && summary.credits.priceConfigured && !summary.isSuperAdmin
+            ? '<button class="btn" type="button" id="bill-buy-credits">Buy credits</button>'
+            : ''
+        }
       </div>
       <div class="panel-b">
         <p class="hint">Credits power branded social image ads and caption generation for the current workspace.
@@ -5024,18 +6148,26 @@ async function pageBilling(param, query) {
           <div class="stat-card"><div class="n" style="font-size:1.2rem">${esc(String((summary.credits && summary.credits.perSocialImage) != null ? summary.credits.perSocialImage : 1))}</div><div class="l">Per image</div></div>
           <div class="stat-card"><div class="n" style="font-size:1.2rem">${esc(String((summary.credits && summary.credits.perSocialContent) != null ? summary.credits.perSocialContent : 1))}</div><div class="l">Per content gen</div></div>
         </div>
-        ${!(summary.credits && summary.credits.priceConfigured)
-          ? '<p class="msg warn">Credits checkout is not configured yet (missing <span class="mono">stripe.price_id_credits</span>).</p>'
-          : ''}
+        ${
+          !(summary.credits && summary.credits.priceConfigured)
+            ? '<p class="msg warn">Credits checkout is not configured yet (missing <span class="mono">stripe.price_id_credits</span>).</p>'
+            : ''
+        }
         <div class="msg" id="bill-credits-msg"></div>
         <table><thead><tr><th>When</th><th>Change</th><th>Balance</th><th>Reason</th></tr></thead>
         <tbody>
-          ${((summary.credits && summary.credits.recent) || []).map((r) => `<tr>
+          ${
+            ((summary.credits && summary.credits.recent) || [])
+              .map(
+                (r) => `<tr>
             <td>${esc(fmtDate(r.created_at))}</td>
             <td>${Number(r.delta) > 0 ? '+' : ''}${esc(String(r.delta))}</td>
             <td>${esc(String(r.balance_after))}</td>
             <td>${esc(r.reason || '')}</td>
-          </tr>`).join('') || '<tr><td colspan="4">No credit activity yet</td></tr>'}
+          </tr>`
+              )
+              .join('') || '<tr><td colspan="4">No credit activity yet</td></tr>'
+          }
         </tbody></table>
       </div>
     </div>
@@ -5044,12 +6176,18 @@ async function pageBilling(param, query) {
       <div class="panel-b">
         <table><thead><tr><th>When</th><th>Amount</th><th>Status</th><th>Description</th></tr></thead>
         <tbody>
-          ${(summary.payments || []).map((p) => `<tr>
+          ${
+            (summary.payments || [])
+              .map(
+                (p) => `<tr>
             <td>${esc(fmtDate(p.created_at))}</td>
             <td>${esc((Number(p.amount_cents || 0) / 100).toFixed(2))} ${esc(String(p.currency || '').toUpperCase())}</td>
             <td>${esc(p.status)}</td>
             <td>${esc(p.description || '')}</td>
-          </tr>`).join('') || '<tr><td colspan="4">No payments yet</td></tr>'}
+          </tr>`
+              )
+              .join('') || '<tr><td colspan="4">No payments yet</td></tr>'
+          }
         </tbody></table>
       </div>
     </div>
@@ -5069,28 +6207,31 @@ async function pageBilling(param, query) {
 
   const msg = $('#bill-msg');
   $$('[data-checkout-plan]').forEach((btn) => {
-    btn.onclick = () => safeRun(btn, async () => {
-      const plan = btn.getAttribute('data-checkout-plan');
-      const r = await api.billingCheckout(plan);
-      if (r.data && r.data.url) window.location.href = r.data.url;
-      else throw new Error('No checkout URL returned');
-    });
+    btn.onclick = () =>
+      safeRun(btn, async () => {
+        const plan = btn.getAttribute('data-checkout-plan');
+        const r = await api.billingCheckout(plan);
+        if (r.data && r.data.url) window.location.href = r.data.url;
+        else throw new Error('No checkout URL returned');
+      });
   });
   const buyCredits = $('#bill-buy-credits');
   if (buyCredits) {
-    buyCredits.onclick = () => safeRun(buyCredits, async () => {
-      const r = await api.billingCreditsCheckout(1);
-      if (r.data && r.data.url) window.location.href = r.data.url;
-      else throw new Error('No checkout URL returned');
-    });
+    buyCredits.onclick = () =>
+      safeRun(buyCredits, async () => {
+        const r = await api.billingCreditsCheckout(1);
+        if (r.data && r.data.url) window.location.href = r.data.url;
+        else throw new Error('No checkout URL returned');
+      });
   }
   const portalBtn = $('#bill-portal');
   if (portalBtn) {
-    portalBtn.onclick = () => safeRun(portalBtn, async () => {
-      const r = await api.billingPortal();
-      if (r.data && r.data.url) window.location.href = r.data.url;
-      else throw new Error('No portal URL returned');
-    });
+    portalBtn.onclick = () =>
+      safeRun(portalBtn, async () => {
+        const r = await api.billingPortal();
+        if (r.data && r.data.url) window.location.href = r.data.url;
+        else throw new Error('No portal URL returned');
+      });
   }
   const delBtn = $('#bill-delete');
   if (delBtn) {
@@ -5109,7 +6250,8 @@ async function pageBilling(param, query) {
   }
   const prices = summary.priceIds || {};
   if (msg && !summary.isSuperAdmin && !prices.standard && !prices.premium && !summary.priceId) {
-    msg.textContent = 'Paid plans are not configured yet (missing Stripe price IDs). Ask your admin — Free still works.';
+    msg.textContent =
+      'Paid plans are not configured yet (missing Stripe price IDs). Ask your admin — Free still works.';
     msg.className = 'msg warn';
   }
   requireSubscription = !!summary.requireSubscription || requireSubscription;
@@ -5124,9 +6266,9 @@ async function renderAdminUpsellTips(el) {
   const data = (await api.adminUpsellTips()).data || {};
   const tips = Array.isArray(data.tips) ? data.tips : [];
   const features = Array.isArray(data.features) ? data.features : [];
-  const featureOpts = features.map((f) =>
-    `<option value="${esc(f.key)}">${esc(f.label)} → ${esc(f.minPlan)}</option>`
-  ).join('');
+  const featureOpts = features
+    .map((f) => `<option value="${esc(f.key)}">${esc(f.label)} → ${esc(f.minPlan)}</option>`)
+    .join('');
 
   el.innerHTML = `
     <div class="panel">
@@ -5139,7 +6281,10 @@ async function renderAdminUpsellTips(el) {
             <th>On</th><th>Title / body</th><th>Feature</th><th>Every (hrs)</th><th>Weight</th><th>Shows</th><th></th>
           </tr></thead>
           <tbody id="admin-upsell-rows">
-            ${tips.map((t) => `
+            ${
+              tips
+                .map(
+                  (t) => `
               <tr data-tip-id="${t.id}">
                 <td><input type="checkbox" data-tip-enabled ${t.enabled ? 'checked' : ''} title="Enabled" /></td>
                 <td>
@@ -5149,9 +6294,12 @@ async function renderAdminUpsellTips(el) {
                 <td>
                   <select data-tip-feature style="max-width:11rem">
                     <option value="">(general)</option>
-                    ${features.map((f) =>
-                      `<option value="${esc(f.key)}" ${t.feature_key === f.key ? 'selected' : ''}>${esc(f.label)}</option>`
-                    ).join('')}
+                    ${features
+                      .map(
+                        (f) =>
+                          `<option value="${esc(f.key)}" ${t.feature_key === f.key ? 'selected' : ''}>${esc(f.label)}</option>`
+                      )
+                      .join('')}
                   </select>
                   <div class="hint" style="margin-top:4px">Plans: ${esc((t.target_plans || ['free']).join(', '))}</div>
                 </td>
@@ -5162,7 +6310,10 @@ async function renderAdminUpsellTips(el) {
                   <button type="button" class="btn soft small" data-tip-save>Save</button>
                   <button type="button" class="btn ghost small" data-tip-del>Delete</button>
                 </td>
-              </tr>`).join('') || '<tr><td colspan="7" class="hint">No tips yet — add one below.</td></tr>'}
+              </tr>`
+                )
+                .join('') || '<tr><td colspan="7" class="hint">No tips yet — add one below.</td></tr>'
+            }
           </tbody>
         </table>
       </div>
@@ -5190,7 +6341,7 @@ async function renderAdminUpsellTips(el) {
   const flash = (text, ok) => {
     if (!msg) return;
     msg.textContent = text || '';
-    msg.className = ok ? 'msg ok' : (text ? 'msg err' : 'msg');
+    msg.className = ok ? 'msg ok' : text ? 'msg err' : 'msg';
   };
 
   const rows = $('#admin-upsell-rows');
@@ -5256,21 +6407,37 @@ async function renderAdminAudit(el) {
       <div class="panel-b">
         <table><thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Detail</th></tr></thead>
         <tbody>
-          ${rows.map((r) => `<tr>
+          ${
+            rows
+              .map(
+                (r) => `<tr>
             <td>${esc(fmtDate(r.at))}</td>
             <td>${esc(r.actor_email || r.actor_user_id || '—')}</td>
             <td>${esc(r.action)}</td>
             <td class="mono">${esc(r.detail || '')}</td>
-          </tr>`).join('') || '<tr><td colspan="4">No audit events yet</td></tr>'}
+          </tr>`
+              )
+              .join('') || '<tr><td colspan="4">No audit events yet</td></tr>'
+          }
         </tbody></table>
       </div>
     </div>`;
 }
 
 const PAGES = {
-  dashboard: pageDashboard, leads: pageLeads, websites: pageWebsites, domains: pageDomains, design: pageDesign,
-  social: pageSocial, outreach: pageOutreach, pipeline: pagePipeline, jobs: pageJobs, mcp: pageMcp,
-  settings: pageSettings, billing: pageBilling, admin: pageAdmin,
+  dashboard: pageDashboard,
+  leads: pageLeads,
+  websites: pageWebsites,
+  domains: pageDomains,
+  design: pageDesign,
+  social: pageSocial,
+  outreach: pageOutreach,
+  pipeline: pagePipeline,
+  jobs: pageJobs,
+  mcp: pageMcp,
+  settings: pageSettings,
+  billing: pageBilling,
+  admin: pageAdmin,
 };
 
 async function navigate() {
@@ -5310,7 +6477,9 @@ async function navigate() {
       }
       if (inv.data && inv.data.productAccess != null) productAccess = !!inv.data.productAccess;
       toast('Invite accepted', 'ok');
-    } catch (err) { toast(err.message || 'Invite failed', 'err'); }
+    } catch (err) {
+      toast(err.message || 'Invite failed', 'err');
+    }
     window.location.hash = '#/dashboard';
     return;
   }
@@ -5325,7 +6494,8 @@ async function navigate() {
   $$('.nav-links a').forEach((a) => {
     const on = a.dataset.route === route;
     a.classList.toggle('active', on);
-    if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    if (on) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
   });
   topTitle.textContent = ROUTE_LABELS[route] || '';
   view.onclick = null;
@@ -5335,11 +6505,13 @@ async function navigate() {
   leadsReload = null;
 
   if (!PAGES[route]) {
-    view.innerHTML = '<div class="card error-card"><h2>Page not found</h2><p>Choose a page from the navigation.</p></div>';
+    view.innerHTML =
+      '<div class="card error-card"><h2>Page not found</h2><p>Choose a page from the navigation.</p></div>';
     return;
   }
   if (route === 'admin' && !currentUserIsSuperAdmin) {
-    view.innerHTML = '<div class="card error-card"><h2>Super admin only</h2><p>Your account is not a platform administrator.</p></div>';
+    view.innerHTML =
+      '<div class="card error-card"><h2>Super admin only</h2><p>Your account is not a platform administrator.</p></div>';
     return;
   }
   view.innerHTML = '<p class="hint">Loading…</p>';
@@ -5366,9 +6538,15 @@ if (wsSelect) {
       const r = await api.selectWorkspace(id);
       if (r.data && r.data.productAccess != null) productAccess = !!r.data.productAccess;
       if (r.data && r.data.subscribed != null) userSubscribed = !!r.data.subscribed;
-    } catch (err) { toast(err.message, 'err'); }
+    } catch (err) {
+      toast(err.message, 'err');
+    }
     leadsState.selected.clear();
-    try { await refreshAutomation(); } catch { /* paywalled */ }
+    try {
+      await refreshAutomation();
+    } catch {
+      /* paywalled */
+    }
     navigate();
   });
 }
@@ -5376,7 +6554,11 @@ if (wsSelect) {
 const logoutBtn = document.getElementById('logout-btn');
 if (logoutBtn) {
   logoutBtn.addEventListener('click', async () => {
-    try { await api.logout(); } catch { /* ignore */ }
+    try {
+      await api.logout();
+    } catch {
+      /* ignore */
+    }
     localStorage.removeItem('scout.workspaceId');
     goToLogin({ forgetReturn: true });
   });
@@ -5385,7 +6567,10 @@ if (logoutBtn) {
 if (autoEl) {
   autoEl.addEventListener('click', (e) => {
     e.preventDefault();
-    if (e.shiftKey || e.ctrlKey || e.metaKey) { window.location.hash = '#/settings/automation'; return; }
+    if (e.shiftKey || e.ctrlKey || e.metaKey) {
+      window.location.hash = '#/settings/automation';
+      return;
+    }
     const next = !automationPaused;
     if (!window.confirm(next ? 'Pause all automation (discovery, jobs, outreach, AI)?' : 'Resume automation?')) return;
     safeRun(null, async () => {

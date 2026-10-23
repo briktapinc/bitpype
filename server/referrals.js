@@ -28,11 +28,16 @@ function fail(code, message, status = 400) {
 }
 
 function normalizeEmail(raw) {
-  return String(raw || '').trim().toLowerCase();
+  return String(raw || '')
+    .trim()
+    .toLowerCase();
 }
 
 function normalizePhone(raw) {
-  return String(raw || '').replace(/[^\d+]/g, '').trim().slice(0, 40);
+  return String(raw || '')
+    .replace(/[^\d+]/g, '')
+    .trim()
+    .slice(0, 40);
 }
 
 function normalizeBusiness(raw) {
@@ -71,7 +76,7 @@ async function usdPerCredit() {
       const price = await stripe.prices.retrieve(cfg.priceId);
       const unit = Number(price && price.unit_amount) || 0;
       if (unit > 0) {
-        return (unit / 100) / cfg.packAmount;
+        return unit / 100 / cfg.packAmount;
       }
     } catch (e) {
       console.warn('[referrals] credits price lookup:', e.message);
@@ -89,13 +94,8 @@ function creditsFromPlanCents(planCents, percent, perCreditUsd) {
 }
 
 async function estimatePlanCents(planId) {
-  const key = planId === 'premium'
-    ? 'billing.amount_label_premium'
-    : 'billing.amount_label_standard';
-  const label = await platform.getPlatformSetting(
-    key,
-    planId === 'premium' ? 'Premium · $99/mo' : 'Standard · $49/mo'
-  );
+  const key = planId === 'premium' ? 'billing.amount_label_premium' : 'billing.amount_label_standard';
+  const label = await platform.getPlatformSetting(key, planId === 'premium' ? 'Premium · $99/mo' : 'Standard · $49/mo');
   const usd = parseUsdFromLabel(label);
   if (usd != null) return Math.round(usd * 100);
   // Fallbacks when labels have no dollar amount.
@@ -104,15 +104,14 @@ async function estimatePlanCents(planId) {
 
 function planAmountCentsFromSubscription(subscription) {
   try {
-    const item = subscription
-      && subscription.items
-      && subscription.items.data
-      && subscription.items.data[0];
+    const item = subscription && subscription.items && subscription.items.data && subscription.items.data[0];
     const price = item && item.price;
     const unit = Number(price && price.unit_amount) || 0;
     const qty = Math.max(1, Math.floor(Number(item && item.quantity) || 1));
     if (unit > 0) return unit * qty;
-  } catch { /* */ }
+  } catch {
+    /* */
+  }
   return 0;
 }
 
@@ -128,14 +127,17 @@ async function creditMathSummary() {
     premiumEstimateCredits: creditsFromPlanCents(premiumCents, percent, perCredit),
     standardEstimateUsd: standardCents / 100,
     premiumEstimateUsd: premiumCents / 100,
-    note: `Earn ~${percent}% of a referred client's first paid plan value as social credits `
-      + `(≈ $${perCredit % 1 === 0 ? perCredit.toFixed(0) : perCredit.toFixed(2)} per credit). `
-      + `Example: $${(standardCents / 100).toFixed(0)} Standard → ~${creditsFromPlanCents(standardCents, percent, perCredit)} credits.`,
+    note:
+      `Earn ~${percent}% of a referred client's first paid plan value as social credits ` +
+      `(≈ $${perCredit % 1 === 0 ? perCredit.toFixed(0) : perCredit.toFixed(2)} per credit). ` +
+      `Example: $${(standardCents / 100).toFixed(0)} Standard → ~${creditsFromPlanCents(standardCents, percent, perCredit)} credits.`,
   };
 }
 
 function validateReferralInput(body = {}) {
-  const name = String(body.name || body.referred_name || '').trim().slice(0, 160);
+  const name = String(body.name || body.referred_name || '')
+    .trim()
+    .slice(0, 160);
   const email = normalizeEmail(body.email || body.referred_email);
   const phone = normalizePhone(body.phone || body.referred_phone);
   const businessName = String(body.businessName || body.business_name || body.referred_business_name || '')
@@ -202,13 +204,16 @@ async function createReferral(portalUser, body = {}) {
     }
   );
 
-  const id = (result && result.insertId)
-    || (await query(
-      `SELECT id FROM portal_referrals
+  const id =
+    (result && result.insertId) ||
+    (
+      await query(
+        `SELECT id FROM portal_referrals
        WHERE referrer_portal_user_id = :uid
        ORDER BY id DESC LIMIT 1`,
-      { uid: Number(portalUser.id) }
-    ))[0]?.id;
+        { uid: Number(portalUser.id) }
+      )
+    )[0]?.id;
 
   // Best-effort: mark signed_up if they already have a portal account.
   if (id) await refreshReferralMatch(id).catch(() => {});
@@ -217,10 +222,7 @@ async function createReferral(portalUser, body = {}) {
 }
 
 async function getReferral(id) {
-  const rows = await query(
-    `SELECT * FROM portal_referrals WHERE id = :id LIMIT 1`,
-    { id: Number(id) }
-  );
+  const rows = await query(`SELECT * FROM portal_referrals WHERE id = :id LIMIT 1`, { id: Number(id) });
   return rows[0] || null;
 }
 
@@ -350,11 +352,7 @@ function publicReferral(row) {
  * Called from billing.syncSubscription when a user lands on an active paid plan.
  * Idempotent via credit ledger key + status=credited.
  */
-async function tryAwardForPaidUser(userId, {
-  plan = null,
-  subscription = null,
-  planAmountCents = null,
-} = {}) {
+async function tryAwardForPaidUser(userId, { plan = null, subscription = null, planAmountCents = null } = {}) {
   const uid = Number(userId);
   if (!uid) return { awarded: false, reason: 'no_user' };
 
@@ -369,10 +367,10 @@ async function tryAwardForPaidUser(userId, {
   const email = normalizeEmail(user.email);
   const portalRows = email
     ? await query(
-      `SELECT id, email, workspace_id, lead_id, business_name
+        `SELECT id, email, workspace_id, lead_id, business_name
        FROM client_portal_users WHERE LOWER(email) = :email LIMIT 1`,
-      { email }
-    )
+        { email }
+      )
     : [];
   const portalUser = portalRows[0] || null;
   const bizNorm = normalizeBusiness(portalUser && portalUser.business_name);
@@ -400,9 +398,7 @@ async function tryAwardForPaidUser(userId, {
        LIMIT 100`,
       {}
     );
-    candidates = (byBiz || []).filter(
-      (r) => normalizeBusiness(r.referred_business_name) === bizNorm
-    );
+    candidates = (byBiz || []).filter((r) => normalizeBusiness(r.referred_business_name) === bizNorm);
   }
   if (!candidates.length) return { awarded: false, reason: 'no_match' };
 
@@ -410,10 +406,9 @@ async function tryAwardForPaidUser(userId, {
   const filtered = [];
   for (const r of candidates) {
     if (portalUser && Number(r.referrer_portal_user_id) === Number(portalUser.id)) continue;
-    const refRows = await query(
-      `SELECT id, email FROM client_portal_users WHERE id = :id LIMIT 1`,
-      { id: Number(r.referrer_portal_user_id) }
-    );
+    const refRows = await query(`SELECT id, email FROM client_portal_users WHERE id = :id LIMIT 1`, {
+      id: Number(r.referrer_portal_user_id),
+    });
     const ref = refRows[0];
     if (ref && email && normalizeEmail(ref.email) === email) continue;
     filtered.push(r);

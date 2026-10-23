@@ -1,7 +1,9 @@
 'use strict';
 
 function staffPath(route = 'dashboard', params = {}) {
-  const text = String(route || 'dashboard').replace(/^\/?#\/?/, '').replace(/^\/+/, '');
+  const text = String(route || 'dashboard')
+    .replace(/^\/?#\/?/, '')
+    .replace(/^\/+/, '');
   const split = text.indexOf('?');
   const path = split < 0 ? text : text.slice(0, split);
   const query = new URLSearchParams(split < 0 ? '' : text.slice(split + 1));
@@ -32,7 +34,9 @@ function socialReturnPath(raw, params) {
       for (const [key, value] of new URLSearchParams(params)) if (!query.has(key)) query.set(key, value);
       return staffPath(url.hash.slice(2) || 'social', query);
     }
-  } catch { /* Invalid or off-site destinations use the staff social screen. */ }
+  } catch {
+    /* Invalid or off-site destinations use the staff social screen. */
+  }
   return fallback();
 }
 

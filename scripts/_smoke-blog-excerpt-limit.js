@@ -42,11 +42,13 @@ for (let i = 2; i <= 7; i++) {
   });
 }
 
-db.prepare(`
+db.prepare(
+  `
   INSERT INTO site_module_embeds
     (lead_id, module_type, title, public_token, published, embed_enabled, target_page_slug, settings_json)
   VALUES (1, 'blog', 'Blog', '1_testtokenblogxx', 1, 1, 'blog', ?)
-`).run(JSON.stringify({ post_limit: 3, show_excerpt: true }));
+`
+).run(JSON.stringify({ post_limit: 3, show_excerpt: true }));
 
 const limited = modules.getPublicModuleByToken(db, '1_testtokenblogxx');
 if (limited.items.length !== 3) throw new Error(`expected 3 items, got ${limited.items.length}`);

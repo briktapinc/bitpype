@@ -13,9 +13,7 @@
  */
 
 const { getProvider, personalize, isValidEmail, sanitizeEmailHtml, looksLikeHtml } = require('./email');
-const {
-  normalizePhone, isValidPhone, getSmsProvider, resolveSmsSettings, plainSmsBody,
-} = require('./sms');
+const { normalizePhone, isValidPhone, getSmsProvider, resolveSmsSettings, plainSmsBody } = require('./sms');
 
 let ai = null;
 try {
@@ -30,7 +28,10 @@ try {
 
 function tableHasColumn(db, table, column) {
   try {
-    return db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+    return db
+      .prepare(`PRAGMA table_info(${table})`)
+      .all()
+      .some((c) => c.name === column);
   } catch {
     return false;
   }
@@ -38,7 +39,10 @@ function tableHasColumn(db, table, column) {
 
 function templateHasEmail(tpl) {
   if (!tpl) return false;
-  const body = String(tpl.body || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  const body = String(tpl.body || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   return !!body;
 }
 
@@ -66,9 +70,7 @@ function migrateUnifiedTemplates(db) {
   if (!tableHasColumn(db, 'email_templates', 'sms_body')) return;
   let smsRows;
   try {
-    smsRows = db.prepare(
-      `SELECT * FROM email_templates WHERE lower(IFNULL(channel, 'email')) = 'sms'`
-    ).all();
+    smsRows = db.prepare(`SELECT * FROM email_templates WHERE lower(IFNULL(channel, 'email')) = 'sms'`).all();
   } catch {
     return;
   }
@@ -77,26 +79,26 @@ function migrateUnifiedTemplates(db) {
   const txn = db.transaction(() => {
     for (const sms of smsRows) {
       const smsText = plainSmsBody(sms.sms_body || sms.body || '');
-      const emailMatch = db.prepare(
-        `SELECT * FROM email_templates
+      const emailMatch = db
+        .prepare(
+          `SELECT * FROM email_templates
          WHERE lower(name) = lower(?) AND id != ?
            AND lower(IFNULL(channel, 'email')) != 'sms'`
-      ).get(sms.name, sms.id);
+        )
+        .get(sms.name, sms.id);
 
       if (emailMatch) {
         if (!String(emailMatch.sms_body || '').trim() && smsText) {
-          db.prepare('UPDATE email_templates SET sms_body = ? WHERE id = ?')
-            .run(smsText, emailMatch.id);
+          db.prepare('UPDATE email_templates SET sms_body = ? WHERE id = ?').run(smsText, emailMatch.id);
         }
         try {
-          db.prepare('UPDATE campaigns SET template_id = ? WHERE template_id = ?')
-            .run(emailMatch.id, sms.id);
-        } catch { /* ignore */ }
+          db.prepare('UPDATE campaigns SET template_id = ? WHERE template_id = ?').run(emailMatch.id, sms.id);
+        } catch {
+          /* ignore */
+        }
         db.prepare('DELETE FROM email_templates WHERE id = ?').run(sms.id);
       } else {
-        const subject = (sms.subject && sms.subject !== '(SMS)')
-          ? sms.subject
-          : (sms.name || 'Outreach');
+        const subject = sms.subject && sms.subject !== '(SMS)' ? sms.subject : sms.name || 'Outreach';
         db.prepare(
           `UPDATE email_templates
            SET sms_body = ?, body = '', subject = ?, channel = 'email'
@@ -111,36 +113,60 @@ function migrateUnifiedTemplates(db) {
 /** Add dual-channel template + message columns (safe on existing DBs). */
 function ensureTables(db) {
   if (!tableHasColumn(db, 'email_templates', 'channel')) {
-    try { db.exec(`ALTER TABLE email_templates ADD COLUMN channel TEXT NOT NULL DEFAULT 'email'`); }
-    catch { /* race / already added */ }
+    try {
+      db.exec(`ALTER TABLE email_templates ADD COLUMN channel TEXT NOT NULL DEFAULT 'email'`);
+    } catch {
+      /* race / already added */
+    }
   }
   if (!tableHasColumn(db, 'email_templates', 'sms_body')) {
-    try { db.exec(`ALTER TABLE email_templates ADD COLUMN sms_body TEXT NOT NULL DEFAULT ''`); }
-    catch { /* race / already added */ }
+    try {
+      db.exec(`ALTER TABLE email_templates ADD COLUMN sms_body TEXT NOT NULL DEFAULT ''`);
+    } catch {
+      /* race / already added */
+    }
   }
   if (!tableHasColumn(db, 'campaign_messages', 'channel')) {
-    try { db.exec(`ALTER TABLE campaign_messages ADD COLUMN channel TEXT NOT NULL DEFAULT 'email'`); }
-    catch { /* ignore */ }
+    try {
+      db.exec(`ALTER TABLE campaign_messages ADD COLUMN channel TEXT NOT NULL DEFAULT 'email'`);
+    } catch {
+      /* ignore */
+    }
   }
   if (!tableHasColumn(db, 'campaign_messages', 'to_phone')) {
-    try { db.exec(`ALTER TABLE campaign_messages ADD COLUMN to_phone TEXT`); }
-    catch { /* ignore */ }
+    try {
+      db.exec(`ALTER TABLE campaign_messages ADD COLUMN to_phone TEXT`);
+    } catch {
+      /* ignore */
+    }
   }
   if (!tableHasColumn(db, 'campaign_messages', 'media_url')) {
-    try { db.exec(`ALTER TABLE campaign_messages ADD COLUMN media_url TEXT`); }
-    catch { /* ignore */ }
+    try {
+      db.exec(`ALTER TABLE campaign_messages ADD COLUMN media_url TEXT`);
+    } catch {
+      /* ignore */
+    }
   }
   if (!tableHasColumn(db, 'campaign_messages', 'send_mode')) {
-    try { db.exec(`ALTER TABLE campaign_messages ADD COLUMN send_mode TEXT`); }
-    catch { /* ignore */ }
+    try {
+      db.exec(`ALTER TABLE campaign_messages ADD COLUMN send_mode TEXT`);
+    } catch {
+      /* ignore */
+    }
   }
   try {
     require('./siteScreenshots').ensureTables(db);
-  } catch { /* optional until module loads */ }
-  try { migrateUnifiedTemplates(db); }
-  catch (e) {
-    try { logActivity(db, 'outreach', `Template migrate skipped: ${String(e && e.message || e).slice(0, 200)}`); }
-    catch { /* ignore */ }
+  } catch {
+    /* optional until module loads */
+  }
+  try {
+    migrateUnifiedTemplates(db);
+  } catch (e) {
+    try {
+      logActivity(db, 'outreach', `Template migrate skipped: ${String((e && e.message) || e).slice(0, 200)}`);
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -154,7 +180,9 @@ function readSettings(db) {
     for (const row of db.prepare('SELECT key, value FROM settings').all()) {
       out[row.key] = require('./secretBox').decryptSetting(row.key, row.value);
     }
-  } catch { /* settings table may not exist yet in tests */ }
+  } catch {
+    /* settings table may not exist yet in tests */
+  }
   return out;
 }
 
@@ -174,7 +202,9 @@ function isAutomationPaused(db) {
 function logActivity(db, area, message) {
   try {
     db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(area, message);
-  } catch { /* activity logging must never break business logic */ }
+  } catch {
+    /* activity logging must never break business logic */
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -230,8 +260,7 @@ function recordIntent(db, leadId, type, detail) {
   const lead = db.prepare('SELECT id, business_name, status FROM leads WHERE id = ?').get(id);
   if (!lead) throw new Error(`Lead ${id} not found`);
 
-  db.prepare('INSERT INTO prospect_events (lead_id, type, detail) VALUES (?, ?, ?)')
-    .run(id, type, detail || null);
+  db.prepare('INSERT INTO prospect_events (lead_id, type, detail) VALUES (?, ?, ?)').run(id, type, detail || null);
 
   const events = db.prepare('SELECT type FROM prospect_events WHERE lead_id = ?').all(id);
   const breakdown = {};
@@ -243,12 +272,14 @@ function recordIntent(db, leadId, type, detail) {
       breakdown[e.type] = (breakdown[e.type] || 0) + pts;
     }
   }
-  const prev = db.prepare(
-    'SELECT label FROM intent_scores WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-  ).get(id);
+  const prev = db.prepare('SELECT label FROM intent_scores WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(id);
   const label = intentLabel(score, lead.status);
-  db.prepare('INSERT INTO intent_scores (lead_id, score, label, breakdown) VALUES (?, ?, ?, ?)')
-    .run(id, score, label, JSON.stringify(breakdown));
+  db.prepare('INSERT INTO intent_scores (lead_id, score, label, breakdown) VALUES (?, ?, ?, ?)').run(
+    id,
+    score,
+    label,
+    JSON.stringify(breakdown)
+  );
 
   // Spec section 33: 61+ = notify admin of a HOT LEAD.
   if (label === 'Hot' && (!prev || prev.label !== 'Hot')) {
@@ -261,12 +292,16 @@ function recordIntent(db, leadId, type, detail) {
 function getIntent(db, leadId) {
   const id = Number(leadId);
   if (!Number.isInteger(id) || id <= 0) throw new Error('Invalid leadId');
-  const row = db.prepare(
-    'SELECT score, label, breakdown, at FROM intent_scores WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-  ).get(id);
+  const row = db
+    .prepare('SELECT score, label, breakdown, at FROM intent_scores WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+    .get(id);
   if (!row) return { leadId: id, score: 0, label: 'Cold', breakdown: {}, at: null };
   let breakdown = {};
-  try { breakdown = JSON.parse(row.breakdown || '{}'); } catch { /* keep {} */ }
+  try {
+    breakdown = JSON.parse(row.breakdown || '{}');
+  } catch {
+    /* keep {} */
+  }
   return { leadId: id, score: row.score, label: row.label, breakdown, at: row.at };
 }
 
@@ -278,31 +313,35 @@ const SUPPRESSION_REASONS = ['unsubscribed', 'bounced', 'do-not-contact', 'compl
 
 function isSuppressed(db, email) {
   if (!email) return null;
-  return db.prepare('SELECT * FROM suppression_list WHERE email = ?')
-    .get(String(email).trim().toLowerCase()) || null;
+  return db.prepare('SELECT * FROM suppression_list WHERE email = ?').get(String(email).trim().toLowerCase()) || null;
 }
 
 function listSuppressions(db, opts = {}) {
   const { pageArgs, pageResult } = require('./paginate');
   const { page, pageSize, offset } = pageArgs(opts, { pageSize: 50, maxSize: 200 });
   const total = db.prepare('SELECT COUNT(*) AS c FROM suppression_list').get().c;
-  const rows = db.prepare(
-    'SELECT * FROM suppression_list ORDER BY created_at DESC LIMIT ? OFFSET ?'
-  ).all(pageSize, offset);
+  const rows = db
+    .prepare('SELECT * FROM suppression_list ORDER BY created_at DESC LIMIT ? OFFSET ?')
+    .all(pageSize, offset);
   return pageResult(rows, total, page, pageSize);
 }
 
 function addSuppression(db, email, reason) {
-  const clean = String(email || '').trim().toLowerCase();
+  const clean = String(email || '')
+    .trim()
+    .toLowerCase();
   if (!isValidEmail(clean)) throw new Error('Invalid email address');
   const r = String(reason || 'do-not-contact');
-  if (!SUPPRESSION_REASONS.includes(r)) throw new Error(`Invalid reason (expected one of ${SUPPRESSION_REASONS.join(', ')})`);
+  if (!SUPPRESSION_REASONS.includes(r))
+    throw new Error(`Invalid reason (expected one of ${SUPPRESSION_REASONS.join(', ')})`);
   db.prepare('INSERT OR IGNORE INTO suppression_list (email, reason) VALUES (?, ?)').run(clean, r);
   // Anything still queued for this address must never send.
-  const upd = db.prepare(
-    `UPDATE campaign_messages SET status = 'suppressed', error = ?
+  const upd = db
+    .prepare(
+      `UPDATE campaign_messages SET status = 'suppressed', error = ?
      WHERE lower(to_email) = ? AND status = 'queued'`
-  ).run(`suppressed: ${r}`, clean);
+    )
+    .run(`suppressed: ${r}`, clean);
   logActivity(db, 'compliance', `Suppression added: ${clean} (${r}); ${upd.changes} queued message(s) suppressed`);
   return { email: clean, reason: r, suppressedQueued: upd.changes };
 }
@@ -338,14 +377,16 @@ function resolveWebsiteLink(db, leadId) {
   if (!Number.isInteger(id) || id <= 0) return '';
   let site = null;
   try {
-    site = db.prepare(
-      `SELECT preview_url, preview_path, custom_domain FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1`
-    ).get(id);
+    site = db
+      .prepare(
+        `SELECT preview_url, preview_path, custom_domain FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1`
+      )
+      .get(id);
   } catch {
     try {
-      site = db.prepare(
-        `SELECT preview_url, preview_path FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1`
-      ).get(id);
+      site = db
+        .prepare(`SELECT preview_url, preview_path FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1`)
+        .get(id);
     } catch {
       return '';
     }
@@ -359,8 +400,7 @@ function resolveWebsiteLink(db, leadId) {
   const appBase = String(process.env.APP_URL || '').replace(/\/$/, '');
   if (!appBase || !site.preview_path) return '';
   const p = String(site.preview_path).replace(/\\/g, '/');
-  const m = p.match(/website-scout-exports\/([^/]+)/i)
-    || p.match(/\/([^/]+-site-[^/]+)\/?$/i);
+  const m = p.match(/website-scout-exports\/([^/]+)/i) || p.match(/\/([^/]+-site-[^/]+)\/?$/i);
   if (m) return `${appBase}/site-previews/${m[1]}/`;
   const parts = p.split('/').filter(Boolean);
   const last = parts[parts.length - 1];
@@ -378,14 +418,11 @@ function interestLinkSecret() {
   if (secret && secret !== 'dev-change-me') return secret;
   // Refuse the hardcoded dev fallback on real public hosts (forging risk).
   const app = String(process.env.APP_URL || '');
-  const publicHost = app
-    && !/localhost|127\.0\.0\.1/i.test(app)
-    && /^https?:\/\//i.test(app);
+  const publicHost = app && !/localhost|127\.0\.0\.1/i.test(app) && /^https?:\/\//i.test(app);
   if (publicHost || process.env.NODE_ENV === 'production') {
-    throw Object.assign(
-      new Error('SESSION_SECRET (or OUTREACH_LINK_SECRET) must be set for interest response links'),
-      { code: 'MISCONFIGURED' }
-    );
+    throw Object.assign(new Error('SESSION_SECRET (or OUTREACH_LINK_SECRET) must be set for interest response links'), {
+      code: 'MISCONFIGURED',
+    });
   }
   return secret || 'dev-change-me';
 }
@@ -438,15 +475,9 @@ function verifyInterestToken(token) {
   }
   const workspaceId = Number(payload.w);
   const leadId = Number(payload.l);
-  const action = payload.a === 'u'
-    ? 'uninterested'
-    : payload.a === 'c'
-      ? 'claim'
-      : payload.a === 'i'
-        ? 'interested'
-        : null;
-  if (!Number.isInteger(workspaceId) || workspaceId <= 0
-    || !Number.isInteger(leadId) || leadId <= 0 || !action) {
+  const action =
+    payload.a === 'u' ? 'uninterested' : payload.a === 'c' ? 'claim' : payload.a === 'i' ? 'interested' : null;
+  if (!Number.isInteger(workspaceId) || workspaceId <= 0 || !Number.isInteger(leadId) || leadId <= 0 || !action) {
     throw Object.assign(new Error('Invalid response link'), { code: 'INVALID_TOKEN' });
   }
   return { workspaceId, leadId, action };
@@ -484,30 +515,27 @@ function buildInterestAnchor(workspaceId, leadId, action) {
 function applyInterestResponse(db, leadId, action) {
   const id = Number(leadId);
   if (!Number.isInteger(id) || id <= 0) throw new Error('Invalid leadId');
-  const lead = db.prepare(
-    'SELECT id, business_name, email, status FROM leads WHERE id = ?'
-  ).get(id);
+  const lead = db.prepare('SELECT id, business_name, email, status FROM leads WHERE id = ?').get(id);
   if (!lead) throw Object.assign(new Error('Lead not found'), { code: 'NOT_FOUND' });
 
   const act = action === 'uninterested' ? 'uninterested' : 'interested';
   const eventType = act === 'uninterested' ? 'email.uninterested' : 'email.interested';
-  const prior = db.prepare(
-    'SELECT id FROM prospect_events WHERE lead_id = ? AND type = ? LIMIT 1'
-  ).get(id, eventType);
+  const prior = db.prepare('SELECT id FROM prospect_events WHERE lead_id = ? AND type = ? LIMIT 1').get(id, eventType);
   const already = !!prior;
 
   if (act === 'interested') {
     if (!['claimed', 'trial', 'customer'].includes(lead.status)) {
-      db.prepare(
-        `UPDATE leads SET status = 'engaged', updated_at = datetime('now') WHERE id = ?`
-      ).run(id);
+      db.prepare(`UPDATE leads SET status = 'engaged', updated_at = datetime('now') WHERE id = ?`).run(id);
     }
     if (!prior) {
       recordIntent(db, id, 'email.interested', 'Clicked interested link in outreach email');
     }
     const statusRow = db.prepare('SELECT status FROM leads WHERE id = ?').get(id);
-    logActivity(db, 'outreach',
-      `${already ? 'Re-click' : 'Click'} interested: ${lead.business_name} (#${id}) → ${statusRow.status}`);
+    logActivity(
+      db,
+      'outreach',
+      `${already ? 'Re-click' : 'Click'} interested: ${lead.business_name} (#${id}) → ${statusRow.status}`
+    );
     return {
       action: act,
       leadId: id,
@@ -519,20 +547,24 @@ function applyInterestResponse(db, leadId, action) {
 
   // uninterested
   if (lead.status !== 'customer') {
-    db.prepare(
-      `UPDATE leads SET status = 'lost', updated_at = datetime('now') WHERE id = ?`
-    ).run(id);
+    db.prepare(`UPDATE leads SET status = 'lost', updated_at = datetime('now') WHERE id = ?`).run(id);
   }
   if (!prior) {
     recordIntent(db, id, 'email.uninterested', 'Clicked not-interested link in outreach email');
   }
   if (lead.email) {
-    try { addSuppression(db, lead.email, 'do-not-contact'); }
-    catch { /* already suppressed or invalid — ignore */ }
+    try {
+      addSuppression(db, lead.email, 'do-not-contact');
+    } catch {
+      /* already suppressed or invalid — ignore */
+    }
   }
   const statusRow = db.prepare('SELECT status FROM leads WHERE id = ?').get(id);
-  logActivity(db, 'outreach',
-    `${already ? 'Re-click' : 'Click'} not interested: ${lead.business_name} (#${id}) → ${statusRow.status}`);
+  logActivity(
+    db,
+    'outreach',
+    `${already ? 'Re-click' : 'Click'} not interested: ${lead.business_name} (#${id}) → ${statusRow.status}`
+  );
   return {
     action: act,
     leadId: id,
@@ -549,21 +581,20 @@ function applyInterestResponse(db, leadId, action) {
  *   popup may re-show on a future visit (session hide only on the client)
  */
 function applyClaimResponse(db, leadId, action) {
-  const raw = String(action || '').toLowerCase().trim();
+  const raw = String(action || '')
+    .toLowerCase()
+    .trim();
   if (raw === 'later' || raw === 'deferred' || raw === 'maybe' || raw === 'maybe_later') {
     const id = Number(leadId);
     if (!Number.isInteger(id) || id <= 0) throw new Error('Invalid leadId');
-    const lead = db.prepare(
-      'SELECT id, business_name, status FROM leads WHERE id = ?'
-    ).get(id);
+    const lead = db.prepare('SELECT id, business_name, status FROM leads WHERE id = ?').get(id);
     if (!lead) throw Object.assign(new Error('Lead not found'), { code: 'NOT_FOUND' });
-    const priorCount = db.prepare(
-      `SELECT COUNT(*) AS c FROM prospect_events WHERE lead_id = ? AND type = 'claim.later'`
-    ).get(id);
+    const priorCount = db
+      .prepare(`SELECT COUNT(*) AS c FROM prospect_events WHERE lead_id = ? AND type = 'claim.later'`)
+      .get(id);
     const already = Number(priorCount && priorCount.c) > 0;
     recordIntent(db, id, 'claim.later', 'Chose Maybe later on claim popup');
-    logActivity(db, 'outreach',
-      `Claim later: ${lead.business_name} (#${id}) → ${lead.status}`);
+    logActivity(db, 'outreach', `Claim later: ${lead.business_name} (#${id}) → ${lead.status}`);
     return {
       action: 'later',
       leadId: id,
@@ -574,16 +605,16 @@ function applyClaimResponse(db, leadId, action) {
     };
   }
   const act = raw === 'uninterested' || raw === 'no' ? 'uninterested' : 'interested';
-  const detailNote = act === 'uninterested'
-    ? 'Chose No on claim popup'
-    : 'Chose Yes on claim popup';
+  const detailNote = act === 'uninterested' ? 'Chose No on claim popup' : 'Chose Yes on claim popup';
   const result = applyInterestResponse(db, leadId, act);
   // Prefer claim-specific activity wording when coming from the claim UI
   // (applyInterestResponse already logged email-link style; keep return shape).
   if (!result.already) {
     try {
       logActivity(db, 'outreach', `${detailNote}: ${result.businessName} (#${result.leadId}) → ${result.status}`);
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
   }
   return result;
 }
@@ -605,7 +636,9 @@ function personalizeExtras(db, leadId, fromName, opts = {}) {
       forSms: !!(opts && opts.forSms),
     });
     Object.assign(out, shots);
-  } catch { /* screenshots optional */ }
+  } catch {
+    /* screenshots optional */
+  }
   return out;
 }
 
@@ -620,9 +653,7 @@ function saveTemplate(db, { id, name, subject, body, sms_body, smsBody, channel 
 
   let cleanBody = String(body == null ? '' : body).trim();
   let cleanSubject = String(subject == null ? '' : subject).trim();
-  let cleanSms = plainSmsBody(
-    sms_body != null ? sms_body : (smsBody != null ? smsBody : '')
-  );
+  let cleanSms = plainSmsBody(sms_body != null ? sms_body : smsBody != null ? smsBody : '');
 
   // Backward compat: old SMS-only save shape.
   if (String(channel || '').toLowerCase() === 'sms' && !cleanSms) {
@@ -634,7 +665,10 @@ function saveTemplate(db, { id, name, subject, body, sms_body, smsBody, channel 
   if (cleanBody && looksLikeHtml(cleanBody)) cleanBody = sanitizeEmailHtml(cleanBody);
   if (cleanSms.length > 1600) throw new Error('SMS body must be 1600 characters or fewer');
 
-  const hasEmail = !!String(cleanBody || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  const hasEmail = !!String(cleanBody || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   const hasSms = !!cleanSms;
   if (!hasEmail && !hasSms) throw new Error('Provide an email body and/or SMS body');
   if (hasEmail && !cleanSubject) throw new Error('Template subject is required');
@@ -643,18 +677,22 @@ function saveTemplate(db, { id, name, subject, body, sms_body, smsBody, channel 
   if (id) {
     const n = Number(id);
     if (!Number.isInteger(n) || n <= 0) throw new Error('Invalid template id');
-    const res = db.prepare(
-      `UPDATE email_templates
+    const res = db
+      .prepare(
+        `UPDATE email_templates
        SET name = ?, subject = ?, body = ?, sms_body = ?, channel = 'email'
        WHERE id = ?`
-    ).run(cleanName, cleanSubject, cleanBody, cleanSms, n);
+      )
+      .run(cleanName, cleanSubject, cleanBody, cleanSms, n);
     if (!res.changes) throw new Error('Template not found');
     return { id: n, hasEmail, hasSms };
   }
-  const res = db.prepare(
-    `INSERT INTO email_templates (name, subject, body, sms_body, channel)
+  const res = db
+    .prepare(
+      `INSERT INTO email_templates (name, subject, body, sms_body, channel)
      VALUES (?, ?, ?, ?, 'email')`
-  ).run(cleanName, cleanSubject, cleanBody, cleanSms);
+    )
+    .run(cleanName, cleanSubject, cleanBody, cleanSms);
   return { id: Number(res.lastInsertRowid), hasEmail, hasSms };
 }
 
@@ -678,7 +716,9 @@ function listCampaigns(db, opts = {}) {
   const { pageArgs, pageResult } = require('./paginate');
   const { page, pageSize, offset } = pageArgs(opts, { pageSize: 25, maxSize: 100 });
   const total = db.prepare('SELECT COUNT(*) AS c FROM campaigns').get().c;
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT c.*,
       (SELECT COUNT(*) FROM campaign_messages m WHERE m.campaign_id = c.id AND m.status = 'queued') AS queued,
       (SELECT COUNT(*) FROM campaign_messages m WHERE m.campaign_id = c.id AND m.status = 'sent') AS sent,
@@ -686,22 +726,27 @@ function listCampaigns(db, opts = {}) {
       (SELECT COUNT(*) FROM campaign_messages m WHERE m.campaign_id = c.id AND m.status = 'suppressed') AS suppressed
     FROM campaigns c ORDER BY c.created_at DESC
     LIMIT ? OFFSET ?
-  `).all(pageSize, offset);
+  `
+    )
+    .all(pageSize, offset);
   return pageResult(rows, total, page, pageSize);
 }
 
 function cancelQueuedMessages(db, campaignId) {
-  const upd = db.prepare(
-    `UPDATE campaign_messages SET status = 'suppressed', error = ?
+  const upd = db
+    .prepare(
+      `UPDATE campaign_messages SET status = 'suppressed', error = ?
      WHERE campaign_id = ? AND status = 'queued'`
-  ).run('campaign cancelled', campaignId);
+    )
+    .run('campaign cancelled', campaignId);
   return upd.changes;
 }
 
 function setCampaignStatus(db, id, status) {
   const n = Number(id);
   if (!Number.isInteger(n) || n <= 0) throw new Error('Invalid campaign id');
-  if (!CAMPAIGN_STATUSES.includes(status)) throw new Error(`Invalid status (expected one of ${CAMPAIGN_STATUSES.join(', ')})`);
+  if (!CAMPAIGN_STATUSES.includes(status))
+    throw new Error(`Invalid status (expected one of ${CAMPAIGN_STATUSES.join(', ')})`);
   const row = db.prepare('SELECT status FROM campaigns WHERE id = ?').get(n);
   if (!row) throw new Error('Campaign not found');
   if (row.status === 'cancelled' && status !== 'cancelled') {
@@ -713,7 +758,11 @@ function setCampaignStatus(db, id, status) {
     if (status === 'cancelled') cancelledQueued = cancelQueuedMessages(db, n);
   });
   run();
-  logActivity(db, 'outreach', `Campaign ${n} → ${status}` + (cancelledQueued ? ` (${cancelledQueued} queued cancelled)` : ''));
+  logActivity(
+    db,
+    'outreach',
+    `Campaign ${n} → ${status}` + (cancelledQueued ? ` (${cancelledQueued} queued cancelled)` : '')
+  );
   return { id: n, status, cancelledQueued };
 }
 
@@ -744,15 +793,18 @@ function listMessages(db, campaignId, status, opts = {}) {
   const { page, pageSize, offset } = pageArgs(opts, { pageSize: 50, maxSize: 200 });
   let where = 'WHERE m.campaign_id = ?';
   const params = [n];
-  if (status) { where += ' AND m.status = ?'; params.push(status); }
-  const total = db.prepare(
-    `SELECT COUNT(*) AS c FROM campaign_messages m ${where}`
-  ).get(...params).c;
-  const rows = db.prepare(
-    `SELECT m.*, l.business_name FROM campaign_messages m
+  if (status) {
+    where += ' AND m.status = ?';
+    params.push(status);
+  }
+  const total = db.prepare(`SELECT COUNT(*) AS c FROM campaign_messages m ${where}`).get(...params).c;
+  const rows = db
+    .prepare(
+      `SELECT m.*, l.business_name FROM campaign_messages m
      LEFT JOIN leads l ON l.id = m.lead_id ${where}
      ORDER BY m.scheduled_at ASC, m.id ASC LIMIT ? OFFSET ?`
-  ).all(...params, pageSize, offset);
+    )
+    .all(...params, pageSize, offset);
   return pageResult(rows, total, page, pageSize);
 }
 
@@ -801,31 +853,48 @@ function createCampaign(db, { name, templateId, leadIds, ratePerHour, workspaceI
   if (!uniqueIds.length) throw new Error('No valid lead ids');
 
   const insertCampaign = db.prepare(
-    'INSERT INTO campaigns (name, template_id, status, rate_per_hour) VALUES (?, ?, \'active\', ?)'
+    "INSERT INTO campaigns (name, template_id, status, rate_per_hour) VALUES (?, ?, 'active', ?)"
   );
   const hasMediaCol = tableHasColumn(db, 'campaign_messages', 'media_url');
   const insertMsg = hasMediaCol
     ? db.prepare(
-      `INSERT INTO campaign_messages
+        `INSERT INTO campaign_messages
          (campaign_id, lead_id, to_email, subject, body, status, scheduled_at, error, channel, to_phone, media_url, send_mode)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
+      )
     : db.prepare(
-      `INSERT INTO campaign_messages
+        `INSERT INTO campaign_messages
          (campaign_id, lead_id, to_email, subject, body, status, scheduled_at, error, channel, to_phone)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    );
+      );
   const runInsert = (args) => {
     if (hasMediaCol) {
       return insertMsg.run(
-        args.campaignId, args.leadId, args.toEmail, args.subject, args.body,
-        args.status, args.scheduledAt, args.error, args.channel, args.toPhone,
-        args.mediaUrl || null, args.sendMode || null
+        args.campaignId,
+        args.leadId,
+        args.toEmail,
+        args.subject,
+        args.body,
+        args.status,
+        args.scheduledAt,
+        args.error,
+        args.channel,
+        args.toPhone,
+        args.mediaUrl || null,
+        args.sendMode || null
       );
     }
     return insertMsg.run(
-      args.campaignId, args.leadId, args.toEmail, args.subject, args.body,
-      args.status, args.scheduledAt, args.error, args.channel, args.toPhone
+      args.campaignId,
+      args.leadId,
+      args.toEmail,
+      args.subject,
+      args.body,
+      args.status,
+      args.scheduledAt,
+      args.error,
+      args.channel,
+      args.toPhone
     );
   };
   const markOutreachPending = db.prepare(
@@ -853,7 +922,9 @@ function createCampaign(db, { name, templateId, leadIds, ratePerHour, workspaceI
       let marked = false;
 
       if (sendEmail) {
-        let toEmail = String(lead.email || '').trim().toLowerCase();
+        let toEmail = String(lead.email || '')
+          .trim()
+          .toLowerCase();
         let suppressReason = null;
         if (!toEmail || !isValidEmail(toEmail)) {
           suppressReason = 'no email address';
@@ -863,25 +934,40 @@ function createCampaign(db, { name, templateId, leadIds, ratePerHour, workspaceI
         }
         if (suppressReason) {
           runInsert({
-            campaignId, leadId, toEmail: toEmail || '(none)', subject: template.subject, body: template.body,
-            status: 'suppressed', scheduledAt: null, error: suppressReason, channel: 'email', toPhone: null,
+            campaignId,
+            leadId,
+            toEmail: toEmail || '(none)',
+            subject: template.subject,
+            body: template.body,
+            status: 'suppressed',
+            scheduledAt: null,
+            error: suppressReason,
+            channel: 'email',
+            toPhone: null,
           });
           suppressed++;
         } else {
-          let { subject, body } = personalize(
-            { subject: template.subject, body: template.body },
-            lead, facts, extras
-          );
+          let { subject, body } = personalize({ subject: template.subject, body: template.body }, lead, facts, extras);
           if (footer) body = `${body}\n\n${footer}`;
-          const scheduledAt = new Date(now + slot * spacingSec * 1000)
-            .toISOString().slice(0, 19).replace('T', ' ');
+          const scheduledAt = new Date(now + slot * spacingSec * 1000).toISOString().slice(0, 19).replace('T', ' ');
           slot++;
           runInsert({
-            campaignId, leadId, toEmail, subject, body,
-            status: 'queued', scheduledAt, error: null, channel: 'email', toPhone: null,
+            campaignId,
+            leadId,
+            toEmail,
+            subject,
+            body,
+            status: 'queued',
+            scheduledAt,
+            error: null,
+            channel: 'email',
+            toPhone: null,
           });
           queued++;
-          if (!marked) { markOutreachPending.run(leadId); marked = true; }
+          if (!marked) {
+            markOutreachPending.run(leadId);
+            marked = true;
+          }
         }
       }
 
@@ -890,30 +976,46 @@ function createCampaign(db, { name, templateId, leadIds, ratePerHour, workspaceI
         const toEmail = toPhone || '(no phone)';
         if (!toPhone) {
           runInsert({
-            campaignId, leadId, toEmail, subject: '(SMS)', body: smsSource || template.body,
-            status: 'suppressed', scheduledAt: null, error: 'no phone number', channel: 'sms', toPhone: null,
+            campaignId,
+            leadId,
+            toEmail,
+            subject: '(SMS)',
+            body: smsSource || template.body,
+            status: 'suppressed',
+            scheduledAt: null,
+            error: 'no phone number',
+            channel: 'sms',
+            toPhone: null,
           });
           suppressed++;
         } else {
-          let { subject, body } = personalize(
-            { subject: '(SMS)', body: smsSource },
-            lead, facts, smsExtras
-          );
+          let { subject, body } = personalize({ subject: '(SMS)', body: smsSource }, lead, facts, smsExtras);
           body = plainSmsBody(body);
           subject = subject || '(SMS)';
-          const mediaUrl = String(smsExtras.site_screenshot_media_url || smsExtras.site_screenshot_mms || '').trim() || null;
+          const mediaUrl =
+            String(smsExtras.site_screenshot_media_url || smsExtras.site_screenshot_mms || '').trim() || null;
           const wantsShot = /\{\{\s*site_screenshot(_mms|_url|_media_url)?\s*\}\}/i.test(smsSource || '');
-          const scheduledAt = new Date(now + slot * spacingSec * 1000)
-            .toISOString().slice(0, 19).replace('T', ' ');
+          const scheduledAt = new Date(now + slot * spacingSec * 1000).toISOString().slice(0, 19).replace('T', ' ');
           slot++;
           runInsert({
-            campaignId, leadId, toEmail, subject, body,
-            status: 'queued', scheduledAt, error: null, channel: 'sms', toPhone,
+            campaignId,
+            leadId,
+            toEmail,
+            subject,
+            body,
+            status: 'queued',
+            scheduledAt,
+            error: null,
+            channel: 'sms',
+            toPhone,
             mediaUrl: wantsShot ? mediaUrl : null,
             sendMode: wantsShot && mediaUrl ? 'mms_pending' : 'sms',
           });
           queued++;
-          if (!marked) { markOutreachPending.run(leadId); marked = true; }
+          if (!marked) {
+            markOutreachPending.run(leadId);
+            marked = true;
+          }
         }
       }
     }
@@ -921,8 +1023,12 @@ function createCampaign(db, { name, templateId, leadIds, ratePerHour, workspaceI
   });
 
   const campaignId = txn();
-  const chLabel = sendEmail && sendSms ? 'both' : (sendSms ? 'sms' : 'email');
-  logActivity(db, 'outreach', `Campaign "${cleanName}" (${chLabel}) launched: ${queued} queued, ${suppressed} suppressed (${rate}/hour)`);
+  const chLabel = sendEmail && sendSms ? 'both' : sendSms ? 'sms' : 'email';
+  logActivity(
+    db,
+    'outreach',
+    `Campaign "${cleanName}" (${chLabel}) launched: ${queued} queued, ${suppressed} suppressed (${rate}/hour)`
+  );
   return { id: campaignId, queued, suppressed, ratePerHour: rate, channel: chLabel };
 }
 
@@ -933,9 +1039,9 @@ function createCampaign(db, { name, templateId, leadIds, ratePerHour, workspaceI
 /** Emails successfully sent today (local date) — enforces the daily cap. */
 function sentTodayCount(db) {
   try {
-    return db.prepare(
-      `SELECT COUNT(*) AS c FROM email_events WHERE type = 'sent' AND date(at) = date('now', 'localtime')`
-    ).get().c;
+    return db
+      .prepare(`SELECT COUNT(*) AS c FROM email_events WHERE type = 'sent' AND date(at) = date('now', 'localtime')`)
+      .get().c;
   } catch {
     return 0;
   }
@@ -957,7 +1063,9 @@ async function processQueue(db) {
   const smsSettings = await resolveSmsSettings(settings);
   const smsProvider = getSmsProvider(smsSettings, db);
 
-  const due = db.prepare(`
+  const due = db
+    .prepare(
+      `
     SELECT m.*, c.rate_per_hour, c.name AS campaign_name
     FROM campaign_messages m
     JOIN campaigns c ON c.id = m.campaign_id
@@ -965,20 +1073,22 @@ async function processQueue(db) {
       AND (m.scheduled_at IS NULL OR m.scheduled_at <= datetime('now', 'localtime'))
     ORDER BY m.scheduled_at ASC, m.id ASC
     LIMIT 100
-  `).all();
+  `
+    )
+    .all();
 
-  const updateMsg = db.prepare(
-    'UPDATE campaign_messages SET status = ?, sent_at = ?, error = ? WHERE id = ?'
-  );
-  const insertEvent = db.prepare(
-    'INSERT INTO email_events (message_id, type, detail) VALUES (?, ?, ?)'
-  );
+  const updateMsg = db.prepare('UPDATE campaign_messages SET status = ?, sent_at = ?, error = ? WHERE id = ?');
+  const insertEvent = db.prepare('INSERT INTO email_events (message_id, type, detail) VALUES (?, ?, ?)');
   const markContacted = db.prepare(
     `UPDATE leads SET status = 'contacted', updated_at = datetime('now')
      WHERE id = ? AND status NOT IN ('engaged','claimed','trial','customer','lost')`
   );
 
-  let sent = 0, failed = 0, suppressed = 0, emailSent = 0, smsSent = 0;
+  let sent = 0,
+    failed = 0,
+    suppressed = 0,
+    emailSent = 0,
+    smsSent = 0;
 
   for (const msg of due) {
     if (isAutomationPaused(db)) {
@@ -986,7 +1096,11 @@ async function processQueue(db) {
       return { sent, failed, suppressed, emailSent, smsSent, aborted: 'automation_paused' };
     }
     if (sentTodayCount(db) >= dailyCap) {
-      logActivity(db, 'outreach', `Daily outreach cap reached (${dailyCap}/day); ${due.length - sent - failed - suppressed} message(s) left queued`);
+      logActivity(
+        db,
+        'outreach',
+        `Daily outreach cap reached (${dailyCap}/day); ${due.length - sent - failed - suppressed} message(s) left queued`
+      );
       return { sent, failed, suppressed, emailSent, smsSent, aborted: 'daily_cap' };
     }
 
@@ -1013,10 +1127,13 @@ async function processQueue(db) {
         // Per-lead personalization: if queued without media but template used screenshot vars, resolve now.
         if (!mediaUrl) {
           try {
-            const shot = require('./siteScreenshots').getCurrentMmsShot(db, msg.lead_id)
-              || require('./siteScreenshots').getCurrentEmailShot(db, msg.lead_id);
+            const shot =
+              require('./siteScreenshots').getCurrentMmsShot(db, msg.lead_id) ||
+              require('./siteScreenshots').getCurrentEmailShot(db, msg.lead_id);
             if (shot && shot.publicUrl) mediaUrl = shot.publicUrl;
-          } catch { /* optional */ }
+          } catch {
+            /* optional */
+          }
         }
         const smsResult = await smsProvider.send({
           to: phone,
@@ -1027,16 +1144,22 @@ async function processQueue(db) {
         if (tableHasColumn(db, 'campaign_messages', 'send_mode')) {
           try {
             db.prepare('UPDATE campaign_messages SET send_mode = ? WHERE id = ?').run(mode, msg.id);
-          } catch { /* */ }
+          } catch {
+            /* */
+          }
         }
         updateMsg.run('sent', new Date().toISOString().slice(0, 19).replace('T', ' '), null, msg.id);
-        const detail = mode === 'sms_fallback'
-          ? `sms via ${smsProvider.name} (MMS unsupported → text+link; ${String(smsResult.fallbackReason || '').slice(0, 120)})`
-          : `${mode} via ${smsProvider.name}`;
+        const detail =
+          mode === 'sms_fallback'
+            ? `sms via ${smsProvider.name} (MMS unsupported → text+link; ${String(smsResult.fallbackReason || '').slice(0, 120)})`
+            : `${mode} via ${smsProvider.name}`;
         insertEvent.run(msg.id, 'sent', detail);
         markContacted.run(msg.lead_id);
-        db.prepare('INSERT INTO prospect_events (lead_id, type, detail) VALUES (?, ?, ?)')
-          .run(msg.lead_id, mode === 'mms' ? 'mms.sent' : 'sms.sent', `campaign "${msg.campaign_name}" (${mode})`);
+        db.prepare('INSERT INTO prospect_events (lead_id, type, detail) VALUES (?, ?, ?)').run(
+          msg.lead_id,
+          mode === 'mms' ? 'mms.sent' : 'sms.sent',
+          `campaign "${msg.campaign_name}" (${mode})`
+        );
         sent++;
         smsSent++;
       } else {
@@ -1047,35 +1170,51 @@ async function processQueue(db) {
         updateMsg.run('sent', new Date().toISOString().slice(0, 19).replace('T', ' '), null, msg.id);
         insertEvent.run(msg.id, 'sent', `via ${emailProvider.name}`);
         markContacted.run(msg.lead_id);
-        db.prepare('INSERT INTO prospect_events (lead_id, type, detail) VALUES (?, ?, ?)')
-          .run(msg.lead_id, 'email.sent', `campaign "${msg.campaign_name}"`);
+        db.prepare('INSERT INTO prospect_events (lead_id, type, detail) VALUES (?, ?, ?)').run(
+          msg.lead_id,
+          'email.sent',
+          `campaign "${msg.campaign_name}"`
+        );
         sent++;
         emailSent++;
       }
     } catch (err) {
-      updateMsg.run('failed', null, String(err && err.message || err), msg.id);
-      insertEvent.run(msg.id, 'failed', String(err && err.message || err));
+      updateMsg.run('failed', null, String((err && err.message) || err), msg.id);
+      insertEvent.run(msg.id, 'failed', String((err && err.message) || err));
       try {
-        db.prepare('INSERT INTO prospect_events (lead_id, type, detail) VALUES (?, ?, ?)')
-          .run(msg.lead_id, channel === 'sms' ? 'sms.failed' : 'email.failed', String(err && err.message || err).slice(0, 500));
-      } catch { /* ignore */ }
+        db.prepare('INSERT INTO prospect_events (lead_id, type, detail) VALUES (?, ?, ?)').run(
+          msg.lead_id,
+          channel === 'sms' ? 'sms.failed' : 'email.failed',
+          String((err && err.message) || err).slice(0, 500)
+        );
+      } catch {
+        /* ignore */
+      }
       failed++;
     }
   }
 
   // Auto-complete campaigns with nothing left queued.
   try {
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE campaigns SET status = 'done'
       WHERE status = 'active' AND NOT EXISTS (
         SELECT 1 FROM campaign_messages m
         WHERE m.campaign_id = campaigns.id AND m.status = 'queued'
       )
-    `).run();
-  } catch { /* non-fatal */ }
+    `
+    ).run();
+  } catch {
+    /* non-fatal */
+  }
 
   if (sent || failed || suppressed) {
-    logActivity(db, 'outreach', `Queue processed: ${sent} sent (${emailSent} email, ${smsSent} sms), ${failed} failed, ${suppressed} suppressed`);
+    logActivity(
+      db,
+      'outreach',
+      `Queue processed: ${sent} sent (${emailSent} email, ${smsSent} sms), ${failed} failed, ${suppressed} suppressed`
+    );
   }
   return { sent, failed, suppressed, emailSent, smsSent };
 }
@@ -1085,8 +1224,20 @@ async function processQueue(db) {
 /* ------------------------------------------------------------------ */
 
 function getOutreachStats(db) {
-  const q = (sql, ...p) => { try { return db.prepare(sql).get(...p); } catch { return null; } };
-  const qa = (sql, ...p) => { try { return db.prepare(sql).all(...p); } catch { return []; } };
+  const q = (sql, ...p) => {
+    try {
+      return db.prepare(sql).get(...p);
+    } catch {
+      return null;
+    }
+  };
+  const qa = (sql, ...p) => {
+    try {
+      return db.prepare(sql).all(...p);
+    } catch {
+      return [];
+    }
+  };
   const msgByStatus = qa(`SELECT status, COUNT(*) AS c FROM campaign_messages GROUP BY status`);
   const eventsByType = qa(`SELECT type, COUNT(*) AS c FROM email_events GROUP BY type`);
   return {
@@ -1100,7 +1251,8 @@ function getOutreachStats(db) {
     templates: (q('SELECT COUNT(*) AS c FROM email_templates') || { c: 0 }).c,
     // Best-effort note: open/click tracking needs a hosted endpoint which a
     // desktop app does not have; counts below only reflect manually recorded events.
-    trackingNote: 'Open/click tracking is best-effort: this desktop app has no hosted tracking endpoint. Record opens/clicks manually via intent:record.',
+    trackingNote:
+      'Open/click tracking is best-effort: this desktop app has no hosted tracking endpoint. Record opens/clicks manually via intent:record.',
   };
 }
 
@@ -1111,24 +1263,38 @@ function getTimeline(db, leadId, opts = {}) {
   const limit = Math.min(200, Math.max(1, Number(opts.limit) || 100));
   const rows = [];
   try {
-    for (const r of db.prepare('SELECT at, type, detail FROM lead_events WHERE lead_id = ? ORDER BY at DESC, id DESC LIMIT ?').all(id, limit)) {
+    for (const r of db
+      .prepare('SELECT at, type, detail FROM lead_events WHERE lead_id = ? ORDER BY at DESC, id DESC LIMIT ?')
+      .all(id, limit)) {
       rows.push({ at: r.at, kind: 'lead', type: r.type, detail: r.detail });
     }
-  } catch { /* table may not exist in tests */ }
+  } catch {
+    /* table may not exist in tests */
+  }
   try {
-    for (const r of db.prepare('SELECT at, type, detail FROM prospect_events WHERE lead_id = ? ORDER BY at DESC, id DESC LIMIT ?').all(id, limit)) {
+    for (const r of db
+      .prepare('SELECT at, type, detail FROM prospect_events WHERE lead_id = ? ORDER BY at DESC, id DESC LIMIT ?')
+      .all(id, limit)) {
       rows.push({ at: r.at, kind: 'prospect', type: r.type, detail: r.detail });
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   try {
-    for (const r of db.prepare(`
+    for (const r of db
+      .prepare(
+        `
         SELECT e.at, e.type, e.detail FROM email_events e
         JOIN campaign_messages m ON m.id = e.message_id
         WHERE m.lead_id = ?
-        ORDER BY e.at DESC, e.id DESC LIMIT ?`).all(id, limit)) {
+        ORDER BY e.at DESC, e.id DESC LIMIT ?`
+      )
+      .all(id, limit)) {
       rows.push({ at: r.at, kind: 'email', type: r.type, detail: r.detail });
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   rows.sort((a, b) => String(b.at).localeCompare(String(a.at)));
   return rows.slice(0, limit);
 }
@@ -1172,9 +1338,10 @@ function pipelineBoard(db, opts = {}) {
   const columns = PIPELINE_COLUMNS.map((col) => {
     const ph = col.statuses.map(() => '?').join(',');
     const total = db.prepare(`SELECT COUNT(*) AS c FROM leads WHERE status IN (${ph})`).get(...col.statuses).c;
-    const leads = db.prepare(
-      `${leadSelect} WHERE l.status IN (${ph}) ORDER BY l.updated_at DESC LIMIT ?`
-    ).all(...col.statuses, perColumn).map(mapLead);
+    const leads = db
+      .prepare(`${leadSelect} WHERE l.status IN (${ph}) ORDER BY l.updated_at DESC LIMIT ?`)
+      .all(...col.statuses, perColumn)
+      .map(mapLead);
     return {
       key: col.key,
       title: col.title,
@@ -1191,22 +1358,23 @@ function pipelineBoard(db, opts = {}) {
   let unmappedTotal = 0;
   let unmapped = [];
   try {
-    unmappedTotal = db.prepare(
-      `SELECT COUNT(*) AS c FROM leads WHERE status NOT IN (${unmappedPh})`
-    ).get(...mapped).c;
+    unmappedTotal = db.prepare(`SELECT COUNT(*) AS c FROM leads WHERE status NOT IN (${unmappedPh})`).get(...mapped).c;
     if (unmappedTotal) {
       const room = Math.max(0, perColumn - columns[0].leads.length);
       if (room > 0) {
-        unmapped = db.prepare(
-          `${leadSelect} WHERE l.status NOT IN (${unmappedPh}) ORDER BY l.updated_at DESC LIMIT ?`
-        ).all(...mapped, room).map(mapLead);
+        unmapped = db
+          .prepare(`${leadSelect} WHERE l.status NOT IN (${unmappedPh}) ORDER BY l.updated_at DESC LIMIT ?`)
+          .all(...mapped, room)
+          .map(mapLead);
         columns[0].leads.push(...unmapped);
       }
       columns[0].total += unmappedTotal;
       columns[0].shown = columns[0].leads.length;
       columns[0].hasMore = columns[0].total > columns[0].leads.length;
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   return { columns, perColumn };
 }

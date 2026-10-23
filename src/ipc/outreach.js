@@ -57,7 +57,11 @@ function register(ipcMain, db) {
     return outreach.createCampaign(gdb(), {
       name: str(a.name, 'name', { max: 200 }),
       templateId: num(a.templateId, 'templateId'),
-      leadIds: Array.isArray(a.leadIds) ? a.leadIds.map((x) => num(x, 'leadId')) : (() => { throw new Error('leadIds must be an array'); })(),
+      leadIds: Array.isArray(a.leadIds)
+        ? a.leadIds.map((x) => num(x, 'leadId'))
+        : (() => {
+            throw new Error('leadIds must be an array');
+          })(),
       ratePerHour: a.ratePerHour === undefined ? 30 : Math.max(1, Math.min(1000, Number(a.ratePerHour) || 30)),
     });
   });
@@ -94,9 +98,10 @@ function register(ipcMain, db) {
       name: str(a.name, 'name', { max: 200 }),
       subject: a.subject == null ? '' : str(a.subject, 'subject', { max: 500 }),
       body: a.body == null ? '' : str(a.body, 'body', { max: 100000 }),
-      sms_body: a.sms_body == null && a.smsBody == null
-        ? ''
-        : str(a.sms_body != null ? a.sms_body : a.smsBody, 'sms_body', { max: 1600 }),
+      sms_body:
+        a.sms_body == null && a.smsBody == null
+          ? ''
+          : str(a.sms_body != null ? a.sms_body : a.smsBody, 'sms_body', { max: 1600 }),
     });
   });
 
@@ -129,11 +134,15 @@ function register(ipcMain, db) {
 
   ipcMain.handle('intent:record', (_e, args = {}) => {
     const a = args || {};
-    return outreach.recordIntent(gdb(), num(a.leadId, 'leadId'), str(a.type, 'type', { max: 60 }), str(a.detail || '', 'detail', { allowEmpty: true, max: 2000 }));
+    return outreach.recordIntent(
+      gdb(),
+      num(a.leadId, 'leadId'),
+      str(a.type, 'type', { max: 60 }),
+      str(a.detail || '', 'detail', { allowEmpty: true, max: 2000 })
+    );
   });
 
   ipcMain.handle('pipeline:board', (_e, args = {}) => outreach.pipelineBoard(gdb(), args || {}));
 }
-
 
 module.exports = { register };

@@ -34,30 +34,36 @@ const WEBHOOK_TIMEOUT_MS = 8000;
 function getSetting(db, key, def = '') {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-    if (row && row.value != null && String(row.value) !== '') return String(require('./secretBox').decryptSetting(key, row.value));
-  } catch { /* ignore */ }
+    if (row && row.value != null && String(row.value) !== '')
+      return String(require('./secretBox').decryptSetting(key, row.value));
+  } catch {
+    /* ignore */
+  }
   return def;
 }
 
 function logActivity(db, message) {
   try {
-    db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
-      'design',
-      String(message).slice(0, 2000)
-    );
-  } catch { /* logging must not break triggers */ }
+    db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run('design', String(message).slice(0, 2000));
+  } catch {
+    /* logging must not break triggers */
+  }
 }
 
 function resolveDbDir() {
   try {
     if (process.env.WS_DB_PATH) return path.dirname(path.resolve(process.env.WS_DB_PATH));
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   try {
     const electron = require('electron');
     if (electron && electron.app && typeof electron.app.getPath === 'function') {
       return electron.app.getPath('userData');
     }
-  } catch { /* MCP / plain Node */ }
+  } catch {
+    /* MCP / plain Node */
+  }
   return process.cwd();
 }
 
@@ -94,28 +100,36 @@ function lookupJobTitle(db, jobId) {
 /** JSON body for redesign/improvements/chatbot webhook POSTs. */
 function buildWebhookPayload(meta = {}) {
   const reason = String(meta.reason || '').slice(0, 80);
-  const jobId = meta.jobId != null && Number.isFinite(Number(meta.jobId))
-    ? Number(meta.jobId)
-    : (meta.job_id != null && Number.isFinite(Number(meta.job_id)) ? Number(meta.job_id) : null);
+  const jobId =
+    meta.jobId != null && Number.isFinite(Number(meta.jobId))
+      ? Number(meta.jobId)
+      : meta.job_id != null && Number.isFinite(Number(meta.job_id))
+        ? Number(meta.job_id)
+        : null;
   const status = String(meta.status || 'waiting_on_agent');
-  const title = meta.title != null && String(meta.title).trim()
-    ? String(meta.title).trim().slice(0, 300)
-    : null;
+  const title = meta.title != null && String(meta.title).trim() ? String(meta.title).trim().slice(0, 300) : null;
   return {
     job_id: jobId,
-    session_id: meta.sessionId != null && Number.isFinite(Number(meta.sessionId))
-      ? Number(meta.sessionId)
-      : (meta.session_id != null && Number.isFinite(Number(meta.session_id)) ? Number(meta.session_id) : null),
-    lead_id: meta.leadId != null && Number.isFinite(Number(meta.leadId))
-      ? Number(meta.leadId)
-      : (meta.lead_id != null && Number.isFinite(Number(meta.lead_id)) ? Number(meta.lead_id) : null),
-    request_kind: (reason === 'redesign' || reason === 'improvements') ? reason : null,
+    session_id:
+      meta.sessionId != null && Number.isFinite(Number(meta.sessionId))
+        ? Number(meta.sessionId)
+        : meta.session_id != null && Number.isFinite(Number(meta.session_id))
+          ? Number(meta.session_id)
+          : null,
+    lead_id:
+      meta.leadId != null && Number.isFinite(Number(meta.leadId))
+        ? Number(meta.leadId)
+        : meta.lead_id != null && Number.isFinite(Number(meta.lead_id))
+          ? Number(meta.lead_id)
+          : null,
+    request_kind: reason === 'redesign' || reason === 'improvements' ? reason : null,
     reason: reason || null,
     status,
     title,
-    mcp_hint: reason === 'chatbot'
-      ? 'Client MCP only: chatbot.pending / chatbot.next / chatbot.reply. Do not use admin design.* or lead.* tools.'
-      : (meta.mcpHint || null),
+    mcp_hint:
+      reason === 'chatbot'
+        ? 'Client MCP only: chatbot.pending / chatbot.next / chatbot.reply. Do not use admin design.* or lead.* tools.'
+        : meta.mcpHint || null,
     timestamp: meta.timestamp || new Date().toISOString(),
   };
 }
@@ -146,9 +160,12 @@ async function fireAgentWebhook(db, meta = {}, opts = {}) {
     return { ok: false, error: 'webhook URL must be http(s)' };
   }
 
-  const title = meta.title !== undefined
-    ? (meta.title != null && String(meta.title).trim() ? String(meta.title).trim().slice(0, 300) : null)
-    : lookupJobTitle(db, meta.jobId != null ? meta.jobId : meta.job_id);
+  const title =
+    meta.title !== undefined
+      ? meta.title != null && String(meta.title).trim()
+        ? String(meta.title).trim().slice(0, 300)
+        : null
+      : lookupJobTitle(db, meta.jobId != null ? meta.jobId : meta.job_id);
 
   const body = buildWebhookPayload({
     jobId: meta.jobId != null ? meta.jobId : meta.job_id,
@@ -204,9 +221,15 @@ function agentTriggerStatus(db) {
     if (fs.existsSync(filePath)) {
       fileExists = true;
       const raw = fs.readFileSync(filePath, 'utf8');
-      try { lastPayload = JSON.parse(raw); } catch { lastPayload = { raw: String(raw).slice(0, 500) }; }
+      try {
+        lastPayload = JSON.parse(raw);
+      } catch {
+        lastPayload = { raw: String(raw).slice(0, 500) };
+      }
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return {
     triggerFilePath: filePath,
     fileExists,
@@ -280,7 +303,11 @@ function runTriggerCommand(db, payload) {
 
     child.on('error', (e) => done({ ok: false, error: e.message || String(e) }));
     // Treat successful spawn as success; do not wait for exit (may be long-lived).
-    try { child.unref(); } catch { /* ignore */ }
+    try {
+      child.unref();
+    } catch {
+      /* ignore */
+    }
     setTimeout(() => done({ ok: true, command: expanded.slice(0, 200) }), 80);
   });
 }
@@ -299,20 +326,18 @@ function fireAgentTriggers(db, meta = {}) {
   const payload = {
     at: new Date().toISOString(),
     job_id: meta.jobId != null && Number.isFinite(Number(meta.jobId)) ? Number(meta.jobId) : null,
-    session_id: meta.sessionId != null && Number.isFinite(Number(meta.sessionId))
-      ? Number(meta.sessionId)
-      : null,
-    lead_id: meta.leadId != null && Number.isFinite(Number(meta.leadId))
-      ? Number(meta.leadId)
-      : null,
+    session_id: meta.sessionId != null && Number.isFinite(Number(meta.sessionId)) ? Number(meta.sessionId) : null,
+    lead_id: meta.leadId != null && Number.isFinite(Number(meta.leadId)) ? Number(meta.leadId) : null,
     reason,
     // Same vocabulary as design_jobs.request_kind when reason is redesign|improvements
-    request_kind: (reason === 'redesign' || reason === 'improvements') ? reason : null,
+    request_kind: reason === 'redesign' || reason === 'improvements' ? reason : null,
     status,
     message: String(meta.message || '').slice(0, 500),
-    mcp_hint: reason === 'chatbot'
-      ? (meta.mcpHint || 'Client MCP only: chatbot.pending / chatbot.next / chatbot.reply / chatbot.escalate. Never admin design.* / lead.* or workspace ws_ tokens.')
-      : 'Call design.next or design.pending',
+    mcp_hint:
+      reason === 'chatbot'
+        ? meta.mcpHint ||
+          'Client MCP only: chatbot.pending / chatbot.next / chatbot.reply / chatbot.escalate. Never admin design.* / lead.* or workspace ws_ tokens.'
+        : 'Call design.next or design.pending',
   };
 
   setImmediate(() => {
@@ -369,7 +394,9 @@ function fireAgentTriggers(db, meta = {}) {
       } catch (e) {
         logActivity(db, `Agent webhook failed: ${e.message || e}`);
       }
-    })().catch(() => { /* never surface */ });
+    })().catch(() => {
+      /* never surface */
+    });
   });
 }
 

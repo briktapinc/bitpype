@@ -59,10 +59,7 @@ async function confirmReset(rawToken, newPassword) {
     throw Object.assign(new Error('password must be at least 8 characters'), { code: 'WEAK_PASSWORD' });
   }
   const tokenHash = hashToken(rawToken);
-  const rows = await query(
-    'SELECT * FROM password_reset_tokens WHERE token_hash = :tokenHash LIMIT 1',
-    { tokenHash }
-  );
+  const rows = await query('SELECT * FROM password_reset_tokens WHERE token_hash = :tokenHash LIMIT 1', { tokenHash });
   const row = rows[0];
   if (!row) throw Object.assign(new Error('INVALID_TOKEN'), { code: 'INVALID_TOKEN' });
   if (row.used_at) throw Object.assign(new Error('TOKEN_USED'), { code: 'TOKEN_USED' });
@@ -82,10 +79,7 @@ async function confirmReset(rawToken, newPassword) {
   // Invalidate staff sessions for this user by parsing session JSON (never LIKE substrings).
   try {
     const uid = Number(row.user_id);
-    const candidates = await query(
-      `SELECT session_id, data FROM sessions WHERE data LIKE :pat`,
-      { pat: '%"userId"%' }
-    );
+    const candidates = await query(`SELECT session_id, data FROM sessions WHERE data LIKE :pat`, { pat: '%"userId"%' });
     for (const sess of candidates || []) {
       let parsed;
       try {

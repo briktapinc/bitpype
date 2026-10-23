@@ -11,19 +11,23 @@ for (const name of fs.readdirSync(root)) {
   if (!fs.existsSync(dbFile)) continue;
   const db = new Database(dbFile, { readonly: true });
   const leadCount = db.prepare('SELECT COUNT(*) AS c FROM leads').get().c;
-  const withEmail = db.prepare(
-    `SELECT COUNT(*) AS c FROM leads WHERE email IS NOT NULL AND trim(email) != ''`
-  ).get().c;
+  const withEmail = db.prepare(`SELECT COUNT(*) AS c FROM leads WHERE email IS NOT NULL AND trim(email) != ''`).get().c;
   let jobs = 0;
   let jobEmails = 0;
   try {
     jobs = db.prepare('SELECT COUNT(*) AS c FROM design_jobs').get().c;
-    jobEmails = db.prepare(
-      `SELECT COUNT(*) AS c FROM design_jobs WHERE contact_email IS NOT NULL AND trim(contact_email) != ''`
-    ).get().c;
-  } catch { /* */ }
+    jobEmails = db
+      .prepare(`SELECT COUNT(*) AS c FROM design_jobs WHERE contact_email IS NOT NULL AND trim(contact_email) != ''`)
+      .get().c;
+  } catch {
+    /* */
+  }
   let sites = 0;
-  try { sites = db.prepare('SELECT COUNT(*) AS c FROM websites').get().c; } catch { /* */ }
+  try {
+    sites = db.prepare('SELECT COUNT(*) AS c FROM websites').get().c;
+  } catch {
+    /* */
+  }
   const sample = db.prepare('SELECT id, business_name, email FROM leads ORDER BY id DESC LIMIT 5').all();
   console.log(JSON.stringify({ workspaceId: name, leadCount, withEmail, jobs, jobEmails, sites, sample }, null, 2));
   db.close();

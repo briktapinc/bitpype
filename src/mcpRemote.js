@@ -42,7 +42,10 @@ function isRunning() {
 }
 
 function status(db) {
-  const port = Math.min(65535, Math.max(1, Number(getSetting(db, 'mcp.http_port', String(DEFAULT_PORT))) || DEFAULT_PORT));
+  const port = Math.min(
+    65535,
+    Math.max(1, Number(getSetting(db, 'mcp.http_port', String(DEFAULT_PORT))) || DEFAULT_PORT)
+  );
   const token = getSetting(db, 'mcp.http_token', '');
   const publicUrl = getSetting(db, 'mcp.public_url', '').trim();
   return {
@@ -52,8 +55,8 @@ function status(db) {
     publicUrl,
     tokenSet: !!String(token).trim(),
     token: String(token).trim(),
-    startedAt: lastMeta && lastMeta.startedAt || null,
-    lastExit: lastMeta && lastMeta.lastExit || null,
+    startedAt: (lastMeta && lastMeta.startedAt) || null,
+    lastExit: (lastMeta && lastMeta.lastExit) || null,
   };
 }
 
@@ -142,7 +145,9 @@ function setPublicUrl(db, raw) {
       'mcp',
       n.value ? `MCP public URL set to ${n.value}` : 'MCP public URL cleared (using detected Tailscale host).'
     );
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return { publicUrl: n.value };
 }
 
@@ -176,14 +181,21 @@ function stop() {
   if (!child) return { stopped: true, wasRunning: false };
   const proc = child;
   child = null;
-  try { proc.kill(); } catch { /* ignore */ }
+  try {
+    proc.kill();
+  } catch {
+    /* ignore */
+  }
   return { stopped: true, wasRunning: true };
 }
 
 async function start(db) {
   if (isRunning()) return Object.assign({ ok: true, already: true }, status(db));
   const token = ensureToken(db);
-  const port = Math.min(65535, Math.max(1, Number(getSetting(db, 'mcp.http_port', String(DEFAULT_PORT))) || DEFAULT_PORT));
+  const port = Math.min(
+    65535,
+    Math.max(1, Number(getSetting(db, 'mcp.http_port', String(DEFAULT_PORT))) || DEFAULT_PORT)
+  );
   setSetting(db, 'mcp.http_port', String(port));
 
   const existingHealth = await healthCheck(port);
@@ -242,7 +254,9 @@ async function start(db) {
       'mcp',
       `HTTP MCP started on port ${port} (Tailscale-ready).`
     );
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return Object.assign({ ok: true, already: false, adopted: false }, status(db));
 }
 
@@ -259,22 +273,33 @@ async function rotateToken(db) {
 
 function healthCheck(port, token) {
   return new Promise((resolve) => {
-    const req = http.request({
-      host: '127.0.0.1',
-      port,
-      path: '/health',
-      method: 'GET',
-      timeout: 1500,
-    }, (res) => {
-      let raw = '';
-      res.on('data', (c) => { raw += c; });
-      res.on('end', () => {
-        try { resolve({ ok: res.statusCode === 200, body: JSON.parse(raw) }); }
-        catch { resolve({ ok: false, body: raw }); }
-      });
-    });
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        path: '/health',
+        method: 'GET',
+        timeout: 1500,
+      },
+      (res) => {
+        let raw = '';
+        res.on('data', (c) => {
+          raw += c;
+        });
+        res.on('end', () => {
+          try {
+            resolve({ ok: res.statusCode === 200, body: JSON.parse(raw) });
+          } catch {
+            resolve({ ok: false, body: raw });
+          }
+        });
+      }
+    );
     req.on('error', (e) => resolve({ ok: false, error: e.message }));
-    req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: 'timeout' }); });
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({ ok: false, error: 'timeout' });
+    });
     req.end();
     void token;
   });
@@ -292,28 +317,36 @@ function verifyMcpAuth(port, token) {
         clientInfo: { name: 'website-scout-probe', version: '0' },
       },
     });
-    const req = http.request({
-      host: '127.0.0.1',
-      port,
-      path: '/ws',
-      method: 'POST',
-      timeout: 2500,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json, text/event-stream',
-        'Content-Length': Buffer.byteLength(body),
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        path: '/ws',
+        method: 'POST',
+        timeout: 2500,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          'Content-Length': Buffer.byteLength(body),
+        },
       },
-    }, (res) => {
-      let raw = '';
-      res.on('data', (c) => { raw += c; });
-      res.on('end', () => {
-        const ok = res.statusCode === 200 && /"result"/.test(raw) && !/"error"/.test(raw);
-        resolve({ ok, statusCode: res.statusCode, body: raw.slice(0, 300) });
-      });
-    });
+      (res) => {
+        let raw = '';
+        res.on('data', (c) => {
+          raw += c;
+        });
+        res.on('end', () => {
+          const ok = res.statusCode === 200 && /"result"/.test(raw) && !/"error"/.test(raw);
+          resolve({ ok, statusCode: res.statusCode, body: raw.slice(0, 300) });
+        });
+      }
+    );
     req.on('error', (e) => resolve({ ok: false, error: e.message }));
-    req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: 'timeout' }); });
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({ ok: false, error: 'timeout' });
+    });
     req.write(body);
     req.end();
   });
@@ -335,7 +368,7 @@ async function waitForHealth(port, attempts = 25, delayMs = 160) {
 async function connectionInfo(db) {
   const baseHttp = status(db);
   const health = await healthCheck(baseHttp.port, baseHttp.token);
-  const listenerSource = baseHttp.running ? 'app' : (health.ok ? 'external' : null);
+  const listenerSource = baseHttp.running ? 'app' : health.ok ? 'external' : null;
   const httpStatus = Object.assign({}, baseHttp, {
     healthOk: !!health.ok,
     listening: !!(baseHttp.running || health.ok),
@@ -391,15 +424,19 @@ async function connectionInfo(db) {
     {
       title: 'VS Code (HTTP)',
       note: 'Same Streamable HTTP endpoint.',
-      body: JSON.stringify({
-        servers: {
-          'website-scout': {
-            type: 'http',
-            url: urls.mcp,
-            headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(
+        {
+          servers: {
+            'website-scout': {
+              type: 'http',
+              url: urls.mcp,
+              headers: { Authorization: `Bearer ${token}` },
+            },
           },
         },
-      }, null, 2),
+        null,
+        2
+      ),
     },
     {
       title: 'curl smoke test',

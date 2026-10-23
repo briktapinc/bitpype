@@ -8,7 +8,8 @@ const site = j.data.site;
 const theme = typeof site.theme === 'string' ? JSON.parse(site.theme) : site.theme;
 let pages = typeof site.pages === 'string' ? JSON.parse(site.pages) : site.pages;
 
-const re = /<div[^>]*>\s*<h3[^>]*>\s*(?:<span[^>]*>)?\s*New item\s*(?:<\/span>)?\s*<\/h3>\s*<p[^>]*>\s*(?:<span[^>]*>)?\s*This is a new item\s*(?:<\/span>)?\s*<\/p>\s*<\/div>/gi;
+const re =
+  /<div[^>]*>\s*<h3[^>]*>\s*(?:<span[^>]*>)?\s*New item\s*(?:<\/span>)?\s*<\/h3>\s*<p[^>]*>\s*(?:<span[^>]*>)?\s*This is a new item\s*(?:<\/span>)?\s*<\/p>\s*<\/div>/gi;
 
 pages = pages.map((pg) => {
   if (!pg.html) return pg;

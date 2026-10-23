@@ -12,12 +12,18 @@ const { openWorkspaceDb } = require('../server/workspaceDb');
 
 const workspaceId = Number(process.env.WS_ID || 1);
 const db = openWorkspaceDb(workspaceId);
-const cols = new Set(db.prepare('PRAGMA table_info(websites)').all().map((c) => c.name));
+const cols = new Set(
+  db
+    .prepare('PRAGMA table_info(websites)')
+    .all()
+    .map((c) => c.name)
+);
 
 let site = null;
 if (cols.has('name')) {
-  site = db.prepare(
-    `SELECT id, lead_id, name,
+  site = db
+    .prepare(
+      `SELECT id, lead_id, name,
             ${cols.has('cloudflare_url') ? 'cloudflare_url' : 'NULL AS cloudflare_url'},
             ${cols.has('preview_url') ? 'preview_url' : 'NULL AS preview_url'},
             ${cols.has('custom_domain') ? 'custom_domain' : 'NULL AS custom_domain'}
@@ -25,15 +31,18 @@ if (cols.has('name')) {
      WHERE id = ? OR name LIKE ?
      ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END
      LIMIT 1`
-  ).get(10, '%Delle%', 10);
+    )
+    .get(10, '%Delle%', 10);
 } else {
-  site = db.prepare(
-    `SELECT id, lead_id,
+  site = db
+    .prepare(
+      `SELECT id, lead_id,
             ${cols.has('cloudflare_url') ? 'cloudflare_url' : 'NULL AS cloudflare_url'},
             ${cols.has('preview_url') ? 'preview_url' : 'NULL AS preview_url'},
             ${cols.has('custom_domain') ? 'custom_domain' : 'NULL AS custom_domain'}
      FROM websites WHERE id = ?`
-  ).get(10);
+    )
+    .get(10);
 }
 
 if (!site) {
@@ -45,9 +54,7 @@ const pagesRow = db.prepare('SELECT pages FROM websites WHERE id = ?').get(site.
 const pages = JSON.parse(pagesRow.pages || '[]');
 const pageSummary = pages.map((p) => {
   const html = String(p.html || '');
-  const secHtml = (p.sections || [])
-    .map((s) => (s && s.content && s.content.html) || '')
-    .join('\n');
+  const secHtml = (p.sections || []).map((s) => (s && s.content && s.content.html) || '').join('\n');
   const blob = `${html}\n${secHtml}`;
   return {
     slug: p.slug,
@@ -58,34 +65,39 @@ const pageSummary = pages.map((p) => {
 
 let emb = null;
 try {
-  emb = db.prepare(
-    `SELECT id, module_type, published, embed_enabled,
+  emb = db
+    .prepare(
+      `SELECT id, module_type, published, embed_enabled,
             CASE WHEN public_token IS NOT NULL AND length(public_token) > 0 THEN 1 ELSE 0 END AS has_token
      FROM site_module_embeds
      WHERE lead_id = ? AND module_type = 'chatbot'`
-  ).get(site.lead_id);
+    )
+    .get(site.lead_id);
 } catch (e) {
   emb = { error: e.message };
 }
 
-console.log(JSON.stringify({
-  phase: 'pre-materialize',
-  siteId: site.id,
-  leadId: site.lead_id,
-  name: site.name || null,
-  cloudflare_url: site.cloudflare_url || null,
-  preview_url: site.preview_url || null,
-  custom_domain: site.custom_domain || null,
-  pages: pageSummary,
-  embed: emb,
-}, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      phase: 'pre-materialize',
+      siteId: site.id,
+      leadId: site.lead_id,
+      name: site.name || null,
+      cloudflare_url: site.cloudflare_url || null,
+      preview_url: site.preview_url || null,
+      custom_domain: site.custom_domain || null,
+      pages: pageSummary,
+      embed: emb,
+    },
+    null,
+    2
+  )
+);
 
 const exported = domain.materializeWebsiteExport(db, workspaceId, site.id);
 const exportDir = exported && (exported.dir || exported.outDir);
-const candidates = [
-  path.join(exportDir || '', 'index.html'),
-  exported && exported.path,
-].filter(Boolean);
+const candidates = [path.join(exportDir || '', 'index.html'), exported && exported.path].filter(Boolean);
 
 let indexHtml = '';
 let usedPath = null;

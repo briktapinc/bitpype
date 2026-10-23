@@ -11,28 +11,34 @@ const domain = require('../server/domain');
     process.exit(1);
   }
   const st = await domain.handsOffStatus(ws);
-  console.log('status', JSON.stringify({
-    workspaceId: ws,
-    enabled: st.enabled,
-    paused: st.automationPaused,
-    muse: st.museConfigured,
-    model: st.museModel,
-    lastRunAt: st.lastRunAt,
-    jobs: st.jobs,
-  }));
+  console.log(
+    'status',
+    JSON.stringify({
+      workspaceId: ws,
+      enabled: st.enabled,
+      paused: st.automationPaused,
+      muse: st.museConfigured,
+      model: st.museModel,
+      lastRunAt: st.lastRunAt,
+      jobs: st.jobs,
+    })
+  );
   const r = await domain.handsOffRunNow(ws, { force: true });
-  console.log('tick', JSON.stringify({
-    ok: r.ok,
-    skipped: r.skipped,
-    reason: r.reason,
-    discovered: r.discovered,
-    scored: r.scored,
-    designJobs: r.designJobs,
-    delivered: r.delivered,
-    published: r.published,
-    campaigns: r.campaigns,
-    errors: (r.errors || []).slice(0, 8),
-  }));
+  console.log(
+    'tick',
+    JSON.stringify({
+      ok: r.ok,
+      skipped: r.skipped,
+      reason: r.reason,
+      discovered: r.discovered,
+      scored: r.scored,
+      designJobs: r.designJobs,
+      delivered: r.delivered,
+      published: r.published,
+      campaigns: r.campaigns,
+      errors: (r.errors || []).slice(0, 8),
+    })
+  );
   process.exit(0);
 })().catch((e) => {
   console.error(e);

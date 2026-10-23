@@ -22,19 +22,20 @@ function apiRequest({ method, apiPath, token, body }) {
       headers['Content-Type'] = 'application/json';
       headers['Content-Length'] = bodyBuf.length;
     }
-    const req = https.request(
-      { host: 'api.cloudflare.com', path: apiPath, method, timeout: 45000, headers },
-      (res) => {
-        const chunks = [];
-        res.on('data', (c) => chunks.push(c));
-        res.on('end', () => {
-          const text = Buffer.concat(chunks).toString('utf8');
-          let json = null;
-          try { json = JSON.parse(text); } catch { /* */ }
-          resolve({ statusCode: res.statusCode, json, text: text.slice(0, 2000) });
-        });
-      }
-    );
+    const req = https.request({ host: 'api.cloudflare.com', path: apiPath, method, timeout: 45000, headers }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        let json = null;
+        try {
+          json = JSON.parse(text);
+        } catch {
+          /* */
+        }
+        resolve({ statusCode: res.statusCode, json, text: text.slice(0, 2000) });
+      });
+    });
     req.on('error', reject);
     if (bodyBuf) req.write(bodyBuf);
     req.end();
@@ -71,12 +72,18 @@ async function main() {
   if (!dbPath) throw new Error('No websitescout.db found');
   const db = new Database(dbPath);
   const token = ((db.prepare("SELECT value FROM settings WHERE key='cf.api_token'").get() || {}).value || '').trim();
-  const accountId = ((db.prepare("SELECT value FROM settings WHERE key='cf.account_id'").get() || {}).value || '').trim().toLowerCase();
+  const accountId = ((db.prepare("SELECT value FROM settings WHERE key='cf.account_id'").get() || {}).value || '')
+    .trim()
+    .toLowerCase();
   console.log('db', dbPath);
   console.log('account', accountId, 'tokenLen', token.length);
 
   const verify = await apiRequest({ method: 'GET', apiPath: '/client/v4/user/tokens/verify', token });
-  console.log('verify', verify.statusCode, JSON.stringify((verify.json && verify.json.result) || (verify.json && verify.json.errors)));
+  console.log(
+    'verify',
+    verify.statusCode,
+    JSON.stringify((verify.json && verify.json.result) || (verify.json && verify.json.errors))
+  );
 
   // Prefer account permission groups (for account-owned tokens)
   let groupsResp = await apiRequest({
@@ -110,10 +117,7 @@ async function main() {
   const policy = {
     effect: 'allow',
     resources: { [`com.cloudflare.api.account.${accountId}`]: '*' },
-    permission_groups: [
-      { id: picked.pagesWrite.id },
-      { id: picked.registrarWrite.id },
-    ],
+    permission_groups: [{ id: picked.pagesWrite.id }, { id: picked.registrarWrite.id }],
   };
 
   // Try account-owned token create first, then user token create
@@ -144,7 +148,9 @@ async function main() {
   const newToken = created.json && created.json.result && created.json.result.value;
   if (!newToken) {
     console.log('RESULT=CANNOT_CREATE_TOKEN');
-    console.log('Existing token cannot mint a Registrar-capable token. Create one in the Cloudflare dashboard and paste it into Settings → Cloudflare.');
+    console.log(
+      'Existing token cannot mint a Registrar-capable token. Create one in the Cloudflare dashboard and paste it into Settings → Cloudflare.'
+    );
     process.exit(3);
   }
 

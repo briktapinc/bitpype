@@ -67,7 +67,8 @@ function createParityTools(ctx) {
     },
 
     'lead.discover': {
-      description: 'Discover new leads via configured providers (Tavily etc.). Same as Discover in the app. Respects automation pause.',
+      description:
+        'Discover new leads via configured providers (Tavily etc.). Same as Discover in the app. Respects automation pause.',
       schema: {
         type: 'object',
         properties: {
@@ -86,19 +87,22 @@ function createParityTools(ctx) {
           limit = vInt(args.limit, { min: 1, max: 50 });
           if (isErr(limit) || limit == null) throw argError('limit must be 1â€“50.');
         }
-        const result = await runLeadEngine(() => engine.discoverLeads(db, {
-          category: optStr(args.category, 120),
-          location: optStr(args.location, 200),
-          limit,
-          provider: optStr(args.provider, 40),
-          group: optStr(args.group, 120),
-        }));
+        const result = await runLeadEngine(() =>
+          engine.discoverLeads(db, {
+            category: optStr(args.category, 120),
+            location: optStr(args.location, 200),
+            limit,
+            provider: optStr(args.provider, 40),
+            group: optStr(args.group, 120),
+          })
+        );
         return { ok: true, data: result };
       },
     },
 
     'lead.importCsv': {
-      description: 'Import leads from CSV text (same parser as the Leads page). Accepts GapScout exports (project, business, profile_url, location, score, opportunity, …). Max 1 MB.',
+      description:
+        'Import leads from CSV text (same parser as the Leads page). Accepts GapScout exports (project, business, profile_url, location, score, opportunity, …). Max 1 MB.',
       schema: {
         type: 'object',
         properties: {
@@ -112,9 +116,11 @@ function createParityTools(ctx) {
         const text = vStr(args.text, { max: 1048576, def: '' });
         if (isErr(text) || !String(text).trim()) throw argError('text is required.');
         const engine = require('./leadEngine');
-        const result = runLeadEngine(() => engine.importCsv(db, String(text), {
-          group: args.group != null ? args.group : args.lead_group,
-        }));
+        const result = runLeadEngine(() =>
+          engine.importCsv(db, String(text), {
+            group: args.group != null ? args.group : args.lead_group,
+          })
+        );
         return { ok: true, data: result };
       },
     },
@@ -192,8 +198,13 @@ function createParityTools(ctx) {
 
         if (action === 'delete') {
           for (const id of ids) {
-            try { engine.deleteLead(db, id); results.processed++; }
-            catch (e) { results.failed++; results.errors.push({ id, error: e.message }); }
+            try {
+              engine.deleteLead(db, id);
+              results.processed++;
+            } catch (e) {
+              results.failed++;
+              results.errors.push({ id, error: e.message });
+            }
           }
           return { ok: true, data: { bulk: results } };
         }
@@ -201,16 +212,26 @@ function createParityTools(ctx) {
           const status = optStr(args.value, 50);
           if (!status || !engine.LEAD_STATUSES.includes(status)) throw argError('valid status value is required.');
           for (const id of ids) {
-            try { engine.updateLead(db, id, { status }); results.processed++; }
-            catch (e) { results.failed++; results.errors.push({ id, error: e.message }); }
+            try {
+              engine.updateLead(db, id, { status });
+              results.processed++;
+            } catch (e) {
+              results.failed++;
+              results.errors.push({ id, error: e.message });
+            }
           }
           return { ok: true, data: { bulk: results } };
         }
         if (action === 'set_group') {
           const group = engine.normalizeGroupName(args.value);
           for (const id of ids) {
-            try { engine.updateLead(db, id, { lead_group: group }); results.processed++; }
-            catch (e) { results.failed++; results.errors.push({ id, error: e.message }); }
+            try {
+              engine.updateLead(db, id, { lead_group: group });
+              results.processed++;
+            } catch (e) {
+              results.failed++;
+              results.errors.push({ id, error: e.message });
+            }
           }
           return { ok: true, data: { bulk: results } };
         }
@@ -218,8 +239,13 @@ function createParityTools(ctx) {
           const category = optStr(args.value, 200);
           if (!category) throw argError('category value is required.');
           for (const id of ids) {
-            try { engine.updateLead(db, id, { category }); results.processed++; }
-            catch (e) { results.failed++; results.errors.push({ id, error: e.message }); }
+            try {
+              engine.updateLead(db, id, { category });
+              results.processed++;
+            } catch (e) {
+              results.failed++;
+              results.errors.push({ id, error: e.message });
+            }
           }
           return { ok: true, data: { bulk: results } };
         }
@@ -231,17 +257,26 @@ function createParityTools(ctx) {
               const lead = engine.getLead(db, id);
               if (!lead) throw new Error(`lead not found: ${id}`);
               const tags = new Set(lead.tags || []);
-              if (action === 'tag') tags.add(tag); else tags.delete(tag);
+              if (action === 'tag') tags.add(tag);
+              else tags.delete(tag);
               engine.updateLead(db, id, { tags: [...tags] });
               results.processed++;
-            } catch (e) { results.failed++; results.errors.push({ id, error: e.message }); }
+            } catch (e) {
+              results.failed++;
+              results.errors.push({ id, error: e.message });
+            }
           }
           return { ok: true, data: { bulk: results } };
         }
         if (action === 'research') {
           for (const id of ids) {
-            try { await engine.researchLead(db, id); results.processed++; }
-            catch (e) { results.failed++; results.errors.push({ id, error: e.message }); }
+            try {
+              await engine.researchLead(db, id);
+              results.processed++;
+            } catch (e) {
+              results.failed++;
+              results.errors.push({ id, error: e.message });
+            }
           }
           return { ok: true, data: { bulk: results } };
         }
@@ -251,7 +286,8 @@ function createParityTools(ctx) {
 
     // ----- Design job admin -----
     'design.update': {
-      description: 'Update a design job (title, instructions, contact_email, site_shape, status fields the app allows).',
+      description:
+        'Update a design job (title, instructions, contact_email, site_shape, status fields the app allows).',
       schema: {
         type: 'object',
         properties: {
@@ -338,7 +374,8 @@ function createParityTools(ctx) {
     },
 
     'design.emailDelivery': {
-      description: 'Email a non-website delivery (social/logo/etc.) via workspace SMTP. Same as Email delivery in the app.',
+      description:
+        'Email a non-website delivery (social/logo/etc.) via workspace SMTP. Same as Email delivery in the app.',
       schema: {
         type: 'object',
         properties: {
@@ -430,16 +467,21 @@ function createParityTools(ctx) {
         const { page, pageSize, offset } = pageArgs(args || {}, { pageSize: 25, maxSize: 100 });
         let where = '';
         const params = [];
-        if (args.status) { where = ' WHERE w.status = ?'; params.push(String(args.status)); }
+        if (args.status) {
+          where = ' WHERE w.status = ?';
+          params.push(String(args.status));
+        }
         const total = db.prepare(`SELECT COUNT(*) AS c FROM websites w${where}`).get(...params).c;
-        const rows = db.prepare(
-          `SELECT w.id, w.lead_id, w.name, w.industry, w.status, w.origin, w.updated_at,
+        const rows = db
+          .prepare(
+            `SELECT w.id, w.lead_id, w.name, w.industry, w.status, w.origin, w.updated_at,
                   l.business_name, l.category,
                   (SELECT COUNT(*) FROM website_versions v WHERE v.website_id = w.id) AS version_count
            FROM websites w LEFT JOIN leads l ON l.id = w.lead_id
            ${where}
            ORDER BY w.updated_at DESC LIMIT ? OFFSET ?`
-        ).all(...params, pageSize, offset);
+          )
+          .all(...params, pageSize, offset);
         return { ok: true, data: Object.assign({ sites: rows }, pageResult(rows, total, page, pageSize)) };
       },
     },
@@ -460,7 +502,8 @@ function createParityTools(ctx) {
     },
 
     'website.delete': {
-      description: 'Delete a website and purge its EXPORT_ROOT folders / screenshots. Does not delete remote Cloudflare Pages projects or design jobs (jobs are unlinked).',
+      description:
+        'Delete a website and purge its EXPORT_ROOT folders / screenshots. Does not delete remote Cloudflare Pages projects or design jobs (jobs are unlinked).',
       schema: {
         type: 'object',
         properties: { id: { type: 'integer', minimum: 1 } },
@@ -474,7 +517,8 @@ function createParityTools(ctx) {
     },
 
     'website.generate': {
-      description: 'Template-fallback website generate for a lead (not the agent path). Use website.create / design.deliver for agent sites. Pass fallback:true to overwrite an agent site.',
+      description:
+        'Template-fallback website generate for a lead (not the agent path). Use website.create / design.deliver for agent sites. Pass fallback:true to overwrite an agent site.',
       schema: {
         type: 'object',
         properties: {
@@ -493,7 +537,9 @@ function createParityTools(ctx) {
         engine.ensureTables(db);
         const existing = db.prepare('SELECT id, origin FROM websites WHERE lead_id = ?').get(leadId);
         if (existing && existing.origin === 'agent' && !fallback) {
-          throw argError('An agent already delivered this website. Pass fallback:true to overwrite with the template generator.');
+          throw argError(
+            'An agent already delivered this website. Pass fallback:true to overwrite with the template generator.'
+          );
         }
         const result = await engine.generateSite(db, leadId, { force: fallback ? true : force });
         return { ok: true, data: result };
@@ -501,7 +547,8 @@ function createParityTools(ctx) {
     },
 
     'website.qa': {
-      description: 'QA a custom or template site. Does NOT require template heroes. Grades: links, ≤1 form/page, export images + crop aspect, unique nav labels, no horizontal overflow at 390px, module-fit (appointment-intent pages need bookings module + ≥1 published service + hours), form-purpose-fields warning for free-text structured forms.',
+      description:
+        'QA a custom or template site. Does NOT require template heroes. Grades: links, ≤1 form/page, export images + crop aspect, unique nav labels, no horizontal overflow at 390px, module-fit (appointment-intent pages need bookings module + ≥1 published service + hours), form-purpose-fields warning for free-text structured forms.',
       schema: {
         type: 'object',
         properties: { id: { type: 'integer', minimum: 1 } },
@@ -527,7 +574,12 @@ function createParityTools(ctx) {
         const engine = require('./websiteEngine');
         const id = requireId(args.id, 'id');
         const site = engine.getWebsite(db, id);
-        const slug = String(site.name || 'site').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'site';
+        const slug =
+          String(site.name || 'site')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 60) || 'site';
         const dir = path.join(os.homedir(), 'website-scout-exports', `${slug}-${site.id}`);
         const out = engine.exportStatic(db, id, dir);
         return { ok: true, data: { path: out } };
@@ -535,7 +587,8 @@ function createParityTools(ctx) {
     },
 
     'website.postcard': {
-      description: 'Claim kit for a website: preview URL, signed claim Yes/No URL, QR data-URLs; includePdf for base64 postcard PDF. Does not require automation.',
+      description:
+        'Claim kit for a website: preview URL, signed claim Yes/No URL, QR data-URLs; includePdf for base64 postcard PDF. Does not require automation.',
       schema: {
         type: 'object',
         properties: {
@@ -565,7 +618,8 @@ function createParityTools(ctx) {
     },
 
     'lead.claimKit': {
-      description: 'Claim kit for a lead: site URL, claim URL, QRs; optional includePdf postcard. Same intent as interested/uninterested links.',
+      description:
+        'Claim kit for a lead: site URL, claim URL, QRs; optional includePdf postcard. Same intent as interested/uninterested links.',
       schema: {
         type: 'object',
         properties: {
@@ -631,7 +685,8 @@ function createParityTools(ctx) {
     },
 
     'design.generateLogo': {
-      description: 'Generate a site header logo (OpenAI Images, transparent PNG), attach to the design job, and apply to the linked website theme when possible. Respects automation pause.',
+      description:
+        'Generate a site header logo (OpenAI Images, transparent PNG), attach to the design job, and apply to the linked website theme when possible. Respects automation pause.',
       schema: {
         type: 'object',
         properties: {
@@ -664,15 +719,17 @@ function createParityTools(ctx) {
         let appliedToSite = false;
         let siteId = args.websiteId != null ? requireId(args.websiteId, 'websiteId') : result.websiteId;
         if (!siteId && result.leadId) {
-          const row = db.prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(result.leadId);
+          const row = db
+            .prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+            .get(result.leadId);
           if (row) siteId = row.id;
         }
         if (siteId && result.buffer) {
           const site = engine.getWebsite(db, siteId);
-          let pages = typeof site.pages === 'string' ? JSON.parse(site.pages || '[]') : (site.pages || []);
+          let pages = typeof site.pages === 'string' ? JSON.parse(site.pages || '[]') : site.pages || [];
           const theme = Object.assign(
             {},
-            typeof site.theme === 'string' ? JSON.parse(site.theme || '{}') : (site.theme || {})
+            typeof site.theme === 'string' ? JSON.parse(site.theme || '{}') : site.theme || {}
           );
           if (args.brandName) theme.brandName = String(args.brandName).slice(0, 120);
           const folder = `site-${siteId}`;
@@ -702,7 +759,8 @@ function createParityTools(ctx) {
     },
 
     'website.setLogo': {
-      description: 'Set site header logo: mode "text" or "image" with base64 data (max ~5.5MB). Cover-crops to transparent PNG.',
+      description:
+        'Set site header logo: mode "text" or "image" with base64 data (max ~5.5MB). Cover-crops to transparent PNG.',
       schema: {
         type: 'object',
         properties: {
@@ -722,17 +780,18 @@ function createParityTools(ctx) {
         const openPreview = require('./openPreview');
         let siteId = args.id != null ? requireId(args.id, 'id') : null;
         if (!siteId && args.leadId != null) {
-          const row = db.prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+          const row = db
+            .prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
             .get(requireId(args.leadId, 'leadId'));
           if (!row) throw argError('No website is available for this lead');
           siteId = row.id;
         }
         if (!siteId) throw argError('id or leadId is required.');
         const site = engine.getWebsite(db, siteId);
-        let pages = typeof site.pages === 'string' ? JSON.parse(site.pages || '[]') : (site.pages || []);
+        let pages = typeof site.pages === 'string' ? JSON.parse(site.pages || '[]') : site.pages || [];
         const theme = Object.assign(
           {},
-          typeof site.theme === 'string' ? JSON.parse(site.theme || '{}') : (site.theme || {})
+          typeof site.theme === 'string' ? JSON.parse(site.theme || '{}') : site.theme || {}
         );
         if (args.brandName != null) theme.brandName = String(args.brandName).trim().slice(0, 120);
         const mode = String(args.mode || (args.data ? 'image' : 'text')).toLowerCase();
@@ -741,8 +800,10 @@ function createParityTools(ctx) {
           theme.logoUrl = '';
           pages = logoProcess.clearLogoMarkupFromPages(pages);
         } else {
-          const dataB64 = String(args.data || '').replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '').replace(/\s+/g, '');
-          const maxB64 = Math.ceil(5.5 * 1024 * 1024 * 4 / 3) + 256;
+          const dataB64 = String(args.data || '')
+            .replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '')
+            .replace(/\s+/g, '');
+          const maxB64 = Math.ceil((5.5 * 1024 * 1024 * 4) / 3) + 256;
           if (!dataB64) throw argError('data (base64 image) is required for mode=image.');
           if (dataB64.length > maxB64) throw argError('Logo image is too large (max 5.5 MB).');
           const buffer = Buffer.from(dataB64, 'base64');
@@ -773,7 +834,8 @@ function createParityTools(ctx) {
     },
 
     'website.setTheme': {
-      description: 'Set website theme colors, fonts, customCss/customJs/customHead, favicon, and/or shared partials (headerHtml/footerHtml). Pass id or leadId.',
+      description:
+        'Set website theme colors, fonts, customCss/customJs/customHead, favicon, and/or shared partials (headerHtml/footerHtml). Pass id or leadId.',
       schema: {
         type: 'object',
         properties: {
@@ -823,12 +885,18 @@ function createParityTools(ctx) {
         if (args.baseCss != null) patch.baseCss = !!args.baseCss;
         if (args.partials && typeof args.partials === 'object') {
           patch.partials = {
-            headerHtml: args.partials.headerHtml != null
-              ? String(args.partials.headerHtml)
-              : (args.partials.header != null ? String(args.partials.header) : undefined),
-            footerHtml: args.partials.footerHtml != null
-              ? String(args.partials.footerHtml)
-              : (args.partials.footer != null ? String(args.partials.footer) : undefined),
+            headerHtml:
+              args.partials.headerHtml != null
+                ? String(args.partials.headerHtml)
+                : args.partials.header != null
+                  ? String(args.partials.header)
+                  : undefined,
+            footerHtml:
+              args.partials.footerHtml != null
+                ? String(args.partials.footerHtml)
+                : args.partials.footer != null
+                  ? String(args.partials.footer)
+                  : undefined,
           };
         }
         if (!Object.keys(patch).length) {
@@ -836,15 +904,16 @@ function createParityTools(ctx) {
         }
         let siteId = args.id != null ? requireId(args.id, 'id') : null;
         if (!siteId && args.leadId != null) {
-          const row = db.prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+          const row = db
+            .prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
             .get(requireId(args.leadId, 'leadId'));
           if (!row) throw argError('No website is available for this lead');
           siteId = row.id;
         }
         if (!siteId) throw argError('id or leadId is required.');
         const site = engine.getWebsite(db, siteId);
-        const pages = typeof site.pages === 'string' ? JSON.parse(site.pages || '[]') : (site.pages || []);
-        const oldTheme = typeof site.theme === 'string' ? JSON.parse(site.theme || '{}') : (site.theme || {});
+        const pages = typeof site.pages === 'string' ? JSON.parse(site.pages || '[]') : site.pages || [];
+        const oldTheme = typeof site.theme === 'string' ? JSON.parse(site.theme || '{}') : site.theme || {};
         const theme = Object.assign({}, oldTheme, patch);
         if (typeof theme.customCss === 'string' && theme.customCss) {
           let css = theme.customCss;
@@ -914,7 +983,8 @@ function createParityTools(ctx) {
     },
 
     'website.replaceImage': {
-      description: 'Replace a site image by replaceSrc under images/ or assets/: pass data (base64) or prompt (AI). Optional crop:{aspect,focalX,focalY,width?,height?} writes a server-cropped variant whose width/height match the CROP box. Pass id or leadId. Does not fetch remote URLs. assets/ filenames stay stable.',
+      description:
+        'Replace a site image by replaceSrc under images/ or assets/: pass data (base64) or prompt (AI). Optional crop:{aspect,focalX,focalY,width?,height?} writes a server-cropped variant whose width/height match the CROP box. Pass id or leadId. Does not fetch remote URLs. assets/ filenames stay stable.',
       schema: {
         type: 'object',
         properties: {
@@ -947,13 +1017,16 @@ function createParityTools(ctx) {
         const openPreview = require('./openPreview');
         let siteId = args.id != null ? requireId(args.id, 'id') : null;
         if (!siteId && args.leadId != null) {
-          const row = db.prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+          const row = db
+            .prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
             .get(requireId(args.leadId, 'leadId'));
           if (!row) throw argError('No website is available for this lead');
           siteId = row.id;
         }
         if (!siteId) throw argError('id or leadId is required.');
-        let replaceSrc = String(args.replaceSrc || args.src || '').trim().replace(/\\/g, '/');
+        let replaceSrc = String(args.replaceSrc || args.src || '')
+          .trim()
+          .replace(/\\/g, '/');
         if (!replaceSrc) throw argError('replaceSrc is required (e.g. images/hero.jpg or assets/photo.jpg).');
         if (replaceSrc.includes('..')) throw argError('Invalid replaceSrc.');
         replaceSrc = replaceSrc.replace(/^\.?\//, '');
@@ -967,8 +1040,10 @@ function createParityTools(ctx) {
         }
         let buffer;
         if (args.data) {
-          const dataB64 = String(args.data).replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '').replace(/\s+/g, '');
-          const maxB64 = Math.ceil(5.5 * 1024 * 1024 * 4 / 3) + 256;
+          const dataB64 = String(args.data)
+            .replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '')
+            .replace(/\s+/g, '');
+          const maxB64 = Math.ceil((5.5 * 1024 * 1024 * 4) / 3) + 256;
           if (dataB64.length > maxB64) throw argError('Image is too large (max 5.5 MB).');
           buffer = Buffer.from(dataB64, 'base64');
         } else if (args.prompt) {
@@ -1028,8 +1103,8 @@ function createParityTools(ctx) {
         const dest = path.join(imgDir, destName);
         fs.writeFileSync(dest, buffer);
         const site = engine.getWebsite(db, siteId);
-        let pages = typeof site.pages === 'string' ? JSON.parse(site.pages || '[]') : (site.pages || []);
-        const theme = typeof site.theme === 'string' ? JSON.parse(site.theme || '{}') : (site.theme || {});
+        let pages = typeof site.pages === 'string' ? JSON.parse(site.pages || '[]') : site.pages || [];
+        const theme = typeof site.theme === 'string' ? JSON.parse(site.theme || '{}') : site.theme || {};
         const from = replaceSrc;
         const to = `${folder}/${destName}`;
         const rewrite = (v) => {
@@ -1057,7 +1132,12 @@ function createParityTools(ctx) {
         const version = engine.saveSite(db, siteId, pages, theme, `MCP replaceImage ${to}`);
         // Rematerialize immediately so the next publish/screenshot is not one version behind.
         try {
-          const slug = String(site.name || 'site').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'site';
+          const slug =
+            String(site.name || 'site')
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-+|-+$/g, '')
+              .slice(0, 60) || 'site';
           const outDir = path.join(openPreview.exportRoot(), `${slug}-${siteId}`);
           engine.exportStatic(db, siteId, outDir);
         } catch (e) {
@@ -1080,7 +1160,8 @@ function createParityTools(ctx) {
     },
 
     'website.uploadAsset': {
-      description: 'Upload a stable site asset as assets/<filename> (images, fonts/woff2, video/mp4|webm, SVG). Filename is preserved â€” never renamed by optimize/replace. Pass data (base64), mimeType, filename. Optional setFavicon:true writes theme.favicon.',
+      description:
+        'Upload a stable site asset as assets/<filename> (images, fonts/woff2, video/mp4|webm, SVG). Filename is preserved â€” never renamed by optimize/replace. Pass data (base64), mimeType, filename. Optional setFavicon:true writes theme.favicon.',
       schema: {
         type: 'object',
         properties: {
@@ -1105,7 +1186,8 @@ function createParityTools(ctx) {
         let siteId = args.id != null ? requireId(args.id, 'id') : null;
         if (!siteId && args.websiteId != null) siteId = requireId(args.websiteId, 'websiteId');
         if (!siteId && args.leadId != null) {
-          const row = db.prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+          const row = db
+            .prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
             .get(requireId(args.leadId, 'leadId'));
           if (!row) throw argError('No website is available for this lead');
           siteId = row.id;
@@ -1119,13 +1201,16 @@ function createParityTools(ctx) {
         if (!allowedExt.test(filename)) {
           throw argError('filename must end with png/jpg/gif/webp/svg/ico/woff2/ttf/otf/mp4/webm');
         }
-        const allowedMime = /^(image\/(png|jpeg|jpg|gif|webp|svg\+xml|x-icon|vnd\.microsoft\.icon)|font\/(woff2?|ttf|otf)|application\/(font-woff2?|octet-stream)|video\/(mp4|webm))$/i;
+        const allowedMime =
+          /^(image\/(png|jpeg|jpg|gif|webp|svg\+xml|x-icon|vnd\.microsoft\.icon)|font\/(woff2?|ttf|otf)|application\/(font-woff2?|octet-stream)|video\/(mp4|webm))$/i;
         if (mime && !allowedMime.test(mime) && !/^application\/octet-stream$/i.test(mime)) {
           throw argError(`Unsupported mimeType: ${mime}`);
         }
-        const dataB64 = String(args.data).replace(/^data:[^;]+;base64,/, '').replace(/\s+/g, '');
+        const dataB64 = String(args.data)
+          .replace(/^data:[^;]+;base64,/, '')
+          .replace(/\s+/g, '');
         const maxBytes = /\.(mp4|webm)$/i.test(filename) ? 25 * 1024 * 1024 : 8 * 1024 * 1024;
-        const maxB64 = Math.ceil(maxBytes * 4 / 3) + 256;
+        const maxB64 = Math.ceil((maxBytes * 4) / 3) + 256;
         if (dataB64.length > maxB64) throw argError(`Asset too large (max ${Math.round(maxBytes / 1024 / 1024)} MB).`);
         const buffer = Buffer.from(dataB64, 'base64');
         if (!buffer.length) throw argError('Empty asset data');
@@ -1135,8 +1220,8 @@ function createParityTools(ctx) {
         fs.writeFileSync(dest, buffer);
         const url = `assets/${filename}`;
         const site = engine.getWebsite(db, siteId);
-        let theme = typeof site.theme === 'string' ? JSON.parse(site.theme || '{}') : (site.theme || {});
-        let pages = typeof site.pages === 'string' ? JSON.parse(site.pages || '[]') : (site.pages || []);
+        let theme = typeof site.theme === 'string' ? JSON.parse(site.theme || '{}') : site.theme || {};
+        let pages = typeof site.pages === 'string' ? JSON.parse(site.pages || '[]') : site.pages || [];
         if (args.setFavicon) {
           theme = Object.assign({}, theme, { favicon: url });
           engine.saveSite(db, siteId, pages, theme, `MCP uploadAsset favicon ${url}`);
@@ -1170,7 +1255,8 @@ function createParityTools(ctx) {
     },
 
     'website.screenshot': {
-      description: 'Capture a PNG screenshot of a site page at a viewport width (at least 390 and 1440). Pass id, path (e.g. index.html or about.html), width. Renders the latest saved pages locally by default (avoids stale CF preview_url); pass previewUrl to force a live URL. Also see site.screenshots.capture for batch home/services shots.',
+      description:
+        'Capture a PNG screenshot of a site page at a viewport width (at least 390 and 1440). Pass id, path (e.g. index.html or about.html), width. Renders the latest saved pages locally by default (avoids stale CF preview_url); pass previewUrl to force a live URL. Also see site.screenshots.capture for batch home/services shots.',
       schema: {
         type: 'object',
         properties: {
@@ -1203,7 +1289,8 @@ function createParityTools(ctx) {
     },
 
     'website.optimizeImages': {
-      description: 'Optimize all site images (resize â‰¤2400px, compress, WebP when safe). Pass id, websiteId, or leadId. Optional force.',
+      description:
+        'Optimize all site images (resize â‰¤2400px, compress, WebP when safe). Pass id, websiteId, or leadId. Optional force.',
       schema: {
         type: 'object',
         properties: {
@@ -1220,7 +1307,8 @@ function createParityTools(ctx) {
         let siteId = args.id != null ? requireId(args.id, 'id') : null;
         if (!siteId && args.websiteId != null) siteId = requireId(args.websiteId, 'websiteId');
         if (!siteId && args.leadId != null) {
-          const row = db.prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+          const row = db
+            .prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
             .get(requireId(args.leadId, 'leadId'));
           if (!row) throw argError('No website is available for this lead');
           siteId = row.id;
@@ -1252,7 +1340,11 @@ function createParityTools(ctx) {
         const site = engine.getWebsite(db, siteId);
         let pages = site.pages;
         if (typeof pages === 'string') {
-          try { pages = JSON.parse(pages || '[]'); } catch { pages = []; }
+          try {
+            pages = JSON.parse(pages || '[]');
+          } catch {
+            pages = [];
+          }
         }
         if (!Array.isArray(pages)) pages = [];
         const summary = structure.summarizeStructure(pages);
@@ -1287,7 +1379,11 @@ function createParityTools(ctx) {
         const site = engine.getWebsite(db, siteId);
         let pages = site.pages;
         if (typeof pages === 'string') {
-          try { pages = JSON.parse(pages || '[]'); } catch { pages = []; }
+          try {
+            pages = JSON.parse(pages || '[]');
+          } catch {
+            pages = [];
+          }
         }
         if (!Array.isArray(pages) || !pages.length) throw argError('No pages on this website');
         let result;
@@ -1305,13 +1401,24 @@ function createParityTools(ctx) {
           result = structure.reorderSections(pages, pageIndex, fromIndex, direction);
         }
         if (!result.changed) throw argError('Cannot move that item');
-        const theme = typeof site.theme === 'string'
-          ? (() => { try { return JSON.parse(site.theme || '{}'); } catch { return {}; } })()
-          : (site.theme || {});
-        const note = scope === 'menu'
-          ? (action === 'nest' || action === 'indent' ? 'MCP nested menu item'
-            : (action === 'unnest' || action === 'outdent' ? 'MCP unnested menu item' : 'MCP reordered menu'))
-          : 'MCP reordered sections';
+        const theme =
+          typeof site.theme === 'string'
+            ? (() => {
+                try {
+                  return JSON.parse(site.theme || '{}');
+                } catch {
+                  return {};
+                }
+              })()
+            : site.theme || {};
+        const note =
+          scope === 'menu'
+            ? action === 'nest' || action === 'indent'
+              ? 'MCP nested menu item'
+              : action === 'unnest' || action === 'outdent'
+                ? 'MCP unnested menu item'
+                : 'MCP reordered menu'
+            : 'MCP reordered sections';
         const version = engine.saveSite(db, siteId, result.pages, theme, note);
         const summary = structure.summarizeStructure(result.pages);
         logActivity('mcp', `website.structure.reorder site=${siteId} scope=${scope} action=${action}`);
@@ -1330,7 +1437,8 @@ function createParityTools(ctx) {
     },
 
     'website.addSection': {
-      description: 'Add a page section (Page â†’ Section â†’ Block). Use sectionType "section" for an empty container, or a block type (heading/text/image/html/columns/â€¦). cols=1..12. Prefer website.addBlock to nest into an existing section/cell.',
+      description:
+        'Add a page section (Page â†’ Section â†’ Block). Use sectionType "section" for an empty container, or a block type (heading/text/image/html/columns/â€¦). cols=1..12. Prefer website.addBlock to nest into an existing section/cell.',
       schema: {
         type: 'object',
         properties: {
@@ -1351,22 +1459,39 @@ function createParityTools(ctx) {
         const siteId = requireId(args.websiteId != null ? args.websiteId : args.id, 'id');
         const pageIndex = Number(args.pageIndex);
         const afterIndex = Number(args.afterIndex);
-        const sectionType = String(args.sectionType || args.type || 'section').trim().toLowerCase() || 'section';
+        const sectionType =
+          String(args.sectionType || args.type || 'section')
+            .trim()
+            .toLowerCase() || 'section';
         if (!Number.isInteger(pageIndex) || pageIndex < 0) throw argError('Invalid pageIndex');
         if (!Number.isInteger(afterIndex) || afterIndex < -1) throw argError('Invalid afterIndex');
         const site = engine.getWebsite(db, siteId);
         let pages = site.pages;
         if (typeof pages === 'string') {
-          try { pages = JSON.parse(pages || '[]'); } catch { pages = []; }
+          try {
+            pages = JSON.parse(pages || '[]');
+          } catch {
+            pages = [];
+          }
         }
         if (!Array.isArray(pages) || !pages.length) throw argError('No pages on this website');
         const cols = args.cols != null ? Number(args.cols) : undefined;
         const html = args.html != null ? String(args.html) : undefined;
         const result = structure.insertContentSection(pages, pageIndex, afterIndex, sectionType, { cols, html });
-        if (!result.changed) throw argError(result.reason === 'no_sections' ? 'Page has no modular sections' : 'Cannot insert that section');
-        const theme = typeof site.theme === 'string'
-          ? (() => { try { return JSON.parse(site.theme || '{}'); } catch { return {}; } })()
-          : (site.theme || {});
+        if (!result.changed)
+          throw argError(
+            result.reason === 'no_sections' ? 'Page has no modular sections' : 'Cannot insert that section'
+          );
+        const theme =
+          typeof site.theme === 'string'
+            ? (() => {
+                try {
+                  return JSON.parse(site.theme || '{}');
+                } catch {
+                  return {};
+                }
+              })()
+            : site.theme || {};
         const version = engine.saveSite(db, siteId, result.pages, theme, `MCP inserted ${sectionType}`);
         const summary = structure.summarizeStructure(result.pages);
         logActivity('mcp', `website.addSection site=${siteId} type=${sectionType}`);
@@ -1385,7 +1510,8 @@ function createParityTools(ctx) {
     },
 
     'website.addBlock': {
-      description: 'Add a block into a section (or columns cell). Types: heading, text, image, html, columns (cols 1â€“12), text_image, cards, module, form. Nesting: block in section; optional cellIndex for a layout cell.',
+      description:
+        'Add a block into a section (or columns cell). Types: heading, text, image, html, columns (cols 1â€“12), text_image, cards, module, form. Nesting: block in section; optional cellIndex for a layout cell.',
       schema: {
         type: 'object',
         properties: {
@@ -1413,14 +1539,20 @@ function createParityTools(ctx) {
         const siteId = requireId(args.websiteId != null ? args.websiteId : args.id, 'id');
         const pageIndex = Number(args.pageIndex);
         const sectionIndex = Number(args.sectionIndex);
-        let blockType = String(args.blockType || args.type || '').trim().toLowerCase();
+        let blockType = String(args.blockType || args.type || '')
+          .trim()
+          .toLowerCase();
         if (!blockType) throw argError('blockType is required');
         if (!Number.isInteger(pageIndex) || pageIndex < 0) throw argError('Invalid pageIndex');
         if (!Number.isInteger(sectionIndex) || sectionIndex < 0) throw argError('Invalid sectionIndex');
         const site = engine.getWebsite(db, siteId);
         let pages = site.pages;
         if (typeof pages === 'string') {
-          try { pages = JSON.parse(pages || '[]'); } catch { pages = []; }
+          try {
+            pages = JSON.parse(pages || '[]');
+          } catch {
+            pages = [];
+          }
         }
         if (!Array.isArray(pages) || !pages.length) throw argError('No pages on this website');
         const cols = args.cols != null ? Number(args.cols) : undefined;
@@ -1431,7 +1563,9 @@ function createParityTools(ctx) {
         let widget = undefined;
         const intoCell = Number.isInteger(cellIndex) && cellIndex >= 0;
         if (blockType === 'module' || blockType === 'site_module' || blockType === 'widget') {
-          const moduleType = String(args.moduleType || args.module_type || args.module || '').trim().toLowerCase();
+          const moduleType = String(args.moduleType || args.module_type || args.module || '')
+            .trim()
+            .toLowerCase();
           if (!moduleType) throw argError('moduleType is required for module blocks');
           const leadId = site.lead_id;
           if (!leadId) throw argError('Website has no lead_id');
@@ -1443,9 +1577,10 @@ function createParityTools(ctx) {
           }
           if (!row.public_token && typeof modules.makePublicToken === 'function') {
             const token = modules.makePublicToken(wsHint);
-            db.prepare(
-              "UPDATE site_module_embeds SET public_token = ?, updated_at = datetime('now') WHERE id = ?"
-            ).run(token, row.id);
+            db.prepare("UPDATE site_module_embeds SET public_token = ?, updated_at = datetime('now') WHERE id = ?").run(
+              token,
+              row.id
+            );
             row = modules.getEmbedRow(db, Number(leadId), moduleType);
           }
           if (!row || !row.public_token) throw argError('Could not enable module embed');
@@ -1475,9 +1610,9 @@ function createParityTools(ctx) {
           let row = null;
           if (args.formId != null) row = forms.getFormRowById(db, Number(leadId), Number(args.formId));
           if (!row && args.formToken) {
-            row = db.prepare(
-              'SELECT * FROM contact_forms WHERE lead_id = ? AND public_token = ?'
-            ).get(Number(leadId), String(args.formToken));
+            row = db
+              .prepare('SELECT * FROM contact_forms WHERE lead_id = ? AND public_token = ?')
+              .get(Number(leadId), String(args.formToken));
           }
           if (!row) {
             const list = forms.listFormRows(db, Number(leadId));
@@ -1510,23 +1645,37 @@ function createParityTools(ctx) {
           widget,
         });
         if (!result.changed) {
-          throw argError(result.reason === 'no_sections' ? 'Page has no modular sections'
-            : (result.reason || 'Cannot insert that block'));
+          throw argError(
+            result.reason === 'no_sections'
+              ? 'Page has no modular sections'
+              : result.reason || 'Cannot insert that block'
+          );
         }
-        const theme = typeof site.theme === 'string'
-          ? (() => { try { return JSON.parse(site.theme || '{}'); } catch { return {}; } })()
-          : (site.theme || {});
+        const theme =
+          typeof site.theme === 'string'
+            ? (() => {
+                try {
+                  return JSON.parse(site.theme || '{}');
+                } catch {
+                  return {};
+                }
+              })()
+            : site.theme || {};
         const version = engine.saveSite(db, siteId, result.pages, theme, `MCP added block ${blockType}`);
         const summary = structure.summarizeStructure(result.pages);
         logActivity('mcp', `website.addBlock site=${siteId} type=${blockType}`);
         const warnings = [];
-        const origType = String(args.blockType || args.type || '').trim().toLowerCase();
+        const origType = String(args.blockType || args.type || '')
+          .trim()
+          .toLowerCase();
         if (origType === 'form' || origType === 'bitpype_form' || origType === 'contact_form') {
           try {
             const moduleFit = require('../server/moduleFit');
             const w = moduleFit.formOnAppointmentPageWarning(result.pages, pageIndex);
             if (w) warnings.push(w);
-          } catch { /* optional */ }
+          } catch {
+            /* optional */
+          }
         }
         return {
           ok: true,
@@ -1624,9 +1773,11 @@ function createParityTools(ctx) {
         const { page, pageSize, offset } = pageArgs(args, { pageSize: 20, maxSize: 100 });
         engine.ensureTables(db);
         const total = db.prepare('SELECT COUNT(*) AS c FROM website_versions WHERE website_id = ?').get(id).c;
-        const versions = db.prepare(
-          'SELECT id, version_no, note, author, created_at FROM website_versions WHERE website_id = ? ORDER BY version_no DESC LIMIT ? OFFSET ?'
-        ).all(id, pageSize, offset);
+        const versions = db
+          .prepare(
+            'SELECT id, version_no, note, author, created_at FROM website_versions WHERE website_id = ? ORDER BY version_no DESC LIMIT ? OFFSET ?'
+          )
+          .all(id, pageSize, offset);
         return { ok: true, data: Object.assign({ versions }, pageResult(versions, total, page, pageSize)) };
       },
     },
@@ -1673,16 +1824,17 @@ function createParityTools(ctx) {
       },
       run(args) {
         const leadId = requireId(args.leadId, 'leadId');
-        const row = db.prepare(
-          'SELECT id, lead_id, name, status, origin, updated_at FROM websites WHERE lead_id = ?'
-        ).get(leadId);
+        const row = db
+          .prepare('SELECT id, lead_id, name, status, origin, updated_at FROM websites WHERE lead_id = ?')
+          .get(leadId);
         return { ok: true, data: { site: row || null } };
       },
     },
 
     // ----- Outreach / pipeline -----
     'outreach.campaigns': {
-      description: 'Campaign admin: list | create | setStatus | cancel | delete | messages. create uses a dual-channel template; pass channel email|sms|both. setStatus: draft|active|paused|done. cancel cannot be resumed; delete removes the campaign.',
+      description:
+        'Campaign admin: list | create | setStatus | cancel | delete | messages. create uses a dual-channel template; pass channel email|sms|both. setStatus: draft|active|paused|done. cancel cannot be resumed; delete removes the campaign.',
       schema: {
         type: 'object',
         properties: {
@@ -1740,7 +1892,8 @@ function createParityTools(ctx) {
     },
 
     'outreach.templates': {
-      description: 'Dual-channel templates: list | save | delete. Holds email subject/body (HTML OK) and sms_body (plain). Placeholders: {{website_link}}, {{business_name}}, {{interested}}, {{uninterested}}.',
+      description:
+        'Dual-channel templates: list | save | delete. Holds email subject/body (HTML OK) and sms_body (plain). Placeholders: {{website_link}}, {{business_name}}, {{interested}}, {{uninterested}}.',
       schema: {
         type: 'object',
         properties: {
@@ -1776,7 +1929,8 @@ function createParityTools(ctx) {
     },
 
     'email.draft': {
-      description: 'AI-draft outreach subject + HTML body + companion sms_body. Optional leadId + prompt. Respects automation pause.',
+      description:
+        'AI-draft outreach subject + HTML body + companion sms_body. Optional leadId + prompt. Respects automation pause.',
       schema: {
         type: 'object',
         properties: {
@@ -1795,8 +1949,9 @@ function createParityTools(ctx) {
         const sms = require('./sms');
         outreach.ensureTables(db);
         const promptRow = db.prepare('SELECT body FROM prompts WHERE key = ?').get('write_outreach');
-        const systemSeed = (promptRow && promptRow.body)
-          || 'Write short outreach. Return JSON: {"subject":"...","body":"...","sms_body":"..."}.';
+        const systemSeed =
+          (promptRow && promptRow.body) ||
+          'Write short outreach. Return JSON: {"subject":"...","body":"...","sms_body":"..."}.';
         const leadId = args.leadId != null ? requireId(args.leadId, 'leadId') : null;
         const fromName = getSetting('smtp.from_name', '') || getSetting('app.name', '') || 'Bitpype';
         let lead = null;
@@ -1806,10 +1961,11 @@ function createParityTools(ctx) {
           if (!lead) throw argError('Lead not found');
           websiteLink = outreach.resolveWebsiteLink(db, leadId) || '';
         }
-        const fill = (text, vars) => String(text || '').replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_, k) => {
-          const v = vars[k];
-          return v == null ? '' : String(v);
-        });
+        const fill = (text, vars) =>
+          String(text || '').replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_, k) => {
+            const v = vars[k];
+            return v == null ? '' : String(v);
+          });
         const vars = {
           sequence_step: '1',
           owner_name: (lead && (lead.owner_name || lead.contact_name)) || 'there',
@@ -1817,21 +1973,27 @@ function createParityTools(ctx) {
           category: (lead && lead.category) || '',
           city: (lead && lead.city) || '',
           state: (lead && lead.state) || '',
-          observation: String(args.prompt || '').trim()
-            || (lead ? `Their online presence could use a cleaner website${lead.city ? ` for ${lead.city}` : ''}.` : 'A local business that needs a better website.'),
+          observation:
+            String(args.prompt || '').trim() ||
+            (lead
+              ? `Their online presence could use a cleaner website${lead.city ? ` for ${lead.city}` : ''}.`
+              : 'A local business that needs a better website.'),
           preview_url: websiteLink,
           website_link: websiteLink,
           from_name: fromName,
           mail_footer: getSetting('mail.footer', '') || '',
         };
-        const system = fill(systemSeed, vars)
-          + '\n\nReturn ONLY JSON: {"subject":"...","body":"...","sms_body":"..."}. '
-          + 'sms_body must be plain text and include {{website_link}}. Prefer {{interested}}/{{uninterested}} in email body when asking for a response.';
+        const system =
+          fill(systemSeed, vars) +
+          '\n\nReturn ONLY JSON: {"subject":"...","body":"...","sms_body":"..."}. ' +
+          'sms_body must be plain text and include {{website_link}}. Prefer {{interested}}/{{uninterested}} in email body when asking for a response.';
         const userBits = [
           String(args.prompt || '').trim()
             ? `Writer brief: ${String(args.prompt).trim()}`
             : 'Draft a short cold outreach email offering a free website preview.',
-          lead ? `Lead: ${lead.business_name || ''} | ${lead.category || ''} | phone=${lead.phone || 'n/a'}` : 'Reusable template (no lead).',
+          lead
+            ? `Lead: ${lead.business_name || ''} | ${lead.category || ''} | phone=${lead.phone || 'n/a'}`
+            : 'Reusable template (no lead).',
           websiteLink ? `Website URL: ${websiteLink}` : 'Use {{website_link}} placeholder.',
           args.existingSubject ? `Current subject: ${String(args.existingSubject).slice(0, 200)}` : '',
           args.existingBody ? `Current body:\n${String(args.existingBody).slice(0, 2000)}` : '',
@@ -1858,21 +2020,35 @@ function createParityTools(ctx) {
             subject = String(parsed.subject || '').trim();
             body = String(parsed.body || '').trim();
             smsBody = String(parsed.sms_body || parsed.sms || '').trim();
-          } catch { /* fall through */ }
+          } catch {
+            /* fall through */
+          }
         }
         if (!subject && !body) {
           body = raw;
           subject = lead && lead.business_name ? `Quick idea for ${lead.business_name}` : 'Quick idea for your website';
         }
         if (body && !email.looksLikeHtml(body)) {
-          body = body.split(/\n{2,}/).map((block) => `<p>${String(block)
-            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')}</p>`).join('\n');
+          body = body
+            .split(/\n{2,}/)
+            .map(
+              (block) =>
+                `<p>${String(block)
+                  .replace(/&/g, '&amp;')
+                  .replace(/</g, '&lt;')
+                  .replace(/>/g, '&gt;')
+                  .replace(/\n/g, '<br>')}</p>`
+            )
+            .join('\n');
         } else if (body) {
           body = email.sanitizeEmailHtml(body);
         }
         smsBody = sms.plainSmsBody(smsBody);
         const linkToken = websiteLink || '{{website_link}}';
-        if (!smsBody || (!smsBody.includes(linkToken) && !smsBody.includes('{{website_link}}') && !/https?:\/\//i.test(smsBody))) {
+        if (
+          !smsBody ||
+          (!smsBody.includes(linkToken) && !smsBody.includes('{{website_link}}') && !/https?:\/\//i.test(smsBody))
+        ) {
           smsBody = sms.companionSmsDraft({
             businessName: (lead && lead.business_name) || '{{business_name}}',
             websiteLink: linkToken,
@@ -1882,8 +2058,12 @@ function createParityTools(ctx) {
         return {
           ok: true,
           data: {
-            subject, body, sms_body: smsBody, model: result.model,
-            website_link: websiteLink || null, leadId: leadId || null,
+            subject,
+            body,
+            sms_body: smsBody,
+            model: result.model,
+            website_link: websiteLink || null,
+            leadId: leadId || null,
             lead_phone: lead && lead.phone ? lead.phone : null,
             has_phone: Boolean(lead && outreach.normalizePhone(lead.phone)),
           },
@@ -1892,7 +2072,8 @@ function createParityTools(ctx) {
     },
 
     'email.uploadAsset': {
-      description: 'Upload an image for HTML email templates (base64, max 5MB). Returns a local file URL under email-assets/.',
+      description:
+        'Upload an image for HTML email templates (base64, max 5MB). Returns a local file URL under email-assets/.',
       schema: {
         type: 'object',
         properties: {
@@ -1909,7 +2090,7 @@ function createParityTools(ctx) {
           .replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '')
           .replace(/\s+/g, '');
         if (!dataB64) throw argError('data (base64 image) is required');
-        const maxB64 = Math.ceil(5 * 1024 * 1024 * 4 / 3) + 256;
+        const maxB64 = Math.ceil((5 * 1024 * 1024 * 4) / 3) + 256;
         if (dataB64.length > maxB64) throw argError('Image is too large (max 5 MB).');
         let buffer = Buffer.from(dataB64, 'base64');
         if (!buffer.length || buffer.length > 5 * 1024 * 1024) {
@@ -1920,7 +2101,8 @@ function createParityTools(ctx) {
         if (magic.startsWith('89504e47')) ext = 'png';
         else if (magic.startsWith('ffd8ff')) ext = 'jpg';
         else if (magic.startsWith('47494638')) ext = 'gif';
-        else if (buffer.slice(0, 4).toString('ascii') === 'RIFF' && buffer.slice(8, 12).toString('ascii') === 'WEBP') ext = 'webp';
+        else if (buffer.slice(0, 4).toString('ascii') === 'RIFF' && buffer.slice(8, 12).toString('ascii') === 'WEBP')
+          ext = 'webp';
         const name = `em-${Date.now().toString(36)}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
         const dir = path.join(openPreview.exportRoot(), 'email-assets');
         fs.mkdirSync(dir, { recursive: true });
@@ -1931,7 +2113,8 @@ function createParityTools(ctx) {
     },
 
     'sms.queue': {
-      description: 'Queue a freeform SMS for a lead (personalizes {{website_link}}). Requires phone. Returns messageId for email.send.',
+      description:
+        'Queue a freeform SMS for a lead (personalizes {{website_link}}). Requires phone. Returns messageId for email.send.',
       schema: {
         type: 'object',
         properties: {
@@ -1959,7 +2142,8 @@ function createParityTools(ctx) {
         const facts = db.prepare('SELECT * FROM business_facts WHERE lead_id = ?').all(leadId);
         const personalized = email.personalize(
           { subject: '(SMS)', body },
-          lead, facts,
+          lead,
+          facts,
           outreach.personalizeExtras(db, leadId, fromName, {})
         );
         body = sms.plainSmsBody(personalized.body);
@@ -1970,15 +2154,18 @@ function createParityTools(ctx) {
         let campaign = db.prepare("SELECT id FROM campaigns WHERE name = ? AND status = 'draft'").get('Compose SMS');
         if (!campaign) {
           campaign = {
-            id: db.prepare('INSERT INTO campaigns (name, template_id, status) VALUES (?, ?, ?)')
+            id: db
+              .prepare('INSERT INTO campaigns (name, template_id, status) VALUES (?, ?, ?)')
               .run('Compose SMS', null, 'draft').lastInsertRowid,
           };
         }
-        const r = db.prepare(
-          `INSERT INTO campaign_messages
+        const r = db
+          .prepare(
+            `INSERT INTO campaign_messages
              (campaign_id, lead_id, to_email, subject, body, status, channel, to_phone)
            VALUES (?, ?, ?, '(SMS)', ?, 'queued', 'sms', ?)`
-        ).run(Number(campaign.id), leadId, phone, body, phone);
+          )
+          .run(Number(campaign.id), leadId, phone, body, phone);
         return {
           ok: true,
           data: {
@@ -2092,9 +2279,7 @@ function createParityTools(ctx) {
         const { SECRET_KEYS } = require('../server/settingsKeys');
         const rows = db.prepare('SELECT key, value FROM settings').all();
         const out = {};
-        const want = Array.isArray(args.keys) && args.keys.length
-          ? new Set(args.keys.map(String))
-          : null;
+        const want = Array.isArray(args.keys) && args.keys.length ? new Set(args.keys.map(String)) : null;
         for (const r of rows) {
           if (want && !want.has(r.key)) continue;
           out[r.key] = SECRET_KEYS.includes(r.key) && r.value ? '***' : r.value;
@@ -2104,7 +2289,8 @@ function createParityTools(ctx) {
     },
 
     'settings.set': {
-      description: 'Set a non-secret setting key (models, SMTP host, costs, discovery, design agent triggers, etc.). Cannot set api keys â€” use the desktop Settings UI for secrets.',
+      description:
+        'Set a non-secret setting key (models, SMTP host, costs, discovery, design agent triggers, etc.). Cannot set api keys â€” use the desktop Settings UI for secrets.',
       schema: {
         type: 'object',
         properties: {
@@ -2146,16 +2332,22 @@ function createParityTools(ctx) {
       run(args = {}) {
         const days = vInt(args.days, { min: 1, max: 90, def: 30 });
         if (isErr(days)) throw argError('days must be 1â€“90.');
-        const today = db.prepare(
-          `SELECT ROUND(COALESCE(SUM(cost_usd),0),4) AS c FROM ai_usage WHERE date(at) = date('now','localtime')`
-        ).get().c;
-        const month = db.prepare(
-          `SELECT ROUND(COALESCE(SUM(cost_usd),0),4) AS c FROM ai_usage WHERE strftime('%Y-%m', at) = strftime('%Y-%m','now','localtime')`
-        ).get().c;
-        const recent = db.prepare(
-          `SELECT id, task, model, prompt_tokens, completion_tokens, cost_usd, lead_id, note, at
+        const today = db
+          .prepare(
+            `SELECT ROUND(COALESCE(SUM(cost_usd),0),4) AS c FROM ai_usage WHERE date(at) = date('now','localtime')`
+          )
+          .get().c;
+        const month = db
+          .prepare(
+            `SELECT ROUND(COALESCE(SUM(cost_usd),0),4) AS c FROM ai_usage WHERE strftime('%Y-%m', at) = strftime('%Y-%m','now','localtime')`
+          )
+          .get().c;
+        const recent = db
+          .prepare(
+            `SELECT id, task, model, prompt_tokens, completion_tokens, cost_usd, lead_id, note, at
            FROM ai_usage WHERE at >= datetime('now', ?) ORDER BY id DESC LIMIT 100`
-        ).all(`-${days} days`);
+          )
+          .all(`-${days} days`);
         return { ok: true, data: { todayUsd: today, monthUsd: month, days, recent } };
       },
     },
@@ -2174,13 +2366,11 @@ function createParityTools(ctx) {
         if (isErr(limit)) throw argError('limit invalid.');
         let rows;
         if (args.area) {
-          rows = db.prepare(
-            `SELECT id, area, message, at FROM activity_log WHERE area = ? ORDER BY id DESC LIMIT ?`
-          ).all(String(args.area), limit);
+          rows = db
+            .prepare(`SELECT id, area, message, at FROM activity_log WHERE area = ? ORDER BY id DESC LIMIT ?`)
+            .all(String(args.area), limit);
         } else {
-          rows = db.prepare(
-            `SELECT id, area, message, at FROM activity_log ORDER BY id DESC LIMIT ?`
-          ).all(limit);
+          rows = db.prepare(`SELECT id, area, message, at FROM activity_log ORDER BY id DESC LIMIT ?`).all(limit);
         }
         return { ok: true, data: { activity: rows } };
       },
@@ -2209,7 +2399,16 @@ function createParityTools(ctx) {
         if (action === 'get') return { ok: true, data: sched.readSchedule(db) };
         if (action === 'set') {
           const patch = {};
-          for (const k of ['enabled', 'mode', 'interval_hours', 'daily_time', 'provider', 'category', 'location', 'limit']) {
+          for (const k of [
+            'enabled',
+            'mode',
+            'interval_hours',
+            'daily_time',
+            'provider',
+            'category',
+            'location',
+            'limit',
+          ]) {
             if (args[k] !== undefined) patch[k] = args[k];
           }
           return { ok: true, data: sched.writeSchedule(db, patch) };
@@ -2228,7 +2427,11 @@ function createParityTools(ctx) {
         type: 'object',
         properties: {
           websiteId: { type: 'integer', minimum: 1 },
-          dir: { type: 'string', maxLength: 500, description: 'Optional export folder; default exports the site first' },
+          dir: {
+            type: 'string',
+            maxLength: 500,
+            description: 'Optional export folder; default exports the site first',
+          },
         },
         required: ['websiteId'],
       },
@@ -2242,7 +2445,12 @@ function createParityTools(ctx) {
         // Always rematerialize from the latest DB save â€” never trust a caller-supplied
         // dir (that caused publish to ship one version behind after replace/upload).
         const site = engine.getWebsite(db, websiteId);
-        const slug = String(site.name || 'site').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'site';
+        const slug =
+          String(site.name || 'site')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 60) || 'site';
         const dir = path.join(openPreview.exportRoot(), `${slug}-${site.id}`);
         engine.exportStatic(db, websiteId, dir);
         void optStr(args.dir, 500); // accepted for schema compat; ignored
@@ -2437,9 +2645,9 @@ function createParityTools(ctx) {
         const body = vStr(args.body, { max: 100000, def: '' });
         if (!key) throw argError('key is required.');
         if (isErr(body)) throw argError('body too long.');
-        const info = db.prepare(
-          `UPDATE prompts SET body = ?, updated_at = datetime('now') WHERE key = ?`
-        ).run(String(body), key);
+        const info = db
+          .prepare(`UPDATE prompts SET body = ?, updated_at = datetime('now') WHERE key = ?`)
+          .run(String(body), key);
         if (!info.changes) throw argError(`Unknown prompt key: ${key}`);
         logActivity('prompts', `Prompt saved via MCP: ${key}`);
         return { ok: true, data: { key } };
@@ -2447,7 +2655,8 @@ function createParityTools(ctx) {
     },
 
     'forms.list': {
-      description: 'List custom BitPype forms for a lead. Returns form records + managed embed snippets. Prefer contact_form / forms.create over raw HTML <form>.',
+      description:
+        'List custom BitPype forms for a lead. Returns form records + managed embed snippets. Prefer contact_form / forms.create over raw HTML <form>.',
       schema: {
         type: 'object',
         properties: {
@@ -2460,7 +2669,8 @@ function createParityTools(ctx) {
         forms.ensureTables(db);
         let leadId = args.leadId != null ? requireId(args.leadId, 'leadId') : null;
         if (!leadId && args.websiteId != null) {
-          const site = db.prepare('SELECT lead_id FROM websites WHERE id = ?')
+          const site = db
+            .prepare('SELECT lead_id FROM websites WHERE id = ?')
             .get(requireId(args.websiteId, 'websiteId'));
           if (!site) throw argError('Website not found');
           leadId = Number(site.lead_id);
@@ -2491,17 +2701,16 @@ function createParityTools(ctx) {
       run(args) {
         const forms = require('../server/contactForms');
         const leadId = requireId(args.leadId, 'leadId');
-        const formId = args.formId != null ? requireId(args.formId, 'formId')
-          : (args.id != null ? requireId(args.id, 'id') : null);
-        const form = formId != null
-          ? forms.getFormById(db, leadId, formId)
-          : forms.getFormForLead(db, leadId);
+        const formId =
+          args.formId != null ? requireId(args.formId, 'formId') : args.id != null ? requireId(args.id, 'id') : null;
+        const form = formId != null ? forms.getFormById(db, leadId, formId) : forms.getFormForLead(db, leadId);
         return { ok: true, data: { leadId, form, embed: forms.embedSnippet(form) } };
       },
     },
 
     'forms.create': {
-      description: 'Create + publish a custom form. Pass purpose (appointment_request|quote_request|callback_request|event_rsvp|general_inquiry) to auto-generate typed fields from lead data. Appointments with availability → bookings module, not a form. Returns formId + embed.',
+      description:
+        'Create + publish a custom form. Pass purpose (appointment_request|quote_request|callback_request|event_rsvp|general_inquiry) to auto-generate typed fields from lead data. Appointments with availability → bookings module, not a form. Returns formId + embed.',
       schema: {
         type: 'object',
         properties: {
@@ -2548,24 +2757,24 @@ function createParityTools(ctx) {
         });
         const published = forms.publishForm(db, leadId, created.id, {
           workspaceId: 1,
-          embed_enabled: args.embed_enabled != null ? args.embed_enabled
-            : (args.embed_on_page != null ? args.embed_on_page : true),
+          embed_enabled:
+            args.embed_enabled != null ? args.embed_enabled : args.embed_on_page != null ? args.embed_on_page : true,
           toSite: false,
         });
         logActivity('mcp', `forms.create lead=${leadId} form=${published.id}`);
         const warnings = [];
         try {
           const moduleFit = require('../server/moduleFit');
-          const site = db.prepare(
-            'SELECT pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-          ).get(leadId);
+          const site = db.prepare('SELECT pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(leadId);
           const pages = site ? JSON.parse(site.pages || '[]') : [];
           const w = moduleFit.formOnAppointmentPageWarning(
             pages,
             published.target_page_slug || args.target_page_slug || args.targetPageSlug
           );
           if (w) warnings.push(w);
-        } catch { /* optional */ }
+        } catch {
+          /* optional */
+        }
         return {
           ok: true,
           data: {
@@ -2585,7 +2794,8 @@ function createParityTools(ctx) {
     },
 
     'forms.suggestFields': {
-      description: 'Preview purpose-built typed fields for a lead without creating a form. purpose: appointment_request|quote_request|callback_request|event_rsvp|general_inquiry.',
+      description:
+        'Preview purpose-built typed fields for a lead without creating a form. purpose: appointment_request|quote_request|callback_request|event_rsvp|general_inquiry.',
       schema: {
         type: 'object',
         properties: {
@@ -2687,7 +2897,8 @@ function createParityTools(ctx) {
     },
 
     'bookings.createService': {
-      description: 'Create a bookable service. Default status draft — set status:"published" before bookings.slots. Required: leadId, name. E2E: create → publish → setHours → slots.',
+      description:
+        'Create a bookable service. Default status draft — set status:"published" before bookings.slots. Required: leadId, name. E2E: create → publish → setHours → slots.',
       schema: {
         type: 'object',
         properties: {
@@ -2717,7 +2928,8 @@ function createParityTools(ctx) {
     },
 
     'bookings.updateService': {
-      description: 'Update a bookable service by id. Use status:"published" to expose in slots/widget. Required: id, leadId.',
+      description:
+        'Update a bookable service by id. Use status:"published" to expose in slots/widget. Required: id, leadId.',
       schema: {
         type: 'object',
         properties: {
@@ -2787,7 +2999,8 @@ function createParityTools(ctx) {
     },
 
     'bookings.setHours': {
-      description: 'Replace weekly availability hours (weekday 0=Sun..6=Sat, start_time/end_time HH:MM). Required: leadId, hours.',
+      description:
+        'Replace weekly availability hours (weekday 0=Sun..6=Sat, start_time/end_time HH:MM). Required: leadId, hours.',
       schema: {
         type: 'object',
         properties: {
@@ -2806,7 +3019,8 @@ function createParityTools(ctx) {
     },
 
     'bookings.setSettings': {
-      description: 'Update booking settings (timezone, slot_interval_minutes, min_notice_hours, max_days_ahead, auto_confirm). Required: leadId.',
+      description:
+        'Update booking settings (timezone, slot_interval_minutes, min_notice_hours, max_days_ahead, auto_confirm). Required: leadId.',
       schema: {
         type: 'object',
         properties: {
@@ -2831,7 +3045,8 @@ function createParityTools(ctx) {
     },
 
     'bookings.list': {
-      description: 'List appointments (pending/confirmed/cancelled/completed). Default excludes archived. Required: leadId.',
+      description:
+        'List appointments (pending/confirmed/cancelled/completed). Default excludes archived. Required: leadId.',
       schema: {
         type: 'object',
         properties: {
@@ -2866,7 +3081,8 @@ function createParityTools(ctx) {
     },
 
     'bookings.updateStatus': {
-      description: 'Update appointment status (pending|confirmed|cancelled|completed) and/or archive (archived true/false; completed/cancelled only). Required: id, leadId; status or archived.',
+      description:
+        'Update appointment status (pending|confirmed|cancelled|completed) and/or archive (archived true/false; completed/cancelled only). Required: id, leadId; status or archived.',
       schema: {
         type: 'object',
         properties: {
@@ -2903,7 +3119,8 @@ function createParityTools(ctx) {
     },
 
     'bookings.slots': {
-      description: 'List available time slots for date (YYYY-MM-DD) + published serviceId. Required: leadId, date. Pass serviceId when multiple services exist.',
+      description:
+        'List available time slots for date (YYYY-MM-DD) + published serviceId. Required: leadId, date. Pass serviceId when multiple services exist.',
       schema: {
         type: 'object',
         properties: {

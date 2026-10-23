@@ -102,37 +102,53 @@ function dedupeCss(css) {
 }
 
 function pickOriginal(db, siteId, leadId) {
-  const vers = db.prepare(
-    `SELECT id, version_no, note, pages, theme FROM website_versions
+  const vers = db
+    .prepare(
+      `SELECT id, version_no, note, pages, theme FROM website_versions
      WHERE website_id = ? ORDER BY version_no DESC LIMIT 50`
-  ).all(siteId);
+    )
+    .all(siteId);
   for (const v of vers) {
     let pages;
-    try { pages = JSON.parse(v.pages || '[]'); } catch { continue; }
+    try {
+      pages = JSON.parse(v.pages || '[]');
+    } catch {
+      continue;
+    }
     const free = (pages || []).filter((p) => p && String(p.html || '').trim().length > 400);
     // Prefer full freeform originals (not our modular rebuild notes)
     const note = String(v.note || '');
     if (/Rebuild:|modular|template/i.test(note) && free.length === 0) continue;
     if (free.length >= Math.min(2, pages.length) || (pages.length === 1 && free.length === 1)) {
       let theme = {};
-      try { theme = JSON.parse(v.theme || '{}') || {}; } catch { theme = {}; }
+      try {
+        theme = JSON.parse(v.theme || '{}') || {};
+      } catch {
+        theme = {};
+      }
       return { source: `version:${v.version_no}`, note, pages, theme };
     }
   }
-  const jobs = db.prepare(
-    `SELECT id, deliverable FROM design_jobs WHERE lead_id = ? AND deliverable IS NOT NULL
+  const jobs = db
+    .prepare(
+      `SELECT id, deliverable FROM design_jobs WHERE lead_id = ? AND deliverable IS NOT NULL
      ORDER BY id DESC LIMIT 10`
-  ).all(leadId);
+    )
+    .all(leadId);
   for (const j of jobs) {
     let payload;
-    try { payload = JSON.parse(j.deliverable); } catch { continue; }
+    try {
+      payload = JSON.parse(j.deliverable);
+    } catch {
+      continue;
+    }
     const pages = Array.isArray(payload.pages) ? payload.pages : [];
     const free = pages.filter((p) => p && String(p.html || '').trim().length > 400);
     if (free.length) {
       return {
         source: `design_job:${j.id}`,
         pages,
-        theme: (payload.theme && typeof payload.theme === 'object') ? payload.theme : {},
+        theme: payload.theme && typeof payload.theme === 'object' ? payload.theme : {},
       };
     }
   }
@@ -244,9 +260,15 @@ async function main() {
 
   for (const id of SITE_IDS) {
     const row = db.prepare('SELECT * FROM websites WHERE id = ?').get(id);
-    if (!row) { console.log('missing', id); continue; }
+    if (!row) {
+      console.log('missing', id);
+      continue;
+    }
     const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(row.lead_id);
-    if (!lead) { console.log('no lead', id); continue; }
+    if (!lead) {
+      console.log('no lead', id);
+      continue;
+    }
 
     const original = pickOriginal(db, id, lead.id);
     if (!original) {
@@ -262,7 +284,9 @@ async function main() {
         theme.logoUrl = curTheme.logoUrl;
         theme.logoMode = curTheme.logoMode || 'image';
       }
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
 
     // Clone freestyle chrome onto any leftover template-nav pages (e.g. shop).
     const home = pages.find((p) => structure.isHomeLike(p, pages)) || pages[0];
@@ -308,13 +332,15 @@ async function main() {
     }
 
     try {
-      const job = db.prepare(
-        `SELECT id FROM design_jobs WHERE lead_id = ? ORDER BY id DESC LIMIT 1`
-      ).get(lead.id);
+      const job = db.prepare(`SELECT id FROM design_jobs WHERE lead_id = ? ORDER BY id DESC LIMIT 1`).get(lead.id);
       if (job) {
         const del = db.prepare('SELECT deliverable FROM design_jobs WHERE id=?').get(job.id);
         let payload = {};
-        try { payload = JSON.parse(del.deliverable || '{}') || {}; } catch { payload = {}; }
+        try {
+          payload = JSON.parse(del.deliverable || '{}') || {};
+        } catch {
+          payload = {};
+        }
         payload.pages = pages;
         payload.theme = theme;
         db.prepare(
@@ -325,15 +351,17 @@ async function main() {
       console.warn('deliverable sync', e.message);
     }
 
-    console.log(JSON.stringify({
-      id,
-      lead: lead.business_name,
-      pages: pages.length,
-      navFirst: pages.every((p) => p.sections && p.sections[0] && p.sections[0].type === 'nav'),
-      styledNav,
-      styledFooter,
-      cssLen: String(theme.customCss || '').length,
-    }));
+    console.log(
+      JSON.stringify({
+        id,
+        lead: lead.business_name,
+        pages: pages.length,
+        navFirst: pages.every((p) => p.sections && p.sections[0] && p.sections[0].type === 'nav'),
+        styledNav,
+        styledFooter,
+        cssLen: String(theme.customCss || '').length,
+      })
+    );
   }
   db.close();
 

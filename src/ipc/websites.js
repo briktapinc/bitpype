@@ -23,10 +23,18 @@ const engine = require('../websiteEngine');
 const ai = require('../ai');
 
 function slugify(s) {
-  return String(s || 'site').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'site';
+  return (
+    String(s || 'site')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60) || 'site'
+  );
 }
 
-function ok(data) { return Object.assign({ ok: true }, data); }
+function ok(data) {
+  return Object.assign({ ok: true }, data);
+}
 function fail(e) {
   return { ok: false, error: e && e.message ? e.message : String(e), code: (e && e.code) || 'ERROR' };
 }
@@ -51,7 +59,8 @@ function validatePages(pages) {
     }
     if (hasSections) {
       p.sections.forEach((s, j) => {
-        if (!s || typeof s !== 'object') throw siteErr('INVALID_PAGES', `pages[${i}].sections[${j}] must be an object.`);
+        if (!s || typeof s !== 'object')
+          throw siteErr('INVALID_PAGES', `pages[${i}].sections[${j}] must be an object.`);
         if (typeof s.type !== 'string' || !s.type.trim()) {
           throw siteErr('INVALID_PAGES', `pages[${i}].sections[${j}].type must be a non-empty string.`);
         }
@@ -72,8 +81,11 @@ function siteErr(code, message) {
 
 function parseJsonField(value, what) {
   if (typeof value === 'string') {
-    try { return JSON.parse(value); }
-    catch (e) { throw siteErr('INVALID_JSON', `${what} is not valid JSON.`); }
+    try {
+      return JSON.parse(value);
+    } catch (e) {
+      throw siteErr('INVALID_JSON', `${what} is not valid JSON.`);
+    }
   }
   return value;
 }
@@ -110,175 +122,245 @@ function register(ipcMain, db) {
     }
   };
 
-  ipcMain.handle('sites:list', wrap((args = {}) => {
-    const { pageArgs, pageResult } = require('../paginate');
-    const { page, pageSize, offset } = pageArgs(args || {}, { pageSize: 25, maxSize: 100 });
-    let where = '';
-    const params = [];
-    if (args && args.status) { where = ' WHERE w.status = ?'; params.push(args.status); }
-    const total = db.prepare(`SELECT COUNT(*) AS c FROM websites w${where}`).get(...params).c;
-    const rows = db.prepare(
-      `SELECT w.*, l.business_name, l.category,
+  ipcMain.handle(
+    'sites:list',
+    wrap((args = {}) => {
+      const { pageArgs, pageResult } = require('../paginate');
+      const { page, pageSize, offset } = pageArgs(args || {}, { pageSize: 25, maxSize: 100 });
+      let where = '';
+      const params = [];
+      if (args && args.status) {
+        where = ' WHERE w.status = ?';
+        params.push(args.status);
+      }
+      const total = db.prepare(`SELECT COUNT(*) AS c FROM websites w${where}`).get(...params).c;
+      const rows = db
+        .prepare(
+          `SELECT w.*, l.business_name, l.category,
          (SELECT COUNT(*) FROM website_versions v WHERE v.website_id = w.id) AS version_count
        FROM websites w LEFT JOIN leads l ON l.id = w.lead_id
        ${where}
        ORDER BY w.updated_at DESC
        LIMIT ? OFFSET ?`
-    ).all(...params, pageSize, offset);
-    const sites = rows.map(r => ({
-      id: r.id, lead_id: r.lead_id, name: r.name, industry: r.industry,
-      status: r.status, preview_path: r.preview_path, origin: r.origin,
-      created_at: r.created_at, updated_at: r.updated_at,
-      business_name: r.business_name, category: r.category,
-      version_count: r.version_count,
-    }));
-    return Object.assign({ sites }, pageResult(sites, total, page, pageSize));
-  }));
+        )
+        .all(...params, pageSize, offset);
+      const sites = rows.map((r) => ({
+        id: r.id,
+        lead_id: r.lead_id,
+        name: r.name,
+        industry: r.industry,
+        status: r.status,
+        preview_path: r.preview_path,
+        origin: r.origin,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+        business_name: r.business_name,
+        category: r.category,
+        version_count: r.version_count,
+      }));
+      return Object.assign({ sites }, pageResult(sites, total, page, pageSize));
+    })
+  );
 
-  ipcMain.handle('sites:get', wrap((id) => {
-    if (!Number.isInteger(Number(id))) throw siteErr('INVALID_ID', 'id must be an integer.');
-    return { site: siteRow(db, Number(id)) };
-  }));
+  ipcMain.handle(
+    'sites:get',
+    wrap((id) => {
+      if (!Number.isInteger(Number(id))) throw siteErr('INVALID_ID', 'id must be an integer.');
+      return { site: siteRow(db, Number(id)) };
+    })
+  );
 
-  ipcMain.handle('sites:delete', wrap((id) => {
-    const websiteId = Number(id && id.id !== undefined ? id.id : id);
-    if (!Number.isInteger(websiteId) || websiteId < 1) throw siteErr('INVALID_ID', 'id must be a positive integer.');
-    return engine.deleteWebsite(db, websiteId);
-  }));
+  ipcMain.handle(
+    'sites:delete',
+    wrap((id) => {
+      const websiteId = Number(id && id.id !== undefined ? id.id : id);
+      if (!Number.isInteger(websiteId) || websiteId < 1) throw siteErr('INVALID_ID', 'id must be a positive integer.');
+      return engine.deleteWebsite(db, websiteId);
+    })
+  );
 
-  ipcMain.handle('sites:generate', wrap(async (args) => {
-    // Assign-to-agent is design:create. This channel is the explicit template fallback.
-    const leadId = Number(args && typeof args === 'object' ? args.leadId : args);
-    const force = !!(args && typeof args === 'object' && args.force);
-    const fallback = !!(args && typeof args === 'object' && args.fallback);
-    if (!Number.isInteger(leadId)) throw siteErr('INVALID_ID', 'leadId must be an integer.');
-    engine.ensureTables(db);
-    const existing = db.prepare('SELECT id, origin FROM websites WHERE lead_id = ?').get(leadId);
-    if (existing && existing.origin === 'agent' && !fallback) {
-      throw siteErr('AGENT_SITE', 'An agent already delivered this website. Template fallback replaces it only when you confirm that overwrite.');
-    }
-    return await engine.generateSite(db, leadId, { force: fallback ? true : force });
-  }));
+  ipcMain.handle(
+    'sites:generate',
+    wrap(async (args) => {
+      // Assign-to-agent is design:create. This channel is the explicit template fallback.
+      const leadId = Number(args && typeof args === 'object' ? args.leadId : args);
+      const force = !!(args && typeof args === 'object' && args.force);
+      const fallback = !!(args && typeof args === 'object' && args.fallback);
+      if (!Number.isInteger(leadId)) throw siteErr('INVALID_ID', 'leadId must be an integer.');
+      engine.ensureTables(db);
+      const existing = db.prepare('SELECT id, origin FROM websites WHERE lead_id = ?').get(leadId);
+      if (existing && existing.origin === 'agent' && !fallback) {
+        throw siteErr(
+          'AGENT_SITE',
+          'An agent already delivered this website. Template fallback replaces it only when you confirm that overwrite.'
+        );
+      }
+      return await engine.generateSite(db, leadId, { force: fallback ? true : force });
+    })
+  );
 
-  ipcMain.handle('sites:save', wrap((args = {}) => {
-    const id = Number(args.id);
-    if (!Number.isInteger(id)) throw siteErr('INVALID_ID', 'id must be an integer.');
-    let pages = validatePages(parseJsonField(args.pages, 'pages'));
-    try {
-      pages = require('../siteStructure').syncFreeformNavOrder(pages);
-    } catch { /* optional */ }
-    const theme = parseJsonField(args.theme, 'theme');
-    if (!theme || typeof theme !== 'object' || Array.isArray(theme)) {
-      throw siteErr('INVALID_THEME', 'theme must be an object.');
-    }
-    const version = engine.saveSite(db, id, pages, theme, args.note);
-    return { id, version: { id: version.id, version_no: version.version_no } };
-  }));
+  ipcMain.handle(
+    'sites:save',
+    wrap((args = {}) => {
+      const id = Number(args.id);
+      if (!Number.isInteger(id)) throw siteErr('INVALID_ID', 'id must be an integer.');
+      let pages = validatePages(parseJsonField(args.pages, 'pages'));
+      try {
+        pages = require('../siteStructure').syncFreeformNavOrder(pages);
+      } catch {
+        /* optional */
+      }
+      const theme = parseJsonField(args.theme, 'theme');
+      if (!theme || typeof theme !== 'object' || Array.isArray(theme)) {
+        throw siteErr('INVALID_THEME', 'theme must be an object.');
+      }
+      const version = engine.saveSite(db, id, pages, theme, args.note);
+      return { id, version: { id: version.id, version_no: version.version_no } };
+    })
+  );
 
-  ipcMain.handle('sites:versions', wrap((args) => {
-    const { pageArgs, pageResult } = require('../paginate');
-    const id = Number(args && typeof args === 'object' && args.id != null ? args.id : args);
-    if (!Number.isInteger(id)) throw siteErr('INVALID_ID', 'id must be an integer.');
-    engine.getWebsite(db, id);
-    const { page, pageSize, offset } = pageArgs(args && typeof args === 'object' ? args : {}, { pageSize: 20, maxSize: 100 });
-    const total = db.prepare('SELECT COUNT(*) AS c FROM website_versions WHERE website_id = ?').get(id).c;
-    const versions = db.prepare(
-      'SELECT id, version_no, note, created_at FROM website_versions WHERE website_id = ? ORDER BY version_no DESC LIMIT ? OFFSET ?'
-    ).all(id, pageSize, offset);
-    return Object.assign({ versions }, pageResult(versions, total, page, pageSize));
-  }));
+  ipcMain.handle(
+    'sites:versions',
+    wrap((args) => {
+      const { pageArgs, pageResult } = require('../paginate');
+      const id = Number(args && typeof args === 'object' && args.id != null ? args.id : args);
+      if (!Number.isInteger(id)) throw siteErr('INVALID_ID', 'id must be an integer.');
+      engine.getWebsite(db, id);
+      const { page, pageSize, offset } = pageArgs(args && typeof args === 'object' ? args : {}, {
+        pageSize: 20,
+        maxSize: 100,
+      });
+      const total = db.prepare('SELECT COUNT(*) AS c FROM website_versions WHERE website_id = ?').get(id).c;
+      const versions = db
+        .prepare(
+          'SELECT id, version_no, note, created_at FROM website_versions WHERE website_id = ? ORDER BY version_no DESC LIMIT ? OFFSET ?'
+        )
+        .all(id, pageSize, offset);
+      return Object.assign({ versions }, pageResult(versions, total, page, pageSize));
+    })
+  );
 
-  ipcMain.handle('sites:restore', wrap((versionId) => {
-    if (!Number.isInteger(Number(versionId))) throw siteErr('INVALID_ID', 'versionId must be an integer.');
-    const site = engine.restoreVersion(db, Number(versionId));
-    return { site: siteRow(db, site.id) };
-  }));
+  ipcMain.handle(
+    'sites:restore',
+    wrap((versionId) => {
+      if (!Number.isInteger(Number(versionId))) throw siteErr('INVALID_ID', 'versionId must be an integer.');
+      const site = engine.restoreVersion(db, Number(versionId));
+      return { site: siteRow(db, site.id) };
+    })
+  );
 
-  ipcMain.handle('sites:qa', wrap(async (id) => {
-    if (!Number.isInteger(Number(id))) throw siteErr('INVALID_ID', 'id must be an integer.');
-    return await engine.qaSite(db, Number(id));
-  }));
+  ipcMain.handle(
+    'sites:qa',
+    wrap(async (id) => {
+      if (!Number.isInteger(Number(id))) throw siteErr('INVALID_ID', 'id must be an integer.');
+      return await engine.qaSite(db, Number(id));
+    })
+  );
 
-  ipcMain.handle('sites:export', wrap((id) => {
-    if (!Number.isInteger(Number(id))) throw siteErr('INVALID_ID', 'id must be an integer.');
-    const site = engine.getWebsite(db, Number(id));
-    const dir = path.join(os.homedir(), 'website-scout-exports', `${slugify(site.name)}-${site.id}`);
-    const out = engine.exportStatic(db, Number(id), dir);
-    return { path: out };
-  }));
+  ipcMain.handle(
+    'sites:export',
+    wrap((id) => {
+      if (!Number.isInteger(Number(id))) throw siteErr('INVALID_ID', 'id must be an integer.');
+      const site = engine.getWebsite(db, Number(id));
+      const dir = path.join(os.homedir(), 'website-scout-exports', `${slugify(site.name)}-${site.id}`);
+      const out = engine.exportStatic(db, Number(id), dir);
+      return { path: out };
+    })
+  );
 
   /** Claim kit JSON (URLs + QR data-URLs). Optional includePdf writes postcard to exports folder. */
-  ipcMain.handle('sites:claimKit', wrap(async (args) => {
-    const claimKit = require('../claimKit');
-    const id = Number(args && args.id != null ? args.id : args);
-    if (!Number.isInteger(id) || id <= 0) throw siteErr('INVALID_ID', 'id must be an integer.');
-    const site = engine.getWebsite(db, id);
-    const leadId = Number(site.lead_id);
-    if (!Number.isInteger(leadId) || leadId <= 0) throw siteErr('NO_LEAD', 'Website has no lead.');
-    const workspaceId = Number(args && args.workspaceId) > 0 ? Number(args.workspaceId) : 1;
-    const includePdf = !!(args && args.includePdf);
-    const kit = await claimKit.buildClaimKit(db, workspaceId, {
-      leadId,
-      websiteId: id,
-      includePdf,
-    });
-    if (kit.pdf) {
-      const dir = path.join(os.homedir(), 'website-scout-exports', 'postcards');
-      require('fs').mkdirSync(dir, { recursive: true });
-      const filePath = path.join(dir, kit.filename || `postcard-${leadId}.pdf`);
-      require('fs').writeFileSync(filePath, kit.pdf);
-      const { pdf, ...rest } = kit;
-      return { ...rest, pdfPath: filePath, pdfBytes: pdf.length };
-    }
-    return kit;
-  }));
-
-  ipcMain.handle('sites:forLead', wrap((leadId) => {
-    if (!Number.isInteger(Number(leadId))) throw siteErr('INVALID_ID', 'leadId must be an integer.');
-    const row = db.prepare('SELECT id FROM websites WHERE lead_id = ?').get(Number(leadId));
-    return { site: row ? siteRow(db, row.id) : null };
-  }));
-
-  ipcMain.handle('sites:renderHtml', wrap((args) => {
-    const opts = {
-      editable: !!(args && args.editable),
-      preview: true,
-      pageSlug: args && args.pageSlug,
-      pageIndex: args && (Number.isInteger(args.pageIndex) ? args.pageIndex : (args.pageIndex != null ? Number(args.pageIndex) : undefined)),
-    };
-    let pages;
-    let theme;
-    if (args && Array.isArray(args.pages)) {
-      pages = args.pages;
-      theme = args.theme && typeof args.theme === 'object' ? args.theme : {};
-    } else {
-      const id = Number(args && args.id !== undefined ? args.id : args);
-      if (!Number.isInteger(id)) throw siteErr('INVALID_ID', 'id must be an integer.');
+  ipcMain.handle(
+    'sites:claimKit',
+    wrap(async (args) => {
+      const claimKit = require('../claimKit');
+      const id = Number(args && args.id != null ? args.id : args);
+      if (!Number.isInteger(id) || id <= 0) throw siteErr('INVALID_ID', 'id must be an integer.');
       const site = engine.getWebsite(db, id);
-      pages = parseJsonField(site.pages, 'pages');
-      theme = parseJsonField(site.theme, 'theme');
-      opts.editable = true;
-    }
-    const list = pages.map((p) => ({ slug: p.slug, title: p.title }));
-    if (opts.pageSlug != null || Number.isInteger(opts.pageIndex)) {
-      return { html: engine.renderPageAt(pages, theme, opts), pages: list };
-    }
-    return { html: engine.renderSite(pages, theme, opts), pages: list };
-  }));
+      const leadId = Number(site.lead_id);
+      if (!Number.isInteger(leadId) || leadId <= 0) throw siteErr('NO_LEAD', 'Website has no lead.');
+      const workspaceId = Number(args && args.workspaceId) > 0 ? Number(args.workspaceId) : 1;
+      const includePdf = !!(args && args.includePdf);
+      const kit = await claimKit.buildClaimKit(db, workspaceId, {
+        leadId,
+        websiteId: id,
+        includePdf,
+      });
+      if (kit.pdf) {
+        const dir = path.join(os.homedir(), 'website-scout-exports', 'postcards');
+        require('fs').mkdirSync(dir, { recursive: true });
+        const filePath = path.join(dir, kit.filename || `postcard-${leadId}.pdf`);
+        require('fs').writeFileSync(filePath, kit.pdf);
+        const { pdf, ...rest } = kit;
+        return { ...rest, pdfPath: filePath, pdfBytes: pdf.length };
+      }
+      return kit;
+    })
+  );
 
-  ipcMain.handle('sites:openPreview', wrap(async (id) => {
-    const websiteId = Number(id && id.id !== undefined ? id.id : id);
-    if (!Number.isInteger(websiteId)) throw siteErr('INVALID_ID', 'id must be an integer.');
-    const openPreview = require('../openPreview');
-    const opened = await openPreview.openWebsiteFile(db, websiteId);
-    return { path: opened.path };
-  }));
+  ipcMain.handle(
+    'sites:forLead',
+    wrap((leadId) => {
+      if (!Number.isInteger(Number(leadId))) throw siteErr('INVALID_ID', 'leadId must be an integer.');
+      const row = db.prepare('SELECT id FROM websites WHERE lead_id = ?').get(Number(leadId));
+      return { site: row ? siteRow(db, row.id) : null };
+    })
+  );
 
-  ipcMain.handle('sites:addImages', wrap(async (args = {}) => {
-    const id = Number(args.id);
-    if (!Number.isInteger(id)) throw siteErr('INVALID_ID', 'id must be an integer.');
-    return await engine.attachPexelsImages(db, id, { query: args.query, count: args.count });
-  }));
+  ipcMain.handle(
+    'sites:renderHtml',
+    wrap((args) => {
+      const opts = {
+        editable: !!(args && args.editable),
+        preview: true,
+        pageSlug: args && args.pageSlug,
+        pageIndex:
+          args &&
+          (Number.isInteger(args.pageIndex)
+            ? args.pageIndex
+            : args.pageIndex != null
+              ? Number(args.pageIndex)
+              : undefined),
+      };
+      let pages;
+      let theme;
+      if (args && Array.isArray(args.pages)) {
+        pages = args.pages;
+        theme = args.theme && typeof args.theme === 'object' ? args.theme : {};
+      } else {
+        const id = Number(args && args.id !== undefined ? args.id : args);
+        if (!Number.isInteger(id)) throw siteErr('INVALID_ID', 'id must be an integer.');
+        const site = engine.getWebsite(db, id);
+        pages = parseJsonField(site.pages, 'pages');
+        theme = parseJsonField(site.theme, 'theme');
+        opts.editable = true;
+      }
+      const list = pages.map((p) => ({ slug: p.slug, title: p.title }));
+      if (opts.pageSlug != null || Number.isInteger(opts.pageIndex)) {
+        return { html: engine.renderPageAt(pages, theme, opts), pages: list };
+      }
+      return { html: engine.renderSite(pages, theme, opts), pages: list };
+    })
+  );
+
+  ipcMain.handle(
+    'sites:openPreview',
+    wrap(async (id) => {
+      const websiteId = Number(id && id.id !== undefined ? id.id : id);
+      if (!Number.isInteger(websiteId)) throw siteErr('INVALID_ID', 'id must be an integer.');
+      const openPreview = require('../openPreview');
+      const opened = await openPreview.openWebsiteFile(db, websiteId);
+      return { path: opened.path };
+    })
+  );
+
+  ipcMain.handle(
+    'sites:addImages',
+    wrap(async (args = {}) => {
+      const id = Number(args.id);
+      if (!Number.isInteger(id)) throw siteErr('INVALID_ID', 'id must be an integer.');
+      return await engine.attachPexelsImages(db, id, { query: args.query, count: args.count });
+    })
+  );
 }
 
 module.exports = { register, validatePages };

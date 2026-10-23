@@ -20,11 +20,11 @@ const API_BASE = '/client/v4';
 
 // Cloudflare Pages direct-upload limits.
 const MAX_FILE_BYTES = 25 * 1024 * 1024; // files larger than this are skipped
-const MAX_FILES = 20000;                 // hard cap on files per deployment
+const MAX_FILES = 20000; // hard cap on files per deployment
 
 const ACCOUNT_ID_RE = /^[0-9a-f]{32}$/i;
 const PROJECT_RE = /^[a-z0-9]([a-z0-9-]{0,56}[a-z0-9])?$/; // 1-58 chars
-const TOKEN_RE = /^[A-Za-z0-9._~-]{12,}$/;                 // plausible token shape
+const TOKEN_RE = /^[A-Za-z0-9._~-]{12,}$/; // plausible token shape
 const DOMAIN_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/;
 
 // ---------------------------------------------------------------------------
@@ -42,7 +42,10 @@ function getSetting(db, key) {
 }
 
 function setSetting(db, key, value) {
-  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, require('./secretBox').encryptSetting(key, value));
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(
+    key,
+    require('./secretBox').encryptSetting(key, value)
+  );
 }
 
 // Never include secrets in an error string.
@@ -127,14 +130,20 @@ async function resolveCfCredentials(db) {
   }
   try {
     const platform = require('../server/platform');
-    if (!token) token = String(await platform.getPlatformSetting('cf.api_token', '') || '').trim();
+    if (!token) token = String((await platform.getPlatformSetting('cf.api_token', '')) || '').trim();
     if (!ACCOUNT_ID_RE.test(accountId)) {
-      accountId = String(await platform.getPlatformSetting('cf.account_id', '') || '').trim().toLowerCase();
+      accountId = String((await platform.getPlatformSetting('cf.account_id', '')) || '')
+        .trim()
+        .toLowerCase();
     }
     if (!previewDomain) {
-      previewDomain = String(await platform.getPlatformSetting('cf.preview_domain', '') || '').trim().toLowerCase();
+      previewDomain = String((await platform.getPlatformSetting('cf.preview_domain', '')) || '')
+        .trim()
+        .toLowerCase();
     }
-  } catch { /* platform optional */ }
+  } catch {
+    /* platform optional */
+  }
   return {
     token,
     accountId,
@@ -166,8 +175,7 @@ function saveConfig(db, cfg) {
   const apiToken = typeof c.apiToken === 'string' ? c.apiToken.trim() : '';
   const accountId = typeof c.accountId === 'string' ? c.accountId.trim() : '';
   const project = typeof c.project === 'string' ? c.project.trim().toLowerCase() : '';
-  const previewDomain =
-    typeof c.previewDomain === 'string' ? c.previewDomain.trim().toLowerCase() : '';
+  const previewDomain = typeof c.previewDomain === 'string' ? c.previewDomain.trim().toLowerCase() : '';
 
   if (!TOKEN_RE.test(apiToken)) {
     return {
@@ -275,9 +283,7 @@ async function testConnection(db) {
     return { ok: false, error: 'NETWORK_ERROR', detail: safeMessage(err) };
   }
   if (resp.statusCode === 200 && resp.json && resp.json.success) {
-    const projects = (resp.json.result || [])
-      .map((p) => p && p.name)
-      .filter((n) => typeof n === 'string');
+    const projects = (resp.json.result || []).map((p) => p && p.name).filter((n) => typeof n === 'string');
     return { ok: true, projects };
   }
   return { ok: false, error: cfError(resp, 'Connection test failed') };
@@ -509,8 +515,7 @@ function buildFormData(files) {
   });
   const tail = Buffer.from(`--${boundary}--\r\n`, 'utf8');
   const contentLength =
-    prepared.reduce((n, p) => n + p.headerBuf.length + p.bodyLen + p.footerBuf.length, 0) +
-    tail.length;
+    prepared.reduce((n, p) => n + p.headerBuf.length + p.bodyLen + p.footerBuf.length, 0) + tail.length;
   return { boundary, manifestJson, parts: prepared, tail, contentLength };
 }
 
@@ -699,7 +704,12 @@ function postManifestDeployment({ token, accountId, project, manifest, branch })
  */
 async function postDeployment({ token, accountId, project, files, branch }) {
   const tok = await getUploadJwt(token, accountId, project);
-  if (!tok.ok) return { statusCode: 400, json: { success: false, errors: [{ message: tok.error || 'UPLOAD_TOKEN' }] }, _detail: tok };
+  if (!tok.ok)
+    return {
+      statusCode: 400,
+      json: { success: false, errors: [{ message: tok.error || 'UPLOAD_TOKEN' }] },
+      _detail: tok,
+    };
 
   const uploaded = await uploadAssets(tok.jwt, files);
   if (!uploaded.ok) {
@@ -824,11 +834,7 @@ async function publishDirectory(db, opts) {
   } catch (err) {
     return { ok: false, error: 'UPLOAD_FAILED', detail: safeMessage(err) };
   }
-  if (
-    !(resp.statusCode === 200 || resp.statusCode === 201) ||
-    !resp.json ||
-    !resp.json.success
-  ) {
+  if (!(resp.statusCode === 200 || resp.statusCode === 201) || !resp.json || !resp.json.success) {
     if (resp && resp._detail && resp._detail.error) {
       return {
         ok: false,
@@ -879,14 +885,17 @@ async function publishDirectory(db, opts) {
   let deployedVersion = o.deployedVersion != null ? Number(o.deployedVersion) : null;
   if (!Number.isInteger(deployedVersion) || deployedVersion < 1) {
     try {
-      const vrow = db.prepare(
-        'SELECT COALESCE(MAX(version_no), 0) AS m FROM website_versions WHERE website_id = ?'
-      ).get(websiteId);
+      const vrow = db
+        .prepare('SELECT COALESCE(MAX(version_no), 0) AS m FROM website_versions WHERE website_id = ?')
+        .get(websiteId);
       deployedVersion = Number(vrow && vrow.m) || null;
-    } catch { deployedVersion = null; }
+    } catch {
+      deployedVersion = null;
+    }
   }
   try {
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE websites SET
         preview_url = ?,
         cf_deployment_id = ?,
@@ -894,18 +903,16 @@ async function publishDirectory(db, opts) {
         deployed_at = datetime('now'),
         updated_at = datetime('now')
       WHERE id = ?
-    `).run(url, deploymentId || null, deployedVersion, websiteId);
+    `
+    ).run(url, deploymentId || null, deployedVersion, websiteId);
   } catch {
-    db.prepare("UPDATE websites SET preview_url = ?, updated_at = datetime('now') WHERE id = ?").run(
-      url,
-      websiteId
-    );
+    db.prepare("UPDATE websites SET preview_url = ?, updated_at = datetime('now') WHERE id = ?").run(url, websiteId);
   }
   db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
     'cloudflare',
-    `Published preview for website #${websiteId} (${projectName}): ${url}`
-      + (deployedVersion != null ? ` v${deployedVersion}` : '')
-      + (deploymentId ? ` deploy=${deploymentId}` : '')
+    `Published preview for website #${websiteId} (${projectName}): ${url}` +
+      (deployedVersion != null ? ` v${deployedVersion}` : '') +
+      (deploymentId ? ` deploy=${deploymentId}` : '')
   );
   return {
     ok: true,

@@ -24,8 +24,7 @@ function mysqlConfig() {
 }
 
 function sqlitePath() {
-  return process.env.SQLITE_PATH
-    || path.join(__dirname, '..', 'data', 'website-scout-web.sqlite');
+  return process.env.SQLITE_PATH || path.join(__dirname, '..', 'data', 'website-scout-web.sqlite');
 }
 
 function toSqliteSql(sql) {
@@ -213,16 +212,56 @@ async function migrate() {
     const sql = fs.readFileSync(schemaPath, 'utf8');
     const db = getSqlite();
     db.exec(sql);
-    try { ensureColumnSqlite(db, 'users', 'is_super_admin', 'INTEGER NOT NULL DEFAULT 0'); } catch { /* */ }
-    try { ensureColumnSqlite(db, 'users', 'status', "TEXT NOT NULL DEFAULT 'active'"); } catch { /* */ }
-    try { ensureColumnSqlite(db, 'users', 'last_login_at', 'TEXT'); } catch { /* */ }
-    try { ensureColumnSqlite(db, 'users', 'stripe_customer_id', 'TEXT'); } catch { /* */ }
-    try { ensureColumnSqlite(db, 'users', 'stripe_subscription_id', 'TEXT'); } catch { /* */ }
-    try { ensureColumnSqlite(db, 'users', 'subscription_status', "TEXT NOT NULL DEFAULT 'none'"); } catch { /* */ }
-    try { ensureColumnSqlite(db, 'users', 'subscription_price_id', 'TEXT'); } catch { /* */ }
-    try { ensureColumnSqlite(db, 'users', 'billing_plan', "TEXT NOT NULL DEFAULT 'free'"); } catch { /* */ }
-    try { ensureColumnSqlite(db, 'users', 'current_period_end', 'TEXT'); } catch { /* */ }
-    try { ensureColumnSqlite(db, 'users', 'deleted_at', 'TEXT'); } catch { /* */ }
+    try {
+      ensureColumnSqlite(db, 'users', 'is_super_admin', 'INTEGER NOT NULL DEFAULT 0');
+    } catch {
+      /* */
+    }
+    try {
+      ensureColumnSqlite(db, 'users', 'status', "TEXT NOT NULL DEFAULT 'active'");
+    } catch {
+      /* */
+    }
+    try {
+      ensureColumnSqlite(db, 'users', 'last_login_at', 'TEXT');
+    } catch {
+      /* */
+    }
+    try {
+      ensureColumnSqlite(db, 'users', 'stripe_customer_id', 'TEXT');
+    } catch {
+      /* */
+    }
+    try {
+      ensureColumnSqlite(db, 'users', 'stripe_subscription_id', 'TEXT');
+    } catch {
+      /* */
+    }
+    try {
+      ensureColumnSqlite(db, 'users', 'subscription_status', "TEXT NOT NULL DEFAULT 'none'");
+    } catch {
+      /* */
+    }
+    try {
+      ensureColumnSqlite(db, 'users', 'subscription_price_id', 'TEXT');
+    } catch {
+      /* */
+    }
+    try {
+      ensureColumnSqlite(db, 'users', 'billing_plan', "TEXT NOT NULL DEFAULT 'free'");
+    } catch {
+      /* */
+    }
+    try {
+      ensureColumnSqlite(db, 'users', 'current_period_end', 'TEXT');
+    } catch {
+      /* */
+    }
+    try {
+      ensureColumnSqlite(db, 'users', 'deleted_at', 'TEXT');
+    } catch {
+      /* */
+    }
     db.exec(`
       CREATE TABLE IF NOT EXISTS platform_settings (
         key TEXT NOT NULL PRIMARY KEY,
@@ -388,7 +427,11 @@ async function migrate() {
       CREATE INDEX IF NOT EXISTS idx_mcp_oauth_refresh_exp ON mcp_oauth_refresh_tokens(expires_at);
       CREATE INDEX IF NOT EXISTS idx_mcp_oauth_clients_exp ON mcp_oauth_clients(expires_at);
     `);
-    try { ensureColumnSqlite(db, 'workspace_tokens', 'lead_id', 'INTEGER'); } catch { /* */ }
+    try {
+      ensureColumnSqlite(db, 'workspace_tokens', 'lead_id', 'INTEGER');
+    } catch {
+      /* */
+    }
     ensureColumnSqlite(db, 'job_runs', 'trigger_source', "TEXT NOT NULL DEFAULT 'legacy'");
     ensureColumnSqlite(db, 'job_runs', 'triggered_by', "TEXT NOT NULL DEFAULT 'unknown'");
     ensureColumnSqlite(db, 'workspace_tokens', 'expires_at', 'INTEGER');

@@ -10,7 +10,9 @@ function appBase() {
   try {
     const url = new URL(String(process.env.APP_URL || ''));
     return /^https?:$/.test(url.protocol) && !url.username && !url.password ? url.origin : '';
-  } catch { return ''; }
+  } catch {
+    return '';
+  }
 }
 
 function loaderTag(file) {

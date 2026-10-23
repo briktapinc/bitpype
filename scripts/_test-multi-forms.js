@@ -8,16 +8,19 @@ db.exec(`CREATE TABLE websites (
   id INTEGER PRIMARY KEY, lead_id INTEGER, pages TEXT, theme TEXT, updated_at TEXT
 )`);
 db.prepare('INSERT INTO leads VALUES (1, ?, ?)').run('a@b.com', 'Test Co');
-db.prepare(
-  "INSERT INTO websites (id, lead_id, pages, theme, updated_at) VALUES (1, 1, ?, '{}', datetime('now'))"
-).run(JSON.stringify([
-  { slug: 'home', title: 'Home', html: '<main><h1>Home</h1></main>' },
-  { slug: 'contact', title: 'Contact', html: '<main><section id="contact"><h1>Contact</h1></section></main>' },
-]));
+db.prepare("INSERT INTO websites (id, lead_id, pages, theme, updated_at) VALUES (1, 1, ?, '{}', datetime('now'))").run(
+  JSON.stringify([
+    { slug: 'home', title: 'Home', html: '<main><h1>Home</h1></main>' },
+    { slug: 'contact', title: 'Contact', html: '<main><section id="contact"><h1>Contact</h1></section></main>' },
+  ])
+);
 
 const a = f.createForm(db, 1, { name: 'Form A' });
 const b = f.createForm(db, 1, { name: 'Form B', embed_enabled: false, target_page_slug: 'about' });
-console.log('forms', f.listFormsForLead(db, 1).map((x) => `${x.name}:${x.embed_on_page}:${x.target_page_slug}`));
+console.log(
+  'forms',
+  f.listFormsForLead(db, 1).map((x) => `${x.name}:${x.embed_on_page}:${x.target_page_slug}`)
+);
 
 const pub = f.publishForm(db, 1, a.id, { workspaceId: 9, embed_on_page: true, target_page_slug: 'contact' });
 console.log('pub', pub.published, String(pub.public_token || '').startsWith('9_'));

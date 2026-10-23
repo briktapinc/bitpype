@@ -22,7 +22,9 @@ function rateLimit({ windowMs = 15 * 60 * 1000, max = 30, keyFn, name = 'default
       : 'no Redis configured — in-memory per-process only';
     try {
       console.info(`[rateLimit] ${hint}`);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   function prune(now) {
@@ -37,9 +39,7 @@ function rateLimit({ windowMs = 15 * 60 * 1000, max = 30, keyFn, name = 'default
     const now = Date.now();
     if (hits.size > 5000) prune(now);
     // Prefer Express req.ip (respects trust proxy). Do not trust leftmost XFF alone.
-    const key = (keyFn ? keyFn(req) : null)
-      || req.ip
-      || 'unknown';
+    const key = (keyFn ? keyFn(req) : null) || req.ip || 'unknown';
     const arr = (hits.get(key) || []).filter((t) => now - t < windowMs);
     arr.push(now);
     hits.set(key, arr);
@@ -48,7 +48,9 @@ function rateLimit({ windowMs = 15 * 60 * 1000, max = 30, keyFn, name = 'default
         console.warn(
           `[rateLimit] 429 name=${name} key=${String(key).slice(0, 80)} count=${arr.length} max=${max} windowMs=${windowMs}`
         );
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       return res.status(429).json({ ok: false, error: 'RATE_LIMITED', code: 'RATE_LIMITED' });
     }
     next();

@@ -20,9 +20,9 @@ async function main() {
     .filter(Boolean)
     .map((c) => String(c).split(';')[0])
     .join('; ');
-  const wsId = login.data && (login.data.workspaceId
-    || (login.data.workspaces && login.data.workspaces[0] && login.data.workspaces[0].id)
-    || 1);
+  const wsId =
+    login.data &&
+    (login.data.workspaceId || (login.data.workspaces && login.data.workspaces[0] && login.data.workspaces[0].id) || 1);
   const headers = {
     'Content-Type': 'application/json',
     Cookie: cookieHeader,
@@ -31,7 +31,14 @@ async function main() {
 
   const cfRes = await fetch(`${BASE}/api/v1/cloudflare`, { headers });
   const cf = await cfRes.json();
-  console.log('cf.configured=', cf.data && cf.data.configured, 'project=', cf.data && cf.data.project, 'previewDomain=', cf.data && cf.data.previewDomain);
+  console.log(
+    'cf.configured=',
+    cf.data && cf.data.configured,
+    'project=',
+    cf.data && cf.data.project,
+    'previewDomain=',
+    cf.data && cf.data.previewDomain
+  );
 
   console.log('POST /websites/1/preview force=true …');
   const prevRes = await fetch(`${BASE}/api/v1/websites/1/preview`, {

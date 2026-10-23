@@ -10,30 +10,60 @@ const path = require('path');
 const MAX_TEXT = 200000;
 const SUPPORTED_EXT = [
   '.pdf',
-  '.doc', '.docx',
-  '.xls', '.xlsx', '.csv',
-  '.ppt', '.pptx',
-  '.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tif', '.tiff',
-  '.txt', '.md', '.markdown', '.html', '.htm', '.json', '.rtf',
+  '.doc',
+  '.docx',
+  '.xls',
+  '.xlsx',
+  '.csv',
+  '.ppt',
+  '.pptx',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.webp',
+  '.gif',
+  '.bmp',
+  '.tif',
+  '.tiff',
+  '.txt',
+  '.md',
+  '.markdown',
+  '.html',
+  '.htm',
+  '.json',
+  '.rtf',
 ];
 
-const SUPPORTED_LABEL = 'PDF, Word (.doc/.docx), Excel (.xls/.xlsx), PowerPoint (.ppt/.pptx), images (OCR), and text/Markdown/HTML';
+const SUPPORTED_LABEL =
+  'PDF, Word (.doc/.docx), Excel (.xls/.xlsx), PowerPoint (.ppt/.pptx), images (OCR), and text/Markdown/HTML';
 
 function extOf(fileName = '') {
-  const base = String(fileName || '').split(/[\\/]/).pop() || '';
+  const base =
+    String(fileName || '')
+      .split(/[\\/]/)
+      .pop() || '';
   const i = base.lastIndexOf('.');
   return i >= 0 ? base.slice(i).toLowerCase() : '';
 }
 
 function isOcrInput(opts = {}) {
-  const ext = extOf(opts.fileName), mime = String(opts.mimeType || '').toLowerCase();
+  const ext = extOf(opts.fileName),
+    mime = String(opts.mimeType || '').toLowerCase();
   // Follow the same priority as extraction, so a spoofed image MIME cannot give
   // a document parser the OCR worker's network/native-module permissions.
-  if (['.pdf','.doc','.docx','.xls','.xlsx','.csv','.ppt','.pptx'].includes(ext)
-    || mime === 'application/pdf' || mime.includes('wordprocessingml') || mime === 'application/msword'
-    || mime.includes('spreadsheet') || mime === 'text/csv' || mime === 'application/vnd.ms-excel'
-    || mime.includes('presentationml') || mime === 'application/vnd.ms-powerpoint') return false;
-  return /^image\//.test(mime) || ['.png','.jpg','.jpeg','.webp','.gif','.bmp','.tif','.tiff'].includes(ext);
+  if (
+    ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.ppt', '.pptx'].includes(ext) ||
+    mime === 'application/pdf' ||
+    mime.includes('wordprocessingml') ||
+    mime === 'application/msword' ||
+    mime.includes('spreadsheet') ||
+    mime === 'text/csv' ||
+    mime === 'application/vnd.ms-excel' ||
+    mime.includes('presentationml') ||
+    mime === 'application/vnd.ms-powerpoint'
+  )
+    return false;
+  return /^image\//.test(mime) || ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tif', '.tiff'].includes(ext);
 }
 
 function normalizeText(s) {
@@ -71,9 +101,7 @@ async function extractDoc(buf) {
     const WordExtractor = require('word-extractor');
     const extractor = new WordExtractor();
     const doc = await extractor.extract(buf);
-    const parts = [doc.getBody(), doc.getHeaders(), doc.getFooters(), doc.getFootnotes()]
-      .filter(Boolean)
-      .join('\n');
+    const parts = [doc.getBody(), doc.getHeaders(), doc.getFooters(), doc.getFootnotes()].filter(Boolean).join('\n');
     return { text: normalizeText(parts), extractor: 'word-extractor' };
   } catch (err) {
     // Fallback: officeparser sometimes handles legacy Word.
@@ -83,7 +111,12 @@ async function extractDoc(buf) {
 
 async function extractExcel(buf, fileName) {
   const XLSX = require('xlsx');
-  const wb = XLSX.read(buf, { type: 'buffer', cellDates: true, dense: true, codepage: extOf(fileName) === '.csv' ? 65001 : undefined });
+  const wb = XLSX.read(buf, {
+    type: 'buffer',
+    cellDates: true,
+    dense: true,
+    codepage: extOf(fileName) === '.csv' ? 65001 : undefined,
+  });
   const chunks = [];
   for (const name of wb.SheetNames || []) {
     const sheet = wb.Sheets[name];
@@ -106,12 +139,16 @@ async function extractViaOfficeParser(buf, mimeHint) {
     ocr: false,
     includeRawContent: false,
     decompressionLimits: {
-      maxUncompressedBytes: 32 * 1024 * 1024, maxZipEntries: 2000,
-      maxTableCells: 100000, maxXmlElements: 200000, maxRepeatedContent: 4 * 1024 * 1024,
+      maxUncompressedBytes: 32 * 1024 * 1024,
+      maxZipEntries: 2000,
+      maxTableCells: 100000,
+      maxXmlElements: 200000,
+      maxRepeatedContent: 4 * 1024 * 1024,
     },
   });
   const { value: text } = await ast.to('text', {
-    includeImages: false, textConfig: { preserveLayout: false, renderNotes: true },
+    includeImages: false,
+    textConfig: { preserveLayout: false, renderNotes: true },
   });
   return {
     text: normalizeText(text),
@@ -121,10 +158,7 @@ async function extractViaOfficeParser(buf, mimeHint) {
 }
 
 async function extractPptx(buf) {
-  return extractViaOfficeParser(
-    buf,
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-  );
+  return extractViaOfficeParser(buf, 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
 }
 
 async function extractImageOcr(buf, mimeType) {
@@ -132,12 +166,7 @@ async function extractImageOcr(buf, mimeType) {
   let sharpUsed = false;
   try {
     const sharp = require('sharp');
-    pngBuf = await sharp(buf, { limitInputPixels: 16000000 })
-      .rotate()
-      .grayscale()
-      .normalize()
-      .png()
-      .toBuffer();
+    pngBuf = await sharp(buf, { limitInputPixels: 16000000 }).rotate().grayscale().normalize().png().toBuffer();
     sharpUsed = true;
   } catch (error) {
     if (/pixel limit|image dimensions|Input image exceeds/i.test(String(error.message || ''))) throw error;
@@ -185,34 +214,46 @@ async function extractKnowledgeText(buf, opts = {}) {
     if (ext === '.pdf' || mime === 'application/pdf') {
       return { ...(await extractPdf(buf)), supported: true };
     }
-    if (ext === '.docx'
-      || mime.includes('wordprocessingml')
-      || mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+    if (
+      ext === '.docx' ||
+      mime.includes('wordprocessingml') ||
+      mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    ) {
       return { ...(await extractDocx(buf)), supported: true };
     }
     if (ext === '.doc' || mime === 'application/msword') {
       return { ...(await extractDoc(buf)), supported: true };
     }
-    if (ext === '.xlsx' || ext === '.xls' || ext === '.csv'
-      || mime.includes('spreadsheet') || mime === 'text/csv'
-      || mime === 'application/vnd.ms-excel') {
+    if (
+      ext === '.xlsx' ||
+      ext === '.xls' ||
+      ext === '.csv' ||
+      mime.includes('spreadsheet') ||
+      mime === 'text/csv' ||
+      mime === 'application/vnd.ms-excel'
+    ) {
       return { ...(await extractExcel(buf, fileName)), supported: true };
     }
-    if (ext === '.pptx'
-      || mime.includes('presentationml')
-      || mime === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
+    if (
+      ext === '.pptx' ||
+      mime.includes('presentationml') ||
+      mime === 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    ) {
       return { ...(await extractPptx(buf)), supported: true };
     }
     if (ext === '.ppt' || mime === 'application/vnd.ms-powerpoint') {
       return { ...(await extractViaOfficeParser(buf, mime || 'application/vnd.ms-powerpoint')), supported: true };
     }
-    if (/^image\//.test(mime)
-      || ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tif', '.tiff'].includes(ext)) {
+    if (/^image\//.test(mime) || ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tif', '.tiff'].includes(ext)) {
       const out = await extractImageOcr(buf, mime || `image/${ext.replace('.', '')}`);
       return { ...out, supported: true };
     }
-    if (['.txt', '.md', '.markdown', '.html', '.htm', '.json', '.rtf'].includes(ext)
-      || mime.startsWith('text/') || mime === 'application/json' || mime === 'application/rtf') {
+    if (
+      ['.txt', '.md', '.markdown', '.html', '.htm', '.json', '.rtf'].includes(ext) ||
+      mime.startsWith('text/') ||
+      mime === 'application/json' ||
+      mime === 'application/rtf'
+    ) {
       return { ...(await extractPlain(buf, ext || '.txt')), supported: true };
     }
 
@@ -220,7 +261,9 @@ async function extractKnowledgeText(buf, opts = {}) {
     try {
       const via = await extractViaOfficeParser(buf, mime);
       if (via.text) return { ...via, supported: true };
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     const plain = await extractPlain(buf, ext || '.txt');
     if (plain.text) {
       return {
@@ -251,7 +294,9 @@ async function extractKnowledgeText(buf, opts = {}) {
 function searchWindows(text, query, { maxChars = 2400, windowSize = 900 } = {}) {
   const body = String(text || '');
   if (!body) return '';
-  const q = String(query || '').trim().toLowerCase();
+  const q = String(query || '')
+    .trim()
+    .toLowerCase();
   if (!q) return body.slice(0, maxChars);
   const terms = q.split(/[^a-z0-9]+/i).filter((t) => t.length > 2);
   if (!terms.length) return body.slice(0, maxChars);
@@ -288,11 +333,14 @@ function searchWindows(text, query, { maxChars = 2400, windowSize = 900 } = {}) 
 
 function scoreText(text, query) {
   const body = String(text || '').toLowerCase();
-  const terms = String(query || '').toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2);
+  const terms = String(query || '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length > 2);
   if (!terms.length || !body) return 0;
   let score = 0;
   for (const t of terms) {
-    if (body.includes(t)) score += 1 + Math.min(3, (body.split(t).length - 1));
+    if (body.includes(t)) score += 1 + Math.min(3, body.split(t).length - 1);
   }
   return score;
 }

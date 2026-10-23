@@ -84,7 +84,7 @@ function rewriteHtmlRefs(html, fromRel, toRel) {
   const variants = [fromRel, `./${fromRel}`, `/${fromRel}`];
   for (const v of variants) {
     if (!v) continue;
-    out = out.split(v).join(v === fromRel ? toRel : (v.startsWith('./') ? `./${toRel}` : `/${toRel}`));
+    out = out.split(v).join(v === fromRel ? toRel : v.startsWith('./') ? `./${toRel}` : `/${toRel}`);
   }
   return out;
 }
@@ -241,8 +241,8 @@ async function optimizeBuffer(inputBuffer, opts = {}) {
     const info = await sharp(buf, { failOn: 'none' }).metadata();
     return {
       buffer: buf,
-      mime: kind === 'jpeg' ? 'image/jpeg' : (kind === 'webp' ? 'image/webp' : 'image/png'),
-      ext: kind === 'jpeg' ? '.jpg' : (kind === 'webp' ? '.webp' : '.png'),
+      mime: kind === 'jpeg' ? 'image/jpeg' : kind === 'webp' ? 'image/webp' : 'image/png',
+      ext: kind === 'jpeg' ? '.jpg' : kind === 'webp' ? '.webp' : '.png',
       width: info.width || w,
       height: info.height || h,
       kind,
@@ -285,7 +285,7 @@ async function optimizeBuffer(inputBuffer, opts = {}) {
     return {
       buffer: inputBuffer,
       mime: mimeForExt(`.${format || 'bin'}`),
-      ext: format === 'jpeg' ? '.jpg' : (format ? `.${format}` : null),
+      ext: format === 'jpeg' ? '.jpg' : format ? `.${format}` : null,
       width: w || null,
       height: h || null,
       bytesBefore,
@@ -315,22 +315,20 @@ async function optimizeBuffer(inputBuffer, opts = {}) {
   const best = candidates[0];
   const saved = (bytesBefore - best.buffer.length) / bytesBefore;
   const sameFamily =
-    (format === 'jpeg' && best.kind === 'jpeg')
-    || (format === 'jpg' && best.kind === 'jpeg')
-    || (format === 'png' && best.kind === 'png')
-    || (format === 'webp' && best.kind === 'webp');
+    (format === 'jpeg' && best.kind === 'jpeg') ||
+    (format === 'jpg' && best.kind === 'jpeg') ||
+    (format === 'png' && best.kind === 'png') ||
+    (format === 'webp' && best.kind === 'webp');
 
   // Accept if we resized, or force, or meaningful byte savings.
-  const accept = cfg.force
-    || needsResize
-    || saved >= cfg.minSavings
-    || (sameFamily && best.buffer.length < bytesBefore);
+  const accept =
+    cfg.force || needsResize || saved >= cfg.minSavings || (sameFamily && best.buffer.length < bytesBefore);
 
   if (!accept) {
     return {
       buffer: inputBuffer,
       mime: mimeForExt(`.${format === 'jpeg' ? 'jpg' : format}`),
-      ext: format === 'jpeg' ? '.jpg' : (format ? `.${format}` : null),
+      ext: format === 'jpeg' ? '.jpg' : format ? `.${format}` : null,
       width: w || null,
       height: h || null,
       bytesBefore,
@@ -341,7 +339,7 @@ async function optimizeBuffer(inputBuffer, opts = {}) {
     };
   }
 
-  const inExt = format === 'jpeg' ? '.jpg' : (format ? `.${format}` : null);
+  const inExt = format === 'jpeg' ? '.jpg' : format ? `.${format}` : null;
   const converted = !!(inExt && best.ext && inExt !== best.ext);
 
   return {
@@ -353,7 +351,7 @@ async function optimizeBuffer(inputBuffer, opts = {}) {
     bytesBefore,
     bytesAfter: best.buffer.length,
     skipped: false,
-    reason: needsResize ? 'resized' : (converted ? 'converted' : 'compressed'),
+    reason: needsResize ? 'resized' : converted ? 'converted' : 'compressed',
     converted,
   };
 }
@@ -395,12 +393,14 @@ async function optimizeFile(absPath, opts = {}) {
   }
 
   const input = fs.readFileSync(from);
-  const role = opts.role
-    || (isPreserveName(base, cfg) || /^logo\./i.test(base) ? 'logo' : 'photo');
-  const result = await optimizeBuffer(input, Object.assign({}, cfg, {
-    fileName: base,
-    role,
-  }));
+  const role = opts.role || (isPreserveName(base, cfg) || /^logo\./i.test(base) ? 'logo' : 'photo');
+  const result = await optimizeBuffer(
+    input,
+    Object.assign({}, cfg, {
+      fileName: base,
+      role,
+    })
+  );
 
   if (result.skipped) {
     return {
@@ -424,7 +424,11 @@ async function optimizeFile(absPath, opts = {}) {
 
   fs.writeFileSync(dest, result.buffer);
   if (renamed && dest !== from && fs.existsSync(from)) {
-    try { fs.unlinkSync(from); } catch { /* keep old if unlink fails */ }
+    try {
+      fs.unlinkSync(from);
+    } catch {
+      /* keep old if unlink fails */
+    }
   }
 
   return {
@@ -462,7 +466,11 @@ async function optimizeDirectory(imgDir, opts = {}) {
   for (const name of names) {
     const abs = path.join(dir, name);
     let st;
-    try { st = fs.statSync(abs); } catch { continue; }
+    try {
+      st = fs.statSync(abs);
+    } catch {
+      continue;
+    }
     if (!st.isFile()) continue;
     const ext = path.extname(name).toLowerCase();
     if (!RASTER_EXT.has(ext)) continue;
@@ -568,9 +576,7 @@ function websiteImageDirs(db, siteId, opts = {}) {
   dirs.push(appDir);
 
   try {
-    const site = db.prepare(
-      'SELECT id, preview_path, export_slug FROM websites WHERE id = ?'
-    ).get(Number(siteId));
+    const site = db.prepare('SELECT id, preview_path, export_slug FROM websites WHERE id = ?').get(Number(siteId));
     if (site) {
       let folder = null;
       if (site.preview_path) {
@@ -579,7 +585,10 @@ function websiteImageDirs(db, siteId, opts = {}) {
         if (m) folder = m[1];
       }
       if (!folder && site.export_slug) {
-        const slug = String(site.export_slug).trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32);
+        const slug = String(site.export_slug)
+          .trim()
+          .replace(/[^a-zA-Z0-9_-]/g, '')
+          .slice(0, 32);
         const ws = opts.workspaceId != null ? Number(opts.workspaceId) : null;
         if (ws && slug) folder = `ws-${ws}-site-${siteId}-${slug}`;
       }
@@ -588,7 +597,9 @@ function websiteImageDirs(db, siteId, opts = {}) {
         if (exportImg !== appDir) dirs.push(exportImg);
       }
     }
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
 
   // Dedupe
   const seen = new Set();
@@ -639,8 +650,8 @@ async function optimizeWebsiteImages(db, siteId, opts = {}) {
     try {
       const engine = require('./websiteEngine');
       const site = engine.getWebsite(db, id);
-      pages = typeof site.pages === 'string' ? JSON.parse(site.pages || '[]') : (site.pages || []);
-      theme = typeof site.theme === 'string' ? JSON.parse(site.theme || '{}') : (site.theme || {});
+      pages = typeof site.pages === 'string' ? JSON.parse(site.pages || '[]') : site.pages || [];
+      theme = typeof site.theme === 'string' ? JSON.parse(site.theme || '{}') : site.theme || {};
       pages = applyRenamesToPages(pages, allRenames);
       theme = applyRenamesToTheme(theme, allRenames);
       engine.saveSite(db, id, pages, theme, opts.note || 'Optimize site images');

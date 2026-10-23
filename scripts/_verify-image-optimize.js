@@ -17,7 +17,9 @@ console.log('verify_ok');
   const sharp = require('sharp');
   const big = await sharp({
     create: { width: 2000, height: 1200, channels: 3, background: { r: 10, g: 20, b: 30 } },
-  }).jpeg({ quality: 90 }).toBuffer();
+  })
+    .jpeg({ quality: 90 })
+    .toBuffer();
   const r = await io.optimizeBuffer(big, { fileName: 'hero.jpg', role: 'photo' });
   console.log('smoke', {
     before: r.bytesBefore,

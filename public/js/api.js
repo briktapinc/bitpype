@@ -11,23 +11,33 @@ window.ScoutApi = (() => {
   function responseError(res, data) {
     const detail = data && data.error;
     const nested = detail && typeof detail === 'object' ? detail : null;
-    const code = (nested && typeof nested.code === 'string' && nested.code)
-      || (data && typeof data.code === 'string' && data.code)
-      || (typeof detail === 'string' && /^[A-Z][A-Z0-9_]+$/.test(detail) && detail) || undefined;
-    const message = (typeof detail === 'string' && detail)
-      || (nested && typeof nested.message === 'string' && nested.message)
-      || res.statusText || `Request failed (${res.status})`;
+    const code =
+      (nested && typeof nested.code === 'string' && nested.code) ||
+      (data && typeof data.code === 'string' && data.code) ||
+      (typeof detail === 'string' && /^[A-Z][A-Z0-9_]+$/.test(detail) && detail) ||
+      undefined;
+    const message =
+      (typeof detail === 'string' && detail) ||
+      (nested && typeof nested.message === 'string' && nested.message) ||
+      res.statusText ||
+      `Request failed (${res.status})`;
     const err = new Error(message);
     err.status = res.status;
     err.data = data;
     err.code = code;
     if (res.status === 401 && code === 'AUTH_REQUIRED' && typeof onAuthRequired === 'function') {
-      try { onAuthRequired(); } catch { /* ignore callback errors */ }
+      try {
+        onAuthRequired();
+      } catch {
+        /* ignore callback errors */
+      }
     }
     if (code === 'SUBSCRIPTION_REQUIRED') {
       try {
         if (!String(window.location.hash || '').startsWith('#/billing')) window.location.hash = '#/billing';
-      } catch { /* ignore navigation errors */ }
+      } catch {
+        /* ignore navigation errors */
+      }
     }
     return err;
   }
@@ -47,11 +57,14 @@ window.ScoutApi = (() => {
     const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
     const ws = getWorkspaceId();
     if (ws) headers['X-Workspace-Id'] = String(ws);
-    const res = await fetch(path, Object.assign({}, opts, {
-      credentials: 'include',
-      headers,
-      body: opts.body != null ? JSON.stringify(opts.body) : undefined,
-    }));
+    const res = await fetch(
+      path,
+      Object.assign({}, opts, {
+        credentials: 'include',
+        headers,
+        body: opts.body != null ? JSON.stringify(opts.body) : undefined,
+      })
+    );
     const data = await res.json().catch(() => ({}));
     if (!res.ok || (data && data.ok === false)) {
       throw responseError(res, data);
@@ -80,8 +93,13 @@ window.ScoutApi = (() => {
   const del = (p, body) => request(V + p, { method: 'DELETE', body });
 
   return {
-    request, qs, setWorkspaceId, getWorkspaceId,
-    setOnAuthRequired: (fn) => { onAuthRequired = fn; },
+    request,
+    qs,
+    setWorkspaceId,
+    getWorkspaceId,
+    setOnAuthRequired: (fn) => {
+      onAuthRequired = fn;
+    },
 
     // ---- auth ----
     me: () => get('/auth/me'),
@@ -143,9 +161,7 @@ window.ScoutApi = (() => {
     designAnswers: (id) => get('/design/' + id + '/answers'),
     designAnswer: (questionId, answer, fromEmail) => post('/design/answer', { questionId, answer, fromEmail }),
     designContact: (id, emailOrBody, phone) => {
-      const body = (emailOrBody != null && typeof emailOrBody === 'object')
-        ? emailOrBody
-        : { email: emailOrBody, phone };
+      const body = emailOrBody != null && typeof emailOrBody === 'object' ? emailOrBody : { email: emailOrBody, phone };
       return post('/design/' + id + '/contact', body || {});
     },
     designEmailQuestions: (id) => post('/design/' + id + '/email-questions', {}),
@@ -195,10 +211,11 @@ window.ScoutApi = (() => {
     screenshots: (q) => get('/screenshots', q),
     websiteRender: (id, body) => post('/websites/' + id + '/render', body),
     websiteRenderPages: (body) => post('/websites/render', body),
-    websitePreview: (id, open, opts = {}) => post('/websites/' + id + '/preview', {
-      open: !!open,
-      force: !!(opts && opts.force),
-    }),
+    websitePreview: (id, open, opts = {}) =>
+      post('/websites/' + id + '/preview', {
+        open: !!open,
+        force: !!(opts && opts.force),
+      }),
     websiteQa: (id) => post('/websites/' + id + '/qa', {}),
     websiteExport: (id) => post('/websites/' + id + '/export', {}),
     /** Site + claim URLs with QR data-URLs. */
@@ -340,9 +357,13 @@ window.ScoutApi = (() => {
     suppression: (q) => get('/suppression', q),
     suppressionAdd: (email, reason) => post('/suppression', { email, reason }),
     suppressionRemove: (id) => del('/suppression/' + id),
-    emailCompose: (leadId, templateId, queue, channel) => post('/email/compose', {
-      leadId, templateId, queue: !!queue, ...(channel ? { channel } : {}),
-    }),
+    emailCompose: (leadId, templateId, queue, channel) =>
+      post('/email/compose', {
+        leadId,
+        templateId,
+        queue: !!queue,
+        ...(channel ? { channel } : {}),
+      }),
     emailSend: (messageId) => post('/email/send', { messageId }),
     emailDraft: (body) => post('/email/draft', body || {}),
     emailUploadAsset: (body) => post('/email/assets', body || {}),

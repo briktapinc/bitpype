@@ -19,22 +19,25 @@ function httpJson(method, url, { auth, body } = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const payload = body == null ? null : JSON.stringify(body);
-    const req = https.request({
-      method,
-      hostname: u.hostname,
-      path: u.pathname + u.search,
-      headers: {
-        Accept: 'application/json',
-        ...(payload
-          ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
-          : {}),
-        ...(auth ? { Authorization: 'Basic ' + Buffer.from(auth).toString('base64') } : {}),
+    const req = https.request(
+      {
+        method,
+        hostname: u.hostname,
+        path: u.pathname + u.search,
+        headers: {
+          Accept: 'application/json',
+          ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
+          ...(auth ? { Authorization: 'Basic ' + Buffer.from(auth).toString('base64') } : {}),
+        },
       },
-    }, (res) => {
-      let data = '';
-      res.on('data', (c) => { data += c; });
-      res.on('end', () => resolve({ status: res.statusCode, raw: data }));
-    });
+      (res) => {
+        let data = '';
+        res.on('data', (c) => {
+          data += c;
+        });
+        res.on('end', () => resolve({ status: res.statusCode, raw: data }));
+      }
+    );
     req.on('error', reject);
     if (payload) req.write(payload);
     req.end();
@@ -42,7 +45,11 @@ function httpJson(method, url, { auth, body } = {}) {
 }
 
 function parse(raw) {
-  try { return JSON.parse(raw); } catch { return raw; }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
 }
 
 function setWs(dbPath, key, value) {
@@ -78,15 +85,21 @@ function redact(s) {
   let wsPass = getWs(wsPath, 'smtp.pass');
 
   console.log('=== credentials before sync ===');
-  console.log(JSON.stringify({
-    platform_user: redact(plat['smtp.user']),
-    platform_pass: redact(plat['smtp.pass']),
-    platform_from: plat['smtp.from_email'],
-    workspace_user: redact(wsUser),
-    workspace_pass: redact(wsPass),
-    workspace_from: getWs(wsPath, 'smtp.from_email'),
-    stillOldSubkey: String(plat['smtp.user']) === OLD_SUBKEY,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        platform_user: redact(plat['smtp.user']),
+        platform_pass: redact(plat['smtp.pass']),
+        platform_from: plat['smtp.from_email'],
+        workspace_user: redact(wsUser),
+        workspace_pass: redact(wsPass),
+        workspace_from: getWs(wsPath, 'smtp.from_email'),
+        stillOldSubkey: String(plat['smtp.user']) === OLD_SUBKEY,
+      },
+      null,
+      2
+    )
+  );
 
   if (!plat['smtp.user'] || !plat['smtp.pass']) {
     console.error('FAIL: platform SMTP credentials missing');
@@ -103,7 +116,9 @@ function redact(s) {
   await platform.setPlatformSetting('smtp.from_name', FROM_NAME);
   setWs(wsPath, 'smtp.from_email', FROM);
   setWs(wsPath, 'smtp.from_name', FROM_NAME);
-  try { await platform.savePlatformDefaultsSnapshot(); } catch (e) {
+  try {
+    await platform.savePlatformDefaultsSnapshot();
+  } catch (e) {
     console.warn('snapshot', e.message);
   }
 
@@ -112,14 +127,20 @@ function redact(s) {
   wsPass = getWs(wsPath, 'smtp.pass');
 
   console.log('\n=== credentials after sync ===');
-  console.log(JSON.stringify({
-    platform_user: redact(plat['smtp.user']),
-    workspace_user: redact(wsUser),
-    usersMatch: String(plat['smtp.user']) === String(wsUser),
-    passesMatch: String(plat['smtp.pass']) === String(wsPass),
-    from: plat['smtp.from_email'],
-    stillOldSubkey: String(plat['smtp.user']) === OLD_SUBKEY,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        platform_user: redact(plat['smtp.user']),
+        workspace_user: redact(wsUser),
+        usersMatch: String(plat['smtp.user']) === String(wsUser),
+        passesMatch: String(plat['smtp.pass']) === String(wsPass),
+        from: plat['smtp.from_email'],
+        stillOldSubkey: String(plat['smtp.user']) === OLD_SUBKEY,
+      },
+      null,
+      2
+    )
+  );
 
   const auth = `${plat['smtp.user']}:${plat['smtp.pass']}`;
 
@@ -156,18 +177,25 @@ function redact(s) {
 
   if (String(plat['smtp.user']) === OLD_SUBKEY || (thisKey && thisKey.IsMaster === false)) {
     console.log('\n=== STILL SUBKEY / OLD CREDENTIALS ===');
-    console.log(JSON.stringify({
-      stillOldSubkey: String(plat['smtp.user']) === OLD_SUBKEY,
-      IsMaster: thisKey && thisKey.IsMaster,
-      Name: thisKey && thisKey.Name,
-      action: 'User must paste Primary/Master key (IsMaster=true) into platform SMTP user/pass. Current key is still secondary.',
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          stillOldSubkey: String(plat['smtp.user']) === OLD_SUBKEY,
+          IsMaster: thisKey && thisKey.IsMaster,
+          Name: thisKey && thisKey.Name,
+          action:
+            'User must paste Primary/Master key (IsMaster=true) into platform SMTP user/pass. Current key is still secondary.',
+        },
+        null,
+        2
+      )
+    );
   }
 
   console.log('\n=== senders ===');
   const sendersR = await httpJson('GET', 'https://api.mailjet.com/v3/REST/sender?Limit=100', { auth });
   console.log(sendersR.status, sendersR.raw);
-  const senders = ((parse(sendersR.raw).Data) || []).map((s) => ({
+  const senders = (parse(sendersR.raw).Data || []).map((s) => ({
     Email: s.Email,
     Status: s.Status,
     IsDefaultSender: s.IsDefaultSender,
@@ -205,11 +233,14 @@ function redact(s) {
     } catch (e) {
       console.warn('sendPlatformMail failed, trying raw SMTP:', e.code, e.message);
       path = 'rawSmtp';
-      const provider = getProvider({
-        ...plat,
-        'smtp.from_email': FROM,
-        'smtp.from_name': FROM_NAME,
-      }, null);
+      const provider = getProvider(
+        {
+          ...plat,
+          'smtp.from_email': FROM,
+          'smtp.from_name': FROM_NAME,
+        },
+        null
+      );
       try {
         smtpResult = await provider.send({ to, subject, text, html: `<pre>${text}</pre>` });
       } catch (e2) {
@@ -222,13 +253,15 @@ function redact(s) {
     const api = await httpJson('POST', 'https://api.mailjet.com/v3.1/send', {
       auth,
       body: {
-        Messages: [{
-          From: { Email: FROM, Name: FROM_NAME },
-          To: [{ Email: to }],
-          Subject: subject + ' [API]',
-          TextPart: text,
-          CustomID: MARKER,
-        }],
+        Messages: [
+          {
+            From: { Email: FROM, Name: FROM_NAME },
+            To: [{ Email: to }],
+            Subject: subject + ' [API]',
+            TextPart: text,
+            CustomID: MARKER,
+          },
+        ],
       },
     });
     const apiBody = parse(api.raw);
@@ -239,7 +272,9 @@ function redact(s) {
     try {
       href = apiBody.Messages[0].To[0].MessageHref;
       uuid = apiBody.Messages[0].To[0].MessageUUID;
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
 
     let lookup = null;
     if (href) {
@@ -272,55 +307,60 @@ function redact(s) {
   }
 
   await new Promise((r) => setTimeout(r, 2000));
-  const recent = await httpJson(
-    'GET',
-    'https://api.mailjet.com/v3/REST/message?Limit=20&Sort=ArrivedAt+DESC',
-    { auth }
-  );
+  const recent = await httpJson('GET', 'https://api.mailjet.com/v3/REST/message?Limit=20&Sort=ArrivedAt+DESC', {
+    auth,
+  });
   const recentBody = parse(recent.raw);
   console.log('\n=== recent messages ===');
   console.log(recent.status, recent.raw);
 
-  const deliveryProof = results.some((r) => {
-    const histCount = r.lookup && r.lookup.hist && r.lookup.hist.Count;
-    const msgOk = r.lookup && r.lookup.msgHttp === 200;
-    const status = r.lookup && r.lookup.msg && r.lookup.msg.Data && r.lookup.msg.Data[0]
-      && r.lookup.msg.Data[0].Status;
-    return msgOk || (histCount > 0) || (status && String(status).toLowerCase() !== 'unknown');
-  }) || ((recentBody && recentBody.Count) > 0);
+  const deliveryProof =
+    results.some((r) => {
+      const histCount = r.lookup && r.lookup.hist && r.lookup.hist.Count;
+      const msgOk = r.lookup && r.lookup.msgHttp === 200;
+      const status =
+        r.lookup && r.lookup.msg && r.lookup.msg.Data && r.lookup.msg.Data[0] && r.lookup.msg.Data[0].Status;
+      return msgOk || histCount > 0 || (status && String(status).toLowerCase() !== 'unknown');
+    }) || (recentBody && recentBody.Count) > 0;
 
   console.log('\n=== SUMMARY ===');
-  console.log(JSON.stringify({
-    marker: MARKER,
-    ts: TS,
-    stillOldSubkey: String(plat['smtp.user']) === OLD_SUBKEY,
-    IsMaster: thisKey && thisKey.IsMaster,
-    keyName: thisKey && thisKey.Name,
-    apiKeyPrefix: String(plat['smtp.user']).slice(0, 8),
-    from_email: FROM,
-    activeSenders: active,
-    recentMessageCount: recentBody && recentBody.Count,
-    deliveryProof,
-    results: results.map((r) => ({
-      to: r.to,
-      subject: r.subject,
-      subjectApi: r.subjectApi,
-      smtpResponse: r.smtpResult && (r.smtpResult.smtpResponse || r.smtpResult.response || r.smtpResult.error),
-      messageId: r.smtpResult && r.smtpResult.messageId,
-      uuid: r.uuid,
-      msgHttp: r.lookup && r.lookup.msgHttp,
-      msgStatus: r.lookup && r.lookup.msg && r.lookup.msg.Data && r.lookup.msg.Data[0]
-        && r.lookup.msg.Data[0].Status,
-      histCount: r.lookup && r.lookup.hist && r.lookup.hist.Count,
-      histEvents: r.lookup && r.lookup.hist && r.lookup.hist.Data,
-    })),
-    recentSample: ((recentBody && recentBody.Data) || []).slice(0, 5).map((m) => ({
-      ID: m.ID,
-      Status: m.Status,
-      ArrivedAt: m.ArrivedAt,
-      ContactID: m.ContactID,
-    })),
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        marker: MARKER,
+        ts: TS,
+        stillOldSubkey: String(plat['smtp.user']) === OLD_SUBKEY,
+        IsMaster: thisKey && thisKey.IsMaster,
+        keyName: thisKey && thisKey.Name,
+        apiKeyPrefix: String(plat['smtp.user']).slice(0, 8),
+        from_email: FROM,
+        activeSenders: active,
+        recentMessageCount: recentBody && recentBody.Count,
+        deliveryProof,
+        results: results.map((r) => ({
+          to: r.to,
+          subject: r.subject,
+          subjectApi: r.subjectApi,
+          smtpResponse: r.smtpResult && (r.smtpResult.smtpResponse || r.smtpResult.response || r.smtpResult.error),
+          messageId: r.smtpResult && r.smtpResult.messageId,
+          uuid: r.uuid,
+          msgHttp: r.lookup && r.lookup.msgHttp,
+          msgStatus:
+            r.lookup && r.lookup.msg && r.lookup.msg.Data && r.lookup.msg.Data[0] && r.lookup.msg.Data[0].Status,
+          histCount: r.lookup && r.lookup.hist && r.lookup.hist.Count,
+          histEvents: r.lookup && r.lookup.hist && r.lookup.hist.Data,
+        })),
+        recentSample: ((recentBody && recentBody.Data) || []).slice(0, 5).map((m) => ({
+          ID: m.ID,
+          Status: m.Status,
+          ArrivedAt: m.ArrivedAt,
+          ContactID: m.ContactID,
+        })),
+      },
+      null,
+      2
+    )
+  );
 
   if (!deliveryProof) process.exitCode = 4;
 })().catch((e) => {

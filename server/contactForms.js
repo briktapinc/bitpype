@@ -24,7 +24,9 @@ const HAND_ROLLED_FORM_WARNING =
 
 /** Normalize agent/portal field types (phone → tel; unknown → text). */
 function normalizeFieldType(raw) {
-  let t = String(raw == null ? 'text' : raw).toLowerCase().trim();
+  let t = String(raw == null ? 'text' : raw)
+    .toLowerCase()
+    .trim();
   if (t === 'phone') t = 'tel';
   if (FIELD_TYPES.includes(t) && t !== 'phone') return t;
   return 'text';
@@ -109,15 +111,18 @@ function decryptPayload(blob) {
 }
 
 function tableSql(db, name) {
-  const row = db.prepare(
-    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?"
-  ).get(name);
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
   return row && row.sql ? String(row.sql) : '';
 }
 
 function columnNames(db, table) {
   try {
-    return new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+    return new Set(
+      db
+        .prepare(`PRAGMA table_info(${table})`)
+        .all()
+        .map((c) => c.name)
+    );
   } catch {
     return new Set();
   }
@@ -194,7 +199,11 @@ function migrateMultiFormSchema(db) {
 
   const addCol = (table, name, ddl, set) => {
     if (!set.has(name)) {
-      try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`); } catch { /* race / exists */ }
+      try {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+      } catch {
+        /* race / exists */
+      }
       set.add(name);
     }
   };
@@ -217,25 +226,35 @@ function migrateMultiFormSchema(db) {
 
   // Backfill names / embed flags from legacy rows
   try {
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE contact_forms SET name = COALESCE(NULLIF(TRIM(name), ''), title, 'Contact form')
       WHERE name IS NULL OR TRIM(name) = ''
-    `).run();
-    db.prepare(`
+    `
+    ).run();
+    db.prepare(
+      `
       UPDATE contact_forms SET embed_enabled = 1
       WHERE embed_enabled IS NULL
-    `).run();
-    db.prepare(`
+    `
+    ).run();
+    db.prepare(
+      `
       UPDATE contact_forms SET target_page_slug = 'contact'
       WHERE target_page_slug IS NULL OR TRIM(target_page_slug) = ''
-    `).run();
+    `
+    ).run();
     // Do NOT re-enable embed_enabled here — a prior bug forced embed_enabled=1 whenever
     // published+published_to_site, which silently undid forms.update { embed_enabled:false }.
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE contact_forms SET add_to_nav = 0
       WHERE add_to_nav IS NULL
-    `).run();
-  } catch { /* best-effort */ }
+    `
+    ).run();
+  } catch {
+    /* best-effort */
+  }
 
   const sql = tableSql(db, 'contact_forms');
   if (sql && /lead_id\s+INTEGER\s+NOT\s+NULL\s+UNIQUE/i.test(sql)) {
@@ -287,7 +306,14 @@ function migrateMultiFormSchema(db) {
 function defaultFields() {
   return [
     { field_key: 'name', label: 'Name', field_type: 'text', required: 1, placeholder: 'Your name', sort_order: 0 },
-    { field_key: 'email', label: 'Email', field_type: 'email', required: 1, placeholder: 'you@example.com', sort_order: 1 },
+    {
+      field_key: 'email',
+      label: 'Email',
+      field_type: 'email',
+      required: 1,
+      placeholder: 'you@example.com',
+      sort_order: 1,
+    },
     { field_key: 'phone', label: 'Phone', field_type: 'tel', required: 0, placeholder: '', sort_order: 2 },
     { field_key: 'message', label: 'Message', field_type: 'textarea', required: 1, placeholder: '', sort_order: 3 },
   ];
@@ -317,11 +343,39 @@ const FORM_PRESETS = {
     titleHints: ['quote', 'estimate', 'pricing'],
     fields: () => [
       { field_key: 'name', label: 'Name', field_type: 'text', required: 1, placeholder: 'Your name', sort_order: 0 },
-      { field_key: 'email', label: 'Email', field_type: 'email', required: 1, placeholder: 'you@example.com', sort_order: 1 },
+      {
+        field_key: 'email',
+        label: 'Email',
+        field_type: 'email',
+        required: 1,
+        placeholder: 'you@example.com',
+        sort_order: 1,
+      },
       { field_key: 'phone', label: 'Phone', field_type: 'tel', required: 0, placeholder: '', sort_order: 2 },
-      { field_key: 'service', label: 'Service needed', field_type: 'text', required: 1, placeholder: 'What do you need?', sort_order: 3 },
-      { field_key: 'details', label: 'Project details', field_type: 'textarea', required: 1, placeholder: '', sort_order: 4 },
-      { field_key: 'budget', label: 'Budget (optional)', field_type: 'text', required: 0, placeholder: '', sort_order: 5 },
+      {
+        field_key: 'service',
+        label: 'Service needed',
+        field_type: 'text',
+        required: 1,
+        placeholder: 'What do you need?',
+        sort_order: 3,
+      },
+      {
+        field_key: 'details',
+        label: 'Project details',
+        field_type: 'textarea',
+        required: 1,
+        placeholder: '',
+        sort_order: 4,
+      },
+      {
+        field_key: 'budget',
+        label: 'Budget (optional)',
+        field_type: 'text',
+        required: 0,
+        placeholder: '',
+        sort_order: 5,
+      },
     ],
   },
   appointment: {
@@ -335,10 +389,31 @@ const FORM_PRESETS = {
     titleHints: ['appointment', 'book', 'schedule', 'booking'],
     fields: () => [
       { field_key: 'name', label: 'Name', field_type: 'text', required: 1, placeholder: 'Your name', sort_order: 0 },
-      { field_key: 'email', label: 'Email', field_type: 'email', required: 1, placeholder: 'you@example.com', sort_order: 1 },
+      {
+        field_key: 'email',
+        label: 'Email',
+        field_type: 'email',
+        required: 1,
+        placeholder: 'you@example.com',
+        sort_order: 1,
+      },
       { field_key: 'phone', label: 'Phone', field_type: 'tel', required: 1, placeholder: '', sort_order: 2 },
-      { field_key: 'preferred_date', label: 'Preferred date', field_type: 'text', required: 1, placeholder: 'YYYY-MM-DD', sort_order: 3 },
-      { field_key: 'preferred_time', label: 'Preferred time', field_type: 'text', required: 0, placeholder: 'e.g. morning / 2pm', sort_order: 4 },
+      {
+        field_key: 'preferred_date',
+        label: 'Preferred date',
+        field_type: 'text',
+        required: 1,
+        placeholder: 'YYYY-MM-DD',
+        sort_order: 3,
+      },
+      {
+        field_key: 'preferred_time',
+        label: 'Preferred time',
+        field_type: 'text',
+        required: 0,
+        placeholder: 'e.g. morning / 2pm',
+        sort_order: 4,
+      },
       { field_key: 'notes', label: 'Notes', field_type: 'textarea', required: 0, placeholder: '', sort_order: 5 },
     ],
   },
@@ -378,7 +453,11 @@ function inferFormKind(row) {
 function publicField(row) {
   let options = null;
   if (row.options_json) {
-    try { options = JSON.parse(row.options_json); } catch { options = null; }
+    try {
+      options = JSON.parse(row.options_json);
+    } catch {
+      options = null;
+    }
   }
   return {
     id: row.id,
@@ -422,36 +501,40 @@ function publicForm(row, fields = []) {
 }
 
 function listFormRows(db, leadId) {
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT * FROM contact_forms WHERE lead_id = ?
     ORDER BY sort_order ASC, id ASC
-  `).all(Number(leadId));
+  `
+    )
+    .all(Number(leadId));
 }
 
 function getFormRowById(db, leadId, formId) {
-  return db.prepare(
-    'SELECT * FROM contact_forms WHERE id = ? AND lead_id = ?'
-  ).get(Number(formId), Number(leadId));
+  return db.prepare('SELECT * FROM contact_forms WHERE id = ? AND lead_id = ?').get(Number(formId), Number(leadId));
 }
 
 /** @deprecated Prefer getFormRowById — returns first form for lead. */
 function getFormRow(db, leadId) {
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT * FROM contact_forms WHERE lead_id = ?
     ORDER BY sort_order ASC, id ASC LIMIT 1
-  `).get(Number(leadId));
+  `
+    )
+    .get(Number(leadId));
 }
 
 function listFields(db, formId) {
-  return db.prepare(
-    'SELECT * FROM form_fields WHERE form_id = ? ORDER BY sort_order ASC, id ASC'
-  ).all(Number(formId));
+  return db.prepare('SELECT * FROM form_fields WHERE form_id = ? ORDER BY sort_order ASC, id ASC').all(Number(formId));
 }
 
 function nextSortOrder(db, leadId) {
-  const row = db.prepare(
-    'SELECT COALESCE(MAX(sort_order), -1) AS m FROM contact_forms WHERE lead_id = ?'
-  ).get(Number(leadId));
+  const row = db
+    .prepare('SELECT COALESCE(MAX(sort_order), -1) AS m FROM contact_forms WHERE lead_id = ?')
+    .get(Number(leadId));
   return (row && Number.isFinite(Number(row.m)) ? Number(row.m) : -1) + 1;
 }
 
@@ -482,24 +565,16 @@ function insertDefaultFields(db, formId) {
 }
 
 /** Purpose-built form intents (MCP forms.create / forms.suggestFields). */
-const FORM_PURPOSES = [
-  'appointment_request',
-  'quote_request',
-  'callback_request',
-  'event_rsvp',
-  'general_inquiry',
-];
+const FORM_PURPOSES = ['appointment_request', 'quote_request', 'callback_request', 'event_rsvp', 'general_inquiry'];
 
-const STRUCTURED_PURPOSES = new Set([
-  'appointment_request',
-  'quote_request',
-  'callback_request',
-  'event_rsvp',
-]);
+const STRUCTURED_PURPOSES = new Set(['appointment_request', 'quote_request', 'callback_request', 'event_rsvp']);
 
 function normalizePurpose(raw) {
   if (raw == null || raw === '') return null;
-  const p = String(raw).trim().toLowerCase().replace(/[-\s]+/g, '_');
+  const p = String(raw)
+    .trim()
+    .toLowerCase()
+    .replace(/[-\s]+/g, '_');
   if (FORM_PURPOSES.includes(p)) return p;
   // Aliases from form_kind / casual names
   if (p === 'appointment' || p === 'booking' || p === 'book') return 'appointment_request';
@@ -577,19 +652,25 @@ function leadServiceOptions(db, leadId) {
       const n = String(s.name || '').trim();
       if (n) opts.push(n);
     }
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
   if (!opts.length) {
     try {
-      const facts = db.prepare(
-        `SELECT fact_key, value FROM business_facts
+      const facts = db
+        .prepare(
+          `SELECT fact_key, value FROM business_facts
          WHERE lead_id = ? AND (fact_key LIKE '%service%' OR fact_key LIKE '%offering%')
          LIMIT 20`
-      ).all(Number(leadId));
+        )
+        .all(Number(leadId));
       for (const f of facts || []) {
         const v = String(f.value || '').trim();
         if (v && v.length < 80) opts.push(v);
       }
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
   }
   if (!opts.length) opts.push('General service', 'Consultation', 'Other');
   return [...new Set(opts)].slice(0, 30);
@@ -605,7 +686,9 @@ function leadStaffOptions(db, leadId) {
       const n = String(m.name || '').trim();
       if (n) opts.push(n);
     }
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
   return [...new Set(opts)].slice(0, 30);
 }
 
@@ -619,7 +702,9 @@ function leadEventOptions(db, leadId) {
       const n = String(e.title || e.name || '').trim();
       if (n) opts.push(n);
     }
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
   if (!opts.length) opts.push('Upcoming event', 'Other');
   return [...new Set(opts)].slice(0, 30);
 }
@@ -632,12 +717,16 @@ function leadTimeWindowOptions(db, leadId) {
     const hours = modules.listBookingHours(db, Number(leadId)) || [];
     if (!hours.length) return defaults;
     // Prefer shop-hour windows when available (unique start–end labels).
-    const labels = hours.map((h) => {
-      const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][Number(h.weekday)] || '';
-      return `${day} ${h.start_time}–${h.end_time}`.trim();
-    }).filter(Boolean);
+    const labels = hours
+      .map((h) => {
+        const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][Number(h.weekday)] || '';
+        return `${day} ${h.start_time}–${h.end_time}`.trim();
+      })
+      .filter(Boolean);
     if (labels.length) return [...new Set([...defaults, ...labels])].slice(0, 20);
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
   return defaults;
 }
 
@@ -665,47 +754,201 @@ function suggestFieldsForPurpose(db, leadId, purposeRaw) {
     const staff = leadStaffOptions(db, leadId);
     const windows = leadTimeWindowOptions(db, leadId);
     fields = [
-      { field_key: 'name', label: 'Name', field_type: 'text', required: 1, placeholder: `Your name (for ${biz})`, sort_order: 0 },
-      { field_key: 'phone', label: 'Phone', field_type: 'tel', required: 1, placeholder: 'Best number to reach you', sort_order: 1 },
+      {
+        field_key: 'name',
+        label: 'Name',
+        field_type: 'text',
+        required: 1,
+        placeholder: `Your name (for ${biz})`,
+        sort_order: 0,
+      },
+      {
+        field_key: 'phone',
+        label: 'Phone',
+        field_type: 'tel',
+        required: 1,
+        placeholder: 'Best number to reach you',
+        sort_order: 1,
+      },
       { field_key: 'service', label: 'Service', field_type: 'select', required: 1, options: services, sort_order: 2 },
-      { field_key: 'preferred_date', label: 'Preferred date', field_type: 'date', required: 1, placeholder: '', sort_order: 3 },
-      { field_key: 'time_window', label: 'Preferred time', field_type: 'select', required: 1, options: windows, sort_order: 4 },
-      { field_key: 'staff_preference', label: 'Staff preference', field_type: 'select', required: 0, options: staff, sort_order: 5 },
-      { field_key: 'notes', label: 'Notes', field_type: 'textarea', required: 0, placeholder: 'Anything we should know?', sort_order: 6 },
+      {
+        field_key: 'preferred_date',
+        label: 'Preferred date',
+        field_type: 'date',
+        required: 1,
+        placeholder: '',
+        sort_order: 3,
+      },
+      {
+        field_key: 'time_window',
+        label: 'Preferred time',
+        field_type: 'select',
+        required: 1,
+        options: windows,
+        sort_order: 4,
+      },
+      {
+        field_key: 'staff_preference',
+        label: 'Staff preference',
+        field_type: 'select',
+        required: 0,
+        options: staff,
+        sort_order: 5,
+      },
+      {
+        field_key: 'notes',
+        label: 'Notes',
+        field_type: 'textarea',
+        required: 0,
+        placeholder: 'Anything we should know?',
+        sort_order: 6,
+      },
     ];
   } else if (purpose === 'quote_request') {
     const services = leadServiceOptions(db, leadId);
     fields = [
-      { field_key: 'name', label: 'Name', field_type: 'text', required: 1, placeholder: `Your name (for ${biz})`, sort_order: 0 },
-      { field_key: 'email', label: 'Email', field_type: 'email', required: 1, placeholder: 'you@example.com', sort_order: 1 },
+      {
+        field_key: 'name',
+        label: 'Name',
+        field_type: 'text',
+        required: 1,
+        placeholder: `Your name (for ${biz})`,
+        sort_order: 0,
+      },
+      {
+        field_key: 'email',
+        label: 'Email',
+        field_type: 'email',
+        required: 1,
+        placeholder: 'you@example.com',
+        sort_order: 1,
+      },
       { field_key: 'phone', label: 'Phone', field_type: 'tel', required: 0, placeholder: '', sort_order: 2 },
-      { field_key: 'service', label: 'Service needed', field_type: 'select', required: 1, options: services, sort_order: 3 },
-      { field_key: 'details', label: 'Project details', field_type: 'textarea', required: 1, placeholder: 'Describe scope, timeline, location…', sort_order: 4 },
-      { field_key: 'budget', label: 'Budget (optional)', field_type: 'text', required: 0, placeholder: '', sort_order: 5 },
+      {
+        field_key: 'service',
+        label: 'Service needed',
+        field_type: 'select',
+        required: 1,
+        options: services,
+        sort_order: 3,
+      },
+      {
+        field_key: 'details',
+        label: 'Project details',
+        field_type: 'textarea',
+        required: 1,
+        placeholder: 'Describe scope, timeline, location…',
+        sort_order: 4,
+      },
+      {
+        field_key: 'budget',
+        label: 'Budget (optional)',
+        field_type: 'text',
+        required: 0,
+        placeholder: '',
+        sort_order: 5,
+      },
     ];
   } else if (purpose === 'callback_request') {
     const windows = leadTimeWindowOptions(db, leadId);
     fields = [
-      { field_key: 'name', label: 'Name', field_type: 'text', required: 1, placeholder: `Your name (for ${biz})`, sort_order: 0 },
-      { field_key: 'phone', label: 'Phone', field_type: 'tel', required: 1, placeholder: 'Number to call', sort_order: 1 },
-      { field_key: 'time_window', label: 'Best time to call', field_type: 'select', required: 1, options: windows, sort_order: 2 },
-      { field_key: 'reason', label: 'Reason for call', field_type: 'textarea', required: 0, placeholder: 'Briefly, what is this about?', sort_order: 3 },
+      {
+        field_key: 'name',
+        label: 'Name',
+        field_type: 'text',
+        required: 1,
+        placeholder: `Your name (for ${biz})`,
+        sort_order: 0,
+      },
+      {
+        field_key: 'phone',
+        label: 'Phone',
+        field_type: 'tel',
+        required: 1,
+        placeholder: 'Number to call',
+        sort_order: 1,
+      },
+      {
+        field_key: 'time_window',
+        label: 'Best time to call',
+        field_type: 'select',
+        required: 1,
+        options: windows,
+        sort_order: 2,
+      },
+      {
+        field_key: 'reason',
+        label: 'Reason for call',
+        field_type: 'textarea',
+        required: 0,
+        placeholder: 'Briefly, what is this about?',
+        sort_order: 3,
+      },
     ];
   } else if (purpose === 'event_rsvp') {
     const events = leadEventOptions(db, leadId);
     fields = [
-      { field_key: 'name', label: 'Name', field_type: 'text', required: 1, placeholder: `Your name (for ${biz})`, sort_order: 0 },
-      { field_key: 'email', label: 'Email', field_type: 'email', required: 1, placeholder: 'you@example.com', sort_order: 1 },
+      {
+        field_key: 'name',
+        label: 'Name',
+        field_type: 'text',
+        required: 1,
+        placeholder: `Your name (for ${biz})`,
+        sort_order: 0,
+      },
+      {
+        field_key: 'email',
+        label: 'Email',
+        field_type: 'email',
+        required: 1,
+        placeholder: 'you@example.com',
+        sort_order: 1,
+      },
       { field_key: 'event', label: 'Event', field_type: 'select', required: 1, options: events, sort_order: 2 },
-      { field_key: 'guests', label: 'Number of guests', field_type: 'number', required: 0, placeholder: '1', sort_order: 3 },
-      { field_key: 'notes', label: 'Notes', field_type: 'textarea', required: 0, placeholder: 'Dietary needs, accessibility…', sort_order: 4 },
+      {
+        field_key: 'guests',
+        label: 'Number of guests',
+        field_type: 'number',
+        required: 0,
+        placeholder: '1',
+        sort_order: 3,
+      },
+      {
+        field_key: 'notes',
+        label: 'Notes',
+        field_type: 'textarea',
+        required: 0,
+        placeholder: 'Dietary needs, accessibility…',
+        sort_order: 4,
+      },
     ];
   } else {
     fields = [
-      { field_key: 'name', label: 'Name', field_type: 'text', required: 1, placeholder: `Your name (for ${biz})`, sort_order: 0 },
-      { field_key: 'email', label: 'Email', field_type: 'email', required: 1, placeholder: 'you@example.com', sort_order: 1 },
+      {
+        field_key: 'name',
+        label: 'Name',
+        field_type: 'text',
+        required: 1,
+        placeholder: `Your name (for ${biz})`,
+        sort_order: 0,
+      },
+      {
+        field_key: 'email',
+        label: 'Email',
+        field_type: 'email',
+        required: 1,
+        placeholder: 'you@example.com',
+        sort_order: 1,
+      },
       { field_key: 'phone', label: 'Phone', field_type: 'tel', required: 0, placeholder: '', sort_order: 2 },
-      { field_key: 'message', label: 'Message', field_type: 'textarea', required: 1, placeholder: `How can ${biz} help?`, sort_order: 3 },
+      {
+        field_key: 'message',
+        label: 'Message',
+        field_type: 'textarea',
+        required: 1,
+        placeholder: `How can ${biz} help?`,
+        sort_order: 3,
+      },
     ];
   }
 
@@ -738,7 +981,7 @@ function readLeadForForms(db, leadId) {
   try {
     return db.prepare('SELECT id, email, business_name FROM leads WHERE id = ?').get(id) || null;
   } catch (e) {
-    if (!/no such column/i.test(String(e && e.message || e))) throw e;
+    if (!/no such column/i.test(String((e && e.message) || e))) throw e;
     try {
       return db.prepare('SELECT id, business_name FROM leads WHERE id = ?').get(id) || null;
     } catch {
@@ -766,59 +1009,80 @@ function createForm(db, leadId, opts = {}) {
   }
   const preset = kind ? FORM_PRESETS[kind] : null;
 
-  const name = String(
-    opts.name
-    || (suggested && suggested.name)
-    || (preset && preset.name)
-    || opts.title
-    || 'Contact form'
-  ).trim().slice(0, 120) || 'Contact form';
-  const title = String(
-    opts.title
-    || (suggested && suggested.title)
-    || (preset && preset.title)
-    || name
-  ).slice(0, 160);
-  const intro = opts.intro != null
-    ? String(opts.intro).slice(0, 2000)
-    : (suggested
-      ? String(suggested.intro).slice(0, 2000)
-      : (preset
-        ? String(preset.intro(lead.business_name)).slice(0, 2000)
-        : `Reach out to ${lead.business_name || 'us'} — we will get back to you soon.`));
-  const submit_label = opts.submit_label != null
-    ? String(opts.submit_label).slice(0, 80)
-    : (suggested ? suggested.submit_label : (preset ? preset.submit_label : 'Send Message'));
-  const success_message = opts.success_message != null
-    ? String(opts.success_message).slice(0, 500)
-    : (suggested ? suggested.success_message : (preset ? preset.success_message : 'Thanks — we received your message.'));
-  const notify = String(opts.notify_email != null ? opts.notify_email : (lead.email || '')).trim().slice(0, 254);
+  const name =
+    String(opts.name || (suggested && suggested.name) || (preset && preset.name) || opts.title || 'Contact form')
+      .trim()
+      .slice(0, 120) || 'Contact form';
+  const title = String(opts.title || (suggested && suggested.title) || (preset && preset.title) || name).slice(0, 160);
+  const intro =
+    opts.intro != null
+      ? String(opts.intro).slice(0, 2000)
+      : suggested
+        ? String(suggested.intro).slice(0, 2000)
+        : preset
+          ? String(preset.intro(lead.business_name)).slice(0, 2000)
+          : `Reach out to ${lead.business_name || 'us'} — we will get back to you soon.`;
+  const submit_label =
+    opts.submit_label != null
+      ? String(opts.submit_label).slice(0, 80)
+      : suggested
+        ? suggested.submit_label
+        : preset
+          ? preset.submit_label
+          : 'Send Message';
+  const success_message =
+    opts.success_message != null
+      ? String(opts.success_message).slice(0, 500)
+      : suggested
+        ? suggested.success_message
+        : preset
+          ? preset.success_message
+          : 'Thanks — we received your message.';
+  const notify = String(opts.notify_email != null ? opts.notify_email : lead.email || '')
+    .trim()
+    .slice(0, 254);
   const embedRaw = opts.embed_enabled != null ? opts.embed_enabled : opts.embed_on_page;
   const embedEnabled = coerceBool(embedRaw, true) ? 1 : 0;
-  const navRaw = opts.add_to_nav != null ? opts.add_to_nav
-    : (opts.nav_visible != null ? opts.nav_visible : opts.navVisible);
+  const navRaw =
+    opts.add_to_nav != null ? opts.add_to_nav : opts.nav_visible != null ? opts.nav_visible : opts.navVisible;
   const addToNav = coerceBool(navRaw, false) ? 1 : 0;
-  const target = String(
-    opts.target_page_slug
-    || (suggested && suggested.target_page_slug)
-    || (kind || 'contact')
-  ).trim().slice(0, 80) || 'contact';
+  const target =
+    String(opts.target_page_slug || (suggested && suggested.target_page_slug) || kind || 'contact')
+      .trim()
+      .slice(0, 80) || 'contact';
   const sort = Number.isFinite(Number(opts.sort_order)) ? Number(opts.sort_order) : nextSortOrder(db, leadId);
-  const info = db.prepare(`
+  const info = db
+    .prepare(
+      `
     INSERT INTO contact_forms (
       lead_id, name, title, intro, submit_label, success_message, notify_email,
       embed_enabled, target_page_slug, sort_order, form_kind, add_to_nav, status
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')
-  `).run(
-    Number(leadId), name, title, intro, submit_label, success_message, notify,
-    embedEnabled, target, sort, kind, addToNav
-  );
+  `
+    )
+    .run(
+      Number(leadId),
+      name,
+      title,
+      intro,
+      submit_label,
+      success_message,
+      notify,
+      embedEnabled,
+      target,
+      sort,
+      kind,
+      addToNav
+    );
   const formId = Number(info.lastInsertRowid);
-  const fields = Array.isArray(opts.fields) && opts.fields.length
-    ? opts.fields
-    : (suggested
-      ? suggested.fields
-      : (preset ? preset.fields() : defaultFields()));
+  const fields =
+    Array.isArray(opts.fields) && opts.fields.length
+      ? opts.fields
+      : suggested
+        ? suggested.fields
+        : preset
+          ? preset.fields()
+          : defaultFields();
   insertFieldsList(db, formId, fields);
   return getFormById(db, leadId, formId);
 }
@@ -862,12 +1126,16 @@ function listSitePages(db, leadId) {
     { slug: 'services', title: 'Services' },
     { slug: 'contact', title: 'Contact' },
   ];
-  const site = db.prepare(
-    'SELECT id, pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-  ).get(Number(leadId));
+  const site = db
+    .prepare('SELECT id, pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+    .get(Number(leadId));
   if (!site) return fallback;
   let pages;
-  try { pages = JSON.parse(site.pages || '[]'); } catch { return fallback; }
+  try {
+    pages = JSON.parse(site.pages || '[]');
+  } catch {
+    return fallback;
+  }
   if (!Array.isArray(pages) || !pages.length) return fallback;
   const mapped = pages.map((p, i) => ({
     slug: normalizeSlug((p && p.slug) || (i === 0 ? 'home' : `page-${i}`)),
@@ -946,39 +1214,58 @@ function saveForm(db, leadId, formIdOrPatch = null, maybePatch = undefined) {
   const title = patch.title != null ? String(patch.title).slice(0, 160) : row.title;
   const intro = patch.intro != null ? String(patch.intro).slice(0, 2000) : row.intro;
   const submit_label = patch.submit_label != null ? String(patch.submit_label).slice(0, 80) : row.submit_label;
-  const success_message = patch.success_message != null
-    ? String(patch.success_message).slice(0, 500)
-    : row.success_message;
-  const notify_email = patch.notify_email != null
-    ? String(patch.notify_email).trim().slice(0, 254)
-    : row.notify_email;
-  const embedFlag = patch.embed_enabled != null
-    ? patch.embed_enabled
-    : (patch.embed_on_page != null ? patch.embed_on_page : null);
-  const embed_enabled = embedFlag != null
-    ? (coerceBool(embedFlag, true) ? 1 : 0)
-    : (row.embed_enabled == null ? 1 : (row.embed_enabled ? 1 : 0));
-  const navFlag = patch.add_to_nav != null
-    ? patch.add_to_nav
-    : (patch.nav_visible != null ? patch.nav_visible
-      : (patch.navVisible != null ? patch.navVisible : null));
-  const add_to_nav = navFlag != null
-    ? (coerceBool(navFlag, false) ? 1 : 0)
-    : (row.add_to_nav == null ? 0 : (row.add_to_nav ? 1 : 0));
-  const target_page_slug = patch.target_page_slug != null
-    ? (String(patch.target_page_slug).trim().slice(0, 80) || 'contact')
-    : (String(row.target_page_slug || 'contact').trim() || 'contact');
-  const sort_order = patch.sort_order != null && Number.isFinite(Number(patch.sort_order))
-    ? Number(patch.sort_order)
-    : (Number(row.sort_order) || 0);
+  const success_message =
+    patch.success_message != null ? String(patch.success_message).slice(0, 500) : row.success_message;
+  const notify_email = patch.notify_email != null ? String(patch.notify_email).trim().slice(0, 254) : row.notify_email;
+  const embedFlag =
+    patch.embed_enabled != null ? patch.embed_enabled : patch.embed_on_page != null ? patch.embed_on_page : null;
+  const embed_enabled =
+    embedFlag != null
+      ? coerceBool(embedFlag, true)
+        ? 1
+        : 0
+      : row.embed_enabled == null
+        ? 1
+        : row.embed_enabled
+          ? 1
+          : 0;
+  const navFlag =
+    patch.add_to_nav != null
+      ? patch.add_to_nav
+      : patch.nav_visible != null
+        ? patch.nav_visible
+        : patch.navVisible != null
+          ? patch.navVisible
+          : null;
+  const add_to_nav =
+    navFlag != null ? (coerceBool(navFlag, false) ? 1 : 0) : row.add_to_nav == null ? 0 : row.add_to_nav ? 1 : 0;
+  const target_page_slug =
+    patch.target_page_slug != null
+      ? String(patch.target_page_slug).trim().slice(0, 80) || 'contact'
+      : String(row.target_page_slug || 'contact').trim() || 'contact';
+  const sort_order =
+    patch.sort_order != null && Number.isFinite(Number(patch.sort_order))
+      ? Number(patch.sort_order)
+      : Number(row.sort_order) || 0;
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE contact_forms SET name = ?, title = ?, intro = ?, submit_label = ?, success_message = ?,
       notify_email = ?, embed_enabled = ?, target_page_slug = ?, sort_order = ?, add_to_nav = ?,
       updated_at = datetime('now') WHERE id = ?
-  `).run(
-    name, title, intro, submit_label, success_message, notify_email,
-    embed_enabled, target_page_slug, sort_order, add_to_nav, row.id
+  `
+  ).run(
+    name,
+    title,
+    intro,
+    submit_label,
+    success_message,
+    notify_email,
+    embed_enabled,
+    target_page_slug,
+    sort_order,
+    add_to_nav,
+    row.id
   );
 
   if (Array.isArray(patch.fields)) {
@@ -987,7 +1274,9 @@ function saveForm(db, leadId, formIdOrPatch = null, maybePatch = undefined) {
 
   // Keep site embeds in sync when attachment settings change on a published form
   if (row.published) {
-    try { syncSiteFormEmbeds(db, leadId); } catch (e) {
+    try {
+      syncSiteFormEmbeds(db, leadId);
+    } catch (e) {
       console.warn('[contactForms] sync after save:', e.message);
     }
   }
@@ -1006,7 +1295,9 @@ function deleteForm(db, leadId, formId) {
   db.prepare('DELETE FROM form_fields WHERE form_id = ?').run(row.id);
   db.prepare('DELETE FROM form_submissions WHERE form_id = ?').run(row.id);
   db.prepare('DELETE FROM contact_forms WHERE id = ?').run(row.id);
-  try { syncSiteFormEmbeds(db, leadId); } catch (e) {
+  try {
+    syncSiteFormEmbeds(db, leadId);
+  } catch (e) {
     console.warn('[contactForms] sync after delete:', e.message);
   }
   return { deleted: row.id, forms: listFormsForLead(db, leadId) };
@@ -1060,19 +1351,23 @@ function publishForm(db, leadId, formIdOrOpts = null, maybeOpts = undefined) {
     row.target_page_slug = slug;
   }
 
-  let embedEnabled = row.embed_enabled == null ? 1 : (row.embed_enabled ? 1 : 0);
+  let embedEnabled = row.embed_enabled == null ? 1 : row.embed_enabled ? 1 : 0;
   if (opts.embed_on_page != null) embedEnabled = coerceBool(opts.embed_on_page, true) ? 1 : 0;
   else if (opts.embed_enabled != null) embedEnabled = coerceBool(opts.embed_enabled, true) ? 1 : 0;
   else if (opts.toSite === true) embedEnabled = 1;
   else if (opts.toSite === false) embedEnabled = 0;
 
   const attach = !!embedEnabled;
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE contact_forms SET public_token = ?, published = 1, published_to_site = ?,
       embed_enabled = ?, status = 'published', updated_at = datetime('now') WHERE id = ?
-  `).run(token, attach ? 1 : 0, embedEnabled, row.id);
+  `
+  ).run(token, attach ? 1 : 0, embedEnabled, row.id);
 
-  try { syncSiteFormEmbeds(db, leadId); } catch (e) {
+  try {
+    syncSiteFormEmbeds(db, leadId);
+  } catch (e) {
     console.warn('[contactForms] publish sync:', e.message);
   }
   return getFormById(db, leadId, row.id);
@@ -1088,12 +1383,11 @@ function prepareSitePagesForExport(db, leadId) {
  * Always ensures contact. Quote/appointment only when matching pages exist.
  * missingOnly (default true): never overwrite existing forms of the same kind.
  */
-function ensureSiteForms(db, leadId, {
-  workspaceId,
-  pages: pagesArg = null,
-  missingOnly = true,
-  notifyEmail = '',
-} = {}) {
+function ensureSiteForms(
+  db,
+  leadId,
+  { workspaceId, pages: pagesArg = null, missingOnly = true, notifyEmail = '' } = {}
+) {
   ensureTables(db);
   const lid = Number(leadId);
   const lead = readLeadForForms(db, lid);
@@ -1101,11 +1395,13 @@ function ensureSiteForms(db, leadId, {
 
   let pages = pagesArg;
   if (!Array.isArray(pages)) {
-    const site = db.prepare(
-      'SELECT pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-    ).get(lid);
+    const site = db.prepare('SELECT pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(lid);
     if (site) {
-      try { pages = JSON.parse(site.pages || '[]'); } catch { pages = []; }
+      try {
+        pages = JSON.parse(site.pages || '[]');
+      } catch {
+        pages = [];
+      }
     } else {
       pages = [];
     }
@@ -1123,7 +1419,9 @@ function ensureSiteForms(db, leadId, {
       try {
         db.prepare('UPDATE contact_forms SET form_kind = ? WHERE id = ?').run(kind, row.id);
         row.form_kind = kind;
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
     if (kind && !byKind.has(kind)) byKind.set(kind, row);
   }
@@ -1134,11 +1432,15 @@ function ensureSiteForms(db, leadId, {
   // attach). Never silently re-provision them when a /book page exists.
   let bookingsOwnsAppointment = false;
   try {
-    const emb = db.prepare(
-      "SELECT id, settings_json FROM site_module_embeds WHERE lead_id = ? AND module_type = 'bookings' LIMIT 1"
-    ).get(lid);
+    const emb = db
+      .prepare(
+        "SELECT id, settings_json FROM site_module_embeds WHERE lead_id = ? AND module_type = 'bookings' LIMIT 1"
+      )
+      .get(lid);
     if (emb) bookingsOwnsAppointment = true;
-  } catch { /* table may not exist yet */ }
+  } catch {
+    /* table may not exist yet */
+  }
   if (!bookingsOwnsAppointment && pages.some((p) => pageMatchesKind(p, 'appointment'))) {
     kindsNeeded.push('appointment');
   }
@@ -1216,11 +1518,15 @@ function unpublishForm(db, leadId, formId = null) {
   ensureTables(db);
   const row = formId != null ? getFormRowById(db, leadId, formId) : getFormRow(db, leadId);
   if (!row) throw fail('NOT_FOUND', 'Form not found');
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE contact_forms SET published = 0, published_to_site = 0, status = 'draft',
       updated_at = datetime('now') WHERE id = ?
-  `).run(row.id);
-  try { syncSiteFormEmbeds(db, leadId); } catch (e) {
+  `
+  ).run(row.id);
+  try {
+    syncSiteFormEmbeds(db, leadId);
+  } catch (e) {
     console.warn('[contactForms] unpublish sync:', e.message);
   }
   return getFormById(db, leadId, row.id);
@@ -1240,9 +1546,7 @@ function escapeAttr(s) {
 
 function formScriptTag(appUrl) {
   const base = String(appUrl || appBaseUrl()).replace(/\/$/, '');
-  const src = base
-    ? `${base}/js/form-embed.js?v=${FORM_SCRIPT_VER}`
-    : `/js/form-embed.js?v=${FORM_SCRIPT_VER}`;
+  const src = base ? `${base}/js/form-embed.js?v=${FORM_SCRIPT_VER}` : `/js/form-embed.js?v=${FORM_SCRIPT_VER}`;
   return `<script src="${escapeAttr(src)}" defer ${SCRIPT_ATTR}="1"></script>`;
 }
 
@@ -1266,39 +1570,18 @@ function escapeRegExp(s) {
 function htmlHasFormToken(html, token) {
   const t = String(token || '').trim();
   if (!t) return false;
-  return new RegExp(
-    `${EMBED_TOKEN_ATTR}\\s*=\\s*["']${escapeRegExp(t)}["']`,
-    'i'
-  ).test(String(html || ''));
+  return new RegExp(`${EMBED_TOKEN_ATTR}\\s*=\\s*["']${escapeRegExp(t)}["']`, 'i').test(String(html || ''));
 }
 
 function stripManagedEmbedsFromHtml(html) {
   let s = String(html || '');
   // Managed wrapper divs (with or without nested iframe / empty JS mounts)
-  s = s.replace(
-    new RegExp(
-      `<div\\b[^>]*\\b${MANAGED_ATTR}\\s*=\\s*["']?1["']?[^>]*>[\\s\\S]*?<\\/div>`,
-      'gi'
-    ),
-    ''
-  );
-  s = s.replace(
-    new RegExp(
-      `<div\\b[^>]*\\b${MANAGED_ATTR}\\s*=\\s*["']?1["']?[^>]*\\/?>`,
-      'gi'
-    ),
-    ''
-  );
+  s = s.replace(new RegExp(`<div\\b[^>]*\\b${MANAGED_ATTR}\\s*=\\s*["']?1["']?[^>]*>[\\s\\S]*?<\\/div>`, 'gi'), '');
+  s = s.replace(new RegExp(`<div\\b[^>]*\\b${MANAGED_ATTR}\\s*=\\s*["']?1["']?[^>]*\\/?>`, 'gi'), '');
   // Orphaned bitpype form iframes (legacy)
-  s = s.replace(
-    /<iframe\b[^>]*\/embed\/form\.html[^>]*>\s*<\/iframe>/gi,
-    ''
-  );
+  s = s.replace(/<iframe\b[^>]*\/embed\/form\.html[^>]*>\s*<\/iframe>/gi, '');
   s = s.replace(/<iframe\b[^>]*\/embed\/form\.html[^>]*\/>/gi, '');
-  s = s.replace(
-    new RegExp(`<script\\b[^>]*\\b${SCRIPT_ATTR}\\b[^>]*>\\s*<\\/script>`, 'gi'),
-    ''
-  );
+  s = s.replace(new RegExp(`<script\\b[^>]*\\b${SCRIPT_ATTR}\\b[^>]*>\\s*<\\/script>`, 'gi'), '');
   s = s.replace(/<script\b[^>]*\/js\/form-embed\.js[^>]*>\s*<\/script>/gi, '');
   // Keep empty form slots (image-column replacements) for the next inject pass.
   return s;
@@ -1309,10 +1592,7 @@ function stripInactiveFormEmbedsFromHtml(html, keepTokens) {
   const keep = keepTokens instanceof Set ? keepTokens : new Set(keepTokens || []);
   let s = String(html || '');
   s = s.replace(
-    new RegExp(
-      `<div\\b[^>]*\\b${MANAGED_ATTR}\\s*=\\s*["']?1["']?[^>]*>[\\s\\S]*?<\\/div>`,
-      'gi'
-    ),
+    new RegExp(`<div\\b[^>]*\\b${MANAGED_ATTR}\\s*=\\s*["']?1["']?[^>]*>[\\s\\S]*?<\\/div>`, 'gi'),
     (block) => {
       const m = block.match(new RegExp(`${EMBED_TOKEN_ATTR}\\s*=\\s*["']([^"']+)["']`, 'i'));
       const tok = m && m[1] ? m[1] : '';
@@ -1320,26 +1600,17 @@ function stripInactiveFormEmbedsFromHtml(html, keepTokens) {
       return '';
     }
   );
-  s = s.replace(
-    new RegExp(
-      `<div\\b[^>]*\\b${MANAGED_ATTR}\\s*=\\s*["']?1["']?[^>]*\\/?>`,
-      'gi'
-    ),
-    (block) => {
-      const m = block.match(new RegExp(`${EMBED_TOKEN_ATTR}\\s*=\\s*["']([^"']+)["']`, 'i'));
-      const tok = m && m[1] ? m[1] : '';
-      if (tok && keep.has(tok)) return block;
-      return '';
-    }
-  );
+  s = s.replace(new RegExp(`<div\\b[^>]*\\b${MANAGED_ATTR}\\s*=\\s*["']?1["']?[^>]*\\/?>`, 'gi'), (block) => {
+    const m = block.match(new RegExp(`${EMBED_TOKEN_ATTR}\\s*=\\s*["']([^"']+)["']`, 'i'));
+    const tok = m && m[1] ? m[1] : '';
+    if (tok && keep.has(tok)) return block;
+    return '';
+  });
   const stillHas = [...keep].some((t) => htmlHasFormToken(s, t));
   if (!stillHas) {
     s = s.replace(/<iframe\b[^>]*\/embed\/form\.html[^>]*>\s*<\/iframe>/gi, '');
     s = s.replace(/<iframe\b[^>]*\/embed\/form\.html[^>]*\/>/gi, '');
-    s = s.replace(
-      new RegExp(`<script\\b[^>]*\\b${SCRIPT_ATTR}\\b[^>]*>\\s*<\\/script>`, 'gi'),
-      ''
-    );
+    s = s.replace(new RegExp(`<script\\b[^>]*\\b${SCRIPT_ATTR}\\b[^>]*>\\s*<\\/script>`, 'gi'), '');
     s = s.replace(/<script\b[^>]*\/js\/form-embed\.js[^>]*>\s*<\/script>/gi, '');
   }
   // Drop empty companion shells left after embed removal (and malformed unclosed panels).
@@ -1351,25 +1622,13 @@ function stripInactiveFormEmbedsFromHtml(html, keepTokens) {
 function stripEmptyFormPanels(html) {
   let s = String(html || '');
   // Well-formed empty panels
-  s = s.replace(
-    /<div\b[^>]*\bbitpype-form-panel\b[^>]*>\s*<\/div>/gi,
-    ''
-  );
+  s = s.replace(/<div\b[^>]*\bbitpype-form-panel\b[^>]*>\s*<\/div>/gi, '');
   // Empty panels that only contain whitespace / comments
-  s = s.replace(
-    /<div\b[^>]*\bbitpype-form-panel\b[^>]*>\s*(?:<!--[\s\S]*?-->\s*)*<\/div>/gi,
-    ''
-  );
+  s = s.replace(/<div\b[^>]*\bbitpype-form-panel\b[^>]*>\s*(?:<!--[\s\S]*?-->\s*)*<\/div>/gi, '');
   // Malformed: open panel tag immediately followed by </main> / </body> / </section> (missing </div>)
-  s = s.replace(
-    /<div\b[^>]*\bbitpype-form-panel\b[^>]*>\s*(?=<\/(?:main|body|section|div)\b)/gi,
-    ''
-  );
+  s = s.replace(/<div\b[^>]*\bbitpype-form-panel\b[^>]*>\s*(?=<\/(?:main|body|section|div)\b)/gi, '');
   // Orphan empty form slots (image-column placeholders with no embed inside)
-  s = s.replace(
-    /<div\b[^>]*\bdata-bitpype-form-slot\b[^>]*>\s*<\/div>/gi,
-    ''
-  );
+  s = s.replace(/<div\b[^>]*\bdata-bitpype-form-slot\b[^>]*>\s*<\/div>/gi, '');
   return s;
 }
 
@@ -1519,7 +1778,9 @@ function inferWorkspaceId(db, leadId, hint) {
       const ws = parseWorkspaceFromToken(row.public_token);
       if (ws) return ws;
     }
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
   return 1;
 }
 
@@ -1540,16 +1801,15 @@ function resolveFormSections(db, leadId, pages, opts = {}) {
       if (type !== 'form' && type !== 'bitpype_form') return sec;
       const c = Object.assign({}, sec.content || {});
       let row = null;
-      const formId = c.formId != null ? Number(c.formId)
-        : (c.form_id != null ? Number(c.form_id) : null);
+      const formId = c.formId != null ? Number(c.formId) : c.form_id != null ? Number(c.form_id) : null;
       if (Number.isInteger(formId) && formId > 0) {
         row = getFormRowById(db, Number(leadId), formId);
       }
       const tokenHint = String(c.form_token || c.bitpype_form_token || c.formToken || '').trim();
       if (!row && tokenHint) {
-        row = db.prepare(
-          'SELECT * FROM contact_forms WHERE lead_id = ? AND public_token = ?'
-        ).get(Number(leadId), tokenHint);
+        row = db
+          .prepare('SELECT * FROM contact_forms WHERE lead_id = ? AND public_token = ?')
+          .get(Number(leadId), tokenHint);
       }
       if (!row) {
         const list = listFormRows(db, Number(leadId));
@@ -1614,10 +1874,7 @@ function ensureFormEmbedScript(html, appUrl) {
   const tag = formScriptTag(appUrl);
   if (!tag) return String(html || '');
   let s = String(html || '');
-  s = s.replace(
-    new RegExp(`<script\\b[^>]*\\b${SCRIPT_ATTR}\\b[^>]*>\\s*<\\/script>`, 'gi'),
-    ''
-  );
+  s = s.replace(new RegExp(`<script\\b[^>]*\\b${SCRIPT_ATTR}\\b[^>]*>\\s*<\\/script>`, 'gi'), '');
   s = s.replace(/<script\b[^>]*\/js\/form-embed\.js[^>]*>\s*<\/script>/gi, '');
   if (/<\/body>/i.test(s)) return s.replace(/<\/body>/i, `${tag}\n</body>`);
   return `${s}\n${tag}`;
@@ -1627,14 +1884,18 @@ function normalizeSlug(slug) {
   try {
     const eng = require('../src/websiteEngine');
     if (typeof eng.normalizeRoute === 'function') return eng.normalizeRoute(slug);
-  } catch { /* fall through */ }
-  return String(slug || '')
-    .trim()
-    .toLowerCase()
-    .replace(/^\//, '')
-    .replace(/\.html$/i, '')
-    .replace(/[^a-z0-9-_]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'index';
+  } catch {
+    /* fall through */
+  }
+  return (
+    String(slug || '')
+      .trim()
+      .toLowerCase()
+      .replace(/^\//, '')
+      .replace(/\.html$/i, '')
+      .replace(/[^a-z0-9-_]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'index'
+  );
 }
 
 function findPageIndex(pages, slug) {
@@ -1674,7 +1935,10 @@ function scanOpenTag(html, from, tag) {
       if (c === quote) quote = null;
       continue;
     }
-    if (c === '"' || c === "'") { quote = c; continue; }
+    if (c === '"' || c === "'") {
+      quote = c;
+      continue;
+    }
     if (c === '>') {
       const selfClosing = html[i - 1] === '/';
       return {
@@ -1792,7 +2056,11 @@ function findSplitMediaFigure(html) {
 
 function slotName(attrs) {
   const m = String(attrs || '').match(/\bdata-bitpype-form-slot\s*=\s*["']([^"']*)["']/i);
-  return m ? String(m[1] || '').trim().toLowerCase() : '';
+  return m
+    ? String(m[1] || '')
+        .trim()
+        .toLowerCase()
+    : '';
 }
 
 /**
@@ -1800,7 +2068,9 @@ function slotName(attrs) {
  * (form_kind / target slug like quote|appointment|contact), then any empty slot.
  */
 function findFormSlot(html, hint) {
-  const want = String(hint || '').trim().toLowerCase();
+  const want = String(hint || '')
+    .trim()
+    .toLowerCase();
   const slots = [];
   let from = 0;
   while (from < html.length) {
@@ -1808,8 +2078,7 @@ function findFormSlot(html, hint) {
     if (!el) break;
     if (/\bdata-bitpype-form-slot\s*=/i.test(el.attrs || '')) {
       const inner = html.slice(el.openEnd, el.closeStart);
-      const empty = !/\bdata-bitpype-form-embed\s*=/i.test(inner)
-        && !/\bdata-bitpype-managed\s*=/i.test(inner);
+      const empty = !/\bdata-bitpype-form-embed\s*=/i.test(inner) && !/\bdata-bitpype-managed\s*=/i.test(inner);
       slots.push({ el, name: slotName(el.attrs), empty });
     }
     from = el.openEnd;
@@ -1826,11 +2095,7 @@ function findFormSlot(html, hint) {
 function formPanelHtml(block, className, slotHint) {
   const cls = String(className || 'contact-card bitpype-form-panel').trim() || 'contact-card bitpype-form-panel';
   const hint = String(slotHint || '1').trim() || '1';
-  return (
-    `<div class="${escapeAttr(cls)}" data-bitpype-form-slot="${escapeAttr(hint)}">` +
-    `${block}` +
-    `</div>`
-  );
+  return `<div class="${escapeAttr(cls)}" data-bitpype-form-slot="${escapeAttr(hint)}">` + `${block}` + `</div>`;
 }
 
 function elementClasses(attrs) {
@@ -1864,9 +2129,9 @@ function listGridCards(html, grid) {
       text,
       panelClass: classes.includes('info')
         ? 'info bitpype-form-panel'
-        : (classes.includes('contact-card')
+        : classes.includes('contact-card')
           ? 'contact-card bitpype-form-panel'
-          : `${classes.join(' ')} bitpype-form-panel`.trim()),
+          : `${classes.join(' ')} bitpype-form-panel`.trim(),
     });
     from = el.end;
   }
@@ -1902,7 +2167,8 @@ function findFormTeaserCard(html) {
   const pack = findPageFormGrid(html);
   if (!pack) return null;
   const { cards } = pack;
-  const teaserRe = /request (an )?estimate|use the (request )?form|contact form|quote form|booking form|appointment form|send (us )?(a )?request|fill out|get (a )?quote|message us|book (online|now|a)|schedule (online|now|a)|request (a )?callback/i;
+  const teaserRe =
+    /request (an )?estimate|use the (request )?form|contact form|quote form|booking form|appointment form|send (us )?(a )?request|fill out|get (a )?quote|message us|book (online|now|a)|schedule (online|now|a)|request (a )?callback/i;
   let pick = cards.find((c) => teaserRe.test(c.text));
   if (!pick) {
     const napRe = /\baddress\b|\b\d{1,5}\s+[A-Za-z].{0,40}\b(rd|st|ave|ln|dr|road|street|blvd)\b/i;
@@ -1919,10 +2185,14 @@ function injectHtmlEmbed(pageHtml, block, opts = {}) {
   // Author / prior inject wins — same token or same form-slot kind skips a second inject.
   const token = (chunk.match(/\bdata-bitpype-form-embed\s*=\s*["']([^"']+)["']/i) || [])[1];
   if (token && htmlHasFormToken(html, token)) return html;
-  if (slotHint && slotHint !== '1' && new RegExp(
-    `\\bdata-bitpype-form-slot\\s*=\\s*["']${slotHint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*>\\s*<div\\b[^>]*\\bdata-bitpype-form-embed\\b`,
-    'i'
-  ).test(html)) {
+  if (
+    slotHint &&
+    slotHint !== '1' &&
+    new RegExp(
+      `\\bdata-bitpype-form-slot\\s*=\\s*["']${slotHint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*>\\s*<div\\b[^>]*\\bdata-bitpype-form-embed\\b`,
+      'i'
+    ).test(html)
+  ) {
     return html;
   }
   if (!html.trim()) {
@@ -1949,9 +2219,7 @@ function injectHtmlEmbed(pageHtml, block, opts = {}) {
   // Two-up grids: replace the teaser / estimate / book / form card.
   const teaser = findFormTeaserCard(html);
   if (teaser) {
-    return html.slice(0, teaser.start)
-      + formPanelHtml(block, teaser.panelClass, slotHint)
-      + html.slice(teaser.end);
+    return html.slice(0, teaser.start) + formPanelHtml(block, teaser.panelClass, slotHint) + html.slice(teaser.end);
   }
 
   // Else append inside an existing contact-card (under phone / location rows).
@@ -1962,7 +2230,8 @@ function injectHtmlEmbed(pageHtml, block, opts = {}) {
   }
 
   // Prefer inside a named section (#contact / #quote / #appointment / …) .wrap
-  const idRe = /<(section|div)([^>]*\bid\s*=\s*["'](contact|quote|estimate|appointment|book|booking|schedule|form)["'][^>]*)>/i;
+  const idRe =
+    /<(section|div)([^>]*\bid\s*=\s*["'](contact|quote|estimate|appointment|book|booking|schedule|form)["'][^>]*)>/i;
   const named = html.match(idRe);
   if (named) {
     const tag = named[1];
@@ -1982,9 +2251,9 @@ function injectHtmlEmbed(pageHtml, block, opts = {}) {
     const el = findElement(html, 'section', sec.index);
     const wrapInner = el ? findElement(html, 'div', el.openEnd) : null;
     if (wrapInner && elementClasses(wrapInner.attrs).includes('wrap')) {
-      return html.slice(0, wrapInner.closeStart)
-        + formPanelHtml(block, null, slotHint)
-        + html.slice(wrapInner.closeStart);
+      return (
+        html.slice(0, wrapInner.closeStart) + formPanelHtml(block, null, slotHint) + html.slice(wrapInner.closeStart)
+      );
     }
   }
 
@@ -1998,9 +2267,7 @@ function injectHtmlEmbed(pageHtml, block, opts = {}) {
     return { closeStart: el.start + wrap.closeStart };
   })();
   if (mainWrap) {
-    return html.slice(0, mainWrap.closeStart)
-      + formPanelHtml(block, null, slotHint)
-      + html.slice(mainWrap.closeStart);
+    return html.slice(0, mainWrap.closeStart) + formPanelHtml(block, null, slotHint) + html.slice(mainWrap.closeStart);
   }
 
   const wrapped = `<section class="sec"><div class="wrap">${formPanelHtml(block, null, slotHint)}</div></section>`;
@@ -2023,13 +2290,17 @@ function injectHtmlEmbed(pageHtml, block, opts = {}) {
  */
 function syncSiteFormEmbeds(db, leadId, { appUrl } = {}) {
   ensureTables(db);
-  const site = db.prepare(
-    'SELECT id, pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-  ).get(Number(leadId));
+  const site = db
+    .prepare('SELECT id, pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+    .get(Number(leadId));
   if (!site) return { synced: false, reason: 'no_site' };
 
   let pages;
-  try { pages = JSON.parse(site.pages || '[]'); } catch { return { synced: false, reason: 'bad_pages' }; }
+  try {
+    pages = JSON.parse(site.pages || '[]');
+  } catch {
+    return { synced: false, reason: 'bad_pages' };
+  }
   if (!Array.isArray(pages) || !pages.length) return { synced: false, reason: 'empty_pages' };
 
   const base = appUrl || appBaseUrl();
@@ -2037,18 +2308,26 @@ function syncSiteFormEmbeds(db, leadId, { appUrl } = {}) {
   let hideBookingsCompanion = false;
   let bookingsSlug = 'book';
   try {
-    const emb = db.prepare(
-      "SELECT target_page_slug, settings_json FROM site_module_embeds WHERE lead_id = ? AND module_type = 'bookings' AND published = 1 LIMIT 1"
-    ).get(Number(leadId));
+    const emb = db
+      .prepare(
+        "SELECT target_page_slug, settings_json FROM site_module_embeds WHERE lead_id = ? AND module_type = 'bookings' AND published = 1 LIMIT 1"
+      )
+      .get(Number(leadId));
     if (emb) {
       bookingsSlug = normalizeSlug(emb.target_page_slug || 'book') || 'book';
       let st = {};
-      try { st = emb.settings_json ? JSON.parse(emb.settings_json) : {}; } catch { st = {}; }
+      try {
+        st = emb.settings_json ? JSON.parse(emb.settings_json) : {};
+      } catch {
+        st = {};
+      }
       if (st.show_request_form === false || st.show_request_form === 0 || st.show_request_form === 'false') {
         hideBookingsCompanion = true;
       }
     }
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
 
   const forms = listFormRows(db, leadId)
     .filter((r) => r.published && r.public_token && (r.embed_enabled == null || r.embed_enabled))
@@ -2056,18 +2335,18 @@ function syncSiteFormEmbeds(db, leadId, { appUrl } = {}) {
       if (!hideBookingsCompanion) return true;
       const kind = r.form_kind || inferFormKind(r);
       const slug = normalizeSlug(r.target_page_slug || '');
-      if (kind === 'appointment' && (slug === bookingsSlug || pageMatchesKind({ slug, title: r.title }, 'appointment'))) {
+      if (
+        kind === 'appointment' &&
+        (slug === bookingsSlug || pageMatchesKind({ slug, title: r.title }, 'appointment'))
+      ) {
         return false;
       }
       return true;
     })
     .map((r) => publicForm(r, []));
-  const activeTokens = new Set(
-    forms.map((f) => String(f.public_token || '').trim()).filter(Boolean)
-  );
+  const activeTokens = new Set(forms.map((f) => String(f.public_token || '').trim()).filter(Boolean));
 
-  const pageUsesSections = (page) =>
-    !!(page && Array.isArray(page.sections) && page.sections.length > 0);
+  const pageUsesSections = (page) => !!(page && Array.isArray(page.sections) && page.sections.length > 0);
 
   // Pass 1: strip only inactive form embeds; keep placed widgets in design modules.
   for (const page of pages) {
@@ -2159,10 +2438,14 @@ function syncSiteFormEmbeds(db, leadId, { appUrl } = {}) {
         }
       } else {
         // Prefer slot/teaser placement inside the main freestyle body section.
-        const bodySec = page.sections.find((s) =>
-          s && s.type === 'html' && typeof (s.content && s.content.html) === 'string'
-          && /<main\b/i.test(s.content.html)
-        ) || page.sections.find((s) => s && s.type === 'html' && s.content && typeof s.content.html === 'string');
+        const bodySec =
+          page.sections.find(
+            (s) =>
+              s &&
+              s.type === 'html' &&
+              typeof (s.content && s.content.html) === 'string' &&
+              /<main\b/i.test(s.content.html)
+          ) || page.sections.find((s) => s && s.type === 'html' && s.content && typeof s.content.html === 'string');
         if (bodySec) {
           let html = bodySec.content.html;
           for (const form of missing) {
@@ -2199,10 +2482,12 @@ function syncSiteFormEmbeds(db, leadId, { appUrl } = {}) {
       }
       page.html = ensureFormEmbedScript(html, base);
     } else {
-      page.sections = [{
-        type: 'html',
-        content: { html: blocksWithScript, bitpype_managed: 1 },
-      }];
+      page.sections = [
+        {
+          type: 'html',
+          content: { html: blocksWithScript, bitpype_managed: 1 },
+        },
+      ];
     }
   }
 
@@ -2239,8 +2524,10 @@ function syncSiteFormEmbeds(db, leadId, { appUrl } = {}) {
     }
   }
 
-  db.prepare("UPDATE websites SET pages = ?, updated_at = datetime('now') WHERE id = ?")
-    .run(JSON.stringify(pages), site.id);
+  db.prepare("UPDATE websites SET pages = ?, updated_at = datetime('now') WHERE id = ?").run(
+    JSON.stringify(pages),
+    site.id
+  );
 
   return { synced: true, siteId: site.id, forms: forms.length, pages: byPage.size, unembedded };
 }
@@ -2248,12 +2535,14 @@ function syncSiteFormEmbeds(db, leadId, { appUrl } = {}) {
 /** Published forms with embed_enabled that are not present on site pages. */
 function listUnembeddedForms(db, leadId) {
   ensureTables(db);
-  const site = db.prepare(
-    'SELECT pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-  ).get(Number(leadId));
+  const site = db.prepare('SELECT pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(Number(leadId));
   if (!site) return [];
   let pages;
-  try { pages = JSON.parse(site.pages || '[]'); } catch { return []; }
+  try {
+    pages = JSON.parse(site.pages || '[]');
+  } catch {
+    return [];
+  }
   if (!Array.isArray(pages)) return [];
   const out = [];
   for (const row of listFormRows(db, leadId)) {
@@ -2279,9 +2568,9 @@ function patchSiteContactForm(db, leadId, publicToken) {
 
 function getPublicFormByToken(db, token) {
   ensureTables(db);
-  const row = db.prepare(
-    'SELECT * FROM contact_forms WHERE public_token = ? AND published = 1'
-  ).get(String(token || ''));
+  const row = db
+    .prepare('SELECT * FROM contact_forms WHERE public_token = ? AND published = 1')
+    .get(String(token || ''));
   if (!row) throw fail('NOT_FOUND', 'Form not found');
   return publicForm(row, listFields(db, row.id));
 }
@@ -2292,8 +2581,14 @@ function validateSubmission(fields, values) {
     const raw = values[f.field_key];
     let val = raw == null ? '' : String(raw).trim();
     if (f.field_type === 'checkbox') {
-      val = (raw === true || raw === 1 || raw === '1' || String(raw).toLowerCase() === 'on' || String(raw).toLowerCase() === 'true')
-        ? 'yes' : '';
+      val =
+        raw === true ||
+        raw === 1 ||
+        raw === '1' ||
+        String(raw).toLowerCase() === 'on' ||
+        String(raw).toLowerCase() === 'true'
+          ? 'yes'
+          : '';
     }
     if (f.required && !val) {
       throw fail('VALIDATION', `${f.label || f.field_key} is required`);
@@ -2306,19 +2601,11 @@ function validateSubmission(fields, values) {
   return out;
 }
 
-async function acceptSubmission(db, {
-  token,
-  values,
-  workspaceId,
-  planId,
-  ip,
-  userAgent,
-  clientEmail,
-} = {}) {
+async function acceptSubmission(db, { token, values, workspaceId, planId, ip, userAgent, clientEmail } = {}) {
   ensureTables(db);
-  const form = db.prepare(
-    'SELECT * FROM contact_forms WHERE public_token = ? AND published = 1'
-  ).get(String(token || ''));
+  const form = db
+    .prepare('SELECT * FROM contact_forms WHERE public_token = ? AND published = 1')
+    .get(String(token || ''));
   if (!form) throw fail('NOT_FOUND', 'Form not found');
   const fields = listFields(db, form.id).map(publicField);
   const payload = validateSubmission(fields, values || {});
@@ -2327,23 +2614,27 @@ async function acceptSubmission(db, {
   const ent = plan.entitlements || {};
   const encrypt = !!ent.formMuseEncrypt;
   const inbox = !!ent.formInbox;
-  const routing = encrypt ? 'muse' : (inbox ? 'portal' : 'email');
+  const routing = encrypt ? 'muse' : inbox ? 'portal' : 'email';
 
   const encrypted = encrypt ? encryptPayload(payload) : null;
   const payloadJson = encrypt ? null : JSON.stringify(payload);
 
-  const info = db.prepare(`
+  const info = db
+    .prepare(
+      `
     INSERT INTO form_submissions (form_id, lead_id, payload_json, encrypted_payload, routing, ip, user_agent)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    form.id,
-    form.lead_id,
-    payloadJson,
-    encrypted,
-    routing,
-    String(ip || '').slice(0, 80) || null,
-    String(userAgent || '').slice(0, 300) || null
-  );
+  `
+    )
+    .run(
+      form.id,
+      form.lead_id,
+      payloadJson,
+      encrypted,
+      routing,
+      String(ip || '').slice(0, 80) || null,
+      String(userAgent || '').slice(0, 300) || null
+    );
   const submissionId = Number(info.lastInsertRowid);
 
   // LeadScout capture — never block the visitor; failures are retryable in portal.
@@ -2372,10 +2663,7 @@ async function acceptSubmission(db, {
         to: notifyTo,
         subject: `New form submission — ${form.title || 'Contact'}`,
         title: 'New contact form message',
-        paragraphs: [
-          `Someone submitted your contact form (${form.title || form.name || 'Contact'}).`,
-          ...lines,
-        ],
+        paragraphs: [`Someone submitted your contact form (${form.title || form.name || 'Contact'}).`, ...lines],
         text: lines.join('\n'),
       });
     } catch (e) {
@@ -2401,13 +2689,13 @@ async function acceptSubmission(db, {
       encryptedPayload: encrypted,
       meta: { formTitle: form.title, plan: normalizePlanId(planId) },
     });
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE form_submissions SET muse_delivered = ?, muse_error = ? WHERE id = ?
-    `).run(
+    `
+    ).run(
       museResult && museResult.delivered ? 1 : 0,
-      museResult && !museResult.delivered
-        ? String(museResult.error || museResult.reason || '').slice(0, 300)
-        : null,
+      museResult && !museResult.delivered ? String(museResult.error || museResult.reason || '').slice(0, 300) : null,
       submissionId
     );
   }
@@ -2429,20 +2717,26 @@ function listSubmissions(db, leadId, { limit = 50, offset = 0, includePayload = 
   const off = Math.max(0, Number(offset) || 0);
   let rows;
   if (formId != null) {
-    rows = db.prepare(`
+    rows = db
+      .prepare(
+        `
       SELECT * FROM form_submissions WHERE lead_id = ? AND form_id = ?
       ORDER BY id DESC LIMIT ? OFFSET ?
-    `).all(Number(leadId), Number(formId), lim, off);
+    `
+      )
+      .all(Number(leadId), Number(formId), lim, off);
   } else {
-    rows = db.prepare(`
+    rows = db
+      .prepare(
+        `
       SELECT * FROM form_submissions WHERE lead_id = ?
       ORDER BY id DESC LIMIT ? OFFSET ?
-    `).all(Number(leadId), lim, off);
+    `
+      )
+      .all(Number(leadId), lim, off);
   }
 
-  const primary = formId != null
-    ? forms.find((f) => Number(f.id) === Number(formId)) || forms[0]
-    : forms[0];
+  const primary = formId != null ? forms.find((f) => Number(f.id) === Number(formId)) || forms[0] : forms[0];
 
   return {
     form: publicForm(primary, listFields(db, primary.id)),
@@ -2453,9 +2747,9 @@ function listSubmissions(db, leadId, { limit = 50, offset = 0, includePayload = 
 
 function getSubmission(db, leadId, submissionId, { includePayload = true } = {}) {
   ensureTables(db);
-  const row = db.prepare(
-    'SELECT * FROM form_submissions WHERE id = ? AND lead_id = ?'
-  ).get(Number(submissionId), Number(leadId));
+  const row = db
+    .prepare('SELECT * FROM form_submissions WHERE id = ? AND lead_id = ?')
+    .get(Number(submissionId), Number(leadId));
   if (!row) throw fail('NOT_FOUND', 'Submission not found');
   return publicSubmission(row, { includePayload });
 }
@@ -2466,7 +2760,11 @@ function publicSubmission(row, { includePayload = true } = {}) {
     if (row.encrypted_payload) {
       payload = decryptPayload(row.encrypted_payload);
     } else if (row.payload_json) {
-      try { payload = JSON.parse(row.payload_json); } catch { payload = null; }
+      try {
+        payload = JSON.parse(row.payload_json);
+      } catch {
+        payload = null;
+      }
     }
   }
   return {

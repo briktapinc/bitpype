@@ -96,27 +96,42 @@ async function getStatus(workspaceId) {
     reportEmail: cfg.reportEmail || null,
     lastRunAt: cfg.lastRunAt || null,
     lastDigestAt: cfg.lastDigestAt || null,
-    lastResult: cfg.lastResult ? (() => { try { return JSON.parse(cfg.lastResult); } catch { return cfg.lastResult; } })() : null,
+    lastResult: cfg.lastResult
+      ? (() => {
+          try {
+            return JSON.parse(cfg.lastResult);
+          } catch {
+            return cfg.lastResult;
+          }
+        })()
+      : null,
     museConfigured: museAgent.museConfigured(museCfg),
     museModel: museCfg.model,
-    jobs: jobList.filter((j) => j.type === 'hands_off' || j.type === 'hands_off_digest').map((j) => ({
-      id: j.id, name: j.name, type: j.type, enabled: !!j.enabled,
-      last_run_at: j.last_run_at, last_status: j.last_status, next_run_at: j.next_run_at,
-    })),
+    jobs: jobList
+      .filter((j) => j.type === 'hands_off' || j.type === 'hands_off_digest')
+      .map((j) => ({
+        id: j.id,
+        name: j.name,
+        type: j.type,
+        enabled: !!j.enabled,
+        last_run_at: j.last_run_at,
+        last_status: j.last_status,
+        next_run_at: j.next_run_at,
+      })),
     running: running.has(workspaceId),
   };
 }
 
 function sitesCreatedToday(db) {
   try {
-    return db.prepare(
-      "SELECT COUNT(*) AS c FROM websites WHERE date(created_at) = date('now', 'localtime')"
-    ).get().c;
+    return db.prepare("SELECT COUNT(*) AS c FROM websites WHERE date(created_at) = date('now', 'localtime')").get().c;
   } catch {
     try {
-      return db.prepare(
-        "SELECT COUNT(*) AS c FROM design_jobs WHERE status = 'delivered' AND date(updated_at) = date('now', 'localtime')"
-      ).get().c;
+      return db
+        .prepare(
+          "SELECT COUNT(*) AS c FROM design_jobs WHERE status = 'delivered' AND date(updated_at) = date('now', 'localtime')"
+        )
+        .get().c;
     } catch {
       return 0;
     }
@@ -139,8 +154,9 @@ function pickTemplateId(db, preferred) {
 }
 
 function candidateLeads(db, minScore, limit) {
-  return db.prepare(
-    `SELECT l.* FROM leads l
+  return db
+    .prepare(
+      `SELECT l.* FROM leads l
      WHERE COALESCE(l.score, 0) >= ?
        AND COALESCE(l.status, '') NOT IN ('won', 'lost', 'unsubscribed', 'do_not_contact', 'archived')
        AND NOT EXISTS (SELECT 1 FROM websites w WHERE w.lead_id = l.id)
@@ -150,16 +166,19 @@ function candidateLeads(db, minScore, limit) {
        )
      ORDER BY COALESCE(l.score, 0) DESC, l.id ASC
      LIMIT ?`
-  ).all(minScore, limit);
+    )
+    .all(minScore, limit);
 }
 
 function leadsNeedingScore(db, limit) {
-  return db.prepare(
-    `SELECT id FROM leads
+  return db
+    .prepare(
+      `SELECT id FROM leads
      WHERE (score IS NULL OR score = 0)
        AND COALESCE(status, '') IN ('new', 'researching', 'qualified', '')
      ORDER BY id DESC LIMIT ?`
-  ).all(limit);
+    )
+    .all(limit);
 }
 
 async function scoreNewLeads(workspaceId, domain, stats) {
@@ -191,17 +210,19 @@ async function createDesignJobs(workspaceId, domain, cfg, stats) {
   for (const lead of leads) {
     if (domain.withDb(workspaceId, (d) => domain.getSetting(d, 'automation_paused', '0')) === '1') break;
     try {
-      const title = `Website for ${lead.business_name || ('Lead #' + lead.id)}`;
+      const title = `Website for ${lead.business_name || 'Lead #' + lead.id}`;
       const instructions = [
         'TOOLS ONLY. Follow design.defaultInstructions (system prompt). Build and design.deliver a unique modular site for this lead, then publish.',
-        `Business: ${lead.business_name || ('Lead #' + lead.id)}`,
+        `Business: ${lead.business_name || 'Lead #' + lead.id}`,
         lead.category ? `Category: ${lead.category}` : '',
         lead.city ? `Location: ${[lead.city, lead.state].filter(Boolean).join(', ')}` : '',
         lead.website ? `Existing website: ${lead.website}` : 'No website on file.',
         lead.email ? `Email: ${lead.email}` : '',
         lead.phone ? `Phone: ${lead.phone}` : '',
         lead.score != null ? `Score: ${lead.score}` : '',
-      ].filter(Boolean).join('\n');
+      ]
+        .filter(Boolean)
+        .join('\n');
       const job = domain.designCreate(workspaceId, {
         type: 'website',
         title,
@@ -211,7 +232,11 @@ async function createDesignJobs(workspaceId, domain, cfg, stats) {
       stats.designJobs++;
       created.push(job);
       log(workspaceId, `Design job #${job.id} created for lead #${lead.id} (score ${lead.score})`);
-      try { domain.leadsQualify(workspaceId, lead.id); } catch { /* optional */ }
+      try {
+        domain.leadsQualify(workspaceId, lead.id);
+      } catch {
+        /* optional */
+      }
     } catch (e) {
       stats.errors.push(`design lead #${lead.id}: ${e.message}`);
     }
@@ -232,7 +257,10 @@ async function buildWithMuse(workspaceId, domain, stats) {
   stats.muse = result;
   if (result.delivered) {
     stats.delivered++;
-    log(workspaceId, `Muse delivered job #${job.id} (${result.steps} steps, $${Number(result.costUsd || 0).toFixed(4)})`);
+    log(
+      workspaceId,
+      `Muse delivered job #${job.id} (${result.steps} steps, $${Number(result.costUsd || 0).toFixed(4)})`
+    );
     // Publish / preview
     try {
       const fresh = domain.designGet(workspaceId, job.id);
@@ -272,9 +300,11 @@ async function outreachForLead(workspaceId, domain, cfg, leadId, stats) {
       log(workspaceId, 'Outreach skipped: no dual-channel template');
       return;
     }
-    const already = db.prepare(
-      `SELECT COUNT(*) AS c FROM campaign_messages WHERE lead_id = ? AND status IN ('queued','sent','sending')`
-    ).get(leadId).c;
+    const already = db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM campaign_messages WHERE lead_id = ? AND status IN ('queued','sent','sending')`
+      )
+      .get(leadId).c;
     if (already > 0) {
       stats.outreachSkipped = (stats.outreachSkipped || 0) + 1;
     } else {
@@ -299,12 +329,14 @@ async function outreachForLead(workspaceId, domain, cfg, leadId, stats) {
     const intent = outreach.getIntent(db, leadId);
     const hot = intent && (String(intent.label).toLowerCase() === 'hot' || Number(intent.score) >= 40);
     if (!hot) {
-      const future = db.prepare(
-        `SELECT COUNT(*) AS c FROM campaign_messages
+      const future = db
+        .prepare(
+          `SELECT COUNT(*) AS c FROM campaign_messages
          WHERE lead_id = ? AND status = 'queued'
            AND scheduled_at IS NOT NULL
            AND scheduled_at > datetime('now', 'localtime', '+1 day')`
-      ).get(leadId).c;
+        )
+        .get(leadId).c;
       if (!future) {
         try {
           const camp = outreach.createCampaign(db, {
@@ -342,9 +374,11 @@ async function outreachForLead(workspaceId, domain, cfg, leadId, stats) {
 async function resolveReportEmail(workspaceId, cfg) {
   if (cfg.reportEmail) return cfg.reportEmail;
   try {
-    const support = String(await platform.getPlatformSetting('support.email', '') || '').trim();
+    const support = String((await platform.getPlatformSetting('support.email', '')) || '').trim();
     if (support) return support;
-  } catch { /* */ }
+  } catch {
+    /* */
+  }
   const domain = require('./domain');
   return domain.withDb(workspaceId, (db) => {
     const from = domain.getSetting(db, 'smtp.from_email', '');
@@ -358,22 +392,26 @@ async function sendDigest(workspaceId, { force = false } = {}) {
   if (cfg.paused) return { skipped: true, reason: 'automation_paused' };
   if (!cfg.enabled && !force) return { skipped: true, reason: 'hands_off_disabled' };
 
-  const since = cfg.lastDigestAt || domain.withDb(workspaceId, (db) =>
-    domain.getSetting(db, 'hands_off.last_run_at', '')
-  ) || '';
+  const since =
+    cfg.lastDigestAt || domain.withDb(workspaceId, (db) => domain.getSetting(db, 'hands_off.last_run_at', '')) || '';
   const rows = domain.withDb(workspaceId, (db) => {
     if (since) {
-      return db.prepare(
-        `SELECT id, area, message, at FROM activity_log
+      return db
+        .prepare(
+          `SELECT id, area, message, at FROM activity_log
          WHERE area = 'hands_off' AND at > ?
          ORDER BY id ASC LIMIT 200`
-      ).all(since);
+        )
+        .all(since);
     }
-    return db.prepare(
-      `SELECT id, area, message, at FROM activity_log
+    return db
+      .prepare(
+        `SELECT id, area, message, at FROM activity_log
        WHERE area = 'hands_off'
        ORDER BY id DESC LIMIT 80`
-    ).all().reverse();
+      )
+      .all()
+      .reverse();
   });
 
   const to = await resolveReportEmail(workspaceId, cfg);
@@ -515,7 +553,10 @@ async function runTick(workspaceId, { force = false } = {}) {
       domain.setSetting(db, 'hands_off.last_run_at', now);
       domain.setSetting(db, 'hands_off.last_result', JSON.stringify(summary));
     });
-    log(workspaceId, `Tick done: discovered=${summary.discovered} scored=${summary.scored} jobs=${summary.designJobs} delivered=${summary.delivered} published=${summary.published}`);
+    log(
+      workspaceId,
+      `Tick done: discovered=${summary.discovered} scored=${summary.scored} jobs=${summary.designJobs} delivered=${summary.delivered} published=${summary.published}`
+    );
 
     // Optional end-of-batch digest when something meaningful happened
     if (summary.delivered || summary.discovered || summary.campaigns) {

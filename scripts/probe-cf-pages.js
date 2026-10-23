@@ -19,7 +19,9 @@ function req(path) {
       },
       (res) => {
         let d = '';
-        res.on('data', (c) => { d += c; });
+        res.on('data', (c) => {
+          d += c;
+        });
         res.on('end', () => resolve({ status: res.statusCode, body: d.slice(0, 400) }));
       }
     );

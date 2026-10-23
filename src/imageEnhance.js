@@ -61,7 +61,10 @@ function fetchBuffer(url, redirects = 0) {
       res.on('end', () => resolve(Buffer.concat(chunks)));
     });
     req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('timeout'));
+    });
   });
 }
 
@@ -76,7 +79,11 @@ async function falRun(key, modelId, input) {
   });
   const text = await res.text();
   let data;
-  try { data = JSON.parse(text); } catch { data = { raw: text }; }
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = { raw: text };
+  }
   if (!res.ok) {
     const msg = (data && (data.detail || data.error || data.message)) || text.slice(0, 200);
     throw new Error(`fal ${res.status}: ${msg}`);
@@ -117,7 +124,8 @@ async function enhanceImages(db, urls, { leadId = null, limit = MAX_IMAGES } = {
         aspect_ratio: 'auto',
         output_format: 'jpeg',
         resolution: '1K',
-        prompt: 'Enhance for a professional local business website: sharper detail, balanced lighting, natural colors, remove compression noise. Keep the same subject and framing — do not change branding text in the image.',
+        prompt:
+          'Enhance for a professional local business website: sharper detail, balanced lighting, natural colors, remove compression noise. Keep the same subject and framing — do not change branding text in the image.',
       });
       const enhancedUrl = pickResultUrl(data);
       if (!enhancedUrl) throw new Error('no image url in fal response');
@@ -128,7 +136,9 @@ async function enhanceImages(db, urls, { leadId = null, limit = MAX_IMAGES } = {
         const ext = /\.jpe?g/i.test(enhancedUrl) ? '.jpg' : '.png';
         local_path = path.join(dir, `img_${i + 1}_v1${ext}`);
         fs.writeFileSync(local_path, buf);
-      } catch { /* keep remote url */ }
+      } catch {
+        /* keep remote url */
+      }
 
       out.push({
         source,
@@ -140,7 +150,7 @@ async function enhanceImages(db, urls, { leadId = null, limit = MAX_IMAGES } = {
       out.push({
         source,
         enhanced_url: null,
-        error: String(err && err.message || err).slice(0, 300),
+        error: String((err && err.message) || err).slice(0, 300),
         model: DEFAULT_MODEL,
       });
     }

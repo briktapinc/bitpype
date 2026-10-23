@@ -49,10 +49,16 @@ assert(withBase.includes('data-ws-preview-base="1"'), 'base tag marker');
 assert(withBase.includes('href="https://bitpype.com/site-previews/ws-1-site-2/"'), 'base href');
 assert(!engine.injectPreviewBaseHref('<p>x</p>', '').includes('<base'), 'no base without url');
 
-console.log(JSON.stringify({
-  ok: true,
-  markersPage0: count,
-  siteMarkers: (site.match(/data-edit="html:/g) || []).length,
-  sampleEditedOk: edited.includes('Edited Headline'),
-  baseHrefOk: withBase.includes('data-ws-preview-base'),
-}, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      ok: true,
+      markersPage0: count,
+      siteMarkers: (site.match(/data-edit="html:/g) || []).length,
+      sampleEditedOk: edited.includes('Edited Headline'),
+      baseHrefOk: withBase.includes('data-ws-preview-base'),
+    },
+    null,
+    2
+  )
+);

@@ -39,14 +39,17 @@ function corsPublic(req, res, next) {
   return next();
 }
 
-publicRouter.use([
-  '/.well-known/oauth-protected-resource',
-  '/.well-known/oauth-protected-resource/mcp',
-  '/.well-known/oauth-authorization-server',
-  '/.well-known/openid-configuration',
-  '/register',
-  '/token',
-], corsPublic);
+publicRouter.use(
+  [
+    '/.well-known/oauth-protected-resource',
+    '/.well-known/oauth-protected-resource/mcp',
+    '/.well-known/oauth-authorization-server',
+    '/.well-known/openid-configuration',
+    '/register',
+    '/token',
+  ],
+  corsPublic
+);
 
 publicRouter.get('/.well-known/oauth-protected-resource', (_req, res) => {
   sendJson(res, 200, oauth.protectedResourceMetadata());
@@ -104,17 +107,18 @@ sessionRouter.get('/authorize', async (req, res) => {
       const state = req.query && req.query.state != null ? String(req.query.state) : '';
       const client = await oauth.getClient(String((req.query && req.query.client_id) || ''));
       if (client && redirectUri && oauth.redirectUriAllowed(client, redirectUri)) {
-        return res.redirect(302, oauth.oauthErrorRedirect(
-          redirectUri,
-          state,
-          validated.error,
-          validated.error_description
-        ));
+        return res.redirect(
+          302,
+          oauth.oauthErrorRedirect(redirectUri, state, validated.error, validated.error_description)
+        );
       }
-      return res.status(400).type('html').send(
-        `<!doctype html><meta charset="utf-8"><title>Authorize</title>`
-        + `<p>${escapeHtml(validated.error_description || validated.error)}</p>`
-      );
+      return res
+        .status(400)
+        .type('html')
+        .send(
+          `<!doctype html><meta charset="utf-8"><title>Authorize</title>` +
+            `<p>${escapeHtml(validated.error_description || validated.error)}</p>`
+        );
     }
 
     req.session.oauthPending = validated.pending;
@@ -176,7 +180,10 @@ sessionRouter.post('/oauth/consent', consentLimit, async (req, res) => {
       return sendJson(res, 401, { ok: false, error: 'AUTH_REQUIRED', message: 'Sign in to the client portal first' });
     }
 
-    const approve = !!(req.body && (req.body.approve === true || req.body.approve === '1' || req.body.approve === 'true'));
+    const approve = !!(
+      req.body &&
+      (req.body.approve === true || req.body.approve === '1' || req.body.approve === 'true')
+    );
     if (!approve) {
       delete req.session.oauthPending;
       await saveSession(req);

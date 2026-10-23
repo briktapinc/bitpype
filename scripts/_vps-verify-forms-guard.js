@@ -22,7 +22,9 @@ for (const p of candidates) {
       dbPath = p;
       break;
     }
-  } catch { /* try next */ }
+  } catch {
+    /* try next */
+  }
 }
 if (!db) {
   console.log('no_db');
@@ -38,7 +40,7 @@ if (!row) {
 const pages = JSON.parse(row.pages || '[]');
 let contact = null;
 for (const p of pages) {
-  for (const s of (p.sections || [])) {
+  for (const s of p.sections || []) {
     if (s && s.type === 'contact_form') {
       contact = { slug: p.slug, page: p, sec: s };
       break;
@@ -58,18 +60,23 @@ const formTags = (html.match(/<form\b[^>]*>/gi) || []).length;
 const embeds = (html.match(/\bdata-bitpype-form-embed\s*=/gi) || []).length;
 console.log('render_forms', formTags, 'render_embeds', embeds, 'functional', formTags + embeds);
 
-const dirty = forms.stripHandRolledFormsFromPages([{
-  slug: '/x',
-  title: 'X',
-  sections: [{ type: 'html', content: { html: '<form action="#"><input></form>' } }],
-}]);
+const dirty = forms.stripHandRolledFormsFromPages([
+  {
+    slug: '/x',
+    title: 'X',
+    sections: [{ type: 'html', content: { html: '<form action="#"><input></form>' } }],
+  },
+]);
 console.log('strip_ok', dirty.stripped >= 1);
 
 const tools = require('../src/mcpCatalog').tools || [];
-const formTools = tools.filter((t) => String(t.name || '').startsWith('forms.')).map((t) => t.name).sort();
+const formTools = tools
+  .filter((t) => String(t.name || '').startsWith('forms.'))
+  .map((t) => t.name)
+  .sort();
 console.log('mcp_form_tools', formTools.join(','));
 
-if ((formTags + embeds) !== 1) {
+if (formTags + embeds !== 1) {
   console.error('expected exactly 1 functional form/embed on North Harbor contact');
   process.exit(2);
 }

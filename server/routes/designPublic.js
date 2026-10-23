@@ -22,8 +22,7 @@ function fail(res, e, status = 400) {
 
 async function workspaceIdFrom(req) {
   const w = Number(
-    (req.query && (req.query.w || req.query.workspaceId))
-    || (req.body && (req.body.w || req.body.workspaceId))
+    (req.query && (req.query.w || req.query.workspaceId)) || (req.body && (req.body.w || req.body.workspaceId))
   );
   if (!Number.isInteger(w) || w <= 0) {
     const err = new Error('workspace id (w) required');
@@ -39,7 +38,9 @@ router.get('/form/:token', readLimit, async (req, res) => {
     const workspaceId = await workspaceIdFrom(req);
     const data = domain.designClientFormGet(workspaceId, req.params.token);
     res.json({ ok: true, data });
-  } catch (e) { fail(res, e); }
+  } catch (e) {
+    fail(res, e);
+  }
 });
 
 router.post('/form/:token', formLimit, captcha, async (req, res) => {
@@ -47,7 +48,9 @@ router.post('/form/:token', formLimit, captcha, async (req, res) => {
     const workspaceId = await workspaceIdFrom(req);
     const data = await domain.designClientFormSubmit(workspaceId, req.params.token, req.body || {});
     res.json({ ok: true, data });
-  } catch (e) { fail(res, e, e.code === 'EMPTY' ? 400 : 500); }
+  } catch (e) {
+    fail(res, e, e.code === 'EMPTY' ? 400 : 500);
+  }
 });
 
 module.exports = router;

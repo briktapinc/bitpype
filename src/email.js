@@ -44,7 +44,7 @@ function readSmtpConfig(settings) {
   const secure = secureRaw === '1' || secureRaw === 'true' || secureRaw === 'yes';
   return {
     host: get('smtp.host'),
-    port: portRaw ? parseInt(portRaw, 10) : (secure ? 465 : 587),
+    port: portRaw ? parseInt(portRaw, 10) : secure ? 465 : 587,
     secure,
     user: get('smtp.user'),
     pass: get('smtp.pass'),
@@ -71,8 +71,8 @@ function buildMime({ fromName, fromEmail, to, subject, html, text }) {
   const date = new Date().toUTCString();
   const msgId = `<${crypto.randomBytes(16).toString('hex')}@${fromEmail.split('@')[1] || 'localhost'}>`;
   const from = fromName ? `"${fromName.replace(/["\\]/g, '')}" <${fromEmail}>` : fromEmail;
-  const plain = (text && text.trim()) ? text : stripHtml(html || '');
-  const htmlPart = (html && html.trim()) ? html : `<pre>${escapeHtml(plain)}</pre>`;
+  const plain = text && text.trim() ? text : stripHtml(html || '');
+  const htmlPart = html && html.trim() ? html : `<pre>${escapeHtml(plain)}</pre>`;
 
   const lines = [
     `From: ${from}`,
@@ -116,11 +116,7 @@ function stripHtml(html) {
 }
 
 function escapeHtml(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 /** Minimal line-oriented SMTP conversation driver. */
@@ -187,7 +183,10 @@ class SmtpClient {
         clearTimeout(timer);
         resolve(s);
       });
-      s.once('error', (err) => { clearTimeout(timer); reject(err); });
+      s.once('error', (err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
     });
     this.socket = socket;
     socket.setTimeout(COMMAND_TIMEOUT_MS, () => socket.destroy(new Error('SMTP socket timeout')));
@@ -237,7 +236,11 @@ class SmtpClient {
   }
 
   async quit() {
-    try { await this._command('QUIT', 221); } catch { /* best effort */ }
+    try {
+      await this._command('QUIT', 221);
+    } catch {
+      /* best effort */
+    }
     if (this.socket) this.socket.destroy();
     this.socket = null;
   }
@@ -306,10 +309,12 @@ class StubProvider {
     const messageId = 'stub-' + crypto.randomBytes(8).toString('hex');
     if (this.db) {
       try {
-        this.db.prepare(
-          `INSERT INTO activity_log (area, message) VALUES ('outreach', ?)`
-        ).run(`[stub] email to ${to} — "${subject || ''}" (SMTP not configured; marked sent)`);
-      } catch { /* activity_log must never break a send */ }
+        this.db
+          .prepare(`INSERT INTO activity_log (area, message) VALUES ('outreach', ?)`)
+          .run(`[stub] email to ${to} — "${subject || ''}" (SMTP not configured; marked sent)`);
+      } catch {
+        /* activity_log must never break a send */
+      }
     }
     return { ok: true, provider: 'stub', messageId };
   }
@@ -331,8 +336,26 @@ function getProvider(settings, db) {
 /* ------------------------------------------------------------------ */
 
 const EMAIL_ALLOWED_TAGS = new Set([
-  'a', 'b', 'strong', 'i', 'em', 'u', 'p', 'br', 'ul', 'ol', 'li',
-  'h1', 'h2', 'h3', 'h4', 'div', 'span', 'img', 'blockquote', 'hr',
+  'a',
+  'b',
+  'strong',
+  'i',
+  'em',
+  'u',
+  'p',
+  'br',
+  'ul',
+  'ol',
+  'li',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'div',
+  'span',
+  'img',
+  'blockquote',
+  'hr',
 ]);
 
 /**
@@ -389,9 +412,21 @@ function looksLikeHtml(s) {
 // Variables that may come straight from lead columns.
 // Extra vars (website_link, preview_url, from_name, interested, uninterested) via `extra`.
 const LEAD_VARS = [
-  'business_name', 'category', 'phone', 'email', 'website', 'address',
-  'city', 'state', 'postal_code', 'country', 'rating', 'review_count',
-  'description', 'preview_path', 'source',
+  'business_name',
+  'category',
+  'phone',
+  'email',
+  'website',
+  'address',
+  'city',
+  'state',
+  'postal_code',
+  'country',
+  'rating',
+  'review_count',
+  'description',
+  'preview_path',
+  'source',
 ];
 
 // business_facts.fact_key values that are safe to expose as {{var}}.

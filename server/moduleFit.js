@@ -6,8 +6,10 @@
  * addModule / edit / addBlock warnings.
  */
 
-const APPOINTMENT_TOKEN_RE = /\b(book|booking|bookings|reserve|reservation|schedule|scheduling|appointment|appointments)\b/i;
-const CALL_TO_BOOK_RE = /\b(call\s+to\s+book|phone\s+to\s+(book|schedule|reserve)|call\s+(us\s+)?to\s+(book|schedule|reserve)|ring\s+to\s+book)\b/i;
+const APPOINTMENT_TOKEN_RE =
+  /\b(book|booking|bookings|reserve|reservation|schedule|scheduling|appointment|appointments)\b/i;
+const CALL_TO_BOOK_RE =
+  /\b(call\s+to\s+book|phone\s+to\s+(book|schedule|reserve)|call\s+(us\s+)?to\s+(book|schedule|reserve)|ring\s+to\s+book)\b/i;
 const TEL_HREF_RE = /\bhref\s*=\s*["']tel:/i;
 const BOOKINGS_MOUNT_RE = /data-bitpype-module-type\s*=\s*["']bookings["']/i;
 const FORM_MOUNT_RE = /data-bitpype-form(?:-embed)?\s*=/i;
@@ -99,10 +101,17 @@ function navLabelsForPage(pages, page) {
     let m;
     while ((m = re.exec(html))) {
       const href = String(m[1] || '');
-      const lab = String(m[2] || '').replace(/<[^>]+>/g, '').trim();
+      const lab = String(m[2] || '')
+        .replace(/<[^>]+>/g, '')
+        .trim();
       if (!lab) continue;
       const hrefSlug = normalizeSlug(href.replace(/^#/, '').split(/[?#]/)[0]);
-      if (hrefSlug === slug || hrefSlug === `${slug}.html` || href.endsWith(`/${slug}`) || href.endsWith(`${slug}.html`)) {
+      if (
+        hrefSlug === slug ||
+        hrefSlug === `${slug}.html` ||
+        href.endsWith(`/${slug}`) ||
+        href.endsWith(`${slug}.html`)
+      ) {
         labels.push(lab);
       }
     }
@@ -120,15 +129,16 @@ function pageHasAppointmentIntent(page, pages = []) {
   const slug = normalizeSlug(page.slug);
   const title = String(page.title || '');
   const navLabels = navLabelsForPage(pages, page);
-  const slugHit = APPOINTMENT_TOKEN_RE.test(slug.replace(/-/g, ' '))
-    || /^(book|booking|reserve|reservation|schedule|appointment|appointments)$/i.test(slug);
+  const slugHit =
+    APPOINTMENT_TOKEN_RE.test(slug.replace(/-/g, ' ')) ||
+    /^(book|booking|reserve|reservation|schedule|appointment|appointments)$/i.test(slug);
   const titleHit = APPOINTMENT_TOKEN_RE.test(title);
   const navHit = navLabels.some((lab) => APPOINTMENT_TOKEN_RE.test(lab));
 
   if (slugHit || titleHit || navHit) {
     return {
       intent: true,
-      reason: slugHit ? `slug "${slug}"` : (titleHit ? `title "${title}"` : `nav label`),
+      reason: slugHit ? `slug "${slug}"` : titleHit ? `title "${title}"` : `nav label`,
       exempt: false,
     };
   }
@@ -145,8 +155,11 @@ function pageHasAppointmentIntent(page, pages = []) {
 
   // Strong content signals without slug/nav still count as intent when the
   // page's job is clearly booking (headings / CTAs), not a tel-only aside.
-  const headingHit = /<(h1|h2)[^>]*>[^<]*\b(book|reserve|schedule|appointment)\b/i.test(html)
-    || /\b(book\s+now|book\s+online|reserve\s+(a|an|your)|schedule\s+(a|an|your)|request\s+an?\s+appointment)\b/i.test(blob);
+  const headingHit =
+    /<(h1|h2)[^>]*>[^<]*\b(book|reserve|schedule|appointment)\b/i.test(html) ||
+    /\b(book\s+now|book\s+online|reserve\s+(a|an|your)|schedule\s+(a|an|your)|request\s+an?\s+appointment)\b/i.test(
+      blob
+    );
   if (headingHit && !TEL_HREF_RE.test(html)) {
     return { intent: true, reason: 'content signals appointment as primary job', exempt: false };
   }
@@ -334,9 +347,10 @@ function addModuleAppointmentWarning(pages, moduleType, targetSlug) {
   if (type === 'bookings') return null;
   const list = Array.isArray(pages) ? pages : [];
   const slug = normalizeSlug(targetSlug);
-  const page = list.find((p) => normalizeSlug(p && p.slug) === slug)
-    || list.find((p) => pageHasAppointmentIntent(p, list).intent)
-    || null;
+  const page =
+    list.find((p) => normalizeSlug(p && p.slug) === slug) ||
+    list.find((p) => pageHasAppointmentIntent(p, list).intent) ||
+    null;
   if (!page) return null;
   const hit = pageHasAppointmentIntent(page, list);
   if (!hit.intent) return null;

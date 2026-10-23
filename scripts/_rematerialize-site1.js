@@ -12,13 +12,19 @@ async function main() {
   const path = require('path');
 
   const preview = await domain.sitesPreview(1, 1, { force: true });
-  console.log(JSON.stringify({
-    url: preview.url,
-    via: preview.via,
-    folder: preview.folder,
-    files: preview.files || [],
-    cloudflare: preview.cloudflare || null,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        url: preview.url,
+        via: preview.via,
+        folder: preview.folder,
+        files: preview.files || [],
+        cloudflare: preview.cloudflare || null,
+      },
+      null,
+      2
+    )
+  );
 
   const files = preview.files || [];
   const imageFiles = files.filter((f) => String(f).startsWith('images/'));
@@ -53,6 +59,6 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error(e && e.stack || e);
+  console.error((e && e.stack) || e);
   process.exit(1);
 });

@@ -77,7 +77,9 @@ async function resolveSmsSettings(workspaceSettings) {
       const plat = await platform.getPlatformSetting(key, '');
       if (plat != null && String(plat).trim() !== '') out[key] = String(plat);
     }
-  } catch { /* platform optional */ }
+  } catch {
+    /* platform optional */
+  }
   return out;
 }
 
@@ -94,12 +96,23 @@ class StubSmsProvider {
     const mode = hasMedia ? 'mms' : 'sms';
     if (this.db) {
       try {
-        this.db.prepare(
-          `INSERT INTO activity_log (area, message) VALUES ('outreach', ?)`
-        ).run(`[stub] ${mode.toUpperCase()} to ${to} — "${String(body || '').slice(0, 80)}"${hasMedia ? ` media=${String(mediaUrl).slice(0, 120)}` : ''} (${this.reason}; marked sent)`);
-      } catch { /* ignore */ }
+        this.db
+          .prepare(`INSERT INTO activity_log (area, message) VALUES ('outreach', ?)`)
+          .run(
+            `[stub] ${mode.toUpperCase()} to ${to} — "${String(body || '').slice(0, 80)}"${hasMedia ? ` media=${String(mediaUrl).slice(0, 120)}` : ''} (${this.reason}; marked sent)`
+          );
+      } catch {
+        /* ignore */
+      }
     }
-    return { ok: true, provider: 'stub', messageId, stub: true, mode, mediaUrl: hasMedia ? String(mediaUrl).trim() : null };
+    return {
+      ok: true,
+      provider: 'stub',
+      messageId,
+      stub: true,
+      mode,
+      mediaUrl: hasMedia ? String(mediaUrl).trim() : null,
+    };
   }
 }
 
@@ -118,9 +131,10 @@ class TwilioProvider {
     if (!text) throw new Error('SMS body is empty');
     if (text.length > 1600) throw new Error('SMS body exceeds 1600 characters');
 
-    const media = mediaUrl && String(mediaUrl).trim() && /^https:\/\//i.test(String(mediaUrl).trim())
-      ? String(mediaUrl).trim()
-      : '';
+    const media =
+      mediaUrl && String(mediaUrl).trim() && /^https:\/\//i.test(String(mediaUrl).trim())
+        ? String(mediaUrl).trim()
+        : '';
     const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(this.cfg.accountSid)}/Messages.json`;
     const auth = Buffer.from(`${this.cfg.accountSid}:${this.cfg.authToken}`).toString('base64');
 
@@ -141,7 +155,11 @@ class TwilioProvider {
       });
       const raw = await res.text();
       let data = {};
-      try { data = JSON.parse(raw); } catch { /* keep */ }
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        /* keep */
+      }
       return { res, raw, data };
     };
 
@@ -150,8 +168,7 @@ class TwilioProvider {
     let fallbackReason = null;
     if (!res.ok && media) {
       const msg = (data && (data.message || data.error_message)) || raw.slice(0, 300) || res.statusText;
-      const mmsFail = /media|mms|21604|21620|12300|unsubscribed|not.+support/i.test(msg)
-        || res.status === 400;
+      const mmsFail = /media|mms|21604|21620|12300|unsubscribed|not.+support/i.test(msg) || res.status === 400;
       if (mmsFail) {
         // Graceful fallback: plain SMS with media URL appended if not already in body.
         fallbackReason = msg;
@@ -174,7 +191,11 @@ class TwilioProvider {
         });
         const raw2 = await res2.text();
         let data2 = {};
-        try { data2 = JSON.parse(raw2); } catch { /* keep */ }
+        try {
+          data2 = JSON.parse(raw2);
+        } catch {
+          /* keep */
+        }
         if (!res2.ok) {
           const msg2 = (data2 && (data2.message || data2.error_message)) || raw2.slice(0, 300) || res2.statusText;
           throw new Error(`Twilio ${res2.status}: ${msg2}`);
@@ -247,9 +268,18 @@ function plainSmsBody(text) {
   let s = String(text || '');
   s = s.replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n');
   s = s.replace(/<[^>]+>/g, '');
-  s = s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ');
-  s = s.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/[ \t]{2,}/g, ' ').trim();
+  s = s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+  s = s
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
   return s.slice(0, 1600);
 }
 

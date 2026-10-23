@@ -90,11 +90,8 @@ const last_check = {
   claimable,
   acted: [],
   skipped,
-  trigger: trigger
-    ? { at: trigger.at, job_id: trigger.job_id, reason: trigger.reason }
-    : null,
-  note:
-    'Poll only. Agent must claim/deliver claimable jobs (redesign vs improvements). Empty no-lead jobs stay skipped until fixed.',
+  trigger: trigger ? { at: trigger.at, job_id: trigger.job_id, reason: trigger.reason } : null,
+  note: 'Poll only. Agent must claim/deliver claimable jobs (redesign vs improvements). Empty no-lead jobs stay skipped until fixed.',
 };
 
 state.last_check = last_check;

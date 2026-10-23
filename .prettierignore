@@ -1,0 +1,5 @@
+node_modules
+data
+.audit
+*.min.js
+package-lock.json

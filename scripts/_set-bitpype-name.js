@@ -4,9 +4,7 @@ const { query } = require('../server/db');
 const { savePlatformDefaultsSnapshot } = require('../server/platform');
 
 (async () => {
-  const plat = await query(
-    "SELECT `key`, value FROM platform_settings WHERE `key` IN ('app.name','smtp.from_name')"
-  );
+  const plat = await query("SELECT `key`, value FROM platform_settings WHERE `key` IN ('app.name','smtp.from_name')");
   console.log('platform_before', JSON.stringify(plat));
 
   await query(
@@ -24,16 +22,12 @@ const { savePlatformDefaultsSnapshot } = require('../server/platform');
   await query(
     "UPDATE workspace_settings SET value='Bitpype' WHERE `key`='app.name' AND (value='Website Scout' OR value='' OR value IS NULL)"
   );
-  await query(
-    "UPDATE workspace_settings SET value='Bitpype' WHERE `key`='smtp.from_name' AND value='Website Scout'"
-  );
+  await query("UPDATE workspace_settings SET value='Bitpype' WHERE `key`='smtp.from_name' AND value='Website Scout'");
   await query(
     "INSERT INTO workspace_settings (workspace_id, `key`, value) SELECT 1, 'app.name', 'Bitpype' FROM DUAL WHERE EXISTS (SELECT 1 FROM workspaces WHERE id=1) ON DUPLICATE KEY UPDATE value='Bitpype'"
   );
 
-  const plat2 = await query(
-    "SELECT `key`, value FROM platform_settings WHERE `key` IN ('app.name','smtp.from_name')"
-  );
+  const plat2 = await query("SELECT `key`, value FROM platform_settings WHERE `key` IN ('app.name','smtp.from_name')");
   const ws2 = await query(
     "SELECT workspace_id, `key`, value FROM workspace_settings WHERE `key` IN ('app.name','smtp.from_name')"
   );
@@ -52,7 +46,10 @@ const { savePlatformDefaultsSnapshot } = require('../server/platform');
   try {
     const { openWorkspaceDb } = require('../server/workspaceDb');
     const db = openWorkspaceDb(1);
-    for (const [key, value] of [['app.name', 'Bitpype'], ['smtp.from_name', 'Bitpype']]) {
+    for (const [key, value] of [
+      ['app.name', 'Bitpype'],
+      ['smtp.from_name', 'Bitpype'],
+    ]) {
       const cur = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
       if (!cur || cur.value === 'Website Scout' || !String(cur.value || '').trim()) {
         db.prepare(
@@ -60,9 +57,7 @@ const { savePlatformDefaultsSnapshot } = require('../server/platform');
         ).run(key, value);
       }
     }
-    const after = db.prepare(
-      "SELECT key, value FROM settings WHERE key IN ('app.name','smtp.from_name')"
-    ).all();
+    const after = db.prepare("SELECT key, value FROM settings WHERE key IN ('app.name','smtp.from_name')").all();
     console.log('sqlite_ws1_after', JSON.stringify(after));
   } catch (e) {
     console.warn('sqlite_sync_skip', e.message);

@@ -7,7 +7,9 @@
 (function () {
   try {
     if (window.localStorage && localStorage.getItem('bp_cookie_ok') === '1') return;
-  } catch { /* private mode */ }
+  } catch {
+    /* private mode */
+  }
 
   if (document.getElementById('bp-cookie-bar')) return;
 
@@ -51,7 +53,9 @@
     document.getElementById('bp-cookie-accept').addEventListener('click', () => {
       try {
         if (window.localStorage) localStorage.setItem('bp_cookie_ok', '1');
-      } catch { /* */ }
+      } catch {
+        /* */
+      }
       bar.remove();
       style.remove();
       document.body.classList.remove('bp-cookie-pad');

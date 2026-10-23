@@ -11,24 +11,33 @@ function httpJson(method, url, { auth, body } = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const payload = body ? JSON.stringify(body) : null;
-    const req = https.request({
-      method,
-      hostname: u.hostname,
-      path: u.pathname + u.search,
-      headers: {
-        Accept: 'application/json',
-        ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
-        ...(auth ? { Authorization: 'Basic ' + Buffer.from(auth).toString('base64') } : {}),
+    const req = https.request(
+      {
+        method,
+        hostname: u.hostname,
+        path: u.pathname + u.search,
+        headers: {
+          Accept: 'application/json',
+          ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
+          ...(auth ? { Authorization: 'Basic ' + Buffer.from(auth).toString('base64') } : {}),
+        },
       },
-    }, (res) => {
-      let data = '';
-      res.on('data', (c) => { data += c; });
-      res.on('end', () => {
-        let parsed = data;
-        try { parsed = JSON.parse(data); } catch { /* raw */ }
-        resolve({ status: res.statusCode, body: parsed });
-      });
-    });
+      (res) => {
+        let data = '';
+        res.on('data', (c) => {
+          data += c;
+        });
+        res.on('end', () => {
+          let parsed = data;
+          try {
+            parsed = JSON.parse(data);
+          } catch {
+            /* raw */
+          }
+          resolve({ status: res.statusCode, body: parsed });
+        });
+      }
+    );
     req.on('error', reject);
     if (payload) req.write(payload);
     req.end();
@@ -45,8 +54,9 @@ function httpJson(method, url, { auth, body } = {}) {
   let senders = await httpJson('GET', 'https://api.mailjet.com/v3/REST/sender?Limit=50', { auth });
   console.log(JSON.stringify(senders.body, null, 2));
 
-  const existing = ((senders.body && senders.body.Data) || [])
-    .find((x) => String(x.Email).toLowerCase() === email.toLowerCase());
+  const existing = ((senders.body && senders.body.Data) || []).find(
+    (x) => String(x.Email).toLowerCase() === email.toLowerCase()
+  );
 
   let senderId = existing && existing.ID;
   if (!existing) {
@@ -70,8 +80,9 @@ function httpJson(method, url, { auth, body } = {}) {
   }
 
   // Inspect DNSID from team@bitpype.com
-  const team = ((senders.body && senders.body.Data) || [])
-    .find((x) => String(x.Email).toLowerCase() === 'team@bitpype.com');
+  const team = ((senders.body && senders.body.Data) || []).find(
+    (x) => String(x.Email).toLowerCase() === 'team@bitpype.com'
+  );
   const dnsId = team && team.DNSID;
   if (dnsId && dnsId > 0) {
     console.log('\n=== dns by id', dnsId, '===');

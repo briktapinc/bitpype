@@ -31,7 +31,9 @@ function resolveLead(workspaceHint, websiteId) {
     for (const n of fs.readdirSync(wsRoot)) {
       if (/^\d+$/.test(n) && !candidates.includes(n)) candidates.push(n);
     }
-  } catch { /* */ }
+  } catch {
+    /* */
+  }
 
   for (const ws of candidates) {
     const dbPath = path.join(wsRoot, ws, 'websitescout.db');
@@ -39,9 +41,7 @@ function resolveLead(workspaceHint, websiteId) {
     let db;
     try {
       db = new Database(dbPath, { readonly: true });
-      const row = db.prepare(
-        'SELECT id, lead_id FROM websites WHERE id = ?'
-      ).get(wid);
+      const row = db.prepare('SELECT id, lead_id FROM websites WHERE id = ?').get(wid);
       if (row && row.lead_id != null) {
         const hit = { workspaceId: Number(ws), leadId: Number(row.lead_id) };
         cache.set(wid, hit);
@@ -50,7 +50,12 @@ function resolveLead(workspaceHint, websiteId) {
     } catch (e) {
       console.warn('db', ws, e.message || e);
     } finally {
-      if (db) try { db.close(); } catch { /* */ }
+      if (db)
+        try {
+          db.close();
+        } catch {
+          /* */
+        }
     }
   }
   cache.set(wid, null);

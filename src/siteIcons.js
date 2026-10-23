@@ -6,13 +6,24 @@
  */
 
 const SERVICE_ICONS = [
-  'globe', 'phone', 'mail', 'calendar', 'chat', 'star', 'chart', 'camera',
-  'video', 'map-pin', 'clock', 'shield', 'zap', 'users', 'check',
+  'globe',
+  'phone',
+  'mail',
+  'calendar',
+  'chat',
+  'star',
+  'chart',
+  'camera',
+  'video',
+  'map-pin',
+  'clock',
+  'shield',
+  'zap',
+  'users',
+  'check',
 ];
 
-const BRAND_ICONS = [
-  'instagram', 'tiktok', 'facebook', 'youtube', 'x', 'linkedin', 'google',
-];
+const BRAND_ICONS = ['instagram', 'tiktok', 'facebook', 'youtube', 'x', 'linkedin', 'google'];
 
 /** @type {Record<string, { brand?: boolean, paths: string[], circle?: boolean }>} */
 const ICON_PATHS = {
@@ -30,35 +41,19 @@ const ICON_PATHS = {
     ],
   },
   mail: {
-    paths: [
-      'M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z',
-      'm22 6-10 7L2 6',
-    ],
+    paths: ['M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z', 'm22 6-10 7L2 6'],
   },
   calendar: {
-    paths: [
-      'M8 2v4', 'M16 2v4',
-      'M3 10h18',
-      'M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z',
-    ],
+    paths: ['M8 2v4', 'M16 2v4', 'M3 10h18', 'M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z'],
   },
   chat: {
-    paths: [
-      'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
-    ],
+    paths: ['M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'],
   },
   star: {
-    paths: [
-      'M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z',
-    ],
+    paths: ['M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z'],
   },
   chart: {
-    paths: [
-      'M3 3v18h18',
-      'M18 17V9',
-      'M13 17V5',
-      'M8 17v-3',
-    ],
+    paths: ['M3 3v18h18', 'M18 17V9', 'M13 17V5', 'M8 17v-3'],
   },
   camera: {
     paths: [
@@ -67,32 +62,19 @@ const ICON_PATHS = {
     ],
   },
   video: {
-    paths: [
-      'M23 7l-7 5 7 5V7z',
-      'M14 5H3a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z',
-    ],
+    paths: ['M23 7l-7 5 7 5V7z', 'M14 5H3a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z'],
   },
   'map-pin': {
-    paths: [
-      'M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z',
-      'M12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
-    ],
+    paths: ['M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z', 'M12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z'],
   },
   clock: {
-    paths: [
-      'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z',
-      'M12 6v6l4 2',
-    ],
+    paths: ['M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z', 'M12 6v6l4 2'],
   },
   shield: {
-    paths: [
-      'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
-    ],
+    paths: ['M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'],
   },
   zap: {
-    paths: [
-      'M13 2L3 14h9l-1 8 10-12h-9l1-8z',
-    ],
+    paths: ['M13 2L3 14h9l-1 8 10-12h-9l1-8z'],
   },
   users: {
     paths: [
@@ -103,9 +85,7 @@ const ICON_PATHS = {
     ],
   },
   check: {
-    paths: [
-      'M20 6L9 17l-5-5',
-    ],
+    paths: ['M20 6L9 17l-5-5'],
   },
   // Brand (filled-ish simple marks)
   instagram: {
@@ -118,15 +98,11 @@ const ICON_PATHS = {
   },
   tiktok: {
     brand: true,
-    paths: [
-      'M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5',
-    ],
+    paths: ['M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5'],
   },
   facebook: {
     brand: true,
-    paths: [
-      'M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z',
-    ],
+    paths: ['M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z'],
   },
   youtube: {
     brand: true,
@@ -137,10 +113,7 @@ const ICON_PATHS = {
   },
   x: {
     brand: true,
-    paths: [
-      'M4 4l16 16',
-      'M20 4L4 20',
-    ],
+    paths: ['M4 4l16 16', 'M20 4L4 20'],
   },
   linkedin: {
     brand: true,
@@ -176,7 +149,10 @@ const NETWORK_TO_ICON = {
 };
 
 function normalizeIconName(name) {
-  const s = String(name || '').trim().toLowerCase().replace(/_/g, '-');
+  const s = String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, '-');
   if (!s) return '';
   if (ALL_NAMES.has(s)) return s;
   if (NETWORK_TO_ICON[s]) return NETWORK_TO_ICON[s];
@@ -215,7 +191,13 @@ function escapeXml(s) {
 }
 
 function iconForNetwork(network) {
-  return NETWORK_TO_ICON[String(network || '').trim().toLowerCase()] || '';
+  return (
+    NETWORK_TO_ICON[
+      String(network || '')
+        .trim()
+        .toLowerCase()
+    ] || ''
+  );
 }
 
 /**
@@ -260,8 +242,8 @@ function assertKnownIcons(pages) {
   }
   if (bad.length) {
     const err = new Error(
-      `Unknown icon name(s). Use one of: ${[...SERVICE_ICONS, ...BRAND_ICONS].join(', ')}. `
-      + bad.slice(0, 8).join('; ')
+      `Unknown icon name(s). Use one of: ${[...SERVICE_ICONS, ...BRAND_ICONS].join(', ')}. ` +
+        bad.slice(0, 8).join('; ')
     );
     err.code = 'INVALID_ICON';
     throw err;

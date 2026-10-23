@@ -9,10 +9,7 @@ const crypto = require('crypto');
 const path = require('path');
 const engine = require('./websiteEngine');
 const pexels = require('./pexels');
-const {
-  DEFAULT_WEBSITE_DESIGN_INSTRUCTIONS,
-  defaultWebsiteInstructions,
-} = require('./defaultDesignInstructions');
+const { DEFAULT_WEBSITE_DESIGN_INSTRUCTIONS, defaultWebsiteInstructions } = require('./defaultDesignInstructions');
 
 const SUGGESTED_TYPES = ['website', 'logo', 'social', 'flyer', 'brand', 'other'];
 const STATUSES = ['draft', 'waiting_on_agent', 'questions_pending', 'in_progress', 'delivered'];
@@ -50,24 +47,30 @@ function inferSiteShapeFromPageCount(count) {
 /** Peek lead research for default site_shape when the caller did not set one. */
 function peekRecommendedPageCount(db, leadId) {
   if (!leadId) return 0;
-  const mapRow = db.prepare(
-    "SELECT value FROM business_facts WHERE lead_id = ? AND fact_key = 'site.map' ORDER BY id DESC LIMIT 1"
-  ).get(leadId);
+  const mapRow = db
+    .prepare("SELECT value FROM business_facts WHERE lead_id = ? AND fact_key = 'site.map' ORDER BY id DESC LIMIT 1")
+    .get(leadId);
   if (mapRow) {
     try {
       const map = JSON.parse(mapRow.value);
       const n = recommendedPageCount(map, null);
       if (n) return n;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
-  const snapRow = db.prepare(
-    "SELECT value FROM business_facts WHERE lead_id = ? AND fact_key = 'site.snapshot' ORDER BY id DESC LIMIT 1"
-  ).get(leadId);
+  const snapRow = db
+    .prepare(
+      "SELECT value FROM business_facts WHERE lead_id = ? AND fact_key = 'site.snapshot' ORDER BY id DESC LIMIT 1"
+    )
+    .get(leadId);
   if (snapRow) {
     try {
       const snap = JSON.parse(snapRow.value);
       return recommendedPageCount(snap && snap.site_map, null);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
   return 0;
 }
@@ -182,30 +185,44 @@ function ensureTables(db) {
   addCol('design_questions', 'from_email', 'TEXT');
   try {
     db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_design_jobs_client_form_token ON design_jobs(client_form_token)');
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   try {
     require('./emailRedesign').ensureTables(db);
-  } catch { /* optional module */ }
+  } catch {
+    /* optional module */
+  }
   try {
     require('./designLearning').ensureTables(db);
-  } catch { /* optional module */ }
+  } catch {
+    /* optional module */
+  }
 }
 
 function logActivity(db, message) {
   try {
     db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run('design', String(message).slice(0, 2000));
-  } catch { /* logging must not break the job */ }
+  } catch {
+    /* logging must not break the job */
+  }
 }
 
 function parseJson(text, fallback) {
   if (text == null || text === '') return fallback;
-  try { return JSON.parse(text); } catch { return fallback; }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return fallback;
+  }
 }
 
 function questionsFor(db, jobId) {
-  return db.prepare(
-    'SELECT id, job_id, question, answer, from_email, asked_at, answered_at FROM design_questions WHERE job_id = ? ORDER BY id'
-  ).all(jobId);
+  return db
+    .prepare(
+      'SELECT id, job_id, question, answer, from_email, asked_at, answered_at FROM design_questions WHERE job_id = ? ORDER BY id'
+    )
+    .all(jobId);
 }
 
 function pendingCount(db, jobId) {
@@ -253,7 +270,9 @@ function publicJob(db, row, { withDeliverable = true } = {}) {
             theme: mergeThemePreferCss(out.deliverable.theme, siteTheme),
           });
         }
-      } catch { /* site optional */ }
+      } catch {
+        /* site optional */
+      }
     }
   } else {
     out.has_delivery = !!row.deliverable;
@@ -293,9 +312,7 @@ function getRow(db, id) {
 }
 
 function buildBrief(db, leadId, instructions, type, siteShape) {
-  const shape = type === 'website'
-    ? (normalizeSiteShape(siteShape) || 'multipage')
-    : normalizeSiteShape(siteShape);
+  const shape = type === 'website' ? normalizeSiteShape(siteShape) || 'multipage' : normalizeSiteShape(siteShape);
   const constraints = [
     'Reuse the old site’s information architecture and wording from source_structure / content.copy_blocks / site_snapshot — same pages, headings, services, and body copy wherever provided.',
     'You may lightly edit for clarity, but do not invent a new service menu, about story, or contact details. Missing bits → design.ask or leave out.',
@@ -307,9 +324,13 @@ function buildBrief(db, leadId, instructions, type, siteShape) {
   ];
   if (type === 'website') {
     constraints.push(...websiteShapeConstraints(shape));
-    constraints.push('Prefer content.images_enhanced (AI) over content.images / site_snapshot.images; use style_guide.logo when present. Pexels only if no site photos.');
+    constraints.push(
+      'Prefer content.images_enhanced (AI) over content.images / site_snapshot.images; use style_guide.logo when present. Pexels only if no site photos.'
+    );
   } else {
-    constraints.push('Payload is any structured JSON you need (notes, copy, assets, links). The app shows it as-is and will not turn it into a website.');
+    constraints.push(
+      'Payload is any structured JSON you need (notes, copy, assets, links). The app shows it as-is and will not turn it into a website.'
+    );
   }
   const brief = {
     instruction: instructions,
@@ -330,7 +351,9 @@ function buildBrief(db, leadId, instructions, type, siteShape) {
   if (!leadId) {
     try {
       require('./designLearning').attachLessonsToBrief(db, brief, { jobType: type, siteShape: shape });
-    } catch { /* learning optional */ }
+    } catch {
+      /* learning optional */
+    }
     return brief;
   }
   const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(leadId);
@@ -356,20 +379,28 @@ function buildBrief(db, leadId, instructions, type, siteShape) {
   let siteSnapshot = null;
   const snapFact = verified.find((f) => f.fact_key === 'site.snapshot');
   if (snapFact) {
-    try { siteSnapshot = JSON.parse(snapFact.value); } catch { siteSnapshot = null; }
+    try {
+      siteSnapshot = JSON.parse(snapFact.value);
+    } catch {
+      siteSnapshot = null;
+    }
   }
   if (!siteSnapshot) {
-    const rows = db.prepare(
-      "SELECT fact_key, value FROM business_facts WHERE lead_id = ? AND fact_key = 'site.snapshot' ORDER BY id DESC LIMIT 1"
-    ).all(leadId);
+    const rows = db
+      .prepare(
+        "SELECT fact_key, value FROM business_facts WHERE lead_id = ? AND fact_key = 'site.snapshot' ORDER BY id DESC LIMIT 1"
+      )
+      .all(leadId);
     if (rows[0]) {
-      try { siteSnapshot = JSON.parse(rows[0].value); } catch { siteSnapshot = null; }
+      try {
+        siteSnapshot = JSON.parse(rows[0].value);
+      } catch {
+        siteSnapshot = null;
+      }
     }
   }
 
-  const services = verified
-    .filter((f) => f.fact_key.startsWith('service:'))
-    .map((f) => f.value);
+  const services = verified.filter((f) => f.fact_key.startsWith('service:')).map((f) => f.value);
   const images = [];
   const imagesEnhanced = [];
   for (const f of verified) {
@@ -377,21 +408,27 @@ function buildBrief(db, leadId, instructions, type, siteShape) {
     if (/^site\.image:\d+$/.test(k)) images.push(f.value);
   }
   // Enhanced images are AI_COPY — read from all facts, not only verified map.
-  const enhRows = db.prepare(
-    "SELECT fact_key, value FROM business_facts WHERE lead_id = ? AND fact_key LIKE 'site.image.enhanced:%' AND fact_key NOT LIKE '%.local' ORDER BY id"
-  ).all(leadId);
+  const enhRows = db
+    .prepare(
+      "SELECT fact_key, value FROM business_facts WHERE lead_id = ? AND fact_key LIKE 'site.image.enhanced:%' AND fact_key NOT LIKE '%.local' ORDER BY id"
+    )
+    .all(leadId);
   for (const r of enhRows) imagesEnhanced.push(r.value);
   if (!images.length) {
-    const imgRows = db.prepare(
-      "SELECT value FROM business_facts WHERE lead_id = ? AND fact_key GLOB 'site.image:[0-9]*' AND fact_key NOT LIKE '%.%' ORDER BY id"
-    ).all(leadId);
+    const imgRows = db
+      .prepare(
+        "SELECT value FROM business_facts WHERE lead_id = ? AND fact_key GLOB 'site.image:[0-9]*' AND fact_key NOT LIKE '%.%' ORDER BY id"
+      )
+      .all(leadId);
     // SQLite GLOB may not match — fallback LIKE
     if (!imgRows.length) {
       db.prepare(
         "SELECT fact_key, value FROM business_facts WHERE lead_id = ? AND fact_key LIKE 'site.image:%' ORDER BY id"
-      ).all(leadId).forEach((r) => {
-        if (/^site\.image:\d+$/.test(r.fact_key)) images.push(r.value);
-      });
+      )
+        .all(leadId)
+        .forEach((r) => {
+          if (/^site\.image:\d+$/.test(r.fact_key)) images.push(r.value);
+        });
     } else {
       imgRows.forEach((r) => images.push(r.value));
     }
@@ -414,13 +451,20 @@ function buildBrief(db, leadId, instructions, type, siteShape) {
 
   let styleGuide = (siteSnapshot && siteSnapshot.style_guide) || null;
   if (!styleGuide) {
-    const sgFact = verified.find((f) => f.fact_key === 'site.style_guide')
-      || db.prepare(
-        "SELECT value FROM business_facts WHERE lead_id = ? AND fact_key = 'site.style_guide' ORDER BY id DESC LIMIT 1"
-      ).get(leadId);
+    const sgFact =
+      verified.find((f) => f.fact_key === 'site.style_guide') ||
+      db
+        .prepare(
+          "SELECT value FROM business_facts WHERE lead_id = ? AND fact_key = 'site.style_guide' ORDER BY id DESC LIMIT 1"
+        )
+        .get(leadId);
     const raw = sgFact && (sgFact.value || sgFact);
     if (raw) {
-      try { styleGuide = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { styleGuide = null; }
+      try {
+        styleGuide = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      } catch {
+        styleGuide = null;
+      }
     }
   }
   if (!styleGuide) {
@@ -443,62 +487,87 @@ function buildBrief(db, leadId, instructions, type, siteShape) {
 
   let sourceStructure = (siteSnapshot && siteSnapshot.structure) || null;
   if (!sourceStructure) {
-    const st = db.prepare(
-      "SELECT value FROM business_facts WHERE lead_id = ? AND fact_key = 'site.structure' ORDER BY id DESC LIMIT 1"
-    ).get(leadId);
+    const st = db
+      .prepare(
+        "SELECT value FROM business_facts WHERE lead_id = ? AND fact_key = 'site.structure' ORDER BY id DESC LIMIT 1"
+      )
+      .get(leadId);
     if (st) {
-      try { sourceStructure = JSON.parse(st.value); } catch { sourceStructure = null; }
+      try {
+        sourceStructure = JSON.parse(st.value);
+      } catch {
+        sourceStructure = null;
+      }
     }
   }
   brief.source_structure = sourceStructure;
 
   let siteMap = (siteSnapshot && siteSnapshot.site_map) || null;
   if (!siteMap) {
-    const mapRow = db.prepare(
-      "SELECT value FROM business_facts WHERE lead_id = ? AND fact_key = 'site.map' ORDER BY id DESC LIMIT 1"
-    ).get(leadId);
+    const mapRow = db
+      .prepare("SELECT value FROM business_facts WHERE lead_id = ? AND fact_key = 'site.map' ORDER BY id DESC LIMIT 1")
+      .get(leadId);
     if (mapRow) {
-      try { siteMap = JSON.parse(mapRow.value); } catch { siteMap = null; }
+      try {
+        siteMap = JSON.parse(mapRow.value);
+      } catch {
+        siteMap = null;
+      }
     }
   }
   brief.site_map = siteMap;
 
   let faq = (siteMap && siteMap.faq) || (siteSnapshot && siteSnapshot.faq) || [];
   if (!faq.length) {
-    const faqRow = db.prepare(
-      "SELECT value FROM business_facts WHERE lead_id = ? AND fact_key = 'site.faq' ORDER BY id DESC LIMIT 1"
-    ).get(leadId);
+    const faqRow = db
+      .prepare("SELECT value FROM business_facts WHERE lead_id = ? AND fact_key = 'site.faq' ORDER BY id DESC LIMIT 1")
+      .get(leadId);
     if (faqRow) {
-      try { faq = JSON.parse(faqRow.value); } catch { faq = []; }
+      try {
+        faq = JSON.parse(faqRow.value);
+      } catch {
+        faq = [];
+      }
     }
   }
 
   const copyBlocks = [];
   for (const f of verified) {
     if (!String(f.fact_key).startsWith('site.copy:')) continue;
-    try { copyBlocks.push(JSON.parse(f.value)); } catch { /* skip */ }
+    try {
+      copyBlocks.push(JSON.parse(f.value));
+    } catch {
+      /* skip */
+    }
   }
   if (!copyBlocks.length) {
-    const rows = db.prepare(
-      "SELECT value FROM business_facts WHERE lead_id = ? AND fact_key LIKE 'site.copy:%' ORDER BY id"
-    ).all(leadId);
+    const rows = db
+      .prepare("SELECT value FROM business_facts WHERE lead_id = ? AND fact_key LIKE 'site.copy:%' ORDER BY id")
+      .all(leadId);
     for (const r of rows) {
-      try { copyBlocks.push(JSON.parse(r.value)); } catch { /* skip */ }
+      try {
+        copyBlocks.push(JSON.parse(r.value));
+      } catch {
+        /* skip */
+      }
     }
   }
   let nav = (siteSnapshot && siteSnapshot.nav) || [];
   if (!nav.length) {
-    const navRow = db.prepare(
-      "SELECT value FROM business_facts WHERE lead_id = ? AND fact_key = 'site.nav' ORDER BY id DESC LIMIT 1"
-    ).get(leadId);
+    const navRow = db
+      .prepare("SELECT value FROM business_facts WHERE lead_id = ? AND fact_key = 'site.nav' ORDER BY id DESC LIMIT 1")
+      .get(leadId);
     if (navRow) {
-      try { nav = JSON.parse(navRow.value); } catch { nav = []; }
+      try {
+        nav = JSON.parse(navRow.value);
+      } catch {
+        nav = [];
+      }
     }
   }
 
-  const mapServices = (siteMap && Array.isArray(siteMap.services))
-    ? siteMap.services.map((s) => s.title || s.slug).filter(Boolean)
-    : [];
+  const mapServices =
+    siteMap && Array.isArray(siteMap.services) ? siteMap.services.map((s) => s.title || s.slug).filter(Boolean) : [];
   const mergedServices = [...services];
   for (const s of mapServices) {
     if (!mergedServices.some((x) => String(x).toLowerCase() === String(s).toLowerCase())) {
@@ -507,10 +576,18 @@ function buildBrief(db, leadId, instructions, type, siteShape) {
   }
 
   brief.content = {
-    about: aboutFact ? aboutFact.value : (lead.description || ''),
+    about: aboutFact ? aboutFact.value : lead.description || '',
     services: mergedServices,
-    hours: hoursFact ? hoursFact.value : (lead.hours || ''),
-    ctas: ctasFact ? (() => { try { return JSON.parse(ctasFact.value); } catch { return []; } })() : [],
+    hours: hoursFact ? hoursFact.value : lead.hours || '',
+    ctas: ctasFact
+      ? (() => {
+          try {
+            return JSON.parse(ctasFact.value);
+          } catch {
+            return [];
+          }
+        })()
+      : [],
     images,
     images_enhanced: imagesEnhanced,
     nav,
@@ -526,16 +603,25 @@ function buildBrief(db, leadId, instructions, type, siteShape) {
   brief.owner_notes = notes.join('\n\n');
   try {
     require('./designLearning').attachLessonsToBrief(db, brief, { jobType: type, siteShape: shape });
-  } catch { /* learning optional */ }
+  } catch {
+    /* learning optional */
+  }
   return brief;
 }
 
 function createJob(db, input = {}) {
   ensureTables(db);
-  const type = String(input.type || '').trim().slice(0, 40);
-  const title = String(input.title || '').trim().slice(0, 200);
-  const instructions = String(input.instructions || '').trim().slice(0, 20000);
-  if (!type) throw fail('INVALID_ARGS', 'type is required (website, logo, social, flyer, brand, other, or your own label).');
+  const type = String(input.type || '')
+    .trim()
+    .slice(0, 40);
+  const title = String(input.title || '')
+    .trim()
+    .slice(0, 200);
+  const instructions = String(input.instructions || '')
+    .trim()
+    .slice(0, 20000);
+  if (!type)
+    throw fail('INVALID_ARGS', 'type is required (website, logo, social, flyer, brand, other, or your own label).');
   if (!title) throw fail('INVALID_ARGS', 'title is required.');
   if (!instructions) throw fail('INVALID_ARGS', 'instructions are required. Describe the work for the agent.');
   let leadId = null;
@@ -552,15 +638,19 @@ function createJob(db, input = {}) {
     siteShape = defaultSiteShape(db, leadId, type);
   }
   const brief = buildBrief(db, leadId, instructions, type, siteShape);
-  let contact = String(input.contactEmail || '').trim().slice(0, 254);
+  let contact = String(input.contactEmail || '')
+    .trim()
+    .slice(0, 254);
   if (!contact && leadId) {
     const lead = db.prepare('SELECT email FROM leads WHERE id = ?').get(leadId);
     contact = lead && lead.email ? String(lead.email).trim() : '';
   }
   if (leadId) {
-    const open = db.prepare(
-      `SELECT * FROM design_jobs WHERE lead_id = ? AND type = ? AND status != 'delivered' ORDER BY id DESC LIMIT 1`
-    ).get(leadId, type);
+    const open = db
+      .prepare(
+        `SELECT * FROM design_jobs WHERE lead_id = ? AND type = ? AND status != 'delivered' ORDER BY id DESC LIMIT 1`
+      )
+      .get(leadId, type);
     if (open) {
       const pending = pendingCount(db, open.id);
       const status = pending ? 'questions_pending' : 'waiting_on_agent';
@@ -568,20 +658,27 @@ function createJob(db, input = {}) {
         `UPDATE design_jobs SET title = ?, instructions = ?, brief = ?, site_shape = ?, contact_email = COALESCE(NULLIF(?, ''), contact_email), status = ?, updated_at = datetime('now') WHERE id = ?`
       ).run(title, instructions, JSON.stringify(brief), siteShape, contact, status, open.id);
       logActivity(db, `Design job #${open.id} brief refreshed (${type}, ${siteShape || 'n/a'}). Waiting on the agent.`);
-      notifyAgentQueue(db,
+      notifyAgentQueue(
+        db,
         `Design job #${open.id} refreshed (${type}). Status ${status} — MCP agents: design.next or design.pending.`,
         { jobId: open.id, reason: 'refreshed', status }
       );
       return publicJob(db, getRow(db, open.id));
     }
   }
-  const info = db.prepare(
-    `INSERT INTO design_jobs (type, title, instructions, lead_id, contact_email, status, brief, site_shape, built_by)
+  const info = db
+    .prepare(
+      `INSERT INTO design_jobs (type, title, instructions, lead_id, contact_email, status, brief, site_shape, built_by)
      VALUES (?, ?, ?, ?, ?, 'waiting_on_agent', ?, ?, NULL)`
-  ).run(type, title, instructions, leadId, contact || null, JSON.stringify(brief), siteShape);
+    )
+    .run(type, title, instructions, leadId, contact || null, JSON.stringify(brief), siteShape);
   const id = Number(info.lastInsertRowid);
-  logActivity(db, `Design job #${id} assigned (${type}${siteShape ? `, ${siteShape}` : ''}): "${title}". Waiting on the agent.`);
-  notifyAgentQueue(db,
+  logActivity(
+    db,
+    `Design job #${id} assigned (${type}${siteShape ? `, ${siteShape}` : ''}): "${title}". Waiting on the agent.`
+  );
+  notifyAgentQueue(
+    db,
     `Design job #${id} assigned (${type}): "${title.slice(0, 120)}". Status waiting_on_agent — MCP agents: design.next or design.pending.`,
     { jobId: id, reason: 'assigned', status: 'waiting_on_agent' }
   );
@@ -601,9 +698,11 @@ function updateJob(db, id, input = {}) {
   const brief = buildBrief(db, row.lead_id, row.instructions, row.type, siteShape);
   // Preserve instruction text already on the job; rebuild research + shape constraints.
   brief.instruction = row.instructions;
-  db.prepare(
-    `UPDATE design_jobs SET site_shape = ?, brief = ?, updated_at = datetime('now') WHERE id = ?`
-  ).run(siteShape, JSON.stringify(brief), row.id);
+  db.prepare(`UPDATE design_jobs SET site_shape = ?, brief = ?, updated_at = datetime('now') WHERE id = ?`).run(
+    siteShape,
+    JSON.stringify(brief),
+    row.id
+  );
   logActivity(db, `Design job #${row.id} site_shape set to ${siteShape}.`);
   return publicJob(db, getRow(db, row.id));
 }
@@ -619,7 +718,9 @@ function notifyAgentQueue(db, message, meta = {}) {
     if (typeof process !== 'undefined' && process.stderr && process.stderr.write) {
       process.stderr.write(`[design-agent] ${message}\n`);
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   try {
     const { fireAgentTriggers } = require('./designAgentTrigger');
     fireAgentTriggers(db, {
@@ -628,7 +729,9 @@ function notifyAgentQueue(db, message, meta = {}) {
       status: meta.status || 'waiting_on_agent',
       message,
     });
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 const AGENT_QUEUE_STATUSES = ['waiting_on_agent', 'questions_pending'];
@@ -638,23 +741,28 @@ function pendingAgentSummary(db, { previewLimit = 10, leadId } = {}) {
   const leadClause = leadId != null && Number(leadId) > 0 ? ' AND lead_id = ?' : '';
   const leadParams = leadClause ? [Number(leadId)] : [];
   const counts = { waiting_on_agent: 0, questions_pending: 0 };
-  for (const row of db.prepare(
-    `SELECT status, COUNT(*) AS c FROM design_jobs
+  for (const row of db
+    .prepare(
+      `SELECT status, COUNT(*) AS c FROM design_jobs
      WHERE status IN ('waiting_on_agent', 'questions_pending')${leadClause}
      GROUP BY status`
-  ).all(...leadParams)) {
+    )
+    .all(...leadParams)) {
     if (row.status in counts) counts[row.status] = row.c;
   }
   const total = counts.waiting_on_agent + counts.questions_pending;
   const limit = Math.min(50, Math.max(1, Number(previewLimit) || 10));
-  const preview = db.prepare(
-    `SELECT * FROM design_jobs
+  const preview = db
+    .prepare(
+      `SELECT * FROM design_jobs
      WHERE status IN ('waiting_on_agent', 'questions_pending')${leadClause}
      ORDER BY
        CASE status WHEN 'waiting_on_agent' THEN 0 ELSE 1 END,
        created_at ASC, id ASC
      LIMIT ?`
-  ).all(...leadParams, limit).map((row) => publicJob(db, row, { withDeliverable: false }));
+    )
+    .all(...leadParams, limit)
+    .map((row) => publicJob(db, row, { withDeliverable: false }));
   return {
     total,
     counts,
@@ -673,12 +781,14 @@ function pendingSignature(summary) {
 
 function claimNextAgentJob(db) {
   ensureTables(db);
-  const row = db.prepare(
-    `SELECT * FROM design_jobs
+  const row = db
+    .prepare(
+      `SELECT * FROM design_jobs
      WHERE status = 'waiting_on_agent'
      ORDER BY created_at ASC, id ASC
      LIMIT 1`
-  ).get();
+    )
+    .get();
   if (!row) return null;
   return getJob(db, row.id, { markInProgress: true });
 }
@@ -689,7 +799,7 @@ function listJobs(db, { status, limit, page, pageSize, leadId } = {}) {
   // Legacy `limit` (MCP) maps to a single page of that size.
   const legacyLimit = limit != null ? Math.min(100, Math.max(1, Number(limit) || 50)) : null;
   const paging = pageArgs(
-    { page: page || 1, pageSize: pageSize != null ? pageSize : (legacyLimit || 25) },
+    { page: page || 1, pageSize: pageSize != null ? pageSize : legacyLimit || 25 },
     { pageSize: 25, maxSize: 100 }
   );
   const clauses = [];
@@ -705,9 +815,9 @@ function listJobs(db, { status, limit, page, pageSize, leadId } = {}) {
   }
   const where = clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '';
   const total = db.prepare(`SELECT COUNT(*) AS c FROM design_jobs${where}`).get(...params).c;
-  const rows = db.prepare(
-    `SELECT * FROM design_jobs${where} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`
-  ).all(...params, paging.pageSize, paging.offset)
+  const rows = db
+    .prepare(`SELECT * FROM design_jobs${where} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`)
+    .all(...params, paging.pageSize, paging.offset)
     .map((row) => publicJob(db, row, { withDeliverable: false }));
   return Object.assign({ jobs: rows }, pageResult(rows, total, paging.page, paging.pageSize));
 }
@@ -718,7 +828,9 @@ function getJob(db, id, { markInProgress = false } = {}) {
     db.prepare(`UPDATE design_jobs SET status = 'in_progress', updated_at = datetime('now') WHERE id = ?`).run(id);
     try {
       require('./designLearning').refreshJobBriefLessons(db, id);
-    } catch { /* learning optional */ }
+    } catch {
+      /* learning optional */
+    }
     logActivity(db, `Design job #${id} picked up by the agent.`);
     return publicJob(db, getRow(db, id));
   }
@@ -731,7 +843,9 @@ function askQuestion(db, jobId, question) {
   if (!text) throw fail('INVALID_ARGS', 'question is required.');
   if (text.length > 2000) throw fail('INVALID_ARGS', 'question must be 2000 characters or fewer.');
   const info = db.prepare('INSERT INTO design_questions (job_id, question) VALUES (?, ?)').run(jobId, text);
-  db.prepare(`UPDATE design_jobs SET status = 'questions_pending', updated_at = datetime('now') WHERE id = ?`).run(jobId);
+  db.prepare(`UPDATE design_jobs SET status = 'questions_pending', updated_at = datetime('now') WHERE id = ?`).run(
+    jobId
+  );
   logActivity(db, `Design job #${jobId} question #${info.lastInsertRowid}: ${text.slice(0, 180)}`);
   return {
     id: Number(info.lastInsertRowid),
@@ -755,7 +869,11 @@ function answerQuestion(db, questionId, answer, fromEmail) {
   if (!text) throw fail('INVALID_ARGS', 'answer is required.');
   if (text.length > 4000) throw fail('INVALID_ARGS', 'answer must be 4000 characters or fewer.');
   const from = cleanEmail(fromEmail);
-  db.prepare(`UPDATE design_questions SET answer = ?, from_email = ?, answered_at = datetime('now') WHERE id = ?`).run(text, from, questionId);
+  db.prepare(`UPDATE design_questions SET answer = ?, from_email = ?, answered_at = datetime('now') WHERE id = ?`).run(
+    text,
+    from,
+    questionId
+  );
   refreshQuestionStatus(db, q.job_id);
   logActivity(db, `Design job #${q.job_id} answer recorded for question #${questionId}.`);
   return publicJob(db, getRow(db, q.job_id));
@@ -770,7 +888,8 @@ function refreshQuestionStatus(db, jobId) {
   else if (pending) status = 'questions_pending';
   db.prepare(`UPDATE design_jobs SET status = ?, updated_at = datetime('now') WHERE id = ?`).run(status, jobId);
   if (prev !== status && status === 'waiting_on_agent') {
-    notifyAgentQueue(db,
+    notifyAgentQueue(
+      db,
       `Design job #${jobId} is waiting_on_agent again (questions answered). MCP agents: design.next or design.pending.`,
       { jobId, reason: 'questions_answered', status: 'waiting_on_agent' }
     );
@@ -778,7 +897,10 @@ function refreshQuestionStatus(db, jobId) {
 }
 
 function cleanEmail(value) {
-  const email = String(value || '').trim().toLowerCase().slice(0, 254);
+  const email = String(value || '')
+    .trim()
+    .toLowerCase()
+    .slice(0, 254);
   if (!email) return null;
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw fail('INVALID_ARGS', 'from email is not a valid address.');
@@ -790,16 +912,16 @@ function settingValue(db, key) {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
     return row && row.value != null ? String(row.value) : '';
-  } catch { return ''; }
+  } catch {
+    return '';
+  }
 }
 
 /** Ensure a named outreach campaign exists and is active (processQueue only sends active). */
 function ensureActiveCampaign(db, name) {
   let campaign = db.prepare('SELECT id, status FROM campaigns WHERE name = ?').get(name);
   if (!campaign) {
-    return Number(db.prepare(
-      "INSERT INTO campaigns (name, status) VALUES (?, 'active')"
-    ).run(name).lastInsertRowid);
+    return Number(db.prepare("INSERT INTO campaigns (name, status) VALUES (?, 'active')").run(name).lastInsertRowid);
   }
   if (campaign.status !== 'active') {
     db.prepare("UPDATE campaigns SET status = 'active' WHERE id = ?").run(campaign.id);
@@ -811,7 +933,9 @@ function readFlatSettings(db) {
   const out = {};
   try {
     for (const row of db.prepare('SELECT key, value FROM settings').all()) out[row.key] = row.value;
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return out;
 }
 
@@ -819,20 +943,18 @@ function readFlatSettings(db) {
  * Queue (optional lead campaign_messages row) then send via workspace SMTP.
  * Design emails previously only queued into draft campaigns, so processQueue never sent them.
  */
-async function queueAndSendDesignMail(db, {
-  campaignName,
-  leadId,
-  to,
-  subject,
-  body,
-}) {
+async function queueAndSendDesignMail(db, { campaignName, leadId, to, subject, body }) {
   let messageId = null;
   if (leadId) {
     const campaignId = ensureActiveCampaign(db, campaignName);
-    messageId = Number(db.prepare(
-      `INSERT INTO campaign_messages (campaign_id, lead_id, to_email, subject, body, status)
+    messageId = Number(
+      db
+        .prepare(
+          `INSERT INTO campaign_messages (campaign_id, lead_id, to_email, subject, body, status)
        VALUES (?, ?, ?, ?, ?, 'queued')`
-    ).run(campaignId, leadId, to, subject, body).lastInsertRowid);
+        )
+        .run(campaignId, leadId, to, subject, body).lastInsertRowid
+    );
   }
 
   const settings = readFlatSettings(db);
@@ -852,32 +974,43 @@ async function queueAndSendDesignMail(db, {
     });
     if (messageId) {
       const sentAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
-      db.prepare(
-        "UPDATE campaign_messages SET status = 'sent', sent_at = ?, error = NULL WHERE id = ?"
-      ).run(sentAt, messageId);
+      db.prepare("UPDATE campaign_messages SET status = 'sent', sent_at = ?, error = NULL WHERE id = ?").run(
+        sentAt,
+        messageId
+      );
       try {
-        db.prepare('INSERT INTO email_events (message_id, type, detail) VALUES (?, ?, ?)')
-          .run(messageId, 'sent', `via ${provider.name}`);
-      } catch { /* optional */ }
+        db.prepare('INSERT INTO email_events (message_id, type, detail) VALUES (?, ?, ?)').run(
+          messageId,
+          'sent',
+          `via ${provider.name}`
+        );
+      } catch {
+        /* optional */
+      }
     }
     return { messageId, sent: true, provider: provider.name };
   } catch (err) {
     if (messageId) {
       const text = String((err && err.message) || err).slice(0, 1000);
-      db.prepare(
-        "UPDATE campaign_messages SET status = 'failed', error = ? WHERE id = ?"
-      ).run(text, messageId);
+      db.prepare("UPDATE campaign_messages SET status = 'failed', error = ? WHERE id = ?").run(text, messageId);
       try {
-        db.prepare('INSERT INTO email_events (message_id, type, detail) VALUES (?, ?, ?)')
-          .run(messageId, 'failed', text.slice(0, 500));
-      } catch { /* optional */ }
+        db.prepare('INSERT INTO email_events (message_id, type, detail) VALUES (?, ?, ?)').run(
+          messageId,
+          'failed',
+          text.slice(0, 500)
+        );
+      } catch {
+        /* optional */
+      }
     }
     throw err;
   }
 }
 
 function cleanPhone(value) {
-  const raw = String(value == null ? '' : value).trim().slice(0, 40);
+  const raw = String(value == null ? '' : value)
+    .trim()
+    .slice(0, 40);
   if (!raw) return '';
   // Keep digits and leading +; reject empty after strip of junk.
   const digits = raw.replace(/[^\d+]/g, '');
@@ -930,23 +1063,23 @@ function setContact(db, jobId, opts = {}) {
   if (row.lead_id) {
     try {
       if (hasEmail && nextEmail) {
-        db.prepare(`UPDATE leads SET email = COALESCE(NULLIF(email, ''), ?), updated_at = datetime('now') WHERE id = ?`)
-          .run(nextEmail, row.lead_id);
+        db.prepare(
+          `UPDATE leads SET email = COALESCE(NULLIF(email, ''), ?), updated_at = datetime('now') WHERE id = ?`
+        ).run(nextEmail, row.lead_id);
       }
       if (hasPhone && nextPhone) {
-        db.prepare(`UPDATE leads SET phone = ?, updated_at = datetime('now') WHERE id = ?`)
-          .run(nextPhone, row.lead_id);
+        db.prepare(`UPDATE leads SET phone = ?, updated_at = datetime('now') WHERE id = ?`).run(nextPhone, row.lead_id);
       }
-    } catch { /* lead sync is best-effort */ }
+    } catch {
+      /* lead sync is best-effort */
+    }
   }
   logActivity(db, `Design job #${jobId} contact updated.`);
   return publicJob(db, getRow(db, jobId));
 }
 
 function setContactEmail(db, jobId, email, phone) {
-  const opts = (email != null && typeof email === 'object' && !Array.isArray(email))
-    ? email
-    : { email, phone };
+  const opts = email != null && typeof email === 'object' && !Array.isArray(email) ? email : { email, phone };
   return setContact(db, jobId, opts);
 }
 
@@ -962,9 +1095,10 @@ function ensureClientFormToken(db, jobId) {
     return String(row.client_form_token);
   }
   const token = crypto.randomBytes(24).toString('base64url');
-  db.prepare(
-    `UPDATE design_jobs SET client_form_token = ?, updated_at = datetime('now') WHERE id = ?`
-  ).run(token, row.id);
+  db.prepare(`UPDATE design_jobs SET client_form_token = ?, updated_at = datetime('now') WHERE id = ?`).run(
+    token,
+    row.id
+  );
   return token;
 }
 
@@ -977,9 +1111,7 @@ function clientFormUrl(workspaceId, token) {
 
 function getJobByFormToken(db, token) {
   ensureTables(db);
-  const row = db.prepare(
-    'SELECT * FROM design_jobs WHERE client_form_token = ? LIMIT 1'
-  ).get(String(token || ''));
+  const row = db.prepare('SELECT * FROM design_jobs WHERE client_form_token = ? LIMIT 1').get(String(token || ''));
   if (!row) throw fail('NOT_FOUND', 'This form link is invalid or expired.');
   const lead = row.lead_id
     ? db.prepare('SELECT id, business_name, category, city FROM leads WHERE id = ?').get(row.lead_id)
@@ -1003,9 +1135,7 @@ function getJobByFormToken(db, token) {
  */
 async function submitClientForm(db, token, body = {}) {
   ensureTables(db);
-  const row = db.prepare(
-    'SELECT * FROM design_jobs WHERE client_form_token = ? LIMIT 1'
-  ).get(String(token || ''));
+  const row = db.prepare('SELECT * FROM design_jobs WHERE client_form_token = ? LIMIT 1').get(String(token || ''));
   if (!row) throw fail('NOT_FOUND', 'This form link is invalid or expired.');
 
   const fromEmail = body.email ? cleanEmail(body.email) : null;
@@ -1015,9 +1145,9 @@ async function submitClientForm(db, token, body = {}) {
     const id = Number(qid);
     const answer = String(text || '').trim();
     if (!Number.isInteger(id) || id <= 0 || !answer) continue;
-    const q = db.prepare(
-      'SELECT id FROM design_questions WHERE id = ? AND job_id = ? AND answer IS NULL'
-    ).get(id, row.id);
+    const q = db
+      .prepare('SELECT id FROM design_questions WHERE id = ? AND job_id = ? AND answer IS NULL')
+      .get(id, row.id);
     if (!q) continue;
     answerQuestion(db, id, answer, fromEmail || undefined);
     answered += 1;
@@ -1027,7 +1157,7 @@ async function submitClientForm(db, token, body = {}) {
   let change = null;
   if (changeText) {
     const kindRaw = String(body.kind || 'improvements').toLowerCase();
-    const kind = (kindRaw === 'redesign') ? 'redesign' : 'improvements';
+    const kind = kindRaw === 'redesign' ? 'redesign' : 'improvements';
     if (row.type === 'website' && row.deliverable) {
       const opts = {
         instructions: changeText.slice(0, 6000),
@@ -1036,9 +1166,7 @@ async function submitClientForm(db, token, body = {}) {
         skipScreenshots: true,
         source: 'client_form',
       };
-      change = kind === 'redesign'
-        ? await redesignJob(db, row.id, opts)
-        : await improveJob(db, row.id, opts);
+      change = kind === 'redesign' ? await redesignJob(db, row.id, opts) : await improveJob(db, row.id, opts);
     } else {
       let changeReview = null;
       try {
@@ -1064,7 +1192,10 @@ async function submitClientForm(db, token, body = {}) {
         '',
         '=== ORIGINAL INSTRUCTIONS (context) ===',
         prior.slice(0, 12000),
-      ].filter((x) => x !== '').join('\n').slice(0, 20000);
+      ]
+        .filter((x) => x !== '')
+        .join('\n')
+        .slice(0, 20000);
       const brief = buildBrief(db, row.lead_id, merged, row.type, row.site_shape || undefined);
       brief.instruction = merged;
       brief.request_kind = kind;
@@ -1084,10 +1215,11 @@ async function submitClientForm(db, token, body = {}) {
              updated_at = datetime('now')
          WHERE id = ?`
       ).run(merged, JSON.stringify(brief), kind, row.id);
-      notifyAgentQueue(db,
-        `Design job #${row.id} is waiting_on_agent (client form ${kind}).`,
-        { jobId: row.id, reason: kind, status: 'waiting_on_agent' }
-      );
+      notifyAgentQueue(db, `Design job #${row.id} is waiting_on_agent (client form ${kind}).`, {
+        jobId: row.id,
+        reason: kind,
+        status: 'waiting_on_agent',
+      });
       change = publicJob(db, getRow(db, row.id));
     }
     logActivity(db, `Design job #${row.id} client form ${kind} (${changeText.length} chars).`);
@@ -1105,9 +1237,7 @@ async function submitClientForm(db, token, body = {}) {
   };
   if (change && change.brief && change.brief.change_request_review) {
     out.change_request_review = change.brief.change_request_review;
-    out.clientMessage = change.brief.client_facing_message
-      || change.brief.change_request_review.clientMessage
-      || null;
+    out.clientMessage = change.brief.client_facing_message || change.brief.change_request_review.clientMessage || null;
     out.classification = change.brief.change_request_review.classification;
   }
   return out;
@@ -1133,23 +1263,22 @@ function replyTag(db, row) {
 function composeQuestionEmail(db, row, pending, { formUrl } = {}) {
   const lead = row.lead_id ? db.prepare('SELECT business_name, email FROM leads WHERE id = ?').get(row.lead_id) : null;
   const business = (lead && lead.business_name) || row.title;
-  const to = String(row.contact_email || (lead && lead.email) || '').trim().toLowerCase();
+  const to = String(row.contact_email || (lead && lead.email) || '')
+    .trim()
+    .toLowerCase();
   const tag = replyTag(db, row);
   const subject = `${tag} Questions: ${row.title}`.slice(0, 200);
   const lines = pending.map((q, i) => `${i + 1}. ${q.question}`).join('\n');
   const footer = settingValue(db, 'mail.footer');
   const formLines = formUrl
     ? [
-      '',
-      'Easiest: answer on this secure form (no login):',
-      formUrl,
-      '',
-      'Or reply to this email and keep the subject line.',
-    ]
-    : [
-      '',
-      'Please reply to this email and keep the subject line so we can match your answers to this project.',
-    ];
+        '',
+        'Easiest: answer on this secure form (no login):',
+        formUrl,
+        '',
+        'Or reply to this email and keep the subject line.',
+      ]
+    : ['', 'Please reply to this email and keep the subject line so we can match your answers to this project.'];
   const body = [
     `${tag} — ${row.title}`,
     `Business: ${business}`,
@@ -1181,12 +1310,17 @@ async function emailQuestions(db, jobId, { workspaceId } = {}) {
   }
   const suppressed = db.prepare('SELECT reason FROM suppression_list WHERE lower(email) = lower(?)').get(draft.to);
   if (suppressed) {
-    throw fail('SUPPRESSED', `This address is on the suppression list (${suppressed.reason}). Questions were not emailed.`);
+    throw fail(
+      'SUPPRESSED',
+      `This address is on the suppression list (${suppressed.reason}). Questions were not emailed.`
+    );
   }
   const cap = parseInt(settingValue(db, 'cost.max_outreach_per_day'), 10) || 200;
-  const sentToday = db.prepare(
-    `SELECT COUNT(*) AS c FROM campaign_messages WHERE status = 'sent' AND date(sent_at) = date('now', 'localtime')`
-  ).get().c;
+  const sentToday = db
+    .prepare(
+      `SELECT COUNT(*) AS c FROM campaign_messages WHERE status = 'sent' AND date(sent_at) = date('now', 'localtime')`
+    )
+    .get().c;
   if (sentToday >= cap) {
     throw fail('CAP_REACHED', `Daily outreach cap reached (${cap}). Questions were not emailed.`);
   }
@@ -1219,12 +1353,19 @@ async function emailQuestions(db, jobId, { workspaceId } = {}) {
     throw fail('SEND_FAILED', `Could not send questions email: ${err.message || err}`);
   }
 
-  const info = db.prepare(
-    `INSERT INTO design_question_emails (job_id, to_email, subject, body, status, message_id)
+  const info = db
+    .prepare(
+      `INSERT INTO design_question_emails (job_id, to_email, subject, body, status, message_id)
      VALUES (?, ?, ?, ?, 'sent', ?)`
-  ).run(row.id, draft.to, draft.subject, draft.body, sendResult.messageId);
-  db.prepare(`UPDATE design_jobs SET questions_emailed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(row.id);
-  logActivity(db, `Design job #${row.id} questions emailed to ${draft.to} (${pending.length} question(s), via ${sendResult.provider}).`);
+    )
+    .run(row.id, draft.to, draft.subject, draft.body, sendResult.messageId);
+  db.prepare(
+    `UPDATE design_jobs SET questions_emailed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
+  ).run(row.id);
+  logActivity(
+    db,
+    `Design job #${row.id} questions emailed to ${draft.to} (${pending.length} question(s), via ${sendResult.provider}).`
+  );
   return {
     queued: !!sendResult.messageId,
     sent: true,
@@ -1240,12 +1381,21 @@ async function emailQuestions(db, jobId, { workspaceId } = {}) {
 }
 
 const DELIVERY_ITEM_KEYS = [
-  'days', 'posts', 'items', 'variants', 'cards', 'assets', 'slogans',
-  'options', 'creatives', 'captions', 'concepts', 'slides', 'entries',
+  'days',
+  'posts',
+  'items',
+  'variants',
+  'cards',
+  'assets',
+  'slogans',
+  'options',
+  'creatives',
+  'captions',
+  'concepts',
+  'slides',
+  'entries',
 ];
-const DELIVERY_TEXT_KEYS = [
-  'caption', 'copy', 'text', 'body', 'description', 'content', 'post', 'script', 'message',
-];
+const DELIVERY_TEXT_KEYS = ['caption', 'copy', 'text', 'body', 'description', 'content', 'post', 'script', 'message'];
 const DELIVERY_TITLE_KEYS = ['headline', 'title', 'theme', 'name', 'label', 'day', 'platform', 'kind'];
 
 function pickStr(obj, keys) {
@@ -1262,8 +1412,8 @@ function formatDeliveryItemBlock(item, index, groupKey) {
     return [`${groupKey ? `${groupKey} ` : ''}#${index + 1}`, item.trim(), ''].join('\n');
   }
   if (!item || typeof item !== 'object') return '';
-  const title = pickStr(item, DELIVERY_TITLE_KEYS)
-    || (item.day != null ? `Day ${item.day}` : `${groupKey || 'Item'} ${index + 1}`);
+  const title =
+    pickStr(item, DELIVERY_TITLE_KEYS) || (item.day != null ? `Day ${item.day}` : `${groupKey || 'Item'} ${index + 1}`);
   const lines = [];
   lines.push(`── ${title} ──`);
   if (Array.isArray(item.platform_fit) && item.platform_fit.length) {
@@ -1289,8 +1439,16 @@ function formatDeliveryItemBlock(item, index, groupKey) {
   if (item.image_suggestion) lines.push(`Image idea: ${String(item.image_suggestion).trim()}`);
   // Extra short string fields
   const skip = new Set([
-    ...DELIVERY_TEXT_KEYS, ...DELIVERY_TITLE_KEYS,
-    'hashtags', 'cta', 'call_to_action', 'image_suggestion', 'platform_fit', 'claims', 'id', 'day',
+    ...DELIVERY_TEXT_KEYS,
+    ...DELIVERY_TITLE_KEYS,
+    'hashtags',
+    'cta',
+    'call_to_action',
+    'image_suggestion',
+    'platform_fit',
+    'claims',
+    'id',
+    'day',
   ]);
   for (const [k, v] of Object.entries(item)) {
     if (skip.has(k) || v == null) continue;
@@ -1308,12 +1466,8 @@ function formatDeliveryItemBlock(item, index, groupKey) {
  * Clean plain-text email body for non-website deliveries (cards → email).
  */
 function formatDeliveryEmailBody(db, row, payload, { formUrl } = {}) {
-  const lead = row.lead_id
-    ? db.prepare('SELECT business_name, email FROM leads WHERE id = ?').get(row.lead_id)
-    : null;
-  const business = (lead && lead.business_name)
-    || (payload && payload.business)
-    || row.title;
+  const lead = row.lead_id ? db.prepare('SELECT business_name, email FROM leads WHERE id = ?').get(row.lead_id) : null;
+  const business = (lead && lead.business_name) || (payload && payload.business) || row.title;
   const footer = settingValue(db, 'mail.footer');
   const sections = [];
   sections.push(`${replyTag(db, row)} — ${row.title}`);
@@ -1349,7 +1503,9 @@ function formatDeliveryEmailBody(db, row, payload, { formUrl } = {}) {
         sections.push(`Notes:\n${v.trim()}`, '');
       } else if (Array.isArray(v) && v.length) {
         sections.push('Notes:');
-        v.forEach((line) => { if (String(line || '').trim()) sections.push(`• ${String(line).trim()}`); });
+        v.forEach((line) => {
+          if (String(line || '').trim()) sections.push(`• ${String(line).trim()}`);
+        });
         sections.push('');
       }
     }
@@ -1411,18 +1567,24 @@ function formatDeliveryEmailBody(db, row, payload, { formUrl } = {}) {
   }
 
   sections.push('—');
-  sections.push(formUrl
-    ? 'Sent from Bitpype. Use the form link above for changes.'
-    : 'Sent from Bitpype. Reply if you want changes.');
+  sections.push(
+    formUrl
+      ? 'Sent from Bitpype. Use the form link above for changes.'
+      : 'Sent from Bitpype. Reply if you want changes.'
+  );
   if (footer) sections.push(footer);
-  return sections.join('\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, 50000);
+  return sections
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, 50000);
 }
 
 function composeDeliveryEmail(db, row, payload, { formUrl } = {}) {
-  const lead = row.lead_id
-    ? db.prepare('SELECT business_name, email FROM leads WHERE id = ?').get(row.lead_id)
-    : null;
-  const to = String(row.contact_email || (lead && lead.email) || '').trim().toLowerCase();
+  const lead = row.lead_id ? db.prepare('SELECT business_name, email FROM leads WHERE id = ?').get(row.lead_id) : null;
+  const to = String(row.contact_email || (lead && lead.email) || '')
+    .trim()
+    .toLowerCase();
   const kindLabel = String(row.type || 'delivery').replace(/[-_]/g, ' ');
   const tag = replyTag(db, row);
   const subject = `${tag} ${kindLabel} ready: ${row.title}`.slice(0, 200);
@@ -1438,7 +1600,10 @@ async function emailDelivery(db, jobId, { workspaceId } = {}) {
   ensureTables(db);
   const row = getRow(db, jobId);
   if (row.type === 'website') {
-    throw fail('WEBSITE_JOB', 'Use Open in browser / export for websites. Email delivery is for non-website jobs (social, logo, flyer, brand, …).');
+    throw fail(
+      'WEBSITE_JOB',
+      'Use Open in browser / export for websites. Email delivery is for non-website jobs (social, logo, flyer, brand, …).'
+    );
   }
   const payload = parseJson(row.deliverable, null);
   if (!payload || typeof payload !== 'object') {
@@ -1456,12 +1621,17 @@ async function emailDelivery(db, jobId, { workspaceId } = {}) {
   }
   const suppressed = db.prepare('SELECT reason FROM suppression_list WHERE lower(email) = lower(?)').get(draft.to);
   if (suppressed) {
-    throw fail('SUPPRESSED', `This address is on the suppression list (${suppressed.reason}). Delivery was not emailed.`);
+    throw fail(
+      'SUPPRESSED',
+      `This address is on the suppression list (${suppressed.reason}). Delivery was not emailed.`
+    );
   }
   const cap = parseInt(settingValue(db, 'cost.max_outreach_per_day'), 10) || 200;
-  const sentToday = db.prepare(
-    `SELECT COUNT(*) AS c FROM campaign_messages WHERE status = 'sent' AND date(sent_at) = date('now', 'localtime')`
-  ).get().c;
+  const sentToday = db
+    .prepare(
+      `SELECT COUNT(*) AS c FROM campaign_messages WHERE status = 'sent' AND date(sent_at) = date('now', 'localtime')`
+    )
+    .get().c;
   if (sentToday >= cap) {
     throw fail('CAP_REACHED', `Daily outreach cap reached (${cap}). Delivery was not emailed.`);
   }
@@ -1493,10 +1663,12 @@ async function emailDelivery(db, jobId, { workspaceId } = {}) {
     throw fail('SEND_FAILED', `Could not send delivery email: ${err.message || err}`);
   }
 
-  const info = db.prepare(
-    `INSERT INTO design_delivery_emails (job_id, to_email, subject, body, status, message_id)
+  const info = db
+    .prepare(
+      `INSERT INTO design_delivery_emails (job_id, to_email, subject, body, status, message_id)
      VALUES (?, ?, ?, ?, 'sent', ?)`
-  ).run(row.id, draft.to, draft.subject, draft.body, sendResult.messageId);
+    )
+    .run(row.id, draft.to, draft.subject, draft.body, sendResult.messageId);
   db.prepare(
     `UPDATE design_jobs SET delivery_emailed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
   ).run(row.id);
@@ -1601,7 +1773,9 @@ function verifiedValueSet(db, leadId) {
   const facts = engine.collectFacts(db, lead);
   for (const [, fact] of facts.ok) {
     if (fact.claim_class === 'VERIFIED' || fact.claim_class === 'OWNER_PROVIDED') {
-      const v = String(fact.value || '').trim().toLowerCase();
+      const v = String(fact.value || '')
+        .trim()
+        .toLowerCase();
       if (v) set.add(v);
     }
   }
@@ -1611,7 +1785,9 @@ function verifiedValueSet(db, leadId) {
 function classify(agentClass, value, verified) {
   const chosen = CLAIM_CLASSES.has(agentClass) ? agentClass : 'AI_COPY';
   if (chosen !== 'VERIFIED') return chosen;
-  const v = String(value || '').trim().toLowerCase();
+  const v = String(value || '')
+    .trim()
+    .toLowerCase();
   if (v && verified.has(v)) return 'VERIFIED';
   return 'AI_COPY';
 }
@@ -1664,14 +1840,15 @@ function validateWebsitePayload(payload, previousPages = [], previousTheme = {})
   payload.pages.forEach((page, i) => {
     if (!page || typeof page !== 'object') throw fail('INVALID_ARGS', `pages[${i}] must be an object.`);
     if (typeof page.slug !== 'string' || !page.slug.trim()) throw fail('INVALID_ARGS', `pages[${i}].slug is required.`);
-    if (typeof page.title !== 'string' || !page.title.trim()) throw fail('INVALID_ARGS', `pages[${i}].title is required.`);
+    if (typeof page.title !== 'string' || !page.title.trim())
+      throw fail('INVALID_ARGS', `pages[${i}].title is required.`);
     const hasHtml = typeof page.html === 'string' && page.html.trim();
     const hasSections = Array.isArray(page.sections) && page.sections.length > 0;
     if (!hasSections) {
       throw fail(
         'INVALID_ARGS',
-        `pages[${i}] must use modular sections (nav/hero/columns/text/text_image/cards/…). `
-          + 'Freeform page.html is no longer accepted as the page body — put HTML fragments in an html section.'
+        `pages[${i}] must use modular sections (nav/hero/columns/text/text_image/cards/…). ` +
+          'Freeform page.html is no longer accepted as the page body — put HTML fragments in an html section.'
       );
     }
     if (hasHtml) {
@@ -1681,12 +1858,15 @@ function validateWebsitePayload(payload, previousPages = [], previousTheme = {})
     try {
       const structure = require('./siteStructure');
       page.sections = structure.ensureNavFirstSections(page.sections);
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
     if (!page.sections[0] || String(page.sections[0].type || '').toLowerCase() !== 'nav') {
       throw fail('INVALID_ARGS', `pages[${i}].sections[0] must be type "nav" (nav always first at the top).`);
     }
     page.sections.forEach((section, j) => {
-      if (!section || typeof section !== 'object') throw fail('INVALID_ARGS', `pages[${i}].sections[${j}] must be an object.`);
+      if (!section || typeof section !== 'object')
+        throw fail('INVALID_ARGS', `pages[${i}].sections[${j}] must be an object.`);
       if (typeof section.type !== 'string' || !section.type.trim()) {
         throw fail('INVALID_ARGS', `pages[${i}].sections[${j}].type is required.`);
       }
@@ -1734,12 +1914,9 @@ function liberateTheme(theme, pages) {
 
 /** Prefer the richer customCss/customJs when two theme objects diverge. */
 function mergeThemePreferCss(baseTheme, richerTheme) {
-  const base = baseTheme && typeof baseTheme === 'object' && !Array.isArray(baseTheme)
-    ? Object.assign({}, baseTheme)
-    : {};
-  const rich = richerTheme && typeof richerTheme === 'object' && !Array.isArray(richerTheme)
-    ? richerTheme
-    : null;
+  const base =
+    baseTheme && typeof baseTheme === 'object' && !Array.isArray(baseTheme) ? Object.assign({}, baseTheme) : {};
+  const rich = richerTheme && typeof richerTheme === 'object' && !Array.isArray(richerTheme) ? richerTheme : null;
   if (!rich) return base;
   const baseCss = typeof base.customCss === 'string' ? base.customCss.trim() : '';
   const richCss = typeof rich.customCss === 'string' ? rich.customCss.trim() : '';
@@ -1754,8 +1931,11 @@ function mergeThemePreferCss(baseTheme, richerTheme) {
   if (!(typeof base.font === 'string' && base.font.trim()) && typeof rich.font === 'string' && rich.font.trim()) {
     base.font = rich.font;
   }
-  if (!(typeof base.headingFont === 'string' && base.headingFont.trim())
-    && typeof rich.headingFont === 'string' && rich.headingFont.trim()) {
+  if (
+    !(typeof base.headingFont === 'string' && base.headingFont.trim()) &&
+    typeof rich.headingFont === 'string' &&
+    rich.headingFont.trim()
+  ) {
     base.headingFont = rich.headingFont;
   }
   return base;
@@ -1778,15 +1958,25 @@ function upsertWebsite(db, job, payload) {
     ).run(name, job.type, theme, pages, existing.id);
     websiteId = existing.id;
   } else {
-    const info = db.prepare(
-      `INSERT INTO websites (lead_id, name, industry, theme, pages, status, origin)
+    const info = db
+      .prepare(
+        `INSERT INTO websites (lead_id, name, industry, theme, pages, status, origin)
        VALUES (?, ?, ?, ?, ?, 'draft', 'agent')`
-    ).run(lead.id, name, lead.category || job.type, theme, pages);
+      )
+      .run(lead.id, name, lead.category || job.type, theme, pages);
     websiteId = Number(info.lastInsertRowid);
   }
-  const versionNo = Number(db.prepare('SELECT COALESCE(MAX(version_no), 0) AS m FROM website_versions WHERE website_id = ?').get(websiteId).m) + 1;
-  db.prepare('INSERT INTO website_versions (website_id, version_no, pages, theme, note) VALUES (?, ?, ?, ?, ?)')
-    .run(websiteId, versionNo, pages, theme, 'Agent delivery');
+  const versionNo =
+    Number(
+      db.prepare('SELECT COALESCE(MAX(version_no), 0) AS m FROM website_versions WHERE website_id = ?').get(websiteId).m
+    ) + 1;
+  db.prepare('INSERT INTO website_versions (website_id, version_no, pages, theme, note) VALUES (?, ?, ?, ?, ?)').run(
+    websiteId,
+    versionNo,
+    pages,
+    theme,
+    'Agent delivery'
+  );
   return websiteId;
 }
 
@@ -1826,8 +2016,10 @@ async function deliverJob(db, jobId, payload, agentClaims, opts = {}) {
   if (row.type === 'website' && row.lead_id) {
     websiteId = upsertWebsite(db, row, payload);
     if (websiteId) {
-      db.prepare('INSERT OR REPLACE INTO claim_manifest (website_id, manifest) VALUES (?, ?)')
-        .run(websiteId, JSON.stringify(claims));
+      db.prepare('INSERT OR REPLACE INTO claim_manifest (website_id, manifest) VALUES (?, ?)').run(
+        websiteId,
+        JSON.stringify(claims)
+      );
     }
   }
   if (siteShape) {
@@ -1860,7 +2052,9 @@ async function deliverJob(db, jobId, payload, agentClaims, opts = {}) {
       siteShape: siteShape || row.site_shape || null,
       pageCount: row.type === 'website' && payload.pages ? payload.pages.length : null,
     });
-  } catch { /* learning optional */ }
+  } catch {
+    /* learning optional */
+  }
 
   // Whole-site verification after change-request deliveries (and always for website).
   let changeVerification = null;
@@ -1885,9 +2079,10 @@ async function deliverJob(db, jobId, payload, agentClaims, opts = {}) {
           changeVerification.summary,
         ];
       }
-      db.prepare(
-        `UPDATE design_jobs SET brief = ?, updated_at = datetime('now') WHERE id = ?`
-      ).run(JSON.stringify(brief), jobId);
+      db.prepare(`UPDATE design_jobs SET brief = ?, updated_at = datetime('now') WHERE id = ?`).run(
+        JSON.stringify(brief),
+        jobId
+      );
     } catch (e) {
       console.warn('[designJobs] change verification failed:', e && e.message);
     }
@@ -1902,11 +2097,11 @@ async function deliverJob(db, jobId, payload, agentClaims, opts = {}) {
       job.brief && job.brief.change_request_review
         ? `Classification: ${job.brief.change_request_review.classification}`
         : null,
-      job.brief && job.brief.client_facing_message
-        ? `Client: ${job.brief.client_facing_message}`
-        : null,
+      job.brief && job.brief.client_facing_message ? `Client: ${job.brief.client_facing_message}` : null,
       changeVerification.summary,
-    ].filter(Boolean).join('\n');
+    ]
+      .filter(Boolean)
+      .join('\n');
   }
   return job;
 }
@@ -1915,7 +2110,8 @@ function saveWebsiteEdit(db, jobId, pages, theme) {
   const row = getRow(db, jobId);
   if (row.type !== 'website') throw fail('NOT_A_WEBSITE', 'Block edits apply to website deliveries.');
   const payload = parseJson(row.deliverable, null);
-  if (!payload || !Array.isArray(payload.pages)) throw fail('NO_DELIVERY', 'The agent has not delivered a website yet.');
+  if (!payload || !Array.isArray(payload.pages))
+    throw fail('NO_DELIVERY', 'The agent has not delivered a website yet.');
   let nextPages = pages;
   let pageWarnings = [];
   if (row.lead_id && Array.isArray(pages)) {
@@ -1929,8 +2125,9 @@ function saveWebsiteEdit(db, jobId, pages, theme) {
     }
   }
   validateWebsitePayload({ pages: nextPages, theme: theme || payload.theme }, payload.pages, payload.theme);
-  const freeform = (nextPages || []).some((p) => typeof p.html === 'string' && p.html.trim())
-    || (payload.pages || []).some((p) => typeof p.html === 'string' && p.html.trim());
+  const freeform =
+    (nextPages || []).some((p) => typeof p.html === 'string' && p.html.trim()) ||
+    (payload.pages || []).some((p) => typeof p.html === 'string' && p.html.trim());
   // Freeform agent HTML is not forced through locked template fields.
   payload.pages = freeform ? nextPages : keepLocked(payload.pages, nextPages);
   if (theme && typeof theme === 'object' && !Array.isArray(theme)) {
@@ -1949,7 +2146,9 @@ function saveWebsiteEdit(db, jobId, pages, theme) {
         const site = engine.getWebsite(db, Number(row.website_id));
         const siteTheme = parseJson(site.theme, null);
         if (siteTheme) Object.assign(merged, mergeThemePreferCss(merged, siteTheme));
-      } catch { /* optional */ }
+      } catch {
+        /* optional */
+      }
     }
     payload.theme = liberateTheme(merged, payload.pages);
   }
@@ -1958,11 +2157,22 @@ function saveWebsiteEdit(db, jobId, pages, theme) {
   if (row.website_id) {
     const themeJson = JSON.stringify(payload.theme || {});
     const pagesJson = JSON.stringify(payload.pages);
-    db.prepare(`UPDATE websites SET pages = ?, theme = ?, origin = 'agent', updated_at = datetime('now') WHERE id = ?`)
-      .run(pagesJson, themeJson, row.website_id);
-    const versionNo = Number(db.prepare('SELECT COALESCE(MAX(version_no), 0) AS m FROM website_versions WHERE website_id = ?').get(row.website_id).m) + 1;
-    db.prepare('INSERT INTO website_versions (website_id, version_no, pages, theme, note) VALUES (?, ?, ?, ?, ?)')
-      .run(row.website_id, versionNo, pagesJson, themeJson, 'Block edit');
+    db.prepare(
+      `UPDATE websites SET pages = ?, theme = ?, origin = 'agent', updated_at = datetime('now') WHERE id = ?`
+    ).run(pagesJson, themeJson, row.website_id);
+    const versionNo =
+      Number(
+        db
+          .prepare('SELECT COALESCE(MAX(version_no), 0) AS m FROM website_versions WHERE website_id = ?')
+          .get(row.website_id).m
+      ) + 1;
+    db.prepare('INSERT INTO website_versions (website_id, version_no, pages, theme, note) VALUES (?, ?, ?, ?, ?)').run(
+      row.website_id,
+      versionNo,
+      pagesJson,
+      themeJson,
+      'Block edit'
+    );
   }
   logActivity(db, `Design job #${jobId} website blocks saved.`);
   const job = publicJob(db, getRow(db, jobId));
@@ -1970,7 +2180,17 @@ function saveWebsiteEdit(db, jobId, pages, theme) {
   return job;
 }
 
-const LOCKED_KEYS = ['phone', 'phone_display', 'email', 'address', 'address_lines', 'hours', 'rating', 'review_count', 'business_name'];
+const LOCKED_KEYS = [
+  'phone',
+  'phone_display',
+  'email',
+  'address',
+  'address_lines',
+  'hours',
+  'rating',
+  'review_count',
+  'business_name',
+];
 
 function keepLocked(prevPages, nextPages) {
   const next = JSON.parse(JSON.stringify(nextPages));
@@ -2019,35 +2239,56 @@ async function addImages(db, jobId, opts = {}) {
   const imgDir = path.join(openPreview.exportRoot(), `design-${jobId}`, 'images');
   const localPhotos = await pexels.localizePhotos(photos, imgDir, { prefix: 'pexels' });
   if (!localPhotos.length) throw fail('PEXELS_DOWNLOAD', 'Could not store Pexels photos in app storage.');
-  const freeformOnly = payload.pages.length && payload.pages.every((p) =>
-    typeof p.html === 'string' && p.html.trim() && !(Array.isArray(p.sections) && p.sections.length));
+  const freeformOnly =
+    payload.pages.length &&
+    payload.pages.every(
+      (p) => typeof p.html === 'string' && p.html.trim() && !(Array.isArray(p.sections) && p.sections.length)
+    );
   if (freeformOnly) {
     payload.pages = injectRelativeImagesIntoFreeform(payload.pages, localPhotos);
   } else {
     payload.pages = engine.applyImagesToPages(payload.pages, localPhotos, { heroImage: true });
   }
   if (!Array.isArray(payload.images)) payload.images = [];
-  payload.images.push(...localPhotos.map((p) => ({
-    alt: p.alt,
-    source: 'pexels',
-    path: p.path,
-    url: p.url,
-    name: p.name,
-    photographer: p.photographer,
-    photographer_url: p.photographer_url,
-    pexels_url: p.pexels_url,
-  })));
+  payload.images.push(
+    ...localPhotos.map((p) => ({
+      alt: p.alt,
+      source: 'pexels',
+      path: p.path,
+      url: p.url,
+      name: p.name,
+      photographer: p.photographer,
+      photographer_url: p.photographer_url,
+      pexels_url: p.pexels_url,
+    }))
+  );
   const encoded = JSON.stringify(payload);
   db.prepare(`UPDATE design_jobs SET deliverable = ?, updated_at = datetime('now') WHERE id = ?`).run(encoded, jobId);
   if (row.website_id) {
     const pagesJson = JSON.stringify(payload.pages);
     const themeJson = JSON.stringify(payload.theme || {});
-    db.prepare(`UPDATE websites SET pages = ?, origin = 'agent', updated_at = datetime('now') WHERE id = ?`).run(pagesJson, row.website_id);
-    const versionNo = Number(db.prepare('SELECT COALESCE(MAX(version_no), 0) AS m FROM website_versions WHERE website_id = ?').get(row.website_id).m) + 1;
-    db.prepare('INSERT INTO website_versions (website_id, version_no, pages, theme, note) VALUES (?, ?, ?, ?, ?)')
-      .run(row.website_id, versionNo, pagesJson, themeJson, `Pexels photos for "${query}"`);
+    db.prepare(`UPDATE websites SET pages = ?, origin = 'agent', updated_at = datetime('now') WHERE id = ?`).run(
+      pagesJson,
+      row.website_id
+    );
+    const versionNo =
+      Number(
+        db
+          .prepare('SELECT COALESCE(MAX(version_no), 0) AS m FROM website_versions WHERE website_id = ?')
+          .get(row.website_id).m
+      ) + 1;
+    db.prepare('INSERT INTO website_versions (website_id, version_no, pages, theme, note) VALUES (?, ?, ?, ?, ?)').run(
+      row.website_id,
+      versionNo,
+      pagesJson,
+      themeJson,
+      `Pexels photos for "${query}"`
+    );
   }
-  logActivity(db, `Design job #${jobId} attached ${localPhotos.length} Pexels photo(s) for "${query}" (stored locally).`);
+  logActivity(
+    db,
+    `Design job #${jobId} attached ${localPhotos.length} Pexels photo(s) for "${query}" (stored locally).`
+  );
   return { id: jobId, count: localPhotos.length, query, stored: true };
 }
 
@@ -2083,7 +2324,7 @@ function stageImagesForJob(jobId, resultImages, prompt, model) {
   const assets = [];
   for (let i = 0; i < resultImages.length; i++) {
     const img = resultImages[i];
-    const ext = (img.mime || '').includes('jpeg') ? 'jpg' : ((img.mime || '').includes('webp') ? 'webp' : 'png');
+    const ext = (img.mime || '').includes('jpeg') ? 'jpg' : (img.mime || '').includes('webp') ? 'webp' : 'png';
     const name = `openai-${Date.now()}-${i + 1}.${ext}`;
     const dest = path.join(imgDir, name);
     fs.copyFileSync(img.path, dest);
@@ -2174,7 +2415,9 @@ async function generateJobImages(db, jobId, opts = {}) {
     const previewServer = require('./previewServer');
     const served = await previewServer.urlForExportFolder(staged.folder);
     previewBase = served.url.replace(/\/+$/, '');
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
 
   if (row.type === 'website' && Array.isArray(payload.pages)) {
     const photos = assets.map((a) => ({
@@ -2184,21 +2427,26 @@ async function generateJobImages(db, jobId, opts = {}) {
       photographer_url: '',
       pexels_url: '',
     }));
-    const freeformOnly = payload.pages.length && payload.pages.every((p) =>
-      typeof p.html === 'string' && p.html.trim() && !(Array.isArray(p.sections) && p.sections.length));
+    const freeformOnly =
+      payload.pages.length &&
+      payload.pages.every(
+        (p) => typeof p.html === 'string' && p.html.trim() && !(Array.isArray(p.sections) && p.sections.length)
+      );
     if (freeformOnly) {
       payload.pages = injectRelativeImagesIntoFreeform(payload.pages, photos);
     } else {
       payload.pages = engine.applyImagesToPages(payload.pages, photos, { heroImage: true });
     }
     if (!Array.isArray(payload.images)) payload.images = [];
-    payload.images.push(...assets.map((a) => ({
-      alt: a.alt,
-      source: 'openai',
-      path: a.path,
-      url: a.url,
-      model: result.model,
-    })));
+    payload.images.push(
+      ...assets.map((a) => ({
+        alt: a.alt,
+        source: 'openai',
+        path: a.path,
+        url: a.url,
+        model: result.model,
+      }))
+    );
   } else {
     // images[] is always a list. files may be an array OR a name→svg map from logo agents — never clobber a map.
     if (!Array.isArray(payload.images)) payload.images = [];
@@ -2206,7 +2454,7 @@ async function generateJobImages(db, jobId, opts = {}) {
       name: a.name,
       path: a.path,
       url: a.url,
-      format: a.name.endsWith('.jpg') ? 'jpeg' : (a.name.endsWith('.webp') ? 'webp' : 'png'),
+      format: a.name.endsWith('.jpg') ? 'jpeg' : a.name.endsWith('.webp') ? 'webp' : 'png',
       source: 'openai',
       model: result.model,
     }));
@@ -2233,17 +2481,18 @@ async function generateJobImages(db, jobId, opts = {}) {
   if (encoded.length > 2000000) {
     throw fail('INVALID_ARGS', 'Deliverable grew too large after attaching generated images.');
   }
-  db.prepare(
-    `UPDATE design_jobs SET deliverable = ?, updated_at = datetime('now') WHERE id = ?`
-  ).run(encoded, jobId);
+  db.prepare(`UPDATE design_jobs SET deliverable = ?, updated_at = datetime('now') WHERE id = ?`).run(encoded, jobId);
 
   if (row.type === 'website' && row.website_id) {
     try {
       const pagesJson = JSON.stringify(payload.pages);
-      db.prepare(
-        `UPDATE websites SET pages = ?, origin = 'agent', updated_at = datetime('now') WHERE id = ?`
-      ).run(pagesJson, row.website_id);
-    } catch { /* optional */ }
+      db.prepare(`UPDATE websites SET pages = ?, origin = 'agent', updated_at = datetime('now') WHERE id = ?`).run(
+        pagesJson,
+        row.website_id
+      );
+    } catch {
+      /* optional */
+    }
   }
 
   logActivity(db, `Design job #${jobId} generated ${assets.length} OpenAI image(s) (${result.model}).`);
@@ -2267,9 +2516,11 @@ function defaultLogoPrompt(db, row) {
   const business = (lead && lead.business_name) || row.title || 'local business';
   const category = (lead && lead.category) || 'business';
   const place = [lead && lead.city, lead && lead.state].filter(Boolean).join(', ');
-  return `Professional logo mark for ${business} (${category}${place ? `, ${place}` : ''}). `
-    + 'Flat vector-friendly icon or wordmark, high contrast, centered composition, '
-    + 'transparent background, no mockups, no fake small text, no photorealistic scene.';
+  return (
+    `Professional logo mark for ${business} (${category}${place ? `, ${place}` : ''}). ` +
+    'Flat vector-friendly icon or wordmark, high contrast, centered composition, ' +
+    'transparent background, no mockups, no fake small text, no photorealistic scene.'
+  );
 }
 
 /**
@@ -2322,17 +2573,30 @@ async function generateJobLogo(db, jobId, opts = {}) {
   });
   if (Array.isArray(payload.files)) {
     payload.files.push({
-      name: logoName, path: logoDest, url: logoRel, format: 'png', source: 'openai-logo', role: 'logo',
+      name: logoName,
+      path: logoDest,
+      url: logoRel,
+      format: 'png',
+      source: 'openai-logo',
+      role: 'logo',
     });
   } else if (!payload.files) {
-    payload.files = [{
-      name: logoName, path: logoDest, url: logoRel, format: 'png', source: 'openai-logo', role: 'logo',
-    }];
+    payload.files = [
+      {
+        name: logoName,
+        path: logoDest,
+        url: logoRel,
+        format: 'png',
+        source: 'openai-logo',
+        role: 'logo',
+      },
+    ];
   }
 
-  db.prepare(
-    `UPDATE design_jobs SET deliverable = ?, updated_at = datetime('now') WHERE id = ?`
-  ).run(JSON.stringify(payload), jobId);
+  db.prepare(`UPDATE design_jobs SET deliverable = ?, updated_at = datetime('now') WHERE id = ?`).run(
+    JSON.stringify(payload),
+    jobId
+  );
 
   let websiteId = row.website_id || null;
   if (!websiteId && row.lead_id) {
@@ -2444,7 +2708,11 @@ function deleteJob(db, id) {
   const row = getRow(db, jobId);
   const title = row.title;
   const tx = db.transaction(() => {
-    try { db.prepare('DELETE FROM design_delivery_emails WHERE job_id = ?').run(jobId); } catch { /* table may be new */ }
+    try {
+      db.prepare('DELETE FROM design_delivery_emails WHERE job_id = ?').run(jobId);
+    } catch {
+      /* table may be new */
+    }
     db.prepare('DELETE FROM design_question_emails WHERE job_id = ?').run(jobId);
     db.prepare('DELETE FROM design_questions WHERE job_id = ?').run(jobId);
     db.prepare('DELETE FROM design_jobs WHERE id = ?').run(jobId);
@@ -2492,9 +2760,7 @@ function removeDeliveryItem(db, jobId, path) {
 
   const encoded = JSON.stringify(payload);
   if (encoded.length > 5000000) throw fail('INVALID_ARGS', 'payload is too large.');
-  db.prepare(
-    `UPDATE design_jobs SET deliverable = ?, updated_at = datetime('now') WHERE id = ?`
-  ).run(encoded, jobId);
+  db.prepare(`UPDATE design_jobs SET deliverable = ?, updated_at = datetime('now') WHERE id = ?`).run(encoded, jobId);
   logActivity(db, `Design job #${jobId} delivery item removed (${raw}).`);
   return publicJob(db, getRow(db, jobId));
 }

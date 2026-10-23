@@ -10,21 +10,26 @@ function getSetting(db, key) {
 
 function api(token, apiPath) {
   return new Promise((resolve, reject) => {
-    const req = https.request({
-      host: 'api.cloudflare.com',
-      path: apiPath,
-      method: 'GET',
-      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
-    }, (res) => {
-      const chunks = [];
-      res.on('data', (c) => chunks.push(c));
-      res.on('end', () => {
-        const text = Buffer.concat(chunks).toString('utf8');
-        let json = null;
-        try { json = JSON.parse(text); } catch {}
-        resolve({ status: res.statusCode, json, text: text.slice(0, 500) });
-      });
-    });
+    const req = https.request(
+      {
+        host: 'api.cloudflare.com',
+        path: apiPath,
+        method: 'GET',
+        headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          let json = null;
+          try {
+            json = JSON.parse(text);
+          } catch {}
+          resolve({ status: res.statusCode, json, text: text.slice(0, 500) });
+        });
+      }
+    );
     req.on('error', reject);
     req.end();
   });
@@ -38,7 +43,7 @@ async function main() {
   console.log('stored preview_url=', site.preview_url);
 
   const projects = await api(token, `/client/v4/accounts/${accountId}/pages/projects?per_page=20`);
-  const list = (((projects.json || {}).result) || []).map((p) => ({
+  const list = ((projects.json || {}).result || []).map((p) => ({
     name: p.name,
     subdomain: p.subdomain,
     url: p.canonical_deployment && p.canonical_deployment.url,
@@ -52,10 +57,24 @@ async function main() {
       continue;
     }
     for (const d of deps.json.result || []) {
-      console.log('dep', name, d.id, 'url=', d.url, 'aliases=', d.aliases, 'stage=', d.latest_stage && d.latest_stage.name, d.latest_stage && d.latest_stage.status);
+      console.log(
+        'dep',
+        name,
+        d.id,
+        'url=',
+        d.url,
+        'aliases=',
+        d.aliases,
+        'stage=',
+        d.latest_stage && d.latest_stage.name,
+        d.latest_stage && d.latest_stage.status
+      );
     }
   }
   db.close();
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

@@ -11,7 +11,15 @@ const { URLSearchParams } = require('url');
 const META_GRAPH = 'https://graph.facebook.com/v21.0';
 const PLATFORMS = ['facebook', 'instagram'];
 const POST_STATUSES = [
-  'draft', 'pending_approval', 'approved', 'scheduled', 'posting', 'posted', 'failed', 'rejected', 'skipped',
+  'draft',
+  'pending_approval',
+  'approved',
+  'scheduled',
+  'posting',
+  'posted',
+  'failed',
+  'rejected',
+  'skipped',
 ];
 
 function fail(code, message) {
@@ -28,7 +36,9 @@ function setting(db, key, fallback = '') {
 function logActivity(db, message) {
   try {
     db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run('social', message);
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
 }
 
 function appSecret() {
@@ -131,7 +141,11 @@ function ensureTables(db) {
 }
 
 function parseJson(raw, fallback) {
-  try { return JSON.parse(raw || ''); } catch { return fallback; }
+  try {
+    return JSON.parse(raw || '');
+  } catch {
+    return fallback;
+  }
 }
 
 function publicAccount(row) {
@@ -262,27 +276,36 @@ async function oauthCallback(db, { code, state } = {}) {
   const appSecretVal = setting(db, 'meta.app_secret', '').trim();
   const redirectUri = `${appUrl()}/api/v1/social/meta/callback`;
 
-  const tokenRes = await metaFetch(`/oauth/access_token?${new URLSearchParams({
-    client_id: appId,
-    client_secret: appSecretVal,
-    redirect_uri: redirectUri,
-    code: String(code || ''),
-  })}`);
+  const tokenRes = await metaFetch(
+    `/oauth/access_token?${new URLSearchParams({
+      client_id: appId,
+      client_secret: appSecretVal,
+      redirect_uri: redirectUri,
+      code: String(code || ''),
+    })}`
+  );
 
   let userToken = tokenRes.access_token;
   try {
-    const ll = await metaFetch(`/oauth/access_token?${new URLSearchParams({
-      grant_type: 'fb_exchange_token',
-      client_id: appId,
-      client_secret: appSecretVal,
-      fb_exchange_token: userToken,
-    })}`);
+    const ll = await metaFetch(
+      `/oauth/access_token?${new URLSearchParams({
+        grant_type: 'fb_exchange_token',
+        client_id: appId,
+        client_secret: appSecretVal,
+        fb_exchange_token: userToken,
+      })}`
+    );
     if (ll.access_token) userToken = ll.access_token;
-  } catch { /* keep short-lived */ }
+  } catch {
+    /* keep short-lived */
+  }
 
-  const pages = await metaFetch('/me/accounts?fields=id,name,access_token,instagram_business_account{id,username,name}', {
-    token: userToken,
-  });
+  const pages = await metaFetch(
+    '/me/accounts?fields=id,name,access_token,instagram_business_account{id,username,name}',
+    {
+      token: userToken,
+    }
+  );
   const list = Array.isArray(pages.data) ? pages.data : [];
   if (!list.length) throw fail('NO_PAGES', 'No Facebook Pages found for this Meta user.');
 
@@ -305,15 +328,25 @@ async function oauthCallback(db, { code, state } = {}) {
   for (const page of list) {
     if (!page.id || !page.access_token) continue;
     upsert.run(
-      leadId, 'facebook', String(page.id), page.name || page.id, String(page.id),
-      encToken(page.access_token), JSON.stringify({ source: 'oauth' })
+      leadId,
+      'facebook',
+      String(page.id),
+      page.name || page.id,
+      String(page.id),
+      encToken(page.access_token),
+      JSON.stringify({ source: 'oauth' })
     );
     fbCount += 1;
     const ig = page.instagram_business_account;
     if (ig && ig.id) {
       upsert.run(
-        leadId, 'instagram', String(ig.id), ig.username || ig.name || ig.id, String(page.id),
-        encToken(page.access_token), JSON.stringify({ username: ig.username || null })
+        leadId,
+        'instagram',
+        String(ig.id),
+        ig.username || ig.name || ig.id,
+        String(page.id),
+        encToken(page.access_token),
+        JSON.stringify({ username: ig.username || null })
       );
       igCount += 1;
     }
@@ -331,9 +364,9 @@ async function oauthCallback(db, { code, state } = {}) {
 
 function listAccounts(db, leadId) {
   ensureTables(db);
-  const rows = db.prepare(
-    'SELECT * FROM social_accounts WHERE lead_id = ? ORDER BY platform, account_name'
-  ).all(Number(leadId));
+  const rows = db
+    .prepare('SELECT * FROM social_accounts WHERE lead_id = ? ORDER BY platform, account_name')
+    .all(Number(leadId));
   return { accounts: rows.map(publicAccount), metaConfigured: metaConfigured(db) };
 }
 
@@ -342,7 +375,10 @@ function disconnectAccount(db, accountId) {
   const row = db.prepare('SELECT * FROM social_accounts WHERE id = ?').get(Number(accountId));
   if (!row) throw fail('NOT_FOUND', 'Account not found');
   db.prepare('DELETE FROM social_accounts WHERE id = ?').run(row.id);
-  logActivity(db, `Disconnected ${row.platform} account ${row.account_name || row.account_id} from lead #${row.lead_id}`);
+  logActivity(
+    db,
+    `Disconnected ${row.platform} account ${row.account_name || row.account_id} from lead #${row.lead_id}`
+  );
   return { id: row.id };
 }
 
@@ -361,12 +397,16 @@ function getCampaign(db, campaignId) {
   ensureTables(db);
   const campaign = db.prepare('SELECT * FROM social_campaigns WHERE id = ?').get(Number(campaignId));
   if (!campaign) throw fail('NOT_FOUND', 'Campaign not found');
-  const posts = db.prepare(
-    'SELECT * FROM social_posts WHERE campaign_id = ? ORDER BY scheduled_at ASC, day_index ASC, id ASC'
-  ).all(campaign.id).map(publicPost);
-  const batches = db.prepare(
-    'SELECT id, campaign_id, week_start, week_end, status, sent_at, decided_at, post_ids, created_at FROM social_weekly_batches WHERE campaign_id = ? ORDER BY id DESC'
-  ).all(campaign.id).map((b) => ({ ...b, post_ids: parseJson(b.post_ids, []) }));
+  const posts = db
+    .prepare('SELECT * FROM social_posts WHERE campaign_id = ? ORDER BY scheduled_at ASC, day_index ASC, id ASC')
+    .all(campaign.id)
+    .map(publicPost);
+  const batches = db
+    .prepare(
+      'SELECT id, campaign_id, week_start, week_end, status, sent_at, decided_at, post_ids, created_at FROM social_weekly_batches WHERE campaign_id = ? ORDER BY id DESC'
+    )
+    .all(campaign.id)
+    .map((b) => ({ ...b, post_ids: parseJson(b.post_ids, []) }));
   const accounts = listAccounts(db, campaign.lead_id).accounts;
   return { campaign: publicCampaign(campaign), posts, batches, accounts };
 }
@@ -374,16 +414,22 @@ function getCampaign(db, campaignId) {
 function leadBrief(db, leadId) {
   const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(Number(leadId));
   if (!lead) throw fail('NOT_FOUND', 'Lead not found');
-  const facts = db.prepare(
-    `SELECT fact_key, value, claim_class FROM business_facts
+  const facts = db
+    .prepare(
+      `SELECT fact_key, value, claim_class FROM business_facts
      WHERE lead_id = ? AND claim_class IN ('VERIFIED','OWNER_PROVIDED')
      ORDER BY id DESC LIMIT 40`
-  ).all(lead.id);
+    )
+    .all(lead.id);
   let siteSnippet = '';
   try {
-    const site = db.prepare('SELECT id, name, status FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(lead.id);
+    const site = db
+      .prepare('SELECT id, name, status FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+      .get(lead.id);
     if (site) siteSnippet = `Website on file: ${site.name} (${site.status}).`;
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
   return { lead, facts, siteSnippet };
 }
 
@@ -393,8 +439,10 @@ function deterministicPosts(lead, count, monthStart) {
   const city = [lead.city, lead.state].filter(Boolean).join(', ') || 'your area';
   const templates = [
     (i) => `Looking for a reliable ${cat.toLowerCase()} in ${city}? ${name} is here to help. Reach out today.`,
-    (i) => `Tip from ${name}: regular maintenance saves money and stress. Ask us what we recommend for ${cat.toLowerCase()} clients.`,
-    (i) => `This week at ${name} — we're booking ${cat.toLowerCase()} appointments in ${city}. Message us to get on the calendar.`,
+    (i) =>
+      `Tip from ${name}: regular maintenance saves money and stress. Ask us what we recommend for ${cat.toLowerCase()} clients.`,
+    (i) =>
+      `This week at ${name} — we're booking ${cat.toLowerCase()} appointments in ${city}. Message us to get on the calendar.`,
     (i) => `Why neighbors choose ${name}: local care, clear communication, and work we're proud of.`,
     (i) => `Quick question for ${city}: what's the #1 thing you want from a ${cat.toLowerCase()}? Tell us below.`,
     (i) => `${name} reminder: small issues become big ones. A quick check-in now can spare a headache later.`,
@@ -417,17 +465,20 @@ function deterministicPosts(lead, count, monthStart) {
   return out;
 }
 
-async function generateMonth(db, {
-  leadId,
-  monthStart,
-  days = 30,
-  withImages = false,
-  brief = '',
-  clientEmail = '',
-  requireClientApproval = true,
-  timezone = 'America/New_York',
-  activate = true,
-} = {}) {
+async function generateMonth(
+  db,
+  {
+    leadId,
+    monthStart,
+    days = 30,
+    withImages = false,
+    brief = '',
+    clientEmail = '',
+    requireClientApproval = true,
+    timezone = 'America/New_York',
+    activate = true,
+  } = {}
+) {
   ensureTables(db);
   const { lead, facts, siteSnippet } = leadBrief(db, leadId);
   const count = Math.min(60, Math.max(7, Number(days) || 30));
@@ -488,21 +539,25 @@ Post count: ${count}`,
   if (!items) items = deterministicPosts(lead, count, start);
 
   const email = String(clientEmail || lead.email || '').trim();
-  const info = db.prepare(`
+  const info = db
+    .prepare(
+      `
     INSERT INTO social_campaigns (
       lead_id, title, month_start, status, brief, with_images, require_client_approval, client_email, timezone
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    lead.id,
-    `${lead.business_name || 'Campaign'} · ${start.slice(0, 7)}`,
-    start,
-    activate ? 'active' : 'draft',
-    String(brief || ''),
-    withImages ? 1 : 0,
-    requireClientApproval ? 1 : 0,
-    email,
-    String(timezone || 'America/New_York')
-  );
+  `
+    )
+    .run(
+      lead.id,
+      `${lead.business_name || 'Campaign'} · ${start.slice(0, 7)}`,
+      start,
+      activate ? 'active' : 'draft',
+      String(brief || ''),
+      withImages ? 1 : 0,
+      requireClientApproval ? 1 : 0,
+      email,
+      String(timezone || 'America/New_York')
+    );
   const campaignId = Number(info.lastInsertRowid);
   const base = new Date(`${start}T14:00:00.000Z`);
   const insert = db.prepare(`
@@ -516,13 +571,14 @@ Post count: ${count}`,
     const it = items[i] || {};
     const caption = String(it.caption || '').trim();
     if (!caption) continue;
-    const dayIndex = Number(it.day_index) || (n + 1);
-    const scheduled = it.scheduled_at
-      ? new Date(it.scheduled_at)
-      : new Date(base.getTime() + n * 24 * 60 * 60 * 1000);
+    const dayIndex = Number(it.day_index) || n + 1;
+    const scheduled = it.scheduled_at ? new Date(it.scheduled_at) : new Date(base.getTime() + n * 24 * 60 * 60 * 1000);
     let platforms = Array.isArray(it.platforms) ? it.platforms.filter((p) => PLATFORMS.includes(p)) : PLATFORMS.slice();
     if (!platforms.length) platforms = PLATFORMS.slice();
-    const imagePrompt = withImages ? (it.image_prompt || `Authentic photo for ${lead.business_name}, ${lead.category || 'local business'}, no fake text`) : null;
+    const imagePrompt = withImages
+      ? it.image_prompt ||
+        `Authentic photo for ${lead.business_name}, ${lead.category || 'local business'}, no fake text`
+      : null;
     insert.run(
       campaignId,
       lead.id,
@@ -539,19 +595,26 @@ Post count: ${count}`,
     await attachOptionalImages(db, campaignId).catch(() => {});
   }
 
-  logActivity(db, `Social campaign #${campaignId} created for lead #${lead.id} (${n} posts, images=${withImages ? 'on' : 'off'}).`);
+  logActivity(
+    db,
+    `Social campaign #${campaignId} created for lead #${lead.id} (${n} posts, images=${withImages ? 'on' : 'off'}).`
+  );
   return getCampaign(db, campaignId);
 }
 
 async function attachOptionalImages(db, campaignId) {
-  const posts = db.prepare(
-    "SELECT * FROM social_posts WHERE campaign_id = ? AND (image_url IS NULL OR image_url = '') ORDER BY id"
-  ).all(Number(campaignId));
+  const posts = db
+    .prepare("SELECT * FROM social_posts WHERE campaign_id = ? AND (image_url IS NULL OR image_url = '') ORDER BY id")
+    .all(Number(campaignId));
   if (!posts.length) return { attached: 0 };
   const apiKey = setting(db, 'pexels.api_key', '').trim();
   if (!apiKey) return { attached: 0, reason: 'no_pexels_key' };
   let pexels;
-  try { pexels = require('./pexels'); } catch { return { attached: 0, reason: 'no_pexels' }; }
+  try {
+    pexels = require('./pexels');
+  } catch {
+    return { attached: 0, reason: 'no_pexels' };
+  }
   const campaign = db.prepare('SELECT * FROM social_campaigns WHERE id = ?').get(Number(campaignId));
   const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(campaign.lead_id);
   let attached = 0;
@@ -560,12 +623,17 @@ async function attachOptionalImages(db, campaignId) {
     try {
       const photos = await pexels.searchPhotos(apiKey, q, 1);
       const photo = Array.isArray(photos) ? photos[0] : null;
-      const url = photo && (photo.url || photo.src || (photo.original) || null);
+      const url = photo && (photo.url || photo.src || photo.original || null);
       if (url) {
-        db.prepare("UPDATE social_posts SET image_url = ?, updated_at = datetime('now') WHERE id = ?").run(String(url), post.id);
+        db.prepare("UPDATE social_posts SET image_url = ?, updated_at = datetime('now') WHERE id = ?").run(
+          String(url),
+          post.id
+        );
         attached += 1;
       }
-    } catch { /* skip */ }
+    } catch {
+      /* skip */
+    }
   }
   return { attached };
 }
@@ -583,17 +651,29 @@ function updatePost(db, postId, patch = {}) {
   if (patch.platforms != null) {
     const list = Array.isArray(patch.platforms)
       ? patch.platforms
-      : String(patch.platforms).split(',').map((s) => s.trim());
+      : String(patch.platforms)
+          .split(',')
+          .map((s) => s.trim());
     platforms = JSON.stringify(list.filter((p) => PLATFORMS.includes(p)));
   }
   const image_url = patch.image_url !== undefined ? (patch.image_url ? String(patch.image_url) : null) : row.image_url;
   let status = row.status;
   if (patch.status && POST_STATUSES.includes(patch.status)) status = patch.status;
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE social_posts SET caption = ?, scheduled_at = ?, platforms = ?, image_url = ?, status = ?,
       client_notes = COALESCE(?, client_notes), updated_at = datetime('now')
     WHERE id = ?
-  `).run(caption, scheduled_at, platforms, image_url, status, patch.client_notes != null ? String(patch.client_notes) : null, row.id);
+  `
+  ).run(
+    caption,
+    scheduled_at,
+    platforms,
+    image_url,
+    status,
+    patch.client_notes != null ? String(patch.client_notes) : null,
+    row.id
+  );
   return publicPost(db.prepare('SELECT * FROM social_posts WHERE id = ?').get(row.id));
 }
 
@@ -617,10 +697,12 @@ async function sendWeeklyBatch(db, { campaignId, force = false, workspaceId = nu
   if (!campaign) throw fail('NOT_FOUND', 'Campaign not found');
   if (campaign.status !== 'active' && !force) throw fail('INACTIVE', 'Campaign is not active');
 
-  const drafts = db.prepare(
-    `SELECT * FROM social_posts WHERE campaign_id = ? AND status = 'draft'
+  const drafts = db
+    .prepare(
+      `SELECT * FROM social_posts WHERE campaign_id = ? AND status = 'draft'
      ORDER BY scheduled_at ASC, day_index ASC LIMIT 7`
-  ).all(campaign.id);
+    )
+    .all(campaign.id);
   if (!drafts.length) return { sent: false, reason: 'no_draft_posts' };
 
   if (!campaign.require_client_approval) {
@@ -637,24 +719,34 @@ async function sendWeeklyBatch(db, { campaignId, force = false, workspaceId = nu
   const weekStart = (drafts[0].scheduled_at || '').slice(0, 10);
   const weekEnd = (drafts[drafts.length - 1].scheduled_at || '').slice(0, 10);
   const postIds = drafts.map((p) => p.id);
-  const batchId = Number(db.prepare(`
+  const batchId = Number(
+    db
+      .prepare(
+        `
     INSERT INTO social_weekly_batches (
       campaign_id, lead_id, week_start, week_end, approval_token, status, post_ids
     ) VALUES (?, ?, ?, ?, ?, 'pending', ?)
-  `).run(campaign.id, campaign.lead_id, weekStart, weekEnd, token, JSON.stringify(postIds)).lastInsertRowid);
+  `
+      )
+      .run(campaign.id, campaign.lead_id, weekStart, weekEnd, token, JSON.stringify(postIds)).lastInsertRowid
+  );
 
   for (const p of drafts) {
-    db.prepare("UPDATE social_posts SET status = 'pending_approval', updated_at = datetime('now') WHERE id = ?").run(p.id);
+    db.prepare("UPDATE social_posts SET status = 'pending_approval', updated_at = datetime('now') WHERE id = ?").run(
+      p.id
+    );
   }
 
   const lead = db.prepare('SELECT business_name FROM leads WHERE id = ?').get(campaign.lead_id);
   const wq = workspaceId ? `&w=${encodeURIComponent(workspaceId)}` : '';
   const approveUrl = `${appUrl()}/social-approve.html?token=${encodeURIComponent(token)}${wq}`;
-  const lines = drafts.map((p, i) => {
-    const when = (p.scheduled_at || '').replace('T', ' ').slice(0, 16);
-    const img = p.image_url ? ' [photo]' : ' [text only]';
-    return `${i + 1}. ${when} UTC${img}\n${p.caption}`;
-  }).join('\n\n');
+  const lines = drafts
+    .map((p, i) => {
+      const when = (p.scheduled_at || '').replace('T', ' ').slice(0, 16);
+      const img = p.image_url ? ' [photo]' : ' [text only]';
+      return `${i + 1}. ${when} UTC${img}\n${p.caption}`;
+    })
+    .join('\n\n');
   const subject = `Social content for approval · ${lead && lead.business_name ? lead.business_name : 'your business'} · Batch #${batchId}`;
   const text = [
     `Hi — here's your next week of Facebook/Instagram posts.`,
@@ -678,7 +770,8 @@ async function sendWeeklyBatch(db, { campaignId, force = false, workspaceId = nu
   });
 
   const settings = {};
-  for (const r of db.prepare('SELECT key, value FROM settings').all()) settings[r.key] = require('./secretBox').decryptSetting(r.key, r.value);
+  for (const r of db.prepare('SELECT key, value FROM settings').all())
+    settings[r.key] = require('./secretBox').decryptSetting(r.key, r.value);
   const { getProvider } = require('./email');
   const provider = getProvider(settings, db);
   let sent = false;
@@ -698,10 +791,12 @@ async function sendWeeklyBatch(db, { campaignId, force = false, workspaceId = nu
     }
   }
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE social_weekly_batches SET status = ?, sent_at = CASE WHEN ? = 1 THEN datetime('now') ELSE sent_at END, updated_at = datetime('now')
     WHERE id = ?
-  `).run(sent ? 'sent' : 'pending', sent ? 1 : 0, batchId);
+  `
+  ).run(sent ? 'sent' : 'pending', sent ? 1 : 0, batchId);
 
   logActivity(db, `Social batch #${batchId} for campaign #${campaign.id}: ${sent ? 'emailed' : 'composed'} to ${to}`);
   return {
@@ -731,7 +826,10 @@ function getBatchByToken(db, token) {
   const lead = db.prepare('SELECT id, business_name, category, city FROM leads WHERE id = ?').get(batch.lead_id);
   const ids = parseJson(batch.post_ids, []);
   const posts = ids.length
-    ? db.prepare(`SELECT * FROM social_posts WHERE id IN (${ids.map(() => '?').join(',')}) ORDER BY scheduled_at ASC`).all(...ids).map(publicPost)
+    ? db
+        .prepare(`SELECT * FROM social_posts WHERE id IN (${ids.map(() => '?').join(',')}) ORDER BY scheduled_at ASC`)
+        .all(...ids)
+        .map(publicPost)
     : [];
   return {
     batch: {
@@ -756,33 +854,37 @@ function decideBatch(db, token, { action = 'approve', postIds = null, notes = ''
     /* allow re-decide selected */
   }
   const allIds = parseJson(batch.post_ids, []);
-  const selected = Array.isArray(postIds) && postIds.length
-    ? postIds.map(Number).filter((id) => allIds.includes(id))
-    : allIds.slice();
+  const selected =
+    Array.isArray(postIds) && postIds.length ? postIds.map(Number).filter((id) => allIds.includes(id)) : allIds.slice();
 
   if (action === 'reject') {
     for (const id of allIds) {
-      db.prepare("UPDATE social_posts SET status = 'rejected', client_notes = ?, updated_at = datetime('now') WHERE id = ?")
-        .run(String(notes || 'Rejected by client'), id);
+      db.prepare(
+        "UPDATE social_posts SET status = 'rejected', client_notes = ?, updated_at = datetime('now') WHERE id = ?"
+      ).run(String(notes || 'Rejected by client'), id);
     }
-    db.prepare("UPDATE social_weekly_batches SET status = 'rejected', decided_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
-      .run(batch.id);
+    db.prepare(
+      "UPDATE social_weekly_batches SET status = 'rejected', decided_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
+    ).run(batch.id);
     return getBatchByToken(db, token);
   }
 
   // approve or approve_selected
   for (const id of allIds) {
     if (selected.includes(id)) {
-      db.prepare("UPDATE social_posts SET status = 'scheduled', updated_at = datetime('now') WHERE id = ? AND status IN ('pending_approval','draft','approved')")
-        .run(id);
+      db.prepare(
+        "UPDATE social_posts SET status = 'scheduled', updated_at = datetime('now') WHERE id = ? AND status IN ('pending_approval','draft','approved')"
+      ).run(id);
     } else if (action === 'approve_selected') {
-      db.prepare("UPDATE social_posts SET status = 'rejected', client_notes = ?, updated_at = datetime('now') WHERE id = ? AND status = 'pending_approval'")
-        .run(String(notes || 'Not selected'), id);
+      db.prepare(
+        "UPDATE social_posts SET status = 'rejected', client_notes = ?, updated_at = datetime('now') WHERE id = ? AND status = 'pending_approval'"
+      ).run(String(notes || 'Not selected'), id);
     }
   }
   const status = selected.length === allIds.length ? 'approved' : 'partial';
-  db.prepare("UPDATE social_weekly_batches SET status = ?, decided_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
-    .run(status, batch.id);
+  db.prepare(
+    "UPDATE social_weekly_batches SET status = ?, decided_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
+  ).run(status, batch.id);
   logActivity(db, `Social batch #${batch.id} ${status} (${selected.length}/${allIds.length} posts)`);
   return getBatchByToken(db, token);
 }
@@ -792,9 +894,11 @@ function approvePostsAgency(db, postIds) {
   const ids = (Array.isArray(postIds) ? postIds : []).map(Number).filter(Boolean);
   let n = 0;
   for (const id of ids) {
-    const r = db.prepare(
-      "UPDATE social_posts SET status = 'scheduled', updated_at = datetime('now') WHERE id = ? AND status IN ('draft','pending_approval','approved','rejected')"
-    ).run(id);
+    const r = db
+      .prepare(
+        "UPDATE social_posts SET status = 'scheduled', updated_at = datetime('now') WHERE id = ? AND status IN ('draft','pending_approval','approved','rejected')"
+      )
+      .run(id);
     n += r.changes;
   }
   return { updated: n };
@@ -807,16 +911,20 @@ async function publishPost(db, postId) {
   if (!['scheduled', 'failed', 'approved'].includes(post.status)) {
     throw fail('NOT_READY', `Post status is ${post.status}`);
   }
-  db.prepare("UPDATE social_posts SET status = 'posting', publish_error = NULL, updated_at = datetime('now') WHERE id = ?").run(post.id);
+  db.prepare(
+    "UPDATE social_posts SET status = 'posting', publish_error = NULL, updated_at = datetime('now') WHERE id = ?"
+  ).run(post.id);
 
   const platforms = parseJson(post.platforms, ['facebook']);
   const results = {};
   const errors = [];
 
   for (const platform of platforms) {
-    const acct = db.prepare(
-      "SELECT * FROM social_accounts WHERE lead_id = ? AND platform = ? AND status = 'active' ORDER BY id DESC LIMIT 1"
-    ).get(post.lead_id, platform);
+    const acct = db
+      .prepare(
+        "SELECT * FROM social_accounts WHERE lead_id = ? AND platform = ? AND status = 'active' ORDER BY id DESC LIMIT 1"
+      )
+      .get(post.lead_id, platform);
     if (!acct) {
       results[platform] = { ok: false, error: 'No connected account' };
       errors.push(`${platform}: not connected`);
@@ -842,11 +950,13 @@ async function publishPost(db, postId) {
 
   const anyOk = Object.values(results).some((r) => r && r.ok);
   const allOk = anyOk && !errors.length;
-  const status = allOk ? 'posted' : (anyOk ? 'partial' : 'failed');
-  db.prepare(`
+  const status = allOk ? 'posted' : anyOk ? 'partial' : 'failed';
+  db.prepare(
+    `
     UPDATE social_posts SET status = ?, meta_results = ?, publish_error = ?, published_at = CASE WHEN ? THEN datetime('now') ELSE published_at END, updated_at = datetime('now')
     WHERE id = ?
-  `).run(status, JSON.stringify(results), errors.length ? errors.join('; ') : null, anyOk ? 1 : 0, post.id);
+  `
+  ).run(status, JSON.stringify(results), errors.length ? errors.join('; ') : null, anyOk ? 1 : 0, post.id);
 
   return { postId: post.id, status, results };
 }
@@ -912,14 +1022,18 @@ async function publishDue(db, { limit = 10 } = {}) {
   if (setting(db, 'automation_paused', '0') === '1') {
     return { skipped: true, reason: 'automation_paused' };
   }
-  const due = db.prepare(`
+  const due = db
+    .prepare(
+      `
     SELECT id FROM social_posts
     WHERE status IN ('scheduled','failed')
       AND scheduled_at IS NOT NULL
       AND datetime(scheduled_at) <= datetime('now')
     ORDER BY scheduled_at ASC
     LIMIT ?
-  `).all(Math.min(50, Math.max(1, Number(limit) || 10)));
+  `
+    )
+    .all(Math.min(50, Math.max(1, Number(limit) || 10)));
   const results = [];
   for (const row of due) {
     try {
@@ -941,12 +1055,16 @@ async function weeklyTick(db, { workspaceId = null } = {}) {
   for (const c of campaigns) {
     try {
       // Avoid stacking: skip if a pending/sent undecided batch exists from last 5 days
-      const open = db.prepare(`
+      const open = db
+        .prepare(
+          `
         SELECT id FROM social_weekly_batches
         WHERE campaign_id = ? AND status IN ('pending','sent')
           AND created_at >= datetime('now', '-5 days')
         LIMIT 1
-      `).get(c.id);
+      `
+        )
+        .get(c.id);
       if (open) {
         out.push({ campaignId: c.id, skipped: true, reason: 'open_batch' });
         continue;
@@ -974,9 +1092,9 @@ function imagePriceUsd(db, platformFallback) {
 
 function todayAiSpendUsd(db) {
   try {
-    const row = db.prepare(
-      "SELECT COALESCE(SUM(cost_usd), 0) AS spent FROM ai_usage WHERE date(at) = date('now')"
-    ).get();
+    const row = db
+      .prepare("SELECT COALESCE(SUM(cost_usd), 0) AS spent FROM ai_usage WHERE date(at) = date('now')")
+      .get();
     return Number(row.spent) || 0;
   } catch {
     return 0;
@@ -1001,11 +1119,12 @@ async function generateBrandedAdImage(db, opts = {}) {
 
   const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(post.lead_id) || {};
   const includedInPlan = !!opts.includedInPlan;
-  const price = includedInPlan || opts.chargeUsd === 0
-    ? 0
-    : (opts.chargeUsd != null && Number.isFinite(Number(opts.chargeUsd))
-      ? Number(opts.chargeUsd)
-      : imagePriceUsd(db, opts.platformPriceFallback));
+  const price =
+    includedInPlan || opts.chargeUsd === 0
+      ? 0
+      : opts.chargeUsd != null && Number.isFinite(Number(opts.chargeUsd))
+        ? Number(opts.chargeUsd)
+        : imagePriceUsd(db, opts.platformPriceFallback);
   const budget = parseFloat(setting(db, 'cost.daily_budget_usd', '10'));
   if (price > 0 && budget > 0 && todayAiSpendUsd(db) + price > budget) {
     throw fail('BUDGET_EXCEEDED', 'Daily AI budget would be exceeded by this image charge.');
@@ -1022,7 +1141,9 @@ async function generateBrandedAdImage(db, opts = {}) {
   const biz = String(lead.business_name || 'Local business').trim();
   const city = [lead.city, lead.state].filter(Boolean).join(', ');
   const category = String(lead.category || 'local business').trim();
-  const caption = String(post.caption || '').trim().slice(0, 400);
+  const caption = String(post.caption || '')
+    .trim()
+    .slice(0, 400);
   const offerLine = caption
     ? `Short on-image headline (6 words max, crisp readable type): "${caption.slice(0, 120)}"`
     : 'One short call-to-action line (e.g. Book today / Call now), crisp readable type.';
@@ -1037,7 +1158,9 @@ async function generateBrandedAdImage(db, opts = {}) {
     offerLine,
     'Composition: subject dominant, generous margins, balanced negative space, mobile-legible hierarchy (name → offer → subtle location).',
     'Restrained brand palette; no purple neon glow, fake UI, watermarks, QR codes, or dense paragraphs of text.',
-  ].filter(Boolean).join(' ');
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   const result = await openaiImages.generateImages(db, prompt, {
     n: 1,
@@ -1057,33 +1180,30 @@ async function generateBrandedAdImage(db, opts = {}) {
   const folder = `social-${post.lead_id}`;
   const exportDir = path.join(openPreviewMod.exportRoot(), folder, 'images');
   fs.mkdirSync(exportDir, { recursive: true });
-  const ext = (img.mime || '').includes('jpeg') ? 'jpg' : ((img.mime || '').includes('webp') ? 'webp' : 'png');
+  const ext = (img.mime || '').includes('jpeg') ? 'jpg' : (img.mime || '').includes('webp') ? 'webp' : 'png';
   const name = `ad-${post.id}-${Date.now()}.${ext}`;
   const dest = path.join(exportDir, name);
   fs.copyFileSync(img.path, dest);
 
   const publicUrl = `${appUrl()}/site-previews/${folder}/images/${name}`;
-  db.prepare(
-    "UPDATE social_posts SET image_url = ?, image_prompt = ?, updated_at = datetime('now') WHERE id = ?"
-  ).run(publicUrl, prompt.slice(0, 2000), post.id);
+  db.prepare("UPDATE social_posts SET image_url = ?, image_prompt = ?, updated_at = datetime('now') WHERE id = ?").run(
+    publicUrl,
+    prompt.slice(0, 2000),
+    post.id
+  );
 
   try {
-    const note = price > 0
-      ? `Client charge $${price.toFixed(2)} for branded ad on social_post #${post.id}`
-      : `Premium included branded ad on social_post #${post.id}${opts.planId ? ` (plan=${opts.planId})` : ''}`;
+    const note =
+      price > 0
+        ? `Client charge $${price.toFixed(2)} for branded ad on social_post #${post.id}`
+        : `Premium included branded ad on social_post #${post.id}${opts.planId ? ` (plan=${opts.planId})` : ''}`;
     db.prepare(
       `INSERT INTO ai_usage (task, model, prompt_tokens, completion_tokens, cost_usd, lead_id, note)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      'social_branded_image',
-      result.model || 'gpt-image-2.5-sunburst',
-      0,
-      0,
-      price,
-      post.lead_id,
-      note
-    );
-  } catch { /* logging optional */ }
+    ).run('social_branded_image', result.model || 'gpt-image-2.5-sunburst', 0, 0, price, post.lead_id, note);
+  } catch {
+    /* logging optional */
+  }
 
   logActivity(
     db,
@@ -1103,13 +1223,20 @@ async function generateBrandedAdImage(db, opts = {}) {
 
 function overview(db) {
   ensureTables(db);
-  const campaigns = db.prepare(`
+  const campaigns = db
+    .prepare(
+      `
     SELECT c.*, l.business_name
     FROM social_campaigns c
     LEFT JOIN leads l ON l.id = c.lead_id
     ORDER BY c.id DESC LIMIT 50
-  `).all().map((r) => ({ ...publicCampaign(r), business_name: r.business_name }));
-  const pendingApproval = db.prepare("SELECT COUNT(*) AS c FROM social_posts WHERE status = 'pending_approval'").get().c;
+  `
+    )
+    .all()
+    .map((r) => ({ ...publicCampaign(r), business_name: r.business_name }));
+  const pendingApproval = db
+    .prepare("SELECT COUNT(*) AS c FROM social_posts WHERE status = 'pending_approval'")
+    .get().c;
   const scheduled = db.prepare("SELECT COUNT(*) AS c FROM social_posts WHERE status = 'scheduled'").get().c;
   const failed = db.prepare("SELECT COUNT(*) AS c FROM social_posts WHERE status = 'failed'").get().c;
   const accounts = db.prepare('SELECT COUNT(*) AS c FROM social_accounts WHERE status = ?').get('active').c;

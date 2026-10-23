@@ -15,7 +15,9 @@ const { appUrl } = require('./stripeClient');
 const { openWorkspaceDb, dataRoot } = require('./workspaceDb');
 
 function normalizeEmail(email) {
-  return String(email || '').trim().toLowerCase();
+  return String(email || '')
+    .trim()
+    .toLowerCase();
 }
 
 function generatePassword() {
@@ -104,11 +106,15 @@ function leadHasPortalEntitlement(db, leadId) {
   try {
     const site = db.prepare('SELECT id FROM websites WHERE lead_id = ? LIMIT 1').get(id);
     if (site) return true;
-  } catch { /* optional table */ }
+  } catch {
+    /* optional table */
+  }
   try {
     const job = db.prepare('SELECT id FROM design_jobs WHERE lead_id = ? LIMIT 1').get(id);
     if (job) return true;
-  } catch { /* optional table */ }
+  } catch {
+    /* optional table */
+  }
   return false;
 }
 
@@ -122,7 +128,8 @@ function findLeadMatches(email) {
   const matches = [];
   let dirs = [];
   try {
-    dirs = fs.readdirSync(root, { withFileTypes: true })
+    dirs = fs
+      .readdirSync(root, { withFileTypes: true })
       .filter((d) => d.isDirectory() && /^\d+$/.test(d.name))
       .map((d) => Number(d.name));
   } catch {
@@ -154,41 +161,53 @@ function findLeadMatches(email) {
     };
 
     try {
-      const byLead = db.prepare(
-        `SELECT id, business_name, email, city, state, status
+      const byLead = db
+        .prepare(
+          `SELECT id, business_name, email, city, state, status
          FROM leads WHERE lower(trim(email)) = ? LIMIT 20`
-      ).all(e);
+        )
+        .all(e);
       for (const lead of byLead) {
         pushMatch(lead.id, lead.business_name || '', 'lead');
       }
-    } catch { /* table missing */ }
+    } catch {
+      /* table missing */
+    }
 
     try {
-      const byJob = db.prepare(
-        `SELECT j.id AS job_id, j.lead_id, j.contact_email, j.title,
+      const byJob = db
+        .prepare(
+          `SELECT j.id AS job_id, j.lead_id, j.contact_email, j.title,
                 l.business_name
          FROM design_jobs j
          LEFT JOIN leads l ON l.id = j.lead_id
          WHERE lower(trim(j.contact_email)) = ? AND j.lead_id IS NOT NULL
          ORDER BY j.id DESC LIMIT 20`
-      ).all(e);
+        )
+        .all(e);
       for (const row of byJob) {
         pushMatch(row.lead_id, row.business_name || row.title || '', 'design_job');
       }
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
 
     try {
-      const bySocial = db.prepare(
-        `SELECT c.lead_id, c.client_email, l.business_name
+      const bySocial = db
+        .prepare(
+          `SELECT c.lead_id, c.client_email, l.business_name
          FROM social_campaigns c
          LEFT JOIN leads l ON l.id = c.lead_id
          WHERE lower(trim(c.client_email)) = ? AND c.lead_id IS NOT NULL
          ORDER BY c.id DESC LIMIT 20`
-      ).all(e);
+        )
+        .all(e);
       for (const row of bySocial) {
         pushMatch(row.lead_id, row.business_name || '', 'social');
       }
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
   }
 
   return matches;
@@ -263,10 +282,7 @@ async function requestAccess(email) {
   const tokenHash = hashToken(raw);
   const expires = new Date(Date.now() + 30 * 60 * 1000);
   const expiresSql = expires.toISOString().slice(0, 19).replace('T', ' ');
-  await query(
-    'DELETE FROM client_portal_login_tokens WHERE portal_user_id = :uid',
-    { uid: portalUserId }
-  );
+  await query('DELETE FROM client_portal_login_tokens WHERE portal_user_id = :uid', { uid: portalUserId });
   await query(
     `INSERT INTO client_portal_login_tokens (portal_user_id, token_hash, expires_at)
      VALUES (:uid, :tokenHash, :expiresAt)`,
@@ -328,9 +344,10 @@ async function loginWithMagicToken(rawToken) {
       : 'UPDATE client_portal_login_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = :id',
     { id: row.token_id }
   );
-  const stamp = driver() === 'sqlite'
-    ? "UPDATE client_portal_users SET last_login_at = datetime('now') WHERE id = :id"
-    : 'UPDATE client_portal_users SET last_login_at = CURRENT_TIMESTAMP WHERE id = :id';
+  const stamp =
+    driver() === 'sqlite'
+      ? "UPDATE client_portal_users SET last_login_at = datetime('now') WHERE id = :id"
+      : 'UPDATE client_portal_users SET last_login_at = CURRENT_TIMESTAMP WHERE id = :id';
   await query(stamp, { id: row.id });
   return {
     id: row.id,
@@ -346,7 +363,7 @@ const DUMMY_PORTAL_HASH = bcrypt.hashSync('timing-pad-not-a-real-password', 12);
 async function login(email, password) {
   const e = normalizeEmail(email);
   const user = await findByEmail(e);
-  const hash = (user && String(user.status) === 'active') ? user.password_hash : DUMMY_PORTAL_HASH;
+  const hash = user && String(user.status) === 'active' ? user.password_hash : DUMMY_PORTAL_HASH;
   const ok = await bcrypt.compare(String(password || ''), hash);
   if (!user || String(user.status) !== 'active' || !ok) {
     throw Object.assign(new Error('INVALID_CREDENTIALS'), { code: 'INVALID_CREDENTIALS' });
@@ -357,9 +374,10 @@ async function login(email, password) {
     });
   }
 
-  const stamp = driver() === 'sqlite'
-    ? "UPDATE client_portal_users SET last_login_at = datetime('now') WHERE id = :id"
-    : 'UPDATE client_portal_users SET last_login_at = CURRENT_TIMESTAMP WHERE id = :id';
+  const stamp =
+    driver() === 'sqlite'
+      ? "UPDATE client_portal_users SET last_login_at = datetime('now') WHERE id = :id"
+      : 'UPDATE client_portal_users SET last_login_at = CURRENT_TIMESTAMP WHERE id = :id';
   await query(stamp, { id: user.id });
 
   return {
@@ -385,29 +403,39 @@ function publicClient(user) {
 function loadLeadContext(workspaceId, leadId) {
   const domain = require('./domain');
   return domain.withDb(workspaceId, (db) => {
-    const lead = db.prepare(
-      `SELECT id, business_name, category, email, phone, city, state, website, status
+    const lead = db
+      .prepare(
+        `SELECT id, business_name, category, email, phone, city, state, website, status
        FROM leads WHERE id = ? LIMIT 1`
-    ).get(Number(leadId));
+      )
+      .get(Number(leadId));
     if (!lead) {
       throw Object.assign(new Error('Linked business not found'), { code: 'NOT_FOUND' });
     }
 
     let site = null;
     try {
-      site = db.prepare(
-        `SELECT id, name, status, preview_url, preview_path, updated_at
+      site = db
+        .prepare(
+          `SELECT id, name, status, preview_url, preview_path, updated_at
          FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1`
-      ).get(lead.id);
-    } catch { /* optional */ }
+        )
+        .get(lead.id);
+    } catch {
+      /* optional */
+    }
 
     let designJob = null;
     try {
-      designJob = db.prepare(
-        `SELECT id, title, type, status, client_form_token, contact_email, updated_at
+      designJob = db
+        .prepare(
+          `SELECT id, title, type, status, client_form_token, contact_email, updated_at
          FROM design_jobs WHERE lead_id = ? ORDER BY id DESC LIMIT 1`
-      ).get(lead.id);
-    } catch { /* optional */ }
+        )
+        .get(lead.id);
+    } catch {
+      /* optional */
+    }
 
     const previewUrl = resolvePreviewUrl(site);
     return { lead, site, designJob, previewUrl };
@@ -421,8 +449,7 @@ function resolvePreviewUrl(site) {
   }
   if (site.preview_path && String(site.preview_path).trim()) {
     const p = String(site.preview_path).replace(/\\/g, '/');
-    const m = p.match(/website-scout-exports\/([^/]+)/i)
-      || p.match(/\/([^/]+-site-[^/]+)\/?$/i);
+    const m = p.match(/website-scout-exports\/([^/]+)/i) || p.match(/\/([^/]+-site-[^/]+)\/?$/i);
     if (m) {
       return `${appUrl()}/site-previews/${m[1]}/`;
     }
@@ -450,21 +477,23 @@ function resolveExportPreviewBase(workspaceId, site) {
     const p = String(site.preview_path).replace(/\\/g, '/');
     // Prefer full folder segment (includes export_slug). Avoid bare ws-N-site-M
     // which truncates slug folders like ws-1-site-1-c59b… → ws-1-site-1.
-    const m = p.match(/website-scout-exports\/([^/]+)/i)
-      || p.match(/\/(ws-\d+-site-\d+(?:-[A-Za-z0-9_-]+)?)(?:\/|$)/i);
+    const m = p.match(/website-scout-exports\/([^/]+)/i) || p.match(/\/(ws-\d+-site-\d+(?:-[A-Za-z0-9_-]+)?)(?:\/|$)/i);
     if (m) return `${base}/site-previews/${m[1]}/`;
   }
   try {
     const domain = require('./domain');
     const folder = domain.resolveSiteExportFolder(workspaceId, site);
     return `${base}/site-previews/${folder}/`;
-  } catch { /* fall through */ }
+  } catch {
+    /* fall through */
+  }
   const folder = `ws-${Number(workspaceId)}-site-${Number(site.id)}`;
   return `${base}/site-previews/${folder}/`;
 }
 
 /** Paths clients must not change via inline portal edit (verified facts / URLs). */
-const PORTAL_LOCKED_PATH = /(^|\.)(phone|phone_display|email|address|address_lines|hours|rating|review_count|business_name|href|cta_href|cta_secondary_href|button_href|url|photographer|photographer_url|pexels_url)$/;
+const PORTAL_LOCKED_PATH =
+  /(^|\.)(phone|phone_display|email|address|address_lines|hours|rating|review_count|business_name|href|cta_href|cta_secondary_href|button_href|url|photographer|photographer_url|pexels_url)$/;
 
 function isPortalLockedPath(path) {
   return PORTAL_LOCKED_PATH.test(String(path || ''));
@@ -485,21 +514,21 @@ function setContentPath(obj, path, value) {
 }
 
 function pagesHaveEditableSections(pages) {
-  return Array.isArray(pages)
-    && pages.some((p) => Array.isArray(p.sections) && p.sections.length > 0);
+  return Array.isArray(pages) && pages.some((p) => Array.isArray(p.sections) && p.sections.length > 0);
 }
 
 /** Section model or freeform page.html — both support portal inline text edit. */
 function pagesSupportInlineEdit(pages) {
-  return Array.isArray(pages) && pages.some((p) =>
-    (Array.isArray(p.sections) && p.sections.length > 0)
-    || (typeof p.html === 'string' && p.html.trim())
+  return (
+    Array.isArray(pages) &&
+    pages.some(
+      (p) => (Array.isArray(p.sections) && p.sections.length > 0) || (typeof p.html === 'string' && p.html.trim())
+    )
   );
 }
 
 function pagesHaveFreeformHtml(pages) {
-  return Array.isArray(pages)
-    && pages.some((p) => typeof p.html === 'string' && p.html.trim());
+  return Array.isArray(pages) && pages.some((p) => typeof p.html === 'string' && p.html.trim());
 }
 
 function parseJsonSafe(raw, fallback) {
@@ -519,32 +548,44 @@ function resolveClientSite(db, leadId) {
   const lid = Number(leadId);
   let site = null;
   try {
-    site = db.prepare(
-      `SELECT id, lead_id, name, status, pages, theme, preview_url, preview_path, export_slug, updated_at
+    site = db
+      .prepare(
+        `SELECT id, lead_id, name, status, pages, theme, preview_url, preview_path, export_slug, updated_at
        FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1`
-    ).get(lid);
+      )
+      .get(lid);
   } catch (e) {
     // Older workspace DBs may lack export_slug until ensureExportSlug runs.
-    if (!/no such column:\s*export_slug/i.test(String(e && e.message || e))) throw e;
+    if (!/no such column:\s*export_slug/i.test(String((e && e.message) || e))) throw e;
     try {
       const domain = require('./domain');
       if (typeof domain.ensureExportSlugColumn === 'function') {
         domain.ensureExportSlugColumn(db);
       } else if (typeof domain.ensureExportSlug === 'function') {
         // ensureExportSlug needs a site id — add column first via bare ALTER.
-        try { db.exec('ALTER TABLE websites ADD COLUMN export_slug TEXT'); } catch { /* exists */ }
+        try {
+          db.exec('ALTER TABLE websites ADD COLUMN export_slug TEXT');
+        } catch {
+          /* exists */
+        }
       }
-    } catch { /* best-effort */ }
-    try {
-      site = db.prepare(
-        `SELECT id, lead_id, name, status, pages, theme, preview_url, preview_path, export_slug, updated_at
-         FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1`
-      ).get(lid);
     } catch {
-      site = db.prepare(
-        `SELECT id, lead_id, name, status, pages, theme, preview_url, preview_path, updated_at
+      /* best-effort */
+    }
+    try {
+      site = db
+        .prepare(
+          `SELECT id, lead_id, name, status, pages, theme, preview_url, preview_path, export_slug, updated_at
          FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1`
-      ).get(lid);
+        )
+        .get(lid);
+    } catch {
+      site = db
+        .prepare(
+          `SELECT id, lead_id, name, status, pages, theme, preview_url, preview_path, updated_at
+         FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1`
+        )
+        .get(lid);
     }
   }
   if (!site) return null;
@@ -590,22 +631,19 @@ function renderClientSite(workspaceId, leadId, opts = {}) {
   const assetBase = resolveExportPreviewBase(workspaceId, leadOk);
   const engine = require('../src/websiteEngine');
   // srcdoc has no document URL — relative images/… need a preview base.
-  const html = (canInlineEdit && assetBase)
-    ? engine.injectPreviewBaseHref(rendered.html, assetBase)
-    : rendered.html;
+  const html = canInlineEdit && assetBase ? engine.injectPreviewBaseHref(rendered.html, assetBase) : rendered.html;
   const theme = leadOk.theme && typeof leadOk.theme === 'object' ? leadOk.theme : {};
   const normalized = engine.normalizeTheme(theme);
   const themePalette = require('../src/themePalette');
   const { palette } = themePalette.extractPalette(leadOk.pages, normalized);
-  const logoMode = String(theme.logoMode || 'text').toLowerCase() === 'image' && theme.logoUrl
-    ? 'image'
-    : 'text';
+  const logoMode = String(theme.logoMode || 'text').toLowerCase() === 'image' && theme.logoUrl ? 'image' : 'text';
   const logoUrl = theme.logoUrl ? String(theme.logoUrl) : '';
-  const logoPublicUrl = logoUrl && assetBase
-    ? `${String(assetBase).replace(/\/+$/, '')}/${logoUrl.replace(/^\.?\//, '')}`
-    : (logoUrl && previewUrl
-      ? `${String(previewUrl).replace(/\/+$/, '')}/${logoUrl.replace(/^\.?\//, '')}`
-      : null);
+  const logoPublicUrl =
+    logoUrl && assetBase
+      ? `${String(assetBase).replace(/\/+$/, '')}/${logoUrl.replace(/^\.?\//, '')}`
+      : logoUrl && previewUrl
+        ? `${String(previewUrl).replace(/\/+$/, '')}/${logoUrl.replace(/^\.?\//, '')}`
+        : null;
   return {
     siteId: leadOk.id,
     name: leadOk.name,
@@ -742,18 +780,11 @@ async function applyClientThemeColors(workspaceId, leadId, colors = {}) {
   const saved = domain.sitesSave(workspaceId, prepared.siteId, {
     pages: prepared.pages,
     theme: prepared.theme,
-    note: colors.font || colors.headingFont || elementPatch
-      ? 'Client portal theme fonts'
-      : 'Client portal theme colors',
+    note:
+      colors.font || colors.headingFont || elementPatch ? 'Client portal theme fonts' : 'Client portal theme colors',
   });
 
-  syncDesignDeliverablePages(
-    workspaceId,
-    leadId,
-    prepared.siteId,
-    prepared.pages,
-    prepared.theme
-  );
+  syncDesignDeliverablePages(workspaceId, leadId, prepared.siteId, prepared.pages, prepared.theme);
 
   let previewUrl = prepared.previewFallback;
   let publicPreviewUpdated = false;
@@ -773,7 +804,9 @@ async function applyClientThemeColors(workspaceId, leadId, colors = {}) {
 
   try {
     domain.intentRecord(workspaceId, Number(leadId), 'theme.colors', 'Client portal theme colors');
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
 
   return {
     siteId: prepared.siteId,
@@ -935,14 +968,18 @@ async function applyClientTextEdits(workspaceId, leadId, edits) {
         if (typeof modules.ensureClientPageChrome === 'function') {
           pages[pi].html = modules.ensureClientPageChrome(pages[pi].html);
         }
-      } catch { /* optional chrome upgrade */ }
+      } catch {
+        /* optional chrome upgrade */
+      }
     }
 
     if (!applied.length) {
       throw Object.assign(
-        new Error(skipped.some((s) => s.reason === 'locked')
-          ? 'Those fields are locked (contact details and links). Use Request changes for those.'
-          : 'No valid text edits to apply'),
+        new Error(
+          skipped.some((s) => s.reason === 'locked')
+            ? 'Those fields are locked (contact details and links). Use Request changes for those.'
+            : 'No valid text edits to apply'
+        ),
         { code: 'NO_VALID_EDITS' }
       );
     }
@@ -966,22 +1003,27 @@ async function applyClientTextEdits(workspaceId, leadId, edits) {
 
   domain.withDb(workspaceId, (db) => {
     try {
-      const job = db.prepare(
-        `SELECT id, website_id, deliverable FROM design_jobs
+      const job = db
+        .prepare(
+          `SELECT id, website_id, deliverable FROM design_jobs
          WHERE lead_id = ? AND (website_id = ? OR website_id IS NULL)
          ORDER BY CASE WHEN website_id = ? THEN 0 ELSE 1 END, id DESC LIMIT 1`
-      ).get(Number(leadId), prepared.siteId, prepared.siteId);
+        )
+        .get(Number(leadId), prepared.siteId, prepared.siteId);
       if (job && job.deliverable) {
         const payload = parseJsonSafe(job.deliverable, null);
         if (payload && Array.isArray(payload.pages)) {
           payload.pages = prepared.pages;
           payload.theme = prepared.theme;
-          db.prepare(
-            `UPDATE design_jobs SET deliverable = ?, updated_at = datetime('now') WHERE id = ?`
-          ).run(JSON.stringify(payload), job.id);
+          db.prepare(`UPDATE design_jobs SET deliverable = ?, updated_at = datetime('now') WHERE id = ?`).run(
+            JSON.stringify(payload),
+            job.id
+          );
         }
       }
-    } catch { /* optional sync */ }
+    } catch {
+      /* optional sync */
+    }
   });
 
   let previewUrl = prepared.previewFallback;
@@ -1117,7 +1159,7 @@ function mutateClientListItem(workspaceId, leadId, body = {}) {
 function applyEmbedPlacement(db, leadId, body) {
   const remove = body && body.embedRemove;
   const restore = body && body.embedRestore;
-  const change = (remove && remove.kind) ? remove : ((restore && restore.kind) ? restore : null);
+  const change = remove && remove.kind ? remove : restore && restore.kind ? restore : null;
   if (!change) return;
   const on = !remove;
   const lid = Number(leadId);
@@ -1181,11 +1223,22 @@ function saveClientPageHtml(workspaceId, leadId, body = {}) {
     const usesSections = Array.isArray(page.sections) && page.sections.length > 0;
     if (usesSections) {
       if (body.sectionIndex == null) {
-        throw Object.assign(new Error('Select the original page section before saving this edit'), { code: 'SECTION_CONTEXT_REQUIRED', status: 409 });
+        throw Object.assign(new Error('Select the original page section before saving this edit'), {
+          code: 'SECTION_CONTEXT_REQUIRED',
+          status: 409,
+        });
       }
       const si = sectionIndexRaw;
-      if (!Number.isInteger(si) || si < 0 || !page.sections[si]?.content || typeof page.sections[si].content.html !== 'string') {
-        throw Object.assign(new Error('The selected HTML section is unavailable'), { code: 'NOT_FREEFORM', status: 409 });
+      if (
+        !Number.isInteger(si) ||
+        si < 0 ||
+        !page.sections[si]?.content ||
+        typeof page.sections[si].content.html !== 'string'
+      ) {
+        throw Object.assign(new Error('The selected HTML section is unavailable'), {
+          code: 'NOT_FREEFORM',
+          status: 409,
+        });
       }
       const sec = page.sections[si];
       sec.content = Object.assign({}, sec.content || {}, { html });
@@ -1205,9 +1258,7 @@ function saveClientPageHtml(workspaceId, leadId, body = {}) {
     }
     const original = page.html;
     // Prefer file hrefs in stored HTML (strip preview-only #page anchors when multipage).
-    html = engine.normalizePagesNavLinks(
-      pages.map((p, i) => (i === pageIndex ? { ...p, html } : p))
-    )[pageIndex].html;
+    html = engine.normalizePagesNavLinks(pages.map((p, i) => (i === pageIndex ? { ...p, html } : p)))[pageIndex].html;
     if (/<body\b/i.test(original) || /<!DOCTYPE/i.test(original) || /<html\b/i.test(original)) {
       const split = original.match(/(<body\b[^>]*>)([\s\S]*)(<\/body\s*>)/i);
       if (split) {
@@ -1223,7 +1274,9 @@ function saveClientPageHtml(workspaceId, leadId, body = {}) {
       if (typeof modules.ensureClientPageChrome === 'function') {
         page.html = modules.ensureClientPageChrome(page.html);
       }
-    } catch { /* optional chrome upgrade */ }
+    } catch {
+      /* optional chrome upgrade */
+    }
     applyEmbedPlacement(db, leadId, body);
     return {
       siteId: site.id,
@@ -1253,22 +1306,27 @@ function syncDesignDeliverablePages(workspaceId, leadId, siteId, pages, theme) {
   const domain = require('./domain');
   domain.withDb(workspaceId, (db) => {
     try {
-      const job = db.prepare(
-        `SELECT id, website_id, deliverable FROM design_jobs
+      const job = db
+        .prepare(
+          `SELECT id, website_id, deliverable FROM design_jobs
          WHERE lead_id = ? AND (website_id = ? OR website_id IS NULL)
          ORDER BY CASE WHEN website_id = ? THEN 0 ELSE 1 END, id DESC LIMIT 1`
-      ).get(Number(leadId), Number(siteId), Number(siteId));
+        )
+        .get(Number(leadId), Number(siteId), Number(siteId));
       if (job && job.deliverable) {
         const payload = parseJsonSafe(job.deliverable, null);
         if (payload && Array.isArray(payload.pages)) {
           payload.pages = pages;
           payload.theme = theme;
-          db.prepare(
-            `UPDATE design_jobs SET deliverable = ?, updated_at = datetime('now') WHERE id = ?`
-          ).run(JSON.stringify(payload), job.id);
+          db.prepare(`UPDATE design_jobs SET deliverable = ?, updated_at = datetime('now') WHERE id = ?`).run(
+            JSON.stringify(payload),
+            job.id
+          );
         }
       }
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
   });
 }
 
@@ -1283,13 +1341,10 @@ const PORTAL_IMAGE_MIME = {
 
 function sniffImageMime(buf) {
   if (!Buffer.isBuffer(buf) || buf.length < 12) return null;
-  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return 'image/jpeg';
-  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return 'image/png';
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png';
   if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'image/gif';
-  if (
-    buf.toString('ascii', 0, 4) === 'RIFF'
-    && buf.toString('ascii', 8, 12) === 'WEBP'
-  ) return 'image/webp';
+  if (buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
   return null;
 }
 
@@ -1301,7 +1356,9 @@ function normalizePortalImageSrc(raw, previewUrl) {
   if (/^data:/i.test(s) || /^blob:/i.test(s)) return null;
 
   const tryRel = (u) => {
-    let r = String(u || '').replace(/\\/g, '/').replace(/^\.\//, '');
+    let r = String(u || '')
+      .replace(/\\/g, '/')
+      .replace(/^\.\//, '');
     if (r.startsWith('/')) r = r.replace(/^\/+/, '');
     if (!r || r.includes('..')) return null;
     if (/^images\//i.test(r)) return `images/${path.basename(r)}`;
@@ -1341,7 +1398,9 @@ function normalizePortalImageSrc(raw, previewUrl) {
       // Last resort: basename under images/ when replacing a local asset name.
       const baseName = path.basename(pathName);
       if (/\.(png|jpe?g|gif|webp)$/i.test(baseName)) return `images/${baseName}`;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
   return null;
 }
@@ -1370,7 +1429,9 @@ async function applyClientImageUpload(workspaceId, leadId, payload = {}) {
   const openPreview = require('../src/openPreview');
 
   const replaceSrcRaw = String(payload.replaceSrc || payload.src || '').trim();
-  const mimeClaimed = String(payload.mimeType || payload.contentType || '').trim().toLowerCase();
+  const mimeClaimed = String(payload.mimeType || payload.contentType || '')
+    .trim()
+    .toLowerCase();
   const dataB64 = String(payload.data || payload.base64 || '')
     .replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '')
     .replace(/\s+/g, '');
@@ -1456,7 +1517,9 @@ async function applyClientImageUpload(workspaceId, leadId, payload = {}) {
       const appDir = path.join(openPreview.exportRoot(), `site-${site.id}`, sub);
       fs.mkdirSync(appDir, { recursive: true });
       fs.copyFileSync(absPath, path.join(appDir, name));
-    } catch { /* best effort */ }
+    } catch {
+      /* best effort */
+    }
     const newRel = `${sub}/${name}`;
 
     let pages = JSON.parse(JSON.stringify(site.pages));
@@ -1471,11 +1534,13 @@ async function applyClientImageUpload(workspaceId, leadId, payload = {}) {
 
     // Keep deliverable.images in sync so later rematerialize / publish keep the file.
     try {
-      const job = db.prepare(
-        `SELECT id, website_id, deliverable FROM design_jobs
+      const job = db
+        .prepare(
+          `SELECT id, website_id, deliverable FROM design_jobs
          WHERE lead_id = ? AND (website_id = ? OR website_id IS NULL)
          ORDER BY CASE WHEN website_id = ? THEN 0 ELSE 1 END, id DESC LIMIT 1`
-      ).get(Number(leadId), site.id, site.id);
+        )
+        .get(Number(leadId), site.id, site.id);
       if (job && job.deliverable) {
         const payloadJob = parseJsonSafe(job.deliverable, null);
         if (payloadJob && typeof payloadJob === 'object') {
@@ -1489,12 +1554,15 @@ async function applyClientImageUpload(workspaceId, leadId, payload = {}) {
             source: 'client-portal',
             replaced: oldRel,
           });
-          db.prepare(
-            `UPDATE design_jobs SET deliverable = ?, updated_at = datetime('now') WHERE id = ?`
-          ).run(JSON.stringify(payloadJob), job.id);
+          db.prepare(`UPDATE design_jobs SET deliverable = ?, updated_at = datetime('now') WHERE id = ?`).run(
+            JSON.stringify(payloadJob),
+            job.id
+          );
         }
       }
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
 
     return {
       siteId: site.id,
@@ -1504,9 +1572,7 @@ async function applyClientImageUpload(workspaceId, leadId, payload = {}) {
       newRel,
       previewFallback,
       assetBase,
-      publicUrl: assetBase
-        ? `${String(assetBase).replace(/\/+$/, '')}/${newRel}`
-        : null,
+      publicUrl: assetBase ? `${String(assetBase).replace(/\/+$/, '')}/${newRel}` : null,
     };
   });
 
@@ -1532,7 +1598,9 @@ async function applyClientImageUpload(workspaceId, leadId, payload = {}) {
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.writeFileSync(dest, buffer);
     }
-  } catch { /* best effort */ }
+  } catch {
+    /* best effort */
+  }
 
   const previewRow = domain.withDb(workspaceId, (db) =>
     db.prepare(`SELECT preview_url, preview_path, export_slug FROM websites WHERE id = ?`).get(prepared.siteId)
@@ -1543,8 +1611,8 @@ async function applyClientImageUpload(workspaceId, leadId, payload = {}) {
     siteId: prepared.siteId,
     replaced: prepared.oldRel,
     src: prepared.newRel,
-    publicUrl: prepared.publicUrl
-      || (previewUrl ? `${String(previewUrl).replace(/\/+$/, '')}/${prepared.newRel}` : null),
+    publicUrl:
+      prepared.publicUrl || (previewUrl ? `${String(previewUrl).replace(/\/+$/, '')}/${prepared.newRel}` : null),
     version: saved.version,
     previewUrl,
   };
@@ -1558,7 +1626,9 @@ async function applyModuleAssetUpload(workspaceId, leadId, payload = {}) {
   const domain = require('./domain');
   const openPreview = require('../src/openPreview');
 
-  const mimeClaimed = String(payload.mimeType || payload.contentType || '').trim().toLowerCase();
+  const mimeClaimed = String(payload.mimeType || payload.contentType || '')
+    .trim()
+    .toLowerCase();
   const dataB64 = String(payload.data || payload.base64 || '')
     .replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '')
     .replace(/\s+/g, '');
@@ -1622,9 +1692,9 @@ async function applyModuleAssetUpload(workspaceId, leadId, payload = {}) {
 
     const publicUrl = assetBase
       ? `${String(assetBase).replace(/\/+$/, '')}/${newRel}`
-      : (previewFallback
+      : previewFallback
         ? `${String(previewFallback).replace(/\/+$/, '')}/${newRel}`
-        : newRel);
+        : newRel;
 
     return { newRel, publicUrl };
   });
@@ -1678,10 +1748,9 @@ async function generateClientSiteImage(workspaceId, leadId, payload = {}, client
   try {
     const gen = await domain.withDb(workspaceId, async (db) => {
       if (!openaiImages.imageConfigured(db)) {
-        throw Object.assign(
-          new Error('Image generation is not configured yet. Contact support.'),
-          { code: 'AI_NOT_CONFIGURED' }
-        );
+        throw Object.assign(new Error('Image generation is not configured yet. Contact support.'), {
+          code: 'AI_NOT_CONFIGURED',
+        });
       }
       return openaiImages.generateImages(db, prompt, {
         n: 1,
@@ -1708,16 +1777,16 @@ async function generateClientSiteImage(workspaceId, leadId, payload = {}, client
 
     try {
       domain.intentRecord(workspaceId, Number(leadId), 'site.ai_image', prompt.slice(0, 160));
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
 
     return {
       ...out,
       prompt,
       model: gen.model || null,
       credits_charged: imageCost,
-      credits_balance: spendResult
-        ? spendResult.balance
-        : await creditMod.getBalance(workspaceId),
+      credits_balance: spendResult ? spendResult.balance : await creditMod.getBalance(workspaceId),
       social_images_included: included,
       plan: planId,
     };
@@ -1744,7 +1813,9 @@ async function generateClientSiteImage(workspaceId, leadId, payload = {}, client
  */
 async function applyClientLogoUpload(workspaceId, leadId, payload = {}) {
   const domain = require('./domain');
-  const modeRaw = String(payload.mode || '').trim().toLowerCase();
+  const modeRaw = String(payload.mode || '')
+    .trim()
+    .toLowerCase();
   const wantText = modeRaw === 'text' || payload.clear === true || payload.remove === true;
   const brandName = payload.brandName != null ? String(payload.brandName).trim().slice(0, 120) : undefined;
 
@@ -1761,7 +1832,9 @@ async function applyClientLogoUpload(workspaceId, leadId, payload = {}) {
     .replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '')
     .replace(/\s+/g, '');
   if (!dataB64) {
-    throw Object.assign(new Error('Missing logo image data (or pass mode: "text" to use text logo)'), { code: 'EMPTY' });
+    throw Object.assign(new Error('Missing logo image data (or pass mode: "text" to use text logo)'), {
+      code: 'EMPTY',
+    });
   }
 
   let buffer;
@@ -1787,7 +1860,9 @@ async function applyClientLogoUpload(workspaceId, leadId, payload = {}) {
 
   try {
     domain.intentRecord(workspaceId, Number(leadId), 'logo.uploaded', 'Client portal logo upload');
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
 
   return result;
 }
@@ -1798,7 +1873,7 @@ async function calendarPosts(workspaceId, leadId, { year, month, clientEmail } =
   const platform = require('./platform');
   const now = new Date();
   const y = Number(year) || now.getUTCFullYear();
-  const m = Number(month) || (now.getUTCMonth() + 1);
+  const m = Number(month) || now.getUTCMonth() + 1;
   const start = `${y}-${String(m).padStart(2, '0')}-01`;
   const endMonth = m === 12 ? 1 : m + 1;
   const endYear = m === 12 ? y + 1 : y;
@@ -1815,22 +1890,26 @@ async function calendarPosts(workspaceId, leadId, { year, month, clientEmail } =
 
   return domain.withDb(workspaceId, (db) => {
     social.ensureTables(db);
-    const rows = db.prepare(
-      `SELECT id, campaign_id, lead_id, day_index, scheduled_at, caption, platforms,
+    const rows = db
+      .prepare(
+        `SELECT id, campaign_id, lead_id, day_index, scheduled_at, caption, platforms,
               image_url, status, client_notes
        FROM social_posts
        WHERE lead_id = ?
          AND scheduled_at >= ?
          AND scheduled_at < ?
        ORDER BY scheduled_at ASC, id ASC`
-    ).all(Number(leadId), start, end);
+      )
+      .all(Number(leadId), start, end);
 
     const posts = rows.map((row) => {
       let platforms = ['facebook', 'instagram'];
       try {
         const parsed = typeof row.platforms === 'string' ? JSON.parse(row.platforms || '[]') : row.platforms;
         if (Array.isArray(parsed) && parsed.length) platforms = parsed;
-      } catch { /* */ }
+      } catch {
+        /* */
+      }
       return {
         id: row.id,
         campaign_id: row.campaign_id,
@@ -1876,10 +1955,10 @@ async function generatePostBrandedImage(workspaceId, leadId, postId, clientEmail
   if (requireSub) {
     const ok = await billing.workspaceHasProductAccess(workspaceId);
     if (!ok) {
-      throw Object.assign(
-        new Error('An active Bitpype account is required to generate branded image ads.'),
-        { code: 'PAYMENT_REQUIRED', status: 402 }
-      );
+      throw Object.assign(new Error('An active Bitpype account is required to generate branded image ads.'), {
+        code: 'PAYMENT_REQUIRED',
+        status: 402,
+      });
     }
   }
 
@@ -1914,9 +1993,7 @@ async function generatePostBrandedImage(workspaceId, leadId, postId, clientEmail
     return {
       ...out,
       credits_charged: imageCost,
-      credits_balance: spendResult
-        ? spendResult.balance
-        : await creditMod.getBalance(workspaceId),
+      credits_balance: spendResult ? spendResult.balance : await creditMod.getBalance(workspaceId),
     };
   } catch (e) {
     if (imageCost > 0) {
@@ -2036,9 +2113,10 @@ async function getContactForm(workspaceId, leadId, clientEmail, formId) {
   const forms = require('./contactForms');
   const { appUrl } = require('./stripeClient');
   return domain.withDb(workspaceId, (db) => {
-    const form = formId != null
-      ? forms.getFormById(db, Number(leadId), Number(formId))
-      : forms.getFormForLead(db, Number(leadId), clientEmail);
+    const form =
+      formId != null
+        ? forms.getFormById(db, Number(leadId), Number(formId))
+        : forms.getFormForLead(db, Number(leadId), clientEmail);
     const pages = forms.listSitePages(db, Number(leadId));
     const embed = forms.embedSnippet(form, appUrl());
     return { form, embed, pages, workspaceId: Number(workspaceId) };
@@ -2050,9 +2128,13 @@ async function createContactForm(workspaceId, leadId, body, clientEmail) {
   const forms = require('./contactForms');
   const { appUrl } = require('./stripeClient');
   return domain.withDb(workspaceId, (db) => {
-    const form = forms.createForm(db, Number(leadId), Object.assign({}, body || {}, {
-      notify_email: (body && body.notify_email) != null ? body.notify_email : clientEmail,
-    }));
+    const form = forms.createForm(
+      db,
+      Number(leadId),
+      Object.assign({}, body || {}, {
+        notify_email: (body && body.notify_email) != null ? body.notify_email : clientEmail,
+      })
+    );
     const pages = forms.listSitePages(db, Number(leadId));
     return { form, embed: forms.embedSnippet(form, appUrl()), pages, workspaceId: Number(workspaceId) };
   });
@@ -2062,20 +2144,27 @@ async function saveContactForm(workspaceId, leadId, patch, clientEmail, formId) 
   const domain = require('./domain');
   const forms = require('./contactForms');
   const { appUrl } = require('./stripeClient');
-  const id = formId != null ? Number(formId) : (patch && patch.id != null ? Number(patch.id) : null);
+  const id = formId != null ? Number(formId) : patch && patch.id != null ? Number(patch.id) : null;
   return domain.withDb(workspaceId, (db) => {
-    const form = forms.saveForm(db, Number(leadId), id, Object.assign({}, patch || {}, {
-      notify_email: patch && patch.notify_email != null ? patch.notify_email : clientEmail,
-    }));
+    const form = forms.saveForm(
+      db,
+      Number(leadId),
+      id,
+      Object.assign({}, patch || {}, {
+        notify_email: patch && patch.notify_email != null ? patch.notify_email : clientEmail,
+      })
+    );
     try {
       if (form.published) {
         forms.syncSiteFormEmbeds(db, Number(leadId));
-        const site = db.prepare(
-          'SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-        ).get(Number(leadId));
+        const site = db
+          .prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+          .get(Number(leadId));
         if (site) rematerializeFormSite(db, workspaceId, site.id);
       }
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
     const pages = forms.listSitePages(db, Number(leadId));
     return { form, embed: forms.embedSnippet(form, appUrl()), pages, workspaceId: Number(workspaceId) };
   });
@@ -2087,11 +2176,11 @@ async function deleteContactForm(workspaceId, leadId, formId) {
   return domain.withDb(workspaceId, (db) => {
     const result = forms.deleteForm(db, Number(leadId), Number(formId));
     try {
-      const site = db.prepare(
-        'SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-      ).get(Number(leadId));
+      const site = db.prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(Number(leadId));
       if (site) rematerializeFormSite(db, workspaceId, site.id);
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
     return result;
   });
 }
@@ -2119,7 +2208,9 @@ async function publishLiveAfterEmbed(workspaceId, siteId) {
     console.warn('[clientPortal] live publish after embed:', e.message);
     try {
       domain.withDb(workspaceId, (db) => rematerializeFormSite(db, workspaceId, id));
-    } catch { /* best-effort local export */ }
+    } catch {
+      /* best-effort local export */
+    }
     return null;
   }
 }
@@ -2128,7 +2219,7 @@ async function publishContactForm(workspaceId, leadId, opts = {}, formId) {
   const domain = require('./domain');
   const forms = require('./contactForms');
   const { appUrl } = require('./stripeClient');
-  const id = formId != null ? Number(formId) : (opts.formId != null ? Number(opts.formId) : null);
+  const id = formId != null ? Number(formId) : opts.formId != null ? Number(opts.formId) : null;
   const packed = domain.withDb(workspaceId, (db) => {
     // Persist attachment settings before publish when provided.
     if (id != null && (opts.embed_on_page != null || opts.embed_enabled != null || opts.target_page_slug != null)) {
@@ -2142,9 +2233,7 @@ async function publishContactForm(workspaceId, leadId, opts = {}, formId) {
       toSite: opts.toSite,
       workspaceId: Number(workspaceId),
     });
-    const site = db.prepare(
-      'SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-    ).get(Number(leadId));
+    const site = db.prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(Number(leadId));
     const pages = forms.listSitePages(db, Number(leadId));
     return {
       form,
@@ -2212,10 +2301,11 @@ async function requireSiteModules(workspaceId, clientEmail) {
   const planId = await billing.effectivePlan(workspaceId, { email: clientEmail });
   const ent = getPlan(planId).entitlements;
   if (!ent.siteModules) {
-    throw Object.assign(
-      new Error('Site modules require Standard or Premium. Upgrade in Billing.'),
-      { code: 'PLAN_REQUIRED', status: 403, plan: planId }
-    );
+    throw Object.assign(new Error('Site modules require Standard or Premium. Upgrade in Billing.'), {
+      code: 'PLAN_REQUIRED',
+      status: 403,
+      plan: planId,
+    });
   }
   return planId;
 }
@@ -2318,8 +2408,7 @@ async function createModuleItem(workspaceId, leadId, moduleType, body, clientEma
     else if (type === 'chatbot') {
       const chat = require('./chatbot');
       item = chat.addKnowledge(db, Number(leadId), body || {});
-    }
-    else throw Object.assign(new Error('Unknown module type'), { code: 'VALIDATION', status: 400 });
+    } else throw Object.assign(new Error('Unknown module type'), { code: 'VALIDATION', status: 400 });
     return { item, module_type: type };
   });
 }
@@ -2344,8 +2433,7 @@ async function updateModuleItem(workspaceId, leadId, moduleType, id, body, clien
     else if (type === 'chatbot') {
       const chat = require('./chatbot');
       item = chat.updateKnowledge(db, Number(leadId), id, body || {});
-    }
-    else throw Object.assign(new Error('Unknown module type'), { code: 'VALIDATION', status: 400 });
+    } else throw Object.assign(new Error('Unknown module type'), { code: 'VALIDATION', status: 400 });
     return { item, module_type: type };
   });
 }
@@ -2426,13 +2514,15 @@ async function uploadChatbotKnowledge(workspaceId, leadId, body, clientEmail) {
   const chat = require('./chatbot');
   const storedList = await chat.storeKnowledgeUploads(workspaceId, leadId, body || {});
   return domain.withDb(workspaceId, (db) => {
-    const items = storedList.map((stored) => chat.addKnowledge(db, Number(leadId), {
-      kind: 'doc',
-      title: stored.title,
-      content_text: stored.content_text,
-      file_name: stored.file_name,
-      file_path: stored.file_path,
-    }));
+    const items = storedList.map((stored) =>
+      chat.addKnowledge(db, Number(leadId), {
+        kind: 'doc',
+        title: stored.title,
+        content_text: stored.content_text,
+        file_name: stored.file_name,
+        file_path: stored.file_path,
+      })
+    );
     return {
       item: items[0] || null,
       items,
@@ -2490,7 +2580,7 @@ async function saveBookingHours(workspaceId, leadId, body, clientEmail) {
   const domain = require('./domain');
   const modules = require('./siteModules');
   await requireSiteModules(workspaceId, clientEmail);
-  const hours = Array.isArray(body && body.hours) ? body.hours : (Array.isArray(body) ? body : []);
+  const hours = Array.isArray(body && body.hours) ? body.hours : Array.isArray(body) ? body : [];
   return domain.withDb(workspaceId, (db) => ({
     hours: modules.setBookingHours(db, Number(leadId), hours),
   }));
@@ -2587,9 +2677,7 @@ async function attachSiteModule(workspaceId, leadId, moduleType, opts = {}, clie
       embed_enabled: opts.embed_enabled != null ? opts.embed_enabled : opts.toSite !== false,
       appUrl: appUrl(),
     });
-    const site = db.prepare(
-      'SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-    ).get(Number(leadId));
+    const site = db.prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(Number(leadId));
     return {
       ...result,
       pages: modules.listSitePages(db, Number(leadId)),
@@ -2615,9 +2703,7 @@ async function detachSiteModule(workspaceId, leadId, moduleType, clientEmail) {
   await requireSiteModules(workspaceId, clientEmail);
   const packed = domain.withDb(workspaceId, (db) => {
     const result = modules.detachModule(db, Number(leadId), moduleType);
-    const site = db.prepare(
-      'SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-    ).get(Number(leadId));
+    const site = db.prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(Number(leadId));
     return { ...result, siteId: site && site.id };
   });
   let preview = null;
@@ -2638,10 +2724,10 @@ async function requireClientMcpPlan(workspaceId, clientEmail) {
   const { isPaidPlan } = require('./plans');
   const planId = await billing.effectivePlan(workspaceId, { email: clientEmail });
   if (!isPaidPlan(planId)) {
-    throw Object.assign(
-      new Error('Client MCP tokens require Standard or Premium. Upgrade in Billing.'),
-      { code: 'FORBIDDEN', status: 403 }
-    );
+    throw Object.assign(new Error('Client MCP tokens require Standard or Premium. Upgrade in Billing.'), {
+      code: 'FORBIDDEN',
+      status: 403,
+    });
   }
   return planId;
 }
@@ -2678,16 +2764,21 @@ async function revokeClientMcpToken(workspaceId, leadId, clientEmail, tokenId) {
 async function createClientMcpToken(workspaceId, leadId, clientEmail, opts = {}) {
   const { createWorkspaceToken } = require('./workspace');
   await requireClientMcpPlan(workspaceId, clientEmail);
-  const custom = String(opts.name || '').trim().slice(0, 80);
-  const name = custom
-    || `Client portal · ${String(clientEmail || '').slice(0, 40)} · lead ${leadId}`;
-  const created = await createWorkspaceToken(workspaceId, name, { leadId: Number(leadId), expiresAt: opts.expiresAt ?? null, oauthUserId: opts.oauthUserId ?? null });
+  const custom = String(opts.name || '')
+    .trim()
+    .slice(0, 80);
+  const name = custom || `Client portal · ${String(clientEmail || '').slice(0, 40)} · lead ${leadId}`;
+  const created = await createWorkspaceToken(workspaceId, name, {
+    leadId: Number(leadId),
+    expiresAt: opts.expiresAt ?? null,
+    oauthUserId: opts.oauthUserId ?? null,
+  });
   return {
     ...created,
     hint:
-      'Lead-scoped Bearer token for Muse or any MCP client. Connect to your workspace /mcp URL. '
-      + 'Start with site.get, then site.editText / pages.structure.update / modules.* / site.publish. '
-      + 'Social post scheduling via social.posts.* is Premium only; form inbox stays in the portal UI.',
+      'Lead-scoped Bearer token for Muse or any MCP client. Connect to your workspace /mcp URL. ' +
+      'Start with site.get, then site.editText / pages.structure.update / modules.* / site.publish. ' +
+      'Social post scheduling via social.posts.* is Premium only; form inbox stays in the portal UI.',
   };
 }
 
@@ -2695,9 +2786,7 @@ async function submitChangeRequest(workspaceId, leadId, clientEmail, body = {}) 
   const domain = require('./domain');
   const designJobs = require('../src/designJobs');
   const message = String(body.message || body.instructions || '').trim();
-  const kind = String(body.kind || 'improvements').toLowerCase() === 'redesign'
-    ? 'redesign'
-    : 'improvements';
+  const kind = String(body.kind || 'improvements').toLowerCase() === 'redesign' ? 'redesign' : 'improvements';
 
   if (!message) {
     throw Object.assign(new Error('Describe the changes you need'), { code: 'EMPTY' });
@@ -2705,9 +2794,7 @@ async function submitChangeRequest(workspaceId, leadId, clientEmail, body = {}) 
 
   return domain.withDb(workspaceId, async (db) => {
     designJobs.ensureTables(db);
-    let job = db.prepare(
-      `SELECT * FROM design_jobs WHERE lead_id = ? ORDER BY id DESC LIMIT 1`
-    ).get(Number(leadId));
+    let job = db.prepare(`SELECT * FROM design_jobs WHERE lead_id = ? ORDER BY id DESC LIMIT 1`).get(Number(leadId));
 
     if (!job) {
       const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(Number(leadId));
@@ -2759,10 +2846,11 @@ async function ensureBillingUserForPortalClient(workspaceId, clientEmail, busine
   if (!user) {
     const hash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
     const name = String(businessName || '').trim() || e.split('@')[0] || 'Client';
-    const result = await query(
-      `INSERT INTO users (email, password_hash, name) VALUES (:email, :hash, :name)`,
-      { email: e, hash, name: name.slice(0, 120) }
-    );
+    const result = await query(`INSERT INTO users (email, password_hash, name) VALUES (:email, :hash, :name)`, {
+      email: e,
+      hash,
+      name: name.slice(0, 120),
+    });
     let userId = result && result.insertId;
     if (!userId) {
       rows = await query(`SELECT id FROM users WHERE email = :email LIMIT 1`, { email: e });
@@ -2854,8 +2942,12 @@ async function billingForClient(workspaceId, clientEmail) {
     entitlementPlan: planId,
     plans: await billing.catalogForApi(),
     subscriptionStatus: statusSource
-      ? (statusSource.subscription_status || (workspaceSubscribed ? 'active' : (displayPlan === 'free' ? 'free' : 'none')))
-      : (workspaceSubscribed ? 'active' : (displayPlan === 'free' ? 'free' : 'none')),
+      ? statusSource.subscription_status || (workspaceSubscribed ? 'active' : displayPlan === 'free' ? 'free' : 'none')
+      : workspaceSubscribed
+        ? 'active'
+        : displayPlan === 'free'
+          ? 'free'
+          : 'none',
     currentPeriodEnd: statusSource ? statusSource.current_period_end : null,
     cancelAtPeriodEnd,
     canManage: canSelfServe,
@@ -2867,9 +2959,9 @@ async function billingForClient(workspaceId, clientEmail) {
     amountLabel: await require('./platform').getPlatformSetting('billing.amount_label', 'Bitpype plans'),
     notice: coveredByOthers
       ? 'Your service is active under your Bitpype plan. Contact us to change billing.'
-      : (cancelAtPeriodEnd
+      : cancelAtPeriodEnd
         ? 'Cancellation scheduled — you keep access until the period ends, then move to Free.'
-        : null),
+        : null,
     credits: creditInfo,
   };
 }
@@ -2877,10 +2969,9 @@ async function billingForClient(workspaceId, clientEmail) {
 async function openBillingPortal(workspaceId, clientEmail) {
   const info = await billingForClient(workspaceId, clientEmail);
   if (!info.canSelfServe) {
-    throw Object.assign(
-      new Error(info.notice || 'Billing is managed by your Bitpype account manager'),
-      { code: 'NO_SELF_BILLING' }
-    );
+    throw Object.assign(new Error(info.notice || 'Billing is managed by your Bitpype account manager'), {
+      code: 'NO_SELF_BILLING',
+    });
   }
   const portalUser = await findByEmail(clientEmail);
   const userId = await ensureBillingUserForPortalClient(
@@ -2909,10 +3000,9 @@ async function openBillingPortal(workspaceId, clientEmail) {
 async function openCheckout(workspaceId, clientEmail, planId = 'standard') {
   const info = await billingForClient(workspaceId, clientEmail);
   if (!info.canSelfServe) {
-    throw Object.assign(
-      new Error(info.notice || 'Billing is managed by your Bitpype account manager'),
-      { code: 'NO_SELF_BILLING' }
-    );
+    throw Object.assign(new Error(info.notice || 'Billing is managed by your Bitpype account manager'), {
+      code: 'NO_SELF_BILLING',
+    });
   }
   const portalUser = await findByEmail(clientEmail);
   const userId = await ensureBillingUserForPortalClient(
@@ -2932,10 +3022,9 @@ async function openCheckout(workspaceId, clientEmail, planId = 'standard') {
 async function changePlan(workspaceId, clientEmail, planId) {
   const info = await billingForClient(workspaceId, clientEmail);
   if (!info.canSelfServe) {
-    throw Object.assign(
-      new Error(info.notice || 'Billing is managed by your Bitpype account manager'),
-      { code: 'NO_SELF_BILLING' }
-    );
+    throw Object.assign(new Error(info.notice || 'Billing is managed by your Bitpype account manager'), {
+      code: 'NO_SELF_BILLING',
+    });
   }
   const portalUser = await findByEmail(clientEmail);
   const userId = await ensureBillingUserForPortalClient(
@@ -2958,10 +3047,9 @@ async function cancelToFree(workspaceId, clientEmail) {
 async function resumeBilling(workspaceId, clientEmail) {
   const info = await billingForClient(workspaceId, clientEmail);
   if (!info.canSelfServe) {
-    throw Object.assign(
-      new Error(info.notice || 'Billing is managed by your Bitpype account manager'),
-      { code: 'NO_SELF_BILLING' }
-    );
+    throw Object.assign(new Error(info.notice || 'Billing is managed by your Bitpype account manager'), {
+      code: 'NO_SELF_BILLING',
+    });
   }
   const portalUser = await findByEmail(clientEmail);
   const userId = await ensureBillingUserForPortalClient(
@@ -2975,10 +3063,9 @@ async function resumeBilling(workspaceId, clientEmail) {
 async function openCreditsCheckout(workspaceId, clientEmail, quantity = 1) {
   const info = await billingForClient(workspaceId, clientEmail);
   if (!info.canSelfServe) {
-    throw Object.assign(
-      new Error(info.notice || 'Billing is managed by your Bitpype account manager'),
-      { code: 'NO_SELF_BILLING' }
-    );
+    throw Object.assign(new Error(info.notice || 'Billing is managed by your Bitpype account manager'), {
+      code: 'NO_SELF_BILLING',
+    });
   }
   const portalUser = await findByEmail(clientEmail);
   const userId = await ensureBillingUserForPortalClient(
@@ -3006,12 +3093,14 @@ function leadScoutScope(leadId, workspaceWide) {
 function listLeadScoutContacts(workspaceId, leadId, opts = {}, { workspaceWide = false } = {}) {
   const domain = require('./domain');
   const contacts = require('./portalContacts');
-  return domain.withDb(workspaceId, (db) => contacts.listContacts(db, {
-    leadId: leadScoutScope(leadId, workspaceWide),
-    q: opts.q || '',
-    limit: opts.limit,
-    offset: opts.offset,
-  }));
+  return domain.withDb(workspaceId, (db) =>
+    contacts.listContacts(db, {
+      leadId: leadScoutScope(leadId, workspaceWide),
+      q: opts.q || '',
+      limit: opts.limit,
+      offset: opts.offset,
+    })
+  );
 }
 
 function getLeadScoutContact(workspaceId, leadId, contactId, { workspaceWide = false } = {}) {
@@ -3140,16 +3229,17 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     }
   });
 
-  const pageSlug = body.pageSlug != null && String(body.pageSlug).trim() !== ''
-    ? String(body.pageSlug).trim()
-    : undefined;
+  const pageSlug =
+    body.pageSlug != null && String(body.pageSlug).trim() !== '' ? String(body.pageSlug).trim() : undefined;
 
-  const loop = await domain.withDb(workspaceId, async (db) => museAgent.runPortalImproveLoop(workspaceId, leadId, {
-    db,
-    message,
-    history: body.history,
-    pageSlug,
-  }));
+  const loop = await domain.withDb(workspaceId, async (db) =>
+    museAgent.runPortalImproveLoop(workspaceId, leadId, {
+      db,
+      message,
+      history: body.history,
+      pageSlug,
+    })
+  );
 
   if (loop && loop.error === 'muse_not_configured') {
     throw Object.assign(
@@ -3158,15 +3248,17 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     );
   }
   if (loop && loop.error === 'budget_exceeded') {
-    throw Object.assign(
-      new Error('Daily AI budget reached. Try again tomorrow or contact support.'),
-      { code: 'BUDGET_EXCEEDED' }
-    );
+    throw Object.assign(new Error('Daily AI budget reached. Try again tomorrow or contact support.'), {
+      code: 'BUDGET_EXCEEDED',
+    });
   }
 
   if (loop && loop.error && !loop.mutated) {
     console.warn('[clientPortal] AI improvement failed:', String(loop.error).slice(0, 80));
-    throw Object.assign(new Error('The AI could not apply this change. No website changes were saved. Please try again.'), { code: 'AI_IMPROVEMENT_FAILED', status: 502 });
+    throw Object.assign(
+      new Error('The AI could not apply this change. No website changes were saved. Please try again.'),
+      { code: 'AI_IMPROVEMENT_FAILED', status: 502 }
+    );
   }
 
   // Ensure preview is rematerialized even if Muse skipped publish.
@@ -3198,9 +3290,10 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     mutated: !!(loop && loop.mutated),
     published: !!(loop && loop.published),
     model: loop && loop.model,
-    error: loop && loop.error && loop.error !== 'muse_not_configured' && loop.error !== 'budget_exceeded'
-      ? loop.error
-      : null,
+    error:
+      loop && loop.error && loop.error !== 'muse_not_configured' && loop.error !== 'budget_exceeded'
+        ? loop.error
+        : null,
     html: rendered.html,
     previewUrl: rendered.previewUrl,
     editable: !!rendered.editable,
@@ -3226,7 +3319,9 @@ function prepareCanvasBlock(workspaceId, leadId, body = {}) {
   const base = appUrl();
 
   if (kind === 'layout' || kind === 'design-module' || kind === 'design_module' || kind === 'section') {
-    const sectionType = String(body.type || body.sectionType || body.section_type || 'text').trim().toLowerCase();
+    const sectionType = String(body.type || body.sectionType || body.section_type || 'text')
+      .trim()
+      .toLowerCase();
     if (!sectionType) {
       throw Object.assign(new Error('type is required'), { code: 'INVALID' });
     }
@@ -3238,7 +3333,9 @@ function prepareCanvasBlock(workspaceId, leadId, body = {}) {
   }
 
   if (kind === 'module' || kind === 'widget-module') {
-    const moduleType = String(body.type || body.moduleType || body.module_type || '').trim().toLowerCase();
+    const moduleType = String(body.type || body.moduleType || body.module_type || '')
+      .trim()
+      .toLowerCase();
     if (!moduleType) {
       throw Object.assign(new Error('module type is required'), { code: 'INVALID' });
     }
@@ -3276,9 +3373,9 @@ function prepareCanvasBlock(workspaceId, leadId, body = {}) {
         row = forms.getFormRowById(db, Number(leadId), formId);
       }
       if (!row && body.token) {
-        row = db.prepare(
-          'SELECT * FROM contact_forms WHERE lead_id = ? AND public_token = ?'
-        ).get(Number(leadId), String(body.token));
+        row = db
+          .prepare('SELECT * FROM contact_forms WHERE lead_id = ? AND public_token = ?')
+          .get(Number(leadId), String(body.token));
       }
       if (!row && typeof forms.listFormRows === 'function') {
         const list = forms.listFormRows(db, Number(leadId));
@@ -3345,7 +3442,9 @@ function getClientSiteStructure(workspaceId, leadId) {
 function ensureModuleTokenForInsert(db, workspaceId, leadId, moduleType) {
   const modules = require('./siteModules');
   const { appUrl } = require('./stripeClient');
-  const type = String(moduleType || '').trim().toLowerCase();
+  const type = String(moduleType || '')
+    .trim()
+    .toLowerCase();
   if (!modules.MODULE_TYPES.includes(type)) {
     throw Object.assign(new Error(`Unknown module type: ${type}`), { code: 'INVALID' });
   }
@@ -3362,9 +3461,10 @@ function ensureModuleTokenForInsert(db, workspaceId, leadId, moduleType) {
   }
   if (!row.public_token) {
     const token = modules.makePublicToken(Number(workspaceId));
-    db.prepare(
-      "UPDATE site_module_embeds SET public_token = ?, updated_at = datetime('now') WHERE id = ?"
-    ).run(token, row.id);
+    db.prepare("UPDATE site_module_embeds SET public_token = ?, updated_at = datetime('now') WHERE id = ?").run(
+      token,
+      row.id
+    );
     row = modules.getEmbedRow(db, Number(leadId), type);
   }
   return {
@@ -3385,8 +3485,13 @@ function applyClientStructureReorder(workspaceId, leadId, body = {}) {
   const isUnnest = action === 'unnest' || action === 'outdent';
   const isToggleNav = action === 'togglenav' || action === 'toggle-nav' || action === 'toggle_nav';
   const isInsertModule = action === 'insertmodule' || action === 'insert-module' || action === 'insert_module';
-  const isInsertSection = action === 'insertsection' || action === 'insert-section' || action === 'insert_section'
-    || action === 'insertblock' || action === 'insert-block' || action === 'insert_block';
+  const isInsertSection =
+    action === 'insertsection' ||
+    action === 'insert-section' ||
+    action === 'insert_section' ||
+    action === 'insertblock' ||
+    action === 'insert-block' ||
+    action === 'insert_block';
   const isAddPage = action === 'addpage' || action === 'add-page' || action === 'add_page';
   if (scope !== 'menu' && scope !== 'sections') {
     throw Object.assign(new Error('scope must be menu or sections'), { code: 'INVALID' });
@@ -3402,13 +3507,21 @@ function applyClientStructureReorder(workspaceId, leadId, body = {}) {
   } else if (!Number.isInteger(fromIndex) || fromIndex < 0) {
     throw Object.assign(new Error('Invalid fromIndex'), { code: 'INVALID' });
   }
-  if (!isInsertModule && !isInsertSection && !isAddPage && scope === 'sections' && (!isNest && !isUnnest && !isToggleNav)) {
+  if (
+    !isInsertModule &&
+    !isInsertSection &&
+    !isAddPage &&
+    scope === 'sections' &&
+    !isNest &&
+    !isUnnest &&
+    !isToggleNav
+  ) {
     const direction = Number(body.direction);
     if (direction !== 1 && direction !== -1) {
       throw Object.assign(new Error('direction must be 1 or -1'), { code: 'INVALID' });
     }
   }
-  if (!isInsertModule && !isInsertSection && !isAddPage && scope === 'menu' && (!isNest && !isUnnest && !isToggleNav)) {
+  if (!isInsertModule && !isInsertSection && !isAddPage && scope === 'menu' && !isNest && !isUnnest && !isToggleNav) {
     const direction = Number(body.direction);
     if (direction !== 1 && direction !== -1) {
       throw Object.assign(new Error('direction must be 1 or -1'), { code: 'INVALID' });
@@ -3438,16 +3551,19 @@ function applyClientStructureReorder(workspaceId, leadId, body = {}) {
       if (!result.changed) {
         throw Object.assign(new Error('Could not create page'), { code: 'NO_MOVE' });
       }
-      if (result.pageIndex != null && result.pages[result.pageIndex]
-        && typeof result.pages[result.pageIndex].html === 'string') {
-        result.pages[result.pageIndex].html = modules.ensureClientPageChrome(
-          result.pages[result.pageIndex].html
-        );
+      if (
+        result.pageIndex != null &&
+        result.pages[result.pageIndex] &&
+        typeof result.pages[result.pageIndex].html === 'string'
+      ) {
+        result.pages[result.pageIndex].html = modules.ensureClientPageChrome(result.pages[result.pageIndex].html);
       }
     } else if (isInsertSection) {
       const pageIndex = Number(body.pageIndex);
       const afterIndex = Number(body.afterIndex);
-      const sectionType = String(body.sectionType || body.section_type || body.type || '').trim().toLowerCase();
+      const sectionType = String(body.sectionType || body.section_type || body.type || '')
+        .trim()
+        .toLowerCase();
       if (!Number.isInteger(pageIndex) || pageIndex < 0) {
         throw Object.assign(new Error('Invalid pageIndex'), { code: 'INVALID' });
       }
@@ -3462,16 +3578,20 @@ function applyClientStructureReorder(workspaceId, leadId, body = {}) {
       result = structure.insertContentSection(site.pages, pageIndex, afterIndex, sectionType, { cols, html });
       if (!result.changed) {
         throw Object.assign(
-          new Error(result.reason === 'no_sections'
-            ? 'This page has no modular sections yet'
-            : 'Cannot insert that section type'),
+          new Error(
+            result.reason === 'no_sections'
+              ? 'This page has no modular sections yet'
+              : 'Cannot insert that section type'
+          ),
           { code: 'NO_MOVE' }
         );
       }
     } else if (isInsertModule) {
       const pageIndex = Number(body.pageIndex);
       const afterIndex = Number(body.afterIndex);
-      const moduleType = String(body.moduleType || body.module_type || '').trim().toLowerCase();
+      const moduleType = String(body.moduleType || body.module_type || '')
+        .trim()
+        .toLowerCase();
       if (!Number.isInteger(pageIndex) || pageIndex < 0) {
         throw Object.assign(new Error('Invalid pageIndex'), { code: 'INVALID' });
       }
@@ -3506,7 +3626,7 @@ function applyClientStructureReorder(workspaceId, leadId, body = {}) {
       }
     } else if (scope === 'menu') {
       result = structure.applyMenuAction(site.pages, {
-        action: isToggleNav ? 'toggleNav' : (isNest ? 'nest' : (isUnnest ? 'unnest' : 'move')),
+        action: isToggleNav ? 'toggleNav' : isNest ? 'nest' : isUnnest ? 'unnest' : 'move',
         fromIndex,
         direction: body.direction,
       });
@@ -3531,15 +3651,19 @@ function applyClientStructureReorder(workspaceId, leadId, body = {}) {
 
   const note = isAddPage
     ? 'Client portal: added page'
-    : (isInsertSection
+    : isInsertSection
       ? 'Client portal: inserted layout section'
-      : (isInsertModule
+      : isInsertModule
         ? 'Client portal: inserted module section'
-        : (scope === 'menu'
-          ? (isToggleNav ? 'Client portal: menu visibility'
-            : (isNest ? 'Client portal: nested menu item'
-              : (isUnnest ? 'Client portal: unnested menu item' : 'Client portal: reordered menu')))
-          : 'Client portal: reordered sections')));
+        : scope === 'menu'
+          ? isToggleNav
+            ? 'Client portal: menu visibility'
+            : isNest
+              ? 'Client portal: nested menu item'
+              : isUnnest
+                ? 'Client portal: unnested menu item'
+                : 'Client portal: reordered menu'
+          : 'Client portal: reordered sections';
   const saved = domain.sitesSave(workspaceId, prepared.siteId, {
     pages: prepared.pages,
     theme: prepared.theme,

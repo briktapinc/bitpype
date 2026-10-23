@@ -30,7 +30,9 @@ let _lastPruneAt = 0;
 const PRUNE_EVERY_MS = 60 * 1000;
 
 function appBaseUrl() {
-  const raw = String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  const raw = String(process.env.APP_URL || '')
+    .trim()
+    .replace(/\/+$/, '');
   if (raw) return raw;
   return 'http://127.0.0.1:3000';
 }
@@ -148,7 +150,9 @@ async function pruneExpired() {
   } catch (e) {
     try {
       process.stderr.write(`[mcp-oauth] prune failed: ${e && e.message}\n`);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -158,10 +162,9 @@ async function getClient(clientId) {
   if (id === STATIC_CLIENT_ID) return staticClient();
   await ensureOAuthTables();
   await pruneExpired();
-  const rows = await query(
-    'SELECT payload_json, expires_at FROM mcp_oauth_clients WHERE client_id = :id LIMIT 1',
-    { id }
-  );
+  const rows = await query('SELECT payload_json, expires_at FROM mcp_oauth_clients WHERE client_id = :id LIMIT 1', {
+    id,
+  });
   const row = rows && rows[0];
   if (!row) return null;
   if (Number(row.expires_at) <= Date.now()) {
@@ -296,7 +299,11 @@ async function validateAuthorizeParams(q) {
       resource: resource || mcpResourceUrl(),
       client_name: client.client_name || clientId,
       redirect_host: (() => {
-        try { return new URL(redirectUri).hostname; } catch { return ''; }
+        try {
+          return new URL(redirectUri).hostname;
+        } catch {
+          return '';
+        }
       })(),
     },
   };
@@ -399,23 +406,26 @@ function verifyPkce(verifier, challenge) {
 
 async function mintAccessToken(row) {
   const identity = await portal.findByEmail(row.email);
-  if (!identity || (row.portalUserId && Number(row.portalUserId) !== Number(identity.id)) || identity.status !== 'active'
-    || Number(identity.workspace_id) !== Number(row.workspaceId)
-    || Number(identity.lead_id) !== Number(row.leadId)) {
-    throw Object.assign(new Error('OAuth client identity is inactive or no longer matches this site'), { oauth: 'invalid_grant', status: 400 });
+  if (
+    !identity ||
+    (row.portalUserId && Number(row.portalUserId) !== Number(identity.id)) ||
+    identity.status !== 'active' ||
+    Number(identity.workspace_id) !== Number(row.workspaceId) ||
+    Number(identity.lead_id) !== Number(row.leadId)
+  ) {
+    throw Object.assign(new Error('OAuth client identity is inactive or no longer matches this site'), {
+      oauth: 'invalid_grant',
+      status: 400,
+    });
   }
   const name = `Claude OAuth · ${String(row.email || '').slice(0, 36)} · lead ${row.leadId}`;
-  const created = await portal.createClientMcpToken(
-    row.workspaceId,
-    row.leadId,
-    row.email,
-    { name, expiresAt: Date.now() + ACCESS_TTL_SEC * 1000, oauthUserId: Number(identity.id) }
-  );
+  const created = await portal.createClientMcpToken(row.workspaceId, row.leadId, row.email, {
+    name,
+    expiresAt: Date.now() + ACCESS_TTL_SEC * 1000,
+    oauthUserId: Number(identity.id),
+  });
   const tokenHash = hashToken(created.token);
-  const rows = await query(
-    'SELECT id FROM workspace_tokens WHERE token_hash = :tokenHash LIMIT 1',
-    { tokenHash }
-  );
+  const rows = await query('SELECT id FROM workspace_tokens WHERE token_hash = :tokenHash LIMIT 1', { tokenHash });
   const tokenId = rows[0] && rows[0].id;
   return { accessToken: created.token, tokenId, prefix: created.prefix, portalUserId: Number(identity.id) };
 }
@@ -438,10 +448,9 @@ async function storeRefresh(refreshRaw, meta) {
 async function takeAuthCode(code) {
   await ensureOAuthTables();
   const now = Date.now();
-  const rows = await query(
-    'SELECT payload_json, expires_at FROM mcp_oauth_auth_codes WHERE code = :code LIMIT 1',
-    { code }
-  );
+  const rows = await query('SELECT payload_json, expires_at FROM mcp_oauth_auth_codes WHERE code = :code LIMIT 1', {
+    code,
+  });
   const row = rows && rows[0];
   if (!row) return null;
   if (Number(row.expires_at) <= now) {
@@ -470,10 +479,7 @@ async function takeRefresh(tokenHash) {
     await query('DELETE FROM mcp_oauth_refresh_tokens WHERE token_hash = :tokenHash', { tokenHash });
     return null;
   }
-  const del = await query(
-    'DELETE FROM mcp_oauth_refresh_tokens WHERE token_hash = :tokenHash',
-    { tokenHash }
-  );
+  const del = await query('DELETE FROM mcp_oauth_refresh_tokens WHERE token_hash = :tokenHash', { tokenHash });
   if (!affected(del)) return null;
   try {
     return JSON.parse(row.payload_json);
@@ -562,11 +568,18 @@ async function exchangeRefreshToken(params) {
   }
 
   // Consuming the refresh alone cannot revive a manually revoked access credential.
-  const revoked = row.tokenId ? await query(`DELETE FROM workspace_tokens
+  const revoked = row.tokenId
+    ? await query(
+        `DELETE FROM workspace_tokens
     WHERE id = :id AND workspace_id = :workspaceId AND lead_id = :leadId`,
-    { id: Number(row.tokenId), workspaceId: row.workspaceId, leadId: row.leadId }) : null;
+        { id: Number(row.tokenId), workspaceId: row.workspaceId, leadId: row.leadId }
+      )
+    : null;
   if (!affected(revoked)) {
-    throw Object.assign(new Error('OAuth access was revoked; reconnect to authorize again'), { oauth: 'invalid_grant', status: 400 });
+    throw Object.assign(new Error('OAuth access was revoked; reconnect to authorize again'), {
+      oauth: 'invalid_grant',
+      status: 400,
+    });
   }
 
   const minted = await mintAccessToken(row);

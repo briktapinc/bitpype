@@ -127,13 +127,10 @@ async function processLogoBuffer(inputBuffer, opts = {}) {
 function patchLogoInHtmlFragment(html, imgTag) {
   let out = String(html || '');
   let touched = false;
-  out = out.replace(
-    /<img\b([^>]*\b(?:data-ws-logo|class=["'][^"']*\b(?:brand-logo|logo)\b[^"']*["'])[^>]*)>/gi,
-    () => {
-      touched = true;
-      return imgTag;
-    }
-  );
+  out = out.replace(/<img\b([^>]*\b(?:data-ws-logo|class=["'][^"']*\b(?:brand-logo|logo)\b[^"']*["'])[^>]*)>/gi, () => {
+    touched = true;
+    return imgTag;
+  });
   out = out.replace(
     /<(a|div|span)\b([^>]*\b(?:class=["'][^"']*\b(?:brand|logo|site-logo|navbar-brand)\b[^"']*["']|data-ws-brand)[^>]*)>([\s\S]*?)<\/\1>/gi,
     (m, tag, attrs) => {
@@ -160,8 +157,11 @@ function applyLogoMarkupToPages(pages, logoUrl, brandName) {
         let content = Object.assign({}, sec.content);
         if (sec.type === 'nav') content.logo_url = logoUrl;
         // Freestyle nav/header chrome stores the brand mark inside content.html.
-        if (typeof content.html === 'string' && content.html.trim()
-          && (sec.type === 'nav' || sec.type === 'html' || /brand|logo|header/i.test(content.html.slice(0, 800)))) {
+        if (
+          typeof content.html === 'string' &&
+          content.html.trim() &&
+          (sec.type === 'nav' || sec.type === 'html' || /brand|logo|header/i.test(content.html.slice(0, 800)))
+        ) {
           const patched = patchLogoInHtmlFragment(content.html, imgTag);
           if (patched.touched) content = Object.assign({}, content, { html: patched.html });
         }

@@ -18,9 +18,8 @@ function assert(cond, msg, dump) {
 
 function countHomeInNav(html) {
   const nav = (String(html || '').match(/<nav\b[\s\S]*?<\/nav>/i) || [])[0] || '';
-  return [...nav.matchAll(/<a\b[^>]*>[\s\S]*?<\/a>/gi)].filter((m) =>
-    /\bhome\b/i.test(m[0].replace(/<[^>]+>/g, ''))
-  ).length;
+  return [...nav.matchAll(/<a\b[^>]*>[\s\S]*?<\/a>/gi)].filter((m) => /\bhome\b/i.test(m[0].replace(/<[^>]+>/g, '')))
+    .length;
 }
 
 function primaryNav(html) {
@@ -102,9 +101,7 @@ const withBlogLabel = `<header><nav>
   <a href="/">Home</a>
   <a href="/journal">Blog</a>
 </nav></header><main></main>`;
-const afterInsert = modules.insertModuleNavLinks
-  ? null
-  : null;
+const afterInsert = modules.insertModuleNavLinks ? null : null;
 // insertModuleNavLinks is not exported — exercise via rebuild with active module page.
 const blogPages = [
   { slug: '/', title: 'Home', html: withBlogLabel },
@@ -123,9 +120,8 @@ assert(blogLinks.length === 1, 'Blog label not duplicated', blogNav);
 // ── CTA label dedupe: Book Now with nav-cta / btn must collapse ─────
 function countLabelInNav(html, labelRe) {
   const nav = primaryNav(html);
-  return [...nav.matchAll(/<a\b[^>]*>[\s\S]*?<\/a>/gi)].filter((m) =>
-    labelRe.test(m[0].replace(/<[^>]+>/g, ''))
-  ).length;
+  return [...nav.matchAll(/<a\b[^>]*>[\s\S]*?<\/a>/gi)].filter((m) => labelRe.test(m[0].replace(/<[^>]+>/g, '')))
+    .length;
 }
 
 const bookNowDupHtml = `<header><nav>
@@ -137,7 +133,11 @@ const bookNowDupHtml = `<header><nav>
 </nav></header>`;
 const bookDeduped = eng.assertAndDedupeNavHtml(bookNowDupHtml, 'book-now-cta');
 assert(countLabelInNav(bookDeduped, /\bbook now\b/i) === 1, 'dedupe collapses Book Now CTAs', primaryNav(bookDeduped));
-assert(/data-ws-brand|class=["'][^"']*\bbrand\b/i.test(primaryNav(bookDeduped)), 'brand logo kept', primaryNav(bookDeduped));
+assert(
+  /data-ws-brand|class=["'][^"']*\bbrand\b/i.test(primaryNav(bookDeduped)),
+  'brand logo kept',
+  primaryNav(bookDeduped)
+);
 assert(countHomeInNav(bookDeduped) === 1, 'Home still singular beside brand', primaryNav(bookDeduped));
 assert(eng.findNavDuplicateIssues(bookDeduped).length === 0, 'no issues after Book Now dedupe');
 
@@ -188,11 +188,7 @@ const bookSynced = structure.syncFreeformNavOrder(JSON.parse(JSON.stringify(book
   activeModules: [{ type: 'bookings', slug: 'book', label: 'Book Now' }],
 });
 for (const p of bookSynced) {
-  assert(
-    countLabelInNav(p.html, /\bbook now\b/i) === 1,
-    `sync page ${p.slug}: one Book Now`,
-    primaryNav(p.html)
-  );
+  assert(countLabelInNav(p.html, /\bbook now\b/i) === 1, `sync page ${p.slug}: one Book Now`, primaryNav(p.html));
   const issues = eng.findNavDuplicateIssues(p.html);
   assert(issues.length === 0, `sync page ${p.slug}: no nav dupes`, JSON.stringify(issues));
 }

@@ -16,9 +16,18 @@ const MAX_SNAPSHOT = 12000;
 const UA = 'WebsiteScout/0.1 (+local; site-ingest)';
 
 const AREA_SLUGS = [
-  'brooklyn-ny', 'manhattan-ny', 'queens-ny', 'bronx-ny', 'the-bronx-ny',
-  'staten-island-ny', 'westchester-ny', 'long-island-ny', 'nassau-ny',
-  'suffolk-ny', 'jersey-city-nj', 'hoboken-nj',
+  'brooklyn-ny',
+  'manhattan-ny',
+  'queens-ny',
+  'bronx-ny',
+  'the-bronx-ny',
+  'staten-island-ny',
+  'westchester-ny',
+  'long-island-ny',
+  'nassau-ny',
+  'suffolk-ny',
+  'jersey-city-nj',
+  'hoboken-nj',
 ];
 
 const PAGE_HINTS = [
@@ -31,7 +40,8 @@ const PAGE_HINTS = [
   { re: /\/(locations?|service-area|areas-we-serve)(\/|$|\?)/i, role: 'locations' },
 ];
 
-const SERVICE_SLUG_RE = /^(drain|pipe|boiler|heater|backflow|sprinkler|sewer|garbage|plumb|repair|install|water|gas|ll\d|local-law|rpz|inspection)/i;
+const SERVICE_SLUG_RE =
+  /^(drain|pipe|boiler|heater|backflow|sprinkler|sewer|garbage|plumb|repair|install|water|gas|ll\d|local-law|rpz|inspection)/i;
 
 function absUrl(base, href) {
   try {
@@ -81,14 +91,8 @@ function stripToText(html) {
 }
 
 function metaContent(html, nameOrProp) {
-  const re = new RegExp(
-    `<meta[^>]+(?:name|property)=["']${nameOrProp}["'][^>]+content=["']([^"']+)["']`,
-    'i'
-  );
-  const re2 = new RegExp(
-    `<meta[^>]+content=["']([^"']+)["'][^>]+(?:name|property)=["']${nameOrProp}["']`,
-    'i'
-  );
+  const re = new RegExp(`<meta[^>]+(?:name|property)=["']${nameOrProp}["'][^>]+content=["']([^"']+)["']`, 'i');
+  const re2 = new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:name|property)=["']${nameOrProp}["']`, 'i');
   const m = html.match(re) || html.match(re2);
   return m ? decodeEntities(m[1]).trim().slice(0, 500) : '';
 }
@@ -145,12 +149,17 @@ function titleFromSlug(slug) {
 }
 
 function areaLabel(slug) {
-  const s = String(slug || '').replace(/-ny$|-nj$/i, '').replace(/the-/i, '');
+  const s = String(slug || '')
+    .replace(/-ny$|-nj$/i, '')
+    .replace(/the-/i, '');
   return titleFromSlug(s);
 }
 
 function classifyPath(pathname) {
-  const parts = String(pathname || '').replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+  const parts = String(pathname || '')
+    .replace(/^\/+|\/+$/g, '')
+    .split('/')
+    .filter(Boolean);
   if (!parts.length) return { kind: 'home', slug: 'home', area: '' };
   const first = parts[0].toLowerCase();
   const second = (parts[1] || '').toLowerCase();
@@ -178,7 +187,9 @@ function normalizeUrlKey(url) {
     u.hash = '';
     return u.toString().replace(/\/$/, '').toLowerCase();
   } catch {
-    return String(url || '').replace(/\/$/, '').toLowerCase();
+    return String(url || '')
+      .replace(/\/$/, '')
+      .toLowerCase();
   }
 }
 
@@ -206,7 +217,11 @@ async function fetchSitemapUrls(origin) {
  */
 function buildCrawlPlan(homeUrl, linkUrls, sitemapUrls) {
   const origin = (() => {
-    try { return new URL(homeUrl).origin; } catch { return homeUrl; }
+    try {
+      return new URL(homeUrl).origin;
+    } catch {
+      return homeUrl;
+    }
   })();
   const all = [];
   const push = (u) => {
@@ -226,7 +241,11 @@ function buildCrawlPlan(homeUrl, linkUrls, sitemapUrls) {
 
   for (const url of all) {
     let pathname = '/';
-    try { pathname = new URL(url).pathname; } catch { /* keep */ }
+    try {
+      pathname = new URL(url).pathname;
+    } catch {
+      /* keep */
+    }
     const info = classifyPath(pathname);
     if (info.kind === 'home') continue;
     if (info.kind === 'service') {
@@ -257,7 +276,10 @@ function buildCrawlPlan(homeUrl, linkUrls, sitemapUrls) {
     let best = '';
     let n = 0;
     for (const [a, c] of counts) {
-      if (c > n) { best = a; n = c; }
+      if (c > n) {
+        best = a;
+        n = c;
+      }
     }
     return best || 'brooklyn-ny';
   })();
@@ -281,10 +303,14 @@ function buildCrawlPlan(homeUrl, linkUrls, sitemapUrls) {
   }
   servicePlan.sort((a, b) => a.title.localeCompare(b.title));
 
-  const areaList = [...new Set([
-    ...[...locations.keys()].filter(Boolean).map(areaLabel),
-    ...[...services.values()].flatMap((r) => [...r.areas].map(areaLabel)),
-  ])].filter(Boolean).sort();
+  const areaList = [
+    ...new Set([
+      ...[...locations.keys()].filter(Boolean).map(areaLabel),
+      ...[...services.values()].flatMap((r) => [...r.areas].map(areaLabel)),
+    ]),
+  ]
+    .filter(Boolean)
+    .sort();
 
   const fetchList = [];
   const seen = new Set([normalizeUrlKey(homeUrl)]);
@@ -299,9 +325,7 @@ function buildCrawlPlan(homeUrl, linkUrls, sitemapUrls) {
   for (const c of cores) addFetch(c);
   for (const s of servicePlan) addFetch(s);
   // One representative location/service-area page
-  const locUrl = locations.get(preferArea)
-    || [...locations.values()][0]
-    || null;
+  const locUrl = locations.get(preferArea) || [...locations.values()][0] || null;
   if (locUrl) addFetch({ url: locUrl, role: 'location', slug: 'service-area', areas: areaList });
   for (const e of extras) addFetch(e);
 
@@ -324,7 +348,11 @@ function buildCrawlPlan(homeUrl, linkUrls, sitemapUrls) {
 
 function pickRelatedUrls(homeUrl, links) {
   // Legacy helper — kept for callers; deep crawl uses buildCrawlPlan.
-  const plan = buildCrawlPlan(homeUrl, (links || []).map((l) => l.href), []);
+  const plan = buildCrawlPlan(
+    homeUrl,
+    (links || []).map((l) => l.href),
+    []
+  );
   return plan.fetchList.map((x) => ({ url: x.url, role: x.role }));
 }
 
@@ -377,15 +405,15 @@ function extractListItems(html) {
 function guessServices(html, text, headings) {
   const services = [];
   const push = (s) => {
-    const v = String(s || '').replace(/\s+/g, ' ').trim();
+    const v = String(s || '')
+      .replace(/\s+/g, ' ')
+      .trim();
     if (!v || v.length < 3 || v.length > 80) return;
     if (/^(home|about|contact|menu|login|read more|learn more)$/i.test(v)) return;
     if (!services.some((x) => x.toLowerCase() === v.toLowerCase())) services.push(v);
   };
 
-  const serviceHeading = headings.find((h) =>
-    /service|what we do|offer|solution|specialt/i.test(h.text)
-  );
+  const serviceHeading = headings.find((h) => /service|what we do|offer|solution|specialt/i.test(h.text));
   if (serviceHeading) {
     // Prefer list items near a services heading in the HTML.
     const idx = html.search(/<(h[1-3])[^>]*>[^<]*(service|what we do|offer)/i);
@@ -422,7 +450,7 @@ function guessAbout(html, text, metaDesc) {
   if (hAbout >= 0) {
     const after = stripToText(html.slice(hAbout, hAbout + 5000));
     const paras = after.split(/\n+/).filter((p) => p.length > 60);
-    if (paras[1] || paras[0]) return (paras.slice(0, 3).join('\n\n')).slice(0, MAX_ABOUT);
+    if (paras[1] || paras[0]) return paras.slice(0, 3).join('\n\n').slice(0, MAX_ABOUT);
   }
   if (metaDesc && metaDesc.length > 40) return metaDesc.slice(0, MAX_ABOUT);
   const paras = text.split(/\n+/).filter((p) => p.length > 80);
@@ -448,14 +476,19 @@ function extractImages(html, baseUrl) {
   let tag;
   while ((tag = imgRe.exec(html)) && out.length < 16) {
     const attrs = tag[1] || '';
-    const src = (attrs.match(/\bsrc=["']([^"']+)["']/i)
-      || attrs.match(/\bdata-src=["']([^"']+)["']/i)
-      || attrs.match(/\bdata-lazy-src=["']([^"']+)["']/i) || [])[1];
-    const srcset = (attrs.match(/\bsrcset=["']([^"']+)["']/i)
-      || attrs.match(/\bdata-srcset=["']([^"']+)["']/i) || [])[1];
+    const src = (attrs.match(/\bsrc=["']([^"']+)["']/i) ||
+      attrs.match(/\bdata-src=["']([^"']+)["']/i) ||
+      attrs.match(/\bdata-lazy-src=["']([^"']+)["']/i) ||
+      [])[1];
+    const srcset = (attrs.match(/\bsrcset=["']([^"']+)["']/i) ||
+      attrs.match(/\bdata-srcset=["']([^"']+)["']/i) ||
+      [])[1];
     let pick = src;
     if (srcset) {
-      const parts = srcset.split(',').map((p) => p.trim().split(/\s+/)[0]).filter(Boolean);
+      const parts = srcset
+        .split(',')
+        .map((p) => p.trim().split(/\s+/)[0])
+        .filter(Boolean);
       if (parts.length) pick = parts[parts.length - 1];
     }
     const cls = `${attrs} ${pick || ''}`;
@@ -496,12 +529,17 @@ function extractCtas(html, text) {
 }
 
 function guessHours(text) {
-  const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+  const lines = text
+    .split(/\n+/)
+    .map((l) => l.trim())
+    .filter(Boolean);
   const hours = [];
   for (const line of lines) {
-    if (/(mon|tue|wed|thu|fri|sat|sun|monday|hours)/i.test(line) &&
-        /\d{1,2}\s*[:.]?\s*\d{0,2}\s*(am|pm)?/i.test(line) &&
-        line.length < 120) {
+    if (
+      /(mon|tue|wed|thu|fri|sat|sun|monday|hours)/i.test(line) &&
+      /\d{1,2}\s*[:.]?\s*\d{0,2}\s*(am|pm)?/i.test(line) &&
+      line.length < 120
+    ) {
       hours.push(line);
     }
   }
@@ -514,12 +552,19 @@ function normalizeHex(raw) {
   const hex = s.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
   if (hex) {
     let h = hex[1].toLowerCase();
-    if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+    if (h.length === 3)
+      h = h
+        .split('')
+        .map((c) => c + c)
+        .join('');
     return `#${h}`;
   }
   const rgb = s.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/i);
   if (rgb) {
-    const to = (n) => Math.max(0, Math.min(255, Number(n))).toString(16).padStart(2, '0');
+    const to = (n) =>
+      Math.max(0, Math.min(255, Number(n)))
+        .toString(16)
+        .padStart(2, '0');
     return `#${to(rgb[1])}${to(rgb[2])}${to(rgb[3])}`;
   }
   return null;
@@ -550,9 +595,17 @@ function extractStyleGuide(html, baseUrl) {
     if (!colors.includes(hex) && colors.length < 12) colors.push(hex);
   };
   const pushFont = (name) => {
-    let n = String(name || '').replace(/["']/g, '').trim();
+    let n = String(name || '')
+      .replace(/["']/g, '')
+      .trim();
     n = n.split(',')[0].trim();
-    if (!n || /^(inherit|initial|sans-serif|serif|monospace|system-ui|arial|helvetica|times|georgia|verdana|cursive|fantasy|emoji|ui-)/i.test(n)) return;
+    if (
+      !n ||
+      /^(inherit|initial|sans-serif|serif|monospace|system-ui|arial|helvetica|times|georgia|verdana|cursive|fantasy|emoji|ui-)/i.test(
+        n
+      )
+    )
+      return;
     if (!fonts.some((f) => f.toLowerCase() === n.toLowerCase()) && fonts.length < 8) fonts.push(n);
   };
 
@@ -602,14 +655,15 @@ function extractStyleGuide(html, baseUrl) {
     };
     return sat(b) - sat(a) || Math.abs(la - 0.45) - Math.abs(lb - 0.45);
   });
-  const primary = themeColor && normalizeHex(themeColor) ? normalizeHex(themeColor) : (ranked[0] || '');
+  const primary = themeColor && normalizeHex(themeColor) ? normalizeHex(themeColor) : ranked[0] || '';
   const secondary = ranked.find((c) => c !== primary) || '';
   const background = [...colors].sort((a, b) => colorLuma(b) - colorLuma(a))[0] || '';
   const ink = [...colors].sort((a, b) => colorLuma(a) - colorLuma(b))[0] || '';
 
   let logo = '';
-  const logoImg = src.match(/<img[^>]+(?:id|class)=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i)
-    || src.match(/<img[^>]+src=["']([^"']+)["'][^>]*(?:id|class)=["'][^"']*logo[^"']*["']/i);
+  const logoImg =
+    src.match(/<img[^>]+(?:id|class)=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i) ||
+    src.match(/<img[^>]+src=["']([^"']+)["'][^>]*(?:id|class)=["'][^"']*logo[^"']*["']/i);
   if (logoImg) logo = absUrl(baseUrl, logoImg[1]) || logoImg[1];
   if (!logo) {
     const og = metaContent(src, 'og:image');
@@ -648,15 +702,12 @@ function extractStyleGuide(html, baseUrl) {
 function analyzeQuality(html, text, url, loadTimeMs, ok) {
   const lower = (html || '').toLowerCase();
   const hasViewport = /name=["']viewport["']/.test(lower);
-  const hasCta = /(call now|get a quote|book|contact us|free estimate|schedule)/i.test(text) ||
-    /href=["']tel:/i.test(lower);
+  const hasCta =
+    /(call now|get a quote|book|contact us|free estimate|schedule)/i.test(text) || /href=["']tel:/i.test(lower);
   const hasContactForm = /<form\b/i.test(html) && /(email|message|phone|name)/i.test(lower);
-  const hasBooking = /(calendly|booksy|squareup\.com\/appointments|houselogic|setmore|booking)/i.test(lower) ||
-    /\/book\b/i.test(lower);
-  const outdated =
-    /<table\s[^>]*width=["']\d{3,}["']/i.test(html) ||
-    /<font\b/i.test(html) ||
-    (!hasViewport && ok);
+  const hasBooking =
+    /(calendly|booksy|squareup\.com\/appointments|houselogic|setmore|booking)/i.test(lower) || /\/book\b/i.test(lower);
+  const outdated = /<table\s[^>]*width=["']\d{3,}["']/i.test(html) || /<font\b/i.test(html) || (!hasViewport && ok);
   return {
     reachable: ok,
     hasSsl: String(url).startsWith('https'),
@@ -704,7 +755,7 @@ async function fetchHtml(url) {
       status: 0,
       html: '',
       loadTimeMs: Date.now() - t0,
-      error: String(err && err.message || err).slice(0, 200),
+      error: String((err && err.message) || err).slice(0, 200),
     };
   }
 }
@@ -727,7 +778,10 @@ function extractSections(html, text) {
     });
   }
   if (!matches.length) {
-    const paras = String(text || '').split(/\n+/).map((p) => p.trim()).filter((p) => p.length > 40);
+    const paras = String(text || '')
+      .split(/\n+/)
+      .map((p) => p.trim())
+      .filter((p) => p.length > 40);
     if (paras[0]) {
       sections.push({
         id: 'intro',
@@ -744,8 +798,13 @@ function extractSections(html, text) {
     let body = stripToText(chunkHtml).slice(0, 1400);
     if (!body || body.length < 20) {
       // Fallback: nearby lines from full text
-      const idx = String(text || '').toLowerCase().indexOf(cur.heading.toLowerCase().slice(0, 40));
-      if (idx >= 0) body = String(text).slice(idx + cur.heading.length, idx + cur.heading.length + 900).trim();
+      const idx = String(text || '')
+        .toLowerCase()
+        .indexOf(cur.heading.toLowerCase().slice(0, 40));
+      if (idx >= 0)
+        body = String(text)
+          .slice(idx + cur.heading.length, idx + cur.heading.length + 900)
+          .trim();
     }
     if (!cur.heading) continue;
     sections.push({
@@ -790,8 +849,10 @@ function navLabels(html) {
   while ((m = re.exec(html)) && labels.length < 20) {
     const t = stripToText(m[1]).slice(0, 40);
     if (!t || t.length < 2 || t.length > 28) continue;
-    if (/^(home|about|services|contact|blog|gallery|faq|book|call|login|sign)/i.test(t)
-      || /plumbing|drain|sewer|repair|emergency|estimate/i.test(t)) {
+    if (
+      /^(home|about|services|contact|blog|gallery|faq|book|call|login|sign)/i.test(t) ||
+      /plumbing|drain|sewer|repair|emergency|estimate/i.test(t)
+    ) {
       if (!labels.some((x) => x.toLowerCase() === t.toLowerCase())) labels.push(t);
     }
   }
@@ -853,7 +914,7 @@ function mergeExtracted(pages) {
     if (arr.length < max) arr.push(s);
   };
   const pushImage = (img) => {
-    const url = typeof img === 'string' ? img : (img && img.url);
+    const url = typeof img === 'string' ? img : img && img.url;
     if (!url) return;
     if (images.some((x) => x.url === url)) return;
     if (images.length < 14) {
@@ -948,7 +1009,9 @@ async function enrichStyleFromSheets(html, baseUrl, styleGuide) {
     try {
       const got = await fetchHtml(href);
       if (got.html || got.ok) css += `\n${String(got.html || '').slice(0, 80000)}`;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
   if (!css.trim()) return styleGuide;
   // Re-run color extraction against stylesheet text via a fake HTML wrapper.
@@ -959,8 +1022,8 @@ async function enrichStyleFromSheets(html, baseUrl, styleGuide) {
     secondary: styleGuide.secondary || enriched.secondary,
     background: styleGuide.background || enriched.background,
     ink: styleGuide.ink || enriched.ink,
-    palette: (styleGuide.palette && styleGuide.palette.length) ? styleGuide.palette : enriched.palette,
-    fonts: (styleGuide.fonts && styleGuide.fonts.length) ? styleGuide.fonts : enriched.fonts,
+    palette: styleGuide.palette && styleGuide.palette.length ? styleGuide.palette : enriched.palette,
+    fonts: styleGuide.fonts && styleGuide.fonts.length ? styleGuide.fonts : enriched.fonts,
     font_links: [...new Set([...(styleGuide.font_links || []), ...(enriched.font_links || [])])].slice(0, 6),
     direction: enriched.direction || styleGuide.direction,
   };
@@ -971,9 +1034,15 @@ async function ingestSite(url) {
   if (!start) {
     return {
       check: {
-        reachable: false, hasSsl: false, mobileFriendly: false, hasCta: false,
-        hasContactForm: false, hasBooking: false, loadTimeMs: 0,
-        outdatedDesign: false, checkedAt: new Date().toISOString(),
+        reachable: false,
+        hasSsl: false,
+        mobileFriendly: false,
+        hasCta: false,
+        hasContactForm: false,
+        hasBooking: false,
+        loadTimeMs: 0,
+        outdatedDesign: false,
+        checkedAt: new Date().toISOString(),
       },
       extracted: mergeExtracted([]),
       snapshot: { url: '', pages: [], note: 'no url' },
@@ -989,9 +1058,15 @@ async function ingestSite(url) {
   } catch {
     return {
       check: {
-        reachable: false, hasSsl: false, mobileFriendly: false, hasCta: false,
-        hasContactForm: false, hasBooking: false, loadTimeMs: 0,
-        outdatedDesign: false, checkedAt: new Date().toISOString(),
+        reachable: false,
+        hasSsl: false,
+        mobileFriendly: false,
+        hasCta: false,
+        hasContactForm: false,
+        hasBooking: false,
+        loadTimeMs: 0,
+        outdatedDesign: false,
+        checkedAt: new Date().toISOString(),
       },
       extracted: mergeExtracted([]),
       snapshot: { url: start, pages: [], note: 'invalid url' },
@@ -1009,7 +1084,11 @@ async function ingestSite(url) {
   let crawlPlan = null;
   if (home.ok && home.html) {
     const origin = (() => {
-      try { return new URL(home.finalUrl || homeUrl).origin; } catch { return homeUrl; }
+      try {
+        return new URL(home.finalUrl || homeUrl).origin;
+      } catch {
+        return homeUrl;
+      }
     })();
     const sitemapUrls = await fetchSitemapUrls(origin);
     const linkUrls = (pages[0] && pages[0].links ? pages[0].links : []).map((l) => l.href);
@@ -1040,9 +1119,7 @@ async function ingestSite(url) {
   }
 
   const extracted = mergeExtracted(pages);
-  let styleGuide = home.html
-    ? extractStyleGuide(home.html, home.finalUrl || homeUrl)
-    : null;
+  let styleGuide = home.html ? extractStyleGuide(home.html, home.finalUrl || homeUrl) : null;
   if (styleGuide && home.html) {
     styleGuide = await enrichStyleFromSheets(home.html, home.finalUrl || homeUrl, styleGuide);
   }
@@ -1057,13 +1134,18 @@ async function ingestSite(url) {
     }
   }
 
-  const faq = mergeFaq(
-    ...pages.map((p) => p.faq || []),
-    ...pages.map((p) => faqFromSections(p.sections)),
-  );
+  const faq = mergeFaq(...pages.map((p) => p.faq || []), ...pages.map((p) => faqFromSections(p.sections)));
 
   const siteMap = {
-    origin: crawlPlan ? crawlPlan.origin : (() => { try { return new URL(homeUrl).origin; } catch { return homeUrl; } })(),
+    origin: crawlPlan
+      ? crawlPlan.origin
+      : (() => {
+          try {
+            return new URL(homeUrl).origin;
+          } catch {
+            return homeUrl;
+          }
+        })(),
     sitemap_count: crawlPlan ? crawlPlan.sitemap_count : 0,
     discovered_count: crawlPlan ? crawlPlan.discovered_count : pages.length,
     prefer_area: crawlPlan ? crawlPlan.prefer_area : '',
@@ -1074,13 +1156,17 @@ async function ingestSite(url) {
     recommended_pages: [
       { slug: 'home', role: 'home', title: 'Home' },
       { slug: 'services', role: 'services', title: 'Services' },
-      ...(crawlPlan ? crawlPlan.services.map((s) => ({
-        slug: s.slug,
-        role: 'service',
-        title: s.title,
-        source_url: s.url,
-      })) : []),
-      ...(crawlPlan && crawlPlan.areas.length ? [{ slug: 'areas', role: 'locations', title: 'Service Areas', areas: crawlPlan.areas }] : []),
+      ...(crawlPlan
+        ? crawlPlan.services.map((s) => ({
+            slug: s.slug,
+            role: 'service',
+            title: s.title,
+            source_url: s.url,
+          }))
+        : []),
+      ...(crawlPlan && crawlPlan.areas.length
+        ? [{ slug: 'areas', role: 'locations', title: 'Service Areas', areas: crawlPlan.areas }]
+        : []),
       ...(faq.length ? [{ slug: 'faq', role: 'faq', title: 'FAQ' }] : []),
       { slug: 'about', role: 'about', title: 'About' },
       { slug: 'contact', role: 'contact', title: 'Contact' },
@@ -1155,7 +1241,10 @@ async function ingestSite(url) {
       headings: (p.headings || []).slice(0, 6),
     }));
     snapshot.pages = (snapshot.pages || []).map((p) => ({
-      url: p.url, role: p.role, slug: p.slug, title: p.title,
+      url: p.url,
+      role: p.role,
+      slug: p.slug,
+      title: p.title,
       headings: (p.headings || []).slice(0, 4),
     }));
     snapshot.about = String(snapshot.about || '').slice(0, 1200);
@@ -1174,7 +1263,7 @@ async function ingestSite(url) {
     snapshotJson: snapJson,
     pageCount: pages.length,
     siteMap,
-    error: home.ok ? undefined : (home.error || `HTTP ${home.status}`),
+    error: home.ok ? undefined : home.error || `HTTP ${home.status}`,
   };
 }
 
@@ -1222,7 +1311,10 @@ function factsFromIngest(ingest) {
   add('site.ingested_at', ingest.snapshot && ingest.snapshot.ingested_at, { confidence: 'high' });
   add('site.title', ex.title);
   add('site.meta_description', ex.metaDescription);
-  add('site.about', ex.about, { source_url: pageUrl('about'), confidence: ex.about && ex.about.length > 80 ? 'medium' : 'low' });
+  add('site.about', ex.about, {
+    source_url: pageUrl('about'),
+    confidence: ex.about && ex.about.length > 80 ? 'medium' : 'low',
+  });
   if (Array.isArray(ex.ctas) && ex.ctas.length) add('site.ctas', JSON.stringify(ex.ctas));
   if (Array.isArray(ex.hours) && ex.hours.length) {
     add('hours', JSON.stringify(ex.hours), { source_url: pageUrl('hours') || pageUrl('contact') });
@@ -1260,7 +1352,10 @@ function factsFromIngest(ingest) {
       prefer_area: siteMap.prefer_area,
       areas: siteMap.areas || [],
       services: (siteMap.services || []).map((s) => ({
-        slug: s.slug, title: s.title, url: s.url, areas: s.areas,
+        slug: s.slug,
+        title: s.title,
+        url: s.url,
+        areas: s.areas,
       })),
       recommended_pages: siteMap.recommended_pages || [],
       faq: (siteMap.faq || ex.faq || []).slice(0, 12),
@@ -1297,18 +1392,21 @@ function factsFromIngest(ingest) {
     for (const sec of page.sections || []) {
       if (!sec.heading && !sec.body) continue;
       if (copyIdx >= 48) break;
-      add(`site.copy:${copyIdx}`, JSON.stringify({
-        page: page.slug || page.role,
-        role: page.role,
-        heading: sec.heading,
-        body: String(sec.body || '').slice(0, 1500),
-      }), { source_url: page.url, confidence: 'medium' });
+      add(
+        `site.copy:${copyIdx}`,
+        JSON.stringify({
+          page: page.slug || page.role,
+          role: page.role,
+          heading: sec.heading,
+          body: String(sec.body || '').slice(0, 1500),
+        }),
+        { source_url: page.url, confidence: 'medium' }
+      );
       copyIdx++;
     }
     if (copyIdx >= 48) break;
   }
-  const guide = (ingest.extracted && ingest.extracted.style_guide)
-    || (ingest.snapshot && ingest.snapshot.style_guide);
+  const guide = (ingest.extracted && ingest.extracted.style_guide) || (ingest.snapshot && ingest.snapshot.style_guide);
   if (guide && (guide.primary || (guide.palette && guide.palette.length) || (guide.fonts && guide.fonts.length))) {
     add('site.style_guide', JSON.stringify(guide), { confidence: 'medium' });
     if (guide.primary) add('site.brand.primary', guide.primary, { confidence: 'medium' });

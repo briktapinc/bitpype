@@ -12,8 +12,8 @@ const platform = require('./platform');
 const { assertPublicUrl, fetchPublic, isPrivateIp } = require('./urlSafety');
 
 async function museConfig() {
-  const enabled = String(await platform.getPlatformSetting('muse.enabled', '0') || '0').trim() === '1';
-  const webhookUrl = String(await platform.getPlatformSetting('muse.webhook_url', '') || '').trim();
+  const enabled = String((await platform.getPlatformSetting('muse.enabled', '0')) || '0').trim() === '1';
+  const webhookUrl = String((await platform.getPlatformSetting('muse.webhook_url', '')) || '').trim();
   return { enabled, webhookUrl };
 }
 
@@ -82,10 +82,13 @@ async function routeEncryptedSubmission({
     submissionId: Number(submissionId),
     cipher,
     encryptedPayload: String(encryptedPayload || ''),
-    meta: meta && typeof meta === 'object' ? {
-      formTitle: meta.formTitle != null ? String(meta.formTitle).slice(0, 160) : undefined,
-      plan: meta.plan != null ? String(meta.plan).slice(0, 40) : undefined,
-    } : {},
+    meta:
+      meta && typeof meta === 'object'
+        ? {
+            formTitle: meta.formTitle != null ? String(meta.formTitle).slice(0, 160) : undefined,
+            plan: meta.plan != null ? String(meta.plan).slice(0, 40) : undefined,
+          }
+        : {},
     at: new Date().toISOString(),
   };
 

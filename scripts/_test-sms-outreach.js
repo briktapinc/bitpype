@@ -25,9 +25,15 @@ const o = require('../src/outreach');
 const sms = require('../src/sms');
 o.ensureTables(db);
 
-const cols = db.prepare('PRAGMA table_info(email_templates)').all().map((c) => c.name);
+const cols = db
+  .prepare('PRAGMA table_info(email_templates)')
+  .all()
+  .map((c) => c.name);
 if (!cols.includes('sms_body')) throw new Error('sms_body column missing');
-const msgCols = db.prepare('PRAGMA table_info(campaign_messages)').all().map((c) => c.name);
+const msgCols = db
+  .prepare('PRAGMA table_info(campaign_messages)')
+  .all()
+  .map((c) => c.name);
 if (!msgCols.includes('channel') || !msgCols.includes('to_phone')) {
   throw new Error('msg cols missing ' + msgCols.join(','));
 }
@@ -45,7 +51,11 @@ const t = o.saveTemplate(db, {
 if (!t.hasEmail || !t.hasSms) throw new Error('expected dual-channel template');
 
 const campSms = o.createCampaign(db, {
-  name: 'SMS camp', templateId: t.id, leadIds: [1], ratePerHour: 60, channel: 'sms',
+  name: 'SMS camp',
+  templateId: t.id,
+  leadIds: [1],
+  ratePerHour: 60,
+  channel: 'sms',
 });
 const msg = db.prepare('SELECT * FROM campaign_messages WHERE campaign_id=?').get(campSms.id);
 if (msg.channel !== 'sms') throw new Error('channel');
@@ -53,7 +63,11 @@ if (!msg.to_phone) throw new Error('phone');
 if (!msg.body.includes('https://preview.example/acme/')) throw new Error('link in body');
 
 const campBoth = o.createCampaign(db, {
-  name: 'Both camp', templateId: t.id, leadIds: [1], ratePerHour: 60, channel: 'both',
+  name: 'Both camp',
+  templateId: t.id,
+  leadIds: [1],
+  ratePerHour: 60,
+  channel: 'both',
 });
 const bothMsgs = db.prepare('SELECT channel FROM campaign_messages WHERE campaign_id=? ORDER BY id').all(campBoth.id);
 if (bothMsgs.length !== 2) throw new Error('expected 2 messages for both');
@@ -65,7 +79,11 @@ db.prepare(
   "INSERT INTO leads (id, business_name, phone, email, status) VALUES (2, 'NoPhone', null, 'x@y.com', 'qualified')"
 ).run();
 const camp2 = o.createCampaign(db, {
-  name: 'SMS2', templateId: t.id, leadIds: [2], ratePerHour: 60, channel: 'sms',
+  name: 'SMS2',
+  templateId: t.id,
+  leadIds: [2],
+  ratePerHour: 60,
+  channel: 'sms',
 });
 if (camp2.suppressed !== 1) throw new Error('expected suppressed');
 
@@ -84,14 +102,27 @@ if (String(merged[0].channel).toLowerCase() === 'sms') throw new Error('channel 
 
 // Legacy channel:'sms' save still works
 const legacySave = o.saveTemplate(db, {
-  name: 'Old API SMS', body: 'Hi {{business_name}} {{website_link}}', channel: 'sms',
+  name: 'Old API SMS',
+  body: 'Hi {{business_name}} {{website_link}}',
+  channel: 'sms',
 });
 const legacyRow = db.prepare('SELECT * FROM email_templates WHERE id=?').get(legacySave.id);
 if (!legacyRow.sms_body.includes('{{website_link}}')) throw new Error('legacy save sms_body');
 if (String(legacyRow.body || '').trim()) throw new Error('legacy save should clear email body');
 
-console.log(JSON.stringify({
-  link, draft: draft.slice(0, 60), campSms, campBoth, to_phone: msg.to_phone,
-  mergedSms: merged[0].sms_body, legacySave,
-}, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      link,
+      draft: draft.slice(0, 60),
+      campSms,
+      campBoth,
+      to_phone: msg.to_phone,
+      mergedSms: merged[0].sms_body,
+      legacySave,
+    },
+    null,
+    2
+  )
+);
 console.log('ALL TESTS PASSED');

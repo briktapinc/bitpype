@@ -17,17 +17,18 @@ async function main() {
 
   const workspaceId = 1;
   const db = openWorkspaceDb(workspaceId);
-  const site = db.prepare(
-    `SELECT id, lead_id, name, preview_url, preview_path FROM websites
+  const site = db
+    .prepare(
+      `SELECT id, lead_id, name, preview_url, preview_path FROM websites
      WHERE lead_id IS NOT NULL ORDER BY id DESC LIMIT 1`
-  ).get();
+    )
+    .get();
   if (!site) throw new Error('No website with lead_id in workspace 1');
 
   const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(site.lead_id);
   if (!lead) throw new Error('Lead missing for site');
 
-  db.prepare("UPDATE leads SET email = ?, updated_at = datetime('now') WHERE id = ?")
-    .run(SMOKE_EMAIL, lead.id);
+  db.prepare("UPDATE leads SET email = ?, updated_at = datetime('now') WHERE id = ?").run(SMOKE_EMAIL, lead.id);
 
   const password = portal.generatePassword();
   const hash = await bcrypt.hash(password, 12);
@@ -70,21 +71,27 @@ async function main() {
   const matches = portal.findLeadMatches(SMOKE_EMAIL);
   const matched = matches.some((m) => m.leadId === lead.id && m.workspaceId === workspaceId);
 
-  console.log(JSON.stringify({
-    ok: true,
-    smokeEmail: SMOKE_EMAIL,
-    smokePassword: password,
-    loginUrl: 'https://bitpype.com/portal',
-    workspaceId: client.workspaceId,
-    leadId: client.leadId,
-    businessName: lead.business_name,
-    siteId: site.id,
-    previewUrl: ctx.previewUrl,
-    calendarPosts: cal.posts.length,
-    billingStatus: bill.subscriptionStatus,
-    workspaceSubscribed: bill.workspaceSubscribed,
-    leadMatchOk: matched,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        smokeEmail: SMOKE_EMAIL,
+        smokePassword: password,
+        loginUrl: 'https://bitpype.com/portal',
+        workspaceId: client.workspaceId,
+        leadId: client.leadId,
+        businessName: lead.business_name,
+        siteId: site.id,
+        previewUrl: ctx.previewUrl,
+        calendarPosts: cal.posts.length,
+        billingStatus: bill.subscriptionStatus,
+        workspaceSubscribed: bill.workspaceSubscribed,
+        leadMatchOk: matched,
+      },
+      null,
+      2
+    )
+  );
 }
 
 main().catch((e) => {

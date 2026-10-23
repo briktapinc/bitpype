@@ -123,7 +123,9 @@ const PLAN_RANK = {
 };
 
 function normalizePlanId(raw) {
-  const id = String(raw || '').trim().toLowerCase();
+  const id = String(raw || '')
+    .trim()
+    .toLowerCase();
   if (id === PLAN_STANDARD || id === PLAN_PREMIUM || id === PLAN_FREE) return id;
   return PLAN_FREE;
 }

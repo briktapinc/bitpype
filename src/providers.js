@@ -145,14 +145,22 @@ class CsvProvider {
     let row = [];
     let field = '';
     let inQuotes = false;
-    const pushField = () => { row.push(field); field = ''; };
-    const pushRow = () => { rows.push(row); row = []; };
+    const pushField = () => {
+      row.push(field);
+      field = '';
+    };
+    const pushRow = () => {
+      rows.push(row);
+      row = [];
+    };
     for (let i = 0; i < text.length; i++) {
       const c = text[i];
       if (inQuotes) {
         if (c === '"') {
-          if (text[i + 1] === '"') { field += '"'; i++; }
-          else inQuotes = false;
+          if (text[i + 1] === '"') {
+            field += '"';
+            i++;
+          } else inQuotes = false;
         } else field += c;
       } else if (c === '"') {
         inQuotes = true;
@@ -161,26 +169,46 @@ class CsvProvider {
       } else if (c === '\r') {
         // ignore; \n handles the break
       } else if (c === '\n') {
-        pushField(); pushRow();
+        pushField();
+        pushRow();
       } else field += c;
     }
-    pushField(); pushRow();
-    const nonEmpty = rows.filter(r => r.some(c => String(c).trim() !== ''));
+    pushField();
+    pushRow();
+    const nonEmpty = rows.filter((r) => r.some((c) => String(c).trim() !== ''));
     if (nonEmpty.length === 0) return [];
-    const headers = nonEmpty[0].map(h =>
-      String(h).trim().toLowerCase().replace(/[\s-]+/g, '_'));
+    const headers = nonEmpty[0].map((h) =>
+      String(h)
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, '_')
+    );
     const aliases = {
-      name: 'business_name', business: 'business_name', company: 'business_name',
-      zip: 'postal_code', zipcode: 'postal_code', zip_code: 'postal_code',
-      reviews: 'review_count', num_reviews: 'review_count',
-      url: 'website', homepage: 'website', site: 'website',
-      type: 'category', industry: 'category',
-      phone_number: 'phone', telephone: 'phone', tel: 'phone',
-      email_address: 'email', e_mail: 'email',
-      street: 'address', street_address: 'address',
-      description: 'description', about: 'description', notes: 'description',
+      name: 'business_name',
+      business: 'business_name',
+      company: 'business_name',
+      zip: 'postal_code',
+      zipcode: 'postal_code',
+      zip_code: 'postal_code',
+      reviews: 'review_count',
+      num_reviews: 'review_count',
+      url: 'website',
+      homepage: 'website',
+      site: 'website',
+      type: 'category',
+      industry: 'category',
+      phone_number: 'phone',
+      telephone: 'phone',
+      tel: 'phone',
+      email_address: 'email',
+      e_mail: 'email',
+      street: 'address',
+      street_address: 'address',
+      description: 'description',
+      about: 'description',
+      notes: 'description',
     };
-    return nonEmpty.slice(1).map(cols => {
+    return nonEmpty.slice(1).map((cols) => {
       const raw = {};
       headers.forEach((h, i) => {
         const key = aliases[h] || h;
@@ -192,14 +220,18 @@ class CsvProvider {
 
   async search(opts) {
     const rows = this.parse(opts && opts.text ? opts.text : '');
-    return rows.map(r => this.normalize(r));
+    return rows.map((r) => this.normalize(r));
   }
 
-  async fetchBusiness(ref) { return this.normalize(ref); }
+  async fetchBusiness(ref) {
+    return this.normalize(ref);
+  }
 
   async fetchWebsite() {
-    throw notConfiguredError('csv',
-      'CSV rows have no live website fetcher. Use a configured discovery provider (e.g. Tavily) or site ingest for quality checks.');
+    throw notConfiguredError(
+      'csv',
+      'CSV rows have no live website fetcher. Use a configured discovery provider (e.g. Tavily) or site ingest for quality checks.'
+    );
   }
 
   async fetchContactDetails(biz) {
@@ -224,13 +256,19 @@ class ManualProvider {
     this.configured = true;
   }
 
-  async search() { return []; }
+  async search() {
+    return [];
+  }
 
-  async fetchBusiness(ref) { return this.normalize(ref); }
+  async fetchBusiness(ref) {
+    return this.normalize(ref);
+  }
 
   async fetchWebsite() {
-    throw notConfiguredError('manual',
-      'Manual leads have no website fetcher. Use a configured discovery provider (e.g. Tavily) or site ingest for quality checks.');
+    throw notConfiguredError(
+      'manual',
+      'Manual leads have no website fetcher. Use a configured discovery provider (e.g. Tavily) or site ingest for quality checks.'
+    );
   }
 
   async fetchContactDetails(biz) {
@@ -251,22 +289,56 @@ class ManualProvider {
 
 /** Hosts that list businesses but are not the business's own site. */
 const DIRECTORY_HOST_SUFFIXES = [
-  'yelp.com', 'yellowpages.com', 'bbb.org', 'angi.com', 'angieslist.com',
-  'homeadvisor.com', 'thumbtack.com', 'mapquest.com', 'superpages.com',
-  'manta.com', 'hotfrog.com', 'foursquare.com', 'tripadvisor.com',
-  'nextdoor.com', 'houzz.com', 'porch.com', 'buildzoom.com',
-  'facebook.com', 'instagram.com', 'linkedin.com', 'twitter.com', 'x.com',
-  'google.com', 'bing.com', 'apple.com', 'mapcarta.com', 'waze.com',
-  'citysearch.com', 'merchantcircle.com', 'chamberofcommerce.com',
-  'expertise.com', 'clutch.co', 'bark.com', 'taskrabbit.com',
+  'yelp.com',
+  'yellowpages.com',
+  'bbb.org',
+  'angi.com',
+  'angieslist.com',
+  'homeadvisor.com',
+  'thumbtack.com',
+  'mapquest.com',
+  'superpages.com',
+  'manta.com',
+  'hotfrog.com',
+  'foursquare.com',
+  'tripadvisor.com',
+  'nextdoor.com',
+  'houzz.com',
+  'porch.com',
+  'buildzoom.com',
+  'facebook.com',
+  'instagram.com',
+  'linkedin.com',
+  'twitter.com',
+  'x.com',
+  'google.com',
+  'bing.com',
+  'apple.com',
+  'mapcarta.com',
+  'waze.com',
+  'citysearch.com',
+  'merchantcircle.com',
+  'chamberofcommerce.com',
+  'expertise.com',
+  'clutch.co',
+  'bark.com',
+  'taskrabbit.com',
   // Roundup / media pages — not a single business homepage
-  'statesman.com', 'nytimes.com', 'forbes.com', 'businessinsider.com',
-  'timeout.com', 'eater.com', 'thrillist.com', 'patch.com',
+  'statesman.com',
+  'nytimes.com',
+  'forbes.com',
+  'businessinsider.com',
+  'timeout.com',
+  'eater.com',
+  'thrillist.com',
+  'patch.com',
 ];
 
-const TITLE_NOISE_RE = /\s*[-–|•:]\s*(?:yelp|yellow\s*pages|bbb|angi(?:e'?s?\s*list)?|homeadvisor|thumbtack|facebook|instagram|linkedin|tripadvisor|nextdoor|houzz|mapquest|superpages|manta|reviews?|directory|listing).*$/i;
+const TITLE_NOISE_RE =
+  /\s*[-–|•:]\s*(?:yelp|yellow\s*pages|bbb|angi(?:e'?s?\s*list)?|homeadvisor|thumbtack|facebook|instagram|linkedin|tripadvisor|nextdoor|houzz|mapquest|superpages|manta|reviews?|directory|listing).*$/i;
 
-const LISTICLE_TITLE_RE = /^(?:top\s+)?\d+\s+best\b|\b(?:top|best)\s+\d+\b|\b(?:best|top)\s+.+\s+near\b|\b(?:directory|listings?|service providers)\b/i;
+const LISTICLE_TITLE_RE =
+  /^(?:top\s+)?\d+\s+best\b|\b(?:top|best)\s+\d+\b|\b(?:best|top)\s+.+\s+near\b|\b(?:directory|listings?|service providers)\b/i;
 
 function hostFromUrl(url) {
   try {
@@ -305,15 +377,24 @@ function cleanBusinessName(title, url) {
   name = name.replace(/\s+\|\s+.*$/, '').trim();
   // Drop embedded phone numbers from SEO titles.
   name = name.replace(/(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s])\d{3}[-.\s]\d{4}/g, ' ').trim();
-  name = name.replace(/\s{2,}/g, ' ').replace(/^[,:\-–|]+\s*/, '').replace(/\s+[,:\-–|]+$/, '').trim();
+  name = name
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[,:\-–|]+\s*/, '')
+    .replace(/\s+[,:\-–|]+$/, '')
+    .trim();
   // Prefer a cleaner brand from the hostname when the title is a long SEO dump.
   if (name.length > 60 || /\b(emergency|24\s*hour|services?)\b/i.test(name)) {
     const host = hostFromUrl(url);
     if (host && !isDirectoryHost(host)) {
       let brand = host.replace(/\.(com|net|org|biz|co|us)$/i, '').split('.')[0];
       brand = brand.replace(/[-_]+/g, ' ');
-      brand = brand.replace(/(plumbing|electric(?:al)?|hvac|roofing|dental|dentist|law|legal|auto|home|services?)$/i, ' $1');
-      brand = brand.replace(/\s+/g, ' ').trim()
+      brand = brand.replace(
+        /(plumbing|electric(?:al)?|hvac|roofing|dental|dentist|law|legal|auto|home|services?)$/i,
+        ' $1'
+      );
+      brand = brand
+        .replace(/\s+/g, ' ')
+        .trim()
         .replace(/\b\w/g, (c) => c.toUpperCase());
       if (brand.length >= 3 && brand.length <= 48) name = brand;
     }
@@ -400,17 +481,14 @@ function parseCityState(location) {
  */
 function buildTavilyQueries({ category, location, websitePresence }) {
   const raw = String(category || '').trim();
-  const cat = (!raw || raw === '*' || /^any$/i.test(raw))
-    ? 'local business'
-    : raw;
+  const cat = !raw || raw === '*' || /^any$/i.test(raw) ? 'local business' : raw;
   const loc = String(location || '').trim();
-  const wp = String(websitePresence || '').trim().toLowerCase();
+  const wp = String(websitePresence || '')
+    .trim()
+    .toLowerCase();
   const near = loc ? `${cat} near ${loc}` : `${cat} local businesses`;
   const inLoc = loc ? `${cat} in ${loc}` : cat;
-  const queries = [
-    `${near} phone address`,
-    `${inLoc} (directory OR "top rated" OR "best ${cat}") contact`,
-  ];
+  const queries = [`${near} phone address`, `${inLoc} (directory OR "top rated" OR "best ${cat}") contact`];
   if (wp === 'no') {
     queries.push(`${inLoc} ("call today" OR "phone number") (facebook OR yelp OR "yellow pages")`);
   } else if (wp === 'has') {
@@ -420,12 +498,14 @@ function buildTavilyQueries({ category, location, websitePresence }) {
   }
   // Dedupe while preserving order
   const seen = new Set();
-  return queries.filter((q) => {
-    const k = q.toLowerCase();
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  }).slice(0, 3);
+  return queries
+    .filter((q) => {
+      const k = q.toLowerCase();
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .slice(0, 3);
 }
 
 function tavilyResultToLead(r, i, { category, location, query }) {
@@ -500,8 +580,10 @@ class TavilySearchProvider {
 
   _requireConfigured() {
     if (!this.configured) {
-      throw notConfiguredError('tavily',
-        'Set a Tavily API key in Settings → Lead discovery (Tavily). Get a key at https://tavily.com.');
+      throw notConfiguredError(
+        'tavily',
+        'Set a Tavily API key in Settings → Lead discovery (Tavily). Get a key at https://tavily.com.'
+      );
     }
   }
 
@@ -540,8 +622,12 @@ class TavilySearchProvider {
     const category = String(opts.category || opts.query || 'business').trim() || 'business';
     const location = String(opts.location || '').trim();
     const limit = Math.min(Math.max(parseInt(opts.limit, 10) || 10, 1), 50);
-    const wp = String(opts.websitePresence || '').trim().toLowerCase();
-    const depthRaw = String(opts.searchDepth || this.searchDepth || 'advanced').trim().toLowerCase();
+    const wp = String(opts.websitePresence || '')
+      .trim()
+      .toLowerCase();
+    const depthRaw = String(opts.searchDepth || this.searchDepth || 'advanced')
+      .trim()
+      .toLowerCase();
     const searchDepth = depthRaw === 'basic' ? 'basic' : 'advanced';
     // Fan out 2–3 query variants; Tavily caps max_results at 20 per call.
     const queries = buildTavilyQueries({
@@ -552,9 +638,11 @@ class TavilySearchProvider {
     const perQuery = Math.min(20, Math.max(8, Math.ceil(limit / queries.length) + 4));
 
     const batches = await Promise.all(
-      queries.map((q) => this._tavilySearchOnce(q, { maxResults: perQuery, searchDepth })
-        .then((rows) => ({ query: q, rows }))
-        .catch((err) => ({ query: q, rows: [], error: err })))
+      queries.map((q) =>
+        this._tavilySearchOnce(q, { maxResults: perQuery, searchDepth })
+          .then((rows) => ({ query: q, rows }))
+          .catch((err) => ({ query: q, rows: [], error: err }))
+      )
     );
     const hardErrors = batches.filter((b) => b.error);
     if (hardErrors.length === batches.length) {
@@ -565,9 +653,15 @@ class TavilySearchProvider {
     const leads = [];
     for (const batch of batches) {
       batch.rows.forEach((r, i) => {
-        const url = String(r.url || '').trim().toLowerCase();
+        const url = String(r.url || '')
+          .trim()
+          .toLowerCase();
         const host = hostFromUrl(url);
-        const key = url || `${String(r.title || '').trim().toLowerCase()}|${i}`;
+        const key =
+          url ||
+          `${String(r.title || '')
+            .trim()
+            .toLowerCase()}|${i}`;
         if (seen.has(key)) return;
         // Also collapse same-site hits (home vs /plumbing) into one lead.
         if (host && !isDirectoryHost(host) && seen.has(`host:${host}`)) return;
@@ -615,9 +709,15 @@ class TavilySearchProvider {
     const now = new Date().toISOString();
     if (!url) {
       return {
-        reachable: false, hasSsl: false, mobileFriendly: false, hasCta: false,
-        hasContactForm: false, hasBooking: false, loadTimeMs: 0,
-        outdatedDesign: false, checkedAt: now,
+        reachable: false,
+        hasSsl: false,
+        mobileFriendly: false,
+        hasCta: false,
+        hasContactForm: false,
+        hasBooking: false,
+        loadTimeMs: 0,
+        outdatedDesign: false,
+        checkedAt: now,
       };
     }
     // Lightweight probe — SSRF-safe (validates each hop + pins resolved IP).
@@ -625,7 +725,11 @@ class TavilySearchProvider {
       const { fetchPublic } = require('../server/urlSafety');
       const t0 = Date.now();
       const res = await fetchPublic(url, { method: 'GET', timeoutMs: 15000, maxRedirects: 5 });
-      try { await res.arrayBuffer(); } catch { /* drain */ }
+      try {
+        await res.arrayBuffer();
+      } catch {
+        /* drain */
+      }
       return {
         reachable: res.ok,
         hasSsl: String(url).startsWith('https'),
@@ -639,9 +743,15 @@ class TavilySearchProvider {
       };
     } catch {
       return {
-        reachable: false, hasSsl: String(url).startsWith('https'), mobileFriendly: false,
-        hasCta: false, hasContactForm: false, hasBooking: false, loadTimeMs: 0,
-        outdatedDesign: false, checkedAt: now,
+        reachable: false,
+        hasSsl: String(url).startsWith('https'),
+        mobileFriendly: false,
+        hasCta: false,
+        hasContactForm: false,
+        hasBooking: false,
+        loadTimeMs: 0,
+        outdatedDesign: false,
+        checkedAt: now,
       };
     }
   }
@@ -676,7 +786,9 @@ function configureFromSettings(settingsOrDb) {
         const row = settingsOrDb.prepare('SELECT value FROM settings WHERE key = ?').get(k);
         if (row) row.value = require('./secretBox').decryptSetting(k, row.value);
         return row && row.value != null ? String(row.value) : '';
-      } catch { return ''; }
+      } catch {
+        return '';
+      }
     }
     if (settingsOrDb && typeof settingsOrDb === 'object') {
       return settingsOrDb[k] != null ? String(settingsOrDb[k]) : '';
@@ -697,7 +809,7 @@ function getProvider(name) {
 }
 
 function listProviders() {
-  return Object.values(registry).map(p => ({
+  return Object.values(registry).map((p) => ({
     name: p.name,
     description: p.description,
     configured: Boolean(p.configured),

@@ -66,9 +66,7 @@ function jsonOk(res, data) {
 
 function jsonFail(res, e) {
   const code = e && e.code;
-  const status = code === 'NOT_FOUND' ? 404
-    : code === 'INVALID_TOKEN' || code === 'MISCONFIGURED' ? 400
-      : 400;
+  const status = code === 'NOT_FOUND' ? 404 : code === 'INVALID_TOKEN' || code === 'MISCONFIGURED' ? 400 : 400;
   return res.status(status).json({ ok: false, error: (e && e.message) || 'Request failed', code: code || undefined });
 }
 
@@ -77,28 +75,43 @@ router.get('/response/:token', clickLimit, (req, res) => {
     const result = domain.outreachInterestResponse(req.params.token);
     if (result.action === 'interested') {
       const name = result.businessName ? ` for ${esc(result.businessName)}` : '';
-      return res.status(200).type('html').send(page({
-        title: 'Thanks — Bitpype',
-        heading: 'Thank you!',
-        tone: 'ok',
-        body: `We received your interest${name}. Someone from Bitpype will be reaching out soon to complete the project.`,
-      }));
+      return res
+        .status(200)
+        .type('html')
+        .send(
+          page({
+            title: 'Thanks — Bitpype',
+            heading: 'Thank you!',
+            tone: 'ok',
+            body: `We received your interest${name}. Someone from Bitpype will be reaching out soon to complete the project.`,
+          })
+        );
     }
-    return res.status(200).type('html').send(page({
-      title: 'Preference saved — Bitpype',
-      heading: 'Got it',
-      tone: 'warn',
-      body: 'Thanks for letting us know. We have marked you as not interested and will not follow up about this project.',
-    }));
+    return res
+      .status(200)
+      .type('html')
+      .send(
+        page({
+          title: 'Preference saved — Bitpype',
+          heading: 'Got it',
+          tone: 'warn',
+          body: 'Thanks for letting us know. We have marked you as not interested and will not follow up about this project.',
+        })
+      );
   } catch (e) {
     const code = e && e.code;
     const status = code === 'NOT_FOUND' ? 404 : code === 'INVALID_TOKEN' ? 400 : 400;
-    return res.status(status).type('html').send(page({
-      title: 'Link problem — Bitpype',
-      heading: 'This link is not valid',
-      tone: 'warn',
-      body: 'The response link may be incomplete or no longer valid. If you still want to reach us, reply to the original email.',
-    }));
+    return res
+      .status(status)
+      .type('html')
+      .send(
+        page({
+          title: 'Link problem — Bitpype',
+          heading: 'This link is not valid',
+          tone: 'warn',
+          body: 'The response link may be incomplete or no longer valid. If you still want to reach us, reply to the original email.',
+        })
+      );
   }
 });
 

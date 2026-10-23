@@ -14,6 +14,9 @@ const pages = [
   },
 ];
 const r = s.toggleNavVisibility(pages, 1);
-const ok = r.pages[1].navVisible === false && !/about/i.test(r.pages[0].html) && typeof m.rebuildFreeformPrimaryNav === 'function';
+const ok =
+  r.pages[1].navVisible === false &&
+  !/about/i.test(r.pages[0].html) &&
+  typeof m.rebuildFreeformPrimaryNav === 'function';
 console.log(ok ? 'OK nav_visible_header' : 'FAIL nav_visible_header');
 process.exit(ok ? 0 : 1);

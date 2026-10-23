@@ -22,13 +22,13 @@ const { CsvProvider, getProvider, normalizeToLead, notConfiguredError } = requir
 /** Scoring table, spec section 16. */
 const SCORE_SIGNALS = {
   no_website: 30,
-  many_reviews: 15,      // review_count >= 20
-  high_rating: 10,       // rating > 4
+  many_reviews: 15, // review_count >= 20
+  high_rating: 10, // rating > 4
   public_email: 10,
   phone: 5,
-  active_business: 10,   // rule-based heuristic, see below
-  poor_website: 15,      // rule-based heuristic, see below
-  strong_category: 10,   // category in STRONG_CATEGORIES
+  active_business: 10, // rule-based heuristic, see below
+  poor_website: 15, // rule-based heuristic, see below
+  strong_category: 10, // category in STRONG_CATEGORIES
 };
 const SCORE_CAP = 100;
 
@@ -38,20 +38,37 @@ const SCORE_CAP = 100;
  * transparent and editable.
  */
 const STRONG_CATEGORIES = [
-  'plumber', 'plumbing',
-  'electrician', 'electrical',
+  'plumber',
+  'plumbing',
+  'electrician',
+  'electrical',
   'hvac',
-  'roofing', 'roofer',
-  'law', 'lawyer', 'attorney', 'law firm',
-  'dental', 'dentist',
+  'roofing',
+  'roofer',
+  'law',
+  'lawyer',
+  'attorney',
+  'law firm',
+  'dental',
+  'dentist',
 ];
 
 const CLAIM_CLASSES = ['VERIFIED', 'AI_COPY', 'OWNER_PROVIDED', 'UNKNOWN'];
 
 const LEAD_STATUSES = [
-  'new', 'researching', 'qualified', 'building', 'qa_pending', 'ready',
-  'outreach_pending', 'contacted', 'engaged', 'claimed', 'trial',
-  'customer', 'lost',
+  'new',
+  'researching',
+  'qualified',
+  'building',
+  'qa_pending',
+  'ready',
+  'outreach_pending',
+  'contacted',
+  'engaged',
+  'claimed',
+  'trial',
+  'customer',
+  'lost',
 ];
 
 /* ------------------------------------------------------------------ */
@@ -93,13 +110,18 @@ function domainFromWebsite(website) {
 
 /** Lowercase domain from an email address. */
 function domainFromEmail(email) {
-  const m = String(email || '').trim().toLowerCase().match(/@([a-z0-9.-]+\.[a-z]{2,})$/);
+  const m = String(email || '')
+    .trim()
+    .toLowerCase()
+    .match(/@([a-z0-9.-]+\.[a-z]{2,})$/);
   return m ? m[1] : '';
 }
 
 /** Normalized address key for dedup. */
 function normalizeAddress(addr) {
-  return String(addr || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return String(addr || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
 }
 
 function isValidEmail(email) {
@@ -127,7 +149,9 @@ function leadHasWebsite(website) {
 
 /** Normalize websitePresence filter: 'has' | 'no' | null (any). */
 function normalizeWebsitePresence(value) {
-  const v = String(value == null ? '' : value).trim().toLowerCase();
+  const v = String(value == null ? '' : value)
+    .trim()
+    .toLowerCase();
   if (v === 'has' || v === 'no') return v;
   return null;
 }
@@ -138,7 +162,11 @@ function toJson(v) {
 
 function fromJson(text, fallback) {
   if (!text) return fallback;
-  try { return JSON.parse(text); } catch { return fallback; }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return fallback;
+  }
 }
 
 /** Get a setting value (string) with fallback. */
@@ -157,8 +185,16 @@ function ensureLeadColumns(db) {
   if (cols.length && !cols.some((c) => c.name === 'lead_group')) {
     db.exec('ALTER TABLE leads ADD COLUMN lead_group TEXT');
   }
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_leads_group ON leads(lead_group)'); } catch { /* ignore */ }
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_leads_category ON leads(category)'); } catch { /* ignore */ }
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_leads_group ON leads(lead_group)');
+  } catch {
+    /* ignore */
+  }
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_leads_category ON leads(category)');
+  } catch {
+    /* ignore */
+  }
 }
 
 function normalizeGroupName(v) {
@@ -189,9 +225,11 @@ function rowToLead(row) {
 }
 
 function logEvent(db, leadId, type, detail) {
-  db.prepare(
-    'INSERT INTO lead_events (lead_id, type, detail) VALUES (?, ?, ?)'
-  ).run(leadId, type, detail != null ? String(detail).slice(0, 2000) : null);
+  db.prepare('INSERT INTO lead_events (lead_id, type, detail) VALUES (?, ?, ?)').run(
+    leadId,
+    type,
+    detail != null ? String(detail).slice(0, 2000) : null
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -250,14 +288,33 @@ function createLead(db, data) {
   const info = stmt.run({
     // normalizeToLead() drops empty keys; default everything to null so no
     // named parameter is ever missing from the INSERT.
-    business_name: null, category: null, phone: null, email: null, website: null,
-    address: null, city: null, state: null, postal_code: null, country: null,
-    latitude: null, longitude: null, rating: null, review_count: null,
-    description: null, source: null, source_ref: null, notes: null, lead_group: null,
+    business_name: null,
+    category: null,
+    phone: null,
+    email: null,
+    website: null,
+    address: null,
+    city: null,
+    state: null,
+    postal_code: null,
+    country: null,
+    latitude: null,
+    longitude: null,
+    rating: null,
+    review_count: null,
+    description: null,
+    source: null,
+    source_ref: null,
+    notes: null,
+    lead_group: null,
     ...lead,
-    hours: toJson(lead.hours), services: toJson(lead.services),
+    hours: toJson(lead.hours),
+    services: toJson(lead.services),
     social_links: toJson(lead.social_links),
-    status, tags: JSON.stringify(tags), lead_group: leadGroup, notes,
+    status,
+    tags: JSON.stringify(tags),
+    lead_group: leadGroup,
+    notes,
   });
   logEvent(db, info.lastInsertRowid, 'created', `source=${lead.source || 'manual'}`);
   return getLead(db, info.lastInsertRowid);
@@ -274,22 +331,27 @@ function updateLead(db, id, obj) {
   if (!existing) throw validationError(`lead not found: ${id}`);
   const merged = { ...existing, ...(obj || {}) };
   const lead = validateLeadInput(merged);
-  const tags = obj.tags !== undefined
-    ? (Array.isArray(obj.tags) ? obj.tags.map(String) : null)
-    : existing.tags;
+  const tags = obj.tags !== undefined ? (Array.isArray(obj.tags) ? obj.tags.map(String) : null) : existing.tags;
   if (obj.tags !== undefined && !Array.isArray(obj.tags)) {
     throw validationError('tags must be an array');
   }
   ensureLeadColumns(db);
   const notes = obj.notes !== undefined ? String(obj.notes).slice(0, 10000) : existing.notes;
-  const status = obj.status !== undefined
-    ? (LEAD_STATUSES.includes(obj.status) ? obj.status : (() => { throw validationError(`invalid status: ${obj.status}`); })())
-    : existing.status;
-  const leadGroup = (obj.lead_group !== undefined || obj.group !== undefined)
-    ? normalizeGroupName(obj.lead_group !== undefined ? obj.lead_group : obj.group)
-    : (existing.lead_group || null);
+  const status =
+    obj.status !== undefined
+      ? LEAD_STATUSES.includes(obj.status)
+        ? obj.status
+        : (() => {
+            throw validationError(`invalid status: ${obj.status}`);
+          })()
+      : existing.status;
+  const leadGroup =
+    obj.lead_group !== undefined || obj.group !== undefined
+      ? normalizeGroupName(obj.lead_group !== undefined ? obj.lead_group : obj.group)
+      : existing.lead_group || null;
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE leads SET
       business_name=@business_name, category=@category, phone=@phone,
       email=@email, website=@website, address=@address, city=@city,
@@ -300,17 +362,38 @@ function updateLead(db, id, obj) {
       source=@source, source_ref=@source_ref, status=@status,
       tags=@tags, lead_group=@lead_group, notes=@notes, updated_at=datetime('now')
     WHERE id=@id
-  `).run({
+  `
+  ).run({
     // normalizeToLead() drops empty keys; default everything to null so no
     // named parameter is ever missing from the UPDATE.
-    business_name: null, category: null, phone: null, email: null, website: null,
-    address: null, city: null, state: null, postal_code: null, country: null,
-    latitude: null, longitude: null, rating: null, review_count: null,
-    description: null, source: null, source_ref: null, notes: null, lead_group: null,
+    business_name: null,
+    category: null,
+    phone: null,
+    email: null,
+    website: null,
+    address: null,
+    city: null,
+    state: null,
+    postal_code: null,
+    country: null,
+    latitude: null,
+    longitude: null,
+    rating: null,
+    review_count: null,
+    description: null,
+    source: null,
+    source_ref: null,
+    notes: null,
+    lead_group: null,
     ...lead,
-    hours: toJson(lead.hours), services: toJson(lead.services),
+    hours: toJson(lead.hours),
+    services: toJson(lead.services),
     social_links: toJson(lead.social_links),
-    status, tags: JSON.stringify(tags || []), lead_group: leadGroup, notes, id,
+    status,
+    tags: JSON.stringify(tags || []),
+    lead_group: leadGroup,
+    notes,
+    id,
   });
   logEvent(db, id, 'updated', 'fields updated');
   return getLead(db, id);
@@ -354,7 +437,7 @@ function importCsv(db, text, opts = {}) {
   const result = { created: 0, skipped: 0, errors: [], group: leadGroup };
   raws.forEach((raw, i) => {
     const lineNo = i + 2; // header is line 1
-    if (!Object.values(raw).some(v => String(v).trim() !== '')) {
+    if (!Object.values(raw).some((v) => String(v).trim() !== '')) {
       result.skipped++;
       return;
     }
@@ -390,27 +473,24 @@ async function discoverLeads(db, opts = {}) {
     await provider.search(opts); // throws PROVIDER_NOT_CONFIGURED
   }
   const limit = Math.min(50, Math.max(1, Number(opts.limit) || 10));
-  const rawCategory = String(opts.category != null ? opts.category : (opts.query || '')).trim();
+  const rawCategory = String(opts.category != null ? opts.category : opts.query || '').trim();
   const anyCategory = !rawCategory || rawCategory === '*' || /^any$/i.test(rawCategory);
   // "*" / "any" / blank → broad local-business search; don't store "*" as the niche.
-  const query = anyCategory
-    ? 'local business'
-    : (String(opts.query || rawCategory || 'business').trim() || 'business');
+  const query = anyCategory ? 'local business' : String(opts.query || rawCategory || 'business').trim() || 'business';
   const category = anyCategory ? '' : rawCategory;
   const location = String(opts.location || 'Springfield').trim() || 'Springfield';
   const scoreAfter = opts.score !== false;
   const websitePresence = normalizeWebsitePresence(opts.websitePresence);
-  const leadGroup = normalizeGroupName(opts.group || opts.lead_group)
-    || defaultDiscoverGroup(anyCategory ? 'Any' : category, location);
+  const leadGroup =
+    normalizeGroupName(opts.group || opts.lead_group) || defaultDiscoverGroup(anyCategory ? 'Any' : category, location);
   const autoTags = [anyCategory ? 'any' : category, location].map((t) => String(t).trim()).filter(Boolean);
 
   // Over-fetch when post-filtering by website presence (providers rarely support it natively).
-  const fetchLimit = websitePresence
-    ? Math.min(50, Math.max(limit * 3, limit))
-    : limit;
+  const fetchLimit = websitePresence ? Math.min(50, Math.max(limit * 3, limit)) : limit;
 
   const searchDepthSetting = String(getSetting(db, 'providers.tavily.search_depth', 'advanced') || 'advanced')
-    .trim().toLowerCase();
+    .trim()
+    .toLowerCase();
   const searchDepth = searchDepthSetting === 'basic' ? 'basic' : 'advanced';
 
   const rawResults = await provider.search({
@@ -438,8 +518,14 @@ async function discoverLeads(db, opts = {}) {
   }
 
   const result = {
-    provider: provider.name, queried: rawResults.length, created: 0, skipped: 0,
-    scored: 0, leads: [], errors: [], group: leadGroup,
+    provider: provider.name,
+    queried: rawResults.length,
+    created: 0,
+    skipped: 0,
+    scored: 0,
+    leads: [],
+    errors: [],
+    group: leadGroup,
     websitePresence: websitePresence || null,
     searchDepth,
     warning: null,
@@ -465,7 +551,10 @@ async function discoverLeads(db, opts = {}) {
       const sourceRef = normalized.source_ref || null;
       if (sourceRef) {
         const hit = existingRef.get(source, sourceRef);
-        if (hit) { result.skipped++; continue; }
+        if (hit) {
+          result.skipped++;
+          continue;
+        }
       }
       const tags = new Set([...(Array.isArray(normalized.tags) ? normalized.tags : []), ...autoTags]);
       const lead = createLead(db, {
@@ -479,7 +568,10 @@ async function discoverLeads(db, opts = {}) {
       });
       result.created++;
       result.leads.push({
-        id: lead.id, business_name: lead.business_name, score: lead.score, lead_group: lead.lead_group,
+        id: lead.id,
+        business_name: lead.business_name,
+        score: lead.score,
+        lead_group: lead.lead_group,
       });
       if (scoreAfter) {
         try {
@@ -500,10 +592,14 @@ async function discoverLeads(db, opts = {}) {
     const thin = result.warning ? ` ${result.warning}` : '';
     db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
       'leads',
-      `Discover via ${provider.name}: ${result.created} created, ${result.skipped} skipped, ${result.queried} queried → group "${leadGroup}" (${category} · ${location}).${thin}`
-        .slice(0, 2000)
+      `Discover via ${provider.name}: ${result.created} created, ${result.skipped} skipped, ${result.queried} queried → group "${leadGroup}" (${category} · ${location}).${thin}`.slice(
+        0,
+        2000
+      )
     );
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   return result;
 }
@@ -513,19 +609,31 @@ async function discoverLeads(db, opts = {}) {
  */
 function listLeadFacets(db) {
   ensureLeadColumns(db);
-  const groups = db.prepare(`
+  const groups = db
+    .prepare(
+      `
     SELECT COALESCE(NULLIF(TRIM(lead_group), ''), '(ungrouped)') AS name, COUNT(*) AS count
     FROM leads GROUP BY name ORDER BY count DESC, name ASC LIMIT 100
-  `).all();
-  const categories = db.prepare(`
+  `
+    )
+    .all();
+  const categories = db
+    .prepare(
+      `
     SELECT COALESCE(NULLIF(TRIM(category), ''), '(uncategorized)') AS name, COUNT(*) AS count
     FROM leads GROUP BY name ORDER BY count DESC, name ASC LIMIT 100
-  `).all();
+  `
+    )
+    .all();
   const tagCounts = new Map();
-  const tagRows = db.prepare('SELECT tags FROM leads WHERE tags IS NOT NULL AND tags != \'\'').all();
+  const tagRows = db.prepare("SELECT tags FROM leads WHERE tags IS NOT NULL AND tags != ''").all();
   for (const row of tagRows) {
     let tags = [];
-    try { tags = JSON.parse(row.tags || '[]'); } catch { tags = []; }
+    try {
+      tags = JSON.parse(row.tags || '[]');
+    } catch {
+      tags = [];
+    }
     if (!Array.isArray(tags)) continue;
     for (const t of tags) {
       const key = String(t || '').trim();
@@ -558,14 +666,16 @@ function findDuplicates(db, lead) {
   const myPhone = normalizePhoneDigits(me.phone);
   const myName = normalizeName(me.business_name);
   const myDomain = domainFromWebsite(me.website) || domainFromEmail(me.email);
-  const myEmail = String(me.email || '').trim().toLowerCase();
+  const myEmail = String(me.email || '')
+    .trim()
+    .toLowerCase();
   const myAddr = normalizeAddress(me.address);
 
   if (!myPhone && !myName && !myAddr && !myDomain && !myEmail) return [];
 
-  const rows = db.prepare(
-    'SELECT id, business_name, phone, email, website, address FROM leads WHERE id != ?'
-  ).all(me.id);
+  const rows = db
+    .prepare('SELECT id, business_name, phone, email, website, address FROM leads WHERE id != ?')
+    .all(me.id);
 
   const out = [];
   for (const r of rows) {
@@ -578,7 +688,9 @@ function findDuplicates(db, lead) {
     if (myAddr && rAddr && myAddr === rAddr && myAddr.length >= 8) matchedOn.push('address');
     const rDomain = domainFromWebsite(r.website) || domainFromEmail(r.email);
     if (myDomain && rDomain && myDomain === rDomain) matchedOn.push('domain');
-    const rEmail = String(r.email || '').trim().toLowerCase();
+    const rEmail = String(r.email || '')
+      .trim()
+      .toLowerCase();
     if (myEmail && rEmail && myEmail === rEmail) matchedOn.push('email');
     if (matchedOn.length > 0) {
       out.push({ id: r.id, business_name: r.business_name, matched_on: matchedOn });
@@ -596,13 +708,27 @@ function findDuplicates(db, lead) {
 function mergeLeads(db, keepId, dropIds) {
   const keep = getLead(db, keepId);
   if (!keep) throw validationError(`keeper lead not found: ${keepId}`);
-  const ids = [...new Set((dropIds || []).map(Number).filter(n => Number.isInteger(n) && n !== keepId))];
+  const ids = [...new Set((dropIds || []).map(Number).filter((n) => Number.isInteger(n) && n !== keepId))];
   if (ids.length === 0) throw validationError('no leads to merge');
 
   ensureLeadColumns(db);
-  const FILL_FIELDS = ['category', 'phone', 'email', 'website', 'address', 'city',
-    'state', 'postal_code', 'country', 'latitude', 'longitude', 'rating',
-    'review_count', 'description', 'lead_group'];
+  const FILL_FIELDS = [
+    'category',
+    'phone',
+    'email',
+    'website',
+    'address',
+    'city',
+    'state',
+    'postal_code',
+    'country',
+    'latitude',
+    'longitude',
+    'rating',
+    'review_count',
+    'description',
+    'lead_group',
+  ];
 
   const tx = db.transaction(() => {
     const merged = { ...keep };
@@ -614,12 +740,16 @@ function mergeLeads(db, keepId, dropIds) {
       const drop = getLead(db, dropId);
       if (!drop) throw validationError(`lead to merge not found: ${dropId}`);
       for (const f of FILL_FIELDS) {
-        if ((merged[f] === null || merged[f] === undefined || merged[f] === '') &&
-            drop[f] !== null && drop[f] !== undefined && drop[f] !== '') {
+        if (
+          (merged[f] === null || merged[f] === undefined || merged[f] === '') &&
+          drop[f] !== null &&
+          drop[f] !== undefined &&
+          drop[f] !== ''
+        ) {
           merged[f] = drop[f];
         }
       }
-      (drop.tags || []).forEach(t => tagSet.add(t));
+      (drop.tags || []).forEach((t) => tagSet.add(t));
       if (drop.notes) noteParts.push(`--- merged from #${dropId} (${drop.business_name}) ---\n${drop.notes}`);
       noteParts.push(`merged lead #${dropId} (${drop.business_name}) on ${new Date().toISOString()}`);
 
@@ -629,13 +759,20 @@ function mergeLeads(db, keepId, dropIds) {
       db.prepare('DELETE FROM leads WHERE id = ?').run(dropId);
     }
 
-    const setCols = FILL_FIELDS.map(f => `${f} = @${f}`).join(', ');
+    const setCols = FILL_FIELDS.map((f) => `${f} = @${f}`).join(', ');
     const params = {};
     for (const f of FILL_FIELDS) params[f] = merged[f] === undefined ? null : merged[f];
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE leads SET ${setCols}, tags=@tags, notes=@notes,
         updated_at=datetime('now') WHERE id=@id
-    `).run({ ...params, tags: JSON.stringify([...tagSet]), notes: noteParts.join('\n\n').slice(0, 10000) || null, id: keepId });
+    `
+    ).run({
+      ...params,
+      tags: JSON.stringify([...tagSet]),
+      notes: noteParts.join('\n\n').slice(0, 10000) || null,
+      id: keepId,
+    });
     logEvent(db, keepId, 'merged', `absorbed leads: ${ids.join(', ')}`);
   });
   tx();
@@ -648,9 +785,9 @@ function mergeLeads(db, keepId, dropIds) {
 
 /** Read stored website-check facts for a lead into a flags object. */
 function websiteFlagsFromFacts(db, leadId) {
-  const rows = db.prepare(
-    "SELECT fact_key, value FROM business_facts WHERE lead_id = ? AND fact_key LIKE 'website.%'"
-  ).all(leadId);
+  const rows = db
+    .prepare("SELECT fact_key, value FROM business_facts WHERE lead_id = ? AND fact_key LIKE 'website.%'")
+    .all(leadId);
   const flags = {};
   for (const r of rows) {
     const key = r.fact_key.replace(/^website\./, '');
@@ -690,7 +827,7 @@ function isActiveBusiness(lead) {
 /** "Strong category" heuristic (spec section 16, +10). */
 function isStrongCategory(lead) {
   const c = String(lead.category || '').toLowerCase();
-  return STRONG_CATEGORIES.some(k => c.includes(k));
+  return STRONG_CATEGORIES.some((k) => c.includes(k));
 }
 
 /* ------------------------------------------------------------------ */
@@ -729,12 +866,17 @@ function scoreLead(db, id, opts = {}) {
   if (isPoorWebsite(lead, flags)) breakdown.poor_website = SCORE_SIGNALS.poor_website;
   if (isStrongCategory(lead)) breakdown.strong_category = SCORE_SIGNALS.strong_category;
 
-  const score = Math.min(SCORE_CAP, Object.values(breakdown).reduce((a, b) => a + b, 0));
+  const score = Math.min(
+    SCORE_CAP,
+    Object.values(breakdown).reduce((a, b) => a + b, 0)
+  );
 
-  db.prepare('INSERT INTO lead_scores (lead_id, score, breakdown) VALUES (?, ?, ?)')
-    .run(id, score, JSON.stringify(breakdown));
-  db.prepare("UPDATE leads SET score = ?, updated_at = datetime('now') WHERE id = ?")
-    .run(score, id);
+  db.prepare('INSERT INTO lead_scores (lead_id, score, breakdown) VALUES (?, ?, ?)').run(
+    id,
+    score,
+    JSON.stringify(breakdown)
+  );
+  db.prepare("UPDATE leads SET score = ?, updated_at = datetime('now') WHERE id = ?").run(score, id);
   logEvent(db, id, 'scored', `score=${score} breakdown=${JSON.stringify(breakdown)}`);
   return { id, score, breakdown };
 }
@@ -771,14 +913,18 @@ function qualifyLead(db, id) {
   if (isPoorWebsite(lead, flags) && !positives.includes('no_website')) positives.push('poor_website');
 
   // Negative flags (disqualifiers)
-  const excellentWebsite = Boolean(lead.website) &&
-    flags.reachable !== false && flags.has_ssl === true &&
-    flags.mobile_friendly === true && flags.has_cta !== false &&
-    flags.outdated_design !== true && !isPoorWebsite(lead, flags);
+  const excellentWebsite =
+    Boolean(lead.website) &&
+    flags.reachable !== false &&
+    flags.has_ssl === true &&
+    flags.mobile_friendly === true &&
+    flags.has_cta !== false &&
+    flags.outdated_design !== true &&
+    !isPoorWebsite(lead, flags);
   if (excellentWebsite) negatives.push('excellent_existing_website');
   if (lead.status === 'lost') negatives.push('closed_or_lost');
   const dupes = findDuplicates(db, lead);
-  if (dupes.length > 0) negatives.push(`duplicate_listing (#${dupes.map(d => d.id).join(', #')})`);
+  if (dupes.length > 0) negatives.push(`duplicate_listing (#${dupes.map((d) => d.id).join(', #')})`);
   if (!lead.phone && !lead.email && !lead.website) negatives.push('invalid_contact_information');
 
   const threshold = Number(getSetting(db, 'score.threshold_qualified', '50')) || 50;
@@ -792,12 +938,14 @@ function qualifyLead(db, id) {
     qualified ? 'QUALIFIED' : 'NOT QUALIFIED',
   ].join(' | ');
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE leads SET qualified = ?, qualification_note = ?,
       status = CASE WHEN ? = 1 AND status IN ('new','researching') THEN 'qualified' ELSE status END,
       updated_at = datetime('now')
     WHERE id = ?
-  `).run(qualified ? 1 : 0, note.slice(0, 2000), qualified ? 1 : 0, id);
+  `
+  ).run(qualified ? 1 : 0, note.slice(0, 2000), qualified ? 1 : 0, id);
   logEvent(db, id, qualified ? 'qualified' : 'disqualified', note.slice(0, 2000));
 
   return { id, qualified, positives, negatives, score, threshold, note };
@@ -828,25 +976,28 @@ function addFact(db, leadId, fact) {
   const key = String(f.fact_key).trim().slice(0, 200);
   // Site ingest JSON (structure/snapshot/style/map) regularly exceeds 5k; keep headroom so JSON stays valid.
   const maxVal = /^site\.(structure|snapshot|style_guide|map|faq)$/.test(key) ? 80000 : 5000;
-  const info = db.prepare(`
+  const info = db
+    .prepare(
+      `
     INSERT INTO business_facts (lead_id, fact_key, value, source, source_url, confidence, claim_class)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    leadId,
-    key,
-    String(f.value).slice(0, maxVal),
-    String(f.source).trim().slice(0, 200),
-    f.source_url ? String(f.source_url).slice(0, 1000) : null,
-    confidence,
-    f.claim_class
-  );
+  `
+    )
+    .run(
+      leadId,
+      key,
+      String(f.value).slice(0, maxVal),
+      String(f.source).trim().slice(0, 200),
+      f.source_url ? String(f.source_url).slice(0, 1000) : null,
+      confidence,
+      f.claim_class
+    );
   logEvent(db, leadId, 'fact_added', `${f.fact_key} [${f.claim_class}] via ${f.source}`);
   return db.prepare('SELECT * FROM business_facts WHERE id = ?').get(info.lastInsertRowid);
 }
 
 function getFacts(db, leadId) {
-  return db.prepare('SELECT * FROM business_facts WHERE lead_id = ? ORDER BY fetched_at DESC, id DESC')
-    .all(leadId);
+  return db.prepare('SELECT * FROM business_facts WHERE lead_id = ? ORDER BY fetched_at DESC, id DESC').all(leadId);
 }
 
 /* ------------------------------------------------------------------ */
@@ -868,8 +1019,8 @@ async function researchLead(db, id) {
   // Prefer lead.source when it is a configured discovery provider; else Tavily
   // if configured; else csv/manual passthrough of existing lead fields.
   let provider = getProvider(lead.source);
-  const sourceIsDiscovery = provider && provider.configured !== false &&
-    provider.name !== 'csv' && provider.name !== 'manual';
+  const sourceIsDiscovery =
+    provider && provider.configured !== false && provider.name !== 'csv' && provider.name !== 'manual';
   if (!sourceIsDiscovery) {
     const tavily = getProvider('tavily');
     if (tavily && tavily.configured) {
@@ -879,11 +1030,12 @@ async function researchLead(db, id) {
     }
   }
   if (!provider) {
-    throw notConfiguredError('research',
-      'No discovery provider is configured. Set a Tavily API key in Settings → Lead discovery.');
+    throw notConfiguredError(
+      'research',
+      'No discovery provider is configured. Set a Tavily API key in Settings → Lead discovery.'
+    );
   }
-  const isVerified = provider.name !== 'csv' && provider.name !== 'manual' &&
-    provider.configured !== false;
+  const isVerified = provider.name !== 'csv' && provider.name !== 'manual' && provider.configured !== false;
   const factClass = isVerified ? 'VERIFIED' : 'UNKNOWN';
   const factConfidence = isVerified ? 'medium' : 'low';
   const sourceUrl = lead.website || null;
@@ -894,11 +1046,17 @@ async function researchLead(db, id) {
   const stored = [];
   const storeFact = (fact_key, value, extra = {}) => {
     if (value === null || value === undefined || String(value).trim() === '') return;
-    stored.push(addFact(db, id, {
-      fact_key, value: String(value), source: provider.name,
-      source_url: sourceUrl, confidence: factConfidence,
-      claim_class: factClass, ...extra,
-    }));
+    stored.push(
+      addFact(db, id, {
+        fact_key,
+        value: String(value),
+        source: provider.name,
+        source_url: sourceUrl,
+        confidence: factConfidence,
+        claim_class: factClass,
+        ...extra,
+      })
+    );
   };
 
   try {
@@ -942,15 +1100,20 @@ async function researchLead(db, id) {
         if (ingest && ingest.extracted) {
           if (ingest.extracted.phones[0]) ingestFill.phone = ingest.extracted.phones[0];
           if (ingest.extracted.emails[0]) ingestFill.email = ingest.extracted.emails[0];
-          if (ingest.extracted.about && !norm.description) ingestFill.description = ingest.extracted.about.slice(0, 2000);
+          if (ingest.extracted.about && !norm.description)
+            ingestFill.description = ingest.extracted.about.slice(0, 2000);
           if (ingest.extracted.services.length) ingestFill.services = ingest.extracted.services;
           if (ingest.extracted.hours.length) ingestFill.hours = ingest.extracted.hours;
         }
         const map = ingest.siteMap || (ingest.extracted && ingest.extracted.site_map) || {};
-        logEvent(db, id, 'site_ingested',
+        logEvent(
+          db,
+          id,
+          'site_ingested',
           `pages=${ingest.pageCount || 0} services=${(map.services && map.services.length) || (ingest.extracted && ingest.extracted.services.length) || 0}` +
-          ` sitemap=${map.sitemap_count || 0} areas=${(map.areas && map.areas.length) || 0}` +
-          (ingest.error ? ` err=${ingest.error}` : ''));
+            ` sitemap=${map.sitemap_count || 0} areas=${(map.areas && map.areas.length) || 0}` +
+            (ingest.error ? ` err=${ingest.error}` : '')
+        );
 
         // Optional AI enhancement of hero/gallery photos (fal.ai).
         try {
@@ -960,45 +1123,54 @@ async function researchLead(db, id) {
             const rank = (r) => (r === 'hero' ? 0 : r === 'logo' ? 1 : 2);
             return rank(a.role) - rank(b.role);
           });
-          const urls = ranked.map((x) => x.url).filter(Boolean).slice(0, imageEnhance.MAX_IMAGES);
+          const urls = ranked
+            .map((x) => x.url)
+            .filter(Boolean)
+            .slice(0, imageEnhance.MAX_IMAGES);
           if (urls.length && imageEnhance.falConfigured(db)) {
             const enhanced = await imageEnhance.enhanceImages(db, urls, { leadId: id });
             let ei = 0;
             for (const row of enhanced) {
               if (!row.enhanced_url) {
-                logEvent(db, id, 'image_enhance_skipped',
-                  `${row.source} :: ${row.error || row.reason || 'skip'}`.slice(0, 500));
+                logEvent(
+                  db,
+                  id,
+                  'image_enhance_skipped',
+                  `${row.source} :: ${row.error || row.reason || 'skip'}`.slice(0, 500)
+                );
                 continue;
               }
-              stored.push(addFact(db, id, {
-                fact_key: `site.image.enhanced:${ei}`,
-                value: row.enhanced_url,
-                source: 'fal-enhance',
-                source_url: row.source,
-                confidence: 'medium',
-                claim_class: 'AI_COPY',
-              }));
-              if (row.local_path) {
-                stored.push(addFact(db, id, {
-                  fact_key: `site.image.enhanced:${ei}.local`,
-                  value: row.local_path,
+              stored.push(
+                addFact(db, id, {
+                  fact_key: `site.image.enhanced:${ei}`,
+                  value: row.enhanced_url,
                   source: 'fal-enhance',
                   source_url: row.source,
                   confidence: 'medium',
                   claim_class: 'AI_COPY',
-                }));
+                })
+              );
+              if (row.local_path) {
+                stored.push(
+                  addFact(db, id, {
+                    fact_key: `site.image.enhanced:${ei}.local`,
+                    value: row.local_path,
+                    source: 'fal-enhance',
+                    source_url: row.source,
+                    confidence: 'medium',
+                    claim_class: 'AI_COPY',
+                  })
+                );
               }
               ei++;
             }
             logEvent(db, id, 'images_enhanced', `count=${ei} model=${imageEnhance.DEFAULT_MODEL}`);
           }
         } catch (enhErr) {
-          logEvent(db, id, 'image_enhance_failed',
-            String((enhErr && enhErr.message) || enhErr).slice(0, 500));
+          logEvent(db, id, 'image_enhance_failed', String((enhErr && enhErr.message) || enhErr).slice(0, 500));
         }
       } catch (ingestErr) {
-        logEvent(db, id, 'site_ingest_failed',
-          String((ingestErr && ingestErr.message) || ingestErr).slice(0, 500));
+        logEvent(db, id, 'site_ingest_failed', String((ingestErr && ingestErr.message) || ingestErr).slice(0, 500));
       }
 
       // Provider probe only when ingest did not already write quality facts.
@@ -1016,29 +1188,50 @@ async function researchLead(db, id) {
     }
 
     // Fill empty lead fields from research (never overwrite existing data).
-    const fillable = ['phone', 'email', 'website', 'address', 'city', 'state',
-      'postal_code', 'rating', 'review_count', 'description'];
+    const fillable = [
+      'phone',
+      'email',
+      'website',
+      'address',
+      'city',
+      'state',
+      'postal_code',
+      'rating',
+      'review_count',
+      'description',
+    ];
     const updates = {};
     const merged = { ...norm, ...ingestFill };
     for (const f of fillable) {
-      if ((lead[f] === null || lead[f] === undefined || lead[f] === '') &&
-          merged[f] !== null && merged[f] !== undefined && merged[f] !== '') {
+      if (
+        (lead[f] === null || lead[f] === undefined || lead[f] === '') &&
+        merged[f] !== null &&
+        merged[f] !== undefined &&
+        merged[f] !== ''
+      ) {
         updates[f] = merged[f];
       }
     }
     // services / hours live as JSON columns when empty on the lead.
-    if ((!lead.services || lead.services === '[]' || lead.services === '') &&
-        Array.isArray(ingestFill.services) && ingestFill.services.length) {
+    if (
+      (!lead.services || lead.services === '[]' || lead.services === '') &&
+      Array.isArray(ingestFill.services) &&
+      ingestFill.services.length
+    ) {
       updates.services = JSON.stringify(ingestFill.services);
     }
-    if ((!lead.hours || lead.hours === '[]' || lead.hours === '') &&
-        Array.isArray(ingestFill.hours) && ingestFill.hours.length) {
+    if (
+      (!lead.hours || lead.hours === '[]' || lead.hours === '') &&
+      Array.isArray(ingestFill.hours) &&
+      ingestFill.hours.length
+    ) {
       updates.hours = JSON.stringify(ingestFill.hours);
     }
     if (Object.keys(updates).length > 0) {
-      const set = Object.keys(updates).map(k => `${k} = @${k}`).join(', ');
-      db.prepare(`UPDATE leads SET ${set}, updated_at=datetime('now') WHERE id=@id`)
-        .run({ ...updates, id });
+      const set = Object.keys(updates)
+        .map((k) => `${k} = @${k}`)
+        .join(', ');
+      db.prepare(`UPDATE leads SET ${set}, updated_at=datetime('now') WHERE id=@id`).run({ ...updates, id });
     }
 
     // Optional AI enhancement: draft marketing copy (AI_COPY, never facts).
@@ -1050,15 +1243,25 @@ async function researchLead(db, id) {
           task: 'research',
           db,
           messages: [
-            { role: 'system', content: 'Write a short, friendly marketing description (2-3 sentences) for a local business website. Do NOT invent factual claims (founding year, awards, service areas) — only generic, clearly promotional language.' },
-            { role: 'user', content: `Business: ${lead.business_name} (${lead.category || 'local business'}). Known: ${norm.description || 'no description available'}.` },
+            {
+              role: 'system',
+              content:
+                'Write a short, friendly marketing description (2-3 sentences) for a local business website. Do NOT invent factual claims (founding year, awards, service areas) — only generic, clearly promotional language.',
+            },
+            {
+              role: 'user',
+              content: `Business: ${lead.business_name} (${lead.category || 'local business'}). Known: ${norm.description || 'no description available'}.`,
+            },
           ],
-          maxTokens: 150, leadId: id, note: 'research marketing blurb',
+          maxTokens: 150,
+          leadId: id,
+          note: 'research marketing blurb',
         });
         const copy = res && (res.text || res.content || res);
         if (copy && String(copy).trim()) {
           storeFact('marketing_blurb', String(copy).trim().slice(0, 1000), {
-            claim_class: 'AI_COPY', confidence: 'low',
+            claim_class: 'AI_COPY',
+            confidence: 'low',
           });
         }
       }
@@ -1067,8 +1270,7 @@ async function researchLead(db, id) {
       logEvent(db, id, 'research_ai_skipped', String((aiErr && aiErr.message) || aiErr).slice(0, 500));
     }
 
-    logEvent(db, id, 'research_completed',
-      `provider=${provider.name} facts=${stored.length} class=${factClass}`);
+    logEvent(db, id, 'research_completed', `provider=${provider.name} facts=${stored.length} class=${factClass}`);
     return { id, provider: provider.name, facts: stored.length, filled: Object.keys(updates).length };
   } catch (err) {
     logEvent(db, id, 'research_failed', String(err.message).slice(0, 1000));
@@ -1080,19 +1282,46 @@ async function researchLead(db, id) {
 
 module.exports = {
   // constants
-  SCORE_SIGNALS, SCORE_CAP, STRONG_CATEGORIES, CLAIM_CLASSES, LEAD_STATUSES,
+  SCORE_SIGNALS,
+  SCORE_CAP,
+  STRONG_CATEGORIES,
+  CLAIM_CLASSES,
+  LEAD_STATUSES,
   CSV_MAX_BYTES,
   // helpers (exported for tests / other workstreams)
-  normalizePhoneDigits, normalizeName, domainFromWebsite, domainFromEmail,
-  normalizeAddress, isValidEmail, isValidUrl, leadHasWebsite, normalizeWebsitePresence,
-  isPoorWebsite, isActiveBusiness, isStrongCategory, websiteFlagsFromFacts,
-  getSetting, ensureLeadColumns, normalizeGroupName, defaultDiscoverGroup,
+  normalizePhoneDigits,
+  normalizeName,
+  domainFromWebsite,
+  domainFromEmail,
+  normalizeAddress,
+  isValidEmail,
+  isValidUrl,
+  leadHasWebsite,
+  normalizeWebsitePresence,
+  isPoorWebsite,
+  isActiveBusiness,
+  isStrongCategory,
+  websiteFlagsFromFacts,
+  getSetting,
+  ensureLeadColumns,
+  normalizeGroupName,
+  defaultDiscoverGroup,
   // crud
-  createLead, getLead, updateLead, deleteLead,
+  createLead,
+  getLead,
+  updateLead,
+  deleteLead,
   // import / discover / dedup / merge
-  importCsv, discoverLeads, listLeadFacets, findDuplicates, mergeLeads,
+  importCsv,
+  discoverLeads,
+  listLeadFacets,
+  findDuplicates,
+  mergeLeads,
   // scoring / qualification
-  scoreLead, qualifyLead,
+  scoreLead,
+  qualifyLead,
   // facts / research
-  addFact, getFacts, researchLead,
+  addFact,
+  getFacts,
+  researchLead,
 };

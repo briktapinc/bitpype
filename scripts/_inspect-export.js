@@ -22,18 +22,25 @@ console.log('preview_path=', site.preview_path);
 
 let theme = {};
 let pages = [];
-try { theme = JSON.parse(site.theme || '{}'); } catch {}
-try { pages = JSON.parse(site.pages || '[]'); } catch {}
+try {
+  theme = JSON.parse(site.theme || '{}');
+} catch {}
+try {
+  pages = JSON.parse(site.pages || '[]');
+} catch {}
 console.log('theme.keys=', Object.keys(theme));
 console.log('theme.baseCss=', theme.baseCss, 'customCss_len=', (theme.customCss || '').length);
-console.log('pages=', pages.map((p) => ({
-  slug: p.slug,
-  title: p.title,
-  hasHtml: !!(p.html && String(p.html).trim()),
-  htmlLen: p.html ? String(p.html).length : 0,
-  fullDoc: p.html ? /^\s*(<!doctype|<html)/i.test(p.html) : false,
-  sections: (p.sections || []).length,
-})));
+console.log(
+  'pages=',
+  pages.map((p) => ({
+    slug: p.slug,
+    title: p.title,
+    hasHtml: !!(p.html && String(p.html).trim()),
+    htmlLen: p.html ? String(p.html).length : 0,
+    fullDoc: p.html ? /^\s*(<!doctype|<html)/i.test(p.html) : false,
+    sections: (p.sections || []).length,
+  }))
+);
 
 for (const p of pages) {
   if (!p.html) continue;
@@ -87,7 +94,13 @@ if (fs.existsSync(er)) {
     const abs = path.join(er, name);
     const st = fs.statSync(abs);
     if (st.isDirectory()) {
-      console.log('dir', name, walk(abs).map((f) => f.rel).join(', '));
+      console.log(
+        'dir',
+        name,
+        walk(abs)
+          .map((f) => f.rel)
+          .join(', ')
+      );
     }
   }
 }

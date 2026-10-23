@@ -15,7 +15,9 @@ const DEFAULT_MAX_REDIRECTS = 5;
 
 /** Unwrap IPv4-mapped IPv6 (::ffff:10.0.0.1 / ::ffff:a00:1). */
 function normalizeIp(ip) {
-  const v = String(ip || '').toLowerCase().trim();
+  const v = String(ip || '')
+    .toLowerCase()
+    .trim();
   const dotted = v.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
   if (dotted) return dotted[1];
   const hex = v.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
@@ -58,8 +60,8 @@ function isPrivateIp(ip) {
  * @returns {{ href: string, hostname: string, connectIp: string, addresses: string[] }}
  */
 async function assertPublicUrl(rawUrl, opts = {}) {
-  const allowHttpLocal = opts.allowHttpLocal === true
-    && String(process.env.NODE_ENV || '').toLowerCase() !== 'production';
+  const allowHttpLocal =
+    opts.allowHttpLocal === true && String(process.env.NODE_ENV || '').toLowerCase() !== 'production';
   let u;
   try {
     u = new URL(String(rawUrl || ''));
@@ -148,22 +150,30 @@ function pinnedAgent(connectIp) {
  */
 async function fetchPublic(rawUrl, opts = {}) {
   const maxRedirects = Number.isFinite(opts.maxRedirects)
-    ? Math.max(0, Math.min(10, Math.floor(opts.maxRedirects))) : DEFAULT_MAX_REDIRECTS;
+    ? Math.max(0, Math.min(10, Math.floor(opts.maxRedirects)))
+    : DEFAULT_MAX_REDIRECTS;
   const timeoutMs = Number(opts.timeoutMs) > 0 ? Math.min(Number(opts.timeoutMs), 60000) : 15000;
-  const maxBytes = Number.isSafeInteger(opts.maxBytes) && opts.maxBytes > 0
-    ? Math.min(opts.maxBytes, 8 * 1024 * 1024) : 2 * 1024 * 1024;
+  const maxBytes =
+    Number.isSafeInteger(opts.maxBytes) && opts.maxBytes > 0
+      ? Math.min(opts.maxBytes, 8 * 1024 * 1024)
+      : 2 * 1024 * 1024;
   const controller = new AbortController();
   const timeoutError = Object.assign(new Error('Public URL request timed out'), { code: 'URL_TIMEOUT' });
   const timer = setTimeout(() => controller.abort(timeoutError), timeoutMs);
   const bounded = async (promise) => {
     let listener;
     try {
-      return await Promise.race([promise, new Promise((_, reject) => {
-        listener = () => reject(timeoutError);
-        controller.signal.addEventListener('abort', listener, { once: true });
-        if (controller.signal.aborted) listener();
-      })]);
-    } finally { controller.signal.removeEventListener('abort', listener); }
+      return await Promise.race([
+        promise,
+        new Promise((_, reject) => {
+          listener = () => reject(timeoutError);
+          controller.signal.addEventListener('abort', listener, { once: true });
+          if (controller.signal.aborted) listener();
+        }),
+      ]);
+    } finally {
+      controller.signal.removeEventListener('abort', listener);
+    }
   };
   let current = String(rawUrl || '');
   let method = opts.method || 'GET';
@@ -175,9 +185,16 @@ async function fetchPublic(rawUrl, opts = {}) {
       const dispatcher = pinnedAgent(checked.connectIp);
       let res;
       try {
-        res = await bounded(fetch(checked.href, {
-          method, headers, body, redirect: 'manual', dispatcher, signal: controller.signal,
-        }));
+        res = await bounded(
+          fetch(checked.href, {
+            method,
+            headers,
+            body,
+            redirect: 'manual',
+            dispatcher,
+            signal: controller.signal,
+          })
+        );
         if ([301, 302, 303, 307, 308].includes(res.status)) {
           // Cancel redirect bodies instead of downloading potentially unbounded data.
           if (res.body) await bounded(res.body.cancel());
@@ -187,7 +204,8 @@ async function fetchPublic(rawUrl, opts = {}) {
           const loc = res.headers.get('location');
           if (!loc) throw Object.assign(new Error('Redirect without Location'), { code: 'URL_REDIRECT' });
           if ((method === 'POST' && [301, 302].includes(res.status)) || (res.status === 303 && method !== 'HEAD')) {
-            method = 'GET'; body = undefined;
+            method = 'GET';
+            body = undefined;
           }
           current = new URL(loc, checked.href).toString();
           continue;
@@ -202,12 +220,18 @@ async function fetchPublic(rawUrl, opts = {}) {
               if (done) break;
               size += value.byteLength;
               if (size > maxBytes) {
-                throw Object.assign(new Error('Public URL response exceeds size limit'), { code: 'URL_BODY_TOO_LARGE' });
+                throw Object.assign(new Error('Public URL response exceeds size limit'), {
+                  code: 'URL_BODY_TOO_LARGE',
+                });
               }
               chunks.push(Buffer.from(value));
             }
           } finally {
-            try { await bounded(reader.cancel()); } catch { /* dispatcher is destroyed below */ }
+            try {
+              await bounded(reader.cancel());
+            } catch {
+              /* dispatcher is destroyed below */
+            }
             reader.releaseLock();
           }
         }
@@ -216,7 +240,9 @@ async function fetchPublic(rawUrl, opts = {}) {
         responseHeaders.delete('content-encoding');
         responseHeaders.delete('content-length');
         const result = new Response([204, 205, 304].includes(res.status) ? null : Buffer.concat(chunks, size), {
-          status: res.status, statusText: res.statusText, headers: responseHeaders,
+          status: res.status,
+          statusText: res.statusText,
+          headers: responseHeaders,
         });
         Object.defineProperty(result, 'url', { value: res.url || checked.href });
         return result;
@@ -224,7 +250,9 @@ async function fetchPublic(rawUrl, opts = {}) {
         await dispatcher.destroy();
       }
     }
-  } finally { clearTimeout(timer); }
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**

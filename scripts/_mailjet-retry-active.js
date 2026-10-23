@@ -8,26 +8,33 @@ function httpJson(method, url, { auth, body } = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const payload = body ? JSON.stringify(body) : null;
-    const req = https.request({
-      method,
-      hostname: u.hostname,
-      path: u.pathname + u.search,
-      headers: {
-        Accept: 'application/json',
-        ...(payload
-          ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
-          : {}),
-        ...(auth ? { Authorization: 'Basic ' + Buffer.from(auth).toString('base64') } : {}),
+    const req = https.request(
+      {
+        method,
+        hostname: u.hostname,
+        path: u.pathname + u.search,
+        headers: {
+          Accept: 'application/json',
+          ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
+          ...(auth ? { Authorization: 'Basic ' + Buffer.from(auth).toString('base64') } : {}),
+        },
       },
-    }, (res) => {
-      let data = '';
-      res.on('data', (c) => { data += c; });
-      res.on('end', () => {
-        let parsed = data;
-        try { parsed = JSON.parse(data); } catch { /* raw */ }
-        resolve({ status: res.statusCode, body: parsed });
-      });
-    });
+      (res) => {
+        let data = '';
+        res.on('data', (c) => {
+          data += c;
+        });
+        res.on('end', () => {
+          let parsed = data;
+          try {
+            parsed = JSON.parse(data);
+          } catch {
+            /* raw */
+          }
+          resolve({ status: res.statusCode, body: parsed });
+        });
+      }
+    );
     req.on('error', reject);
     if (payload) req.write(payload);
     req.end();
@@ -47,7 +54,11 @@ function patchDefaults(email) {
   const file = '/app/data/platform-defaults.json';
   if (!fs.existsSync(file)) return null;
   let obj;
-  try { obj = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+  try {
+    obj = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return null;
+  }
   if (obj.settings && typeof obj.settings === 'object') {
     obj.settings['smtp.from_email'] = email;
     obj.settings['smtp.from_name'] = 'Bitpype';
@@ -89,7 +100,13 @@ function patchDefaults(email) {
   const refreshed = await httpJson('GET', 'https://api.mailjet.com/v3/REST/sender?Limit=100', { auth });
   const senders = (refreshed.body && refreshed.body.Data) || [];
   console.log('=== senders ===');
-  console.log(JSON.stringify(senders.map((x) => ({ Email: x.Email, Status: x.Status, ID: x.ID })), null, 2));
+  console.log(
+    JSON.stringify(
+      senders.map((x) => ({ Email: x.Email, Status: x.Status, ID: x.ID })),
+      null,
+      2
+    )
+  );
 
   const active = senders.filter((x) => String(x.Status).toLowerCase() === 'active');
   console.log('activeCount', active.length);

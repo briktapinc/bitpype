@@ -52,18 +52,16 @@ function fail(code, message, extra) {
 }
 
 function todaySpendUsd(db) {
-  const row = db.prepare(
-    "SELECT COALESCE(SUM(cost_usd), 0) AS spent FROM ai_usage WHERE date(at) = date('now')"
-  ).get();
+  const row = db.prepare("SELECT COALESCE(SUM(cost_usd), 0) AS spent FROM ai_usage WHERE date(at) = date('now')").get();
   return Number(row.spent) || 0;
 }
 
-const VALID_TASKS = new Set([
-  'research', 'generation', 'scoring', 'email', 'qa', 'editor', 'followup',
-]);
+const VALID_TASKS = new Set(['research', 'generation', 'scoring', 'email', 'qa', 'editor', 'followup']);
 
 /** @deprecated No-op — callers must pass db into chat()/aiConfigured(). Kept for IPC compat. */
-function setDb() { /* intentionally empty */ }
+function setDb() {
+  /* intentionally empty */
+}
 
 async function chat({ task, messages, maxTokens = 2000, leadId = null, note = null, db: dbArg = null } = {}) {
   if (!task || !VALID_TASKS.has(task)) {
@@ -114,7 +112,8 @@ async function chat({ task, messages, maxTokens = 2000, leadId = null, note = nu
   }
 
   const baseUrl = String(getSetting('ai.base_url', 'https://api.openai.com/v1', db) || '')
-    .trim().replace(/\/+$/, '');
+    .trim()
+    .replace(/\/+$/, '');
   if (!/^https?:\/\//i.test(baseUrl)) {
     throw fail('INVALID_BASE_URL', 'ai.base_url must be an http(s) URL.');
   }
@@ -153,7 +152,7 @@ async function chat({ task, messages, maxTokens = 2000, leadId = null, note = nu
       headers: {
         'Content-Type': 'application/json',
         // Key is only ever placed in the Authorization header, never logged.
-        'Authorization': `Bearer ${String(apiKey).trim()}`,
+        Authorization: `Bearer ${String(apiKey).trim()}`,
       },
       body: JSON.stringify({
         model,
@@ -175,9 +174,8 @@ async function chat({ task, messages, maxTokens = 2000, leadId = null, note = nu
 
   if (!res.ok) {
     // Never include the key or raw provider payload in the error.
-    const providerMsg = data && data.error && data.error.message
-      ? String(data.error.message).slice(0, 200)
-      : `HTTP ${res.status}`;
+    const providerMsg =
+      data && data.error && data.error.message ? String(data.error.message).slice(0, 200) : `HTTP ${res.status}`;
     throw fail('AI_REQUEST_FAILED', `AI request failed: ${providerMsg}`, { status: res.status });
   }
 
@@ -199,7 +197,9 @@ async function chat({ task, messages, maxTokens = 2000, leadId = null, note = nu
   try {
     const choice = data.choices && data.choices[0];
     text = (choice && choice.message && choice.message.content) || '';
-  } catch (e) { /* keep text empty */ }
+  } catch (e) {
+    /* keep text empty */
+  }
 
   return { text: String(text), model, promptTokens, completionTokens, costUsd };
 }

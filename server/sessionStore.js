@@ -10,10 +10,7 @@ class DbSessionStore extends session.Store {
 
   async get(sid, cb) {
     try {
-      const rows = await query(
-        'SELECT data, expires FROM sessions WHERE session_id = :sid LIMIT 1',
-        { sid }
-      );
+      const rows = await query('SELECT data, expires FROM sessions WHERE session_id = :sid LIMIT 1', { sid });
       const row = Array.isArray(rows) ? rows[0] : null;
       if (!row) return cb(null, null);
       if (Number(row.expires) < Date.now()) {
@@ -39,11 +36,12 @@ class DbSessionStore extends session.Store {
 
   async set(sid, sess, cb) {
     try {
-      const maxAge = sess.cookie && Number(sess.cookie.maxAge) > 0
-        ? Number(sess.cookie.maxAge)
-        : (sess.cookie && Number(sess.cookie.originalMaxAge) > 0
-          ? Number(sess.cookie.originalMaxAge)
-          : 14 * 24 * 60 * 60 * 1000);
+      const maxAge =
+        sess.cookie && Number(sess.cookie.maxAge) > 0
+          ? Number(sess.cookie.maxAge)
+          : sess.cookie && Number(sess.cookie.originalMaxAge) > 0
+            ? Number(sess.cookie.originalMaxAge)
+            : 14 * 24 * 60 * 60 * 1000;
       const expires = Date.now() + maxAge;
       const data = JSON.stringify(sess);
       if (driver() === 'sqlite') {
@@ -77,11 +75,12 @@ class DbSessionStore extends session.Store {
   async touch(sid, sess, cb) {
     // Rolling expiry only — avoid rewriting the full session blob on every request.
     try {
-      const maxAge = sess && sess.cookie && Number(sess.cookie.maxAge) > 0
-        ? Number(sess.cookie.maxAge)
-        : (sess && sess.cookie && Number(sess.cookie.originalMaxAge) > 0
-          ? Number(sess.cookie.originalMaxAge)
-          : 14 * 24 * 60 * 60 * 1000);
+      const maxAge =
+        sess && sess.cookie && Number(sess.cookie.maxAge) > 0
+          ? Number(sess.cookie.maxAge)
+          : sess && sess.cookie && Number(sess.cookie.originalMaxAge) > 0
+            ? Number(sess.cookie.originalMaxAge)
+            : 14 * 24 * 60 * 60 * 1000;
       const expires = Date.now() + maxAge;
       await query('UPDATE sessions SET expires = :expires WHERE session_id = :sid', { sid, expires });
       cb && cb(null);

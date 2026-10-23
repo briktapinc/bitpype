@@ -10,21 +10,26 @@ function getSetting(db, key) {
 
 function api(token, apiPath) {
   return new Promise((resolve, reject) => {
-    const req = https.request({
-      host: 'api.cloudflare.com',
-      path: apiPath,
-      method: 'GET',
-      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
-    }, (res) => {
-      const chunks = [];
-      res.on('data', (c) => chunks.push(c));
-      res.on('end', () => {
-        const text = Buffer.concat(chunks).toString('utf8');
-        let json = null;
-        try { json = JSON.parse(text); } catch {}
-        resolve({ status: res.statusCode, json });
-      });
-    });
+    const req = https.request(
+      {
+        host: 'api.cloudflare.com',
+        path: apiPath,
+        method: 'GET',
+        headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          let json = null;
+          try {
+            json = JSON.parse(text);
+          } catch {}
+          resolve({ status: res.statusCode, json });
+        });
+      }
+    );
     req.on('error', reject);
     req.end();
   });
@@ -42,20 +47,34 @@ async function main() {
     console.log('no deployment', got.status, JSON.stringify(got.json).slice(0, 500));
     process.exit(1);
   }
-  console.log(JSON.stringify({
-    id: d.id,
-    url: d.url,
-    aliases: d.aliases,
-    environment: d.environment,
-    is_skipped: d.is_skipped,
-    latest_stage: d.latest_stage,
-    stages: (d.stages || []).map((s) => ({ name: s.name, status: s.status, started: s.started_on, ended: s.ended_on })),
-    files: d.files,
-    build_config: d.build_config,
-    deployment_trigger: d.deployment_trigger,
-    source: d.source,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        id: d.id,
+        url: d.url,
+        aliases: d.aliases,
+        environment: d.environment,
+        is_skipped: d.is_skipped,
+        latest_stage: d.latest_stage,
+        stages: (d.stages || []).map((s) => ({
+          name: s.name,
+          status: s.status,
+          started: s.started_on,
+          ended: s.ended_on,
+        })),
+        files: d.files,
+        build_config: d.build_config,
+        deployment_trigger: d.deployment_trigger,
+        source: d.source,
+      },
+      null,
+      2
+    )
+  );
   db.close();
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

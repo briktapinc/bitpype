@@ -24,13 +24,31 @@ const leadId = Number(created.id || created);
 const lead = db.prepare('SELECT id, business_name, email, status FROM leads WHERE id = ?').get(leadId);
 
 function cleanup() {
-  try { db.prepare('DELETE FROM prospect_events WHERE lead_id = ?').run(leadId); } catch { /* */ }
-  try { db.prepare('DELETE FROM intent_scores WHERE lead_id = ?').run(leadId); } catch { /* */ }
-  try { db.prepare('DELETE FROM lead_events WHERE lead_id = ?').run(leadId); } catch { /* */ }
+  try {
+    db.prepare('DELETE FROM prospect_events WHERE lead_id = ?').run(leadId);
+  } catch {
+    /* */
+  }
+  try {
+    db.prepare('DELETE FROM intent_scores WHERE lead_id = ?').run(leadId);
+  } catch {
+    /* */
+  }
+  try {
+    db.prepare('DELETE FROM lead_events WHERE lead_id = ?').run(leadId);
+  } catch {
+    /* */
+  }
   try {
     db.prepare('DELETE FROM suppression_list WHERE lower(email) = lower(?)').run(lead.email);
-  } catch { /* */ }
-  try { db.prepare('DELETE FROM leads WHERE id = ?').run(leadId); } catch { /* */ }
+  } catch {
+    /* */
+  }
+  try {
+    db.prepare('DELETE FROM leads WHERE id = ?').run(leadId);
+  } catch {
+    /* */
+  }
 }
 
 try {
@@ -84,8 +102,7 @@ try {
 
   // Live HTTP check against the app (when running inside the container)
   const port = process.env.PORT || 3000;
-  const unUrl = extras.uninterested.match(/href="([^"]+)"/)[1]
-    .replace(/^https?:\/\/[^/]+/, `http://127.0.0.1:${port}`);
+  const unUrl = extras.uninterested.match(/href="([^"]+)"/)[1].replace(/^https?:\/\/[^/]+/, `http://127.0.0.1:${port}`);
   // Re-sign a fresh interested token for HTTP (lead is lost now — still idempotent)
   const fresh = outreach.signInterestToken({ workspaceId, leadId: lead.id, action: 'interested' });
   const path = outreach.interestResponsePath(fresh);

@@ -196,29 +196,25 @@ const DEMO_LEADS = [
 ];
 
 function runSeed(db) {
-  const insertSetting = db.prepare(
-    'INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)'
-  );
+  const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
   const seedSettings = db.transaction(() => {
     for (const [key, value] of SETTING_SEEDS) insertSetting.run(key, value);
   });
   seedSettings();
 
-  const insertPrompt = db.prepare(
-    'INSERT OR IGNORE INTO prompts (key, name, body) VALUES (?, ?, ?)'
-  );
+  const insertPrompt = db.prepare('INSERT OR IGNORE INTO prompts (key, name, body) VALUES (?, ?, ?)');
   const seedPrompts = db.transaction(() => {
     for (const p of PROMPT_SEEDS) insertPrompt.run(p.key, p.name, p.body);
   });
   seedPrompts();
 
-  const ruleCount = db
-    .prepare('SELECT COUNT(*) AS c FROM automation_rules')
-    .get().c;
+  const ruleCount = db.prepare('SELECT COUNT(*) AS c FROM automation_rules').get().c;
   if (ruleCount === 0) {
-    db.prepare(
-      'INSERT INTO automation_rules (name, config, enabled) VALUES (?, ?, ?)'
-    ).run(AUTOMATION_RULE_SEED.name, AUTOMATION_RULE_SEED.config, AUTOMATION_RULE_SEED.enabled);
+    db.prepare('INSERT INTO automation_rules (name, config, enabled) VALUES (?, ?, ?)').run(
+      AUTOMATION_RULE_SEED.name,
+      AUTOMATION_RULE_SEED.config,
+      AUTOMATION_RULE_SEED.enabled
+    );
   }
 
   const leadCount = db.prepare('SELECT COUNT(*) AS c FROM leads').get().c;

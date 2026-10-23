@@ -11,10 +11,7 @@ async function main() {
   const platform = require('../server/platform');
   const { sendPlatformMail, platformSmtpSettings } = require('../server/mailer');
   const settings = await platformSmtpSettings();
-  const keys = [
-    'smtp.host', 'smtp.port', 'smtp.secure', 'smtp.user', 'smtp.pass',
-    'smtp.from_name', 'smtp.from_email',
-  ];
+  const keys = ['smtp.host', 'smtp.port', 'smtp.secure', 'smtp.user', 'smtp.pass', 'smtp.from_name', 'smtp.from_email'];
   console.log('SMTP config (platform):');
   for (const k of keys) {
     const v = settings[k] || '';

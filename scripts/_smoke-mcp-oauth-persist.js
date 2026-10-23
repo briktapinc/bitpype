@@ -55,10 +55,7 @@ function assert(cond, msg) {
   // Code should still be consumable after "restart" (exchange will fail PKCE/mint without portal,
   // but take path is covered by getClient + table presence).
   const { query } = require('../server/db');
-  const rows = await query(
-    'SELECT code FROM mcp_oauth_auth_codes WHERE code = :code LIMIT 1',
-    { code }
-  );
+  const rows = await query('SELECT code FROM mcp_oauth_auth_codes WHERE code = :code LIMIT 1', { code });
   assert(rows && rows[0] && rows[0].code === code, 'auth code row persisted');
 
   console.log('OK mcp-oauth persist (DCR + auth code in SQLite)');

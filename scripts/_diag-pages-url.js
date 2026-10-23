@@ -20,25 +20,32 @@ function getSetting(db, key) {
 function api(token, apiPath, method = 'GET', body = null) {
   return new Promise((resolve, reject) => {
     const payload = body ? Buffer.from(JSON.stringify(body)) : null;
-    const req = https.request({
-      host: 'api.cloudflare.com',
-      path: apiPath,
-      method,
-      headers: {
-        Authorization: 'Bearer ' + token,
-        Accept: 'application/json',
-        ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': payload.length } : {}),
+    const req = https.request(
+      {
+        host: 'api.cloudflare.com',
+        path: apiPath,
+        method,
+        headers: {
+          Authorization: 'Bearer ' + token,
+          Accept: 'application/json',
+          ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': payload.length } : {}),
+        },
       },
-    }, (res) => {
-      const chunks = [];
-      res.on('data', (c) => chunks.push(c));
-      res.on('end', () => {
-        const text = Buffer.concat(chunks).toString('utf8');
-        let json = null;
-        try { json = JSON.parse(text); } catch { /* ignore */ }
-        resolve({ status: res.statusCode, json, text: text.slice(0, 2000) });
-      });
-    });
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          let json = null;
+          try {
+            json = JSON.parse(text);
+          } catch {
+            /* ignore */
+          }
+          resolve({ status: res.statusCode, json, text: text.slice(0, 2000) });
+        });
+      }
+    );
     req.on('error', reject);
     if (payload) req.write(payload);
     req.end();
@@ -49,28 +56,33 @@ function fetchUrl(url) {
   return new Promise((resolve) => {
     const u = new URL(url);
     const lib = u.protocol === 'http:' ? http : https;
-    const req = lib.request({
-      hostname: u.hostname,
-      path: u.pathname + u.search,
-      method: 'GET',
-      headers: { Accept: 'text/html,*/*', 'User-Agent': 'website-scout-diag/1.0' },
-      timeout: 15000,
-      servername: u.hostname,
-    }, (res) => {
-      const chunks = [];
-      res.on('data', (c) => chunks.push(c));
-      res.on('end', () => {
-        const body = Buffer.concat(chunks);
-        resolve({
-          ok: true,
-          status: res.statusCode,
-          headers: res.headers,
-          len: body.length,
-          bodyStart: body.toString('utf8', 0, 500),
+    const req = lib.request(
+      {
+        hostname: u.hostname,
+        path: u.pathname + u.search,
+        method: 'GET',
+        headers: { Accept: 'text/html,*/*', 'User-Agent': 'website-scout-diag/1.0' },
+        timeout: 15000,
+        servername: u.hostname,
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const body = Buffer.concat(chunks);
+          resolve({
+            ok: true,
+            status: res.statusCode,
+            headers: res.headers,
+            len: body.length,
+            bodyStart: body.toString('utf8', 0, 500),
+          });
         });
-      });
+      }
+    );
+    req.on('timeout', () => {
+      req.destroy(new Error('timeout'));
     });
-    req.on('timeout', () => { req.destroy(new Error('timeout')); });
     req.on('error', (e) => resolve({ ok: false, error: e.message, code: e.code }));
     req.end();
   });
@@ -91,7 +103,9 @@ async function main() {
       console.log('APEX', apex);
       console.log('APEX_HTTP', JSON.stringify(await fetchUrl(apex), null, 2));
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   const db = new Database('/app/data/workspaces/1/websitescout.db', { readonly: true });
   const token = getSetting(db, 'cf.api_token');
@@ -119,37 +133,49 @@ async function main() {
     console.log('project', name, 'status=', info.status, 'success=', info.json && info.json.success);
     if (info.json && info.json.result) {
       const p = info.json.result;
-      console.log(JSON.stringify({
-        name: p.name,
-        subdomain: p.subdomain,
-        domains: p.domains,
-        latest_deployment: p.canonical_deployment && {
-          id: p.canonical_deployment.id,
-          url: p.canonical_deployment.url,
-          stage: p.canonical_deployment.latest_stage,
-        },
-      }, null, 2));
+      console.log(
+        JSON.stringify(
+          {
+            name: p.name,
+            subdomain: p.subdomain,
+            domains: p.domains,
+            latest_deployment: p.canonical_deployment && {
+              id: p.canonical_deployment.id,
+              url: p.canonical_deployment.url,
+              stage: p.canonical_deployment.latest_stage,
+            },
+          },
+          null,
+          2
+        )
+      );
     } else {
       console.log(info.text.slice(0, 400));
     }
 
-    const deps = await api(token, `/client/v4/accounts/${accountId}/pages/projects/${encodeURIComponent(name)}/deployments?per_page=5`);
+    const deps = await api(
+      token,
+      `/client/v4/accounts/${accountId}/pages/projects/${encodeURIComponent(name)}/deployments?per_page=5`
+    );
     if (!(deps.json && deps.json.success)) {
       console.log('deps', name, deps.status, deps.text.slice(0, 300));
       continue;
     }
     for (const d of deps.json.result || []) {
-      console.log('DEP', JSON.stringify({
-        id: d.id,
-        short: String(d.id || '').slice(0, 8),
-        url: d.url,
-        environment: d.environment,
-        aliases: d.aliases,
-        latest_stage: d.latest_stage,
-        stages: (d.stages || []).map((s) => s.name + ':' + s.status),
-        file_count: d.files ? Object.keys(d.files).length : null,
-        files: d.files ? Object.keys(d.files) : null,
-      }));
+      console.log(
+        'DEP',
+        JSON.stringify({
+          id: d.id,
+          short: String(d.id || '').slice(0, 8),
+          url: d.url,
+          environment: d.environment,
+          aliases: d.aliases,
+          latest_stage: d.latest_stage,
+          stages: (d.stages || []).map((s) => s.name + ':' + s.status),
+          file_count: d.files ? Object.keys(d.files).length : null,
+          files: d.files ? Object.keys(d.files) : null,
+        })
+      );
     }
   }
 
@@ -161,20 +187,36 @@ async function main() {
     console.log('parsed hash=', hash, 'subdomain=', sub);
     // Find matching deployment id prefix across site-1
     const deps = await api(token, `/client/v4/accounts/${accountId}/pages/projects/site-1/deployments?per_page=20`);
-    const match = ((deps.json && deps.json.result) || []).find((d) => String(d.id).startsWith(hash) || (d.url && d.url.includes(hash)));
+    const match = ((deps.json && deps.json.result) || []).find(
+      (d) => String(d.id).startsWith(hash) || (d.url && d.url.includes(hash))
+    );
     if (match) {
       const full = await api(token, `/client/v4/accounts/${accountId}/pages/projects/site-1/deployments/${match.id}`);
       const d = full.json && full.json.result;
-      console.log('MATCHED_DEPLOYMENT', JSON.stringify({
-        id: d && d.id,
-        url: d && d.url,
-        aliases: d && d.aliases,
-        latest_stage: d && d.latest_stage,
-        stages: d && (d.stages || []).map((s) => ({ name: s.name, status: s.status, started: s.started_on, ended: s.ended_on })),
-        files: d && d.files,
-        is_skipped: d && d.is_skipped,
-        build_config: d && d.build_config,
-      }, null, 2));
+      console.log(
+        'MATCHED_DEPLOYMENT',
+        JSON.stringify(
+          {
+            id: d && d.id,
+            url: d && d.url,
+            aliases: d && d.aliases,
+            latest_stage: d && d.latest_stage,
+            stages:
+              d &&
+              (d.stages || []).map((s) => ({
+                name: s.name,
+                status: s.status,
+                started: s.started_on,
+                ended: s.ended_on,
+              })),
+            files: d && d.files,
+            is_skipped: d && d.is_skipped,
+            build_config: d && d.build_config,
+          },
+          null,
+          2
+        )
+      );
     } else {
       console.log('No deployment matched hash', hash);
     }

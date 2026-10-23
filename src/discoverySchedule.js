@@ -87,7 +87,9 @@ function ensureDefaults(db) {
 }
 
 function parseDailyTime(raw) {
-  const m = String(raw || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+  const m = String(raw || '')
+    .trim()
+    .match(/^(\d{1,2}):(\d{2})$/);
   if (!m) return null;
   const h = Number(m[1]);
   const min = Number(m[2]);
@@ -104,17 +106,12 @@ function toLocalIso(d) {
 
 function parseLocalIso(s) {
   if (!s || typeof s !== 'string') return null;
-  const m = s.trim().match(
-    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/
-  );
+  const m = s.trim().match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
   if (!m) {
     const d = new Date(s);
     return Number.isNaN(d.getTime()) ? null : d;
   }
-  return new Date(
-    Number(m[1]), Number(m[2]) - 1, Number(m[3]),
-    Number(m[4]), Number(m[5]), Number(m[6] || 0)
-  );
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6] || 0));
 }
 
 /**
@@ -147,10 +144,7 @@ function readSchedule(db) {
   );
   const dailyParsed = parseDailyTime(getSetting(db, KEYS.dailyTime, DEFAULTS.daily_time));
   const dailyTime = dailyParsed ? dailyParsed.label : DEFAULTS.daily_time;
-  const limit = Math.min(
-    50,
-    Math.max(1, parseInt(getSetting(db, KEYS.limit, DEFAULTS.limit), 10) || 8)
-  );
+  const limit = Math.min(50, Math.max(1, parseInt(getSetting(db, KEYS.limit, DEFAULTS.limit), 10) || 8));
   return {
     enabled: getSetting(db, KEYS.enabled, DEFAULTS.enabled) === '1',
     mode,
@@ -164,7 +158,7 @@ function readSchedule(db) {
     group: getSetting(db, KEYS.group, DEFAULTS.group) || '',
     websitePresence: (() => {
       const v = getSetting(db, KEYS.websitePresence, DEFAULTS.website_presence).trim().toLowerCase();
-      return (v === 'has' || v === 'no') ? v : '';
+      return v === 'has' || v === 'no' ? v : '';
     })(),
     last_run: getSetting(db, KEYS.lastRun, '') || '',
     next_run: getSetting(db, KEYS.nextRun, '') || '',
@@ -230,7 +224,9 @@ function validatePatch(patch = {}) {
     out.group = g;
   }
   if (patch.websitePresence !== undefined) {
-    const v = String(patch.websitePresence == null ? '' : patch.websitePresence).trim().toLowerCase();
+    const v = String(patch.websitePresence == null ? '' : patch.websitePresence)
+      .trim()
+      .toLowerCase();
     if (v && v !== 'has' && v !== 'no') {
       throw new Error('websitePresence must be "", "has", or "no"');
     }
@@ -341,7 +337,9 @@ async function runDiscoveryJob(db, opts = {}) {
         'leads',
         `Scheduled discovery: ${summary.created} created, ${summary.skipped} skipped (${summary.provider}).`
       );
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     outcome = { ok: true, result: summary };
   } catch (e) {
     setSetting(db, KEYS.lastRun, toLocalIso(started));
@@ -354,7 +352,9 @@ async function runDiscoveryJob(db, opts = {}) {
         'leads',
         `Scheduled discovery failed: ${String(e.message || e).slice(0, 300)}`
       );
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     outcome = {
       ok: false,
       error: String(e.message || e),
@@ -424,5 +424,7 @@ module.exports = {
   tick,
   start,
   stop,
-  get running() { return running; },
+  get running() {
+    return running;
+  },
 };

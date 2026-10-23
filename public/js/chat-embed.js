@@ -26,7 +26,9 @@
     try {
       var src = document.querySelector('script[data-bitpype-chat-script],script[src*="chat-embed.js"]');
       if (src && src.src) return new URL(src.src).origin;
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      /* ignore */
+    }
     return '';
   }
 
@@ -44,7 +46,9 @@
       'height:min(520px,calc(100vh - 120px));display:flex;flex-direction:column;border-radius:16px;overflow:hidden;',
       'background:#fff;color:#1a1a1a;box-shadow:0 18px 50px rgba(0,0,0,.28);border:1px solid rgba(0,0,0,.08);}',
       '.bp-chat-panel[hidden]{display:none!important;}',
-      '.bp-chat-head{padding:14px 16px;background:' + color + ';color:#fff;display:flex;align-items:center;justify-content:space-between;gap:8px;}',
+      '.bp-chat-head{padding:14px 16px;background:' +
+        color +
+        ';color:#fff;display:flex;align-items:center;justify-content:space-between;gap:8px;}',
       '.bp-chat-head strong{font-size:15px;}',
       '.bp-chat-head button{appearance:none;border:0;background:transparent;color:inherit;font-size:20px;cursor:pointer;line-height:1;}',
       '.bp-chat-tabs{display:flex;gap:0;border-bottom:1px solid rgba(0,0,0,.08);background:#fff;flex-shrink:0;}',
@@ -64,7 +68,9 @@
       '.bp-chat-lead-btn:hover{filter:brightness(1.05);}',
       '.bp-chat-foot{padding:10px;border-top:1px solid rgba(0,0,0,.08);background:#fff;display:flex;gap:8px;flex-shrink:0;}',
       '.bp-chat-foot input{flex:1;border:1px solid rgba(0,0,0,.14);border-radius:999px;padding:10px 14px;font:inherit;}',
-      '.bp-chat-foot button{appearance:none;border:0;border-radius:999px;padding:10px 14px;background:' + color + ';color:#fff;font:inherit;font-weight:600;cursor:pointer;}',
+      '.bp-chat-foot button{appearance:none;border:0;border-radius:999px;padding:10px 14px;background:' +
+        color +
+        ';color:#fff;font:inherit;font-weight:600;cursor:pointer;}',
       '.bp-chat-lead{flex:1;min-height:0;overflow:auto;padding:14px;background:#fff;display:flex;flex-direction:column;gap:8px;}',
       '.bp-chat-lead input,.bp-chat-lead textarea{width:100%;border:1px solid rgba(0,0,0,.14);border-radius:10px;padding:8px 10px;font:inherit;}',
       '.bp-chat-lead textarea{min-height:64px;resize:vertical;}',
@@ -178,9 +184,14 @@
       detailsView.hidden = !isDetails;
       if (isDetails) {
         var nameInput = panel.querySelector('.bp-chat-lead-name');
-        if (nameInput) setTimeout(function () { nameInput.focus(); }, 0);
+        if (nameInput)
+          setTimeout(function () {
+            nameInput.focus();
+          }, 0);
       } else if (state.open) {
-        setTimeout(function () { input.focus(); }, 0);
+        setTimeout(function () {
+          input.focus();
+        }, 0);
       }
     }
 
@@ -231,12 +242,18 @@
 
     function api(path, opts) {
       var url = (state.base || '') + '/api/v1/chat/public/' + encodeURIComponent(state.token) + path;
-      return fetch(url, Object.assign({
-        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      }, opts || {})).then(function (r) {
+      return fetch(
+        url,
+        Object.assign(
+          {
+            headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          },
+          opts || {}
+        )
+      ).then(function (r) {
         return r.json().then(function (j) {
           if (!r.ok || (j && j.ok === false)) {
-            throw new Error((j && j.error) || ('HTTP ' + r.status));
+            throw new Error((j && j.error) || 'HTTP ' + r.status);
           }
           return j.data || j;
         });
@@ -258,13 +275,19 @@
 
     function poll() {
       if (!state.session || !state.open) return;
-      api('/messages?session=' + encodeURIComponent(state.session.session_token)
-        + '&after=' + encodeURIComponent(String(state.afterId || 0)))
+      api(
+        '/messages?session=' +
+          encodeURIComponent(state.session.session_token) +
+          '&after=' +
+          encodeURIComponent(String(state.afterId || 0))
+      )
         .then(function (data) {
           (data.messages || []).forEach(appendMsg);
           if (state.waitingSince) {
-            var sec = state.settings && state.settings.agent_timeout_hint_sec
-              ? Number(state.settings.agent_timeout_hint_sec) : 90;
+            var sec =
+              state.settings && state.settings.agent_timeout_hint_sec
+                ? Number(state.settings.agent_timeout_hint_sec)
+                : 90;
             if ((Date.now() - state.waitingSince) / 1000 > sec) {
               setStatus('Still waiting on a reply — you can leave your contact details.');
               if (state.settings && state.settings.suggest_lead_capture !== false) {
@@ -275,7 +298,9 @@
             }
           }
         })
-        .catch(function () { /* ignore transient */ });
+        .catch(function () {
+          /* ignore transient */
+        });
     }
 
     function startPoll() {
@@ -292,18 +317,20 @@
     function openPanel() {
       state.open = true;
       panel.hidden = false;
-      ensureSession().then(function () {
-        if (state.settings && state.settings.greeting && !msgsEl.children.length) {
-          var greet = document.createElement('div');
-          greet.className = 'bp-chat-msg agent';
-          greet.textContent = state.settings.greeting;
-          msgsEl.appendChild(greet);
-        }
-        startPoll();
-        if (state.activeTab === 'chat') input.focus();
-      }).catch(function (e) {
-        setStatus(e.message || 'Could not start chat');
-      });
+      ensureSession()
+        .then(function () {
+          if (state.settings && state.settings.greeting && !msgsEl.children.length) {
+            var greet = document.createElement('div');
+            greet.className = 'bp-chat-msg agent';
+            greet.textContent = state.settings.greeting;
+            msgsEl.appendChild(greet);
+          }
+          startPoll();
+          if (state.activeTab === 'chat') input.focus();
+        })
+        .catch(function (e) {
+          setStatus(e.message || 'Could not start chat');
+        });
     }
 
     function closePanel() {
@@ -318,73 +345,85 @@
     });
     panel.querySelector('.bp-chat-close').addEventListener('click', closePanel);
 
-    tabChat.addEventListener('click', function () { setTab('chat'); });
-    tabDetails.addEventListener('click', function () { setTab('details'); });
+    tabChat.addEventListener('click', function () {
+      setTab('chat');
+    });
+    tabDetails.addEventListener('click', function () {
+      setTab('details');
+    });
 
     form.addEventListener('submit', function (ev) {
       ev.preventDefault();
       var text = String(input.value || '').trim();
       if (!text) return;
       input.value = '';
-      ensureSession().then(function () {
-        return api('/message', {
-          method: 'POST',
-          body: JSON.stringify({
-            session: state.session.session_token,
-            message: text,
-          }),
+      ensureSession()
+        .then(function () {
+          return api('/message', {
+            method: 'POST',
+            body: JSON.stringify({
+              session: state.session.session_token,
+              message: text,
+            }),
+          });
+        })
+        .then(function (data) {
+          if (data.session) state.session = data.session;
+          if (data.message) appendMsg(data.message);
+          state.waitingSince = Date.now();
+          setStatus('Waiting for a reply…');
+          startPoll();
+        })
+        .catch(function (e) {
+          setStatus(e.message || 'Send failed');
         });
-      }).then(function (data) {
-        if (data.session) state.session = data.session;
-        if (data.message) appendMsg(data.message);
-        state.waitingSince = Date.now();
-        setStatus('Waiting for a reply…');
-        startPoll();
-      }).catch(function (e) {
-        setStatus(e.message || 'Send failed');
-      });
     });
 
     panel.querySelector('.bp-chat-lead-cancel').addEventListener('click', function () {
       setTab('chat');
     });
     panel.querySelector('.bp-chat-lead-submit').addEventListener('click', function () {
-      ensureSession().then(function () {
-        return api('/lead', {
-          method: 'POST',
-          body: JSON.stringify({
-            session: state.session.session_token,
-            name: panel.querySelector('.bp-chat-lead-name').value,
-            email: panel.querySelector('.bp-chat-lead-email').value,
-            phone: panel.querySelector('.bp-chat-lead-phone').value,
-            message: panel.querySelector('.bp-chat-lead-msg').value,
-          }),
+      ensureSession()
+        .then(function () {
+          return api('/lead', {
+            method: 'POST',
+            body: JSON.stringify({
+              session: state.session.session_token,
+              name: panel.querySelector('.bp-chat-lead-name').value,
+              email: panel.querySelector('.bp-chat-lead-email').value,
+              phone: panel.querySelector('.bp-chat-lead-phone').value,
+              message: panel.querySelector('.bp-chat-lead-msg').value,
+            }),
+          });
+        })
+        .then(function (data) {
+          setTab('chat');
+          setStatus(data.message || 'Thanks — we will follow up.');
+          state.waitingSince = 0;
+        })
+        .catch(function (e) {
+          setStatus(e.message || 'Could not send details');
+          setTab('chat');
         });
-      }).then(function (data) {
-        setTab('chat');
-        setStatus(data.message || 'Thanks — we will follow up.');
-        state.waitingSince = 0;
-      }).catch(function (e) {
-        setStatus(e.message || 'Could not send details');
-        setTab('chat');
-      });
     });
 
-    api('').then(function (data) {
-      state.settings = (data && data.settings) || {};
-      ensureStyles(state.settings.primary_color || '');
-      var title = panel.querySelector('.bp-chat-title');
-      if (title) title.textContent = state.settings.bubble_label || 'Chat';
-      bubble.setAttribute('aria-label', state.settings.bubble_label || 'Open chat');
-      if (state.settings.position === 'bottom-left') {
-        bubble.style.right = 'auto';
-        bubble.style.left = '18px';
-        panel.style.right = 'auto';
-        panel.style.left = '18px';
-      }
-    }).catch(function () {
-      ensureStyles('');
-    });
+    api('')
+      .then(function (data) {
+        state.settings = (data && data.settings) || {};
+        ensureStyles(state.settings.primary_color || '');
+        var title = panel.querySelector('.bp-chat-title');
+        if (title) title.textContent = state.settings.bubble_label || 'Chat';
+        bubble.setAttribute('aria-label', state.settings.bubble_label || 'Open chat');
+        if (state.settings.position === 'bottom-left') {
+          bubble.style.right = 'auto';
+          bubble.style.left = '18px';
+          panel.style.right = 'auto';
+          panel.style.left = '18px';
+        }
+      })
+      .catch(function () {
+        ensureStyles('');
+      });
   }
 
   function boot() {

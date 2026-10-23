@@ -13,7 +13,11 @@ function mapJob(row) {
   const parse = (v) => {
     if (v == null || v === '') return null;
     if (typeof v === 'object') return v;
-    try { return JSON.parse(v); } catch { return v; }
+    try {
+      return JSON.parse(v);
+    } catch {
+      return v;
+    }
   };
   return {
     ...row,
@@ -73,10 +77,10 @@ router.get('/', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
   try {
     const id = Number(req.params.id);
-    const rows = await query(
-      'SELECT * FROM design_jobs WHERE id = :id AND workspace_id = :workspaceId LIMIT 1',
-      { id, workspaceId: req.auth.workspaceId }
-    );
+    const rows = await query('SELECT * FROM design_jobs WHERE id = :id AND workspace_id = :workspaceId LIMIT 1', {
+      id,
+      workspaceId: req.auth.workspaceId,
+    });
     if (!rows[0]) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
     const questions = await query(
       'SELECT * FROM design_questions WHERE job_id = :id AND workspace_id = :workspaceId ORDER BY id',
@@ -113,10 +117,11 @@ router.post('/', async (req, res, next) => {
         contactEmail: b.contactEmail || b.contact_email || null,
       }
     );
-    const job = (await query(
-      `SELECT * FROM design_jobs WHERE workspace_id = :workspaceId ORDER BY id DESC LIMIT 1`,
-      { workspaceId: req.auth.workspaceId }
-    ))[0];
+    const job = (
+      await query(`SELECT * FROM design_jobs WHERE workspace_id = :workspaceId ORDER BY id DESC LIMIT 1`, {
+        workspaceId: req.auth.workspaceId,
+      })
+    )[0];
     await logActivity(req.auth.workspaceId, 'design', `Design job queued #${job.id}: ${title}`);
     res.status(201).json({ ok: true, data: { job: mapJob(job) } });
   } catch (e) {
@@ -133,10 +138,10 @@ router.post('/next', async (req, res, next) => {
       { workspaceId: req.auth.workspaceId }
     );
     if (!rows[0]) return res.json({ ok: true, data: { job: null } });
-    await query(
-      `UPDATE design_jobs SET status = 'in_progress' WHERE id = :id AND workspace_id = :workspaceId`,
-      { id: rows[0].id, workspaceId: req.auth.workspaceId }
-    );
+    await query(`UPDATE design_jobs SET status = 'in_progress' WHERE id = :id AND workspace_id = :workspaceId`, {
+      id: rows[0].id,
+      workspaceId: req.auth.workspaceId,
+    });
     rows[0].status = 'in_progress';
     res.json({ ok: true, data: { job: mapJob(rows[0]) } });
   } catch (e) {
@@ -164,10 +169,12 @@ router.post('/:id/deliver', async (req, res, next) => {
     );
     if (!result.affectedRows) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
     await logActivity(req.auth.workspaceId, 'design', `Design delivered #${id}`);
-    const job = (await query(
-      'SELECT * FROM design_jobs WHERE id = :id AND workspace_id = :workspaceId',
-      { id, workspaceId: req.auth.workspaceId }
-    ))[0];
+    const job = (
+      await query('SELECT * FROM design_jobs WHERE id = :id AND workspace_id = :workspaceId', {
+        id,
+        workspaceId: req.auth.workspaceId,
+      })
+    )[0];
     res.json({ ok: true, data: { job: mapJob(job) } });
   } catch (e) {
     next(e);
@@ -179,20 +186,22 @@ router.post('/:id/ask', async (req, res, next) => {
     const id = Number(req.params.id);
     const question = String((req.body && req.body.question) || '').trim();
     if (!question) return res.status(400).json({ ok: false, error: 'question required' });
-    const job = (await query(
-      'SELECT id FROM design_jobs WHERE id = :id AND workspace_id = :workspaceId',
-      { id, workspaceId: req.auth.workspaceId }
-    ))[0];
+    const job = (
+      await query('SELECT id FROM design_jobs WHERE id = :id AND workspace_id = :workspaceId', {
+        id,
+        workspaceId: req.auth.workspaceId,
+      })
+    )[0];
     if (!job) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
     await query(
       `INSERT INTO design_questions (workspace_id, job_id, question)
        VALUES (:workspaceId, :id, :question)`,
       { workspaceId: req.auth.workspaceId, id, question }
     );
-    await query(
-      `UPDATE design_jobs SET status = 'questions_pending' WHERE id = :id AND workspace_id = :workspaceId`,
-      { id, workspaceId: req.auth.workspaceId }
-    );
+    await query(`UPDATE design_jobs SET status = 'questions_pending' WHERE id = :id AND workspace_id = :workspaceId`, {
+      id,
+      workspaceId: req.auth.workspaceId,
+    });
     res.json({ ok: true, data: { id } });
   } catch (e) {
     next(e);

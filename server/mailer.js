@@ -5,10 +5,7 @@ const { assertMailjetSenderActive } = require('../src/mailjetSender');
 const { renderBrandedEmail, ensureBrandedEmail } = require('../src/emailTemplate');
 
 async function platformSmtpSettings() {
-  const keys = [
-    'smtp.host', 'smtp.port', 'smtp.secure', 'smtp.user', 'smtp.pass',
-    'smtp.from_name', 'smtp.from_email',
-  ];
+  const keys = ['smtp.host', 'smtp.port', 'smtp.secure', 'smtp.user', 'smtp.pass', 'smtp.from_name', 'smtp.from_email'];
   const out = {};
   for (const k of keys) out[k] = await platform.getPlatformSetting(k, '');
   return out;
@@ -18,9 +15,7 @@ async function platformSmtpSettings() {
  * Send platform mail through the shared Bitpype HTML template.
  * Prefer structured fields (title, paragraphs, cta) when composing new emails.
  */
-async function sendPlatformMail({
-  to, subject, html, text, title, paragraphs, cta, preheader, footerNote,
-}) {
+async function sendPlatformMail({ to, subject, html, text, title, paragraphs, cta, preheader, footerNote }) {
   const settings = await platformSmtpSettings();
   const { getProvider } = require('../src/email');
   const provider = getProvider(settings, null);
@@ -31,24 +26,25 @@ async function sendPlatformMail({
   }
   await assertMailjetSenderActive(settings);
 
-  const payload = Array.isArray(paragraphs) && paragraphs.length
-    ? renderBrandedEmail({
-      title: title || subject,
-      paragraphs,
-      text: text || paragraphs.join('\n\n'),
-      cta,
-      preheader,
-      footerNote,
-    })
-    : ensureBrandedEmail({
-      subject,
-      title,
-      html: html || text || '',
-      text: text || undefined,
-      cta,
-      preheader,
-      footerNote,
-    });
+  const payload =
+    Array.isArray(paragraphs) && paragraphs.length
+      ? renderBrandedEmail({
+          title: title || subject,
+          paragraphs,
+          text: text || paragraphs.join('\n\n'),
+          cta,
+          preheader,
+          footerNote,
+        })
+      : ensureBrandedEmail({
+          subject,
+          title,
+          html: html || text || '',
+          text: text || undefined,
+          cta,
+          preheader,
+          footerNote,
+        });
 
   const result = await provider.send({
     to,

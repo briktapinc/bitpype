@@ -35,7 +35,10 @@ function collectHexesFromText(text, into) {
     into.set(hex, into.get(hex) + 1);
   }
   for (const m of src.matchAll(/rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/gi)) {
-    const to = (n) => Math.max(0, Math.min(255, Number(n))).toString(16).padStart(2, '0');
+    const to = (n) =>
+      Math.max(0, Math.min(255, Number(n)))
+        .toString(16)
+        .padStart(2, '0');
     const hex = `#${to(m[1])}${to(m[2])}${to(m[3])}`;
     if (!into.has(hex)) into.set(hex, 0);
     into.set(hex, into.get(hex) + 1);
@@ -49,7 +52,11 @@ function pagesTextBlob(pages) {
     if (!p || typeof p !== 'object') continue;
     if (typeof p.html === 'string') parts.push(p.html);
     if (Array.isArray(p.sections)) {
-      try { parts.push(JSON.stringify(p.sections)); } catch { /* */ }
+      try {
+        parts.push(JSON.stringify(p.sections));
+      } catch {
+        /* */
+      }
     }
   }
   return parts.join('\n');
@@ -165,7 +172,9 @@ function applyHexMapToPages(pages, map) {
           p.sections = JSON.parse(rewritten);
           changed = true;
         }
-      } catch { /* keep sections */ }
+      } catch {
+        /* keep sections */
+      }
     }
     return p;
   });

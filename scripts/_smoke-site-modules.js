@@ -40,9 +40,9 @@ db.exec(`
   );
 `);
 db.prepare('INSERT INTO leads (id, business_name) VALUES (1, ?)').run('Test Co');
-db.prepare(`INSERT INTO websites (lead_id, pages) VALUES (1, ?)`).run(JSON.stringify([
-  { slug: 'home', title: 'Home', html: '<main><h1>Home</h1></main>', sections: [] },
-]));
+db.prepare(`INSERT INTO websites (lead_id, pages) VALUES (1, ?)`).run(
+  JSON.stringify([{ slug: 'home', title: 'Home', html: '<main><h1>Home</h1></main>', sections: [] }])
+);
 
 modules.ensureTables(db);
 
@@ -158,9 +158,18 @@ assert(attached.sync.synced, 'sync');
 
 const site = db.prepare('SELECT pages FROM websites WHERE lead_id = 1').get();
 const pages = JSON.parse(site.pages);
-assert(pages.some((p) => String(p.html || '').includes('data-bitpype-module-token')), 'js mount injected');
-assert(pages.some((p) => String(p.html || '').includes('/js/module-embed.js')), 'module embed script injected');
-assert(pages.some((p) => p.slug === 'blog'), 'blog page created');
+assert(
+  pages.some((p) => String(p.html || '').includes('data-bitpype-module-token')),
+  'js mount injected'
+);
+assert(
+  pages.some((p) => String(p.html || '').includes('/js/module-embed.js')),
+  'module embed script injected'
+);
+assert(
+  pages.some((p) => p.slug === 'blog'),
+  'blog page created'
+);
 
 const pub = modules.getPublicModuleByToken(db, attached.embed.public_token);
 assert(pub.items.length === 1, 'public items');
@@ -182,7 +191,10 @@ assert(pubBook.items.length === 1, 'public booking services');
 
 const summary = modules.portalSummary(db, 1, { siteModules: true, appUrl: 'https://example.com' });
 assert(summary.modules.length === 10, 'ten modules');
-assert(summary.modules.every((m) => m.count >= 1), 'counts');
+assert(
+  summary.modules.every((m) => m.count >= 1),
+  'counts'
+);
 
 db.close();
 fs.rmSync(dir, { recursive: true, force: true });

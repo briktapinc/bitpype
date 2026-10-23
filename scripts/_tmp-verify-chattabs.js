@@ -5,9 +5,7 @@ function resolvePane(current, next) {
   const isBookings = current === 'bookings';
   const isChatbot = current === 'chatbot';
   if (!isBookings && !isChatbot) return null;
-  const allowed = isChatbot
-    ? new Set(['content', 'settings', 'inbox'])
-    : new Set(['content', 'hours', 'appointments']);
+  const allowed = isChatbot ? new Set(['content', 'settings', 'inbox']) : new Set(['content', 'hours', 'appointments']);
   return allowed.has(next) ? next : 'content';
 }
 

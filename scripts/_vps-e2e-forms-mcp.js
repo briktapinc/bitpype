@@ -30,7 +30,11 @@ const ws = 1;
   const site = domain.sitesGet(ws, 5);
   let pages = site && site.pages;
   if (typeof pages === 'string') {
-    try { pages = JSON.parse(pages); } catch { pages = []; }
+    try {
+      pages = JSON.parse(pages);
+    } catch {
+      pages = [];
+    }
   }
   if (!Array.isArray(pages)) pages = [];
   pages = JSON.parse(JSON.stringify(pages));

@@ -1,6 +1,7 @@
 'use strict';
 const billing = require('../server/billing');
-billing.startOrChangePlan(1, 'gold')
+billing
+  .startOrChangePlan(1, 'gold')
   .then((r) => {
     console.error('unexpected ok', r);
     process.exit(2);

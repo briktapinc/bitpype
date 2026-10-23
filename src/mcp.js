@@ -62,7 +62,11 @@ try {
   db.exec(schema);
 } catch (e) {
   process.stderr.write(`[mcp] warning: could not apply schema.sql: ${e.message}\n`);
-  try { require('./leadEngine').ensureLeadColumns(db); } catch { /* ignore */ }
+  try {
+    require('./leadEngine').ensureLeadColumns(db);
+  } catch {
+    /* ignore */
+  }
 }
 try {
   require('./designJobs').ensureTables(db);
@@ -94,7 +98,9 @@ const getSetting = (key) => {
   return row ? row.value : null;
 };
 const setSetting = (key, value) => {
-  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
+  db.prepare(
+    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+  ).run(key, value);
 };
 function logActivity(area, message) {
   try {
@@ -139,13 +145,19 @@ function vStr(v, { max = 500, def = '' } = {}) {
   if (s.length > max) return { __err: true };
   return s;
 }
-function isErr(x) { return x && typeof x === 'object' && x.__err === true; }
+function isErr(x) {
+  return x && typeof x === 'object' && x.__err === true;
+}
 function requireId(v, name) {
   const n = vInt(v, { min: 1 });
   if (isErr(n) || n == null) throw argError(`${name} must be a positive integer.`);
   return n;
 }
-function argError(msg) { const e = new Error(msg); e.code = 'INVALID_ARGS'; return e; }
+function argError(msg) {
+  const e = new Error(msg);
+  e.code = 'INVALID_ARGS';
+  return e;
+}
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -155,16 +167,29 @@ function leadSummary(row) {
   if (!row) return null;
   let tags = row.tags;
   if (typeof tags === 'string') {
-    try { tags = JSON.parse(tags); } catch { /* keep string */ }
+    try {
+      tags = JSON.parse(tags);
+    } catch {
+      /* keep string */
+    }
   }
   return {
-    id: row.id, business_name: row.business_name, category: row.category,
-    phone: row.phone, email: row.email, website: row.website,
+    id: row.id,
+    business_name: row.business_name,
+    category: row.category,
+    phone: row.phone,
+    email: row.email,
+    website: row.website,
     address: row.address || null,
-    city: row.city, state: row.state, postal_code: row.postal_code || null,
+    city: row.city,
+    state: row.state,
+    postal_code: row.postal_code || null,
     rating: row.rating,
-    review_count: row.review_count, status: row.status,
-    score: row.score, qualified: !!row.qualified, tags,
+    review_count: row.review_count,
+    status: row.status,
+    score: row.score,
+    qualified: !!row.qualified,
+    tags,
     lead_group: row.lead_group || null,
     notes: row.notes || null,
     source: row.source || null,
@@ -197,10 +222,14 @@ function ensureNotPaused() {
 }
 
 function dailySentCount() {
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT COUNT(*) AS c FROM campaign_messages
     WHERE status = 'sent' AND date(sent_at) = date('now', 'localtime')
-  `).get().c;
+  `
+    )
+    .get().c;
 }
 
 // ---------------------------------------------------------------------------
@@ -215,20 +244,28 @@ function smtpSend({ host, port, secure, user, pass, from, to, subject, body }) {
     let stage = 0;
     let tlsUpgraded = false;
 
-    const fail = (msg) => { clearTimeout(timer); try { socket && socket.destroy(); } catch {} reject(new Error(msg)); };
+    const fail = (msg) => {
+      clearTimeout(timer);
+      try {
+        socket && socket.destroy();
+      } catch {}
+      reject(new Error(msg));
+    };
     const timer = setTimeout(() => fail('SMTP connection timed out'), TIMEOUT);
 
     const send = (line) => socket.write(line + '\r\n');
 
     const step = (code, full) => {
       // full = complete multi-line server response; lastLine = its final line.
-      const lastLine = (full.trim().split('\r\n').pop() || '');
+      const lastLine = full.trim().split('\r\n').pop() || '';
       try {
-        if (stage === 0) { // greeting
+        if (stage === 0) {
+          // greeting
           if (code !== 220) return fail(`SMTP greeting failed: ${lastLine}`);
           send(`EHLO websitescout`);
           stage = 1;
-        } else if (stage === 1) { // EHLO response
+        } else if (stage === 1) {
+          // EHLO response
           if (code !== 250) return fail(`SMTP EHLO failed: ${lastLine}`);
           // Upgrade via STARTTLS when plaintext and the server offers it.
           if (!secure && !tlsUpgraded && /STARTTLS/i.test(full)) {
@@ -241,7 +278,8 @@ function smtpSend({ host, port, secure, user, pass, from, to, subject, body }) {
             send(`MAIL FROM:<${from}>`);
             stage = 4;
           }
-        } else if (stage === 2) { // STARTTLS accepted
+        } else if (stage === 2) {
+          // STARTTLS accepted
           if (code !== 220) return fail(`SMTP STARTTLS failed: ${lastLine}`);
           socket.removeAllListeners('data');
           socket = tls.connect({ socket, servername: host });
@@ -249,41 +287,58 @@ function smtpSend({ host, port, secure, user, pass, from, to, subject, body }) {
           attach();
           send('EHLO websitescout');
           stage = 1;
-        } else if (stage === 3) { // AUTH LOGIN: username?
-          if (code === 334) { send(Buffer.from(user, 'utf8').toString('base64')); stage = 30; }
-          else return fail(`SMTP AUTH rejected: ${lastLine}`);
-        } else if (stage === 30) { // AUTH LOGIN: password?
-          if (code === 334) { send(Buffer.from(pass, 'utf8').toString('base64')); stage = 31; }
-          else return fail(`SMTP username rejected: ${lastLine}`);
-        } else if (stage === 31) { // auth result
+        } else if (stage === 3) {
+          // AUTH LOGIN: username?
+          if (code === 334) {
+            send(Buffer.from(user, 'utf8').toString('base64'));
+            stage = 30;
+          } else return fail(`SMTP AUTH rejected: ${lastLine}`);
+        } else if (stage === 30) {
+          // AUTH LOGIN: password?
+          if (code === 334) {
+            send(Buffer.from(pass, 'utf8').toString('base64'));
+            stage = 31;
+          } else return fail(`SMTP username rejected: ${lastLine}`);
+        } else if (stage === 31) {
+          // auth result
           if (code !== 235) return fail(`SMTP authentication failed: ${lastLine}`);
           send(`MAIL FROM:<${from}>`);
           stage = 4;
-        } else if (stage === 4) { // MAIL FROM
+        } else if (stage === 4) {
+          // MAIL FROM
           if (code !== 250) return fail(`SMTP MAIL FROM rejected: ${lastLine}`);
           send(`RCPT TO:<${to}>`);
           stage = 5;
-        } else if (stage === 5) { // RCPT TO
+        } else if (stage === 5) {
+          // RCPT TO
           if (code !== 250 && code !== 251) return fail(`SMTP RCPT TO rejected: ${lastLine}`);
           send('DATA');
           stage = 6;
-        } else if (stage === 6) { // DATA go-ahead
+        } else if (stage === 6) {
+          // DATA go-ahead
           if (code !== 354) return fail(`SMTP DATA rejected: ${lastLine}`);
           const msg = [
-            `From: ${from}`, `To: ${to}`,
+            `From: ${from}`,
+            `To: ${to}`,
             `Subject: ${subject}`,
-            'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8',
-            '', body, '',
+            'MIME-Version: 1.0',
+            'Content-Type: text/plain; charset=utf-8',
+            '',
+            body,
+            '',
           ].join('\r\n');
           socket.write(msg + '\r\n.\r\n');
           stage = 7;
-        } else if (stage === 7) { // queued
+        } else if (stage === 7) {
+          // queued
           if (code !== 250) return fail(`SMTP message rejected: ${lastLine}`);
           send('QUIT');
           clearTimeout(timer);
           resolve({ ok: true });
         }
-      } catch (e) { fail(`SMTP error: ${e.message}`); }
+      } catch (e) {
+        fail(`SMTP error: ${e.message}`);
+      }
     };
 
     const onData = (chunk) => {
@@ -305,11 +360,11 @@ function smtpSend({ host, port, secure, user, pass, from, to, subject, body }) {
     };
 
     try {
-      socket = secure
-        ? tls.connect({ host, port, servername: host })
-        : net.createConnection({ host, port });
+      socket = secure ? tls.connect({ host, port, servername: host }) : net.createConnection({ host, port });
       attach();
-    } catch (e) { fail(`SMTP connect failed: ${e.message}`); }
+    } catch (e) {
+      fail(`SMTP connect failed: ${e.message}`);
+    }
   });
 }
 
@@ -319,8 +374,11 @@ function smtpSend({ host, port, secure, user, pass, from, to, subject, body }) {
 
 function esc(s) {
   return String(s == null ? '' : s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function renderPreviewHtml(site) {
@@ -335,8 +393,12 @@ function renderPreviewHtml(site) {
 }
 
 function safeJson(text, fallback) {
-  try { const v = JSON.parse(text); return v == null ? fallback : v; }
-  catch { return fallback; }
+  try {
+    const v = JSON.parse(text);
+    return v == null ? fallback : v;
+  } catch {
+    return fallback;
+  }
 }
 
 /** Strip giant base64 screenshot previews from review payloads over MCP. */
@@ -374,16 +436,32 @@ const TOOLS = {
       const status = vStr(args.status, { max: 40, def: '' });
       const minScore = vInt(args.minScore, { min: 0, max: 100, def: 0 });
       const limit = vInt(args.limit, { min: 1, max: 100, def: 20 });
-      for (const [k, v] of [['q', q], ['status', status], ['minScore', minScore], ['limit', limit]]) {
+      for (const [k, v] of [
+        ['q', q],
+        ['status', status],
+        ['minScore', minScore],
+        ['limit', limit],
+      ]) {
         if (isErr(v)) throw argError(`Invalid ${k}.`);
       }
-      const where = []; const params = [];
-      if (q) { where.push('(business_name LIKE ? OR category LIKE ? OR city LIKE ? OR email LIKE ?)'); const like = `%${q}%`; params.push(like, like, like, like); }
-      if (status) { where.push('status = ?'); params.push(status); }
-      where.push('score >= ?'); params.push(minScore);
-      const rows = db.prepare(
-        `SELECT * FROM leads ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY score DESC, id DESC LIMIT ?`
-      ).all(...params, limit);
+      const where = [];
+      const params = [];
+      if (q) {
+        where.push('(business_name LIKE ? OR category LIKE ? OR city LIKE ? OR email LIKE ?)');
+        const like = `%${q}%`;
+        params.push(like, like, like, like);
+      }
+      if (status) {
+        where.push('status = ?');
+        params.push(status);
+      }
+      where.push('score >= ?');
+      params.push(minScore);
+      const rows = db
+        .prepare(
+          `SELECT * FROM leads ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY score DESC, id DESC LIMIT ?`
+        )
+        .all(...params, limit);
       return { ok: true, data: { count: rows.length, leads: rows.map(leadSummary) } };
     },
   },
@@ -399,9 +477,17 @@ const TOOLS = {
       const id = requireId(args.id, 'id');
       const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(id);
       if (!lead) throw argError(`Lead ${id} not found.`);
-      const facts = db.prepare('SELECT fact_key, value, source, confidence, claim_class FROM business_facts WHERE lead_id = ? ORDER BY id').all(id);
-      const scores = db.prepare('SELECT score, breakdown, at FROM lead_scores WHERE lead_id = ? ORDER BY id DESC LIMIT 3').all(id);
-      const events = db.prepare('SELECT type, detail, at FROM lead_events WHERE lead_id = ? ORDER BY id DESC LIMIT 10').all(id);
+      const facts = db
+        .prepare(
+          'SELECT fact_key, value, source, confidence, claim_class FROM business_facts WHERE lead_id = ? ORDER BY id'
+        )
+        .all(id);
+      const scores = db
+        .prepare('SELECT score, breakdown, at FROM lead_scores WHERE lead_id = ? ORDER BY id DESC LIMIT 3')
+        .all(id);
+      const events = db
+        .prepare('SELECT type, detail, at FROM lead_events WHERE lead_id = ? ORDER BY id DESC LIMIT 10')
+        .all(id);
       return { ok: true, data: { lead: leadSummary(lead), facts, scores, events } };
     },
   },
@@ -422,8 +508,14 @@ const TOOLS = {
       if (isErr(note)) throw argError('Invalid note.');
       const lead = db.prepare('SELECT id FROM leads WHERE id = ?').get(id);
       if (!lead) throw argError(`Lead ${id} not found.`);
-      db.prepare(`UPDATE leads SET qualified = 1, status = 'qualified', qualification_note = ?, updated_at = datetime('now') WHERE id = ?`).run(note, id);
-      db.prepare('INSERT INTO lead_events (lead_id, type, detail) VALUES (?, ?, ?)').run(id, 'qualified', note || 'Qualified via MCP');
+      db.prepare(
+        `UPDATE leads SET qualified = 1, status = 'qualified', qualification_note = ?, updated_at = datetime('now') WHERE id = ?`
+      ).run(note, id);
+      db.prepare('INSERT INTO lead_events (lead_id, type, detail) VALUES (?, ?, ?)').run(
+        id,
+        'qualified',
+        note || 'Qualified via MCP'
+      );
       return { ok: true, data: { id, qualified: true } };
     },
   },
@@ -518,9 +610,24 @@ const TOOLS = {
       const engine = require('./leadEngine');
       const patch = {};
       for (const key of [
-        'business_name', 'category', 'phone', 'email', 'website', 'address',
-        'city', 'state', 'postal_code', 'country', 'description', 'notes',
-        'status', 'source', 'rating', 'review_count', 'lead_group', 'group',
+        'business_name',
+        'category',
+        'phone',
+        'email',
+        'website',
+        'address',
+        'city',
+        'state',
+        'postal_code',
+        'country',
+        'description',
+        'notes',
+        'status',
+        'source',
+        'rating',
+        'review_count',
+        'lead_group',
+        'group',
       ]) {
         if (args[key] !== undefined) patch[key] = args[key];
       }
@@ -571,7 +678,12 @@ const TOOLS = {
       const value = vStr(args.value, { max: 80000, def: '' });
       const source = vStr(args.source, { max: 200, def: '' });
       const claim_class = vStr(args.claim_class, { max: 40, def: '' });
-      for (const [k, v] of [['fact_key', fact_key], ['value', value], ['source', source], ['claim_class', claim_class]]) {
+      for (const [k, v] of [
+        ['fact_key', fact_key],
+        ['value', value],
+        ['source', source],
+        ['claim_class', claim_class],
+      ]) {
         if (isErr(v) || !String(v).trim()) throw argError(`${k} is required.`);
       }
       let source_url;
@@ -585,14 +697,16 @@ const TOOLS = {
         if (isErr(confidence)) throw argError('confidence is invalid.');
       }
       const engine = require('./leadEngine');
-      const fact = runLeadEngine(() => engine.addFact(db, id, {
-        fact_key: String(fact_key).trim(),
-        value: String(value),
-        source: String(source).trim(),
-        source_url,
-        confidence,
-        claim_class: String(claim_class).trim(),
-      }));
+      const fact = runLeadEngine(() =>
+        engine.addFact(db, id, {
+          fact_key: String(fact_key).trim(),
+          value: String(value),
+          source: String(source).trim(),
+          source_url,
+          confidence,
+          claim_class: String(claim_class).trim(),
+        })
+      );
       return {
         ok: true,
         data: {
@@ -638,8 +752,11 @@ const TOOLS = {
         title: `${lead.business_name || 'Business'} website`,
         instructions: design.defaultWebsiteInstructions(),
       });
-      db.prepare('INSERT INTO lead_events (lead_id, type, detail) VALUES (?, ?, ?)')
-        .run(leadId, 'site_assigned', `Design job #${job.id} assigned via MCP (agent-owned design, ${job.site_shape || 'multipage'})`);
+      db.prepare('INSERT INTO lead_events (lead_id, type, detail) VALUES (?, ?, ?)').run(
+        leadId,
+        'site_assigned',
+        `Design job #${job.id} assigned via MCP (agent-owned design, ${job.site_shape || 'multipage'})`
+      );
       return { ok: true, data: { jobId: job.id, status: job.status, type: 'website', site_shape: job.site_shape } };
     },
   },
@@ -687,8 +804,11 @@ const TOOLS = {
         site_shape: args.site_shape != null ? args.site_shape : args.siteShape,
       });
       if (leadId && String(type).trim() === 'website') {
-        db.prepare('INSERT INTO lead_events (lead_id, type, detail) VALUES (?, ?, ?)')
-          .run(leadId, 'site_assigned', `Design job #${job.id} assigned via MCP design.create (${job.site_shape || 'n/a'})`);
+        db.prepare('INSERT INTO lead_events (lead_id, type, detail) VALUES (?, ?, ?)').run(
+          leadId,
+          'site_assigned',
+          `Design job #${job.id} assigned via MCP design.create (${job.site_shape || 'n/a'})`
+        );
       }
       return {
         ok: true,
@@ -738,7 +858,8 @@ const TOOLS = {
   },
 
   'website.edit': {
-    description: 'Apply a safe structural edit to a website (theme color, business name, add section, phone). Anything else is queued as a note when AI is unavailable — the response says which.',
+    description:
+      'Apply a safe structural edit to a website (theme color, business name, add section, phone). Anything else is queued as a note when AI is unavailable — the response says which.',
     schema: {
       type: 'object',
       properties: {
@@ -750,7 +871,8 @@ const TOOLS = {
     run(args) {
       const id = requireId(args.id, 'id');
       const instruction = vStr(args.instruction, { max: 2000, def: '' });
-      if (isErr(instruction) || !instruction.trim()) throw argError('instruction must be a non-empty string (max 2000 chars).');
+      if (isErr(instruction) || !instruction.trim())
+        throw argError('instruction must be a non-empty string (max 2000 chars).');
       const site = db.prepare('SELECT * FROM websites WHERE id = ?').get(id);
       if (!site) throw argError(`Website ${id} not found.`);
       const theme = safeJson(site.theme, {});
@@ -769,7 +891,8 @@ const TOOLS = {
         applied = `Renamed website to "${m[1].trim()}".`;
       } else if (/add (a |an )?section/i.test(text)) {
         const m = text.match(/section[:\s]+(.{1,1000})$/is);
-        if (!m) throw argError('Could not parse the section text. Try: "add section: We offer 24/7 emergency repairs".');
+        if (!m)
+          throw argError('Could not parse the section text. Try: "add section: We offer 24/7 emergency repairs".');
         const home = pages.find((p) => p.slug === 'home') || pages[0];
         if (!home) throw argError('Website has no pages to edit.');
         home.sections = home.sections || [];
@@ -778,23 +901,43 @@ const TOOLS = {
       } else if (/phone/i.test(text)) {
         const m = text.match(/(\+?[\d][\d\s().-]{6,20})/);
         if (!m) throw argError('Could not parse a phone number from the instruction.');
-        const contact = (pages.find((p) => p.slug === 'home') || pages[0] || {}).sections?.find((s) => s.type === 'contact');
+        const contact = (pages.find((p) => p.slug === 'home') || pages[0] || {}).sections?.find(
+          (s) => s.type === 'contact'
+        );
         if (contact) contact.body = m[1].trim();
         applied = `Set contact phone to ${m[1].trim()}.`;
       }
 
       if (!applied) {
         // Honest fallback: queue for manual/AI editing instead of pretending.
-        logActivity('mcp', `website.edit queued (no safe structural edit matched): site=${id} instruction="${text.slice(0, 200)}"`);
-        return { ok: true, data: { id, applied: false, queued: true, note: 'Instruction did not match a safe structural edit; queued for manual review in the desktop app.' } };
+        logActivity(
+          'mcp',
+          `website.edit queued (no safe structural edit matched): site=${id} instruction="${text.slice(0, 200)}"`
+        );
+        return {
+          ok: true,
+          data: {
+            id,
+            applied: false,
+            queued: true,
+            note: 'Instruction did not match a safe structural edit; queued for manual review in the desktop app.',
+          },
+        };
       }
 
       // Snapshot current version before mutating.
-      const vno = (db.prepare('SELECT COALESCE(MAX(version_no), 0) AS m FROM website_versions WHERE website_id = ?').get(id).m || 0) + 1;
-      db.prepare('INSERT INTO website_versions (website_id, version_no, pages, theme, note) VALUES (?, ?, ?, ?, ?)')
-        .run(id, vno, site.pages, site.theme, `Before MCP edit: ${text.slice(0, 200)}`);
-      db.prepare("UPDATE websites SET name = ?, pages = ?, theme = ?, updated_at = datetime('now') WHERE id = ?")
-        .run(site.name, JSON.stringify(pages), JSON.stringify(theme), id);
+      const vno =
+        (db.prepare('SELECT COALESCE(MAX(version_no), 0) AS m FROM website_versions WHERE website_id = ?').get(id).m ||
+          0) + 1;
+      db.prepare(
+        'INSERT INTO website_versions (website_id, version_no, pages, theme, note) VALUES (?, ?, ?, ?, ?)'
+      ).run(id, vno, site.pages, site.theme, `Before MCP edit: ${text.slice(0, 200)}`);
+      db.prepare("UPDATE websites SET name = ?, pages = ?, theme = ?, updated_at = datetime('now') WHERE id = ?").run(
+        site.name,
+        JSON.stringify(pages),
+        JSON.stringify(theme),
+        id
+      );
       return { ok: true, data: { id, applied: true, summary: applied, version: vno } };
     },
   },
@@ -843,12 +986,16 @@ const TOOLS = {
       const limit = vInt(args.limit, { min: 1, max: 100, def: 50 });
       if (isErr(limit)) throw argError('limit must be an integer from 1 to 100.');
       const listed = design.listJobs(db, { status: status || undefined, limit, page: 1, pageSize: limit });
-      return { ok: true, data: { jobs: listed.jobs, total: listed.total, page: listed.page, pageSize: listed.pageSize } };
+      return {
+        ok: true,
+        data: { jobs: listed.jobs, total: listed.total, page: listed.page, pageSize: listed.pageSize },
+      };
     },
   },
 
   'design.get': {
-    description: 'Read one design job. Be freely creative — the app does not design or restyle the work. Only verified_facts may be labeled VERIFIED for contact details.',
+    description:
+      'Read one design job. Be freely creative — the app does not design or restyle the work. Only verified_facts may be labeled VERIFIED for contact details.',
     schema: { type: 'object', properties: { id: { type: 'integer', minimum: 1 } }, required: ['id'] },
     run(args) {
       const design = require('./designJobs');
@@ -927,7 +1074,9 @@ const TOOLS = {
           const preview = await design.previewUrl(db, id, { open: false });
           data.previewUrl = preview.url;
           data.previewPath = preview.path;
-        } catch { /* preview optional on deliver */ }
+        } catch {
+          /* preview optional on deliver */
+        }
       }
       return { ok: true, data };
     },
@@ -1042,7 +1191,8 @@ const TOOLS = {
   },
 
   'design.review': {
-    description: 'Review a delivered website (QA + optional screenshots/vision). Returns redesign_instructions and improvement_instructions. No base64 over MCP.',
+    description:
+      'Review a delivered website (QA + optional screenshots/vision). Returns redesign_instructions and improvement_instructions. No base64 over MCP.',
     schema: {
       type: 'object',
       properties: {
@@ -1174,7 +1324,9 @@ const TOOLS = {
     async run(args) {
       const emailRedesign = require('./emailRedesign');
       emailRedesign.ensureTables(db);
-      const action = String(args.action || '').trim().toLowerCase();
+      const action = String(args.action || '')
+        .trim()
+        .toLowerCase();
       const requestIdRaw = args.id != null ? args.id : args.requestId;
 
       if (action === 'list') {
@@ -1287,7 +1439,8 @@ const TOOLS = {
   },
 
   'design.lessons': {
-    description: 'Design learning: list raw events, read/clear playbook, or force distill. Lessons also appear on job briefs as brief.learned_lessons.',
+    description:
+      'Design learning: list raw events, read/clear playbook, or force distill. Lessons also appear on job briefs as brief.learned_lessons.',
     schema: {
       type: 'object',
       properties: {
@@ -1305,7 +1458,9 @@ const TOOLS = {
     async run(args = {}) {
       const learning = require('./designLearning');
       learning.ensureTables(db);
-      const action = String(args.action || 'status').trim().toLowerCase();
+      const action = String(args.action || 'status')
+        .trim()
+        .toLowerCase();
       if (action === 'status') {
         return { ok: true, data: learning.getStatus(db) };
       }
@@ -1346,7 +1501,8 @@ const TOOLS = {
   },
 
   'email.compose': {
-    description: 'Compose from a dual-channel template. Pass channel email|sms. queue:true persists and returns messageId for email.send.',
+    description:
+      'Compose from a dual-channel template. Pass channel email|sms. queue:true persists and returns messageId for email.send.',
     schema: {
       type: 'object',
       properties: {
@@ -1369,22 +1525,25 @@ const TOOLS = {
       const template = db.prepare('SELECT * FROM email_templates WHERE id = ?').get(templateId);
       if (!template) throw argError(`Template ${templateId} not found.`);
       let channel = String(args.channel || '').toLowerCase() === 'sms' ? 'sms' : 'email';
-      if (!args.channel && String(template.channel || '').toLowerCase() === 'sms' && !outreach.templateHasEmail(template)) {
+      if (
+        !args.channel &&
+        String(template.channel || '').toLowerCase() === 'sms' &&
+        !outreach.templateHasEmail(template)
+      ) {
         channel = 'sms';
       }
       if (channel === 'sms' && !outreach.templateHasSms(template)) throw argError('This template has no SMS body');
-      if (channel === 'email' && !outreach.templateHasEmail(template)) throw argError('This template has no email body');
+      if (channel === 'email' && !outreach.templateHasEmail(template))
+        throw argError('This template has no email body');
       const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(leadId);
       if (!lead) throw argError(`Lead ${leadId} not found.`);
       const facts = db.prepare('SELECT * FROM business_facts WHERE lead_id = ?').all(leadId);
       const fromName = getSetting('smtp.from_name') || getSetting('app.name') || '';
-      const source = channel === 'sms'
-        ? { subject: '(SMS)', body: outreach.templateSmsText(template) }
-        : { subject: template.subject, body: template.body };
-      const personalized = email.personalize(
-        source, lead, facts,
-        outreach.personalizeExtras(db, leadId, fromName, {})
-      );
+      const source =
+        channel === 'sms'
+          ? { subject: '(SMS)', body: outreach.templateSmsText(template) }
+          : { subject: template.subject, body: template.body };
+      const personalized = email.personalize(source, lead, facts, outreach.personalizeExtras(db, leadId, fromName, {}));
       if (channel === 'sms') {
         personalized.body = sms.plainSmsBody(personalized.body);
         personalized.subject = personalized.subject || '(SMS)';
@@ -1405,7 +1564,8 @@ const TOOLS = {
       let campaign = db.prepare("SELECT id FROM campaigns WHERE name = ? AND status = 'draft'").get(campaignName);
       if (!campaign) {
         campaign = {
-          id: db.prepare('INSERT INTO campaigns (name, template_id, status) VALUES (?, ?, ?)')
+          id: db
+            .prepare('INSERT INTO campaigns (name, template_id, status) VALUES (?, ?, ?)')
             .run(campaignName, templateId, 'draft').lastInsertRowid,
         };
       }
@@ -1413,32 +1573,45 @@ const TOOLS = {
         const phone = outreach.normalizePhone(lead.phone);
         if (!phone) throw argError(`Lead ${leadId} has no phone number for SMS.`);
         const body = sms.plainSmsBody(personalized.body);
-        const r = db.prepare(
-          `INSERT INTO campaign_messages
+        const r = db
+          .prepare(
+            `INSERT INTO campaign_messages
              (campaign_id, lead_id, to_email, subject, body, status, channel, to_phone)
            VALUES (?, ?, ?, ?, ?, 'queued', 'sms', ?)`
-        ).run(Number(campaign.id), leadId, phone, personalized.subject || '(SMS)', body, phone);
+          )
+          .run(Number(campaign.id), leadId, phone, personalized.subject || '(SMS)', body, phone);
         return {
           ok: true,
           data: {
-            messageId: Number(r.lastInsertRowid), to: phone, to_phone: phone,
-            subject: personalized.subject, body, channel: 'sms', queued: true,
+            messageId: Number(r.lastInsertRowid),
+            to: phone,
+            to_phone: phone,
+            subject: personalized.subject,
+            body,
+            channel: 'sms',
+            queued: true,
           },
         };
       }
       if (!lead.email) throw argError(`Lead ${leadId} has no email address.`);
       const footer = getSetting('mail.footer') || '';
       const body = personalized.body + (footer ? `\n\n--\n${footer}` : '');
-      const r = db.prepare(
-        `INSERT INTO campaign_messages
+      const r = db
+        .prepare(
+          `INSERT INTO campaign_messages
            (campaign_id, lead_id, to_email, subject, body, status, channel)
          VALUES (?, ?, ?, ?, ?, 'queued', 'email')`
-      ).run(Number(campaign.id), leadId, lead.email, personalized.subject, body);
+        )
+        .run(Number(campaign.id), leadId, lead.email, personalized.subject, body);
       return {
         ok: true,
         data: {
-          messageId: Number(r.lastInsertRowid), to: lead.email,
-          subject: personalized.subject, body, channel: 'email', queued: true,
+          messageId: Number(r.lastInsertRowid),
+          to: lead.email,
+          subject: personalized.subject,
+          body,
+          channel: 'email',
+          queued: true,
         },
       };
     },
@@ -1457,7 +1630,9 @@ const TOOLS = {
       const msg = db.prepare('SELECT * FROM campaign_messages WHERE id = ?').get(messageId);
       if (!msg) throw argError(`Message ${messageId} not found.`);
       if (msg.status !== 'queued') throw argError(`Message ${messageId} is not queued (status: ${msg.status}).`);
-      const suppressed = db.prepare('SELECT reason FROM suppression_list WHERE lower(email) = lower(?)').get(msg.to_email);
+      const suppressed = db
+        .prepare('SELECT reason FROM suppression_list WHERE lower(email) = lower(?)')
+        .get(msg.to_email);
       if (suppressed) {
         db.prepare("UPDATE campaign_messages SET status = 'suppressed' WHERE id = ?").run(messageId);
         return { ok: true, data: { messageId, sent: false, suppressed: true, reason: suppressed.reason } };
@@ -1470,10 +1645,18 @@ const TOOLS = {
       }
       const host = getSetting('smtp.host');
       const fromEmail = getSetting('smtp.from_email');
-      if (!host || !fromEmail) throw argError('SMTP is not configured (smtp.host / smtp.from_email). Set it in the desktop app first.');
+      if (!host || !fromEmail)
+        throw argError('SMTP is not configured (smtp.host / smtp.from_email). Set it in the desktop app first.');
       const fail = (err) => {
-        db.prepare("UPDATE campaign_messages SET status = 'failed', error = ? WHERE id = ?").run(String(err).slice(0, 1000), messageId);
-        db.prepare('INSERT INTO email_events (message_id, type, detail) VALUES (?, ?, ?)').run(messageId, 'failed', String(err).slice(0, 500));
+        db.prepare("UPDATE campaign_messages SET status = 'failed', error = ? WHERE id = ?").run(
+          String(err).slice(0, 1000),
+          messageId
+        );
+        db.prepare('INSERT INTO email_events (message_id, type, detail) VALUES (?, ?, ?)').run(
+          messageId,
+          'failed',
+          String(err).slice(0, 500)
+        );
         const e = new Error(`SMTP send failed: ${err}`);
         e.code = 'SMTP_FAILED';
         throw e;
@@ -1490,7 +1673,9 @@ const TOOLS = {
           subject: msg.subject,
           body: msg.body,
         });
-      } catch (e) { fail(e.message); }
+      } catch (e) {
+        fail(e.message);
+      }
       db.prepare("UPDATE campaign_messages SET status = 'sent', sent_at = datetime('now') WHERE id = ?").run(messageId);
       db.prepare('INSERT INTO email_events (message_id, type) VALUES (?, ?)').run(messageId, 'sent');
       return { ok: true, data: { messageId, sent: true, to: msg.to_email } };
@@ -1498,7 +1683,7 @@ const TOOLS = {
   },
 
   'prospect.score': {
-    description: 'Return a lead\'s score with its Qualified/Hot label from current thresholds.',
+    description: "Return a lead's score with its Qualified/Hot label from current thresholds.",
     schema: {
       type: 'object',
       properties: { leadId: { type: 'integer', minimum: 1 } },
@@ -1508,8 +1693,13 @@ const TOOLS = {
       const leadId = requireId(args.leadId, 'leadId');
       const lead = db.prepare('SELECT id, business_name, score, qualified FROM leads WHERE id = ?').get(leadId);
       if (!lead) throw argError(`Lead ${leadId} not found.`);
-      const latest = db.prepare('SELECT score, breakdown, at FROM lead_scores WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(leadId);
-      return { ok: true, data: { leadId, score: lead.score, label: scoreLabel(lead.score), qualified: !!lead.qualified, latest } };
+      const latest = db
+        .prepare('SELECT score, breakdown, at FROM lead_scores WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+        .get(leadId);
+      return {
+        ok: true,
+        data: { leadId, score: lead.score, label: scoreLabel(lead.score), qualified: !!lead.qualified, latest },
+      };
     },
   },
 
@@ -1523,17 +1713,36 @@ const TOOLS = {
       const hotLeads = db.prepare('SELECT COUNT(*) AS c FROM leads WHERE score >= ?').get(hot).c;
       const qualified = db.prepare('SELECT COUNT(*) AS c FROM leads WHERE qualified = 1').get().c;
       const sitesByStatus = db.prepare('SELECT status, COUNT(*) AS n FROM websites GROUP BY status').all();
-      const sentToday = db.prepare(`SELECT COUNT(*) AS c FROM campaign_messages WHERE status = 'sent' AND date(sent_at) = date('now', 'localtime')`).get().c;
+      const sentToday = db
+        .prepare(
+          `SELECT COUNT(*) AS c FROM campaign_messages WHERE status = 'sent' AND date(sent_at) = date('now', 'localtime')`
+        )
+        .get().c;
       const queued = db.prepare(`SELECT COUNT(*) AS c FROM campaign_messages WHERE status = 'queued'`).get().c;
-      const aiToday = db.prepare(`SELECT ROUND(COALESCE(SUM(cost_usd),0),4) AS c FROM ai_usage WHERE date(at) = date('now','localtime')`).get().c;
-      const aiMonth = db.prepare(`SELECT ROUND(COALESCE(SUM(cost_usd),0),4) AS c FROM ai_usage WHERE strftime('%Y-%m', at) = strftime('%Y-%m','now','localtime')`).get().c;
+      const aiToday = db
+        .prepare(
+          `SELECT ROUND(COALESCE(SUM(cost_usd),0),4) AS c FROM ai_usage WHERE date(at) = date('now','localtime')`
+        )
+        .get().c;
+      const aiMonth = db
+        .prepare(
+          `SELECT ROUND(COALESCE(SUM(cost_usd),0),4) AS c FROM ai_usage WHERE strftime('%Y-%m', at) = strftime('%Y-%m','now','localtime')`
+        )
+        .get().c;
       const design = require('./designJobs');
       const designQueue = design.pendingAgentSummary(db, { previewLimit: 5 });
       return {
         ok: true,
         data: {
-          totalLeads, byStatus, qualified, hotLeads, sitesByStatus, sentToday, queued,
-          aiCostTodayUsd: aiToday, aiCostMonthUsd: aiMonth,
+          totalLeads,
+          byStatus,
+          qualified,
+          hotLeads,
+          sitesByStatus,
+          sentToday,
+          queued,
+          aiCostTodayUsd: aiToday,
+          aiCostMonthUsd: aiMonth,
           designJobsWaitingOnAgent: designQueue.counts.waiting_on_agent,
           designJobsQuestionsPending: designQueue.counts.questions_pending,
         },
@@ -1604,12 +1813,15 @@ function toolListPayload() {
 
 function resourceListPayload() {
   return {
-    resources: [{
-      uri: DESIGN_PENDING_URI,
-      name: 'Design jobs waiting on agent',
-      description: 'JSON summary of waiting_on_agent and questions_pending jobs. Poll via resources/read or call design.pending / design.next.',
-      mimeType: 'application/json',
-    }],
+    resources: [
+      {
+        uri: DESIGN_PENDING_URI,
+        name: 'Design jobs waiting on agent',
+        description:
+          'JSON summary of waiting_on_agent and questions_pending jobs. Poll via resources/read or call design.pending / design.next.',
+        mimeType: 'application/json',
+      },
+    ],
   };
 }
 
@@ -1626,9 +1838,7 @@ function isInitializedNotification(method) {
 }
 
 function negotiateProtocolVersion(params) {
-  const requested = params && typeof params.protocolVersion === 'string'
-    ? params.protocolVersion
-    : '';
+  const requested = params && typeof params.protocolVersion === 'string' ? params.protocolVersion : '';
   if (SUPPORTED_PROTOCOL_VERSIONS.includes(requested)) return requested;
   return LATEST_PROTOCOL_VERSION;
 }
@@ -1639,15 +1849,11 @@ async function handleRequest(req) {
   }
 
   const method = typeof req.method === 'string' ? req.method : '';
-  const params = (req.params && typeof req.params === 'object' && !Array.isArray(req.params))
-    ? req.params
-    : {};
+  const params = req.params && typeof req.params === 'object' && !Array.isArray(req.params) ? req.params : {};
   const notification = isNotification(req);
   const id = notification ? null : req.id;
   const result = (payload) => (notification ? null : { jsonrpc: '2.0', id, result: payload });
-  const failure = (code, message) => (
-    notification ? null : { jsonrpc: '2.0', id, error: { code, message } }
-  );
+  const failure = (code, message) => (notification ? null : { jsonrpc: '2.0', id, error: { code, message } });
 
   if (!method) return failure(-32600, 'Invalid Request: missing method.');
 
@@ -1672,16 +1878,18 @@ async function handleRequest(req) {
       const design = require('./designJobs');
       const summary = design.pendingAgentSummary(db, { previewLimit: 20 });
       return result({
-        contents: [{
-          uri: DESIGN_PENDING_URI,
-          mimeType: 'application/json',
-          text: JSON.stringify(summary, null, 2),
-        }],
+        contents: [
+          {
+            uri: DESIGN_PENDING_URI,
+            mimeType: 'application/json',
+            text: JSON.stringify(summary, null, 2),
+          },
+        ],
       });
     }
     if (method === 'tools/call') {
       const name = params.name;
-      const args = (params.arguments && typeof params.arguments === 'object') ? params.arguments : {};
+      const args = params.arguments && typeof params.arguments === 'object' ? params.arguments : {};
       const tool = TOOLS[name];
       if (!tool) return failure(-32602, `Unknown tool: ${name}`);
       const t0 = Date.now();
@@ -1693,7 +1901,10 @@ async function handleRequest(req) {
         outcome = { ok: false, error: e.message || String(e) };
       }
       const ms = Date.now() - t0;
-      logActivity('mcp', `tool=${name} ok=${outcome.ok} ${ms}ms args=${JSON.stringify(redact(args)).slice(0, 500)}${outcome.ok ? '' : ' error=' + String(outcome.error).slice(0, 200)}`);
+      logActivity(
+        'mcp',
+        `tool=${name} ok=${outcome.ok} ${ms}ms args=${JSON.stringify(redact(args)).slice(0, 500)}${outcome.ok ? '' : ' error=' + String(outcome.error).slice(0, 200)}`
+      );
       return result({
         content: [{ type: 'text', text: JSON.stringify(outcome) }],
         isError: !outcome.ok,
@@ -1723,17 +1934,33 @@ function startStdioTransport() {
       stdinBuffer = stdinBuffer.slice(idx + 1);
       if (!line) continue;
       let req;
-      try { req = JSON.parse(line); }
-      catch { process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }) + '\n'); continue; }
+      try {
+        req = JSON.parse(line);
+      } catch {
+        process.stdout.write(
+          JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }) + '\n'
+        );
+        continue;
+      }
       pending++;
-      Promise.resolve(handleRequest(req)).then((resp) => {
-        if (resp) process.stdout.write(JSON.stringify(resp) + '\n');
-      }).finally(() => { pending--; maybeExit(); });
+      Promise.resolve(handleRequest(req))
+        .then((resp) => {
+          if (resp) process.stdout.write(JSON.stringify(resp) + '\n');
+        })
+        .finally(() => {
+          pending--;
+          maybeExit();
+        });
     }
   });
-  process.stdin.on('end', () => { stdinEnded = true; maybeExit(); });
+  process.stdin.on('end', () => {
+    stdinEnded = true;
+    maybeExit();
+  });
   // Safety net: never hang forever if a handler stalls.
-  setInterval(() => { if (stdinEnded && pending > 0) process.stderr.write(`[mcp] waiting on ${pending} pending request(s)\n`); }, 15000).unref();
+  setInterval(() => {
+    if (stdinEnded && pending > 0) process.stderr.write(`[mcp] waiting on ${pending} pending request(s)\n`);
+  }, 15000).unref();
   process.stderr.write(`[mcp] website-scout-mcp ready (db: ${DB_PATH})\n`);
 }
 

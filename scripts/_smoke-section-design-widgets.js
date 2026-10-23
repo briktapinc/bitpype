@@ -28,7 +28,12 @@ for (const type of ['heading', 'text', 'image', 'html', 'columns', 'text_image',
   const content = structure.defaultSectionContent(type, { cols: 2 });
   const html = engine.sectionToHtml({ type, content }, {});
   check(`layout ${type} renders`, !!html && html.length > 20);
-  check(`layout ${type} marked design-module`, /data-ws-design-module|ws-design-module|layout-columns|text-block|text-image|layout-cards|ws-html-block|ws-design-heading|ws-design-image/.test(html));
+  check(
+    `layout ${type} marked design-module`,
+    /data-ws-design-module|ws-design-module|layout-columns|text-block|text-image|layout-cards|ws-html-block|ws-design-heading|ws-design-image/.test(
+      html
+    )
+  );
 }
 
 // ── Edit script controls ────────────────────────────────────────
@@ -36,7 +41,10 @@ const src = require('fs').readFileSync(path.join(__dirname, '../src/websiteEngin
 const editStart = src.indexOf('const PREVIEW_EDIT_SCRIPT');
 const editEnd = src.indexOf('</script>`', editStart);
 const edit = src.slice(editStart, editEnd);
-check('Add section control', /data-ws-add',\s*'page-section'|data-ws-add="page-section"|'page-section'/.test(edit) && /\+ Add section/.test(edit));
+check(
+  'Add section control',
+  /data-ws-add',\s*'page-section'|data-ws-add="page-section"|'page-section'/.test(edit) && /\+ Add section/.test(edit)
+);
 check('Add design module control', /Add design module/.test(edit) && /design-module/.test(edit));
 check('Add widget control', /Add widget/.test(edit));
 check('Delete design module', /Delete design module/.test(edit));
@@ -64,7 +72,10 @@ const preserved = modules.stripInactiveModuleEmbedsFromHtml
 
 if (typeof modules.stripInactiveModuleEmbedsFromHtml === 'function') {
   check('module strip keeps active nested token', modules.htmlHasModuleToken(preserved, token));
-  check('module strip keeps design module wrapper', /layout-columns/.test(preserved) && /ws-page-section/.test(preserved));
+  check(
+    'module strip keeps design module wrapper',
+    /layout-columns/.test(preserved) && /ws-page-section/.test(preserved)
+  );
   const stripped = modules.stripInactiveModuleEmbedsFromHtml(nestedHtml, new Set());
   check('module strip removes inactive token', !modules.htmlHasModuleToken(stripped, token));
 } else {
@@ -97,8 +108,10 @@ const nest = `<main>
     </section>
   </section>
 </main>`;
-check('nest order page>section>design>widget',
-  /ws-page-section[\s\S]*ws-design-module[\s\S]*bitpype-form-embed/.test(nest));
+check(
+  'nest order page>section>design>widget',
+  /ws-page-section[\s\S]*ws-design-module[\s\S]*bitpype-form-embed/.test(nest)
+);
 
 if (!ok) {
   console.error('SMOKE FAILED');

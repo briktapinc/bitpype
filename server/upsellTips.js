@@ -167,17 +167,13 @@ function planHasFeature(planId, featureKey) {
 }
 
 function tipTargetsPlan(tip, planId) {
-  const targets = tip.target_plans && tip.target_plans.length
-    ? tip.target_plans
-    : [PLAN_FREE];
+  const targets = tip.target_plans && tip.target_plans.length ? tip.target_plans : [PLAN_FREE];
   return targets.includes(normalizePlanId(planId));
 }
 
 async function listTips({ includeStats = false } = {}) {
   await ensureTables();
-  const rows = await query(
-    'SELECT * FROM upsell_tips ORDER BY sort_order ASC, id ASC'
-  );
+  const rows = await query('SELECT * FROM upsell_tips ORDER BY sort_order ASC, id ASC');
   let stats = {};
   if (includeStats) {
     const imp = await query(`
@@ -210,31 +206,41 @@ async function getTip(id) {
 }
 
 function normalizeTipInput(body = {}) {
-  const title = String(body.title || '').trim().slice(0, 200);
-  const tipBody = String(body.body || '').trim().slice(0, 2000);
+  const title = String(body.title || '')
+    .trim()
+    .slice(0, 200);
+  const tipBody = String(body.body || '')
+    .trim()
+    .slice(0, 2000);
   if (!title) throw fail('VALIDATION', 'title is required');
   if (!tipBody) throw fail('VALIDATION', 'body is required');
-  const feature_key = String(body.feature_key || '').trim().slice(0, 80);
+  const feature_key = String(body.feature_key || '')
+    .trim()
+    .slice(0, 80);
   let target_plans = body.target_plans;
   if (Array.isArray(target_plans)) {
     target_plans = target_plans.map((p) => normalizePlanId(p)).join(',');
   } else {
-    target_plans = String(target_plans || 'free')
-      .split(',')
-      .map((p) => normalizePlanId(p.trim()))
-      .filter(Boolean)
-      .join(',') || 'free';
+    target_plans =
+      String(target_plans || 'free')
+        .split(',')
+        .map((p) => normalizePlanId(p.trim()))
+        .filter(Boolean)
+        .join(',') || 'free';
   }
   return {
     title,
     body: tipBody,
     feature_key,
     target_plans,
-    enabled: body.enabled == null ? 1 : (body.enabled ? 1 : 0),
+    enabled: body.enabled == null ? 1 : body.enabled ? 1 : 0,
     frequency_hours: Math.min(8760, Math.max(1, Number(body.frequency_hours) || 72)),
     weight: Math.min(100, Math.max(1, Number(body.weight) || 1)),
     sort_order: Number.isFinite(Number(body.sort_order)) ? Number(body.sort_order) : 0,
-    cta_label: String(body.cta_label || 'Upgrade').trim().slice(0, 80) || 'Upgrade',
+    cta_label:
+      String(body.cta_label || 'Upgrade')
+        .trim()
+        .slice(0, 80) || 'Upgrade',
   };
 }
 

@@ -33,16 +33,22 @@ const indexPath = path.join(folder, 'index.html');
 const html = fs.readFileSync(indexPath, 'utf8');
 const assert = engine.assertManagedEmbedScripts(html, 'site-10-rematerialize');
 
-console.log(JSON.stringify({
-  siteId,
-  folder,
-  files: (written.files || []).slice(0, 12),
-  hasChatMount: /\bbitpype-chat-embed\b|\bdata-bitpype-chat\s*=/.test(html),
-  hasChatScript: /chat-embed\.js|\bdata-bitpype-chat-script\b/.test(html),
-  assertOk: assert.ok,
-  assertMissing: assert.missing,
-  indexLen: html.length,
-}, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      siteId,
+      folder,
+      files: (written.files || []).slice(0, 12),
+      hasChatMount: /\bbitpype-chat-embed\b|\bdata-bitpype-chat\s*=/.test(html),
+      hasChatScript: /chat-embed\.js|\bdata-bitpype-chat-script\b/.test(html),
+      assertOk: assert.ok,
+      assertMissing: assert.missing,
+      indexLen: html.length,
+    },
+    null,
+    2
+  )
+);
 
 if (!/chat-embed\.js|\bdata-bitpype-chat-script\b/.test(html)) {
   console.error('FAIL: rematerialize lost chat-embed.js');

@@ -13,7 +13,7 @@ const CRC_TABLE = (() => {
   for (let n = 0; n < 256; n += 1) {
     let c = n;
     for (let k = 0; k < 8; k += 1) {
-      c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
     }
     table[n] = c >>> 0;
   }
@@ -84,7 +84,9 @@ function zipFolder(dirPath, opts = {}) {
     throw e;
   }
 
-  const rootName = String(opts.rootName || '').replace(/[\\/]+/g, '').replace(/^\.+/, '');
+  const rootName = String(opts.rootName || '')
+    .replace(/[\\/]+/g, '')
+    .replace(/^\.+/, '');
   const localParts = [];
   const centralParts = [];
   let offset = 0;

@@ -11,7 +11,11 @@ router.use(requireWorkspace);
 function parseJsonField(v, fallback) {
   if (v == null || v === '') return fallback;
   if (typeof v === 'object') return v;
-  try { return JSON.parse(v); } catch { return fallback; }
+  try {
+    return JSON.parse(v);
+  } catch {
+    return fallback;
+  }
 }
 
 function mapLead(row) {
@@ -41,10 +45,7 @@ router.get('/', async (req, res, next) => {
       where += ' AND (business_name LIKE :q OR email LIKE :q OR city LIKE :q OR category LIKE :q)';
       params.q = `%${q}%`;
     }
-    const rows = await query(
-      `SELECT * FROM leads WHERE ${where} ORDER BY updated_at DESC LIMIT ${limit}`,
-      params
-    );
+    const rows = await query(`SELECT * FROM leads WHERE ${where} ORDER BY updated_at DESC LIMIT ${limit}`, params);
     res.json({ ok: true, data: { leads: rows.map(mapLead) } });
   } catch (e) {
     next(e);
@@ -54,10 +55,10 @@ router.get('/', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
   try {
     const id = Number(req.params.id);
-    const rows = await query(
-      'SELECT * FROM leads WHERE id = :id AND workspace_id = :workspaceId LIMIT 1',
-      { id, workspaceId: req.auth.workspaceId }
-    );
+    const rows = await query('SELECT * FROM leads WHERE id = :id AND workspace_id = :workspaceId LIMIT 1', {
+      id,
+      workspaceId: req.auth.workspaceId,
+    });
     if (!rows[0]) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
     const facts = await query(
       'SELECT * FROM business_facts WHERE lead_id = :id AND workspace_id = :workspaceId ORDER BY id DESC LIMIT 100',
@@ -108,16 +109,22 @@ router.post('/', async (req, res, next) => {
       }
     );
     // mysql2 execute with named placeholders may not return insertId the same way
-    const insertId = result.insertId || (await query(
-      'SELECT id FROM leads WHERE workspace_id = :workspaceId AND business_name = :business_name ORDER BY id DESC LIMIT 1',
-      { workspaceId: req.auth.workspaceId, business_name }
-    ))[0].id;
+    const insertId =
+      result.insertId ||
+      (
+        await query(
+          'SELECT id FROM leads WHERE workspace_id = :workspaceId AND business_name = :business_name ORDER BY id DESC LIMIT 1',
+          { workspaceId: req.auth.workspaceId, business_name }
+        )
+      )[0].id;
 
     await logActivity(req.auth.workspaceId, 'leads', `Lead created: ${business_name} (#${insertId})`);
-    const lead = (await query(
-      'SELECT * FROM leads WHERE id = :id AND workspace_id = :workspaceId',
-      { id: insertId, workspaceId: req.auth.workspaceId }
-    ))[0];
+    const lead = (
+      await query('SELECT * FROM leads WHERE id = :id AND workspace_id = :workspaceId', {
+        id: insertId,
+        workspaceId: req.auth.workspaceId,
+      })
+    )[0];
     res.status(201).json({ ok: true, data: { lead: mapLead(lead) } });
   } catch (e) {
     next(e);
@@ -127,18 +134,32 @@ router.post('/', async (req, res, next) => {
 router.patch('/:id', async (req, res, next) => {
   try {
     const id = Number(req.params.id);
-    const existing = (await query(
-      'SELECT id FROM leads WHERE id = :id AND workspace_id = :workspaceId',
-      { id, workspaceId: req.auth.workspaceId }
-    ))[0];
+    const existing = (
+      await query('SELECT id FROM leads WHERE id = :id AND workspace_id = :workspaceId', {
+        id,
+        workspaceId: req.auth.workspaceId,
+      })
+    )[0];
     if (!existing) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
 
     const b = req.body || {};
     const fields = [];
     const params = { id, workspaceId: req.auth.workspaceId };
     const map = [
-      'business_name', 'category', 'phone', 'email', 'website', 'address', 'city', 'state',
-      'postal_code', 'country', 'description', 'notes', 'status', 'source',
+      'business_name',
+      'category',
+      'phone',
+      'email',
+      'website',
+      'address',
+      'city',
+      'state',
+      'postal_code',
+      'country',
+      'description',
+      'notes',
+      'status',
+      'source',
     ];
     for (const k of map) {
       if (b[k] !== undefined) {
@@ -164,14 +185,13 @@ router.patch('/:id', async (req, res, next) => {
     }
     if (!fields.length) return res.status(400).json({ ok: false, error: 'No fields to update' });
 
-    await query(
-      `UPDATE leads SET ${fields.join(', ')} WHERE id = :id AND workspace_id = :workspaceId`,
-      params
-    );
-    const lead = (await query(
-      'SELECT * FROM leads WHERE id = :id AND workspace_id = :workspaceId',
-      { id, workspaceId: req.auth.workspaceId }
-    ))[0];
+    await query(`UPDATE leads SET ${fields.join(', ')} WHERE id = :id AND workspace_id = :workspaceId`, params);
+    const lead = (
+      await query('SELECT * FROM leads WHERE id = :id AND workspace_id = :workspaceId', {
+        id,
+        workspaceId: req.auth.workspaceId,
+      })
+    )[0];
     res.json({ ok: true, data: { lead: mapLead(lead) } });
   } catch (e) {
     next(e);
@@ -181,10 +201,10 @@ router.patch('/:id', async (req, res, next) => {
 router.delete('/:id', async (req, res, next) => {
   try {
     const id = Number(req.params.id);
-    const result = await query(
-      'DELETE FROM leads WHERE id = :id AND workspace_id = :workspaceId',
-      { id, workspaceId: req.auth.workspaceId }
-    );
+    const result = await query('DELETE FROM leads WHERE id = :id AND workspace_id = :workspaceId', {
+      id,
+      workspaceId: req.auth.workspaceId,
+    });
     if (!result.affectedRows) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
     await logActivity(req.auth.workspaceId, 'leads', `Lead deleted #${id}`);
     res.json({ ok: true, data: { id } });
@@ -212,26 +232,47 @@ router.post('/:id/qualify', async (req, res, next) => {
 router.post('/:id/score', async (req, res, next) => {
   try {
     const id = Number(req.params.id);
-    const lead = (await query(
-      'SELECT * FROM leads WHERE id = :id AND workspace_id = :workspaceId',
-      { id, workspaceId: req.auth.workspaceId }
-    ))[0];
+    const lead = (
+      await query('SELECT * FROM leads WHERE id = :id AND workspace_id = :workspaceId', {
+        id,
+        workspaceId: req.auth.workspaceId,
+      })
+    )[0];
     if (!lead) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
 
     let score = 20;
     const breakdown = { base: 20 };
-    if (lead.email) { score += 15; breakdown.email = 15; }
-    if (lead.phone) { score += 10; breakdown.phone = 10; }
-    if (lead.website) { score += 10; breakdown.website = 10; }
-    if (lead.city) { score += 5; breakdown.city = 5; }
-    if (Number(lead.rating) >= 4) { score += 15; breakdown.rating = 15; }
-    if (Number(lead.review_count) >= 20) { score += 10; breakdown.reviews = 10; }
+    if (lead.email) {
+      score += 15;
+      breakdown.email = 15;
+    }
+    if (lead.phone) {
+      score += 10;
+      breakdown.phone = 10;
+    }
+    if (lead.website) {
+      score += 10;
+      breakdown.website = 10;
+    }
+    if (lead.city) {
+      score += 5;
+      breakdown.city = 5;
+    }
+    if (Number(lead.rating) >= 4) {
+      score += 15;
+      breakdown.rating = 15;
+    }
+    if (Number(lead.review_count) >= 20) {
+      score += 10;
+      breakdown.reviews = 10;
+    }
     score = Math.min(100, score);
 
-    await query(
-      'UPDATE leads SET score = :score WHERE id = :id AND workspace_id = :workspaceId',
-      { score, id, workspaceId: req.auth.workspaceId }
-    );
+    await query('UPDATE leads SET score = :score WHERE id = :id AND workspace_id = :workspaceId', {
+      score,
+      id,
+      workspaceId: req.auth.workspaceId,
+    });
     await query(
       `INSERT INTO lead_scores (workspace_id, lead_id, score, breakdown)
        VALUES (:workspaceId, :id, :score, CAST(:breakdown AS JSON))`,

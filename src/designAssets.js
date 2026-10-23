@@ -51,7 +51,9 @@ function listDesignAssets() {
 }
 
 function getDesignAsset(id) {
-  const want = String(id || '').trim().toLowerCase();
+  const want = String(id || '')
+    .trim()
+    .toLowerCase();
   return listDesignAssets().find((a) => a.id === want) || null;
 }
 

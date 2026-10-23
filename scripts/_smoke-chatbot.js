@@ -26,8 +26,13 @@ assert.ok(extract.SUPPORTED_LABEL.includes('PDF'));
 
 const portalNames = new Set(portalToolDefs().map((t) => t.name));
 for (const n of [
-  'chatbot.pending', 'chatbot.next', 'chatbot.reply', 'chatbot.escalate',
-  'chatbot.knowledge.list', 'chatbot.knowledge.upload', 'chatbot.actions',
+  'chatbot.pending',
+  'chatbot.next',
+  'chatbot.reply',
+  'chatbot.escalate',
+  'chatbot.knowledge.list',
+  'chatbot.knowledge.upload',
+  'chatbot.actions',
 ]) {
   assert.ok(portalNames.has(n), `missing portal tool ${n}`);
 }
@@ -48,12 +53,12 @@ assert.ok(!clientNames.has('lead.create'), 'lead.create must not be on client to
       updated_at TEXT DEFAULT (datetime('now'))
     );
   `);
-  db.prepare(
-    `INSERT INTO websites (lead_id, pages) VALUES (1, ?)`
-  ).run(JSON.stringify([
-    { slug: 'home', title: 'Home', html: '<html><body><main><h1>Hi</h1></main></body></html>' },
-    { slug: 'about', title: 'About', html: '<html><body><main><p>About</p></main></body></html>' },
-  ]));
+  db.prepare(`INSERT INTO websites (lead_id, pages) VALUES (1, ?)`).run(
+    JSON.stringify([
+      { slug: 'home', title: 'Home', html: '<html><body><main><h1>Hi</h1></main></body></html>' },
+      { slug: 'about', title: 'About', html: '<html><body><main><p>About</p></main></body></html>' },
+    ])
+  );
 
   siteModules.ensureTables(db);
   const attached = siteModules.attachModule(db, 1, 'chatbot', {
@@ -66,17 +71,23 @@ assert.ok(!clientNames.has('lead.create'), 'lead.create must not be on client to
 
   const site = db.prepare('SELECT pages FROM websites WHERE lead_id = 1').get();
   const pages = JSON.parse(site.pages);
-  assert.ok(pages.every((p) => /data-bitpype-chat-token/.test(p.html || JSON.stringify(p.sections || []))),
-    'chat mount should be on all pages');
-  assert.ok(pages.every((p) => /chat-embed\.js/.test(p.html || JSON.stringify(p.sections || []))),
-    'chat-embed.js on all pages');
+  assert.ok(
+    pages.every((p) => /data-bitpype-chat-token/.test(p.html || JSON.stringify(p.sections || []))),
+    'chat mount should be on all pages'
+  );
+  assert.ok(
+    pages.every((p) => /chat-embed\.js/.test(p.html || JSON.stringify(p.sections || []))),
+    'chat-embed.js on all pages'
+  );
 
   // Export sanitizeHtml must park ALL managed embeds (pattern: data-bitpype-*-script / *-embed.js).
   try {
     const eng = require('../src/websiteEngine');
     const sample = pages[0].html || JSON.stringify(pages[0].sections || []);
-    const mount = (sample.match(/<div\b[^>]*\bdata-bitpype-chat\b[\s\S]*?<\/div>\s*<script\b[^>]*chat-embed\.js[^>]*>\s*<\/script>/i) || [])[0]
-      || sample;
+    const mount =
+      (sample.match(
+        /<div\b[^>]*\bdata-bitpype-chat\b[\s\S]*?<\/div>\s*<script\b[^>]*chat-embed\.js[^>]*>\s*<\/script>/i
+      ) || [])[0] || sample;
     const sanitized = eng.sanitizeHtml(String(mount));
     assert.ok(/chat-embed\.js/.test(sanitized), 'sanitizeHtml keeps chat-embed.js');
     assert.ok(/data-bitpype-chat/.test(sanitized), 'sanitizeHtml keeps chat mount');
@@ -101,15 +112,20 @@ assert.ok(!clientNames.has('lead.create'), 'lead.create must not be on client to
     throw e;
   }
 
-  chatbot.addKnowledge(db, 1, { kind: 'link', title: 'Hours', url: 'https://example.test/hours', content_text: 'Open 9-5' });
+  chatbot.addKnowledge(db, 1, {
+    kind: 'link',
+    title: 'Hours',
+    url: 'https://example.test/hours',
+    content_text: 'Open 9-5',
+  });
   const cfg = chatbot.getPublicConfigByToken(db, attached.embed.public_token);
   assert.ok(cfg.settings.greeting);
   assert.ok(Array.isArray(cfg.allowed_actions));
 
-  const md = await extract.extractKnowledgeText(
-    Buffer.from('Refunds within 30 days for unused services.'),
-    { fileName: 'policy.txt', mimeType: 'text/plain' }
-  );
+  const md = await extract.extractKnowledgeText(Buffer.from('Refunds within 30 days for unused services.'), {
+    fileName: 'policy.txt',
+    mimeType: 'text/plain',
+  });
   assert.ok(md.text.includes('Refunds'));
 
   const prevCwd = process.cwd();
@@ -141,10 +157,7 @@ assert.ok(!clientNames.has('lead.create'), 'lead.create must not be on client to
   const pFound = chatbot.parseAiFallbackResponse('{"found":true,"reply":"We ship in 3-5 days."}');
   assert.strictEqual(pFound.found, true);
   assert.ok(pFound.reply.includes('3-5'));
-  const pMiss = chatbot.parseAiFallbackResponse(
-    '{"found":false,"reply":""}',
-    { businessName: 'Acme Electric' }
-  );
+  const pMiss = chatbot.parseAiFallbackResponse('{"found":false,"reply":""}', { businessName: 'Acme Electric' });
   assert.strictEqual(pMiss.found, false);
   assert.ok(/Acme Electric/i.test(pMiss.reply));
   assert.ok(/leave your/i.test(pMiss.reply));
@@ -179,9 +192,18 @@ assert.ok(!clientNames.has('lead.create'), 'lead.create must not be on client to
       claim_class TEXT
     );
   `);
-  try { db.exec('ALTER TABLE websites ADD COLUMN name TEXT'); } catch { /* exists */ }
-  try { db.exec('ALTER TABLE websites ADD COLUMN theme TEXT'); } catch { /* exists */ }
-  db.prepare(`
+  try {
+    db.exec('ALTER TABLE websites ADD COLUMN name TEXT');
+  } catch {
+    /* exists */
+  }
+  try {
+    db.exec('ALTER TABLE websites ADD COLUMN theme TEXT');
+  } catch {
+    /* exists */
+  }
+  db.prepare(
+    `
     INSERT INTO leads (id, business_name, category, phone, city, description, hours)
     VALUES (1, 'Acme Electric', 'electrician', '555-0100', 'Fleetwood', 'Local electrician.', '[]')
     ON CONFLICT(id) DO UPDATE SET
@@ -191,14 +213,19 @@ assert.ok(!clientNames.has('lead.create'), 'lead.create must not be on client to
       city=excluded.city,
       description=excluded.description,
       hours=excluded.hours
-  `).run();
-  db.prepare(`
+  `
+  ).run();
+  db.prepare(
+    `
     INSERT INTO business_facts (lead_id, fact_key, value, claim_class)
     VALUES (1, 'address', '80 Gould Ln', 'VERIFIED')
-  `).run();
-  db.prepare(`
+  `
+  ).run();
+  db.prepare(
+    `
     UPDATE websites SET name = ?, theme = ? WHERE lead_id = 1
-  `).run('Acme Site', JSON.stringify({ brandName: 'Acme Electric Co' }));
+  `
+  ).run('Acme Site', JSON.stringify({ brandName: 'Acme Electric Co' }));
   const biz = chatbot.loadBusinessSupportContext(db, 1);
   assert.ok(/Acme Electric/i.test(biz.businessName));
   assert.ok(biz.text.includes('Phone') || biz.phone);

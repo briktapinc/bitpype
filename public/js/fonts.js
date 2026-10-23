@@ -64,7 +64,9 @@
   }
 
   function byName(name) {
-    const want = String(name || '').trim().toLowerCase();
+    const want = String(name || '')
+      .trim()
+      .toLowerCase();
     if (!want) return null;
     return CATALOG.find((f) => f.name.toLowerCase() === want) || null;
   }
@@ -135,9 +137,8 @@
     if (!select) return;
     const o = opts || {};
     const currentName = matchName(currentStack);
-    const custom = currentStack && !currentName && !/system-ui/.test(String(currentStack))
-      ? String(currentStack).trim()
-      : '';
+    const custom =
+      currentStack && !currentName && !/system-ui/.test(String(currentStack)) ? String(currentStack).trim() : '';
     const groups = [];
     CATALOG.forEach((f) => {
       let g = groups.find((x) => x.label === f.group);
@@ -155,7 +156,16 @@
     groups.forEach((g) => {
       html += '<optgroup label="' + g.label + '">';
       g.fonts.forEach((f) => {
-        html += '<option value="' + f.name.replace(/"/g, '&quot;') + '" style="font-family:\'' + f.name.replace(/'/g, '') + '\', ' + f.generic + '">' + f.name + '</option>';
+        html +=
+          '<option value="' +
+          f.name.replace(/"/g, '&quot;') +
+          '" style="font-family:\'' +
+          f.name.replace(/'/g, '') +
+          "', " +
+          f.generic +
+          '">' +
+          f.name +
+          '</option>';
       });
       html += '</optgroup>';
     });

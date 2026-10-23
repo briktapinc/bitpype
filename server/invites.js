@@ -10,7 +10,9 @@ function hashToken(token) {
 }
 
 async function createInvite({ workspaceId, email, role, invitedBy }) {
-  const cleanEmail = String(email || '').trim().toLowerCase();
+  const cleanEmail = String(email || '')
+    .trim()
+    .toLowerCase();
   if (!cleanEmail || !cleanEmail.includes('@')) {
     throw Object.assign(new Error('Valid email required'), { code: 'INVALID_EMAIL' });
   }
@@ -40,10 +42,7 @@ async function createInvite({ workspaceId, email, role, invitedBy }) {
       to: cleanEmail,
       subject: 'You are invited to Bitpype',
       title: 'Workspace invite',
-      paragraphs: [
-        'You have been invited to a Bitpype workspace.',
-        'This link expires in 7 days.',
-      ],
+      paragraphs: ['You have been invited to a Bitpype workspace.', 'This link expires in 7 days.'],
       cta: { url: link, label: 'Accept invite' },
       text: `You have been invited to a Bitpype workspace.\n\nAccept invite: ${link}\n\nThis link expires in 7 days.`,
     });
@@ -67,10 +66,7 @@ async function listInvites(workspaceId) {
 
 async function acceptInvite(rawToken, userId) {
   const tokenHash = hashToken(rawToken);
-  const rows = await query(
-    `SELECT * FROM workspace_invites WHERE token_hash = :tokenHash LIMIT 1`,
-    { tokenHash }
-  );
+  const rows = await query(`SELECT * FROM workspace_invites WHERE token_hash = :tokenHash LIMIT 1`, { tokenHash });
   const invite = rows[0];
   if (!invite) throw Object.assign(new Error('INVITE_NOT_FOUND'), { code: 'INVITE_NOT_FOUND' });
   if (invite.accepted_at) throw Object.assign(new Error('INVITE_ALREADY_USED'), { code: 'INVITE_ALREADY_USED' });
@@ -86,14 +82,15 @@ async function acceptInvite(rawToken, userId) {
     throw Object.assign(new Error('Invite email does not match your account'), { code: 'EMAIL_MISMATCH' });
   }
 
-  await query(
-    'DELETE FROM workspace_members WHERE workspace_id = :workspaceId AND user_id = :userId',
-    { workspaceId: invite.workspace_id, userId: user.id }
-  );
-  await query(
-    'INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (:workspaceId, :userId, :role)',
-    { workspaceId: invite.workspace_id, userId: user.id, role: invite.role }
-  );
+  await query('DELETE FROM workspace_members WHERE workspace_id = :workspaceId AND user_id = :userId', {
+    workspaceId: invite.workspace_id,
+    userId: user.id,
+  });
+  await query('INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (:workspaceId, :userId, :role)', {
+    workspaceId: invite.workspace_id,
+    userId: user.id,
+    role: invite.role,
+  });
   await query(
     driver() === 'sqlite'
       ? "UPDATE workspace_invites SET accepted_at = datetime('now') WHERE id = :id"

@@ -31,9 +31,9 @@ router.post('/:workspaceId', async (req, res) => {
   }
   let event;
   try {
-    event = domain.withDb(workspaceId, (db) => (
+    event = domain.withDb(workspaceId, (db) =>
       shopStripe.constructEvent(db, req.body, req.headers['stripe-signature'])
-    ));
+    );
   } catch (e) {
     if (e && e.code === 'SHOP_STRIPE_NOT_CONFIGURED') {
       return res.status(409).json({ ok: false, error: e.message, code: e.code });

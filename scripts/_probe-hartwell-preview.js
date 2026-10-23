@@ -6,19 +6,28 @@ const dbPath = process.argv[2] || path.join(__dirname, '..', 'data', 'workspaces
 const engine = require('../src/websiteEngine');
 
 const db = new Database(dbPath, { readonly: true });
-const jobs = db.prepare(
-  `SELECT id, lead_id, title, type, status, website_id, updated_at
+const jobs = db
+  .prepare(
+    `SELECT id, lead_id, title, type, status, website_id, updated_at
    FROM design_jobs
    WHERE lead_id = 195 OR title LIKE '%Hartwell%'
    ORDER BY id DESC LIMIT 5`
-).all();
+  )
+  .all();
 console.log('JOBS', JSON.stringify(jobs, null, 2));
 if (!jobs[0]) process.exit(0);
 
 const row = db.prepare('SELECT deliverable_json, website_id FROM design_jobs WHERE id = ?').get(jobs[0].id);
 let d = null;
-try { d = JSON.parse(row.deliverable_json || 'null'); } catch (e) { console.log('parse err', e.message); }
-if (!d) { console.log('no deliverable'); process.exit(0); }
+try {
+  d = JSON.parse(row.deliverable_json || 'null');
+} catch (e) {
+  console.log('parse err', e.message);
+}
+if (!d) {
+  console.log('no deliverable');
+  process.exit(0);
+}
 
 const pages = (d.pages || []).map((p) => ({
   slug: p.slug,
@@ -62,7 +71,10 @@ try {
   console.log('renderSite err', e.message);
 }
 try {
-  summarizeHtml('renderPageAt 0', engine.renderPageAt(d.pages, d.theme || {}, { editable: true, preview: true, pageIndex: 0 }));
+  summarizeHtml(
+    'renderPageAt 0',
+    engine.renderPageAt(d.pages, d.theme || {}, { editable: true, preview: true, pageIndex: 0 })
+  );
 } catch (e) {
   console.log('renderPageAt err', e.message);
 }
@@ -70,7 +82,7 @@ try {
 if (row.website_id) {
   try {
     const site = engine.getWebsite(db, row.website_id);
-    console.log('\nSITE id', site && site.id, 'pages', (site && site.pages || []).length);
+    console.log('\nSITE id', site && site.id, 'pages', ((site && site.pages) || []).length);
     const st = (site && site.theme) || {};
     console.log('site theme customCss len', (st.customCss || '').length, 'baseCss', st.baseCss);
   } catch (e) {

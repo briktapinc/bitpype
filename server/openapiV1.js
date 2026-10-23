@@ -6,7 +6,11 @@
  */
 
 const PKG = (() => {
-  try { return require('../package.json'); } catch { return { version: '0.1.0' }; }
+  try {
+    return require('../package.json');
+  } catch {
+    return { version: '0.1.0' };
+  }
 })();
 
 function buildOpenApi() {
@@ -119,9 +123,7 @@ function buildOpenApi() {
         },
         post: {
           summary: 'Create lead',
-          parameters: [
-            { name: 'Idempotency-Key', in: 'header', schema: { type: 'string' } },
-          ],
+          parameters: [{ name: 'Idempotency-Key', in: 'header', schema: { type: 'string' } }],
           requestBody: {
             content: {
               'application/json': {
@@ -146,18 +148,42 @@ function buildOpenApi() {
         },
       },
       '/leads/{id}': {
-        get: { summary: 'Get lead', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { 200: { description: 'Lead' } } },
-        patch: { summary: 'Update lead', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { 200: { description: 'Updated lead' } } },
-        delete: { summary: 'Delete lead', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { 200: { description: 'Deleted' }, 409: { description: 'FK conflict' } } },
+        get: {
+          summary: 'Get lead',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+          responses: { 200: { description: 'Lead' } },
+        },
+        patch: {
+          summary: 'Update lead',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+          responses: { 200: { description: 'Updated lead' } },
+        },
+        delete: {
+          summary: 'Delete lead',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+          responses: { 200: { description: 'Deleted' }, 409: { description: 'FK conflict' } },
+        },
       },
       '/leads/{id}/score': {
-        post: { summary: 'Score lead', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { 200: { description: 'Score result' } } },
+        post: {
+          summary: 'Score lead',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+          responses: { 200: { description: 'Score result' } },
+        },
       },
       '/leads/{id}/qualify': {
-        post: { summary: 'Qualify lead', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { 200: { description: 'Qualified lead' } } },
+        post: {
+          summary: 'Qualify lead',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+          responses: { 200: { description: 'Qualified lead' } },
+        },
       },
       '/leads/{id}/research': {
-        post: { summary: 'Research lead', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { 200: { description: 'Research result' } } },
+        post: {
+          summary: 'Research lead',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+          responses: { 200: { description: 'Research result' } },
+        },
       },
       '/design/jobs': {
         get: {

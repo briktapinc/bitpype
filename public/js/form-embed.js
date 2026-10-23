@@ -25,7 +25,9 @@
     try {
       var src = document.querySelector('script[data-bitpype-form-script],script[src*="form-embed.js"]');
       if (src && src.src) return new URL(src.src).origin;
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      /* ignore */
+    }
     return '';
   }
 
@@ -96,14 +98,21 @@
       var existing = document.querySelector('script[src="' + src + '"]');
       if (existing) {
         if (window.ScoutCaptcha) resolve();
-        else existing.addEventListener('load', function () { resolve(); });
+        else
+          existing.addEventListener('load', function () {
+            resolve();
+          });
         return;
       }
       var s = document.createElement('script');
       s.src = src;
       s.async = true;
-      s.onload = function () { resolve(); };
-      s.onerror = function () { reject(new Error('Could not load captcha helper')); };
+      s.onload = function () {
+        resolve();
+      };
+      s.onerror = function () {
+        reject(new Error('Could not load captcha helper'));
+      };
       document.head.appendChild(s);
     });
   }
@@ -125,7 +134,11 @@
 
     var schemaUrl = (base || '') + '/api/v1/forms/public/' + encodeURIComponent(token);
     fetch(schemaUrl, { credentials: 'omit' })
-      .then(function (r) { return r.json().then(function (j) { return { r: r, j: j }; }); })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          return { r: r, j: j };
+        });
+      })
       .then(function (pack) {
         if (!pack.r.ok || !pack.j || !pack.j.ok) {
           throw new Error((pack.j && pack.j.error) || 'Form unavailable');
@@ -141,16 +154,24 @@
     var title = form.title || 'Contact';
     var intro = form.intro || '';
     el.innerHTML =
-      '<div class="bp-form-card">'
-      + '<h2 class="bp-form-title">' + esc(title) + '</h2>'
-      + (intro ? '<p class="bp-form-intro">' + esc(intro) + '</p>' : '')
-      + '<form class="bp-form" novalidate></form>'
-      + '<p class="bp-form-msg" role="status"></p>'
-      + '</div>';
+      '<div class="bp-form-card">' +
+      '<h2 class="bp-form-title">' +
+      esc(title) +
+      '</h2>' +
+      (intro ? '<p class="bp-form-intro">' + esc(intro) + '</p>' : '') +
+      '<form class="bp-form" novalidate></form>' +
+      '<p class="bp-form-msg" role="status"></p>' +
+      '</div>';
 
     var formEl = el.querySelector('form');
     var msg = el.querySelector('.bp-form-msg');
-    var captcha = { enabled: false, getToken: async function () { return ''; }, reset: function () {} };
+    var captcha = {
+      enabled: false,
+      getToken: async function () {
+        return '';
+      },
+      reset: function () {},
+    };
     var captchaBox = document.createElement('div');
     captchaBox.className = 'bp-form-captcha';
     captchaBox.hidden = true;
@@ -178,11 +199,16 @@
         wrap.className = 'bp-form-field bp-form-check';
       } else {
         input = document.createElement('input');
-        input.type = f.field_type === 'tel' ? 'tel'
-          : f.field_type === 'email' ? 'email'
-          : f.field_type === 'number' ? 'number'
-          : f.field_type === 'url' ? 'url'
-          : 'text';
+        input.type =
+          f.field_type === 'tel'
+            ? 'tel'
+            : f.field_type === 'email'
+              ? 'email'
+              : f.field_type === 'number'
+                ? 'number'
+                : f.field_type === 'url'
+                  ? 'url'
+                  : 'text';
       }
       input.id = 'bpf_' + f.field_key;
       input.name = f.field_key;

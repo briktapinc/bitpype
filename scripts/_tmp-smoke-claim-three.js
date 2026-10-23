@@ -23,15 +23,29 @@ const token = outreach.signInterestToken({ workspaceId, leadId, action: 'c' });
 const base = `http://127.0.0.1:${port}`;
 
 function cleanup() {
-  try { db.prepare('DELETE FROM prospect_events WHERE lead_id = ?').run(leadId); } catch { /* */ }
-  try { db.prepare('DELETE FROM intent_scores WHERE lead_id = ?').run(leadId); } catch { /* */ }
+  try {
+    db.prepare('DELETE FROM prospect_events WHERE lead_id = ?').run(leadId);
+  } catch {
+    /* */
+  }
+  try {
+    db.prepare('DELETE FROM intent_scores WHERE lead_id = ?').run(leadId);
+  } catch {
+    /* */
+  }
   try {
     const lead = db.prepare('SELECT email FROM leads WHERE id = ?').get(leadId);
     if (lead && lead.email) {
       db.prepare('DELETE FROM suppression_list WHERE lower(email) = lower(?)').run(lead.email);
     }
-  } catch { /* */ }
-  try { db.prepare('DELETE FROM leads WHERE id = ?').run(leadId); } catch { /* */ }
+  } catch {
+    /* */
+  }
+  try {
+    db.prepare('DELETE FROM leads WHERE id = ?').run(leadId);
+  } catch {
+    /* */
+  }
 }
 
 (async () => {
@@ -40,11 +54,13 @@ function cleanup() {
     console.log('meta1', meta.data);
     if (!meta.data.showClaimPrompt) throw new Error('expected showClaimPrompt true initially');
 
-    const later = await (await fetch(`${base}/api/v1/outreach/public/claim/${encodeURIComponent(token)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'later' }),
-    })).json();
+    const later = await (
+      await fetch(`${base}/api/v1/outreach/public/claim/${encodeURIComponent(token)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'later' }),
+      })
+    ).json();
     console.log('later', later.data);
     if (!later.ok || later.data.action !== 'later' || !later.data.deferred) {
       throw new Error('later failed');
@@ -59,23 +75,29 @@ function cleanup() {
     if (meta.data.showClaimPrompt !== true) throw new Error('later must still allow re-prompt');
     if (!meta.data.alreadyDeferred || meta.data.laterCount < 1) throw new Error('later not persisted');
 
-    const yes = await (await fetch(`${base}/api/v1/outreach/public/claim/${encodeURIComponent(token)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'interested' }),
-    })).json();
+    const yes = await (
+      await fetch(`${base}/api/v1/outreach/public/claim/${encodeURIComponent(token)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'interested' }),
+      })
+    ).json();
     console.log('yes', yes.data);
     if (!yes.ok || yes.data.action !== 'interested') throw new Error('yes failed');
 
     // Reset for No path
     db.prepare(`UPDATE leads SET status = 'contacted' WHERE id = ?`).run(leadId);
-    db.prepare(`DELETE FROM prospect_events WHERE lead_id = ? AND type IN ('email.interested','email.uninterested')`).run(leadId);
+    db.prepare(
+      `DELETE FROM prospect_events WHERE lead_id = ? AND type IN ('email.interested','email.uninterested')`
+    ).run(leadId);
 
-    const no = await (await fetch(`${base}/api/v1/outreach/public/claim/${encodeURIComponent(token)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'uninterested' }),
-    })).json();
+    const no = await (
+      await fetch(`${base}/api/v1/outreach/public/claim/${encodeURIComponent(token)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'uninterested' }),
+      })
+    ).json();
     console.log('no', no.data);
     if (!no.ok || no.data.action !== 'uninterested') throw new Error('no failed');
 

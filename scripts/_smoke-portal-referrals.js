@@ -42,9 +42,7 @@ async function main() {
 
   const db = require('../server/db');
   await db.migrate();
-  const rows = await db.query(
-    `SELECT COUNT(*) AS c FROM portal_referrals`
-  ).catch(async (e) => {
+  const rows = await db.query(`SELECT COUNT(*) AS c FROM portal_referrals`).catch(async (e) => {
     throw new Error(`portal_referrals table missing after migrate: ${e.message}`);
   });
   console.log('portal_referrals ok, rows=', rows[0] && rows[0].c);

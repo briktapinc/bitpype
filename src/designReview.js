@@ -39,7 +39,9 @@ function fail(code, message) {
 }
 
 function normalizeRequestKind(kind) {
-  const k = String(kind || '').trim().toLowerCase();
+  const k = String(kind || '')
+    .trim()
+    .toLowerCase();
   if (k === 'improve' || k === 'improvement' || k === 'improvements') return 'improvements';
   if (k === 'redesign') return 'redesign';
   return null;
@@ -76,10 +78,14 @@ function heuristicIssues(html, pages, checks) {
 }
 
 function fallbackRedesignInstructions({ siteShape, issues, summary, hadShots }) {
-  const shape = siteShape === 'landing'
-    ? 'Keep site_shape landing: one scrollable page with clear sections.'
-    : 'Keep site_shape multipage: deliver the full recommended IA, not a stub.';
-  const bullets = (issues || []).slice(0, 12).map((i) => `- ${i}`).join('\n');
+  const shape =
+    siteShape === 'landing'
+      ? 'Keep site_shape landing: one scrollable page with clear sections.'
+      : 'Keep site_shape multipage: deliver the full recommended IA, not a stub.';
+  const bullets = (issues || [])
+    .slice(0, 12)
+    .map((i) => `- ${i}`)
+    .join('\n');
   return [
     'REDESIGN PASS — fuller visual/IA rethink. Revise the current delivery and submit with design.deliver.',
     summary || 'Rethink hierarchy, composition, and local-business conversion layout.',
@@ -94,16 +100,20 @@ function fallbackRedesignInstructions({ siteShape, issues, summary, hadShots }) 
 }
 
 function fallbackImprovementInstructions({ siteShape, issues, summary, hadShots }) {
-  const shape = siteShape === 'landing'
-    ? 'Keep site_shape landing — do not expand into a multi-page IA.'
-    : 'Keep site_shape multipage — do not collapse the IA to a single stub page.';
-  const polishIssues = (issues || []).filter((i) => {
-    const s = String(i || '').toLowerCase();
-    return /cta|copy|mobile|image|photo|contrast|spacing|button|heading|tel:|placeholder|h1|main|thin/.test(s)
-      || s.startsWith('[qa:');
-  }).slice(0, 10);
-  const bullets = (polishIssues.length ? polishIssues : (issues || []).slice(0, 8))
-    .map((i) => `- ${i}`).join('\n');
+  const shape =
+    siteShape === 'landing'
+      ? 'Keep site_shape landing — do not expand into a multi-page IA.'
+      : 'Keep site_shape multipage — do not collapse the IA to a single stub page.';
+  const polishIssues = (issues || [])
+    .filter((i) => {
+      const s = String(i || '').toLowerCase();
+      return (
+        /cta|copy|mobile|image|photo|contrast|spacing|button|heading|tel:|placeholder|h1|main|thin/.test(s) ||
+        s.startsWith('[qa:')
+      );
+    })
+    .slice(0, 10);
+  const bullets = (polishIssues.length ? polishIssues : (issues || []).slice(0, 8)).map((i) => `- ${i}`).join('\n');
   return [
     'IMPROVEMENTS PASS — incremental polish only. Do not rebuild the whole visual system or IA.',
     summary || 'Tighten copy, CTAs, mobile sizing, and imagery.',
@@ -175,12 +185,7 @@ async function reviewDesignJob(db, jobId, opts = {}) {
   let capture = { available: false, shots: [], reason: 'skipped' };
   if (opts.skipScreenshots !== true) {
     try {
-      capture = await captureDesignScreenshots(
-        payload.pages,
-        payload.theme || {},
-        jobId,
-        { maxPages: opts.maxPages }
-      );
+      capture = await captureDesignScreenshots(payload.pages, payload.theme || {}, jobId, { maxPages: opts.maxPages });
       if (!capture.available && capture.reason) {
         issues.push(`[screenshots] ${capture.reason}`);
       }
@@ -207,25 +212,26 @@ async function reviewDesignJob(db, jobId, opts = {}) {
   if (opts.skipAi !== true && ai.aiConfigured(db)) {
     try {
       const brief = job.brief || {};
-      const facts = (brief.verified_facts || []).slice(0, 40)
+      const facts = (brief.verified_facts || [])
+        .slice(0, 40)
         .map((f) => `${f.fact_key}=${f.value}`)
         .join('\n');
       const textBlock = [
         `Job #${job.id} · site_shape=${siteShape} · pages=${payload.pages.length}`,
-        `Screenshots: ${capture.available ? `${capture.shots.filter((s) => s.dataUrl).length} captured` : (capture.reason || 'none')}`,
+        `Screenshots: ${capture.available ? `${capture.shots.filter((s) => s.dataUrl).length} captured` : capture.reason || 'none'}`,
         `QA checks: ${JSON.stringify(qa.checks || []).slice(0, 3500)}`,
         `Heuristic issues: ${JSON.stringify(issues)}`,
         `Verified facts:\n${facts || '(none)'}`,
         `Style guide: ${JSON.stringify(brief.style_guide || {}).slice(0, 800)}`,
         // Strip embedded bitmaps — data:image blobs drown the model and look like "broken OpenAI".
-        `Site HTML (truncated):\n${String(html).replace(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g, '[image]').slice(0, 10000)}`,
+        `Site HTML (truncated):\n${String(html)
+          .replace(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g, '[image]')
+          .slice(0, 10000)}`,
         '',
         'Produce BOTH redesign_instructions (full rethink) and improvement_instructions (incremental polish). Keep scopes separate.',
       ].join('\n\n');
 
-      const userContent = capture.available
-        ? buildVisionUserContent({ textBlock, shots: capture.shots })
-        : textBlock;
+      const userContent = capture.available ? buildVisionUserContent({ textBlock, shots: capture.shots }) : textBlock;
 
       visionUsed = capture.available && Array.isArray(userContent);
       const { text } = await ai.chat({
@@ -240,7 +246,11 @@ async function reviewDesignJob(db, jobId, opts = {}) {
         note: `design review job #${job.id}${visionUsed ? ' +vision' : ''}`,
       });
       let parsed = null;
-      try { parsed = JSON.parse(stripCodeFences(text)); } catch { /* ignore */ }
+      try {
+        parsed = JSON.parse(stripCodeFences(text));
+      } catch {
+        /* ignore */
+      }
       if (parsed && typeof parsed === 'object') {
         aiUsed = true;
         if (parsed.summary) summary = String(parsed.summary).slice(0, 800);
@@ -283,9 +293,10 @@ async function reviewDesignJob(db, jobId, opts = {}) {
   };
 
   // Persist without base64 payloads
-  db.prepare(
-    `UPDATE design_jobs SET review = ?, updated_at = datetime('now') WHERE id = ?`
-  ).run(JSON.stringify(review), job.id);
+  db.prepare(`UPDATE design_jobs SET review = ?, updated_at = datetime('now') WHERE id = ?`).run(
+    JSON.stringify(review),
+    job.id
+  );
 
   try {
     db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
@@ -293,7 +304,9 @@ async function reviewDesignJob(db, jobId, opts = {}) {
       `Design job #${job.id} reviewed (${review.pass ? 'pass' : 'needs work'}` +
         `${visionUsed ? ', vision' : ''}, shots=${screenshots.length}).`
     );
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   // Attach data URLs for immediate UI (not stored)
   review.screenshot_previews = (capture.shots || [])
@@ -308,7 +321,9 @@ async function reviewDesignJob(db, jobId, opts = {}) {
 
   try {
     require('./designLearning').observeReview(db, job, review);
-  } catch { /* learning must not block review */ }
+  } catch {
+    /* learning must not block review */
+  }
 
   return review;
 }
@@ -333,15 +348,15 @@ function loadReviewShotPreviews(review, { max = 6 } = {}) {
         path: s.path,
         dataUrl: `data:image/png;base64,${buf.toString('base64')}`,
       });
-    } catch { /* skip */ }
+    } catch {
+      /* skip */
+    }
   }
   return out;
 }
 
 function instructionHeader(kind) {
-  return kind === 'improvements'
-    ? '=== IMPROVEMENTS REQUEST ==='
-    : '=== REDESIGN REQUEST ===';
+  return kind === 'improvements' ? '=== IMPROVEMENTS REQUEST ===' : '=== REDESIGN REQUEST ===';
 }
 
 function pickInstructions(kind, override, review) {
@@ -369,7 +384,11 @@ async function requestAgentChange(db, jobId, opts = {}) {
   if (!row.deliverable) throw fail('NO_DELIVERY', `Deliver a website before requesting ${kind}.`);
 
   let review = null;
-  try { review = row.review ? JSON.parse(row.review) : null; } catch { review = null; }
+  try {
+    review = row.review ? JSON.parse(row.review) : null;
+  } catch {
+    review = null;
+  }
 
   if (opts.refresh !== false && (!review || opts.forceReview)) {
     review = await reviewDesignJob(db, jobId, {
@@ -425,15 +444,15 @@ async function requestAgentChange(db, jobId, opts = {}) {
   }
 
   const prior = String(row.instructions || '').trim();
-  const shotNote = review && review.screenshots && review.screenshots.length
-    ? `\n(Visual review used ${review.screenshots.length} screenshot(s).)`
-    : '';
-  const scopeNote = kind === 'improvements'
-    ? '\nScope: incremental polish only (copy, CTA, mobile sizing, imagery). Do not treat this as a full redesign.'
-    : '\nScope: fuller visual/IA rethink. Prior deliverable remains for reference — revise and design.deliver again.';
-  const reviewBlock = changeReview
-    ? require('./changeRequestReview').formatReviewForInstructions(changeReview)
-    : '';
+  const shotNote =
+    review && review.screenshots && review.screenshots.length
+      ? `\n(Visual review used ${review.screenshots.length} screenshot(s).)`
+      : '';
+  const scopeNote =
+    kind === 'improvements'
+      ? '\nScope: incremental polish only (copy, CTA, mobile sizing, imagery). Do not treat this as a full redesign.'
+      : '\nScope: fuller visual/IA rethink. Prior deliverable remains for reference — revise and design.deliver again.';
+  const reviewBlock = changeReview ? require('./changeRequestReview').formatReviewForInstructions(changeReview) : '';
   const merged = [
     instructionHeader(kind),
     changeText.slice(0, 5000) + shotNote + scopeNote,
@@ -441,23 +460,27 @@ async function requestAgentChange(db, jobId, opts = {}) {
     '',
     '=== ORIGINAL INSTRUCTIONS (context) ===',
     prior.slice(0, 12000),
-  ].filter((x) => x !== '').join('\n').slice(0, 20000);
+  ]
+    .filter((x) => x !== '')
+    .join('\n')
+    .slice(0, 20000);
 
-  const siteShape = design.normalizeSiteShape(row.site_shape)
-    || (row.site_shape === 'landing' || row.site_shape === 'multipage' ? row.site_shape : null);
+  const siteShape =
+    design.normalizeSiteShape(row.site_shape) ||
+    (row.site_shape === 'landing' || row.site_shape === 'multipage' ? row.site_shape : null);
 
   const brief = design.buildBrief(db, row.lead_id, merged, row.type, siteShape || undefined);
   brief.instruction = merged;
   brief.request_kind = kind;
-  brief.review = review
-    ? { ...review, screenshot_previews: undefined }
-    : null;
+  brief.review = review ? { ...review, screenshot_previews: undefined } : null;
   try {
     require('./designLearning').attachLessonsToBrief(db, brief, {
       jobType: row.type,
       siteShape: siteShape || undefined,
     });
-  } catch { /* learning optional */ }
+  } catch {
+    /* learning optional */
+  }
   if (changeReview) {
     require('./changeRequestReview').attachReviewToBrief(brief, changeReview);
   }
@@ -467,9 +490,10 @@ async function requestAgentChange(db, jobId, opts = {}) {
     from_status: row.status,
     classification: changeReview ? changeReview.classification : null,
     clientMessage: changeReview ? changeReview.clientMessage : null,
-    note: kind === 'improvements'
-      ? 'Prior deliverable is still on the job — apply incremental polish and design.deliver again.'
-      : 'Prior deliverable is still on the job — revise (fuller rethink) and design.deliver again.',
+    note:
+      kind === 'improvements'
+        ? 'Prior deliverable is still on the job — apply incremental polish and design.deliver again.'
+        : 'Prior deliverable is still on the job — revise (fuller rethink) and design.deliver again.',
   };
   // Keep brief.redesign for existing redesign callers; use brief.improvements for polish.
   if (kind === 'improvements') {
@@ -479,9 +503,7 @@ async function requestAgentChange(db, jobId, opts = {}) {
   }
   brief.change_request = changeMeta;
 
-  const reviewStore = review
-    ? JSON.stringify({ ...review, screenshot_previews: undefined })
-    : row.review;
+  const reviewStore = review ? JSON.stringify({ ...review, screenshot_previews: undefined }) : row.review;
 
   db.prepare(
     `UPDATE design_jobs
@@ -496,16 +518,21 @@ async function requestAgentChange(db, jobId, opts = {}) {
       'design',
       `Design job #${jobId} ${label} sent to agent queue.`
     );
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
-  design.notifyAgentQueue(db,
+  design.notifyAgentQueue(
+    db,
     `Design job #${jobId} ${label} queued (waiting_on_agent). MCP: design.next or design.pending.`,
     { jobId, reason: kind, status: 'waiting_on_agent', request_kind: kind }
   );
 
   try {
     require('./designLearning').observeChangeRequest(db, jobId, kind, changeText, review);
-  } catch { /* learning must not block queue */ }
+  } catch {
+    /* learning must not block queue */
+  }
 
   return design.getJob(db, jobId);
 }

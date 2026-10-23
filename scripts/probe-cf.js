@@ -11,8 +11,7 @@ async function main() {
     body: JSON.stringify({ email, password }),
   });
   const login = await loginRes.json();
-  const cookie = (loginRes.headers.getSetCookie && loginRes.headers.getSetCookie())
-    || [];
+  const cookie = (loginRes.headers.getSetCookie && loginRes.headers.getSetCookie()) || [];
   // Node fetch: get set-cookie via raw headers
   const raw = loginRes.headers.raw ? loginRes.headers.raw()['set-cookie'] : null;
   const cookies = raw || cookie;
@@ -24,7 +23,9 @@ async function main() {
   console.log('login ok=', login.ok, 'status=', loginRes.status, 'error=', login.error || '');
   if (!login.ok) process.exit(1);
 
-  const wsId = login.data && (login.data.workspaceId || (login.data.workspaces && login.data.workspaces[0] && login.data.workspaces[0].id));
+  const wsId =
+    login.data &&
+    (login.data.workspaceId || (login.data.workspaces && login.data.workspaces[0] && login.data.workspaces[0].id));
   console.log('workspaceId=', wsId);
 
   const headers = {
@@ -40,7 +41,7 @@ async function main() {
   console.log('cf settings keys=', cfKeys);
   for (const k of cfKeys) {
     const v = s[k];
-    if (k === 'cf.api_token') console.log(k, '=', v === '***' ? 'SET(***)' : (v ? 'NON_EMPTY' : 'EMPTY'));
+    if (k === 'cf.api_token') console.log(k, '=', v === '***' ? 'SET(***)' : v ? 'NON_EMPTY' : 'EMPTY');
     else console.log(k, '=', JSON.stringify(v));
   }
 
@@ -64,13 +65,21 @@ async function main() {
       const list = (admin.data && (admin.data.settings || admin.data)) || [];
       const arr = Array.isArray(list) ? list : Object.entries(list).map(([key, value]) => ({ key, value }));
       const cfAdmin = arr.filter((x) => String(x.key || x).includes('cf.'));
-      console.log('platform cf settings=', JSON.stringify(cfAdmin.map((x) => ({
-        key: x.key,
-        value: x.key === 'cf.api_token' || x.secret
-          ? (x.value === '***' || (x.value && String(x.value).length) ? 'SET' : 'EMPTY')
-          : x.value,
-        secret: !!x.secret,
-      }))));
+      console.log(
+        'platform cf settings=',
+        JSON.stringify(
+          cfAdmin.map((x) => ({
+            key: x.key,
+            value:
+              x.key === 'cf.api_token' || x.secret
+                ? x.value === '***' || (x.value && String(x.value).length)
+                  ? 'SET'
+                  : 'EMPTY'
+                : x.value,
+            secret: !!x.secret,
+          }))
+        )
+      );
     } else {
       console.log('admin settings skipped:', admin.error);
     }

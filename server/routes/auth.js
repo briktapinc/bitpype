@@ -2,11 +2,7 @@
 
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const {
-  createUserWithWorkspace,
-  findUserByEmail,
-  listWorkspacesForUser,
-} = require('../workspace');
+const { createUserWithWorkspace, findUserByEmail, listWorkspacesForUser } = require('../workspace');
 const { requireAuth } = require('../middleware');
 const { rateLimit } = require('../rateLimit');
 const { requireCaptcha } = require('../captcha');
@@ -45,7 +41,7 @@ function clearSessionCookie(req, res) {
   if (base.domain) opts.domain = base.domain;
   const names = [
     locals.staffSessionName || 'bitpype.sid',
-    ...((locals.legacySessionNames) || ['scout.sid', 'connect.sid']),
+    ...(locals.legacySessionNames || ['scout.sid', 'connect.sid']),
   ];
   for (const name of names) res.clearCookie(name, opts);
 }
@@ -117,7 +113,7 @@ router.post('/register', authLimit, captcha, async (req, res, next) => {
       created = await createUserWithWorkspace({ email, password, name, workspaceName });
     } catch (e) {
       // Unique-email race: same generic response as the pre-check (no enumeration).
-      const msg = String(e && e.message || e);
+      const msg = String((e && e.message) || e);
       if (/UNIQUE|Duplicate|ER_DUP_ENTRY|email/i.test(msg)) {
         return res.status(400).json({ ok: false, error: 'Unable to create account', code: 'REGISTRATION_FAILED' });
       }
@@ -175,7 +171,11 @@ router.post('/login', authLimit, captcha, async (req, res, next) => {
     req.session.userId = user.id;
     req.session.workspaceId = workspaces[0] ? workspaces[0].id : null;
     await saveSession(req);
-    try { await require('../admin').touchLogin(user.id); } catch { /* ignore */ }
+    try {
+      await require('../admin').touchLogin(user.id);
+    } catch {
+      /* ignore */
+    }
     res.json({ ok: true, data: await authPayload(user, req.session.workspaceId, workspaces) });
   } catch (e) {
     next(e);
@@ -187,7 +187,9 @@ router.post('/forgot-password', authLimit, captcha, async (req, res, next) => {
     const email = req.body && req.body.email;
     const result = await require('../passwordReset').requestReset(email);
     res.json({ ok: true, data: result });
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 router.post('/reset-password', authLimit, captcha, async (req, res, next) => {
@@ -211,8 +213,8 @@ router.post('/accept-invite', requireAuth, async (req, res, next) => {
     const workspaces = await listWorkspacesForUser(req.session.userId);
     const billing = require('../billing');
     const userBilling = await billing.getUserBilling(req.session.userId);
-    const productAccess = await billing.workspaceHasProductAccess(result.workspaceId)
-      || billing.hasProductAccess(userBilling);
+    const productAccess =
+      (await billing.workspaceHasProductAccess(result.workspaceId)) || billing.hasProductAccess(userBilling);
     res.json({
       ok: true,
       data: {
@@ -274,8 +276,7 @@ router.post('/workspace', requireAuth, async (req, res, next) => {
     const user = await billing.getUserBilling(req.session.userId);
     const workspaceSubscribed = await billing.workspaceHasSubscription(workspaceId);
     const workspacePlan = await billing.workspacePlan(workspaceId);
-    const productAccess = billing.hasProductAccess(user)
-      || await billing.workspaceHasProductAccess(workspaceId);
+    const productAccess = billing.hasProductAccess(user) || (await billing.workspaceHasProductAccess(workspaceId));
     res.json({
       ok: true,
       data: {

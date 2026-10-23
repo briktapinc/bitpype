@@ -3,20 +3,43 @@ const engine = require('../src/websiteEngine');
 const structure = require('../src/siteStructure');
 
 const theme = engine.normalizeTheme({ primary: '#0e7a68', secondary: '#1c140f', baseCss: true });
-const pages = [{
-  slug: '/',
-  title: 'Home',
-  sections: [
-    { type: 'nav', content: { business_name: 'Test Co', phone: '555-0100' } },
-    { type: 'hero', content: { headline: 'Hello', subheadline: 'World', cta_text: 'Call', cta_href: 'tel:555' } },
-    { type: 'columns', content: { cols: 2, title: 'Two col', cells: [{ heading: 'A', body: 'left' }, { heading: 'B', body: 'right' }] } },
-    { type: 'text', content: { heading: 'Text', body: 'Body copy' } },
-    { type: 'text_image', content: { heading: 'Split', body: 'With image', image_position: 'right' } },
-    { type: 'cards', content: { title: 'Cards', cols: 3, items: [{ title: 'One', text: 'a' }, { title: 'Two', text: 'b' }, { title: 'Three', text: 'c' }] } },
-    { type: 'html', content: { html: '<p class="x">Rich fragment</p>' } },
-    { type: 'footer', content: { business_name: 'Test Co' } },
-  ],
-}];
+const pages = [
+  {
+    slug: '/',
+    title: 'Home',
+    sections: [
+      { type: 'nav', content: { business_name: 'Test Co', phone: '555-0100' } },
+      { type: 'hero', content: { headline: 'Hello', subheadline: 'World', cta_text: 'Call', cta_href: 'tel:555' } },
+      {
+        type: 'columns',
+        content: {
+          cols: 2,
+          title: 'Two col',
+          cells: [
+            { heading: 'A', body: 'left' },
+            { heading: 'B', body: 'right' },
+          ],
+        },
+      },
+      { type: 'text', content: { heading: 'Text', body: 'Body copy' } },
+      { type: 'text_image', content: { heading: 'Split', body: 'With image', image_position: 'right' } },
+      {
+        type: 'cards',
+        content: {
+          title: 'Cards',
+          cols: 3,
+          items: [
+            { title: 'One', text: 'a' },
+            { title: 'Two', text: 'b' },
+            { title: 'Three', text: 'c' },
+          ],
+        },
+      },
+      { type: 'html', content: { html: '<p class="x">Rich fragment</p>' } },
+      { type: 'footer', content: { business_name: 'Test Co' } },
+    ],
+  },
+];
 
 const html = engine.renderPage(pages[0], pages, theme, { preview: true });
 const checks = [
@@ -41,8 +64,10 @@ if (!(col && col.type === 'columns' && col.content.cols === 4)) ok = false;
 
 const types = new Set(engine.COMPONENT_TYPES);
 for (const t of ['columns', 'text', 'text_image', 'cards']) {
-  if (!types.has(t)) { console.log('FAIL missing type', t); ok = false; }
-  else console.log('ok type', t);
+  if (!types.has(t)) {
+    console.log('FAIL missing type', t);
+    ok = false;
+  } else console.log('ok type', t);
 }
 
 if (!ok) process.exit(1);

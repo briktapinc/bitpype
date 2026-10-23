@@ -67,14 +67,20 @@ function shotFolder(websiteId) {
 }
 
 function publicUrlFor(websiteId, relPath) {
-  const rel = String(relPath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  const rel = String(relPath || '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '');
   return `${appUrl()}/site-previews/site-${Number(websiteId)}/screenshots/${rel}`;
 }
 
 function parsePages(site) {
   let pages = site && site.pages;
   if (typeof pages === 'string') {
-    try { pages = JSON.parse(pages); } catch { pages = []; }
+    try {
+      pages = JSON.parse(pages);
+    } catch {
+      pages = [];
+    }
   }
   return Array.isArray(pages) ? pages : [];
 }
@@ -83,7 +89,9 @@ function isHomePage(page, pages) {
   try {
     return require('./websiteEngine').isHomePage(page, pages);
   } catch {
-    const slug = String((page && page.slug) || '').toLowerCase().replace(/\.html$/i, '');
+    const slug = String((page && page.slug) || '')
+      .toLowerCase()
+      .replace(/\.html$/i, '');
     return slug === '' || slug === '/' || slug === 'home' || slug === 'index';
   }
 }
@@ -103,11 +111,14 @@ function resolveCapturePages(pages) {
   const list = Array.isArray(pages) ? pages : [];
   if (!list.length) return [];
   const home = list.find((p) => isHomePage(p, list)) || list[0];
-  const services = list.find((p) => {
-    if (p === home) return false;
-    const blob = `${p.slug || ''} ${p.title || ''}`.toLowerCase();
-    return /service/.test(blob);
-  }) || list.find((p) => p !== home) || null;
+  const services =
+    list.find((p) => {
+      if (p === home) return false;
+      const blob = `${p.slug || ''} ${p.title || ''}`.toLowerCase();
+      return /service/.test(blob);
+    }) ||
+    list.find((p) => p !== home) ||
+    null;
   const out = [{ key: 'home', page: home, file: isHomePage(home, list) ? 'index.html' : pageFileName(home.slug) }];
   if (services) {
     out.push({
@@ -120,9 +131,9 @@ function resolveCapturePages(pages) {
 }
 
 function nextVersion(db, websiteId) {
-  const row = db.prepare(
-    'SELECT COALESCE(MAX(version), 0) AS v FROM site_screenshots WHERE website_id = ?'
-  ).get(Number(websiteId));
+  const row = db
+    .prepare('SELECT COALESCE(MAX(version), 0) AS v FROM site_screenshots WHERE website_id = ?')
+    .get(Number(websiteId));
   return Number(row && row.v) + 1;
 }
 
@@ -163,22 +174,32 @@ async function waitForAssets(page) {
   try {
     await page.evaluate(async () => {
       if (document.fonts && document.fonts.ready) {
-        try { await document.fonts.ready; } catch { /* */ }
+        try {
+          await document.fonts.ready;
+        } catch {
+          /* */
+        }
       }
       const imgs = Array.from(document.images || []);
-      await Promise.all(imgs.map((img) => {
-        if (img.complete) return Promise.resolve();
-        return new Promise((resolve) => {
-          img.addEventListener('load', resolve, { once: true });
-          img.addEventListener('error', resolve, { once: true });
-          setTimeout(resolve, 8000);
-        });
-      }));
+      await Promise.all(
+        imgs.map((img) => {
+          if (img.complete) return Promise.resolve();
+          return new Promise((resolve) => {
+            img.addEventListener('load', resolve, { once: true });
+            img.addEventListener('error', resolve, { once: true });
+            setTimeout(resolve, 8000);
+          });
+        })
+      );
     });
-  } catch { /* best effort */ }
+  } catch {
+    /* best effort */
+  }
   try {
     await page.evaluate(() => window.scrollTo(0, 0));
-  } catch { /* */ }
+  } catch {
+    /* */
+  }
 }
 
 async function captureViewportPng(browser, url, viewport) {
@@ -201,7 +222,11 @@ async function captureViewportPng(browser, url, viewport) {
     });
     return Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
   } finally {
-    try { await page.close(); } catch { /* */ }
+    try {
+      await page.close();
+    } catch {
+      /* */
+    }
   }
 }
 
@@ -236,8 +261,8 @@ async function makeMmsRendition(pngBuf) {
   }
   return {
     buffer,
-    width: meta && meta.width || null,
-    height: meta && meta.height || null,
+    width: (meta && meta.width) || null,
+    height: (meta && meta.height) || null,
     contentType: 'image/jpeg',
     bytes: buffer.length,
   };
@@ -251,35 +276,43 @@ function writeShotFile(absPath, buffer) {
 function insertRow(db, row) {
   if (row.is_current) {
     try {
-      db.prepare(`
+      db.prepare(
+        `
         UPDATE site_screenshots SET is_current = 0
         WHERE website_id = ? AND page = ? AND viewport = ? AND kind = ?
           AND is_current = 1
-      `).run(row.website_id, row.page, row.viewport, row.kind || 'capture');
-    } catch { /* optional */ }
+      `
+      ).run(row.website_id, row.page, row.viewport, row.kind || 'capture');
+    } catch {
+      /* optional */
+    }
   }
-  const res = db.prepare(`
+  const res = db
+    .prepare(
+      `
     INSERT INTO site_screenshots
       (website_id, lead_id, design_job_id, version, is_current, page, viewport, kind,
        storage_path, public_url, width, height, bytes, content_type, captured_at, meta)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)
-  `).run(
-    row.website_id,
-    row.lead_id,
-    row.design_job_id,
-    row.version,
-    row.is_current ? 1 : 0,
-    row.page,
-    row.viewport,
-    row.kind,
-    row.storage_path,
-    row.public_url,
-    row.width,
-    row.height,
-    row.bytes,
-    row.content_type,
-    row.meta ? JSON.stringify(row.meta) : null
-  );
+  `
+    )
+    .run(
+      row.website_id,
+      row.lead_id,
+      row.design_job_id,
+      row.version,
+      row.is_current ? 1 : 0,
+      row.page,
+      row.viewport,
+      row.kind,
+      row.storage_path,
+      row.public_url,
+      row.width,
+      row.height,
+      row.bytes,
+      row.content_type,
+      row.meta ? JSON.stringify(row.meta) : null
+    );
   return Number(res.lastInsertRowid);
 }
 
@@ -287,7 +320,11 @@ function publicRow(r) {
   if (!r) return null;
   let meta = null;
   if (r.meta) {
-    try { meta = typeof r.meta === 'string' ? JSON.parse(r.meta) : r.meta; } catch { meta = null; }
+    try {
+      meta = typeof r.meta === 'string' ? JSON.parse(r.meta) : r.meta;
+    } catch {
+      meta = null;
+    }
   }
   return {
     id: r.id,
@@ -328,7 +365,10 @@ function checkUrlReady(url, opts = {}) {
     };
     const lib = url.startsWith('https') ? https : http;
     const req = lib.request(url, { method: 'GET', timeout: timeoutMs }, (res) => {
-      const ct = String(res.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+      const ct = String(res.headers['content-type'] || '')
+        .split(';')[0]
+        .trim()
+        .toLowerCase();
       const status = res.statusCode || 0;
       res.resume();
       done({
@@ -337,7 +377,14 @@ function checkUrlReady(url, opts = {}) {
         contentType: ct || null,
       });
     });
-    req.on('timeout', () => { try { req.destroy(); } catch { /* */ }; done({ ready: false, status: 0, contentType: null, error: 'timeout' }); });
+    req.on('timeout', () => {
+      try {
+        req.destroy();
+      } catch {
+        /* */
+      }
+      done({ ready: false, status: 0, contentType: null, error: 'timeout' });
+    });
     req.on('error', (err) => done({ ready: false, status: 0, contentType: null, error: err.message }));
     req.end();
   });
@@ -373,30 +420,37 @@ function listScreenshots(db, opts = {}) {
     params.push(String(opts.kind));
   }
   if (!clauses.length) throw fail('INVALID_ARGS', 'websiteId or leadId is required');
-  const rows = db.prepare(
-    `SELECT * FROM site_screenshots WHERE ${clauses.join(' AND ')}
+  const rows = db
+    .prepare(
+      `SELECT * FROM site_screenshots WHERE ${clauses.join(' AND ')}
      ORDER BY version DESC, page ASC, viewport ASC, kind ASC, id ASC`
-  ).all(...params).map(publicRow);
+    )
+    .all(...params)
+    .map(publicRow);
   return rows;
 }
 
 function getCurrentEmailShot(db, leadId) {
   ensureTables(db);
-  const row = db.prepare(
-    `SELECT * FROM site_screenshots
+  const row = db
+    .prepare(
+      `SELECT * FROM site_screenshots
      WHERE lead_id = ? AND is_current = 1 AND kind = 'email'
      ORDER BY version DESC, id DESC LIMIT 1`
-  ).get(Number(leadId));
+    )
+    .get(Number(leadId));
   return publicRow(row);
 }
 
 function getCurrentMmsShot(db, leadId) {
   ensureTables(db);
-  const row = db.prepare(
-    `SELECT * FROM site_screenshots
+  const row = db
+    .prepare(
+      `SELECT * FROM site_screenshots
      WHERE lead_id = ? AND is_current = 1 AND kind = 'mms'
      ORDER BY version DESC, id DESC LIMIT 1`
-  ).get(Number(leadId));
+    )
+    .get(Number(leadId));
   return publicRow(row);
 }
 
@@ -450,18 +504,20 @@ async function captureWebsiteScreenshots(db, websiteId, opts = {}) {
   const site = db.prepare('SELECT * FROM websites WHERE id = ?').get(id);
   if (!site) throw fail('NOT_FOUND', `Website ${id} not found`);
 
-  const leadId = opts.leadId != null ? Number(opts.leadId) : (site.lead_id != null ? Number(site.lead_id) : null);
+  const leadId = opts.leadId != null ? Number(opts.leadId) : site.lead_id != null ? Number(site.lead_id) : null;
   let designJobId = opts.designJobId != null ? Number(opts.designJobId) : null;
   if (!designJobId) {
     try {
-      const job = db.prepare(
-        'SELECT id FROM design_jobs WHERE website_id = ? ORDER BY id DESC LIMIT 1'
-      ).get(id);
+      const job = db.prepare('SELECT id FROM design_jobs WHERE website_id = ? ORDER BY id DESC LIMIT 1').get(id);
       if (job) designJobId = Number(job.id);
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
   }
 
-  const previewBase = String(opts.previewUrl || site.preview_url || '').trim().replace(/\/+$/, '');
+  const previewBase = String(opts.previewUrl || site.preview_url || '')
+    .trim()
+    .replace(/\/+$/, '');
   if (!previewBase || !/^https?:\/\//i.test(previewBase)) {
     throw fail('NO_PREVIEW', 'Website has no live preview URL to capture. Publish a preview first.');
   }
@@ -519,7 +575,11 @@ async function captureWebsiteScreenshots(db, websiteId, opts = {}) {
       }
     }
   } finally {
-    try { await browser.close(); } catch { /* */ }
+    try {
+      await browser.close();
+    } catch {
+      /* */
+    }
   }
 
   if (desktopHomePng) {
@@ -577,10 +637,12 @@ async function captureWebsiteScreenshots(db, websiteId, opts = {}) {
   ).run(id, version);
 
   try {
-    db.prepare(
-      `INSERT INTO activity_log (area, message) VALUES ('websites', ?)`
-    ).run(`Captured ${created.length} preview screenshot(s) for website #${id} (v${version}).`);
-  } catch { /* */ }
+    db.prepare(`INSERT INTO activity_log (area, message) VALUES ('websites', ?)`).run(
+      `Captured ${created.length} preview screenshot(s) for website #${id} (v${version}).`
+    );
+  } catch {
+    /* */
+  }
 
   // Best-effort ready checks (local APP_URL may not be up during tests).
   const withReady = await enrichReady(created.filter((c) => c.isCurrent));
@@ -601,16 +663,16 @@ async function captureWebsiteScreenshots(db, websiteId, opts = {}) {
  */
 function siteDeploymentKey(site) {
   if (!site) return 'unknown';
-  const dep = site.cf_deployment_id != null && String(site.cf_deployment_id).trim()
-    ? String(site.cf_deployment_id).trim()
-    : '';
+  const dep =
+    site.cf_deployment_id != null && String(site.cf_deployment_id).trim() ? String(site.cf_deployment_id).trim() : '';
   const ver = site.deployed_version_no != null ? Number(site.deployed_version_no) : null;
   if (dep && Number.isInteger(ver) && ver > 0) return `dep:${dep}|v:${ver}`;
   if (dep) return `dep:${dep}`;
   if (Number.isInteger(ver) && ver > 0) return `v:${ver}`;
   // Fall back to content fingerprint so local edits invalidate cache before publish.
   const updated = site.updated_at != null ? String(site.updated_at) : '';
-  const hash = crypto.createHash('sha1')
+  const hash = crypto
+    .createHash('sha1')
     .update(String(site.pages || ''))
     .update('|')
     .update(String(site.theme || ''))
@@ -623,19 +685,29 @@ function siteDeploymentKey(site) {
 
 function findCachedScreenshot(db, websiteId, pageKey, width, deploymentKey) {
   try {
-    const rows = db.prepare(`
+    const rows = db
+      .prepare(
+        `
       SELECT * FROM site_screenshots
       WHERE website_id = ? AND page = ? AND viewport = ? AND kind = 'capture' AND is_current = 1
       ORDER BY id DESC LIMIT 8
-    `).all(Number(websiteId), String(pageKey), String(width));
+    `
+      )
+      .all(Number(websiteId), String(pageKey), String(width));
     for (const r of rows) {
       let meta = null;
-      try { meta = r.meta ? (typeof r.meta === 'string' ? JSON.parse(r.meta) : r.meta) : null; } catch { meta = null; }
+      try {
+        meta = r.meta ? (typeof r.meta === 'string' ? JSON.parse(r.meta) : r.meta) : null;
+      } catch {
+        meta = null;
+      }
       if (meta && String(meta.deploymentKey || '') === String(deploymentKey)) {
         if (r.storage_path && fs.existsSync(r.storage_path)) return r;
       }
     }
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
   return null;
 }
 
@@ -650,12 +722,14 @@ async function captureOneScreenshot(db, websiteId, opts = {}) {
   const width = Math.max(320, Math.min(2560, Math.round(Number(opts.width) || 1440)));
   const height = Math.max(480, Math.min(4096, Math.round(Number(opts.height) || (width <= 500 ? 844 : 900))));
   const viewport = {
-    name: width <= 500 ? 'mobile' : (width >= 1200 ? 'desktop' : 'custom'),
+    name: width <= 500 ? 'mobile' : width >= 1200 ? 'desktop' : 'custom',
     width,
     height,
   };
 
-  let pagePath = String(opts.path != null ? opts.path : 'index.html').trim().replace(/\\/g, '/');
+  let pagePath = String(opts.path != null ? opts.path : 'index.html')
+    .trim()
+    .replace(/\\/g, '/');
   if (!pagePath || pagePath === '/' || pagePath === 'home') pagePath = 'index.html';
   pagePath = pagePath.replace(/^\//, '');
   if (!/\.html?$/i.test(pagePath) && pagePath !== 'index.html') {
@@ -664,15 +738,15 @@ async function captureOneScreenshot(db, websiteId, opts = {}) {
   }
   if (pagePath.includes('..')) throw fail('INVALID_PATH', 'path must not contain ..');
 
-  const leadId = opts.leadId != null ? Number(opts.leadId) : (site.lead_id != null ? Number(site.lead_id) : null);
+  const leadId = opts.leadId != null ? Number(opts.leadId) : site.lead_id != null ? Number(site.lead_id) : null;
   let designJobId = opts.designJobId != null ? Number(opts.designJobId) : null;
   if (!designJobId) {
     try {
-      const job = db.prepare(
-        'SELECT id FROM design_jobs WHERE website_id = ? ORDER BY id DESC LIMIT 1'
-      ).get(id);
+      const job = db.prepare('SELECT id FROM design_jobs WHERE website_id = ? ORDER BY id DESC LIMIT 1').get(id);
       if (job) designJobId = Number(job.id);
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
   }
 
   const deploymentKey = siteDeploymentKey(site);
@@ -698,19 +772,18 @@ async function captureOneScreenshot(db, websiteId, opts = {}) {
   // Prefer local render of the latest saved pages unless the caller passed previewUrl
   // explicitly — stored CF preview_url often lags one publish behind after save/replace.
   const explicitPreview = opts.previewUrl != null && String(opts.previewUrl).trim() !== '';
-  let previewBase = explicitPreview
-    ? String(opts.previewUrl).trim().replace(/\/+$/, '')
-    : '';
+  let previewBase = explicitPreview ? String(opts.previewUrl).trim().replace(/\/+$/, '') : '';
   if (!previewBase || !/^https?:\/\//i.test(previewBase)) {
     // Render locally via data URL from current DB pages (agent QA / post-save).
     const engine = require('./websiteEngine');
     const pages = parsePages(site);
-    const theme = typeof site.theme === 'string' ? JSON.parse(site.theme || '{}') : (site.theme || {});
+    const theme = typeof site.theme === 'string' ? JSON.parse(site.theme || '{}') : site.theme || {};
     const wantSlug = pagePath.replace(/\.html?$/i, '').replace(/^index$/i, '') || '/';
-    const page = pages.find((p) => {
-      const file = engine.isHomePage(p, pages) ? 'index.html' : engine.pageFileName(p.slug);
-      return file === pagePath || String(p.slug || '') === wantSlug;
-    }) || (engine.isHomePage ? engine.homePage(pages) : pages[0]);
+    const page =
+      pages.find((p) => {
+        const file = engine.isHomePage(p, pages) ? 'index.html' : engine.pageFileName(p.slug);
+        return file === pagePath || String(p.slug || '') === wantSlug;
+      }) || (engine.isHomePage ? engine.homePage(pages) : pages[0]);
     const html = engine.renderPage(page || pages[0], pages, theme);
     const puppeteer = await loadPuppeteer();
     const launchOpts = { headless: true, args: chromeArgs() };
@@ -771,7 +844,11 @@ async function captureOneScreenshot(db, websiteId, opts = {}) {
         cacheHit: false,
       });
     } finally {
-      try { await browser.close(); } catch { /* */ }
+      try {
+        await browser.close();
+      } catch {
+        /* */
+      }
     }
   }
 
@@ -826,7 +903,11 @@ async function captureOneScreenshot(db, websiteId, opts = {}) {
       cacheHit: false,
     });
   } finally {
-    try { await browser.close(); } catch { /* */ }
+    try {
+      await browser.close();
+    } catch {
+      /* */
+    }
   }
 }
 
@@ -838,7 +919,11 @@ function scheduleCaptureAfterPreview(workspaceId, websiteId, opts = {}) {
     Promise.resolve()
       .then(async () => {
         let domain;
-        try { domain = require('../server/domain'); } catch { domain = null; }
+        try {
+          domain = require('../server/domain');
+        } catch {
+          domain = null;
+        }
         if (domain && typeof domain.withDb === 'function') {
           await domain.withDb(workspaceId, async (db) => {
             await captureWebsiteScreenshots(db, websiteId, opts);

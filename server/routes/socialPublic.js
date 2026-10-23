@@ -71,7 +71,9 @@ router.get('/approve/:token', readLimit, async (req, res) => {
     await assertWorkspaceExists(workspaceId);
     const data = domain.socialBatchByToken(workspaceId, req.params.token);
     res.json({ ok: true, data });
-  } catch (e) { fail(res, e); }
+  } catch (e) {
+    fail(res, e);
+  }
 });
 
 router.post('/approve/:token', approveLimit, captcha, async (req, res) => {
@@ -83,7 +85,9 @@ router.post('/approve/:token', approveLimit, captcha, async (req, res) => {
     await assertWorkspaceExists(workspaceId);
     const data = domain.socialDecideBatch(workspaceId, req.params.token, req.body || {});
     res.json({ ok: true, data });
-  } catch (e) { fail(res, e); }
+  } catch (e) {
+    fail(res, e);
+  }
 });
 
 // Peek helpers exported for tests

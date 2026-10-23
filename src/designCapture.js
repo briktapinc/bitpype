@@ -61,7 +61,11 @@ async function loadHtmlFile(win, htmlPath) {
   } finally {
     if (timer) clearTimeout(timer);
     if (onFail) {
-      try { win.webContents.removeListener('did-fail-load', onFail); } catch { /* ignore */ }
+      try {
+        win.webContents.removeListener('did-fail-load', onFail);
+      } catch {
+        /* ignore */
+      }
     }
   }
 }
@@ -89,7 +93,11 @@ async function captureDesignScreenshots(pages, theme, jobId, opts = {}) {
   // Clear prior shots for this job
   for (const f of fs.readdirSync(dir)) {
     if (/\.png$/i.test(f)) {
-      try { fs.unlinkSync(path.join(dir, f)); } catch { /* ignore */ }
+      try {
+        fs.unlinkSync(path.join(dir, f));
+      } catch {
+        /* ignore */
+      }
     }
   }
 
@@ -102,82 +110,91 @@ async function captureDesignScreenshots(pages, theme, jobId, opts = {}) {
   app.on('window-all-closed', holdOpen);
 
   try {
-  for (let i = 0; i < list.length; i++) {
-    const page = list[i];
-    const slug = String(page.slug || page.title || `page-${i + 1}`)
-      .replace(/[^\w.-]+/g, '-')
-      .replace(/^-|-$/g, '')
-      .slice(0, 40) || `page-${i + 1}`;
+    for (let i = 0; i < list.length; i++) {
+      const page = list[i];
+      const slug =
+        String(page.slug || page.title || `page-${i + 1}`)
+          .replace(/[^\w.-]+/g, '-')
+          .replace(/^-|-$/g, '')
+          .slice(0, 40) || `page-${i + 1}`;
 
-    let html;
-    try {
-      html = engine.renderPageAt(pages, theme || {}, { pageIndex: i });
-    } catch {
+      let html;
       try {
-        html = engine.renderSite([page], theme || {});
-      } catch (e) {
-        continue;
+        html = engine.renderPageAt(pages, theme || {}, { pageIndex: i });
+      } catch {
+        try {
+          html = engine.renderSite([page], theme || {});
+        } catch (e) {
+          continue;
+        }
       }
-    }
 
-    const htmlPath = path.join(htmlDir, `${slug}.html`);
-    fs.writeFileSync(htmlPath, html, 'utf8');
+      const htmlPath = path.join(htmlDir, `${slug}.html`);
+      fs.writeFileSync(htmlPath, html, 'utf8');
 
-    for (const vp of VIEWPORTS) {
-      let win = null;
-      try {
-        win = new BrowserWindow({
-          width: vp.width,
-          height: vp.height,
-          show: false,
-          paintWhenInitiallyHidden: true,
-          webPreferences: {
-            offscreen: false,
-            sandbox: true,
-            contextIsolation: true,
-            nodeIntegration: false,
-          },
-        });
-        await loadHtmlFile(win, htmlPath);
-        await wait(opts.settleMs != null ? opts.settleMs : LOAD_MS);
-        // Scroll to top for consistent hero capture
-        await win.webContents.executeJavaScript('window.scrollTo(0,0)').catch(() => {});
-        const image = await win.webContents.capturePage();
-        const png = image.toPNG();
-        const fileName = `${slug}-${vp.name}.png`;
-        const filePath = path.join(dir, fileName);
-        fs.writeFileSync(filePath, png);
-        const dataUrl = `data:image/png;base64,${png.toString('base64')}`;
-        shots.push({
-          page: slug,
-          viewport: vp.name,
-          width: vp.width,
-          height: vp.height,
-          path: filePath,
-          dataUrl,
-        });
-      } catch (e) {
-        shots.push({
-          page: slug,
-          viewport: vp.name,
-          error: e.message || String(e),
-        });
-      } finally {
-        if (win && !win.isDestroyed()) {
-          try { win.destroy(); } catch { /* ignore */ }
+      for (const vp of VIEWPORTS) {
+        let win = null;
+        try {
+          win = new BrowserWindow({
+            width: vp.width,
+            height: vp.height,
+            show: false,
+            paintWhenInitiallyHidden: true,
+            webPreferences: {
+              offscreen: false,
+              sandbox: true,
+              contextIsolation: true,
+              nodeIntegration: false,
+            },
+          });
+          await loadHtmlFile(win, htmlPath);
+          await wait(opts.settleMs != null ? opts.settleMs : LOAD_MS);
+          // Scroll to top for consistent hero capture
+          await win.webContents.executeJavaScript('window.scrollTo(0,0)').catch(() => {});
+          const image = await win.webContents.capturePage();
+          const png = image.toPNG();
+          const fileName = `${slug}-${vp.name}.png`;
+          const filePath = path.join(dir, fileName);
+          fs.writeFileSync(filePath, png);
+          const dataUrl = `data:image/png;base64,${png.toString('base64')}`;
+          shots.push({
+            page: slug,
+            viewport: vp.name,
+            width: vp.width,
+            height: vp.height,
+            path: filePath,
+            dataUrl,
+          });
+        } catch (e) {
+          shots.push({
+            page: slug,
+            viewport: vp.name,
+            error: e.message || String(e),
+          });
+        } finally {
+          if (win && !win.isDestroyed()) {
+            try {
+              win.destroy();
+            } catch {
+              /* ignore */
+            }
+          }
         }
       }
     }
-  }
 
-  return {
-    available: shots.some((s) => s.dataUrl),
-    reason: shots.some((s) => s.dataUrl) ? undefined : 'Capture failed for all viewports.',
-    shots: shots.filter((s) => s.dataUrl || s.error),
-    dir,
-  };
+    return {
+      available: shots.some((s) => s.dataUrl),
+      reason: shots.some((s) => s.dataUrl) ? undefined : 'Capture failed for all viewports.',
+      shots: shots.filter((s) => s.dataUrl || s.error),
+      dir,
+    };
   } finally {
-    try { app.removeListener('window-all-closed', holdOpen); } catch { /* ignore */ }
+    try {
+      app.removeListener('window-all-closed', holdOpen);
+    } catch {
+      /* ignore */
+    }
   }
 }
 

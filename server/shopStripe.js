@@ -19,9 +19,7 @@ let cached = { key: null, client: null };
 function getSetting(db, key) {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-    return row && typeof row.value === 'string'
-      ? require('../src/secretBox').decryptSetting(key, row.value)
-      : null;
+    return row && typeof row.value === 'string' ? require('../src/secretBox').decryptSetting(key, row.value) : null;
   } catch {
     return null;
   }

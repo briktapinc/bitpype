@@ -47,7 +47,11 @@ const hashPages = [
     title: 'Home',
     html: '<!DOCTYPE html><html><body><nav><a href="#home">Home</a><a href="#services">Services</a><a href="#about">About</a><a href="#faq">FAQ</a><a href="#contact">Contact</a><a href="#main">Skip</a></nav><main id="main"><h1>Home</h1></main></body></html>',
   },
-  { slug: 'services', title: 'Services', html: '<!DOCTYPE html><html><body><nav><a href="#home">Home</a><a href="#services">Services</a></nav><h1>Services</h1></body></html>' },
+  {
+    slug: 'services',
+    title: 'Services',
+    html: '<!DOCTYPE html><html><body><nav><a href="#home">Home</a><a href="#services">Services</a></nav><h1>Services</h1></body></html>',
+  },
   { slug: 'about', title: 'About', html: '<html><body><h1>About</h1></body></html>' },
   { slug: 'faq', title: 'FAQ', html: '<html><body><h1>FAQ</h1></body></html>' },
   { slug: 'contact', title: 'Contact', html: '<html><body><h1>Contact</h1></body></html>' },
@@ -72,10 +76,16 @@ const navCheck = eng.validateExportNavLinks(hashPages, tmp);
 checks['validateExportNavLinks ok'] = navCheck.ok === true;
 const indexDisk = fs.readFileSync(path.join(tmp, 'index.html'), 'utf8');
 checks['disk index has services.html'] = /href=["']services\.html["']/.test(indexDisk);
-try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (_) { /* optional */ }
+try {
+  fs.rmSync(tmp, { recursive: true, force: true });
+} catch (_) {
+  /* optional */
+}
 
 // Landing (single page) must keep #section hashes.
-const landing = [{ slug: '/', title: 'Home', html: '<body><a href="#services">Services</a><section id="services">S</section></body>' }];
+const landing = [
+  { slug: '/', title: 'Home', html: '<body><a href="#services">Services</a><section id="services">S</section></body>' },
+];
 const landHtml = eng.renderPage(landing[0], landing, {}, {});
 checks['landing keeps #services'] = /href=["']#services["']/.test(landHtml);
 

@@ -22,10 +22,14 @@ const path = require('path');
 
 const STATUSES = ['pending', 'submitted', 'dismissed'];
 const REQUEST_KINDS = ['redesign', 'improvements'];
-const REDESIGN_SUBJECT_RE = /\b(re\s*[-:]?\s*)?(design\s*)?(redesign|revise|revision|changes?\s+(to|for)\s+(the\s+)?(site|website|design)|please\s+change|update\s+(the\s+)?(site|website|design))\b/i;
-const REDESIGN_BODY_RE = /\b(redesign|please\s+revise|please\s+change|can\s+you\s+(change|update|fix)|needs?\s+(a\s+)?(redesign|revision)|===?\s*REDESIGN\s+REQUEST\s*===?)\b/i;
-const IMPROVEMENTS_SUBJECT_RE = /\b(improvements?|polish|tweaks?|small\s+fixes?|copy\s+tweaks?|cta\s+(fix|tweak)|mobile\s+(fix|sizing)|imagery)\b/i;
-const IMPROVEMENTS_BODY_RE = /\b(improvements?|polish|small\s+(fix|tweak|change)|copy\s+tweak|cta|mobile\s+sizing|===?\s*IMPROVEMENTS?\s+REQUEST\s*===?)\b/i;
+const REDESIGN_SUBJECT_RE =
+  /\b(re\s*[-:]?\s*)?(design\s*)?(redesign|revise|revision|changes?\s+(to|for)\s+(the\s+)?(site|website|design)|please\s+change|update\s+(the\s+)?(site|website|design))\b/i;
+const REDESIGN_BODY_RE =
+  /\b(redesign|please\s+revise|please\s+change|can\s+you\s+(change|update|fix)|needs?\s+(a\s+)?(redesign|revision)|===?\s*REDESIGN\s+REQUEST\s*===?)\b/i;
+const IMPROVEMENTS_SUBJECT_RE =
+  /\b(improvements?|polish|tweaks?|small\s+fixes?|copy\s+tweaks?|cta\s+(fix|tweak)|mobile\s+(fix|sizing)|imagery)\b/i;
+const IMPROVEMENTS_BODY_RE =
+  /\b(improvements?|polish|small\s+(fix|tweak|change)|copy\s+tweak|cta|mobile\s+sizing|===?\s*IMPROVEMENTS?\s+REQUEST\s*===?)\b/i;
 // Prefer explicit [Job #12]; also project/job/design job #12 (not bare "website #1").
 const JOB_ID_BRACKET_RE = /\[Job\s*#\s*(\d+)\]/i;
 const JOB_ID_RE = /\b(?:design\s*job|project|job)\s*#\s*(\d+)\b/i;
@@ -39,21 +43,28 @@ function fail(code, message) {
 function getSetting(db, key, def = '') {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-    if (row && row.value != null && String(row.value) !== '') return String(require('./secretBox').decryptSetting(key, row.value));
-  } catch { /* ignore */ }
+    if (row && row.value != null && String(row.value) !== '')
+      return String(require('./secretBox').decryptSetting(key, row.value));
+  } catch {
+    /* ignore */
+  }
   return def;
 }
 
 function resolveDbDir() {
   try {
     if (process.env.WS_DB_PATH) return path.dirname(path.resolve(process.env.WS_DB_PATH));
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   try {
     const electron = require('electron');
     if (electron && electron.app && typeof electron.app.getPath === 'function') {
       return electron.app.getPath('userData');
     }
-  } catch { /* MCP / plain Node */ }
+  } catch {
+    /* MCP / plain Node */
+  }
   return process.cwd();
 }
 
@@ -94,7 +105,10 @@ function ensureTables(db) {
 }
 
 function cleanEmailOptional(value) {
-  const email = String(value || '').trim().toLowerCase().slice(0, 254);
+  const email = String(value || '')
+    .trim()
+    .toLowerCase()
+    .slice(0, 254);
   if (!email) return null;
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw fail('INVALID_ARGS', 'from email is not a valid address.');
@@ -103,7 +117,10 @@ function cleanEmailOptional(value) {
 }
 
 function excerpt(body, max = 400) {
-  return String(body || '').replace(/\s+/g, ' ').trim().slice(0, max);
+  return String(body || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
 }
 
 function looksLikeRedesignRequest(subject, body) {
@@ -133,8 +150,10 @@ function detectRequestKind(subject, body, override) {
   if (/===?\s*IMPROVEMENTS?\s+REQUEST\s*===?/i.test(hay)) return 'improvements';
   if (/===?\s*REDESIGN\s+REQUEST\s*===?/i.test(hay)) return 'redesign';
   const improveHit = IMPROVEMENTS_SUBJECT_RE.test(subject || '') || IMPROVEMENTS_BODY_RE.test(body || '');
-  const redesignHit = REDESIGN_SUBJECT_RE.test(subject || '') || REDESIGN_BODY_RE.test(body || '')
-    || REDESIGN_BODY_RE.test(subject || '');
+  const redesignHit =
+    REDESIGN_SUBJECT_RE.test(subject || '') ||
+    REDESIGN_BODY_RE.test(body || '') ||
+    REDESIGN_BODY_RE.test(subject || '');
   if (improveHit && !/\bredesign\b/i.test(hay)) return 'improvements';
   if (redesignHit) return 'redesign';
   if (improveHit) return 'improvements';
@@ -144,7 +163,9 @@ function detectRequestKind(subject, body, override) {
 function extractJobId(subject, body) {
   // Prefer subject (clients keep [Job #N] there); ignore quoted reply tails in body.
   const subjectText = String(subject || '');
-  const bodyText = String(body || '').split(/\nOn .+wrote:\n/)[0].split(/\n>/)[0];
+  const bodyText = String(body || '')
+    .split(/\nOn .+wrote:\n/)[0]
+    .split(/\n>/)[0];
   for (const hay of [subjectText, bodyText]) {
     const bracket = hay.match(JOB_ID_BRACKET_RE);
     if (bracket) {
@@ -175,7 +196,9 @@ const JOB_REF_RE = /\bref:\s*([a-f0-9]{16,64})\b/i;
 
 function extractJobRef(subject, body) {
   const subjectText = String(subject || '');
-  const bodyText = String(body || '').split(/\nOn .+wrote:\n/)[0].split(/\n>/)[0];
+  const bodyText = String(body || '')
+    .split(/\nOn .+wrote:\n/)[0]
+    .split(/\n>/)[0];
   for (const hay of [subjectText, bodyText]) {
     const m = hay.match(JOB_REF_RE);
     if (m) return m[1].toLowerCase();
@@ -206,26 +229,32 @@ function publicRow(row) {
 function resolveJobLink(db, designJobId, fromEmail) {
   if (designJobId != null && Number.isFinite(Number(designJobId))) {
     const id = Number(designJobId);
-    const job = db.prepare('SELECT id, lead_id, contact_email, type, deliverable FROM design_jobs WHERE id = ?').get(id);
+    const job = db
+      .prepare('SELECT id, lead_id, contact_email, type, deliverable FROM design_jobs WHERE id = ?')
+      .get(id);
     if (!job) throw fail('JOB_NOT_FOUND', `Design job #${id} not found.`);
     return job;
   }
   const from = fromEmail ? String(fromEmail).trim().toLowerCase() : '';
   if (!from) return null;
   // Prefer a delivered website whose contact matches the sender.
-  const byContact = db.prepare(
-    `SELECT id, lead_id, contact_email, type, deliverable FROM design_jobs
+  const byContact = db
+    .prepare(
+      `SELECT id, lead_id, contact_email, type, deliverable FROM design_jobs
      WHERE lower(contact_email) = ? AND type = 'website' AND deliverable IS NOT NULL
      ORDER BY updated_at DESC LIMIT 1`
-  ).get(from);
+    )
+    .get(from);
   if (byContact) return byContact;
-  const byLead = db.prepare(
-    `SELECT j.id, j.lead_id, j.contact_email, j.type, j.deliverable
+  const byLead = db
+    .prepare(
+      `SELECT j.id, j.lead_id, j.contact_email, j.type, j.deliverable
      FROM design_jobs j
      JOIN leads l ON l.id = j.lead_id
      WHERE lower(l.email) = ? AND j.type = 'website' AND j.deliverable IS NOT NULL
      ORDER BY j.updated_at DESC LIMIT 1`
-  ).get(from);
+    )
+    .get(from);
   return byLead || null;
 }
 
@@ -241,16 +270,16 @@ function ingestInboundEmail(db, input = {}) {
   if (!body) throw fail('INVALID_ARGS', 'email body is required.');
   if (body.length > 12000) throw fail('INVALID_ARGS', 'email body must be 12000 characters or fewer.');
 
-  const subject = String(input.subject || '').trim().slice(0, 500);
+  const subject = String(input.subject || '')
+    .trim()
+    .slice(0, 500);
   const fromEmail = cleanEmailOptional(input.fromEmail);
   const source = String(input.source || 'paste').slice(0, 40) || 'paste';
   // Paste UI always stores; drop/IMAP only when keywords match (or force:true).
   const force = input.force === true || source === 'paste';
   const requestKind = detectRequestKind(subject, body, input.requestKind);
 
-  const guessedId = input.designJobId != null
-    ? Number(input.designJobId)
-    : extractJobId(subject, body);
+  const guessedId = input.designJobId != null ? Number(input.designJobId) : extractJobId(subject, body);
 
   if (!force && !looksLikeRedesignRequest(subject, body)) {
     return { ok: false, skipped: true, reason: 'not_a_redesign_request' };
@@ -270,44 +299,35 @@ function ingestInboundEmail(db, input = {}) {
     job = resolveJobLink(db, Number(input.designJobId), fromEmail);
   }
 
-  const leadId = input.leadId != null
-    ? Number(input.leadId)
-    : (job && job.lead_id != null ? Number(job.lead_id) : null);
+  const leadId = input.leadId != null ? Number(input.leadId) : job && job.lead_id != null ? Number(job.lead_id) : null;
 
-  const receivedAt = input.receivedAt
-    ? String(input.receivedAt)
-    : null;
+  const receivedAt = input.receivedAt ? String(input.receivedAt) : null;
 
   const info = receivedAt
-    ? db.prepare(
-      `INSERT INTO design_email_redesigns
+    ? db
+        .prepare(
+          `INSERT INTO design_email_redesigns
          (design_job_id, lead_id, from_email, subject, body, body_excerpt, status, source, received_at, request_kind)
        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`
-    ).run(
-      job ? job.id : null,
-      leadId,
-      fromEmail,
-      subject || null,
-      body,
-      excerpt(body),
-      source,
-      receivedAt,
-      requestKind
-    )
-    : db.prepare(
-      `INSERT INTO design_email_redesigns
+        )
+        .run(
+          job ? job.id : null,
+          leadId,
+          fromEmail,
+          subject || null,
+          body,
+          excerpt(body),
+          source,
+          receivedAt,
+          requestKind
+        )
+    : db
+        .prepare(
+          `INSERT INTO design_email_redesigns
          (design_job_id, lead_id, from_email, subject, body, body_excerpt, status, source, request_kind)
        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
-    ).run(
-      job ? job.id : null,
-      leadId,
-      fromEmail,
-      subject || null,
-      body,
-      excerpt(body),
-      source,
-      requestKind
-    );
+        )
+        .run(job ? job.id : null, leadId, fromEmail, subject || null, body, excerpt(body), source, requestKind);
 
   const id = Number(info.lastInsertRowid);
   try {
@@ -315,7 +335,9 @@ function ingestInboundEmail(db, input = {}) {
       'design',
       `Email ${requestKind} request #${id} saved${job ? ` for job #${job.id}` : ' (unlinked)'} (${source}).`
     );
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   const saved = publicRow(db.prepare('SELECT * FROM design_email_redesigns WHERE id = ?').get(id));
   try {
@@ -331,7 +353,9 @@ function ingestInboundEmail(db, input = {}) {
       source: saved.source,
       status: saved.status,
     });
-  } catch { /* learning must not block ingest */ }
+  } catch {
+    /* learning must not block ingest */
+  }
 
   return {
     ok: true,
@@ -359,7 +383,10 @@ function listEmailRedesigns(db, opts = {}) {
     ORDER BY datetime(received_at) DESC, id DESC
     LIMIT ?`;
   params.push(Math.min(Math.max(Number(opts.limit) || 50, 1), 200));
-  return db.prepare(sql).all(...params).map(publicRow);
+  return db
+    .prepare(sql)
+    .all(...params)
+    .map(publicRow);
 }
 
 function getEmailRedesign(db, id) {
@@ -374,9 +401,7 @@ function dismissEmailRedesign(db, id) {
   const row = db.prepare('SELECT * FROM design_email_redesigns WHERE id = ?').get(Number(id));
   if (!row) throw fail('NOT_FOUND', `Email redesign request #${id} not found.`);
   if (row.status === 'submitted') throw fail('ALREADY_SUBMITTED', 'This request was already submitted.');
-  db.prepare(
-    `UPDATE design_email_redesigns SET status = 'dismissed' WHERE id = ?`
-  ).run(row.id);
+  db.prepare(`UPDATE design_email_redesigns SET status = 'dismissed' WHERE id = ?`).run(row.id);
   return publicRow(db.prepare('SELECT * FROM design_email_redesigns WHERE id = ?').get(row.id));
 }
 
@@ -395,14 +420,10 @@ function stripQuotedEmail(text) {
  * Use OpenAI (workspace ai.api_key) to turn a client email into agent instructions.
  * Returns { instructions, requestKind, summary, usedAi }.
  */
-async function interpretClientEmail(db, {
-  subject = '',
-  body = '',
-  fromEmail = '',
-  jobTitle = '',
-  jobId = null,
-  requestKindHint = null,
-} = {}) {
+async function interpretClientEmail(
+  db,
+  { subject = '', body = '', fromEmail = '', jobTitle = '', jobId = null, requestKindHint = null } = {}
+) {
   const cleaned = stripQuotedEmail(body) || String(body || '').trim();
   const fallbackKind = detectRequestKind(subject, cleaned, requestKindHint);
   const fallbackInstructions = cleaned.slice(0, 4000);
@@ -413,7 +434,9 @@ async function interpretClientEmail(db, {
   const ai = require('./ai');
   try {
     if (typeof ai.setDb === 'function') ai.setDb(db);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   if (!ai.aiConfigured || !ai.aiConfigured(db)) {
     return {
@@ -446,7 +469,9 @@ Rules:
     '',
     'Client email:',
     cleaned.slice(0, 6000),
-  ].filter(Boolean).join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   try {
     const res = await ai.chat({
@@ -463,12 +488,16 @@ Rules:
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
     const kind = detectRequestKind(subject, cleaned, parsed.request_kind || requestKindHint);
-    const instructions = String(parsed.instructions || '').trim().slice(0, 6000);
+    const instructions = String(parsed.instructions || '')
+      .trim()
+      .slice(0, 6000);
     if (!instructions) {
       return {
         instructions: fallbackInstructions,
         requestKind: kind,
-        summary: String(parsed.summary || '').trim().slice(0, 300),
+        summary: String(parsed.summary || '')
+          .trim()
+          .slice(0, 300),
         usedAi: true,
         reason: 'empty_ai_instructions',
       };
@@ -476,7 +505,9 @@ Rules:
     return {
       instructions,
       requestKind: kind,
-      summary: String(parsed.summary || '').trim().slice(0, 300),
+      summary: String(parsed.summary || '')
+        .trim()
+        .slice(0, 300),
       usedAi: true,
     };
   } catch (e) {
@@ -552,9 +583,10 @@ async function submitEmailRedesign(db, id, opts = {}) {
     skipScreenshots: true,
     source: row.source || 'email',
   };
-  const updated = kind === 'improvements'
-    ? await design.improveJob(db, jobId, queueOpts)
-    : await design.redesignJob(db, jobId, queueOpts);
+  const updated =
+    kind === 'improvements'
+      ? await design.improveJob(db, jobId, queueOpts)
+      : await design.redesignJob(db, jobId, queueOpts);
 
   db.prepare(
     `UPDATE design_email_redesigns
@@ -565,11 +597,13 @@ async function submitEmailRedesign(db, id, opts = {}) {
   try {
     db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
       'design',
-      `Email ${kind} request #${row.id} submitted → job #${jobId} waiting_on_agent`
-      + `${interpretMeta.usedAi ? ' (OpenAI instructions)' : ''}`
-      + `${interpretMeta.summary ? `: ${String(interpretMeta.summary).slice(0, 120)}` : ''}.`
+      `Email ${kind} request #${row.id} submitted → job #${jobId} waiting_on_agent` +
+        `${interpretMeta.usedAi ? ' (OpenAI instructions)' : ''}` +
+        `${interpretMeta.summary ? `: ${String(interpretMeta.summary).slice(0, 120)}` : ''}.`
     );
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   const submitted = publicRow(db.prepare('SELECT * FROM design_email_redesigns WHERE id = ?').get(row.id));
   try {
@@ -583,7 +617,9 @@ async function submitEmailRedesign(db, id, opts = {}) {
       request_kind: kind,
       source: row.source,
     });
-  } catch { /* learning must not block submit */ }
+  } catch {
+    /* learning must not block submit */
+  }
 
   return {
     request: submitted,
@@ -592,11 +628,11 @@ async function submitEmailRedesign(db, id, opts = {}) {
     interpreted: interpretMeta,
     change_request_review: changeReview
       ? {
-        classification: changeReview.classification,
-        plan: changeReview.plan,
-        clientMessage: changeReview.clientMessage,
-        log: changeReview.log,
-      }
+          classification: changeReview.classification,
+          plan: changeReview.plan,
+          clientMessage: changeReview.clientMessage,
+          log: changeReview.log,
+        }
       : (updated && updated.brief && updated.brief.change_request_review) || null,
   };
 }
@@ -620,7 +656,9 @@ function parseSimpleEmail(raw) {
     if (subLine) subject = subLine[1].trim();
   }
   // Strip a bare text/plain MIME preamble if present
-  const mimeSplit = body.match(/\n--[^\n]+\nContent-Type:\s*text\/plain[^\n]*\n(?:Content-Transfer-Encoding:[^\n]*\n)?\n([\s\S]*?)(?:\n--|$)/i);
+  const mimeSplit = body.match(
+    /\n--[^\n]+\nContent-Type:\s*text\/plain[^\n]*\n(?:Content-Transfer-Encoding:[^\n]*\n)?\n([\s\S]*?)(?:\n--|$)/i
+  );
   if (mimeSplit) body = mimeSplit[1].trim();
 
   return { fromEmail, subject, body };
@@ -657,7 +695,11 @@ function scanDropFolder(db) {
         source: 'drop',
       });
       const dest = path.join(processedDir, `${Date.now()}-${name}`);
-      try { fs.renameSync(full, dest); } catch { /* leave in place */ }
+      try {
+        fs.renameSync(full, dest);
+      } catch {
+        /* leave in place */
+      }
       results.push({ file: name, ...out });
     } catch (e) {
       results.push({ file: name, ok: false, error: e.message || String(e), code: e.code });

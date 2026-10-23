@@ -11,10 +11,9 @@ router.use(requireWorkspace);
 
 router.get('/', async (req, res, next) => {
   try {
-    const rows = await query(
-      'SELECT `key`, value FROM workspace_settings WHERE workspace_id = :workspaceId',
-      { workspaceId: req.auth.workspaceId }
-    );
+    const rows = await query('SELECT `key`, value FROM workspace_settings WHERE workspace_id = :workspaceId', {
+      workspaceId: req.auth.workspaceId,
+    });
     const settings = {};
     for (const r of rows) {
       settings[r.key] = SECRET_KEYS.includes(r.key) && r.value ? '***' : r.value;
@@ -63,11 +62,7 @@ router.post('/automation', requireRole('owner', 'admin'), async (req, res, next)
   try {
     const paused = !!(req.body && req.body.paused);
     await setSetting(req.auth.workspaceId, 'automation_paused', paused ? '1' : '0');
-    await logActivity(
-      req.auth.workspaceId,
-      'automation',
-      paused ? 'Automation PAUSED' : 'Automation RESUMED'
-    );
+    await logActivity(req.auth.workspaceId, 'automation', paused ? 'Automation PAUSED' : 'Automation RESUMED');
     res.json({ ok: true, data: { paused } });
   } catch (e) {
     next(e);

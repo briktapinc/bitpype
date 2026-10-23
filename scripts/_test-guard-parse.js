@@ -1,12 +1,17 @@
 const eng = require('../src/websiteEngine');
-const h = eng.renderSite([{
-  slug: '/',
-  title: 'H',
-  sections: [
-    { type: 'nav', content: { business_name: 'A' } },
-    { type: 'about', content: { heading: 'x', body: 'y' } },
+const h = eng.renderSite(
+  [
+    {
+      slug: '/',
+      title: 'H',
+      sections: [
+        { type: 'nav', content: { business_name: 'A' } },
+        { type: 'about', content: { heading: 'x', body: 'y' } },
+      ],
+    },
   ],
-}], {});
+  {}
+);
 const m = h.match(/data-ws-preview-nav="1">([\s\S]*?)<\/script>/);
 if (!m) {
   console.error('no match');

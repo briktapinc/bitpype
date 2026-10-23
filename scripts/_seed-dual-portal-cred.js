@@ -8,14 +8,13 @@ const fs = require('fs');
 const path = require('path');
 
 async function findAnyLead() {
-  const rows = await query(
-    `SELECT workspace_id, id AS lead_id FROM leads ORDER BY id ASC LIMIT 1`
-  ).catch(() => []);
+  const rows = await query(`SELECT workspace_id, id AS lead_id FROM leads ORDER BY id ASC LIMIT 1`).catch(() => []);
   if (rows[0]) return rows[0];
 
   const root = dataRoot();
   if (!fs.existsSync(root)) return null;
-  const dirs = fs.readdirSync(root, { withFileTypes: true })
+  const dirs = fs
+    .readdirSync(root, { withFileTypes: true })
     .filter((d) => d.isDirectory() && /^\d+$/.test(d.name))
     .map((d) => Number(d.name));
   for (const workspaceId of dirs) {
@@ -25,7 +24,9 @@ async function findAnyLead() {
       const db = openWorkspaceDb(workspaceId);
       const lead = db.prepare('SELECT id FROM leads ORDER BY id ASC LIMIT 1').get();
       if (lead) return { workspace_id: workspaceId, lead_id: lead.id };
-    } catch { /* next */ }
+    } catch {
+      /* next */
+    }
   }
   return null;
 }
@@ -40,10 +41,10 @@ async function main() {
   );
   if (existing[0]) {
     email = existing[0].email;
-    await query(
-      "UPDATE client_portal_users SET password_hash = :hash, status = 'active' WHERE id = :id",
-      { hash, id: existing[0].id }
-    );
+    await query("UPDATE client_portal_users SET password_hash = :hash, status = 'active' WHERE id = :id", {
+      hash,
+      id: existing[0].id,
+    });
   } else {
     const lead = await findAnyLead();
     if (!lead) {

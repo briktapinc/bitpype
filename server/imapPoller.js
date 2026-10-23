@@ -19,7 +19,8 @@ async function listWorkspaceIds() {
     try {
       const root = dataRoot();
       if (!fs.existsSync(root)) return [];
-      return fs.readdirSync(root)
+      return fs
+        .readdirSync(root)
         .map((n) => Number(n))
         .filter((n) => Number.isInteger(n) && n > 0);
     } catch {
@@ -34,13 +35,9 @@ async function tickAll() {
   const outcomes = [];
   for (const workspaceId of ids) {
     try {
-      const enabled = domain.withDb(workspaceId, (db) =>
-        domain.getSetting(db, 'mail.imap.enabled', '0') === '1'
-      );
+      const enabled = domain.withDb(workspaceId, (db) => domain.getSetting(db, 'mail.imap.enabled', '0') === '1');
       if (!enabled) continue;
-      const paused = domain.withDb(workspaceId, (db) =>
-        domain.getSetting(db, 'automation_paused', '0') === '1'
-      );
+      const paused = domain.withDb(workspaceId, (db) => domain.getSetting(db, 'automation_paused', '0') === '1');
       if (paused) {
         outcomes.push({ workspaceId, skipped: true, reason: 'automation_paused' });
         continue;

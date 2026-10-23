@@ -15,8 +15,17 @@
 const crypto = require('crypto');
 
 const MODULE_TYPES = [
-  'blog', 'ecommerce', 'courses', 'gallery', 'directory',
-  'faq', 'testimonials', 'team', 'events', 'bookings', 'chatbot',
+  'blog',
+  'ecommerce',
+  'courses',
+  'gallery',
+  'directory',
+  'faq',
+  'testimonials',
+  'team',
+  'events',
+  'bookings',
+  'chatbot',
 ];
 const MANAGED_ATTR = 'data-bitpype-module';
 const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
@@ -64,7 +73,9 @@ function fail(code, message, status) {
 }
 
 function assertModuleType(type) {
-  const t = String(type || '').trim().toLowerCase();
+  const t = String(type || '')
+    .trim()
+    .toLowerCase();
   if (!MODULE_TYPES.includes(t)) {
     throw fail('VALIDATION', `Unknown module type: ${type}. Use: ${MODULE_TYPES.join(', ')}`);
   }
@@ -110,7 +121,11 @@ function escapeAttr(s) {
 }
 
 function ensureTables(db) {
-  try { require('./chatbot').ensureTables(db); } catch { /* optional */ }
+  try {
+    require('./chatbot').ensureTables(db);
+  } catch {
+    /* optional */
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS site_module_embeds (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -382,26 +397,38 @@ function ensureTables(db) {
     CREATE INDEX IF NOT EXISTS idx_module_embeds_token ON site_module_embeds(public_token);
   `);
   try {
-    const cols = db.prepare('PRAGMA table_info(site_module_embeds)').all()
+    const cols = db
+      .prepare('PRAGMA table_info(site_module_embeds)')
+      .all()
       .map((c) => String(c.name || ''));
     if (!cols.includes('settings_json')) {
       db.exec('ALTER TABLE site_module_embeds ADD COLUMN settings_json TEXT');
     }
-  } catch { /* race / exists */ }
+  } catch {
+    /* race / exists */
+  }
   try {
-    const blogCols = db.prepare('PRAGMA table_info(blog_posts)').all()
+    const blogCols = db
+      .prepare('PRAGMA table_info(blog_posts)')
+      .all()
       .map((c) => String(c.name || ''));
     if (!blogCols.includes('excerpt')) {
       db.exec("ALTER TABLE blog_posts ADD COLUMN excerpt TEXT NOT NULL DEFAULT ''");
     }
-  } catch { /* race / exists */ }
+  } catch {
+    /* race / exists */
+  }
   try {
-    const bookingCols = db.prepare('PRAGMA table_info(bookings)').all()
+    const bookingCols = db
+      .prepare('PRAGMA table_info(bookings)')
+      .all()
       .map((c) => String(c.name || ''));
     if (!bookingCols.includes('archived_at')) {
       db.exec('ALTER TABLE bookings ADD COLUMN archived_at TEXT');
     }
-  } catch { /* race / exists */ }
+  } catch {
+    /* race / exists */
+  }
 }
 
 /** First ~wordLimit words of plain text from HTML; never truncates mid-word. */
@@ -432,7 +459,9 @@ function resolveBlogExcerpt(data, bodyHtml, fallback = '') {
   }
   const derived = deriveExcerptFromBody(bodyHtml, 30);
   if (derived) return derived.slice(0, 500);
-  return String(fallback || '').trim().slice(0, 500);
+  return String(fallback || '')
+    .trim()
+    .slice(0, 500);
 }
 
 function normalizePostLimit(value) {
@@ -448,19 +477,17 @@ function parseEmbedSettings(row) {
     try {
       const parsed = JSON.parse(row.settings_json);
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) raw = parsed;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
   const showRequest = raw.show_request_form;
   const showExcerpt = raw.show_excerpt;
   return {
-    show_request_form: showRequest === false || showRequest === 0 || showRequest === 'false'
-      ? false
-      : true,
-    appointment_form_provisioned: !!(raw.appointment_form_provisioned),
+    show_request_form: showRequest === false || showRequest === 0 || showRequest === 'false' ? false : true,
+    appointment_form_provisioned: !!raw.appointment_form_provisioned,
     post_limit: normalizePostLimit(raw.post_limit),
-    show_excerpt: showExcerpt === false || showExcerpt === 0 || showExcerpt === 'false'
-      ? false
-      : true,
+    show_excerpt: showExcerpt === false || showExcerpt === 0 || showExcerpt === 'false' ? false : true,
   };
 }
 
@@ -468,24 +495,25 @@ function writeEmbedSettings(db, embedId, settings = {}) {
   const row = db.prepare('SELECT * FROM site_module_embeds WHERE id = ?').get(Number(embedId));
   const cur = parseEmbedSettings(row || {});
   const next = {
-    show_request_form: settings.show_request_form !== undefined
-      ? settings.show_request_form !== false
-      : cur.show_request_form,
-    appointment_form_provisioned: settings.appointment_form_provisioned !== undefined
-      ? !!settings.appointment_form_provisioned
-      : cur.appointment_form_provisioned,
-    post_limit: settings.post_limit !== undefined
-      ? normalizePostLimit(settings.post_limit)
-      : cur.post_limit,
-    show_excerpt: settings.show_excerpt !== undefined
-      ? !(settings.show_excerpt === false || settings.show_excerpt === 0 || settings.show_excerpt === 'false')
-      : cur.show_excerpt,
+    show_request_form:
+      settings.show_request_form !== undefined ? settings.show_request_form !== false : cur.show_request_form,
+    appointment_form_provisioned:
+      settings.appointment_form_provisioned !== undefined
+        ? !!settings.appointment_form_provisioned
+        : cur.appointment_form_provisioned,
+    post_limit: settings.post_limit !== undefined ? normalizePostLimit(settings.post_limit) : cur.post_limit,
+    show_excerpt:
+      settings.show_excerpt !== undefined
+        ? !(settings.show_excerpt === false || settings.show_excerpt === 0 || settings.show_excerpt === 'false')
+        : cur.show_excerpt,
   };
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE site_module_embeds
     SET settings_json = ?, updated_at = datetime('now')
     WHERE id = ?
-  `).run(JSON.stringify(next), Number(embedId));
+  `
+  ).run(JSON.stringify(next), Number(embedId));
   return next;
 }
 
@@ -497,9 +525,10 @@ function writeEmbedSettings(db, embedId, settings = {}) {
 function maybeProvisionBookingsCompanionForm(db, leadId, embedRow, opts = {}) {
   if (!embedRow || embedRow.module_type !== 'bookings') return null;
   const settings = parseEmbedSettings(embedRow);
-  const showRequest = opts.show_request_form != null
-    ? !(opts.show_request_form === false || opts.show_request_form === 0 || opts.show_request_form === 'false')
-    : settings.show_request_form;
+  const showRequest =
+    opts.show_request_form != null
+      ? !(opts.show_request_form === false || opts.show_request_form === 0 || opts.show_request_form === 'false')
+      : settings.show_request_form;
 
   if (settings.appointment_form_provisioned) {
     // Keep show_request_form writable on re-attach without recreating the form.
@@ -519,31 +548,30 @@ function maybeProvisionBookingsCompanionForm(db, leadId, embedRow, opts = {}) {
     try {
       const forms = require('./contactForms');
       forms.ensureTables(db);
-      const existing = forms.listFormRows(db, Number(leadId))
-        .find((r) => r.form_kind === 'appointment'
-          || /appointment\s*request/i.test(String(r.name || '')));
+      const existing = forms
+        .listFormRows(db, Number(leadId))
+        .find((r) => r.form_kind === 'appointment' || /appointment\s*request/i.test(String(r.name || '')));
       if (existing) {
         formId = existing.id;
         if (opts.workspaceId && (!existing.published || !existing.public_token)) {
           forms.publishForm(db, Number(leadId), existing.id, {
             workspaceId: opts.workspaceId,
             embed_enabled: existing.embed_enabled == null ? true : !!existing.embed_enabled,
-            target_page_slug: existing.target_page_slug
-              || embedRow.target_page_slug
-              || MODULE_META.bookings.defaultSlug,
+            target_page_slug:
+              existing.target_page_slug || embedRow.target_page_slug || MODULE_META.bookings.defaultSlug,
           });
         }
       } else {
         // Defensive lead read — older/partial DBs may lack columns.
         let lead = null;
         try {
-          lead = db.prepare('SELECT business_name, email FROM leads WHERE id = ?')
-            .get(Number(leadId));
+          lead = db.prepare('SELECT business_name, email FROM leads WHERE id = ?').get(Number(leadId));
         } catch {
           try {
-            lead = db.prepare('SELECT business_name FROM leads WHERE id = ?')
-              .get(Number(leadId));
-          } catch { lead = null; }
+            lead = db.prepare('SELECT business_name FROM leads WHERE id = ?').get(Number(leadId));
+          } catch {
+            lead = null;
+          }
         }
         const preset = forms.FORM_PRESETS.appointment;
         const createdForm = forms.createForm(db, Number(leadId), {
@@ -596,21 +624,27 @@ function normalizeSlug(slug) {
   try {
     const eng = require('../src/websiteEngine');
     if (typeof eng.normalizeRoute === 'function') return eng.normalizeRoute(slug);
-  } catch { /* fall through */ }
-  return String(slug || '')
-    .trim()
-    .toLowerCase()
-    .replace(/^\//, '')
-    .replace(/\.html$/i, '')
-    .replace(/[^a-z0-9-_]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'index';
+  } catch {
+    /* fall through */
+  }
+  return (
+    String(slug || '')
+      .trim()
+      .toLowerCase()
+      .replace(/^\//, '')
+      .replace(/\.html$/i, '')
+      .replace(/[^a-z0-9-_]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'index'
+  );
 }
 
 function routeKey(hrefOrSlug) {
   try {
     const eng = require('../src/websiteEngine');
     if (typeof eng.normalizeRoute === 'function') return eng.normalizeRoute(hrefOrSlug);
-  } catch { /* fall through */ }
+  } catch {
+    /* fall through */
+  }
   return normalizeSlug(hrefOrSlug);
 }
 
@@ -618,7 +652,9 @@ function anchorTextLabel(innerHtml) {
   try {
     const eng = require('../src/websiteEngine');
     if (typeof eng.navAnchorLabel === 'function') return eng.navAnchorLabel(innerHtml);
-  } catch { /* fall through */ }
+  } catch {
+    /* fall through */
+  }
   return String(innerHtml || '')
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
@@ -642,7 +678,9 @@ function resolveTargetSlug(explicit, stored, fallback) {
  * home/index → index.html, everything else → {slug}.html.
  */
 function pageFileName(slug) {
-  const s = String(slug || '/').replace(/^\//, '').replace(/\/$/, '');
+  const s = String(slug || '/')
+    .replace(/^\//, '')
+    .replace(/\/$/, '');
   if (!s || s === 'home' || s === 'index') return 'index.html';
   return s.replace(/[^a-z0-9-_]/gi, '_') + '.html';
 }
@@ -670,9 +708,7 @@ function findPageIndex(pages, slug) {
 }
 
 function listSitePages(db, leadId) {
-  const site = db.prepare(
-    'SELECT pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-  ).get(Number(leadId));
+  const site = db.prepare('SELECT pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(Number(leadId));
   if (!site) return [];
   try {
     const pages = JSON.parse(site.pages || '[]');
@@ -689,16 +725,14 @@ function listSitePages(db, leadId) {
 /* ── Embeds ── */
 
 function getEmbedRow(db, leadId, moduleType) {
-  return db.prepare(
-    'SELECT * FROM site_module_embeds WHERE lead_id = ? AND module_type = ?'
-  ).get(Number(leadId), assertModuleType(moduleType));
+  return db
+    .prepare('SELECT * FROM site_module_embeds WHERE lead_id = ? AND module_type = ?')
+    .get(Number(leadId), assertModuleType(moduleType));
 }
 
 function listEmbeds(db, leadId) {
   ensureTables(db);
-  return db.prepare(
-    'SELECT * FROM site_module_embeds WHERE lead_id = ? ORDER BY module_type'
-  ).all(Number(leadId));
+  return db.prepare('SELECT * FROM site_module_embeds WHERE lead_id = ? ORDER BY module_type').all(Number(leadId));
 }
 
 function ensureEmbed(db, leadId, moduleType, { workspaceId, title } = {}) {
@@ -708,17 +742,15 @@ function ensureEmbed(db, leadId, moduleType, { workspaceId, title } = {}) {
   if (row) return row;
   const meta = MODULE_META[type];
   const token = workspaceId ? makePublicToken(workspaceId) : null;
-  const info = db.prepare(`
+  const info = db
+    .prepare(
+      `
     INSERT INTO site_module_embeds
       (lead_id, module_type, title, public_token, published, embed_enabled, target_page_slug)
     VALUES (?, ?, ?, ?, 0, 1, ?)
-  `).run(
-    Number(leadId),
-    type,
-    String(title || meta.defaultTitle).slice(0, 120),
-    token,
-    meta.defaultSlug
-  );
+  `
+    )
+    .run(Number(leadId), type, String(title || meta.defaultTitle).slice(0, 120), token, meta.defaultSlug);
   return db.prepare('SELECT * FROM site_module_embeds WHERE id = ?').get(info.lastInsertRowid);
 }
 
@@ -726,9 +758,7 @@ function publicEmbed(row, appUrl) {
   if (!row) return null;
   const base = String(appUrl || appBaseUrl()).replace(/\/$/, '');
   const token = row.public_token || '';
-  const embedUrl = token && base
-    ? `${base}/embed/module.html?token=${encodeURIComponent(token)}`
-    : '';
+  const embedUrl = token && base ? `${base}/embed/module.html?token=${encodeURIComponent(token)}` : '';
   const scriptUrl = base ? `${base}/js/module-embed.js?v=${MODULE_SCRIPT_VER}` : '';
   const settings = parseEmbedSettings(row);
   return {
@@ -764,24 +794,26 @@ function attachModule(db, leadId, moduleType, opts = {}) {
 
   if (!row.public_token) {
     const token = makePublicToken(workspaceId);
-    db.prepare(
-      "UPDATE site_module_embeds SET public_token = ?, updated_at = datetime('now') WHERE id = ?"
-    ).run(token, row.id);
+    db.prepare("UPDATE site_module_embeds SET public_token = ?, updated_at = datetime('now') WHERE id = ?").run(
+      token,
+      row.id
+    );
     row = getEmbedRow(db, leadId, type);
   }
 
   const meta = MODULE_META[type];
   const slug = resolveTargetSlug(opts.target_page_slug, row.target_page_slug, meta.defaultSlug);
-  const embedEnabled = opts.embed_enabled != null ? (opts.embed_enabled ? 1 : 0)
-    : (opts.toSite === false ? 0 : 1);
-  const title = opts.title != null ? String(opts.title).slice(0, 120) : (row.title || meta.defaultTitle);
+  const embedEnabled = opts.embed_enabled != null ? (opts.embed_enabled ? 1 : 0) : opts.toSite === false ? 0 : 1;
+  const title = opts.title != null ? String(opts.title).slice(0, 120) : row.title || meta.defaultTitle;
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE site_module_embeds
     SET title = ?, published = 1, embed_enabled = ?, target_page_slug = ?,
         updated_at = datetime('now')
     WHERE id = ?
-  `).run(title, embedEnabled, slug, row.id);
+  `
+  ).run(title, embedEnabled, slug, row.id);
 
   row = getEmbedRow(db, leadId, type);
 
@@ -790,11 +822,12 @@ function attachModule(db, leadId, moduleType, opts = {}) {
     writeEmbedSettings(db, row.id, {
       ...parseEmbedSettings(row),
       ...opts.settings,
-      show_request_form: opts.show_request_form != null
-        ? opts.show_request_form
-        : (opts.settings.show_request_form != null
-          ? opts.settings.show_request_form
-          : parseEmbedSettings(row).show_request_form),
+      show_request_form:
+        opts.show_request_form != null
+          ? opts.show_request_form
+          : opts.settings.show_request_form != null
+            ? opts.settings.show_request_form
+            : parseEmbedSettings(row).show_request_form,
     });
     row = getEmbedRow(db, leadId, type);
   } else if (opts.show_request_form != null && type === 'bookings') {
@@ -809,9 +842,8 @@ function attachModule(db, leadId, moduleType, opts = {}) {
   if (type === 'bookings') {
     companion = maybeProvisionBookingsCompanionForm(db, leadId, row, {
       workspaceId,
-      show_request_form: opts.show_request_form != null
-        ? opts.show_request_form
-        : (opts.settings && opts.settings.show_request_form),
+      show_request_form:
+        opts.show_request_form != null ? opts.show_request_form : opts.settings && opts.settings.show_request_form,
     });
     row = getEmbedRow(db, leadId, type);
   }
@@ -823,11 +855,13 @@ function attachModule(db, leadId, moduleType, opts = {}) {
   if (opts.dryRun || opts.authorMode === 'preview') {
     let pages = [];
     try {
-      const site = db.prepare(
-        'SELECT pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-      ).get(Number(leadId));
+      const site = db
+        .prepare('SELECT pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+        .get(Number(leadId));
       pages = site ? JSON.parse(site.pages || '[]') : [];
-    } catch { pages = []; }
+    } catch {
+      pages = [];
+    }
     const purpose = pageServesModulePurpose(pages, type, row.public_token, slug);
     return {
       embed: publicEmbed(row, appUrl),
@@ -843,11 +877,13 @@ function attachModule(db, leadId, moduleType, opts = {}) {
   // Author mode (default): if purpose already served, skip sync inject but still enable embed.
   let pagesPre = [];
   try {
-    const site = db.prepare(
-      'SELECT pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-    ).get(Number(leadId));
+    const site = db
+      .prepare('SELECT pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+      .get(Number(leadId));
     pagesPre = site ? JSON.parse(site.pages || '[]') : [];
-  } catch { pagesPre = []; }
+  } catch {
+    pagesPre = [];
+  }
   const purpose = pageServesModulePurpose(pagesPre, type, row.public_token, slug);
   const metaFlags = MODULE_META[type] || {};
   // Sitewide overlays (chatbot) always sync every page — skip author-purpose short-circuit.
@@ -884,11 +920,13 @@ function detachModule(db, leadId, moduleType) {
   const type = assertModuleType(moduleType);
   const row = getEmbedRow(db, leadId, type);
   if (!row) return { embed: null, sync: { synced: false } };
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE site_module_embeds
     SET published = 0, embed_enabled = 0, updated_at = datetime('now')
     WHERE id = ?
-  `).run(row.id);
+  `
+  ).run(row.id);
   const sync = syncSiteModuleEmbeds(db, leadId);
   return { embed: publicEmbed(getEmbedRow(db, leadId, type)), sync };
 }
@@ -931,34 +969,16 @@ function htmlHasModuleToken(html, token) {
   const t = String(token || '').trim();
   if (!t) return false;
   const esc = escapeRegExp(t);
-  return new RegExp(
-    `${EMBED_TOKEN_ATTR}\\s*=\\s*["']${esc}["']`,
-    'i'
-  ).test(String(html || ''));
+  return new RegExp(`${EMBED_TOKEN_ATTR}\\s*=\\s*["']${esc}["']`, 'i').test(String(html || ''));
 }
 
 function stripManagedModuleEmbedsFromHtml(html) {
   let s = String(html || '');
-  s = s.replace(
-    new RegExp(
-      `<div\\b[^>]*\\b${MANAGED_ATTR}\\s*=\\s*["']?1["']?[^>]*>[\\s\\S]*?<\\/div>`,
-      'gi'
-    ),
-    ''
-  );
-  s = s.replace(
-    new RegExp(
-      `<div\\b[^>]*\\b${MANAGED_ATTR}\\s*=\\s*["']?1["']?[^>]*\\/?>`,
-      'gi'
-    ),
-    ''
-  );
+  s = s.replace(new RegExp(`<div\\b[^>]*\\b${MANAGED_ATTR}\\s*=\\s*["']?1["']?[^>]*>[\\s\\S]*?<\\/div>`, 'gi'), '');
+  s = s.replace(new RegExp(`<div\\b[^>]*\\b${MANAGED_ATTR}\\s*=\\s*["']?1["']?[^>]*\\/?>`, 'gi'), '');
   s = s.replace(/<iframe\b[^>]*\/embed\/module\.html[^>]*>\s*<\/iframe>/gi, '');
   s = s.replace(/<iframe\b[^>]*\/embed\/module\.html[^>]*\/>/gi, '');
-  s = s.replace(
-    new RegExp(`<script\\b[^>]*\\b${SCRIPT_ATTR}\\b[^>]*>\\s*<\\/script>`, 'gi'),
-    ''
-  );
+  s = s.replace(new RegExp(`<script\\b[^>]*\\b${SCRIPT_ATTR}\\b[^>]*>\\s*<\\/script>`, 'gi'), '');
   s = s.replace(/<script\b[^>]*\/js\/module-embed\.js[^>]*>\s*<\/script>/gi, '');
   return s;
 }
@@ -971,10 +991,7 @@ function stripInactiveModuleEmbedsFromHtml(html, keepTokens) {
   const keep = keepTokens instanceof Set ? keepTokens : new Set(keepTokens || []);
   let s = String(html || '');
   s = s.replace(
-    new RegExp(
-      `<div\\b[^>]*\\b${MANAGED_ATTR}\\s*=\\s*["']?1["']?[^>]*>[\\s\\S]*?<\\/div>`,
-      'gi'
-    ),
+    new RegExp(`<div\\b[^>]*\\b${MANAGED_ATTR}\\s*=\\s*["']?1["']?[^>]*>[\\s\\S]*?<\\/div>`, 'gi'),
     (block) => {
       const m = block.match(new RegExp(`${EMBED_TOKEN_ATTR}\\s*=\\s*["']([^"']+)["']`, 'i'));
       const tok = m && m[1] ? m[1] : '';
@@ -982,27 +999,18 @@ function stripInactiveModuleEmbedsFromHtml(html, keepTokens) {
       return '';
     }
   );
-  s = s.replace(
-    new RegExp(
-      `<div\\b[^>]*\\b${MANAGED_ATTR}\\s*=\\s*["']?1["']?[^>]*\\/?>`,
-      'gi'
-    ),
-    (block) => {
-      const m = block.match(new RegExp(`${EMBED_TOKEN_ATTR}\\s*=\\s*["']([^"']+)["']`, 'i'));
-      const tok = m && m[1] ? m[1] : '';
-      if (tok && keep.has(tok)) return block;
-      return '';
-    }
-  );
+  s = s.replace(new RegExp(`<div\\b[^>]*\\b${MANAGED_ATTR}\\s*=\\s*["']?1["']?[^>]*\\/?>`, 'gi'), (block) => {
+    const m = block.match(new RegExp(`${EMBED_TOKEN_ATTR}\\s*=\\s*["']([^"']+)["']`, 'i'));
+    const tok = m && m[1] ? m[1] : '';
+    if (tok && keep.has(tok)) return block;
+    return '';
+  });
   // Drop orphan iframes / scripts only when no active embeds remain on the page.
   const stillHas = [...keep].some((t) => htmlHasModuleToken(s, t));
   if (!stillHas) {
     s = s.replace(/<iframe\b[^>]*\/embed\/module\.html[^>]*>\s*<\/iframe>/gi, '');
     s = s.replace(/<iframe\b[^>]*\/embed\/module\.html[^>]*\/>/gi, '');
-    s = s.replace(
-      new RegExp(`<script\\b[^>]*\\b${SCRIPT_ATTR}\\b[^>]*>\\s*<\\/script>`, 'gi'),
-      ''
-    );
+    s = s.replace(new RegExp(`<script\\b[^>]*\\b${SCRIPT_ATTR}\\b[^>]*>\\s*<\\/script>`, 'gi'), '');
     s = s.replace(/<script\b[^>]*\/js\/module-embed\.js[^>]*>\s*<\/script>/gi, '');
   }
   return s;
@@ -1080,7 +1088,9 @@ function pageServesModulePurpose(pages, moduleType, token, slug) {
           const cells = Array.isArray(sec && sec.content && sec.content.cells) ? sec.content.cells : [];
           for (const cell of cells) {
             if (cell && cell.widget) {
-              const wt = String(cell.widget.module_type || cell.widget.moduleType || cell.widget.type || '').toLowerCase();
+              const wt = String(
+                cell.widget.module_type || cell.widget.moduleType || cell.widget.type || ''
+              ).toLowerCase();
               if (wt === wantType || wt === 'site_module' || wt === 'module') {
                 return { served: true, reason: 'cell_widget', pageSlug };
               }
@@ -1129,10 +1139,7 @@ function ensureModuleEmbedScript(html, appUrl) {
   const tag = moduleScriptTag(appUrl);
   if (!tag) return String(html || '');
   let s = String(html || '');
-  s = s.replace(
-    new RegExp(`<script\\b[^>]*\\b${SCRIPT_ATTR}\\b[^>]*>\\s*<\\/script>`, 'gi'),
-    ''
-  );
+  s = s.replace(new RegExp(`<script\\b[^>]*\\b${SCRIPT_ATTR}\\b[^>]*>\\s*<\\/script>`, 'gi'), '');
   s = s.replace(/<script\b[^>]*\/js\/module-embed\.js[^>]*>\s*<\/script>/gi, '');
   if (/<\/body>/i.test(s)) return s.replace(/<\/body>/i, `${tag}\n</body>`);
   return `${s}\n${tag}`;
@@ -1162,14 +1169,13 @@ function isFreestyleModularPage(page) {
 function findFreestyleTemplatePage(pages, excludeSlug) {
   const skip = excludeSlug != null ? normalizeSlug(excludeSlug) : '';
   const ranked = (pages || []).filter((p) => {
-    if (!p || skip && normalizeSlug(p.slug) === skip) return false;
+    if (!p || (skip && normalizeSlug(p.slug) === skip)) return false;
     return isFreestyleModularPage(p);
   });
   ranked.sort((a, b) => {
     const sa = normalizeSlug(a.slug);
     const sb = normalizeSlug(b.slug);
-    const score = (slug) => (slug === 'home' || slug === 'index' ? 10 : 0)
-      + (slug === 'contact' ? 2 : 0);
+    const score = (slug) => (slug === 'home' || slug === 'index' ? 10 : 0) + (slug === 'contact' ? 2 : 0);
     return score(sb) - score(sa);
   });
   return ranked[0] || null;
@@ -1177,14 +1183,25 @@ function findFreestyleTemplatePage(pages, excludeSlug) {
 
 function findFreestyleBodySection(page) {
   if (!pageUsesSections(page)) return null;
-  return page.sections.find((s) =>
-    s && s.type === 'html' && typeof (s.content && s.content.html) === 'string'
-    && /<main\b/i.test(s.content.html)
-    && !(s.content && s.content.bitpype_module_managed)
-  ) || page.sections.find((s) =>
-    s && s.type === 'html' && s.content && typeof s.content.html === 'string'
-    && !(s.content && s.content.bitpype_module_managed)
-  ) || null;
+  return (
+    page.sections.find(
+      (s) =>
+        s &&
+        s.type === 'html' &&
+        typeof (s.content && s.content.html) === 'string' &&
+        /<main\b/i.test(s.content.html) &&
+        !(s.content && s.content.bitpype_module_managed)
+    ) ||
+    page.sections.find(
+      (s) =>
+        s &&
+        s.type === 'html' &&
+        s.content &&
+        typeof s.content.html === 'string' &&
+        !(s.content && s.content.bitpype_module_managed)
+    ) ||
+    null
+  );
 }
 
 function freestyleMobileBarFromTemplate(templatePage) {
@@ -1202,9 +1219,7 @@ function pushFreestyleModulePage(pages, { slug, title }) {
   const navSec = template.sections.find((s) => s && s.type === 'nav');
   const footSec = template.sections.find((s) => s && s.type === 'footer');
   if (!navSec || !footSec) return false;
-  let body = ensureClientPageChrome(
-    `<main class="bp-mod-main" id="main">${defaultClientPageInner(title)}</main>`
-  );
+  let body = ensureClientPageChrome(`<main class="bp-mod-main" id="main">${defaultClientPageInner(title)}</main>`);
   const mob = freestyleMobileBarFromTemplate(template);
   if (mob) body += `\n${mob}`;
   pages.push({
@@ -1236,18 +1251,14 @@ function upgradeModulePageIntro(html, pageEmbeds) {
   let s = String(html || '');
   const primary = pageEmbeds && pageEmbeds[0];
   const moduleType = primary && primary.module_type;
-  const intro = MODULE_PAGE_INTRO[moduleType]
-    || 'Use the tool below to get started.';
+  const intro = MODULE_PAGE_INTRO[moduleType] || 'Use the tool below to get started.';
   if (!/<section\b[^>]*\bws-page-section\b/i.test(s)) return s;
-  return s.replace(
-    /<section\b([^>]*\bws-page-section\b[^>]*)>[\s\S]*?<\/section>/i,
-    (block) => {
-      if (!/add your content here|write this section|use \+ to add/i.test(block)) return block;
-      const attrs = block.match(/^<section\b([^>]*)>/i);
-      const open = attrs ? `<section${attrs[1]}>` : '<section class="ws-page-section" data-ws-page-section="1">';
-      return `${open}<p>${escapeHtml(intro)}</p></section>`;
-    }
-  );
+  return s.replace(/<section\b([^>]*\bws-page-section\b[^>]*)>[\s\S]*?<\/section>/i, (block) => {
+    if (!/add your content here|write this section|use \+ to add/i.test(block)) return block;
+    const attrs = block.match(/^<section\b([^>]*)>/i);
+    const open = attrs ? `<section${attrs[1]}>` : '<section class="ws-page-section" data-ws-page-section="1">';
+    return `${open}<p>${escapeHtml(intro)}</p></section>`;
+  });
 }
 
 function shellHtmlFromPages(pages, excludeSlug) {
@@ -1258,21 +1269,23 @@ function shellHtmlFromPages(pages, excludeSlug) {
     if (skip && normalizeSlug(p.slug) === skip) continue;
     if (isBareModulePage(p.html)) continue;
     const html = String(p.html);
-    const score = (/<nav\b/i.test(html) ? 4 : 0)
-      + (/<header\b/i.test(html) ? 2 : 0)
-      + (/<footer\b/i.test(html) ? 1 : 0)
-      + (normalizeSlug(p.slug) === 'home' || normalizeSlug(p.slug) === 'index' ? 8 : 0);
+    const score =
+      (/<nav\b/i.test(html) ? 4 : 0) +
+      (/<header\b/i.test(html) ? 2 : 0) +
+      (/<footer\b/i.test(html) ? 1 : 0) +
+      (normalizeSlug(p.slug) === 'home' || normalizeSlug(p.slug) === 'index' ? 8 : 0);
     ranked.push({ html, score });
   }
   ranked.sort((a, b) => b.score - a.score);
   if (ranked.length) return ranked[0].html;
 
   // Sections-only sites: synthesize a shell from freestyle nav/footer chrome.
-  const home = (pages || []).find((p) => {
-    if (!p || (skip && normalizeSlug(p.slug) === skip)) return false;
-    const slug = normalizeSlug(p.slug);
-    return slug === 'home' || slug === 'index' || p.slug === '/';
-  }) || (pages || []).find((p) => p && pageUsesSections(p) && !(skip && normalizeSlug(p.slug) === skip));
+  const home =
+    (pages || []).find((p) => {
+      if (!p || (skip && normalizeSlug(p.slug) === skip)) return false;
+      const slug = normalizeSlug(p.slug);
+      return slug === 'home' || slug === 'index' || p.slug === '/';
+    }) || (pages || []).find((p) => p && pageUsesSections(p) && !(skip && normalizeSlug(p.slug) === skip));
 
   if (home && pageUsesSections(home)) {
     const nav = home.sections.find((s) => s && s.type === 'nav');
@@ -1331,11 +1344,13 @@ function withMainClass(openTag, className) {
 /** Default interior for client-created / sparse pages — matches Blog title treatment. */
 function defaultClientPageInner(title) {
   const t = escapeHtml(String(title || 'Page').trim() || 'Page');
-  return `<h1 class="bp-mod-page-title">${t}</h1>`
-    + `<section class="ws-page-section" data-ws-page-section="1">`
-    + `<h2>Add your content here.</h2>`
-    + `<p>Write this section, or use + to add another.</p>`
-    + `</section>`;
+  return (
+    `<h1 class="bp-mod-page-title">${t}</h1>` +
+    `<section class="ws-page-section" data-ws-page-section="1">` +
+    `<h2>Add your content here.</h2>` +
+    `<p>Write this section, or use + to add another.</p>` +
+    `</section>`
+  );
 }
 
 /**
@@ -1352,37 +1367,32 @@ function ensureClientPageChrome(pageHtml) {
     const closeStart = mainBlock.lastIndexOf('</');
     const inner = closeStart > 0 ? mainBlock.slice(openLen, closeStart) : '';
     if (/data-ws-page-section\s*=|class="[^"]*\bws-page-section\b/i.test(inner)) {
-      const titled = inner.replace(
-        /^\s*(<h1\b)([^>]*)(>)/i,
-        (full, tag, attrs, close) => {
-          if (/\bbp-mod-page-title\b/.test(attrs)) return full;
-          if (/\bclass\s*=\s*"/i.test(attrs)) {
-            return `${tag}${attrs.replace(/\bclass\s*=\s*"/i, 'class="bp-mod-page-title ')}${close}`;
-          }
-          return `${tag}${attrs} class="bp-mod-page-title"${close}`;
+      const titled = inner.replace(/^\s*(<h1\b)([^>]*)(>)/i, (full, tag, attrs, close) => {
+        if (/\bbp-mod-page-title\b/.test(attrs)) return full;
+        if (/\bclass\s*=\s*"/i.test(attrs)) {
+          return `${tag}${attrs.replace(/\bclass\s*=\s*"/i, 'class="bp-mod-page-title ')}${close}`;
         }
-      );
+        return `${tag}${attrs} class="bp-mod-page-title"${close}`;
+      });
       return `${open}${titled}</main>`;
     }
     const titleMatch = inner.match(/^\s*(<h1\b[^>]*>[\s\S]*?<\/h1>)/i);
     let titleHtml = '';
     let rest = inner;
     if (titleMatch) {
-      titleHtml = titleMatch[1].replace(
-        /^(<h1\b)([^>]*)(>)/i,
-        (full, tag, attrs, close) => {
-          if (/\bbp-mod-page-title\b/.test(attrs)) return full;
-          if (/\bclass\s*=\s*"/i.test(attrs)) {
-            return `${tag}${attrs.replace(/\bclass\s*=\s*"/i, 'class="bp-mod-page-title ')}${close}`;
-          }
-          return `${tag}${attrs} class="bp-mod-page-title"${close}`;
+      titleHtml = titleMatch[1].replace(/^(<h1\b)([^>]*)(>)/i, (full, tag, attrs, close) => {
+        if (/\bbp-mod-page-title\b/.test(attrs)) return full;
+        if (/\bclass\s*=\s*"/i.test(attrs)) {
+          return `${tag}${attrs.replace(/\bclass\s*=\s*"/i, 'class="bp-mod-page-title ')}${close}`;
         }
-      );
+        return `${tag}${attrs} class="bp-mod-page-title"${close}`;
+      });
       rest = inner.slice(titleMatch[0].length);
     }
     const embedChunks = [];
     const contentParts = [];
-    const chunkRe = /(<div\b[^>]*(?:bitpype-module|bitpype-form|bp-mod)[^>]*>[\s\S]*?<\/div>|<iframe\b[^>]*>[\s\S]*?<\/iframe>)/gi;
+    const chunkRe =
+      /(<div\b[^>]*(?:bitpype-module|bitpype-form|bp-mod)[^>]*>[\s\S]*?<\/div>|<iframe\b[^>]*>[\s\S]*?<\/iframe>)/gi;
     let cm;
     let cursor = 0;
     while ((cm = chunkRe.exec(rest))) {
@@ -1415,29 +1425,35 @@ function ensureClientPageChrome(pageHtml) {
 function contentSectionHtml(opts = {}) {
   const heading = escapeHtml(String(opts.heading || 'New section').trim() || 'New section');
   const body = escapeHtml(String(opts.body || 'Add your content here.').trim() || 'Add your content here.');
-  return `<section class="ws-page-section" data-ws-page-section="1">`
-    + `<h2>${heading}</h2>`
-    + `<p>${body}</p>`
-    + `</section>`;
+  return (
+    `<section class="ws-page-section" data-ws-page-section="1">` +
+    `<h2>${heading}</h2>` +
+    `<p>${body}</p>` +
+    `</section>`
+  );
 }
 
 function injectContentSectionIntoHtml(pageHtml, sectionHtml, afterIndex) {
   let html = ensurePageChromeStyle(String(pageHtml || ''));
   const block = String(sectionHtml || contentSectionHtml());
   // Dedupe by section type / heading label — author content wins.
-  const typeHint = (block.match(/\bdata-ws-section-type\s*=\s*["']([^"']+)["']/i) || [])[1]
-    || (block.match(/\bclass\s*=\s*["'][^"']*\b(cta|footer|contact|hero|faq)\b/i) || [])[1]
-    || '';
-  const labelHint = anchorTextLabel(
-    (block.match(/<h[1-3]\b[^>]*>([\s\S]*?)<\/h[1-3]>/i) || [])[1] || ''
-  );
-  if (typeHint && new RegExp(
-    `data-ws-section-type\\s*=\\s*["']${typeHint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']`,
-    'i'
-  ).test(html)) {
+  const typeHint =
+    (block.match(/\bdata-ws-section-type\s*=\s*["']([^"']+)["']/i) || [])[1] ||
+    (block.match(/\bclass\s*=\s*["'][^"']*\b(cta|footer|contact|hero|faq)\b/i) || [])[1] ||
+    '';
+  const labelHint = anchorTextLabel((block.match(/<h[1-3]\b[^>]*>([\s\S]*?)<\/h[1-3]>/i) || [])[1] || '');
+  if (
+    typeHint &&
+    new RegExp(`data-ws-section-type\\s*=\\s*["']${typeHint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']`, 'i').test(
+      html
+    )
+  ) {
     return html;
   }
-  if (labelHint && new RegExp(`>(?:\\s*)${labelHint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s*)<`, 'i').test(html)) {
+  if (
+    labelHint &&
+    new RegExp(`>(?:\\s*)${labelHint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s*)<`, 'i').test(html)
+  ) {
     return html;
   }
   if (!html.trim()) {
@@ -1526,10 +1542,13 @@ function injectHtmlEmbed(pageHtml, block) {
   const token = (chunk.match(/\bdata-bitpype-module-token\s*=\s*["']([^"']+)["']/i) || [])[1];
   const modType = (chunk.match(/\bdata-bitpype-module-type\s*=\s*["']([^"']+)["']/i) || [])[1];
   if (token && htmlHasModuleToken(html, token)) return html;
-  if (modType && new RegExp(
-    `\\bdata-bitpype-module-type\\s*=\\s*["']${modType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']`,
-    'i'
-  ).test(html)) {
+  if (
+    modType &&
+    new RegExp(
+      `\\bdata-bitpype-module-type\\s*=\\s*["']${modType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']`,
+      'i'
+    ).test(html)
+  ) {
     return html;
   }
   if (!html.trim()) {
@@ -1575,7 +1594,10 @@ function scanOpenTag(html, from, tag) {
       if (c === quote) quote = null;
       continue;
     }
-    if (c === '"' || c === "'") { quote = c; continue; }
+    if (c === '"' || c === "'") {
+      quote = c;
+      continue;
+    }
     if (c === '>') {
       const selfClosing = html[i - 1] === '/';
       return {
@@ -1671,7 +1693,9 @@ function isPageLikeHref(href) {
   try {
     const eng = require('../src/websiteEngine');
     if (typeof eng.isComparableNavHref === 'function') return eng.isComparableNavHref(href);
-  } catch { /* fall through */ }
+  } catch {
+    /* fall through */
+  }
   const h = String(href || '').trim();
   if (!h || /^(mailto:|tel:|javascript:|https?:|\/\/)/i.test(h)) return false;
   if (h.charAt(0) === '#') return /^#[A-Za-z][A-Za-z0-9_-]*$/.test(h);
@@ -1695,7 +1719,10 @@ function majority(values) {
   let best = values[0] || '';
   let n = -1;
   for (const [k, c] of counts) {
-    if (c > n) { best = k; n = c; }
+    if (c > n) {
+      best = k;
+      n = c;
+    }
   }
   return best;
 }
@@ -1711,7 +1738,9 @@ function moduleHref(slug, sampleHrefs) {
   let htmlVotes = 0;
   let bareVotes = 0;
   for (const h of samples) {
-    const path = h.split('#')[0].split('?')[0]
+    const path = h
+      .split('#')[0]
+      .split('?')[0]
       .replace(/^\.\.\//, '')
       .replace(/^\.\//, '')
       .replace(/^\//, '');
@@ -1792,13 +1821,12 @@ function collectRanges(html, kind) {
     const t = tag.toLowerCase();
     let ok = false;
     if (kind === 'footer') {
-      ok = t === 'footer'
-        || /\bfooter\b/i.test(attrs)
-        || /\brole\s*=\s*["']contentinfo["']/i.test(attrs);
+      ok = t === 'footer' || /\bfooter\b/i.test(attrs) || /\brole\s*=\s*["']contentinfo["']/i.test(attrs);
     } else {
-      ok = t === 'header'
-        || /\brole\s*=\s*["']banner["']/i.test(attrs)
-        || /\b(site-header|page-header|masthead|navbar|topbar)\b/i.test(attrs);
+      ok =
+        t === 'header' ||
+        /\brole\s*=\s*["']banner["']/i.test(attrs) ||
+        /\b(site-header|page-header|masthead|navbar|topbar)\b/i.test(attrs);
     }
     if (!ok) continue;
     if (/\/\s*$/.test(attrs)) continue;
@@ -1829,10 +1857,18 @@ function choosePrimaryNav(html) {
     if (/\b(footer|breadcrumb|social|legal|skip)\b/i.test(blob)) continue;
     const row = pickLinkRow(html, nav);
     if (!row || row.pageLinks < 1) continue;
-    const fileLinks = row.links.filter((a) => String(a.href || '').trim().charAt(0) !== '#').length;
+    const fileLinks = row.links.filter(
+      (a) =>
+        String(a.href || '')
+          .trim()
+          .charAt(0) !== '#'
+    ).length;
     let score = Math.min(row.pageLinks, 6) + fileLinks * 2;
     if (indexInside(headerRanges, nav.start)) score += 12;
-    if (/\b(primary|main|site)\b/i.test(blob) || /aria-label\s*=\s*["'][^"']*(primary|main|site|navigation)/i.test(blob)) {
+    if (
+      /\b(primary|main|site)\b/i.test(blob) ||
+      /aria-label\s*=\s*["'][^"']*(primary|main|site|navigation)/i.test(blob)
+    ) {
       score += 6;
     }
     if (/\b(nav|menu|header)\b/i.test(blob)) score += 3;
@@ -1959,10 +1995,10 @@ function rebuildFreeformPrimaryNav(html, navLinks, pages, opts = {}) {
 
   const anchorFromTemplate = (href, label, moduleType) => {
     const route = routeKey(href);
-    const labelKey = String(label || '').trim().toLowerCase();
-    const prev = (route && existingByRoute.get(route))
-      || (labelKey && existingByLabel.get(labelKey))
-      || null;
+    const labelKey = String(label || '')
+      .trim()
+      .toLowerCase();
+    const prev = (route && existingByRoute.get(route)) || (labelKey && existingByLabel.get(labelKey)) || null;
     if (prev && prev.html) {
       let reused = prev.html;
       // Keep author href when it already targets the same route (e.g. "/" vs "/index").
@@ -1991,10 +2027,7 @@ function rebuildFreeformPrimaryNav(html, navLinks, pages, opts = {}) {
   const liShell = (anchorHtml, extraCls, moduleType) => {
     if (!useLi) return anchorHtml;
     const liTpl = liWrapping(src, container, tpl);
-    const liCls = cleanClass([
-      extraCls,
-      liTpl ? attrValue(liTpl.attrs, 'class') : '',
-    ].filter(Boolean).join(' '));
+    const liCls = cleanClass([extraCls, liTpl ? attrValue(liTpl.attrs, 'class') : ''].filter(Boolean).join(' '));
     const liClsAttr = liCls ? ` class="${escapeAttr(liCls)}"` : '';
     const modAttr = moduleType ? ` ${NAV_ATTR}="${escapeAttr(moduleType)}"` : '';
     return `<li${liClsAttr}${modAttr}>${anchorHtml}</li>`;
@@ -2007,16 +2040,16 @@ function rebuildFreeformPrimaryNav(html, navLinks, pages, opts = {}) {
     const top = anchorFromTemplate(href, link.label, moduleType);
     const kids = Array.isArray(link.children) ? link.children : [];
     if (!kids.length) return liShell(top, '', moduleType);
-    const subParts = kids.map((c) => {
-      const childType = activeBySlug.get(normalizeSlug(c.slug)) || '';
-      const ch = anchorFromTemplate(moduleHref(c.slug, sampleHrefs), c.label, childType);
-      if (!useLi) return ch;
-      const childMod = childType ? ` ${NAV_ATTR}="${escapeAttr(childType)}"` : '';
-      return `<li${childMod}>${ch}</li>`;
-    }).join('');
-    const sub = useLi
-      ? `<ul class="nav-sub">${subParts}</ul>`
-      : `<span class="nav-sub">${subParts}</span>`;
+    const subParts = kids
+      .map((c) => {
+        const childType = activeBySlug.get(normalizeSlug(c.slug)) || '';
+        const ch = anchorFromTemplate(moduleHref(c.slug, sampleHrefs), c.label, childType);
+        if (!useLi) return ch;
+        const childMod = childType ? ` ${NAV_ATTR}="${escapeAttr(childType)}"` : '';
+        return `<li${childMod}>${ch}</li>`;
+      })
+      .join('');
+    const sub = useLi ? `<ul class="nav-sub">${subParts}</ul>` : `<span class="nav-sub">${subParts}</span>`;
     return useLi
       ? liShell(`${top}${sub}`, 'has-children', moduleType)
       : `<span class="nav-item has-children">${top}${sub}</span>`;
@@ -2033,12 +2066,19 @@ function rebuildFreeformPrimaryNav(html, navLinks, pages, opts = {}) {
     if (typeof eng.assertAndDedupeNavHtml === 'function') {
       return eng.assertAndDedupeNavHtml(out, 'rebuildFreeformPrimaryNav');
     }
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
   return out;
 }
 
 function templateAnchor(anchors) {
-  const files = anchors.filter((a) => String(a.href || '').trim().charAt(0) !== '#');
+  const files = anchors.filter(
+    (a) =>
+      String(a.href || '')
+        .trim()
+        .charAt(0) !== '#'
+  );
   const pool = files.length ? files : anchors;
   for (let i = pool.length - 1; i >= 0; i--) {
     const cls = attrValue(pool[i].attrs, 'class');
@@ -2055,7 +2095,7 @@ function liWrapping(html, container, anchor) {
   let best = null;
   for (const li of findAllElements(inner, 'li')) {
     if (relStart >= li.start && relEnd <= li.end) {
-      if (!best || (li.end - li.start) < (best.end - best.start)) best = li;
+      if (!best || li.end - li.start < best.end - best.start) best = li;
     }
   }
   if (!best) return null;
@@ -2107,7 +2147,9 @@ function insertModuleNavLinks(html, items, pages) {
   }
   const pageList = Array.isArray(pages) ? pages : [];
   const pending = items.filter((it) => {
-    const label = String(it.label || '').trim().toLowerCase();
+    const label = String(it.label || '')
+      .trim()
+      .toLowerCase();
     if (scopeLinks.some((a) => hrefTargetsPage(a.href, it.slug))) return false;
     if (label && scopeLabels.has(label)) return false;
     // Real page in pages[] — syncFreeformNavOrder / rebuild owns visibility & order.
@@ -2137,12 +2179,18 @@ function insertModuleNavLinks(html, items, pages) {
     }
   }
   const sep = gapBefore(src, gapAt) || ' ';
-  const chunk = pending.map((it) => sep + navItemHtml(it, {
-    href: moduleHref(it.slug, sampleHrefs),
-    className,
-    liClass,
-    useLi,
-  })).join('');
+  const chunk = pending
+    .map(
+      (it) =>
+        sep +
+        navItemHtml(it, {
+          href: moduleHref(it.slug, sampleHrefs),
+          className,
+          liClass,
+          useLi,
+        })
+    )
+    .join('');
   return src.slice(0, insertAt) + chunk + src.slice(insertAt);
 }
 
@@ -2155,9 +2203,8 @@ function moduleNavItems(embeds) {
     const slug = normalizeSlug(emb.target_page_slug || meta.defaultSlug || 'home');
     if (!slug || seen.has(slug)) continue;
     seen.add(slug);
-    const label = String(emb.title || meta.label || meta.defaultTitle || emb.module_type).trim()
-      || meta.label
-      || 'Page';
+    const label =
+      String(emb.title || meta.label || meta.defaultTitle || emb.module_type).trim() || meta.label || 'Page';
     items.push({ type: emb.module_type, slug, label });
   }
   return items;
@@ -2169,7 +2216,8 @@ function pageIsModuleShell(page) {
   if (!html.trim()) return true;
   const stripped = stripManagedModuleEmbedsFromHtml(html);
   const main = (stripped.match(/<main\b[^>]*>[\s\S]*?<\/main>/i) || [''])[0];
-  const text = main.replace(/<style[\s\S]*?<\/style>/gi, ' ')
+  const text = main
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
@@ -2191,26 +2239,24 @@ function pageIsModuleShell(page) {
 
 function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
   ensureTables(db);
-  const site = db.prepare(
-    'SELECT id, pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-  ).get(Number(leadId));
+  const site = db
+    .prepare('SELECT id, pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+    .get(Number(leadId));
   if (!site) return { synced: false, reason: 'no_site' };
 
   let pages;
-  try { pages = JSON.parse(site.pages || '[]'); } catch { return { synced: false, reason: 'bad_pages' }; }
+  try {
+    pages = JSON.parse(site.pages || '[]');
+  } catch {
+    return { synced: false, reason: 'bad_pages' };
+  }
   if (!Array.isArray(pages) || !pages.length) return { synced: false, reason: 'empty_pages' };
 
   const base = appUrl || appBaseUrl();
   // embed_enabled / toSite off → not active, so neither the page embed nor the nav link is kept.
   const embeds = listEmbeds(db, leadId).filter(moduleEmbedActive);
-  const activeTokens = new Set(
-    embeds.map((e) => String(e.public_token || '').trim()).filter(Boolean)
-  );
-  const reveal = new Set(
-    (Array.isArray(revealSlugs) ? revealSlugs : [])
-      .map((s) => normalizeSlug(s))
-      .filter(Boolean)
-  );
+  const activeTokens = new Set(embeds.map((e) => String(e.public_token || '').trim()).filter(Boolean));
+  const reveal = new Set((Array.isArray(revealSlugs) ? revealSlugs : []).map((s) => normalizeSlug(s)).filter(Boolean));
 
   // Pass 1: strip only inactive embeds; leave placed widgets where they are.
   for (const page of pages) {
@@ -2232,9 +2278,7 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
         });
       if (typeof page.html === 'string') delete page.html;
     } else if (typeof page.html === 'string' && page.html.trim()) {
-      page.html = stripManagedNavLinks(
-        stripInactiveModuleEmbedsFromHtml(page.html, activeTokens)
-      );
+      page.html = stripManagedNavLinks(stripInactiveModuleEmbedsFromHtml(page.html, activeTokens));
     }
   }
 
@@ -2266,7 +2310,11 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
     if (idx < 0) {
       // Prefer modular chrome clone when the site is already sections-based.
       let structure;
-      try { structure = require('../src/siteStructure'); } catch { structure = null; }
+      try {
+        structure = require('../src/siteStructure');
+      } catch {
+        structure = null;
+      }
       const siteIsModular = pages.some((p) => pageUsesSections(p));
       const allModular = siteIsModular && pages.every((p) => pageUsesSections(p));
       if (siteIsModular && pushFreestyleModulePage(pages, { slug, title })) {
@@ -2296,9 +2344,9 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
         idx = pages.length - 1;
       }
     } else if (
-      !pageUsesSections(pages[idx])
-      && typeof pages[idx].html === 'string'
-      && isBareModulePage(pages[idx].html)
+      !pageUsesSections(pages[idx]) &&
+      typeof pages[idx].html === 'string' &&
+      isBareModulePage(pages[idx].html)
     ) {
       const shell = shellHtmlFromPages(pages, slug);
       if (shell) {
@@ -2349,13 +2397,15 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
     } else if (hasHtml) {
       page.html = ensureModuleEmbedScript(injectHtmlEmbed(page.html, blocks), base);
     } else {
-      page.sections = [{
-        type: 'html',
-        content: {
-          html: `${blocks}\n${moduleScriptTag(base)}`,
-          bitpype_module_managed: 1,
+      page.sections = [
+        {
+          type: 'html',
+          content: {
+            html: `${blocks}\n${moduleScriptTag(base)}`,
+            bitpype_module_managed: 1,
+          },
         },
-      }];
+      ];
     }
   }
 
@@ -2380,7 +2430,9 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
   const navItems = moduleNavItems(embeds);
   const activeSlugs = new Set(navItems.map((it) => normalizeSlug(it.slug)));
   const moduleDefaultSlugs = new Set(
-    Object.values(MODULE_META).map((m) => normalizeSlug(m.defaultSlug)).filter(Boolean)
+    Object.values(MODULE_META)
+      .map((m) => normalizeSlug(m.defaultSlug))
+      .filter(Boolean)
   );
   // Detached / disabled module pages stay in the site but leave the menu.
   // attachModule passes revealSlugs so re-attach restores menu presence without
@@ -2422,8 +2474,10 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
     console.warn('[siteModules] chatbot sitewide sync:', e && e.message);
   }
 
-  db.prepare("UPDATE websites SET pages = ?, updated_at = datetime('now') WHERE id = ?")
-    .run(JSON.stringify(pages), site.id);
+  db.prepare("UPDATE websites SET pages = ?, updated_at = datetime('now') WHERE id = ?").run(
+    JSON.stringify(pages),
+    site.id
+  );
 
   return {
     synced: true,
@@ -2471,26 +2525,28 @@ function createBlogPost(db, leadId, data = {}) {
   if (!title) throw fail('VALIDATION', 'title is required');
   const slug = slugify(data.slug || title, 'post');
   const status = String(data.status || 'draft').toLowerCase() === 'published' ? 'published' : 'draft';
-  const publishedAt = status === 'published'
-    ? (data.published_at || new Date().toISOString())
-    : null;
+  const publishedAt = status === 'published' ? data.published_at || new Date().toISOString() : null;
   const bodyHtml = String(data.body_html || data.body || '');
   const excerpt = resolveBlogExcerpt(data, bodyHtml);
   try {
-    const info = db.prepare(`
+    const info = db
+      .prepare(
+        `
       INSERT INTO blog_posts
         (lead_id, title, slug, body_html, excerpt, cover_image, status, published_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      Number(leadId),
-      title.slice(0, 200),
-      slug,
-      bodyHtml,
-      excerpt,
-      String(data.cover_image || data.coverImage || ''),
-      status,
-      publishedAt
-    );
+    `
+      )
+      .run(
+        Number(leadId),
+        title.slice(0, 200),
+        slug,
+        bodyHtml,
+        excerpt,
+        String(data.cover_image || data.coverImage || ''),
+        status,
+        publishedAt
+      );
     return getBlogPost(db, leadId, info.lastInsertRowid);
   } catch (e) {
     if (String(e.message || '').includes('UNIQUE')) {
@@ -2506,18 +2562,21 @@ function updateBlogPost(db, leadId, id, data = {}) {
   if (!row) throw fail('NOT_FOUND', 'Blog post not found', 404);
   const title = data.title != null ? String(data.title).trim().slice(0, 200) : row.title;
   const slug = data.slug != null ? slugify(data.slug, row.slug) : row.slug;
-  const body = data.body_html != null || data.body != null
-    ? String(data.body_html != null ? data.body_html : data.body)
-    : row.body_html;
-  const cover = data.cover_image != null || data.coverImage != null
-    ? String(data.cover_image != null ? data.cover_image : data.coverImage)
-    : row.cover_image;
+  const body =
+    data.body_html != null || data.body != null
+      ? String(data.body_html != null ? data.body_html : data.body)
+      : row.body_html;
+  const cover =
+    data.cover_image != null || data.coverImage != null
+      ? String(data.cover_image != null ? data.cover_image : data.coverImage)
+      : row.cover_image;
   // Explicit excerpt wins; body edits re-derive; otherwise keep stored or derive.
-  const nextExcerpt = data.excerpt != null
-    ? resolveBlogExcerpt(data, body)
-    : ((data.body_html != null || data.body != null)
-      ? resolveBlogExcerpt({ excerpt: '' }, body)
-      : (String(row.excerpt || '').trim() || resolveBlogExcerpt({}, body)));
+  const nextExcerpt =
+    data.excerpt != null
+      ? resolveBlogExcerpt(data, body)
+      : data.body_html != null || data.body != null
+        ? resolveBlogExcerpt({ excerpt: '' }, body)
+        : String(row.excerpt || '').trim() || resolveBlogExcerpt({}, body);
   let status = row.status;
   let publishedAt = row.published_at;
   if (data.status != null) {
@@ -2527,10 +2586,12 @@ function updateBlogPost(db, leadId, id, data = {}) {
   }
   if (data.published_at != null) publishedAt = data.published_at || null;
   try {
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE blog_posts SET title=?, slug=?, body_html=?, excerpt=?, cover_image=?, status=?,
         published_at=?, updated_at=datetime('now') WHERE id=? AND lead_id=?
-    `).run(title, slug, body, nextExcerpt, cover, status, publishedAt, row.id, Number(leadId));
+    `
+    ).run(title, slug, body, nextExcerpt, cover, status, publishedAt, row.id, Number(leadId));
   } catch (e) {
     if (String(e.message || '').includes('UNIQUE')) {
       throw fail('CONFLICT', `Blog slug already exists: ${slug}`, 409);
@@ -2572,27 +2633,32 @@ function createProduct(db, leadId, data = {}) {
   const name = String(data.name || data.title || '').trim();
   if (!name) throw fail('VALIDATION', 'name is required');
   const slug = slugify(data.slug || name, 'product');
-  const priceCents = data.price_cents != null
-    ? Math.round(Number(data.price_cents) || 0)
-    : Math.round((Number(data.price) || 0) * 100);
+  const priceCents =
+    data.price_cents != null ? Math.round(Number(data.price_cents) || 0) : Math.round((Number(data.price) || 0) * 100);
   const status = String(data.status || 'draft').toLowerCase() === 'published' ? 'published' : 'draft';
   try {
-    const info = db.prepare(`
+    const info = db
+      .prepare(
+        `
       INSERT INTO ecommerce_products
         (lead_id, name, slug, description, price_cents, currency, image_url, checkout_url, status, sort_order)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      Number(leadId),
-      name.slice(0, 200),
-      slug,
-      String(data.description || ''),
-      priceCents,
-      String(data.currency || 'USD').slice(0, 8).toUpperCase(),
-      String(data.image_url || data.image || ''),
-      String(data.checkout_url || data.checkoutUrl || data.buy_url || ''),
-      status,
-      Number(data.sort_order) || 0
-    );
+    `
+      )
+      .run(
+        Number(leadId),
+        name.slice(0, 200),
+        slug,
+        String(data.description || ''),
+        priceCents,
+        String(data.currency || 'USD')
+          .slice(0, 8)
+          .toUpperCase(),
+        String(data.image_url || data.image || ''),
+        String(data.checkout_url || data.checkoutUrl || data.buy_url || ''),
+        status,
+        Number(data.sort_order) || 0
+      );
     return getProduct(db, leadId, info.lastInsertRowid);
   } catch (e) {
     if (String(e.message || '').includes('UNIQUE')) {
@@ -2606,31 +2672,39 @@ function updateProduct(db, leadId, id, data = {}) {
   ensureTables(db);
   const row = getProduct(db, leadId, id);
   if (!row) throw fail('NOT_FOUND', 'Product not found', 404);
-  const name = data.name != null || data.title != null
-    ? String(data.name != null ? data.name : data.title).trim().slice(0, 200)
-    : row.name;
+  const name =
+    data.name != null || data.title != null
+      ? String(data.name != null ? data.name : data.title)
+          .trim()
+          .slice(0, 200)
+      : row.name;
   const slug = data.slug != null ? slugify(data.slug, row.slug) : row.slug;
   const description = data.description != null ? String(data.description) : row.description;
   let priceCents = row.price_cents;
   if (data.price_cents != null) priceCents = Math.round(Number(data.price_cents) || 0);
   else if (data.price != null) priceCents = Math.round((Number(data.price) || 0) * 100);
   const currency = data.currency != null ? String(data.currency).slice(0, 8).toUpperCase() : row.currency;
-  const image = data.image_url != null || data.image != null
-    ? String(data.image_url != null ? data.image_url : data.image)
-    : row.image_url;
-  const checkout = data.checkout_url != null || data.checkoutUrl != null || data.buy_url != null
-    ? String(data.checkout_url != null ? data.checkout_url : (data.checkoutUrl != null ? data.checkoutUrl : data.buy_url))
-    : row.checkout_url;
-  const status = data.status != null
-    ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft')
-    : row.status;
+  const image =
+    data.image_url != null || data.image != null
+      ? String(data.image_url != null ? data.image_url : data.image)
+      : row.image_url;
+  const checkout =
+    data.checkout_url != null || data.checkoutUrl != null || data.buy_url != null
+      ? String(
+          data.checkout_url != null ? data.checkout_url : data.checkoutUrl != null ? data.checkoutUrl : data.buy_url
+        )
+      : row.checkout_url;
+  const status =
+    data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : row.status;
   const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
   try {
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE ecommerce_products SET name=?, slug=?, description=?, price_cents=?, currency=?,
         image_url=?, checkout_url=?, status=?, sort_order=?, updated_at=datetime('now')
       WHERE id=? AND lead_id=?
-    `).run(name, slug, description, priceCents, currency, image, checkout, status, sortOrder, row.id, Number(leadId));
+    `
+    ).run(name, slug, description, priceCents, currency, image, checkout, status, sortOrder, row.id, Number(leadId));
   } catch (e) {
     if (String(e.message || '').includes('UNIQUE')) {
       throw fail('CONFLICT', `Product slug already exists: ${slug}`, 409);
@@ -2652,10 +2726,18 @@ function deleteProduct(db, leadId, id) {
 
 function insertShopOrder(db, leadId, product) {
   ensureTables(db);
-  const info = db.prepare(
-    `INSERT INTO ecommerce_orders (lead_id, product_id, product_name, amount_cents, currency, status)
+  const info = db
+    .prepare(
+      `INSERT INTO ecommerce_orders (lead_id, product_id, product_name, amount_cents, currency, status)
      VALUES (?, ?, ?, ?, ?, 'pending')`
-  ).run(Number(leadId), Number(product.id), String(product.name || ''), Number(product.price_cents) || 0, String(product.currency || 'USD'));
+    )
+    .run(
+      Number(leadId),
+      Number(product.id),
+      String(product.name || ''),
+      Number(product.price_cents) || 0,
+      String(product.currency || 'USD')
+    );
   return db.prepare('SELECT * FROM ecommerce_orders WHERE id = ?').get(info.lastInsertRowid);
 }
 
@@ -2681,8 +2763,7 @@ function getShopOrderBySession(db, sessionId) {
 function listShopOrders(db, leadId, { limit = 50 } = {}) {
   ensureTables(db);
   const n = Math.min(Math.max(Number(limit) || 50, 1), 200);
-  return db.prepare('SELECT * FROM ecommerce_orders WHERE lead_id = ? ORDER BY id DESC LIMIT ?')
-    .all(Number(leadId), n);
+  return db.prepare('SELECT * FROM ecommerce_orders WHERE lead_id = ? ORDER BY id DESC LIMIT ?').all(Number(leadId), n);
 }
 
 /**
@@ -2711,7 +2792,9 @@ function applyShopStripeEvent(db, event) {
     updateShopOrder(db, order.id, {
       status: 'paid',
       stripe_payment_intent: String(obj.payment_intent || order.stripe_payment_intent || ''),
-      customer_email: String((obj.customer_details && obj.customer_details.email) || obj.customer_email || order.customer_email || ''),
+      customer_email: String(
+        (obj.customer_details && obj.customer_details.email) || obj.customer_email || order.customer_email || ''
+      ),
     });
     return { matched: true, orderId: order.id, status: 'paid' };
   }
@@ -2734,9 +2817,7 @@ function applyShopStripeEvent(db, event) {
  */
 async function createShopCheckoutByToken(db, token, { productId, returnUrl } = {}) {
   ensureTables(db);
-  const row = db.prepare(
-    'SELECT * FROM site_module_embeds WHERE public_token = ?'
-  ).get(String(token || ''));
+  const row = db.prepare('SELECT * FROM site_module_embeds WHERE public_token = ?').get(String(token || ''));
   if (!row || row.module_type !== 'ecommerce') {
     throw fail('NOT_FOUND', 'Shop module not found', 404);
   }
@@ -2751,7 +2832,11 @@ async function createShopCheckoutByToken(db, token, { productId, returnUrl } = {
   const stripe = shopStripe.getClient(db); // throws SHOP_STRIPE_NOT_CONFIGURED
   const base = String(returnUrl || '').split('#')[0];
   let parsed;
-  try { parsed = new URL(base); } catch { parsed = null; }
+  try {
+    parsed = new URL(base);
+  } catch {
+    parsed = null;
+  }
   if (!parsed || !/^https?:$/.test(parsed.protocol)) {
     throw fail('VALIDATION', 'A valid return URL is required for checkout', 400);
   }
@@ -2761,20 +2846,26 @@ async function createShopCheckoutByToken(db, token, { productId, returnUrl } = {
   try {
     session = await stripe.checkout.sessions.create({
       mode: 'payment',
-      line_items: [{
-        quantity: 1,
-        price_data: {
-          currency: String(product.currency || 'USD').toLowerCase(),
-          unit_amount: Number(product.price_cents) || 0,
-          product_data: {
-            name: String(product.name || 'Product'),
-            ...(product.description ? { description: String(product.description).slice(0, 500) } : {}),
-            ...(product.image_url && /^https?:\/\//.test(product.image_url) ? { images: [product.image_url] } : {}),
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: String(product.currency || 'USD').toLowerCase(),
+            unit_amount: Number(product.price_cents) || 0,
+            product_data: {
+              name: String(product.name || 'Product'),
+              ...(product.description ? { description: String(product.description).slice(0, 500) } : {}),
+              ...(product.image_url && /^https?:\/\//.test(product.image_url) ? { images: [product.image_url] } : {}),
+            },
           },
         },
-      }],
+      ],
       client_reference_id: String(order.id),
-      metadata: { bitpype_order_id: String(order.id), bitpype_lead_id: String(row.lead_id), bitpype_product_id: String(product.id) },
+      metadata: {
+        bitpype_order_id: String(order.id),
+        bitpype_lead_id: String(row.lead_id),
+        bitpype_product_id: String(product.id),
+      },
       payment_intent_data: { metadata: { bitpype_order_id: String(order.id) } },
       success_url: `${base}${sep}order=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${base}${sep}order=cancelled`,
@@ -2807,9 +2898,9 @@ function formatPrice(cents, currency = 'USD') {
 /* ── Courses ── */
 
 function lessonsForCourse(db, courseId) {
-  return db.prepare(
-    'SELECT * FROM course_lessons WHERE course_id = ? ORDER BY sort_order ASC, id ASC'
-  ).all(Number(courseId));
+  return db
+    .prepare('SELECT * FROM course_lessons WHERE course_id = ? ORDER BY sort_order ASC, id ASC')
+    .all(Number(courseId));
 }
 
 function listCourses(db, leadId, { includeDrafts = true, withLessons = true } = {}) {
@@ -2844,20 +2935,24 @@ function createCourse(db, leadId, data = {}) {
   const status = String(data.status || 'draft').toLowerCase() === 'published' ? 'published' : 'draft';
   let course;
   try {
-    const info = db.prepare(`
+    const info = db
+      .prepare(
+        `
       INSERT INTO courses
         (lead_id, title, slug, description, enrollment_url, cover_image, status, sort_order)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      Number(leadId),
-      title.slice(0, 200),
-      slug,
-      String(data.description || ''),
-      String(data.enrollment_url || data.enrollmentUrl || ''),
-      String(data.cover_image || data.coverImage || ''),
-      status,
-      Number(data.sort_order) || 0
-    );
+    `
+      )
+      .run(
+        Number(leadId),
+        title.slice(0, 200),
+        slug,
+        String(data.description || ''),
+        String(data.enrollment_url || data.enrollmentUrl || ''),
+        String(data.cover_image || data.coverImage || ''),
+        status,
+        Number(data.sort_order) || 0
+      );
     course = getCourse(db, leadId, info.lastInsertRowid, { withLessons: false });
   } catch (e) {
     if (String(e.message || '').includes('UNIQUE')) {
@@ -2867,7 +2962,10 @@ function createCourse(db, leadId, data = {}) {
   }
   const lessons = Array.isArray(data.lessons) ? data.lessons : [];
   for (let i = 0; i < lessons.length; i++) {
-    addLesson(db, leadId, course.id, { ...lessons[i], sort_order: lessons[i].sort_order != null ? lessons[i].sort_order : i });
+    addLesson(db, leadId, course.id, {
+      ...lessons[i],
+      sort_order: lessons[i].sort_order != null ? lessons[i].sort_order : i,
+    });
   }
   return getCourse(db, leadId, course.id);
 }
@@ -2879,21 +2977,24 @@ function updateCourse(db, leadId, id, data = {}) {
   const title = data.title != null ? String(data.title).trim().slice(0, 200) : row.title;
   const slug = data.slug != null ? slugify(data.slug, row.slug) : row.slug;
   const description = data.description != null ? String(data.description) : row.description;
-  const enrollment = data.enrollment_url != null || data.enrollmentUrl != null
-    ? String(data.enrollment_url != null ? data.enrollment_url : data.enrollmentUrl)
-    : row.enrollment_url;
-  const cover = data.cover_image != null || data.coverImage != null
-    ? String(data.cover_image != null ? data.cover_image : data.coverImage)
-    : row.cover_image;
-  const status = data.status != null
-    ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft')
-    : row.status;
+  const enrollment =
+    data.enrollment_url != null || data.enrollmentUrl != null
+      ? String(data.enrollment_url != null ? data.enrollment_url : data.enrollmentUrl)
+      : row.enrollment_url;
+  const cover =
+    data.cover_image != null || data.coverImage != null
+      ? String(data.cover_image != null ? data.cover_image : data.coverImage)
+      : row.cover_image;
+  const status =
+    data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : row.status;
   const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
   try {
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE courses SET title=?, slug=?, description=?, enrollment_url=?, cover_image=?,
         status=?, sort_order=?, updated_at=datetime('now') WHERE id=? AND lead_id=?
-    `).run(title, slug, description, enrollment, cover, status, sortOrder, row.id, Number(leadId));
+    `
+    ).run(title, slug, description, enrollment, cover, status, sortOrder, row.id, Number(leadId));
   } catch (e) {
     if (String(e.message || '').includes('UNIQUE')) {
       throw fail('CONFLICT', `Course slug already exists: ${slug}`, 409);
@@ -2918,16 +3019,20 @@ function addLesson(db, leadId, courseId, data = {}) {
   if (!course) throw fail('NOT_FOUND', 'Course not found', 404);
   const title = String(data.title || '').trim();
   if (!title) throw fail('VALIDATION', 'lesson title is required');
-  const info = db.prepare(`
+  const info = db
+    .prepare(
+      `
     INSERT INTO course_lessons (course_id, title, body_html, lesson_url, sort_order)
     VALUES (?, ?, ?, ?, ?)
-  `).run(
-    course.id,
-    title.slice(0, 200),
-    String(data.body_html || data.body || ''),
-    String(data.lesson_url || data.lessonUrl || data.url || ''),
-    Number(data.sort_order) || 0
-  );
+  `
+    )
+    .run(
+      course.id,
+      title.slice(0, 200),
+      String(data.body_html || data.body || ''),
+      String(data.lesson_url || data.lessonUrl || data.url || ''),
+      Number(data.sort_order) || 0
+    );
   return db.prepare('SELECT * FROM course_lessons WHERE id = ?').get(info.lastInsertRowid);
 }
 
@@ -2938,17 +3043,21 @@ function updateLesson(db, leadId, lessonId, data = {}) {
   const course = getCourse(db, leadId, lesson.course_id, { withLessons: false });
   if (!course) throw fail('NOT_FOUND', 'Course not found', 404);
   const title = data.title != null ? String(data.title).trim().slice(0, 200) : lesson.title;
-  const body = data.body_html != null || data.body != null
-    ? String(data.body_html != null ? data.body_html : data.body)
-    : lesson.body_html;
-  const url = data.lesson_url != null || data.lessonUrl != null || data.url != null
-    ? String(data.lesson_url != null ? data.lesson_url : (data.lessonUrl != null ? data.lessonUrl : data.url))
-    : lesson.lesson_url;
+  const body =
+    data.body_html != null || data.body != null
+      ? String(data.body_html != null ? data.body_html : data.body)
+      : lesson.body_html;
+  const url =
+    data.lesson_url != null || data.lessonUrl != null || data.url != null
+      ? String(data.lesson_url != null ? data.lesson_url : data.lessonUrl != null ? data.lessonUrl : data.url)
+      : lesson.lesson_url;
   const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : lesson.sort_order;
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE course_lessons SET title=?, body_html=?, lesson_url=?, sort_order=?,
       updated_at=datetime('now') WHERE id=?
-  `).run(title, body, url, sortOrder, lesson.id);
+  `
+  ).run(title, body, url, sortOrder, lesson.id);
   return db.prepare('SELECT * FROM course_lessons WHERE id = ?').get(lesson.id);
 }
 
@@ -2965,9 +3074,9 @@ function deleteLesson(db, leadId, lessonId) {
 /* ── Gallery ── */
 
 function imagesForAlbum(db, albumId) {
-  return db.prepare(
-    'SELECT * FROM gallery_images WHERE album_id = ? ORDER BY sort_order ASC, id ASC'
-  ).all(Number(albumId));
+  return db
+    .prepare('SELECT * FROM gallery_images WHERE album_id = ? ORDER BY sort_order ASC, id ASC')
+    .all(Number(albumId));
 }
 
 function listAlbums(db, leadId, { includeDrafts = true, withImages = true } = {}) {
@@ -3002,17 +3111,21 @@ function createAlbum(db, leadId, data = {}) {
   const status = String(data.status || 'draft').toLowerCase() === 'published' ? 'published' : 'draft';
   let album;
   try {
-    const info = db.prepare(`
+    const info = db
+      .prepare(
+        `
       INSERT INTO gallery_albums (lead_id, title, slug, description, status, sort_order)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      Number(leadId),
-      title.slice(0, 200),
-      slug,
-      String(data.description || ''),
-      status,
-      Number(data.sort_order) || 0
-    );
+    `
+      )
+      .run(
+        Number(leadId),
+        title.slice(0, 200),
+        slug,
+        String(data.description || ''),
+        status,
+        Number(data.sort_order) || 0
+      );
     album = getAlbum(db, leadId, info.lastInsertRowid, { withImages: false });
   } catch (e) {
     if (String(e.message || '').includes('UNIQUE')) {
@@ -3022,7 +3135,10 @@ function createAlbum(db, leadId, data = {}) {
   }
   const images = Array.isArray(data.images) ? data.images : [];
   for (let i = 0; i < images.length; i++) {
-    addGalleryImage(db, leadId, album.id, { ...images[i], sort_order: images[i].sort_order != null ? images[i].sort_order : i });
+    addGalleryImage(db, leadId, album.id, {
+      ...images[i],
+      sort_order: images[i].sort_order != null ? images[i].sort_order : i,
+    });
   }
   return getAlbum(db, leadId, album.id);
 }
@@ -3031,20 +3147,24 @@ function updateAlbum(db, leadId, id, data = {}) {
   ensureTables(db);
   const row = getAlbum(db, leadId, id, { withImages: false });
   if (!row) throw fail('NOT_FOUND', 'Album not found', 404);
-  const title = data.title != null || data.name != null
-    ? String(data.title != null ? data.title : data.name).trim().slice(0, 200)
-    : row.title;
+  const title =
+    data.title != null || data.name != null
+      ? String(data.title != null ? data.title : data.name)
+          .trim()
+          .slice(0, 200)
+      : row.title;
   const slug = data.slug != null ? slugify(data.slug, row.slug) : row.slug;
   const description = data.description != null ? String(data.description) : row.description;
-  const status = data.status != null
-    ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft')
-    : row.status;
+  const status =
+    data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : row.status;
   const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
   try {
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE gallery_albums SET title=?, slug=?, description=?, status=?, sort_order=?,
         updated_at=datetime('now') WHERE id=? AND lead_id=?
-    `).run(title, slug, description, status, sortOrder, row.id, Number(leadId));
+    `
+    ).run(title, slug, description, status, sortOrder, row.id, Number(leadId));
   } catch (e) {
     if (String(e.message || '').includes('UNIQUE')) {
       throw fail('CONFLICT', `Album slug already exists: ${slug}`, 409);
@@ -3069,10 +3189,14 @@ function addGalleryImage(db, leadId, albumId, data = {}) {
   if (!album) throw fail('NOT_FOUND', 'Album not found', 404);
   const imageUrl = String(data.image_url || data.url || data.src || '').trim();
   if (!imageUrl) throw fail('VALIDATION', 'image_url is required');
-  const info = db.prepare(`
+  const info = db
+    .prepare(
+      `
     INSERT INTO gallery_images (album_id, image_url, caption, sort_order)
     VALUES (?, ?, ?, ?)
-  `).run(album.id, imageUrl, String(data.caption || ''), Number(data.sort_order) || 0);
+  `
+    )
+    .run(album.id, imageUrl, String(data.caption || ''), Number(data.sort_order) || 0);
   return db.prepare('SELECT * FROM gallery_images WHERE id = ?').get(info.lastInsertRowid);
 }
 
@@ -3103,9 +3227,7 @@ function listListings(db, leadId, { includeDrafts = true, category } = {}) {
 
 function getListing(db, leadId, id) {
   ensureTables(db);
-  return db.prepare(
-    'SELECT * FROM directory_listings WHERE lead_id = ? AND id = ?'
-  ).get(Number(leadId), Number(id));
+  return db.prepare('SELECT * FROM directory_listings WHERE lead_id = ? AND id = ?').get(Number(leadId), Number(id));
 }
 
 function createListing(db, leadId, data = {}) {
@@ -3113,22 +3235,26 @@ function createListing(db, leadId, data = {}) {
   const name = String(data.name || data.title || '').trim();
   if (!name) throw fail('VALIDATION', 'name is required');
   const status = String(data.status || 'draft').toLowerCase() === 'published' ? 'published' : 'draft';
-  const info = db.prepare(`
+  const info = db
+    .prepare(
+      `
     INSERT INTO directory_listings
       (lead_id, name, category, description, contact_email, contact_phone, website_url, image_url, status, sort_order)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    Number(leadId),
-    name.slice(0, 200),
-    String(data.category || '').slice(0, 120),
-    String(data.description || ''),
-    String(data.contact_email || data.email || ''),
-    String(data.contact_phone || data.phone || ''),
-    String(data.website_url || data.link || data.url || ''),
-    String(data.image_url || data.image || ''),
-    status,
-    Number(data.sort_order) || 0
-  );
+  `
+    )
+    .run(
+      Number(leadId),
+      name.slice(0, 200),
+      String(data.category || '').slice(0, 120),
+      String(data.description || ''),
+      String(data.contact_email || data.email || ''),
+      String(data.contact_phone || data.phone || ''),
+      String(data.website_url || data.link || data.url || ''),
+      String(data.image_url || data.image || ''),
+      status,
+      Number(data.sort_order) || 0
+    );
   return getListing(db, leadId, info.lastInsertRowid);
 }
 
@@ -3136,32 +3262,40 @@ function updateListing(db, leadId, id, data = {}) {
   ensureTables(db);
   const row = getListing(db, leadId, id);
   if (!row) throw fail('NOT_FOUND', 'Listing not found', 404);
-  const name = data.name != null || data.title != null
-    ? String(data.name != null ? data.name : data.title).trim().slice(0, 200)
-    : row.name;
+  const name =
+    data.name != null || data.title != null
+      ? String(data.name != null ? data.name : data.title)
+          .trim()
+          .slice(0, 200)
+      : row.name;
   const category = data.category != null ? String(data.category).slice(0, 120) : row.category;
   const description = data.description != null ? String(data.description) : row.description;
-  const email = data.contact_email != null || data.email != null
-    ? String(data.contact_email != null ? data.contact_email : data.email)
-    : row.contact_email;
-  const phone = data.contact_phone != null || data.phone != null
-    ? String(data.contact_phone != null ? data.contact_phone : data.phone)
-    : row.contact_phone;
-  const website = data.website_url != null || data.link != null || data.url != null
-    ? String(data.website_url != null ? data.website_url : (data.link != null ? data.link : data.url))
-    : row.website_url;
-  const image = data.image_url != null || data.image != null
-    ? String(data.image_url != null ? data.image_url : data.image)
-    : row.image_url;
-  const status = data.status != null
-    ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft')
-    : row.status;
+  const email =
+    data.contact_email != null || data.email != null
+      ? String(data.contact_email != null ? data.contact_email : data.email)
+      : row.contact_email;
+  const phone =
+    data.contact_phone != null || data.phone != null
+      ? String(data.contact_phone != null ? data.contact_phone : data.phone)
+      : row.contact_phone;
+  const website =
+    data.website_url != null || data.link != null || data.url != null
+      ? String(data.website_url != null ? data.website_url : data.link != null ? data.link : data.url)
+      : row.website_url;
+  const image =
+    data.image_url != null || data.image != null
+      ? String(data.image_url != null ? data.image_url : data.image)
+      : row.image_url;
+  const status =
+    data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : row.status;
   const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE directory_listings SET name=?, category=?, description=?, contact_email=?,
       contact_phone=?, website_url=?, image_url=?, status=?, sort_order=?,
       updated_at=datetime('now') WHERE id=? AND lead_id=?
-  `).run(name, category, description, email, phone, website, image, status, sortOrder, row.id, Number(leadId));
+  `
+  ).run(name, category, description, email, phone, website, image, status, sortOrder, row.id, Number(leadId));
   return getListing(db, leadId, row.id);
 }
 
@@ -3190,8 +3324,7 @@ function listFaqItems(db, leadId, { includeDrafts = true, category } = {}) {
 
 function getFaqItem(db, leadId, id) {
   ensureTables(db);
-  return db.prepare('SELECT * FROM faq_items WHERE lead_id = ? AND id = ?')
-    .get(Number(leadId), Number(id));
+  return db.prepare('SELECT * FROM faq_items WHERE lead_id = ? AND id = ?').get(Number(leadId), Number(id));
 }
 
 function createFaqItem(db, leadId, data = {}) {
@@ -3199,17 +3332,21 @@ function createFaqItem(db, leadId, data = {}) {
   const question = String(data.question || data.title || '').trim();
   if (!question) throw fail('VALIDATION', 'question is required');
   const status = String(data.status || 'draft').toLowerCase() === 'published' ? 'published' : 'draft';
-  const info = db.prepare(`
+  const info = db
+    .prepare(
+      `
     INSERT INTO faq_items (lead_id, question, answer_html, category, status, sort_order)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).run(
-    Number(leadId),
-    question.slice(0, 400),
-    String(data.answer_html || data.answer || data.body_html || ''),
-    String(data.category || '').slice(0, 120),
-    status,
-    Number(data.sort_order) || 0
-  );
+  `
+    )
+    .run(
+      Number(leadId),
+      question.slice(0, 400),
+      String(data.answer_html || data.answer || data.body_html || ''),
+      String(data.category || '').slice(0, 120),
+      status,
+      Number(data.sort_order) || 0
+    );
   return getFaqItem(db, leadId, info.lastInsertRowid);
 }
 
@@ -3217,21 +3354,26 @@ function updateFaqItem(db, leadId, id, data = {}) {
   ensureTables(db);
   const row = getFaqItem(db, leadId, id);
   if (!row) throw fail('NOT_FOUND', 'FAQ item not found', 404);
-  const question = data.question != null || data.title != null
-    ? String(data.question != null ? data.question : data.title).trim().slice(0, 400)
-    : row.question;
-  const answer = data.answer_html != null || data.answer != null || data.body_html != null
-    ? String(data.answer_html != null ? data.answer_html : (data.answer != null ? data.answer : data.body_html))
-    : row.answer_html;
+  const question =
+    data.question != null || data.title != null
+      ? String(data.question != null ? data.question : data.title)
+          .trim()
+          .slice(0, 400)
+      : row.question;
+  const answer =
+    data.answer_html != null || data.answer != null || data.body_html != null
+      ? String(data.answer_html != null ? data.answer_html : data.answer != null ? data.answer : data.body_html)
+      : row.answer_html;
   const category = data.category != null ? String(data.category).slice(0, 120) : row.category;
-  const status = data.status != null
-    ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft')
-    : row.status;
+  const status =
+    data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : row.status;
   const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE faq_items SET question=?, answer_html=?, category=?, status=?, sort_order=?,
       updated_at=datetime('now') WHERE id=? AND lead_id=?
-  `).run(question, answer, category, status, sortOrder, row.id, Number(leadId));
+  `
+  ).run(question, answer, category, status, sortOrder, row.id, Number(leadId));
   return getFaqItem(db, leadId, row.id);
 }
 
@@ -3255,8 +3397,7 @@ function listTestimonials(db, leadId, { includeDrafts = true } = {}) {
 
 function getTestimonial(db, leadId, id) {
   ensureTables(db);
-  return db.prepare('SELECT * FROM testimonials WHERE lead_id = ? AND id = ?')
-    .get(Number(leadId), Number(id));
+  return db.prepare('SELECT * FROM testimonials WHERE lead_id = ? AND id = ?').get(Number(leadId), Number(id));
 }
 
 function createTestimonial(db, leadId, data = {}) {
@@ -3268,21 +3409,25 @@ function createTestimonial(db, leadId, data = {}) {
   if (!Number.isFinite(rating) || rating < 0) rating = 0;
   if (rating > 5) rating = 5;
   rating = Math.round(rating);
-  const info = db.prepare(`
+  const info = db
+    .prepare(
+      `
     INSERT INTO testimonials
       (lead_id, quote, author_name, author_title, author_company, rating, image_url, status, sort_order)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    Number(leadId),
-    quote,
-    String(data.author_name || data.author || data.name || '').slice(0, 160),
-    String(data.author_title || data.title || data.role || '').slice(0, 160),
-    String(data.author_company || data.company || '').slice(0, 160),
-    rating,
-    String(data.image_url || data.image || ''),
-    status,
-    Number(data.sort_order) || 0
-  );
+  `
+    )
+    .run(
+      Number(leadId),
+      quote,
+      String(data.author_name || data.author || data.name || '').slice(0, 160),
+      String(data.author_title || data.title || data.role || '').slice(0, 160),
+      String(data.author_company || data.company || '').slice(0, 160),
+      rating,
+      String(data.image_url || data.image || ''),
+      status,
+      Number(data.sort_order) || 0
+    );
   return getTestimonial(db, leadId, info.lastInsertRowid);
 }
 
@@ -3290,18 +3435,28 @@ function updateTestimonial(db, leadId, id, data = {}) {
   ensureTables(db);
   const row = getTestimonial(db, leadId, id);
   if (!row) throw fail('NOT_FOUND', 'Testimonial not found', 404);
-  const quote = data.quote != null || data.body != null || data.text != null
-    ? String(data.quote != null ? data.quote : (data.body != null ? data.body : data.text)).trim()
-    : row.quote;
-  const authorName = data.author_name != null || data.author != null || data.name != null
-    ? String(data.author_name != null ? data.author_name : (data.author != null ? data.author : data.name)).slice(0, 160)
-    : row.author_name;
-  const authorTitle = data.author_title != null || data.title != null || data.role != null
-    ? String(data.author_title != null ? data.author_title : (data.title != null ? data.title : data.role)).slice(0, 160)
-    : row.author_title;
-  const authorCompany = data.author_company != null || data.company != null
-    ? String(data.author_company != null ? data.author_company : data.company).slice(0, 160)
-    : row.author_company;
+  const quote =
+    data.quote != null || data.body != null || data.text != null
+      ? String(data.quote != null ? data.quote : data.body != null ? data.body : data.text).trim()
+      : row.quote;
+  const authorName =
+    data.author_name != null || data.author != null || data.name != null
+      ? String(data.author_name != null ? data.author_name : data.author != null ? data.author : data.name).slice(
+          0,
+          160
+        )
+      : row.author_name;
+  const authorTitle =
+    data.author_title != null || data.title != null || data.role != null
+      ? String(data.author_title != null ? data.author_title : data.title != null ? data.title : data.role).slice(
+          0,
+          160
+        )
+      : row.author_title;
+  const authorCompany =
+    data.author_company != null || data.company != null
+      ? String(data.author_company != null ? data.author_company : data.company).slice(0, 160)
+      : row.author_company;
   let rating = row.rating;
   if (data.rating != null) {
     rating = Number(data.rating);
@@ -3309,18 +3464,20 @@ function updateTestimonial(db, leadId, id, data = {}) {
     if (rating > 5) rating = 5;
     rating = Math.round(rating);
   }
-  const image = data.image_url != null || data.image != null
-    ? String(data.image_url != null ? data.image_url : data.image)
-    : row.image_url;
-  const status = data.status != null
-    ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft')
-    : row.status;
+  const image =
+    data.image_url != null || data.image != null
+      ? String(data.image_url != null ? data.image_url : data.image)
+      : row.image_url;
+  const status =
+    data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : row.status;
   const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE testimonials SET quote=?, author_name=?, author_title=?, author_company=?,
       rating=?, image_url=?, status=?, sort_order=?, updated_at=datetime('now')
     WHERE id=? AND lead_id=?
-  `).run(quote, authorName, authorTitle, authorCompany, rating, image, status, sortOrder, row.id, Number(leadId));
+  `
+  ).run(quote, authorName, authorTitle, authorCompany, rating, image, status, sortOrder, row.id, Number(leadId));
   return getTestimonial(db, leadId, row.id);
 }
 
@@ -3359,23 +3516,27 @@ function createTeamMember(db, leadId, data = {}) {
   let slug = slugify(data.slug || name, 'member');
   const exists = db.prepare('SELECT id FROM team_members WHERE lead_id = ? AND slug = ?').get(Number(leadId), slug);
   if (exists) slug = `${slug}-${Date.now().toString(36).slice(-4)}`;
-  const info = db.prepare(`
+  const info = db
+    .prepare(
+      `
     INSERT INTO team_members
       (lead_id, name, slug, role_title, bio, image_url, email, phone, social_url, status, sort_order)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    Number(leadId),
-    name.slice(0, 200),
-    slug,
-    String(data.role_title || data.role || data.title || '').slice(0, 160),
-    String(data.bio || data.description || ''),
-    String(data.image_url || data.image || ''),
-    String(data.email || ''),
-    String(data.phone || ''),
-    String(data.social_url || data.link || data.url || ''),
-    status,
-    Number(data.sort_order) || 0
-  );
+  `
+    )
+    .run(
+      Number(leadId),
+      name.slice(0, 200),
+      slug,
+      String(data.role_title || data.role || data.title || '').slice(0, 160),
+      String(data.bio || data.description || ''),
+      String(data.image_url || data.image || ''),
+      String(data.email || ''),
+      String(data.phone || ''),
+      String(data.social_url || data.link || data.url || ''),
+      status,
+      Number(data.sort_order) || 0
+    );
   return getTeamMember(db, leadId, info.lastInsertRowid);
 }
 
@@ -3387,34 +3548,37 @@ function updateTeamMember(db, leadId, id, data = {}) {
   let slug = row.slug;
   if (data.slug != null) {
     slug = slugify(data.slug, 'member');
-    const clash = db.prepare(
-      'SELECT id FROM team_members WHERE lead_id = ? AND slug = ? AND id != ?'
-    ).get(Number(leadId), slug, row.id);
+    const clash = db
+      .prepare('SELECT id FROM team_members WHERE lead_id = ? AND slug = ? AND id != ?')
+      .get(Number(leadId), slug, row.id);
     if (clash) throw fail('VALIDATION', 'slug already in use');
   }
-  const role = data.role_title != null || data.role != null || data.title != null
-    ? String(data.role_title != null ? data.role_title : (data.role != null ? data.role : data.title)).slice(0, 160)
-    : row.role_title;
-  const bio = data.bio != null || data.description != null
-    ? String(data.bio != null ? data.bio : data.description)
-    : row.bio;
-  const image = data.image_url != null || data.image != null
-    ? String(data.image_url != null ? data.image_url : data.image)
-    : row.image_url;
+  const role =
+    data.role_title != null || data.role != null || data.title != null
+      ? String(data.role_title != null ? data.role_title : data.role != null ? data.role : data.title).slice(0, 160)
+      : row.role_title;
+  const bio =
+    data.bio != null || data.description != null ? String(data.bio != null ? data.bio : data.description) : row.bio;
+  const image =
+    data.image_url != null || data.image != null
+      ? String(data.image_url != null ? data.image_url : data.image)
+      : row.image_url;
   const email = data.email != null ? String(data.email) : row.email;
   const phone = data.phone != null ? String(data.phone) : row.phone;
-  const social = data.social_url != null || data.link != null || data.url != null
-    ? String(data.social_url != null ? data.social_url : (data.link != null ? data.link : data.url))
-    : row.social_url;
-  const status = data.status != null
-    ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft')
-    : row.status;
+  const social =
+    data.social_url != null || data.link != null || data.url != null
+      ? String(data.social_url != null ? data.social_url : data.link != null ? data.link : data.url)
+      : row.social_url;
+  const status =
+    data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : row.status;
   const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE team_members SET name=?, slug=?, role_title=?, bio=?, image_url=?, email=?,
       phone=?, social_url=?, status=?, sort_order=?, updated_at=datetime('now')
     WHERE id=? AND lead_id=?
-  `).run(name, slug, role, bio, image, email, phone, social, status, sortOrder, row.id, Number(leadId));
+  `
+  ).run(name, slug, role, bio, image, email, phone, social, status, sortOrder, row.id, Number(leadId));
   return getTeamMember(db, leadId, row.id);
 }
 
@@ -3432,7 +3596,7 @@ function listEvents(db, leadId, { includeDrafts = true } = {}) {
   ensureTables(db);
   let sql = 'SELECT * FROM events WHERE lead_id = ?';
   if (!includeDrafts) sql += " AND status = 'published'";
-  sql += ' ORDER BY CASE WHEN starts_at = \'\' THEN 1 ELSE 0 END, starts_at ASC, sort_order ASC, id DESC';
+  sql += " ORDER BY CASE WHEN starts_at = '' THEN 1 ELSE 0 END, starts_at ASC, sort_order ASC, id DESC";
   return db.prepare(sql).all(Number(leadId));
 }
 
@@ -3453,23 +3617,27 @@ function createEvent(db, leadId, data = {}) {
   let slug = slugify(data.slug || title, 'event');
   const exists = db.prepare('SELECT id FROM events WHERE lead_id = ? AND slug = ?').get(Number(leadId), slug);
   if (exists) slug = `${slug}-${Date.now().toString(36).slice(-4)}`;
-  const info = db.prepare(`
+  const info = db
+    .prepare(
+      `
     INSERT INTO events
       (lead_id, title, slug, description, starts_at, ends_at, location, image_url, ticket_url, status, sort_order)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    Number(leadId),
-    title.slice(0, 200),
-    slug,
-    String(data.description || data.body || ''),
-    String(data.starts_at || data.start || data.date || ''),
-    String(data.ends_at || data.end || ''),
-    String(data.location || data.venue || '').slice(0, 240),
-    String(data.image_url || data.image || ''),
-    String(data.ticket_url || data.link || data.url || ''),
-    status,
-    Number(data.sort_order) || 0
-  );
+  `
+    )
+    .run(
+      Number(leadId),
+      title.slice(0, 200),
+      slug,
+      String(data.description || data.body || ''),
+      String(data.starts_at || data.start || data.date || ''),
+      String(data.ends_at || data.end || ''),
+      String(data.location || data.venue || '').slice(0, 240),
+      String(data.image_url || data.image || ''),
+      String(data.ticket_url || data.link || data.url || ''),
+      status,
+      Number(data.sort_order) || 0
+    );
   return getEvent(db, leadId, info.lastInsertRowid);
 }
 
@@ -3477,44 +3645,52 @@ function updateEvent(db, leadId, id, data = {}) {
   ensureTables(db);
   const row = getEvent(db, leadId, id);
   if (!row) throw fail('NOT_FOUND', 'Event not found', 404);
-  const title = data.title != null || data.name != null
-    ? String(data.title != null ? data.title : data.name).trim().slice(0, 200)
-    : row.title;
+  const title =
+    data.title != null || data.name != null
+      ? String(data.title != null ? data.title : data.name)
+          .trim()
+          .slice(0, 200)
+      : row.title;
   let slug = row.slug;
   if (data.slug != null) {
     slug = slugify(data.slug, 'event');
-    const clash = db.prepare(
-      'SELECT id FROM events WHERE lead_id = ? AND slug = ? AND id != ?'
-    ).get(Number(leadId), slug, row.id);
+    const clash = db
+      .prepare('SELECT id FROM events WHERE lead_id = ? AND slug = ? AND id != ?')
+      .get(Number(leadId), slug, row.id);
     if (clash) throw fail('VALIDATION', 'slug already in use');
   }
-  const description = data.description != null || data.body != null
-    ? String(data.description != null ? data.description : data.body)
-    : row.description;
-  const starts = data.starts_at != null || data.start != null || data.date != null
-    ? String(data.starts_at != null ? data.starts_at : (data.start != null ? data.start : data.date))
-    : row.starts_at;
-  const ends = data.ends_at != null || data.end != null
-    ? String(data.ends_at != null ? data.ends_at : data.end)
-    : row.ends_at;
-  const location = data.location != null || data.venue != null
-    ? String(data.location != null ? data.location : data.venue).slice(0, 240)
-    : row.location;
-  const image = data.image_url != null || data.image != null
-    ? String(data.image_url != null ? data.image_url : data.image)
-    : row.image_url;
-  const ticket = data.ticket_url != null || data.link != null || data.url != null
-    ? String(data.ticket_url != null ? data.ticket_url : (data.link != null ? data.link : data.url))
-    : row.ticket_url;
-  const status = data.status != null
-    ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft')
-    : row.status;
+  const description =
+    data.description != null || data.body != null
+      ? String(data.description != null ? data.description : data.body)
+      : row.description;
+  const starts =
+    data.starts_at != null || data.start != null || data.date != null
+      ? String(data.starts_at != null ? data.starts_at : data.start != null ? data.start : data.date)
+      : row.starts_at;
+  const ends =
+    data.ends_at != null || data.end != null ? String(data.ends_at != null ? data.ends_at : data.end) : row.ends_at;
+  const location =
+    data.location != null || data.venue != null
+      ? String(data.location != null ? data.location : data.venue).slice(0, 240)
+      : row.location;
+  const image =
+    data.image_url != null || data.image != null
+      ? String(data.image_url != null ? data.image_url : data.image)
+      : row.image_url;
+  const ticket =
+    data.ticket_url != null || data.link != null || data.url != null
+      ? String(data.ticket_url != null ? data.ticket_url : data.link != null ? data.link : data.url)
+      : row.ticket_url;
+  const status =
+    data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : row.status;
   const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE events SET title=?, slug=?, description=?, starts_at=?, ends_at=?, location=?,
       image_url=?, ticket_url=?, status=?, sort_order=?, updated_at=datetime('now')
     WHERE id=? AND lead_id=?
-  `).run(title, slug, description, starts, ends, location, image, ticket, status, sortOrder, row.id, Number(leadId));
+  `
+  ).run(title, slug, description, starts, ends, location, image, ticket, status, sortOrder, row.id, Number(leadId));
   return getEvent(db, leadId, row.id);
 }
 
@@ -3529,7 +3705,9 @@ function deleteEvent(db, leadId, id) {
 /* ── Bookings (services + hours + calendar slots) ── */
 
 function parseHm(s) {
-  const m = String(s || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+  const m = String(s || '')
+    .trim()
+    .match(/^(\d{1,2}):(\d{2})$/);
   if (!m) return null;
   const h = Number(m[1]);
   const min = Number(m[2]);
@@ -3548,7 +3726,9 @@ function ymdFromDate(d) {
 }
 
 function parseYmd(s) {
-  const m = String(s || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const m = String(s || '')
+    .trim()
+    .match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return null;
   const y = Number(m[1]);
   const mo = Number(m[2]);
@@ -3572,9 +3752,11 @@ function getBookingSettings(db, leadId) {
   ensureTables(db);
   let row = db.prepare('SELECT * FROM booking_settings WHERE lead_id = ?').get(Number(leadId));
   if (!row) {
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO booking_settings (lead_id) VALUES (?)
-    `).run(Number(leadId));
+    `
+    ).run(Number(leadId));
     row = db.prepare('SELECT * FROM booking_settings WHERE lead_id = ?').get(Number(leadId));
   }
   return {
@@ -3603,18 +3785,20 @@ function updateBookingSettings(db, leadId, data = {}) {
   if (!Number.isFinite(ahead) || ahead < 1) ahead = 1;
   if (ahead > 365) ahead = 365;
   const auto = data.auto_confirm != null ? (data.auto_confirm ? 1 : 0) : cur.auto_confirm;
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE booking_settings SET timezone=?, slot_interval_minutes=?, min_notice_hours=?,
       max_days_ahead=?, auto_confirm=?, updated_at=datetime('now') WHERE lead_id=?
-  `).run(timezone, interval, notice, ahead, auto, Number(leadId));
+  `
+  ).run(timezone, interval, notice, ahead, auto, Number(leadId));
   return getBookingSettings(db, leadId);
 }
 
 function listBookingHours(db, leadId) {
   ensureTables(db);
-  const rows = db.prepare(
-    'SELECT * FROM booking_hours WHERE lead_id = ? ORDER BY weekday ASC, start_time ASC'
-  ).all(Number(leadId));
+  const rows = db
+    .prepare('SELECT * FROM booking_hours WHERE lead_id = ? ORDER BY weekday ASC, start_time ASC')
+    .all(Number(leadId));
   return rows;
 }
 
@@ -3622,9 +3806,7 @@ function ensureDefaultBookingHours(db, leadId) {
   ensureTables(db);
   const existing = listBookingHours(db, leadId);
   if (existing.length) return existing;
-  const insert = db.prepare(
-    'INSERT INTO booking_hours (lead_id, weekday, start_time, end_time) VALUES (?, ?, ?, ?)'
-  );
+  const insert = db.prepare('INSERT INTO booking_hours (lead_id, weekday, start_time, end_time) VALUES (?, ?, ?, ?)');
   const tx = db.transaction(() => {
     for (const h of DEFAULT_BOOKING_HOURS) {
       insert.run(Number(leadId), h.weekday, h.start_time, h.end_time);
@@ -3652,9 +3834,7 @@ function setBookingHours(db, leadId, hours) {
     cleaned.push({ weekday, start_time: formatHm(start), end_time: formatHm(end) });
   }
   const del = db.prepare('DELETE FROM booking_hours WHERE lead_id = ?');
-  const insert = db.prepare(
-    'INSERT INTO booking_hours (lead_id, weekday, start_time, end_time) VALUES (?, ?, ?, ?)'
-  );
+  const insert = db.prepare('INSERT INTO booking_hours (lead_id, weekday, start_time, end_time) VALUES (?, ?, ?, ?)');
   const tx = db.transaction(() => {
     del.run(Number(leadId));
     for (const h of cleaned) insert.run(Number(leadId), h.weekday, h.start_time, h.end_time);
@@ -3690,24 +3870,20 @@ function createBookingBlock(db, leadId, data = {}) {
       throw fail('VALIDATION', 'Partial blocks need valid start_time and end_time');
     }
   }
-  const info = db.prepare(`
+  const info = db
+    .prepare(
+      `
     INSERT INTO booking_blocks (lead_id, block_date, start_time, end_time, reason)
     VALUES (?, ?, ?, ?, ?)
-  `).run(
-    Number(leadId),
-    date,
-    start,
-    end,
-    String(data.reason || '').slice(0, 240)
-  );
+  `
+    )
+    .run(Number(leadId), date, start, end, String(data.reason || '').slice(0, 240));
   return db.prepare('SELECT * FROM booking_blocks WHERE id = ?').get(info.lastInsertRowid);
 }
 
 function deleteBookingBlock(db, leadId, id) {
   ensureTables(db);
-  const row = db.prepare(
-    'SELECT * FROM booking_blocks WHERE id = ? AND lead_id = ?'
-  ).get(Number(id), Number(leadId));
+  const row = db.prepare('SELECT * FROM booking_blocks WHERE id = ? AND lead_id = ?').get(Number(id), Number(leadId));
   if (!row) throw fail('NOT_FOUND', 'Block not found', 404);
   db.prepare('DELETE FROM booking_blocks WHERE id = ?').run(row.id);
   return { deleted: true, id: row.id };
@@ -3752,40 +3928,48 @@ function createBookingService(db, leadId, data = {}) {
   let priceCents = 0;
   if (data.price_cents != null) priceCents = Math.round(Number(data.price_cents)) || 0;
   else if (data.price != null) priceCents = Math.round(Number(data.price) * 100) || 0;
-  const info = db.prepare(`
+  const info = db
+    .prepare(
+      `
     INSERT INTO booking_services
       (lead_id, name, slug, description, duration_minutes, buffer_minutes, price_cents, currency, image_url, status, sort_order)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    Number(leadId),
-    name.slice(0, 200),
-    slug,
-    String(data.description || ''),
-    duration,
-    buffer,
-    priceCents,
-    String(data.currency || 'USD').slice(0, 8).toUpperCase(),
-    String(data.image_url || data.image || ''),
-    status,
-    Number(data.sort_order) || 0
-  );
+  `
+    )
+    .run(
+      Number(leadId),
+      name.slice(0, 200),
+      slug,
+      String(data.description || ''),
+      duration,
+      buffer,
+      priceCents,
+      String(data.currency || 'USD')
+        .slice(0, 8)
+        .toUpperCase(),
+      String(data.image_url || data.image || ''),
+      status,
+      Number(data.sort_order) || 0
+    );
   return getBookingService(db, leadId, info.lastInsertRowid);
 }
 
 function updateBookingService(db, leadId, id, data = {}) {
   ensureTables(db);
-  const raw = db.prepare('SELECT * FROM booking_services WHERE lead_id = ? AND id = ?')
-    .get(Number(leadId), Number(id));
+  const raw = db.prepare('SELECT * FROM booking_services WHERE lead_id = ? AND id = ?').get(Number(leadId), Number(id));
   if (!raw) throw fail('NOT_FOUND', 'Service not found', 404);
-  const name = data.name != null || data.title != null
-    ? String(data.name != null ? data.name : data.title).trim().slice(0, 200)
-    : raw.name;
+  const name =
+    data.name != null || data.title != null
+      ? String(data.name != null ? data.name : data.title)
+          .trim()
+          .slice(0, 200)
+      : raw.name;
   let slug = raw.slug;
   if (data.slug != null) {
     slug = slugify(data.slug, 'service');
-    const clash = db.prepare(
-      'SELECT id FROM booking_services WHERE lead_id = ? AND slug = ? AND id != ?'
-    ).get(Number(leadId), slug, raw.id);
+    const clash = db
+      .prepare('SELECT id FROM booking_services WHERE lead_id = ? AND slug = ? AND id != ?')
+      .get(Number(leadId), slug, raw.id);
     if (clash) throw fail('VALIDATION', 'slug already in use');
   }
   const description = data.description != null ? String(data.description) : raw.description;
@@ -3804,36 +3988,50 @@ function updateBookingService(db, leadId, id, data = {}) {
   let priceCents = raw.price_cents;
   if (data.price_cents != null) priceCents = Math.round(Number(data.price_cents)) || 0;
   else if (data.price != null) priceCents = Math.round(Number(data.price) * 100) || 0;
-  const currency = data.currency != null
-    ? String(data.currency).slice(0, 8).toUpperCase()
-    : raw.currency;
-  const image = data.image_url != null || data.image != null
-    ? String(data.image_url != null ? data.image_url : data.image)
-    : raw.image_url;
-  const status = data.status != null
-    ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft')
-    : raw.status;
+  const currency = data.currency != null ? String(data.currency).slice(0, 8).toUpperCase() : raw.currency;
+  const image =
+    data.image_url != null || data.image != null
+      ? String(data.image_url != null ? data.image_url : data.image)
+      : raw.image_url;
+  const status =
+    data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : raw.status;
   const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : raw.sort_order;
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE booking_services SET name=?, slug=?, description=?, duration_minutes=?, buffer_minutes=?,
       price_cents=?, currency=?, image_url=?, status=?, sort_order=?, updated_at=datetime('now')
     WHERE id=? AND lead_id=?
-  `).run(name, slug, description, duration, buffer, priceCents, currency, image, status, sortOrder, raw.id, Number(leadId));
+  `
+  ).run(
+    name,
+    slug,
+    description,
+    duration,
+    buffer,
+    priceCents,
+    currency,
+    image,
+    status,
+    sortOrder,
+    raw.id,
+    Number(leadId)
+  );
   return getBookingService(db, leadId, raw.id);
 }
 
 function deleteBookingService(db, leadId, id) {
   ensureTables(db);
-  const row = db.prepare('SELECT * FROM booking_services WHERE lead_id = ? AND id = ?')
-    .get(Number(leadId), Number(id));
+  const row = db.prepare('SELECT * FROM booking_services WHERE lead_id = ? AND id = ?').get(Number(leadId), Number(id));
   if (!row) throw fail('NOT_FOUND', 'Service not found', 404);
   db.prepare('DELETE FROM booking_services WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
   return { deleted: true, id: row.id };
 }
 
-function listAppointments(db, leadId, {
-  status, from, to, limit = 200, includeArchived = false, archivedOnly = false,
-} = {}) {
+function listAppointments(
+  db,
+  leadId,
+  { status, from, to, limit = 200, includeArchived = false, archivedOnly = false } = {}
+) {
   ensureTables(db);
   let sql = `
     SELECT b.*, s.name AS service_name, s.duration_minutes AS service_duration
@@ -3866,12 +4064,16 @@ function listAppointments(db, leadId, {
 
 function getAppointment(db, leadId, id) {
   ensureTables(db);
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT b.*, s.name AS service_name, s.duration_minutes AS service_duration
     FROM bookings b
     LEFT JOIN booking_services s ON s.id = b.service_id
     WHERE b.lead_id = ? AND b.id = ?
-  `).get(Number(leadId), Number(id));
+  `
+    )
+    .get(Number(leadId), Number(id));
 }
 
 function updateAppointmentStatus(db, leadId, id, status) {
@@ -3882,9 +4084,11 @@ function updateAppointmentStatus(db, leadId, id, status) {
   if (!BOOKING_STATUSES.includes(st)) {
     throw fail('VALIDATION', `status must be one of: ${BOOKING_STATUSES.join(', ')}`);
   }
-  db.prepare(
-    "UPDATE bookings SET status = ?, updated_at = datetime('now') WHERE id = ? AND lead_id = ?"
-  ).run(st, row.id, Number(leadId));
+  db.prepare("UPDATE bookings SET status = ?, updated_at = datetime('now') WHERE id = ? AND lead_id = ?").run(
+    st,
+    row.id,
+    Number(leadId)
+  );
   return getAppointment(db, leadId, row.id);
 }
 
@@ -3897,18 +4101,16 @@ function setAppointmentArchived(db, leadId, id, archived = true) {
   const want = archived === true || archived === 1 || String(archived).toLowerCase() === 'true';
   if (want) {
     if (!ARCHIVABLE_STATUSES.includes(String(row.status || '').toLowerCase())) {
-      throw fail(
-        'VALIDATION',
-        `Only ${ARCHIVABLE_STATUSES.join(' or ')} appointments can be archived`
-      );
+      throw fail('VALIDATION', `Only ${ARCHIVABLE_STATUSES.join(' or ')} appointments can be archived`);
     }
     db.prepare(
       "UPDATE bookings SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND lead_id = ?"
     ).run(row.id, Number(leadId));
   } else {
-    db.prepare(
-      'UPDATE bookings SET archived_at = NULL, updated_at = datetime(\'now\') WHERE id = ? AND lead_id = ?'
-    ).run(row.id, Number(leadId));
+    db.prepare("UPDATE bookings SET archived_at = NULL, updated_at = datetime('now') WHERE id = ? AND lead_id = ?").run(
+      row.id,
+      Number(leadId)
+    );
   }
   return getAppointment(db, leadId, row.id);
 }
@@ -3978,14 +4180,21 @@ function listAvailableSlots(db, leadId, { date, serviceId, serviceSlug } = {}) {
       const startIso = `${ymd}T${startLabel}:00`;
       const endIso = `${ymd}T${endLabel}:00`;
       const startMs = new Date(
-        day.getFullYear(), day.getMonth(), day.getDate(),
-        Math.floor(t / 60), t % 60, 0
+        day.getFullYear(),
+        day.getMonth(),
+        day.getDate(),
+        Math.floor(t / 60),
+        t % 60,
+        0
       ).getTime();
       if (startMs < earliest) continue;
 
       let blocked = false;
       for (const bl of blocks) {
-        if (!bl.start_time && !bl.end_time) { blocked = true; break; }
+        if (!bl.start_time && !bl.end_time) {
+          blocked = true;
+          break;
+        }
         const bs = parseHm(bl.start_time);
         const be = parseHm(bl.end_time);
         if (bs != null && be != null && rangesOverlap(t, t + duration, bs, be)) {
@@ -4061,21 +4270,25 @@ function createPublicBooking(db, leadId, data = {}) {
   if (!okSlot) throw fail('VALIDATION', 'That time slot is no longer available', 409);
 
   const status = settings.auto_confirm ? 'confirmed' : 'pending';
-  const info = db.prepare(`
+  const info = db
+    .prepare(
+      `
     INSERT INTO bookings
       (lead_id, service_id, customer_name, customer_email, customer_phone, starts_at, ends_at, notes, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    Number(leadId),
-    service.id,
-    name.slice(0, 200),
-    email.slice(0, 240),
-    phone.slice(0, 60),
-    `${date}T${time}:00`,
-    endsAt,
-    String(data.notes || '').slice(0, 2000),
-    status
-  );
+  `
+    )
+    .run(
+      Number(leadId),
+      service.id,
+      name.slice(0, 200),
+      email.slice(0, 240),
+      phone.slice(0, 60),
+      `${date}T${time}:00`,
+      endsAt,
+      String(data.notes || '').slice(0, 2000),
+      status
+    );
   const appt = getAppointment(db, leadId, info.lastInsertRowid);
   try {
     const portalContacts = require('./portalContacts');
@@ -4105,26 +4318,28 @@ function createAppointment(db, leadId, data = {}) {
   const m = startsAt.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
   if (!m) throw fail('VALIDATION', 'starts_at must be YYYY-MM-DDTHH:MM');
   const duration = Number(service.duration_minutes) || 30;
-  const endsAt = data.ends_at
-    ? String(data.ends_at)
-    : `${m[1]}T${formatHm(parseHm(m[2]) + duration)}:00`;
+  const endsAt = data.ends_at ? String(data.ends_at) : `${m[1]}T${formatHm(parseHm(m[2]) + duration)}:00`;
   let status = String(data.status || 'confirmed').toLowerCase();
   if (!BOOKING_STATUSES.includes(status)) status = 'confirmed';
-  const info = db.prepare(`
+  const info = db
+    .prepare(
+      `
     INSERT INTO bookings
       (lead_id, service_id, customer_name, customer_email, customer_phone, starts_at, ends_at, notes, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    Number(leadId),
-    service.id,
-    name.slice(0, 200),
-    String(data.customer_email || data.email || '').slice(0, 240),
-    String(data.customer_phone || data.phone || '').slice(0, 60),
-    `${m[1]}T${m[2]}:00`,
-    endsAt,
-    String(data.notes || '').slice(0, 2000),
-    status
-  );
+  `
+    )
+    .run(
+      Number(leadId),
+      service.id,
+      name.slice(0, 200),
+      String(data.customer_email || data.email || '').slice(0, 240),
+      String(data.customer_phone || data.phone || '').slice(0, 60),
+      `${m[1]}T${m[2]}:00`,
+      endsAt,
+      String(data.notes || '').slice(0, 2000),
+      status
+    );
   const appt = getAppointment(db, leadId, info.lastInsertRowid);
   try {
     const portalContacts = require('./portalContacts');
@@ -4161,13 +4376,17 @@ function moduleItemCount(db, leadId, type) {
   if (type === 'bookings') {
     // Nav badge: active appointments only (exclude archived).
     ensureTables(db);
-    const row = db.prepare(
-      'SELECT COUNT(*) AS c FROM bookings WHERE lead_id = ? AND archived_at IS NULL'
-    ).get(Number(leadId));
+    const row = db
+      .prepare('SELECT COUNT(*) AS c FROM bookings WHERE lead_id = ? AND archived_at IS NULL')
+      .get(Number(leadId));
     return Number(row && row.c) || 0;
   }
   if (type === 'chatbot') {
-    try { return require('./chatbot').listKnowledge(db, leadId).length; } catch { return 0; }
+    try {
+      return require('./chatbot').listKnowledge(db, leadId).length;
+    } catch {
+      return 0;
+    }
   }
   return 0;
 }
@@ -4176,9 +4395,9 @@ function moduleItemCount(db, leadId, type) {
 
 function getPublicModuleByToken(db, token) {
   ensureTables(db);
-  const row = db.prepare(
-    'SELECT * FROM site_module_embeds WHERE public_token = ? AND published = 1'
-  ).get(String(token || ''));
+  const row = db
+    .prepare('SELECT * FROM site_module_embeds WHERE public_token = ? AND published = 1')
+    .get(String(token || ''));
   if (!row) throw fail('NOT_FOUND', 'Module not found', 404);
   const leadId = row.lead_id;
   const type = row.module_type;
@@ -4251,7 +4470,12 @@ function getPublicModuleItem(db, token, slugOrId) {
   if (type === 'blog') item = getBlogPost(db, leadId, slugOrId);
   else if (type === 'ecommerce') {
     item = getProduct(db, leadId, slugOrId);
-    if (item) item = { ...item, price_label: formatPrice(item.price_cents, item.currency), stripe_checkout: require('./shopStripe').isConfigured(db) && !item.checkout_url };
+    if (item)
+      item = {
+        ...item,
+        price_label: formatPrice(item.price_cents, item.currency),
+        stripe_checkout: require('./shopStripe').isConfigured(db) && !item.checkout_url,
+      };
   } else if (type === 'courses') item = getCourse(db, leadId, slugOrId);
   else if (type === 'gallery') item = getAlbum(db, leadId, slugOrId);
   else if (type === 'directory') item = getListing(db, leadId, slugOrId);
@@ -4268,9 +4492,9 @@ function getPublicModuleItem(db, token, slugOrId) {
 
 function getPublicBookingSlots(db, token, { date, serviceId, serviceSlug } = {}) {
   ensureTables(db);
-  const row = db.prepare(
-    'SELECT * FROM site_module_embeds WHERE public_token = ? AND published = 1'
-  ).get(String(token || ''));
+  const row = db
+    .prepare('SELECT * FROM site_module_embeds WHERE public_token = ? AND published = 1')
+    .get(String(token || ''));
   if (!row || row.module_type !== 'bookings') {
     throw fail('NOT_FOUND', 'Bookings module not found', 404);
   }
@@ -4284,9 +4508,9 @@ function getPublicBookingSlots(db, token, { date, serviceId, serviceSlug } = {})
 
 function createPublicBookingByToken(db, token, data = {}) {
   ensureTables(db);
-  const row = db.prepare(
-    'SELECT * FROM site_module_embeds WHERE public_token = ? AND published = 1'
-  ).get(String(token || ''));
+  const row = db
+    .prepare('SELECT * FROM site_module_embeds WHERE public_token = ? AND published = 1')
+    .get(String(token || ''));
   if (!row || row.module_type !== 'bookings') {
     throw fail('NOT_FOUND', 'Bookings module not found', 404);
   }
@@ -4302,9 +4526,10 @@ function createPublicBookingByToken(db, token, data = {}) {
       status: appointment.status,
       customer_name: appointment.customer_name,
     },
-    message: appointment.status === 'confirmed'
-      ? 'Your appointment is confirmed.'
-      : 'Request received — we will confirm your appointment soon.',
+    message:
+      appointment.status === 'confirmed'
+        ? 'Your appointment is confirmed.'
+        : 'Request received — we will confirm your appointment soon.',
   };
 }
 

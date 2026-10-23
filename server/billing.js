@@ -131,7 +131,9 @@ async function effectivePlan(workspaceId, opts = {}) {
   if (opts.userId != null && Number(opts.userId) > 0) {
     user = await getUserBilling(opts.userId);
   } else if (opts.email) {
-    const email = String(opts.email || '').trim().toLowerCase();
+    const email = String(opts.email || '')
+      .trim()
+      .toLowerCase();
     if (email) {
       const rows = await query(
         `SELECT id, email, name, status, is_super_admin,
@@ -153,19 +155,16 @@ async function claimStripeEvent(event) {
   const id = String(event.id);
   const type = String(event.type || '');
   try {
-    await query(
-      `INSERT INTO stripe_events (event_id, type) VALUES (:id, :type)`,
-      { id, type }
-    );
+    await query(`INSERT INTO stripe_events (event_id, type) VALUES (:id, :type)`, { id, type });
     return true;
   } catch (e) {
-    const msg = String(e && e.message || e);
+    const msg = String((e && e.message) || e);
     const code = e && (e.code || e.errno);
     if (
-      code === 'ER_DUP_ENTRY'
-      || code === 'SQLITE_CONSTRAINT_UNIQUE'
-      || code === 'SQLITE_CONSTRAINT'
-      || /Duplicate entry|UNIQUE constraint/i.test(msg)
+      code === 'ER_DUP_ENTRY' ||
+      code === 'SQLITE_CONSTRAINT_UNIQUE' ||
+      code === 'SQLITE_CONSTRAINT' ||
+      /Duplicate entry|UNIQUE constraint/i.test(msg)
     ) {
       return false;
     }
@@ -214,9 +213,7 @@ async function ensureCustomer(user) {
   if (!existingId && user.email) {
     try {
       const listed = await stripe.customers.list({ email: user.email, limit: 10 });
-      const match = (listed.data || []).find(
-        (c) => c.metadata && String(c.metadata.user_id) === String(user.id)
-      );
+      const match = (listed.data || []).find((c) => c.metadata && String(c.metadata.user_id) === String(user.id));
       if (match) existingId = match.id;
     } catch (e) {
       console.warn('[billing] customers.list failed; will create a new customer:', e.message);
@@ -260,17 +257,15 @@ async function createCheckoutSession(userId, planId = PLAN_STANDARD, opts = {}) 
     throw Object.assign(new Error('Choose Standard or Premium to subscribe'), { code: 'INVALID_PLAN' });
   }
   if (isSubscribed(user) && user.stripe_subscription_id && !opts.forceCheckout) {
-    throw Object.assign(
-      new Error('You already have an active subscription — use change-plan to switch'),
-      { code: 'ALREADY_SUBSCRIBED' }
-    );
+    throw Object.assign(new Error('You already have an active subscription — use change-plan to switch'), {
+      code: 'ALREADY_SUBSCRIBED',
+    });
   }
-  const priceId = String(await getPriceIdForPlan(plan) || '').trim();
+  const priceId = String((await getPriceIdForPlan(plan)) || '').trim();
   if (!priceId) {
-    throw Object.assign(
-      new Error(`No Stripe price configured for ${plan} (stripe.price_id_${plan})`),
-      { code: 'PRICE_NOT_CONFIGURED' }
-    );
+    throw Object.assign(new Error(`No Stripe price configured for ${plan} (stripe.price_id_${plan})`), {
+      code: 'PRICE_NOT_CONFIGURED',
+    });
   }
   const stripe = await getStripe();
   // Never open a second Checkout while Stripe still reports an active subscription.
@@ -278,10 +273,9 @@ async function createCheckoutSession(userId, planId = PLAN_STANDARD, opts = {}) 
     try {
       const existingSub = await stripe.subscriptions.retrieve(user.stripe_subscription_id);
       if (ACTIVE_STATUSES.has(String(existingSub.status || ''))) {
-        throw Object.assign(
-          new Error('Active subscription exists — use Billing Portal or change-plan'),
-          { code: 'ALREADY_SUBSCRIBED' }
-        );
+        throw Object.assign(new Error('Active subscription exists — use Billing Portal or change-plan'), {
+          code: 'ALREADY_SUBSCRIBED',
+        });
       }
     } catch (e) {
       if (e.code === 'ALREADY_SUBSCRIBED') throw e;
@@ -289,8 +283,7 @@ async function createCheckoutSession(userId, planId = PLAN_STANDARD, opts = {}) 
     }
   }
   const customerId = await ensureCustomer(user);
-  const successUrl = opts.successUrl
-    || staffUrl('billing', { checkout: 'success', plan });
+  const successUrl = opts.successUrl || staffUrl('billing', { checkout: 'success', plan });
   const cancelUrl = opts.cancelUrl || staffUrl('billing', { checkout: 'cancel' });
   const params = {
     mode: 'subscription',
@@ -305,7 +298,10 @@ async function createCheckoutSession(userId, planId = PLAN_STANDARD, opts = {}) 
     },
     // Omit payment_method_types — dynamic payment methods from Dashboard
   };
-  const trialDays = Math.max(0, Math.min(365, Number(await platform.getPlatformSetting('billing.trial_days', '0')) || 0));
+  const trialDays = Math.max(
+    0,
+    Math.min(365, Number(await platform.getPlatformSetting('billing.trial_days', '0')) || 0)
+  );
   if (trialDays > 0) params.subscription_data.trial_period_days = trialDays;
   let session;
   try {
@@ -371,7 +367,7 @@ async function scheduleCancelAtPeriodEnd(userId) {
   await syncSubscription(updated);
   const periodEnd = updated.current_period_end
     ? new Date(updated.current_period_end * 1000).toISOString()
-    : (user.current_period_end || null);
+    : user.current_period_end || null;
   return {
     action: 'cancel_at_period_end',
     plan: planOfUser(await getUserBilling(userId)),
@@ -415,7 +411,9 @@ async function changeSubscriptionPlan(userId, planId, opts = {}) {
     throw Object.assign(new Error('ACCOUNT_DISABLED'), { code: 'ACCOUNT_DISABLED' });
   }
   // Reject unknown ids before normalizePlanId (which maps unknowns → free).
-  const raw = String(planId || '').trim().toLowerCase();
+  const raw = String(planId || '')
+    .trim()
+    .toLowerCase();
   if (!raw || ![PLAN_FREE, PLAN_STANDARD, PLAN_PREMIUM].includes(raw)) {
     throw Object.assign(new Error('Choose Free, Standard, or Premium'), { code: 'INVALID_PLAN' });
   }
@@ -430,12 +428,11 @@ async function changeSubscriptionPlan(userId, planId, opts = {}) {
   // Upgrades / plan switches while past_due → Billing Portal for card update first.
   assertNotPastDue(user);
 
-  const priceId = String(await getPriceIdForPlan(plan) || '').trim();
+  const priceId = String((await getPriceIdForPlan(plan)) || '').trim();
   if (!priceId) {
-    throw Object.assign(
-      new Error(`No Stripe price configured for ${plan} (stripe.price_id_${plan})`),
-      { code: 'PRICE_NOT_CONFIGURED' }
-    );
+    throw Object.assign(new Error(`No Stripe price configured for ${plan} (stripe.price_id_${plan})`), {
+      code: 'PRICE_NOT_CONFIGURED',
+    });
   }
 
   if (!isSubscribed(user) || !user.stripe_subscription_id) {
@@ -515,9 +512,10 @@ async function changeSubscriptionPlan(userId, planId, opts = {}) {
     subscriptionId: updated.id,
     cancelAtPeriodEnd: false,
     currentPeriodEnd: fresh && fresh.current_period_end,
-    message: plan === PLAN_PREMIUM
-      ? 'Upgraded to Premium. Proration appears on your next invoice.'
-      : 'Switched to Standard. Proration appears on your next invoice.',
+    message:
+      plan === PLAN_PREMIUM
+        ? 'Upgraded to Premium. Proration appears on your next invoice.'
+        : 'Switched to Standard. Proration appears on your next invoice.',
   };
 }
 
@@ -539,7 +537,7 @@ async function userBelongsToWorkspace(userId, workspaceId) {
 
 async function resolveWorkspaceIdForUser(userId, preferredWorkspaceId) {
   const preferred = Number(preferredWorkspaceId || 0);
-  if (preferred > 0 && await userBelongsToWorkspace(userId, preferred)) return preferred;
+  if (preferred > 0 && (await userBelongsToWorkspace(userId, preferred))) return preferred;
   const rows = await query(
     `SELECT workspace_id FROM workspace_members
      WHERE user_id = :uid
@@ -571,18 +569,16 @@ async function createCreditsCheckoutSession(userId, workspaceId, opts = {}) {
 
   const cfg = await credits.packConfig();
   if (!cfg.priceId) {
-    throw Object.assign(
-      new Error('No credits Price ID configured (stripe.price_id_credits)'),
-      { code: 'PRICE_NOT_CONFIGURED' }
-    );
+    throw Object.assign(new Error('No credits Price ID configured (stripe.price_id_credits)'), {
+      code: 'PRICE_NOT_CONFIGURED',
+    });
   }
 
   const quantity = Math.min(20, Math.max(1, Math.floor(Number(opts.quantity) || 1)));
   const totalCredits = cfg.packAmount * quantity;
   const stripe = await getStripe();
   const customerId = await ensureCustomer(user);
-  const successUrl = opts.successUrl
-    || staffUrl('billing', { checkout: 'credits_success' });
+  const successUrl = opts.successUrl || staffUrl('billing', { checkout: 'credits_success' });
   const cancelUrl = opts.cancelUrl || staffUrl('billing', { checkout: 'cancel' });
 
   const params = {
@@ -634,9 +630,10 @@ async function createCreditsCheckoutSession(userId, workspaceId, opts = {}) {
 }
 
 async function resolvePlanFromSubscription(subscription) {
-  const priceId = subscription.items && subscription.items.data && subscription.items.data[0]
-    ? subscription.items.data[0].price.id
-    : null;
+  const priceId =
+    subscription.items && subscription.items.data && subscription.items.data[0]
+      ? subscription.items.data[0].price.id
+      : null;
   let plan = await planIdFromPriceId(priceId);
   if (!plan && subscription.metadata && subscription.metadata.plan) {
     const meta = normalizePlanId(subscription.metadata.plan);
@@ -650,26 +647,19 @@ async function resolvePlanFromSubscription(subscription) {
 
 async function syncSubscription(subscription) {
   if (!subscription || !subscription.id) return;
-  const userId = Number(
-    (subscription.metadata && subscription.metadata.user_id) || 0
-  );
+  const userId = Number((subscription.metadata && subscription.metadata.user_id) || 0);
   let uid = userId;
   if (!uid && subscription.customer) {
-    const rows = await query(
-      'SELECT id FROM users WHERE stripe_customer_id = :cid LIMIT 1',
-      { cid: String(subscription.customer) }
-    );
+    const rows = await query('SELECT id FROM users WHERE stripe_customer_id = :cid LIMIT 1', {
+      cid: String(subscription.customer),
+    });
     if (rows[0]) uid = rows[0].id;
   }
   if (!uid) return;
 
   const { plan, priceId } = await resolvePlanFromSubscription(subscription);
-  const periodEnd = subscription.current_period_end
-    ? new Date(subscription.current_period_end * 1000)
-    : null;
-  const periodEndSql = periodEnd
-    ? periodEnd.toISOString().slice(0, 19).replace('T', ' ')
-    : null;
+  const periodEnd = subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null;
+  const periodEndSql = periodEnd ? periodEnd.toISOString().slice(0, 19).replace('T', ' ') : null;
 
   const active = ACTIVE_STATUSES.has(String(subscription.status || ''));
   await query(
@@ -706,41 +696,31 @@ async function syncSubscription(subscription) {
 
 async function recordPaymentFromInvoice(invoice) {
   if (!invoice || !invoice.id) return null;
-  const existing = await query(
-    'SELECT id FROM payments WHERE stripe_invoice_id = :iid LIMIT 1',
-    { iid: invoice.id }
-  );
+  const existing = await query('SELECT id FROM payments WHERE stripe_invoice_id = :iid LIMIT 1', { iid: invoice.id });
   if (existing[0]) return existing[0].id;
 
   let userId = null;
   if (invoice.customer) {
-    const rows = await query(
-      'SELECT id FROM users WHERE stripe_customer_id = :cid LIMIT 1',
-      { cid: String(invoice.customer) }
-    );
+    const rows = await query('SELECT id FROM users WHERE stripe_customer_id = :cid LIMIT 1', {
+      cid: String(invoice.customer),
+    });
     if (rows[0]) userId = rows[0].id;
   }
   if (!userId && invoice.subscription_details && invoice.subscription_details.metadata) {
     userId = Number(invoice.subscription_details.metadata.user_id) || null;
   }
   if (!userId && invoice.subscription) {
-    const subId = typeof invoice.subscription === 'string'
-      ? invoice.subscription
-      : invoice.subscription.id;
-    const rows = await query(
-      'SELECT id FROM users WHERE stripe_subscription_id = :sid LIMIT 1',
-      { sid: subId }
-    );
+    const subId = typeof invoice.subscription === 'string' ? invoice.subscription : invoice.subscription.id;
+    const rows = await query('SELECT id FROM users WHERE stripe_subscription_id = :sid LIMIT 1', { sid: subId });
     if (rows[0]) userId = rows[0].id;
   }
 
   const amount = Number(invoice.amount_paid != null ? invoice.amount_paid : invoice.amount_due) || 0;
-  const pi = typeof invoice.payment_intent === 'string'
-    ? invoice.payment_intent
-    : (invoice.payment_intent && invoice.payment_intent.id) || null;
-  const charge = typeof invoice.charge === 'string'
-    ? invoice.charge
-    : (invoice.charge && invoice.charge.id) || null;
+  const pi =
+    typeof invoice.payment_intent === 'string'
+      ? invoice.payment_intent
+      : (invoice.payment_intent && invoice.payment_intent.id) || null;
+  const charge = typeof invoice.charge === 'string' ? invoice.charge : (invoice.charge && invoice.charge.id) || null;
 
   try {
     const result = await query(
@@ -756,7 +736,7 @@ async function recordPaymentFromInvoice(invoice) {
         charge,
         amount,
         currency: String(invoice.currency || 'usd').toLowerCase(),
-        status: invoice.status === 'paid' ? 'succeeded' : (invoice.status || 'open'),
+        status: invoice.status === 'paid' ? 'succeeded' : invoice.status || 'open',
         description: invoice.description || `Invoice ${invoice.number || invoice.id}`,
       }
     );
@@ -764,10 +744,7 @@ async function recordPaymentFromInvoice(invoice) {
   } catch (e) {
     // Concurrent invoice.paid webhooks — unique stripe_invoice_id.
     if (e.code === 'ER_DUP_ENTRY' || /unique|duplicate/i.test(String(e.message || ''))) {
-      const rows = await query(
-        'SELECT id FROM payments WHERE stripe_invoice_id = :iid LIMIT 1',
-        { iid: invoice.id }
-      );
+      const rows = await query('SELECT id FROM payments WHERE stripe_invoice_id = :iid LIMIT 1', { iid: invoice.id });
       return rows[0] ? rows[0].id : null;
     }
     throw e;
@@ -776,10 +753,7 @@ async function recordPaymentFromInvoice(invoice) {
 
 async function recordRefundFromCharge(charge, refund) {
   if (!refund || !refund.id) return null;
-  const existing = await query(
-    'SELECT id FROM refunds WHERE stripe_refund_id = :rid LIMIT 1',
-    { rid: refund.id }
-  );
+  const existing = await query('SELECT id FROM refunds WHERE stripe_refund_id = :rid LIMIT 1', { rid: refund.id });
   if (existing[0]) return existing[0].id;
 
   let paymentId = null;
@@ -809,10 +783,9 @@ async function recordRefundFromCharge(charge, refund) {
     }
   }
   if (!userId && charge && charge.customer) {
-    const rows = await query(
-      'SELECT id FROM users WHERE stripe_customer_id = :cid LIMIT 1',
-      { cid: String(charge.customer) }
-    );
+    const rows = await query('SELECT id FROM users WHERE stripe_customer_id = :cid LIMIT 1', {
+      cid: String(charge.customer),
+    });
     if (rows[0]) userId = rows[0].id;
   }
 
@@ -836,10 +809,7 @@ async function recordRefundFromCharge(charge, refund) {
     insertId = result.insertId || null;
   } catch (e) {
     if (e.code === 'ER_DUP_ENTRY' || /unique|duplicate/i.test(String(e.message || ''))) {
-      const rows = await query(
-        'SELECT id FROM refunds WHERE stripe_refund_id = :rid LIMIT 1',
-        { rid: refund.id }
-      );
+      const rows = await query('SELECT id FROM refunds WHERE stripe_refund_id = :rid LIMIT 1', { rid: refund.id });
       return rows[0] ? rows[0].id : null;
     }
     throw e;
@@ -847,18 +817,14 @@ async function recordRefundFromCharge(charge, refund) {
   if (paymentId && paymentRow) {
     const refundedCents = Number(refund.amount) || 0;
     const totalCents = Number(paymentRow.amount_cents) || 0;
-    const status = (totalCents > 0 && refundedCents > 0 && refundedCents < totalCents)
-      ? 'partially_refunded'
-      : 'refunded';
+    const status =
+      totalCents > 0 && refundedCents > 0 && refundedCents < totalCents ? 'partially_refunded' : 'refunded';
     await query(
-      'UPDATE payments SET status = :status WHERE id = :id AND status IN (\'succeeded\', \'partially_refunded\')',
+      "UPDATE payments SET status = :status WHERE id = :id AND status IN ('succeeded', 'partially_refunded')",
       { id: paymentId, status }
     );
   } else if (paymentId) {
-    await query(
-      "UPDATE payments SET status = 'refunded' WHERE id = :id AND status = 'succeeded'",
-      { id: paymentId }
-    );
+    await query("UPDATE payments SET status = 'refunded' WHERE id = :id AND status = 'succeeded'", { id: paymentId });
   }
 
   // Claw back credits for credit-pack purchases.
@@ -868,15 +834,20 @@ async function recordRefundFromCharge(charge, refund) {
       let checkoutSessionId = null;
       try {
         const stripe = await getStripe();
-        const pi = (paymentRow && paymentRow.stripe_payment_intent_id)
-          || (charge && charge.payment_intent
-            ? (typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent.id)
+        const pi =
+          (paymentRow && paymentRow.stripe_payment_intent_id) ||
+          (charge && charge.payment_intent
+            ? typeof charge.payment_intent === 'string'
+              ? charge.payment_intent
+              : charge.payment_intent.id
             : null);
         if (pi) {
           const sessions = await stripe.checkout.sessions.list({ payment_intent: pi, limit: 1 });
           if (sessions.data && sessions.data[0]) checkoutSessionId = sessions.data[0].id;
         }
-      } catch { /* optional */ }
+      } catch {
+        /* optional */
+      }
       await credits.clawbackFromRefund({
         checkoutSessionId,
         refundId: refund.id,
@@ -892,10 +863,9 @@ async function recordRefundFromCharge(charge, refund) {
 
 async function markSubscriptionAtRisk(customerId, reason) {
   if (!customerId) return;
-  const rows = await query(
-    'SELECT id, stripe_subscription_id FROM users WHERE stripe_customer_id = :cid LIMIT 1',
-    { cid: String(customerId) }
-  );
+  const rows = await query('SELECT id, stripe_subscription_id FROM users WHERE stripe_customer_id = :cid LIMIT 1', {
+    cid: String(customerId),
+  });
   if (!rows[0]) return;
   console.warn('[billing] risk event for customer', customerId, reason, 'user', rows[0].id);
   try {
@@ -921,7 +891,9 @@ async function fulfillCreditsCheckout(session) {
     try {
       const stripe = await getStripe();
       sess = await stripe.checkout.sessions.retrieve(session.id, { expand: ['line_items'] });
-    } catch { /* use metadata only */ }
+    } catch {
+      /* use metadata only */
+    }
   }
   await credits.grantFromCheckoutSession(sess);
 }
@@ -1012,7 +984,7 @@ async function dispatchWebhookEvent(event) {
   }
 
   if (type === 'radar.early_fraud_warning.created' && obj) {
-    const chargeId = typeof obj.charge === 'string' ? obj.charge : (obj.charge && obj.charge.id);
+    const chargeId = typeof obj.charge === 'string' ? obj.charge : obj.charge && obj.charge.id;
     if (chargeId) {
       try {
         const stripe = await getStripe();
@@ -1181,7 +1153,9 @@ async function deleteAccount(userId, { immediate = true } = {}) {
   const user = await getUserBilling(userId);
   if (!user) throw Object.assign(new Error('NOT_FOUND'), { code: 'NOT_FOUND' });
   if (Number(user.is_super_admin) === 1) {
-    const admins = await query('SELECT COUNT(*) AS c FROM users WHERE is_super_admin = 1 AND (status = \'active\' OR status IS NULL)');
+    const admins = await query(
+      "SELECT COUNT(*) AS c FROM users WHERE is_super_admin = 1 AND (status = 'active' OR status IS NULL)"
+    );
     if (Number(admins[0].c) <= 1) {
       throw Object.assign(new Error('Cannot delete the last super admin'), { code: 'LAST_SUPER_ADMIN' });
     }

@@ -15,11 +15,23 @@ if (!lead) {
   process.exit(0);
 }
 const out = forms.ensureSiteForms(db, lead.id, { workspaceId: 1, missingOnly: true });
-console.log(JSON.stringify({
-  created: out.created,
-  published: out.published,
-  kinds: out.kindsNeeded,
-  forms: (out.forms || []).map((f) => ({ id: f.id, kind: f.form_kind, name: f.name, published: f.published, page: f.target_page_slug })),
-  sync: out.sync,
-}, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      created: out.created,
+      published: out.published,
+      kinds: out.kindsNeeded,
+      forms: (out.forms || []).map((f) => ({
+        id: f.id,
+        kind: f.form_kind,
+        name: f.name,
+        published: f.published,
+        page: f.target_page_slug,
+      })),
+      sync: out.sync,
+    },
+    null,
+    2
+  )
+);
 db.close();

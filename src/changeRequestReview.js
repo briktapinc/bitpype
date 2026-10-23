@@ -29,11 +29,18 @@ function normalizeRouteSafe(hrefOrSlug) {
   try {
     const eng = require('./websiteEngine');
     if (typeof eng.normalizeRoute === 'function') return eng.normalizeRoute(hrefOrSlug);
-  } catch { /* */ }
-  let s = String(hrefOrSlug == null ? '' : hrefOrSlug).trim().toLowerCase();
+  } catch {
+    /* */
+  }
+  let s = String(hrefOrSlug == null ? '' : hrefOrSlug)
+    .trim()
+    .toLowerCase();
   if (!s || s === '/' || s === '#') return 'index';
   s = s.replace(/^#/, '').split('?')[0].split('#')[0];
-  s = s.replace(/^\/+/, '').replace(/\/+$/, '').replace(/\.html?$/i, '');
+  s = s
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '')
+    .replace(/\.html?$/i, '');
   if (!s || s === 'home' || s === 'index') return 'index';
   return s;
 }
@@ -69,11 +76,13 @@ function pageSectionSummary(page) {
     index: i,
     type: String((s && s.type) || ''),
     className: (s && s.className) || null,
-    hasFormSlot: !!(s && s.content && (
-      s.content.formId
-      || s.content.formToken
-      || /bitpype-form|data-bitpype-form/i.test(JSON.stringify(s.content || {}))
-    )),
+    hasFormSlot: !!(
+      s &&
+      s.content &&
+      (s.content.formId ||
+        s.content.formToken ||
+        /bitpype-form|data-bitpype-form/i.test(JSON.stringify(s.content || {})))
+    ),
     moduleType: (s && s.content && (s.content.moduleType || s.content.module)) || null,
   }));
 }
@@ -106,16 +115,22 @@ function buildSiteSnapshot(db, leadId) {
 
   let site = null;
   try {
-    site = db.prepare(
-      'SELECT id, pages, theme, name FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-    ).get(lid);
-  } catch { site = null; }
+    site = db
+      .prepare('SELECT id, pages, theme, name FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+      .get(lid);
+  } catch {
+    site = null;
+  }
 
   if (site) {
     snapshot.websiteId = site.id;
     snapshot.name = site.name || '';
     let pages = [];
-    try { pages = JSON.parse(site.pages || '[]'); } catch { pages = []; }
+    try {
+      pages = JSON.parse(site.pages || '[]');
+    } catch {
+      pages = [];
+    }
     if (!Array.isArray(pages)) pages = [];
 
     const allNav = [];
@@ -127,7 +142,7 @@ function buildSiteSnapshot(db, leadId) {
       const sectionTypes = sections.map((s) => s.type);
       const htmlBits = [];
       if (typeof p.html === 'string') htmlBits.push(p.html);
-      for (const s of (p.sections || [])) {
+      for (const s of p.sections || []) {
         if (s && s.content && typeof s.content.html === 'string') htmlBits.push(s.content.html);
       }
       const pageHtml = htmlBits.join('\n');
@@ -147,23 +162,27 @@ function buildSiteSnapshot(db, leadId) {
             });
           }
         }
-      } catch { /* */ }
+      } catch {
+        /* */
+      }
       for (const l of navLinks) allNav.push({ ...l, source: 'html', page: slug });
 
-      const hasForm = sectionTypes.includes('contact_form')
-        || sectionTypes.includes('bitpype_form')
-        || sectionTypes.includes('form')
-        || /data-bitpype-form|bitpype-form-embed|<form\b/i.test(pageHtml);
-      const hasHandForm = /<form\b/i.test(pageHtml)
-        && !/data-bitpype-form\s*=/i.test(pageHtml);
+      const hasForm =
+        sectionTypes.includes('contact_form') ||
+        sectionTypes.includes('bitpype_form') ||
+        sectionTypes.includes('form') ||
+        /data-bitpype-form|bitpype-form-embed|<form\b/i.test(pageHtml);
+      const hasHandForm = /<form\b/i.test(pageHtml) && !/data-bitpype-form\s*=/i.test(pageHtml);
 
       if (hasForm) snapshot.formPages.push(slug);
       if (sectionTypes.includes('contact_form') || /data-bitpype-form/i.test(pageHtml)) {
         snapshot.hasContactForm = true;
       }
-      if (/data-bitpype-form-embed|bitpype-form-embed/i.test(pageHtml)
-        || sectionTypes.includes('bitpype_form')
-        || sectionTypes.includes('form')) {
+      if (
+        /data-bitpype-form-embed|bitpype-form-embed/i.test(pageHtml) ||
+        sectionTypes.includes('bitpype_form') ||
+        sectionTypes.includes('form')
+      ) {
         snapshot.hasNativeFormEmbed = true;
       }
       if (hasHandForm) snapshot.hasHandRolledForm = true;
@@ -196,25 +215,25 @@ function buildSiteSnapshot(db, leadId) {
 
   try {
     const modules = require('../server/siteModules');
-    const embeds = typeof modules.listEmbeds === 'function'
-      ? modules.listEmbeds(db, lid)
-      : [];
+    const embeds = typeof modules.listEmbeds === 'function' ? modules.listEmbeds(db, lid) : [];
     snapshot.modules = (embeds || []).map((e) => {
       const published = !!Number(e.published);
-      const embedOn = e.embed_enabled == null || e.embed_enabled === ''
-        ? true
-        : Number(e.embed_enabled) !== 0;
+      const embedOn = e.embed_enabled == null || e.embed_enabled === '' ? true : Number(e.embed_enabled) !== 0;
       const active = published && !!e.public_token && embedOn;
       return {
         type: e.module_type || e.type,
         active,
         published,
-        slug: e.target_page_slug || (modules.MODULE_META && modules.MODULE_META[e.module_type]
-          ? modules.MODULE_META[e.module_type].defaultSlug
-          : null),
-        title: e.title || (modules.MODULE_META && modules.MODULE_META[e.module_type]
-          ? modules.MODULE_META[e.module_type].defaultTitle
-          : e.module_type),
+        slug:
+          e.target_page_slug ||
+          (modules.MODULE_META && modules.MODULE_META[e.module_type]
+            ? modules.MODULE_META[e.module_type].defaultSlug
+            : null),
+        title:
+          e.title ||
+          (modules.MODULE_META && modules.MODULE_META[e.module_type]
+            ? modules.MODULE_META[e.module_type].defaultTitle
+            : e.module_type),
       };
     });
     snapshot.moduleTypes = snapshot.modules
@@ -222,7 +241,9 @@ function buildSiteSnapshot(db, leadId) {
       .map((m) => m.type)
       .filter(Boolean);
     snapshot.hasBookings = snapshot.moduleTypes.includes('bookings');
-  } catch { /* modules optional */ }
+  } catch {
+    /* modules optional */
+  }
 
   try {
     const forms = require('../server/contactForms');
@@ -239,7 +260,9 @@ function buildSiteSnapshot(db, leadId) {
         snapshot.hasNativeFormEmbed = true;
       }
     }
-  } catch { /* forms optional */ }
+  } catch {
+    /* forms optional */
+  }
 
   return snapshot;
 }
@@ -247,19 +270,31 @@ function buildSiteSnapshot(db, leadId) {
 function messageAsks(text) {
   const t = String(text || '').toLowerCase();
   return {
-    bookNow: /\b(book\s*now|book\s*(an?\s*)?(appointment|online)|add\s*(a\s*)?(book|booking)\b|booking\s*button|schedule\s*(a\s*)?(visit|appointment))\b/i.test(t),
+    bookNow:
+      /\b(book\s*now|book\s*(an?\s*)?(appointment|online)|add\s*(a\s*)?(book|booking)\b|booking\s*button|schedule\s*(a\s*)?(visit|appointment))\b/i.test(
+        t
+      ),
     secondBook: /\b(second|another|duplicate|extra|second\s*book)\b/i.test(t) && /\bbook\b/i.test(t),
-    customForm: /\b(custom\s*form|html\s*form|hand[- ]?(built|rolled|made)\s*form|build\s*(a\s*)?form|add\s*(a\s*)?form|contact\s*form|quote\s*form)\b/i.test(t),
+    customForm:
+      /\b(custom\s*form|html\s*form|hand[- ]?(built|rolled|made)\s*form|build\s*(a\s*)?form|add\s*(a\s*)?form|contact\s*form|quote\s*form)\b/i.test(
+        t
+      ),
     handForm: /\b(raw\s*<form|hand[- ]?(built|rolled)|html\s*form|iframe\s*form|google\s*form|typeform)\b/i.test(t),
-    bookingsAndForm: /\b(bookings?|book\s*now|appointment)\b/i.test(t) && /\b(form|contact\s*form|quote)\b/i.test(t)
-      && /\b(and|also|both|plus|as\s*well)\b/i.test(t),
-    duplicateNav: /\b(duplicate|second|another|extra)\b/i.test(t)
-      && /\b(nav|menu|link|button|cta|book\s*now|home)\b/i.test(t),
+    bookingsAndForm:
+      /\b(bookings?|book\s*now|appointment)\b/i.test(t) &&
+      /\b(form|contact\s*form|quote)\b/i.test(t) &&
+      /\b(and|also|both|plus|as\s*well)\b/i.test(t),
+    duplicateNav:
+      /\b(duplicate|second|another|extra)\b/i.test(t) && /\b(nav|menu|link|button|cta|book\s*now|home)\b/i.test(t),
     inventFacts: /\b(fake|invent|make\s*up|add\s*(fake\s*)?(reviews?|testimonials?|ratings?))\b/i.test(t),
-    removeContact: /\b(remove|delete|drop)\b/i.test(t) && /\b(contact|phone|form|booking)\b/i.test(t)
-      && !/\b(spam|old|unused|duplicate)\b/i.test(t),
-    restyleOnly: /\b(restyle|recolor|recolour|tweak|polish|copy|wording|font|spacing|mobile|cta\s*text|button\s*color)\b/i.test(t)
-      && !/\b(add\s+(a\s+)?(new\s+)?(page|form|button|module|nav)|duplicate)\b/i.test(t),
+    removeContact:
+      /\b(remove|delete|drop)\b/i.test(t) &&
+      /\b(contact|phone|form|booking)\b/i.test(t) &&
+      !/\b(spam|old|unused|duplicate)\b/i.test(t),
+    restyleOnly:
+      /\b(restyle|recolor|recolour|tweak|polish|copy|wording|font|spacing|mobile|cta\s*text|button\s*color)\b/i.test(
+        t
+      ) && !/\b(add\s+(a\s+)?(new\s+)?(page|form|button|module|nav)|duplicate)\b/i.test(t),
   };
 }
 
@@ -282,9 +317,11 @@ function classifyChangeRequest(message, snapshot = {}) {
 
   const bookLabels = findMatchingNav(snapshot, [/book/, /appoint/, /reserve/, /schedule/]);
   const hasBookCta = bookLabels.length > 0 || snapshot.hasBookings;
-  const hasForm = snapshot.hasContactForm || snapshot.hasNativeFormEmbed
-    || (snapshot.forms && snapshot.forms.length > 0)
-    || (snapshot.formPages && snapshot.formPages.length > 0);
+  const hasForm =
+    snapshot.hasContactForm ||
+    snapshot.hasNativeFormEmbed ||
+    (snapshot.forms && snapshot.forms.length > 0) ||
+    (snapshot.formPages && snapshot.formPages.length > 0);
 
   // PUSH_BACK: invent facts / remove only contact path
   if (asks.inventFacts) {
@@ -292,7 +329,8 @@ function classifyChangeRequest(message, snapshot = {}) {
     reasons.push('Request asks for invented reviews/testimonials/facts.');
     conflicts.push('unverified_claims');
     plan.push('Refuse fabricated trust signals; offer real verified facts or soft AI_COPY without fake reviews.');
-    clientMessage = 'We can’t add fake reviews or invented business facts. We can highlight verified details you already have, or soft marketing copy that doesn’t claim fake results.';
+    clientMessage =
+      'We can’t add fake reviews or invented business facts. We can highlight verified details you already have, or soft marketing copy that doesn’t claim fake results.';
   }
 
   if (asks.removeContact && hasForm && !asks.duplicateNav && classification !== CLASSIFICATIONS.PUSH_BACK) {
@@ -302,17 +340,19 @@ function classifyChangeRequest(message, snapshot = {}) {
       reasons.push('Removing the only contact/booking path without a replacement.');
       conflicts.push('remove_contact_path');
       plan.push('Keep at least one working contact or booking path; offer to restyle or relocate it instead.');
-      clientMessage = 'Your site needs at least one way for visitors to reach you. We can restyle or move the contact/booking block, but we shouldn’t remove it without a replacement.';
+      clientMessage =
+        'Your site needs at least one way for visitors to reach you. We can restyle or move the contact/booking block, but we shouldn’t remove it without a replacement.';
     }
   }
 
   // BETTER_PATH: duplicate Book Now when module/nav already has one
-  if ((asks.bookNow || asks.secondBook || asks.duplicateNav) && hasBookCta
-    && classification === CLASSIFICATIONS.SAFE) {
+  if ((asks.bookNow || asks.secondBook || asks.duplicateNav) && hasBookCta && classification === CLASSIFICATIONS.SAFE) {
     classification = CLASSIFICATIONS.BETTER_PATH;
-    reasons.push(snapshot.hasBookings
-      ? 'Bookings module already injects a Book/appointment nav CTA — do not add a second one.'
-      : `Nav already has booking CTA(s): ${bookLabels.join(', ') || 'book'}.`);
+    reasons.push(
+      snapshot.hasBookings
+        ? 'Bookings module already injects a Book/appointment nav CTA — do not add a second one.'
+        : `Nav already has booking CTA(s): ${bookLabels.join(', ') || 'book'}.`
+    );
     conflicts.push('duplicate_book_cta');
     plan.push('Reuse/restyle the existing Book Now / bookings nav link and module page — ship exactly one.');
     plan.push('Do not add a second Book Now button or duplicate nav label.');
@@ -328,7 +368,8 @@ function classifyChangeRequest(message, snapshot = {}) {
     conflicts.push('duplicate_form');
     plan.push('Reuse or restyle the existing native form / form slot; do not add raw <form> or a second embed.');
     plan.push('If they need different fields, update the existing form fields — keep one functional form per page.');
-    clientMessage = 'Your site already has a working contact form. We’ll adjust that form (fields/styling/placement) instead of adding a second hand-built one.';
+    clientMessage =
+      'Your site already has a working contact form. We’ll adjust that form (fields/styling/placement) instead of adding a second hand-built one.';
   }
 
   // BETTER_PATH / PUSH_BACK: custom form AND bookings for the same job
@@ -337,16 +378,22 @@ function classifyChangeRequest(message, snapshot = {}) {
       if (classification === CLASSIFICATIONS.SAFE) classification = CLASSIFICATIONS.BETTER_PATH;
       reasons.push('Site already has both bookings and a form — pick one coherent lead path for this ask.');
       conflicts.push('form_and_bookings_overlap');
-      plan.push('Keep bookings as the appointment path; use the existing form only for general contact/quote — do not add another form or Book CTA.');
+      plan.push(
+        'Keep bookings as the appointment path; use the existing form only for general contact/quote — do not add another form or Book CTA.'
+      );
       if (!clientMessage) {
-        clientMessage = 'You already have Bookings for appointments and a contact form for messages. We’ll improve those existing pieces so each has one clear job — not add overlapping widgets.';
+        clientMessage =
+          'You already have Bookings for appointments and a contact form for messages. We’ll improve those existing pieces so each has one clear job — not add overlapping widgets.';
       }
     } else if (asks.bookingsAndForm && !snapshot.hasBookings) {
       if (classification === CLASSIFICATIONS.SAFE) classification = CLASSIFICATIONS.BETTER_PATH;
       reasons.push('Client asked for custom form AND bookings for the same job — choose one primary path.');
       conflicts.push('form_and_bookings_same_job');
-      plan.push('Prefer attach bookings module for scheduling; keep a single native contact/quote form for messages — never hand-roll both as duplicate CTAs.');
-      clientMessage = 'For scheduling we’ll use the Bookings module (one Book CTA). For general messages we’ll keep a single native contact form — not two overlapping systems for the same job.';
+      plan.push(
+        'Prefer attach bookings module for scheduling; keep a single native contact/quote form for messages — never hand-roll both as duplicate CTAs.'
+      );
+      clientMessage =
+        'For scheduling we’ll use the Bookings module (one Book CTA). For general messages we’ll keep a single native contact form — not two overlapping systems for the same job.';
     }
   }
 
@@ -358,7 +405,9 @@ function classifyChangeRequest(message, snapshot = {}) {
   }
 
   // Duplicate nav label that already exists
-  const msgLabels = String(message || '').match(/\b(?:add|put|include)\s+(?:a\s+)?["']?([A-Za-z][A-Za-z0-9 &-]{1,40})["']?\s+(?:link|button|cta|to\s+(?:the\s+)?(?:nav|menu))/i);
+  const msgLabels = String(message || '').match(
+    /\b(?:add|put|include)\s+(?:a\s+)?["']?([A-Za-z][A-Za-z0-9 &-]{1,40})["']?\s+(?:link|button|cta|to\s+(?:the\s+)?(?:nav|menu))/i
+  );
   if (msgLabels && classification === CLASSIFICATIONS.SAFE) {
     const want = normalizeLabel(msgLabels[1]);
     if (want && (snapshot.navLabels || []).includes(want)) {
@@ -399,13 +448,10 @@ function classifyChangeRequest(message, snapshot = {}) {
 /**
  * Full review: snapshot + classify + structured log for persistence / agent instructions.
  */
-function reviewChangeRequest(db, {
-  leadId = null,
-  message = '',
-  kind = 'improvements',
-  source = 'unknown',
-  jobId = null,
-} = {}) {
+function reviewChangeRequest(
+  db,
+  { leadId = null, message = '', kind = 'improvements', source = 'unknown', jobId = null } = {}
+) {
   const asked = String(message || '').trim();
   const snapshot = buildSiteSnapshot(db, leadId);
   const classified = classifyChangeRequest(asked, snapshot);
@@ -467,7 +513,9 @@ function formatReviewForInstructions(review) {
   if (review.clientMessage) {
     lines.push(`Client-facing note: ${review.clientMessage}`);
   }
-  lines.push('After changes: run website.qa (and nav/form checks). Include whole-site verification in the change summary.');
+  lines.push(
+    'After changes: run website.qa (and nav/form checks). Include whole-site verification in the change summary.'
+  );
   lines.push('Log decision: asked → classification → done → why (already on brief.change_request_review).');
   return lines.join('\n');
 }
@@ -537,13 +585,25 @@ async function verifyAfterChange(db, websiteId, { skipAi = true } = {}) {
     const site = db.prepare('SELECT pages, theme, lead_id FROM websites WHERE id = ?').get(id);
     let pages = [];
     let theme = {};
-    try { pages = JSON.parse(site.pages || '[]'); } catch { pages = []; }
-    try { theme = JSON.parse(site.theme || '{}'); } catch { theme = {}; }
+    try {
+      pages = JSON.parse(site.pages || '[]');
+    } catch {
+      pages = [];
+    }
+    try {
+      theme = JSON.parse(site.theme || '{}');
+    } catch {
+      theme = {};
+    }
     const eng = require('./websiteEngine');
     const labelCounts = new Map();
     for (const p of pages) {
       let html = '';
-      try { html = eng.renderPage(p, pages, theme) || ''; } catch { html = ''; }
+      try {
+        html = eng.renderPage(p, pages, theme) || '';
+      } catch {
+        html = '';
+      }
       const navs = html.match(/<nav\b[\s\S]*?<\/nav>/gi) || [];
       for (const nav of navs) {
         const anchors = [...nav.matchAll(/<a\b[^>]*>([\s\S]*?)<\/a>/gi)];
@@ -560,8 +620,7 @@ async function verifyAfterChange(db, websiteId, { skipAi = true } = {}) {
           if (route) seenRoute.add(route);
         }
       }
-      const forms = (html.match(/<form\b/gi) || []).length
-        + (html.match(/data-bitpype-form-embed/gi) || []).length;
+      const forms = (html.match(/<form\b/gi) || []).length + (html.match(/data-bitpype-form-embed/gi) || []).length;
       if (forms > 1) {
         navForm.issues.push(`Page ${p.slug || '?'}: ${forms} forms/embeds (max 1)`);
       }
@@ -569,14 +628,20 @@ async function verifyAfterChange(db, websiteId, { skipAi = true } = {}) {
     for (const [label, n] of labelCounts) {
       // Count across pages is expected for shared nav; flag only heavy duplicates of CTA labels in one scan budget
       if (n > pages.length && /book|appoint|quote|contact us/.test(label)) {
-        navForm.issues.push(`CTA label "${label}" appears ${n} times across rendered navs (possible duplicates per page)`);
+        navForm.issues.push(
+          `CTA label "${label}" appears ${n} times across rendered navs (possible duplicates per page)`
+        );
       }
     }
     // Per-page: same label more than once in a single nav is caught via route dupes;
     // also scan first page nav for repeated identical labels
     if (pages[0]) {
       let html0 = '';
-      try { html0 = eng.renderPage(pages[0], pages, theme) || ''; } catch { html0 = ''; }
+      try {
+        html0 = eng.renderPage(pages[0], pages, theme) || '';
+      } catch {
+        html0 = '';
+      }
       const nav0 = (html0.match(/<nav\b[\s\S]*?<\/nav>/i) || [''])[0];
       const labels0 = [...nav0.matchAll(/<a\b[^>]*>([\s\S]*?)<\/a>/gi)]
         .map((a) => normalizeLabel(String(a[1] || '').replace(/<[^>]+>/g, ' ')))
@@ -600,7 +665,9 @@ async function verifyAfterChange(db, websiteId, { skipAi = true } = {}) {
           navForm.pass = false;
         }
       }
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
   } catch (e) {
     navForm.pass = false;
     navForm.issues.push(String(e.message || e));
@@ -618,13 +685,18 @@ async function verifyAfterChange(db, websiteId, { skipAi = true } = {}) {
 }
 
 function html0For(eng, pages, theme) {
-  try { return eng.renderPage(pages[0], pages, theme) || ''; } catch { return ''; }
+  try {
+    return eng.renderPage(pages[0], pages, theme) || '';
+  } catch {
+    return '';
+  }
 }
 
 function labels0BookCount(html) {
   const nav0 = (String(html || '').match(/<nav\b[\s\S]*?<\/nav>/i) || [''])[0];
-  const labels = [...nav0.matchAll(/<a\b[^>]*>([\s\S]*?)<\/a>/gi)]
-    .map((a) => normalizeLabel(String(a[1] || '').replace(/<[^>]+>/g, ' ')));
+  const labels = [...nav0.matchAll(/<a\b[^>]*>([\s\S]*?)<\/a>/gi)].map((a) =>
+    normalizeLabel(String(a[1] || '').replace(/<[^>]+>/g, ' '))
+  );
   return labels.filter((l) => /\bbook\b|\bappoint/.test(l)).length;
 }
 
@@ -636,11 +708,16 @@ function persistReviewOnJob(db, jobId, review) {
   const row = db.prepare('SELECT brief FROM design_jobs WHERE id = ?').get(Number(jobId));
   if (!row) return null;
   let brief = {};
-  try { brief = row.brief ? JSON.parse(row.brief) : {}; } catch { brief = {}; }
+  try {
+    brief = row.brief ? JSON.parse(row.brief) : {};
+  } catch {
+    brief = {};
+  }
   brief = attachReviewToBrief(brief, review);
-  db.prepare(
-    `UPDATE design_jobs SET brief = ?, updated_at = datetime('now') WHERE id = ?`
-  ).run(JSON.stringify(brief), Number(jobId));
+  db.prepare(`UPDATE design_jobs SET brief = ?, updated_at = datetime('now') WHERE id = ?`).run(
+    JSON.stringify(brief),
+    Number(jobId)
+  );
   return brief.change_request_review;
 }
 
@@ -651,15 +728,18 @@ function persistReviewOnEmailRequest(db, requestId, review) {
     if (!cols.some((c) => c.name === 'review_json')) {
       db.exec('ALTER TABLE design_email_redesigns ADD COLUMN review_json TEXT');
     }
-    db.prepare(
-      'UPDATE design_email_redesigns SET review_json = ? WHERE id = ?'
-    ).run(JSON.stringify({
-      classification: review.classification,
-      plan: review.plan,
-      clientMessage: review.clientMessage,
-      log: review.log,
-    }), Number(requestId));
-  } catch { /* optional column */ }
+    db.prepare('UPDATE design_email_redesigns SET review_json = ? WHERE id = ?').run(
+      JSON.stringify({
+        classification: review.classification,
+        plan: review.plan,
+        clientMessage: review.clientMessage,
+        log: review.log,
+      }),
+      Number(requestId)
+    );
+  } catch {
+    /* optional column */
+  }
 }
 
 module.exports = {

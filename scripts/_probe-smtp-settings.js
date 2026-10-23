@@ -10,10 +10,7 @@ const path = require('path');
 
 async function main() {
   const platform = require('../server/platform');
-  const keys = [
-    'smtp.host', 'smtp.port', 'smtp.secure', 'smtp.user', 'smtp.pass',
-    'smtp.from_name', 'smtp.from_email',
-  ];
+  const keys = ['smtp.host', 'smtp.port', 'smtp.secure', 'smtp.user', 'smtp.pass', 'smtp.from_name', 'smtp.from_email'];
 
   console.log('=== platform_settings smtp.* ===');
   for (const k of keys) {
@@ -39,9 +36,9 @@ async function main() {
   console.log('db=', dbPath);
   const Database = require('better-sqlite3');
   const db = new Database(dbPath, { readonly: true });
-  const rows = db.prepare(
-    `SELECT key, value FROM settings WHERE key IN (${keys.map(() => '?').join(',')})`
-  ).all(...keys);
+  const rows = db
+    .prepare(`SELECT key, value FROM settings WHERE key IN (${keys.map(() => '?').join(',')})`)
+    .all(...keys);
   const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
   for (const k of keys) {
     const v = map[k] ?? '';

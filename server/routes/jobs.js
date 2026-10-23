@@ -64,7 +64,11 @@ router.delete('/:id', requireRole('owner', 'admin'), async (req, res, next) => {
 
 router.post('/:id/run', requireRole('owner', 'admin', 'token'), async (req, res, next) => {
   try {
-    const result = await jobs.executeJob(req.auth.workspaceId, Number(req.params.id), { force: true, source: 'manual', triggeredBy: req.auth.tokenId ? 'token:' + req.auth.tokenId : 'user:' + req.auth.userId });
+    const result = await jobs.executeJob(req.auth.workspaceId, Number(req.params.id), {
+      force: true,
+      source: 'manual',
+      triggeredBy: req.auth.tokenId ? 'token:' + req.auth.tokenId : 'user:' + req.auth.userId,
+    });
     res.json({ ok: true, data: result });
   } catch (e) {
     if (e.code === 'NOT_FOUND') return res.status(404).json({ ok: false, error: 'NOT_FOUND' });

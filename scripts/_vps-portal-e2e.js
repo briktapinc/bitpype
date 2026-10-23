@@ -23,16 +23,21 @@ async function main() {
       const Database = require('better-sqlite3');
       const db = new Database(dbFile, { readonly: true });
       try {
-        const row = db.prepare(
-          `SELECT id, email, business_name FROM leads
+        const row = db
+          .prepare(
+            `SELECT id, email, business_name FROM leads
            WHERE email IS NOT NULL AND trim(email) != '' LIMIT 1`
-        ).get();
+          )
+          .get();
         if (row) {
           pick = { workspaceId: Number(name), leadId: row.id, email: row.email, businessName: row.business_name };
           break;
         }
-      } catch { /* */ }
-      finally { db.close(); }
+      } catch {
+        /* */
+      } finally {
+        db.close();
+      }
     }
   }
 
@@ -55,10 +60,10 @@ async function main() {
     const { query } = require('../server/db');
     password = portal.generatePassword();
     const hash = await bcrypt.hash(password, 12);
-    await query(
-      `UPDATE client_portal_users SET password_hash = :hash WHERE email = :email`,
-      { hash, email: String(pick.email).trim().toLowerCase() }
-    );
+    await query(`UPDATE client_portal_users SET password_hash = :hash WHERE email = :email`, {
+      hash,
+      email: String(pick.email).trim().toLowerCase(),
+    });
   }
 
   const client = await portal.login(pick.email, password);
@@ -66,19 +71,25 @@ async function main() {
   const cal = portal.calendarPosts(client.workspaceId, client.leadId, {});
   const bill = await portal.billingForClient(client.workspaceId, client.email);
 
-  console.log(JSON.stringify({
-    ok: true,
-    email: client.email,
-    workspaceId: client.workspaceId,
-    leadId: client.leadId,
-    businessName: client.businessName || pick.businessName,
-    previewUrl: ctx.previewUrl,
-    hasSite: !!ctx.site,
-    calendarPosts: cal.posts.length,
-    billingStatus: bill.subscriptionStatus,
-    workspaceSubscribed: bill.workspaceSubscribed,
-    accessEmailed: !!access.emailed,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        email: client.email,
+        workspaceId: client.workspaceId,
+        leadId: client.leadId,
+        businessName: client.businessName || pick.businessName,
+        previewUrl: ctx.previewUrl,
+        hasSite: !!ctx.site,
+        calendarPosts: cal.posts.length,
+        billingStatus: bill.subscriptionStatus,
+        workspaceSubscribed: bill.workspaceSubscribed,
+        accessEmailed: !!access.emailed,
+      },
+      null,
+      2
+    )
+  );
 }
 
 main().catch((e) => {

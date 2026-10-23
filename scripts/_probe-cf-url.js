@@ -7,13 +7,19 @@ async function probe(u) {
   try {
     const res = await fetch(u, { redirect: 'follow', headers: { Accept: 'text/html,*/*' } });
     const text = await res.text();
-    console.log(JSON.stringify({
-      url: u,
-      status: res.status,
-      contentType: res.headers.get('content-type'),
-      len: text.length,
-      start: text.slice(0, 300),
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          url: u,
+          status: res.status,
+          contentType: res.headers.get('content-type'),
+          len: text.length,
+          start: text.slice(0, 300),
+        },
+        null,
+        2
+      )
+    );
   } catch (e) {
     console.log(JSON.stringify({ url: u, error: e.message }, null, 2));
   }
@@ -29,5 +35,7 @@ async function probe(u) {
     if (parts.length >= 3) {
       await probe(`https://${parts.slice(1).join('.')}/`);
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 })();

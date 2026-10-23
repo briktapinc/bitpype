@@ -66,11 +66,15 @@
   const THEME_KEYS = ['primary', 'secondary', 'bg', 'text'];
   const THEME_VAR = { primary: '--ws-primary', secondary: '--ws-secondary', bg: '--ws-bg', text: '--ws-text' };
 
-  const LOCKED_EDIT_PATH = /(^|\.)(phone|phone_display|email|address|address_lines|hours|rating|review_count|business_name|href|cta_href|cta_secondary_href|button_href|url|photographer|photographer_url|pexels_url)$/;
+  const LOCKED_EDIT_PATH =
+    /(^|\.)(phone|phone_display|email|address|address_lines|hours|rating|review_count|business_name|href|cta_href|cta_secondary_href|button_href|url|photographer|photographer_url|pexels_url)$/;
 
   function esc(s) {
     return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
   async function api(path, opts = {}) {
@@ -80,24 +84,31 @@
       ...opts,
     });
     let data = null;
-    try { data = await res.json(); } catch { data = null; }
+    try {
+      data = await res.json();
+    } catch {
+      data = null;
+    }
     if (!res.ok || !data || !data.ok) {
       const detail = data && data.error;
       const nested = detail && typeof detail === 'object' ? detail : null;
-      const message = (typeof detail === 'string' && detail)
-        || (nested && typeof nested.message === 'string' && nested.message)
-        || res.statusText || `Request failed (${res.status})`;
+      const message =
+        (typeof detail === 'string' && detail) ||
+        (nested && typeof nested.message === 'string' && nested.message) ||
+        res.statusText ||
+        `Request failed (${res.status})`;
       const err = new Error(message);
-      err.code = (nested && typeof nested.code === 'string' && nested.code)
-        || (data && typeof data.code === 'string' && data.code)
-      || (typeof detail === 'string' && /^[A-Z][A-Z0-9_]+$/.test(detail) && detail) || undefined;
+      err.code =
+        (nested && typeof nested.code === 'string' && nested.code) ||
+        (data && typeof data.code === 'string' && data.code) ||
+        (typeof detail === 'string' && /^[A-Z][A-Z0-9_]+$/.test(detail) && detail) ||
+        undefined;
       err.status = res.status;
       err.data = data;
-      if (res.status === 401 && (
-        err.code === 'AUTH_REQUIRED'
-        || err.code === 'SESSION_IDLE'
-        || err.message === 'AUTH_REQUIRED'
-      )) {
+      if (
+        res.status === 401 &&
+        (err.code === 'AUTH_REQUIRED' || err.code === 'SESSION_IDLE' || err.message === 'AUTH_REQUIRED')
+      ) {
         showPortalLogin();
         if (err.code === 'SESSION_IDLE') {
           const msg = document.getElementById('msg-login');
@@ -112,7 +123,18 @@
     return data.data;
   }
 
-  const PORTAL_PANELS = ['website', 'changes', 'forms', 'leadscout', 'modules', 'social', 'referrals', 'mcp', 'analytics', 'billing'];
+  const PORTAL_PANELS = [
+    'website',
+    'changes',
+    'forms',
+    'leadscout',
+    'modules',
+    'social',
+    'referrals',
+    'mcp',
+    'analytics',
+    'billing',
+  ];
   const PANEL_ALIASES = {
     website: 'website',
     preview: 'website',
@@ -149,7 +171,9 @@
   };
 
   function resolvePortalPanel(raw) {
-    const key = String(raw || '').toLowerCase().trim();
+    const key = String(raw || '')
+      .toLowerCase()
+      .trim();
     if (!key) return null;
     if (PANEL_ALIASES[key]) return PANEL_ALIASES[key];
     if (PORTAL_PANELS.includes(key)) return key;
@@ -169,7 +193,10 @@
   function parsePortalHash() {
     // Hash wins once set. ?panel= is only a deep-link seed (OAuth / emails).
     // Preferring query over hash made tab clicks snap back after hashchange.
-    const raw = String(location.hash || '').replace(/^#\/?/, '').trim().toLowerCase();
+    const raw = String(location.hash || '')
+      .replace(/^#\/?/, '')
+      .trim()
+      .toLowerCase();
     const key = raw.split(/[/?&#]/)[0] || '';
     if (key) return resolvePortalPanel(key);
     return parsePortalPanelQuery();
@@ -185,7 +212,9 @@
       if (!url.searchParams.has('panel')) return;
       url.searchParams.delete('panel');
       history.replaceState(null, '', url.pathname + url.search + url.hash);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   let portalAuthed = false;
@@ -328,10 +357,14 @@
     if (!window.ScoutCaptcha) return;
     try {
       captchaAccess = await window.ScoutCaptcha.mount(document.getElementById('captcha-access'));
-    } catch (e) { console.warn(e); }
+    } catch (e) {
+      console.warn(e);
+    }
     try {
       captchaLogin = await window.ScoutCaptcha.mount(document.getElementById('captcha-login'));
-    } catch (e) { console.warn(e); }
+    } catch (e) {
+      console.warn(e);
+    }
   }
 
   formAccess.onsubmit = async (ev) => {
@@ -349,12 +382,21 @@
         body: JSON.stringify({ email, captchaToken }),
       });
       msg.className = 'msg ok';
-      msg.textContent = 'If that email matches a project, a one-time sign-in link is on its way. Check your inbox — we never invent passwords for unknown emails.';
-      try { captchaAccess.reset && captchaAccess.reset(); } catch { /* */ }
+      msg.textContent =
+        'If that email matches a project, a one-time sign-in link is on its way. Check your inbox — we never invent passwords for unknown emails.';
+      try {
+        captchaAccess.reset && captchaAccess.reset();
+      } catch {
+        /* */
+      }
     } catch (e) {
       msg.className = 'msg err';
       msg.textContent = e.message;
-      try { captchaAccess.reset && captchaAccess.reset(); } catch { /* */ }
+      try {
+        captchaAccess.reset && captchaAccess.reset();
+      } catch {
+        /* */
+      }
     } finally {
       btn.disabled = false;
     }
@@ -379,21 +421,31 @@
       });
       state.client = data.client;
       document.getElementById('login-password').value = '';
-      try { captchaLogin.reset && captchaLogin.reset(); } catch { /* */ }
+      try {
+        captchaLogin.reset && captchaLogin.reset();
+      } catch {
+        /* */
+      }
       await loadDashboard();
     } catch (e) {
       msg.className = 'msg err';
-      msg.textContent = e.message === 'INVALID_CREDENTIALS'
-        ? 'Email or password is incorrect.'
-        : e.message;
-      try { captchaLogin.reset && captchaLogin.reset(); } catch { /* */ }
+      msg.textContent = e.message === 'INVALID_CREDENTIALS' ? 'Email or password is incorrect.' : e.message;
+      try {
+        captchaLogin.reset && captchaLogin.reset();
+      } catch {
+        /* */
+      }
     } finally {
       btn.disabled = false;
     }
   };
 
   document.getElementById('btn-logout').onclick = async () => {
-    try { await api('/logout', { method: 'POST', body: '{}' }); } catch { /* */ }
+    try {
+      await api('/logout', { method: 'POST', body: '{}' });
+    } catch {
+      /* */
+    }
     state.client = null;
     showPortalLogin();
     await mountCaptchas();
@@ -436,7 +488,10 @@
     state.publishBusy = true;
     if (btn) btn.disabled = true;
     if (label) label.textContent = 'Publishing…';
-    if (msg) { msg.className = 'msg'; msg.textContent = 'Updating your live preview…'; }
+    if (msg) {
+      msg.className = 'msg';
+      msg.textContent = 'Updating your live preview…';
+    }
     const keepMode = state.editMode;
     const keepFs = state.editFullscreen;
     try {
@@ -477,7 +532,9 @@
     if (!frame || !frame.contentWindow) return;
     try {
       frame.contentWindow.postMessage({ source: 'ws-portal', type: 'edit-mode', on: !!on }, '*');
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
   }
 
   function syncFullscreenButtons() {
@@ -590,16 +647,18 @@
       return;
     }
     wrap.hidden = false;
-    host.innerHTML = extras.map((p, i) => {
-      const label = p.roles && p.roles.length ? p.roles.join('/') : `Accent ${i + 1}`;
-      return `<div class="theme-palette-item">
+    host.innerHTML = extras
+      .map((p, i) => {
+        const label = p.roles && p.roles.length ? p.roles.join('/') : `Accent ${i + 1}`;
+        return `<div class="theme-palette-item">
         <label>${esc(label)}</label>
         <div class="theme-inputs">
           <input type="color" data-palette-i="${i}" value="${esc(p.current)}" aria-label="${esc(label)} color" />
           <input type="text" data-palette-i="${i}" value="${esc(p.current)}" maxlength="7" spellcheck="false" autocomplete="off" />
         </div>
       </div>`;
-    }).join('');
+      })
+      .join('');
   }
 
   function rewriteHexInPreviewDoc(doc, fromHex, toHex) {
@@ -650,7 +709,9 @@
       link.setAttribute('data-ws-fonts', '1');
       doc.head.appendChild(link);
     }
-    const have = String(link.getAttribute('data-families') || '').split('|').filter(Boolean);
+    const have = String(link.getAttribute('data-families') || '')
+      .split('|')
+      .filter(Boolean);
     const all = [...new Set(have.concat(add))];
     link.setAttribute('data-families', all.join('|'));
     link.href = window.WsFonts.hrefFor(all);
@@ -661,9 +722,13 @@
     const body = state.theme.font || '';
     const heading = state.theme.headingFont || '';
     window.WsFonts.fillSelect(document.getElementById('theme-font-body'), body, { defaultLabel: 'System' });
-    window.WsFonts.fillSelect(document.getElementById('theme-font-heading'), heading, { defaultLabel: 'Same as site font' });
+    window.WsFonts.fillSelect(document.getElementById('theme-font-heading'), heading, {
+      defaultLabel: 'Same as site font',
+    });
     window.WsFonts.fillSelect(document.getElementById('edit-font-body'), body, { defaultLabel: 'System' });
-    window.WsFonts.fillSelect(document.getElementById('edit-font-heading'), heading, { defaultLabel: 'Same as site font' });
+    window.WsFonts.fillSelect(document.getElementById('edit-font-heading'), heading, {
+      defaultLabel: 'Same as site font',
+    });
     const el = document.getElementById('edit-font-element');
     if (el && !el.options.length) {
       window.WsFonts.fillSelect(el, '', { defaultLabel: 'Site default' });
@@ -679,19 +744,26 @@
     let headingFont = state.theme.headingFont || '';
     if (bodySel && bodySel.value && bodySel.value !== '__custom__' && fonts) font = fonts.stackFor(bodySel.value);
     else if (bodySel && bodySel.value === '' && fonts) font = fonts.SYSTEM;
-    if (headSel && headSel.value && headSel.value !== '__custom__' && fonts) headingFont = fonts.stackFor(headSel.value);
+    if (headSel && headSel.value && headSel.value !== '__custom__' && fonts)
+      headingFont = fonts.stackFor(headSel.value);
     else if (headSel && headSel.value === '') headingFont = '';
     return { font, headingFont };
   }
 
   function previewFontPayload(fonts) {
     const catalog = window.WsFonts;
-    return { ...fonts, fontHref: catalog ? catalog.hrefFor([catalog.matchName(fonts.font), catalog.matchName(fonts.headingFont)].filter(Boolean)) : '' };
+    return {
+      ...fonts,
+      fontHref: catalog
+        ? catalog.hrefFor([catalog.matchName(fonts.font), catalog.matchName(fonts.headingFont)].filter(Boolean))
+        : '',
+    };
   }
 
   function applyFontsLive(fonts) {
     const frame = state.previewFrame;
-    if (fonts && frame && frame.contentWindow) frame.contentWindow.postMessage({source:'ws-portal', type:'site-fonts', ...previewFontPayload(fonts)}, '*');
+    if (fonts && frame && frame.contentWindow)
+      frame.contentWindow.postMessage({ source: 'ws-portal', type: 'site-fonts', ...previewFontPayload(fonts) }, '*');
   }
 
   function syncFontSelect(sourceId, peerId) {
@@ -712,13 +784,16 @@
     const frame = state.previewFrame;
     if (!frame || !frame.contentWindow || !window.WsFonts) return;
 
-    frame.contentWindow.postMessage({
-      source: 'ws-portal',
-      type: 'set-font',
-      fontHref: name ? window.WsFonts.hrefFor([name]) : '',
-      family: name ? window.WsFonts.stackFor(name) : '',
-      name: name || '',
-    }, '*');
+    frame.contentWindow.postMessage(
+      {
+        source: 'ws-portal',
+        type: 'set-font',
+        fontHref: name ? window.WsFonts.hrefFor([name]) : '',
+        family: name ? window.WsFonts.stackFor(name) : '',
+        name: name || '',
+      },
+      '*'
+    );
   }
 
   async function handleElementFont(data) {
@@ -734,7 +809,10 @@
     }
     if (!/^\d+:\d+:/.test(id)) return;
     const msg = document.getElementById('msg-edit');
-    if (msg) { msg.className = 'msg'; msg.textContent = 'Saving font…'; }
+    if (msg) {
+      msg.className = 'msg';
+      msg.textContent = 'Saving font…';
+    }
     await api('/site/theme', {
       method: 'POST',
       body: JSON.stringify({ elementFonts: { [id]: data.font || '' } }),
@@ -743,7 +821,10 @@
     const keepFs = state.editFullscreen;
     await loadEditablePreview(state.previewUrl);
     if (keepMode && state.siteEditable) setEditMode(true, { fullscreen: keepFs });
-    if (msg) { msg.className = 'msg ok'; msg.textContent = 'Font saved on that element.'; }
+    if (msg) {
+      msg.className = 'msg ok';
+      msg.textContent = 'Font saved on that element.';
+    }
   }
 
   function applyThemeLiveToPreview(colors, opts = {}) {
@@ -754,11 +835,20 @@
       const hex = normalizeThemeHex(colors && colors[key]);
       if (!hex) continue;
       const prev = normalizeThemeHex(state.themeLive[key]) || normalizeThemeHex(state.theme[key]);
-      if (prev && prev !== hex) rewrites.push({from:prev, to:hex});
+      if (prev && prev !== hex) rewrites.push({ from: prev, to: hex });
       state.themeLive[key] = hex;
     }
     if (Array.isArray(opts.paletteRewrites)) rewrites.push(...opts.paletteRewrites);
-    frame.contentWindow.postMessage({source:'ws-portal', type:'theme-preview', colors:state.themeLive, rewrites, ...previewFontPayload(readThemeFonts())}, '*');
+    frame.contentWindow.postMessage(
+      {
+        source: 'ws-portal',
+        type: 'theme-preview',
+        colors: state.themeLive,
+        rewrites,
+        ...previewFontPayload(readThemeFonts()),
+      },
+      '*'
+    );
     return true;
   }
 
@@ -816,18 +906,20 @@
       return;
     }
     const busy = !!state.structureBusy;
-    menuEl.innerHTML = data.menu.map((item) => {
-      const pinned = !!item.pinned;
-      const depth = Number(item.depth) === 1 ? 1 : 0;
-      const from = item.index != null ? item.index : item.visualIndex;
-      const canUp = !busy && !!item.canUp;
-      const canDown = !busy && !!item.canDown;
-      const canNest = !busy && !!item.canNest;
-      const canUnnest = !busy && !!item.canUnnest;
-      const navVisible = item.navVisible !== false;
-      const visTitle = navVisible ? 'Hide from menu' : 'Show in menu';
-      const meta = pinned ? 'Home' : (depth === 1 ? 'Sub' : (navVisible ? esc(item.slug || '') : 'Hidden'));
-      return `<div class="structure-row${pinned ? ' pinned' : ''}${depth === 1 ? ' depth-1' : ''}${navVisible ? '' : ' nav-hidden'}">
+    menuEl.innerHTML =
+      data.menu
+        .map((item) => {
+          const pinned = !!item.pinned;
+          const depth = Number(item.depth) === 1 ? 1 : 0;
+          const from = item.index != null ? item.index : item.visualIndex;
+          const canUp = !busy && !!item.canUp;
+          const canDown = !busy && !!item.canDown;
+          const canNest = !busy && !!item.canNest;
+          const canUnnest = !busy && !!item.canUnnest;
+          const navVisible = item.navVisible !== false;
+          const visTitle = navVisible ? 'Hide from menu' : 'Show in menu';
+          const meta = pinned ? 'Home' : depth === 1 ? 'Sub' : navVisible ? esc(item.slug || '') : 'Hidden';
+          return `<div class="structure-row${pinned ? ' pinned' : ''}${depth === 1 ? ' depth-1' : ''}${navVisible ? '' : ' nav-hidden'}">
         <span class="structure-label">${esc(item.title || item.slug || 'Page')}</span>
         <span class="structure-meta">${meta}</span>
         <button type="button" class="structure-visibility${navVisible ? '' : ' off'}" data-struct="menu" data-from="${from}" data-action="toggleNav" ${pinned || busy ? 'disabled' : ''} aria-label="${visTitle}" aria-pressed="${navVisible ? 'true' : 'false'}" title="${visTitle}">👁</button>
@@ -836,42 +928,48 @@
         <button type="button" data-struct="menu" data-from="${from}" data-dir="-1" data-action="move" ${canUp ? '' : 'disabled'} aria-label="Move up">↑</button>
         <button type="button" data-struct="menu" data-from="${from}" data-dir="1" data-action="move" ${canDown ? '' : 'disabled'} aria-label="Move down">↓</button>
       </div>`;
-    }).join('') || '<p class="hint">No pages.</p>';
+        })
+        .join('') || '<p class="hint">No pages.</p>';
 
     const pages = Array.isArray(data.pages) ? data.pages : [];
     if (state.structurePageIdx >= pages.length) state.structurePageIdx = Math.max(0, pages.length - 1);
-    tabsEl.innerHTML = pages.map((p, i) =>
-      `<button type="button" class="${i === state.structurePageIdx ? 'active' : ''}" data-struct-page="${i}">${esc(p.title || p.slug || ('Page ' + (i + 1)))}</button>`
-    ).join('');
+    tabsEl.innerHTML = pages
+      .map(
+        (p, i) =>
+          `<button type="button" class="${i === state.structurePageIdx ? 'active' : ''}" data-struct-page="${i}">${esc(p.title || p.slug || 'Page ' + (i + 1))}</button>`
+      )
+      .join('');
 
     const page = pages[state.structurePageIdx];
-    const menuMeta = (data.menu || []).find((m) => m && m.index === state.structurePageIdx)
-      || data.menu[state.structurePageIdx];
+    const menuMeta =
+      (data.menu || []).find((m) => m && m.index === state.structurePageIdx) || data.menu[state.structurePageIdx];
     const freeform = !!(menuMeta && menuMeta.freeform);
     if (hintEl) hintEl.hidden = !freeform;
     const sections = page && Array.isArray(page.sections) ? page.sections : [];
     const insertGap = (afterIndex) =>
-      `<div class="structure-insert-row"><button type="button" data-struct-insert="${afterIndex}" `
-      + `${busy ? 'disabled' : ''} aria-label="Insert section">+</button></div>`;
+      `<div class="structure-insert-row"><button type="button" data-struct-insert="${afterIndex}" ` +
+      `${busy ? 'disabled' : ''} aria-label="Insert section">+</button></div>`;
 
     if (freeform && !sections.length) {
       secsEl.innerHTML = `${insertGap(0)}<p class="hint">Legacy freeform page — rebuild to modular sections, or + injects a site module into the HTML.</p>`;
     } else if (!sections.length) {
       secsEl.innerHTML = '<p class="hint">No sections on this page.</p>';
     } else {
-      secsEl.innerHTML = sections.map((s, i) => {
-        const pinned = !!s.pinned;
-        let canUp = !busy && !pinned && i > 0;
-        let canDown = !busy && !pinned && i < sections.length - 1;
-        if (canUp && sections[i - 1] && sections[i - 1].pinned) canUp = false;
-        if (canDown && sections[i + 1] && sections[i + 1].pinned) canDown = false;
-        return `<div class="structure-row${pinned ? ' pinned' : ''}">
-          <span class="structure-label">${esc(s.label || s.type || ('Section ' + (i + 1)))}</span>
+      secsEl.innerHTML = sections
+        .map((s, i) => {
+          const pinned = !!s.pinned;
+          let canUp = !busy && !pinned && i > 0;
+          let canDown = !busy && !pinned && i < sections.length - 1;
+          if (canUp && sections[i - 1] && sections[i - 1].pinned) canUp = false;
+          if (canDown && sections[i + 1] && sections[i + 1].pinned) canDown = false;
+          return `<div class="structure-row${pinned ? ' pinned' : ''}">
+          <span class="structure-label">${esc(s.label || s.type || 'Section ' + (i + 1))}</span>
           <span class="structure-meta">${pinned ? 'Fixed' : esc(s.type || '')}</span>
           <button type="button" data-struct="sections" data-from="${i}" data-dir="-1" ${canUp ? '' : 'disabled'} aria-label="Move up">↑</button>
           <button type="button" data-struct="sections" data-from="${i}" data-dir="1" ${canDown ? '' : 'disabled'} aria-label="Move down">↓</button>
         </div>${insertGap(i)}`;
-      }).join('');
+        })
+        .join('');
     }
     const addPageBtn = document.getElementById('btn-structure-add-page');
     if (addPageBtn) addPageBtn.disabled = busy;
@@ -881,7 +979,10 @@
     const backdrop = document.getElementById('structure-module-modal');
     if (backdrop) backdrop.hidden = true;
     const msg = document.getElementById('msg-structure-module');
-    if (msg) { msg.className = 'msg'; msg.textContent = ''; }
+    if (msg) {
+      msg.className = 'msg';
+      msg.textContent = '';
+    }
     state.canvasPick = null;
   }
 
@@ -889,7 +990,10 @@
     const backdrop = document.getElementById('structure-page-modal');
     if (backdrop) backdrop.hidden = true;
     const msg = document.getElementById('msg-structure-page');
-    if (msg) { msg.className = 'msg'; msg.textContent = ''; }
+    if (msg) {
+      msg.className = 'msg';
+      msg.textContent = '';
+    }
   }
 
   const CONTENT_BLOCKS = [
@@ -943,39 +1047,39 @@
   } = {}) {
     let html = '';
     if (showLayouts) {
-      html += `<div class="structure-block-group"><p class="hint" style="margin:0 0 8px">Design modules — Content</p>${
-        CONTENT_BLOCKS.map((b) =>
-          `<button type="button" data-structure-section-type="${esc(b.type)}">${esc(b.label)}</button>`
-        ).join('')
-      }</div>`;
-      html += `<div class="structure-block-group" style="margin-top:14px"><p class="hint" style="margin:0 0 8px">Design modules — Layout</p>${
-        LAYOUT_BLOCKS.map((b) =>
+      html += `<div class="structure-block-group"><p class="hint" style="margin:0 0 8px">Design modules — Content</p>${CONTENT_BLOCKS.map(
+        (b) => `<button type="button" data-structure-section-type="${esc(b.type)}">${esc(b.label)}</button>`
+      ).join('')}</div>`;
+      html += `<div class="structure-block-group" style="margin-top:14px"><p class="hint" style="margin:0 0 8px">Design modules — Layout</p>${LAYOUT_BLOCKS.map(
+        (b) =>
           `<button type="button" data-structure-section-type="${esc(b.type)}"${b.cols ? ` data-structure-cols="${b.cols}"` : ''}>${esc(b.label)}</button>`
-        ).join('')
-      }</div>`;
+      ).join('')}</div>`;
       if (includeLegacy) {
-        html += `<div class="structure-block-group" style="margin-top:14px"><p class="hint" style="margin:0 0 8px">Page sections</p>${
-          LEGACY_SECTION_BLOCKS.map((b) =>
-            `<button type="button" data-structure-section-type="${esc(b.type)}">${esc(b.label)}</button>`
-          ).join('')
-        }</div>`;
+        html += `<div class="structure-block-group" style="margin-top:14px"><p class="hint" style="margin:0 0 8px">Page sections</p>${LEGACY_SECTION_BLOCKS.map(
+          (b) => `<button type="button" data-structure-section-type="${esc(b.type)}">${esc(b.label)}</button>`
+        ).join('')}</div>`;
       }
     }
     if (showWidgets) {
       html += `<div class="structure-block-group" style="margin-top:14px"><p class="hint" style="margin:0 0 8px">Widgets — Forms</p>${
         forms.length
-          ? forms.map((f) => {
-            const form = f.form || f;
-            return `<button type="button" data-structure-form-id="${esc(String(form.id))}">${esc(form.name || form.title || ('Form ' + form.id))}</button>`;
-          }).join('')
+          ? forms
+              .map((f) => {
+                const form = f.form || f;
+                return `<button type="button" data-structure-form-id="${esc(String(form.id))}">${esc(form.name || form.title || 'Form ' + form.id)}</button>`;
+              })
+              .join('')
           : '<p class="hint">No forms yet. Create one in Forms.</p>'
       }</div>`;
       html += canModules
         ? `<div class="structure-block-group" style="margin-top:14px"><p class="hint" style="margin:0 0 8px">Widgets — Site modules</p><p class="hint" style="margin:0 0 8px">Style mounts to match the site (themed card/section + <code>.bitpype-module-embed</code>).</p>${
-          (mods || []).map((m) =>
-            `<button type="button" data-structure-module-type="${esc(m.type)}">${esc(m.label || m.type)}</button>`
-          ).join('') || '<p class="hint">No modules available.</p>'
-        }</div>`
+            (mods || [])
+              .map(
+                (m) =>
+                  `<button type="button" data-structure-module-type="${esc(m.type)}">${esc(m.label || m.type)}</button>`
+              )
+              .join('') || '<p class="hint">No modules available.</p>'
+          }</div>`
         : '<p class="hint" style="margin-top:12px">Site modules require Standard or Premium.</p>';
     }
     return html || '<p class="hint">Nothing to insert.</p>';
@@ -985,13 +1089,18 @@
     const frame = state.previewFrame;
     if (!frame || !frame.contentWindow) return;
     try {
-      frame.contentWindow.postMessage({
-        source: 'ws-portal',
-        type: 'insert-block',
-        targetId: payload.targetId,
-        html: payload.html || '',
-      }, '*');
-    } catch { /* */ }
+      frame.contentWindow.postMessage(
+        {
+          source: 'ws-portal',
+          type: 'insert-block',
+          targetId: payload.targetId,
+          html: payload.html || '',
+        },
+        '*'
+      );
+    } catch {
+      /* */
+    }
   }
 
   async function applyCanvasPickLayout(sectionType, cols) {
@@ -1005,7 +1114,10 @@
       closeStructureModuleModal();
       postInsertBlockToFrame({ targetId: pick.targetId, html: data.html || '' });
     } catch (e) {
-      if (msg) { msg.className = 'msg err'; msg.textContent = e.message || 'Could not insert block'; }
+      if (msg) {
+        msg.className = 'msg err';
+        msg.textContent = e.message || 'Could not insert block';
+      }
     }
   }
 
@@ -1021,7 +1133,10 @@
       closeStructureModuleModal();
       postInsertBlockToFrame({ targetId: pick.targetId, html: data.html || '' });
     } catch (e) {
-      if (msg) { msg.className = 'msg err'; msg.textContent = e.message || 'Could not insert widget'; }
+      if (msg) {
+        msg.className = 'msg err';
+        msg.textContent = e.message || 'Could not insert widget';
+      }
     }
   }
 
@@ -1037,7 +1152,10 @@
       closeStructureModuleModal();
       postInsertBlockToFrame({ targetId: pick.targetId, html: data.html || '' });
     } catch (e) {
-      if (msg) { msg.className = 'msg err'; msg.textContent = e.message || 'Could not insert form'; }
+      if (msg) {
+        msg.className = 'msg err';
+        msg.textContent = e.message || 'Could not insert form';
+      }
     }
   }
 
@@ -1048,35 +1166,38 @@
   async function openStructureModuleModal(afterIndex, opts = {}) {
     const mode = String(opts.mode || 'all').toLowerCase();
     state.structureInsertAfter = Number(afterIndex);
-    state.canvasPick = (mode === 'design-module' || mode === 'widget')
-      ? { mode, targetId: opts.targetId || '', pageIndex: opts.pageIndex }
-      : null;
+    state.canvasPick =
+      mode === 'design-module' || mode === 'widget'
+        ? { mode, targetId: opts.targetId || '', pageIndex: opts.pageIndex }
+        : null;
     const backdrop = document.getElementById('structure-module-modal');
     const listEl = document.getElementById('structure-module-list');
     const msg = document.getElementById('msg-structure-module');
     const titleEl = document.getElementById('structure-module-modal-title');
     const ledeEl = backdrop ? backdrop.querySelector('.lede') : null;
     if (!backdrop || !listEl) return;
-    if (msg) { msg.className = 'msg'; msg.textContent = ''; }
+    if (msg) {
+      msg.className = 'msg';
+      msg.textContent = '';
+    }
     if (titleEl) {
-      titleEl.textContent = mode === 'design-module'
-        ? 'Add design module'
-        : (mode === 'widget' ? 'Add widget' : 'Insert block');
+      titleEl.textContent =
+        mode === 'design-module' ? 'Add design module' : mode === 'widget' ? 'Add widget' : 'Insert block';
     }
     if (ledeEl) {
-      ledeEl.textContent = mode === 'design-module'
-        ? 'Choose a design module (heading, text, image, columns, HTML, …) to place in this section.'
-        : (mode === 'widget'
-          ? 'Choose a form or site module to place inside this design module. Style embeds (card/section + .bitpype-module-embed / .bitpype-form-embed) so they match the site.'
-          : 'Page → Section → Design module → Widget. Add layouts or live widgets. Style module/form mounts — do not leave bare default embeds.');
+      ledeEl.textContent =
+        mode === 'design-module'
+          ? 'Choose a design module (heading, text, image, columns, HTML, …) to place in this section.'
+          : mode === 'widget'
+            ? 'Choose a form or site module to place inside this design module. Style embeds (card/section + .bitpype-module-embed / .bitpype-form-embed) so they match the site.'
+            : 'Page → Section → Design module → Widget. Add layouts or live widgets. Style module/form mounts — do not leave bare default embeds.';
     }
     listEl.innerHTML = '<p class="hint">Loading…</p>';
     backdrop.hidden = false;
     const showLayouts = mode === 'all' || mode === 'design-module';
     const showWidgets = mode === 'all' || mode === 'widget';
     try {
-      let mods = moduleState.summary && Array.isArray(moduleState.summary.modules)
-        ? moduleState.summary.modules : null;
+      let mods = moduleState.summary && Array.isArray(moduleState.summary.modules) ? moduleState.summary.modules : null;
       if (!mods && showWidgets) {
         const data = await api('/modules');
         mods = Array.isArray(data.modules) ? data.modules : [];
@@ -1087,9 +1208,10 @@
       if (showWidgets) {
         try {
           const formData = await api('/forms');
-          formList = Array.isArray(formData.forms) ? formData.forms
-            : (formData.form ? [formData.form] : []);
-        } catch { formList = []; }
+          formList = Array.isArray(formData.forms) ? formData.forms : formData.form ? [formData.form] : [];
+        } catch {
+          formList = [];
+        }
       }
       listEl.innerHTML = renderBlockPickerGroups({
         showLayouts,
@@ -1105,7 +1227,10 @@
         showWidgets,
         includeLegacy: mode === 'all',
       });
-      if (msg) { msg.className = 'msg err'; msg.textContent = e.message || 'Could not load site modules'; }
+      if (msg) {
+        msg.className = 'msg err';
+        msg.textContent = e.message || 'Could not load site modules';
+      }
     }
   }
 
@@ -1115,7 +1240,10 @@
     const msg = document.getElementById('msg-structure-page');
     if (!backdrop) return;
     if (input) input.value = '';
-    if (msg) { msg.className = 'msg'; msg.textContent = ''; }
+    if (msg) {
+      msg.className = 'msg';
+      msg.textContent = '';
+    }
     backdrop.hidden = false;
     if (input) input.focus();
   }
@@ -1152,13 +1280,16 @@
 
   async function applyStructureInsertModule(moduleType) {
     closeStructureModuleModal();
-    await postStructureBody({
-      scope: 'sections',
-      action: 'insertModule',
-      pageIndex: state.structurePageIdx,
-      afterIndex: state.structureInsertAfter,
-      moduleType,
-    }, 'Module block saved.');
+    await postStructureBody(
+      {
+        scope: 'sections',
+        action: 'insertModule',
+        pageIndex: state.structurePageIdx,
+        afterIndex: state.structureInsertAfter,
+        moduleType,
+      },
+      'Module block saved.'
+    );
   }
 
   async function applyStructureInsertForm(formId) {
@@ -1168,20 +1299,27 @@
         method: 'POST',
         body: JSON.stringify({ kind: 'form', formId }),
       });
-      const wrap = '<section class="ws-page-section" data-ws-page-section="1">'
-        + (data && data.html ? data.html : '')
-        + '</section>';
+      const wrap =
+        '<section class="ws-page-section" data-ws-page-section="1">' +
+        (data && data.html ? data.html : '') +
+        '</section>';
       closeStructureModuleModal();
-      await postStructureBody({
-        scope: 'sections',
-        action: 'insertSection',
-        pageIndex: state.structurePageIdx,
-        afterIndex: state.structureInsertAfter,
-        sectionType: 'html',
-        html: wrap,
-      }, 'Form block saved.');
+      await postStructureBody(
+        {
+          scope: 'sections',
+          action: 'insertSection',
+          pageIndex: state.structurePageIdx,
+          afterIndex: state.structureInsertAfter,
+          sectionType: 'html',
+          html: wrap,
+        },
+        'Form block saved.'
+      );
     } catch (e) {
-      if (msg) { msg.className = 'msg err'; msg.textContent = e.message || 'Could not insert form'; }
+      if (msg) {
+        msg.className = 'msg err';
+        msg.textContent = e.message || 'Could not insert form';
+      }
     }
   }
 
@@ -1200,11 +1338,14 @@
 
   async function applyStructureAddPage(title) {
     closeStructurePageModal();
-    await postStructureBody({
-      scope: 'menu',
-      action: 'addPage',
-      title,
-    }, 'Page created.');
+    await postStructureBody(
+      {
+        scope: 'menu',
+        action: 'addPage',
+        title,
+      },
+      'Page created.'
+    );
   }
 
   async function loadStructure(opts = {}) {
@@ -1230,15 +1371,20 @@
     const nesting = act === 'nest' || act === 'unnest';
     const toggleNav = act === 'togglenav';
     setStructureMsg(
-      toggleNav ? 'Updating menu visibility…'
-        : (nesting ? (act === 'nest' ? 'Nesting…' : 'Unnesting…') : 'Saving order…'),
+      toggleNav
+        ? 'Updating menu visibility…'
+        : nesting
+          ? act === 'nest'
+            ? 'Nesting…'
+            : 'Unnesting…'
+          : 'Saving order…',
       ''
     );
     try {
       const body = {
         scope,
         fromIndex: Number(fromIndex),
-        action: toggleNav ? 'toggleNav' : (nesting ? act : 'move'),
+        action: toggleNav ? 'toggleNav' : nesting ? act : 'move',
       };
       if (!nesting && !toggleNav) body.direction = Number(direction);
       if (scope === 'sections') body.pageIndex = state.structurePageIdx;
@@ -1262,7 +1408,10 @@
       setStructureMsg(toggleNav ? 'Menu visibility saved.' : 'Order saved on your site.', 'ok');
       setTimeout(() => {
         const msg = document.getElementById('msg-structure');
-        if (msg && (msg.textContent.indexOf('Order saved') === 0 || msg.textContent.indexOf('Menu visibility saved') === 0)) {
+        if (
+          msg &&
+          (msg.textContent.indexOf('Order saved') === 0 || msg.textContent.indexOf('Menu visibility saved') === 0)
+        ) {
           msg.className = 'msg';
           msg.textContent = '';
         }
@@ -1341,7 +1490,8 @@
       } else if (n > 0) {
         hint.innerHTML = `<strong>${n} unsaved edit${n === 1 ? '' : 's'}</strong> — Save to update your live preview, or Cancel to discard.`;
       } else {
-        hint.innerHTML = '<strong>Edit mode</strong> — click text to change it. Delete section removes a block. Forms and other modules on the page have Delete module. Undo reverses the last add or delete.';
+        hint.innerHTML =
+          '<strong>Edit mode</strong> — click text to change it. Delete section removes a block. Forms and other modules on the page have Delete module. Undo reverses the last add or delete.';
       }
     }
     if (saveBtn) saveBtn.disabled = n === 0 || state.imageUploading || state.logoUploading;
@@ -1362,9 +1512,7 @@
     if (textRadio) textRadio.checked = !modeImage;
     if (imageRadio) imageRadio.checked = modeImage;
     if (previewText) {
-      previewText.textContent = logo.brandName
-        || (state.client && state.client.business_name)
-        || 'Business';
+      previewText.textContent = logo.brandName || (state.client && state.client.business_name) || 'Business';
       previewText.hidden = modeImage;
     }
     if (previewImg) {
@@ -1406,8 +1554,12 @@
     if (!ctx) throw new Error('Could not resize logo');
     ctx.clearRect(0, 0, w, h);
     ctx.drawImage(bitmap, 0, 0, w, h);
-    try { bitmap.close(); } catch { /* */ }
-    const mime = file.type === 'image/png' || file.type === 'image/webp' ? 'image/png' : (file.type || 'image/png');
+    try {
+      bitmap.close();
+    } catch {
+      /* */
+    }
+    const mime = file.type === 'image/png' || file.type === 'image/webp' ? 'image/png' : file.type || 'image/png';
     const blob = await new Promise((resolve, reject) => {
       canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not compress logo'))), mime, 0.92);
     });
@@ -1436,14 +1588,18 @@
       let body;
       if (mode === 'text') {
         body = { mode: 'text' };
-        if (msg) { msg.className = 'msg'; msg.textContent = 'Switching to text logo…'; }
+        if (msg) {
+          msg.className = 'msg';
+          msg.textContent = 'Switching to text logo…';
+        }
       } else {
-        const prepared = file
-          ? await resizeLogoForUpload(file)
-          : null;
+        const prepared = file ? await resizeLogoForUpload(file) : null;
         if (!prepared) throw new Error('Choose a logo image');
         body = { mode: 'image', data: prepared.data, mimeType: prepared.mimeType };
-        if (msg) { msg.className = 'msg'; msg.textContent = 'Uploading logo…'; }
+        if (msg) {
+          msg.className = 'msg';
+          msg.textContent = 'Uploading logo…';
+        }
       }
       const result = await api('/site/logo', {
         method: 'POST',
@@ -1497,7 +1653,8 @@
     syncEditModeUi();
     const lede = document.getElementById('preview-lede');
     if (!previewUrl) {
-      box.innerHTML = '<div class="preview-empty" id="preview-empty">No preview is available yet. We’ll notify you when it’s ready.</div>';
+      box.innerHTML =
+        '<div class="preview-empty" id="preview-empty">No preview is available yet. We’ll notify you when it’s ready.</div>';
       if (lede) lede.textContent = 'Live look at the current site we built for you.';
       return;
     }
@@ -1509,22 +1666,28 @@
   }
 
   function getPreviewScroll() {
-    return { ...(state.previewScroll || {x:0,y:0}), parentX:window.scrollX || 0, parentY:window.scrollY || 0 };
+    return { ...(state.previewScroll || { x: 0, y: 0 }), parentX: window.scrollX || 0, parentY: window.scrollY || 0 };
   }
 
   function restorePreviewScroll(pos) {
     if (!pos) return;
     try {
       window.scrollTo(pos.parentX || 0, pos.parentY || 0);
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
     const apply = () => {
       try {
         const win = state.previewFrame && state.previewFrame.contentWindow;
-        if (win) win.postMessage({source:'ws-portal', type:'restore-scroll', x:pos.x || 0, y:pos.y || 0}, '*');
-      } catch { /* */ }
+        if (win) win.postMessage({ source: 'ws-portal', type: 'restore-scroll', x: pos.x || 0, y: pos.y || 0 }, '*');
+      } catch {
+        /* */
+      }
       try {
         window.scrollTo(pos.parentX || 0, pos.parentY || 0);
-      } catch { /* */ }
+      } catch {
+        /* */
+      }
     };
     apply();
     requestAnimationFrame(apply);
@@ -1553,7 +1716,7 @@
         referrerpolicy="no-referrer"></iframe>`;
     const frame = document.getElementById('portal-preview-frame');
     state.previewFrame = frame;
-    state.previewScroll = {x:0,y:0};
+    state.previewScroll = { x: 0, y: 0 };
     frame.addEventListener('load', () => {
       if (keepEdit || state.editMode) {
         state.editMode = true;
@@ -1747,7 +1910,12 @@
     if (!data) return;
     if (data.external) {
       if (data.href) {
-        try { const url = new URL(data.href); if (/^https?:$/.test(url.protocol)) window.open(url.href, '_blank', 'noopener,noreferrer'); } catch { /* */ }
+        try {
+          const url = new URL(data.href);
+          if (/^https?:$/.test(url.protocol)) window.open(url.href, '_blank', 'noopener,noreferrer');
+        } catch {
+          /* */
+        }
       }
       return;
     }
@@ -1765,13 +1933,18 @@
     const frame = state.previewFrame;
     if (!frame || !frame.contentWindow) return;
     try {
-      frame.contentWindow.postMessage({
-        source: 'ws-portal',
-        type: 'image-busy',
-        src: String(src || ''),
-        on: !!on,
-      }, '*');
-    } catch { /* */ }
+      frame.contentWindow.postMessage(
+        {
+          source: 'ws-portal',
+          type: 'image-busy',
+          src: String(src || ''),
+          on: !!on,
+        },
+        '*'
+      );
+    } catch {
+      /* */
+    }
   }
 
   function pickImageFile() {
@@ -1785,7 +1958,13 @@
       const finish = (fn, val) => {
         if (settled) return;
         settled = true;
-        window.setTimeout(() => { try { input.remove(); } catch { /* */ } }, 0);
+        window.setTimeout(() => {
+          try {
+            input.remove();
+          } catch {
+            /* */
+          }
+        }, 0);
         fn(val);
       };
       input.addEventListener('change', () => {
@@ -1825,7 +2004,11 @@
     let w = bitmap.width;
     let h = bitmap.height;
     if (!w || !h) {
-      try { bitmap.close(); } catch { /* */ }
+      try {
+        bitmap.close();
+      } catch {
+        /* */
+      }
       throw new Error('Could not read that image');
     }
     if (w > maxWidth) {
@@ -1837,11 +2020,19 @@
     canvas.height = h;
     const ctx = canvas.getContext('2d');
     if (!ctx) {
-      try { bitmap.close(); } catch { /* */ }
+      try {
+        bitmap.close();
+      } catch {
+        /* */
+      }
       throw new Error('Could not resize image');
     }
     ctx.drawImage(bitmap, 0, 0, w, h);
-    try { bitmap.close(); } catch { /* */ }
+    try {
+      bitmap.close();
+    } catch {
+      /* */
+    }
 
     const preferJpeg = type !== 'image/png' || w * h > 800 * 800;
     const mime = preferJpeg ? 'image/jpeg' : 'image/png';
@@ -1929,7 +2120,9 @@
       state.plan = (b && b.plan) || state.plan || 'free';
       if (state.plan !== 'free') hideUpsellTip();
       state.socialImagesIncluded = !!(state.entitlements && state.entitlements.socialImagesIncluded);
-    } catch { /* keep last known */ }
+    } catch {
+      /* keep last known */
+    }
   }
 
   function aiImageCostLabel() {
@@ -1945,7 +2138,10 @@
     const ta = document.getElementById('ai-image-prompt');
     if (ta) ta.value = '';
     const msg = document.getElementById('msg-ai-image');
-    if (msg) { msg.className = 'msg'; msg.textContent = ''; }
+    if (msg) {
+      msg.className = 'msg';
+      msg.textContent = '';
+    }
   }
 
   async function openAiImageModal(replaceSrc) {
@@ -1957,7 +2153,10 @@
     const hint = document.getElementById('ai-image-credit-hint');
     if (hint) hint.textContent = aiImageCostLabel();
     const msg = document.getElementById('msg-ai-image');
-    if (msg) { msg.className = 'msg'; msg.textContent = ''; }
+    if (msg) {
+      msg.className = 'msg';
+      msg.textContent = '';
+    }
     const ta = document.getElementById('ai-image-prompt');
     if (ta) ta.value = '';
     const modal = document.getElementById('ai-image-modal');
@@ -1972,9 +2171,15 @@
     const modalMsg = document.getElementById('msg-ai-image');
     const msg = document.getElementById('msg-edit');
     const genBtn = document.getElementById('btn-ai-image-generate');
-    if (!src) { closeAiImageModal(); return; }
+    if (!src) {
+      closeAiImageModal();
+      return;
+    }
     if (!prompt) {
-      if (modalMsg) { modalMsg.className = 'msg err'; modalMsg.textContent = 'Enter a description for the image.'; }
+      if (modalMsg) {
+        modalMsg.className = 'msg err';
+        modalMsg.textContent = 'Enter a description for the image.';
+      }
       return;
     }
     if (state.imageUploading) return;
@@ -1984,7 +2189,10 @@
     state.imageUploading = true;
     updateEditBar();
     if (genBtn) genBtn.disabled = true;
-    if (modalMsg) { modalMsg.className = 'msg'; modalMsg.textContent = 'Generating image… this can take a minute.'; }
+    if (modalMsg) {
+      modalMsg.className = 'msg';
+      modalMsg.textContent = 'Generating image… this can take a minute.';
+    }
     postImageBusyToFrame(src, true);
 
     try {
@@ -2001,9 +2209,10 @@
       closeAiImageModal();
       if (msg) {
         msg.className = 'msg ok';
-        msg.textContent = charged > 0
-          ? `Image generated. Used ${charged} credit${charged === 1 ? '' : 's'} (${state.creditsBalance} left).`
-          : 'Image generated and updated on your live preview.';
+        msg.textContent =
+          charged > 0
+            ? `Image generated. Used ${charged} credit${charged === 1 ? '' : 's'} (${state.creditsBalance} left).`
+            : 'Image generated and updated on your live preview.';
       }
       await loadEditablePreview(state.previewUrl);
       if (keepMode && state.siteEditable) setEditMode(true, { fullscreen: keepFs });
@@ -2013,8 +2222,8 @@
       if (modalMsg) {
         modalMsg.className = 'msg err';
         modalMsg.textContent = insufficient
-          ? (e.message || 'Not enough credits. Buy more in Billing.')
-          : (e.message || 'Could not generate image');
+          ? e.message || 'Not enough credits. Buy more in Billing.'
+          : e.message || 'Could not generate image';
       }
       if (msg && insufficient) {
         msg.className = 'msg err';
@@ -2036,11 +2245,8 @@
     const scrollPos = getPreviewScroll();
     if (msg) {
       msg.className = 'msg';
-      msg.textContent = action === 'freeform-save'
-        ? 'Saving…'
-        : action === 'delete'
-          ? 'Updating list…'
-          : 'Adding item…';
+      msg.textContent =
+        action === 'freeform-save' ? 'Saving…' : action === 'delete' ? 'Updating list…' : 'Adding item…';
     }
     try {
       // Flush pending text edits first so we don't lose them on reload
@@ -2049,22 +2255,23 @@
         await api('/site/edits', { method: 'POST', body: JSON.stringify({ edits }) });
         clearPendingEdits();
       }
-      const body = action === 'freeform-save'
-        ? {
-          action: 'freeform-save',
-          pageIndex: data.pageIndex,
-          sectionIndex: data.sectionIndex,
-          html: data.html,
-          embedRemove: data.embedRemove || null,
-          embedRestore: data.embedRestore || null,
-        }
-        : {
-          action: action === 'delete' ? 'delete' : 'add',
-          pageIndex: data.pageIndex,
-          sectionIndex: data.sectionIndex,
-          listKey: data.listKey || 'items',
-          index: data.index,
-        };
+      const body =
+        action === 'freeform-save'
+          ? {
+              action: 'freeform-save',
+              pageIndex: data.pageIndex,
+              sectionIndex: data.sectionIndex,
+              html: data.html,
+              embedRemove: data.embedRemove || null,
+              embedRestore: data.embedRestore || null,
+            }
+          : {
+              action: action === 'delete' ? 'delete' : 'add',
+              pageIndex: data.pageIndex,
+              sectionIndex: data.sectionIndex,
+              listKey: data.listKey || 'items',
+              index: data.index,
+            };
       const out = await api('/site/list-item', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -2109,7 +2316,9 @@
             preserveFullscreen: keepFs,
             restoreScroll: scrollPos,
           });
-        } catch { /* */ }
+        } catch {
+          /* */
+        }
       }
     }
   }
@@ -2126,10 +2335,28 @@
     if (data.source !== 'ws-preview') return;
     if (!state.siteEditable) return;
     if (data.type === 'scroll-position') {
-      if (Number.isFinite(data.x) && Number.isFinite(data.y) && data.x >= 0 && data.y >= 0 && data.x <= 10000000 && data.y <= 10000000) state.previewScroll = {x:data.x,y:data.y};
+      if (
+        Number.isFinite(data.x) &&
+        Number.isFinite(data.y) &&
+        data.x >= 0 &&
+        data.y >= 0 &&
+        data.x <= 10000000 &&
+        data.y <= 10000000
+      )
+        state.previewScroll = { x: data.x, y: data.y };
       return;
     }
-    const allowedTypes = ['ready','list-error','undo-state','list-mutate','pick-block','image-replace','image-ai-generate','element-select','element-font'];
+    const allowedTypes = [
+      'ready',
+      'list-error',
+      'undo-state',
+      'list-mutate',
+      'pick-block',
+      'image-replace',
+      'image-ai-generate',
+      'element-select',
+      'element-font',
+    ];
     if (data.type != null && !allowedTypes.includes(data.type)) return;
     if (data.type === 'ready') {
       if (state.editMode) postEditModeToFrame(true);
@@ -2150,7 +2377,7 @@
     }
     if (data.type === 'list-mutate') {
       if (!state.editMode) return;
-      if (!['add','delete','freeform-save'].includes(data.action)) return;
+      if (!['add', 'delete', 'freeform-save'].includes(data.action)) return;
       if (data.html != null && (typeof data.html !== 'string' || data.html.length > 800000)) return;
       handleListMutate(data);
       return;
@@ -2190,14 +2417,19 @@
       if (!state.editMode) return;
       handleElementFont(data).catch((e) => {
         const msg = document.getElementById('msg-edit');
-        if (msg) { msg.className = 'msg err'; msg.textContent = e.message || 'Could not save font'; }
+        if (msg) {
+          msg.className = 'msg err';
+          msg.textContent = e.message || 'Could not save font';
+        }
       });
       return;
     }
     const id = String(data.id || '');
     if (!id || !state.editMode) return;
     if (typeof data.text !== 'string' || data.text.length > 50000 || id.length > 500) return;
-    const text = String(data.text || '').replace(/\s+/g, ' ').trim();
+    const text = String(data.text || '')
+      .replace(/\s+/g, ' ')
+      .trim();
     // Freeform HTML text nodes:
     //   html:pageIndex:nodeIndex (legacy page.html)
     //   html:pageIndex:sectionIndex:nodeIndex (modular section content.html)
@@ -2217,7 +2449,13 @@
   }
 
   function formatWhen(iso) {
-    return esc(String(iso || '').replace('T', ' ').slice(0, 16)) + ' UTC';
+    return (
+      esc(
+        String(iso || '')
+          .replace('T', ' ')
+          .slice(0, 16)
+      ) + ' UTC'
+    );
   }
 
   function money(n) {
@@ -2252,13 +2490,14 @@
     const slice = posts.slice(start, start + state.pageSize);
     const showGenAd = !!state.socialImagesIncluded;
 
-    list.innerHTML = slice.map((p) => {
-      const img = absoluteUrl(p.image_url);
-      const platforms = (p.platforms || []).map((x) => esc(x)).join(', ');
-      const media = img
-        ? `<div class="post-media"><img src="${esc(img)}" alt="Post image" loading="lazy" /></div>`
-        : `<div class="post-media">No image yet</div>`;
-      return `
+    list.innerHTML = slice
+      .map((p) => {
+        const img = absoluteUrl(p.image_url);
+        const platforms = (p.platforms || []).map((x) => esc(x)).join(', ');
+        const media = img
+          ? `<div class="post-media"><img src="${esc(img)}" alt="Post image" loading="lazy" /></div>`
+          : `<div class="post-media">No image yet</div>`;
+        return `
         <article class="post-card" data-post-id="${esc(p.id)}">
           ${media}
           <div class="post-body">
@@ -2272,12 +2511,16 @@
               <button type="button" class="btn ghost small" data-act="save-caption" data-id="${esc(p.id)}">Save caption</button>
             </div>
             <div class="post-actions">
-              ${showGenAd
-                ? `<button type="button" class="btn soft small" data-act="gen-image" data-id="${esc(p.id)}">Generate AD</button>`
-                : ''}
-              ${['draft', 'pending_approval', 'approved', 'rejected'].includes(String(p.status || ''))
-                ? `<button type="button" class="btn soft small" data-act="approve" data-id="${esc(p.id)}">Approve &amp; schedule</button>`
-                : ''}
+              ${
+                showGenAd
+                  ? `<button type="button" class="btn soft small" data-act="gen-image" data-id="${esc(p.id)}">Generate AD</button>`
+                  : ''
+              }
+              ${
+                ['draft', 'pending_approval', 'approved', 'rejected'].includes(String(p.status || ''))
+                  ? `<button type="button" class="btn soft small" data-act="approve" data-id="${esc(p.id)}">Approve &amp; schedule</button>`
+                  : ''
+              }
               <label class="hint" style="display:inline-flex;align-items:center;gap:6px">
                 When
                 <input type="datetime-local" data-act="sched" data-id="${esc(p.id)}"
@@ -2291,7 +2534,8 @@
             </div>
           </div>
         </article>`;
-    }).join('');
+      })
+      .join('');
 
     pager.hidden = pages <= 1;
     info.textContent = `Showing ${start + 1}–${Math.min(start + state.pageSize, posts.length)} of ${posts.length}`;
@@ -2432,9 +2676,10 @@
       renderPostPage();
       msg.className = 'msg ok';
       const charged = Number(data.credits_charged || 0);
-      msg.textContent = data.included_in_plan || charged === 0
-        ? 'Branded image ready — included in your plan.'
-        : `Branded image ready. Used ${charged} credit${charged === 1 ? '' : 's'} (${state.creditsBalance} left).`;
+      msg.textContent =
+        data.included_in_plan || charged === 0
+          ? 'Branded image ready — included in your plan.'
+          : `Branded image ready. Used ${charged} credit${charged === 1 ? '' : 's'} (${state.creditsBalance} left).`;
     } catch (e) {
       msg.className = 'msg err';
       msg.textContent = e.message;
@@ -2456,8 +2701,11 @@
     if (cal.credits_pack_label) state.creditsPackLabel = String(cal.credits_pack_label);
     state.creditsConfigured = !!cal.credits_configured;
     state.socialImagesIncluded = !!cal.social_images_included;
-    const label = new Date(Date.UTC(cal.year, cal.month - 1, 1))
-      .toLocaleString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' });
+    const label = new Date(Date.UTC(cal.year, cal.month - 1, 1)).toLocaleString(undefined, {
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'UTC',
+    });
     document.getElementById('cal-label').textContent = label;
     document.getElementById('cal-lede').textContent = `${label} · ${state.posts.length} post(s)`;
 
@@ -2481,14 +2729,16 @@
     const startPad = first.getUTCDay(); // 0 Sun
     const total = daysInMonth(cal.year, cal.month);
     const heads = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-      .map((h) => `<div class="cal-head">${h}</div>`).join('');
+      .map((h) => `<div class="cal-head">${h}</div>`)
+      .join('');
     let cells = '';
     for (let i = 0; i < startPad; i += 1) cells += '<div class="cal-cell muted"></div>';
     for (let d = 1; d <= total; d += 1) {
       const posts = byDay.get(d) || [];
-      const dots = posts.slice(0, 2).map((p) =>
-        `<span class="dot" title="${esc(p.status)}">${esc((p.caption || '').slice(0, 28))}</span>`
-      ).join('');
+      const dots = posts
+        .slice(0, 2)
+        .map((p) => `<span class="dot" title="${esc(p.status)}">${esc((p.caption || '').slice(0, 28))}</span>`)
+        .join('');
       const more = posts.length > 2 ? `<span class="dot">+${posts.length - 2}</span>` : '';
       cells += `<div class="cal-cell"><div class="d">${d}</div>${dots}${more}</div>`;
     }
@@ -2517,7 +2767,9 @@
       url.searchParams.delete('checkout');
       url.searchParams.delete('plan');
       history.replaceState({}, '', url.pathname + url.search + url.hash);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   function renderPlanCards(b) {
@@ -2525,56 +2777,87 @@
     if (!grid) return;
     const currentPlan = String(b.plan || 'free');
     const canSelfServe = !!(b.canSelfServe != null ? b.canSelfServe : b.canManage);
-    const selfSubscribed = !!(b.hasActiveSubscription
-      || (currentPlan !== 'free' && ['active', 'trialing', 'past_due'].includes(String(b.subscriptionStatus || ''))));
+    const selfSubscribed = !!(
+      b.hasActiveSubscription ||
+      (currentPlan !== 'free' && ['active', 'trialing', 'past_due'].includes(String(b.subscriptionStatus || '')))
+    );
     const cancelAtPeriodEnd = !!b.cancelAtPeriodEnd;
-    const plans = Array.isArray(b.plans) && b.plans.length
-      ? b.plans
-      : [
-        { id: 'free', name: 'Free', priceLabel: 'Free', tagline: 'Launch a site and edit it yourself.', features: [], checkout: false, priceConfigured: true },
-        { id: 'standard', name: 'Standard', priceLabel: 'Monthly', tagline: 'Monthly support with pay-per-image social ads.', features: [], checkout: true, priceConfigured: false },
-        { id: 'premium', name: 'Premium', priceLabel: 'Monthly', tagline: 'Weekly support with social images included.', features: [], checkout: true, priceConfigured: false },
-      ];
+    const plans =
+      Array.isArray(b.plans) && b.plans.length
+        ? b.plans
+        : [
+            {
+              id: 'free',
+              name: 'Free',
+              priceLabel: 'Free',
+              tagline: 'Launch a site and edit it yourself.',
+              features: [],
+              checkout: false,
+              priceConfigured: true,
+            },
+            {
+              id: 'standard',
+              name: 'Standard',
+              priceLabel: 'Monthly',
+              tagline: 'Monthly support with pay-per-image social ads.',
+              features: [],
+              checkout: true,
+              priceConfigured: false,
+            },
+            {
+              id: 'premium',
+              name: 'Premium',
+              priceLabel: 'Monthly',
+              tagline: 'Weekly support with social images included.',
+              features: [],
+              checkout: true,
+              priceConfigured: false,
+            },
+          ];
 
-    grid.innerHTML = plans.map((p) => {
-      const isCurrent = p.id === currentPlan;
-      let cta = '';
-      if (!canSelfServe) {
-        cta = isCurrent
-          ? '<span class="hint">Current plan</span>'
-          : '<span class="hint">Contact Bitpype to change plans</span>';
-      } else if (p.id === 'free') {
-        if (isCurrent && !selfSubscribed) {
-          cta = '<span class="hint">Current plan</span>';
-        } else if (cancelAtPeriodEnd && selfSubscribed) {
-          cta = '<span class="hint">Cancels at period end</span>'
-            + '<button class="btn ghost" type="button" data-resume-plan="1">Keep my plan</button>';
-        } else if (selfSubscribed) {
-          cta = '<button class="btn ghost" type="button" data-change-plan="free">Downgrade to Free</button>'
-            + '<span class="hint">Keeps access until the period ends</span>';
+    grid.innerHTML = plans
+      .map((p) => {
+        const isCurrent = p.id === currentPlan;
+        let cta = '';
+        if (!canSelfServe) {
+          cta = isCurrent
+            ? '<span class="hint">Current plan</span>'
+            : '<span class="hint">Contact Bitpype to change plans</span>';
+        } else if (p.id === 'free') {
+          if (isCurrent && !selfSubscribed) {
+            cta = '<span class="hint">Current plan</span>';
+          } else if (cancelAtPeriodEnd && selfSubscribed) {
+            cta =
+              '<span class="hint">Cancels at period end</span>' +
+              '<button class="btn ghost" type="button" data-resume-plan="1">Keep my plan</button>';
+          } else if (selfSubscribed) {
+            cta =
+              '<button class="btn ghost" type="button" data-change-plan="free">Downgrade to Free</button>' +
+              '<span class="hint">Keeps access until the period ends</span>';
+          } else {
+            cta = '<span class="hint">Current plan</span>';
+          }
+        } else if (isCurrent && selfSubscribed) {
+          cta = cancelAtPeriodEnd
+            ? '<span class="hint">Current — canceling at period end</span>' +
+              '<button class="btn" type="button" data-resume-plan="1">Keep this plan</button>'
+            : '<span class="hint">Current plan</span>';
+        } else if (!p.priceConfigured) {
+          cta = '<span class="hint">Price not configured yet</span>';
+        } else if (!selfSubscribed) {
+          cta = `<button class="btn" type="button" data-change-plan="${esc(p.id)}">Subscribe</button>`;
+        } else if (p.id === 'premium' && currentPlan === 'standard') {
+          cta = `<button class="btn" type="button" data-change-plan="premium">Upgrade to Premium</button>`;
+        } else if (p.id === 'standard' && currentPlan === 'premium') {
+          cta = `<button class="btn ghost" type="button" data-change-plan="standard">Switch to Standard</button>`;
         } else {
-          cta = '<span class="hint">Current plan</span>';
+          cta = `<button class="btn" type="button" data-change-plan="${esc(p.id)}">Switch to ${esc(p.name)}</button>`;
         }
-      } else if (isCurrent && selfSubscribed) {
-        cta = cancelAtPeriodEnd
-          ? '<span class="hint">Current — canceling at period end</span>'
-            + '<button class="btn" type="button" data-resume-plan="1">Keep this plan</button>'
-          : '<span class="hint">Current plan</span>';
-      } else if (!p.priceConfigured) {
-        cta = '<span class="hint">Price not configured yet</span>';
-      } else if (!selfSubscribed) {
-        cta = `<button class="btn" type="button" data-change-plan="${esc(p.id)}">Subscribe</button>`;
-      } else if (p.id === 'premium' && currentPlan === 'standard') {
-        cta = `<button class="btn" type="button" data-change-plan="premium">Upgrade to Premium</button>`;
-      } else if (p.id === 'standard' && currentPlan === 'premium') {
-        cta = `<button class="btn ghost" type="button" data-change-plan="standard">Switch to Standard</button>`;
-      } else {
-        cta = `<button class="btn" type="button" data-change-plan="${esc(p.id)}">Switch to ${esc(p.name)}</button>`;
-      }
-      const featuredNote = p.id === 'premium'
-        ? '<p class="plan-tagline" style="color:var(--accent);font-weight:550">Social images included — no per-image charge.</p>'
-        : '';
-      return `<div class="plan-card${isCurrent ? ' is-current' : ''}${p.id === 'premium' ? ' is-featured' : ''}">
+        const featuredNote =
+          p.id === 'premium'
+            ? '<p class="plan-tagline" style="color:var(--accent);font-weight:550">Social images included — no per-image charge.</p>'
+            : '';
+        return `<div class="plan-card${isCurrent ? ' is-current' : ''}${p.id === 'premium' ? ' is-featured' : ''}">
         <div class="plan-card-h">
           <h3>${esc(p.name)}</h3>
           <div class="plan-price">${esc(p.priceLabel || '')}</div>
@@ -2584,7 +2867,8 @@
         <ul class="plan-features">${(p.features || []).map((f) => `<li>${esc(f)}</li>`).join('')}</ul>
         <div class="plan-cta">${cta}</div>
       </div>`;
-    }).join('');
+      })
+      .join('');
 
     grid.querySelectorAll('[data-change-plan]').forEach((btn) => {
       btn.onclick = () => startPortalChangePlan(btn.getAttribute('data-change-plan'));
@@ -2624,23 +2908,28 @@
         <th style="text-align:left;padding:8px 6px;border-bottom:1px solid rgba(0,0,0,.08)">Status</th>
         <th style="text-align:right;padding:8px 6px;border-bottom:1px solid rgba(0,0,0,.08)">Credits</th>
       </tr></thead>
-      <tbody>${rows.map((r) => {
-        const title = esc(r.businessName || r.name || r.email || 'Referral');
-        const sub = [r.name && r.businessName ? r.name : '', r.email || '', r.phone || '']
-          .filter(Boolean).map(esc).join(' · ');
-        const credits = r.status === 'credited'
-          ? String(r.creditsAwarded || 0)
-          : `~${math.standardEstimateCredits != null ? math.standardEstimateCredits : '—'}`;
-        return `<tr>
+      <tbody>${rows
+        .map((r) => {
+          const title = esc(r.businessName || r.name || r.email || 'Referral');
+          const sub = [r.name && r.businessName ? r.name : '', r.email || '', r.phone || '']
+            .filter(Boolean)
+            .map(esc)
+            .join(' · ');
+          const credits =
+            r.status === 'credited'
+              ? String(r.creditsAwarded || 0)
+              : `~${math.standardEstimateCredits != null ? math.standardEstimateCredits : '—'}`;
+          return `<tr>
           <td style="padding:10px 6px;vertical-align:top;border-bottom:1px solid rgba(0,0,0,.06)">
             <strong>${title}</strong>${sub ? `<div class="hint" style="margin:4px 0 0">${sub}</div>` : ''}
           </td>
           <td style="padding:10px 6px;vertical-align:top;border-bottom:1px solid rgba(0,0,0,.06)">
-            <span class="status-pill${r.status === 'credited' ? '' : (r.status === 'signed_up' ? ' warn' : '')}">${esc(refStatusLabel(r.status))}</span>
+            <span class="status-pill${r.status === 'credited' ? '' : r.status === 'signed_up' ? ' warn' : ''}">${esc(refStatusLabel(r.status))}</span>
           </td>
           <td style="padding:10px 6px;vertical-align:top;text-align:right;border-bottom:1px solid rgba(0,0,0,.06)">${esc(credits)}</td>
         </tr>`;
-      }).join('')}</tbody></table></div>`;
+        })
+        .join('')}</tbody></table></div>`;
   }
 
   async function loadReferrals() {
@@ -2652,7 +2941,10 @@
   async function submitReferral() {
     const msg = document.getElementById('msg-referrals');
     const btn = document.getElementById('btn-ref-submit');
-    if (msg) { msg.textContent = ''; msg.className = 'msg'; }
+    if (msg) {
+      msg.textContent = '';
+      msg.className = 'msg';
+    }
     if (btn) btn.disabled = true;
     try {
       const data = await api('/referrals', {
@@ -2684,14 +2976,22 @@
   }
 
   const btnRefSubmit = document.getElementById('btn-ref-submit');
-  if (btnRefSubmit) btnRefSubmit.onclick = () => { submitReferral().catch(() => {}); };
+  if (btnRefSubmit)
+    btnRefSubmit.onclick = () => {
+      submitReferral().catch(() => {});
+    };
 
   let analyticsEpoch = 0;
   function analyticsRows(id, rows) {
-    const table = document.getElementById(id); table.replaceChildren();
+    const table = document.getElementById(id);
+    table.replaceChildren();
     for (const values of rows.length ? rows : [['No activity yet', '—']]) {
       const tr = document.createElement('tr');
-      for (const value of values) { const td = document.createElement('td'); td.textContent = String(value); tr.append(td); }
+      for (const value of values) {
+        const td = document.createElement('td');
+        td.textContent = String(value);
+        tr.append(td);
+      }
       table.append(tr);
     }
   }
@@ -2700,8 +3000,11 @@
     const msg = document.getElementById('analytics-message');
     const form = document.getElementById('analytics-settings');
     const controls = [...form.querySelectorAll('input,button')];
-    controls.forEach(el => { el.disabled = true; });
-    msg.className = 'msg'; msg.textContent = 'Loading analytics…';
+    controls.forEach((el) => {
+      el.disabled = true;
+    });
+    msg.className = 'msg';
+    msg.textContent = 'Loading analytics…';
     try {
       const report = await api('/analytics?days=' + document.getElementById('analytics-days').value);
       if (epoch !== analyticsEpoch) return;
@@ -2709,23 +3012,61 @@
       document.getElementById('analytics-google').value = report.googleIds.join(', ');
       document.getElementById('analytics-visits').textContent = report.visits.toLocaleString();
       document.getElementById('analytics-clicks').textContent = report.clicks.toLocaleString();
-      analyticsRows('analytics-pages', report.pages.slice(0, 10).map(r => [r.path, r.visits]));
-      const labels = {phone:'Phone links',email:'Email links',internal:'Site links',external:'External links',button:'Buttons'};
-      analyticsRows('analytics-types', report.clickTypes.map(r => [labels[r.kind] || r.kind, r.count]));
-      analyticsRows('analytics-daily', report.daily.map(r => [r.day, r.visits, r.clicks]));
-      msg.textContent = report.internalEnabled || report.googleIds.length ? 'Tracking settings saved. Publish your website to install tracking if you have not done so yet.' : 'Tracking is off. Enable it above to start collecting visits after publishing.';
-    } catch (e) { if (epoch === analyticsEpoch) { msg.className = 'msg err'; msg.textContent = e.message || 'Could not load analytics.'; } }
-    finally { if (epoch === analyticsEpoch) controls.forEach(el => { el.disabled = false; }); }
+      analyticsRows(
+        'analytics-pages',
+        report.pages.slice(0, 10).map((r) => [r.path, r.visits])
+      );
+      const labels = {
+        phone: 'Phone links',
+        email: 'Email links',
+        internal: 'Site links',
+        external: 'External links',
+        button: 'Buttons',
+      };
+      analyticsRows(
+        'analytics-types',
+        report.clickTypes.map((r) => [labels[r.kind] || r.kind, r.count])
+      );
+      analyticsRows(
+        'analytics-daily',
+        report.daily.map((r) => [r.day, r.visits, r.clicks])
+      );
+      msg.textContent =
+        report.internalEnabled || report.googleIds.length
+          ? 'Tracking settings saved. Publish your website to install tracking if you have not done so yet.'
+          : 'Tracking is off. Enable it above to start collecting visits after publishing.';
+    } catch (e) {
+      if (epoch === analyticsEpoch) {
+        msg.className = 'msg err';
+        msg.textContent = e.message || 'Could not load analytics.';
+      }
+    } finally {
+      if (epoch === analyticsEpoch)
+        controls.forEach((el) => {
+          el.disabled = false;
+        });
+    }
   }
-  document.getElementById('analytics-settings').addEventListener('submit', async event => {
+  document.getElementById('analytics-settings').addEventListener('submit', async (event) => {
     event.preventDefault();
-    const button = document.getElementById('analytics-save'); button.disabled = true;
+    const button = document.getElementById('analytics-save');
+    button.disabled = true;
     const msg = document.getElementById('analytics-message');
     try {
-      await api('/analytics', { method:'POST', body:JSON.stringify({ internalEnabled:document.getElementById('analytics-internal').checked, googleIds:document.getElementById('analytics-google').value }) });
+      await api('/analytics', {
+        method: 'POST',
+        body: JSON.stringify({
+          internalEnabled: document.getElementById('analytics-internal').checked,
+          googleIds: document.getElementById('analytics-google').value,
+        }),
+      });
       await loadAnalytics();
-    } catch (e) { msg.className = 'msg err'; msg.textContent = e.message || 'Could not save tracking settings.'; }
-    finally { button.disabled = false; }
+    } catch (e) {
+      msg.className = 'msg err';
+      msg.textContent = e.message || 'Could not save tracking settings.';
+    } finally {
+      button.disabled = false;
+    }
   });
   document.getElementById('analytics-refresh').addEventListener('click', loadAnalytics);
   document.getElementById('analytics-days').addEventListener('change', loadAnalytics);
@@ -2735,30 +3076,36 @@
     const pill = document.getElementById('bill-status');
     const planId = String(b.plan || 'free');
     const status = String(b.subscriptionStatus || (planId === 'free' ? 'free' : 'none'));
-    const planName = b.planName || (planId.charAt(0).toUpperCase() + planId.slice(1));
-    pill.textContent = status === 'trialing' ? 'Trialing'
-      : status === 'past_due' ? 'Past due'
-      : status === 'active' || b.workspaceSubscribed ? 'Active'
-      : planId === 'free' ? 'Free' : status;
-    pill.className = 'status-pill'
-      + (status === 'past_due' ? ' warn' : '')
-      + (status === 'canceled' ? ' bad' : '');
+    const planName = b.planName || planId.charAt(0).toUpperCase() + planId.slice(1);
+    pill.textContent =
+      status === 'trialing'
+        ? 'Trialing'
+        : status === 'past_due'
+          ? 'Past due'
+          : status === 'active' || b.workspaceSubscribed
+            ? 'Active'
+            : planId === 'free'
+              ? 'Free'
+              : status;
+    pill.className = 'status-pill' + (status === 'past_due' ? ' warn' : '') + (status === 'canceled' ? ' bad' : '');
     const planEl = document.getElementById('bill-plan-name');
     if (planEl) planEl.textContent = planName + ' plan';
 
     const end = b.currentPeriodEnd
       ? new Date(String(b.currentPeriodEnd).replace(' ', 'T') + (String(b.currentPeriodEnd).includes('Z') ? '' : 'Z'))
       : null;
-    const endLabel = end && Number.isFinite(end.getTime())
-      ? end.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
-      : '';
-    document.getElementById('bill-renewal').textContent = b.cancelAtPeriodEnd && endLabel
-      ? `Access continues until ${endLabel}, then you move to Free.`
-      : endLabel
-        ? `Renews / period ends ${endLabel}.`
-        : (planId === 'free'
-          ? 'You’re on Free — upgrade anytime for support. Premium includes social images.'
-          : 'Your service is currently covered.');
+    const endLabel =
+      end && Number.isFinite(end.getTime())
+        ? end.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+        : '';
+    document.getElementById('bill-renewal').textContent =
+      b.cancelAtPeriodEnd && endLabel
+        ? `Access continues until ${endLabel}, then you move to Free.`
+        : endLabel
+          ? `Renews / period ends ${endLabel}.`
+          : planId === 'free'
+            ? 'You’re on Free — upgrade anytime for support. Premium includes social images.'
+            : 'Your service is currently covered.';
     const noticeEl = document.getElementById('bill-notice');
     noticeEl.textContent = b.notice || '';
     noticeEl.hidden = !b.notice;
@@ -2820,14 +3167,18 @@
   let mcpLastToken = '';
 
   function mcpCursorSnippet(endpoint, tokenPlaceholder) {
-    return JSON.stringify({
-      mcpServers: {
-        'website-scout': {
-          url: endpoint,
-          headers: { Authorization: 'Bearer ' + tokenPlaceholder },
+    return JSON.stringify(
+      {
+        mcpServers: {
+          'website-scout': {
+            url: endpoint,
+            headers: { Authorization: 'Bearer ' + tokenPlaceholder },
+          },
         },
       },
-    }, null, 2);
+      null,
+      2
+    );
   }
 
   function fmtMcpDate(v) {
@@ -2869,15 +3220,20 @@
       const data = await api('/mcp/tokens');
       const tokens = data.tokens || [];
       if (heading) heading.textContent = `Your MCP tokens (${tokens.length})`;
-      tbody.innerHTML = tokens.map((t) => `
+      tbody.innerHTML =
+        tokens
+          .map(
+            (t) => `
         <tr>
           <td>${esc(t.name || '')}</td>
           <td class="mono">${esc(t.token_prefix || '')}…</td>
           <td>${esc(fmtMcpDate(t.last_used_at))}</td>
           <td>${esc(fmtMcpDate(t.created_at))}</td>
           <td><button type="button" class="btn ghost small" data-mcp-revoke="${t.id}" style="color:var(--err)">Revoke</button></td>
-        </tr>`).join('')
-        || '<tr><td colspan="5" class="empty-cell">No tokens yet. Create one to connect your agent.</td></tr>';
+        </tr>`
+          )
+          .join('') ||
+        '<tr><td colspan="5" class="empty-cell">No tokens yet. Create one to connect your agent.</td></tr>';
     } catch (e) {
       tbody.innerHTML = `<tr><td colspan="5" class="empty-cell">${esc(e.message)}</td></tr>`;
     }
@@ -2901,7 +3257,9 @@
       box.innerHTML = '<p class="hint">No fields yet.</p>';
       return;
     }
-    box.innerHTML = formState.fields.map((f, i) => `
+    box.innerHTML = formState.fields
+      .map(
+        (f, i) => `
       <div class="row" data-field-i="${i}" style="gap:8px;flex-wrap:wrap;margin:0 0 8px;align-items:flex-end">
         <div class="field" style="flex:1;min-width:120px;margin:0">
           <label>Label</label>
@@ -2910,15 +3268,18 @@
         <div class="field" style="width:110px;margin:0">
           <label>Type</label>
           <select data-fk="field_type">
-            ${['text', 'email', 'tel', 'textarea', 'select', 'checkbox', 'number', 'url'].map((t) =>
-              `<option value="${t}"${f.field_type === t ? ' selected' : ''}>${t}</option>`).join('')}
+            ${['text', 'email', 'tel', 'textarea', 'select', 'checkbox', 'number', 'url']
+              .map((t) => `<option value="${t}"${f.field_type === t ? ' selected' : ''}>${t}</option>`)
+              .join('')}
           </select>
         </div>
         <label class="hint" style="display:flex;align-items:center;gap:4px;margin-bottom:8px">
           <input type="checkbox" data-fk="required"${f.required ? ' checked' : ''} /> Required
         </label>
         <button type="button" class="btn ghost small" data-fk="remove">Remove</button>
-      </div>`).join('');
+      </div>`
+      )
+      .join('');
   }
 
   function collectFormFieldsFromEditor() {
@@ -2942,17 +3303,24 @@
   function fillPageSelect(pages, selected) {
     const sel = document.getElementById('form-target-page');
     if (!sel) return;
-    const list = Array.isArray(pages) && pages.length
-      ? pages
-      : [{ slug: 'contact', title: 'Contact' }, { slug: 'home', title: 'Home' }, { slug: 'about', title: 'About' }];
+    const list =
+      Array.isArray(pages) && pages.length
+        ? pages
+        : [
+            { slug: 'contact', title: 'Contact' },
+            { slug: 'home', title: 'Home' },
+            { slug: 'about', title: 'About' },
+          ];
     const want = String(selected || 'contact');
     const slugs = new Set(list.map((p) => String(p.slug)));
     if (!slugs.has('contact')) list.unshift({ slug: 'contact', title: 'Contact' });
-    sel.innerHTML = list.map((p) => {
-      const slug = esc(p.slug);
-      const label = esc(p.title || p.slug);
-      return `<option value="${slug}"${String(p.slug) === want ? ' selected' : ''}>${label}</option>`;
-    }).join('');
+    sel.innerHTML = list
+      .map((p) => {
+        const slug = esc(p.slug);
+        const label = esc(p.title || p.slug);
+        return `<option value="${slug}"${String(p.slug) === want ? ' selected' : ''}>${label}</option>`;
+      })
+      .join('');
   }
 
   function showFormsList() {
@@ -2989,13 +3357,14 @@
       return;
     }
     box.classList.add('item-list');
-    box.innerHTML = items.map((entry) => {
-      const f = entry.form || entry;
-      const status = f.published ? 'published' : 'draft';
-      const pillClass = f.published ? 'status-pill' : 'status-pill draft';
-      const kind = f.form_kind ? String(f.form_kind) : '';
-      const place = formLocationLabel(f);
-      return `<article class="item-card">
+    box.innerHTML = items
+      .map((entry) => {
+        const f = entry.form || entry;
+        const status = f.published ? 'published' : 'draft';
+        const pillClass = f.published ? 'status-pill' : 'status-pill draft';
+        const kind = f.form_kind ? String(f.form_kind) : '';
+        const place = formLocationLabel(f);
+        return `<article class="item-card">
         <span class="item-card-mark" aria-hidden="true"></span>
         <div class="item-card-main">
           <p class="item-card-kicker">Form</p>
@@ -3011,7 +3380,8 @@
           <button type="button" class="btn soft small" data-edit-form="${f.id}">Edit</button>
         </div>
       </article>`;
-    }).join('');
+      })
+      .join('');
     box.querySelectorAll('[data-edit-form]').forEach((btn) => {
       btn.onclick = () => openFormEditor(Number(btn.getAttribute('data-edit-form')));
     });
@@ -3042,9 +3412,9 @@
       embedTa.hidden = false;
       embedTa.value = embed.html;
       hint.textContent = form.published
-        ? (onPage
+        ? onPage
           ? `Published on your ${form.target_page_slug || 'contact'} page · ${embed.url || ''}`
-          : `Published (embed URL only) · ${embed.url || ''}`)
+          : `Published (embed URL only) · ${embed.url || ''}`
         : 'Save and publish to get an embed snippet.';
     } else {
       embedTa.hidden = true;
@@ -3072,14 +3442,21 @@
     } else {
       notice.textContent = `${(sub.submissions || []).length} recent submission(s).`;
       list.innerHTML = (sub.submissions || []).length
-        ? (sub.submissions || []).map((s) => {
-          const payload = s.payload || {};
-          const preview = Object.entries(payload).slice(0, 3)
-            .map(([k, v]) => `${esc(k)}: ${esc(String(v).slice(0, 80))}`).join(' · ');
-          return `<article class="post-card" style="margin-bottom:8px">
+        ? (sub.submissions || [])
+            .map((s) => {
+              const payload = s.payload || {};
+              const preview = Object.entries(payload)
+                .slice(0, 3)
+                .map(([k, v]) => `${esc(k)}: ${esc(String(v).slice(0, 80))}`)
+                .join(' · ');
+              return `<article class="post-card" style="margin-bottom:8px">
             <div class="post-body">
               <div class="post-meta">
-                <span>${esc(String(s.created_at || '').replace('T', ' ').slice(0, 16))}</span>
+                <span>${esc(
+                  String(s.created_at || '')
+                    .replace('T', ' ')
+                    .slice(0, 16)
+                )}</span>
                 <span class="status-pill">${esc(s.routing || '')}</span>
                 ${s.form_id != null ? `<span class="hint">form #${esc(String(s.form_id))}</span>` : ''}
                 ${s.encrypted ? '<span class="hint">encrypted</span>' : ''}
@@ -3087,14 +3464,19 @@
               <p class="post-cap">${preview || '(empty)'}</p>
             </div>
           </article>`;
-        }).join('')
+            })
+            .join('')
         : '<p class="hint">No submissions yet.</p>';
     }
   }
 
   async function loadForms() {
     const data = await api('/forms');
-    formState.forms = Array.isArray(data.forms) ? data.forms : (data.form ? [{ form: data.form, embed: data.embed }] : []);
+    formState.forms = Array.isArray(data.forms)
+      ? data.forms
+      : data.form
+        ? [{ form: data.form, embed: data.embed }]
+        : [];
     formState.pages = Array.isArray(data.pages) ? data.pages : [];
     renderFormsList();
     if (formState.editingId) {
@@ -3122,12 +3504,16 @@
           : 'Connect a Facebook Page (Instagram Business linked) to schedule posts.';
       }
       list.innerHTML = accounts.length
-        ? accounts.map((a) => `
+        ? accounts
+            .map(
+              (a) => `
           <div class="row" style="justify-content:space-between;margin:6px 0;gap:8px;flex-wrap:wrap">
             <span><strong>${esc(a.platform)}</strong> · ${esc(a.account_name || a.account_id || '')}
               <span class="status-pill">${esc(a.status || '')}</span></span>
             <button type="button" class="btn ghost small" data-disconnect="${esc(a.id)}">Disconnect</button>
-          </div>`).join('')
+          </div>`
+            )
+            .join('')
         : '<p class="hint">No accounts connected.</p>';
       if (msg && /connected=1/.test(location.search)) {
         msg.className = 'msg ok';
@@ -3184,12 +3570,18 @@
     try {
       const v = String(sessionStorage.getItem(MODULE_STORAGE_KEY) || '').trim();
       if (MODULE_TYPES.some((m) => m.type === v)) return v;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     return '';
   }
 
   function storeModuleType(type) {
-    try { sessionStorage.setItem(MODULE_STORAGE_KEY, String(type || '')); } catch { /* ignore */ }
+    try {
+      sessionStorage.setItem(MODULE_STORAGE_KEY, String(type || ''));
+    } catch {
+      /* ignore */
+    }
   }
 
   let moduleState = {
@@ -3210,7 +3602,7 @@
   function moduleMsg(text, ok) {
     const el = document.getElementById('msg-modules');
     if (!el) return;
-    el.className = ok ? 'msg ok' : (text ? 'msg err' : 'msg');
+    el.className = ok ? 'msg ok' : text ? 'msg err' : 'msg';
     el.textContent = text || '';
   }
 
@@ -3349,22 +3741,24 @@
     const byType = new Map(MODULE_TYPES.map((m) => [m.type, m]));
     const summaryList = (moduleState.summary && moduleState.summary.modules) || [];
     box.innerHTML = MODULE_NAV_GROUPS.map((group) => {
-      const rows = group.types.map((type) => {
-        const meta = byType.get(type);
-        if (!meta) return '';
-        const summary = summaryList.find((x) => x.type === type);
-        const count = summary ? summary.count : 0;
-        const emb = summary && summary.embed;
-        const live = !!(emb && emb.published && emb.embed_enabled);
-        const sel = type === moduleState.current;
-        return `<button type="button" class="module-tab${sel ? ' is-active' : ''}" data-module-type="${esc(type)}" role="tab" aria-selected="${sel ? 'true' : 'false'}">
+      const rows = group.types
+        .map((type) => {
+          const meta = byType.get(type);
+          if (!meta) return '';
+          const summary = summaryList.find((x) => x.type === type);
+          const count = summary ? summary.count : 0;
+          const emb = summary && summary.embed;
+          const live = !!(emb && emb.published && emb.embed_enabled);
+          const sel = type === moduleState.current;
+          return `<button type="button" class="module-tab${sel ? ' is-active' : ''}" data-module-type="${esc(type)}" role="tab" aria-selected="${sel ? 'true' : 'false'}">
           <span class="module-tab-label">${esc(meta.label)}</span>
           <span class="module-tab-meta">
             ${live ? '<span class="module-tab-live" title="On your site" aria-label="On your site"></span>' : ''}
             <span class="module-tab-count">${count}</span>
           </span>
         </button>`;
-      }).join('');
+        })
+        .join('');
       return `<div class="modules-side-group">${esc(group.label)}</div>${rows}`;
     }).join('');
   }
@@ -3398,13 +3792,13 @@
         const pane = btn.getAttribute('data-modules-pane');
         const forBookings = ['content', 'hours', 'appointments'].includes(pane);
         const forChat = ['content', 'settings', 'inbox'].includes(pane);
-        const visible = isBookings ? forBookings
-          : isChatbot ? forChat : false;
+        const visible = isBookings ? forBookings : isChatbot ? forChat : false;
         // Toggle booking vs chatbot tab buttons via data-for attribute when present.
         const forAttr = btn.getAttribute('data-for');
         const showBtn = forAttr
-          ? (isBookings && forAttr === 'bookings') || (isChatbot && forAttr === 'chatbot')
-            || (forAttr === 'both' && showTabs)
+          ? (isBookings && forAttr === 'bookings') ||
+            (isChatbot && forAttr === 'chatbot') ||
+            (forAttr === 'both' && showTabs)
           : visible;
         btn.hidden = !showBtn;
         if (pane === 'content' && showBtn) {
@@ -3457,18 +3851,26 @@
     const sel = document.getElementById('modules-target-page');
     if (!sel) return;
     const defaults = {
-      blog: 'blog', ecommerce: 'shop', courses: 'courses', gallery: 'gallery', directory: 'directory',
-      faq: 'faq', testimonials: 'testimonials', team: 'team', events: 'events', bookings: 'book',
+      blog: 'blog',
+      ecommerce: 'shop',
+      courses: 'courses',
+      gallery: 'gallery',
+      directory: 'directory',
+      faq: 'faq',
+      testimonials: 'testimonials',
+      team: 'team',
+      events: 'events',
+      bookings: 'book',
     };
     const want = selected || defaults[moduleState.current] || 'home';
-    const opts = Array.isArray(pages) && pages.length
-      ? pages
-      : [{ slug: want, title: want }];
+    const opts = Array.isArray(pages) && pages.length ? pages : [{ slug: want, title: want }];
     const slugs = new Set(opts.map((p) => p.slug));
     if (!slugs.has(want)) opts.unshift({ slug: want, title: want });
-    sel.innerHTML = opts.map((p) =>
-      `<option value="${esc(p.slug)}"${p.slug === want ? ' selected' : ''}>${esc(p.title || p.slug)}</option>`
-    ).join('');
+    sel.innerHTML = opts
+      .map(
+        (p) => `<option value="${esc(p.slug)}"${p.slug === want ? ' selected' : ''}>${esc(p.title || p.slug)}</option>`
+      )
+      .join('');
   }
 
   function renderModuleEmbedBar() {
@@ -3496,9 +3898,10 @@
       }
     }
     if (urlEl) {
-      urlEl.innerHTML = emb && emb.embed_url
-        ? `<details class="modules-embed-details"><summary>Embed link (for custom pages)</summary><code>${esc(emb.embed_url)}</code></details>`
-        : '';
+      urlEl.innerHTML =
+        emb && emb.embed_url
+          ? `<details class="modules-embed-details"><summary>Embed link (for custom pages)</summary><code>${esc(emb.embed_url)}</code></details>`
+          : '';
     }
     fillModulePageSelect(moduleState.pages, emb && emb.target_page_slug);
     updateModuleContentChrome();
@@ -3564,9 +3967,15 @@
             }),
           });
           moduleState.chatbot = Object.assign({}, moduleState.chatbot || {}, { settings: data.settings });
-          if (msg) { msg.className = 'msg ok'; msg.textContent = 'Saved.'; }
+          if (msg) {
+            msg.className = 'msg ok';
+            msg.textContent = 'Saved.';
+          }
         } catch (e) {
-          if (msg) { msg.className = 'msg err'; msg.textContent = e.message || 'Save failed'; }
+          if (msg) {
+            msg.className = 'msg err';
+            msg.textContent = e.message || 'Save failed';
+          }
         }
       };
     }
@@ -3579,7 +3988,9 @@
     const escalations = Array.isArray(chat.escalations) ? chat.escalations : [];
     const leads = Array.isArray(chat.leads) ? chat.leads : [];
     const escHtml = escalations.length
-      ? escalations.map((e) => `
+      ? escalations
+          .map(
+            (e) => `
         <div class="row" style="justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line,#e6e0d8);flex-wrap:wrap">
           <div>
             <strong>${esc(e.reason || 'escalation')}</strong>
@@ -3587,17 +3998,23 @@
             <div class="hint">${esc(e.created_at || '')}</div>
           </div>
           <button type="button" class="btn soft small" data-chat-resolve="${e.id}">Resolve</button>
-        </div>`).join('')
+        </div>`
+          )
+          .join('')
       : '<p class="hint">No open escalations.</p>';
     const leadHtml = leads.length
-      ? leads.map((l) => `
+      ? leads
+          .map(
+            (l) => `
         <div class="row" style="padding:8px 0;border-bottom:1px solid var(--line,#e6e0d8)">
           <div>
             <strong>${esc(l.name || 'Visitor')}</strong>
             <span class="hint"> · ${esc([l.email, l.phone].filter(Boolean).join(' · '))}</span>
             <div class="hint">${esc(l.message || '')}</div>
           </div>
-        </div>`).join('')
+        </div>`
+          )
+          .join('')
       : '<p class="hint">No chatbot leads yet.</p>';
     host.innerHTML = `
       <div class="row" style="justify-content:flex-start;margin-bottom:12px">
@@ -3691,9 +4108,10 @@
     }
     box.classList.add('item-list');
     const kicker = copy.kicker;
-    box.innerHTML = items.map((it) => {
-      const title = moduleItemTitle(it, type);
-      return `<article class="item-card">
+    box.innerHTML = items
+      .map((it) => {
+        const title = moduleItemTitle(it, type);
+        return `<article class="item-card">
         <span class="item-card-mark" aria-hidden="true"></span>
         <div class="item-card-main">
           <p class="item-card-kicker">${esc(kicker)}</p>
@@ -3704,7 +4122,8 @@
           <button type="button" class="btn soft small" data-module-edit="${it.id}">Edit</button>
         </div>
       </article>`;
-    }).join('');
+      })
+      .join('');
   }
 
   function renderBookingAdminPanel() {
@@ -3740,10 +4159,12 @@
       </label>`;
     }).join('');
     const apptHtml = appointments.length
-      ? appointments.slice(0, 40).map((a) => {
-        const isArchived = !!(a.archived_at);
-        const canArchive = !isArchived && (a.status === 'completed' || a.status === 'cancelled');
-        return `
+      ? appointments
+          .slice(0, 40)
+          .map((a) => {
+            const isArchived = !!a.archived_at;
+            const canArchive = !isArchived && (a.status === 'completed' || a.status === 'cancelled');
+            return `
         <div class="row" style="justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line,#e6e0d8);flex-wrap:wrap">
           <div>
             <strong>${esc(a.customer_name)}</strong>
@@ -3758,7 +4179,8 @@
             ${isArchived ? `<button type="button" class="btn ghost small" data-appt-archive="${a.id}" data-archived="false">Restore</button>` : ''}
           </div>
         </div>`;
-      }).join('')
+          })
+          .join('')
       : `<p class="hint">${moduleState.showArchivedAppointments ? 'No archived appointments.' : 'No appointments yet. Visitors book from your site calendar.'}</p>`;
     if (hoursHost) {
       hoursHost.innerHTML = `
@@ -3795,7 +4217,7 @@
   function moduleModalMsg(text, ok) {
     const el = document.getElementById('msg-modules-modal');
     if (!el) return;
-    el.className = ok ? 'msg ok' : (text ? 'msg err' : 'msg');
+    el.className = ok ? 'msg ok' : text ? 'msg err' : 'msg';
     el.textContent = text || '';
   }
 
@@ -3812,9 +4234,7 @@
     const wrap = fields.querySelector(`[data-mod-image-wrap="${key}"] .mod-image-preview`);
     if (!wrap) return;
     const u = String(url || '').trim();
-    wrap.innerHTML = u
-      ? `<img src="${esc(u)}" alt="" />`
-      : '<span class="hint">No image</span>';
+    wrap.innerHTML = u ? `<img src="${esc(u)}" alt="" />` : '<span class="hint">No image</span>';
   }
 
   function renderModuleFieldHtml(d, src) {
@@ -3852,9 +4272,9 @@
       return `<div class="field"><label>${esc(d.label)}</label><textarea data-mod-field="${d.key}" rows="4">${esc(val)}</textarea></div>`;
     }
     if (d.kind === 'select') {
-      const opts = (d.options || []).map((o) =>
-        `<option value="${esc(o)}"${String(val) === o ? ' selected' : ''}>${esc(o)}</option>`
-      ).join('');
+      const opts = (d.options || [])
+        .map((o) => `<option value="${esc(o)}"${String(val) === o ? ' selected' : ''}>${esc(o)}</option>`)
+        .join('');
       return `<div class="field"><label>${esc(d.label)}</label><select data-mod-field="${d.key}">${opts}</select></div>`;
     }
     const req = d.required ? ' required' : '';
@@ -3953,13 +4373,14 @@
     const defs = moduleFieldDefs(moduleState.current);
     const src = item || (moduleState.current === 'chatbot' ? { status: 'active', kind: 'doc' } : { status: 'draft' });
     fields.innerHTML = defs.map((d) => renderModuleFieldHtml(d, src)).join('');
-    if ((moduleState.current === 'ecommerce' || moduleState.current === 'bookings')
-      && item && item.price_cents != null) {
+    if (
+      (moduleState.current === 'ecommerce' || moduleState.current === 'bookings') &&
+      item &&
+      item.price_cents != null
+    ) {
       const priceInput = fields.querySelector('[data-mod-field="price"]');
       if (priceInput) {
-        priceInput.value = Number(item.price_cents)
-          ? (Number(item.price_cents) / 100).toFixed(2)
-          : '';
+        priceInput.value = Number(item.price_cents) ? (Number(item.price_cents) / 100).toFixed(2) : '';
       }
     }
     wireModuleFieldUploads();
@@ -4025,9 +4446,7 @@
   }
 
   function patchBookingsNavCount(activeCount) {
-    const list = moduleState.summary && Array.isArray(moduleState.summary.modules)
-      ? moduleState.summary.modules
-      : null;
+    const list = moduleState.summary && Array.isArray(moduleState.summary.modules) ? moduleState.summary.modules : null;
     if (!list) return;
     const row = list.find((x) => x && x.type === 'bookings');
     if (!row) return;
@@ -4038,9 +4457,7 @@
   async function loadModuleItems() {
     const type = moduleState.current;
     storeModuleType(type);
-    const qs = (type === 'bookings' && moduleState.showArchivedAppointments)
-      ? '?includeArchived=1'
-      : '';
+    const qs = type === 'bookings' && moduleState.showArchivedAppointments ? '?includeArchived=1' : '';
     const data = await api(`/modules/${encodeURIComponent(type)}${qs}`);
     moduleState.items = Array.isArray(data.items) ? data.items : [];
     moduleState.pages = Array.isArray(data.pages) ? data.pages : moduleState.pages;
@@ -4108,17 +4525,20 @@
         }
       }
       if (!contacts.length) {
-        listEl.innerHTML = '<p class="hint" style="margin:0">No contacts yet. Form submissions and bookings appear here automatically.</p>';
+        listEl.innerHTML =
+          '<p class="hint" style="margin:0">No contacts yet. Form submissions and bookings appear here automatically.</p>';
       } else {
-        listEl.innerHTML = contacts.map((c) => {
-          const active = Number(c.id) === Number(leadScoutSelectedId) ? ' is-active' : '';
-          const sub = [c.email, c.phone].filter(Boolean).join(' · ') || 'No contact info';
-          return `<button type="button" class="leadscout-row${active}" data-id="${c.id}" style="display:block;width:100%;text-align:left;padding:10px 12px;margin:0 0 6px;border:1px solid var(--line,#e5e7eb);background:${active ? 'rgba(0,0,0,.04)' : 'transparent'};cursor:pointer">
+        listEl.innerHTML = contacts
+          .map((c) => {
+            const active = Number(c.id) === Number(leadScoutSelectedId) ? ' is-active' : '';
+            const sub = [c.email, c.phone].filter(Boolean).join(' · ') || 'No contact info';
+            return `<button type="button" class="leadscout-row${active}" data-id="${c.id}" style="display:block;width:100%;text-align:left;padding:10px 12px;margin:0 0 6px;border:1px solid var(--line,#e5e7eb);background:${active ? 'rgba(0,0,0,.04)' : 'transparent'};cursor:pointer">
             <strong style="display:block">${esc(c.name || 'Contact')}</strong>
             <span class="hint" style="font-size:.85rem">${esc(sub)}</span>
             <span class="hint" style="display:block;font-size:.8rem;margin-top:2px">${Number(c.event_count) || 0} event${Number(c.event_count) === 1 ? '' : 's'}</span>
           </button>`;
-        }).join('');
+          })
+          .join('');
         listEl.querySelectorAll('[data-id]').forEach((btn) => {
           btn.onclick = () => {
             leadScoutSelectedId = Number(btn.getAttribute('data-id'));
@@ -4145,22 +4565,25 @@
       if (empty) empty.hidden = true;
       detail.hidden = false;
       const eventsHtml = events.length
-        ? events.map((ev) => {
-          const when = esc(ev.created_at || '');
-          const label = esc(ev.source_label || ev.kind || 'Event');
-          const extra = ev.kind === 'appointment'
-            ? `<div class="hint">${esc(ev.service_name || '')} · ${esc(ev.starts_at || '')} · ${esc(ev.status || '')}</div>`
-            : `<div class="hint">Page: ${esc(ev.page_slug || '—')}</div>`;
-          let payloadBits = '';
-          if (ev.payload && typeof ev.payload === 'object') {
-            const keys = Object.keys(ev.payload).slice(0, 8);
-            payloadBits = `<dl style="margin:6px 0 0;font-size:.85rem">${keys.map((k) => `<div><dt style="display:inline;font-weight:650">${esc(k)}:</dt> <dd style="display:inline;margin:0">${esc(ev.payload[k])}</dd></div>`).join('')}</dl>`;
-          }
-          return `<article style="border-top:1px solid var(--line,#e5e7eb);padding:10px 0">
+        ? events
+            .map((ev) => {
+              const when = esc(ev.created_at || '');
+              const label = esc(ev.source_label || ev.kind || 'Event');
+              const extra =
+                ev.kind === 'appointment'
+                  ? `<div class="hint">${esc(ev.service_name || '')} · ${esc(ev.starts_at || '')} · ${esc(ev.status || '')}</div>`
+                  : `<div class="hint">Page: ${esc(ev.page_slug || '—')}</div>`;
+              let payloadBits = '';
+              if (ev.payload && typeof ev.payload === 'object') {
+                const keys = Object.keys(ev.payload).slice(0, 8);
+                payloadBits = `<dl style="margin:6px 0 0;font-size:.85rem">${keys.map((k) => `<div><dt style="display:inline;font-weight:650">${esc(k)}:</dt> <dd style="display:inline;margin:0">${esc(ev.payload[k])}</dd></div>`).join('')}</dl>`;
+              }
+              return `<article style="border-top:1px solid var(--line,#e5e7eb);padding:10px 0">
             <strong>${label}</strong> <span class="hint">${when}</span>
             ${extra}${payloadBits}
           </article>`;
-        }).join('')
+            })
+            .join('')
         : '<p class="hint">No events yet.</p>';
       detail.innerHTML = `
         <h3 style="margin:0 0 6px;font-size:1.15rem">${esc(c.name || 'Contact')}</h3>
@@ -4180,9 +4603,8 @@
     state.client = me.client;
     state.previewUrl = me.previewUrl || null;
     state.hasSite = !!(me.site && me.site.id);
-    document.getElementById('biz-name').textContent = (me.lead && me.lead.business_name)
-      || me.client.businessName
-      || 'Your project';
+    document.getElementById('biz-name').textContent =
+      (me.lead && me.lead.business_name) || me.client.businessName || 'Your project';
     const bits = [
       me.client.email,
       me.lead && [me.lead.city, me.lead.state].filter(Boolean).join(', '),
@@ -4212,8 +4634,10 @@
       modal.hidden = true;
       if (restoreFocus) {
         const previous = upsellTipReturnFocus;
-        const target = previous && previous.isConnected && previous.getClientRects().length
-          ? previous : document.querySelector('#portal-nav [aria-selected="true"]');
+        const target =
+          previous && previous.isConnected && previous.getClientRects().length
+            ? previous
+            : document.querySelector('#portal-nav [aria-selected="true"]');
         if (target) target.focus();
       }
     }
@@ -4282,7 +4706,10 @@
         fillFontSelects();
       }
       const msg = document.getElementById('msg-theme');
-      if (msg && state.themeOpen) { msg.className = 'msg'; msg.textContent = ''; }
+      if (msg && state.themeOpen) {
+        msg.className = 'msg';
+        msg.textContent = '';
+      }
       syncThemeUi();
     };
   }
@@ -4303,9 +4730,10 @@
   const structureBar = document.getElementById('structure-bar');
   if (structureBar) {
     structureBar.addEventListener('click', (ev) => {
-      const t = ev.target && ev.target.closest
-        ? ev.target.closest('[data-struct-page],[data-struct],[data-struct-insert]')
-        : null;
+      const t =
+        ev.target && ev.target.closest
+          ? ev.target.closest('[data-struct-page],[data-struct],[data-struct-insert]')
+          : null;
       if (!t || !structureBar.contains(t)) return;
       if (t.hasAttribute('data-struct-insert')) {
         if (t.disabled) return;
@@ -4343,7 +4771,10 @@
       const msg = document.getElementById('msg-structure-page');
       const title = input ? String(input.value || '').trim() : '';
       if (!title) {
-        if (msg) { msg.className = 'msg err'; msg.textContent = 'Enter a page title.'; }
+        if (msg) {
+          msg.className = 'msg err';
+          msg.textContent = 'Enter a page title.';
+        }
         return;
       }
       await applyStructureAddPage(title);
@@ -4354,25 +4785,17 @@
   if (structureModuleModal) {
     structureModuleModal.addEventListener('click', (ev) => {
       if (ev.target === structureModuleModal) closeStructureModuleModal();
-      const sectionPick = ev.target && ev.target.closest
-        ? ev.target.closest('[data-structure-section-type]') : null;
+      const sectionPick = ev.target && ev.target.closest ? ev.target.closest('[data-structure-section-type]') : null;
       if (sectionPick) {
         const cols = resolveStructureCols(sectionPick);
         if (state.canvasPick && state.canvasPick.mode === 'design-module') {
-          applyCanvasPickLayout(
-            sectionPick.getAttribute('data-structure-section-type'),
-            cols
-          );
+          applyCanvasPickLayout(sectionPick.getAttribute('data-structure-section-type'), cols);
         } else if (!state.canvasPick) {
-          applyStructureInsertSection(
-            sectionPick.getAttribute('data-structure-section-type'),
-            cols
-          );
+          applyStructureInsertSection(sectionPick.getAttribute('data-structure-section-type'), cols);
         }
         return;
       }
-      const formPick = ev.target && ev.target.closest
-        ? ev.target.closest('[data-structure-form-id]') : null;
+      const formPick = ev.target && ev.target.closest ? ev.target.closest('[data-structure-form-id]') : null;
       if (formPick) {
         const formId = Number(formPick.getAttribute('data-structure-form-id'));
         if (state.canvasPick && state.canvasPick.mode === 'widget') {
@@ -4382,8 +4805,7 @@
         }
         return;
       }
-      const pick = ev.target && ev.target.closest
-        ? ev.target.closest('[data-structure-module-type]') : null;
+      const pick = ev.target && ev.target.closest ? ev.target.closest('[data-structure-module-type]') : null;
       if (pick) {
         if (state.canvasPick && state.canvasPick.mode === 'widget') {
           applyCanvasPickModule(pick.getAttribute('data-structure-module-type'));
@@ -4414,7 +4836,9 @@
     try {
       const colors = readThemeForm();
       applyThemeLiveToPreview(colors);
-    } catch { /* incomplete hex while typing */ }
+    } catch {
+      /* incomplete hex while typing */
+    }
   }
 
   function onPaletteInputChange(ev) {
@@ -4472,7 +4896,10 @@
       fillFontSelects();
       renderThemePalette();
       const msg = document.getElementById('msg-theme');
-      if (msg) { msg.className = 'msg'; msg.textContent = 'Resetting preview…'; }
+      if (msg) {
+        msg.className = 'msg';
+        msg.textContent = 'Resetting preview…';
+      }
       loadEditablePreview(state.previewUrl, {
         preserveEditMode: state.editMode,
         preserveFullscreen: state.editFullscreen,
@@ -4483,7 +4910,10 @@
           bg: state.theme.bg,
           text: state.theme.text,
         };
-        if (msg) { msg.className = 'msg'; msg.textContent = 'Reset to the last saved theme.'; }
+        if (msg) {
+          msg.className = 'msg';
+          msg.textContent = 'Reset to the last saved theme.';
+        }
       });
     };
   }
@@ -4522,7 +4952,10 @@
       try {
         colors = { ...readThemeForm(), ...readThemeFonts() };
       } catch (e) {
-        if (msg) { msg.className = 'msg err'; msg.textContent = e.message || 'Invalid color'; }
+        if (msg) {
+          msg.className = 'msg err';
+          msg.textContent = e.message || 'Invalid color';
+        }
         return;
       }
       const replacements = state.themePalette
@@ -4531,7 +4964,10 @@
       // Also include role changes relative to saved (server builds map from old theme).
       state.themeSaving = true;
       syncThemeUi();
-      if (msg) { msg.className = 'msg'; msg.textContent = 'Saving theme…'; }
+      if (msg) {
+        msg.className = 'msg';
+        msg.textContent = 'Saving theme…';
+      }
       try {
         const result = await api('/site/theme', {
           method: 'POST',
@@ -4545,9 +4981,10 @@
         if (result && result.previewUrl) state.previewUrl = result.previewUrl;
         if (msg) {
           msg.className = 'msg ok';
-          msg.textContent = result && result.publicPreviewUpdated
-            ? 'Theme saved. Your public preview is up to date.'
-            : 'Theme saved. Updating preview…';
+          msg.textContent =
+            result && result.publicPreviewUpdated
+              ? 'Theme saved. Your public preview is up to date.'
+              : 'Theme saved. Updating preview…';
         }
         await loadEditablePreview(state.previewUrl, {
           preserveEditMode: state.editMode,
@@ -4564,7 +5001,10 @@
           }, 4000);
         }
       } catch (e) {
-        if (msg) { msg.className = 'msg err'; msg.textContent = e.message || 'Could not save colors'; }
+        if (msg) {
+          msg.className = 'msg err';
+          msg.textContent = e.message || 'Could not save colors';
+        }
       } finally {
         state.themeSaving = false;
         syncThemeUi();
@@ -4624,7 +5064,10 @@
       } catch (e) {
         if (e && e.message === 'cancelled') return;
         const msg = document.getElementById('msg-logo');
-        if (msg) { msg.className = 'msg err'; msg.textContent = e.message || 'Could not upload logo'; }
+        if (msg) {
+          msg.className = 'msg err';
+          msg.textContent = e.message || 'Could not upload logo';
+        }
       }
     };
   }
@@ -4642,13 +5085,19 @@
       if (state.logo && state.logo.mode === 'image') return;
       try {
         const file = await pickImageFile();
-        if (!file) { syncLogoUi(); return; }
+        if (!file) {
+          syncLogoUi();
+          return;
+        }
         await applyLogoMode('image', file);
       } catch (e) {
         syncLogoUi();
         if (e && e.message === 'cancelled') return;
         const msg = document.getElementById('msg-logo');
-        if (msg) { msg.className = 'msg err'; msg.textContent = e.message || 'Could not upload logo'; }
+        if (msg) {
+          msg.className = 'msg err';
+          msg.textContent = e.message || 'Could not upload logo';
+        }
       }
     };
   }
@@ -4746,8 +5195,9 @@
     const monthBtn = document.getElementById('gen-month');
     msg.className = 'msg';
     const cost = state.contentCredits;
-    msg.textContent = (period === 'week' ? 'Generating a week' : 'Generating a month')
-      + (cost > 0 ? ` (${cost} credit${cost === 1 ? '' : 's'})…` : '…');
+    msg.textContent =
+      (period === 'week' ? 'Generating a week' : 'Generating a month') +
+      (cost > 0 ? ` (${cost} credit${cost === 1 ? '' : 's'})…` : '…');
     weekBtn.disabled = true;
     monthBtn.disabled = true;
     try {
@@ -4759,10 +5209,11 @@
       msg.className = 'msg ok';
       msg.textContent = 'Content queued. Refreshing calendar…';
       await loadCalendar();
-      const charged = Number(data && data.credits_charged || 0);
-      msg.textContent = charged > 0
-        ? `New posts added. Used ${charged} credit${charged === 1 ? '' : 's'} (${state.creditsBalance} left).`
-        : 'New posts added to your calendar.';
+      const charged = Number((data && data.credits_charged) || 0);
+      msg.textContent =
+        charged > 0
+          ? `New posts added. Used ${charged} credit${charged === 1 ? '' : 's'} (${state.creditsBalance} left).`
+          : 'New posts added to your calendar.';
     } catch (e) {
       msg.className = 'msg err';
       msg.textContent = e.message;
@@ -5168,7 +5619,11 @@
       renderModuleTypeTabs();
       syncModulesPaneTabs();
       moduleMsg('', true);
-      try { await loadModuleItems(); } catch (e) { moduleMsg(e.message, false); }
+      try {
+        await loadModuleItems();
+      } catch (e) {
+        moduleMsg(e.message, false);
+      }
     });
   }
 
@@ -5211,9 +5666,10 @@
     });
   }
 
-  const modulesBookingRoot = document.querySelector('.modules-admin-main')
-    || document.getElementById('modules-pane-hours')
-    || document.getElementById('modules-booking-panel');
+  const modulesBookingRoot =
+    document.querySelector('.modules-admin-main') ||
+    document.getElementById('modules-pane-hours') ||
+    document.getElementById('modules-booking-panel');
   if (modulesBookingRoot) {
     modulesBookingRoot.addEventListener('change', async (ev) => {
       if (ev.target && ev.target.id === 'booking-show-archived') {
@@ -5269,7 +5725,9 @@
           const on = hoursRoot.querySelector(`[data-bh-day="${i}"]`);
           const range = hoursRoot.querySelector(`[data-bh-range="${i}"]`);
           if (!on || !on.checked || !range) return;
-          const parts = String(range.value || '').split(/[–-]/).map((s) => s.trim());
+          const parts = String(range.value || '')
+            .split(/[–-]/)
+            .map((s) => s.trim());
           if (parts.length >= 2) {
             hours.push({ weekday: i, start_time: parts[0], end_time: parts[1] });
           }
@@ -5342,7 +5800,9 @@
             if (moduleState.editingId && uploaded.length) {
               try {
                 await api(`/modules/chatbot/${moduleState.editingId}`, { method: 'DELETE' });
-              } catch { /* keep new uploads even if old delete fails */ }
+              } catch {
+                /* keep new uploads even if old delete fails */
+              }
             }
             // Also persist link/notes fields if they filled those without relying only on files.
             const hasLinkOrNotes = String(body.url || '').trim() || String(body.content_text || '').trim();
@@ -5419,7 +5879,8 @@
           }),
         });
         moduleMsg(
-          attachData && (attachData.publicPreviewUpdated || attachData.via === 'cloudflare' || attachData.via === 'app_url')
+          attachData &&
+            (attachData.publicPreviewUpdated || attachData.via === 'cloudflare' || attachData.via === 'app_url')
             ? 'Module embedded — live site updated.'
             : 'Module embedded locally — click Publish website if the live link still looks old.',
           true
@@ -5514,9 +5975,7 @@
       if (!ok) return;
     }
     msg.className = 'msg';
-    msg.textContent = isFree
-      ? 'Scheduling downgrade…'
-      : (target === 'premium' ? 'Upgrading…' : 'Updating plan…');
+    msg.textContent = isFree ? 'Scheduling downgrade…' : target === 'premium' ? 'Upgrading…' : 'Updating plan…';
     try {
       const data = await api('/billing/change-plan', {
         method: 'POST',
@@ -5527,8 +5986,9 @@
         return;
       }
       msg.className = 'msg ok';
-      msg.textContent = data.message
-        || (data.action === 'cancel_at_period_end'
+      msg.textContent =
+        data.message ||
+        (data.action === 'cancel_at_period_end'
           ? 'Cancellation scheduled — you keep access until the period ends.'
           : data.action === 'updated'
             ? 'Plan updated.'
@@ -5559,7 +6019,9 @@
     let magic = '';
     try {
       magic = new URLSearchParams(window.location.search).get('magic') || '';
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     if (!magic) return false;
     const msg = document.getElementById('msg-login');
     if (msg) {
@@ -5577,7 +6039,9 @@
         const u = new URL(window.location.href);
         u.searchParams.delete('magic');
         window.history.replaceState({}, '', u.pathname + u.search + u.hash);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       return true;
     } catch (e) {
       if (msg) {
@@ -5600,11 +6064,8 @@
       await loadDashboard();
     } catch (err) {
       showPortalLogin();
-      const authFail = err && (
-        err.code === 'AUTH_REQUIRED'
-        || err.code === 'SESSION_IDLE'
-        || err.message === 'AUTH_REQUIRED'
-      );
+      const authFail =
+        err && (err.code === 'AUTH_REQUIRED' || err.code === 'SESSION_IDLE' || err.message === 'AUTH_REQUIRED');
       const msg = document.getElementById('msg-login');
       if (msg && err && err.code === 'SESSION_IDLE') {
         msg.className = 'msg err';

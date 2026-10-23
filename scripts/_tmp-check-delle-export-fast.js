@@ -10,10 +10,12 @@ const { openWorkspaceDb } = require('../server/workspaceDb');
 const engine = require('../src/websiteEngine');
 
 const db = openWorkspaceDb(1);
-const site = db.prepare(
-  `SELECT id, lead_id, name, preview_path, preview_url, pages, theme
+const site = db
+  .prepare(
+    `SELECT id, lead_id, name, preview_path, preview_url, pages, theme
    FROM websites WHERE id = 10`
-).get();
+  )
+  .get();
 
 if (!site) {
   console.log(JSON.stringify({ error: 'NO_SITE' }));
@@ -24,9 +26,7 @@ const pages = JSON.parse(site.pages || '[]');
 const theme = JSON.parse(site.theme || '{}');
 const pageSummary = pages.map((p) => {
   const html = String(p.html || '');
-  const secHtml = (p.sections || [])
-    .map((s) => (s && s.content && s.content.html) || '')
-    .join('\n');
+  const secHtml = (p.sections || []).map((s) => (s && s.content && s.content.html) || '').join('\n');
   const blob = `${html}\n${secHtml}`;
   return {
     slug: p.slug,
@@ -37,12 +37,14 @@ const pageSummary = pages.map((p) => {
 
 let emb = null;
 try {
-  emb = db.prepare(
-    `SELECT id, module_type, published, embed_enabled,
+  emb = db
+    .prepare(
+      `SELECT id, module_type, published, embed_enabled,
             CASE WHEN public_token IS NOT NULL AND length(public_token) > 0 THEN 1 ELSE 0 END AS has_token
      FROM site_module_embeds
      WHERE lead_id = ? AND module_type = 'chatbot'`
-  ).get(site.lead_id);
+    )
+    .get(site.lead_id);
 } catch (e) {
   emb = { error: e.message };
 }
@@ -52,8 +54,7 @@ const home = pages[0];
 const rendered = engine.renderPage(home, pages, theme);
 const assert = engine.assertManagedEmbedScripts(rendered, 'site-10-render');
 const sanitizedSample = engine.sanitizeHtml(
-  (home.html || '')
-    || ((home.sections || []).map((s) => (s && s.content && s.content.html) || '').join('\n'))
+  home.html || '' || (home.sections || []).map((s) => (s && s.content && s.content.html) || '').join('\n')
 );
 
 // Existing export folder if present
@@ -64,17 +65,19 @@ if (site.preview_path) {
 }
 try {
   const openPreview = require('../src/openPreview');
-  const folder = openPreview.siteExportFolder
-    ? openPreview.siteExportFolder(db, 1, 10)
-    : null;
+  const folder = openPreview.siteExportFolder ? openPreview.siteExportFolder(db, 1, 10) : null;
   if (folder) candidates.push(path.join(folder, 'index.html'));
-} catch { /* optional */ }
+} catch {
+  /* optional */
+}
 try {
   const domain = require('../server/domain');
   if (typeof domain.siteExportFolder === 'function') {
     candidates.push(path.join(domain.siteExportFolder(db, 1, 10), 'index.html'));
   }
-} catch { /* optional */ }
+} catch {
+  /* optional */
+}
 
 let exportCheck = null;
 for (const p of candidates) {
@@ -91,19 +94,25 @@ for (const p of candidates) {
   }
 }
 
-console.log(JSON.stringify({
-  siteId: site.id,
-  name: site.name,
-  leadId: site.lead_id,
-  pages: pageSummary,
-  embed: emb,
-  renderHasChatMount: /\bbitpype-chat-embed\b|\bdata-bitpype-chat\s*=/.test(rendered),
-  renderHasChatScript: /chat-embed\.js|\bdata-bitpype-chat-script\b/.test(rendered),
-  sanitizeKeepsChat: /chat-embed\.js/.test(sanitizedSample) || /chat-embed\.js/.test(rendered),
-  assertOk: assert.ok,
-  assertMissing: assert.missing,
-  existingExport: exportCheck,
-}, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      siteId: site.id,
+      name: site.name,
+      leadId: site.lead_id,
+      pages: pageSummary,
+      embed: emb,
+      renderHasChatMount: /\bbitpype-chat-embed\b|\bdata-bitpype-chat\s*=/.test(rendered),
+      renderHasChatScript: /chat-embed\.js|\bdata-bitpype-chat-script\b/.test(rendered),
+      sanitizeKeepsChat: /chat-embed\.js/.test(sanitizedSample) || /chat-embed\.js/.test(rendered),
+      assertOk: assert.ok,
+      assertMissing: assert.missing,
+      existingExport: exportCheck,
+    },
+    null,
+    2
+  )
+);
 
 if (emb && emb.has_token && emb.published && emb.embed_enabled) {
   if (!/\bbitpype-chat-embed\b|\bdata-bitpype-chat\s*=/.test(rendered)) {

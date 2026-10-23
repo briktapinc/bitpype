@@ -27,8 +27,11 @@ function fail(code, message, extra) {
 function getSetting(db, key, def = '') {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-    if (row && row.value != null && String(row.value) !== '') return String(require('./secretBox').decryptSetting(key, row.value));
-  } catch { /* ignore */ }
+    if (row && row.value != null && String(row.value) !== '')
+      return String(require('./secretBox').decryptSetting(key, row.value));
+  } catch {
+    /* ignore */
+  }
   return def;
 }
 
@@ -43,9 +46,9 @@ function imageConfigured(db) {
 
 function todaySpendUsd(db) {
   try {
-    const row = db.prepare(
-      "SELECT COALESCE(SUM(cost_usd), 0) AS spent FROM ai_usage WHERE date(at) = date('now')"
-    ).get();
+    const row = db
+      .prepare("SELECT COALESCE(SUM(cost_usd), 0) AS spent FROM ai_usage WHERE date(at) = date('now')")
+      .get();
     return Number(row.spent) || 0;
   } catch {
     return 0;
@@ -56,14 +59,18 @@ function outDirFor(db, jobId) {
   let base;
   try {
     if (process.env.WS_DB_PATH) base = path.dirname(path.resolve(process.env.WS_DB_PATH));
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   if (!base) {
     try {
       const electron = require('electron');
       if (electron && electron.app && typeof electron.app.getPath === 'function') {
         base = electron.app.getPath('userData');
       }
-    } catch { /* MCP / node */ }
+    } catch {
+      /* MCP / node */
+    }
   }
   if (!base) {
     base = path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'website-scout');
@@ -89,7 +96,9 @@ function normalizeSize(raw, model) {
 }
 
 function normalizeQuality(raw, model) {
-  const q = String(raw || DEFAULT_QUALITY).trim().toLowerCase();
+  const q = String(raw || DEFAULT_QUALITY)
+    .trim()
+    .toLowerCase();
   if (isGptImageModel(model)) {
     // gpt-image-2.5+ also supports xhigh / max; older gpt-image models accept up to high.
     if (/^(auto|low|medium|high|xhigh|max)$/.test(q)) return q;
@@ -121,15 +130,18 @@ async function generateImages(db, prompt, opts = {}) {
   if (text.length > 32000) throw fail('INVALID_ARGS', 'prompt is too long.');
 
   const n = Math.min(MAX_N, Math.max(1, Number(opts.n) || 1));
-  let model = String(opts.model || getSetting(db, 'ai.model.image', '') || DEFAULT_MODEL).trim()
-    || DEFAULT_MODEL;
+  let model = String(opts.model || getSetting(db, 'ai.model.image', '') || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
   const size = normalizeSize(opts.size, model);
-  const quality = opts.quality != null && String(opts.quality).trim() !== ''
-    ? normalizeQuality(opts.quality, model)
-    : (isGptImageModel(model) ? DEFAULT_QUALITY : undefined);
+  const quality =
+    opts.quality != null && String(opts.quality).trim() !== ''
+      ? normalizeQuality(opts.quality, model)
+      : isGptImageModel(model)
+        ? DEFAULT_QUALITY
+        : undefined;
 
   const baseUrl = String(getSetting(db, 'ai.base_url', 'https://api.openai.com/v1') || '')
-    .trim().replace(/\/+$/, '');
+    .trim()
+    .replace(/\/+$/, '');
   if (!/^https?:\/\//i.test(baseUrl)) {
     throw fail('INVALID_BASE_URL', 'ai.base_url must be an http(s) URL.');
   }
@@ -185,9 +197,8 @@ async function generateImages(db, prompt, opts = {}) {
   }
 
   if (!res.ok) {
-    const providerMsg = data && data.error && data.error.message
-      ? String(data.error.message).slice(0, 240)
-      : `HTTP ${res.status}`;
+    const providerMsg =
+      data && data.error && data.error.message ? String(data.error.message).slice(0, 240) : `HTTP ${res.status}`;
     throw fail('AI_REQUEST_FAILED', `Image generation failed: ${providerMsg}`, { status: res.status });
   }
 
@@ -219,7 +230,7 @@ async function generateImages(db, prompt, opts = {}) {
     } else {
       continue;
     }
-    let outExt = mime === 'image/jpeg' ? 'jpg' : (mime === 'image/webp' ? 'webp' : 'png');
+    let outExt = mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png';
     let outMime = mime;
     let outBuf = buf;
     try {
@@ -251,9 +262,7 @@ async function generateImages(db, prompt, opts = {}) {
 
   try {
     const usage = data.usage || {};
-    const est = usage.output_tokens
-      ? Number(usage.output_tokens) * 0.00004
-      : 0.02 * images.length;
+    const est = usage.output_tokens ? Number(usage.output_tokens) * 0.00004 : 0.02 * images.length;
     db.prepare(
       `INSERT INTO ai_usage (task, model, prompt_tokens, completion_tokens, cost_usd, lead_id, note)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -266,7 +275,9 @@ async function generateImages(db, prompt, opts = {}) {
       opts.leadId != null ? Number(opts.leadId) : null,
       `images/generations n=${images.length} size=${size} q=${quality || ''} ${(opts.note || '').slice(0, 160)}`
     );
-  } catch { /* logging optional */ }
+  } catch {
+    /* logging optional */
+  }
 
   return { model, prompt: text, size, quality: quality || null, images };
 }
@@ -275,8 +286,7 @@ async function generateImages(db, prompt, opts = {}) {
 function fileToDataUrl(filePath) {
   const buf = fs.readFileSync(filePath);
   const ext = path.extname(filePath).toLowerCase();
-  const mime = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg'
-    : ext === '.webp' ? 'image/webp' : 'image/png';
+  const mime = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : ext === '.webp' ? 'image/webp' : 'image/png';
   return `data:${mime};base64,${buf.toString('base64')}`;
 }
 

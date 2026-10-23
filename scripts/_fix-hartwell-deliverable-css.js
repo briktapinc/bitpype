@@ -17,8 +17,9 @@ const theme = JSON.parse(site.theme || '{}');
 const pages = JSON.parse(site.pages || '[]');
 payload.theme = theme;
 payload.pages = pages;
-db.prepare(`UPDATE design_jobs SET deliverable = ?, website_id = 9, updated_at = datetime('now') WHERE id = 11`)
-  .run(JSON.stringify(payload));
+db.prepare(`UPDATE design_jobs SET deliverable = ?, website_id = 9, updated_at = datetime('now') WHERE id = 11`).run(
+  JSON.stringify(payload)
+);
 console.log('synced deliverable theme.customCss len', (theme.customCss || '').length);
 console.log('pages', pages.length);
 db.close();

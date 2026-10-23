@@ -74,17 +74,28 @@ async function main() {
     );
   `);
 
-  db.prepare(
-    'INSERT INTO leads (id, business_name, email, phone, status) VALUES (1, ?, ?, ?, ?)'
-  ).run('Smoke Barbers', 'owner@example.com', '5551234567', 'new');
+  db.prepare('INSERT INTO leads (id, business_name, email, phone, status) VALUES (1, ?, ?, ?, ?)').run(
+    'Smoke Barbers',
+    'owner@example.com',
+    '5551234567',
+    'new'
+  );
 
   const reservePages = [
     {
       slug: 'home',
       title: 'Home',
       sections: [
-        { type: 'nav', content: { html: '<nav><a href="index.html">Home</a><a href="reserve.html">Reserve</a></nav>' } },
-        { type: 'html', content: { html: '<main><h1>Smoke Barbers</h1><p>Call to book: <a href="tel:5551234567">555-123-4567</a></p></main>' } },
+        {
+          type: 'nav',
+          content: { html: '<nav><a href="index.html">Home</a><a href="reserve.html">Reserve</a></nav>' },
+        },
+        {
+          type: 'html',
+          content: {
+            html: '<main><h1>Smoke Barbers</h1><p>Call to book: <a href="tel:5551234567">555-123-4567</a></p></main>',
+          },
+        },
         { type: 'footer', content: {} },
       ],
     },
@@ -92,7 +103,10 @@ async function main() {
       slug: 'reserve',
       title: 'Reserve',
       sections: [
-        { type: 'nav', content: { html: '<nav><a href="index.html">Home</a><a href="reserve.html">Reserve</a></nav>' } },
+        {
+          type: 'nav',
+          content: { html: '<nav><a href="index.html">Home</a><a href="reserve.html">Reserve</a></nav>' },
+        },
         { type: 'contact_form', content: {} },
         { type: 'footer', content: {} },
       ],
@@ -207,9 +221,7 @@ async function main() {
     assert(moduleFitOk && moduleFitOk.pass, `qaSite module-fit green: ${moduleFitOk && moduleFitOk.detail}`);
   }
 
-  const warnPages = [
-    { slug: 'reserve', title: 'Reserve', sections: [{ type: 'contact_form', content: {} }] },
-  ];
+  const warnPages = [{ slug: 'reserve', title: 'Reserve', sections: [{ type: 'contact_form', content: {} }] }];
   const warn = moduleFit.formOnAppointmentPageWarning(warnPages, 'reserve');
   assert(warn && /bookings/i.test(warn), 'form-on-appointment warning');
 

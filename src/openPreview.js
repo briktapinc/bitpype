@@ -64,7 +64,9 @@ function electronShell() {
     if (electron && typeof electron === 'object' && electron.shell && typeof electron.shell.openPath === 'function') {
       return electron.shell;
     }
-  } catch { /* plain Node, including the MCP process */ }
+  } catch {
+    /* plain Node, including the MCP process */
+  }
   return null;
 }
 
@@ -91,7 +93,13 @@ async function launchFile(filePath) {
 }
 
 function slugify(s) {
-  return String(s || 'site').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'site';
+  return (
+    String(s || 'site')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60) || 'site'
+  );
 }
 
 async function openWebsiteFile(db, websiteId) {
@@ -109,7 +117,10 @@ async function openWebsiteFile(db, websiteId) {
 function exportPages(pages, theme, folderName, opts = {}) {
   const engine = require('./websiteEngine');
   const root = exportRoot();
-  const safeFolder = String(folderName || 'preview').replace(/[^a-z0-9-_]/gi, '').slice(0, 40) || 'preview';
+  const safeFolder =
+    String(folderName || 'preview')
+      .replace(/[^a-z0-9-_]/gi, '')
+      .slice(0, 40) || 'preview';
   const dir = path.join(root, safeFolder);
   const writeOpts = Object.assign({}, opts || {});
   const written = engine.writeStaticPages(pages, theme || {}, dir, writeOpts);
@@ -146,7 +157,9 @@ async function openPagesFile(pages, theme, folderName, opts = {}) {
       await shell.openExternal(preview.url);
       return { path: preview.path, url: preview.url, via: 'electron-url', folder: preview.folder };
     }
-  } catch { /* fall through */ }
+  } catch {
+    /* fall through */
+  }
   try {
     await launchWithDefaultApp(preview.path);
     return { path: preview.path, url: preview.url, via: 'spawn', folder: preview.folder };

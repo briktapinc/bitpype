@@ -6,10 +6,7 @@
  */
 
 const http = require('http');
-const {
-  fireAgentWebhook,
-  buildWebhookPayload,
-} = require('../src/designAgentTrigger');
+const { fireAgentWebhook, buildWebhookPayload } = require('../src/designAgentTrigger');
 
 function mockDb(settings = {}, jobTitle = 'Smoke Test Site') {
   return {
@@ -26,7 +23,9 @@ function mockDb(settings = {}, jobTitle = 'Smoke Test Site') {
           }
           return undefined;
         },
-        run() { /* activity_log */ },
+        run() {
+          /* activity_log */
+        },
       };
     },
   };
@@ -42,10 +41,11 @@ async function main() {
     throw new Error(`expected empty_url skip, got ${JSON.stringify(empty)}`);
   }
 
-  const skippedReason = await fireAgentWebhook(
-    mockDb({ 'design.agent_webhook_url': 'http://127.0.0.1:9/hook' }),
-    { jobId: 1, reason: 'assigned', status: 'waiting_on_agent' }
-  );
+  const skippedReason = await fireAgentWebhook(mockDb({ 'design.agent_webhook_url': 'http://127.0.0.1:9/hook' }), {
+    jobId: 1,
+    reason: 'assigned',
+    status: 'waiting_on_agent',
+  });
   if (!skippedReason.skipped || skippedReason.why !== 'reason') {
     throw new Error(`expected reason skip, got ${JSON.stringify(skippedReason)}`);
   }
@@ -64,7 +64,9 @@ async function main() {
   let received = null;
   const server = http.createServer((req, res) => {
     let buf = '';
-    req.on('data', (c) => { buf += c; });
+    req.on('data', (c) => {
+      buf += c;
+    });
     req.on('end', () => {
       received = {
         method: req.method,

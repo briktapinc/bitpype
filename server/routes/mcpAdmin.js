@@ -70,10 +70,10 @@ router.post('/token', requireRole('owner', 'admin'), async (req, res, next) => {
 
 router.delete('/token/:id', requireRole('owner', 'admin'), async (req, res, next) => {
   try {
-    const result = await query(
-      'DELETE FROM workspace_tokens WHERE id = :id AND workspace_id = :workspaceId',
-      { id: Number(req.params.id), workspaceId: req.auth.workspaceId }
-    );
+    const result = await query('DELETE FROM workspace_tokens WHERE id = :id AND workspace_id = :workspaceId', {
+      id: Number(req.params.id),
+      workspaceId: req.auth.workspaceId,
+    });
     if (!result.affectedRows) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
     res.json({ ok: true, data: { id: Number(req.params.id) } });
   } catch (e) {

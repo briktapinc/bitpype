@@ -5,8 +5,7 @@
  * All outbound app mail should go through renderBrandedEmail / ensureBrandedEmail.
  */
 
-const LOGO_URL = process.env.BITPYPE_EMAIL_LOGO_URL
-  || 'https://bitpype.com/brand/bitpype-mark.svg';
+const LOGO_URL = process.env.BITPYPE_EMAIL_LOGO_URL || 'https://bitpype.com/brand/bitpype-mark.svg';
 const SITE_URL = process.env.APP_URL || 'https://bitpype.com';
 const BRAND_MARKER = 'data-bitpype-mail="1"';
 
@@ -35,7 +34,9 @@ function stripHtml(html) {
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(p|div|h[1-6]|li|tr)>/gi, '\n')
     .replace(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, (_, href, label) => {
-      const t = String(label).replace(/<[^>]+>/g, '').trim();
+      const t = String(label)
+        .replace(/<[^>]+>/g, '')
+        .trim();
       return t ? `${t} (${href})` : href;
     })
     .replace(/<[^>]+>/g, '')
@@ -58,7 +59,9 @@ function isAlreadyBranded(html) {
 
 /** Split plain text into paragraph blocks; preserve blank-line separation. */
 function plainToParagraphsHtml(text) {
-  const blocks = String(text || '').replace(/\r\n/g, '\n').split(/\n{2,}/);
+  const blocks = String(text || '')
+    .replace(/\r\n/g, '\n')
+    .split(/\n{2,}/);
   return blocks
     .map((block) => {
       const lines = block.split('\n').map((l) => escapeHtml(l));
@@ -74,11 +77,9 @@ function plainToParagraphsHtml(text) {
 function normalizeBodyHtml(html, text) {
   if (html && looksLikeHtml(html) && !isAlreadyBranded(html)) {
     // Fragment: ensure links are accent-colored for clients that strip <style>
-    return String(html)
-      .replace(/<a\s/gi, `<a style="color:${COLORS.accentDark};text-decoration:underline;" `);
+    return String(html).replace(/<a\s/gi, `<a style="color:${COLORS.accentDark};text-decoration:underline;" `);
   }
-  const plain = (text && String(text).trim())
-    || (html && !looksLikeHtml(html) ? String(html) : stripHtml(html || ''));
+  const plain = (text && String(text).trim()) || (html && !looksLikeHtml(html) ? String(html) : stripHtml(html || ''));
   return plainToParagraphsHtml(plain);
 }
 
@@ -102,16 +103,18 @@ function renderBrandedEmail(opts = {}) {
   const title = String(opts.title || 'Bitpype').trim();
   const preheader = String(opts.preheader || '').trim();
   const footerNote = String(opts.footerNote || 'Bitpype · Local business desk').trim();
-  const cta = opts.cta && opts.cta.url
-    ? { url: String(opts.cta.url), label: String(opts.cta.label || 'Open link') }
-    : null;
+  const cta =
+    opts.cta && opts.cta.url ? { url: String(opts.cta.url), label: String(opts.cta.label || 'Open link') } : null;
 
   let bodyHtml = opts.htmlBody;
   if (!bodyHtml && Array.isArray(opts.paragraphs) && opts.paragraphs.length) {
     bodyHtml = opts.paragraphs
       .map((p) => String(p || '').trim())
       .filter(Boolean)
-      .map((p) => `<p style="margin:0 0 16px;font-size:15px;line-height:1.55;color:${COLORS.ink};">${escapeHtml(p).replace(/\n/g, '<br>\n')}</p>`)
+      .map(
+        (p) =>
+          `<p style="margin:0 0 16px;font-size:15px;line-height:1.55;color:${COLORS.ink};">${escapeHtml(p).replace(/\n/g, '<br>\n')}</p>`
+      )
       .join('\n');
   }
   if (!bodyHtml) {
@@ -225,12 +228,12 @@ function ensureBrandedEmail(opts = {}) {
   if (isAlreadyBranded(htmlIn)) {
     return {
       html: htmlIn,
-      text: (textIn && String(textIn).trim()) ? String(textIn) : stripHtml(htmlIn),
+      text: textIn && String(textIn).trim() ? String(textIn) : stripHtml(htmlIn),
     };
   }
 
-  const plainSource = (textIn && String(textIn).trim())
-    || (htmlIn && !looksLikeHtml(htmlIn) ? String(htmlIn) : stripHtml(htmlIn || ''));
+  const plainSource =
+    (textIn && String(textIn).trim()) || (htmlIn && !looksLikeHtml(htmlIn) ? String(htmlIn) : stripHtml(htmlIn || ''));
 
   let cta = opts.cta && opts.cta.url ? opts.cta : null;
   if (!cta && opts.autoCta !== false) {

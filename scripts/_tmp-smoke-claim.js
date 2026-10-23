@@ -15,7 +15,9 @@ const APP = String(process.env.APP_URL || 'https://bitpype.com').replace(/\/$/, 
 const dbPath = '/app/data/workspaces/1/websitescout.db';
 const db = new Database(dbPath, { readonly: true });
 
-const site = db.prepare(`
+const site = db
+  .prepare(
+    `
   SELECT w.id, w.lead_id, w.name, w.preview_url, w.preview_path, w.status AS site_status,
          l.business_name, l.status AS lead_status
   FROM websites w
@@ -23,11 +25,20 @@ const site = db.prepare(`
   WHERE w.lead_id IS NOT NULL
   ORDER BY w.id DESC
   LIMIT 20
-`).all();
+`
+  )
+  .all();
 
-console.log('sites sample', site.slice(0, 5).map((s) => ({
-  id: s.id, lead: s.lead_id, name: s.business_name, lead_status: s.lead_status, preview_url: s.preview_url,
-})));
+console.log(
+  'sites sample',
+  site.slice(0, 5).map((s) => ({
+    id: s.id,
+    lead: s.lead_id,
+    name: s.business_name,
+    lead_status: s.lead_status,
+    preview_url: s.preview_url,
+  }))
+);
 
 // Prefer a lead that is NOT already positive/uninterested for popup show.
 let pick = null;
@@ -62,9 +73,9 @@ console.log('picked', {
 });
 
 const exportRoot = openPreview.exportRoot();
-const folders = fs.readdirSync(exportRoot).filter((n) =>
-  n === `site-${pick.id}` || n.startsWith(`ws-1-site-${pick.id}-`)
-);
+const folders = fs
+  .readdirSync(exportRoot)
+  .filter((n) => n === `site-${pick.id}` || n.startsWith(`ws-1-site-${pick.id}-`));
 console.log('export folders', folders);
 for (const f of folders) {
   const index = path.join(exportRoot, f, 'index.html');
@@ -88,7 +99,9 @@ for (const f of folders) {
   if (pick.meta.showClaimPrompt === false) {
     console.log('skip POST decide (intent already settled)');
   } else {
-    console.log('NOTE: skipping POST decide against live cold lead to avoid mutating pipeline; token verified via GET.');
+    console.log(
+      'NOTE: skipping POST decide against live cold lead to avoid mutating pipeline; token verified via GET.'
+    );
   }
 
   // Local /site-previews HTML fetch

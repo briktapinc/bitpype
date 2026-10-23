@@ -17,7 +17,9 @@
 
   try {
     if (window.localStorage && localStorage.getItem(storageKey)) return;
-  } catch { /* private mode */ }
+  } catch {
+    /* private mode */
+  }
 
   let meta = null;
   let visitAnswered = false; // Yes / No / Later this page load (persisted answers)
@@ -28,19 +30,26 @@
 
   function esc(s) {
     return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
   function markDone() {
     try {
       if (window.localStorage) localStorage.setItem(storageKey, '1');
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
   }
 
   function markLaterSession() {
     try {
       if (window.sessionStorage) sessionStorage.setItem(laterKey, '1');
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
   }
 
   function isOpen() {
@@ -68,7 +77,9 @@
       window.removeEventListener('beforeunload', onBeforeUnload);
       window.removeEventListener('pagehide', onPageHide);
       document.removeEventListener('visibilitychange', onVisibilityChange);
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
   }
 
   function canTrigger() {
@@ -84,7 +95,9 @@
       window.removeEventListener('beforeunload', onBeforeUnload);
       window.removeEventListener('pagehide', onPageHide);
       document.removeEventListener('visibilitychange', onVisibilityChange);
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
   }
 
   function triggerShow(/* reason */) {
@@ -94,23 +107,22 @@
   }
 
   function setBusy(btns, on) {
-    (btns || []).forEach((b) => { if (b) b.disabled = !!on; });
+    (btns || []).forEach((b) => {
+      if (b) b.disabled = !!on;
+    });
   }
 
   async function decide(action, msgEl, btns) {
     if (msgEl) msgEl.textContent = 'Saving…';
     setBusy(btns, true);
     try {
-      const res = await fetch(
-        apiBase + '/api/v1/outreach/public/claim/' + encodeURIComponent(token),
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action }),
-          credentials: 'omit',
-          mode: 'cors',
-        }
-      );
+      const res = await fetch(apiBase + '/api/v1/outreach/public/claim/' + encodeURIComponent(token), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+        credentials: 'omit',
+        mode: 'cors',
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
         if (msgEl) msgEl.textContent = (data && data.error) || 'Could not save your choice.';
@@ -158,11 +170,8 @@
     let secondary = pick('--ws-secondary', '--secondary', '--amber', '--gold', '--coral');
     let bg = pick('--ws-bg', '--bg', '--paper', '--cream', '--surface') || bodyCs.backgroundColor || '#ffffff';
     let text = pick('--ws-text', '--text', '--ink', '--fg') || bodyCs.color || '#111111';
-    const font = pick('--ws-font', '--font', '--body-font')
-      || bodyCs.fontFamily
-      || 'system-ui, sans-serif';
-    const headingFont = pick('--ws-heading-font', '--heading-font', '--disp', '--display-font')
-      || font;
+    const font = pick('--ws-font', '--font', '--body-font') || bodyCs.fontFamily || 'system-ui, sans-serif';
+    const headingFont = pick('--ws-heading-font', '--heading-font', '--disp', '--display-font') || font;
 
     // Prefer a real primary CTA on the page when CSS vars are missing/odd.
     const sampleBtn = document.querySelector(
@@ -282,7 +291,9 @@
     // Stay on the preview and show the custom modal instead of leaving.
     try {
       history.pushState({ bpClaimGuard: 1 }, '', location.href);
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
     triggerShow('back');
   }
 
@@ -317,7 +328,9 @@
       historyHooked = true;
       try {
         history.pushState({ bpClaimGuard: 1 }, '', location.href);
-      } catch { /* */ }
+      } catch {
+        /* */
+      }
       window.addEventListener('popstate', onPopState);
     }
 
@@ -329,21 +342,18 @@
   async function boot() {
     try {
       if (window.sessionStorage && sessionStorage.getItem(laterKey)) return;
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
 
-    const res = await fetch(
-      apiBase + '/api/v1/outreach/public/claim/' + encodeURIComponent(token),
-      { credentials: 'omit', mode: 'cors' }
-    );
+    const res = await fetch(apiBase + '/api/v1/outreach/public/claim/' + encodeURIComponent(token), {
+      credentials: 'omit',
+      mode: 'cors',
+    });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) return;
     meta = data.data || {};
-    if (
-      meta.showClaimPrompt === false
-      || meta.intentPositive
-      || meta.alreadyInterested
-      || meta.alreadyUninterested
-    ) {
+    if (meta.showClaimPrompt === false || meta.intentPositive || meta.alreadyInterested || meta.alreadyUninterested) {
       markDone();
       return;
     }
@@ -358,5 +368,7 @@
     }
   }
 
-  boot().catch(() => { /* silent */ });
+  boot().catch(() => {
+    /* silent */
+  });
 })();

@@ -22,7 +22,11 @@ function fail(code, message, extra) {
 }
 
 function normalizeDomain(name) {
-  const d = String(name || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  const d = String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/.*$/, '');
   if (!DOMAIN_RE.test(d)) return null;
   return d;
 }
@@ -56,7 +60,9 @@ function ensureTables(db) {
     if (!cols.some((c) => c && c.name === 'custom_domain')) {
       db.exec('ALTER TABLE websites ADD COLUMN custom_domain TEXT');
     }
-  } catch { /* */ }
+  } catch {
+    /* */
+  }
 }
 
 function apiRequest({ method, apiPath, token, body, timeoutMs }) {
@@ -76,7 +82,11 @@ function apiRequest({ method, apiPath, token, body, timeoutMs }) {
         res.on('end', () => {
           const text = Buffer.concat(chunks).toString('utf8');
           let json = null;
-          try { json = text ? JSON.parse(text) : null; } catch { json = null; }
+          try {
+            json = text ? JSON.parse(text) : null;
+          } catch {
+            json = null;
+          }
           resolve({ statusCode: res.statusCode, json, text });
         });
       }
@@ -100,8 +110,7 @@ function cfError(resp, fallback) {
   if (!msg) msg = `${fallback || 'Cloudflare request failed'} (HTTP ${resp ? resp.statusCode : '?'})`;
   // Cloudflare returns generic "Authentication error" (code 10000) when the
   // token lacks Registrar scope — Pages can still work with the same token.
-  if (resp && (resp.statusCode === 401 || resp.statusCode === 403)
-    && /authentication error/i.test(msg)) {
+  if (resp && (resp.statusCode === 401 || resp.statusCode === 403) && /authentication error/i.test(msg)) {
     return 'Cloudflare rejected this Registrar call. Edit your API token (Settings → Cloudflare) and add Account → Registrar → Edit (keep Pages → Edit). Then save and retry.';
   }
   return msg;
@@ -110,7 +119,10 @@ function cfError(resp, fallback) {
 async function creds(db) {
   const c = await cf.resolveCfCredentials(db);
   if (!c.token || !ACCOUNT_ID_RE.test(c.accountId || '')) {
-    throw fail('NOT_CONFIGURED', 'Cloudflare is not configured. Add API token + Account ID in Settings → Cloudflare (token needs Registrar + Pages permissions).');
+    throw fail(
+      'NOT_CONFIGURED',
+      'Cloudflare is not configured. Add API token + Account ID in Settings → Cloudflare (token needs Registrar + Pages permissions).'
+    );
   }
   return c;
 }
@@ -142,28 +154,27 @@ async function searchDomains(db, query, opts = {}) {
     apiPath: `${API_BASE}/accounts/${accountId}/registrar/domain-search?${params}`,
     token,
   });
-  if (resp.statusCode !== 200 || !(resp.json && (resp.json.success !== false))) {
+  if (resp.statusCode !== 200 || !(resp.json && resp.json.success !== false)) {
     // Some CF betas omit success:true; accept 200 with result.
     if (resp.statusCode !== 200) throw fail('CF_ERROR', cfError(resp, 'Domain search failed'));
   }
   const result = (resp.json && resp.json.result) || {};
-  const list = Array.isArray(result.domains) ? result.domains
-    : (Array.isArray(resp.json.result) ? resp.json.result : []);
+  const list = Array.isArray(result.domains) ? result.domains : Array.isArray(resp.json.result) ? resp.json.result : [];
   const domains = list.map(mapSearchDomain).filter(Boolean);
   try {
     db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
       'domains',
       `Domain search: "${q.slice(0, 80)}" → ${domains.length} result(s)`
     );
-  } catch { /* */ }
+  } catch {
+    /* */
+  }
   return { query: q, domains };
 }
 
 async function checkDomains(db, names) {
   const { token, accountId } = await creds(db);
-  const domains = (Array.isArray(names) ? names : [names])
-    .map(normalizeDomain)
-    .filter(Boolean);
+  const domains = (Array.isArray(names) ? names : [names]).map(normalizeDomain).filter(Boolean);
   if (!domains.length) throw fail('INVALID', 'Provide at least one valid domain name.');
   const resp = await apiRequest({
     method: 'POST',
@@ -173,8 +184,7 @@ async function checkDomains(db, names) {
   });
   if (resp.statusCode !== 200) throw fail('CF_ERROR', cfError(resp, 'Domain check failed'));
   const result = (resp.json && resp.json.result) || {};
-  const list = Array.isArray(result.domains) ? result.domains
-    : (Array.isArray(resp.json.result) ? resp.json.result : []);
+  const list = Array.isArray(result.domains) ? result.domains : Array.isArray(resp.json.result) ? resp.json.result : [];
   return { domains: list.map(mapSearchDomain).filter(Boolean) };
 }
 
@@ -188,12 +198,14 @@ async function listOwnedDomains(db) {
   if (resp.statusCode !== 200) throw fail('CF_ERROR', cfError(resp, 'Could not list registrar domains'));
   const list = Array.isArray(resp.json && resp.json.result) ? resp.json.result : [];
   return {
-    domains: list.map((row) => ({
-      domain: normalizeDomain(row.name || row.domain_name) || String(row.name || ''),
-      status: row.status || row.state || null,
-      expiresAt: row.expires_at || row.expiresAt || null,
-      autoRenew: row.auto_renew != null ? !!row.auto_renew : null,
-    })).filter((d) => d.domain),
+    domains: list
+      .map((row) => ({
+        domain: normalizeDomain(row.name || row.domain_name) || String(row.name || ''),
+        status: row.status || row.state || null,
+        expiresAt: row.expires_at || row.expiresAt || null,
+        autoRenew: row.auto_renew != null ? !!row.auto_renew : null,
+      }))
+      .filter((d) => d.domain),
   };
 }
 
@@ -209,9 +221,12 @@ async function registerDomain(db, domainName, opts = {}) {
   const checked = await checkDomains(db, [domain]);
   const hit = (checked.domains || []).find((d) => d.domain === domain);
   if (!hit || !hit.registrable) {
-    throw fail('NOT_REGISTRABLE', hit && hit.reason
-      ? `Cannot register ${domain}: ${hit.reason}`
-      : `${domain} is not available for registration via Cloudflare Registrar.`);
+    throw fail(
+      'NOT_REGISTRABLE',
+      hit && hit.reason
+        ? `Cannot register ${domain}: ${hit.reason}`
+        : `${domain} is not available for registration via Cloudflare Registrar.`
+    );
   }
 
   const { token, accountId } = await creds(db);
@@ -229,21 +244,25 @@ async function registerDomain(db, domainName, opts = {}) {
 
   const result = (resp.json && resp.json.result) || resp.json || {};
   const state = result.state || (result.completed ? 'succeeded' : 'in_progress');
-  const row = db.prepare(`
+  const row = db
+    .prepare(
+      `
     INSERT INTO site_domains
       (website_id, lead_id, domain_name, status, source, years, price, currency, registration_state, meta, updated_at)
     VALUES (?, ?, ?, ?, 'registrar', ?, ?, ?, ?, ?, datetime('now'))
-  `).run(
-    Number.isInteger(websiteId) ? websiteId : null,
-    Number.isInteger(leadId) ? leadId : null,
-    domain,
-    state === 'succeeded' ? 'registered' : 'registering',
-    years,
-    hit.registrationCost || null,
-    hit.currency || null,
-    state,
-    JSON.stringify({ check: hit, workflow: result })
-  );
+  `
+    )
+    .run(
+      Number.isInteger(websiteId) ? websiteId : null,
+      Number.isInteger(leadId) ? leadId : null,
+      domain,
+      state === 'succeeded' ? 'registered' : 'registering',
+      years,
+      hit.registrationCost || null,
+      hit.currency || null,
+      state,
+      JSON.stringify({ check: hit, workflow: result })
+    );
 
   if (Number.isInteger(leadId) && leadId > 0) {
     try {
@@ -251,16 +270,22 @@ async function registerDomain(db, domainName, opts = {}) {
       if (typeof outreach.recordIntent === 'function') {
         outreach.recordIntent(db, leadId, 'domain.purchased', `Registered ${domain} via Cloudflare`);
       } else {
-        db.prepare(
-          'INSERT INTO lead_events (lead_id, type, detail) VALUES (?, ?, ?)'
-        ).run(leadId, 'domain.purchased', `Registered ${domain}`);
+        db.prepare('INSERT INTO lead_events (lead_id, type, detail) VALUES (?, ?, ?)').run(
+          leadId,
+          'domain.purchased',
+          `Registered ${domain}`
+        );
       }
     } catch {
       try {
-        db.prepare(
-          'INSERT INTO lead_events (lead_id, type, detail) VALUES (?, ?, ?)'
-        ).run(leadId, 'domain.purchased', `Registered ${domain}`);
-      } catch { /* */ }
+        db.prepare('INSERT INTO lead_events (lead_id, type, detail) VALUES (?, ?, ?)').run(
+          leadId,
+          'domain.purchased',
+          `Registered ${domain}`
+        );
+      } catch {
+        /* */
+      }
     }
   }
 
@@ -269,7 +294,9 @@ async function registerDomain(db, domainName, opts = {}) {
       'domains',
       `Domain register started: ${domain} (state=${state})`
     );
-  } catch { /* */ }
+  } catch {
+    /* */
+  }
 
   return {
     id: row.lastInsertRowid,
@@ -299,12 +326,15 @@ async function registrationStatus(db, domainName) {
   const local = db.prepare('SELECT * FROM site_domains WHERE domain_name = ? ORDER BY id DESC LIMIT 1').get(domain);
   if (local) {
     let status = local.status;
-    if (state === 'succeeded') status = local.website_id ? (local.status === 'linked' ? 'linked' : 'registered') : 'registered';
+    if (state === 'succeeded')
+      status = local.website_id ? (local.status === 'linked' ? 'linked' : 'registered') : 'registered';
     if (state === 'failed') status = 'failed';
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE site_domains SET status = ?, registration_state = ?, error = ?, updated_at = datetime('now')
       WHERE id = ?
-    `).run(
+    `
+    ).run(
       status,
       state,
       state === 'failed' ? (result.error && result.error.message) || 'Registration failed' : null,
@@ -316,7 +346,9 @@ async function registrationStatus(db, domainName) {
 
 async function pagesAddDomain(db, projectName, domainName) {
   const { token, accountId } = await creds(db);
-  const project = String(projectName || '').trim().toLowerCase();
+  const project = String(projectName || '')
+    .trim()
+    .toLowerCase();
   const domain = normalizeDomain(domainName);
   if (!project) throw fail('INVALID', 'Pages project name is required.');
   if (!domain) throw fail('INVALID', 'Invalid domain name.');
@@ -334,7 +366,9 @@ async function pagesAddDomain(db, projectName, domainName) {
 
 async function pagesListDomains(db, projectName) {
   const { token, accountId } = await creds(db);
-  const project = String(projectName || '').trim().toLowerCase();
+  const project = String(projectName || '')
+    .trim()
+    .toLowerCase();
   if (!project) throw fail('INVALID', 'Pages project name is required.');
   const resp = await apiRequest({
     method: 'GET',
@@ -355,7 +389,9 @@ async function pagesListDomains(db, projectName) {
 
 async function pagesDeleteDomain(db, projectName, domainName) {
   const { token, accountId } = await creds(db);
-  const project = String(projectName || '').trim().toLowerCase();
+  const project = String(projectName || '')
+    .trim()
+    .toLowerCase();
   const domain = normalizeDomain(domainName);
   if (!project || !domain) throw fail('INVALID', 'Project and domain are required.');
   const resp = await apiRequest({
@@ -383,15 +419,14 @@ async function linkDomainToWebsite(db, opts = {}) {
   }
   const engine = require('./websiteEngine');
   const site = engine.getWebsite(db, websiteId);
-  const leadId = opts.leadId != null ? Number(opts.leadId) : (site.lead_id != null ? Number(site.lead_id) : null);
+  const leadId = opts.leadId != null ? Number(opts.leadId) : site.lead_id != null ? Number(site.lead_id) : null;
 
-  let project = typeof opts.project === 'string' && opts.project.trim()
-    ? opts.project.trim().toLowerCase()
-    : '';
+  let project = typeof opts.project === 'string' && opts.project.trim() ? opts.project.trim().toLowerCase() : '';
   if (!project) {
     project = cf.resolveProjectName(db, websiteId, null, opts.workspaceId);
   }
-  if (!project) throw fail('NO_PROJECT', 'Could not resolve a Cloudflare Pages project for this site. Publish a preview first.');
+  if (!project)
+    throw fail('NO_PROJECT', 'Could not resolve a Cloudflare Pages project for this site. Publish a preview first.');
 
   // Ensure project exists by publishing when preview is missing/local.
   const needsPublish = !site.preview_url || cf.isLocalPreviewUrl(site.preview_url) || opts.forcePublish;
@@ -402,25 +437,29 @@ async function linkDomainToWebsite(db, opts = {}) {
   const attached = await pagesAddDomain(db, project, domain);
   const publicUrl = `https://${domain}`;
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE websites SET custom_domain = ?, preview_url = ?, updated_at = datetime('now') WHERE id = ?
-  `).run(domain, publicUrl, websiteId);
+  `
+  ).run(domain, publicUrl, websiteId);
 
-  const existing = db.prepare(
-    'SELECT id FROM site_domains WHERE domain_name = ? ORDER BY id DESC LIMIT 1'
-  ).get(domain);
+  const existing = db.prepare('SELECT id FROM site_domains WHERE domain_name = ? ORDER BY id DESC LIMIT 1').get(domain);
   if (existing) {
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE site_domains SET website_id = ?, lead_id = ?, status = 'linked', pages_project = ?,
         public_url = ?, source = COALESCE(source, 'link'), error = NULL, updated_at = datetime('now')
       WHERE id = ?
-    `).run(websiteId, leadId, project, publicUrl, existing.id);
+    `
+    ).run(websiteId, leadId, project, publicUrl, existing.id);
   } else {
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO site_domains
         (website_id, lead_id, domain_name, status, source, pages_project, public_url, updated_at)
       VALUES (?, ?, ?, 'linked', ?, ?, ?, datetime('now'))
-    `).run(websiteId, leadId, domain, opts.source || 'link', project, publicUrl);
+    `
+    ).run(websiteId, leadId, domain, opts.source || 'link', project, publicUrl);
   }
 
   try {
@@ -428,7 +467,9 @@ async function linkDomainToWebsite(db, opts = {}) {
       'domains',
       `Linked ${domain} → website #${websiteId} (project ${project})`
     );
-  } catch { /* */ }
+  } catch {
+    /* */
+  }
 
   return {
     websiteId,
@@ -443,25 +484,27 @@ async function unlinkDomain(db, opts = {}) {
   ensureTables(db);
   const domain = normalizeDomain(opts.domain);
   if (!domain) throw fail('INVALID', 'Invalid domain name.');
-  const row = db.prepare(
-    'SELECT * FROM site_domains WHERE domain_name = ? ORDER BY id DESC LIMIT 1'
-  ).get(domain);
+  const row = db.prepare('SELECT * FROM site_domains WHERE domain_name = ? ORDER BY id DESC LIMIT 1').get(domain);
   const project = (opts.project || (row && row.pages_project) || '').trim().toLowerCase();
   if (project && opts.removeFromPages !== false) {
-    try { await pagesDeleteDomain(db, project, domain); } catch { /* best effort */ }
+    try {
+      await pagesDeleteDomain(db, project, domain);
+    } catch {
+      /* best effort */
+    }
   }
   if (row && row.website_id) {
     const site = db.prepare('SELECT id, custom_domain, preview_url FROM websites WHERE id = ?').get(row.website_id);
     if (site && String(site.custom_domain || '').toLowerCase() === domain) {
-      db.prepare(
-        `UPDATE websites SET custom_domain = NULL, updated_at = datetime('now') WHERE id = ?`
-      ).run(site.id);
+      db.prepare(`UPDATE websites SET custom_domain = NULL, updated_at = datetime('now') WHERE id = ?`).run(site.id);
     }
   }
   if (row) {
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE site_domains SET status = 'unlinked', updated_at = datetime('now') WHERE id = ?
-    `).run(row.id);
+    `
+    ).run(row.id);
   }
   return { ok: true, domain };
 }
@@ -484,16 +527,21 @@ function listLinked(db, opts = {}) {
   } else {
     clauses.push("status IN ('linked','registered','registering','pending')");
   }
-  return db.prepare(
-    `SELECT * FROM site_domains WHERE ${clauses.join(' AND ')} ORDER BY updated_at DESC, id DESC LIMIT 200`
-  ).all(...params).map(publicRow);
+  return db
+    .prepare(`SELECT * FROM site_domains WHERE ${clauses.join(' AND ')} ORDER BY updated_at DESC, id DESC LIMIT 200`)
+    .all(...params)
+    .map(publicRow);
 }
 
 function publicRow(row) {
   if (!row) return null;
   let meta = row.meta;
   if (typeof meta === 'string') {
-    try { meta = JSON.parse(meta); } catch { meta = null; }
+    try {
+      meta = JSON.parse(meta);
+    } catch {
+      meta = null;
+    }
   }
   return {
     id: row.id,
@@ -519,10 +567,14 @@ function recordSearchIntent(db, leadId, query) {
   const id = Number(leadId);
   if (!Number.isInteger(id) || id <= 0) return;
   try {
-    db.prepare(
-      'INSERT INTO lead_events (lead_id, type, detail) VALUES (?, ?, ?)'
-    ).run(id, 'domain.searched', `Searched domains: ${String(query || '').slice(0, 120)}`);
-  } catch { /* */ }
+    db.prepare('INSERT INTO lead_events (lead_id, type, detail) VALUES (?, ?, ?)').run(
+      id,
+      'domain.searched',
+      `Searched domains: ${String(query || '').slice(0, 120)}`
+    );
+  } catch {
+    /* */
+  }
 }
 
 module.exports = {

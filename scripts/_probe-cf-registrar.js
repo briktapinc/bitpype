@@ -13,19 +13,20 @@ function apiRequest({ method, apiPath, token, body }) {
       headers['Content-Type'] = 'application/json';
       headers['Content-Length'] = bodyBuf.length;
     }
-    const req = https.request(
-      { host: 'api.cloudflare.com', path: apiPath, method, timeout: 30000, headers },
-      (res) => {
-        const chunks = [];
-        res.on('data', (c) => chunks.push(c));
-        res.on('end', () => {
-          const text = Buffer.concat(chunks).toString('utf8');
-          let json = null;
-          try { json = JSON.parse(text); } catch { /* */ }
-          resolve({ statusCode: res.statusCode, json, text: text.slice(0, 800) });
-        });
-      }
-    );
+    const req = https.request({ host: 'api.cloudflare.com', path: apiPath, method, timeout: 30000, headers }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        let json = null;
+        try {
+          json = JSON.parse(text);
+        } catch {
+          /* */
+        }
+        resolve({ statusCode: res.statusCode, json, text: text.slice(0, 800) });
+      });
+    });
     req.on('error', reject);
     if (bodyBuf) req.write(bodyBuf);
     req.end();
@@ -45,11 +46,17 @@ async function main() {
       path.join(root, d, 'data.sqlite'),
     ];
     for (const c of candidates) {
-      if (fs.existsSync(c)) { dbPath = c; break; }
+      if (fs.existsSync(c)) {
+        dbPath = c;
+        break;
+      }
     }
     if (dbPath) break;
     const flat = path.join(root, d);
-    if ((d.endsWith('.sqlite') || d.endsWith('.db')) && fs.existsSync(flat)) { dbPath = flat; break; }
+    if ((d.endsWith('.sqlite') || d.endsWith('.db')) && fs.existsSync(flat)) {
+      dbPath = flat;
+      break;
+    }
   }
   console.log('dbPath', dbPath, 'dirs', dirs.slice(0, 8));
   if (!dbPath) {
@@ -60,7 +67,14 @@ async function main() {
   const Database = require('better-sqlite3');
   const db = new Database(dbPath, { readonly: true });
   const creds = await cf.resolveCfCredentials(db);
-  console.log('via', creds.via, 'account', (creds.accountId || '').slice(0, 8) + '…', 'tokenLen', (creds.token || '').length);
+  console.log(
+    'via',
+    creds.via,
+    'account',
+    (creds.accountId || '').slice(0, 8) + '…',
+    'tokenLen',
+    (creds.token || '').length
+  );
 
   const accountId = creds.accountId;
   const token = creds.token;
@@ -69,7 +83,11 @@ async function main() {
     apiPath: `/client/v4/accounts/${accountId}/pages/projects?page=1&per_page=1`,
     token,
   });
-  console.log('pages', pages.statusCode, JSON.stringify(pages.json && pages.json.errors || pages.json && pages.json.success));
+  console.log(
+    'pages',
+    pages.statusCode,
+    JSON.stringify((pages.json && pages.json.errors) || (pages.json && pages.json.success))
+  );
 
   const search = await apiRequest({
     method: 'GET',
@@ -87,4 +105,7 @@ async function main() {
   console.log('check', check.statusCode, check.text);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

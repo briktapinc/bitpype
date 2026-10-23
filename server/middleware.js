@@ -11,13 +11,15 @@ function requireAuth(req, res, next) {
   if (!req.session || !req.session.userId) {
     return res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
   }
-  loadSessionUser(req.session.userId).then((user) => {
-    if (!user || String(user.status || 'active') === 'disabled' || user.deleted_at) {
-      return res.status(403).json({ ok: false, error: 'ACCOUNT_DISABLED' });
-    }
-    req.sessionUser = user;
-    next();
-  }).catch(next);
+  loadSessionUser(req.session.userId)
+    .then((user) => {
+      if (!user || String(user.status || 'active') === 'disabled' || user.deleted_at) {
+        return res.status(403).json({ ok: false, error: 'ACCOUNT_DISABLED' });
+      }
+      req.sessionUser = user;
+      next();
+    })
+    .catch(next);
 }
 
 async function requireWorkspace(req, res, next) {
@@ -43,18 +45,13 @@ async function requireWorkspace(req, res, next) {
       return res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
     }
 
-    const user = req.sessionUser || await loadSessionUser(req.session.userId);
+    const user = req.sessionUser || (await loadSessionUser(req.session.userId));
     if (!user || String(user.status || 'active') === 'disabled' || user.deleted_at) {
       return res.status(403).json({ ok: false, error: 'ACCOUNT_DISABLED' });
     }
     req.sessionUser = user;
 
-    const workspaceId = Number(
-      req.headers['x-workspace-id'] ||
-      req.query.workspaceId ||
-      req.session.workspaceId ||
-      0
-    );
+    const workspaceId = Number(req.headers['x-workspace-id'] || req.query.workspaceId || req.session.workspaceId || 0);
     if (!workspaceId) {
       return res.status(400).json({ ok: false, error: 'WORKSPACE_REQUIRED' });
     }
@@ -204,17 +201,18 @@ async function requireSubscription(req, res, next) {
 
     const userId = (req.auth && req.auth.userId) || (req.session && req.session.userId);
     if (!userId) return res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
-    const user = req.sessionUser || await billing.getUserBilling(userId);
+    const user = req.sessionUser || (await billing.getUserBilling(userId));
     if (!user) return res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
     if (String(user.status || 'active') === 'disabled' || user.deleted_at) {
       return res.status(403).json({ ok: false, error: 'ACCOUNT_DISABLED' });
     }
     if (billing.hasProductAccess(user)) return next();
 
-    const workspaceId = (req.auth && req.auth.workspaceId)
-      || (req.session && req.session.workspaceId)
-      || Number(req.headers['x-workspace-id'] || 0);
-    if (workspaceId && await billing.workspaceHasProductAccess(workspaceId)) {
+    const workspaceId =
+      (req.auth && req.auth.workspaceId) ||
+      (req.session && req.session.workspaceId) ||
+      Number(req.headers['x-workspace-id'] || 0);
+    if (workspaceId && (await billing.workspaceHasProductAccess(workspaceId))) {
       return next();
     }
 

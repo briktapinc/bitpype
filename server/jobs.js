@@ -4,8 +4,15 @@ const { query, withConnection } = require('./db');
 const { getSetting, logActivity } = require('./workspace');
 
 const JOB_TYPES = [
-  'discovery', 'outreach_process', 'design_poll_notify', 'imap_poll',
-  'social_weekly', 'social_publish', 'hands_off', 'hands_off_digest', 'custom',
+  'discovery',
+  'outreach_process',
+  'design_poll_notify',
+  'imap_poll',
+  'social_weekly',
+  'social_publish',
+  'hands_off',
+  'hands_off_digest',
+  'custom',
 ];
 
 function addMinutes(date, minutes) {
@@ -15,7 +22,8 @@ function addMinutes(date, minutes) {
 function dailyTime(cronExpr) {
   if (!cronExpr || !String(cronExpr).startsWith('daily:')) return null;
   const match = /^daily:([01]\d|2[0-3]):([0-5]\d)$/.exec(String(cronExpr));
-  if (!match) throw Object.assign(new Error('Daily schedule must be daily:HH:MM in UTC (00:00–23:59)'), { code: 'INVALID' });
+  if (!match)
+    throw Object.assign(new Error('Daily schedule must be daily:HH:MM in UTC (00:00–23:59)'), { code: 'INVALID' });
   return { hour: Number(match[1]), minute: Number(match[2]) };
 }
 
@@ -40,17 +48,14 @@ function toMysqlDatetime(d) {
 }
 
 async function listJobs(workspaceId) {
-  return query(
-    `SELECT * FROM scheduled_jobs WHERE workspace_id = :workspaceId ORDER BY id DESC`,
-    { workspaceId }
-  );
+  return query(`SELECT * FROM scheduled_jobs WHERE workspace_id = :workspaceId ORDER BY id DESC`, { workspaceId });
 }
 
 async function getJob(workspaceId, id) {
-  const rows = await query(
-    'SELECT * FROM scheduled_jobs WHERE id = :id AND workspace_id = :workspaceId LIMIT 1',
-    { id, workspaceId }
-  );
+  const rows = await query('SELECT * FROM scheduled_jobs WHERE id = :id AND workspace_id = :workspaceId LIMIT 1', {
+    id,
+    workspaceId,
+  });
   return rows[0] || null;
 }
 
@@ -58,7 +63,8 @@ async function createJob(workspaceId, input) {
   const name = String(input.name || '').trim();
   const type = String(input.type || '').trim();
   if (!name) throw Object.assign(new Error('name required'), { code: 'INVALID' });
-  if (!JOB_TYPES.includes(type)) throw Object.assign(new Error(`type must be one of ${JOB_TYPES.join(', ')}`), { code: 'INVALID' });
+  if (!JOB_TYPES.includes(type))
+    throw Object.assign(new Error(`type must be one of ${JOB_TYPES.join(', ')}`), { code: 'INVALID' });
 
   const interval = input.interval_minutes != null ? Number(input.interval_minutes) : null;
   const cron_expr = input.cron_expr || input.cron || null;
@@ -96,9 +102,7 @@ async function updateJob(workspaceId, id, patch) {
   const name = patch.name != null ? String(patch.name).trim() : job.name;
   const enabled = patch.enabled != null ? (patch.enabled ? 1 : 0) : job.enabled;
   const interval_minutes = patch.interval_minutes != null ? Number(patch.interval_minutes) : job.interval_minutes;
-  const cron_expr = patch.cron_expr != null || patch.cron != null
-    ? (patch.cron_expr || patch.cron)
-    : job.cron_expr;
+  const cron_expr = patch.cron_expr != null || patch.cron != null ? patch.cron_expr || patch.cron : job.cron_expr;
   const payload = patch.payload != null ? JSON.stringify(patch.payload) : null;
   dailyTime(cron_expr);
 
@@ -133,17 +137,17 @@ async function updateJob(workspaceId, id, patch) {
 }
 
 async function deleteJob(workspaceId, id) {
-  const result = await query(
-    'DELETE FROM scheduled_jobs WHERE id = :id AND workspace_id = :workspaceId',
-    { id, workspaceId }
-  );
+  const result = await query('DELETE FROM scheduled_jobs WHERE id = :id AND workspace_id = :workspaceId', {
+    id,
+    workspaceId,
+  });
   if (!result.affectedRows) throw Object.assign(new Error('NOT_FOUND'), { code: 'NOT_FOUND' });
   return { id };
 }
 
 async function runJobLogic(workspaceId, job) {
   const domain = require('./domain');
-  const payload = typeof job.payload === 'string' ? JSON.parse(job.payload || '{}') : (job.payload || {});
+  const payload = typeof job.payload === 'string' ? JSON.parse(job.payload || '{}') : job.payload || {};
 
   if (job.type === 'discovery') {
     return domain.runDiscoveryJobTick(workspaceId, payload);
@@ -188,20 +192,29 @@ async function runJobLogic(workspaceId, job) {
   throw new Error(`Unsupported job type: ${job.type}`);
 }
 
-async function executeClaimedJob(workspaceId, jobId, { force = false, dueOnly = false, source = 'manual', triggeredBy = 'unknown' } = {}) {
+async function executeClaimedJob(
+  workspaceId,
+  jobId,
+  { force = false, dueOnly = false, source = 'manual', triggeredBy = 'unknown' } = {}
+) {
   const job = await getJob(workspaceId, jobId);
   if (!job) throw Object.assign(new Error('NOT_FOUND'), { code: 'NOT_FOUND' });
   const rawNext = String(job.next_run_at || '').replace(' ', 'T');
-  const nextAt = job.next_run_at instanceof Date ? job.next_run_at.getTime()
-    : Date.parse(/(?:Z|[+-]\d{2}:\d{2})$/.test(rawNext) ? rawNext : rawNext + 'Z');
+  const nextAt =
+    job.next_run_at instanceof Date
+      ? job.next_run_at.getTime()
+      : Date.parse(/(?:Z|[+-]\d{2}:\d{2})$/.test(rawNext) ? rawNext : rawNext + 'Z');
   if (dueOnly && (!job.enabled || !Number.isFinite(nextAt) || nextAt > Date.now())) return { jobId, skipped: true };
   if (!job.enabled && !force) throw Object.assign(new Error('Job is disabled'), { code: 'DISABLED' });
 
-  await query(`UPDATE job_runs SET status='abandoned', error='Previous execution was interrupted; side effects may need reconciliation', finished_at=UTC_TIMESTAMP()
-    WHERE workspace_id=:workspaceId AND job_id=:jobId AND status='running'`, {workspaceId,jobId});
+  await query(
+    `UPDATE job_runs SET status='abandoned', error='Previous execution was interrupted; side effects may need reconciliation', finished_at=UTC_TIMESTAMP()
+    WHERE workspace_id=:workspaceId AND job_id=:jobId AND status='running'`,
+    { workspaceId, jobId }
+  );
   const inserted = await query(
     `INSERT INTO job_runs (workspace_id, job_id, status, trigger_source, triggered_by) VALUES (:workspaceId, :jobId, 'running', :source, :triggeredBy)`,
-    { workspaceId, jobId, source: String(source).slice(0,40), triggeredBy: String(triggeredBy).slice(0,120) }
+    { workspaceId, jobId, source: String(source).slice(0, 40), triggeredBy: String(triggeredBy).slice(0, 120) }
   );
   const run = { id: Number(inserted.insertId) };
 
@@ -235,16 +248,18 @@ async function executeClaimedJob(workspaceId, jobId, { force = false, dueOnly = 
        WHERE id = :jobId AND workspace_id = :workspaceId`,
       { jobId, workspaceId, err: String(e.message || e).slice(0, 2000), next }
     );
-    await query(
-      `UPDATE job_runs SET status = 'error', error = :err, finished_at = UTC_TIMESTAMP() WHERE id = :id`,
-      { id: run.id, err: String(e.message || e).slice(0, 2000) }
-    );
+    await query(`UPDATE job_runs SET status = 'error', error = :err, finished_at = UTC_TIMESTAMP() WHERE id = :id`, {
+      id: run.id,
+      err: String(e.message || e).slice(0, 2000),
+    });
     throw e;
   }
 }
 
 async function executeJob(workspaceId, jobId, opts = {}) {
-  return require('./jobExecutionLock').withJobLock(workspaceId, jobId, () => executeClaimedJob(workspaceId, jobId, opts));
+  return require('./jobExecutionLock').withJobLock(workspaceId, jobId, () =>
+    executeClaimedJob(workspaceId, jobId, opts)
+  );
 }
 
 async function tickDueJobs() {
@@ -256,7 +271,11 @@ async function tickDueJobs() {
   const outcomes = [];
   for (const row of due) {
     try {
-      const result = await executeJob(row.workspace_id, row.id, { dueOnly: true, source: 'scheduler', triggeredBy: 'scheduler' });
+      const result = await executeJob(row.workspace_id, row.id, {
+        dueOnly: true,
+        source: 'scheduler',
+        triggeredBy: 'scheduler',
+      });
       outcomes.push({ ok: true, ...result });
     } catch (e) {
       outcomes.push({ ok: false, jobId: row.id, error: e.message });

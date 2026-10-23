@@ -50,7 +50,10 @@ const MOBILE_PAD_BLOCK = `
 
 function stripManagedBlock(css) {
   return String(css || '')
-    .replace(/\n?\/\* === mobile edge padding: header \+ strip \(managed\) === \*\/[\s\S]*?\/\* === end mobile edge padding === \*\//g, '')
+    .replace(
+      /\n?\/\* === mobile edge padding: header \+ strip \(managed\) === \*\/[\s\S]*?\/\* === end mobile edge padding === \*\//g,
+      ''
+    )
     .replace(/\s+$/g, '');
 }
 
@@ -72,14 +75,20 @@ async function main() {
   console.log('saved version', saved && saved.version);
 
   const preview = await domain.sitesPreview(1, 1, { force: true });
-  console.log(JSON.stringify({
-    url: preview.url,
-    via: preview.via,
-    project: preview.detail && preview.detail.project,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        url: preview.url,
+        via: preview.via,
+        project: preview.detail && preview.detail.project,
+      },
+      null,
+      2
+    )
+  );
 }
 
 main().catch((e) => {
-  console.error(e && e.stack || e);
+  console.error((e && e.stack) || e);
   process.exit(1);
 });

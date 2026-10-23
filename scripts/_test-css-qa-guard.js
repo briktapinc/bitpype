@@ -21,10 +21,11 @@ function ok(cond, msg) {
 }
 
 // --- CSS helper: broken class-heavy, no CSS ---
-const brokenPages = [{
-  slug: 'home',
-  title: 'Home',
-  html: `<main class="hero wrap">
+const brokenPages = [
+  {
+    slug: 'home',
+    title: 'Home',
+    html: `<main class="hero wrap">
     <h1 class="hero-title">Hello</h1>
     <p class="lede copy">We fix things.</p>
     <a class="btn btn-primary cta" href="tel:555">Call</a>
@@ -33,7 +34,8 @@ const brokenPages = [{
       <article class="card card-b"><h2 class="card-title">B</h2></article>
     </section>
   </main>`,
-}];
+  },
+];
 const brokenTheme = {
   baseCss: false,
   customCss: '/* agent forgot the real stylesheet */',
@@ -72,10 +74,11 @@ const goodCss = `
 .card-title{margin:0;font-size:1.2rem}
 `.repeat(2);
 
-const goodPages = [{
-  slug: 'home',
-  title: 'Home',
-  html: `<!DOCTYPE html><html><head><style>${goodCss}</style></head><body>
+const goodPages = [
+  {
+    slug: 'home',
+    title: 'Home',
+    html: `<!DOCTYPE html><html><head><style>${goodCss}</style></head><body>
 <main class="hero wrap">
   <h1 class="hero-title">Hello</h1>
   <p class="lede copy">We fix things.</p>
@@ -85,47 +88,62 @@ const goodPages = [{
     <article class="card card-b"><h2 class="card-title">B</h2></article>
   </section>
 </main></body></html>`,
-}];
-ok(engine.validatePagesCss(goodPages, { baseCss: false, customCss: '' }).ok,
-  'inline style defining classes passes CSS check');
+  },
+];
+ok(
+  engine.validatePagesCss(goodPages, { baseCss: false, customCss: '' }).ok,
+  'inline style defining classes passes CSS check'
+);
 
-const goodPagesBody = [{
-  slug: '/',
-  title: 'Home',
-  html: brokenPages[0].html,
-}];
-ok(engine.validatePagesCss(goodPagesBody, { baseCss: false, customCss: goodCss }).ok,
-  'theme.customCss defining classes passes');
+const goodPagesBody = [
+  {
+    slug: '/',
+    title: 'Home',
+    html: brokenPages[0].html,
+  },
+];
+ok(
+  engine.validatePagesCss(goodPagesBody, { baseCss: false, customCss: goodCss }).ok,
+  'theme.customCss defining classes passes'
+);
 
 // Section-only template pages (no freeform html) skip CSS class check
-const sectionPages = [{
-  slug: '/',
-  title: 'Home',
-  sections: [
-    { type: 'nav', content: { business_name: 'Acme' } },
-    { type: 'hero', content: { heading: 'Hi', subheading: 'There', cta_label: 'Call', cta_href: 'tel:1' } },
-  ],
-}];
+const sectionPages = [
+  {
+    slug: '/',
+    title: 'Home',
+    sections: [
+      { type: 'nav', content: { business_name: 'Acme' } },
+      { type: 'hero', content: { heading: 'Hi', subheading: 'There', cta_label: 'Call', cta_href: 'tel:1' } },
+    ],
+  },
+];
 ok(engine.validatePagesCss(sectionPages, {}).ok, 'section-only pages pass CSS check');
 
 // Modular html sections with class-heavy markup need theme.customCss (same as freeform)
-const modularBroken = [{
-  slug: 'home',
-  title: 'Home',
-  sections: [
-    { type: 'nav', content: { business_name: 'Acme' } },
-    {
-      type: 'html',
-      content: {
-        html: `<section class="hero wrap"><h1 class="hero-title">Hi</h1><p class="lede copy">Body</p><a class="btn btn-primary cta" href="#">Go</a></section>`,
+const modularBroken = [
+  {
+    slug: 'home',
+    title: 'Home',
+    sections: [
+      { type: 'nav', content: { business_name: 'Acme' } },
+      {
+        type: 'html',
+        content: {
+          html: `<section class="hero wrap"><h1 class="hero-title">Hi</h1><p class="lede copy">Body</p><a class="btn btn-primary cta" href="#">Go</a></section>`,
+        },
       },
-    },
-  ],
-}];
-ok(!engine.validatePagesCss(modularBroken, { baseCss: false, customCss: '/* empty */' }).ok,
-  'modular html sections without CSS fail');
-ok(engine.validatePagesCss(modularBroken, { baseCss: false, customCss: goodCss }).ok,
-  'modular html sections with theme.customCss pass');
+    ],
+  },
+];
+ok(
+  !engine.validatePagesCss(modularBroken, { baseCss: false, customCss: '/* empty */' }).ok,
+  'modular html sections without CSS fail'
+);
+ok(
+  engine.validatePagesCss(modularBroken, { baseCss: false, customCss: goodCss }).ok,
+  'modular html sections with theme.customCss pass'
+);
 
 // --- Registered relative images ---
 const registry = new Set(['images/openai-1.png', 'images/hero.jpg']);

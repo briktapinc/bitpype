@@ -21,7 +21,10 @@ const PANEL_ALIASES = {
 };
 
 function parsePortalHash(search, hash) {
-  const raw = String(hash || '').replace(/^#\/?/, '').trim().toLowerCase();
+  const raw = String(hash || '')
+    .replace(/^#\/?/, '')
+    .trim()
+    .toLowerCase();
   const key = raw.split(/[/?&#]/)[0] || '';
   if (key) return PANEL_ALIASES[key] || null;
   try {
@@ -48,7 +51,9 @@ let failed = 0;
 for (const [search, hash, want] of cases) {
   const got = parsePortalHash(search, hash);
   const ok = got === want;
-  console.log((ok ? 'OK' : 'FAIL') + `  search=${search || '(none)'} hash=${hash || '(none)'} -> ${got} (want ${want})`);
+  console.log(
+    (ok ? 'OK' : 'FAIL') + `  search=${search || '(none)'} hash=${hash || '(none)'} -> ${got} (want ${want})`
+  );
   if (!ok) failed += 1;
 }
 

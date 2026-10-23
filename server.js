@@ -58,31 +58,35 @@ const app = express();
 
 app.set('trust proxy', 1);
 const cspReportOnly = (() => {
-  const raw = String(process.env.CSP_REPORT_ONLY || '').trim().toLowerCase();
+  const raw = String(process.env.CSP_REPORT_ONLY || '')
+    .trim()
+    .toLowerCase();
   if (raw === '1' || raw === 'true') return true;
   if (raw === '0' || raw === 'false') return false;
   // Enforce in production; report-only elsewhere so local/dev shells stay flexible.
   return process.env.NODE_ENV !== 'production';
 })();
-app.use(helmet({
-  // Staff/portal shells; embed routes override below. Set CSP_REPORT_ONLY=1 to observe only.
-  contentSecurityPolicy: {
-    useDefaults: true,
-    reportOnly: cspReportOnly,
-    directives: {
-      'default-src': ["'self'"],
-      'script-src': ["'self'", "'unsafe-inline'", 'https://challenges.cloudflare.com'],
-      'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-      'font-src': ["'self'", 'https://fonts.gstatic.com', 'data:'],
-      'img-src': ["'self'", 'data:', 'blob:', 'https:'],
-      'connect-src': ["'self'", 'https:'],
-      'frame-src': ["'self'", 'https://challenges.cloudflare.com', 'https:'],
-      'frame-ancestors': ["'self'"],
+app.use(
+  helmet({
+    // Staff/portal shells; embed routes override below. Set CSP_REPORT_ONLY=1 to observe only.
+    contentSecurityPolicy: {
+      useDefaults: true,
+      reportOnly: cspReportOnly,
+      directives: {
+        'default-src': ["'self'"],
+        'script-src': ["'self'", "'unsafe-inline'", 'https://challenges.cloudflare.com'],
+        'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+        'font-src': ["'self'", 'https://fonts.gstatic.com', 'data:'],
+        'img-src': ["'self'", 'data:', 'blob:', 'https:'],
+        'connect-src': ["'self'", 'https:'],
+        'frame-src': ["'self'", 'https://challenges.cloudflare.com', 'https:'],
+        'frame-ancestors': ["'self'"],
+      },
     },
-  },
-  // HSTS only meaningful behind HTTPS (trust proxy + X-Forwarded-Proto).
-  hsts: cookieSecureHint(),
-}));
+    // HSTS only meaningful behind HTTPS (trust proxy + X-Forwarded-Proto).
+    hsts: cookieSecureHint(),
+  })
+);
 
 function cookieSecureHint() {
   if (process.env.COOKIE_SECURE === '1' || process.env.COOKIE_SECURE === 'true') {
@@ -98,8 +102,10 @@ function cookieSecureHint() {
 // default X-Frame-Options: SAMEORIGIN makes Chrome show "refused to connect".
 app.use('/embed', (req, res, next) => {
   res.removeHeader('X-Frame-Options');
-  res.setHeader('Content-Security-Policy', req.path === '/captcha.html'
-    ? require('./server/previewSecurity').CAPTCHA_CSP : 'frame-ancestors *');
+  res.setHeader(
+    'Content-Security-Policy',
+    req.path === '/captcha.html' ? require('./server/previewSecurity').CAPTCHA_CSP : 'frame-ancestors *'
+  );
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   next();
 });
@@ -114,17 +120,19 @@ const appOrigin = (() => {
   }
 })();
 app.use(require('./server/previewSecurity').rejectOpaqueAppRequests);
-app.use(cors({
-  origin(origin, cb) {
-    // Non-browser / same-origin tools send no Origin.
-    if (!origin) return cb(null, true);
-    // When APP_URL is unset, never reflect arbitrary browser Origins.
-    if (!appOrigin) return cb(null, false);
-    if (origin === appOrigin) return cb(null, true);
-    return cb(null, false);
-  },
-  credentials: true,
-}));
+app.use(
+  cors({
+    origin(origin, cb) {
+      // Non-browser / same-origin tools send no Origin.
+      if (!origin) return cb(null, true);
+      // When APP_URL is unset, never reflect arbitrary browser Origins.
+      if (!appOrigin) return cb(null, false);
+      if (origin === appOrigin) return cb(null, true);
+      return cb(null, false);
+    },
+    credentials: true,
+  })
+);
 
 // Stripe webhooks need the raw body for signature verification — mount before JSON parser.
 const stripeWebhook = require('./server/routes/stripeWebhook');
@@ -136,7 +144,11 @@ app.use('/api/v1/shop/webhook', express.raw({ type: 'application/json' }), shopW
 app.use((req, res, next) => {
   const large = /^\/api\/v1\/(design|portal|websites|mcp|website-promo)/i.test(req.path || '');
   const analytics = req.path.startsWith('/api/v1/site-analytics/public/');
-  return express.json({ limit: analytics ? '1kb' : large ? '8mb' : (process.env.JSON_BODY_LIMIT || '1mb') })(req, res, next);
+  return express.json({ limit: analytics ? '1kb' : large ? '8mb' : process.env.JSON_BODY_LIMIT || '1mb' })(
+    req,
+    res,
+    next
+  );
 });
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
@@ -180,10 +192,7 @@ if (cookieDomain) sessionCookie.domain = cookieDomain;
 
 // Portal idle timeout: rolling cookie + server-side last-activity check.
 // No portal API activity for this long → session is destroyed (sign-out).
-const PORTAL_IDLE_MS = Math.max(
-  60 * 60 * 1000,
-  Number(process.env.PORTAL_IDLE_MS) || (30 * 60 * 60 * 1000)
-);
+const PORTAL_IDLE_MS = Math.max(60 * 60 * 1000, Number(process.env.PORTAL_IDLE_MS) || 30 * 60 * 60 * 1000);
 const portalSessionCookie = {
   ...sessionCookie,
   maxAge: PORTAL_IDLE_MS,
@@ -311,43 +320,59 @@ app.use('/api/v1/site-analytics/public', require('./server/routes/siteAnalyticsP
 app.use('/api/v1/design/public', designPublicRoutes);
 // Public contact form schema + submit (Turnstile).
 // Customer sites load form-embed.js cross-origin from CF Pages / custom domains.
-app.use('/api/v1/forms/public', (req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  if (req.method === 'OPTIONS') return res.sendStatus(204);
-  return next();
-}, formsPublicRoutes);
+app.use(
+  '/api/v1/forms/public',
+  (req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+    return next();
+  },
+  formsPublicRoutes
+);
 // Public site-module embed payload (blog/shop/courses/gallery/directory).
 // Customer sites load this cross-origin from CF Pages / custom domains.
-app.use('/api/v1/modules/public', (req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  if (req.method === 'OPTIONS') return res.sendStatus(204);
-  return next();
-}, modulesPublicRoutes);
+app.use(
+  '/api/v1/modules/public',
+  (req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+    return next();
+  },
+  modulesPublicRoutes
+);
 // Public site chatbot (visitor bubble → portal client MCP agent; no admin tokens).
-app.use('/api/v1/chat/public', (req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  if (req.method === 'OPTIONS') return res.sendStatus(204);
-  return next();
-}, chatbotPublicRoutes);
+app.use(
+  '/api/v1/chat/public',
+  (req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+    return next();
+  },
+  chatbotPublicRoutes
+);
 // Public outreach interest / not-interested / claim APIs (HMAC token, no session).
 // CORS so Cloudflare Pages previews can call claim meta from claim-preview.js.
-app.use('/api/v1/outreach/public', (req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  if (req.method === 'OPTIONS') return res.sendStatus(204);
-  return next();
-}, outreachPublicRoutes);
+app.use(
+  '/api/v1/outreach/public',
+  (req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+    return next();
+  },
+  outreachPublicRoutes
+);
 // Facebook-ad website promo lead form (Turnstile + lead create).
 app.use('/api/v1/website-promo', websitePromoRoutes);
 // Client portal routes are mounted earlier with portalSession (separate cookie).
@@ -432,11 +457,15 @@ app.post('/ws', mcpHandler);
 app.get('/ws', mcpHandler);
 
 // Brand assets are embedded in outbound HTML email; email proxies need cross-origin reads.
-app.use('/brand', (req, res, next) => {
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  next();
-}, express.static(path.join(__dirname, 'public', 'brand'), { maxAge: '7d' }));
+app.use(
+  '/brand',
+  (req, res, next) => {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    next();
+  },
+  express.static(path.join(__dirname, 'public', 'brand'), { maxAge: '7d' })
+);
 
 // Outreach template images (workspace data dir → absolute APP_URL in HTML email).
 app.get('/email-assets/:wsId/:file', (req, res) => {
@@ -450,7 +479,9 @@ app.get('/email-assets/:wsId/:file', (req, res) => {
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-  return res.sendFile(full, (err) => { if (err) res.status(404).end(); });
+  return res.sendFile(full, (err) => {
+    if (err) res.status(404).end();
+  });
 });
 
 // Marketing home at `/`. Staff SPA lives at `/app` so public visitors never hit the desk UI.
@@ -492,20 +523,23 @@ app.get('/favicon.ico', (_req, res) => {
   res.status(204).end();
 });
 // Helmet defaults CORP to same-origin, which blocks <script src> from pages.dev.
-app.use([
-  '/js/form-embed.js',
-  '/js/module-embed.js',
-  '/js/chat-embed.js',
-  '/js/captcha.js',
-  '/js/fonts.js',
-  '/js/cookie-bar.js',
-  '/js/site-analytics.js',
-  '/js/claim-preview.js',
-], (req, res, next) => {
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  next();
-});
+app.use(
+  [
+    '/js/form-embed.js',
+    '/js/module-embed.js',
+    '/js/chat-embed.js',
+    '/js/captcha.js',
+    '/js/fonts.js',
+    '/js/cookie-bar.js',
+    '/js/site-analytics.js',
+    '/js/claim-preview.js',
+  ],
+  (req, res, next) => {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    next();
+  }
+);
 
 // Do not auto-serve public/index.html for `/` (that is the staff app).
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
@@ -516,35 +550,40 @@ app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 // helmet defaults to same-origin which blocks <img> while curl still succeeds.
 {
   const { exportRoot } = require('./src/openPreview');
-  app.use('/site-previews', require('./server/previewSecurity').isolateStaticPreview, (req, res, next) => {
-    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    next();
-  }, express.static(exportRoot(), {
-    index: ['index.html'],
-    fallthrough: true,
-    redirect: true,
-  }));
+  app.use(
+    '/site-previews',
+    require('./server/previewSecurity').isolateStaticPreview,
+    (req, res, next) => {
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      next();
+    },
+    express.static(exportRoot(), {
+      index: ['index.html'],
+      fallthrough: true,
+      redirect: true,
+    })
+  );
 }
 
 app.get('*', (req, res, next) => {
   if (
-    req.path.startsWith('/api')
-    || req.path.startsWith('/mcp')
-    || req.path.startsWith('/ws')
-    || req.path.startsWith('/site-previews')
-    || req.path.startsWith('/email-assets')
-    || req.path.startsWith('/portal')
-    || req.path.startsWith('/client')
-    || req.path.startsWith('/app')
-    || req.path.startsWith('/brand')
-    || req.path.startsWith('/embed')
-    || req.path.startsWith('/legal')
-    || req.path.startsWith('/.well-known')
-    || req.path.startsWith('/authorize')
-    || req.path.startsWith('/oauth')
-    || req.path === '/token'
-    || req.path === '/register'
+    req.path.startsWith('/api') ||
+    req.path.startsWith('/mcp') ||
+    req.path.startsWith('/ws') ||
+    req.path.startsWith('/site-previews') ||
+    req.path.startsWith('/email-assets') ||
+    req.path.startsWith('/portal') ||
+    req.path.startsWith('/client') ||
+    req.path.startsWith('/app') ||
+    req.path.startsWith('/brand') ||
+    req.path.startsWith('/embed') ||
+    req.path.startsWith('/legal') ||
+    req.path.startsWith('/.well-known') ||
+    req.path.startsWith('/authorize') ||
+    req.path.startsWith('/oauth') ||
+    req.path === '/token' ||
+    req.path === '/register'
   ) {
     return next();
   }
@@ -558,9 +597,7 @@ app.get('*', (req, res, next) => {
 app.use((err, _req, res, _next) => {
   console.error(err);
   const status = err.status || 500;
-  const clientMsg = status >= 500
-    ? 'Server error'
-    : (err.message || 'Request failed');
+  const clientMsg = status >= 500 ? 'Server error' : err.message || 'Request failed';
   res.status(status).json({ ok: false, error: clientMsg, code: err.code });
 });
 
@@ -586,7 +623,12 @@ async function main() {
 
   await require('./server/captcha').assertProductionReady();
   await pruneExpiredSessions();
-  setInterval(() => { pruneExpiredSessions().catch(() => {}); }, 60 * 60 * 1000);
+  setInterval(
+    () => {
+      pruneExpiredSessions().catch(() => {});
+    },
+    60 * 60 * 1000
+  );
 
   if (process.env.BOOTSTRAP_EMAIL && process.env.BOOTSTRAP_PASSWORD) {
     const { findUserByEmail, createUserWithWorkspace } = require('./server/workspace');
@@ -600,17 +642,11 @@ async function main() {
         workspaceName: process.env.BOOTSTRAP_WORKSPACE || 'Primary',
       });
       console.log('[bootstrap] created owner user + workspace', created.workspaceId);
-      if (
-        process.env.BOOTSTRAP_SUPER_ADMIN === '1' ||
-        process.env.BOOTSTRAP_SUPER_ADMIN === 'true'
-      ) {
+      if (process.env.BOOTSTRAP_SUPER_ADMIN === '1' || process.env.BOOTSTRAP_SUPER_ADMIN === 'true') {
         await admin.setSuperAdmin(created.userId, true);
         console.log('[bootstrap] promoted bootstrap user to super admin');
       }
-    } else if (
-      process.env.BOOTSTRAP_SUPER_ADMIN === '1' ||
-      process.env.BOOTSTRAP_SUPER_ADMIN === 'true'
-    ) {
+    } else if (process.env.BOOTSTRAP_SUPER_ADMIN === '1' || process.env.BOOTSTRAP_SUPER_ADMIN === 'true') {
       // Opt-in only — set BOOTSTRAP_SUPER_ADMIN=1 to promote bootstrap user.
       await admin.setSuperAdmin(existing.id, true);
       console.log('[bootstrap] ensured super admin for', process.env.BOOTSTRAP_EMAIL);

@@ -13,7 +13,10 @@ const tips = require('../server/upsellTips');
 
   const list = await tips.listTips({ includeStats: true });
   assert.ok(list.length >= 4, 'default tips seeded');
-  assert.ok(list.every((t) => t.enabled), 'defaults enabled');
+  assert.ok(
+    list.every((t) => t.enabled),
+    'defaults enabled'
+  );
 
   const created = await tips.createTip({
     title: 'Did you know?',

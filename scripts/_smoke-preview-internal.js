@@ -13,7 +13,14 @@ async function main() {
 
   const db = openWorkspaceDb(1);
   const cfg = cf.getConfig(db);
-  console.log('cf.configured=', cfg.configured, 'project=', JSON.stringify(cfg.project), 'previewDomain=', cfg.previewDomain);
+  console.log(
+    'cf.configured=',
+    cfg.configured,
+    'project=',
+    JSON.stringify(cfg.project),
+    'previewDomain=',
+    cfg.previewDomain
+  );
 
   const before = db.prepare('SELECT id, preview_url FROM websites WHERE id = 1').get();
   console.log('before=', before);
@@ -45,6 +52,6 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error('ERROR', e && e.stack || e);
+  console.error('ERROR', (e && e.stack) || e);
   process.exit(1);
 });

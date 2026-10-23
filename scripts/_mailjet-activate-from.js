@@ -20,26 +20,33 @@ function httpJson(method, url, { auth, body } = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const payload = body ? JSON.stringify(body) : null;
-    const req = https.request({
-      method,
-      hostname: u.hostname,
-      path: u.pathname + u.search,
-      headers: {
-        Accept: 'application/json',
-        ...(payload
-          ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
-          : {}),
-        ...(auth ? { Authorization: 'Basic ' + Buffer.from(auth).toString('base64') } : {}),
+    const req = https.request(
+      {
+        method,
+        hostname: u.hostname,
+        path: u.pathname + u.search,
+        headers: {
+          Accept: 'application/json',
+          ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
+          ...(auth ? { Authorization: 'Basic ' + Buffer.from(auth).toString('base64') } : {}),
+        },
       },
-    }, (res) => {
-      let data = '';
-      res.on('data', (c) => { data += c; });
-      res.on('end', () => {
-        let parsed = data;
-        try { parsed = JSON.parse(data); } catch { /* raw */ }
-        resolve({ status: res.statusCode, body: parsed });
-      });
-    });
+      (res) => {
+        let data = '';
+        res.on('data', (c) => {
+          data += c;
+        });
+        res.on('end', () => {
+          let parsed = data;
+          try {
+            parsed = JSON.parse(data);
+          } catch {
+            /* raw */
+          }
+          resolve({ status: res.statusCode, body: parsed });
+        });
+      }
+    );
     req.on('error', reject);
     if (payload) req.write(payload);
     req.end();
@@ -63,14 +70,15 @@ function getWorkspaceKey(dbPath, key) {
 }
 
 function patchPlatformDefaults(email) {
-  const candidates = [
-    '/app/data/platform-defaults.json',
-    path.join(__dirname, '..', 'data', 'platform-defaults.json'),
-  ];
+  const candidates = ['/app/data/platform-defaults.json', path.join(__dirname, '..', 'data', 'platform-defaults.json')];
   for (const file of candidates) {
     if (!fs.existsSync(file)) continue;
     let obj;
-    try { obj = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { continue; }
+    try {
+      obj = JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch {
+      continue;
+    }
     if (!obj || typeof obj !== 'object') obj = {};
     // Support both flat and nested shapes used historically
     if (obj.settings && typeof obj.settings === 'object') {
@@ -102,9 +110,17 @@ function patchPlatformDefaults(email) {
   console.log('=== Mailjet senders ===');
   const sendersResp = await httpJson('GET', 'https://api.mailjet.com/v3/REST/sender?Limit=100', { auth });
   const list = (sendersResp.body && sendersResp.body.Data) || [];
-  console.log(JSON.stringify(list.map((s) => ({
-    Email: s.Email, Status: s.Status, ID: s.ID,
-  })), null, 2));
+  console.log(
+    JSON.stringify(
+      list.map((s) => ({
+        Email: s.Email,
+        Status: s.Status,
+        ID: s.ID,
+      })),
+      null,
+      2
+    )
+  );
 
   const active = list.filter((s) => String(s.Status).toLowerCase() === 'active');
   if (!active.length) {
@@ -134,16 +150,22 @@ function patchPlatformDefaults(email) {
   const afterWsName = getWorkspaceKey(wsPath, 'smtp.from_name');
 
   console.log('\n=== from_email set ===');
-  console.log(JSON.stringify({
-    platform_from: afterPlat['smtp.from_email'],
-    platform_name: afterPlat['smtp.from_name'],
-    workspace_from: afterWsFrom,
-    workspace_name: afterWsName,
-    platform_defaults_file: defaultsFile,
-    note: teamActive
-      ? 'Using team@bitpype.com (Active)'
-      : 'Using temporary Active sender; authenticate bitpype.com / validate team@ later',
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        platform_from: afterPlat['smtp.from_email'],
+        platform_name: afterPlat['smtp.from_name'],
+        workspace_from: afterWsFrom,
+        workspace_name: afterWsName,
+        platform_defaults_file: defaultsFile,
+        note: teamActive
+          ? 'Using team@bitpype.com (Active)'
+          : 'Using temporary Active sender; authenticate bitpype.com / validate team@ later',
+      },
+      null,
+      2
+    )
+  );
 
   const subject = `[Bitpype] ${MARKER}`;
   const text = [
@@ -169,23 +191,33 @@ function patchPlatformDefaults(email) {
   const apiSend = await httpJson('POST', 'https://api.mailjet.com/v3.1/send', {
     auth,
     body: {
-      Messages: [{
-        From: { Email: pick, Name: 'Bitpype' },
-        To: [{ Email: testTo }],
-        Subject: `[Bitpype] ${MARKER} MJ-API`,
-        TextPart: text,
-        CustomID: MARKER,
-      }],
+      Messages: [
+        {
+          From: { Email: pick, Name: 'Bitpype' },
+          To: [{ Email: testTo }],
+          Subject: `[Bitpype] ${MARKER} MJ-API`,
+          TextPart: text,
+          CustomID: MARKER,
+        },
+      ],
     },
   });
   console.log('apiSend', JSON.stringify(apiSend.body, null, 2));
 
-  const href = apiSend.body && apiSend.body.Messages && apiSend.body.Messages[0]
-    && apiSend.body.Messages[0].To && apiSend.body.Messages[0].To[0]
-    && apiSend.body.Messages[0].To[0].MessageHref;
-  const uuid = apiSend.body && apiSend.body.Messages && apiSend.body.Messages[0]
-    && apiSend.body.Messages[0].To && apiSend.body.Messages[0].To[0]
-    && apiSend.body.Messages[0].To[0].MessageUUID;
+  const href =
+    apiSend.body &&
+    apiSend.body.Messages &&
+    apiSend.body.Messages[0] &&
+    apiSend.body.Messages[0].To &&
+    apiSend.body.Messages[0].To[0] &&
+    apiSend.body.Messages[0].To[0].MessageHref;
+  const uuid =
+    apiSend.body &&
+    apiSend.body.Messages &&
+    apiSend.body.Messages[0] &&
+    apiSend.body.Messages[0].To &&
+    apiSend.body.Messages[0].To[0] &&
+    apiSend.body.Messages[0].To[0].MessageUUID;
 
   if (href) {
     await new Promise((r) => setTimeout(r, 4000));
@@ -193,13 +225,20 @@ function patchPlatformDefaults(email) {
     const msg = await httpJson('GET', href, { auth });
     const hist = await httpJson('GET', `https://api.mailjet.com/v3/REST/messagehistory/${id}`, { auth });
     const info = await httpJson('GET', `https://api.mailjet.com/v3/REST/messageinformation/${id}`, { auth });
-    console.log('messageStatus', JSON.stringify({
-      MessageUUID: uuid,
-      MessageHref: href,
-      msg: msg.body,
-      hist: hist.body,
-      info: info.body,
-    }, null, 2));
+    console.log(
+      'messageStatus',
+      JSON.stringify(
+        {
+          MessageUUID: uuid,
+          MessageHref: href,
+          msg: msg.body,
+          hist: hist.body,
+          info: info.body,
+        },
+        null,
+        2
+      )
+    );
   }
 
   // Recent messages for recipient
@@ -211,16 +250,22 @@ function patchPlatformDefaults(email) {
   console.log('recentForRecipient', JSON.stringify(recent.body, null, 2));
 
   console.log('\n=== SUMMARY ===');
-  console.log(JSON.stringify({
-    from_email: pick,
-    from_name: 'Bitpype',
-    preferred,
-    testSubject: subject,
-    testTo,
-    smtpResponse: sendResult && sendResult.smtpResponse,
-    messageId: sendResult && sendResult.messageId,
-    apiMessageUUID: uuid,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        from_email: pick,
+        from_name: 'Bitpype',
+        preferred,
+        testSubject: subject,
+        testTo,
+        smtpResponse: sendResult && sendResult.smtpResponse,
+        messageId: sendResult && sendResult.messageId,
+        apiMessageUUID: uuid,
+      },
+      null,
+      2
+    )
+  );
 })().catch((e) => {
   console.error('FATAL', e);
   process.exit(1);

@@ -16,7 +16,11 @@ const SITE_ID = 5;
 
 function walk(dir, out = []) {
   let entries;
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
   for (const e of entries) {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) {
@@ -39,7 +43,9 @@ function findDb() {
       db.close();
       if (lead && site && Number(site.lead_id) === LEAD_ID) return dbPath;
       if (lead) return dbPath;
-    } catch { /* skip */ }
+    } catch {
+      /* skip */
+    }
   }
   throw new Error('Could not find workspace DB containing lead 185');
 }
@@ -58,19 +64,23 @@ function main() {
   const lead = db.prepare('SELECT id, business_name FROM leads WHERE id = ?').get(LEAD_ID);
   console.log('lead', lead);
 
-  const site = db.prepare(
-    'SELECT id, lead_id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-  ).get(LEAD_ID);
+  const site = db.prepare('SELECT id, lead_id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(LEAD_ID);
   console.log('site', site);
   const siteId = site ? site.id : SITE_ID;
 
   // Infer workspaceId from a public token if present
   let workspaceId = null;
-  const tokRow = db.prepare(
-    "SELECT public_token FROM site_module_embeds WHERE lead_id = ? AND public_token LIKE '%\\_%' ESCAPE '\\' LIMIT 1"
-  ).get(LEAD_ID) || db.prepare(
-    "SELECT public_token FROM contact_forms WHERE lead_id = ? AND public_token LIKE '%\\_%' ESCAPE '\\' LIMIT 1"
-  ).get(LEAD_ID);
+  const tokRow =
+    db
+      .prepare(
+        "SELECT public_token FROM site_module_embeds WHERE lead_id = ? AND public_token LIKE '%\\_%' ESCAPE '\\' LIMIT 1"
+      )
+      .get(LEAD_ID) ||
+    db
+      .prepare(
+        "SELECT public_token FROM contact_forms WHERE lead_id = ? AND public_token LIKE '%\\_%' ESCAPE '\\' LIMIT 1"
+      )
+      .get(LEAD_ID);
   if (tokRow && tokRow.public_token) {
     const m = String(tokRow.public_token).match(/^(\d+)_/);
     if (m) workspaceId = Number(m[1]);
@@ -96,9 +106,16 @@ function main() {
 
   // Delete companion appointment forms (keep at least one non-appointment form)
   const list = forms.listFormRows(db, LEAD_ID);
-  console.log('forms before', list.map((f) => ({
-    id: f.id, name: f.name, kind: f.form_kind, embed: f.embed_enabled, slug: f.target_page_slug,
-  })));
+  console.log(
+    'forms before',
+    list.map((f) => ({
+      id: f.id,
+      name: f.name,
+      kind: f.form_kind,
+      embed: f.embed_enabled,
+      slug: f.target_page_slug,
+    }))
+  );
 
   for (const row of list) {
     const kind = row.form_kind || (/appoint|book|schedule/i.test(String(row.name || '')) ? 'appointment' : null);
@@ -137,20 +154,27 @@ function main() {
   }
 
   const after = forms.listFormsForLead(db, LEAD_ID);
-  const appts = after.filter((f) => f.form_kind === 'appointment'
-    || /appointment\s*request/i.test(String(f.name || '')));
-  console.log('forms after 2x export', after.map((f) => ({
-    id: f.id, name: f.name, kind: f.form_kind, embed: f.embed_enabled, slug: f.target_page_slug,
-  })));
+  const appts = after.filter(
+    (f) => f.form_kind === 'appointment' || /appointment\s*request/i.test(String(f.name || ''))
+  );
+  console.log(
+    'forms after 2x export',
+    after.map((f) => ({
+      id: f.id,
+      name: f.name,
+      kind: f.form_kind,
+      embed: f.embed_enabled,
+      slug: f.target_page_slug,
+    }))
+  );
   console.log('appointment forms count', appts.length);
 
-  const pages = JSON.parse(
-    db.prepare('SELECT pages FROM websites WHERE id = ?').get(siteId).pages || '[]'
-  );
+  const pages = JSON.parse(db.prepare('SELECT pages FROM websites WHERE id = ?').get(siteId).pages || '[]');
   const book = pages.find((p) => String(p.slug || '').replace(/^\//, '') === 'book');
   const html = book
-    ? (typeof book.html === 'string' ? book.html
-      : (book.sections || []).map((s) => (s && s.content && s.content.html) || '').join('\n'))
+    ? typeof book.html === 'string'
+      ? book.html
+      : (book.sections || []).map((s) => (s && s.content && s.content.html) || '').join('\n')
     : '';
   const formPanels = (html.match(/bitpype-form-embed|bitpype-form-panel/gi) || []).length;
   const moduleEmbeds = (html.match(/bitpype-module-embed|data-bitpype-module-token/gi) || []).length;

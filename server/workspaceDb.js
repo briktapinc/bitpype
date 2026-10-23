@@ -14,8 +14,7 @@ const caches = new Map(); // workspaceId -> Database
 const CACHE_MAX = Math.min(500, Math.max(32, Number(process.env.WORKSPACE_DB_CACHE_MAX) || 128));
 
 function dataRoot() {
-  return process.env.WORKSPACE_DATA_DIR
-    || path.join(__dirname, '..', 'data', 'workspaces');
+  return process.env.WORKSPACE_DATA_DIR || path.join(__dirname, '..', 'data', 'workspaces');
 }
 
 function dbPathFor(workspaceId) {
@@ -28,7 +27,11 @@ function evictOldestHandle() {
   if (first == null) return;
   const db = caches.get(first);
   caches.delete(first);
-  try { if (db) db.close(); } catch { /* ignore */ }
+  try {
+    if (db) db.close();
+  } catch {
+    /* ignore */
+  }
 }
 
 function openWorkspaceDb(workspaceId) {
@@ -78,11 +81,15 @@ function openWorkspaceDb(workspaceId) {
   try {
     const leadEngine = require('../src/leadEngine');
     if (typeof leadEngine.ensureLeadColumns === 'function') leadEngine.ensureLeadColumns(db);
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
   try {
     const websiteEngine = require('../src/websiteEngine');
     if (typeof websiteEngine.ensureTables === 'function') websiteEngine.ensureTables(db);
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
   try {
     const socialMedia = require('../src/socialMedia');
     if (typeof socialMedia.ensureTables === 'function') socialMedia.ensureTables(db);
@@ -116,13 +123,18 @@ function openWorkspaceDb(workspaceId) {
     try {
       const platform = require('./platform');
       // Fill missing keys only — never overwrite settings the workspace already changed.
-      platform.workspaceSeedFromPlatform().then((seed) => {
-        const insertIgnore = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
-        for (const [key, value] of Object.entries(seed)) {
-          if (value != null && String(value).trim() !== '') insertIgnore.run(key, value);
-        }
-      }).catch(() => {});
-    } catch { /* optional */ }
+      platform
+        .workspaceSeedFromPlatform()
+        .then((seed) => {
+          const insertIgnore = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
+          for (const [key, value] of Object.entries(seed)) {
+            if (value != null && String(value).trim() !== '') insertIgnore.run(key, value);
+          }
+        })
+        .catch(() => {});
+    } catch {
+      /* optional */
+    }
     const insertPrompt = db.prepare('INSERT OR IGNORE INTO prompts (key, name, body) VALUES (?, ?, ?)');
     for (const p of PROMPT_SEEDS) insertPrompt.run(p.key, p.name, p.body);
   }
@@ -131,13 +143,15 @@ function openWorkspaceDb(workspaceId) {
   // Only fill the key when this workspace has never set it — never overwrite.
   try {
     const { getSetting: mysqlGet } = require('./workspace');
-    mysqlGet(id, 'automation_paused', null).then((v) => {
-      if (v == null || String(v).trim() === '') return;
-      db.prepare(
-        'INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)'
-      ).run('automation_paused', String(v));
-    }).catch(() => {});
-  } catch { /* ignore */ }
+    mysqlGet(id, 'automation_paused', null)
+      .then((v) => {
+        if (v == null || String(v).trim() === '') return;
+        db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run('automation_paused', String(v));
+      })
+      .catch(() => {});
+  } catch {
+    /* ignore */
+  }
 
   // Lazy migration (port of audit M6): encrypt any secret settings
   // still stored as plaintext. Runs on every open when an encryption
@@ -165,7 +179,11 @@ function openWorkspaceDb(workspaceId) {
 
 function closeAll() {
   for (const db of caches.values()) {
-    try { db.close(); } catch { /* ignore */ }
+    try {
+      db.close();
+    } catch {
+      /* ignore */
+    }
   }
   caches.clear();
 }

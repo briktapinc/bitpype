@@ -45,10 +45,8 @@ function ensureNavFirstPage(page) {
   if (!page || typeof page !== 'object') return page;
   if (!Array.isArray(page.sections) || !page.sections.length) return page;
   const next = ensureNavFirstSections(page.sections);
-  if (next === page.sections || (
-    next.length === page.sections.length
-    && next.every((s, i) => s === page.sections[i])
-  )) return page;
+  if (next === page.sections || (next.length === page.sections.length && next.every((s, i) => s === page.sections[i])))
+    return page;
   return Object.assign({}, page, { sections: next });
 }
 
@@ -61,13 +59,21 @@ function isHomeLike(page, pages) {
   try {
     return engine.isHomePage(page, pages);
   } catch {
-    const slug = String((page && page.slug) || '').toLowerCase().replace(/\.html$/i, '');
+    const slug = String((page && page.slug) || '')
+      .toLowerCase()
+      .replace(/\.html$/i, '');
     return slug === '' || slug === 'home' || slug === 'index';
   }
 }
 
 function slugKey(slug) {
-  return String(slug == null ? '' : slug).trim().toLowerCase().replace(/\.html$/i, '').replace(/\/+$/, '') || '';
+  return (
+    String(slug == null ? '' : slug)
+      .trim()
+      .toLowerCase()
+      .replace(/\.html$/i, '')
+      .replace(/\/+$/, '') || ''
+  );
 }
 
 function pageSlugKey(page) {
@@ -192,8 +198,10 @@ function menuVisualList(pages) {
       parentSlug: null,
       childCount: kids.length,
       sectionCount: Array.isArray(list[ti].sections) ? list[ti].sections.length : 0,
-      freeform: typeof list[ti].html === 'string' && !!list[ti].html.trim()
-        && !(Array.isArray(list[ti].sections) && list[ti].sections.length),
+      freeform:
+        typeof list[ti].html === 'string' &&
+        !!list[ti].html.trim() &&
+        !(Array.isArray(list[ti].sections) && list[ti].sections.length),
       navVisible: isNavVisible(list[ti]),
     });
     kids.forEach((ci) => {
@@ -207,8 +215,10 @@ function menuVisualList(pages) {
         parentSlug: list[ti].slug,
         childCount: 0,
         sectionCount: Array.isArray(list[ci].sections) ? list[ci].sections.length : 0,
-        freeform: typeof list[ci].html === 'string' && !!list[ci].html.trim()
-          && !(Array.isArray(list[ci].sections) && list[ci].sections.length),
+        freeform:
+          typeof list[ci].html === 'string' &&
+          !!list[ci].html.trim() &&
+          !(Array.isArray(list[ci].sections) && list[ci].sections.length),
         navVisible: isNavVisible(list[ci]),
       });
     });
@@ -222,10 +232,16 @@ function summarizeStructure(pages) {
   const menu = menuVisualList(list).map((item, visualIndex, arr) => {
     const prev = visualIndex > 0 ? arr[visualIndex - 1] : null;
     const next = visualIndex < arr.length - 1 ? arr[visualIndex + 1] : null;
-    const canUp = !item.pinned && !!prev && prev.depth === item.depth
-      && String(prev.parentSlug || '') === String(item.parentSlug || '');
-    const canDown = !item.pinned && !!next && next.depth === item.depth
-      && String(next.parentSlug || '') === String(item.parentSlug || '');
+    const canUp =
+      !item.pinned &&
+      !!prev &&
+      prev.depth === item.depth &&
+      String(prev.parentSlug || '') === String(item.parentSlug || '');
+    const canDown =
+      !item.pinned &&
+      !!next &&
+      next.depth === item.depth &&
+      String(next.parentSlug || '') === String(item.parentSlug || '');
     // Nest under previous top-level item (or previous item's parent chain).
     let canNest = false;
     if (!item.pinned && item.depth < MAX_MENU_DEPTH && visualIndex > 0) {
@@ -246,11 +262,11 @@ function summarizeStructure(pages) {
       navVisible: isNavVisible(p),
       sections: Array.isArray(p.sections)
         ? p.sections.map((s, si) => ({
-          index: si,
-          type: s.type || 'block',
-          pinned: isPinnedSection(s),
-          label: sectionLabel(s, si),
-        }))
+            index: si,
+            type: s.type || 'block',
+            pinned: isPinnedSection(s),
+            label: sectionLabel(s, si),
+          }))
         : [],
     })),
   };
@@ -298,7 +314,12 @@ function defaultSectionContent(type, opts = {}) {
   const t = String(type || 'custom').toLowerCase();
   switch (t) {
     case 'hero':
-      return { headline: 'Headline', subheadline: 'Add a short supporting line.', cta_text: 'Contact Us', cta_href: '#contact' };
+      return {
+        headline: 'Headline',
+        subheadline: 'Add a short supporting line.',
+        cta_text: 'Contact Us',
+        cta_href: '#contact',
+      };
     case 'benefits':
       return { title: 'Why Choose Us', items: [{ title: 'Benefit one', text: 'Short description.' }] };
     case 'services':
@@ -347,8 +368,9 @@ function defaultSectionContent(type, opts = {}) {
     }
     case 'section':
       return {
-        html: '<section class="ws-page-section" data-ws-page-section="1">'
-          + '<p>Empty section — use Add block.</p></section>',
+        html:
+          '<section class="ws-page-section" data-ws-page-section="1">' +
+          '<p>Empty section — use Add block.</p></section>',
       };
     case 'html':
       return { html: '<p>Custom HTML block</p>' };
@@ -377,10 +399,10 @@ function insertContentSection(pages, pageIndex, afterIndex, sectionType, opts = 
   if (type === 'section' || type === 'page_section' || type === 'page-section') {
     type = 'html';
     opts = Object.assign({}, opts, {
-      html: opts.html || (
-        '<section class="ws-page-section" data-ws-page-section="1">'
-        + '<p>Empty section — use Add block.</p></section>'
-      ),
+      html:
+        opts.html ||
+        '<section class="ws-page-section" data-ws-page-section="1">' +
+          '<p>Empty section — use Add block.</p></section>',
     });
   }
   if (PINNED_SECTION_TYPES.has(type) || type === 'footer' || type === 'nav') {
@@ -393,9 +415,10 @@ function insertContentSection(pages, pageIndex, afterIndex, sectionType, opts = 
   const footerAt = page.sections.findIndex((s) => s && s.type === 'footer');
   let at = insertAt;
   if (footerAt >= 0 && at > footerAt) at = footerAt;
-  let content = opts.content && typeof opts.content === 'object'
-    ? Object.assign({}, opts.content)
-    : defaultSectionContent(type, opts);
+  let content =
+    opts.content && typeof opts.content === 'object'
+      ? Object.assign({}, opts.content)
+      : defaultSectionContent(type, opts);
   if (opts.html != null && type === 'html') content.html = String(opts.html);
   page.sections.splice(at, 0, { type, content });
   page.sections = ensureNavFirstSections(page.sections);
@@ -425,7 +448,9 @@ function insertBlockIntoSection(pages, pageIndex, sectionIndex, blockType, opts 
   if (!Number.isInteger(si) || si < 0 || si >= page.sections.length) {
     return { pages: list, changed: false, reason: 'bad_section' };
   }
-  const type = String(blockType || opts.type || '').trim().toLowerCase();
+  const type = String(blockType || opts.type || '')
+    .trim()
+    .toLowerCase();
   if (!type) return { pages: list, changed: false, reason: 'block_type_required' };
   if (PINNED_SECTION_TYPES.has(type) || type === 'footer' || type === 'nav' || type === 'section') {
     return { pages: list, changed: false, reason: 'invalid_block' };
@@ -433,25 +458,26 @@ function insertBlockIntoSection(pages, pageIndex, sectionIndex, blockType, opts 
 
   const host = page.sections[si];
   const cellIndex = opts.cellIndex != null ? Number(opts.cellIndex) : null;
-  const content = opts.content && typeof opts.content === 'object'
-    ? opts.content
-    : defaultSectionContent(type, opts);
+  const content = opts.content && typeof opts.content === 'object' ? opts.content : defaultSectionContent(type, opts);
 
   // Inject into a columns cell when requested.
   if (Number.isInteger(cellIndex) && cellIndex >= 0 && host && host.type === 'columns') {
-    const cells = Array.isArray(host.content && host.content.cells)
-      ? host.content.cells.slice()
-      : [];
+    const cells = Array.isArray(host.content && host.content.cells) ? host.content.cells.slice() : [];
     while (cells.length <= cellIndex) cells.push({ heading: '', body: '' });
     const cell = Object.assign({}, cells[cellIndex] || {});
     // First-class module/form widgets in a cell (native mounts — no body CSS hacks).
-    if (type === 'module' || type === 'site_module' || type === 'widget'
-      || type === 'form' || type === 'bitpype_form') {
-      const widgetType = (type === 'form' || type === 'bitpype_form') ? 'form' : 'site_module';
+    if (
+      type === 'module' ||
+      type === 'site_module' ||
+      type === 'widget' ||
+      type === 'form' ||
+      type === 'bitpype_form'
+    ) {
+      const widgetType = type === 'form' || type === 'bitpype_form' ? 'form' : 'site_module';
       const widget = Object.assign(
         {},
-        (content && typeof content === 'object') ? content : {},
-        (opts.widget && typeof opts.widget === 'object') ? opts.widget : {},
+        content && typeof content === 'object' ? content : {},
+        opts.widget && typeof opts.widget === 'object' ? opts.widget : {},
         { type: widgetType }
       );
       if (opts.html) widget.html = String(opts.html);
@@ -487,11 +513,17 @@ function insertBlockIntoSection(pages, pageIndex, sectionIndex, blockType, opts 
   }
 
   // Freestyle html section: append rendered block or raw html inside first ws-page-section.
-  if (host && host.type === 'html' && host.content && typeof host.content.html === 'string'
-    && (opts.html || type === 'html')) {
-    const blockHtml = opts.html != null
-      ? String(opts.html)
-      : (content.html || `<div class="ws-block" data-ws-block="${type}"><p>${type}</p></div>`);
+  if (
+    host &&
+    host.type === 'html' &&
+    host.content &&
+    typeof host.content.html === 'string' &&
+    (opts.html || type === 'html')
+  ) {
+    const blockHtml =
+      opts.html != null
+        ? String(opts.html)
+        : content.html || `<div class="ws-block" data-ws-block="${type}"><p>${type}</p></div>`;
     let html = host.content.html;
     if (/<\/section>/i.test(html) && /ws-page-section/i.test(html)) {
       html = html.replace(/<\/section>/i, `${blockHtml}</section>`);
@@ -533,16 +565,18 @@ function insertModuleSection(pages, pageIndex, afterIndex, moduleContent) {
   // Prefer Page → Section → Block: wrap the live widget inside a ws-page-section.
   const apiBase = content.api_base || content.apiBase || '';
   const title = content.title || moduleType;
-  const embedDiv = `<div class="bitpype-module-embed" data-bitpype-module="1" `
-    + `data-bitpype-module-type="${String(moduleType).replace(/"/g, '')}" `
-    + `data-bitpype-module-token="${String(token).replace(/"/g, '')}"`
-    + (apiBase ? ` data-bitpype-api="${String(apiBase).replace(/"/g, '')}"` : '')
-    + ` data-bitpype-hide-title="1"></div>`;
+  const embedDiv =
+    `<div class="bitpype-module-embed" data-bitpype-module="1" ` +
+    `data-bitpype-module-type="${String(moduleType).replace(/"/g, '')}" ` +
+    `data-bitpype-module-token="${String(token).replace(/"/g, '')}"` +
+    (apiBase ? ` data-bitpype-api="${String(apiBase).replace(/"/g, '')}"` : '') +
+    ` data-bitpype-hide-title="1"></div>`;
   const section = {
     type: 'html',
     content: {
-      html: `<section class="ws-page-section" data-ws-page-section="1">`
-        + `<h2>${String(title).replace(/</g, '&lt;')}</h2>${embedDiv}</section>`,
+      html:
+        `<section class="ws-page-section" data-ws-page-section="1">` +
+        `<h2>${String(title).replace(/</g, '&lt;')}</h2>${embedDiv}</section>`,
       module_type: moduleType,
       public_token: token,
       api_base: apiBase,
@@ -562,7 +596,9 @@ function insertModuleSection(pages, pageIndex, afterIndex, moduleContent) {
  */
 function createClientPage(pages, opts = {}) {
   const list = clonePages(pages);
-  const title = String(opts.title || '').trim().slice(0, 120);
+  const title = String(opts.title || '')
+    .trim()
+    .slice(0, 120);
   if (!title) return { pages: list, changed: false, reason: 'title_required' };
 
   let slug = opts.slug != null ? String(opts.slug).trim() : titleToPageSlug(title);
@@ -588,15 +624,16 @@ function createClientPage(pages, opts = {}) {
     list.push({ slug, title, sections, navVisible: opts.navVisible !== false });
   } else {
     const shellHtml = typeof opts.shellHtml === 'string' ? opts.shellHtml : '';
-    const inner = typeof opts.pageInner === 'string' && opts.pageInner.trim()
-      ? opts.pageInner
-      : (typeof opts.defaultInner === 'function'
-        ? opts.defaultInner(title)
-        : `<h1 class="bp-mod-page-title">${escapeHtml(title)}</h1>`
-          + `<section class="ws-page-section" data-ws-page-section="1">`
-          + `<h2>Add your content here.</h2>`
-          + `<p>Write this section, or use + to add another.</p>`
-          + `</section>`);
+    const inner =
+      typeof opts.pageInner === 'string' && opts.pageInner.trim()
+        ? opts.pageInner
+        : typeof opts.defaultInner === 'function'
+          ? opts.defaultInner(title)
+          : `<h1 class="bp-mod-page-title">${escapeHtml(title)}</h1>` +
+            `<section class="ws-page-section" data-ws-page-section="1">` +
+            `<h2>Add your content here.</h2>` +
+            `<p>Write this section, or use + to add another.</p>` +
+            `</section>`;
     let html;
     if (shellHtml.trim() && typeof opts.fillShellMain === 'function') {
       html = opts.fillShellMain(shellHtml, inner);
@@ -668,8 +705,11 @@ function reorderMenu(pages, fromIndex, direction) {
   if (item.depth === 0) {
     // Build blocks: each top + its following depth-1 children
     const blocks = [];
-    for (let i = 0; i < visual.length;) {
-      if (visual[i].depth !== 0) { i += 1; continue; }
+    for (let i = 0; i < visual.length; ) {
+      if (visual[i].depth !== 0) {
+        i += 1;
+        continue;
+      }
       const block = [visual[i].index];
       let j = i + 1;
       while (j < visual.length && visual[j].depth === 1) {
@@ -730,10 +770,7 @@ function nestMenuItem(pages, fromIndex) {
   if (pPos < 0) return { pages: list, changed: false };
   // Insert after existing children of this parent already in without
   let insertAt = pPos + 1;
-  while (
-    insertAt < without.length
-    && menuParentKey(list[without[insertAt]]) === slugKey(parentSlug)
-  ) {
+  while (insertAt < without.length && menuParentKey(list[without[insertAt]]) === slugKey(parentSlug)) {
     insertAt += 1;
   }
   without.splice(insertAt, 0, item.index);
@@ -793,12 +830,7 @@ function reorderSections(pages, pageIndex, fromIndex, direction) {
   if (!page || !Array.isArray(page.sections) || !page.sections.length) {
     return { pages: list, changed: false };
   }
-  const { list: secs, changed } = moveItem(
-    page.sections,
-    fromIndex,
-    direction,
-    (sec) => !isPinnedSection(sec)
-  );
+  const { list: secs, changed } = moveItem(page.sections, fromIndex, direction, (sec) => !isPinnedSection(sec));
   if (!changed) return { pages: list, changed: false };
   page.sections = ensureNavFirstSections(secs);
   list[pi] = page;
@@ -829,12 +861,20 @@ function buildNavLinks(pages, opts = {}) {
       anchorHref = href;
     }
     const children = visual
-      .filter((c) => c.depth === 1 && slugKey(c.parentSlug) === pageSlugKey({ slug: item.slug })
-        && isNavVisible(list[c.index]))
+      .filter(
+        (c) =>
+          c.depth === 1 && slugKey(c.parentSlug) === pageSlugKey({ slug: item.slug }) && isNavVisible(list[c.index])
+      )
       .map((c) => ({
         label: c.title,
         href: preview
-          ? `#${(() => { try { return engine.anchorId(c.slug); } catch { return String(c.slug || '').replace(/^\//, ''); } })()}`
+          ? `#${(() => {
+              try {
+                return engine.anchorId(c.slug);
+              } catch {
+                return String(c.slug || '').replace(/^\//, '');
+              }
+            })()}`
           : c.file,
         slug: c.slug,
       }));
@@ -859,27 +899,29 @@ function escapeHtml(s) {
 function renderNavLinksHtml(links, { asList } = {}) {
   const items = Array.isArray(links) ? links : [];
   if (asList) {
-    return `<ul class="nav-menu">${items.map((l) => {
-      const kids = Array.isArray(l.children) ? l.children : [];
-      const sub = kids.length
-        ? `<ul class="nav-sub">${kids.map((c) =>
-          `<li><a href="${escapeHtml(c.href || '#')}">${escapeHtml(c.label || '')}</a></li>`
-        ).join('')}</ul>`
-        : '';
-      const cls = kids.length ? ' class="has-children"' : '';
-      return `<li${cls}><a href="${escapeHtml(l.href || '#')}">${escapeHtml(l.label || '')}</a>${sub}</li>`;
-    }).join('')}</ul>`;
+    return `<ul class="nav-menu">${items
+      .map((l) => {
+        const kids = Array.isArray(l.children) ? l.children : [];
+        const sub = kids.length
+          ? `<ul class="nav-sub">${kids
+              .map((c) => `<li><a href="${escapeHtml(c.href || '#')}">${escapeHtml(c.label || '')}</a></li>`)
+              .join('')}</ul>`
+          : '';
+        const cls = kids.length ? ' class="has-children"' : '';
+        return `<li${cls}><a href="${escapeHtml(l.href || '#')}">${escapeHtml(l.label || '')}</a>${sub}</li>`;
+      })
+      .join('')}</ul>`;
   }
-  return items.map((l) => {
-    const kids = Array.isArray(l.children) ? l.children : [];
-    if (!kids.length) {
-      return `<a href="${escapeHtml(l.href || '#')}">${escapeHtml(l.label || '')}</a>`;
-    }
-    const sub = kids.map((c) =>
-      `<a href="${escapeHtml(c.href || '#')}">${escapeHtml(c.label || '')}</a>`
-    ).join('');
-    return `<span class="nav-item has-children"><a href="${escapeHtml(l.href || '#')}">${escapeHtml(l.label || '')}</a><span class="nav-sub">${sub}</span></span>`;
-  }).join('\n');
+  return items
+    .map((l) => {
+      const kids = Array.isArray(l.children) ? l.children : [];
+      if (!kids.length) {
+        return `<a href="${escapeHtml(l.href || '#')}">${escapeHtml(l.label || '')}</a>`;
+      }
+      const sub = kids.map((c) => `<a href="${escapeHtml(c.href || '#')}">${escapeHtml(c.label || '')}</a>`).join('');
+      return `<span class="nav-item has-children"><a href="${escapeHtml(l.href || '#')}">${escapeHtml(l.label || '')}</a><span class="nav-sub">${sub}</span></span>`;
+    })
+    .join('\n');
 }
 
 function buildPageHrefIndex(pages) {
@@ -894,7 +936,9 @@ function buildPageHrefIndex(pages) {
     try {
       const aid = String(engine.anchorId(p.slug) || '').toLowerCase();
       if (aid) byAnchor.set(aid, i);
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
     const sk = slugKey(p.slug);
     if (sk) byAnchor.set(sk, i);
   });
@@ -917,13 +961,18 @@ function hrefPageIndex(href, hrefIndex) {
     pathPart = parts[0];
     hashPart = slugKey(parts.slice(1).join('#'));
   }
-  let bare = String(pathPart || '').replace(/^\.\//, '').split('?')[0].toLowerCase();
+  let bare = String(pathPart || '')
+    .replace(/^\.\//, '')
+    .split('?')[0]
+    .toLowerCase();
   if (bare.startsWith('/')) bare = bare.slice(1);
   // Bare "/" / "" / home / index → home page file.
   let route = '';
   try {
     route = engine.normalizeRoute ? engine.normalizeRoute(h) : '';
-  } catch { route = ''; }
+  } catch {
+    route = '';
+  }
   if (!bare || bare === 'home' || bare === 'index' || route === 'index') {
     if (hrefIndex.byFile.has('index.html')) return hrefIndex.byFile.get('index.html');
     if (hrefIndex.byAnchor.has('home')) return hrefIndex.byAnchor.get('home');
@@ -988,16 +1037,18 @@ function syncLegacyNavTags(html, navLinks, list, fileSet, hrefIndex) {
 
     let rebuilt;
     if (useList) {
-      rebuilt = `<ul class="nav-menu">${navLinks.map((l) => {
-        const kids = Array.isArray(l.children) ? l.children : [];
-        const sub = kids.length
-          ? `<ul class="nav-sub">${kids.map((c) =>
-            `<li>${resolveLink(engine.pageFileName(c.slug), c.label)}</li>`
-          ).join('')}</ul>`
-          : '';
-        const cls = kids.length ? ' class="has-children"' : '';
-        return `<li${cls}>${resolveLink(engine.pageFileName(l.slug), l.label)}${sub}</li>`;
-      }).join('')}</ul>`;
+      rebuilt = `<ul class="nav-menu">${navLinks
+        .map((l) => {
+          const kids = Array.isArray(l.children) ? l.children : [];
+          const sub = kids.length
+            ? `<ul class="nav-sub">${kids
+                .map((c) => `<li>${resolveLink(engine.pageFileName(c.slug), c.label)}</li>`)
+                .join('')}</ul>`
+            : '';
+          const cls = kids.length ? ' class="has-children"' : '';
+          return `<li${cls}>${resolveLink(engine.pageFileName(l.slug), l.label)}${sub}</li>`;
+        })
+        .join('')}</ul>`;
       if (filteredOther.length) rebuilt += filteredOther.join(' ');
     } else {
       const parts = navLinks.map((l) => {
@@ -1033,7 +1084,9 @@ function syncFreeformNavOrder(pages, opts = {}) {
   let rebuildPrimary = null;
   try {
     rebuildPrimary = require('../server/siteModules').rebuildFreeformPrimaryNav;
-  } catch { /* electron / tests without server */ }
+  } catch {
+    /* electron / tests without server */
+  }
 
   return list.map((page) => {
     if (!page) return page;
@@ -1058,7 +1111,9 @@ function syncFreeformNavOrder(pages, opts = {}) {
       try {
         const deduped = engine.assertAndDedupeNavHtml(html, `syncFreeformNavOrder:${page.slug || ''}`);
         if (deduped !== html) next = Object.assign({}, next, { html: deduped });
-      } catch { /* optional */ }
+      } catch {
+        /* optional */
+      }
     }
 
     // Freestyle nav chrome lives in sections[nav].content.html on modular sites.
@@ -1074,7 +1129,9 @@ function syncFreeformNavOrder(pages, opts = {}) {
         if (rebuilt !== html) html = rebuilt;
         try {
           html = engine.assertAndDedupeNavHtml(html, `syncFreeformNavOrder:nav:${page.slug || ''}`);
-        } catch { /* optional */ }
+        } catch {
+          /* optional */
+        }
         if (html === sec.content.html) return sec;
         sectionsChanged = true;
         return Object.assign({}, sec, {

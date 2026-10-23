@@ -20,22 +20,25 @@ function httpJson(method, url, { auth, body } = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const payload = body == null ? null : JSON.stringify(body);
-    const req = https.request({
-      method,
-      hostname: u.hostname,
-      path: u.pathname + u.search,
-      headers: {
-        Accept: 'application/json',
-        ...(payload
-          ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
-          : {}),
-        ...(auth ? { Authorization: 'Basic ' + Buffer.from(auth).toString('base64') } : {}),
+    const req = https.request(
+      {
+        method,
+        hostname: u.hostname,
+        path: u.pathname + u.search,
+        headers: {
+          Accept: 'application/json',
+          ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
+          ...(auth ? { Authorization: 'Basic ' + Buffer.from(auth).toString('base64') } : {}),
+        },
       },
-    }, (res) => {
-      let data = '';
-      res.on('data', (c) => { data += c; });
-      res.on('end', () => resolve({ status: res.statusCode, raw: data }));
-    });
+      (res) => {
+        let data = '';
+        res.on('data', (c) => {
+          data += c;
+        });
+        res.on('end', () => resolve({ status: res.statusCode, raw: data }));
+      }
+    );
     req.on('error', reject);
     if (payload) req.write(payload);
     req.end();
@@ -43,7 +46,11 @@ function httpJson(method, url, { auth, body } = {}) {
 }
 
 function parse(raw) {
-  try { return JSON.parse(raw); } catch { return raw; }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
 }
 
 function setWs(dbPath, key, value) {
@@ -66,13 +73,15 @@ async function sendApi(auth, from, to, subject, text) {
   return httpJson('POST', 'https://api.mailjet.com/v3.1/send', {
     auth,
     body: {
-      Messages: [{
-        From: { Email: from, Name: FROM_NAME },
-        To: [{ Email: to }],
-        Subject: subject,
-        TextPart: text,
-        CustomID: MARKER,
-      }],
+      Messages: [
+        {
+          From: { Email: from, Name: FROM_NAME },
+          To: [{ Email: to }],
+          Subject: subject,
+          TextPart: text,
+          CustomID: MARKER,
+        },
+      ],
     },
   });
 }
@@ -112,23 +121,31 @@ async function lookupMessage(auth, href) {
   const keys = parse(keysR.raw);
   const user = parse(userR.raw);
   console.log('\n=== account / keys (no secrets) ===');
-  console.log(JSON.stringify({
-    user: user && user.Data && user.Data[0] && {
-      Email: user.Data[0].Email,
-      ID: user.Data[0].ID,
-      Username: user.Data[0].Username,
-    },
-    keys: ((keys && keys.Data) || []).map((k) => ({
-      ID: k.ID,
-      Name: k.Name,
-      APIKey: k.APIKey,
-      IsMaster: k.IsMaster,
-      IsActive: k.IsActive,
-      ACL: k.ACL,
-      Runlevel: k.Runlevel,
-      QuarantineValue: k.QuarantineValue,
-    })),
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        user: user &&
+          user.Data &&
+          user.Data[0] && {
+            Email: user.Data[0].Email,
+            ID: user.Data[0].ID,
+            Username: user.Data[0].Username,
+          },
+        keys: ((keys && keys.Data) || []).map((k) => ({
+          ID: k.ID,
+          Name: k.Name,
+          APIKey: k.APIKey,
+          IsMaster: k.IsMaster,
+          IsActive: k.IsActive,
+          ACL: k.ACL,
+          Runlevel: k.Runlevel,
+          QuarantineValue: k.QuarantineValue,
+        })),
+      },
+      null,
+      2
+    )
+  );
 
   // Full senders + dns
   const sendersR = await httpJson('GET', 'https://api.mailjet.com/v3/REST/sender?Limit=100', { auth });
@@ -140,25 +157,25 @@ async function lookupMessage(auth, href) {
   console.log('\n=== API dns FULL ===');
   console.log(dnsR.raw);
 
-  const uiSenders = [
-    'team@bitpype.com',
-    'noreply@stickmanautomation.com',
-    'briktapinc@gmail.com',
-  ];
+  const uiSenders = ['team@bitpype.com', 'noreply@stickmanautomation.com', 'briktapinc@gmail.com'];
   const apiEmails = ((senders && senders.Data) || []).map((s) => String(s.Email).toLowerCase());
   console.log('\n=== UI vs API reconciliation ===');
-  console.log(JSON.stringify({
-    inUiNotInApi: uiSenders.filter((e) => !apiEmails.includes(e)),
-    inApiNotInUiScreenshot: apiEmails.filter(
-      (e) => !uiSenders.includes(e) && e !== 'eliayertey@gmail.com'
-    ),
-    eliayerteyInApi: apiEmails.includes('eliayertey@gmail.com'),
-    stickmanInApi: apiEmails.includes('noreply@stickmanautomation.com'),
-    diagnosis:
-      'Bitpype subkey sees a DIFFERENT sender set than the Mailjet UI (master account view). '
-      + 'UI has Active stickman noreply + bitpype.com domain; this key has orphan Inactive senders '
-      + '(incl. eliayertey@ we created) and only gmail.com DNS stub. Subkey is not synced to master senders.',
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        inUiNotInApi: uiSenders.filter((e) => !apiEmails.includes(e)),
+        inApiNotInUiScreenshot: apiEmails.filter((e) => !uiSenders.includes(e) && e !== 'eliayertey@gmail.com'),
+        eliayerteyInApi: apiEmails.includes('eliayertey@gmail.com'),
+        stickmanInApi: apiEmails.includes('noreply@stickmanautomation.com'),
+        diagnosis:
+          'Bitpype subkey sees a DIFFERENT sender set than the Mailjet UI (master account view). ' +
+          'UI has Active stickman noreply + bitpype.com domain; this key has orphan Inactive senders ' +
+          '(incl. eliayertey@ we created) and only gmail.com DNS stub. Subkey is not synced to master senders.',
+      },
+      null,
+      2
+    )
+  );
 
   // DNS checks
   for (const d of (dns && dns.Data) || []) {
@@ -175,7 +192,9 @@ async function lookupMessage(auth, href) {
   const wsPath = '/app/data/workspaces/1/websitescout.db';
   setWs(wsPath, 'smtp.from_email', chosenFrom);
   setWs(wsPath, 'smtp.from_name', FROM_NAME);
-  try { await platform.savePlatformDefaultsSnapshot(); } catch (e) {
+  try {
+    await platform.savePlatformDefaultsSnapshot();
+  } catch (e) {
     console.warn('snapshot', e.message);
   }
 
@@ -202,7 +221,9 @@ async function lookupMessage(auth, href) {
         href = apiBody.Messages[0].To[0].MessageHref;
         uuid = apiBody.Messages[0].To[0].MessageUUID;
         errors = apiBody.Messages[0].Errors || null;
-      } catch { /* */ }
+      } catch {
+        /* */
+      }
       // Also capture top-level Errors
       if (!errors && apiBody && apiBody.Messages && apiBody.Messages[0] && apiBody.Messages[0].Status !== 'success') {
         errors = apiBody.Messages[0];
@@ -228,8 +249,8 @@ async function lookupMessage(auth, href) {
       }
 
       const histCount = lookup && lookup.hist && lookup.hist.Count;
-      const deliveredEvidence = !!(lookup && lookup.msgHttp === 200)
-        || (typeof histCount === 'number' && histCount > 0);
+      const deliveredEvidence =
+        !!(lookup && lookup.msgHttp === 200) || (typeof histCount === 'number' && histCount > 0);
 
       results.push({
         from,
@@ -254,15 +275,17 @@ async function lookupMessage(auth, href) {
     chosenFrom = FROM_ALT;
     await platform.setPlatformSetting('smtp.from_email', chosenFrom);
     setWs(wsPath, 'smtp.from_email', chosenFrom);
-    try { await platform.savePlatformDefaultsSnapshot(); } catch { /* */ }
+    try {
+      await platform.savePlatformDefaultsSnapshot();
+    } catch {
+      /* */
+    }
     console.log('SWITCHED from_email to stickman noreply due to better delivery evidence');
   }
 
-  const recent = await httpJson(
-    'GET',
-    'https://api.mailjet.com/v3/REST/message?Limit=20&Sort=ArrivedAt+DESC',
-    { auth }
-  );
+  const recent = await httpJson('GET', 'https://api.mailjet.com/v3/REST/message?Limit=20&Sort=ArrivedAt+DESC', {
+    auth,
+  });
   console.log('\n=== recent messages ===');
   console.log(recent.status, recent.raw);
 
@@ -270,33 +293,39 @@ async function lookupMessage(auth, href) {
   const recentBody = parse(recent.raw);
 
   console.log('\n=== SUMMARY ===');
-  console.log(JSON.stringify({
-    marker: MARKER,
-    from_email_chosen: finalFrom,
-    from_name: FROM_NAME,
-    workspace_from: getWs(wsPath, 'smtp.from_email'),
-    recentMessageCount: recentBody && recentBody.Count,
-    anyDeliveryEvidence: results.some((r) => r.deliveredEvidence) || ((recentBody && recentBody.Count) > 0),
-    mismatch:
-      'UI Active senders/domains (incl. noreply@stickmanautomation.com, bitpype.com) are NOT visible '
-      + 'to the Bitpype secondary API key. That key only sees its own Inactive sender rows. '
-      + 'Fix: Account Settings → API Keys → use the Master API key + secret (IsMaster=true) as SMTP user/pass, '
-      + 'OR create a new primary key with full send access on the same account that owns those Active senders.',
-    results: results.map((r) => ({
-      from: r.from,
-      to: r.to,
-      subjectApi: r.subject + ' [API]',
-      subjectSmtp: r.subject + ' [SMTP]',
-      apiHttp: r.apiHttp,
-      apiStatus: r.apiStatus,
-      errors: r.errors,
-      uuid: r.uuid,
-      msgHttp: r.lookup && r.lookup.msgHttp,
-      histCount: r.lookup && r.lookup.hist && r.lookup.hist.Count,
-      smtpResponse: r.smtp && (r.smtp.response || r.smtp.error),
-      deliveredEvidence: r.deliveredEvidence,
-    })),
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        marker: MARKER,
+        from_email_chosen: finalFrom,
+        from_name: FROM_NAME,
+        workspace_from: getWs(wsPath, 'smtp.from_email'),
+        recentMessageCount: recentBody && recentBody.Count,
+        anyDeliveryEvidence: results.some((r) => r.deliveredEvidence) || (recentBody && recentBody.Count) > 0,
+        mismatch:
+          'UI Active senders/domains (incl. noreply@stickmanautomation.com, bitpype.com) are NOT visible ' +
+          'to the Bitpype secondary API key. That key only sees its own Inactive sender rows. ' +
+          'Fix: Account Settings → API Keys → use the Master API key + secret (IsMaster=true) as SMTP user/pass, ' +
+          'OR create a new primary key with full send access on the same account that owns those Active senders.',
+        results: results.map((r) => ({
+          from: r.from,
+          to: r.to,
+          subjectApi: r.subject + ' [API]',
+          subjectSmtp: r.subject + ' [SMTP]',
+          apiHttp: r.apiHttp,
+          apiStatus: r.apiStatus,
+          errors: r.errors,
+          uuid: r.uuid,
+          msgHttp: r.lookup && r.lookup.msgHttp,
+          histCount: r.lookup && r.lookup.hist && r.lookup.hist.Count,
+          smtpResponse: r.smtp && (r.smtp.response || r.smtp.error),
+          deliveredEvidence: r.deliveredEvidence,
+        })),
+      },
+      null,
+      2
+    )
+  );
 })().catch((e) => {
   console.error('FATAL', e);
   process.exit(1);

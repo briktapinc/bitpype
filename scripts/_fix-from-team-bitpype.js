@@ -22,26 +22,33 @@ function httpJson(method, url, { auth, body } = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const payload = body == null ? null : JSON.stringify(body);
-    const req = https.request({
-      method,
-      hostname: u.hostname,
-      path: u.pathname + u.search,
-      headers: {
-        Accept: 'application/json',
-        ...(payload
-          ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
-          : {}),
-        ...(auth ? { Authorization: 'Basic ' + Buffer.from(auth).toString('base64') } : {}),
+    const req = https.request(
+      {
+        method,
+        hostname: u.hostname,
+        path: u.pathname + u.search,
+        headers: {
+          Accept: 'application/json',
+          ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
+          ...(auth ? { Authorization: 'Basic ' + Buffer.from(auth).toString('base64') } : {}),
+        },
       },
-    }, (res) => {
-      let data = '';
-      res.on('data', (c) => { data += c; });
-      res.on('end', () => {
-        let parsed = data;
-        try { parsed = JSON.parse(data); } catch { /* keep raw */ }
-        resolve({ status: res.statusCode, raw: data, body: parsed });
-      });
-    });
+      (res) => {
+        let data = '';
+        res.on('data', (c) => {
+          data += c;
+        });
+        res.on('end', () => {
+          let parsed = data;
+          try {
+            parsed = JSON.parse(data);
+          } catch {
+            /* keep raw */
+          }
+          resolve({ status: res.statusCode, raw: data, body: parsed });
+        });
+      }
+    );
     req.on('error', reject);
     if (payload) req.write(payload);
     req.end();
@@ -84,13 +91,19 @@ async function lookupTxt(name) {
 
   const before = await platformSmtpSettings();
   console.log('=== BEFORE ===');
-  console.log(JSON.stringify({
-    platform_from: before['smtp.from_email'],
-    platform_name: before['smtp.from_name'],
-    workspace_from: getWs(WS_PATH, 'smtp.from_email'),
-    workspace_name: getWs(WS_PATH, 'smtp.from_name'),
-    apiKeyPrefix: String(before['smtp.user'] || '').slice(0, 8),
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        platform_from: before['smtp.from_email'],
+        platform_name: before['smtp.from_name'],
+        workspace_from: getWs(WS_PATH, 'smtp.from_email'),
+        workspace_name: getWs(WS_PATH, 'smtp.from_name'),
+        apiKeyPrefix: String(before['smtp.user'] || '').slice(0, 8),
+      },
+      null,
+      2
+    )
+  );
 
   await platform.setPlatformSetting('smtp.from_email', FROM);
   await platform.setPlatformSetting('smtp.from_name', FROM_NAME);
@@ -103,10 +116,7 @@ async function lookupTxt(name) {
   }
 
   // Also patch flat/nested keys in platform-defaults if present
-  for (const file of [
-    '/app/data/workspaces/platform-defaults.json',
-    '/app/data/platform-defaults.json',
-  ]) {
+  for (const file of ['/app/data/workspaces/platform-defaults.json', '/app/data/platform-defaults.json']) {
     if (!fs.existsSync(file)) continue;
     try {
       const obj = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -125,12 +135,18 @@ async function lookupTxt(name) {
 
   const after = await platformSmtpSettings();
   console.log('\n=== AFTER from_email ===');
-  console.log(JSON.stringify({
-    platform_from: after['smtp.from_email'],
-    platform_name: after['smtp.from_name'],
-    workspace_from: getWs(WS_PATH, 'smtp.from_email'),
-    workspace_name: getWs(WS_PATH, 'smtp.from_name'),
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        platform_from: after['smtp.from_email'],
+        platform_name: after['smtp.from_name'],
+        workspace_from: getWs(WS_PATH, 'smtp.from_email'),
+        workspace_name: getWs(WS_PATH, 'smtp.from_name'),
+      },
+      null,
+      2
+    )
+  );
 
   // Public DNS
   console.log('\n=== PUBLIC DNS ===');
@@ -152,41 +168,66 @@ async function lookupTxt(name) {
   // Mailjet senders + DNS
   console.log('\n=== MAILJET SENDERS (bitpype) ===');
   const sendersR = await httpJson('GET', 'https://api.mailjet.com/v3/REST/sender?Limit=100', { auth });
-  const senders = ((sendersR.body && sendersR.body.Data) || []).filter((s) =>
-    String(s.Email || '').toLowerCase().includes('bitpype') ||
-    String(s.Email || '').toLowerCase() === FROM
+  const senders = ((sendersR.body && sendersR.body.Data) || []).filter(
+    (s) =>
+      String(s.Email || '')
+        .toLowerCase()
+        .includes('bitpype') || String(s.Email || '').toLowerCase() === FROM
   );
-  console.log(JSON.stringify(senders.map((s) => ({
-    ID: s.ID, Email: s.Email, Status: s.Status, Name: s.Name, IsDefaultSender: s.IsDefaultSender,
-  })), null, 2));
+  console.log(
+    JSON.stringify(
+      senders.map((s) => ({
+        ID: s.ID,
+        Email: s.Email,
+        Status: s.Status,
+        Name: s.Name,
+        IsDefaultSender: s.IsDefaultSender,
+      })),
+      null,
+      2
+    )
+  );
 
   console.log('\n=== MAILJET DNS bitpype.com ===');
-  const dnsR = await httpJson(
-    'GET',
-    `https://api.mailjet.com/v3/REST/dns?Domain=${encodeURIComponent(DOMAIN)}`,
-    { auth }
-  );
+  const dnsR = await httpJson('GET', `https://api.mailjet.com/v3/REST/dns?Domain=${encodeURIComponent(DOMAIN)}`, {
+    auth,
+  });
   console.log('http', dnsR.status);
   const dnsRows = (dnsR.body && dnsR.body.Data) || [];
   for (const d of dnsRows) {
     const one = await httpJson('GET', `https://api.mailjet.com/v3/REST/dns/${d.ID}`, { auth });
     const chk = await httpJson('POST', `https://api.mailjet.com/v3/REST/dns/${d.ID}/check`, { auth });
-    console.log(JSON.stringify({
-      id: d.ID,
-      domain: d.Domain,
-      SPFStatus: d.SPFStatus,
-      DKIMStatus: d.DKIMStatus,
-      OwnerShipToken: d.OwnerShipToken,
-      check: chk.body,
-      detail: one.body && one.body.Data && one.body.Data[0],
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          id: d.ID,
+          domain: d.Domain,
+          SPFStatus: d.SPFStatus,
+          DKIMStatus: d.DKIMStatus,
+          OwnerShipToken: d.OwnerShipToken,
+          check: chk.body,
+          detail: one.body && one.body.Data && one.body.Data[0],
+        },
+        null,
+        2
+      )
+    );
   }
   if (!dnsRows.length) {
     console.log('no Mailjet DNS rows for domain; full dns list:');
     const all = await httpJson('GET', 'https://api.mailjet.com/v3/REST/dns?Limit=50', { auth });
-    console.log(JSON.stringify(((all.body && all.body.Data) || []).map((d) => ({
-      ID: d.ID, Domain: d.Domain, SPFStatus: d.SPFStatus, DKIMStatus: d.DKIMStatus,
-    })), null, 2));
+    console.log(
+      JSON.stringify(
+        ((all.body && all.body.Data) || []).map((d) => ({
+          ID: d.ID,
+          Domain: d.Domain,
+          SPFStatus: d.SPFStatus,
+          DKIMStatus: d.DKIMStatus,
+        })),
+        null,
+        2
+      )
+    );
   }
 
   // Send tests via Mailjet API + SMTP
@@ -205,30 +246,35 @@ async function lookupTxt(name) {
     const apiSend = await httpJson('POST', 'https://api.mailjet.com/v3.1/send', {
       auth,
       body: {
-        Messages: [{
-          From: { Email: FROM, Name: FROM_NAME },
-          To: [{ Email: to }],
-          Subject: subject + ' [API]',
-          TextPart: text + 'Path=API\n',
-          Headers: {
-            'List-Unsubscribe': `<mailto:${FROM}?subject=unsubscribe>`,
-            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+        Messages: [
+          {
+            From: { Email: FROM, Name: FROM_NAME },
+            To: [{ Email: to }],
+            Subject: subject + ' [API]',
+            TextPart: text + 'Path=API\n',
+            Headers: {
+              'List-Unsubscribe': `<mailto:${FROM}?subject=unsubscribe>`,
+              'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+            },
+            CustomID: MARKER,
           },
-          CustomID: MARKER,
-        }],
+        ],
       },
     });
-    const apiMsgs = (((apiSend.body || {}).Messages) || []);
+    const apiMsgs = (apiSend.body || {}).Messages || [];
     const apiMsg = apiMsgs[0] || {};
-    const messageIds = ((apiMsg.To) || []).map((t) => t.MessageID).filter(Boolean);
+    const messageIds = (apiMsg.To || []).map((t) => t.MessageID).filter(Boolean);
 
     let smtpResult = null;
     try {
-      const provider = getProvider({
-        ...after,
-        'smtp.from_email': FROM,
-        'smtp.from_name': FROM_NAME,
-      }, null);
+      const provider = getProvider(
+        {
+          ...after,
+          'smtp.from_email': FROM,
+          'smtp.from_name': FROM_NAME,
+        },
+        null
+      );
       smtpResult = await provider.send({
         to,
         subject: subject + ' [SMTP]',
@@ -277,44 +323,54 @@ async function lookupTxt(name) {
   }
   console.log(JSON.stringify(statuses, null, 2));
 
-  const recent = await httpJson(
-    'GET',
-    'https://api.mailjet.com/v3/REST/message?Limit=10&Sort=ArrivedAt+DESC',
-    { auth }
-  );
+  const recent = await httpJson('GET', 'https://api.mailjet.com/v3/REST/message?Limit=10&Sort=ArrivedAt+DESC', {
+    auth,
+  });
   console.log('\n=== RECENT MESSAGES ===');
-  console.log(JSON.stringify(((recent.body && recent.body.Data) || []).map((m) => ({
-    ID: m.ID,
-    Status: m.Status,
-    Arrival: m.ArrivedAt,
-    From: m.ContactAlt || m.FromEmail || m.FromID,
-    Subject: m.Subject,
-  })), null, 2));
+  console.log(
+    JSON.stringify(
+      ((recent.body && recent.body.Data) || []).map((m) => ({
+        ID: m.ID,
+        Status: m.Status,
+        Arrival: m.ArrivedAt,
+        From: m.ContactAlt || m.FromEmail || m.FromID,
+        Subject: m.Subject,
+      })),
+      null,
+      2
+    )
+  );
 
   console.log('\n=== SUMMARY ===');
-  console.log(JSON.stringify({
-    marker: MARKER,
-    from_email: FROM,
-    from_name: FROM_NAME,
-    platform_from: after['smtp.from_email'],
-    workspace_from: getWs(WS_PATH, 'smtp.from_email'),
-    dnsFindings,
-    subjects: sendResults.flatMap((r) => [r.subjectApi, r.subjectSmtp]),
-    sendResults: sendResults.map((r) => ({
-      to: r.to,
-      apiStatus: r.apiStatus,
-      apiHttp: r.apiHttp,
-      messageIds: r.messageIds,
-      smtpOk: r.smtp && r.smtp.ok,
-      smtpResponse: r.smtp && (r.smtp.response || r.smtp.error),
-    })),
-    messageStatuses: statuses.map((s) => ({
-      id: s.id,
-      to: s.to,
-      Status: s.message && s.message.Status,
-      events: (s.history || []).map((h) => h.EventAt + ' ' + h.EventType),
-    })),
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        marker: MARKER,
+        from_email: FROM,
+        from_name: FROM_NAME,
+        platform_from: after['smtp.from_email'],
+        workspace_from: getWs(WS_PATH, 'smtp.from_email'),
+        dnsFindings,
+        subjects: sendResults.flatMap((r) => [r.subjectApi, r.subjectSmtp]),
+        sendResults: sendResults.map((r) => ({
+          to: r.to,
+          apiStatus: r.apiStatus,
+          apiHttp: r.apiHttp,
+          messageIds: r.messageIds,
+          smtpOk: r.smtp && r.smtp.ok,
+          smtpResponse: r.smtp && (r.smtp.response || r.smtp.error),
+        })),
+        messageStatuses: statuses.map((s) => ({
+          id: s.id,
+          to: s.to,
+          Status: s.message && s.message.Status,
+          events: (s.history || []).map((h) => h.EventAt + ' ' + h.EventType),
+        })),
+      },
+      null,
+      2
+    )
+  );
 })().catch((e) => {
   console.error('FATAL', e);
   process.exit(1);

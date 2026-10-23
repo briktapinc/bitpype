@@ -6,11 +6,12 @@ const { query, withConnection, driver } = require('./db');
 const { SETTING_SEEDS, PROMPT_SEEDS } = require('./settingsKeys');
 
 function slugify(name) {
-  const base = String(name || 'workspace')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60) || 'workspace';
+  const base =
+    String(name || 'workspace')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60) || 'workspace';
   return `${base}-${crypto.randomBytes(3).toString('hex')}`;
 }
 
@@ -21,46 +22,52 @@ async function seedWorkspaceDefaults(conn, workspaceId) {
     const platform = require('./platform');
     const fromPlatform = await platform.workspaceSeedFromPlatform();
     for (const [k, v] of Object.entries(fromPlatform)) merged.set(k, v);
-  } catch { /* platform optional during early migrate */ }
+  } catch {
+    /* platform optional during early migrate */
+  }
 
   for (const [key, value] of merged) {
-    await conn.execute(
-      'INSERT IGNORE INTO workspace_settings (workspace_id, `key`, value) VALUES (?, ?, ?)',
-      [workspaceId, key, value]
-    );
+    await conn.execute('INSERT IGNORE INTO workspace_settings (workspace_id, `key`, value) VALUES (?, ?, ?)', [
+      workspaceId,
+      key,
+      value,
+    ]);
   }
   for (const p of PROMPT_SEEDS) {
-    await conn.execute(
-      'INSERT IGNORE INTO prompts (workspace_id, `key`, name, body) VALUES (?, ?, ?, ?)',
-      [workspaceId, p.key, p.name, p.body]
-    );
+    await conn.execute('INSERT IGNORE INTO prompts (workspace_id, `key`, name, body) VALUES (?, ?, ?, ?)', [
+      workspaceId,
+      p.key,
+      p.name,
+      p.body,
+    ]);
   }
 }
 
 async function createUserWithWorkspace({ email, password, name, workspaceName }) {
   const hash = await bcrypt.hash(String(password), 12);
-  const cleanEmail = String(email || '').trim().toLowerCase();
+  const cleanEmail = String(email || '')
+    .trim()
+    .toLowerCase();
   const cleanName = String(name || '').trim() || cleanEmail.split('@')[0];
   const wsName = String(workspaceName || `${cleanName}'s workspace`).trim();
 
   return withConnection(async (conn) => {
     await conn.beginTransaction();
     try {
-      const [userRes] = await conn.execute(
-        'INSERT INTO users (email, password_hash, name) VALUES (?, ?, ?)',
-        [cleanEmail, hash, cleanName]
-      );
+      const [userRes] = await conn.execute('INSERT INTO users (email, password_hash, name) VALUES (?, ?, ?)', [
+        cleanEmail,
+        hash,
+        cleanName,
+      ]);
       const userId = userRes.insertId;
       const slug = slugify(wsName);
-      const [wsRes] = await conn.execute(
-        'INSERT INTO workspaces (name, slug) VALUES (?, ?)',
-        [wsName, slug]
-      );
+      const [wsRes] = await conn.execute('INSERT INTO workspaces (name, slug) VALUES (?, ?)', [wsName, slug]);
       const workspaceId = wsRes.insertId;
-      await conn.execute(
-        'INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, ?)',
-        [workspaceId, userId, 'owner']
-      );
+      await conn.execute('INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, ?)', [
+        workspaceId,
+        userId,
+        'owner',
+      ]);
       await seedWorkspaceDefaults(conn, workspaceId);
       await conn.commit();
       return { userId, workspaceId, slug };
@@ -76,7 +83,11 @@ async function findUserByEmail(email) {
     `SELECT id, email, password_hash, name, is_super_admin, status, last_login_at, created_at,
             subscription_status, billing_plan, current_period_end, deleted_at, stripe_customer_id
      FROM users WHERE email = :email LIMIT 1`,
-    { email: String(email || '').trim().toLowerCase() }
+    {
+      email: String(email || '')
+        .trim()
+        .toLowerCase(),
+    }
   );
   return rows[0] || null;
 }
@@ -122,23 +133,31 @@ async function setSetting(workspaceId, key, value) {
 }
 
 async function logActivity(workspaceId, area, message) {
-  await query(
-    'INSERT INTO activity_log (workspace_id, area, message) VALUES (:workspaceId, :area, :message)',
-    { workspaceId, area, message }
-  );
+  await query('INSERT INTO activity_log (workspace_id, area, message) VALUES (:workspaceId, :area, :message)', {
+    workspaceId,
+    area,
+    message,
+  });
 }
 
 function hashToken(token) {
   return crypto.createHash('sha256').update(String(token)).digest('hex');
 }
 
-async function createWorkspaceToken(workspaceId, name = 'MCP', { leadId = null, expiresAt = null, oauthUserId = null } = {}) {
-  const scopedLead = leadId != null && Number.isInteger(Number(leadId)) && Number(leadId) > 0
-    ? Number(leadId)
-    : null;
-  if ((expiresAt != null || oauthUserId != null) && (!scopedLead
-    || !Number.isSafeInteger(expiresAt) || expiresAt <= Date.now()
-    || !Number.isSafeInteger(oauthUserId) || oauthUserId <= 0)) {
+async function createWorkspaceToken(
+  workspaceId,
+  name = 'MCP',
+  { leadId = null, expiresAt = null, oauthUserId = null } = {}
+) {
+  const scopedLead = leadId != null && Number.isInteger(Number(leadId)) && Number(leadId) > 0 ? Number(leadId) : null;
+  if (
+    (expiresAt != null || oauthUserId != null) &&
+    (!scopedLead ||
+      !Number.isSafeInteger(expiresAt) ||
+      expiresAt <= Date.now() ||
+      !Number.isSafeInteger(oauthUserId) ||
+      oauthUserId <= 0)
+  ) {
     throw Object.assign(new Error('Invalid OAuth token lifetime or identity'), { code: 'INVALID' });
   }
   const raw = scopedLead

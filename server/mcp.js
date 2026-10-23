@@ -32,7 +32,8 @@ function clientToolDefs() {
     ...portalToolDefs(),
     {
       name: 'social.posts.list',
-      description: 'List social posts for scheduling. Premium only (socialMcpSchedule). Prefer social.calendar for read-only month view.',
+      description:
+        'List social posts for scheduling. Premium only (socialMcpSchedule). Prefer social.calendar for read-only month view.',
       inputSchema: schema({
         leadId: ID,
         status: STR,
@@ -42,30 +43,67 @@ function clientToolDefs() {
     {
       name: 'social.posts.update',
       description: 'Update a social post (caption, scheduled_at, status). Premium socialMcpSchedule.',
-      inputSchema: schema({
-        id: ID,
-        leadId: ID,
-        caption: STR,
-        scheduled_at: STR,
-        status: STR,
-        client_notes: STR,
-      }, ['id']),
+      inputSchema: schema(
+        {
+          id: ID,
+          leadId: ID,
+          caption: STR,
+          scheduled_at: STR,
+          status: STR,
+          client_notes: STR,
+        },
+        ['id']
+      ),
     },
     {
       name: 'social.posts.approve',
       description: 'Approve posts → status scheduled. Premium socialMcpSchedule.',
-      inputSchema: schema({
-        leadId: ID,
-        postIds: { type: 'array', items: ID },
-      }, ['postIds']),
+      inputSchema: schema(
+        {
+          leadId: ID,
+          postIds: { type: 'array', items: ID },
+        },
+        ['postIds']
+      ),
     },
     {
       name: 'website.addModule',
-      description: 'Attach a site module (blog|ecommerce|courses|gallery|directory|faq|testimonials|team|events|bookings|chatbot) into the live site template with an in-page JS mount (not an iframe). Standard/Premium siteModules. chatbot = sitewide floating bubble (chat-embed.js); visitor replies go through portal CLIENT MCP chatbot.* only — never admin design.*/lead.* or workspace ws_ tokens. INTENT: appointments with availability → bookings module (never a contact form); then bookings.createService (published) + bookings.setHours. Structured requests → forms.create purpose=…; general inquiries → contact form. Alias: modules.attach. Bookings: optional show_request_form. After attach, call site.publish. Non-bookings attach on appointment-intent pages returns a warning. STYLING: wrap mount; theme.customCss under .bitpype-module-embed.',
+      description:
+        'Attach a site module (blog|ecommerce|courses|gallery|directory|faq|testimonials|team|events|bookings|chatbot) into the live site template with an in-page JS mount (not an iframe). Standard/Premium siteModules. chatbot = sitewide floating bubble (chat-embed.js); visitor replies go through portal CLIENT MCP chatbot.* only — never admin design.*/lead.* or workspace ws_ tokens. INTENT: appointments with availability → bookings module (never a contact form); then bookings.createService (published) + bookings.setHours. Structured requests → forms.create purpose=…; general inquiries → contact form. Alias: modules.attach. Bookings: optional show_request_form. After attach, call site.publish. Non-bookings attach on appointment-intent pages returns a warning. STYLING: wrap mount; theme.customCss under .bitpype-module-embed.',
       inputSchema: schema({
         leadId: ID,
-        module: { type: 'string', enum: ['blog', 'ecommerce', 'courses', 'gallery', 'directory', 'faq', 'testimonials', 'team', 'events', 'bookings', 'chatbot'] },
-        moduleType: { type: 'string', enum: ['blog', 'ecommerce', 'courses', 'gallery', 'directory', 'faq', 'testimonials', 'team', 'events', 'bookings', 'chatbot'] },
+        module: {
+          type: 'string',
+          enum: [
+            'blog',
+            'ecommerce',
+            'courses',
+            'gallery',
+            'directory',
+            'faq',
+            'testimonials',
+            'team',
+            'events',
+            'bookings',
+            'chatbot',
+          ],
+        },
+        moduleType: {
+          type: 'string',
+          enum: [
+            'blog',
+            'ecommerce',
+            'courses',
+            'gallery',
+            'directory',
+            'faq',
+            'testimonials',
+            'team',
+            'events',
+            'bookings',
+            'chatbot',
+          ],
+        },
         title: STR,
         target_page_slug: STR,
         pageSlug: STR,
@@ -75,12 +113,14 @@ function clientToolDefs() {
     },
     {
       name: 'modules.list',
-      description: 'List site module embeds (in-page JS mounts), public tokens, target pages, and item counts for a lead. Standard/Premium siteModules. Style mounts via theme.customCss on .bitpype-module-embed / section[data-ws-section-type="site_module"].',
+      description:
+        'List site module embeds (in-page JS mounts), public tokens, target pages, and item counts for a lead. Standard/Premium siteModules. Style mounts via theme.customCss on .bitpype-module-embed / section[data-ws-section-type="site_module"].',
       inputSchema: schema({ leadId: ID }),
     },
     {
       name: 'forms.list',
-      description: 'List custom BitPype forms for a lead (or websiteId). Returns form records + managed embed snippets (bitpype-form-embed + form-embed.js). Prefer contact_form / forms.create over raw HTML <form>.',
+      description:
+        'List custom BitPype forms for a lead (or websiteId). Returns form records + managed embed snippets (bitpype-form-embed + form-embed.js). Prefer contact_form / forms.create over raw HTML <form>.',
       inputSchema: schema({ leadId: ID, websiteId: ID, siteId: ID }),
     },
     {
@@ -90,55 +130,70 @@ function clientToolDefs() {
     },
     {
       name: 'forms.create',
-      description: 'Create + publish a custom form for a lead. Row starts draft in DB; this tool publishes immediately (status published, public_token). Embed sync only attaches to target_page_slug — if that page is missing, form stays unembedded (see website.get formsUnembedded). Required: leadId + (name OR purpose). purpose: general_inquiry|quote_request|appointment_request|callback_request|event_rsvp. fields[]: { label, type: text|email|phone|textarea|select|date|checkbox, required?, options? }. Optional submit_label, success_message, notify_email, embed_enabled, add_to_nav (default false). Returns formId + managed-embed snippet. Place with website.addBlock (blockType form + formId) or form/bitpype_form section { content: { formId } }.',
-      inputSchema: schema({
-        leadId: ID,
-        name: STR,
-        title: STR,
-        purpose: STR,
-        fields: { type: 'array', items: { type: 'object' } },
-        submit_label: STR,
-        submitLabel: STR,
-        success_message: STR,
-        successMessage: STR,
-        notify_email: STR,
-        notifyEmail: STR,
-        target_page_slug: STR,
-        targetPageSlug: STR,
-        intro: STR,
-        embed_enabled: { type: 'boolean' },
-        embed_on_page: { type: 'boolean' },
-        add_to_nav: { type: 'boolean' },
-        nav_visible: { type: 'boolean' },
-      }, ['leadId']),
+      description:
+        'Create + publish a custom form for a lead. Row starts draft in DB; this tool publishes immediately (status published, public_token). Embed sync only attaches to target_page_slug — if that page is missing, form stays unembedded (see website.get formsUnembedded). Required: leadId + (name OR purpose). purpose: general_inquiry|quote_request|appointment_request|callback_request|event_rsvp. fields[]: { label, type: text|email|phone|textarea|select|date|checkbox, required?, options? }. Optional submit_label, success_message, notify_email, embed_enabled, add_to_nav (default false). Returns formId + managed-embed snippet. Place with website.addBlock (blockType form + formId) or form/bitpype_form section { content: { formId } }.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          name: STR,
+          title: STR,
+          purpose: STR,
+          fields: { type: 'array', items: { type: 'object' } },
+          submit_label: STR,
+          submitLabel: STR,
+          success_message: STR,
+          successMessage: STR,
+          notify_email: STR,
+          notifyEmail: STR,
+          target_page_slug: STR,
+          targetPageSlug: STR,
+          intro: STR,
+          embed_enabled: { type: 'boolean' },
+          embed_on_page: { type: 'boolean' },
+          add_to_nav: { type: 'boolean' },
+          nav_visible: { type: 'boolean' },
+        },
+        ['leadId']
+      ),
     },
     {
       name: 'forms.suggestFields',
-      description: 'Preview purpose-built typed fields for a lead without creating a form. purpose: appointment_request|quote_request|callback_request|event_rsvp|general_inquiry. Uses lead booking services, team, hours, and events for select options.',
-      inputSchema: schema({
-        leadId: ID,
-        purpose: { type: 'string', enum: ['appointment_request', 'quote_request', 'callback_request', 'event_rsvp', 'general_inquiry'] },
-      }, ['leadId', 'purpose']),
+      description:
+        'Preview purpose-built typed fields for a lead without creating a form. purpose: appointment_request|quote_request|callback_request|event_rsvp|general_inquiry. Uses lead booking services, team, hours, and events for select options.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          purpose: {
+            type: 'string',
+            enum: ['appointment_request', 'quote_request', 'callback_request', 'event_rsvp', 'general_inquiry'],
+          },
+        },
+        ['leadId', 'purpose']
+      ),
     },
     {
       name: 'forms.update',
-      description: 'Update a custom form (name, fields, submit_label, success_message, notify_email, embed_enabled/embed_on_page, add_to_nav/nav_visible). embed_enabled:false removes the on-page panel and form-embed.js for that form.',
-      inputSchema: schema({
-        leadId: ID,
-        formId: ID,
-        id: ID,
-        name: STR,
-        title: STR,
-        fields: { type: 'array', items: { type: 'object' } },
-        submit_label: STR,
-        success_message: STR,
-        notify_email: STR,
-        embed_enabled: { type: 'boolean' },
-        embed_on_page: { type: 'boolean' },
-        add_to_nav: { type: 'boolean' },
-        nav_visible: { type: 'boolean' },
-        target_page_slug: STR,
-      }, ['leadId', 'formId']),
+      description:
+        'Update a custom form (name, fields, submit_label, success_message, notify_email, embed_enabled/embed_on_page, add_to_nav/nav_visible). embed_enabled:false removes the on-page panel and form-embed.js for that form.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          formId: ID,
+          id: ID,
+          name: STR,
+          title: STR,
+          fields: { type: 'array', items: { type: 'object' } },
+          submit_label: STR,
+          success_message: STR,
+          notify_email: STR,
+          embed_enabled: { type: 'boolean' },
+          embed_on_page: { type: 'boolean' },
+          add_to_nav: { type: 'boolean' },
+          nav_visible: { type: 'boolean' },
+          target_page_slug: STR,
+        },
+        ['leadId', 'formId']
+      ),
     },
     {
       name: 'forms.delete',
@@ -152,31 +207,38 @@ function clientToolDefs() {
     },
     {
       name: 'blog.create',
-      description: 'Create a blog post (title, slug, body_html, excerpt optional, cover_image, status draft|published). Excerpt auto-derives from body when omitted. Standard/Premium.',
-      inputSchema: schema({
-        leadId: ID,
-        title: STR,
-        slug: STR,
-        body_html: STR,
-        body: STR,
-        excerpt: STR,
-        cover_image: STR,
-        status: STR,
-      }, ['title']),
+      description:
+        'Create a blog post (title, slug, body_html, excerpt optional, cover_image, status draft|published). Excerpt auto-derives from body when omitted. Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          title: STR,
+          slug: STR,
+          body_html: STR,
+          body: STR,
+          excerpt: STR,
+          cover_image: STR,
+          status: STR,
+        },
+        ['title']
+      ),
     },
     {
       name: 'blog.update',
       description: 'Update a blog post by id (optional excerpt). Standard/Premium.',
-      inputSchema: schema({
-        id: ID,
-        leadId: ID,
-        title: STR,
-        slug: STR,
-        body_html: STR,
-        excerpt: STR,
-        cover_image: STR,
-        status: STR,
-      }, ['id']),
+      inputSchema: schema(
+        {
+          id: ID,
+          leadId: ID,
+          title: STR,
+          slug: STR,
+          body_html: STR,
+          excerpt: STR,
+          cover_image: STR,
+          status: STR,
+        },
+        ['id']
+      ),
     },
     {
       name: 'blog.delete',
@@ -190,36 +252,43 @@ function clientToolDefs() {
     },
     {
       name: 'ecommerce.create',
-      description: 'Create a product (name, price or price_cents, description, image_url, checkout_url, status). Standard/Premium.',
-      inputSchema: schema({
-        leadId: ID,
-        name: STR,
-        slug: STR,
-        description: STR,
-        price: { type: 'number' },
-        price_cents: { type: 'integer' },
-        currency: STR,
-        image_url: STR,
-        checkout_url: STR,
-        status: STR,
-      }, ['name']),
+      description:
+        'Create a product (name, price or price_cents, description, image_url, checkout_url, status). Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          name: STR,
+          slug: STR,
+          description: STR,
+          price: { type: 'number' },
+          price_cents: { type: 'integer' },
+          currency: STR,
+          image_url: STR,
+          checkout_url: STR,
+          status: STR,
+        },
+        ['name']
+      ),
     },
     {
       name: 'ecommerce.update',
       description: 'Update a product by id. Standard/Premium.',
-      inputSchema: schema({
-        id: ID,
-        leadId: ID,
-        name: STR,
-        slug: STR,
-        description: STR,
-        price: { type: 'number' },
-        price_cents: { type: 'integer' },
-        currency: STR,
-        image_url: STR,
-        checkout_url: STR,
-        status: STR,
-      }, ['id']),
+      inputSchema: schema(
+        {
+          id: ID,
+          leadId: ID,
+          name: STR,
+          slug: STR,
+          description: STR,
+          price: { type: 'number' },
+          price_cents: { type: 'integer' },
+          currency: STR,
+          image_url: STR,
+          checkout_url: STR,
+          status: STR,
+        },
+        ['id']
+      ),
     },
     {
       name: 'ecommerce.delete',
@@ -228,7 +297,8 @@ function clientToolDefs() {
     },
     {
       name: 'ecommerce.listOrders',
-      description: 'List Stripe checkout orders for a lead\'s shop (newest first). Orders are created by the public shop checkout and updated by the workspace\'s Stripe webhook. Standard/Premium.',
+      description:
+        "List Stripe checkout orders for a lead's shop (newest first). Orders are created by the public shop checkout and updated by the workspace's Stripe webhook. Standard/Premium.",
       inputSchema: schema({ leadId: ID, limit: { type: 'integer' } }),
     },
     {
@@ -239,30 +309,36 @@ function clientToolDefs() {
     {
       name: 'courses.create',
       description: 'Create a course (title, description, enrollment_url, optional lessons[]). Standard/Premium.',
-      inputSchema: schema({
-        leadId: ID,
-        title: STR,
-        slug: STR,
-        description: STR,
-        enrollment_url: STR,
-        cover_image: STR,
-        status: STR,
-        lessons: { type: 'array', items: { type: 'object' } },
-      }, ['title']),
+      inputSchema: schema(
+        {
+          leadId: ID,
+          title: STR,
+          slug: STR,
+          description: STR,
+          enrollment_url: STR,
+          cover_image: STR,
+          status: STR,
+          lessons: { type: 'array', items: { type: 'object' } },
+        },
+        ['title']
+      ),
     },
     {
       name: 'courses.update',
       description: 'Update a course by id. Standard/Premium.',
-      inputSchema: schema({
-        id: ID,
-        leadId: ID,
-        title: STR,
-        slug: STR,
-        description: STR,
-        enrollment_url: STR,
-        cover_image: STR,
-        status: STR,
-      }, ['id']),
+      inputSchema: schema(
+        {
+          id: ID,
+          leadId: ID,
+          title: STR,
+          slug: STR,
+          description: STR,
+          enrollment_url: STR,
+          cover_image: STR,
+          status: STR,
+        },
+        ['id']
+      ),
     },
     {
       name: 'courses.delete',
@@ -272,14 +348,17 @@ function clientToolDefs() {
     {
       name: 'courses.addLesson',
       description: 'Add a lesson to a course (title, body_html, lesson_url). Standard/Premium.',
-      inputSchema: schema({
-        courseId: ID,
-        leadId: ID,
-        title: STR,
-        body_html: STR,
-        lesson_url: STR,
-        sort_order: { type: 'integer' },
-      }, ['courseId', 'title']),
+      inputSchema: schema(
+        {
+          courseId: ID,
+          leadId: ID,
+          title: STR,
+          body_html: STR,
+          lesson_url: STR,
+          sort_order: { type: 'integer' },
+        },
+        ['courseId', 'title']
+      ),
     },
     {
       name: 'gallery.list',
@@ -288,27 +367,34 @@ function clientToolDefs() {
     },
     {
       name: 'gallery.create',
-      description: 'Create a gallery album (title, description, optional images[{image_url,caption}]). Standard/Premium.',
-      inputSchema: schema({
-        leadId: ID,
-        title: STR,
-        slug: STR,
-        description: STR,
-        status: STR,
-        images: { type: 'array', items: { type: 'object' } },
-      }, ['title']),
+      description:
+        'Create a gallery album (title, description, optional images[{image_url,caption}]). Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          title: STR,
+          slug: STR,
+          description: STR,
+          status: STR,
+          images: { type: 'array', items: { type: 'object' } },
+        },
+        ['title']
+      ),
     },
     {
       name: 'gallery.update',
       description: 'Update a gallery album by id. Standard/Premium.',
-      inputSchema: schema({
-        id: ID,
-        leadId: ID,
-        title: STR,
-        slug: STR,
-        description: STR,
-        status: STR,
-      }, ['id']),
+      inputSchema: schema(
+        {
+          id: ID,
+          leadId: ID,
+          title: STR,
+          slug: STR,
+          description: STR,
+          status: STR,
+        },
+        ['id']
+      ),
     },
     {
       name: 'gallery.delete',
@@ -318,13 +404,16 @@ function clientToolDefs() {
     {
       name: 'gallery.addImage',
       description: 'Add an image to a gallery album. Standard/Premium.',
-      inputSchema: schema({
-        albumId: ID,
-        leadId: ID,
-        image_url: STR,
-        caption: STR,
-        sort_order: { type: 'integer' },
-      }, ['albumId', 'image_url']),
+      inputSchema: schema(
+        {
+          albumId: ID,
+          leadId: ID,
+          image_url: STR,
+          caption: STR,
+          sort_order: { type: 'integer' },
+        },
+        ['albumId', 'image_url']
+      ),
     },
     {
       name: 'directory.list',
@@ -333,34 +422,41 @@ function clientToolDefs() {
     },
     {
       name: 'directory.create',
-      description: 'Create a directory listing (name, category, contact, description, image_url, website_url). Standard/Premium.',
-      inputSchema: schema({
-        leadId: ID,
-        name: STR,
-        category: STR,
-        description: STR,
-        contact_email: STR,
-        contact_phone: STR,
-        website_url: STR,
-        image_url: STR,
-        status: STR,
-      }, ['name']),
+      description:
+        'Create a directory listing (name, category, contact, description, image_url, website_url). Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          name: STR,
+          category: STR,
+          description: STR,
+          contact_email: STR,
+          contact_phone: STR,
+          website_url: STR,
+          image_url: STR,
+          status: STR,
+        },
+        ['name']
+      ),
     },
     {
       name: 'directory.update',
       description: 'Update a directory listing by id. Standard/Premium.',
-      inputSchema: schema({
-        id: ID,
-        leadId: ID,
-        name: STR,
-        category: STR,
-        description: STR,
-        contact_email: STR,
-        contact_phone: STR,
-        website_url: STR,
-        image_url: STR,
-        status: STR,
-      }, ['id']),
+      inputSchema: schema(
+        {
+          id: ID,
+          leadId: ID,
+          name: STR,
+          category: STR,
+          description: STR,
+          contact_email: STR,
+          contact_phone: STR,
+          website_url: STR,
+          image_url: STR,
+          status: STR,
+        },
+        ['id']
+      ),
     },
     {
       name: 'directory.delete',
@@ -375,16 +471,32 @@ function clientToolDefs() {
     {
       name: 'faq.create',
       description: 'Create an FAQ item (question, answer_html, category, status). Standard/Premium.',
-      inputSchema: schema({
-        leadId: ID, question: STR, answer_html: STR, answer: STR, category: STR, status: STR,
-      }, ['question']),
+      inputSchema: schema(
+        {
+          leadId: ID,
+          question: STR,
+          answer_html: STR,
+          answer: STR,
+          category: STR,
+          status: STR,
+        },
+        ['question']
+      ),
     },
     {
       name: 'faq.update',
       description: 'Update an FAQ item by id. Standard/Premium.',
-      inputSchema: schema({
-        id: ID, leadId: ID, question: STR, answer_html: STR, category: STR, status: STR,
-      }, ['id']),
+      inputSchema: schema(
+        {
+          id: ID,
+          leadId: ID,
+          question: STR,
+          answer_html: STR,
+          category: STR,
+          status: STR,
+        },
+        ['id']
+      ),
     },
     {
       name: 'faq.delete',
@@ -399,18 +511,37 @@ function clientToolDefs() {
     {
       name: 'testimonials.create',
       description: 'Create a testimonial (quote, author, rating 1-5, status). Standard/Premium.',
-      inputSchema: schema({
-        leadId: ID, quote: STR, author_name: STR, author_title: STR, author_company: STR,
-        rating: { type: 'number' }, image_url: STR, status: STR,
-      }, ['quote']),
+      inputSchema: schema(
+        {
+          leadId: ID,
+          quote: STR,
+          author_name: STR,
+          author_title: STR,
+          author_company: STR,
+          rating: { type: 'number' },
+          image_url: STR,
+          status: STR,
+        },
+        ['quote']
+      ),
     },
     {
       name: 'testimonials.update',
       description: 'Update a testimonial by id. Standard/Premium.',
-      inputSchema: schema({
-        id: ID, leadId: ID, quote: STR, author_name: STR, author_title: STR, author_company: STR,
-        rating: { type: 'number' }, image_url: STR, status: STR,
-      }, ['id']),
+      inputSchema: schema(
+        {
+          id: ID,
+          leadId: ID,
+          quote: STR,
+          author_name: STR,
+          author_title: STR,
+          author_company: STR,
+          rating: { type: 'number' },
+          image_url: STR,
+          status: STR,
+        },
+        ['id']
+      ),
     },
     {
       name: 'testimonials.delete',
@@ -425,18 +556,41 @@ function clientToolDefs() {
     {
       name: 'team.create',
       description: 'Create a team member (name, role_title, bio, image_url, status). Standard/Premium.',
-      inputSchema: schema({
-        leadId: ID, name: STR, slug: STR, role_title: STR, bio: STR, image_url: STR,
-        email: STR, phone: STR, social_url: STR, status: STR,
-      }, ['name']),
+      inputSchema: schema(
+        {
+          leadId: ID,
+          name: STR,
+          slug: STR,
+          role_title: STR,
+          bio: STR,
+          image_url: STR,
+          email: STR,
+          phone: STR,
+          social_url: STR,
+          status: STR,
+        },
+        ['name']
+      ),
     },
     {
       name: 'team.update',
       description: 'Update a team member by id. Standard/Premium.',
-      inputSchema: schema({
-        id: ID, leadId: ID, name: STR, slug: STR, role_title: STR, bio: STR, image_url: STR,
-        email: STR, phone: STR, social_url: STR, status: STR,
-      }, ['id']),
+      inputSchema: schema(
+        {
+          id: ID,
+          leadId: ID,
+          name: STR,
+          slug: STR,
+          role_title: STR,
+          bio: STR,
+          image_url: STR,
+          email: STR,
+          phone: STR,
+          social_url: STR,
+          status: STR,
+        },
+        ['id']
+      ),
     },
     {
       name: 'team.delete',
@@ -451,18 +605,41 @@ function clientToolDefs() {
     {
       name: 'events.create',
       description: 'Create an event (title, starts_at, location, ticket_url, status). Standard/Premium.',
-      inputSchema: schema({
-        leadId: ID, title: STR, slug: STR, description: STR, starts_at: STR, ends_at: STR,
-        location: STR, image_url: STR, ticket_url: STR, status: STR,
-      }, ['title']),
+      inputSchema: schema(
+        {
+          leadId: ID,
+          title: STR,
+          slug: STR,
+          description: STR,
+          starts_at: STR,
+          ends_at: STR,
+          location: STR,
+          image_url: STR,
+          ticket_url: STR,
+          status: STR,
+        },
+        ['title']
+      ),
     },
     {
       name: 'events.update',
       description: 'Update an event by id. Standard/Premium.',
-      inputSchema: schema({
-        id: ID, leadId: ID, title: STR, slug: STR, description: STR, starts_at: STR, ends_at: STR,
-        location: STR, image_url: STR, ticket_url: STR, status: STR,
-      }, ['id']),
+      inputSchema: schema(
+        {
+          id: ID,
+          leadId: ID,
+          title: STR,
+          slug: STR,
+          description: STR,
+          starts_at: STR,
+          ends_at: STR,
+          location: STR,
+          image_url: STR,
+          ticket_url: STR,
+          status: STR,
+        },
+        ['id']
+      ),
     },
     {
       name: 'events.delete',
@@ -471,28 +648,52 @@ function clientToolDefs() {
     },
     {
       name: 'bookings.services',
-      description: 'List bookable services (duration, buffer, price). includeDrafts defaults true. Standard/Premium siteModules.',
+      description:
+        'List bookable services (duration, buffer, price). includeDrafts defaults true. Standard/Premium siteModules.',
       inputSchema: schema({ leadId: ID, includeDrafts: { type: 'boolean' } }, ['leadId']),
     },
     {
       name: 'bookings.createService',
-      description: 'Create a bookable service. Default status is draft — set status:"published" (here or via bookings.updateService) before bookings.slots returns times. INTENT: appointment pages with availability use website.addModule(bookings) + published service(s) + bookings.setHours — never a contact form. website.qa module-fit requires ≥1 published service with hours. E2E: createService → publish → setHours → slots. Required: leadId, name.',
-      inputSchema: schema({
-        leadId: ID, name: STR, slug: STR, description: STR,
-        duration_minutes: { type: 'integer' }, buffer_minutes: { type: 'integer' },
-        price: { type: 'number' }, price_cents: { type: 'integer' }, currency: STR,
-        image_url: STR, status: { type: 'string', enum: ['draft', 'published'] },
-      }, ['leadId', 'name']),
+      description:
+        'Create a bookable service. Default status is draft — set status:"published" (here or via bookings.updateService) before bookings.slots returns times. INTENT: appointment pages with availability use website.addModule(bookings) + published service(s) + bookings.setHours — never a contact form. website.qa module-fit requires ≥1 published service with hours. E2E: createService → publish → setHours → slots. Required: leadId, name.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          name: STR,
+          slug: STR,
+          description: STR,
+          duration_minutes: { type: 'integer' },
+          buffer_minutes: { type: 'integer' },
+          price: { type: 'number' },
+          price_cents: { type: 'integer' },
+          currency: STR,
+          image_url: STR,
+          status: { type: 'string', enum: ['draft', 'published'] },
+        },
+        ['leadId', 'name']
+      ),
     },
     {
       name: 'bookings.updateService',
-      description: 'Update a bookable service by id. Use status:"published" to expose in slots/widget. Standard/Premium.',
-      inputSchema: schema({
-        id: ID, leadId: ID, name: STR, slug: STR, description: STR,
-        duration_minutes: { type: 'integer' }, buffer_minutes: { type: 'integer' },
-        price: { type: 'number' }, price_cents: { type: 'integer' }, currency: STR,
-        image_url: STR, status: { type: 'string', enum: ['draft', 'published'] },
-      }, ['id', 'leadId']),
+      description:
+        'Update a bookable service by id. Use status:"published" to expose in slots/widget. Standard/Premium.',
+      inputSchema: schema(
+        {
+          id: ID,
+          leadId: ID,
+          name: STR,
+          slug: STR,
+          description: STR,
+          duration_minutes: { type: 'integer' },
+          buffer_minutes: { type: 'integer' },
+          price: { type: 'number' },
+          price_cents: { type: 'integer' },
+          currency: STR,
+          image_url: STR,
+          status: { type: 'string', enum: ['draft', 'published'] },
+        },
+        ['id', 'leadId']
+      ),
     },
     {
       name: 'bookings.deleteService',
@@ -501,11 +702,15 @@ function clientToolDefs() {
     },
     {
       name: 'bookings.setHours',
-      description: 'Replace weekly availability hours (weekday 0=Sun..6=Sat, start_time/end_time HH:MM). Replaces the whole week. Standard/Premium.',
-      inputSchema: schema({
-        leadId: ID,
-        hours: { type: 'array', items: { type: 'object' } },
-      }, ['leadId', 'hours']),
+      description:
+        'Replace weekly availability hours (weekday 0=Sun..6=Sat, start_time/end_time HH:MM). Replaces the whole week. Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          hours: { type: 'array', items: { type: 'object' } },
+        },
+        ['leadId', 'hours']
+      ),
     },
     {
       name: 'bookings.getHours',
@@ -514,36 +719,64 @@ function clientToolDefs() {
     },
     {
       name: 'bookings.setSettings',
-      description: 'Update booking settings (timezone, slot_interval_minutes, min_notice_hours, max_days_ahead, auto_confirm). Standard/Premium.',
-      inputSchema: schema({
-        leadId: ID, timezone: STR,
-        slot_interval_minutes: { type: 'integer' },
-        min_notice_hours: { type: 'integer' },
-        max_days_ahead: { type: 'integer' },
-        auto_confirm: { type: 'boolean' },
-      }, ['leadId']),
+      description:
+        'Update booking settings (timezone, slot_interval_minutes, min_notice_hours, max_days_ahead, auto_confirm). Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          timezone: STR,
+          slot_interval_minutes: { type: 'integer' },
+          min_notice_hours: { type: 'integer' },
+          max_days_ahead: { type: 'integer' },
+          auto_confirm: { type: 'boolean' },
+        },
+        ['leadId']
+      ),
     },
     {
       name: 'bookings.list',
-      description: 'List appointments (pending/confirmed/cancelled/completed). Default excludes archived. Pass includeArchived or archivedOnly. Standard/Premium.',
-      inputSchema: schema({
-        leadId: ID, status: STR, from: STR, to: STR, limit: { type: 'integer' },
-        includeArchived: { type: 'boolean' }, archivedOnly: { type: 'boolean' },
-      }, ['leadId']),
+      description:
+        'List appointments (pending/confirmed/cancelled/completed). Default excludes archived. Pass includeArchived or archivedOnly. Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          status: STR,
+          from: STR,
+          to: STR,
+          limit: { type: 'integer' },
+          includeArchived: { type: 'boolean' },
+          archivedOnly: { type: 'boolean' },
+        },
+        ['leadId']
+      ),
     },
     {
       name: 'bookings.updateStatus',
-      description: 'Update appointment status (pending|confirmed|cancelled|completed) and/or archive (archived:true|false; completed/cancelled only). Standard/Premium.',
-      inputSchema: schema({
-        id: ID, leadId: ID, status: STR, archived: { type: 'boolean' },
-      }, ['id', 'leadId']),
+      description:
+        'Update appointment status (pending|confirmed|cancelled|completed) and/or archive (archived:true|false; completed/cancelled only). Standard/Premium.',
+      inputSchema: schema(
+        {
+          id: ID,
+          leadId: ID,
+          status: STR,
+          archived: { type: 'boolean' },
+        },
+        ['id', 'leadId']
+      ),
     },
     {
       name: 'bookings.slots',
-      description: 'List available time slots for date (YYYY-MM-DD) + published serviceId. Requires leadId, date, and serviceId when multiple services exist. Standard/Premium.',
-      inputSchema: schema({
-        leadId: ID, date: STR, serviceId: ID, service_id: ID,
-      }, ['leadId', 'date']),
+      description:
+        'List available time slots for date (YYYY-MM-DD) + published serviceId. Requires leadId, date, and serviceId when multiple services exist. Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          date: STR,
+          serviceId: ID,
+          service_id: ID,
+        },
+        ['leadId', 'date']
+      ),
     },
   ];
 }
@@ -566,73 +799,485 @@ function toolDefs({ clientScoped = false } = {}) {
   if (clientScoped) return dedupeToolDefs(clientToolDefs());
   return dedupeToolDefs([
     ...clientToolDefs(),
-    { name: 'lead.search', description: 'Search outreach CRM leads (pipeline). Requires a workspace MCP token (ws_…). Client/portal tokens (cl_…, Claude OAuth) cannot use this — they only see LeadScout form contacts via leadscout.contacts.list, or their one linked lead via site.get.', inputSchema: { type: 'object', properties: { q: { type: 'string' }, status: { type: 'string' }, minScore: { type: 'integer' }, limit: { type: 'integer' } } } },
-    { name: 'lead.get', description: 'Get one lead with facts/scores.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
-    { name: 'lead.create', description: 'Create a lead.', inputSchema: { type: 'object', properties: { business_name: { type: 'string' }, email: { type: 'string' }, phone: { type: 'string' }, city: { type: 'string' }, category: { type: 'string' }, website: { type: 'string' }, status: { type: 'string' }, notes: { type: 'string' } }, required: ['business_name'] } },
-    { name: 'lead.update', description: 'Update a lead.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
-    { name: 'lead.delete', description: 'Delete a lead.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
-    { name: 'lead.qualify', description: 'Qualify a lead.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
-    { name: 'lead.score', description: 'Score a lead.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
-    { name: 'lead.research', description: 'Research a lead.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
-    { name: 'lead.discover', description: 'Discover leads via providers.', inputSchema: { type: 'object', properties: { category: { type: 'string' }, location: { type: 'string' }, limit: { type: 'integer' }, provider: { type: 'string' }, group: { type: 'string' } } } },
-    { name: 'lead.importCsv', description: 'Import CSV text. Accepts standard lead headers and GapScout exports (project, business, platform, profile_url, location, website, email, phone, score, opportunity, signal_evidence, status, notes). Skips rows whose profile_url/source_ref already exists.', inputSchema: { type: 'object', properties: { text: { type: 'string' }, group: { type: 'string' } }, required: ['text'] } },
-    { name: 'lead.merge', description: 'Merge duplicate leads.', inputSchema: { type: 'object', properties: { keepId: { type: 'integer' }, dropIds: { type: 'array', items: { type: 'integer' } } }, required: ['keepId', 'dropIds'] } },
-    { name: 'lead.duplicates', description: 'Find duplicates for a lead.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
+    {
+      name: 'lead.search',
+      description:
+        'Search outreach CRM leads (pipeline). Requires a workspace MCP token (ws_…). Client/portal tokens (cl_…, Claude OAuth) cannot use this — they only see LeadScout form contacts via leadscout.contacts.list, or their one linked lead via site.get.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          q: { type: 'string' },
+          status: { type: 'string' },
+          minScore: { type: 'integer' },
+          limit: { type: 'integer' },
+        },
+      },
+    },
+    {
+      name: 'lead.get',
+      description: 'Get one lead with facts/scores.',
+      inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    },
+    {
+      name: 'lead.create',
+      description: 'Create a lead.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          business_name: { type: 'string' },
+          email: { type: 'string' },
+          phone: { type: 'string' },
+          city: { type: 'string' },
+          category: { type: 'string' },
+          website: { type: 'string' },
+          status: { type: 'string' },
+          notes: { type: 'string' },
+        },
+        required: ['business_name'],
+      },
+    },
+    {
+      name: 'lead.update',
+      description: 'Update a lead.',
+      inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    },
+    {
+      name: 'lead.delete',
+      description: 'Delete a lead.',
+      inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    },
+    {
+      name: 'lead.qualify',
+      description: 'Qualify a lead.',
+      inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    },
+    {
+      name: 'lead.score',
+      description: 'Score a lead.',
+      inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    },
+    {
+      name: 'lead.research',
+      description: 'Research a lead.',
+      inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    },
+    {
+      name: 'lead.discover',
+      description: 'Discover leads via providers.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          category: { type: 'string' },
+          location: { type: 'string' },
+          limit: { type: 'integer' },
+          provider: { type: 'string' },
+          group: { type: 'string' },
+        },
+      },
+    },
+    {
+      name: 'lead.importCsv',
+      description:
+        'Import CSV text. Accepts standard lead headers and GapScout exports (project, business, platform, profile_url, location, website, email, phone, score, opportunity, signal_evidence, status, notes). Skips rows whose profile_url/source_ref already exists.',
+      inputSchema: {
+        type: 'object',
+        properties: { text: { type: 'string' }, group: { type: 'string' } },
+        required: ['text'],
+      },
+    },
+    {
+      name: 'lead.merge',
+      description: 'Merge duplicate leads.',
+      inputSchema: {
+        type: 'object',
+        properties: { keepId: { type: 'integer' }, dropIds: { type: 'array', items: { type: 'integer' } } },
+        required: ['keepId', 'dropIds'],
+      },
+    },
+    {
+      name: 'lead.duplicates',
+      description: 'Find duplicates for a lead.',
+      inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    },
     { name: 'lead.facets', description: 'Lead filter facets.', inputSchema: { type: 'object', properties: {} } },
-    { name: 'lead.bulk', description: 'Bulk lead actions.', inputSchema: { type: 'object', properties: { action: { type: 'string' }, ids: { type: 'array', items: { type: 'integer' } }, value: { type: 'string' } }, required: ['action', 'ids'] } },
+    {
+      name: 'lead.bulk',
+      description: 'Bulk lead actions.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          action: { type: 'string' },
+          ids: { type: 'array', items: { type: 'integer' } },
+          value: { type: 'string' },
+        },
+        required: ['action', 'ids'],
+      },
+    },
     { name: 'design.pending', description: 'Jobs waiting on agent.', inputSchema: { type: 'object', properties: {} } },
-    { name: 'design.next', description: 'Claim next waiting_on_agent job.', inputSchema: { type: 'object', properties: {} } },
-    { name: 'design.list', description: 'List design jobs.', inputSchema: { type: 'object', properties: { status: { type: 'string' }, limit: { type: 'integer' } } } },
-    { name: 'design.get', description: 'Get design job.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
-    { name: 'design.delete', description: 'Delete a design job (same operation as the REST DELETE /design/:id). Use for cleaning up test/abandoned jobs; deleting a job does not delete its lead or website.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
-    { name: 'design.create', description: 'Create design job.', inputSchema: { type: 'object', properties: { type: { type: 'string' }, title: { type: 'string' }, instructions: { type: 'string' }, leadId: { type: 'integer' } }, required: ['title', 'instructions'] } },
-    { name: 'design.deliver', description: 'Deliver design payload. Change requests attach change_verification + change_summary (website.qa + nav/form). Downloads remote images locally. Auto-provisions BitPype forms. Strips hand-rolled <form>. MODULES+FORMS STYLING via theme.customCss.', inputSchema: { type: 'object', properties: { id: { type: 'integer' }, payload: { type: 'object' }, claims: { type: 'array' } }, required: ['id', 'payload'] } },
-    { name: 'design.ask', description: 'Ask clarifying question.', inputSchema: { type: 'object', properties: { id: { type: 'integer' }, question: { type: 'string' } }, required: ['id', 'question'] } },
-    { name: 'design.review', description: 'Review delivered website (no screenshots on web).', inputSchema: { type: 'object', properties: { id: { type: 'integer' }, skipAi: { type: 'boolean' } }, required: ['id'] } },
-    { name: 'design.redesign', description: 'Queue full redesign.', inputSchema: { type: 'object', properties: { id: { type: 'integer' }, instructions: { type: 'string' } }, required: ['id'] } },
-    { name: 'design.improve', description: 'Queue incremental improvements.', inputSchema: { type: 'object', properties: { id: { type: 'integer' }, instructions: { type: 'string' } }, required: ['id'] } },
-    { name: 'design.previewUrl', description: 'HTTP preview URL for delivered site.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
-    { name: 'website.list', description: 'List websites.', inputSchema: { type: 'object', properties: { status: { type: 'string' } } } },
-    { name: 'website.get', description: 'Get website (parsed pages/theme, latest version_note, formsUnembedded when embed target page missing).', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
-    { name: 'website.checkLive', description: 'Fetch the site\'s live preview URL and each page path under it; returns per-URL HTTP status so agents can verify a publish actually serves (200s) before reporting done. Errors NO_PREVIEW_URL when the site has no preview_url.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
-    { name: 'website.delete', description: 'Delete a website record and purge its EXPORT_ROOT folders (ws-{workspace}-site-{id}*, site-{id}, screenshots, legacy slug exports). Does not wipe other workspaces or delete remote Cloudflare Pages projects. Design jobs are unlinked, not deleted.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
-    { name: 'website.generate', description: 'Generate template website for lead. Also auto-provisions Bitpype contact/quote/appointment forms for matching pages and embeds them.', inputSchema: { type: 'object', properties: { leadId: { type: 'integer' }, force: { type: 'boolean' } }, required: ['leadId'] } },
-    { name: 'website.qa', description: 'QA custom/template site. No mandatory hero. Grades links, ≤1 form/page, export images + crop aspect, unique nav labels, no horizontal overflow at 390px, module-fit (appointment-intent pages need bookings + published service + hours), form-purpose-fields warning.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
-    { name: 'website.export', description: 'Export website HTML/assets. Multipage nav links are normalized on save; preview/publish blocks dangling #hash cross-page links.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
-    { name: 'website.postcard', description: 'Claim kit for a website: site preview URL + signed claim Yes/No URL + QR data-URLs. Pass includePdf:true for base64 PDF (4×6 postcard). Works while automation is paused. Requires APP_URL + SESSION_SECRET and a preview URL for PDF.', inputSchema: { type: 'object', properties: { id: { type: 'integer' }, includePdf: { type: 'boolean' } }, required: ['id'] } },
-    { name: 'lead.claimKit', description: 'Claim kit for a lead (latest website): site URL, claim URL, QR data-URLs; optional includePdf for postcard PDF base64. Same intent path as {{interested}}/{{uninterested}}.', inputSchema: { type: 'object', properties: { leadId: { type: 'integer' }, id: { type: 'integer' }, websiteId: { type: 'integer' }, includePdf: { type: 'boolean' } }, required: ['leadId'] } },
-    { name: 'outreach.campaigns', description: 'Campaign admin: list | create | setStatus | cancel | delete | messages. create uses a dual-channel template; pass channel email|sms|both. setStatus accepts draft|active|paused|done (cancelled campaigns cannot resume — use cancel). delete removes the campaign row.', inputSchema: { type: 'object', properties: { action: { type: 'string', enum: ['list', 'create', 'setStatus', 'cancel', 'delete', 'messages'] }, id: { type: 'integer' }, name: { type: 'string' }, templateId: { type: 'integer' }, leadIds: { type: 'array', items: { type: 'integer' } }, status: { type: 'string', enum: ['draft', 'active', 'paused', 'done', 'cancelled'] }, channel: { type: 'string', enum: ['email', 'sms', 'both'] }, ratePerHour: { type: 'integer' }, limit: { type: 'integer' } }, required: ['action'] } },
-    { name: 'outreach.templates', description: 'Dual-channel templates: list | save | delete. One record holds email subject/body (HTML OK) and sms_body (plain). Placeholders: {{website_link}}, {{business_name}}, {{interested}}, {{uninterested}}, {{site_screenshot}} (per-lead hosted preview image; email HTML img / SMS→MMS media URL with text+link fallback). Campaigns/compose choose email, SMS, or both.', inputSchema: { type: 'object', properties: { action: { type: 'string', enum: ['list', 'save', 'delete'] }, id: { type: 'integer' }, name: { type: 'string' }, subject: { type: 'string' }, body: { type: 'string' }, sms_body: { type: 'string' } }, required: ['action'] } },
-    { name: 'outreach.processQueue', description: 'Process queued email and SMS messages (respects automation pause, suppression, daily cap).', inputSchema: { type: 'object', properties: {} } },
+    {
+      name: 'design.next',
+      description: 'Claim next waiting_on_agent job.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'design.list',
+      description: 'List design jobs.',
+      inputSchema: { type: 'object', properties: { status: { type: 'string' }, limit: { type: 'integer' } } },
+    },
+    {
+      name: 'design.get',
+      description: 'Get design job.',
+      inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    },
+    {
+      name: 'design.delete',
+      description:
+        'Delete a design job (same operation as the REST DELETE /design/:id). Use for cleaning up test/abandoned jobs; deleting a job does not delete its lead or website.',
+      inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    },
+    {
+      name: 'design.create',
+      description: 'Create design job.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          type: { type: 'string' },
+          title: { type: 'string' },
+          instructions: { type: 'string' },
+          leadId: { type: 'integer' },
+        },
+        required: ['title', 'instructions'],
+      },
+    },
+    {
+      name: 'design.deliver',
+      description:
+        'Deliver design payload. Change requests attach change_verification + change_summary (website.qa + nav/form). Downloads remote images locally. Auto-provisions BitPype forms. Strips hand-rolled <form>. MODULES+FORMS STYLING via theme.customCss.',
+      inputSchema: {
+        type: 'object',
+        properties: { id: { type: 'integer' }, payload: { type: 'object' }, claims: { type: 'array' } },
+        required: ['id', 'payload'],
+      },
+    },
+    {
+      name: 'design.ask',
+      description: 'Ask clarifying question.',
+      inputSchema: {
+        type: 'object',
+        properties: { id: { type: 'integer' }, question: { type: 'string' } },
+        required: ['id', 'question'],
+      },
+    },
+    {
+      name: 'design.review',
+      description: 'Review delivered website (no screenshots on web).',
+      inputSchema: {
+        type: 'object',
+        properties: { id: { type: 'integer' }, skipAi: { type: 'boolean' } },
+        required: ['id'],
+      },
+    },
+    {
+      name: 'design.redesign',
+      description: 'Queue full redesign.',
+      inputSchema: {
+        type: 'object',
+        properties: { id: { type: 'integer' }, instructions: { type: 'string' } },
+        required: ['id'],
+      },
+    },
+    {
+      name: 'design.improve',
+      description: 'Queue incremental improvements.',
+      inputSchema: {
+        type: 'object',
+        properties: { id: { type: 'integer' }, instructions: { type: 'string' } },
+        required: ['id'],
+      },
+    },
+    {
+      name: 'design.previewUrl',
+      description: 'HTTP preview URL for delivered site.',
+      inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    },
+    {
+      name: 'website.list',
+      description: 'List websites.',
+      inputSchema: { type: 'object', properties: { status: { type: 'string' } } },
+    },
+    {
+      name: 'website.get',
+      description:
+        'Get website (parsed pages/theme, latest version_note, formsUnembedded when embed target page missing).',
+      inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    },
+    {
+      name: 'website.checkLive',
+      description:
+        "Fetch the site's live preview URL and each page path under it; returns per-URL HTTP status so agents can verify a publish actually serves (200s) before reporting done. Errors NO_PREVIEW_URL when the site has no preview_url.",
+      inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    },
+    {
+      name: 'website.delete',
+      description:
+        'Delete a website record and purge its EXPORT_ROOT folders (ws-{workspace}-site-{id}*, site-{id}, screenshots, legacy slug exports). Does not wipe other workspaces or delete remote Cloudflare Pages projects. Design jobs are unlinked, not deleted.',
+      inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    },
+    {
+      name: 'website.generate',
+      description:
+        'Generate template website for lead. Also auto-provisions Bitpype contact/quote/appointment forms for matching pages and embeds them.',
+      inputSchema: {
+        type: 'object',
+        properties: { leadId: { type: 'integer' }, force: { type: 'boolean' } },
+        required: ['leadId'],
+      },
+    },
+    {
+      name: 'website.qa',
+      description:
+        'QA custom/template site. No mandatory hero. Grades links, ≤1 form/page, export images + crop aspect, unique nav labels, no horizontal overflow at 390px, module-fit (appointment-intent pages need bookings + published service + hours), form-purpose-fields warning.',
+      inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    },
+    {
+      name: 'website.export',
+      description:
+        'Export website HTML/assets. Multipage nav links are normalized on save; preview/publish blocks dangling #hash cross-page links.',
+      inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    },
+    {
+      name: 'website.postcard',
+      description:
+        'Claim kit for a website: site preview URL + signed claim Yes/No URL + QR data-URLs. Pass includePdf:true for base64 PDF (4×6 postcard). Works while automation is paused. Requires APP_URL + SESSION_SECRET and a preview URL for PDF.',
+      inputSchema: {
+        type: 'object',
+        properties: { id: { type: 'integer' }, includePdf: { type: 'boolean' } },
+        required: ['id'],
+      },
+    },
+    {
+      name: 'lead.claimKit',
+      description:
+        'Claim kit for a lead (latest website): site URL, claim URL, QR data-URLs; optional includePdf for postcard PDF base64. Same intent path as {{interested}}/{{uninterested}}.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          leadId: { type: 'integer' },
+          id: { type: 'integer' },
+          websiteId: { type: 'integer' },
+          includePdf: { type: 'boolean' },
+        },
+        required: ['leadId'],
+      },
+    },
+    {
+      name: 'outreach.campaigns',
+      description:
+        'Campaign admin: list | create | setStatus | cancel | delete | messages. create uses a dual-channel template; pass channel email|sms|both. setStatus accepts draft|active|paused|done (cancelled campaigns cannot resume — use cancel). delete removes the campaign row.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['list', 'create', 'setStatus', 'cancel', 'delete', 'messages'] },
+          id: { type: 'integer' },
+          name: { type: 'string' },
+          templateId: { type: 'integer' },
+          leadIds: { type: 'array', items: { type: 'integer' } },
+          status: { type: 'string', enum: ['draft', 'active', 'paused', 'done', 'cancelled'] },
+          channel: { type: 'string', enum: ['email', 'sms', 'both'] },
+          ratePerHour: { type: 'integer' },
+          limit: { type: 'integer' },
+        },
+        required: ['action'],
+      },
+    },
+    {
+      name: 'outreach.templates',
+      description:
+        'Dual-channel templates: list | save | delete. One record holds email subject/body (HTML OK) and sms_body (plain). Placeholders: {{website_link}}, {{business_name}}, {{interested}}, {{uninterested}}, {{site_screenshot}} (per-lead hosted preview image; email HTML img / SMS→MMS media URL with text+link fallback). Campaigns/compose choose email, SMS, or both.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['list', 'save', 'delete'] },
+          id: { type: 'integer' },
+          name: { type: 'string' },
+          subject: { type: 'string' },
+          body: { type: 'string' },
+          sms_body: { type: 'string' },
+        },
+        required: ['action'],
+      },
+    },
+    {
+      name: 'outreach.processQueue',
+      description: 'Process queued email and SMS messages (respects automation pause, suppression, daily cap).',
+      inputSchema: { type: 'object', properties: {} },
+    },
     { name: 'outreach.stats', description: 'Outreach stats.', inputSchema: { type: 'object', properties: {} } },
     { name: 'outreach.pipeline', description: 'Pipeline board.', inputSchema: { type: 'object', properties: {} } },
-    { name: 'email.compose', description: 'Compose from a dual-channel template. Pass channel email|sms (default email). queue:true persists a campaign_message and returns messageId for email.send. SMS needs lead.phone + template.sms_body. Email personalizes {{website_link}}, {{interested}}, {{uninterested}}.', inputSchema: { type: 'object', properties: { leadId: { type: 'integer' }, templateId: { type: 'integer' }, queue: { type: 'boolean' }, channel: { type: 'string', enum: ['email', 'sms'] } }, required: ['leadId', 'templateId'] } },
-    { name: 'email.draft', description: 'AI-draft outreach JSON: subject + HTML body + companion sms_body (must include {{website_link}}). Optional leadId for context, prompt to steer, existingSubject/existingBody to revise. Returns draft fields only — save via outreach.templates or compose. Respects automation pause.', inputSchema: { type: 'object', properties: { prompt: { type: 'string' }, leadId: { type: 'integer' }, existingSubject: { type: 'string' }, existingBody: { type: 'string' } } } },
-    { name: 'email.uploadAsset', description: 'Upload an image for HTML email templates (base64 via data or base64, max 5MB). Returns a public APP_URL /email-assets/{workspaceId}/{file} URL safe for img src. Does not send mail.', inputSchema: schema({ data: STR, mimeType: STR, base64: STR, mime: STR }) },
-    { name: 'sms.queue', description: 'Queue a freeform SMS for a lead (personalizes {{website_link}}; appends link if missing). Requires lead phone. Returns messageId for email.send (same sender path handles SMS). Respects automation pause.', inputSchema: { type: 'object', properties: { leadId: { type: 'integer' }, body: { type: 'string', maxLength: 1600 } }, required: ['leadId', 'body'] } },
-    { name: 'settings.get', description: 'Read settings (secrets redacted).', inputSchema: { type: 'object', properties: {} } },
-    { name: 'settings.set', description: 'Set non-secret setting.', inputSchema: { type: 'object', properties: { key: { type: 'string' }, value: { type: 'string' } }, required: ['key', 'value'] } },
+    {
+      name: 'email.compose',
+      description:
+        'Compose from a dual-channel template. Pass channel email|sms (default email). queue:true persists a campaign_message and returns messageId for email.send. SMS needs lead.phone + template.sms_body. Email personalizes {{website_link}}, {{interested}}, {{uninterested}}.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          leadId: { type: 'integer' },
+          templateId: { type: 'integer' },
+          queue: { type: 'boolean' },
+          channel: { type: 'string', enum: ['email', 'sms'] },
+        },
+        required: ['leadId', 'templateId'],
+      },
+    },
+    {
+      name: 'email.draft',
+      description:
+        'AI-draft outreach JSON: subject + HTML body + companion sms_body (must include {{website_link}}). Optional leadId for context, prompt to steer, existingSubject/existingBody to revise. Returns draft fields only — save via outreach.templates or compose. Respects automation pause.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string' },
+          leadId: { type: 'integer' },
+          existingSubject: { type: 'string' },
+          existingBody: { type: 'string' },
+        },
+      },
+    },
+    {
+      name: 'email.uploadAsset',
+      description:
+        'Upload an image for HTML email templates (base64 via data or base64, max 5MB). Returns a public APP_URL /email-assets/{workspaceId}/{file} URL safe for img src. Does not send mail.',
+      inputSchema: schema({ data: STR, mimeType: STR, base64: STR, mime: STR }),
+    },
+    {
+      name: 'sms.queue',
+      description:
+        'Queue a freeform SMS for a lead (personalizes {{website_link}}; appends link if missing). Requires lead phone. Returns messageId for email.send (same sender path handles SMS). Respects automation pause.',
+      inputSchema: {
+        type: 'object',
+        properties: { leadId: { type: 'integer' }, body: { type: 'string', maxLength: 1600 } },
+        required: ['leadId', 'body'],
+      },
+    },
+    {
+      name: 'settings.get',
+      description: 'Read settings (secrets redacted).',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'settings.set',
+      description: 'Set non-secret setting.',
+      inputSchema: {
+        type: 'object',
+        properties: { key: { type: 'string' }, value: { type: 'string' } },
+        required: ['key', 'value'],
+      },
+    },
     { name: 'automation.pause', description: 'Pause automation.', inputSchema: { type: 'object', properties: {} } },
     { name: 'automation.resume', description: 'Resume automation.', inputSchema: { type: 'object', properties: {} } },
     { name: 'analytics.get', description: 'Dashboard stats.', inputSchema: { type: 'object', properties: {} } },
-    { name: 'discovery.schedule', description: 'get|set|runNow discovery schedule.', inputSchema: { type: 'object', properties: { action: { type: 'string' } }, required: ['action'] } },
-    { name: 'cloudflare.publish', description: 'Publish site to Cloudflare Pages.', inputSchema: { type: 'object', properties: { websiteId: { type: 'integer' } }, required: ['websiteId'] } },
-    { name: 'cloudflare.test', description: 'Test Cloudflare credentials.', inputSchema: { type: 'object', properties: {} } },
-    { name: 'domains.search', description: 'Search Cloudflare Registrar for domain suggestions.', inputSchema: schema({ q: STR, query: STR, leadId: ID, limit: { type: 'integer' } }) },
-    { name: 'domains.check', description: 'Real-time domain availability + pricing (Cloudflare Registrar).', inputSchema: schema({ domain: STR, domains: { type: 'array', items: STR } }) },
-    { name: 'domains.register', description: 'Purchase a domain via Cloudflare Registrar (bills CF payment method).', inputSchema: schema({ domain: STR, domainName: STR, years: { type: 'integer' }, websiteId: ID, leadId: ID }, ['domain']) },
-    { name: 'domains.status', description: 'Poll domain registration workflow status.', inputSchema: schema({ domain: STR }, ['domain']) },
-    { name: 'domains.list', description: 'List workspace domain records (linked/registered).', inputSchema: schema({ websiteId: ID, leadId: ID, status: STR }) },
-    { name: 'domains.owned', description: 'List domains on the Cloudflare Registrar account.', inputSchema: schema({}) },
-    { name: 'domains.link', description: 'Link a domain to a website Pages project (custom hostname).', inputSchema: schema({ domain: STR, websiteId: ID, leadId: ID, forcePublish: { type: 'boolean' }, project: STR }, ['domain', 'websiteId']) },
-    { name: 'domains.unlink', description: 'Unlink a domain from its website.', inputSchema: schema({ domain: STR, project: STR, removeFromPages: { type: 'boolean' } }, ['domain']) },
+    {
+      name: 'discovery.schedule',
+      description: 'get|set|runNow discovery schedule.',
+      inputSchema: { type: 'object', properties: { action: { type: 'string' } }, required: ['action'] },
+    },
+    {
+      name: 'cloudflare.publish',
+      description: 'Publish site to Cloudflare Pages.',
+      inputSchema: { type: 'object', properties: { websiteId: { type: 'integer' } }, required: ['websiteId'] },
+    },
+    {
+      name: 'cloudflare.test',
+      description: 'Test Cloudflare credentials.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'domains.search',
+      description: 'Search Cloudflare Registrar for domain suggestions.',
+      inputSchema: schema({ q: STR, query: STR, leadId: ID, limit: { type: 'integer' } }),
+    },
+    {
+      name: 'domains.check',
+      description: 'Real-time domain availability + pricing (Cloudflare Registrar).',
+      inputSchema: schema({ domain: STR, domains: { type: 'array', items: STR } }),
+    },
+    {
+      name: 'domains.register',
+      description: 'Purchase a domain via Cloudflare Registrar (bills CF payment method).',
+      inputSchema: schema({ domain: STR, domainName: STR, years: { type: 'integer' }, websiteId: ID, leadId: ID }, [
+        'domain',
+      ]),
+    },
+    {
+      name: 'domains.status',
+      description: 'Poll domain registration workflow status.',
+      inputSchema: schema({ domain: STR }, ['domain']),
+    },
+    {
+      name: 'domains.list',
+      description: 'List workspace domain records (linked/registered).',
+      inputSchema: schema({ websiteId: ID, leadId: ID, status: STR }),
+    },
+    {
+      name: 'domains.owned',
+      description: 'List domains on the Cloudflare Registrar account.',
+      inputSchema: schema({}),
+    },
+    {
+      name: 'domains.link',
+      description: 'Link a domain to a website Pages project (custom hostname).',
+      inputSchema: schema({ domain: STR, websiteId: ID, leadId: ID, forcePublish: { type: 'boolean' }, project: STR }, [
+        'domain',
+        'websiteId',
+      ]),
+    },
+    {
+      name: 'domains.unlink',
+      description: 'Unlink a domain from its website.',
+      inputSchema: schema({ domain: STR, project: STR, removeFromPages: { type: 'boolean' } }, ['domain']),
+    },
     { name: 'jobs.list', description: 'List scheduled jobs.', inputSchema: { type: 'object', properties: {} } },
-    { name: 'jobs.create', description: 'Create scheduled job.', inputSchema: { type: 'object', properties: { name: { type: 'string' }, type: { type: 'string' }, interval_minutes: { type: 'integer' }, payload: { type: 'object' } }, required: ['name', 'type'] } },
-    { name: 'jobs.update', description: 'Update job.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
-    { name: 'jobs.delete', description: 'Delete job.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
-    { name: 'jobs.runNow', description: 'Run job now.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
-    { name: 'handsOff.status', description: 'Hands-off Muse mode status: enabled, automation_paused, last run/digest, Muse key configured, scheduled jobs.', inputSchema: { type: 'object', properties: {} } },
-    { name: 'handsOff.runNow', description: 'Run one Hands-off tick now (discover→score→design→Muse→publish→outreach). Honors automation_paused. Pass force:true to run even when hands_off.enabled is off (still blocked when paused).', inputSchema: { type: 'object', properties: { force: { type: 'boolean' } } } },
+    {
+      name: 'jobs.create',
+      description: 'Create scheduled job.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          type: { type: 'string' },
+          interval_minutes: { type: 'integer' },
+          payload: { type: 'object' },
+        },
+        required: ['name', 'type'],
+      },
+    },
+    {
+      name: 'jobs.update',
+      description: 'Update job.',
+      inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    },
+    {
+      name: 'jobs.delete',
+      description: 'Delete job.',
+      inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    },
+    {
+      name: 'jobs.runNow',
+      description: 'Run job now.',
+      inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    },
+    {
+      name: 'handsOff.status',
+      description:
+        'Hands-off Muse mode status: enabled, automation_paused, last run/digest, Muse key configured, scheduled jobs.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'handsOff.runNow',
+      description:
+        'Run one Hands-off tick now (discover→score→design→Muse→publish→outreach). Honors automation_paused. Pass force:true to run even when hands_off.enabled is off (still blocked when paused).',
+      inputSchema: { type: 'object', properties: { force: { type: 'boolean' } } },
+    },
     ...parityToolDefs(),
   ]);
 }
@@ -640,56 +1285,434 @@ function toolDefs({ clientScoped = false } = {}) {
 /** Tools added for Electron IPC / stdio-MCP parity. */
 function parityToolDefs() {
   return [
-    { name: 'lead.addFact', description: 'Add a business fact to a lead (claim_class e.g. VERIFIED / OWNER_PROVIDED / INFERRED).', inputSchema: schema({ id: ID, fact_key: STR, value: STR, source: STR, source_url: STR, confidence: { type: 'string', enum: ['high', 'medium', 'low'] }, claim_class: STR }, ['id', 'fact_key', 'value', 'source', 'claim_class']) },
-    { name: 'lead.timeline', description: 'Merged lead/prospect/email event timeline for a lead.', inputSchema: schema({ id: ID, limit: { type: 'integer' } }, ['id']) },
-    { name: 'prospect.score', description: "Lead's score with Hot/Qualified/Cold label from current thresholds.", inputSchema: schema({ leadId: ID }, ['leadId']) },
+    {
+      name: 'lead.addFact',
+      description: 'Add a business fact to a lead (claim_class e.g. VERIFIED / OWNER_PROVIDED / INFERRED).',
+      inputSchema: schema(
+        {
+          id: ID,
+          fact_key: STR,
+          value: STR,
+          source: STR,
+          source_url: STR,
+          confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+          claim_class: STR,
+        },
+        ['id', 'fact_key', 'value', 'source', 'claim_class']
+      ),
+    },
+    {
+      name: 'lead.timeline',
+      description: 'Merged lead/prospect/email event timeline for a lead.',
+      inputSchema: schema({ id: ID, limit: { type: 'integer' } }, ['id']),
+    },
+    {
+      name: 'prospect.score',
+      description: "Lead's score with Hot/Qualified/Cold label from current thresholds.",
+      inputSchema: schema({ leadId: ID }, ['leadId']),
+    },
 
-    { name: 'website.create', description: 'Open a website design job for the agent (default). Pass mode "template" to generate a template site immediately. FORMS: never hand-roll <form> HTML — use the contact_form section, an existing form module, or forms.create + form/bitpype_form section. MODULES+FORMS STYLING: wrap bare mounts in a themed card/section; theme.customCss under .bitpype-module-embed, .bitpype-form-embed, and section[data-ws-section-type="site_module|bitpype_form|contact_form"].', inputSchema: schema({ leadId: ID, site_shape: { type: 'string', enum: ['landing', 'multipage'] }, siteShape: { type: 'string', enum: ['landing', 'multipage'] }, mode: { type: 'string', enum: ['agent', 'template'] }, instructions: STR, force: { type: 'boolean' } }, ['leadId']) },
-    { name: 'website.preview', description: 'Publish/export a website and return a public preview URL (Cloudflare Pages or APP_URL /site-previews/…).', inputSchema: schema({ id: ID, open: { type: 'boolean' }, force: { type: 'boolean' } }, ['id']) },
-    { name: 'website.edit', description: 'Edit a website. Full save: pass pages[] + optional theme + note. pages[].sections[]: { type, content: { … }, cols?, cells?[] }. theme.partials.{headerHtml,footerHtml} shared chrome; page.chromeOverride skips partials. Head/meta: page.description, page.ogImage, page.canonical; scripts: theme.customJs + page.customJs (before </body>); head tags: theme.customHead + page.customHead (before </head>). <script> inside section HTML is rejected with SECTION_SCRIPT — use customJs/customHead. Or pass instruction for safe structural edits. FORMS: no raw <form> — use contact_form / forms.create / website.addBlock (form).', inputSchema: schema({ id: ID, pages: { type: 'array' }, theme: { type: 'object' }, note: STR, author: STR, instruction: STR }, ['id']) },
-    { name: 'website.setLogo', description: 'Set site header logo without regenerating the site. mode "text" restores the text brand; mode "image" accepts base64 (JPEG/PNG/WebP/GIF, max ~5.5MB), cover-crops, strips solid backgrounds when feasible, saves images/logo.png with theme.logoMode=image. Pass id or leadId.', inputSchema: schema({ id: ID, mode: { type: 'string', enum: ['text', 'image'] }, data: STR, mimeType: STR, brandName: STR, leadId: ID }) },
-    { name: 'website.setTheme', description: 'Set theme colors, fonts, customCss/customJs/customHead, favicon, shared partials {headerHtml,footerHtml}. Pass id or leadId. customHead injects before </head>; customJs before </body>. Never put <script> inside section HTML — use these fields.', inputSchema: schema({ id: ID, leadId: ID, primary: STR, secondary: STR, bg: STR, text: STR, colors: { type: 'object' }, font: STR, headingFont: STR, customCss: STR, customJs: STR, customHead: STR, favicon: STR, partials: { type: 'object' }, baseCss: { type: 'boolean' }, note: STR }) },
-    { name: 'website.replaceImage', description: 'Replace site image by replaceSrc under images/ or assets/: data or prompt. Optional crop. assets/ filenames stay stable.', inputSchema: schema({ id: ID, leadId: ID, replaceSrc: STR, src: STR, data: STR, mimeType: STR, prompt: STR, size: STR, quality: STR, crop: { type: 'object' } }) },
-    { name: 'website.uploadAsset', description: 'Upload stable asset to assets/<filename> (ships on CF Pages /assets/*). Filename preserved. Optional setFavicon (injected into export <head>).', inputSchema: schema({ id: ID, websiteId: ID, leadId: ID, data: STR, mimeType: STR, mime: STR, filename: STR, name: STR, setFavicon: { type: 'boolean' } }, ['data', 'filename']) },
-    { name: 'website.screenshot', description: 'PNG screenshot at viewport width (390|1440). Pass id, path, width.', inputSchema: schema({ id: ID, websiteId: ID, path: STR, width: { type: 'integer' }, height: { type: 'integer' }, previewUrl: STR }, ['width']) },
-    { name: 'website.optimizeImages', description: 'Optimize all raster images for a customer site (resize long edge ≤2400px, compress JPEG/PNG/WebP, convert opaque photos to WebP when smaller). Keeps logo.png as PNG. Does not rename assets/ uploads. Pass id, websiteId, or leadId. Optional force.', inputSchema: schema({ id: ID, websiteId: ID, leadId: ID, force: { type: 'boolean' }, preferWebp: { type: 'boolean' } }) },
-    { name: 'website.structure', description: 'Read WordPress-style menu tree + section summary (depth, menuParent, canNest/canUnnest). Pass id or websiteId.', inputSchema: schema({ id: ID, websiteId: ID }) },
-    { name: 'website.structure.reorder', description: 'Reorder menu/sections or nest/unnest a one-level submenu. scope=menu|sections; action=move|nest|unnest; fromIndex from website.structure.menu[].index; direction -1|1 for move; pageIndex when scope=sections.', inputSchema: schema({ id: ID, websiteId: ID, scope: STR, action: STR, fromIndex: { type: 'integer', minimum: 0 }, direction: { type: 'integer' }, pageIndex: { type: 'integer', minimum: 0 } }, ['scope', 'fromIndex']) },
-    { name: 'website.addSection', description: 'Add a page section (Page → Section → Block). Use sectionType "section" for an empty container, or a block type (heading/text/image/html/columns/…). cols=1..12 for columns/cards. Prefer website.addBlock to nest into an existing section or layout cell. afterIndex=-1 inserts near the top.', inputSchema: schema({ id: ID, websiteId: ID, pageIndex: { type: 'integer', minimum: 0 }, afterIndex: { type: 'integer', minimum: -1 }, sectionType: STR, type: STR, cols: { type: 'integer', minimum: 1, maximum: 12 }, html: STR }, ['pageIndex', 'afterIndex']) },
-    { name: 'website.addBlock', description: 'Add block into section or columns cell. Native module/form-in-cell via cellIndex (no body CSS hacks). Types: heading|text|image|html|columns|module|form|…', inputSchema: schema({ id: ID, websiteId: ID, pageIndex: { type: 'integer', minimum: 0 }, sectionIndex: { type: 'integer', minimum: 0 }, blockType: STR, type: STR, cols: { type: 'integer', minimum: 1, maximum: 12 }, cellIndex: { type: 'integer', minimum: 0 }, moduleType: STR, formId: ID, formToken: STR, html: STR, content: { type: 'object' } }, ['pageIndex', 'sectionIndex']) },
-    { name: 'website.forLead', description: 'Get the website for a lead (or null).', inputSchema: schema({ leadId: ID }, ['leadId']) },
-    { name: 'website.addImages', description: 'Attach Pexels stock photos to a website (not AI replace — use website.replaceImage for that).', inputSchema: schema({ id: ID, query: STR, count: { type: 'integer', minimum: 1, maximum: 6 } }, ['id']) },
-    { name: 'site.screenshots.list', description: 'List registered site preview screenshots (home/services × desktop/mobile + email/MMS renditions) by websiteId or leadId. Stored under EXPORT_ROOT/site-{id}/screenshots and served via /site-previews. Optional ready:true runs HTTP image/* checks.', inputSchema: schema({ websiteId: ID, leadId: ID, currentOnly: { type: 'boolean' }, checkReady: { type: 'boolean' }, kind: STR }) },
-    { name: 'site.screenshots.capture', description: 'Capture/regenerate viewport screenshots of a live site preview (home + services; desktop 1440×900 + mobile 390×844). Stores PNG captures plus email JPEG (≤1200px) and MMS JPEG (<900KB) renditions. Requires a public preview URL (publishes with forcePreview when needed). Does not send outreach.', inputSchema: schema({ id: ID, websiteId: ID, forcePreview: { type: 'boolean' }, previewUrl: STR }, []) },
-    { name: 'website.versions', description: 'List saved versions of a website (version_no, note, author, created_at).', inputSchema: schema({ id: ID, page: { type: 'integer' }, pageSize: { type: 'integer' } }, ['id']) },
-    { name: 'website.diff', description: 'Page-level diff between two saved versions (from/to = version_no or version row id): pages added/removed/changed by slug, per-page section type count deltas, theme keys changed.', inputSchema: schema({ id: ID, from: ID, to: ID }, ['id', 'from', 'to']) },
-    { name: 'website.restore', description: 'Restore a website version.', inputSchema: schema({ versionId: ID }, ['versionId']) },
-    { name: 'website.render', description: 'Render website (by id) or supplied pages/theme to HTML.', inputSchema: schema({ id: ID, pages: { type: 'array' }, theme: { type: 'object' }, pageSlug: STR, pageIndex: { type: 'integer' }, editable: { type: 'boolean' } }) },
+    {
+      name: 'website.create',
+      description:
+        'Open a website design job for the agent (default). Pass mode "template" to generate a template site immediately. FORMS: never hand-roll <form> HTML — use the contact_form section, an existing form module, or forms.create + form/bitpype_form section. MODULES+FORMS STYLING: wrap bare mounts in a themed card/section; theme.customCss under .bitpype-module-embed, .bitpype-form-embed, and section[data-ws-section-type="site_module|bitpype_form|contact_form"].',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          site_shape: { type: 'string', enum: ['landing', 'multipage'] },
+          siteShape: { type: 'string', enum: ['landing', 'multipage'] },
+          mode: { type: 'string', enum: ['agent', 'template'] },
+          instructions: STR,
+          force: { type: 'boolean' },
+        },
+        ['leadId']
+      ),
+    },
+    {
+      name: 'website.preview',
+      description:
+        'Publish/export a website and return a public preview URL (Cloudflare Pages or APP_URL /site-previews/…).',
+      inputSchema: schema({ id: ID, open: { type: 'boolean' }, force: { type: 'boolean' } }, ['id']),
+    },
+    {
+      name: 'website.edit',
+      description:
+        'Edit a website. Full save: pass pages[] + optional theme + note. pages[].sections[]: { type, content: { … }, cols?, cells?[] }. theme.partials.{headerHtml,footerHtml} shared chrome; page.chromeOverride skips partials. Head/meta: page.description, page.ogImage, page.canonical; scripts: theme.customJs + page.customJs (before </body>); head tags: theme.customHead + page.customHead (before </head>). <script> inside section HTML is rejected with SECTION_SCRIPT — use customJs/customHead. Or pass instruction for safe structural edits. FORMS: no raw <form> — use contact_form / forms.create / website.addBlock (form).',
+      inputSchema: schema(
+        { id: ID, pages: { type: 'array' }, theme: { type: 'object' }, note: STR, author: STR, instruction: STR },
+        ['id']
+      ),
+    },
+    {
+      name: 'website.setLogo',
+      description:
+        'Set site header logo without regenerating the site. mode "text" restores the text brand; mode "image" accepts base64 (JPEG/PNG/WebP/GIF, max ~5.5MB), cover-crops, strips solid backgrounds when feasible, saves images/logo.png with theme.logoMode=image. Pass id or leadId.',
+      inputSchema: schema({
+        id: ID,
+        mode: { type: 'string', enum: ['text', 'image'] },
+        data: STR,
+        mimeType: STR,
+        brandName: STR,
+        leadId: ID,
+      }),
+    },
+    {
+      name: 'website.setTheme',
+      description:
+        'Set theme colors, fonts, customCss/customJs/customHead, favicon, shared partials {headerHtml,footerHtml}. Pass id or leadId. customHead injects before </head>; customJs before </body>. Never put <script> inside section HTML — use these fields.',
+      inputSchema: schema({
+        id: ID,
+        leadId: ID,
+        primary: STR,
+        secondary: STR,
+        bg: STR,
+        text: STR,
+        colors: { type: 'object' },
+        font: STR,
+        headingFont: STR,
+        customCss: STR,
+        customJs: STR,
+        customHead: STR,
+        favicon: STR,
+        partials: { type: 'object' },
+        baseCss: { type: 'boolean' },
+        note: STR,
+      }),
+    },
+    {
+      name: 'website.replaceImage',
+      description:
+        'Replace site image by replaceSrc under images/ or assets/: data or prompt. Optional crop. assets/ filenames stay stable.',
+      inputSchema: schema({
+        id: ID,
+        leadId: ID,
+        replaceSrc: STR,
+        src: STR,
+        data: STR,
+        mimeType: STR,
+        prompt: STR,
+        size: STR,
+        quality: STR,
+        crop: { type: 'object' },
+      }),
+    },
+    {
+      name: 'website.uploadAsset',
+      description:
+        'Upload stable asset to assets/<filename> (ships on CF Pages /assets/*). Filename preserved. Optional setFavicon (injected into export <head>).',
+      inputSchema: schema(
+        {
+          id: ID,
+          websiteId: ID,
+          leadId: ID,
+          data: STR,
+          mimeType: STR,
+          mime: STR,
+          filename: STR,
+          name: STR,
+          setFavicon: { type: 'boolean' },
+        },
+        ['data', 'filename']
+      ),
+    },
+    {
+      name: 'website.screenshot',
+      description: 'PNG screenshot at viewport width (390|1440). Pass id, path, width.',
+      inputSchema: schema(
+        { id: ID, websiteId: ID, path: STR, width: { type: 'integer' }, height: { type: 'integer' }, previewUrl: STR },
+        ['width']
+      ),
+    },
+    {
+      name: 'website.optimizeImages',
+      description:
+        'Optimize all raster images for a customer site (resize long edge ≤2400px, compress JPEG/PNG/WebP, convert opaque photos to WebP when smaller). Keeps logo.png as PNG. Does not rename assets/ uploads. Pass id, websiteId, or leadId. Optional force.',
+      inputSchema: schema({
+        id: ID,
+        websiteId: ID,
+        leadId: ID,
+        force: { type: 'boolean' },
+        preferWebp: { type: 'boolean' },
+      }),
+    },
+    {
+      name: 'website.structure',
+      description:
+        'Read WordPress-style menu tree + section summary (depth, menuParent, canNest/canUnnest). Pass id or websiteId.',
+      inputSchema: schema({ id: ID, websiteId: ID }),
+    },
+    {
+      name: 'website.structure.reorder',
+      description:
+        'Reorder menu/sections or nest/unnest a one-level submenu. scope=menu|sections; action=move|nest|unnest; fromIndex from website.structure.menu[].index; direction -1|1 for move; pageIndex when scope=sections.',
+      inputSchema: schema(
+        {
+          id: ID,
+          websiteId: ID,
+          scope: STR,
+          action: STR,
+          fromIndex: { type: 'integer', minimum: 0 },
+          direction: { type: 'integer' },
+          pageIndex: { type: 'integer', minimum: 0 },
+        },
+        ['scope', 'fromIndex']
+      ),
+    },
+    {
+      name: 'website.addSection',
+      description:
+        'Add a page section (Page → Section → Block). Use sectionType "section" for an empty container, or a block type (heading/text/image/html/columns/…). cols=1..12 for columns/cards. Prefer website.addBlock to nest into an existing section or layout cell. afterIndex=-1 inserts near the top.',
+      inputSchema: schema(
+        {
+          id: ID,
+          websiteId: ID,
+          pageIndex: { type: 'integer', minimum: 0 },
+          afterIndex: { type: 'integer', minimum: -1 },
+          sectionType: STR,
+          type: STR,
+          cols: { type: 'integer', minimum: 1, maximum: 12 },
+          html: STR,
+        },
+        ['pageIndex', 'afterIndex']
+      ),
+    },
+    {
+      name: 'website.addBlock',
+      description:
+        'Add block into section or columns cell. Native module/form-in-cell via cellIndex (no body CSS hacks). Types: heading|text|image|html|columns|module|form|…',
+      inputSchema: schema(
+        {
+          id: ID,
+          websiteId: ID,
+          pageIndex: { type: 'integer', minimum: 0 },
+          sectionIndex: { type: 'integer', minimum: 0 },
+          blockType: STR,
+          type: STR,
+          cols: { type: 'integer', minimum: 1, maximum: 12 },
+          cellIndex: { type: 'integer', minimum: 0 },
+          moduleType: STR,
+          formId: ID,
+          formToken: STR,
+          html: STR,
+          content: { type: 'object' },
+        },
+        ['pageIndex', 'sectionIndex']
+      ),
+    },
+    {
+      name: 'website.forLead',
+      description: 'Get the website for a lead (or null).',
+      inputSchema: schema({ leadId: ID }, ['leadId']),
+    },
+    {
+      name: 'website.addImages',
+      description: 'Attach Pexels stock photos to a website (not AI replace — use website.replaceImage for that).',
+      inputSchema: schema({ id: ID, query: STR, count: { type: 'integer', minimum: 1, maximum: 6 } }, ['id']),
+    },
+    {
+      name: 'site.screenshots.list',
+      description:
+        'List registered site preview screenshots (home/services × desktop/mobile + email/MMS renditions) by websiteId or leadId. Stored under EXPORT_ROOT/site-{id}/screenshots and served via /site-previews. Optional ready:true runs HTTP image/* checks.',
+      inputSchema: schema({
+        websiteId: ID,
+        leadId: ID,
+        currentOnly: { type: 'boolean' },
+        checkReady: { type: 'boolean' },
+        kind: STR,
+      }),
+    },
+    {
+      name: 'site.screenshots.capture',
+      description:
+        'Capture/regenerate viewport screenshots of a live site preview (home + services; desktop 1440×900 + mobile 390×844). Stores PNG captures plus email JPEG (≤1200px) and MMS JPEG (<900KB) renditions. Requires a public preview URL (publishes with forcePreview when needed). Does not send outreach.',
+      inputSchema: schema({ id: ID, websiteId: ID, forcePreview: { type: 'boolean' }, previewUrl: STR }, []),
+    },
+    {
+      name: 'website.versions',
+      description: 'List saved versions of a website (version_no, note, author, created_at).',
+      inputSchema: schema({ id: ID, page: { type: 'integer' }, pageSize: { type: 'integer' } }, ['id']),
+    },
+    {
+      name: 'website.diff',
+      description:
+        'Page-level diff between two saved versions (from/to = version_no or version row id): pages added/removed/changed by slug, per-page section type count deltas, theme keys changed.',
+      inputSchema: schema({ id: ID, from: ID, to: ID }, ['id', 'from', 'to']),
+    },
+    {
+      name: 'website.restore',
+      description: 'Restore a website version.',
+      inputSchema: schema({ versionId: ID }, ['versionId']),
+    },
+    {
+      name: 'website.render',
+      description: 'Render website (by id) or supplied pages/theme to HTML.',
+      inputSchema: schema({
+        id: ID,
+        pages: { type: 'array' },
+        theme: { type: 'object' },
+        pageSlug: STR,
+        pageIndex: { type: 'integer' },
+        editable: { type: 'boolean' },
+      }),
+    },
 
-    { name: 'design.answers', description: 'Read questions and user answers for a design job.', inputSchema: schema({ id: ID }, ['id']) },
-    { name: 'design.emailQuestions', description: 'Email unanswered questions for one design job via workspace SMTP.', inputSchema: schema({ id: ID, jobId: ID }) },
-    { name: 'design.emailDelivery', description: 'Email the delivery for a non-website design job via workspace SMTP.', inputSchema: schema({ id: ID, jobId: ID }) },
-    { name: 'design.setContact', description: 'Set the contact email and/or phone on a design job.', inputSchema: schema({ id: ID, email: STR, phone: STR }, ['id']) },
-    { name: 'design.recordReply', description: 'Record a customer email reply on a design job (answers open questions).', inputSchema: schema({ id: ID, jobId: ID, reply: STR, fromEmail: STR }, ['reply']) },
-    { name: 'design.images', description: 'Attach Pexels photos to a delivered design website.', inputSchema: schema({ id: ID, query: STR, count: { type: 'integer', minimum: 1, maximum: 6 } }, ['id']) },
-    { name: 'design.generateImage', description: 'Generate images via OpenAI Images API and attach to a design job.', inputSchema: schema({ id: ID, prompt: STR, n: { type: 'integer', minimum: 1, maximum: 4 }, size: STR, quality: STR, model: STR }, ['id']) },
-    { name: 'design.generateLogo', description: 'Generate a site header logo with OpenAI Images (transparent PNG preferred), cover-crop, attach to the design job, and apply to the linked website (theme.logoMode=image + theme.logoUrl). Existing sites stay on text logos until this or website.setLogo is used. Optional prompt / brandName / websiteId. Respects automation pause.', inputSchema: schema({ id: ID, prompt: STR, brandName: STR, websiteId: ID, size: STR, quality: STR, model: STR }, ['id']) },
-    { name: 'design.openPreview', description: 'Return a public preview URL for a delivered website (Cloudflare Pages or APP_URL; not localhost).', inputSchema: schema({ id: ID, open: { type: 'boolean' } }, ['id']) },
-    { name: 'design.emailRedesign', description: 'Inbound email redesign/improvement requests: list|get|ingest|submit|dismiss|scan.', inputSchema: schema({ action: { type: 'string', enum: ['list', 'get', 'ingest', 'submit', 'dismiss', 'scan'] }, id: ID, requestId: ID, jobId: ID, designJobId: ID, leadId: ID, fromEmail: STR, subject: STR, body: STR, reply: STR, requestKind: STR, force: { type: 'boolean' }, instructions: STR, status: STR, pendingOnly: { type: 'boolean' }, includeAll: { type: 'boolean' }, limit: { type: 'integer' } }, ['action']) },
-    { name: 'design.lessons', description: 'Design learning: status|list|playbook|clear|distill.', inputSchema: schema({ action: { type: 'string', enum: ['status', 'list', 'playbook', 'clear', 'distill'] }, what: { type: 'string', enum: ['all', 'playbook', 'events'] }, jobId: ID, eventType: STR, limit: { type: 'integer', minimum: 1, maximum: 200 }, force: { type: 'boolean' } }) },
-    { name: 'design.saveWebsite', description: 'Save an edited pages/theme payload onto a delivered design website.', inputSchema: schema({ id: ID, pages: { type: 'array' }, theme: { type: 'object' } }, ['id', 'pages']) },
-    { name: 'design.removeDeliveryItem', description: 'Remove one delivered file/item (by path) from a design job.', inputSchema: schema({ id: ID, jobId: ID, path: STR }, ['path']) },
-    { name: 'design.defaultInstructions', description: 'Default website design instructions served to builders (src/defaultDesignInstructions.js). Includes Muse build pack: brief-first concept/palette/type/motif, craft gaps, publish-verify loop, nav/forms/modules/bookings/images playbook, modular freestyle delivery, and design asset ids such as mobile-nav.', inputSchema: schema({}) },
-    { name: 'design.assets', description: 'List BitPype design assets the agent can paste into builds, or get one by id. Includes mobile-nav: CSS-only hamburger menu for mobile (data-bitpype-mobile-nav) — no JavaScript; BitPype injects the CSS on export.', inputSchema: schema({ id: STR }) },
+    {
+      name: 'design.answers',
+      description: 'Read questions and user answers for a design job.',
+      inputSchema: schema({ id: ID }, ['id']),
+    },
+    {
+      name: 'design.emailQuestions',
+      description: 'Email unanswered questions for one design job via workspace SMTP.',
+      inputSchema: schema({ id: ID, jobId: ID }),
+    },
+    {
+      name: 'design.emailDelivery',
+      description: 'Email the delivery for a non-website design job via workspace SMTP.',
+      inputSchema: schema({ id: ID, jobId: ID }),
+    },
+    {
+      name: 'design.setContact',
+      description: 'Set the contact email and/or phone on a design job.',
+      inputSchema: schema({ id: ID, email: STR, phone: STR }, ['id']),
+    },
+    {
+      name: 'design.recordReply',
+      description: 'Record a customer email reply on a design job (answers open questions).',
+      inputSchema: schema({ id: ID, jobId: ID, reply: STR, fromEmail: STR }, ['reply']),
+    },
+    {
+      name: 'design.images',
+      description: 'Attach Pexels photos to a delivered design website.',
+      inputSchema: schema({ id: ID, query: STR, count: { type: 'integer', minimum: 1, maximum: 6 } }, ['id']),
+    },
+    {
+      name: 'design.generateImage',
+      description: 'Generate images via OpenAI Images API and attach to a design job.',
+      inputSchema: schema(
+        { id: ID, prompt: STR, n: { type: 'integer', minimum: 1, maximum: 4 }, size: STR, quality: STR, model: STR },
+        ['id']
+      ),
+    },
+    {
+      name: 'design.generateLogo',
+      description:
+        'Generate a site header logo with OpenAI Images (transparent PNG preferred), cover-crop, attach to the design job, and apply to the linked website (theme.logoMode=image + theme.logoUrl). Existing sites stay on text logos until this or website.setLogo is used. Optional prompt / brandName / websiteId. Respects automation pause.',
+      inputSchema: schema({ id: ID, prompt: STR, brandName: STR, websiteId: ID, size: STR, quality: STR, model: STR }, [
+        'id',
+      ]),
+    },
+    {
+      name: 'design.openPreview',
+      description: 'Return a public preview URL for a delivered website (Cloudflare Pages or APP_URL; not localhost).',
+      inputSchema: schema({ id: ID, open: { type: 'boolean' } }, ['id']),
+    },
+    {
+      name: 'design.emailRedesign',
+      description: 'Inbound email redesign/improvement requests: list|get|ingest|submit|dismiss|scan.',
+      inputSchema: schema(
+        {
+          action: { type: 'string', enum: ['list', 'get', 'ingest', 'submit', 'dismiss', 'scan'] },
+          id: ID,
+          requestId: ID,
+          jobId: ID,
+          designJobId: ID,
+          leadId: ID,
+          fromEmail: STR,
+          subject: STR,
+          body: STR,
+          reply: STR,
+          requestKind: STR,
+          force: { type: 'boolean' },
+          instructions: STR,
+          status: STR,
+          pendingOnly: { type: 'boolean' },
+          includeAll: { type: 'boolean' },
+          limit: { type: 'integer' },
+        },
+        ['action']
+      ),
+    },
+    {
+      name: 'design.lessons',
+      description: 'Design learning: status|list|playbook|clear|distill.',
+      inputSchema: schema({
+        action: { type: 'string', enum: ['status', 'list', 'playbook', 'clear', 'distill'] },
+        what: { type: 'string', enum: ['all', 'playbook', 'events'] },
+        jobId: ID,
+        eventType: STR,
+        limit: { type: 'integer', minimum: 1, maximum: 200 },
+        force: { type: 'boolean' },
+      }),
+    },
+    {
+      name: 'design.saveWebsite',
+      description: 'Save an edited pages/theme payload onto a delivered design website.',
+      inputSchema: schema({ id: ID, pages: { type: 'array' }, theme: { type: 'object' } }, ['id', 'pages']),
+    },
+    {
+      name: 'design.removeDeliveryItem',
+      description: 'Remove one delivered file/item (by path) from a design job.',
+      inputSchema: schema({ id: ID, jobId: ID, path: STR }, ['path']),
+    },
+    {
+      name: 'design.defaultInstructions',
+      description:
+        'Default website design instructions served to builders (src/defaultDesignInstructions.js). Includes Muse build pack: brief-first concept/palette/type/motif, craft gaps, publish-verify loop, nav/forms/modules/bookings/images playbook, modular freestyle delivery, and design asset ids such as mobile-nav.',
+      inputSchema: schema({}),
+    },
+    {
+      name: 'design.assets',
+      description:
+        'List BitPype design assets the agent can paste into builds, or get one by id. Includes mobile-nav: CSS-only hamburger menu for mobile (data-bitpype-mobile-nav) — no JavaScript; BitPype injects the CSS on export.',
+      inputSchema: schema({ id: STR }),
+    },
 
-    { name: 'email.send', description: 'Send a queued message now. Respects suppression list, automation pause, and daily outreach cap.', inputSchema: schema({ messageId: ID }, ['messageId']) },
-    { name: 'outreach.suppression', description: 'Suppression list: list|add|remove.', inputSchema: schema({ action: { type: 'string', enum: ['list', 'add', 'remove'] }, email: STR, reason: STR, id: ID, page: { type: 'integer' }, pageSize: { type: 'integer' } }, ['action']) },
-    { name: 'outreach.intent', description: 'Prospect intent: get|record.', inputSchema: schema({ action: { type: 'string', enum: ['get', 'record'] }, leadId: ID, event: STR, note: STR }, ['action', 'leadId']) },
+    {
+      name: 'email.send',
+      description: 'Send a queued message now. Respects suppression list, automation pause, and daily outreach cap.',
+      inputSchema: schema({ messageId: ID }, ['messageId']),
+    },
+    {
+      name: 'outreach.suppression',
+      description: 'Suppression list: list|add|remove.',
+      inputSchema: schema(
+        {
+          action: { type: 'string', enum: ['list', 'add', 'remove'] },
+          email: STR,
+          reason: STR,
+          id: ID,
+          page: { type: 'integer' },
+          pageSize: { type: 'integer' },
+        },
+        ['action']
+      ),
+    },
+    {
+      name: 'outreach.intent',
+      description: 'Prospect intent: get|record.',
+      inputSchema: schema({ action: { type: 'string', enum: ['get', 'record'] }, leadId: ID, event: STR, note: STR }, [
+        'action',
+        'leadId',
+      ]),
+    },
 
-    { name: 'ai.usage', description: 'AI spend: today, month, by task and recent calls.', inputSchema: schema({ days: { type: 'integer', minimum: 1, maximum: 365 } }) },
+    {
+      name: 'ai.usage',
+      description: 'AI spend: today, month, by task and recent calls.',
+      inputSchema: schema({ days: { type: 'integer', minimum: 1, maximum: 365 } }),
+    },
     { name: 'prompts.list', description: 'List editable AI prompts.', inputSchema: schema({}) },
-    { name: 'prompts.save', description: 'Save an AI prompt body, or restore the seed default with reset:true.', inputSchema: schema({ key: STR, body: STR, reset: { type: 'boolean' } }, ['key']) },
-    { name: 'activity.recent', description: 'Recent activity log.', inputSchema: schema({ limit: { type: 'integer' }, page: { type: 'integer' }, pageSize: { type: 'integer' } }) },
+    {
+      name: 'prompts.save',
+      description: 'Save an AI prompt body, or restore the seed default with reset:true.',
+      inputSchema: schema({ key: STR, body: STR, reset: { type: 'boolean' } }, ['key']),
+    },
+    {
+      name: 'activity.recent',
+      description: 'Recent activity log.',
+      inputSchema: schema({ limit: { type: 'integer' }, page: { type: 'integer' }, pageSize: { type: 'integer' } }),
+    },
   ];
 }
 
@@ -710,13 +1733,19 @@ async function callParityTool(ws, name, a) {
   switch (name) {
     case 'lead.addFact': {
       const fact = domain.leadsAddFact(ws, need(a.id, 'id'), {
-        fact_key: a.fact_key, value: a.value, source: a.source,
-        source_url: a.source_url, confidence: a.confidence, claim_class: a.claim_class,
+        fact_key: a.fact_key,
+        value: a.value,
+        source: a.source,
+        source_url: a.source_url,
+        confidence: a.confidence,
+        claim_class: a.claim_class,
       });
       return { fact };
     }
-    case 'lead.timeline': return { timeline: domain.leadsTimeline(ws, need(a.id, 'id'), { limit: a.limit }) };
-    case 'prospect.score': return domain.prospectScore(ws, need(a.leadId, 'leadId'));
+    case 'lead.timeline':
+      return { timeline: domain.leadsTimeline(ws, need(a.id, 'id'), { limit: a.limit }) };
+    case 'prospect.score':
+      return domain.prospectScore(ws, need(a.leadId, 'leadId'));
 
     case 'website.create': {
       const leadId = need(a.leadId, 'leadId');
@@ -731,20 +1760,31 @@ async function callParityTool(ws, name, a) {
         title: `${lead.lead.business_name || 'Business'} website`,
         instructions: (a.instructions && String(a.instructions).trim()) || domain.designDefaultInstructions().website,
       });
-      domain.withDb(ws, (db) => db.prepare('INSERT INTO lead_events (lead_id, type, detail) VALUES (?, ?, ?)')
-        .run(leadId, 'site_assigned', `Design job #${job.id} assigned via MCP (agent-owned design, ${job.site_shape || 'multipage'})`));
+      domain.withDb(ws, (db) =>
+        db
+          .prepare('INSERT INTO lead_events (lead_id, type, detail) VALUES (?, ?, ?)')
+          .run(
+            leadId,
+            'site_assigned',
+            `Design job #${job.id} assigned via MCP (agent-owned design, ${job.site_shape || 'multipage'})`
+          )
+      );
       return { jobId: job.id, status: job.status, type: 'website', site_shape: job.site_shape };
     }
-    case 'website.preview': return domain.sitesPreview(ws, need(a.id, 'id'), { open: !!a.open, force: !!a.force });
+    case 'website.preview':
+      return domain.sitesPreview(ws, need(a.id, 'id'), { open: !!a.open, force: !!a.force });
     case 'website.edit': {
       const id = need(a.id, 'id');
       if (a.pages != null) {
         let theme = a.theme;
         if (theme == null) {
           const existing = domain.sitesGet(ws, id);
-          theme = existing && existing.theme != null
-            ? (typeof existing.theme === 'string' ? JSON.parse(existing.theme) : existing.theme)
-            : {};
+          theme =
+            existing && existing.theme != null
+              ? typeof existing.theme === 'string'
+                ? JSON.parse(existing.theme)
+                : existing.theme
+              : {};
         }
         return domain.sitesSave(ws, id, { pages: a.pages, theme, note: a.note });
       }
@@ -761,10 +1801,12 @@ async function callParityTool(ws, name, a) {
           note: 'MCP website.setLogo text',
         });
       }
-      const dataB64 = String(a.data || '').replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '').replace(/\s+/g, '');
+      const dataB64 = String(a.data || '')
+        .replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '')
+        .replace(/\s+/g, '');
       if (!dataB64) throw new Error('data (base64 image) is required for mode=image, or pass mode=text.');
       // Cap before Buffer.from to avoid huge allocations (~5.5MB decoded).
-      const maxB64 = Math.ceil(5.5 * 1024 * 1024 * 4 / 3) + 256;
+      const maxB64 = Math.ceil((5.5 * 1024 * 1024 * 4) / 3) + 256;
       if (dataB64.length > maxB64) throw new Error('Logo image is too large (max 5.5 MB).');
       const buffer = Buffer.from(dataB64, 'base64');
       return domain.sitesSetLogo(ws, a.id != null ? need(a.id, 'id') : null, {
@@ -776,9 +1818,10 @@ async function callParityTool(ws, name, a) {
       });
     }
     case 'website.setTheme': {
-      const colors = a.colors && typeof a.colors === 'object'
-        ? a.colors
-        : { primary: a.primary, secondary: a.secondary, bg: a.bg, text: a.text };
+      const colors =
+        a.colors && typeof a.colors === 'object'
+          ? a.colors
+          : { primary: a.primary, secondary: a.secondary, bg: a.bg, text: a.text };
       return domain.sitesSetTheme(ws, a.id != null ? need(a.id, 'id') : null, {
         leadId: a.leadId != null ? need(a.leadId, 'leadId') : undefined,
         colors,
@@ -894,10 +1937,12 @@ async function callParityTool(ws, name, a) {
         content: a.content,
       });
     }
-    case 'website.forLead': return domain.sitesForLead(ws, need(a.leadId, 'leadId'));
-    case 'website.addImages': return domain.sitesAddImages(ws, need(a.id, 'id'), { query: a.query, count: a.count });
+    case 'website.forLead':
+      return domain.sitesForLead(ws, need(a.leadId, 'leadId'));
+    case 'website.addImages':
+      return domain.sitesAddImages(ws, need(a.id, 'id'), { query: a.query, count: a.count });
     case 'site.screenshots.list': {
-      const websiteId = a.websiteId != null ? Number(a.websiteId) : (a.id != null ? Number(a.id) : undefined);
+      const websiteId = a.websiteId != null ? Number(a.websiteId) : a.id != null ? Number(a.id) : undefined;
       const leadId = a.leadId != null ? Number(a.leadId) : undefined;
       if (!(Number.isInteger(websiteId) && websiteId > 0) && !(Number.isInteger(leadId) && leadId > 0)) {
         throw Object.assign(new Error('websiteId or leadId is required'), { code: 'INVALID_ARGS' });
@@ -919,23 +1964,38 @@ async function callParityTool(ws, name, a) {
         designJobId: a.designJobId,
       });
     }
-    case 'website.versions': return domain.sitesVersions(ws, need(a.id, 'id'), a);
-    case 'website.diff': return domain.sitesDiff(ws, need(a.id, 'id'), a);
-    case 'website.restore': return { site: domain.sitesRestore(ws, need(a.versionId, 'versionId')) };
-    case 'website.render': return domain.sitesRenderHtml(ws, a.id != null ? need(a.id, 'id') : null, a);
+    case 'website.versions':
+      return domain.sitesVersions(ws, need(a.id, 'id'), a);
+    case 'website.diff':
+      return domain.sitesDiff(ws, need(a.id, 'id'), a);
+    case 'website.restore':
+      return { site: domain.sitesRestore(ws, need(a.versionId, 'versionId')) };
+    case 'website.render':
+      return domain.sitesRenderHtml(ws, a.id != null ? need(a.id, 'id') : null, a);
 
-    case 'design.answers': return domain.designListAnswers(ws, need(a.id, 'id'));
-    case 'design.emailQuestions': return await domain.designEmailQuestions(ws, need(a.jobId != null ? a.jobId : a.id, 'jobId'));
-    case 'design.emailDelivery': return await domain.designEmailDelivery(ws, need(a.jobId != null ? a.jobId : a.id, 'jobId'));
-    case 'design.setContact': return { job: domain.designSetContact(ws, need(a.id, 'id'), { email: a.email, phone: a.phone }) };
-    case 'design.recordReply': return { job: domain.designRecordReply(ws, need(a.id != null ? a.id : a.jobId, 'id'), a.reply, a.fromEmail) };
+    case 'design.answers':
+      return domain.designListAnswers(ws, need(a.id, 'id'));
+    case 'design.emailQuestions':
+      return await domain.designEmailQuestions(ws, need(a.jobId != null ? a.jobId : a.id, 'jobId'));
+    case 'design.emailDelivery':
+      return await domain.designEmailDelivery(ws, need(a.jobId != null ? a.jobId : a.id, 'jobId'));
+    case 'design.setContact':
+      return { job: domain.designSetContact(ws, need(a.id, 'id'), { email: a.email, phone: a.phone }) };
+    case 'design.recordReply':
+      return { job: domain.designRecordReply(ws, need(a.id != null ? a.id : a.jobId, 'id'), a.reply, a.fromEmail) };
     case 'design.images': {
       ensureNotPaused(ws);
       return domain.designAddImages(ws, need(a.id, 'id'), { query: a.query, count: a.count });
     }
     case 'design.generateImage': {
       ensureNotPaused(ws);
-      const r = await domain.designGenerateImages(ws, need(a.id, 'id'), { prompt: a.prompt, n: a.n, size: a.size, quality: a.quality, model: a.model });
+      const r = await domain.designGenerateImages(ws, need(a.id, 'id'), {
+        prompt: a.prompt,
+        n: a.n,
+        size: a.size,
+        quality: a.quality,
+        model: a.model,
+      });
       return { id: r.id, count: r.count, model: r.model, prompt: r.prompt, paths: r.paths };
     }
     case 'design.generateLogo': {
@@ -949,11 +2009,21 @@ async function callParityTool(ws, name, a) {
         model: a.model,
       });
     }
-    case 'design.openPreview': return domain.designOpenPreview(ws, need(a.id, 'id'), { open: !!a.open });
+    case 'design.openPreview':
+      return domain.designOpenPreview(ws, need(a.id, 'id'), { open: !!a.open });
     case 'design.emailRedesign': {
-      const action = String(a.action || '').trim().toLowerCase();
+      const action = String(a.action || '')
+        .trim()
+        .toLowerCase();
       const reqId = a.id != null ? a.id : a.requestId;
-      if (action === 'list') return domain.emailRedesignList(ws, { limit: a.limit, status: a.status, jobId: a.jobId, pendingOnly: a.pendingOnly, includeAll: a.includeAll });
+      if (action === 'list')
+        return domain.emailRedesignList(ws, {
+          limit: a.limit,
+          status: a.status,
+          jobId: a.jobId,
+          pendingOnly: a.pendingOnly,
+          includeAll: a.includeAll,
+        });
       if (action === 'get') return domain.emailRedesignGet(ws, need(reqId, 'id'));
       if (action === 'ingest') {
         if (a.body == null && a.reply == null) throw new Error('body is required for ingest.');
@@ -965,18 +2035,25 @@ async function callParityTool(ws, name, a) {
       throw new Error('action must be list, get, ingest, submit, dismiss, or scan.');
     }
     case 'design.lessons': {
-      const action = String(a.action || 'status').trim().toLowerCase();
+      const action = String(a.action || 'status')
+        .trim()
+        .toLowerCase();
       if (action === 'status') return domain.learningStatus(ws);
-      if (action === 'list') return domain.learningEvents(ws, { jobId: a.jobId, eventType: a.eventType, limit: a.limit });
+      if (action === 'list')
+        return domain.learningEvents(ws, { jobId: a.jobId, eventType: a.eventType, limit: a.limit });
       if (action === 'playbook') return domain.learningPlaybook(ws);
       if (action === 'clear') return domain.learningClear(ws, a.what || 'playbook');
       if (action === 'distill') return domain.learningDistill(ws, { force: !!a.force });
       throw new Error('action must be status, list, playbook, clear, or distill.');
     }
-    case 'design.saveWebsite': return { job: domain.designSaveWebsite(ws, need(a.id, 'id'), a.pages, a.theme) };
-    case 'design.removeDeliveryItem': return { job: domain.designRemoveDelivery(ws, need(a.id != null ? a.id : a.jobId, 'id'), a.path) };
-    case 'design.defaultInstructions': return domain.designDefaultInstructions();
-    case 'design.assets': return domain.designAssets(a.id);
+    case 'design.saveWebsite':
+      return { job: domain.designSaveWebsite(ws, need(a.id, 'id'), a.pages, a.theme) };
+    case 'design.removeDeliveryItem':
+      return { job: domain.designRemoveDelivery(ws, need(a.id != null ? a.id : a.jobId, 'id'), a.path) };
+    case 'design.defaultInstructions':
+      return domain.designDefaultInstructions();
+    case 'design.assets':
+      return domain.designAssets(a.id);
 
     case 'email.send': {
       ensureNotPaused(ws);
@@ -995,14 +2072,18 @@ async function callParityTool(ws, name, a) {
       throw new Error('Unknown intent action (get|record).');
     }
 
-    case 'ai.usage': return domain.aiUsage(ws, a.days != null ? Math.min(365, Math.max(1, Number(a.days) || 30)) : 30);
-    case 'prompts.list': return { prompts: domain.promptsList(ws) };
+    case 'ai.usage':
+      return domain.aiUsage(ws, a.days != null ? Math.min(365, Math.max(1, Number(a.days) || 30)) : 30);
+    case 'prompts.list':
+      return { prompts: domain.promptsList(ws) };
     case 'prompts.save': {
       if (a.reset) return domain.promptsReset(ws, a.key);
       return domain.promptsSave(ws, a.key, a.body);
     }
-    case 'activity.recent': return domain.activityRecent(ws, a);
-    default: return undefined;
+    case 'activity.recent':
+      return domain.activityRecent(ws, a);
+    default:
+      return undefined;
   }
 }
 
@@ -1028,32 +2109,68 @@ async function callClientTool(ws, name, a, ctx = {}) {
 
   if (name === 'social.posts.list' || name === 'social.posts.update' || name === 'social.posts.approve') {
     if (!entitlements.socialMcpSchedule) {
-      throw Object.assign(
-        new Error('Social MCP scheduling requires Premium (socialMcpSchedule).'),
-        { code: 'PLAN_REQUIRED' }
-      );
+      throw Object.assign(new Error('Social MCP scheduling requires Premium (socialMcpSchedule).'), {
+        code: 'PLAN_REQUIRED',
+      });
     }
   }
   const moduleToolNames = new Set([
-    'website.addModule', 'modules.list',
-    'blog.list', 'blog.create', 'blog.update', 'blog.delete',
-    'ecommerce.list', 'ecommerce.create', 'ecommerce.update', 'ecommerce.delete', 'ecommerce.listOrders',
-    'courses.list', 'courses.create', 'courses.update', 'courses.delete', 'courses.addLesson',
-    'gallery.list', 'gallery.create', 'gallery.update', 'gallery.delete', 'gallery.addImage',
-    'directory.list', 'directory.create', 'directory.update', 'directory.delete',
-    'faq.list', 'faq.create', 'faq.update', 'faq.delete',
-    'testimonials.list', 'testimonials.create', 'testimonials.update', 'testimonials.delete',
-    'team.list', 'team.create', 'team.update', 'team.delete',
-    'events.list', 'events.create', 'events.update', 'events.delete',
-    'bookings.services', 'bookings.createService', 'bookings.updateService', 'bookings.deleteService',
-    'bookings.setHours', 'bookings.getHours', 'bookings.setSettings',
-    'bookings.list', 'bookings.updateStatus', 'bookings.slots',
+    'website.addModule',
+    'modules.list',
+    'blog.list',
+    'blog.create',
+    'blog.update',
+    'blog.delete',
+    'ecommerce.list',
+    'ecommerce.create',
+    'ecommerce.update',
+    'ecommerce.delete',
+    'ecommerce.listOrders',
+    'courses.list',
+    'courses.create',
+    'courses.update',
+    'courses.delete',
+    'courses.addLesson',
+    'gallery.list',
+    'gallery.create',
+    'gallery.update',
+    'gallery.delete',
+    'gallery.addImage',
+    'directory.list',
+    'directory.create',
+    'directory.update',
+    'directory.delete',
+    'faq.list',
+    'faq.create',
+    'faq.update',
+    'faq.delete',
+    'testimonials.list',
+    'testimonials.create',
+    'testimonials.update',
+    'testimonials.delete',
+    'team.list',
+    'team.create',
+    'team.update',
+    'team.delete',
+    'events.list',
+    'events.create',
+    'events.update',
+    'events.delete',
+    'bookings.services',
+    'bookings.createService',
+    'bookings.updateService',
+    'bookings.deleteService',
+    'bookings.setHours',
+    'bookings.getHours',
+    'bookings.setSettings',
+    'bookings.list',
+    'bookings.updateStatus',
+    'bookings.slots',
   ]);
   if (moduleToolNames.has(name) && !entitlements.siteModules) {
-    throw Object.assign(
-      new Error('Site modules require Standard or Premium (siteModules).'),
-      { code: 'PLAN_REQUIRED' }
-    );
+    throw Object.assign(new Error('Site modules require Standard or Premium (siteModules).'), {
+      code: 'PLAN_REQUIRED',
+    });
   }
 
   if (name === 'social.posts.list') {
@@ -1070,10 +2187,13 @@ async function callClientTool(ws, name, a, ctx = {}) {
       }
       sql += ' ORDER BY scheduled_at ASC, id ASC LIMIT ?';
       params.push(limit);
-      const posts = db.prepare(sql).all(...params).map((p) => {
-        const pub = social.publicPost ? social.publicPost(p) : p;
-        return pub;
-      });
+      const posts = db
+        .prepare(sql)
+        .all(...params)
+        .map((p) => {
+          const pub = social.publicPost ? social.publicPost(p) : p;
+          return pub;
+        });
       return { plan: planId, leadId, posts };
     });
   }
@@ -1123,7 +2243,9 @@ async function callClientTool(ws, name, a, ctx = {}) {
     if (ctx.leadId && Number(leadId) !== Number(ctx.leadId)) throw new Error('Forbidden');
     const moduleType = a.module || a.moduleType || a.type;
     if (!moduleType) {
-      throw new Error('module is required (blog|ecommerce|courses|gallery|directory|faq|testimonials|team|events|bookings|chatbot)');
+      throw new Error(
+        'module is required (blog|ecommerce|courses|gallery|directory|faq|testimonials|team|events|bookings|chatbot)'
+      );
     }
     const attached = domain.modulesAttach(ws, leadId, moduleType, a);
     return {
@@ -1176,10 +2298,13 @@ async function callClientTool(ws, name, a, ctx = {}) {
     const leadId = resolveLeadId(ctx, a.leadId);
     if (!leadId && !ctx.leadId) throw new Error('leadId is required');
     if (ctx.leadId && leadId && Number(leadId) !== Number(ctx.leadId)) throw new Error('Forbidden');
-    return domain.formsUpdate(ws, Object.assign({}, a, {
-      leadId: leadId || ctx.leadId,
-      formId: a.formId != null ? a.formId : a.id,
-    }));
+    return domain.formsUpdate(
+      ws,
+      Object.assign({}, a, {
+        leadId: leadId || ctx.leadId,
+        formId: a.formId != null ? a.formId : a.id,
+      })
+    );
   }
   if (name === 'forms.delete') {
     const leadId = resolveLeadId(ctx, a.leadId);
@@ -1233,7 +2358,8 @@ async function callClientTool(ws, name, a, ctx = {}) {
     if (!leadId) throw new Error('leadId is required');
     return domain.withDb(ws, (db) => ({
       plan: planId,
-      products: modules.listProducts(db, leadId, { includeDrafts: a.includeDrafts !== false })
+      products: modules
+        .listProducts(db, leadId, { includeDrafts: a.includeDrafts !== false })
         .map((p) => ({ ...p, price_label: modules.formatPrice(p.price_cents, p.currency) })),
     }));
   }
@@ -1634,7 +2760,9 @@ async function callTool(workspaceId, name, args = {}, ctx = {}) {
   const a = args || {};
   const ws = workspaceId;
   // Cursor / some clients expose tools as website_addSection; server defs use dots.
-  name = String(name || '').trim().replace(/_/g, '.');
+  name = String(name || '')
+    .trim()
+    .replace(/_/g, '.');
 
   try {
     if (ctx && ctx.leadId) {
@@ -1680,7 +2808,7 @@ async function callTool(workspaceId, name, args = {}, ctx = {}) {
         domain.leadsDelete(ws, a.id);
         return { ok: true, data: { id: a.id } };
       } catch (e) {
-        if (/FOREIGN KEY|SQLITE_CONSTRAINT/i.test(String(e && e.message || ''))) {
+        if (/FOREIGN KEY|SQLITE_CONSTRAINT/i.test(String((e && e.message) || ''))) {
           return {
             ok: false,
             error: { code: 'FK_CONFLICT', message: 'Delete blocked: referenced by websites_or_design_jobs' },
@@ -1730,7 +2858,9 @@ async function callTool(workspaceId, name, args = {}, ctx = {}) {
           passed = qaRaw.passed !== false && qaRaw.ok !== false;
           const fails = qaRaw.checks_failed || qaRaw.failed || qaRaw.failures || [];
           if (Array.isArray(fails)) {
-            checksFailed = fails.map((f) => (typeof f === 'string' ? f : (f && (f.name || f.message)) || String(f))).slice(0, 40);
+            checksFailed = fails
+              .map((f) => (typeof f === 'string' ? f : (f && (f.name || f.message)) || String(f)))
+              .slice(0, 40);
           }
         }
         return {
@@ -1763,14 +2893,22 @@ async function callTool(workspaceId, name, args = {}, ctx = {}) {
       // SSRF-safe fetcher (port of audit P-03).
       const { fetchPublic } = require('./urlSafety');
       let origin;
-      try { origin = new URL(previewUrl).origin; } catch { return { ok: false, error: 'BAD_PREVIEW_URL' }; }
+      try {
+        origin = new URL(previewUrl).origin;
+      } catch {
+        return { ok: false, error: 'BAD_PREVIEW_URL' };
+      }
       const targets = [previewUrl];
       const seen = new Set(targets);
       for (const p of Array.isArray(site.pages) ? site.pages : []) {
         const raw = p && (p.path || p.slug || p.url);
         if (!raw) continue;
         let u;
-        try { u = new URL(String(raw), origin + '/').toString(); } catch { continue; }
+        try {
+          u = new URL(String(raw), origin + '/').toString();
+        } catch {
+          continue;
+        }
         if (!u.startsWith(origin) || seen.has(u)) continue;
         seen.add(u);
         targets.push(u);
@@ -1852,7 +2990,11 @@ async function callTool(workspaceId, name, args = {}, ctx = {}) {
     }
     if (name === 'outreach.stats') return { ok: true, data: domain.outreachStats(ws) };
     if (name === 'outreach.pipeline') return { ok: true, data: domain.pipelineBoard(ws, a) };
-    if (name === 'email.compose') return { ok: true, data: domain.emailCompose(ws, a.leadId, a.templateId, { queue: !!a.queue, channel: a.channel }) };
+    if (name === 'email.compose')
+      return {
+        ok: true,
+        data: domain.emailCompose(ws, a.leadId, a.templateId, { queue: !!a.queue, channel: a.channel }),
+      };
     if (name === 'email.draft') {
       ensureNotPaused(ws);
       return { ok: true, data: await domain.emailDraft(ws, a) };
@@ -1860,8 +3002,10 @@ async function callTool(workspaceId, name, args = {}, ctx = {}) {
     if (name === 'email.uploadAsset') {
       const data = a.data != null ? a.data : a.base64;
       if (data == null || data === '') throw new Error('data (base64 image) is required');
-      const dataB64 = String(data).replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '').replace(/\s+/g, '');
-      const maxB64 = Math.ceil(5 * 1024 * 1024 * 4 / 3) + 256;
+      const dataB64 = String(data)
+        .replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '')
+        .replace(/\s+/g, '');
+      const maxB64 = Math.ceil((5 * 1024 * 1024 * 4) / 3) + 256;
       if (dataB64.length > maxB64) throw new Error('Image is too large (max 5 MB).');
       return { ok: true, data: await domain.emailUploadAsset(ws, { data: dataB64, mimeType: a.mimeType || a.mime }) };
     }
@@ -1901,7 +3045,15 @@ async function callTool(workspaceId, name, args = {}, ctx = {}) {
     if (name === 'jobs.create') return { ok: true, data: { job: await jobs.createJob(ws, a) } };
     if (name === 'jobs.update') return { ok: true, data: { job: await jobs.updateJob(ws, a.id, a) } };
     if (name === 'jobs.delete') return { ok: true, data: await jobs.deleteJob(ws, a.id) };
-    if (name === 'jobs.runNow') return { ok: true, data: await jobs.executeJob(ws, a.id, { force: true, source: 'mcp', triggeredBy: ctx.tokenId ? 'token:' + ctx.tokenId : (ctx.userId ? 'user:' + ctx.userId : 'mcp-workspace') }) };
+    if (name === 'jobs.runNow')
+      return {
+        ok: true,
+        data: await jobs.executeJob(ws, a.id, {
+          force: true,
+          source: 'mcp',
+          triggeredBy: ctx.tokenId ? 'token:' + ctx.tokenId : ctx.userId ? 'user:' + ctx.userId : 'mcp-workspace',
+        }),
+      };
     if (name === 'handsOff.status') return { ok: true, data: await domain.handsOffStatus(ws) };
     if (name === 'handsOff.runNow') {
       ensureNotPaused(ws);

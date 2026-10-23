@@ -42,7 +42,10 @@ function ensureTable(db) {
 }
 
 function hashKey(key) {
-  return crypto.createHash('sha256').update(String(key || '')).digest('hex');
+  return crypto
+    .createHash('sha256')
+    .update(String(key || ''))
+    .digest('hex');
 }
 
 function hashBody(body) {
@@ -51,12 +54,15 @@ function hashBody(body) {
 }
 
 function purgeExpired(db) {
-  db.prepare(`
+  db.prepare(
+    `
     DELETE FROM api_idempotency
     WHERE created_at < datetime('now', ?)
-  `).run(`-${TTL_HOURS} hours`);
+  `
+  ).run(`-${TTL_HOURS} hours`);
   // Uncertain/failed operations require reconciliation; never automatically rerun them.
-  db.prepare(`DELETE FROM api_idempotency_claims
+  db.prepare(
+    `DELETE FROM api_idempotency_claims
     WHERE state = 'completed' AND created_at < datetime('now', ?)`
   ).run(`-${TTL_HOURS} hours`);
 }
@@ -71,20 +77,22 @@ function lookup(db, operation, key, body) {
   purgeExpired(db);
   const keyHash = hashKey(key);
   const bodyHash = hashBody(body);
-  const row = db.prepare(
-    'SELECT body_hash, status, response_json FROM api_idempotency WHERE key_hash = ? AND operation = ?'
-  ).get(keyHash, String(operation));
+  const row = db
+    .prepare('SELECT body_hash, status, response_json FROM api_idempotency WHERE key_hash = ? AND operation = ?')
+    .get(keyHash, String(operation));
   if (!row) return null;
   if (row.body_hash !== bodyHash) {
-    throw fail(
-      'IDEMPOTENCY_CONFLICT',
-      'Idempotency-Key was already used with a different request body',
-      409
-    );
+    throw fail('IDEMPOTENCY_CONFLICT', 'Idempotency-Key was already used with a different request body', 409);
   }
   let data = null;
-  try { data = JSON.parse(row.response_json); } catch {
-    throw fail('IDEMPOTENCY_CORRUPT', 'Saved result is unreadable; reconcile the original operation before retrying', 409);
+  try {
+    data = JSON.parse(row.response_json);
+  } catch {
+    throw fail(
+      'IDEMPOTENCY_CORRUPT',
+      'Saved result is unreadable; reconcile the original operation before retrying',
+      409
+    );
   }
   return { status: row.status, data, replayed: true };
 }
@@ -94,17 +102,24 @@ function store(db, operation, key, body, status, data) {
   ensureTable(db);
   const json = JSON.stringify(data == null ? null : data);
   if (Buffer.byteLength(json, 'utf8') > MAX_RECEIPT_BYTES) {
-    throw fail('IDEMPOTENCY_RECEIPT_TOO_LARGE', 'Operation result exceeds the replay limit; reconcile the original operation before retrying', 409);
+    throw fail(
+      'IDEMPOTENCY_RECEIPT_TOO_LARGE',
+      'Operation result exceeds the replay limit; reconcile the original operation before retrying',
+      409
+    );
   }
   // Never replace another request's receipt or truncate JSON.
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO api_idempotency (key_hash, operation, body_hash, status, response_json, created_at)
     VALUES (?, ?, ?, ?, ?, datetime('now'))
-  `).run(hashKey(key), String(operation), hashBody(body), Number(status) || 200, json);
+  `
+  ).run(hashKey(key), String(operation), hashBody(body), Number(status) || 200, json);
 }
 
 function claimState(db, operation, key, body) {
-  const row = db.prepare('SELECT body_hash, state FROM api_idempotency_claims WHERE key_hash = ? AND operation = ?')
+  const row = db
+    .prepare('SELECT body_hash, state FROM api_idempotency_claims WHERE key_hash = ? AND operation = ?')
     .get(hashKey(key), String(operation));
   if (row && row.body_hash !== hashBody(body)) {
     throw fail('IDEMPOTENCY_CONFLICT', 'Idempotency-Key was already used with a different request body', 409);
@@ -120,15 +135,20 @@ function claimState(db, operation, key, body) {
 async function once(db, operation, key, body, fn) {
   if (!key) return fn();
   ensureTable(db);
-  const claimed = db.transaction(() => {
-    const hit = lookup(db, operation, key, body);
-    if (hit) return { hit };
-    const existing = claimState(db, operation, key, body);
-    if (existing) return { existing };
-    db.prepare(`INSERT INTO api_idempotency_claims (key_hash, operation, body_hash) VALUES (?, ?, ?)`)
-      .run(hashKey(key), String(operation), hashBody(body));
-    return { owner: true };
-  }).immediate();
+  const claimed = db
+    .transaction(() => {
+      const hit = lookup(db, operation, key, body);
+      if (hit) return { hit };
+      const existing = claimState(db, operation, key, body);
+      if (existing) return { existing };
+      db.prepare(`INSERT INTO api_idempotency_claims (key_hash, operation, body_hash) VALUES (?, ?, ?)`).run(
+        hashKey(key),
+        String(operation),
+        hashBody(body)
+      );
+      return { owner: true };
+    })
+    .immediate();
   if (claimed.hit) return claimed.hit.data;
   if (!claimed.owner) {
     const deadline = Date.now() + WAIT_MS;
@@ -137,27 +157,41 @@ async function once(db, operation, key, body, fn) {
       if (hit) return hit.data;
       const row = claimState(db, operation, key, body);
       if (row && row.state === 'failed') {
-        throw fail('IDEMPOTENCY_FAILED', 'Previous attempt failed or its result could not be saved; reconcile the original operation before retrying', 409);
+        throw fail(
+          'IDEMPOTENCY_FAILED',
+          'Previous attempt failed or its result could not be saved; reconcile the original operation before retrying',
+          409
+        );
       }
       if (Date.now() >= deadline) {
-        throw fail('IDEMPOTENCY_IN_PROGRESS', 'Operation is in progress or needs reconciliation after interruption; retry the same key to retrieve its result', 409);
+        throw fail(
+          'IDEMPOTENCY_IN_PROGRESS',
+          'Operation is in progress or needs reconciliation after interruption; retry the same key to retrieve its result',
+          409
+        );
       }
-      await new Promise(resolve => setTimeout(resolve, 30));
+      await new Promise((resolve) => setTimeout(resolve, 30));
     }
   }
   try {
     const data = await fn();
     db.transaction(() => {
       store(db, operation, key, body, 200, data);
-      db.prepare("UPDATE api_idempotency_claims SET state = 'completed' WHERE key_hash = ? AND operation = ?")
-        .run(hashKey(key), String(operation));
+      db.prepare("UPDATE api_idempotency_claims SET state = 'completed' WHERE key_hash = ? AND operation = ?").run(
+        hashKey(key),
+        String(operation)
+      );
     }).immediate();
     return data;
   } catch (error) {
     try {
-      db.prepare("UPDATE api_idempotency_claims SET state = 'failed' WHERE key_hash = ? AND operation = ?")
-        .run(hashKey(key), String(operation));
-    } catch { /* Persistent processing claim still blocks duplicate work. */ }
+      db.prepare("UPDATE api_idempotency_claims SET state = 'failed' WHERE key_hash = ? AND operation = ?").run(
+        hashKey(key),
+        String(operation)
+      );
+    } catch {
+      /* Persistent processing claim still blocks duplicate work. */
+    }
     throw error;
   }
 }

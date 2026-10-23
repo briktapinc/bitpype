@@ -18,21 +18,29 @@ const SITE_IDS = (process.env.WS_SITE_IDS || '1,2,3')
 
 function syncDesignDeliverable(db, leadId, siteId, pages, theme) {
   try {
-    const job = db.prepare(
-      `SELECT id, website_id, deliverable FROM design_jobs
+    const job = db
+      .prepare(
+        `SELECT id, website_id, deliverable FROM design_jobs
        WHERE lead_id = ? AND (website_id = ? OR website_id IS NULL)
        ORDER BY CASE WHEN website_id = ? THEN 0 ELSE 1 END, id DESC LIMIT 1`
-    ).get(Number(leadId), Number(siteId), Number(siteId));
+      )
+      .get(Number(leadId), Number(siteId), Number(siteId));
     if (!job || !job.deliverable) return;
     let payload;
-    try { payload = JSON.parse(job.deliverable); } catch { return; }
+    try {
+      payload = JSON.parse(job.deliverable);
+    } catch {
+      return;
+    }
     if (!payload || typeof payload !== 'object') return;
     payload.pages = pages;
     payload.theme = theme;
     payload.name = payload.name || undefined;
-    db.prepare(
-      `UPDATE design_jobs SET deliverable = ?, website_id = ?, updated_at = datetime('now') WHERE id = ?`
-    ).run(JSON.stringify(payload), Number(siteId), job.id);
+    db.prepare(`UPDATE design_jobs SET deliverable = ?, website_id = ?, updated_at = datetime('now') WHERE id = ?`).run(
+      JSON.stringify(payload),
+      Number(siteId),
+      job.id
+    );
     console.log('synced design_job', job.id);
   } catch (e) {
     console.warn('design sync', e.message || e);
@@ -61,7 +69,9 @@ async function rebuildOne(db, siteId) {
     if (ai.aiConfigured && ai.aiConfigured()) {
       // Prefer deterministic for predictable modular rebuilds
     }
-  } catch { /* */ }
+  } catch {
+    /* */
+  }
   copy = engine.deterministicCopy(lead, industry, facts);
 
   const built = engine.buildPages(lead, industry, facts, copy, aiUsed);
@@ -88,9 +98,10 @@ async function rebuildOne(db, siteId) {
         type: 'text_image',
         content: {
           heading: 'About our work',
-          body: copy && copy.about
-            ? String(Array.isArray(copy.about) ? copy.about[0] : copy.about).slice(0, 280)
-            : `${lead.business_name} is ready to help.`,
+          body:
+            copy && copy.about
+              ? String(Array.isArray(copy.about) ? copy.about[0] : copy.about).slice(0, 280)
+              : `${lead.business_name} is ready to help.`,
           image_position: 'right',
         },
       },
@@ -99,12 +110,10 @@ async function rebuildOne(db, siteId) {
         content: {
           title: 'What we offer',
           cols: 3,
-          items: (Array.isArray(copy && copy.services) ? copy.services : [])
-            .slice(0, 3)
-            .map((s) => ({
-              title: (s && (s.name || s.title)) || 'Service',
-              text: (s && (s.description || s.text)) || 'Ask us for details.',
-            })),
+          items: (Array.isArray(copy && copy.services) ? copy.services : []).slice(0, 3).map((s) => ({
+            title: (s && (s.name || s.title)) || 'Service',
+            text: (s && (s.description || s.text)) || 'Ask us for details.',
+          })),
         },
       },
     ];
@@ -129,7 +138,9 @@ async function rebuildOne(db, siteId) {
     if (prev.logoUrl) theme.logoUrl = prev.logoUrl;
     if (prev.primary) theme.primary = prev.primary;
     if (prev.secondary) theme.secondary = prev.secondary;
-  } catch { /* */ }
+  } catch {
+    /* */
+  }
 
   // Save through domain so export folder rematerializes for portal
   const saved = domain.sitesSave(WORKSPACE_ID, siteId, {
@@ -141,14 +152,16 @@ async function rebuildOne(db, siteId) {
   syncDesignDeliverable(db, lead.id, siteId, pages, theme);
 
   const types = [...new Set(pages.flatMap((p) => (p.sections || []).map((s) => s.type)))];
-  console.log(JSON.stringify({
-    id: siteId,
-    lead: lead.business_name,
-    industry,
-    pages: pages.length,
-    sectionTypes: types,
-    version: saved && saved.version,
-  }));
+  console.log(
+    JSON.stringify({
+      id: siteId,
+      lead: lead.business_name,
+      industry,
+      pages: pages.length,
+      sectionTypes: types,
+      version: saved && saved.version,
+    })
+  );
   return { siteId, pages: pages.length };
 }
 

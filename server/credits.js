@@ -17,22 +17,22 @@ function fail(code, message, status = 400) {
 
 async function packConfig() {
   const priceId = String(
-    process.env.STRIPE_PRICE_ID_CREDITS
-      || (await platform.getPlatformSetting('stripe.price_id_credits', ''))
-      || ''
+    process.env.STRIPE_PRICE_ID_CREDITS || (await platform.getPlatformSetting('stripe.price_id_credits', '')) || ''
   ).trim();
-  const packAmount = Math.max(1, Math.floor(Number(
-    await platform.getPlatformSetting('credits.pack_amount', '50')
-  ) || 50));
-  const packLabel = String(
-    await platform.getPlatformSetting('credits.pack_label', '') || ''
-  ).trim() || `${packAmount} credits`;
-  const perImage = Math.max(0, Math.floor(Number(
-    await platform.getPlatformSetting('credits.per_social_image', '1')
-  ) || 0));
-  const perContent = Math.max(0, Math.floor(Number(
-    await platform.getPlatformSetting('credits.per_social_content', '1')
-  ) || 0));
+  const packAmount = Math.max(
+    1,
+    Math.floor(Number(await platform.getPlatformSetting('credits.pack_amount', '50')) || 50)
+  );
+  const packLabel =
+    String((await platform.getPlatformSetting('credits.pack_label', '')) || '').trim() || `${packAmount} credits`;
+  const perImage = Math.max(
+    0,
+    Math.floor(Number(await platform.getPlatformSetting('credits.per_social_image', '1')) || 0)
+  );
+  const perContent = Math.max(
+    0,
+    Math.floor(Number(await platform.getPlatformSetting('credits.per_social_content', '1')) || 0)
+  );
   return {
     priceId,
     packAmount,
@@ -46,10 +46,7 @@ async function packConfig() {
 async function getBalance(workspaceId) {
   const wid = Number(workspaceId);
   if (!Number.isFinite(wid) || wid < 1) return 0;
-  const rows = await query(
-    'SELECT balance FROM credit_balances WHERE workspace_id = :wid LIMIT 1',
-    { wid }
-  );
+  const rows = await query('SELECT balance FROM credit_balances WHERE workspace_id = :wid LIMIT 1', { wid });
   return rows[0] ? Math.max(0, Number(rows[0].balance) || 0) : 0;
 }
 
@@ -77,14 +74,18 @@ function spendIdempotencyKey(reason, refType, refId) {
  * Atomically apply a credit delta. Positive = grant, negative = spend.
  * Idempotent when stripeCheckoutSessionId / idempotencyKey is set (unique in ledger).
  */
-async function applyDelta(workspaceId, delta, {
-  userId = null,
-  reason = '',
-  refType = null,
-  refId = null,
-  stripeCheckoutSessionId = null,
-  idempotencyKey = null,
-} = {}) {
+async function applyDelta(
+  workspaceId,
+  delta,
+  {
+    userId = null,
+    reason = '',
+    refType = null,
+    refId = null,
+    stripeCheckoutSessionId = null,
+    idempotencyKey = null,
+  } = {}
+) {
   const wid = Number(workspaceId);
   const d = Math.trunc(Number(delta) || 0);
   if (!Number.isFinite(wid) || wid < 1) throw fail('INVALID_WORKSPACE', 'workspaceId is required');
@@ -92,7 +93,9 @@ async function applyDelta(workspaceId, delta, {
 
   const sessionKey = stripeCheckoutSessionId
     ? String(stripeCheckoutSessionId).trim()
-    : (idempotencyKey ? String(idempotencyKey).trim() : null);
+    : idempotencyKey
+      ? String(idempotencyKey).trim()
+      : null;
 
   if (sessionKey) {
     const existing = await query(
@@ -131,9 +134,10 @@ async function applyDelta(workspaceId, delta, {
         );
       }
 
-      const lockSql = driver() === 'sqlite'
-        ? 'SELECT balance FROM credit_balances WHERE workspace_id = ? LIMIT 1'
-        : 'SELECT balance FROM credit_balances WHERE workspace_id = ? FOR UPDATE';
+      const lockSql =
+        driver() === 'sqlite'
+          ? 'SELECT balance FROM credit_balances WHERE workspace_id = ? LIMIT 1'
+          : 'SELECT balance FROM credit_balances WHERE workspace_id = ? FOR UPDATE';
       const [balRows] = await conn.execute(lockSql, [wid]);
       let balance = balRows[0] ? Number(balRows[0].balance) || 0 : 0;
 
@@ -200,7 +204,11 @@ async function applyDelta(workspaceId, delta, {
         duplicate: false,
       };
     } catch (e) {
-      try { await conn.rollback(); } catch { /* */ }
+      try {
+        await conn.rollback();
+      } catch {
+        /* */
+      }
       if (e.code === 'ER_DUP_ENTRY' || /unique|duplicate/i.test(String(e.message || ''))) {
         if (sessionKey) {
           const existing = await query(
@@ -243,8 +251,7 @@ async function spend(workspaceId, amount, meta = {}) {
       // ignore lookup failures — balance check still applies
     }
   }
-  const idem = meta.idempotencyKey
-    || spendIdempotencyKey(meta.reason, meta.refType, meta.refId);
+  const idem = meta.idempotencyKey || spendIdempotencyKey(meta.reason, meta.refType, meta.refId);
   return applyDelta(workspaceId, -n, { ...meta, idempotencyKey: idem });
 }
 
@@ -293,9 +300,10 @@ async function grantFromCheckoutSession(session) {
     try {
       const amountCents = Number(session.amount_total || 0) || 0;
       const currency = String(session.currency || 'usd').toLowerCase();
-      const pi = typeof session.payment_intent === 'string'
-        ? session.payment_intent
-        : (session.payment_intent && session.payment_intent.id) || null;
+      const pi =
+        typeof session.payment_intent === 'string'
+          ? session.payment_intent
+          : (session.payment_intent && session.payment_intent.id) || null;
       await query(
         `INSERT INTO payments
            (user_id, stripe_invoice_id, stripe_payment_intent_id, stripe_charge_id,

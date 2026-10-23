@@ -35,8 +35,7 @@ for (const [re, name] of checks) {
   }
 }
 // Must NOT show immediately on boot without timer/leave
-if (/DOMContentLoaded.*showPopup|showPopup\(meta\);\s*\}\s*\n\s*boot/.test(src)
-  && !/armTriggers/.test(src)) {
+if (/DOMContentLoaded.*showPopup|showPopup\(meta\);\s*\}\s*\n\s*boot/.test(src) && !/armTriggers/.test(src)) {
   console.error('FAIL appears to show immediately without armTriggers');
   fail++;
 } else {

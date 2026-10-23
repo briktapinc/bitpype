@@ -33,26 +33,50 @@ const lead = db.prepare('SELECT id, business_name, email, status FROM leads WHER
 
 let siteId = null;
 try {
-  const ins = db.prepare(
-    `INSERT INTO websites (lead_id, name, status, origin, pages, theme, preview_url, created_at, updated_at)
+  const ins = db
+    .prepare(
+      `INSERT INTO websites (lead_id, name, status, origin, pages, theme, preview_url, created_at, updated_at)
      VALUES (?, ?, 'ready', 'smoke', '[]', '{}', ?, datetime('now'), datetime('now'))`
-  ).run(leadId, 'Claim Postcard Smoke Site', 'https://example.invalid/preview/smoke/');
+    )
+    .run(leadId, 'Claim Postcard Smoke Site', 'https://example.invalid/preview/smoke/');
   siteId = Number(ins.lastInsertRowid);
 } catch (e) {
   console.warn('website insert skipped:', e.message);
 }
 
 function cleanup() {
-  try { db.prepare('DELETE FROM prospect_events WHERE lead_id = ?').run(leadId); } catch { /* */ }
-  try { db.prepare('DELETE FROM intent_scores WHERE lead_id = ?').run(leadId); } catch { /* */ }
-  try { db.prepare('DELETE FROM lead_events WHERE lead_id = ?').run(leadId); } catch { /* */ }
+  try {
+    db.prepare('DELETE FROM prospect_events WHERE lead_id = ?').run(leadId);
+  } catch {
+    /* */
+  }
+  try {
+    db.prepare('DELETE FROM intent_scores WHERE lead_id = ?').run(leadId);
+  } catch {
+    /* */
+  }
+  try {
+    db.prepare('DELETE FROM lead_events WHERE lead_id = ?').run(leadId);
+  } catch {
+    /* */
+  }
   try {
     db.prepare('DELETE FROM suppression_list WHERE lower(email) = lower(?)').run(lead.email);
-  } catch { /* */ }
-  if (siteId) {
-    try { db.prepare('DELETE FROM websites WHERE id = ?').run(siteId); } catch { /* */ }
+  } catch {
+    /* */
   }
-  try { db.prepare('DELETE FROM leads WHERE id = ?').run(leadId); } catch { /* */ }
+  if (siteId) {
+    try {
+      db.prepare('DELETE FROM websites WHERE id = ?').run(siteId);
+    } catch {
+      /* */
+    }
+  }
+  try {
+    db.prepare('DELETE FROM leads WHERE id = ?').run(leadId);
+  } catch {
+    /* */
+  }
 }
 
 (async () => {
@@ -123,11 +147,14 @@ function cleanup() {
       const metaJson = await metaRes.json();
       console.log('http claim meta', metaRes.status, metaJson.ok ? 'ok' : metaJson.error);
       if (metaRes.status === 200 && metaJson.ok) {
-        const decide = await fetch(`http://127.0.0.1:${port}/api/v1/outreach/public/claim/${encodeURIComponent(token)}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'interested' }),
-        });
+        const decide = await fetch(
+          `http://127.0.0.1:${port}/api/v1/outreach/public/claim/${encodeURIComponent(token)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'interested' }),
+          }
+        );
         const decideJson = await decide.json();
         console.log('http claim decide', decide.status, decideJson.data && decideJson.data.action);
       }

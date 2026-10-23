@@ -34,22 +34,18 @@ const pages = JSON.parse(site.pages);
 const contact = pages.find((p) => String(p.slug).includes('contact'));
 assert.ok(contact, 'contact page exists');
 const contactJson = JSON.stringify(contact);
-assert.ok(
-  /embed\/form\.html/.test(contactJson),
-  `contact should contain form embed: ${contactJson.slice(0, 300)}`
-);
+assert.ok(/embed\/form\.html/.test(contactJson), `contact should contain form embed: ${contactJson.slice(0, 300)}`);
 
 const home = pages.find((p) => p.slug === '/' || normalize(p.slug) === 'home');
 const homeJson = JSON.stringify(home || {});
-assert.ok(
-  !homeJson.includes(b.public_token),
-  'disabled embed form should not appear on home'
-);
+assert.ok(!homeJson.includes(b.public_token), 'disabled embed form should not appear on home');
 
 forms.deleteForm(db, 1, b.id);
 assert.equal(forms.listFormsForLead(db, 1).length, 1);
 console.log('smoke ok', { a: a.id, bDeleted: b.id, syncForms: sync.forms });
 
 function normalize(slug) {
-  return String(slug || '').replace(/^\//, '').toLowerCase();
+  return String(slug || '')
+    .replace(/^\//, '')
+    .toLowerCase();
 }

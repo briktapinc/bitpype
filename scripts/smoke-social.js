@@ -9,7 +9,11 @@ const social = require('../src/socialMedia');
 const dir = path.join(os.tmpdir(), 'ws-social-test');
 fs.mkdirSync(dir, { recursive: true });
 const dbPath = path.join(dir, 't.db');
-try { fs.unlinkSync(dbPath); } catch { /* ignore */ }
+try {
+  fs.unlinkSync(dbPath);
+} catch {
+  /* ignore */
+}
 const db = new Database(dbPath);
 db.exec(fs.readFileSync(path.join(__dirname, '..', 'src', 'schema.sql'), 'utf8'));
 social.ensureTables(db);

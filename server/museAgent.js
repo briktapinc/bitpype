@@ -66,10 +66,12 @@ async function resolveMuseConfig(db) {
   let baseUrl = 'https://api.meta.ai/v1';
   let model = 'muse-spark-1.3';
   try {
-    apiKey = String(await platform.getPlatformSetting('muse.model_api_key', '') || '').trim();
-    baseUrl = String(await platform.getPlatformSetting('muse.model_base_url', baseUrl) || baseUrl).trim();
-    model = String(await platform.getPlatformSetting('muse.model_default', model) || model).trim();
-  } catch { /* platform DB unavailable — fall through to workspace */ }
+    apiKey = String((await platform.getPlatformSetting('muse.model_api_key', '')) || '').trim();
+    baseUrl = String((await platform.getPlatformSetting('muse.model_base_url', baseUrl)) || baseUrl).trim();
+    model = String((await platform.getPlatformSetting('muse.model_default', model)) || model).trim();
+  } catch {
+    /* platform DB unavailable — fall through to workspace */
+  }
   if (!apiKey && db) {
     apiKey = String(getDbSetting(db, 'muse.model_api_key', '') || '').trim();
     const b = String(getDbSetting(db, 'muse.model_base_url', '') || '').trim();
@@ -87,9 +89,9 @@ function museConfigured(config) {
 
 function todaySpendUsd(db) {
   try {
-    const row = db.prepare(
-      "SELECT COALESCE(SUM(cost_usd), 0) AS spent FROM ai_usage WHERE date(at) = date('now')"
-    ).get();
+    const row = db
+      .prepare("SELECT COALESCE(SUM(cost_usd), 0) AS spent FROM ai_usage WHERE date(at) = date('now')")
+      .get();
     return Number(row.spent) || 0;
   } catch {
     return 0;
@@ -117,27 +119,35 @@ function logUsage(db, { task, model, promptTokens, completionTokens, costUsd, le
 
 function mcpToolsToOpenAi(toolDefs) {
   const toolNames = new Map();
-  const tools = (toolDefs || []).filter(t => t && t.name && !DENY_TOOLS.has(t.name)).map(t => {
-    // Providers have different namespace rules. Keep wire names portable, short,
-    // and unambiguous; dispatch only through this advertised catalog map.
-    const name = String(t.name).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48)
-      + '_' + crypto.createHash('sha256').update(t.name).digest('hex').slice(0, 12);
-    if (toolNames.has(name)) throw fail('TOOL_CATALOG_INVALID', 'Duplicate AI tool alias');
-    toolNames.set(name, t.name);
-    return { type: 'function', function: {
-      name,
-      description: String(t.description || '').slice(0, 1024),
-      parameters: t.inputSchema && typeof t.inputSchema === 'object'
-        ? t.inputSchema : { type: 'object', properties: {} },
-    }};
-  });
+  const tools = (toolDefs || [])
+    .filter((t) => t && t.name && !DENY_TOOLS.has(t.name))
+    .map((t) => {
+      // Providers have different namespace rules. Keep wire names portable, short,
+      // and unambiguous; dispatch only through this advertised catalog map.
+      const name =
+        String(t.name)
+          .replace(/[^a-zA-Z0-9_-]/g, '_')
+          .slice(0, 48) +
+        '_' +
+        crypto.createHash('sha256').update(t.name).digest('hex').slice(0, 12);
+      if (toolNames.has(name)) throw fail('TOOL_CATALOG_INVALID', 'Duplicate AI tool alias');
+      toolNames.set(name, t.name);
+      return {
+        type: 'function',
+        function: {
+          name,
+          description: String(t.description || '').slice(0, 1024),
+          parameters:
+            t.inputSchema && typeof t.inputSchema === 'object' ? t.inputSchema : { type: 'object', properties: {} },
+        },
+      };
+    });
   return { tools, toolNames };
 }
 
 function buildSystemPrompt(job) {
-  const brief = job && job.brief
-    ? (typeof job.brief === 'string' ? job.brief : JSON.stringify(job.brief, null, 0))
-    : '';
+  const brief =
+    job && job.brief ? (typeof job.brief === 'string' ? job.brief : JSON.stringify(job.brief, null, 0)) : '';
   const parts = [
     defaultWebsiteInstructions(),
     '',
@@ -188,9 +198,8 @@ async function chatCompletions(config, body) {
     throw fail('MUSE_BAD_RESPONSE', `Muse returned non-JSON (HTTP ${res.status})`);
   }
   if (!res.ok) {
-    const providerMsg = data && data.error && data.error.message
-      ? String(data.error.message).slice(0, 200)
-      : `HTTP ${res.status}`;
+    const providerMsg =
+      data && data.error && data.error.message ? String(data.error.message).slice(0, 200) : `HTTP ${res.status}`;
     throw fail('MUSE_REQUEST_FAILED', `Muse request failed: ${providerMsg}`);
   }
   return data;
@@ -238,12 +247,24 @@ async function runJobLoop(workspaceId, job, { db, maxSteps = MAX_STEPS } = {}) {
   while (steps < maxSteps) {
     if (domain.withDb(workspaceId, (d) => domain.getSetting(d, 'automation_paused', '0')) === '1') {
       return {
-        ok: false, delivered, steps, toolCalls, error: 'automation_paused', costUsd: totalCost, model: config.model,
+        ok: false,
+        delivered,
+        steps,
+        toolCalls,
+        error: 'automation_paused',
+        costUsd: totalCost,
+        model: config.model,
       };
     }
     if (budget > 0 && todaySpendUsd(db) >= budget) {
       return {
-        ok: false, delivered, steps, toolCalls, error: 'budget_exceeded', costUsd: totalCost, model: config.model,
+        ok: false,
+        delivered,
+        steps,
+        toolCalls,
+        error: 'budget_exceeded',
+        costUsd: totalCost,
+        model: config.model,
       };
     }
 
@@ -292,7 +313,8 @@ async function runJobLoop(workspaceId, job, { db, maxSteps = MAX_STEPS } = {}) {
       if (!delivered && steps < maxSteps) {
         messages.push({
           role: 'user',
-          content: 'Continue with tools. You must call design.deliver (then publish) to finish. If blocked, explain the gap in one short sentence and stop.',
+          content:
+            'Continue with tools. You must call design.deliver (then publish) to finish. If blocked, explain the gap in one short sentence and stop.',
         });
         continue;
       }
@@ -362,7 +384,7 @@ async function runJobLoop(workspaceId, job, { db, maxSteps = MAX_STEPS } = {}) {
     delivered,
     steps,
     toolCalls,
-    error: delivered ? null : (lastError || (steps >= maxSteps ? 'max_steps' : 'not_delivered')),
+    error: delivered ? null : lastError || (steps >= maxSteps ? 'max_steps' : 'not_delivered'),
     costUsd: totalCost,
     model: config.model,
     jobId: job.id,
@@ -405,7 +427,11 @@ function normalizePortalHistory(history, userMessage) {
  * Muse tool loop for portal Website chat (client-scoped MCP only).
  * @returns {{ ok, reply, steps, toolCalls, mutated, published, error?, costUsd, model }}
  */
-async function runPortalImproveLoop(workspaceId, leadId, { db, message, history, pageSlug, maxSteps = MAX_PORTAL_STEPS } = {}) {
+async function runPortalImproveLoop(
+  workspaceId,
+  leadId,
+  { db, message, history, pageSlug, maxSteps = MAX_PORTAL_STEPS } = {}
+) {
   const domain = require('./domain');
   const mcp = require('./mcp');
   const lid = Number(leadId);
@@ -597,9 +623,9 @@ async function runPortalImproveLoop(workspaceId, leadId, { db, message, history,
   if (!finalReply) {
     finalReply = mutated
       ? 'Done — I updated your site. Check the preview on the right.'
-      : (lastError
+      : lastError
         ? 'I could not finish that change. Try rephrasing, or use Edit for a quick text tweak.'
-        : 'I looked at your site but did not apply a change. Try a more specific request.');
+        : 'I looked at your site but did not apply a change. Try a more specific request.';
   }
 
   return {

@@ -13,19 +13,20 @@ function apiRequest({ method, apiPath, token }) {
   return new Promise((resolve, reject) => {
     const headers = { Accept: 'application/json' };
     if (token) headers.Authorization = `Bearer ${token}`;
-    const req = https.request(
-      { host: 'api.cloudflare.com', path: apiPath, method, timeout: 30000, headers },
-      (res) => {
-        const chunks = [];
-        res.on('data', (c) => chunks.push(c));
-        res.on('end', () => {
-          const text = Buffer.concat(chunks).toString('utf8');
-          let json = null;
-          try { json = JSON.parse(text); } catch { /* */ }
-          resolve({ statusCode: res.statusCode, json, text: text.slice(0, 400) });
-        });
-      }
-    );
+    const req = https.request({ host: 'api.cloudflare.com', path: apiPath, method, timeout: 30000, headers }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        let json = null;
+        try {
+          json = JSON.parse(text);
+        } catch {
+          /* */
+        }
+        resolve({ statusCode: res.statusCode, json, text: text.slice(0, 400) });
+      });
+    });
     req.on('error', reject);
     req.end();
   });
@@ -37,13 +38,19 @@ async function registrarOk(token, accountId) {
     apiPath: `/client/v4/accounts/${accountId}/registrar/domain-search?q=stickmanautomation.com`,
     token,
   });
-  return { ok: r.statusCode === 200 && !!(r.json && (r.json.success !== false || r.json.result)), status: r.statusCode, text: r.text };
+  return {
+    ok: r.statusCode === 200 && !!(r.json && (r.json.success !== false || r.json.result)),
+    status: r.statusCode,
+    text: r.text,
+  };
 }
 
 async function main() {
   const platform = require('/app/server/platform');
-  const pToken = String(await platform.getPlatformSetting('cf.api_token', '') || '').trim();
-  const pAccount = String(await platform.getPlatformSetting('cf.account_id', '') || '').trim().toLowerCase();
+  const pToken = String((await platform.getPlatformSetting('cf.api_token', '')) || '').trim();
+  const pAccount = String((await platform.getPlatformSetting('cf.account_id', '')) || '')
+    .trim()
+    .toLowerCase();
   if (!pToken || !pAccount) {
     console.log('No platform CF credentials');
     process.exit(1);
@@ -52,7 +59,10 @@ async function main() {
   const dbPath = '/app/data/workspaces/1/websitescout.db';
   const db = new Database(dbPath);
   const wToken = ((db.prepare("SELECT value FROM settings WHERE key='cf.api_token'").get() || {}).value || '').trim();
-  const wAccount = ((db.prepare("SELECT value FROM settings WHERE key='cf.account_id'").get() || {}).value || '').trim().toLowerCase() || pAccount;
+  const wAccount =
+    ((db.prepare("SELECT value FROM settings WHERE key='cf.account_id'").get() || {}).value || '')
+      .trim()
+      .toLowerCase() || pAccount;
 
   const before = await registrarOk(wToken, wAccount);
   console.log('workspace_before', before.status, before.ok);
@@ -80,4 +90,7 @@ async function main() {
   }
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

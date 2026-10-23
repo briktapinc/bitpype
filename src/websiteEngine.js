@@ -47,7 +47,10 @@ function esc(s) {
 
 /** Plain-text sanitizer for AI/deterministic copy: strip tags, trim, cap. */
 function cleanText(s, max = 500) {
-  let t = String(s ?? '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  let t = String(s ?? '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (t.length > max) t = t.slice(0, max).trim();
   return t;
 }
@@ -77,7 +80,11 @@ function ensureTables(db) {
   }
   const vCols = db.prepare('PRAGMA table_info(website_versions)').all();
   if (vCols.length && !vCols.some((c) => c.name === 'author')) {
-    try { db.exec('ALTER TABLE website_versions ADD COLUMN author TEXT'); } catch { /* exists */ }
+    try {
+      db.exec('ALTER TABLE website_versions ADD COLUMN author TEXT');
+    } catch {
+      /* exists */
+    }
   }
 }
 
@@ -89,12 +96,13 @@ function getSetting(db, key, def) {
 function logActivity(db, area, message) {
   try {
     db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(area, message);
-  } catch (e) { /* activity logging must never break generation */ }
+  } catch (e) {
+    /* activity logging must never break generation */
+  }
 }
 
 function setLeadStatus(db, leadId, status) {
-  db.prepare("UPDATE leads SET status = ?, updated_at = datetime('now') WHERE id = ?")
-    .run(status, leadId);
+  db.prepare("UPDATE leads SET status = ?, updated_at = datetime('now') WHERE id = ?").run(status, leadId);
 }
 
 function err(code, message) {
@@ -125,8 +133,10 @@ function sanitizeCss(css) {
   s = s.replace(/<\/style/gi, '');
   s = s.replace(/<\/script/gi, '');
   // Keep only https font @imports from Google Fonts; drop every other @import.
-  s = s.replace(/@import\s+url\(\s*['"]?(https:\/\/fonts\.googleapis\.com\/[^'")\s]+)['"]?\s*\)\s*;?/gi,
-    '@import url("$1");');
+  s = s.replace(
+    /@import\s+url\(\s*['"]?(https:\/\/fonts\.googleapis\.com\/[^'")\s]+)['"]?\s*\)\s*;?/gi,
+    '@import url("$1");'
+  );
   s = s.replace(/@import\b(?![^;]*fonts\.googleapis\.com)[^;]*;?/gi, '');
   s = s.replace(/expression\s*\(/gi, 'expr\u200Bession(');
   // Strip IE/XUL behaviors without touching CSS properties like scroll-behavior.
@@ -271,7 +281,9 @@ const MANAGED_EMBED_KINDS = [
 
 function defaultAppApiBase() {
   try {
-    return String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+    return String(process.env.APP_URL || '')
+      .trim()
+      .replace(/\/+$/, '');
   } catch {
     return '';
   }
@@ -313,9 +325,7 @@ function assertManagedEmbedScripts(html, context) {
   }
   if (missing.length) {
     const where = context ? ` (${context})` : '';
-    console.error(
-      `[websiteEngine] EXPORT EMBED SCRIPT MISSING${where}: mount(s) without ${missing.join(', ')}`
-    );
+    console.error(`[websiteEngine] EXPORT EMBED SCRIPT MISSING${where}: mount(s) without ${missing.join(', ')}`);
   }
   return { ok: missing.length === 0, missing };
 }
@@ -342,7 +352,9 @@ function normalizeTheme(theme) {
   if (typeof t.customHead === 'string') t.customHead = sanitizeHead(t.customHead);
   else if (typeof t.custom_head === 'string') t.customHead = sanitizeHead(t.custom_head);
   else t.customHead = '';
-  const logoMode = String(t.logoMode || 'text').trim().toLowerCase();
+  const logoMode = String(t.logoMode || 'text')
+    .trim()
+    .toLowerCase();
   t.logoMode = logoMode === 'image' ? 'image' : 'text';
   t.logoUrl = typeof t.logoUrl === 'string' ? t.logoUrl.trim().slice(0, 500) : '';
   if (t.logoMode === 'image' && !t.logoUrl) t.logoMode = 'text';
@@ -353,12 +365,18 @@ function normalizeTheme(theme) {
   // Shared site chrome partials (edit once via website.edit theme.partials).
   if (t.partials && typeof t.partials === 'object' && !Array.isArray(t.partials)) {
     t.partials = {
-      headerHtml: typeof t.partials.headerHtml === 'string'
-        ? sanitizeHtml(t.partials.headerHtml)
-        : (typeof t.partials.header === 'string' ? sanitizeHtml(t.partials.header) : ''),
-      footerHtml: typeof t.partials.footerHtml === 'string'
-        ? sanitizeHtml(t.partials.footerHtml)
-        : (typeof t.partials.footer === 'string' ? sanitizeHtml(t.partials.footer) : ''),
+      headerHtml:
+        typeof t.partials.headerHtml === 'string'
+          ? sanitizeHtml(t.partials.headerHtml)
+          : typeof t.partials.header === 'string'
+            ? sanitizeHtml(t.partials.header)
+            : '',
+      footerHtml:
+        typeof t.partials.footerHtml === 'string'
+          ? sanitizeHtml(t.partials.footerHtml)
+          : typeof t.partials.footer === 'string'
+            ? sanitizeHtml(t.partials.footer)
+            : '',
     };
   } else {
     t.partials = { headerHtml: '', footerHtml: '' };
@@ -367,7 +385,7 @@ function normalizeTheme(theme) {
   const explicitOff = t.baseCss === false || t.baseCss === 0 || t.baseCss === '0';
   if (explicitOff) t.baseCss = false;
   else if (explicitOn) t.baseCss = true;
-  else t.baseCss = (t.customCss || t.customJs || t.customHead) ? false : true;
+  else t.baseCss = t.customCss || t.customJs || t.customHead ? false : true;
   return t;
 }
 
@@ -384,8 +402,10 @@ function normalizeElementFonts(raw) {
 }
 
 function brandLogoCss() {
-  return `.brand{display:inline-flex;align-items:center;gap:8px;text-decoration:none}`
-    + `.brand img,.brand-logo,[data-ws-logo]{display:block;max-height:44px;width:auto;height:auto;max-width:min(220px,55vw);object-fit:contain}`;
+  return (
+    `.brand{display:inline-flex;align-items:center;gap:8px;text-decoration:none}` +
+    `.brand img,.brand-logo,[data-ws-logo]{display:block;max-height:44px;width:auto;height:auto;max-width:min(220px,55vw);object-fit:contain}`
+  );
 }
 
 /** CSS custom properties for theme colors — portal live preview + freeform sites. */
@@ -411,8 +431,8 @@ function brandMarkup(c = {}, t) {
   const href = Array.isArray(c.links) && c.links[0] ? c.links[0].href : '#';
   if (theme.logoMode === 'image' && theme.logoUrl) {
     const src = theme.logoUrl;
-    const safe = /^(images\/|\.\/images\/|\/images\/|https?:\/\/|data:image\/)/i.test(src)
-      || /^[A-Za-z0-9._\-\/]+$/.test(src);
+    const safe =
+      /^(images\/|\.\/images\/|\/images\/|https?:\/\/|data:image\/)/i.test(src) || /^[A-Za-z0-9._\-\/]+$/.test(src);
     if (safe) {
       return `<a class="brand" href="${esc(href)}" data-ws-brand="1"><img data-ws-logo="1" class="brand-logo" src="${esc(src)}" alt="${esc(label)}" /></a>`;
     }
@@ -440,7 +460,9 @@ function navSubmenuCss() {
 li.has-children:hover>.nav-sub,li.has-children:focus-within>.nav-sub{display:flex}
 .nav-sub a{display:block;padding:10px 14px;white-space:nowrap}
 .nav-sub a:hover{background:rgba(0,0,0,.04)}
-`.replace(/\n/g, '').trim();
+`
+    .replace(/\n/g, '')
+    .trim();
 }
 
 function siteCss(t) {
@@ -552,7 +574,6 @@ ${icons}
   return (theme.customCss ? `${base}\n${theme.customCss}` : base) + `\n${fontRules}`;
 }
 
-
 /* ------------------------------------------------------------------ */
 /* component library — pure render functions                           */
 /*                                                                    */
@@ -561,11 +582,30 @@ ${icons}
 /* ------------------------------------------------------------------ */
 
 const COMPONENT_TYPES = [
-  'nav', 'hero', 'benefits', 'services', 'about', 'gallery', 'reviews',
-  'cta', 'contact_form', 'bitpype_form', 'form', 'map_placeholder', 'hours', 'faq', 'footer',
-  'booking_button', 'social_links', 'custom', 'html',
+  'nav',
+  'hero',
+  'benefits',
+  'services',
+  'about',
+  'gallery',
+  'reviews',
+  'cta',
+  'contact_form',
+  'bitpype_form',
+  'form',
+  'map_placeholder',
+  'hours',
+  'faq',
+  'footer',
+  'booking_button',
+  'social_links',
+  'custom',
+  'html',
   // Layout modules (Elementor-style composition; freeform HTML lives inside cells)
-  'columns', 'text', 'text_image', 'cards',
+  'columns',
+  'text',
+  'text_image',
+  'cards',
 ];
 
 /** Insertable layout / content blocks for portal + MCP (excludes pinned chrome). */
@@ -590,8 +630,14 @@ const LAYOUT_SECTION_TYPES = [
 
 /** CSS / attribute markers for freeform design-module roots (edit canvas). */
 const DESIGN_MODULE_CLASS_HINTS = [
-  'layout-columns', 'text-block', 'text-image', 'layout-cards',
-  'ws-html-block', 'ws-design-heading', 'ws-design-image', 'ws-design-module',
+  'layout-columns',
+  'text-block',
+  'text-image',
+  'layout-cards',
+  'ws-html-block',
+  'ws-design-heading',
+  'ws-design-image',
+  'ws-design-module',
   'custom-block',
 ];
 
@@ -648,12 +694,14 @@ function aspectCssValue(aspect) {
 
 function creditHtml(im) {
   if (!im || !im.photographer) return '';
-  const name = im.photographer_url && safeHttps(im.photographer_url)
-    ? `<a href="${esc(im.photographer_url)}" rel="noopener noreferrer" target="_blank">${esc(im.photographer)}</a>`
-    : esc(im.photographer);
-  const on = im.pexels_url && safeHttps(im.pexels_url)
-    ? `<a href="${esc(im.pexels_url)}" rel="noopener noreferrer" target="_blank">Pexels</a>`
-    : 'Pexels';
+  const name =
+    im.photographer_url && safeHttps(im.photographer_url)
+      ? `<a href="${esc(im.photographer_url)}" rel="noopener noreferrer" target="_blank">${esc(im.photographer)}</a>`
+      : esc(im.photographer);
+  const on =
+    im.pexels_url && safeHttps(im.pexels_url)
+      ? `<a href="${esc(im.pexels_url)}" rel="noopener noreferrer" target="_blank">Pexels</a>`
+      : 'Pexels';
   return `<figcaption class="photo-credit">Photo by ${name} on ${on}</figcaption>`;
 }
 
@@ -661,18 +709,20 @@ function photoFigure(im, className) {
   const src = im && safeImageUrl(im.url);
   if (!src) return '';
   const pexelsHost = /pexels\.com/i.test(src);
-  const credit = creditHtml(im) || (pexelsHost
-    ? `<figcaption class="photo-credit">Photo via <a href="https://www.pexels.com" rel="noopener noreferrer" target="_blank">Pexels</a></figcaption>`
-    : '');
-  const crop = (im && im.crop && typeof im.crop === 'object') ? im.crop : null;
+  const credit =
+    creditHtml(im) ||
+    (pexelsHost
+      ? `<figcaption class="photo-credit">Photo via <a href="https://www.pexels.com" rel="noopener noreferrer" target="_blank">Pexels</a></figcaption>`
+      : '');
+  const crop = im && im.crop && typeof im.crop === 'object' ? im.crop : null;
   const figStyle = [];
   const imgStyle = [];
   const imgAttrs = [];
   if (crop) {
     const ar = aspectCssValue(crop.aspect);
     if (ar) figStyle.push(`aspect-ratio:${ar}`);
-    const fx = crop.focalX != null ? Number(crop.focalX) : (crop.focal_x != null ? Number(crop.focal_x) : 0.5);
-    const fy = crop.focalY != null ? Number(crop.focalY) : (crop.focal_y != null ? Number(crop.focal_y) : 0.5);
+    const fx = crop.focalX != null ? Number(crop.focalX) : crop.focal_x != null ? Number(crop.focal_x) : 0.5;
+    const fy = crop.focalY != null ? Number(crop.focalY) : crop.focal_y != null ? Number(crop.focal_y) : 0.5;
     const px = Number.isFinite(fx) ? Math.round(Math.max(0, Math.min(1, fx)) * 100) : 50;
     const py = Number.isFinite(fy) ? Math.round(Math.max(0, Math.min(1, fy)) * 100) : 50;
     imgStyle.push('width:100%', 'height:100%', 'object-fit:cover', `object-position:${px}% ${py}%`);
@@ -701,9 +751,13 @@ function contentBackgroundImageUrl(content) {
 
 function contentBackgroundColor(content) {
   if (!content || typeof content !== 'object') return '';
-  const raw = content.backgroundColor || content.background_color || content.bg
-    || (typeof content.background === 'string' && !/\.(jpe?g|png|webp|gif)/i.test(content.background)
-      ? content.background : '');
+  const raw =
+    content.backgroundColor ||
+    content.background_color ||
+    content.bg ||
+    (typeof content.background === 'string' && !/\.(jpe?g|png|webp|gif)/i.test(content.background)
+      ? content.background
+      : '');
   if (typeof raw !== 'string') return '';
   const s = raw.trim().slice(0, 120);
   if (/^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(s)) return s;
@@ -714,16 +768,16 @@ function contentBackgroundColor(content) {
 
 function renderNavLinkTree(links) {
   const items = Array.isArray(links) ? links : [];
-  return items.map((l) => {
-    const kids = Array.isArray(l.children) ? l.children : [];
-    if (!kids.length) {
-      return `<a href="${esc(l.href || '#')}">${esc(l.label || '')}</a>`;
-    }
-    const sub = kids.map((c) =>
-      `<a href="${esc(c.href || '#')}">${esc(c.label || '')}</a>`
-    ).join('');
-    return `<span class="nav-item has-children"><a href="${esc(l.href || '#')}">${esc(l.label || '')}</a><span class="nav-sub">${sub}</span></span>`;
-  }).join('');
+  return items
+    .map((l) => {
+      const kids = Array.isArray(l.children) ? l.children : [];
+      if (!kids.length) {
+        return `<a href="${esc(l.href || '#')}">${esc(l.label || '')}</a>`;
+      }
+      const sub = kids.map((c) => `<a href="${esc(c.href || '#')}">${esc(c.label || '')}</a>`).join('');
+      return `<span class="nav-item has-children"><a href="${esc(l.href || '#')}">${esc(l.label || '')}</a><span class="nav-sub">${sub}</span></span>`;
+    })
+    .join('');
 }
 
 function cNav(c = {}, t, edit) {
@@ -742,8 +796,10 @@ function cNav(c = {}, t, edit) {
 }
 
 function cHero(c = {}, t, edit) {
-  const rating = c.rating && c.review_count
-    ? `<div class="rating-badge">★ ${esc(String(c.rating))} · ${esc(String(c.review_count))} customer reviews</div>` : '';
+  const rating =
+    c.rating && c.review_count
+      ? `<div class="rating-badge">★ ${esc(String(c.rating))} · ${esc(String(c.review_count))} customer reviews</div>`
+      : '';
   const hasBg = !!contentBackgroundImageUrl(c);
   // Side photo only when not already using a full-bleed background image.
   const photo = hasBg ? '' : photoFigure(c.image, 'hero-photo');
@@ -785,10 +841,16 @@ function cBenefits(c = {}, t, edit) {
   return `<section class="block"><div class="container">
     ${c.title ? `<h2>${editSpan(edit, 'title', c.title)}</h2>` : ''}
     ${c.subtitle ? `<p class="lede">${editSpan(edit, 'subtitle', c.subtitle)}</p>` : ''}
-    <div class="grid" data-ws-list="items">${items.map((it, i) =>
-      wrapListItem(edit, 'items', i,
-        `<div class="card">${itemIconHtml(it, it.title) || `<div class="chip">${i + 1}</div>`}<h3>${editSpan(edit, `items.${i}.title`, it.title || '')}</h3><p>${editSpan(edit, `items.${i}.text`, it.text || '')}</p></div>`)
-    ).join('')}</div>${listAddButton(edit, 'items', '+ Add card')}</div></section>`;
+    <div class="grid" data-ws-list="items">${items
+      .map((it, i) =>
+        wrapListItem(
+          edit,
+          'items',
+          i,
+          `<div class="card">${itemIconHtml(it, it.title) || `<div class="chip">${i + 1}</div>`}<h3>${editSpan(edit, `items.${i}.title`, it.title || '')}</h3><p>${editSpan(edit, `items.${i}.text`, it.text || '')}</p></div>`
+        )
+      )
+      .join('')}</div>${listAddButton(edit, 'items', '+ Add card')}</div></section>`;
 }
 
 function cServices(c = {}, t, edit) {
@@ -797,10 +859,16 @@ function cServices(c = {}, t, edit) {
   return `<section class="block page-anchor" id="services"><div class="container">
     ${c.title ? `<h2>${editSpan(edit, 'title', c.title)}</h2>` : '<h2>Our Services</h2>'}
     ${c.subtitle ? `<p class="lede">${editSpan(edit, 'subtitle', c.subtitle)}</p>` : ''}
-    <div class="grid" data-ws-list="items">${items.map((it, i) =>
-      wrapListItem(edit, 'items', i,
-        `<div class="card">${itemIconHtml(it, it.name)}<h3>${editSpan(edit, `items.${i}.name`, it.name || '')}</h3><p>${editSpan(edit, `items.${i}.description`, it.description || '')}</p></div>`)
-    ).join('')}</div>${listAddButton(edit, 'items', '+ Add service')}</div></section>`;
+    <div class="grid" data-ws-list="items">${items
+      .map((it, i) =>
+        wrapListItem(
+          edit,
+          'items',
+          i,
+          `<div class="card">${itemIconHtml(it, it.name)}<h3>${editSpan(edit, `items.${i}.name`, it.name || '')}</h3><p>${editSpan(edit, `items.${i}.description`, it.description || '')}</p></div>`
+        )
+      )
+      .join('')}</div>${listAddButton(edit, 'items', '+ Add service')}</div></section>`;
 }
 
 function cAbout(c = {}, t, edit) {
@@ -823,15 +891,19 @@ const GALLERY_GRADIENTS = [
 
 function cGallery(c = {}, t, edit) {
   const images = (Array.isArray(c.images) ? c.images : []).slice(0, 6);
-  const slots = images.length ? images : [{ caption: 'Your photo here' }, { caption: 'Your photo here' }, { caption: 'Your photo here' }];
+  const slots = images.length
+    ? images
+    : [{ caption: 'Your photo here' }, { caption: 'Your photo here' }, { caption: 'Your photo here' }];
   return `<section class="block"><div class="container">
     ${c.title ? `<h2>${editSpan(edit, 'title', c.title)}</h2>` : `<h2>${editSpan(edit, 'title', 'Gallery')}</h2>`}
     ${c.subtitle ? `<p class="lede">${editSpan(edit, 'subtitle', c.subtitle)}</p>` : ''}
-    <div class="gallery-grid">${slots.map((im, i) => {
-      const fig = photoFigure(im, 'photo');
-      if (fig) return fig;
-      return `<div class="ph" style="background:${GALLERY_GRADIENTS[i % GALLERY_GRADIENTS.length]}" role="img" aria-label="${esc(im.caption || 'Gallery image')}">${editSpan(edit, `images.${i}.caption`, im.caption || 'Your photo here')}</div>`;
-    }).join('')}</div></div></section>`;
+    <div class="gallery-grid">${slots
+      .map((im, i) => {
+        const fig = photoFigure(im, 'photo');
+        if (fig) return fig;
+        return `<div class="ph" style="background:${GALLERY_GRADIENTS[i % GALLERY_GRADIENTS.length]}" role="img" aria-label="${esc(im.caption || 'Gallery image')}">${editSpan(edit, `images.${i}.caption`, im.caption || 'Your photo here')}</div>`;
+      })
+      .join('')}</div></div></section>`;
 }
 
 function cReviews(c = {}, t, edit) {
@@ -840,12 +912,18 @@ function cReviews(c = {}, t, edit) {
   return `<section class="block"><div class="container">
     ${c.title ? `<h2>${editSpan(edit, 'title', c.title || 'What Customers Say')}</h2>` : `<h2>${editSpan(edit, 'title', 'What Customers Say')}</h2>`}
     ${c.subtitle ? `<p class="lede">${editSpan(edit, 'subtitle', c.subtitle)}</p>` : ''}
-    <div class="grid" data-ws-list="reviews">${reviews.map((r, i) => {
-      const stars = Math.max(1, Math.min(5, Number(r.stars) || 5));
-      return wrapListItem(edit, 'reviews', i,
-        `<div class="card review-card"><div class="stars">${'★'.repeat(stars)}${'☆'.repeat(5 - stars)}</div>
-        <p>“${editSpan(edit, `reviews.${i}.text`, r.text || '')}”</p><div class="who">— ${editSpan(edit, `reviews.${i}.name`, r.name || 'Customer')}</div></div>`);
-    }).join('')}</div>${listAddButton(edit, 'reviews', '+ Add review')}</div></section>`;
+    <div class="grid" data-ws-list="reviews">${reviews
+      .map((r, i) => {
+        const stars = Math.max(1, Math.min(5, Number(r.stars) || 5));
+        return wrapListItem(
+          edit,
+          'reviews',
+          i,
+          `<div class="card review-card"><div class="stars">${'★'.repeat(stars)}${'☆'.repeat(5 - stars)}</div>
+        <p>“${editSpan(edit, `reviews.${i}.text`, r.text || '')}”</p><div class="who">— ${editSpan(edit, `reviews.${i}.name`, r.name || 'Customer')}</div></div>`
+        );
+      })
+      .join('')}</div>${listAddButton(edit, 'reviews', '+ Add review')}</div></section>`;
 }
 
 function cCta(c = {}, t, edit) {
@@ -866,14 +944,18 @@ function cContactForm(c = {}, t) {
   if (!email && !phone && !formAction && !formToken && !embedHtml) return '';
   const useBitpype = !!(formAction || formToken);
   const action = useBitpype
-    ? (formAction || '#')
-    : (email ? `mailto:${esc(email)}?subject=${encodeURIComponent(c.mailto_subject || 'Website inquiry')}` : '#');
+    ? formAction || '#'
+    : email
+      ? `mailto:${esc(email)}?subject=${encodeURIComponent(c.mailto_subject || 'Website inquiry')}`
+      : '#';
   const method = useBitpype ? 'post' : 'post';
   const bitpypeAttrs = useBitpype
     ? ` data-bitpype-form="1" data-form-token="${esc(formToken)}" enctype="application/x-www-form-urlencoded"`
     : ' enctype="text/plain"';
   const formBlock = suppressFields
-    ? (embedHtml ? sanitizeHtml(embedHtml) : '')
+    ? embedHtml
+      ? sanitizeHtml(embedHtml)
+      : ''
     : `<form action="${esc(action)}" method="${method}"${bitpypeAttrs}${useBitpype ? ' onsubmit="return window.__bitpypeSubmitForm ? window.__bitpypeSubmitForm(event,this) : true"' : ''}>
         <div class="field"><label for="cf-name">Name</label><input id="cf-name" name="name" required></div>
         <div class="field"><label for="cf-phone">Phone</label><input id="cf-phone" name="phone" type="tel"></div>
@@ -895,12 +977,12 @@ function cContactForm(c = {}, t) {
 }
 
 function cMapPlaceholder(c = {}, t) {
-  const lines = Array.isArray(c.address_lines) ? c.address_lines : (c.address ? [c.address] : []);
+  const lines = Array.isArray(c.address_lines) ? c.address_lines : c.address ? [c.address] : [];
   if (!lines.length) return '';
   return `<section class="block"><div class="container">
     ${c.title ? `<h2>${esc(c.title)}</h2>` : '<h2>Find Us</h2>'}
     <div class="mapbox"><div class="pin">📍</div>
-      ${lines.map(l => `<div><strong>${esc(l)}</strong></div>`).join('')}
+      ${lines.map((l) => `<div><strong>${esc(l)}</strong></div>`).join('')}
     </div></div></section>`;
 }
 
@@ -910,7 +992,7 @@ function cHours(c = {}, t) {
   return `<section class="block"><div class="container">
     ${c.title ? `<h2>${esc(c.title)}</h2>` : '<h2>Business Hours</h2>'}
     <table class="hours-table"><tbody>
-      ${hours.map(h => `<tr><td>${esc(h.day || '')}</td><td>${esc(h.open || '')} – ${esc(h.close || '')}</td></tr>`).join('')}
+      ${hours.map((h) => `<tr><td>${esc(h.day || '')}</td><td>${esc(h.open || '')} – ${esc(h.close || '')}</td></tr>`).join('')}
     </tbody></table></div></section>`;
 }
 
@@ -919,10 +1001,16 @@ function cFaq(c = {}, t, edit) {
   if (!items.length && !edit) return '';
   return `<section class="block faq"><div class="container">
     ${c.title ? `<h2>${editSpan(edit, 'title', c.title)}</h2>` : '<h2>Frequently Asked Questions</h2>'}
-    <div data-ws-list="items">${items.map((it, i) =>
-      wrapListItem(edit, 'items', i,
-        `<details><summary>${editSpan(edit, `items.${i}.q`, it.q || '')}</summary><p>${editSpan(edit, `items.${i}.a`, it.a || '')}</p></details>`)
-    ).join('')}</div>${listAddButton(edit, 'items', '+ Add question')}
+    <div data-ws-list="items">${items
+      .map((it, i) =>
+        wrapListItem(
+          edit,
+          'items',
+          i,
+          `<details><summary>${editSpan(edit, `items.${i}.q`, it.q || '')}</summary><p>${editSpan(edit, `items.${i}.a`, it.a || '')}</p></details>`
+        )
+      )
+      .join('')}</div>${listAddButton(edit, 'items', '+ Add question')}
   </div></section>`;
 }
 
@@ -976,9 +1064,12 @@ function cCustom(c = {}, t, edit) {
 }
 
 function cHtml(c = {}, t, edit) {
-  const raw = (typeof c.html === 'string' && c.html.trim())
-    ? c.html
-    : ((typeof c.markup === 'string' && c.markup.trim()) ? c.markup : '');
+  const raw =
+    typeof c.html === 'string' && c.html.trim()
+      ? c.html
+      : typeof c.markup === 'string' && c.markup.trim()
+        ? c.markup
+        : '';
   const inner = raw ? markEditableSectionHtml(raw, edit) : '';
   if (!inner) return '';
   // Wrapper so section className / data-ws-* decorate a stable root, not the first inner tag.
@@ -1033,9 +1124,11 @@ function renderColCell(cell, edit, pathPrefix) {
     ${heading ? `<h3>${editSpan(edit, `${p}heading`, heading)}</h3>` : ''}
     ${body ? `<p>${editSpan(edit, `${p}body`, body)}</p>` : ''}
     ${photo}
-    ${button && button.text
-      ? `<p><a class="btn btn-primary" href="${esc(safeHref(button.href))}">${editSpan(edit, `${p}button.text`, button.text)}</a></p>`
-      : ''}
+    ${
+      button && button.text
+        ? `<p><a class="btn btn-primary" href="${esc(safeHref(button.href))}">${editSpan(edit, `${p}button.text`, button.text)}</a></p>`
+        : ''
+    }
   </div>`;
 }
 
@@ -1044,26 +1137,31 @@ function cHeading(c = {}, t, edit) {
   const text = c.heading || c.title || c.text || 'Heading';
   const level = [1, 2, 3, 4].includes(Number(c.level)) ? Number(c.level) : 2;
   const tag = `h${level}`;
-  return `<section class="block ws-design-heading ws-design-module" data-ws-design-module="1"><div class="container">`
-    + `<${tag}>${editSpan(edit, 'heading', text)}</${tag}></div></section>`;
+  return (
+    `<section class="block ws-design-heading ws-design-module" data-ws-design-module="1"><div class="container">` +
+    `<${tag}>${editSpan(edit, 'heading', text)}</${tag}></div></section>`
+  );
 }
 
 /** Standalone image design module. */
 function cImage(c = {}, t, edit) {
   void edit;
-  const photo = photoFigure(c.image, 'photo')
-    || '<div class="ph" style="background:linear-gradient(135deg,#e5e7eb,#d1d5db);min-height:180px;border-radius:8px" role="img" aria-label="Image"></div>';
+  const photo =
+    photoFigure(c.image, 'photo') ||
+    '<div class="ph" style="background:linear-gradient(135deg,#e5e7eb,#d1d5db);min-height:180px;border-radius:8px" role="img" aria-label="Image"></div>';
   const caption = c.caption || c.alt || '';
-  return `<section class="block ws-design-image ws-design-module" data-ws-design-module="1"><div class="container">`
-    + `${photo}`
-    + (caption ? `<p class="lede">${esc(caption)}</p>` : '')
-    + `</div></section>`;
+  return (
+    `<section class="block ws-design-image ws-design-module" data-ws-design-module="1"><div class="container">` +
+    `${photo}` +
+    (caption ? `<p class="lede">${esc(caption)}</p>` : '') +
+    `</div></section>`
+  );
 }
 
 /** Column layout module (1–12 columns via CSS grid). */
 function cColumns(c = {}, t, edit) {
   const cols = clampCols(c.cols != null ? c.cols : c.columns_count, 2);
-  let cells = Array.isArray(c.cells) ? c.cells : (Array.isArray(c.columns) ? c.columns : []);
+  let cells = Array.isArray(c.cells) ? c.cells : Array.isArray(c.columns) ? c.columns : [];
   if (!cells.length) {
     cells = Array.from({ length: cols }, () => ({ heading: 'Column', body: 'Add your content.' }));
   }
@@ -1101,11 +1199,15 @@ function cTextImage(c = {}, t, edit) {
   const textCol = `<div>
     ${heading ? `<h2>${editSpan(edit, 'heading', heading)}</h2>` : ''}
     ${body ? `<p class="lede">${editSpan(edit, 'body', body)}</p>` : ''}
-    ${button && button.text
-      ? `<p><a class="btn btn-primary" href="${esc(safeHref(button.href))}">${editSpan(edit, 'button.text', button.text)}</a></p>`
-      : ''}
+    ${
+      button && button.text
+        ? `<p><a class="btn btn-primary" href="${esc(safeHref(button.href))}">${editSpan(edit, 'button.text', button.text)}</a></p>`
+        : ''
+    }
   </div>`;
-  const imgCol = photo || '<div class="ph" style="background:linear-gradient(135deg,#e5e7eb,#d1d5db)" role="img" aria-label="Image"></div>';
+  const imgCol =
+    photo ||
+    '<div class="ph" style="background:linear-gradient(135deg,#e5e7eb,#d1d5db)" role="img" aria-label="Image"></div>';
   return `<section class="block text-image ws-design-module" data-ws-design-module="1"><div class="container">
     <div class="text-image-grid${side === 'left' ? ' image-left' : ''}">${textCol}<div>${imgCol}</div></div>
   </div></section>`;
@@ -1114,19 +1216,25 @@ function cTextImage(c = {}, t, edit) {
 /** Generic N-column card grid. */
 function cCards(c = {}, t, edit) {
   const items = Array.isArray(c.items) ? c.items : [];
-  const cols = clampCols(c.cols != null ? c.cols : (items.length >= 4 ? 4 : (items.length || 3)), 3);
+  const cols = clampCols(c.cols != null ? c.cols : items.length >= 4 ? 4 : items.length || 3, 3);
   if (!items.length && !edit) return '';
   return `<section class="block layout-cards ws-design-module" data-ws-design-module="1"><div class="container">
     ${c.title ? `<h2>${editSpan(edit, 'title', c.title)}</h2>` : ''}
     ${c.subtitle ? `<p class="lede">${editSpan(edit, 'subtitle', c.subtitle)}</p>` : ''}
-    <div class="cards-grid cols-${cols}" style="${colsGridStyle(cols)}" data-ws-list="items">${items.map((it, i) =>
-      wrapListItem(edit, 'items', i,
-        `<div class="card">
+    <div class="cards-grid cols-${cols}" style="${colsGridStyle(cols)}" data-ws-list="items">${items
+      .map((it, i) =>
+        wrapListItem(
+          edit,
+          'items',
+          i,
+          `<div class="card">
           ${photoFigure(it.image, 'photo')}
           <h3>${editSpan(edit, `items.${i}.title`, it.title || it.name || '')}</h3>
           <p>${editSpan(edit, `items.${i}.text`, it.text || it.description || '')}</p>
-        </div>`)
-    ).join('')}</div>${listAddButton(edit, 'items', '+ Add card')}</div></section>`;
+        </div>`
+        )
+      )
+      .join('')}</div>${listAddButton(edit, 'items', '+ Add card')}</div></section>`;
 }
 
 /** In-page site module mount (portal structure insert). */
@@ -1140,10 +1248,12 @@ function cSiteModule(c = {}) {
   const script = api
     ? `<script src="${esc(api)}/js/module-embed.js?v=mod6" defer data-bitpype-module-script="1"></script>`
     : `<script src="/js/module-embed.js?v=mod6" defer data-bitpype-module-script="1"></script>`;
-  return `<section class="block site-module-section"><div class="container">`
-    + `<div class="bitpype-module-embed" data-bitpype-module="1"${typeAttr} `
-    + `data-bitpype-module-token="${esc(token)}"${apiAttr} data-bitpype-hide-title="1"></div>`
-    + `${script}</div></section>`;
+  return (
+    `<section class="block site-module-section"><div class="container">` +
+    `<div class="bitpype-module-embed" data-bitpype-module="1"${typeAttr} ` +
+    `data-bitpype-module-token="${esc(token)}"${apiAttr} data-bitpype-hide-title="1"></div>` +
+    `${script}</div></section>`
+  );
 }
 
 /** Portal-published contact form embed (in-page JS mount). */
@@ -1155,9 +1265,11 @@ function cBitpypeForm(c = {}) {
   const script = api
     ? `<script src="${esc(api)}/js/form-embed.js?v=form1" defer data-bitpype-form-script="1"></script>`
     : `<script src="/js/form-embed.js?v=form1" defer data-bitpype-form-script="1"></script>`;
-  return `<!--bitpype-form:${esc(token)}--><section class="block"><div class="container" style="max-width:640px;margin:0 auto">`
-    + `<div class="bitpype-form-embed" data-bitpype-managed="1" data-bitpype-form-embed="${esc(token)}"${apiAttr}></div>`
-    + `${script}</div></section><!--/bitpype-form:${esc(token)}-->`;
+  return (
+    `<!--bitpype-form:${esc(token)}--><section class="block"><div class="container" style="max-width:640px;margin:0 auto">` +
+    `<div class="bitpype-form-embed" data-bitpype-managed="1" data-bitpype-form-embed="${esc(token)}"${apiAttr}></div>` +
+    `${script}</div></section><!--/bitpype-form:${esc(token)}-->`
+  );
 }
 
 function cSocialLinks(c = {}, t) {
@@ -1165,26 +1277,49 @@ function cSocialLinks(c = {}, t) {
   if (!links.length) return '';
   return `<section class="block"><div class="container">
     ${c.title ? `<h2>${esc(c.title)}</h2>` : '<h2>Follow Us</h2>'}
-    <div class="social-row">${links.map((l) => {
-      const network = l.network || l.icon || '';
-      const iconName = siteIcons.iconForNetwork(network) || (siteIcons.isKnownIcon(network) ? siteIcons.normalizeIconName(network) : '');
-      const href = esc(safeHref(l.url || '#'));
-      const label = l.label || network || l.url || 'Social';
-      if (iconName) {
-        return `<a class="ws-social" href="${href}" target="_blank" rel="noopener" aria-label="${esc(label)}" title="${esc(label)}">${siteIcons.renderIconSvg(iconName, { label })}</a>`;
-      }
-      return `<a href="${href}" target="_blank" rel="noopener">${esc(label)}</a>`;
-    }).join('')}</div></div></section>`;
+    <div class="social-row">${links
+      .map((l) => {
+        const network = l.network || l.icon || '';
+        const iconName =
+          siteIcons.iconForNetwork(network) ||
+          (siteIcons.isKnownIcon(network) ? siteIcons.normalizeIconName(network) : '');
+        const href = esc(safeHref(l.url || '#'));
+        const label = l.label || network || l.url || 'Social';
+        if (iconName) {
+          return `<a class="ws-social" href="${href}" target="_blank" rel="noopener" aria-label="${esc(label)}" title="${esc(label)}">${siteIcons.renderIconSvg(iconName, { label })}</a>`;
+        }
+        return `<a href="${href}" target="_blank" rel="noopener">${esc(label)}</a>`;
+      })
+      .join('')}</div></div></section>`;
 }
 
 const RENDERERS = {
-  nav: cNav, hero: cHero, benefits: cBenefits, services: cServices, about: cAbout,
-  gallery: cGallery, reviews: cReviews, cta: cCta, contact_form: cContactForm,
-  map_placeholder: cMapPlaceholder, hours: cHours, faq: cFaq, footer: cFooter,
-  booking_button: cBookingButton, social_links: cSocialLinks, custom: cCustom, html: cHtml,
-  bitpype_form: cBitpypeForm, form: cBitpypeForm, site_module: cSiteModule,
-  columns: cColumns, text: cText, text_image: cTextImage, cards: cCards,
-  heading: cHeading, image: cImage,
+  nav: cNav,
+  hero: cHero,
+  benefits: cBenefits,
+  services: cServices,
+  about: cAbout,
+  gallery: cGallery,
+  reviews: cReviews,
+  cta: cCta,
+  contact_form: cContactForm,
+  map_placeholder: cMapPlaceholder,
+  hours: cHours,
+  faq: cFaq,
+  footer: cFooter,
+  booking_button: cBookingButton,
+  social_links: cSocialLinks,
+  custom: cCustom,
+  html: cHtml,
+  bitpype_form: cBitpypeForm,
+  form: cBitpypeForm,
+  site_module: cSiteModule,
+  columns: cColumns,
+  text: cText,
+  text_image: cTextImage,
+  cards: cCards,
+  heading: cHeading,
+  image: cImage,
 };
 
 const PREVIEW_EDIT_STYLE = `<style data-ws-edit-style="1">
@@ -2564,8 +2699,20 @@ const PREVIEW_NAV_GUARD = `<script data-ws-preview-nav="1">
 /* ------------------------------------------------------------------ */
 
 const FREEFORM_VOID_TAGS = new Set([
-  'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta',
-  'param', 'source', 'track', 'wbr',
+  'area',
+  'base',
+  'br',
+  'col',
+  'embed',
+  'hr',
+  'img',
+  'input',
+  'link',
+  'meta',
+  'param',
+  'source',
+  'track',
+  'wbr',
 ]);
 const FREEFORM_SKIP_TAGS = new Set(['script', 'style', 'noscript', 'svg', 'template']);
 
@@ -2627,9 +2774,7 @@ function freeformPreviewInner(pageHtml) {
   if (looksLikeFullDocument(pageHtml) || looksLikeFullDocument(sanitized)) {
     const split = splitHtmlBody(sanitized);
     if (split) return split.body;
-    return sanitized
-      .replace(/^[\s\S]*?<body[^>]*>/i, '')
-      .replace(/<\/body>[\s\S]*$/i, '');
+    return sanitized.replace(/^[\s\S]*?<body[^>]*>/i, '').replace(/<\/body>[\s\S]*$/i, '');
   }
   return sanitized;
 }
@@ -2675,16 +2820,15 @@ function markEditableSectionHtml(html, edit) {
  * Uses the same sanitize + body extract path as preview marking.
  */
 function applyFreeformTextEdits(pageHtml, editsByIndex) {
-  const map = editsByIndex instanceof Map
-    ? editsByIndex
-    : new Map(Object.entries(editsByIndex || {}).map(([k, v]) => [Number(k), v]));
+  const map =
+    editsByIndex instanceof Map
+      ? editsByIndex
+      : new Map(Object.entries(editsByIndex || {}).map(([k, v]) => [Number(k), v]));
   if (!map.size) return String(pageHtml || '');
 
   const original = String(pageHtml || '');
   const sanitized = sanitizeHtml(original);
-  const split = (looksLikeFullDocument(original) || looksLikeFullDocument(sanitized))
-    ? splitHtmlBody(sanitized)
-    : null;
+  const split = looksLikeFullDocument(original) || looksLikeFullDocument(sanitized) ? splitHtmlBody(sanitized) : null;
   const target = split ? split.body : sanitized;
   const parts = [];
   let cursor = 0;
@@ -2768,7 +2912,14 @@ function injectPreviewBaseHref(html, baseUrl) {
 function previewScripts(opts) {
   const o = opts || {};
   let out = '';
-  if (o.preview) out += PREVIEW_NAV_GUARD + '<script>' + fs.readFileSync(path.join(__dirname, '../public/js/preview-bridge.js'), 'utf8').replace(/<\/script/gi, '<\\/script') + '</script>';
+  if (o.preview)
+    out +=
+      PREVIEW_NAV_GUARD +
+      '<script>' +
+      fs
+        .readFileSync(path.join(__dirname, '../public/js/preview-bridge.js'), 'utf8')
+        .replace(/<\/script/gi, '<\\/script') +
+      '</script>';
   if (o.editable) out += PREVIEW_EDIT_STYLE + PREVIEW_EDIT_SCRIPT;
   return out;
 }
@@ -2778,7 +2929,12 @@ function previewScripts(opts) {
  * Lets customCss target modules without rewriting renderers.
  */
 function sectionExtraClass(section, content) {
-  const raw = [section && section.className, section && section.class, content && content.className, content && content.class]
+  const raw = [
+    section && section.className,
+    section && section.class,
+    content && content.className,
+    content && content.class,
+  ]
     .filter((v) => typeof v === 'string' && v.trim())
     .join(' ');
   return raw
@@ -2792,8 +2948,7 @@ function sectionExtraClass(section, content) {
 /** Safe CSS declarations for optional section/content.style + background fields. */
 function sectionInlineStyle(section, content) {
   const parts = [];
-  const raw = [section && section.style, content && content.style]
-    .find((v) => typeof v === 'string' && v.trim());
+  const raw = [section && section.style, content && content.style].find((v) => typeof v === 'string' && v.trim());
   if (raw) {
     let s = String(raw).slice(0, 600);
     s = s.replace(/[{}]/g, '').replace(/<\/?style/gi, '');
@@ -2823,7 +2978,11 @@ function sectionInlineStyle(section, content) {
 function decorateSectionRoot(html, section, content, edit) {
   const out = String(html || '');
   if (!out.trim()) return '';
-  const type = String(section.type || 'custom').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 40) || 'custom';
+  const type =
+    String(section.type || 'custom')
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '')
+      .slice(0, 40) || 'custom';
   const extra = sectionExtraClass(section, content);
   const style = sectionInlineStyle(section, content);
   const sid = typeof section.id === 'string' ? section.id.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) : '';
@@ -2867,10 +3026,11 @@ function sectionToHtml(section, theme, edit) {
   try {
     if (!section || typeof section.type !== 'string') return '<!-- invalid section -->';
     const fn = RENDERERS[section.type] || cCustom;
-    const content = (section.content && typeof section.content === 'object') ? section.content : {};
-    const body = fn === cCustom && !RENDERERS[section.type]
-      ? Object.assign({ heading: content.heading || content.title || section.type }, content)
-      : content;
+    const content = section.content && typeof section.content === 'object' ? section.content : {};
+    const body =
+      fn === cCustom && !RENDERERS[section.type]
+        ? Object.assign({ heading: content.heading || content.title || section.type }, content)
+        : content;
     const html = fn(body, t, edit || null) || '';
     return decorateSectionRoot(html, section, content, edit || null);
   } catch (e) {
@@ -2883,7 +3043,9 @@ function sectionToHtml(section, theme, edit) {
 /* ------------------------------------------------------------------ */
 
 function pageFileName(slug) {
-  const s = String(slug || '/').replace(/^\//, '').replace(/\/$/, '');
+  const s = String(slug || '/')
+    .replace(/^\//, '')
+    .replace(/\/$/, '');
   if (!s || s === 'home' || s === 'index') return 'index.html';
   return s.replace(/[^a-z0-9-_]/gi, '_') + '.html';
 }
@@ -2894,7 +3056,9 @@ function pageFileName(slug) {
  * Leading slash, trailing slash, and .html suffix are ignored for every page.
  */
 function normalizeRoute(hrefOrSlug) {
-  let s = String(hrefOrSlug == null ? '' : hrefOrSlug).trim().toLowerCase();
+  let s = String(hrefOrSlug == null ? '' : hrefOrSlug)
+    .trim()
+    .toLowerCase();
   if (!s || s === '/' || s === '#') return 'index';
   if (s.charAt(0) === '#') {
     s = s.slice(1).split('?')[0];
@@ -2956,7 +3120,7 @@ function findNavDuplicateIssues(html) {
     while ((m = linkRe.exec(nav))) {
       const attrs = m[1] || '';
       if (isNavIdentitySkipAttrs(attrs)) continue;
-      const href = (attrs.match(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>]+))/i) || []);
+      const href = attrs.match(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>]+))/i) || [];
       const hrefVal = href[1] || href[2] || href[3] || '';
       if (!isComparableNavHref(hrefVal)) continue;
       const route = normalizeRoute(hrefVal);
@@ -2997,7 +3161,7 @@ function dedupeNavHtml(html) {
     while ((m = linkRe.exec(inner))) {
       const attrs = m[1] || '';
       if (isNavIdentitySkipAttrs(attrs)) continue;
-      const href = (attrs.match(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>]+))/i) || []);
+      const href = attrs.match(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>]+))/i) || [];
       const hrefVal = href[1] || href[2] || href[3] || '';
       if (!isComparableNavHref(hrefVal)) continue;
       hits.push({
@@ -3067,11 +3231,14 @@ function isHomePage(page, pages) {
   if (!page) return false;
   const slug = String(page.slug || '');
   if (
-    slug === '/'
-    || slug === 'home' || slug === '/home'
-    || slug === 'index' || slug === '/index'
-    || /^\/?(?:home|index)(?:\.html)?$/i.test(slug)
-  ) return true;
+    slug === '/' ||
+    slug === 'home' ||
+    slug === '/home' ||
+    slug === 'index' ||
+    slug === '/index' ||
+    /^\/?(?:home|index)(?:\.html)?$/i.test(slug)
+  )
+    return true;
   return Array.isArray(pages) && pages[0] === page;
 }
 
@@ -3096,16 +3263,11 @@ function rewriteFileLinksToAnchors(html, pages) {
     const file = isHome ? 'index.html' : pageFileName(p.slug);
     const bare = file.replace(/\.html$/i, '');
     const id = anchorId(p.slug);
-    const patterns = new Set([
-      file,
-      bare,
-      `./${file}`,
-      `./${bare}`,
-      `/${file}`,
-      `/${bare}`,
-    ]);
+    const patterns = new Set([file, bare, `./${file}`, `./${bare}`, `/${file}`, `/${bare}`]);
     if (isHome) {
-      ['/', '/index.html', 'index.html', './index.html', 'home', '/home', 'home.html', './home.html'].forEach((x) => patterns.add(x));
+      ['/', '/index.html', 'index.html', './index.html', 'home', '/home', 'home.html', './home.html'].forEach((x) =>
+        patterns.add(x)
+      );
     }
     for (const pat of patterns) {
       const re = new RegExp(`href=(["'])${escapeRe(pat)}\\1`, 'gi');
@@ -3213,9 +3375,7 @@ function validateExportNavLinks(pages, outDir) {
 }
 
 function makeEdit(theme, pageIndex, sectionIndex, editable) {
-  const fonts = theme && theme.elementFonts && typeof theme.elementFonts === 'object'
-    ? theme.elementFonts
-    : null;
+  const fonts = theme && theme.elementFonts && typeof theme.elementFonts === 'object' ? theme.elementFonts : null;
   const hasFonts = !!(fonts && Object.keys(fonts).length);
   if (!editable && !hasFonts) return null;
   return {
@@ -3252,18 +3412,31 @@ function upsertFontLinks(docHtml, theme, extraText) {
 
 function pageMetaFields(page) {
   const p = page && typeof page === 'object' ? page : {};
-  const description = String(
-    p.description || p.metaDescription || p.meta_description || ''
-  ).trim().slice(0, 320);
-  const ogImage = safeImageUrl(String(p.ogImage || p.og_image || p.ogImageUrl || '').trim())
-    || String(p.ogImage || p.og_image || '').trim().slice(0, 500);
-  const canonical = String(p.canonical || p.canonicalUrl || p.canonical_url || '').trim().slice(0, 500);
-  const customJs = typeof p.customJs === 'string' ? sanitizeJs(p.customJs)
-    : (typeof p.custom_js === 'string' ? sanitizeJs(p.custom_js) : '');
-  const customHead = typeof p.customHead === 'string' ? sanitizeHead(p.customHead)
-    : (typeof p.custom_head === 'string' ? sanitizeHead(p.custom_head) : '');
-  const overrideChrome = p.chromeOverride === true || p.chrome_override === true
-    || p.useSiteChrome === false || p.use_site_chrome === false;
+  const description = String(p.description || p.metaDescription || p.meta_description || '')
+    .trim()
+    .slice(0, 320);
+  const ogImage =
+    safeImageUrl(String(p.ogImage || p.og_image || p.ogImageUrl || '').trim()) ||
+    String(p.ogImage || p.og_image || '')
+      .trim()
+      .slice(0, 500);
+  const canonical = String(p.canonical || p.canonicalUrl || p.canonical_url || '')
+    .trim()
+    .slice(0, 500);
+  const customJs =
+    typeof p.customJs === 'string'
+      ? sanitizeJs(p.customJs)
+      : typeof p.custom_js === 'string'
+        ? sanitizeJs(p.custom_js)
+        : '';
+  const customHead =
+    typeof p.customHead === 'string'
+      ? sanitizeHead(p.customHead)
+      : typeof p.custom_head === 'string'
+        ? sanitizeHead(p.custom_head)
+        : '';
+  const overrideChrome =
+    p.chromeOverride === true || p.chrome_override === true || p.useSiteChrome === false || p.use_site_chrome === false;
   return { description, ogImage, canonical, customJs, customHead, overrideChrome };
 }
 
@@ -3277,9 +3450,13 @@ function faviconLinkTag(theme) {
   const t = normalizeTheme(theme);
   const href = t.favicon ? safeImageUrl(t.favicon) || t.favicon : '';
   if (!href) return '';
-  const type = /\.svg$/i.test(href) ? 'image/svg+xml'
-    : (/\.png$/i.test(href) ? 'image/png'
-      : (/\.ico$/i.test(href) ? 'image/x-icon' : ''));
+  const type = /\.svg$/i.test(href)
+    ? 'image/svg+xml'
+    : /\.png$/i.test(href)
+      ? 'image/png'
+      : /\.ico$/i.test(href)
+        ? 'image/x-icon'
+        : '';
   const typeAttr = type ? ` type="${type}"` : '';
   // data-ws-favicon marks engine-injected tags so freeform re-render can replace them.
   return `<link data-ws-favicon="1" rel="icon"${typeAttr} href="${esc(href)}">`;
@@ -3320,7 +3497,9 @@ function docShell({ title, body, theme, script, description, ogImage, canonical,
     desc ? `<meta property="og:description" content="${esc(desc)}">` : '',
     ogImg ? `<meta property="og:image" content="${esc(ogImg)}">` : '',
     `<meta property="og:type" content="website">`,
-  ].filter(Boolean).join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -3377,7 +3556,10 @@ function applySitePartials(bodyHtml, theme, page) {
     body = `${header}\n${body}`;
   }
   if (footer) {
-    body = body.replace(/<(?:footer|section)\b[^>]*\bdata-ws-section-type\s*=\s*["']footer["'][^>]*>[\s\S]*?<\/(?:footer|section)>/gi, '');
+    body = body.replace(
+      /<(?:footer|section)\b[^>]*\bdata-ws-section-type\s*=\s*["']footer["'][^>]*>[\s\S]*?<\/(?:footer|section)>/gi,
+      ''
+    );
     body = `${body}\n${footer}`;
   }
   return body;
@@ -3419,10 +3601,7 @@ function injectThemeStyles(docHtml, theme) {
   if (!css || !String(css).trim()) return doc;
   const styleTag = `<style data-ws-theme="1">${css}</style>`;
   if (/data-ws-theme\s*=\s*["']1["']/.test(doc)) {
-    return doc.replace(
-      /<style\b[^>]*data-ws-theme\s*=\s*["']1["'][^>]*>[\s\S]*?<\/style>/i,
-      styleTag
-    );
+    return doc.replace(/<style\b[^>]*data-ws-theme\s*=\s*["']1["'][^>]*>[\s\S]*?<\/style>/i, styleTag);
   }
   if (/<\/head>/i.test(doc)) return doc.replace(/<\/head>/i, `${styleTag}\n</head>`);
   if (/<head\b[^>]*>/i.test(doc)) return doc.replace(/<head\b[^>]*>/i, (m) => `${m}\n${styleTag}`);
@@ -3458,7 +3637,11 @@ function renderPage(page, allPages, theme, opts) {
   const scripts = previewScripts({ preview, editable });
   // Modular sections win when present. Legacy freeform page.html only if no sections.
   let structure;
-  try { structure = require('./siteStructure'); } catch { structure = null; }
+  try {
+    structure = require('./siteStructure');
+  } catch {
+    structure = null;
+  }
   let pageForRender = page;
   if (structure && typeof structure.ensureNavFirstPage === 'function' && Array.isArray(page.sections)) {
     pageForRender = structure.ensureNavFirstPage(page);
@@ -3473,23 +3656,17 @@ function renderPage(page, allPages, theme, opts) {
       if (typeof modules.ensureClientPageChrome === 'function') {
         freeHtml = modules.ensureClientPageChrome(freeHtml);
       }
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
   }
-  const finishPage = (html) => assertAndDedupeNavHtml(
-    html,
-    `renderPage:${String(pageForRender.slug || pageIndex)}`
-  );
+  const finishPage = (html) => assertAndDedupeNavHtml(html, `renderPage:${String(pageForRender.slug || pageIndex)}`);
   const pageMeta = pageMetaFields(pageForRender);
   if (freeHtml) {
     if (looksLikeFullDocument(freeHtml)) {
       // sanitizeHtml strips author <link rel="icon"> — reinject from theme.favicon.
       let doc = injectThemeHead(
-        injectThemeJs(
-          injectMobileNavAsset(
-            injectThemeStyles(injectFaviconLink(sanitizeHtml(freeHtml), t), t)
-          ),
-          t
-        ),
+        injectThemeJs(injectMobileNavAsset(injectThemeStyles(injectFaviconLink(sanitizeHtml(freeHtml), t), t)), t),
         t,
         pageMeta.customHead
       );
@@ -3518,17 +3695,24 @@ function renderPage(page, allPages, theme, opts) {
         body = `<div data-ws-page="${pageIndex}">${body}</div>`;
       }
     }
-    return finishPage(upsertFontLinks(injectMobileNavAsset(docShell({
-      title: pageForRender.title || 'Home',
-      body,
-      theme: t,
-      script: scripts,
-      description: pageMeta.description,
-      ogImage: pageMeta.ogImage,
-      canonical: pageMeta.canonical,
-      pageJs: pageMeta.customJs,
-      pageHead: pageMeta.customHead,
-    })), t));
+    return finishPage(
+      upsertFontLinks(
+        injectMobileNavAsset(
+          docShell({
+            title: pageForRender.title || 'Home',
+            body,
+            theme: t,
+            script: scripts,
+            description: pageMeta.description,
+            ogImage: pageMeta.ogImage,
+            canonical: pageMeta.canonical,
+            pageJs: pageMeta.customJs,
+            pageHead: pageMeta.customHead,
+          })
+        ),
+        t
+      )
+    );
   }
   const sections = Array.isArray(pageForRender.sections) ? pageForRender.sections : null;
   if (!sections) throw err('INVALID_PAGE', 'Page needs sections or html.');
@@ -3536,7 +3720,7 @@ function renderPage(page, allPages, theme, opts) {
   try {
     navLinks = (structure || require('./siteStructure')).buildNavLinks(pages, { preview });
   } catch {
-    navLinks = pages.map(p => ({
+    navLinks = pages.map((p) => ({
       label: p.title || p.slug,
       href: preview ? `#${anchorId(p.slug)}` : pageFileName(p.slug),
     }));
@@ -3547,7 +3731,9 @@ function renderPage(page, allPages, theme, opts) {
     const seenL = new Set();
     navLinks = (navLinks || []).filter((l) => {
       const route = normalizeRoute(l && (l.slug || l.href));
-      const label = String((l && l.label) || '').trim().toLowerCase();
+      const label = String((l && l.label) || '')
+        .trim()
+        .toLowerCase();
       if (seenR.has(route) || (label && seenL.has(label))) return false;
       seenR.add(route);
       if (label) seenL.add(label);
@@ -3555,30 +3741,37 @@ function renderPage(page, allPages, theme, opts) {
     });
   }
   const useSharedHeader = !!(t.partials && t.partials.headerHtml && !pageMeta.overrideChrome);
-  let body = sections.map((s, si) => {
-    const edit = makeEdit(t, pageIndex, si, editable);
-    // Skip per-page nav when shared header partial is active.
-    if (s.type === 'nav' && useSharedHeader) return '';
-    if (s.type === 'footer' && t.partials && t.partials.footerHtml && !pageMeta.overrideChrome) return '';
-    if (s.type === 'nav') {
-      return sectionToHtml({ type: 'nav', content: Object.assign({}, s.content, { links: navLinks }) }, t, edit);
-    }
-    return sectionToHtml(s, t, edit);
-  }).join('\n');
+  let body = sections
+    .map((s, si) => {
+      const edit = makeEdit(t, pageIndex, si, editable);
+      // Skip per-page nav when shared header partial is active.
+      if (s.type === 'nav' && useSharedHeader) return '';
+      if (s.type === 'footer' && t.partials && t.partials.footerHtml && !pageMeta.overrideChrome) return '';
+      if (s.type === 'nav') {
+        return sectionToHtml({ type: 'nav', content: Object.assign({}, s.content, { links: navLinks }) }, t, edit);
+      }
+      return sectionToHtml(s, t, edit);
+    })
+    .join('\n');
   body = applySitePartials(body, t, pageForRender);
   // Footer/CTA hashes (#services) must become *.html on static multipage hosts.
   if (!preview) body = rewriteAnchorLinksToFiles(body, pages);
-  return finishPage(upsertFontLinks(docShell({
-    title: pageForRender.title || 'Home',
-    body,
-    theme: t,
-    script: scripts,
-    description: pageMeta.description,
-    ogImage: pageMeta.ogImage,
-    canonical: pageMeta.canonical,
-    pageJs: pageMeta.customJs,
-    pageHead: pageMeta.customHead,
-  }), t));
+  return finishPage(
+    upsertFontLinks(
+      docShell({
+        title: pageForRender.title || 'Home',
+        body,
+        theme: t,
+        script: scripts,
+        description: pageMeta.description,
+        ogImage: pageMeta.ogImage,
+        canonical: pageMeta.canonical,
+        pageJs: pageMeta.customJs,
+        pageHead: pageMeta.customHead,
+      }),
+      t
+    )
+  );
 }
 
 /**
@@ -3614,7 +3807,7 @@ function renderSite(pages, theme, opts) {
   try {
     navLinks = require('./siteStructure').buildNavLinks(pages, { preview: true });
   } catch {
-    navLinks = pages.map(p => ({ label: p.title || p.slug, href: '#' + anchorId(p.slug) }));
+    navLinks = pages.map((p) => ({ label: p.title || p.slug, href: '#' + anchorId(p.slug) }));
   }
   const freeform = pages.some(pageHasHtml);
   const scripts = previewScripts({ preview: true, editable });
@@ -3629,27 +3822,37 @@ function renderSite(pages, theme, opts) {
     return upsertFontLinks(appendHtmlTail(doc, scripts), t);
   }
   const headExtras = [];
-  const body = pages.map((p, pi) => {
-    if (pageHasHtml(p)) {
-      const sanitized = sanitizeHtml(p.html);
-      let inner = sanitized;
-      if (looksLikeFullDocument(p.html)) {
-        sanitized.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, (m) => { headExtras.push(m); return ''; });
-        sanitized.replace(/<link\b[^>]*>/gi, (m) => { headExtras.push(m); return ''; });
-        inner = sanitized.replace(/^[\s\S]*?<body[^>]*>/i, '').replace(/<\/body>[\s\S]*$/i, '');
+  const body = pages
+    .map((p, pi) => {
+      if (pageHasHtml(p)) {
+        const sanitized = sanitizeHtml(p.html);
+        let inner = sanitized;
+        if (looksLikeFullDocument(p.html)) {
+          sanitized.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, (m) => {
+            headExtras.push(m);
+            return '';
+          });
+          sanitized.replace(/<link\b[^>]*>/gi, (m) => {
+            headExtras.push(m);
+            return '';
+          });
+          inner = sanitized.replace(/^[\s\S]*?<body[^>]*>/i, '').replace(/<\/body>[\s\S]*$/i, '');
+        }
+        if (editable) inner = markFreeformTextNodes(inner, pi);
+        return `<div class="page-anchor" id="${anchorId(p.slug)}" data-ws-page="${pi}">${inner}</div>`;
       }
-      if (editable) inner = markFreeformTextNodes(inner, pi);
-      return `<div class="page-anchor" id="${anchorId(p.slug)}" data-ws-page="${pi}">${inner}</div>`;
-    }
-    const sections = (Array.isArray(p.sections) ? p.sections : []).map((s, si) => {
-      const edit = makeEdit(t, pi, si, editable);
-      if (s.type === 'nav') {
-        return sectionToHtml({ type: 'nav', content: Object.assign({}, s.content, { links: navLinks }) }, t, edit);
-      }
-      return sectionToHtml(s, t, edit);
-    }).join('\n');
-    return `<div class="page-anchor" id="${anchorId(p.slug)}">${sections}</div>`;
-  }).join('\n');
+      const sections = (Array.isArray(p.sections) ? p.sections : [])
+        .map((s, si) => {
+          const edit = makeEdit(t, pi, si, editable);
+          if (s.type === 'nav') {
+            return sectionToHtml({ type: 'nav', content: Object.assign({}, s.content, { links: navLinks }) }, t, edit);
+          }
+          return sectionToHtml(s, t, edit);
+        })
+        .join('\n');
+      return `<div class="page-anchor" id="${anchorId(p.slug)}">${sections}</div>`;
+    })
+    .join('\n');
   const title = (homePage(pages) || pages[0]).title || 'Home';
   let html = docShell({
     title,
@@ -3756,11 +3959,11 @@ function detectIndustry(category) {
  * the lead record). UNKNOWN facts are returned separately for QA.
  */
 function collectFacts(db, lead) {
-  const ok = new Map();      // fact_key -> { value, source, claim_class }
-  const unknown = [];        // [{ fact_key, value }]
-  const rows = db.prepare(
-    'SELECT fact_key, value, source, claim_class FROM business_facts WHERE lead_id = ?'
-  ).all(lead.id);
+  const ok = new Map(); // fact_key -> { value, source, claim_class }
+  const unknown = []; // [{ fact_key, value }]
+  const rows = db
+    .prepare('SELECT fact_key, value, source, claim_class FROM business_facts WHERE lead_id = ?')
+    .all(lead.id);
   for (const r of rows) {
     if (r.claim_class === 'VERIFIED' || r.claim_class === 'OWNER_PROVIDED') {
       ok.set(r.fact_key, { value: r.value, source: r.source, claim_class: r.claim_class });
@@ -3785,8 +3988,11 @@ function collectFacts(db, lead) {
   // hours JSON -> 'hours'
   try {
     const h = lead.hours ? JSON.parse(lead.hours) : null;
-    if (Array.isArray(h) && h.length) ok.set('hours', { value: JSON.stringify(h), source: 'lead record', claim_class: 'VERIFIED' });
-  } catch (e) { /* ignore malformed */ }
+    if (Array.isArray(h) && h.length)
+      ok.set('hours', { value: JSON.stringify(h), source: 'lead record', claim_class: 'VERIFIED' });
+  } catch (e) {
+    /* ignore malformed */
+  }
   // services JSON -> service:<name> facts
   try {
     const s = lead.services ? JSON.parse(lead.services) : null;
@@ -3796,12 +4002,17 @@ function collectFacts(db, lead) {
         if (n) ok.set(`service:${n.toLowerCase()}`, { value: n, source: 'lead record', claim_class: 'VERIFIED' });
       }
     }
-  } catch (e) { /* ignore malformed */ }
+  } catch (e) {
+    /* ignore malformed */
+  }
   // social links JSON -> 'social'
   try {
     const s = lead.social_links ? JSON.parse(lead.social_links) : null;
-    if (Array.isArray(s) && s.length) ok.set('social', { value: JSON.stringify(s), source: 'lead record', claim_class: 'VERIFIED' });
-  } catch (e) { /* ignore malformed */ }
+    if (Array.isArray(s) && s.length)
+      ok.set('social', { value: JSON.stringify(s), source: 'lead record', claim_class: 'VERIFIED' });
+  } catch (e) {
+    /* ignore malformed */
+  }
   return { ok, unknown };
 }
 
@@ -3861,10 +4072,18 @@ function deterministicCopy(lead, industry, facts) {
     : `Friendly, reliable ${label.toLowerCase()} service${cityBit} — get in touch today.`;
 
   const benefits = [
-    { title: 'Local & Friendly', text: `A neighborhood ${label.toLowerCase()} you can talk to directly — no call centers, no runaround.` },
+    {
+      title: 'Local & Friendly',
+      text: `A neighborhood ${label.toLowerCase()} you can talk to directly — no call centers, no runaround.`,
+    },
     { title: 'Clear Communication', text: 'We explain what we are doing in plain language before any work begins.' },
     { title: 'Respectful Service', text: 'We treat your home or business with care and clean up after ourselves.' },
-    { title: 'Easy to Reach', text: phone ? `One call to ${phone.value} is all it takes to get started.` : 'Reach out by phone or through the contact form below.' },
+    {
+      title: 'Easy to Reach',
+      text: phone
+        ? `One call to ${phone.value} is all it takes to get started.`
+        : 'Reach out by phone or through the contact form below.',
+    },
   ];
 
   const about_paragraphs = [
@@ -3875,22 +4094,43 @@ function deterministicCopy(lead, industry, facts) {
   if (desc) about_paragraphs.unshift(desc.value);
 
   const faq = [
-    { q: `How do I get started with ${name}?`, a: phone ? `Just call ${phone.value} or send a message through the contact form and we will take it from there.` : 'Just send a message through the contact form and we will take it from there.' },
-    { q: 'Do I need an appointment?', a: 'It is best to reach out ahead of time so we can make sure someone is available to help you.' },
-    { q: 'What areas do you serve?', a: city ? `We serve ${city.value} and the surrounding area. Contact us to confirm.` : 'Contact us to confirm we cover your area.' },
-    { q: 'How do I get a quote?', a: 'Call or message us with a few details about what you need and we will walk you through the next steps.' },
-    { q: 'What if I need to reschedule?', a: 'Life happens — just let us know as early as you can and we will find another time.' },
+    {
+      q: `How do I get started with ${name}?`,
+      a: phone
+        ? `Just call ${phone.value} or send a message through the contact form and we will take it from there.`
+        : 'Just send a message through the contact form and we will take it from there.',
+    },
+    {
+      q: 'Do I need an appointment?',
+      a: 'It is best to reach out ahead of time so we can make sure someone is available to help you.',
+    },
+    {
+      q: 'What areas do you serve?',
+      a: city
+        ? `We serve ${city.value} and the surrounding area. Contact us to confirm.`
+        : 'Contact us to confirm we cover your area.',
+    },
+    {
+      q: 'How do I get a quote?',
+      a: 'Call or message us with a few details about what you need and we will walk you through the next steps.',
+    },
+    {
+      q: 'What if I need to reschedule?',
+      a: 'Life happens — just let us know as early as you can and we will find another time.',
+    },
   ];
 
   return {
     hero_headline: cleanText(hero_headline, 90),
     hero_subheadline: cleanText(hero_subheadline, 200),
     benefits,
-    about_paragraphs: about_paragraphs.map(p => cleanText(p, 600)),
-    faq: faq.map(f => ({ q: cleanText(f.q, 160), a: cleanText(f.a, 400) })),
+    about_paragraphs: about_paragraphs.map((p) => cleanText(p, 600)),
+    faq: faq.map((f) => ({ q: cleanText(f.q, 160), a: cleanText(f.a, 400) })),
     cta_title: `Ready to get started with ${name}?`,
-    cta_text: phone ? `Call ${phone.value} or send us a message — we would love to help.` : 'Send us a message — we would love to help.',
-    services: services.map(n => ({ name: n, description: `Professional ${n.toLowerCase()} done with care.` })),
+    cta_text: phone
+      ? `Call ${phone.value} or send us a message — we would love to help.`
+      : 'Send us a message — we would love to help.',
+    services: services.map((n) => ({ name: n, description: `Professional ${n.toLowerCase()} done with care.` })),
   };
 }
 
@@ -3916,7 +4156,10 @@ async function aiCopy(db, lead, industry, facts) {
     db,
     messages: [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: `Business context (facts only — do not invent anything else):\n${JSON.stringify(context, null, 2)}` },
+      {
+        role: 'user',
+        content: `Business context (facts only — do not invent anything else):\n${JSON.stringify(context, null, 2)}`,
+      },
     ],
     maxTokens: 2000,
     leadId: lead.id,
@@ -3928,21 +4171,27 @@ async function aiCopy(db, lead, industry, facts) {
     const c = cleanText(v, max);
     return c || fb;
   };
-  const benefits = Array.isArray(parsed.benefits) && parsed.benefits.length
-    ? parsed.benefits.slice(0, 4).map((b, i) => ({
-        title: pick(b.title, det.benefits[i % det.benefits.length].title, 80),
-        text: pick(b.text, det.benefits[i % det.benefits.length].text, 300),
-      }))
-    : det.benefits;
-  const about_paragraphs = Array.isArray(parsed.about_paragraphs) && parsed.about_paragraphs.length
-    ? parsed.about_paragraphs.slice(0, 4).map(p => cleanText(p, 600)).filter(Boolean)
-    : det.about_paragraphs;
-  const faq = Array.isArray(parsed.faq) && parsed.faq.length
-    ? parsed.faq.slice(0, 6).map((f, i) => ({
-        q: pick(f.q, det.faq[i % det.faq.length].q, 160),
-        a: pick(f.a, det.faq[i % det.faq.length].a, 400),
-      }))
-    : det.faq;
+  const benefits =
+    Array.isArray(parsed.benefits) && parsed.benefits.length
+      ? parsed.benefits.slice(0, 4).map((b, i) => ({
+          title: pick(b.title, det.benefits[i % det.benefits.length].title, 80),
+          text: pick(b.text, det.benefits[i % det.benefits.length].text, 300),
+        }))
+      : det.benefits;
+  const about_paragraphs =
+    Array.isArray(parsed.about_paragraphs) && parsed.about_paragraphs.length
+      ? parsed.about_paragraphs
+          .slice(0, 4)
+          .map((p) => cleanText(p, 600))
+          .filter(Boolean)
+      : det.about_paragraphs;
+  const faq =
+    Array.isArray(parsed.faq) && parsed.faq.length
+      ? parsed.faq.slice(0, 6).map((f, i) => ({
+          q: pick(f.q, det.faq[i % det.faq.length].q, 160),
+          a: pick(f.a, det.faq[i % det.faq.length].a, 400),
+        }))
+      : det.faq;
   return {
     hero_headline: pick(parsed.hero_headline, det.hero_headline, 90),
     hero_subheadline: pick(parsed.hero_subheadline, det.hero_subheadline, 200),
@@ -3972,9 +4221,16 @@ function buildSection(type, lead, facts, copy, industry) {
       return { type, content: { business_name: name, phone, phone_display: phone, links: [] } };
     case 'hero': {
       const c = { headline: copy.hero_headline, subheadline: copy.hero_subheadline };
-      if (phone) { c.cta_text = `Call ${phone}`; c.cta_href = `tel:${digitsOnly(phone)}`; }
-      c.cta_secondary_text = 'Our Services'; c.cta_secondary_href = '#services';
-      if (lead.rating && lead.review_count) { c.rating = lead.rating; c.review_count = lead.review_count; }
+      if (phone) {
+        c.cta_text = `Call ${phone}`;
+        c.cta_href = `tel:${digitsOnly(phone)}`;
+      }
+      c.cta_secondary_text = 'Our Services';
+      c.cta_secondary_href = '#services';
+      if (lead.rating && lead.review_count) {
+        c.rating = lead.rating;
+        c.review_count = lead.review_count;
+      }
       return { type, content: c };
     }
     case 'benefits':
@@ -3987,7 +4243,13 @@ function buildSection(type, lead, facts, copy, industry) {
     case 'about':
       return { type, content: { title: `About ${name}`, paragraphs: copy.about_paragraphs } };
     case 'gallery':
-      return { type, content: { title: 'Gallery', subtitle: 'A look at our work. (Photo placeholders — the owner can replace these.)' } };
+      return {
+        type,
+        content: {
+          title: 'Gallery',
+          subtitle: 'A look at our work. (Photo placeholders — the owner can replace these.)',
+        },
+      };
     case 'reviews': {
       const items = [];
       // Only real review texts would go here; lead rating alone is shown as a badge.
@@ -3995,10 +4257,28 @@ function buildSection(type, lead, facts, copy, industry) {
       return { type, content: { title: 'Customer Reviews', reviews: items } };
     }
     case 'cta':
-      return { type, content: { title: copy.cta_title, text: copy.cta_text, button_text: phone ? `Call ${phone}` : 'Contact Us', button_href: phone ? `tel:${digitsOnly(phone)}` : '#contact' } };
+      return {
+        type,
+        content: {
+          title: copy.cta_title,
+          text: copy.cta_text,
+          button_text: phone ? `Call ${phone}` : 'Contact Us',
+          button_href: phone ? `tel:${digitsOnly(phone)}` : '#contact',
+        },
+      };
     case 'contact_form': {
       if (!email && !phone) return null;
-      return { type, content: { title: 'Contact Us', text: `Reach out to ${name} — we will get back to you as soon as we can.`, email, phone, address, mailto_subject: `Website inquiry for ${name}` } };
+      return {
+        type,
+        content: {
+          title: 'Contact Us',
+          text: `Reach out to ${name} — we will get back to you as soon as we can.`,
+          email,
+          phone,
+          address,
+          mailto_subject: `Website inquiry for ${name}`,
+        },
+      };
     }
     case 'map_placeholder': {
       if (!address) return null;
@@ -4008,23 +4288,48 @@ function buildSection(type, lead, facts, copy, industry) {
       const h = facts.ok.get('hours');
       if (!h) return null;
       let hours = [];
-      try { hours = JSON.parse(h.value); } catch (e) { return null; }
+      try {
+        hours = JSON.parse(h.value);
+      } catch (e) {
+        return null;
+      }
       if (!Array.isArray(hours) || !hours.length) return null;
       return { type, content: { title: 'Business Hours', hours } };
     }
     case 'faq':
       return { type, content: { title: 'Frequently Asked Questions', items: copy.faq } };
     case 'footer':
-      return { type, content: { business_name: name, phone, email, address, tagline: `${label} services${city ? ` in ${city}` : ''}.` } };
+      return {
+        type,
+        content: {
+          business_name: name,
+          phone,
+          email,
+          address,
+          tagline: `${label} services${city ? ` in ${city}` : ''}.`,
+        },
+      };
     case 'booking_button': {
       if (!phone) return null;
-      return { type, content: { title: 'Ready when you are', text: `Call ${phone}`, href: `tel:${digitsOnly(phone)}`, subtext: 'Tap to call now.' } };
+      return {
+        type,
+        content: {
+          title: 'Ready when you are',
+          text: `Call ${phone}`,
+          href: `tel:${digitsOnly(phone)}`,
+          subtext: 'Tap to call now.',
+        },
+      };
     }
     case 'social_links': {
       const s = facts.ok.get('social');
       if (!s) return null;
       let links = [];
-      try { links = JSON.parse(s.value); } catch (e) { return null; }
+      try {
+        links = JSON.parse(s.value);
+      } catch (e) {
+        return null;
+      }
       if (!Array.isArray(links) || !links.length) return null;
       return { type, content: { title: 'Follow Us', links } };
     }
@@ -4045,7 +4350,17 @@ function buildPages(lead, industry, facts, copy, aiUsed) {
   };
 
   // Record every rendered fact with its provenance.
-  const renderedFactKeys = new Set(['business_name', 'phone', 'email', 'address', 'city', 'state', 'hours', 'social', 'description']);
+  const renderedFactKeys = new Set([
+    'business_name',
+    'phone',
+    'email',
+    'address',
+    'city',
+    'state',
+    'hours',
+    'social',
+    'description',
+  ]);
   for (const [k, f] of facts.ok) {
     if (k.startsWith('service:') || renderedFactKeys.has(k)) {
       claim(k.startsWith('service:') ? 'service' : k, f.value, f.claim_class, f.source);
@@ -4055,7 +4370,14 @@ function buildPages(lead, industry, facts, copy, aiUsed) {
     claim('rating', `${lead.rating} (${lead.review_count} reviews)`, 'VERIFIED', 'lead record');
   }
   // Marketing copy is AI_COPY by definition (tone only, no factual assertions).
-  claim('marketing_copy', aiUsed ? 'AI-generated headlines, benefits, about text, FAQ' : 'Template-generated headlines, benefits, about text, FAQ', 'AI_COPY', aiUsed ? 'ai: generation' : 'websiteEngine deterministic');
+  claim(
+    'marketing_copy',
+    aiUsed
+      ? 'AI-generated headlines, benefits, about text, FAQ'
+      : 'Template-generated headlines, benefits, about text, FAQ',
+    'AI_COPY',
+    aiUsed ? 'ai: generation' : 'websiteEngine deterministic'
+  );
 
   const pageDefs = [
     { slug: '/', title: 'Home', types: tpl.home },
@@ -4064,15 +4386,15 @@ function buildPages(lead, industry, facts, copy, aiUsed) {
     { slug: '/contact', title: 'Contact', types: tpl.contact },
   ];
 
-  const pages = pageDefs.map(pd => {
+  const pages = pageDefs.map((pd) => {
     const sections = [];
     for (const st of pd.types) {
       const s = buildSection(st, lead, facts, copy, industry);
       if (s) sections.push(s);
     }
     // A page must never be empty: nav + footer are the floor.
-    if (!sections.some(s => s.type === 'nav')) sections.unshift(buildSection('nav', lead, facts, copy, industry));
-    if (!sections.some(s => s.type === 'footer')) sections.push(buildSection('footer', lead, facts, copy, industry));
+    if (!sections.some((s) => s.type === 'nav')) sections.unshift(buildSection('nav', lead, facts, copy, industry));
+    if (!sections.some((s) => s.type === 'footer')) sections.push(buildSection('footer', lead, facts, copy, industry));
     return { slug: pd.slug, title: pd.title, sections };
   });
 
@@ -4093,11 +4415,21 @@ function getManifest(db, websiteId) {
   ensureTables(db);
   const row = db.prepare('SELECT manifest FROM claim_manifest WHERE website_id = ?').get(websiteId);
   if (!row) return [];
-  try { return JSON.parse(row.manifest); } catch (e) { return []; }
+  try {
+    return JSON.parse(row.manifest);
+  } catch (e) {
+    return [];
+  }
 }
 
 function slugifyExportName(s) {
-  return String(s || 'site').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'site';
+  return (
+    String(s || 'site')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60) || 'site'
+  );
 }
 
 /**
@@ -4108,9 +4440,10 @@ function slugifyExportName(s) {
 function folderBelongsToSite(name, websiteId, workspaceId, siteName) {
   const id = String(websiteId);
   if (!name || !id) return false;
-  const ws = workspaceId != null && Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0
-    ? String(Number(workspaceId))
-    : null;
+  const ws =
+    workspaceId != null && Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0
+      ? String(Number(workspaceId))
+      : null;
 
   if (name === `site-${id}` || name === `qa-site-${id}`) return true;
   if (siteName) {
@@ -4164,11 +4497,9 @@ function collectSiteExportFolders(websiteId, opts = {}) {
   const siteName = opts.siteName || '';
   const found = new Set();
 
-  const candidates = [
-    `site-${id}`,
-    `qa-site-${id}`,
-    siteName ? `${slugifyExportName(siteName)}-${id}` : null,
-  ].filter(Boolean);
+  const candidates = [`site-${id}`, `qa-site-${id}`, siteName ? `${slugifyExportName(siteName)}-${id}` : null].filter(
+    Boolean
+  );
   if (workspaceId != null && Number(workspaceId) > 0) {
     candidates.push(`ws-${Number(workspaceId)}-site-${id}`);
   }
@@ -4178,17 +4509,20 @@ function collectSiteExportFolders(websiteId, opts = {}) {
     for (const name of fs.readdirSync(root)) {
       if (folderBelongsToSite(name, id, workspaceId, siteName)) found.add(name);
     }
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
 
   if (opts.previewPath) {
     try {
       const p = String(opts.previewPath).replace(/\\/g, '/');
-      const m = p.match(/website-scout-exports\/([^/]+)/i)
-        || p.match(/\/([^/]+)\/(?:index\.html)?$/i);
+      const m = p.match(/website-scout-exports\/([^/]+)/i) || p.match(/\/([^/]+)\/(?:index\.html)?$/i);
       if (m && m[1] && folderBelongsToSite(m[1], id, workspaceId, siteName)) {
         found.add(m[1]);
       }
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
   }
 
   return [...found];
@@ -4248,21 +4582,43 @@ function deleteWebsite(db, websiteId, opts = {}) {
   // Snapshot screenshot paths before DB wipe (files usually live under site-{id}/).
   let shotPaths = [];
   try {
-    shotPaths = db.prepare(
-      'SELECT storage_path FROM site_screenshots WHERE website_id = ?'
-    ).all(id).map((r) => r.storage_path).filter(Boolean);
-  } catch { /* table may be absent */ }
+    shotPaths = db
+      .prepare('SELECT storage_path FROM site_screenshots WHERE website_id = ?')
+      .all(id)
+      .map((r) => r.storage_path)
+      .filter(Boolean);
+  } catch {
+    /* table may be absent */
+  }
 
   const tx = db.transaction(() => {
-    try { db.prepare('DELETE FROM site_screenshots WHERE website_id = ?').run(id); } catch { /* */ }
     try {
-      db.prepare('UPDATE site_domains SET website_id = NULL, updated_at = datetime(\'now\') WHERE website_id = ?').run(id);
-    } catch { /* */ }
+      db.prepare('DELETE FROM site_screenshots WHERE website_id = ?').run(id);
+    } catch {
+      /* */
+    }
     try {
-      db.prepare('UPDATE design_jobs SET website_id = NULL, updated_at = datetime(\'now\') WHERE website_id = ?').run(id);
-    } catch { /* */ }
-    try { db.prepare('DELETE FROM claim_manifest WHERE website_id = ?').run(id); } catch { /* */ }
-    try { db.prepare('DELETE FROM website_versions WHERE website_id = ?').run(id); } catch { /* */ }
+      db.prepare("UPDATE site_domains SET website_id = NULL, updated_at = datetime('now') WHERE website_id = ?").run(
+        id
+      );
+    } catch {
+      /* */
+    }
+    try {
+      db.prepare("UPDATE design_jobs SET website_id = NULL, updated_at = datetime('now') WHERE website_id = ?").run(id);
+    } catch {
+      /* */
+    }
+    try {
+      db.prepare('DELETE FROM claim_manifest WHERE website_id = ?').run(id);
+    } catch {
+      /* */
+    }
+    try {
+      db.prepare('DELETE FROM website_versions WHERE website_id = ?').run(id);
+    } catch {
+      /* */
+    }
     db.prepare('DELETE FROM websites WHERE id = ?').run(id);
   });
   tx();
@@ -4281,11 +4637,17 @@ function deleteWebsite(db, websiteId, opts = {}) {
           const fileOk = assertDirInsideExportRoot(sp, root);
           if (fileOk) fs.unlinkSync(sp);
         }
-      } catch { /* best-effort */ }
+      } catch {
+        /* best-effort */
+      }
     }
   }
 
-  logActivity(db, 'websites', `Website #${id} ("${String(site.name || '').slice(0, 80)}") deleted; removed ${storage.removed.length} export folder(s).`);
+  logActivity(
+    db,
+    'websites',
+    `Website #${id} ("${String(site.name || '').slice(0, 80)}") deleted; removed ${storage.removed.length} export folder(s).`
+  );
   return {
     id,
     deleted: true,
@@ -4314,7 +4676,11 @@ async function generateSite(db, leadId, opts = {}) {
   if (existing && opts.force) {
     // Full rebuild: wipe DB row + export/preview storage for the previous site.
     deleteWebsite(db, existing.id, { workspaceId: opts.workspaceId });
-    logActivity(db, 'websites', `Regenerating website for "${lead.business_name}" (lead #${leadId}) — previous site replaced.`);
+    logActivity(
+      db,
+      'websites',
+      `Regenerating website for "${lead.business_name}" (lead #${leadId}) — previous site replaced.`
+    );
   }
 
   setLeadStatus(db, leadId, 'building');
@@ -4343,22 +4709,32 @@ async function generateSite(db, leadId, opts = {}) {
   const { pages, manifest } = buildPages(lead, industry, facts, copy, aiUsed);
   require('./siteContentQuality').assertNoNewDefects(pages, [], theme);
 
-  const info = db.prepare(
-    `INSERT INTO websites (lead_id, name, industry, theme, pages, status)
+  const info = db
+    .prepare(
+      `INSERT INTO websites (lead_id, name, industry, theme, pages, status)
      VALUES (?, ?, ?, ?, ?, 'draft')`
-  ).run(leadId, lead.business_name, industry, JSON.stringify(theme), JSON.stringify(pages));
+    )
+    .run(leadId, lead.business_name, industry, JSON.stringify(theme), JSON.stringify(pages));
   const websiteId = Number(info.lastInsertRowid);
 
-  db.prepare(
-    'INSERT INTO website_versions (website_id, version_no, pages, theme, note) VALUES (?, ?, ?, ?, ?)'
-  ).run(websiteId, 1, JSON.stringify(pages), JSON.stringify(theme), aiUsed ? 'Initial generation (AI copy)' : 'Initial generation (template copy)');
+  db.prepare('INSERT INTO website_versions (website_id, version_no, pages, theme, note) VALUES (?, ?, ?, ?, ?)').run(
+    websiteId,
+    1,
+    JSON.stringify(pages),
+    JSON.stringify(theme),
+    aiUsed ? 'Initial generation (AI copy)' : 'Initial generation (template copy)'
+  );
 
-  db.prepare('INSERT OR REPLACE INTO claim_manifest (website_id, manifest) VALUES (?, ?)')
-    .run(websiteId, JSON.stringify(manifest));
+  db.prepare('INSERT OR REPLACE INTO claim_manifest (website_id, manifest) VALUES (?, ?)').run(
+    websiteId,
+    JSON.stringify(manifest)
+  );
 
   try {
     db.prepare("UPDATE websites SET origin = 'template' WHERE id = ?").run(websiteId);
-  } catch (e) { /* origin column is added by ensureTables */ }
+  } catch (e) {
+    /* origin column is added by ensureTables */
+  }
 
   setLeadStatus(db, leadId, 'qa_pending');
   logActivity(db, 'websites', `Website #${websiteId} generated for "${lead.business_name}" — awaiting QA.`);
@@ -4370,21 +4746,16 @@ async function generateSite(db, leadId, opts = {}) {
 function saveVersion(db, websiteId, note, author) {
   ensureTables(db);
   const site = getWebsite(db, websiteId);
-  const row = db.prepare('SELECT COALESCE(MAX(version_no), 0) AS m FROM website_versions WHERE website_id = ?').get(websiteId);
+  const row = db
+    .prepare('SELECT COALESCE(MAX(version_no), 0) AS m FROM website_versions WHERE website_id = ?')
+    .get(websiteId);
   const next = Number(row.m) + 1;
-  const authorVal = author != null && String(author).trim()
-    ? String(author).trim().slice(0, 120)
-    : null;
-  const info = db.prepare(
-    'INSERT INTO website_versions (website_id, version_no, pages, theme, note, author) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(
-    websiteId,
-    next,
-    site.pages,
-    site.theme,
-    note ? String(note).slice(0, 500) : null,
-    authorVal
-  );
+  const authorVal = author != null && String(author).trim() ? String(author).trim().slice(0, 120) : null;
+  const info = db
+    .prepare(
+      'INSERT INTO website_versions (website_id, version_no, pages, theme, note, author) VALUES (?, ?, ?, ?, ?, ?)'
+    )
+    .run(websiteId, next, site.pages, site.theme, note ? String(note).slice(0, 500) : null, authorVal);
   return db.prepare('SELECT * FROM website_versions WHERE id = ?').get(Number(info.lastInsertRowid));
 }
 
@@ -4392,8 +4763,11 @@ function saveVersion(db, websiteId, note, author) {
 function restoreVersion(db, versionId) {
   const v = db.prepare('SELECT * FROM website_versions WHERE id = ?').get(versionId);
   if (!v) throw err('VERSION_NOT_FOUND', `Version #${versionId} not found.`);
-  db.prepare("UPDATE websites SET pages = ?, theme = ?, updated_at = datetime('now') WHERE id = ?")
-    .run(v.pages, v.theme, v.website_id);
+  db.prepare("UPDATE websites SET pages = ?, theme = ?, updated_at = datetime('now') WHERE id = ?").run(
+    v.pages,
+    v.theme,
+    v.website_id
+  );
   saveVersion(db, v.website_id, `Restored version ${v.version_no}`);
   return getWebsite(db, v.website_id);
 }
@@ -4401,9 +4775,17 @@ function restoreVersion(db, versionId) {
 /** Apply an edited pages/theme model (validated by the IPC layer) + version it. */
 function saveSite(db, websiteId, pages, theme, note, author) {
   const site = getWebsite(db, websiteId);
-  require('./siteContentQuality').assertNoNewDefects(pages, typeof site.pages === 'string' ? JSON.parse(site.pages) : site.pages, theme, typeof site.theme === 'string' ? JSON.parse(site.theme) : site.theme);
-  db.prepare("UPDATE websites SET pages = ?, theme = ?, updated_at = datetime('now') WHERE id = ?")
-    .run(JSON.stringify(pages), JSON.stringify(normalizeTheme(theme)), websiteId);
+  require('./siteContentQuality').assertNoNewDefects(
+    pages,
+    typeof site.pages === 'string' ? JSON.parse(site.pages) : site.pages,
+    theme,
+    typeof site.theme === 'string' ? JSON.parse(site.theme) : site.theme
+  );
+  db.prepare("UPDATE websites SET pages = ?, theme = ?, updated_at = datetime('now') WHERE id = ?").run(
+    JSON.stringify(pages),
+    JSON.stringify(normalizeTheme(theme)),
+    websiteId
+  );
   return saveVersion(db, websiteId, note || 'Manual edit', author);
 }
 
@@ -4465,9 +4847,8 @@ async function checkMobileOverflow(pages, theme, opts = {}) {
         const rect = el.getBoundingClientRect();
         if (rect.width > clientW + 2 && rect.right > clientW + 2) {
           const tag = el.tagName.toLowerCase();
-          const cls = (el.className && typeof el.className === 'string')
-            ? el.className.split(/\s+/).slice(0, 2).join('.')
-            : '';
+          const cls =
+            el.className && typeof el.className === 'string' ? el.className.split(/\s+/).slice(0, 2).join('.') : '';
           overflowing.push(`${tag}${cls ? '.' + cls : ''}`);
           if (overflowing.length >= 4) break;
         }
@@ -4484,11 +4865,15 @@ async function checkMobileOverflow(pages, theme, opts = {}) {
       width,
       detail: result.ok
         ? ''
-        : `scrollWidth=${result.scrollWidth} clientWidth=${result.clientWidth}`
-          + (result.overflowing.length ? `; nodes=${result.overflowing.join(',')}` : ''),
+        : `scrollWidth=${result.scrollWidth} clientWidth=${result.clientWidth}` +
+          (result.overflowing.length ? `; nodes=${result.overflowing.join(',')}` : ''),
     };
   } finally {
-    try { await browser.close(); } catch { /* */ }
+    try {
+      await browser.close();
+    } catch {
+      /* */
+    }
   }
 }
 
@@ -4609,9 +4994,7 @@ function validatePagesCss(pages, theme) {
     check: {
       name: 'css-present-and-applied',
       pass,
-      detail: pass
-        ? 'CSS present and class selectors apply.'
-        : failures.map((f) => f.detail).join(' '),
+      detail: pass ? 'CSS present and class selectors apply.' : failures.map((f) => f.detail).join(' '),
     },
   };
 }
@@ -4633,12 +5016,14 @@ function registeredImageUrlSet(db, websiteId) {
   // Unified registry: design deliverable images + on-disk site-{id}/images|assets
   // (uploadAsset, replaceImage, addImages, deliver remote localizations).
   try {
-    const rows = db.prepare(
-      'SELECT deliverable FROM design_jobs WHERE website_id = ?'
-    ).all(websiteId);
+    const rows = db.prepare('SELECT deliverable FROM design_jobs WHERE website_id = ?').all(websiteId);
     for (const row of rows || []) {
       let payload = null;
-      try { payload = JSON.parse(row.deliverable || 'null'); } catch { /* ignore */ }
+      try {
+        payload = JSON.parse(row.deliverable || 'null');
+      } catch {
+        /* ignore */
+      }
       if (!payload || !Array.isArray(payload.images)) continue;
       for (const im of payload.images) {
         if (!im) continue;
@@ -4646,7 +5031,9 @@ function registeredImageUrlSet(db, websiteId) {
         if (im.name) urls.add(`images/${im.name}`);
       }
     }
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
   try {
     const openPreview = require('./openPreview');
     const root = openPreview.exportRoot();
@@ -4658,13 +5045,17 @@ function registeredImageUrlSet(db, websiteId) {
         if (fs.statSync(abs).isFile()) urls.add(`${sub}/${name}`);
       }
     }
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
   try {
     for (const im of imagesForWebsite(db, websiteId) || []) {
       if (im && im.url) urls.add(String(im.url));
       if (im && im.name) urls.add(`images/${im.name}`);
     }
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
   return urls;
 }
 
@@ -4681,48 +5072,84 @@ function isRegisteredImageSrc(src, registry) {
   return false;
 }
 
-const PLACEHOLDER_IMAGE_RE = /(?:via\.placeholder|placehold\.it|placekitten|picsum\.photos|dummyimage|lorempixel|placeholder\.com|lorem\.flickr|placehold\.co)/i;
+const PLACEHOLDER_IMAGE_RE =
+  /(?:via\.placeholder|placehold\.it|placekitten|picsum\.photos|dummyimage|lorempixel|placeholder\.com|lorem\.flickr|placehold\.co)/i;
 
 /** HEAD/GET probe: URL returns image/asset bytes (status 200 + content-length or body). */
 function httpUrlHasBytes(url, opts = {}) {
   const timeoutMs = Math.max(2000, Number(opts.timeoutMs) || 8000);
   return new Promise((resolve) => {
     let settled = false;
-    const done = (v) => { if (!settled) { settled = true; resolve(v); } };
-    let u;
-    try { u = new URL(String(url)); } catch { done(false); return; }
-    const lib = u.protocol === 'https:' ? require('https') : require('http');
-    const req = lib.request({
-      hostname: u.hostname,
-      port: u.port || (u.protocol === 'https:' ? 443 : 80),
-      path: u.pathname + u.search,
-      method: 'HEAD',
-      timeout: timeoutMs,
-      headers: { 'User-Agent': 'website-scout-qa/1' },
-    }, (res) => {
-      const code = res.statusCode || 0;
-      if (code >= 200 && code < 400) {
-        const len = Number(res.headers['content-length'] || 0);
-        res.resume();
-        if (len > 0) { done(true); return; }
-        // Some hosts omit content-length on HEAD — fall through to GET.
-      } else {
-        res.resume();
+    const done = (v) => {
+      if (!settled) {
+        settled = true;
+        resolve(v);
       }
-      const get = lib.get(url, { timeout: timeoutMs, headers: { 'User-Agent': 'website-scout-qa/1' } }, (r2) => {
-        const chunks = [];
-        r2.on('data', (c) => {
-          chunks.push(c);
-          if (Buffer.concat(chunks).length > 64) { r2.destroy(); done((r2.statusCode || 0) >= 200 && (r2.statusCode || 0) < 400); }
+    };
+    let u;
+    try {
+      u = new URL(String(url));
+    } catch {
+      done(false);
+      return;
+    }
+    const lib = u.protocol === 'https:' ? require('https') : require('http');
+    const req = lib.request(
+      {
+        hostname: u.hostname,
+        port: u.port || (u.protocol === 'https:' ? 443 : 80),
+        path: u.pathname + u.search,
+        method: 'HEAD',
+        timeout: timeoutMs,
+        headers: { 'User-Agent': 'website-scout-qa/1' },
+      },
+      (res) => {
+        const code = res.statusCode || 0;
+        if (code >= 200 && code < 400) {
+          const len = Number(res.headers['content-length'] || 0);
+          res.resume();
+          if (len > 0) {
+            done(true);
+            return;
+          }
+          // Some hosts omit content-length on HEAD — fall through to GET.
+        } else {
+          res.resume();
+        }
+        const get = lib.get(url, { timeout: timeoutMs, headers: { 'User-Agent': 'website-scout-qa/1' } }, (r2) => {
+          const chunks = [];
+          r2.on('data', (c) => {
+            chunks.push(c);
+            if (Buffer.concat(chunks).length > 64) {
+              r2.destroy();
+              done((r2.statusCode || 0) >= 200 && (r2.statusCode || 0) < 400);
+            }
+          });
+          r2.on('end', () =>
+            done((r2.statusCode || 0) >= 200 && (r2.statusCode || 0) < 400 && Buffer.concat(chunks).length > 0)
+          );
+          r2.on('error', () => done(false));
         });
-        r2.on('end', () => done((r2.statusCode || 0) >= 200 && (r2.statusCode || 0) < 400 && Buffer.concat(chunks).length > 0));
-        r2.on('error', () => done(false));
-      });
-      get.on('error', () => done(false));
-      get.on('timeout', () => { try { get.destroy(); } catch { /* */ } done(false); });
-    });
+        get.on('error', () => done(false));
+        get.on('timeout', () => {
+          try {
+            get.destroy();
+          } catch {
+            /* */
+          }
+          done(false);
+        });
+      }
+    );
     req.on('error', () => done(false));
-    req.on('timeout', () => { try { req.destroy(); } catch { /* */ } done(false); });
+    req.on('timeout', () => {
+      try {
+        req.destroy();
+      } catch {
+        /* */
+      }
+      done(false);
+    });
     req.end();
   });
 }
@@ -4732,31 +5159,49 @@ function httpFormSubmitLive(url) {
   const timeoutMs = 8000;
   return new Promise((resolve) => {
     let u;
-    try { u = new URL(String(url)); } catch { resolve({ ok: false, detail: 'bad url' }); return; }
+    try {
+      u = new URL(String(url));
+    } catch {
+      resolve({ ok: false, detail: 'bad url' });
+      return;
+    }
     const lib = u.protocol === 'https:' ? require('https') : require('http');
-    const tryMethod = (method) => new Promise((res) => {
-      const req = lib.request({
-        hostname: u.hostname,
-        port: u.port || (u.protocol === 'https:' ? 443 : 80),
-        path: u.pathname + u.search,
-        method,
-        timeout: timeoutMs,
-        headers: { 'User-Agent': 'website-scout-qa/1' },
-      }, (r) => {
-        const code = r.statusCode || 0;
-        r.resume();
-        res({ ok: code > 0 && code < 500, code, method });
+    const tryMethod = (method) =>
+      new Promise((res) => {
+        const req = lib.request(
+          {
+            hostname: u.hostname,
+            port: u.port || (u.protocol === 'https:' ? 443 : 80),
+            path: u.pathname + u.search,
+            method,
+            timeout: timeoutMs,
+            headers: { 'User-Agent': 'website-scout-qa/1' },
+          },
+          (r) => {
+            const code = r.statusCode || 0;
+            r.resume();
+            res({ ok: code > 0 && code < 500, code, method });
+          }
+        );
+        req.on('error', () => res({ ok: false, code: 0, method }));
+        req.on('timeout', () => {
+          try {
+            req.destroy();
+          } catch {
+            /* */
+          }
+          res({ ok: false, code: 0, method });
+        });
+        req.end();
       });
-      req.on('error', () => res({ ok: false, code: 0, method }));
-      req.on('timeout', () => { try { req.destroy(); } catch { /* */ } res({ ok: false, code: 0, method }); });
-      req.end();
-    });
     Promise.resolve()
       .then(() => tryMethod('OPTIONS'))
       .then((r) => (r.ok ? r : tryMethod('HEAD')))
-      .then((r) => resolve(r.ok
-        ? { ok: true, detail: `${r.method} → ${r.code}` }
-        : { ok: false, detail: `submit endpoint unreachable` }))
+      .then((r) =>
+        resolve(
+          r.ok ? { ok: true, detail: `${r.method} → ${r.code}` } : { ok: false, detail: `submit endpoint unreachable` }
+        )
+      )
       .catch(() => resolve({ ok: false, detail: 'submit probe failed' }));
   });
 }
@@ -4781,16 +5226,19 @@ async function runFlowsLiveCheck(db, site, pages, html) {
   const results = [];
   let pass = true;
   const blob = String(html || '');
-  const hasBookingsMount = /data-bitpype-module-type\s*=\s*["']bookings["']/i.test(blob)
-    || /data-bitpype-module-token\s*=/i.test(blob) && /bookings/i.test(JSON.stringify(pages || []));
+  const hasBookingsMount =
+    /data-bitpype-module-type\s*=\s*["']bookings["']/i.test(blob) ||
+    (/data-bitpype-module-token\s*=/i.test(blob) && /bookings/i.test(JSON.stringify(pages || [])));
 
   // Bookings
   try {
     const modules = require('../server/siteModules');
     modules.ensureTables(db);
-    const emb = db.prepare(
-      "SELECT * FROM site_module_embeds WHERE lead_id = ? AND module_type = 'bookings' AND published = 1 LIMIT 1"
-    ).get(site.lead_id);
+    const emb = db
+      .prepare(
+        "SELECT * FROM site_module_embeds WHERE lead_id = ? AND module_type = 'bookings' AND published = 1 LIMIT 1"
+      )
+      .get(site.lead_id);
     const mounted = hasBookingsMount || !!emb;
     if (mounted) {
       if (!emb || !emb.embed_enabled) {
@@ -4814,17 +5262,24 @@ async function runFlowsLiveCheck(db, site, pages, html) {
                 date,
                 serviceId: svc.id,
               });
-              if (slots.closed) { closedDays += 1; continue; }
+              if (slots.closed) {
+                closedDays += 1;
+                continue;
+              }
               if ((slots.slots || []).length >= 1) {
                 found = { date, count: slots.slots.length, service: svc.name };
                 break;
               }
-            } catch { /* try next day */ }
+            } catch {
+              /* try next day */
+            }
           }
           if (found) {
             results.push(`bookings: ok — ${found.count} slot(s) on ${found.date} for "${found.service}"`);
           } else if (closedDays >= 7) {
-            results.push(`bookings: ok — documented closed (no open windows in next 21 days; ${closedDays} closed day probes)`);
+            results.push(
+              `bookings: ok — documented closed (no open windows in next 21 days; ${closedDays} closed day probes)`
+            );
           } else {
             pass = false;
             results.push('bookings: no slots for next open day (and not documented closed)');
@@ -4853,12 +5308,14 @@ async function runFlowsLiveCheck(db, site, pages, html) {
       results.push('forms: N/A (no form embeds)');
     } else {
       let appBase = '';
-      try { appBase = require('../server/stripeClient').appUrl(); } catch { /* */ }
+      try {
+        appBase = require('../server/stripeClient').appUrl();
+      } catch {
+        /* */
+      }
       if (!appBase) appBase = String(process.env.APP_URL || '').replace(/\/$/, '');
       for (const token of [...tokens].slice(0, 6)) {
-        const row = db.prepare(
-          'SELECT * FROM contact_forms WHERE public_token = ? LIMIT 1'
-        ).get(token);
+        const row = db.prepare('SELECT * FROM contact_forms WHERE public_token = ? LIMIT 1').get(token);
         if (!row || !row.published) {
           pass = false;
           results.push(`forms: token ${token.slice(0, 8)}… not published`);
@@ -4905,13 +5362,25 @@ async function qaSite(db, websiteId) {
     pages = JSON.parse(site.pages);
     theme = JSON.parse(site.theme);
   } catch (e) {
-    return { pass: false, checks: [{ name: 'valid-json', pass: false, detail: 'Stored pages/theme JSON is corrupt.' }] };
+    return {
+      pass: false,
+      checks: [{ name: 'valid-json', pass: false, detail: 'Stored pages/theme JSON is corrupt.' }],
+    };
   }
 
   const checks = [];
   const check = (name, pass, detail) => checks.push({ name, pass: !!pass, detail: detail || '' });
   const contentIssues = require('./siteContentQuality').inspect(pages, theme);
-  check('generated-content-integrity', contentIssues.length === 0, contentIssues.length ? contentIssues.map(issue => issue.code + ':' + issue.page + issue.path).join('; ').slice(0,500) : 'No reproduced navigation-body or punctuation defects.');
+  check(
+    'generated-content-integrity',
+    contentIssues.length === 0,
+    contentIssues.length
+      ? contentIssues
+          .map((issue) => issue.code + ':' + issue.page + issue.path)
+          .join('; ')
+          .slice(0, 500)
+      : 'No reproduced navigation-body or punctuation defects.'
+  );
 
   // 1. every page renders without exception
   let html = '';
@@ -4924,7 +5393,11 @@ async function qaSite(db, websiteId) {
     renderOk = false;
     renderErr = e.message || String(e);
   }
-  check('renders-without-exception', renderOk, renderOk ? `${pages.length} page(s) rendered.` : `Render failed: ${renderErr}`);
+  check(
+    'renders-without-exception',
+    renderOk,
+    renderOk ? `${pages.length} page(s) rendered.` : `Render failed: ${renderErr}`
+  );
 
   // 2. no UNKNOWN-class facts rendered as fact
   const { unknown } = collectFacts(db, lead || { id: site.lead_id });
@@ -4940,8 +5413,13 @@ async function qaSite(db, websiteId) {
       if (lower.includes(v.toLowerCase())) unknownHits.push(`${k}="${v.slice(0, 40)}"`);
     }
   }
-  check('no-unknown-facts', unknownHits.length === 0,
-    unknownHits.length ? `UNKNOWN facts found in output: ${unknownHits.join('; ')}` : `${unknown.length} UNKNOWN fact(s) on record, none rendered.`);
+  check(
+    'no-unknown-facts',
+    unknownHits.length === 0,
+    unknownHits.length
+      ? `UNKNOWN facts found in output: ${unknownHits.join('; ')}`
+      : `${unknown.length} UNKNOWN fact(s) on record, none rendered.`
+  );
 
   // 3. no placeholder text (visible content only — ignore script/style)
   let placeholderHit = null;
@@ -4950,7 +5428,11 @@ async function qaSite(db, websiteId) {
     const m = textOnly.match(/lorem ipsum|TODO|FIXME|\[insert|\[your /i);
     if (m) placeholderHit = m[0];
   }
-  check('no-placeholder-text', !placeholderHit, placeholderHit ? `Placeholder text found: "${placeholderHit}"` : 'No lorem/TODO placeholders.');
+  check(
+    'no-placeholder-text',
+    !placeholderHit,
+    placeholderHit ? `Placeholder text found: "${placeholderHit}"` : 'No lorem/TODO placeholders.'
+  );
 
   // 4. phone matches lead phone
   if (lead && lead.phone && digitsOnly(lead.phone).length >= 7) {
@@ -4962,7 +5444,11 @@ async function qaSite(db, websiteId) {
       const htmlDigits = html.replace(/\D/g, '');
       foundLoose = htmlDigits.includes(digits);
     }
-    check('phone-matches', foundLoose, foundLoose ? `Lead phone ${lead.phone} present.` : `Lead phone ${lead.phone} NOT found in output.`);
+    check(
+      'phone-matches',
+      foundLoose,
+      foundLoose ? `Lead phone ${lead.phone} present.` : `Lead phone ${lead.phone} NOT found in output.`
+    );
   } else {
     check('phone-matches', true, 'Lead has no phone on record; nothing to verify.');
   }
@@ -4996,9 +5482,9 @@ async function qaSite(db, websiteId) {
     }
     imgOk = bad.length === 0;
     imgDetail = imgs.length
-      ? (imgOk
+      ? imgOk
         ? `${imgs.length} image(s) ok (registered local, https, or credited Pexels).`
-        : bad.slice(0, 6).join('; '))
+        : bad.slice(0, 6).join('; ')
       : 'Gallery uses CSS gradient placeholders; no <img> tags.';
   }
   check('images-are-placeholders', imgOk, imgDetail);
@@ -5010,7 +5496,10 @@ async function qaSite(db, websiteId) {
   if (renderOk) {
     const textOnly = visibleTextFromHtml(html);
     const bad = textOnly.match(/\b(undefined|null|NaN)\b/);
-    if (bad) { sanityOk = false; sanityDetail = `Suspicious token in output: "${bad[0]}"`; }
+    if (bad) {
+      sanityOk = false;
+      sanityDetail = `Suspicious token in output: "${bad[0]}"`;
+    }
   }
   check('spelling-sanity', sanityOk, sanityDetail);
 
@@ -5018,12 +5507,15 @@ async function qaSite(db, websiteId) {
   const known = new Set(COMPONENT_TYPES);
   const unknownTypes = new Set();
   for (const p of pages) {
-    for (const s of (p.sections || [])) {
+    for (const s of p.sections || []) {
       if (!known.has(s.type)) unknownTypes.add(String(s.type));
     }
   }
-  check('known-section-types', true,
-    unknownTypes.size ? `Generic block used for: ${[...unknownTypes].join(', ')}` : 'All section types known.');
+  check(
+    'known-section-types',
+    true,
+    unknownTypes.size ? `Generic block used for: ${[...unknownTypes].join(', ')}` : 'All section types known.'
+  );
 
   // 8. Custom sites: no mandatory template hero. Pass when freeform, or modular with
   // any purposeful content (columns/html/heading/image/hero/cta/contact/module…).
@@ -5036,16 +5528,33 @@ async function qaSite(db, websiteId) {
     } else {
       const homeSecs = (pages[0] && pages[0].sections) || [];
       const homeTypes = new Set(homeSecs.map((s) => s && s.type).filter(Boolean));
-      const hasContent = homeSecs.some((s) => {
-        if (!s) return false;
-        const t = String(s.type || '');
-        if (['nav', 'footer'].includes(t)) return false;
-        return true;
-      }) || homeTypes.size > 2;
+      const hasContent =
+        homeSecs.some((s) => {
+          if (!s) return false;
+          const t = String(s.type || '');
+          if (['nav', 'footer'].includes(t)) return false;
+          return true;
+        }) || homeTypes.size > 2;
       const purposeful = [
-        'hero', 'columns', 'html', 'custom', 'text', 'text_image', 'cards', 'heading',
-        'image', 'cta', 'contact_form', 'bitpype_form', 'form', 'site_module',
-        'about', 'services', 'benefits', 'gallery', 'faq',
+        'hero',
+        'columns',
+        'html',
+        'custom',
+        'text',
+        'text_image',
+        'cards',
+        'heading',
+        'image',
+        'cta',
+        'contact_form',
+        'bitpype_form',
+        'form',
+        'site_module',
+        'about',
+        'services',
+        'benefits',
+        'gallery',
+        'faq',
       ].some((t) => homeTypes.has(t));
       reqOk = !!(hasContent && purposeful);
       reqDetail = reqOk
@@ -5055,11 +5564,7 @@ async function qaSite(db, websiteId) {
   }
   check('required-sections', reqOk, reqDetail || 'Render failed.');
   // Soft alias: never fail custom sites for missing template hero specifically.
-  check(
-    'no-template-conformity',
-    true,
-    'Template section types (hero, etc.) are optional for custom freestyle sites.'
-  );
+  check('no-template-conformity', true, 'Template section types (hero, etc.) are optional for custom freestyle sites.');
 
   // 9. class-heavy freeform pages must ship real CSS that defines those classes
   if (renderOk) {
@@ -5074,7 +5579,11 @@ async function qaSite(db, websiteId) {
     const formProblems = [];
     for (let pi = 0; pi < pages.length; pi++) {
       let pageHtml = '';
-      try { pageHtml = renderPage(pages[pi], pages, theme) || ''; } catch { pageHtml = ''; }
+      try {
+        pageHtml = renderPage(pages[pi], pages, theme) || '';
+      } catch {
+        pageHtml = '';
+      }
       const formTags = pageHtml.match(/<form\b[^>]*>/gi) || [];
       const embeds = pageHtml.match(/\bdata-bitpype-form-embed\s*=/gi) || [];
       const managedNative = pageHtml.match(/\bdata-bitpype-form\s*=\s*["']?1["']?/gi) || [];
@@ -5127,9 +5636,9 @@ async function qaSite(db, websiteId) {
       const purposeWarnings = [];
       for (const row of formRows) {
         const kind = row.form_kind || forms.inferFormKind(row) || null;
-        const purpose = forms.normalizePurpose(kind)
-          || (kind === 'appointment' ? 'appointment_request'
-            : kind === 'quote' ? 'quote_request' : null);
+        const purpose =
+          forms.normalizePurpose(kind) ||
+          (kind === 'appointment' ? 'appointment_request' : kind === 'quote' ? 'quote_request' : null);
         if (!purpose || !forms.STRUCTURED_PURPOSES.has(purpose)) continue;
         const fields = forms.listFields(db, row.id);
         if (forms.isFreeTextOnlyFields(fields)) {
@@ -5202,9 +5711,9 @@ async function qaSite(db, websiteId) {
         'multipage-nav-export',
         navCheck.ok,
         navCheck.ok
-          ? (pages.length < 2
+          ? pages.length < 2
             ? 'Single-page site; multipage nav check skipped.'
-            : `Multipage nav ok (${navCheck.checked} cross-page link(s) resolve).`)
+            : `Multipage nav ok (${navCheck.checked} cross-page link(s) resolve).`
           : `Broken multipage nav (${navMiss.length}): ${navMiss.slice(0, 8).join(', ')}${navMiss.length > 8 ? '…' : ''}`
       );
 
@@ -5219,7 +5728,10 @@ async function qaSite(db, websiteId) {
           const aRe = /<a\b[^>]*>([\s\S]*?)<\/a>/gi;
           let am;
           while ((am = aRe.exec(nm[0]))) {
-            const lab = String(am[1] || '').replace(/<[^>]+>/g, '').trim().toLowerCase();
+            const lab = String(am[1] || '')
+              .replace(/<[^>]+>/g, '')
+              .trim()
+              .toLowerCase();
             if (lab) labels.push(lab);
           }
         }
@@ -5228,7 +5740,9 @@ async function qaSite(db, websiteId) {
           if (seen.has(lab)) labelDupes.push(lab);
           seen.add(lab);
         }
-      } catch { /* optional */ }
+      } catch {
+        /* optional */
+      }
       check(
         'nav-labels-unique',
         labelDupes.length === 0,
@@ -5253,7 +5767,9 @@ async function qaSite(db, websiteId) {
                 cropProblems.push(`crop ${w}x${h} ≠ aspect ${node.crop.aspect}`);
               }
             }
-          } catch { /* skip */ }
+          } catch {
+            /* skip */
+          }
         }
         if (Array.isArray(node)) node.forEach(walkCrop);
         else Object.values(node).forEach(walkCrop);
@@ -5291,11 +5807,7 @@ async function qaSite(db, websiteId) {
           : `Horizontal overflow at ${overflow.width}px: ${overflow.detail || 'scrollWidth > clientWidth'}`
       );
     } catch (e) {
-      check(
-        'no-horizontal-overflow-390',
-        true,
-        `Overflow check skipped (${e.message || e}).`
-      );
+      check('no-horizontal-overflow-390', true, `Overflow check skipped (${e.message || e}).`);
     }
   } else {
     check('no-horizontal-overflow-390', false, 'Skipped (render failed).');
@@ -5305,7 +5817,8 @@ async function qaSite(db, websiteId) {
   if (ai.aiConfigured(db) && renderOk) {
     try {
       const promptRow = db.prepare('SELECT body FROM prompts WHERE key = ?').get('qa_website');
-      const systemPrompt = (promptRow && promptRow.body ? String(promptRow.body).trim() : '') || QA_BUILD_PROMPT_FALLBACK;
+      const systemPrompt =
+        (promptRow && promptRow.body ? String(promptRow.body).trim() : '') || QA_BUILD_PROMPT_FALLBACK;
       const facts = collectFacts(db, lead || { id: site.lead_id });
       const factList = [...facts.ok.entries()].map(([k, f]) => `${k} = ${f.value} [${f.claim_class}]`).join('\n');
       const { text } = await ai.chat({
@@ -5313,14 +5826,21 @@ async function qaSite(db, websiteId) {
         db,
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Allowed facts (only these may appear as facts):\n${factList || '(none)'}\n\nSite HTML to review:\n${html.slice(0, 12000)}` },
+          {
+            role: 'user',
+            content: `Allowed facts (only these may appear as facts):\n${factList || '(none)'}\n\nSite HTML to review:\n${html.slice(0, 12000)}`,
+          },
         ],
         maxTokens: 800,
         leadId: site.lead_id,
         note: `QA website #${websiteId}`,
       });
       let verdict = null;
-      try { verdict = JSON.parse(stripCodeFences(text)); } catch (e) { /* unparseable */ }
+      try {
+        verdict = JSON.parse(stripCodeFences(text));
+      } catch (e) {
+        /* unparseable */
+      }
       if (verdict && typeof verdict.pass === 'boolean') {
         check('ai-qa', verdict.pass, (verdict.issues || []).join('; ').slice(0, 500) || 'AI QA verdict recorded.');
       } else {
@@ -5333,13 +5853,16 @@ async function qaSite(db, websiteId) {
     check('ai-qa', true, ai.aiConfigured() ? 'Skipped (render failed).' : 'Skipped (AI not configured).');
   }
 
-  const pass = checks.every(c => c.pass);
+  const pass = checks.every((c) => c.pass);
   if (pass) {
     db.prepare("UPDATE websites SET status = 'approved', updated_at = datetime('now') WHERE id = ?").run(websiteId);
     if (lead) setLeadStatus(db, lead.id, 'ready');
     logActivity(db, 'websites', `Website #${websiteId} passed QA — marked ready.`);
   } else {
-    const failed = checks.filter(c => !c.pass).map(c => c.name).join(', ');
+    const failed = checks
+      .filter((c) => !c.pass)
+      .map((c) => c.name)
+      .join(', ');
     logActivity(db, 'websites', `Website #${websiteId} FAILED QA: ${failed}.`);
   }
   return { pass, checks };
@@ -5364,14 +5887,20 @@ function siteImageSearchDirs(websiteId, exportRootFn, subfolder = 'images') {
   if (!exportRootFn || websiteId == null) return dirs;
   const sub = String(subfolder || 'images').replace(/[^a-z0-9_-]/gi, '') || 'images';
   let root;
-  try { root = exportRootFn(); } catch { return dirs; }
+  try {
+    root = exportRootFn();
+  } catch {
+    return dirs;
+  }
   try {
     for (const name of fs.readdirSync(root)) {
       if (!folderMatchesSiteId(name, websiteId)) continue;
       const dir = path.join(root, name, sub);
       if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) dirs.push(dir);
     }
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
   return dirs;
 }
 
@@ -5382,7 +5911,9 @@ function resolveImageOnDisk(name, searchDirs) {
     try {
       const abs = path.join(dir, base);
       if (fs.existsSync(abs) && fs.statSync(abs).isFile()) return abs;
-    } catch { /* skip */ }
+    } catch {
+      /* skip */
+    }
   }
   return null;
 }
@@ -5399,7 +5930,9 @@ function imagesForWebsite(db, websiteId) {
   let exportRootFn = null;
   try {
     exportRootFn = () => require('./openPreview').exportRoot();
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
   const searchDirs = siteImageSearchDirs(websiteId, exportRootFn);
   try {
     const jobRows = db.prepare('SELECT id FROM design_jobs WHERE website_id = ?').all(websiteId);
@@ -5408,7 +5941,9 @@ function imagesForWebsite(db, websiteId) {
       const imgDir = path.join(exportRootFn(), `design-${row.id}`, 'images');
       if (fs.existsSync(imgDir) && fs.statSync(imgDir).isDirectory()) searchDirs.push(imgDir);
     }
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
 
   const seenNames = new Set();
   const pushImage = (entry) => {
@@ -5423,8 +5958,8 @@ function imagesForWebsite(db, websiteId) {
     if (!name || seenNames.has(name)) return;
     const copy = Object.assign({}, entry, { name });
     if (!copy.url) copy.url = `images/${name}`;
-    const pathOk = typeof copy.path === 'string' && copy.path
-      && fs.existsSync(copy.path) && fs.statSync(copy.path).isFile();
+    const pathOk =
+      typeof copy.path === 'string' && copy.path && fs.existsSync(copy.path) && fs.statSync(copy.path).isFile();
     if (!pathOk) {
       const recovered = resolveImageOnDisk(name, searchDirs);
       if (!recovered) return;
@@ -5443,18 +5978,24 @@ function imagesForWebsite(db, websiteId) {
     if (theme && theme.logoMode === 'image' && /^images\/logo\.png$/i.test(logoUrl)) {
       pushImage({ name: 'logo.png', url: 'images/logo.png', role: 'logo', source: 'theme' });
     }
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
   try {
-    const rows = db.prepare(
-      'SELECT id, deliverable FROM design_jobs WHERE website_id = ?'
-    ).all(websiteId);
+    const rows = db.prepare('SELECT id, deliverable FROM design_jobs WHERE website_id = ?').all(websiteId);
     for (const row of rows || []) {
       let payload = null;
-      try { payload = JSON.parse(row.deliverable || 'null'); } catch { /* ignore */ }
+      try {
+        payload = JSON.parse(row.deliverable || 'null');
+      } catch {
+        /* ignore */
+      }
       if (!payload || !Array.isArray(payload.images)) continue;
       for (const im of payload.images) pushImage(im);
     }
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
 
   // Harvest any images/… referenced in page HTML that deliverable.images missed.
   try {
@@ -5468,7 +6009,9 @@ function imagesForWebsite(db, websiteId) {
         pushImage({ name: path.basename(rel), url: rel, source: 'html-ref' });
       }
     }
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
 
   return images;
 }
@@ -5490,7 +6033,9 @@ function recoverMissingExportAssets(pages, theme, outDir, opts = {}) {
   let exportRootFn = null;
   try {
     exportRootFn = () => require('./openPreview').exportRoot();
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
   const imageDirs = siteImageSearchDirs(websiteId, exportRootFn, 'images');
   const assetDirs = siteImageSearchDirs(websiteId, exportRootFn, 'assets');
   if (opts && Array.isArray(opts.searchDirs)) {
@@ -5507,18 +6052,19 @@ function recoverMissingExportAssets(pages, theme, outDir, opts = {}) {
     const dest = path.join(outDir, rel);
     try {
       if (fs.existsSync(dest) && fs.statSync(dest).isFile()) continue;
-    } catch { /* try recover */ }
+    } catch {
+      /* try recover */
+    }
     const underAssets = /^assets\//i.test(rel);
-    const abs = resolveImageOnDisk(
-      path.basename(rel),
-      underAssets ? assetSearch : imgSearch
-    );
+    const abs = resolveImageOnDisk(path.basename(rel), underAssets ? assetSearch : imgSearch);
     if (!abs) continue;
     try {
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.copyFileSync(abs, dest);
       recovered.push(rel);
-    } catch { /* skip */ }
+    } catch {
+      /* skip */
+    }
   }
   return recovered;
 }
@@ -5551,7 +6097,9 @@ function copyDeliverableImages(images, outDir) {
       const dest = path.join(imgDir, name);
       fs.copyFileSync(srcPath, dest);
       written.push(`images/${name}`);
-    } catch { /* skip unreadable */ }
+    } catch {
+      /* skip unreadable */
+    }
   }
   return written;
 }
@@ -5566,8 +6114,10 @@ function collectLocalAssetRefs(html) {
     if (/^(https?:|data:|mailto:|tel:|javascript:|#)/i.test(u)) return;
     u = u.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '');
     if (!u || u.includes('..')) return;
-    if (/^(?:images|assets)\//i.test(u)
-      || /\.(png|jpe?g|gif|webp|svg|ico|woff2?|ttf|otf|css|js|mp4|webm|pdf)$/i.test(u)) {
+    if (
+      /^(?:images|assets)\//i.test(u) ||
+      /\.(png|jpe?g|gif|webp|svg|ico|woff2?|ttf|otf|css|js|mp4|webm|pdf)$/i.test(u)
+    ) {
       refs.add(u);
     }
   };
@@ -5614,7 +6164,7 @@ function writeStaticPages(pages, theme, outDir, opts) {
   const home = homePage(pages);
   const written = [];
   for (const p of pages) {
-    const file = (p === home || isHomePage(p, pages)) ? 'index.html' : pageFileName(p.slug);
+    const file = p === home || isHomePage(p, pages) ? 'index.html' : pageFileName(p.slug);
     let pageHtml = renderPage(p, pages, theme, opts);
     // Final guard: sanitize/render must leave managed embed loaders intact.
     pageHtml = ensureManagedEmbedScripts(pageHtml);
@@ -5651,7 +6201,9 @@ function writeStaticPages(pages, theme, outDir, opts) {
           }
         }
       }
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
   }
   // List any images/ already on disk (e.g. prior stage) so preview file lists include them.
   try {
@@ -5665,7 +6217,9 @@ function writeStaticPages(pages, theme, outDir, opts) {
         }
       }
     }
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
   try {
     const assetsDir = path.join(outDir, 'assets');
     if (fs.existsSync(assetsDir)) {
@@ -5677,7 +6231,9 @@ function writeStaticPages(pages, theme, outDir, opts) {
         }
       }
     }
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
   return { outDir, files: written };
 }
 
@@ -5738,9 +6294,10 @@ function exportStatic(db, websiteId, outDir) {
         }
       }
     }
-  } catch { /* optional */ }
-  db.prepare("UPDATE websites SET preview_path = ?, updated_at = datetime('now') WHERE id = ?")
-    .run(outDir, websiteId);
+  } catch {
+    /* optional */
+  }
+  db.prepare("UPDATE websites SET preview_path = ?, updated_at = datetime('now') WHERE id = ?").run(outDir, websiteId);
   logActivity(db, 'websites', `Website #${websiteId} exported to ${outDir} (${(written.files || []).join(', ')}).`);
   return outDir;
 }
@@ -5767,12 +6324,20 @@ function applyImagesToPages(pages, images, opts) {
     }),
   }));
   // Freeform agent pages (html-only): never inject a template gallery section.
-  const freeformOnly = next.length && next.every((p) =>
-    typeof p.html === 'string' && p.html.trim() && !(Array.isArray(p.sections) && p.sections.length));
+  const freeformOnly =
+    next.length &&
+    next.every((p) => typeof p.html === 'string' && p.html.trim() && !(Array.isArray(p.sections) && p.sections.length));
   if (freeformOnly) return next;
   if (!galleries && list.length && next[0]) {
     if (!Array.isArray(next[0].sections)) next[0].sections = [];
-    const gallery = { type: 'gallery', content: { title: 'Gallery', images: list, subtitle: 'Photos from Pexels. Each picture credits the photographer.' } };
+    const gallery = {
+      type: 'gallery',
+      content: {
+        title: 'Gallery',
+        images: list,
+        subtitle: 'Photos from Pexels. Each picture credits the photographer.',
+      },
+    };
     const footerAt = next[0].sections.findIndex((s) => s.type === 'footer');
     if (footerAt >= 0) next[0].sections.splice(footerAt, 0, gallery);
     else next[0].sections.push(gallery);
@@ -5790,12 +6355,18 @@ async function attachPexelsImages(db, websiteId, opts = {}) {
   const pexels = require('./pexels');
   const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(site.lead_id);
   const requested = pexels.cleanQuery(opts.query);
-  const query = requested || (lead && lead.category ? String(lead.category).trim().slice(0, 100) : '') || (site.industry || 'business');
+  const query =
+    requested ||
+    (lead && lead.category ? String(lead.category).trim().slice(0, 100) : '') ||
+    site.industry ||
+    'business';
   const photos = await pexels.searchPhotos(key, query, pexels.clampCount(opts.count == null ? 5 : opts.count));
   if (!photos.length) throw err('PEXELS_EMPTY', `Pexels returned no photos for "${query}".`);
   // Persist into app export storage (EXPORT_ROOT/site-{id}/images), not CDN hotlinks.
   let exportRoot;
-  try { exportRoot = require('./openPreview').exportRoot(); } catch {
+  try {
+    exportRoot = require('./openPreview').exportRoot();
+  } catch {
     throw err('EXPORT_ROOT', 'App export storage is not available.');
   }
   const imgDir = path.join(exportRoot, `site-${websiteId}`, 'images');
@@ -5808,10 +6379,16 @@ async function attachPexelsImages(db, websiteId, opts = {}) {
   try {
     const localized = await pexels.localizeUrlsInPages(pages, imgDir, { prefix: 'pexels' });
     pages = localized.pages;
-  } catch { /* pages already local from applyImages */ }
+  } catch {
+    /* pages already local from applyImages */
+  }
   const theme = JSON.parse(site.theme);
   saveSite(db, websiteId, pages, theme, `Pexels photos for "${query}"`);
-  logActivity(db, 'websites', `Attached ${localPhotos.length} Pexels photo(s) to website #${websiteId} (stored in app storage, query="${query}").`);
+  logActivity(
+    db,
+    'websites',
+    `Attached ${localPhotos.length} Pexels photo(s) to website #${websiteId} (stored in app storage, query="${query}").`
+  );
   return { id: websiteId, count: localPhotos.length, query, stored: true };
 }
 

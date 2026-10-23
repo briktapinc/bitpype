@@ -35,6 +35,6 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error(e && e.stack || e);
+  console.error((e && e.stack) || e);
   process.exit(1);
 });

@@ -94,7 +94,9 @@ async function cropBuffer(input, opts = {}) {
     buffer = await pipeline.webp({ quality: opts.quality != null ? Number(opts.quality) : 82 }).toBuffer();
     ext = '.webp';
   } else {
-    buffer = await pipeline.jpeg({ quality: opts.quality != null ? Number(opts.quality) : 85, mozjpeg: true }).toBuffer();
+    buffer = await pipeline
+      .jpeg({ quality: opts.quality != null ? Number(opts.quality) : 85, mozjpeg: true })
+      .toBuffer();
     ext = '.jpg';
   }
 

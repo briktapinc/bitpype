@@ -13,7 +13,7 @@ async function getSecretKey() {
 }
 
 async function getStripe() {
-  const key = String(await getSecretKey() || '').trim();
+  const key = String((await getSecretKey()) || '').trim();
   if (!key) {
     const e = new Error('Stripe is not configured (stripe.secret_key / STRIPE_SECRET_KEY)');
     e.code = 'STRIPE_NOT_CONFIGURED';
@@ -28,13 +28,11 @@ async function getStripe() {
 }
 
 async function getWebhookSecret() {
-  return process.env.STRIPE_WEBHOOK_SECRET
-    || (await platform.getPlatformSetting('stripe.webhook_secret', ''));
+  return process.env.STRIPE_WEBHOOK_SECRET || (await platform.getPlatformSetting('stripe.webhook_secret', ''));
 }
 
 async function getPublishableKey() {
-  return process.env.STRIPE_PUBLISHABLE_KEY
-    || (await platform.getPlatformSetting('stripe.publishable_key', ''));
+  return process.env.STRIPE_PUBLISHABLE_KEY || (await platform.getPlatformSetting('stripe.publishable_key', ''));
 }
 
 /** @deprecated Prefer getPriceIdForPlan — kept for one-price legacy installs. */
@@ -52,14 +50,14 @@ async function getPriceIdForPlan(planId) {
   if (plan === PLAN_PREMIUM) {
     const fromEnv = process.env.STRIPE_PRICE_ID_PREMIUM || '';
     if (fromEnv) return String(fromEnv).trim();
-    return String(await platform.getPlatformSetting('stripe.price_id_premium', '') || '').trim();
+    return String((await platform.getPlatformSetting('stripe.price_id_premium', '')) || '').trim();
   }
   if (plan === PLAN_STANDARD) {
     const fromEnv = process.env.STRIPE_PRICE_ID_STANDARD || process.env.STRIPE_PRICE_ID || '';
     if (fromEnv) return String(fromEnv).trim();
-    const dedicated = String(await platform.getPlatformSetting('stripe.price_id_standard', '') || '').trim();
+    const dedicated = String((await platform.getPlatformSetting('stripe.price_id_standard', '')) || '').trim();
     if (dedicated) return dedicated;
-    return String(await platform.getPlatformSetting('stripe.price_id', '') || '').trim();
+    return String((await platform.getPlatformSetting('stripe.price_id', '')) || '').trim();
   }
   return '';
 }
@@ -92,9 +90,7 @@ function appUrl() {
 }
 
 function integrationId(label = 'billing-checkout') {
-  const suffix = Array.from({ length: 8 }, () =>
-    String.fromCharCode(97 + Math.floor(Math.random() * 26))
-  ).join('');
+  const suffix = Array.from({ length: 8 }, () => String.fromCharCode(97 + Math.floor(Math.random() * 26))).join('');
   return `${label}-${suffix}`;
 }
 

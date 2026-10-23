@@ -83,10 +83,16 @@ function safeResolve(urlPath) {
 }
 
 function send(res, statusCode, headers, body) {
-  res.writeHead(statusCode, Object.assign({
-    'Access-Control-Allow-Origin': '*',
-    'Cache-Control': 'no-cache',
-  }, headers || {}));
+  res.writeHead(
+    statusCode,
+    Object.assign(
+      {
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-cache',
+      },
+      headers || {}
+    )
+  );
   res.end(body);
 }
 
@@ -106,14 +112,14 @@ function handle(req, res) {
 
     const u = new URL(req.url || '/', `http://${HOST}`);
     if (u.pathname === '/health') {
-      send(res, 200, { 'Content-Type': 'application/json; charset=utf-8' },
-        JSON.stringify({ ok: true, ...status() }));
+      send(res, 200, { 'Content-Type': 'application/json; charset=utf-8' }, JSON.stringify({ ok: true, ...status() }));
       return;
     }
 
     const resolved = safeResolve(u.pathname);
     if (resolved.kind === 'index') {
-      const listing = fs.readdirSync(resolved.root, { withFileTypes: true })
+      const listing = fs
+        .readdirSync(resolved.root, { withFileTypes: true })
         .filter((d) => d.isDirectory())
         .map((d) => d.name)
         .sort()
@@ -148,10 +154,15 @@ function handle(req, res) {
     }
 
     const buf = fs.readFileSync(target);
-    send(res, 200, {
-      'Content-Type': contentType(target),
-      'Content-Length': buf.length,
-    }, req.method === 'HEAD' ? '' : buf);
+    send(
+      res,
+      200,
+      {
+        'Content-Type': contentType(target),
+        'Content-Length': buf.length,
+      },
+      req.method === 'HEAD' ? '' : buf
+    );
   } catch (e) {
     const code = e && e.code === 'PATH_NOT_ALLOWED' ? 403 : 500;
     send(res, code, { 'Content-Type': 'text/plain; charset=utf-8' }, e.message || 'Error');
@@ -198,7 +209,9 @@ function ensureListening() {
  * Build an absolute URL for a folder under the export root (e.g. "design-5").
  */
 async function urlForExportFolder(folderName) {
-  const folder = String(folderName || '').replace(/[^a-zA-Z0-9-_]/g, '').slice(0, 80);
+  const folder = String(folderName || '')
+    .replace(/[^a-zA-Z0-9-_]/g, '')
+    .slice(0, 80);
   if (!folder) throw fail('INVALID_ARGS', 'folderName is required.');
   const dir = path.join(exportRoot(), folder);
   if (!fs.existsSync(dir)) {

@@ -11,9 +11,9 @@ const platform = require('./platform');
 const VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 
 async function getCaptchaConfig() {
-  const siteKey = String(await platform.getPlatformSetting('captcha.site_key', '') || '').trim();
-  const secretKey = String(await platform.getPlatformSetting('captcha.secret_key', '') || '').trim();
-  const forceOff = String(await platform.getPlatformSetting('captcha.enabled', '1') || '1').trim() === '0';
+  const siteKey = String((await platform.getPlatformSetting('captcha.site_key', '')) || '').trim();
+  const secretKey = String((await platform.getPlatformSetting('captcha.secret_key', '')) || '').trim();
+  const forceOff = String((await platform.getPlatformSetting('captcha.enabled', '1')) || '1').trim() === '0';
   const optional = String(process.env.CAPTCHA_OPTIONAL || '').trim() === '1';
   const allowSkip = optional || process.env.NODE_ENV !== 'production';
   const keysPresent = !!(siteKey && secretKey);
@@ -43,7 +43,9 @@ async function assertProductionReady() {
     process.exit(1);
   }
   if (!cfg.keysPresent) {
-    console.error('[boot] Turnstile captcha.site_key + captcha.secret_key required in production (or set CAPTCHA_OPTIONAL=1)');
+    console.error(
+      '[boot] Turnstile captcha.site_key + captcha.secret_key required in production (or set CAPTCHA_OPTIONAL=1)'
+    );
     process.exit(1);
   }
 }
@@ -58,7 +60,7 @@ async function verifyCaptchaToken(token, remoteip) {
     throw err;
   }
 
-  const secretKey = String(await platform.getPlatformSetting('captcha.secret_key', '') || '').trim();
+  const secretKey = String((await platform.getPlatformSetting('captcha.secret_key', '')) || '').trim();
   const response = String(token || '').trim();
   if (!response) {
     const err = new Error('Please complete the captcha');
@@ -107,10 +109,15 @@ function requireCaptcha() {
       await verifyCaptchaToken(token, clientIp(req));
       return next();
     } catch (e) {
-      const status = e.code === 'CAPTCHA_REQUIRED' || e.code === 'CAPTCHA_FAILED' ? 400
-        : e.code === 'CAPTCHA_NOT_CONFIGURED' ? 503
-        : 502;
-      return res.status(status).json({ ok: false, error: e.message || 'Captcha failed', code: e.code || 'CAPTCHA_FAILED' });
+      const status =
+        e.code === 'CAPTCHA_REQUIRED' || e.code === 'CAPTCHA_FAILED'
+          ? 400
+          : e.code === 'CAPTCHA_NOT_CONFIGURED'
+            ? 503
+            : 502;
+      return res
+        .status(status)
+        .json({ ok: false, error: e.message || 'Captcha failed', code: e.code || 'CAPTCHA_FAILED' });
     }
   };
 }

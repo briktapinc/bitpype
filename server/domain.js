@@ -14,7 +14,9 @@ function withDb(workspaceId, fn) {
   try {
     const ai = require('../src/ai');
     if (typeof ai.setDb === 'function') ai.setDb(db);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return fn(db);
 }
 
@@ -47,16 +49,18 @@ function dashboardStats(workspaceId) {
     try {
       designWaiting = db.prepare("SELECT COUNT(*) AS c FROM design_jobs WHERE status = 'waiting_on_agent'").get().c;
       designQuestions = db.prepare("SELECT COUNT(*) AS c FROM design_jobs WHERE status = 'questions_pending'").get().c;
-    } catch { /* no table yet */ }
-    const outreachToday = db.prepare(
-      "SELECT COUNT(*) AS c FROM campaign_messages WHERE status = 'sent' AND date(sent_at) = date('now','localtime')"
-    ).get().c;
-    const aiToday = db.prepare(
-      "SELECT ROUND(COALESCE(SUM(cost_usd),0),4) AS c FROM ai_usage WHERE date(at) = date('now','localtime')"
-    ).get().c;
-    const activity = db.prepare(
-      'SELECT id, area, message, at FROM activity_log ORDER BY id DESC LIMIT 20'
-    ).all();
+    } catch {
+      /* no table yet */
+    }
+    const outreachToday = db
+      .prepare(
+        "SELECT COUNT(*) AS c FROM campaign_messages WHERE status = 'sent' AND date(sent_at) = date('now','localtime')"
+      )
+      .get().c;
+    const aiToday = db
+      .prepare("SELECT ROUND(COALESCE(SUM(cost_usd),0),4) AS c FROM ai_usage WHERE date(at) = date('now','localtime')")
+      .get().c;
+    const activity = db.prepare('SELECT id, area, message, at FROM activity_log ORDER BY id DESC LIMIT 20').all();
     return {
       leadsTotal,
       byStatus,
@@ -89,23 +93,42 @@ function leadsList(workspaceId, filters = {}) {
       const like = `%${q}%`;
       params.push(like, like, like, like, like);
     }
-    if (status) { where.push('status = ?'); params.push(status); }
-    if (minScore != null && !Number.isNaN(minScore)) { where.push('score >= ?'); params.push(minScore); }
-    if (filters.category) { where.push('category = ?'); params.push(String(filters.category)); }
-    if (filters.group) { where.push('lead_group = ?'); params.push(String(filters.group)); }
+    if (status) {
+      where.push('status = ?');
+      params.push(status);
+    }
+    if (minScore != null && !Number.isNaN(minScore)) {
+      where.push('score >= ?');
+      params.push(minScore);
+    }
+    if (filters.category) {
+      where.push('category = ?');
+      params.push(String(filters.category));
+    }
+    if (filters.group) {
+      where.push('lead_group = ?');
+      params.push(String(filters.group));
+    }
     if (filters.leadId != null && filters.leadId !== '' && Number(filters.leadId) > 0) {
       where.push('id = ?');
       params.push(Number(filters.leadId));
     }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const total = db.prepare(`SELECT COUNT(*) AS c FROM leads ${whereSql}`).get(...params).c;
-    const rows = db.prepare(
-      `SELECT * FROM leads ${whereSql} ORDER BY updated_at DESC LIMIT ? OFFSET ?`
-    ).all(...params, pageSize, offset).map((r) => ({
-      ...r,
-      tags: (() => { try { return JSON.parse(r.tags || '[]'); } catch { return []; } })(),
-      qualified: Boolean(r.qualified),
-    }));
+    const rows = db
+      .prepare(`SELECT * FROM leads ${whereSql} ORDER BY updated_at DESC LIMIT ? OFFSET ?`)
+      .all(...params, pageSize, offset)
+      .map((r) => ({
+        ...r,
+        tags: (() => {
+          try {
+            return JSON.parse(r.tags || '[]');
+          } catch {
+            return [];
+          }
+        })(),
+        qualified: Boolean(r.qualified),
+      }));
     return { leads: rows, rows, total, page, pageSize };
   });
 }
@@ -172,11 +195,13 @@ function prospectScore(workspaceId, leadId) {
     const id = Number(leadId);
     const lead = db.prepare('SELECT id, business_name, score, qualified FROM leads WHERE id = ?').get(id);
     if (!lead) throw new Error(`Lead ${id} not found.`);
-    const latest = db.prepare('SELECT score, breakdown, at FROM lead_scores WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(id) || null;
+    const latest =
+      db.prepare('SELECT score, breakdown, at FROM lead_scores WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(id) ||
+      null;
     const q = parseInt(getSetting(db, 'score.threshold_qualified', ''), 10) || 50;
     const h = parseInt(getSetting(db, 'score.threshold_hot', ''), 10) || 70;
     const score = Number(lead.score) || 0;
-    const label = score >= h ? 'Hot' : (score >= q ? 'Qualified' : 'Cold');
+    const label = score >= h ? 'Hot' : score >= q ? 'Qualified' : 'Cold';
     return { leadId: id, score: lead.score, label, qualified: !!lead.qualified, latest };
   });
 }
@@ -196,7 +221,8 @@ async function leadsBulk(workspaceId, payload) {
         else if (action === 'tag' || action === 'untag') {
           const lead = engine.getLead(db, id);
           const tags = new Set(lead.tags || []);
-          if (action === 'tag') tags.add(value); else tags.delete(value);
+          if (action === 'tag') tags.add(value);
+          else tags.delete(value);
           engine.updateLead(db, id, { tags: [...tags] });
         } else if (action === 'research') await engine.researchLead(db, id);
         else throw new Error(`unsupported: ${action}`);
@@ -237,7 +263,9 @@ function discoverySet(workspaceId, patch) {
   return withDb(workspaceId, (db) => require('../src/discoverySchedule').writeSchedule(db, patch));
 }
 async function discoveryRunNow(workspaceId) {
-  return withDb(workspaceId, (db) => require('../src/discoverySchedule').runDiscoveryJob(db, { force: true, source: 'web' }));
+  return withDb(workspaceId, (db) =>
+    require('../src/discoverySchedule').runDiscoveryJob(db, { force: true, source: 'web' })
+  );
 }
 
 // ---------- Design ----------
@@ -259,10 +287,12 @@ function designDelete(workspaceId, id) {
   return withDb(workspaceId, (db) => designJobs().deleteJob(db, id));
 }
 function designPending(workspaceId, args = {}) {
-  return withDb(workspaceId, (db) => designJobs().pendingAgentSummary(db, {
-    previewLimit: 15,
-    leadId: args.leadId,
-  }));
+  return withDb(workspaceId, (db) =>
+    designJobs().pendingAgentSummary(db, {
+      previewLimit: 15,
+      leadId: args.leadId,
+    })
+  );
 }
 function designNext(workspaceId) {
   return withDb(workspaceId, (db) => designJobs().claimNextAgentJob(db) || null);
@@ -273,15 +303,22 @@ function ensureExportSlug(db, siteId) {
     if (!cols.some((c) => c && c.name === 'export_slug')) {
       db.exec('ALTER TABLE websites ADD COLUMN export_slug TEXT');
     }
-  } catch { /* */ }
+  } catch {
+    /* */
+  }
   const row = db.prepare('SELECT export_slug FROM websites WHERE id = ?').get(siteId);
   if (row && row.export_slug && String(row.export_slug).trim()) {
-    return String(row.export_slug).trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32);
+    return String(row.export_slug)
+      .trim()
+      .replace(/[^a-zA-Z0-9_-]/g, '')
+      .slice(0, 32);
   }
   const slug = require('crypto').randomBytes(9).toString('hex');
   try {
     db.prepare('UPDATE websites SET export_slug = ? WHERE id = ?').run(slug, siteId);
-  } catch { /* */ }
+  } catch {
+    /* */
+  }
   return slug;
 }
 
@@ -305,7 +342,10 @@ function resolveSiteExportFolder(workspaceId, site, db = null) {
     return siteExportFolder(db, workspaceId, site.id);
   }
   if (site && site.export_slug) {
-    const slug = String(site.export_slug).trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32);
+    const slug = String(site.export_slug)
+      .trim()
+      .replace(/[^a-zA-Z0-9_-]/g, '')
+      .slice(0, 32);
     if (slug) return `ws-${workspaceId}-site-${site.id}-${slug}`;
   }
   return `ws-${workspaceId}-site-${site && site.id != null ? site.id : '0'}`;
@@ -321,12 +361,16 @@ function materializeWebsiteExport(db, workspaceId, siteId, opts = {}) {
   try {
     const forms = require('./contactForms');
     if (site && site.lead_id) forms.prepareSitePagesForExport(db, site.lead_id);
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
   try {
     if (site && site.lead_id) {
       require('./siteModules').syncPublishedModules(db, site.lead_id);
     }
-  } catch { /* optional */ }
+  } catch {
+    /* optional */
+  }
   // Re-read AFTER form/module sync so publish never ships the previous version's HTML.
   const fresh = engine.getWebsite(db, siteId);
   let pages = parseJsonField(fresh.pages, 'pages');
@@ -341,9 +385,13 @@ function materializeWebsiteExport(db, workspaceId, siteId, opts = {}) {
   const normalizedJson = JSON.stringify(pages);
   if (normalizedJson !== afterPages) {
     try {
-      db.prepare("UPDATE websites SET pages = ?, updated_at = datetime('now') WHERE id = ?")
-        .run(normalizedJson, siteId);
-    } catch { /* optional */ }
+      db.prepare("UPDATE websites SET pages = ?, updated_at = datetime('now') WHERE id = ?").run(
+        normalizedJson,
+        siteId
+      );
+    } catch {
+      /* optional */
+    }
   }
   if (mutated || normalizedJson !== afterPages) {
     try {
@@ -354,15 +402,19 @@ function materializeWebsiteExport(db, workspaceId, siteId, opts = {}) {
   }
   if (!versionRow) {
     try {
-      versionRow = db.prepare(
-        'SELECT * FROM website_versions WHERE website_id = ? ORDER BY version_no DESC LIMIT 1'
-      ).get(siteId);
-    } catch { /* optional */ }
+      versionRow = db
+        .prepare('SELECT * FROM website_versions WHERE website_id = ? ORDER BY version_no DESC LIMIT 1')
+        .get(siteId);
+    } catch {
+      /* optional */
+    }
   }
   if (!versionRow && opts.pinVersion) {
     try {
       versionRow = engine.saveVersion(db, siteId, opts.note || 'publish export');
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
   }
 
   const folder = siteExportFolder(db, workspaceId, siteId);
@@ -404,13 +456,15 @@ function materializeWebsiteExport(db, workspaceId, siteId, opts = {}) {
   }
   // Keep preview_path aligned with EXPORT_ROOT (not a stale /root/… path).
   try {
-    const indexPath = exported && exported.path
-      ? exported.path
-      : require('path').join(exported.dir || '', 'index.html');
-    db.prepare(
-      "UPDATE websites SET preview_path = ?, updated_at = datetime('now') WHERE id = ?"
-    ).run(indexPath, siteId);
-  } catch { /* optional */ }
+    const indexPath =
+      exported && exported.path ? exported.path : require('path').join(exported.dir || '', 'index.html');
+    db.prepare("UPDATE websites SET preview_path = ?, updated_at = datetime('now') WHERE id = ?").run(
+      indexPath,
+      siteId
+    );
+  } catch {
+    /* optional */
+  }
   exported.versionNo = versionRow ? Number(versionRow.version_no) : null;
   exported.versionId = versionRow ? Number(versionRow.id) : null;
   exported.versionNote = versionRow ? versionRow.note : null;
@@ -502,7 +556,13 @@ async function designDeliver(workspaceId, id, payload, claims, extra = {}) {
           const forms = require('./contactForms');
           const sanitized = forms.sanitizeAgentPages(db, leadId, deliverPayload.pages, {
             workspaceId,
-            appUrl: (() => { try { return require('./stripeClient').appUrl(); } catch { return ''; } })(),
+            appUrl: (() => {
+              try {
+                return require('./stripeClient').appUrl();
+              } catch {
+                return '';
+              }
+            })(),
           });
           deliverPayload = Object.assign({}, deliverPayload, { pages: sanitized.pages });
           pageWarnings = sanitized.warnings || [];
@@ -531,7 +591,11 @@ async function designDeliver(workspaceId, id, payload, claims, extra = {}) {
       } catch (e) {
         console.warn('[domain] ensureSiteForms on deliver:', e.message);
       }
-      try { materializeWebsiteExport(db, workspaceId, row.website_id); } catch { /* preview can retry */ }
+      try {
+        materializeWebsiteExport(db, workspaceId, row.website_id);
+      } catch {
+        /* preview can retry */
+      }
     }
     return row;
   });
@@ -539,7 +603,7 @@ async function designDeliver(workspaceId, id, payload, claims, extra = {}) {
     let previewUrl = null;
     try {
       const preview = await sitesPreview(workspaceId, job.website_id, { force: true });
-      previewUrl = preview && (preview.url || preview.indexUrl) || null;
+      previewUrl = (preview && (preview.url || preview.indexUrl)) || null;
     } catch (e) {
       console.warn('[domain] force preview after deliver:', e.message);
     }
@@ -564,9 +628,7 @@ function designAnswer(workspaceId, questionId, answer, fromEmail) {
   return withDb(workspaceId, (db) => designJobs().answerQuestion(db, questionId, answer, fromEmail));
 }
 async function designReview(workspaceId, id, opts = {}) {
-  return withDb(workspaceId, (db) =>
-    designJobs().reviewJob(db, id, { ...opts, skipScreenshots: true })
-  );
+  return withDb(workspaceId, (db) => designJobs().reviewJob(db, id, { ...opts, skipScreenshots: true }));
 }
 async function designRedesign(workspaceId, id, opts) {
   return withDb(workspaceId, (db) => designJobs().redesignJob(db, id, { ...opts, skipScreenshots: true }));
@@ -578,9 +640,10 @@ async function designPreviewUrl(workspaceId, id, open = false) {
   const jobId = Number(id);
   return withDb(workspaceId, async (db) => {
     const design = designJobs();
-    const row = typeof design.getJob === 'function'
-      ? design.getJob(db, jobId)
-      : db.prepare('SELECT * FROM design_jobs WHERE id = ?').get(jobId);
+    const row =
+      typeof design.getJob === 'function'
+        ? design.getJob(db, jobId)
+        : db.prepare('SELECT * FROM design_jobs WHERE id = ?').get(jobId);
     if (!row) {
       const e = new Error('Design job not found.');
       e.code = 'NOT_FOUND';
@@ -628,7 +691,11 @@ async function designGenerateImages(workspaceId, id, args) {
     const result = await designJobs().generateJobImages(db, id, args);
     const job = designJobs().getJob(db, Number(id));
     if (job && job.website_id) {
-      try { materializeWebsiteExport(db, workspaceId, job.website_id); } catch { /* preview can retry */ }
+      try {
+        materializeWebsiteExport(db, workspaceId, job.website_id);
+      } catch {
+        /* preview can retry */
+      }
     }
     return result;
   });
@@ -639,9 +706,7 @@ async function designGenerateImages(workspaceId, id, args) {
  * attach it to the design job + linked website theme (logoMode=image).
  */
 async function designGenerateLogo(workspaceId, id, args = {}) {
-  const result = await withDb(workspaceId, async (db) =>
-    designJobs().generateJobLogo(db, Number(id), args || {})
-  );
+  const result = await withDb(workspaceId, async (db) => designJobs().generateJobLogo(db, Number(id), args || {}));
 
   let siteLogo = null;
   const siteId = result.websiteId || (args && args.websiteId) || null;
@@ -661,7 +726,9 @@ async function designGenerateLogo(workspaceId, id, args = {}) {
         brandName: args && args.brandName,
         note: `MCP design.generateLogo job #${id}`,
       });
-    } catch { /* no site yet — logo stays on the job deliverable */ }
+    } catch {
+      /* no site yet — logo stays on the job deliverable */
+    }
   }
 
   return {
@@ -708,9 +775,10 @@ function designListAnswers(workspaceId, id) {
   return withDb(workspaceId, (db) => ({ id: Number(id), questions: designJobs().listAnswers(db, Number(id)) }));
 }
 function designSetContact(workspaceId, id, emailOrBody, phone) {
-  const body = (emailOrBody != null && typeof emailOrBody === 'object' && !Array.isArray(emailOrBody))
-    ? emailOrBody
-    : { email: emailOrBody, phone };
+  const body =
+    emailOrBody != null && typeof emailOrBody === 'object' && !Array.isArray(emailOrBody)
+      ? emailOrBody
+      : { email: emailOrBody, phone };
   return withDb(workspaceId, (db) => designJobs().setContact(db, Number(id), body));
 }
 async function designEmailQuestions(workspaceId, id) {
@@ -748,7 +816,13 @@ function designSaveWebsite(workspaceId, id, pages, theme) {
         const forms = require('./contactForms');
         const sanitized = forms.sanitizeAgentPages(db, jobRow.lead_id, pages, {
           workspaceId,
-          appUrl: (() => { try { return require('./stripeClient').appUrl(); } catch { return ''; } })(),
+          appUrl: (() => {
+            try {
+              return require('./stripeClient').appUrl();
+            } catch {
+              return '';
+            }
+          })(),
         });
         nextPages = sanitized.pages;
         warnings = sanitized.warnings || [];
@@ -767,12 +841,20 @@ function designSaveWebsite(workspaceId, id, pages, theme) {
             pages: nextPages || parseJsonField(site.pages, 'pages'),
             missingOnly: true,
           });
-          try { require('./siteModules').syncPublishedModules(db, site.lead_id); } catch { /* */ }
+          try {
+            require('./siteModules').syncPublishedModules(db, site.lead_id);
+          } catch {
+            /* */
+          }
         }
       } catch (e) {
         console.warn('[domain] ensureSiteForms on designSaveWebsite:', e.message);
       }
-      try { materializeWebsiteExport(db, workspaceId, job.website_id); } catch { /* preview can retry */ }
+      try {
+        materializeWebsiteExport(db, workspaceId, job.website_id);
+      } catch {
+        /* preview can retry */
+      }
     }
     return job;
   });
@@ -801,7 +883,9 @@ function hydrateDesignRenderFromWebsite(db, engine, job, pages, theme) {
       if (siteCssLen && siteCssLen >= themeCssLen) nextTheme = Object.assign({}, siteTheme);
       else nextTheme = designJobs().mergeThemePreferCss(nextTheme, siteTheme);
     }
-  } catch { /* site optional */ }
+  } catch {
+    /* site optional */
+  }
   return { pages: nextPages, theme: nextTheme };
 }
 
@@ -824,26 +908,37 @@ function designRenderHtml(workspaceId, args = {}) {
       // Source of truth for Delivery preview: linked website (has customCss after setTheme/edit).
       ({ pages, theme } = hydrateDesignRenderFromWebsite(db, engine, job, pages, theme));
     } else if (args.id != null) {
-      try { job = designJobs().getJob(db, Number(args.id)); } catch { /* optional */ }
+      try {
+        job = designJobs().getJob(db, Number(args.id));
+      } catch {
+        /* optional */
+      }
       // Client sent pages (e.g. live edits) — still fill missing freestyle CSS from the site.
       if (job && job.website_id) {
         try {
           const site = engine.getWebsite(db, Number(job.website_id));
           const siteTheme = parseJsonField(site.theme, 'theme');
           if (siteTheme) theme = designJobs().mergeThemePreferCss(theme, siteTheme);
-        } catch { /* optional */ }
+        } catch {
+          /* optional */
+        }
       }
     }
     const opts = {
       editable: !!args.editable,
       preview: true,
       pageSlug: args.pageSlug,
-      pageIndex: Number.isInteger(args.pageIndex) ? args.pageIndex : (args.pageIndex != null ? Number(args.pageIndex) : undefined),
+      pageIndex: Number.isInteger(args.pageIndex)
+        ? args.pageIndex
+        : args.pageIndex != null
+          ? Number(args.pageIndex)
+          : undefined,
     };
     const list = pages.map((p) => ({ slug: p.slug, title: p.title }));
-    let html = (opts.pageSlug != null || Number.isInteger(opts.pageIndex))
-      ? engine.renderPageAt(pages, theme, opts)
-      : engine.renderSite(pages, theme, opts);
+    let html =
+      opts.pageSlug != null || Number.isInteger(opts.pageIndex)
+        ? engine.renderPageAt(pages, theme, opts)
+        : engine.renderSite(pages, theme, opts);
 
     // Prefer linked site export (has logo); else design-{id} folder.
     try {
@@ -851,7 +946,11 @@ function designRenderHtml(workspaceId, args = {}) {
       let folder = null;
       const websiteId = job && job.website_id != null ? Number(job.website_id) : null;
       if (websiteId) {
-        try { materializeWebsiteExport(db, workspaceId, websiteId); } catch { /* */ }
+        try {
+          materializeWebsiteExport(db, workspaceId, websiteId);
+        } catch {
+          /* */
+        }
         const site = engine.getWebsite(db, websiteId);
         folder = resolveSiteExportFolder(workspaceId, site, db);
       } else if (job && job.id) {
@@ -862,7 +961,9 @@ function designRenderHtml(workspaceId, args = {}) {
       if (base && folder) {
         html = engine.injectPreviewBaseHref(html, `${base}/site-previews/${folder}/`);
       }
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
 
     return { html, pages: list };
   });
@@ -889,7 +990,7 @@ function emailRedesignIngest(workspaceId, args = {}) {
   return withDb(workspaceId, (db) => {
     const er = emailRedesign();
     er.ensureTables(db);
-    const designJobId = args.designJobId != null ? args.designJobId : (args.jobId != null ? args.jobId : args.id);
+    const designJobId = args.designJobId != null ? args.designJobId : args.jobId != null ? args.jobId : args.id;
     const result = er.ingestInboundEmail(db, {
       fromEmail: args.fromEmail,
       subject: args.subject,
@@ -901,7 +1002,11 @@ function emailRedesignIngest(workspaceId, args = {}) {
       requestKind: args.requestKind || args.request_kind,
     });
     if (result.skipped) {
-      return { skipped: true, reason: result.reason || 'not_a_redesign_request', error: 'Not detected as a redesign/improvements request.' };
+      return {
+        skipped: true,
+        reason: result.reason || 'not_a_redesign_request',
+        error: 'Not detected as a redesign/improvements request.',
+      };
     }
     return {
       skipped: false,
@@ -999,20 +1104,25 @@ function sitesList(workspaceId, args = {}) {
     const { page, pageSize, offset } = pageArgs(args, { pageSize: 25, maxSize: 100 });
     const clauses = [];
     const params = [];
-    if (args.status) { clauses.push('w.status = ?'); params.push(String(args.status)); }
+    if (args.status) {
+      clauses.push('w.status = ?');
+      params.push(String(args.status));
+    }
     if (args.leadId != null && args.leadId !== '' && Number(args.leadId) > 0) {
       clauses.push('w.lead_id = ?');
       params.push(Number(args.leadId));
     }
     const where = clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '';
     const total = db.prepare(`SELECT COUNT(*) AS c FROM websites w${where}`).get(...params).c;
-    const rows = db.prepare(
-      `SELECT w.id, w.lead_id, w.name, w.industry, w.status, w.origin, w.updated_at,
+    const rows = db
+      .prepare(
+        `SELECT w.id, w.lead_id, w.name, w.industry, w.status, w.origin, w.updated_at,
               l.business_name, l.category
        FROM websites w LEFT JOIN leads l ON l.id = w.lead_id
        ${where}
        ORDER BY w.updated_at DESC LIMIT ? OFFSET ?`
-    ).all(...params, pageSize, offset);
+      )
+      .all(...params, pageSize, offset);
     return Object.assign({ sites: rows }, pageResult(rows, total, page, pageSize));
   });
 }
@@ -1020,9 +1130,11 @@ function sitesGet(workspaceId, id) {
   return withDb(workspaceId, (db) => {
     websiteEngine().ensureTables(db);
     const row = siteRow(db, id);
-    const latest = db.prepare(
-      'SELECT version_no, note, author, created_at FROM website_versions WHERE website_id = ? ORDER BY version_no DESC LIMIT 1'
-    ).get(id);
+    const latest = db
+      .prepare(
+        'SELECT version_no, note, author, created_at FROM website_versions WHERE website_id = ? ORDER BY version_no DESC LIMIT 1'
+      )
+      .get(id);
     row.version_note = latest && latest.note != null ? latest.note : null;
     row.version_no = latest ? latest.version_no : null;
     row.version_author = latest && latest.author != null ? latest.author : null;
@@ -1040,15 +1152,21 @@ function sitesGet(workspaceId, id) {
  * Scoped to this workspace — does not wipe other workspaces' site folders.
  */
 function sitesDelete(workspaceId, id) {
-  return withDb(workspaceId, (db) => websiteEngine().deleteWebsite(db, Number(id), {
-    workspaceId: Number(workspaceId),
-  }));
+  return withDb(workspaceId, (db) =>
+    websiteEngine().deleteWebsite(db, Number(id), {
+      workspaceId: Number(workspaceId),
+    })
+  );
 }
 async function sitesGenerate(workspaceId, leadId, opts) {
   return withDb(workspaceId, async (db) => {
-    const generated = await websiteEngine().generateSite(db, leadId, Object.assign({}, opts || {}, {
-      workspaceId: Number(workspaceId),
-    }));
+    const generated = await websiteEngine().generateSite(
+      db,
+      leadId,
+      Object.assign({}, opts || {}, {
+        workspaceId: Number(workspaceId),
+      })
+    );
     try {
       const lid = Number(leadId);
       const siteId = generated && generated.id ? Number(generated.id) : null;
@@ -1066,7 +1184,9 @@ async function sitesGenerate(workspaceId, leadId, opts) {
         try {
           const exported = materializeWebsiteExport(db, workspaceId, siteId);
           await optimizeExportImages(exported);
-        } catch { /* preview can retry */ }
+        } catch {
+          /* preview can retry */
+        }
       }
     } catch (e) {
       console.warn('[domain] ensureSiteForms on generate:', e.message);
@@ -1085,18 +1205,23 @@ async function sitesExport(workspaceId, id) {
       path: exported.dir || exported.path,
       folder: exported.folder,
       files: exported.files || [],
-      imageOptimize: exported.imageOptimize || (opt && {
-        changed: opt.changed,
-        bytesBefore: opt.bytesBefore,
-        bytesAfter: opt.bytesAfter,
-        savedBytes: Math.max(0, (opt.bytesBefore || 0) - (opt.bytesAfter || 0)),
-      }) || null,
+      imageOptimize:
+        exported.imageOptimize ||
+        (opt && {
+          changed: opt.changed,
+          bytesBefore: opt.bytesBefore,
+          bytesAfter: opt.bytesAfter,
+          savedBytes: Math.max(0, (opt.bytesBefore || 0) - (opt.bytesAfter || 0)),
+        }) ||
+        null,
     };
   });
 }
 
 function sanitizeZipBasename(name, fallback) {
-  const raw = String(name || '').trim().toLowerCase()
+  const raw = String(name || '')
+    .trim()
+    .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 60);
@@ -1125,10 +1250,7 @@ async function sitesExportZip(workspaceId, id) {
       e.status = 500;
       throw e;
     }
-    const base = sanitizeZipBasename(
-      site && (site.name || site.export_slug),
-      `website-${siteId}`
-    );
+    const base = sanitizeZipBasename(site && (site.name || site.export_slug), `website-${siteId}`);
     const { zipFolder } = require('../src/zipFolder');
     const zipped = zipFolder(dir, { rootName: base });
     return {
@@ -1156,9 +1278,9 @@ async function sitesOptimizeImages(workspaceId, siteId, opts = {}) {
     if (!resolvedId && opts.websiteId != null) resolvedId = Number(opts.websiteId);
     if (!resolvedId && opts.id != null) resolvedId = Number(opts.id);
     if (!resolvedId && opts.leadId != null) {
-      const row = db.prepare(
-        'SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-      ).get(Number(opts.leadId));
+      const row = db
+        .prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+        .get(Number(opts.leadId));
       if (!row) throw siteErr('NO_SITE', 'No website is available for this lead');
       resolvedId = row.id;
     }
@@ -1216,9 +1338,11 @@ function sitesVersions(workspaceId, id, args) {
     const { pageArgs, pageResult } = require('../src/paginate');
     const { page, pageSize, offset } = pageArgs(args || {}, { pageSize: 20, maxSize: 100 });
     const total = db.prepare('SELECT COUNT(*) AS c FROM website_versions WHERE website_id = ?').get(id).c;
-    const versions = db.prepare(
-      'SELECT id, version_no, note, author, created_at FROM website_versions WHERE website_id = ? ORDER BY version_no DESC LIMIT ? OFFSET ?'
-    ).all(id, pageSize, offset);
+    const versions = db
+      .prepare(
+        'SELECT id, version_no, note, author, created_at FROM website_versions WHERE website_id = ? ORDER BY version_no DESC LIMIT ? OFFSET ?'
+      )
+      .all(id, pageSize, offset);
     return Object.assign({ versions }, pageResult(versions, total, page, pageSize));
   });
 }
@@ -1260,10 +1384,7 @@ function pageContentFingerprint(page) {
 }
 
 function diffThemeKeys(fromTheme, toTheme) {
-  const keys = new Set([
-    ...Object.keys(fromTheme || {}),
-    ...Object.keys(toTheme || {}),
-  ]);
+  const keys = new Set([...Object.keys(fromTheme || {}), ...Object.keys(toTheme || {})]);
   const changed = [];
   for (const k of keys) {
     const a = fromTheme ? fromTheme[k] : undefined;
@@ -1287,13 +1408,9 @@ function sitesDiff(workspaceId, id, args = {}) {
       if (!Number.isInteger(n) || n < 1) {
         throw siteErr('INVALID_ARGS', 'from and to must be positive integers (version_no or version id).');
       }
-      let v = db.prepare(
-        'SELECT * FROM website_versions WHERE website_id = ? AND version_no = ?'
-      ).get(websiteId, n);
+      let v = db.prepare('SELECT * FROM website_versions WHERE website_id = ? AND version_no = ?').get(websiteId, n);
       if (!v) {
-        v = db.prepare(
-          'SELECT * FROM website_versions WHERE id = ? AND website_id = ?'
-        ).get(n, websiteId);
+        v = db.prepare('SELECT * FROM website_versions WHERE id = ? AND website_id = ?').get(n, websiteId);
       }
       if (!v) throw siteErr('NOT_FOUND', `Version ${ref} not found for website ${websiteId}.`);
       return v;
@@ -1351,7 +1468,11 @@ function siteErr(code, message) {
 }
 function parseJsonField(value, what) {
   if (typeof value === 'string') {
-    try { return JSON.parse(value); } catch { throw siteErr('INVALID_JSON', `${what} is not valid JSON.`); }
+    try {
+      return JSON.parse(value);
+    } catch {
+      throw siteErr('INVALID_JSON', `${what} is not valid JSON.`);
+    }
   }
   return value;
 }
@@ -1373,7 +1494,8 @@ function validatePages(pages) {
     if (!hasHtml && !hasSections) throw siteErr('INVALID_PAGES', `pages[${i}] needs sections or html.`);
     if (hasSections) {
       p.sections.forEach((s, j) => {
-        if (!s || typeof s !== 'object') throw siteErr('INVALID_PAGES', `pages[${i}].sections[${j}] must be an object.`);
+        if (!s || typeof s !== 'object')
+          throw siteErr('INVALID_PAGES', `pages[${i}].sections[${j}] must be an object.`);
         if (typeof s.type !== 'string' || !s.type.trim()) {
           throw siteErr('INVALID_PAGES', `pages[${i}].sections[${j}].type must be a non-empty string.`);
         }
@@ -1388,13 +1510,41 @@ function validatePages(pages) {
 }
 
 const PAGE_TOP_KEYS = new Set([
-  'slug', 'title', 'sections', 'html', 'description', 'ogImage', 'canonical', 'customJs', 'customHead',
-  'chromeOverride', 'navVisible', 'nav_visible', 'hiddenInNav', 'hidden_in_nav', 'menuParent', 'menu_parent',
+  'slug',
+  'title',
+  'sections',
+  'html',
+  'description',
+  'ogImage',
+  'canonical',
+  'customJs',
+  'customHead',
+  'chromeOverride',
+  'navVisible',
+  'nav_visible',
+  'hiddenInNav',
+  'hidden_in_nav',
+  'menuParent',
+  'menu_parent',
 ]);
 const SECTION_TOP_KEYS = new Set(['type', 'content', 'cols', 'cells']);
 const THEME_TOP_KEYS = new Set([
-  'primary', 'secondary', 'bg', 'text', 'font', 'headingFont', 'customCss', 'customJs', 'customHead', 'favicon',
-  'logoMode', 'logoUrl', 'brandName', 'partials', 'colors', 'baseCss',
+  'primary',
+  'secondary',
+  'bg',
+  'text',
+  'font',
+  'headingFont',
+  'customCss',
+  'customJs',
+  'customHead',
+  'favicon',
+  'logoMode',
+  'logoUrl',
+  'brandName',
+  'partials',
+  'colors',
+  'baseCss',
 ]);
 
 /** Author <script> inside section HTML is not a sanctioned channel — use customJs/customHead. */
@@ -1402,9 +1552,10 @@ function assertNoSectionScripts(pages) {
   if (!Array.isArray(pages)) return;
   const scriptRe = /<script\b/i;
   const managedRe = /data-bitpype-[a-z0-9_-]+-script|\/js\/[a-z0-9_-]+-embed\.js/i;
-  const stripManaged = (html) => String(html || '')
-    .replace(/<script\b[^>]*data-bitpype-[a-z0-9_-]+-script\b[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<script\b[^>]*\/js\/[a-z0-9_-]+-embed\.js[^>]*>[\s\S]*?<\/script>/gi, '');
+  const stripManaged = (html) =>
+    String(html || '')
+      .replace(/<script\b[^>]*data-bitpype-[a-z0-9_-]+-script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<script\b[^>]*\/js\/[a-z0-9_-]+-embed\.js[^>]*>[\s\S]*?<\/script>/gi, '');
   pages.forEach((p, i) => {
     if (!p || typeof p !== 'object') return;
     const slug = p.slug || i;
@@ -1514,7 +1665,9 @@ function sitesSave(workspaceId, id, args = {}) {
     pages = engine.normalizePagesNavLinks(pages);
     try {
       pages = require('../src/siteStructure').syncFreeformNavOrder(pages);
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
     let warnings = collectSaveShapeWarnings(pages, args.theme && typeof args.theme === 'object' ? args.theme : null);
     try {
       const existing = engine.getWebsite(db, siteId);
@@ -1522,7 +1675,13 @@ function sitesSave(workspaceId, id, args = {}) {
         const forms = require('./contactForms');
         const sanitized = forms.sanitizeAgentPages(db, existing.lead_id, pages, {
           workspaceId,
-          appUrl: (() => { try { return require('./stripeClient').appUrl(); } catch { return ''; } })(),
+          appUrl: (() => {
+            try {
+              return require('./stripeClient').appUrl();
+            } catch {
+              return '';
+            }
+          })(),
         });
         pages = sanitized.pages;
         for (const w of sanitized.warnings || []) {
@@ -1533,7 +1692,9 @@ function sitesSave(workspaceId, id, args = {}) {
           for (const w of moduleFit.warningsForPages(pages)) {
             if (!warnings.includes(w)) warnings.push(w);
           }
-        } catch { /* optional */ }
+        } catch {
+          /* optional */
+        }
       }
     } catch (e) {
       console.warn('[domain] sanitizeAgentPages on sitesSave:', e.message);
@@ -1563,19 +1724,24 @@ function sitesSave(workspaceId, id, args = {}) {
           pages,
           missingOnly: true,
         });
-        try { require('./siteModules').syncPublishedModules(db, site.lead_id); } catch { /* */ }
+        try {
+          require('./siteModules').syncPublishedModules(db, site.lead_id);
+        } catch {
+          /* */
+        }
         // Keep Design Delivery preview in sync — website.edit/setTheme used to
         // update websites only, leaving deliverable.theme without customCss.
         try {
-          const job = db.prepare(
-            `SELECT id, deliverable FROM design_jobs
+          const job = db
+            .prepare(
+              `SELECT id, deliverable FROM design_jobs
              WHERE (website_id = ? OR lead_id = ?)
              ORDER BY CASE WHEN website_id = ? THEN 0 ELSE 1 END, id DESC LIMIT 1`
-          ).get(siteId, site.lead_id, siteId);
+            )
+            .get(siteId, site.lead_id, siteId);
           if (job && job.deliverable) {
-            const payloadJob = typeof job.deliverable === 'string'
-              ? JSON.parse(job.deliverable || 'null')
-              : job.deliverable;
+            const payloadJob =
+              typeof job.deliverable === 'string' ? JSON.parse(job.deliverable || 'null') : job.deliverable;
             if (payloadJob && typeof payloadJob === 'object') {
               payloadJob.pages = pages;
               payloadJob.theme = theme;
@@ -1591,7 +1757,11 @@ function sitesSave(workspaceId, id, args = {}) {
     } catch (e) {
       console.warn('[domain] ensureSiteForms on sitesSave:', e.message);
     }
-    try { materializeWebsiteExport(db, workspaceId, siteId); } catch { /* preview can retry */ }
+    try {
+      materializeWebsiteExport(db, workspaceId, siteId);
+    } catch {
+      /* preview can retry */
+    }
     logActivity(db, 'websites', `Website #${siteId} saved (version ${version.version_no}).`);
     return {
       id: siteId,
@@ -1626,7 +1796,7 @@ async function sitesScreenshotsCapture(workspaceId, id, opts = {}) {
   if (!previewUrl || opts.forcePreview) {
     try {
       const preview = await sitesPreview(workspaceId, siteId, { force: !!opts.forcePreview });
-      previewUrl = preview && (preview.url || preview.indexUrl) || previewUrl;
+      previewUrl = (preview && (preview.url || preview.indexUrl)) || previewUrl;
     } catch (e) {
       if (!previewUrl) throw e;
     }
@@ -1695,7 +1865,7 @@ function sitesReorderStructure(workspaceId, id, body = {}) {
     let result;
     if (scope === 'menu') {
       result = structure.applyMenuAction(pages, {
-        action: isToggleNav ? 'toggleNav' : (isNest ? 'nest' : (isUnnest ? 'unnest' : 'move')),
+        action: isToggleNav ? 'toggleNav' : isNest ? 'nest' : isUnnest ? 'unnest' : 'move',
         fromIndex,
         direction: body.direction,
       });
@@ -1713,10 +1883,16 @@ function sitesReorderStructure(workspaceId, id, body = {}) {
     return { siteId, pages: result.pages, theme };
   });
 
-  const note = scope === 'menu'
-    ? (isToggleNav ? 'Menu visibility updated'
-      : (isNest ? 'Nested menu item' : (isUnnest ? 'Unnested menu item' : 'Reordered menu')))
-    : 'Reordered sections';
+  const note =
+    scope === 'menu'
+      ? isToggleNav
+        ? 'Menu visibility updated'
+        : isNest
+          ? 'Nested menu item'
+          : isUnnest
+            ? 'Unnested menu item'
+            : 'Reordered menu'
+      : 'Reordered sections';
   const saved = sitesSave(workspaceId, prepared.siteId, {
     pages: prepared.pages,
     theme: prepared.theme,
@@ -1742,7 +1918,10 @@ function sitesInsertSection(workspaceId, id, body = {}) {
   const structure = require('../src/siteStructure');
   const pageIndex = Number(body.pageIndex);
   const afterIndex = Number(body.afterIndex);
-  const sectionType = String(body.sectionType || body.section_type || body.type || 'section').trim().toLowerCase() || 'section';
+  const sectionType =
+    String(body.sectionType || body.section_type || body.type || 'section')
+      .trim()
+      .toLowerCase() || 'section';
   const cols = body.cols != null ? Number(body.cols) : undefined;
   const html = body.html != null ? String(body.html) : undefined;
   if (!Number.isInteger(pageIndex) || pageIndex < 0) {
@@ -1764,9 +1943,7 @@ function sitesInsertSection(workspaceId, id, body = {}) {
     const result = structure.insertContentSection(pages, pageIndex, afterIndex, sectionType, { cols, html });
     if (!result.changed) {
       throw Object.assign(
-        new Error(result.reason === 'no_sections'
-          ? 'Page has no modular sections'
-          : 'Cannot insert that section type'),
+        new Error(result.reason === 'no_sections' ? 'Page has no modular sections' : 'Cannot insert that section type'),
         { code: 'NO_MOVE' }
       );
     }
@@ -1801,7 +1978,9 @@ function sitesAddBlock(workspaceId, id, body = {}) {
   const forms = require('./contactForms');
   const pageIndex = Number(body.pageIndex);
   const sectionIndex = Number(body.sectionIndex);
-  let blockType = String(body.blockType || body.type || '').trim().toLowerCase();
+  let blockType = String(body.blockType || body.type || '')
+    .trim()
+    .toLowerCase();
   if (!Number.isInteger(pageIndex) || pageIndex < 0) {
     throw Object.assign(new Error('Invalid pageIndex'), { code: 'INVALID' });
   }
@@ -1830,7 +2009,9 @@ function sitesAddBlock(workspaceId, id, body = {}) {
     const leadId = site.lead_id;
 
     if (blockType === 'module' || blockType === 'site_module' || blockType === 'widget') {
-      const moduleType = String(body.moduleType || body.module_type || body.module || '').trim().toLowerCase();
+      const moduleType = String(body.moduleType || body.module_type || body.module || '')
+        .trim()
+        .toLowerCase();
       if (!moduleType) throw Object.assign(new Error('moduleType is required'), { code: 'INVALID' });
       if (!leadId) throw Object.assign(new Error('Website has no lead'), { code: 'NO_SITE' });
       modules.ensureTables(db);
@@ -1862,9 +2043,9 @@ function sitesAddBlock(workspaceId, id, body = {}) {
       let row = null;
       if (body.formId != null) row = forms.getFormRowById(db, Number(leadId), Number(body.formId));
       if (!row && (body.formToken || body.form_token)) {
-        row = db.prepare(
-          'SELECT * FROM contact_forms WHERE lead_id = ? AND public_token = ?'
-        ).get(Number(leadId), String(body.formToken || body.form_token));
+        row = db
+          .prepare('SELECT * FROM contact_forms WHERE lead_id = ? AND public_token = ?')
+          .get(Number(leadId), String(body.formToken || body.form_token));
       }
       if (!row) {
         const list = forms.listFormRows(db, Number(leadId));
@@ -1900,9 +2081,9 @@ function sitesAddBlock(workspaceId, id, body = {}) {
     });
     if (!result.changed) {
       throw Object.assign(
-        new Error(result.reason === 'no_sections'
-          ? 'Page has no modular sections'
-          : (result.reason || 'Cannot insert that block')),
+        new Error(
+          result.reason === 'no_sections' ? 'Page has no modular sections' : result.reason || 'Cannot insert that block'
+        ),
         { code: 'NO_MOVE' }
       );
     }
@@ -1930,7 +2111,9 @@ function sitesAddBlock(workspaceId, id, body = {}) {
       const moduleFit = require('./moduleFit');
       const w = moduleFit.formOnAppointmentPageWarning(prepared.pages, Number(body.pageIndex));
       if (w && !warnings.includes(w)) warnings.push(w);
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
   }
   return {
     siteId: prepared.siteId,
@@ -1957,15 +2140,17 @@ async function sitesSetLogo(workspaceId, siteId, opts = {}) {
   const openPreview = require('../src/openPreview');
   const logoProcess = require('../src/logoProcess');
 
-  const mode = String(opts.mode || (opts.buffer ? 'image' : 'text')).trim().toLowerCase();
+  const mode = String(opts.mode || (opts.buffer ? 'image' : 'text'))
+    .trim()
+    .toLowerCase();
   const brandName = opts.brandName != null ? String(opts.brandName).trim().slice(0, 120) : undefined;
 
   let resolvedId = siteId != null ? Number(siteId) : null;
   const prepared = await withDb(workspaceId, async (db) => {
     if (!resolvedId && opts.leadId != null) {
-      const row = db.prepare(
-        'SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-      ).get(Number(opts.leadId));
+      const row = db
+        .prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+        .get(Number(opts.leadId));
       if (!row) {
         const e = new Error('No website is available for this lead');
         e.code = 'NO_SITE';
@@ -2005,11 +2190,15 @@ async function sitesSetLogo(workspaceId, siteId, opts = {}) {
       pngBuffer = processed.buffer;
       logoRel = 'images/logo.png';
 
-      const folder = resolveSiteExportFolder(workspaceId, {
-        id: resolvedId,
-        preview_path: site.preview_path,
-        export_slug: site.export_slug,
-      }, db);
+      const folder = resolveSiteExportFolder(
+        workspaceId,
+        {
+          id: resolvedId,
+          preview_path: site.preview_path,
+          export_slug: site.export_slug,
+        },
+        db
+      );
       const imgDir = path.join(openPreview.exportRoot(), folder, 'images');
       fs.mkdirSync(imgDir, { recursive: true });
       fs.writeFileSync(path.join(imgDir, 'logo.png'), pngBuffer);
@@ -2020,15 +2209,16 @@ async function sitesSetLogo(workspaceId, siteId, opts = {}) {
       pages = logoProcess.applyLogoMarkupToPages(pages, logoRel, label);
 
       try {
-        const job = db.prepare(
-          `SELECT id, deliverable FROM design_jobs
+        const job = db
+          .prepare(
+            `SELECT id, deliverable FROM design_jobs
            WHERE (website_id = ? OR lead_id = ?)
            ORDER BY CASE WHEN website_id = ? THEN 0 ELSE 1 END, id DESC LIMIT 1`
-        ).get(resolvedId, site.lead_id, resolvedId);
+          )
+          .get(resolvedId, site.lead_id, resolvedId);
         if (job && job.deliverable) {
-          const payloadJob = typeof job.deliverable === 'string'
-            ? JSON.parse(job.deliverable || 'null')
-            : job.deliverable;
+          const payloadJob =
+            typeof job.deliverable === 'string' ? JSON.parse(job.deliverable || 'null') : job.deliverable;
           if (payloadJob && typeof payloadJob === 'object') {
             if (Array.isArray(payloadJob.pages)) payloadJob.pages = pages;
             payloadJob.theme = theme;
@@ -2040,12 +2230,15 @@ async function sitesSetLogo(workspaceId, siteId, opts = {}) {
               source: 'logo',
               role: 'logo',
             });
-            db.prepare(
-              `UPDATE design_jobs SET deliverable = ?, updated_at = datetime('now') WHERE id = ?`
-            ).run(JSON.stringify(payloadJob), job.id);
+            db.prepare(`UPDATE design_jobs SET deliverable = ?, updated_at = datetime('now') WHERE id = ?`).run(
+              JSON.stringify(payloadJob),
+              job.id
+            );
           }
         }
-      } catch { /* optional */ }
+      } catch {
+        /* optional */
+      }
     }
 
     return {
@@ -2078,7 +2271,9 @@ async function sitesSetLogo(workspaceId, siteId, opts = {}) {
       const dest = path.join(openPreview.exportRoot(), folder, 'images', 'logo.png');
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.writeFileSync(dest, prepared.pngBuffer);
-    } catch { /* best effort */ }
+    } catch {
+      /* best effort */
+    }
   }
 
   const previewRow = withDb(workspaceId, (db) =>
@@ -2099,9 +2294,8 @@ async function sitesSetLogo(workspaceId, siteId, opts = {}) {
     }
   })();
 
-  const publicUrl = prepared.logoRel && assetBase
-    ? `${String(assetBase).replace(/\/+$/, '')}/${prepared.logoRel}`
-    : null;
+  const publicUrl =
+    prepared.logoRel && assetBase ? `${String(assetBase).replace(/\/+$/, '')}/${prepared.logoRel}` : null;
 
   return {
     siteId: prepared.siteId,
@@ -2167,7 +2361,9 @@ async function sitesSetTheme(workspaceId, siteId, opts = {}) {
       const heading = String(colors.headingFont).trim();
       patch.headingFont = heading ? googleFonts.safeStack(heading) : '';
     }
-  } catch { /* fonts module optional */ }
+  } catch {
+    /* fonts module optional */
+  }
   if (opts.customCss != null) patch.customCss = String(opts.customCss);
   if (opts.customJs != null) patch.customJs = String(opts.customJs);
   if (opts.customHead != null) patch.customHead = String(opts.customHead);
@@ -2176,12 +2372,18 @@ async function sitesSetTheme(workspaceId, siteId, opts = {}) {
   if (opts.baseCss != null) patch.baseCss = !!opts.baseCss;
   if (opts.partials && typeof opts.partials === 'object') {
     patch.partials = {
-      headerHtml: opts.partials.headerHtml != null
-        ? String(opts.partials.headerHtml)
-        : (opts.partials.header != null ? String(opts.partials.header) : undefined),
-      footerHtml: opts.partials.footerHtml != null
-        ? String(opts.partials.footerHtml)
-        : (opts.partials.footer != null ? String(opts.partials.footer) : undefined),
+      headerHtml:
+        opts.partials.headerHtml != null
+          ? String(opts.partials.headerHtml)
+          : opts.partials.header != null
+            ? String(opts.partials.header)
+            : undefined,
+      footerHtml:
+        opts.partials.footerHtml != null
+          ? String(opts.partials.footerHtml)
+          : opts.partials.footer != null
+            ? String(opts.partials.footer)
+            : undefined,
     };
   }
   if (!Object.keys(patch).length) {
@@ -2191,9 +2393,9 @@ async function sitesSetTheme(workspaceId, siteId, opts = {}) {
   let resolvedId = siteId != null ? Number(siteId) : null;
   const prepared = withDb(workspaceId, (db) => {
     if (!resolvedId && opts.leadId != null) {
-      const row = db.prepare(
-        'SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-      ).get(Number(opts.leadId));
+      const row = db
+        .prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+        .get(Number(opts.leadId));
       if (!row) throw siteErr('NO_SITE', 'No website is available for this lead');
       resolvedId = row.id;
     }
@@ -2237,8 +2439,7 @@ async function sitesSetTheme(workspaceId, siteId, opts = {}) {
   const saved = sitesSave(workspaceId, prepared.siteId, {
     pages: prepared.pages,
     theme: prepared.theme,
-    note: opts.note
-      || (prepared.fontsPatched ? 'MCP website.setTheme fonts' : 'MCP website.setTheme'),
+    note: opts.note || (prepared.fontsPatched ? 'MCP website.setTheme fonts' : 'MCP website.setTheme'),
   });
   return {
     siteId: prepared.siteId,
@@ -2257,9 +2458,9 @@ async function sitesReplaceImage(workspaceId, siteId, opts = {}) {
   let resolvedId = siteId != null ? Number(siteId) : null;
   const leadId = withDb(workspaceId, (db) => {
     if (!resolvedId && opts.leadId != null) {
-      const row = db.prepare(
-        'SELECT id, lead_id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-      ).get(Number(opts.leadId));
+      const row = db
+        .prepare('SELECT id, lead_id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+        .get(Number(opts.leadId));
       if (!row) throw siteErr('NO_SITE', 'No website is available for this lead');
       resolvedId = row.id;
       return Number(row.lead_id);
@@ -2281,7 +2482,7 @@ async function sitesReplaceImage(workspaceId, siteId, opts = {}) {
   const prompt = String(opts.prompt || opts.description || '').trim();
 
   if (dataB64) {
-    if (dataB64.length > Math.ceil(MAX_SITE_IMAGE_BYTES * 4 / 3) + 256) {
+    if (dataB64.length > Math.ceil((MAX_SITE_IMAGE_BYTES * 4) / 3) + 256) {
       throw siteErr('TOO_LARGE', `Image must be at most ${MAX_SITE_IMAGE_BYTES} bytes`);
     }
     const result = await portal.applyClientImageUpload(workspaceId, leadId, {
@@ -2300,12 +2501,17 @@ async function sitesReplaceImage(workspaceId, siteId, opts = {}) {
     return result;
   }
   if (prompt) {
-    const result = await portal.generateClientSiteImage(workspaceId, leadId, {
-      prompt,
-      replaceSrc,
-      size: opts.size,
-      quality: opts.quality,
-    }, opts.actorEmail || '');
+    const result = await portal.generateClientSiteImage(
+      workspaceId,
+      leadId,
+      {
+        prompt,
+        replaceSrc,
+        size: opts.size,
+        quality: opts.quality,
+      },
+      opts.actorEmail || ''
+    );
     if (opts.crop && typeof opts.crop === 'object' && result && result.url) {
       try {
         await applyCropToSiteImage(workspaceId, resolvedId, result.url, opts.crop);
@@ -2364,9 +2570,9 @@ function sitesUploadAsset(workspaceId, siteId, opts = {}) {
   return withDb(workspaceId, (db) => {
     if (!resolvedId && opts.websiteId != null) resolvedId = Number(opts.websiteId);
     if (!resolvedId && opts.leadId != null) {
-      const row = db.prepare(
-        'SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-      ).get(Number(opts.leadId));
+      const row = db
+        .prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+        .get(Number(opts.leadId));
       if (!row) throw siteErr('NO_SITE', 'No website is available for this lead');
       resolvedId = row.id;
     }
@@ -2381,9 +2587,11 @@ function sitesUploadAsset(workspaceId, siteId, opts = {}) {
     if (!/\.(png|jpe?g|gif|webp|svg|ico|woff2?|ttf|otf|mp4|webm)$/i.test(filename)) {
       throw siteErr('INVALID', 'Unsupported filename extension');
     }
-    const dataB64 = String(opts.data || '').replace(/^data:[^;]+;base64,/, '').replace(/\s+/g, '');
+    const dataB64 = String(opts.data || '')
+      .replace(/^data:[^;]+;base64,/, '')
+      .replace(/\s+/g, '');
     const maxBytes = /\.(mp4|webm)$/i.test(filename) ? 25 * 1024 * 1024 : 8 * 1024 * 1024;
-    if (dataB64.length > Math.ceil(maxBytes * 4 / 3) + 256) {
+    if (dataB64.length > Math.ceil((maxBytes * 4) / 3) + 256) {
       throw siteErr('TOO_LARGE', `Asset too large (max ${Math.round(maxBytes / 1024 / 1024)} MB)`);
     }
     const buffer = Buffer.from(dataB64, 'base64');
@@ -2401,7 +2609,11 @@ function sitesUploadAsset(workspaceId, siteId, opts = {}) {
       engine.saveSite(db, resolvedId, pages, theme, `uploadAsset favicon ${url}`);
     }
     // Rematerialize so /assets/* is in the publish folder before the next CF deploy.
-    try { materializeWebsiteExport(db, workspaceId, resolvedId); } catch { /* preview can retry */ }
+    try {
+      materializeWebsiteExport(db, workspaceId, resolvedId);
+    } catch {
+      /* preview can retry */
+    }
     return {
       siteId: resolvedId,
       url,
@@ -2416,7 +2628,7 @@ function sitesUploadAsset(workspaceId, siteId, opts = {}) {
 
 /** Single viewport PNG screenshot for agents (website.screenshot). */
 async function sitesScreenshot(workspaceId, siteId, opts = {}) {
-  const siteIdNum = siteId != null ? Number(siteId) : (opts.websiteId != null ? Number(opts.websiteId) : null);
+  const siteIdNum = siteId != null ? Number(siteId) : opts.websiteId != null ? Number(opts.websiteId) : null;
   if (!Number.isInteger(siteIdNum) || siteIdNum < 1) {
     throw siteErr('INVALID_ID', 'id must be an integer.');
   }
@@ -2433,7 +2645,11 @@ async function sitesScreenshot(workspaceId, siteId, opts = {}) {
 }
 
 function formsAppUrl() {
-  try { return require('./stripeClient').appUrl(); } catch { return String(process.env.APP_URL || '').replace(/\/$/, ''); }
+  try {
+    return require('./stripeClient').appUrl();
+  } catch {
+    return String(process.env.APP_URL || '').replace(/\/$/, '');
+  }
 }
 
 /** MCP: list custom forms for a lead (or the lead attached to a site). */
@@ -2441,7 +2657,7 @@ function formsList(workspaceId, { leadId, websiteId, siteId } = {}) {
   return withDb(workspaceId, (db) => {
     const forms = require('./contactForms');
     let lid = leadId != null ? Number(leadId) : null;
-    const wid = websiteId != null ? Number(websiteId) : (siteId != null ? Number(siteId) : null);
+    const wid = websiteId != null ? Number(websiteId) : siteId != null ? Number(siteId) : null;
     if (!lid && wid) {
       const site = websiteEngine().getWebsite(db, wid);
       if (!site) throw siteErr('NOT_FOUND', 'Website not found');
@@ -2470,10 +2686,8 @@ function formsGet(workspaceId, { leadId, formId, id, websiteId } = {}) {
       lid = Number(site.lead_id);
     }
     if (!lid) throw siteErr('INVALID_ID', 'leadId required');
-    const fid = formId != null ? Number(formId) : (id != null ? Number(id) : null);
-    const form = fid != null
-      ? forms.getFormById(db, lid, fid)
-      : forms.getFormForLead(db, lid);
+    const fid = formId != null ? Number(formId) : id != null ? Number(id) : null;
+    const form = fid != null ? forms.getFormById(db, lid, fid) : forms.getFormForLead(db, lid);
     const base = formsAppUrl();
     return { leadId: lid, form, embed: forms.embedSnippet(form, base) };
   });
@@ -2491,9 +2705,7 @@ function formsCreate(workspaceId, body = {}) {
     const purpose = forms.normalizePurpose(body.purpose);
     const hasName = !!(body.name && String(body.name).trim()) || !!(body.title && String(body.title).trim());
     if (!hasName && !purpose) throw siteErr('INVALID_ARGS', 'name or purpose is required');
-    const fields = Array.isArray(body.fields)
-      ? body.fields.map((f, i) => forms.normalizeFieldInput(f, i))
-      : undefined;
+    const fields = Array.isArray(body.fields) ? body.fields.map((f, i) => forms.normalizeFieldInput(f, i)) : undefined;
     // purpose alone is enough — name defaults from purpose meta
     const created = forms.createForm(db, leadId, {
       name: body.name,
@@ -2504,17 +2716,16 @@ function formsCreate(workspaceId, body = {}) {
       notify_email: body.notify_email != null ? body.notify_email : body.notifyEmail,
       fields,
       purpose: purpose || undefined,
-      embed_enabled: body.embed_enabled != null ? body.embed_enabled
-        : (body.embed_on_page != null ? body.embed_on_page : true),
-      add_to_nav: body.add_to_nav != null ? body.add_to_nav
-        : (body.nav_visible != null ? body.nav_visible : false),
+      embed_enabled:
+        body.embed_enabled != null ? body.embed_enabled : body.embed_on_page != null ? body.embed_on_page : true,
+      add_to_nav: body.add_to_nav != null ? body.add_to_nav : body.nav_visible != null ? body.nav_visible : false,
       target_page_slug: body.target_page_slug || body.targetPageSlug || body.pageSlug,
       form_kind: body.form_kind || body.formKind || null,
     });
     const published = forms.publishForm(db, leadId, created.id, {
       workspaceId: Number(workspaceId),
-      embed_enabled: body.embed_enabled != null ? body.embed_enabled
-        : (body.embed_on_page != null ? body.embed_on_page : true),
+      embed_enabled:
+        body.embed_enabled != null ? body.embed_enabled : body.embed_on_page != null ? body.embed_on_page : true,
       toSite: body.toSite === true,
       target_page_slug: body.target_page_slug || body.targetPageSlug,
     });
@@ -2523,16 +2734,16 @@ function formsCreate(workspaceId, body = {}) {
     const warnings = [];
     try {
       const moduleFit = require('./moduleFit');
-      const site = db.prepare(
-        'SELECT pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-      ).get(leadId);
+      const site = db.prepare('SELECT pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(leadId);
       const pages = site ? JSON.parse(site.pages || '[]') : [];
       const target = published.target_page_slug || body.target_page_slug || body.targetPageSlug;
       const w = moduleFit.formOnAppointmentPageWarning(pages, target);
       if (w && (purpose === 'general_inquiry' || purpose === 'appointment_request' || !purpose)) {
         warnings.push(w);
       }
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
     return {
       leadId,
       form: published,
@@ -2544,9 +2755,10 @@ function formsCreate(workspaceId, body = {}) {
         content: { formId: published.id, form_token: published.public_token },
       },
       warnings,
-      note: purpose === 'appointment_request'
-        ? 'Typed appointment_request form created. Prefer website.addModule(bookings) for real availability; use this form only for waitlist-style requests. Place with website.addBlock (form) or bitpype_form section.'
-        : 'Place with website.addBlock (blockType form + formId) or a bitpype_form/form section in pages. Wrap in a themed card/section; style via theme.customCss: section[data-ws-section-type="bitpype_form|contact_form"] and .bitpype-form-embed. INTENT: appointments with availability → bookings module; structured requests → purpose=…; general inquiries → contact form.',
+      note:
+        purpose === 'appointment_request'
+          ? 'Typed appointment_request form created. Prefer website.addModule(bookings) for real availability; use this form only for waitlist-style requests. Place with website.addBlock (form) or bitpype_form section.'
+          : 'Place with website.addBlock (blockType form + formId) or a bitpype_form/form section in pages. Wrap in a themed card/section; style via theme.customCss: section[data-ws-section-type="bitpype_form|contact_form"] and .bitpype-form-embed. INTENT: appointments with availability → bookings module; structured requests → purpose=…; general inquiries → contact form.',
     };
   });
 }
@@ -2559,10 +2771,7 @@ function formsSuggestFields(workspaceId, body = {}) {
     if (!Number.isInteger(leadId) || leadId < 1) throw siteErr('INVALID_ID', 'leadId is required');
     const purpose = forms.normalizePurpose(body.purpose);
     if (!purpose) {
-      throw siteErr(
-        'INVALID',
-        `purpose is required (${forms.FORM_PURPOSES.join('|')})`
-      );
+      throw siteErr('INVALID', `purpose is required (${forms.FORM_PURPOSES.join('|')})`);
     }
     const suggested = forms.suggestFieldsForPurpose(db, leadId, purpose);
     return { leadId, ...suggested };
@@ -2591,11 +2800,11 @@ function formsUpdate(workspaceId, body = {}) {
     const form = forms.saveForm(db, leadId, formId, patch);
     const base = formsAppUrl();
     try {
-      const site = db.prepare(
-        'SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-      ).get(leadId);
+      const site = db.prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(leadId);
       if (site && form.published) materializeWebsiteExport(db, workspaceId, site.id);
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
     return { leadId, form, embed: forms.embedSnippet(form, base) };
   });
 }
@@ -2610,11 +2819,11 @@ function formsDelete(workspaceId, { leadId, formId, id } = {}) {
     if (!Number.isInteger(fid) || fid < 1) throw siteErr('INVALID_ID', 'formId is required');
     const result = forms.deleteForm(db, lid, fid);
     try {
-      const site = db.prepare(
-        'SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-      ).get(lid);
+      const site = db.prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(lid);
       if (site) materializeWebsiteExport(db, workspaceId, site.id);
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
     return result;
   });
 }
@@ -2636,12 +2845,18 @@ function formsEnsureForSite(workspaceId, { leadId, websiteId } = {}) {
       pages,
       missingOnly: true,
     });
-    try { require('./siteModules').syncPublishedModules(db, lid); } catch { /* */ }
-    const siteRow = db.prepare(
-      'SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-    ).get(lid);
+    try {
+      require('./siteModules').syncPublishedModules(db, lid);
+    } catch {
+      /* */
+    }
+    const siteRow = db.prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(lid);
     if (siteRow) {
-      try { materializeWebsiteExport(db, workspaceId, siteRow.id); } catch { /* */ }
+      try {
+        materializeWebsiteExport(db, workspaceId, siteRow.id);
+      } catch {
+        /* */
+      }
     }
     return result;
   });
@@ -2658,36 +2873,46 @@ function modulesAttach(workspaceId, leadId, moduleType, opts = {}) {
       target_page_slug: targetSlug,
       embed_enabled: opts.embed_enabled != null ? opts.embed_enabled : opts.toSite !== false,
       appUrl: opts.appUrl,
-      show_request_form: opts.show_request_form != null
-        ? opts.show_request_form
-        : (opts.settings && opts.settings.show_request_form),
+      show_request_form:
+        opts.show_request_form != null ? opts.show_request_form : opts.settings && opts.settings.show_request_form,
       settings: opts.settings,
       dryRun: !!opts.dryRun,
       authorMode: opts.authorMode,
       forceInject: !!opts.forceInject,
     });
-    const siteRow = db.prepare(
-      'SELECT id, pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-    ).get(Number(leadId));
+    const siteRow = db
+      .prepare('SELECT id, pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+      .get(Number(leadId));
     if (siteRow && !opts.dryRun && !(result && result.skippedInject)) {
-      try { materializeWebsiteExport(db, workspaceId, siteRow.id); } catch { /* */ }
+      try {
+        materializeWebsiteExport(db, workspaceId, siteRow.id);
+      } catch {
+        /* */
+      }
     }
     const warnings = [];
     try {
       const moduleFit = require('./moduleFit');
       let pages = [];
-      try { pages = siteRow ? JSON.parse(siteRow.pages || '[]') : []; } catch { pages = []; }
+      try {
+        pages = siteRow ? JSON.parse(siteRow.pages || '[]') : [];
+      } catch {
+        pages = [];
+      }
       const w = moduleFit.addModuleAppointmentWarning(pages, moduleType, targetSlug);
       if (w) warnings.push(w);
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
     const isBookings = String(moduleType || '').toLowerCase() === 'bookings';
     return Object.assign({}, result, {
       warnings,
-      note: result && result.skippedInject
-        ? `Author mode: skipped inject (${result.skipReason || 'purpose_served'}). See wouldInject.`
-        : (isBookings
-          ? 'Bookings mounted — ensure ≥1 published service (bookings.createService) and hours (bookings.setHours). Do not use a contact form for appointment pages with availability. Style .bitpype-module-embed.'
-          : 'Module mount is bare — wrap in a themed card/section; or place via website.addBlock({cellIndex}). Style .bitpype-module-embed. INTENT: appointments with availability → bookings module (never a form).'),
+      note:
+        result && result.skippedInject
+          ? `Author mode: skipped inject (${result.skipReason || 'purpose_served'}). See wouldInject.`
+          : isBookings
+            ? 'Bookings mounted — ensure ≥1 published service (bookings.createService) and hours (bookings.setHours). Do not use a contact form for appointment pages with availability. Style .bitpype-module-embed.'
+            : 'Module mount is bare — wrap in a themed card/section; or place via website.addBlock({cellIndex}). Style .bitpype-module-embed. INTENT: appointments with availability → bookings module (never a form).',
     });
   });
 }
@@ -2696,11 +2921,15 @@ function modulesDetach(workspaceId, leadId, moduleType) {
   return withDb(workspaceId, (db) => {
     const modules = require('./siteModules');
     const result = modules.detachModule(db, Number(leadId), moduleType);
-    const siteRow = db.prepare(
-      'SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1'
-    ).get(Number(leadId));
+    const siteRow = db
+      .prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+      .get(Number(leadId));
     if (siteRow) {
-      try { materializeWebsiteExport(db, workspaceId, siteRow.id); } catch { /* */ }
+      try {
+        materializeWebsiteExport(db, workspaceId, siteRow.id);
+      } catch {
+        /* */
+      }
     }
     return result;
   });
@@ -2728,7 +2957,11 @@ function sitesRenderHtml(workspaceId, id, args = {}) {
       editable: !!args.editable,
       preview: true,
       pageSlug: args.pageSlug,
-      pageIndex: Number.isInteger(args.pageIndex) ? args.pageIndex : (args.pageIndex != null ? Number(args.pageIndex) : undefined),
+      pageIndex: Number.isInteger(args.pageIndex)
+        ? args.pageIndex
+        : args.pageIndex != null
+          ? Number(args.pageIndex)
+          : undefined,
     };
     let pages;
     let theme;
@@ -2746,29 +2979,38 @@ function sitesRenderHtml(workspaceId, id, args = {}) {
       if (args.editable === undefined) opts.editable = true;
     }
     const list = pages.map((p) => ({ slug: p.slug, title: p.title }));
-    let html = (opts.pageSlug != null || Number.isInteger(opts.pageIndex))
-      ? engine.renderPageAt(pages, theme, opts)
-      : engine.renderSite(pages, theme, opts);
+    let html =
+      opts.pageSlug != null || Number.isInteger(opts.pageIndex)
+        ? engine.renderPageAt(pages, theme, opts)
+        : engine.renderSite(pages, theme, opts);
 
     // srcdoc iframes need <base href> so relative images/… resolve under /site-previews/.
     try {
-      const siteId = siteRow && siteRow.id != null
-        ? Number(siteRow.id)
-        : Number(id != null ? id : args.id);
+      const siteId = siteRow && siteRow.id != null ? Number(siteRow.id) : Number(id != null ? id : args.id);
       if (Number.isInteger(siteId) && siteId > 0) {
         // Ensure export folder exists so /site-previews can serve assets.
-        try { materializeWebsiteExport(db, workspaceId, siteId); } catch { /* best effort */ }
-        const folder = resolveSiteExportFolder(workspaceId, {
-          id: siteId,
-          preview_path: siteRow && siteRow.preview_path,
-          export_slug: siteRow && siteRow.export_slug,
-        }, db);
+        try {
+          materializeWebsiteExport(db, workspaceId, siteId);
+        } catch {
+          /* best effort */
+        }
+        const folder = resolveSiteExportFolder(
+          workspaceId,
+          {
+            id: siteId,
+            preview_path: siteRow && siteRow.preview_path,
+            export_slug: siteRow && siteRow.export_slug,
+          },
+          db
+        );
         const base = appBaseUrl();
         if (base && folder) {
           html = engine.injectPreviewBaseHref(html, `${base}/site-previews/${folder}/`);
         }
       }
-    } catch { /* preview still returns HTML */ }
+    } catch {
+      /* preview still returns HTML */
+    }
 
     return { html, pages: list };
   });
@@ -2851,7 +3093,7 @@ async function sitesPreview(workspaceId, id, opts = {}) {
     const engine = websiteEngine();
     const site = engine.getWebsite(db, siteId);
     const existing = site.preview_url || null;
-    if (!force && existing && !isLocalPreviewUrl(existing) && await urlLooksHealthy(existing)) {
+    if (!force && existing && !isLocalPreviewUrl(existing) && (await urlLooksHealthy(existing))) {
       return {
         id: siteId,
         url: existing,
@@ -2922,8 +3164,9 @@ async function sitesPreview(workspaceId, id, opts = {}) {
           }
           if (healthyUrl) {
             cf.ensureColumn(db);
-            db.prepare("UPDATE websites SET preview_url = ?, preview_path = ?, updated_at = datetime('now') WHERE id = ?")
-              .run(healthyUrl, exported.path, siteId);
+            db.prepare(
+              "UPDATE websites SET preview_url = ?, preview_path = ?, updated_at = datetime('now') WHERE id = ?"
+            ).run(healthyUrl, exported.path, siteId);
             return {
               id: siteId,
               url: healthyUrl,
@@ -2944,20 +3187,23 @@ async function sitesPreview(workspaceId, id, opts = {}) {
             error: 'CF_URL_UNHEALTHY',
             hint: `Cloudflare returned ${cfResult.url} but it is not serving HTML yet.`,
             url: cfResult.url,
-            cause: 'Health check timed out after a successful upload. Asset hashes must be blake3(base64(content)+ext). Incomplete uploads also cause HTTP 500.',
+            cause:
+              'Health check timed out after a successful upload. Asset hashes must be blake3(base64(content)+ext). Incomplete uploads also cause HTTP 500.',
           };
           const keepCfUrl = (() => {
-            const prior = existing && !isLocalPreviewUrl(existing) && !isAppSitePreviewUrl(existing)
-              ? String(existing).replace(/\/+$/, '') + '/'
-              : null;
+            const prior =
+              existing && !isLocalPreviewUrl(existing) && !isAppSitePreviewUrl(existing)
+                ? String(existing).replace(/\/+$/, '') + '/'
+                : null;
             if (prior) return prior;
             const fresh = String(cfResult.url || '').replace(/\/+$/, '');
             return fresh && !isLocalPreviewUrl(fresh) ? `${fresh}/` : null;
           })();
           if (keepCfUrl) {
             cf.ensureColumn(db);
-            db.prepare("UPDATE websites SET preview_url = ?, preview_path = ?, updated_at = datetime('now') WHERE id = ?")
-              .run(keepCfUrl, exported.path, siteId);
+            db.prepare(
+              "UPDATE websites SET preview_url = ?, preview_path = ?, updated_at = datetime('now') WHERE id = ?"
+            ).run(keepCfUrl, exported.path, siteId);
             logActivity(
               db,
               'websites',
@@ -2995,8 +3241,7 @@ async function sitesPreview(workspaceId, id, opts = {}) {
 
     if (!appUrl) {
       const err = new Error(
-        (cfError && (cfError.hint || cfError.error))
-          || 'Preview hosting is not configured (Cloudflare + APP_URL).'
+        (cfError && (cfError.hint || cfError.error)) || 'Preview hosting is not configured (Cloudflare + APP_URL).'
       );
       err.code = 'PREVIEW_NOT_CONFIGURED';
       err.detail = cfError || null;
@@ -3005,8 +3250,11 @@ async function sitesPreview(workspaceId, id, opts = {}) {
 
     // Only demote to APP_URL /site-previews when CF upload failed (or was skipped).
     cf.ensureColumn(db);
-    db.prepare("UPDATE websites SET preview_url = ?, preview_path = ?, updated_at = datetime('now') WHERE id = ?")
-      .run(appUrl, exported.path, siteId);
+    db.prepare("UPDATE websites SET preview_url = ?, preview_path = ?, updated_at = datetime('now') WHERE id = ?").run(
+      appUrl,
+      exported.path,
+      siteId
+    );
     logActivity(db, 'websites', `App preview URL for website #${siteId}: ${appUrl}`);
     return {
       id: siteId,
@@ -3052,21 +3300,44 @@ function sitesApplyInstruction(workspaceId, id, instruction) {
       const home = pages.find((p) => p.slug === 'home') || pages[0];
       if (!home) throw new Error('Website has no pages to edit.');
       home.sections = home.sections || [];
-      home.sections.push({ type: 'custom', heading: '', body: m[1].trim(), content: { heading: '', body: m[1].trim() } });
+      home.sections.push({
+        type: 'custom',
+        heading: '',
+        body: m[1].trim(),
+        content: { heading: '', body: m[1].trim() },
+      });
       applied = 'Added a custom section to the home page.';
     } else if (/phone/i.test(text)) {
       const m = text.match(/(\+?[\d][\d\s().-]{6,20})/);
       if (!m) throw new Error('Could not parse a phone number from the instruction.');
-      const contact = ((pages.find((p) => p.slug === 'home') || pages[0] || {}).sections || []).find((s) => s.type === 'contact');
-      if (contact) { contact.body = m[1].trim(); if (contact.content) contact.content.phone = m[1].trim(); }
+      const contact = ((pages.find((p) => p.slug === 'home') || pages[0] || {}).sections || []).find(
+        (s) => s.type === 'contact'
+      );
+      if (contact) {
+        contact.body = m[1].trim();
+        if (contact.content) contact.content.phone = m[1].trim();
+      }
       applied = `Set contact phone to ${m[1].trim()}.`;
     }
     if (!applied) {
-      logActivity(db, 'mcp', `website.edit queued (no safe structural edit matched): site=${siteId} instruction="${text.slice(0, 200)}"`);
-      return { id: siteId, applied: false, queued: true, note: 'Instruction did not match a safe structural edit; pass pages/theme for a full edit.' };
+      logActivity(
+        db,
+        'mcp',
+        `website.edit queued (no safe structural edit matched): site=${siteId} instruction="${text.slice(0, 200)}"`
+      );
+      return {
+        id: siteId,
+        applied: false,
+        queued: true,
+        note: 'Instruction did not match a safe structural edit; pass pages/theme for a full edit.',
+      };
     }
     const version = engine.saveSite(db, siteId, pages, theme, `MCP edit: ${text.slice(0, 200)}`);
-    try { materializeWebsiteExport(db, workspaceId, siteId); } catch { /* preview can retry */ }
+    try {
+      materializeWebsiteExport(db, workspaceId, siteId);
+    } catch {
+      /* preview can retry */
+    }
     return { id: siteId, applied: true, summary: applied, version: { id: version.id, version_no: version.version_no } };
   });
 }
@@ -3108,7 +3379,9 @@ function smsQueue(workspaceId, args = {}) {
     const o = outreach();
     o.ensureTables(db);
     if (o.isAutomationPaused(db)) {
-      throw Object.assign(new Error('Automation is paused (kill switch). Resume it before queuing SMS.'), { code: 'AUTOMATION_PAUSED' });
+      throw Object.assign(new Error('Automation is paused (kill switch). Resume it before queuing SMS.'), {
+        code: 'AUTOMATION_PAUSED',
+      });
     }
     const leadId = Number(args.leadId);
     if (!Number.isInteger(leadId) || leadId <= 0) throw new Error('leadId is required');
@@ -3128,7 +3401,8 @@ function smsQueue(workspaceId, args = {}) {
     const facts = db.prepare('SELECT * FROM business_facts WHERE lead_id = ?').all(leadId);
     const personalized = email.personalize(
       { subject: '(SMS)', body },
-      lead, facts,
+      lead,
+      facts,
       o.personalizeExtras(db, leadId, fromName, { workspaceId })
     );
     body = sms.plainSmsBody(personalized.body);
@@ -3138,13 +3412,19 @@ function smsQueue(workspaceId, args = {}) {
     }
     let campaign = db.prepare("SELECT id FROM campaigns WHERE name = ? AND status = 'draft'").get('Compose SMS');
     if (!campaign) {
-      campaign = { id: db.prepare('INSERT INTO campaigns (name, template_id, status) VALUES (?, ?, ?)').run('Compose SMS', null, 'draft').lastInsertRowid };
+      campaign = {
+        id: db
+          .prepare('INSERT INTO campaigns (name, template_id, status) VALUES (?, ?, ?)')
+          .run('Compose SMS', null, 'draft').lastInsertRowid,
+      };
     }
-    const r = db.prepare(
-      `INSERT INTO campaign_messages
+    const r = db
+      .prepare(
+        `INSERT INTO campaign_messages
          (campaign_id, lead_id, to_email, subject, body, status, channel, to_phone)
        VALUES (?, ?, ?, '(SMS)', ?, 'queued', 'sms', ?)`
-    ).run(Number(campaign.id), leadId, phone, body, phone);
+      )
+      .run(Number(campaign.id), leadId, phone, body, phone);
     return {
       messageId: Number(r.lastInsertRowid),
       to: phone,
@@ -3191,7 +3471,9 @@ function emailCompose(workspaceId, leadId, templateId, opts = {}) {
     const o = outreach();
     o.ensureTables(db);
     if (opts && opts.queue && o.isAutomationPaused(db)) {
-      throw Object.assign(new Error('Automation is paused (kill switch). Resume it before queuing.'), { code: 'AUTOMATION_PAUSED' });
+      throw Object.assign(new Error('Automation is paused (kill switch). Resume it before queuing.'), {
+        code: 'AUTOMATION_PAUSED',
+      });
     }
     const channelOpt = opts && opts.channel;
     const rendered = emailComposeRender(db, leadId, templateId, workspaceId, channelOpt);
@@ -3201,7 +3483,11 @@ function emailCompose(workspaceId, leadId, templateId, opts = {}) {
     const campaignName = channel === 'sms' ? 'Compose SMS' : 'Compose';
     let campaign = db.prepare("SELECT id FROM campaigns WHERE name = ? AND status = 'draft'").get(campaignName);
     if (!campaign) {
-      campaign = { id: db.prepare('INSERT INTO campaigns (name, template_id, status) VALUES (?, ?, ?)').run(campaignName, Number(templateId), 'draft').lastInsertRowid };
+      campaign = {
+        id: db
+          .prepare('INSERT INTO campaigns (name, template_id, status) VALUES (?, ?, ?)')
+          .run(campaignName, Number(templateId), 'draft').lastInsertRowid,
+      };
     }
 
     if (channel === 'sms') {
@@ -3211,25 +3497,34 @@ function emailCompose(workspaceId, leadId, templateId, opts = {}) {
       }
       const sms = require('../src/sms');
       const body = sms.plainSmsBody(rendered.body);
-      const r = db.prepare(
-        `INSERT INTO campaign_messages
+      const r = db
+        .prepare(
+          `INSERT INTO campaign_messages
            (campaign_id, lead_id, to_email, subject, body, status, channel, to_phone)
          VALUES (?, ?, ?, ?, ?, ?, 'sms', ?)`
-      ).run(Number(campaign.id), Number(leadId), phone, rendered.subject || '(SMS)', body, 'queued', phone);
+        )
+        .run(Number(campaign.id), Number(leadId), phone, rendered.subject || '(SMS)', body, 'queued', phone);
       return {
-        ...rendered, body, messageId: Number(r.lastInsertRowid),
-        to: phone, to_phone: phone, channel: 'sms', queued: true,
+        ...rendered,
+        body,
+        messageId: Number(r.lastInsertRowid),
+        to: phone,
+        to_phone: phone,
+        channel: 'sms',
+        queued: true,
       };
     }
 
     if (!lead.email) throw new Error(`Lead ${leadId} has no email address.`);
     const footer = getSetting(db, 'mail.footer', '');
     const body = rendered.body + (footer ? `\n\n--\n${footer}` : '');
-    const r = db.prepare(
-      `INSERT INTO campaign_messages
+    const r = db
+      .prepare(
+        `INSERT INTO campaign_messages
          (campaign_id, lead_id, to_email, subject, body, status, channel)
        VALUES (?, ?, ?, ?, ?, 'queued', 'email')`
-    ).run(Number(campaign.id), Number(leadId), lead.email, rendered.subject, body);
+      )
+      .run(Number(campaign.id), Number(leadId), lead.email, rendered.subject, body);
     return { ...rendered, body, messageId: Number(r.lastInsertRowid), to: lead.email, channel: 'email', queued: true };
   });
 }
@@ -3254,11 +3549,14 @@ function emailComposeRender(db, leadId, templateId, workspaceId, channelOpt) {
   const facts = db.prepare('SELECT * FROM business_facts WHERE lead_id = ?').all(Number(leadId));
   const email = require('../src/email');
   const fromName = getSetting(db, 'smtp.from_name', '') || getSetting(db, 'app.name', '');
-  const source = channel === 'sms'
-    ? { subject: '(SMS)', body: o.templateSmsText(template) }
-    : { subject: template.subject, body: template.body };
+  const source =
+    channel === 'sms'
+      ? { subject: '(SMS)', body: o.templateSmsText(template) }
+      : { subject: template.subject, body: template.body };
   const personalized = email.personalize(
-    source, lead, facts,
+    source,
+    lead,
+    facts,
     o.personalizeExtras(db, Number(leadId), fromName, { workspaceId })
   );
   if (channel === 'sms') {
@@ -3363,18 +3661,23 @@ async function emailDraft(workspaceId, args = {}) {
   return withDb(workspaceId, async (db) => {
     const o = outreach();
     if (o.isAutomationPaused(db)) {
-      throw Object.assign(new Error('Automation is paused (kill switch). Resume it before drafting.'), { code: 'AUTOMATION_PAUSED' });
+      throw Object.assign(new Error('Automation is paused (kill switch). Resume it before drafting.'), {
+        code: 'AUTOMATION_PAUSED',
+      });
     }
     const { chat, aiConfigured } = require('../src/ai');
     if (!aiConfigured(db)) {
-      throw Object.assign(new Error('AI is not configured: set ai.api_key in Settings.'), { code: 'AI_NOT_CONFIGURED' });
+      throw Object.assign(new Error('AI is not configured: set ai.api_key in Settings.'), {
+        code: 'AI_NOT_CONFIGURED',
+      });
     }
     if (args.prompt != null && String(args.prompt).length > 4000) {
       throw new Error('prompt is too long (max 4000 characters).');
     }
     const promptRow = db.prepare('SELECT body FROM prompts WHERE key = ?').get('write_outreach');
-    const systemSeed = (promptRow && promptRow.body)
-      || 'Write a short personal outreach email. Return JSON: { "subject": "...", "body": "..." }.';
+    const systemSeed =
+      (promptRow && promptRow.body) ||
+      'Write a short personal outreach email. Return JSON: { "subject": "...", "body": "..." }.';
 
     const leadId = args.leadId != null && args.leadId !== '' ? Number(args.leadId) : null;
     const fromName = getSetting(db, 'smtp.from_name', '') || getSetting(db, 'app.name', '') || 'Bitpype';
@@ -3388,18 +3691,23 @@ async function emailDraft(workspaceId, args = {}) {
       if (!lead) throw new Error('Lead not found');
       websiteLink = outreach().resolveWebsiteLink(db, leadId);
       try {
-        const facts = db.prepare(
-          `SELECT fact_key, value FROM business_facts
+        const facts = db
+          .prepare(
+            `SELECT fact_key, value FROM business_facts
            WHERE lead_id = ? AND claim_class IN ('VERIFIED','OWNER_PROVIDED') LIMIT 20`
-        ).all(leadId);
+          )
+          .all(leadId);
         factsSummary = facts.map((f) => `${f.fact_key}: ${f.value}`).join('; ');
-      } catch { /* optional */ }
+      } catch {
+        /* optional */
+      }
     }
 
-    const fill = (text, vars) => String(text || '').replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_, k) => {
-      const v = vars[k];
-      return v == null ? '' : String(v);
-    });
+    const fill = (text, vars) =>
+      String(text || '').replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_, k) => {
+        const v = vars[k];
+        return v == null ? '' : String(v);
+      });
 
     const vars = {
       sequence_step: '1',
@@ -3408,28 +3716,36 @@ async function emailDraft(workspaceId, args = {}) {
       category: (lead && lead.category) || '',
       city: (lead && lead.city) || '',
       state: (lead && lead.state) || '',
-      observation: String(args.prompt || '').trim()
-        || (lead ? `Their online presence could use a cleaner website${lead.city ? ` for ${lead.city}` : ''}.` : 'A local business that needs a better website.'),
+      observation:
+        String(args.prompt || '').trim() ||
+        (lead
+          ? `Their online presence could use a cleaner website${lead.city ? ` for ${lead.city}` : ''}.`
+          : 'A local business that needs a better website.'),
       preview_url: websiteLink,
       website_link: websiteLink,
       from_name: fromName,
       mail_footer: mailFooter,
     };
 
-    const system = fill(systemSeed, vars)
-      + '\n\nImportant: Return ONLY valid JSON: {"subject":"...","body":"...","sms_body":"..."}. '
-      + 'Body may use simple HTML (<p>, <b>, <a>, <ul><li>) or plain text. '
-      + 'Prefer merge variables like {{business_name}}, {{website_link}}, {{interested}}, and {{uninterested}} when the value will vary per lead. '
-      + '{{interested}} and {{uninterested}} become clickable response links — include them when asking the recipient to reply with interest. '
-      + 'Also write sms_body: a concise plain-text SMS (ideal ≤160 chars, hard max 280) that MUST include {{website_link}} (or the concrete URL if provided). No HTML in sms_body. '
-      + 'Do not invent facts. Do not wrap the JSON in markdown fences.';
+    const system =
+      fill(systemSeed, vars) +
+      '\n\nImportant: Return ONLY valid JSON: {"subject":"...","body":"...","sms_body":"..."}. ' +
+      'Body may use simple HTML (<p>, <b>, <a>, <ul><li>) or plain text. ' +
+      'Prefer merge variables like {{business_name}}, {{website_link}}, {{interested}}, and {{uninterested}} when the value will vary per lead. ' +
+      '{{interested}} and {{uninterested}} become clickable response links — include them when asking the recipient to reply with interest. ' +
+      'Also write sms_body: a concise plain-text SMS (ideal ≤160 chars, hard max 280) that MUST include {{website_link}} (or the concrete URL if provided). No HTML in sms_body. ' +
+      'Do not invent facts. Do not wrap the JSON in markdown fences.';
 
     const userBits = [
       String(args.prompt || '').trim()
         ? `Writer brief: ${String(args.prompt).trim()}`
         : 'Draft a short cold outreach email offering a free website preview.',
-      lead ? `Lead context: ${lead.business_name || ''} | ${lead.category || ''} | ${[lead.city, lead.state].filter(Boolean).join(', ')} | email=${lead.email || 'n/a'} | phone=${lead.phone || 'n/a'}` : 'No specific lead selected — write a reusable template.',
-      websiteLink ? `Active website URL (also available as {{website_link}}): ${websiteLink}` : 'No published website URL yet — use {{website_link}} as a placeholder if needed.',
+      lead
+        ? `Lead context: ${lead.business_name || ''} | ${lead.category || ''} | ${[lead.city, lead.state].filter(Boolean).join(', ')} | email=${lead.email || 'n/a'} | phone=${lead.phone || 'n/a'}`
+        : 'No specific lead selected — write a reusable template.',
+      websiteLink
+        ? `Active website URL (also available as {{website_link}}): ${websiteLink}`
+        : 'No published website URL yet — use {{website_link}} as a placeholder if needed.',
       'Also produce a companion SMS (sms_body) that includes the website link.',
       factsSummary ? `Verified facts: ${factsSummary}` : '',
       args.existingSubject ? `Current subject (revise or replace): ${String(args.existingSubject).slice(0, 200)}` : '',
@@ -3461,7 +3777,9 @@ async function emailDraft(workspaceId, args = {}) {
         subject = String(parsed.subject || '').trim();
         body = String(parsed.body || '').trim();
         smsBody = String(parsed.sms_body || parsed.sms || '').trim();
-      } catch { /* fall through */ }
+      } catch {
+        /* fall through */
+      }
     }
     if (!subject && !body) {
       // Fallback: treat whole response as body
@@ -3471,7 +3789,10 @@ async function emailDraft(workspaceId, args = {}) {
     if (body && !email.looksLikeHtml(body)) {
       body = body
         .split(/\n{2,}/)
-        .map((block) => `<p>${String(block).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')}</p>`)
+        .map(
+          (block) =>
+            `<p>${String(block).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')}</p>`
+        )
         .join('\n');
     } else if (body) {
       body = email.sanitizeEmailHtml(body);
@@ -3479,7 +3800,10 @@ async function emailDraft(workspaceId, args = {}) {
 
     smsBody = sms.plainSmsBody(smsBody);
     const linkToken = websiteLink || '{{website_link}}';
-    if (!smsBody || (!smsBody.includes(linkToken) && !smsBody.includes('{{website_link}}') && !/https?:\/\//i.test(smsBody))) {
+    if (
+      !smsBody ||
+      (!smsBody.includes(linkToken) && !smsBody.includes('{{website_link}}') && !/https?:\/\//i.test(smsBody))
+    ) {
       smsBody = sms.companionSmsDraft({
         businessName: (lead && lead.business_name) || '{{business_name}}',
         websiteLink: linkToken,
@@ -3531,15 +3855,27 @@ async function emailUploadAsset(workspaceId, args = {}) {
   let mime = String(args.mimeType || args.mime || '').toLowerCase();
   let ext = 'png';
   const magic = buffer.slice(0, 4).toString('hex');
-  if (magic.startsWith('89504e47')) { ext = 'png'; mime = 'image/png'; }
-  else if (magic.startsWith('ffd8ff')) { ext = 'jpg'; mime = 'image/jpeg'; }
-  else if (magic.startsWith('47494638')) { ext = 'gif'; mime = 'image/gif'; }
-  else if (buffer.slice(0, 4).toString('ascii') === 'RIFF' && buffer.slice(8, 12).toString('ascii') === 'WEBP') {
-    ext = 'webp'; mime = 'image/webp';
+  if (magic.startsWith('89504e47')) {
+    ext = 'png';
+    mime = 'image/png';
+  } else if (magic.startsWith('ffd8ff')) {
+    ext = 'jpg';
+    mime = 'image/jpeg';
+  } else if (magic.startsWith('47494638')) {
+    ext = 'gif';
+    mime = 'image/gif';
+  } else if (buffer.slice(0, 4).toString('ascii') === 'RIFF' && buffer.slice(8, 12).toString('ascii') === 'WEBP') {
+    ext = 'webp';
+    mime = 'image/webp';
   } else if (/^image\/(png|jpeg|jpg|gif|webp)$/.test(mime)) {
-    ext = mime === 'image/jpeg' || mime === 'image/jpg' ? 'jpg'
-      : mime === 'image/webp' ? 'webp'
-        : mime === 'image/gif' ? 'gif' : 'png';
+    ext =
+      mime === 'image/jpeg' || mime === 'image/jpg'
+        ? 'jpg'
+        : mime === 'image/webp'
+          ? 'webp'
+          : mime === 'image/gif'
+            ? 'gif'
+            : 'png';
   } else {
     throw new Error('Unrecognized image data (png, jpeg, gif, webp only)');
   }
@@ -3548,7 +3884,10 @@ async function emailUploadAsset(workspaceId, args = {}) {
   try {
     const sharp = require('sharp');
     const pipeline = sharp(buffer).rotate().resize({
-      width: 1200, height: 1200, fit: 'inside', withoutEnlargement: true,
+      width: 1200,
+      height: 1200,
+      fit: 'inside',
+      withoutEnlargement: true,
     });
     if (ext === 'jpg') {
       buffer = await pipeline.jpeg({ quality: 85 }).toBuffer();
@@ -3561,7 +3900,9 @@ async function emailUploadAsset(workspaceId, args = {}) {
     } else {
       buffer = await pipeline.png().toBuffer();
     }
-  } catch { /* keep original buffer */ }
+  } catch {
+    /* keep original buffer */
+  }
 
   const name = `em-${Date.now().toString(36)}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
   const dir = path.join(dataRoot(), String(ws), 'email-assets');
@@ -3585,7 +3926,9 @@ async function emailSend(workspaceId, messageId) {
     const id = Number(messageId);
     if (!Number.isInteger(id) || id <= 0) throw new Error('messageId must be a positive integer.');
     if (o.isAutomationPaused(db)) {
-      throw Object.assign(new Error('Automation is paused (kill switch). Resume it before sending.'), { code: 'AUTOMATION_PAUSED' });
+      throw Object.assign(new Error('Automation is paused (kill switch). Resume it before sending.'), {
+        code: 'AUTOMATION_PAUSED',
+      });
     }
     const msg = db.prepare('SELECT * FROM campaign_messages WHERE id = ?').get(id);
     if (!msg) throw Object.assign(new Error(`Message ${id} not found.`), { code: 404 });
@@ -3595,20 +3938,23 @@ async function emailSend(workspaceId, messageId) {
     const settings = o.readSettings(db);
     const cap = Math.max(1, Number(settings['cost.max_outreach_per_day']) || 200);
     if (o.sentTodayCount(db) >= cap) {
-      throw Object.assign(new Error(`Daily outreach cap reached (${cap}). Message left queued.`), { code: 'CAP_REACHED' });
+      throw Object.assign(new Error(`Daily outreach cap reached (${cap}). Message left queued.`), {
+        code: 'CAP_REACHED',
+      });
     }
 
     if (channel === 'sms') {
       const sms = require('../src/sms');
-      const lead = msg.lead_id
-        ? db.prepare('SELECT id, phone FROM leads WHERE id = ?').get(msg.lead_id)
-        : null;
-      const phone = sms.normalizePhone(msg.to_phone)
-        || (lead && sms.normalizePhone(lead.phone))
-        || sms.normalizePhone(msg.to_email);
+      const lead = msg.lead_id ? db.prepare('SELECT id, phone FROM leads WHERE id = ?').get(msg.lead_id) : null;
+      const phone =
+        sms.normalizePhone(msg.to_phone) ||
+        (lead && sms.normalizePhone(lead.phone)) ||
+        sms.normalizePhone(msg.to_email);
       if (!phone) {
-        db.prepare("UPDATE campaign_messages SET status = 'suppressed', error = ? WHERE id = ?")
-          .run('no phone number', id);
+        db.prepare("UPDATE campaign_messages SET status = 'suppressed', error = ? WHERE id = ?").run(
+          'no phone number',
+          id
+        );
         return { messageId: id, sent: false, suppressed: true, reason: 'no phone number', channel: 'sms' };
       }
       const smsSettings = await sms.resolveSmsSettings(settings);
@@ -3617,33 +3963,63 @@ async function emailSend(workspaceId, messageId) {
         await provider.send({ to: phone, body: sms.plainSmsBody(msg.body) });
       } catch (err) {
         const text = String((err && err.message) || err);
-        db.prepare("UPDATE campaign_messages SET status = 'failed', error = ? WHERE id = ?").run(text.slice(0, 1000), id);
-        db.prepare('INSERT INTO email_events (message_id, type, detail) VALUES (?, ?, ?)').run(id, 'failed', text.slice(0, 500));
+        db.prepare("UPDATE campaign_messages SET status = 'failed', error = ? WHERE id = ?").run(
+          text.slice(0, 1000),
+          id
+        );
+        db.prepare('INSERT INTO email_events (message_id, type, detail) VALUES (?, ?, ?)').run(
+          id,
+          'failed',
+          text.slice(0, 500)
+        );
         throw Object.assign(new Error(`SMS send failed: ${text}`), { code: 'SEND_FAILED' });
       }
-      db.prepare("UPDATE campaign_messages SET status = 'sent', sent_at = ?, error = NULL WHERE id = ?")
-        .run(new Date().toISOString().slice(0, 19).replace('T', ' '), id);
-      db.prepare('INSERT INTO email_events (message_id, type, detail) VALUES (?, ?, ?)').run(id, 'sent', `sms via ${provider.name}`);
+      db.prepare("UPDATE campaign_messages SET status = 'sent', sent_at = ?, error = NULL WHERE id = ?").run(
+        new Date().toISOString().slice(0, 19).replace('T', ' '),
+        id
+      );
+      db.prepare('INSERT INTO email_events (message_id, type, detail) VALUES (?, ?, ?)').run(
+        id,
+        'sent',
+        `sms via ${provider.name}`
+      );
       if (msg.lead_id) {
         try {
           db.prepare(
             `UPDATE leads SET status = 'contacted', updated_at = datetime('now')
              WHERE id = ? AND status NOT IN ('engaged','claimed','trial','customer','lost')`
           ).run(msg.lead_id);
-          db.prepare('INSERT INTO prospect_events (lead_id, type, detail) VALUES (?, ?, ?)')
-            .run(msg.lead_id, 'sms.sent', 'single send');
-        } catch { /* non-fatal */ }
+          db.prepare('INSERT INTO prospect_events (lead_id, type, detail) VALUES (?, ?, ?)').run(
+            msg.lead_id,
+            'sms.sent',
+            'single send'
+          );
+        } catch {
+          /* non-fatal */
+        }
       }
       logActivity(db, 'outreach', `SMS #${id} sent to ${phone} (provider: ${provider.name})`);
-      return { messageId: id, sent: true, to: phone, provider: provider.name, channel: 'sms', stub: provider.name === 'stub' };
+      return {
+        messageId: id,
+        sent: true,
+        to: phone,
+        provider: provider.name,
+        channel: 'sms',
+        stub: provider.name === 'stub',
+      };
     }
 
     const suppressed = o.isSuppressed(db, msg.to_email);
     if (suppressed) {
-      db.prepare("UPDATE campaign_messages SET status = 'suppressed', error = ? WHERE id = ?")
-        .run(`suppressed at send time: ${suppressed.reason}`, id);
-      db.prepare('INSERT INTO email_events (message_id, type, detail) VALUES (?, ?, ?)')
-        .run(id, 'unsubscribed', `suppressed: ${suppressed.reason}`);
+      db.prepare("UPDATE campaign_messages SET status = 'suppressed', error = ? WHERE id = ?").run(
+        `suppressed at send time: ${suppressed.reason}`,
+        id
+      );
+      db.prepare('INSERT INTO email_events (message_id, type, detail) VALUES (?, ?, ?)').run(
+        id,
+        'unsubscribed',
+        `suppressed: ${suppressed.reason}`
+      );
       return { messageId: id, sent: false, suppressed: true, reason: suppressed.reason, channel: 'email' };
     }
 
@@ -3655,21 +4031,36 @@ async function emailSend(workspaceId, messageId) {
     } catch (err) {
       const text = String((err && err.message) || err);
       db.prepare("UPDATE campaign_messages SET status = 'failed', error = ? WHERE id = ?").run(text.slice(0, 1000), id);
-      db.prepare('INSERT INTO email_events (message_id, type, detail) VALUES (?, ?, ?)').run(id, 'failed', text.slice(0, 500));
+      db.prepare('INSERT INTO email_events (message_id, type, detail) VALUES (?, ?, ?)').run(
+        id,
+        'failed',
+        text.slice(0, 500)
+      );
       throw Object.assign(new Error(`Send failed: ${text}`), { code: 'SEND_FAILED' });
     }
-    db.prepare("UPDATE campaign_messages SET status = 'sent', sent_at = ?, error = NULL WHERE id = ?")
-      .run(new Date().toISOString().slice(0, 19).replace('T', ' '), id);
-    db.prepare('INSERT INTO email_events (message_id, type, detail) VALUES (?, ?, ?)').run(id, 'sent', `via ${provider.name}`);
+    db.prepare("UPDATE campaign_messages SET status = 'sent', sent_at = ?, error = NULL WHERE id = ?").run(
+      new Date().toISOString().slice(0, 19).replace('T', ' '),
+      id
+    );
+    db.prepare('INSERT INTO email_events (message_id, type, detail) VALUES (?, ?, ?)').run(
+      id,
+      'sent',
+      `via ${provider.name}`
+    );
     if (msg.lead_id) {
       try {
         db.prepare(
           `UPDATE leads SET status = 'contacted', updated_at = datetime('now')
            WHERE id = ? AND status NOT IN ('engaged','claimed','trial','customer','lost')`
         ).run(msg.lead_id);
-        db.prepare('INSERT INTO prospect_events (lead_id, type, detail) VALUES (?, ?, ?)')
-          .run(msg.lead_id, 'email.sent', 'single send');
-      } catch { /* non-fatal */ }
+        db.prepare('INSERT INTO prospect_events (lead_id, type, detail) VALUES (?, ?, ?)').run(
+          msg.lead_id,
+          'email.sent',
+          'single send'
+        );
+      } catch {
+        /* non-fatal */
+      }
     }
     logActivity(db, 'outreach', `Message #${id} sent to ${msg.to_email} (provider: ${provider.name})`);
     return { messageId: id, sent: true, to: msg.to_email, provider: provider.name, channel: 'email' };
@@ -3689,9 +4080,10 @@ function settingsGetAll(workspaceId) {
 function settingsSet(workspaceId, key, value) {
   const { SETTABLE_KEYS, validateSetting } = require('./settingsKeys');
   if (!SETTABLE_KEYS.includes(key)) throw new Error(`Setting "${key}" is not writable`);
-  const v = typeof validateSetting === 'function'
-    ? validateSetting(String(key), value)
-    : { ok: true, value: value == null ? '' : String(value) };
+  const v =
+    typeof validateSetting === 'function'
+      ? validateSetting(String(key), value)
+      : { ok: true, value: value == null ? '' : String(value) };
   if (!v.ok) throw new Error(v.error || `Invalid value for ${key}`);
   const out = withDb(workspaceId, (db) => {
     setSetting(db, key, v.value);
@@ -3702,9 +4094,11 @@ function settingsSet(workspaceId, key, value) {
   if (key === 'hands_off.enabled') {
     const enabled = v.value === '1';
     setImmediate(() => {
-      require('./handsOff').syncJobs(workspaceId, enabled).catch((e) => {
-        console.warn('[handsOff] syncJobs:', e.message);
-      });
+      require('./handsOff')
+        .syncJobs(workspaceId, enabled)
+        .catch((e) => {
+          console.warn('[handsOff] syncJobs:', e.message);
+        });
     });
   }
   return out;
@@ -3759,32 +4153,38 @@ function activityRecent(workspaceId, args = {}) {
     const { pageArgs, pageResult } = require('../src/paginate');
     const opts = args || {};
     const paging = pageArgs(
-      { page: opts.page || 1, pageSize: opts.pageSize != null ? opts.pageSize : (opts.limit || 50) },
+      { page: opts.page || 1, pageSize: opts.pageSize != null ? opts.pageSize : opts.limit || 50 },
       { pageSize: 50, maxSize: 200 }
     );
     const total = db.prepare('SELECT COUNT(*) AS c FROM activity_log').get().c;
-    const rows = db.prepare(
-      'SELECT id, area, message, at FROM activity_log ORDER BY id DESC LIMIT ? OFFSET ?'
-    ).all(paging.pageSize, paging.offset);
+    const rows = db
+      .prepare('SELECT id, area, message, at FROM activity_log ORDER BY id DESC LIMIT ? OFFSET ?')
+      .all(paging.pageSize, paging.offset);
     return Object.assign({ rows }, pageResult(rows, total, paging.page, paging.pageSize));
   });
 }
 function aiUsage(workspaceId, days = 30) {
   return withDb(workspaceId, (db) => {
-    const today = db.prepare(
-      "SELECT ROUND(COALESCE(SUM(cost_usd),0),4) AS c FROM ai_usage WHERE date(at) = date('now','localtime')"
-    ).get().c;
-    const month = db.prepare(
-      "SELECT ROUND(COALESCE(SUM(cost_usd),0),4) AS c FROM ai_usage WHERE strftime('%Y-%m', at) = strftime('%Y-%m','now','localtime')"
-    ).get().c;
-    const recent = db.prepare(
-      "SELECT id, task, model, prompt_tokens, completion_tokens, cost_usd, lead_id, note, at FROM ai_usage WHERE at >= datetime('now', ?) ORDER BY id DESC LIMIT 100"
-    ).all(`-${days} days`);
-    const byTask = db.prepare(
-      `SELECT task, COUNT(*) AS calls, SUM(prompt_tokens) AS prompt_tokens,
+    const today = db
+      .prepare("SELECT ROUND(COALESCE(SUM(cost_usd),0),4) AS c FROM ai_usage WHERE date(at) = date('now','localtime')")
+      .get().c;
+    const month = db
+      .prepare(
+        "SELECT ROUND(COALESCE(SUM(cost_usd),0),4) AS c FROM ai_usage WHERE strftime('%Y-%m', at) = strftime('%Y-%m','now','localtime')"
+      )
+      .get().c;
+    const recent = db
+      .prepare(
+        "SELECT id, task, model, prompt_tokens, completion_tokens, cost_usd, lead_id, note, at FROM ai_usage WHERE at >= datetime('now', ?) ORDER BY id DESC LIMIT 100"
+      )
+      .all(`-${days} days`);
+    const byTask = db
+      .prepare(
+        `SELECT task, COUNT(*) AS calls, SUM(prompt_tokens) AS prompt_tokens,
               SUM(completion_tokens) AS completion_tokens, ROUND(SUM(cost_usd), 4) AS cost_usd
        FROM ai_usage WHERE at >= datetime('now', ?) GROUP BY task ORDER BY cost_usd DESC`
-    ).all(`-${days} days`);
+      )
+      .all(`-${days} days`);
     return { todayUsd: today, monthUsd: month, days, byTask, recent };
   });
 }
@@ -3849,11 +4249,13 @@ async function domainsOwned(workspaceId) {
   return withDb(workspaceId, (db) => require('../src/cfDomains').listOwnedDomains(db));
 }
 async function domainsRegister(workspaceId, body = {}) {
-  return withDb(workspaceId, (db) => require('../src/cfDomains').registerDomain(db, body.domain || body.domainName, {
-    years: body.years,
-    websiteId: body.websiteId,
-    leadId: body.leadId,
-  }));
+  return withDb(workspaceId, (db) =>
+    require('../src/cfDomains').registerDomain(db, body.domain || body.domainName, {
+      years: body.years,
+      websiteId: body.websiteId,
+      leadId: body.leadId,
+    })
+  );
 }
 async function domainsRegistrationStatus(workspaceId, domainName) {
   return withDb(workspaceId, (db) => require('../src/cfDomains').registrationStatus(db, domainName));
@@ -3890,11 +4292,13 @@ async function domainsLink(workspaceId, body = {}) {
   });
 }
 async function domainsUnlink(workspaceId, body = {}) {
-  return withDb(workspaceId, (db) => require('../src/cfDomains').unlinkDomain(db, {
-    domain: body.domain || body.domainName,
-    project: body.project,
-    removeFromPages: body.removeFromPages !== false,
-  }));
+  return withDb(workspaceId, (db) =>
+    require('../src/cfDomains').unlinkDomain(db, {
+      domain: body.domain || body.domainName,
+      project: body.project,
+      removeFromPages: body.removeFromPages !== false,
+    })
+  );
 }
 
 // ---------- Jobs (still MySQL scheduled_jobs) — discovery job runs against workspace SQLite ----------
@@ -3964,9 +4368,7 @@ async function socialGenerateMonth(workspaceId, body) {
     return {
       ...out,
       credits_charged: contentCost,
-      credits_balance: spendResult
-        ? spendResult.balance
-        : await creditMod.getBalance(workspaceId),
+      credits_balance: spendResult ? spendResult.balance : await creditMod.getBalance(workspaceId),
     };
   } catch (e) {
     if (contentCost > 0) {
@@ -3990,9 +4392,13 @@ function socialSetCampaignStatus(workspaceId, id, status) {
   return withDb(workspaceId, (db) => social().setCampaignStatus(db, id, status));
 }
 async function socialSendWeekly(workspaceId, campaignId, force) {
-  return withDb(workspaceId, (db) => social().sendWeeklyBatch(db, {
-    campaignId, force: !!force, workspaceId,
-  }));
+  return withDb(workspaceId, (db) =>
+    social().sendWeeklyBatch(db, {
+      campaignId,
+      force: !!force,
+      workspaceId,
+    })
+  );
 }
 function socialApproveAgency(workspaceId, postIds) {
   return withDb(workspaceId, (db) => social().approvePostsAgency(db, postIds));
@@ -4017,24 +4423,108 @@ module.exports = {
   withDb,
   openWorkspaceDb,
   dashboardStats,
-  leadsList, leadsFacets, leadsGet, leadsCreate, leadsUpdate, leadsDelete,
-  leadsScore, leadsQualify, leadsMerge, leadsImportCsv, leadsResearch, leadsDiscover,
-  leadsDuplicates, leadsBulk, leadsAddFact, leadsTimeline, prospectScore,
-  providersList, providersSearch, discoveryGet, discoverySet, discoveryRunNow,
-  designList, designGet, designCreate, designUpdate, designDelete, designPending, designNext,
-  designDeliver, designAsk, designAnswer, designReview, designRedesign, designImprove,
-  designPreviewUrl, designAddImages, designGenerateImages, designGenerateLogo,
-  designDefaultInstructions, designAssets, designListAnswers, designSetContact, designEmailQuestions, designEmailDelivery,
-  designClientFormLink, designClientFormGet, designClientFormSubmit,
-  designRecordReply, designSaveWebsite, designRemoveDelivery, designAssetBase, designRenderHtml, designOpenPreview,
-  emailRedesignList, emailRedesignGet, emailRedesignIngest, emailRedesignSubmit, emailRedesignDismiss, emailRedesignScan,
+  leadsList,
+  leadsFacets,
+  leadsGet,
+  leadsCreate,
+  leadsUpdate,
+  leadsDelete,
+  leadsScore,
+  leadsQualify,
+  leadsMerge,
+  leadsImportCsv,
+  leadsResearch,
+  leadsDiscover,
+  leadsDuplicates,
+  leadsBulk,
+  leadsAddFact,
+  leadsTimeline,
+  prospectScore,
+  providersList,
+  providersSearch,
+  discoveryGet,
+  discoverySet,
+  discoveryRunNow,
+  designList,
+  designGet,
+  designCreate,
+  designUpdate,
+  designDelete,
+  designPending,
+  designNext,
+  designDeliver,
+  designAsk,
+  designAnswer,
+  designReview,
+  designRedesign,
+  designImprove,
+  designPreviewUrl,
+  designAddImages,
+  designGenerateImages,
+  designGenerateLogo,
+  designDefaultInstructions,
+  designAssets,
+  designListAnswers,
+  designSetContact,
+  designEmailQuestions,
+  designEmailDelivery,
+  designClientFormLink,
+  designClientFormGet,
+  designClientFormSubmit,
+  designRecordReply,
+  designSaveWebsite,
+  designRemoveDelivery,
+  designAssetBase,
+  designRenderHtml,
+  designOpenPreview,
+  emailRedesignList,
+  emailRedesignGet,
+  emailRedesignIngest,
+  emailRedesignSubmit,
+  emailRedesignDismiss,
+  emailRedesignScan,
   imapPoll,
-  learningStatus, learningPlaybook, learningEvents, learningClear, learningDistill,
-  sitesList, sitesGet, sitesDelete, sitesGenerate, sitesQa, sitesExport, sitesExportZip, sitesAddImages, sitesOptimizeImages, sitesVersions, sitesDiff, sitesRestore,
-  sitesSave, sitesGetStructure, sitesReorderStructure, sitesInsertSection, sitesAddBlock, sitesSetLogo, sitesSetTheme, sitesReplaceImage, sitesUploadAsset, sitesScreenshot, sitesForLead, sitesRenderHtml, sitesPreview, sitesApplyInstruction, validatePages,
-  sitesScreenshotsList, sitesScreenshotsCapture,
+  learningStatus,
+  learningPlaybook,
+  learningEvents,
+  learningClear,
+  learningDistill,
+  sitesList,
+  sitesGet,
+  sitesDelete,
+  sitesGenerate,
+  sitesQa,
+  sitesExport,
+  sitesExportZip,
+  sitesAddImages,
+  sitesOptimizeImages,
+  sitesVersions,
+  sitesDiff,
+  sitesRestore,
+  sitesSave,
+  sitesGetStructure,
+  sitesReorderStructure,
+  sitesInsertSection,
+  sitesAddBlock,
+  sitesSetLogo,
+  sitesSetTheme,
+  sitesReplaceImage,
+  sitesUploadAsset,
+  sitesScreenshot,
+  sitesForLead,
+  sitesRenderHtml,
+  sitesPreview,
+  sitesApplyInstruction,
+  validatePages,
+  sitesScreenshotsList,
+  sitesScreenshotsCapture,
   formsEnsureForSite,
-  formsList, formsGet, formsCreate, formsSuggestFields, formsUpdate, formsDelete,
+  formsList,
+  formsGet,
+  formsCreate,
+  formsSuggestFields,
+  formsUpdate,
+  formsDelete,
   modulesAttach,
   modulesDetach,
   modulesSummary,
@@ -4042,24 +4532,79 @@ module.exports = {
   optimizeExportImages,
   siteExportFolder,
   resolveSiteExportFolder,
-  campaignsList, campaignsCreate, campaignsSetStatus, campaignsCancel, campaignsDelete, campaignsMessages,
-  templatesList, templatesSave, templatesDelete,
-  outreachProcessQueue, outreachStats, suppressionList, suppressionAdd, suppressionRemove,
-  pipelineBoard, intentGet, intentRecord, outreachInterestResponse,
-  outreachClaimMeta, outreachClaimDecide, sitesClaimKit, sitesPostcard, leadsClaimKit,
-  emailCompose, emailSend, emailDraft, emailUploadAsset, smsQueue,
-  settingsGetAll, settingsSet, settingsSetSecret, automationSet, promptsList, promptsSave, promptsReset, activityRecent,
-  aiUsage, aiStatus,
-  cfGetConfig, cfSaveConfig, cfTest, cfPublish,
-  domainsSearch, domainsCheck, domainsOwned, domainsRegister, domainsRegistrationStatus,
-  domainsList, domainsLink, domainsUnlink,
-  runDiscoveryJobTick, runOutreachJobTick, runImapPollTick: imapPoll,
+  campaignsList,
+  campaignsCreate,
+  campaignsSetStatus,
+  campaignsCancel,
+  campaignsDelete,
+  campaignsMessages,
+  templatesList,
+  templatesSave,
+  templatesDelete,
+  outreachProcessQueue,
+  outreachStats,
+  suppressionList,
+  suppressionAdd,
+  suppressionRemove,
+  pipelineBoard,
+  intentGet,
+  intentRecord,
+  outreachInterestResponse,
+  outreachClaimMeta,
+  outreachClaimDecide,
+  sitesClaimKit,
+  sitesPostcard,
+  leadsClaimKit,
+  emailCompose,
+  emailSend,
+  emailDraft,
+  emailUploadAsset,
+  smsQueue,
+  settingsGetAll,
+  settingsSet,
+  settingsSetSecret,
+  automationSet,
+  promptsList,
+  promptsSave,
+  promptsReset,
+  activityRecent,
+  aiUsage,
+  aiStatus,
+  cfGetConfig,
+  cfSaveConfig,
+  cfTest,
+  cfPublish,
+  domainsSearch,
+  domainsCheck,
+  domainsOwned,
+  domainsRegister,
+  domainsRegistrationStatus,
+  domainsList,
+  domainsLink,
+  domainsUnlink,
+  runDiscoveryJobTick,
+  runOutreachJobTick,
+  runImapPollTick: imapPoll,
   handsOffStatus: (workspaceId) => require('./handsOff').getStatus(workspaceId),
   handsOffRunNow: (workspaceId, opts) => require('./handsOff').runTick(workspaceId, opts || {}),
   handsOffDigestNow: (workspaceId, opts) => require('./handsOff').sendDigest(workspaceId, opts || {}),
-  socialOverview, socialAccounts, socialDisconnect, socialOauthStart, socialOauthCallback,
-  socialCampaigns, socialCampaignGet, socialGenerateMonth, socialUpdatePost, socialSetCampaignStatus,
-  socialSendWeekly, socialApproveAgency, socialPublishPost, socialPublishDue, socialWeeklyTick,
-  socialBatchByToken, socialDecideBatch,
-  getSetting, setSetting,
+  socialOverview,
+  socialAccounts,
+  socialDisconnect,
+  socialOauthStart,
+  socialOauthCallback,
+  socialCampaigns,
+  socialCampaignGet,
+  socialGenerateMonth,
+  socialUpdatePost,
+  socialSetCampaignStatus,
+  socialSendWeekly,
+  socialApproveAgency,
+  socialPublishPost,
+  socialPublishDue,
+  socialWeeklyTick,
+  socialBatchByToken,
+  socialDecideBatch,
+  getSetting,
+  setSetting,
 };

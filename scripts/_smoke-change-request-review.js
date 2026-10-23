@@ -30,14 +30,19 @@ engine.ensureTables(db);
 
 try {
   require('../server/siteModules').ensureTables(db);
-} catch { /* */ }
+} catch {
+  /* */
+}
 try {
   require('../server/contactForms').ensureTables(db);
-} catch { /* */ }
+} catch {
+  /* */
+}
 
-const leadId = Number(db.prepare(
-  "INSERT INTO leads (business_name, status, email) VALUES ('Harbor Spa', 'new', 'a@b.com')"
-).run().lastInsertRowid);
+const leadId = Number(
+  db.prepare("INSERT INTO leads (business_name, status, email) VALUES ('Harbor Spa', 'new', 'a@b.com')").run()
+    .lastInsertRowid
+);
 
 const pages = [
   {
@@ -123,10 +128,7 @@ assert.strictEqual(r2.classification, 'BETTER_PATH', 'custom form → BETTER_PAT
 console.log('custom form →', r2.classification);
 
 // Form + bookings same job → BETTER_PATH
-const r3 = crr.classifyChangeRequest(
-  'Add a custom form and also bookings for appointments',
-  snap
-);
+const r3 = crr.classifyChangeRequest('Add a custom form and also bookings for appointments', snap);
 assert.ok(
   r3.classification === 'BETTER_PATH' || r3.conflicts.includes('form_and_bookings_overlap'),
   'form+bookings conflict'

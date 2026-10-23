@@ -8,7 +8,7 @@ const router = express.Router();
 
 // Mounted with express.raw({ type: 'application/json' }) in server.js
 router.post('/', async (req, res) => {
-  const secret = String(await getWebhookSecret() || '').trim();
+  const secret = String((await getWebhookSecret()) || '').trim();
   if (!secret) {
     console.error('[stripe.webhook] missing webhook secret');
     return res.status(503).send('Webhook secret not configured');

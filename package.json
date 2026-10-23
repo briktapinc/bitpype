@@ -1,14 +1,16 @@
 {
   "name": "website-scout-web",
   "version": "0.1.0",
-  "description": "Website Scout \u2014 multi-tenant web app with auth, settings, jobs, and MCP (Hostinger-ready)",
+  "description": "Website Scout — multi-tenant web app with auth, settings, jobs, and MCP (Hostinger-ready)",
   "main": "server.js",
   "private": true,
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
     "db:migrate": "node scripts/migrate.js",
-    "db:seed": "node scripts/seed-admin.js"
+    "db:seed": "node scripts/seed-admin.js",
+    "format": "prettier --write server.js server src public/js scripts",
+    "format:check": "prettier --check server.js server src public/js scripts"
   },
   "engines": {
     "node": ">=22.19.0"
@@ -37,5 +39,8 @@
     "undici": "8.12.3",
     "word-extractor": "^1.0.4",
     "xlsx": "file:vendor/xlsx-0.20.3.tgz"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3"
   }
 }

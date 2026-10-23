@@ -10,7 +10,10 @@ const db = new Database(DB, { readonly: true });
 
 for (const id of [1, 2, 3]) {
   const row = db.prepare('SELECT id, name, pages, theme FROM websites WHERE id=?').get(id);
-  if (!row) { console.log('missing', id); continue; }
+  if (!row) {
+    console.log('missing', id);
+    continue;
+  }
   const pages = JSON.parse(row.pages || '[]');
   const theme = JSON.parse(row.theme || '{}');
   const home = pages.find((p) => ['/', 'home', 'index'].includes(String(p.slug))) || pages[0];
@@ -21,16 +24,18 @@ for (const id of [1, 2, 3]) {
   const structured = edits - shtml - legacy;
   const chromeOk = /ws-nav-chrome/.test(html) && /<\/header>/i.test(html);
   const orphan = /callbtn[\s\S]{0,40}<\/header>/i.test(html.split('ws-html-block')[1] || '');
-  console.log(JSON.stringify({
-    id,
-    name: row.name,
-    edits,
-    shtml,
-    legacy,
-    structured,
-    chromeOk,
-    bodyOrphanHeader: orphan,
-    cssLen: String(theme.customCss || '').length,
-  }));
+  console.log(
+    JSON.stringify({
+      id,
+      name: row.name,
+      edits,
+      shtml,
+      legacy,
+      structured,
+      chromeOk,
+      bodyOrphanHeader: orphan,
+      cssLen: String(theme.customCss || '').length,
+    })
+  );
 }
 db.close();

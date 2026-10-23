@@ -20,9 +20,9 @@ for (const name of fs.readdirSync(root)) {
   const db = new Database(dbPath);
   let leads = [];
   try {
-    leads = db.prepare(
-      'SELECT DISTINCT lead_id FROM contact_forms WHERE published = 1 AND public_token IS NOT NULL'
-    ).all();
+    leads = db
+      .prepare('SELECT DISTINCT lead_id FROM contact_forms WHERE published = 1 AND public_token IS NOT NULL')
+      .all();
   } catch (err) {
     console.log('workspace', name, 'skip', err.message);
     db.close();

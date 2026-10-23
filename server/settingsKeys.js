@@ -209,12 +209,21 @@ function isNum(v) {
   if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) return true;
   return false;
 }
-function toNum(v) { return Number(v); }
-function toInt(v) { const n = Number(v); return Number.isInteger(n) ? n : null; }
+function toNum(v) {
+  return Number(v);
+}
+function toInt(v) {
+  const n = Number(v);
+  return Number.isInteger(n) ? n : null;
+}
 function isHttpUrl(v) {
   if (typeof v !== 'string' || v.length > 500) return false;
-  try { const u = new URL(v.trim()); return u.protocol === 'http:' || u.protocol === 'https:'; }
-  catch { return false; }
+  try {
+    const u = new URL(v.trim());
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 function isEmail(v) {
@@ -435,7 +444,8 @@ function validateSetting(key, raw) {
     }
     case 'shop.stripe.secret_key': {
       const v = value.trim();
-      if (v && !/^(sk|rk)_(test|live)_/.test(v)) return fail('must be a Stripe secret or restricted key (sk_… or rk_…)');
+      if (v && !/^(sk|rk)_(test|live)_/.test(v))
+        return fail('must be a Stripe secret or restricted key (sk_… or rk_…)');
       if (v.length > 255) return fail('must be 255 chars or fewer');
       return { ok: true, value: v };
     }

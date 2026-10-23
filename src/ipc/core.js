@@ -18,9 +18,7 @@ function register(ipcMain, db) {
       `SELECT COUNT(*) AS c FROM intent_scores i
        WHERE i.id IN (SELECT MAX(id) FROM intent_scores GROUP BY lead_id) AND i.label = 'Hot'`
     ).c;
-    const aiCostToday = one(
-      "SELECT COALESCE(SUM(cost_usd), 0) AS s FROM ai_usage WHERE date(at) = date('now')"
-    ).s;
+    const aiCostToday = one("SELECT COALESCE(SUM(cost_usd), 0) AS s FROM ai_usage WHERE date(at) = date('now')").s;
     const aiCostMonth = one(
       "SELECT COALESCE(SUM(cost_usd), 0) AS s FROM ai_usage WHERE strftime('%Y-%m', at) = strftime('%Y-%m', 'now')"
     ).s;

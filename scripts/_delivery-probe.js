@@ -22,24 +22,33 @@ function httpJson(method, url, { auth, body } = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const payload = body ? JSON.stringify(body) : null;
-    const req = https.request({
-      method,
-      hostname: u.hostname,
-      path: u.pathname + u.search,
-      headers: {
-        Accept: 'application/json',
-        ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
-        ...(auth ? { Authorization: 'Basic ' + Buffer.from(auth).toString('base64') } : {}),
+    const req = https.request(
+      {
+        method,
+        hostname: u.hostname,
+        path: u.pathname + u.search,
+        headers: {
+          Accept: 'application/json',
+          ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
+          ...(auth ? { Authorization: 'Basic ' + Buffer.from(auth).toString('base64') } : {}),
+        },
       },
-    }, (res) => {
-      let data = '';
-      res.on('data', (c) => { data += c; });
-      res.on('end', () => {
-        let parsed = data;
-        try { parsed = JSON.parse(data); } catch { /* raw */ }
-        resolve({ status: res.statusCode, body: parsed });
-      });
-    });
+      (res) => {
+        let data = '';
+        res.on('data', (c) => {
+          data += c;
+        });
+        res.on('end', () => {
+          let parsed = data;
+          try {
+            parsed = JSON.parse(data);
+          } catch {
+            /* raw */
+          }
+          resolve({ status: res.statusCode, body: parsed });
+        });
+      }
+    );
     req.on('error', reject);
     if (payload) req.write(payload);
     req.end();
@@ -151,14 +160,16 @@ async function mailjetSendAndPoll(apiKey, apiSecret, to, subject) {
   const send = await httpJson('POST', 'https://api.mailjet.com/v3.1/send', {
     auth,
     body: {
-      Messages: [{
-        From: { Email: 'team@bitpype.com', Name: 'Bitpype' },
-        To: [{ Email: to }],
-        Subject: subject,
-        TextPart: text,
-        HTMLPart: `<pre>${text}</pre>`,
-        CustomID: MARKER,
-      }],
+      Messages: [
+        {
+          From: { Email: 'team@bitpype.com', Name: 'Bitpype' },
+          To: [{ Email: to }],
+          Subject: subject,
+          TextPart: text,
+          HTMLPart: `<pre>${text}</pre>`,
+          CustomID: MARKER,
+        },
+      ],
     },
   });
 
@@ -184,11 +195,9 @@ async function mailjetRecentEvents(apiKey, apiSecret) {
   const auth = `${apiKey}:${apiSecret}`;
   // last 50 message events
   const events = await httpJson('GET', 'https://api.mailjet.com/v3/REST/eventcallbackurl', { auth });
-  const messages = await httpJson(
-    'GET',
-    'https://api.mailjet.com/v3/REST/message?Limit=10&Sort=ArrivedAt+DESC',
-    { auth }
-  );
+  const messages = await httpJson('GET', 'https://api.mailjet.com/v3/REST/message?Limit=10&Sort=ArrivedAt+DESC', {
+    auth,
+  });
   return { eventCallbackUrls: events, recentMessages: messages };
 }
 
@@ -260,19 +269,28 @@ async function mailjetRecentEvents(apiKey, apiSecret) {
   }
 
   console.log('\n=== SUMMARY ===');
-  console.log(JSON.stringify({ marker: MARKER, results: results.map((r) => ({
-    path: r.path,
-    to: r.to,
-    subject: r.subject,
-    messageId: r.messageId || r.messageIdHeader,
-    response: r.response || r.smtpResponse,
-    accepted: r.accepted,
-    rejected: r.rejected,
-    error: r.error,
-    mjStatus: r.send && r.send.status,
-    mjBody: r.send && r.send.body,
-    details: r.details && r.details.map((d) => ({ id: d.id, status: d.status, arrivedAt: d.arrivedAt })),
-  })) }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        marker: MARKER,
+        results: results.map((r) => ({
+          path: r.path,
+          to: r.to,
+          subject: r.subject,
+          messageId: r.messageId || r.messageIdHeader,
+          response: r.response || r.smtpResponse,
+          accepted: r.accepted,
+          rejected: r.rejected,
+          error: r.error,
+          mjStatus: r.send && r.send.status,
+          mjBody: r.send && r.send.body,
+          details: r.details && r.details.map((d) => ({ id: d.id, status: d.status, arrivedAt: d.arrivedAt })),
+        })),
+      },
+      null,
+      2
+    )
+  );
 })().catch((e) => {
   console.error('FATAL', e);
   process.exit(1);

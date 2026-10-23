@@ -38,7 +38,12 @@ async function inspectUrl(url) {
   for (const l of links) console.log(' ', l);
 
   const styles = [...html.matchAll(/<style[\s\S]*?<\/style>/gi)];
-  console.log('inline_style_blocks=', styles.length, 'total_css_chars=', styles.reduce((n, m) => n + m[0].length, 0));
+  console.log(
+    'inline_style_blocks=',
+    styles.length,
+    'total_css_chars=',
+    styles.reduce((n, m) => n + m[0].length, 0)
+  );
 
   const hrefs = [...html.matchAll(/href=["']([^"']+)["']/gi)].map((m) => m[1]);
   const cssHrefs = hrefs.filter((h) => /\.css(\?|$)/i.test(h) || /stylesheet/i.test(h));
@@ -50,7 +55,18 @@ async function inspectUrl(url) {
       const r = await fetch(abs, { redirect: 'follow' });
       const ct = r.headers.get('content-type') || '';
       const body = await r.text();
-      console.log('CSS', abs, 'status=', r.status, 'ct=', ct, 'len=', body.length, 'start=', body.slice(0, 80).replace(/\s+/g, ' '));
+      console.log(
+        'CSS',
+        abs,
+        'status=',
+        r.status,
+        'ct=',
+        ct,
+        'len=',
+        body.length,
+        'start=',
+        body.slice(0, 80).replace(/\s+/g, ' ')
+      );
     } catch (e) {
       console.log('CSS FAIL', abs, e.message);
     }

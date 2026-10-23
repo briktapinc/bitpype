@@ -38,10 +38,16 @@ for (const dir of [...new Set(candidates)]) {
   });
 }
 
-console.log(JSON.stringify({
-  preview_path: site.preview_path,
-  siteExportFolder: folder,
-  exportRoot: root,
-  cwd: process.cwd(),
-  results,
-}, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      preview_path: site.preview_path,
+      siteExportFolder: folder,
+      exportRoot: root,
+      cwd: process.cwd(),
+      results,
+    },
+    null,
+    2
+  )
+);

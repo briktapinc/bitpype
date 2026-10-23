@@ -42,9 +42,7 @@ async function main() {
     site = await domain.websitesGenerate(WS, leadId, { force: true });
   } else {
     // fall back: design job path
-    const job = domain.designCreateWebsiteJob
-      ? domain.designCreateWebsiteJob(WS, { leadId, title: name })
-      : null;
+    const job = domain.designCreateWebsiteJob ? domain.designCreateWebsiteJob(WS, { leadId, title: name }) : null;
     throw new Error('No sitesGenerate; job=' + (job && job.id));
   }
   const siteId = site.id || site.siteId || site.site?.id;
@@ -52,8 +50,8 @@ async function main() {
 
   const db = openWorkspaceDb(WS);
   const row = db.prepare('SELECT id, pages, theme FROM websites WHERE id = ?').get(siteId);
-  let pages = typeof row.pages === 'string' ? JSON.parse(row.pages || '[]') : (row.pages || []);
-  const theme = typeof row.theme === 'string' ? JSON.parse(row.theme || '{}') : (row.theme || {});
+  let pages = typeof row.pages === 'string' ? JSON.parse(row.pages || '[]') : row.pages || [];
+  const theme = typeof row.theme === 'string' ? JSON.parse(row.theme || '{}') : row.theme || {};
   console.log('3) pages=', pages.length, pages.map((p, i) => `${i}:${p.slug || p.title}`).join(' | '));
 
   const pageIndex = 0;
@@ -88,7 +86,10 @@ async function main() {
     if (sectionIndex < 0) {
       for (let i = secs.length - 1; i >= 0; i--) {
         const t = secs[i] && secs[i].type;
-        if (t !== 'footer' && t !== 'nav') { sectionIndex = i; break; }
+        if (t !== 'footer' && t !== 'nav') {
+          sectionIndex = i;
+          break;
+        }
       }
     }
     console.log('   target sectionIndex=', sectionIndex, secs[sectionIndex] && secs[sectionIndex].type);
@@ -118,12 +119,14 @@ async function main() {
   const siteObj = engine.getWebsite(db, siteId);
   let pagesForRender = siteObj.pages;
   if (typeof pagesForRender === 'string') {
-    try { pagesForRender = JSON.parse(pagesForRender || '[]'); } catch { pagesForRender = pages; }
+    try {
+      pagesForRender = JSON.parse(pagesForRender || '[]');
+    } catch {
+      pagesForRender = pages;
+    }
   }
   if (!Array.isArray(pagesForRender) || !pagesForRender.length) pagesForRender = pages;
-  const themeForRender = (siteObj.theme && typeof siteObj.theme === 'object')
-    ? siteObj.theme
-    : theme;
+  const themeForRender = siteObj.theme && typeof siteObj.theme === 'object' ? siteObj.theme : theme;
 
   let homePub = '';
   let homeEdit = '';
@@ -141,8 +144,9 @@ async function main() {
     if (/Internal Server Error|TypeError|ReferenceError|Cannot read prop/i.test(s)) issues.push('error text');
     if (/undefined<\/|null<\/|\[object Object\]/i.test(s)) issues.push('leaked undefined/object');
     const has6 = /repeat\(6|cols-6|--ws-cols:\s*6|grid-template-columns:repeat\(6/i.test(s);
-    const hasHeading = /heading-block|Section heading|New heading|bp-mod-page-title|data-edit=.*heading/i.test(s)
-      || /<h[12][^>]*>/i.test(s);
+    const hasHeading =
+      /heading-block|Section heading|New heading|bp-mod-page-title|data-edit=.*heading/i.test(s) ||
+      /<h[12][^>]*>/i.test(s);
     const hasQa = /data-qa="block-html"|QA HTML block/i.test(s);
     const hasAdd = /Add section|Add block|Add design module|data-ws-add/i.test(s);
     return {
@@ -159,13 +163,14 @@ async function main() {
 
   // Inspect columns content in saved pages
   const colSec = (pages[pageIndex].sections || []).find((s) => s && s.type === 'columns');
-  console.log('8) columns content cols=', colSec && colSec.content && colSec.content.cols,
-    'cells=', colSec && colSec.content && (colSec.content.cells || []).length);
+  console.log(
+    '8) columns content cols=',
+    colSec && colSec.content && colSec.content.cols,
+    'cells=',
+    colSec && colSec.content && (colSec.content.cells || []).length
+  );
 
-  const scans = [
-    scan(homePub, 'public'),
-    scan(homeEdit, 'editable'),
-  ];
+  const scans = [scan(homePub, 'public'), scan(homeEdit, 'editable')];
 
   // Export preview URL if available
   let previewUrl = null;

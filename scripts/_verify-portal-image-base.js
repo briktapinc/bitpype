@@ -25,13 +25,19 @@ if (!rendered.assetBase || !/site-previews\//i.test(rendered.assetBase)) {
   throw new Error('assetBase missing site-previews: ' + rendered.assetBase);
 }
 
-console.log(JSON.stringify({
-  ok: true,
-  siteId: row.id,
-  leadId: row.lead_id,
-  previewUrl: rendered.previewUrl,
-  assetBase: rendered.assetBase,
-  baseTag: tag,
-  hasImageRefs: /images\//i.test(rendered.html),
-  hasImageReplace: /image-replace/.test(rendered.html),
-}, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      ok: true,
+      siteId: row.id,
+      leadId: row.lead_id,
+      previewUrl: rendered.previewUrl,
+      assetBase: rendered.assetBase,
+      baseTag: tag,
+      hasImageRefs: /images\//i.test(rendered.html),
+      hasImageReplace: /image-replace/.test(rendered.html),
+    },
+    null,
+    2
+  )
+);

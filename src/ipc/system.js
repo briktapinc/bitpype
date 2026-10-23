@@ -64,7 +64,9 @@ function getSeedPrompts() {
     if (seed && Array.isArray(seed.PROMPT_SEEDS) && seed.PROMPT_SEEDS.length) {
       return seed.PROMPT_SEEDS;
     }
-  } catch { /* seed.js not ready yet — use fallback */ }
+  } catch {
+    /* seed.js not ready yet — use fallback */
+  }
   return Object.entries(FALLBACK_PROMPTS).map(([key, p]) => ({ key, name: p.name, body: p.body }));
 }
 
@@ -88,7 +90,9 @@ function register(ipcMain, db) {
   };
   const setSetting = (key, value) => {
     needDb();
-    db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, require('../../src/secretBox').encryptSetting(key, value));
+    db.prepare(
+      'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+    ).run(key, require('../../src/secretBox').encryptSetting(key, value));
   };
   const logActivity = (area, message) => {
     needDb();
@@ -185,7 +189,9 @@ function register(ipcMain, db) {
     needDb();
     let d = days == null ? 30 : parseInt(days, 10);
     if (!Number.isInteger(d) || d < 1 || d > 365) throw new Error('days must be an integer 1-365.');
-    const byTask = db.prepare(`
+    const byTask = db
+      .prepare(
+        `
       SELECT task,
              COUNT(*) AS calls,
              SUM(prompt_tokens) AS prompt_tokens,
@@ -194,22 +200,35 @@ function register(ipcMain, db) {
       FROM ai_usage
       WHERE at >= datetime('now', '-' || ? || ' days')
       GROUP BY task ORDER BY cost_usd DESC
-    `).all(d);
-    const today = db.prepare(`
+    `
+      )
+      .all(d);
+    const today = db
+      .prepare(
+        `
       SELECT ROUND(COALESCE(SUM(cost_usd), 0), 4) AS c FROM ai_usage
       WHERE date(at) = date('now', 'localtime')
-    `).get().c;
-    const month = db.prepare(`
+    `
+      )
+      .get().c;
+    const month = db
+      .prepare(
+        `
       SELECT ROUND(COALESCE(SUM(cost_usd), 0), 4) AS c FROM ai_usage
       WHERE strftime('%Y-%m', at) = strftime('%Y-%m', 'now', 'localtime')
-    `).get().c;
+    `
+      )
+      .get().c;
     return { days: d, byTask, todayUsd: today, monthUsd: month };
   });
 
   // -- automation:pause / automation:resume -----------------------------------
   ipcMain.handle('automation:pause', () => {
     setSetting('automation_paused', '1');
-    logActivity('automation', 'Automation PAUSED (kill switch engaged). Scanning, generation, campaigns, follow-ups and AI actions stopped.');
+    logActivity(
+      'automation',
+      'Automation PAUSED (kill switch engaged). Scanning, generation, campaigns, follow-ups and AI actions stopped.'
+    );
     return { ok: true, paused: true };
   });
   ipcMain.handle('automation:resume', () => {
@@ -225,13 +244,13 @@ function register(ipcMain, db) {
     // Back-compat: { limit } alone = first page of that size.
     const opts = args || {};
     const paging = pageArgs(
-      { page: opts.page || 1, pageSize: opts.pageSize != null ? opts.pageSize : (opts.limit || 50) },
+      { page: opts.page || 1, pageSize: opts.pageSize != null ? opts.pageSize : opts.limit || 50 },
       { pageSize: 50, maxSize: 200 }
     );
     const total = db.prepare('SELECT COUNT(*) AS c FROM activity_log').get().c;
-    const rows = db.prepare(
-      'SELECT id, area, message, at FROM activity_log ORDER BY id DESC LIMIT ? OFFSET ?'
-    ).all(paging.pageSize, paging.offset);
+    const rows = db
+      .prepare('SELECT id, area, message, at FROM activity_log ORDER BY id DESC LIMIT ? OFFSET ?')
+      .all(paging.pageSize, paging.offset);
     return Object.assign({ rows }, pageResult(rows, total, paging.page, paging.pageSize));
   });
 
@@ -259,9 +278,13 @@ function register(ipcMain, db) {
       {
         title: 'VS Code',
         note: 'The same stdio server, under servers, with type stdio.',
-        body: JSON.stringify({
-          servers: { 'website-scout': { type: 'stdio', ...entry } },
-        }, null, 2),
+        body: JSON.stringify(
+          {
+            servers: { 'website-scout': { type: 'stdio', ...entry } },
+          },
+          null,
+          2
+        ),
       },
       {
         title: 'Codex',
@@ -278,15 +301,22 @@ function register(ipcMain, db) {
     ];
     let recent = [];
     try {
-      recent = db.prepare(`
+      recent = db
+        .prepare(
+          `
         SELECT id, area, message, at FROM activity_log
         WHERE area = 'mcp' OR message LIKE '%via MCP%'
         ORDER BY id DESC LIMIT 15
-      `).all();
-    } catch { recent = []; }
-    const versions = Array.isArray(catalog.protocolVersions) && catalog.protocolVersions.length
-      ? catalog.protocolVersions
-      : [catalog.protocolVersion];
+      `
+        )
+        .all();
+    } catch {
+      recent = [];
+    }
+    const versions =
+      Array.isArray(catalog.protocolVersions) && catalog.protocolVersions.length
+        ? catalog.protocolVersions
+        : [catalog.protocolVersion];
     const remote = await mcpRemote.connectionInfo(db);
     return {
       server: catalog.server,
@@ -308,7 +338,11 @@ function register(ipcMain, db) {
         'Local: newline-delimited JSON-RPC 2.0 over stdin/stdout. Any MCP client starts it.',
         'Remote (Tailscale): start the HTTP listener on this page, then use the Tailscale URL + Bearer token from another device on your tailnet.',
         'WS_DB_PATH must be the desktop app database. Without it, the server uses ~/.config/Website Scout/websitescout.db, which is a different file on Windows.',
-        'initialize echoes the client’s protocolVersion when this server supports it (' + versions[0] + ' through ' + versions[versions.length - 1] + ').',
+        'initialize echoes the client’s protocolVersion when this server supports it (' +
+          versions[0] +
+          ' through ' +
+          versions[versions.length - 1] +
+          ').',
         'Queuing waiting_on_agent (assign / redesign / improve / email submit) writes the optional agent trigger file and may desktop-notify or run Settings → Design agent command. Redesign/improvements also POST design.agent_webhook_url when set. Use design.agentTrigger for path/status; claim work with design.next.',
         'design.review returns screenshot paths only (no base64). design.emailRedesign covers paste/drop inbound change requests — IMAP is not wired yet.',
         'design.lessons exposes the learning playbook/events; briefs include learned_lessons when Settings → Design learning is on.',
@@ -382,10 +416,16 @@ function hookQuit() {
     if (app && typeof app.on === 'function') {
       quitHooked = true;
       app.on('before-quit', () => {
-        try { require('../mcpRemote').stop(); } catch { /* ignore */ }
+        try {
+          require('../mcpRemote').stop();
+        } catch {
+          /* ignore */
+        }
       });
     }
-  } catch { /* not in Electron */ }
+  } catch {
+    /* not in Electron */
+  }
 }
 hookQuit();
 

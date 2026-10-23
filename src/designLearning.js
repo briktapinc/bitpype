@@ -38,8 +38,11 @@ function fail(code, message) {
 function getSetting(db, key, def = '') {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-    if (row && row.value != null && String(row.value) !== '') return String(require('./secretBox').decryptSetting(key, row.value));
-  } catch { /* ignore */ }
+    if (row && row.value != null && String(row.value) !== '')
+      return String(require('./secretBox').decryptSetting(key, row.value));
+  } catch {
+    /* ignore */
+  }
   return def;
 }
 
@@ -78,7 +81,9 @@ function ensureTables(db) {
     ins.run(PLAYBOOK_KEY, '[]');
     ins.run(LAST_AT_KEY, '');
     ins.run(MAX_PLAYBOOK_KEY, '24');
-  } catch { /* settings may be mid-migrate */ }
+  } catch {
+    /* settings may be mid-migrate */
+  }
 }
 
 function guessCategory(text) {
@@ -121,7 +126,9 @@ function pruneEvents(db) {
          SELECT id FROM design_learning_events ORDER BY id ASC LIMIT ?
        )`
     ).run(cut);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 /**
@@ -131,30 +138,32 @@ function observe(db, event = {}) {
   try {
     if (!db || !learningEnabled(db)) return null;
     ensureTables(db);
-    const eventType = String(event.event_type || event.type || '').trim().slice(0, 60);
+    const eventType = String(event.event_type || event.type || '')
+      .trim()
+      .slice(0, 60);
     if (!eventType) return null;
-    const summary = String(event.summary || '').trim().slice(0, 2000);
+    const summary = String(event.summary || '')
+      .trim()
+      .slice(0, 2000);
     if (!summary) return null;
     const category = String(event.category || guessCategory(summary)).slice(0, 40);
-    const requestKind = event.request_kind != null
-      ? String(event.request_kind).slice(0, 40)
-      : null;
-    const payload = event.payload != null
-      ? JSON.stringify(event.payload).slice(0, 12000)
-      : null;
-    const info = db.prepare(
-      `INSERT INTO design_learning_events
+    const requestKind = event.request_kind != null ? String(event.request_kind).slice(0, 40) : null;
+    const payload = event.payload != null ? JSON.stringify(event.payload).slice(0, 12000) : null;
+    const info = db
+      .prepare(
+        `INSERT INTO design_learning_events
          (event_type, design_job_id, lead_id, request_kind, category, summary, payload)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      eventType,
-      event.design_job_id != null ? Number(event.design_job_id) : null,
-      event.lead_id != null ? Number(event.lead_id) : null,
-      requestKind,
-      category,
-      summary,
-      payload
-    );
+      )
+      .run(
+        eventType,
+        event.design_job_id != null ? Number(event.design_job_id) : null,
+        event.lead_id != null ? Number(event.lead_id) : null,
+        requestKind,
+        category,
+        summary,
+        payload
+      );
     setSetting(db, LAST_AT_KEY, new Date().toISOString());
     pruneEvents(db);
     // Heuristic distill immediately (cheap); skip low-signal deliver ticks.
@@ -189,7 +198,12 @@ function distillHeuristic(db, { category, summary, event_type }) {
   bullet = normalizeLesson(bullet);
   const playbook = loadPlaybook(db);
   const key = bullet.toLowerCase().slice(0, 120);
-  const existing = playbook.find((p) => String(p.lesson || '').toLowerCase().slice(0, 120) === key);
+  const existing = playbook.find(
+    (p) =>
+      String(p.lesson || '')
+        .toLowerCase()
+        .slice(0, 120) === key
+  );
   if (existing) {
     existing.hits = Number(existing.hits || 1) + 1;
     existing.at = new Date().toISOString();
@@ -215,10 +229,12 @@ async function distillWithAi(db, { limit = 30 } = {}) {
   if (!learningEnabled(db)) return { ok: false, reason: 'disabled' };
   ensureTables(db);
   if (!ai.aiConfigured(db)) return { ok: false, reason: 'ai_not_configured' };
-  const rows = db.prepare(
-    `SELECT event_type, category, summary, request_kind, created_at
+  const rows = db
+    .prepare(
+      `SELECT event_type, category, summary, request_kind, created_at
      FROM design_learning_events ORDER BY id DESC LIMIT ?`
-  ).all(Math.min(80, Math.max(5, limit)));
+    )
+    .all(Math.min(80, Math.max(5, limit)));
   if (!rows.length) return { ok: false, reason: 'no_events' };
   const playbook = loadPlaybook(db);
   try {
@@ -245,9 +261,14 @@ Focus on reusable craft rules (CTA, mobile, imagery, IA, copy, client email feed
     });
     let parsed = null;
     try {
-      const s = String(text || '').trim().replace(/^```(?:json)?\s*([\s\S]*?)```$/i, '$1').trim();
+      const s = String(text || '')
+        .trim()
+        .replace(/^```(?:json)?\s*([\s\S]*?)```$/i, '$1')
+        .trim();
       parsed = JSON.parse(s);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     const incoming = parsed && Array.isArray(parsed.lessons) ? parsed.lessons : [];
     for (const item of incoming.slice(0, 16)) {
       const lesson = normalizeLesson(item && item.lesson);
@@ -285,7 +306,9 @@ function attachToBrief(db, brief, _opts = {}) {
         ...learned.map((l, i) => `${i + 1}. [${l.category}] ${l.lesson}`),
       ].join('\n');
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return brief;
 }
 
@@ -298,11 +321,16 @@ function refreshJobBriefLessons(db, jobId) {
     const row = db.prepare('SELECT id, brief FROM design_jobs WHERE id = ?').get(Number(jobId));
     if (!row) return null;
     let brief = {};
-    try { brief = row.brief ? JSON.parse(row.brief) : {}; } catch { brief = {}; }
+    try {
+      brief = row.brief ? JSON.parse(row.brief) : {};
+    } catch {
+      brief = {};
+    }
     attachLessonsToBrief(db, brief, {});
-    db.prepare(
-      `UPDATE design_jobs SET brief = ?, updated_at = datetime('now') WHERE id = ?`
-    ).run(JSON.stringify(brief), row.id);
+    db.prepare(`UPDATE design_jobs SET brief = ?, updated_at = datetime('now') WHERE id = ?`).run(
+      JSON.stringify(brief),
+      row.id
+    );
     return brief.learned_lessons || [];
   } catch {
     return null;
@@ -314,8 +342,12 @@ function resolveJob(db, jobOrId) {
   const id = Number(jobOrId);
   if (!Number.isFinite(id)) return { id: null, lead_id: null };
   try {
-    return db.prepare('SELECT id, lead_id, title, type, request_kind FROM design_jobs WHERE id = ?').get(id)
-      || { id, lead_id: null };
+    return (
+      db.prepare('SELECT id, lead_id, title, type, request_kind FROM design_jobs WHERE id = ?').get(id) || {
+        id,
+        lead_id: null,
+      }
+    );
   } catch {
     return { id, lead_id: null };
   }
@@ -330,7 +362,10 @@ function observeReview(db, jobOrId, review) {
     review.summary || '',
     issues ? `Issues: ${issues}` : '',
     review.vision_used ? 'Vision screenshots used.' : '',
-  ].filter(Boolean).join(' — ').slice(0, 1800);
+  ]
+    .filter(Boolean)
+    .join(' — ')
+    .slice(0, 1800);
   const shotPaths = (review.screenshots || [])
     .filter((s) => s && s.path)
     .slice(0, 12)
@@ -412,11 +447,10 @@ function observeEmailMessage(db, request) {
   const body = String(request.body || request.body_excerpt || '').trim();
   const subject = String(request.subject || '').trim();
   if (!body && !subject) return;
-  const summary = [
-    subject ? `Subject: ${subject}` : '',
-    request.from_email ? `From: ${request.from_email}` : '',
-    body,
-  ].filter(Boolean).join('\n').slice(0, 2000);
+  const summary = [subject ? `Subject: ${subject}` : '', request.from_email ? `From: ${request.from_email}` : '', body]
+    .filter(Boolean)
+    .join('\n')
+    .slice(0, 2000);
   observe(db, {
     event_type: 'email_message',
     design_job_id: request.design_job_id,
@@ -479,12 +513,19 @@ function observeDeliver(db, jobOrId, meta = {}) {
     lead_id: job.lead_id,
     request_kind: requestKind,
     category: 'general',
-    summary: `Delivered ${job.type || 'job'} #${job.id}${requestKind ? ` after ${requestKind}` : ''}: ${job.title || ''}`.slice(0, 500),
-    payload: meta && typeof meta === 'object' ? {
-      hadPrior: !!meta.hadPrior,
-      siteShape: meta.siteShape || null,
-      pageCount: meta.pageCount != null ? meta.pageCount : null,
-    } : null,
+    summary:
+      `Delivered ${job.type || 'job'} #${job.id}${requestKind ? ` after ${requestKind}` : ''}: ${job.title || ''}`.slice(
+        0,
+        500
+      ),
+    payload:
+      meta && typeof meta === 'object'
+        ? {
+            hadPrior: !!meta.hadPrior,
+            siteShape: meta.siteShape || null,
+            pageCount: meta.pageCount != null ? meta.pageCount : null,
+          }
+        : null,
   });
 }
 
@@ -503,24 +544,27 @@ function listEvents(db, { limit = 50, eventType, jobId } = {}) {
   }
   sql += ' ORDER BY id DESC LIMIT ?';
   params.push(lim);
-  return db.prepare(sql).all(...params).map((r) => ({
-    id: r.id,
-    event_type: r.event_type,
-    design_job_id: r.design_job_id,
-    lead_id: r.lead_id,
-    request_kind: r.request_kind,
-    category: r.category,
-    summary: r.summary,
-    created_at: r.created_at,
-  }));
+  return db
+    .prepare(sql)
+    .all(...params)
+    .map((r) => ({
+      id: r.id,
+      event_type: r.event_type,
+      design_job_id: r.design_job_id,
+      lead_id: r.lead_id,
+      request_kind: r.request_kind,
+      category: r.category,
+      summary: r.summary,
+      created_at: r.created_at,
+    }));
 }
 
 function status(db) {
   ensureTables(db);
   const count = db.prepare('SELECT COUNT(*) AS c FROM design_learning_events').get().c;
-  const emailCount = db.prepare(
-    "SELECT COUNT(*) AS c FROM design_learning_events WHERE event_type IN ('email_message','email_submit')"
-  ).get().c;
+  const emailCount = db
+    .prepare("SELECT COUNT(*) AS c FROM design_learning_events WHERE event_type IN ('email_message','email_submit')")
+    .get().c;
   const playbook = loadPlaybook(db);
   return {
     enabled: learningEnabled(db),

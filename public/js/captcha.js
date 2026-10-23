@@ -9,10 +9,11 @@
  */
 window.ScoutCaptcha = (() => {
   function resolveApiBase(explicit) {
-    const raw = explicit
-      || window.BitpypeApiBase
-      || (document.documentElement && document.documentElement.getAttribute('data-bitpype-api'))
-      || '';
+    const raw =
+      explicit ||
+      window.BitpypeApiBase ||
+      (document.documentElement && document.documentElement.getAttribute('data-bitpype-api')) ||
+      '';
     if (raw) return String(raw).replace(/\/$/, '');
     try {
       const src = document.querySelector(
@@ -22,7 +23,9 @@ window.ScoutCaptcha = (() => {
         const origin = new URL(src.src).origin;
         if (origin && origin !== 'null') return origin;
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     return '';
   }
 
@@ -51,7 +54,11 @@ window.ScoutCaptcha = (() => {
     let ready = false;
     let lastError = '';
     let expectedOrigin = '';
-    try { expectedOrigin = new URL(base).origin; } catch { expectedOrigin = ''; }
+    try {
+      expectedOrigin = new URL(base).origin;
+    } catch {
+      expectedOrigin = '';
+    }
 
     const iframe = document.createElement('iframe');
     iframe.src = `${base}/embed/captcha.html?theme=${encodeURIComponent(opts.theme || 'light')}`;
@@ -109,8 +116,13 @@ window.ScoutCaptcha = (() => {
       reset: () => {
         token = '';
         try {
-          iframe.contentWindow.postMessage({ type: 'bitpype-captcha', event: 'reset' }, window.origin === 'null' ? '*' : (expectedOrigin || '*'));
-        } catch { /* ignore */ }
+          iframe.contentWindow.postMessage(
+            { type: 'bitpype-captcha', event: 'reset' },
+            window.origin === 'null' ? '*' : expectedOrigin || '*'
+          );
+        } catch {
+          /* ignore */
+        }
       },
       destroy: () => {
         window.removeEventListener('message', onMessage);

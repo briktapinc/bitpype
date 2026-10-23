@@ -28,14 +28,11 @@ async function main() {
   const settingsRes = await fetch(`${BASE}/api/v1/settings`, { headers });
   const settingsBody = await settingsRes.json();
   const s = (settingsBody.data && settingsBody.data.settings) || {};
-  const keys = [
-    'smtp.host', 'smtp.port', 'smtp.secure', 'smtp.user', 'smtp.pass',
-    'smtp.from_name', 'smtp.from_email',
-  ];
+  const keys = ['smtp.host', 'smtp.port', 'smtp.secure', 'smtp.user', 'smtp.pass', 'smtp.from_name', 'smtp.from_email'];
   console.log('SMTP settings:');
   for (const k of keys) {
     const v = s[k];
-    if (k === 'smtp.pass') console.log(`  ${k}=${v === '***' ? 'SET' : (v ? 'NON_EMPTY' : 'EMPTY')}`);
+    if (k === 'smtp.pass') console.log(`  ${k}=${v === '***' ? 'SET' : v ? 'NON_EMPTY' : 'EMPTY'}`);
     else console.log(`  ${k}=${JSON.stringify(v || '')}`);
   }
 

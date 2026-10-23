@@ -113,8 +113,7 @@ function register(ipcMain, db) {
       return { ok: false, error: 'INVALID_DIR', hint: 'Folder does not exist: ' + String(dir) };
     }
 
-    const project =
-      typeof args.project === 'string' && args.project.trim() ? args.project : undefined;
+    const project = typeof args.project === 'string' && args.project.trim() ? args.project : undefined;
     return cf.publishDirectory(db, { websiteId, dir, project });
   });
 }
