@@ -201,6 +201,66 @@ function saveBrochureAssets(workspaceId, extracted) {
   return out;
 }
 
+/**
+ * Repeat promo submission for an email that already owns a lead
+ * (one-email-one-lead rule): fold the submission into that lead instead
+ * of creating a duplicate or erroring at a public visitor. The
+ * submission is recorded on the existing lead as a `promo_resubmission`
+ * lead event; scalar fields are filled ONLY where the existing lead is
+ * empty (never overwritten) and tags are unioned. Returns { id } so the
+ * caller responds exactly as for a fresh submission. The brochure
+ * facts are attached by the caller against the returned id, same as a
+ * fresh lead.
+ */
+function foldPromoIntoExistingLead(workspaceId, existingLeadId, payload, noteParts) {
+  const got = domain.leadsGet(workspaceId, existingLeadId);
+  const existing = got && got.lead ? got.lead : null;
+  const leadId = existing ? existing.id : existingLeadId;
+
+  const isEmpty = (v) =>
+    v === null ||
+    v === undefined ||
+    v === '' ||
+    (Array.isArray(v) && v.length === 0) ||
+    (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0);
+  const patch = {};
+  for (const f of ['category', 'phone', 'address', 'city', 'state', 'description']) {
+    if (existing && isEmpty(existing[f]) && !isEmpty(payload[f])) patch[f] = payload[f];
+  }
+  if (existing && isEmpty(existing.services) && Array.isArray(payload.services) && payload.services.length) {
+    patch.services = payload.services;
+  }
+  if (existing && isEmpty(existing.social_links) && !isEmpty(payload.social_links)) {
+    patch.social_links = payload.social_links;
+  }
+  if (existing && isEmpty(existing.notes)) {
+    patch.notes = noteParts.join('\n').slice(0, 10000);
+  }
+  const existingTags = (existing && existing.tags) || [];
+  const tagUnion = [...new Set([...existingTags, ...(payload.tags || [])])];
+  if (tagUnion.length !== existingTags.length) patch.tags = tagUnion;
+  if (Object.keys(patch).length) {
+    try {
+      domain.leadsUpdate(workspaceId, leadId, patch);
+    } catch (e) {
+      // A fill failure must not fail the visitor's submission.
+      console.warn(`website-promo: fold field-fill failed for lead ${leadId}:`, e && e.message);
+    }
+  }
+  try {
+    domain.withDb(workspaceId, (db) => {
+      db.prepare('INSERT INTO lead_events (lead_id, type, detail) VALUES (?, ?, ?)').run(
+        leadId,
+        'promo_resubmission',
+        noteParts.join('\n').slice(0, 2000)
+      );
+    });
+  } catch (e) {
+    console.warn(`website-promo: fold event log failed for lead ${leadId}:`, e && e.message);
+  }
+  return { id: leadId };
+}
+
 router.get('/config', async (_req, res) => {
   try {
     const captchaCfg = await getCaptchaConfig();
@@ -309,7 +369,11 @@ router.post('/submit', submitLimit, captcha, async (req, res) => {
         : null,
     ].filter(Boolean);
 
-    const lead = domain.leadsCreate(workspaceId, {
+    // One email = one lead: a repeat submission folds into the lead
+    // that already owns the email (same success response either way).
+    let lead;
+    let folded = false;
+    const promoPayload = {
       business_name: businessName,
       category,
       phone,
@@ -326,7 +390,14 @@ router.post('/submit', submitLimit, captcha, async (req, res) => {
       lead_group: 'Website promo',
       notes: noteParts.join('\n'),
       description: contactName ? `Promo lead — contact ${contactName}` : 'Promo lead from /website-promo',
-    });
+    };
+    try {
+      lead = domain.leadsCreate(workspaceId, promoPayload);
+    } catch (e) {
+      if (!e || e.code !== 'DUPLICATE_EMAIL' || !e.existingLeadId) throw e;
+      folded = true;
+      lead = foldPromoIntoExistingLead(workspaceId, e.existingLeadId, promoPayload, noteParts);
+    }
 
     // Store the brochure + extracted palette where the design flow reads
     // brand cues: the `site.style_guide` business fact (same shape
@@ -405,7 +476,9 @@ router.post('/submit', submitLimit, captcha, async (req, res) => {
       domain.withDb(workspaceId, (db) => {
         db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
           'leads',
-          `Website promo lead #${lead.id}: ${businessName} (${email})`
+          folded
+            ? `Website promo repeat submission folded into lead #${lead.id}: ${businessName} (${email})`
+            : `Website promo lead #${lead.id}: ${businessName} (${email})`
         );
       });
     } catch {
