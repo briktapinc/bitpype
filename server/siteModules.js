@@ -23,7 +23,7 @@ const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod6';
+const MODULE_SCRIPT_VER = 'mod7';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -4251,7 +4251,7 @@ function getPublicModuleItem(db, token, slugOrId) {
   if (type === 'blog') item = getBlogPost(db, leadId, slugOrId);
   else if (type === 'ecommerce') {
     item = getProduct(db, leadId, slugOrId);
-    if (item) item = { ...item, price_label: formatPrice(item.price_cents, item.currency) };
+    if (item) item = { ...item, price_label: formatPrice(item.price_cents, item.currency), stripe_checkout: require('./shopStripe').isConfigured(db) && !item.checkout_url };
   } else if (type === 'courses') item = getCourse(db, leadId, slugOrId);
   else if (type === 'gallery') item = getAlbum(db, leadId, slugOrId);
   else if (type === 'directory') item = getListing(db, leadId, slugOrId);

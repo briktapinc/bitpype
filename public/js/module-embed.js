@@ -429,7 +429,9 @@
       } else if (type === 'ecommerce') {
         var buy = it.checkout_url
           ? '<a class="bp-mod-btn" href="' + esc(it.checkout_url) + '" target="_blank" rel="noopener">Buy</a>'
-          : '<a class="bp-mod-btn ghost" href="' + esc(itemHref(key)) + '">View</a>';
+          : (it.stripe_checkout
+            ? '<button type="button" class="bp-mod-btn" data-bp-buy="' + esc(it.id) + '">Buy</button>'
+            : '<a class="bp-mod-btn ghost" href="' + esc(itemHref(key)) + '">View</a>');
         html += '<article class="bp-mod-card">'
           + coverHtml(itemHref(key), it.image_url, it.name)
           + '<div class="bp-mod-body"><h2><a href="' + esc(itemHref(key)) + '">' + esc(it.name) + '</a></h2>'
@@ -721,7 +723,7 @@
         + '<h1>' + esc(it.name) + '</h1>'
         + '<p class="bp-mod-price">' + esc(it.price_label || '') + '</p>'
         + '<div class="bp-mod-content"><p>' + esc(it.description || '') + '</p></div>'
-        + (it.checkout_url ? '<p style="margin-top:16px"><a class="bp-mod-btn" href="' + esc(it.checkout_url) + '" target="_blank" rel="noopener">Buy now</a></p>' : '')
+        + (it.checkout_url ? '<p style="margin-top:16px"><a class="bp-mod-btn" href="' + esc(it.checkout_url) + '" target="_blank" rel="noopener">Buy now</a></p>' : (it.stripe_checkout ? '<p style="margin-top:16px"><button type="button" class="bp-mod-btn" data-bp-buy="' + esc(it.id) + '">Buy now</button></p>' : ''))
         + '</article>';
     } else if (type === 'courses') {
       html += '<article class="bp-mod-detail">'
@@ -792,6 +794,72 @@
     el.innerHTML = html;
   }
 
+  function wireShop(el, base, token) {
+    if (el.__bpShopWired) return;
+    el.__bpShopWired = true;
+    function msg(text, isErr) {
+      var box = el.querySelector('.bp-mod-shop-msg');
+      if (!box) {
+        box = document.createElement('p');
+        box.className = 'bp-mod-shop-msg';
+        el.insertBefore(box, el.firstChild);
+      }
+      box.textContent = text;
+      box.className = 'bp-mod-shop-msg bp-mod-book-msg' + (isErr ? ' err' : '');
+    }
+    el.addEventListener('click', function (ev) {
+      var btn = ev.target && ev.target.closest ? ev.target.closest('[data-bp-buy]') : null;
+      if (!btn || !el.contains(btn)) return;
+      ev.preventDefault();
+      var productId = btn.getAttribute('data-bp-buy');
+      btn.disabled = true;
+      var label = btn.textContent;
+      btn.textContent = 'Redirecting…';
+      var ret = new URL(window.location.href);
+      ret.searchParams.delete('order');
+      ret.searchParams.delete('session_id');
+      fetch((base || '') + '/api/v1/modules/public/' + encodeURIComponent(token) + '/checkout', {
+        method: 'POST',
+        credentials: 'omit',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId: Number(productId), returnUrl: ret.toString() }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (!j || !j.ok || !j.data || !j.data.url) throw new Error((j && j.error) || 'Checkout failed');
+          window.location.href = j.data.url;
+        })
+        .catch(function (e) {
+          btn.disabled = false;
+          btn.textContent = label;
+          msg(e.message || 'Checkout failed. Please try again.', true);
+        });
+    });
+    // Post-checkout return notice.
+    try {
+      var q = new URLSearchParams(window.location.search);
+      var order = q.get('order');
+      var sid = q.get('session_id');
+      if (order === 'cancelled') {
+        msg('Checkout cancelled — your card was not charged.');
+      } else if (order === 'success' && sid) {
+        msg('Processing your payment…');
+        fetch((base || '') + '/api/v1/modules/public/' + encodeURIComponent(token) + '/order-status?session_id=' + encodeURIComponent(sid), { credentials: 'omit' })
+          .then(function (r) { return r.json(); })
+          .then(function (j) {
+            if (j && j.ok && j.data && j.data.status === 'paid') {
+              msg('Payment received — thank you for your order!');
+            } else if (j && j.ok && j.data && (j.data.status === 'failed' || j.data.status === 'expired')) {
+              msg('That payment did not complete. Please try again.', true);
+            } else {
+              msg('Payment is processing — you will get an email receipt from Stripe.');
+            }
+          })
+          .catch(function () { msg('Payment is processing — you will get an email receipt from Stripe.'); });
+      }
+    } catch (e) { /* ignore */ }
+  }
+
   function mountOne(el) {
     var token = el.getAttribute(TOKEN_ATTR) || '';
     if (!token) {
@@ -816,6 +884,7 @@
         var data = j.data;
         if (data.item) renderItem(el, data);
         else renderList(el, data);
+        if (data.module_type === 'ecommerce') wireShop(el, base, token);
       })
       .catch(function (e) {
         el.innerHTML = '<p class="bp-mod-err">' + esc(e.message || 'Failed to load module') + '</p>';
