@@ -579,6 +579,7 @@ function toolDefs({ clientScoped = false } = {}) {
     { name: 'design.next', description: 'Claim next waiting_on_agent job.', inputSchema: { type: 'object', properties: {} } },
     { name: 'design.list', description: 'List design jobs.', inputSchema: { type: 'object', properties: { status: { type: 'string' }, limit: { type: 'integer' } } } },
     { name: 'design.get', description: 'Get design job.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
+    { name: 'design.delete', description: 'Delete a design job (same operation as the REST DELETE /design/:id). Use for cleaning up test/abandoned jobs; deleting a job does not delete its lead or website.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
     { name: 'design.create', description: 'Create design job.', inputSchema: { type: 'object', properties: { type: { type: 'string' }, title: { type: 'string' }, instructions: { type: 'string' }, leadId: { type: 'integer' } }, required: ['title', 'instructions'] } },
     { name: 'design.deliver', description: 'Deliver design payload. Change requests attach change_verification + change_summary (website.qa + nav/form). Downloads remote images locally. Auto-provisions BitPype forms. Strips hand-rolled <form>. MODULES+FORMS STYLING via theme.customCss.', inputSchema: { type: 'object', properties: { id: { type: 'integer' }, payload: { type: 'object' }, claims: { type: 'array' } }, required: ['id', 'payload'] } },
     { name: 'design.ask', description: 'Ask clarifying question.', inputSchema: { type: 'object', properties: { id: { type: 'integer' }, question: { type: 'string' } }, required: ['id', 'question'] } },
@@ -588,6 +589,7 @@ function toolDefs({ clientScoped = false } = {}) {
     { name: 'design.previewUrl', description: 'HTTP preview URL for delivered site.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
     { name: 'website.list', description: 'List websites.', inputSchema: { type: 'object', properties: { status: { type: 'string' } } } },
     { name: 'website.get', description: 'Get website (parsed pages/theme, latest version_note, formsUnembedded when embed target page missing).', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
+    { name: 'website.checkLive', description: 'Fetch the site\'s live preview URL and each page path under it; returns per-URL HTTP status so agents can verify a publish actually serves (200s) before reporting done. Errors NO_PREVIEW_URL when the site has no preview_url.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
     { name: 'website.delete', description: 'Delete a website record and purge its EXPORT_ROOT folders (ws-{workspace}-site-{id}*, site-{id}, screenshots, legacy slug exports). Does not wipe other workspaces or delete remote Cloudflare Pages projects. Design jobs are unlinked, not deleted.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
     { name: 'website.generate', description: 'Generate template website for lead. Also auto-provisions Bitpype contact/quote/appointment forms for matching pages and embeds them.', inputSchema: { type: 'object', properties: { leadId: { type: 'integer' }, force: { type: 'boolean' } }, required: ['leadId'] } },
     { name: 'website.qa', description: 'QA custom/template site. No mandatory hero. Grades links, ≤1 form/page, export images + crop aspect, unique nav labels, no horizontal overflow at 390px, module-fit (appointment-intent pages need bookings + published service + hours), form-purpose-fields warning.', inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } },
@@ -1687,6 +1689,7 @@ async function callTool(workspaceId, name, args = {}, ctx = {}) {
     if (name === 'design.next') return { ok: true, data: { job: domain.designNext(ws) } };
     if (name === 'design.list') return { ok: true, data: domain.designList(ws, a) };
     if (name === 'design.get') return { ok: true, data: { job: domain.designGet(ws, a.id) } };
+    if (name === 'design.delete') return { ok: true, data: domain.designDelete(ws, a.id) };
     if (name === 'design.create') {
       const idem = require('./idempotency');
       const { openWorkspaceDb } = require('./workspaceDb');
@@ -1736,6 +1739,40 @@ async function callTool(workspaceId, name, args = {}, ctx = {}) {
 
     if (name === 'website.list') return { ok: true, data: domain.sitesList(ws, a) };
     if (name === 'website.get') return { ok: true, data: { site: domain.sitesGet(ws, a.id) } };
+    if (name === 'website.checkLive') {
+      const site = domain.sitesGet(ws, a.id);
+      if (!site) return { ok: false, error: 'NOT_FOUND' };
+      const previewUrl = site.preview_url || null;
+      if (!previewUrl) return { ok: false, error: 'NO_PREVIEW_URL' };
+      // Verify the published preview actually serves: fetch the preview
+      // root plus every page path under the same origin, via the
+      // SSRF-safe fetcher (port of audit P-03).
+      const { fetchPublic } = require('./urlSafety');
+      let origin;
+      try { origin = new URL(previewUrl).origin; } catch { return { ok: false, error: 'BAD_PREVIEW_URL' }; }
+      const targets = [previewUrl];
+      const seen = new Set(targets);
+      for (const p of Array.isArray(site.pages) ? site.pages : []) {
+        const raw = p && (p.path || p.slug || p.url);
+        if (!raw) continue;
+        let u;
+        try { u = new URL(String(raw), origin + '/').toString(); } catch { continue; }
+        if (!u.startsWith(origin) || seen.has(u)) continue;
+        seen.add(u);
+        targets.push(u);
+        if (targets.length >= 20) break;
+      }
+      const checks = [];
+      for (const url of targets) {
+        try {
+          const res = await fetchPublic(url, { method: 'GET', timeoutMs: 10000, maxRedirects: 3 });
+          checks.push({ url, status: res.status, ok: res.status >= 200 && res.status < 400 });
+        } catch (e) {
+          checks.push({ url, status: null, ok: false, error: e.code || e.message });
+        }
+      }
+      return { ok: true, data: { websiteId: site.id, previewUrl, checks, allOk: checks.every((c) => c.ok) } };
+    }
     if (name === 'website.delete') return { ok: true, data: domain.sitesDelete(ws, need(a.id, 'id')) };
     if (name === 'website.generate') return { ok: true, data: await domain.sitesGenerate(ws, a.leadId, a) };
     if (name === 'website.qa') return { ok: true, data: await domain.sitesQa(ws, a.id) };
