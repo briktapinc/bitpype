@@ -4532,7 +4532,7 @@
           .map((c) => {
             const active = Number(c.id) === Number(leadScoutSelectedId) ? ' is-active' : '';
             const sub = [c.email, c.phone].filter(Boolean).join(' · ') || 'No contact info';
-            return `<button type="button" class="leadscout-row${active}" data-id="${c.id}" style="display:block;width:100%;text-align:left;padding:10px 12px;margin:0 0 6px;border:1px solid var(--line,#e5e7eb);background:${active ? 'rgba(0,0,0,.04)' : 'transparent'};cursor:pointer">
+            return `<button type="button" class="leadscout-row${active}" data-id="${c.id}" style="display:block;width:100%;text-align:left;padding:10px 12px;margin:0 0 6px;border:1px solid var(--line,#e2e8f0);background:${active ? 'rgba(0,0,0,.04)' : 'transparent'};cursor:pointer">
             <strong style="display:block">${esc(c.name || 'Contact')}</strong>
             <span class="hint" style="font-size:.85rem">${esc(sub)}</span>
             <span class="hint" style="display:block;font-size:.8rem;margin-top:2px">${Number(c.event_count) || 0} event${Number(c.event_count) === 1 ? '' : 's'}</span>
@@ -4578,7 +4578,7 @@
                 const keys = Object.keys(ev.payload).slice(0, 8);
                 payloadBits = `<dl style="margin:6px 0 0;font-size:.85rem">${keys.map((k) => `<div><dt style="display:inline;font-weight:650">${esc(k)}:</dt> <dd style="display:inline;margin:0">${esc(ev.payload[k])}</dd></div>`).join('')}</dl>`;
               }
-              return `<article style="border-top:1px solid var(--line,#e5e7eb);padding:10px 0">
+              return `<article style="border-top:1px solid var(--line,#e2e8f0);padding:10px 0">
             <strong>${label}</strong> <span class="hint">${when}</span>
             ${extra}${payloadBits}
           </article>`;
