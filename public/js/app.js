@@ -172,6 +172,37 @@ async function safeRun(btn, fn) {
   }
 }
 
+// Double-submit guard for forms (port of audit A3): assigns
+// form.onsubmit to a wrapper that ignores repeat submits while one
+// is in flight and disables the form's submit buttons meanwhile.
+function guardSubmit(form, handler) {
+  if (!form) return;
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    if (form.dataset.submitting === '1') return;
+    form.dataset.submitting = '1';
+    const btns = form.querySelectorAll('button[type="submit"], input[type="submit"]');
+    btns.forEach((b) => (b.disabled = true));
+    try {
+      await handler(e);
+    } finally {
+      delete form.dataset.submitting;
+      btns.forEach((b) => (b.disabled = false));
+    }
+  };
+}
+
+// Stale-response gate for list loaders (port of audit B1): each call
+// returns a check; only the most recent call's check still passes
+// after its await, so out-of-order responses can't repaint old data.
+function latestGate() {
+  let gen = 0;
+  return () => {
+    const mine = ++gen;
+    return () => mine === gen;
+  };
+}
+
 /** data-act delegation: handlers[act](element, event). */
 function delegate(root, handlers) {
   root.onclick = (e) => {
@@ -1001,8 +1032,11 @@ async function pageLeads(param, query) {
     $('#l-selcount').textContent = n + ' selected';
   }
 
+  const leadsGate = latestGate();
   async function loadFacets() {
+    const mine = leadsGate();
     try { leadsState.facets = (await api.leadFacets()).data.facets || leadsState.facets; } catch { /* optional */ }
+    if (!mine()) return;
     const g = $('#l-group');
     if (!g) return;
     const f = leadsState.facets;
@@ -1018,6 +1052,7 @@ async function pageLeads(param, query) {
   }
 
   async function load() {
+    const mine = leadsGate();
     const body = $('#l-body');
     if (!body) return;
     const r = await api.leads({
@@ -1025,7 +1060,7 @@ async function pageLeads(param, query) {
       group: leadsState.group, category: leadsState.category,
       page: leadsState.page, pageSize: leadsState.pageSize,
     });
-    if (!$('#l-body')) return;
+    if (!mine() || !$('#l-body')) return;
     const rows = asList(r.data, ['leads', 'rows']);
     leadsState.total = r.data.total || rows.length;
     body.innerHTML = rows.map((l) => `<tr>
@@ -1348,7 +1383,7 @@ async function openLeadDrawer(id) {
         ${timeline.map((ev) => `<div class="kv"><span class="k">${esc(ev.type)}</span><span>${esc(ev.detail || '')}</span><span class="sub-line">${esc(ev.kind || '')} · ${esc(fmtDate(ev.at))}</span></div>`).join('') || '<p class="hint">No events yet.</p>'}
       </section>`;
 
-    $('#ld-form', dr.el).onsubmit = async (e) => {
+    guardSubmit($('#ld-form', dr.el), async (e) => {
       e.preventDefault();
       const msg = $('#ld-msg', dr.el);
       try {
@@ -1356,15 +1391,15 @@ async function openLeadDrawer(id) {
         setMsg(msg, 'Saved', 'ok');
         if (leadsReload) leadsReload();
       } catch (err) { setMsg(msg, err.message, 'err'); }
-    };
-    $('#ld-fact', dr.el).onsubmit = async (e) => {
+    });
+    guardSubmit($('#ld-fact', dr.el), async (e) => {
       e.preventDefault();
       await safeRun(null, async () => {
         await api.leadFacts(id, formObject(e.target));
         toast('Fact added', 'ok');
         await reload();
       });
-    };
+    });
   }
 
   delegate(dr.el, {
@@ -1507,10 +1542,12 @@ async function pageWebsites(param) {
 
   const picker = mountLeadPicker($('#w-lead'));
 
+  const sitesGate = latestGate();
   async function load() {
+    const mine = sitesGate();
     const r = await api.websites({ page: sitesState.page, pageSize: 25, status: sitesState.status });
     const body = $('#w-body');
-    if (!body) return;
+    if (!mine() || !body) return;
     const d = r.data || {};
     const sites = asList(d, ['sites', 'rows']);
     body.innerHTML = sites.map((s) => `<tr>
@@ -2929,10 +2966,12 @@ async function openMessagesModal(campaignId, name) {
   const m = openModal({ title: 'Messages — ' + name, wide: true, body: '<div id="cm-body"><p class="hint">Loading…</p></div>' });
   let page = 1;
   let status = '';
+  const cmGate = latestGate();
   async function load() {
+    const mine = cmGate();
     const r = (await api.campaignMessages(campaignId, { page, pageSize: 25, status })).data;
     const body = $('#cm-body', m.el);
-    if (!body) return;
+    if (!mine() || !body) return;
     body.innerHTML = `<div class="toolbar"><select id="cm-status"><option value="">All statuses</option>${optionList(['queued', 'sent', 'failed', 'suppressed'], status)}</select></div>
       <div class="table-wrap"><table><thead><tr><th>To</th><th>Channel</th><th>Subject / preview</th><th>Status</th><th>Scheduled</th><th>Sent</th><th></th></tr></thead>
       <tbody>${(r.rows || []).map((x) => {
@@ -3374,8 +3413,7 @@ async function tabTemplates(host) {
   $('#tp-sms-body', host).addEventListener('input', updateSmsCount);
   updateSmsCount();
 
-  form.onsubmit = async (e) => {
-    e.preventDefault();
+  guardSubmit(form, async (e) => {
     const body = formObject(form);
     body.body = editor.getHtml();
     body.sms_body = ($('#tp-sms-body', host).value || '').trim();
@@ -3396,7 +3434,7 @@ async function tabTemplates(host) {
       toast('Template saved', 'ok');
       tabTemplates(host);
     } catch (err) { setMsg($('#tp-msg', host), err.message, 'err'); }
-  };
+  });
 
   host.querySelectorAll('.var-chip').forEach((chip) => {
     chip.style.cursor = 'pointer';
@@ -3518,12 +3556,12 @@ async function tabSuppression(host) {
     <div class="table-wrap"><table><thead><tr><th>Email</th><th>Reason</th><th>Added</th><th></th></tr></thead>
       <tbody>${rows.map((s) => `<tr><td>${esc(s.email)}</td><td>${esc(s.reason)}</td><td>${esc(fmtDate(s.created_at))}</td>
         <td><button class="btn small" data-act="remove" data-id="${s.id}">Remove</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Suppression list is empty.</td></tr>'}</tbody></table></div>`;
-  $('#sp-form', host).onsubmit = async (e) => {
+  guardSubmit($('#sp-form', host), async (e) => {
     e.preventDefault();
     const f = formObject(e.target);
     try { await api.suppressionAdd(f.email, f.reason); toast('Added', 'ok'); tabSuppression(host); }
     catch (err) { setMsg($('#sp-msg', host), err.message, 'err'); }
-  };
+  });
   delegate(host, {
     remove: async (t) => { await api.suppressionRemove(Number(t.dataset.id)); tabSuppression(host); },
   });
@@ -3862,14 +3900,15 @@ async function pageJobs() {
         </td></tr>`).join('') || '<tr><td colspan="5" class="empty">No jobs yet.</td></tr>'}</tbody>
     </table></div>`;
 
-  $('#job-form').onsubmit = async (e) => {
-    e.preventDefault();
+  guardSubmit($('#job-form'), async (e) => {
     const body = formObject(e.target);
     body.interval_minutes = Number(body.interval_minutes) || null;
-    try { body.payload = JSON.parse(body.payload || '{}'); } catch { body.payload = {}; }
+    // Invalid payload JSON must surface, not silently save as {} (audit A4).
+    try { body.payload = JSON.parse(body.payload || '{}'); }
+    catch { setMsg($('#job-msg'), 'Payload is not valid JSON — fix it or clear the field.', 'err'); return; }
     try { await api.jobsCreate(body); toast('Job created', 'ok'); pageJobs(); }
     catch (err) { setMsg($('#job-msg'), err.message, 'err'); }
-  };
+  });
   delegate(view, {
     run: async (t) => { await api.jobsRun(t.dataset.id); toast('Job executed', 'ok'); pageJobs(); },
     toggle: async (t) => { await api.jobsUpdate(t.dataset.id, { enabled: Number(t.dataset.en) === 1 }); pageJobs(); },
@@ -4300,7 +4339,7 @@ async function pageSettings(param) {
   refreshInvites();
   const invForm = $('#invite-form');
   if (invForm) {
-    invForm.onsubmit = async (e) => {
+    guardSubmit(invForm, async (e) => {
       e.preventDefault();
       const msg = $('#inv-msg');
       setMsg(msg, 'Sending…');
@@ -4313,7 +4352,7 @@ async function pageSettings(param) {
         e.target.reset();
         refreshInvites();
       } catch (err) { setMsg(msg, err.message, 'err'); }
-    };
+    });
   }
 
   const loadPrompt = () => {
@@ -4614,7 +4653,7 @@ async function renderAdminUsers(el) {
       </div>
     </div>`;
 
-  $('#admin-user-form').onsubmit = async (e) => {
+  guardSubmit($('#admin-user-form'), async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
     const body = Object.fromEntries(fd.entries());
@@ -4629,7 +4668,7 @@ async function renderAdminUsers(el) {
       msg.textContent = err.message;
       msg.className = 'msg error';
     }
-  };
+  });
   $$('[data-edit]').forEach((b) => {
     b.onclick = () => {
       const u = users.find((x) => Number(x.id) === Number(b.dataset.edit));
@@ -4637,8 +4676,15 @@ async function renderAdminUsers(el) {
     };
   });
   $$('[data-toggle-sa]').forEach((b) => b.onclick = async () => {
+    const promoting = Number(b.dataset.on) === 1;
+    const u = users.find((x) => Number(x.id) === Number(b.dataset.toggleSa));
+    const who = u ? u.email : 'this user';
+    if (!confirm(promoting
+      ? `Make ${who} a SUPER ADMIN? They will have full platform access, including all workspaces and platform settings.`
+      : `Remove super admin from ${who}? They will lose platform-wide access.`)) return;
     await safeRun(b, async () => {
-      await api.adminUpdateUser(b.dataset.toggleSa, { is_super_admin: Number(b.dataset.on) === 1 });
+      await api.adminUpdateUser(b.dataset.toggleSa, { is_super_admin: promoting });
+      toast(promoting ? 'Super admin granted' : 'Super admin removed', 'ok');
       pageAdmin('users');
     });
   });
@@ -4717,7 +4763,7 @@ async function renderAdminWorkspaces(el) {
       </div>
     </div>`;
 
-  $('#admin-ws-form').onsubmit = async (e) => {
+  guardSubmit($('#admin-ws-form'), async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
     const body = { name: fd.get('name'), ownerUserId: fd.get('ownerUserId') ? Number(fd.get('ownerUserId')) : undefined };
@@ -4728,11 +4774,14 @@ async function renderAdminWorkspaces(el) {
       $('#admin-ws-msg').textContent = err.message;
       $('#admin-ws-msg').className = 'msg error';
     }
-  };
+  });
   $$('[data-ws-del]').forEach((b) => b.onclick = async () => {
     if (!confirm('Delete this workspace and all its MySQL data?')) return;
-    await api.adminDeleteWorkspace(b.dataset.wsDel);
-    pageAdmin('workspaces');
+    await safeRun(b, async () => {
+      await api.adminDeleteWorkspace(b.dataset.wsDel);
+      toast('Workspace deleted', 'ok');
+      pageAdmin('workspaces');
+    });
   });
   $$('[data-ws-view]').forEach((b) => b.onclick = async () => {
     const d = (await api.adminWorkspace(b.dataset.wsView)).data;
