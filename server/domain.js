@@ -4082,7 +4082,24 @@ async function emailSend(workspaceId, messageId) {
       }
     }
     logActivity(db, 'outreach', `Message #${id} sent to ${msg.to_email} (provider: ${provider.name})`);
-    return { messageId: id, sent: true, to: msg.to_email, provider: provider.name, channel: 'email' };
+    // Near-match heads-up: the recipient is not suppressed, but a one-edit
+    // variant of the address is — surface it, never block on it.
+    const near = o.suppressionNearMatch(db, msg.to_email);
+    return {
+      messageId: id,
+      sent: true,
+      to: msg.to_email,
+      provider: provider.name,
+      channel: 'email',
+      ...(near
+        ? {
+            suppressionWarning: {
+              recipient: String(msg.to_email).trim().toLowerCase(),
+              similarTo: near.suppressedEmail,
+            },
+          }
+        : {}),
+    };
   });
 }
 

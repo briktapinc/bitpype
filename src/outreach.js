@@ -317,13 +317,81 @@ function isSuppressed(db, email) {
   return db.prepare('SELECT * FROM suppression_list WHERE email = ?').get(String(email).trim().toLowerCase()) || null;
 }
 
+/** True when a and b differ by at most one edit (insert / delete / substitute). */
+function withinOneEdit(a, b) {
+  a = String(a || '');
+  b = String(b || '');
+  if (Math.abs(a.length - b.length) > 1) return false;
+  if (a === b) return true;
+  if (a.length > b.length) [a, b] = [b, a];
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      i++;
+      j++;
+    } else {
+      edits++;
+      if (edits > 1) return false;
+      if (a.length === b.length) i++;
+      j++;
+    }
+  }
+  if (j < b.length) edits++;
+  return edits <= 1;
+}
+
+/**
+ * Near-match guard: returns { suppressedEmail } when `email` is NOT exactly
+ * suppressed but sits within one edit of a suppressed address — the classic
+ * typo case, where the real address keeps receiving mail nobody meant to
+ * send. Warning only: never blocks, never auto-suppresses.
+ */
+function suppressionNearMatch(db, email) {
+  const clean = String(email || '')
+    .trim()
+    .toLowerCase();
+  if (!clean) return null;
+  if (isSuppressed(db, clean)) return null;
+  const rows = db.prepare('SELECT email FROM suppression_list').all();
+  for (const r of rows) {
+    if (r.email && withinOneEdit(clean, String(r.email).toLowerCase())) return { suppressedEmail: r.email };
+  }
+  return null;
+}
+
+/** Lead emails within one edit of a suppressed address (for the list hint). */
+function nearMatchLeadEmails(db, suppressedEmail) {
+  const target = String(suppressedEmail || '')
+    .trim()
+    .toLowerCase();
+  if (!target) return [];
+  let leads;
+  try {
+    leads = db.prepare("SELECT DISTINCT email FROM leads WHERE email IS NOT NULL AND email != ''").all();
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const r of leads) {
+    const e = String(r.email || '')
+      .trim()
+      .toLowerCase();
+    if (e && e !== target && withinOneEdit(e, target)) out.push(e);
+    if (out.length >= 5) break;
+  }
+  return out;
+}
+
 function listSuppressions(db, opts = {}) {
   const { pageArgs, pageResult } = require('./paginate');
   const { page, pageSize, offset } = pageArgs(opts, { pageSize: 50, maxSize: 200 });
   const total = db.prepare('SELECT COUNT(*) AS c FROM suppression_list').get().c;
   const rows = db
     .prepare('SELECT * FROM suppression_list ORDER BY created_at DESC LIMIT ? OFFSET ?')
-    .all(pageSize, offset);
+    .all(pageSize, offset)
+    .map((r) => ({ ...r, near_match_emails: nearMatchLeadEmails(db, r.email) }));
   return pageResult(rows, total, page, pageSize);
 }
 
@@ -952,6 +1020,7 @@ function createCampaign(db, { name, templateId, leadIds, ratePerHour, workspaceI
   let queued = 0;
   let suppressed = 0;
   let slot = 0;
+  const nearMatchWarnings = [];
 
   const txn = db.transaction(() => {
     const campaignId = Number(insertCampaign.run(cleanName, tid, rate).lastInsertRowid);
@@ -1009,6 +1078,8 @@ function createCampaign(db, { name, templateId, leadIds, ratePerHour, workspaceI
             toPhone: null,
           });
           queued++;
+          const near = suppressionNearMatch(db, toEmail);
+          if (near) nearMatchWarnings.push({ email: toEmail, similarTo: near.suppressedEmail });
           if (!marked) {
             markOutreachPending.run(leadId);
             marked = true;
@@ -1074,7 +1145,7 @@ function createCampaign(db, { name, templateId, leadIds, ratePerHour, workspaceI
     'outreach',
     `Campaign "${cleanName}" (${chLabel}) launched: ${queued} queued, ${suppressed} suppressed (${rate}/hour)`
   );
-  return { id: campaignId, queued, suppressed, ratePerHour: rate, channel: chLabel };
+  return { id: campaignId, queued, suppressed, ratePerHour: rate, channel: chLabel, suppressionWarnings: nearMatchWarnings };
 }
 
 /* ------------------------------------------------------------------ */
@@ -1439,6 +1510,7 @@ module.exports = {
   recordIntent,
   getIntent,
   isSuppressed,
+  suppressionNearMatch,
   listSuppressions,
   addSuppression,
   removeSuppression,

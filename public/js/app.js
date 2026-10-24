@@ -4397,7 +4397,7 @@ async function tabSuppression(host) {
       <tbody>${
         rows
           .map(
-            (s) => `<tr><td>${esc(s.email)}</td><td>${esc(s.reason)}</td><td>${esc(fmtDate(s.created_at))}</td>
+            (s) => `<tr><td>${esc(s.email)}${(s.near_match_emails || []).length ? `<div class="hint">Similar address in use: ${esc(s.near_match_emails.join(', '))} — not suppressed</div>` : ''}</td><td>${esc(s.reason)}</td><td>${esc(fmtDate(s.created_at))}</td>
         <td><button class="btn small" data-act="remove" data-id="${s.id}">Remove</button></td></tr>`
           )
           .join('') || '<tr><td colspan="4" class="empty">Suppression list is empty.</td></tr>'
