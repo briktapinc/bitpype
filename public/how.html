@@ -307,6 +307,16 @@
       padding: 28px 22px 64px;
       background: var(--cream);
     }
+    .included { padding: 6px 22px 58px; background: var(--cream); }
+    .included-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px;
+    }
+    .included-item { padding: 20px; }
+    .included-item h3 {
+      margin: 4px 0 8px; font-family: Fraunces, Georgia, serif;
+      font-size: 1.45rem; letter-spacing: -0.03em; line-height: 1.05;
+    }
+    .included-item p { margin: 0; color: var(--muted); }
     .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; list-style: none; margin: 0; padding: 0; }
     .steps li {
       margin: 0; padding: 22px; border-radius: 26px; color: #fffaf4; min-height: 220px;
@@ -370,6 +380,7 @@
       <a href="#design">Design</a>
       <a href="#edit">Edit</a>
       <a href="#forms">Forms</a>
+      <a href="/website-promo">Get started</a>
       <a href="/portal" class="nav-login">Client login</a>
     </nav>
   </header>
@@ -383,7 +394,7 @@
         <p class="lede">Design, preview, edits, forms, social, and plans sit together. You run the business. The portal keeps the rest within reach.</p>
         <p class="cycle">Live on the desk: <b data-cycle>the preview</b></p>
         <div class="cta-row">
-          <a class="btn btn-hot" href="mailto:team@bitpype.com?subject=BitPype%20support">Talk with us</a>
+          <a class="btn btn-hot" href="/website-promo">Get started</a>
           <a class="btn btn-ghost" href="#design">Open the cards</a>
         </div>
       </article>
@@ -522,6 +533,40 @@
     </div>
   </main>
 
+  <section class="included" aria-labelledby="included-title">
+    <div class="board-inner">
+      <h2 id="included-title" style="font-family:Fraunces,Georgia,serif;font-size:clamp(2.2rem,4.5vw,3.6rem);line-height:.96;letter-spacing:-0.04em;margin:0 0 10px">What's included.</h2>
+      <p class="support">Every website we handle comes with the same care, start to finish:</p>
+      <div class="included-grid">
+        <article class="card included-item">
+          <p class="label">Design</p>
+          <h3>Made for your business</h3>
+          <p>Pages, words, photos, and colors chosen around what you do and who you serve — not a template with your name dropped in.</p>
+        </article>
+        <article class="card included-item">
+          <p class="label">Build</p>
+          <h3>Put together for you</h3>
+          <p>We build the whole site and check it on phones and computers before it goes live, so it looks right everywhere.</p>
+        </article>
+        <article class="card included-item">
+          <p class="label">Hosting setup</p>
+          <h3>Set up and connected</h3>
+          <p>We handle the hosting and the technical setup behind the site, so it simply works when people visit.</p>
+        </article>
+        <article class="card included-item">
+          <p class="label">Domain help</p>
+          <h3>Your name on the web</h3>
+          <p>We help you choose a domain name, or connect one you already own, and keep it pointed at your site.</p>
+        </article>
+        <article class="card included-item">
+          <p class="label">Revisions</p>
+          <h3>Changes until it fits</h3>
+          <p>You see a preview first. Ask for changes and we revise it with you — before it goes live and after.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
   <section class="band" aria-labelledby="process-title">
     <div class="board-inner">
       <h2 id="process-title">How a week with us feels.</h2>
@@ -538,7 +583,7 @@
       <h2>Bring the website over here.</h2>
       <p class="support">No site yet, a site that needs a partner, or a login you already have. We take the weight and leave you the controls.</p>
       <div class="cta-row">
-        <a class="btn btn-hot" href="mailto:team@bitpype.com?subject=BitPype%20support">Email team@bitpype.com</a>
+        <a class="btn btn-hot" href="/website-promo">Get started</a>
         <a class="btn btn-ghost" href="/portal">Client login</a>
       </div>
     </div>
