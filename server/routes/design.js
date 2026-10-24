@@ -35,9 +35,17 @@ router.get('/pending', async (req, res, next) => {
        ORDER BY updated_at ASC LIMIT 50`,
       { workspaceId: req.auth.workspaceId }
     );
+    // questions_pending counts actual open questions (unanswered rows in
+    // design_questions), not jobs sitting in the questions_pending status —
+    // the Design header reads "N questions pending".
+    const openQuestions = await query(
+      `SELECT COUNT(*) AS c FROM design_questions
+       WHERE workspace_id = :workspaceId AND answered_at IS NULL`,
+      { workspaceId: req.auth.workspaceId }
+    );
     const counts = {
       waiting_on_agent: waiting.filter((j) => j.status === 'waiting_on_agent').length,
-      questions_pending: waiting.filter((j) => j.status === 'questions_pending').length,
+      questions_pending: Number((openQuestions[0] && openQuestions[0].c) || 0),
     };
     res.json({
       ok: true,
