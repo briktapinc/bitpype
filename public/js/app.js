@@ -111,7 +111,7 @@ const statusBadge = (s) => `<span class="badge status-${esc(s)}">${esc(pretty(s)
 function scorePill(score) {
   const n = Number(score) || 0;
   const band = n >= 70 ? 'hot' : n >= 50 ? 'warm' : n > 0 ? 'cool' : 'none';
-  return `<span class="score-pill score-${band}">${esc(n)}</span>`;
+  return `<span class="score-pill score-${band}" title="Lead score, 0–100 — Qualified at 50+, Hot at 70+ (Settings → Footer &amp; scoring)">${esc(n)}</span>`;
 }
 
 function debounce(fn, ms) {
@@ -4481,7 +4481,8 @@ async function pagePipeline() {
   const res = await api.pipeline();
   const columns = asList(res.data && res.data.columns);
   view.innerHTML = `
-    <div class="page-head"><div><h1>Pipeline</h1><p class="lede">Move leads between stages and record intent events (opens, clicks, claims).</p></div>
+    <div class="page-head"><div><h1>Pipeline</h1><p class="lede">Move leads between stages and record intent events (opens, clicks, claims).</p>
+      <p class="hint">Card numbers: the pill is the lead score (0–100; Qualified at 50+, Hot at 70+). The badge is intent — engagement points from opens, clicks and claim actions (Cold under 11 · Warm 11–30 · Interested 31–60 · Hot 61+).</p></div>
       <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
     <div class="kanban">${
       columns
@@ -4496,7 +4497,7 @@ async function pagePipeline() {
           <div class="kanban-card">
             <div class="title"><button class="link-btn" data-act="open" data-id="${l.id}">${esc(l.business_name)}</button></div>
             <div class="hint">${esc(l.category || '')}${l.email ? ' · ' + esc(l.email) : ''}</div>
-            <div class="meta">${scorePill(l.score)}<span class="badge intent-${esc(String(l.intent_label || 'Cold').toLowerCase())}">${esc(l.intent_label || 'Cold')} ${esc(l.intent_score || 0)}</span></div>
+            <div class="meta">${scorePill(l.score)}<span class="badge intent-${esc(String(l.intent_label || 'Cold').toLowerCase())}" title="Intent: engagement points from email opens, clicks and claim actions — Cold under 11, Warm 11–30, Interested 31–60, Hot 61+">${esc(l.intent_label || 'Cold')} ${esc(l.intent_score || 0)}</span></div>
             <div class="meta"><select data-status="${l.id}" aria-label="Status">${optionList(LEAD_STATUSES, l.status)}</select>
               <button class="btn small" data-act="intent" data-id="${l.id}">Intent</button></div>
           </div>`
@@ -4512,6 +4513,12 @@ async function pagePipeline() {
   view.onchange = (e) => {
     const sel = e.target.closest('[data-status]');
     if (!sel) return;
+    const card = sel.closest('.kanban-card');
+    const name = (card && card.querySelector('.title .link-btn')?.textContent) || 'lead #' + sel.dataset.status;
+    if (!window.confirm(`Change status of ${name} to "${sel.value}"?`)) {
+      pagePipeline(); // re-render so the select snaps back to the saved value
+      return;
+    }
     safeRun(null, async () => {
       await api.patchLead(Number(sel.dataset.status), { status: sel.value });
       toast('Status updated', 'ok');
