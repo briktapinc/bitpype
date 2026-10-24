@@ -3793,6 +3793,23 @@ function renderPageAt(pages, theme, opts) {
 }
 
 /**
+ * Stacked-preview only: drop the sitewide chat widget (mount + loader) from a
+ * page chunk. Every stored page carries its own copy of the floating chatbot,
+ * so a stacked all-pages preview would render one chat button per page. The
+ * first page keeps its widget; stored pages and single-page renders are
+ * untouched.
+ */
+function stripStackedChatWidgets(html) {
+  let s = String(html || '');
+  s = s.replace(/<div\b[^>]*\bdata-bitpype-chat\s*=\s*["']?1["']?[^>]*>[\s\S]*?<\/div>/gi, '');
+  s = s.replace(/<div\b[^>]*\bdata-bitpype-chat\s*=\s*["']?1["']?[^>]*\/?>/gi, '');
+  s = s.replace(/<div\b[^>]*\bbitpype-chat-embed\b[^>]*>[\s\S]*?<\/div>/gi, '');
+  s = s.replace(/<script\b[^>]*\bdata-bitpype-chat-script\b[^>]*>\s*<\/script>/gi, '');
+  s = s.replace(/<script\b[^>]*\/js\/chat-embed\.js[^>]*>\s*<\/script>/gi, '');
+  return s;
+}
+
+/**
  * Render the whole site for iframe preview.
  * Freeform multipage sites stack pages and rewrite *.html nav links to #anchors.
  * Prefer renderPageAt + page tabs when browsing one page at a time.
@@ -3841,6 +3858,7 @@ function renderSite(pages, theme, opts) {
           inner = sanitized.replace(/^[\s\S]*?<body[^>]*>/i, '').replace(/<\/body>[\s\S]*$/i, '');
         }
         if (editable) inner = markFreeformTextNodes(inner, pi);
+        if (pi > 0) inner = stripStackedChatWidgets(inner);
         return `<div class="page-anchor" id="${anchorId(p.slug)}" data-ws-page="${pi}">${inner}</div>`;
       }
       const sections = (Array.isArray(p.sections) ? p.sections : [])
@@ -3852,7 +3870,7 @@ function renderSite(pages, theme, opts) {
           return sectionToHtml(s, t, edit);
         })
         .join('\n');
-      return `<div class="page-anchor" id="${anchorId(p.slug)}">${sections}</div>`;
+      return `<div class="page-anchor" id="${anchorId(p.slug)}">${pi > 0 ? stripStackedChatWidgets(sections) : sections}</div>`;
     })
     .join('\n');
   const title = (homePage(pages) || pages[0]).title || 'Home';
