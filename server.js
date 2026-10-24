@@ -503,6 +503,12 @@ app.get(['/how', '/how/'], (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'how.html'));
 });
 
+// Standalone "How it works" marketing page. Same pattern as /how: without an
+// explicit route the HTML catch-all below would send the homepage.
+app.get(['/how-it-works', '/how-it-works/'], (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'how-it-works.html'));
+});
+
 app.get(['/website-promo', '/website-promo/'], (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'website-promo.html'));
 });

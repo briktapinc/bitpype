@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>How it works — BitPype</title>
+  <meta name="description" content="See how BitPype designs the site with you, then keeps preview, edits, forms, social posts, and plans in one portal." />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="BitPype" />
+  <meta property="og:title" content="How it works — BitPype" />
+  <meta property="og:description" content="See how BitPype designs the site with you, then keeps preview, edits, forms, social posts, and plans in one portal." />
+  <meta property="og:url" content="https://bitpype.com/how-it-works" />
+  <meta property="og:image" content="https://bitpype.com/brand/bitpype-mark.svg" />
+  <meta name="twitter:card" content="summary" />
+  <link rel="icon" href="/brand/bitpype-mark.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;1,9..144,500&family=Inter:wght@400;550;600;700;750&display=swap" rel="stylesheet" />
+  <style>
+    /* App design system (same tokens as public/styles.css, the portal and the
+       promo form): cool neutral palette, green accent, dark nav, Inter body.
+       Fraunces stays for display headlines — the brand voice. */
+    :root {
+      --bg: #f4f6f8;
+      --surface: #ffffff;
+      --surface-2: #edf1f5;
+      --ink: #0e1526;
+      --muted: #5b6b82;
+      --border: #e2e8f0;
+      --border-strong: #c3cedd;
+      --accent: #0c8a5f;
+      --accent-dark: #0a7350;
+      --accent-soft: #e2f3ea;
+      --sidebar: #0b1120;
+      --sidebar-text: #f4f7fb;
+      --sidebar-muted: #8fa0b8;
+      --shadow: 0 1px 2px rgba(14, 21, 38, 0.05), 0 1px 3px rgba(14, 21, 38, 0.06);
+      --shadow-lg: 0 24px 64px rgba(14, 21, 38, 0.22), 0 4px 16px rgba(14, 21, 38, 0.1);
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: Inter, 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+      background:
+        radial-gradient(880px 420px at 100% -8%, rgba(12, 138, 95, 0.1), transparent 58%),
+        radial-gradient(720px 380px at -12% 8%, rgba(31, 95, 168, 0.07), transparent 52%),
+        var(--bg);
+      overflow-x: clip;
+      line-height: 1.5;
+    }
+    a { color: inherit; }
+    img { display: block; max-width: 100%; }
+    :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+    .skip {
+      position: absolute; left: -999px; top: 8px; background: #fff; color: #000; padding: 8px 12px; z-index: 50;
+    }
+    .skip:focus { left: 12px; }
+
+    .nav {
+      position: sticky; top: 0; z-index: 20;
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 10px 18px;
+      padding: 16px 28px;
+      background: rgba(11, 17, 32, 0.97);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid rgba(244, 247, 251, 0.08);
+    }
+    .logo {
+      display: inline-flex; align-items: center; gap: 10px;
+      text-decoration: none; color: var(--sidebar-text);
+      font-family: Fraunces, Georgia, serif; font-weight: 700; font-size: 1.4rem; letter-spacing: -0.03em;
+      min-width: 0;
+    }
+    .logo img { width: 36px; height: 36px; border-radius: 10px; flex: none; }
+    .nav-links {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;
+      gap: 8px 16px;
+    }
+    .nav-links a { color: var(--sidebar-text); opacity: 0.82; text-decoration: none; font-weight: 700; }
+    .nav-links a:hover { color: var(--sidebar-text); opacity: 1; }
+    .nav-links a[aria-current="page"] { opacity: 1; text-decoration: underline; text-underline-offset: 4px; }
+    .nav-login {
+      background: var(--accent); color: #fff !important; opacity: 1 !important;
+      padding: 8px 14px; border-radius: 999px;
+    }
+    .nav-login:hover { background: var(--accent-dark); color: #fff !important; }
+
+    .hero {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 64px 28px 12px;
+    }
+    .kicker {
+      margin: 0 0 18px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-size: 0.78rem;
+      color: var(--accent-dark);
+    }
+    h1 {
+      margin: 0 0 22px;
+      font-family: Fraunces, Georgia, serif;
+      font-weight: 500;
+      font-size: clamp(2.7rem, 6.2vw, 5.35rem);
+      line-height: 0.96;
+      letter-spacing: -0.045em;
+      overflow-wrap: break-word;
+      max-width: 12ch;
+    }
+    h1 em {
+      font-style: italic;
+      font-weight: 500;
+      color: var(--accent-dark);
+    }
+    .lede {
+      margin: 0;
+      max-width: 52ch;
+      color: var(--muted);
+      font-size: 1.18rem;
+    }
+
+    .steps {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 28px 28px 8px;
+      list-style: none;
+      display: grid;
+      gap: 20px;
+    }
+    .step {
+      margin: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) + 6px);
+      box-shadow: var(--shadow);
+      padding: 36px 40px;
+      display: grid;
+      grid-template-columns: 120px minmax(0, 1fr);
+      gap: 12px 36px;
+      align-items: start;
+    }
+    .step-num {
+      font-family: Fraunces, Georgia, serif;
+      font-weight: 700;
+      font-size: 2.6rem;
+      line-height: 1;
+      color: var(--accent-dark);
+    }
+    .step h2 {
+      margin: 0 0 10px;
+      font-family: Fraunces, Georgia, serif;
+      font-weight: 500;
+      font-size: 2rem;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+    }
+    .step p { margin: 0 0 12px; color: var(--muted); max-width: 62ch; }
+    .step p:last-child { margin-bottom: 0; }
+    .step p strong { color: var(--ink); }
+
+    .included {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 44px 28px 8px;
+    }
+    .included h2 {
+      margin: 0 0 10px;
+      font-family: Fraunces, Georgia, serif;
+      font-weight: 500;
+      font-size: 2.2rem;
+      letter-spacing: -0.03em;
+      line-height: 1.05;
+    }
+    .included p { margin: 0 0 20px; color: var(--muted); max-width: 62ch; }
+    .chips {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .chips li {
+      background: var(--accent-soft);
+      color: var(--accent-dark);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 9px 18px;
+      font-weight: 700;
+    }
+
+    .cta-band {
+      max-width: 1120px;
+      margin: 48px auto 0;
+      padding: 0 28px;
+    }
+    .cta-inner {
+      background:
+        radial-gradient(420px 240px at 92% 110%, rgba(12, 138, 95, 0.5), transparent 62%),
+        linear-gradient(165deg, var(--ink) 0%, var(--sidebar) 72%);
+      color: var(--sidebar-text);
+      border-radius: calc(var(--radius) + 6px);
+      box-shadow: var(--shadow-lg);
+      padding: 48px 40px;
+    }
+    .cta-inner h2 {
+      margin: 0 0 12px;
+      font-family: Fraunces, Georgia, serif;
+      font-weight: 500;
+      font-size: clamp(2rem, 4.5vw, 3.2rem);
+      letter-spacing: -0.035em;
+      line-height: 1.02;
+    }
+    .cta-inner p { margin: 0 0 26px; color: rgba(244, 247, 251, 0.82); max-width: 52ch; }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px 18px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 52px;
+      padding: 0 18px;
+      border-radius: 999px;
+      text-decoration: none;
+      font-weight: 700;
+      max-width: 100%;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-dark); }
+    .btn-secondary {
+      background: transparent;
+      color: var(--sidebar-text);
+      border: 1.5px solid rgba(244, 247, 251, 0.35);
+    }
+    .btn-secondary:hover { border-color: var(--sidebar-text); }
+
+    footer {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 28px 28px 40px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 24px;
+      justify-content: space-between;
+      align-items: flex-start;
+      color: var(--muted);
+    }
+    .footer-inner {
+      border-top: 1px solid var(--border);
+      padding-top: 20px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 24px;
+      justify-content: space-between;
+      align-items: flex-start;
+      width: 100%;
+    }
+    footer strong {
+      font-family: Fraunces, Georgia, serif;
+      color: var(--ink);
+      font-size: 1.25rem;
+    }
+    footer p { margin: 4px 0 0; }
+    footer nav { display: flex; flex-wrap: wrap; gap: 10px 16px; }
+    footer a { color: var(--muted); text-decoration: none; font-weight: 700; }
+    footer a:hover { color: var(--accent-dark); }
+
+    @media (max-width: 860px) {
+      .nav { padding: 14px 16px; }
+      .hero { padding: 32px 16px 8px; }
+      .steps { padding: 20px 16px 4px; }
+      .step {
+        grid-template-columns: minmax(0, 1fr);
+        padding: 28px 24px;
+        gap: 10px;
+      }
+      .included { padding: 36px 16px 4px; }
+      .cta-band { padding: 0 16px; margin-top: 36px; }
+      .cta-inner { padding: 36px 24px; }
+      footer { padding: 24px 16px 36px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+      html { scroll-behavior: auto; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="nav">
+    <a class="logo" href="/"><img src="/brand/bitpype-mark.svg" alt="" width="36" height="36" /> BitPype</a>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="/how-it-works" aria-current="page">How it works</a>
+      <a href="/website-promo">Get started</a>
+      <a href="/portal" class="nav-login">Client login</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <p class="kicker">How it works</p>
+      <h1>The website, <em>handled with you.</em></h1>
+      <p class="lede">You should not have to learn a second job just to have a site. Design, preview, edits, forms, social, and plans sit together. You run the business. The portal keeps the rest within reach.</p>
+    </section>
+
+    <ol class="steps">
+      <li class="step">
+        <span class="step-num">01</span>
+        <div>
+          <h2>We build it</h2>
+          <p>It starts with you telling us about your business. <strong>We design the site around your business and put it together with you.</strong></p>
+          <p>The upkeep stays with us.</p>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">02</span>
+        <div>
+          <h2>You can change what you want</h2>
+          <p><strong>Update the words, photos, logo, or colors.</strong> Preview the site, change what you want, and send us anything bigger.</p>
+          <p>Or tell us the change, and we will make it.</p>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">03</span>
+        <div>
+          <h2>You are not locked out</h2>
+          <p><strong>The client portal stays yours.</strong> Look at the site on a computer or a phone, and keep a hand on it while we handle the rest.</p>
+          <p>When you want to see it, change something, or read a note from a customer, you can — without becoming the person who manages the website.</p>
+        </div>
+      </li>
+    </ol>
+
+    <section class="included">
+      <h2>What's included.</h2>
+      <p>Every website we handle comes with the same care, start to finish:</p>
+      <ul class="chips">
+        <li>Design</li>
+        <li>Preview</li>
+        <li>Edits</li>
+        <li>Forms</li>
+        <li>Social</li>
+        <li>Plans</li>
+      </ul>
+    </section>
+
+    <section class="cta-band">
+      <div class="cta-inner">
+        <h2>Bring the website over here.</h2>
+        <p>Tell us about your business. BitPype builds and manages your website so you can focus on the work.</p>
+        <div class="actions">
+          <a class="btn btn-primary" href="/website-promo">Get started</a>
+          <a class="btn btn-secondary" href="/portal">Client login</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+      <div>
+        <strong>BitPype</strong>
+        <p>The website, handled with you.</p>
+      </div>
+      <nav aria-label="Footer">
+        <a href="/how">How it works</a>
+        <a href="/portal">Client portal</a>
+        <a href="/app">Team login</a>
+        <a href="/legal/privacy.html">Privacy</a>
+        <a href="/legal/terms.html">Terms</a>
+        <a href="mailto:team@bitpype.com">team@bitpype.com</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

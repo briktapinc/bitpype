@@ -8,34 +8,45 @@
   <link rel="icon" href="/brand/bitpype-mark.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;1,9..144,500&family=Figtree:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;1,9..144,500&family=Inter:wght@400;550;600;700;750&display=swap" rel="stylesheet" />
   <style>
+    /* App design system (same tokens as public/styles.css, the portal and the
+       promo form): cool neutral palette, green accent, dark nav, Inter body.
+       Fraunces stays for display headlines — the brand voice. */
     :root {
-      --ink: #1c140f;
-      --muted: #5c5148;
-      --cream: #f4efe6;
-      --paper: #fffaf4;
-      --teal: #0e7a68;
-      --coral: #c44732;
-      --gold: #f0b429;
-      --line: rgba(28, 20, 15, 0.12);
+      --bg: #f4f6f8;
+      --surface: #ffffff;
+      --surface-2: #edf1f5;
+      --ink: #0e1526;
+      --muted: #5b6b82;
+      --border: #e2e8f0;
+      --border-strong: #c3cedd;
+      --accent: #0c8a5f;
+      --accent-dark: #0a7350;
+      --accent-soft: #e2f3ea;
+      --sidebar: #0b1120;
+      --sidebar-text: #f4f7fb;
+      --sidebar-muted: #8fa0b8;
+      --shadow: 0 1px 2px rgba(14, 21, 38, 0.05), 0 1px 3px rgba(14, 21, 38, 0.06);
+      --shadow-lg: 0 24px 64px rgba(14, 21, 38, 0.22), 0 4px 16px rgba(14, 21, 38, 0.1);
+      --radius: 14px;
     }
     * { box-sizing: border-box; }
     html { scroll-behavior: smooth; }
     body {
       margin: 0;
       color: var(--ink);
-      font-family: Figtree, sans-serif;
+      font-family: Inter, 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
       background:
-        radial-gradient(880px 420px at 100% -8%, rgba(239, 93, 69, 0.14), transparent 58%),
-        radial-gradient(720px 380px at -12% 8%, rgba(14, 122, 104, 0.1), transparent 52%),
-        var(--cream);
+        radial-gradient(880px 420px at 100% -8%, rgba(12, 138, 95, 0.1), transparent 58%),
+        radial-gradient(720px 380px at -12% 8%, rgba(31, 95, 168, 0.07), transparent 52%),
+        var(--bg);
       overflow-x: clip;
       line-height: 1.5;
     }
     a { color: inherit; }
     img { display: block; max-width: 100%; }
-    :focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+    :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
     .skip {
       position: absolute; left: -999px; top: 8px; background: #fff; color: #000; padding: 8px 12px; z-index: 50;
     }
@@ -46,13 +57,13 @@
       display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
       gap: 10px 18px;
       padding: 16px 28px;
-      background: rgba(244, 239, 230, 0.92);
+      background: rgba(11, 17, 32, 0.97);
       backdrop-filter: blur(14px);
-      border-bottom: 1px solid transparent;
+      border-bottom: 1px solid rgba(244, 247, 251, 0.08);
     }
     .logo {
       display: inline-flex; align-items: center; gap: 10px;
-      text-decoration: none; color: var(--ink);
+      text-decoration: none; color: var(--sidebar-text);
       font-family: Fraunces, Georgia, serif; font-weight: 700; font-size: 1.4rem; letter-spacing: -0.03em;
       min-width: 0;
     }
@@ -61,13 +72,13 @@
       display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;
       gap: 8px 16px;
     }
-    .nav-links a { color: var(--ink); text-decoration: none; font-weight: 700; }
-    .nav-links a:hover { color: var(--coral); }
+    .nav-links a { color: var(--sidebar-text); opacity: 0.82; text-decoration: none; font-weight: 700; }
+    .nav-links a:hover { color: var(--sidebar-text); opacity: 1; }
     .nav-login {
-      background: var(--ink); color: var(--paper) !important;
+      background: var(--accent); color: #fff !important; opacity: 1 !important;
       padding: 8px 14px; border-radius: 999px;
     }
-    .nav-login:hover { color: #fff !important; }
+    .nav-login:hover { background: var(--accent-dark); color: #fff !important; }
 
     .hero {
       max-width: 1120px;
@@ -84,7 +95,7 @@
       letter-spacing: 0.08em;
       text-transform: uppercase;
       font-size: 0.78rem;
-      color: var(--coral);
+      color: var(--accent-dark);
     }
     h1 {
       margin: 0 0 22px;
@@ -98,7 +109,7 @@
     h1 em {
       font-style: italic;
       font-weight: 500;
-      color: var(--coral);
+      color: var(--accent-dark);
     }
     .lede {
       margin: 0 0 28px;
@@ -123,16 +134,16 @@
       font-weight: 700;
       max-width: 100%;
     }
-    .btn-primary { background: var(--ink); color: var(--paper); }
-    .btn-primary:hover { background: #2c211b; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-dark); }
     .btn-secondary {
-      background: transparent;
+      background: var(--surface);
       color: var(--ink);
-      border: 1.5px solid rgba(28, 20, 15, 0.22);
+      border: 1.5px solid var(--border-strong);
     }
-    .btn-secondary:hover { border-color: var(--ink); }
-    .login-link { font-weight: 700; color: var(--teal); text-underline-offset: 3px; }
-    .login-link:hover { color: var(--coral); }
+    .btn-secondary:hover { border-color: var(--accent); color: var(--accent-dark); }
+    .login-link { font-weight: 700; color: var(--accent-dark); text-underline-offset: 3px; }
+    .login-link:hover { color: var(--accent); }
 
     .poster {
       position: relative;
@@ -141,17 +152,17 @@
       justify-self: end;
       min-height: 460px;
       padding: 32px 30px 36px;
-      border-radius: 32px;
-      color: var(--paper);
+      border-radius: calc(var(--radius) + 6px);
+      color: var(--sidebar-text);
       display: flex;
       flex-direction: column;
       justify-content: flex-end;
       overflow: hidden;
       background:
-        radial-gradient(280px 220px at 88% 108%, rgba(240, 180, 41, 0.55), transparent 62%),
-        radial-gradient(240px 200px at 0% 0%, rgba(239, 93, 69, 0.38), transparent 58%),
-        linear-gradient(165deg, #3a241c 0%, #1c3d36 72%);
-      box-shadow: 0 28px 60px rgba(58, 32, 18, 0.16);
+        radial-gradient(280px 220px at 88% 108%, rgba(12, 138, 95, 0.55), transparent 62%),
+        radial-gradient(240px 200px at 0% 0%, rgba(31, 95, 168, 0.4), transparent 58%),
+        linear-gradient(165deg, var(--ink) 0%, var(--sidebar) 72%);
+      box-shadow: var(--shadow-lg);
     }
     .poster-glow {
       position: absolute;
@@ -160,7 +171,7 @@
       right: -48px;
       bottom: -36px;
       border-radius: 50%;
-      background: radial-gradient(circle, rgba(240, 180, 41, 0.5), transparent 68%);
+      background: radial-gradient(circle, rgba(12, 138, 95, 0.5), transparent 68%);
       animation: drift 12s ease-in-out infinite alternate;
       pointer-events: none;
     }
@@ -180,7 +191,7 @@
       font-size: 0.78rem;
     }
     .poster-kicker i {
-      width: 8px; height: 8px; border-radius: 50%; background: var(--gold); display: block;
+      width: 8px; height: 8px; border-radius: 50%; background: var(--accent); display: block;
     }
     .poster-name {
       margin: 48px 0 14px;
@@ -193,7 +204,7 @@
     .poster-line {
       margin: 0;
       max-width: 18ch;
-      color: rgba(255, 250, 244, 0.82);
+      color: rgba(244, 247, 251, 0.82);
       font-size: 1.05rem;
     }
 
@@ -205,14 +216,14 @@
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 28px 40px;
-      border-top: 1px solid var(--line);
+      border-top: 1px solid var(--border);
     }
     .points li { margin: 0; min-width: 0; }
     .points span {
       display: block;
       margin-bottom: 8px;
       font-family: Fraunces, Georgia, serif;
-      color: var(--coral);
+      color: var(--accent-dark);
       font-weight: 700;
     }
     .points h2 {
@@ -235,7 +246,7 @@
       justify-content: space-between;
       align-items: flex-start;
       color: var(--muted);
-      border-top: 1px solid var(--line);
+      border-top: 1px solid var(--border);
     }
     footer strong {
       font-family: Fraunces, Georgia, serif;
@@ -245,7 +256,7 @@
     footer p { margin: 4px 0 0; }
     footer nav { display: flex; flex-wrap: wrap; gap: 10px 16px; }
     footer a { color: var(--muted); text-decoration: none; font-weight: 700; }
-    footer a:hover { color: var(--ink); }
+    footer a:hover { color: var(--accent-dark); }
 
     @media (max-width: 860px) {
       .nav { padding: 14px 16px; }

@@ -5,10 +5,38 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Privacy Policy — Bitpype</title>
   <link rel="stylesheet" href="/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;550;600;700;750&display=swap" rel="stylesheet" />
+  <style>
+    /* Public-page chrome in the app design system (tokens from /styles.css):
+       dark nav + Fraunces display headline, matching home / how-it-works. */
+    .legal-nav {
+      position: sticky; top: 0; z-index: 20;
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 10px 18px;
+      padding: 14px 28px;
+      background: var(--sidebar);
+      border-bottom: 1px solid rgba(244, 247, 251, 0.08);
+    }
+    .legal-brand {
+      display: inline-flex; align-items: center; gap: 10px;
+      text-decoration: none; color: var(--sidebar-text);
+      font-family: Fraunces, Georgia, serif; font-weight: 700; font-size: 1.3rem; letter-spacing: -0.03em;
+    }
+    .legal-brand img { width: 32px; height: 32px; border-radius: 9px; }
+    .legal-back { color: var(--sidebar-text); opacity: 0.82; text-decoration: none; font-weight: 700; }
+    .legal-back:hover { opacity: 1; }
+    main.view h1 { font-family: Fraunces, Georgia, serif; font-weight: 500; letter-spacing: -0.03em; }
+    @media (max-width: 700px) { .legal-nav { padding: 12px 16px; } }
+  </style>
 </head>
 <body>
+  <header class="legal-nav">
+    <a class="legal-brand" href="/"><img src="/brand/bitpype-mark.svg" alt="" width="32" height="32" /> BitPype</a>
+    <a class="legal-back" href="/">← Back to home</a>
+  </header>
   <main class="view" style="max-width:720px;padding:2rem 1.25rem 3rem">
-    <p><a href="/">← Back to home</a></p>
     <h1>Privacy Policy</h1>
     <p class="lede">Last updated: October 10, 2026</p>
     <div class="panel"><div class="panel-b stack">

@@ -2257,6 +2257,17 @@ async function pageWebsiteDetail(id) {
         </div>
         <div class="card"><h3>Postcard &amp; claim QR</h3>
           <p class="hint">Printable 4×6 postcard with a site QR and a claim QR (Yes / No). Claim uses the same interest path as outreach links.</p>
+          ${
+            site.claim_popup
+              ? `<p class="hint">Claim popup: ${
+                  site.claim_popup.state === 'injected'
+                    ? 'injected'
+                    : site.claim_popup.state === 'suppressed'
+                      ? 'suppressed — ' + esc(site.claim_popup.reason || 'off')
+                      : 'status unavailable'
+                }</p>`
+              : ''
+          }
           <div id="wd-claim-kit" class="hint">Open Postcard / QR to load links.</div>
         </div>
         <div class="card"><h3>Preview screenshots</h3>

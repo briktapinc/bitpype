@@ -1134,6 +1134,33 @@ function sitesList(workspaceId, args = {}) {
     return Object.assign({ sites: rows }, pageResult(rows, total, page, pageSize));
   });
 }
+/**
+ * Claim-popup state for one site lead (display-only, staff detail page).
+ * Derived from the same state claimKit computes for the public claim page:
+ * the popup counts as "injected" when a signed claim URL + token exist and
+ * claimPageMeta would still show the prompt; otherwise it is suppressed with
+ * the reason. No behavior change — nothing here shows, hides, or sends
+ * anything; it only explains the state the export/claim flow already has.
+ */
+function claimPopupStatus(claimKit, db, workspaceId, leadId) {
+  const lid = Number(leadId);
+  if (!Number.isInteger(lid) || lid <= 0) return { state: 'suppressed', reason: 'no lead attached' };
+  const claimUrl = claimKit.buildClaimUrl(workspaceId, lid);
+  if (!claimUrl) return { state: 'suppressed', reason: 'no claim URL' };
+  let token = '';
+  try {
+    token = new URL(claimUrl).searchParams.get('t') || '';
+  } catch {
+    token = '';
+  }
+  if (!token) return { state: 'suppressed', reason: 'no claim token' };
+  const meta = claimKit.claimPageMeta(db, workspaceId, lid);
+  if (meta.showClaimPrompt) return { state: 'injected', reason: null };
+  if (meta.intentPositive) return { state: 'suppressed', reason: 'site owned / engaged' };
+  if (meta.alreadyInterested) return { state: 'suppressed', reason: 'already marked interested' };
+  if (meta.alreadyUninterested) return { state: 'suppressed', reason: 'already marked not interested' };
+  return { state: 'suppressed', reason: 'claim prompt off' };
+}
 function sitesGet(workspaceId, id) {
   return withDb(workspaceId, (db) => {
     websiteEngine().ensureTables(db);
@@ -1166,6 +1193,15 @@ function sitesGet(workspaceId, id) {
     } catch {
       row.has_shop_module = false;
       row.shop_stripe_configured = false;
+    }
+    // Claim-popup state for the staff detail page (read-time, display-only):
+    // will the preview claim prompt show for this site's lead, or is it
+    // suppressed — and why. Same computation claimKit runs for the public
+    // claim page; exposing it stops the popup state being a guessing game.
+    try {
+      row.claim_popup = claimPopupStatus(require('../src/claimKit'), db, workspaceId, row.lead_id);
+    } catch {
+      row.claim_popup = { state: 'unknown', reason: 'status unavailable' };
     }
     return row;
   });
