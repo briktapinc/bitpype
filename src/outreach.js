@@ -706,13 +706,28 @@ function applyClaimResponse(db, leadId, action) {
       .prepare(`SELECT COUNT(*) AS c FROM prospect_events WHERE lead_id = ? AND type = 'claim.later'`)
       .get(id);
     const already = Number(priorCount && priorCount.c) > 0;
-    recordIntent(db, id, 'claim.later', 'Chose Maybe later on claim popup');
-    logActivity(db, 'outreach', `Claim later: ${lead.business_name} (#${id}) → ${lead.status}`);
+    // Dedupe: the popup only hides for the visitor's session, so the same
+    // person can click "Maybe later" again on every return visit — each
+    // click used to insert another prospect event + activity row (lead 501
+    // logged three identical "Claim later" entries in 30 minutes on
+    // 2026-10-23). A deferral within 24h of the last one is the same
+    // signal: skip both writes. A later deferral after the window is a
+    // genuinely new signal and records normally.
+    const last = db
+      .prepare(`SELECT at FROM prospect_events WHERE lead_id = ? AND type = 'claim.later' ORDER BY id DESC LIMIT 1`)
+      .get(id);
+    const lastAt = last ? Date.parse(String(last.at).replace(' ', 'T') + 'Z') : NaN;
+    const deduped = Number.isFinite(lastAt) && Date.now() - lastAt < 24 * 60 * 60 * 1000;
+    if (!deduped) {
+      recordIntent(db, id, 'claim.later', 'Chose Maybe later on claim popup');
+      logActivity(db, 'outreach', `Claim later: ${lead.business_name} (#${id}) → ${lead.status}`);
+    }
     return {
       action: 'later',
       leadId: id,
       status: lead.status,
       already,
+      deduped,
       deferred: true,
       businessName: lead.business_name || '',
     };
