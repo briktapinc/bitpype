@@ -303,6 +303,168 @@ function normalizeGroupName(v) {
   return s || null;
 }
 
+/**
+ * Canonical category casings, keyed by the lowercase/whitespace-collapsed
+ * category. Derived from the production (ws1) category distribution on
+ * 2026-10-24: for each lowercase key, the most common existing casing wins
+ * (ties break toward the more-Title-Case variant). Categories that differ
+ * only by case are the SAME category — filters/facets group on the raw
+ * string, so 'Salon' + 'salon' used to split one bucket into two.
+ */
+const CATEGORY_CANONICAL = {
+  "accountant": "accountant",
+  "antique store": "antique store",
+  "appliance repair": "appliance repair",
+  "appliance store": "appliance store",
+  "auction house": "auction house",
+  "auto body": "auto body",
+  "auto detailing": "auto detailing",
+  "auto detailing service": "Auto Detailing Service",
+  "auto glass service": "Auto Glass Service",
+  "auto repair": "auto repair",
+  "automotive body shop": "Automotive Body Shop",
+  "automotive repair shop": "Automotive Repair Shop",
+  "awning supplier": "Awning Supplier",
+  "bakery": "bakery",
+  "bakery & café": "Bakery & Café",
+  "barber": "barber",
+  "barber shop": "Barber Shop",
+  "barbershop": "barbershop",
+  "beauty salon": "Beauty Salon",
+  "boat propeller repair": "boat propeller repair",
+  "boxing gym": "boxing gym",
+  "cabinet maker": "cabinet maker",
+  "cafe": "cafe",
+  "car wash": "car wash",
+  "carpet cleaning": "carpet cleaning",
+  "chimney sweep": "chimney sweep",
+  "chiropractor": "chiropractor",
+  "christmas tree farm": "christmas tree farm",
+  "cleaning": "cleaning",
+  "computer repair": "computer repair",
+  "concrete": "concrete",
+  "concrete contractor": "concrete contractor",
+  "construction": "construction",
+  "contractor": "Contractor",
+  "courier service": "courier service",
+  "dance studio": "Dance Studio",
+  "daycare": "daycare",
+  "dentist": "Dentist",
+  "dentist & dental office": "Dentist & Dental Office",
+  "driving school": "driving school",
+  "dry cleaner": "dry cleaner",
+  "electrician": "electrician",
+  "embroidery": "embroidery",
+  "equestrian center": "equestrian center",
+  "excavation": "excavation",
+  "farm": "farm",
+  "farm market": "Farm Market",
+  "feed store": "feed store",
+  "fencing": "fencing",
+  "florist": "florist",
+  "food truck": "food truck",
+  "gift shop": "gift shop",
+  "glass & mirror shop": "glass & mirror shop",
+  "grocery store": "grocery store",
+  "gunsmith": "gunsmith",
+  "hair & nail salon": "Hair & Nail Salon",
+  "hair salon": "Hair Salon",
+  "handyman": "handyman",
+  "hvac": "HVAC",
+  "hvac contractor": "HVAC Contractor",
+  "interior design": "interior design",
+  "jewelry store": "Jewelry store",
+  "landscape company": "Landscape Company",
+  "landscaper": "Landscaper",
+  "landscaping": "landscaping",
+  "laundromat": "laundromat",
+  "lawn mower repair": "lawn mower repair",
+  "locksmith": "locksmith",
+  "machine shop": "Machine Shop",
+  "martial arts": "martial arts",
+  "masonry": "masonry",
+  "metal fabricator": "Metal Fabricator",
+  "motorcycle repair": "motorcycle repair",
+  "music lessons": "music lessons",
+  "nail salon": "Nail Salon",
+  "notary": "notary",
+  "painting": "painting",
+  "party rental": "party rental",
+  "party supply": "party supply",
+  "party supply/rental": "party supply/rental",
+  "paving": "paving",
+  "pawn shop": "pawn shop",
+  "pest control": "pest control",
+  "pet boarding": "pet boarding",
+  "pet groomer": "pet groomer",
+  "photo booth service": "photo booth service",
+  "photography": "Photography",
+  "piano tuning": "piano tuning",
+  "plumber": "plumber",
+  "plumbing service": "Plumbing Service",
+  "pool service": "pool service",
+  "pressure washing": "pressure washing",
+  "puerto rican restaurant": "Puerto Rican Restaurant",
+  "recording studio": "recording studio",
+  "restaurant": "restaurant",
+  "rim repair": "rim repair",
+  "roofer": "Roofer",
+  "roofing": "roofing",
+  "roofing service": "Roofing Service",
+  "salon": "salon",
+  "sawmill": "sawmill",
+  "self storage": "self storage",
+  "self-storage": "self-storage",
+  "self-storage facility": "self-storage facility",
+  "septic service": "septic service",
+  "sewing & alterations": "sewing & alterations",
+  "shoe repair": "shoe repair",
+  "sign service": "sign service",
+  "sign shop": "sign shop",
+  "sporting goods store": "sporting goods store",
+  "tailor": "tailor",
+  "tattoo & piercing shop": "Tattoo & Piercing Shop",
+  "taxi service": "taxi service",
+  "taxidermist": "taxidermist",
+  "thrift store": "thrift store",
+  "tire dealer": "tire dealer",
+  "tire shop": "tire shop",
+  "towing": "towing",
+  "transportation service": "transportation service",
+  "tree care / arborist": "Tree Care / Arborist",
+  "tree service": "tree service",
+  "truck repair": "truck repair",
+  "upholstery": "upholstery",
+  "video game store": "video game store",
+  "vintage store": "vintage store",
+  "website design": "Website Design",
+  "wedding & event dj": "wedding & event DJ",
+  "window tinting": "window tinting",
+};
+
+/** Words that stay uppercase in the Title-Case fallback for new categories. */
+const CATEGORY_ACRONYMS = { hvac: 'HVAC', dj: 'DJ', rv: 'RV' };
+
+function titleCaseCategory(s) {
+  return s
+    .toLowerCase()
+    .split(' ')
+    .map((w) => CATEGORY_ACRONYMS[w] || (w ? w[0].toUpperCase() + w.slice(1) : w))
+    .join(' ');
+}
+
+/**
+ * Map any case/whitespace variant of a category to its ONE canonical
+ * casing: the canonical map above for known categories, Title Case for
+ * new ones. Null/empty pass through unchanged (callers store null).
+ */
+function normalizeCategory(v) {
+  if (v === null || v === undefined) return v;
+  const s = String(v).trim().replace(/\s+/g, ' ');
+  if (!s) return v;
+  return CATEGORY_CANONICAL[s.toLowerCase()] || titleCaseCategory(s);
+}
+
 /** Default hunt folder label from category + location. */
 function defaultDiscoverGroup(category, location) {
   const c = String(category || '').trim();
@@ -366,6 +528,9 @@ function findLeadByEmail(db, email, excludeIds) {
 /** Validate + normalize lead input. Throws VALIDATION_ERROR. */
 function validateLeadInput(data) {
   const lead = normalizeToLead(data || {});
+  // One canonical casing per category across every write path (create,
+  // update, CSV import and discovery all funnel through here).
+  if (lead.category) lead.category = normalizeCategory(lead.category);
   if (!lead.business_name) throw validationError('business_name is required');
   if (lead.email && !isValidEmail(lead.email)) {
     throw validationError(`invalid email: ${lead.email}`);
@@ -1635,6 +1800,7 @@ module.exports = {
   getSetting,
   ensureLeadColumns,
   normalizeGroupName,
+  normalizeCategory,
   defaultDiscoverGroup,
   // crud
   createLead,
