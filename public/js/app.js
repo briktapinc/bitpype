@@ -2958,7 +2958,7 @@ async function pageDesign(param) {
 
   view.innerHTML = `
     <div class="page-head">
-      <div><h1>Design</h1><p class="lede">${esc(counts.waiting_on_agent)} waiting on agent · ${esc(counts.questions_pending)} questions pending. Jobs are picked up by an MCP agent (<code>design.next</code>).</p></div>
+      <div><h1>Design</h1><p class="lede">${esc(counts.waiting_on_agent)} waiting on agent · ${esc(counts.questions_pending)} questions pending. Jobs are picked up automatically by the design agent.</p></div>
       <div class="page-actions"><button class="btn primary" data-act="new">New design job</button></div>
     </div>
     <div class="toolbar">
@@ -4759,7 +4759,7 @@ async function pageJobs() {
           <div class="field"><label>Type</label><select name="type">${types.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}</select></div>
           <div class="field"><label>Interval (minutes)</label><input name="interval_minutes" type="number" min="1" value="360" /></div>
         </div>
-        <div class="field"><label>Payload JSON (optional)</label><textarea name="payload" class="mono">{"category":"Plumber","location":"Springfield","limit":8}</textarea></div>
+        <div class="field"><label>Payload JSON (optional)</label><textarea name="payload" class="mono" placeholder='{"category":"Plumber","location":"Springfield","limit":8}'></textarea></div>
         <div class="inline"><button class="btn primary" type="submit">Create</button><span class="msg" id="job-msg"></span></div>
       </form>
     </div>
@@ -4913,7 +4913,7 @@ async function pageMcp() {
         <p class="hint">Tokens are scoped to the current workspace. The full secret is shown once.</p>
         <div class="row end">
           <div class="field"><label class="lbl" for="mcp-name">Name</label>
-            <input id="mcp-name" type="text" maxlength="80" value="Cursor" placeholder="e.g. Cursor laptop" autocomplete="off" />
+            <input id="mcp-name" type="text" maxlength="80" placeholder="e.g. Cursor laptop" autocomplete="off" />
           </div>
           <div class="field" style="flex:0 0 auto">
             <button class="btn primary" type="button" data-act="mint">Create MCP token</button>
