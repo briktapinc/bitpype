@@ -818,6 +818,10 @@ textarea:focus {
 .muted {
   color: var(--muted);
 }
+.sms-prev {
+  overflow-wrap: anywhere;
+  max-width: 340px;
+}
 .hint {
   font-size: 12.5px;
 }

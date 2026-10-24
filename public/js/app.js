@@ -218,6 +218,15 @@ function dataOf(res) {
   return res && res.data != null ? res.data : {};
 }
 
+/** Truncate at a word boundary with an ellipsis (never mid-word, never silent). */
+function truncateWords(text, max) {
+  const t = String(text || '');
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const sp = cut.lastIndexOf(' ');
+  return (sp > 12 ? cut.slice(0, sp) : cut) + '…';
+}
+
 /** Drop repeated rows for the same id (selector lists must never show one lead twice). */
 function dedupeById(rows) {
   const seen = new Set();
@@ -1624,6 +1633,89 @@ function openImportModal() {
   });
 }
 
+/** After an SMS is queued for a lead: offer immediate send or leave queued. */
+function openQueuedSmsModal(q) {
+  openModal({
+    title: 'Send SMS now?',
+    body: `<p>Queued for <b>${esc(q.to)}</b>. Send it immediately, or leave it queued.</p>
+      <p class="hint" id="qs-msg"></p>`,
+    buttons: [
+      {
+        label: 'Keep queued',
+        onClick: (mm) => {
+          toast('SMS queued', 'ok');
+          mm.close();
+        },
+      },
+      {
+        label: 'Send now',
+        cls: 'primary',
+        onClick: async (mm, btn) => {
+          setMsg($('#qs-msg', mm.el), 'Sending…');
+          btn.textContent = 'Sending…';
+          try {
+            const s = (await api.emailSend(q.messageId)).data;
+            toast(s.sent ? `SMS sent to ${s.to}` : 'Queued but not sent', s.sent ? 'ok' : 'err');
+            mm.close();
+          } catch (err) {
+            setMsg($('#qs-msg', mm.el), err.message || 'Send failed', 'err');
+            btn.textContent = 'Send now';
+          }
+        },
+      },
+    ],
+  });
+}
+
+/** Compose + queue a one-off SMS for a specific lead (drawer action). */
+async function openQueueSmsModal(leadId) {
+  let lead = {};
+  try {
+    lead = (await api.leadGet(leadId)).data.lead || {};
+  } catch {
+    /* fall through — queue call will surface errors */
+  }
+  if (!lead.phone) {
+    toast('This lead has no phone number.', 'err');
+    return;
+  }
+  const m = openModal({
+    title: 'Queue SMS — ' + (lead.business_name || 'Lead #' + leadId),
+    body: `<div class="field"><label for="ld-sms-body">SMS body</label>
+      <textarea id="ld-sms-body" rows="4" maxlength="1600" placeholder="Hi {{business_name}} — preview: {{website_link}}"></textarea>
+      <div class="hint"><span id="ld-sms-count">0 characters</span> · Variables: {{business_name}}, {{website_link}}, {{site_screenshot}}</div></div>`,
+    buttons: [
+      { label: 'Cancel' },
+      {
+        label: 'Queue SMS',
+        cls: 'primary',
+        onClick: async (mm) => {
+          const sms = ($('#ld-sms-body', mm.el).value || '').trim();
+          if (!sms) {
+            toast('Write the SMS first.', 'err');
+            return;
+          }
+          try {
+            const q = (await api.smsQueue({ leadId, body: sms })).data;
+            mm.close();
+            openQueuedSmsModal(q);
+          } catch (err) {
+            toast(err.message || 'Could not queue SMS', 'err');
+          }
+        },
+      },
+    ],
+  });
+  const ta = $('#ld-sms-body', m.el);
+  if (ta) {
+    ta.addEventListener('input', () => {
+      const c = $('#ld-sms-count', m.el);
+      if (c) c.textContent = `${ta.value.length} characters`;
+    });
+    ta.focus();
+  }
+}
+
 async function openLeadDrawer(id) {
   const dr = openDrawer({ title: 'Lead #' + id, html: '<p class="hint">Loading…</p>' });
 
@@ -1676,6 +1768,7 @@ async function openLeadDrawer(id) {
         <button class="btn small" data-act="research">Research</button>
         <button class="btn small" data-act="dupes">Find duplicates</button>
         <button class="btn small" data-act="pipeline">Record intent</button>
+        <button class="btn small" data-act="queue-sms">Queue SMS</button>
         <button class="btn small danger" data-act="delete">Delete</button>
       </div>
       <div id="ld-merge"></div>
@@ -1834,6 +1927,7 @@ async function openLeadDrawer(id) {
       if (leadsReload) leadsReload();
     },
     pipeline: () => openIntentModal(id, reload),
+    'queue-sms': () => openQueueSmsModal(id),
     postcard: async () => {
       const box = $('#ld-claim-kit', dr.el);
       if (box) box.innerHTML = '<span class="hint">Loading…</span>';
@@ -3556,7 +3650,7 @@ async function pageOutreach(param, query) {
     <div class="stats-cards">
       <div class="stat-card"><div class="stat-label">Sent today</div><div class="stat-value">${esc(st.sentToday)} / ${esc(st.dailyCap)}</div></div>
       <div class="stat-card"><div class="stat-label">Queued</div><div class="stat-value">${esc(mbs.queued || 0)}</div></div>
-      <div class="stat-card"><div class="stat-label">Campaigns</div><div class="stat-value">${esc(st.activeCampaigns)} / ${esc(st.campaigns)}</div></div>
+      <div class="stat-card"><div class="stat-label">Campaigns</div><div class="stat-value">${esc(st.activeCampaigns)} / ${esc(st.campaigns)}</div><div class="hint">active / total</div></div>
       <div class="stat-card"><div class="stat-label">Templates</div><div class="stat-value">${esc(st.templates)}</div></div>
       <div class="stat-card"><div class="stat-label">Suppressed</div><div class="stat-value">${esc(st.suppressionCount)}</div></div>
     </div>
@@ -3619,6 +3713,7 @@ async function tabCampaigns(host) {
       <button class="btn" data-act="compose">Compose email</button>
       <button class="btn" data-act="compose-sms">Compose SMS</button>
     </div>
+    <p class="hint">Campaigns are multi-send sequences to many leads. Single sends to one lead (Compose, above) don't appear here — they live in that lead's timeline.</p>
     <div class="table-wrap"><table>
       <thead><tr><th>Name</th><th>Status</th><th>Queued</th><th>Sent</th><th>Failed</th><th>Suppressed</th><th>Rate/h</th><th></th></tr></thead>
       <tbody>${
@@ -4209,10 +4304,7 @@ async function tabTemplates(host) {
             <textarea id="tp-sms-body" name="sms_body" rows="4" maxlength="1600" placeholder="Hi {{business_name}} — preview: {{website_link}}"></textarea>
             <div class="hint">Saved with this template. Keep it short (≤160 ideal). Variables: ${smsVarChips}. Include <code>{{website_link}}</code>. <code>{{site_screenshot}}</code> sends as MMS (media URL) when available, else plain SMS with the preview link.</div>
             <div class="hint" id="tp-sms-count">0 characters</div>
-            <div class="inline" style="margin-top:8px">
-              <button type="button" class="btn small" data-act="queue-sms">Queue SMS to lead</button>
-              <span class="hint" id="tp-sms-hint"></span>
-            </div>
+            <div class="hint" style="margin-top:8px">To send this SMS to a lead, save the template, then use Compose SMS (Campaigns tab) or the Queue SMS action on the lead itself.</div>
           </div>
           <div class="inline"><button class="btn primary" type="submit">Save template</button><button class="btn" type="button" data-act="reset">Reset</button><span class="msg" id="tp-msg"></span></div>
         </form>
@@ -4229,10 +4321,10 @@ async function tabTemplates(host) {
                 String(t.sms_body || '').trim() ||
                 ((t.channel || '') === 'sms' && String(t.body || '').trim())
               );
-              const smsPrev = String(t.sms_body || ((t.channel || '') === 'sms' ? t.body : '') || '').slice(0, 40);
+              const smsPrev = truncateWords(t.sms_body || ((t.channel || '') === 'sms' ? t.body : '') || '', 60);
               return `<tr><td>${esc(t.name)}<div class="hint">${esc(t.subject || '')}</div></td>
             <td>${hasEmail ? statusBadge('email') : '<span class="hint">—</span>'}</td>
-            <td>${hasSms ? `${statusBadge('sms')}<div class="hint">${esc(smsPrev)}</div>` : '<span class="hint">—</span>'}</td>
+            <td>${hasSms ? `${statusBadge('sms')}<div class="hint sms-prev">${esc(smsPrev)}</div>` : '<span class="hint">—</span>'}</td>
           <td class="actions"><button class="btn small" data-act="edit" data-id="${t.id}">Edit</button> <button class="btn small danger" data-act="delete" data-id="${t.id}">Delete</button></td></tr>`;
             })
             .join('') || '<tr><td colspan="4" class="empty">No templates yet.</td></tr>'
@@ -4242,8 +4334,6 @@ async function tabTemplates(host) {
   const editor = mountEmailBodyEditor($('#tp-body-host', host), {
     initialHtml: '<p>Hi {{business_name}},</p><p>…</p>',
   });
-  let draftLeadId = null;
-
   function updateSmsCount() {
     const el = $('#tp-sms-body', host);
     const c = $('#tp-sms-count', host);
@@ -4304,71 +4394,16 @@ async function tabTemplates(host) {
 
   delegate(host, {
     reset: () => tabTemplates(host),
-    'queue-sms': async () => {
-      const sms = ($('#tp-sms-body', host).value || '').trim();
-      if (!sms) {
-        toast('Add an SMS body first.', 'err');
-        return;
-      }
-      if (!draftLeadId) {
-        toast('Use “Help me write with AI” with a lead selected, or compose SMS from Campaigns.', 'err');
-        return;
-      }
-      try {
-        const q = (await api.smsQueue({ leadId: draftLeadId, body: sms })).data;
-        openModal({
-          title: 'Send SMS now?',
-          body: `<p>Queued for <b>${esc(q.to)}</b>. Send it immediately, or leave it queued.</p>
-            <p class="hint" id="qs-msg"></p>`,
-          buttons: [
-            {
-              label: 'Keep queued',
-              onClick: (mm) => {
-                toast('SMS queued', 'ok');
-                mm.close();
-              },
-            },
-            {
-              label: 'Send now',
-              cls: 'primary',
-              onClick: async (mm, btn) => {
-                setMsg($('#qs-msg', mm.el), 'Sending…');
-                btn.textContent = 'Sending…';
-                try {
-                  const s = (await api.emailSend(q.messageId)).data;
-                  toast(s.sent ? `SMS sent to ${s.to}` : 'Queued but not sent', s.sent ? 'ok' : 'err');
-                  mm.close();
-                } catch (err) {
-                  setMsg($('#qs-msg', mm.el), err.message || 'Send failed', 'err');
-                  btn.textContent = 'Send now';
-                }
-              },
-            },
-          ],
-        });
-      } catch (err) {
-        toast(err.message || 'Could not queue SMS', 'err');
-      }
-    },
     'ai-write': () => {
       openAiWriteModal({
         existingSubject: form.subject.value,
         existingBody: editor.getHtml(),
         onApplied: (r, leadId) => {
-          draftLeadId = leadId || null;
           if (r.subject) form.subject.value = r.subject;
           if (r.body) editor.setHtml(r.body);
           if (r.sms_body) {
             $('#tp-sms-body', host).value = r.sms_body;
             updateSmsCount();
-          }
-          const hint = $('#tp-sms-hint', host);
-          if (hint) {
-            hint.textContent = r.has_phone
-              ? `Lead has phone (${r.lead_phone || 'on file'}).`
-              : leadId
-                ? 'Lead has no phone — queue SMS will fail until a phone is added.'
-                : '';
           }
           setMsg($('#tp-msg', host), 'Draft ready — review email + SMS and save.', 'ok');
           toast(r.sms_body ? 'AI draft + SMS ready' : 'AI draft applied', 'ok');
