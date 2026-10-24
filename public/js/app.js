@@ -2078,6 +2078,11 @@ async function pageWebsiteDetail(id) {
         <button class="btn danger" data-act="delete">Delete</button>
       </div>
     </div>
+    ${
+      site.has_shop_module && site.shop_stripe_configured === false
+        ? '<div class="alert warn" style="margin-bottom:14px">Shop payments are not configured — checkout is disabled until Stripe keys are saved in <a href="#/settings/shop">Settings → Shop payments</a>. Products with their own checkout links are unaffected.</div>'
+        : ''
+    }
     <div class="detail-grid website-detail">
       <div>
         <div class="card"><h3>Preview</h3><div id="wd-preview"></div></div>

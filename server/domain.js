@@ -1152,6 +1152,21 @@ function sitesGet(workspaceId, id) {
     } catch {
       row.formsUnembedded = [];
     }
+    // Shop state for the staff detail page: does this site's lead have the
+    // Shop (ecommerce) module, and can it actually take payments? Without
+    // workspace Stripe keys, product checkout silently dead-ends — the UI
+    // warns instead. Display-only; no settings are read anywhere else.
+    try {
+      row.has_shop_module = row.lead_id
+        ? !!db
+            .prepare("SELECT id FROM site_module_embeds WHERE lead_id = ? AND module_type = 'ecommerce' LIMIT 1")
+            .get(row.lead_id)
+        : false;
+      row.shop_stripe_configured = require('./shopStripe').isConfigured(db);
+    } catch {
+      row.has_shop_module = false;
+      row.shop_stripe_configured = false;
+    }
     return row;
   });
 }
