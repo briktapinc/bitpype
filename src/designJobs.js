@@ -158,6 +158,7 @@ function ensureTables(db) {
       question TEXT NOT NULL,
       answer TEXT,
       from_email TEXT,
+      internal INTEGER DEFAULT 0,
       asked_at TEXT DEFAULT (datetime('now')),
       answered_at TEXT
     );
@@ -200,6 +201,9 @@ function ensureTables(db) {
   // Public client form (no IMAP): stable token for change requests / answers.
   addCol('design_jobs', 'client_form_token', 'TEXT');
   addCol('design_questions', 'from_email', 'TEXT');
+  // Internal agent notes (cross-checks, verdicts) live in the same table but
+  // must never be emailed to the client or pin a job in questions_pending.
+  addCol('design_questions', 'internal', 'INTEGER DEFAULT 0');
   try {
     db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_design_jobs_client_form_token ON design_jobs(client_form_token)');
   } catch {
@@ -237,13 +241,17 @@ function parseJson(text, fallback) {
 function questionsFor(db, jobId) {
   return db
     .prepare(
-      'SELECT id, job_id, question, answer, from_email, asked_at, answered_at FROM design_questions WHERE job_id = ? ORDER BY id'
+      'SELECT id, job_id, question, answer, from_email, internal, asked_at, answered_at FROM design_questions WHERE job_id = ? ORDER BY id'
     )
     .all(jobId);
 }
 
 function pendingCount(db, jobId) {
-  return db.prepare('SELECT COUNT(*) AS c FROM design_questions WHERE job_id = ? AND answer IS NULL').get(jobId).c;
+  return db
+    .prepare(
+      'SELECT COUNT(*) AS c FROM design_questions WHERE job_id = ? AND answer IS NULL AND COALESCE(internal, 0) = 0'
+    )
+    .get(jobId).c;
 }
 
 function publicJob(db, row, { withDeliverable = true } = {}) {
@@ -270,7 +278,7 @@ function publicJob(db, row, { withDeliverable = true } = {}) {
     created_at: row.created_at,
     updated_at: row.updated_at,
     questions,
-    pending_questions: questions.filter((q) => q.answer == null).length,
+    pending_questions: questions.filter((q) => q.answer == null && !q.internal).length,
   };
   if (withDeliverable) {
     out.deliverable = parseJson(row.deliverable, null);
@@ -852,22 +860,33 @@ function getJob(db, id, { markInProgress = false } = {}) {
   return publicJob(db, row);
 }
 
-function askQuestion(db, jobId, question) {
+function askQuestion(db, jobId, question, opts = {}) {
   const row = getRow(db, jobId);
   const text = String(question || '').trim();
   if (!text) throw fail('INVALID_ARGS', 'question is required.');
   if (text.length > 2000) throw fail('INVALID_ARGS', 'question must be 2000 characters or fewer.');
-  const info = db.prepare('INSERT INTO design_questions (job_id, question) VALUES (?, ?)').run(jobId, text);
-  db.prepare(`UPDATE design_jobs SET status = 'questions_pending', updated_at = datetime('now') WHERE id = ?`).run(
-    jobId
+  const internal = opts && opts.internal ? 1 : 0;
+  const info = db
+    .prepare('INSERT INTO design_questions (job_id, question, internal) VALUES (?, ?, ?)')
+    .run(jobId, text, internal);
+  // Internal notes never move the job to questions_pending — only genuine
+  // client questions do (pendingCount also excludes internal rows).
+  if (!internal) {
+    db.prepare(`UPDATE design_jobs SET status = 'questions_pending', updated_at = datetime('now') WHERE id = ?`).run(
+      jobId
+    );
+  }
+  logActivity(
+    db,
+    `Design job #${jobId} ${internal ? 'internal note' : 'question'} #${info.lastInsertRowid}: ${text.slice(0, 180)}`
   );
-  logActivity(db, `Design job #${jobId} question #${info.lastInsertRowid}: ${text.slice(0, 180)}`);
   return {
     id: Number(info.lastInsertRowid),
     job_id: row.id,
     question: text,
     answer: null,
-    status: 'questions_pending',
+    internal: !!internal,
+    status: internal ? row.status : 'questions_pending',
   };
 }
 
@@ -1131,7 +1150,7 @@ function getJobByFormToken(db, token) {
   const lead = row.lead_id
     ? db.prepare('SELECT id, business_name, category, city FROM leads WHERE id = ?').get(row.lead_id)
     : null;
-  const pending = questionsFor(db, row.id).filter((q) => q.answer == null);
+  const pending = questionsFor(db, row.id).filter((q) => q.answer == null && !q.internal);
   return {
     job: {
       id: row.id,
@@ -1161,7 +1180,9 @@ async function submitClientForm(db, token, body = {}) {
     const answer = String(text || '').trim();
     if (!Number.isInteger(id) || id <= 0 || !answer) continue;
     const q = db
-      .prepare('SELECT id FROM design_questions WHERE id = ? AND job_id = ? AND answer IS NULL')
+      .prepare(
+        'SELECT id FROM design_questions WHERE id = ? AND job_id = ? AND answer IS NULL AND COALESCE(internal, 0) = 0'
+      )
       .get(id, row.id);
     if (!q) continue;
     answerQuestion(db, id, answer, fromEmail || undefined);
@@ -1311,7 +1332,7 @@ function composeQuestionEmail(db, row, pending, { formUrl } = {}) {
 async function emailQuestions(db, jobId, { workspaceId } = {}) {
   ensureTables(db);
   const row = getRow(db, jobId);
-  const pending = questionsFor(db, jobId).filter((q) => q.answer == null);
+  const pending = questionsFor(db, jobId).filter((q) => q.answer == null && !q.internal);
   if (!pending.length) throw fail('NO_QUESTIONS', 'This job has no unanswered questions to email.');
   const token = ensureClientFormToken(db, jobId);
   const formUrl = workspaceId ? clientFormUrl(workspaceId, token) : '';

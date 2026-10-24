@@ -965,10 +965,11 @@ function toolDefs({ clientScoped = false } = {}) {
     },
     {
       name: 'design.ask',
-      description: 'Ask clarifying question.',
+      description:
+        'Ask clarifying question. Pass internal:true for agent-only notes (cross-checks, verdicts) — internal notes are never emailed to the client and do not hold the job in questions_pending.',
       inputSchema: {
         type: 'object',
-        properties: { id: { type: 'integer' }, question: { type: 'string' } },
+        properties: { id: { type: 'integer' }, question: { type: 'string' }, internal: { type: 'boolean' } },
         required: ['id', 'question'],
       },
     },
@@ -2879,7 +2880,8 @@ async function callTool(workspaceId, name, args = {}, ctx = {}) {
       }
       return { ok: true, data: receipt };
     }
-    if (name === 'design.ask') return { ok: true, data: domain.designAsk(ws, a.id, a.question) };
+    if (name === 'design.ask')
+      return { ok: true, data: domain.designAsk(ws, a.id, a.question, { internal: !!a.internal }) };
     if (name === 'design.review') return { ok: true, data: await domain.designReview(ws, a.id, a) };
     if (name === 'design.redesign') return { ok: true, data: await domain.designRedesign(ws, a.id, a) };
     if (name === 'design.improve') return { ok: true, data: await domain.designImprove(ws, a.id, a) };

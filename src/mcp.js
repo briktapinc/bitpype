@@ -1005,14 +1005,19 @@ const TOOLS = {
   },
 
   'design.ask': {
-    description: 'Post a clarifying question.',
-    schema: { type: 'object', properties: {}, required: ['id', 'question'] },
+    description:
+      'Post a clarifying question. Pass internal:true for agent-only notes — never emailed to the client, never holds the job in questions_pending.',
+    schema: {
+      type: 'object',
+      properties: { internal: { type: 'boolean' } },
+      required: ['id', 'question'],
+    },
     run(args) {
       const design = require('./designJobs');
       const id = requireId(args.id, 'id');
       const question = vStr(args.question, { max: 2000, def: '' });
       if (isErr(question) || !String(question).trim()) throw argError('question is required (max 2000 chars).');
-      return { ok: true, data: design.askQuestion(db, id, question) };
+      return { ok: true, data: design.askQuestion(db, id, question, { internal: !!args.internal }) };
     },
   },
 

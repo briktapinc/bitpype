@@ -261,12 +261,13 @@ const tools = [
   {
     name: 'design.ask',
     description:
-      'Post a clarifying question on a design job. The user answers in the desktop app. Questions are optional.',
+      'Post a clarifying question on a design job. The user answers in the desktop app. Questions are optional. Pass internal:true for agent-only notes — never emailed to the client, never holds the job in questions_pending.',
     schema: {
       type: 'object',
       properties: {
         id: { type: 'integer', minimum: 1 },
         question: { type: 'string', maxLength: 2000 },
+        internal: { type: 'boolean' },
       },
       required: ['id', 'question'],
     },

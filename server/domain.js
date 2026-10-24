@@ -629,8 +629,8 @@ async function designDeliver(workspaceId, id, payload, claims, extra = {}) {
   }
   return job;
 }
-function designAsk(workspaceId, id, question) {
-  return withDb(workspaceId, (db) => designJobs().askQuestion(db, id, question));
+function designAsk(workspaceId, id, question, opts = {}) {
+  return withDb(workspaceId, (db) => designJobs().askQuestion(db, id, question, opts));
 }
 function designAnswer(workspaceId, questionId, answer, fromEmail) {
   return withDb(workspaceId, (db) => designJobs().answerQuestion(db, questionId, answer, fromEmail));

@@ -729,7 +729,12 @@ router.post('/design/:id/deliver', scopeDesign, async (req, res) => {
 });
 router.post('/design/:id/ask', scopeDesign, (req, res) => {
   try {
-    ok(res, domain.designAsk(req.auth.workspaceId, Number(req.params.id), req.body.question));
+    ok(
+      res,
+      domain.designAsk(req.auth.workspaceId, Number(req.params.id), req.body.question, {
+        internal: !!(req.body && req.body.internal),
+      })
+    );
   } catch (e) {
     fail(res, e);
   }

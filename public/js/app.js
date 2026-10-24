@@ -3211,7 +3211,7 @@ async function pageDesignDetail(id) {
             questions
               .map(
                 (q) => `<div class="q-card ${q.answer == null ? 'pending' : ''}">
-            <div><b>Q${esc(q.id)}:</b> ${esc(q.question)}</div>
+            <div><b>Q${esc(q.id)}:</b> ${q.internal ? '<span class="badge">Internal note</span> ' : ''}${esc(q.question)}</div>
             ${
               q.answer != null
                 ? `<div class="hint" style="margin-top:4px">Answer${q.from_email ? ' from ' + esc(q.from_email) : ''} · ${esc(fmtDate(q.answered_at))}</div><div style="white-space:pre-wrap">${esc(q.answer)}</div>`
