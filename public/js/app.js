@@ -218,6 +218,36 @@ function dataOf(res) {
   return res && res.data != null ? res.data : {};
 }
 
+/**
+ * Shared list-loading treatment (Batch 2 gave Leads a timeout + Retry;
+ * this is the same pattern for every staff list): race fetches against a
+ * 15s timeout so a stalled request surfaces an error instead of an
+ * endless "Loading…".
+ */
+function withLoadTimeout(p, ms = 15000) {
+  return Promise.race([
+    p,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timed out after 15s')), ms)),
+  ]);
+}
+
+function loadRowHtml(colspan, label) {
+  return `<tr><td colspan="${colspan}" class="empty"><span class="load-spin" aria-hidden="true"></span> ${esc(label || 'Loading…')}</td></tr>`;
+}
+
+function loadErrorRowHtml(colspan, act, message) {
+  return `<tr><td colspan="${colspan}" class="empty">Could not load (${esc(message || 'request failed')}). <button class="btn small" data-act="${act}">Retry</button></td></tr>`;
+}
+
+function loadErrorCardHtml(message) {
+  return `<div class="card error-card"><h2>Could not load</h2><p>${esc(message || 'Request failed')}</p><p><button class="btn" data-act="page-retry">Retry</button></p></div>`;
+}
+
+function wirePageRetry(retryFn) {
+  const b = view.querySelector('[data-act="page-retry"]');
+  if (b) b.addEventListener('click', () => retryFn());
+}
+
 /** Truncate at a word boundary with an ellipsis (never mid-word, never silent). */
 function truncateWords(text, max) {
   const t = String(text || '');
@@ -1261,7 +1291,7 @@ async function pageLeads(param, query) {
     </div>
     <div class="table-wrap"><table>
       <thead><tr><th style="width:34px"><input type="checkbox" id="l-all" aria-label="Select all" /></th><th>Business</th><th>Group</th><th>Category</th><th>Tags</th><th>Score</th><th>Status</th><th>Source</th><th>Updated</th></tr></thead>
-      <tbody id="l-body"><tr><td colspan="9" class="empty">Loading…</td></tr></tbody>
+      <tbody id="l-body">${loadRowHtml(9, 'Loading leads…')}</tbody>
     </table></div>
     <div class="pagination" id="l-pager"></div>`;
 
@@ -1327,7 +1357,7 @@ async function pageLeads(param, query) {
       ]);
     } catch (e) {
       if (!mine() || !$('#l-body')) return;
-      body.innerHTML = `<tr><td colspan="9" class="empty">Could not load leads (${esc(e.message || 'request failed')}). <button class="btn small" data-act="l-retry">Retry</button></td></tr>`;
+      body.innerHTML = loadErrorRowHtml(9, 'l-retry', e.message);
       return;
     }
     if (!mine() || !$('#l-body')) return;
@@ -1425,7 +1455,7 @@ async function pageLeads(param, query) {
     open: (t) => openLeadDrawer(Number(t.dataset.id)),
     'l-retry': () => {
       const b = $('#l-body');
-      if (b) b.innerHTML = '<tr><td colspan="9" class="empty">Loading…</td></tr>';
+      if (b) b.innerHTML = loadRowHtml(9, 'Loading leads…');
       load();
     },
     chip: (t) => {
@@ -2046,7 +2076,7 @@ async function pageWebsites(param) {
     </div>
     <div class="table-wrap"><table>
       <thead><tr><th>Name</th><th>Lead</th><th>Status</th><th>Origin</th><th>Updated</th><th></th></tr></thead>
-      <tbody id="w-body"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+      <tbody id="w-body">${loadRowHtml(6, 'Loading websites…')}</tbody>
     </table></div>
     <div class="pagination" id="w-pager"></div>`;
 
@@ -2055,7 +2085,15 @@ async function pageWebsites(param) {
   const sitesGate = latestGate();
   async function load() {
     const mine = sitesGate();
-    const r = await api.websites({ page: sitesState.page, pageSize: 25, status: sitesState.status });
+    let r;
+    try {
+      r = await withLoadTimeout(api.websites({ page: sitesState.page, pageSize: 25, status: sitesState.status }));
+    } catch (e) {
+      const b = $('#w-body');
+      if (!mine() || !b) return;
+      b.innerHTML = loadErrorRowHtml(6, 'w-retry', e.message);
+      return;
+    }
     const body = $('#w-body');
     if (!mine() || !body) return;
     const d = r.data || {};
@@ -2082,6 +2120,11 @@ async function pageWebsites(param) {
   });
 
   delegate(view, {
+    'w-retry': () => {
+      const b = $('#w-body');
+      if (b) b.innerHTML = loadRowHtml(6, 'Loading websites…');
+      load();
+    },
     open: (t) => {
       window.location.hash = '#/websites/' + t.dataset.id;
     },
@@ -2830,10 +2873,10 @@ async function mountLearning(host) {
 
 async function pageDomains() {
   const [cfRes, linkedRes, sitesRes, leadsRes] = await Promise.all([
-    api.cfGet().catch(() => null),
-    api.domainsList().catch(() => null),
-    api.websites({ pageSize: 100 }).catch(() => null),
-    api.leads({ pageSize: 200 }).catch(() => null),
+    withLoadTimeout(api.cfGet()).catch(() => null),
+    withLoadTimeout(api.domainsList()).catch(() => null),
+    withLoadTimeout(api.websites({ pageSize: 100 })).catch(() => null),
+    withLoadTimeout(api.leads({ pageSize: 200 })).catch(() => null),
   ]);
   const cf = (cfRes && cfRes.data) || {};
   const linked = asList((linkedRes && linkedRes.data) || {}, ['domains', 'rows']);
@@ -3091,11 +3134,20 @@ async function pageDomains() {
 
 async function pageDesign(param) {
   if (param) return pageDesignDetail(Number(param));
-  const [pend, list, er] = await Promise.all([
-    api.designPending().catch(() => null),
-    api.designList({ page: designState.page, pageSize: 25, status: designState.status }),
-    api.emailRedesignList({ pendingOnly: 1 }).catch(() => null),
-  ]);
+  let pend, list, er;
+  try {
+    [pend, list, er] = await withLoadTimeout(
+      Promise.all([
+        api.designPending().catch(() => null),
+        api.designList({ page: designState.page, pageSize: 25, status: designState.status }),
+        api.emailRedesignList({ pendingOnly: 1 }).catch(() => null),
+      ])
+    );
+  } catch (e) {
+    view.innerHTML = loadErrorCardHtml(e.message);
+    wirePageRetry(() => pageDesign());
+    return;
+  }
   const counts = pend
     ? pend.data.counts || { waiting_on_agent: 0, questions_pending: 0 }
     : { waiting_on_agent: 0, questions_pending: 0 };
@@ -3640,7 +3692,14 @@ async function pageDesignDetail(id) {
 let outreachTab = 'campaigns';
 
 async function pageOutreach(param, query) {
-  const st = (await api.outreachStats()).data;
+  let st;
+  try {
+    st = (await withLoadTimeout(api.outreachStats())).data;
+  } catch (e) {
+    view.innerHTML = loadErrorCardHtml(e.message);
+    wirePageRetry(() => pageOutreach(param, query));
+    return;
+  }
   const mbs = st.messagesByStatus || {};
   view.innerHTML = `
     <div class="page-head">
@@ -3677,9 +3736,21 @@ async function pageOutreach(param, query) {
   async function loadTab() {
     const host = $('#o-tab');
     if (!host) return;
-    if (outreachTab === 'campaigns') await tabCampaigns(host);
-    else if (outreachTab === 'templates') await tabTemplates(host);
-    else await tabSuppression(host);
+    host.innerHTML = '<p class="hint"><span class="load-spin" aria-hidden="true"></span> Loading…</p>';
+    try {
+      await withLoadTimeout(
+        outreachTab === 'campaigns'
+          ? tabCampaigns(host)
+          : outreachTab === 'templates'
+            ? tabTemplates(host)
+            : tabSuppression(host)
+      );
+    } catch (e) {
+      if (!$('#o-tab')) return;
+      host.innerHTML = `<div class="card error-card"><p>Could not load this tab (${esc(e.message || 'request failed')}).</p><p><button class="btn" data-act="o-retry">Retry</button></p></div>`;
+      const b = host.querySelector('[data-act="o-retry"]');
+      if (b) b.addEventListener('click', () => loadTab());
+    }
   }
   await loadTab();
   if (query && query.new) openCampaignModal();
@@ -4478,7 +4549,14 @@ async function tabSuppression(host) {
 
 async function pagePipeline() {
   view.classList.add('wide');
-  const res = await api.pipeline();
+  let res;
+  try {
+    res = await withLoadTimeout(api.pipeline());
+  } catch (e) {
+    view.innerHTML = loadErrorCardHtml(e.message);
+    wirePageRetry(() => pagePipeline());
+    return;
+  }
   const columns = asList(res.data && res.data.columns);
   view.innerHTML = `
     <div class="page-head"><div><h1>Pipeline</h1><p class="lede">Move leads between stages and record intent events (opens, clicks, claims).</p>
@@ -4540,7 +4618,14 @@ async function pagePipeline() {
 
 async function pageSocial(_param, query = {}) {
   const leadIdQ = query.leadId ? Number(query.leadId) : null;
-  const ov = (await api.socialOverview()).data;
+  let ov;
+  try {
+    ov = (await withLoadTimeout(api.socialOverview())).data;
+  } catch (e) {
+    view.innerHTML = loadErrorCardHtml(e.message);
+    wirePageRetry(() => pageSocial(_param, query));
+    return;
+  }
   let leads = [];
   try {
     const lr = await api.leads({ pageSize: 200 });
@@ -4844,7 +4929,14 @@ function toLocalInput(iso) {
 /* ------------------------------------------------------------------ */
 
 async function pageJobs() {
-  const res = await api.jobsList();
+  let res;
+  try {
+    res = await withLoadTimeout(api.jobsList());
+  } catch (e) {
+    view.innerHTML = loadErrorCardHtml(e.message);
+    wirePageRetry(() => pageJobs());
+    return;
+  }
   const d = res.data || {};
   const jobs = asList(d, ['jobs', 'rows']);
   const types =
@@ -5703,7 +5795,7 @@ async function pageAdmin(param) {
     <div class="tabs" id="admin-tabs">${tabs
       .map(([k, l]) => `<button type="button" class="${k === tab ? 'active' : ''}" data-tab="${k}">${l}</button>`)
       .join('')}</div>
-    <div id="admin-body"><p class="hint">Loading…</p></div>`;
+    <div id="admin-body"><p class="hint"><span class="load-spin" aria-hidden="true"></span> Loading…</p></div>`;
 
   $('#admin-tabs').onclick = (e) => {
     const b = e.target.closest('[data-tab]');
@@ -5713,17 +5805,24 @@ async function pageAdmin(param) {
 
   const body = $('#admin-body');
   try {
-    if (tab === 'overview') await renderAdminOverview(body);
-    else if (tab === 'users') await renderAdminUsers(body);
-    else if (tab === 'workspaces') await renderAdminWorkspaces(body);
-    else if (tab === 'payments') await renderAdminPayments(body);
-    else if (tab === 'upsell') await renderAdminUpsellTips(body);
-    else if (tab === 'email' || tab === 'sms' || tab === 'keys' || tab === 'general' || tab === 'billing')
-      await renderAdminSettings(body, tab);
-    else if (tab === 'audit') await renderAdminAudit(body);
-    else body.innerHTML = '<p class="hint">Unknown tab</p>';
+    await withLoadTimeout(
+      (async () => {
+        if (tab === 'overview') await renderAdminOverview(body);
+        else if (tab === 'users') await renderAdminUsers(body);
+        else if (tab === 'workspaces') await renderAdminWorkspaces(body);
+        else if (tab === 'payments') await renderAdminPayments(body);
+        else if (tab === 'upsell') await renderAdminUpsellTips(body);
+        else if (tab === 'email' || tab === 'sms' || tab === 'keys' || tab === 'general' || tab === 'billing')
+          await renderAdminSettings(body, tab);
+        else if (tab === 'audit') await renderAdminAudit(body);
+        else body.innerHTML = '<p class="hint">Unknown tab</p>';
+      })(),
+      20000
+    );
   } catch (err) {
-    body.innerHTML = `<div class="card error-card"><p>${esc(err.message)}</p></div>`;
+    body.innerHTML = `<div class="card error-card"><p>${esc(err.message)}</p><p><button class="btn" data-act="admin-retry">Retry</button></p></div>`;
+    const rb = body.querySelector('[data-act="admin-retry"]');
+    if (rb) rb.addEventListener('click', () => pageAdmin(param));
   }
 }
 
@@ -6678,7 +6777,7 @@ async function navigate() {
       '<div class="card error-card"><h2>Super admin only</h2><p>Your account is not a platform administrator.</p></div>';
     return;
   }
-  view.innerHTML = '<p class="hint">Loading…</p>';
+  view.innerHTML = '<p class="hint"><span class="load-spin" aria-hidden="true"></span> Loading…</p>';
   try {
     await PAGES[route](param, query);
     window.scrollTo(0, 0);
@@ -6690,7 +6789,8 @@ async function navigate() {
       window.location.hash = '#/billing';
       return;
     }
-    view.innerHTML = `<div class="card error-card"><h2>Page failed to load</h2><p>${esc(err.message)}</p></div>`;
+    view.innerHTML = `<div class="card error-card"><h2>Page failed to load</h2><p>${esc(err.message)}</p><p><button class="btn" data-act="page-retry">Retry</button></p></div>`;
+    wirePageRetry(() => navigate());
   }
 }
 
