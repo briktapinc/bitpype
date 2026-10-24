@@ -1636,6 +1636,26 @@ async function openLeadDrawer(id) {
     const intent = intR.status === 'fulfilled' ? intR.value.data : null;
     const site = siteR.status === 'fulfilled' ? siteR.value.data.site : null;
     const breakdown = ps && ps.latest ? parseJson(ps.latest.breakdown, {}) : {};
+    // Verified data often lives only in business_facts (research stores it
+    // there without back-filling the lead row) — fall back to the fact value
+    // for the summary rows so the drawer doesn't show blanks it already knows.
+    const factFallback = (key) => {
+      const cands = facts.filter((x) => x.fact_key === key && x.value);
+      const pref =
+        cands.find((x) => x.claim_class === 'VERIFIED' || x.claim_class === 'OWNER_PROVIDED') || cands[0];
+      return pref ? String(pref.value) : '';
+    };
+    const addressText =
+      [lead.address, lead.city, lead.state, lead.postal_code].filter(Boolean).join(', ') ||
+      factFallback('address');
+    const ratingText =
+      lead.rating != null ? `${lead.rating} (${lead.review_count || 0} reviews)` : factFallback('rating');
+    const fmtUsPhone = (raw) => {
+      const d = String(raw || '').replace(/\D/g, '');
+      const n = d.length === 11 && d.startsWith('1') ? d.slice(1) : d;
+      return n.length === 10 ? `(${n.slice(0, 3)}) ${n.slice(3, 6)}-${n.slice(6)}` : '';
+    };
+    const phoneDisplay = fmtUsPhone(lead.phone);
 
     dr.title.textContent = lead.business_name || 'Lead #' + id;
     dr.body.innerHTML = `
@@ -1656,7 +1676,7 @@ async function openLeadDrawer(id) {
           </div>
           <div class="row">
             <div class="field"><label>Email</label><input name="email" value="${esc(lead.email || '')}" /></div>
-            <div class="field"><label>Phone</label><input name="phone" value="${esc(lead.phone || '')}" /></div>
+            <div class="field"><label>Phone</label><input name="phone" value="${esc(lead.phone || '')}" />${phoneDisplay && phoneDisplay !== lead.phone ? `<div class="hint">${esc(phoneDisplay)}</div>` : ''}</div>
           </div>
           <div class="row">
             <div class="field"><label>Website</label><input name="website" value="${esc(lead.website || '')}" /></div>
@@ -1666,14 +1686,14 @@ async function openLeadDrawer(id) {
           <div class="inline"><button class="btn primary small" type="submit">Save changes</button><span class="msg" id="ld-msg"></span></div>
         </form>
         ${kv('Group', lead.lead_group)}${kv('Source', lead.source)}${kv('Tags', (lead.tags || []).join(', '))}
-        ${kv('Address', [lead.address, lead.city, lead.state, lead.postal_code].filter(Boolean).join(', '))}
-        ${kv('Rating', lead.rating != null ? `${lead.rating} (${lead.review_count || 0} reviews)` : '')}
+        ${kv('Address', addressText)}
+        ${kv('Rating', ratingText)}
         ${lead.description ? kv('Description', lead.description) : ''}
         ${lead.qualification_note ? kv('Qualification', lead.qualification_note) : ''}
       </section>
       <section><h3>Score &amp; intent</h3>
-        ${kv('Score', ps ? `${ps.score} · ${ps.label}` : lead.score)}
-        ${kv('Qualified', lead.qualified ? 'Yes' : 'No')}
+        ${kv('Score', ps ? `${ps.score} — band: ${ps.label}` : lead.score)}
+        ${kv('Marked qualified', lead.qualified ? 'Yes' : 'No')}
         ${kv('Intent', intent ? `${intent.score} · ${intent.label}` : '')}
         ${Object.keys(breakdown)
           .map((k) => kv(k, '+' + breakdown[k]))
