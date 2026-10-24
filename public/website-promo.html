@@ -208,6 +208,17 @@
       box-shadow: none;
     }
     .btn.soft:hover:not(:disabled) { background: var(--surface-2); border-color: var(--border-strong); }
+    /* Required-field markers + review step (step 5). */
+    .req { color: var(--danger); font-weight: 700; }
+    .req-note { margin: 0 0 14px; font-size: 0.85rem; color: var(--muted); }
+    .review-list { display: grid; gap: 10px; margin: 0 0 18px; }
+    .review-list .rrow { display: grid; grid-template-columns: 150px 1fr; gap: 4px 14px; }
+    .review-list dt { font-size: 0.82rem; font-weight: 650; color: var(--muted); padding-top: 2px; }
+    .review-list dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .privacy-note { margin: 0; font-size: 0.88rem; color: var(--muted); }
+    @media (max-width: 640px) {
+      .review-list .rrow { grid-template-columns: 1fr; }
+    }
     @media (max-width: 640px) {
       .wizard-nav .btn { flex: 1 1 0; }
       .wizard-nav .spacer { display: none; }
@@ -232,52 +243,54 @@
       <div class="success" id="success" hidden>
         <h2>You’re on the list</h2>
         <p>Thanks — we received your details and will follow up soon.</p>
+        <p>What happens next: we review your answers, build your website, and email you a preview link so you can look it over before anything goes live.</p>
       </div>
 
       <div class="wizard-progress" id="wizard-progress">
-        <p class="wizard-progress-text" id="progress-text">Step 1 of 4</p>
-        <div class="progress-track" id="progress-track" role="progressbar" aria-label="Form progress" aria-valuemin="1" aria-valuemax="4" aria-valuenow="1">
+        <p class="wizard-progress-text" id="progress-text">Step 1 of 5</p>
+        <div class="progress-track" id="progress-track" role="progressbar" aria-label="Form progress" aria-valuemin="1" aria-valuemax="5" aria-valuenow="1">
           <div class="progress-bar" id="progress-bar"></div>
         </div>
       </div>
 
       <form class="form" id="promo-form" novalidate>
-        <section class="step" data-step="1" aria-label="Step 1 of 4: About you">
+        <section class="step" data-step="1" aria-label="Step 1 of 5: About you">
           <h2 class="step-title" id="step-title-1" tabindex="-1">About you</h2>
           <p class="step-lede">Who should we talk to about the website?</p>
+          <p class="req-note">Fields marked <span class="req" aria-hidden="true">*</span> are required.</p>
           <div class="grid">
             <div class="field">
-              <label for="name">Your name</label>
+              <label for="name">Your name <span class="req" aria-hidden="true">*</span></label>
               <input id="name" name="name" autocomplete="name" required maxlength="120" />
           
               <p class="field-error" id="err-name" hidden></p>
             </div>
             <div class="field">
-              <label for="email">Email</label>
+              <label for="email">Email <span class="req" aria-hidden="true">*</span></label>
               <input id="email" name="email" type="email" autocomplete="email" required maxlength="200" />
           
               <p class="field-error" id="err-email" hidden></p>
             </div>
             <div class="field">
-              <label for="phone">Phone</label>
+              <label for="phone">Phone <span class="req" aria-hidden="true">*</span></label>
               <input id="phone" name="phone" type="tel" autocomplete="tel" required maxlength="40" />
           
               <p class="field-error" id="err-phone" hidden></p>
             </div>
           </div>
         </section>
-        <section class="step" data-step="2" aria-label="Step 2 of 4: Your business" hidden>
+        <section class="step" data-step="2" aria-label="Step 2 of 5: Your business" hidden>
           <h2 class="step-title" id="step-title-2" tabindex="-1">Your business</h2>
           <p class="step-lede">The basics we print on the site and use to set it up.</p>
           <div class="grid">
             <div class="field">
-              <label for="businessName">Business name</label>
+              <label for="businessName">Business name <span class="req" aria-hidden="true">*</span></label>
               <input id="businessName" name="businessName" required maxlength="200" />
           
               <p class="field-error" id="err-businessName" hidden></p>
             </div>
             <div class="field">
-              <label for="businessCategory">Business category</label>
+              <label for="businessCategory">Business category <span class="req" aria-hidden="true">*</span></label>
               <input id="businessCategory" name="businessCategory" placeholder="e.g. Plumbing, Salon, Law firm" required maxlength="120" />
           
               <p class="field-error" id="err-businessCategory" hidden></p>
@@ -287,20 +300,20 @@
               <input id="businessAddress" name="businessAddress" autocomplete="street-address" maxlength="300" />
             </div>
             <div class="field">
-              <label for="city">City</label>
+              <label for="city">City <span class="req" aria-hidden="true">*</span></label>
               <input id="city" name="city" autocomplete="address-level2" required maxlength="100" />
           
               <p class="field-error" id="err-city" hidden></p>
             </div>
             <div class="field">
-              <label for="state">State</label>
+              <label for="state">State <span class="req" aria-hidden="true">*</span></label>
               <input id="state" name="state" autocomplete="address-level1" required maxlength="40" />
           
               <p class="field-error" id="err-state" hidden></p>
             </div>
           </div>
         </section>
-        <section class="step" data-step="3" aria-label="Step 3 of 4: What you need" hidden>
+        <section class="step" data-step="3" aria-label="Step 3 of 5: What you need" hidden>
           <h2 class="step-title" id="step-title-3" tabindex="-1">What you need</h2>
           <p class="step-lede">Tell us what the site should offer — you can change your mind later.</p>
           <div class="grid">
@@ -314,7 +327,7 @@
             </div>
           </div>
         </section>
-        <section class="step" data-step="4" aria-label="Step 4 of 4: Brand materials" hidden>
+        <section class="step" data-step="4" aria-label="Step 4 of 5: Brand materials" hidden>
           <h2 class="step-title" id="step-title-4" tabindex="-1">Brand materials</h2>
           <p class="step-lede">Anything you already have helps us match your brand.</p>
           <div class="grid">
@@ -332,6 +345,12 @@
             </div>
 
           </div>
+        </section>
+        <section class="step" data-step="5" aria-label="Step 5 of 5: Review" hidden>
+          <h2 class="step-title" id="step-title-5" tabindex="-1">Review your answers</h2>
+          <p class="step-lede">Check everything looks right — you can go back and change anything before you submit.</p>
+          <dl class="review-list" id="review-list"></dl>
+          <p class="privacy-note">We only use this to build your website and contact you about it. No spam, no selling your details.</p>
         </section>
         <div class="actions wizard-nav">
           <button type="button" class="btn soft" id="back-btn" hidden>Back</button>
@@ -405,7 +424,7 @@
           brochureStatus.textContent = err;
           brochureStatus.classList.add('err');
         } else {
-          brochureStatus.textContent = `Selected: ${file.name} (${(file.size / 1024).toFixed(0)} KB)`;
+          brochureStatus.textContent = `1 file selected: ${file.name} (${(file.size / 1024).toFixed(0)} KB)`;
           brochureStatus.classList.remove('err');
         }
       }
@@ -558,6 +577,42 @@
         return { ok, firstBad };
       }
 
+      function renderReview() {
+        const list = document.getElementById('review-list');
+        if (!list) return;
+        const val = (id) => document.getElementById(id).value.trim();
+        const address = [val('businessAddress'), val('city'), val('state')].filter(Boolean).join(', ');
+        const featureLabels = [...form.querySelectorAll('input[name="feature"]:checked')].map((el) => {
+          const lab = el.closest('label');
+          return lab ? lab.textContent.trim() : el.value;
+        });
+        const bfile = brochureInput && brochureInput.files && brochureInput.files[0];
+        const rows = [
+          ['Your name', val('name')],
+          ['Email', val('email')],
+          ['Phone', val('phone')],
+          ['Business name', val('businessName')],
+          ['Business category', val('businessCategory')],
+          ['Business address', address],
+          ['Services', val('services')],
+          ['Desired features', featureLabels.join(', ')],
+          ['Social media', val('social')],
+          ['Brochure', bfile ? bfile.name : 'None'],
+        ];
+        list.textContent = '';
+        rows.forEach(([k, v]) => {
+          const row = document.createElement('div');
+          row.className = 'rrow';
+          const dt = document.createElement('dt');
+          dt.textContent = k;
+          const dd = document.createElement('dd');
+          dd.textContent = v || '—';
+          row.appendChild(dt);
+          row.appendChild(dd);
+          list.appendChild(row);
+        });
+      }
+
       function showStep(idx, moveFocus = true) {
         currentStep = idx;
         steps.forEach((s, i) => {
@@ -569,6 +624,7 @@
         progressText.textContent = `Step ${idx + 1} of ${steps.length}`;
         progressTrack.setAttribute('aria-valuenow', String(idx + 1));
         progressBar.style.width = `${((idx + 1) / steps.length) * 100}%`;
+        if (idx === steps.length - 1) renderReview();
         if (moveFocus) {
           const heading = steps[idx].querySelector('.step-title');
           if (heading) heading.focus();
@@ -576,6 +632,14 @@
       }
 
       nextBtn.addEventListener('click', () => {
+        if (brochureInput && steps[currentStep].contains(brochureInput)) {
+          const bf = brochureInput.files && brochureInput.files[0];
+          if (bf && validateBrochureFile(bf)) {
+            showBrochureStatus();
+            brochureInput.focus();
+            return;
+          }
+        }
         const check = validateStep(currentStep);
         if (!check.ok) {
           if (check.firstBad) check.firstBad.focus();
