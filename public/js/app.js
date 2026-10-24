@@ -218,6 +218,17 @@ function dataOf(res) {
   return res && res.data != null ? res.data : {};
 }
 
+/** Drop repeated rows for the same id (selector lists must never show one lead twice). */
+function dedupeById(rows) {
+  const seen = new Set();
+  return (rows || []).filter((r) => {
+    const k = String(r && r.id);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
 function pager(host, { page, pages, total }, onPage) {
   host.innerHTML = `<button class="btn small" data-p="prev" ${page <= 1 ? 'disabled' : ''}>Prev</button>
     <span>Page ${page} of ${Math.max(1, pages || 1)} (${total || 0} total)</span>
@@ -2728,7 +2739,7 @@ async function pageDomains() {
   const cf = (cfRes && cfRes.data) || {};
   const linked = asList((linkedRes && linkedRes.data) || {}, ['domains', 'rows']);
   const sites = asList((sitesRes && sitesRes.data) || {}, ['websites', 'sites', 'rows']);
-  const leads = asList((leadsRes && leadsRes.data) || {}, ['leads', 'rows']);
+  const leads = dedupeById(asList((leadsRes && leadsRes.data) || {}, ['leads', 'rows']));
   const siteOpts = sites
     .map(
       (s) =>
@@ -4486,7 +4497,7 @@ async function pageSocial(_param, query = {}) {
   let leads = [];
   try {
     const lr = await api.leads({ pageSize: 200 });
-    leads = asList(lr.data, ['leads', 'rows']);
+    leads = dedupeById(asList(lr.data, ['leads', 'rows']));
   } catch {
     /* ignore */
   }
