@@ -427,6 +427,10 @@
     .msg { margin-top: 12px; font-size: 13px; color: var(--muted); }
     .msg.ok { color: var(--accent-dark); }
     .msg.err { color: var(--danger); }
+    /* Gate (sign-in) messages match the promo wizard's treatment: slightly
+       larger, reserved space, bold ok/err states. */
+    #gate .msg { font-size: 0.92rem; min-height: 1.2em; }
+    #gate .msg.ok, #gate .msg.err { font-weight: 650; }
     .hidden { display: none !important; }
 
     /* App shell after login */
@@ -1911,7 +1915,8 @@
           </div>
           <div id="captcha-access" class="field"></div>
           <button class="btn" type="submit" id="btn-access">Email me a sign-in link</button>
-          <p class="hint">If this email matches an existing project, we’ll send a one-time sign-in link. We never create passwords for unknown emails.</p>
+          <p class="hint">This is for an <strong>existing</strong> website project: if this email matches one, we’ll email you a one-time sign-in link — no password needed. We never create passwords for unknown emails.</p>
+          <p class="hint">New here? <a href="/website-promo">Start your website →</a></p>
           <p class="msg" id="msg-access"></p>
         </form>
         <form id="form-login" class="hidden">
