@@ -1252,8 +1252,9 @@ async function pageLeads(param, query) {
   }
 
   const leadsGate = latestGate();
+  const facetsGate = latestGate();
   async function loadFacets() {
-    const mine = leadsGate();
+    const mine = facetsGate();
     try {
       leadsState.facets = (await api.leadFacets()).data.facets || leadsState.facets;
     } catch {
@@ -1290,15 +1291,25 @@ async function pageLeads(param, query) {
     const mine = leadsGate();
     const body = $('#l-body');
     if (!body) return;
-    const r = await api.leads({
-      q: leadsState.q,
-      status: leadsState.status,
-      minScore: leadsState.minScore,
-      group: leadsState.group,
-      category: leadsState.category,
-      page: leadsState.page,
-      pageSize: leadsState.pageSize,
-    });
+    let r;
+    try {
+      r = await Promise.race([
+        api.leads({
+          q: leadsState.q,
+          status: leadsState.status,
+          minScore: leadsState.minScore,
+          group: leadsState.group,
+          category: leadsState.category,
+          page: leadsState.page,
+          pageSize: leadsState.pageSize,
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timed out after 15s')), 15000)),
+      ]);
+    } catch (e) {
+      if (!mine() || !$('#l-body')) return;
+      body.innerHTML = `<tr><td colspan="9" class="empty">Could not load leads (${esc(e.message || 'request failed')}). <button class="btn small" data-act="l-retry">Retry</button></td></tr>`;
+      return;
+    }
     if (!mine() || !$('#l-body')) return;
     const rows = asList(r.data, ['leads', 'rows']);
     leadsState.total = r.data.total || rows.length;
@@ -1392,6 +1403,11 @@ async function pageLeads(param, query) {
 
   delegate(view, {
     open: (t) => openLeadDrawer(Number(t.dataset.id)),
+    'l-retry': () => {
+      const b = $('#l-body');
+      if (b) b.innerHTML = '<tr><td colspan="9" class="empty">Loading…</td></tr>';
+      load();
+    },
     chip: (t) => {
       leadsState.group = leadsState.group === t.dataset.group ? '' : t.dataset.group;
       leadsState.page = 1;
