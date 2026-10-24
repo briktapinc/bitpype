@@ -20,8 +20,10 @@ async function overview() {
     return rows && rows[0] ? Number(rows[0].c || 0) : 0;
   };
   return {
-    users: await one('SELECT COUNT(*) AS c FROM users'),
-    usersActive: await one("SELECT COUNT(*) AS c FROM users WHERE status = 'active' OR status IS NULL OR status = ''"),
+    users: await one(`SELECT COUNT(*) AS c FROM users WHERE ${notDeletedClause('users')}`),
+    usersActive: await one(
+      `SELECT COUNT(*) AS c FROM users WHERE (status = 'active' OR status IS NULL OR status = '') AND ${notDeletedClause('users')}`
+    ),
     usersDisabled: await one("SELECT COUNT(*) AS c FROM users WHERE status = 'disabled'"),
     superAdmins: await one('SELECT COUNT(*) AS c FROM users WHERE is_super_admin = 1'),
     workspaces: await one('SELECT COUNT(*) AS c FROM workspaces'),
