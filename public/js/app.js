@@ -5177,13 +5177,14 @@ async function pageSettings(param) {
           <p class="hint">Unattended pipeline: discover → score → Meta Muse builds via tools → publish → email/SMS → follow-up → owner digest. Requires platform Meta Muse Model API key (<code>muse.model_*</code> in Admin). Honors the automation pause switch.</p>
           <p class="hint">Muse: <strong>${ho.museConfigured ? 'configured' : 'not configured'}</strong>${ho.museModel ? ' · ' + esc(ho.museModel) : ''} · Last run: ${esc(ho.lastRunAt || s['hands_off.last_run_at'] || '—')} · Last digest: ${esc(ho.lastDigestAt || s['hands_off.last_digest_at'] || '—')}</p>
           <div class="row">
-            ${f('hands_off.enabled', 'Hands-off', { options: onOff })}
+            ${f('hands_off.enabled', 'Hands-off', { options: onOff, def: '0' })}
             ${f('hands_off.min_score', 'Min score to build', { type: 'number', min: 0, def: '50' })}
             ${f('hands_off.max_sites_per_day', 'Max sites / day', { type: 'number', min: 0, def: '5' })}
             ${f('hands_off.followup_days', 'Follow-up days', { type: 'number', min: 1, def: '3' })}
           </div>
           <div class="row">
             ${f('hands_off.channel', 'Outreach channel', {
+              def: 'both',
               options: [
                 ['both', 'Email + SMS'],
                 ['email', 'Email only'],
@@ -5205,7 +5206,7 @@ async function pageSettings(param) {
 
         <section class="card" id="sec-agent"${showSec('sec-agent')}><h2>Design agent trigger</h2>
           <p class="hint">When a design job becomes <code>waiting_on_agent</code> the server writes a trigger file and can run a command or POST a webhook (redesign / improvements). Failures never block the queue.</p>
-          ${f('design.agent_notify', 'Notify', { options: onOff })}
+          ${f('design.agent_notify', 'Notify', { options: onOff, def: '1' })}
           ${f('design.agent_trigger_command', 'Trigger command (optional)', { hint: 'Placeholders: <code>{{job_id}}</code>, <code>{{reason}}</code>, <code>{{status}}</code>, <code>{{message}}</code>. Runs on the server.' })}
           ${f('design.agent_webhook_url', 'Webhook URL (optional)', { type: 'url', placeholder: 'https://example.com/hooks/design-agent', hint: 'POSTed as JSON when redesign or improvements is queued.' })}
           ${f('design.agent_webhook_secret', 'Webhook secret (optional)', { type: 'password', hint: 'Sent as <code>Authorization: Bearer …</code> and <code>X-Webhook-Secret</code>.' })}
@@ -5245,7 +5246,7 @@ async function pageSettings(param) {
 
         <section class="card" id="sec-sms"${showSec('sec-sms')}><h2>SMS (Twilio)</h2>
           <p class="hint">Text-message outreach. When <code>sms.enabled</code> is off or credentials are missing, queued SMS is stub-sent (logged, marked sent) so drafts still work. Platform Admin → SMS can seed defaults for new workspaces.</p>
-          <div class="row">${f('sms.enabled', 'SMS enabled', { options: onOff })}${f('sms.provider', 'Provider', {
+          <div class="row">${f('sms.enabled', 'SMS enabled', { options: onOff, def: '0' })}${f('sms.provider', 'Provider', {
             options: [
               ['twilio', 'Twilio'],
               ['vonage', 'Vonage (not implemented)'],
@@ -5274,7 +5275,7 @@ async function pageSettings(param) {
           <div class="row">${f('smtp.user', 'Username')}${secret('smtp.pass', 'Password')}</div>
           <div class="row">${f('smtp.from_name', 'From name')}${f('smtp.from_email', 'From email')}</div>
           <h3 style="margin:18px 0 8px;font-size:15px">IMAP (inbound replies)</h3>
-          <div class="row">${f('mail.imap.enabled', 'IMAP polling', { options: onOff })}${f('mail.imap.auto_submit', 'Auto-queue change requests', { options: onOff, hint: 'When on, redesign/improve replies are submitted to waiting_on_agent.' })}</div>
+          <div class="row">${f('mail.imap.enabled', 'IMAP polling', { options: onOff })}${f('mail.imap.auto_submit', 'Auto-queue change requests', { options: onOff, def: '0', hint: 'When on, redesign/improve replies are submitted to waiting_on_agent.' })}</div>
           <div class="row">${f('mail.imap.host', 'IMAP host', { placeholder: '(defaults to SMTP host)' })}${f('mail.imap.port', 'Port', { type: 'number', min: 1, def: '993' })}${f(
             'mail.imap.secure',
             'TLS',
