@@ -114,6 +114,7 @@ window.ScoutApi = (() => {
 
     // ---- workspace invites ----
     invitesList: () => get('/invites'),
+    invitesMembers: () => get('/invites/members'),
     invitesCreate: (body) => post('/invites', body),
 
     // ---- dashboard / activity / AI ----

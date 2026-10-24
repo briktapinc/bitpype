@@ -54,6 +54,18 @@ async function createInvite({ workspaceId, email, role, invitedBy }) {
   return { email: cleanEmail, role: r, link: emailed ? undefined : link, emailed, expiresAt: expiresSql };
 }
 
+/** Current workspace members (name/email/role) for the Team settings tab. */
+async function listMembers(workspaceId) {
+  return query(
+    `SELECT u.id, u.name, u.email, m.role
+     FROM workspace_members m
+     JOIN users u ON u.id = m.user_id
+     WHERE m.workspace_id = :workspaceId AND (u.deleted_at IS NULL)
+     ORDER BY u.name, u.email`,
+    { workspaceId: Number(workspaceId) }
+  );
+}
+
 async function listInvites(workspaceId) {
   return query(
     `SELECT id, email, role, accepted_at, expires_at, created_at, invited_by
@@ -101,4 +113,4 @@ async function acceptInvite(rawToken, userId) {
   return { workspaceId: invite.workspace_id, role: invite.role };
 }
 
-module.exports = { createInvite, listInvites, acceptInvite, hashToken };
+module.exports = { createInvite, listInvites, listMembers, acceptInvite, hashToken };

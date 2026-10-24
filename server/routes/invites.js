@@ -22,6 +22,14 @@ router.get('/', async (req, res) => {
   }
 });
 
+router.get('/members', async (req, res) => {
+  try {
+    ok(res, { members: await invites.listMembers(req.auth.workspaceId) });
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+
 router.post('/', async (req, res) => {
   try {
     const data = await invites.createInvite({

@@ -5184,6 +5184,7 @@ async function pageSettings(param) {
             <button class="btn primary" type="submit">Send invite</button>
           </form>
           <div class="msg" id="inv-msg"></div>
+          <div id="team-members" style="margin-top:14px"><p class="hint">Loading members…</p></div>
           <div id="inv-list" style="margin-top:14px"><p class="hint">Loading invites…</p></div>
         </section>
 
@@ -5346,6 +5347,12 @@ async function pageSettings(param) {
           ${f('meta.app_id', 'Meta App ID')}
           ${secret('meta.app_secret', 'Meta App Secret')}
           ${f('social.image_price_usd', 'Branded image ad price (USD)', { type: 'number', step: '0.01', min: 0, hint: 'Charged per image for Free/Standard. Premium includes social images at $0. Falls back to the platform admin default when blank.' })}
+          <p class="hint">Currently resolves to <strong>${esc(
+            (() => {
+              const wp = parseFloat(s['social.image_price_usd']);
+              return Number.isFinite(wp) && wp >= 0 ? `$${wp.toFixed(2)} per image (workspace value above)` : '$1.00 per image (platform default)';
+            })()
+          )}</strong>.</p>
           ${save('sec-meta', 'Save Meta settings')}
         </section>
 
@@ -5396,6 +5403,28 @@ async function pageSettings(param) {
 
   mountLearning($('#st-learning'));
 
+  async function refreshMembers() {
+    const host = $('#team-members');
+    if (!host) return;
+    try {
+      const rows = asList((await api.invitesMembers()).data, ['members', 'rows']);
+      host.innerHTML = `<h3 style="margin-bottom:8px">Current members</h3><table><thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead><tbody>
+        ${
+          rows
+            .map(
+              (m) => `<tr>
+          <td>${esc(m.name || '—')}</td><td>${esc(m.email)}</td><td>${esc(m.role)}</td>
+        </tr>`
+            )
+            .join('') || '<tr><td colspan="3">No members yet</td></tr>'
+        }
+      </tbody></table>`;
+    } catch (err) {
+      host.innerHTML = `<p class="hint">${esc(err.message || 'Could not load members')}</p>`;
+    }
+  }
+  refreshMembers();
+
   async function refreshInvites() {
     const host = $('#inv-list');
     if (!host) return;
@@ -5404,12 +5433,21 @@ async function pageSettings(param) {
       host.innerHTML = `<table><thead><tr><th>Email</th><th>Role</th><th>Expires</th><th>Status</th></tr></thead><tbody>
         ${
           rows
-            .map(
-              (r) => `<tr>
+            .map((r) => {
+              // Display-only state: a pending invite past its expiry can no
+              // longer be accepted (acceptInvite rejects it) — say so.
+              const expMs = r.expires_at ? Date.parse(String(r.expires_at).replace(' ', 'T') + 'Z') : NaN;
+              const expired = !r.accepted_at && Number.isFinite(expMs) && expMs < Date.now();
+              const badge = r.accepted_at
+                ? '<span class="badge ok">accepted</span>'
+                : expired
+                  ? '<span class="badge warn">expired</span>'
+                  : '<span class="badge">pending</span>';
+              return `<tr>
           <td>${esc(r.email)}</td><td>${esc(r.role)}</td><td>${esc(fmtDate(r.expires_at))}</td>
-          <td>${r.accepted_at ? '<span class="badge ok">accepted</span>' : '<span class="badge">pending</span>'}</td>
-        </tr>`
-            )
+          <td>${badge}</td>
+        </tr>`;
+            })
             .join('') || '<tr><td colspan="4">No invites yet</td></tr>'
         }
       </tbody></table>`;
