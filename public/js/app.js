@@ -3008,7 +3008,7 @@ async function pageDesign(param) {
             (j) => `<tr>
         <td>${j.id}</td>
         <td><button class="link-btn" data-act="open" data-id="${j.id}">${esc(j.title)}</button>${j.lead_id ? `<div class="hint">lead #${esc(j.lead_id)}</div>` : ''}</td>
-        <td>${esc(j.type)}</td><td>${esc(j.site_shape || '—')}</td><td>${statusBadge(j.status)}</td>
+        <td>${esc(j.type)}</td><td>${esc(j.website_shape || j.site_shape || '—')}${j.website_pages ? `<div class="hint">${esc(j.website_pages)} pages on the site</div>` : ''}</td><td>${statusBadge(j.status)}</td>
         <td>${j.pending_questions ? `<span class="badge warn">${esc(j.pending_questions)} pending</span>` : '—'}</td>
         <td>${esc(fmtDate(j.updated_at))}</td>
         <td class="actions"><button class="btn small danger" data-act="delete" data-id="${j.id}">Delete</button></td></tr>`
@@ -3206,7 +3206,7 @@ async function pageDesignDetail(id) {
         <a href="#/design" class="btn small">&larr; All design jobs</a>
         <h1 style="margin-top:10px">#${esc(job.id)} ${esc(job.title)}</h1>
         <p class="lede">${statusBadge(job.status)} <span class="badge">${esc(job.type)}</span>
-          ${job.site_shape ? `<span class="badge">${esc(job.site_shape)}</span>` : ''}
+          ${job.website_shape || job.site_shape ? `<span class="badge">${esc(job.website_shape || job.site_shape)}</span>` : ''}${job.website_pages ? `<span class="badge">${esc(job.website_pages)} pages</span>` : ''}
           ${job.request_kind ? `<span class="badge warn">${esc(job.request_kind)}</span>` : ''}
           ${job.lead_id ? ` · Lead <a href="#/leads?id=${esc(job.lead_id)}">#${esc(job.lead_id)}</a>` : ''}
           · updated ${esc(fmtDate(job.updated_at))}</p>

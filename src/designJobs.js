@@ -109,6 +109,25 @@ function resolveSiteShape(row, brief) {
   return 'multipage';
 }
 
+/**
+ * Read-time truth about the LINKED website: how many pages it actually
+ * has and the shape that implies. A job's stored site_shape is the shape
+ * that was REQUESTED — it can lag what was really delivered (job #12 is
+ * stored as "landing" but its website has 5 pages). Display layers prefer
+ * website_shape; the stored field is never rewritten from here.
+ */
+function websitePageCount(db, websiteId) {
+  const id = Number(websiteId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  try {
+    const row = db.prepare('SELECT pages FROM websites WHERE id = ?').get(id);
+    const pages = parseJson(row && row.pages, null);
+    return Array.isArray(pages) ? pages.length : null;
+  } catch {
+    return null;
+  }
+}
+
 function websiteShapeConstraints(siteShape) {
   const modularRules = [
     'MODULAR CONTENT + 100% FREESTYLE VISUALS: every page uses pages[].sections (typed blocks). Do NOT ship freeform page.html as the page body. Structure is modular for editing; the LOOK is entirely yours.',
@@ -258,6 +277,7 @@ function publicJob(db, row, { withDeliverable = true } = {}) {
   if (!row) return null;
   const questions = questionsFor(db, row.id);
   const brief = parseJson(row.brief, null);
+  const wpc = websitePageCount(db, row.website_id);
   const out = {
     id: row.id,
     type: row.type,
@@ -270,6 +290,8 @@ function publicJob(db, row, { withDeliverable = true } = {}) {
     questions_emailed_at: row.questions_emailed_at || null,
     delivery_emailed_at: row.delivery_emailed_at || null,
     site_shape: resolveSiteShape(row, brief),
+    website_shape: wpc == null ? null : wpc > 1 ? 'multipage' : 'landing',
+    website_pages: wpc,
     request_kind: row.request_kind || (brief && brief.request_kind) || null,
     status: row.status,
     brief,
