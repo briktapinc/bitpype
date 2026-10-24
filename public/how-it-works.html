@@ -15,45 +15,50 @@
   <link rel="icon" href="/brand/bitpype-mark.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;1,9..144,500&family=Inter:wght@400;550;600;700;750&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;1,9..144,500&family=Figtree:wght@400;600;700;800&display=swap" rel="stylesheet" />
   <style>
     /* App design system (same tokens as public/styles.css, the portal and the
-       promo form): cool neutral palette, green accent, dark nav, Inter body.
-       Fraunces stays for display headlines — the brand voice. */
+       promo form): warm /how widget theme — cream/paper surfaces, ink text,
+       teal accent, dark ink nav, Figtree body. Fraunces stays for display
+       headlines — the brand voice. */
     :root {
-      --bg: #f4f6f8;
-      --surface: #ffffff;
-      --surface-2: #edf1f5;
-      --ink: #0e1526;
-      --muted: #5b6b82;
-      --border: #e2e8f0;
-      --border-strong: #c3cedd;
-      --accent: #0c8a5f;
-      --accent-dark: #0a7350;
-      --accent-soft: #e2f3ea;
-      --sidebar: #0b1120;
-      --sidebar-text: #f4f7fb;
-      --sidebar-muted: #8fa0b8;
-      --shadow: 0 1px 2px rgba(14, 21, 38, 0.05), 0 1px 3px rgba(14, 21, 38, 0.06);
-      --shadow-lg: 0 24px 64px rgba(14, 21, 38, 0.22), 0 4px 16px rgba(14, 21, 38, 0.1);
-      --radius: 14px;
+      --bg: #f7f1e8;
+      --surface: #fffaf4;
+      --surface-2: #f3eadf;
+      --ink: #1c140f;
+      --muted: #5c5148;
+      --border: #e7dbc4;
+      --border-strong: #d3bf9d;
+      --accent: #0e7a68;
+      --accent-dark: #0a5c4f;
+      --accent-soft: #e5f6f2;
+      --teal: #0e7a68;
+      --coral: #ef5d45;
+      --gold: #f0b429;
+      --plum: #6d4ea3;
+      --sidebar: #1c140f;
+      --sidebar-text: #fffaf4;
+      --sidebar-muted: #b3a08c;
+      --shadow: 0 1px 2px rgba(80, 40, 20, 0.05), 0 8px 18px rgba(80, 40, 20, 0.06);
+      --shadow-lg: 0 24px 60px rgba(28, 20, 15, 0.25), 0 4px 16px rgba(80, 40, 20, 0.08);
+      --radius: 20px;
     }
     * { box-sizing: border-box; }
     html { scroll-behavior: smooth; }
     body {
       margin: 0;
       color: var(--ink);
-      font-family: Inter, 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+      font-family: Figtree, 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
       background:
-        radial-gradient(880px 420px at 100% -8%, rgba(12, 138, 95, 0.1), transparent 58%),
-        radial-gradient(720px 380px at -12% 8%, rgba(31, 95, 168, 0.07), transparent 52%),
+        radial-gradient(880px 420px at 100% -8%, rgba(14, 122, 104, 0.12), transparent 58%),
+        radial-gradient(720px 380px at -12% 8%, rgba(109, 78, 163, 0.1), transparent 52%),
         var(--bg);
       overflow-x: clip;
       line-height: 1.5;
     }
     a { color: inherit; }
     img { display: block; max-width: 100%; }
-    :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+    :focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
     .skip {
       position: absolute; left: -999px; top: 8px; background: #fff; color: #000; padding: 8px 12px; z-index: 50;
     }
@@ -64,9 +69,9 @@
       display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
       gap: 10px 18px;
       padding: 16px 28px;
-      background: rgba(11, 17, 32, 0.97);
+      background: rgba(28, 20, 15, 0.97);
       backdrop-filter: blur(14px);
-      border-bottom: 1px solid rgba(244, 247, 251, 0.08);
+      border-bottom: 1px solid rgba(255, 250, 244, 0.08);
     }
     .logo {
       display: inline-flex; align-items: center; gap: 10px;
@@ -99,7 +104,7 @@
       letter-spacing: 0.08em;
       text-transform: uppercase;
       font-size: 0.78rem;
-      color: var(--accent-dark);
+      color: #8a3b28;
     }
     h1 {
       margin: 0 0 22px;
@@ -114,7 +119,10 @@
     h1 em {
       font-style: italic;
       font-weight: 500;
-      color: var(--accent-dark);
+      color: transparent;
+      background: linear-gradient(100deg, var(--coral), #d4890b 45%, var(--teal));
+      -webkit-background-clip: text;
+      background-clip: text;
     }
     .lede {
       margin: 0;
@@ -136,7 +144,9 @@
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: calc(var(--radius) + 6px);
-      box-shadow: var(--shadow);
+      box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.7) inset,
+        var(--shadow);
       padding: 36px 40px;
       display: grid;
       grid-template-columns: 120px minmax(0, 1fr);
@@ -150,6 +160,10 @@
       line-height: 1;
       color: var(--accent-dark);
     }
+    /* Step accent rotation mirrors the /how tour's step cards
+       (coral / teal / plum). */
+    .step:nth-child(1) .step-num { color: #c83b4a; }
+    .step:nth-child(3) .step-num { color: var(--plum); }
     .step h2 {
       margin: 0 0 10px;
       font-family: Fraunces, Georgia, serif;
@@ -185,9 +199,9 @@
       gap: 10px;
     }
     .chips li {
-      background: var(--accent-soft);
-      color: var(--accent-dark);
-      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--ink);
+      border: 1px solid var(--border-strong);
       border-radius: 999px;
       padding: 9px 18px;
       font-weight: 700;
@@ -200,8 +214,8 @@
     }
     .cta-inner {
       background:
-        radial-gradient(420px 240px at 92% 110%, rgba(12, 138, 95, 0.5), transparent 62%),
-        linear-gradient(165deg, var(--ink) 0%, var(--sidebar) 72%);
+        radial-gradient(420px 240px at 92% 110%, rgba(240, 180, 41, 0.4), transparent 62%),
+        linear-gradient(165deg, #1c140f 0%, #12382f 72%);
       color: var(--sidebar-text);
       border-radius: calc(var(--radius) + 6px);
       box-shadow: var(--shadow-lg);
@@ -215,7 +229,7 @@
       letter-spacing: -0.035em;
       line-height: 1.02;
     }
-    .cta-inner p { margin: 0 0 26px; color: rgba(244, 247, 251, 0.82); max-width: 52ch; }
+    .cta-inner p { margin: 0 0 26px; color: rgba(255, 250, 244, 0.82); max-width: 52ch; }
     .actions {
       display: flex;
       flex-wrap: wrap;
@@ -238,7 +252,7 @@
     .btn-secondary {
       background: transparent;
       color: var(--sidebar-text);
-      border: 1.5px solid rgba(244, 247, 251, 0.35);
+      border: 1.5px solid rgba(255, 250, 244, 0.35);
     }
     .btn-secondary:hover { border-color: var(--sidebar-text); }
 
@@ -370,7 +384,7 @@
         <p>The website, handled with you.</p>
       </div>
       <nav aria-label="Footer">
-        <a href="/how">How it works</a>
+        <a href="/how-it-works">How it works</a>
         <a href="/portal">Client portal</a>
         <a href="/app">Team login</a>
         <a href="/legal/privacy.html">Privacy</a>

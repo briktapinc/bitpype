@@ -9,32 +9,37 @@
   <link rel="icon" href="/brand/bitpype-mark.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;550;600;700;750&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
     /* App design system (same tokens/components as public/styles.css and the
-       restyled portal): cool neutral palette, Inter, card surfaces, staff
-       form controls and primary button. Selector contract unchanged — every
-       class/id the form JS drives is styled as before, only the look moved. */
+       restyled portal): warm /how widget theme — cream/paper surfaces, ink
+       text, teal primary, Figtree body, Fraunces display. Selector contract
+       unchanged — every class/id the form JS drives is styled as before,
+       only the look moved. */
     :root {
-      --bg: #f4f6f8;
-      --surface: #ffffff;
-      --surface-2: #edf1f5;
-      --ink: #0e1526;
-      --text: #0e1526;
-      --muted: #5b6b82;
-      --border: #e2e8f0;
-      --border-strong: #c3cedd;
-      --accent: #0c8a5f;
-      --accent-dark: #0a7350;
-      --accent-soft: #e2f3ea;
-      --danger: #b42318;
-      --danger-soft: #fdecea;
-      --ok: #0c8a5f;
-      --sidebar: #0b1120;
-      --sidebar-text: #f4f7fb;
-      --shadow: 0 1px 2px rgba(14, 21, 38, 0.05), 0 1px 3px rgba(14, 21, 38, 0.06);
-      --shadow-lg: 0 24px 64px rgba(14, 21, 38, 0.22), 0 4px 16px rgba(14, 21, 38, 0.1);
-      --radius: 14px;
+      --bg: #f7f1e8;
+      --surface: #fffaf4;
+      --surface-2: #f3eadf;
+      --ink: #1c140f;
+      --text: #1c140f;
+      --muted: #5c5148;
+      --border: #e7dbc4;
+      --border-strong: #d3bf9d;
+      --accent: #0e7a68;
+      --accent-dark: #0a5c4f;
+      --accent-soft: #e5f6f2;
+      --danger: #b3372a;
+      --danger-soft: #ffe8e2;
+      --ok: #0e7a68;
+      --teal: #0e7a68;
+      --coral: #ef5d45;
+      --gold: #f0b429;
+      --plum: #6d4ea3;
+      --sidebar: #1c140f;
+      --sidebar-text: #fffaf4;
+      --shadow: 0 1px 2px rgba(80, 40, 20, 0.05), 0 8px 18px rgba(80, 40, 20, 0.06);
+      --shadow-lg: 0 24px 60px rgba(28, 20, 15, 0.25), 0 4px 16px rgba(80, 40, 20, 0.08);
+      --radius: 26px;
       color-scheme: light;
     }
     * { box-sizing: border-box; }
@@ -42,8 +47,7 @@
       margin: 0;
       color: var(--text);
       font-family:
-        Inter,
-        'Segoe UI Variable',
+        Figtree,
         'Segoe UI',
         -apple-system,
         BlinkMacSystemFont,
@@ -57,21 +61,22 @@
     }
     a { color: var(--accent-dark); }
     ::selection { background: var(--accent-soft); }
-    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    :focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
     /* Dark app nav, same treatment as the staff sidebar / portal nav
-       (#0b1120 with the emerald radial glow) adapted to a top bar. */
+       (ink with the coral radial glow) adapted to a top bar. */
     .nav {
       display: flex; align-items: center; justify-content: space-between;
       gap: 12px; padding: 14px 22px;
       border-bottom: 1px solid var(--sidebar);
-      background: radial-gradient(120% 160% at 0% 0%, rgba(16, 185, 129, 0.22), transparent 55%), var(--sidebar);
+      background: radial-gradient(120% 160% at 0% 0%, rgba(239, 93, 69, 0.28), transparent 55%), var(--sidebar);
       color: var(--sidebar-text);
     }
-    .nav a { color: #c3cede; text-decoration: none; font-weight: 550; }
+    .nav a { color: rgba(255, 250, 244, 0.82); text-decoration: none; font-weight: 550; }
     .nav a:hover { color: #fff; }
     .logo {
       display: inline-flex; align-items: center; gap: 10px;
       text-decoration: none;
+      font-family: Fraunces, Georgia, serif;
       font-weight: 700; font-size: 1.3rem; letter-spacing: -0.02em;
       color: var(--sidebar-text);
     }
@@ -83,8 +88,9 @@
       padding: 40px 20px 80px;
     }
     h1 {
+      font-family: Fraunces, Georgia, serif;
       font-size: clamp(1.9rem, 4.5vw, 2.5rem);
-      font-weight: 700;
+      font-weight: 500;
       line-height: 1.15;
       letter-spacing: -0.03em;
       margin: 0 0 10px;
@@ -96,7 +102,9 @@
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 24px;
-      box-shadow: var(--shadow);
+      box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.7) inset,
+        0 18px 50px rgba(80, 40, 20, 0.14);
     }
     .grid {
       display: grid;
@@ -116,17 +124,17 @@
       /* 16px inputs keep mobile Safari from auto-zooming this ad-landing
          form on focus; border/radius/focus treatment matches the app. */
       font-size: 16px;
-      background: #fff;
+      background: var(--surface);
       color: var(--text);
       transition:
         border-color 0.12s ease,
         box-shadow 0.12s ease;
     }
-    input::placeholder, textarea::placeholder { color: #93a2b8; }
+    input::placeholder, textarea::placeholder { color: #a08b6f; }
     input:focus, textarea:focus, select:focus {
       outline: none;
       border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(12, 138, 95, 0.18);
+      box-shadow: 0 0 0 3px rgba(14, 122, 104, 0.18);
     }
     textarea { min-height: 96px; resize: vertical; }
     .features {
@@ -139,7 +147,7 @@
       font-size: 0.92rem; font-weight: 600;
       padding: 10px 12px;
       border: 1px solid var(--border);
-      border-radius: 10px;
+      border-radius: 14px;
       background: var(--surface);
       cursor: pointer;
     }
@@ -154,8 +162,8 @@
       display: inline-flex; align-items: center; justify-content: center; gap: 6px;
       background: var(--accent); border: 1px solid var(--accent); color: #fff;
       font: inherit; font-size: 15px; font-weight: 600; line-height: 1.2;
-      padding: 11px 22px; border-radius: 10px;
-      box-shadow: 0 1px 2px rgba(12, 138, 95, 0.35);
+      padding: 11px 22px; border-radius: 14px;
+      box-shadow: 0 1px 2px rgba(14, 122, 104, 0.35);
       transition:
         background 0.12s ease,
         border-color 0.12s ease,
@@ -173,6 +181,7 @@
     }
     .success.is-on { display: block; }
     .success h2 {
+      font-family: Fraunces, Georgia, serif;
       font-weight: 700;
       letter-spacing: -0.02em;
       margin: 0 0 8px;
@@ -194,7 +203,7 @@
     .progress-track { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
     .progress-bar { height: 100%; width: 25%; border-radius: 999px; background: var(--accent); transition: width 0.25s ease; }
     .step[hidden] { display: none; }
-    .step-title { font-size: 1.15rem; font-weight: 700; letter-spacing: -0.01em; color: var(--ink); margin: 0 0 4px; }
+    .step-title { font-family: Fraunces, Georgia, serif; font-size: 1.15rem; font-weight: 700; letter-spacing: -0.01em; color: var(--ink); margin: 0 0 4px; }
     .step-title:focus-visible { outline-offset: 4px; }
     .step-lede { margin: 0 0 16px; color: var(--muted); font-size: 0.95rem; }
     .field-error { margin: 0; font-size: 0.85rem; font-weight: 600; color: var(--danger); }
