@@ -149,7 +149,7 @@ function buildPostcardPdf({ businessName, pitch, siteUrl, claimUrl, siteQrPng, c
         width: qrSize + 16,
         align: 'center',
       });
-    doc.text("Yes I'm interested · No - Delete it", rightX - 8, labelY + 12, {
+    doc.text("Yes I'm interested · No — not interested", rightX - 8, labelY + 12, {
       width: qrSize + 16,
       align: 'center',
     });
@@ -215,7 +215,7 @@ async function buildClaimKit(db, workspaceId, { leadId, websiteId, includePdf = 
     });
   }
 
-  const businessName = lead.business_name || (site && site.name) || 'Your business';
+  const businessName = (site && site.name) || lead.business_name || 'Your business';
   const place = [lead.city, lead.category].filter(Boolean).join(' · ');
   const pitch = place
     ? `A custom website for ${businessName} (${place}). Scan left to preview, right to claim it.`
@@ -292,6 +292,19 @@ function isIntentPositive(db, lead) {
 function claimPageMeta(db, workspaceId, leadId) {
   const lead = db.prepare('SELECT id, business_name, status FROM leads WHERE id = ?').get(Number(leadId));
   if (!lead) throw Object.assign(new Error('Lead not found'), { code: 'NOT_FOUND' });
+  // Display name: the website's own brand/site name wins over the lead's
+  // business_name (lead records can carry internal/QA labels the visitor
+  // should never see). Fall back to the lead name only when the site has none.
+  let siteName = '';
+  try {
+    const site = db
+      .prepare('SELECT name FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+      .get(lead.id);
+    siteName = (site && String(site.name || '').trim()) || '';
+  } catch {
+    siteName = '';
+  }
+  const displayName = siteName || lead.business_name || '';
   const siteUrl = outreach.resolveWebsiteLink(db, lead.id) || null;
   const interested = db
     .prepare(`SELECT id FROM prospect_events WHERE lead_id = ? AND type = 'email.interested' LIMIT 1`)
@@ -308,7 +321,8 @@ function claimPageMeta(db, workspaceId, leadId) {
   // a future visit can re-prompt (client may session-hide until then).
   const showClaimPrompt = !intentPositive && !interested && !uninterested;
   return {
-    businessName: lead.business_name || '',
+    businessName: displayName,
+    siteName,
     status: lead.status,
     siteUrl,
     alreadyInterested: !!interested,

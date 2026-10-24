@@ -18,7 +18,7 @@ const checks = [
   [/visibilitychange/, 'visibilitychange leave'],
   [/pagehide/, 'pagehide leave'],
   [/Yes I'm interested|Yes I\\'m interested/, 'Yes label'],
-  [/No - Delete it/, 'No label'],
+  [/No — not interested/, 'No label'],
   [/Maybe later/, 'Later label'],
   [/markLaterSession/, 'later session mark'],
   [/disarm\(\)/, 'disarm after answer'],

@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Preview-site claim popup: Yes I'm interested / No - Delete it / Maybe later.
+ * Preview-site claim popup: Yes I'm interested / No — not interested / Maybe later.
  * Shows after 10s OR on back/leave (whichever first), only when intent is not positive.
  * Expects window.BitpypeClaim = { apiBase, token }.
  */
@@ -261,7 +261,7 @@
       '<p>We built this preview for <strong>' + esc(name) + '</strong>. Say yes if you want to keep it.</p>',
       '<div id="bp-claim-actions">',
       '<button type="button" id="bp-claim-yes">Yes I\'m interested</button>',
-      '<button type="button" id="bp-claim-no">No - Delete it</button>',
+      '<button type="button" id="bp-claim-no">No — not interested</button>',
       '<button type="button" id="bp-claim-later">Maybe later</button>',
       '</div>',
       '<p id="bp-claim-msg" role="status"></p>',
