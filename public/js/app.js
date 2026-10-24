@@ -4765,7 +4765,7 @@ async function pageSocial(_param, query = {}) {
           <button class="btn small" type="button" data-act="publish-due">Publish due now</button>
         </div>
       </div>
-      <table class="data">
+      <div class="table-scroll"><table class="data">
         <thead><tr><th>Campaign</th><th>Lead</th><th>Status</th><th>Images</th><th></th></tr></thead>
         <tbody>
           ${
@@ -4782,7 +4782,7 @@ async function pageSocial(_param, query = {}) {
               .join('') || '<tr><td colspan="5">No campaigns yet</td></tr>'
           }
         </tbody>
-      </table>
+      </table></div>
     </div>
 
     ${detail ? renderSocialCampaignDetail(detail) : ''}`;
@@ -5593,7 +5593,7 @@ async function pageSettings(param) {
     if (!host) return;
     try {
       const rows = asList((await api.invitesMembers()).data, ['members', 'rows']);
-      host.innerHTML = `<h3 style="margin-bottom:8px">Current members</h3><table><thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead><tbody>
+      host.innerHTML = `<h3 style="margin-bottom:8px">Current members</h3><div class="table-scroll"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead><tbody>
         ${
           rows
             .map(
@@ -5603,7 +5603,7 @@ async function pageSettings(param) {
             )
             .join('') || '<tr><td colspan="3">No members yet</td></tr>'
         }
-      </tbody></table>`;
+      </tbody></table></div>`;
     } catch (err) {
       host.innerHTML = `<p class="hint">${esc(err.message || 'Could not load members')}</p>`;
     }
@@ -5615,7 +5615,7 @@ async function pageSettings(param) {
     if (!host) return;
     try {
       const rows = asList((await api.invitesList()).data, ['invites', 'rows']);
-      host.innerHTML = `<table><thead><tr><th>Email</th><th>Role</th><th>Expires</th><th>Status</th></tr></thead><tbody>
+      host.innerHTML = `<div class="table-scroll"><table><thead><tr><th>Email</th><th>Role</th><th>Expires</th><th>Status</th></tr></thead><tbody>
         ${
           rows
             .map((r) => {
@@ -5635,7 +5635,7 @@ async function pageSettings(param) {
             })
             .join('') || '<tr><td colspan="4">No invites yet</td></tr>'
         }
-      </tbody></table>`;
+      </tbody></table></div>`;
     } catch (err) {
       host.innerHTML = `<p class="hint">${esc(err.message || 'Could not load invites')}</p>`;
     }
@@ -6195,7 +6195,7 @@ async function renderAdminWorkspaces(el) {
         const detail = $('#admin-ws-detail');
         detail.innerHTML = `
       <h4>${esc(d.workspace.name)} members</h4>
-      <table><thead><tr><th>Email</th><th>Role</th><th></th></tr></thead>
+      <div class="table-scroll"><table><thead><tr><th>Email</th><th>Role</th><th></th></tr></thead>
       <tbody>${
         (d.members || [])
           .map(
@@ -6205,7 +6205,7 @@ async function renderAdminWorkspaces(el) {
       </tr>`
           )
           .join('') || '<tr><td colspan="3">No members</td></tr>'
-      }</tbody></table>
+      }</tbody></table></div>
       <form id="admin-add-member" class="row actions" style="margin-top:0.75rem">
         <select name="userId" required>${users.map((u) => `<option value="${u.id}">${esc(u.email)}</option>`).join('')}</select>
         <select name="role"><option value="member">member</option><option value="admin">admin</option><option value="owner">owner</option></select>
