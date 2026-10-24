@@ -1088,6 +1088,8 @@ async function refreshAutomation() {
   try {
     const res = await api.stats();
     automationPaused = !!res.data.automationPaused;
+    autoEl.title =
+      'The workspace pause switch — click to pause/resume all automation. Same switch as Dashboard Pause and Settings → Emergency stop.';
     autoEl.textContent = automationPaused ? 'Automation paused' : 'Automation running';
     autoEl.classList.toggle('is-paused', automationPaused);
     autoEl.classList.toggle('is-running', !automationPaused);
@@ -1211,7 +1213,7 @@ async function pageDashboard() {
     </div>
     <div class="card">
       <h3>Emergency stop</h3>
-      <p class="hint">Immediately pauses every automated job (discovery, research, generation, outreach) and writes an audit entry.</p>
+      <p class="hint">Same switch as Pause automation, just in red: it blocks new discovery, research, generation and outreach (a step already running finishes) and logs an activity entry. Nothing extra is cancelled.</p>
       <button class="big-danger" data-act="stop">Emergency stop</button>
     </div>`;
 
@@ -1221,10 +1223,12 @@ async function pageDashboard() {
 
   delegate(view, {
     pause: async () => {
+      if (!window.confirm('Pause all automation (discovery, jobs, outreach, AI)?')) return;
       await setAutomation(true);
       pageDashboard();
     },
     resume: async () => {
+      if (!window.confirm('Resume automation?')) return;
       await setAutomation(false);
       pageDashboard();
     },
@@ -2190,6 +2194,11 @@ async function pageWebsiteDetail(id) {
   let pages = parseJson(site.pages, []);
   const theme = parseJson(site.theme, {});
   const versions = verR ? asList(verR.data, ['versions', 'rows']) : [];
+  const versionsTotal = verR && verR.data && Number(verR.data.total) ? Number(verR.data.total) : versions.length;
+  const versionRowHtml = (v) => `<div class="shell-log-line">
+              <span class="shell-dim">v${esc(v.version_no)}</span><span class="shell-main">${esc(v.note || '—')}</span>
+              <span class="shell-meta">${esc(fmtDate(v.created_at))} · <button type="button" class="shell-link" data-act="restore" data-v="${v.id}">Restore</button></span>
+            </div>`;
   const cf = cfR ? cfR.data : null;
   let structPageIdx = 0;
 
@@ -2237,6 +2246,7 @@ async function pageWebsiteDetail(id) {
               <div class="field"><label class="lbl" for="wd-font-element">This element</label><select id="wd-font-element" disabled></select></div>
               <span class="msg" id="wd-font-msg"></span>
             </div>
+            <p class="hint" style="margin-top:6px">“This element” stays disabled until you click “Style an element” and select text in the preview.</p>
           </div>
         </div>
       </div>
@@ -2257,17 +2267,15 @@ async function pageWebsiteDetail(id) {
             <span class="msg" id="wd-shots-msg"></span>
           </div>
         </div>
-        <div class="card"><h3>Versions (${versions.length})</h3>
-          <div class="shell-log shell-log-lines" tabindex="0">
+        <div class="card"><h3>Versions (${versionsTotal})</h3>
+          <div class="shell-log shell-log-lines" id="wd-ver-list" tabindex="0">
+            ${versions.map(versionRowHtml).join('') || '<p class="shell-empty">No versions saved yet.</p>'}
+          </div>
+          <div id="wd-ver-more-wrap" style="margin-top:8px">
             ${
-              versions
-                .map(
-                  (v) => `<div class="shell-log-line">
-              <span class="shell-dim">v${esc(v.version_no)}</span><span class="shell-main">${esc(v.note || '—')}</span>
-              <span class="shell-meta">${esc(fmtDate(v.created_at))} · <button type="button" class="shell-link" data-act="restore" data-v="${v.id}">Restore</button></span>
-            </div>`
-                )
-                .join('') || '<p class="shell-empty">No versions saved yet.</p>'
+              versions.length < versionsTotal
+                ? `<button type="button" class="btn small" data-act="versions-more">Show more versions (${versions.length} of ${versionsTotal})</button>`
+                : ''
             }
           </div>
         </div>
@@ -2663,6 +2671,30 @@ async function pageWebsiteDetail(id) {
       await api.websiteRestore(Number(t.dataset.v));
       toast('Version restored', 'ok');
       pageWebsiteDetail(id);
+    },
+    'versions-more': async (t) => {
+      const list = $('#wd-ver-list');
+      if (!list || t.disabled) return;
+      t.disabled = true;
+      try {
+        const nextPage = Math.floor(versions.length / 30) + 1;
+        const r = await api.websiteVersions(id, { page: nextPage, pageSize: 30 });
+        const more = r ? asList(r.data, ['versions', 'rows']) : [];
+        const seen = new Set(versions.map((v) => v.id));
+        const fresh = more.filter((v) => !seen.has(v.id));
+        versions.push(...fresh);
+        list.insertAdjacentHTML('beforeend', fresh.map(versionRowHtml).join(''));
+        const wrap = $('#wd-ver-more-wrap');
+        if (wrap) {
+          wrap.innerHTML =
+            versions.length < versionsTotal
+              ? `<button type="button" class="btn small" data-act="versions-more">Show more versions (${versions.length} of ${versionsTotal})</button>`
+              : '';
+        }
+      } catch (e) {
+        t.disabled = false;
+        toast(e.message || 'Could not load more versions', 'err');
+      }
     },
     save: async () => {
       const msg = $('#wd-save-msg');
@@ -3458,6 +3490,7 @@ async function pageDesignDetail(id) {
                  <div class="field"><label class="lbl" for="dd-font-element">This element</label><select id="dd-font-element" disabled></select></div>
                  <span class="msg" id="dd-font-msg"></span>
                </div>
+               <p class="hint" style="margin-top:6px">“This element” stays disabled until you click “Style an element” and select text in the preview.</p>
              </div><div id="dd-preview"></div>`
                     : ''
                 }
@@ -5304,6 +5337,18 @@ async function pageSettings(param) {
     ['1', 'On'],
     ['0', 'Off'],
   ];
+  // Hands-off blank-field resolutions (from the status endpoint) so the
+  // panel shows what a blank Template id / Digest email will actually do.
+  const hoTemplateHint = ho.templateId
+    ? `Using template #${esc(ho.templateId)}.`
+    : ho.resolvedTemplateId
+      ? `Blank = auto: template #${esc(ho.resolvedTemplateId)} (first with email + SMS text) will be used.`
+      : 'Blank = auto — but no template exists yet, so the campaign email is skipped after a build.';
+  const hoDigestHint = ho.reportEmail
+    ? ''
+    : ho.resolvedReportEmail
+      ? `Blank = digest goes to ${esc(ho.resolvedReportEmail)} (platform support / SMTP From fallback).`
+      : 'Blank = falls back to the platform support email, then your SMTP From address — neither is set, so no digest can be sent.';
 
   view.innerHTML = `
     <div class="page-head"><div><h1>Settings</h1><p class="lede">Provider keys, spend limits, prompts, email, publishing and the kill switch for this workspace. Secrets are write-only: they are never shown again after saving. Changing settings requires an owner or admin role.</p></div></div>
@@ -5355,15 +5400,16 @@ async function pageSettings(param) {
         </section>
 
         <section class="card" id="sec-automation"${showSec('sec-automation')}><h2>Automation</h2>
-          <p class="hint">Pause stops scanning, generation, campaigns, scheduled jobs and AI actions.</p>
+          <p class="hint">Pause stops scanning, generation, campaigns, scheduled jobs and AI actions. New work is blocked at the next step; a step already running finishes.</p>
           <p>Status: <strong id="auto-status">${paused ? 'Paused' : 'Running'}</strong></p>
           <div class="inline"><button class="btn" data-act="auto-toggle" id="auto-toggle">${paused ? 'Resume automation' : 'Pause automation'}</button></div>
           <div style="margin-top:16px"><button class="big-danger" data-act="auto-stop">Emergency stop</button></div>
+          <p class="hint" style="margin-top:8px">Emergency stop sets the same pause as the button above — there is no separate kill switch and it cancels nothing extra. Everything stays blocked until you resume.</p>
         </section>
 
         <section class="card" id="sec-hands-off"${showSec('sec-hands-off')}><h2>Hands-off mode</h2>
           <p class="hint">Unattended pipeline: discover → score → Meta Muse builds via tools → publish → email/SMS → follow-up → owner digest. Requires platform Meta Muse Model API key (<code>muse.model_*</code> in Admin). Honors the automation pause switch.</p>
-          <p class="hint">Muse: <strong>${ho.museConfigured ? 'configured' : 'not configured'}</strong>${ho.museModel ? ' · ' + esc(ho.museModel) : ''} · Last run: ${esc(ho.lastRunAt || s['hands_off.last_run_at'] || '—')} · Last digest: ${esc(ho.lastDigestAt || s['hands_off.last_digest_at'] || '—')}</p>
+          <p class="hint">Muse: <strong>${ho.museConfigured ? 'configured' : 'not configured'}</strong>${ho.museModel ? ' · ' + esc(ho.museModel) : ''} · Last run: ${esc(ho.lastRunAt || s['hands_off.last_run_at'] || 'never')} · Last digest: ${esc(ho.lastDigestAt || s['hands_off.last_digest_at'] || 'never')}</p>
           <div class="row">
             ${f('hands_off.enabled', 'Hands-off', { options: onOff, def: '0' })}
             ${f('hands_off.min_score', 'Min score to build', { type: 'number', min: 0, def: '50' })}
@@ -5379,8 +5425,8 @@ async function pageSettings(param) {
                 ['sms', 'SMS only'],
               ],
             })}
-            ${f('hands_off.template_id', 'Template id (optional)', { placeholder: 'first dual-channel template' })}
-            ${f('hands_off.report_email', 'Digest email', { type: 'email', placeholder: 'falls back to support.email' })}
+            ${f('hands_off.template_id', 'Template id (optional)', { placeholder: 'first dual-channel template', hint: hoTemplateHint })}
+            ${f('hands_off.report_email', 'Digest email', { type: 'email', placeholder: 'falls back to support.email', hint: hoDigestHint })}
           </div>
           <div class="row">
             ${f('hands_off.followup_interested_email', 'Interested follow-up email', { options: onOff, def: '1', hint: 'When a lead clicks "I\'m interested" (email link or site claim popup), email them next steps — customizations, plan pricing, portal access and available domain names — and notify the digest email. Sent once per lead.' })}
@@ -5659,13 +5705,19 @@ async function pageSettings(param) {
       setMsg($('#pr-msg'), 'Restored', 'ok');
     },
     'auto-toggle': async () => {
+      if (
+        !window.confirm(
+          automationPaused ? 'Resume automation?' : 'Pause all automation (discovery, jobs, outreach, AI)?'
+        )
+      )
+        return;
       await setAutomation(!automationPaused);
       settingsTab = 'automation';
       if (window.location.hash === '#/settings/automation') pageSettings('automation');
       else window.location.hash = '#/settings/automation';
     },
     'auto-stop': async () => {
-      if (!window.confirm('Pause ALL automation now?')) return;
+      if (!window.confirm('Emergency stop: pause ALL automation now? (Same pause switch as Pause automation.)')) return;
       await setAutomation(true);
       settingsTab = 'automation';
       if (window.location.hash === '#/settings/automation') pageSettings('automation');
@@ -5728,6 +5780,12 @@ async function pageSettings(param) {
       );
     },
     'hands-off-run': async () => {
+      if (
+        !window.confirm(
+          'Run one Hands-off tick now? A tick runs discovery, scores leads, builds at most one site for a qualifying lead (within the min score and daily cap), publishes it, and sends its outreach plus a digest. It does nothing while Hands-off is Off or automation is paused.'
+        )
+      )
+        return;
       const msg = $('[data-msg="hands-off-run"]');
       setMsg(msg, 'Running Hands-off tick…');
       try {
