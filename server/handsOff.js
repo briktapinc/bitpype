@@ -86,6 +86,16 @@ async function getStatus(workspaceId) {
   const cfg = domain.withDb(workspaceId, (db) => readCfg(db, domain));
   const museCfg = await domain.withDb(workspaceId, (db) => museAgent.resolveMuseConfig(db));
   const jobList = await jobs.listJobs(workspaceId).catch(() => []);
+  // Display-only resolutions so the Settings panel can show what blank
+  // fields actually do (auto-picked template / digest fallback address).
+  const resolvedTemplateId = domain.withDb(workspaceId, (db) => {
+    try {
+      return pickTemplateId(db, cfg.templateId);
+    } catch {
+      return null;
+    }
+  });
+  const resolvedReportEmail = await resolveReportEmail(workspaceId, cfg).catch(() => '');
   return {
     enabled: cfg.enabled,
     automationPaused: cfg.paused,
@@ -95,7 +105,9 @@ async function getStatus(workspaceId) {
     followupDays: cfg.followupDays,
     channel: cfg.channel,
     templateId: cfg.templateId || null,
+    resolvedTemplateId: resolvedTemplateId || null,
     reportEmail: cfg.reportEmail || null,
+    resolvedReportEmail: resolvedReportEmail || null,
     lastRunAt: cfg.lastRunAt || null,
     lastDigestAt: cfg.lastDigestAt || null,
     lastResult: cfg.lastResult
