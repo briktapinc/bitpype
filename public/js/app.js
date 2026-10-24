@@ -4697,6 +4697,10 @@ async function pageSocial(_param, query = {}) {
 function renderSocialCampaignDetail(detail) {
   const c = detail.campaign;
   const posts = detail.posts || [];
+  const accounts = detail.accounts || [];
+  const hasAccount = accounts.some((a) => a.status === 'active');
+  const draftCount = posts.filter((p) => p.status === 'draft').length;
+  const now = Date.now();
   return `
     <div class="card">
       <div class="panel-h">
@@ -4711,14 +4715,26 @@ function renderSocialCampaignDetail(detail) {
           }
         </div>
       </div>
-      <p class="hint">${statusBadge(c.status)} · approval ${c.require_client_approval ? 'on' : 'off'} · images ${c.with_images ? 'on' : 'optional/off'} · ${esc(c.client_email || 'no client email')}</p>
+      <p class="hint">${statusBadge(c.status)} · approval ${c.require_client_approval ? 'on' : 'off'} · images ${c.with_images ? 'on' : 'optional/off'} · ${esc(c.client_email || 'no client email')} · ${posts.length} post(s) total · ${draftCount} draft(s)</p>
       <div class="soc-posts">
         ${
           posts
-            .map(
-              (p) => `
+            .map((p) => {
+              const publishable = ['scheduled', 'approved', 'failed'].includes(p.status);
+              const overdue =
+                p.status === 'draft' && p.scheduled_at && new Date(p.scheduled_at).getTime() < now;
+              const pubReason = !publishable
+                ? p.status === 'draft'
+                  ? 'Approve and schedule this post before publishing'
+                  : p.status === 'posted'
+                    ? 'Already published'
+                    : `Post is ${p.status} — not publishable`
+                : !hasAccount
+                  ? 'Connect a Meta account to publish'
+                  : '';
+              return `
           <div class="card soc-post" style="margin:10px 0">
-            <label class="inline"><input type="checkbox" class="soc-post-pick" value="${esc(p.id)}" /> <strong>#${esc(p.day_index)}</strong> ${statusBadge(p.status)}</label>
+            <label class="inline"><input type="checkbox" class="soc-post-pick" value="${esc(p.id)}" /> <strong>#${esc(p.day_index)}</strong> ${statusBadge(p.status)}${overdue ? ' <span class="badge warn">Overdue</span>' : ''}</label>
             <div class="meta hint">${esc((p.platforms || []).join(', '))} · ${p.with_image ? 'photo' : 'text only'}${p.publish_error ? ` · <span class="error">${esc(p.publish_error)}</span>` : ''}</div>
             <div class="field"><label>When (local)</label>
               <input class="soc-when" type="datetime-local" value="${esc(toLocalInput(p.scheduled_at))}" /></div>
@@ -4726,10 +4742,11 @@ function renderSocialCampaignDetail(detail) {
             ${p.image_url ? `<img src="${esc(p.image_url)}" alt="" style="max-width:180px;border-radius:8px" />` : ''}
             <div class="inline">
               <button class="btn small" type="button" data-act="save-post" data-id="${esc(p.id)}">Save</button>
-              <button class="btn small" type="button" data-act="publish-one" data-id="${esc(p.id)}" data-camp="${esc(c.id)}">Publish now</button>
+              <button class="btn small" type="button" data-act="publish-one" data-id="${esc(p.id)}" data-camp="${esc(c.id)}" ${pubReason ? `disabled title="${esc(pubReason)}"` : ''}>Publish now</button>
+              ${pubReason ? `<span class="hint">${esc(pubReason)}</span>` : ''}
             </div>
-          </div>`
-            )
+          </div>`;
+            })
             .join('') || '<p class="hint">No posts</p>'
         }
       </div>
