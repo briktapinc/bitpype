@@ -6418,12 +6418,28 @@ async function renderAdminAdsense(el) {
         <form id="admin-adsense-form" class="stack">
           ${
             defs
-              .map(
-                (d) => `<div>
+              .map((d) => {
+                if (d.key === 'adsense.enabled') {
+                  const on = String(settings[d.key] || '0') === '1';
+                  return `<div>
+              <label>${esc(d.label)} <span class="mono hint">${esc(d.key)}</span></label>
+              <select name="${esc(d.key)}">
+                <option value="0"${on ? '' : ' selected'}>Off</option>
+                <option value="1"${on ? ' selected' : ''}>On</option>
+              </select>
+            </div>`;
+                }
+                if (d.key === 'adsense.publisher_id') {
+                  return `<div>
+              <label>${esc(d.label)} <span class="mono hint">${esc(d.key)}</span></label>
+              <input name="${esc(d.key)}" value="${esc(settings[d.key] || '')}" placeholder="ca-pub-1234567890123456" autocomplete="off" />
+            </div>`;
+                }
+                return `<div>
               <label>${esc(d.label)} <span class="mono hint">${esc(d.key)}</span></label>
               <input name="${esc(d.key)}" value="${esc(settings[d.key] || '')}" />
-            </div>`
-              )
+            </div>`;
+              })
               .join('') || '<p class="hint">No settings in this group</p>'
           }
           <div class="row actions"><button class="btn" type="submit">Save</button></div>
@@ -6441,6 +6457,12 @@ async function renderAdminAdsense(el) {
       plain[d.key] = v == null ? '' : String(v);
     }
     const msg = $('#admin-adsense-msg');
+    const pub = String(plain['adsense.publisher_id'] || '').trim();
+    if (pub && !/^ca-pub-\d{10,24}$/.test(pub)) {
+      msg.textContent = 'Publisher ID should look like ca-pub-1234567890123456 — check it and save again.';
+      msg.className = 'msg error';
+      return;
+    }
     try {
       if (Object.keys(plain).length) await api.adminSettingsSave(plain);
       toast('AdSense settings saved', 'ok');
