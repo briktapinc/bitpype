@@ -21,6 +21,13 @@ const ROUTES = [
   'social',
   'outreach',
   'pipeline',
+  'forms',
+  'leadscout',
+  'bookings',
+  'shop',
+  'modules',
+  'courses',
+  'analytics',
   'jobs',
   'mcp',
   'settings',
@@ -35,6 +42,13 @@ const ROUTE_LABELS = {
   social: 'Social',
   outreach: 'Outreach',
   pipeline: 'Pipeline',
+  forms: 'Forms',
+  leadscout: 'LeadScout',
+  bookings: 'Bookings',
+  shop: 'Shop',
+  modules: 'Modules',
+  courses: 'Courses',
+  analytics: 'Analytics',
   jobs: 'Jobs',
   mcp: 'MCP',
   settings: 'Settings',
@@ -6756,6 +6770,409 @@ async function renderAdminAudit(el) {
     </div>`;
 }
 
+/* ------------------------------------------------------------------ */
+/* Admin area: Forms / LeadScout / Bookings / Shop / Modules / Courses / Analytics */
+/* Read-only workspace-wide views over the same engines the portal and  */
+/* MCP use.                                                             */
+/* ------------------------------------------------------------------ */
+
+function moneyCents(cents, currency) {
+  return `${(Number(cents || 0) / 100).toFixed(2)} ${String(currency || 'USD').toUpperCase()}`;
+}
+
+function payloadTableHtml(payload) {
+  if (payload == null) return '<p class="hint">No readable payload.</p>';
+  if (typeof payload !== 'object' || Array.isArray(payload)) return `<p>${esc(String(payload))}</p>`;
+  const entries = Object.entries(payload);
+  if (!entries.length) return '<p class="hint">Empty submission.</p>';
+  return `<div class="table-scroll"><table><tbody>${entries
+    .map(
+      ([k, v]) =>
+        `<tr><td style="white-space:nowrap"><strong>${esc(k)}</strong></td><td>${esc(
+          v && typeof v === 'object' ? JSON.stringify(v) : String(v == null ? '' : v)
+        )}</td></tr>`
+    )
+    .join('')}</tbody></table></div>`;
+}
+
+async function pageForms() {
+  let res;
+  try {
+    res = await withLoadTimeout(api.adminForms());
+  } catch (e) {
+    view.innerHTML = loadErrorCardHtml(e.message);
+    wirePageRetry(() => pageForms());
+    return;
+  }
+  const forms = asList(res.data, ['forms']);
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Forms</h1><p class="lede">Every BitPype form across your sites, with submission counts. Open a form to read its submissions.</p></div>
+    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Form</th><th>Business</th><th>Kind</th><th>Status</th><th>Submissions</th><th>Last submission</th><th></th></tr></thead>
+      <tbody>${
+        forms
+          .map(
+            (f) => `<tr>
+        <td>${esc(f.name || f.title || 'Form')}<div class="hint">${esc(f.title || '')}</div></td>
+        <td>${esc(f.lead_name || 'Lead #' + f.lead_id)}</td>
+        <td>${esc(f.form_kind || '—')}</td>
+        <td>${esc(f.status || '—')}${f.published ? ' · <span class="badge ok">published</span>' : ''}</td>
+        <td>${esc(f.submission_count || 0)}</td>
+        <td>${f.last_submission_at ? esc(fmtDate(f.last_submission_at)) : '—'}</td>
+        <td class="actions"><button class="btn small" data-act="subs" data-id="${f.id}">Submissions</button></td></tr>`
+          )
+          .join('') || '<tr><td colspan="7" class="empty">No forms yet. Forms are created per site from the Design flow or MCP forms.create.</td></tr>'
+      }
+      </tbody>
+    </table></div>`;
+  view.querySelector('[data-act="refresh"]').onclick = () => pageForms();
+  view.querySelectorAll('[data-act="subs"]').forEach((b) => (b.onclick = () => openFormSubmissions(Number(b.dataset.id))));
+}
+
+async function openFormSubmissions(formId) {
+  const d = openDrawer({ title: 'Submissions', html: '<p class="hint">Loading…</p>' });
+  try {
+    const res = await withLoadTimeout(api.adminFormSubmissions(formId, { limit: 50 }));
+    const data = res.data || {};
+    const subs = asList(data, ['submissions']);
+    d.title.textContent = `${data.form ? data.form.name || data.form.title : 'Form'} — ${data.lead_name || ''}`;
+    d.body.innerHTML = subs.length
+      ? subs
+          .map(
+            (s) =>
+              `<div class="card"><div class="panel-h"><h3>${esc(fmtDate(s.created_at))}</h3><span class="badge ${
+                s.encrypted ? 'info' : ''
+              }">${esc(s.routing || 'email')}</span></div>${payloadTableHtml(s.payload)}</div>`
+          )
+          .join('')
+      : '<p class="hint">No submissions for this form yet.</p>';
+  } catch (e) {
+    d.body.innerHTML = `<p class="error">${esc(e.message)}</p>`;
+  }
+}
+
+const leadScoutState = { q: '' };
+
+async function pageLeadScout() {
+  let res;
+  try {
+    res = await withLoadTimeout(api.adminLeadScoutContacts({ q: leadScoutState.q, limit: 100 }));
+  } catch (e) {
+    view.innerHTML = loadErrorCardHtml(e.message);
+    wirePageRetry(() => pageLeadScout());
+    return;
+  }
+  const d = res.data || {};
+  const contacts = asList(d, ['contacts']);
+  const health = d.health;
+  view.innerHTML = `
+    <div class="page-head"><div><h1>LeadScout</h1><p class="lede">Deduped contacts captured from site forms and bookings — the same store the client portal reads. Not the outreach CRM (that's Leads).</p></div>
+    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
+    ${
+      health && health.open_failures
+        ? `<div class="alert warn"><strong>Capture health:</strong> ${esc(health.open_failures)} open capture failure(s) — some submissions or bookings may not have been recorded.</div>`
+        : ''
+    }
+    <form id="ls-search"><div class="row"><div class="field"><label>Search contacts</label><input name="q" value="${esc(
+      leadScoutState.q
+    )}" placeholder="Name, email, or phone" /></div><div class="field"><label>&nbsp;</label><button class="btn primary" type="submit">Search</button></div></div></form>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Contact</th><th>Email</th><th>Phone</th><th>Events</th><th>Last activity</th><th>First seen</th><th></th></tr></thead>
+      <tbody>${
+        contacts
+          .map(
+            (c) => `<tr>
+        <td>${esc(c.name || '—')}</td>
+        <td>${esc(c.email || '—')}</td>
+        <td>${esc(c.phone || '—')}</td>
+        <td>${esc(c.event_count || 0)}</td>
+        <td>${c.last_event_at ? esc(fmtDate(c.last_event_at)) : c.updated_at ? esc(fmtDate(c.updated_at)) : '—'}</td>
+        <td>${c.created_at ? esc(fmtDate(c.created_at)) : '—'}</td>
+        <td class="actions"><button class="btn small" data-act="view" data-id="${c.id}">View</button></td></tr>`
+          )
+          .join('') || '<tr><td colspan="7" class="empty">No LeadScout contacts yet. Contacts appear when a site form is submitted or a booking is made.</td></tr>'
+      }
+      </tbody>
+    </table></div>`;
+  view.querySelector('[data-act="refresh"]').onclick = () => pageLeadScout();
+  $('#ls-search').onsubmit = (e) => {
+    e.preventDefault();
+    leadScoutState.q = new FormData(e.target).get('q') || '';
+    pageLeadScout();
+  };
+  view.querySelectorAll('[data-act="view"]').forEach((b) => (b.onclick = () => openLeadScoutContact(Number(b.dataset.id))));
+}
+
+async function openLeadScoutContact(id) {
+  const d = openDrawer({ title: 'Contact', html: '<p class="hint">Loading…</p>' });
+  try {
+    const res = await withLoadTimeout(api.adminLeadScoutContact(id));
+    const data = res.data || {};
+    const c = data.contact || {};
+    const events = asList(data, ['events']);
+    d.title.textContent = c.name || c.email || 'Contact';
+    d.body.innerHTML = `
+      <div class="card"><h3>Contact</h3>
+        <p><strong>${esc(c.name || '—')}</strong><br>${esc(c.email || '')}${c.phone ? '<br>' + esc(c.phone) : ''}</p>
+        <p class="hint">First seen ${c.created_at ? esc(fmtDate(c.created_at)) : '—'} · Last activity ${
+          c.last_event_at ? esc(fmtDate(c.last_event_at)) : '—'
+        } · ${esc(c.event_count != null ? c.event_count : events.length)} event(s)</p></div>
+      <div class="card"><h3>History</h3>
+      ${
+        events.length
+          ? events
+              .map(
+                (e) =>
+                  `<div class="panel-h"><div><strong>${esc(e.kind)}</strong> ${esc(e.source_label || '')}<div class="hint">${esc(
+                    e.page_slug || ''
+                  )}${e.service_name ? ' · ' + esc(e.service_name) : ''}${e.status ? ' · ' + esc(e.status) : ''}</div></div><span class="timestamp">${esc(
+                    fmtDate(e.created_at)
+                  )}</span></div>${e.payload ? payloadTableHtml(e.payload) : ''}`
+              )
+              .join('')
+          : '<p class="hint">No events recorded.</p>'
+      }
+      </div>`;
+  } catch (e) {
+    d.body.innerHTML = `<p class="error">${esc(e.message)}</p>`;
+  }
+}
+
+async function pageBookings() {
+  let res;
+  try {
+    res = await withLoadTimeout(api.adminBookings());
+  } catch (e) {
+    view.innerHTML = loadErrorCardHtml(e.message);
+    wirePageRetry(() => pageBookings());
+    return;
+  }
+  const d = res.data || {};
+  const appointments = asList(d, ['appointments']);
+  const services = asList(d, ['services']);
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Bookings</h1><p class="lede">Appointments and bookable services across every site. Clients manage appointment status from their portal.</p></div>
+    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
+    <div class="card"><div class="panel-h"><h3>Appointments</h3><span class="hint">${appointments.length} shown</span></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>When</th><th>Customer</th><th>Service</th><th>Business</th><th>Status</th></tr></thead>
+      <tbody>${
+        appointments
+          .map(
+            (b) => `<tr>
+        <td>${esc(fmtDate(b.starts_at))}<div class="hint">to ${esc(fmtDate(b.ends_at))}</div></td>
+        <td>${esc(b.customer_name || '—')}<div class="hint">${esc(b.customer_email || '')}${b.customer_phone ? ' · ' + esc(b.customer_phone) : ''}</div></td>
+        <td>${esc(b.service_name || '—')}</td>
+        <td>${esc(b.lead_name || 'Lead #' + b.lead_id)}</td>
+        <td><span class="badge ${b.status === 'confirmed' ? 'ok' : b.status === 'cancelled' ? 'danger' : 'warn'}">${esc(b.status || 'pending')}</span></td></tr>`
+          )
+          .join('') || '<tr><td colspan="5" class="empty">No appointments yet.</td></tr>'
+      }
+      </tbody>
+    </table></div></div>
+    <div class="card"><div class="panel-h"><h3>Services</h3></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Service</th><th>Business</th><th>Duration</th><th>Price</th><th>Status</th><th>Bookings</th></tr></thead>
+      <tbody>${
+        services
+          .map(
+            (s) => `<tr>
+        <td>${esc(s.name || '—')}<div class="hint">${esc(s.description || '')}</div></td>
+        <td>${esc(s.lead_name || 'Lead #' + s.lead_id)}</td>
+        <td>${esc(s.duration_minutes || 30)} min</td>
+        <td>${s.price_cents ? esc(moneyCents(s.price_cents, s.currency)) : '—'}</td>
+        <td>${esc(s.status || 'draft')}</td>
+        <td>${esc(s.booking_count || 0)}</td></tr>`
+          )
+          .join('') || '<tr><td colspan="6" class="empty">No services yet. Services are created per site via MCP bookings.createService.</td></tr>'
+      }
+      </tbody>
+    </table></div></div>`;
+  view.querySelector('[data-act="refresh"]').onclick = () => pageBookings();
+}
+
+async function pageShop() {
+  let res;
+  try {
+    res = await withLoadTimeout(api.adminShop());
+  } catch (e) {
+    view.innerHTML = loadErrorCardHtml(e.message);
+    wirePageRetry(() => pageShop());
+    return;
+  }
+  const d = res.data || {};
+  const orders = asList(d, ['orders']);
+  const totals = asList(d, ['totals']);
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Shop</h1><p class="lede">Store orders across every site, plus the workspace payments configuration.</p></div>
+    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
+    ${
+      d.stripe_configured
+        ? '<div class="alert ok"><strong>Payments configured.</strong> Stripe keys are saved for this workspace, so shop checkout can run.</div>'
+        : '<div class="alert warn"><strong>Payments are not configured.</strong> No Stripe keys are saved for this workspace — shop sites have no working checkout until keys are added in Settings → Shop payments.</div>'
+    }
+    <div class="stats-cards">
+      <div class="stat-card"><div class="stat-label">Products</div><div class="stat-value">${esc(d.product_count || 0)}</div></div>
+      ${totals
+        .map(
+          (t) =>
+            `<div class="stat-card"><div class="stat-label">${esc(pretty(t.status))} orders</div><div class="stat-value">${esc(
+              t.c
+            )}</div><div class="hint">${esc(moneyCents(t.cents, 'USD'))}</div></div>`
+        )
+        .join('')}
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Order</th><th>Product</th><th>Customer</th><th>Business</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead>
+      <tbody>${
+        orders
+          .map(
+            (o) => `<tr>
+        <td>#${esc(o.id)}</td>
+        <td>${esc(o.product_name || '—')}</td>
+        <td>${esc(o.customer_email || '—')}</td>
+        <td>${esc(o.lead_name || 'Lead #' + o.lead_id)}</td>
+        <td>${esc(moneyCents(o.amount_cents, o.currency))}</td>
+        <td><span class="badge ${o.status === 'paid' ? 'ok' : o.status === 'failed' || o.status === 'cancelled' ? 'danger' : 'warn'}">${esc(
+          o.status || 'pending'
+        )}</span></td>
+        <td>${o.created_at ? esc(fmtDate(o.created_at)) : '—'}</td></tr>`
+          )
+          .join('') || '<tr><td colspan="7" class="empty">No orders yet.</td></tr>'
+      }
+      </tbody>
+    </table></div>`;
+  view.querySelector('[data-act="refresh"]').onclick = () => pageShop();
+}
+
+async function pageModules() {
+  let res;
+  try {
+    res = await withLoadTimeout(api.adminModules());
+  } catch (e) {
+    view.innerHTML = loadErrorCardHtml(e.message);
+    wirePageRetry(() => pageModules());
+    return;
+  }
+  const d = res.data || {};
+  const catalog = asList(d, ['catalog']);
+  const installs = asList(d, ['installs']);
+  const counts = d.counts || {};
+  const labelFor = (t) => {
+    const c = catalog.find((x) => x.type === t);
+    return c ? c.label : t;
+  };
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Modules</h1><p class="lede">Platform modules and where they are installed. Attach or detach modules per site from the Design flow or MCP.</p></div>
+    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
+    <div class="card"><div class="panel-h"><h3>Catalog</h3></div>
+      <div class="chips">${catalog
+        .map((c) => `<span class="chip">${esc(c.label)}<span>${esc(counts[c.type] || 0)} installed</span></span>`)
+        .join('')}</div></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Module</th><th>Business</th><th>Website</th><th>Page</th><th>Published</th><th>Updated</th></tr></thead>
+      <tbody>${
+        installs
+          .map(
+            (i) => `<tr>
+        <td>${esc(labelFor(i.module_type))}<div class="hint">${esc(i.title || '')}</div></td>
+        <td>${esc(i.lead_name || 'Lead #' + i.lead_id)}</td>
+        <td>${esc(i.website_name || '—')}</td>
+        <td>${esc(i.target_page_slug || '—')}</td>
+        <td>${i.published ? '<span class="badge ok">published</span>' : '<span class="badge">draft</span>'}</td>
+        <td>${i.updated_at ? esc(fmtDate(i.updated_at)) : '—'}</td></tr>`
+          )
+          .join('') || '<tr><td colspan="6" class="empty">No modules installed yet.</td></tr>'
+      }
+      </tbody>
+    </table></div>`;
+  view.querySelector('[data-act="refresh"]').onclick = () => pageModules();
+}
+
+async function pageCourses() {
+  let res;
+  try {
+    res = await withLoadTimeout(api.adminCourses());
+  } catch (e) {
+    view.innerHTML = loadErrorCardHtml(e.message);
+    wirePageRetry(() => pageCourses());
+    return;
+  }
+  const courses = asList(res.data, ['courses']);
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Courses</h1><p class="lede">Courses published through the courses module, across every site.</p></div>
+    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Course</th><th>Business</th><th>Lessons</th><th>Status</th><th>Updated</th></tr></thead>
+      <tbody>${
+        courses
+          .map(
+            (c) => `<tr>
+        <td>${esc(c.title || '—')}<div class="hint">${esc(c.description || '')}</div></td>
+        <td>${esc(c.lead_name || 'Lead #' + c.lead_id)}</td>
+        <td>${esc(c.lesson_count || 0)}</td>
+        <td>${c.status === 'published' ? '<span class="badge ok">published</span>' : esc(c.status || 'draft')}</td>
+        <td>${c.updated_at ? esc(fmtDate(c.updated_at)) : '—'}</td></tr>`
+          )
+          .join('') || '<tr><td colspan="5" class="empty">No courses yet. Courses are managed per site via MCP courses.*.</td></tr>'
+      }
+      </tbody>
+    </table></div>`;
+  view.querySelector('[data-act="refresh"]').onclick = () => pageCourses();
+}
+
+async function pageAnalytics() {
+  let res;
+  try {
+    res = await withLoadTimeout(api.adminAnalytics());
+  } catch (e) {
+    view.innerHTML = loadErrorCardHtml(e.message);
+    wirePageRetry(() => pageAnalytics());
+    return;
+  }
+  const d = res.data || {};
+  const dash = d.dashboard || {};
+  const out = d.outreach || {};
+  const byStatus = dash.byStatus || {};
+  const msgByStatus = out.messagesByStatus || {};
+  const eventsByType = out.eventsByType || {};
+  const activity = asList(dash, ['activity']);
+  const chipRow = (obj) =>
+    Object.keys(obj).length
+      ? Object.keys(obj)
+          .map((k) => `<span class="chip">${esc(pretty(k))}<span>${esc(obj[k])}</span></span>`)
+          .join('')
+      : '<span class="hint">No data yet.</span>';
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Analytics</h1><p class="lede">Workspace totals at a glance — leads, sites, outreach and recent activity.</p></div>
+    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
+    <div class="stats-cards">
+      <div class="stat-card"><div class="stat-label">Leads</div><div class="stat-value">${esc(dash.leadsTotal || 0)}</div></div>
+      <div class="stat-card"><div class="stat-label">Websites</div><div class="stat-value">${esc(dash.websites || 0)}</div></div>
+      <div class="stat-card"><div class="stat-label">Campaigns</div><div class="stat-value">${esc(out.campaigns || 0)}</div></div>
+      <div class="stat-card"><div class="stat-label">Active campaigns</div><div class="stat-value">${esc(out.activeCampaigns || 0)}</div></div>
+      <div class="stat-card"><div class="stat-label">Emails sent today</div><div class="stat-value">${esc(dash.outreachSentToday == null ? '—' : dash.outreachSentToday)}</div></div>
+      <div class="stat-card"><div class="stat-label">AI spend today</div><div class="stat-value">${money(dash.aiSpendTodayUsd)}</div></div>
+      <div class="stat-card"><div class="stat-label">Suppressed addresses</div><div class="stat-value">${esc(out.suppressionCount || 0)}</div></div>
+    </div>
+    <div class="card"><div class="panel-h"><h3>Leads by status</h3><a href="#/pipeline" class="btn small">Open pipeline</a></div>
+      <div class="chips">${chipRow(byStatus)}</div></div>
+    <div class="card"><div class="panel-h"><h3>Outreach messages by status</h3><a href="#/outreach" class="btn small">Open outreach</a></div>
+      <div class="chips">${chipRow(msgByStatus)}</div></div>
+    <div class="card"><div class="panel-h"><h3>Email events by type</h3></div>
+      <div class="chips">${chipRow(eventsByType)}</div></div>
+    <div class="card"><div class="panel-h"><h3>Recent activity</h3></div>
+      <ul class="list">${
+        activity.length
+          ? activity
+              .map((a) => `<li>${esc(a.message)}<div class="timestamp">${esc(a.area)} · ${esc(fmtDate(a.at))}</div></li>`)
+              .join('')
+          : '<li class="hint">No activity yet.</li>'
+      }</ul></div>`;
+  view.querySelector('[data-act="refresh"]').onclick = () => pageAnalytics();
+}
+
 const PAGES = {
   dashboard: pageDashboard,
   leads: pageLeads,
@@ -6765,6 +7182,13 @@ const PAGES = {
   social: pageSocial,
   outreach: pageOutreach,
   pipeline: pagePipeline,
+  forms: pageForms,
+  leadscout: pageLeadScout,
+  bookings: pageBookings,
+  shop: pageShop,
+  modules: pageModules,
+  courses: pageCourses,
+  analytics: pageAnalytics,
   jobs: pageJobs,
   mcp: pageMcp,
   settings: pageSettings,

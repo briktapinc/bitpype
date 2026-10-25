@@ -374,6 +374,17 @@ window.ScoutApi = (() => {
     intentGet: (leadId) => get('/intent/' + leadId),
     intentRecord: (leadId, event, note) => post('/intent/' + leadId, { event, note }),
 
+    // ---- admin area (read-only workspace-wide views) ----
+    adminForms: () => get('/admin-area/forms'),
+    adminFormSubmissions: (id, q) => get('/admin-area/forms/' + id + '/submissions', q),
+    adminLeadScoutContacts: (q) => get('/admin-area/leadscout/contacts', q),
+    adminLeadScoutContact: (id) => get('/admin-area/leadscout/contacts/' + id),
+    adminBookings: (q) => get('/admin-area/bookings', q),
+    adminShop: (q) => get('/admin-area/shop', q),
+    adminCourses: () => get('/admin-area/courses'),
+    adminModules: () => get('/admin-area/modules'),
+    adminAnalytics: () => get('/admin-area/analytics'),
+
     // ---- settings / prompts ----
     settingsGet: () => get('/settings'),
     settingsSet: (key, value) => put('/settings', { key, value }),
