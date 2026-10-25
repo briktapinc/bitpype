@@ -27,6 +27,8 @@
     creditsConfigured: false,
     creditsPackLabel: 'Credits pack',
     socialImagesIncluded: false,
+    metaConfigured: false,
+    socialAccountsCount: 0,
     previewUrl: null,
     hasSite: false,
     publishBusy: false,
@@ -258,6 +260,14 @@
     if (next === 'mcp' && state.mcpPaid) refreshMcpTokens().catch(() => {});
     if (next === 'referrals') loadReferrals().catch(() => {});
     if (next === 'analytics') loadAnalytics();
+    if (next === 'forms') loadForms().catch(() => {});
+    if (next === 'leadscout') loadLeadScout().catch(() => {});
+    if (next === 'modules') loadModules().catch(() => {});
+    if (next === 'social') {
+      loadCalendar().catch(() => {});
+      loadSocialAccounts().catch(() => {});
+    }
+    if (next === 'billing') loadBilling().catch(() => {});
 
     if (opts.updateHash !== false) {
       const want = panelHash(next);
@@ -1072,7 +1082,7 @@
           : '<p class="hint">No forms yet. Create one in Forms.</p>'
       }</div>`;
       html += canModules
-        ? `<div class="structure-block-group" style="margin-top:14px"><p class="hint" style="margin:0 0 8px">Widgets — Site modules</p><p class="hint" style="margin:0 0 8px">Style mounts to match the site (themed card/section + <code>.bitpype-module-embed</code>).</p>${
+        ? `<div class="structure-block-group" style="margin-top:14px"><p class="hint" style="margin:0 0 8px">Widgets — Site modules</p><p class="hint" style="margin:0 0 8px">Placed widgets are styled to match your site automatically.</p>${
             (mods || [])
               .map(
                 (m) =>
@@ -1080,7 +1090,7 @@
               )
               .join('') || '<p class="hint">No modules available.</p>'
           }</div>`
-        : '<p class="hint" style="margin-top:12px">Site modules require Standard or Premium.</p>';
+        : '<p class="hint" style="margin-top:12px">Site modules require a paid plan (Standard, Pro, or Premium).</p>';
     }
     return html || '<p class="hint">Nothing to insert.</p>';
   }
@@ -1189,7 +1199,7 @@
         mode === 'design-module'
           ? 'Choose a design module (heading, text, image, columns, HTML, …) to place in this section.'
           : mode === 'widget'
-            ? 'Choose a form or site module to place inside this design module. Style embeds (card/section + .bitpype-module-embed / .bitpype-form-embed) so they match the site.'
+            ? 'Choose a form or site module to place inside this design module. It will be styled to match your site.'
             : 'Page → Section → Design module → Widget. Add layouts or live widgets. Style module/form mounts — do not leave bare default embeds.';
     }
     listEl.innerHTML = '<p class="hint">Loading…</p>';
@@ -2489,6 +2499,11 @@
     const start = (state.page - 1) * state.pageSize;
     const slice = posts.slice(start, start + state.pageSize);
     const showGenAd = !!state.socialImagesIncluded;
+    const socialReady = !!state.metaConfigured && state.socialAccountsCount > 0;
+    const gateReason = !state.metaConfigured
+      ? 'Social publishing is not set up yet — contact Bitpype to connect your Facebook / Instagram accounts.'
+      : 'Connect a Facebook / Instagram account above to approve & schedule posts.';
+    const nowMs = Date.now();
 
     list.innerHTML = slice
       .map((p) => {
@@ -2497,6 +2512,10 @@
         const media = img
           ? `<div class="post-media"><img src="${esc(img)}" alt="Post image" loading="lazy" /></div>`
           : `<div class="post-media">No image yet</div>`;
+        const overdue =
+          String(p.status || '') === 'draft' &&
+          p.scheduled_at &&
+          new Date(p.scheduled_at).getTime() < nowMs;
         return `
         <article class="post-card" data-post-id="${esc(p.id)}">
           ${media}
@@ -2505,6 +2524,7 @@
               <span>${formatWhen(p.scheduled_at)}</span>
               <span class="platforms">${platforms || 'facebook, instagram'}</span>
               <span class="status-pill">${esc(p.status || 'draft')}</span>
+              ${overdue ? '<span class="status-pill warn">Overdue</span>' : ''}
             </div>
             <div class="post-cap-block">
               <textarea class="post-cap-edit" data-caption-for="${esc(p.id)}" rows="3" aria-label="Post caption">${esc(p.caption || '')}</textarea>
@@ -2518,16 +2538,19 @@
               }
               ${
                 ['draft', 'pending_approval', 'approved', 'rejected'].includes(String(p.status || ''))
-                  ? `<button type="button" class="btn soft small" data-act="approve" data-id="${esc(p.id)}">Approve &amp; schedule</button>`
+                  ? socialReady
+                    ? `<button type="button" class="btn soft small" data-act="approve" data-id="${esc(p.id)}">Approve &amp; schedule</button>`
+                    : `<button type="button" class="btn soft small" disabled title="${esc(gateReason)}">Approve &amp; schedule</button>`
                   : ''
               }
+              ${socialReady ? '' : `<span class="hint">${esc(gateReason)}</span>`}
               <label class="hint" style="display:inline-flex;align-items:center;gap:6px">
                 When
                 <input type="datetime-local" data-act="sched" data-id="${esc(p.id)}"
                   value="${esc(String(p.scheduled_at || '').slice(0, 16))}"
                   style="font:inherit;padding:6px 10px;border:1.5px solid rgba(28,20,15,.16);border-radius:14px;background:var(--paper);color:var(--ink)" />
               </label>
-              <button type="button" class="btn ghost small" data-act="share-native" data-id="${esc(p.id)}">Share</button>
+              <button type="button" class="btn ghost small" data-act="share-native" data-id="${esc(p.id)}"${socialReady ? '' : ` disabled title="${esc(gateReason)}"`}>Share</button>
               <button type="button" class="btn ghost small" data-act="share-fb" data-id="${esc(p.id)}">Facebook</button>
               <button type="button" class="btn ghost small" data-act="share-ig" data-id="${esc(p.id)}">Instagram</button>
               <button type="button" class="btn ghost small" data-act="copy" data-id="${esc(p.id)}">Copy caption</button>
@@ -2712,7 +2735,7 @@
     const priceHint = document.getElementById('image-price-hint');
     priceHint.hidden = false;
     if (state.socialImagesIncluded) {
-      priceHint.textContent = `Branded image ads included in Premium · Balance: ${state.creditsBalance} credits (content still uses credits).`;
+      priceHint.textContent = `Branded social images are included in your plan — no credit charge for images. Writing post content uses credits · Balance: ${state.creditsBalance} credits.`;
     } else {
       priceHint.textContent = `Balance: ${state.creditsBalance} credits · Images ${state.imageCredits}/ea · Content ${state.contentCredits}/generation. Buy packs in Billing.`;
     }
@@ -2747,9 +2770,27 @@
   }
 
   async function loadCalendar() {
-    const now = new Date();
-    const data = await api(`/calendar?year=${now.getUTCFullYear()}&month=${now.getUTCMonth() + 1}`);
-    renderCalendar(data);
+    try {
+      const now = new Date();
+      const data = await api(`/calendar?year=${now.getUTCFullYear()}&month=${now.getUTCMonth() + 1}`);
+      renderCalendar(data);
+    } catch (e) {
+      const lede = document.getElementById('cal-lede');
+      if (lede) lede.textContent = 'Your social calendar could not be loaded.';
+      const list = document.getElementById('post-list');
+      if (list) {
+        list.innerHTML =
+          '<p class="hint">Something went wrong loading your posts. ' +
+          '<button type="button" class="btn ghost small" id="cal-retry">Retry</button></p>';
+        const retry = document.getElementById('cal-retry');
+        if (retry) retry.onclick = () => loadCalendar().catch(() => {});
+      }
+      const msg = document.getElementById('msg-social');
+      if (msg) {
+        msg.className = 'msg err';
+        msg.textContent = e.message || 'Could not load your social calendar.';
+      }
+    }
   }
 
   function portalCheckoutFlag() {
@@ -2799,7 +2840,7 @@
               id: 'standard',
               name: 'Standard',
               priceLabel: 'Monthly',
-              tagline: 'Monthly support with pay-per-image social ads.',
+              tagline: 'Monthly support with credit-based social ads.',
               features: [],
               checkout: true,
               priceConfigured: false,
@@ -3081,6 +3122,27 @@
   document.getElementById('analytics-days').addEventListener('change', loadAnalytics);
 
   async function loadBilling() {
+    try {
+      await loadBillingInner();
+    } catch (e) {
+      const pill = document.getElementById('bill-status');
+      if (pill) {
+        pill.textContent = 'Couldn’t load';
+        pill.className = 'status-pill bad';
+      }
+      const noticeEl = document.getElementById('bill-notice');
+      if (noticeEl) {
+        noticeEl.hidden = false;
+        noticeEl.innerHTML =
+          `Billing could not be loaded (${esc(e.message || 'error')}). ` +
+          '<button type="button" class="btn ghost small" id="bill-retry">Retry</button>';
+        const retry = document.getElementById('bill-retry');
+        if (retry) retry.onclick = () => loadBilling().catch(() => {});
+      }
+    }
+  }
+
+  async function loadBillingInner() {
     const b = await api('/billing');
     const pill = document.getElementById('bill-status');
     const planId = String(b.plan || 'free');
@@ -3099,6 +3161,7 @@
     pill.className = 'status-pill' + (status === 'past_due' ? ' warn' : '') + (status === 'canceled' ? ' bad' : '');
     const planEl = document.getElementById('bill-plan-name');
     if (planEl) planEl.textContent = planName + ' plan';
+    state.planName = planName;
 
     const end = b.currentPeriodEnd
       ? new Date(String(b.currentPeriodEnd).replace(' ', 'T') + (String(b.currentPeriodEnd).includes('Z') ? '' : 'Z'))
@@ -3113,7 +3176,7 @@
         : endLabel
           ? `Renews / period ends ${endLabel}.`
           : planId === 'free'
-            ? 'You’re on Free — upgrade anytime for support. Premium includes social images.'
+            ? 'You’re on Free — upgrade anytime for support. Pro and Premium include social images.'
             : 'Your service is currently covered.';
     const noticeEl = document.getElementById('bill-notice');
     noticeEl.textContent = b.notice || '';
@@ -3146,6 +3209,12 @@
     const manage = document.getElementById('btn-manage-billing');
     const canSelfServe = !!(b.canSelfServe != null ? b.canSelfServe : b.canManage);
     if (manage) manage.hidden = !(canSelfServe && b.hasCustomer);
+    const footEl = document.getElementById('bill-plan-foot');
+    if (footEl) {
+      footEl.textContent = canSelfServe
+        ? 'Switch plans here anytime. Switching between paid plans updates your Stripe subscription with proration. Downgrade to Free cancels at period end. Payment method and receipts: Manage subscription.'
+        : 'Your plan is covered by Bitpype — contact us to change plans, update payment details, or cancel.';
+    }
 
     const credits = b.credits || {};
     state.creditsBalance = Number(credits.balance || 0);
@@ -3162,7 +3231,12 @@
     const buyBtn = document.getElementById('btn-buy-credits');
     if (buyBtn) {
       buyBtn.hidden = !(canSelfServe && state.creditsConfigured);
-      buyBtn.textContent = `Buy ${credits.packLabel || 'credits'}`;
+      const packPrice = credits.packPriceUsd != null ? Number(credits.packPriceUsd) : null;
+      const priceLabel =
+        packPrice != null && Number.isFinite(packPrice) && packPrice > 0
+          ? ` — $${packPrice % 1 === 0 ? String(packPrice) : packPrice.toFixed(2)}`
+          : '';
+      buyBtn.textContent = `Buy ${credits.packLabel || 'credits'}${priceLabel}`;
     }
 
     state.entitlements = b.entitlements || {};
@@ -3170,6 +3244,16 @@
     if (state.plan !== 'free') hideUpsellTip();
     renderPlanCards(b);
     syncMcpPlanAccess(planId);
+    updateFormsPlanLine();
+  }
+
+  const PLAN_NAMES = { free: 'Free', standard: 'Standard', pro: 'Pro', premium: 'Premium' };
+  function updateFormsPlanLine(fallbackPlanId) {
+    const el = document.getElementById('forms-plan-line');
+    if (!el) return;
+    const planId = String(state.plan || fallbackPlanId || 'free');
+    const name = state.planName || PLAN_NAMES[planId] || planId;
+    el.textContent = `Your plan: ${name}.`;
   }
 
   const mcpEndpoint = () => `${window.location.origin}/mcp`;
@@ -3443,6 +3527,7 @@
   async function loadFormSubmissions() {
     const sub = await api('/forms/submissions');
     formState.plan = sub.plan || 'free';
+    updateFormsPlanLine(formState.plan);
     const notice = document.getElementById('form-inbox-notice');
     const list = document.getElementById('form-submissions');
     if (!sub.inbox) {
@@ -3480,6 +3565,26 @@
   }
 
   async function loadForms() {
+    try {
+      await loadFormsInner();
+    } catch (e) {
+      const list = document.getElementById('forms-list');
+      if (list) {
+        list.innerHTML =
+          '<p class="hint">Something went wrong loading your forms. ' +
+          '<button type="button" class="btn ghost small" id="forms-retry">Retry</button></p>';
+        const retry = document.getElementById('forms-retry');
+        if (retry) retry.onclick = () => loadForms().catch(() => {});
+      }
+      const msg = document.getElementById('msg-forms-list');
+      if (msg) {
+        msg.className = 'msg err';
+        msg.textContent = e.message || 'Could not load your forms.';
+      }
+    }
+  }
+
+  async function loadFormsInner() {
     const data = await api('/forms');
     formState.forms = Array.isArray(data.forms)
       ? data.forms
@@ -3495,7 +3600,12 @@
     } else {
       showFormsList();
     }
-    await loadFormSubmissions();
+    try {
+      await loadFormSubmissions();
+    } catch (e) {
+      const notice = document.getElementById('form-inbox-notice');
+      if (notice) notice.textContent = `Submissions could not be loaded (${e.message || 'error'}).`;
+    }
   }
 
   async function loadSocialAccounts() {
@@ -3505,8 +3615,11 @@
     try {
       const data = await api('/social/accounts');
       const accounts = (data && data.accounts) || [];
-      if (!data.metaConfigured) {
-        hint.textContent = 'Meta is not configured yet — ask Bitpype to set meta.app_id / meta.app_secret.';
+      state.metaConfigured = !!(data && data.metaConfigured);
+      state.socialAccountsCount = accounts.length;
+      if (!state.metaConfigured) {
+        hint.textContent =
+          'Social accounts aren’t connected yet. Contact Bitpype to connect your Facebook Page and Instagram account.';
       } else {
         hint.textContent = accounts.length
           ? 'Connected accounts for automatic scheduling.'
@@ -3528,7 +3641,16 @@
         msg.className = 'msg ok';
         msg.textContent = 'Meta connected.';
       }
+      if (state.posts && state.posts.length) renderPostPage();
     } catch (e) {
+      if (hint) hint.textContent = 'Could not load your social accounts.';
+      if (list) {
+        list.innerHTML =
+          '<p class="hint">Something went wrong loading your accounts. ' +
+          '<button type="button" class="btn ghost small" id="social-accounts-retry">Retry</button></p>';
+        const retry = document.getElementById('social-accounts-retry');
+        if (retry) retry.onclick = () => loadSocialAccounts().catch(() => {});
+      }
       if (msg) {
         msg.className = 'msg err';
         msg.textContent = e.message;
@@ -3851,7 +3973,12 @@
     const copy = moduleCopy(moduleState.current);
     const meta = MODULE_TYPES.find((m) => m.type === moduleState.current);
     const sub = document.getElementById('modules-items-sub');
-    if (sub) sub.textContent = `Manage ${copy.plural} for your ${(meta && meta.label) || 'module'}.`;
+    if (sub) {
+      sub.textContent =
+        moduleState.current === 'faq'
+          ? 'Manage questions for your FAQ module. These are separate from your site’s designed FAQ section, which is edited under Website.'
+          : `Manage ${copy.plural} for your ${(meta && meta.label) || 'module'}.`;
+    }
     const newBtn = document.getElementById('btn-modules-new');
     if (newBtn) newBtn.textContent = copy.newBtn;
   }
@@ -3871,9 +3998,14 @@
       events: 'events',
       bookings: 'book',
     };
-    const want = selected || defaults[moduleState.current] || 'home';
+    let want = selected || defaults[moduleState.current] || 'home';
     const opts = Array.isArray(pages) && pages.length ? pages : [{ slug: want, title: want }];
     const slugs = new Set(opts.map((p) => p.slug));
+    // FAQ module: prefer the site's FAQ page as the default target unless the
+    // module is already live on a page (a stored target from setup may say Contact).
+    const emb = moduleState.embed;
+    const faqOnSite = !!(emb && emb.published && emb.embed_enabled);
+    if (moduleState.current === 'faq' && !faqOnSite && slugs.has('faq')) want = 'faq';
     if (!slugs.has(want)) opts.unshift({ slug: want, title: want });
     sel.innerHTML = opts
       .map(
@@ -3895,10 +4027,14 @@
     const pageLabel = document.querySelector('#modules-embed-bar label.hint');
     const isChatbot = moduleState.current === 'chatbot';
     if (pageLabel) pageLabel.hidden = isChatbot;
+    const attachBtn = document.getElementById('btn-modules-attach');
+    const detachBtn = document.getElementById('btn-modules-detach');
+    if (attachBtn) attachBtn.hidden = onSite;
+    if (detachBtn) detachBtn.hidden = !onSite;
     if (status) {
       if (isChatbot) {
         status.innerHTML = onSite
-          ? '<span class="status-pill">Live</span> Floating chat bubble on all published pages. Agent replies via your portal MCP token (chatbot.* only — not admin tools).'
+          ? '<span class="status-pill">Live</span> Floating chat bubble on all published pages. Your AI assistant answers visitors from your knowledge items.'
           : 'Not on your site yet — click <strong>Add to site</strong> to place the chat bubble on every page.';
       } else {
         status.innerHTML = onSite
@@ -3927,7 +4063,7 @@
         <button type="button" class="btn ghost small" id="btn-chat-settings-back">← Knowledge</button>
       </div>
       <h3>Chatbot settings</h3>
-      <p class="hint">Visitor messages notify your <strong>client MCP agent</strong> (chatbot.pending / chatbot.reply). If no agent replies, ChatGPT answers from your knowledge files — or thanks the visitor and asks for their details when nothing matches. Do not use admin workspace tools for chat.</p>
+      <p class="hint">Your chatbot answers visitors from your knowledge items. Questions it can’t answer are saved to the Inbox tab so you can follow up — nothing is missed.</p>
       <div class="field"><label>Greeting</label><input id="chat-set-greeting" type="text" value="${esc(s.greeting || '')}" /></div>
       <div class="field"><label>Bubble label</label><input id="chat-set-label" type="text" value="${esc(s.bubble_label || 'Chat')}" /></div>
       <div class="field"><label>Accent color (optional #hex)</label><input id="chat-set-color" type="text" value="${esc(s.primary_color || '')}" placeholder="#0e7a68" /></div>
@@ -3947,7 +4083,6 @@
         Suggest lead capture when agent is unsure / slow
       </label>
       <div class="field"><label>Wait hint (seconds)</label><input id="chat-set-timeout" type="number" min="15" max="600" value="${esc(s.agent_timeout_hint_sec != null ? s.agent_timeout_hint_sec : 90)}" /></div>
-      <p class="hint" style="margin-top:10px">${esc(boundary.forbidden || 'Client MCP only — no workspace ws_ admin tokens for chat sessions.')}</p>
       <button type="button" class="btn" id="btn-chat-settings-save">Save chatbot settings</button>
       <p class="msg" id="msg-chat-settings"></p>`;
     const backBtn = document.getElementById('btn-chat-settings-back');
@@ -4104,6 +4239,7 @@
     const items = moduleState.items || [];
     const type = moduleState.current;
     const copy = moduleCopy(type);
+    const headNewBtn = document.getElementById('btn-modules-new');
     if (!items.length) {
       box.classList.remove('item-list');
       box.innerHTML = `<div class="modules-empty">
@@ -4111,10 +4247,12 @@
         <p class="hint">Create your first ${esc(copy.singular)} — you can publish it when you are ready.</p>
         <button type="button" class="btn soft" id="btn-modules-empty-new">${esc(copy.newBtn)}</button>
       </div>`;
+      if (headNewBtn) headNewBtn.hidden = true;
       const emptyBtn = document.getElementById('btn-modules-empty-new');
       if (emptyBtn) emptyBtn.onclick = () => openModuleEditor(null);
       return;
     }
+    if (headNewBtn) headNewBtn.hidden = false;
     box.classList.add('item-list');
     const kicker = copy.kicker;
     box.innerHTML = items
@@ -4507,6 +4645,15 @@
       await loadModuleItems();
     } catch (e) {
       moduleMsg(e.message, false);
+      if (app && app.hidden && upgrade && upgrade.hidden) app.hidden = false;
+      const box = document.getElementById('modules-items');
+      if (box && app && !app.hidden) {
+        box.innerHTML =
+          '<p class="hint">Something went wrong loading your modules. ' +
+          '<button type="button" class="btn ghost small" id="modules-retry">Retry</button></p>';
+        const retry = document.getElementById('modules-retry');
+        if (retry) retry.onclick = () => loadModules().catch(() => {});
+      }
     }
   }
 
@@ -4559,6 +4706,11 @@
       if (msgEl) msgEl.textContent = '';
       if (leadScoutSelectedId) await loadLeadScoutDetail(leadScoutSelectedId);
     } catch (e) {
+      listEl.innerHTML =
+        '<p class="hint" style="margin:0">Contacts could not be loaded. ' +
+        '<button type="button" class="btn ghost small" id="leadscout-retry">Retry</button></p>';
+      const retry = document.getElementById('leadscout-retry');
+      if (retry) retry.onclick = () => loadLeadScout().catch(() => {});
       if (msgEl) msgEl.textContent = e.message || 'Failed to load contacts';
     }
   }

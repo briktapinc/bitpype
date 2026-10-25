@@ -129,7 +129,7 @@ const PLANS = {
       'Site modules — blog, shop, courses, gallery, directory, chatbot',
       'AI site chatbot (portal client MCP agent)',
       'MCP social post scheduling',
-      'Weekly support',
+      'Monthly support call',
       'Social media images included (no credit charge for images)',
     ],
     entitlements: {

@@ -2213,6 +2213,7 @@
       <section class="block portal-panel" id="sec-forms" role="tabpanel" aria-labelledby="nav-forms" data-panel="forms" hidden>
         <h2>Forms</h2>
         <p class="lede">Build forms for your site, then review what people submit. Free plans email results; Standard+ keep them in Submissions.</p>
+        <p class="hint" id="forms-plan-line" style="margin:0 0 12px"></p>
         <div class="portal-pane-tabs" id="forms-pane-tabs" role="tablist" aria-label="Forms sections">
           <button type="button" class="portal-pane-tab is-active" role="tab" data-forms-pane="setup" aria-selected="true">Forms</button>
           <button type="button" class="portal-pane-tab" role="tab" data-forms-pane="results" aria-selected="false">Submissions</button>
@@ -2303,7 +2304,7 @@
 
       <section class="block portal-panel" id="sec-modules" role="tabpanel" aria-labelledby="nav-modules" data-panel="modules" hidden>
         <h2>Site modules</h2>
-        <p class="lede">Manage content for each module on the left, then place it on a page. Chatbot is a sitewide floating bubble answered by your portal MCP agent (client tools only). Included with Standard, Pro and Premium.</p>
+        <p class="lede">Manage content for each module on the left, then place it on a page. Chatbot is a sitewide floating bubble that answers visitors from your knowledge items. Included with Standard, Pro and Premium.</p>
         <div class="panel" id="modules-upgrade" hidden>
           <p style="margin:0 0 12px">Upgrade to <strong>Standard</strong>, <strong>Pro</strong> or <strong>Premium</strong> to unlock site modules.</p>
           <button type="button" class="btn" id="btn-modules-upgrade">View plans</button>
@@ -2320,7 +2321,7 @@
                   <div>
                     <h3 class="modules-embed-title" id="modules-current-label">Blog</h3>
                     <p class="hint" id="modules-embed-status" style="margin:6px 0 0">Not on your site yet.</p>
-                    <p class="hint" style="margin:6px 0 0">Tip: style the module mount (card/section + theme CSS on <code>.bitpype-module-embed</code>) so it matches your site — not a bare default embed.</p>
+                    <p class="hint" style="margin:6px 0 0">Tip: placed modules are styled to match your site automatically.</p>
                   </div>
                   <div class="modules-embed-actions">
                     <label class="hint" style="display:flex;align-items:center;gap:6px;margin:0">
@@ -2470,7 +2471,7 @@
             <div class="mcp-create-row">
               <div class="field">
                 <label for="mcp-token-name">Name</label>
-                <input id="mcp-token-name" type="text" maxlength="80" value="Muse" placeholder="e.g. Muse laptop" autocomplete="off" />
+                <input id="mcp-token-name" type="text" maxlength="80" placeholder="Name this connection" autocomplete="off" />
               </div>
               <button type="button" class="btn" id="btn-mcp-token">Create MCP token</button>
             </div>
@@ -2528,7 +2529,7 @@
           <div class="field"><label for="ref-email">Email</label><input id="ref-email" type="email" autocomplete="email" placeholder="name@business.com" /></div>
           <div class="field"><label for="ref-phone">Phone</label><input id="ref-phone" type="tel" autocomplete="tel" placeholder="Optional if email is set" /></div>
           <div class="field"><label for="ref-business">Business name</label><input id="ref-business" type="text" placeholder="Required if no email" /></div>
-          <p class="hint" style="margin:0 0 12px">Need an email or business name, plus email or phone so we can reach them.</p>
+          <p class="hint" style="margin:0 0 12px">At minimum a business name, plus an email or phone so Bitpype can reach them.</p>
           <button type="button" class="btn" id="btn-ref-submit">Submit referral</button>
           <p class="msg" id="msg-referrals"></p>
         </div>
@@ -2608,6 +2609,6 @@
 
   <script src="/js/fonts.js?v=fonts1"></script>
   <script src="/js/captcha.js"></script>
-  <script src="/js/portal.js?v=batch8-pro1"></script>
+  <script src="/js/portal.js?v=batch10-fixes1"></script>
 </body>
 </html>

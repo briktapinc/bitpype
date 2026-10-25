@@ -418,7 +418,7 @@ async function mintAccessToken(row) {
       status: 400,
     });
   }
-  const name = `Claude OAuth · ${String(row.email || '').slice(0, 36)} · lead ${row.leadId}`;
+  const name = `Claude OAuth · ${String(row.email || '').slice(0, 36)}`;
   const created = await portal.createClientMcpToken(row.workspaceId, row.leadId, row.email, {
     name,
     expiresAt: Date.now() + ACCESS_TTL_SEC * 1000,

@@ -390,10 +390,16 @@ async function summaryForWorkspace(workspaceId) {
   const cfg = await packConfig();
   const balance = await getBalance(workspaceId);
   const recent = await listLedger(workspaceId, { limit: 15 });
+  const usdPerCredit = Number(await platform.getPlatformSetting('credits.usd_per_credit', '1'));
+  const packPriceUsd =
+    Number.isFinite(usdPerCredit) && usdPerCredit > 0
+      ? Math.round(cfg.packAmount * usdPerCredit * 100) / 100
+      : null;
   return {
     balance,
     packAmount: cfg.packAmount,
     packLabel: cfg.packLabel,
+    packPriceUsd,
     priceConfigured: cfg.configured,
     perSocialImage: cfg.perImage,
     perSocialContent: cfg.perContent,
