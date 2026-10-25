@@ -2805,10 +2805,19 @@
               priceConfigured: false,
             },
             {
+              id: 'pro',
+              name: 'Pro',
+              priceLabel: 'Monthly',
+              tagline: 'Monthly support with social images included.',
+              features: [],
+              checkout: true,
+              priceConfigured: false,
+            },
+            {
               id: 'premium',
               name: 'Premium',
               priceLabel: 'Monthly',
-              tagline: 'Weekly support with social images included.',
+              tagline: 'All features included, plus a monthly support call.',
               features: [],
               checkout: true,
               priceConfigured: false,
@@ -2854,7 +2863,7 @@
           cta = `<button class="btn" type="button" data-change-plan="${esc(p.id)}">Switch to ${esc(p.name)}</button>`;
         }
         const featuredNote =
-          p.id === 'premium'
+          p.id === 'premium' || p.id === 'pro'
             ? '<p class="plan-tagline" style="color:var(--accent);font-weight:550">Social images included — no per-image charge.</p>'
             : '';
         return `<div class="plan-card${isCurrent ? ' is-current' : ''}${p.id === 'premium' ? ' is-featured' : ''}">
@@ -3195,7 +3204,7 @@
   }
 
   function syncMcpPlanAccess(planId) {
-    const paid = planId === 'standard' || planId === 'premium';
+    const paid = planId === 'standard' || planId === 'pro' || planId === 'premium';
     state.mcpPaid = paid;
     const nav = document.getElementById('nav-mcp');
     if (nav) nav.hidden = !paid;

@@ -195,7 +195,7 @@
           + (state.client.businessName ? ' · ' + state.client.businessName : '');
         if (!state.planOk) {
           planWarn.hidden = false;
-          planWarn.textContent = state.planError || 'Standard or Premium is required to connect MCP.';
+          planWarn.textContent = state.planError || 'Standard, Pro or Premium is required to connect MCP.';
         }
         show(panelConsent);
         document.getElementById('btn-allow').disabled = !state.planOk;

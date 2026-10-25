@@ -2,7 +2,7 @@
 
 const Stripe = require('stripe');
 const platform = require('./platform');
-const { PLAN_STANDARD, PLAN_PREMIUM, normalizePlanId } = require('./plans');
+const { PLAN_STANDARD, PLAN_PRO, PLAN_PREMIUM, normalizePlanId } = require('./plans');
 
 let cached = { key: null, client: null };
 
@@ -42,7 +42,7 @@ async function getPriceId() {
 
 /**
  * Resolve Stripe Price ID for a paid plan.
- * Env: STRIPE_PRICE_ID_STANDARD / STRIPE_PRICE_ID_PREMIUM
+ * Env: STRIPE_PRICE_ID_STANDARD / STRIPE_PRICE_ID_PRO / STRIPE_PRICE_ID_PREMIUM
  * Legacy: STRIPE_PRICE_ID or stripe.price_id maps to Standard.
  */
 async function getPriceIdForPlan(planId) {
@@ -51,6 +51,11 @@ async function getPriceIdForPlan(planId) {
     const fromEnv = process.env.STRIPE_PRICE_ID_PREMIUM || '';
     if (fromEnv) return String(fromEnv).trim();
     return String((await platform.getPlatformSetting('stripe.price_id_premium', '')) || '').trim();
+  }
+  if (plan === PLAN_PRO) {
+    const fromEnv = process.env.STRIPE_PRICE_ID_PRO || '';
+    if (fromEnv) return String(fromEnv).trim();
+    return String((await platform.getPlatformSetting('stripe.price_id_pro', '')) || '').trim();
   }
   if (plan === PLAN_STANDARD) {
     const fromEnv = process.env.STRIPE_PRICE_ID_STANDARD || process.env.STRIPE_PRICE_ID || '';
@@ -64,16 +69,18 @@ async function getPriceIdForPlan(planId) {
 
 async function getConfiguredPriceIds() {
   const standard = await getPriceIdForPlan(PLAN_STANDARD);
+  const pro = await getPriceIdForPlan(PLAN_PRO);
   const premium = await getPriceIdForPlan(PLAN_PREMIUM);
-  return { standard, premium };
+  return { standard, pro, premium };
 }
 
 /** Map a Stripe price_… id back to a plan tier. */
 async function planIdFromPriceId(priceId) {
   const pid = String(priceId || '').trim();
   if (!pid) return null;
-  const { standard, premium } = await getConfiguredPriceIds();
+  const { standard, pro, premium } = await getConfiguredPriceIds();
   if (premium && pid === premium) return PLAN_PREMIUM;
+  if (pro && pid === pro) return PLAN_PRO;
   if (standard && pid === standard) return PLAN_STANDARD;
   return null;
 }

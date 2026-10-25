@@ -94,12 +94,23 @@ function creditsFromPlanCents(planCents, percent, perCreditUsd) {
 }
 
 async function estimatePlanCents(planId) {
-  const key = planId === 'premium' ? 'billing.amount_label_premium' : 'billing.amount_label_standard';
-  const label = await platform.getPlatformSetting(key, planId === 'premium' ? 'Premium · $99/mo' : 'Standard · $49/mo');
+  const labelKeys = {
+    standard: 'billing.amount_label_standard',
+    pro: 'billing.amount_label_pro',
+    premium: 'billing.amount_label_premium',
+  };
+  const labelDefaults = {
+    standard: 'Standard · $49/mo',
+    pro: 'Pro · $169/mo',
+    premium: 'Premium · $99/mo',
+  };
+  const fallbackCents = { standard: 4900, pro: 16900, premium: 9900 };
+  const id = labelKeys[planId] ? planId : 'standard';
+  const label = await platform.getPlatformSetting(labelKeys[id], labelDefaults[id]);
   const usd = parseUsdFromLabel(label);
   if (usd != null) return Math.round(usd * 100);
   // Fallbacks when labels have no dollar amount.
-  return planId === 'premium' ? 9900 : 4900;
+  return fallbackCents[id];
 }
 
 function planAmountCentsFromSubscription(subscription) {

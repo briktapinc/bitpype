@@ -316,11 +316,11 @@ function portalToolDefs() {
     },
     {
       name: 'billing.checkout',
-      description: 'Start Stripe Checkout for standard|premium. Returns checkout URL (one-time display flow).',
+      description: 'Start Stripe Checkout for standard|pro|premium. Returns checkout URL (one-time display flow).',
       inputSchema: schema({
         leadId: ID,
-        planId: { type: 'string', enum: ['standard', 'premium'] },
-        plan: { type: 'string', enum: ['standard', 'premium'] },
+        planId: { type: 'string', enum: ['standard', 'pro', 'premium'] },
+        plan: { type: 'string', enum: ['standard', 'pro', 'premium'] },
       }),
     },
     {
@@ -330,11 +330,11 @@ function portalToolDefs() {
     },
     {
       name: 'billing.changePlan',
-      description: 'Switch between standard and premium on an active subscription (proration).',
+      description: 'Switch between standard, pro and premium on an active subscription (proration).',
       inputSchema: schema(
         {
           leadId: ID,
-          planId: { type: 'string', enum: ['standard', 'premium'] },
+          planId: { type: 'string', enum: ['standard', 'pro', 'premium'] },
         },
         ['planId']
       ),

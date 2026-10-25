@@ -137,6 +137,7 @@ const PLATFORM_SETTING_DEFS = [
     secret: true,
   },
   { key: 'stripe.price_id_standard', group: 'billing', label: 'Standard plan Price ID (price_… monthly)', default: '' },
+  { key: 'stripe.price_id_pro', group: 'billing', label: 'Pro plan Price ID (price_… monthly)', default: '' },
   { key: 'stripe.price_id_premium', group: 'billing', label: 'Premium plan Price ID (price_… monthly)', default: '' },
   { key: 'stripe.price_id', group: 'billing', label: 'Legacy Price ID (fallback → Standard)', default: '' },
   {
@@ -150,6 +151,12 @@ const PLATFORM_SETTING_DEFS = [
     group: 'billing',
     label: 'Standard plan price label (e.g. $49/mo)',
     default: 'Standard · monthly',
+  },
+  {
+    key: 'billing.amount_label_pro',
+    group: 'billing',
+    label: 'Pro plan price label (e.g. $169/mo)',
+    default: 'Pro · monthly',
   },
   {
     key: 'billing.amount_label_premium',

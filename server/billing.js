@@ -5,6 +5,7 @@ const platform = require('./platform');
 const {
   PLAN_FREE,
   PLAN_STANDARD,
+  PLAN_PRO,
   PLAN_PREMIUM,
   normalizePlanId,
   getPlan,
@@ -240,9 +241,9 @@ async function ensureCustomer(user) {
 }
 
 /**
- * Start Checkout for Standard or Premium.
+ * Start Checkout for a paid plan.
  * @param {number} userId
- * @param {string} [planId] standard|premium (default standard)
+ * @param {string} [planId] standard|pro|premium (default standard)
  * @param {{ successUrl?: string, cancelUrl?: string }} [opts]
  */
 async function createCheckoutSession(userId, planId = PLAN_STANDARD, opts = {}) {
@@ -254,7 +255,7 @@ async function createCheckoutSession(userId, planId = PLAN_STANDARD, opts = {}) 
   assertNotPastDue(user);
   const plan = normalizePlanId(planId);
   if (!isPaidPlan(plan)) {
-    throw Object.assign(new Error('Choose Standard or Premium to subscribe'), { code: 'INVALID_PLAN' });
+    throw Object.assign(new Error('Choose Standard, Pro, or Premium to subscribe'), { code: 'INVALID_PLAN' });
   }
   if (isSubscribed(user) && user.stripe_subscription_id && !opts.forceCheckout) {
     throw Object.assign(new Error('You already have an active subscription — use change-plan to switch'), {
@@ -414,8 +415,8 @@ async function changeSubscriptionPlan(userId, planId, opts = {}) {
   const raw = String(planId || '')
     .trim()
     .toLowerCase();
-  if (!raw || ![PLAN_FREE, PLAN_STANDARD, PLAN_PREMIUM].includes(raw)) {
-    throw Object.assign(new Error('Choose Free, Standard, or Premium'), { code: 'INVALID_PLAN' });
+  if (!raw || ![PLAN_FREE, PLAN_STANDARD, PLAN_PRO, PLAN_PREMIUM].includes(raw)) {
+    throw Object.assign(new Error('Choose Free, Standard, Pro, or Premium'), { code: 'INVALID_PLAN' });
   }
   const plan = normalizePlanId(raw);
 
@@ -423,7 +424,7 @@ async function changeSubscriptionPlan(userId, planId, opts = {}) {
     return scheduleCancelAtPeriodEnd(userId);
   }
   if (!isPaidPlan(plan)) {
-    throw Object.assign(new Error('Choose Free, Standard, or Premium'), { code: 'INVALID_PLAN' });
+    throw Object.assign(new Error('Choose Free, Standard, Pro, or Premium'), { code: 'INVALID_PLAN' });
   }
   // Upgrades / plan switches while past_due → Billing Portal for card update first.
   assertNotPastDue(user);
@@ -515,7 +516,9 @@ async function changeSubscriptionPlan(userId, planId, opts = {}) {
     message:
       plan === PLAN_PREMIUM
         ? 'Upgraded to Premium. Proration appears on your next invoice.'
-        : 'Switched to Standard. Proration appears on your next invoice.',
+        : plan === PLAN_PRO
+          ? 'Switched to Pro. Proration appears on your next invoice.'
+          : 'Switched to Standard. Proration appears on your next invoice.',
   };
 }
 
@@ -1000,12 +1003,17 @@ async function dispatchWebhookEvent(event) {
 async function catalogForApi() {
   const prices = await getConfiguredPriceIds();
   const labelStd = await platform.getPlatformSetting('billing.amount_label_standard', 'Standard · monthly');
+  const labelPro = await platform.getPlatformSetting('billing.amount_label_pro', 'Pro · monthly');
   const labelPrem = await platform.getPlatformSetting('billing.amount_label_premium', 'Premium · monthly');
   return listPlans().map((p) => {
     const extras = {};
     if (p.id === PLAN_STANDARD) {
       extras.priceLabel = labelStd;
       extras.priceConfigured = !!prices.standard;
+      extras.checkout = true;
+    } else if (p.id === PLAN_PRO) {
+      extras.priceLabel = labelPro;
+      extras.priceConfigured = !!prices.pro;
       extras.checkout = true;
     } else if (p.id === PLAN_PREMIUM) {
       extras.priceLabel = labelPrem;

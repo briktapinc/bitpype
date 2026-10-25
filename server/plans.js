@@ -2,15 +2,16 @@
 
 /**
  * Bitpype subscription plan catalog.
- * Stripe Price IDs live in platform settings (stripe.price_id_standard / premium).
+ * Stripe Price IDs live in platform settings (stripe.price_id_standard / pro / premium).
  * Users without an active paid sub are on Free.
  */
 
 const PLAN_FREE = 'free';
 const PLAN_STANDARD = 'standard';
+const PLAN_PRO = 'pro';
 const PLAN_PREMIUM = 'premium';
 
-const PAID_PLANS = [PLAN_STANDARD, PLAN_PREMIUM];
+const PAID_PLANS = [PLAN_STANDARD, PLAN_PRO, PLAN_PREMIUM];
 
 const PLANS = {
   [PLAN_FREE]: {
@@ -79,6 +80,40 @@ const PLANS = {
       chatbot: true,
     },
   },
+  [PLAN_PRO]: {
+    id: PLAN_PRO,
+    name: 'Pro',
+    tagline: 'Monthly support with social images included.',
+    priceLabel: 'Monthly',
+    interval: 'month',
+    features: [
+      'Free website',
+      'Inline edits',
+      'Preview hosting',
+      'Design change requests',
+      'Contact form inbox in the portal',
+      'Site modules — blog, shop, courses, gallery, directory, chatbot',
+      'AI site chatbot (portal client MCP agent)',
+      'Monthly support',
+      'Social media images included (no credit charge for images)',
+    ],
+    entitlements: {
+      website: true,
+      inlineEdits: true,
+      previewHosting: true,
+      designChangeRequests: true,
+      supportCadence: 'monthly',
+      socialImagesIncluded: true,
+      socialImagesPaid: false,
+      formBuilder: true,
+      formInbox: true,
+      formMcp: false,
+      formMuseEncrypt: false,
+      socialMcpSchedule: false,
+      siteModules: true,
+      chatbot: true,
+    },
+  },
   [PLAN_PREMIUM]: {
     id: PLAN_PREMIUM,
     name: 'Premium',
@@ -119,14 +154,15 @@ const PLANS = {
 const PLAN_RANK = {
   [PLAN_FREE]: 0,
   [PLAN_STANDARD]: 1,
-  [PLAN_PREMIUM]: 2,
+  [PLAN_PRO]: 2,
+  [PLAN_PREMIUM]: 3,
 };
 
 function normalizePlanId(raw) {
   const id = String(raw || '')
     .trim()
     .toLowerCase();
-  if (id === PLAN_STANDARD || id === PLAN_PREMIUM || id === PLAN_FREE) return id;
+  if (id === PLAN_STANDARD || id === PLAN_PRO || id === PLAN_PREMIUM || id === PLAN_FREE) return id;
   return PLAN_FREE;
 }
 
@@ -135,7 +171,7 @@ function getPlan(planId) {
 }
 
 function listPlans() {
-  return [PLAN_FREE, PLAN_STANDARD, PLAN_PREMIUM].map((id) => ({ ...PLANS[id] }));
+  return [PLAN_FREE, PLAN_STANDARD, PLAN_PRO, PLAN_PREMIUM].map((id) => ({ ...PLANS[id] }));
 }
 
 function isPaidPlan(planId) {
@@ -165,6 +201,7 @@ function publicPlan(planId, extras = {}) {
 module.exports = {
   PLAN_FREE,
   PLAN_STANDARD,
+  PLAN_PRO,
   PLAN_PREMIUM,
   PAID_PLANS,
   PLANS,
