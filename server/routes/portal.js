@@ -1052,6 +1052,35 @@ router.delete('/modules/menu/categories/:id', requireClient, actionLimit, async 
   }
 });
 
+// Instant Estimate config + request status — before the generic /modules/:type routes.
+router.put('/modules/estimate/config', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.saveEstimateConfig(req.client.workspace_id, req.client.lead_id, req.body || {}, req.client.email)
+    );
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.put('/modules/estimate/requests/:id', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.updateEstimateRequest(
+        req.client.workspace_id,
+        req.client.lead_id,
+        req.params.id,
+        req.body || {},
+        req.client.email
+      )
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
 router.get('/modules/:type', requireClient, async (req, res) => {
   try {
     const includeArchived =

@@ -145,4 +145,20 @@ router.post('/:token/book', bookLimit, captcha, async (req, res) => {
   }
 });
 
+const estimateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 40 });
+
+/** Public instant-estimate request (server recomputes the total; captures a LeadScout contact). */
+router.post('/:token/estimate', estimateLimit, captcha, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    const body = req.body || {};
+    const data = domain.withDb(workspaceId, (db) =>
+      siteModules.createPublicEstimateRequestByToken(db, req.params.token, body)
+    );
+    res.json({ ok: true, data: { ...data, workspaceId } });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 module.exports = router;

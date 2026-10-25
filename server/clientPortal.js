@@ -2338,6 +2338,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     let items = [];
     let booking = null;
     let menu = null;
+    let estimate = null;
     if (type === 'blog') items = modules.listBlogPosts(db, Number(leadId));
     else if (type === 'ecommerce') {
       items = modules.listProducts(db, Number(leadId)).map((p) => ({
@@ -2371,6 +2372,13 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
       menu = { categories: modules.listMenuCategories(db, Number(leadId)) };
     } else if (type === 'careers') items = modules.listCareersPostings(db, Number(leadId));
     else if (type === 'video') items = modules.listVideoItems(db, Number(leadId));
+    else if (type === 'estimate') {
+      items = modules.listEstimateOptions(db, Number(leadId));
+      estimate = {
+        config: modules.getEstimateConfig(db, Number(leadId)),
+        requests: modules.listEstimateRequests(db, Number(leadId), { limit: 100 }),
+      };
+    }
     else if (type === 'chatbot') {
       const chat = require('./chatbot');
       const summary = chat.portalChatbotSummary(db, Number(leadId));
@@ -2392,6 +2400,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     };
     if (booking) out.booking = booking;
     if (menu) out.categories = menu.categories;
+    if (estimate) out.estimate = estimate;
     return out;
   });
 }
@@ -2417,6 +2426,7 @@ async function createModuleItem(workspaceId, leadId, moduleType, body, clientEma
     else if (type === 'menu') item = modules.createMenuItem(db, Number(leadId), body || {});
     else if (type === 'careers') item = modules.createCareersPosting(db, Number(leadId), body || {});
     else if (type === 'video') item = modules.createVideoItem(db, Number(leadId), body || {});
+    else if (type === 'estimate') item = modules.createEstimateOption(db, Number(leadId), body || {});
     else if (type === 'chatbot') {
       const chat = require('./chatbot');
       item = chat.addKnowledge(db, Number(leadId), body || {});
@@ -2446,6 +2456,7 @@ async function updateModuleItem(workspaceId, leadId, moduleType, id, body, clien
     else if (type === 'menu') item = modules.updateMenuItem(db, Number(leadId), id, body || {});
     else if (type === 'careers') item = modules.updateCareersPosting(db, Number(leadId), id, body || {});
     else if (type === 'video') item = modules.updateVideoItem(db, Number(leadId), id, body || {});
+    else if (type === 'estimate') item = modules.updateEstimateOption(db, Number(leadId), id, body || {});
     else if (type === 'chatbot') {
       const chat = require('./chatbot');
       item = chat.updateKnowledge(db, Number(leadId), id, body || {});
@@ -2474,6 +2485,7 @@ async function deleteModuleItem(workspaceId, leadId, moduleType, id, clientEmail
     if (type === 'menu') return modules.deleteMenuItem(db, Number(leadId), id);
     if (type === 'careers') return modules.deleteCareersPosting(db, Number(leadId), id);
     if (type === 'video') return modules.deleteVideoItem(db, Number(leadId), id);
+    if (type === 'estimate') return modules.deleteEstimateOption(db, Number(leadId), id);
     if (type === 'chatbot') {
       const chat = require('./chatbot');
       return chat.deleteKnowledge(db, Number(leadId), id);
@@ -2594,6 +2606,29 @@ async function saveBookingSettings(workspaceId, leadId, body, clientEmail) {
   return domain.withDb(workspaceId, (db) => ({
     settings: modules.updateBookingSettings(db, Number(leadId), body || {}),
   }));
+}
+
+async function saveEstimateConfig(workspaceId, leadId, body, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => ({
+    config: modules.updateEstimateConfig(db, Number(leadId), body || {}),
+  }));
+}
+
+async function updateEstimateRequest(workspaceId, leadId, id, body, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => {
+    if (body && body.status != null) {
+      return {
+        request: modules.updateEstimateRequestStatus(db, Number(leadId), id, body.status),
+      };
+    }
+    return { request: modules.getEstimateRequest(db, Number(leadId), id) };
+  });
 }
 
 async function saveBookingHours(workspaceId, leadId, body, clientEmail) {
@@ -3234,6 +3269,8 @@ module.exports = {
   getBookingAdmin,
   saveBookingSettings,
   saveBookingHours,
+  saveEstimateConfig,
+  updateEstimateRequest,
   updateBookingAppointment,
   createBookingBlockAdmin,
   deleteBookingBlockAdmin,

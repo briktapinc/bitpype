@@ -3675,9 +3675,10 @@
     { type: 'menu', label: 'Menu / Price List' },
     { type: 'careers', label: 'Careers' },
     { type: 'video', label: 'Video' },
+    { type: 'estimate', label: 'Instant Estimate' },
   ];
   const MODULE_NAV_GROUPS = [
-    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video'] },
+    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate'] },
     { id: 'people', label: 'People', types: ['team', 'testimonials', 'careers'] },
     { id: 'schedule', label: 'Schedule', types: ['events', 'bookings'] },
     { id: 'assist', label: 'Assist', types: ['chatbot'] },
@@ -3698,6 +3699,7 @@
     menu: { singular: 'menu item', plural: 'menu items', newBtn: 'New menu item', kicker: 'Menu item' },
     careers: { singular: 'posting', plural: 'postings', newBtn: 'New posting', kicker: 'Job posting' },
     video: { singular: 'video', plural: 'videos', newBtn: 'New video', kicker: 'Video' },
+    estimate: { singular: 'option', plural: 'options', newBtn: 'New option', kicker: 'Estimate option' },
   };
   const BOOKING_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const MODULE_STORAGE_KEY = 'bp-portal-module';
@@ -3911,6 +3913,27 @@
         { key: 'status', label: 'Status', kind: 'select', options: ['draft', 'published'] },
       ];
     }
+    if (type === 'estimate') {
+      return [
+        { key: 'label', label: 'Option label', required: true, placeholder: 'e.g. Extra bathroom' },
+        {
+          key: 'input_type',
+          label: 'Visitor picks',
+          kind: 'select',
+          options: ['checkbox', 'select', 'quantity'],
+          hint: 'Checkbox = add the price when ticked. Quantity = price × amount. Select = visitor picks one of the choices below.',
+        },
+        { key: 'price', label: 'Price (for checkbox / quantity)', placeholder: '25 or 25.50' },
+        {
+          key: 'choices_text',
+          label: 'Choices (select only — one per line: Label | price)',
+          kind: 'textarea',
+          placeholder: 'Small | 0\nLarge | 50',
+        },
+        { key: 'sort_order', label: 'Sort order' },
+        { key: 'status', label: 'Status', kind: 'select', options: ['active', 'inactive'] },
+      ];
+    }
     // directory fallback
     return [
       { key: 'name', label: 'Name', required: true },
@@ -3959,16 +3982,22 @@
     const apptsPane = document.getElementById('modules-pane-appointments');
     const chatSettingsPane = document.getElementById('modules-pane-chat-settings');
     const chatInboxPane = document.getElementById('modules-pane-chat-inbox');
+    const estCalcPane = document.getElementById('modules-pane-estimate-calc');
+    const estReqPane = document.getElementById('modules-pane-estimate-requests');
     const results = document.getElementById('modules-pane-results');
     const bookingPanel = document.getElementById('modules-booking-panel');
     const isBookings = moduleState.current === 'bookings';
     const isChatbot = moduleState.current === 'chatbot';
-    const showTabs = isBookings || isChatbot;
+    const isEstimate = moduleState.current === 'estimate';
+    const showTabs = isBookings || isChatbot || isEstimate;
     if (isBookings) {
       const allowed = new Set(['content', 'hours', 'appointments']);
       if (!allowed.has(moduleState.pane)) moduleState.pane = 'content';
     } else if (isChatbot) {
       const allowed = new Set(['content', 'settings', 'inbox']);
+      if (!allowed.has(moduleState.pane)) moduleState.pane = 'content';
+    } else if (isEstimate) {
+      const allowed = new Set(['content', 'calc', 'requests']);
       if (!allowed.has(moduleState.pane)) moduleState.pane = 'content';
     } else {
       moduleState.pane = 'content';
@@ -3976,22 +4005,27 @@
     if (tabs) {
       tabs.hidden = !showTabs;
       tabs.setAttribute('aria-hidden', showTabs ? 'false' : 'true');
-      tabs.setAttribute('aria-label', isChatbot ? 'Chatbot sections' : 'Bookings sections');
+      tabs.setAttribute(
+        'aria-label',
+        isChatbot ? 'Chatbot sections' : isEstimate ? 'Estimate sections' : 'Bookings sections'
+      );
       tabs.querySelectorAll('[data-modules-pane]').forEach((btn) => {
         const pane = btn.getAttribute('data-modules-pane');
         const forBookings = ['content', 'hours', 'appointments'].includes(pane);
         const forChat = ['content', 'settings', 'inbox'].includes(pane);
-        const visible = isBookings ? forBookings : isChatbot ? forChat : false;
-        // Toggle booking vs chatbot tab buttons via data-for attribute when present.
+        const forEstimate = ['content', 'calc', 'requests'].includes(pane);
+        const visible = isBookings ? forBookings : isChatbot ? forChat : isEstimate ? forEstimate : false;
+        // Toggle per-module tab buttons via data-for attribute when present.
         const forAttr = btn.getAttribute('data-for');
         const showBtn = forAttr
           ? (isBookings && forAttr === 'bookings') ||
             (isChatbot && forAttr === 'chatbot') ||
+            (isEstimate && forAttr === 'estimate') ||
             (forAttr === 'both' && showTabs)
           : visible;
         btn.hidden = !showBtn;
         if (pane === 'content' && showBtn) {
-          btn.textContent = isChatbot ? 'Knowledge' : 'Services';
+          btn.textContent = isChatbot ? 'Knowledge' : isEstimate ? 'Options' : 'Services';
         }
         const on = pane === moduleState.pane && showBtn;
         btn.classList.toggle('is-active', on);
@@ -4005,6 +4039,8 @@
     if (apptsPane) apptsPane.hidden = !(isBookings && moduleState.pane === 'appointments');
     if (chatSettingsPane) chatSettingsPane.hidden = !(isChatbot && moduleState.pane === 'settings');
     if (chatInboxPane) chatInboxPane.hidden = !(isChatbot && moduleState.pane === 'inbox');
+    if (estCalcPane) estCalcPane.hidden = !(isEstimate && moduleState.pane === 'calc');
+    if (estReqPane) estReqPane.hidden = !(isEstimate && moduleState.pane === 'requests');
     if (results) results.hidden = true;
     if (bookingPanel) bookingPanel.hidden = true;
     if (isChatbot && moduleState.pane === 'settings') renderChatbotSettingsPanel();
@@ -4059,6 +4095,7 @@
       menu: 'menu',
       careers: 'careers',
       video: 'videos',
+      estimate: 'estimate',
     };
     let want = selected || defaults[moduleState.current] || 'home';
     const opts = Array.isArray(pages) && pages.length ? pages : [{ slug: want, title: want }];
@@ -4259,6 +4296,7 @@
     if (type === 'faq') return it.question || `#${it.id}`;
     if (type === 'testimonials') return it.author_name || it.name || it.title || `#${it.id}`;
     if (type === 'team') return it.name || it.title || `#${it.id}`;
+    if (type === 'estimate') return it.label || `#${it.id}`;
     return it.title || it.name || `#${it.id}`;
   }
 
@@ -4312,6 +4350,17 @@
     if (type === 'video') {
       if (it.provider) bits.push(`<span>${esc(it.provider === 'youtube' ? 'YouTube' : it.provider === 'vimeo' ? 'Vimeo' : it.provider)}</span>`);
       if (it.url) bits.push(`<span>${esc(it.url)}</span>`);
+    }
+    if (type === 'estimate') {
+      bits.length = 0;
+      const st = it.status || (it.active ? 'active' : 'inactive');
+      bits.push(`<span class="${st === 'active' ? 'status-pill' : 'status-pill draft'}">${esc(st)}</span>`);
+      bits.push(`<span>${esc(it.input_type || 'checkbox')}</span>`);
+      if (it.input_type === 'select') {
+        bits.push(`<span>${(it.choices || []).length} choices</span>`);
+      } else if (it.price_label) {
+        bits.push(`<span>${esc(it.price_label)}</span>`);
+      }
     }
     return bits.join('<span class="sep">·</span>');
   }
@@ -4441,6 +4490,83 @@
           Show archived
         </label>
         <div id="modules-booking-appts">${apptHtml}</div>`;
+    }
+  }
+
+  function renderEstimateAdminPanel() {
+    const calcHost = document.getElementById('modules-estimate-calc-panel');
+    const reqHost = document.getElementById('modules-estimate-requests-panel');
+    if (!calcHost && !reqHost) return;
+    if (moduleState.current !== 'estimate') {
+      if (calcHost) calcHost.innerHTML = '';
+      if (reqHost) reqHost.innerHTML = '';
+      return;
+    }
+    const estimate = moduleState.estimate || {};
+    const cfg = estimate.config || {};
+    const requests = Array.isArray(estimate.requests) ? estimate.requests : [];
+    const money = (cents) => `$${((Number(cents) || 0) / 100).toFixed(2)}`;
+    const baseDollars = cfg.base_price_cents != null ? String((Number(cfg.base_price_cents) || 0) / 100) : '0';
+    if (calcHost) {
+      calcHost.innerHTML = `
+        <h3>Calculator</h3>
+        <p class="hint">Visitors pick options and see a ballpark instantly. The server always recomputes the total from these prices when a request is sent — and every request lands in LeadScout as a contact.</p>
+        <div class="field"><label>Heading (optional)</label>
+          <input type="text" id="estimate-title" value="${esc(cfg.title || '')}" placeholder="Get an instant estimate" /></div>
+        <div class="field"><label>Intro (optional)</label>
+          <textarea id="estimate-intro" rows="2">${esc(cfg.intro || '')}</textarea></div>
+        <div class="field"><label>Service label</label>
+          <input type="text" id="estimate-service-label" value="${esc(cfg.service_label || '')}" placeholder="e.g. Kitchen remodel" /></div>
+        <div class="field"><label>Base price ($)</label>
+          <input type="text" id="estimate-base-price" value="${esc(baseDollars)}" placeholder="0" /></div>
+        <div class="field"><label>What visitors see</label>
+          <select id="estimate-display-mode">
+            <option value="exact"${cfg.display_mode === 'exact' ? ' selected' : ''}>Exact estimate, updating live</option>
+            <option value="range"${cfg.display_mode === 'range' ? ' selected' : ''}>A range (total ± percent)</option>
+            <option value="hidden"${cfg.display_mode === 'hidden' ? ' selected' : ''}>No price — capture first, we send the estimate</option>
+          </select></div>
+        <div class="field"><label>Range ± percent (range mode)</label>
+          <input type="number" id="estimate-range-percent" value="${esc(cfg.range_percent != null ? cfg.range_percent : 15)}" min="0" max="100" /></div>
+        <div class="field"><label>Submit button label</label>
+          <input type="text" id="estimate-submit-label" value="${esc(cfg.submit_label || 'Send my estimate')}" /></div>
+        <div class="field"><label>Disclaimer</label>
+          <textarea id="estimate-disclaimer" rows="3">${esc(cfg.disclaimer || '')}</textarea>
+          <p class="hint">Shown under the calculator. Keep it honest: an estimate is a ballpark, not a quote.</p></div>
+        <button type="button" class="btn soft small" id="btn-estimate-config-save">Save calculator</button>`;
+    }
+    if (reqHost) {
+      const reqHtml = requests.length
+        ? requests
+            .slice(0, 60)
+            .map((r) => {
+              const picks = (r.selections || [])
+                .map(
+                  (s) =>
+                    `${esc(s.label || '')}${s.choice_label ? `: ${esc(s.choice_label)}` : ''}${s.quantity > 1 ? ` ×${s.quantity}` : ''} — ${money(s.line_total_cents)}`
+                )
+                .join('<br />');
+              return `
+        <div class="row" style="justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line,#e6e0d8);flex-wrap:wrap">
+          <div>
+            <strong>${esc(r.name || '')}</strong>
+            <span class="hint"> · ${esc(r.estimate_label || money(r.estimate_cents))}${r.display_mode === 'hidden' ? ' (hidden mode)' : ''} · ${esc(r.created_at || '')}</span>
+            <div class="hint">${esc(r.email || '')}${r.email && r.phone ? ' · ' : ''}${esc(r.phone || '')} · status: ${esc(r.status || 'new')}</div>
+            ${picks ? `<div class="hint">${picks}</div>` : ''}
+            ${r.notes ? `<div class="hint">“${esc(r.notes)}”</div>` : ''}
+          </div>
+          <div class="row" style="gap:6px">
+            ${r.status !== 'contacted' ? `<button type="button" class="btn soft small" data-est-req-status="${r.id}" data-status="contacted">Mark contacted</button>` : ''}
+            ${r.status !== 'closed' ? `<button type="button" class="btn ghost small" data-est-req-status="${r.id}" data-status="closed">Close</button>` : ''}
+            ${r.status === 'closed' ? `<button type="button" class="btn ghost small" data-est-req-status="${r.id}" data-status="new">Reopen</button>` : ''}
+          </div>
+        </div>`;
+            })
+            .join('')
+        : '<p class="hint">No estimate requests yet. When a visitor sends the calculator on your site, their request — and their contact — shows up here and in LeadScout.</p>';
+      reqHost.innerHTML = `
+        <h3>Estimate requests</h3>
+        <p class="hint">Every submission is also captured as a LeadScout contact for this business.</p>
+        <div id="modules-estimate-requests">${reqHtml}</div>`;
     }
   }
 
@@ -4694,6 +4820,7 @@
     moduleState.embed = data.embed || null;
     moduleState.booking = data.booking || null;
     moduleState.chatbot = data.chatbot || null;
+    moduleState.estimate = data.estimate || null;
     moduleState.categories = Array.isArray(data.categories) ? data.categories : [];
     if (type === 'bookings') {
       const booking = moduleState.booking || {};
@@ -4707,6 +4834,7 @@
     renderModuleItems();
     renderModuleEmbedBar();
     renderBookingAdminPanel();
+    renderEstimateAdminPanel();
     renderMenuCategoriesPanel();
     syncModulesPaneTabs();
   }
@@ -6004,11 +6132,14 @@
       if (!btn) return;
       const isBookings = moduleState.current === 'bookings';
       const isChatbot = moduleState.current === 'chatbot';
-      if (!isBookings && !isChatbot) return;
+      const isEstimate = moduleState.current === 'estimate';
+      if (!isBookings && !isChatbot && !isEstimate) return;
       const next = btn.getAttribute('data-modules-pane') || 'content';
       const allowed = isChatbot
         ? new Set(['content', 'settings', 'inbox'])
-        : new Set(['content', 'hours', 'appointments']);
+        : isEstimate
+          ? new Set(['content', 'calc', 'requests'])
+          : new Set(['content', 'hours', 'appointments']);
       moduleState.pane = allowed.has(next) ? next : 'content';
       syncModulesPaneTabs();
     });
@@ -6130,6 +6261,49 @@
             }),
           });
           moduleMsg('Settings saved.', true);
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg(e.message, false);
+        }
+      }
+      const estReqBtn = ev.target.closest('[data-est-req-status]');
+      if (estReqBtn) {
+        const id = Number(estReqBtn.getAttribute('data-est-req-status'));
+        const status = estReqBtn.getAttribute('data-status');
+        moduleMsg('Updating request…', true);
+        try {
+          await api(`/modules/estimate/requests/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify({ status }),
+          });
+          moduleMsg('Request updated.', true);
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg(e.message, false);
+        }
+        return;
+      }
+      if (ev.target && ev.target.id === 'btn-estimate-config-save') {
+        const val = (id) => {
+          const n = document.getElementById(id);
+          return n ? n.value : undefined;
+        };
+        moduleMsg('Saving calculator…', true);
+        try {
+          await api('/modules/estimate/config', {
+            method: 'PUT',
+            body: JSON.stringify({
+              title: val('estimate-title'),
+              intro: val('estimate-intro'),
+              service_label: val('estimate-service-label'),
+              base_price: val('estimate-base-price'),
+              display_mode: val('estimate-display-mode'),
+              range_percent: Number(val('estimate-range-percent')),
+              disclaimer: val('estimate-disclaimer'),
+              submit_label: val('estimate-submit-label'),
+            }),
+          });
+          moduleMsg('Calculator saved.', true);
           await loadModuleItems();
         } catch (e) {
           moduleMsg(e.message, false);

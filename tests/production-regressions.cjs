@@ -231,9 +231,9 @@ async function main() {
     '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
   });
   sm12.ensureTables(db);
-  assert.equal(Object.keys(sm12.MODULE_META).length, 15, 'module catalog has 15 types');
+  assert.equal(Object.keys(sm12.MODULE_META).length, 16, 'module catalog has 16 types');
   for (const t of ['offers', 'menu', 'careers', 'video']) assert(sm12.MODULE_META[t], 'meta for ' + t);
-  check('batch12 catalog: 15 module types incl. offers/menu/careers/video', () => {});
+  check('batch12 catalog: module types incl. offers/menu/careers/video', () => {});
 
   // Offers: CRUD + per-lead scoping + expiry rules.
   const offerA = sm12.createOffer(db, 201, { title: 'Spring Deal', code: 'SPRING', expires_at: '2999-01-01', status: 'published' });
@@ -340,8 +340,8 @@ async function main() {
   assert.equal(pubVideo.items.length, 1, 'only published videos surface');
   assert.equal(pubVideo.items[0].embed_url, 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ');
   const summary12 = sm12.portalSummary(db, 201);
-  assert.equal(summary12.modules.length, 15, 'portal summary lists all 15 module types');
-  check('batch12 public payloads: token surface filters expired/inactive/draft; portal summary = 15 types', () => {});
+  assert.equal(summary12.modules.length, 16, 'portal summary lists all 16 module types');
+  check('batch12 public payloads: token surface filters expired/inactive/draft; portal summary = 16 types', () => {});
 
   // Attach injects nav pages; detach removes them.
   const siteRow = db.prepare('SELECT pages FROM websites WHERE lead_id = 201').get();
@@ -355,6 +355,170 @@ async function main() {
   assert(embedsAfterDetach.every((e) => !e.embed_enabled && !e.published), 'detach disables + unpublishes every embed');
   assert.throws(() => sm12.getPublicModuleByToken(db, embOffers.public_token), (e) => e.code === 'NOT_FOUND', 'detached module token no longer serves');
   check('batch12 attach/detach: nav pages injected for all four modules; detach soft-disables and the token stops serving', () => {});
+
+  // ── Batch 13: Instant Estimate module ──
+  const sm13 = load('server/siteModules.js', {
+    '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
+    './portalContacts': contacts,
+  });
+  sm13.ensureTables(db);
+  assert(sm13.MODULE_META.estimate, 'meta for estimate');
+  assert.equal(sm13.MODULE_META.estimate.label, 'Instant Estimate');
+  check('batch13 catalog: estimate registered as the 16th module type', () => {});
+
+  // Config: honest defaults + validated updates.
+  const cfgDefault = sm13.getEstimateConfig(db, 301);
+  assert.equal(cfgDefault.display_mode, 'exact');
+  assert.equal(cfgDefault.range_percent, 15);
+  assert.equal(cfgDefault.submit_label, 'Send my estimate');
+  assert(cfgDefault.disclaimer.includes('ballpark'), 'default disclaimer is honest estimate wording');
+  const cfgSet = sm13.updateEstimateConfig(db, 301, {
+    service_label: 'Kitchen remodel',
+    base_price: '100',
+    display_mode: 'range',
+    range_percent: 250,
+  });
+  assert.equal(cfgSet.base_price_cents, 10000, 'base_price dollars convert to cents');
+  assert.equal(cfgSet.range_percent, 100, 'range_percent clamped to 100');
+  assert.throws(() => sm13.updateEstimateConfig(db, 301, { base_price: '-5' }), (e) => e.code === 'VALIDATION');
+  assert.throws(() => sm13.updateEstimateConfig(db, 301, { base_price: 'lots' }), (e) => e.code === 'VALIDATION');
+  assert.throws(() => sm13.updateEstimateConfig(db, 301, { base_price: '20000000' }), (e) => e.code === 'VALIDATION');
+  sm13.updateEstimateConfig(db, 301, { display_mode: 'exact', range_percent: 15 });
+  check('batch13 config: defaults, dollar→cent base price, clamping, money validation', () => {});
+
+  // Options: CRUD + per-lead scoping + choices parsing.
+  const optCheck = sm13.createEstimateOption(db, 301, { label: 'Extra bathroom', input_type: 'checkbox', price: '25' });
+  assert.equal(optCheck.price_cents, 2500);
+  assert.equal(optCheck.status, 'active');
+  const optQty = sm13.createEstimateOption(db, 301, { label: 'Windows', input_type: 'quantity', price: 10 });
+  assert.equal(optQty.price_cents, 1000);
+  const optSel = sm13.createEstimateOption(db, 301, {
+    label: 'Project size',
+    input_type: 'select',
+    choices_text: 'Small | 0\nLarge | 50',
+  });
+  assert.equal(
+    JSON.stringify(optSel.choices.map((c) => [c.label, c.price_cents])),
+    JSON.stringify([
+      ['Small', 0],
+      ['Large', 5000],
+    ]),
+    'choices_text lines parse to label + cents'
+  );
+  assert.equal(sm13.listEstimateOptions(db, 302).length, 0, 'options are lead-scoped');
+  assert.equal(sm13.getEstimateOption(db, 302, optCheck.id), undefined, 'cross-lead get returns nothing');
+  assert.throws(() => sm13.createEstimateOption(db, 301, { label: 'Bad type', input_type: 'slider' }), (e) => e.code === 'VALIDATION');
+  assert.throws(() => sm13.createEstimateOption(db, 301, { label: 'No choices', input_type: 'select' }), (e) => e.code === 'VALIDATION');
+  const optOff = sm13.createEstimateOption(db, 301, { label: 'Retired add-on', price: 5 });
+  sm13.updateEstimateOption(db, 301, optOff.id, { status: 'inactive' });
+  assert.equal(sm13.getEstimateOption(db, 301, optOff.id).active, 0, 'portal status maps to active flag');
+  assert.equal(sm13.listEstimateOptions(db, 301, { includeInactive: false }).length, 3, 'inactive options hidden from active list');
+  check('batch13 options: CRUD, lead scoping, choices parsing, validation, active mapping', () => {});
+
+  // Calculator math (server-authoritative).
+  const math1 = sm13.computeEstimate(db, 301, [
+    { option_id: optCheck.id, checked: true },
+    { option_id: optQty.id, quantity: 3 },
+    { option_id: optSel.id, choice_index: 0 },
+  ]);
+  assert.equal(math1.total_cents, 10000 + 2500 + 3000 + 0, 'base + checkbox + qty×3 + first select choice');
+  const math2 = sm13.computeEstimate(db, 301, [{ option_id: optSel.id, choice_index: 1 }]);
+  assert.equal(math2.total_cents, 10000 + 5000, 'select with no other picks still counts base + chosen choice');
+  const mathAuto = sm13.computeEstimate(db, 301, []);
+  assert.equal(mathAuto.total_cents, 10000, 'omitted select defaults to its first choice ($0 here)');
+  assert.throws(() => sm13.computeEstimate(db, 301, [{ option_id: 999999, checked: true }]), (e) => e.code === 'VALIDATION');
+  assert.throws(() => sm13.computeEstimate(db, 301, [{ option_id: optOff.id, checked: true }]), (e) => e.code === 'VALIDATION', 'inactive option rejected');
+  assert.throws(() => sm13.computeEstimate(db, 301, [{ option_id: optSel.id, choice_index: 9 }]), (e) => e.code === 'VALIDATION');
+  const bounds = sm13.estimateRangeBounds(15500, 15);
+  assert.equal(bounds.low_cents, 13175);
+  assert.equal(bounds.high_cents, 17825);
+  check('batch13 math: checkbox/select/quantity combos, select auto-default, unknown/inactive rejected, range bounds', () => {});
+
+  // Requests: stored snapshot + LeadScout funnel dedupe.
+  assert.throws(() => sm13.createEstimateRequest(db, 301, { email: 'x@example.invalid' }), (e) => e.code === 'VALIDATION', 'name required');
+  assert.throws(() => sm13.createEstimateRequest(db, 301, { name: 'No Contact' }), (e) => e.code === 'VALIDATION', 'email or phone required');
+  const req1 = sm13.createEstimateRequest(db, 301, {
+    name: 'Visitor One',
+    email: 'visitor@example.invalid',
+    selections: [
+      { option_id: optCheck.id, checked: true },
+      { option_id: optQty.id, quantity: 2 },
+    ],
+  });
+  assert.equal(req1.estimate_cents, 10000 + 2500 + 2000 + 0);
+  assert.equal(req1.selections.length, 3, 'snapshot includes the auto-applied select choice');
+  assert(req1.contact_id, 'request linked to its LeadScout contact');
+  const req2 = sm13.createEstimateRequest(db, 301, {
+    name: 'Visitor One',
+    email: 'visitor@example.invalid',
+    phone: '5551112222',
+    selections: [],
+  });
+  const scopedContacts = contacts.listContacts(db, { leadId: 301 });
+  assert.equal(scopedContacts.length, 1, 'repeat submission dedupes to ONE contact');
+  assert.equal(scopedContacts[0].event_count, 2, 'both submissions recorded as events on the one contact');
+  const detail301 = contacts.getContact(db, req1.contact_id, { leadId: 301 });
+  assert.equal(detail301.estimates.length, 2, 'contact detail exposes estimate events');
+  assert.equal(sm13.listEstimateRequests(db, 301).length, 2);
+  assert.equal(sm13.listEstimateRequests(db, 302).length, 0, 'requests are lead-scoped');
+  assert.equal(sm13.moduleItemCount(db, 301, 'estimate'), 2, 'tab count = request queue');
+  const reqStatus = sm13.updateEstimateRequestStatus(db, 301, req2.id, 'contacted');
+  assert.equal(reqStatus.status, 'contacted');
+  assert.throws(() => sm13.updateEstimateRequestStatus(db, 301, req2.id, 'bogus'), (e) => e.code === 'VALIDATION');
+  check('batch13 requests: validation, snapshot + server total stored, one-contact dedupe via the funnel', () => {});
+
+  // Public token surface: attach, exact payload, hidden-mode leak check, cross-type token rejection.
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (301, 'Fixture Estimate', 'estimate@example.invalid')").run();
+  db.prepare('INSERT INTO websites (lead_id, name, theme, pages) VALUES (301, ?, ?, ?)').run(
+    'Fixture Estimate Site',
+    '{}',
+    homePages
+  );
+  const embEst = sm13.attachModule(db, 301, 'estimate', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
+  const pubEst = sm13.getPublicModuleByToken(db, embEst.public_token);
+  assert.equal(pubEst.module_type, 'estimate');
+  assert.equal(pubEst.estimate.config.base_price_cents, 10000, 'exact mode exposes the base price');
+  assert.equal(pubEst.estimate.options.length, 3, 'public options exclude inactive ones');
+  assert.equal(pubEst.estimate.options.find((o) => o.id === optCheck.id).price_cents, 2500);
+  const pubSubmit = sm13.createPublicEstimateRequestByToken(db, embEst.public_token, {
+    name: 'Public Visitor',
+    phone: '5553334444',
+    selections: [{ option_id: optQty.id, quantity: 1 }],
+  });
+  assert.equal(pubSubmit.request.estimate_cents, 10000 + 1000 + 0);
+  assert.throws(
+    () => sm13.createPublicEstimateRequestByToken(db, embOffers.public_token, { name: 'X', email: 'x@example.invalid' }),
+    (e) => e.code === 'NOT_FOUND',
+    'a token for another module type cannot submit estimates'
+  );
+  assert.throws(
+    () => sm13.createPublicEstimateRequestByToken(db, 'bogus-token', { name: 'X', email: 'x@example.invalid' }),
+    (e) => e.code === 'NOT_FOUND'
+  );
+  sm13.updateEstimateConfig(db, 301, { display_mode: 'hidden' });
+  const pubHidden = sm13.getPublicModuleByToken(db, embEst.public_token);
+  const hiddenJson = JSON.stringify(pubHidden.estimate);
+  assert(!hiddenJson.includes('price_cents'), 'hidden payload carries no price_cents anywhere');
+  assert(!hiddenJson.includes('price_label'), 'hidden payload carries no price labels');
+  assert(!hiddenJson.includes('10000'), 'hidden payload does not leak the base price value');
+  assert.equal(pubHidden.estimate.options.find((o) => o.id === optSel.id).choices[1].label, 'Large', 'choice labels still ship in hidden mode');
+  const hiddenSubmit = sm13.createPublicEstimateRequestByToken(db, embEst.public_token, {
+    name: 'Hidden Visitor',
+    email: 'hidden@example.invalid',
+    selections: [{ option_id: optCheck.id, checked: true }],
+  });
+  assert.equal(hiddenSubmit.request.estimate_cents, undefined, 'hidden-mode response reveals no total');
+  const storedHidden = sm13.listEstimateRequests(db, 301)[0];
+  assert.equal(storedHidden.estimate_cents, 10000 + 2500 + 0, 'server still computes + stores the hidden total');
+  sm13.updateEstimateConfig(db, 301, { display_mode: 'exact' });
+  sm13.detachModule(db, 301, 'estimate');
+  assert.throws(() => sm13.getPublicModuleByToken(db, embEst.public_token), (e) => e.code === 'NOT_FOUND', 'detached estimate token stops serving');
+  assert.throws(
+    () => sm13.createPublicEstimateRequestByToken(db, embEst.public_token, { name: 'X', email: 'x@example.invalid' }),
+    (e) => e.code === 'NOT_FOUND',
+    'detached estimate token cannot accept submissions'
+  );
+  check('batch13 public surface: exact payload, hidden mode leaks nothing, type-checked token writes, detach kills the token', () => {});
 
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }

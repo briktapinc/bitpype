@@ -17,7 +17,7 @@ function build(file,known=true){
  const domain=new Proxy({}, {get:(_t,name)=>(...args)=>{assert(checked,'domain touched before workspace validation: '+name);calls++;if(name==='withDb')return args[1]({});return {ok:true,leadId:2}}});
  const mocks={express:{Router:()=>router},'../domain':domain,'../siteModules':{
   parseWorkspaceFromToken:t=>Number(String(t).split('_')[0]),
-  getPublicModuleByToken:()=>({ok:true}),getPublicModuleItem:()=>({ok:true}),getPublicBookingSlots:()=>({slots:[]}),createPublicBookingByToken:()=>({ok:true}),createShopCheckoutByToken:()=>({ok:true}),getShopOrderBySession:()=>({id:1,status:'paid',product_name:'fixture',amount_cents:100,currency:'USD'}),
+  getPublicModuleByToken:()=>({ok:true}),getPublicModuleItem:()=>({ok:true}),getPublicBookingSlots:()=>({slots:[]}),createPublicBookingByToken:()=>({ok:true}),createPublicEstimateRequestByToken:()=>({ok:true}),createShopCheckoutByToken:()=>({ok:true}),getShopOrderBySession:()=>({id:1,status:'paid',product_name:'fixture',amount_cents:100,currency:'USD'}),
  },'../../src/socialMedia':{},'../workspaceExists':{assertWorkspaceExists:guard},
  '../billing':{workspacePlan:async()=> 'free'},'../appUrls':{socialReturnPath:()=>'/app#/social'},
  '../contactForms':{parseWorkspaceFromToken:t=>Number(String(t).split('_')[0]),getPublicFormByToken:()=>({}),acceptSubmission:async()=>({})},

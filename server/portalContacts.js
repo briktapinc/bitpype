@@ -68,6 +68,22 @@ function ensureTables(db) {
     CREATE INDEX IF NOT EXISTS idx_leadscout_failures_open
       ON leadscout_capture_failures(resolved_at, id DESC);
   `);
+  // Instant Estimate requests reference their row the same way bookings do.
+  try {
+    const cols = db
+      .prepare('PRAGMA table_info(leadscout_events)')
+      .all()
+      .map((c) => String(c.name || ''));
+    if (!cols.includes('estimate_request_id')) {
+      db.exec('ALTER TABLE leadscout_events ADD COLUMN estimate_request_id INTEGER');
+    }
+    db.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_leadscout_estimate_unique
+       ON leadscout_events(estimate_request_id) WHERE estimate_request_id IS NOT NULL`
+    );
+  } catch {
+    /* race / exists */
+  }
 }
 
 function normEmail(email) {
@@ -301,6 +317,68 @@ function captureFromBooking(db, { leadId, booking, serviceName, pageSlug } = {})
   }
 }
 
+function captureFromEstimate(db, { leadId, request, pageSlug } = {}) {
+  ensureTables(db);
+  try {
+    if (!request || !request.id) throw fail('VALIDATION', 'estimate request required');
+    const fields = {
+      name: request.name,
+      email: request.email,
+      phone: request.phone,
+    };
+    if (!fields.email && !fields.phone) {
+      return { skipped: true, reason: 'no_identity' };
+    }
+    const contact = upsertContact(db, fields);
+    const existing = db
+      .prepare('SELECT id FROM leadscout_events WHERE estimate_request_id = ?')
+      .get(Number(request.id));
+    if (existing) return { contact, eventId: existing.id, deduped: true };
+    let selections = request.selections;
+    if (!Array.isArray(selections) && request.selections_json) {
+      try {
+        selections = JSON.parse(String(request.selections_json));
+      } catch {
+        selections = [];
+      }
+    }
+    const info = db
+      .prepare(
+        `
+      INSERT INTO leadscout_events
+        (contact_id, lead_id, kind, source_label, page_slug, estimate_request_id, payload_json)
+      VALUES (?, ?, 'estimate', ?, ?, ?, ?)
+    `
+      )
+      .run(
+        contact.id,
+        leadId != null ? Number(leadId) : null,
+        'Instant Estimate',
+        String(pageSlug || '').slice(0, 120),
+        Number(request.id),
+        JSON.stringify({
+          name: request.name,
+          email: request.email,
+          phone: request.phone,
+          notes: request.notes || '',
+          estimate_cents: request.estimate_cents,
+          display_mode: request.display_mode || '',
+          selections: Array.isArray(selections) ? selections : [],
+        }).slice(0, 8000)
+      );
+    return { contact, eventId: info.lastInsertRowid };
+  } catch (e) {
+    recordFailure(db, {
+      kind: 'estimate',
+      leadId,
+      refId: request && request.id,
+      error: e.message || String(e),
+      payload: { request, pageSlug },
+    });
+    return { error: e.message || String(e) };
+  }
+}
+
 function validLeadScope(leadId) {
   if (leadId == null) return null; // Explicit workspace-level internal callers only.
   const id = Number(leadId);
@@ -428,6 +506,7 @@ function getContact(db, id, { leadId = null } = {}) {
     events,
     appointments: events.filter((e) => e.kind === 'appointment'),
     submissions: events.filter((e) => e.kind === 'submission'),
+    estimates: events.filter((e) => e.kind === 'estimate'),
   };
 }
 
@@ -497,6 +576,12 @@ function retryOpenFailures(db, { leadId = null } = {}) {
         serviceName: payload.serviceName,
         pageSlug: payload.pageSlug,
       });
+    } else if (row.kind === 'estimate' && payload) {
+      result = captureFromEstimate(db, {
+        leadId: row.lead_id,
+        request: payload.request,
+        pageSlug: payload.pageSlug,
+      });
     }
     db.prepare(
       `
@@ -522,6 +607,7 @@ module.exports = {
   upsertContact,
   captureFromSubmission,
   captureFromBooking,
+  captureFromEstimate,
   listContacts,
   getContact,
   captureHealth,

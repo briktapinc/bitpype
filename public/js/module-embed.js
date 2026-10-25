@@ -237,6 +237,20 @@
       '.bitpype-module-embed .bp-mod-video h2 a{color:inherit;text-decoration:none;}',
       '.bitpype-module-embed .bp-mod-video h2 a:hover{color:var(--bp-mod-accent);}',
       '.bitpype-module-embed .bp-mod-video p{margin:0;color:var(--bp-mod-muted);font-size:0.92rem;line-height:1.5;}',
+      // Instant Estimate
+      '.bitpype-module-embed .bp-est-service{margin:0;font-weight:700;}',
+      '.bitpype-module-embed .bp-est-options{display:grid;gap:0.65rem;}',
+      '.bitpype-module-embed .bp-est-opt{display:flex;align-items:center;gap:0.6rem;border:1px solid var(--bp-mod-line);border-radius:0.85rem;padding:0.7rem 0.85rem;cursor:pointer;font-weight:600;}',
+      '.bitpype-module-embed .bp-est-opt input[type="checkbox"]{width:auto;flex:none;margin:0;}',
+      '.bitpype-module-embed .bp-est-opt-price{margin-left:auto;color:var(--bp-mod-accent);font-weight:750;white-space:nowrap;}',
+      '.bitpype-module-embed .bp-est-opt-row{display:grid;gap:0.45rem;}',
+      '.bitpype-module-embed .bp-est-opt-row label{font-weight:700;font-size:0.92rem;display:flex;justify-content:space-between;gap:0.6rem;}',
+      '.bitpype-module-embed .bp-est-opt-row .bp-est-opt-price{margin-left:0;}',
+      '.bitpype-module-embed .bp-est-qty{max-width:110px;}',
+      '.bitpype-module-embed .bp-est-total{border:1.5px solid var(--bp-mod-accent);border-radius:1rem;padding:0.9rem 1.05rem;display:flex;justify-content:space-between;align-items:baseline;gap:1rem;flex-wrap:wrap;}',
+      '.bitpype-module-embed .bp-est-total-label{font-weight:700;color:var(--bp-mod-muted);}',
+      '.bitpype-module-embed .bp-est-total-value{font-size:1.45rem;font-weight:800;color:var(--bp-mod-accent);letter-spacing:-0.01em;}',
+      '.bitpype-module-embed .bp-est-disclaimer{margin:0;color:var(--bp-mod-muted);font-size:0.85rem;line-height:1.5;}',
     ].join('');
     var style = document.createElement('style');
     style.id = STYLE_ID;
@@ -654,6 +668,10 @@
     }
     if (type === 'bookings') {
       renderBookings(el, data, html);
+      return;
+    }
+    if (type === 'estimate') {
+      renderEstimate(el, data, html);
       return;
     }
     if (type === 'careers' && !items.length) {
@@ -1143,6 +1161,285 @@
       })();
     });
     loadSlots();
+  }
+
+  function fmtMoney(cents) {
+    var n = (Number(cents) || 0) / 100;
+    return (
+      '$' +
+      n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    );
+  }
+
+  function renderEstimate(el, data, prefixHtml) {
+    var est = data.estimate || {};
+    var cfg = est.config || {};
+    var options = Array.isArray(est.options) ? est.options : [];
+    var mode = cfg.display_mode || 'exact';
+    var hiddenMode = mode === 'hidden';
+    var html = prefixHtml || '';
+    if (cfg.title) html += '<p class="bp-est-service">' + esc(cfg.title) + '</p>';
+    if (cfg.intro) html += '<p class="bp-mod-lede">' + esc(cfg.intro) + '</p>';
+    html += '<form class="bp-mod-book bp-mod-est" data-bp-est="1">';
+    if (cfg.service_label) {
+      html +=
+        '<p class="bp-est-service">' +
+        esc(cfg.service_label) +
+        (hiddenMode ? '' : ' · base ' + esc(cfg.base_price_label || fmtMoney(cfg.base_price_cents))) +
+        '</p>';
+    }
+    if (options.length) {
+      html += '<div class="bp-est-options">';
+      for (var i = 0; i < options.length; i++) {
+        var o = options[i];
+        var priceTag = hiddenMode
+          ? ''
+          : '<span class="bp-est-opt-price">+' + esc(o.price_label || fmtMoney(o.price_cents)) + '</span>';
+        if (o.input_type === 'quantity') {
+          html +=
+            '<div class="bp-est-opt-row"><label for="bp-est-q-' +
+            esc(o.id) +
+            '"><span>' +
+            esc(o.label) +
+            '</span>' +
+            priceTag +
+            '</label>' +
+            '<input id="bp-est-q-' +
+            esc(o.id) +
+            '" class="bp-est-qty" type="number" min="0" max="99" step="1" value="0" data-est-qty="' +
+            esc(o.id) +
+            '" data-est-price="' +
+            esc(hiddenMode ? 0 : o.price_cents || 0) +
+            '" /></div>';
+        } else if (o.input_type === 'select') {
+          var choices = Array.isArray(o.choices) ? o.choices : [];
+          html +=
+            '<div class="bp-est-opt-row"><label for="bp-est-s-' +
+            esc(o.id) +
+            '">' +
+            esc(o.label) +
+            '</label><select id="bp-est-s-' +
+            esc(o.id) +
+            '" data-est-select="' +
+            esc(o.id) +
+            '">';
+          for (var ci = 0; ci < choices.length; ci++) {
+            var ch = choices[ci];
+            html +=
+              '<option value="' +
+              ci +
+              '" data-est-price="' +
+              esc(hiddenMode ? 0 : ch.price_cents || 0) +
+              '">' +
+              esc(ch.label) +
+              (hiddenMode ? '' : ' · +' + esc(ch.price_label || fmtMoney(ch.price_cents))) +
+              '</option>';
+          }
+          html += '</select></div>';
+        } else {
+          html +=
+            '<label class="bp-est-opt"><input type="checkbox" data-est-check="' +
+            esc(o.id) +
+            '" data-est-price="' +
+            esc(hiddenMode ? 0 : o.price_cents || 0) +
+            '" /> <span>' +
+            esc(o.label) +
+            '</span>' +
+            priceTag +
+            '</label>';
+        }
+      }
+      html += '</div>';
+    }
+    if (hiddenMode) {
+      html +=
+        '<div class="bp-est-total"><span class="bp-est-total-label">Pick your options, leave your details below, and we will send your estimate.</span></div>';
+    } else {
+      html +=
+        '<div class="bp-est-total"><span class="bp-est-total-label">' +
+        (mode === 'range' ? 'Estimated range' : 'Estimated total') +
+        '</span><span class="bp-est-total-value" data-est-total-value></span></div>';
+    }
+    if (cfg.disclaimer) html += '<p class="bp-est-disclaimer">' + esc(cfg.disclaimer) + '</p>';
+    html +=
+      '<div class="bp-mod-book-row"><label>Your name</label><input name="name" required autocomplete="name" /></div>' +
+      '<div class="bp-mod-book-row"><label>Email</label><input name="email" type="email" autocomplete="email" /></div>' +
+      '<div class="bp-mod-book-row"><label>Phone</label><input name="phone" type="tel" autocomplete="tel" /></div>' +
+      '<div class="bp-mod-book-row"><label>Anything we should know? (optional)</label><textarea name="notes" rows="3"></textarea></div>' +
+      '<div class="bp-mod-captcha" data-bp-captcha hidden></div>' +
+      '<button type="submit" class="bp-mod-btn">' +
+      esc(cfg.submit_label || 'Send my estimate') +
+      '</button>' +
+      '<p class="bp-mod-book-msg" data-est-msg></p>' +
+      '</form>';
+    el.innerHTML = html;
+    bindEstimateForm(el, data);
+  }
+
+  function bindEstimateForm(el, data) {
+    var form = el.querySelector('[data-bp-est]');
+    if (!form) return;
+    var est = data.estimate || {};
+    var cfg = est.config || {};
+    var mode = cfg.display_mode || 'exact';
+    var hiddenMode = mode === 'hidden';
+    var token = el.getAttribute(TOKEN_ATTR) || '';
+    var base = apiBase(el);
+    var msg = form.querySelector('[data-est-msg]');
+    var totalValue = form.querySelector('[data-est-total-value]');
+    var submitBtn = form.querySelector('button[type="submit"]');
+    var captchaBox = form.querySelector('[data-bp-captcha]');
+    var captcha = {
+      enabled: false,
+      getToken: async function () {
+        return '';
+      },
+      reset: function () {},
+    };
+
+    (async function () {
+      try {
+        if (base) await loadScript(base + '/js/captcha.js?v=mod5');
+        if (window.ScoutCaptcha && captchaBox) {
+          captcha = await window.ScoutCaptcha.mount(captchaBox, { apiBase: base });
+        }
+      } catch (e) {
+        /* captcha optional when disabled server-side */
+      }
+    })();
+
+    function computeTotal() {
+      var total = Number(cfg.base_price_cents) || 0;
+      var checks = form.querySelectorAll('[data-est-check]');
+      for (var i = 0; i < checks.length; i++) {
+        if (checks[i].checked) total += Number(checks[i].getAttribute('data-est-price')) || 0;
+      }
+      var qtys = form.querySelectorAll('[data-est-qty]');
+      for (var q = 0; q < qtys.length; q++) {
+        var qty = Math.floor(Number(qtys[q].value) || 0);
+        if (qty < 0) qty = 0;
+        if (qty > 99) qty = 99;
+        total += qty * (Number(qtys[q].getAttribute('data-est-price')) || 0);
+      }
+      var sels = form.querySelectorAll('[data-est-select]');
+      for (var s = 0; s < sels.length; s++) {
+        var opt = sels[s].options[sels[s].selectedIndex];
+        if (opt) total += Number(opt.getAttribute('data-est-price')) || 0;
+      }
+      return total;
+    }
+
+    function refreshTotal() {
+      if (hiddenMode || !totalValue) return;
+      var total = computeTotal();
+      if (mode === 'range') {
+        var p = Math.min(100, Math.max(0, Number(cfg.range_percent) || 0));
+        var low = Math.floor((total * (100 - p)) / 100);
+        var high = Math.ceil((total * (100 + p)) / 100);
+        totalValue.textContent = fmtMoney(low) + ' – ' + fmtMoney(high);
+      } else {
+        totalValue.textContent = fmtMoney(total);
+      }
+    }
+
+    function collectSelections() {
+      var out = [];
+      var checks = form.querySelectorAll('[data-est-check]');
+      for (var i = 0; i < checks.length; i++) {
+        if (checks[i].checked) {
+          out.push({ option_id: Number(checks[i].getAttribute('data-est-check')), checked: true });
+        }
+      }
+      var qtys = form.querySelectorAll('[data-est-qty]');
+      for (var q = 0; q < qtys.length; q++) {
+        var qty = Math.floor(Number(qtys[q].value) || 0);
+        if (qty > 0) {
+          out.push({ option_id: Number(qtys[q].getAttribute('data-est-qty')), quantity: Math.min(99, qty) });
+        }
+      }
+      var sels = form.querySelectorAll('[data-est-select]');
+      for (var s = 0; s < sels.length; s++) {
+        out.push({ option_id: Number(sels[s].getAttribute('data-est-select')), choice_index: sels[s].selectedIndex });
+      }
+      return out;
+    }
+
+    form.addEventListener('change', refreshTotal);
+    form.addEventListener('input', refreshTotal);
+    refreshTotal();
+
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      if (msg) {
+        msg.textContent = '';
+        msg.className = 'bp-mod-book-msg';
+      }
+      var name = String(form.querySelector('[name="name"]').value || '').trim();
+      var email = String(form.querySelector('[name="email"]').value || '').trim();
+      var phone = String(form.querySelector('[name="phone"]').value || '').trim();
+      var notes = String(form.querySelector('[name="notes"]').value || '');
+      if (!name) {
+        if (msg) {
+          msg.textContent = 'Please tell us your name.';
+          msg.className = 'bp-mod-book-msg err';
+        }
+        return;
+      }
+      if (!email && !phone) {
+        if (msg) {
+          msg.textContent = 'Email or phone is required so we can send your estimate.';
+          msg.className = 'bp-mod-book-msg err';
+        }
+        return;
+      }
+      if (submitBtn) submitBtn.disabled = true;
+      if (msg) msg.textContent = 'Sending…';
+      (async function () {
+        try {
+          var captchaToken = await captcha.getToken();
+          var body = {
+            name: name,
+            email: email,
+            phone: phone,
+            notes: notes,
+            selections: collectSelections(),
+            captchaToken: captchaToken,
+          };
+          var r = await fetch((base || '') + '/api/v1/modules/public/' + encodeURIComponent(token) + '/estimate', {
+            method: 'POST',
+            credentials: 'omit',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          var j = await r.json();
+          if (!r.ok || !j || !j.ok) throw new Error((j && j.error) || 'Could not send your request');
+          var req = (j.data && j.data.request) || {};
+          var detail = '';
+          if (req.range_low_label && req.range_high_label) {
+            detail = 'Estimated range: ' + req.range_low_label + ' – ' + req.range_high_label + '. ';
+          } else if (req.estimate_label) {
+            detail = 'Your estimate: ' + req.estimate_label + '. ';
+          }
+          el.innerHTML =
+            (shouldShowTitle(el) ? '<h2 class="bp-mod-title">' + esc(data.title || 'Instant Estimate') + '</h2>' : '') +
+            '<div class="bp-mod-empty-card"><p class="bp-mod-empty-kicker">Request sent</p>' +
+            '<p class="bp-mod-empty-title">' +
+            esc((j.data && j.data.message) || 'Thanks — your request is in.') +
+            '</p>' +
+            '<p class="bp-mod-empty-text">' +
+            esc(detail + 'Final price is confirmed after the business reviews your project.') +
+            '</p></div>';
+        } catch (e) {
+          if (msg) {
+            msg.textContent = (e.message || 'Could not send your request') + ' — please try again.';
+            msg.className = 'bp-mod-book-msg err';
+          }
+          if (captcha.reset) captcha.reset();
+        } finally {
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      })();
+    });
   }
 
   function renderItem(el, data) {

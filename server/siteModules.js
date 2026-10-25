@@ -2,7 +2,8 @@
 
 /**
  * Site content modules (Blog, Ecommerce, Courses, Gallery, Directory,
- * FAQ, Testimonials, Team, Events, Bookings).
+ * FAQ, Testimonials, Team, Events, Bookings, Chatbot, Offers, Menu,
+ * Careers, Video, Instant Estimate).
  * Workspace SQLite tables per lead; in-page JS embeds (legacy iframe URL kept);
  * portal + MCP CRUD.
  * Gated by plan entitlement `siteModules` (Standard + Premium).
@@ -30,13 +31,14 @@ const MODULE_TYPES = [
   'menu',
   'careers',
   'video',
+  'estimate',
 ];
 const MANAGED_ATTR = 'data-bitpype-module';
 const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod8';
+const MODULE_SCRIPT_VER = 'mod9';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -62,6 +64,7 @@ const MODULE_META = {
   menu: { label: 'Menu / Price List', defaultTitle: 'Menu', defaultSlug: 'menu' },
   careers: { label: 'Careers', defaultTitle: 'Careers', defaultSlug: 'careers' },
   video: { label: 'Video', defaultTitle: 'Videos', defaultSlug: 'videos' },
+  estimate: { label: 'Instant Estimate', defaultTitle: 'Get an Estimate', defaultSlug: 'estimate' },
 };
 
 const BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'];
@@ -392,6 +395,48 @@ function ensureTables(db) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS estimate_configs (
+      lead_id INTEGER PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT '',
+      intro TEXT NOT NULL DEFAULT '',
+      service_label TEXT NOT NULL DEFAULT '',
+      base_price_cents INTEGER NOT NULL DEFAULT 0,
+      display_mode TEXT NOT NULL DEFAULT 'exact',
+      range_percent INTEGER NOT NULL DEFAULT 15,
+      disclaimer TEXT NOT NULL DEFAULT '',
+      submit_label TEXT NOT NULL DEFAULT 'Send my estimate',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS estimate_options (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER NOT NULL,
+      label TEXT NOT NULL,
+      price_cents INTEGER NOT NULL DEFAULT 0,
+      input_type TEXT NOT NULL DEFAULT 'checkbox',
+      choices_json TEXT NOT NULL DEFAULT '[]',
+      active INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS estimate_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER NOT NULL,
+      contact_id INTEGER,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL DEFAULT '',
+      phone TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '',
+      selections_json TEXT NOT NULL DEFAULT '[]',
+      estimate_cents INTEGER NOT NULL DEFAULT 0,
+      display_mode TEXT NOT NULL DEFAULT 'exact',
+      status TEXT NOT NULL DEFAULT 'new',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS booking_settings (
       lead_id INTEGER PRIMARY KEY,
       timezone TEXT NOT NULL DEFAULT 'America/New_York',
@@ -471,6 +516,8 @@ function ensureTables(db) {
     CREATE INDEX IF NOT EXISTS idx_booking_hours_lead ON booking_hours(lead_id);
     CREATE INDEX IF NOT EXISTS idx_booking_blocks_lead ON booking_blocks(lead_id, block_date);
     CREATE INDEX IF NOT EXISTS idx_bookings_lead ON bookings(lead_id, starts_at);
+    CREATE INDEX IF NOT EXISTS idx_estimate_options_lead ON estimate_options(lead_id, sort_order, id);
+    CREATE INDEX IF NOT EXISTS idx_estimate_requests_lead ON estimate_requests(lead_id, id DESC);
     CREATE INDEX IF NOT EXISTS idx_module_embeds_token ON site_module_embeds(public_token);
   `);
   try {
@@ -4429,6 +4476,533 @@ function deleteVideoItem(db, leadId, id) {
   return { deleted: true, id: row.id };
 }
 
+/* ── Instant Estimate (config + priced options + visitor requests) ──
+ * One config row per lead (singleton, like booking_settings) plus a list of
+ * priced options. Visitors pick options on the public page; the server ALWAYS
+ * recomputes the total from stored prices on submit — client math is only a
+ * display aid. In `hidden` display mode the public payload carries NO prices
+ * at all, so the total is not derivable from the page: the server computes
+ * and stores it, and the visitor only hears "we'll send your estimate".
+ * Requests land in LeadScout through portalContacts.captureFromEstimate —
+ * the same dedupe funnel form submissions and bookings use. */
+
+const ESTIMATE_DISPLAY_MODES = ['exact', 'range', 'hidden'];
+const ESTIMATE_INPUT_TYPES = ['checkbox', 'select', 'quantity'];
+const ESTIMATE_REQUEST_STATUSES = ['new', 'contacted', 'closed'];
+const ESTIMATE_DEFAULT_DISCLAIMER =
+  'This instant estimate is a ballpark for planning purposes only — it is not a quote. Your final price will be confirmed after we review your project details.';
+const ESTIMATE_DEFAULT_SUBMIT_LABEL = 'Send my estimate';
+const MAX_MONEY_CENTS = 1000000000; // $10,000,000 sanity cap
+
+function parseMoneyCents(dollarsValue, centsValue) {
+  if (centsValue != null && centsValue !== '') {
+    const c = Math.round(Number(centsValue));
+    if (!Number.isFinite(c) || c < 0 || c > MAX_MONEY_CENTS) {
+      throw fail('VALIDATION', 'price must be between $0 and $10,000,000');
+    }
+    return c;
+  }
+  if (dollarsValue == null || dollarsValue === '') return null;
+  const n = Number(String(dollarsValue).replace(/[$,\s]/g, ''));
+  if (!Number.isFinite(n)) throw fail('VALIDATION', 'price must be a number');
+  const c = Math.round(n * 100);
+  if (c < 0 || c > MAX_MONEY_CENTS) {
+    throw fail('VALIDATION', 'price must be between $0 and $10,000,000');
+  }
+  return c;
+}
+
+function normalizeEstimateMode(value, fallback = 'exact') {
+  const m = String(value || '')
+    .trim()
+    .toLowerCase();
+  return ESTIMATE_DISPLAY_MODES.includes(m) ? m : fallback;
+}
+
+function getEstimateConfig(db, leadId) {
+  ensureTables(db);
+  const id = Number(leadId);
+  let row = db.prepare('SELECT * FROM estimate_configs WHERE lead_id = ?').get(id);
+  if (!row) {
+    db.prepare(
+      `INSERT INTO estimate_configs (lead_id, disclaimer, submit_label) VALUES (?, ?, ?)`
+    ).run(id, ESTIMATE_DEFAULT_DISCLAIMER, ESTIMATE_DEFAULT_SUBMIT_LABEL);
+    row = db.prepare('SELECT * FROM estimate_configs WHERE lead_id = ?').get(id);
+  }
+  return { ...row, price_label: formatPrice(row.base_price_cents) };
+}
+
+function updateEstimateConfig(db, leadId, data = {}) {
+  ensureTables(db);
+  const row = getEstimateConfig(db, leadId);
+  const title = data.title != null ? String(data.title).trim().slice(0, 200) : row.title;
+  const intro = data.intro != null ? String(data.intro).slice(0, 2000) : row.intro;
+  const serviceLabel =
+    data.service_label != null || data.serviceLabel != null
+      ? String(data.service_label != null ? data.service_label : data.serviceLabel)
+          .trim()
+          .slice(0, 200)
+      : row.service_label;
+  let baseCents = row.base_price_cents;
+  if (data.base_price_cents != null || data.base_price != null || data.basePrice != null) {
+    const parsed = parseMoneyCents(
+      data.base_price != null ? data.base_price : data.basePrice,
+      data.base_price_cents
+    );
+    baseCents = parsed != null ? parsed : 0;
+  }
+  const mode =
+    data.display_mode != null || data.displayMode != null
+      ? normalizeEstimateMode(data.display_mode != null ? data.display_mode : data.displayMode, row.display_mode)
+      : row.display_mode;
+  let rangePercent = row.range_percent;
+  if (data.range_percent != null || data.rangePercent != null) {
+    rangePercent = Math.round(Number(data.range_percent != null ? data.range_percent : data.rangePercent));
+    if (!Number.isFinite(rangePercent) || rangePercent < 0) rangePercent = 0;
+    if (rangePercent > 100) rangePercent = 100;
+  }
+  const disclaimer = data.disclaimer != null ? String(data.disclaimer).slice(0, 1000) : row.disclaimer;
+  let submitLabel =
+    data.submit_label != null || data.submitLabel != null
+      ? String(data.submit_label != null ? data.submit_label : data.submitLabel)
+          .trim()
+          .slice(0, 80)
+      : row.submit_label;
+  if (!submitLabel) submitLabel = ESTIMATE_DEFAULT_SUBMIT_LABEL;
+  db.prepare(
+    `
+    UPDATE estimate_configs
+    SET title = ?, intro = ?, service_label = ?, base_price_cents = ?, display_mode = ?,
+        range_percent = ?, disclaimer = ?, submit_label = ?, updated_at = datetime('now')
+    WHERE lead_id = ?
+  `
+  ).run(title, intro, serviceLabel, baseCents, mode, rangePercent, disclaimer, submitLabel, Number(leadId));
+  return getEstimateConfig(db, leadId);
+}
+
+function normalizeEstimateChoices(raw) {
+  let list = [];
+  if (Array.isArray(raw)) {
+    list = raw;
+  } else if (typeof raw === 'string' && raw.trim()) {
+    const s = raw.trim();
+    if (s.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed)) list = parsed;
+      } catch {
+        list = [];
+      }
+    }
+    if (!list.length) {
+      list = s
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => {
+          const idx = line.lastIndexOf('|');
+          if (idx > 0) return { label: line.slice(0, idx).trim(), price: line.slice(idx + 1).trim() };
+          return { label: line, price: null };
+        });
+    }
+  }
+  return list
+    .slice(0, 50)
+    .map((c) => {
+      const label = String((c && (c.label != null ? c.label : c.name)) || '')
+        .trim()
+        .slice(0, 120);
+      if (!label) return null;
+      const cents = parseMoneyCents(c && c.price, c && (c.price_cents != null ? c.price_cents : c.priceCents));
+      return { label, price_cents: cents != null ? cents : 0 };
+    })
+    .filter(Boolean);
+}
+
+function parseEstimateChoicesJson(json) {
+  try {
+    const parsed = JSON.parse(String(json || '[]'));
+    return Array.isArray(parsed) ? normalizeEstimateChoices(parsed) : [];
+  } catch {
+    return [];
+  }
+}
+
+function withEstimateOptionShape(row) {
+  if (!row) return row;
+  const choices = parseEstimateChoicesJson(row.choices_json);
+  return {
+    ...row,
+    choices,
+    choices_text: choices.map((c) => `${c.label} | ${(c.price_cents / 100).toFixed(2)}`).join('\n'),
+    price_label: formatPrice(row.price_cents),
+    price: row.price_cents / 100,
+    status: row.active ? 'active' : 'inactive',
+  };
+}
+
+function listEstimateOptions(db, leadId, { includeInactive = true } = {}) {
+  ensureTables(db);
+  let sql = 'SELECT * FROM estimate_options WHERE lead_id = ?';
+  if (!includeInactive) sql += ' AND active = 1';
+  sql += ' ORDER BY sort_order ASC, id ASC';
+  return db.prepare(sql).all(Number(leadId)).map(withEstimateOptionShape);
+}
+
+function getEstimateOption(db, leadId, id) {
+  ensureTables(db);
+  const row = db
+    .prepare('SELECT * FROM estimate_options WHERE lead_id = ? AND id = ?')
+    .get(Number(leadId), Number(id));
+  return withEstimateOptionShape(row);
+}
+
+function normalizeEstimateOptionFields(data, row = {}) {
+  const label =
+    data.label != null || data.title != null || data.name != null
+      ? String(data.label != null ? data.label : data.title != null ? data.title : data.name)
+          .trim()
+          .slice(0, 200)
+      : row.label || '';
+  if (!label) throw fail('VALIDATION', 'label is required');
+  const inputType =
+    data.input_type != null || data.inputType != null
+      ? String(data.input_type != null ? data.input_type : data.inputType)
+          .trim()
+          .toLowerCase()
+      : row.input_type || 'checkbox';
+  if (!ESTIMATE_INPUT_TYPES.includes(inputType)) {
+    throw fail('VALIDATION', `input_type must be one of: ${ESTIMATE_INPUT_TYPES.join(', ')}`);
+  }
+  let priceCents = row.price_cents || 0;
+  if (data.price_cents != null || data.price != null) {
+    const parsed = parseMoneyCents(data.price, data.price_cents);
+    priceCents = parsed != null ? parsed : 0;
+  }
+  let choices = row.choices_json != null ? parseEstimateChoicesJson(row.choices_json) : [];
+  if (data.choices !== undefined || data.choices_text !== undefined || data.choicesText !== undefined) {
+    choices = normalizeEstimateChoices(
+      data.choices !== undefined ? data.choices : data.choices_text !== undefined ? data.choices_text : data.choicesText
+    );
+  }
+  if (inputType === 'select' && !choices.length) {
+    throw fail('VALIDATION', 'a select option needs at least one choice (one per line: Label | price)');
+  }
+  if (inputType !== 'select') choices = [];
+  let active = row.active == null ? 1 : row.active;
+  if (data.active != null) active = data.active ? 1 : 0;
+  else if (data.status != null) active = String(data.status).toLowerCase() === 'active' ? 1 : 0;
+  const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order || 0;
+  return { label, input_type: inputType, price_cents: priceCents, choices, active, sort_order: sortOrder };
+}
+
+function createEstimateOption(db, leadId, data = {}) {
+  ensureTables(db);
+  const f = normalizeEstimateOptionFields(data);
+  const info = db
+    .prepare(
+      `
+    INSERT INTO estimate_options (lead_id, label, price_cents, input_type, choices_json, active, sort_order)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `
+    )
+    .run(Number(leadId), f.label, f.price_cents, f.input_type, JSON.stringify(f.choices), f.active, f.sort_order);
+  return getEstimateOption(db, leadId, info.lastInsertRowid);
+}
+
+function updateEstimateOption(db, leadId, id, data = {}) {
+  ensureTables(db);
+  const row = db
+    .prepare('SELECT * FROM estimate_options WHERE lead_id = ? AND id = ?')
+    .get(Number(leadId), Number(id));
+  if (!row) throw fail('NOT_FOUND', 'Estimate option not found', 404);
+  const f = normalizeEstimateOptionFields(data, row);
+  db.prepare(
+    `
+    UPDATE estimate_options
+    SET label = ?, price_cents = ?, input_type = ?, choices_json = ?, active = ?, sort_order = ?,
+        updated_at = datetime('now')
+    WHERE id = ? AND lead_id = ?
+  `
+  ).run(f.label, f.price_cents, f.input_type, JSON.stringify(f.choices), f.active, f.sort_order, row.id, Number(leadId));
+  return getEstimateOption(db, leadId, row.id);
+}
+
+function deleteEstimateOption(db, leadId, id) {
+  ensureTables(db);
+  const row = getEstimateOption(db, leadId, id);
+  if (!row) throw fail('NOT_FOUND', 'Estimate option not found', 404);
+  db.prepare('DELETE FROM estimate_options WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
+  return { deleted: true, id: row.id };
+}
+
+/**
+ * Authoritative estimate math. Selections reference stored options only;
+ * unknown or inactive option ids are rejected. Select options always
+ * contribute exactly one choice (default: the first) — that is the module's
+ * semantic (e.g. size: Small +$0 / Large +$50).
+ */
+function computeEstimate(db, leadId, selections) {
+  const config = getEstimateConfig(db, leadId);
+  const options = listEstimateOptions(db, leadId, { includeInactive: false });
+  const byId = new Map(options.map((o) => [Number(o.id), o]));
+  let total = Number(config.base_price_cents) || 0;
+  const snapshot = [];
+  const seen = new Set();
+  const list = Array.isArray(selections) ? selections.slice(0, 100) : [];
+  for (const sel of list) {
+    if (!sel || typeof sel !== 'object') continue;
+    const id = Number(sel.option_id != null ? sel.option_id : sel.optionId != null ? sel.optionId : sel.id);
+    const opt = byId.get(id);
+    if (!opt) throw fail('VALIDATION', 'An option you picked is no longer available');
+    if (seen.has(id)) continue;
+    seen.add(id);
+    if (opt.input_type === 'checkbox') {
+      const on = sel.checked === true || sel.checked === 1 || sel.checked === 'true' || !!sel.selected;
+      if (!on) continue;
+      snapshot.push({
+        option_id: opt.id,
+        label: opt.label,
+        input_type: 'checkbox',
+        quantity: 1,
+        choice_label: '',
+        unit_price_cents: opt.price_cents,
+        line_total_cents: opt.price_cents,
+      });
+      total += opt.price_cents;
+    } else if (opt.input_type === 'quantity') {
+      let qty = Math.floor(Number(sel.quantity != null ? sel.quantity : sel.qty));
+      if (!Number.isFinite(qty) || qty < 0) qty = 0;
+      if (qty > 99) qty = 99;
+      if (!qty) continue;
+      snapshot.push({
+        option_id: opt.id,
+        label: opt.label,
+        input_type: 'quantity',
+        quantity: qty,
+        choice_label: '',
+        unit_price_cents: opt.price_cents,
+        line_total_cents: qty * opt.price_cents,
+      });
+      total += qty * opt.price_cents;
+    } else if (opt.input_type === 'select') {
+      const choices = opt.choices || [];
+      let idx = Number(sel.choice_index != null ? sel.choice_index : sel.choiceIndex);
+      if (sel.choice_label != null || sel.choiceLabel != null) {
+        const wanted = String(sel.choice_label != null ? sel.choice_label : sel.choiceLabel);
+        const found = choices.findIndex((c) => c.label === wanted);
+        if (found >= 0) idx = found;
+      }
+      if (!Number.isInteger(idx) || idx < 0) idx = 0;
+      if (idx >= choices.length) throw fail('VALIDATION', `Please pick an option for “${opt.label}”`);
+      const choice = choices[idx];
+      snapshot.push({
+        option_id: opt.id,
+        label: opt.label,
+        input_type: 'select',
+        quantity: 1,
+        choice_label: choice.label,
+        unit_price_cents: choice.price_cents,
+        line_total_cents: choice.price_cents,
+      });
+      total += choice.price_cents;
+    }
+  }
+  // Selects always contribute exactly one choice, even if the client omitted them.
+  for (const opt of options) {
+    if (opt.input_type !== 'select' || seen.has(opt.id)) continue;
+    const choice = (opt.choices || [])[0];
+    if (!choice) continue;
+    snapshot.push({
+      option_id: opt.id,
+      label: opt.label,
+      input_type: 'select',
+      quantity: 1,
+      choice_label: choice.label,
+      unit_price_cents: choice.price_cents,
+      line_total_cents: choice.price_cents,
+    });
+    total += choice.price_cents;
+  }
+  return { config, total_cents: total, snapshot };
+}
+
+function estimateRangeBounds(totalCents, rangePercent) {
+  const p = Math.min(100, Math.max(0, Number(rangePercent) || 0));
+  return {
+    low_cents: Math.floor((totalCents * (100 - p)) / 100),
+    high_cents: Math.ceil((totalCents * (100 + p)) / 100),
+  };
+}
+
+/** Public-safe estimate payload. Hidden mode strips EVERY price. */
+function publicEstimatePayload(db, leadId) {
+  const config = getEstimateConfig(db, leadId);
+  const hidden = config.display_mode === 'hidden';
+  const options = listEstimateOptions(db, leadId, { includeInactive: false }).map((o) => {
+    const base = { id: o.id, label: o.label, input_type: o.input_type, sort_order: o.sort_order };
+    if (hidden) {
+      base.choices = (o.choices || []).map((c) => ({ label: c.label }));
+    } else {
+      base.price_cents = o.price_cents;
+      base.price_label = o.price_label;
+      base.choices = (o.choices || []).map((c) => ({
+        label: c.label,
+        price_cents: c.price_cents,
+        price_label: formatPrice(c.price_cents),
+      }));
+    }
+    return base;
+  });
+  const cfg = {
+    title: config.title,
+    service_label: config.service_label,
+    intro: config.intro,
+    display_mode: config.display_mode,
+    range_percent: config.range_percent,
+    disclaimer: config.disclaimer,
+    submit_label: config.submit_label || ESTIMATE_DEFAULT_SUBMIT_LABEL,
+  };
+  if (!hidden) {
+    cfg.base_price_cents = config.base_price_cents;
+    cfg.base_price_label = formatPrice(config.base_price_cents);
+  }
+  return { config: cfg, options };
+}
+
+function withEstimateRequestShape(row) {
+  if (!row) return row;
+  let selections = [];
+  try {
+    const parsed = JSON.parse(String(row.selections_json || '[]'));
+    if (Array.isArray(parsed)) selections = parsed;
+  } catch {
+    selections = [];
+  }
+  return { ...row, selections, estimate_label: formatPrice(row.estimate_cents) };
+}
+
+function listEstimateRequests(db, leadId, { limit = 50 } = {}) {
+  ensureTables(db);
+  const lim = Math.min(200, Math.max(1, Number(limit) || 50));
+  return db
+    .prepare('SELECT * FROM estimate_requests WHERE lead_id = ? ORDER BY id DESC LIMIT ?')
+    .all(Number(leadId), lim)
+    .map(withEstimateRequestShape);
+}
+
+function getEstimateRequest(db, leadId, id) {
+  ensureTables(db);
+  const row = db
+    .prepare('SELECT * FROM estimate_requests WHERE lead_id = ? AND id = ?')
+    .get(Number(leadId), Number(id));
+  return withEstimateRequestShape(row);
+}
+
+function updateEstimateRequestStatus(db, leadId, id, status) {
+  ensureTables(db);
+  const row = getEstimateRequest(db, leadId, id);
+  if (!row) throw fail('NOT_FOUND', 'Estimate request not found', 404);
+  const s = String(status || '')
+    .trim()
+    .toLowerCase();
+  if (!ESTIMATE_REQUEST_STATUSES.includes(s)) {
+    throw fail('VALIDATION', `status must be one of: ${ESTIMATE_REQUEST_STATUSES.join(', ')}`);
+  }
+  db.prepare(
+    `UPDATE estimate_requests SET status = ?, updated_at = datetime('now') WHERE id = ? AND lead_id = ?`
+  ).run(s, row.id, Number(leadId));
+  return getEstimateRequest(db, leadId, row.id);
+}
+
+function deleteEstimateRequest(db, leadId, id) {
+  ensureTables(db);
+  const row = getEstimateRequest(db, leadId, id);
+  if (!row) throw fail('NOT_FOUND', 'Estimate request not found', 404);
+  db.prepare('DELETE FROM estimate_requests WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
+  return { deleted: true, id: row.id };
+}
+
+function createEstimateRequest(db, leadId, data = {}) {
+  ensureTables(db);
+  const name = String(data.name || data.customer_name || data.customerName || '').trim();
+  const email = String(data.email || data.customer_email || data.customerEmail || '').trim();
+  const phone = String(data.phone || data.customer_phone || data.customerPhone || '').trim();
+  if (!name) throw fail('VALIDATION', 'name is required');
+  if (!email && !phone) throw fail('VALIDATION', 'email or phone is required');
+  const { config, total_cents, snapshot } = computeEstimate(
+    db,
+    leadId,
+    data.selections || data.options || []
+  );
+  const info = db
+    .prepare(
+      `
+    INSERT INTO estimate_requests
+      (lead_id, name, email, phone, notes, selections_json, estimate_cents, display_mode, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new')
+  `
+    )
+    .run(
+      Number(leadId),
+      name.slice(0, 200),
+      email.slice(0, 240),
+      phone.slice(0, 60),
+      String(data.notes || '').slice(0, 2000),
+      JSON.stringify(snapshot).slice(0, 8000),
+      total_cents,
+      config.display_mode
+    );
+  const request = getEstimateRequest(db, leadId, info.lastInsertRowid);
+  try {
+    const portalContacts = require('./portalContacts');
+    const cap = portalContacts.captureFromEstimate(db, {
+      leadId,
+      request,
+      pageSlug: data.page_slug || data.pageSlug || '',
+    });
+    if (cap && cap.contact && cap.contact.id) {
+      db.prepare('UPDATE estimate_requests SET contact_id = ? WHERE id = ?').run(cap.contact.id, request.id);
+      request.contact_id = cap.contact.id;
+    }
+  } catch (e) {
+    console.warn('[siteModules] LeadScout estimate capture failed:', e.message || e);
+  }
+  return request;
+}
+
+function createPublicEstimateRequestByToken(db, token, data = {}) {
+  ensureTables(db);
+  const row = db
+    .prepare('SELECT * FROM site_module_embeds WHERE public_token = ? AND published = 1')
+    .get(String(token || ''));
+  if (!row || row.module_type !== 'estimate') {
+    throw fail('NOT_FOUND', 'Estimate module not found', 404);
+  }
+  const request = createEstimateRequest(db, row.lead_id, data);
+  const hidden = request.display_mode === 'hidden';
+  const pubRequest = { id: request.id, display_mode: request.display_mode };
+  if (!hidden) {
+    pubRequest.estimate_cents = request.estimate_cents;
+    pubRequest.estimate_label = request.estimate_label;
+    if (request.display_mode === 'range') {
+      const config = getEstimateConfig(db, row.lead_id);
+      const bounds = estimateRangeBounds(request.estimate_cents, config.range_percent);
+      pubRequest.range_low_cents = bounds.low_cents;
+      pubRequest.range_high_cents = bounds.high_cents;
+      pubRequest.range_low_label = formatPrice(bounds.low_cents);
+      pubRequest.range_high_label = formatPrice(bounds.high_cents);
+    }
+  }
+  return {
+    embed: publicEmbed(row),
+    request: pubRequest,
+    message: hidden
+      ? 'Thanks — your request is in. We will review it and send your estimate shortly.'
+      : 'Your estimate is ready — the business has your details and will confirm the final price.',
+  };
+}
+
 /* ── Bookings (services + hours + calendar slots) ── */
 
 function parseHm(s) {
@@ -5119,6 +5693,13 @@ function moduleItemCount(db, leadId, type) {
   if (type === 'menu') return listMenuItems(db, leadId).length;
   if (type === 'careers') return listCareersPostings(db, leadId).length;
   if (type === 'video') return listVideoItems(db, leadId).length;
+  if (type === 'estimate') {
+    // Like bookings (count = appointments), the tab badge counts incoming
+    // estimate requests — the work queue — not the priced options.
+    ensureTables(db);
+    const row = db.prepare('SELECT COUNT(*) AS c FROM estimate_requests WHERE lead_id = ?').get(Number(leadId));
+    return Number(row && row.c) || 0;
+  }
   return 0;
 }
 
@@ -5136,6 +5717,7 @@ function getPublicModuleByToken(db, token) {
   let items = [];
   let booking = null;
   let menuCategories = null;
+  let estimate = null;
   let total_published = null;
   if (type === 'blog') {
     items = listBlogPosts(db, leadId, { includeDrafts: false }).map((p) => ({
@@ -5176,6 +5758,8 @@ function getPublicModuleByToken(db, token) {
     items = listCareersPostings(db, leadId, { includeInactive: false });
   } else if (type === 'video') {
     items = listVideoItems(db, leadId, { includeDrafts: false });
+  } else if (type === 'estimate') {
+    estimate = publicEstimatePayload(db, leadId);
   } else if (type === 'chatbot') {
     try {
       const chat = require('./chatbot');
@@ -5203,6 +5787,7 @@ function getPublicModuleByToken(db, token) {
   }
   if (booking) out.booking = booking;
   if (menuCategories) out.categories = menuCategories;
+  if (estimate) out.estimate = estimate;
   return out;
 }
 
@@ -5429,6 +6014,26 @@ module.exports = {
   updateVideoItem,
   deleteVideoItem,
   parseVideoUrl,
+  ESTIMATE_DISPLAY_MODES,
+  ESTIMATE_INPUT_TYPES,
+  ESTIMATE_REQUEST_STATUSES,
+  ESTIMATE_DEFAULT_DISCLAIMER,
+  getEstimateConfig,
+  updateEstimateConfig,
+  listEstimateOptions,
+  getEstimateOption,
+  createEstimateOption,
+  updateEstimateOption,
+  deleteEstimateOption,
+  computeEstimate,
+  estimateRangeBounds,
+  publicEstimatePayload,
+  listEstimateRequests,
+  getEstimateRequest,
+  updateEstimateRequestStatus,
+  deleteEstimateRequest,
+  createEstimateRequest,
+  createPublicEstimateRequestByToken,
   getBookingSettings,
   updateBookingSettings,
   listBookingHours,

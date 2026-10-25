@@ -1068,7 +1068,8 @@ function findDuplicates(db, lead) {
  *   chatbot_messages, chatbot_sessions, leadscout_capture_failures,
  *   leadscout_events, site_domains, site_screenshots, social_campaigns,
  *   social_posts, social_weekly_batches, testimonials, offers,
- *   menu_categories, menu_items, careers_postings, video_items
+ *   menu_categories, menu_items, careers_postings, video_items,
+ *   estimate_options, estimate_requests
  *
  * MOVE_DEDUPE — UNIQUE(lead_id, <keys>): rows whose key the keeper already
  *   has are dropped (keeper wins); the rest are reassigned:
@@ -1078,8 +1079,8 @@ function findDuplicates(db, lead) {
  *   site_module_embeds[module_type], social_accounts[platform,account_id]
  *
  * SINGLETON — lead_id is the PRIMARY KEY (one settings row per lead):
- *   booking_settings, chatbot_settings. Keeper's row wins; if the keeper
- *   has none, the dropped lead's row is reassigned.
+ *   booking_settings, chatbot_settings, estimate_configs. Keeper's row
+ *   wins; if the keeper has none, the dropped lead's row is reassigned.
  *
  * WEBSITES — lead_id is UNIQUE with ON DELETE CASCADE, and a merge must
  *   never delete a website: reassigned when the keeper has none. If BOTH
@@ -1123,6 +1124,8 @@ const MERGE_MOVE_TABLES = [
   'menu_items',
   'careers_postings',
   'video_items',
+  'estimate_options',
+  'estimate_requests',
 ];
 
 const MERGE_DEDUPE_TABLES = {
@@ -1138,7 +1141,7 @@ const MERGE_DEDUPE_TABLES = {
   social_accounts: ['platform', 'account_id'],
 };
 
-const MERGE_SINGLETON_TABLES = ['booking_settings', 'chatbot_settings'];
+const MERGE_SINGLETON_TABLES = ['booking_settings', 'chatbot_settings', 'estimate_configs'];
 
 function leadTableExists(db, table) {
   return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);

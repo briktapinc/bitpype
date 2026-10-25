@@ -91,6 +91,7 @@ function clientToolDefs() {
             'menu',
             'careers',
             'video',
+            'estimate',
           ],
         },
         moduleType: {
@@ -111,6 +112,7 @@ function clientToolDefs() {
             'menu',
             'careers',
             'video',
+            'estimate',
           ],
         },
         title: STR,
@@ -811,6 +813,88 @@ function clientToolDefs() {
       name: 'video.delete',
       description: 'Delete a video by id. Standard/Premium.',
       inputSchema: schema({ id: ID, leadId: ID }, ['id']),
+    },
+    {
+      name: 'estimate.getConfig',
+      description:
+        'Get the Instant Estimate calculator config for a lead (base price, display mode exact/range/hidden, range percent, disclaimer, submit label). Standard/Premium.',
+      inputSchema: schema({ leadId: ID }),
+    },
+    {
+      name: 'estimate.updateConfig',
+      description:
+        'Update the Instant Estimate config. base_price is in dollars (or pass base_price_cents); display_mode is exact, range or hidden. In hidden mode no prices are exposed on the public page. Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          title: STR,
+          intro: STR,
+          service_label: STR,
+          base_price: NUM,
+          base_price_cents: { type: 'integer', minimum: 0 },
+          display_mode: STR,
+          range_percent: NUM,
+          disclaimer: STR,
+          submit_label: STR,
+        },
+        []
+      ),
+    },
+    {
+      name: 'estimate.listOptions',
+      description: 'List Instant Estimate priced options for a lead. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, includeInactive: { type: 'boolean' } }),
+    },
+    {
+      name: 'estimate.createOption',
+      description:
+        'Create an Instant Estimate option. input_type is checkbox (add price when ticked), quantity (price × qty 1–99) or select (exactly one choice applies; choices is a list of {label, price} or lines "Label | 12.50"). price is in dollars (or price_cents). Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          label: STR,
+          price: NUM,
+          price_cents: { type: 'integer', minimum: 0 },
+          input_type: STR,
+          choices: { type: 'array', items: { type: 'object' } },
+          choices_text: STR,
+          active: { type: 'boolean' },
+          status: STR,
+          sort_order: NUM,
+        },
+        ['label']
+      ),
+    },
+    {
+      name: 'estimate.updateOption',
+      description: 'Update an Instant Estimate option by id. Standard/Premium.',
+      inputSchema: schema(
+        {
+          id: ID,
+          leadId: ID,
+          label: STR,
+          price: NUM,
+          price_cents: { type: 'integer', minimum: 0 },
+          input_type: STR,
+          choices: { type: 'array', items: { type: 'object' } },
+          choices_text: STR,
+          active: { type: 'boolean' },
+          status: STR,
+          sort_order: NUM,
+        },
+        ['id']
+      ),
+    },
+    {
+      name: 'estimate.deleteOption',
+      description: 'Delete an Instant Estimate option by id. Standard/Premium.',
+      inputSchema: schema({ id: ID, leadId: ID }, ['id']),
+    },
+    {
+      name: 'estimate.listRequests',
+      description:
+        'List Instant Estimate requests submitted from the public site (visitor, selections snapshot, server-computed total, status). Standard/Premium.',
+      inputSchema: schema({ leadId: ID, limit: NUM }),
     },
     {
       name: 'events.list',
@@ -2391,6 +2475,13 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'video.create',
     'video.update',
     'video.delete',
+    'estimate.getConfig',
+    'estimate.updateConfig',
+    'estimate.listOptions',
+    'estimate.createOption',
+    'estimate.updateOption',
+    'estimate.deleteOption',
+    'estimate.listRequests',
     'events.list',
     'events.create',
     'events.update',
@@ -3000,6 +3091,62 @@ async function callClientTool(ws, name, a, ctx = {}) {
     return domain.withDb(ws, (db) => ({
       plan: planId,
       ...modules.deleteVideoItem(db, leadId || Number(ctx.leadId), id),
+    }));
+  }
+
+  if (name === 'estimate.getConfig') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      config: modules.getEstimateConfig(db, leadId),
+    }));
+  }
+  if (name === 'estimate.updateConfig') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      config: modules.updateEstimateConfig(db, leadId, a),
+    }));
+  }
+  if (name === 'estimate.listOptions') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      options: modules.listEstimateOptions(db, leadId, { includeInactive: a.includeInactive !== false }),
+    }));
+  }
+  if (name === 'estimate.createOption') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({ plan: planId, option: modules.createEstimateOption(db, leadId, a) }));
+  }
+  if (name === 'estimate.updateOption') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      option: modules.updateEstimateOption(db, leadId || Number(ctx.leadId), id, a),
+    }));
+  }
+  if (name === 'estimate.deleteOption') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      ...modules.deleteEstimateOption(db, leadId || Number(ctx.leadId), id),
+    }));
+  }
+  if (name === 'estimate.listRequests') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      requests: modules.listEstimateRequests(db, leadId, { limit: a.limit || 50 }),
     }));
   }
 
