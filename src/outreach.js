@@ -1434,9 +1434,9 @@ function getTimeline(db, leadId, opts = {}) {
 const PIPELINE_COLUMNS = [
   { key: 'discovered', title: 'Discovered', statuses: ['new', 'researching'] },
   { key: 'qualified', title: 'Qualified', statuses: ['qualified'] },
-  { key: 'site_ready', title: 'Site Ready', statuses: ['building', 'qa_pending', 'ready'] },
+  { key: 'site_ready', title: 'Building & Ready', statuses: ['building', 'qa_pending', 'ready'] },
   { key: 'contacted', title: 'Contacted', statuses: ['outreach_pending', 'contacted'] },
-  { key: 'viewed', title: 'Viewed', statuses: ['engaged'] },
+  { key: 'viewed', title: 'Engaged', statuses: ['engaged'] },
   { key: 'editing', title: 'Editing', statuses: ['claimed'] },
   { key: 'trial', title: 'Trial', statuses: ['trial'] },
   { key: 'customer', title: 'Customer', statuses: ['customer'] },
