@@ -128,6 +128,30 @@ async function main() {
   assert.equal((await call(run,{via:'session',role:'owner',workspaceId:1})).status,200);
   assert.equal((await call(run,{via:'token',role:'token',leadId:null,workspaceId:1})).status,200);
   results.push('forced execution allows owners and workspace service tokens; denies ordinary members');
+  // --- AdSense gating matrix (Batch 9): free-plan only, idempotent, stripping ---
+  const adsense = require(path.join(root, 'server/adsense.js'));
+  const PUB = 'ca-pub-1234567890123456';
+  const docHtml = '<!DOCTYPE html><html><head><title>T</title></head><body><main>Hi</main><footer>F</footer></body></html>';
+  const adsOn = adsense.buildConfig({ enabled: '1', publisherId: PUB, slotId: '1234567890', plan: 'free' });
+  assert.equal(adsOn.active, true);
+  const withAds = adsense.applyToHtml(docHtml, adsOn);
+  assert.ok(withAds.includes('adsbygoogle.js?client=' + PUB), 'adsense loader script injected');
+  assert.ok(withAds.includes('data-ad-slot="1234567890"'), 'adsense unit injected');
+  assert.ok(withAds.indexOf('data-bitpype-adsense') < withAds.indexOf('<footer'), 'unit lands before footer');
+  assert.equal(adsense.applyToHtml(withAds, adsOn), withAds, 'adsense injection is idempotent');
+  for (const plan of ['standard', 'pro', 'premium']) {
+    const paidCfg = adsense.buildConfig({ enabled: '1', publisherId: PUB, slotId: '1234567890', plan });
+    assert.equal(paidCfg.active, false, plan + ' never gets ads');
+    assert.equal(adsense.applyToHtml(withAds, paidCfg), docHtml, plan + ' strips existing ads');
+  }
+  assert.equal(adsense.buildConfig({ enabled: '0', publisherId: PUB, plan: 'free' }).active, false);
+  assert.equal(adsense.buildConfig({ enabled: '1', publisherId: '', plan: 'free' }).active, false);
+  assert.equal(adsense.buildConfig({ enabled: '1', publisherId: 'not-a-pub-id', plan: 'free' }).active, false);
+  assert.equal(adsense.applyToHtml(docHtml, adsense.buildConfig({ enabled: '0', publisherId: PUB, plan: 'free' })), docHtml);
+  const autoOnly = adsense.applyToHtml(docHtml, adsense.buildConfig({ enabled: '1', publisherId: PUB, slotId: '', plan: 'free' }));
+  assert.ok(autoOnly.includes('adsbygoogle.js?client=' + PUB) && !autoOnly.includes('<ins class="adsbygoogle"'), 'blank slot = Auto Ads script only');
+  results.push('adsense gate: free-only matrix, idempotent inject, strip on paid/disabled, auto-ads without slot');
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

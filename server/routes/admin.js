@@ -177,6 +177,13 @@ router.get('/settings', async (req, res) => {
     fail(res, e, 500);
   }
 });
+router.get('/settings/adsense-state', async (req, res) => {
+  try {
+    ok(res, await require('../adsense').adminState());
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
 router.put('/settings', async (req, res) => {
   try {
     const result = await platform.setPlatformSettingsBatch(

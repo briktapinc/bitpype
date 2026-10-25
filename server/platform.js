@@ -204,6 +204,16 @@ const PLATFORM_SETTING_DEFS = [
     label: 'Referral reward percent of paid plan value',
     default: '10',
   },
+
+  // Google AdSense (platform account — ads render only on Free-plan customer sites)
+  { key: 'adsense.enabled', group: 'adsense', label: 'AdSense enabled (1/0)', default: '0' },
+  { key: 'adsense.publisher_id', group: 'adsense', label: 'AdSense publisher ID (ca-pub-…)', default: '' },
+  {
+    key: 'adsense.slot_id',
+    group: 'adsense',
+    label: 'Ad unit slot ID (optional — blank = Auto Ads decides placement)',
+    default: '',
+  },
 ];
 
 const WORKSPACE_SEED_KEYS = PLATFORM_SETTING_DEFS.filter(

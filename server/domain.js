@@ -504,7 +504,43 @@ function materializeWebsiteExport(db, workspaceId, siteId, opts = {}) {
     console.warn('[domain] claim preview inject:', e.message || e);
   }
 
+  // Google AdSense — Free-plan customer sites only, never paid plans.
+  // Config is resolved by the async publish/export funnels (opts.adsense) or
+  // reused from the per-site cache the last resolution wrote; applyToExportDir
+  // strips prior blocks first, so upgrades/disable clean the next export.
+  try {
+    if (exported.dir) {
+      const adsense = require('./adsense');
+      const adsCfg = opts.adsense !== undefined ? opts.adsense : adsense.readCachedConfig(db, siteId);
+      if (adsCfg) {
+        exported.adsenseFiles = adsense.applyToExportDir(exported.dir, adsCfg);
+        exported.adsenseActive = !!adsCfg.active;
+      }
+    }
+  } catch (e) {
+    console.warn('[domain] adsense inject:', e.message || e);
+  }
+
   return exported;
+}
+
+/**
+ * Resolve the AdSense config for a site (platform settings + the site
+ * customer's plan) and cache it in workspace settings so plain
+ * re-materializations apply the same decision. Returns the config, or null
+ * when resolution fails (the export then proceeds without touching ads).
+ */
+async function resolveAdsenseForSite(workspaceId, db, siteId) {
+  try {
+    const adsense = require('./adsense');
+    const site = websiteEngine().getWebsite(db, siteId);
+    const cfg = await adsense.configForWebsite(workspaceId, site ? site.lead_id : null);
+    adsense.writeCachedConfig(db, siteId, cfg);
+    return cfg;
+  } catch (e) {
+    console.warn('[domain] adsense resolve:', e.message || e);
+    return null;
+  }
 }
 
 /**
@@ -1258,7 +1294,8 @@ async function sitesQa(workspaceId, id) {
 }
 async function sitesExport(workspaceId, id) {
   return withDb(workspaceId, async (db) => {
-    const exported = materializeWebsiteExport(db, workspaceId, Number(id));
+    const adsenseCfg = await resolveAdsenseForSite(workspaceId, db, Number(id));
+    const exported = materializeWebsiteExport(db, workspaceId, Number(id), { adsense: adsenseCfg });
     const opt = await optimizeExportImages(exported);
     return {
       path: exported.dir || exported.path,
@@ -1295,7 +1332,8 @@ async function sitesExportZip(workspaceId, id) {
   return withDb(workspaceId, async (db) => {
     const siteId = Number(id);
     const site = websiteEngine().getWebsite(db, siteId);
-    const exported = materializeWebsiteExport(db, workspaceId, siteId);
+    const adsenseCfg = await resolveAdsenseForSite(workspaceId, db, siteId);
+    const exported = materializeWebsiteExport(db, workspaceId, siteId, { adsense: adsenseCfg });
     await optimizeExportImages(exported);
     const dir = exported.dir || (exported.path ? require('path').dirname(exported.path) : null);
     if (!dir) {
@@ -3169,7 +3207,8 @@ async function sitesPreview(workspaceId, id, opts = {}) {
       console.warn('[domain] localizeWebsiteRemoteImages:', e.message || e);
     }
 
-    const exported = materializeWebsiteExport(db, workspaceId, siteId);
+    const adsenseCfg = await resolveAdsenseForSite(workspaceId, db, siteId);
+    const exported = materializeWebsiteExport(db, workspaceId, siteId, { adsense: adsenseCfg });
     await optimizeExportImages(exported);
     const base = appBaseUrl();
     const appUrl = base ? `${base}/site-previews/${exported.folder}/` : null;
@@ -4303,7 +4342,11 @@ async function cfPublish(workspaceId, websiteId, _ignoredDir) {
     const siteId = Number(websiteId);
     // Never trust client-supplied dir — always materialize under the workspace export root.
     // Atomic w.r.t. saved versions: sync → re-read → version snapshot → export that exact JSON.
-    const exported = materializeWebsiteExport(db, workspaceId, siteId, { pinVersion: true });
+    const adsenseCfg = await resolveAdsenseForSite(workspaceId, db, siteId);
+    const exported = materializeWebsiteExport(db, workspaceId, siteId, {
+      pinVersion: true,
+      adsense: adsenseCfg,
+    });
     const deployedVersion = exported.versionNo != null ? Number(exported.versionNo) : null;
     const result = await cf.publishDirectory(db, {
       websiteId: siteId,
@@ -4367,7 +4410,10 @@ async function domainsLink(workspaceId, body = {}) {
       forcePublish: !!body.forcePublish,
       source: body.source || 'link',
       publishFn: async (websiteId, project) => {
-        const exported = materializeWebsiteExport(db, workspaceId, Number(websiteId));
+        const adsenseCfg = await resolveAdsenseForSite(workspaceId, db, Number(websiteId));
+        const exported = materializeWebsiteExport(db, workspaceId, Number(websiteId), {
+          adsense: adsenseCfg,
+        });
         await cf.publishDirectory(db, {
           websiteId: Number(websiteId),
           workspaceId: Number(workspaceId),
