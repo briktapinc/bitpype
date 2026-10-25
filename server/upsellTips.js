@@ -15,13 +15,13 @@ const FEATURE_OPTIONS = [
   { key: 'formMcp', label: 'Forms via MCP + Muse', minPlan: 'premium' },
   { key: 'socialMcpSchedule', label: 'MCP social scheduling', minPlan: 'premium' },
   { key: 'support', label: 'Included support', minPlan: 'standard' },
-  { key: 'socialImagesIncluded', label: 'Social images included', minPlan: 'premium' },
+  { key: 'socialImagesIncluded', label: 'Social images included', minPlan: 'pro' },
 ];
 
 const DEFAULT_TIPS = [
   {
     title: 'Did you know?',
-    body: 'Standard and Premium include an AI site chatbot that answers visitors from your knowledge files and captures leads when you can’t reply live.',
+    body: 'Paid plans include an AI site chatbot that answers visitors from your knowledge files and captures leads when you can’t reply live.',
     feature_key: 'chatbot',
     frequency_hours: 72,
     weight: 2,
@@ -45,7 +45,7 @@ const DEFAULT_TIPS = [
   },
   {
     title: 'Did you know?',
-    body: 'Paid plans include regular support so you’re not alone after launch — Standard monthly, Premium weekly.',
+    body: 'Paid plans include regular support so you’re not alone after launch — Standard and Pro monthly, Premium weekly.',
     feature_key: 'support',
     frequency_hours: 120,
     weight: 1,

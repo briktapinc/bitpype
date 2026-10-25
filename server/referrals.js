@@ -100,11 +100,11 @@ async function estimatePlanCents(planId) {
     premium: 'billing.amount_label_premium',
   };
   const labelDefaults = {
-    standard: 'Standard · $49/mo',
+    standard: 'Standard · $99/mo',
     pro: 'Pro · $169/mo',
-    premium: 'Premium · $99/mo',
+    premium: 'Premium · $499/mo',
   };
-  const fallbackCents = { standard: 4900, pro: 16900, premium: 9900 };
+  const fallbackCents = { standard: 9900, pro: 16900, premium: 49900 };
   const id = labelKeys[planId] ? planId : 'standard';
   const label = await platform.getPlatformSetting(labelKeys[id], labelDefaults[id]);
   const usd = parseUsdFromLabel(label);

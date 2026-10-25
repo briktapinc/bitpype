@@ -23,7 +23,7 @@ function portalToolDefs() {
     {
       name: 'site.get',
       description:
-        'Portal context for the linked business: lead summary, site id/status, preview URL, plan + entitlements. Call first in a Muse session. TOOLS ONLY: use tools/list — never invent DIY forms, bookings, CRM, or embeds outside BitPype tools. All plans with a site; token requires Standard or Premium.',
+        'Portal context for the linked business: lead summary, site id/status, preview URL, plan + entitlements. Call first in a Muse session. TOOLS ONLY: use tools/list — never invent DIY forms, bookings, CRM, or embeds outside BitPype tools. All plans with a site; token requires a paid plan (Standard, Pro, or Premium).',
       inputSchema: schema({ leadId: ID }),
     },
     {
@@ -635,10 +635,10 @@ async function dispatchPortalTool(ws, name, a, ctx = {}) {
   }
 
   if (name === 'modules.attach') {
-    requireEnt('siteModules', 'Site modules require Standard or Premium.');
+    requireEnt('siteModules', 'Site modules require a paid plan (Standard, Pro, or Premium).');
     const moduleType = a.module || a.moduleType;
     if (String(moduleType || '').toLowerCase() === 'chatbot') {
-      requireEnt('chatbot', 'Chatbot requires Standard or Premium.');
+      requireEnt('chatbot', 'Chatbot requires a paid plan (Standard, Pro, or Premium).');
     }
     const out = await portal.attachSiteModule(ws, leadId, moduleType, a, clientEmail);
     return {
@@ -653,14 +653,14 @@ async function dispatchPortalTool(ws, name, a, ctx = {}) {
   }
 
   if (name === 'modules.detach') {
-    requireEnt('siteModules', 'Site modules require Standard or Premium.');
+    requireEnt('siteModules', 'Site modules require a paid plan (Standard, Pro, or Premium).');
     const moduleType = a.module || a.moduleType;
     const out = await portal.detachSiteModule(ws, leadId, moduleType, clientEmail);
     return { plan: planId, ...out };
   }
 
   if (name === 'modules.uploadImage') {
-    requireEnt('siteModules', 'Site modules require Standard or Premium.');
+    requireEnt('siteModules', 'Site modules require a paid plan (Standard, Pro, or Premium).');
     const out = await portal.applyModuleAssetUpload(ws, leadId, a);
     return { plan: planId, ...out };
   }
@@ -739,8 +739,8 @@ async function dispatchPortalTool(ws, name, a, ctx = {}) {
     'chatbot.actions',
   ]);
   if (chatbotTools.has(name)) {
-    requireEnt('chatbot', 'Chatbot requires Standard or Premium.');
-    requireEnt('siteModules', 'Site modules require Standard or Premium.');
+    requireEnt('chatbot', 'Chatbot requires a paid plan (Standard, Pro, or Premium).');
+    requireEnt('siteModules', 'Site modules require a paid plan (Standard, Pro, or Premium).');
     const chat = require('./chatbot');
     if (name === 'chatbot.pending') {
       return domain.withDb(ws, (db) => ({

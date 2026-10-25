@@ -2269,7 +2269,7 @@ async function listFormSubmissions(workspaceId, leadId, opts = {}) {
     return {
       plan: planId,
       inbox: false,
-      notice: 'On Free, form submissions are emailed only. Upgrade to Standard or Premium for a portal inbox.',
+      notice: 'On Free, form submissions are emailed only. Upgrade to a paid plan (Standard, Pro, or Premium) for a portal inbox.',
       submissions: [],
     };
   }
@@ -2290,7 +2290,7 @@ async function getFormSubmission(workspaceId, leadId, submissionId, clientEmail 
   const { getPlan } = require('./plans');
   const planId = await billing.effectivePlan(workspaceId, { email: clientEmail });
   if (!getPlan(planId).entitlements.formInbox) {
-    throw Object.assign(new Error('Form inbox requires Standard or Premium'), { code: 'FORBIDDEN', status: 403 });
+    throw Object.assign(new Error('Form inbox requires a paid plan (Standard, Pro, or Premium)'), { code: 'FORBIDDEN', status: 403 });
   }
   return domain.withDb(workspaceId, (db) => forms.getSubmission(db, Number(leadId), Number(submissionId)));
 }
@@ -2301,7 +2301,7 @@ async function requireSiteModules(workspaceId, clientEmail) {
   const planId = await billing.effectivePlan(workspaceId, { email: clientEmail });
   const ent = getPlan(planId).entitlements;
   if (!ent.siteModules) {
-    throw Object.assign(new Error('Site modules require Standard or Premium. Upgrade in Billing.'), {
+    throw Object.assign(new Error('Site modules require a paid plan (Standard, Pro, or Premium). Upgrade in Billing.'), {
       code: 'PLAN_REQUIRED',
       status: 403,
       plan: planId,
@@ -2469,7 +2469,7 @@ async function getChatbotAdmin(workspaceId, leadId, clientEmail) {
   await requireSiteModules(workspaceId, clientEmail);
   const planId = await billing.effectivePlan(workspaceId, { email: clientEmail });
   if (!getPlan(planId).entitlements.chatbot) {
-    throw Object.assign(new Error('Chatbot requires Standard or Premium.'), {
+    throw Object.assign(new Error('Chatbot requires a paid plan (Standard, Pro, or Premium).'), {
       code: 'PLAN_REQUIRED',
       status: 403,
     });
@@ -2487,7 +2487,7 @@ async function saveChatbotSettings(workspaceId, leadId, body, clientEmail) {
   await requireSiteModules(workspaceId, clientEmail);
   const planId = await billing.effectivePlan(workspaceId, { email: clientEmail });
   if (!getPlan(planId).entitlements.chatbot) {
-    throw Object.assign(new Error('Chatbot requires Standard or Premium.'), {
+    throw Object.assign(new Error('Chatbot requires a paid plan (Standard, Pro, or Premium).'), {
       code: 'PLAN_REQUIRED',
       status: 403,
     });
@@ -2506,7 +2506,7 @@ async function uploadChatbotKnowledge(workspaceId, leadId, body, clientEmail) {
   await requireSiteModules(workspaceId, clientEmail);
   const planId = await billing.effectivePlan(workspaceId, { email: clientEmail });
   if (!getPlan(planId).entitlements.chatbot) {
-    throw Object.assign(new Error('Chatbot requires Standard or Premium.'), {
+    throw Object.assign(new Error('Chatbot requires a paid plan (Standard, Pro, or Premium).'), {
       code: 'PLAN_REQUIRED',
       status: 403,
     });
@@ -2663,7 +2663,7 @@ async function attachSiteModule(workspaceId, leadId, moduleType, opts = {}, clie
   if (String(moduleType || '').toLowerCase() === 'chatbot') {
     const planId = await billing.effectivePlan(workspaceId, { email: clientEmail });
     if (!getPlan(planId).entitlements.chatbot) {
-      throw Object.assign(new Error('Chatbot requires Standard or Premium.'), {
+      throw Object.assign(new Error('Chatbot requires a paid plan (Standard, Pro, or Premium).'), {
         code: 'PLAN_REQUIRED',
         status: 403,
       });
@@ -2724,7 +2724,7 @@ async function requireClientMcpPlan(workspaceId, clientEmail) {
   const { isPaidPlan } = require('./plans');
   const planId = await billing.effectivePlan(workspaceId, { email: clientEmail });
   if (!isPaidPlan(planId)) {
-    throw Object.assign(new Error('Client MCP tokens require Standard or Premium. Upgrade in Billing.'), {
+    throw Object.assign(new Error('Client MCP tokens require a paid plan (Standard, Pro, or Premium). Upgrade in Billing.'), {
       code: 'FORBIDDEN',
       status: 403,
     });

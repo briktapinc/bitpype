@@ -149,7 +149,7 @@ const PLATFORM_SETTING_DEFS = [
   {
     key: 'billing.amount_label_standard',
     group: 'billing',
-    label: 'Standard plan price label (e.g. $49/mo)',
+    label: 'Standard plan price label (e.g. $99/mo)',
     default: 'Standard · monthly',
   },
   {
@@ -161,7 +161,7 @@ const PLATFORM_SETTING_DEFS = [
   {
     key: 'billing.amount_label_premium',
     group: 'billing',
-    label: 'Premium plan price label (e.g. $99/mo)',
+    label: 'Premium plan price label (e.g. $499/mo)',
     default: 'Premium · monthly',
   },
   {
@@ -206,7 +206,7 @@ const PLATFORM_SETTING_DEFS = [
   },
 
   // Google AdSense (platform account — ads render only on Free-plan customer sites)
-  { key: 'adsense.enabled', group: 'adsense', label: 'AdSense enabled (1/0)', default: '0' },
+  { key: 'adsense.enabled', group: 'adsense', label: 'AdSense enabled', default: '0' },
   { key: 'adsense.publisher_id', group: 'adsense', label: 'AdSense publisher ID (ca-pub-…)', default: '' },
   {
     key: 'adsense.slot_id',

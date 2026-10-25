@@ -2173,7 +2173,7 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'bookings.slots',
   ]);
   if (moduleToolNames.has(name) && !entitlements.siteModules) {
-    throw Object.assign(new Error('Site modules require Standard or Premium (siteModules).'), {
+    throw Object.assign(new Error('Site modules require a paid plan (Standard, Pro, or Premium) (siteModules).'), {
       code: 'PLAN_REQUIRED',
     });
   }

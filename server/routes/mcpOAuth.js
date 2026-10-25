@@ -145,7 +145,7 @@ sessionRouter.get('/oauth/pending', async (req, res) => {
         const { isPaidPlan } = require('../plans');
         const planId = await billing.effectivePlan(user.workspace_id, { email: user.email });
         planOk = isPaidPlan(planId);
-        if (!planOk) planError = 'Standard or Premium plan required for MCP.';
+        if (!planOk) planError = 'A paid plan (Standard, Pro, or Premium) is required for MCP.';
       } catch (e) {
         planOk = false;
         planError = e.message;
@@ -207,7 +207,7 @@ sessionRouter.post('/oauth/consent', consentLimit, async (req, res) => {
         return sendJson(res, 403, {
           ok: false,
           error: 'PLAN_REQUIRED',
-          message: 'Upgrade to Standard or Premium to connect MCP.',
+          message: 'Upgrade to a paid plan (Standard, Pro, or Premium) to connect MCP.',
         });
       }
     } catch (e) {
