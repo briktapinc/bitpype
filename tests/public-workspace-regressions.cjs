@@ -19,6 +19,7 @@ function build(file,known=true){
   parseWorkspaceFromToken:t=>Number(String(t).split('_')[0]),
   getPublicModuleByToken:()=>({ok:true}),getPublicModuleItem:()=>({ok:true}),getPublicBookingSlots:()=>({slots:[]}),createPublicBookingByToken:()=>({ok:true}),createPublicEstimateRequestByToken:()=>({ok:true}),createShopCheckoutByToken:()=>({ok:true}),getShopOrderBySession:()=>({id:1,status:'paid',product_name:'fixture',amount_cents:100,currency:'USD'}),
   membersEmbedByToken:()=>({lead_id:2}),getMemberPageBody:()=>({ok:true}),publicMemberSignup:()=>({ok:true}),publicMemberLogin:()=>({ok:true}),publicMemberLogout:()=>({ok:true}),publicMemberForgot:()=>({embed:{lead_id:2},request:null}),publicMemberReset:()=>({ok:true}),buildMemberResetMail:()=>null,
+  createMembershipCheckoutByToken:()=>({ok:true}),joinFreeTierByToken:()=>({ok:true}),
  },'../../src/socialMedia':{},'../workspaceExists':{assertWorkspaceExists:guard},
  '../billing':{workspacePlan:async()=> 'free'},'../appUrls':{socialReturnPath:()=>'/app#/social'},
  '../contactForms':{parseWorkspaceFromToken:t=>Number(String(t).split('_')[0]),getPublicFormByToken:()=>({}),acceptSubmission:async()=>({})},

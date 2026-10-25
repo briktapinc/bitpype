@@ -4779,6 +4779,21 @@ function adminAnalyticsOverview(workspaceId) {
   return { dashboard: dashboardStats(workspaceId), outreach: outreachStats(workspaceId) };
 }
 
+/**
+ * Membership oversight rollup (Batch 17): per-site member counts, active
+ * paid subscriptions, estimated monthly revenue from LOCAL records, and
+ * whether the owner connected their own Stripe keys. Payout figures
+ * (live Stripe reads) are attached by the route — view-only oversight;
+ * the platform never moves this money.
+ */
+function adminMembershipsOverview(workspaceId) {
+  return withDb(workspaceId, (db) => {
+    const modules = require('./siteModules');
+    modules.ensureTables(db);
+    return { sites: modules.adminMembershipsLocal(db) };
+  });
+}
+
 module.exports = {
   withDb,
   openWorkspaceDb,
@@ -4792,6 +4807,7 @@ module.exports = {
   adminCoursesList,
   adminModulesOverview,
   adminAnalyticsOverview,
+  adminMembershipsOverview,
   leadsList,
   leadsFacets,
   leadsGet,

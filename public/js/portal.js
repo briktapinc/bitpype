@@ -4679,6 +4679,65 @@
       <div id="modules-socialfeed-preview">${previewHtml}</div>`;
   }
 
+  function memberRowHtml(m, tiers) {
+    const whenLabel = (v) => {
+      const t = Date.parse(String(v || '').replace(' ', 'T') + (String(v || '').includes('T') ? '' : 'Z'));
+      return Number.isFinite(t) ? new Date(t).toLocaleDateString() : '';
+    };
+    const pillCls = (s) => (s === 'active' ? '' : s === 'pending' ? ' warn' : ' bad');
+    const tierName = (id) => {
+      const t = (tiers || []).find((x) => Number(x.id) === Number(id));
+      return t ? t.name : '';
+    };
+    const sub = m.subscription || null;
+    let planHtml = '';
+    if (m.plan_source === 'comp') {
+      planHtml = `<span class="status-pill">Comp${m.comp_tier_id ? ' · ' + esc(tierName(m.comp_tier_id)) : ''}</span>`;
+      if (m.comp_until) planHtml += ` <span class="hint">until ${esc(whenLabel(m.comp_until))}</span>`;
+    } else if (sub) {
+      planHtml = `<span class="status-pill">${esc(sub.tier_name || 'Member')}</span>`;
+      if (sub.cancel_at_period_end)
+        planHtml += ` <span class="hint">cancels at period end${sub.current_period_end ? ' (' + esc(whenLabel(sub.current_period_end)) + ')' : ''}</span>`;
+      else if (sub.current_period_end) planHtml += ` <span class="hint">renews ${esc(whenLabel(sub.current_period_end))}</span>`;
+      if (sub.status && sub.status !== 'active' && sub.status !== 'trialing')
+        planHtml += ` <span class="status-pill bad">${esc(sub.status)}</span>`;
+    } else if (m.plan_label && m.plan_label !== '—') {
+      planHtml = `<span class="status-pill">${esc(m.plan_label)}</span>`;
+    }
+    const canCancel =
+      sub && (sub.status === 'active' || sub.status === 'trialing') && !sub.cancel_at_period_end;
+    return `
+        <div class="row" style="justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line,#e6e0d8);flex-wrap:wrap">
+          <div>
+            <strong>${esc(m.name || m.email)}</strong>
+            <span class="status-pill${pillCls(m.status)}">${esc(m.status)}</span>
+            ${planHtml}
+            <div class="hint">${esc(m.email)} · joined ${esc(whenLabel(m.created_at))}${m.last_login_at ? ` · last login ${esc(whenLabel(m.last_login_at))}` : ' · never logged in'}</div>
+          </div>
+          <div class="row" style="gap:6px;align-items:flex-start">
+            ${m.status === 'pending' ? `<button type="button" class="btn soft small" data-member-status="${m.id}" data-status="active">Approve</button>` : ''}
+            ${m.status === 'active' ? `<button type="button" class="btn ghost small" data-member-status="${m.id}" data-status="disabled">Disable</button>` : ''}
+            ${m.status === 'disabled' ? `<button type="button" class="btn soft small" data-member-status="${m.id}" data-status="active">Reactivate</button>` : ''}
+            ${canCancel ? `<button type="button" class="btn ghost small" data-member-cancel-sub="${m.id}">Cancel subscription</button>` : ''}
+            ${
+              tiers && tiers.length
+                ? m.comp_tier_id
+                  ? `<button type="button" class="btn ghost small" data-member-comp-revoke="${m.id}">Revoke comp</button>`
+                  : `<details><summary class="btn ghost small" style="display:inline-block;cursor:pointer">Comp…</summary>
+                      <div class="row" style="gap:6px;margin-top:6px">
+                        <select data-comp-tier="${m.id}">${tiers.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select>
+                        <input type="date" data-comp-until="${m.id}" title="Comp expires (optional)" />
+                        <button type="button" class="btn soft small" data-member-comp-grant="${m.id}">Grant comp</button>
+                      </div>
+                      <p class="hint">Free access to the picked tier. Leave the date empty for no expiry.</p>
+                    </details>`
+                : ''
+            }
+            <button type="button" class="btn ghost small" data-member-delete="${m.id}">Delete</button>
+          </div>
+        </div>`;
+  }
+
   function renderMembersAdminPanel() {
     const host = document.getElementById('modules-members-panel');
     if (!host) return;
@@ -4716,27 +4775,48 @@
           (m) => (m.email || '').toLowerCase().includes(search) || (m.name || '').toLowerCase().includes(search)
         )
       : allMembers;
-    const pillCls = (s) => (s === 'active' ? '' : s === 'pending' ? ' warn' : ' bad');
+    const tiers = Array.isArray(pack.tiers) ? pack.tiers : [];
     const rowsHtml = shown.length
-      ? shown
-          .map(
-            (m) => `
+      ? shown.map((m) => memberRowHtml(m, tiers)).join('')
+      : `<p class="hint">${allMembers.length ? 'No members match your search.' : 'No members yet. Visitors join from your site’s Members page — new accounts appear here.'}</p>`;
+    const payments = pack.payments || { connected: false };
+    const revenue = pack.revenue || { active_paid_members: 0, est_monthly_revenue_cents: 0 };
+    const money = (cents) => {
+      const n = (Number(cents) || 0) / 100;
+      try {
+        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+      } catch {
+        return '$' + n.toFixed(2);
+      }
+    };
+    const webhookUrl = `${location.origin}${pack.webhook_path || ''}`;
+    const webhookEvents =
+      'checkout.session.completed, customer.subscription.created, customer.subscription.updated, customer.subscription.deleted, invoice.paid, invoice.payment_failed';
+    const editingTier = moduleState.memberTierEditing || null;
+    const tierPriceDollars = editingTier ? String((Number(editingTier.price_cents) || 0) / 100) : '';
+    const tierRowsHtml = tiers.length
+      ? tiers
+          .map((t) => {
+            const needsStripe = t.price_cents > 0 && !t.stripe_price_id;
+            const state = !t.active
+              ? '<span class="status-pill bad">Off</span>'
+              : needsStripe
+                ? '<span class="status-pill warn">Needs Stripe</span>'
+                : '<span class="status-pill">Active</span>';
+            return `
         <div class="row" style="justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line,#e6e0d8);flex-wrap:wrap">
           <div>
-            <strong>${esc(m.name || m.email)}</strong>
-            <span class="status-pill${pillCls(m.status)}">${esc(m.status)}</span>
-            <div class="hint">${esc(m.email)} · joined ${esc(whenLabel(m.created_at))}${m.last_login_at ? ` · last login ${esc(whenLabel(m.last_login_at))}` : ' · never logged in'}</div>
+            <strong>${esc(t.name)}</strong> ${state}
+            <div class="hint">${t.price_cents > 0 ? `${esc(t.price_label)} / ${esc(t.interval)}` : 'Free'}${t.description ? ' · ' + esc(t.description) : ''}</div>
           </div>
           <div class="row" style="gap:6px">
-            ${m.status === 'pending' ? `<button type="button" class="btn soft small" data-member-status="${m.id}" data-status="active">Approve</button>` : ''}
-            ${m.status === 'active' ? `<button type="button" class="btn ghost small" data-member-status="${m.id}" data-status="disabled">Disable</button>` : ''}
-            ${m.status === 'disabled' ? `<button type="button" class="btn soft small" data-member-status="${m.id}" data-status="active">Reactivate</button>` : ''}
-            <button type="button" class="btn ghost small" data-member-delete="${m.id}">Delete</button>
+            <button type="button" class="btn ghost small" data-tier-edit="${t.id}">Edit</button>
+            <button type="button" class="btn ghost small" data-tier-delete="${t.id}">Delete</button>
           </div>
-        </div>`
-          )
+        </div>`;
+          })
           .join('')
-      : `<p class="hint">${allMembers.length ? 'No members match your search.' : 'No members yet. Visitors join from your site’s Members page — new accounts appear here.'}</p>`;
+      : '<p class="hint">No membership plans yet. Add a free plan, or a paid plan once your Stripe is connected below.</p>';
     host.innerHTML = `
       <h3>Membership</h3>
       <p class="hint">Let visitors create accounts on your site, and keep chosen pages — or the whole site — for members only. Gated content stays on the server until a member logs in; it is never just hidden on the page.</p>
@@ -4756,12 +4836,78 @@
           <option value="open"${cfg.signup_mode !== 'approval' ? ' selected' : ''}>Open — anyone can join and log in right away</option>
           <option value="approval"${cfg.signup_mode === 'approval' ? ' selected' : ''}>Approval — new members wait until I approve them below</option>
         </select></div>
+      <div class="field"><label>Who gets into members-only pages?</label>
+        <select id="members-access-level">
+          <option value="any_member"${cfg.access_level !== 'any_paid' && cfg.access_level !== 'tier' ? ' selected' : ''}>Any member — logging in is enough</option>
+          <option value="any_paid"${cfg.access_level === 'any_paid' ? ' selected' : ''}>Paid members — an active paid plan (or a comp from you)</option>
+          <option value="tier"${cfg.access_level === 'tier' ? ' selected' : ''}>Members of one specific plan, picked here</option>
+        </select></div>
+      <div class="field"><label>Plan that unlocks gated pages <span class="hint">(used when you pick “one specific plan” above)</span></label>
+        ${
+          tiers.length
+            ? `<select id="members-access-tier">${tiers.map((t) => `<option value="${t.id}"${Number(cfg.access_tier_id) === Number(t.id) ? ' selected' : ''}>${esc(t.name)} — ${t.price_cents > 0 ? esc(t.price_label) + ' / ' + esc(t.interval) : 'Free'}</option>`).join('')}</select>`
+            : '<p class="hint">No plans yet — add one under Membership plans below first.</p>'
+        }
+      </div>
       <div class="field"><label>Message on the login wall</label>
         <input type="text" id="members-wall-headline" value="${esc(cfg.wall_headline || '')}" maxlength="140" /></div>
       <div class="row" style="gap:6px">
         <button type="button" class="btn soft small" id="btn-members-config-save">Save membership settings</button>
       </div>
       <p class="hint">Settings apply the next time your site is published or re-exported. Your own portal preview always shows the full site.</p>
+      <h3 style="margin-top:18px">Membership plans</h3>
+      <p class="hint">Plans are what visitors join on your Members page. Paid plans are charged through your own Stripe account (below) — the money goes straight to you.</p>
+      <p class="hint">Estimated monthly revenue: <strong>${money(revenue.est_monthly_revenue_cents)}</strong> from ${revenue.active_paid_members} active paid member(s) — an estimate from your current subscriptions.</p>
+      <div id="modules-tiers-list">${tierRowsHtml}</div>
+      <div class="field"><label>${editingTier ? 'Edit plan' : 'Add a plan'}</label>
+        <input type="text" id="tier-name" placeholder="Plan name (e.g. Gold)" value="${editingTier ? esc(editingTier.name) : ''}" maxlength="120" /></div>
+      <div class="field"><label>Description <span class="hint">(optional)</span></label>
+        <input type="text" id="tier-description" placeholder="What members get" value="${editingTier ? esc(editingTier.description || '') : ''}" maxlength="1000" /></div>
+      <div class="row" style="gap:8px;flex-wrap:wrap">
+        <div class="field" style="flex:1;min-width:140px"><label>Price (USD) <span class="hint">0 = free</span></label>
+          <input type="text" id="tier-price" inputmode="decimal" placeholder="0" value="${esc(tierPriceDollars)}" /></div>
+        <div class="field" style="flex:1;min-width:140px"><label>Billing</label>
+          <select id="tier-interval">
+            <option value="month"${!editingTier || editingTier.interval !== 'year' ? ' selected' : ''}>Monthly</option>
+            <option value="year"${editingTier && editingTier.interval === 'year' ? ' selected' : ''}>Yearly</option>
+          </select></div>
+        <div class="field" style="flex:1;min-width:120px"><label>Available to join</label>
+          <select id="tier-active">
+            <option value="1"${!editingTier || editingTier.active ? ' selected' : ''}>On</option>
+            <option value="0"${editingTier && !editingTier.active ? ' selected' : ''}>Off</option>
+          </select></div>
+      </div>
+      <div class="row" style="gap:6px">
+        <button type="button" class="btn soft small" id="btn-tier-save">${editingTier ? 'Save plan' : 'Add plan'}</button>
+        ${editingTier ? '<button type="button" class="btn ghost small" id="btn-tier-edit-cancel">Cancel edit</button>' : ''}
+      </div>
+      <h3 style="margin-top:18px">Payments — your Stripe account</h3>
+      ${
+        payments.connected
+          ? `<p class="hint"><strong>Connected.</strong> Your secret key ending ••••${esc(payments.secret_key_last4 || '')} is saved (encrypted). Members pay you directly through your own Stripe account.${payments.webhook_configured ? '' : ' <strong>Your webhook signing secret is still missing</strong> — paid memberships cannot be confirmed until it is saved.'}</p>`
+          : '<p class="hint"><strong>Not connected.</strong> Free plans work without Stripe. To charge for paid plans, paste your own Stripe keys — the money goes straight to your Stripe account, never through BitPype.</p>'
+      }
+      <div class="field"><label>Publishable key</label>
+        <input type="text" id="membership-pk" placeholder="pk_live_…" value="${esc(payments.publishable_key || '')}" autocomplete="off" /></div>
+      <div class="field"><label>Secret key ${payments.connected ? '<span class="hint">(leave blank to keep the saved key)</span>' : ''}</label>
+        <input type="password" id="membership-sk" placeholder="sk_live_…" autocomplete="off" /></div>
+      <div class="field"><label>Webhook signing secret ${payments.webhook_configured ? '<span class="hint">(leave blank to keep the saved secret)</span>' : ''}</label>
+        <input type="password" id="membership-whsec" placeholder="whsec_…" autocomplete="off" /></div>
+      <div class="row" style="gap:6px">
+        <button type="button" class="btn soft small" id="btn-membership-keys-save">Save Stripe keys</button>
+        ${payments.connected ? '<button type="button" class="btn ghost small" id="btn-membership-keys-clear">Disconnect Stripe</button>' : ''}
+      </div>
+      <div class="field" style="margin-top:10px"><label>Your webhook URL <span class="hint">(add this in your Stripe dashboard → Developers → Webhooks)</span></label>
+        <div class="row" style="gap:6px">
+          <input type="text" id="membership-webhook-url" readonly value="${esc(webhookUrl)}" style="flex:1" />
+          <button type="button" class="btn ghost small" data-copy-input="membership-webhook-url">Copy</button>
+        </div></div>
+      <div class="field"><label>Webhook events to subscribe</label>
+        <div class="row" style="gap:6px">
+          <input type="text" readonly value="${esc(webhookEvents)}" style="flex:1" />
+          <button type="button" class="btn ghost small" data-copy-text="${esc(webhookEvents)}">Copy</button>
+        </div>
+        <p class="hint">Stripe sends these to confirm payments, renewals, and cancellations so member access stays in sync.</p></div>
       <h3 style="margin-top:18px">Members</h3>
       <div class="field"><input type="search" id="members-search" placeholder="Search by name or email…" value="${esc(moduleState.memberSearch || '')}" /></div>
       <div id="modules-members-list">${rowsHtml}</div>`;
@@ -6563,15 +6709,22 @@
           Array.from(document.querySelectorAll(`[data-members-page="${name}"]:checked`)).map((n) => n.value);
         moduleMsg('Saving membership settings…', true);
         try {
+          const accessLevel = val('members-access-level');
+          const cfgBody = {
+            gate_mode: val('members-gate-mode'),
+            gated_pages: checked('gated'),
+            public_pages: checked('public'),
+            signup_mode: val('members-signup-mode'),
+            wall_headline: val('members-wall-headline'),
+          };
+          if (accessLevel) cfgBody.access_level = accessLevel;
+          if (accessLevel === 'tier') {
+            const tierSel = val('members-access-tier');
+            if (tierSel) cfgBody.access_tier_id = Number(tierSel);
+          }
           await api('/modules/members/config', {
             method: 'PUT',
-            body: JSON.stringify({
-              gate_mode: val('members-gate-mode'),
-              gated_pages: checked('gated'),
-              public_pages: checked('public'),
-              signup_mode: val('members-signup-mode'),
-              wall_headline: val('members-wall-headline'),
-            }),
+            body: JSON.stringify(cfgBody),
           });
           moduleMsg(
             'Membership settings saved. They take effect the next time your site is published or re-exported.',
@@ -6614,6 +6767,188 @@
         }
         return;
       }
+      // Membership Part 2: Stripe keys.
+      if (ev.target && ev.target.id === 'btn-membership-keys-save') {
+        const val = (id) => {
+          const n = document.getElementById(id);
+          return n ? n.value : '';
+        };
+        moduleMsg('Saving your Stripe keys…', true);
+        try {
+          await api('/modules/members/payments', {
+            method: 'PUT',
+            body: JSON.stringify({
+              publishable_key: val('membership-pk'),
+              secret_key: val('membership-sk'),
+              webhook_secret: val('membership-whsec'),
+            }),
+          });
+          moduleMsg('Stripe keys saved (encrypted). Paid plans can now be activated.', true);
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg(e.message, false);
+        }
+        return;
+      }
+      if (ev.target && ev.target.id === 'btn-membership-keys-clear') {
+        if (!window.confirm('Disconnect your Stripe account? Paid plans will stop being joinable until you reconnect.')) return;
+        moduleMsg('Disconnecting Stripe…', true);
+        try {
+          await api('/modules/members/payments', { method: 'DELETE' });
+          moduleMsg('Stripe disconnected.', true);
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg(e.message, false);
+        }
+        return;
+      }
+      // Copy helpers (webhook URL + event list).
+      const copyTextBtn = ev.target.closest('[data-copy-text]');
+      if (copyTextBtn) {
+        const text = copyTextBtn.getAttribute('data-copy-text') || '';
+        try {
+          await navigator.clipboard.writeText(text);
+          moduleMsg('Copied.', true);
+        } catch {
+          moduleMsg('Copy failed — select the text and copy it manually.', false);
+        }
+        return;
+      }
+      const copyInputBtn = ev.target.closest('[data-copy-input]');
+      if (copyInputBtn) {
+        const input = document.getElementById(copyInputBtn.getAttribute('data-copy-input'));
+        if (input) {
+          try {
+            await navigator.clipboard.writeText(input.value);
+            moduleMsg('Copied.', true);
+          } catch {
+            input.select();
+            moduleMsg('Select the text and copy it.', false);
+          }
+        }
+        return;
+      }
+      // Membership tiers.
+      if (ev.target && ev.target.id === 'btn-tier-save') {
+        const val = (id) => {
+          const n = document.getElementById(id);
+          return n ? n.value : '';
+        };
+        const editing = moduleState.memberTierEditing;
+        const body = {
+          name: val('tier-name'),
+          description: val('tier-description'),
+          price: val('tier-price'),
+          interval: val('tier-interval') || 'month',
+          active: val('tier-active') !== '0',
+        };
+        moduleMsg('Saving plan…', true);
+        try {
+          const r = editing
+            ? await api(`/modules/members/tiers/${editing.id}`, { method: 'PUT', body: JSON.stringify(body) })
+            : await api('/modules/members/tiers', { method: 'POST', body: JSON.stringify(body) });
+          moduleState.memberTierEditing = null;
+          if (r && r.stripe_state === 'not_connected') {
+            moduleMsg(
+              'Plan saved, but it stays OFF: connect your Stripe account below to charge for it. (Free plans work without Stripe.)',
+              true
+            );
+          } else {
+            moduleMsg('Plan saved.', true);
+          }
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg(e.message, false);
+        }
+        return;
+      }
+      if (ev.target && ev.target.id === 'btn-tier-edit-cancel') {
+        moduleState.memberTierEditing = null;
+        renderMembersAdminPanel();
+        return;
+      }
+      const tierEditBtn = ev.target.closest('[data-tier-edit]');
+      if (tierEditBtn) {
+        const id = Number(tierEditBtn.getAttribute('data-tier-edit'));
+        const pack = moduleState.members || {};
+        const tier = (Array.isArray(pack.tiers) ? pack.tiers : []).find((t) => Number(t.id) === id);
+        if (tier) {
+          moduleState.memberTierEditing = tier;
+          renderMembersAdminPanel();
+        }
+        return;
+      }
+      const tierDeleteBtn = ev.target.closest('[data-tier-delete]');
+      if (tierDeleteBtn) {
+        if (!window.confirm('Delete this plan? Members who already joined keep their access; the plan just stops being offered.')) return;
+        const id = Number(tierDeleteBtn.getAttribute('data-tier-delete'));
+        moduleMsg('Deleting plan…', true);
+        try {
+          await api(`/modules/members/tiers/${id}`, { method: 'DELETE' });
+          if (moduleState.memberTierEditing && Number(moduleState.memberTierEditing.id) === id) {
+            moduleState.memberTierEditing = null;
+          }
+          moduleMsg('Plan deleted.', true);
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg(e.message, false);
+        }
+        return;
+      }
+      // Comps + subscription cancel.
+      const compGrantBtn = ev.target.closest('[data-member-comp-grant]');
+      if (compGrantBtn) {
+        const id = Number(compGrantBtn.getAttribute('data-member-comp-grant'));
+        const tierSel = document.querySelector(`[data-comp-tier="${id}"]`);
+        const untilInput = document.querySelector(`[data-comp-until="${id}"]`);
+        moduleMsg('Granting comp…', true);
+        try {
+          await api(`/modules/members/${id}/comp`, {
+            method: 'POST',
+            body: JSON.stringify({
+              tier_id: tierSel ? Number(tierSel.value) : null,
+              comp_until: untilInput && untilInput.value ? untilInput.value : null,
+            }),
+          });
+          moduleMsg('Comp granted — this member now has free access to that plan.', true);
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg(e.message, false);
+        }
+        return;
+      }
+      const compRevokeBtn = ev.target.closest('[data-member-comp-revoke]');
+      if (compRevokeBtn) {
+        const id = Number(compRevokeBtn.getAttribute('data-member-comp-revoke'));
+        moduleMsg('Revoking comp…', true);
+        try {
+          await api(`/modules/members/${id}/comp`, { method: 'DELETE' });
+          moduleMsg('Comp revoked.', true);
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg(e.message, false);
+        }
+        return;
+      }
+      const cancelSubBtn = ev.target.closest('[data-member-cancel-sub]');
+      if (cancelSubBtn) {
+        if (
+          !window.confirm(
+            'Cancel this member’s subscription at the end of the current paid period? They keep access until the period ends, and your Stripe will not charge them again.'
+          )
+        )
+          return;
+        const id = Number(cancelSubBtn.getAttribute('data-member-cancel-sub'));
+        moduleMsg('Cancelling subscription…', true);
+        try {
+          await api(`/modules/members/${id}/cancel-subscription`, { method: 'POST', body: '{}' });
+          moduleMsg('Subscription set to cancel at the end of the paid period.', true);
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg(e.message, false);
+        }
+        return;
+      }
     });
     modulesBookingRoot.addEventListener('input', (ev) => {
       if (ev.target && ev.target.id === 'members-search') {
@@ -6633,29 +6968,8 @@
           list.innerHTML = `<p class="hint">${allMembers.length ? 'No members match your search.' : 'No members yet. Visitors join from your site’s Members page — new accounts appear here.'}</p>`;
           return;
         }
-        const whenLabel = (v) => {
-          const t = Date.parse(String(v || '').replace(' ', 'T') + (String(v || '').includes('T') ? '' : 'Z'));
-          return Number.isFinite(t) ? new Date(t).toLocaleDateString() : '';
-        };
-        const pillCls = (s) => (s === 'active' ? '' : s === 'pending' ? ' warn' : ' bad');
-        list.innerHTML = shown
-          .map(
-            (m) => `
-        <div class="row" style="justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line,#e6e0d8);flex-wrap:wrap">
-          <div>
-            <strong>${esc(m.name || m.email)}</strong>
-            <span class="status-pill${pillCls(m.status)}">${esc(m.status)}</span>
-            <div class="hint">${esc(m.email)} · joined ${esc(whenLabel(m.created_at))}${m.last_login_at ? ` · last login ${esc(whenLabel(m.last_login_at))}` : ' · never logged in'}</div>
-          </div>
-          <div class="row" style="gap:6px">
-            ${m.status === 'pending' ? `<button type="button" class="btn soft small" data-member-status="${m.id}" data-status="active">Approve</button>` : ''}
-            ${m.status === 'active' ? `<button type="button" class="btn ghost small" data-member-status="${m.id}" data-status="disabled">Disable</button>` : ''}
-            ${m.status === 'disabled' ? `<button type="button" class="btn soft small" data-member-status="${m.id}" data-status="active">Reactivate</button>` : ''}
-            <button type="button" class="btn ghost small" data-member-delete="${m.id}">Delete</button>
-          </div>
-        </div>`
-          )
-          .join('');
+        const tiers = Array.isArray(pack.tiers) ? pack.tiers : [];
+        list.innerHTML = shown.map((m) => memberRowHtml(m, tiers)).join('');
       }
     });
   }

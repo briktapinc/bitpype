@@ -272,6 +272,14 @@
       '.bitpype-module-embed .bp-mod-member-col{border:1px solid var(--bp-mod-line);border-radius:1.1rem;background:var(--bp-mod-paper);padding:1.4rem 1.35rem;}',
       '.bitpype-module-embed .bp-mod-member-col h3{margin:0 0 1rem;font-size:1.12rem;}',
       '.bitpype-module-embed .bp-mod-member-card{border:1px solid var(--bp-mod-line);border-radius:1.1rem;background:var(--bp-mod-paper);padding:1.4rem 1.35rem;max-width:30rem;}',
+      '.bitpype-module-embed .bp-mod-tier-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1rem;margin-top:1.2rem;align-items:stretch;}',
+      '.bitpype-module-embed .bp-mod-tier{border:1px solid var(--bp-mod-line);border-radius:1.1rem;background:var(--bp-mod-paper);padding:1.25rem 1.2rem;display:flex;flex-direction:column;gap:.5rem;}',
+      '.bitpype-module-embed .bp-mod-tier h4{margin:0;font-size:1.05rem;}',
+      '.bitpype-module-embed .bp-mod-tier-price{font-size:1.35rem;font-weight:700;}',
+      '.bitpype-module-embed .bp-mod-tier-price span{font-size:.85rem;font-weight:500;opacity:.75;}',
+      '.bitpype-module-embed .bp-mod-tier-desc{margin:0;opacity:.85;flex:1;}',
+      '.bitpype-module-embed .bp-mod-tier-current{font-weight:600;}',
+      '.bitpype-module-embed .bp-mod-tiers-head{margin:1.4rem 0 0;font-size:1.12rem;}',
       '.bitpype-module-embed .bp-mod-forgot{margin-top:1rem;border-top:1px solid var(--bp-mod-line);padding-top:1rem;}',
       '.bitpype-module-embed .bp-mod-forgot summary{cursor:pointer;font-weight:600;font-size:0.94rem;}',
       '.bitpype-module-embed .bp-mod-forgot form{margin-top:0.8rem;}',
@@ -2080,13 +2088,125 @@
     });
   }
 
+  /* Membership plans (tiers): join cards on the members page. */
+  function tierCardsHtml(m) {
+    var tiers = Array.isArray(m.tiers) ? m.tiers : [];
+    if (!tiers.length) return '';
+    var ent = m.entitlement || null;
+    var loggedIn = !!m.member;
+    var cards = tiers
+      .map(function (t) {
+        var isCurrent = ent && ent.tier_id != null && Number(ent.tier_id) === Number(t.id);
+        var price = t.free
+          ? '<div class="bp-mod-tier-price">Free</div>'
+          : '<div class="bp-mod-tier-price">' + esc(t.price_label || '') + ' <span>/ ' + esc(t.interval) + '</span></div>';
+        var action;
+        if (isCurrent) {
+          action = '<p class="bp-mod-tier-current">This is your current plan' + (ent && ent.source === 'comp' ? ' (on the house)' : '') + '.</p>';
+        } else if (!loggedIn) {
+          action = '<p class="bp-mod-gate-text">Log in or create an account to join.</p>';
+        } else if (!t.free && !t.joinable) {
+          action = '<p class="bp-mod-gate-text">Paid sign-up is not available yet — check back soon.</p>';
+        } else {
+          action =
+            '<button type="button" class="bp-mod-btn" data-bp-tier-join="' +
+            esc(t.id) +
+            '" data-bp-tier-free="' +
+            (t.free ? '1' : '0') +
+            '">' +
+            (t.free ? 'Join free' : 'Join') +
+            '</button>';
+        }
+        return (
+          '<div class="bp-mod-tier"><h4>' +
+          esc(t.name) +
+          '</h4>' +
+          price +
+          (t.description ? '<p class="bp-mod-tier-desc">' + esc(t.description) + '</p>' : '<p class="bp-mod-tier-desc"></p>') +
+          action +
+          '<p class="bp-mod-book-msg" data-bp-tier-msg></p>' +
+          '</div>'
+        );
+      })
+      .join('');
+    return '<h3 class="bp-mod-tiers-head">Membership plans</h3><div class="bp-mod-tier-grid">' + cards + '</div>';
+  }
+
+  function bindTierJoins(el, base, token) {
+    var buttons = el.querySelectorAll('[data-bp-tier-join]');
+    for (var i = 0; i < buttons.length; i++) {
+      (function (btn) {
+        btn.addEventListener('click', function () {
+          var tierId = btn.getAttribute('data-bp-tier-join');
+          var free = btn.getAttribute('data-bp-tier-free') === '1';
+          var card = btn.closest('.bp-mod-tier');
+          var msg = card ? card.querySelector('[data-bp-tier-msg]') : null;
+          btn.disabled = true;
+          if (msg) {
+            msg.textContent = free ? 'Joining…' : 'Taking you to secure checkout…';
+            msg.className = 'bp-mod-book-msg';
+          }
+          var path = free ? '/members/join' : '/members/checkout';
+          var body = free
+            ? { tier_id: Number(tierId) }
+            : { tier_id: Number(tierId), returnUrl: String(window.location.href || '').split('#')[0] };
+          memberPost(base, token, path, body)
+            .then(function (res) {
+              var j = res.j || {};
+              if (!j.ok) throw new Error(j.error || 'Something went wrong — please try again.');
+              if (!free) {
+                if (j.data && j.data.url) {
+                  window.location.href = j.data.url;
+                  return;
+                }
+                throw new Error('Checkout is unavailable right now.');
+              }
+              mountOne(el);
+            })
+            .catch(function (e) {
+              btn.disabled = false;
+              if (msg) {
+                msg.textContent = e.message || 'Something went wrong — please try again.';
+                msg.className = 'bp-mod-book-msg err';
+              }
+            });
+        });
+      })(buttons[i]);
+    }
+  }
+
+  function membershipReturnNote() {
+    try {
+      var q = new URLSearchParams(window.location.search || '');
+      if (q.get('membership') === 'success') {
+        return '<p class="bp-mod-book-msg ok">Thanks — your payment went through. Your membership activates as soon as the payment is confirmed (usually a few seconds); refresh if it does not update.</p>';
+      }
+      if (q.get('membership') === 'cancelled') {
+        return '<p class="bp-mod-book-msg">Checkout was cancelled — no charge was made.</p>';
+      }
+    } catch (e) {
+      /* ignore */
+    }
+    return '';
+  }
+
   function renderMembers(el, data, prefixHtml) {
     var m = data.members || {};
     var cfg = m.config || {};
     var token = el.getAttribute(TOKEN_ATTR) || '';
     var base = apiBase(el);
     var html = prefixHtml || '';
+    html += membershipReturnNote();
     if (m.member) {
+      var ent = m.entitlement || null;
+      var planLine = 'Free member';
+      if (ent && ent.source === 'comp') planLine = 'Plan: ' + (ent.tier_name || 'Membership') + ' (comp — on the house)';
+      else if (ent && ent.tier_id != null) planLine = 'Plan: ' + (ent.tier_name || 'Membership');
+      if (ent && ent.cancel_at_period_end && ent.current_period_end) {
+        planLine += ' · cancels ' + esc(String(ent.current_period_end).slice(0, 10));
+      } else if (ent && ent.current_period_end) {
+        planLine += ' · renews ' + esc(String(ent.current_period_end).slice(0, 10));
+      }
       html +=
         '<div class="bp-mod-member-card">' +
         '<p class="bp-mod-gate-title">You’re signed in</p>' +
@@ -2095,9 +2215,13 @@
         ' · ' +
         esc(m.member.email) +
         '</p>' +
+        '<p class="bp-mod-gate-text">' +
+        esc(planLine) +
+        '</p>' +
         '<button type="button" class="bp-mod-btn ghost" data-bp-member-logout>Log out</button>' +
         '<p class="bp-mod-book-msg" data-bp-member-msg></p>' +
         '</div>';
+      html += tierCardsHtml(m);
       el.innerHTML = html;
       var btn = el.querySelector('[data-bp-member-logout]');
       if (btn) {
@@ -2108,6 +2232,7 @@
           mountOne(el);
         });
       }
+      bindTierJoins(el, base, token);
       return;
     }
     var approval = cfg.signup_mode === 'approval';
@@ -2135,6 +2260,7 @@
       '</form>' +
       '</div>' +
       '</div>';
+    html += tierCardsHtml(m);
     el.innerHTML = html;
     bindMemberLogin(el, token, function () {
       mountOne(el);
@@ -2143,6 +2269,47 @@
       mountOne(el);
     });
     bindMemberForgot(el, token);
+    bindTierJoins(el, base, token);
+  }
+
+  /**
+   * Wall body shared by module mounts and gated pages. Two flavors:
+   * needs 'login' (anonymous) shows the login form; needs
+   * 'subscription' means the visitor IS logged in but their plan does
+   * not cover this page — no login form, just the way to the plans.
+   */
+  function gateWallHtml(gate) {
+    var title = esc(gate.wall_headline || 'This page is for members only');
+    if (gate.needs === 'subscription') {
+      var who = gate.member
+        ? '<p class="bp-mod-gate-text">You’re logged in as ' + esc(gate.member.email || '') + ', but this page needs ' +
+          (gate.access_tier_name ? 'the <strong>' + esc(gate.access_tier_name) + '</strong> plan' : 'a paid membership') +
+          '.</p>'
+        : '<p class="bp-mod-gate-text">This page is for paid members.</p>';
+      return (
+        '<div class="bp-mod-gate">' +
+        '<p class="bp-mod-gate-title">' +
+        title +
+        '</p>' +
+        who +
+        (gate.members_page
+          ? '<p><a class="bp-mod-btn" href="' + esc(gate.members_page) + '">See membership plans</a></p>'
+          : '') +
+        '</div>'
+      );
+    }
+    return (
+      '<div class="bp-mod-gate">' +
+      '<p class="bp-mod-gate-title">' +
+      title +
+      '</p>' +
+      '<p class="bp-mod-gate-text">Log in to keep going.</p>' +
+      memberLoginFormHtml() +
+      (gate.members_page
+        ? '<p class="bp-mod-gate-alt">New here? <a href="' + esc(gate.members_page) + '">Create your account</a></p>'
+        : '') +
+      '</div>'
+    );
   }
 
   /** Locked wall for a module mounted on a gated page (no content ships). */
@@ -2150,40 +2317,24 @@
     var gate = data.gate || {};
     var html = '';
     if (shouldShowTitle(el)) html += '<h2 class="bp-mod-title">' + esc(data.title || '') + '</h2>';
-    html +=
-      '<div class="bp-mod-gate">' +
-      '<p class="bp-mod-gate-title">' +
-      esc(gate.wall_headline || 'This page is for members only') +
-      '</p>' +
-      '<p class="bp-mod-gate-text">Log in to keep going.</p>' +
-      memberLoginFormHtml() +
-      (gate.members_page
-        ? '<p class="bp-mod-gate-alt">New here? <a href="' + esc(gate.members_page) + '">Create your account</a></p>'
-        : '') +
-      '</div>';
+    html += gateWallHtml(gate);
     el.innerHTML = html;
-    bindMemberLogin(el, gate.members_token || '', function () {
-      mountOne(el);
-    });
+    if (gate.needs !== 'subscription') {
+      bindMemberLogin(el, gate.members_token || '', function () {
+        mountOne(el);
+      });
+    }
   }
 
   /** Locked wall replacing a gated page's exported shell body. */
   function renderGateWall(el, gate) {
     el.classList.add('bitpype-module-embed');
-    el.innerHTML =
-      '<div class="bp-mod-gate">' +
-      '<p class="bp-mod-gate-title">' +
-      esc(gate.wall_headline || 'This page is for members only') +
-      '</p>' +
-      '<p class="bp-mod-gate-text">Log in to keep going.</p>' +
-      memberLoginFormHtml() +
-      (gate.members_page
-        ? '<p class="bp-mod-gate-alt">New here? <a href="' + esc(gate.members_page) + '">Create your account</a></p>'
-        : '') +
-      '</div>';
-    bindMemberLogin(el, gate.members_token || '', function () {
-      mountGate(el);
-    });
+    el.innerHTML = gateWallHtml(gate || {});
+    if (!gate || gate.needs !== 'subscription') {
+      bindMemberLogin(el, (gate && gate.members_token) || '', function () {
+        mountGate(el);
+      });
+    }
   }
 
   /**

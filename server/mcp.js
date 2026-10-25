@@ -921,13 +921,13 @@ function clientToolDefs() {
     {
       name: 'members.getConfig',
       description:
-        'Get the Membership config for a lead: gate_mode (off | selected | whole_site), gated_pages (slugs members-only in selected mode), public_pages (always-public exceptions in whole_site mode), signup_mode (open | approval), wall_headline (login wall copy). The Members page itself is always public. Standard/Premium.',
+        'Get the Membership config for a lead: gate_mode (off | selected | whole_site), gated_pages (slugs members-only in selected mode), public_pages (always-public exceptions in whole_site mode), signup_mode (open | approval), wall_headline (login wall copy), access_level (any_member | any_paid | tier — who gets into gated pages) and access_tier_id (the unlocking tier when access_level is tier). The Members page itself is always public. Standard/Premium.',
       inputSchema: schema({ leadId: ID }),
     },
     {
       name: 'members.updateConfig',
       description:
-        'Update the Membership config: gate_mode, gated_pages (array of page slugs), public_pages (array of page slugs), signup_mode, wall_headline. Gating is enforced server-side and applies on the next site publish/export. Standard/Premium.',
+        'Update the Membership config: gate_mode, gated_pages (array of page slugs), public_pages (array of page slugs), signup_mode, wall_headline, access_level (any_member | any_paid | tier), access_tier_id (required when access_level is tier; must be one of the lead’s tiers). Gating is enforced server-side and applies on the next site publish/export. Standard/Premium.',
       inputSchema: schema({
         leadId: ID,
         gate_mode: STR,
@@ -935,6 +935,8 @@ function clientToolDefs() {
         public_pages: { type: 'array', items: { type: 'string' } },
         signup_mode: STR,
         wall_headline: STR,
+        access_level: STR,
+        access_tier_id: ID,
       }),
     },
     {
@@ -952,6 +954,41 @@ function clientToolDefs() {
     {
       name: 'members.deleteMember',
       description: 'Delete a site member account (and its sessions) for a lead. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, id: ID }),
+    },
+    {
+      name: 'members.listTiers',
+      description:
+        'List membership tiers for a lead (name, price_cents, interval month|year, active, stripe_price_id). Paid tiers are charged on the SITE OWNER’S own Stripe account. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, includeInactive: { type: 'boolean' } }),
+    },
+    {
+      name: 'members.createTier',
+      description:
+        'Create a membership tier (name, description, price in dollars or price_cents — 0 = free, interval month|year, active). A paid tier creates its Product+Price on the owner’s own Stripe when their keys are saved; without keys it saves INACTIVE (connect Stripe to activate). Free tiers work with no keys. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, name: STR, description: STR, price: NUM, price_cents: NUM, interval: STR, active: { type: 'boolean' }, sort_order: NUM }),
+    },
+    {
+      name: 'members.updateTier',
+      description:
+        'Update a membership tier. Changing the price or interval mints a NEW Stripe Price on the owner’s account (existing subscribers keep their price). Same Stripe rules as members.createTier. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, id: ID, name: STR, description: STR, price: NUM, price_cents: NUM, interval: STR, active: { type: 'boolean' }, sort_order: NUM }),
+    },
+    {
+      name: 'members.listSubscriptions',
+      description:
+        'List local membership subscription records for a lead (member, tier snapshot, Stripe ids, status, cancel_at_period_end, current_period_end). These local records are what the site gate reads. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, memberId: ID, limit: NUM }),
+    },
+    {
+      name: 'members.grantComp',
+      description:
+        'Grant a member free access to a tier (a comp): tier_id required, comp_until optional ISO date (empty = no expiry). Applies immediately in the gate. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, id: ID, tier_id: ID, comp_until: STR }),
+    },
+    {
+      name: 'members.revokeComp',
+      description: 'Revoke a member’s comp. Standard/Premium.',
       inputSchema: schema({ leadId: ID, id: ID }),
     },
     {
@@ -2548,6 +2585,12 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'members.listMembers',
     'members.setMemberStatus',
     'members.deleteMember',
+    'members.listTiers',
+    'members.createTier',
+    'members.updateTier',
+    'members.listSubscriptions',
+    'members.grantComp',
+    'members.revokeComp',
     'events.list',
     'events.create',
     'events.update',
@@ -3280,6 +3323,64 @@ async function callClientTool(ws, name, a, ctx = {}) {
     return domain.withDb(ws, (db) => ({
       plan: planId,
       ...modules.deleteSiteMember(db, leadId || Number(ctx.leadId), id),
+    }));
+  }
+  if (name === 'members.listTiers') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      tiers: modules.listMembershipTiers(db, leadId, { includeInactive: a.includeInactive !== false }),
+      payments: modules.membershipStripeStatus(db, leadId),
+    }));
+  }
+  if (name === 'members.createTier') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    const membershipStripe = require('./membershipStripe');
+    return domain.withDb(ws, async (db) => {
+      const result = await membershipStripe.saveMembershipTier(db, leadId, a);
+      return { plan: planId, tier: result.tier, stripe_state: result.stripe_state };
+    });
+  }
+  if (name === 'members.updateTier') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId) throw new Error('leadId is required');
+    const membershipStripe = require('./membershipStripe');
+    return domain.withDb(ws, async (db) => {
+      const result = await membershipStripe.saveMembershipTier(db, leadId, a, id);
+      return { plan: planId, tier: result.tier, stripe_state: result.stripe_state };
+    });
+  }
+  if (name === 'members.listSubscriptions') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      subscriptions: modules.listMemberSubscriptions(db, leadId, {
+        memberId: a.memberId != null ? Number(a.memberId) : undefined,
+        limit: a.limit || 100,
+      }),
+      revenue: modules.membershipRevenueSummary(db, leadId),
+    }));
+  }
+  if (name === 'members.grantComp') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      member: modules.grantMemberComp(db, leadId || Number(ctx.leadId), id, a),
+    }));
+  }
+  if (name === 'members.revokeComp') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      member: modules.revokeMemberComp(db, leadId || Number(ctx.leadId), id),
     }));
   }
 

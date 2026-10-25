@@ -40,7 +40,7 @@ const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod11';
+const MODULE_SCRIPT_VER = 'mod12';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -594,7 +594,84 @@ function ensureTables(db) {
     CREATE INDEX IF NOT EXISTS idx_site_member_sessions_lead ON site_member_sessions(lead_id);
     CREATE INDEX IF NOT EXISTS idx_site_member_resets_member ON site_member_reset_tokens(member_id);
     CREATE INDEX IF NOT EXISTS idx_site_member_grants_lead ON site_member_preview_grants(lead_id);
+
+    -- Membership Part 2 (Batch 17): per-lead Stripe keys, paid tiers,
+    -- and the local subscription records the gate reads as the
+    -- entitlement source of truth (Stripe is never called in the gate).
+    CREATE TABLE IF NOT EXISTS membership_stripe_keys (
+      lead_id INTEGER PRIMARY KEY,
+      publishable_key TEXT NOT NULL DEFAULT '',
+      secret_key_enc TEXT NOT NULL DEFAULT '',
+      webhook_secret_enc TEXT NOT NULL DEFAULT '',
+      secret_key_last4 TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS membership_tiers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER NOT NULL,
+      name TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      price_cents INTEGER NOT NULL DEFAULT 0,
+      interval TEXT NOT NULL DEFAULT 'month',
+      stripe_product_id TEXT NOT NULL DEFAULT '',
+      stripe_price_id TEXT NOT NULL DEFAULT '',
+      active INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS member_subscriptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER NOT NULL,
+      member_id INTEGER NOT NULL,
+      tier_id INTEGER,
+      tier_name TEXT NOT NULL DEFAULT '',
+      price_cents INTEGER NOT NULL DEFAULT 0,
+      interval TEXT NOT NULL DEFAULT 'month',
+      stripe_customer_id TEXT NOT NULL DEFAULT '',
+      stripe_subscription_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'incomplete',
+      cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
+      current_period_end TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_membership_tiers_lead ON membership_tiers(lead_id, sort_order, id);
+    CREATE INDEX IF NOT EXISTS idx_member_subs_lead_member ON member_subscriptions(lead_id, member_id, id DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_member_subs_stripe_sub
+      ON member_subscriptions(stripe_subscription_id) WHERE stripe_subscription_id <> '';
   `);
+  try {
+    const cfgCols = db
+      .prepare('PRAGMA table_info(members_configs)')
+      .all()
+      .map((c) => String(c.name || ''));
+    if (!cfgCols.includes('access_level')) {
+      db.exec("ALTER TABLE members_configs ADD COLUMN access_level TEXT NOT NULL DEFAULT 'any_member'");
+    }
+    if (!cfgCols.includes('access_tier_id')) {
+      db.exec('ALTER TABLE members_configs ADD COLUMN access_tier_id INTEGER');
+    }
+  } catch {
+    /* race / exists */
+  }
+  try {
+    const memCols = db
+      .prepare('PRAGMA table_info(site_members)')
+      .all()
+      .map((c) => String(c.name || ''));
+    if (!memCols.includes('comp_tier_id')) {
+      db.exec('ALTER TABLE site_members ADD COLUMN comp_tier_id INTEGER');
+    }
+    if (!memCols.includes('comp_until')) {
+      db.exec('ALTER TABLE site_members ADD COLUMN comp_until TEXT');
+    }
+  } catch {
+    /* race / exists */
+  }
   try {
     const cols = db
       .prepare('PRAGMA table_info(site_module_embeds)')
@@ -5427,6 +5504,12 @@ const bcrypt = require('bcryptjs');
 const MEMBER_STATUSES = ['active', 'pending', 'disabled'];
 const MEMBER_GATE_MODES = ['off', 'selected', 'whole_site'];
 const MEMBER_SIGNUP_MODES = ['open', 'approval'];
+const MEMBER_ACCESS_LEVELS = ['any_member', 'any_paid', 'tier'];
+const MEMBER_TIER_INTERVALS = ['month', 'year'];
+// Subscription statuses that grant paid access from local records.
+// 'past_due' is deliberately NOT entitled: the owner's Stripe dunning
+// decides retries; owners can comp a member to bridge a failed payment.
+const MEMBER_ENTITLED_STATUSES = ['active', 'trialing'];
 const MEMBER_WALL_DEFAULT = 'This page is for members only';
 const MEMBER_PASSWORD_MIN = 8;
 // Timing pad so unknown-email logins cost the same bcrypt compare as real ones.
@@ -5467,6 +5550,8 @@ function publicMember(row) {
     status: row.status,
     created_at: row.created_at,
     last_login_at: row.last_login_at || null,
+    comp_tier_id: row.comp_tier_id != null ? Number(row.comp_tier_id) : null,
+    comp_until: row.comp_until || null,
   };
 }
 
@@ -5512,6 +5597,8 @@ function shapeMembersConfig(row, leadId) {
       public_pages: [],
       signup_mode: 'open',
       wall_headline: MEMBER_WALL_DEFAULT,
+      access_level: 'any_member',
+      access_tier_id: null,
       updated_at: null,
     };
   }
@@ -5522,6 +5609,8 @@ function shapeMembersConfig(row, leadId) {
     public_pages: slugListFrom(row.public_pages_json),
     signup_mode: MEMBER_SIGNUP_MODES.includes(row.signup_mode) ? row.signup_mode : 'open',
     wall_headline: String(row.wall_headline || '').trim() || MEMBER_WALL_DEFAULT,
+    access_level: MEMBER_ACCESS_LEVELS.includes(row.access_level) ? row.access_level : 'any_member',
+    access_tier_id: row.access_tier_id != null ? Number(row.access_tier_id) : null,
     updated_at: row.updated_at || null,
   };
 }
@@ -5557,12 +5646,44 @@ function updateMembersConfig(db, leadId, data = {}) {
     data.wall_headline != null
       ? String(data.wall_headline).trim().slice(0, 140) || MEMBER_WALL_DEFAULT
       : row.wall_headline;
+  const accessLevel =
+    data.access_level != null ? String(data.access_level).trim().toLowerCase() : row.access_level;
+  if (!MEMBER_ACCESS_LEVELS.includes(accessLevel)) {
+    throw fail('VALIDATION', 'access_level must be any_member, any_paid or tier.', 400);
+  }
+  let accessTierId = row.access_tier_id;
+  if (data.access_tier_id !== undefined) {
+    accessTierId =
+      data.access_tier_id === null || data.access_tier_id === '' ? null : Number(data.access_tier_id);
+    if (accessTierId !== null && (!Number.isInteger(accessTierId) || accessTierId <= 0)) {
+      throw fail('VALIDATION', 'access_tier_id must be a tier id or null.', 400);
+    }
+  }
+  if (accessLevel === 'tier') {
+    if (!accessTierId) {
+      throw fail('VALIDATION', 'Pick the tier that unlocks gated pages (access_tier_id).', 400);
+    }
+    const tier = db
+      .prepare('SELECT id FROM membership_tiers WHERE id = ? AND lead_id = ?')
+      .get(accessTierId, Number(leadId));
+    if (!tier) throw fail('VALIDATION', 'access_tier_id must be one of this site’s membership tiers.', 400);
+  }
   db.prepare(
     `UPDATE members_configs
      SET gate_mode = ?, gated_pages_json = ?, public_pages_json = ?, signup_mode = ?, wall_headline = ?,
+         access_level = ?, access_tier_id = ?,
          updated_at = datetime('now')
      WHERE lead_id = ?`
-  ).run(gateMode, JSON.stringify(gatedPages), JSON.stringify(publicPages), signupMode, wallHeadline, Number(leadId));
+  ).run(
+    gateMode,
+    JSON.stringify(gatedPages),
+    JSON.stringify(publicPages),
+    signupMode,
+    wallHeadline,
+    accessLevel,
+    accessTierId,
+    Number(leadId)
+  );
   return getMembersConfig(db, leadId);
 }
 
@@ -5654,20 +5775,111 @@ function resolveMemberAccess(db, leadId, opts = {}) {
   return null;
 }
 
+/**
+ * What a member's money/comp state buys them, from LOCAL records only
+ * (member_subscriptions + the comp fields on site_members). Stripe is
+ * never consulted here — the webhook keeps these rows current.
+ *
+ * Returns:
+ *   has_paid   — an entitled (active/trialing) subscription on a PAID
+ *                tier, or a live owner comp (either satisfies any_paid).
+ *   tier_id    — the tier granting access (comp first, then paid sub,
+ *                then a free-tier join), or null.
+ *   source     — 'comp' | 'subscription' | 'free' | null.
+ */
+function memberAccessInfo(db, leadId, member) {
+  ensureTables(db);
+  const none = { has_paid: false, tier_id: null, source: null, subscription: null };
+  if (!member) return none;
+  const id = Number(leadId);
+  const mid = Number(member.id);
+  // Owner comp: explicit tier, optional expiry (null = indefinite).
+  if (member.comp_tier_id != null) {
+    const until = member.comp_until ? String(member.comp_until) : '';
+    if (!until || until > new Date().toISOString().slice(0, 19).replace('T', ' ')) {
+      const tier = getMembershipTier(db, id, Number(member.comp_tier_id));
+      return {
+        has_paid: true,
+        tier_id: Number(member.comp_tier_id),
+        tier_name: tier ? tier.name : '',
+        source: 'comp',
+        subscription: null,
+        comp_until: member.comp_until || null,
+      };
+    }
+  }
+  const sub =
+    db
+      .prepare(
+        `SELECT * FROM member_subscriptions
+         WHERE lead_id = ? AND member_id = ? AND status IN ('active', 'trialing')
+         ORDER BY id DESC LIMIT 1`
+      )
+      .get(id, mid) || null;
+  if (!sub) return none;
+  const shaped = shapeMemberSubscription(sub);
+  if (Number(sub.price_cents) > 0) {
+    return { has_paid: true, tier_id: sub.tier_id, tier_name: sub.tier_name || '', source: 'subscription', subscription: shaped };
+  }
+  // A free-tier join: membership of that tier, but not "paid".
+  return { has_paid: false, tier_id: sub.tier_id, tier_name: sub.tier_name || '', source: 'free', subscription: shaped };
+}
+
+/** Does this access info satisfy the site's configured access level? */
+function accessSatisfies(cfg, info) {
+  if (!cfg || cfg.access_level === 'any_member') return true;
+  if (!info) return false;
+  if (cfg.access_level === 'any_paid') return !!info.has_paid;
+  if (cfg.access_level === 'tier') {
+    return info.tier_id != null && cfg.access_tier_id != null && Number(info.tier_id) === Number(cfg.access_tier_id);
+  }
+  return false;
+}
+
+/** The wall-facing fields every locked surface shares. */
+function gateWallFields(gate) {
+  return {
+    wall_headline: gate.wall_headline,
+    signup_mode: gate.signup_mode,
+    members_token: gate.members_token,
+    members_page: gate.members_page,
+    needs: gate.needs || 'login',
+    access_level: gate.access_level || 'any_member',
+    access_tier_id: gate.access_tier_id != null ? gate.access_tier_id : null,
+    access_tier_name: gate.access_tier_name || '',
+    member: gate.member || null,
+  };
+}
+
 function memberGateCheck(db, leadId, pageSlug, opts = {}) {
   if (!pageIsGated(db, leadId, pageSlug)) return { locked: false };
-  const access = resolveMemberAccess(db, leadId, opts);
-  if (access) return { locked: false, access };
   const cfg = readMembersConfig(db, leadId);
   const embed = membersEmbedForLead(db, leadId);
-  return {
-    locked: true,
+  const base = {
     wall_headline: cfg.wall_headline,
     signup_mode: cfg.signup_mode,
     gate_mode: cfg.gate_mode,
     members_token: embed ? embed.public_token : '',
     members_page: pageFileName(membersPageSlug(db, leadId)),
+    access_level: cfg.access_level,
+    access_tier_id: cfg.access_tier_id,
+    access_tier_name: '',
   };
+  if (cfg.access_tier_id) {
+    const t = getMembershipTier(db, leadId, cfg.access_tier_id);
+    if (t) base.access_tier_name = t.name;
+  }
+  const access = resolveMemberAccess(db, leadId, opts);
+  if (access && access.preview) return { locked: false, access };
+  if (access && access.member) {
+    // Any-member sites keep Part 1 behavior exactly: a session unlocks.
+    if (cfg.access_level === 'any_member') return { locked: false, access };
+    const memberRow = getSessionMember(db, leadId, opts.memberSession || opts.sessionToken || '');
+    const info = memberAccessInfo(db, leadId, memberRow);
+    if (accessSatisfies(cfg, info)) return { locked: false, access, entitlement: info };
+    return { locked: true, ...base, needs: 'subscription', member: access.member, entitlement: info };
+  }
+  return { locked: true, ...base, needs: 'login', member: null };
 }
 
 function lockedModulePayload(embedRow, gate) {
@@ -5678,12 +5890,7 @@ function lockedModulePayload(embedRow, gate) {
     settings: parseEmbedSettings(embedRow),
     items: [],
     locked: true,
-    gate: {
-      wall_headline: gate.wall_headline,
-      signup_mode: gate.signup_mode,
-      members_token: gate.members_token,
-      members_page: gate.members_page,
-    },
+    gate: gateWallFields(gate),
   };
 }
 
@@ -5692,13 +5899,14 @@ function assertMemberAccessForEmbed(db, embedRow, opts = {}) {
   if (!embedRow || embedRow.module_type === 'members') return;
   const gate = memberGateCheck(db, embedRow.lead_id, embedRow.target_page_slug, opts);
   if (gate.locked) {
-    const err = fail('MEMBER_LOCKED', 'This is members-only — please log in to continue.', 401);
-    err.gate = {
-      wall_headline: gate.wall_headline,
-      signup_mode: gate.signup_mode,
-      members_token: gate.members_token,
-      members_page: gate.members_page,
-    };
+    const err = fail(
+      'MEMBER_LOCKED',
+      gate.needs === 'subscription'
+        ? 'This needs a paid membership — please join a plan to continue.'
+        : 'This is members-only — please log in to continue.',
+      401
+    );
+    err.gate = gateWallFields(gate);
     throw err;
   }
 }
@@ -5883,7 +6091,26 @@ function listSiteMembers(db, leadId, opts = {}) {
   }
   sql += ' ORDER BY id DESC LIMIT ?';
   params.push(limit);
-  return db.prepare(sql).all(...params).map(publicMember);
+  return db
+    .prepare(sql)
+    .all(...params)
+    .map((row) => {
+      const m = publicMember(row);
+      const info = memberAccessInfo(db, Number(leadId), row);
+      m.plan_label = info.source === 'comp' ? 'Comp' : info.tier_id != null ? info.tier_name || 'Member' : '—';
+      m.plan_source = info.source;
+      m.subscription = info.subscription
+        ? {
+            id: info.subscription.id,
+            tier_id: info.subscription.tier_id,
+            tier_name: info.subscription.tier_name,
+            status: info.subscription.status,
+            cancel_at_period_end: info.subscription.cancel_at_period_end,
+            current_period_end: info.subscription.current_period_end,
+          }
+        : null;
+      return m;
+    });
 }
 
 function countSiteMembers(db, leadId) {
@@ -5926,8 +6153,700 @@ function deleteSiteMember(db, leadId, memberId) {
   if (!member) throw fail('NOT_FOUND', 'Member not found', 404);
   db.prepare('DELETE FROM site_member_sessions WHERE member_id = ?').run(member.id);
   db.prepare('DELETE FROM site_member_reset_tokens WHERE member_id = ?').run(member.id);
+  // Local subscription records go with the account (the Stripe
+  // subscription itself lives on the owner's Stripe — cancelling it
+  // there is the owner's call; nothing here can reach it).
+  db.prepare('DELETE FROM member_subscriptions WHERE member_id = ? AND lead_id = ?').run(member.id, Number(leadId));
   db.prepare('DELETE FROM site_members WHERE id = ? AND lead_id = ?').run(member.id, Number(leadId));
   return { deleted: true, id: member.id };
+}
+
+/* ── Membership Part 2 (Batch 17): per-lead Stripe keys, paid tiers,
+ * subscriptions, comps ──
+ *
+ * Money runs on the SITE OWNER'S OWN Stripe account (the Shop pattern):
+ * owners save their keys in the portal, stored secretBox-encrypted in
+ * membership_stripe_keys, scoped to their lead. The platform never
+ * holds member money. member_subscriptions rows — kept current by the
+ * membership webhook — are the ONLY entitlement source in gate paths.
+ */
+
+/** Raw key row (encrypted values). Internal: membershipStripe + tests. */
+function getMembershipStripeKeyRow(db, leadId) {
+  ensureTables(db);
+  return (
+    db.prepare('SELECT * FROM membership_stripe_keys WHERE lead_id = ?').get(Number(leadId)) || null
+  );
+}
+
+/**
+ * Save the owner's Stripe keys for their site. Fields left blank keep
+ * the stored value (the settings-UI convention); secret material is
+ * stored secretBox-encrypted and is never returned — only a status.
+ */
+function saveMembershipStripeKeys(db, leadId, data = {}) {
+  ensureTables(db);
+  const id = Number(leadId);
+  const box = require('../src/secretBox');
+  const existing = getMembershipStripeKeyRow(db, id);
+  const keep = (next, prev) => {
+    const v = next == null ? '' : String(next).trim();
+    return v === '' ? prev || '' : v;
+  };
+  let secretPlain = '';
+  if (data.secret_key != null && String(data.secret_key).trim() !== '') {
+    secretPlain = String(data.secret_key).trim();
+    if (!/^(sk|rk)_(test|live)_/.test(secretPlain)) {
+      throw fail('VALIDATION', 'Secret key must be a Stripe secret or restricted key (sk_… or rk_…).', 400);
+    }
+  }
+  let publishable = keep(data.publishable_key, existing && existing.publishable_key);
+  if (publishable && !/^pk_(test|live)_/.test(publishable)) {
+    throw fail('VALIDATION', 'Publishable key must start with pk_test_ or pk_live_.', 400);
+  }
+  let webhookPlain = '';
+  if (data.webhook_secret != null && String(data.webhook_secret).trim() !== '') {
+    webhookPlain = String(data.webhook_secret).trim();
+    if (!/^whsec_/.test(webhookPlain)) {
+      throw fail('VALIDATION', 'Webhook signing secret must start with whsec_.', 400);
+    }
+  }
+  const secretEnc = secretPlain
+    ? box.encryptValue(secretPlain)
+    : existing
+      ? existing.secret_key_enc
+      : '';
+  const webhookEnc = webhookPlain
+    ? box.encryptValue(webhookPlain)
+    : existing
+      ? existing.webhook_secret_enc
+      : '';
+  const last4 = secretPlain ? secretPlain.slice(-4) : existing ? existing.secret_key_last4 || '' : '';
+  db.prepare(
+    `INSERT INTO membership_stripe_keys (lead_id, publishable_key, secret_key_enc, webhook_secret_enc, secret_key_last4, updated_at)
+     VALUES (?, ?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(lead_id) DO UPDATE SET publishable_key = excluded.publishable_key,
+       secret_key_enc = excluded.secret_key_enc, webhook_secret_enc = excluded.webhook_secret_enc,
+       secret_key_last4 = excluded.secret_key_last4, updated_at = datetime('now')`
+  ).run(id, publishable || '', secretEnc || '', webhookEnc || '', last4 || '');
+  return membershipStripeStatus(db, id);
+}
+
+function clearMembershipStripeKeys(db, leadId) {
+  ensureTables(db);
+  db.prepare('DELETE FROM membership_stripe_keys WHERE lead_id = ?').run(Number(leadId));
+  return membershipStripeStatus(db, leadId);
+}
+
+/** Owner-safe status: never carries secret or webhook values. */
+function membershipStripeStatus(db, leadId) {
+  const row = getMembershipStripeKeyRow(db, leadId);
+  const connected = !!(row && row.secret_key_enc);
+  return {
+    connected,
+    publishable_key: row ? row.publishable_key || '' : '',
+    secret_key_last4: row ? row.secret_key_last4 || '' : '',
+    webhook_configured: !!(row && row.webhook_secret_enc),
+    updated_at: row ? row.updated_at || null : null,
+  };
+}
+
+/* Tiers */
+
+function shapeMembershipTier(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    lead_id: row.lead_id,
+    name: row.name || '',
+    description: row.description || '',
+    price_cents: Number(row.price_cents) || 0,
+    price_label: Number(row.price_cents) > 0 ? formatPrice(Number(row.price_cents), 'USD') : 'Free',
+    interval: MEMBER_TIER_INTERVALS.includes(row.interval) ? row.interval : 'month',
+    stripe_product_id: row.stripe_product_id || '',
+    stripe_price_id: row.stripe_price_id || '',
+    active: Number(row.active) === 1,
+    sort_order: Number(row.sort_order) || 0,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function listMembershipTiers(db, leadId, opts = {}) {
+  ensureTables(db);
+  let sql = 'SELECT * FROM membership_tiers WHERE lead_id = ?';
+  if (!opts.includeInactive) sql += ' AND active = 1';
+  sql += ' ORDER BY sort_order ASC, id ASC';
+  return db.prepare(sql).all(Number(leadId)).map(shapeMembershipTier);
+}
+
+function getMembershipTier(db, leadId, tierId) {
+  ensureTables(db);
+  const row = db
+    .prepare('SELECT * FROM membership_tiers WHERE lead_id = ? AND id = ?')
+    .get(Number(leadId), Number(tierId));
+  return row ? shapeMembershipTier(row) : null;
+}
+
+/**
+ * Validate tier input to a fields object (no write). Price accepts
+ * dollars (`price`) or cents (`price_cents`) like estimate options.
+ */
+function validateMembershipTierInput(db, leadId, data = {}, existing = null) {
+  const name =
+    data.name != null ? String(data.name).trim().slice(0, 120) : existing ? existing.name : '';
+  if (!name) throw fail('VALIDATION', 'Give the tier a name.', 400);
+  const description =
+    data.description != null
+      ? String(data.description).trim().slice(0, 1000)
+      : existing
+        ? existing.description
+        : '';
+  let priceCents = existing ? Number(existing.price_cents) || 0 : 0;
+  if (data.price_cents != null || data.price != null) {
+    const parsed = parseMoneyCents(data.price, data.price_cents);
+    priceCents = parsed == null ? 0 : parsed;
+  }
+  const intervalRaw =
+    data.interval != null ? String(data.interval).trim().toLowerCase() : existing ? existing.interval : 'month';
+  if (!MEMBER_TIER_INTERVALS.includes(intervalRaw)) {
+    throw fail('VALIDATION', 'interval must be month or year.', 400);
+  }
+  const sortOrder =
+    data.sort_order != null
+      ? Math.max(0, Math.min(10000, Math.round(Number(data.sort_order)) || 0))
+      : existing
+        ? existing.sort_order
+        : 0;
+  return { name, description, price_cents: priceCents, interval: intervalRaw, sort_order: sortOrder };
+}
+
+function insertMembershipTier(db, leadId, fields, opts = {}) {
+  ensureTables(db);
+  const info = db
+    .prepare(
+      `INSERT INTO membership_tiers (lead_id, name, description, price_cents, interval, stripe_product_id, stripe_price_id, active, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      Number(leadId),
+      fields.name,
+      fields.description,
+      fields.price_cents,
+      fields.interval,
+      opts.stripe_product_id || '',
+      opts.stripe_price_id || '',
+      opts.active === false ? 0 : 1,
+      fields.sort_order
+    );
+  return getMembershipTier(db, leadId, info.lastInsertRowid);
+}
+
+function updateMembershipTierRow(db, leadId, tierId, fields, opts = {}) {
+  ensureTables(db);
+  const existing = getMembershipTier(db, leadId, tierId);
+  if (!existing) throw fail('NOT_FOUND', 'Tier not found', 404);
+  db.prepare(
+    `UPDATE membership_tiers
+     SET name = ?, description = ?, price_cents = ?, interval = ?, sort_order = ?,
+         stripe_product_id = ?, stripe_price_id = ?, active = ?, updated_at = datetime('now')
+     WHERE id = ? AND lead_id = ?`
+  ).run(
+    fields.name,
+    fields.description,
+    fields.price_cents,
+    fields.interval,
+    fields.sort_order,
+    opts.stripe_product_id !== undefined ? opts.stripe_product_id : existing.stripe_product_id,
+    opts.stripe_price_id !== undefined ? opts.stripe_price_id : existing.stripe_price_id,
+    opts.active !== undefined ? (opts.active ? 1 : 0) : existing.active ? 1 : 0,
+    Number(tierId),
+    Number(leadId)
+  );
+  return getMembershipTier(db, leadId, tierId);
+}
+
+function setMembershipTierActive(db, leadId, tierId, active) {
+  ensureTables(db);
+  const existing = getMembershipTier(db, leadId, tierId);
+  if (!existing) throw fail('NOT_FOUND', 'Tier not found', 404);
+  db.prepare("UPDATE membership_tiers SET active = ?, updated_at = datetime('now') WHERE id = ? AND lead_id = ?").run(
+    active ? 1 : 0,
+    Number(tierId),
+    Number(leadId)
+  );
+  return getMembershipTier(db, leadId, tierId);
+}
+
+function deleteMembershipTier(db, leadId, tierId) {
+  ensureTables(db);
+  const existing = getMembershipTier(db, leadId, tierId);
+  if (!existing) throw fail('NOT_FOUND', 'Tier not found', 404);
+  // Subscriptions keep their tier name/price snapshot, so members who
+  // already joined are unaffected by the tier going away.
+  db.prepare('DELETE FROM membership_tiers WHERE id = ? AND lead_id = ?').run(Number(tierId), Number(leadId));
+  return { deleted: true, id: existing.id };
+}
+
+/* Subscriptions (local records — the entitlement source of truth) */
+
+function shapeMemberSubscription(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    lead_id: row.lead_id,
+    member_id: row.member_id,
+    tier_id: row.tier_id != null ? Number(row.tier_id) : null,
+    tier_name: row.tier_name || '',
+    price_cents: Number(row.price_cents) || 0,
+    interval: MEMBER_TIER_INTERVALS.includes(row.interval) ? row.interval : 'month',
+    stripe_customer_id: row.stripe_customer_id || '',
+    stripe_subscription_id: row.stripe_subscription_id || '',
+    status: row.status || 'incomplete',
+    cancel_at_period_end: Number(row.cancel_at_period_end) === 1,
+    current_period_end: row.current_period_end || null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function getMemberSubscriptionByStripeId(db, stripeSubscriptionId) {
+  ensureTables(db);
+  if (!stripeSubscriptionId) return null;
+  const row = db
+    .prepare('SELECT * FROM member_subscriptions WHERE stripe_subscription_id = ?')
+    .get(String(stripeSubscriptionId));
+  return row ? shapeMemberSubscription(row) : null;
+}
+
+function listMemberSubscriptions(db, leadId, opts = {}) {
+  ensureTables(db);
+  const params = [Number(leadId)];
+  let sql = 'SELECT * FROM member_subscriptions WHERE lead_id = ?';
+  if (opts.memberId != null) {
+    sql += ' AND member_id = ?';
+    params.push(Number(opts.memberId));
+  }
+  sql += ' ORDER BY id DESC';
+  const limit = Math.min(500, Math.max(1, Number(opts.limit) || 200));
+  sql += ' LIMIT ?';
+  params.push(limit);
+  return db.prepare(sql).all(...params).map(shapeMemberSubscription);
+}
+
+/** Which lead owns this Stripe subscription/customer (webhook routing). */
+function findLeadByStripeSubscription(db, stripeSubscriptionId) {
+  const sub = getMemberSubscriptionByStripeId(db, stripeSubscriptionId);
+  return sub ? sub.lead_id : null;
+}
+
+function findLeadByStripeCustomer(db, stripeCustomerId) {
+  ensureTables(db);
+  if (!stripeCustomerId) return null;
+  const row = db
+    .prepare('SELECT lead_id FROM member_subscriptions WHERE stripe_customer_id = ? ORDER BY id DESC LIMIT 1')
+    .get(String(stripeCustomerId));
+  return row ? Number(row.lead_id) : null;
+}
+
+/**
+ * Idempotent upsert keyed by the Stripe subscription id (or, for local
+ * free-tier joins with no Stripe id, by member+tier). Stripe events
+ * arriving twice — or out of order — converge on the same row.
+ */
+function upsertMemberSubscription(db, fields) {
+  ensureTables(db);
+  const leadId = Number(fields.lead_id);
+  const memberId = Number(fields.member_id);
+  let existing = null;
+  if (fields.stripe_subscription_id) {
+    existing = db
+      .prepare('SELECT * FROM member_subscriptions WHERE stripe_subscription_id = ?')
+      .get(String(fields.stripe_subscription_id));
+  }
+  if (!existing && !fields.stripe_subscription_id && fields.tier_id != null) {
+    existing = db
+      .prepare(
+        "SELECT * FROM member_subscriptions WHERE lead_id = ? AND member_id = ? AND tier_id = ? AND stripe_subscription_id = '' ORDER BY id DESC LIMIT 1"
+      )
+      .get(leadId, memberId, Number(fields.tier_id));
+  }
+  const merged = {
+    lead_id: leadId,
+    member_id: memberId,
+    tier_id: fields.tier_id !== undefined ? fields.tier_id : existing ? existing.tier_id : null,
+    tier_name: fields.tier_name !== undefined ? String(fields.tier_name || '') : existing ? existing.tier_name : '',
+    price_cents:
+      fields.price_cents !== undefined ? Number(fields.price_cents) || 0 : existing ? Number(existing.price_cents) || 0 : 0,
+    interval: fields.interval || (existing ? existing.interval : 'month'),
+    stripe_customer_id:
+      fields.stripe_customer_id !== undefined
+        ? String(fields.stripe_customer_id || '')
+        : existing
+          ? existing.stripe_customer_id
+          : '',
+    stripe_subscription_id:
+      fields.stripe_subscription_id !== undefined
+        ? String(fields.stripe_subscription_id || '')
+        : existing
+          ? existing.stripe_subscription_id
+          : '',
+    status: fields.status || (existing ? existing.status : 'incomplete'),
+    cancel_at_period_end:
+      fields.cancel_at_period_end !== undefined
+        ? fields.cancel_at_period_end
+          ? 1
+          : 0
+        : existing
+          ? Number(existing.cancel_at_period_end) || 0
+          : 0,
+    current_period_end:
+      fields.current_period_end !== undefined ? fields.current_period_end : existing ? existing.current_period_end : null,
+  };
+  if (existing) {
+    db.prepare(
+      `UPDATE member_subscriptions
+       SET lead_id = ?, member_id = ?, tier_id = ?, tier_name = ?, price_cents = ?, interval = ?,
+           stripe_customer_id = ?, stripe_subscription_id = ?, status = ?, cancel_at_period_end = ?,
+           current_period_end = ?, updated_at = datetime('now')
+       WHERE id = ?`
+    ).run(
+      merged.lead_id, merged.member_id, merged.tier_id, merged.tier_name, merged.price_cents, merged.interval,
+      merged.stripe_customer_id, merged.stripe_subscription_id, merged.status, merged.cancel_at_period_end,
+      merged.current_period_end, existing.id
+    );
+    return shapeMemberSubscription(db.prepare('SELECT * FROM member_subscriptions WHERE id = ?').get(existing.id));
+  }
+  const info = db
+    .prepare(
+      `INSERT INTO member_subscriptions
+       (lead_id, member_id, tier_id, tier_name, price_cents, interval, stripe_customer_id,
+        stripe_subscription_id, status, cancel_at_period_end, current_period_end)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      merged.lead_id, merged.member_id, merged.tier_id, merged.tier_name, merged.price_cents, merged.interval,
+      merged.stripe_customer_id, merged.stripe_subscription_id, merged.status, merged.cancel_at_period_end,
+      merged.current_period_end
+    );
+  return shapeMemberSubscription(db.prepare('SELECT * FROM member_subscriptions WHERE id = ?').get(info.lastInsertRowid));
+}
+
+/** Local free-tier join: an active subscription row with no Stripe ids. */
+function createFreeTierMembership(db, leadId, memberId, tier) {
+  return upsertMemberSubscription(db, {
+    lead_id: Number(leadId),
+    member_id: Number(memberId),
+    tier_id: tier.id,
+    tier_name: tier.name,
+    price_cents: 0,
+    interval: tier.interval,
+    stripe_customer_id: '',
+    stripe_subscription_id: '',
+    status: 'active',
+    cancel_at_period_end: 0,
+    current_period_end: null,
+  });
+}
+
+/**
+ * The immediate local mark when a cancel is requested: the row keeps its
+ * Stripe status (access continues) and gains cancel_at_period_end until
+ * the webhook lands the terminal state at the period's end.
+ */
+function markSubscriptionCanceling(db, subscriptionId) {
+  ensureTables(db);
+  db.prepare(
+    "UPDATE member_subscriptions SET cancel_at_period_end = 1, updated_at = datetime('now') WHERE id = ?"
+  ).run(Number(subscriptionId));
+  const row = db.prepare('SELECT * FROM member_subscriptions WHERE id = ?').get(Number(subscriptionId));
+  return shapeMemberSubscription(row);
+}
+
+/** Local-only cancel (free-tier joins have no Stripe subscription). */
+function cancelLocalSubscription(db, subscriptionId) {
+  ensureTables(db);
+  db.prepare(
+    "UPDATE member_subscriptions SET status = 'canceled', updated_at = datetime('now') WHERE id = ?"
+  ).run(Number(subscriptionId));
+  const row = db.prepare('SELECT * FROM member_subscriptions WHERE id = ?').get(Number(subscriptionId));
+  return shapeMemberSubscription(row);
+}
+
+/* Owner comps */
+
+function grantMemberComp(db, leadId, memberId, data = {}) {
+  ensureTables(db);
+  const id = Number(leadId);
+  const member = db
+    .prepare('SELECT * FROM site_members WHERE id = ? AND lead_id = ?')
+    .get(Number(memberId), id);
+  if (!member) throw fail('NOT_FOUND', 'Member not found', 404);
+  const tierId = data.tier_id != null ? Number(data.tier_id) : data.tierId != null ? Number(data.tierId) : null;
+  if (!tierId || !Number.isInteger(tierId)) throw fail('VALIDATION', 'Pick the tier to comp.', 400);
+  const tier = getMembershipTier(db, id, tierId);
+  if (!tier) throw fail('VALIDATION', 'That tier does not belong to this site.', 400);
+  let until = null;
+  const rawUntil = data.comp_until != null ? data.comp_until : data.until;
+  if (rawUntil != null && String(rawUntil).trim() !== '') {
+    const d = new Date(String(rawUntil).trim());
+    if (Number.isNaN(d.getTime())) throw fail('VALIDATION', 'comp_until must be a date.', 400);
+    until = d.toISOString().slice(0, 19).replace('T', ' ');
+  }
+  db.prepare('UPDATE site_members SET comp_tier_id = ?, comp_until = ? WHERE id = ?').run(tierId, until, member.id);
+  return publicMember(db.prepare('SELECT * FROM site_members WHERE id = ?').get(member.id));
+}
+
+function revokeMemberComp(db, leadId, memberId) {
+  ensureTables(db);
+  const member = db
+    .prepare('SELECT * FROM site_members WHERE id = ? AND lead_id = ?')
+    .get(Number(memberId), Number(leadId));
+  if (!member) throw fail('NOT_FOUND', 'Member not found', 404);
+  db.prepare('UPDATE site_members SET comp_tier_id = NULL, comp_until = NULL WHERE id = ?').run(member.id);
+  return publicMember(db.prepare('SELECT * FROM site_members WHERE id = ?').get(member.id));
+}
+
+/* Revenue estimate (local records only, labeled as an estimate) */
+
+function membershipRevenueSummary(db, leadId) {
+  ensureTables(db);
+  const rows = db
+    .prepare(
+      `SELECT price_cents, interval, COUNT(*) AS c FROM member_subscriptions
+       WHERE lead_id = ? AND status IN ('active', 'trialing') AND price_cents > 0
+       GROUP BY price_cents, interval`
+    )
+    .all(Number(leadId));
+  let membersCount = 0;
+  let monthly = 0;
+  for (const r of rows) {
+    const c = Number(r.c) || 0;
+    membersCount += c;
+    const per = Number(r.price_cents) || 0;
+    monthly += (r.interval === 'year' ? per / 12 : per) * c;
+  }
+  return { active_paid_members: membersCount, est_monthly_revenue_cents: Math.round(monthly) };
+}
+
+/* Webhook application — pure DB, idempotent (mirrors applyShopStripeEvent) */
+
+function stripeTsToIso(ts) {
+  const n = Number(ts);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return new Date(n * 1000).toISOString().slice(0, 19).replace('T', ' ');
+}
+
+function subscriptionPeriodEnd(obj) {
+  if (obj.current_period_end) return stripeTsToIso(obj.current_period_end);
+  const item = obj.items && Array.isArray(obj.items.data) ? obj.items.data[0] : null;
+  if (item && item.current_period_end) return stripeTsToIso(item.current_period_end);
+  return undefined; // unknown — keep whatever we already stored
+}
+
+function applyMembershipStripeEvent(db, event) {
+  ensureTables(db);
+  const type = String((event && event.type) || '');
+  const obj = (event && event.data && event.data.object) || {};
+  const meta = obj.metadata || {};
+
+  if (type === 'checkout.session.completed') {
+    const leadId = Number(meta.bitpype_lead_id);
+    const memberId = Number(meta.bitpype_member_id);
+    const tierId = Number(meta.bitpype_tier_id);
+    if (!leadId || !memberId) return { matched: false, reason: 'no membership metadata' };
+    const tier = tierId ? getMembershipTier(db, leadId, tierId) : null;
+    const sub = upsertMemberSubscription(db, {
+      lead_id: leadId,
+      member_id: memberId,
+      tier_id: tierId || null,
+      tier_name: tier ? tier.name : undefined,
+      price_cents: tier ? tier.price_cents : undefined,
+      interval: tier ? tier.interval : undefined,
+      stripe_customer_id: String(obj.customer || ''),
+      stripe_subscription_id: String(obj.subscription || ''),
+      // The money landed; the subscription.* events carry the
+      // authoritative status + period and converge this row next.
+      status: obj.payment_status === 'paid' ? 'active' : 'trialing',
+    });
+    return { matched: true, subscriptionId: sub.id, status: sub.status };
+  }
+
+  if (type.startsWith('customer.subscription.')) {
+    const stripeSubId = String(obj.id || '');
+    if (!stripeSubId) return { matched: false, reason: 'no subscription id' };
+    const existing = getMemberSubscriptionByStripeId(db, stripeSubId);
+    const leadId = Number(meta.bitpype_lead_id) || (existing ? existing.lead_id : 0);
+    const memberId = Number(meta.bitpype_member_id) || (existing ? existing.member_id : 0);
+    if (!leadId || !memberId) return { matched: false, reason: 'unknown subscription' };
+    const tierId = Number(meta.bitpype_tier_id) || (existing ? existing.tier_id : null);
+    const tier = tierId ? getMembershipTier(db, leadId, tierId) : null;
+    const fields = {
+      lead_id: leadId,
+      member_id: memberId,
+      tier_id: tierId || null,
+      stripe_customer_id: String(obj.customer || (existing ? existing.stripe_customer_id : '') || ''),
+      stripe_subscription_id: stripeSubId,
+      status: String(obj.status || (existing ? existing.status : 'incomplete')),
+      cancel_at_period_end: !!obj.cancel_at_period_end,
+    };
+    if (tier) {
+      fields.tier_name = tier.name;
+      fields.price_cents = tier.price_cents;
+      fields.interval = tier.interval;
+    }
+    const end = subscriptionPeriodEnd(obj);
+    if (end !== undefined) fields.current_period_end = end;
+    if (type === 'customer.subscription.deleted') fields.status = 'canceled';
+    const sub = upsertMemberSubscription(db, fields);
+    return { matched: true, subscriptionId: sub.id, status: sub.status };
+  }
+
+  if (type === 'invoice.payment_failed' || type === 'invoice.paid') {
+    const stripeSubId = String(obj.subscription || '');
+    const existing = stripeSubId ? getMemberSubscriptionByStripeId(db, stripeSubId) : null;
+    if (!existing) return { matched: false, reason: 'unknown subscription' };
+    if (type === 'invoice.payment_failed') {
+      if (existing.status === 'active' || existing.status === 'trialing') {
+        const sub = upsertMemberSubscription(db, {
+          lead_id: existing.lead_id,
+          member_id: existing.member_id,
+          stripe_subscription_id: stripeSubId,
+          status: 'past_due',
+        });
+        return { matched: true, subscriptionId: sub.id, status: sub.status };
+      }
+      return { matched: true, subscriptionId: existing.id, status: existing.status };
+    }
+    // invoice.paid revives a past_due row; any other status is already
+    // governed by the subscription.* events.
+    if (existing.status === 'past_due') {
+      const sub = upsertMemberSubscription(db, {
+        lead_id: existing.lead_id,
+        member_id: existing.member_id,
+        stripe_subscription_id: stripeSubId,
+        status: 'active',
+      });
+      return { matched: true, subscriptionId: sub.id, status: sub.status };
+    }
+    return { matched: true, subscriptionId: existing.id, status: existing.status };
+  }
+
+  return { matched: false, reason: 'unhandled event type' };
+}
+
+/* Public (token-scoped) paid membership: checkout + free join */
+
+function memberFromOpts(db, leadId, opts = {}) {
+  const member = getSessionMember(db, leadId, opts.memberSession || opts.sessionToken || '');
+  if (!member) {
+    const err = fail('MEMBER_LOCKED', 'Log in or create an account first.', 401);
+    err.gate = { needs: 'login' };
+    throw err;
+  }
+  return member;
+}
+
+/**
+ * Stripe Checkout for a PAID tier, on the OWNER's Stripe account.
+ * Prices come from the tier row server-side; the checkout metadata is
+ * what the membership webhook routes + applies by.
+ */
+async function createMembershipCheckoutByToken(db, token, { tierId, returnUrl } = {}, opts = {}) {
+  const row = membersEmbedByToken(db, token);
+  const leadId = row.lead_id;
+  const member = memberFromOpts(db, leadId, opts);
+  const tier = getMembershipTier(db, leadId, tierId);
+  if (!tier || !tier.active) throw fail('NOT_FOUND', 'That membership plan is not available.', 404);
+  if (!(tier.price_cents > 0)) {
+    throw fail('VALIDATION', 'That plan is free — use Join instead of checkout.', 400);
+  }
+  if (!tier.stripe_price_id) {
+    throw fail('MEMBERSHIP_STRIPE_NOT_CONFIGURED', 'Paid memberships are not set up for this site yet.', 409);
+  }
+  const membershipStripe = require('./membershipStripe');
+  const stripe = membershipStripe.getClient(db, leadId); // throws MEMBERSHIP_STRIPE_NOT_CONFIGURED
+  const base = String(returnUrl || '').split('#')[0];
+  let parsed;
+  try {
+    parsed = new URL(base);
+  } catch {
+    parsed = null;
+  }
+  if (!parsed || !/^https?:$/.test(parsed.protocol)) {
+    throw fail('VALIDATION', 'A valid return URL is required for checkout', 400);
+  }
+  const sep = base.includes('?') ? '&' : '?';
+  const metadata = {
+    bitpype_lead_id: String(leadId),
+    bitpype_member_id: String(member.id),
+    bitpype_tier_id: String(tier.id),
+  };
+  let session;
+  try {
+    session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      line_items: [{ quantity: 1, price: tier.stripe_price_id }],
+      client_reference_id: String(member.id),
+      customer_email: member.email,
+      metadata,
+      subscription_data: { metadata },
+      success_url: `${base}${sep}membership=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${base}${sep}membership=cancelled`,
+    });
+  } catch (e) {
+    const err = new Error(e && e.message ? `Stripe checkout failed: ${e.message}` : 'Stripe checkout failed');
+    err.code = 'MEMBERSHIP_CHECKOUT_FAILED';
+    err.status = 502;
+    throw err;
+  }
+  return { mode: 'stripe', url: session.url, sessionId: session.id, tier_id: tier.id };
+}
+
+/** Free-tier join (no Stripe): records the local membership row. */
+function joinFreeTierByToken(db, token, { tierId } = {}, opts = {}) {
+  const row = membersEmbedByToken(db, token);
+  const leadId = row.lead_id;
+  const member = memberFromOpts(db, leadId, opts);
+  const tier = getMembershipTier(db, leadId, tierId);
+  if (!tier || !tier.active) throw fail('NOT_FOUND', 'That membership plan is not available.', 404);
+  if (tier.price_cents > 0) {
+    throw fail('VALIDATION', 'That plan is paid — use checkout to join.', 400);
+  }
+  const sub = createFreeTierMembership(db, leadId, member.id, tier);
+  return { joined: true, subscription: sub, member: publicMember(member) };
+}
+
+/* Admin oversight rollup (local records; payouts attach in the route) */
+
+function adminMembershipsLocal(db) {
+  ensureTables(db);
+  const rows = db
+    .prepare(
+      `SELECT l.id AS lead_id, l.business_name AS lead_name,
+         (SELECT COUNT(*) FROM site_members m WHERE m.lead_id = l.id) AS members_count,
+         (SELECT COUNT(*) FROM membership_tiers t WHERE t.lead_id = l.id) AS tiers_count,
+         (SELECT COUNT(*) FROM membership_stripe_keys k WHERE k.lead_id = l.id AND k.secret_key_enc <> '') AS keys_connected
+       FROM leads l
+       WHERE EXISTS (SELECT 1 FROM site_module_embeds e WHERE e.lead_id = l.id AND e.module_type = 'members')
+          OR EXISTS (SELECT 1 FROM site_members m2 WHERE m2.lead_id = l.id)
+          OR EXISTS (SELECT 1 FROM membership_tiers t2 WHERE t2.lead_id = l.id)
+       ORDER BY l.id ASC`
+    )
+    .all();
+  return rows.map((r) => {
+    const revenue = membershipRevenueSummary(db, r.lead_id);
+    return {
+      lead_id: Number(r.lead_id),
+      lead_name: r.lead_name || '',
+      members_count: Number(r.members_count) || 0,
+      tiers_count: Number(r.tiers_count) || 0,
+      paid_subs_active: revenue.active_paid_members,
+      est_monthly_revenue_cents: revenue.est_monthly_revenue_cents,
+      keys_connected: Number(r.keys_connected) > 0,
+      payout: null,
+    };
+  });
 }
 
 /* Public (token-scoped) members surface */
@@ -5972,6 +6891,29 @@ function publicMembersPayload(db, embedRow, opts = {}) {
   const leadId = embedRow.lead_id;
   const cfg = readMembersConfig(db, leadId);
   const access = resolveMemberAccess(db, leadId, opts);
+  const tiers = listMembershipTiers(db, leadId).map((t) => ({
+    id: t.id,
+    name: t.name,
+    description: t.description,
+    price_cents: t.price_cents,
+    price_label: t.price_label,
+    interval: t.interval,
+    free: !(t.price_cents > 0),
+    joinable: t.price_cents > 0 ? !!t.stripe_price_id : true,
+  }));
+  let entitlement = null;
+  if (access && access.member) {
+    const memberRow = getSessionMember(db, leadId, opts.memberSession || opts.sessionToken || '');
+    const info = memberAccessInfo(db, leadId, memberRow);
+    entitlement = {
+      has_paid: info.has_paid,
+      tier_id: info.tier_id,
+      tier_name: info.tier_name || '',
+      source: info.source,
+      current_period_end: info.subscription ? info.subscription.current_period_end : null,
+      cancel_at_period_end: info.subscription ? info.subscription.cancel_at_period_end : false,
+    };
+  }
   return {
     embed: publicEmbed(embedRow),
     module_type: 'members',
@@ -5979,11 +6921,20 @@ function publicMembersPayload(db, embedRow, opts = {}) {
     settings: parseEmbedSettings(embedRow),
     items: [],
     members: {
-      config: { signup_mode: cfg.signup_mode, gate_mode: cfg.gate_mode, wall_headline: cfg.wall_headline },
+      config: {
+        signup_mode: cfg.signup_mode,
+        gate_mode: cfg.gate_mode,
+        wall_headline: cfg.wall_headline,
+        access_level: cfg.access_level,
+        access_tier_id: cfg.access_tier_id,
+      },
       member: access && access.member ? access.member : null,
       preview: !!(access && access.preview),
       members_token: embedRow.public_token,
       members_page: pageFileName(membersPageSlug(db, leadId)),
+      tiers,
+      entitlement,
+      stripe_connected: membershipStripeStatus(db, leadId).connected,
     },
   };
 }
@@ -6020,12 +6971,7 @@ function getMemberPageBody(db, leadId, slug, opts = {}) {
   const gate = memberGateCheck(db, id, slug, opts);
   if (gate.locked) {
     const err = fail('MEMBER_LOCKED', gate.wall_headline, 401);
-    err.gate = {
-      wall_headline: gate.wall_headline,
-      signup_mode: gate.signup_mode,
-      members_token: gate.members_token,
-      members_page: gate.members_page,
-    };
+    err.gate = gateWallFields(gate);
     throw err;
   }
   const site = db
@@ -7238,6 +8184,41 @@ module.exports = {
   membersEmbedForLead,
   membersPageSlug,
   membersEmbedByToken,
+  MEMBER_ACCESS_LEVELS,
+  MEMBER_TIER_INTERVALS,
+  MEMBER_ENTITLED_STATUSES,
+  memberAccessInfo,
+  accessSatisfies,
+  gateWallFields,
+  getMembershipStripeKeyRow,
+  saveMembershipStripeKeys,
+  clearMembershipStripeKeys,
+  membershipStripeStatus,
+  shapeMembershipTier,
+  listMembershipTiers,
+  getMembershipTier,
+  validateMembershipTierInput,
+  insertMembershipTier,
+  updateMembershipTierRow,
+  setMembershipTierActive,
+  deleteMembershipTier,
+  shapeMemberSubscription,
+  getMemberSubscriptionByStripeId,
+  listMemberSubscriptions,
+  findLeadByStripeSubscription,
+  findLeadByStripeCustomer,
+  upsertMemberSubscription,
+  createFreeTierMembership,
+  markSubscriptionCanceling,
+  cancelLocalSubscription,
+  grantMemberComp,
+  revokeMemberComp,
+  membershipRevenueSummary,
+  applyMembershipStripeEvent,
+  createMembershipCheckoutByToken,
+  joinFreeTierByToken,
+  adminMembershipsLocal,
+  MODULE_SCRIPT_VER,
   getBookingSettings,
   updateBookingSettings,
   listBookingHours,

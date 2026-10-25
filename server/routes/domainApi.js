@@ -1574,6 +1574,30 @@ router.get('/admin-area/analytics', denyLeadScopedToken, (req, res) => {
   }
 });
 
+// Membership oversight (Batch 17): local rollup + live payout reads per
+// site whose owner connected their own Stripe keys. Payout reads are
+// cached + failure-isolated in membershipStripe — a Stripe outage can
+// never break this screen. View-only: no money moves from here.
+router.get('/admin-area/memberships', denyLeadScopedToken, async (req, res) => {
+  try {
+    const data = domain.adminMembershipsOverview(req.auth.workspaceId);
+    const membershipStripe = require('../membershipStripe');
+    await domain.withDb(req.auth.workspaceId, async (db) => {
+      for (const site of data.sites) {
+        if (!site.keys_connected) continue;
+        try {
+          site.payout = await membershipStripe.getPayoutStatus(db, site.lead_id);
+        } catch {
+          site.payout = { ok: false, reason: 'unavailable', as_of: new Date().toISOString() };
+        }
+      }
+    });
+    ok(res, data);
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+
 // ---------- Domain purchase transactions (Batch 15) ----------
 router.get('/admin-area/domain-transactions', denyLeadScopedToken, (req, res) => {
   try {

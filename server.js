@@ -139,6 +139,8 @@ const stripeWebhook = require('./server/routes/stripeWebhook');
 app.use('/api/v1/billing/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
 const shopWebhook = require('./server/routes/shopWebhook');
 app.use('/api/v1/shop/webhook', express.raw({ type: 'application/json' }), shopWebhook);
+const membershipWebhook = require('./server/routes/membershipWebhook');
+app.use('/api/v1/membership/webhook', express.raw({ type: 'application/json' }), membershipWebhook);
 
 // Smaller default JSON; design/portal/website payloads need more room.
 // website-promo gets 12mb: its brochure upload rides base64-in-JSON

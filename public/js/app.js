@@ -46,6 +46,7 @@ const ROUTE_LABELS = {
   leadscout: 'LeadScout',
   bookings: 'Bookings',
   shop: 'Shop',
+  memberships: 'Memberships',
   modules: 'Modules',
   courses: 'Courses',
   analytics: 'Analytics',
@@ -7380,6 +7381,56 @@ async function pageAnalytics() {
   view.querySelector('[data-act="refresh"]').onclick = () => pageAnalytics();
 }
 
+async function pageMemberships() {
+  let res;
+  try {
+    res = await withLoadTimeout(api.adminMemberships());
+  } catch (e) {
+    view.innerHTML = loadErrorCardHtml(e.message);
+    wirePageRetry(() => pageMemberships());
+    return;
+  }
+  const d = res.data || {};
+  const sites = asList(d, ['sites']);
+  const payoutCell = (s) => {
+    if (!s.keys_connected) return '<span class="hint">No Stripe keys</span>';
+    const p = s.payout;
+    if (!p) return '<span class="hint">…</span>';
+    if (!p.ok)
+      return `<span class="badge warn">unavailable</span><div class="hint">checked ${p.as_of ? esc(fmtDate(p.as_of)) : '—'}</div>`;
+    const last = p.last_payout
+      ? `<div class="hint">Last payout ${esc(moneyCents(p.last_payout.amount_cents, p.last_payout.currency))} · ${esc(
+          p.last_payout.status || ''
+        )}${p.last_payout.arrival_date ? ' · arrives ' + esc(fmtDate(p.last_payout.arrival_date)) : ''}</div>`
+      : '<div class="hint">No payouts yet</div>';
+    return `<strong>${esc(moneyCents(p.available_cents, p.currency))}</strong> available<div class="hint">${esc(
+      moneyCents(p.pending_cents, p.currency)
+    )} pending · as of ${p.as_of ? esc(fmtDate(p.as_of)) : '—'}</div>${last}`;
+  };
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Memberships</h1><p class="lede">Paid memberships across client sites. Members pay each site owner through the owner's own Stripe account — BitPype never holds this money; this screen is oversight only.</p></div>
+    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Site</th><th>Members</th><th>Paid subs (active)</th><th>Est. monthly revenue</th><th>Owner Stripe</th><th>Payouts (owner's Stripe)</th></tr></thead>
+      <tbody>${
+        sites
+          .map(
+            (s) => `<tr>
+        <td>${esc(s.lead_name || 'Lead #' + s.lead_id)}<div class="hint">${esc(s.tiers_count || 0)} tier(s)</div></td>
+        <td>${esc(s.members_count || 0)}</td>
+        <td>${esc(s.paid_subs_active || 0)}</td>
+        <td>${esc(moneyCents(s.est_monthly_revenue_cents || 0, 'USD'))}<div class="hint">estimated from local records</div></td>
+        <td>${s.keys_connected ? '<span class="badge ok">connected</span>' : '<span class="badge">not connected</span>'}</td>
+        <td>${payoutCell(s)}</td></tr>`
+          )
+          .join('') ||
+        '<tr><td colspan="6" class="empty">No sites with membership yet. Sites appear here once the Membership module is attached or a member joins.</td></tr>'
+      }
+      </tbody>
+    </table></div>`;
+  view.querySelector('[data-act="refresh"]').onclick = () => pageMemberships();
+}
+
 const PAGES = {
   dashboard: pageDashboard,
   leads: pageLeads,
@@ -7393,6 +7444,7 @@ const PAGES = {
   leadscout: pageLeadScout,
   bookings: pageBookings,
   shop: pageShop,
+  memberships: pageMemberships,
   modules: pageModules,
   courses: pageCourses,
   analytics: pageAnalytics,

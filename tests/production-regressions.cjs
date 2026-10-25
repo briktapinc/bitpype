@@ -1205,6 +1205,365 @@ async function main() {
   assert.throws(() => sm16.setSiteMemberStatus(db, 1601, suPam.member.id, 'active'), (e) => e.code === 'NOT_FOUND');
   check('batch16 owner management: counts, search, hash-free list, delete cleans up sessions', () => {});
 
+  // ── Batch 17: Membership Part 2 — owner Stripe keys, tiers, subscriptions, comps ──
+  // Faithful mini secretBox (same enc:v1 AES-256-GCM format) so the
+  // at-rest assertions exercise the real encrypt/decrypt call path.
+  const crypto17 = require('node:crypto');
+  const boxKey17 = crypto17.randomBytes(32);
+  const box17 = {
+    PREFIX: 'enc:v1:',
+    hasKey: () => true,
+    isEncrypted: (v) => typeof v === 'string' && v.startsWith('enc:v1:'),
+    encryptValue(plain) {
+      if (plain == null || plain === '' || box17.isEncrypted(plain)) return plain;
+      const iv = crypto17.randomBytes(12);
+      const cipher = crypto17.createCipheriv('aes-256-gcm', boxKey17, iv);
+      const body = Buffer.concat([cipher.update(String(plain), 'utf8'), cipher.final()]);
+      return 'enc:v1:' + Buffer.concat([iv, cipher.getAuthTag(), body]).toString('base64');
+    },
+    decryptValue(stored) {
+      if (!box17.isEncrypted(stored)) return stored;
+      const buf = Buffer.from(stored.slice('enc:v1:'.length), 'base64');
+      const decipher = crypto17.createDecipheriv('aes-256-gcm', boxKey17, buf.subarray(0, 12));
+      decipher.setAuthTag(buf.subarray(12, 28));
+      return Buffer.concat([decipher.update(buf.subarray(28)), decipher.final()]).toString('utf8');
+    },
+    encryptSetting: (k, v) => box17.encryptValue(v),
+    decryptSetting: (k, v) => box17.decryptValue(v),
+  };
+  // Stub Stripe: no real API calls anywhere in this suite.
+  const stub17 = { priceSeq: 0, productSeq: 0, balanceCalls: 0, checkoutParams: [], subUpdates: [], failPrices: false, failBalance: false };
+  const stubStripeClient17 = {
+    checkout: {
+      sessions: {
+        create: async (params) => {
+          stub17.checkoutParams.push(params);
+          return { id: 'cs_test_17', url: 'https://checkout.stripe.test/cs_test_17' };
+        },
+      },
+    },
+    products: {
+      create: async () => ({ id: 'prod_' + ++stub17.productSeq }),
+      retrieve: async (id) => ({ id }),
+    },
+    prices: {
+      create: async () => {
+        if (stub17.failPrices) throw new Error('Stripe price boom (stub)');
+        return { id: 'price_' + ++stub17.priceSeq };
+      },
+    },
+    subscriptions: {
+      update: async (id, params) => {
+        stub17.subUpdates.push([id, params]);
+        return { id };
+      },
+    },
+    webhooks: {
+      constructEvent: (body, sig, secret) => {
+        if (sig !== 'sig:' + secret) throw new Error('No signatures found matching the expected signature for payload.');
+        return JSON.parse(Buffer.isBuffer(body) ? body.toString('utf8') : String(body));
+      },
+    },
+    balance: {
+      retrieve: async () => {
+        stub17.balanceCalls++;
+        if (stub17.failBalance) throw new Error('Stripe balance boom (stub)');
+        return { available: [{ amount: 12345, currency: 'usd' }], pending: [{ amount: 500, currency: 'usd' }] };
+      },
+    },
+    payouts: {
+      list: async () => ({ data: [{ amount: 5000, currency: 'usd', status: 'paid', arrival_date: 1761000000 }] }),
+    },
+  };
+  function StubStripe17() {
+    return stubStripeClient17;
+  }
+  const sm17 = load('server/siteModules.js', {
+    '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
+    '../src/websiteEngine': require(path.join(root, 'src/websiteEngine.js')),
+    './portalContacts': contacts,
+    '../src/secretBox': box17,
+    './membershipStripe': { getClient: () => stubStripeClient17 },
+  });
+  const ms17 = load('server/membershipStripe.js', {
+    './siteModules': sm17,
+    '../src/secretBox': box17,
+    stripe: StubStripe17,
+  });
+  sm17.ensureTables(db);
+  assert.equal(sm17.MODULE_TYPES.length, 18, 'catalog still 18 types');
+  assert.equal(sm17.MODULE_SCRIPT_VER, 'mod12');
+  const cfg17Default = sm17.getMembersConfig(db, 1701);
+  assert.equal(cfg17Default.access_level, 'any_member', 'Part 1 default preserved: any member');
+  assert.equal(cfg17Default.access_tier_id, null);
+  check('batch17 catalog + defaults: 18 types, script mod12, access_level defaults to any_member', () => {});
+
+  // Fixture: lead 1701 (site + members + blog) and foreign lead 1702.
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (1701, 'Fixture Paid Members', 'paid@example.invalid')").run();
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (1702, 'Fixture Foreign Paid', 'foreign2@example.invalid')").run();
+  const MARKER17 = 'PAID_MEMBERS_MARKER_3c51e';
+  const pages1701 = [
+    { slug: 'index', title: 'Home', sections: [{ type: 'nav', content: {} }, { type: 'html', content: { html: '<p>Home</p>' } }, { type: 'footer', content: {} }] },
+    { slug: 'about', title: 'About', sections: [{ type: 'nav', content: {} }, { type: 'html', content: { html: `<p>${MARKER17} paid body</p>` } }, { type: 'footer', content: {} }] },
+  ];
+  db.prepare('INSERT INTO websites (lead_id, name, theme, pages) VALUES (1701, ?, ?, ?)').run('Paid Fixture Site', '{}', JSON.stringify(pages1701));
+  const embMembers17 = sm17.attachModule(db, 1701, 'members', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
+  const embBlog17 = sm17.attachModule(db, 1701, 'blog', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
+  sm17.createBlogPost(db, 1701, { title: 'Paid Post', body_html: '<p>paid hello</p>', status: 'published' });
+
+  // Per-lead keys: encrypted at rest, status never leaks, cross-lead isolation.
+  const SECRET17 = 'sk_test_4eC39HqLyjWDarjtT1zdp7dc';
+  const status1702 = sm17.saveMembershipStripeKeys(db, 1702, {
+    publishable_key: 'pk_test_51H7example',
+    secret_key: SECRET17,
+    webhook_secret: 'whsec_foreign_secret',
+  });
+  assert.equal(status1702.connected, true);
+  assert.equal(status1702.secret_key_last4, 'p7dc');
+  assert(!JSON.stringify(status1702).includes(SECRET17), 'status never carries the secret');
+  const rawKeyRow17 = db.prepare('SELECT * FROM membership_stripe_keys WHERE lead_id = 1702').get();
+  assert(rawKeyRow17.secret_key_enc.startsWith('enc:v1:'), 'secret stored secretBox-encrypted');
+  assert(!rawKeyRow17.secret_key_enc.includes(SECRET17), 'ciphertext contains no plaintext key');
+  assert(!rawKeyRow17.webhook_secret_enc.includes('whsec_foreign_secret'), 'webhook secret encrypted too');
+  assert.equal(ms17.getCredentials(db, 1702).secretKey, SECRET17, 'decrypt round-trips for the owning lead');
+  assert.equal(sm17.membershipStripeStatus(db, 1701).connected, false, 'keys are per-lead: 1701 has none');
+  assert.throws(() => ms17.getClient(db, 1701), (e) => e.code === 'MEMBERSHIP_STRIPE_NOT_CONFIGURED');
+  assert.throws(() => sm17.saveMembershipStripeKeys(db, 1701, { secret_key: 'not-a-key' }), (e) => e.code === 'VALIDATION');
+  check('batch17 keys: encrypted at rest, status leaks nothing, decrypt is lead-scoped', () => {});
+
+  // Tiers without keys: paid saves INACTIVE; free works keyless.
+  const goldDraft = await ms17.saveMembershipTier(db, 1701, { name: 'Gold', price: 20, interval: 'month', active: true });
+  assert.equal(goldDraft.stripe_state, 'not_connected');
+  assert.equal(goldDraft.tier.active, false, 'paid tier without keys stays inactive');
+  const clubFree = await ms17.saveMembershipTier(db, 1701, { name: 'Club', price: 0, interval: 'month', active: true });
+  assert.equal(clubFree.stripe_state, 'free');
+  assert.equal(clubFree.tier.active, true, 'free tier activates with no keys at all');
+  const silverFree = await ms17.saveMembershipTier(db, 1701, { name: 'Silver', price: 0, active: true });
+  check('batch17 tiers keyless: paid tier inactive with connect-Stripe state, free tiers live', () => {});
+
+  // Connect 1701's keys, then the paid tier mints its Stripe Price on save.
+  sm17.saveMembershipStripeKeys(db, 1701, {
+    publishable_key: 'pk_test_paid51',
+    secret_key: 'sk_test_paid51secret',
+    webhook_secret: 'whsec_paid51',
+  });
+  const goldLive = await ms17.saveMembershipTier(db, 1701, { price: 25, active: true }, goldDraft.tier.id);
+  assert.equal(goldLive.stripe_state, 'connected');
+  assert.equal(goldLive.tier.active, true);
+  assert.equal(goldLive.tier.stripe_price_id, 'price_1', 'first save mints the Stripe price');
+  assert(goldLive.tier.stripe_product_id.startsWith('prod_'));
+  const goldRepriced = await ms17.saveMembershipTier(db, 1701, { price: 30 }, goldDraft.tier.id);
+  assert.equal(goldRepriced.tier.stripe_price_id, 'price_2', 'a price change mints a NEW Stripe price');
+  assert.equal(goldRepriced.tier.price_cents, 3000);
+  stub17.failPrices = true;
+  await assert.rejects(
+    ms17.saveMembershipTier(db, 1701, { name: 'Platinum', price: 50, active: true }),
+    /Stripe price boom/,
+    'Stripe rejection surfaces the real error'
+  );
+  stub17.failPrices = false;
+  assert.equal(sm17.listMembershipTiers(db, 1701, { includeInactive: true }).some((t) => t.name === 'Platinum'), false, 'rejected tier was not half-saved');
+  check('batch17 tiers with keys: price minted on save, repricing mints anew, Stripe failure saves nothing', () => {});
+
+  // Members + paid gate (any_paid).
+  const memberA17 = sm17.signupMember(db, 1701, { name: 'Payer Pat', email: 'payer@example.com', password: 'password123' });
+  const memberB17 = sm17.signupMember(db, 1701, { name: 'Free Fran', email: 'fran2@example.com', password: 'password123' });
+  sm17.updateMembersConfig(db, 1701, { gate_mode: 'selected', gated_pages: ['about'], access_level: 'any_paid' });
+  const lockedAnon17 = sm17.getPublicModuleByToken(db, embBlog17.public_token, { pageSlug: 'about' });
+  assert.equal(lockedAnon17.locked, true);
+  assert.equal(lockedAnon17.gate.needs, 'login', 'anonymous wall asks for login');
+  const lockedB17 = sm17.getPublicModuleByToken(db, embBlog17.public_token, { pageSlug: 'about', memberSession: memberB17.session.token });
+  assert.equal(lockedB17.locked, true);
+  assert.equal(lockedB17.gate.needs, 'subscription', 'a logged-in non-payer gets the join wall, not a login form');
+  assert.equal(lockedB17.gate.member.email, 'fran2@example.com');
+  assert.equal(lockedB17.items.length, 0);
+  assert.throws(() => sm17.getMemberPageBody(db, 1701, 'about', { memberSession: memberB17.session.token }), (e) => e.code === 'MEMBER_LOCKED');
+  check('batch17 gate any_paid: anonymous needs login, unpaid member needs subscription, zero content leaks', () => {});
+
+  // Checkout creation rides the member session + tier price on the owner account.
+  const checkout17 = await sm17.createMembershipCheckoutByToken(
+    db,
+    embMembers17.public_token,
+    { tierId: goldDraft.tier.id, returnUrl: 'https://site.example/members.html' },
+    { memberSession: memberA17.session.token }
+  );
+  assert.equal(checkout17.url, 'https://checkout.stripe.test/cs_test_17');
+  const cp17 = stub17.checkoutParams[stub17.checkoutParams.length - 1];
+  assert.equal(cp17.mode, 'subscription');
+  assert.equal(cp17.line_items[0].price, 'price_2', 'checkout charges the tier’s current Stripe price');
+  assert.equal(cp17.metadata.bitpype_lead_id, '1701');
+  assert.equal(cp17.metadata.bitpype_member_id, String(memberA17.member.id));
+  assert.equal(cp17.subscription_data.metadata.bitpype_tier_id, String(goldDraft.tier.id));
+  await assert.rejects(
+    sm17.createMembershipCheckoutByToken(db, embMembers17.public_token, { tierId: goldDraft.tier.id, returnUrl: 'https://site.example/members.html' }, {}),
+    (e) => e.code === 'MEMBER_LOCKED',
+    'checkout requires a member session'
+  );
+  await assert.rejects(
+    sm17.createMembershipCheckoutByToken(db, embMembers17.public_token, { tierId: clubFree.tier.id, returnUrl: 'https://site.example/members.html' }, { memberSession: memberA17.session.token }),
+    (e) => e.code === 'VALIDATION',
+    'free tiers join without checkout'
+  );
+  check('batch17 checkout: session-minted on the owner account with routing metadata', () => {});
+
+  // Webhook: per-lead secret verification + lead resolution.
+  const completed17 = {
+    id: 'evt_17_1',
+    type: 'checkout.session.completed',
+    data: {
+      object: {
+        object: 'checkout.session',
+        payment_status: 'paid',
+        customer: 'cus_A17',
+        subscription: 'sub_A17',
+        metadata: { bitpype_lead_id: '1701', bitpype_member_id: String(memberA17.member.id), bitpype_tier_id: String(goldDraft.tier.id) },
+      },
+    },
+  };
+  assert.equal(ms17.resolveLeadForEvent(db, completed17), 1701, 'lead resolves from checkout metadata');
+  const rawCompleted17 = JSON.stringify(completed17);
+  const verified17 = ms17.constructEventForLead(db, 1701, rawCompleted17, 'sig:whsec_paid51');
+  assert.equal(verified17.type, 'checkout.session.completed');
+  assert.throws(() => ms17.constructEventForLead(db, 1701, rawCompleted17, 'sig:whsec_WRONG'), /No signatures found/, 'wrong secret fails verification');
+  assert.throws(() => ms17.constructEventForLead(db, 1702, rawCompleted17, 'sig:whsec_paid51'), /No signatures found/, 'another lead’s secret cannot verify this lead’s events');
+  const invoice17 = { type: 'invoice.paid', data: { object: { object: 'invoice', subscription: 'sub_A17', customer: 'cus_A17' } } };
+  check('batch17 webhook verify: per-lead secrets only; lead resolves from metadata', () => {});
+
+  // Applying events drives the gate from local records.
+  const applied17 = sm17.applyMembershipStripeEvent(db, verified17);
+  assert.equal(applied17.matched, true);
+  assert.equal(applied17.status, 'active');
+  const subA17 = sm17.getMemberSubscriptionByStripeId(db, 'sub_A17');
+  assert.equal(subA17.member_id, memberA17.member.id);
+  assert.equal(subA17.price_cents, 3000, 'tier price snapshot stored');
+  const openA17 = sm17.getPublicModuleByToken(db, embBlog17.public_token, { pageSlug: 'about', memberSession: memberA17.session.token });
+  assert(!openA17.locked && openA17.items.length === 1, 'paid member unlocks the gated payload');
+  assert(sm17.getMemberPageBody(db, 1701, 'about', { memberSession: memberA17.session.token }).html.includes(MARKER17), 'paid member receives the gated body');
+  const membersPayload17 = sm17.getPublicModuleByToken(db, embMembers17.public_token, { memberSession: memberA17.session.token });
+  assert.equal(membersPayload17.members.entitlement.source, 'subscription');
+  assert.equal(membersPayload17.members.stripe_connected, true);
+  assert(membersPayload17.members.tiers.some((t) => t.id === goldDraft.tier.id && t.price_label === '$30.00'), 'members page lists tiers with prices');
+  sm17.applyMembershipStripeEvent(db, verified17);
+  assert.equal(sm17.listMemberSubscriptions(db, 1701, { memberId: memberA17.member.id }).length, 1, 'duplicate delivery is a no-op');
+  const createdSub17 = {
+    type: 'customer.subscription.created',
+    data: {
+      object: {
+        object: 'subscription',
+        id: 'sub_A17',
+        status: 'active',
+        customer: 'cus_A17',
+        current_period_end: 1793000000,
+        metadata: { bitpype_lead_id: '1701', bitpype_member_id: String(memberA17.member.id), bitpype_tier_id: String(goldDraft.tier.id) },
+      },
+    },
+  };
+  sm17.applyMembershipStripeEvent(db, createdSub17);
+  assert(sm17.getMemberSubscriptionByStripeId(db, 'sub_A17').current_period_end.startsWith('2026-'), 'period end converges from subscription events');
+  assert.equal(ms17.resolveLeadForEvent(db, invoice17), 1701, 'invoice events resolve via the local subscription row');
+  check('batch17 webhook apply: subscription activates, gate unlocks, duplicates converge', () => {});
+
+  // Revenue estimate from local records (A: $30/mo; C: $120/yr → $10/mo).
+  const memberC17 = sm17.signupMember(db, 1701, { name: 'Yearly Yves', email: 'yves@example.com', password: 'password123' });
+  sm17.upsertMemberSubscription(db, {
+    lead_id: 1701, member_id: memberC17.member.id, tier_id: goldDraft.tier.id, tier_name: 'Gold',
+    price_cents: 12000, interval: 'year', stripe_customer_id: 'cus_C17', stripe_subscription_id: 'sub_C17', status: 'active',
+  });
+  const revenue17 = sm17.membershipRevenueSummary(db, 1701);
+  assert.equal(revenue17.active_paid_members, 2);
+  assert.equal(revenue17.est_monthly_revenue_cents, 4000, 'monthly + yearly normalized to a monthly estimate');
+  check('batch17 revenue: estimated monthly revenue from local records only', () => {});
+
+  // Payment failure locks, payment recovery unlocks, deletion locks.
+  sm17.applyMembershipStripeEvent(db, { type: 'invoice.payment_failed', data: { object: { object: 'invoice', subscription: 'sub_A17', customer: 'cus_A17' } } });
+  assert.equal(sm17.getMemberSubscriptionByStripeId(db, 'sub_A17').status, 'past_due');
+  assert.equal(sm17.getPublicModuleByToken(db, embBlog17.public_token, { pageSlug: 'about', memberSession: memberA17.session.token }).locked, true, 'past_due is not entitled');
+  sm17.applyMembershipStripeEvent(db, invoice17);
+  assert.equal(sm17.getMemberSubscriptionByStripeId(db, 'sub_A17').status, 'active', 'invoice.paid revives a past_due subscription');
+  sm17.applyMembershipStripeEvent(db, {
+    type: 'customer.subscription.deleted',
+    data: { object: { object: 'subscription', id: 'sub_A17', status: 'canceled', customer: 'cus_A17', metadata: { bitpype_lead_id: '1701', bitpype_member_id: String(memberA17.member.id), bitpype_tier_id: String(goldDraft.tier.id) } } },
+  });
+  assert.equal(sm17.getMemberSubscriptionByStripeId(db, 'sub_A17').status, 'canceled');
+  assert.equal(sm17.getPublicModuleByToken(db, embBlog17.public_token, { pageSlug: 'about', memberSession: memberA17.session.token }).locked, true, 'deleted subscription locks the gate again');
+  check('batch17 lifecycle: payment_failed → past_due locks, invoice.paid revives, deleted locks', () => {});
+
+  // Comps: grant (indefinite + tier match), expiry, revoke.
+  sm17.grantMemberComp(db, 1701, memberB17.member.id, { tier_id: goldDraft.tier.id });
+  assert(!sm17.getPublicModuleByToken(db, embBlog17.public_token, { pageSlug: 'about', memberSession: memberB17.session.token }).locked, 'comp satisfies any_paid');
+  const bRow17 = sm17.listSiteMembers(db, 1701, { search: 'fran2@' })[0];
+  assert.equal(bRow17.plan_source, 'comp');
+  assert.equal(bRow17.plan_label, 'Comp');
+  sm17.updateMembersConfig(db, 1701, { access_level: 'tier', access_tier_id: silverFree.tier.id });
+  assert.equal(sm17.getPublicModuleByToken(db, embBlog17.public_token, { pageSlug: 'about', memberSession: memberB17.session.token }).locked, true, 'a Gold comp does not satisfy a Silver-tier gate');
+  sm17.grantMemberComp(db, 1701, memberB17.member.id, { tier_id: silverFree.tier.id, comp_until: '2000-01-01' });
+  assert.equal(sm17.getPublicModuleByToken(db, embBlog17.public_token, { pageSlug: 'about', memberSession: memberB17.session.token }).locked, true, 'an expired comp grants nothing');
+  sm17.grantMemberComp(db, 1701, memberB17.member.id, { tier_id: silverFree.tier.id });
+  assert(!sm17.getPublicModuleByToken(db, embBlog17.public_token, { pageSlug: 'about', memberSession: memberB17.session.token }).locked, 'a live comp for the required tier unlocks');
+  sm17.revokeMemberComp(db, 1701, memberB17.member.id);
+  assert.equal(sm17.getPublicModuleByToken(db, embBlog17.public_token, { pageSlug: 'about', memberSession: memberB17.session.token }).locked, true, 'revoked comp locks again');
+  assert.throws(() => sm17.grantMemberComp(db, 1702, memberB17.member.id, { tier_id: goldDraft.tier.id }), (e) => e.code === 'NOT_FOUND', 'comps are lead-scoped');
+  check('batch17 comps: grant/expiry/tier-match/revoke all drive the gate', () => {});
+
+  // Free-tier join under a tier gate; free never counts as paid.
+  sm17.updateMembersConfig(db, 1701, { access_level: 'tier', access_tier_id: clubFree.tier.id });
+  const joined17 = sm17.joinFreeTierByToken(db, embMembers17.public_token, { tierId: clubFree.tier.id }, { memberSession: memberB17.session.token });
+  assert.equal(joined17.joined, true);
+  assert.equal(joined17.subscription.status, 'active');
+  assert(!sm17.getPublicModuleByToken(db, embBlog17.public_token, { pageSlug: 'about', memberSession: memberB17.session.token }).locked, 'free-tier join satisfies its own tier gate');
+  sm17.updateMembersConfig(db, 1701, { access_level: 'any_paid' });
+  assert.equal(sm17.getPublicModuleByToken(db, embBlog17.public_token, { pageSlug: 'about', memberSession: memberB17.session.token }).locked, true, 'a free join never counts as paid');
+  sm17.updateMembersConfig(db, 1701, { access_level: 'any_member' });
+  assert(!sm17.getPublicModuleByToken(db, embBlog17.public_token, { pageSlug: 'about', memberSession: memberB17.session.token }).locked, 'any_member restores exact Part 1 behavior');
+  check('batch17 free join + levels: tier gate satisfied by joining, any_paid still requires payment', () => {});
+
+  // Cancel at period end: access lasts until Stripe ends the period.
+  sm17.updateMembersConfig(db, 1701, { access_level: 'any_paid' });
+  sm17.upsertMemberSubscription(db, {
+    lead_id: 1701, member_id: memberA17.member.id, tier_id: goldDraft.tier.id, tier_name: 'Gold',
+    price_cents: 3000, interval: 'month', stripe_customer_id: 'cus_A17', stripe_subscription_id: 'sub_A2_17', status: 'active',
+    current_period_end: '2099-01-01 00:00:00',
+  });
+  assert(!sm17.getPublicModuleByToken(db, embBlog17.public_token, { pageSlug: 'about', memberSession: memberA17.session.token }).locked);
+  const cancel17 = await ms17.cancelMemberSubscription(db, 1701, memberA17.member.id);
+  assert.equal(cancel17.stripe_called, true);
+  const lastSubUpdate17 = stub17.subUpdates[stub17.subUpdates.length - 1];
+  assert.equal(lastSubUpdate17[0], 'sub_A2_17');
+  assert.equal(lastSubUpdate17[1].cancel_at_period_end, true, 'Stripe told to cancel at period end');
+  assert.equal(cancel17.subscription.cancel_at_period_end, true, 'local row is marked canceling immediately');
+  assert.equal(cancel17.subscription.status, 'active', 'status stays Stripe’s until the period ends');
+  assert(!sm17.getPublicModuleByToken(db, embBlog17.public_token, { pageSlug: 'about', memberSession: memberA17.session.token }).locked, 'access continues until period end');
+  sm17.applyMembershipStripeEvent(db, {
+    type: 'customer.subscription.deleted',
+    data: { object: { object: 'subscription', id: 'sub_A2_17', status: 'canceled', customer: 'cus_A17', metadata: { bitpype_lead_id: '1701', bitpype_member_id: String(memberA17.member.id), bitpype_tier_id: String(goldDraft.tier.id) } } },
+  });
+  assert.equal(sm17.getPublicModuleByToken(db, embBlog17.public_token, { pageSlug: 'about', memberSession: memberA17.session.token }).locked, true, 'period end + deletion ends access');
+  check('batch17 cancel: period-end cancel keeps access, deletion at period end closes it', () => {});
+
+  // Admin rollup + payout oversight (cached, failure-isolated).
+  const rollup17 = sm17.adminMembershipsLocal(db);
+  const row1701 = rollup17.find((r) => r.lead_id === 1701);
+  assert(row1701, 'rollup includes the fixture site');
+  assert.equal(row1701.keys_connected, true);
+  assert(row1701.members_count >= 3);
+  assert.equal(row1701.paid_subs_active, 1, 'only the yearly member remains actively paid');
+  const payout17 = await ms17.getPayoutStatus(db, 1701);
+  assert.equal(payout17.ok, true);
+  assert.equal(payout17.available_cents, 12345);
+  assert.equal(payout17.last_payout.amount_cents, 5000);
+  assert(payout17.as_of, 'payout figures carry an as-of time');
+  const callsBefore17 = stub17.balanceCalls;
+  await ms17.getPayoutStatus(db, 1701);
+  assert.equal(stub17.balanceCalls, callsBefore17, 'payout reads are cached (10 min)');
+  stub17.failBalance = true;
+  const payoutFail17 = await ms17.getPayoutStatus(db, 1702, { force: true });
+  assert.equal(payoutFail17.ok, false, 'a Stripe failure renders unavailable, never throws');
+  stub17.failBalance = false;
+  const payoutNone17 = await ms17.getPayoutStatus(db, 1799);
+  assert.equal(payoutNone17.ok, false);
+  assert.equal(payoutNone17.reason, 'not_connected');
+  check('batch17 admin: local rollup + cached, failure-isolated payout reads', () => {});
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

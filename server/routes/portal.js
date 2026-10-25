@@ -1123,6 +1123,105 @@ router.put('/modules/members/config', requireClient, actionLimit, async (req, re
   }
 });
 
+// Membership Part 2 — the owner's own Stripe keys (PUT/DELETE must be
+// registered before the generic /modules/:type/:id routes, which would
+// otherwise read "payments" as a member id).
+router.put('/modules/members/payments', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.saveMembershipKeys(req.client.workspace_id, req.client.lead_id, req.body || {}, req.client.email)
+    );
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.delete('/modules/members/payments', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(res, await portal.clearMembershipKeys(req.client.workspace_id, req.client.lead_id, req.client.email));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+// Membership tiers (paid tiers create their Stripe Price on save).
+router.post('/modules/members/tiers', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.createMembershipTier(req.client.workspace_id, req.client.lead_id, req.body || {}, req.client.email)
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
+router.put('/modules/members/tiers/:tierId', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.updateMembershipTier(
+        req.client.workspace_id,
+        req.client.lead_id,
+        req.params.tierId,
+        req.body || {},
+        req.client.email
+      )
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
+router.delete('/modules/members/tiers/:tierId', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.deleteMembershipTier(req.client.workspace_id, req.client.lead_id, req.params.tierId, req.client.email)
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
+// Owner comps + subscription cancel for one member.
+router.post('/modules/members/:id/comp', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.grantMemberComp(
+        req.client.workspace_id,
+        req.client.lead_id,
+        req.params.id,
+        req.body || {},
+        req.client.email
+      )
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
+router.delete('/modules/members/:id/comp', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(res, await portal.revokeMemberComp(req.client.workspace_id, req.client.lead_id, req.params.id, req.client.email));
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
+router.post('/modules/members/:id/cancel-subscription', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.cancelMemberSubscription(req.client.workspace_id, req.client.lead_id, req.params.id, req.client.email)
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
 router.get('/modules/:type', requireClient, async (req, res) => {
   try {
     const includeArchived =

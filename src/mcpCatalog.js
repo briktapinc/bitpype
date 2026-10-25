@@ -2034,7 +2034,7 @@ const tools = [
   },
   {
     name: 'members.getConfig',
-    description: 'Get the Membership config for a lead: gate_mode (off, selected or whole_site), gated_pages, public_pages (always-public exceptions), signup_mode (open or approval), wall_headline. The Members page itself is always public (Standard/Premium).',
+    description: 'Get the Membership config for a lead: gate_mode (off, selected or whole_site), gated_pages, public_pages (always-public exceptions), signup_mode (open or approval), wall_headline, access_level (any_member, any_paid or tier) and access_tier_id. The Members page itself is always public (Standard/Premium).',
     schema: {
       type: 'object',
       properties: { leadId: { type: 'integer', minimum: 1 } },
@@ -2042,7 +2042,7 @@ const tools = [
   },
   {
     name: 'members.updateConfig',
-    description: 'Update the Membership config: gate_mode, gated_pages (page slugs), public_pages (page slugs), signup_mode, wall_headline. Gating is enforced server-side and applies on the next site publish/export (Standard/Premium).',
+    description: 'Update the Membership config: gate_mode, gated_pages (page slugs), public_pages (page slugs), signup_mode, wall_headline, access_level, access_tier_id. Gating is enforced server-side and applies on the next site publish/export (Standard/Premium).',
     schema: {
       type: 'object',
       properties: {
@@ -2052,6 +2052,8 @@ const tools = [
         public_pages: { type: 'array', items: { type: 'string' } },
         signup_mode: { type: 'string', enum: ['open', 'approval'] },
         wall_headline: { type: 'string' },
+        access_level: { type: 'string', enum: ['any_member', 'any_paid', 'tier'] },
+        access_tier_id: { type: 'integer', minimum: 1 },
       },
     },
   },
@@ -2083,6 +2085,88 @@ const tools = [
   {
     name: 'members.deleteMember',
     description: 'Delete a site member account (and its sessions) for a lead (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        id: { type: 'integer', minimum: 1 },
+      },
+    },
+  },
+  {
+    name: 'members.listTiers',
+    description: 'List membership tiers for a lead (name, price_cents, interval month|year, active, stripe_price_id). Paid tiers charge on the site owner’s own Stripe account. No key material is ever returned (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        includeInactive: { type: 'boolean' },
+      },
+    },
+  },
+  {
+    name: 'members.createTier',
+    description: 'Create a membership tier (name, description, price or price_cents — 0 = free, interval, active). Paid tiers create their Product+Price on the owner’s own Stripe when keys are saved; without keys a paid tier saves inactive (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        name: { type: 'string' },
+        description: { type: 'string' },
+        price: { type: 'number' },
+        price_cents: { type: 'number' },
+        interval: { type: 'string', enum: ['month', 'year'] },
+        active: { type: 'boolean' },
+        sort_order: { type: 'number' },
+      },
+    },
+  },
+  {
+    name: 'members.updateTier',
+    description: 'Update a membership tier. A price or interval change mints a new Stripe Price on the owner’s account; existing subscribers keep their price (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        id: { type: 'integer', minimum: 1 },
+        name: { type: 'string' },
+        description: { type: 'string' },
+        price: { type: 'number' },
+        price_cents: { type: 'number' },
+        interval: { type: 'string', enum: ['month', 'year'] },
+        active: { type: 'boolean' },
+        sort_order: { type: 'number' },
+      },
+    },
+  },
+  {
+    name: 'members.listSubscriptions',
+    description: 'List local membership subscription records for a lead (member, tier snapshot, Stripe ids, status, cancel_at_period_end, current_period_end) plus the local revenue estimate. These records are what the site gate reads (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        memberId: { type: 'integer', minimum: 1 },
+        limit: { type: 'number' },
+      },
+    },
+  },
+  {
+    name: 'members.grantComp',
+    description: 'Grant a member free access to a tier (a comp): tier_id required, comp_until optional ISO date (empty = no expiry). Applies immediately in the gate (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        id: { type: 'integer', minimum: 1 },
+        tier_id: { type: 'integer', minimum: 1 },
+        comp_until: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'members.revokeComp',
+    description: 'Revoke a member’s comp (Standard/Premium).',
     schema: {
       type: 'object',
       properties: {

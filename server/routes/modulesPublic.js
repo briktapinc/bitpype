@@ -293,4 +293,55 @@ router.post('/:token/members/reset', memberLimit, captcha, async (req, res) => {
   }
 });
 
+/**
+ * Paid-tier join: Stripe Checkout on the SITE OWNER'S OWN Stripe
+ * account. The caller must be a logged-in member (session header);
+ * prices come from the tier row server-side. Mirrors shop checkout.
+ */
+router.post('/:token/members/checkout', checkoutLimit, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    const body = req.body || {};
+    const data = await domain.withDb(workspaceId, (db) =>
+      siteModules.createMembershipCheckoutByToken(
+        db,
+        req.params.token,
+        {
+          tierId: body.tierId || body.tier_id || body.id,
+          returnUrl: body.returnUrl || body.return_url || '',
+        },
+        gateOpts(req)
+      )
+    );
+    res.json({ ok: true, data: { ...data, workspaceId } });
+  } catch (e) {
+    if (e && e.code === 'MEMBER_LOCKED') {
+      return res.status(401).json({ ok: false, error: e.message, code: e.code, gate: e.gate || null });
+    }
+    fail(res, e);
+  }
+});
+
+/** Free-tier join: records the member's local membership (no Stripe). */
+router.post('/:token/members/join', memberLimit, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    const body = req.body || {};
+    const data = domain.withDb(workspaceId, (db) =>
+      siteModules.joinFreeTierByToken(
+        db,
+        req.params.token,
+        { tierId: body.tierId || body.tier_id || body.id },
+        gateOpts(req)
+      )
+    );
+    res.json({ ok: true, data: { ...data, workspaceId } });
+  } catch (e) {
+    if (e && e.code === 'MEMBER_LOCKED') {
+      return res.status(401).json({ ok: false, error: e.message, code: e.code, gate: e.gate || null });
+    }
+    fail(res, e);
+  }
+});
+
 module.exports = router;

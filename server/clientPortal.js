@@ -2402,12 +2402,17 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
       socialfeed = modules.socialFeedPreview(db, Number(leadId));
     } else if (type === 'members') {
       // Members join from the public site; the panel carries the gating
-      // config plus the member list (password hashes never leave the server).
+      // config plus the member list (password hashes never leave the server),
+      // the paid tiers, the owner's own-Stripe status, and the revenue line.
       items = [];
       members = {
         config: modules.getMembersConfig(db, Number(leadId)),
         members: modules.listSiteMembers(db, Number(leadId), { limit: 200 }),
         counts: modules.countSiteMembers(db, Number(leadId)),
+        tiers: modules.listMembershipTiers(db, Number(leadId), { includeInactive: true }),
+        payments: modules.membershipStripeStatus(db, Number(leadId)),
+        revenue: modules.membershipRevenueSummary(db, Number(leadId)),
+        webhook_path: `/api/v1/membership/webhook/${Number(workspaceId)}`,
       };
     }
     else if (type === 'chatbot') {
@@ -2691,6 +2696,80 @@ async function saveMembersConfig(workspaceId, leadId, body, clientEmail) {
   return domain.withDb(workspaceId, (db) => ({
     config: modules.updateMembersConfig(db, Number(leadId), body || {}),
   }));
+}
+
+/* Membership Part 2: the owner's own Stripe keys, tiers, comps, cancels. */
+
+async function saveMembershipKeys(workspaceId, leadId, body, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => ({
+    payments: modules.saveMembershipStripeKeys(db, Number(leadId), body || {}),
+  }));
+}
+
+async function clearMembershipKeys(workspaceId, leadId, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => ({
+    payments: modules.clearMembershipStripeKeys(db, Number(leadId)),
+  }));
+}
+
+async function createMembershipTier(workspaceId, leadId, body, clientEmail) {
+  const domain = require('./domain');
+  const membershipStripe = require('./membershipStripe');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, async (db) => {
+    const result = await membershipStripe.saveMembershipTier(db, Number(leadId), body || {});
+    return { tier: result.tier, stripe_state: result.stripe_state, module_type: 'members' };
+  });
+}
+
+async function updateMembershipTier(workspaceId, leadId, tierId, body, clientEmail) {
+  const domain = require('./domain');
+  const membershipStripe = require('./membershipStripe');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, async (db) => {
+    const result = await membershipStripe.saveMembershipTier(db, Number(leadId), body || {}, Number(tierId));
+    return { tier: result.tier, stripe_state: result.stripe_state, module_type: 'members' };
+  });
+}
+
+async function deleteMembershipTier(workspaceId, leadId, tierId, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => modules.deleteMembershipTier(db, Number(leadId), Number(tierId)));
+}
+
+async function grantMemberComp(workspaceId, leadId, memberId, body, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => ({
+    member: modules.grantMemberComp(db, Number(leadId), Number(memberId), body || {}),
+  }));
+}
+
+async function revokeMemberComp(workspaceId, leadId, memberId, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => ({
+    member: modules.revokeMemberComp(db, Number(leadId), Number(memberId)),
+  }));
+}
+
+async function cancelMemberSubscription(workspaceId, leadId, memberId, clientEmail) {
+  const domain = require('./domain');
+  const membershipStripe = require('./membershipStripe');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, async (db) =>
+    membershipStripe.cancelMemberSubscription(db, Number(leadId), Number(memberId))
+  );
 }
 
 async function refreshSocialFeed(workspaceId, leadId, clientEmail) {
@@ -3361,6 +3440,14 @@ module.exports = {
   saveEstimateConfig,
   saveSocialFeedConfig,
   saveMembersConfig,
+  saveMembershipKeys,
+  clearMembershipKeys,
+  createMembershipTier,
+  updateMembershipTier,
+  deleteMembershipTier,
+  grantMemberComp,
+  revokeMemberComp,
+  cancelMemberSubscription,
   refreshSocialFeed,
   updateEstimateRequest,
   updateBookingAppointment,
