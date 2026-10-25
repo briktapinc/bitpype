@@ -82,7 +82,7 @@ const PLANS = {
   [PLAN_PREMIUM]: {
     id: PLAN_PREMIUM,
     name: 'Premium',
-    tagline: 'Weekly support with social images included.',
+    tagline: 'All features included, plus a monthly support call.',
     priceLabel: 'Monthly',
     interval: 'month',
     features: [
