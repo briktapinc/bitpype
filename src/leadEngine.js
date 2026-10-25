@@ -1126,6 +1126,7 @@ const MERGE_MOVE_TABLES = [
   'video_items',
   'estimate_options',
   'estimate_requests',
+  'domain_transactions',
 ];
 
 const MERGE_DEDUPE_TABLES = {

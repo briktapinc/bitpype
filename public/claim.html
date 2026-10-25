@@ -32,6 +32,11 @@
     }
     .yes { background: #0b5442; color: #fff; }
     .yes:hover { background: #094536; }
+    .domain {
+      display: block; text-align: center; text-decoration: none; font-size: 1.02rem;
+      padding: 0.85rem 1rem; background: #fff; color: #0b5442; border: 1px solid rgba(11,84,66,0.45);
+    }
+    .domain:hover { background: #eef5f2; }
     .no { background: #fff; color: #5a4a38; border-color: rgba(107,90,62,0.35); }
     .no:hover { background: #faf7f2; }
     .later { background: transparent; color: #5c5148; border-color: rgba(92,81,72,0.28); }
@@ -55,6 +60,9 @@
       <button type="button" class="yes" id="btn-yes">Yes I'm interested</button>
       <button type="button" class="no" id="btn-no">No — not interested</button>
       <button type="button" class="later" id="btn-later">Maybe later</button>
+    </div>
+    <div class="actions" style="margin-top:0.65rem">
+      <a class="domain" id="btn-domain" href="#" hidden>Choose your domain — included with your plan</a>
     </div>
     <p class="msg" id="msg"></p>
   </main>
@@ -109,6 +117,11 @@
           siteEl.innerHTML = 'Preview: <a href="' + esc(d.siteUrl) + '" target="_blank" rel="noopener">view your site</a>';
         }
         actions.hidden = false;
+        const btnDomain = document.getElementById('btn-domain');
+        if (d.domainPickerUrl) {
+          btnDomain.href = d.domainPickerUrl;
+          btnDomain.hidden = false;
+        }
         if (d.alreadyInterested) {
           setMsg('You already said Yes — we have your interest on file.', 'ok');
         } else if (d.alreadyUninterested) {

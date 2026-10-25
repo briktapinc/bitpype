@@ -299,6 +299,16 @@ async function createCheckoutSession(userId, planId = PLAN_STANDARD, opts = {}) 
     },
     // Omit payment_method_types — dynamic payment methods from Dashboard
   };
+  // Caller-defined metadata (e.g. the domain purchase flow carries its
+  // transaction id here so the webhook can find it after payment).
+  if (opts.metadata && typeof opts.metadata === 'object') {
+    for (const [k, v] of Object.entries(opts.metadata)) {
+      if (v != null && v !== '') {
+        params.metadata[k] = String(v);
+        params.subscription_data.metadata[k] = String(v);
+      }
+    }
+  }
   const trialDays = Math.max(
     0,
     Math.min(365, Number(await platform.getPlatformSetting('billing.trial_days', '0')) || 0)
@@ -944,6 +954,16 @@ async function dispatchWebhookEvent(event) {
         sub.metadata = Object.assign({}, sub.metadata, { plan: String(planMeta) });
       }
       await syncSubscription(sub);
+      // Domain purchase flow (Batch 15): a checkout carrying a domain
+      // transaction id marks it paid + notifies the admin. Best-effort —
+      // a domain-flow failure must never fail the billing webhook.
+      if (obj.metadata && obj.metadata.domain_transaction_id) {
+        try {
+          await require('./domainFlow').onDomainCheckoutPaid(obj);
+        } catch (e) {
+          console.warn('[billing] domain flow paid hook:', e.message);
+        }
+      }
     }
     return;
   }

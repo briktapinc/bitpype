@@ -281,6 +281,13 @@ function domainPriceText(d) {
   return 'price on request';
 }
 
+/** Workspace id from the tenant db file path (…/workspaces/<id>/websitescout.db). */
+function workspaceIdFromDb(db) {
+  const name = String((db && db.name) || '');
+  const m = name.match(/\/(\d+)\/websitescout\.db$/);
+  return m ? Number(m[1]) : null;
+}
+
 async function buildFollowupEmail(db, lead) {
   const businessName = String(lead.business_name || 'your business').trim() || 'your business';
   const websiteLink = outreach.resolveWebsiteLink(db, lead.id);
@@ -365,6 +372,20 @@ async function buildFollowupEmail(db, lead) {
       `Right now your site sits on a preview address. These domain names are currently available for ${businessName} — reply with the one you like and we will register it and connect it to your site:`
     );
     for (const d of domainOptions) textParts.push(`- ${d.domain} — ${d.price}`);
+    // Domain picker CTA (Batch 15): pick + check out in one step; the domain
+    // is included free with the first plan payment.
+    const wsId = workspaceIdFromDb(db);
+    const pickerUrl = wsId ? require('../src/claimKit').buildDomainPickerUrl(wsId, lead.id) : '';
+    if (pickerUrl) {
+      htmlParts.push(
+        p(
+          `Ready when you are: <a href="${esc(pickerUrl)}">choose your domain and check out here</a> — the domain is included free with your first plan payment, and we register it and put your site live for you.`
+        )
+      );
+      textParts.push(
+        `CHOOSE YOUR DOMAIN\nPick your domain and check out here: ${pickerUrl} — the domain is included free with your first plan payment, and we register it and put your site live for you.`
+      );
+    }
   }
 
   // 4) Client portal access

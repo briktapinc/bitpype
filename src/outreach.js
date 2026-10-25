@@ -497,14 +497,16 @@ function interestLinkSecret() {
 }
 
 /**
- * Token payload: { w: workspaceId, l: leadId, a: 'i'|'u'|'c', v: 1 }
+ * Token payload: { w: workspaceId, l: leadId, a: 'i'|'u'|'c'|'d', v: 1 }
  * a=c is the claim/Yes-No page (not a direct interested click).
+ * a=d is the domain picker page (Batch 15 — not an interest click either).
  * Format: base64url(json).base64url(hmac-sha256) — matches socialPublic OAuth state.
  */
 function normalizeInterestAction(action) {
   const raw = String(action || '').toLowerCase();
   if (raw === 'uninterested' || raw === 'u') return 'u';
   if (raw === 'claim' || raw === 'c') return 'c';
+  if (raw === 'domain' || raw === 'd') return 'd';
   if (raw === 'interested' || raw === 'i' || raw === '') return 'i';
   return null;
 }
@@ -545,7 +547,15 @@ function verifyInterestToken(token) {
   const workspaceId = Number(payload.w);
   const leadId = Number(payload.l);
   const action =
-    payload.a === 'u' ? 'uninterested' : payload.a === 'c' ? 'claim' : payload.a === 'i' ? 'interested' : null;
+    payload.a === 'u'
+      ? 'uninterested'
+      : payload.a === 'c'
+        ? 'claim'
+        : payload.a === 'd'
+          ? 'domain'
+          : payload.a === 'i'
+            ? 'interested'
+            : null;
   if (!Number.isInteger(workspaceId) || workspaceId <= 0 || !Number.isInteger(leadId) || leadId <= 0 || !action) {
     throw Object.assign(new Error('Invalid response link'), { code: 'INVALID_TOKEN' });
   }

@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Choose your domain — BitPype</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f6f8; --card: #ffffff; --ink: #14201a; --muted: #5c6b64;
+      --accent: #0c8a5f; --accent-dark: #0b6e4c; --dark: #0b1120;
+      --line: rgba(11, 17, 32, 0.1); --warn-bg: #fdf6e5; --warn-ink: #6b5a3e;
+      --err: #8c2f2f; --ok-bg: #e9f6f1;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: start center;
+      font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: var(--bg); color: var(--ink); padding: 2rem 1rem 3rem;
+    }
+    main { width: min(44rem, 100%); }
+    .brand { font-size: 0.78rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent); font-weight: 700; margin: 0 0 0.6rem; }
+    h1 { font-size: 1.7rem; line-height: 1.2; margin: 0 0 0.5rem; font-weight: 700; }
+    .lede { margin: 0 0 1.5rem; line-height: 1.55; color: var(--muted); font-size: 1rem; }
+    .card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 1.25rem 1.35rem; margin: 0 0 1rem; box-shadow: 0 4px 18px rgba(11,17,32,0.05);
+    }
+    .card h2 { font-size: 1.02rem; margin: 0 0 0.35rem; }
+    .card .sub { margin: 0 0 0.9rem; color: var(--muted); font-size: 0.92rem; line-height: 1.5; }
+    form.search { display: flex; gap: 0.55rem; }
+    form.search input {
+      flex: 1; font: inherit; padding: 0.7rem 0.85rem; border: 1px solid var(--line);
+      border-radius: 8px; min-width: 0;
+    }
+    button {
+      font: inherit; font-weight: 600; padding: 0.7rem 1.15rem; border-radius: 8px;
+      cursor: pointer; border: 1px solid transparent; background: var(--accent); color: #fff;
+    }
+    button:hover { background: var(--accent-dark); }
+    button:disabled { opacity: 0.55; cursor: wait; }
+    button.ghost { background: #fff; color: var(--ink); border-color: var(--line); }
+    .results { margin-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+    .opt {
+      display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 0.9rem;
+      border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+    }
+    .opt.disabled { opacity: 0.62; cursor: not-allowed; }
+    .opt input { accent-color: var(--accent); width: 1.1rem; height: 1.1rem; flex: 0 0 auto; }
+    .opt .dom { font-weight: 700; font-size: 1.02rem; word-break: break-all; }
+    .opt .price { color: var(--muted); font-size: 0.88rem; }
+    .opt .spacer { flex: 1; }
+    .badge {
+      font-size: 0.78rem; font-weight: 700; padding: 0.28rem 0.6rem; border-radius: 999px;
+      background: var(--ok-bg); color: var(--accent-dark); white-space: nowrap;
+    }
+    .badge.premium { background: var(--warn-bg); color: var(--warn-ink); }
+    .badge.taken { background: #f1f1f1; color: var(--muted); }
+    .plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 0.6rem; }
+    .plan {
+      border: 1px solid var(--line); border-radius: 10px; padding: 0.9rem; cursor: pointer; display: block;
+    }
+    .plan input { accent-color: var(--accent); }
+    .plan .name { font-weight: 700; margin: 0.3rem 0 0.15rem; }
+    .plan .price { color: var(--ink); font-weight: 600; font-size: 0.95rem; }
+    .plan .tag { color: var(--muted); font-size: 0.86rem; line-height: 1.45; margin-top: 0.3rem; }
+    .checkout-row { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+    .summary { color: var(--muted); font-size: 0.94rem; line-height: 1.5; }
+    .summary strong { color: var(--ink); }
+    .msg { margin-top: 0.9rem; line-height: 1.5; font-size: 0.95rem; }
+    .msg.ok { color: var(--accent-dark); }
+    .msg.err { color: var(--err); }
+    .notice { background: var(--warn-bg); color: var(--warn-ink); border-radius: 10px; padding: 0.9rem 1.05rem; line-height: 1.55; font-size: 0.96rem; }
+    .notice.ok { background: var(--ok-bg); color: var(--accent-dark); }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="brand">BitPype</p>
+    <h1 id="title">Choose your domain</h1>
+    <p class="lede" id="lede">Loading…</p>
+
+    <div class="notice ok" id="state-live" hidden></div>
+    <div class="notice" id="state-progress" hidden></div>
+
+    <div id="picker" hidden>
+      <div class="card">
+        <h2>1 · Find your domain name</h2>
+        <p class="sub" id="cap-note">Your domain is included free with your first plan payment.</p>
+        <form class="search" id="search-form">
+          <input id="q" type="text" autocomplete="off" placeholder="your business name" aria-label="Search for a domain" />
+          <button type="submit" id="btn-search">Search</button>
+        </form>
+        <div class="results" id="results"></div>
+        <p class="msg" id="search-msg"></p>
+      </div>
+
+      <div class="card">
+        <h2>2 · Choose your plan</h2>
+        <p class="sub">One plan payment covers your site — and your domain is included in it.</p>
+        <div class="plans" id="plans"></div>
+      </div>
+
+      <div class="card">
+        <div class="checkout-row">
+          <button type="button" id="btn-checkout" disabled>Continue to checkout</button>
+          <span class="summary" id="summary">Pick a domain above to continue.</span>
+        </div>
+        <p class="msg" id="checkout-msg"></p>
+        <div class="notice" id="unavailable" hidden></div>
+      </div>
+    </div>
+  </main>
+  <script>
+    (function () {
+      const params = new URLSearchParams(location.search);
+      const token = params.get('t') || params.get('token') || '';
+      const apiBase = '/api/v1/outreach/public/domain/' + encodeURIComponent(token);
+      const title = document.getElementById('title');
+      const lede = document.getElementById('lede');
+      const picker = document.getElementById('picker');
+      const stateLive = document.getElementById('state-live');
+      const stateProgress = document.getElementById('state-progress');
+      const capNote = document.getElementById('cap-note');
+      const qInput = document.getElementById('q');
+      const resultsEl = document.getElementById('results');
+      const searchMsg = document.getElementById('search-msg');
+      const plansEl = document.getElementById('plans');
+      const btnCheckout = document.getElementById('btn-checkout');
+      const summary = document.getElementById('summary');
+      const checkoutMsg = document.getElementById('checkout-msg');
+      const unavailable = document.getElementById('unavailable');
+
+      let selectedDomain = '';
+      let selectedPlan = 'standard';
+      let plans = [];
+
+      function esc(s) {
+        return String(s == null ? '' : s)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      }
+      function money(v) {
+        const n = Number(v);
+        return Number.isFinite(n) ? '$' + n.toFixed(2) : '';
+      }
+      function setMsg(el, text, tone) {
+        el.className = 'msg' + (tone ? ' ' + tone : '');
+        el.textContent = text || '';
+      }
+
+      function refreshSummary() {
+        const plan = plans.find((p) => p.id === selectedPlan);
+        if (selectedDomain) {
+          summary.innerHTML =
+            '<strong>' + esc(selectedDomain) + '</strong> — included with the ' +
+            esc(plan ? plan.name : '') + ' plan' + (plan && plan.priceLabel ? ' (' + esc(plan.priceLabel) + ')' : '') + '.';
+          btnCheckout.disabled = false;
+        } else {
+          summary.textContent = 'Pick a domain above to continue.';
+          btnCheckout.disabled = true;
+        }
+      }
+
+      function renderResults(domains) {
+        resultsEl.innerHTML = '';
+        selectedDomain = '';
+        refreshSummary();
+        if (!domains.length) {
+          setMsg(searchMsg, 'No suggestions for that search — try another name or spelling.', 'warn');
+          return;
+        }
+        setMsg(searchMsg, domains.length + ' option(s) found.', 'ok');
+        for (const d of domains) {
+          const label = document.createElement('label');
+          label.className = 'opt' + (d.selectable ? '' : ' disabled');
+          const badgeCls = d.included ? '' : d.registrable ? ' premium' : ' taken';
+          const price = d.registrationCost != null
+            ? money(d.registrationCost) + '/yr' + (d.renewalCost != null && Number(d.renewalCost) !== Number(d.registrationCost) ? ' · renews ' + money(d.renewalCost) + '/yr' : '')
+            : '';
+          label.innerHTML =
+            '<input type="radio" name="domain" ' + (d.selectable ? '' : 'disabled') + ' />' +
+            '<span><span class="dom">' + esc(d.domain) + '</span>' +
+            (price ? '<br /><span class="price">' + esc(price) + '</span>' : '') + '</span>' +
+            '<span class="spacer"></span>' +
+            '<span class="badge' + badgeCls + '">' + esc(d.label) + '</span>';
+          const radio = label.querySelector('input');
+          radio.addEventListener('change', () => {
+            if (radio.checked) {
+              selectedDomain = d.domain;
+              unavailable.hidden = true;
+              setMsg(checkoutMsg, '');
+              refreshSummary();
+            }
+          });
+          resultsEl.appendChild(label);
+        }
+      }
+
+      function renderPlans(list, def) {
+        plans = list || [];
+        selectedPlan = def || 'standard';
+        plansEl.innerHTML = '';
+        for (const p of plans) {
+          const label = document.createElement('label');
+          label.className = 'plan';
+          label.innerHTML =
+            '<input type="radio" name="plan" value="' + esc(p.id) + '"' + (p.id === selectedPlan ? ' checked' : '') + ' />' +
+            '<div class="name">' + esc(p.name) + '</div>' +
+            (p.priceLabel ? '<div class="price">' + esc(p.priceLabel) + '</div>' : '') +
+            (p.tagline ? '<div class="tag">' + esc(p.tagline) + '</div>' : '');
+          label.querySelector('input').addEventListener('change', (e) => {
+            selectedPlan = e.target.value;
+            refreshSummary();
+          });
+          plansEl.appendChild(label);
+        }
+        refreshSummary();
+      }
+
+      async function load() {
+        if (!token) {
+          lede.textContent = 'This link is incomplete.';
+          return;
+        }
+        const res = await fetch(apiBase);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
+          lede.textContent = 'This link is not valid.';
+          setMsg(searchMsg, (data && data.error) || 'Invalid or expired link.', 'err');
+          return;
+        }
+        const d = data.data || {};
+        title.textContent = 'Choose your domain, ' + (d.businessName || 'welcome');
+        if (d.hasCustomDomain) {
+          lede.textContent = 'Your website already has its own domain.';
+          stateLive.hidden = false;
+          stateLive.innerHTML = 'Your site is live at <a href="https://' + esc(d.customDomain) + '">' + esc(d.customDomain) + '</a>. Nothing more to do here.';
+          return;
+        }
+        const open = d.openTransaction;
+        if (open && (open.status === 'paid' || open.status === 'registering')) {
+          lede.textContent = 'Your payment is in — we are finishing your domain now.';
+          stateProgress.hidden = false;
+          stateProgress.textContent =
+            'You chose ' + open.domain + ' and your plan payment is received. We are registering the domain and putting your site live — we will email you the moment it is up.';
+          return;
+        }
+        lede.textContent =
+          'Your website is built and waiting on a preview address. Pick its real domain name below — it is included free with your first plan payment, and we will register it and put your site live for you.';
+        capNote.textContent =
+          'Domains up to $' + Number(d.includedMaxUsd || 25).toFixed(0) +
+          ' are included free with your plan. Premium domains are marked — contact us about those and we will sort it out.';
+        qInput.value = d.businessName || '';
+        renderPlans(d.plans, d.defaultPlan);
+        picker.hidden = false;
+        if (qInput.value) doSearch();
+      }
+
+      async function doSearch() {
+        const q = qInput.value.trim();
+        if (q.length < 2) {
+          setMsg(searchMsg, 'Enter at least 2 characters to search.', 'err');
+          return;
+        }
+        setMsg(searchMsg, 'Searching live availability…');
+        document.getElementById('btn-search').disabled = true;
+        try {
+          const res = await fetch(apiBase + '/search?q=' + encodeURIComponent(q));
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.ok) {
+            setMsg(searchMsg, (data && data.error) || 'Search failed — please try again.', 'err');
+            return;
+          }
+          renderResults((data.data && data.data.domains) || []);
+        } catch (e) {
+          setMsg(searchMsg, e.message || 'Network error', 'err');
+        } finally {
+          document.getElementById('btn-search').disabled = false;
+        }
+      }
+
+      document.getElementById('search-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        doSearch();
+      });
+
+      btnCheckout.addEventListener('click', async () => {
+        if (!selectedDomain) return;
+        btnCheckout.disabled = true;
+        unavailable.hidden = true;
+        setMsg(checkoutMsg, 'Taking you to secure checkout…');
+        try {
+          const res = await fetch(apiBase + '/checkout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ domain: selectedDomain, plan: selectedPlan }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.ok) {
+            setMsg(checkoutMsg, (data && data.error) || 'Could not start checkout. Please try again.', 'err');
+            btnCheckout.disabled = false;
+            return;
+          }
+          const d = data.data || {};
+          if (d.checkoutUrl) {
+            window.location.href = d.checkoutUrl;
+            return;
+          }
+          // Checkout unavailable (e.g. billing not fully set up yet): the
+          // choice is saved and the team follows up — never a fake success.
+          setMsg(checkoutMsg, '');
+          unavailable.hidden = false;
+          unavailable.textContent =
+            d.message ||
+            "Checkout isn't available just yet — we've saved your domain choice and we'll be in touch to finish up.";
+          btnCheckout.disabled = false;
+        } catch (e) {
+          setMsg(checkoutMsg, e.message || 'Network error', 'err');
+          btnCheckout.disabled = false;
+        }
+      });
+
+      load().catch((e) => {
+        lede.textContent = 'Something went wrong.';
+        setMsg(searchMsg, e.message || String(e), 'err');
+      });
+    })();
+  </script>
+</body>
+</html>

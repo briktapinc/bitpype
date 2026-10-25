@@ -2928,13 +2928,20 @@ async function mountLearning(host) {
   await load();
 }
 
-async function pageDomains() {
-  const [cfRes, linkedRes, sitesRes, leadsRes] = await Promise.all([
+let domainsQuery = {};
+async function pageDomains(param, query) {
+  if (query && typeof query === 'object') domainsQuery = query;
+  const txnId = Number((domainsQuery && domainsQuery.txn) || 0) || null;
+  const [cfRes, linkedRes, sitesRes, leadsRes, txnRes, txnDetailRes] = await Promise.all([
     withLoadTimeout(api.cfGet()).catch(() => null),
     withLoadTimeout(api.domainsList()).catch(() => null),
     withLoadTimeout(api.websites({ pageSize: 100 })).catch(() => null),
     withLoadTimeout(api.leads({ pageSize: 200 })).catch(() => null),
+    withLoadTimeout(api.adminDomainTransactions()).catch(() => null),
+    txnId ? withLoadTimeout(api.adminDomainTransaction(txnId)).catch(() => null) : Promise.resolve(null),
   ]);
+  const purchases = asList((txnRes && txnRes.data) || {}, ['transactions', 'rows']);
+  const txnDetail = (txnDetailRes && txnDetailRes.data) || null;
   const cf = (cfRes && cfRes.data) || {};
   const linked = asList((linkedRes && linkedRes.data) || {}, ['domains', 'rows']);
   const sites = asList((sitesRes && sitesRes.data) || {}, ['websites', 'sites', 'rows']);
@@ -2953,6 +2960,92 @@ async function pageDomains() {
     })
     .join('');
 
+  // ---- Domain purchases (Batch 15): plan checkouts that bundle a domain ----
+  const txnBadge = (t) => {
+    const s = t.displayStatus || t.status;
+    const cls = s === 'live' ? 'ok' : s === 'failed' || s === 'abandoned' ? 'danger' : s === 'paid' || s === 'registering' ? 'warn' : '';
+    return `<span class="badge ${cls}">${esc(pretty(s))}</span>`;
+  };
+  const purchasesHtml = `
+    <div class="card">
+      <div class="panel-h"><h3>Domain purchases</h3><span class="hint">${purchases.length} transaction(s) — clients who picked a domain and paid for a plan</span></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Business</th><th>Domain</th><th>Plan</th><th>Paid</th><th>Registrar cost</th><th>Status</th><th>When</th><th></th></tr></thead>
+        <tbody>${
+          purchases
+            .map(
+              (t) => `<tr>
+            <td>${esc(t.leadName || 'Lead #' + t.leadId)}<div class="hint">${esc(t.leadEmail || '')}</div></td>
+            <td class="mono">${esc(t.domain)}</td>
+            <td>${esc(t.planName || t.planId)}</td>
+            <td>${t.amountPaidCents != null ? esc(moneyCents(t.amountPaidCents, 'USD')) : '—'}</td>
+            <td>${t.registrarPriceCents != null ? esc(moneyCents(t.registrarPriceCents, t.registrarCurrency || 'USD')) + '/yr' : '—'}</td>
+            <td>${txnBadge(t)}</td>
+            <td>${t.createdAt ? esc(fmtDate(t.createdAt)) : '—'}</td>
+            <td class="actions"><button class="btn small" data-act="txn-view" data-id="${esc(t.id)}">View</button></td>
+          </tr>`
+            )
+            .join('') || '<tr><td colspan="8" class="empty">No domain purchases yet. They appear here when a client picks a domain and pays for a plan.</td></tr>'
+        }
+        </tbody>
+      </table></div>
+    </div>`;
+  let txnDetailHtml = '';
+  if (txnDetail && txnDetail.transaction) {
+    const t = txnDetail.transaction;
+    const steps = Array.isArray(t.steps) ? t.steps : [];
+    const stepState = (name) => {
+      const hits = steps.filter((s) => s.step === name);
+      if (!hits.length) return null;
+      return hits[hits.length - 1];
+    };
+    const checkRow = (label, done, pendingLabel) =>
+      `<div class="panel-h"><div>${done ? '✓' : '○'} <strong>${esc(label)}</strong></div><span class="hint">${done ? esc(done.detail || 'done') : esc(pendingLabel || 'pending')}</span></div>`;
+    const regStep = stepState('register');
+    const linkStep = stepState('link');
+    const canComplete = t.status === 'paid' || t.status === 'failed';
+    txnDetailHtml = `
+    <div class="card" id="txn-detail">
+      <div class="panel-h"><h3>Domain transaction #${esc(t.id)}</h3>${txnBadge(t)}</div>
+      ${t.error ? `<div class="alert danger"><strong>Last error:</strong> ${esc(t.error)}</div>` : ''}
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">
+        <div><h4>Client &amp; site</h4>
+          <p><strong>${esc((txnDetail.lead && txnDetail.lead.businessName) || t.leadName || 'Lead #' + t.leadId)}</strong><br>
+          ${esc((txnDetail.lead && txnDetail.lead.email) || '')}${txnDetail.lead && txnDetail.lead.phone ? ' · ' + esc(txnDetail.lead.phone) : ''}<br>
+          Site: ${txnDetail.website ? esc(txnDetail.website.name || '') + ' (#' + esc(txnDetail.website.id) + ')' : '—'}${
+            txnDetail.website && txnDetail.website.customDomain
+              ? `<br>Live at <a href="https://${esc(txnDetail.website.customDomain)}" target="_blank" rel="noopener">${esc(txnDetail.website.customDomain)}</a>`
+              : ''
+          }</p></div>
+        <div><h4>Purchase</h4>
+          <p>Domain: <span class="mono">${esc(t.domain)}</span><br>
+          Plan: ${esc(t.planName || t.planId)} · Amount paid: ${t.amountPaidCents != null ? esc(moneyCents(t.amountPaidCents, 'USD')) : '—'}<br>
+          Registrar cost: ${t.registrarPriceCents != null ? esc(moneyCents(t.registrarPriceCents, t.registrarCurrency || 'USD')) + '/yr' : '—'} (Cloudflare account)<br>
+          <span class="hint">Stripe session ${esc(t.stripeSessionId || '—')} · subscription ${esc(t.stripeSubscriptionId || '—')} · customer ${esc(t.stripeCustomerId || '—')}</span></p></div>
+      </div>
+      <h4>Completion checklist</h4>
+      ${checkRow('Payment received', t.paidAt ? { detail: 'paid ' + fmtDate(t.paidAt) } : null, 'waiting for payment')}
+      ${checkRow('Domain registered at Cloudflare', regStep && regStep.ok ? regStep : null, regStep ? regStep.detail : 'not started')}
+      ${checkRow('Site published & domain linked', linkStep && linkStep.ok ? linkStep : null, linkStep ? linkStep.detail : 'not started')}
+      ${checkRow('Live', t.status === 'live' ? { detail: 'live at https://' + t.domain } : null, 'not yet')}
+      ${
+        steps.length
+          ? `<details style="margin-top:8px"><summary>Step log</summary><ul class="list">${steps
+              .map(
+                (s) =>
+                  `<li>${s.ok ? '✓' : '✗'} <strong>${esc(s.step)}</strong> ${esc(s.detail || '')}<div class="timestamp">${esc(s.at ? fmtDate(s.at) : '')}</div></li>`
+              )
+              .join('')}</ul></details>`
+          : ''
+      }
+      ${
+        canComplete
+          ? `<div class="inline" style="margin-top:12px"><button class="btn primary" data-act="txn-complete" data-id="${esc(t.id)}">${t.status === 'failed' ? 'Retry — complete registration & go live' : 'Complete registration & go live'}</button><span class="msg" id="txn-complete-msg"></span></div>`
+          : ''
+      }
+    </div>`;
+  }
+
   view.innerHTML = `
     <div class="page-head">
       <div>
@@ -2960,6 +3053,8 @@ async function pageDomains() {
         <p class="lede">Search and buy domains via Cloudflare Registrar, then link them to a published site (Pages custom domain). Purchase bills your Cloudflare payment method.</p>
       </div>
     </div>
+    ${purchasesHtml}
+    ${txnDetailHtml}
     ${!cf.configured ? `<div class="card"><p class="error">Cloudflare is not configured. <a href="#/settings/cloudflare">Add token + Account ID in Settings</a> (permissions: Account · Registrar · Edit, Account · Cloudflare Pages · Edit).</p></div>` : ''}
     <div class="card">
       <h3>Search domains</h3>
@@ -3184,6 +3279,34 @@ async function pageDomains() {
         pageDomains();
       } catch (err) {
         toast(err.message, 'err');
+      }
+    },
+    'txn-view': (t) => {
+      window.location.hash = '#/domains?txn=' + encodeURIComponent(t.dataset.id);
+    },
+    'txn-complete': async (t) => {
+      const id = Number(t.dataset.id);
+      if (
+        !window.confirm(
+          'Complete this domain purchase?\n\nThis registers the domain on Cloudflare (bills the Cloudflare account), publishes the site, links the domain and emails the client that their site is live.'
+        )
+      )
+        return;
+      const msg = $('#txn-complete-msg');
+      setMsg(msg, 'Registering, publishing and linking…', '');
+      t.disabled = true;
+      try {
+        const r = await api.adminDomainTransactionComplete(id);
+        const d = (r && r.data) || {};
+        if (d.completed) {
+          toast('Site is live', 'ok');
+        } else {
+          toast(d.error || 'Completion failed — see the transaction for the step error', 'err');
+        }
+        pageDomains(null, domainsQuery);
+      } catch (err) {
+        setMsg(msg, err.message || 'Completion failed', 'err');
+        t.disabled = false;
       }
     },
   });

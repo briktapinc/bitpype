@@ -743,6 +743,283 @@ async function main() {
   );
   check('batch14 public surface: merged published-only payload, preview parity + sourcing note, empty renders nothing, detach kills token', () => {});
 
+  // ── Batch 15: Domain Purchase → Live flow ──
+  // Real outreach token roundtrip for the new 'd' (domain) action. Pin a test
+  // secret: the gate container sets APP_URL, where the dev fallback is refused.
+  process.env.SESSION_SECRET = process.env.SESSION_SECRET || 'batch15-test-secret';
+  const outreachReal = require(path.join(root, 'src/outreach.js'));
+  const dTok = outreachReal.signInterestToken({ workspaceId: 1, leadId: 501, action: 'domain' });
+  const dVer = outreachReal.verifyInterestToken(dTok);
+  assert.equal(dVer.action, 'domain', "action 'd' verifies as domain");
+  assert.equal(dVer.workspaceId, 1);
+  assert.equal(dVer.leadId, 501);
+  const cTok = outreachReal.signInterestToken({ workspaceId: 1, leadId: 501, action: 'claim' });
+  assert.equal(outreachReal.verifyInterestToken(cTok).action, 'claim', 'claim action unchanged');
+  check('batch15 tokens: real outreach sign/verify roundtrip for the domain action; claim untouched', () => {});
+
+  // cfDomains stub: fixture-priced registrar with call recording.
+  const cfCalls = [];
+  const cfFixture = {
+    'fixturebakery.com': { registrable: true, registrationCost: '12.99', renewalCost: '12.99', currency: 'USD' },
+    'fixturebakery.net': { registrable: true, registrationCost: '9.50', renewalCost: '9.50', currency: 'USD' },
+    'premiumfixture.com': { registrable: true, registrationCost: '30.00', renewalCost: '30.00', currency: 'USD' },
+    'takenfixture.com': { registrable: false, reason: 'Already registered', registrationCost: null, currency: 'USD' },
+  };
+  let cfRegisterImpl = null; // optional override (db, domain, opts) => result/throw
+  let cfRegStatusState = 'succeeded';
+  const cfStub = {
+    ensureTables: (d) => {
+      d.exec(`CREATE TABLE IF NOT EXISTS site_domains (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, website_id INTEGER, lead_id INTEGER,
+        domain_name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', source TEXT,
+        years INTEGER, price TEXT, currency TEXT, pages_project TEXT, public_url TEXT,
+        registration_state TEXT, error TEXT, meta TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')))`);
+      try { d.exec('ALTER TABLE websites ADD COLUMN custom_domain TEXT'); } catch { /* exists */ }
+    },
+    normalizeDomain: (name) => {
+      const s = String(name || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+      return /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/.test(s) ? s : null;
+    },
+    recordSearchIntent: () => {},
+    searchDomains: async (d, q) => ({
+      query: q,
+      domains: Object.entries(cfFixture).map(([domain, f]) => ({ domain, ...f })),
+    }),
+    checkDomains: async (d, names) => ({
+      domains: names.map((n) => ({ domain: n, ...(cfFixture[n] || { registrable: false, reason: 'Unknown' }) })),
+    }),
+    registerDomain: async (d, domain, opts = {}) => {
+      cfCalls.push('register:' + domain);
+      if (cfRegisterImpl) return cfRegisterImpl(d, domain, opts);
+      const f = cfFixture[domain] || {};
+      d.prepare("INSERT INTO site_domains (website_id, lead_id, domain_name, status, source, years, price, currency, registration_state) VALUES (?, ?, ?, 'registered', 'registrar', 1, ?, ?, 'succeeded')")
+        .run(opts.websiteId != null ? opts.websiteId : null, opts.leadId != null ? opts.leadId : null, domain, f.registrationCost || null, f.currency || 'USD');
+      return { domain, status: 'registered', registrationState: 'succeeded', price: f.registrationCost || null, currency: f.currency || 'USD' };
+    },
+    registrationStatus: async (d, domain) => ({ domain, state: cfRegStatusState, completed: cfRegStatusState === 'succeeded' }),
+    linkDomainToWebsite: async (d, opts) => {
+      cfCalls.push('link:' + opts.domain);
+      if (typeof opts.publishFn === 'function') await opts.publishFn(opts.websiteId, 'fixture-project');
+      d.prepare('UPDATE websites SET custom_domain = ? WHERE id = ?').run(opts.domain, opts.websiteId);
+      const ex = d.prepare('SELECT id FROM site_domains WHERE domain_name = ? ORDER BY id DESC LIMIT 1').get(opts.domain);
+      if (ex) d.prepare("UPDATE site_domains SET status = 'linked', website_id = ?, lead_id = ?, pages_project = 'fixture-project', public_url = ? WHERE id = ?").run(opts.websiteId, opts.leadId != null ? opts.leadId : null, 'https://' + opts.domain, ex.id);
+      else d.prepare("INSERT INTO site_domains (website_id, lead_id, domain_name, status, source, pages_project, public_url) VALUES (?, ?, ?, 'linked', 'link', 'fixture-project', ?)").run(opts.websiteId, opts.leadId != null ? opts.leadId : null, opts.domain, 'https://' + opts.domain);
+      return { websiteId: opts.websiteId, domain: opts.domain, project: 'fixture-project', publicUrl: 'https://' + opts.domain };
+    },
+  };
+  const outreachStub = {
+    signInterestToken: ({ workspaceId, leadId, action }) => `${workspaceId}.${leadId}.${action}`,
+    verifyInterestToken: (token) => {
+      const [w, l, a] = String(token || '').split('.');
+      const action = a === 'd' ? 'domain' : a === 'c' ? 'claim' : a === 'u' ? 'uninterested' : 'interested';
+      if (!w || !l || !a) throw Object.assign(new Error('Invalid response link'), { code: 'INVALID_TOKEN' });
+      return { workspaceId: Number(w), leadId: Number(l), action };
+    },
+    getSetting: (d, key, fb) => (key === 'smtp.from_email' ? 'admin@example.test' : fb || ''),
+  };
+  const df = load('server/domainFlow.js', {
+    '../src/cfDomains': cfStub,
+    '../src/outreach': outreachStub,
+    '../src/claimKit': { buildDomainPickerUrl: (w, l) => `https://app.test/domain-picker.html?t=${w}.${l}.d` },
+    './plans': require(path.join(root, 'server/plans.js')),
+    './appUrls': { staffUrl: (route, params) => `https://app.test/app#/${route}?txn=${params.txn}` },
+  });
+  df.ensureTables(db);
+  db.prepare("INSERT INTO leads (id, business_name, email, phone, status) VALUES (501, 'Fixture Bakery', 'owner@example.invalid', '5550001111', 'engaged')").run();
+  db.prepare('INSERT INTO websites (lead_id, name, theme, pages) VALUES (501, ?, ?, ?)').run('Fixture Bakery Site', '{}', homePages);
+  const site501 = db.prepare('SELECT id FROM websites WHERE lead_id = 501').get().id;
+  check('batch15 fixtures: domain flow module loads; QA-style lead + site present', () => {});
+
+  // Included-cap rule.
+  assert.equal(df.isIncludedPrice(2500, 'USD', 25), true, 'price at cap is included');
+  assert.equal(df.isIncludedPrice(2501, 'USD', 25), false, 'price above cap is not included');
+  assert.equal(df.isIncludedPrice(1000, 'EUR', 25), false, 'non-USD is never silently included');
+  assert.equal(df.isIncludedPrice(null, 'USD', 25), false, 'unpriced is not included');
+  const annIn = df.annotateDomain(cfFixture['fixturebakery.com'] && { domain: 'fixturebakery.com', ...cfFixture['fixturebakery.com'] }, 25);
+  assert.equal(annIn.selectable, true); assert.equal(annIn.label, 'Included with your plan'); assert.equal(annIn.priceCents, 1299);
+  const annPrem = df.annotateDomain({ domain: 'premiumfixture.com', ...cfFixture['premiumfixture.com'] }, 25);
+  assert.equal(annPrem.selectable, false); assert.equal(annPrem.label, 'Premium domain — contact us');
+  const annTaken = df.annotateDomain({ domain: 'takenfixture.com', ...cfFixture['takenfixture.com'] }, 25);
+  assert.equal(annTaken.selectable, false);
+  assert.equal(df.priceToCents('12.99'), 1299);
+  assert.equal(df.priceToCents(''), null);
+  check('batch15 cap rule: ≤ cap selectable + Included label; > cap premium (visible, not selectable); taken/unpriced excluded', () => {});
+
+  // Token gate + picker meta.
+  assert.equal(df.verifyDomainToken('1.501.d').leadId, 501);
+  assert.throws(() => df.verifyDomainToken('1.501.c'), (e) => e.code === 'INVALID_TOKEN', 'claim token cannot open the picker');
+  const meta501 = df.pickerMeta(db, 1, 501);
+  assert.equal(meta501.businessName, 'Fixture Bakery Site', 'site brand name wins for the picker');
+  assert.equal(meta501.hasCustomDomain, false);
+  assert.equal(meta501.openTransaction, null);
+  check('batch15 picker meta: token action-gated, site state + no open transaction', () => {});
+
+  // startCheckout — happy path wires the EXISTING billing checkout with metadata.
+  let capturedCheckout = null;
+  const cpStub = { ensureBillingUserForPortalClient: async () => 777 };
+  const billingOk = {
+    createCheckoutSession: async (userId, plan, opts) => {
+      capturedCheckout = { userId, plan, opts };
+      return { action: 'checkout', url: 'https://checkout.stripe.test/session', sessionId: 'cs_test_123', plan };
+    },
+  };
+  const co1 = await df.startCheckout(db, 1, { leadId: 501, domain: 'fixturebakery.com', planId: 'standard' }, { capUsd: 25, clientPortal: cpStub, billing: billingOk });
+  assert.equal(co1.unavailable, false);
+  assert.equal(co1.checkoutUrl, 'https://checkout.stripe.test/session');
+  assert.equal(capturedCheckout.userId, 777);
+  assert.equal(capturedCheckout.opts.metadata.domain_transaction_id, String(co1.transaction.id), 'transaction id rides Stripe metadata');
+  assert.equal(capturedCheckout.opts.metadata.domain_workspace_id, '1');
+  assert(capturedCheckout.opts.successUrl.endsWith('/domain-success.html?domain=fixturebakery.com'), 'success returns to the domain success page');
+  assert(capturedCheckout.opts.cancelUrl.includes('domain-picker.html'), 'cancel returns to the picker');
+  const txn1 = df.getTransaction(db, co1.transaction.id);
+  assert.equal(txn1.status, 'pending_payment');
+  assert.equal(txn1.registrar_price_cents, 1299, 'true registrar price stored on the transaction');
+  assert.equal(txn1.stripe_session_id, 'cs_test_123');
+  assert.equal(txn1.billing_user_id, 777);
+  check('batch15 checkout: transaction created pending_payment; plan checkout started with transaction metadata', () => {});
+
+  // Premium + taken domains never reach checkout and create nothing.
+  const txnCountBefore = db.prepare('SELECT COUNT(*) AS c FROM domain_transactions').get().c;
+  await assert.rejects(
+    df.startCheckout(db, 1, { leadId: 501, domain: 'premiumfixture.com', planId: 'standard' }, { capUsd: 25, clientPortal: cpStub, billing: billingOk }),
+    (e) => e.code === 'PREMIUM_DOMAIN'
+  );
+  await assert.rejects(
+    df.startCheckout(db, 1, { leadId: 501, domain: 'takenfixture.com', planId: 'standard' }, { capUsd: 25, clientPortal: cpStub, billing: billingOk }),
+    (e) => e.code === 'NOT_AVAILABLE'
+  );
+  assert.equal(db.prepare('SELECT COUNT(*) AS c FROM domain_transactions').get().c, txnCountBefore, 'rejected picks create no transaction');
+  check('batch15 checkout guards: premium + unavailable domains rejected before any transaction exists', () => {});
+
+  // Dead Stripe price IDs → graceful unavailable state, transaction kept, no fake success.
+  const billingDead = {
+    createCheckoutSession: async () => {
+      throw Object.assign(new Error("No such price: 'price_dead'"), { code: 'STRIPE_ERROR' });
+    },
+  };
+  const co2 = await df.startCheckout(db, 1, { leadId: 501, domain: 'fixturebakery.net', planId: 'pro' }, { capUsd: 25, clientPortal: cpStub, billing: billingDead });
+  assert.equal(co2.unavailable, true);
+  assert.equal(co2.checkoutUrl, null);
+  assert(!/No such price/.test(co2.message), 'client message stays friendly (no Stripe internals)');
+  const txn2 = df.getTransaction(db, co2.transaction.id);
+  assert.equal(txn2.status, 'pending_payment', 'transaction stays pending_payment when checkout cannot start');
+  assert(/No such price/.test(txn2.error), 'the real error is recorded for the admin');
+  check('batch15 checkout failure: dead price IDs degrade gracefully — friendly client state, real error on the transaction', () => {});
+
+  // Webhook function (the exact one billing calls) marks paid + emails admin once.
+  const sentMail = [];
+  const sendMailStub = async (mail) => { sentMail.push(mail); return { sent: true }; };
+  const platformStub = { getPlatformSetting: async () => '' };
+  const hookSession = {
+    id: 'cs_test_123',
+    metadata: { domain_transaction_id: String(txn1.id), domain_workspace_id: '1', user_id: '777', plan: 'standard' },
+    subscription: 'sub_123',
+    customer: 'cus_123',
+    amount_total: 9900,
+  };
+  const hook1 = await df.onDomainCheckoutPaid(hookSession, { openDb: () => db, sendMail: sendMailStub, platform: platformStub });
+  assert.equal(hook1.ok, true);
+  const txn1Paid = df.getTransaction(db, txn1.id);
+  assert.equal(txn1Paid.status, 'paid');
+  assert(txn1Paid.paid_at, 'paid_at set');
+  assert.equal(txn1Paid.stripe_subscription_id, 'sub_123');
+  assert.equal(txn1Paid.stripe_customer_id, 'cus_123');
+  assert.equal(txn1Paid.amount_paid_cents, 9900);
+  assert.equal(sentMail.length, 1, 'exactly one admin email');
+  assert.equal(sentMail[0].to, 'admin@example.test', 'admin email goes to the resolved report address');
+  assert(sentMail[0].subject.includes('fixturebakery.com'), 'subject names the chosen domain');
+  assert(JSON.stringify(sentMail[0]).includes(`#/domains?txn=${txn1.id}`), 'email deep-links the transaction');
+  assert(JSON.stringify(sentMail[0]).includes('$12.99'), 'email shows the true registrar cost');
+  const hook2 = await df.onDomainCheckoutPaid(hookSession, { openDb: () => db, sendMail: sendMailStub, platform: platformStub });
+  assert.equal(hook2.duplicate, true, 'repeat webhook is a no-op');
+  assert.equal(sentMail.length, 1, 'no second admin email');
+  const hookSkip = await df.onDomainCheckoutPaid({ metadata: { user_id: '5' } }, { openDb: () => db, sendMail: sendMailStub, platform: platformStub });
+  assert.equal(hookSkip.skipped, true, 'sessions without domain metadata are ignored');
+  // Composer dry-run (the QA path): same content without sending.
+  const composed = await df.composeAdminPaidEmail(db, 1, txn1.id, { platform: platformStub });
+  assert.equal(composed.to, 'admin@example.test');
+  assert(composed.paragraphs.join(' ').includes('Fixture Bakery Site'));
+  check('batch15 webhook: paid marks the right transaction via metadata, one admin email with deep link + registrar cost, idempotent', () => {});
+
+  // Completion orchestration with stubbed registrar + publish.
+  cfCalls.length = 0;
+  const publishCalls = [];
+  const completeDeps = {
+    cf: cfStub,
+    publishSite: async (d, websiteId, project) => { publishCalls.push(websiteId); cfCalls.push('publish'); },
+    sendMail: sendMailStub,
+  };
+  const done1 = await df.completeTransaction(db, 1, txn1.id, completeDeps);
+  assert.equal(done1.completed, true);
+  assert.equal(done1.transaction.status, 'live');
+  assert(done1.transaction.completedAt, 'completed_at set');
+  const regIdx = cfCalls.indexOf('register:fixturebakery.com');
+  const linkIdx = cfCalls.indexOf('link:fixturebakery.com');
+  assert(regIdx >= 0 && linkIdx > regIdx, 'register runs before link');
+  assert(publishCalls.length === 1 && publishCalls[0] === site501, 'publish runs inside the link step');
+  assert.equal(db.prepare('SELECT custom_domain FROM websites WHERE id = ?').get(site501).custom_domain, 'fixturebakery.com');
+  const liveMail = sentMail[sentMail.length - 1];
+  assert.equal(liveMail.to, 'owner@example.invalid', 'client gets the live email');
+  assert(liveMail.subject.includes('fixturebakery.com'));
+  const doneAgain = await df.completeTransaction(db, 1, txn1.id, completeDeps);
+  assert.equal(doneAgain.already, true, 'completing a live transaction is a no-op');
+  assert.equal(cfCalls.filter((c) => c === 'register:fixturebakery.com').length, 1, 'no duplicate registration');
+  assert.equal(df.pickerMeta(db, 1, 501).hasCustomDomain, true, 'picker now reports the site as domained');
+  check('batch15 completion: register → publish+link → live, client emailed, fully idempotent on repeat', () => {});
+
+  // Completion guards + failure/retry semantics.
+  const txnPending = df.createTransaction(db, { leadId: 501, websiteId: site501, domain: 'fixturebakery.net', registrarPriceCents: 950, registrarCurrency: 'USD', planId: 'pro' });
+  await assert.rejects(df.completeTransaction(db, 1, txnPending.id, completeDeps), (e) => e.code === 'INVALID_STATE', 'unpaid transaction cannot be completed');
+  df.markPaid(db, txnPending.id, { subscriptionId: 'sub_9', customerId: 'cus_9', amountCents: 16900 });
+  cfRegisterImpl = () => { throw Object.assign(new Error('Cloudflare boom'), { code: 'CF_ERROR' }); };
+  const failTry = await df.completeTransaction(db, 1, txnPending.id, completeDeps);
+  assert.equal(failTry.completed, false);
+  assert.equal(failTry.transaction.status, 'failed');
+  assert.equal(failTry.transaction.error, 'Cloudflare boom', 'the failing step error is stored verbatim');
+  cfRegisterImpl = null;
+  const retryTry = await df.completeTransaction(db, 1, txnPending.id, completeDeps);
+  assert.equal(retryTry.completed, true, 'retry after failure completes');
+  assert.equal(retryTry.transaction.status, 'live');
+  check('batch15 completion failure: step error stored, status failed, retry completes', () => {});
+
+  // Registration already in progress at CF: fail clean, then succeed by polling (no re-register).
+  const txnProg = df.createTransaction(db, { leadId: 501, websiteId: site501, domain: 'fixturebakery.net', registrarPriceCents: 950, registrarCurrency: 'USD', planId: 'standard' });
+  df.markPaid(db, txnProg.id, { subscriptionId: 'sub_10', customerId: 'cus_10', amountCents: 9900 });
+  db.prepare("INSERT INTO site_domains (website_id, lead_id, domain_name, status, source, registration_state) VALUES (?, 501, 'progfixture.com', 'registering', 'registrar', 'in_progress')").run(site501);
+  const txnProg2 = df.createTransaction(db, { leadId: 501, websiteId: site501, domain: 'progfixture.com', registrarPriceCents: 1100, registrarCurrency: 'USD', planId: 'standard' });
+  df.markPaid(db, txnProg2.id, { subscriptionId: 'sub_11', customerId: 'cus_11', amountCents: 9900 });
+  cfRegStatusState = 'in_progress';
+  cfCalls.length = 0;
+  const progTry = await df.completeTransaction(db, 1, txnProg2.id, completeDeps);
+  assert.equal(progTry.completed, false);
+  assert.equal(progTry.code, 'IN_PROGRESS');
+  assert(!cfCalls.includes('register:progfixture.com'), 'no duplicate registration while CF is processing');
+  cfRegStatusState = 'succeeded';
+  const progDone = await df.completeTransaction(db, 1, txnProg2.id, completeDeps);
+  assert.equal(progDone.completed, true, 'once CF confirms, completion proceeds without re-registering');
+  assert(!cfCalls.includes('register:progfixture.com'), 'registration step was skipped via status poll');
+  check('batch15 completion in-progress: CF registering state blocks duplicate registration, poll confirms, retry links', () => {});
+
+  // Admin list/detail + cross-workspace scoping (a foreign db knows nothing).
+  const list = df.adminList(db, {});
+  assert(list.transactions.length >= 4, 'admin list returns the workspace transactions');
+  assert.equal(list.transactions[0].domain, 'progfixture.com', 'newest first');
+  const detail = df.adminDetail(db, txn1.id);
+  assert.equal(detail.lead.email, 'owner@example.invalid');
+  assert.equal(detail.transaction.domain, 'fixturebakery.com');
+  assert.equal(detail.website.id, site501);
+  assert(detail.website.customDomain, 'website carries a linked custom domain');
+  assert(detail.staffLink.includes('txn=' + txn1.id));
+  const foreignDb = new Database(':memory:');
+  foreignDb.exec('CREATE TABLE leads (id INTEGER PRIMARY KEY, business_name TEXT, email TEXT, phone TEXT, status TEXT)');
+  foreignDb.exec('CREATE TABLE websites (id INTEGER PRIMARY KEY, lead_id INTEGER, name TEXT, custom_domain TEXT, preview_url TEXT, status TEXT)');
+  df.ensureTables(foreignDb);
+  assert.equal(df.adminList(foreignDb, {}).transactions.length, 0, 'transactions are workspace-scoped');
+  assert.throws(() => df.adminDetail(foreignDb, txn1.id), (e) => e.code === 'NOT_FOUND');
+  foreignDb.close();
+  check('batch15 admin views: list newest-first with joins, detail carries client/site/payment, foreign workspace sees nothing', () => {});
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

@@ -5159,6 +5159,18 @@
       me.site && me.site.name,
     ].filter(Boolean);
     document.getElementById('biz-meta').textContent = bits.join(' · ');
+    // Domain picker (Batch 15): shown only while the site has no custom domain
+    // (the /me payload carries the tokenized link, or null when not applicable).
+    const domainBtn = document.getElementById('btn-get-domain');
+    if (domainBtn) {
+      if (me.domainPickerUrl) {
+        domainBtn.href = me.domainPickerUrl;
+        domainBtn.classList.remove('hidden');
+      } else {
+        domainBtn.classList.add('hidden');
+        domainBtn.setAttribute('href', '#');
+      }
+    }
     showApp();
     await Promise.all([
       loadEditablePreview(me.previewUrl),

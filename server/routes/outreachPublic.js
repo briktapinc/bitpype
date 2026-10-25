@@ -134,4 +134,50 @@ router.post('/claim/:token', clickLimit, express.json({ limit: '8kb' }), (req, r
   }
 });
 
+// ---------------------------------------------------------------------------
+// Domain picker (Batch 15) — HMAC domain token (action 'd'), no session.
+// The domain is included in the first plan payment; checkout rides the
+// existing plan billing path (domainFlow.startCheckout).
+// ---------------------------------------------------------------------------
+
+/** Picker meta: business/site state + live plan catalog + included cap. */
+router.get('/domain/:token', clickLimit, async (req, res) => {
+  try {
+    const meta = domain.domainFlowPickerMeta(req.params.token);
+    const billing = require('../billing');
+    const domainFlow = require('../domainFlow');
+    const [catalog, capUsd] = await Promise.all([billing.catalogForApi(), domainFlow.resolveIncludedCapUsd()]);
+    const plans = (catalog || [])
+      .filter((p) => ['standard', 'pro', 'premium'].includes(p.id))
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        tagline: p.tagline || '',
+        priceLabel: p.priceLabel || '',
+        priceConfigured: !!p.priceConfigured,
+      }));
+    return jsonOk(res, { ...meta, plans, includedMaxUsd: capUsd, defaultPlan: 'standard' });
+  } catch (e) {
+    return jsonFail(res, e);
+  }
+});
+
+/** Live registrar search with included/premium annotation. */
+router.get('/domain/:token/search', clickLimit, async (req, res) => {
+  try {
+    return jsonOk(res, await domain.domainFlowSearch(req.params.token, req.query.q || ''));
+  } catch (e) {
+    return jsonFail(res, e);
+  }
+});
+
+/** Pick a domain + plan → create the transaction and start plan checkout. */
+router.post('/domain/:token/checkout', clickLimit, express.json({ limit: '8kb' }), async (req, res) => {
+  try {
+    return jsonOk(res, await domain.domainFlowCheckout(req.params.token, req.body || {}));
+  } catch (e) {
+    return jsonFail(res, e);
+  }
+});
+
 module.exports = router;

@@ -222,6 +222,14 @@ router.post('/logout', (req, res) => {
 router.get('/me', requireClient, async (req, res) => {
   try {
     const ctx = portal.loadLeadContext(req.client.workspace_id, req.client.lead_id);
+    // Domain picker link (Batch 15): only while the site has no custom domain.
+    let domainPickerUrl = null;
+    try {
+      domainPickerUrl =
+        require('../domainFlow').pickerLinkForLead(req.client.workspace_id, req.client.lead_id) || null;
+    } catch {
+      domainPickerUrl = null;
+    }
     ok(res, {
       client: portal.publicClient(req.client),
       lead: ctx.lead,
@@ -233,6 +241,7 @@ router.get('/me', requireClient, async (req, res) => {
             updated_at: ctx.site.updated_at,
           }
         : null,
+      domainPickerUrl,
       previewUrl: ctx.previewUrl,
       hasDesignJob: !!(ctx.designJob && ctx.designJob.id),
       idleMs: portalIdleMs(req),

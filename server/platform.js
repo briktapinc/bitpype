@@ -214,6 +214,15 @@ const PLATFORM_SETTING_DEFS = [
     label: 'Ad unit slot ID (optional — blank = Auto Ads decides placement)',
     default: '',
   },
+
+  // Domain purchase flow (Batch 15): domains at or under this registration
+  // price are included free with the client's first plan payment.
+  {
+    key: 'domain_flow.included_max_usd',
+    group: 'billing',
+    label: 'Domain flow: max domain registration price (USD) included free with a plan',
+    default: '25',
+  },
 ];
 
 const WORKSPACE_SEED_KEYS = PLATFORM_SETTING_DEFS.filter(

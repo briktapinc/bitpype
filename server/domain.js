@@ -3693,6 +3693,9 @@ function outreachInterestResponse(token) {
   if (action === 'claim') {
     throw Object.assign(new Error('Use the claim page for this link'), { code: 'INVALID_TOKEN' });
   }
+  if (action === 'domain') {
+    throw Object.assign(new Error('Use the domain picker page for this link'), { code: 'INVALID_TOKEN' });
+  }
   return withDb(workspaceId, (db) => o.applyInterestResponse(db, leadId, action));
 }
 
@@ -4434,6 +4437,55 @@ async function domainsUnlink(workspaceId, body = {}) {
   );
 }
 
+// ---------- Domain purchase → live flow (Batch 15) ----------
+function domainFlowPickerMeta(token) {
+  const df = require('./domainFlow');
+  const { workspaceId, leadId } = df.verifyDomainToken(token);
+  return withDb(workspaceId, (db) => df.pickerMeta(db, workspaceId, leadId));
+}
+async function domainFlowSearch(token, query) {
+  const df = require('./domainFlow');
+  const { workspaceId, leadId } = df.verifyDomainToken(token);
+  const capUsd = await df.resolveIncludedCapUsd();
+  return withDb(workspaceId, (db) => df.searchPicker(db, leadId, query, capUsd));
+}
+async function domainFlowCheckout(token, body = {}) {
+  const df = require('./domainFlow');
+  const { workspaceId, leadId } = df.verifyDomainToken(token);
+  return withDb(workspaceId, (db) =>
+    df.startCheckout(db, workspaceId, {
+      leadId,
+      domain: body.domain || body.domainName,
+      planId: body.plan || body.planId || 'standard',
+    })
+  );
+}
+function adminDomainTransactions(workspaceId, opts = {}) {
+  return withDb(workspaceId, (db) => require('./domainFlow').adminList(db, opts));
+}
+function adminDomainTransaction(workspaceId, id) {
+  return withDb(workspaceId, (db) => require('./domainFlow').adminDetail(db, id));
+}
+async function domainFlowComplete(workspaceId, id) {
+  return withDb(workspaceId, async (db) =>
+    require('./domainFlow').completeTransaction(db, workspaceId, id, {
+      publishSite: async (db2, websiteId, project) => {
+        const adsenseCfg = await resolveAdsenseForSite(workspaceId, db2, Number(websiteId));
+        const exported = materializeWebsiteExport(db2, workspaceId, Number(websiteId), {
+          adsense: adsenseCfg,
+        });
+        const cf = require('../src/cloudflare');
+        await cf.publishDirectory(db2, {
+          websiteId: Number(websiteId),
+          workspaceId: Number(workspaceId),
+          dir: exported.dir,
+          project,
+        });
+      },
+    })
+  );
+}
+
 // ---------- Jobs (still MySQL scheduled_jobs) — discovery job runs against workspace SQLite ----------
 async function runDiscoveryJobTick(workspaceId, payload = {}) {
   return withDb(workspaceId, async (db) => {
@@ -4885,6 +4937,12 @@ module.exports = {
   domainsList,
   domainsLink,
   domainsUnlink,
+  domainFlowPickerMeta,
+  domainFlowSearch,
+  domainFlowCheckout,
+  adminDomainTransactions,
+  adminDomainTransaction,
+  domainFlowComplete,
   runDiscoveryJobTick,
   runOutreachJobTick,
   runImapPollTick: imapPoll,

@@ -1574,4 +1574,32 @@ router.get('/admin-area/analytics', denyLeadScopedToken, (req, res) => {
   }
 });
 
+// ---------- Domain purchase transactions (Batch 15) ----------
+router.get('/admin-area/domain-transactions', denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, domain.adminDomainTransactions(req.auth.workspaceId, { limit: req.query.limit }));
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.get('/admin-area/domain-transactions/:id', denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, domain.adminDomainTransaction(req.auth.workspaceId, Number(req.params.id)));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+router.post(
+  '/admin-area/domain-transactions/:id/complete',
+  requireRole('owner', 'admin'),
+  denyLeadScopedToken,
+  async (req, res) => {
+    try {
+      ok(res, await domain.domainFlowComplete(req.auth.workspaceId, Number(req.params.id)));
+    } catch (e) {
+      fail(res, e, 500);
+    }
+  }
+);
+
 module.exports = router;

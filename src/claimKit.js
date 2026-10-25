@@ -41,6 +41,30 @@ function verifyClaimToken(token) {
   return { workspaceId: verified.workspaceId, leadId: verified.leadId };
 }
 
+/** Token action letter for the domain picker page (Batch 15). */
+const DOMAIN_ACTION = 'd';
+
+function domainPickerPath(token) {
+  return `/domain-picker.html?t=${encodeURIComponent(token)}`;
+}
+
+/**
+ * Stable public domain-picker URL (HMAC token, action 'd').
+ * Empty string when APP_URL / workspace missing.
+ */
+function buildDomainPickerUrl(workspaceId, leadId) {
+  const base = String(process.env.APP_URL || '').replace(/\/$/, '');
+  const w = Number(workspaceId);
+  const l = Number(leadId);
+  if (!base || !Number.isInteger(w) || w <= 0 || !Number.isInteger(l) || l <= 0) return '';
+  try {
+    const token = outreach.signInterestToken({ workspaceId: w, leadId: l, action: DOMAIN_ACTION });
+    return `${base}${domainPickerPath(token)}`;
+  } catch {
+    return '';
+  }
+}
+
 async function qrPngBuffer(url, opts = {}) {
   const text = String(url || '').trim();
   if (!text) throw new Error('URL required for QR');
@@ -296,13 +320,22 @@ function claimPageMeta(db, workspaceId, leadId) {
   // business_name (lead records can carry internal/QA labels the visitor
   // should never see). Fall back to the lead name only when the site has none.
   let siteName = '';
+  let siteCustomDomain = '';
   try {
     const site = db
-      .prepare('SELECT name FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+      .prepare('SELECT name, custom_domain FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
       .get(lead.id);
     siteName = (site && String(site.name || '').trim()) || '';
+    siteCustomDomain = (site && String(site.custom_domain || '').trim()) || '';
   } catch {
-    siteName = '';
+    try {
+      const site = db
+        .prepare('SELECT name FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+        .get(lead.id);
+      siteName = (site && String(site.name || '').trim()) || '';
+    } catch {
+      siteName = '';
+    }
   }
   const displayName = siteName || lead.business_name || '';
   const siteUrl = outreach.resolveWebsiteLink(db, lead.id) || null;
@@ -325,6 +358,8 @@ function claimPageMeta(db, workspaceId, leadId) {
     siteName,
     status: lead.status,
     siteUrl,
+    // Domain picker CTA (Batch 15): offered while the site has no custom domain.
+    domainPickerUrl: siteCustomDomain ? null : buildDomainPickerUrl(workspaceId, lead.id) || null,
     alreadyInterested: !!interested,
     alreadyUninterested: !!uninterested,
     alreadyDeferred: laterCount > 0,
@@ -459,6 +494,9 @@ module.exports = {
   claimPagePath,
   buildClaimUrl,
   verifyClaimToken,
+  DOMAIN_ACTION,
+  domainPickerPath,
+  buildDomainPickerUrl,
   qrPngBuffer,
   qrDataUrl,
   buildPostcardPdf,

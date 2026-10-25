@@ -384,6 +384,9 @@ window.ScoutApi = (() => {
     adminCourses: () => get('/admin-area/courses'),
     adminModules: () => get('/admin-area/modules'),
     adminAnalytics: () => get('/admin-area/analytics'),
+    adminDomainTransactions: () => get('/admin-area/domain-transactions'),
+    adminDomainTransaction: (id) => get('/admin-area/domain-transactions/' + id),
+    adminDomainTransactionComplete: (id) => post('/admin-area/domain-transactions/' + id + '/complete', {}),
 
     // ---- settings / prompts ----
     settingsGet: () => get('/settings'),
