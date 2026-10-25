@@ -192,6 +192,51 @@
       '.bitpype-module-embed .bp-mod-card{transition:none;}',
       '.bitpype-module-embed .bp-mod-card:hover{transform:none;}',
       '}',
+      // Special Offers
+      '.bitpype-module-embed .bp-mod-offers{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1.1rem;}',
+      '.bitpype-module-embed .bp-mod-offer{border:1px solid var(--bp-mod-line);border-radius:1.1rem;background:var(--bp-mod-paper);overflow:hidden;display:flex;flex-direction:column;}',
+      '.bitpype-module-embed .bp-mod-offer img{width:100%;height:160px;object-fit:cover;display:block;}',
+      '.bitpype-module-embed .bp-mod-offer-body{padding:1rem 1.1rem 1.2rem;display:flex;flex-direction:column;gap:0.55rem;flex:1;}',
+      '.bitpype-module-embed .bp-mod-offer h2{margin:0;font-size:1.15rem;line-height:1.25;font-family:var(--ws-heading-font,inherit);}',
+      '.bitpype-module-embed .bp-mod-offer h2 a{color:inherit;text-decoration:none;}',
+      '.bitpype-module-embed .bp-mod-offer h2 a:hover{color:var(--bp-mod-accent);}',
+      '.bitpype-module-embed .bp-mod-offer p{margin:0;color:var(--bp-mod-muted);font-size:0.95rem;line-height:1.5;}',
+      '.bitpype-module-embed .bp-mod-offer-code{align-self:flex-start;border:1.5px dashed var(--bp-mod-accent);color:var(--bp-mod-accent);border-radius:0.6rem;padding:0.3rem 0.7rem;font-weight:800;letter-spacing:0.04em;font-size:0.92rem;}',
+      '.bitpype-module-embed .bp-mod-offer-terms{font-size:0.8rem;color:var(--bp-mod-muted);}',
+      '.bitpype-module-embed .bp-mod-offer-exp{font-size:0.88rem;color:var(--bp-mod-muted);margin-top:auto;}',
+      // Menu / Price List
+      '.bitpype-module-embed .bp-mod-menu{max-width:760px;}',
+      '.bitpype-module-embed .bp-mod-menu-cat{font-size:1.35rem;margin:1.8rem 0 0.4rem;padding-bottom:0.4rem;border-bottom:2px solid var(--bp-mod-accent);font-family:var(--ws-heading-font,inherit);}',
+      '.bitpype-module-embed .bp-mod-menu-cat:first-child{margin-top:0;}',
+      '.bitpype-module-embed .bp-mod-menu-row{display:flex;align-items:baseline;gap:0.6rem;padding:0.55rem 0 0;}',
+      '.bitpype-module-embed .bp-mod-menu-name{font-weight:650;}',
+      '.bitpype-module-embed .bp-mod-menu-tags{font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;color:var(--bp-mod-accent);border:1px solid currentColor;border-radius:999px;padding:0.05rem 0.5rem;white-space:nowrap;}',
+      '.bitpype-module-embed .bp-mod-menu-dots{flex:1;border-bottom:2px dotted var(--bp-mod-line);transform:translateY(-4px);min-width:1.5rem;}',
+      '.bitpype-module-embed .bp-mod-menu-price{font-weight:750;white-space:nowrap;}',
+      '.bitpype-module-embed .bp-mod-menu-desc{margin:0.15rem 0 0.35rem;color:var(--bp-mod-muted);font-size:0.92rem;line-height:1.5;max-width:88%;}',
+      '@media print{.bitpype-module-embed .bp-mod-menu-cat{border-bottom-color:#000;}.bitpype-module-embed .bp-mod-menu-dots{border-bottom-color:#999;}}',
+      // Careers
+      '.bitpype-module-embed .bp-mod-careers{display:flex;flex-direction:column;gap:0.9rem;max-width:820px;}',
+      '.bitpype-module-embed .bp-mod-job{border:1px solid var(--bp-mod-line);border-radius:1.1rem;background:var(--bp-mod-paper);padding:1.15rem 1.25rem;}',
+      '.bitpype-module-embed .bp-mod-job h2{margin:0 0 0.25rem;font-size:1.15rem;line-height:1.3;font-family:var(--ws-heading-font,inherit);}',
+      '.bitpype-module-embed .bp-mod-job h2 a{color:inherit;text-decoration:none;}',
+      '.bitpype-module-embed .bp-mod-job h2 a:hover{color:var(--bp-mod-accent);}',
+      '.bitpype-module-embed .bp-mod-job-meta{color:var(--bp-mod-muted);font-size:0.9rem;margin:0;}',
+      '.bitpype-module-embed .bp-mod-job details{margin-top:0.55rem;}',
+      '.bitpype-module-embed .bp-mod-job summary{cursor:pointer;font-weight:700;color:var(--bp-mod-accent);}',
+      '.bitpype-module-embed .bp-mod-job-desc{margin:0.65rem 0 0;line-height:1.65;white-space:pre-wrap;}',
+      '.bitpype-module-embed .bp-mod-job-apply{margin-top:0.8rem;}',
+      // Video
+      '.bitpype-module-embed .bp-mod-videos{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1.1rem;}',
+      '.bitpype-module-embed .bp-mod-video{display:flex;flex-direction:column;gap:0.55rem;}',
+      '.bitpype-module-embed .bp-mod-video-facade{position:relative;display:block;width:100%;padding:0;border:0;border-radius:1rem;overflow:hidden;cursor:pointer;background:#0f172a;aspect-ratio:16/9;}',
+      '.bitpype-module-embed .bp-mod-video-facade img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;}',
+      '.bitpype-module-embed .bp-mod-video-play{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:64px;height:64px;border-radius:50%;background:color-mix(in srgb,var(--bp-mod-accent) 92%,transparent);display:flex;align-items:center;justify-content:center;color:#fff;font-size:24px;padding-left:4px;box-shadow:0 6px 20px rgba(0,0,0,0.35);}',
+      '.bitpype-module-embed .bp-mod-video-facade iframe{position:absolute;inset:0;width:100%;height:100%;border:0;}',
+      '.bitpype-module-embed .bp-mod-video h2{margin:0;font-size:1.08rem;line-height:1.35;font-family:var(--ws-heading-font,inherit);}',
+      '.bitpype-module-embed .bp-mod-video h2 a{color:inherit;text-decoration:none;}',
+      '.bitpype-module-embed .bp-mod-video h2 a:hover{color:var(--bp-mod-accent);}',
+      '.bitpype-module-embed .bp-mod-video p{margin:0;color:var(--bp-mod-muted);font-size:0.92rem;line-height:1.5;}',
     ].join('');
     var style = document.createElement('style');
     style.id = STYLE_ID;
@@ -252,6 +297,19 @@
         title: 'No services yet',
         text: 'Publish a bookable service to open the appointment calendar.',
       };
+    }
+    if (type === 'offers') {
+      return { kicker: 'Special Offers', title: 'No offers right now', text: 'Check back soon for new deals.' };
+    }
+    if (type === 'menu') {
+      return { kicker: 'Menu', title: 'Menu coming soon', text: 'Our menu is being updated — please check back shortly.' };
+    }
+    if (type === 'careers') {
+      // No public empty state for Careers — the section renders nothing.
+      return { kicker: '', title: '', text: '' };
+    }
+    if (type === 'video') {
+      return { kicker: 'Videos', title: 'No videos yet', text: 'Videos will appear here when published.' };
     }
     return { kicker: 'Module', title: 'Nothing published yet', text: 'Published items will appear here.' };
   }
@@ -434,6 +492,159 @@
     return html;
   }
 
+  function offerCardHtml(it) {
+    var key = it.slug || it.id;
+    var html = '<article class="bp-mod-offer">';
+    if (it.image_url) {
+      html +=
+        '<a href="' + esc(itemHref(key)) + '"><img src="' + esc(it.image_url) + '" alt="' + esc(it.title) + '" loading="lazy"></a>';
+    }
+    html += '<div class="bp-mod-offer-body">';
+    html += '<h2><a href="' + esc(itemHref(key)) + '">' + esc(it.title) + '</a></h2>';
+    if (it.description) html += '<p>' + esc(it.description) + '</p>';
+    if (it.code) html += '<span class="bp-mod-offer-code">' + esc(it.code) + '</span>';
+    if (it.terms) html += '<p class="bp-mod-offer-terms">' + esc(it.terms) + '</p>';
+    if (it.expires_at) html += '<p class="bp-mod-offer-exp">Expires ' + esc(it.expires_at) + '</p>';
+    html += '</div></article>';
+    return html;
+  }
+
+  function menuTagsHtml(tags) {
+    var list = String(tags || '')
+      .split(',')
+      .map(function (t) {
+        return t.trim();
+      })
+      .filter(Boolean);
+    if (!list.length) return '';
+    return list
+      .map(function (t) {
+        return '<span class="bp-mod-menu-tags">' + esc(t) + '</span>';
+      })
+      .join(' ');
+  }
+
+  function menuRowHtml(it) {
+    var html = '<div class="bp-mod-menu-row">';
+    html += '<span class="bp-mod-menu-name">' + esc(it.name) + '</span>';
+    var tags = menuTagsHtml(it.tags);
+    if (tags) html += ' ' + tags;
+    if (it.price_text) {
+      html += '<span class="bp-mod-menu-dots" aria-hidden="true"></span>';
+      html += '<span class="bp-mod-menu-price">' + esc(it.price_text) + '</span>';
+    }
+    html += '</div>';
+    if (it.description) html += '<p class="bp-mod-menu-desc">' + esc(it.description) + '</p>';
+    return html;
+  }
+
+  function renderMenuHtml(items, categories) {
+    var html = '<div class="bp-mod-menu">';
+    var cats = Array.isArray(categories) ? categories : [];
+    var byCat = {};
+    var uncategorized = [];
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      if (it.category_id != null && cats.some(function (c) { return Number(c.id) === Number(it.category_id); })) {
+        var k = String(it.category_id);
+        if (!byCat[k]) byCat[k] = [];
+        byCat[k].push(it);
+      } else if (it.category_name) {
+        var found = null;
+        for (var j = 0; j < cats.length; j++) {
+          if (cats[j].name === it.category_name) found = cats[j];
+        }
+        if (found) {
+          var k2 = String(found.id);
+          if (!byCat[k2]) byCat[k2] = [];
+          byCat[k2].push(it);
+        } else uncategorized.push(it);
+      } else uncategorized.push(it);
+    }
+    for (var c = 0; c < cats.length; c++) {
+      var group = byCat[String(cats[c].id)];
+      if (!group || !group.length) continue;
+      html += '<h3 class="bp-mod-menu-cat">' + esc(cats[c].name) + '</h3>';
+      for (var r = 0; r < group.length; r++) html += menuRowHtml(group[r]);
+    }
+    for (var u = 0; u < uncategorized.length; u++) html += menuRowHtml(uncategorized[u]);
+    html += '</div>';
+    return html;
+  }
+
+  function careersApplyHtml(it) {
+    var target = String(it.apply_target || '').trim();
+    if (!target) return '';
+    if (it.apply_mode === 'email') {
+      return (
+        '<a class="bp-mod-btn bp-mod-job-apply" href="mailto:' +
+        esc(target) +
+        '?subject=' +
+        encodeURIComponent('Application: ' + (it.title || 'Job posting')) +
+        '">Apply now</a>'
+      );
+    }
+    if (it.apply_mode === 'url') {
+      return '<a class="bp-mod-btn bp-mod-job-apply" href="' + esc(target) + '" target="_blank" rel="noopener">Apply now</a>';
+    }
+    if (it.apply_mode === 'form') {
+      return '<a class="bp-mod-btn bp-mod-job-apply" href="' + esc(target) + '">Apply now</a>';
+    }
+    return '';
+  }
+
+  function careersJobHtml(it) {
+    var key = it.slug || it.id;
+    var meta = [it.employment_type, it.location].filter(Boolean).join(' · ');
+    var html = '<article class="bp-mod-job">';
+    html += '<h2><a href="' + esc(itemHref(key)) + '">' + esc(it.title) + '</a></h2>';
+    if (meta) html += '<p class="bp-mod-job-meta">' + esc(meta) + '</p>';
+    if (it.description) {
+      html +=
+        '<details><summary>View details</summary><div class="bp-mod-job-desc">' + esc(it.description) + '</div></details>';
+    }
+    html += careersApplyHtml(it);
+    html += '</article>';
+    return html;
+  }
+
+  function videoCardHtml(it) {
+    var key = it.slug || it.id;
+    var embed = String(it.embed_url || '');
+    var thumb = String(it.thumbnail_url || '');
+    var html = '<div class="bp-mod-video">';
+    html +=
+      '<button type="button" class="bp-mod-video-facade" data-bp-video-embed="' +
+      esc(embed) +
+      '" aria-label="Play video: ' +
+      esc(it.title) +
+      '">';
+    if (thumb) html += '<img src="' + esc(thumb) + '" alt="" loading="lazy">';
+    html += '<span class="bp-mod-video-play" aria-hidden="true">▶</span>';
+    html += '</button>';
+    html += '<h2><a href="' + esc(itemHref(key)) + '">' + esc(it.title) + '</a></h2>';
+    if (it.description) html += '<p>' + esc(it.description) + '</p>';
+    html += '</div>';
+    return html;
+  }
+
+  function wireVideoFacades(root) {
+    var btns = root.querySelectorAll('[data-bp-video-embed]');
+    for (var i = 0; i < btns.length; i++) {
+      (function (btn) {
+        btn.addEventListener('click', function () {
+          var src = btn.getAttribute('data-bp-video-embed');
+          if (!src) return;
+          var url = src + (src.indexOf('?') >= 0 ? '&' : '?') + 'autoplay=1';
+          btn.innerHTML =
+            '<iframe src="' +
+            esc(url) +
+            '" title="Video player" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowfullscreen loading="lazy"></iframe>';
+        });
+      })(btns[i]);
+    }
+  }
+
   function renderList(el, data) {
     var type = data.module_type;
     var items = Array.isArray(data.items) ? data.items : [];
@@ -443,6 +654,11 @@
     }
     if (type === 'bookings') {
       renderBookings(el, data, html);
+      return;
+    }
+    if (type === 'careers' && !items.length) {
+      // Careers renders nothing at all when there are no active postings.
+      el.innerHTML = '';
       return;
     }
     if (!items.length) {
@@ -467,6 +683,39 @@
       }
       html += '</div>';
       el.innerHTML = html;
+      return;
+    }
+    if (type === 'offers') {
+      html += '<div class="bp-mod-offers">';
+      for (var oi = 0; oi < items.length; oi++) {
+        html += offerCardHtml(items[oi]);
+      }
+      html += '</div>';
+      el.innerHTML = html;
+      return;
+    }
+    if (type === 'menu') {
+      html += renderMenuHtml(items, data.categories);
+      el.innerHTML = html;
+      return;
+    }
+    if (type === 'careers') {
+      html += '<div class="bp-mod-careers">';
+      for (var ci = 0; ci < items.length; ci++) {
+        html += careersJobHtml(items[ci]);
+      }
+      html += '</div>';
+      el.innerHTML = html;
+      return;
+    }
+    if (type === 'video') {
+      html += '<div class="bp-mod-videos">';
+      for (var vi = 0; vi < items.length; vi++) {
+        html += videoCardHtml(items[vi]);
+      }
+      html += '</div>';
+      el.innerHTML = html;
+      wireVideoFacades(el);
       return;
     }
     html += '<div class="bp-mod-grid">';
@@ -900,6 +1149,58 @@
     var type = data.module_type;
     var it = data.item;
     var html = '<a class="bp-mod-back" href="' + esc(listHref()) + '">← Back</a>';
+    if (type === 'offers') {
+      html +=
+        '<article class="bp-mod-detail">' +
+        (it.image_url ? '<img class="bp-mod-hero" src="' + esc(it.image_url) + '" alt="" />' : '') +
+        '<h1>' +
+        esc(it.title) +
+        '</h1>' +
+        (it.description ? '<div class="bp-mod-content"><p>' + esc(it.description) + '</p></div>' : '') +
+        (it.code ? '<p style="margin-top:14px"><span class="bp-mod-offer-code">' + esc(it.code) + '</span></p>' : '') +
+        (it.expires_at ? '<p class="bp-mod-meta" style="margin-top:10px">Expires ' + esc(it.expires_at) + '</p>' : '') +
+        (it.terms ? '<p class="bp-mod-offer-terms" style="margin-top:8px">' + esc(it.terms) + '</p>' : '') +
+        '</article>';
+      el.innerHTML = html;
+      return;
+    }
+    if (type === 'menu') {
+      html +=
+        '<article class="bp-mod-detail"><h1>' +
+        esc(it.name) +
+        '</h1>' +
+        (it.category_name ? '<p class="bp-mod-meta">' + esc(it.category_name) + '</p>' : '') +
+        '<div class="bp-mod-menu" style="margin-top:14px">' +
+        menuRowHtml(it) +
+        '</div></article>';
+      el.innerHTML = html;
+      return;
+    }
+    if (type === 'careers') {
+      var cmeta = [it.employment_type, it.location].filter(Boolean).join(' · ');
+      html +=
+        '<article class="bp-mod-detail"><h1>' +
+        esc(it.title) +
+        '</h1>' +
+        (cmeta ? '<p class="bp-mod-meta">' + esc(cmeta) + '</p>' : '') +
+        (it.description ? '<div class="bp-mod-job-desc">' + esc(it.description) + '</div>' : '') +
+        careersApplyHtml(it) +
+        '</article>';
+      el.innerHTML = html;
+      return;
+    }
+    if (type === 'video') {
+      html +=
+        '<article class="bp-mod-detail"><h1>' +
+        esc(it.title) +
+        '</h1>' +
+        '<div class="bp-mod-video" style="margin-top:14px">' +
+        videoCardHtml(it) +
+        '</div></article>';
+      el.innerHTML = html;
+      wireVideoFacades(el);
+      return;
+    }
     if (type === 'blog') {
       html +=
         '<article class="bp-mod-detail">' +

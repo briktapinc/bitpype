@@ -1016,6 +1016,42 @@ router.post('/modules/chatbot/escalations/:id/resolve', requireClient, actionLim
   }
 });
 
+// Menu categories — registered BEFORE the generic /modules/:type routes.
+router.get('/modules/menu/categories', requireClient, async (req, res) => {
+  try {
+    ok(res, await portal.listMenuCategories(req.client.workspace_id, req.client.lead_id, req.client.email));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/modules/menu/categories', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(res, await portal.createMenuCategory(req.client.workspace_id, req.client.lead_id, req.body || {}, req.client.email));
+  } catch (e) {
+    fail(res, e, 400);
+  }
+});
+
+router.put('/modules/menu/categories/:id', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.updateMenuCategory(req.client.workspace_id, req.client.lead_id, req.params.id, req.body || {}, req.client.email)
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
+router.delete('/modules/menu/categories/:id', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(res, await portal.deleteMenuCategory(req.client.workspace_id, req.client.lead_id, req.params.id, req.client.email));
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
 router.get('/modules/:type', requireClient, async (req, res) => {
   try {
     const includeArchived =

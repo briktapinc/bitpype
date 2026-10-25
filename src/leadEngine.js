@@ -1067,7 +1067,8 @@ function findDuplicates(db, lead) {
  *   booking_blocks, chatbot_escalations, chatbot_knowledge, chatbot_leads,
  *   chatbot_messages, chatbot_sessions, leadscout_capture_failures,
  *   leadscout_events, site_domains, site_screenshots, social_campaigns,
- *   social_posts, social_weekly_batches, testimonials
+ *   social_posts, social_weekly_batches, testimonials, offers,
+ *   menu_categories, menu_items, careers_postings, video_items
  *
  * MOVE_DEDUPE — UNIQUE(lead_id, <keys>): rows whose key the keeper already
  *   has are dropped (keeper wins); the rest are reassigned:
@@ -1117,6 +1118,11 @@ const MERGE_MOVE_TABLES = [
   'social_posts',
   'social_weekly_batches',
   'testimonials',
+  'offers',
+  'menu_categories',
+  'menu_items',
+  'careers_postings',
+  'video_items',
 ];
 
 const MERGE_DEDUPE_TABLES = {

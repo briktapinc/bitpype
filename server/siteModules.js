@@ -26,13 +26,17 @@ const MODULE_TYPES = [
   'events',
   'bookings',
   'chatbot',
+  'offers',
+  'menu',
+  'careers',
+  'video',
 ];
 const MANAGED_ATTR = 'data-bitpype-module';
 const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod7';
+const MODULE_SCRIPT_VER = 'mod8';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -54,6 +58,10 @@ const MODULE_META = {
     noNav: true,
     overlay: true,
   },
+  offers: { label: 'Special Offers', defaultTitle: 'Special Offers', defaultSlug: 'offers' },
+  menu: { label: 'Menu / Price List', defaultTitle: 'Menu', defaultSlug: 'menu' },
+  careers: { label: 'Careers', defaultTitle: 'Careers', defaultSlug: 'careers' },
+  video: { label: 'Video', defaultTitle: 'Videos', defaultSlug: 'videos' },
 };
 
 const BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'];
@@ -313,6 +321,75 @@ function ensureTables(db) {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(lead_id, slug)
+    );
+
+    CREATE TABLE IF NOT EXISTS offers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      code TEXT NOT NULL DEFAULT '',
+      terms TEXT NOT NULL DEFAULT '',
+      expires_at TEXT NOT NULL DEFAULT '',
+      image_url TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'draft',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS menu_categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'published',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS menu_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER NOT NULL,
+      category_id INTEGER,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      price_text TEXT NOT NULL DEFAULT '',
+      tags TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'draft',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS careers_postings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      employment_type TEXT NOT NULL DEFAULT 'Full-time',
+      location TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      apply_mode TEXT NOT NULL DEFAULT 'email',
+      apply_target TEXT NOT NULL DEFAULT '',
+      active INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS video_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      url TEXT NOT NULL DEFAULT '',
+      provider TEXT NOT NULL DEFAULT '',
+      video_id TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      thumbnail_url TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'draft',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS booking_settings (
@@ -3805,6 +3882,553 @@ function deleteEvent(db, leadId, id) {
   return { deleted: true, id: row.id };
 }
 
+/* ── Special Offers ── */
+
+function offerToday() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function isOfferExpired(row) {
+  if (!row || !row.expires_at) return false;
+  return String(row.expires_at).slice(0, 10) < offerToday();
+}
+
+function withOfferFlags(row) {
+  if (!row) return row;
+  return { ...row, expired: isOfferExpired(row) ? 1 : 0 };
+}
+
+function normalizeOfferExpires(value) {
+  const s = String(value || '').trim();
+  if (!s) return '';
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) throw fail('VALIDATION', 'expires_at must be a date (YYYY-MM-DD)');
+  return `${m[1]}-${m[2]}-${m[3]}`;
+}
+
+function listOffers(db, leadId, { includeDrafts = true } = {}) {
+  ensureTables(db);
+  let sql = 'SELECT * FROM offers WHERE lead_id = ?';
+  if (!includeDrafts) sql += " AND status = 'published'";
+  sql += ' ORDER BY sort_order ASC, id DESC';
+  const rows = db.prepare(sql).all(Number(leadId)).map(withOfferFlags);
+  // Public lists never render expired offers; portal lists keep them (flagged).
+  return includeDrafts ? rows : rows.filter((r) => !r.expired);
+}
+
+function getOffer(db, leadId, id) {
+  ensureTables(db);
+  const row = db.prepare('SELECT * FROM offers WHERE lead_id = ? AND id = ?').get(Number(leadId), Number(id));
+  return withOfferFlags(row);
+}
+
+function createOffer(db, leadId, data = {}) {
+  ensureTables(db);
+  const title = String(data.title || data.name || '').trim();
+  if (!title) throw fail('VALIDATION', 'title is required');
+  const status = String(data.status || 'draft').toLowerCase() === 'published' ? 'published' : 'draft';
+  const info = db
+    .prepare(
+      `
+    INSERT INTO offers (lead_id, title, description, code, terms, expires_at, image_url, status, sort_order)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `
+    )
+    .run(
+      Number(leadId),
+      title.slice(0, 200),
+      String(data.description || ''),
+      String(data.code || '').slice(0, 80),
+      String(data.terms || ''),
+      normalizeOfferExpires(data.expires_at || data.expires || ''),
+      String(data.image_url || data.image || ''),
+      status,
+      Number(data.sort_order) || 0
+    );
+  return getOffer(db, leadId, info.lastInsertRowid);
+}
+
+function updateOffer(db, leadId, id, data = {}) {
+  ensureTables(db);
+  const row = getOffer(db, leadId, id);
+  if (!row) throw fail('NOT_FOUND', 'Offer not found', 404);
+  const title = data.title != null || data.name != null ? String(data.title != null ? data.title : data.name).trim().slice(0, 200) : row.title;
+  if (!title) throw fail('VALIDATION', 'title is required');
+  const description = data.description != null ? String(data.description) : row.description;
+  const code = data.code != null ? String(data.code).slice(0, 80) : row.code;
+  const terms = data.terms != null ? String(data.terms) : row.terms;
+  const expires =
+    data.expires_at != null || data.expires != null
+      ? normalizeOfferExpires(data.expires_at != null ? data.expires_at : data.expires)
+      : row.expires_at;
+  const image =
+    data.image_url != null || data.image != null ? String(data.image_url != null ? data.image_url : data.image) : row.image_url;
+  const status =
+    data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : row.status;
+  const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
+  db.prepare(
+    `
+    UPDATE offers SET title=?, description=?, code=?, terms=?, expires_at=?,
+      image_url=?, status=?, sort_order=?, updated_at=datetime('now')
+    WHERE id=? AND lead_id=?
+  `
+  ).run(title, description, code, terms, expires, image, status, sortOrder, row.id, Number(leadId));
+  return getOffer(db, leadId, row.id);
+}
+
+function deleteOffer(db, leadId, id) {
+  ensureTables(db);
+  const row = getOffer(db, leadId, id);
+  if (!row) throw fail('NOT_FOUND', 'Offer not found', 404);
+  db.prepare('DELETE FROM offers WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
+  return { deleted: true, id: row.id };
+}
+
+/* ── Menu / Price List (categories + items) ── */
+
+function listMenuCategories(db, leadId, { includeDrafts = true } = {}) {
+  ensureTables(db);
+  let sql = 'SELECT * FROM menu_categories WHERE lead_id = ?';
+  if (!includeDrafts) sql += " AND status = 'published'";
+  sql += ' ORDER BY sort_order ASC, name ASC, id ASC';
+  return db.prepare(sql).all(Number(leadId));
+}
+
+function getMenuCategory(db, leadId, id) {
+  ensureTables(db);
+  return db.prepare('SELECT * FROM menu_categories WHERE lead_id = ? AND id = ?').get(Number(leadId), Number(id));
+}
+
+function createMenuCategory(db, leadId, data = {}) {
+  ensureTables(db);
+  const name = String(data.name || data.title || '').trim();
+  if (!name) throw fail('VALIDATION', 'category name is required');
+  const status = String(data.status || 'published').toLowerCase() === 'published' ? 'published' : 'draft';
+  const info = db
+    .prepare('INSERT INTO menu_categories (lead_id, name, status, sort_order) VALUES (?, ?, ?, ?)')
+    .run(Number(leadId), name.slice(0, 120), status, Number(data.sort_order) || 0);
+  return getMenuCategory(db, leadId, info.lastInsertRowid);
+}
+
+function ensureMenuCategory(db, leadId, name) {
+  const clean = String(name || '').trim();
+  if (!clean) return null;
+  const existing = db
+    .prepare('SELECT * FROM menu_categories WHERE lead_id = ? AND lower(name) = lower(?) ORDER BY id ASC LIMIT 1')
+    .get(Number(leadId), clean.slice(0, 120));
+  if (existing) return existing;
+  return createMenuCategory(db, leadId, { name: clean });
+}
+
+function updateMenuCategory(db, leadId, id, data = {}) {
+  ensureTables(db);
+  const row = getMenuCategory(db, leadId, id);
+  if (!row) throw fail('NOT_FOUND', 'Menu category not found', 404);
+  const name = data.name != null || data.title != null ? String(data.name != null ? data.name : data.title).trim().slice(0, 120) : row.name;
+  if (!name) throw fail('VALIDATION', 'category name is required');
+  const status =
+    data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : row.status;
+  const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
+  db.prepare(
+    "UPDATE menu_categories SET name=?, status=?, sort_order=?, updated_at=datetime('now') WHERE id=? AND lead_id=?"
+  ).run(name, status, sortOrder, row.id, Number(leadId));
+  return getMenuCategory(db, leadId, row.id);
+}
+
+function deleteMenuCategory(db, leadId, id) {
+  ensureTables(db);
+  const row = getMenuCategory(db, leadId, id);
+  if (!row) throw fail('NOT_FOUND', 'Menu category not found', 404);
+  // Items survive as uncategorized — deleting a heading never deletes food.
+  db.prepare('UPDATE menu_items SET category_id = NULL, updated_at = datetime(\'now\') WHERE lead_id = ? AND category_id = ?').run(
+    Number(leadId),
+    row.id
+  );
+  db.prepare('DELETE FROM menu_categories WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
+  return { deleted: true, id: row.id };
+}
+
+function resolveMenuCategoryId(db, leadId, data, currentId) {
+  if (data.category_id != null && data.category_id !== '') {
+    const cid = Number(data.category_id);
+    if (!cid) return null;
+    const cat = getMenuCategory(db, leadId, cid);
+    if (!cat) throw fail('VALIDATION', 'category_id does not belong to this menu');
+    return cat.id;
+  }
+  if (data.category_name != null || data.category != null) {
+    const name = String(data.category_name != null ? data.category_name : data.category || '').trim();
+    if (!name) return null;
+    const cat = ensureMenuCategory(db, leadId, name);
+    return cat ? cat.id : null;
+  }
+  return currentId != null ? currentId : null;
+}
+
+function listMenuItems(db, leadId, { includeDrafts = true } = {}) {
+  ensureTables(db);
+  let sql = `
+    SELECT mi.*, mc.name AS category_name
+    FROM menu_items mi
+    LEFT JOIN menu_categories mc ON mc.id = mi.category_id AND mc.lead_id = mi.lead_id
+    WHERE mi.lead_id = ?`;
+  if (!includeDrafts) sql += " AND mi.status = 'published'";
+  sql += `
+    ORDER BY CASE WHEN mi.category_id IS NULL THEN 1 ELSE 0 END,
+      mc.sort_order ASC, mc.name ASC, mi.sort_order ASC, mi.id ASC`;
+  return db.prepare(sql).all(Number(leadId));
+}
+
+function getMenuItem(db, leadId, id) {
+  ensureTables(db);
+  return db
+    .prepare(
+      `SELECT mi.*, mc.name AS category_name
+       FROM menu_items mi
+       LEFT JOIN menu_categories mc ON mc.id = mi.category_id AND mc.lead_id = mi.lead_id
+       WHERE mi.lead_id = ? AND mi.id = ?`
+    )
+    .get(Number(leadId), Number(id));
+}
+
+function createMenuItem(db, leadId, data = {}) {
+  ensureTables(db);
+  const name = String(data.name || data.title || '').trim();
+  if (!name) throw fail('VALIDATION', 'name is required');
+  const categoryId = resolveMenuCategoryId(db, leadId, data, null);
+  const status = String(data.status || 'draft').toLowerCase() === 'published' ? 'published' : 'draft';
+  const info = db
+    .prepare(
+      `
+    INSERT INTO menu_items (lead_id, category_id, name, description, price_text, tags, status, sort_order)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `
+    )
+    .run(
+      Number(leadId),
+      categoryId,
+      name.slice(0, 200),
+      String(data.description || ''),
+      String(data.price_text || data.price || '').slice(0, 80),
+      String(data.tags || '').slice(0, 200),
+      status,
+      Number(data.sort_order) || 0
+    );
+  return getMenuItem(db, leadId, info.lastInsertRowid);
+}
+
+function updateMenuItem(db, leadId, id, data = {}) {
+  ensureTables(db);
+  const row = getMenuItem(db, leadId, id);
+  if (!row) throw fail('NOT_FOUND', 'Menu item not found', 404);
+  const name =
+    data.name != null || data.title != null ? String(data.name != null ? data.name : data.title).trim().slice(0, 200) : row.name;
+  if (!name) throw fail('VALIDATION', 'name is required');
+  const categoryId = resolveMenuCategoryId(db, leadId, data, row.category_id);
+  const description = data.description != null ? String(data.description) : row.description;
+  const priceText =
+    data.price_text != null || data.price != null
+      ? String(data.price_text != null ? data.price_text : data.price).slice(0, 80)
+      : row.price_text;
+  const tags = data.tags != null ? String(data.tags).slice(0, 200) : row.tags;
+  const status =
+    data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : row.status;
+  const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
+  db.prepare(
+    `
+    UPDATE menu_items SET category_id=?, name=?, description=?, price_text=?, tags=?,
+      status=?, sort_order=?, updated_at=datetime('now')
+    WHERE id=? AND lead_id=?
+  `
+  ).run(categoryId, name, description, priceText, tags, status, sortOrder, row.id, Number(leadId));
+  return getMenuItem(db, leadId, row.id);
+}
+
+function deleteMenuItem(db, leadId, id) {
+  ensureTables(db);
+  const row = getMenuItem(db, leadId, id);
+  if (!row) throw fail('NOT_FOUND', 'Menu item not found', 404);
+  db.prepare('DELETE FROM menu_items WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
+  return { deleted: true, id: row.id };
+}
+
+/* ── Careers ── */
+
+const CAREERS_EMPLOYMENT_TYPES = ['Full-time', 'Part-time', 'Contract', 'Seasonal'];
+const CAREERS_APPLY_MODES = ['email', 'url', 'form'];
+
+function withCareersStatus(row) {
+  if (!row) return row;
+  return { ...row, status: row.active ? 'active' : 'inactive' };
+}
+
+function listCareersPostings(db, leadId, { includeInactive = true } = {}) {
+  ensureTables(db);
+  let sql = 'SELECT * FROM careers_postings WHERE lead_id = ?';
+  if (!includeInactive) sql += ' AND active = 1';
+  sql += ' ORDER BY sort_order ASC, id DESC';
+  return db.prepare(sql).all(Number(leadId)).map(withCareersStatus);
+}
+
+function getCareersPosting(db, leadId, id) {
+  ensureTables(db);
+  const row = db
+    .prepare('SELECT * FROM careers_postings WHERE lead_id = ? AND id = ?')
+    .get(Number(leadId), Number(id));
+  return withCareersStatus(row);
+}
+
+function normalizeCareersFields(data, row = {}) {
+  const pick = (key, aliases = []) => {
+    if (data[key] != null) return data[key];
+    for (const a of aliases) if (data[a] != null) return data[a];
+    return undefined;
+  };
+  const out = {};
+  const title = pick('title', ['name']);
+  out.title = title !== undefined ? String(title).trim().slice(0, 200) : row.title || '';
+  const employment = pick('employment_type', ['type']);
+  if (employment !== undefined) {
+    const match = CAREERS_EMPLOYMENT_TYPES.find((t) => t.toLowerCase() === String(employment).trim().toLowerCase());
+    out.employment_type = match || 'Full-time';
+  } else out.employment_type = row.employment_type || 'Full-time';
+  const location = pick('location');
+  out.location = location !== undefined ? String(location).slice(0, 200) : row.location || '';
+  const description = pick('description', ['body']);
+  out.description = description !== undefined ? String(description) : row.description || '';
+  const mode = pick('apply_mode');
+  if (mode !== undefined) {
+    const m = String(mode).trim().toLowerCase();
+    out.apply_mode = CAREERS_APPLY_MODES.includes(m) ? m : 'email';
+  } else out.apply_mode = row.apply_mode || 'email';
+  const target = pick('apply_target', ['apply_url', 'apply_email']);
+  out.apply_target = target !== undefined ? String(target).trim().slice(0, 500) : row.apply_target || '';
+  if (out.apply_mode === 'email' && out.apply_target && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.apply_target)) {
+    throw fail('VALIDATION', 'apply_target must be an email address when apply_mode is email');
+  }
+  if (out.apply_mode === 'url' && out.apply_target && !/^https?:\/\//i.test(out.apply_target)) {
+    throw fail('VALIDATION', 'apply_target must be an http(s) URL when apply_mode is url');
+  }
+  const activeRaw = pick('active', ['status']);
+  if (activeRaw !== undefined) {
+    out.active =
+      activeRaw === true || activeRaw === 1 || activeRaw === '1'
+        ? 1
+        : typeof activeRaw === 'string' && ['active', 'published', 'true', 'yes'].includes(activeRaw.toLowerCase())
+          ? 1
+          : 0;
+  } else out.active = row.active != null ? row.active : 1;
+  const sort = pick('sort_order', ['sort']);
+  out.sort_order = sort !== undefined ? Number(sort) || 0 : row.sort_order || 0;
+  return out;
+}
+
+function createCareersPosting(db, leadId, data = {}) {
+  ensureTables(db);
+  const f = normalizeCareersFields(data);
+  if (!f.title) throw fail('VALIDATION', 'title is required');
+  const info = db
+    .prepare(
+      `
+    INSERT INTO careers_postings
+      (lead_id, title, employment_type, location, description, apply_mode, apply_target, active, sort_order)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `
+    )
+    .run(
+      Number(leadId),
+      f.title,
+      f.employment_type,
+      f.location,
+      f.description,
+      f.apply_mode,
+      f.apply_target,
+      f.active,
+      f.sort_order
+    );
+  return getCareersPosting(db, leadId, info.lastInsertRowid);
+}
+
+function updateCareersPosting(db, leadId, id, data = {}) {
+  ensureTables(db);
+  const row = getCareersPosting(db, leadId, id);
+  if (!row) throw fail('NOT_FOUND', 'Careers posting not found', 404);
+  const f = normalizeCareersFields(data, row);
+  if (!f.title) throw fail('VALIDATION', 'title is required');
+  db.prepare(
+    `
+    UPDATE careers_postings SET title=?, employment_type=?, location=?, description=?,
+      apply_mode=?, apply_target=?, active=?, sort_order=?, updated_at=datetime('now')
+    WHERE id=? AND lead_id=?
+  `
+  ).run(f.title, f.employment_type, f.location, f.description, f.apply_mode, f.apply_target, f.active, f.sort_order, row.id, Number(leadId));
+  return getCareersPosting(db, leadId, row.id);
+}
+
+function deleteCareersPosting(db, leadId, id) {
+  ensureTables(db);
+  const row = getCareersPosting(db, leadId, id);
+  if (!row) throw fail('NOT_FOUND', 'Careers posting not found', 404);
+  db.prepare('DELETE FROM careers_postings WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
+  return { deleted: true, id: row.id };
+}
+
+/* ── Video ── */
+
+function parseVideoUrl(raw) {
+  const s = String(raw || '').trim();
+  if (!s) throw fail('VALIDATION', 'url is required');
+  let u;
+  try {
+    u = new URL(s);
+  } catch {
+    throw fail('VALIDATION', 'url must be a valid YouTube or Vimeo URL');
+  }
+  const host = u.hostname.toLowerCase().replace(/^www\./, '');
+  const bad = () => fail('VALIDATION', 'url must be a YouTube or Vimeo video URL');
+  if (host === 'youtube.com' || host === 'm.youtube.com') {
+    let id = '';
+    if (u.pathname === '/watch') id = u.searchParams.get('v') || '';
+    else {
+      const m = u.pathname.match(/^\/(?:embed|shorts|live)\/([\w-]{6,20})/);
+      if (m) id = m[1];
+    }
+    if (!/^[\w-]{6,20}$/.test(id)) throw bad();
+    return {
+      provider: 'youtube',
+      video_id: id,
+      embed_url: `https://www.youtube-nocookie.com/embed/${id}`,
+      thumbnail_url: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+    };
+  }
+  if (host === 'youtu.be') {
+    const id = u.pathname.replace(/\//g, '');
+    if (!/^[\w-]{6,20}$/.test(id)) throw bad();
+    return {
+      provider: 'youtube',
+      video_id: id,
+      embed_url: `https://www.youtube-nocookie.com/embed/${id}`,
+      thumbnail_url: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+    };
+  }
+  if (host === 'vimeo.com') {
+    const m = u.pathname.match(/\/(\d{5,})(?:\/|$)/);
+    if (!m) throw bad();
+    return {
+      provider: 'vimeo',
+      video_id: m[1],
+      embed_url: `https://player.vimeo.com/video/${m[1]}`,
+      thumbnail_url: '',
+    };
+  }
+  if (host === 'player.vimeo.com') {
+    const m = u.pathname.match(/^\/video\/(\d{5,})/);
+    if (!m) throw bad();
+    return {
+      provider: 'vimeo',
+      video_id: m[1],
+      embed_url: `https://player.vimeo.com/video/${m[1]}`,
+      thumbnail_url: '',
+    };
+  }
+  throw bad();
+}
+
+function withVideoDerived(row) {
+  if (!row) return row;
+  let derived = { embed_url: '', thumbnail_url: row.thumbnail_url || '' };
+  try {
+    const p = parseVideoUrl(row.url);
+    derived = { embed_url: p.embed_url, thumbnail_url: row.thumbnail_url || p.thumbnail_url };
+    return { ...row, provider: p.provider, video_id: p.video_id, ...derived };
+  } catch {
+    return { ...row, ...derived };
+  }
+}
+
+function listVideoItems(db, leadId, { includeDrafts = true } = {}) {
+  ensureTables(db);
+  let sql = 'SELECT * FROM video_items WHERE lead_id = ?';
+  if (!includeDrafts) sql += " AND status = 'published'";
+  sql += ' ORDER BY sort_order ASC, id DESC';
+  return db.prepare(sql).all(Number(leadId)).map(withVideoDerived);
+}
+
+function getVideoItem(db, leadId, id) {
+  ensureTables(db);
+  const row = db.prepare('SELECT * FROM video_items WHERE lead_id = ? AND id = ?').get(Number(leadId), Number(id));
+  return withVideoDerived(row);
+}
+
+function createVideoItem(db, leadId, data = {}) {
+  ensureTables(db);
+  const title = String(data.title || data.name || '').trim();
+  if (!title) throw fail('VALIDATION', 'title is required');
+  const parsed = parseVideoUrl(data.url || data.video_url || '');
+  const status = String(data.status || 'draft').toLowerCase() === 'published' ? 'published' : 'draft';
+  const info = db
+    .prepare(
+      `
+    INSERT INTO video_items (lead_id, title, url, provider, video_id, description, thumbnail_url, status, sort_order)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `
+    )
+    .run(
+      Number(leadId),
+      title.slice(0, 200),
+      String(data.url || data.video_url || '').trim(),
+      parsed.provider,
+      parsed.video_id,
+      String(data.description || ''),
+      String(data.thumbnail_url || data.thumbnail || ''),
+      status,
+      Number(data.sort_order) || 0
+    );
+  return getVideoItem(db, leadId, info.lastInsertRowid);
+}
+
+function updateVideoItem(db, leadId, id, data = {}) {
+  ensureTables(db);
+  const row = getVideoItem(db, leadId, id);
+  if (!row) throw fail('NOT_FOUND', 'Video not found', 404);
+  const title =
+    data.title != null || data.name != null ? String(data.title != null ? data.title : data.name).trim().slice(0, 200) : row.title;
+  if (!title) throw fail('VALIDATION', 'title is required');
+  let url = row.url;
+  let provider = row.provider;
+  let videoId = row.video_id;
+  if (data.url != null || data.video_url != null) {
+    url = String(data.url != null ? data.url : data.video_url).trim();
+    const parsed = parseVideoUrl(url);
+    provider = parsed.provider;
+    videoId = parsed.video_id;
+  }
+  const description = data.description != null ? String(data.description) : row.description;
+  const thumbnail =
+    data.thumbnail_url != null || data.thumbnail != null
+      ? String(data.thumbnail_url != null ? data.thumbnail_url : data.thumbnail)
+      : row.thumbnail_url;
+  const status =
+    data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : row.status;
+  const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
+  db.prepare(
+    `
+    UPDATE video_items SET title=?, url=?, provider=?, video_id=?, description=?,
+      thumbnail_url=?, status=?, sort_order=?, updated_at=datetime('now')
+    WHERE id=? AND lead_id=?
+  `
+  ).run(title, url, provider, videoId, description, thumbnail, status, sortOrder, row.id, Number(leadId));
+  return getVideoItem(db, leadId, row.id);
+}
+
+function deleteVideoItem(db, leadId, id) {
+  ensureTables(db);
+  const row = getVideoItem(db, leadId, id);
+  if (!row) throw fail('NOT_FOUND', 'Video not found', 404);
+  db.prepare('DELETE FROM video_items WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
+  return { deleted: true, id: row.id };
+}
+
 /* ── Bookings (services + hours + calendar slots) ── */
 
 function parseHm(s) {
@@ -4491,6 +5115,10 @@ function moduleItemCount(db, leadId, type) {
       return 0;
     }
   }
+  if (type === 'offers') return listOffers(db, leadId).length;
+  if (type === 'menu') return listMenuItems(db, leadId).length;
+  if (type === 'careers') return listCareersPostings(db, leadId).length;
+  if (type === 'video') return listVideoItems(db, leadId).length;
   return 0;
 }
 
@@ -4507,6 +5135,7 @@ function getPublicModuleByToken(db, token) {
   const settings = parseEmbedSettings(row);
   let items = [];
   let booking = null;
+  let menuCategories = null;
   let total_published = null;
   if (type === 'blog') {
     items = listBlogPosts(db, leadId, { includeDrafts: false }).map((p) => ({
@@ -4536,6 +5165,17 @@ function getPublicModuleByToken(db, token) {
       settings: getBookingSettings(db, leadId),
       hours: listBookingHours(db, leadId),
     };
+  } else if (type === 'offers') {
+    // Published + unexpired only (listOffers filters expired for public lists).
+    items = listOffers(db, leadId, { includeDrafts: false });
+  } else if (type === 'menu') {
+    items = listMenuItems(db, leadId, { includeDrafts: false });
+    const usedCategoryIds = new Set(items.map((i) => i.category_id).filter((v) => v != null));
+    menuCategories = listMenuCategories(db, leadId, { includeDrafts: false }).filter((c) => usedCategoryIds.has(c.id));
+  } else if (type === 'careers') {
+    items = listCareersPostings(db, leadId, { includeInactive: false });
+  } else if (type === 'video') {
+    items = listVideoItems(db, leadId, { includeDrafts: false });
   } else if (type === 'chatbot') {
     try {
       const chat = require('./chatbot');
@@ -4562,6 +5202,7 @@ function getPublicModuleByToken(db, token) {
     out.truncated = settings.post_limit != null && total_published > items.length;
   }
   if (booking) out.booking = booking;
+  if (menuCategories) out.categories = menuCategories;
   return out;
 }
 
@@ -4587,7 +5228,15 @@ function getPublicModuleItem(db, token, slugOrId) {
   else if (type === 'team') item = getTeamMember(db, leadId, slugOrId);
   else if (type === 'events') item = getEvent(db, leadId, slugOrId);
   else if (type === 'bookings') item = getBookingService(db, leadId, slugOrId);
-  if (!item || (item.status && item.status !== 'published')) {
+  else if (type === 'offers') {
+    item = getOffer(db, leadId, slugOrId);
+    if (item && item.expired) item = null;
+  } else if (type === 'menu') item = getMenuItem(db, leadId, slugOrId);
+  else if (type === 'careers') {
+    item = getCareersPosting(db, leadId, slugOrId);
+    if (item && !item.active) item = null;
+  } else if (type === 'video') item = getVideoItem(db, leadId, slugOrId);
+  if (!item || (item.status && item.status !== 'published' && item.status !== 'active')) {
     throw fail('NOT_FOUND', 'Item not found', 404);
   }
   return { ...payload, item };
@@ -4750,6 +5399,36 @@ module.exports = {
   createEvent,
   updateEvent,
   deleteEvent,
+  listOffers,
+  getOffer,
+  createOffer,
+  updateOffer,
+  deleteOffer,
+  isOfferExpired,
+  listMenuCategories,
+  getMenuCategory,
+  createMenuCategory,
+  updateMenuCategory,
+  deleteMenuCategory,
+  ensureMenuCategory,
+  listMenuItems,
+  getMenuItem,
+  createMenuItem,
+  updateMenuItem,
+  deleteMenuItem,
+  listCareersPostings,
+  getCareersPosting,
+  createCareersPosting,
+  updateCareersPosting,
+  deleteCareersPosting,
+  CAREERS_EMPLOYMENT_TYPES,
+  CAREERS_APPLY_MODES,
+  listVideoItems,
+  getVideoItem,
+  createVideoItem,
+  updateVideoItem,
+  deleteVideoItem,
+  parseVideoUrl,
   getBookingSettings,
   updateBookingSettings,
   listBookingHours,

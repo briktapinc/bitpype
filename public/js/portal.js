@@ -3671,10 +3671,14 @@
     { type: 'events', label: 'Events' },
     { type: 'bookings', label: 'Bookings' },
     { type: 'chatbot', label: 'Chatbot' },
+    { type: 'offers', label: 'Special Offers' },
+    { type: 'menu', label: 'Menu / Price List' },
+    { type: 'careers', label: 'Careers' },
+    { type: 'video', label: 'Video' },
   ];
   const MODULE_NAV_GROUPS = [
-    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'gallery', 'courses', 'directory', 'faq'] },
-    { id: 'people', label: 'People', types: ['team', 'testimonials'] },
+    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video'] },
+    { id: 'people', label: 'People', types: ['team', 'testimonials', 'careers'] },
     { id: 'schedule', label: 'Schedule', types: ['events', 'bookings'] },
     { id: 'assist', label: 'Assist', types: ['chatbot'] },
   ];
@@ -3690,6 +3694,10 @@
     events: { singular: 'event', plural: 'events', newBtn: 'New event', kicker: 'Event' },
     bookings: { singular: 'service', plural: 'services', newBtn: 'New service', kicker: 'Booking service' },
     chatbot: { singular: 'knowledge item', plural: 'knowledge items', newBtn: 'Add knowledge', kicker: 'Knowledge' },
+    offers: { singular: 'offer', plural: 'offers', newBtn: 'New offer', kicker: 'Special offer' },
+    menu: { singular: 'menu item', plural: 'menu items', newBtn: 'New menu item', kicker: 'Menu item' },
+    careers: { singular: 'posting', plural: 'postings', newBtn: 'New posting', kicker: 'Job posting' },
+    video: { singular: 'video', plural: 'videos', newBtn: 'New video', kicker: 'Video' },
   };
   const BOOKING_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const MODULE_STORAGE_KEY = 'bp-portal-module';
@@ -3726,6 +3734,7 @@
     pages: [],
     embed: null,
     editingId: null,
+    categories: [],
     showArchivedAppointments: false,
   };
 
@@ -3852,6 +3861,54 @@
         },
         { key: 'content_text', label: 'Notes / pasted text for the agent', kind: 'textarea' },
         { key: 'status', label: 'Status', kind: 'select', options: ['active', 'inactive'] },
+      ];
+    }
+    if (type === 'offers') {
+      return [
+        { key: 'title', label: 'Offer title', required: true },
+        { key: 'description', label: 'Description', kind: 'textarea' },
+        { key: 'code', label: 'Promo code (optional)', placeholder: 'SAVE20' },
+        { key: 'terms', label: 'Terms (optional)', kind: 'textarea' },
+        { key: 'expires_at', label: 'Expires (optional)', placeholder: 'YYYY-MM-DD' },
+        { key: 'image_url', label: 'Image (optional)', kind: 'image' },
+        { key: 'sort_order', label: 'Sort order' },
+        { key: 'status', label: 'Status', kind: 'select', options: ['draft', 'published'] },
+      ];
+    }
+    if (type === 'menu') {
+      const catOptions = [{ value: '', label: 'Uncategorized' }].concat(
+        (moduleState.categories || []).map((c) => ({ value: String(c.id), label: c.name || '' }))
+      );
+      return [
+        { key: 'name', label: 'Item name', required: true },
+        { key: 'category_id', label: 'Category', kind: 'select', options: catOptions, hint: 'Manage categories above the item list.' },
+        { key: 'price_text', label: 'Price', placeholder: '$12, Market price, from $40…' },
+        { key: 'description', label: 'Description', kind: 'textarea' },
+        { key: 'tags', label: 'Tags (optional)', placeholder: 'popular, spicy, gluten-free' },
+        { key: 'sort_order', label: 'Sort order' },
+        { key: 'status', label: 'Status', kind: 'select', options: ['draft', 'published'] },
+      ];
+    }
+    if (type === 'careers') {
+      return [
+        { key: 'title', label: 'Job title', required: true },
+        { key: 'employment_type', label: 'Employment type', kind: 'select', options: ['Full-time', 'Part-time', 'Contract', 'Seasonal'] },
+        { key: 'location', label: 'Location', placeholder: 'Reading, PA' },
+        { key: 'description', label: 'Description', kind: 'textarea' },
+        { key: 'apply_mode', label: 'How to apply', kind: 'select', options: ['email', 'url', 'form'] },
+        { key: 'apply_target', label: 'Apply target', placeholder: 'Email, application URL, or form page' },
+        { key: 'sort_order', label: 'Sort order' },
+        { key: 'status', label: 'Status', kind: 'select', options: ['active', 'inactive'] },
+      ];
+    }
+    if (type === 'video') {
+      return [
+        { key: 'title', label: 'Title', required: true },
+        { key: 'url', label: 'Video URL (YouTube or Vimeo)', required: true, placeholder: 'https://www.youtube.com/watch?v=…' },
+        { key: 'description', label: 'Description (optional)', kind: 'textarea' },
+        { key: 'thumbnail_url', label: 'Thumbnail override (optional)', kind: 'image' },
+        { key: 'sort_order', label: 'Sort order' },
+        { key: 'status', label: 'Status', kind: 'select', options: ['draft', 'published'] },
       ];
     }
     // directory fallback
@@ -3998,6 +4055,10 @@
       team: 'team',
       events: 'events',
       bookings: 'book',
+      offers: 'offers',
+      menu: 'menu',
+      careers: 'careers',
+      video: 'videos',
     };
     let want = selected || defaults[moduleState.current] || 'home';
     const opts = Array.isArray(pages) && pages.length ? pages : [{ slug: want, title: want }];
@@ -4230,6 +4291,27 @@
       if (it.has_file) bits.push('<span>file</span>');
       const chars = String(it.content_text || '').trim().length;
       if (chars) bits.push(`<span>${chars.toLocaleString()} chars indexed</span>`);
+    }
+    if (type === 'offers') {
+      if (it.expired) bits.push('<span class="status-pill draft">Expired</span>');
+      if (it.code) bits.push(`<span>Code: ${esc(it.code)}</span>`);
+      if (it.expires_at) bits.push(`<span>Expires ${esc(it.expires_at)}</span>`);
+    }
+    if (type === 'menu') {
+      if (it.category_name) bits.push(`<span>${esc(it.category_name)}</span>`);
+      if (it.price_text) bits.push(`<span>${esc(it.price_text)}</span>`);
+    }
+    if (type === 'careers') {
+      bits.length = 0;
+      const st = it.status || (it.active ? 'active' : 'inactive');
+      bits.push(`<span class="${st === 'active' ? 'status-pill' : 'status-pill draft'}">${esc(st)}</span>`);
+      if (it.employment_type) bits.push(`<span>${esc(it.employment_type)}</span>`);
+      if (it.location) bits.push(`<span>${esc(it.location)}</span>`);
+      if (it.apply_mode) bits.push(`<span>Apply: ${esc(it.apply_mode)}</span>`);
+    }
+    if (type === 'video') {
+      if (it.provider) bits.push(`<span>${esc(it.provider === 'youtube' ? 'YouTube' : it.provider === 'vimeo' ? 'Vimeo' : it.provider)}</span>`);
+      if (it.url) bits.push(`<span>${esc(it.url)}</span>`);
     }
     return bits.join('<span class="sep">·</span>');
   }
@@ -4612,6 +4694,7 @@
     moduleState.embed = data.embed || null;
     moduleState.booking = data.booking || null;
     moduleState.chatbot = data.chatbot || null;
+    moduleState.categories = Array.isArray(data.categories) ? data.categories : [];
     if (type === 'bookings') {
       const booking = moduleState.booking || {};
       if (booking.active_appointment_count != null) {
@@ -4624,7 +4707,92 @@
     renderModuleItems();
     renderModuleEmbedBar();
     renderBookingAdminPanel();
+    renderMenuCategoriesPanel();
     syncModulesPaneTabs();
+  }
+
+  function renderMenuCategoriesPanel() {
+    const host = document.getElementById('modules-menu-cats-panel');
+    if (!host) return;
+    if (moduleState.current !== 'menu') {
+      host.innerHTML = '';
+      host.hidden = true;
+      return;
+    }
+    host.hidden = false;
+    const cats = moduleState.categories || [];
+    const rows = cats
+      .map(
+        (c) => `<div class="menu-cat-row" data-cat-row="${c.id}" style="display:flex;gap:8px;align-items:center;padding:6px 0">
+          <input type="text" class="menu-cat-name" value="${esc(c.name || '')}" style="flex:1" aria-label="Category name" />
+          <button type="button" class="btn soft small" data-cat-save="${c.id}">Save</button>
+          <button type="button" class="btn soft small" data-cat-delete="${c.id}">Delete</button>
+        </div>`
+      )
+      .join('');
+    host.innerHTML = `<div class="card" style="margin-bottom:14px">
+      <h3 style="margin:0 0 6px">Menu categories</h3>
+      <p class="hint" style="margin:0 0 8px">Categories group your menu items under headings (Starters, Mains…). Deleting a category keeps its items — they become uncategorized.</p>
+      ${rows || '<p class="hint">No categories yet — add one below, or type a category name on an item.</p>'}
+      <div style="display:flex;gap:8px;align-items:center;padding-top:8px">
+        <input type="text" id="menu-cat-new-name" placeholder="New category name" style="flex:1" />
+        <button type="button" class="btn soft small" id="btn-menu-cat-add">Add category</button>
+      </div>
+    </div>`;
+    const reload = async () => {
+      try {
+        await loadModuleItems();
+      } catch (e) {
+        moduleMsg(e.message || 'Could not reload the menu.', false);
+      }
+    };
+    const addBtn = document.getElementById('btn-menu-cat-add');
+    if (addBtn) {
+      addBtn.onclick = async () => {
+        const input = document.getElementById('menu-cat-new-name');
+        const name = String((input && input.value) || '').trim();
+        if (!name) return;
+        try {
+          await api('/modules/menu/categories', { method: 'POST', body: JSON.stringify({ name }) });
+          moduleMsg('Category added.', true);
+          await reload();
+        } catch (e) {
+          moduleMsg(e.message || 'Could not add the category.', false);
+        }
+      };
+    }
+    host.querySelectorAll('[data-cat-save]').forEach((btn) => {
+      btn.onclick = async () => {
+        const id = btn.getAttribute('data-cat-save');
+        const row = host.querySelector(`[data-cat-row="${id}"]`);
+        const input = row ? row.querySelector('.menu-cat-name') : null;
+        const name = String((input && input.value) || '').trim();
+        if (!name) return;
+        try {
+          await api(`/modules/menu/categories/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            body: JSON.stringify({ name }),
+          });
+          moduleMsg('Category saved.', true);
+          await reload();
+        } catch (e) {
+          moduleMsg(e.message || 'Could not save the category.', false);
+        }
+      };
+    });
+    host.querySelectorAll('[data-cat-delete]').forEach((btn) => {
+      btn.onclick = async () => {
+        const id = btn.getAttribute('data-cat-delete');
+        if (!window.confirm('Delete this category? Its items stay on the menu as uncategorized.')) return;
+        try {
+          await api(`/modules/menu/categories/${encodeURIComponent(id)}`, { method: 'DELETE' });
+          moduleMsg('Category deleted.', true);
+          await reload();
+        } catch (e) {
+          moduleMsg(e.message || 'Could not delete the category.', false);
+        }
+      };
+    });
   }
 
   async function loadModules() {

@@ -22,6 +22,7 @@ const PROTOCOL_VERSION = '2025-11-25';
 
 const ID = { type: 'integer', minimum: 1 };
 const STR = { type: 'string' };
+const NUM = { type: 'number' };
 function schema(properties = {}, required = []) {
   return required.length ? { type: 'object', properties, required } : { type: 'object', properties };
 }
@@ -69,7 +70,7 @@ function clientToolDefs() {
     {
       name: 'website.addModule',
       description:
-        'Attach a site module (blog|ecommerce|courses|gallery|directory|faq|testimonials|team|events|bookings|chatbot) into the live site template with an in-page JS mount (not an iframe). Standard/Premium siteModules. chatbot = sitewide floating bubble (chat-embed.js); visitor replies go through portal CLIENT MCP chatbot.* only — never admin design.*/lead.* or workspace ws_ tokens. INTENT: appointments with availability → bookings module (never a contact form); then bookings.createService (published) + bookings.setHours. Structured requests → forms.create purpose=…; general inquiries → contact form. Alias: modules.attach. Bookings: optional show_request_form. After attach, call site.publish. Non-bookings attach on appointment-intent pages returns a warning. STYLING: wrap mount; theme.customCss under .bitpype-module-embed.',
+        'Attach a site module (blog|ecommerce|courses|gallery|directory|faq|testimonials|team|events|bookings|chatbot|offers|menu|careers|video) into the live site template with an in-page JS mount (not an iframe). Standard/Premium siteModules. chatbot = sitewide floating bubble (chat-embed.js); visitor replies go through portal CLIENT MCP chatbot.* only — never admin design.*/lead.* or workspace ws_ tokens. INTENT: appointments with availability → bookings module (never a contact form); then bookings.createService (published) + bookings.setHours. Structured requests → forms.create purpose=…; general inquiries → contact form. Alias: modules.attach. Bookings: optional show_request_form. After attach, call site.publish. Non-bookings attach on appointment-intent pages returns a warning. STYLING: wrap mount; theme.customCss under .bitpype-module-embed.',
       inputSchema: schema({
         leadId: ID,
         module: {
@@ -86,6 +87,10 @@ function clientToolDefs() {
             'events',
             'bookings',
             'chatbot',
+            'offers',
+            'menu',
+            'careers',
+            'video',
           ],
         },
         moduleType: {
@@ -102,6 +107,10 @@ function clientToolDefs() {
             'events',
             'bookings',
             'chatbot',
+            'offers',
+            'menu',
+            'careers',
+            'video',
           ],
         },
         title: STR,
@@ -595,6 +604,212 @@ function clientToolDefs() {
     {
       name: 'team.delete',
       description: 'Delete a team member by id. Standard/Premium.',
+      inputSchema: schema({ id: ID, leadId: ID }, ['id']),
+    },
+    {
+      name: 'offers.list',
+      description:
+        'List special offers for a lead (portal view includes expired offers flagged; public sites never render expired ones). Standard/Premium.',
+      inputSchema: schema({ leadId: ID, includeDrafts: { type: 'boolean' } }),
+    },
+    {
+      name: 'offers.create',
+      description: 'Create a special offer. Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          title: STR,
+          description: STR,
+          code: STR,
+          terms: STR,
+          expires_at: STR,
+          image_url: STR,
+          status: STR,
+          sort_order: NUM,
+        },
+        ['title']
+      ),
+    },
+    {
+      name: 'offers.update',
+      description: 'Update a special offer by id. Standard/Premium.',
+      inputSchema: schema(
+        {
+          id: ID,
+          leadId: ID,
+          title: STR,
+          description: STR,
+          code: STR,
+          terms: STR,
+          expires_at: STR,
+          image_url: STR,
+          status: STR,
+          sort_order: NUM,
+        },
+        ['id']
+      ),
+    },
+    {
+      name: 'offers.delete',
+      description: 'Delete a special offer by id. Standard/Premium.',
+      inputSchema: schema({ id: ID, leadId: ID }, ['id']),
+    },
+    {
+      name: 'menu.list',
+      description: 'List menu / price-list items for a lead (each item carries its category name). Standard/Premium.',
+      inputSchema: schema({ leadId: ID, includeDrafts: { type: 'boolean' } }),
+    },
+    {
+      name: 'menu.create',
+      description:
+        'Create a menu item. Pass category_id, or category_name to find-or-create a category. Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          name: STR,
+          category_id: ID,
+          category_name: STR,
+          description: STR,
+          price_text: STR,
+          tags: STR,
+          status: STR,
+          sort_order: NUM,
+        },
+        ['name']
+      ),
+    },
+    {
+      name: 'menu.update',
+      description: 'Update a menu item by id. Standard/Premium.',
+      inputSchema: schema(
+        {
+          id: ID,
+          leadId: ID,
+          name: STR,
+          category_id: ID,
+          category_name: STR,
+          description: STR,
+          price_text: STR,
+          tags: STR,
+          status: STR,
+          sort_order: NUM,
+        },
+        ['id']
+      ),
+    },
+    {
+      name: 'menu.delete',
+      description: 'Delete a menu item by id. Standard/Premium.',
+      inputSchema: schema({ id: ID, leadId: ID }, ['id']),
+    },
+    {
+      name: 'menu.addCategory',
+      description: 'Create a menu category. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, name: STR, status: STR, sort_order: NUM }, ['name']),
+    },
+    {
+      name: 'menu.updateCategory',
+      description: 'Rename or reorder a menu category by id. Standard/Premium.',
+      inputSchema: schema({ id: ID, leadId: ID, name: STR, status: STR, sort_order: NUM }, ['id']),
+    },
+    {
+      name: 'menu.deleteCategory',
+      description:
+        'Delete a menu category by id. Its items are kept and become uncategorized. Standard/Premium.',
+      inputSchema: schema({ id: ID, leadId: ID }, ['id']),
+    },
+    {
+      name: 'careers.list',
+      description: 'List careers postings for a lead (public sites only render active postings). Standard/Premium.',
+      inputSchema: schema({ leadId: ID, includeInactive: { type: 'boolean' } }),
+    },
+    {
+      name: 'careers.create',
+      description:
+        'Create a careers posting. apply_mode is email | url | form; apply_target is the email, URL, or form page. Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          title: STR,
+          employment_type: STR,
+          location: STR,
+          description: STR,
+          apply_mode: STR,
+          apply_target: STR,
+          active: { type: 'boolean' },
+          status: STR,
+          sort_order: NUM,
+        },
+        ['title']
+      ),
+    },
+    {
+      name: 'careers.update',
+      description: 'Update a careers posting by id. Standard/Premium.',
+      inputSchema: schema(
+        {
+          id: ID,
+          leadId: ID,
+          title: STR,
+          employment_type: STR,
+          location: STR,
+          description: STR,
+          apply_mode: STR,
+          apply_target: STR,
+          active: { type: 'boolean' },
+          status: STR,
+          sort_order: NUM,
+        },
+        ['id']
+      ),
+    },
+    {
+      name: 'careers.delete',
+      description: 'Delete a careers posting by id. Standard/Premium.',
+      inputSchema: schema({ id: ID, leadId: ID }, ['id']),
+    },
+    {
+      name: 'video.list',
+      description: 'List videos for a lead. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, includeDrafts: { type: 'boolean' } }),
+    },
+    {
+      name: 'video.create',
+      description:
+        'Add a video. url must be a YouTube or Vimeo video URL; provider, embed URL and (YouTube) thumbnail are derived automatically. Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          title: STR,
+          url: STR,
+          description: STR,
+          thumbnail_url: STR,
+          status: STR,
+          sort_order: NUM,
+        },
+        ['title', 'url']
+      ),
+    },
+    {
+      name: 'video.update',
+      description: 'Update a video by id. Standard/Premium.',
+      inputSchema: schema(
+        {
+          id: ID,
+          leadId: ID,
+          title: STR,
+          url: STR,
+          description: STR,
+          thumbnail_url: STR,
+          status: STR,
+          sort_order: NUM,
+        },
+        ['id']
+      ),
+    },
+    {
+      name: 'video.delete',
+      description: 'Delete a video by id. Standard/Premium.',
       inputSchema: schema({ id: ID, leadId: ID }, ['id']),
     },
     {
@@ -2157,6 +2372,25 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'team.create',
     'team.update',
     'team.delete',
+    'offers.list',
+    'offers.create',
+    'offers.update',
+    'offers.delete',
+    'menu.list',
+    'menu.create',
+    'menu.update',
+    'menu.delete',
+    'menu.addCategory',
+    'menu.updateCategory',
+    'menu.deleteCategory',
+    'careers.list',
+    'careers.create',
+    'careers.update',
+    'careers.delete',
+    'video.list',
+    'video.create',
+    'video.update',
+    'video.delete',
     'events.list',
     'events.create',
     'events.update',
@@ -2614,6 +2848,158 @@ async function callClientTool(ws, name, a, ctx = {}) {
     return domain.withDb(ws, (db) => ({
       plan: planId,
       ...modules.deleteTeamMember(db, leadId || Number(ctx.leadId), id),
+    }));
+  }
+
+  if (name === 'offers.list') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      offers: modules.listOffers(db, leadId, { includeDrafts: a.includeDrafts !== false }),
+    }));
+  }
+  if (name === 'offers.create') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({ plan: planId, offer: modules.createOffer(db, leadId, a) }));
+  }
+  if (name === 'offers.update') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      offer: modules.updateOffer(db, leadId || Number(ctx.leadId), id, a),
+    }));
+  }
+  if (name === 'offers.delete') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      ...modules.deleteOffer(db, leadId || Number(ctx.leadId), id),
+    }));
+  }
+
+  if (name === 'menu.list') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      items: modules.listMenuItems(db, leadId, { includeDrafts: a.includeDrafts !== false }),
+      categories: modules.listMenuCategories(db, leadId, { includeDrafts: a.includeDrafts !== false }),
+    }));
+  }
+  if (name === 'menu.create') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({ plan: planId, item: modules.createMenuItem(db, leadId, a) }));
+  }
+  if (name === 'menu.update') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      item: modules.updateMenuItem(db, leadId || Number(ctx.leadId), id, a),
+    }));
+  }
+  if (name === 'menu.delete') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      ...modules.deleteMenuItem(db, leadId || Number(ctx.leadId), id),
+    }));
+  }
+  if (name === 'menu.addCategory') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({ plan: planId, category: modules.createMenuCategory(db, leadId, a) }));
+  }
+  if (name === 'menu.updateCategory') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      category: modules.updateMenuCategory(db, leadId || Number(ctx.leadId), id, a),
+    }));
+  }
+  if (name === 'menu.deleteCategory') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      ...modules.deleteMenuCategory(db, leadId || Number(ctx.leadId), id),
+    }));
+  }
+
+  if (name === 'careers.list') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      postings: modules.listCareersPostings(db, leadId, { includeInactive: a.includeInactive !== false }),
+    }));
+  }
+  if (name === 'careers.create') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({ plan: planId, posting: modules.createCareersPosting(db, leadId, a) }));
+  }
+  if (name === 'careers.update') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      posting: modules.updateCareersPosting(db, leadId || Number(ctx.leadId), id, a),
+    }));
+  }
+  if (name === 'careers.delete') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      ...modules.deleteCareersPosting(db, leadId || Number(ctx.leadId), id),
+    }));
+  }
+
+  if (name === 'video.list') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      videos: modules.listVideoItems(db, leadId, { includeDrafts: a.includeDrafts !== false }),
+    }));
+  }
+  if (name === 'video.create') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({ plan: planId, video: modules.createVideoItem(db, leadId, a) }));
+  }
+  if (name === 'video.update') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      video: modules.updateVideoItem(db, leadId || Number(ctx.leadId), id, a),
+    }));
+  }
+  if (name === 'video.delete') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      ...modules.deleteVideoItem(db, leadId || Number(ctx.leadId), id),
     }));
   }
 

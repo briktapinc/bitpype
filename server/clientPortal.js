@@ -2337,6 +2337,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     modules.ensureTables(db);
     let items = [];
     let booking = null;
+    let menu = null;
     if (type === 'blog') items = modules.listBlogPosts(db, Number(leadId));
     else if (type === 'ecommerce') {
       items = modules.listProducts(db, Number(leadId)).map((p) => ({
@@ -2364,7 +2365,13 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
         active_appointment_count: modules.moduleItemCount(db, Number(leadId), 'bookings'),
         blocks: modules.listBookingBlocks(db, Number(leadId)),
       };
-    } else if (type === 'chatbot') {
+    } else if (type === 'offers') items = modules.listOffers(db, Number(leadId));
+    else if (type === 'menu') {
+      items = modules.listMenuItems(db, Number(leadId));
+      menu = { categories: modules.listMenuCategories(db, Number(leadId)) };
+    } else if (type === 'careers') items = modules.listCareersPostings(db, Number(leadId));
+    else if (type === 'video') items = modules.listVideoItems(db, Number(leadId));
+    else if (type === 'chatbot') {
       const chat = require('./chatbot');
       const summary = chat.portalChatbotSummary(db, Number(leadId));
       const emb = modules.getEmbedRow(db, Number(leadId), type);
@@ -2384,6 +2391,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
       pages: modules.listSitePages(db, Number(leadId)),
     };
     if (booking) out.booking = booking;
+    if (menu) out.categories = menu.categories;
     return out;
   });
 }
@@ -2405,6 +2413,10 @@ async function createModuleItem(workspaceId, leadId, moduleType, body, clientEma
     else if (type === 'team') item = modules.createTeamMember(db, Number(leadId), body || {});
     else if (type === 'events') item = modules.createEvent(db, Number(leadId), body || {});
     else if (type === 'bookings') item = modules.createBookingService(db, Number(leadId), body || {});
+    else if (type === 'offers') item = modules.createOffer(db, Number(leadId), body || {});
+    else if (type === 'menu') item = modules.createMenuItem(db, Number(leadId), body || {});
+    else if (type === 'careers') item = modules.createCareersPosting(db, Number(leadId), body || {});
+    else if (type === 'video') item = modules.createVideoItem(db, Number(leadId), body || {});
     else if (type === 'chatbot') {
       const chat = require('./chatbot');
       item = chat.addKnowledge(db, Number(leadId), body || {});
@@ -2430,6 +2442,10 @@ async function updateModuleItem(workspaceId, leadId, moduleType, id, body, clien
     else if (type === 'team') item = modules.updateTeamMember(db, Number(leadId), id, body || {});
     else if (type === 'events') item = modules.updateEvent(db, Number(leadId), id, body || {});
     else if (type === 'bookings') item = modules.updateBookingService(db, Number(leadId), id, body || {});
+    else if (type === 'offers') item = modules.updateOffer(db, Number(leadId), id, body || {});
+    else if (type === 'menu') item = modules.updateMenuItem(db, Number(leadId), id, body || {});
+    else if (type === 'careers') item = modules.updateCareersPosting(db, Number(leadId), id, body || {});
+    else if (type === 'video') item = modules.updateVideoItem(db, Number(leadId), id, body || {});
     else if (type === 'chatbot') {
       const chat = require('./chatbot');
       item = chat.updateKnowledge(db, Number(leadId), id, body || {});
@@ -2454,6 +2470,10 @@ async function deleteModuleItem(workspaceId, leadId, moduleType, id, clientEmail
     if (type === 'team') return modules.deleteTeamMember(db, Number(leadId), id);
     if (type === 'events') return modules.deleteEvent(db, Number(leadId), id);
     if (type === 'bookings') return modules.deleteBookingService(db, Number(leadId), id);
+    if (type === 'offers') return modules.deleteOffer(db, Number(leadId), id);
+    if (type === 'menu') return modules.deleteMenuItem(db, Number(leadId), id);
+    if (type === 'careers') return modules.deleteCareersPosting(db, Number(leadId), id);
+    if (type === 'video') return modules.deleteVideoItem(db, Number(leadId), id);
     if (type === 'chatbot') {
       const chat = require('./chatbot');
       return chat.deleteKnowledge(db, Number(leadId), id);
@@ -2636,6 +2656,36 @@ async function addModuleChild(workspaceId, leadId, moduleType, parentId, body, c
       status: 400,
     });
   });
+}
+
+async function listMenuCategories(workspaceId, leadId, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => ({
+    categories: modules.listMenuCategories(db, Number(leadId)),
+  }));
+}
+
+async function createMenuCategory(workspaceId, leadId, body, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => modules.createMenuCategory(db, Number(leadId), body || {}));
+}
+
+async function updateMenuCategory(workspaceId, leadId, id, body, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => modules.updateMenuCategory(db, Number(leadId), id, body || {}));
+}
+
+async function deleteMenuCategory(workspaceId, leadId, id, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => modules.deleteMenuCategory(db, Number(leadId), id));
 }
 
 async function deleteModuleChild(workspaceId, leadId, moduleType, childId, clientEmail) {
@@ -3171,6 +3221,10 @@ module.exports = {
   deleteModuleItem,
   addModuleChild,
   deleteModuleChild,
+  listMenuCategories,
+  createMenuCategory,
+  updateMenuCategory,
+  deleteMenuCategory,
   attachSiteModule,
   detachSiteModule,
   getChatbotAdmin,

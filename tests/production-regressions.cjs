@@ -226,6 +226,136 @@ async function main() {
   assert.equal(designJobs.listChangeRequests(db, 101).length, 2, 'no cross-lead leakage from route submissions');
   results.push('portal /changes routes: session-scoped history read + record-on-submit');
 
+  // ── Batch 12: offers / menu / careers / video site modules ──
+  const sm12 = load('server/siteModules.js', {
+    '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
+  });
+  sm12.ensureTables(db);
+  assert.equal(Object.keys(sm12.MODULE_META).length, 15, 'module catalog has 15 types');
+  for (const t of ['offers', 'menu', 'careers', 'video']) assert(sm12.MODULE_META[t], 'meta for ' + t);
+  check('batch12 catalog: 15 module types incl. offers/menu/careers/video', () => {});
+
+  // Offers: CRUD + per-lead scoping + expiry rules.
+  const offerA = sm12.createOffer(db, 201, { title: 'Spring Deal', code: 'SPRING', expires_at: '2999-01-01', status: 'published' });
+  const offerOld = sm12.createOffer(db, 201, { title: 'Ancient Deal', expires_at: '2000-01-01', status: 'published' });
+  const offerDraft = sm12.createOffer(db, 201, { title: 'Draft Deal' });
+  assert.equal(sm12.listOffers(db, 201).length, 3);
+  assert.equal(sm12.listOffers(db, 202).length, 0, 'offers are lead-scoped');
+  assert.equal(sm12.getOffer(db, 202, offerA.id), undefined, 'cross-lead get returns nothing');
+  assert.equal(sm12.getOffer(db, 201, offerOld.id).expired, 1, 'portal row flags expired');
+  const publicOffers = sm12.listOffers(db, 201, { includeDrafts: false });
+  assert.equal(publicOffers.length, 1, 'public list hides expired + drafts');
+  assert.equal(publicOffers[0].id, offerA.id);
+  assert.throws(() => sm12.createOffer(db, 201, { title: 'Bad', expires_at: 'next Friday' }), (e) => e.code === 'VALIDATION');
+  sm12.updateOffer(db, 201, offerDraft.id, { status: 'published', expires_at: '2000-06-01' });
+  assert.equal(sm12.listOffers(db, 201, { includeDrafts: false }).length, 1, 'newly expired offer hides too');
+  assert.equal(sm12.moduleItemCount(db, 201, 'offers'), 3);
+  check('batch12 offers: CRUD, lead scoping, expired hidden from public list but flagged in portal list', () => {});
+
+  // Menu: categories + items.
+  const catMains = sm12.createMenuCategory(db, 201, { name: 'Mains' });
+  const burger = sm12.createMenuItem(db, 201, { name: 'Smash Burger', price_text: '$14', category_id: catMains.id, status: 'published' });
+  assert.equal(burger.category_name, 'Mains');
+  const fries = sm12.createMenuItem(db, 201, { name: 'Fries', price_text: 'Market price', category_name: 'Sides', status: 'published' });
+  assert.equal(fries.category_name, 'Sides', 'category_name find-or-creates');
+  assert.equal(sm12.listMenuCategories(db, 201).length, 2);
+  const secret = sm12.createMenuItem(db, 201, { name: 'Secret Sauce', category_name: 'Sides' });
+  assert.equal(sm12.listMenuCategories(db, 201).length, 2, 'find-or-create reuses the category');
+  assert.equal(sm12.listMenuItems(db, 201, { includeDrafts: false }).length, 2, 'draft menu items hidden publicly');
+  assert.equal(sm12.listMenuItems(db, 202).length, 0, 'menu items are lead-scoped');
+  const otherCat = sm12.createMenuCategory(db, 202, { name: 'Foreign' });
+  assert.throws(() => sm12.createMenuItem(db, 201, { name: 'X', category_id: otherCat.id }), (e) => e.code === 'VALIDATION');
+  sm12.deleteMenuCategory(db, 201, catMains.id);
+  assert.equal(sm12.getMenuItem(db, 201, burger.id).category_id, null, 'category delete unlinks items, keeps them');
+  assert.equal(sm12.moduleItemCount(db, 201, 'menu'), 3);
+  check('batch12 menu: categories CRUD, find-or-create, cross-lead category rejected, delete keeps items', () => {});
+
+  // Careers: defaults, validation, inactive hiding.
+  const jobA = sm12.createCareersPosting(db, 201, { title: 'Line Cook', apply_mode: 'email', apply_target: 'jobs@example.invalid' });
+  assert.equal(jobA.employment_type, 'Full-time');
+  assert.equal(jobA.status, 'active');
+  const jobOff = sm12.createCareersPosting(db, 201, { title: 'Filled Role', active: 0 });
+  assert.equal(jobOff.status, 'inactive');
+  assert.equal(sm12.listCareersPostings(db, 201).length, 2);
+  assert.equal(sm12.listCareersPostings(db, 201, { includeInactive: false }).length, 1, 'inactive postings hidden publicly');
+  assert.equal(sm12.listCareersPostings(db, 202).length, 0, 'postings are lead-scoped');
+  assert.throws(
+    () => sm12.createCareersPosting(db, 201, { title: 'Bad Apply', apply_mode: 'email', apply_target: 'not-an-email' }),
+    (e) => e.code === 'VALIDATION'
+  );
+  assert.throws(
+    () => sm12.createCareersPosting(db, 201, { title: 'Bad URL', apply_mode: 'url', apply_target: 'ftp://x' }),
+    (e) => e.code === 'VALIDATION'
+  );
+  sm12.updateCareersPosting(db, 201, jobA.id, { status: 'inactive' });
+  assert.equal(sm12.getCareersPosting(db, 201, jobA.id).active, 0, 'portal status select maps to active flag');
+  sm12.updateCareersPosting(db, 201, jobA.id, { status: 'active' });
+  assert.equal(sm12.moduleItemCount(db, 201, 'careers'), 2);
+  check('batch12 careers: defaults, apply validation, inactive hidden, status<->active mapping', () => {});
+
+  // Video: URL validation matrix + derived fields.
+  const vidYt = sm12.createVideoItem(db, 201, { title: 'Tour', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', status: 'published' });
+  assert.equal(vidYt.provider, 'youtube');
+  assert.equal(vidYt.embed_url, 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ');
+  assert.equal(vidYt.thumbnail_url, 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg');
+  const vidShort = sm12.createVideoItem(db, 201, { title: 'Short', url: 'https://youtu.be/dQw4w9WgXcQ' });
+  assert.equal(vidShort.video_id, 'dQw4w9WgXcQ');
+  const vidVimeo = sm12.createVideoItem(db, 201, { title: 'Vim', url: 'https://vimeo.com/123456789' });
+  assert.equal(vidVimeo.embed_url, 'https://player.vimeo.com/video/123456789');
+  assert.equal(vidVimeo.thumbnail_url, '', 'vimeo has no derived thumbnail');
+  for (const bad of ['https://example.com/v.mp4', 'https://www.youtube.com/', 'not a url', 'https://vimeo.com/about', '']) {
+    assert.throws(() => sm12.createVideoItem(db, 201, { title: 'Bad', url: bad }), (e) => e.code === 'VALIDATION', 'rejects ' + bad);
+  }
+  const vidUpdated = sm12.updateVideoItem(db, 201, vidShort.id, { url: 'https://www.youtube.com/shorts/abcDEF123_-' });
+  assert.equal(vidUpdated.video_id, 'abcDEF123_-', 'update re-derives provider fields');
+  assert.equal(sm12.listVideoItems(db, 202).length, 0, 'videos are lead-scoped');
+  assert.equal(sm12.moduleItemCount(db, 201, 'video'), 3);
+  check('batch12 video: YouTube/Vimeo URL matrix, derived embed + thumbnail, rejections', () => {});
+
+  // Public payload via a published embed row (token surface used by module-embed.js).
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (201, 'Fixture Modules', 'modules@example.invalid')").run();
+  const homePages = JSON.stringify([{ slug: 'index', file: 'index.html', title: 'Home', nav_label: 'Home', html: '<p>hi</p>', sections: [] }]);
+  db.prepare('INSERT INTO websites (lead_id, name, theme, pages) VALUES (201, ?, ?, ?)').run(
+    'Fixture Site',
+    '{}',
+    homePages
+  );
+  const embOffersRes = sm12.attachModule(db, 201, 'offers', { workspaceId: 1, appUrl: 'https://example.test' });
+  const embOffers = embOffersRes.embed;
+  assert(embOffers && embOffers.public_token, 'attach returns an embed with a token');
+  const pubOffers = sm12.getPublicModuleByToken(db, embOffers.public_token);
+  assert.equal(pubOffers.module_type, 'offers');
+  assert.deepEqual(pubOffers.items.map((i) => i.id), [offerA.id], 'public payload excludes expired offers');
+  assert.throws(() => sm12.getPublicModuleItem(db, embOffers.public_token, offerOld.id), (e) => e.code === 'NOT_FOUND');
+  const embMenu = sm12.attachModule(db, 201, 'menu', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
+  const pubMenu = sm12.getPublicModuleByToken(db, embMenu.public_token);
+  assert.equal(pubMenu.items.length, 2);
+  assert.deepEqual(pubMenu.categories.map((c) => c.name), ['Sides'], 'public categories only include ones with published items');
+  const embCareers = sm12.attachModule(db, 201, 'careers', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
+  const pubCareers = sm12.getPublicModuleByToken(db, embCareers.public_token);
+  assert.deepEqual(pubCareers.items.map((i) => i.id), [jobA.id], 'public payload excludes inactive postings');
+  assert.throws(() => sm12.getPublicModuleItem(db, embCareers.public_token, jobOff.id), (e) => e.code === 'NOT_FOUND');
+  const embVideo = sm12.attachModule(db, 201, 'video', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
+  const pubVideo = sm12.getPublicModuleByToken(db, embVideo.public_token);
+  assert.equal(pubVideo.items.length, 1, 'only published videos surface');
+  assert.equal(pubVideo.items[0].embed_url, 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ');
+  const summary12 = sm12.portalSummary(db, 201);
+  assert.equal(summary12.modules.length, 15, 'portal summary lists all 15 module types');
+  check('batch12 public payloads: token surface filters expired/inactive/draft; portal summary = 15 types', () => {});
+
+  // Attach injects nav pages; detach removes them.
+  const siteRow = db.prepare('SELECT pages FROM websites WHERE lead_id = 201').get();
+  const pagesAfterAttach = JSON.parse(siteRow.pages);
+  for (const slug of ['offers', 'menu', 'careers', 'videos']) {
+    assert(pagesAfterAttach.some((p) => p.slug === slug), 'nav page injected for ' + slug);
+  }
+  for (const t of ['offers', 'menu', 'careers', 'video']) sm12.detachModule(db, 201, t);
+  const embedsAfterDetach = sm12.listEmbeds(db, 201);
+  assert.equal(embedsAfterDetach.length, 4, 'detach keeps embed rows (soft-disable, same as existing modules)');
+  assert(embedsAfterDetach.every((e) => !e.embed_enabled && !e.published), 'detach disables + unpublishes every embed');
+  assert.throws(() => sm12.getPublicModuleByToken(db, embOffers.public_token), (e) => e.code === 'NOT_FOUND', 'detached module token no longer serves');
+  check('batch12 attach/detach: nav pages injected for all four modules; detach soft-disables and the token stops serving', () => {});
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});
