@@ -3676,9 +3676,10 @@
     { type: 'careers', label: 'Careers' },
     { type: 'video', label: 'Video' },
     { type: 'estimate', label: 'Instant Estimate' },
+    { type: 'socialfeed', label: 'Social Feed' },
   ];
   const MODULE_NAV_GROUPS = [
-    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate'] },
+    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed'] },
     { id: 'people', label: 'People', types: ['team', 'testimonials', 'careers'] },
     { id: 'schedule', label: 'Schedule', types: ['events', 'bookings'] },
     { id: 'assist', label: 'Assist', types: ['chatbot'] },
@@ -3700,6 +3701,7 @@
     careers: { singular: 'posting', plural: 'postings', newBtn: 'New posting', kicker: 'Job posting' },
     video: { singular: 'video', plural: 'videos', newBtn: 'New video', kicker: 'Video' },
     estimate: { singular: 'option', plural: 'options', newBtn: 'New option', kicker: 'Estimate option' },
+    socialfeed: { singular: 'post', plural: 'posts', newBtn: 'New post', kicker: 'Social post' },
   };
   const BOOKING_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const MODULE_STORAGE_KEY = 'bp-portal-module';
@@ -3750,6 +3752,10 @@
   }
 
   function moduleFieldDefs(type) {
+    if (type === 'socialfeed') {
+      // Automatic module — no item editor; the Feed pane carries the settings.
+      return [];
+    }
     if (type === 'blog') {
       return [
         { key: 'title', label: 'Title', required: true },
@@ -3984,12 +3990,14 @@
     const chatInboxPane = document.getElementById('modules-pane-chat-inbox');
     const estCalcPane = document.getElementById('modules-pane-estimate-calc');
     const estReqPane = document.getElementById('modules-pane-estimate-requests');
+    const sfPane = document.getElementById('modules-pane-socialfeed');
     const results = document.getElementById('modules-pane-results');
     const bookingPanel = document.getElementById('modules-booking-panel');
     const isBookings = moduleState.current === 'bookings';
     const isChatbot = moduleState.current === 'chatbot';
     const isEstimate = moduleState.current === 'estimate';
-    const showTabs = isBookings || isChatbot || isEstimate;
+    const isSocialfeed = moduleState.current === 'socialfeed';
+    const showTabs = isBookings || isChatbot || isEstimate || isSocialfeed;
     if (isBookings) {
       const allowed = new Set(['content', 'hours', 'appointments']);
       if (!allowed.has(moduleState.pane)) moduleState.pane = 'content';
@@ -3999,6 +4007,9 @@
     } else if (isEstimate) {
       const allowed = new Set(['content', 'calc', 'requests']);
       if (!allowed.has(moduleState.pane)) moduleState.pane = 'content';
+    } else if (isSocialfeed) {
+      // The feed has no item list — its only pane is the Feed pane.
+      moduleState.pane = 'feed';
     } else {
       moduleState.pane = 'content';
     }
@@ -4007,7 +4018,13 @@
       tabs.setAttribute('aria-hidden', showTabs ? 'false' : 'true');
       tabs.setAttribute(
         'aria-label',
-        isChatbot ? 'Chatbot sections' : isEstimate ? 'Estimate sections' : 'Bookings sections'
+        isChatbot
+          ? 'Chatbot sections'
+          : isEstimate
+            ? 'Estimate sections'
+            : isSocialfeed
+              ? 'Social Feed sections'
+              : 'Bookings sections'
       );
       tabs.querySelectorAll('[data-modules-pane]').forEach((btn) => {
         const pane = btn.getAttribute('data-modules-pane');
@@ -4021,7 +4038,8 @@
           ? (isBookings && forAttr === 'bookings') ||
             (isChatbot && forAttr === 'chatbot') ||
             (isEstimate && forAttr === 'estimate') ||
-            (forAttr === 'both' && showTabs)
+            (isSocialfeed && forAttr === 'socialfeed') ||
+            (forAttr === 'both' && showTabs && !isSocialfeed)
           : visible;
         btn.hidden = !showBtn;
         if (pane === 'content' && showBtn) {
@@ -4041,6 +4059,7 @@
     if (chatInboxPane) chatInboxPane.hidden = !(isChatbot && moduleState.pane === 'inbox');
     if (estCalcPane) estCalcPane.hidden = !(isEstimate && moduleState.pane === 'calc');
     if (estReqPane) estReqPane.hidden = !(isEstimate && moduleState.pane === 'requests');
+    if (sfPane) sfPane.hidden = !(isSocialfeed && moduleState.pane === 'feed');
     if (results) results.hidden = true;
     if (bookingPanel) bookingPanel.hidden = true;
     if (isChatbot && moduleState.pane === 'settings') renderChatbotSettingsPanel();
@@ -4071,7 +4090,9 @@
       sub.textContent =
         moduleState.current === 'faq'
           ? 'Manage questions for your FAQ module. These are separate from your site’s designed FAQ section, which is edited under Website.'
-          : `Manage ${copy.plural} for your ${(meta && meta.label) || 'module'}.`;
+          : moduleState.current === 'socialfeed'
+            ? 'Your feed updates itself from your social posts — there is nothing to add by hand.'
+            : `Manage ${copy.plural} for your ${(meta && meta.label) || 'module'}.`;
     }
     const newBtn = document.getElementById('btn-modules-new');
     if (newBtn) newBtn.textContent = copy.newBtn;
@@ -4096,6 +4117,7 @@
       careers: 'careers',
       video: 'videos',
       estimate: 'estimate',
+      socialfeed: 'social-feed',
     };
     let want = selected || defaults[moduleState.current] || 'home';
     const opts = Array.isArray(pages) && pages.length ? pages : [{ slug: want, title: want }];
@@ -4570,6 +4592,72 @@
     }
   }
 
+  function renderSocialFeedAdminPanel() {
+    const host = document.getElementById('modules-socialfeed-panel');
+    if (!host) return;
+    if (moduleState.current !== 'socialfeed') {
+      host.innerHTML = '';
+      return;
+    }
+    const feed = moduleState.socialfeed || {};
+    const cfg = feed.config || {};
+    const items = Array.isArray(feed.items) ? feed.items : [];
+    const accounts = Array.isArray(feed.accounts) ? feed.accounts : [];
+    const connected = accounts.filter((a) => a.status === 'active' && a.has_token);
+    const netLabel = (n) => (n === 'instagram' ? 'Instagram' : 'Facebook');
+    const whenLabel = (v) => {
+      const t = Date.parse(String(v || '').replace(' ', 'T') + (String(v || '').includes('T') ? '' : 'Z'));
+      return Number.isFinite(t) ? new Date(t).toLocaleDateString() : '';
+    };
+    const previewHtml = items.length
+      ? items
+          .map(
+            (it) => `
+        <div class="row" style="justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line,#e6e0d8)">
+          <div style="display:flex;gap:10px;align-items:flex-start">
+            ${it.image_url ? `<img src="${esc(it.image_url)}" alt="" style="width:52px;height:52px;object-fit:cover;border-radius:8px" />` : ''}
+            <div>
+              <strong>${esc(netLabel(it.network))}</strong>
+              <span class="hint"> · ${esc(whenLabel(it.published_at))}${it.source === 'bitpype' ? ' · posted via BitPype' : ''}</span>
+              <div>${esc(it.text || '')}</div>
+              ${it.permalink ? `<div class="hint"><a href="${esc(it.permalink)}" target="_blank" rel="noopener">View post</a></div>` : ''}
+            </div>
+          </div>
+        </div>`
+          )
+          .join('')
+      : '<p class="hint">Nothing to show yet. Posts you publish through BitPype appear here automatically — and on your site’s Social Feed page.</p>';
+    host.innerHTML = `
+      <h3>Social Feed</h3>
+      <p class="hint">${esc(feed.source_note || 'Shows the posts published through BitPype.')}</p>
+      ${
+        connected.length
+          ? `<p class="hint">Connected: ${connected.map((a) => `${esc(netLabel(a.platform))} — ${esc(a.account_name || '')}`).join(' · ')}${
+              feed.last_fetched_at ? ` · last checked ${esc(feed.last_fetched_at)}` : ''
+            }</p>`
+          : '<p class="hint">No social account connected yet — connect one under Social to pull in your latest posts directly.</p>'
+      }
+      <div class="field"><label>Show posts from</label>
+        <select id="socialfeed-networks">
+          <option value="both"${cfg.networks !== 'facebook' && cfg.networks !== 'instagram' ? ' selected' : ''}>Facebook and Instagram</option>
+          <option value="facebook"${cfg.networks === 'facebook' ? ' selected' : ''}>Facebook only</option>
+          <option value="instagram"${cfg.networks === 'instagram' ? ' selected' : ''}>Instagram only</option>
+        </select></div>
+      <div class="field"><label>Posts to show</label>
+        <input type="number" id="socialfeed-max-posts" value="${esc(cfg.max_posts != null ? cfg.max_posts : 6)}" min="1" max="24" /></div>
+      <div class="field"><label>Layout</label>
+        <select id="socialfeed-layout">
+          <option value="grid"${cfg.layout !== 'list' ? ' selected' : ''}>Grid of cards</option>
+          <option value="list"${cfg.layout === 'list' ? ' selected' : ''}>Simple list</option>
+        </select></div>
+      <div class="row" style="gap:6px">
+        <button type="button" class="btn soft small" id="btn-socialfeed-config-save">Save feed settings</button>
+        <button type="button" class="btn ghost small" id="btn-socialfeed-refresh">Check for new posts now</button>
+      </div>
+      <h3 style="margin-top:18px">What your visitors will see</h3>
+      <div id="modules-socialfeed-preview">${previewHtml}</div>`;
+  }
+
   function moduleModalMsg(text, ok) {
     const el = document.getElementById('msg-modules-modal');
     if (!el) return;
@@ -4821,6 +4909,7 @@
     moduleState.booking = data.booking || null;
     moduleState.chatbot = data.chatbot || null;
     moduleState.estimate = data.estimate || null;
+    moduleState.socialfeed = data.socialfeed || null;
     moduleState.categories = Array.isArray(data.categories) ? data.categories : [];
     if (type === 'bookings') {
       const booking = moduleState.booking || {};
@@ -4835,6 +4924,7 @@
     renderModuleEmbedBar();
     renderBookingAdminPanel();
     renderEstimateAdminPanel();
+    renderSocialFeedAdminPanel();
     renderMenuCategoriesPanel();
     syncModulesPaneTabs();
   }
@@ -6304,6 +6394,38 @@
             }),
           });
           moduleMsg('Calculator saved.', true);
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg(e.message, false);
+        }
+      }
+      if (ev.target && ev.target.id === 'btn-socialfeed-config-save') {
+        const val = (id) => {
+          const n = document.getElementById(id);
+          return n ? n.value : undefined;
+        };
+        moduleMsg('Saving feed settings…', true);
+        try {
+          await api('/modules/socialfeed/config', {
+            method: 'PUT',
+            body: JSON.stringify({
+              networks: val('socialfeed-networks'),
+              max_posts: Number(val('socialfeed-max-posts')),
+              layout: val('socialfeed-layout'),
+            }),
+          });
+          moduleMsg('Feed settings saved.', true);
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg(e.message, false);
+        }
+      }
+      if (ev.target && ev.target.id === 'btn-socialfeed-refresh') {
+        moduleMsg('Checking for new posts…', true);
+        try {
+          const r = await api('/modules/socialfeed/refresh', { method: 'POST', body: '{}' });
+          if (r && r.preview) moduleState.socialfeed = r.preview;
+          moduleMsg('Feed is up to date.', true);
           await loadModuleItems();
         } catch (e) {
           moduleMsg(e.message, false);

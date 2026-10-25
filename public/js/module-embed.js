@@ -251,6 +251,18 @@
       '.bitpype-module-embed .bp-est-total-label{font-weight:700;color:var(--bp-mod-muted);}',
       '.bitpype-module-embed .bp-est-total-value{font-size:1.45rem;font-weight:800;color:var(--bp-mod-accent);letter-spacing:-0.01em;}',
       '.bitpype-module-embed .bp-est-disclaimer{margin:0;color:var(--bp-mod-muted);font-size:0.85rem;line-height:1.5;}',
+      // Social Feed
+      '.bitpype-module-embed .bp-mod-socialfeed{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1.1rem;}',
+      '.bitpype-module-embed .bp-mod-socialfeed.is-list{display:flex;flex-direction:column;gap:0.9rem;max-width:760px;}',
+      '.bitpype-module-embed .bp-mod-social-card{border:1px solid var(--bp-mod-line);border-radius:1.1rem;background:var(--bp-mod-paper);overflow:hidden;display:flex;flex-direction:column;}',
+      '.bitpype-module-embed .bp-mod-social-card img{width:100%;height:180px;object-fit:cover;display:block;}',
+      '.bitpype-module-embed .bp-mod-socialfeed.is-list .bp-mod-social-card img{height:150px;}',
+      '.bitpype-module-embed .bp-mod-social-body{padding:0.95rem 1.05rem 1.1rem;display:flex;flex-direction:column;gap:0.5rem;flex:1;}',
+      '.bitpype-module-embed .bp-mod-social-meta{display:flex;align-items:center;gap:0.55rem;font-size:0.84rem;color:var(--bp-mod-muted);}',
+      '.bitpype-module-embed .bp-mod-social-badge{font-weight:800;text-transform:uppercase;letter-spacing:0.05em;font-size:0.68rem;color:var(--bp-mod-accent);border:1px solid currentColor;border-radius:999px;padding:0.1rem 0.55rem;}',
+      '.bitpype-module-embed .bp-mod-social-text{margin:0;line-height:1.55;font-size:0.96rem;}',
+      '.bitpype-module-embed .bp-mod-social-link{margin-top:auto;font-weight:700;color:var(--bp-mod-accent);text-decoration:none;font-size:0.9rem;}',
+      '.bitpype-module-embed .bp-mod-social-link:hover{text-decoration:underline;}',
     ].join('');
     var style = document.createElement('style');
     style.id = STYLE_ID;
@@ -320,6 +332,10 @@
     }
     if (type === 'careers') {
       // No public empty state for Careers — the section renders nothing.
+      return { kicker: '', title: '', text: '' };
+    }
+    if (type === 'socialfeed') {
+      // No public empty state for Social Feed — the section renders nothing.
       return { kicker: '', title: '', text: '' };
     }
     if (type === 'video') {
@@ -642,6 +658,28 @@
     return html;
   }
 
+  function socialCardHtml(it) {
+    var network = it.network === 'instagram' ? 'Instagram' : 'Facebook';
+    var html = '<article class="bp-mod-social-card">';
+    if (it.image_url) html += '<img src="' + esc(it.image_url) + '" alt="" loading="lazy">';
+    html += '<div class="bp-mod-social-body">';
+    html +=
+      '<p class="bp-mod-social-meta"><span class="bp-mod-social-badge">' +
+      esc(network) +
+      '</span>' +
+      (it.published_at ? '<span>' + esc(dateLabel(it.published_at)) + '</span>' : '') +
+      '</p>';
+    if (it.text) html += '<p class="bp-mod-social-text">' + esc(it.text) + '</p>';
+    if (it.permalink) {
+      html +=
+        '<a class="bp-mod-social-link" href="' +
+        esc(it.permalink) +
+        '" target="_blank" rel="noopener">View post</a>';
+    }
+    html += '</div></article>';
+    return html;
+  }
+
   function wireVideoFacades(root) {
     var btns = root.querySelectorAll('[data-bp-video-embed]');
     for (var i = 0; i < btns.length; i++) {
@@ -676,6 +714,11 @@
     }
     if (type === 'careers' && !items.length) {
       // Careers renders nothing at all when there are no active postings.
+      el.innerHTML = '';
+      return;
+    }
+    if (type === 'socialfeed' && !items.length) {
+      // An empty Social Feed renders nothing at all — no placeholder cards.
       el.innerHTML = '';
       return;
     }
@@ -734,6 +777,16 @@
       html += '</div>';
       el.innerHTML = html;
       wireVideoFacades(el);
+      return;
+    }
+    if (type === 'socialfeed') {
+      var sfLayout = (data.socialfeed && data.socialfeed.layout) || 'grid';
+      html += '<div class="bp-mod-socialfeed' + (sfLayout === 'list' ? ' is-list' : '') + '">';
+      for (var si = 0; si < items.length; si++) {
+        html += socialCardHtml(items[si]);
+      }
+      html += '</div>';
+      el.innerHTML = html;
       return;
     }
     html += '<div class="bp-mod-grid">';

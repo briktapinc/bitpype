@@ -993,6 +993,7 @@ const tools = [
             'careers',
             'video',
             'estimate',
+            'socialfeed',
           ],
         },
         moduleType: {
@@ -1013,6 +1014,7 @@ const tools = [
             'careers',
             'video',
             'estimate',
+            'socialfeed',
           ],
         },
         title: { type: 'string' },
@@ -1996,6 +1998,36 @@ const tools = [
     schema: {
       type: 'object',
       properties: { leadId: { type: 'integer', minimum: 1 }, limit: { type: 'number' } },
+    },
+  },
+  {
+    name: 'socialfeed.getConfig',
+    description: 'Get the Social Feed config for a lead: networks facebook/instagram/both, max_posts 1–24, layout grid/list. The feed is automatic — posts published through BitPype plus, when a Meta account is connected, the account’s latest posts (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: { leadId: { type: 'integer', minimum: 1 } },
+    },
+  },
+  {
+    name: 'socialfeed.updateConfig',
+    description: 'Update the Social Feed config: networks (facebook, instagram or both), max_posts (1–24), layout (grid or list) (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        networks: { type: 'string', enum: ['facebook', 'instagram', 'both'] },
+        max_posts: { type: 'number' },
+        maxPosts: { type: 'number' },
+        layout: { type: 'string', enum: ['grid', 'list'] },
+      },
+    },
+  },
+  {
+    name: 'socialfeed.preview',
+    description: 'Preview exactly what the Social Feed will render for a lead: merged published items, config, connected accounts, and a plain-language note on what the feed shows (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: { leadId: { type: 'integer', minimum: 1 } },
     },
   },
   {

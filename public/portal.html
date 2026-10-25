@@ -1597,6 +1597,7 @@
     #modules-pane-chat-inbox[hidden],
     #modules-pane-estimate-calc[hidden],
     #modules-pane-estimate-requests[hidden],
+    #modules-pane-socialfeed[hidden],
     #modules-pane-results[hidden],
     #modules-booking-panel[hidden],
     #modules-booking-hours-panel[hidden],
@@ -2348,6 +2349,7 @@
                 <button type="button" class="portal-pane-tab" role="tab" data-modules-pane="inbox" data-for="chatbot" aria-selected="false" hidden>Inbox</button>
                 <button type="button" class="portal-pane-tab" role="tab" data-modules-pane="calc" data-for="estimate" aria-selected="false" hidden>Calculator</button>
                 <button type="button" class="portal-pane-tab" role="tab" data-modules-pane="requests" data-for="estimate" aria-selected="false" hidden>Requests</button>
+                <button type="button" class="portal-pane-tab" role="tab" data-modules-pane="feed" data-for="socialfeed" aria-selected="false" hidden>Feed</button>
               </div>
               <div class="panel" id="modules-pane-content">
                 <div class="modules-content-head">
@@ -2378,6 +2380,9 @@
               </div>
               <div id="modules-pane-estimate-requests" class="panel" hidden>
                 <div id="modules-estimate-requests-panel"></div>
+              </div>
+              <div id="modules-pane-socialfeed" class="panel" hidden>
+                <div id="modules-socialfeed-panel"></div>
               </div>
               <!-- legacy hook kept empty for older event binders -->
               <div id="modules-pane-results" hidden>

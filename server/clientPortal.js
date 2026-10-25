@@ -2339,6 +2339,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     let booking = null;
     let menu = null;
     let estimate = null;
+    let socialfeed = null;
     if (type === 'blog') items = modules.listBlogPosts(db, Number(leadId));
     else if (type === 'ecommerce') {
       items = modules.listProducts(db, Number(leadId)).map((p) => ({
@@ -2378,6 +2379,11 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
         config: modules.getEstimateConfig(db, Number(leadId)),
         requests: modules.listEstimateRequests(db, Number(leadId), { limit: 100 }),
       };
+    } else if (type === 'socialfeed') {
+      // Automatic module: no items to manage — the panel shows the feed
+      // config plus a preview of exactly what will render.
+      items = [];
+      socialfeed = modules.socialFeedPreview(db, Number(leadId));
     }
     else if (type === 'chatbot') {
       const chat = require('./chatbot');
@@ -2401,6 +2407,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     if (booking) out.booking = booking;
     if (menu) out.categories = menu.categories;
     if (estimate) out.estimate = estimate;
+    if (socialfeed) out.socialfeed = socialfeed;
     return out;
   });
 }
@@ -2427,6 +2434,11 @@ async function createModuleItem(workspaceId, leadId, moduleType, body, clientEma
     else if (type === 'careers') item = modules.createCareersPosting(db, Number(leadId), body || {});
     else if (type === 'video') item = modules.createVideoItem(db, Number(leadId), body || {});
     else if (type === 'estimate') item = modules.createEstimateOption(db, Number(leadId), body || {});
+    else if (type === 'socialfeed')
+      throw Object.assign(new Error('Social Feed updates itself from your social posts — there are no items to add.'), {
+        code: 'VALIDATION',
+        status: 400,
+      });
     else if (type === 'chatbot') {
       const chat = require('./chatbot');
       item = chat.addKnowledge(db, Number(leadId), body || {});
@@ -2457,6 +2469,11 @@ async function updateModuleItem(workspaceId, leadId, moduleType, id, body, clien
     else if (type === 'careers') item = modules.updateCareersPosting(db, Number(leadId), id, body || {});
     else if (type === 'video') item = modules.updateVideoItem(db, Number(leadId), id, body || {});
     else if (type === 'estimate') item = modules.updateEstimateOption(db, Number(leadId), id, body || {});
+    else if (type === 'socialfeed')
+      throw Object.assign(new Error('Social Feed updates itself from your social posts — there are no items to edit.'), {
+        code: 'VALIDATION',
+        status: 400,
+      });
     else if (type === 'chatbot') {
       const chat = require('./chatbot');
       item = chat.updateKnowledge(db, Number(leadId), id, body || {});
@@ -2486,6 +2503,11 @@ async function deleteModuleItem(workspaceId, leadId, moduleType, id, clientEmail
     if (type === 'careers') return modules.deleteCareersPosting(db, Number(leadId), id);
     if (type === 'video') return modules.deleteVideoItem(db, Number(leadId), id);
     if (type === 'estimate') return modules.deleteEstimateOption(db, Number(leadId), id);
+    if (type === 'socialfeed')
+      throw Object.assign(new Error('Social Feed updates itself from your social posts — there are no items to delete.'), {
+        code: 'VALIDATION',
+        status: 400,
+      });
     if (type === 'chatbot') {
       const chat = require('./chatbot');
       return chat.deleteKnowledge(db, Number(leadId), id);
@@ -2615,6 +2637,28 @@ async function saveEstimateConfig(workspaceId, leadId, body, clientEmail) {
   return domain.withDb(workspaceId, (db) => ({
     config: modules.updateEstimateConfig(db, Number(leadId), body || {}),
   }));
+}
+
+async function saveSocialFeedConfig(workspaceId, leadId, body, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => ({
+    config: modules.updateSocialFeedConfig(db, Number(leadId), body || {}),
+  }));
+}
+
+async function refreshSocialFeed(workspaceId, leadId, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, async (db) => {
+    const result = await modules.refreshSocialFeedRemote(db, Number(leadId), { force: true });
+    return {
+      refreshed: !!result.ok,
+      preview: modules.socialFeedPreview(db, Number(leadId)),
+    };
+  });
 }
 
 async function updateEstimateRequest(workspaceId, leadId, id, body, clientEmail) {
@@ -3270,6 +3314,8 @@ module.exports = {
   saveBookingSettings,
   saveBookingHours,
   saveEstimateConfig,
+  saveSocialFeedConfig,
+  refreshSocialFeed,
   updateEstimateRequest,
   updateBookingAppointment,
   createBookingBlockAdmin,

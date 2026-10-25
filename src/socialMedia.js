@@ -1247,9 +1247,102 @@ function overview(db) {
   };
 }
 
+async function graphGet(path, token, fetchImpl) {
+  const doFetch = fetchImpl || globalThis.fetch;
+  const url = path.startsWith('http') ? path : `${META_GRAPH}${path}`;
+  const u = new URL(url);
+  if (token && !u.searchParams.has('access_token')) u.searchParams.set('access_token', token);
+  const res = await doFetch(u.toString(), { method: 'GET', headers: {} });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.error) {
+    const msg = (data.error && (data.error.message || data.error.error_user_msg)) || `Meta API ${res.status}`;
+    throw fail('META_API', msg);
+  }
+  return data;
+}
+
+/**
+ * Read-back for the Social Feed module: the connected account's most recent
+ * posts, fetched live with the stored Page token. The OAuth grant requests
+ * pages_read_engagement + instagram_basic, so a connected account can be
+ * read; when Meta denies a read (scope not granted, token expired), the
+ * failure is reported per-platform in `errors` instead of throwing, and the
+ * caller falls back to the posts BitPype published itself. Never throws for
+ * Meta failures. `fetchImpl` is injectable for tests.
+ */
+async function fetchRemoteFeedPosts(db, leadId, { fetchImpl, limit = 24 } = {}) {
+  ensureTables(db);
+  const cap = Math.max(1, Math.min(50, Math.round(Number(limit) || 24)));
+  const items = [];
+  const errors = [];
+  const accounts = db
+    .prepare(
+      "SELECT * FROM social_accounts WHERE lead_id = ? AND status = 'active' ORDER BY id DESC"
+    )
+    .all(Number(leadId));
+  const seenPlatform = new Set();
+  for (const acct of accounts) {
+    if (!PLATFORMS.includes(acct.platform) || seenPlatform.has(acct.platform)) continue;
+    seenPlatform.add(acct.platform);
+    const token = decToken(acct.access_token_enc);
+    if (!token) {
+      errors.push({ platform: acct.platform, error: 'Missing token' });
+      continue;
+    }
+    try {
+      if (acct.platform === 'facebook') {
+        const pageId = acct.page_id || acct.account_id;
+        const data = await graphGet(
+          `/${pageId}/published_posts?fields=id,message,story,created_time,full_picture,permalink_url&limit=${cap}`,
+          token,
+          fetchImpl
+        );
+        for (const p of Array.isArray(data.data) ? data.data : []) {
+          if (!p || !p.id) continue;
+          items.push({
+            network: 'facebook',
+            external_id: String(p.id),
+            text: String(p.message || p.story || ''),
+            image_url: p.full_picture || null,
+            permalink: p.permalink_url || `https://www.facebook.com/${p.id}`,
+            published_at: p.created_time || null,
+          });
+        }
+      } else {
+        const igId = acct.account_id;
+        const data = await graphGet(
+          `/${igId}/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,timestamp&limit=${cap}`,
+          token,
+          fetchImpl
+        );
+        for (const m of Array.isArray(data.data) ? data.data : []) {
+          if (!m || !m.id) continue;
+          items.push({
+            network: 'instagram',
+            external_id: String(m.id),
+            text: String(m.caption || ''),
+            image_url:
+              m.media_type === 'VIDEO'
+                ? m.thumbnail_url || m.media_url || null
+                : m.media_url || m.thumbnail_url || null,
+            permalink: m.permalink || null,
+            published_at: m.timestamp || null,
+          });
+        }
+      }
+    } catch (e) {
+      errors.push({ platform: acct.platform, error: e.message || String(e) });
+    }
+  }
+  return { items, errors };
+}
+
 module.exports = {
   ensureTables,
   metaConfigured,
+  fetchRemoteFeedPosts,
+  encToken,
+  decToken,
   oauthStart,
   oauthCallback,
   listAccounts,

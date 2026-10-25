@@ -92,6 +92,7 @@ function clientToolDefs() {
             'careers',
             'video',
             'estimate',
+            'socialfeed',
           ],
         },
         moduleType: {
@@ -113,6 +114,7 @@ function clientToolDefs() {
             'careers',
             'video',
             'estimate',
+            'socialfeed',
           ],
         },
         title: STR,
@@ -895,6 +897,24 @@ function clientToolDefs() {
       description:
         'List Instant Estimate requests submitted from the public site (visitor, selections snapshot, server-computed total, status). Standard/Premium.',
       inputSchema: schema({ leadId: ID, limit: NUM }),
+    },
+    {
+      name: 'socialfeed.getConfig',
+      description:
+        'Get the Social Feed config for a lead (networks facebook/instagram/both, max_posts 1–24, layout grid/list). The feed itself is automatic — it shows posts published through BitPype plus, when a Meta account is connected, the account’s latest posts. Standard/Premium.',
+      inputSchema: schema({ leadId: ID }),
+    },
+    {
+      name: 'socialfeed.updateConfig',
+      description:
+        'Update the Social Feed config: networks (facebook, instagram or both), max_posts (1–24), layout (grid or list). Standard/Premium.',
+      inputSchema: schema({ leadId: ID, networks: STR, max_posts: NUM, maxPosts: NUM, layout: STR }),
+    },
+    {
+      name: 'socialfeed.preview',
+      description:
+        'Preview exactly what the Social Feed will render for a lead: merged published items (BitPype-published first, then live account posts), the config, connected accounts, and a plain-language note on what the feed shows. Standard/Premium.',
+      inputSchema: schema({ leadId: ID }),
     },
     {
       name: 'events.list',
@@ -2482,6 +2502,9 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'estimate.updateOption',
     'estimate.deleteOption',
     'estimate.listRequests',
+    'socialfeed.getConfig',
+    'socialfeed.updateConfig',
+    'socialfeed.preview',
     'events.list',
     'events.create',
     'events.update',
@@ -3147,6 +3170,30 @@ async function callClientTool(ws, name, a, ctx = {}) {
     return domain.withDb(ws, (db) => ({
       plan: planId,
       requests: modules.listEstimateRequests(db, leadId, { limit: a.limit || 50 }),
+    }));
+  }
+  if (name === 'socialfeed.getConfig') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      config: modules.getSocialFeedConfig(db, leadId),
+    }));
+  }
+  if (name === 'socialfeed.updateConfig') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      config: modules.updateSocialFeedConfig(db, leadId, a),
+    }));
+  }
+  if (name === 'socialfeed.preview') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      preview: modules.socialFeedPreview(db, leadId),
     }));
   }
 

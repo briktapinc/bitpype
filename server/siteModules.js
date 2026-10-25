@@ -3,7 +3,7 @@
 /**
  * Site content modules (Blog, Ecommerce, Courses, Gallery, Directory,
  * FAQ, Testimonials, Team, Events, Bookings, Chatbot, Offers, Menu,
- * Careers, Video, Instant Estimate).
+ * Careers, Video, Instant Estimate, Social Feed).
  * Workspace SQLite tables per lead; in-page JS embeds (legacy iframe URL kept);
  * portal + MCP CRUD.
  * Gated by plan entitlement `siteModules` (Standard + Premium).
@@ -32,13 +32,14 @@ const MODULE_TYPES = [
   'careers',
   'video',
   'estimate',
+  'socialfeed',
 ];
 const MANAGED_ATTR = 'data-bitpype-module';
 const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod9';
+const MODULE_SCRIPT_VER = 'mod10';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -65,6 +66,7 @@ const MODULE_META = {
   careers: { label: 'Careers', defaultTitle: 'Careers', defaultSlug: 'careers' },
   video: { label: 'Video', defaultTitle: 'Videos', defaultSlug: 'videos' },
   estimate: { label: 'Instant Estimate', defaultTitle: 'Get an Estimate', defaultSlug: 'estimate' },
+  socialfeed: { label: 'Social Feed', defaultTitle: 'Social Feed', defaultSlug: 'social-feed' },
 };
 
 const BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'];
@@ -434,6 +436,22 @@ function ensureTables(db) {
       display_mode TEXT NOT NULL DEFAULT 'exact',
       status TEXT NOT NULL DEFAULT 'new',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS socialfeed_configs (
+      lead_id INTEGER PRIMARY KEY,
+      networks TEXT NOT NULL DEFAULT 'both',
+      max_posts INTEGER NOT NULL DEFAULT 6,
+      layout TEXT NOT NULL DEFAULT 'grid',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS socialfeed_cache (
+      lead_id INTEGER PRIMARY KEY,
+      items_json TEXT NOT NULL DEFAULT '[]',
+      fetched_at TEXT,
+      last_error TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -5003,6 +5021,337 @@ function createPublicEstimateRequestByToken(db, token, data = {}) {
   };
 }
 
+/* ── Social Feed ─────────────────────────────────────────────────────────────
+ * Automatic module — no per-item CRUD. Items come from, in priority order:
+ * (1) posts BitPype itself published for this lead (social_posts, stored
+ * locally — always truthful, no API dependency), and (2) when the lead has
+ * a connected Meta account, that account's latest posts fetched live via
+ * socialMedia.fetchRemoteFeedPosts and cached in socialfeed_cache for
+ * 15 minutes. A failed or unpermitted live read falls back silently to (1):
+ * the public page must never error because of Meta. The portal preview
+ * tells the owner, in plain words, which sources the feed is showing. */
+
+const SOCIALFEED_NETWORKS = ['facebook', 'instagram', 'both'];
+const SOCIALFEED_LAYOUTS = ['grid', 'list'];
+const SOCIALFEED_CACHE_TTL_MS = 15 * 60 * 1000;
+const SOCIALFEED_TEXT_LIMIT = 280;
+const SOCIALFEED_DEFAULT_MAX_POSTS = 6;
+const SOCIALFEED_MAX_POSTS_CAP = 24;
+
+function parseJsonLoose(raw, fallback) {
+  try {
+    const parsed = JSON.parse(String(raw || ''));
+    return parsed == null ? fallback : parsed;
+  } catch {
+    return fallback;
+  }
+}
+
+function normalizeSocialFeedNetworks(value, fallback = 'both') {
+  const v = String(value || '')
+    .trim()
+    .toLowerCase();
+  return SOCIALFEED_NETWORKS.includes(v) ? v : fallback;
+}
+
+function normalizeSocialFeedLayout(value, fallback = 'grid') {
+  const v = String(value || '')
+    .trim()
+    .toLowerCase();
+  return SOCIALFEED_LAYOUTS.includes(v) ? v : fallback;
+}
+
+function clampSocialFeedMaxPosts(value, fallback = SOCIALFEED_DEFAULT_MAX_POSTS) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(1, Math.min(SOCIALFEED_MAX_POSTS_CAP, n));
+}
+
+function readSocialFeedConfig(db, leadId) {
+  ensureTables(db);
+  const row = db.prepare('SELECT * FROM socialfeed_configs WHERE lead_id = ?').get(Number(leadId));
+  if (!row) {
+    return {
+      lead_id: Number(leadId),
+      networks: 'both',
+      max_posts: SOCIALFEED_DEFAULT_MAX_POSTS,
+      layout: 'grid',
+      updated_at: null,
+    };
+  }
+  return {
+    ...row,
+    networks: normalizeSocialFeedNetworks(row.networks),
+    layout: normalizeSocialFeedLayout(row.layout),
+    max_posts: clampSocialFeedMaxPosts(row.max_posts),
+  };
+}
+
+function getSocialFeedConfig(db, leadId) {
+  ensureTables(db);
+  const id = Number(leadId);
+  const existing = db.prepare('SELECT lead_id FROM socialfeed_configs WHERE lead_id = ?').get(id);
+  if (!existing) {
+    db.prepare('INSERT INTO socialfeed_configs (lead_id) VALUES (?)').run(id);
+  }
+  return readSocialFeedConfig(db, id);
+}
+
+function updateSocialFeedConfig(db, leadId, data = {}) {
+  ensureTables(db);
+  const row = getSocialFeedConfig(db, leadId);
+  const networks =
+    data.networks != null ? normalizeSocialFeedNetworks(data.networks, row.networks) : row.networks;
+  const layout = data.layout != null ? normalizeSocialFeedLayout(data.layout, row.layout) : row.layout;
+  const maxPosts =
+    data.max_posts != null || data.maxPosts != null
+      ? clampSocialFeedMaxPosts(data.max_posts != null ? data.max_posts : data.maxPosts, row.max_posts)
+      : row.max_posts;
+  db.prepare(
+    `UPDATE socialfeed_configs SET networks = ?, max_posts = ?, layout = ?, updated_at = datetime('now') WHERE lead_id = ?`
+  ).run(networks, maxPosts, layout, Number(leadId));
+  return getSocialFeedConfig(db, leadId);
+}
+
+function feedTimeMs(value) {
+  if (!value) return 0;
+  let s = String(value).trim();
+  // SQLite datetime('now') shape → ISO UTC so Date.parse is unambiguous.
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) s = `${s.replace(' ', 'T')}Z`;
+  const t = Date.parse(s);
+  return Number.isFinite(t) ? t : 0;
+}
+
+function truncateFeedText(text) {
+  const s = String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return s.length > SOCIALFEED_TEXT_LIMIT ? `${s.slice(0, SOCIALFEED_TEXT_LIMIT - 1).trimEnd()}…` : s;
+}
+
+function shapeFeedItem(raw) {
+  if (!raw) return null;
+  return {
+    network: raw.network === 'instagram' ? 'instagram' : 'facebook',
+    external_id: String(raw.external_id || ''),
+    text: truncateFeedText(raw.text),
+    image_url: raw.image_url ? String(raw.image_url) : null,
+    permalink: raw.permalink ? String(raw.permalink) : null,
+    published_at: raw.published_at || null,
+    source: raw.source === 'bitpype' ? 'bitpype' : 'live',
+  };
+}
+
+/** Posts BitPype itself published for this lead, expanded per platform. */
+function localSocialFeedItems(db, leadId) {
+  let rows = [];
+  try {
+    require('../src/socialMedia').ensureTables(db);
+    rows = db
+      .prepare(
+        `SELECT * FROM social_posts WHERE lead_id = ? AND status IN ('posted','partial')
+         ORDER BY published_at DESC, id DESC`
+      )
+      .all(Number(leadId));
+  } catch {
+    return [];
+  }
+  const items = [];
+  for (const row of rows) {
+    const platforms = parseJsonLoose(row.platforms, ['facebook']);
+    const results = parseJsonLoose(row.meta_results, {}) || {};
+    for (const platform of Array.isArray(platforms) ? platforms : []) {
+      if (platform !== 'facebook' && platform !== 'instagram') continue;
+      const res = results && typeof results === 'object' ? results[platform] : null;
+      // A stored per-platform result decides success; rows without one still
+      // count — their status already says the post went out.
+      if (res && res.ok === false) continue;
+      const extId = res && res.id ? String(res.id) : '';
+      items.push(
+        shapeFeedItem({
+          network: platform,
+          external_id: extId,
+          text: row.caption,
+          image_url: row.image_url || null,
+          permalink: platform === 'facebook' && extId ? `https://www.facebook.com/${extId}` : null,
+          published_at: row.published_at || row.created_at,
+          source: 'bitpype',
+        })
+      );
+    }
+  }
+  return items;
+}
+
+function readSocialFeedCache(db, leadId) {
+  ensureTables(db);
+  const row = db.prepare('SELECT * FROM socialfeed_cache WHERE lead_id = ?').get(Number(leadId));
+  if (!row) return { items: [], fetched_at: null, last_error: '' };
+  let items = [];
+  const parsed = parseJsonLoose(row.items_json, []);
+  if (Array.isArray(parsed)) items = parsed.map(shapeFeedItem).filter(Boolean);
+  return { items, fetched_at: row.fetched_at || null, last_error: row.last_error || '' };
+}
+
+function socialFeedCacheStale(db, leadId) {
+  const { fetched_at } = readSocialFeedCache(db, leadId);
+  if (!fetched_at) return true;
+  return Date.now() - feedTimeMs(fetched_at) > SOCIALFEED_CACHE_TTL_MS;
+}
+
+const socialFeedRefreshInFlight = new Set();
+
+/**
+ * Refresh the live-posts cache for a lead. Honors the 15-minute TTL unless
+ * `force`; failures keep the previous cache and are reported, never thrown.
+ */
+async function refreshSocialFeedRemote(db, leadId, opts = {}) {
+  const id = Number(leadId);
+  ensureTables(db);
+  if (!opts.force && !socialFeedCacheStale(db, id)) {
+    const cache = readSocialFeedCache(db, id);
+    return { ok: true, skipped: 'fresh', items: cache.items, fetched_at: cache.fetched_at, errors: [] };
+  }
+  if (socialFeedRefreshInFlight.has(id)) {
+    const cache = readSocialFeedCache(db, id);
+    return { ok: true, skipped: 'in-flight', items: cache.items, fetched_at: cache.fetched_at, errors: [] };
+  }
+  socialFeedRefreshInFlight.add(id);
+  try {
+    const social = require('../src/socialMedia');
+    const { items, errors } = await social.fetchRemoteFeedPosts(db, id, {
+      fetchImpl: opts.fetchImpl,
+      limit: SOCIALFEED_MAX_POSTS_CAP,
+    });
+    const shaped = (Array.isArray(items) ? items : []).map(shapeFeedItem).filter(Boolean);
+    const errText = (Array.isArray(errors) ? errors : [])
+      .map((e) => `${e.platform}: ${e.error}`)
+      .join('; ')
+      .slice(0, 500);
+    db.prepare(
+      `INSERT INTO socialfeed_cache (lead_id, items_json, fetched_at, last_error, updated_at)
+       VALUES (?, ?, datetime('now'), ?, datetime('now'))
+       ON CONFLICT(lead_id) DO UPDATE SET
+         items_json = excluded.items_json, fetched_at = excluded.fetched_at,
+         last_error = excluded.last_error, updated_at = datetime('now')`
+    ).run(id, JSON.stringify(shaped), errText);
+    const cache = readSocialFeedCache(db, id);
+    return {
+      ok: !(errors && errors.length),
+      items: cache.items,
+      fetched_at: cache.fetched_at,
+      errors: errors || [],
+    };
+  } catch (e) {
+    try {
+      db.prepare(
+        `INSERT INTO socialfeed_cache (lead_id, items_json, fetched_at, last_error, updated_at)
+         VALUES (?, '[]', NULL, ?, datetime('now'))
+         ON CONFLICT(lead_id) DO UPDATE SET last_error = excluded.last_error, updated_at = datetime('now')`
+      ).run(id, String((e && e.message) || e).slice(0, 500));
+    } catch {
+      /* cache is best-effort */
+    }
+    const cache = readSocialFeedCache(db, id);
+    return { ok: false, error: (e && e.message) || String(e), items: cache.items, fetched_at: cache.fetched_at, errors: [] };
+  } finally {
+    socialFeedRefreshInFlight.delete(id);
+  }
+}
+
+/** Fire-and-forget refresh used by read paths; only when an account exists. */
+function maybeRefreshSocialFeed(db, leadId) {
+  try {
+    if (!socialFeedCacheStale(db, leadId)) return;
+    const social = require('../src/socialMedia');
+    const { accounts } = social.listAccounts(db, Number(leadId));
+    if (!accounts || !accounts.some((a) => a.status === 'active' && a.has_token)) return;
+    refreshSocialFeedRemote(db, leadId).catch(() => {});
+  } catch {
+    /* the feed must never break a page */
+  }
+}
+
+/** Merged, filtered, ordered feed items for a lead (what will render). */
+function socialFeedItems(db, leadId, opts = {}) {
+  const config = opts.config || readSocialFeedConfig(db, leadId);
+  const networks = normalizeSocialFeedNetworks(opts.networks || config.networks);
+  const maxPosts = clampSocialFeedMaxPosts(opts.max_posts != null ? opts.max_posts : config.max_posts);
+  const local = localSocialFeedItems(db, leadId);
+  const localIds = new Set(local.map((i) => i.external_id).filter(Boolean));
+  const remote = readSocialFeedCache(db, leadId).items.filter((r) => {
+    if (r.external_id && localIds.has(r.external_id)) return false; // local copy wins
+    // Photo posts get a different external id from Meta on read-back; also
+    // dedupe on same network + same text + near-identical publish time.
+    if (r.text) {
+      const rt = feedTimeMs(r.published_at);
+      const dup = local.some(
+        (l) =>
+          l.network === r.network &&
+          l.text === r.text &&
+          (!rt || !feedTimeMs(l.published_at) || Math.abs(feedTimeMs(l.published_at) - rt) <= 120000)
+      );
+      if (dup) return false;
+    }
+    return true;
+  });
+  let items = [...local, ...remote];
+  items.sort((a, b) => feedTimeMs(b.published_at) - feedTimeMs(a.published_at));
+  if (networks !== 'both') items = items.filter((i) => i.network === networks);
+  return items.slice(0, maxPosts);
+}
+
+function socialFeedSourceNote(accounts, liveItemCount) {
+  const active = (accounts || []).filter((a) => a.status === 'active' && a.has_token);
+  if (!active.length) {
+    return 'Shows the posts published through BitPype. Connect a Facebook or Instagram account under Social and the feed will also pull in your latest posts from there.';
+  }
+  const names = [...new Set(active.map((a) => (a.platform === 'instagram' ? 'Instagram' : 'Facebook')))];
+  const from =
+    names.length === 2 ? 'your connected Facebook and Instagram accounts' : `your connected ${names[0]} account`;
+  if (liveItemCount > 0) {
+    return `Shows the posts published through BitPype, plus your latest posts from ${from}.`;
+  }
+  return `Shows the posts published through BitPype. New posts from ${from} are pulled in automatically — check back after your next post.`;
+}
+
+/** Portal-facing preview: config + exactly what the public feed will show. */
+function socialFeedPreview(db, leadId) {
+  const config = getSocialFeedConfig(db, leadId);
+  maybeRefreshSocialFeed(db, leadId);
+  const cache = readSocialFeedCache(db, leadId);
+  let accounts = [];
+  try {
+    accounts = require('../src/socialMedia').listAccounts(db, Number(leadId)).accounts || [];
+  } catch {
+    accounts = [];
+  }
+  return {
+    config,
+    items: socialFeedItems(db, leadId, { config }),
+    accounts: accounts.map((a) => ({
+      platform: a.platform,
+      account_name: a.account_name,
+      status: a.status,
+      has_token: a.has_token,
+    })),
+    source_note: socialFeedSourceNote(accounts, cache.items.length),
+    live: cache.items.length > 0,
+    last_fetched_at: cache.fetched_at,
+    last_error: cache.last_error || '',
+  };
+}
+
+/** Public-safe payload: config display fields + merged published items. */
+function publicSocialFeedPayload(db, leadId) {
+  const config = readSocialFeedConfig(db, leadId);
+  maybeRefreshSocialFeed(db, leadId);
+  return {
+    config: { networks: config.networks, max_posts: config.max_posts, layout: config.layout },
+    items: socialFeedItems(db, leadId, { config }),
+  };
+}
+
 /* ── Bookings (services + hours + calendar slots) ── */
 
 function parseHm(s) {
@@ -5700,6 +6049,14 @@ function moduleItemCount(db, leadId, type) {
     const row = db.prepare('SELECT COUNT(*) AS c FROM estimate_requests WHERE lead_id = ?').get(Number(leadId));
     return Number(row && row.c) || 0;
   }
+  if (type === 'socialfeed') {
+    // The tab badge counts what the feed will actually show.
+    try {
+      return socialFeedItems(db, leadId).length;
+    } catch {
+      return 0;
+    }
+  }
   return 0;
 }
 
@@ -5718,6 +6075,7 @@ function getPublicModuleByToken(db, token) {
   let booking = null;
   let menuCategories = null;
   let estimate = null;
+  let socialfeed = null;
   let total_published = null;
   if (type === 'blog') {
     items = listBlogPosts(db, leadId, { includeDrafts: false }).map((p) => ({
@@ -5760,6 +6118,9 @@ function getPublicModuleByToken(db, token) {
     items = listVideoItems(db, leadId, { includeDrafts: false });
   } else if (type === 'estimate') {
     estimate = publicEstimatePayload(db, leadId);
+  } else if (type === 'socialfeed') {
+    socialfeed = publicSocialFeedPayload(db, leadId);
+    items = socialfeed.items;
   } else if (type === 'chatbot') {
     try {
       const chat = require('./chatbot');
@@ -5788,6 +6149,7 @@ function getPublicModuleByToken(db, token) {
   if (booking) out.booking = booking;
   if (menuCategories) out.categories = menuCategories;
   if (estimate) out.estimate = estimate;
+  if (socialfeed) out.socialfeed = socialfeed.config;
   return out;
 }
 
@@ -6034,6 +6396,17 @@ module.exports = {
   deleteEstimateRequest,
   createEstimateRequest,
   createPublicEstimateRequestByToken,
+  SOCIALFEED_NETWORKS,
+  SOCIALFEED_LAYOUTS,
+  getSocialFeedConfig,
+  updateSocialFeedConfig,
+  localSocialFeedItems,
+  readSocialFeedCache,
+  socialFeedCacheStale,
+  refreshSocialFeedRemote,
+  socialFeedItems,
+  socialFeedPreview,
+  publicSocialFeedPayload,
   getBookingSettings,
   updateBookingSettings,
   listBookingHours,

@@ -231,7 +231,7 @@ async function main() {
     '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
   });
   sm12.ensureTables(db);
-  assert.equal(Object.keys(sm12.MODULE_META).length, 16, 'module catalog has 16 types');
+  assert.equal(Object.keys(sm12.MODULE_META).length, 17, 'module catalog has 17 types');
   for (const t of ['offers', 'menu', 'careers', 'video']) assert(sm12.MODULE_META[t], 'meta for ' + t);
   check('batch12 catalog: module types incl. offers/menu/careers/video', () => {});
 
@@ -340,8 +340,8 @@ async function main() {
   assert.equal(pubVideo.items.length, 1, 'only published videos surface');
   assert.equal(pubVideo.items[0].embed_url, 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ');
   const summary12 = sm12.portalSummary(db, 201);
-  assert.equal(summary12.modules.length, 16, 'portal summary lists all 16 module types');
-  check('batch12 public payloads: token surface filters expired/inactive/draft; portal summary = 16 types', () => {});
+  assert.equal(summary12.modules.length, 17, 'portal summary lists all 17 module types');
+  check('batch12 public payloads: token surface filters expired/inactive/draft; portal summary = 17 types', () => {});
 
   // Attach injects nav pages; detach removes them.
   const siteRow = db.prepare('SELECT pages FROM websites WHERE lead_id = 201').get();
@@ -519,6 +519,229 @@ async function main() {
     'detached estimate token cannot accept submissions'
   );
   check('batch13 public surface: exact payload, hidden mode leaks nothing, type-checked token writes, detach kills the token', () => {});
+
+  // ── Batch 14: Social Feed module ──
+  const socialReal = require(path.join(root, 'src/socialMedia.js'));
+  socialReal.ensureTables(db);
+  let stubFetchCalls = 0;
+  let stubFetchImpl = async () => ({ items: [], errors: [] });
+  const socialStub = {
+    ensureTables: (d) => socialReal.ensureTables(d),
+    listAccounts: (d, leadId) => socialReal.listAccounts(d, leadId),
+    fetchRemoteFeedPosts: async (d, leadId, opts) => {
+      stubFetchCalls++;
+      return stubFetchImpl(d, leadId, opts);
+    },
+  };
+  const sm14 = load('server/siteModules.js', {
+    '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
+    './portalContacts': contacts,
+    '../src/socialMedia': socialStub,
+  });
+  sm14.ensureTables(db);
+  assert(sm14.MODULE_META.socialfeed, 'meta for socialfeed');
+  assert.equal(sm14.MODULE_META.socialfeed.label, 'Social Feed');
+  assert.equal(sm14.MODULE_META.socialfeed.defaultSlug, 'social-feed');
+  check('batch14 catalog: socialfeed registered as the 17th module type', () => {});
+
+  // Config: honest defaults + clamping + invalid values fall back.
+  const sfCfg0 = sm14.getSocialFeedConfig(db, 401);
+  assert.equal(sfCfg0.networks, 'both');
+  assert.equal(sfCfg0.max_posts, 6);
+  assert.equal(sfCfg0.layout, 'grid');
+  const sfCfg1 = sm14.updateSocialFeedConfig(db, 401, { networks: 'facebook', max_posts: 99, layout: 'list' });
+  assert.equal(sfCfg1.networks, 'facebook');
+  assert.equal(sfCfg1.max_posts, 24, 'max_posts clamped to 24');
+  assert.equal(sfCfg1.layout, 'list');
+  const sfCfg2 = sm14.updateSocialFeedConfig(db, 401, { networks: 'tiktok', layout: 'masonry' });
+  assert.equal(sfCfg2.networks, 'facebook', 'unknown networks value falls back to current');
+  assert.equal(sfCfg2.layout, 'list', 'unknown layout falls back to current');
+  sm14.updateSocialFeedConfig(db, 401, { networks: 'both', max_posts: 6, layout: 'grid' });
+  check('batch14 config: defaults, max_posts clamping, invalid values fall back', () => {});
+
+  // Local sourcing: only this lead's published posts, expanded per platform.
+  const campId = Number(
+    db.prepare('INSERT INTO social_campaigns (lead_id, title, month_start) VALUES (?, ?, ?)').run(401, 'Oct', '2026-10-01')
+      .lastInsertRowid
+  );
+  const camp2Id = Number(
+    db.prepare('INSERT INTO social_campaigns (lead_id, title, month_start) VALUES (?, ?, ?)').run(402, 'Oct', '2026-10-01')
+      .lastInsertRowid
+  );
+  const insPost = db.prepare(
+    'INSERT INTO social_posts (campaign_id, lead_id, caption, platforms, image_url, status, published_at, meta_results) VALUES (?,?,?,?,?,?,?,?)'
+  );
+  insPost.run(
+    campId, 401, 'Fresh croissants today', '["facebook","instagram"]', 'https://cdn.example.test/a.jpg', 'posted',
+    '2026-10-20 10:00:00',
+    JSON.stringify({ facebook: { ok: true, id: '111_222' }, instagram: { ok: true, id: 'ig_1' } })
+  );
+  insPost.run(
+    campId, 401, 'IG only win', '["facebook","instagram"]', null, 'partial', '2026-10-21 09:00:00',
+    JSON.stringify({ facebook: { ok: false, error: 'page error' }, instagram: { ok: true, id: 'ig_2' } })
+  );
+  insPost.run(campId, 401, 'Draft secret', '["facebook"]', null, 'draft', null, null);
+  insPost.run(campId, 401, 'Scheduled secret', '["facebook"]', null, 'scheduled', null, null);
+  insPost.run(
+    camp2Id, 402, 'Foreign post', '["facebook"]', null, 'posted', '2026-10-22 10:00:00',
+    JSON.stringify({ facebook: { ok: true, id: '999_999' } })
+  );
+  const local401 = sm14.localSocialFeedItems(db, 401);
+  assert.equal(local401.length, 3, 'posted expands per platform; partial keeps only the ok platform; draft/scheduled excluded');
+  assert(local401.every((i) => i.source === 'bitpype'));
+  const fbLocal = local401.find((i) => i.network === 'facebook');
+  assert.equal(fbLocal.external_id, '111_222');
+  assert.equal(fbLocal.permalink, 'https://www.facebook.com/111_222', 'facebook permalink derived from the stored post id');
+  assert.equal(local401.find((i) => i.external_id === 'ig_2').permalink, null, 'instagram local posts carry no derivable permalink');
+  const merged0 = sm14.socialFeedItems(db, 401);
+  assert.equal(merged0.length, 3);
+  assert.equal(merged0[0].external_id, 'ig_2', 'newest first');
+  sm14.updateSocialFeedConfig(db, 401, { networks: 'instagram' });
+  assert.equal(
+    sm14.socialFeedItems(db, 401).map((i) => i.external_id).join(','),
+    'ig_2,ig_1',
+    'network filter honored'
+  );
+  sm14.updateSocialFeedConfig(db, 401, { networks: 'both', max_posts: 2 });
+  assert.equal(sm14.socialFeedItems(db, 401).length, 2, 'max_posts honored');
+  sm14.updateSocialFeedConfig(db, 401, { max_posts: 6 });
+  assert.equal(sm14.socialFeedItems(db, 402).length, 1, 'another lead sees only its own posts');
+  assert.equal(sm14.socialFeedItems(db, 403).length, 0, 'a lead with no posts gets an empty feed');
+  assert.equal(sm14.moduleItemCount(db, 401, 'socialfeed'), 3, 'tab count = what the feed shows');
+  check('batch14 local sourcing: published-only, per-platform expansion, scoping, network filter + cap, ordering', () => {});
+
+  // Remote sourcing: stubbed fetch → cache; dedupe vs local; TTL; failure fallback.
+  stubFetchImpl = async () => ({
+    items: [
+      {
+        network: 'facebook', external_id: '111_222', text: 'Fresh croissants today',
+        image_url: 'https://cdn.example.test/a.jpg', permalink: 'https://www.facebook.com/111_222',
+        published_at: '2026-10-20T10:00:00Z',
+      },
+      {
+        network: 'facebook', external_id: '555_777', text: 'Weekend market stall',
+        image_url: null, permalink: 'https://www.facebook.com/555_777', published_at: '2026-10-23T08:30:00Z',
+      },
+    ],
+    errors: [],
+  });
+  const refresh1 = await sm14.refreshSocialFeedRemote(db, 401, { force: true });
+  assert.equal(refresh1.ok, true);
+  assert.equal(stubFetchCalls, 1);
+  const merged1 = sm14.socialFeedItems(db, 401);
+  assert.equal(merged1.length, 4, 'remote adds the new post; the duplicate of a local post is suppressed');
+  assert.equal(merged1[0].external_id, '555_777', 'newest remote post sorts first');
+  assert.equal(merged1.filter((i) => i.external_id === '111_222').length, 1, 'no duplicate card for the same post');
+  assert.equal(merged1.find((i) => i.external_id === '111_222').source, 'bitpype', 'the local copy wins the dedupe');
+  const refresh2 = await sm14.refreshSocialFeedRemote(db, 401);
+  assert.equal(refresh2.skipped, 'fresh', 'a second refresh inside the TTL is a no-op');
+  assert.equal(stubFetchCalls, 1, 'no second fetch within 15 minutes');
+  stubFetchImpl = async () => {
+    throw new Error('Meta is down');
+  };
+  const refresh3 = await sm14.refreshSocialFeedRemote(db, 401, { force: true });
+  assert.equal(refresh3.ok, false, 'a fetch failure is reported, never thrown');
+  assert.equal(sm14.readSocialFeedCache(db, 401).items.length, 2, 'a failed refresh keeps the previous cache');
+  assert(sm14.readSocialFeedCache(db, 401).last_error.includes('Meta is down'), 'the failure is recorded on the cache row');
+  assert.equal(sm14.socialFeedItems(db, 401).length, 4, 'the feed still renders from local + cache after the failure');
+  check('batch14 remote: cache write, dedupe vs local, TTL skip, failure keeps cache and never throws', () => {});
+
+  // socialMedia.fetchRemoteFeedPosts: real Graph read-back, fetch injected.
+  db.prepare(
+    'INSERT INTO social_accounts (lead_id, platform, account_id, account_name, page_id, access_token_enc, status) VALUES (?,?,?,?,?,?,?)'
+  ).run(501, 'facebook', 'pg_1', 'Bakery Page', 'pg_1', socialReal.encToken('TEST-TOKEN'), 'active');
+  db.prepare(
+    'INSERT INTO social_accounts (lead_id, platform, account_id, account_name, page_id, access_token_enc, status) VALUES (?,?,?,?,?,?,?)'
+  ).run(501, 'instagram', 'ig_1', 'bakery.ig', 'pg_1', socialReal.encToken('TEST-TOKEN'), 'active');
+  const seenUrls = [];
+  const feedFetch = async (url) => {
+    seenUrls.push(String(url));
+    if (String(url).includes('/published_posts')) {
+      return {
+        ok: true, status: 200,
+        json: async () => ({
+          data: [
+            {
+              id: 'pg_1_42', message: 'Hello from the Page', created_time: '2026-10-24T12:00:00+0000',
+              full_picture: 'https://cdn.example.test/p.jpg', permalink_url: 'https://www.facebook.com/pg_1_42',
+            },
+          ],
+        }),
+      };
+    }
+    return {
+      ok: true, status: 200,
+      json: async () => ({
+        data: [
+          {
+            id: 'igm_1', caption: 'IG hello', media_type: 'VIDEO', media_url: 'https://cdn.example.test/v.mp4',
+            thumbnail_url: 'https://cdn.example.test/t.jpg', permalink: 'https://www.instagram.com/p/abc/',
+            timestamp: '2026-10-24T13:00:00+0000',
+          },
+        ],
+      }),
+    };
+  };
+  const remote = await socialReal.fetchRemoteFeedPosts(db, 501, { fetchImpl: feedFetch });
+  assert.equal(remote.errors.length, 0);
+  assert.equal(remote.items.length, 2);
+  const fbItem = remote.items.find((i) => i.network === 'facebook');
+  assert.equal(fbItem.external_id, 'pg_1_42');
+  assert.equal(fbItem.text, 'Hello from the Page');
+  assert.equal(fbItem.permalink, 'https://www.facebook.com/pg_1_42');
+  const igItem = remote.items.find((i) => i.network === 'instagram');
+  assert.equal(igItem.image_url, 'https://cdn.example.test/t.jpg', 'video posts surface their thumbnail');
+  assert(seenUrls.some((u) => u.includes('/pg_1/published_posts')), 'page published_posts endpoint hit');
+  assert(seenUrls.some((u) => u.includes('/ig_1/media')), 'instagram media endpoint hit');
+  const deniedFetch = async () => ({
+    ok: false, status: 403,
+    json: async () => ({ error: { message: '(#10) Application does not have permission for this action' } }),
+  });
+  const denied = await socialReal.fetchRemoteFeedPosts(db, 501, { fetchImpl: deniedFetch });
+  assert.equal(denied.items.length, 0);
+  assert.equal(denied.errors.length, 2, 'permission failures are reported per platform, never thrown');
+  const noAcct = await socialReal.fetchRemoteFeedPosts(db, 599, { fetchImpl: feedFetch });
+  assert.deepEqual(noAcct, { items: [], errors: [] }, 'no connected account → empty result, no error');
+  check('batch14 socialMedia read-back: page + IG normalization, video thumbnail, denial reported not thrown', () => {});
+
+  // Public token surface: attach, payload shape, preview parity, empty feed, detach.
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (401, 'Fixture Feed', 'feed@example.invalid')").run();
+  db.prepare('INSERT INTO websites (lead_id, name, theme, pages) VALUES (401, ?, ?, ?)').run(
+    'Fixture Feed Site',
+    '{}',
+    homePages
+  );
+  const embFeed = sm14.attachModule(db, 401, 'socialfeed', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
+  const pubFeed = sm14.getPublicModuleByToken(db, embFeed.public_token);
+  assert.equal(pubFeed.module_type, 'socialfeed');
+  assert.equal(pubFeed.socialfeed.layout, 'grid');
+  assert.equal(pubFeed.socialfeed.networks, 'both');
+  assert.equal(pubFeed.items.length, 4, 'public payload = local published + cached live posts');
+  assert(!JSON.stringify(pubFeed).includes('Draft secret'), 'drafts never reach the public payload');
+  assert(!JSON.stringify(pubFeed).includes('Scheduled secret'), 'scheduled posts never reach the public payload');
+  assert(!JSON.stringify(pubFeed).includes('Foreign post'), 'other leads never reach the public payload');
+  const preview401 = sm14.socialFeedPreview(db, 401);
+  assert.equal(preview401.items.length, 4, 'portal preview matches what will render');
+  assert(
+    preview401.source_note.includes('Shows the posts published through BitPype'),
+    'the preview explains the sourcing in plain words'
+  );
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (403, 'Fixture Empty Feed', 'emptyfeed@example.invalid')").run();
+  db.prepare('INSERT INTO websites (lead_id, name, theme, pages) VALUES (403, ?, ?, ?)').run(
+    'Fixture Empty Site',
+    '{}',
+    homePages
+  );
+  const embEmpty = sm14.attachModule(db, 403, 'socialfeed', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
+  const pubEmpty = sm14.getPublicModuleByToken(db, embEmpty.public_token);
+  assert.equal(pubEmpty.items.length, 0, 'a lead with no published posts gets an empty payload (the section renders nothing)');
+  sm14.detachModule(db, 401, 'socialfeed');
+  assert.throws(
+    () => sm14.getPublicModuleByToken(db, embFeed.public_token),
+    (e) => e.code === 'NOT_FOUND',
+    'detached feed token stops serving'
+  );
+  check('batch14 public surface: merged published-only payload, preview parity + sourcing note, empty renders nothing, detach kills token', () => {});
 
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }

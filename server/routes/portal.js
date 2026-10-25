@@ -1081,6 +1081,26 @@ router.put('/modules/estimate/requests/:id', requireClient, actionLimit, async (
   }
 });
 
+// Social Feed config + manual refresh — before the generic /modules/:type routes.
+router.put('/modules/socialfeed/config', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.saveSocialFeedConfig(req.client.workspace_id, req.client.lead_id, req.body || {}, req.client.email)
+    );
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/modules/socialfeed/refresh', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(res, await portal.refreshSocialFeed(req.client.workspace_id, req.client.lead_id, req.client.email));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 router.get('/modules/:type', requireClient, async (req, res) => {
   try {
     const includeArchived =

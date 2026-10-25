@@ -1141,7 +1141,13 @@ const MERGE_DEDUPE_TABLES = {
   social_accounts: ['platform', 'account_id'],
 };
 
-const MERGE_SINGLETON_TABLES = ['booking_settings', 'chatbot_settings', 'estimate_configs'];
+const MERGE_SINGLETON_TABLES = [
+  'booking_settings',
+  'chatbot_settings',
+  'estimate_configs',
+  'socialfeed_configs',
+  'socialfeed_cache',
+];
 
 function leadTableExists(db, table) {
   return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
