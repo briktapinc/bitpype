@@ -33,13 +33,14 @@ const MODULE_TYPES = [
   'video',
   'estimate',
   'socialfeed',
+  'members',
 ];
 const MANAGED_ATTR = 'data-bitpype-module';
 const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod10';
+const MODULE_SCRIPT_VER = 'mod11';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -67,6 +68,7 @@ const MODULE_META = {
   video: { label: 'Video', defaultTitle: 'Videos', defaultSlug: 'videos' },
   estimate: { label: 'Instant Estimate', defaultTitle: 'Get an Estimate', defaultSlug: 'estimate' },
   socialfeed: { label: 'Social Feed', defaultTitle: 'Social Feed', defaultSlug: 'social-feed' },
+  members: { label: 'Membership', defaultTitle: 'Members', defaultSlug: 'members' },
 };
 
 const BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'];
@@ -537,6 +539,61 @@ function ensureTables(db) {
     CREATE INDEX IF NOT EXISTS idx_estimate_options_lead ON estimate_options(lead_id, sort_order, id);
     CREATE INDEX IF NOT EXISTS idx_estimate_requests_lead ON estimate_requests(lead_id, id DESC);
     CREATE INDEX IF NOT EXISTS idx_module_embeds_token ON site_module_embeds(public_token);
+
+    CREATE TABLE IF NOT EXISTS members_configs (
+      lead_id INTEGER PRIMARY KEY,
+      gate_mode TEXT NOT NULL DEFAULT 'off',
+      gated_pages_json TEXT NOT NULL DEFAULT '[]',
+      public_pages_json TEXT NOT NULL DEFAULT '[]',
+      signup_mode TEXT NOT NULL DEFAULT 'open',
+      wall_headline TEXT NOT NULL DEFAULT 'This page is for members only',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS site_members (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER NOT NULL,
+      email TEXT NOT NULL,
+      name TEXT NOT NULL DEFAULT '',
+      password_hash TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_login_at TEXT,
+      UNIQUE(lead_id, email)
+    );
+
+    CREATE TABLE IF NOT EXISTS site_member_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      token_hash TEXT NOT NULL UNIQUE,
+      member_id INTEGER NOT NULL,
+      lead_id INTEGER NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS site_member_reset_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      token_hash TEXT NOT NULL UNIQUE,
+      member_id INTEGER NOT NULL,
+      lead_id INTEGER NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS site_member_preview_grants (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      token_hash TEXT NOT NULL UNIQUE,
+      lead_id INTEGER NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_site_members_lead ON site_members(lead_id, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_site_member_sessions_member ON site_member_sessions(member_id);
+    CREATE INDEX IF NOT EXISTS idx_site_member_sessions_lead ON site_member_sessions(lead_id);
+    CREATE INDEX IF NOT EXISTS idx_site_member_resets_member ON site_member_reset_tokens(member_id);
+    CREATE INDEX IF NOT EXISTS idx_site_member_grants_lead ON site_member_preview_grants(lead_id);
   `);
   try {
     const cols = db
@@ -3060,12 +3117,13 @@ function applyShopStripeEvent(db, event) {
  * A product with a manual checkout_url keeps the legacy external-link
  * behavior and never touches Stripe.
  */
-async function createShopCheckoutByToken(db, token, { productId, returnUrl } = {}) {
+async function createShopCheckoutByToken(db, token, { productId, returnUrl } = {}, opts = {}) {
   ensureTables(db);
   const row = db.prepare('SELECT * FROM site_module_embeds WHERE public_token = ?').get(String(token || ''));
   if (!row || row.module_type !== 'ecommerce') {
     throw fail('NOT_FOUND', 'Shop module not found', 404);
   }
+  assertMemberAccessForEmbed(db, row, opts);
   const product = getProduct(db, row.lead_id, productId);
   if (!product || product.status !== 'published') {
     throw fail('NOT_FOUND', 'Product not found', 404);
@@ -4989,7 +5047,7 @@ function createEstimateRequest(db, leadId, data = {}) {
   return request;
 }
 
-function createPublicEstimateRequestByToken(db, token, data = {}) {
+function createPublicEstimateRequestByToken(db, token, data = {}, opts = {}) {
   ensureTables(db);
   const row = db
     .prepare('SELECT * FROM site_module_embeds WHERE public_token = ? AND published = 1')
@@ -4997,6 +5055,7 @@ function createPublicEstimateRequestByToken(db, token, data = {}) {
   if (!row || row.module_type !== 'estimate') {
     throw fail('NOT_FOUND', 'Estimate module not found', 404);
   }
+  assertMemberAccessForEmbed(db, row, opts);
   const request = createEstimateRequest(db, row.lead_id, data);
   const hidden = request.display_mode === 'hidden';
   const pubRequest = { id: request.id, display_mode: request.display_mode };
@@ -5350,6 +5409,722 @@ function publicSocialFeedPayload(db, leadId) {
     config: { networks: config.networks, max_posts: config.max_posts, layout: config.layout },
     items: socialFeedItems(db, leadId, { config }),
   };
+}
+
+/* ── Members (Membership) — site user accounts, sessions, page gating ──
+ *
+ * Accounts live per lead (site_members). Passwords use bcrypt cost 12 —
+ * the platform's existing scheme (server/clientPortal.js, server/admin.js).
+ * Session + password-reset + preview-grant tokens are random values; only
+ * their sha256 hashes are ever stored. Gating is enforced server-side:
+ * public payloads for modules mounted on a gated page return a locked
+ * response carrying NO content, and at export time a gated page ships as
+ * a shell — its authored body is served only by getMemberPageBody after a
+ * valid member session (or a short-lived owner preview grant) is shown.
+ */
+const bcrypt = require('bcryptjs');
+
+const MEMBER_STATUSES = ['active', 'pending', 'disabled'];
+const MEMBER_GATE_MODES = ['off', 'selected', 'whole_site'];
+const MEMBER_SIGNUP_MODES = ['open', 'approval'];
+const MEMBER_WALL_DEFAULT = 'This page is for members only';
+const MEMBER_PASSWORD_MIN = 8;
+// Timing pad so unknown-email logins cost the same bcrypt compare as real ones.
+const MEMBER_DUMMY_HASH = bcrypt.hashSync('bitpype-member-timing-pad', 12);
+
+function sha256Hex(value) {
+  return crypto.createHash('sha256').update(String(value || '')).digest('hex');
+}
+
+function normalizeMemberEmail(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .slice(0, 254);
+}
+
+function memberEmailOk(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
+}
+
+function assertMemberPassword(password) {
+  const pw = String(password || '');
+  if (pw.length < MEMBER_PASSWORD_MIN) {
+    throw fail('VALIDATION', `Password must be at least ${MEMBER_PASSWORD_MIN} characters.`, 400);
+  }
+  if (pw.length > 200) throw fail('VALIDATION', 'Password is too long.', 400);
+  return pw;
+}
+
+/** Public member shape — never carries the password hash. */
+function publicMember(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    lead_id: row.lead_id,
+    email: row.email,
+    name: row.name || '',
+    status: row.status,
+    created_at: row.created_at,
+    last_login_at: row.last_login_at || null,
+  };
+}
+
+function membersEmbedForLead(db, leadId) {
+  ensureTables(db);
+  return (
+    db
+      .prepare("SELECT * FROM site_module_embeds WHERE lead_id = ? AND module_type = 'members'")
+      .get(Number(leadId)) || null
+  );
+}
+
+function membersPageSlug(db, leadId) {
+  const embed = membersEmbedForLead(db, leadId);
+  return normalizeSlug((embed && embed.target_page_slug) || MODULE_META.members.defaultSlug);
+}
+
+function slugListFrom(value) {
+  let arr = value;
+  if (typeof value === 'string') {
+    try {
+      arr = JSON.parse(value);
+    } catch {
+      arr = value ? [value] : [];
+    }
+  }
+  if (!Array.isArray(arr)) arr = [];
+  const out = [];
+  for (const v of arr) {
+    const s = normalizeSlug(v);
+    if (s && !out.includes(s)) out.push(s);
+    if (out.length >= 200) break;
+  }
+  return out;
+}
+
+function shapeMembersConfig(row, leadId) {
+  if (!row) {
+    return {
+      lead_id: Number(leadId),
+      gate_mode: 'off',
+      gated_pages: [],
+      public_pages: [],
+      signup_mode: 'open',
+      wall_headline: MEMBER_WALL_DEFAULT,
+      updated_at: null,
+    };
+  }
+  return {
+    lead_id: row.lead_id,
+    gate_mode: MEMBER_GATE_MODES.includes(row.gate_mode) ? row.gate_mode : 'off',
+    gated_pages: slugListFrom(row.gated_pages_json),
+    public_pages: slugListFrom(row.public_pages_json),
+    signup_mode: MEMBER_SIGNUP_MODES.includes(row.signup_mode) ? row.signup_mode : 'open',
+    wall_headline: String(row.wall_headline || '').trim() || MEMBER_WALL_DEFAULT,
+    updated_at: row.updated_at || null,
+  };
+}
+
+function readMembersConfig(db, leadId) {
+  ensureTables(db);
+  const row = db.prepare('SELECT * FROM members_configs WHERE lead_id = ?').get(Number(leadId));
+  return shapeMembersConfig(row, leadId);
+}
+
+function getMembersConfig(db, leadId) {
+  ensureTables(db);
+  const id = Number(leadId);
+  const existing = db.prepare('SELECT lead_id FROM members_configs WHERE lead_id = ?').get(id);
+  if (!existing) db.prepare('INSERT INTO members_configs (lead_id) VALUES (?)').run(id);
+  return readMembersConfig(db, id);
+}
+
+function updateMembersConfig(db, leadId, data = {}) {
+  ensureTables(db);
+  const row = getMembersConfig(db, leadId);
+  const gateMode = data.gate_mode != null ? String(data.gate_mode).trim().toLowerCase() : row.gate_mode;
+  if (!MEMBER_GATE_MODES.includes(gateMode)) {
+    throw fail('VALIDATION', 'gate_mode must be off, selected or whole_site.', 400);
+  }
+  const signupMode = data.signup_mode != null ? String(data.signup_mode).trim().toLowerCase() : row.signup_mode;
+  if (!MEMBER_SIGNUP_MODES.includes(signupMode)) {
+    throw fail('VALIDATION', 'signup_mode must be open or approval.', 400);
+  }
+  const gatedPages = data.gated_pages != null ? slugListFrom(data.gated_pages) : row.gated_pages;
+  const publicPages = data.public_pages != null ? slugListFrom(data.public_pages) : row.public_pages;
+  const wallHeadline =
+    data.wall_headline != null
+      ? String(data.wall_headline).trim().slice(0, 140) || MEMBER_WALL_DEFAULT
+      : row.wall_headline;
+  db.prepare(
+    `UPDATE members_configs
+     SET gate_mode = ?, gated_pages_json = ?, public_pages_json = ?, signup_mode = ?, wall_headline = ?,
+         updated_at = datetime('now')
+     WHERE lead_id = ?`
+  ).run(gateMode, JSON.stringify(gatedPages), JSON.stringify(publicPages), signupMode, wallHeadline, Number(leadId));
+  return getMembersConfig(db, leadId);
+}
+
+/**
+ * Is this page gated for visitors right now? The members page itself is
+ * always public; gating also requires an attached, published module.
+ */
+function pageIsGated(db, leadId, slug) {
+  const cfg = readMembersConfig(db, leadId);
+  if (cfg.gate_mode === 'off') return false;
+  const embed = membersEmbedForLead(db, leadId);
+  if (!embed || !moduleEmbedActive(embed)) return false;
+  const s = normalizeSlug(slug);
+  if (s === membersPageSlug(db, leadId)) return false;
+  if (cfg.gate_mode === 'selected') return cfg.gated_pages.includes(s);
+  // whole_site: every page except the members page + owner exceptions.
+  return !cfg.public_pages.includes(s);
+}
+
+function createMemberSession(db, member) {
+  const raw = crypto.randomBytes(32).toString('base64url');
+  db.prepare("DELETE FROM site_member_sessions WHERE member_id = ? AND expires_at <= datetime('now')").run(member.id);
+  const info = db
+    .prepare(
+      `INSERT INTO site_member_sessions (token_hash, member_id, lead_id, expires_at)
+       VALUES (?, ?, ?, datetime('now', '+30 days'))`
+    )
+    .run(sha256Hex(raw), member.id, member.lead_id);
+  const row = db.prepare('SELECT expires_at FROM site_member_sessions WHERE id = ?').get(info.lastInsertRowid);
+  return { token: raw, expires_at: row ? row.expires_at : null };
+}
+
+/** Session member row (active accounts only) or null. Lead-scoped. */
+function getSessionMember(db, leadId, rawToken) {
+  if (!rawToken) return null;
+  ensureTables(db);
+  const row = db
+    .prepare(
+      `SELECT m.* FROM site_member_sessions s
+       JOIN site_members m ON m.id = s.member_id
+       WHERE s.token_hash = ? AND s.lead_id = ? AND s.expires_at > datetime('now')`
+    )
+    .get(sha256Hex(rawToken), Number(leadId));
+  if (!row || row.status !== 'active') return null;
+  return row;
+}
+
+function createMemberPreviewGrant(db, leadId) {
+  ensureTables(db);
+  const raw = crypto.randomBytes(24).toString('base64url');
+  db.prepare("DELETE FROM site_member_preview_grants WHERE lead_id = ? AND expires_at <= datetime('now')").run(
+    Number(leadId)
+  );
+  db.prepare(
+    `INSERT INTO site_member_preview_grants (token_hash, lead_id, expires_at)
+     VALUES (?, ?, datetime('now', '+2 hours'))`
+  ).run(sha256Hex(raw), Number(leadId));
+  return raw;
+}
+
+function verifyMemberPreviewGrant(db, leadId, raw) {
+  if (!raw) return false;
+  ensureTables(db);
+  const row = db
+    .prepare(
+      "SELECT id FROM site_member_preview_grants WHERE token_hash = ? AND lead_id = ? AND expires_at > datetime('now')"
+    )
+    .get(sha256Hex(raw), Number(leadId));
+  return !!row;
+}
+
+/** Mint a preview grant only when the site actually gates something. */
+function memberPreviewGrantFor(db, leadId) {
+  const cfg = readMembersConfig(db, leadId);
+  if (cfg.gate_mode === 'off') return null;
+  const embed = membersEmbedForLead(db, leadId);
+  if (!embed || !moduleEmbedActive(embed)) return null;
+  return createMemberPreviewGrant(db, leadId);
+}
+
+/**
+ * Access for payload/body reads: { member } for a valid session, { preview }
+ * for an owner preview grant, null otherwise. Always scoped to this lead.
+ */
+function resolveMemberAccess(db, leadId, opts = {}) {
+  const member = getSessionMember(db, leadId, opts.memberSession || opts.sessionToken || '');
+  if (member) return { member: publicMember(member), preview: false };
+  if (verifyMemberPreviewGrant(db, leadId, opts.previewGrant || '')) return { member: null, preview: true };
+  return null;
+}
+
+function memberGateCheck(db, leadId, pageSlug, opts = {}) {
+  if (!pageIsGated(db, leadId, pageSlug)) return { locked: false };
+  const access = resolveMemberAccess(db, leadId, opts);
+  if (access) return { locked: false, access };
+  const cfg = readMembersConfig(db, leadId);
+  const embed = membersEmbedForLead(db, leadId);
+  return {
+    locked: true,
+    wall_headline: cfg.wall_headline,
+    signup_mode: cfg.signup_mode,
+    gate_mode: cfg.gate_mode,
+    members_token: embed ? embed.public_token : '',
+    members_page: pageFileName(membersPageSlug(db, leadId)),
+  };
+}
+
+function lockedModulePayload(embedRow, gate) {
+  return {
+    embed: publicEmbed(embedRow),
+    module_type: embedRow.module_type,
+    title: embedRow.title || MODULE_META[embedRow.module_type]?.label || embedRow.module_type,
+    settings: parseEmbedSettings(embedRow),
+    items: [],
+    locked: true,
+    gate: {
+      wall_headline: gate.wall_headline,
+      signup_mode: gate.signup_mode,
+      members_token: gate.members_token,
+      members_page: gate.members_page,
+    },
+  };
+}
+
+/** For write/action endpoints whose module lives on a gated page. */
+function assertMemberAccessForEmbed(db, embedRow, opts = {}) {
+  if (!embedRow || embedRow.module_type === 'members') return;
+  const gate = memberGateCheck(db, embedRow.lead_id, embedRow.target_page_slug, opts);
+  if (gate.locked) {
+    const err = fail('MEMBER_LOCKED', 'This is members-only — please log in to continue.', 401);
+    err.gate = {
+      wall_headline: gate.wall_headline,
+      signup_mode: gate.signup_mode,
+      members_token: gate.members_token,
+      members_page: gate.members_page,
+    };
+    throw err;
+  }
+}
+
+function getMemberByEmail(db, leadId, email) {
+  ensureTables(db);
+  return (
+    db
+      .prepare('SELECT * FROM site_members WHERE lead_id = ? AND email = ?')
+      .get(Number(leadId), normalizeMemberEmail(email)) || null
+  );
+}
+
+function signupMember(db, leadId, data = {}) {
+  ensureTables(db);
+  const id = Number(leadId);
+  const name = String(data.name || '')
+    .trim()
+    .slice(0, 120);
+  const email = normalizeMemberEmail(data.email);
+  const password = assertMemberPassword(data.password);
+  if (!name) throw fail('VALIDATION', 'Please enter your name.', 400);
+  if (!memberEmailOk(email)) throw fail('VALIDATION', 'Please enter a valid email address.', 400);
+  if (getMemberByEmail(db, id, email)) {
+    throw fail('EMAIL_TAKEN', 'An account with this email already exists — try logging in instead.', 409);
+  }
+  const cfg = readMembersConfig(db, id);
+  const status = cfg.signup_mode === 'approval' ? 'pending' : 'active';
+  const hash = bcrypt.hashSync(password, 12);
+  let info;
+  try {
+    info = db
+      .prepare('INSERT INTO site_members (lead_id, email, name, password_hash, status) VALUES (?, ?, ?, ?, ?)')
+      .run(id, email, name, hash, status);
+  } catch (e) {
+    if (/UNIQUE/i.test(String((e && e.message) || ''))) {
+      throw fail('EMAIL_TAKEN', 'An account with this email already exists — try logging in instead.', 409);
+    }
+    throw e;
+  }
+  const member = db.prepare('SELECT * FROM site_members WHERE id = ?').get(info.lastInsertRowid);
+  const out = { member: publicMember(member), pending: status === 'pending', session: null };
+  if (status === 'active') {
+    db.prepare("UPDATE site_members SET last_login_at = datetime('now') WHERE id = ?").run(member.id);
+    out.session = createMemberSession(db, member);
+    out.member = publicMember(db.prepare('SELECT * FROM site_members WHERE id = ?').get(member.id));
+  }
+  return out;
+}
+
+function loginMember(db, leadId, data = {}) {
+  ensureTables(db);
+  const id = Number(leadId);
+  const email = normalizeMemberEmail(data.email);
+  const password = String(data.password || '');
+  const member = getMemberByEmail(db, id, email);
+  if (!member) {
+    try {
+      bcrypt.compareSync(password, MEMBER_DUMMY_HASH);
+    } catch {
+      /* timing pad only */
+    }
+    throw fail('INVALID_CREDENTIALS', 'Email or password is incorrect.', 401);
+  }
+  let ok = false;
+  try {
+    ok = bcrypt.compareSync(password, member.password_hash);
+  } catch {
+    ok = false;
+  }
+  if (!ok) throw fail('INVALID_CREDENTIALS', 'Email or password is incorrect.', 401);
+  if (member.status === 'pending') {
+    throw fail('MEMBER_PENDING', 'Your account is waiting for approval — we will let you know when it is ready.', 403);
+  }
+  if (member.status === 'disabled') {
+    throw fail('MEMBER_DISABLED', 'This account has been disabled. Please contact us for help.', 403);
+  }
+  db.prepare("UPDATE site_members SET last_login_at = datetime('now') WHERE id = ?").run(member.id);
+  const session = createMemberSession(db, member);
+  const fresh = db.prepare('SELECT * FROM site_members WHERE id = ?').get(member.id);
+  return { member: publicMember(fresh), session };
+}
+
+function logoutMember(db, leadId, rawToken) {
+  ensureTables(db);
+  if (rawToken) {
+    db.prepare('DELETE FROM site_member_sessions WHERE token_hash = ? AND lead_id = ?').run(
+      sha256Hex(rawToken),
+      Number(leadId)
+    );
+  }
+  return { ok: true };
+}
+
+/** Creates a reset token (hashed at rest, 1h, single-use). Null when no such member. */
+function requestMemberReset(db, leadId, email) {
+  ensureTables(db);
+  const member = getMemberByEmail(db, leadId, email);
+  if (!member || member.status === 'disabled') return null;
+  db.prepare('DELETE FROM site_member_reset_tokens WHERE member_id = ?').run(member.id);
+  const raw = crypto.randomBytes(32).toString('base64url');
+  db.prepare(
+    `INSERT INTO site_member_reset_tokens (token_hash, member_id, lead_id, expires_at)
+     VALUES (?, ?, ?, datetime('now', '+1 hour'))`
+  ).run(sha256Hex(raw), member.id, member.lead_id);
+  return { member: publicMember(member), resetToken: raw };
+}
+
+/** Compose (never sends) the reset email — senders use the platform mailer. */
+function buildMemberResetMail(db, leadId, member, rawToken, appUrl) {
+  const embed = membersEmbedForLead(db, leadId);
+  if (!embed || !embed.public_token || !member) return null;
+  const base = String(appUrl || appBaseUrl()).replace(/\/$/, '');
+  if (!base) return null;
+  const url = `${base}/member-reset.html?t=${encodeURIComponent(embed.public_token)}&r=${encodeURIComponent(rawToken)}`;
+  let business = '';
+  try {
+    const lead = db.prepare('SELECT business_name FROM leads WHERE id = ?').get(Number(leadId));
+    business = String((lead && lead.business_name) || '').trim();
+  } catch {
+    business = '';
+  }
+  return {
+    to: member.email,
+    subject: business ? `Reset your ${business} password` : 'Reset your password',
+    title: 'Reset your password',
+    paragraphs: [
+      `Hi ${member.name || 'there'},`,
+      business
+        ? `Someone asked to reset the password for your ${business} member account. Use the button below within the next hour to choose a new password.`
+        : 'Someone asked to reset the password for your member account. Use the button below within the next hour to choose a new password.',
+      'If that was not you, you can ignore this email — your password will not change.',
+    ],
+    cta: { label: 'Choose a new password', url },
+    footerNote: 'This link works once and expires in one hour.',
+  };
+}
+
+function resetMemberPassword(db, leadId, rawToken, newPassword) {
+  ensureTables(db);
+  const password = assertMemberPassword(newPassword);
+  const id = Number(leadId);
+  const row = db
+    .prepare('SELECT * FROM site_member_reset_tokens WHERE token_hash = ? AND lead_id = ?')
+    .get(sha256Hex(rawToken), id);
+  if (!row || row.used_at || !(feedTimeMs(row.expires_at) > Date.now())) {
+    throw fail('RESET_INVALID', 'This reset link is invalid or has expired. Please request a new one.', 400);
+  }
+  const member = db.prepare('SELECT * FROM site_members WHERE id = ? AND lead_id = ?').get(row.member_id, id);
+  if (!member) {
+    throw fail('RESET_INVALID', 'This reset link is invalid or has expired. Please request a new one.', 400);
+  }
+  const hash = bcrypt.hashSync(password, 12);
+  db.prepare("UPDATE site_member_reset_tokens SET used_at = datetime('now') WHERE id = ?").run(row.id);
+  db.prepare('UPDATE site_members SET password_hash = ? WHERE id = ?').run(hash, member.id);
+  // A password reset ends every existing session for this member.
+  db.prepare('DELETE FROM site_member_sessions WHERE member_id = ?').run(member.id);
+  return { member: publicMember(db.prepare('SELECT * FROM site_members WHERE id = ?').get(member.id)) };
+}
+
+/* Owner-side member management */
+
+function listSiteMembers(db, leadId, opts = {}) {
+  ensureTables(db);
+  const limit = Math.min(500, Math.max(1, Number(opts.limit) || 200));
+  const params = [Number(leadId)];
+  let sql = 'SELECT * FROM site_members WHERE lead_id = ?';
+  const status = String(opts.status || '')
+    .trim()
+    .toLowerCase();
+  if (MEMBER_STATUSES.includes(status)) {
+    sql += ' AND status = ?';
+    params.push(status);
+  }
+  const search = String(opts.search || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[%_]/g, '');
+  if (search) {
+    sql += ' AND (email LIKE ? OR lower(name) LIKE ?)';
+    params.push(`%${search}%`, `%${search}%`);
+  }
+  sql += ' ORDER BY id DESC LIMIT ?';
+  params.push(limit);
+  return db.prepare(sql).all(...params).map(publicMember);
+}
+
+function countSiteMembers(db, leadId) {
+  ensureTables(db);
+  const rows = db
+    .prepare('SELECT status, COUNT(*) AS c FROM site_members WHERE lead_id = ? GROUP BY status')
+    .all(Number(leadId));
+  const counts = { total: 0, active: 0, pending: 0, disabled: 0 };
+  for (const r of rows) {
+    const c = Number(r.c) || 0;
+    counts.total += c;
+    if (Object.prototype.hasOwnProperty.call(counts, r.status)) counts[r.status] = c;
+  }
+  return counts;
+}
+
+function setSiteMemberStatus(db, leadId, memberId, status) {
+  ensureTables(db);
+  const st = String(status || '')
+    .trim()
+    .toLowerCase();
+  if (!MEMBER_STATUSES.includes(st)) {
+    throw fail('VALIDATION', 'status must be active, pending or disabled.', 400);
+  }
+  const member = db
+    .prepare('SELECT * FROM site_members WHERE id = ? AND lead_id = ?')
+    .get(Number(memberId), Number(leadId));
+  if (!member) throw fail('NOT_FOUND', 'Member not found', 404);
+  db.prepare('UPDATE site_members SET status = ? WHERE id = ?').run(st, member.id);
+  // Leaving active ends the member's sessions immediately.
+  if (st !== 'active') db.prepare('DELETE FROM site_member_sessions WHERE member_id = ?').run(member.id);
+  return publicMember(db.prepare('SELECT * FROM site_members WHERE id = ?').get(member.id));
+}
+
+function deleteSiteMember(db, leadId, memberId) {
+  ensureTables(db);
+  const member = db
+    .prepare('SELECT * FROM site_members WHERE id = ? AND lead_id = ?')
+    .get(Number(memberId), Number(leadId));
+  if (!member) throw fail('NOT_FOUND', 'Member not found', 404);
+  db.prepare('DELETE FROM site_member_sessions WHERE member_id = ?').run(member.id);
+  db.prepare('DELETE FROM site_member_reset_tokens WHERE member_id = ?').run(member.id);
+  db.prepare('DELETE FROM site_members WHERE id = ? AND lead_id = ?').run(member.id, Number(leadId));
+  return { deleted: true, id: member.id };
+}
+
+/* Public (token-scoped) members surface */
+
+function membersEmbedByToken(db, token) {
+  ensureTables(db);
+  const row = db
+    .prepare('SELECT * FROM site_module_embeds WHERE public_token = ? AND published = 1')
+    .get(String(token || ''));
+  if (!row || row.module_type !== 'members') throw fail('NOT_FOUND', 'Membership module not found', 404);
+  return row;
+}
+
+function publicMemberSignup(db, token, data = {}) {
+  const row = membersEmbedByToken(db, token);
+  return signupMember(db, row.lead_id, data);
+}
+
+function publicMemberLogin(db, token, data = {}) {
+  const row = membersEmbedByToken(db, token);
+  return loginMember(db, row.lead_id, data);
+}
+
+function publicMemberLogout(db, token, rawSession) {
+  const row = membersEmbedByToken(db, token);
+  return logoutMember(db, row.lead_id, rawSession);
+}
+
+/** Returns { embed, request|null } — the route composes + sends the email. */
+function publicMemberForgot(db, token, email) {
+  const row = membersEmbedByToken(db, token);
+  return { embed: publicEmbed(row), request: requestMemberReset(db, row.lead_id, email) };
+}
+
+function publicMemberReset(db, token, data = {}) {
+  const row = membersEmbedByToken(db, token);
+  return resetMemberPassword(db, row.lead_id, data.reset_token || data.resetToken || '', data.password);
+}
+
+/** Members-page payload: public config + the caller's own member state. */
+function publicMembersPayload(db, embedRow, opts = {}) {
+  const leadId = embedRow.lead_id;
+  const cfg = readMembersConfig(db, leadId);
+  const access = resolveMemberAccess(db, leadId, opts);
+  return {
+    embed: publicEmbed(embedRow),
+    module_type: 'members',
+    title: embedRow.title || MODULE_META.members.label,
+    settings: parseEmbedSettings(embedRow),
+    items: [],
+    members: {
+      config: { signup_mode: cfg.signup_mode, gate_mode: cfg.gate_mode, wall_headline: cfg.wall_headline },
+      member: access && access.member ? access.member : null,
+      preview: !!(access && access.preview),
+      members_token: embedRow.public_token,
+      members_page: pageFileName(membersPageSlug(db, leadId)),
+    },
+  };
+}
+
+/* Gated page bodies + export shells */
+
+function stripModuleEmbedScripts(html) {
+  return String(html || '').replace(/<script\b[^>]*src=["'][^"']*module-embed\.js[^"']*["'][^>]*>\s*<\/script>/gi, '');
+}
+
+/** The servable body of a freeform page: main content without site chrome. */
+function extractServableBodyHtml(html) {
+  const src = String(html || '');
+  const main = src.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i);
+  if (main) return main[1];
+  const body = src.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
+  if (body) {
+    return body[1]
+      .replace(/<header\b[^>]*>[\s\S]*?<\/header>/gi, '')
+      .replace(/<footer\b[^>]*>[\s\S]*?<\/footer>/gi, '')
+      .replace(/<nav\b[^>]*>[\s\S]*?<\/nav>/gi, '');
+  }
+  return src;
+}
+
+/**
+ * The real body of a page, served only to a valid member session (or an
+ * owner preview grant) when the page is gated; un-gated pages render the
+ * same way. Throws MEMBER_LOCKED (401) with the wall copy when locked.
+ */
+function getMemberPageBody(db, leadId, slug, opts = {}) {
+  ensureTables(db);
+  const id = Number(leadId);
+  const gate = memberGateCheck(db, id, slug, opts);
+  if (gate.locked) {
+    const err = fail('MEMBER_LOCKED', gate.wall_headline, 401);
+    err.gate = {
+      wall_headline: gate.wall_headline,
+      signup_mode: gate.signup_mode,
+      members_token: gate.members_token,
+      members_page: gate.members_page,
+    };
+    throw err;
+  }
+  const site = db
+    .prepare('SELECT pages, theme FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+    .get(id);
+  if (!site) throw fail('NOT_FOUND', 'Website not found', 404);
+  let pages = [];
+  let theme = {};
+  try {
+    pages = JSON.parse(site.pages || '[]');
+  } catch {
+    pages = [];
+  }
+  try {
+    theme = JSON.parse(site.theme || '{}');
+  } catch {
+    theme = {};
+  }
+  if (!Array.isArray(pages)) throw fail('NOT_FOUND', 'Page not found', 404);
+  const idx = findPageIndex(pages, slug);
+  if (idx < 0) throw fail('NOT_FOUND', 'Page not found', 404);
+  const page = pages[idx];
+  const eng = require('../src/websiteEngine');
+  let html = '';
+  if (pageUsesSections(page)) {
+    html = page.sections
+      .filter((s) => s && s.type !== 'nav' && s.type !== 'footer')
+      .map((s) => eng.sectionToHtml(s, theme, null))
+      .join('\n');
+  } else {
+    html = eng.sanitizeHtml(extractServableBodyHtml(String(page.html || '')));
+  }
+  html = eng.applySitePartials(html, theme, page);
+  html = eng.rewriteAnchorLinksToFiles(html, pages);
+  html = stripModuleEmbedScripts(html);
+  return { slug: normalizeSlug(page.slug || slug), title: String(page.title || ''), html };
+}
+
+function memberGateMountHtml(embedRow, slug, appUrl) {
+  const base = String(appUrl || appBaseUrl()).replace(/\/$/, '');
+  return (
+    `<div class="bitpype-member-gate" data-bitpype-member-gate="1"` +
+    ` data-bitpype-module-token="${escapeAttr(embedRow.public_token)}"` +
+    ` data-bitpype-api="${escapeAttr(base)}"` +
+    ` data-bitpype-page-slug="${escapeAttr(normalizeSlug(slug))}"></div>`
+  );
+}
+
+function shellOutFreeformPage(html, mount, appUrl) {
+  const src = String(html || '');
+  if (/<main\b[^>]*>/i.test(src)) {
+    const out = src.replace(/(<main\b[^>]*>)[\s\S]*?(<\/main>)/i, (m, open, close) => open + mount + close);
+    return ensureModuleEmbedScript(out, appUrl);
+  }
+  const bodyMatch = src.match(/(<body\b[^>]*>)([\s\S]*?)(<\/body>)/i);
+  if (bodyMatch) {
+    const chrome = [];
+    for (const tag of ['header', 'footer', 'nav']) {
+      const m = bodyMatch[2].match(new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?</${tag}>`, 'i'));
+      if (m) chrome.push(m[0]);
+    }
+    const inner = `${chrome.join('\n')}<main class="bp-mod-main">${mount}</main>`;
+    const out = src.replace(bodyMatch[0], `${bodyMatch[1]}${inner}${bodyMatch[3]}`);
+    return ensureModuleEmbedScript(out, appUrl);
+  }
+  return `<main class="bp-mod-main">${mount}</main>` + moduleScriptTag(appUrl);
+}
+
+/**
+ * Export-time gate: returns a copy of `pages` where every gated page's
+ * authored body is replaced by a members gate shell. The stored pages are
+ * never mutated — the real body is served later by getMemberPageBody.
+ */
+function gateExportPages(db, leadId, pages, opts = {}) {
+  if (!Array.isArray(pages) || !pages.length) return pages;
+  const cfg = readMembersConfig(db, leadId);
+  if (cfg.gate_mode === 'off') return pages;
+  const embed = membersEmbedForLead(db, leadId);
+  if (!embed || !moduleEmbedActive(embed)) return pages;
+  const appUrl = opts.appUrl || appBaseUrl();
+  let changed = false;
+  const out = pages.map((page) => {
+    if (!page || typeof page !== 'object') return page;
+    const slug = normalizeSlug(page.slug);
+    if (!pageIsGated(db, leadId, slug)) return page;
+    changed = true;
+    const mount = memberGateMountHtml(embed, slug, appUrl);
+    if (pageUsesSections(page)) {
+      const nav = page.sections.filter((s) => s && s.type === 'nav');
+      const footer = page.sections.filter((s) => s && s.type === 'footer');
+      const gateSection = {
+        type: 'html',
+        content: { html: `<main class="bp-mod-main">${mount}</main>` + moduleScriptTag(appUrl) },
+      };
+      return { ...page, sections: [...nav, gateSection, ...footer] };
+    }
+    return { ...page, html: shellOutFreeformPage(page.html || '', mount, appUrl) };
+  });
+  return changed ? out : pages;
 }
 
 /* ── Bookings (services + hours + calendar slots) ── */
@@ -6057,12 +6832,20 @@ function moduleItemCount(db, leadId, type) {
       return 0;
     }
   }
+  if (type === 'members') {
+    // The tab badge counts active members.
+    ensureTables(db);
+    const row = db
+      .prepare("SELECT COUNT(*) AS c FROM site_members WHERE lead_id = ? AND status = 'active'")
+      .get(Number(leadId));
+    return Number(row && row.c) || 0;
+  }
   return 0;
 }
 
 /* ── Public payload for embed ── */
 
-function getPublicModuleByToken(db, token) {
+function getPublicModuleByToken(db, token, opts = {}) {
   ensureTables(db);
   const row = db
     .prepare('SELECT * FROM site_module_embeds WHERE public_token = ? AND published = 1')
@@ -6070,6 +6853,16 @@ function getPublicModuleByToken(db, token) {
   if (!row) throw fail('NOT_FOUND', 'Module not found', 404);
   const leadId = row.lead_id;
   const type = row.module_type;
+  // Membership: the members module itself is never gated; its payload
+  // carries the caller's own member state for the public auth surface.
+  if (type === 'members') return publicMembersPayload(db, row, opts);
+  // Page gating: content on a gated page stays server-side until a valid
+  // member session (or owner preview grant) accompanies the request. The
+  // chatbot is a sitewide overlay, not page content — it is never gated.
+  if (type !== 'chatbot') {
+    const gate = memberGateCheck(db, leadId, opts.pageSlug || row.target_page_slug, opts);
+    if (gate.locked) return lockedModulePayload(row, gate);
+  }
   const settings = parseEmbedSettings(row);
   let items = [];
   let booking = null;
@@ -6153,8 +6946,9 @@ function getPublicModuleByToken(db, token) {
   return out;
 }
 
-function getPublicModuleItem(db, token, slugOrId) {
-  const payload = getPublicModuleByToken(db, token);
+function getPublicModuleItem(db, token, slugOrId, opts = {}) {
+  const payload = getPublicModuleByToken(db, token, opts);
+  if (payload.locked) return payload;
   const type = payload.module_type;
   const leadId = payload.embed.lead_id;
   let item = null;
@@ -6189,7 +6983,7 @@ function getPublicModuleItem(db, token, slugOrId) {
   return { ...payload, item };
 }
 
-function getPublicBookingSlots(db, token, { date, serviceId, serviceSlug } = {}) {
+function getPublicBookingSlots(db, token, { date, serviceId, serviceSlug } = {}, opts = {}) {
   ensureTables(db);
   const row = db
     .prepare('SELECT * FROM site_module_embeds WHERE public_token = ? AND published = 1')
@@ -6197,6 +6991,7 @@ function getPublicBookingSlots(db, token, { date, serviceId, serviceSlug } = {})
   if (!row || row.module_type !== 'bookings') {
     throw fail('NOT_FOUND', 'Bookings module not found', 404);
   }
+  assertMemberAccessForEmbed(db, row, opts);
   return {
     embed: publicEmbed(row),
     module_type: 'bookings',
@@ -6205,7 +7000,7 @@ function getPublicBookingSlots(db, token, { date, serviceId, serviceSlug } = {})
   };
 }
 
-function createPublicBookingByToken(db, token, data = {}) {
+function createPublicBookingByToken(db, token, data = {}, opts = {}) {
   ensureTables(db);
   const row = db
     .prepare('SELECT * FROM site_module_embeds WHERE public_token = ? AND published = 1')
@@ -6213,6 +7008,7 @@ function createPublicBookingByToken(db, token, data = {}) {
   if (!row || row.module_type !== 'bookings') {
     throw fail('NOT_FOUND', 'Bookings module not found', 404);
   }
+  assertMemberAccessForEmbed(db, row, opts);
   const appointment = createPublicBooking(db, row.lead_id, data);
   return {
     embed: publicEmbed(row),
@@ -6407,6 +7203,41 @@ module.exports = {
   socialFeedItems,
   socialFeedPreview,
   publicSocialFeedPayload,
+  MEMBER_STATUSES,
+  MEMBER_GATE_MODES,
+  MEMBER_SIGNUP_MODES,
+  MEMBER_WALL_DEFAULT,
+  getMembersConfig,
+  readMembersConfig,
+  updateMembersConfig,
+  pageIsGated,
+  memberGateCheck,
+  signupMember,
+  loginMember,
+  logoutMember,
+  getSessionMember,
+  resolveMemberAccess,
+  requestMemberReset,
+  buildMemberResetMail,
+  resetMemberPassword,
+  listSiteMembers,
+  countSiteMembers,
+  setSiteMemberStatus,
+  deleteSiteMember,
+  publicMemberSignup,
+  publicMemberLogin,
+  publicMemberLogout,
+  publicMemberForgot,
+  publicMemberReset,
+  publicMembersPayload,
+  getMemberPageBody,
+  gateExportPages,
+  memberPreviewGrantFor,
+  createMemberPreviewGrant,
+  verifyMemberPreviewGrant,
+  membersEmbedForLead,
+  membersPageSlug,
+  membersEmbedByToken,
   getBookingSettings,
   updateBookingSettings,
   listBookingHours,

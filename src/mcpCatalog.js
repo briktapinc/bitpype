@@ -994,6 +994,7 @@ const tools = [
             'video',
             'estimate',
             'socialfeed',
+            'members',
           ],
         },
         moduleType: {
@@ -1015,6 +1016,7 @@ const tools = [
             'video',
             'estimate',
             'socialfeed',
+            'members',
           ],
         },
         title: { type: 'string' },
@@ -2028,6 +2030,65 @@ const tools = [
     schema: {
       type: 'object',
       properties: { leadId: { type: 'integer', minimum: 1 } },
+    },
+  },
+  {
+    name: 'members.getConfig',
+    description: 'Get the Membership config for a lead: gate_mode (off, selected or whole_site), gated_pages, public_pages (always-public exceptions), signup_mode (open or approval), wall_headline. The Members page itself is always public (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: { leadId: { type: 'integer', minimum: 1 } },
+    },
+  },
+  {
+    name: 'members.updateConfig',
+    description: 'Update the Membership config: gate_mode, gated_pages (page slugs), public_pages (page slugs), signup_mode, wall_headline. Gating is enforced server-side and applies on the next site publish/export (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        gate_mode: { type: 'string', enum: ['off', 'selected', 'whole_site'] },
+        gated_pages: { type: 'array', items: { type: 'string' } },
+        public_pages: { type: 'array', items: { type: 'string' } },
+        signup_mode: { type: 'string', enum: ['open', 'approval'] },
+        wall_headline: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'members.listMembers',
+    description: 'List site members for a lead (email, name, status, joined + last login), with optional search and status filter. Password hashes are never returned (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        search: { type: 'string' },
+        status: { type: 'string', enum: ['active', 'pending', 'disabled'] },
+        limit: { type: 'number' },
+      },
+    },
+  },
+  {
+    name: 'members.setMemberStatus',
+    description: 'Set a member’s status: active (approve / reactivate), pending or disabled. Leaving active ends the member’s sessions immediately (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        id: { type: 'integer', minimum: 1 },
+        status: { type: 'string', enum: ['active', 'pending', 'disabled'] },
+      },
+    },
+  },
+  {
+    name: 'members.deleteMember',
+    description: 'Delete a site member account (and its sessions) for a lead (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        id: { type: 'integer', minimum: 1 },
+      },
     },
   },
   {

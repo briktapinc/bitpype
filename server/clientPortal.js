@@ -631,7 +631,22 @@ function renderClientSite(workspaceId, leadId, opts = {}) {
   const assetBase = resolveExportPreviewBase(workspaceId, leadOk);
   const engine = require('../src/websiteEngine');
   // srcdoc has no document URL — relative images/… need a preview base.
-  const html = canInlineEdit && assetBase ? engine.injectPreviewBaseHref(rendered.html, assetBase) : rendered.html;
+  let html = canInlineEdit && assetBase ? engine.injectPreviewBaseHref(rendered.html, assetBase) : rendered.html;
+  // Membership preview bypass (Batch 16): the owner previews their own site
+  // through this portal path, never the public gate. When gating is active,
+  // mint a short-lived preview grant and hand it to module-embed.js, which
+  // presents it on module API calls so gated content renders for the owner.
+  // The published/exported site is unaffected — visitors still hit the wall.
+  try {
+    const modules = require('./siteModules');
+    const grant = domain.withDb(workspaceId, (db) => modules.memberPreviewGrantFor(db, Number(leadId)));
+    if (grant) {
+      const tag = `<script>window.__BP_MEMBER_PREVIEW_GRANT__=${JSON.stringify(grant)};</script>`;
+      html = /<\/head>/i.test(html) ? html.replace(/<\/head>/i, `${tag}</head>`) : tag + html;
+    }
+  } catch {
+    /* preview grant is best-effort; the preview itself must never break */
+  }
   const theme = leadOk.theme && typeof leadOk.theme === 'object' ? leadOk.theme : {};
   const normalized = engine.normalizeTheme(theme);
   const themePalette = require('../src/themePalette');
@@ -2340,6 +2355,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     let menu = null;
     let estimate = null;
     let socialfeed = null;
+    let members = null;
     if (type === 'blog') items = modules.listBlogPosts(db, Number(leadId));
     else if (type === 'ecommerce') {
       items = modules.listProducts(db, Number(leadId)).map((p) => ({
@@ -2384,6 +2400,15 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
       // config plus a preview of exactly what will render.
       items = [];
       socialfeed = modules.socialFeedPreview(db, Number(leadId));
+    } else if (type === 'members') {
+      // Members join from the public site; the panel carries the gating
+      // config plus the member list (password hashes never leave the server).
+      items = [];
+      members = {
+        config: modules.getMembersConfig(db, Number(leadId)),
+        members: modules.listSiteMembers(db, Number(leadId), { limit: 200 }),
+        counts: modules.countSiteMembers(db, Number(leadId)),
+      };
     }
     else if (type === 'chatbot') {
       const chat = require('./chatbot');
@@ -2408,6 +2433,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     if (menu) out.categories = menu.categories;
     if (estimate) out.estimate = estimate;
     if (socialfeed) out.socialfeed = socialfeed;
+    if (members) out.members = members;
     return out;
   });
 }
@@ -2439,6 +2465,11 @@ async function createModuleItem(workspaceId, leadId, moduleType, body, clientEma
         code: 'VALIDATION',
         status: 400,
       });
+    else if (type === 'members')
+      throw Object.assign(
+        new Error('Members join from your website’s Members page — there is nothing to add here. Use the Members tab to approve or manage them.'),
+        { code: 'VALIDATION', status: 400 }
+      );
     else if (type === 'chatbot') {
       const chat = require('./chatbot');
       item = chat.addKnowledge(db, Number(leadId), body || {});
@@ -2474,7 +2505,11 @@ async function updateModuleItem(workspaceId, leadId, moduleType, id, body, clien
         code: 'VALIDATION',
         status: 400,
       });
-    else if (type === 'chatbot') {
+    else if (type === 'members') {
+      // The only member "edit" from the portal is a status change
+      // (approve / disable / reactivate) — enforced by setSiteMemberStatus.
+      item = modules.setSiteMemberStatus(db, Number(leadId), id, (body || {}).status);
+    } else if (type === 'chatbot') {
       const chat = require('./chatbot');
       item = chat.updateKnowledge(db, Number(leadId), id, body || {});
     } else throw Object.assign(new Error('Unknown module type'), { code: 'VALIDATION', status: 400 });
@@ -2508,6 +2543,7 @@ async function deleteModuleItem(workspaceId, leadId, moduleType, id, clientEmail
         code: 'VALIDATION',
         status: 400,
       });
+    if (type === 'members') return modules.deleteSiteMember(db, Number(leadId), id);
     if (type === 'chatbot') {
       const chat = require('./chatbot');
       return chat.deleteKnowledge(db, Number(leadId), id);
@@ -2645,6 +2681,15 @@ async function saveSocialFeedConfig(workspaceId, leadId, body, clientEmail) {
   await requireSiteModules(workspaceId, clientEmail);
   return domain.withDb(workspaceId, (db) => ({
     config: modules.updateSocialFeedConfig(db, Number(leadId), body || {}),
+  }));
+}
+
+async function saveMembersConfig(workspaceId, leadId, body, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => ({
+    config: modules.updateMembersConfig(db, Number(leadId), body || {}),
   }));
 }
 
@@ -3315,6 +3360,7 @@ module.exports = {
   saveBookingHours,
   saveEstimateConfig,
   saveSocialFeedConfig,
+  saveMembersConfig,
   refreshSocialFeed,
   updateEstimateRequest,
   updateBookingAppointment,

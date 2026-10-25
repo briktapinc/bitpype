@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Reset your password — BitPype</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f6f8; --card: #ffffff; --ink: #14201a; --muted: #5c6b64;
+      --accent: #0c8a5f; --accent-dark: #0b6e4c; --dark: #0b1120;
+      --line: rgba(11, 17, 32, 0.1); --err: #8c2f2f; --ok-bg: #e9f6f1;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: start center;
+      font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: var(--bg); color: var(--ink); padding: 2rem 1rem 3rem;
+    }
+    main { width: min(28rem, 100%); }
+    .brand { font-size: 0.78rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent); font-weight: 700; margin: 0 0 0.6rem; }
+    h1 { font-size: 1.7rem; line-height: 1.2; margin: 0 0 0.5rem; font-weight: 700; }
+    .lede { margin: 0 0 1.5rem; line-height: 1.55; color: var(--muted); font-size: 1rem; }
+    .card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 1.25rem 1.35rem; margin: 0 0 1rem; box-shadow: 0 4px 18px rgba(11,17,32,0.05);
+    }
+    label { display: block; font-weight: 600; font-size: 0.92rem; margin: 0 0 0.35rem; }
+    input {
+      width: 100%; font: inherit; padding: 0.7rem 0.85rem; border: 1px solid var(--line);
+      border-radius: 8px; margin: 0 0 1rem;
+    }
+    button {
+      font: inherit; font-weight: 600; padding: 0.7rem 1.15rem; border-radius: 8px;
+      cursor: pointer; border: 1px solid transparent; background: var(--accent); color: #fff; width: 100%;
+    }
+    button:hover { background: var(--accent-dark); }
+    button:disabled { opacity: 0.55; cursor: wait; }
+    .msg { margin: 0.9rem 0 0; font-size: 0.94rem; line-height: 1.5; }
+    .msg.err { color: var(--err); }
+    .done {
+      background: var(--ok-bg); border: 1px solid var(--line); border-radius: 12px;
+      padding: 1.25rem 1.35rem; line-height: 1.55;
+    }
+    .done h2 { margin: 0 0 0.4rem; font-size: 1.1rem; }
+    .done p { margin: 0; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="brand">BitPype</p>
+    <h1>Choose a new password</h1>
+    <p class="lede">This link works once and expires one hour after it was sent. Setting a new password signs you out everywhere else.</p>
+
+    <div class="card" id="form-card">
+      <form id="reset-form" novalidate>
+        <label for="pw">New password</label>
+        <input id="pw" type="password" autocomplete="new-password" minlength="8" required placeholder="At least 8 characters" />
+        <label for="pw2">Type it again</label>
+        <input id="pw2" type="password" autocomplete="new-password" minlength="8" required placeholder="Same password again" />
+        <button type="submit" id="submit-btn">Set my new password</button>
+        <p class="msg" id="msg" role="status"></p>
+      </form>
+    </div>
+
+    <div class="done" id="done-card" hidden>
+      <h2>Password updated</h2>
+      <p>Head back to the site and log in with your new password.</p>
+    </div>
+  </main>
+
+  <script>
+    (function () {
+      var params = new URLSearchParams(location.search);
+      var token = params.get('t') || '';
+      var reset = params.get('r') || '';
+      var form = document.getElementById('reset-form');
+      var msg = document.getElementById('msg');
+      var btn = document.getElementById('submit-btn');
+      function say(text, isErr) {
+        msg.textContent = text || '';
+        msg.className = 'msg' + (isErr ? ' err' : '');
+      }
+      if (!token || !reset) {
+        say('This reset link is incomplete. Please use the link from your email, or request a new one from the site’s Members page.', true);
+        btn.disabled = true;
+        return;
+      }
+      form.addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        var pw = document.getElementById('pw').value || '';
+        var pw2 = document.getElementById('pw2').value || '';
+        if (pw.length < 8) { say('Your password needs at least 8 characters.', true); return; }
+        if (pw !== pw2) { say('The two passwords do not match.', true); return; }
+        btn.disabled = true;
+        say('Updating…');
+        fetch('/api/v1/modules/public/' + encodeURIComponent(token) + '/members/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reset_token: reset, password: pw }),
+        })
+          .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+          .then(function (res) {
+            if (res.ok && res.j && res.j.ok) {
+              document.getElementById('form-card').hidden = true;
+              document.getElementById('done-card').hidden = false;
+              return;
+            }
+            btn.disabled = false;
+            say((res.j && res.j.error) || 'Something went wrong. Please request a new reset link.', true);
+          })
+          .catch(function () {
+            btn.disabled = false;
+            say('Could not reach the server. Please try again.', true);
+          });
+      });
+    })();
+  </script>
+</body>
+</html>

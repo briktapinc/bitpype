@@ -1110,6 +1110,19 @@ router.post('/modules/socialfeed/refresh', requireClient, actionLimit, async (re
   }
 });
 
+// Membership config — before the generic /modules/:type routes (member
+// approve/disable/delete ride the generic PUT/DELETE /modules/members/:id).
+router.put('/modules/members/config', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.saveMembersConfig(req.client.workspace_id, req.client.lead_id, req.body || {}, req.client.email)
+    );
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 router.get('/modules/:type', requireClient, async (req, res) => {
   try {
     const includeArchived =

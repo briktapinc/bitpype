@@ -263,6 +263,18 @@
       '.bitpype-module-embed .bp-mod-social-text{margin:0;line-height:1.55;font-size:0.96rem;}',
       '.bitpype-module-embed .bp-mod-social-link{margin-top:auto;font-weight:700;color:var(--bp-mod-accent);text-decoration:none;font-size:0.9rem;}',
       '.bitpype-module-embed .bp-mod-social-link:hover{text-decoration:underline;}',
+      '.bitpype-module-embed .bp-mod-gate{border:1px solid var(--bp-mod-line);border-radius:1.1rem;background:var(--bp-mod-paper);padding:1.6rem 1.5rem;max-width:30rem;}',
+      '.bitpype-module-embed .bp-mod-gate-title{font-size:1.25rem;font-weight:800;margin:0 0 0.45rem;line-height:1.3;}',
+      '.bitpype-module-embed .bp-mod-gate-text{margin:0 0 1.1rem;color:var(--bp-mod-muted);line-height:1.55;}',
+      '.bitpype-module-embed .bp-mod-gate-alt{margin:1rem 0 0;font-size:0.94rem;}',
+      '.bitpype-module-embed .bp-mod-gate-alt a{color:var(--bp-mod-accent);font-weight:700;}',
+      '.bitpype-module-embed .bp-mod-member-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.5rem;align-items:start;}',
+      '.bitpype-module-embed .bp-mod-member-col{border:1px solid var(--bp-mod-line);border-radius:1.1rem;background:var(--bp-mod-paper);padding:1.4rem 1.35rem;}',
+      '.bitpype-module-embed .bp-mod-member-col h3{margin:0 0 1rem;font-size:1.12rem;}',
+      '.bitpype-module-embed .bp-mod-member-card{border:1px solid var(--bp-mod-line);border-radius:1.1rem;background:var(--bp-mod-paper);padding:1.4rem 1.35rem;max-width:30rem;}',
+      '.bitpype-module-embed .bp-mod-forgot{margin-top:1rem;border-top:1px solid var(--bp-mod-line);padding-top:1rem;}',
+      '.bitpype-module-embed .bp-mod-forgot summary{cursor:pointer;font-weight:600;font-size:0.94rem;}',
+      '.bitpype-module-embed .bp-mod-forgot form{margin-top:0.8rem;}',
     ].join('');
     var style = document.createElement('style');
     style.id = STYLE_ID;
@@ -404,6 +416,69 @@
       /* ignore */
     }
     return '';
+  }
+
+  /* ── Membership: session storage + gate headers ──
+   * Sessions live in localStorage keyed by the site's members token. Every
+   * module API call carries the session (when one exists), the current page
+   * slug, and any owner preview grant, so the server can enforce gating. */
+  var MEMBER_SESSION_PREFIX = 'bp_member_session_';
+
+  function storedMemberSession() {
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf(MEMBER_SESSION_PREFIX) === 0) {
+          var v = localStorage.getItem(k);
+          if (v) return v;
+        }
+      }
+    } catch (e) {
+      /* storage unavailable */
+    }
+    return '';
+  }
+
+  function saveMemberSession(membersToken, sessionToken) {
+    if (!membersToken) return;
+    try {
+      if (sessionToken) localStorage.setItem(MEMBER_SESSION_PREFIX + membersToken, sessionToken);
+      else localStorage.removeItem(MEMBER_SESSION_PREFIX + membersToken);
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  function memberPreviewGrant() {
+    try {
+      return window.__BP_MEMBER_PREVIEW_GRANT__ || '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function pageSlugHere() {
+    var p = String((window.location && window.location.pathname) || '').replace(/\/+$/, '');
+    var base = p.split('/').pop() || '';
+    var slug = base.replace(/\.html?$/i, '');
+    return slug || 'index';
+  }
+
+  function memberHeaders() {
+    var h = {};
+    var s = storedMemberSession();
+    if (s) h['X-Bitpype-Member-Session'] = s;
+    var g = memberPreviewGrant();
+    if (g) h['X-Bitpype-Preview-Grant'] = g;
+    h['X-Bitpype-Page'] = pageSlugHere();
+    return h;
+  }
+
+  function jsonHeaders() {
+    var h = { 'Content-Type': 'application/json' };
+    var mh = memberHeaders();
+    for (var k in mh) h[k] = mh[k];
+    return h;
   }
 
   function loadScript(src) {
@@ -706,6 +781,10 @@
     }
     if (type === 'bookings') {
       renderBookings(el, data, html);
+      return;
+    }
+    if (type === 'members') {
+      renderMembers(el, data, html);
       return;
     }
     if (type === 'estimate') {
@@ -1061,7 +1140,7 @@
         encodeURIComponent(date) +
         '&serviceId=' +
         encodeURIComponent(serviceId);
-      return fetch(path, { credentials: 'omit' }).then(function (r) {
+      return fetch(path, { credentials: 'omit', headers: memberHeaders() }).then(function (r) {
         return r.json();
       });
     }
@@ -1187,7 +1266,7 @@
           var r = await fetch((base || '') + '/api/v1/modules/public/' + encodeURIComponent(token) + '/book', {
             method: 'POST',
             credentials: 'omit',
-            headers: { 'Content-Type': 'application/json' },
+            headers: jsonHeaders(),
             body: JSON.stringify(body),
           });
           var j = await r.json();
@@ -1461,7 +1540,7 @@
           var r = await fetch((base || '') + '/api/v1/modules/public/' + encodeURIComponent(token) + '/estimate', {
             method: 'POST',
             credentials: 'omit',
-            headers: { 'Content-Type': 'application/json' },
+            headers: jsonHeaders(),
             body: JSON.stringify(body),
           });
           var j = await r.json();
@@ -1742,7 +1821,7 @@
       fetch((base || '') + '/api/v1/modules/public/' + encodeURIComponent(token) + '/checkout', {
         method: 'POST',
         credentials: 'omit',
-        headers: { 'Content-Type': 'application/json' },
+        headers: jsonHeaders(),
         body: JSON.stringify({ productId: Number(productId), returnUrl: ret.toString() }),
       })
         .then(function (r) {
@@ -1796,6 +1875,351 @@
     }
   }
 
+  /* ── Membership UI: login wall, members page, gated page bodies ── */
+
+  function memberCaptcha(box, base) {
+    var captcha = {
+      enabled: false,
+      getToken: async function () {
+        return '';
+      },
+      reset: function () {},
+    };
+    return (async function () {
+      try {
+        if (base) await loadScript(base + '/js/captcha.js?v=mod5');
+        if (window.ScoutCaptcha && box) {
+          captcha = await window.ScoutCaptcha.mount(box, { apiBase: base });
+        }
+      } catch (e) {
+        /* captcha optional when disabled server-side */
+      }
+      return captcha;
+    })();
+  }
+
+  function memberLoginFormHtml() {
+    return (
+      '<form class="bp-mod-book" data-bp-member-login>' +
+      '<div class="bp-mod-book-row"><label>Email</label><input name="email" type="email" required autocomplete="email" /></div>' +
+      '<div class="bp-mod-book-row"><label>Password</label><input name="password" type="password" required autocomplete="current-password" /></div>' +
+      '<div class="bp-mod-captcha" data-bp-captcha hidden></div>' +
+      '<button type="submit" class="bp-mod-btn">Log in</button>' +
+      '<p class="bp-mod-book-msg" data-bp-member-msg></p>' +
+      '</form>'
+    );
+  }
+
+  function memberPost(base, token, pathSuffix, body, headers) {
+    return fetch((base || '') + '/api/v1/modules/public/' + encodeURIComponent(token) + pathSuffix, {
+      method: 'POST',
+      credentials: 'omit',
+      headers: headers || jsonHeaders(),
+      body: JSON.stringify(body || {}),
+    }).then(function (r) {
+      return r.json().then(function (j) {
+        return { status: r.status, j: j };
+      });
+    });
+  }
+
+  function bindMemberLogin(root, membersToken, onSuccess) {
+    var form = root.querySelector('[data-bp-member-login]');
+    if (!form) return;
+    var base = apiBase(root);
+    var msg = form.querySelector('[data-bp-member-msg]');
+    var submitBtn = form.querySelector('button[type="submit"]');
+    var captchaPromise = memberCaptcha(form.querySelector('[data-bp-captcha]'), base);
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var email = String(form.querySelector('[name="email"]').value || '').trim();
+      var password = String(form.querySelector('[name="password"]').value || '');
+      if (!email || !password) {
+        if (msg) {
+          msg.textContent = 'Enter your email and password.';
+          msg.className = 'bp-mod-book-msg err';
+        }
+        return;
+      }
+      if (submitBtn) submitBtn.disabled = true;
+      if (msg) {
+        msg.textContent = 'Logging in…';
+        msg.className = 'bp-mod-book-msg';
+      }
+      (async function () {
+        var captcha = await captchaPromise;
+        try {
+          var captchaToken = await captcha.getToken();
+          var res = await memberPost(base, membersToken, '/members/login', {
+            email: email,
+            password: password,
+            captchaToken: captchaToken,
+          });
+          if (!res.j || !res.j.ok) throw new Error((res.j && res.j.error) || 'Login failed');
+          var session = res.j.data && res.j.data.session;
+          if (session && session.token) saveMemberSession(membersToken, session.token);
+          if (onSuccess) onSuccess();
+        } catch (e) {
+          if (msg) {
+            msg.textContent = e.message || 'Login failed — please try again.';
+            msg.className = 'bp-mod-book-msg err';
+          }
+          if (captcha.reset) captcha.reset();
+        } finally {
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      })();
+    });
+  }
+
+  function bindMemberSignup(root, membersToken, onDone) {
+    var form = root.querySelector('[data-bp-member-signup]');
+    if (!form) return;
+    var base = apiBase(root);
+    var msg = form.querySelector('[data-bp-member-msg]');
+    var submitBtn = form.querySelector('button[type="submit"]');
+    var captchaPromise = memberCaptcha(form.querySelector('[data-bp-captcha]'), base);
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var name = String(form.querySelector('[name="name"]').value || '').trim();
+      var email = String(form.querySelector('[name="email"]').value || '').trim();
+      var password = String(form.querySelector('[name="password"]').value || '');
+      if (!name || !email || password.length < 8) {
+        if (msg) {
+          msg.textContent = 'Add your name, a valid email, and a password of at least 8 characters.';
+          msg.className = 'bp-mod-book-msg err';
+        }
+        return;
+      }
+      if (submitBtn) submitBtn.disabled = true;
+      if (msg) {
+        msg.textContent = 'Creating your account…';
+        msg.className = 'bp-mod-book-msg';
+      }
+      (async function () {
+        var captcha = await captchaPromise;
+        try {
+          var captchaToken = await captcha.getToken();
+          var res = await memberPost(base, membersToken, '/members/signup', {
+            name: name,
+            email: email,
+            password: password,
+            captchaToken: captchaToken,
+          });
+          if (!res.j || !res.j.ok) throw new Error((res.j && res.j.error) || 'Signup failed');
+          var data = res.j.data || {};
+          if (data.pending) {
+            form.innerHTML =
+              '<p class="bp-mod-gate-title">Thanks — you’re nearly there</p>' +
+              '<p class="bp-mod-gate-text">Your account is waiting for approval. We will let you know when it is ready to use.</p>';
+            return;
+          }
+          if (data.session && data.session.token) saveMemberSession(membersToken, data.session.token);
+          if (onDone) onDone();
+        } catch (e) {
+          if (msg) {
+            msg.textContent = e.message || 'Signup failed — please try again.';
+            msg.className = 'bp-mod-book-msg err';
+          }
+          if (captcha.reset) captcha.reset();
+        } finally {
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      })();
+    });
+  }
+
+  function bindMemberForgot(root, membersToken) {
+    var form = root.querySelector('[data-bp-member-forgot]');
+    if (!form) return;
+    var base = apiBase(root);
+    var msg = form.querySelector('[data-bp-member-msg]');
+    var submitBtn = form.querySelector('button[type="submit"]');
+    var captchaPromise = memberCaptcha(form.querySelector('[data-bp-captcha]'), base);
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var email = String(form.querySelector('[name="email"]').value || '').trim();
+      if (!email) return;
+      if (submitBtn) submitBtn.disabled = true;
+      if (msg) {
+        msg.textContent = 'Sending…';
+        msg.className = 'bp-mod-book-msg';
+      }
+      (async function () {
+        var captcha = await captchaPromise;
+        try {
+          var captchaToken = await captcha.getToken();
+          var res = await memberPost(base, membersToken, '/members/forgot', {
+            email: email,
+            captchaToken: captchaToken,
+          });
+          if (!res.j || !res.j.ok) throw new Error((res.j && res.j.error) || 'Request failed');
+          if (msg) {
+            msg.textContent =
+              (res.j.data && res.j.data.message) || 'If an account exists for that email, a reset link is on its way.';
+            msg.className = 'bp-mod-book-msg';
+          }
+        } catch (e) {
+          if (msg) {
+            msg.textContent = e.message || 'Request failed — please try again.';
+            msg.className = 'bp-mod-book-msg err';
+          }
+          if (captcha.reset) captcha.reset();
+        } finally {
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      })();
+    });
+  }
+
+  function renderMembers(el, data, prefixHtml) {
+    var m = data.members || {};
+    var cfg = m.config || {};
+    var token = el.getAttribute(TOKEN_ATTR) || '';
+    var base = apiBase(el);
+    var html = prefixHtml || '';
+    if (m.member) {
+      html +=
+        '<div class="bp-mod-member-card">' +
+        '<p class="bp-mod-gate-title">You’re signed in</p>' +
+        '<p class="bp-mod-gate-text">' +
+        esc(m.member.name || m.member.email) +
+        ' · ' +
+        esc(m.member.email) +
+        '</p>' +
+        '<button type="button" class="bp-mod-btn ghost" data-bp-member-logout>Log out</button>' +
+        '<p class="bp-mod-book-msg" data-bp-member-msg></p>' +
+        '</div>';
+      el.innerHTML = html;
+      var btn = el.querySelector('[data-bp-member-logout]');
+      if (btn) {
+        btn.addEventListener('click', function () {
+          var headers = jsonHeaders(); // carries the current session header
+          saveMemberSession(token, '');
+          memberPost(base, token, '/members/logout', {}, headers).catch(function () {});
+          mountOne(el);
+        });
+      }
+      return;
+    }
+    var approval = cfg.signup_mode === 'approval';
+    html +=
+      '<div class="bp-mod-member-grid">' +
+      '<div class="bp-mod-member-col"><h3>Log in</h3>' +
+      memberLoginFormHtml() +
+      '<details class="bp-mod-forgot"><summary>Forgot your password?</summary>' +
+      '<form data-bp-member-forgot>' +
+      '<div class="bp-mod-book-row"><label>Email</label><input name="email" type="email" required autocomplete="email" /></div>' +
+      '<div class="bp-mod-captcha" data-bp-captcha hidden></div>' +
+      '<button type="submit" class="bp-mod-btn ghost">Email me a reset link</button>' +
+      '<p class="bp-mod-book-msg" data-bp-member-msg></p>' +
+      '</form></details>' +
+      '</div>' +
+      '<div class="bp-mod-member-col"><h3>Create an account</h3>' +
+      '<form class="bp-mod-book" data-bp-member-signup>' +
+      '<div class="bp-mod-book-row"><label>Your name</label><input name="name" required autocomplete="name" /></div>' +
+      '<div class="bp-mod-book-row"><label>Email</label><input name="email" type="email" required autocomplete="email" /></div>' +
+      '<div class="bp-mod-book-row"><label>Password</label><input name="password" type="password" required minlength="8" autocomplete="new-password" /></div>' +
+      (approval ? '<p class="bp-mod-gate-text">Accounts are approved by the owner — you will be able to log in once yours is approved.</p>' : '') +
+      '<div class="bp-mod-captcha" data-bp-captcha hidden></div>' +
+      '<button type="submit" class="bp-mod-btn">Create my account</button>' +
+      '<p class="bp-mod-book-msg" data-bp-member-msg></p>' +
+      '</form>' +
+      '</div>' +
+      '</div>';
+    el.innerHTML = html;
+    bindMemberLogin(el, token, function () {
+      mountOne(el);
+    });
+    bindMemberSignup(el, token, function () {
+      mountOne(el);
+    });
+    bindMemberForgot(el, token);
+  }
+
+  /** Locked wall for a module mounted on a gated page (no content ships). */
+  function renderLocked(el, data) {
+    var gate = data.gate || {};
+    var html = '';
+    if (shouldShowTitle(el)) html += '<h2 class="bp-mod-title">' + esc(data.title || '') + '</h2>';
+    html +=
+      '<div class="bp-mod-gate">' +
+      '<p class="bp-mod-gate-title">' +
+      esc(gate.wall_headline || 'This page is for members only') +
+      '</p>' +
+      '<p class="bp-mod-gate-text">Log in to keep going.</p>' +
+      memberLoginFormHtml() +
+      (gate.members_page
+        ? '<p class="bp-mod-gate-alt">New here? <a href="' + esc(gate.members_page) + '">Create your account</a></p>'
+        : '') +
+      '</div>';
+    el.innerHTML = html;
+    bindMemberLogin(el, gate.members_token || '', function () {
+      mountOne(el);
+    });
+  }
+
+  /** Locked wall replacing a gated page's exported shell body. */
+  function renderGateWall(el, gate) {
+    el.classList.add('bitpype-module-embed');
+    el.innerHTML =
+      '<div class="bp-mod-gate">' +
+      '<p class="bp-mod-gate-title">' +
+      esc(gate.wall_headline || 'This page is for members only') +
+      '</p>' +
+      '<p class="bp-mod-gate-text">Log in to keep going.</p>' +
+      memberLoginFormHtml() +
+      (gate.members_page
+        ? '<p class="bp-mod-gate-alt">New here? <a href="' + esc(gate.members_page) + '">Create your account</a></p>'
+        : '') +
+      '</div>';
+    bindMemberLogin(el, gate.members_token || '', function () {
+      mountGate(el);
+    });
+  }
+
+  /**
+   * Gate mount on an exported shell page: fetch the real body with the
+   * member session; inject it and mount any modules inside. Without a
+   * session the server answers 401 and only the wall renders.
+   */
+  function mountGate(el) {
+    ensureStyles();
+    el.classList.add('bitpype-module-embed');
+    var token = el.getAttribute('data-bitpype-module-token') || '';
+    var base = el.getAttribute('data-bitpype-api') || apiBase(el);
+    var slug = el.getAttribute('data-bitpype-page-slug') || pageSlugHere();
+    if (!token) {
+      el.innerHTML = '<p class="bp-mod-err">This page is unavailable.</p>';
+      return;
+    }
+    el.innerHTML = '<p class="bp-mod-loading">Loading…</p>';
+    fetch(
+      (base || '') + '/api/v1/modules/public/' + encodeURIComponent(token) + '/page/' + encodeURIComponent(slug),
+      { credentials: 'omit', headers: memberHeaders() }
+    )
+      .then(function (r) {
+        return r.json().then(function (j) {
+          return { status: r.status, j: j };
+        });
+      })
+      .then(function (res) {
+        var j = res.j;
+        if (res.status === 401 || (j && j.code === 'MEMBER_LOCKED')) {
+          renderGateWall(el, (j && j.gate) || {});
+          return;
+        }
+        if (!j || !j.ok) throw new Error((j && j.error) || 'Failed to load');
+        el.innerHTML = (j.data && j.data.html) || '';
+        var mounts = el.querySelectorAll('[data-bitpype-module][data-bitpype-module-token]');
+        for (var i = 0; i < mounts.length; i++) mountOne(mounts[i]);
+        wireVideoFacades(el);
+      })
+      .catch(function (e) {
+        el.innerHTML = '<p class="bp-mod-err">' + esc(e.message || 'Failed to load page') + '</p>';
+      });
+  }
+
   function mountOne(el) {
     var token = el.getAttribute(TOKEN_ATTR) || '';
     if (!token) {
@@ -1816,13 +2240,17 @@
       '/api/v1/modules/public/' +
       encodeURIComponent(token) +
       (item ? '?slug=' + encodeURIComponent(item) : '');
-    fetch(path, { credentials: 'omit' })
+    fetch(path, { credentials: 'omit', headers: memberHeaders() })
       .then(function (r) {
         return r.json();
       })
       .then(function (j) {
         if (!j || !j.ok) throw new Error((j && j.error) || 'Failed to load');
         var data = j.data;
+        if (data.locked) {
+          renderLocked(el, data);
+          return;
+        }
         if (data.item) renderItem(el, data);
         else renderList(el, data);
         if (data.module_type === 'ecommerce') wireShop(el, base, token);
@@ -1836,6 +2264,8 @@
     ensureStyles();
     var nodes = document.querySelectorAll('[data-bitpype-module][data-bitpype-module-token]');
     for (var i = 0; i < nodes.length; i++) mountOne(nodes[i]);
+    var gates = document.querySelectorAll('[data-bitpype-member-gate]');
+    for (var g = 0; g < gates.length; g++) mountGate(gates[g]);
   }
 
   window.BitpypeModules = {

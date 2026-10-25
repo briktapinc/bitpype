@@ -1127,6 +1127,9 @@ const MERGE_MOVE_TABLES = [
   'estimate_options',
   'estimate_requests',
   'domain_transactions',
+  'site_member_sessions',
+  'site_member_reset_tokens',
+  'site_member_preview_grants',
 ];
 
 const MERGE_DEDUPE_TABLES = {
@@ -1140,6 +1143,8 @@ const MERGE_DEDUPE_TABLES = {
   team_members: ['slug'],
   site_module_embeds: ['module_type'],
   social_accounts: ['platform', 'account_id'],
+  // A member email is unique per lead — on merge the keeper's account wins.
+  site_members: ['email'],
 };
 
 const MERGE_SINGLETON_TABLES = [
@@ -1148,6 +1153,7 @@ const MERGE_SINGLETON_TABLES = [
   'estimate_configs',
   'socialfeed_configs',
   'socialfeed_cache',
+  'members_configs',
 ];
 
 function leadTableExists(db, table) {

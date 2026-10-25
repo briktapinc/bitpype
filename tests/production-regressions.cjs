@@ -231,7 +231,7 @@ async function main() {
     '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
   });
   sm12.ensureTables(db);
-  assert.equal(Object.keys(sm12.MODULE_META).length, 17, 'module catalog has 17 types');
+  assert.equal(Object.keys(sm12.MODULE_META).length, 18, 'module catalog has 18 types');
   for (const t of ['offers', 'menu', 'careers', 'video']) assert(sm12.MODULE_META[t], 'meta for ' + t);
   check('batch12 catalog: module types incl. offers/menu/careers/video', () => {});
 
@@ -340,8 +340,8 @@ async function main() {
   assert.equal(pubVideo.items.length, 1, 'only published videos surface');
   assert.equal(pubVideo.items[0].embed_url, 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ');
   const summary12 = sm12.portalSummary(db, 201);
-  assert.equal(summary12.modules.length, 17, 'portal summary lists all 17 module types');
-  check('batch12 public payloads: token surface filters expired/inactive/draft; portal summary = 17 types', () => {});
+  assert.equal(summary12.modules.length, 18, 'portal summary lists all 18 module types');
+  check('batch12 public payloads: token surface filters expired/inactive/draft; portal summary = 18 types', () => {});
 
   // Attach injects nav pages; detach removes them.
   const siteRow = db.prepare('SELECT pages FROM websites WHERE lead_id = 201').get();
@@ -1019,6 +1019,191 @@ async function main() {
   assert.throws(() => df.adminDetail(foreignDb, txn1.id), (e) => e.code === 'NOT_FOUND');
   foreignDb.close();
   check('batch15 admin views: list newest-first with joins, detail carries client/site/payment, foreign workspace sees nothing', () => {});
+
+  // ── Batch 16: Membership — site user accounts, sessions, page gating ──
+  const sm16 = load('server/siteModules.js', {
+    '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
+    '../src/websiteEngine': require(path.join(root, 'src/websiteEngine.js')),
+    './portalContacts': contacts,
+  });
+  sm16.ensureTables(db);
+  assert(sm16.MODULE_META.members, 'meta for members');
+  assert.equal(sm16.MODULE_META.members.label, 'Membership');
+  assert.equal(sm16.MODULE_TYPES.length, 18, 'members is the 18th module type');
+  assert.equal(sm16.MODULE_TYPES.includes('members'), true);
+  check('batch16 catalog: members registered as the 18th module type', () => {});
+
+  // Fixture site: sections pages — home (public) + about (to be gated).
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (1601, 'Fixture Members', 'members@example.invalid')").run();
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (1602, 'Fixture Members Two', 'two@example.invalid')").run();
+  const MARKER16 = 'MEMBERS_ONLY_MARKER_7f3a9';
+  const pages1601 = [
+    { slug: 'index', title: 'Home', sections: [{ type: 'nav', content: {} }, { type: 'html', content: { html: '<p>Welcome home</p>' } }, { type: 'footer', content: {} }] },
+    { slug: 'about', title: 'About', sections: [{ type: 'nav', content: {} }, { type: 'html', content: { html: `<p>${MARKER16} secret about body</p>` } }, { type: 'footer', content: {} }] },
+  ];
+  db.prepare('INSERT INTO websites (lead_id, name, theme, pages) VALUES (1601, ?, ?, ?)').run(
+    'Members Fixture Site',
+    '{}',
+    JSON.stringify(pages1601)
+  );
+  const embMembers16 = sm16.attachModule(db, 1601, 'members', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
+  assert(embMembers16 && embMembers16.public_token, 'members attach returns a token');
+  const embBlog16 = sm16.attachModule(db, 1601, 'blog', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
+  sm16.createBlogPost(db, 1601, { title: 'Members Post', body_html: '<p>hello members</p>', status: 'published' });
+
+  // Config defaults.
+  const cfg16Default = sm16.getMembersConfig(db, 1601);
+  assert.equal(cfg16Default.gate_mode, 'off');
+  assert.equal(cfg16Default.signup_mode, 'open');
+  assert(cfg16Default.wall_headline.length > 0, 'wall headline has a sane default');
+  assert.throws(() => sm16.updateMembersConfig(db, 1601, { gate_mode: 'sometimes' }), (e) => e.code === 'VALIDATION');
+  assert.throws(() => sm16.updateMembersConfig(db, 1601, { signup_mode: 'maybe' }), (e) => e.code === 'VALIDATION');
+  check('batch16 config: honest defaults, enum validation', () => {});
+
+  // Signup + hashing at rest + session lifecycle.
+  assert.throws(() => sm16.signupMember(db, 1601, { name: 'A', email: 'a@b.co', password: 'short' }), (e) => e.code === 'VALIDATION', 'short password rejected server-side');
+  assert.throws(() => sm16.signupMember(db, 1601, { name: 'A', email: 'not-an-email', password: 'password123' }), (e) => e.code === 'VALIDATION');
+  const su16 = sm16.signupMember(db, 1601, { name: 'Pat Member', email: 'Pat@Example.com', password: 'password123' });
+  assert.equal(su16.member.email, 'pat@example.com', 'email normalized');
+  assert.equal(su16.member.status, 'active');
+  assert(su16.session && su16.session.token, 'open signup starts a session');
+  assert(!('password_hash' in su16.member), 'public member shape carries no hash');
+  const stored16 = db.prepare('SELECT * FROM site_members WHERE id = ?').get(su16.member.id);
+  assert(stored16.password_hash !== 'password123' && !stored16.password_hash.includes('password123'), 'password never stored in plaintext');
+  assert(stored16.password_hash.startsWith('$2'), 'bcrypt hash at rest (platform scheme)');
+  const sessRow16 = db.prepare('SELECT * FROM site_member_sessions WHERE member_id = ? ORDER BY id DESC LIMIT 1').get(su16.member.id);
+  assert(sessRow16 && sessRow16.token_hash !== su16.session.token && sessRow16.token_hash.length === 64, 'session token stored as sha256 hash only');
+  assert.throws(() => sm16.signupMember(db, 1601, { name: 'Pat Two', email: 'PAT@example.com', password: 'password123' }), (e) => e.code === 'EMAIL_TAKEN', 'duplicate email per lead rejected (case-insensitive)');
+  check('batch16 signup: validation, bcrypt at rest, session token hashed at rest, duplicate email rejected', () => {});
+
+  // Login semantics: no enumeration, session resolution, lead scoping, logout.
+  assert.throws(() => sm16.loginMember(db, 1601, { email: 'pat@example.com', password: 'wrong-password' }), (e) => e.code === 'INVALID_CREDENTIALS');
+  assert.throws(() => sm16.loginMember(db, 1601, { email: 'ghost@example.com', password: 'password123' }), (e) => e.code === 'INVALID_CREDENTIALS', 'unknown email gives the same generic error');
+  const li16 = sm16.loginMember(db, 1601, { email: 'pat@example.com', password: 'password123' });
+  assert(li16.session.token, 'login returns a session');
+  assert.equal(sm16.getSessionMember(db, 1601, li16.session.token).email, 'pat@example.com');
+  assert.equal(sm16.getSessionMember(db, 1602, li16.session.token), null, 'a session only ever resolves inside its own lead');
+  sm16.logoutMember(db, 1601, li16.session.token);
+  assert.equal(sm16.getSessionMember(db, 1601, li16.session.token), null, 'logout deletes the session');
+  check('batch16 login: generic credential errors, lead-scoped sessions, logout kills the session', () => {});
+
+  // Approval flow: pending cannot log in until the owner approves.
+  sm16.updateMembersConfig(db, 1601, { signup_mode: 'approval' });
+  const suPam = sm16.signupMember(db, 1601, { name: 'Pending Pam', email: 'pam@example.com', password: 'password123' });
+  assert.equal(suPam.pending, true);
+  assert.equal(suPam.session, null, 'pending members get no session');
+  assert.throws(() => sm16.loginMember(db, 1601, { email: 'pam@example.com', password: 'password123' }), (e) => e.code === 'MEMBER_PENDING');
+  sm16.setSiteMemberStatus(db, 1601, suPam.member.id, 'active');
+  const liPam = sm16.loginMember(db, 1601, { email: 'pam@example.com', password: 'password123' });
+  assert(liPam.session.token, 'approved member can log in');
+  sm16.setSiteMemberStatus(db, 1601, suPam.member.id, 'disabled');
+  assert.equal(sm16.getSessionMember(db, 1601, liPam.session.token), null, 'disabling a member kills their live sessions');
+  assert.throws(() => sm16.loginMember(db, 1601, { email: 'pam@example.com', password: 'password123' }), (e) => e.code === 'MEMBER_DISABLED');
+  sm16.setSiteMemberStatus(db, 1601, suPam.member.id, 'active');
+  sm16.updateMembersConfig(db, 1601, { signup_mode: 'open' });
+  check('batch16 approval flow: pending blocked, approve unlocks, disable kills sessions + login', () => {});
+
+  // Password reset: hashed single-use token, sessions invalidated, dry-run mail.
+  const liPreReset = sm16.loginMember(db, 1601, { email: 'pat@example.com', password: 'password123' });
+  const rr16 = sm16.requestMemberReset(db, 1601, 'pat@example.com');
+  assert(rr16 && rr16.resetToken, 'reset request issues a token');
+  const mail16 = sm16.buildMemberResetMail(db, 1601, rr16.member, rr16.resetToken, 'https://example.test');
+  assert.equal(mail16.to, 'pat@example.com');
+  assert(mail16.cta.url.startsWith('https://example.test/member-reset.html?t='), 'reset mail links the platform reset page with the module token');
+  assert(mail16.cta.url.includes('&r=' + rr16.resetToken), 'reset mail carries the raw reset token');
+  const resetRow16 = db.prepare('SELECT * FROM site_member_reset_tokens WHERE member_id = ? ORDER BY id DESC LIMIT 1').get(su16.member.id);
+  assert(resetRow16.token_hash !== rr16.resetToken && resetRow16.token_hash.length === 64, 'reset token hashed at rest');
+  assert.equal(sm16.requestMemberReset(db, 1601, 'ghost@example.com'), null, 'unknown email composes nothing (route answers uniformly)');
+  assert.throws(() => sm16.resetMemberPassword(db, 1601, rr16.resetToken, 'short'), (e) => e.code === 'VALIDATION');
+  sm16.resetMemberPassword(db, 1601, rr16.resetToken, 'newpassword99');
+  assert.equal(sm16.getSessionMember(db, 1601, liPreReset.session.token), null, 'a reset invalidates existing sessions');
+  assert.throws(() => sm16.resetMemberPassword(db, 1601, rr16.resetToken, 'anotherpass1'), (e) => e.code === 'RESET_INVALID', 'reset token is single-use');
+  assert.throws(() => sm16.loginMember(db, 1601, { email: 'pat@example.com', password: 'password123' }), (e) => e.code === 'INVALID_CREDENTIALS', 'old password is dead after reset');
+  const liPat = sm16.loginMember(db, 1601, { email: 'pat@example.com', password: 'newpassword99' });
+  assert(liPat.session.token, 'new password works');
+  check('batch16 reset: hashed single-use token, sessions invalidated, dry-run mail composition', () => {});
+
+  // A foreign lead's member — the cross-lead probe for every gate below.
+  const suForeign = sm16.signupMember(db, 1602, { name: 'Foreign Fran', email: 'fran@example.com', password: 'password123' });
+  assert(suForeign.session && suForeign.session.token);
+
+  // Gating — selected mode on the about page.
+  sm16.updateMembersConfig(db, 1601, { gate_mode: 'selected', gated_pages: ['about'], wall_headline: 'Members only beyond this point' });
+  assert.equal(sm16.pageIsGated(db, 1601, 'about'), true);
+  assert.equal(sm16.pageIsGated(db, 1601, 'index'), false);
+  assert.equal(sm16.pageIsGated(db, 1601, 'members'), false, 'the members page itself is always public');
+  const lockedPayload16 = sm16.getPublicModuleByToken(db, embBlog16.public_token, { pageSlug: 'about' });
+  assert.equal(lockedPayload16.locked, true, 'module payload on a gated page locks');
+  assert.equal(lockedPayload16.items.length, 0, 'locked payload carries zero items');
+  assert(!JSON.stringify(lockedPayload16).includes('Members Post'), 'locked payload leaks no content');
+  assert.equal(lockedPayload16.gate.wall_headline, 'Members only beyond this point');
+  assert.equal(lockedPayload16.gate.members_token, embMembers16.public_token, 'wall points at the members module for login');
+  const openPayload16 = sm16.getPublicModuleByToken(db, embBlog16.public_token, { pageSlug: 'about', memberSession: liPat.session.token });
+  assert(!openPayload16.locked && openPayload16.items.length === 1, 'a valid session unlocks the payload');
+  const foreignPayload16 = sm16.getPublicModuleByToken(db, embBlog16.public_token, { pageSlug: 'about', memberSession: suForeign.session.token });
+  assert.equal(foreignPayload16.locked, true, 'a foreign lead session unlocks nothing');
+  assert.equal(foreignPayload16.items.length, 0);
+  const membersPayload16 = sm16.getPublicModuleByToken(db, embMembers16.public_token, { memberSession: liPat.session.token });
+  assert.equal(membersPayload16.module_type, 'members');
+  assert.equal(membersPayload16.members.member.email, 'pat@example.com', 'members payload carries the caller’s own state');
+  assert.equal(sm16.getPublicModuleByToken(db, embMembers16.public_token).members.member, null, 'anonymous members payload has no member');
+  check('batch16 payload gating: locked = zero items + wall copy; session unlocks; cross-lead unlocks nothing', () => {});
+
+  // Export shell — the leak assertion: gated page HTML contains NONE of the body.
+  const eng16 = require(path.join(root, 'src/websiteEngine.js'));
+  const storedPages16 = JSON.parse(db.prepare('SELECT pages FROM websites WHERE lead_id = 1601').get().pages);
+  assert(JSON.stringify(storedPages16).includes(MARKER16), 'fixture body carries the marker before export');
+  const gatedPages16 = sm16.gateExportPages(db, 1601, storedPages16, { appUrl: 'https://example.test' });
+  const aboutExport16 = gatedPages16.find((p) => p.slug === 'about');
+  const aboutHtml16 = eng16.renderPage(aboutExport16, gatedPages16, {}, {});
+  assert(!aboutHtml16.includes(MARKER16), 'exported gated page contains NONE of the authored body');
+  assert(aboutHtml16.includes('data-bitpype-member-gate'), 'exported gated page is a shell carrying the gate mount');
+  const homeExport16 = gatedPages16.find((p) => p.slug === 'index');
+  assert(eng16.renderPage(homeExport16, gatedPages16, {}, {}).includes('Welcome home'), 'un-gated pages export exactly as before');
+  const storedAfter16 = JSON.parse(db.prepare('SELECT pages FROM websites WHERE lead_id = 1601').get().pages);
+  assert(JSON.stringify(storedAfter16).includes(MARKER16), 'stored pages keep the real body — the gate is export-only');
+  check('batch16 export shell: gated page ships no body (marker absent), un-gated untouched, DB unchanged', () => {});
+
+  // Body API: locked anonymously, served to the member, never cross-lead.
+  assert.throws(() => sm16.getMemberPageBody(db, 1601, 'about'), (e) => e.code === 'MEMBER_LOCKED' && e.status === 401, 'body API refuses anonymous reads');
+  assert.throws(() => sm16.getMemberPageBody(db, 1601, 'about', { memberSession: suForeign.session.token }), (e) => e.code === 'MEMBER_LOCKED', 'body API refuses foreign sessions');
+  const body16 = sm16.getMemberPageBody(db, 1601, 'about', { memberSession: liPat.session.token });
+  assert(body16.html.includes(MARKER16), 'a valid member session receives the real body');
+  const grant16 = sm16.memberPreviewGrantFor(db, 1601);
+  assert(grant16, 'owner preview grant minted while gating is active');
+  const grantRow16 = db.prepare('SELECT * FROM site_member_preview_grants WHERE lead_id = 1601 ORDER BY id DESC LIMIT 1').get();
+  assert(grantRow16.token_hash !== grant16 && grantRow16.token_hash.length === 64, 'preview grant hashed at rest');
+  assert(sm16.getMemberPageBody(db, 1601, 'about', { previewGrant: grant16 }).html.includes(MARKER16), 'preview grant unlocks for the owner');
+  assert.equal(sm16.verifyMemberPreviewGrant(db, 1602, grant16), false, 'preview grant is lead-scoped');
+  check('batch16 body API + preview grant: member-only body serving, hashed lead-scoped owner bypass', () => {});
+
+  // Whole-site mode + gate off.
+  sm16.updateMembersConfig(db, 1601, { gate_mode: 'whole_site', public_pages: ['index'] });
+  assert.equal(sm16.pageIsGated(db, 1601, 'index'), false, 'whole-site exception stays public');
+  assert.equal(sm16.pageIsGated(db, 1601, 'about'), true);
+  assert.equal(sm16.pageIsGated(db, 1601, 'members'), false);
+  sm16.updateMembersConfig(db, 1601, { gate_mode: 'off' });
+  assert.equal(sm16.pageIsGated(db, 1601, 'about'), false, 'gate off opens everything');
+  assert.equal(sm16.memberPreviewGrantFor(db, 1601), null, 'no preview grant when the gate is off');
+  const ungatedPayload16 = sm16.getPublicModuleByToken(db, embBlog16.public_token, { pageSlug: 'about' });
+  assert(!ungatedPayload16.locked && ungatedPayload16.items.length === 1, 'un-gated sites behave exactly as before');
+  check('batch16 gate modes: whole-site with exceptions, off restores open behavior', () => {});
+
+  // Owner management: counts, search, hash-free lists, delete cleans sessions.
+  const counts16 = sm16.countSiteMembers(db, 1601);
+  assert.equal(counts16.total, 2);
+  assert.equal(counts16.active, 2);
+  assert.equal(sm16.moduleItemCount(db, 1601, 'members'), 2, 'tab badge counts active members');
+  const listed16 = sm16.listSiteMembers(db, 1601, { search: 'pam@' });
+  assert.equal(listed16.length, 1);
+  assert.equal(listed16[0].email, 'pam@example.com');
+  assert(!('password_hash' in listed16[0]), 'owner member list never carries password hashes');
+  const liPam2 = sm16.loginMember(db, 1601, { email: 'pam@example.com', password: 'password123' });
+  sm16.deleteSiteMember(db, 1601, suPam.member.id);
+  assert.equal(sm16.getSessionMember(db, 1601, liPam2.session.token), null, 'deleting a member ends their sessions');
+  assert.equal(sm16.countSiteMembers(db, 1601).total, 1);
+  assert.throws(() => sm16.setSiteMemberStatus(db, 1601, suPam.member.id, 'active'), (e) => e.code === 'NOT_FOUND');
+  check('batch16 owner management: counts, search, hash-free list, delete cleans up sessions', () => {});
 
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }

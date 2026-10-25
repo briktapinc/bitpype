@@ -70,7 +70,7 @@ function clientToolDefs() {
     {
       name: 'website.addModule',
       description:
-        'Attach a site module (blog|ecommerce|courses|gallery|directory|faq|testimonials|team|events|bookings|chatbot|offers|menu|careers|video) into the live site template with an in-page JS mount (not an iframe). Standard/Premium siteModules. chatbot = sitewide floating bubble (chat-embed.js); visitor replies go through portal CLIENT MCP chatbot.* only — never admin design.*/lead.* or workspace ws_ tokens. INTENT: appointments with availability → bookings module (never a contact form); then bookings.createService (published) + bookings.setHours. Structured requests → forms.create purpose=…; general inquiries → contact form. Alias: modules.attach. Bookings: optional show_request_form. After attach, call site.publish. Non-bookings attach on appointment-intent pages returns a warning. STYLING: wrap mount; theme.customCss under .bitpype-module-embed.',
+        'Attach a site module (blog|ecommerce|courses|gallery|directory|faq|testimonials|team|events|bookings|chatbot|offers|menu|careers|video|estimate|socialfeed|members) into the live site template with an in-page JS mount (not an iframe). Standard/Premium siteModules. chatbot = sitewide floating bubble (chat-embed.js); visitor replies go through portal CLIENT MCP chatbot.* only — never admin design.*/lead.* or workspace ws_ tokens. INTENT: appointments with availability → bookings module (never a contact form); then bookings.createService (published) + bookings.setHours. Structured requests → forms.create purpose=…; general inquiries → contact form. Alias: modules.attach. Bookings: optional show_request_form. After attach, call site.publish. Non-bookings attach on appointment-intent pages returns a warning. STYLING: wrap mount; theme.customCss under .bitpype-module-embed.',
       inputSchema: schema({
         leadId: ID,
         module: {
@@ -93,6 +93,7 @@ function clientToolDefs() {
             'video',
             'estimate',
             'socialfeed',
+            'members',
           ],
         },
         moduleType: {
@@ -115,6 +116,7 @@ function clientToolDefs() {
             'video',
             'estimate',
             'socialfeed',
+            'members',
           ],
         },
         title: STR,
@@ -915,6 +917,42 @@ function clientToolDefs() {
       description:
         'Preview exactly what the Social Feed will render for a lead: merged published items (BitPype-published first, then live account posts), the config, connected accounts, and a plain-language note on what the feed shows. Standard/Premium.',
       inputSchema: schema({ leadId: ID }),
+    },
+    {
+      name: 'members.getConfig',
+      description:
+        'Get the Membership config for a lead: gate_mode (off | selected | whole_site), gated_pages (slugs members-only in selected mode), public_pages (always-public exceptions in whole_site mode), signup_mode (open | approval), wall_headline (login wall copy). The Members page itself is always public. Standard/Premium.',
+      inputSchema: schema({ leadId: ID }),
+    },
+    {
+      name: 'members.updateConfig',
+      description:
+        'Update the Membership config: gate_mode, gated_pages (array of page slugs), public_pages (array of page slugs), signup_mode, wall_headline. Gating is enforced server-side and applies on the next site publish/export. Standard/Premium.',
+      inputSchema: schema({
+        leadId: ID,
+        gate_mode: STR,
+        gated_pages: { type: 'array', items: { type: 'string' } },
+        public_pages: { type: 'array', items: { type: 'string' } },
+        signup_mode: STR,
+        wall_headline: STR,
+      }),
+    },
+    {
+      name: 'members.listMembers',
+      description:
+        'List site members for a lead (email, name, status active|pending|disabled, joined + last login). Optional search (name/email) and status filter. Password hashes are never returned. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, search: STR, status: STR, limit: NUM }),
+    },
+    {
+      name: 'members.setMemberStatus',
+      description:
+        'Set a member’s status: active (approve / reactivate), pending, or disabled. Leaving active ends the member’s sessions immediately. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, id: ID, status: STR }),
+    },
+    {
+      name: 'members.deleteMember',
+      description: 'Delete a site member account (and its sessions) for a lead. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, id: ID }),
     },
     {
       name: 'events.list',
@@ -2505,6 +2543,11 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'socialfeed.getConfig',
     'socialfeed.updateConfig',
     'socialfeed.preview',
+    'members.getConfig',
+    'members.updateConfig',
+    'members.listMembers',
+    'members.setMemberStatus',
+    'members.deleteMember',
     'events.list',
     'events.create',
     'events.update',
@@ -3194,6 +3237,49 @@ async function callClientTool(ws, name, a, ctx = {}) {
     return domain.withDb(ws, (db) => ({
       plan: planId,
       preview: modules.socialFeedPreview(db, leadId),
+    }));
+  }
+  if (name === 'members.getConfig') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      config: modules.getMembersConfig(db, leadId),
+    }));
+  }
+  if (name === 'members.updateConfig') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      config: modules.updateMembersConfig(db, leadId, a),
+    }));
+  }
+  if (name === 'members.listMembers') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      members: modules.listSiteMembers(db, leadId, { search: a.search, status: a.status, limit: a.limit || 100 }),
+      counts: modules.countSiteMembers(db, leadId),
+    }));
+  }
+  if (name === 'members.setMemberStatus') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      member: modules.setSiteMemberStatus(db, leadId || Number(ctx.leadId), id, a.status),
+    }));
+  }
+  if (name === 'members.deleteMember') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      ...modules.deleteSiteMember(db, leadId || Number(ctx.leadId), id),
     }));
   }
 

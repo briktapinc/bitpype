@@ -32,6 +32,15 @@ function fail(res, e, status = 400) {
   res.status(http).json({ ok: false, error: e.message || String(e), code: e.code });
 }
 
+/** Membership gate context sent by module-embed.js on every module call. */
+function gateOpts(req) {
+  return {
+    memberSession: req.get('x-bitpype-member-session') || '',
+    previewGrant: req.get('x-bitpype-preview-grant') || '',
+    pageSlug: req.get('x-bitpype-page') || '',
+  };
+}
+
 async function workspaceFromReq(req) {
   const fromToken = siteModules.parseWorkspaceFromToken(req.params.token);
   const fromQuery = Number(
@@ -51,9 +60,10 @@ router.get('/:token', readLimit, async (req, res) => {
   try {
     const workspaceId = await workspaceFromReq(req);
     const slug = req.query.slug || req.query.item || null;
+    const opts = gateOpts(req);
     const data = domain.withDb(workspaceId, (db) => {
-      if (slug) return siteModules.getPublicModuleItem(db, req.params.token, slug);
-      return siteModules.getPublicModuleByToken(db, req.params.token);
+      if (slug) return siteModules.getPublicModuleItem(db, req.params.token, slug, opts);
+      return siteModules.getPublicModuleByToken(db, req.params.token, opts);
     });
     const captchaCfg = await getCaptchaConfig();
     res.json({ ok: true, data: { ...data, workspaceId, captcha: captchaCfg } });
@@ -73,11 +83,16 @@ router.get('/:token/slots', readLimit, async (req, res) => {
       throw err;
     }
     const data = domain.withDb(workspaceId, (db) =>
-      siteModules.getPublicBookingSlots(db, req.params.token, {
-        date,
-        serviceId: req.query.serviceId || req.query.service_id || null,
-        serviceSlug: req.query.service || req.query.serviceSlug || null,
-      })
+      siteModules.getPublicBookingSlots(
+        db,
+        req.params.token,
+        {
+          date,
+          serviceId: req.query.serviceId || req.query.service_id || null,
+          serviceSlug: req.query.service || req.query.serviceSlug || null,
+        },
+        gateOpts(req)
+      )
     );
     res.json({ ok: true, data: { ...data, workspaceId } });
   } catch (e) {
@@ -91,10 +106,15 @@ router.post('/:token/checkout', checkoutLimit, async (req, res) => {
     const workspaceId = await workspaceFromReq(req);
     const body = req.body || {};
     const data = await domain.withDb(workspaceId, (db) =>
-      siteModules.createShopCheckoutByToken(db, req.params.token, {
-        productId: body.productId || body.product_id || body.id,
-        returnUrl: body.returnUrl || body.return_url || '',
-      })
+      siteModules.createShopCheckoutByToken(
+        db,
+        req.params.token,
+        {
+          productId: body.productId || body.product_id || body.id,
+          returnUrl: body.returnUrl || body.return_url || '',
+        },
+        gateOpts(req)
+      )
     );
     res.json({ ok: true, data: { ...data, workspaceId } });
   } catch (e) {
@@ -138,7 +158,9 @@ router.post('/:token/book', bookLimit, captcha, async (req, res) => {
   try {
     const workspaceId = await workspaceFromReq(req);
     const body = req.body || {};
-    const data = domain.withDb(workspaceId, (db) => siteModules.createPublicBookingByToken(db, req.params.token, body));
+    const data = domain.withDb(workspaceId, (db) =>
+      siteModules.createPublicBookingByToken(db, req.params.token, body, gateOpts(req))
+    );
     res.json({ ok: true, data: { ...data, workspaceId } });
   } catch (e) {
     fail(res, e);
@@ -153,8 +175,116 @@ router.post('/:token/estimate', estimateLimit, captcha, async (req, res) => {
     const workspaceId = await workspaceFromReq(req);
     const body = req.body || {};
     const data = domain.withDb(workspaceId, (db) =>
-      siteModules.createPublicEstimateRequestByToken(db, req.params.token, body)
+      siteModules.createPublicEstimateRequestByToken(db, req.params.token, body, gateOpts(req))
     );
+    res.json({ ok: true, data: { ...data, workspaceId } });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+/* ── Membership (site user accounts + page gating) ── */
+
+const memberLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 40 });
+
+/**
+ * The authored body of a page on a members-gated site. The :token is the
+ * MEMBERS module token; the body is returned only with a valid member
+ * session (or owner preview grant) for that lead — otherwise a locked
+ * 401 payload with the wall copy and zero body content.
+ */
+router.get('/:token/page/:slug', readLimit, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    const data = domain.withDb(workspaceId, (db) => {
+      const embed = siteModules.membersEmbedByToken(db, req.params.token);
+      return siteModules.getMemberPageBody(db, embed.lead_id, req.params.slug, gateOpts(req));
+    });
+    res.json({ ok: true, data: { ...data, workspaceId } });
+  } catch (e) {
+    if (e && e.code === 'MEMBER_LOCKED') {
+      return res.status(401).json({ ok: false, error: e.message, code: e.code, gate: e.gate || null });
+    }
+    fail(res, e);
+  }
+});
+
+/** Member signup (open mode logs the new member in; approval mode leaves them pending). */
+router.post('/:token/members/signup', memberLimit, captcha, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    const body = req.body || {};
+    const data = domain.withDb(workspaceId, (db) => siteModules.publicMemberSignup(db, req.params.token, body));
+    res.json({ ok: true, data: { ...data, workspaceId } });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+/** Member login — returns a session token the embed keeps in localStorage. */
+router.post('/:token/members/login', memberLimit, captcha, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    const body = req.body || {};
+    const data = domain.withDb(workspaceId, (db) => siteModules.publicMemberLogin(db, req.params.token, body));
+    res.json({ ok: true, data: { ...data, workspaceId } });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+/** Member logout — deletes the session named by the session header. */
+router.post('/:token/members/logout', memberLimit, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    const session = req.get('x-bitpype-member-session') || (req.body && req.body.session_token) || '';
+    const data = domain.withDb(workspaceId, (db) =>
+      siteModules.publicMemberLogout(db, req.params.token, session)
+    );
+    res.json({ ok: true, data: { ...data, workspaceId } });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+/**
+ * Forgot password — uniform response whether or not the email matches a
+ * member (no account enumeration). The reset email goes out via the
+ * platform mailer when a member exists; SMTP failures never surface.
+ */
+router.post('/:token/members/forgot', memberLimit, captcha, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    const body = req.body || {};
+    const prepared = domain.withDb(workspaceId, (db) => {
+      const { embed, request } = siteModules.publicMemberForgot(db, req.params.token, body.email || '');
+      if (!request) return null;
+      const mail = siteModules.buildMemberResetMail(db, embed.lead_id, request.member, request.resetToken);
+      return mail;
+    });
+    if (prepared) {
+      try {
+        const { sendPlatformMail } = require('../mailer');
+        await sendPlatformMail(prepared);
+      } catch {
+        /* mail delivery problems must not leak account existence */
+      }
+    }
+    res.json({
+      ok: true,
+      data: { sent: true, message: 'If an account exists for that email, a reset link is on its way.', workspaceId },
+    });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+/** Password reset — single-use token; a successful reset ends all sessions. */
+router.post('/:token/members/reset', memberLimit, captcha, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    const body = req.body || {};
+    const data = domain.withDb(workspaceId, (db) => siteModules.publicMemberReset(db, req.params.token, body));
     res.json({ ok: true, data: { ...data, workspaceId } });
   } catch (e) {
     fail(res, e);

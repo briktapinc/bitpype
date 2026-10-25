@@ -343,7 +343,11 @@ app.use(
   (req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    // Member-session + page-context + owner-preview headers (Membership gating).
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Content-Type, X-Bitpype-Member-Session, X-Bitpype-Page, X-Bitpype-Preview-Grant'
+    );
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     if (req.method === 'OPTIONS') return res.sendStatus(204);
     return next();

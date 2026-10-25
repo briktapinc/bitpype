@@ -3677,10 +3677,11 @@
     { type: 'video', label: 'Video' },
     { type: 'estimate', label: 'Instant Estimate' },
     { type: 'socialfeed', label: 'Social Feed' },
+    { type: 'members', label: 'Membership' },
   ];
   const MODULE_NAV_GROUPS = [
     { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed'] },
-    { id: 'people', label: 'People', types: ['team', 'testimonials', 'careers'] },
+    { id: 'people', label: 'People', types: ['team', 'testimonials', 'careers', 'members'] },
     { id: 'schedule', label: 'Schedule', types: ['events', 'bookings'] },
     { id: 'assist', label: 'Assist', types: ['chatbot'] },
   ];
@@ -3702,6 +3703,7 @@
     video: { singular: 'video', plural: 'videos', newBtn: 'New video', kicker: 'Video' },
     estimate: { singular: 'option', plural: 'options', newBtn: 'New option', kicker: 'Estimate option' },
     socialfeed: { singular: 'post', plural: 'posts', newBtn: 'New post', kicker: 'Social post' },
+    members: { singular: 'member', plural: 'members', newBtn: 'New member', kicker: 'Member' },
   };
   const BOOKING_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const MODULE_STORAGE_KEY = 'bp-portal-module';
@@ -3740,6 +3742,8 @@
     editingId: null,
     categories: [],
     showArchivedAppointments: false,
+    members: null,
+    memberSearch: '',
   };
 
   let formsPane = 'setup';
@@ -3754,6 +3758,11 @@
   function moduleFieldDefs(type) {
     if (type === 'socialfeed') {
       // Automatic module — no item editor; the Feed pane carries the settings.
+      return [];
+    }
+    if (type === 'members') {
+      // Members join from the public site — no item editor; the Members
+      // pane carries the gating settings and the member list.
       return [];
     }
     if (type === 'blog') {
@@ -3991,13 +4000,15 @@
     const estCalcPane = document.getElementById('modules-pane-estimate-calc');
     const estReqPane = document.getElementById('modules-pane-estimate-requests');
     const sfPane = document.getElementById('modules-pane-socialfeed');
+    const membersPane = document.getElementById('modules-pane-members');
     const results = document.getElementById('modules-pane-results');
     const bookingPanel = document.getElementById('modules-booking-panel');
     const isBookings = moduleState.current === 'bookings';
     const isChatbot = moduleState.current === 'chatbot';
     const isEstimate = moduleState.current === 'estimate';
     const isSocialfeed = moduleState.current === 'socialfeed';
-    const showTabs = isBookings || isChatbot || isEstimate || isSocialfeed;
+    const isMembers = moduleState.current === 'members';
+    const showTabs = isBookings || isChatbot || isEstimate || isSocialfeed || isMembers;
     if (isBookings) {
       const allowed = new Set(['content', 'hours', 'appointments']);
       if (!allowed.has(moduleState.pane)) moduleState.pane = 'content';
@@ -4010,6 +4021,9 @@
     } else if (isSocialfeed) {
       // The feed has no item list — its only pane is the Feed pane.
       moduleState.pane = 'feed';
+    } else if (isMembers) {
+      // Membership has no item list either — its only pane is Members.
+      moduleState.pane = 'members';
     } else {
       moduleState.pane = 'content';
     }
@@ -4024,7 +4038,9 @@
             ? 'Estimate sections'
             : isSocialfeed
               ? 'Social Feed sections'
-              : 'Bookings sections'
+              : isMembers
+                ? 'Membership sections'
+                : 'Bookings sections'
       );
       tabs.querySelectorAll('[data-modules-pane]').forEach((btn) => {
         const pane = btn.getAttribute('data-modules-pane');
@@ -4039,7 +4055,8 @@
             (isChatbot && forAttr === 'chatbot') ||
             (isEstimate && forAttr === 'estimate') ||
             (isSocialfeed && forAttr === 'socialfeed') ||
-            (forAttr === 'both' && showTabs && !isSocialfeed)
+            (isMembers && forAttr === 'members') ||
+            (forAttr === 'both' && showTabs && !isSocialfeed && !isMembers)
           : visible;
         btn.hidden = !showBtn;
         if (pane === 'content' && showBtn) {
@@ -4060,6 +4077,7 @@
     if (estCalcPane) estCalcPane.hidden = !(isEstimate && moduleState.pane === 'calc');
     if (estReqPane) estReqPane.hidden = !(isEstimate && moduleState.pane === 'requests');
     if (sfPane) sfPane.hidden = !(isSocialfeed && moduleState.pane === 'feed');
+    if (membersPane) membersPane.hidden = !(isMembers && moduleState.pane === 'members');
     if (results) results.hidden = true;
     if (bookingPanel) bookingPanel.hidden = true;
     if (isChatbot && moduleState.pane === 'settings') renderChatbotSettingsPanel();
@@ -4092,7 +4110,9 @@
           ? 'Manage questions for your FAQ module. These are separate from your site’s designed FAQ section, which is edited under Website.'
           : moduleState.current === 'socialfeed'
             ? 'Your feed updates itself from your social posts — there is nothing to add by hand.'
-            : `Manage ${copy.plural} for your ${(meta && meta.label) || 'module'}.`;
+            : moduleState.current === 'members'
+              ? 'Members join from your site — use the Members tab to choose what they can see and manage their accounts.'
+              : `Manage ${copy.plural} for your ${(meta && meta.label) || 'module'}.`;
     }
     const newBtn = document.getElementById('btn-modules-new');
     if (newBtn) newBtn.textContent = copy.newBtn;
@@ -4118,6 +4138,7 @@
       video: 'videos',
       estimate: 'estimate',
       socialfeed: 'social-feed',
+      members: 'members',
     };
     let want = selected || defaults[moduleState.current] || 'home';
     const opts = Array.isArray(pages) && pages.length ? pages : [{ slug: want, title: want }];
@@ -4658,6 +4679,94 @@
       <div id="modules-socialfeed-preview">${previewHtml}</div>`;
   }
 
+  function renderMembersAdminPanel() {
+    const host = document.getElementById('modules-members-panel');
+    if (!host) return;
+    if (moduleState.current !== 'members') {
+      host.innerHTML = '';
+      return;
+    }
+    const pack = moduleState.members || {};
+    const cfg = pack.config || {};
+    const counts = pack.counts || { total: 0, active: 0, pending: 0, disabled: 0 };
+    const allMembers = Array.isArray(pack.members) ? pack.members : [];
+    const pages = Array.isArray(moduleState.pages) ? moduleState.pages : [];
+    const membersSlug = (moduleState.embed && moduleState.embed.target_page_slug) || 'members';
+    const gated = new Set(cfg.gated_pages || []);
+    const publics = new Set(cfg.public_pages || []);
+    const whenLabel = (v) => {
+      const t = Date.parse(String(v || '').replace(' ', 'T') + (String(v || '').includes('T') ? '' : 'Z'));
+      return Number.isFinite(t) ? new Date(t).toLocaleDateString() : '';
+    };
+    const pageChecks = (name, chosen) =>
+      pages.length
+        ? pages
+            .map((p) => {
+              const isMembersPage = p.slug === membersSlug;
+              return `<label class="booking-hour-row">
+            <input type="checkbox" data-members-page="${esc(name)}" value="${esc(p.slug)}" ${chosen.has(p.slug) ? 'checked' : ''} ${isMembersPage && name === 'gated' ? 'disabled' : ''} />
+            <span>${esc(p.title || p.slug)} <span class="hint">(${esc(p.slug)})</span>${isMembersPage ? ' <span class="hint">— always public, members sign in here</span>' : ''}</span>
+          </label>`;
+            })
+            .join('')
+        : '<p class="hint">No pages found on your site yet.</p>';
+    const search = String(moduleState.memberSearch || '').toLowerCase();
+    const shown = search
+      ? allMembers.filter(
+          (m) => (m.email || '').toLowerCase().includes(search) || (m.name || '').toLowerCase().includes(search)
+        )
+      : allMembers;
+    const pillCls = (s) => (s === 'active' ? '' : s === 'pending' ? ' warn' : ' bad');
+    const rowsHtml = shown.length
+      ? shown
+          .map(
+            (m) => `
+        <div class="row" style="justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line,#e6e0d8);flex-wrap:wrap">
+          <div>
+            <strong>${esc(m.name || m.email)}</strong>
+            <span class="status-pill${pillCls(m.status)}">${esc(m.status)}</span>
+            <div class="hint">${esc(m.email)} · joined ${esc(whenLabel(m.created_at))}${m.last_login_at ? ` · last login ${esc(whenLabel(m.last_login_at))}` : ' · never logged in'}</div>
+          </div>
+          <div class="row" style="gap:6px">
+            ${m.status === 'pending' ? `<button type="button" class="btn soft small" data-member-status="${m.id}" data-status="active">Approve</button>` : ''}
+            ${m.status === 'active' ? `<button type="button" class="btn ghost small" data-member-status="${m.id}" data-status="disabled">Disable</button>` : ''}
+            ${m.status === 'disabled' ? `<button type="button" class="btn soft small" data-member-status="${m.id}" data-status="active">Reactivate</button>` : ''}
+            <button type="button" class="btn ghost small" data-member-delete="${m.id}">Delete</button>
+          </div>
+        </div>`
+          )
+          .join('')
+      : `<p class="hint">${allMembers.length ? 'No members match your search.' : 'No members yet. Visitors join from your site’s Members page — new accounts appear here.'}</p>`;
+    host.innerHTML = `
+      <h3>Membership</h3>
+      <p class="hint">Let visitors create accounts on your site, and keep chosen pages — or the whole site — for members only. Gated content stays on the server until a member logs in; it is never just hidden on the page.</p>
+      <p class="hint"><strong>${counts.active}</strong> active · <strong>${counts.pending}</strong> waiting for approval · <strong>${counts.disabled}</strong> disabled</p>
+      <div class="field"><label>Who can see your site?</label>
+        <select id="members-gate-mode">
+          <option value="off"${cfg.gate_mode === 'off' ? ' selected' : ''}>Everyone — no pages are gated</option>
+          <option value="selected"${cfg.gate_mode === 'selected' ? ' selected' : ''}>Only the pages I pick below are members-only</option>
+          <option value="whole_site"${cfg.gate_mode === 'whole_site' ? ' selected' : ''}>The whole site is members-only (except pages I keep public)</option>
+        </select></div>
+      <div class="field"><label>Members-only pages <span class="hint">(used when you pick pages above)</span></label>
+        <div id="members-gated-pages">${pageChecks('gated', gated)}</div></div>
+      <div class="field"><label>Always-public pages <span class="hint">(used when the whole site is members-only)</span></label>
+        <div id="members-public-pages">${pageChecks('public', publics)}</div></div>
+      <div class="field"><label>New accounts</label>
+        <select id="members-signup-mode">
+          <option value="open"${cfg.signup_mode !== 'approval' ? ' selected' : ''}>Open — anyone can join and log in right away</option>
+          <option value="approval"${cfg.signup_mode === 'approval' ? ' selected' : ''}>Approval — new members wait until I approve them below</option>
+        </select></div>
+      <div class="field"><label>Message on the login wall</label>
+        <input type="text" id="members-wall-headline" value="${esc(cfg.wall_headline || '')}" maxlength="140" /></div>
+      <div class="row" style="gap:6px">
+        <button type="button" class="btn soft small" id="btn-members-config-save">Save membership settings</button>
+      </div>
+      <p class="hint">Settings apply the next time your site is published or re-exported. Your own portal preview always shows the full site.</p>
+      <h3 style="margin-top:18px">Members</h3>
+      <div class="field"><input type="search" id="members-search" placeholder="Search by name or email…" value="${esc(moduleState.memberSearch || '')}" /></div>
+      <div id="modules-members-list">${rowsHtml}</div>`;
+  }
+
   function moduleModalMsg(text, ok) {
     const el = document.getElementById('msg-modules-modal');
     if (!el) return;
@@ -4910,6 +5019,7 @@
     moduleState.chatbot = data.chatbot || null;
     moduleState.estimate = data.estimate || null;
     moduleState.socialfeed = data.socialfeed || null;
+    moduleState.members = data.members || null;
     moduleState.categories = Array.isArray(data.categories) ? data.categories : [];
     if (type === 'bookings') {
       const booking = moduleState.booking || {};
@@ -4925,6 +5035,7 @@
     renderBookingAdminPanel();
     renderEstimateAdminPanel();
     renderSocialFeedAdminPanel();
+    renderMembersAdminPanel();
     renderMenuCategoriesPanel();
     syncModulesPaneTabs();
   }
@@ -6442,6 +6553,109 @@
         } catch (e) {
           moduleMsg(e.message, false);
         }
+      }
+      if (ev.target && ev.target.id === 'btn-members-config-save') {
+        const val = (id) => {
+          const n = document.getElementById(id);
+          return n ? n.value : undefined;
+        };
+        const checked = (name) =>
+          Array.from(document.querySelectorAll(`[data-members-page="${name}"]:checked`)).map((n) => n.value);
+        moduleMsg('Saving membership settings…', true);
+        try {
+          await api('/modules/members/config', {
+            method: 'PUT',
+            body: JSON.stringify({
+              gate_mode: val('members-gate-mode'),
+              gated_pages: checked('gated'),
+              public_pages: checked('public'),
+              signup_mode: val('members-signup-mode'),
+              wall_headline: val('members-wall-headline'),
+            }),
+          });
+          moduleMsg(
+            'Membership settings saved. They take effect the next time your site is published or re-exported.',
+            true
+          );
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg(e.message, false);
+        }
+        return;
+      }
+      const memberStatusBtn = ev.target.closest('[data-member-status]');
+      if (memberStatusBtn) {
+        const id = Number(memberStatusBtn.getAttribute('data-member-status'));
+        const status = memberStatusBtn.getAttribute('data-status');
+        moduleMsg('Updating member…', true);
+        try {
+          await api(`/modules/members/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify({ status }),
+          });
+          moduleMsg(status === 'active' ? 'Member is active.' : 'Member disabled.', true);
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg(e.message, false);
+        }
+        return;
+      }
+      const memberDeleteBtn = ev.target.closest('[data-member-delete]');
+      if (memberDeleteBtn) {
+        if (!window.confirm('Delete this member account? They will no longer be able to log in.')) return;
+        const id = Number(memberDeleteBtn.getAttribute('data-member-delete'));
+        moduleMsg('Deleting member…', true);
+        try {
+          await api(`/modules/members/${id}`, { method: 'DELETE' });
+          moduleMsg('Member deleted.', true);
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg(e.message, false);
+        }
+        return;
+      }
+    });
+    modulesBookingRoot.addEventListener('input', (ev) => {
+      if (ev.target && ev.target.id === 'members-search') {
+        moduleState.memberSearch = ev.target.value || '';
+        // Re-render only the list so the search box keeps focus.
+        const pack = moduleState.members || {};
+        const allMembers = Array.isArray(pack.members) ? pack.members : [];
+        const search = moduleState.memberSearch.toLowerCase();
+        const list = document.getElementById('modules-members-list');
+        if (!list) return;
+        const shown = search
+          ? allMembers.filter(
+              (m) => (m.email || '').toLowerCase().includes(search) || (m.name || '').toLowerCase().includes(search)
+            )
+          : allMembers;
+        if (!shown.length) {
+          list.innerHTML = `<p class="hint">${allMembers.length ? 'No members match your search.' : 'No members yet. Visitors join from your site’s Members page — new accounts appear here.'}</p>`;
+          return;
+        }
+        const whenLabel = (v) => {
+          const t = Date.parse(String(v || '').replace(' ', 'T') + (String(v || '').includes('T') ? '' : 'Z'));
+          return Number.isFinite(t) ? new Date(t).toLocaleDateString() : '';
+        };
+        const pillCls = (s) => (s === 'active' ? '' : s === 'pending' ? ' warn' : ' bad');
+        list.innerHTML = shown
+          .map(
+            (m) => `
+        <div class="row" style="justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line,#e6e0d8);flex-wrap:wrap">
+          <div>
+            <strong>${esc(m.name || m.email)}</strong>
+            <span class="status-pill${pillCls(m.status)}">${esc(m.status)}</span>
+            <div class="hint">${esc(m.email)} · joined ${esc(whenLabel(m.created_at))}${m.last_login_at ? ` · last login ${esc(whenLabel(m.last_login_at))}` : ' · never logged in'}</div>
+          </div>
+          <div class="row" style="gap:6px">
+            ${m.status === 'pending' ? `<button type="button" class="btn soft small" data-member-status="${m.id}" data-status="active">Approve</button>` : ''}
+            ${m.status === 'active' ? `<button type="button" class="btn ghost small" data-member-status="${m.id}" data-status="disabled">Disable</button>` : ''}
+            ${m.status === 'disabled' ? `<button type="button" class="btn soft small" data-member-status="${m.id}" data-status="active">Reactivate</button>` : ''}
+            <button type="button" class="btn ghost small" data-member-delete="${m.id}">Delete</button>
+          </div>
+        </div>`
+          )
+          .join('');
       }
     });
   }

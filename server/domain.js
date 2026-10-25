@@ -425,11 +425,25 @@ function materializeWebsiteExport(db, workspaceId, siteId, opts = {}) {
     }
   }
 
+  // Membership gating (Batch 16): gated pages export as shells — their
+  // authored bodies never reach the static files. The transform works on a
+  // copy AFTER all write-backs above, so stored pages keep the real content;
+  // bodies are served later by the authenticated member page-body API.
+  let exportPageList = pages;
+  try {
+    if (fresh && fresh.lead_id) {
+      exportPageList = require('./siteModules').gateExportPages(db, fresh.lead_id, pages);
+    }
+  } catch (e) {
+    console.warn('[domain] members export gate:', e.message || e);
+    exportPageList = pages;
+  }
+
   const folder = siteExportFolder(db, workspaceId, siteId);
   const images = engine.imagesForWebsite(db, siteId);
   // websiteId lets writeStaticPages merge site-{id}/assets into the CF Pages payload.
   // Without this, /assets/* on pages.dev falls through to HTML (broken photos/fonts).
-  const exported = openPreview.exportPages(pages, theme, folder, { images, websiteId: siteId });
+  const exported = openPreview.exportPages(exportPageList, theme, folder, { images, websiteId: siteId });
   try {
     const recovered = engine.recoverMissingExportAssets(pages, theme, exported.dir, { websiteId: siteId });
     if (recovered.length && Array.isArray(exported.files)) {
