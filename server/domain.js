@@ -4506,10 +4506,180 @@ function socialDecideBatch(workspaceId, token, body) {
   return withDb(workspaceId, (db) => social().decideBatch(db, token, body || {}));
 }
 
+// ---------- Staff admin area (Forms / LeadScout / Bookings / Shop / Modules / Courses / Analytics) ----------
+// Read-only workspace-wide views for the staff app. The engines below are
+// lead-scoped; these compose them (or mirror their queries) across every
+// lead in the workspace db. No writes, no new schema.
+
+function adminFormsList(workspaceId) {
+  return withDb(workspaceId, (db) => {
+    const forms = require('./contactForms');
+    forms.ensureTables(db);
+    const rows = db
+      .prepare(
+        `SELECT f.*, l.business_name AS lead_name,
+           (SELECT COUNT(*) FROM form_submissions s WHERE s.form_id = f.id) AS submission_count,
+           (SELECT MAX(s.created_at) FROM form_submissions s WHERE s.form_id = f.id) AS last_submission_at
+         FROM contact_forms f
+         LEFT JOIN leads l ON l.id = f.lead_id
+         ORDER BY f.lead_id ASC, f.sort_order ASC, f.id ASC`
+      )
+      .all();
+    return {
+      forms: rows.map((r) => ({
+        ...forms.publicForm(r, []),
+        lead_name: r.lead_name || '',
+        submission_count: r.submission_count || 0,
+        last_submission_at: r.last_submission_at || null,
+      })),
+    };
+  });
+}
+
+function adminFormSubmissions(workspaceId, formId, opts = {}) {
+  return withDb(workspaceId, (db) => {
+    const forms = require('./contactForms');
+    forms.ensureTables(db);
+    const row = db.prepare('SELECT * FROM contact_forms WHERE id = ?').get(Number(formId));
+    if (!row) throw Object.assign(new Error('Form not found'), { code: 'NOT_FOUND' });
+    const lead = db.prepare('SELECT business_name FROM leads WHERE id = ?').get(row.lead_id);
+    const out = forms.listSubmissions(db, row.lead_id, {
+      formId: row.id,
+      limit: opts.limit || 50,
+      offset: opts.offset || 0,
+    });
+    return { form: out.form, lead_id: row.lead_id, lead_name: lead ? lead.business_name : '', submissions: out.submissions };
+  });
+}
+
+function adminLeadScoutContacts(workspaceId, opts = {}) {
+  const portal = require('./clientPortal');
+  const contacts = portal.listLeadScoutContacts(workspaceId, null, opts, { workspaceWide: true });
+  let health = null;
+  try {
+    health = portal.leadScoutHealth(workspaceId, null, { workspaceWide: true });
+  } catch {
+    health = null;
+  }
+  return { contacts, health };
+}
+
+function adminLeadScoutContact(workspaceId, id) {
+  const portal = require('./clientPortal');
+  return portal.getLeadScoutContact(workspaceId, null, id, { workspaceWide: true });
+}
+
+function adminBookingsOverview(workspaceId, opts = {}) {
+  return withDb(workspaceId, (db) => {
+    const modules = require('./siteModules');
+    modules.ensureTables(db);
+    const limit = Math.min(500, Math.max(1, Number(opts.limit) || 200));
+    const appointments = db
+      .prepare(
+        `SELECT b.*, s.name AS service_name, s.duration_minutes AS service_duration, l.business_name AS lead_name
+         FROM bookings b
+         LEFT JOIN booking_services s ON s.id = b.service_id
+         LEFT JOIN leads l ON l.id = b.lead_id
+         WHERE b.archived_at IS NULL
+         ORDER BY b.starts_at DESC LIMIT ?`
+      )
+      .all(limit);
+    const services = db
+      .prepare(
+        `SELECT s.*, l.business_name AS lead_name,
+           (SELECT COUNT(*) FROM bookings bk WHERE bk.service_id = s.id) AS booking_count
+         FROM booking_services s
+         LEFT JOIN leads l ON l.id = s.lead_id
+         ORDER BY s.lead_id ASC, s.sort_order ASC, s.id ASC`
+      )
+      .all();
+    return { appointments, services };
+  });
+}
+
+function adminShopOverview(workspaceId, opts = {}) {
+  return withDb(workspaceId, (db) => {
+    const modules = require('./siteModules');
+    modules.ensureTables(db);
+    const limit = Math.min(200, Math.max(1, Number(opts.limit) || 100));
+    const stripe_configured = require('./shopStripe').isConfigured(db);
+    const orders = db
+      .prepare(
+        `SELECT o.*, l.business_name AS lead_name
+         FROM ecommerce_orders o
+         LEFT JOIN leads l ON l.id = o.lead_id
+         ORDER BY o.id DESC LIMIT ?`
+      )
+      .all(limit);
+    const totals = db
+      .prepare(
+        `SELECT status, COUNT(*) AS c, COALESCE(SUM(amount_cents), 0) AS cents
+         FROM ecommerce_orders GROUP BY status`
+      )
+      .all();
+    const productCount = db.prepare('SELECT COUNT(*) AS c FROM ecommerce_products').get().c;
+    return { stripe_configured, orders, totals, product_count: productCount };
+  });
+}
+
+function adminCoursesList(workspaceId) {
+  return withDb(workspaceId, (db) => {
+    const modules = require('./siteModules');
+    modules.ensureTables(db);
+    const courses = db
+      .prepare(
+        `SELECT c.*, l.business_name AS lead_name,
+           (SELECT COUNT(*) FROM course_lessons cl WHERE cl.course_id = c.id) AS lesson_count
+         FROM courses c
+         LEFT JOIN leads l ON l.id = c.lead_id
+         ORDER BY c.lead_id ASC, c.sort_order ASC, c.id DESC`
+      )
+      .all();
+    return { courses };
+  });
+}
+
+function adminModulesOverview(workspaceId) {
+  return withDb(workspaceId, (db) => {
+    const modules = require('./siteModules');
+    modules.ensureTables(db);
+    const catalog = Object.entries(modules.MODULE_META).map(([type, meta]) => ({
+      type,
+      label: meta.label,
+      sitewide: !!meta.sitewide,
+    }));
+    const installs = db
+      .prepare(
+        `SELECT e.*, l.business_name AS lead_name, w.name AS website_name, w.id AS website_id
+         FROM site_module_embeds e
+         LEFT JOIN leads l ON l.id = e.lead_id
+         LEFT JOIN websites w ON w.lead_id = e.lead_id
+         ORDER BY e.lead_id ASC, e.module_type ASC`
+      )
+      .all();
+    const counts = {};
+    for (const i of installs) counts[i.module_type] = (counts[i.module_type] || 0) + 1;
+    return { catalog, installs, counts };
+  });
+}
+
+function adminAnalyticsOverview(workspaceId) {
+  return { dashboard: dashboardStats(workspaceId), outreach: outreachStats(workspaceId) };
+}
+
 module.exports = {
   withDb,
   openWorkspaceDb,
   dashboardStats,
+  adminFormsList,
+  adminFormSubmissions,
+  adminLeadScoutContacts,
+  adminLeadScoutContact,
+  adminBookingsOverview,
+  adminShopOverview,
+  adminCoursesList,
+  adminModulesOverview,
+  adminAnalyticsOverview,
   leadsList,
   leadsFacets,
   leadsGet,

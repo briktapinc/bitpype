@@ -1496,4 +1496,82 @@ router.post('/social/weekly-tick', requireRole('owner', 'admin'), async (req, re
   }
 });
 
+// ---------- Staff admin area (read-only workspace-wide views) ----------
+router.get('/admin-area/forms', denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, domain.adminFormsList(req.auth.workspaceId));
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.get('/admin-area/forms/:id/submissions', denyLeadScopedToken, (req, res) => {
+  try {
+    ok(
+      res,
+      domain.adminFormSubmissions(req.auth.workspaceId, Number(req.params.id), {
+        limit: req.query.limit,
+        offset: req.query.offset,
+      })
+    );
+  } catch (e) {
+    fail(res, e);
+  }
+});
+router.get('/admin-area/leadscout/contacts', denyLeadScopedToken, (req, res) => {
+  try {
+    ok(
+      res,
+      domain.adminLeadScoutContacts(req.auth.workspaceId, {
+        q: req.query.q || '',
+        limit: req.query.limit,
+        offset: req.query.offset,
+      })
+    );
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.get('/admin-area/leadscout/contacts/:id', denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, domain.adminLeadScoutContact(req.auth.workspaceId, Number(req.params.id)));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+router.get('/admin-area/bookings', denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, domain.adminBookingsOverview(req.auth.workspaceId, { limit: req.query.limit }));
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.get('/admin-area/shop', denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, domain.adminShopOverview(req.auth.workspaceId, { limit: req.query.limit }));
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.get('/admin-area/courses', denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, domain.adminCoursesList(req.auth.workspaceId));
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.get('/admin-area/modules', denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, domain.adminModulesOverview(req.auth.workspaceId));
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.get('/admin-area/analytics', denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, domain.adminAnalyticsOverview(req.auth.workspaceId));
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+
 module.exports = router;
