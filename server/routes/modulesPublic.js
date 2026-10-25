@@ -32,12 +32,14 @@ function fail(res, e, status = 400) {
   res.status(http).json({ ok: false, error: e.message || String(e), code: e.code });
 }
 
-/** Membership gate context sent by module-embed.js on every module call. */
+/** Membership gate context sent by module-embed.js on module calls. */
 function gateOpts(req) {
   return {
     memberSession: req.get('x-bitpype-member-session') || '',
     previewGrant: req.get('x-bitpype-preview-grant') || '',
-    pageSlug: req.get('x-bitpype-page') || '',
+    // The page slug rides a query param (keeps anonymous reads preflight-free);
+    // the header form is still accepted for API consumers.
+    pageSlug: (req.query && req.query.bpPage) || req.get('x-bitpype-page') || '',
   };
 }
 

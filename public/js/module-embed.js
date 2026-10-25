@@ -464,21 +464,27 @@
     return slug || 'index';
   }
 
-  function memberHeaders() {
+  /* Only credentials that exist are sent as headers — an anonymous read
+   * stays a simple request (no CORS preflight). The current page slug
+   * travels as a query param for the same reason. */
+  function authHeaders() {
     var h = {};
     var s = storedMemberSession();
     if (s) h['X-Bitpype-Member-Session'] = s;
     var g = memberPreviewGrant();
     if (g) h['X-Bitpype-Preview-Grant'] = g;
-    h['X-Bitpype-Page'] = pageSlugHere();
     return h;
   }
 
   function jsonHeaders() {
     var h = { 'Content-Type': 'application/json' };
-    var mh = memberHeaders();
-    for (var k in mh) h[k] = mh[k];
+    var ah = authHeaders();
+    for (var k in ah) h[k] = ah[k];
     return h;
+  }
+
+  function pageQuery() {
+    return 'bpPage=' + encodeURIComponent(pageSlugHere());
   }
 
   function loadScript(src) {
@@ -1139,8 +1145,10 @@
         '/slots?date=' +
         encodeURIComponent(date) +
         '&serviceId=' +
-        encodeURIComponent(serviceId);
-      return fetch(path, { credentials: 'omit', headers: memberHeaders() }).then(function (r) {
+        encodeURIComponent(serviceId) +
+        '&' +
+        pageQuery();
+      return fetch(path, { credentials: 'omit', headers: authHeaders() }).then(function (r) {
         return r.json();
       });
     }
@@ -2196,7 +2204,7 @@
     el.innerHTML = '<p class="bp-mod-loading">Loading…</p>';
     fetch(
       (base || '') + '/api/v1/modules/public/' + encodeURIComponent(token) + '/page/' + encodeURIComponent(slug),
-      { credentials: 'omit', headers: memberHeaders() }
+      { credentials: 'omit', headers: authHeaders() }
     )
       .then(function (r) {
         return r.json().then(function (j) {
@@ -2239,8 +2247,9 @@
       (base || '') +
       '/api/v1/modules/public/' +
       encodeURIComponent(token) +
-      (item ? '?slug=' + encodeURIComponent(item) : '');
-    fetch(path, { credentials: 'omit', headers: memberHeaders() })
+      (item ? '?slug=' + encodeURIComponent(item) + '&' : '?') +
+      pageQuery();
+    fetch(path, { credentials: 'omit', headers: authHeaders() })
       .then(function (r) {
         return r.json();
       })
