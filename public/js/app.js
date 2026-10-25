@@ -5867,6 +5867,7 @@ async function pageAdmin(param) {
     // SMS admin tab hidden until a send path exists (settings still accept sms.* keys).
     ['keys', 'API keys'],
     ['billing', 'Stripe'],
+    ['adsense', 'AdSense'],
     ['general', 'General'],
     ['audit', 'Audit'],
   ];
@@ -5895,6 +5896,7 @@ async function pageAdmin(param) {
         else if (tab === 'workspaces') await renderAdminWorkspaces(body);
         else if (tab === 'payments') await renderAdminPayments(body);
         else if (tab === 'upsell') await renderAdminUpsellTips(body);
+        else if (tab === 'adsense') await renderAdminAdsense(body);
         else if (tab === 'email' || tab === 'sms' || tab === 'keys' || tab === 'general' || tab === 'billing')
           await renderAdminSettings(body, tab);
         else if (tab === 'audit') await renderAdminAudit(body);
@@ -6383,6 +6385,66 @@ async function renderAdminSettings(el, group) {
       msg.textContent = 'Saved';
       msg.className = 'msg ok';
       toast('Platform settings saved', 'ok');
+    } catch (err) {
+      msg.textContent = err.message;
+      msg.className = 'msg error';
+    }
+  };
+}
+
+async function renderAdminAdsense(el) {
+  const res = await api.adminSettings();
+  const settings = res.data.settings || {};
+  const defs = (res.data.defs || []).filter((d) => d.group === 'adsense');
+  let state = null;
+  try {
+    state = (await api.adminAdsenseState()).data;
+  } catch {
+    /* state line is best-effort */
+  }
+  const stateHtml = state
+    ? state.state === 'active'
+      ? `<p class="hint"><strong>● Active</strong> — ${esc(state.detail)}</p>`
+      : `<p class="hint"><strong>○ Off</strong> — ${esc(state.detail)}</p>`
+    : '';
+  el.innerHTML = `
+    <div class="panel">
+      <div class="panel-h"><h3>Google AdSense</h3></div>
+      <div class="panel-b" style="padding-bottom:0">
+        <p class="hint">Ads appear <strong>only on sites whose customer is on the Free plan</strong> — on every page of the site. Standard, Pro and Premium sites never show ads. Changes take effect at each site's next publish or export. Each site's domain must also be approved in your Google AdSense account before Google serves ads.</p>
+        ${stateHtml}
+      </div>
+      <div class="panel-b">
+        <form id="admin-adsense-form" class="stack">
+          ${
+            defs
+              .map(
+                (d) => `<div>
+              <label>${esc(d.label)} <span class="mono hint">${esc(d.key)}</span></label>
+              <input name="${esc(d.key)}" value="${esc(settings[d.key] || '')}" />
+            </div>`
+              )
+              .join('') || '<p class="hint">No settings in this group</p>'
+          }
+          <div class="row actions"><button class="btn" type="submit">Save</button></div>
+          <div class="msg" id="admin-adsense-msg"></div>
+        </form>
+      </div>
+    </div>`;
+
+  $('#admin-adsense-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const plain = {};
+    for (const d of defs) {
+      const v = fd.get(d.key);
+      plain[d.key] = v == null ? '' : String(v);
+    }
+    const msg = $('#admin-adsense-msg');
+    try {
+      if (Object.keys(plain).length) await api.adminSettingsSave(plain);
+      toast('AdSense settings saved', 'ok');
+      await renderAdminAdsense(el);
     } catch (err) {
       msg.textContent = err.message;
       msg.className = 'msg error';

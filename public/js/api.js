@@ -426,6 +426,7 @@ window.ScoutApi = (() => {
     adminAddMember: (wsId, userId, role) => post('/admin/workspaces/' + wsId + '/members', { userId, role }),
     adminRemoveMember: (wsId, userId) => del('/admin/workspaces/' + wsId + '/members/' + userId),
     adminSettings: () => get('/admin/settings'),
+    adminAdsenseState: () => get('/admin/settings/adsense-state'),
     adminSettingsSave: (settings) => put('/admin/settings', { settings }),
     adminSettingsSecret: (key, value) => put('/admin/settings/secret', { key, value }),
     adminPushDefaults: (body) => post('/admin/settings/push', body || {}),
