@@ -3090,6 +3090,14 @@ function leadScoutScope(leadId, workspaceWide) {
   return id;
 }
 
+/** The client's own change-request history (Changes panel), own-lead scoped. */
+function listChangeRequests(workspaceId, leadId, opts = {}) {
+  const domain = require('./domain');
+  const designJobs = require('../src/designJobs');
+  const scope = leadScoutScope(leadId, false);
+  return domain.withDb(workspaceId, (db) => designJobs.listChangeRequests(db, scope, { limit: opts.limit }));
+}
+
 function listLeadScoutContacts(workspaceId, leadId, opts = {}, { workspaceWide = false } = {}) {
   const domain = require('./domain');
   const contacts = require('./portalContacts');
@@ -3180,6 +3188,7 @@ module.exports = {
   revokeClientMcpToken,
   runSiteAgentChat,
   submitChangeRequest,
+  listChangeRequests,
   ensureBillingUserForPortalClient,
   billingForClient,
   openBillingPortal,

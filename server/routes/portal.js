@@ -303,6 +303,17 @@ router.post('/analytics', requireClient, actionLimit, async (req, res) => {
   }
 });
 
+router.get('/changes', requireClient, async (req, res) => {
+  try {
+    const requests = portal.listChangeRequests(req.client.workspace_id, req.client.lead_id, {
+      limit: req.query.limit,
+    });
+    ok(res, { requests });
+  } catch (e) {
+    fail(res, e, e.code === 'FORBIDDEN' ? 403 : 500);
+  }
+});
+
 router.post('/changes', requireClient, actionLimit, async (req, res) => {
   try {
     const data = await portal.submitChangeRequest(

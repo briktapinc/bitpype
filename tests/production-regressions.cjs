@@ -152,6 +152,80 @@ async function main() {
   assert.ok(autoOnly.includes('adsbygoogle.js?client=' + PUB) && !autoOnly.includes('<ins class="adsbygoogle"'), 'blank slot = Auto Ads script only');
   results.push('adsense gate: free-only matrix, idempotent inject, strip on paid/disabled, auto-ads without slot');
 
+  // --- Change-request history (Batch 11): record-on-submit, scoping, derived status ---
+  db.exec(fs.readFileSync(path.join(root, 'src/schema.sql'), 'utf8'));
+  const designJobs = require(path.join(root, 'src/designJobs.js'));
+  designJobs.ensureTables(db);
+  assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='change_requests'").get(), 'change_requests table exists');
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (101, 'Fixture One', 'one@example.invalid')").run();
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (102, 'Fixture Two', 'two@example.invalid')").run();
+  const crJob = designJobs.createJob(db, { leadId: 101, type: 'website', title: 'Fixture One website', instructions: 'Build a site.', contactEmail: 'one@example.invalid' });
+  const crToken = designJobs.ensureClientFormToken(db, crJob.id);
+  await designJobs.submitClientForm(db, crToken, { message: 'Soften the hero headline.', kind: 'improvements', email: 'one@example.invalid', answers: {} });
+  await designJobs.submitClientForm(db, crToken, { message: 'Redo the whole homepage.', kind: 'redesign', email: 'one@example.invalid', answers: {} });
+  const crRows = db.prepare('SELECT * FROM change_requests ORDER BY id').all();
+  assert.equal(crRows.length, 2, 'every change submission writes a discrete record, merge path included');
+  assert.equal(crRows[0].job_id, crJob.id); assert.equal(crRows[0].requester_email, 'one@example.invalid');
+  const qRow = db.prepare('INSERT INTO design_questions (job_id, question) VALUES (?, ?)').run(crJob.id, 'What color?');
+  await designJobs.submitClientForm(db, crToken, { email: 'one@example.invalid', answers: { [qRow.lastInsertRowid]: 'Blue' } });
+  assert.equal(db.prepare('SELECT COUNT(*) AS c FROM change_requests').get().c, 2, 'answers-only submissions write no history record');
+  check('change requests list is own-lead scoped, newest first, with the form\u2019s kind labels', () => {
+    const list = designJobs.listChangeRequests(db, 101);
+    assert.equal(list.length, 2);
+    assert.equal(list[0].details, 'Redo the whole homepage.');
+    assert.equal(list[0].kind_label, 'Bigger redesign');
+    assert.equal(list[1].kind_label, 'Small changes / polish');
+    assert.equal(designJobs.listChangeRequests(db, 102).length, 0);
+    assert.throws(() => designJobs.listChangeRequests(db, null), (e) => e.code === 'FORBIDDEN');
+    assert.throws(() => designJobs.listChangeRequests(db, 0), (e) => e.code === 'FORBIDDEN');
+  });
+  check('change request status derives from the linked job at read time', () => {
+    const setStatus = (s) => db.prepare('UPDATE design_jobs SET status = ? WHERE id = ?').run(s, crJob.id);
+    setStatus('waiting_on_agent'); assert.equal(designJobs.listChangeRequests(db, 101)[0].status, 'received');
+    setStatus('questions_pending'); assert.equal(designJobs.listChangeRequests(db, 101)[0].status, 'received');
+    setStatus('in_progress'); assert.equal(designJobs.listChangeRequests(db, 101)[0].status, 'in_progress');
+    setStatus('delivered');
+    const done = designJobs.listChangeRequests(db, 101)[0];
+    assert.equal(done.status, 'done'); assert.equal(done.status_label, 'Done');
+    designJobs.recordChangeRequest(db, { leadId: 102, jobId: null, kind: 'improvements', details: 'Unlinked request', requesterEmail: 'two@example.invalid' });
+    assert.equal(designJobs.listChangeRequests(db, 102)[0].status, 'received', 'unlinked record reads Received');
+    db.prepare('DELETE FROM design_jobs WHERE id = ?').run(crJob.id);
+    const surviving = designJobs.listChangeRequests(db, 101);
+    assert.equal(surviving.length, 2, 'history survives job deletion');
+    assert.equal(surviving[0].status, 'received');
+  });
+  const portal11 = load('server/clientPortal.js', {
+    bcryptjs: { hashSync: () => 'fixture' }, './db': {}, './mailer': {}, './stripeClient': {}, './workspaceDb': {},
+    './domain': { withDb: (_ws, fn) => fn(db) }, './portalContacts': contacts, '../src/designJobs': designJobs,
+  });
+  assert.equal(portal11.listChangeRequests(1, 102).length, 1);
+  assert.throws(() => portal11.listChangeRequests(1, null), (e) => e.code === 'FORBIDDEN');
+  const portalRoutes11 = [];
+  const portalRouter11 = { use() {} };
+  for (const method of ['get', 'post', 'put', 'patch', 'delete']) portalRouter11[method] = (route, ...handlers) => portalRoutes11.push({ method, route, handlers });
+  load('server/routes/portal.js', {
+    express: { Router: () => portalRouter11 }, '../clientPortal': { ...portal11, findById: async () => ({ id: 7, status: 'active', workspace_id: 1, lead_id: 102 }) },
+    '../captcha': { requireCaptcha: () => ((_req, _res, next) => next()) }, '../rateLimit': { rateLimit: () => ((_req, _res, next) => next()) },
+  });
+  async function callPortal11(method, url, body) {
+    const route = portalRoutes11.find((x) => x.method === method && x.route === url); assert(route, url);
+    const req = { session: { clientPortalId: 7, clientLastActiveAt: Date.now() }, query: {}, params: {}, body: body || {}, app: { locals: {} } };
+    let status = 200, payload; const res = { status(v) { status = v; return this; }, json(v) { payload = v; return this; } };
+    for (const handler of route.handlers) { let advanced = false; await handler(req, res, () => { advanced = true; }); if (!advanced) break; }
+    return { status, body: payload };
+  }
+  const getChanges = await callPortal11('get', '/changes');
+  assert.equal(getChanges.status, 200);
+  assert.equal(getChanges.body.data.requests.length, 1, 'route returns only the session lead\u2019s requests');
+  assert.equal(getChanges.body.data.requests[0].details, 'Unlinked request');
+  const postChanges = await callPortal11('post', '/changes', { kind: 'improvements', message: 'Route-level request.' });
+  assert.equal(postChanges.status, 200);
+  const afterPost = await callPortal11('get', '/changes');
+  assert.equal(afterPost.body.data.requests.length, 2, 'POST /changes records a history entry for the session lead');
+  assert.equal(afterPost.body.data.requests[0].details, 'Route-level request.');
+  assert.equal(designJobs.listChangeRequests(db, 101).length, 2, 'no cross-lead leakage from route submissions');
+  results.push('portal /changes routes: session-scoped history read + record-on-submit');
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

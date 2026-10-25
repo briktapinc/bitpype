@@ -201,6 +201,17 @@ function ensureTables(db) {
       message_id INTEGER,
       created_at TEXT DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS change_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER,
+      job_id INTEGER,
+      kind TEXT NOT NULL DEFAULT 'improvements',
+      details TEXT NOT NULL,
+      requester_email TEXT,
+      source TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_change_requests_lead ON change_requests(lead_id, id);
   `);
   const addCol = (table, name, type) => {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -1189,6 +1200,91 @@ function getJobByFormToken(db, token) {
 /**
  * Public client form submit: answer questions and/or queue redesign/improvements.
  */
+/** Client-facing labels for the portal Changes form's own kind values. */
+const CHANGE_REQUEST_KIND_LABELS = {
+  improvements: 'Small changes / polish',
+  redesign: 'Bigger redesign',
+};
+
+/**
+ * Client words for a change request, derived at read time from the linked
+ * design job's status (STATUSES). No stored status of our own: the job is
+ * the single source of truth, and any state it can reach maps to a word a
+ * client understands. Unlinked records (or a deleted job) read as Received.
+ */
+function changeRequestStatus(jobStatus) {
+  if (jobStatus === 'delivered') return { status: 'done', status_label: 'Done' };
+  if (jobStatus === 'in_progress') return { status: 'in_progress', status_label: 'In progress' };
+  return { status: 'received', status_label: 'Received' };
+}
+
+/**
+ * Persist one client change request as a discrete record (portal history).
+ * Additive only — the job spawn/merge flow is unchanged. Never throws into
+ * the submit flow: a history-write failure must not lose the request itself.
+ * job_id carries no FK on purpose: the record is the client's history and
+ * survives even if the linked job is later deleted.
+ */
+function recordChangeRequest(db, { leadId, jobId, kind, details, requesterEmail, source } = {}) {
+  try {
+    ensureTables(db);
+    const text = String(details || '')
+      .trim()
+      .slice(0, 6000);
+    if (!text) return null;
+    const info = db
+      .prepare(
+        `INSERT INTO change_requests (lead_id, job_id, kind, details, requester_email, source)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        leadId != null ? Number(leadId) : null,
+        jobId != null ? Number(jobId) : null,
+        kind === 'redesign' ? 'redesign' : 'improvements',
+        text,
+        requesterEmail ? String(requesterEmail).slice(0, 200) : null,
+        source ? String(source).slice(0, 40) : 'client_form'
+      );
+    return { id: Number(info.lastInsertRowid) };
+  } catch (e) {
+    console.warn('[designJobs] recordChangeRequest:', e && e.message);
+    return null;
+  }
+}
+
+/** One lead's change-request history, newest first, with derived status. */
+function listChangeRequests(db, leadId, { limit = 50 } = {}) {
+  ensureTables(db);
+  const id = Number(leadId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw fail('FORBIDDEN', 'Valid business scope required');
+  }
+  const lim = Math.min(100, Math.max(1, Number(limit) || 50));
+  const rows = db
+    .prepare(
+      `SELECT cr.id, cr.lead_id, cr.job_id, cr.kind, cr.details, cr.requester_email, cr.created_at,
+              dj.status AS job_status
+       FROM change_requests cr
+       LEFT JOIN design_jobs dj ON dj.id = cr.job_id
+       WHERE cr.lead_id = ?
+       ORDER BY cr.id DESC LIMIT ?`
+    )
+    .all(id, lim);
+  return rows.map((r) => {
+    const kind = r.kind === 'redesign' ? 'redesign' : 'improvements';
+    return {
+      id: r.id,
+      kind,
+      kind_label: CHANGE_REQUEST_KIND_LABELS[kind],
+      details: r.details,
+      requester_email: r.requester_email || '',
+      job_id: r.job_id,
+      created_at: r.created_at,
+      ...changeRequestStatus(r.job_status),
+    };
+  });
+}
+
 async function submitClientForm(db, token, body = {}) {
   ensureTables(db);
   const row = db.prepare('SELECT * FROM design_jobs WHERE client_form_token = ? LIMIT 1').get(String(token || ''));
@@ -1280,6 +1376,18 @@ async function submitClientForm(db, token, body = {}) {
       });
       change = publicJob(db, getRow(db, row.id));
     }
+    // Discrete history record for the portal Changes panel — written for
+    // both branches above (delivered-job redesign/improve acts on this same
+    // job row; the merge branch queues onto it). Recording is additive and
+    // failure-isolated (see recordChangeRequest).
+    recordChangeRequest(db, {
+      leadId: row.lead_id,
+      jobId: row.id,
+      kind,
+      details: changeText,
+      requesterEmail: fromEmail,
+      source: 'client_form',
+    });
     logActivity(db, `Design job #${row.id} client form ${kind} (${changeText.length} chars).`);
   }
 
@@ -2869,6 +2977,9 @@ module.exports = {
   clientFormUrl,
   getJobByFormToken,
   submitClientForm,
+  recordChangeRequest,
+  listChangeRequests,
+  changeRequestStatus,
   notifyAgentQueue,
   classify,
   normalizeJobType,

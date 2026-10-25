@@ -258,6 +258,7 @@
     if (wrap) wrap.classList.toggle('is-website-wide', next === 'website');
 
     if (next === 'mcp' && state.mcpPaid) refreshMcpTokens().catch(() => {});
+    if (next === 'changes') loadChangesHistory().catch(() => {});
     if (next === 'referrals') loadReferrals().catch(() => {});
     if (next === 'analytics') loadAnalytics();
     if (next === 'forms') loadForms().catch(() => {});
@@ -5324,6 +5325,45 @@
     }
   };
 
+  async function loadChangesHistory() {
+    const list = document.getElementById('changes-history-list');
+    if (!list) return;
+    try {
+      const data = await api('/changes');
+      const requests = (data && data.requests) || [];
+      if (!requests.length) {
+        list.innerHTML =
+          '<p class="hint" style="margin:0">No requests yet. When you submit a change request above, it will appear here so you can follow its progress.</p>';
+        return;
+      }
+      list.innerHTML = requests
+        .map((r) => {
+          const when = r.created_at
+            ? new Date(String(r.created_at).replace(' ', 'T') + 'Z').toLocaleDateString(undefined, {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+              })
+            : '';
+          return `<div style="padding:10px 0;border-top:1px solid var(--line,#e2e8f0)">
+            <div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap">
+              <strong>${esc(r.kind_label || r.kind || '')}</strong>
+              <span class="status-pill">${esc(r.status_label || '')}</span>
+            </div>
+            <p style="margin:6px 0 0;white-space:pre-wrap">${esc(r.details || '')}</p>
+            <p class="hint" style="margin:4px 0 0;font-size:.85rem">${esc(when)}</p>
+          </div>`;
+        })
+        .join('');
+    } catch (e) {
+      list.innerHTML =
+        '<p class="hint" style="margin:0">Your requests could not be loaded. ' +
+        '<button type="button" class="btn ghost small" id="changes-retry">Retry</button></p>';
+      const retry = document.getElementById('changes-retry');
+      if (retry) retry.onclick = () => loadChangesHistory().catch(() => {});
+    }
+  }
+
   document.getElementById('form-changes').onsubmit = async (ev) => {
     ev.preventDefault();
     const msg = document.getElementById('msg-changes');
@@ -5342,6 +5382,7 @@
       msg.className = 'msg ok';
       msg.textContent = 'Request received — we’ll take it from here.';
       document.getElementById('change-message').value = '';
+      loadChangesHistory().catch(() => {});
     } catch (e) {
       msg.className = 'msg err';
       msg.textContent = e.message;
