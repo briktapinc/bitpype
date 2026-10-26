@@ -44,6 +44,7 @@ const PLATFORM_SECRET_KEYS = [
   'sms.api_key',
   'stripe.secret_key',
   'stripe.webhook_secret',
+  'twilio.auth_token',
   'meta.app_secret',
   'captcha.secret_key',
 ];
@@ -140,6 +141,11 @@ const PLATFORM_SETTING_DEFS = [
   { key: 'stripe.price_id_pro', group: 'billing', label: 'Pro plan Price ID (price_… monthly)', default: '' },
   { key: 'stripe.price_id_premium', group: 'billing', label: 'Premium plan Price ID (price_… monthly)', default: '' },
   { key: 'stripe.price_id', group: 'billing', label: 'Legacy Price ID (fallback → Standard)', default: '' },
+
+  // Call Tracking (Twilio Voice) — platform account; numbers are bought
+  // per lead from the staff Calls screen. Empty = module dormant.
+  { key: 'twilio.account_sid', group: 'calls', label: 'Twilio Account SID (AC…)', default: '' },
+  { key: 'twilio.auth_token', group: 'calls', label: 'Twilio Auth Token', default: '', secret: true },
   {
     key: 'billing.amount_label',
     group: 'billing',

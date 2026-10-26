@@ -294,6 +294,11 @@
       '.bitpype-module-embed .bp-mod-social-text{margin:0;line-height:1.55;font-size:0.96rem;}',
       '.bitpype-module-embed .bp-mod-social-link{margin-top:auto;font-weight:700;color:var(--bp-mod-accent);text-decoration:none;font-size:0.9rem;}',
       '.bitpype-module-embed .bp-mod-social-link:hover{text-decoration:underline;}',
+      // Call Tracking
+      '.bitpype-module-embed .bp-mod-calltracking{display:flex;}',
+      '.bitpype-module-embed .bp-mod-call{display:inline-flex;flex-direction:column;gap:0.15rem;border:1.5px solid var(--bp-mod-accent);border-radius:1rem;padding:0.9rem 1.3rem;background:var(--bp-mod-paper);text-decoration:none;}',
+      '.bitpype-module-embed .bp-mod-call-label{font-size:0.82rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--bp-mod-muted);}',
+      '.bitpype-module-embed .bp-mod-call-number{font-size:1.5rem;font-weight:800;color:var(--bp-mod-accent);letter-spacing:-0.01em;line-height:1.1;}',
       '.bitpype-module-embed .bp-mod-gate{border:1px solid var(--bp-mod-line);border-radius:1.1rem;background:var(--bp-mod-paper);padding:1.6rem 1.5rem;max-width:30rem;}',
       '.bitpype-module-embed .bp-mod-gate-title{font-size:1.25rem;font-weight:800;margin:0 0 0.45rem;line-height:1.3;}',
       '.bitpype-module-embed .bp-mod-gate-text{margin:0 0 1.1rem;color:var(--bp-mod-muted);line-height:1.55;}',
@@ -865,6 +870,25 @@
     }
     if (type === 'estimate') {
       renderEstimate(el, data, html);
+      return;
+    }
+    if (type === 'calltracking') {
+      // The tracking number IS the call-to-action. Unconfigured (no
+      // display number yet) renders nothing at all.
+      var ct = data.calltracking || {};
+      if (!ct.configured || !ct.display_number) {
+        el.innerHTML = '';
+        return;
+      }
+      el.innerHTML =
+        html +
+        '<div class="bp-mod-calltracking"><a class="bp-mod-call" href="tel:' +
+        esc(ct.display_number) +
+        '"><span class="bp-mod-call-label">' +
+        esc(ct.cta_text || 'Call us') +
+        '</span><span class="bp-mod-call-number">' +
+        esc(ct.display_number_formatted || ct.display_number) +
+        '</span></a></div>';
       return;
     }
     if (type === 'careers' && !items.length) {

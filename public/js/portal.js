@@ -3677,13 +3677,14 @@
     { type: 'video', label: 'Video' },
     { type: 'estimate', label: 'Instant Estimate' },
     { type: 'socialfeed', label: 'Social Feed' },
+    { type: 'calltracking', label: 'Call Tracking' },
     { type: 'members', label: 'Membership' },
   ];
   const MODULE_NAV_GROUPS = [
     { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed'] },
     { id: 'people', label: 'People', types: ['team', 'testimonials', 'careers', 'members'] },
     { id: 'schedule', label: 'Schedule', types: ['events', 'bookings'] },
-    { id: 'assist', label: 'Assist', types: ['chatbot'] },
+    { id: 'assist', label: 'Assist', types: ['chatbot', 'calltracking'] },
   ];
   const MODULE_ITEM_COPY = {
     blog: { singular: 'post', plural: 'posts', newBtn: 'New post', kicker: 'Blog post' },
@@ -3703,6 +3704,7 @@
     video: { singular: 'video', plural: 'videos', newBtn: 'New video', kicker: 'Video' },
     estimate: { singular: 'option', plural: 'options', newBtn: 'New option', kicker: 'Estimate option' },
     socialfeed: { singular: 'post', plural: 'posts', newBtn: 'New post', kicker: 'Social post' },
+    calltracking: { singular: 'call', plural: 'calls', newBtn: 'New call', kicker: 'Call' },
     members: { singular: 'member', plural: 'members', newBtn: 'New member', kicker: 'Member' },
   };
   const BOOKING_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -3758,6 +3760,11 @@
   function moduleFieldDefs(type) {
     if (type === 'socialfeed') {
       // Automatic module — no item editor; the Feed pane carries the settings.
+      return [];
+    }
+    if (type === 'calltracking') {
+      // Automatic module — no item editor; the Calls pane carries the
+      // number settings and the received-calls list.
       return [];
     }
     if (type === 'members') {
@@ -4000,6 +4007,7 @@
     const estCalcPane = document.getElementById('modules-pane-estimate-calc');
     const estReqPane = document.getElementById('modules-pane-estimate-requests');
     const sfPane = document.getElementById('modules-pane-socialfeed');
+    const ctPane = document.getElementById('modules-pane-calltracking');
     const membersPane = document.getElementById('modules-pane-members');
     const results = document.getElementById('modules-pane-results');
     const bookingPanel = document.getElementById('modules-booking-panel');
@@ -4007,8 +4015,9 @@
     const isChatbot = moduleState.current === 'chatbot';
     const isEstimate = moduleState.current === 'estimate';
     const isSocialfeed = moduleState.current === 'socialfeed';
+    const isCallTracking = moduleState.current === 'calltracking';
     const isMembers = moduleState.current === 'members';
-    const showTabs = isBookings || isChatbot || isEstimate || isSocialfeed || isMembers;
+    const showTabs = isBookings || isChatbot || isEstimate || isSocialfeed || isCallTracking || isMembers;
     if (isBookings) {
       const allowed = new Set(['content', 'hours', 'appointments']);
       if (!allowed.has(moduleState.pane)) moduleState.pane = 'content';
@@ -4021,6 +4030,9 @@
     } else if (isSocialfeed) {
       // The feed has no item list — its only pane is the Feed pane.
       moduleState.pane = 'feed';
+    } else if (isCallTracking) {
+      // Call Tracking has no item list either — its only pane is Calls.
+      moduleState.pane = 'calls';
     } else if (isMembers) {
       // Membership has no item list either — its only pane is Members.
       moduleState.pane = 'members';
@@ -4038,9 +4050,11 @@
             ? 'Estimate sections'
             : isSocialfeed
               ? 'Social Feed sections'
-              : isMembers
-                ? 'Membership sections'
-                : 'Bookings sections'
+              : isCallTracking
+                ? 'Call Tracking sections'
+                : isMembers
+                  ? 'Membership sections'
+                  : 'Bookings sections'
       );
       tabs.querySelectorAll('[data-modules-pane]').forEach((btn) => {
         const pane = btn.getAttribute('data-modules-pane');
@@ -4055,8 +4069,9 @@
             (isChatbot && forAttr === 'chatbot') ||
             (isEstimate && forAttr === 'estimate') ||
             (isSocialfeed && forAttr === 'socialfeed') ||
+            (isCallTracking && forAttr === 'calltracking') ||
             (isMembers && forAttr === 'members') ||
-            (forAttr === 'both' && showTabs && !isSocialfeed && !isMembers)
+            (forAttr === 'both' && showTabs && !isSocialfeed && !isCallTracking && !isMembers)
           : visible;
         btn.hidden = !showBtn;
         if (pane === 'content' && showBtn) {
@@ -4077,6 +4092,7 @@
     if (estCalcPane) estCalcPane.hidden = !(isEstimate && moduleState.pane === 'calc');
     if (estReqPane) estReqPane.hidden = !(isEstimate && moduleState.pane === 'requests');
     if (sfPane) sfPane.hidden = !(isSocialfeed && moduleState.pane === 'feed');
+    if (ctPane) ctPane.hidden = !(isCallTracking && moduleState.pane === 'calls');
     if (membersPane) membersPane.hidden = !(isMembers && moduleState.pane === 'members');
     if (results) results.hidden = true;
     if (bookingPanel) bookingPanel.hidden = true;
@@ -4112,6 +4128,8 @@
             ? 'Your feed updates itself from your social posts — there is nothing to add by hand.'
             : moduleState.current === 'members'
               ? 'Members join from your site — use the Members tab to choose what they can see and manage their accounts.'
+              : moduleState.current === 'calltracking'
+                ? 'The number you set here is the one your site shows — calls to it ring your real phone and are logged below.'
               : `Manage ${copy.plural} for your ${(meta && meta.label) || 'module'}.`;
     }
     const newBtn = document.getElementById('btn-modules-new');
@@ -4138,6 +4156,7 @@
       video: 'videos',
       estimate: 'estimate',
       socialfeed: 'social-feed',
+      calltracking: 'call',
       members: 'members',
     };
     let want = selected || defaults[moduleState.current] || 'home';
@@ -4679,6 +4698,92 @@
       <div id="modules-socialfeed-preview">${previewHtml}</div>`;
   }
 
+  function renderCallTrackingAdminPanel() {
+    const host = document.getElementById('modules-calltracking-panel');
+    if (!host) return;
+    if (moduleState.current !== 'calltracking') {
+      host.innerHTML = '';
+      return;
+    }
+    const data = moduleState.calltracking || {};
+    const cfg = data.config || {};
+    const calls = Array.isArray(data.calls) ? data.calls : [];
+    const wsId = data.workspace_id || '';
+    const whenLabel = (v) => {
+      const t = Date.parse(String(v || '').replace(' ', 'T') + (String(v || '').includes('T') ? '' : 'Z'));
+      return Number.isFinite(t) ? new Date(t).toLocaleString() : '';
+    };
+    const durLabel = (sec) => {
+      if (sec == null || sec === '') return '—';
+      const n = Math.max(0, Math.round(Number(sec) || 0));
+      return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, '0')}`;
+    };
+    const callsHtml = calls.length
+      ? calls
+          .map((c) => {
+            const rec = c.recording_url
+              ? `<div style="margin-top:6px"><audio controls preload="none" src="/api/v1/calls/recording-file/${esc(wsId)}/${esc(c.call_sid)}" style="max-width:320px;width:100%"></audio></div>`
+              : '';
+            const transcript = c.transcript
+              ? `<div style="margin-top:6px"><strong>Transcript</strong><div>${esc(c.transcript)}</div></div>`
+              : '<div class="hint" style="margin-top:6px">No transcript</div>';
+            return `
+        <div style="padding:10px 0;border-bottom:1px solid var(--line,#e6e0d8)">
+          <div class="row" style="justify-content:space-between;gap:8px">
+            <div><strong>${esc(c.from_number || 'Unknown caller')}</strong> <span class="hint">→ ${esc(c.to_number || '')}</span></div>
+            <span class="hint">${esc(whenLabel(c.created_at))}</span>
+          </div>
+          <div class="hint">Status: ${esc(c.status || '')} · Duration: ${esc(durLabel(c.duration_seconds))}${c.verified ? '' : ' · unverified'}</div>
+          ${rec}
+          ${transcript}
+        </div>`;
+          })
+          .join('')
+      : '<p class="hint">No calls yet. When someone calls your tracking number, the call shows up here — and the caller is saved as a LeadScout contact.</p>';
+    const billing = data.billing || null;
+    const allowanceLabel = billing && billing.allowance >= 100000 ? 'unlimited' : billing ? billing.allowance : '';
+    const freeNoNumber = billing && billing.plan === 'free' && !(cfg.display_number || '');
+    const billingHtml = billing
+      ? `<p class="hint">Answered this month: <strong>${esc(billing.answered)} / ${esc(allowanceLabel)}</strong>${
+          billing.overage_due_credits > 0
+            ? ` · Overage due: <strong>${esc(billing.overage_due_credits)} credits</strong>`
+            : ''
+        }</p>`
+      : '';
+    const formHtml = freeNoNumber
+      ? '<p class="hint"><strong>Call Tracking with a number requires a paid plan.</strong> Upgrade in Billing to add a display number — your plan carries an answered-call allowance, and calls are never cut off for billing reasons.</p>'
+      : `
+      <div class="field"><label>Display number (the number your site shows)</label>
+        <input type="tel" id="calltracking-display-number" value="${esc(cfg.display_number || '')}" placeholder="+16105551234" /></div>
+      <div class="field"><label>Button label</label>
+        <input type="text" id="calltracking-cta-text" value="${esc(cfg.cta_text || 'Call us')}" maxlength="60" /></div>
+      <div class="field"><label><input type="checkbox" id="calltracking-redirect-enabled"${cfg.redirect_enabled ? ' checked' : ''} /> Forward calls to my real phone</label></div>
+      <div class="field"><label>Redirect number (your real phone)</label>
+        <input type="tel" id="calltracking-redirect-number" value="${esc(cfg.redirect_number || '')}" placeholder="+16105550100" /></div>
+      <div class="field"><label><input type="checkbox" id="calltracking-record-calls"${cfg.record_calls ? ' checked' : ''} /> Record calls (callers hear a short recording notice first)</label></div>
+      <div class="field"><label><input type="checkbox" id="calltracking-notify-email"${cfg.notify_email === false ? '' : ' checked'} /> Email me when a call comes in</label></div>
+      <div class="row" style="gap:6px">
+        <button type="button" class="btn soft small" id="btn-calltracking-config-save">Save call settings</button>
+      </div>`;
+    host.innerHTML = `
+      <h3>Call Tracking</h3>
+      <p class="hint">Your site shows the display number as its call button. Calls to that number ring your real phone — and every call is logged here.</p>
+      ${billingHtml}
+      ${
+        cfg.twilio_number_sid
+          ? '<p class="hint">This number was bought through BitPype and is already pointed at your site.</p>'
+          : ''
+      }
+      ${formHtml}
+      ${
+        data.voice_url
+          ? `<p class="hint" style="margin-top:12px">Using your own Twilio number? Set its voice webhook (POST) to:<br /><code>${esc(data.voice_url)}</code></p>`
+          : ''
+      }
+      <h3 style="margin-top:18px">Calls received</h3>
+      <div id="modules-calltracking-calls">${callsHtml}</div>`;
+  }
+
   function memberRowHtml(m, tiers) {
     const whenLabel = (v) => {
       const t = Date.parse(String(v || '').replace(' ', 'T') + (String(v || '').includes('T') ? '' : 'Z'));
@@ -5165,6 +5270,7 @@
     moduleState.chatbot = data.chatbot || null;
     moduleState.estimate = data.estimate || null;
     moduleState.socialfeed = data.socialfeed || null;
+    moduleState.calltracking = data.calltracking || null;
     moduleState.members = data.members || null;
     moduleState.shop = data.shop || null;
     moduleState.categories = Array.isArray(data.categories) ? data.categories : [];
@@ -5182,6 +5288,7 @@
     renderBookingAdminPanel();
     renderEstimateAdminPanel();
     renderSocialFeedAdminPanel();
+    renderCallTrackingAdminPanel();
     renderMembersAdminPanel();
     renderMenuCategoriesPanel();
     renderOffersDisplayPanel();
@@ -6870,6 +6977,34 @@
           const r = await api('/modules/socialfeed/refresh', { method: 'POST', body: '{}' });
           if (r && r.preview) moduleState.socialfeed = r.preview;
           moduleMsg('Feed is up to date.', true);
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg(e.message, false);
+        }
+      }
+      if (ev.target && ev.target.id === 'btn-calltracking-config-save') {
+        const val = (id) => {
+          const n = document.getElementById(id);
+          return n ? n.value : undefined;
+        };
+        const on = (id) => {
+          const n = document.getElementById(id);
+          return !!(n && n.checked);
+        };
+        moduleMsg('Saving call settings…', true);
+        try {
+          await api('/modules/calltracking/config', {
+            method: 'PUT',
+            body: JSON.stringify({
+              display_number: val('calltracking-display-number'),
+              cta_text: val('calltracking-cta-text'),
+              redirect_enabled: on('calltracking-redirect-enabled'),
+              redirect_number: val('calltracking-redirect-number'),
+              record_calls: on('calltracking-record-calls'),
+              notify_email: on('calltracking-notify-email'),
+            }),
+          });
+          moduleMsg('Call settings saved.', true);
           await loadModuleItems();
         } catch (e) {
           moduleMsg(e.message, false);

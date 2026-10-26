@@ -231,7 +231,7 @@ async function main() {
     '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
   });
   sm12.ensureTables(db);
-  assert.equal(Object.keys(sm12.MODULE_META).length, 18, 'module catalog has 18 types');
+  assert.equal(Object.keys(sm12.MODULE_META).length, 19, 'module catalog has 19 types');
   for (const t of ['offers', 'menu', 'careers', 'video']) assert(sm12.MODULE_META[t], 'meta for ' + t);
   check('batch12 catalog: module types incl. offers/menu/careers/video', () => {});
 
@@ -340,7 +340,7 @@ async function main() {
   assert.equal(pubVideo.items.length, 1, 'only published videos surface');
   assert.equal(pubVideo.items[0].embed_url, 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ');
   const summary12 = sm12.portalSummary(db, 201);
-  assert.equal(summary12.modules.length, 18, 'portal summary lists all 18 module types');
+  assert.equal(summary12.modules.length, 19, 'portal summary lists all 19 module types');
   check('batch12 public payloads: token surface filters expired/inactive/draft; portal summary = 18 types', () => {});
 
   // Attach injects nav pages; detach removes them.
@@ -1029,7 +1029,7 @@ async function main() {
   sm16.ensureTables(db);
   assert(sm16.MODULE_META.members, 'meta for members');
   assert.equal(sm16.MODULE_META.members.label, 'Membership');
-  assert.equal(sm16.MODULE_TYPES.length, 18, 'members is the 18th module type');
+  assert.equal(sm16.MODULE_TYPES.length, 19, 'members was the 18th module type; calltracking is the 19th');
   assert.equal(sm16.MODULE_TYPES.includes('members'), true);
   check('batch16 catalog: members registered as the 18th module type', () => {});
 
@@ -1291,8 +1291,8 @@ async function main() {
     stripe: StubStripe17,
   });
   sm17.ensureTables(db);
-  assert.equal(sm17.MODULE_TYPES.length, 18, 'catalog still 18 types');
-  assert.equal(sm17.MODULE_SCRIPT_VER, 'mod13', 'script version bumped by batch 20');
+  assert.equal(sm17.MODULE_TYPES.length, 19, 'catalog still 19 types');
+  assert.equal(sm17.MODULE_SCRIPT_VER, 'mod14', 'script version bumped by batch 20 to mod13, batch 21 to mod14');
   const cfg17Default = sm17.getMembersConfig(db, 1701);
   assert.equal(cfg17Default.access_level, 'any_member', 'Part 1 default preserved: any member');
   assert.equal(cfg17Default.access_tier_id, null);
@@ -1963,6 +1963,829 @@ async function main() {
   const panelFallback19 = await portal19.listModuleItems(1, 1903, 'ecommerce', 'owner@example.invalid');
   assert.equal(panelFallback19.shop.effective_source, 'none', 'after settings cleanup + no own keys the panel says none');
   check('batch19 portal: panel payload + save/test wrappers carry status and effective source', () => {});
+
+  // --- Call Tracking (Batch 21): settings, TwiML, call log, contacts,
+  // Twilio client, signature gate, number purchase ----------------------
+  const crypto21 = require('node:crypto');
+  const sm21 = load('server/siteModules.js', {
+    '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
+    '../src/websiteEngine': require(path.join(root, 'src/websiteEngine.js')),
+    './portalContacts': contacts,
+    '../src/secretBox': require(path.join(root, 'src/secretBox.js')),
+    './membershipStripe': {},
+    './shopStripe': {},
+  });
+  sm21.ensureTables(db);
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (2101, 'Fixture Calls', 'calls@example.invalid')").run();
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (2102, 'Fixture Calls Bare', 'calls2@example.invalid')").run();
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (2103, 'Fixture Calls Buy', 'calls3@example.invalid')").run();
+
+  check('batch21 module registered + embed script version bumped', () => {
+    assert.ok(sm21.MODULE_TYPES.includes('calltracking'));
+    assert.equal(sm21.MODULE_SCRIPT_VER, 'mod14');
+    assert.equal(sm21.MODULE_META.calltracking.label, 'Call Tracking');
+  });
+
+  const cfg21 = sm21.updateCallTrackingConfig(db, 2101, {
+    display_number: '6105551234',
+    cta_text: 'Call the shop',
+    redirect_enabled: true,
+    redirect_number: '+16105550100',
+    record_calls: false,
+  });
+  check('batch21 settings: US numbers normalize to E.164', () => {
+    assert.equal(cfg21.display_number, '+16105551234');
+    assert.equal(cfg21.redirect_number, '+16105550100');
+    assert.equal(cfg21.cta_text, 'Call the shop');
+    assert.equal(cfg21.redirect_enabled, true);
+    assert.equal(cfg21.record_calls, false);
+  });
+  check('batch21 settings: garbage numbers rejected, stored settings untouched', () => {
+    assert.throws(() => sm21.updateCallTrackingConfig(db, 2101, { display_number: 'call-me-maybe' }), (e) => e.code === 'VALIDATION');
+    assert.throws(() => sm21.updateCallTrackingConfig(db, 2101, { redirect_number: '123' }), (e) => e.code === 'VALIDATION');
+    assert.equal(sm21.getCallTrackingConfig(db, 2101).display_number, '+16105551234');
+  });
+
+  const voiceArgs21 = { workspaceId: 1, leadId: 2101, baseUrl: 'https://example.test' };
+  const twimlOn = sm21.buildCallTrackingVoiceTwiml(sm21.getCallTrackingConfig(db, 2101), voiceArgs21);
+  check('batch21 twiml: redirect on dials the redirect number with the display number as caller id', () => {
+    assert.ok(twimlOn.startsWith('<?xml'));
+    assert.ok(twimlOn.includes('<Dial callerId="+16105551234"'));
+    assert.ok(twimlOn.includes('>+16105550100</Dial>'));
+    assert.ok(twimlOn.includes('action="https://example.test/api/v1/calls/status/1/2101"'));
+    assert.ok(!twimlOn.includes('record='));
+    assert.ok(!twimlOn.includes('may be recorded'));
+  });
+  sm21.updateCallTrackingConfig(db, 2101, { record_calls: true });
+  const twimlRec = sm21.buildCallTrackingVoiceTwiml(sm21.getCallTrackingConfig(db, 2101), voiceArgs21);
+  check('batch21 twiml: recording adds the consent say, dual-channel record and recording callback', () => {
+    assert.ok(twimlRec.includes('This call may be recorded for quality purposes.'));
+    assert.ok(twimlRec.includes('record="record-from-answer-dual"'));
+    assert.ok(twimlRec.includes('recordingStatusCallback="https://example.test/api/v1/calls/recording/1/2101"'));
+    assert.ok(twimlRec.indexOf('may be recorded') < twimlRec.indexOf('<Dial'));
+  });
+  sm21.updateCallTrackingConfig(db, 2101, { record_calls: false, redirect_enabled: false });
+  const twimlOff = sm21.buildCallTrackingVoiceTwiml(sm21.getCallTrackingConfig(db, 2101), voiceArgs21);
+  check('batch21 twiml: redirect off says the website message and hangs up', () => {
+    assert.ok(!twimlOff.includes('<Dial'));
+    assert.ok(twimlOff.includes('through our website'));
+    assert.ok(twimlOff.includes('<Hangup/>'));
+  });
+  const twimlBare = sm21.buildCallTrackingVoiceTwiml(sm21.getCallTrackingConfig(db, 2102), {
+    workspaceId: 1,
+    leadId: 2102,
+    baseUrl: 'https://example.test',
+  });
+  check('batch21 twiml: unconfigured module hangs up', () => {
+    assert.equal(twimlBare, '<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>');
+  });
+  check('batch21 public payload: display number shown formatted, redirect number never exposed', () => {
+    const pub = sm21.publicCallTrackingPayload(db, 2101);
+    assert.equal(pub.configured, true);
+    assert.equal(pub.display_number, '+16105551234');
+    assert.equal(pub.display_number_formatted, '(610) 555-1234');
+    assert.ok(!JSON.stringify(pub).includes('5550100'));
+    assert.equal(sm21.publicCallTrackingPayload(db, 2102).configured, false);
+  });
+
+  const SID21 = 'CAtest2101';
+  sm21.logCallInitiated(db, 2101, { callSid: SID21, from: '+16105559999', to: '+16105551234', verified: true });
+  const upParams21 = {
+    CallSid: SID21,
+    From: '+16105559999',
+    To: '+16105551234',
+    CallStatus: 'completed',
+    DialCallStatus: 'completed',
+    DialCallDuration: '42',
+  };
+  const up1 = sm21.upsertCallStatus(db, 2101, upParams21, { verified: true });
+  const up2 = sm21.upsertCallStatus(db, 2101, upParams21, { verified: true });
+  check('batch21 call log: status callbacks dedupe by CallSid', () => {
+    assert.equal(up1.id, up2.id);
+    const rows = sm21.listCalls(db, 2101);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].status, 'completed');
+    assert.equal(rows[0].duration_seconds, 42);
+    assert.equal(rows[0].verified, 1);
+  });
+  sm21.storeCallRecording(db, SID21, {
+    recordingSid: 'REtest21',
+    recordingUrl: 'https://api.twilio.com/rec/REtest21',
+    recordingDuration: '40',
+  });
+  sm21.setCallTranscript(db, SID21, { status: 'done', text: 'Hi, do you fix brakes?' });
+  check('batch21 recording stores sid/url/duration; transcript roundtrips', () => {
+    const row = sm21.getCallLogBySid(db, SID21);
+    assert.equal(row.recording_sid, 'REtest21');
+    assert.equal(row.recording_url, 'https://api.twilio.com/rec/REtest21');
+    assert.equal(row.recording_duration, 40);
+    assert.equal(row.transcript_status, 'done');
+    assert.equal(row.transcript, 'Hi, do you fix brakes?');
+    assert.equal(sm21.listCalls(db, 2101)[0].transcript, 'Hi, do you fix brakes?');
+  });
+
+  const callRow21 = sm21.getCallLogBySid(db, SID21);
+  const capCall1 = contacts.captureFromCall(db, { leadId: 2101, call: callRow21 });
+  const capCall2 = contacts.captureFromCall(db, { leadId: 2101, call: callRow21 });
+  check('batch21 contact: terminal call upserts one LeadScout contact by caller phone, deduped per call', () => {
+    assert.equal(capCall1.error, undefined);
+    assert.equal(capCall1.contact.phone, '+16105559999');
+    assert.equal(capCall2.contact.id, capCall1.contact.id);
+    assert.equal(capCall2.deduped, true);
+    const detail = contacts.getContact(db, capCall1.contact.id, { leadId: 2101 });
+    assert.equal(detail.calls.length, 1);
+    assert.equal(detail.calls[0].kind, 'call');
+    assert.equal(detail.events.filter((e) => e.kind === 'call').length, 1);
+  });
+
+  // Twilio client behind a stub fetch + stub platform settings.
+  function loadTwilio21(settings, fetchImpl) {
+    const mod = { exports: {} };
+    vm.runInNewContext(
+      fs.readFileSync(path.join(root, 'server/twilioClient.js'), 'utf8'),
+      {
+        module: mod,
+        exports: mod.exports,
+        require: (name) => {
+          if (name === './platform') return { getPlatformSetting: async (k) => settings[k] || '' };
+          if (!name.startsWith('.')) return require(name);
+          throw new Error('Unexpected dependency: ' + name);
+        },
+        process: { env: {} },
+        console,
+        Buffer,
+        URL,
+        URLSearchParams,
+        FormData,
+        Blob,
+        fetch: fetchImpl,
+        setTimeout,
+        clearTimeout,
+      },
+      { filename: 'server/twilioClient.js' }
+    );
+    return mod.exports;
+  }
+  const twilioOff = loadTwilio21({}, async () => {
+    throw new Error('fetch must not run without credentials');
+  });
+  const offSearch21 = await twilioOff.searchNumbers({ areaCode: '610' });
+  const offPurchase21 = await twilioOff.purchaseNumber({ phoneNumber: '+16105550199', voiceUrl: 'https://example.test/x' });
+  const offMedia21 = await twilioOff.fetchRecordingMedia('https://api.twilio.com/rec/x');
+  check('batch21 twilio client: unconfigured platform is dormant-safe', () => {
+    assert.equal(offSearch21.configured, false);
+    assert.equal(offSearch21.numbers.length, 0);
+    assert.equal(offPurchase21.configured, false);
+    assert.equal(offMedia21.configured, false);
+  });
+  const seen21 = [];
+  const twilioOn = loadTwilio21(
+    {
+      'twilio.account_sid': 'ACtest21',
+      'twilio.auth_token': 'tok21',
+      'ai.api_key': 'sk-test21',
+      'ai.base_url': 'https://ai.example.test/v1',
+    },
+    async (url, opts = {}) => {
+      seen21.push({ url: String(url), opts });
+      if (String(url).includes('/AvailablePhoneNumbers/'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            available_phone_numbers: [
+              { phone_number: '+16105550199', friendly_name: '(610) 555-0199', locality: 'Reading', region: 'PA', iso_country: 'US' },
+            ],
+          }),
+        };
+      if (String(url).includes('/IncomingPhoneNumbers.json'))
+        return { ok: true, status: 201, json: async () => ({ sid: 'PNtest21', phone_number: '+16105550199' }) };
+      if (String(url).includes('/Recordings/'))
+        return { ok: true, status: 200, headers: { get: () => 'audio/mpeg' }, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer };
+      if (String(url).includes('/audio/transcriptions'))
+        return { ok: true, status: 200, json: async () => ({ text: 'Caller asked about brakes.' }) };
+      throw new Error('unexpected fetch ' + url);
+    }
+  );
+  const found21 = await twilioOn.searchNumbers({ areaCode: '610' });
+  check('batch21 twilio client: number search maps Twilio results with basic auth', () => {
+    assert.equal(found21.configured, true);
+    assert.equal(found21.numbers.length, 1);
+    assert.equal(found21.numbers[0].phoneNumber, '+16105550199');
+    assert.equal(found21.numbers[0].friendlyName, '(610) 555-0199');
+    assert.equal(found21.numbers[0].locality, 'Reading');
+    assert.equal(found21.numbers[0].region, 'PA');
+    assert.ok(seen21[0].url.includes('AreaCode=610'));
+    assert.equal(seen21[0].opts.headers.Authorization, 'Basic ' + Buffer.from('ACtest21:tok21').toString('base64'));
+  });
+  const bought21 = await twilioOn.purchaseNumber({
+    phoneNumber: '+16105550199',
+    voiceUrl: 'https://example.test/api/v1/calls/voice/1/2103',
+  });
+  check('batch21 twilio client: purchase posts the voice webhook url', () => {
+    assert.equal(bought21.configured, true);
+    assert.equal(bought21.sid, 'PNtest21');
+    const post = seen21.find((r) => String(r.url).includes('/IncomingPhoneNumbers.json'));
+    const body = new URLSearchParams(post.opts.body);
+    assert.equal(body.get('VoiceUrl'), 'https://example.test/api/v1/calls/voice/1/2103');
+    assert.equal(body.get('VoiceMethod'), 'POST');
+    assert.equal(body.get('PhoneNumber'), '+16105550199');
+  });
+  const transcribed21 = await twilioOn.transcribeRecording(
+    'https://api.twilio.com/2010-04-01/Accounts/ACtest21/Recordings/REtest21'
+  );
+  check('batch21 twilio client: transcription downloads the mp3 and posts it to the STT api', () => {
+    assert.equal(transcribed21.ok, true);
+    assert.equal(transcribed21.text, 'Caller asked about brakes.');
+  });
+  const noStt21 = loadTwilio21({ 'twilio.account_sid': 'ACtest21', 'twilio.auth_token': 'tok21' }, async () => ({
+    ok: true,
+    status: 200,
+    arrayBuffer: async () => new ArrayBuffer(4),
+  }));
+  const noSttRes21 = await noStt21.transcribeRecording('https://api.twilio.com/rec/x');
+  check('batch21 twilio client: no STT key leaves transcription off, never throws', () => {
+    assert.equal(noSttRes21.ok, false);
+    assert.equal(noSttRes21.reason, 'no_stt_key');
+  });
+
+  // Signature validation against the real client (pure crypto).
+  const realTwilio21 = require(path.join(root, 'server/twilioClient.js'));
+  const signParams21 = { CallSid: 'CAsign', From: '+16105559999', To: '+16105551234' };
+  const signUrl21 = 'https://example.test/api/v1/calls/voice/1/2101';
+  const signFor21 = (url, params, token) => {
+    let data = url;
+    for (const k of Object.keys(params).sort()) data += k + params[k];
+    return crypto21.createHmac('sha1', token).update(Buffer.from(data, 'utf-8')).digest('base64');
+  };
+  const goodSig21 = signFor21(signUrl21, signParams21, 'tok21');
+  check('batch21 signature: valid HMAC-SHA1 accepted, tampered rejected', () => {
+    assert.equal(realTwilio21.validateSignature('tok21', signUrl21, signParams21, goodSig21), true);
+    assert.equal(realTwilio21.validateSignature('tok21', signUrl21, { ...signParams21, From: '+10000000000' }, goodSig21), false);
+    assert.equal(realTwilio21.validateSignature('tok21', signUrl21, signParams21, 'bogus'), false);
+    assert.equal(realTwilio21.validateSignature('', signUrl21, signParams21, goodSig21), false);
+  });
+
+  // Domain purchase flow with a stubbed Twilio client.
+  let purchaseBehavior21 = async () => ({ configured: true, phoneNumber: '+16105550199', sid: 'PNdomain21' });
+  let planVar21 = 'standard';
+  const purchaseCalls21 = [];
+  const domain21 = load('server/domain.js', {
+    './workspaceDb': { openWorkspaceDb: () => db },
+    './billing': { effectivePlan: async () => planVar21 },
+    './twilioClient': {
+      searchNumbers: async () => ({ configured: false, numbers: [] }),
+      purchaseNumber: async (args) => {
+        purchaseCalls21.push(args);
+        return purchaseBehavior21(args);
+      },
+    },
+    './stripeClient': { appUrl: () => 'https://example.test' },
+    './siteModules': sm21,
+  });
+  const boughtDomain21 = await domain21.adminPurchaseCallNumber(1, { leadId: 2103, phoneNumber: '+16105550199' });
+  check('batch21 purchase: success attaches number + SID with the lead voice url', () => {
+    assert.equal(boughtDomain21.configured, true);
+    assert.equal(purchaseCalls21[0].voiceUrl, 'https://example.test/api/v1/calls/voice/1/2103');
+    const cfg = sm21.getCallTrackingConfig(db, 2103);
+    assert.equal(cfg.display_number, '+16105550199');
+    assert.equal(cfg.twilio_number_sid, 'PNdomain21');
+  });
+  purchaseBehavior21 = async () => {
+    const e = new Error('The number is no longer available');
+    e.code = 'TWILIO_ERROR';
+    throw e;
+  };
+  let purchaseErr21 = null;
+  try {
+    await domain21.adminPurchaseCallNumber(1, { leadId: 2103, phoneNumber: '+16105550200' });
+  } catch (e) {
+    purchaseErr21 = e;
+  }
+  check('batch21 purchase: Twilio failure changes nothing', () => {
+    assert.equal(purchaseErr21 && purchaseErr21.code, 'TWILIO_ERROR');
+    const cfg = sm21.getCallTrackingConfig(db, 2103);
+    assert.equal(cfg.display_number, '+16105550199');
+    assert.equal(cfg.twilio_number_sid, 'PNdomain21');
+  });
+  purchaseBehavior21 = async () => ({ configured: false });
+  const unconf21 = await domain21.adminPurchaseCallNumber(1, { leadId: 2103, phoneNumber: '+16105550200' });
+  const overview21 = await domain21.adminCallsOverview(1);
+  check('batch21 purchase: unconfigured Twilio reports configured:false; admin overview spans leads', () => {
+    assert.equal(unconf21.configured, false);
+    const row = overview21.calls.find((c) => c.call_sid === SID21);
+    assert.ok(row);
+    assert.equal(row.lead_name, 'Fixture Calls');
+  });
+
+  // Route level: signature gate, unknown lead, status dedupe, recording.
+  const handlers21 = { get: {}, post: {} };
+  const fakeRouter21 = {
+    get: (p, ...h) => {
+      handlers21.get[p] = h[h.length - 1];
+    },
+    post: (p, ...h) => {
+      handlers21.post[p] = h[h.length - 1];
+    },
+    use: () => {},
+  };
+  let routeToken21 = 'tok21';
+  load('server/routes/calls.js', {
+    express: { Router: () => fakeRouter21 },
+    '../domain': { withDb: (_ws, fn) => fn(db) },
+    '../workspaceExists': { assertWorkspaceExists: (id) => Number(id) === 1 },
+    '../siteModules': sm21,
+    '../portalContacts': contacts,
+    '../twilioClient': {
+      getCredentials: async () => ({ accountSid: 'ACtest21', authToken: routeToken21 }),
+      validateSignature: realTwilio21.validateSignature,
+      transcribeRecording: async () => ({ ok: false, reason: 'no_stt_key' }),
+      fetchRecordingMedia: async () => ({ configured: false }),
+    },
+    '../clientPortal': { findById: () => null },
+    '../workspace': { getMembership: () => null, findWorkspaceByToken: () => null },
+    '../callNotify': { notifyCallByEmail: async () => ({ sent: false, reason: 'stubbed' }) },
+    '../callBilling': {
+      settleCallBilling: async () => ({ settled: true }),
+      transcribeCallRecording: async (ws, leadId, callSid) => {
+        sm21.setCallTranscript(db, callSid, { status: 'unavailable' });
+        return { ok: false, reason: 'no_stt_key' };
+      },
+    },
+    '../stripeClient': { appUrl: () => 'https://example.test' },
+  });
+  function fakeRes21() {
+    return {
+      statusCode: 200,
+      headers: {},
+      body: null,
+      status(c) {
+        this.statusCode = c;
+        return this;
+      },
+      set(k, v) {
+        this.headers[k] = v;
+        return this;
+      },
+      type() {
+        return this;
+      },
+      send(b) {
+        this.body = b;
+        return this;
+      },
+    };
+  }
+  sm21.updateCallTrackingConfig(db, 2101, { redirect_enabled: true });
+  const voicePath21 = '/api/v1/calls/voice/1/2101';
+  const voiceParams21 = { CallSid: 'CAroute21', From: '+16105557777', To: '+16105551234' };
+  const goodRes21 = fakeRes21();
+  await handlers21.post['/voice/:workspaceId/:leadId'](
+    {
+      params: { workspaceId: '1', leadId: '2101' },
+      body: voiceParams21,
+      headers: { 'x-twilio-signature': signFor21('https://example.test' + voicePath21, voiceParams21, 'tok21') },
+      originalUrl: voicePath21,
+    },
+    goodRes21
+  );
+  check('batch21 route: correctly signed voice webhook returns forwarding TwiML and logs verified', () => {
+    assert.equal(goodRes21.statusCode, 200);
+    assert.ok(String(goodRes21.body).includes('<Dial'));
+    const row = sm21.getCallLogBySid(db, 'CAroute21');
+    assert.ok(row);
+    assert.equal(row.verified, 1);
+    assert.equal(row.status, 'initiated');
+  });
+  const badRes21 = fakeRes21();
+  await handlers21.post['/voice/:workspaceId/:leadId'](
+    {
+      params: { workspaceId: '1', leadId: '2101' },
+      body: voiceParams21,
+      headers: { 'x-twilio-signature': 'bogus' },
+      originalUrl: voicePath21,
+    },
+    badRes21
+  );
+  check('batch21 route: bad signature is rejected 403 when a token is configured', () => {
+    assert.equal(badRes21.statusCode, 403);
+  });
+  const unknownParams21 = { CallSid: 'CAunknown21', From: '+16105557777', To: '+16105551234' };
+  const unknownPath21 = '/api/v1/calls/voice/1/999999';
+  const unknownRes21 = fakeRes21();
+  await handlers21.post['/voice/:workspaceId/:leadId'](
+    {
+      params: { workspaceId: '1', leadId: '999999' },
+      body: unknownParams21,
+      headers: { 'x-twilio-signature': signFor21('https://example.test' + unknownPath21, unknownParams21, 'tok21') },
+      originalUrl: unknownPath21,
+    },
+    unknownRes21
+  );
+  check('batch21 route: unknown lead gets hangup TwiML', () => {
+    assert.equal(unknownRes21.statusCode, 200);
+    assert.equal(String(unknownRes21.body), '<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>');
+  });
+  const statusParams21 = {
+    CallSid: 'CAroute21',
+    From: '+16105557777',
+    To: '+16105551234',
+    CallStatus: 'completed',
+    DialCallStatus: 'completed',
+    DialCallDuration: '17',
+  };
+  const statusPath21 = '/api/v1/calls/status/1/2101';
+  const runStatus21 = async () => {
+    const r = fakeRes21();
+    await handlers21.post['/status/:workspaceId/:leadId'](
+      {
+        params: { workspaceId: '1', leadId: '2101' },
+        body: statusParams21,
+        headers: { 'x-twilio-signature': signFor21('https://example.test' + statusPath21, statusParams21, 'tok21') },
+        originalUrl: statusPath21,
+      },
+      r
+    );
+    return r;
+  };
+  const statusRes1 = await runStatus21();
+  const statusRes2 = await runStatus21();
+  check('batch21 route: status callback upserts once and captures the caller contact', () => {
+    assert.equal(statusRes1.statusCode, 200);
+    assert.equal(statusRes2.statusCode, 200);
+    const rows = sm21.listCalls(db, 2101).filter((c) => c.call_sid === 'CAroute21');
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].status, 'completed');
+    assert.equal(rows[0].duration_seconds, 17);
+    const found = contacts.listContacts(db, { leadId: 2101 }).filter((c) => c.phone === '+16105557777');
+    assert.equal(found.length, 1);
+    const detail = contacts.getContact(db, found[0].id, { leadId: 2101 });
+    assert.equal(detail.calls.length, 1);
+    assert.equal(detail.calls[0].source_label, 'Call');
+  });
+  const recParams21 = {
+    CallSid: 'CAroute21',
+    RecordingSid: 'REroute21',
+    RecordingUrl: 'https://api.twilio.com/rec/REroute21',
+    RecordingDuration: '16',
+    RecordingStatus: 'completed',
+  };
+  const recPath21 = '/api/v1/calls/recording/1/2101';
+  const recRes21 = fakeRes21();
+  await handlers21.post['/recording/:workspaceId/:leadId'](
+    {
+      params: { workspaceId: '1', leadId: '2101' },
+      body: recParams21,
+      headers: { 'x-twilio-signature': signFor21('https://example.test' + recPath21, recParams21, 'tok21') },
+      originalUrl: recPath21,
+    },
+    recRes21
+  );
+  await new Promise((r) => setTimeout(r, 25));
+  check('batch21 route: recording callback stores the recording on the call row', () => {
+    assert.equal(recRes21.statusCode, 200);
+    const row = sm21.getCallLogBySid(db, 'CAroute21');
+    assert.equal(row.recording_sid, 'REroute21');
+    assert.equal(row.recording_url, 'https://api.twilio.com/rec/REroute21');
+    assert.equal(row.recording_duration, 16);
+    assert.equal(row.transcript_status, 'unavailable');
+  });
+  routeToken21 = '';
+  const openParams21 = { CallSid: 'CAopen21', From: '+16105556666', To: '+16105551234' };
+  const openRes21 = fakeRes21();
+  await handlers21.post['/voice/:workspaceId/:leadId'](
+    { params: { workspaceId: '1', leadId: '2101' }, body: openParams21, headers: {}, originalUrl: voicePath21 },
+    openRes21
+  );
+  check('batch21 route: without a platform token, webhooks are accepted but logged unverified', () => {
+    assert.equal(openRes21.statusCode, 200);
+    assert.equal(sm21.getCallLogBySid(db, 'CAopen21').verified, 0);
+  });
+  check('batch21 surfaces: embed CTA, portal panel and staff screen are wired', () => {
+    const embedSrc = fs.readFileSync(path.join(root, 'public/js/module-embed.js'), 'utf8');
+    assert.ok(embedSrc.includes("type === 'calltracking'"));
+    assert.ok(embedSrc.includes('href="tel:'));
+    const portalSrc = fs.readFileSync(path.join(root, 'public/js/portal.js'), 'utf8');
+    assert.ok(portalSrc.includes('renderCallTrackingAdminPanel'));
+    const appSrc = fs.readFileSync(path.join(root, 'public/js/app.js'), 'utf8');
+    assert.ok(appSrc.includes('pageCalls'));
+  });
+
+  // --- Batch 21 addendum #3: charging model (soft caps, credits) -------
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (2104, 'Fixture Billing', 'billing@example.invalid')").run();
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (2105, 'Fixture Counting', 'counting@example.invalid')").run();
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (2106, 'Fixture Broke', 'broke@example.invalid')").run();
+
+  check('batch21 billing: allowance mapping per plan', () => {
+    assert.equal(sm21.CALL_ALLOWANCE_BY_PLAN.free, 0);
+    assert.equal(sm21.CALL_ALLOWANCE_BY_PLAN.standard, 60);
+    assert.equal(sm21.CALL_ALLOWANCE_BY_PLAN.pro, 150);
+    assert.equal(sm21.CALL_ALLOWANCE_BY_PLAN.premium, 100000);
+    assert.equal(sm21.callAllowanceForPlan('free'), 0);
+    assert.equal(sm21.callAllowanceForPlan('standard'), 60);
+    assert.equal(sm21.callAllowanceForPlan('pro'), 150);
+    assert.equal(sm21.callAllowanceForPlan('premium'), 100000);
+    assert.equal(sm21.callAllowanceForPlan('nonsense'), 0);
+  });
+
+  const countedRow21 = (sid) => sm21.getCallLogBySid(db, sid);
+  sm21.upsertCallStatus(db, 2105, { CallSid: 'CAcount-short', From: '+16105550001', To: '+16105551234', CallStatus: 'completed', DialCallStatus: 'completed', DialCallDuration: '10' });
+  sm21.upsertCallStatus(db, 2105, { CallSid: 'CAcount-exact', From: '+16105550001', To: '+16105551234', CallStatus: 'completed', DialCallStatus: 'completed', DialCallDuration: '15' });
+  sm21.upsertCallStatus(db, 2105, { CallSid: 'CAcount-long', From: '+16105550001', To: '+16105551234', CallStatus: 'completed', DialCallStatus: 'completed', DialCallDuration: '61' });
+  sm21.upsertCallStatus(db, 2105, { CallSid: 'CAcount-noanswer', From: '+16105550001', To: '+16105551234', CallStatus: 'no-answer', DialCallStatus: 'no-answer', DialCallDuration: '60' });
+  sm21.upsertCallStatus(db, 2105, { CallSid: 'CAcount-busy', From: '+16105550001', To: '+16105551234', CallStatus: 'busy', DialCallStatus: 'busy', DialCallDuration: '30' });
+  check('batch21 billing: counting ignores <15s calls and non-completed statuses', () => {
+    assert.equal(countedRow21('CAcount-short').counted, 0);
+    assert.equal(countedRow21('CAcount-exact').counted, 1);
+    assert.equal(countedRow21('CAcount-long').counted, 1);
+    assert.equal(countedRow21('CAcount-noanswer').counted, 0);
+    assert.equal(countedRow21('CAcount-busy').counted, 0);
+    assert.equal(sm21.countCountedCalls(db, 2105, sm21.currentCallMonth()), 2);
+  });
+
+  check('batch21 billing: free-plan activation gate blocks a first number only', () => {
+    assert.throws(
+      () => sm21.assertCallTrackingActivation({ display_number: '' }, { display_number: '+16105551234' }, 'free'),
+      (e) => e.code === 'PLAN_REQUIRED'
+    );
+    // Already has a number → keeps working on free.
+    sm21.assertCallTrackingActivation({ display_number: '+16105551234' }, { display_number: '+16105559999' }, 'free');
+    // Paid plan → fine. No number requested → fine.
+    sm21.assertCallTrackingActivation({ display_number: '' }, { display_number: '+16105551234' }, 'standard');
+    sm21.assertCallTrackingActivation({ display_number: '' }, { cta_text: 'Ring us' }, 'free');
+  });
+
+  // callBilling behind stub credits + stub plan + stub STT.
+  const creditState21 = { balance: 0, spends: [] };
+  let planCb21 = 'standard';
+  let transcribeBehavior21 = async () => ({ ok: true, text: 'Hello from the caller.' });
+  let transcribeCalls21 = 0;
+  const callBilling21 = load('server/callBilling.js', {
+    './domain': { withDb: (_ws, fn) => fn(db) },
+    './siteModules': sm21,
+    './credits': {
+      getBalance: async () => creditState21.balance,
+      spend: async (ws, amount, meta) => {
+        if (creditState21.balance < amount) {
+          const e = new Error('Not enough credits');
+          e.code = 'INSUFFICIENT_CREDITS';
+          throw e;
+        }
+        creditState21.balance -= amount;
+        creditState21.spends.push({ amount, ...meta });
+        return { balance: creditState21.balance, ledgerId: creditState21.spends.length, duplicate: false };
+      },
+    },
+    './billing': { effectivePlan: async () => planCb21 },
+    './twilioClient': {
+      transcribeRecording: async (url) => {
+        transcribeCalls21 += 1;
+        return transcribeBehavior21(url);
+      },
+    },
+  });
+  const seedCounted21 = (leadId, n, prefix) => {
+    const ins = db.prepare(
+      "INSERT INTO call_logs (lead_id, call_sid, from_number, to_number, status, duration_seconds, counted) VALUES (?, ?, '+16105550001', '+16105551234', 'completed', 30, 1)"
+    );
+    let lastSid = '';
+    for (let i = 0; i < n; i++) {
+      lastSid = `${prefix}-${i}`;
+      ins.run(leadId, lastSid);
+    }
+    return lastSid;
+  };
+  const month21 = sm21.currentCallMonth();
+
+  creditState21.balance = 5;
+  const lastSeed1 = seedCounted21(2104, 70, 'CAseedA');
+  const settle1 = await callBilling21.settleCallBilling(1, 2104, lastSeed1);
+  const overageSpends1 = creditState21.spends.filter((x) => x.reason === 'Call tracking overage');
+  check('batch21 billing: the 10th over-cap call triggers exactly one credit debit', () => {
+    assert.equal(settle1.settled, true);
+    assert.equal(settle1.count, 70);
+    assert.equal(settle1.allowance, 60);
+    assert.equal(overageSpends1.length, 1);
+    assert.equal(overageSpends1[0].refType, 'call_overage');
+    assert.equal(overageSpends1[0].refId, `2104:${month21}:1`);
+    assert.equal(creditState21.balance, 4);
+    const st = sm21.getCallBillingState(db, 2104, month21);
+    assert.equal(st.last_billed_threshold, 1);
+    assert.equal(st.overage_due_credits, 0);
+  });
+  const lastSeed2 = seedCounted21(2104, 10, 'CAseedB');
+  await callBilling21.settleCallBilling(1, 2104, lastSeed2);
+  // Re-settling the same state must not debit again.
+  await callBilling21.settleCallBilling(1, 2104, lastSeed2);
+  check('batch21 billing: the 20th over-cap call debits a second credit; re-settle is a no-op', () => {
+    const spends = creditState21.spends.filter((x) => x.reason === 'Call tracking overage');
+    assert.equal(spends.length, 2);
+    assert.equal(spends[1].refId, `2104:${month21}:2`);
+    assert.equal(creditState21.balance, 3);
+    const summary = sm21.callBillingSummary(db, 2104, 'standard');
+    assert.equal(summary.answered, 80);
+    assert.equal(summary.allowance, 60);
+    assert.equal(summary.overage_due_credits, 0);
+  });
+
+  creditState21.balance = 0;
+  planCb21 = 'free'; // allowance 0 — every answered block of 10 is over cap
+  const brokeSid = seedCounted21(2106, 10, 'CAseedC');
+  const settleBroke = await callBilling21.settleCallBilling(1, 2106, brokeSid);
+  check('batch21 billing: insufficient balance accrues overage due and the call still stands', () => {
+    assert.equal(settleBroke.settled, true);
+    assert.equal(settleBroke.overage_due_credits, 1);
+    const st = sm21.getCallBillingState(db, 2106, month21);
+    assert.equal(st.overage_due_credits, 1);
+    assert.equal(st.last_billed_threshold, 1);
+    // The calls themselves were logged and counted — never blocked.
+    assert.equal(sm21.countCountedCalls(db, 2106, month21), 10);
+    assert.equal(sm21.listCalls(db, 2106).length, 10);
+    assert.equal(creditState21.spends.filter((x) => x.reason === 'Call tracking overage').length, 2);
+  });
+
+  const seedRecorded21 = (leadId, sid) => {
+    db.prepare(
+      "INSERT INTO call_logs (lead_id, call_sid, from_number, to_number, status, duration_seconds, counted, recording_url) VALUES (?, ?, '+16105550001', '+16105551234', 'completed', 30, 1, 'https://api.twilio.com/rec/REx')"
+    ).run(leadId, sid);
+  };
+  planCb21 = 'standard';
+  creditState21.balance = 1;
+  seedRecorded21(2104, 'CAtr-std');
+  const trStd = await callBilling21.transcribeCallRecording(1, 2104, 'CAtr-std');
+  const trStdAgain = await callBilling21.transcribeCallRecording(1, 2104, 'CAtr-std');
+  check('batch21 billing: transcription debits 1 credit on standard, once per call', () => {
+    assert.equal(trStd.ok, true);
+    const row = sm21.getCallLogBySid(db, 'CAtr-std');
+    assert.equal(row.transcript, 'Hello from the caller.');
+    assert.equal(row.transcript_status, 'done');
+    assert.equal(row.transcription_billed, 1);
+    const spends = creditState21.spends.filter((x) => x.reason === 'Call transcription');
+    assert.equal(spends.length, 1);
+    assert.equal(spends[0].refId, 'CAtr-std');
+    assert.equal(creditState21.balance, 0);
+  });
+  planCb21 = 'premium';
+  creditState21.balance = 0;
+  seedRecorded21(2104, 'CAtr-prem');
+  const trPrem = await callBilling21.transcribeCallRecording(1, 2104, 'CAtr-prem');
+  check('batch21 billing: transcription is included on premium (no debit, works at zero balance)', () => {
+    assert.equal(trPrem.ok, true);
+    assert.equal(sm21.getCallLogBySid(db, 'CAtr-prem').transcript_status, 'done');
+    assert.equal(creditState21.spends.filter((x) => x.reason === 'Call transcription').length, 1);
+  });
+  planCb21 = 'standard';
+  creditState21.balance = 0;
+  const transcribeCallsBefore = transcribeCalls21;
+  seedRecorded21(2104, 'CAtr-broke');
+  const trBroke = await callBilling21.transcribeCallRecording(1, 2104, 'CAtr-broke');
+  check('batch21 billing: zero balance skips transcription entirely', () => {
+    assert.equal(trBroke.ok, false);
+    assert.equal(trBroke.reason, 'skipped_no_credits');
+    const row = sm21.getCallLogBySid(db, 'CAtr-broke');
+    assert.equal(row.transcript_status, 'skipped_no_credits');
+    assert.equal(row.transcript, '');
+    assert.equal(transcribeCalls21, transcribeCallsBefore, 'STT provider never called');
+  });
+
+  // Free-plan purchase gate at the domain boundary (Twilio never runs).
+  planVar21 = 'free';
+  const purchaseCallsBefore21 = purchaseCalls21.length;
+  let planErr21 = null;
+  try {
+    await domain21.adminPurchaseCallNumber(1, { leadId: 2103, phoneNumber: '+16105550321' });
+  } catch (e) {
+    planErr21 = e;
+  }
+  planVar21 = 'standard';
+  check('batch21 billing: free-plan number purchase is blocked before Twilio', () => {
+    assert.equal(planErr21 && planErr21.code, 'PLAN_REQUIRED');
+    assert.ok(/paid plan/i.test(planErr21.message));
+    assert.equal(purchaseCalls21.length, purchaseCallsBefore21);
+    assert.notEqual(sm21.getCallTrackingConfig(db, 2103).display_number, '+16105550321');
+  });
+
+  // --- Batch 21 addendum #4/#5: per-call email notifications -----------
+  require(path.join(root, 'server/contactForms.js')).ensureTables(db);
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (2107, 'Fixture Notify', 'owner@example.invalid')").run();
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (2108, 'Fixture Notify Bare', 'bare@example.invalid')").run();
+  // The form-alert recipient: the lead's form notify_email wins.
+  db.prepare("INSERT INTO contact_forms (lead_id, name, notify_email) VALUES (2107, 'Contact form', 'alerts@example.invalid')").run();
+  sm21.updateCallTrackingConfig(db, 2107, { display_number: '+16105551234' });
+  sm21.updateCallTrackingConfig(db, 2108, { display_number: '+16105551234' });
+
+  const mailState21 = { sent: [], behavior: 'ok' };
+  const callNotify21 = load('server/callNotify.js', {
+    './domain': { withDb: (_ws, fn) => fn(db) },
+    './siteModules': sm21,
+    './mailer': {
+      sendPlatformMail: async (msg) => {
+        if (mailState21.behavior === 'fail') throw new Error('SMTP blew up');
+        if (mailState21.behavior === 'unconfigured') {
+          const e = new Error('Platform SMTP is not configured');
+          e.code = 'SMTP_NOT_CONFIGURED';
+          throw e;
+        }
+        mailState21.sent.push(msg);
+        return { sent: true };
+      },
+    },
+    './stripeClient': { appUrl: () => 'https://example.test' },
+  });
+  const terminalCall21 = (leadId, sid, status, duration) => {
+    sm21.logCallInitiated(db, leadId, { callSid: sid, from: '+16105550123', to: '+16105551234', verified: true });
+    return sm21.upsertCallStatus(
+      db,
+      leadId,
+      { CallSid: sid, From: '+16105550123', To: '+16105551234', CallStatus: status, DialCallStatus: status, DialCallDuration: String(duration) },
+      { verified: true }
+    );
+  };
+
+  check('batch21 notify: setting defaults on', () => {
+    assert.equal(sm21.getCallTrackingConfig(db, 2107).notify_email, true);
+  });
+
+  terminalCall21(2107, 'CAemail-answered', 'completed', 83);
+  const notifyA = await callNotify21.notifyCallByEmail(1, 2107, 'CAemail-answered');
+  const notifyAgain = await callNotify21.notifyCallByEmail(1, 2107, 'CAemail-answered');
+  check('batch21 notify: terminal answered call emails the form notify address exactly once, fixed subject', () => {
+    assert.equal(notifyA.sent, true);
+    assert.equal(mailState21.sent.length, 1);
+    const msg = mailState21.sent[0];
+    assert.equal(msg.to, 'alerts@example.invalid');
+    assert.equal(msg.subject, 'Incoming call from new lead');
+    const body = (msg.paragraphs || []).join('\n');
+    assert.ok(body.includes('+16105550123'));
+    assert.ok(/answered/i.test(body));
+    assert.ok(body.includes('1:23'));
+    assert.ok(body.includes('completed'));
+    assert.equal(msg.cta.url, 'https://example.test/portal');
+    assert.equal(sm21.getCallLogBySid(db, 'CAemail-answered').notify_status, 'sent');
+    assert.equal(notifyAgain.sent, false, 'duplicate callback never re-sends');
+  });
+
+  terminalCall21(2107, 'CAemail-missed', 'no-answer', 0);
+  await callNotify21.notifyCallByEmail(1, 2107, 'CAemail-missed');
+  check('batch21 notify: missed call uses missed wording, same fixed subject', () => {
+    assert.equal(mailState21.sent.length, 2);
+    const msg = mailState21.sent[1];
+    assert.equal(msg.subject, 'Incoming call from new lead');
+    const body = (msg.paragraphs || []).join('\n');
+    assert.ok(/missed/i.test(body));
+    assert.ok(body.includes('no-answer'));
+  });
+
+  // Recording/transcript availability is mentioned — contents never leak.
+  terminalCall21(2107, 'CAemail-rec', 'completed', 30);
+  sm21.storeCallRecording(db, 'CAemail-rec', { recordingSid: 'REmail', recordingUrl: 'https://api.twilio.com/rec/REmail', recordingDuration: '29' });
+  sm21.setCallTranscript(db, 'CAemail-rec', { status: 'done', text: 'SECRET TRANSCRIPT TEXT' });
+  await callNotify21.notifyCallByEmail(1, 2107, 'CAemail-rec');
+  check('batch21 notify: recording/transcript availability line, no contents in the email', () => {
+    assert.equal(mailState21.sent.length, 3);
+    const msg = mailState21.sent[2];
+    const body = (msg.paragraphs || []).join('\n') + '\n' + (msg.text || '');
+    assert.ok(/recording/.test(body) && /transcript/.test(body) && /available in your portal/.test(body));
+    assert.ok(!body.includes('SECRET TRANSCRIPT TEXT'));
+    assert.ok(!body.includes('api.twilio.com/rec'));
+  });
+
+  sm21.updateCallTrackingConfig(db, 2108, { notify_email: false });
+  terminalCall21(2108, 'CAemail-off', 'completed', 20);
+  const notifyOff = await callNotify21.notifyCallByEmail(1, 2108, 'CAemail-off');
+  check('batch21 notify: notify_email=false sends nothing and marks off', () => {
+    assert.equal(notifyOff.sent, false);
+    assert.equal(mailState21.sent.length, 3);
+    assert.equal(sm21.getCallLogBySid(db, 'CAemail-off').notify_status, 'off');
+  });
+
+  sm21.updateCallTrackingConfig(db, 2108, { notify_email: true });
+  terminalCall21(2108, 'CAemail-bare', 'completed', 20);
+  await callNotify21.notifyCallByEmail(1, 2108, 'CAemail-bare');
+  check('batch21 notify: without a form, the recipient falls back to the lead email', () => {
+    assert.equal(mailState21.sent.length, 4);
+    assert.equal(mailState21.sent[3].to, 'bare@example.invalid');
+  });
+
+  mailState21.behavior = 'fail';
+  terminalCall21(2107, 'CAemail-fail', 'completed', 20);
+  const notifyFail = await callNotify21.notifyCallByEmail(1, 2107, 'CAemail-fail');
+  check('batch21 notify: mailer failure marks failed and never throws into the webhook', () => {
+    assert.equal(notifyFail.sent, false);
+    assert.equal(notifyFail.reason, 'send_failed');
+    assert.equal(sm21.getCallLogBySid(db, 'CAemail-fail').notify_status, 'failed');
+    assert.equal(mailState21.sent.length, 4);
+  });
+
+  mailState21.behavior = 'unconfigured';
+  terminalCall21(2107, 'CAemail-skip', 'busy', 0);
+  const notifySkip = await callNotify21.notifyCallByEmail(1, 2107, 'CAemail-skip');
+  check('batch21 notify: unconfigured mail is a silent skip', () => {
+    assert.equal(notifySkip.sent, false);
+    assert.equal(notifySkip.reason, 'mail_not_configured');
+    assert.equal(sm21.getCallLogBySid(db, 'CAemail-skip').notify_status, 'skipped');
+  });
+  mailState21.behavior = 'ok';
 
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }

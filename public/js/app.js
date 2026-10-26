@@ -25,6 +25,7 @@ const ROUTES = [
   'leadscout',
   'bookings',
   'shop',
+  'calls',
   'modules',
   'courses',
   'analytics',
@@ -47,6 +48,7 @@ const ROUTE_LABELS = {
   bookings: 'Bookings',
   shop: 'Shop',
   memberships: 'Memberships',
+  calls: 'Calls',
   modules: 'Modules',
   courses: 'Courses',
   analytics: 'Analytics',
@@ -7510,6 +7512,173 @@ async function pageAnalytics() {
   view.querySelector('[data-act="refresh"]').onclick = () => pageAnalytics();
 }
 
+async function pageCalls() {
+  let res;
+  try {
+    res = await withLoadTimeout(api.adminCalls());
+  } catch (e) {
+    view.innerHTML = loadErrorCardHtml(e.message);
+    wirePageRetry(() => pageCalls());
+    return;
+  }
+  const d = res.data || {};
+  const allRows = asList(d, ['calls']);
+  const businesses = asList(d, ['businesses']);
+  const wsId = d.workspace_id || '';
+  const whenLabel = (v) => {
+    const t = Date.parse(String(v || '').replace(' ', 'T') + (String(v || '').includes('T') ? '' : 'Z'));
+    return Number.isFinite(t) ? new Date(t).toLocaleString() : '—';
+  };
+  const durLabel = (sec) => {
+    if (sec == null || sec === '') return '—';
+    const n = Math.max(0, Math.round(Number(sec) || 0));
+    return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, '0')}`;
+  };
+  const callRows = (list) =>
+    list
+      .map((c) => {
+        const main = `<tr>
+        <td>${esc(whenLabel(c.created_at))}</td>
+        <td>${esc(c.lead_name || '—')}</td>
+        <td>${esc(c.from_number || '—')}</td>
+        <td>${esc(c.to_number || '—')}</td>
+        <td>${esc(c.status || '—')}${c.verified ? '' : ' <span class="hint">(unverified)</span>'}</td>
+        <td>${esc(durLabel(c.duration_seconds))}</td>
+      </tr>`;
+        if (!c.recording_url && !c.transcript) return main;
+        const player = c.recording_url
+          ? `<audio controls preload="none" src="/api/v1/calls/recording-file/${esc(wsId)}/${esc(c.call_sid)}" style="max-width:340px;width:100%"></audio>`
+          : '';
+        const transcript = c.transcript
+          ? `<div style="margin-top:6px"><strong>Transcript</strong><div>${esc(c.transcript)}</div></div>`
+          : '<div class="hint" style="margin-top:6px">No transcript</div>';
+        return `${main}<tr><td colspan="6" style="background:var(--paper-2,#faf7f1)">${player}${transcript}</td></tr>`;
+      })
+      .join('');
+  const table = (rowsHtml) =>
+    `<table class="table"><thead><tr><th>Time</th><th>Business</th><th>From</th><th>To</th><th>Status</th><th>Duration</th></tr></thead><tbody id="cl-body">${rowsHtml}</tbody></table>`;
+  const configured = !!d.twilio_configured;
+  const bizById = new Map(businesses.map((b) => [String(b.lead_id), b]));
+  const bizStrip = businesses.length
+    ? `<div class="card" style="margin-bottom:1rem"><h3 style="margin-top:0">This month by business</h3>${businesses
+        .map((b) => {
+          const bl = b.billing || {};
+          const allow = bl.allowance >= 100000 ? 'unlimited' : bl.allowance;
+          return `<div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line,#e6e0d8)">
+      <div><strong>${esc(b.lead_name || 'Business')}</strong> <span class="hint">${esc(b.plan || '')} plan${b.display_number ? ' · ' + esc(b.display_number) : ''}</span></div>
+      <div class="hint">Answered this month: <strong>${esc(bl.answered != null ? bl.answered : 0)} / ${esc(allow != null ? allow : '')}</strong>${bl.overage_due_credits > 0 ? ` · Overage due: <strong>${esc(bl.overage_due_credits)} credits</strong>` : ''}</div>
+    </div>`;
+        })
+        .join('')}</div>`
+    : '';
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Calls</h1><p class="lede">Every call to a client's tracking number — the number their site shows — across all sites. Completed calls also save the caller as a LeadScout contact on that business.</p></div></div>
+    <div class="card" style="margin-bottom:1rem">
+      <h3 style="margin-top:0">Buy a tracking number</h3>
+      ${
+        configured
+          ? '<p class="hint">Pick the business in the filter below, search an area code, and buy. Numbers run about $1.15/mo on Twilio. Buying attaches the number to that business as its display number and points its calls at BitPype automatically — no Twilio console trip needed.</p>'
+          : '<p class="hint">Twilio is not connected yet — add the Account SID and Auth Token in Platform settings (Calls group) and this panel wakes up. Until then, clients can still bring a number they already own and paste the webhook URL from their portal.</p>'
+      }
+      <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+        <label class="field" style="margin:0">Area code<br /><input id="cl-area" value="610" size="5" maxlength="3" ${configured ? '' : 'disabled'} /></label>
+        <button type="button" class="btn" id="cl-search" ${configured ? '' : 'disabled'}>Search numbers</button>
+      </div>
+      <div id="cl-results" style="margin-top:10px"></div>
+    </div>
+    ${bizStrip}
+    ${businessFilterBarHtml([...allRows, ...businesses], 'cl-biz')}
+    <div class="card"><div class="table-wrap">${table(callRows(allRows))}</div>
+    ${allRows.length ? '' : '<p class="hint" style="margin-top:10px">No calls yet.</p>'}</div>`;
+  const selectedBiz = () => {
+    const sel = document.getElementById('cl-biz');
+    return sel && sel.value ? bizById.get(String(sel.value)) || null : null;
+  };
+  const gateBuyPanel = () => {
+    const b = selectedBiz();
+    const sb = document.getElementById('cl-search');
+    const host = document.getElementById('cl-results');
+    if (b && b.plan === 'free') {
+      if (sb) sb.disabled = true;
+      if (host)
+        host.innerHTML =
+          '<p class="hint"><strong>Buying a number requires a paid plan.</strong> This business is on the free plan — upgrade it first. A business that already has a number keeps receiving calls on any plan.</p>';
+    } else if (sb && configured) {
+      sb.disabled = false;
+    }
+  };
+  wireBusinessFilter('cl-biz', (val) => {
+    const body = document.getElementById('cl-body');
+    if (body) body.innerHTML = callRows(applyBusinessFilter(allRows, val));
+    gateBuyPanel();
+  });
+  gateBuyPanel();
+  const searchBtn = document.getElementById('cl-search');
+  if (searchBtn) {
+    searchBtn.addEventListener('click', async () => {
+      const selBiz = selectedBiz();
+      if (selBiz && selBiz.plan === 'free') {
+        gateBuyPanel();
+        return;
+      }
+      const area = (document.getElementById('cl-area') || {}).value || '610';
+      const host = document.getElementById('cl-results');
+      host.innerHTML = '<p class="hint">Searching Twilio…</p>';
+      try {
+        const r = await api.adminCallNumbersAvailable({ areaCode: area });
+        const nd = (r && r.data) || {};
+        if (nd.configured === false) {
+          host.innerHTML = '<p class="hint">Twilio is not connected yet.</p>';
+          return;
+        }
+        const nums = nd.numbers || [];
+        host.innerHTML = nums.length
+          ? nums
+              .map(
+                (n) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line,#e6e0d8)">
+              <div><strong>${esc(n.phoneNumber)}</strong> <span class="hint">${esc([n.locality, n.region].filter(Boolean).join(', '))}</span></div>
+              <button type="button" class="btn small" data-cl-buy="${esc(n.phoneNumber)}">Buy — about $1.15/mo</button>
+            </div>`
+              )
+              .join('')
+          : '<p class="hint">No numbers available in that area code right now — try another.</p>';
+        host.querySelectorAll('[data-cl-buy]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const leadSel = document.getElementById('cl-biz');
+            const leadId = leadSel ? leadSel.value : '';
+            if (!leadId) {
+              toast('Pick the business in the filter first — the number attaches to it.', 'err');
+              return;
+            }
+            const bizName = leadSel.options[leadSel.selectedIndex]
+              ? leadSel.options[leadSel.selectedIndex].textContent
+              : 'that business';
+            const number = btn.getAttribute('data-cl-buy');
+            if (!window.confirm(`Buy ${number} for ${bizName}? It bills about $1.15/mo on Twilio and becomes that business's display number.`)) return;
+            btn.disabled = true;
+            try {
+              const pr = await api.adminCallNumberPurchase({ leadId: Number(leadId), phoneNumber: number });
+              const pd = (pr && pr.data) || {};
+              if (pd.configured === false) {
+                toast('Twilio is not connected yet — nothing was bought.', 'err');
+                btn.disabled = false;
+                return;
+              }
+              host.innerHTML = `<p><strong>${esc(pd.phoneNumber || number)}</strong> is now ${esc(bizName)}'s display number — their site shows it and calls forward per their Call Tracking settings.</p>`;
+              toast(`Number ${pd.phoneNumber || number} attached to ${bizName}.`);
+            } catch (e) {
+              toast(e.message || 'Purchase failed — nothing was changed.', 'err');
+              btn.disabled = false;
+            }
+          });
+        });
+      } catch (e) {
+        host.innerHTML = `<p class="hint">${esc(e.message || 'Search failed.')}</p>`;
+      }
+    });
+  }
+}
+
 async function pageMemberships() {
   let res;
   try {
@@ -7583,6 +7752,7 @@ const PAGES = {
   bookings: pageBookings,
   shop: pageShop,
   memberships: pageMemberships,
+  calls: pageCalls,
   modules: pageModules,
   courses: pageCourses,
   analytics: pageAnalytics,

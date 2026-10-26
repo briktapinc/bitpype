@@ -84,6 +84,22 @@ function ensureTables(db) {
   } catch {
     /* race / exists */
   }
+  // Call Tracking calls reference their call_logs row the same way.
+  try {
+    const cols = db
+      .prepare('PRAGMA table_info(leadscout_events)')
+      .all()
+      .map((c) => String(c.name || ''));
+    if (!cols.includes('call_log_id')) {
+      db.exec('ALTER TABLE leadscout_events ADD COLUMN call_log_id INTEGER');
+    }
+    db.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_leadscout_call_unique
+       ON leadscout_events(call_log_id) WHERE call_log_id IS NOT NULL`
+    );
+  } catch {
+    /* race / exists */
+  }
 }
 
 function normEmail(email) {
@@ -379,6 +395,61 @@ function captureFromEstimate(db, { leadId, request, pageSlug } = {}) {
   }
 }
 
+function captureFromCall(db, { leadId, call } = {}) {
+  ensureTables(db);
+  try {
+    if (!call || !call.id) throw fail('VALIDATION', 'call log row required');
+    const fields = {
+      name: '',
+      email: '',
+      phone: call.from_number || '',
+    };
+    if (!fields.phone) {
+      return { skipped: true, reason: 'no_identity' };
+    }
+    const contact = upsertContact(db, fields);
+    const existing = db.prepare('SELECT id FROM leadscout_events WHERE call_log_id = ?').get(Number(call.id));
+    if (existing) {
+      db.prepare('UPDATE leadscout_events SET status = ? WHERE id = ?').run(String(call.status || ''), existing.id);
+      return { contact, eventId: existing.id, deduped: true };
+    }
+    const info = db
+      .prepare(
+        `
+      INSERT INTO leadscout_events
+        (contact_id, lead_id, kind, source_label, page_slug, call_log_id, status, payload_json)
+      VALUES (?, ?, 'call', ?, ?, ?, ?, ?)
+    `
+      )
+      .run(
+        contact.id,
+        leadId != null ? Number(leadId) : null,
+        'Call',
+        '',
+        Number(call.id),
+        String(call.status || ''),
+        JSON.stringify({
+          phone: call.from_number || '',
+          from_number: call.from_number || '',
+          to_number: call.to_number || '',
+          call_sid: call.call_sid || '',
+          status: call.status || '',
+          duration_seconds: call.duration_seconds != null ? call.duration_seconds : null,
+        }).slice(0, 8000)
+      );
+    return { contact, eventId: info.lastInsertRowid };
+  } catch (e) {
+    recordFailure(db, {
+      kind: 'call',
+      leadId,
+      refId: call && call.id,
+      error: e.message || String(e),
+      payload: { call },
+    });
+    return { error: e.message || String(e) };
+  }
+}
+
 function validLeadScope(leadId) {
   if (leadId == null) return null; // Explicit workspace-level internal callers only.
   const id = Number(leadId);
@@ -507,6 +578,7 @@ function getContact(db, id, { leadId = null } = {}) {
     appointments: events.filter((e) => e.kind === 'appointment'),
     submissions: events.filter((e) => e.kind === 'submission'),
     estimates: events.filter((e) => e.kind === 'estimate'),
+    calls: events.filter((e) => e.kind === 'call'),
   };
 }
 
@@ -582,6 +654,11 @@ function retryOpenFailures(db, { leadId = null } = {}) {
         request: payload.request,
         pageSlug: payload.pageSlug,
       });
+    } else if (row.kind === 'call' && payload) {
+      result = captureFromCall(db, {
+        leadId: row.lead_id,
+        call: payload.call,
+      });
     }
     db.prepare(
       `
@@ -608,6 +685,7 @@ module.exports = {
   captureFromSubmission,
   captureFromBooking,
   captureFromEstimate,
+  captureFromCall,
   listContacts,
   getContact,
   captureHealth,

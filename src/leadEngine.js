@@ -1132,6 +1132,7 @@ const MERGE_MOVE_TABLES = [
   'site_member_preview_grants',
   'membership_tiers',
   'member_subscriptions',
+  'call_logs',
 ];
 
 const MERGE_DEDUPE_TABLES = {
@@ -1155,6 +1156,7 @@ const MERGE_SINGLETON_TABLES = [
   'estimate_configs',
   'socialfeed_configs',
   'socialfeed_cache',
+  'calltracking_configs',
   'members_configs',
   'membership_stripe_keys',
   'shop_stripe_keys',

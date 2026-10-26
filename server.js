@@ -322,6 +322,24 @@ app.use('/api/v1/invites', inviteRoutes);
 // Meta OAuth callback + client weekly approval (no session).
 app.use('/api/v1/social', socialPublicRoutes);
 app.use('/api/v1/site-analytics/public', require('./server/routes/siteAnalyticsPublic'));
+// Call Tracking (Batch 21): Twilio webhooks are public; the recording
+// playback proxy accepts the portal cookie OR the staff session, so for
+// that one path we stash the staff session, run the portal session
+// parser too, and let the route gate on both.
+const callsRoutes = require('./server/routes/calls');
+app.use(
+  '/api/v1/calls',
+  (req, res, next) => {
+    if (!req.path.startsWith('/recording-file/')) return next();
+    req.staffSession = req.session || null;
+    return portalSession(req, res, () => {
+      req.portalSession = req.session || null;
+      req.session = req.staffSession;
+      next();
+    });
+  },
+  callsRoutes
+);
 // Design client change-request / Q&A form (no session).
 app.use('/api/v1/design/public', designPublicRoutes);
 // Public contact form schema + submit (Turnstile).

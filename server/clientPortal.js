@@ -2345,7 +2345,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
   const domain = require('./domain');
   const modules = require('./siteModules');
   const { appUrl } = require('./stripeClient');
-  await requireSiteModules(workspaceId, clientEmail);
+  const planId = await requireSiteModules(workspaceId, clientEmail);
   const type = String(moduleType || '').toLowerCase();
   const includeArchived = !!(opts && opts.includeArchived);
   return domain.withDb(workspaceId, (db) => {
@@ -2355,6 +2355,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     let menu = null;
     let estimate = null;
     let socialfeed = null;
+    let calltracking = null;
     let members = null;
     let shop = null;
     if (type === 'blog') items = modules.listBlogPosts(db, Number(leadId));
@@ -2412,6 +2413,17 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
       // config plus a preview of exactly what will render.
       items = [];
       socialfeed = modules.socialFeedPreview(db, Number(leadId));
+    } else if (type === 'calltracking') {
+      // Automatic module: the panel carries the number settings plus
+      // every call received on the tracking number (newest first).
+      items = [];
+      calltracking = {
+        config: modules.getCallTrackingConfig(db, Number(leadId)),
+        calls: modules.listCalls(db, Number(leadId), { limit: 200 }),
+        billing: modules.callBillingSummary(db, Number(leadId), planId),
+        voice_url: `${appUrl()}/api/v1/calls/voice/${Number(workspaceId)}/${Number(leadId)}`,
+        workspace_id: Number(workspaceId),
+      };
     } else if (type === 'members') {
       // Members join from the public site; the panel carries the gating
       // config plus the member list (password hashes never leave the server),
@@ -2450,6 +2462,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     if (menu) out.categories = menu.categories;
     if (estimate) out.estimate = estimate;
     if (socialfeed) out.socialfeed = socialfeed;
+    if (calltracking) out.calltracking = calltracking;
     if (members) out.members = members;
     if (shop) out.shop = shop;
     return out;
@@ -2483,6 +2496,11 @@ async function createModuleItem(workspaceId, leadId, moduleType, body, clientEma
         code: 'VALIDATION',
         status: 400,
       });
+    else if (type === 'calltracking')
+      throw Object.assign(
+        new Error('Call Tracking is automatic — calls land here on their own. Use the Calls tab to set your numbers.'),
+        { code: 'VALIDATION', status: 400 }
+      );
     else if (type === 'members')
       throw Object.assign(
         new Error('Members join from your website’s Members page — there is nothing to add here. Use the Members tab to approve or manage them.'),
@@ -2523,6 +2541,11 @@ async function updateModuleItem(workspaceId, leadId, moduleType, id, body, clien
         code: 'VALIDATION',
         status: 400,
       });
+    else if (type === 'calltracking')
+      throw Object.assign(
+        new Error('Call Tracking is automatic — use the Calls tab to set your numbers.'),
+        { code: 'VALIDATION', status: 400 }
+      );
     else if (type === 'members') {
       // The only member "edit" from the portal is a status change
       // (approve / disable / reactivate) — enforced by setSiteMemberStatus.
@@ -2561,6 +2584,11 @@ async function deleteModuleItem(workspaceId, leadId, moduleType, id, clientEmail
         code: 'VALIDATION',
         status: 400,
       });
+    if (type === 'calltracking')
+      throw Object.assign(
+        new Error('Call Tracking is automatic — there are no items to delete.'),
+        { code: 'VALIDATION', status: 400 }
+      );
     if (type === 'members') return modules.deleteSiteMember(db, Number(leadId), id);
     if (type === 'chatbot') {
       const chat = require('./chatbot');
@@ -2700,6 +2728,22 @@ async function saveSocialFeedConfig(workspaceId, leadId, body, clientEmail) {
   return domain.withDb(workspaceId, (db) => ({
     config: modules.updateSocialFeedConfig(db, Number(leadId), body || {}),
   }));
+}
+
+async function saveCallTrackingConfig(workspaceId, leadId, body, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  const planId = await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => {
+    // Free-plan gate (addendum #3): a first display number needs a paid
+    // plan; a lead that already has one keeps it on any plan.
+    modules.assertCallTrackingActivation(
+      modules.getCallTrackingConfig(db, Number(leadId)),
+      body || {},
+      planId
+    );
+    return { config: modules.updateCallTrackingConfig(db, Number(leadId), body || {}) };
+  });
 }
 
 async function saveOffersDisplaySettings(workspaceId, leadId, body, clientEmail) {
@@ -3505,6 +3549,7 @@ module.exports = {
   saveBookingHours,
   saveEstimateConfig,
   saveSocialFeedConfig,
+  saveCallTrackingConfig,
   saveOffersDisplaySettings,
   saveMembersConfig,
   saveMembershipKeys,

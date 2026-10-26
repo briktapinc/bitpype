@@ -70,7 +70,7 @@ function clientToolDefs() {
     {
       name: 'website.addModule',
       description:
-        'Attach a site module (blog|ecommerce|courses|gallery|directory|faq|testimonials|team|events|bookings|chatbot|offers|menu|careers|video|estimate|socialfeed|members) into the live site template with an in-page JS mount (not an iframe). Standard/Premium siteModules. chatbot = sitewide floating bubble (chat-embed.js); visitor replies go through portal CLIENT MCP chatbot.* only — never admin design.*/lead.* or workspace ws_ tokens. INTENT: appointments with availability → bookings module (never a contact form); then bookings.createService (published) + bookings.setHours. Structured requests → forms.create purpose=…; general inquiries → contact form. Alias: modules.attach. Bookings: optional show_request_form. Offers: settings.layout = "cards" (default) or "horizontal" (banner rows). After attach, call site.publish. Non-bookings attach on appointment-intent pages returns a warning. STYLING: wrap mount; theme.customCss under .bitpype-module-embed.',
+        'Attach a site module (blog|ecommerce|courses|gallery|directory|faq|testimonials|team|events|bookings|chatbot|offers|menu|careers|video|estimate|socialfeed|calltracking|members) into the live site template with an in-page JS mount (not an iframe). Standard/Premium siteModules. chatbot = sitewide floating bubble (chat-embed.js); visitor replies go through portal CLIENT MCP chatbot.* only — never admin design.*/lead.* or workspace ws_ tokens. INTENT: appointments with availability → bookings module (never a contact form); then bookings.createService (published) + bookings.setHours. Structured requests → forms.create purpose=…; general inquiries → contact form. Alias: modules.attach. Bookings: optional show_request_form. Offers: settings.layout = "cards" (default) or "horizontal" (banner rows). After attach, call site.publish. Non-bookings attach on appointment-intent pages returns a warning. STYLING: wrap mount; theme.customCss under .bitpype-module-embed.',
       inputSchema: schema({
         leadId: ID,
         module: {
@@ -93,6 +93,7 @@ function clientToolDefs() {
             'video',
             'estimate',
             'socialfeed',
+            'calltracking',
             'members',
           ],
         },
@@ -116,6 +117,7 @@ function clientToolDefs() {
             'video',
             'estimate',
             'socialfeed',
+            'calltracking',
             'members',
           ],
         },
@@ -917,6 +919,34 @@ function clientToolDefs() {
       description:
         'Preview exactly what the Social Feed will render for a lead: merged published items (BitPype-published first, then live account posts), the config, connected accounts, and a plain-language note on what the feed shows. Standard/Premium.',
       inputSchema: schema({ leadId: ID }),
+    },
+    {
+      name: 'calls.getSettings',
+      description:
+        'Get the Call Tracking settings for a lead: display_number (the tracking number the site shows as its call-to-action), cta_text, redirect_enabled + redirect_number (where calls to the display number are forwarded), record_calls (with spoken consent), and twilio_number_sid when the number was bought in the admin. Standard/Premium.',
+      inputSchema: schema({ leadId: ID }),
+    },
+    {
+      name: 'calls.updateSettings',
+      description:
+        'Update Call Tracking settings: display_number and redirect_number must be E.164 (e.g. +16105551234; US 10-digit numbers are accepted and prefixed +1). Garbage numbers are rejected. Also accepts cta_text, redirect_enabled, record_calls and notify_email (per-call email alert to the business, default on). Standard/Premium.',
+      inputSchema: schema({
+        leadId: ID,
+        display_number: STR,
+        displayNumber: STR,
+        cta_text: STR,
+        redirect_enabled: { type: 'boolean' },
+        redirect_number: STR,
+        redirectNumber: STR,
+        record_calls: { type: 'boolean' },
+        notify_email: { type: 'boolean' },
+      }),
+    },
+    {
+      name: 'calls.list',
+      description:
+        'List calls received on a lead’s tracking number, newest first (max 200): caller, display number, status, duration, recording + transcript state. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, limit: NUM }),
     },
     {
       name: 'members.getConfig',
@@ -2580,6 +2610,9 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'socialfeed.getConfig',
     'socialfeed.updateConfig',
     'socialfeed.preview',
+    'calls.getSettings',
+    'calls.updateSettings',
+    'calls.list',
     'members.getConfig',
     'members.updateConfig',
     'members.listMembers',
@@ -3289,6 +3322,34 @@ async function callClientTool(ws, name, a, ctx = {}) {
     return domain.withDb(ws, (db) => ({
       plan: planId,
       preview: modules.socialFeedPreview(db, leadId),
+    }));
+  }
+  if (name === 'calls.getSettings') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      settings: modules.getCallTrackingConfig(db, leadId),
+    }));
+  }
+  if (name === 'calls.updateSettings') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => {
+      // Free-plan gate (addendum #3): first display number needs a paid plan.
+      modules.assertCallTrackingActivation(modules.getCallTrackingConfig(db, leadId), a, planId);
+      return {
+        plan: planId,
+        settings: modules.updateCallTrackingConfig(db, leadId, a),
+      };
+    });
+  }
+  if (name === 'calls.list') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      calls: modules.listCalls(db, leadId, { limit: a.limit || 200 }),
     }));
   }
   if (name === 'members.getConfig') {

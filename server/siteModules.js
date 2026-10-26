@@ -3,7 +3,7 @@
 /**
  * Site content modules (Blog, Ecommerce, Courses, Gallery, Directory,
  * FAQ, Testimonials, Team, Events, Bookings, Chatbot, Offers, Menu,
- * Careers, Video, Instant Estimate, Social Feed).
+ * Careers, Video, Instant Estimate, Social Feed, Call Tracking).
  * Workspace SQLite tables per lead; in-page JS embeds (legacy iframe URL kept);
  * portal + MCP CRUD.
  * Gated by plan entitlement `siteModules` (Standard + Premium).
@@ -33,6 +33,7 @@ const MODULE_TYPES = [
   'video',
   'estimate',
   'socialfeed',
+  'calltracking',
   'members',
 ];
 const MANAGED_ATTR = 'data-bitpype-module';
@@ -40,7 +41,7 @@ const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod13';
+const MODULE_SCRIPT_VER = 'mod14';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -68,6 +69,7 @@ const MODULE_META = {
   video: { label: 'Video', defaultTitle: 'Videos', defaultSlug: 'videos' },
   estimate: { label: 'Instant Estimate', defaultTitle: 'Get an Estimate', defaultSlug: 'estimate' },
   socialfeed: { label: 'Social Feed', defaultTitle: 'Social Feed', defaultSlug: 'social-feed' },
+  calltracking: { label: 'Call Tracking', defaultTitle: 'Call Us', defaultSlug: 'call' },
   members: { label: 'Membership', defaultTitle: 'Members', defaultSlug: 'members' },
 };
 
@@ -458,6 +460,50 @@ function ensureTables(db) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS calltracking_configs (
+      lead_id INTEGER PRIMARY KEY,
+      display_number TEXT NOT NULL DEFAULT '',
+      cta_text TEXT NOT NULL DEFAULT 'Call us',
+      redirect_enabled INTEGER NOT NULL DEFAULT 1,
+      redirect_number TEXT NOT NULL DEFAULT '',
+      record_calls INTEGER NOT NULL DEFAULT 0,
+      notify_email INTEGER NOT NULL DEFAULT 1,
+      twilio_number_sid TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS call_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER NOT NULL,
+      call_sid TEXT NOT NULL UNIQUE,
+      from_number TEXT NOT NULL DEFAULT '',
+      to_number TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'initiated',
+      duration_seconds INTEGER,
+      recording_sid TEXT NOT NULL DEFAULT '',
+      recording_url TEXT NOT NULL DEFAULT '',
+      recording_duration INTEGER,
+      transcript TEXT NOT NULL DEFAULT '',
+      transcript_status TEXT NOT NULL DEFAULT 'none',
+      counted INTEGER NOT NULL DEFAULT 0,
+      transcription_billed INTEGER NOT NULL DEFAULT 0,
+      notify_status TEXT NOT NULL DEFAULT 'none',
+      verified INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_call_logs_lead ON call_logs(lead_id, id DESC);
+
+    CREATE TABLE IF NOT EXISTS calls_billing (
+      lead_id INTEGER NOT NULL,
+      month TEXT NOT NULL,
+      last_billed_threshold INTEGER NOT NULL DEFAULT 0,
+      overage_due_credits INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (lead_id, month)
+    );
+
     CREATE TABLE IF NOT EXISTS booking_settings (
       lead_id INTEGER PRIMARY KEY,
       timezone TEXT NOT NULL DEFAULT 'America/New_York',
@@ -659,6 +705,30 @@ function ensureTables(db) {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_member_subs_stripe_sub
       ON member_subscriptions(stripe_subscription_id) WHERE stripe_subscription_id <> '';
   `);
+  try {
+    const callCols = db
+      .prepare('PRAGMA table_info(call_logs)')
+      .all()
+      .map((c) => String(c.name || ''));
+    if (callCols.length && !callCols.includes('counted')) {
+      db.exec('ALTER TABLE call_logs ADD COLUMN counted INTEGER NOT NULL DEFAULT 0');
+    }
+    if (callCols.length && !callCols.includes('transcription_billed')) {
+      db.exec('ALTER TABLE call_logs ADD COLUMN transcription_billed INTEGER NOT NULL DEFAULT 0');
+    }
+    if (callCols.length && !callCols.includes('notify_status')) {
+      db.exec("ALTER TABLE call_logs ADD COLUMN notify_status TEXT NOT NULL DEFAULT 'none'");
+    }
+    const ctCols = db
+      .prepare('PRAGMA table_info(calltracking_configs)')
+      .all()
+      .map((c) => String(c.name || ''));
+    if (ctCols.length && !ctCols.includes('notify_email')) {
+      db.exec('ALTER TABLE calltracking_configs ADD COLUMN notify_email INTEGER NOT NULL DEFAULT 1');
+    }
+  } catch {
+    /* race / exists */
+  }
   try {
     const cfgCols = db
       .prepare('PRAGMA table_info(members_configs)')
@@ -5551,6 +5621,517 @@ function publicSocialFeedPayload(db, leadId) {
   };
 }
 
+/* ── Call Tracking (Twilio Voice) ────────────────────────────────────────────
+ *
+ * The number a business adds here (display_number — normally a Twilio
+ * number bought for them) is the ONLY number the site shows, rendered
+ * as the call-to-action. Twilio posts inbound calls to
+ * /api/v1/calls/voice/:workspaceId/:leadId (server/routes/calls.js);
+ * when redirect is on, the TwiML dials redirect_number (the business's
+ * real phone) with callerId = the display number, so the business sees
+ * the tracking number on their phone. Every call is logged in
+ * call_logs; finished calls capture a LeadScout contact from the
+ * caller's number. Recording is opt-in per lead (record_calls) with a
+ * spoken consent notice; transcripts land asynchronously via
+ * twilioClient and never block a webhook.
+ */
+
+const CALL_TRACKING_DEFAULT_CTA = 'Call us';
+const CALL_TERMINAL_STATUSES = ['completed', 'busy', 'no-answer', 'failed', 'canceled'];
+const CALL_LIST_CAP = 200;
+
+/* Charging model (Batch 21, addendum #3 — Ely approved): the
+ * subscription carries call tracking; credits meter the extras. SOFT
+ * CAPS ONLY — calls are never blocked, cut off, or un-forwarded for
+ * billing reasons. Answered-call allowances per plan per calendar
+ * month (UTC); a call counts when it completes with >= 15s duration.
+ * Each completed block of CALL_OVERAGE_BLOCK over-cap calls costs 1
+ * credit (server/callBilling.js settles via the credits engine). */
+const CALL_ALLOWANCE_BY_PLAN = { free: 0, standard: 60, pro: 150, premium: 100000 };
+const CALL_COUNT_MIN_SECONDS = 15;
+const CALL_OVERAGE_BLOCK = 10;
+
+function callAllowanceForPlan(planId) {
+  const key = String(planId || 'free').toLowerCase();
+  return Object.prototype.hasOwnProperty.call(CALL_ALLOWANCE_BY_PLAN, key)
+    ? CALL_ALLOWANCE_BY_PLAN[key]
+    : 0;
+}
+
+function currentCallMonth(date = new Date()) {
+  return date.toISOString().slice(0, 7); // 'YYYY-MM' in UTC
+}
+
+/**
+ * Free-plan gate for ACTIVATING call tracking with a display number.
+ * A lead that already has a number keeps it (and keeps receiving
+ * calls) on any plan — only putting a first number on a free plan is
+ * blocked. Throws a PLAN_REQUIRED error the surfaces render as an
+ * upgrade message.
+ */
+function assertCallTrackingActivation(config, body, planId) {
+  if (String(planId || 'free').toLowerCase() !== 'free') return;
+  const src = body || {};
+  const requested = String(
+    src.display_number != null ? src.display_number : src.displayNumber != null ? src.displayNumber : ''
+  ).trim();
+  if (!requested) return;
+  if (config && String(config.display_number || '').trim()) return;
+  const err = new Error(
+    'Call Tracking with a number requires a paid plan. Upgrade the plan to add a display number — calls to a number already on the account keep working on any plan.'
+  );
+  err.code = 'PLAN_REQUIRED';
+  err.status = 402;
+  throw err;
+}
+
+/**
+ * Normalize a phone number to E.164 (+<country><number>). US 10-digit
+ * and 1+10-digit inputs are accepted and prefixed; anything else must
+ * already carry its country code. Garbage is a VALIDATION error —
+ * settings saves reject it with a clear message. '' → ''.
+ */
+function normalizeE164(value, label = 'Phone number') {
+  const raw = String(value == null ? '' : value).trim();
+  if (!raw) return '';
+  const hasPlus = raw.startsWith('+');
+  const digits = raw.replace(/\D/g, '');
+  let out = '';
+  if (hasPlus) out = `+${digits}`;
+  else if (digits.length === 10) out = `+1${digits}`;
+  else if (digits.length === 11 && digits.startsWith('1')) out = `+${digits}`;
+  else if (digits.length >= 7) out = `+${digits}`;
+  if (!/^\+[1-9]\d{6,14}$/.test(out)) {
+    throw fail(
+      'VALIDATION',
+      `${label} must be a valid phone number in international format (e.g. +16105551234).`
+    );
+  }
+  return out;
+}
+
+/** Friendly rendering for a stored E.164 number (+1 US → (610) 555-1234). */
+function formatPhoneDisplay(e164) {
+  const v = String(e164 || '').trim();
+  const m = v.match(/^\+1(\d{3})(\d{3})(\d{4})$/);
+  if (m) return `(${m[1]}) ${m[2]}-${m[3]}`;
+  return v;
+}
+
+function shapeCallTrackingConfig(row, leadId) {
+  if (!row) {
+    return {
+      lead_id: Number(leadId),
+      display_number: '',
+      cta_text: CALL_TRACKING_DEFAULT_CTA,
+      redirect_enabled: true,
+      redirect_number: '',
+      record_calls: false,
+      notify_email: true,
+      twilio_number_sid: '',
+      updated_at: null,
+    };
+  }
+  return {
+    ...row,
+    redirect_enabled: !!row.redirect_enabled,
+    record_calls: !!row.record_calls,
+    notify_email: row.notify_email == null ? true : !!row.notify_email,
+  };
+}
+
+function readCallTrackingConfig(db, leadId) {
+  ensureTables(db);
+  const row = db.prepare('SELECT * FROM calltracking_configs WHERE lead_id = ?').get(Number(leadId));
+  return shapeCallTrackingConfig(row, leadId);
+}
+
+function getCallTrackingConfig(db, leadId) {
+  ensureTables(db);
+  const id = Number(leadId);
+  const existing = db.prepare('SELECT lead_id FROM calltracking_configs WHERE lead_id = ?').get(id);
+  if (!existing) {
+    db.prepare('INSERT INTO calltracking_configs (lead_id) VALUES (?)').run(id);
+  }
+  return readCallTrackingConfig(db, id);
+}
+
+function updateCallTrackingConfig(db, leadId, data = {}) {
+  ensureTables(db);
+  const row = getCallTrackingConfig(db, leadId);
+  const displayNumber =
+    data.display_number != null || data.displayNumber != null
+      ? normalizeE164(data.display_number != null ? data.display_number : data.displayNumber, 'Display number')
+      : row.display_number;
+  const redirectNumber =
+    data.redirect_number != null || data.redirectNumber != null
+      ? normalizeE164(
+          data.redirect_number != null ? data.redirect_number : data.redirectNumber,
+          'Redirect number'
+        )
+      : row.redirect_number;
+  const ctaText =
+    data.cta_text != null || data.ctaText != null
+      ? String(data.cta_text != null ? data.cta_text : data.ctaText)
+          .trim()
+          .slice(0, 60) || CALL_TRACKING_DEFAULT_CTA
+      : row.cta_text;
+  const redirectEnabled =
+    data.redirect_enabled != null || data.redirectEnabled != null
+      ? data.redirect_enabled != null
+        ? !!data.redirect_enabled
+        : !!data.redirectEnabled
+      : row.redirect_enabled;
+  const recordCalls =
+    data.record_calls != null || data.recordCalls != null
+      ? data.record_calls != null
+        ? !!data.record_calls
+        : !!data.recordCalls
+      : row.record_calls;
+  const notifyEmail =
+    data.notify_email != null || data.notifyEmail != null
+      ? data.notify_email != null
+        ? !!data.notify_email
+        : !!data.notifyEmail
+      : row.notify_email;
+  const numberSid =
+    data.twilio_number_sid != null || data.twilioNumberSid != null
+      ? String(data.twilio_number_sid != null ? data.twilio_number_sid : data.twilioNumberSid)
+          .trim()
+          .slice(0, 64)
+      : row.twilio_number_sid;
+  db.prepare(
+    `UPDATE calltracking_configs
+     SET display_number = ?, cta_text = ?, redirect_enabled = ?, redirect_number = ?,
+         record_calls = ?, notify_email = ?, twilio_number_sid = ?, updated_at = datetime('now')
+     WHERE lead_id = ?`
+  ).run(
+    displayNumber,
+    ctaText,
+    redirectEnabled ? 1 : 0,
+    redirectNumber,
+    recordCalls ? 1 : 0,
+    notifyEmail ? 1 : 0,
+    numberSid,
+    Number(leadId)
+  );
+  return getCallTrackingConfig(db, leadId);
+}
+
+/** Public-safe payload: only what the site may show. The redirect number
+ * (the business's real phone) is NEVER exposed — defeating the point of
+ * tracking if it leaked into page data. */
+function publicCallTrackingPayload(db, leadId) {
+  const config = readCallTrackingConfig(db, leadId);
+  if (!config.display_number) return { configured: false };
+  return {
+    configured: true,
+    display_number: config.display_number,
+    display_number_formatted: formatPhoneDisplay(config.display_number),
+    cta_text: config.cta_text || CALL_TRACKING_DEFAULT_CTA,
+  };
+}
+
+function xmlEscape(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * TwiML for an inbound call to a lead's tracking number.
+ * - not configured → hangup (nothing to route to, say nothing)
+ * - recording on → consent notice first; <Dial record> fires the
+ *   recording callback as the call is answered
+ * - redirect on + number set → <Dial callerId=display_number> to the
+ *   redirect number; the Dial action posts the outcome to the status URL
+ * - redirect off → a short spoken pointer to the website, then hangup
+ */
+function buildCallTrackingVoiceTwiml(config, { workspaceId, leadId, baseUrl } = {}) {
+  const head = '<?xml version="1.0" encoding="UTF-8"?>';
+  if (!config || !config.display_number) return `${head}<Response><Hangup/></Response>`;
+  const base = String(baseUrl || '').replace(/\/$/, '');
+  const statusUrl = `${base}/api/v1/calls/status/${Number(workspaceId)}/${Number(leadId)}`;
+  let out = `${head}<Response>`;
+  if (config.record_calls) {
+    out += '<Say>This call may be recorded for quality purposes.</Say>';
+  }
+  if (config.redirect_enabled && config.redirect_number) {
+    const recordAttrs = config.record_calls
+      ? ` record="record-from-answer-dual" recordingStatusCallback="${xmlEscape(
+          `${base}/api/v1/calls/recording/${Number(workspaceId)}/${Number(leadId)}`
+        )}" recordingStatusCallbackMethod="POST"`
+      : '';
+    out +=
+      `<Dial callerId="${xmlEscape(config.display_number)}" action="${xmlEscape(statusUrl)}" method="POST"${recordAttrs}>` +
+      `${xmlEscape(config.redirect_number)}</Dial>`;
+  } else {
+    out +=
+      '<Say>Thanks for calling. Please reach us through our website and we will get right back to you.</Say><Hangup/>';
+  }
+  return `${out}</Response>`;
+}
+
+function getCallLogBySid(db, callSid) {
+  ensureTables(db);
+  return db.prepare('SELECT * FROM call_logs WHERE call_sid = ?').get(String(callSid || '')) || null;
+}
+
+/** Log the inbound leg when Twilio first posts the voice webhook. */
+function logCallInitiated(db, leadId, { callSid, from, to, verified } = {}) {
+  ensureTables(db);
+  const sid = String(callSid || '').trim();
+  if (!sid) return null;
+  db.prepare(
+    `INSERT INTO call_logs (lead_id, call_sid, from_number, to_number, status, verified)
+     VALUES (?, ?, ?, ?, 'initiated', ?)
+     ON CONFLICT(call_sid) DO UPDATE SET
+       verified = MAX(call_logs.verified, excluded.verified),
+       updated_at = datetime('now')`
+  ).run(Number(leadId), sid, String(from || '').slice(0, 40), String(to || '').slice(0, 40), verified ? 1 : 0);
+  return getCallLogBySid(db, sid);
+}
+
+/**
+ * Merge a Twilio status / Dial-action callback into the call_logs row
+ * keyed by CallSid. DialCallStatus/DialCallDuration win over the parent
+ * CallStatus/CallDuration when both are present. Returns the row.
+ */
+function upsertCallStatus(db, leadId, params = {}, { verified } = {}) {
+  ensureTables(db);
+  const sid = String(params.CallSid || '').trim();
+  if (!sid) return null;
+  const status = String(params.DialCallStatus || params.CallStatus || '').trim();
+  const durationRaw = params.DialCallDuration != null ? params.DialCallDuration : params.CallDuration;
+  const duration = durationRaw != null && durationRaw !== '' && Number.isFinite(Number(durationRaw))
+    ? Math.max(0, Math.round(Number(durationRaw)))
+    : null;
+  const existing = getCallLogBySid(db, sid);
+  if (!existing) {
+    db.prepare(
+      `INSERT INTO call_logs (lead_id, call_sid, from_number, to_number, status, duration_seconds, verified)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      Number(leadId),
+      sid,
+      String(params.From || '').slice(0, 40),
+      String(params.To || '').slice(0, 40),
+      status || 'initiated',
+      duration,
+      verified ? 1 : 0
+    );
+  } else {
+    db.prepare(
+      `UPDATE call_logs SET
+         status = CASE WHEN ? <> '' THEN ? ELSE status END,
+         duration_seconds = COALESCE(?, duration_seconds),
+         from_number = CASE WHEN ? <> '' THEN ? ELSE from_number END,
+         to_number = CASE WHEN ? <> '' THEN ? ELSE to_number END,
+         verified = MAX(verified, ?),
+         updated_at = datetime('now')
+       WHERE call_sid = ?`
+    ).run(
+      status,
+      status,
+      duration,
+      String(params.From || ''),
+      String(params.From || ''),
+      String(params.To || ''),
+      String(params.To || ''),
+      verified ? 1 : 0,
+      sid
+    );
+  }
+  // A Dial-action callback can also carry the finished recording.
+  if (params.RecordingUrl || params.RecordingSid) {
+    storeCallRecording(db, sid, {
+      recordingSid: params.RecordingSid,
+      recordingUrl: params.RecordingUrl,
+      recordingDuration: params.RecordingDuration,
+    });
+  }
+  // Billing counter (addendum #3): a call counts toward the plan's
+  // monthly answered allowance once it has completed with at least
+  // CALL_COUNT_MIN_SECONDS of talk time. Sticky — never un-counts.
+  const rowNow = getCallLogBySid(db, sid);
+  if (
+    rowNow &&
+    !rowNow.counted &&
+    String(rowNow.status || '').toLowerCase() === 'completed' &&
+    Number(rowNow.duration_seconds || 0) >= CALL_COUNT_MIN_SECONDS
+  ) {
+    db.prepare('UPDATE call_logs SET counted = 1 WHERE call_sid = ?').run(sid);
+  }
+  return getCallLogBySid(db, sid);
+}
+
+/** Store recording facts (from the recording callback or a Dial action). */
+function storeCallRecording(db, callSid, { recordingSid, recordingUrl, recordingDuration } = {}) {
+  ensureTables(db);
+  const sid = String(callSid || '').trim();
+  if (!sid) return null;
+  const dur =
+    recordingDuration != null && recordingDuration !== '' && Number.isFinite(Number(recordingDuration))
+      ? Math.max(0, Math.round(Number(recordingDuration)))
+      : null;
+  db.prepare(
+    `UPDATE call_logs SET
+       recording_sid = CASE WHEN ? <> '' THEN ? ELSE recording_sid END,
+       recording_url = CASE WHEN ? <> '' THEN ? ELSE recording_url END,
+       recording_duration = COALESCE(?, recording_duration),
+       updated_at = datetime('now')
+     WHERE call_sid = ?`
+  ).run(
+    String(recordingSid || ''),
+    String(recordingSid || ''),
+    String(recordingUrl || ''),
+    String(recordingUrl || ''),
+    dur,
+    sid
+  );
+  return getCallLogBySid(db, sid);
+}
+
+function setCallTranscript(db, callSid, { status, text } = {}) {
+  ensureTables(db);
+  const sid = String(callSid || '').trim();
+  if (!sid) return null;
+  db.prepare(
+    `UPDATE call_logs SET
+       transcript_status = ?,
+       transcript = CASE WHEN ? <> '' THEN ? ELSE transcript END,
+       updated_at = datetime('now')
+     WHERE call_sid = ?`
+  ).run(String(status || 'none'), String(text || ''), String(text || ''), sid);
+  return getCallLogBySid(db, sid);
+}
+
+function isTerminalCallStatus(status) {
+  return CALL_TERMINAL_STATUSES.includes(String(status || '').trim().toLowerCase());
+}
+
+function listCalls(db, leadId, { limit = CALL_LIST_CAP } = {}) {
+  ensureTables(db);
+  const lim = Math.min(CALL_LIST_CAP, Math.max(1, Number(limit) || CALL_LIST_CAP));
+  return db
+    .prepare('SELECT * FROM call_logs WHERE lead_id = ? ORDER BY id DESC LIMIT ?')
+    .all(Number(leadId), lim);
+}
+
+/** Staff oversight: every call in the workspace, newest first. */
+function listAllCalls(db, { limit = CALL_LIST_CAP } = {}) {
+  ensureTables(db);
+  const lim = Math.min(CALL_LIST_CAP, Math.max(1, Number(limit) || CALL_LIST_CAP));
+  return db
+    .prepare(
+      `SELECT c.*, l.business_name AS lead_name
+       FROM call_logs c
+       LEFT JOIN leads l ON l.id = c.lead_id
+       ORDER BY c.id DESC LIMIT ?`
+    )
+    .all(lim);
+}
+
+/* ── Call billing bookkeeping (addendum #3) ──────────────────────────
+ * Sync SQLite state only. The async money movement (credits engine,
+ * plan lookup) lives in server/callBilling.js; these helpers are the
+ * ledger it settles against. */
+
+function countCountedCalls(db, leadId, month) {
+  ensureTables(db);
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS c FROM call_logs
+       WHERE lead_id = ? AND counted = 1 AND strftime('%Y-%m', created_at) = ?`
+    )
+    .get(Number(leadId), String(month || currentCallMonth()));
+  return row ? Number(row.c) || 0 : 0;
+}
+
+function getCallBillingState(db, leadId, month) {
+  ensureTables(db);
+  const m = String(month || currentCallMonth());
+  const row = db
+    .prepare('SELECT * FROM calls_billing WHERE lead_id = ? AND month = ?')
+    .get(Number(leadId), m);
+  return {
+    lead_id: Number(leadId),
+    month: m,
+    last_billed_threshold: row ? Number(row.last_billed_threshold) || 0 : 0,
+    overage_due_credits: row ? Number(row.overage_due_credits) || 0 : 0,
+  };
+}
+
+function setCallBillingState(db, leadId, month, { lastBilledThreshold, overageDueCredits } = {}) {
+  ensureTables(db);
+  const m = String(month || currentCallMonth());
+  db.prepare(
+    `INSERT INTO calls_billing (lead_id, month, last_billed_threshold, overage_due_credits, updated_at)
+     VALUES (?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(lead_id, month) DO UPDATE SET
+       last_billed_threshold = excluded.last_billed_threshold,
+       overage_due_credits = excluded.overage_due_credits,
+       updated_at = datetime('now')`
+  ).run(
+    Number(leadId),
+    m,
+    Math.max(0, Math.trunc(Number(lastBilledThreshold) || 0)),
+    Math.max(0, Math.trunc(Number(overageDueCredits) || 0))
+  );
+  return getCallBillingState(db, leadId, m);
+}
+
+/** Display counters for the portal panel + staff Calls screen. */
+function callBillingSummary(db, leadId, planId, month) {
+  const m = String(month || currentCallMonth());
+  const state = getCallBillingState(db, leadId, m);
+  return {
+    month: m,
+    answered: countCountedCalls(db, leadId, m),
+    allowance: callAllowanceForPlan(planId),
+    plan: String(planId || 'free').toLowerCase(),
+    overage_due_credits: state.overage_due_credits,
+  };
+}
+
+function markTranscriptionBilled(db, callSid) {
+  ensureTables(db);
+  const sid = String(callSid || '').trim();
+  if (!sid) return null;
+  db.prepare('UPDATE call_logs SET transcription_billed = 1 WHERE call_sid = ?').run(sid);
+  return getCallLogBySid(db, sid);
+}
+
+/* ── Call email notification state (addendum #4) ─────────────────────
+ * Exactly-once: the status handler claims the row (notify_status
+ * 'none' → 'pending') BEFORE any send attempt; only the claim winner
+ * emails. Outcomes land as 'sent' | 'failed' | 'skipped' | 'off'. */
+
+function claimCallNotify(db, callSid) {
+  ensureTables(db);
+  const sid = String(callSid || '').trim();
+  if (!sid) return false;
+  const info = db
+    .prepare(
+      "UPDATE call_logs SET notify_status = 'pending', updated_at = datetime('now') WHERE call_sid = ? AND notify_status = 'none'"
+    )
+    .run(sid);
+  return Number(info.changes) === 1;
+}
+
+function setCallNotifyStatus(db, callSid, status) {
+  ensureTables(db);
+  const sid = String(callSid || '').trim();
+  if (!sid) return null;
+  db.prepare('UPDATE call_logs SET notify_status = ?, updated_at = datetime(\'now\') WHERE call_sid = ?').run(
+    String(status || 'none'),
+    sid
+  );
+  return getCallLogBySid(db, sid);
+}
+
 /* ── Members (Membership) — site user accounts, sessions, page gating ──
  *
  * Accounts live per lead (site_members). Passwords use bcrypt cost 12 —
@@ -7959,6 +8540,12 @@ function moduleItemCount(db, leadId, type) {
       return 0;
     }
   }
+  if (type === 'calltracking') {
+    // The tab badge counts calls received on the tracking number.
+    ensureTables(db);
+    const row = db.prepare('SELECT COUNT(*) AS c FROM call_logs WHERE lead_id = ?').get(Number(leadId));
+    return Number(row && row.c) || 0;
+  }
   if (type === 'members') {
     // The tab badge counts active members.
     ensureTables(db);
@@ -7996,6 +8583,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
   let menuCategories = null;
   let estimate = null;
   let socialfeed = null;
+  let calltracking = null;
   let total_published = null;
   if (type === 'blog') {
     items = listBlogPosts(db, leadId, { includeDrafts: false }).map((p) => ({
@@ -8041,6 +8629,8 @@ function getPublicModuleByToken(db, token, opts = {}) {
   } else if (type === 'socialfeed') {
     socialfeed = publicSocialFeedPayload(db, leadId);
     items = socialfeed.items;
+  } else if (type === 'calltracking') {
+    calltracking = publicCallTrackingPayload(db, leadId);
   } else if (type === 'chatbot') {
     try {
       const chat = require('./chatbot');
@@ -8070,6 +8660,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
   if (menuCategories) out.categories = menuCategories;
   if (estimate) out.estimate = estimate;
   if (socialfeed) out.socialfeed = socialfeed.config;
+  if (calltracking) out.calltracking = calltracking;
   return out;
 }
 
@@ -8333,6 +8924,33 @@ module.exports = {
   socialFeedItems,
   socialFeedPreview,
   publicSocialFeedPayload,
+  normalizeE164,
+  formatPhoneDisplay,
+  getCallTrackingConfig,
+  updateCallTrackingConfig,
+  publicCallTrackingPayload,
+  buildCallTrackingVoiceTwiml,
+  getCallLogBySid,
+  logCallInitiated,
+  upsertCallStatus,
+  storeCallRecording,
+  setCallTranscript,
+  isTerminalCallStatus,
+  listCalls,
+  listAllCalls,
+  CALL_ALLOWANCE_BY_PLAN,
+  CALL_COUNT_MIN_SECONDS,
+  CALL_OVERAGE_BLOCK,
+  callAllowanceForPlan,
+  currentCallMonth,
+  assertCallTrackingActivation,
+  countCountedCalls,
+  getCallBillingState,
+  setCallBillingState,
+  callBillingSummary,
+  markTranscriptionBilled,
+  claimCallNotify,
+  setCallNotifyStatus,
   MEMBER_STATUSES,
   MEMBER_GATE_MODES,
   MEMBER_SIGNUP_MODES,

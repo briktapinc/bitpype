@@ -4834,6 +4834,115 @@ function adminMembershipsOverview(workspaceId) {
   });
 }
 
+/* Call Tracking (Batch 21): staff oversight + Twilio number purchase. */
+
+async function adminCallsOverview(workspaceId, opts = {}) {
+  const data = withDb(workspaceId, (db) => {
+    const modules = require('./siteModules');
+    modules.ensureTables(db);
+    const calls = modules.listAllCalls(db, { limit: opts.limit });
+    // Businesses that can hold a number: leads with the module attached.
+    let businesses = [];
+    try {
+      businesses = db
+        .prepare(
+          `SELECT e.lead_id, l.business_name AS lead_name,
+                  c.display_number, c.twilio_number_sid
+           FROM site_module_embeds e
+           LEFT JOIN leads l ON l.id = e.lead_id
+           LEFT JOIN calltracking_configs c ON c.lead_id = e.lead_id
+           WHERE e.module_type = 'calltracking'
+           ORDER BY l.business_name ASC`
+        )
+        .all()
+        .map((r) => ({
+          lead_id: r.lead_id,
+          lead_name: r.lead_name || '',
+          display_number: r.display_number || '',
+          twilio_number_sid: r.twilio_number_sid || '',
+        }));
+    } catch {
+      businesses = [];
+    }
+    return { calls, businesses };
+  });
+  // Per-business plan + this-month counters (addendum #3 display). The
+  // plan resolves the same way other entitlements do — workspace plan,
+  // raised by the lead's own subscription via its email.
+  const billing = require('./billing');
+  const modules = require('./siteModules');
+  for (const b of data.businesses) {
+    let plan = 'free';
+    try {
+      const leadRow = withDb(workspaceId, (db) =>
+        db.prepare('SELECT email FROM leads WHERE id = ?').get(b.lead_id)
+      );
+      plan = await billing.effectivePlan(
+        workspaceId,
+        leadRow && leadRow.email ? { email: leadRow.email } : {}
+      );
+    } catch {
+      plan = 'free';
+    }
+    b.plan = plan;
+    b.billing = withDb(workspaceId, (db) => modules.callBillingSummary(db, b.lead_id, plan));
+  }
+  return data;
+}
+
+async function adminSearchCallNumbers(workspaceId, { areaCode } = {}) {
+  const twilioClient = require('./twilioClient');
+  return twilioClient.searchNumbers({ areaCode });
+}
+
+async function adminPurchaseCallNumber(workspaceId, { leadId, phoneNumber } = {}) {
+  const twilioClient = require('./twilioClient');
+  const { appUrl } = require('./stripeClient');
+  const modules = require('./siteModules');
+  const id = Number(leadId);
+  if (!Number.isInteger(id) || id <= 0) {
+    const e = new Error('A business (leadId) is required to buy a number.');
+    e.code = 'VALIDATION';
+    e.status = 400;
+    throw e;
+  }
+  const number = modules.normalizeE164(phoneNumber, 'Phone number');
+  // Free-plan gate (addendum #3): buying a number requires a paid plan.
+  const billing = require('./billing');
+  const leadRow = withDb(workspaceId, (db) =>
+    db.prepare('SELECT email FROM leads WHERE id = ?').get(id)
+  );
+  if (!leadRow) {
+    const e = new Error('That business was not found in this workspace.');
+    e.code = 'NOT_FOUND';
+    e.status = 404;
+    throw e;
+  }
+  const plan = await billing.effectivePlan(
+    workspaceId,
+    leadRow && leadRow.email ? { email: leadRow.email } : {}
+  );
+  if (String(plan).toLowerCase() === 'free') {
+    const e = new Error(
+      'Buying a tracking number requires a paid plan. Upgrade first — once on a paid plan, numbers run about $1.15/mo on Twilio.'
+    );
+    e.code = 'PLAN_REQUIRED';
+    e.status = 402;
+    throw e;
+  }
+  const voiceUrl = `${String(appUrl() || '').replace(/\/$/, '')}/api/v1/calls/voice/${Number(workspaceId)}/${id}`;
+  // Twilio first: if the purchase fails, NOTHING is persisted.
+  const bought = await twilioClient.purchaseNumber({ phoneNumber: number, voiceUrl });
+  if (!bought.configured) return { configured: false };
+  const config = withDb(workspaceId, (db) =>
+    modules.updateCallTrackingConfig(db, id, {
+      display_number: bought.phoneNumber,
+      twilio_number_sid: bought.sid,
+    })
+  );
+  return { configured: true, phoneNumber: bought.phoneNumber, sid: bought.sid, config };
+}
+
 module.exports = {
   withDb,
   openWorkspaceDb,
@@ -4848,6 +4957,9 @@ module.exports = {
   adminModulesOverview,
   adminAnalyticsOverview,
   adminMembershipsOverview,
+  adminCallsOverview,
+  adminSearchCallNumbers,
+  adminPurchaseCallNumber,
   leadsList,
   leadsFacets,
   leadsGet,

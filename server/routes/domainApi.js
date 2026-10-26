@@ -1598,6 +1598,39 @@ router.get('/admin-area/memberships', denyLeadScopedToken, async (req, res) => {
   }
 });
 
+// Call Tracking (Batch 21): every call across the workspace's sites,
+// plus the Twilio number shop. Dormant-safe — without platform Twilio
+// credentials the number endpoints report { configured: false }.
+router.get('/admin-area/calls', denyLeadScopedToken, async (req, res) => {
+  try {
+    const data = await domain.adminCallsOverview(req.auth.workspaceId, { limit: req.query.limit });
+    data.twilio_configured = await require('../twilioClient').isConfigured();
+    data.workspace_id = req.auth.workspaceId;
+    ok(res, data);
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.get('/admin-area/calls/numbers/available', denyLeadScopedToken, async (req, res) => {
+  try {
+    ok(res, await domain.adminSearchCallNumbers(req.auth.workspaceId, { areaCode: req.query.areaCode || '' }));
+  } catch (e) {
+    fail(res, e, 502);
+  }
+});
+router.post(
+  '/admin-area/calls/numbers/purchase',
+  requireRole('owner', 'admin'),
+  denyLeadScopedToken,
+  async (req, res) => {
+    try {
+      ok(res, await domain.adminPurchaseCallNumber(req.auth.workspaceId, req.body || {}));
+    } catch (e) {
+      fail(res, e, e.code === 'TWILIO_ERROR' ? 502 : e.code === 'PLAN_REQUIRED' ? 402 : e.status || 400);
+    }
+  }
+);
+
 // ---------- Domain purchase transactions (Batch 15) ----------
 router.get('/admin-area/domain-transactions', denyLeadScopedToken, (req, res) => {
   try {

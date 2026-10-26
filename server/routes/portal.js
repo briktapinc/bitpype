@@ -1128,6 +1128,23 @@ router.post('/modules/socialfeed/refresh', requireClient, actionLimit, async (re
   }
 });
 
+// Call Tracking settings — before the generic /modules/:type routes.
+router.put('/modules/calltracking/config', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.saveCallTrackingConfig(
+        req.client.workspace_id,
+        req.client.lead_id,
+        req.body || {},
+        req.client.email
+      )
+    );
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 // Membership config — before the generic /modules/:type routes (member
 // approve/disable/delete ride the generic PUT/DELETE /modules/members/:id).
 router.put('/modules/members/config', requireClient, actionLimit, async (req, res) => {
