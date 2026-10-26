@@ -4673,6 +4673,39 @@ function adminLeadScoutContacts(workspaceId, opts = {}) {
   } catch {
     health = null;
   }
+  // Batch 18 (additive): contacts are workspace-deduped, so their business
+  // identity lives on their events. Attach each contact's businesses
+  // (distinct event leads) so the staff LeadScout screen can filter by
+  // business. Contact rows themselves are unchanged.
+  for (const c of contacts) c.businesses = [];
+  const ids = contacts.map((c) => Number(c.id)).filter((n) => Number.isInteger(n) && n > 0);
+  if (ids.length) {
+    try {
+      withDb(workspaceId, (db) => {
+        const placeholders = ids.map(() => '?').join(',');
+        const rows = db
+          .prepare(
+            `SELECT DISTINCT e.contact_id, e.lead_id, l.business_name AS lead_name
+             FROM leadscout_events e
+             LEFT JOIN leads l ON l.id = e.lead_id
+             WHERE e.contact_id IN (${placeholders})`
+          )
+          .all(...ids);
+        const byContact = new Map();
+        for (const r of rows) {
+          if (!byContact.has(r.contact_id)) byContact.set(r.contact_id, []);
+          byContact.get(r.contact_id).push({ lead_id: r.lead_id, lead_name: r.lead_name || '' });
+        }
+        for (const c of contacts) {
+          const list = byContact.get(Number(c.id)) || [];
+          list.sort((a, b) => String(a.lead_name).localeCompare(String(b.lead_name)));
+          c.businesses = list;
+        }
+      });
+    } catch {
+      // Filter metadata only — never fail the contacts list over it.
+    }
+  }
   return { contacts, health };
 }
 

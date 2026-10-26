@@ -6988,6 +6988,37 @@ function moneyCents(cents, currency) {
   return `${(Number(cents || 0) / 100).toFixed(2)} ${String(currency || 'USD').toUpperCase()}`;
 }
 
+// Batch 18: shared Business filter for the staff admin-area screens
+// (Bookings, Forms, Shop, Memberships, Courses). Options derive from the
+// rows the screen already loaded — every admin-area row carries
+// lead_id/lead_name — and filtering runs client-side over that data, so
+// all screens share one markup pattern and one behavior.
+function bizFilterKey(row) {
+  return row && row.lead_id != null ? String(row.lead_id) : '';
+}
+function bizFilterLabel(row) {
+  return (row && row.lead_name) || (row && row.lead_id != null ? 'Lead #' + row.lead_id : 'Unknown business');
+}
+function businessFilterBarHtml(rows, id) {
+  const seen = new Map();
+  for (const r of rows || []) {
+    const k = bizFilterKey(r);
+    if (k && !seen.has(k)) seen.set(k, bizFilterLabel(r));
+  }
+  const options = [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  return `<div class="filter-bar"><div class="field"><label for="${id}">Business</label><select id="${id}"><option value="">All businesses</option>${options
+    .map(([value, label]) => `<option value="${esc(value)}">${esc(label)}</option>`)
+    .join('')}</select></div></div>`;
+}
+function applyBusinessFilter(rows, value) {
+  if (!value) return rows;
+  return rows.filter((r) => bizFilterKey(r) === value);
+}
+function wireBusinessFilter(id, onChange) {
+  const sel = view.querySelector('#' + id);
+  if (sel) sel.onchange = () => onChange(sel.value);
+}
+
 function payloadTableHtml(payload) {
   if (payload == null) return '<p class="hint">No readable payload.</p>';
   if (typeof payload !== 'object' || Array.isArray(payload)) return `<p>${esc(String(payload))}</p>`;
@@ -7013,29 +7044,39 @@ async function pageForms() {
     return;
   }
   const forms = asList(res.data, ['forms']);
-  view.innerHTML = `
-    <div class="page-head"><div><h1>Forms</h1><p class="lede">Every BitPype form across your sites, with submission counts. Open a form to read its submissions.</p></div>
-    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
-    <div class="table-wrap"><table>
-      <thead><tr><th>Form</th><th>Business</th><th>Kind</th><th>Status</th><th>Submissions</th><th>Last submission</th><th></th></tr></thead>
-      <tbody>${
-        forms
-          .map(
-            (f) => `<tr>
+  const formRows = (list, filtered) =>
+    list
+      .map(
+        (f) => `<tr>
         <td>${esc(f.name || f.title || 'Form')}<div class="hint">${esc(f.title || '')}</div></td>
         <td>${esc(f.lead_name || 'Lead #' + f.lead_id)}</td>
         <td>${esc(f.form_kind || '—')}</td>
-        <td>${esc(f.status || '—')}${f.published ? ' · <span class="badge ok">published</span>' : ''}</td>
+        <td>${f.published ? '<span class="badge ok">published</span>' : esc(f.status || '—')}</td>
         <td>${esc(f.submission_count || 0)}</td>
         <td>${f.last_submission_at ? esc(fmtDate(f.last_submission_at)) : '—'}</td>
         <td class="actions"><button class="btn small" data-act="subs" data-id="${f.id}">Submissions</button></td></tr>`
-          )
-          .join('') || '<tr><td colspan="7" class="empty">No forms yet. Forms are created per site from the Design flow or MCP forms.create.</td></tr>'
-      }
-      </tbody>
+      )
+      .join('') ||
+    `<tr><td colspan="7" class="empty">${
+      filtered
+        ? 'No forms for this business.'
+        : 'No forms yet. Forms are created per site from the Design flow or MCP forms.create.'
+    }</td></tr>`;
+  const renderForms = (list, filtered) => {
+    view.querySelector('#fm-body').innerHTML = formRows(list, filtered);
+    view.querySelectorAll('[data-act="subs"]').forEach((b) => (b.onclick = () => openFormSubmissions(Number(b.dataset.id))));
+  };
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Forms</h1><p class="lede">Every BitPype form across your sites, with submission counts. Open a form to read its submissions.</p></div>
+    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
+    ${businessFilterBarHtml(forms, 'fm-biz')}
+    <div class="table-wrap"><table>
+      <thead><tr><th>Form</th><th>Business</th><th>Kind</th><th>Status</th><th>Submissions</th><th>Last submission</th><th></th></tr></thead>
+      <tbody id="fm-body"></tbody>
     </table></div>`;
+  renderForms(forms, false);
   view.querySelector('[data-act="refresh"]').onclick = () => pageForms();
-  view.querySelectorAll('[data-act="subs"]').forEach((b) => (b.onclick = () => openFormSubmissions(Number(b.dataset.id))));
+  wireBusinessFilter('fm-biz', (v) => renderForms(applyBusinessFilter(forms, v), !!v));
 }
 
 async function openFormSubmissions(formId) {
@@ -7060,7 +7101,7 @@ async function openFormSubmissions(formId) {
   }
 }
 
-const leadScoutState = { q: '' };
+const leadScoutState = { q: '', biz: '' };
 
 async function pageLeadScout() {
   let res;
@@ -7074,6 +7115,44 @@ async function pageLeadScout() {
   const d = res.data || {};
   const contacts = asList(d, ['contacts']);
   const health = d.health;
+  // Businesses that have contacts, from the loaded contacts' event leads
+  // (attached by the admin-area route — contacts themselves are deduped
+  // workspace-wide and can span businesses).
+  const bizSeen = new Map();
+  for (const c of contacts)
+    for (const b of c.businesses || []) {
+      const k = String(b.lead_id);
+      if (!bizSeen.has(k)) bizSeen.set(k, b.lead_name || 'Lead #' + b.lead_id);
+    }
+  const bizOptions = [...bizSeen.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  if (leadScoutState.biz && !bizSeen.has(leadScoutState.biz)) leadScoutState.biz = '';
+  const visibleContacts = () =>
+    leadScoutState.biz
+      ? contacts.filter((c) => (c.businesses || []).some((b) => String(b.lead_id) === leadScoutState.biz))
+      : contacts;
+  const contactRows = (list) =>
+    list
+      .map((c) => {
+        const bizNames = (c.businesses || []).map((b) => b.lead_name || 'Lead #' + b.lead_id).join(' · ');
+        return `<tr>
+        <td>${esc(c.name || '—')}${bizNames ? `<div class="hint">${esc(bizNames)}</div>` : ''}</td>
+        <td>${esc(c.email || '—')}</td>
+        <td>${esc(c.phone || '—')}</td>
+        <td>${esc(c.event_count || 0)}</td>
+        <td>${c.last_event_at ? esc(fmtDate(c.last_event_at)) : c.updated_at ? esc(fmtDate(c.updated_at)) : '—'}</td>
+        <td>${c.created_at ? esc(fmtDate(c.created_at)) : '—'}</td>
+        <td class="actions"><button class="btn small" data-act="view" data-id="${c.id}">View</button></td></tr>`;
+      })
+      .join('') ||
+    `<tr><td colspan="7" class="empty">${
+      leadScoutState.biz
+        ? 'No contacts for this business.'
+        : 'No LeadScout contacts yet. Contacts appear when a site form is submitted or a booking is made.'
+    }</td></tr>`;
+  const renderContacts = () => {
+    view.querySelector('#ls-body').innerHTML = contactRows(visibleContacts());
+    view.querySelectorAll('[data-act="view"]').forEach((b) => (b.onclick = () => openLeadScoutContact(Number(b.dataset.id))));
+  };
   view.innerHTML = `
     <div class="page-head"><div><h1>LeadScout</h1><p class="lede">Deduped contacts captured from site forms and bookings — the same store the client portal reads. Not the outreach CRM (that's Leads).</p></div>
     <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
@@ -7084,32 +7163,24 @@ async function pageLeadScout() {
     }
     <form id="ls-search"><div class="row"><div class="field"><label>Search contacts</label><input name="q" value="${esc(
       leadScoutState.q
-    )}" placeholder="Name, email, or phone" /></div><div class="field"><label>&nbsp;</label><button class="btn primary" type="submit">Search</button></div></div></form>
+    )}" placeholder="Name, email, or phone" /></div><div class="field"><label>Business</label><select id="ls-biz"><option value="">All businesses</option>${bizOptions
+      .map(([value, label]) => `<option value="${esc(value)}"${value === leadScoutState.biz ? ' selected' : ''}>${esc(label)}</option>`)
+      .join('')}</select></div><div class="field"><label>&nbsp;</label><button class="btn primary" type="submit">Search</button></div></div></form>
     <div class="table-wrap"><table>
       <thead><tr><th>Contact</th><th>Email</th><th>Phone</th><th>Events</th><th>Last activity</th><th>First seen</th><th></th></tr></thead>
-      <tbody>${
-        contacts
-          .map(
-            (c) => `<tr>
-        <td>${esc(c.name || '—')}</td>
-        <td>${esc(c.email || '—')}</td>
-        <td>${esc(c.phone || '—')}</td>
-        <td>${esc(c.event_count || 0)}</td>
-        <td>${c.last_event_at ? esc(fmtDate(c.last_event_at)) : c.updated_at ? esc(fmtDate(c.updated_at)) : '—'}</td>
-        <td>${c.created_at ? esc(fmtDate(c.created_at)) : '—'}</td>
-        <td class="actions"><button class="btn small" data-act="view" data-id="${c.id}">View</button></td></tr>`
-          )
-          .join('') || '<tr><td colspan="7" class="empty">No LeadScout contacts yet. Contacts appear when a site form is submitted or a booking is made.</td></tr>'
-      }
-      </tbody>
+      <tbody id="ls-body"></tbody>
     </table></div>`;
+  renderContacts();
   view.querySelector('[data-act="refresh"]').onclick = () => pageLeadScout();
   $('#ls-search').onsubmit = (e) => {
     e.preventDefault();
     leadScoutState.q = new FormData(e.target).get('q') || '';
     pageLeadScout();
   };
-  view.querySelectorAll('[data-act="view"]').forEach((b) => (b.onclick = () => openLeadScoutContact(Number(b.dataset.id))));
+  view.querySelector('#ls-biz').onchange = (e) => {
+    leadScoutState.biz = e.target.value || '';
+    renderContacts();
+  };
 }
 
 async function openLeadScoutContact(id) {
@@ -7159,45 +7230,60 @@ async function pageBookings() {
   const d = res.data || {};
   const appointments = asList(d, ['appointments']);
   const services = asList(d, ['services']);
-  view.innerHTML = `
-    <div class="page-head"><div><h1>Bookings</h1><p class="lede">Appointments and bookable services across every site. Clients manage appointment status from their portal.</p></div>
-    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
-    <div class="card"><div class="panel-h"><h3>Appointments</h3><span class="hint">${appointments.length} shown</span></div>
-    <div class="table-wrap"><table>
-      <thead><tr><th>When</th><th>Customer</th><th>Service</th><th>Business</th><th>Status</th></tr></thead>
-      <tbody>${
-        appointments
-          .map(
-            (b) => `<tr>
+  const apptRows = (list, filtered) =>
+    list
+      .map(
+        (b) => `<tr>
         <td>${esc(fmtDate(b.starts_at))}<div class="hint">to ${esc(fmtDate(b.ends_at))}</div></td>
         <td>${esc(b.customer_name || '—')}<div class="hint">${esc(b.customer_email || '')}${b.customer_phone ? ' · ' + esc(b.customer_phone) : ''}</div></td>
         <td>${esc(b.service_name || '—')}</td>
         <td>${esc(b.lead_name || 'Lead #' + b.lead_id)}</td>
         <td><span class="badge ${b.status === 'confirmed' ? 'ok' : b.status === 'cancelled' ? 'danger' : 'warn'}">${esc(b.status || 'pending')}</span></td></tr>`
-          )
-          .join('') || '<tr><td colspan="5" class="empty">No appointments yet.</td></tr>'
-      }
-      </tbody>
-    </table></div></div>
-    <div class="card"><div class="panel-h"><h3>Services</h3></div>
-    <div class="table-wrap"><table>
-      <thead><tr><th>Service</th><th>Business</th><th>Duration</th><th>Price</th><th>Status</th><th>Bookings</th></tr></thead>
-      <tbody>${
-        services
-          .map(
-            (s) => `<tr>
+      )
+      .join('') ||
+    `<tr><td colspan="5" class="empty">${filtered ? 'No appointments for this business.' : 'No appointments yet.'}</td></tr>`;
+  const svcRows = (list, filtered) =>
+    list
+      .map(
+        (s) => `<tr>
         <td>${esc(s.name || '—')}<div class="hint">${esc(s.description || '')}</div></td>
         <td>${esc(s.lead_name || 'Lead #' + s.lead_id)}</td>
         <td>${esc(s.duration_minutes || 30)} min</td>
         <td>${s.price_cents ? esc(moneyCents(s.price_cents, s.currency)) : '—'}</td>
         <td>${esc(s.status || 'draft')}</td>
         <td>${esc(s.booking_count || 0)}</td></tr>`
-          )
-          .join('') || '<tr><td colspan="6" class="empty">No services yet. Services are created per site via MCP bookings.createService.</td></tr>'
-      }
-      </tbody>
+      )
+      .join('') ||
+    `<tr><td colspan="6" class="empty">${
+      filtered
+        ? 'No services for this business.'
+        : 'No services yet. Services are created per site via MCP bookings.createService.'
+    }</td></tr>`;
+  const renderBookings = (v) => {
+    const appts = applyBusinessFilter(appointments, v);
+    const svcs = applyBusinessFilter(services, v);
+    view.querySelector('#bk-appt-body').innerHTML = apptRows(appts, !!v);
+    view.querySelector('#bk-svc-body').innerHTML = svcRows(svcs, !!v);
+    view.querySelector('#bk-appt-count').textContent = `${appts.length} shown`;
+    view.querySelector('#bk-svc-count').textContent = `${svcs.length} shown`;
+  };
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Bookings</h1><p class="lede">Appointments and bookable services across every site. Clients manage appointment status from their portal.</p></div>
+    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
+    ${businessFilterBarHtml(appointments.concat(services), 'bk-biz')}
+    <div class="card"><div class="panel-h"><h3>Appointments</h3><span class="hint" id="bk-appt-count">${appointments.length} shown</span></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>When</th><th>Customer</th><th>Service</th><th>Business</th><th>Status</th></tr></thead>
+      <tbody id="bk-appt-body"></tbody>
+    </table></div></div>
+    <div class="card"><div class="panel-h"><h3>Services</h3><span class="hint" id="bk-svc-count">${services.length} shown</span></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Service</th><th>Business</th><th>Duration</th><th>Price</th><th>Status</th><th>Bookings</th></tr></thead>
+      <tbody id="bk-svc-body"></tbody>
     </table></div></div>`;
+  renderBookings('');
   view.querySelector('[data-act="refresh"]').onclick = () => pageBookings();
+  wireBusinessFilter('bk-biz', renderBookings);
 }
 
 async function pageShop() {
@@ -7212,31 +7298,10 @@ async function pageShop() {
   const d = res.data || {};
   const orders = asList(d, ['orders']);
   const totals = asList(d, ['totals']);
-  view.innerHTML = `
-    <div class="page-head"><div><h1>Shop</h1><p class="lede">Store orders across every site, plus the workspace payments configuration.</p></div>
-    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
-    ${
-      d.stripe_configured
-        ? '<div class="alert ok"><strong>Payments configured.</strong> Stripe keys are saved for this workspace, so shop checkout can run.</div>'
-        : '<div class="alert warn"><strong>Payments are not configured.</strong> No Stripe keys are saved for this workspace — shop sites have no working checkout until keys are added in Settings → Shop payments.</div>'
-    }
-    <div class="stats-cards">
-      <div class="stat-card"><div class="stat-label">Products</div><div class="stat-value">${esc(d.product_count || 0)}</div></div>
-      ${totals
-        .map(
-          (t) =>
-            `<div class="stat-card"><div class="stat-label">${esc(pretty(t.status))} orders</div><div class="stat-value">${esc(
-              t.c
-            )}</div><div class="hint">${esc(moneyCents(t.cents, 'USD'))}</div></div>`
-        )
-        .join('')}
-    </div>
-    <div class="table-wrap"><table>
-      <thead><tr><th>Order</th><th>Product</th><th>Customer</th><th>Business</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead>
-      <tbody>${
-        orders
-          .map(
-            (o) => `<tr>
+  const orderRows = (list, filtered) =>
+    list
+      .map(
+        (o) => `<tr>
         <td>#${esc(o.id)}</td>
         <td>${esc(o.product_name || '—')}</td>
         <td>${esc(o.customer_email || '—')}</td>
@@ -7246,12 +7311,39 @@ async function pageShop() {
           o.status || 'pending'
         )}</span></td>
         <td>${o.created_at ? esc(fmtDate(o.created_at)) : '—'}</td></tr>`
-          )
-          .join('') || '<tr><td colspan="7" class="empty">No orders yet.</td></tr>'
-      }
-      </tbody>
+      )
+      .join('') ||
+    `<tr><td colspan="7" class="empty">${filtered ? 'No orders for this business.' : 'No orders yet.'}</td></tr>`;
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Shop</h1><p class="lede">Store orders across every site, plus the workspace payments configuration.</p></div>
+    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
+    ${
+      d.stripe_configured
+        ? '<div class="alert ok"><strong>Payments configured.</strong> Stripe keys are saved for this workspace, so shop checkout can run.</div>'
+        : '<div class="alert warn"><strong>Payments are not configured.</strong> No Stripe keys are saved for this workspace — shop sites have no working checkout until keys are added in Settings → Shop payments.</div>'
+    }
+    <div class="stats-cards">
+      <div class="stat-card"><div class="stat-label">Products (all sites)</div><div class="stat-value">${esc(d.product_count || 0)}</div></div>
+      ${totals
+        .map(
+          (t) =>
+            `<div class="stat-card"><div class="stat-label">${esc(pretty(t.status))} orders (all sites)</div><div class="stat-value">${esc(
+              t.c
+            )}</div><div class="hint">${esc(moneyCents(t.cents, 'USD'))}</div></div>`
+        )
+        .join('')}
+    </div>
+    ${businessFilterBarHtml(orders, 'sh-biz')}
+    <div class="table-wrap"><table>
+      <thead><tr><th>Order</th><th>Product</th><th>Customer</th><th>Business</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead>
+      <tbody id="sh-body"></tbody>
     </table></div>`;
+  const renderOrders = (v) => {
+    view.querySelector('#sh-body').innerHTML = orderRows(applyBusinessFilter(orders, v), !!v);
+  };
+  renderOrders('');
   view.querySelector('[data-act="refresh"]').onclick = () => pageShop();
+  wireBusinessFilter('sh-biz', renderOrders);
 }
 
 async function pageModules() {
@@ -7308,26 +7400,34 @@ async function pageCourses() {
     return;
   }
   const courses = asList(res.data, ['courses']);
-  view.innerHTML = `
-    <div class="page-head"><div><h1>Courses</h1><p class="lede">Courses published through the courses module, across every site.</p></div>
-    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
-    <div class="table-wrap"><table>
-      <thead><tr><th>Course</th><th>Business</th><th>Lessons</th><th>Status</th><th>Updated</th></tr></thead>
-      <tbody>${
-        courses
-          .map(
-            (c) => `<tr>
+  const courseRows = (list, filtered) =>
+    list
+      .map(
+        (c) => `<tr>
         <td>${esc(c.title || '—')}<div class="hint">${esc(c.description || '')}</div></td>
         <td>${esc(c.lead_name || 'Lead #' + c.lead_id)}</td>
         <td>${esc(c.lesson_count || 0)}</td>
         <td>${c.status === 'published' ? '<span class="badge ok">published</span>' : esc(c.status || 'draft')}</td>
         <td>${c.updated_at ? esc(fmtDate(c.updated_at)) : '—'}</td></tr>`
-          )
-          .join('') || '<tr><td colspan="5" class="empty">No courses yet. Courses are managed per site via MCP courses.*.</td></tr>'
-      }
-      </tbody>
+      )
+      .join('') ||
+    `<tr><td colspan="5" class="empty">${
+      filtered ? 'No courses for this business.' : 'No courses yet. Courses are managed per site via MCP courses.*.'
+    }</td></tr>`;
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Courses</h1><p class="lede">Courses published through the courses module, across every site.</p></div>
+    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
+    ${businessFilterBarHtml(courses, 'co-biz')}
+    <div class="table-wrap"><table>
+      <thead><tr><th>Course</th><th>Business</th><th>Lessons</th><th>Status</th><th>Updated</th></tr></thead>
+      <tbody id="co-body"></tbody>
     </table></div>`;
+  const renderCourses = (v) => {
+    view.querySelector('#co-body').innerHTML = courseRows(applyBusinessFilter(courses, v), !!v);
+  };
+  renderCourses('');
   view.querySelector('[data-act="refresh"]').onclick = () => pageCourses();
+  wireBusinessFilter('co-biz', renderCourses);
 }
 
 async function pageAnalytics() {
@@ -7407,28 +7507,37 @@ async function pageMemberships() {
       moneyCents(p.pending_cents, p.currency)
     )} pending · as of ${p.as_of ? esc(fmtDate(p.as_of)) : '—'}</div>${last}`;
   };
-  view.innerHTML = `
-    <div class="page-head"><div><h1>Memberships</h1><p class="lede">Paid memberships across client sites. Members pay each site owner through the owner's own Stripe account — BitPype never holds this money; this screen is oversight only.</p></div>
-    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
-    <div class="table-wrap"><table>
-      <thead><tr><th>Site</th><th>Members</th><th>Paid subs (active)</th><th>Est. monthly revenue</th><th>Owner Stripe</th><th>Payouts (owner's Stripe)</th></tr></thead>
-      <tbody>${
-        sites
-          .map(
-            (s) => `<tr>
+  const siteRows = (list, filtered) =>
+    list
+      .map(
+        (s) => `<tr>
         <td>${esc(s.lead_name || 'Lead #' + s.lead_id)}<div class="hint">${esc(s.tiers_count || 0)} tier(s)</div></td>
         <td>${esc(s.members_count || 0)}</td>
         <td>${esc(s.paid_subs_active || 0)}</td>
         <td>${esc(moneyCents(s.est_monthly_revenue_cents || 0, 'USD'))}<div class="hint">estimated from local records</div></td>
         <td>${s.keys_connected ? '<span class="badge ok">connected</span>' : '<span class="badge">not connected</span>'}</td>
         <td>${payoutCell(s)}</td></tr>`
-          )
-          .join('') ||
-        '<tr><td colspan="6" class="empty">No sites with membership yet. Sites appear here once the Membership module is attached or a member joins.</td></tr>'
-      }
-      </tbody>
+      )
+      .join('') ||
+    `<tr><td colspan="6" class="empty">${
+      filtered
+        ? 'No membership sites for this business.'
+        : 'No sites with membership yet. Sites appear here once the Membership module is attached or a member joins.'
+    }</td></tr>`;
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Memberships</h1><p class="lede">Paid memberships across client sites. Members pay each site owner through the owner's own Stripe account — BitPype never holds this money; this screen is oversight only.</p></div>
+    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
+    ${businessFilterBarHtml(sites, 'ms-biz')}
+    <div class="table-wrap"><table>
+      <thead><tr><th>Site</th><th>Members</th><th>Paid subs (active)</th><th>Est. monthly revenue</th><th>Owner Stripe</th><th>Payouts (owner's Stripe)</th></tr></thead>
+      <tbody id="ms-body"></tbody>
     </table></div>`;
+  const renderSites = (v) => {
+    view.querySelector('#ms-body').innerHTML = siteRows(applyBusinessFilter(sites, v), !!v);
+  };
+  renderSites('');
   view.querySelector('[data-act="refresh"]').onclick = () => pageMemberships();
+  wireBusinessFilter('ms-biz', renderSites);
 }
 
 const PAGES = {
