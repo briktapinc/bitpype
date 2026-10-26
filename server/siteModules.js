@@ -198,6 +198,7 @@ function ensureTables(db) {
       status TEXT NOT NULL DEFAULT 'pending',
       stripe_session_id TEXT NOT NULL DEFAULT '',
       stripe_payment_intent TEXT NOT NULL DEFAULT '',
+      stripe_key_source TEXT NOT NULL DEFAULT '',
       customer_email TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -607,6 +608,20 @@ function ensureTables(db) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- Shop Part 2 (Batch 19): per-lead Stripe keys for the Shop module.
+    -- Same shape as membership_stripe_keys: owners save their OWN
+    -- Stripe keys in the portal (Shop → Payments); checkout prefers
+    -- them and falls back to the workspace keys (Settings → Shop
+    -- payments) when a lead has none.
+    CREATE TABLE IF NOT EXISTS shop_stripe_keys (
+      lead_id INTEGER PRIMARY KEY,
+      publishable_key TEXT NOT NULL DEFAULT '',
+      secret_key_enc TEXT NOT NULL DEFAULT '',
+      webhook_secret_enc TEXT NOT NULL DEFAULT '',
+      secret_key_last4 TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS membership_tiers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       lead_id INTEGER NOT NULL,
@@ -701,6 +716,17 @@ function ensureTables(db) {
       .map((c) => String(c.name || ''));
     if (!bookingCols.includes('archived_at')) {
       db.exec('ALTER TABLE bookings ADD COLUMN archived_at TEXT');
+    }
+  } catch {
+    /* race / exists */
+  }
+  try {
+    const orderCols = db
+      .prepare('PRAGMA table_info(ecommerce_orders)')
+      .all()
+      .map((c) => String(c.name || ''));
+    if (orderCols.length && !orderCols.includes('stripe_key_source')) {
+      db.exec("ALTER TABLE ecommerce_orders ADD COLUMN stripe_key_source TEXT NOT NULL DEFAULT ''");
     }
   } catch {
     /* race / exists */
@@ -3134,19 +3160,21 @@ function deleteProduct(db, leadId, id) {
 
 /* ── Shop orders + Stripe checkout ── */
 
-function insertShopOrder(db, leadId, product) {
+function insertShopOrder(db, leadId, product, opts = {}) {
   ensureTables(db);
+  const keySource = opts && opts.keySource === 'lead' ? 'lead' : opts && opts.keySource === 'workspace' ? 'workspace' : '';
   const info = db
     .prepare(
-      `INSERT INTO ecommerce_orders (lead_id, product_id, product_name, amount_cents, currency, status)
-     VALUES (?, ?, ?, ?, ?, 'pending')`
+      `INSERT INTO ecommerce_orders (lead_id, product_id, product_name, amount_cents, currency, status, stripe_key_source)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?)`
     )
     .run(
       Number(leadId),
       Number(product.id),
       String(product.name || ''),
       Number(product.price_cents) || 0,
-      String(product.currency || 'USD')
+      String(product.currency || 'USD'),
+      keySource
     );
   return db.prepare('SELECT * FROM ecommerce_orders WHERE id = ?').get(info.lastInsertRowid);
 }
@@ -3240,7 +3268,11 @@ async function createShopCheckoutByToken(db, token, { productId, returnUrl } = {
     return { mode: 'external', url: product.checkout_url };
   }
   const shopStripe = require('./shopStripe');
-  const stripe = shopStripe.getClient(db); // throws SHOP_STRIPE_NOT_CONFIGURED
+  // Per-lead keys win; the workspace keys are the fallback (Batch 19).
+  // Resolution happens BEFORE the order is written so a shop with no
+  // keys anywhere fails cleanly and records which key-set ran it.
+  const resolved = shopStripe.resolveForLead(db, row.lead_id); // throws SHOP_STRIPE_NOT_CONFIGURED
+  const stripe = resolved.client;
   const base = String(returnUrl || '').split('#')[0];
   let parsed;
   try {
@@ -3252,7 +3284,7 @@ async function createShopCheckoutByToken(db, token, { productId, returnUrl } = {
     throw fail('VALIDATION', 'A valid return URL is required for checkout', 400);
   }
   const sep = base.includes('?') ? '&' : '?';
-  const order = insertShopOrder(db, row.lead_id, product);
+  const order = insertShopOrder(db, row.lead_id, product, { keySource: resolved.source });
   let session;
   try {
     session = await stripe.checkout.sessions.create({
@@ -6282,6 +6314,124 @@ function membershipStripeStatus(db, leadId) {
   };
 }
 
+/* ── Shop Part 2 (Batch 19): per-lead Stripe keys ──
+ *
+ * The membership pattern applied to the Shop module: owners save
+ * their OWN Stripe keys in the portal (Shop → Payments), stored
+ * secretBox-encrypted in shop_stripe_keys, scoped to their lead.
+ * Checkout prefers the lead's keys and falls back to the workspace
+ * keys (Settings → Shop payments); server/shopStripe.js owns the
+ * resolution, this section owns storage + status.
+ */
+
+/** Raw key row (encrypted values). Internal: shopStripe + tests. */
+function getShopStripeKeyRow(db, leadId) {
+  ensureTables(db);
+  return db.prepare('SELECT * FROM shop_stripe_keys WHERE lead_id = ?').get(Number(leadId)) || null;
+}
+
+/**
+ * Save the owner's Stripe keys for their shop. Fields left blank keep
+ * the stored value (the settings-UI convention); secret material is
+ * stored secretBox-encrypted and is never returned — only a status.
+ */
+function saveShopStripeKeys(db, leadId, data = {}) {
+  ensureTables(db);
+  const id = Number(leadId);
+  const box = require('../src/secretBox');
+  const existing = getShopStripeKeyRow(db, id);
+  const keep = (next, prev) => {
+    const v = next == null ? '' : String(next).trim();
+    return v === '' ? prev || '' : v;
+  };
+  let secretPlain = '';
+  if (data.secret_key != null && String(data.secret_key).trim() !== '') {
+    secretPlain = String(data.secret_key).trim();
+    if (!/^(sk|rk)_(test|live)_/.test(secretPlain)) {
+      throw fail('VALIDATION', 'Secret key must be a Stripe secret or restricted key (sk_… or rk_…).', 400);
+    }
+  }
+  let publishable = keep(data.publishable_key, existing && existing.publishable_key);
+  if (publishable && !/^pk_(test|live)_/.test(publishable)) {
+    throw fail('VALIDATION', 'Publishable key must start with pk_test_ or pk_live_.', 400);
+  }
+  let webhookPlain = '';
+  if (data.webhook_secret != null && String(data.webhook_secret).trim() !== '') {
+    webhookPlain = String(data.webhook_secret).trim();
+    if (!/^whsec_/.test(webhookPlain)) {
+      throw fail('VALIDATION', 'Webhook signing secret must start with whsec_.', 400);
+    }
+  }
+  const secretEnc = secretPlain
+    ? box.encryptValue(secretPlain)
+    : existing
+      ? existing.secret_key_enc
+      : '';
+  const webhookEnc = webhookPlain
+    ? box.encryptValue(webhookPlain)
+    : existing
+      ? existing.webhook_secret_enc
+      : '';
+  const last4 = secretPlain ? secretPlain.slice(-4) : existing ? existing.secret_key_last4 || '' : '';
+  db.prepare(
+    `INSERT INTO shop_stripe_keys (lead_id, publishable_key, secret_key_enc, webhook_secret_enc, secret_key_last4, updated_at)
+     VALUES (?, ?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(lead_id) DO UPDATE SET publishable_key = excluded.publishable_key,
+       secret_key_enc = excluded.secret_key_enc, webhook_secret_enc = excluded.webhook_secret_enc,
+       secret_key_last4 = excluded.secret_key_last4, updated_at = datetime('now')`
+  ).run(id, publishable || '', secretEnc || '', webhookEnc || '', last4 || '');
+  return shopStripeStatus(db, id);
+}
+
+function clearShopStripeKeys(db, leadId) {
+  ensureTables(db);
+  db.prepare('DELETE FROM shop_stripe_keys WHERE lead_id = ?').run(Number(leadId));
+  return shopStripeStatus(db, leadId);
+}
+
+/** Owner-safe status: never carries secret or webhook values. */
+function shopStripeStatus(db, leadId) {
+  const row = getShopStripeKeyRow(db, leadId);
+  const connected = !!(row && row.secret_key_enc);
+  return {
+    connected,
+    publishable_key: row ? row.publishable_key || '' : '',
+    secret_key_last4: row ? row.secret_key_last4 || '' : '',
+    webhook_configured: !!(row && row.webhook_secret_enc),
+    updated_at: row ? row.updated_at || null : null,
+  };
+}
+
+/**
+ * Per-site payment state for the admin Shop screen: every lead that
+ * has the Shop module, whether it connected its OWN Stripe keys, and
+ * the effective source its checkout would use right now ('lead' when
+ * the owner connected keys, 'workspace' when only the workspace keys
+ * exist, 'none' when checkout cannot run). Truthful by construction —
+ * derived from the key rows, never from a saved flag.
+ */
+function listShopPaymentSites(db, workspaceConfigured) {
+  ensureTables(db);
+  const rows = db
+    .prepare(
+      `SELECT e.lead_id AS lead_id, l.business_name AS lead_name,
+              CASE WHEN k.secret_key_enc IS NOT NULL AND k.secret_key_enc <> '' THEN 1 ELSE 0 END AS lead_connected
+       FROM site_module_embeds e
+       LEFT JOIN leads l ON l.id = e.lead_id
+       LEFT JOIN shop_stripe_keys k ON k.lead_id = e.lead_id
+       WHERE e.module_type = 'ecommerce'
+       ORDER BY e.lead_id ASC`
+    )
+    .all();
+  return rows.map((r) => ({
+    lead_id: Number(r.lead_id),
+    lead_name: r.lead_name || '',
+    lead_connected: Number(r.lead_connected) === 1,
+    effective_source:
+      Number(r.lead_connected) === 1 ? 'lead' : workspaceConfigured ? 'workspace' : 'none',
+  }));
+}
+
 /* Tiers */
 
 function shapeMembershipTier(row) {
@@ -7855,7 +8005,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
     total_published = items.length;
     if (settings.post_limit != null) items = items.slice(0, settings.post_limit);
   } else if (type === 'ecommerce') {
-    const stripeReady = require('./shopStripe').isConfigured(db);
+    const stripeReady = require('./shopStripe').isConfiguredForLead(db, leadId);
     items = listProducts(db, leadId, { includeDrafts: false }).map((p) => ({
       ...p,
       price_label: formatPrice(p.price_cents, p.currency),
@@ -7936,7 +8086,7 @@ function getPublicModuleItem(db, token, slugOrId, opts = {}) {
       item = {
         ...item,
         price_label: formatPrice(item.price_cents, item.currency),
-        stripe_checkout: require('./shopStripe').isConfigured(db) && !item.checkout_url,
+        stripe_checkout: require('./shopStripe').isConfiguredForLead(db, leadId) && !item.checkout_url,
       };
   } else if (type === 'courses') item = getCourse(db, leadId, slugOrId);
   else if (type === 'gallery') item = getAlbum(db, leadId, slugOrId);
@@ -8228,6 +8378,11 @@ module.exports = {
   saveMembershipStripeKeys,
   clearMembershipStripeKeys,
   membershipStripeStatus,
+  getShopStripeKeyRow,
+  saveShopStripeKeys,
+  clearShopStripeKeys,
+  shopStripeStatus,
+  listShopPaymentSites,
   shapeMembershipTier,
   listMembershipTiers,
   getMembershipTier,

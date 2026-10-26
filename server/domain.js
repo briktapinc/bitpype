@@ -1230,16 +1230,19 @@ function sitesGet(workspaceId, id) {
       row.formsUnembedded = [];
     }
     // Shop state for the staff detail page: does this site's lead have the
-    // Shop (ecommerce) module, and can it actually take payments? Without
-    // workspace Stripe keys, product checkout silently dead-ends — the UI
-    // warns instead. Display-only; no settings are read anywhere else.
+    // Shop (ecommerce) module, and can it actually take payments? Since
+    // Batch 19 the owner can connect their OWN keys in the portal, so the
+    // truthful check is per-lead (their keys OR the workspace fallback).
+    // Display-only; no settings are read anywhere else.
     try {
       row.has_shop_module = row.lead_id
         ? !!db
             .prepare("SELECT id FROM site_module_embeds WHERE lead_id = ? AND module_type = 'ecommerce' LIMIT 1")
             .get(row.lead_id)
         : false;
-      row.shop_stripe_configured = require('./shopStripe').isConfigured(db);
+      row.shop_stripe_configured = row.lead_id
+        ? require('./shopStripe').isConfiguredForLead(db, row.lead_id)
+        : require('./shopStripe').isConfigured(db);
     } catch {
       row.has_shop_module = false;
       row.shop_stripe_configured = false;
@@ -4763,7 +4766,11 @@ function adminShopOverview(workspaceId, opts = {}) {
       )
       .all();
     const productCount = db.prepare('SELECT COUNT(*) AS c FROM ecommerce_products').get().c;
-    return { stripe_configured, orders, totals, product_count: productCount };
+    // Batch 19: per-site key truth — which shops connected their OWN
+    // keys in the portal, which fall back to the workspace keys, and
+    // which cannot take payments at all.
+    const sites = modules.listShopPaymentSites(db, stripe_configured);
+    return { stripe_configured, orders, totals, product_count: productCount, sites };
   });
 }
 

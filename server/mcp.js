@@ -2805,11 +2805,20 @@ async function callClientTool(ws, name, a, ctx = {}) {
   if (name === 'ecommerce.listOrders') {
     const leadId = resolveLeadId(ctx, a.leadId);
     if (!leadId) throw new Error('leadId is required');
-    return domain.withDb(ws, (db) => ({
-      plan: planId,
-      stripe_configured: require('./shopStripe').isConfigured(db),
-      orders: modules.listShopOrders(db, leadId, { limit: a.limit || 50 }),
-    }));
+    return domain.withDb(ws, (db) => {
+      const payments = modules.shopStripeStatus(db, leadId);
+      const workspaceConfigured = require('./shopStripe').isConfigured(db);
+      return {
+        plan: planId,
+        stripe_configured: workspaceConfigured,
+        payments: {
+          lead: payments,
+          workspace_configured: workspaceConfigured,
+          effective_source: payments.connected ? 'lead' : workspaceConfigured ? 'workspace' : 'none',
+        },
+        orders: modules.listShopOrders(db, leadId, { limit: a.limit || 50 }),
+      };
+    });
   }
   if (name === 'ecommerce.create') {
     const leadId = resolveLeadId(ctx, a.leadId);

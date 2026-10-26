@@ -1163,6 +1163,37 @@ router.delete('/modules/members/payments', requireClient, actionLimit, async (re
   }
 });
 
+// Shop Part 2 (Batch 19) — the owner's own Stripe keys for their shop.
+// Same placement rule as the members payments routes above: these must
+// be registered before the generic /modules/:type/:id routes, which
+// would otherwise read "payments" as a product id.
+router.put('/modules/ecommerce/payments', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.saveShopKeys(req.client.workspace_id, req.client.lead_id, req.body || {}, req.client.email)
+    );
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.delete('/modules/ecommerce/payments', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(res, await portal.clearShopKeys(req.client.workspace_id, req.client.lead_id, req.client.email));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/modules/ecommerce/payments/test', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(res, await portal.testShopKeys(req.client.workspace_id, req.client.lead_id, req.client.email));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 // Membership tiers (paid tiers create their Stripe Price on save).
 router.post('/modules/members/tiers', requireClient, actionLimit, async (req, res) => {
   try {

@@ -1157,6 +1157,7 @@ const MERGE_SINGLETON_TABLES = [
   'socialfeed_cache',
   'members_configs',
   'membership_stripe_keys',
+  'shop_stripe_keys',
 ];
 
 function leadTableExists(db, table) {

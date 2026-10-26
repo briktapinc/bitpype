@@ -1740,6 +1740,230 @@ async function main() {
   assert(faq20.html.includes('bp-mod-faq') && faq20.html.includes('Do you travel?'), 'faq still renders');
   check('batch20 regression: faq module renders unchanged through the shared mount', () => {});
 
+  // ── Batch 19: Shop Part 2 — per-lead Stripe keys, checkout resolution, webhook secrets ──
+  // Stub Stripe whose clients remember WHICH secret built them, so the
+  // key-selection assertions prove which layer a call actually ran on.
+  const stub19 = { sessions: [], accounts: [] };
+  function StubStripe19(secretKey) {
+    return {
+      __secret: secretKey,
+      checkout: {
+        sessions: {
+          create: async (params) => {
+            stub19.sessions.push({ secret: secretKey, params });
+            return { id: 'cs_test_19_' + stub19.sessions.length, url: 'https://checkout.stripe.test/cs19' };
+          },
+        },
+      },
+      webhooks: {
+        constructEvent: (body, sig, secret) => {
+          if (sig !== 'sig:' + secret) throw new Error('No signatures found matching the expected signature for payload.');
+          return JSON.parse(Buffer.isBuffer(body) ? body.toString('utf8') : String(body));
+        },
+      },
+      accounts: {
+        retrieve: async () => {
+          stub19.accounts.push(secretKey);
+          if (String(secretKey).includes('REJECT')) throw new Error('Invalid API Key provided (stub)');
+          return { id: 'acct_owner19', charges_enabled: true, payouts_enabled: true, business_profile: { name: 'Fixture Bakery' } };
+        },
+      },
+      balance: { retrieve: async () => ({ available: [], pending: [] }) },
+    };
+  }
+  const mocks19 = {
+    '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
+    '../src/websiteEngine': require(path.join(root, 'src/websiteEngine.js')),
+    './portalContacts': contacts,
+    '../src/secretBox': box17,
+    './membershipStripe': { getClient: () => stubStripeClient17 },
+    './shopStripe': null, // filled in below, before any checkout call
+  };
+  const sm19 = load('server/siteModules.js', mocks19);
+  const ss19 = load('server/shopStripe.js', {
+    stripe: StubStripe19,
+    './siteModules': sm19,
+    '../src/secretBox': box17,
+  });
+  mocks19['./shopStripe'] = ss19;
+  sm19.ensureTables(db);
+
+  // Fixtures: 1901 connects its OWN keys; 1902 relies on the workspace
+  // fallback; 1903 has nothing. All three run a shop.
+  for (const [id, name] of [[1901, 'Fixture Own Keys Bakery'], [1902, 'Fixture Fallback Bakery'], [1903, 'Fixture No Keys Bakery']]) {
+    db.prepare('INSERT INTO leads (id, business_name, email) VALUES (?, ?, ?)').run(id, name, `shop${id}@example.invalid`);
+    db.prepare('INSERT INTO websites (lead_id, name, theme, pages) VALUES (?, ?, ?, ?)').run(
+      id,
+      name + ' Site',
+      '{}',
+      JSON.stringify([{ slug: 'index', title: 'Home', sections: [{ type: 'nav', content: {} }, { type: 'footer', content: {} }] }])
+    );
+    sm19.attachModule(db, id, 'ecommerce', { workspaceId: 1, appUrl: 'https://example.test' });
+    sm19.createProduct(db, id, { name: 'Sourdough ' + id, price: 12.5, status: 'published' });
+  }
+  const emb19 = (leadId) => sm19.getEmbedRow(db, leadId, 'ecommerce');
+  const product19 = (leadId) => sm19.listProducts(db, leadId)[0];
+
+  // (1) Key storage: encrypted at rest, status leaks nothing, lead-scoped.
+  const LEAD_SK19 = 'sk_test_LEAD19SECRETKEY0001';
+  const LEAD_WHSEC19 = 'whsec_lead19signingsecret';
+  const savedStatus19 = sm19.saveShopStripeKeys(db, 1901, {
+    publishable_key: 'pk_test_lead19',
+    secret_key: LEAD_SK19,
+    webhook_secret: LEAD_WHSEC19,
+  });
+  assert.equal(savedStatus19.connected, true);
+  assert.equal(savedStatus19.secret_key_last4, '0001');
+  assert.equal(savedStatus19.webhook_configured, true);
+  assert(!JSON.stringify(savedStatus19).includes(LEAD_SK19), 'status never carries the secret');
+  assert(!JSON.stringify(savedStatus19).includes(LEAD_WHSEC19), 'status never carries the webhook secret');
+  const rawShopRow19 = db.prepare('SELECT * FROM shop_stripe_keys WHERE lead_id = 1901').get();
+  assert(rawShopRow19.secret_key_enc.startsWith('enc:v1:'), 'shop secret stored secretBox-encrypted');
+  assert(!rawShopRow19.secret_key_enc.includes(LEAD_SK19), 'ciphertext contains no plaintext key');
+  assert(!rawShopRow19.webhook_secret_enc.includes(LEAD_WHSEC19), 'webhook secret encrypted too');
+  assert.equal(ss19.getLeadCredentials(db, 1901).secretKey, LEAD_SK19, 'decrypt round-trips for the owning lead');
+  assert.equal(sm19.shopStripeStatus(db, 1902).connected, false, 'keys are per-lead: 1902 has none');
+  assert.equal(ss19.isLeadConnected(db, 1902), false);
+  assert.throws(() => sm19.saveShopStripeKeys(db, 1902, { secret_key: 'not-a-key' }), (e) => e.code === 'VALIDATION');
+  assert.throws(() => sm19.saveShopStripeKeys(db, 1902, { webhook_secret: 'nope' }), (e) => e.code === 'VALIDATION');
+  // Save + disconnect round-trip on the fallback lead leaves it keyless.
+  sm19.saveShopStripeKeys(db, 1902, { secret_key: 'sk_test_TEMP19KEY' });
+  assert.equal(sm19.shopStripeStatus(db, 1902).connected, true);
+  assert.equal(sm19.clearShopStripeKeys(db, 1902).connected, false);
+  check('batch19 keys: encrypted at rest, status leaks nothing, per-lead isolation, validation + disconnect', () => {});
+
+  // (2) Admin three-state accuracy with NO workspace keys anywhere.
+  const sitesNoWs19 = sm19.listShopPaymentSites(db, false);
+  const byLead19 = Object.fromEntries(sitesNoWs19.map((s) => [s.lead_id, s]));
+  assert.equal(byLead19[1901].effective_source, 'lead');
+  assert.equal(byLead19[1901].lead_connected, true);
+  assert.equal(byLead19[1902].effective_source, 'none');
+  assert.equal(byLead19[1903].effective_source, 'none');
+  check('batch19 admin sites: own-keys lead reads lead, others none, when workspace is unset', () => {});
+
+  // Workspace fallback keys arrive (settings table, secretBox-encrypted values).
+  db.exec('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)');
+  const WS_SK19 = 'sk_test_WORKSPACE19SECRET';
+  const WS_WHSEC19 = 'whsec_workspace19signing';
+  const setWs19 = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
+  setWs19.run('shop.stripe.publishable_key', box17.encryptValue('pk_test_workspace19'));
+  setWs19.run('shop.stripe.secret_key', box17.encryptValue(WS_SK19));
+  setWs19.run('shop.stripe.webhook_secret', box17.encryptValue(WS_WHSEC19));
+  assert.equal(ss19.isConfigured(db), true, 'workspace layer reads its settings keys');
+  const sitesWs19 = sm19.listShopPaymentSites(db, true);
+  const byLeadWs19 = Object.fromEntries(sitesWs19.map((s) => [s.lead_id, s]));
+  assert.equal(byLeadWs19[1901].effective_source, 'lead', 'own keys still win over the fallback');
+  assert.equal(byLeadWs19[1902].effective_source, 'workspace');
+  assert.equal(byLeadWs19[1903].effective_source, 'workspace');
+  check('batch19 admin sites: fallback leads read workspace once workspace keys exist', () => {});
+
+  // (3) Checkout key selection: lead keys preferred, workspace fallback,
+  // and the order records which key-set ran it.
+  const coLead19 = await sm19.createShopCheckoutByToken(db, emb19(1901).public_token, {
+    productId: product19(1901).id,
+    returnUrl: 'https://site.example/shop.html',
+  });
+  assert.equal(coLead19.mode, 'stripe');
+  assert.equal(stub19.sessions.at(-1).secret, LEAD_SK19, 'checkout ran on the LEAD secret key');
+  const orderLead19 = db.prepare('SELECT * FROM ecommerce_orders WHERE id = ?').get(coLead19.orderId);
+  assert.equal(orderLead19.stripe_key_source, 'lead', 'order records the lead key-set');
+  const coWs19 = await sm19.createShopCheckoutByToken(db, emb19(1902).public_token, {
+    productId: product19(1902).id,
+    returnUrl: 'https://site.example/shop.html',
+  });
+  assert.equal(stub19.sessions.at(-1).secret, WS_SK19, 'fallback checkout ran on the WORKSPACE secret key');
+  const orderWs19 = db.prepare('SELECT * FROM ecommerce_orders WHERE id = ?').get(coWs19.orderId);
+  assert.equal(orderWs19.stripe_key_source, 'workspace', 'order records the workspace key-set');
+  check('batch19 checkout: lead keys preferred, workspace fallback, order records the key source', () => {});
+
+  // (4) Webhook secret resolution per lead, workspace fallback, idempotent apply.
+  const evtLead19 = {
+    type: 'checkout.session.completed',
+    data: {
+      object: {
+        id: coLead19.sessionId,
+        payment_intent: 'pi_19_lead',
+        customer_details: { email: 'buyer@example.invalid' },
+        metadata: { bitpype_lead_id: '1901', bitpype_order_id: String(coLead19.orderId), bitpype_product_id: String(product19(1901).id) },
+      },
+    },
+  };
+  const rawEvt19 = Buffer.from(JSON.stringify(evtLead19));
+  const verifiedLead19 = ss19.constructEventForShop(db, rawEvt19, 'sig:' + LEAD_WHSEC19, evtLead19);
+  assert.equal(verifiedLead19.source, 'lead', 'owner-signed event verifies against the LEAD secret');
+  const applied19 = sm19.applyShopStripeEvent(db, verifiedLead19.event);
+  assert.equal(applied19.status, 'paid');
+  assert.equal(db.prepare('SELECT status FROM ecommerce_orders WHERE id = ?').get(coLead19.orderId).status, 'paid');
+  const appliedAgain19 = sm19.applyShopStripeEvent(db, verifiedLead19.event);
+  assert.equal(appliedAgain19.status, 'paid', 'redelivery is idempotent');
+  // The same shop's event signed by the WORKSPACE secret (an order placed
+  // on the fallback before the owner connected keys) still verifies.
+  const verifiedWs19 = ss19.constructEventForShop(db, rawEvt19, 'sig:' + WS_WHSEC19, evtLead19);
+  assert.equal(verifiedWs19.source, 'workspace', 'workspace-signed event verifies via the fallback candidate');
+  assert.throws(() => ss19.constructEventForShop(db, rawEvt19, 'sig:whsec_garbage', evtLead19), /No signatures found/);
+  check('batch19 webhook: per-lead secret resolution, workspace fallback candidate, garbage rejected, apply idempotent', () => {});
+
+  // (5) Nothing configured anywhere: checkout refuses cleanly (no orphan
+  // order) and the webhook reports NOT_CONFIGURED, not a signature error.
+  db.prepare("DELETE FROM settings WHERE key LIKE 'shop.stripe.%'").run();
+  const ordersBefore19 = db.prepare('SELECT COUNT(*) AS c FROM ecommerce_orders WHERE lead_id = 1903').get().c;
+  await assert.rejects(
+    sm19.createShopCheckoutByToken(db, emb19(1903).public_token, {
+      productId: product19(1903).id,
+      returnUrl: 'https://site.example/shop.html',
+    }),
+    (e) => e.code === 'SHOP_STRIPE_NOT_CONFIGURED'
+  );
+  assert.equal(
+    db.prepare('SELECT COUNT(*) AS c FROM ecommerce_orders WHERE lead_id = 1903').get().c,
+    ordersBefore19,
+    'no orphan order is written when no keys exist'
+  );
+  assert.throws(() => ss19.constructEventForShop(db, rawEvt19, 'sig:anything', null), (e) => e.code === 'SHOP_STRIPE_NOT_CONFIGURED');
+  check('batch19 unconfigured: checkout refuses before writing an order; webhook says NOT_CONFIGURED', () => {});
+
+  // (6) Connection test: a lightweight account read on the owner's key;
+  // a key Stripe rejects surfaces as a failure, never a fake success.
+  const testOk19 = await ss19.testLeadConnection(db, 1901);
+  assert.equal(testOk19.ok, true);
+  assert.equal(testOk19.account_id, 'acct_owner19');
+  assert.equal(testOk19.test_mode, true);
+  assert.equal(testOk19.charges_enabled, true);
+  sm19.saveShopStripeKeys(db, 1903, { secret_key: 'sk_test_REJECT19key' });
+  await assert.rejects(ss19.testLeadConnection(db, 1903), /Invalid API Key/);
+  sm19.clearShopStripeKeys(db, 1903);
+  check('batch19 connection test: real read succeeds on a good key and fails on a rejected one', () => {});
+
+  // (7) Portal surface: the Shop panel payload carries the payments
+  // status + effective source, and the portal wrappers save/test keys.
+  const portal19 = load('server/clientPortal.js', {
+    bcryptjs: { hashSync: () => 'fixture' },
+    './db': {},
+    './mailer': {},
+    './stripeClient': { appUrl: () => 'https://example.test' },
+    './workspaceDb': {},
+    './domain': { withDb: (_ws, fn) => fn(db) },
+    './portalContacts': contacts,
+    './siteModules': sm19,
+    './shopStripe': ss19,
+    './billing': { effectivePlan: async () => 'premium' },
+    './plans': { getPlan: () => ({ entitlements: { siteModules: true, chatbot: false } }) },
+  });
+  const panel19 = await portal19.listModuleItems(1, 1901, 'ecommerce', 'owner@example.invalid');
+  assert.equal(panel19.shop.payments.connected, true);
+  assert.equal(panel19.shop.payments.secret_key_last4, '0001');
+  assert.equal(panel19.shop.effective_source, 'lead');
+  assert.equal(panel19.shop.webhook_path, '/api/v1/shop/webhook/1');
+  assert(!JSON.stringify(panel19.shop).includes(LEAD_SK19), 'panel payload never carries the secret');
+  const savedViaPortal19 = await portal19.saveShopKeys(1, 1902, { secret_key: 'sk_test_PORTAL19KEY' }, 'owner@example.invalid');
+  assert.equal(savedViaPortal19.payments.connected, true);
+  assert.equal(savedViaPortal19.payments.secret_key_last4, '9KEY');
+  const testedViaPortal19 = await portal19.testShopKeys(1, 1901, 'owner@example.invalid');
+  assert.equal(testedViaPortal19.test.ok, true);
+  const panelFallback19 = await portal19.listModuleItems(1, 1903, 'ecommerce', 'owner@example.invalid');
+  assert.equal(panelFallback19.shop.effective_source, 'none', 'after settings cleanup + no own keys the panel says none');
+  check('batch19 portal: panel payload + save/test wrappers carry status and effective source', () => {});
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

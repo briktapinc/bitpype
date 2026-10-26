@@ -5166,6 +5166,7 @@
     moduleState.estimate = data.estimate || null;
     moduleState.socialfeed = data.socialfeed || null;
     moduleState.members = data.members || null;
+    moduleState.shop = data.shop || null;
     moduleState.categories = Array.isArray(data.categories) ? data.categories : [];
     if (type === 'bookings') {
       const booking = moduleState.booking || {};
@@ -5184,7 +5185,134 @@
     renderMembersAdminPanel();
     renderMenuCategoriesPanel();
     renderOffersDisplayPanel();
+    renderShopPaymentsPanel();
     syncModulesPaneTabs();
+  }
+
+  function renderShopPaymentsPanel() {
+    const host = document.getElementById('modules-shop-payments-panel');
+    if (!host) return;
+    if (moduleState.current !== 'ecommerce') {
+      host.innerHTML = '';
+      host.hidden = true;
+      return;
+    }
+    host.hidden = false;
+    const shop = moduleState.shop || {};
+    const payments = shop.payments || { connected: false };
+    const source = shop.effective_source || (payments.connected ? 'lead' : shop.workspace_configured ? 'workspace' : 'none');
+    const webhookUrl = `${location.origin}${shop.webhook_path || ''}`;
+    const webhookEvents =
+      'checkout.session.completed, checkout.session.expired, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed, payment_intent.payment_failed';
+    const statusHtml = payments.connected
+      ? `<p class="hint"><strong>Connected — your own Stripe.</strong> Your secret key ending ••••${esc(payments.secret_key_last4 || '')} is saved (encrypted). Shop checkout charges YOUR Stripe account directly, so payments land with you.${payments.webhook_configured ? '' : ' <strong>Your webhook signing secret is still missing</strong> — orders cannot be confirmed as paid until it is saved below.'}</p>`
+      : source === 'workspace'
+        ? '<p class="hint"><strong>Using the workspace Stripe keys.</strong> Checkout works today through the Stripe keys BitPype saved for this workspace — payments land in that account, not yours. To take shop payments into your OWN Stripe account, paste your keys here; your keys take over as soon as they are saved.</p>'
+        : '<p class="hint"><strong>Not connected.</strong> Shop checkout is off until Stripe keys are saved. Paste your own Stripe keys — the money goes straight to your Stripe account, never through BitPype.</p>';
+    host.innerHTML = `<div class="card" style="margin-bottom:14px">
+      <h3 style="margin:0 0 6px">Payments — your Stripe account</h3>
+      ${statusHtml}
+      <div class="field"><label>Publishable key</label>
+        <input type="text" id="shop-pk" placeholder="pk_live_…" value="${esc(payments.publishable_key || '')}" autocomplete="off" /></div>
+      <div class="field"><label>Secret key ${payments.connected ? '<span class="hint">(leave blank to keep the saved key)</span>' : ''}</label>
+        <input type="password" id="shop-sk" placeholder="sk_live_…" autocomplete="off" /></div>
+      <div class="field"><label>Webhook signing secret ${payments.webhook_configured ? '<span class="hint">(leave blank to keep the saved secret)</span>' : ''}</label>
+        <input type="password" id="shop-whsec" placeholder="whsec_…" autocomplete="off" /></div>
+      <div class="row" style="gap:6px;flex-wrap:wrap">
+        <button type="button" class="btn soft small" id="btn-shop-keys-save">Save Stripe keys</button>
+        ${payments.connected ? '<button type="button" class="btn ghost small" id="btn-shop-keys-test">Test connection</button>' : ''}
+        ${payments.connected ? '<button type="button" class="btn ghost small" id="btn-shop-keys-clear">Disconnect Stripe</button>' : ''}
+      </div>
+      <p class="msg" id="msg-shop-payments"></p>
+      ${
+        payments.connected
+          ? `<div class="field" style="margin-top:10px"><label>Your webhook URL <span class="hint">(add this in your Stripe dashboard → Developers → Webhooks)</span></label>
+        <div class="row" style="gap:6px">
+          <input type="text" id="shop-webhook-url" readonly value="${esc(webhookUrl)}" style="flex:1" />
+          <button type="button" class="btn ghost small" data-copy-input="shop-webhook-url">Copy</button>
+        </div></div>
+      <div class="field"><label>Webhook events to subscribe</label>
+        <div class="row" style="gap:6px">
+          <input type="text" readonly value="${esc(webhookEvents)}" style="flex:1" />
+          <button type="button" class="btn ghost small" data-copy-text="${esc(webhookEvents)}">Copy</button>
+        </div>
+        <p class="hint">Stripe sends these to mark your orders paid, expired, or failed.</p></div>`
+          : ''
+      }
+    </div>`;
+    const msg = (text, ok) => {
+      const el = document.getElementById('msg-shop-payments');
+      if (!el) return;
+      el.className = ok ? 'msg ok' : text ? 'msg err' : 'msg';
+      el.textContent = text || '';
+    };
+    const saveBtn = document.getElementById('btn-shop-keys-save');
+    if (saveBtn) {
+      saveBtn.onclick = async () => {
+        const body = {
+          publishable_key: (document.getElementById('shop-pk') || {}).value || '',
+          secret_key: (document.getElementById('shop-sk') || {}).value || '',
+          webhook_secret: (document.getElementById('shop-whsec') || {}).value || '',
+        };
+        try {
+          const res = await api('/modules/ecommerce/payments', { method: 'PUT', body: JSON.stringify(body) });
+          if (!moduleState.shop) moduleState.shop = {};
+          moduleState.shop.payments = (res && res.payments) || moduleState.shop.payments;
+          moduleState.shop.effective_source = moduleState.shop.payments && moduleState.shop.payments.connected ? 'lead' : moduleState.shop.effective_source;
+          renderShopPaymentsPanel();
+          const el = document.getElementById('msg-shop-payments');
+          if (el) {
+            el.className = 'msg ok';
+            el.textContent = 'Stripe keys saved. Your shop now charges your own Stripe account.';
+          }
+        } catch (e) {
+          msg(e.message || 'Could not save the Stripe keys.', false);
+        }
+      };
+    }
+    const testBtn = document.getElementById('btn-shop-keys-test');
+    if (testBtn) {
+      testBtn.onclick = async () => {
+        msg('Testing the saved key with Stripe…', true);
+        try {
+          const res = await api('/modules/ecommerce/payments/test', { method: 'POST', body: '{}' });
+          const t = (res && res.test) || {};
+          if (t.ok) {
+            msg(
+              `Connected. Stripe accepted the saved key${t.business_name ? ` for ${t.business_name}` : ''} (${t.test_mode ? 'test mode' : 'live mode'}; charges ${t.charges_enabled ? 'enabled' : 'not yet enabled'}).`,
+              true
+            );
+          } else if (t.reason === 'not_connected') {
+            msg('No keys are saved yet — save your Stripe keys first.', false);
+          } else {
+            msg('Stripe did not accept the saved secret key. Check the key in your Stripe dashboard and save it again.', false);
+          }
+        } catch (e) {
+          msg(e.message || 'The connection test could not run.', false);
+        }
+      };
+    }
+    const clearBtn = document.getElementById('btn-shop-keys-clear');
+    if (clearBtn) {
+      clearBtn.onclick = async () => {
+        try {
+          const res = await api('/modules/ecommerce/payments', { method: 'DELETE' });
+          if (!moduleState.shop) moduleState.shop = {};
+          moduleState.shop.payments = (res && res.payments) || { connected: false };
+          moduleState.shop.effective_source = moduleState.shop.workspace_configured ? 'workspace' : 'none';
+          renderShopPaymentsPanel();
+          const el = document.getElementById('msg-shop-payments');
+          if (el) {
+            el.className = 'msg ok';
+            el.textContent = moduleState.shop.workspace_configured
+              ? 'Your keys were removed. Checkout falls back to the workspace Stripe keys.'
+              : 'Your keys were removed. Checkout is off until keys are saved again.';
+          }
+        } catch (e) {
+          msg(e.message || 'Could not disconnect Stripe.', false);
+        }
+      };
+    }
   }
 
   function renderOffersDisplayPanel() {

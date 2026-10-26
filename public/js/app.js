@@ -7298,6 +7298,8 @@ async function pageShop() {
   const d = res.data || {};
   const orders = asList(d, ['orders']);
   const totals = asList(d, ['totals']);
+  const sites = asList(d, ['sites']);
+  const ownKeysCount = sites.filter((s) => s.effective_source === 'lead').length;
   const orderRows = (list, filtered) =>
     list
       .map(
@@ -7309,18 +7311,45 @@ async function pageShop() {
         <td>${esc(moneyCents(o.amount_cents, o.currency))}</td>
         <td><span class="badge ${o.status === 'paid' ? 'ok' : o.status === 'failed' || o.status === 'cancelled' ? 'danger' : 'warn'}">${esc(
           o.status || 'pending'
-        )}</span></td>
+        )}</span>${
+          o.stripe_key_source === 'lead'
+            ? '<div class="hint">own keys</div>'
+            : o.stripe_key_source === 'workspace'
+              ? '<div class="hint">workspace keys</div>'
+              : ''
+        }</td>
         <td>${o.created_at ? esc(fmtDate(o.created_at)) : '—'}</td></tr>`
       )
       .join('') ||
     `<tr><td colspan="7" class="empty">${filtered ? 'No orders for this business.' : 'No orders yet.'}</td></tr>`;
+  const siteRows = sites
+    .map((s) => {
+      const badge =
+        s.effective_source === 'lead'
+          ? '<span class="badge ok">Own Stripe keys</span>'
+          : s.effective_source === 'workspace'
+            ? '<span class="badge warn">Workspace keys</span>'
+            : '<span class="badge danger">Not configured</span>';
+      return `<tr><td>${esc(s.lead_name || 'Lead #' + s.lead_id)}</td><td>${badge}</td></tr>`;
+    })
+    .join('');
   view.innerHTML = `
     <div class="page-head"><div><h1>Shop</h1><p class="lede">Store orders across every site, plus the workspace payments configuration.</p></div>
     <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
     ${
       d.stripe_configured
-        ? '<div class="alert ok"><strong>Payments configured.</strong> Stripe keys are saved for this workspace, so shop checkout can run.</div>'
-        : '<div class="alert warn"><strong>Payments are not configured.</strong> No Stripe keys are saved for this workspace — shop sites have no working checkout until keys are added in Settings → Shop payments.</div>'
+        ? '<div class="alert ok"><strong>Workspace payments configured.</strong> Stripe keys are saved for this workspace, so shop checkout can run on the workspace fallback. Sites whose owners connected their own keys in the portal charge their own Stripe instead — see Payments by site below.</div>'
+        : ownKeysCount
+          ? `<div class="alert warn"><strong>No workspace keys saved.</strong> Checkout still works for ${ownKeysCount} site(s) whose owners connected their own Stripe keys in the portal; every other shop has no working checkout until keys are added in Settings → Shop payments or the owner connects their own.</div>`
+          : '<div class="alert warn"><strong>Payments are not configured.</strong> No Stripe keys are saved for this workspace and no site owner has connected their own — shop sites have no working checkout until keys are added in Settings → Shop payments or an owner connects theirs in the portal.</div>'
+    }
+    ${
+      sites.length
+        ? `<div class="table-wrap" style="margin-bottom:14px"><table>
+      <thead><tr><th>Payments by site</th><th>Checkout runs on</th></tr></thead>
+      <tbody>${siteRows}</tbody>
+    </table></div>`
+        : ''
     }
     <div class="stats-cards">
       <div class="stat-card"><div class="stat-label">Products (all sites)</div><div class="stat-value">${esc(d.product_count || 0)}</div></div>

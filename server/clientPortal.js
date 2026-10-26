@@ -2356,12 +2356,24 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     let estimate = null;
     let socialfeed = null;
     let members = null;
+    let shop = null;
     if (type === 'blog') items = modules.listBlogPosts(db, Number(leadId));
     else if (type === 'ecommerce') {
       items = modules.listProducts(db, Number(leadId)).map((p) => ({
         ...p,
         price_label: modules.formatPrice(p.price_cents, p.currency),
       }));
+      // Shop → Payments (Batch 19): the owner's own-Stripe status, the
+      // workspace fallback state, and which source checkout would use.
+      const shopStripe = require('./shopStripe');
+      const payments = modules.shopStripeStatus(db, Number(leadId));
+      const workspaceConfigured = shopStripe.isConfigured(db);
+      shop = {
+        payments,
+        workspace_configured: workspaceConfigured,
+        effective_source: payments.connected ? 'lead' : workspaceConfigured ? 'workspace' : 'none',
+        webhook_path: `/api/v1/shop/webhook/${Number(workspaceId)}`,
+      };
     } else if (type === 'courses') items = modules.listCourses(db, Number(leadId));
     else if (type === 'gallery') items = modules.listAlbums(db, Number(leadId));
     else if (type === 'directory') items = modules.listListings(db, Number(leadId));
@@ -2439,6 +2451,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     if (estimate) out.estimate = estimate;
     if (socialfeed) out.socialfeed = socialfeed;
     if (members) out.members = members;
+    if (shop) out.shop = shop;
     return out;
   });
 }
@@ -2727,6 +2740,48 @@ async function clearMembershipKeys(workspaceId, leadId, clientEmail) {
   return domain.withDb(workspaceId, (db) => ({
     payments: modules.clearMembershipStripeKeys(db, Number(leadId)),
   }));
+}
+
+/* Shop Part 2 (Batch 19): the owner's own Stripe keys for their shop. */
+
+async function saveShopKeys(workspaceId, leadId, body, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => ({
+    payments: modules.saveShopStripeKeys(db, Number(leadId), body || {}),
+  }));
+}
+
+async function clearShopKeys(workspaceId, leadId, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => ({
+    payments: modules.clearShopStripeKeys(db, Number(leadId)),
+  }));
+}
+
+/**
+ * Truthful connection test for the owner's saved shop keys: one
+ * lightweight Stripe read with the saved secret. Success reports
+ * facts about the owner's own account; failure reports a plain
+ * rejection — Stripe's raw error is never forwarded (it can echo key
+ * fragments) and no key material is ever returned or logged.
+ */
+async function testShopKeys(workspaceId, leadId, clientEmail) {
+  const domain = require('./domain');
+  const shopStripe = require('./shopStripe');
+  await requireSiteModules(workspaceId, clientEmail);
+  try {
+    const result = await domain.withDb(workspaceId, async (db) => shopStripe.testLeadConnection(db, Number(leadId)));
+    return { test: { ok: true, ...result } };
+  } catch (e) {
+    if (e && e.code === 'SHOP_STRIPE_NOT_CONFIGURED') {
+      return { test: { ok: false, reason: 'not_connected' } };
+    }
+    return { test: { ok: false, reason: 'rejected' } };
+  }
 }
 
 async function createMembershipTier(workspaceId, leadId, body, clientEmail) {
@@ -3454,6 +3509,9 @@ module.exports = {
   saveMembersConfig,
   saveMembershipKeys,
   clearMembershipKeys,
+  saveShopKeys,
+  clearShopKeys,
+  testShopKeys,
   createMembershipTier,
   updateMembershipTier,
   deleteMembershipTier,
