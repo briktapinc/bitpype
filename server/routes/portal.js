@@ -1090,6 +1090,24 @@ router.put('/modules/estimate/requests/:id', requireClient, actionLimit, async (
   }
 });
 
+// Offers display settings (list layout) — before the generic /modules/:type/:id
+// routes, which would otherwise read "settings" as an offer id.
+router.put('/modules/offers/settings', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.saveOffersDisplaySettings(
+        req.client.workspace_id,
+        req.client.lead_id,
+        req.body || {},
+        req.client.email
+      )
+    );
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 // Social Feed config + manual refresh — before the generic /modules/:type routes.
 router.put('/modules/socialfeed/config', requireClient, actionLimit, async (req, res) => {
   try {

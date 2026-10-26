@@ -1292,11 +1292,11 @@ async function main() {
   });
   sm17.ensureTables(db);
   assert.equal(sm17.MODULE_TYPES.length, 18, 'catalog still 18 types');
-  assert.equal(sm17.MODULE_SCRIPT_VER, 'mod12');
+  assert.equal(sm17.MODULE_SCRIPT_VER, 'mod13', 'script version bumped by batch 20');
   const cfg17Default = sm17.getMembersConfig(db, 1701);
   assert.equal(cfg17Default.access_level, 'any_member', 'Part 1 default preserved: any member');
   assert.equal(cfg17Default.access_tier_id, null);
-  check('batch17 catalog + defaults: 18 types, script mod12, access_level defaults to any_member', () => {});
+  check('batch17 catalog + defaults: 18 types, script mod13 (batch 20), access_level defaults to any_member', () => {});
 
   // Fixture: lead 1701 (site + members + blog) and foreign lead 1702.
   db.prepare("INSERT INTO leads (id, business_name, email) VALUES (1701, 'Fixture Paid Members', 'paid@example.invalid')").run();
@@ -1563,6 +1563,182 @@ async function main() {
   assert.equal(payoutNone17.ok, false);
   assert.equal(payoutNone17.reason, 'not_connected');
   check('batch17 admin: local rollup + cached, failure-isolated payout reads', () => {});
+
+  // ── Batch 20: offers layout setting + shared in-page container ──
+  const sm20 = load('server/siteModules.js', {
+    '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
+  });
+  sm20.ensureTables(db);
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (2001, 'Fixture Offers Layout', 'offers20@example.invalid')").run();
+  db.prepare('INSERT INTO websites (lead_id, name, theme, pages) VALUES (2001, ?, ?, ?)').run(
+    'Fixture Offers Site',
+    '{}',
+    JSON.stringify([{ slug: 'index', file: 'index.html', title: 'Home', nav_label: 'Home', html: '<p>hi</p>', sections: [] }])
+  );
+  const offImg20 = sm20.createOffer(db, 2001, {
+    title: 'Save 20% on every new job',
+    description: 'New customers save on their first job.',
+    code: 'SAVE20',
+    expires_at: '2999-11-20',
+    image_url: 'https://example.test/offer.jpg',
+    status: 'published',
+  });
+  const offPlain20 = sm20.createOffer(db, 2001, { title: 'Free Checkup', description: 'No image on this one.', status: 'published' });
+  assert(offImg20.id && offPlain20.id);
+  // Layout setting: default cards, persists, rides the public payload, junk normalizes.
+  assert.equal(sm20.getOffersLayout(db, 2001), 'cards', 'default layout = cards');
+  const emb20 = sm20.attachModule(db, 2001, 'offers', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
+  let pub20 = sm20.getPublicModuleByToken(db, emb20.public_token);
+  assert.equal(pub20.settings.layout, 'cards');
+  assert.equal(pub20.items.length, 2, 'both published offers surface');
+  assert.equal(sm20.updateOffersLayout(db, 2001, 'horizontal', { workspaceId: 1 }).layout, 'horizontal');
+  pub20 = sm20.getPublicModuleByToken(db, emb20.public_token);
+  assert.equal(pub20.settings.layout, 'horizontal', 'payload carries the layout to module-embed.js');
+  sm20.attachModule(db, 2001, 'offers', { workspaceId: 1, appUrl: 'https://example.test', settings: { post_limit: 5 } });
+  assert.equal(sm20.getOffersLayout(db, 2001), 'horizontal', 'layout survives unrelated settings writes');
+  assert.equal(sm20.updateOffersLayout(db, 2001, 'diagonal', { workspaceId: 1 }).layout, 'cards', 'junk layout normalizes to cards');
+  assert.equal(sm20.getOffersLayout(db, 2001), 'cards');
+  pub20 = sm20.getPublicModuleByToken(db, emb20.public_token);
+  assert.equal(pub20.settings.layout, 'cards', 'payload back to cards after normalize');
+  check('batch20 offers layout: default cards, persists in embed settings, payload carries it, survives re-attach, junk normalizes', () => {});
+
+  // Client render: module-embed.js under a fake DOM + stubbed fetch.
+  const embedSrc20 = fs.readFileSync(path.join(root, 'public/js/module-embed.js'), 'utf8');
+  function fakeEl20(tag) {
+    const el = {
+      tagName: String(tag || 'div').toUpperCase(),
+      children: [],
+      parentElement: null,
+      previousElementSibling: null,
+      _html: '',
+      _text: '',
+      _attrs: {},
+      _classes: new Set(),
+      style: {},
+      classList: {
+        add: (...cs) => cs.forEach((c) => el._classes.add(c)),
+        remove: (...cs) => cs.forEach((c) => el._classes.delete(c)),
+        contains: (c) => el._classes.has(c),
+        toggle: (c, force) => {
+          const on = force === undefined ? !el._classes.has(c) : !!force;
+          if (on) el._classes.add(c);
+          else el._classes.delete(c);
+          return on;
+        },
+      },
+      getAttribute: (n) => (n in el._attrs ? el._attrs[n] : null),
+      setAttribute: (n, v) => {
+        el._attrs[n] = String(v);
+      },
+      closest: () => null,
+      querySelectorAll: () => [],
+      querySelector: () => null,
+      addEventListener: () => {},
+      appendChild: (child) => {
+        el.children.push(child);
+        return child;
+      },
+    };
+    Object.defineProperty(el, 'innerHTML', {
+      get: () => el._html,
+      set: (v) => {
+        el._html = String(v);
+      },
+    });
+    Object.defineProperty(el, 'textContent', {
+      get: () => el._text,
+      set: (v) => {
+        el._text = String(v);
+      },
+    });
+    return el;
+  }
+  async function renderModule20(payload) {
+    const mount = fakeEl20('div');
+    mount.setAttribute('data-bitpype-module', '1');
+    mount.setAttribute('data-bitpype-module-token', payload.embed.public_token);
+    mount.setAttribute('data-bitpype-api', 'https://example.test');
+    mount.setAttribute('data-bitpype-hide-title', '1');
+    const body = fakeEl20('body');
+    body.children = [fakeEl20('header'), fakeEl20('main'), mount];
+    mount.parentElement = body;
+    let css = '';
+    const document20 = {
+      readyState: 'complete',
+      body,
+      head: {
+        appendChild: (s) => {
+          css = s.textContent || '';
+          return s;
+        },
+      },
+      getElementById: () => null,
+      createElement: (tag) => fakeEl20(tag),
+      querySelector: () => null,
+      querySelectorAll: (sel) =>
+        sel.includes('data-bitpype-module') && !sel.includes('member-gate') ? [mount] : [],
+      addEventListener: () => {},
+    };
+    const location20 = { pathname: '/index.html', search: '', href: 'https://example.test/index.html' };
+    const window20 = { location: location20 };
+    vm.runInNewContext(embedSrc20, {
+      window: window20,
+      document: document20,
+      localStorage: { length: 0, key: () => null, getItem: () => null, setItem: () => {}, removeItem: () => {} },
+      location: location20,
+      fetch: () => Promise.resolve({ json: () => Promise.resolve({ ok: true, data: payload }) }),
+      URL,
+      URLSearchParams,
+      console,
+      setTimeout,
+      clearTimeout,
+    });
+    await new Promise((r) => setTimeout(r, 25));
+    return { html: mount._html, css, classes: mount._classes };
+  }
+
+  // Shared container: every in-page mount is centered in a content column.
+  const cardsAll20 = await renderModule20(pub20);
+  assert(cardsAll20.classes.has('bitpype-module-inpage'), 'mount is marked in-page');
+  assert(cardsAll20.css.includes('.bitpype-module-embed.bitpype-module-inpage'), 'shared in-page container rule ships');
+  assert(cardsAll20.css.includes('max-width:1100px'), 'container caps at the module content column');
+  assert(cardsAll20.css.includes('margin-left:auto'), 'container centers with auto margins');
+  assert(cardsAll20.css.includes('.bp-mod-offers.is-horizontal'), 'horizontal layout CSS ships');
+  assert(cardsAll20.css.includes('.bp-mod-offer-row{'), 'horizontal row CSS ships');
+  check('batch20 shared container: in-page mounts get a centered 1100px content column in the shared embed CSS', () => {});
+
+  // Cards layout (the default): single offer + multiple offers.
+  const imgItem20 = pub20.items.find((i) => i.image_url);
+  const cardsOne20 = await renderModule20({ ...pub20, items: [imgItem20] });
+  assert(cardsOne20.html.includes('class="bp-mod-offers"'), 'cards wrapper renders');
+  assert(!cardsOne20.html.includes('is-horizontal'), 'cards is not the horizontal layout');
+  assert.equal(cardsOne20.html.split('class="bp-mod-offer"').length - 1, 1, 'single offer renders one card');
+  assert(cardsOne20.html.includes('SAVE20') && cardsOne20.html.includes('Expires 2999-11-20'), 'card shows code + expiry');
+  const cardsTwo20 = await renderModule20(pub20);
+  assert.equal(cardsTwo20.html.split('class="bp-mod-offer"').length - 1, 2, 'two offers render two cards');
+  check('batch20 cards layout: single offer contained, multiple offers all render, code + expiry shown', () => {});
+
+  // Horizontal layout: banner rows, image left / body / code+expiry right,
+  // and a no-image offer renders a row without an <img>.
+  const horiz20 = await renderModule20({ ...pub20, settings: { ...pub20.settings, layout: 'horizontal' } });
+  assert(horiz20.html.includes('class="bp-mod-offers is-horizontal"'), 'horizontal wrapper renders');
+  assert.equal(horiz20.html.split('bp-mod-offer-row').length - 1 >= 2, true, 'rows render');
+  assert(horiz20.html.includes('bp-mod-offer-row-side'), 'code/expiry side cell renders');
+  assert(horiz20.html.includes('SAVE20'), 'row shows the code chip');
+  assert.equal(horiz20.html.split('<img').length - 1, 1, 'only the imaged offer renders an image');
+  assert(horiz20.html.includes('bp-mod-offer-row no-img'), 'no-image offer collapses the thumb cell');
+  check('batch20 horizontal layout: banner rows with side code/expiry; no-image offer renders without an image', () => {});
+
+  // Another module type still renders through the same mount path.
+  const faq20 = await renderModule20({
+    embed: { public_token: 'tok20' },
+    module_type: 'faq',
+    title: 'FAQ',
+    settings: {},
+    items: [{ question: 'Do you travel?', answer_html: '<p>Yes, locally.</p>' }],
+  });
+  assert(faq20.html.includes('bp-mod-faq') && faq20.html.includes('Do you travel?'), 'faq still renders');
+  check('batch20 regression: faq module renders unchanged through the shared mount', () => {});
 
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }

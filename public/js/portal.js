@@ -5183,7 +5183,54 @@
     renderSocialFeedAdminPanel();
     renderMembersAdminPanel();
     renderMenuCategoriesPanel();
+    renderOffersDisplayPanel();
     syncModulesPaneTabs();
+  }
+
+  function renderOffersDisplayPanel() {
+    const host = document.getElementById('modules-offers-display-panel');
+    if (!host) return;
+    if (moduleState.current !== 'offers') {
+      host.innerHTML = '';
+      host.hidden = true;
+      return;
+    }
+    host.hidden = false;
+    const settings = (moduleState.embed && moduleState.embed.settings) || {};
+    const layout = settings.layout === 'horizontal' ? 'horizontal' : 'cards';
+    host.innerHTML = `<div class="card" style="margin-bottom:14px">
+      <h3 style="margin:0 0 6px">How offers appear</h3>
+      <p class="hint" style="margin:0 0 8px">Cards shows your offers as a grid of cards. Horizontal shows each offer as a wide banner strip — handy for a single big promotion near the top of a page.</p>
+      <div style="display:flex;gap:8px;align-items:center;padding-top:4px">
+        <label class="hint" for="offers-layout-select" style="margin:0">Layout</label>
+        <select id="offers-layout-select" style="width:auto">
+          <option value="cards"${layout === 'cards' ? ' selected' : ''}>Cards</option>
+          <option value="horizontal"${layout === 'horizontal' ? ' selected' : ''}>Horizontal</option>
+        </select>
+        <button type="button" class="btn soft small" id="btn-offers-layout-save">Save</button>
+      </div>
+    </div>`;
+    const saveBtn = document.getElementById('btn-offers-layout-save');
+    if (saveBtn) {
+      saveBtn.onclick = async () => {
+        const sel = document.getElementById('offers-layout-select');
+        const next = sel && sel.value === 'horizontal' ? 'horizontal' : 'cards';
+        try {
+          const res = await api('/modules/offers/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ layout: next }),
+          });
+          const saved = (res && res.settings && res.settings.layout) || next;
+          if (!moduleState.embed) moduleState.embed = {};
+          if (!moduleState.embed.settings) moduleState.embed.settings = {};
+          moduleState.embed.settings.layout = saved;
+          moduleMsg('Offer layout saved.', true);
+          renderOffersDisplayPanel();
+        } catch (e) {
+          moduleMsg(e.message || 'Could not save the offer layout.', false);
+        }
+      };
+    }
   }
 
   function renderMenuCategoriesPanel() {

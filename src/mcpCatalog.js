@@ -1026,7 +1026,7 @@ const tools = [
         settings: {
           type: 'object',
           description:
-            'Embed settings. Blog: post_limit (int, null=all), show_excerpt (bool, default true). Bookings: show_request_form.',
+            'Embed settings. Blog: post_limit (int, null=all), show_excerpt (bool, default true). Bookings: show_request_form. Offers: layout ("cards" = contained card grid, default; "horizontal" = banner-style rows).',
           properties: {
             post_limit: {
               type: 'integer',
@@ -1035,6 +1035,11 @@ const tools = [
             },
             show_excerpt: { type: 'boolean', description: 'Blog: show excerpt under card title (default true)' },
             show_request_form: { type: 'boolean' },
+            layout: {
+              type: 'string',
+              enum: ['cards', 'horizontal'],
+              description: 'Offers only: list layout (default "cards")',
+            },
           },
         },
         dryRun: { type: 'boolean', description: 'Return wouldInject without mutating pages' },

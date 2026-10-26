@@ -2689,6 +2689,17 @@ async function saveSocialFeedConfig(workspaceId, leadId, body, clientEmail) {
   }));
 }
 
+async function saveOffersDisplaySettings(workspaceId, leadId, body, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => ({
+    settings: modules.updateOffersLayout(db, Number(leadId), (body || {}).layout, {
+      workspaceId: Number(workspaceId),
+    }),
+  }));
+}
+
 async function saveMembersConfig(workspaceId, leadId, body, clientEmail) {
   const domain = require('./domain');
   const modules = require('./siteModules');
@@ -3439,6 +3450,7 @@ module.exports = {
   saveBookingHours,
   saveEstimateConfig,
   saveSocialFeedConfig,
+  saveOffersDisplaySettings,
   saveMembersConfig,
   saveMembershipKeys,
   clearMembershipKeys,

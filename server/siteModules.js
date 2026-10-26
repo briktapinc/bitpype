@@ -40,7 +40,7 @@ const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod12';
+const MODULE_SCRIPT_VER = 'mod13';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -747,6 +747,12 @@ function normalizePostLimit(value) {
   return Math.min(100, Math.floor(n));
 }
 
+/** Offers list layout: 'cards' (contained card grid, the default) or
+ * 'horizontal' (banner-style rows). Anything else normalizes to 'cards'. */
+function normalizeOffersLayout(value, fallback = 'cards') {
+  return value === 'horizontal' ? 'horizontal' : fallback === 'horizontal' ? 'horizontal' : 'cards';
+}
+
 function parseEmbedSettings(row) {
   let raw = {};
   if (row && row.settings_json) {
@@ -759,12 +765,15 @@ function parseEmbedSettings(row) {
   }
   const showRequest = raw.show_request_form;
   const showExcerpt = raw.show_excerpt;
-  return {
+  const out = {
     show_request_form: showRequest === false || showRequest === 0 || showRequest === 'false' ? false : true,
     appointment_form_provisioned: !!raw.appointment_form_provisioned,
     post_limit: normalizePostLimit(raw.post_limit),
     show_excerpt: showExcerpt === false || showExcerpt === 0 || showExcerpt === 'false' ? false : true,
   };
+  // Offers-only display setting; other module types don't carry it.
+  if (row && row.module_type === 'offers') out.layout = normalizeOffersLayout(raw.layout);
+  return out;
 }
 
 function writeEmbedSettings(db, embedId, settings = {}) {
@@ -783,6 +792,10 @@ function writeEmbedSettings(db, embedId, settings = {}) {
         ? !(settings.show_excerpt === false || settings.show_excerpt === 0 || settings.show_excerpt === 'false')
         : cur.show_excerpt,
   };
+  if (row && row.module_type === 'offers') {
+    next.layout =
+      settings.layout !== undefined ? normalizeOffersLayout(settings.layout) : cur.layout || 'cards';
+  }
   db.prepare(
     `
     UPDATE site_module_embeds
@@ -791,6 +804,24 @@ function writeEmbedSettings(db, embedId, settings = {}) {
   `
   ).run(JSON.stringify(next), Number(embedId));
   return next;
+}
+
+/** Offers display settings (embed settings): the list layout choice. */
+function getOffersLayout(db, leadId) {
+  ensureTables(db);
+  const row = getEmbedRow(db, leadId, 'offers');
+  if (!row) return 'cards';
+  return parseEmbedSettings(row).layout || 'cards';
+}
+
+function updateOffersLayout(db, leadId, layout, { workspaceId } = {}) {
+  ensureTables(db);
+  const row = ensureEmbed(db, leadId, 'offers', { workspaceId });
+  const next = writeEmbedSettings(db, row.id, {
+    ...parseEmbedSettings(row),
+    layout: normalizeOffersLayout(layout),
+  });
+  return { layout: next.layout || 'cards' };
 }
 
 /**
@@ -8123,6 +8154,9 @@ module.exports = {
   ESTIMATE_REQUEST_STATUSES,
   ESTIMATE_DEFAULT_DISCLAIMER,
   getEstimateConfig,
+  getOffersLayout,
+  updateOffersLayout,
+  normalizeOffersLayout,
   updateEstimateConfig,
   listEstimateOptions,
   getEstimateOption,

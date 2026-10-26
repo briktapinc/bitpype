@@ -44,6 +44,15 @@
       '--bp-mod-paper:var(--ws-bg,var(--paper,#fff));',
       'color:var(--bp-mod-ink);font:inherit;line-height:1.55;width:100%;margin:1.25rem 0 0;',
       '}',
+      // In-page mounts sit in a centered content column of their own, so a
+      // module placed in a full-width band on a designed page aligns with the
+      // page's content instead of stranding at the band's left edge. Mounts
+      // already inside a narrower designed container are unaffected (the cap
+      // only binds when the mount's parent is wider than the column).
+      '.bitpype-module-embed.bitpype-module-inpage{',
+      'max-width:1100px;margin-left:auto;margin-right:auto;box-sizing:border-box;',
+      'padding-left:clamp(1.1rem,3.5vw,2rem);padding-right:clamp(1.1rem,3.5vw,2rem);',
+      '}',
       '.bitpype-module-embed.bitpype-module-standalone{',
       'max-width:920px;margin:0 auto;padding:22px 16px 32px;',
       '}',
@@ -192,9 +201,31 @@
       '.bitpype-module-embed .bp-mod-card{transition:none;}',
       '.bitpype-module-embed .bp-mod-card:hover{transform:none;}',
       '}',
-      // Special Offers
-      '.bitpype-module-embed .bp-mod-offers{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1.1rem;}',
-      '.bitpype-module-embed .bp-mod-offer{border:1px solid var(--bp-mod-line);border-radius:1.1rem;background:var(--bp-mod-paper);overflow:hidden;display:flex;flex-direction:column;}',
+      // Special Offers — Cards layout: contained grid (auto-fit collapses
+      // empty tracks, cards cap at a sensible width and center, so a single
+      // offer never strands at the left edge of a wide column).
+      '.bitpype-module-embed .bp-mod-offers{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:1.1rem;justify-items:center;}',
+      '.bitpype-module-embed .bp-mod-offer{border:1px solid var(--bp-mod-line);border-radius:1.1rem;background:var(--bp-mod-paper);overflow:hidden;display:flex;flex-direction:column;width:100%;max-width:34rem;}',
+      // Special Offers — Horizontal layout: banner-style rows (image left,
+      // title + description middle, code chip + expiry right), stacked.
+      '.bitpype-module-embed .bp-mod-offers.is-horizontal{display:flex;flex-direction:column;gap:1rem;}',
+      '.bitpype-module-embed .bp-mod-offer-row{display:grid;grid-template-columns:220px minmax(0,1fr) auto;align-items:center;gap:1.1rem;width:100%;box-sizing:border-box;border:1px solid var(--bp-mod-line);border-radius:1.1rem;background:var(--bp-mod-paper);padding:1rem 1.15rem;overflow:hidden;}',
+      '.bitpype-module-embed .bp-mod-offer-row.no-img{grid-template-columns:minmax(0,1fr) auto;}',
+      '.bitpype-module-embed .bp-mod-offer-row-img{display:block;border-radius:0.75rem;overflow:hidden;line-height:0;}',
+      '.bitpype-module-embed .bp-mod-offer-row img{width:100%;height:128px;object-fit:cover;display:block;}',
+      '.bitpype-module-embed .bp-mod-offer-row-body{display:flex;flex-direction:column;gap:0.45rem;min-width:0;}',
+      '.bitpype-module-embed .bp-mod-offer-row h2{margin:0;font-size:1.15rem;line-height:1.25;font-family:var(--ws-heading-font,inherit);}',
+      '.bitpype-module-embed .bp-mod-offer-row h2 a{color:inherit;text-decoration:none;}',
+      '.bitpype-module-embed .bp-mod-offer-row h2 a:hover{color:var(--bp-mod-accent);}',
+      '.bitpype-module-embed .bp-mod-offer-row p{margin:0;color:var(--bp-mod-muted);font-size:0.95rem;line-height:1.5;}',
+      '.bitpype-module-embed .bp-mod-offer-row-side{display:flex;flex-direction:column;align-items:flex-end;gap:0.5rem;text-align:right;}',
+      '.bitpype-module-embed .bp-mod-offer-row-side .bp-mod-offer-exp{margin:0;}',
+      '@media (max-width:640px){',
+      '.bitpype-module-embed .bp-mod-offer-row{grid-template-columns:1fr;}',
+      '.bitpype-module-embed .bp-mod-offer-row.no-img{grid-template-columns:1fr;}',
+      '.bitpype-module-embed .bp-mod-offer-row img{height:160px;}',
+      '.bitpype-module-embed .bp-mod-offer-row-side{align-items:flex-start;text-align:left;}',
+      '}',
       '.bitpype-module-embed .bp-mod-offer img{width:100%;height:160px;object-fit:cover;display:block;}',
       '.bitpype-module-embed .bp-mod-offer-body{padding:1rem 1.1rem 1.2rem;display:flex;flex-direction:column;gap:0.55rem;flex:1;}',
       '.bitpype-module-embed .bp-mod-offer h2{margin:0;font-size:1.15rem;line-height:1.25;font-family:var(--ws-heading-font,inherit);}',
@@ -561,6 +592,7 @@
     return {
       show_excerpt: !(s.show_excerpt === false || s.show_excerpt === 0 || s.show_excerpt === 'false'),
       post_limit: s.post_limit != null && Number(s.post_limit) > 0 ? Math.floor(Number(s.post_limit)) : null,
+      layout: s.layout === 'horizontal' ? 'horizontal' : 'cards',
       target_page_slug: (data && data.embed && data.embed.target_page_slug) || '',
     };
   }
@@ -625,6 +657,36 @@
     if (it.terms) html += '<p class="bp-mod-offer-terms">' + esc(it.terms) + '</p>';
     if (it.expires_at) html += '<p class="bp-mod-offer-exp">Expires ' + esc(it.expires_at) + '</p>';
     html += '</div></article>';
+    return html;
+  }
+
+  /** Horizontal (banner) layout: image left, title + description middle,
+   * code chip + expiry right. Rows without an image collapse the thumb cell. */
+  function offerRowHtml(it) {
+    var key = it.slug || it.id;
+    var html = '<article class="bp-mod-offer-row' + (it.image_url ? '' : ' no-img') + '">';
+    if (it.image_url) {
+      html +=
+        '<a class="bp-mod-offer-row-img" href="' +
+        esc(itemHref(key)) +
+        '"><img src="' +
+        esc(it.image_url) +
+        '" alt="' +
+        esc(it.title) +
+        '" loading="lazy"></a>';
+    }
+    html += '<div class="bp-mod-offer-row-body">';
+    html += '<h2><a href="' + esc(itemHref(key)) + '">' + esc(it.title) + '</a></h2>';
+    if (it.description) html += '<p>' + esc(it.description) + '</p>';
+    if (it.terms) html += '<p class="bp-mod-offer-terms">' + esc(it.terms) + '</p>';
+    html += '</div>';
+    if (it.code || it.expires_at) {
+      html += '<div class="bp-mod-offer-row-side">';
+      if (it.code) html += '<span class="bp-mod-offer-code">' + esc(it.code) + '</span>';
+      if (it.expires_at) html += '<p class="bp-mod-offer-exp">Expires ' + esc(it.expires_at) + '</p>';
+      html += '</div>';
+    }
+    html += '</article>';
     return html;
   }
 
@@ -840,9 +902,17 @@
       return;
     }
     if (type === 'offers') {
-      html += '<div class="bp-mod-offers">';
-      for (var oi = 0; oi < items.length; oi++) {
-        html += offerCardHtml(items[oi]);
+      var offersLayout = embedSettings(data).layout;
+      if (offersLayout === 'horizontal') {
+        html += '<div class="bp-mod-offers is-horizontal">';
+        for (var hi = 0; hi < items.length; hi++) {
+          html += offerRowHtml(items[hi]);
+        }
+      } else {
+        html += '<div class="bp-mod-offers">';
+        for (var oi = 0; oi < items.length; oi++) {
+          html += offerCardHtml(items[oi]);
+        }
       }
       html += '</div>';
       el.innerHTML = html;
