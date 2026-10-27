@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Interested follow-up email (hands-off mode).
+ * Interested follow-up email.
  *
  * When a lead signals "interested" — via the outreach email {{interested}}
  * link OR the preview claim popup / claim page — both paths funnel into
@@ -18,9 +18,13 @@
  * click; the marker is the single guard.
  *
  * Gates (checked before the marker is claimed, so a blocked click does not
- * burn the one shot): hands_off.enabled = 1 AND
- * hands_off.followup_interested_email !== 0 (default ON — the follow-up is
- * part of hands-off mode) AND automation not paused.
+ * burn the one shot): hands_off.followup_interested_email !== 0 (default
+ * ON) — the follow-up's OWN switch, and the only mode gate. Batch 35
+ * (Ely's ruling, 2026-10-27): the follow-up is a direct reply to the
+ * lead's own click, so it is NOT part of hands-off mode — it fires
+ * whether or not hands_off.enabled is on and whether or not automation
+ * is paused. The hands-off TICK (server/handsOff.js) keeps its own
+ * hands_off.enabled gate; this listener deliberately never consults it.
  *
  * Failure policy: everything after the marker claim runs fire-and-forget on
  * a tracked promise. An email or domain-search failure NEVER breaks the
@@ -83,11 +87,12 @@ function withTimeout(promise, ms, label) {
 // ---------------------------------------------------------------------------
 
 function onInterested({ db, leadId }) {
-  // Gates first: a gated-off click must NOT claim the marker, so the
-  // follow-up can still fire on a later click once the gate opens.
-  if (outreach.getSetting(db, 'hands_off.enabled', '0') !== '1') return undefined;
+  // Gate first: a gated-off click must NOT claim the marker, so the
+  // follow-up can still fire on a later click once the toggle opens.
+  // The follow-up's own toggle is the ONLY mode gate (Batch 35): no
+  // hands_off.enabled check and no automation-pause check — an
+  // interested click is the lead's own action and always earns its reply.
   if (outreach.getSetting(db, 'hands_off.followup_interested_email', '1') === '0') return undefined;
-  if (outreach.isAutomationPaused(db)) return undefined;
 
   const claimed = db
     .prepare('SELECT id FROM prospect_events WHERE lead_id = ? AND type = ? LIMIT 1')

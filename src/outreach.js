@@ -656,8 +656,8 @@ function applyInterestResponse(db, leadId, action) {
     // The registered follow-up hook (hosted server) claims its own durable
     // marker synchronously before dispatching, so repeat clicks via either
     // path (email link / claim popup) can never re-send — while a click that
-    // arrived when the hook's gates were closed (hands-off off, automation
-    // paused) can still trigger it on a later click.
+    // arrived while the follow-up's own toggle was off can still trigger it
+    // on a later click.
     notifyInterested(db, id);
     return {
       action: act,
