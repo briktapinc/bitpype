@@ -3694,6 +3694,237 @@ async function main() {
     }
   });
 
+  // --- Batch 24: pricing control in Admin Settings → Billing -----------
+  // The real pricingAdmin runs against an in-memory platform-settings map
+  // and a stub Stripe client: amounts in → Products/Prices managed, ids
+  // swapped, olds deactivated, display labels synced — and any Stripe
+  // rejection leaves every setting untouched.
+  const settings24 = new Map();
+  const platform24 = {
+    getPlatformSetting: async (key, dflt = '') => (settings24.has(key) ? settings24.get(key) : dflt),
+    setPlatformSetting: async (key, value) => {
+      settings24.set(key, String(value));
+    },
+  };
+  const prices24 = new Map();
+  const products24 = new Map();
+  const stripeCalls24 = [];
+  const stripeCtl24 = { failCreateFor: null };
+  let priceSeq24 = 0;
+  let productSeq24 = 0;
+  class StubStripe24 {
+    constructor() {
+      this.prices = {
+        create: async (args) => {
+          stripeCalls24.push(['prices.create', args]);
+          if (stripeCtl24.failCreateFor && args.metadata && args.metadata.bitpype_item === stripeCtl24.failCreateFor) {
+            throw new Error('Stub Stripe rejection');
+          }
+          const rec = {
+            id: 'price_24_' + ++priceSeq24,
+            product: args.product,
+            unit_amount: args.unit_amount,
+            currency: args.currency,
+            recurring: args.recurring || null,
+            metadata: args.metadata || {},
+            active: true,
+          };
+          prices24.set(rec.id, rec);
+          return rec;
+        },
+        retrieve: async (id) => {
+          stripeCalls24.push(['prices.retrieve', id]);
+          const rec = prices24.get(id);
+          if (!rec) throw new Error('No such price: ' + id);
+          return rec;
+        },
+        update: async (id, args) => {
+          stripeCalls24.push(['prices.update', id, args]);
+          const rec = prices24.get(id);
+          if (!rec) throw new Error('No such price: ' + id);
+          Object.assign(rec, args);
+          return rec;
+        },
+      };
+      this.products = {
+        create: async (args) => {
+          stripeCalls24.push(['products.create', args]);
+          const rec = { id: 'prod_24_' + ++productSeq24, name: args.name, metadata: args.metadata || {}, deleted: false };
+          products24.set(rec.id, rec);
+          return rec;
+        },
+        retrieve: async (id) => {
+          stripeCalls24.push(['products.retrieve', id]);
+          const rec = products24.get(id);
+          if (!rec) throw new Error('No such product: ' + id);
+          return rec;
+        },
+        search: async (args) => {
+          stripeCalls24.push(['products.search', args]);
+          const m = /metadata\['bitpype_key'\]:'([^']+)'/.exec((args && args.query) || '');
+          const hit = [...products24.values()].find((p) => p.metadata.bitpype_key === (m && m[1]));
+          return { data: hit ? [hit] : [] };
+        },
+        list: async () => ({ data: [...products24.values()] }),
+      };
+    }
+  }
+  const stripeClient24 = {
+    getSecretKey: async () => settings24.get('stripe.secret_key') || '',
+    getStripe: async () => {
+      if (!settings24.get('stripe.secret_key')) {
+        const e = new Error('Stripe is not configured (stripe.secret_key / STRIPE_SECRET_KEY)');
+        e.code = 'STRIPE_NOT_CONFIGURED';
+        throw e;
+      }
+      return new StubStripe24();
+    },
+    getPriceIdForPlan: async (plan) => settings24.get('stripe.price_id_' + plan) || settings24.get('stripe.price_id') || '',
+  };
+  const pricing24 = load('server/pricingAdmin.js', {
+    './platform': platform24,
+    './stripeClient': stripeClient24,
+    './plans': require(path.join(root, 'server/plans.js')),
+  });
+
+  const stateUnconf24 = await pricing24.getPricingState();
+  check('batch24 state: unconfigured Stripe reports configured:false, mode null, no amounts', () => {
+    assert.equal(stateUnconf24.configured, false);
+    assert.equal(stateUnconf24.mode, null);
+    assert.equal(stateUnconf24.items.length, 4);
+    assert.ok(stateUnconf24.items.every((i) => i.amountUsd === null && i.priceId === null));
+  });
+  await assert.rejects(pricing24.updatePricing({ standard: 49 }), (e) => e.code === 'STRIPE_NOT_CONFIGURED');
+  check('batch24 save: unconfigured Stripe rejects clean and changes no setting', () => {
+    assert.equal(settings24.size, 0);
+    assert.equal(stripeCalls24.length, 0);
+  });
+
+  settings24.set('stripe.secret_key', 'sk_test_24fixture');
+  for (const bad of [0, -5, 'abc', '1.999', '0.00', 100001]) {
+    await assert.rejects(pricing24.updatePricing({ standard: bad }), (e) => e.code === 'INVALID_AMOUNT');
+  }
+  check('batch24 save: invalid amounts rejected before any Stripe call or setting write', () => {
+    assert.equal(stripeCalls24.length, 0);
+    assert.equal(settings24.has('stripe.price_id_standard'), false);
+  });
+
+  const first24 = await pricing24.updatePricing({ standard: '49', pro: 99, premium: '199.00', credits: 25 });
+  check('batch24 save: first save mints products+prices with correct cents and intervals', () => {
+    assert.equal(first24.configured, true);
+    assert.equal(first24.mode, 'test');
+    assert.equal(first24.updated.length, 4);
+    assert.equal(first24.unchanged.length, 0);
+    const std = first24.updated.find((u) => u.id === 'standard');
+    assert.equal(std.cents, 4900);
+    assert.equal(std.productCreated, true);
+    const stdPrice = prices24.get(std.newPriceId);
+    assert.equal(stdPrice.unit_amount, 4900);
+    assert.equal(stdPrice.recurring.interval, 'month');
+    assert.equal(stdPrice.product, std.productId);
+    assert.equal(products24.get(std.productId).metadata.bitpype_key, 'plan_standard');
+    const cred = first24.updated.find((u) => u.id === 'credits');
+    assert.equal(cred.cents, 2500);
+    assert.equal(prices24.get(cred.newPriceId).recurring, null, 'credits price is one-time');
+    assert.equal(products24.get(cred.productId).metadata.bitpype_key, 'credits_pack');
+  });
+  check('batch24 save: settings swapped to the new ids and display labels synced', () => {
+    const byId = Object.fromEntries(first24.updated.map((u) => [u.id, u]));
+    assert.equal(settings24.get('stripe.price_id_standard'), byId.standard.newPriceId);
+    assert.equal(settings24.get('stripe.price_id_pro'), byId.pro.newPriceId);
+    assert.equal(settings24.get('stripe.price_id_premium'), byId.premium.newPriceId);
+    assert.equal(settings24.get('stripe.price_id_credits'), byId.credits.newPriceId);
+    assert.equal(settings24.get('stripe.product_id_standard'), byId.standard.productId);
+    assert.equal(settings24.get('stripe.product_id_credits'), byId.credits.productId);
+    assert.equal(settings24.get('billing.amount_label_standard'), 'Standard · $49/mo');
+    assert.equal(settings24.get('billing.amount_label_pro'), 'Pro · $99/mo');
+    assert.equal(settings24.get('billing.amount_label_premium'), 'Premium · $199/mo');
+    assert.equal(settings24.get('credits.pack_label'), '50 credits · $25');
+  });
+
+  const state24 = await pricing24.getPricingState();
+  check('batch24 state: amounts resolve live from Stripe with mode test', () => {
+    assert.equal(state24.configured, true);
+    assert.equal(state24.mode, 'test');
+    const byId = Object.fromEntries(state24.items.map((i) => [i.id, i]));
+    assert.equal(byId.standard.amountUsd, 49);
+    assert.equal(byId.standard.amountSource, 'stripe');
+    assert.equal(byId.pro.amountUsd, 99);
+    assert.equal(byId.premium.amountUsd, 199);
+    assert.equal(byId.credits.amountUsd, 25);
+    assert.equal(byId.standard.priceId, settings24.get('stripe.price_id_standard'));
+  });
+
+  const createCountBeforeNoop24 = stripeCalls24.filter((c) => c[0] === 'prices.create').length;
+  const noop24 = await pricing24.updatePricing({ standard: 49, pro: '99.00', premium: 199, credits: '25' });
+  check('batch24 save: unchanged amounts are no-ops (no new prices, nothing deactivated)', () => {
+    assert.equal(noop24.updated.length, 0);
+    assert.deepEqual([...noop24.unchanged].sort(), ['credits', 'premium', 'pro', 'standard']);
+    assert.equal(stripeCalls24.filter((c) => c[0] === 'prices.create').length, createCountBeforeNoop24);
+    assert.equal(stripeCalls24.filter((c) => c[0] === 'prices.update').length, 0);
+  });
+
+  const proBefore24 = settings24.get('stripe.price_id_pro');
+  const proProductBefore24 = settings24.get('stripe.product_id_pro');
+  const stdIdBefore24 = settings24.get('stripe.price_id_standard');
+  const productCreatesBefore24 = stripeCalls24.filter((c) => c[0] === 'products.create').length;
+  const reprice24 = await pricing24.updatePricing({ pro: 129 });
+  check('batch24 save: changing one plan mints a new price on the SAME product and deactivates the old', () => {
+    assert.equal(reprice24.updated.length, 1);
+    assert.equal(reprice24.updated[0].id, 'pro');
+    assert.equal(reprice24.updated[0].productId, proProductBefore24, 'same product reused');
+    assert.equal(reprice24.updated[0].productCreated, false);
+    assert.equal(stripeCalls24.filter((c) => c[0] === 'products.create').length, productCreatesBefore24);
+    assert.equal(prices24.get(proBefore24).active, false, 'old pro price deactivated');
+    assert.equal(settings24.get('stripe.price_id_pro'), reprice24.updated[0].newPriceId);
+    assert.notEqual(settings24.get('stripe.price_id_pro'), proBefore24);
+    assert.equal(settings24.get('billing.amount_label_pro'), 'Pro · $129/mo');
+    assert.equal(settings24.get('stripe.price_id_standard'), stdIdBefore24, 'other plans untouched');
+  });
+
+  const snapshot24 = new Map(settings24);
+  stripeCtl24.failCreateFor = 'premium';
+  await assert.rejects(pricing24.updatePricing({ standard: 59, premium: 299 }), (e) => e.code === 'STRIPE_ERROR');
+  stripeCtl24.failCreateFor = null;
+  check('batch24 save: a Stripe rejection aborts the whole save — no setting swapped, no old price deactivated', () => {
+    assert.deepEqual(
+      [...settings24.entries()].sort(),
+      [...snapshot24.entries()].sort()
+    );
+    assert.equal(prices24.get(settings24.get('stripe.price_id_standard')).active, true, 'old standard price still active');
+    assert.equal(settings24.get('billing.amount_label_standard'), 'Standard · $49/mo');
+  });
+
+  settings24.set('stripe.price_id_premium', 'price_24_missing');
+  settings24.set('billing.amount_label_premium', 'Premium · $299/mo');
+  settings24.set('stripe.secret_key', 'sk_live_24fixture');
+  const stateFallback24 = await pricing24.getPricingState();
+  check('batch24 state: unreachable Stripe price falls back to the saved label amount; live key reads LIVE', () => {
+    const prem = stateFallback24.items.find((i) => i.id === 'premium');
+    assert.equal(prem.amountUsd, 299);
+    assert.equal(prem.amountSource, 'label');
+    assert.equal(stateFallback24.mode, 'live');
+  });
+
+  check('batch24 wiring: routes, client, panel and product-id defs are in place', () => {
+    const routesSrc24 = fs.readFileSync(path.join(root, 'server/routes/admin.js'), 'utf8');
+    assert.ok(routesSrc24.includes("router.get('/settings/pricing'"), 'pricing state route');
+    assert.ok(routesSrc24.includes("router.put('/settings/pricing'"), 'pricing update route');
+    assert.ok(routesSrc24.includes("require('../pricingAdmin')"), 'routes use pricingAdmin');
+    const apiSrc24 = fs.readFileSync(path.join(root, 'public/js/api.js'), 'utf8');
+    assert.ok(apiSrc24.includes("adminPricing: () => get('/admin/settings/pricing')"), 'api state call');
+    assert.ok(apiSrc24.includes('adminPricingUpdate'), 'api update call');
+    const appSrc24 = fs.readFileSync(path.join(root, 'public/js/app.js'), 'utf8');
+    assert.ok(appSrc24.includes('id="pricing-form"'), 'pricing form rendered');
+    assert.ok(appSrc24.includes('Update pricing'), 'update button copy');
+    assert.ok(appSrc24.includes('PRICING_MANAGED_KEYS'), 'id fields hidden from generic form');
+    assert.ok(appSrc24.includes('Existing subscribers keep the price they signed up with'), 'new-customers-only copy');
+    const platformSrc24 = fs.readFileSync(path.join(root, 'server/platform.js'), 'utf8');
+    for (const k of ['stripe.product_id_standard', 'stripe.product_id_pro', 'stripe.product_id_premium', 'stripe.product_id_credits']) {
+      assert.ok(platformSrc24.includes(`key: '${k}'`), 'def for ' + k);
+    }
+  });
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

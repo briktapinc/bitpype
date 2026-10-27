@@ -223,6 +223,36 @@ router.put('/settings/secret', async (req, res) => {
     fail(res, e);
   }
 });
+// ---------- Pricing control (Batch 24) ----------
+// Amounts in, Stripe Products/Prices managed: see server/pricingAdmin.js.
+router.get('/settings/pricing', async (req, res) => {
+  try {
+    ok(res, await require('../pricingAdmin').getPricingState());
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.put('/settings/pricing', async (req, res) => {
+  try {
+    const result = await require('../pricingAdmin').updatePricing(
+      req.body && req.body.amounts ? req.body.amounts : req.body
+    );
+    try {
+      await platform.savePlatformDefaultsSnapshot();
+    } catch (e) {
+      console.warn('[admin] defaults snapshot', e.message);
+    }
+    await platform.audit(
+      req.session.userId,
+      'platform.pricing',
+      `mode=${result.mode} updated=${result.updated.map((u) => `${u.id}=$${u.amountUsd}`).join(',') || 'none'} unchanged=${(result.unchanged || []).join(',') || 'none'}`
+    );
+    ok(res, result);
+  } catch (e) {
+    fail(res, e, e.code === 'STRIPE_NOT_CONFIGURED' ? 503 : e.code === 'INVALID_AMOUNT' ? 400 : 502);
+  }
+});
+
 router.post('/settings/push', async (req, res) => {
   try {
     const result = await admin.pushDefaultsToWorkspaces({

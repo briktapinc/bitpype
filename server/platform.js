@@ -146,6 +146,26 @@ const PLATFORM_SETTING_DEFS = [
   { key: 'stripe.price_id_pro', group: 'billing', label: 'Pro plan Price ID (price_… monthly)', default: '' },
   { key: 'stripe.price_id_premium', group: 'billing', label: 'Premium plan Price ID (price_… monthly)', default: '' },
   { key: 'stripe.price_id', group: 'billing', label: 'Legacy Price ID (fallback → Standard)', default: '' },
+  // Batch 24: Products behind the plan Prices, resolved + persisted by the
+  // Update pricing panel (server/pricingAdmin.js) — never pasted by hand.
+  {
+    key: 'stripe.product_id_standard',
+    group: 'billing',
+    label: 'Standard plan Product ID (prod_… — set by Update pricing)',
+    default: '',
+  },
+  {
+    key: 'stripe.product_id_pro',
+    group: 'billing',
+    label: 'Pro plan Product ID (prod_… — set by Update pricing)',
+    default: '',
+  },
+  {
+    key: 'stripe.product_id_premium',
+    group: 'billing',
+    label: 'Premium plan Product ID (prod_… — set by Update pricing)',
+    default: '',
+  },
 
   // Call Tracking (Twilio Voice) — platform account; numbers are bought
   // per lead from the staff Calls screen. Empty = module dormant.
@@ -189,6 +209,12 @@ const PLATFORM_SETTING_DEFS = [
     default: '1',
   },
   { key: 'stripe.price_id_credits', group: 'billing', label: 'Credits pack Price ID (price_… one-time)', default: '' },
+  {
+    key: 'stripe.product_id_credits',
+    group: 'billing',
+    label: 'Credits pack Product ID (prod_… — set by Update pricing)',
+    default: '',
+  },
   { key: 'credits.pack_amount', group: 'billing', label: 'Credits granted per pack purchase', default: '50' },
   {
     key: 'credits.pack_label',

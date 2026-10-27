@@ -6469,10 +6469,82 @@ async function renderAdminPayments(el) {
   );
 }
 
+// Batch 24: the Update pricing panel owns these Stripe id settings — the
+// generic billing form carries them as hidden inputs so a plain Save can
+// never wipe them, and amounts (not ids) are the editable surface.
+const PRICING_MANAGED_KEYS = new Set([
+  'stripe.price_id_standard',
+  'stripe.price_id_pro',
+  'stripe.price_id_premium',
+  'stripe.price_id',
+  'stripe.price_id_credits',
+  'stripe.product_id_standard',
+  'stripe.product_id_pro',
+  'stripe.product_id_premium',
+  'stripe.product_id_credits',
+]);
+
+function pricingPriceLine(it) {
+  if (!it.priceId) return 'No Stripe price yet — saving an amount creates one.';
+  return `Current price: ${it.priceId}${it.priceActive === false ? ' (inactive)' : ''}${
+    it.amountSource === 'label' ? ' · amount shown is from the saved label' : ''
+  }`;
+}
+
+function pricingPanelHtml(state) {
+  if (!state) {
+    return `<div class="panel" style="margin-bottom:1rem">
+      <div class="panel-h"><h3>Plan pricing</h3></div>
+      <div class="panel-b"><p class="hint">Pricing state could not be loaded — reload the page to try again. The settings form below still works.</p></div>
+    </div>`;
+  }
+  const modeLine = !state.configured
+    ? 'Stripe is <strong>not configured</strong> — save a Stripe secret key in the form below first; amounts cannot be saved until then.'
+    : state.mode === 'live'
+      ? 'Stripe mode: <strong>LIVE</strong> — new prices are created on your live Stripe account.'
+      : state.mode === 'test'
+        ? 'Stripe mode: <strong>TEST</strong> — new prices are created in test mode, from the test key below.'
+        : 'Stripe mode: <strong>could not be determined</strong> from the configured key.';
+  const rows = (state.items || [])
+    .map(
+      (it) => `<div>
+        <label>${esc(it.name)} <span class="hint">${it.kind === 'credits' ? 'one-time pack' : 'monthly subscription'} · USD</span></label>
+        <input name="${esc(it.id)}" type="number" step="0.01" min="0" inputmode="decimal" placeholder="Not set"
+          value="${it.amountUsd == null ? '' : esc(String(it.amountUsd))}" ${state.configured ? '' : 'disabled'} />
+        <p class="hint mono" data-price-line="${esc(it.id)}">${esc(pricingPriceLine(it))}</p>
+        ${it.envOverridden ? '<p class="hint">An environment variable also sets this price and takes precedence over the saved setting.</p>' : ''}
+      </div>`
+    )
+    .join('');
+  return `<div class="panel" style="margin-bottom:1rem">
+    <div class="panel-h"><h3>Plan pricing</h3></div>
+    <div class="panel-b" style="padding-bottom:0">
+      <p class="hint">${modeLine}</p>
+      <p class="hint">Edit the <strong>amounts</strong> — saving creates a new Stripe price for each changed amount, points checkout at it, and deactivates the old price. Unchanged amounts are left alone. <strong>Existing subscribers keep the price they signed up with; changes apply to new customers only.</strong></p>
+      ${state.stripeError ? `<p class="hint">Stripe could not be reached to confirm current amounts (${esc(state.stripeError)}); amounts shown fall back to the saved labels.</p>` : ''}
+    </div>
+    <div class="panel-b">
+      <form id="pricing-form" class="stack">
+        ${rows}
+        <div class="row actions"><button class="btn" type="submit" ${state.configured ? '' : 'disabled'}>Update pricing</button></div>
+        <div class="msg" id="pricing-msg"></div>
+      </form>
+    </div>
+  </div>`;
+}
+
 async function renderAdminSettings(el, group) {
   const res = await api.adminSettings();
   const settings = res.data.settings || {};
   const defs = (res.data.defs || []).filter((d) => d.group === group);
+  let pricingState = null;
+  if (group === 'billing') {
+    try {
+      pricingState = (await api.adminPricing()).data;
+    } catch {
+      pricingState = null; /* panel renders a could-not-load note; form still works */
+    }
+  }
   const title =
     {
       email: 'Email / SMTP',
@@ -6485,10 +6557,10 @@ async function renderAdminSettings(el, group) {
     group === 'billing'
       ? `<p class="hint">Webhook endpoint: <span class="mono">${esc(window.location.origin)}/api/v1/billing/webhook</span><br/>
        Events: <span class="mono">checkout.session.completed, checkout.session.async_payment_succeeded, customer.subscription.*, invoice.paid, invoice.payment_failed, charge.refunded, charge.dispute.created, radar.early_fraud_warning.created</span><br/>
-       Credits: create a one-time Stripe Price, paste into <span class="mono">stripe.price_id_credits</span>, set pack size + per-image/content rates below.<br/>
-       Create <strong>two Products</strong> in Stripe (Standard + Premium), each with one monthly Price. Paste <span class="mono">price_…</span> ids into the Standard/Premium fields. Leave keys empty until you paste real Dashboard values. Prefer a restricted API key (rk_…).</p>`
+       Plan and credits-pack amounts are set with <strong>Update pricing</strong> above — it creates the Stripe Products and Prices, fills the <span class="mono">price_…</span>/<span class="mono">prod_…</span> ids below in automatically, and keeps the customer-facing price labels in sync. Edit the ids directly only for a manual setup. Set the credits pack size + per-image/content rates below. Leave keys empty until you paste real Dashboard values. Prefer a restricted API key (rk_…).</p>`
       : '<span class="hint">Defaults apply to new workspaces. Secrets are write-only.</span>';
   el.innerHTML = `
+    ${group === 'billing' ? pricingPanelHtml(pricingState) : ''}
     <div class="panel">
       <div class="panel-h"><h3>${esc(title)}</h3></div>
       <div class="panel-b" style="padding-bottom:0">${webhookHint}</div>
@@ -6499,6 +6571,11 @@ async function renderAdminSettings(el, group) {
               .map((d) => {
                 const isSecret = d.secret;
                 const val = settings[d.key] || '';
+                if (group === 'billing' && PRICING_MANAGED_KEYS.has(d.key)) {
+                  // Owned by the Update pricing panel above; carried hidden
+                  // so this form's Save writes the same values back.
+                  return `<input type="hidden" name="${esc(d.key)}" value="${esc(val)}" />`;
+                }
                 if (d.key === 'registration.open') {
                   const on = String(val || '1') === '1';
                   return `<div>
@@ -6526,6 +6603,58 @@ async function renderAdminSettings(el, group) {
         </form>
       </div>
     </div>`;
+
+  const pricingForm = $('#pricing-form');
+  if (pricingForm) {
+    pricingForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const fd = new FormData(pricingForm);
+      const amounts = {};
+      for (const it of (pricingState && pricingState.items) || []) {
+        const v = fd.get(it.id);
+        if (v != null && String(v).trim() !== '') amounts[it.id] = String(v).trim();
+      }
+      const msg = $('#pricing-msg');
+      msg.textContent = 'Saving…';
+      msg.className = 'msg';
+      try {
+        const d = (await api.adminPricingUpdate(amounts)).data || {};
+        const parts = [];
+        for (const u of d.updated || []) {
+          parts.push(
+            `${u.name} → $${u.amountUsd}${u.id === 'credits' ? '' : '/mo'} (new price ${u.newPriceId})`
+          );
+        }
+        if ((d.unchanged || []).length) parts.push(`Unchanged: ${d.unchanged.join(', ')}`);
+        if (!parts.length) parts.push('Nothing to change.');
+        msg.textContent = parts.join(' · ');
+        msg.className = 'msg ok';
+        toast('Pricing saved', 'ok');
+        for (const w of d.warnings || []) {
+          const p = document.createElement('p');
+          p.className = 'hint';
+          p.textContent = w;
+          msg.appendChild(p);
+        }
+        // Refresh the current-price lines + amount inputs from the server.
+        try {
+          const st = (await api.adminPricing()).data;
+          pricingState = st;
+          for (const it of st.items || []) {
+            const line = pricingForm.querySelector(`[data-price-line="${it.id}"]`);
+            if (line) line.textContent = pricingPriceLine(it);
+            const inp = pricingForm.querySelector(`input[name="${it.id}"]`);
+            if (inp && it.amountUsd != null) inp.value = it.amountUsd;
+          }
+        } catch {
+          /* small print refreshes on next page load */
+        }
+      } catch (err) {
+        msg.textContent = err.message;
+        msg.className = 'msg error';
+      }
+    };
+  }
 
   $('#admin-set-form').onsubmit = async (e) => {
     e.preventDefault();

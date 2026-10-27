@@ -441,6 +441,8 @@ window.ScoutApi = (() => {
     adminAdsenseState: () => get('/admin/settings/adsense-state'),
     adminSettingsSave: (settings) => put('/admin/settings', { settings }),
     adminSettingsSecret: (key, value) => put('/admin/settings/secret', { key, value }),
+    adminPricing: () => get('/admin/settings/pricing'),
+    adminPricingUpdate: (amounts) => put('/admin/settings/pricing', { amounts }),
     adminPushDefaults: (body) => post('/admin/settings/push', body || {}),
     adminPayments: (q) => get('/admin/payments', q),
     adminRefunds: (q) => get('/admin/refunds', q),
