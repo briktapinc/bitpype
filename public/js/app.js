@@ -836,6 +836,22 @@ function bindFontToolbar(prefix, preview, getPages, getTheme, save) {
 const PUBLIC_ROUTES = new Set(['login', 'register', 'forgot', 'reset', 'invite']);
 let signedIn = false;
 
+// Registration visibility for the bitpype.com auth screen (Admin Settings →
+// General → registration.open). Defaults to visible; loadRegistrationOpen()
+// refreshes it from the public /auth/config payload at boot. Failures keep
+// the default so a config hiccup can never break the sign-in screen.
+let registrationOpen = true;
+async function loadRegistrationOpen() {
+  try {
+    const res = await api.authConfig();
+    if (res && res.data && typeof res.data.registrationOpen === 'boolean') {
+      registrationOpen = res.data.registrationOpen;
+    }
+  } catch {
+    /* keep the default: registration visible */
+  }
+}
+
 function authHashMode() {
   const { route, param } = parseHash();
   if (route === 'reset' && param) return { mode: 'reset', token: param, inviteToken: '' };
@@ -903,12 +919,15 @@ function renderAuth(forcedMode) {
   shell.classList.add('hidden');
   const hashMode = authHashMode();
   let mode = forcedMode || hashMode.mode;
+  // Registration turned off in Admin Settings: a #/register link (or a stale
+  // forced mode) lands on Log in instead of a dead register state.
+  if (mode === 'register' && !registrationOpen) mode = 'login';
   authGate.dataset.mode = mode;
   const resetToken = hashMode.token;
   const inviteToken = hashMode.inviteToken || '';
 
   const inviteNote = inviteToken
-    ? '<p class="hint">You were invited — sign in or register with the <strong>same email</strong> the invite was sent to, then we will join you to the workspace.</p>'
+    ? `<p class="hint">You were invited — sign in${registrationOpen ? ' or register' : ''} with the <strong>same email</strong> the invite was sent to, then we will join you to the workspace.</p>`
     : '';
 
   authGate.innerHTML = `
@@ -918,21 +937,25 @@ function renderAuth(forcedMode) {
       ${inviteNote}
       <div class="tabs" id="auth-tabs">
         <button type="button" class="active" data-tab="login">Log in</button>
-        <button type="button" data-tab="register">Register</button>
+        ${registrationOpen ? '<button type="button" data-tab="register">Register</button>' : ''}
       </div>
       <form id="auth-form">
         <div id="auth-login-fields">
           <div class="field"><label for="a-email">Email</label><input id="a-email" name="email" type="email" autocomplete="username" /></div>
           <div class="field" id="pass-field"><label for="a-pass">Password</label><input id="a-pass" name="password" type="password" minlength="8" autocomplete="current-password" /></div>
         </div>
-        <div id="reg-extra" class="hidden">
+        ${
+          registrationOpen
+            ? `<div id="reg-extra" class="hidden">
           <div class="field"><label for="a-name">Your name</label><input id="a-name" name="name" type="text" /></div>
           <div class="field"><label for="a-ws">Workspace name</label><input id="a-ws" name="workspaceName" type="text" placeholder="My agency" /></div>
           <label class="terms-row">
             <input type="checkbox" name="acceptTerms" id="a-terms" value="1" />
             <span>I agree to the <a href="/legal/terms.html" target="_blank" rel="noopener">Terms of Service</a> and <a href="/legal/privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.</span>
           </label>
-        </div>
+        </div>`
+            : ''
+        }
         <div id="reset-extra" class="hidden">
           <div class="field"><label for="a-pass2">New password</label><input id="a-pass2" name="password2" type="password" minlength="8" autocomplete="new-password" /></div>
         </div>
@@ -959,8 +982,8 @@ function renderAuth(forcedMode) {
     const isForgot = mode === 'forgot';
     const isReset = mode === 'reset';
     const isReg = mode === 'register';
-    tabs.classList.toggle('hidden', isForgot || isReset);
-    regExtra.classList.toggle('hidden', !isReg);
+    tabs.classList.toggle('hidden', isForgot || isReset || !registrationOpen);
+    if (regExtra) regExtra.classList.toggle('hidden', !isReg);
     resetExtra.classList.toggle('hidden', !isReset);
     passField.classList.toggle('hidden', isForgot);
     emailInput.required = !isReset;
@@ -6476,6 +6499,17 @@ async function renderAdminSettings(el, group) {
               .map((d) => {
                 const isSecret = d.secret;
                 const val = settings[d.key] || '';
+                if (d.key === 'registration.open') {
+                  const on = String(val || '1') === '1';
+                  return `<div>
+              <label>${esc(d.label)} <span class="mono hint">${esc(d.key)}</span></label>
+              <select name="${esc(d.key)}">
+                <option value="1"${on ? ' selected' : ''}>On — Register tab shown, sign-ups allowed</option>
+                <option value="0"${on ? '' : ' selected'}>Off — Register tab hidden, sign-ups rejected</option>
+              </select>
+              <p class="hint">Show or hide the Register tab on the bitpype.com sign-in screen and activate or deactivate new-account sign-ups. People with accounts can always log in. The client portal has no registration and is not affected.</p>
+            </div>`;
+                }
                 return `<div>
               <label>${esc(d.label)} <span class="mono hint">${esc(d.key)}</span></label>
               ${
@@ -8021,6 +8055,7 @@ window.addEventListener('hashchange', navigate);
 
 (async function init() {
   if (typeof api.setOnAuthRequired === 'function') api.setOnAuthRequired(() => goToLogin());
+  await loadRegistrationOpen();
   const { route } = parseHash();
   try {
     const me = await api.me();

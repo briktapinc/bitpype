@@ -81,12 +81,26 @@ async function authPayload(user, workspaceId, workspaces) {
   };
 }
 
+// Public auth-screen config (no session): lets the bitpype.com sign-in page
+// show or hide its Register tab before anyone is signed in. Exposes only the
+// registration flag — mirrors the /api/v1/captcha/config pattern. The client
+// portal has no registration and never reads this.
+router.get('/config', async (_req, res, next) => {
+  try {
+    const platform = require('../platform');
+    const open = await platform.getPlatformSetting('registration.open', '1');
+    res.json({ ok: true, data: { registrationOpen: open === '1' } });
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.post('/register', authLimit, captcha, async (req, res, next) => {
   try {
     const platform = require('../platform');
     const open = await platform.getPlatformSetting('registration.open', '1');
     if (open !== '1') {
-      return res.status(403).json({ ok: false, error: 'REGISTRATION_CLOSED' });
+      return res.status(403).json({ ok: false, error: 'REGISTRATION_DISABLED' });
     }
     const maintenance = await platform.getPlatformSetting('maintenance_mode', '0');
     if (maintenance === '1') {

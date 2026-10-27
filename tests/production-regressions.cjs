@@ -3523,6 +3523,177 @@ async function main() {
     assert.equal(seo22.currentSchema({ customHead: '<meta name="x">' }), '');
   });
 
+  // --- Batch 23: registration hide/show toggle (Admin Settings) --------
+  // The real auth router runs against a flip-able registration.open platform
+  // setting: OFF must hide nothing server-side by accident — it must reject
+  // sign-ups before any account exists — while login keeps working.
+  const settings23 = new Map();
+  const platform23 = {
+    getPlatformSetting: async (key, dflt) => (settings23.has(key) ? settings23.get(key) : dflt),
+  };
+  const bcrypt23 = require('bcryptjs');
+  const passwordHash23 = bcrypt23.hashSync('fixture-pass-23', 4);
+  let createdUsers23 = 0;
+  const workspace23 = {
+    createUserWithWorkspace: async ({ email }) => {
+      createdUsers23++;
+      return { userId: 2300 + createdUsers23, workspaceId: 2400 + createdUsers23, email };
+    },
+    findUserByEmail: async (email) =>
+      String(email || '').toLowerCase() === 'member23@example.invalid'
+        ? {
+            id: 2301,
+            email: 'member23@example.invalid',
+            name: 'Member',
+            password_hash: passwordHash23,
+            is_super_admin: 0,
+            subscription_status: 'none',
+            billing_plan: 'free',
+            status: 'active',
+            created_at: '2026-01-01',
+          }
+        : null,
+    listWorkspacesForUser: async () => [{ id: 2401, name: 'Fixture WS', role: 'owner' }],
+  };
+  const billing23 = {
+    isSubscribed: () => false,
+    requireSubscriptionEnabled: async () => false,
+    workspaceHasSubscription: async () => false,
+    workspaceHasProductAccess: async () => false,
+    hasProductAccess: () => false,
+    planOfUser: () => 'free',
+    workspacePlan: async () => 'free',
+    getUserBilling: async () => ({}),
+  };
+  const authRoutes23 = [];
+  const authRouter23 = { use() {} };
+  for (const method of ['get', 'post', 'put', 'patch', 'delete'])
+    authRouter23[method] = (route, ...handlers) => authRoutes23.push({ method, route, handlers });
+  load('server/routes/auth.js', {
+    express: { Router: () => authRouter23 },
+    bcryptjs: bcrypt23,
+    '../workspace': workspace23,
+    '../middleware': { requireAuth: (_req, _res, next) => next() },
+    '../rateLimit': { rateLimit: () => (_req, _res, next) => next() },
+    '../captcha': { requireCaptcha: () => (_req, _res, next) => next() },
+    '../platform': platform23,
+    '../billing': billing23,
+    '../admin': { touchLogin: async () => {} },
+    '../passwordReset': { requestReset: async () => ({}), confirmReset: async () => {} },
+    '../invites': { acceptInvite: async () => ({ workspaceId: 2401 }) },
+    '../db': { query: async () => [] },
+  });
+  async function callAuth23(method, url, body = {}) {
+    const route = authRoutes23.find((x) => x.method === method && x.route === url);
+    assert(route, method + ' ' + url);
+    const req = { body, session: {}, app: { locals: {} }, headers: {} };
+    let status = 200,
+      payload;
+    const res = {
+      status(v) {
+        status = v;
+        return this;
+      },
+      json(v) {
+        payload = v;
+        return this;
+      },
+      clearCookie() {
+        return this;
+      },
+    };
+    for (const handler of route.handlers) {
+      let advanced = false;
+      await handler(req, res, (e) => {
+        advanced = true;
+        if (e) throw e;
+      });
+      if (!advanced) break;
+    }
+    return { status, body: payload, session: req.session };
+  }
+  const regBody23 = {
+    email: 'new23@example.invalid',
+    password: 'long-enough-1',
+    name: 'New',
+    workspaceName: 'New WS',
+    acceptTerms: true,
+  };
+
+  const cfgDefault23 = await callAuth23('get', '/config');
+  check('batch23 config: registration defaults ON when the setting is unset', () => {
+    assert.equal(cfgDefault23.status, 200);
+    assert.equal(cfgDefault23.body.ok, true);
+    assert.equal(cfgDefault23.body.data.registrationOpen, true);
+  });
+
+  settings23.set('registration.open', '0');
+  const cfgOff23 = await callAuth23('get', '/config');
+  const regOff23 = await callAuth23('post', '/register', regBody23);
+  check('batch23 config: OFF is exposed in the public auth config payload', () => {
+    assert.equal(cfgOff23.status, 200);
+    assert.equal(cfgOff23.body.data.registrationOpen, false);
+  });
+  check('batch23 register: OFF rejects 403 REGISTRATION_DISABLED and creates no account', () => {
+    assert.equal(regOff23.status, 403);
+    assert.equal(regOff23.body.ok, false);
+    assert.equal(regOff23.body.error, 'REGISTRATION_DISABLED');
+    assert.equal(createdUsers23, 0);
+  });
+
+  const loginOff23 = await callAuth23('post', '/login', {
+    email: 'member23@example.invalid',
+    password: 'fixture-pass-23',
+  });
+  check('batch23 login: existing users can still log in while registration is OFF', () => {
+    assert.equal(loginOff23.status, 200);
+    assert.equal(loginOff23.body.ok, true);
+    assert.equal(loginOff23.body.data.user.email, 'member23@example.invalid');
+  });
+
+  settings23.set('registration.open', '1');
+  const cfgOn23 = await callAuth23('get', '/config');
+  const regOn23 = await callAuth23('post', '/register', regBody23);
+  check('batch23 register: ON again creates the account', () => {
+    assert.equal(cfgOn23.body.data.registrationOpen, true);
+    assert.equal(regOn23.status, 200);
+    assert.equal(regOn23.body.ok, true);
+    assert.equal(createdUsers23, 1);
+    assert.equal(regOn23.session.userId, 2301);
+  });
+
+  check('batch23 gates: endpoint gate, boot payload, tab gate and settings toggle are wired', () => {
+    const authSrc23 = fs.readFileSync(path.join(root, 'server/routes/auth.js'), 'utf8');
+    assert.ok(authSrc23.includes("getPlatformSetting('registration.open', '1')"), 'register gate reads registration.open');
+    assert.ok(authSrc23.includes("error: 'REGISTRATION_DISABLED'"), 'disabled error present');
+    assert.ok(authSrc23.includes("router.get('/config'"), 'public auth config route present');
+    const platformSrc23 = fs.readFileSync(path.join(root, 'server/platform.js'), 'utf8');
+    assert.ok(/key: 'registration\.open'[\s\S]{0,200}?default: '1'/.test(platformSrc23), 'setting def defaults ON');
+    const appSrc23 = fs.readFileSync(path.join(root, 'public/js/app.js'), 'utf8');
+    assert.ok(appSrc23.includes('api.authConfig()'), 'auth screen loads the boot flag');
+    assert.ok(
+      appSrc23.includes("if (mode === 'register' && !registrationOpen) mode = 'login';"),
+      'register mode falls back to login'
+    );
+    assert.ok(
+      appSrc23.includes("registrationOpen ? '<button type=\"button\" data-tab=\"register\">Register</button>' : ''"),
+      'register tab renders only when open'
+    );
+    assert.ok(appSrc23.includes("d.key === 'registration.open'"), 'admin settings toggle present');
+    const apiSrc23 = fs.readFileSync(path.join(root, 'public/js/api.js'), 'utf8');
+    assert.ok(apiSrc23.includes("authConfig: () => get('/auth/config')"), 'api client exposes the auth config');
+  });
+
+  check('batch23 portal: client portal ships no registration tab or staff-register call', () => {
+    const portalHtml23 = fs.readFileSync(path.join(root, 'public/portal.html'), 'utf8');
+    const portalSrc23 = fs.readFileSync(path.join(root, 'public/js/portal.js'), 'utf8');
+    for (const src of [portalHtml23, portalSrc23]) {
+      assert.ok(!src.includes('data-tab="register"'), 'no register tab in portal');
+      assert.ok(!src.includes('/auth/register'), 'no staff register call in portal');
+      assert.ok(!src.includes('authConfig'), 'portal does not read the auth config');
+    }
+  });
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

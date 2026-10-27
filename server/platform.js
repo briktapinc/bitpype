@@ -54,7 +54,12 @@ const PLATFORM_SETTING_DEFS = [
   // General
   { key: 'app.name', group: 'general', label: 'App name', default: 'Bitpype' },
   { key: 'support.email', group: 'general', label: 'Support email', default: '' },
-  { key: 'registration.open', group: 'general', label: 'Open registration (1/0)', default: '1' },
+  {
+    key: 'registration.open',
+    group: 'general',
+    label: 'Open registration — Register tab & sign-ups (bitpype.com)',
+    default: '1',
+  },
   { key: 'maintenance_mode', group: 'general', label: 'Maintenance mode (1/0)', default: '0' },
   {
     key: 'default.workspace_name',
