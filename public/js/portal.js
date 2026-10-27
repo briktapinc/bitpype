@@ -4797,7 +4797,6 @@
       return;
     }
     const data = moduleState.calltracking || {};
-    const cfg = data.config || {};
     const calls = Array.isArray(data.calls) ? data.calls : [];
     const wsId = data.workspace_id || '';
     const whenLabel = (v) => {
@@ -4833,7 +4832,6 @@
       : '<p class="hint">No calls yet. When someone calls your tracking number, the call shows up here — and the caller is saved as a LeadScout contact.</p>';
     const billing = data.billing || null;
     const allowanceLabel = billing && billing.allowance >= 100000 ? 'unlimited' : billing ? billing.allowance : '';
-    const freeNoNumber = billing && billing.plan === 'free' && !(cfg.display_number || '');
     const billingHtml = billing
       ? `<p class="hint">Answered this month: <strong>${esc(billing.answered)} / ${esc(allowanceLabel)}</strong>${
           billing.overage_due_credits > 0
@@ -4841,36 +4839,25 @@
             : ''
         }</p>`
       : '';
-    const formHtml = freeNoNumber
-      ? '<p class="hint"><strong>Call Tracking with a number requires a paid plan.</strong> Upgrade in Billing to add a display number — your plan carries an answered-call allowance, and calls are never cut off for billing reasons.</p>'
-      : `
-      <div class="field"><label>Display number (the number your site shows)</label>
-        <input type="tel" id="calltracking-display-number" value="${esc(cfg.display_number || '')}" placeholder="+16105551234" /></div>
-      <div class="field"><label>Button label</label>
-        <input type="text" id="calltracking-cta-text" value="${esc(cfg.cta_text || 'Call us')}" maxlength="60" /></div>
-      <div class="field"><label><input type="checkbox" id="calltracking-redirect-enabled"${cfg.redirect_enabled ? ' checked' : ''} /> Forward calls to my real phone</label></div>
-      <div class="field"><label>Redirect number (your real phone)</label>
-        <input type="tel" id="calltracking-redirect-number" value="${esc(cfg.redirect_number || '')}" placeholder="+16105550100" /></div>
-      <div class="field"><label><input type="checkbox" id="calltracking-record-calls"${cfg.record_calls ? ' checked' : ''} /> Record calls (callers hear a short recording notice first)</label></div>
-      <div class="field"><label><input type="checkbox" id="calltracking-notify-email"${cfg.notify_email === false ? '' : ' checked'} /> Email me when a call comes in</label></div>
+    // Batch 25c split: the client controls exactly one thing — their
+    // own phone number. Forwarding is set up by BitPype (admin side).
+    const formHtml = `
+      <div class="field"><label>Your phone number</label>
+        <input type="tel" id="calltracking-phone-number" value="${esc(data.phone_number || '')}" placeholder="+16105550100" /></div>
+      <p class="hint">This is the number your website shows as its call button, and the phone your calls ring. BitPype sets up the forwarding for you — there is nothing else to configure.</p>
       <div class="row" style="gap:6px">
-        <button type="button" class="btn soft small" id="btn-calltracking-config-save">Save call settings</button>
-      </div>`;
+        <button type="button" class="btn soft small" id="btn-calltracking-phone-save">Save my number</button>
+      </div>
+      ${
+        data.tracking_assigned
+          ? '<p class="hint" style="margin-top:8px">Call forwarding is active — a BitPype tracking number routes your website calls to this phone, and every call is logged below.</p>'
+          : '<p class="hint" style="margin-top:8px">Save your number and we will finish setting up call forwarding for your site.</p>'
+      }`;
     host.innerHTML = `
       <h3>Call Tracking</h3>
-      <p class="hint">Your site shows the display number as its call button. Calls to that number ring your real phone — and every call is logged here.</p>
+      <p class="hint">Your site shows your phone number as its call button. Calls ring your phone — and every call is logged here.</p>
       ${billingHtml}
-      ${
-        cfg.twilio_number_sid
-          ? '<p class="hint">This number was bought through BitPype and is already pointed at your site.</p>'
-          : ''
-      }
       ${formHtml}
-      ${
-        data.voice_url
-          ? `<p class="hint" style="margin-top:12px">Using your own Twilio number? Set its voice webhook (POST) to:<br /><code>${esc(data.voice_url)}</code></p>`
-          : ''
-      }
       <h3 style="margin-top:18px">Calls received</h3>
       <div id="modules-calltracking-calls">${callsHtml}</div>`;
   }
@@ -7073,29 +7060,17 @@
           moduleMsg(e.message, false);
         }
       }
-      if (ev.target && ev.target.id === 'btn-calltracking-config-save') {
-        const val = (id) => {
-          const n = document.getElementById(id);
-          return n ? n.value : undefined;
-        };
-        const on = (id) => {
-          const n = document.getElementById(id);
-          return !!(n && n.checked);
-        };
-        moduleMsg('Saving call settings…', true);
+      if (ev.target && ev.target.id === 'btn-calltracking-phone-save') {
+        // Batch 25c: the client saves ONLY their phone number — the
+        // endpoint ignores everything else by construction.
+        const node = document.getElementById('calltracking-phone-number');
+        moduleMsg('Saving your number…', true);
         try {
           await api('/modules/calltracking/config', {
             method: 'PUT',
-            body: JSON.stringify({
-              display_number: val('calltracking-display-number'),
-              cta_text: val('calltracking-cta-text'),
-              redirect_enabled: on('calltracking-redirect-enabled'),
-              redirect_number: val('calltracking-redirect-number'),
-              record_calls: on('calltracking-record-calls'),
-              notify_email: on('calltracking-notify-email'),
-            }),
+            body: JSON.stringify({ phone: node ? node.value : '' }),
           });
-          moduleMsg('Call settings saved.', true);
+          moduleMsg('Your number is saved — it shows on your site and your calls forward to it.', true);
           await loadModuleItems();
         } catch (e) {
           moduleMsg(e.message, false);

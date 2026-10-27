@@ -923,7 +923,7 @@ function clientToolDefs() {
     {
       name: 'calls.getSettings',
       description:
-        'Get the Call Tracking settings for a lead: display_number (the tracking number the site shows as its call-to-action), cta_text, redirect_enabled + redirect_number (where calls to the display number are forwarded), record_calls (with spoken consent), and twilio_number_sid when the number was bought in the admin. Standard/Premium.',
+        'Get the Call Tracking settings for a lead: display_number (the Twilio tracking number the site\'s call button dials — the button shows the lead\'s own phone number), cta_text, redirect_enabled + redirect_number (where calls to the display number are forwarded), record_calls (with spoken consent), and twilio_number_sid when the number was bought in the admin. Forwarding is admin-only; portal clients can set only their phone number. Standard/Premium.',
       inputSchema: schema({ leadId: ID }),
     },
     {

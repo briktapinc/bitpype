@@ -2414,14 +2414,20 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
       items = [];
       socialfeed = modules.socialFeedPreview(db, Number(leadId));
     } else if (type === 'calltracking') {
-      // Automatic module: the panel carries the number settings plus
-      // every call received on the tracking number (newest first).
+      // Automatic module (Batch 25c split): the client panel carries
+      // ONLY their own phone number (the one field they control), the
+      // read-only answered-call billing line, and every call received
+      // (newest first). Forwarding configuration — tracking number,
+      // redirect, recording, notify, webhook — is admin-only and is
+      // never exposed here.
       items = [];
+      const ctConfig = modules.getCallTrackingConfig(db, Number(leadId));
+      const leadRow = db.prepare('SELECT phone FROM leads WHERE id = ?').get(Number(leadId));
       calltracking = {
-        config: modules.getCallTrackingConfig(db, Number(leadId)),
+        phone_number: leadRow && leadRow.phone ? String(leadRow.phone) : '',
+        tracking_assigned: !!String(ctConfig.display_number || '').trim(),
         calls: modules.listCalls(db, Number(leadId), { limit: 200 }),
         billing: modules.callBillingSummary(db, Number(leadId), planId),
-        voice_url: `${appUrl()}/api/v1/calls/voice/${Number(workspaceId)}/${Number(leadId)}`,
         workspace_id: Number(workspaceId),
       };
     } else if (type === 'members') {
@@ -2498,7 +2504,7 @@ async function createModuleItem(workspaceId, leadId, moduleType, body, clientEma
       });
     else if (type === 'calltracking')
       throw Object.assign(
-        new Error('Call Tracking is automatic — calls land here on their own. Use the Calls tab to set your numbers.'),
+        new Error('Call Tracking is automatic — calls land here on their own. Use the Calls tab to set your phone number.'),
         { code: 'VALIDATION', status: 400 }
       );
     else if (type === 'members')
@@ -2543,7 +2549,7 @@ async function updateModuleItem(workspaceId, leadId, moduleType, id, body, clien
       });
     else if (type === 'calltracking')
       throw Object.assign(
-        new Error('Call Tracking is automatic — use the Calls tab to set your numbers.'),
+        new Error('Call Tracking is automatic — use the Calls tab to set your phone number.'),
         { code: 'VALIDATION', status: 400 }
       );
     else if (type === 'members') {
@@ -2730,19 +2736,37 @@ async function saveSocialFeedConfig(workspaceId, leadId, body, clientEmail) {
   }));
 }
 
+/**
+ * Call Tracking — the client's ONLY save (Batch 25c split). The client
+ * provides their phone number; forwarding is configured from the admin
+ * side only. This endpoint accepts exactly one field — the phone number
+ * (sent as `phone`, `phone_number`, or `phoneNumber`). Every other key
+ * in the payload is ignored BY CONSTRUCTION (never read, never
+ * written), so a crafted request cannot reach the admin-owned config.
+ * Saving the number:
+ *   - updates leads.phone (the number the site shows as its call button)
+ *   - makes it the forwarding destination (calltracking redirect_number)
+ * Everything else — tracking/display number, forwarding on/off,
+ * recording, notify, button label — keeps whatever the admin set.
+ */
 async function saveCallTrackingConfig(workspaceId, leadId, body, clientEmail) {
   const domain = require('./domain');
   const modules = require('./siteModules');
-  const planId = await requireSiteModules(workspaceId, clientEmail);
+  await requireSiteModules(workspaceId, clientEmail);
+  const src = body || {};
+  const raw = src.phone != null ? src.phone : src.phone_number != null ? src.phone_number : src.phoneNumber;
+  if (raw == null) {
+    throw Object.assign(new Error('Your phone number is required.'), { code: 'VALIDATION', status: 400 });
+  }
+  // Garbage numbers are rejected before anything is written.
+  const phone = modules.normalizeE164(raw, 'Your phone number');
   return domain.withDb(workspaceId, (db) => {
-    // Free-plan gate (addendum #3): a first display number needs a paid
-    // plan; a lead that already has one keeps it on any plan.
-    modules.assertCallTrackingActivation(
-      modules.getCallTrackingConfig(db, Number(leadId)),
-      body || {},
-      planId
+    db.prepare("UPDATE leads SET phone = ?, updated_at = datetime('now') WHERE id = ?").run(
+      phone,
+      Number(leadId)
     );
-    return { config: modules.updateCallTrackingConfig(db, Number(leadId), body || {}) };
+    const config = modules.updateCallTrackingConfig(db, Number(leadId), { redirect_number: phone });
+    return { phone_number: phone, tracking_assigned: !!String(config.display_number || '').trim() };
   });
 }
 

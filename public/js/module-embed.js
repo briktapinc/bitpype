@@ -875,8 +875,10 @@
       return;
     }
     if (type === 'calltracking') {
-      // The tracking number IS the call-to-action. Unconfigured (no
-      // display number yet) renders nothing at all.
+      // The call button shows the business's own number (the one they
+      // provided) as its text; the link dials the tracking number when
+      // BitPype has assigned one, so calls are logged and forwarded.
+      // Unconfigured (no number at all yet) renders nothing.
       var ct = data.calltracking || {};
       if (!ct.configured || !ct.display_number) {
         el.innerHTML = '';
@@ -889,7 +891,7 @@
         '"><span class="bp-mod-call-label">' +
         esc(ct.cta_text || 'Call us') +
         '</span><span class="bp-mod-call-number">' +
-        esc(ct.display_number_formatted || ct.display_number) +
+        esc(ct.phone_number_formatted || ct.display_number_formatted || ct.display_number) +
         '</span></a></div>';
       return;
     }

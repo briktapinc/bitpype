@@ -1631,6 +1631,21 @@ router.post(
     }
   }
 );
+// Call Tracking forwarding config (Batch 25c): ADMIN-ONLY. The client
+// portal accepts just the client's phone number; tracking number,
+// forwarding, recording and notify are saved here by staff.
+router.put(
+  '/admin-area/calls/config',
+  requireRole('owner', 'admin'),
+  denyLeadScopedToken,
+  async (req, res) => {
+    try {
+      ok(res, await domain.adminSaveCallTrackingConfig(req.auth.workspaceId, req.body || {}));
+    } catch (e) {
+      fail(res, e, e.code === 'PLAN_REQUIRED' ? 402 : e.status || 400);
+    }
+  }
+);
 
 // AI SEO tool (Batch 22): staff can generate/review/apply a local-SEO
 // proposal for any site in the workspace. The same pending proposal is

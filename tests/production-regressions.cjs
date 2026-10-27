@@ -1292,7 +1292,7 @@ async function main() {
   });
   sm17.ensureTables(db);
   assert.equal(sm17.MODULE_TYPES.length, 19, 'catalog still 19 types');
-  assert.equal(sm17.MODULE_SCRIPT_VER, 'mod15', 'script version: batch 20 mod13, batch 21 mod14, batch 25 mod15');
+  assert.equal(sm17.MODULE_SCRIPT_VER, 'mod16', 'script version: batch 20 mod13, batch 21 mod14, batch 25 mod15, batch 25c mod16');
   const cfg17Default = sm17.getMembersConfig(db, 1701);
   assert.equal(cfg17Default.access_level, 'any_member', 'Part 1 default preserved: any member');
   assert.equal(cfg17Default.access_tier_id, null);
@@ -1982,7 +1982,7 @@ async function main() {
 
   check('batch21 module registered + embed script version bumped', () => {
     assert.ok(sm21.MODULE_TYPES.includes('calltracking'));
-    assert.equal(sm21.MODULE_SCRIPT_VER, 'mod15');
+    assert.equal(sm21.MODULE_SCRIPT_VER, 'mod16', 'batch 21 mod14, batch 25 mod15, batch 25c mod16');
     assert.equal(sm21.MODULE_META.calltracking.label, 'Call Tracking');
   });
 
@@ -4206,7 +4206,7 @@ async function main() {
   const embFaq25 = sm25.attachModule(db, 2501, 'faq', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
   const pubFaq25 = sm25.getPublicModuleByToken(db, embFaq25.public_token);
   check('batch25 modules: bookings + estimate payloads carry the opt-in block; other modules do not', () => {
-    assert.equal(sm25.MODULE_SCRIPT_VER, 'mod15');
+    assert.equal(sm25.MODULE_SCRIPT_VER, 'mod16', 'batch 25 bumped mod15; batch 25c bumped mod16');
     assert.equal(pubBook25.sms_optin && pubBook25.sms_optin.label, 'Text me updates & offers from Fixture Texts R Us');
     assert.equal(pubEst25.sms_optin && pubEst25.sms_optin.consent_key, 'sms_optin_consent');
     assert.equal(pubFaq25.sms_optin, undefined, 'modules without a phone form get no block');
@@ -4451,6 +4451,176 @@ async function main() {
     assert.ok(!smsOptInSrc25b.includes('SELECT key, value FROM settings'), 'no raw settings read left in smsOptIn');
   });
   emptyDb25b.close();
+
+  // --- Call Tracking client/admin split (Batch 25c) -------------------
+  // Ely's correction (2026-10-26): portal clients must NOT configure
+  // forwarding. The portal keeps ONE field — their phone number — whose
+  // save updates leads.phone and makes that number the forwarding
+  // destination; tracking number, forwarding, recording, notify and the
+  // button label are admin-only. The site button shows the client's
+  // number as text and dials the tracking number when one is assigned.
+  const sm25c = load('server/siteModules.js', {
+    '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
+    '../src/websiteEngine': require(path.join(root, 'src/websiteEngine.js')),
+    './portalContacts': contacts,
+    '../src/secretBox': require(path.join(root, 'src/secretBox.js')),
+    './membershipStripe': {},
+    './shopStripe': {},
+  });
+  sm25c.ensureTables(db);
+  db.prepare("INSERT INTO leads (id, business_name, email, phone) VALUES (2511, 'Fixture Split', 'split@example.invalid', '')").run();
+  db.prepare("INSERT INTO leads (id, business_name, email, phone) VALUES (2512, 'Fixture Split Bare', 'split2@example.invalid', '')").run();
+  const portal25c = load('server/clientPortal.js', {
+    bcryptjs: { hashSync: () => 'fixture' },
+    './db': {},
+    './mailer': {},
+    './stripeClient': { appUrl: () => 'https://example.test' },
+    './workspaceDb': {},
+    './domain': { withDb: (_ws, fn) => fn(db) },
+    './portalContacts': contacts,
+    './siteModules': sm25c,
+    './shopStripe': {},
+    './billing': { effectivePlan: async () => 'standard' },
+    './plans': { getPlan: () => ({ entitlements: { siteModules: true, chatbot: false } }) },
+  });
+  // Admin pre-configures 2511: tracking number + flags the client must
+  // not be able to touch from the portal.
+  sm25c.updateCallTrackingConfig(db, 2511, {
+    display_number: '+16105550199',
+    cta_text: 'Call the shop',
+    redirect_enabled: true,
+    record_calls: true,
+    notify_email: false,
+  });
+  const saved25c = await portal25c.saveCallTrackingConfig(
+    1,
+    2511,
+    {
+      phone: '6105550143',
+      display_number: '+19999999999',
+      redirect_number: '+19999999999',
+      redirect_enabled: false,
+      record_calls: false,
+      notify_email: true,
+      cta_text: 'Hacked label',
+      twilio_number_sid: 'PNhacked',
+    },
+    'split@example.invalid'
+  );
+  check('batch25c portal save: writes leads.phone + redirect destination, ignores every config field', () => {
+    assert.equal(saved25c.phone_number, '+16105550143');
+    assert.equal(saved25c.tracking_assigned, true);
+    assert.equal(db.prepare('SELECT phone FROM leads WHERE id = 2511').get().phone, '+16105550143');
+    const cfg = sm25c.getCallTrackingConfig(db, 2511);
+    assert.equal(cfg.redirect_number, '+16105550143', 'client number became the forwarding destination');
+    assert.equal(cfg.display_number, '+16105550199', 'tracking number untouched');
+    assert.equal(cfg.redirect_enabled, true, 'forwarding toggle untouched');
+    assert.equal(cfg.record_calls, true, 'recording untouched');
+    assert.equal(cfg.notify_email, false, 'notify untouched');
+    assert.equal(cfg.cta_text, 'Call the shop', 'button label untouched');
+    assert.equal(cfg.twilio_number_sid, '', 'number sid untouched');
+  });
+  let reject25c = null;
+  try {
+    await portal25c.saveCallTrackingConfig(1, 2511, { phone: 'call-me-maybe' }, 'split@example.invalid');
+  } catch (e) {
+    reject25c = e;
+  }
+  let noPhone25c = null;
+  try {
+    await portal25c.saveCallTrackingConfig(1, 2511, { display_number: '+16105550000' }, 'split@example.invalid');
+  } catch (e) {
+    noPhone25c = e;
+  }
+  check('batch25c portal save: garbage phone and config-only payloads are rejected, nothing written', () => {
+    assert.equal(reject25c && reject25c.code, 'VALIDATION');
+    assert.equal(noPhone25c && noPhone25c.code, 'VALIDATION');
+    assert.equal(db.prepare('SELECT phone FROM leads WHERE id = 2511').get().phone, '+16105550143');
+    assert.equal(sm25c.getCallTrackingConfig(db, 2511).display_number, '+16105550199');
+  });
+  const panel25c = await portal25c.listModuleItems(1, 2511, 'calltracking', 'split@example.invalid');
+  check('batch25c portal payload: phone + read-only calls/billing only, no config fields exposed', () => {
+    const ct = panel25c.calltracking;
+    assert.ok(ct, 'calltracking block present');
+    assert.equal(ct.phone_number, '+16105550143');
+    assert.equal(ct.tracking_assigned, true);
+    assert.ok(Array.isArray(ct.calls));
+    assert.ok(ct.billing && typeof ct.billing.answered === 'number');
+    for (const k of ['config', 'display_number', 'cta_text', 'redirect_enabled', 'redirect_number', 'record_calls', 'notify_email', 'twilio_number_sid', 'voice_url']) {
+      assert.ok(!(k in ct), `portal payload must not expose ${k}`);
+    }
+  });
+  await portal25c.saveCallTrackingConfig(1, 2512, { phone: '+16105550100' }, 'split2@example.invalid');
+  const embedSrc25c = fs.readFileSync(path.join(root, 'public/js/module-embed.js'), 'utf8');
+  check('batch25c site rendering: button text is the client number, tel target is the tracking number when assigned', () => {
+    assert.equal(sm25c.MODULE_SCRIPT_VER, 'mod16');
+    const pubFull = sm25c.publicCallTrackingPayload(db, 2511);
+    assert.equal(pubFull.configured, true);
+    assert.equal(pubFull.display_number, '+16105550199', 'tel target = the admin tracking number');
+    assert.equal(pubFull.phone_number, '+16105550143');
+    assert.equal(pubFull.phone_number_formatted, '(610) 555-0143', 'button text source = the client number');
+    const pubBare = sm25c.publicCallTrackingPayload(db, 2512);
+    assert.equal(pubBare.configured, true);
+    assert.equal(pubBare.tracking_number, '');
+    assert.equal(pubBare.display_number, '+16105550100', 'no tracking assigned → button dials the client number itself');
+    assert.ok(
+      embedSrc25c.includes('ct.phone_number_formatted || ct.display_number_formatted'),
+      'embed renders the client number as the button text'
+    );
+  });
+  db.prepare(
+    "INSERT INTO site_module_embeds (lead_id, module_type, public_token, published) VALUES (2511, 'calltracking', 'tok25c2511', 1)"
+  ).run();
+  const adminSaved25c = await domain21.adminSaveCallTrackingConfig(1, {
+    leadId: 2511,
+    redirect_enabled: false,
+    record_calls: false,
+    notify_email: true,
+    cta_text: 'Admin label',
+    redirect_number: '+16105550111',
+  });
+  check('batch25c admin save: full forwarding config still writable from the admin side', () => {
+    assert.equal(adminSaved25c.lead_phone, '+16105550143', 'admin sees the client number as the destination');
+    const cfg = adminSaved25c.config;
+    assert.equal(cfg.redirect_enabled, false);
+    assert.equal(cfg.record_calls, false);
+    assert.equal(cfg.notify_email, true);
+    assert.equal(cfg.cta_text, 'Admin label');
+    assert.equal(cfg.redirect_number, '+16105550111', 'admin override of the destination wins');
+    assert.equal(cfg.display_number, '+16105550199', 'tracking number preserved');
+  });
+  const overview25c = await domain21.adminCallsOverview(1);
+  check('batch25c admin overview: business carries client number + full config + voice webhook url', () => {
+    const biz = overview25c.businesses.find((b) => Number(b.lead_id) === 2511);
+    assert.ok(biz, 'business with the module attached is listed');
+    assert.equal(biz.lead_phone, '+16105550143');
+    assert.equal(biz.config.redirect_number, '+16105550111');
+    assert.equal(biz.config.display_number, '+16105550199');
+    assert.equal(biz.voice_url, 'https://example.test/api/v1/calls/voice/1/2511');
+  });
+  const portalSrc25c = fs.readFileSync(path.join(root, 'public/js/portal.js'), 'utf8');
+  const appSrc25c = fs.readFileSync(path.join(root, 'public/js/app.js'), 'utf8');
+  const apiSrc25c = fs.readFileSync(path.join(root, 'public/js/api.js'), 'utf8');
+  const domainApiSrc25c = fs.readFileSync(path.join(root, 'server/routes/domainApi.js'), 'utf8');
+  check('batch25c wiring: portal panel is phone-only; admin Calls page owns the forwarding form', () => {
+    assert.ok(portalSrc25c.includes('calltracking-phone-number'), 'portal keeps the phone field');
+    assert.ok(portalSrc25c.includes('btn-calltracking-phone-save'), 'portal keeps the phone save');
+    for (const gone of [
+      'calltracking-display-number',
+      'calltracking-cta-text',
+      'calltracking-redirect-enabled',
+      'calltracking-redirect-number',
+      'calltracking-record-calls',
+      'calltracking-notify-email',
+      'btn-calltracking-config-save',
+      'Using your own Twilio number',
+    ]) {
+      assert.ok(!portalSrc25c.includes(gone), `portal must not contain ${gone}`);
+    }
+    assert.ok(appSrc25c.includes('cl-cfg-save') && appSrc25c.includes('adminCallConfigSave'), 'admin form wired');
+    assert.ok(apiSrc25c.includes("adminCallConfigSave: (body) => put('/admin-area/calls/config', body)"), 'api helper wired');
+    assert.ok(domainApiSrc25c.includes("'/admin-area/calls/config'"), 'admin route registered');
+  });
 
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }

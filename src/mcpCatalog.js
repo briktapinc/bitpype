@@ -2041,7 +2041,7 @@ const tools = [
   },
   {
     name: 'calls.getSettings',
-    description: 'Get the Call Tracking settings for a lead: display_number (the tracking number shown as the site call-to-action), cta_text, redirect_enabled + redirect_number (where calls are forwarded), record_calls, twilio_number_sid (Standard/Premium).',
+    description: 'Get the Call Tracking settings for a lead: display_number (the Twilio tracking number the site\'s call button dials — the button shows the lead\'s own phone number), cta_text, redirect_enabled + redirect_number (where calls are forwarded), record_calls, twilio_number_sid. Forwarding is admin-only; portal clients can set only their phone number (Standard/Premium).',
     schema: {
       type: 'object',
       properties: { leadId: { type: 'integer', minimum: 1 } },
@@ -2049,7 +2049,7 @@ const tools = [
   },
   {
     name: 'calls.updateSettings',
-    description: 'Update Call Tracking settings: display_number and redirect_number in E.164 (US 10-digit accepted, prefixed +1); invalid numbers are rejected; also accepts cta_text, redirect_enabled, record_calls and notify_email (per-call email alert, default on) (Standard/Premium).',
+    description: 'Update Call Tracking settings (admin-only — portal clients can set only their phone number): display_number and redirect_number in E.164 (US 10-digit accepted, prefixed +1); invalid numbers are rejected; also accepts cta_text, redirect_enabled, record_calls and notify_email (per-call email alert, default on) (Standard/Premium).',
     schema: {
       type: 'object',
       properties: {

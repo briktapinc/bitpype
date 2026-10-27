@@ -389,6 +389,7 @@ window.ScoutApi = (() => {
     adminCalls: () => get('/admin-area/calls'),
     adminCallNumbersAvailable: (q) => get('/admin-area/calls/numbers/available', q),
     adminCallNumberPurchase: (body) => post('/admin-area/calls/numbers/purchase', body),
+    adminCallConfigSave: (body) => put('/admin-area/calls/config', body),
     adminSeoSites: () => get('/admin-area/seo'),
     adminSeoState: (websiteId) => get('/admin-area/seo/' + websiteId),
     adminSeoGenerate: (websiteId) => post('/admin-area/seo/' + websiteId + '/generate', {}),

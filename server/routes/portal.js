@@ -1128,7 +1128,9 @@ router.post('/modules/socialfeed/refresh', requireClient, actionLimit, async (re
   }
 });
 
-// Call Tracking settings — before the generic /modules/:type routes.
+// Call Tracking — the client saves ONLY their own phone number here
+// (Batch 25c split); all forwarding configuration is admin-side.
+// Before the generic /modules/:type routes.
 router.put('/modules/calltracking/config', requireClient, actionLimit, async (req, res) => {
   try {
     ok(

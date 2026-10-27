@@ -7736,6 +7736,20 @@ async function pageCalls() {
         })
         .join('')}</div>`
     : '';
+  // Forwarding setup (Batch 25c): admin-only. Clients provide just
+  // their phone number (leads.phone — shown on their site as the call
+  // button and used as the destination); tracking number, forwarding,
+  // recording and alerts are configured here.
+  const cfgCard = businesses.length
+    ? `<div class="card" style="margin-bottom:1rem">
+      <h3 style="margin-top:0">Forwarding setup</h3>
+      <p class="hint">Clients only provide their phone number — it shows on their site as the call button and is where their calls ring. Assign the tracking number and forwarding here.</p>
+      <label class="field">Business<br />
+        <select id="cl-cfg-biz">${businesses.map((b) => `<option value="${esc(b.lead_id)}">${esc(b.lead_name || 'Business')}</option>`).join('')}</select>
+      </label>
+      <div id="cl-cfg-host"></div>
+    </div>`
+    : '';
   view.innerHTML = `
     <div class="page-head"><div><h1>Calls</h1><p class="lede">Every call to a client's tracking number — the number their site shows — across all sites. Completed calls also save the caller as a LeadScout contact on that business.</p></div></div>
     <div class="card" style="margin-bottom:1rem">
@@ -7743,7 +7757,7 @@ async function pageCalls() {
       ${
         configured
           ? '<p class="hint">Pick the business in the filter below, search an area code, and buy. Numbers run about $1.15/mo on Twilio. Buying attaches the number to that business as its display number and points its calls at BitPype automatically — no Twilio console trip needed.</p>'
-          : '<p class="hint">Twilio is not connected yet — add the Account SID and Auth Token in Platform settings (Calls group) and this panel wakes up. Until then, clients can still bring a number they already own and paste the webhook URL from their portal.</p>'
+          : '<p class="hint">Twilio is not connected yet — add the Account SID and Auth Token in Platform settings (Calls group) and this panel wakes up. Until then, a client can still bring a number they already own — point its voice webhook at the URL in the forwarding setup below.</p>'
       }
       <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
         <label class="field" style="margin:0">Area code<br /><input id="cl-area" value="610" size="5" maxlength="3" ${configured ? '' : 'disabled'} /></label>
@@ -7752,6 +7766,7 @@ async function pageCalls() {
       <div id="cl-results" style="margin-top:10px"></div>
     </div>
     ${bizStrip}
+    ${cfgCard}
     ${businessFilterBarHtml([...allRows, ...businesses], 'cl-biz')}
     <div class="card"><div class="table-wrap">${table(callRows(allRows))}</div>
     ${allRows.length ? '' : '<p class="hint" style="margin-top:10px">No calls yet.</p>'}</div>`;
@@ -7778,6 +7793,70 @@ async function pageCalls() {
     gateBuyPanel();
   });
   gateBuyPanel();
+  const renderCfgForm = () => {
+    const host = document.getElementById('cl-cfg-host');
+    const sel = document.getElementById('cl-cfg-biz');
+    if (!host || !sel) return;
+    const b = bizById.get(String(sel.value));
+    if (!b) {
+      host.innerHTML = '';
+      return;
+    }
+    const c = b.config || {};
+    host.innerHTML = `
+      <p class="hint" style="margin:6px 0">Client's number (destination): <strong>${esc(b.lead_phone || '— not provided yet —')}</strong>. Their site's call button shows this number; the button dials the tracking number below, which forwards to it.</p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
+        <label class="field" style="margin:0">Tracking number (Twilio)<br /><input id="cl-cfg-display" type="tel" value="${esc(c.display_number || '')}" placeholder="+16105551234" /></label>
+        <label class="field" style="margin:0">Button label<br /><input id="cl-cfg-cta" type="text" maxlength="60" value="${esc(c.cta_text || 'Call us')}" /></label>
+        <label class="field" style="margin:0">Redirect number (override)<br /><input id="cl-cfg-redirect" type="tel" value="${esc(c.redirect_number || '')}" placeholder="${esc(b.lead_phone || '+16105550100')}" /></label>
+      </div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px">
+        <label><input type="checkbox" id="cl-cfg-redirect-enabled"${c.redirect_enabled ? ' checked' : ''} /> Forward calls</label>
+        <label><input type="checkbox" id="cl-cfg-record"${c.record_calls ? ' checked' : ''} /> Record calls</label>
+        <label><input type="checkbox" id="cl-cfg-notify"${c.notify_email === false ? '' : ' checked'} /> Email the client when a call comes in</label>
+      </div>
+      <p class="hint" style="margin-top:8px">Voice webhook for an owned Twilio number (POST):<br /><code>${esc(b.voice_url || '')}</code></p>
+      <button type="button" class="btn" id="cl-cfg-save">Save forwarding setup</button>`;
+    const saveBtn = document.getElementById('cl-cfg-save');
+    if (saveBtn) {
+      saveBtn.addEventListener('click', async () => {
+        const val = (id) => {
+          const n = document.getElementById(id);
+          return n ? n.value : '';
+        };
+        const on = (id) => {
+          const n = document.getElementById(id);
+          return !!(n && n.checked);
+        };
+        saveBtn.disabled = true;
+        try {
+          const r = await api.adminCallConfigSave({
+            leadId: Number(sel.value),
+            display_number: val('cl-cfg-display'),
+            cta_text: val('cl-cfg-cta'),
+            redirect_enabled: on('cl-cfg-redirect-enabled'),
+            redirect_number: val('cl-cfg-redirect'),
+            record_calls: on('cl-cfg-record'),
+            notify_email: on('cl-cfg-notify'),
+          });
+          const saved = (r && r.data && r.data.config) || {};
+          b.config = { ...(b.config || {}), ...saved };
+          if (saved.display_number != null) b.display_number = saved.display_number;
+          if (r && r.data && r.data.lead_phone != null) b.lead_phone = r.data.lead_phone;
+          toast(`Forwarding setup saved for ${b.lead_name || 'that business'}.`);
+          renderCfgForm();
+        } catch (e) {
+          toast(e.message || 'Save failed — nothing was changed.', 'err');
+          saveBtn.disabled = false;
+        }
+      });
+    }
+  };
+  const cfgBizSel = document.getElementById('cl-cfg-biz');
+  if (cfgBizSel) {
+    cfgBizSel.addEventListener('change', renderCfgForm);
+    renderCfgForm();
+  }
   const searchBtn = document.getElementById('cl-search');
   if (searchBtn) {
     searchBtn.addEventListener('click', async () => {
@@ -7829,7 +7908,7 @@ async function pageCalls() {
                 btn.disabled = false;
                 return;
               }
-              host.innerHTML = `<p><strong>${esc(pd.phoneNumber || number)}</strong> is now ${esc(bizName)}'s display number — their site shows it and calls forward per their Call Tracking settings.</p>`;
+              host.innerHTML = `<p><strong>${esc(pd.phoneNumber || number)}</strong> is now ${esc(bizName)}'s tracking number — their call button dials it and calls forward per the forwarding setup below.</p>`;
               toast(`Number ${pd.phoneNumber || number} attached to ${bizName}.`);
             } catch (e) {
               toast(e.message || 'Purchase failed — nothing was changed.', 'err');

@@ -41,7 +41,7 @@ const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod15';
+const MODULE_SCRIPT_VER = 'mod16';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -5623,9 +5623,13 @@ function publicSocialFeedPayload(db, leadId) {
 
 /* ── Call Tracking (Twilio Voice) ────────────────────────────────────────────
  *
- * The number a business adds here (display_number — normally a Twilio
- * number bought for them) is the ONLY number the site shows, rendered
- * as the call-to-action. Twilio posts inbound calls to
+ * Client/admin split (Batch 25c, Ely 2026-10-26): the client only ever
+ * provides their own phone number — it lands on leads.phone, shows on
+ * the site as the call button's text, and becomes the forwarding
+ * destination (redirect_number). ALL forwarding configuration is
+ * admin-side: display_number (the Twilio tracking number the button
+ * actually dials), redirect on/off, recording, notify, button label.
+ * Twilio posts inbound calls to
  * /api/v1/calls/voice/:workspaceId/:leadId (server/routes/calls.js);
  * when redirect is on, the TwiML dials redirect_number (the business's
  * real phone) with callerId = the display number, so the business sees
@@ -5818,16 +5822,51 @@ function updateCallTrackingConfig(db, leadId, data = {}) {
   return getCallTrackingConfig(db, leadId);
 }
 
-/** Public-safe payload: only what the site may show. The redirect number
- * (the business's real phone) is NEVER exposed — defeating the point of
- * tracking if it leaked into page data. */
+/** Best-effort E.164 for a number stored outside the call-tracking
+ * config (leads.phone is free-form). '' when nothing dialable remains. */
+function coercePhoneE164(value) {
+  const raw = String(value == null ? '' : value).trim();
+  if (!raw) return '';
+  try {
+    return normalizeE164(raw, 'Phone number');
+  } catch {
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length === 10) return `+1${digits}`;
+    if (digits.length >= 7 && digits.length <= 15) return `+${digits}`;
+    return '';
+  }
+}
+
+/** The lead's own phone number (leads.phone), coerced to E.164. */
+function leadPhoneE164(db, leadId) {
+  try {
+    const row = db.prepare('SELECT phone FROM leads WHERE id = ?').get(Number(leadId));
+    return coercePhoneE164(row && row.phone);
+  } catch {
+    return '';
+  }
+}
+
+/** Public-safe payload: only what the site may show (Batch 25c split).
+ * The call button TEXT is the business's own number (leads.phone — the
+ * number the client provided, which they expect to see on their site);
+ * the tel: target is the admin-assigned tracking number (display_number)
+ * when one exists, so calls route through Twilio and get logged, and
+ * falls back to the business's own number before a tracking number is
+ * set up. The config's redirect_number field itself is never exposed. */
 function publicCallTrackingPayload(db, leadId) {
   const config = readCallTrackingConfig(db, leadId);
-  if (!config.display_number) return { configured: false };
+  const phone = leadPhoneE164(db, leadId);
+  const tracking = String(config.display_number || '').trim();
+  const tel = tracking || phone;
+  if (!tel) return { configured: false };
   return {
     configured: true,
-    display_number: config.display_number,
-    display_number_formatted: formatPhoneDisplay(config.display_number),
+    display_number: tel,
+    display_number_formatted: formatPhoneDisplay(tel),
+    tracking_number: tracking,
+    phone_number: phone,
+    phone_number_formatted: phone ? formatPhoneDisplay(phone) : '',
     cta_text: config.cta_text || CALL_TRACKING_DEFAULT_CTA,
   };
 }

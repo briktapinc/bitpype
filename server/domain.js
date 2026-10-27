@@ -4842,12 +4842,18 @@ async function adminCallsOverview(workspaceId, opts = {}) {
     modules.ensureTables(db);
     const calls = modules.listAllCalls(db, { limit: opts.limit });
     // Businesses that can hold a number: leads with the module attached.
+    // Batch 25c: the admin surface is the ONLY place forwarding is
+    // configured, so each business carries the client's provided number
+    // (leads.phone — the destination), the full admin-owned config, and
+    // the voice webhook URL an owned Twilio number must point at.
+    const { appUrl } = require('./stripeClient');
     let businesses = [];
     try {
       businesses = db
         .prepare(
-          `SELECT e.lead_id, l.business_name AS lead_name,
-                  c.display_number, c.twilio_number_sid
+          `SELECT e.lead_id, l.business_name AS lead_name, l.phone AS lead_phone,
+                  c.display_number, c.cta_text, c.redirect_enabled, c.redirect_number,
+                  c.record_calls, c.notify_email, c.twilio_number_sid
            FROM site_module_embeds e
            LEFT JOIN leads l ON l.id = e.lead_id
            LEFT JOIN calltracking_configs c ON c.lead_id = e.lead_id
@@ -4858,8 +4864,19 @@ async function adminCallsOverview(workspaceId, opts = {}) {
         .map((r) => ({
           lead_id: r.lead_id,
           lead_name: r.lead_name || '',
+          lead_phone: r.lead_phone || '',
           display_number: r.display_number || '',
           twilio_number_sid: r.twilio_number_sid || '',
+          voice_url: `${String(appUrl() || '').replace(/\/$/, '')}/api/v1/calls/voice/${Number(workspaceId)}/${Number(r.lead_id)}`,
+          config: {
+            display_number: r.display_number || '',
+            cta_text: r.cta_text || 'Call us',
+            redirect_enabled: r.redirect_enabled == null ? true : !!r.redirect_enabled,
+            redirect_number: r.redirect_number || '',
+            record_calls: !!r.record_calls,
+            notify_email: r.notify_email == null ? true : !!r.notify_email,
+            twilio_number_sid: r.twilio_number_sid || '',
+          },
         }));
     } catch {
       businesses = [];
@@ -4943,6 +4960,47 @@ async function adminPurchaseCallNumber(workspaceId, { leadId, phoneNumber } = {}
   return { configured: true, phoneNumber: bought.phoneNumber, sid: bought.sid, config };
 }
 
+/**
+ * Admin-only Call Tracking config save (Batch 25c split). Forwarding —
+ * tracking/display number, redirect on/off + destination, recording,
+ * notify, button label — is configured HERE (staff) and in the staff
+ * MCP tools, never from the client portal: the portal save accepts only
+ * the client's own phone number. Returns the saved config plus the
+ * client's provided number (leads.phone), which is the destination the
+ * admin UI presents.
+ */
+async function adminSaveCallTrackingConfig(workspaceId, body = {}) {
+  const modules = require('./siteModules');
+  const id = Number(body.leadId != null ? body.leadId : body.lead_id);
+  if (!Number.isInteger(id) || id <= 0) {
+    const e = new Error('A business (leadId) is required.');
+    e.code = 'VALIDATION';
+    e.status = 400;
+    throw e;
+  }
+  const leadRow = withDb(workspaceId, (db) =>
+    db.prepare('SELECT email, phone FROM leads WHERE id = ?').get(id)
+  );
+  if (!leadRow) {
+    const e = new Error('That business was not found in this workspace.');
+    e.code = 'NOT_FOUND';
+    e.status = 404;
+    throw e;
+  }
+  // Free-plan gate (addendum #3), same rule as purchase/MCP: a first
+  // display number needs a paid plan; an existing number keeps working.
+  const billing = require('./billing');
+  const plan = await billing.effectivePlan(
+    workspaceId,
+    leadRow.email ? { email: leadRow.email } : {}
+  );
+  const config = withDb(workspaceId, (db) => {
+    modules.assertCallTrackingActivation(modules.getCallTrackingConfig(db, id), body, plan);
+    return modules.updateCallTrackingConfig(db, id, body);
+  });
+  return { config, lead_phone: leadRow.phone || '', plan };
+}
+
 // ---------- AI SEO tool (Batch 22) ----------
 // Staff surface: any website in the workspace. The service layer is
 // server/seoTool.js; proposals are shared with the client portal, so a
@@ -4988,6 +5046,7 @@ module.exports = {
   adminCallsOverview,
   adminSearchCallNumbers,
   adminPurchaseCallNumber,
+  adminSaveCallTrackingConfig,
   leadsList,
   leadsFacets,
   leadsGet,
