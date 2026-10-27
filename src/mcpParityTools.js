@@ -33,6 +33,56 @@ function createParityTools(ctx) {
     return String(s);
   }
 
+  // ----- Site-module families (review fix: local MCP catalog parity) -----
+  // The shared catalog advertises the module tool families; the hosted
+  // server implements them, but the local parity layer never did, and
+  // src/mcp.js refuses to boot when a catalog tool has no run() — the
+  // local MCP server died on startup and clients fell back to REST.
+  // These entries mirror the hosted handlers' delegations to
+  // server/siteModules (hosted plan gating does not apply locally).
+  // Their description/schema here are placeholders: the catalog's base
+  // list already carries the rich entries for these names (the catalog
+  // merger skips duplicates in its favor), src/mcp.js overwrites
+  // impl.description/schema from the catalog at boot, and the catalog
+  // cannot be required from here anyway — it loads this module while
+  // building its own tools list (circular).
+  function parityEntry(name, run) {
+    return { description: name, schema: { type: 'object', properties: {} }, run };
+  }
+  function siteModules() {
+    const modules = require('../server/siteModules');
+    modules.ensureTables(db);
+    return modules;
+  }
+  function moduleCrud(prefix, fns) {
+    const out = {};
+    out[`${prefix}.list`] = parityEntry(`${prefix}.list`, (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return {
+        ok: true,
+        data: siteModules()[fns.list](db, leadId, {
+          includeDrafts: args.includeDrafts !== false,
+          includeInactive: args.includeInactive !== false,
+        }),
+      };
+    });
+    out[`${prefix}.create`] = parityEntry(`${prefix}.create`, (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules()[fns.create](db, leadId, { ...args }) };
+    });
+    out[`${prefix}.update`] = parityEntry(`${prefix}.update`, (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: siteModules()[fns.update](db, leadId, id, { ...args }) };
+    });
+    out[`${prefix}.delete`] = parityEntry(`${prefix}.delete`, (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: siteModules()[fns.delete](db, leadId, id) };
+    });
+    return out;
+  }
+
   return {
     // ----- Leads (beyond search/get/qualify/create/update/delete/addFact) -----
     'lead.score': {
@@ -3171,6 +3221,246 @@ function createParityTools(ctx) {
         return { ok: true, data: result };
       },
     },
+
+    // ----- Site modules (review fix: catalog parity, see helpers above) -----
+    ...moduleCrud('blog', { list: 'listBlogPosts', create: 'createBlogPost', update: 'updateBlogPost', delete: 'deleteBlogPost' }),
+    ...moduleCrud('ecommerce', { list: 'listProducts', create: 'createProduct', update: 'updateProduct', delete: 'deleteProduct' }),
+    ...moduleCrud('courses', { list: 'listCourses', create: 'createCourse', update: 'updateCourse', delete: 'deleteCourse' }),
+    ...moduleCrud('gallery', { list: 'listAlbums', create: 'createAlbum', update: 'updateAlbum', delete: 'deleteAlbum' }),
+    ...moduleCrud('directory', { list: 'listListings', create: 'createListing', update: 'updateListing', delete: 'deleteListing' }),
+    ...moduleCrud('faq', { list: 'listFaqItems', create: 'createFaqItem', update: 'updateFaqItem', delete: 'deleteFaqItem' }),
+    ...moduleCrud('testimonials', { list: 'listTestimonials', create: 'createTestimonial', update: 'updateTestimonial', delete: 'deleteTestimonial' }),
+    ...moduleCrud('team', { list: 'listTeamMembers', create: 'createTeamMember', update: 'updateTeamMember', delete: 'deleteTeamMember' }),
+    ...moduleCrud('offers', { list: 'listOffers', create: 'createOffer', update: 'updateOffer', delete: 'deleteOffer' }),
+    ...moduleCrud('careers', { list: 'listCareersPostings', create: 'createCareersPosting', update: 'updateCareersPosting', delete: 'deleteCareersPosting' }),
+    ...moduleCrud('video', { list: 'listVideoItems', create: 'createVideoItem', update: 'updateVideoItem', delete: 'deleteVideoItem' }),
+    ...moduleCrud('events', { list: 'listEvents', create: 'createEvent', update: 'updateEvent', delete: 'deleteEvent' }),
+
+    'courses.addLesson': parityEntry('courses.addLesson', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const courseId = requireId(args.courseId, 'courseId');
+      return { ok: true, data: siteModules().addLesson(db, leadId, courseId, { ...args }) };
+    }),
+    'gallery.addImage': parityEntry('gallery.addImage', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const albumId = requireId(args.albumId, 'albumId');
+      return { ok: true, data: siteModules().addGalleryImage(db, leadId, albumId, { ...args }) };
+    }),
+
+    'menu.list': parityEntry('menu.list', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const modules = siteModules();
+      const opts = { includeDrafts: args.includeDrafts !== false };
+      return { ok: true, data: { items: modules.listMenuItems(db, leadId, opts), categories: modules.listMenuCategories(db, leadId, opts) } };
+    }),
+    'menu.create': parityEntry('menu.create', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().createMenuItem(db, leadId, { ...args }) };
+    }),
+    'menu.update': parityEntry('menu.update', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: siteModules().updateMenuItem(db, leadId, id, { ...args }) };
+    }),
+    'menu.delete': parityEntry('menu.delete', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: siteModules().deleteMenuItem(db, leadId, id) };
+    }),
+    'menu.addCategory': parityEntry('menu.addCategory', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().createMenuCategory(db, leadId, { ...args }) };
+    }),
+    'menu.updateCategory': parityEntry('menu.updateCategory', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: siteModules().updateMenuCategory(db, leadId, id, { ...args }) };
+    }),
+    'menu.deleteCategory': parityEntry('menu.deleteCategory', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: siteModules().deleteMenuCategory(db, leadId, id) };
+    }),
+
+    'estimate.getConfig': parityEntry('estimate.getConfig', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().getEstimateConfig(db, leadId) };
+    }),
+    'estimate.updateConfig': parityEntry('estimate.updateConfig', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().updateEstimateConfig(db, leadId, { ...args }) };
+    }),
+    'estimate.listOptions': parityEntry('estimate.listOptions', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().listEstimateOptions(db, leadId, { includeInactive: args.includeInactive !== false }) };
+    }),
+    'estimate.createOption': parityEntry('estimate.createOption', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().createEstimateOption(db, leadId, { ...args }) };
+    }),
+    'estimate.updateOption': parityEntry('estimate.updateOption', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: siteModules().updateEstimateOption(db, leadId, id, { ...args }) };
+    }),
+    'estimate.deleteOption': parityEntry('estimate.deleteOption', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: siteModules().deleteEstimateOption(db, leadId, id) };
+    }),
+    'estimate.listRequests': parityEntry('estimate.listRequests', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().listEstimateRequests(db, leadId, { limit: args.limit || 50 }) };
+    }),
+
+    'socialfeed.getConfig': parityEntry('socialfeed.getConfig', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().getSocialFeedConfig(db, leadId) };
+    }),
+    'socialfeed.updateConfig': parityEntry('socialfeed.updateConfig', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().updateSocialFeedConfig(db, leadId, { ...args }) };
+    }),
+    'socialfeed.preview': parityEntry('socialfeed.preview', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().socialFeedPreview(db, leadId) };
+    }),
+
+    'calls.getSettings': parityEntry('calls.getSettings', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().getCallTrackingConfig(db, leadId) };
+    }),
+    'calls.updateSettings': parityEntry('calls.updateSettings', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      // Hosted additionally applies a plan gate + number-pool rotation
+      // sync; those are hosted orchestration and do not apply locally.
+      return { ok: true, data: siteModules().updateCallTrackingConfig(db, leadId, { ...args }) };
+    }),
+    'calls.list': parityEntry('calls.list', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().listCalls(db, leadId, { limit: args.limit || 200 }) };
+    }),
+    'calls.poolList': parityEntry('calls.poolList', () => {
+      const domain = require('../server/domain');
+      return { ok: true, data: domain.adminListNumberPool(workspaceId) };
+    }),
+    'calls.poolAdd': parityEntry('calls.poolAdd', async (args) => {
+      const domain = require('../server/domain');
+      return { ok: true, data: await domain.adminAddPoolNumber(workspaceId, { ...args }) };
+    }),
+    'calls.poolRemove': parityEntry('calls.poolRemove', (args) => {
+      const domain = require('../server/domain');
+      return { ok: true, data: domain.adminRemovePoolNumber(workspaceId, { ...args }) };
+    }),
+
+    'rentals.list': parityEntry('rentals.list', (args) => {
+      const domain = require('../server/domain');
+      return {
+        ok: true,
+        data: domain.rentalsList(workspaceId, {
+          websiteId: args.websiteId != null ? Number(args.websiteId) : null,
+          tenantLeadId: args.tenantLeadId != null ? Number(args.tenantLeadId) : null,
+          status: args.status || null,
+          limit: args.limit || 200,
+        }),
+      };
+    }),
+    'rentals.get': parityEntry('rentals.get', (args) => {
+      const domain = require('../server/domain');
+      const rentalId = requireId(args.rentalId != null ? args.rentalId : args.id, 'rentalId');
+      return { ok: true, data: domain.rentalsDetail(workspaceId, rentalId) };
+    }),
+    'rentals.create': parityEntry('rentals.create', async (args) => {
+      const domain = require('../server/domain');
+      return { ok: true, data: await domain.rentalsCreate(workspaceId, { ...args }, 'mcp') };
+    }),
+    'rentals.end': parityEntry('rentals.end', async (args) => {
+      const domain = require('../server/domain');
+      const rentalId = requireId(args.rentalId != null ? args.rentalId : args.id, 'rentalId');
+      return { ok: true, data: await domain.rentalsEnd(workspaceId, rentalId, args.reason || '') };
+    }),
+
+    'members.getConfig': parityEntry('members.getConfig', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().getMembersConfig(db, leadId) };
+    }),
+    'members.updateConfig': parityEntry('members.updateConfig', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().updateMembersConfig(db, leadId, { ...args }) };
+    }),
+    'members.listMembers': parityEntry('members.listMembers', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const modules = siteModules();
+      return {
+        ok: true,
+        data: {
+          members: modules.listSiteMembers(db, leadId, { search: args.search, status: args.status, limit: args.limit || 100 }),
+          counts: modules.countSiteMembers(db, leadId),
+        },
+      };
+    }),
+    'members.setMemberStatus': parityEntry('members.setMemberStatus', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: siteModules().setSiteMemberStatus(db, leadId, id, args.status) };
+    }),
+    'members.deleteMember': parityEntry('members.deleteMember', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: siteModules().deleteSiteMember(db, leadId, id) };
+    }),
+    'members.listTiers': parityEntry('members.listTiers', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().listMembershipTiers(db, leadId, { includeInactive: args.includeInactive !== false }) };
+    }),
+    'members.createTier': parityEntry('members.createTier', async (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const membershipStripe = require('../server/membershipStripe');
+      siteModules();
+      const result = await membershipStripe.saveMembershipTier(db, leadId, { ...args });
+      return { ok: true, data: { tier: result.tier, stripe_state: result.stripe_state } };
+    }),
+    'members.updateTier': parityEntry('members.updateTier', async (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      const membershipStripe = require('../server/membershipStripe');
+      siteModules();
+      const result = await membershipStripe.saveMembershipTier(db, leadId, { ...args }, id);
+      return { ok: true, data: { tier: result.tier, stripe_state: result.stripe_state } };
+    }),
+    'members.listSubscriptions': parityEntry('members.listSubscriptions', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().listMemberSubscriptions(db, leadId, { memberId: args.memberId, limit: args.limit }) };
+    }),
+    'members.grantComp': parityEntry('members.grantComp', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: siteModules().grantMemberComp(db, leadId, id, { ...args }) };
+    }),
+    'members.revokeComp': parityEntry('members.revokeComp', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: siteModules().revokeMemberComp(db, leadId, id) };
+    }),
+
+    'website.addModule': parityEntry('website.addModule', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const modules = siteModules();
+      return {
+        ok: true,
+        data: modules.attachModule(db, leadId, args.moduleType || args.module, {
+          workspaceId,
+          title: args.title,
+          target_page_slug: args.target_page_slug || args.pageSlug,
+          settings: args.settings,
+        }),
+      };
+    }),
+    'modules.list': parityEntry('modules.list', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const domain = require('../server/domain');
+      return { ok: true, data: domain.modulesSummary(workspaceId, leadId) };
+    }),
   };
 }
 

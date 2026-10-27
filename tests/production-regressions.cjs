@@ -6649,6 +6649,64 @@ async function main() {
     assert.equal(chatResR9b.body && chatResR9b.body.ok, true);
   });
 
+  // ---- Review fix 10: local MCP catalog breakage ----
+  // src/mcpCatalog.js advertises 214 tools; src/mcp.js (the local
+  // stdio server the desktop app points MCP clients at) refuses to
+  // boot when a catalog tool has no run() in TOOLS. The module
+  // families (blog/shop/courses/gallery/faq/members/calls/rentals/…)
+  // were only ever implemented on the HOSTED server, so the local
+  // server died on startup ("MCP catalog tool website.addModule has
+  // no run() in mcp.js") and clients fell back to REST.
+  const cpR10 = require('node:child_process');
+  const osR10 = require('node:os');
+  const bootProbeR10 = cpR10.execFileSync(
+    process.execPath,
+    ['-e', "try { require('./src/mcp.js'); console.log('MCP BOOT OK'); } catch (e) { console.log('MCP BOOT THREW: ' + e.message); } process.exit(0);"],
+    {
+      cwd: root,
+      env: { ...process.env, DB_DRIVER: 'sqlite', WS_DB_PATH: path.join(osR10.tmpdir(), `ws-mcp-boot-${Date.now()}.db`) },
+      input: '',
+      encoding: 'utf8',
+      timeout: 30000,
+    }
+  );
+  check('review10 local MCP server boots: every catalog tool resolves to a real handler', () => {
+    assert.ok(String(bootProbeR10).includes('MCP BOOT OK'), String(bootProbeR10).slice(0, 300));
+  });
+  // Functional spot-checks: the parity delegations must really drive
+  // server/siteModules, not just exist by name.
+  const parityR10 = require(path.join(root, 'src/mcpParityTools.js')).createParityTools({
+    db,
+    vStr: (v) => (v == null ? '' : String(v)),
+    vInt: (v) => Number(v) || 0,
+    requireId: (v, n) => { const id = Number(v); if (!id) throw new Error(`${n} is required`); return id; },
+    isErr: () => false,
+    argError: (m) => new Error(m),
+    ensureNotPaused: () => {},
+    leadSummary: (x) => x,
+    mcpSafeJob: (x) => x,
+    logActivity: () => {},
+    getSetting: () => '',
+    setSetting: () => {},
+    runLeadEngine: (fn) => fn(),
+    workspaceId: 1,
+  });
+  db.prepare('INSERT INTO leads (id, business_name, email) VALUES (?, ?, ?)').run(2797, 'Fixture R10 Modules', 'r10@example.invalid');
+  const faqCreateR10 = await parityR10['faq.create'].run({ leadId: 2797, question: 'R10 question?', answer: 'R10 answer.', status: 'published' });
+  const faqListR10 = await parityR10['faq.list'].run({ leadId: 2797 });
+  check('review10 faq.create + faq.list delegate to siteModules for real', () => {
+    assert.equal(faqCreateR10.ok, true);
+    const items = Array.isArray(faqListR10.data) ? faqListR10.data : faqListR10.data.items;
+    assert.ok(items.some((i) => i.question === 'R10 question?'), JSON.stringify(faqListR10.data).slice(0, 200));
+  });
+  const addModR10 = await parityR10['website.addModule'].run({ leadId: 2797, moduleType: 'blog' });
+  const modListR10 = await parityR10['modules.list'].run({ leadId: 2797 });
+  check('review10 website.addModule attaches and modules.list reports it', () => {
+    assert.equal(addModR10.ok, true);
+    assert.ok(addModR10.data && addModR10.data.embed, 'attach returns the embed');
+    assert.ok(modListR10 && modListR10.ok === true, 'modules.list runs');
+  });
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});
