@@ -811,6 +811,15 @@ router.get('/websites', pinTokenLeadFilter, (req, res) => {
     fail(res, e);
   }
 });
+// Batch 27: staff Archives list (registered before /websites/:id so
+// 'archives' is never captured as an id).
+router.get('/websites/archives', denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, domain.sitesArchivedList(req.auth.workspaceId));
+  } catch (e) {
+    fail(res, e);
+  }
+});
 router.get('/websites/by-lead/:leadId', scopeLeadIdParam, (req, res) => {
   try {
     ok(res, domain.sitesForLead(req.auth.workspaceId, Number(req.params.leadId)));
@@ -915,6 +924,14 @@ router.get('/websites/:id', scopeWebsite, (req, res) => {
 router.delete('/websites/:id', scopeWebsite, (req, res) => {
   try {
     ok(res, domain.sitesDelete(req.auth.workspaceId, Number(req.params.id)));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+// Batch 27: restore an archived (soft-deleted) website.
+router.post('/websites/:id/restore', scopeWebsite, (req, res) => {
+  try {
+    ok(res, domain.sitesRestoreSite(req.auth.workspaceId, Number(req.params.id)));
   } catch (e) {
     fail(res, e);
   }

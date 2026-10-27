@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS websites (
   status TEXT DEFAULT 'draft', -- draft,qa_pending,approved,published
   preview_path TEXT,     -- local exported preview file
   preview_url TEXT,      -- public Cloudflare Pages URL (set on publish)
+  archived_at TEXT,      -- Batch 27: soft delete stamp; NULL = live site
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );

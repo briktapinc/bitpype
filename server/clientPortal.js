@@ -418,7 +418,7 @@ function loadLeadContext(workspaceId, leadId) {
       site = db
         .prepare(
           `SELECT id, name, status, preview_url, preview_path, updated_at
-         FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1`
+         FROM websites WHERE lead_id = ? AND archived_at IS NULL ORDER BY id DESC LIMIT 1`
         )
         .get(lead.id);
     } catch {
@@ -551,7 +551,7 @@ function resolveClientSite(db, leadId) {
     site = db
       .prepare(
         `SELECT id, lead_id, name, status, pages, theme, preview_url, preview_path, export_slug, updated_at
-       FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1`
+       FROM websites WHERE lead_id = ? AND archived_at IS NULL ORDER BY id DESC LIMIT 1`
       )
       .get(lid);
   } catch (e) {
@@ -576,14 +576,14 @@ function resolveClientSite(db, leadId) {
       site = db
         .prepare(
           `SELECT id, lead_id, name, status, pages, theme, preview_url, preview_path, export_slug, updated_at
-         FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1`
+         FROM websites WHERE lead_id = ? AND archived_at IS NULL ORDER BY id DESC LIMIT 1`
         )
         .get(lid);
     } catch {
       site = db
         .prepare(
           `SELECT id, lead_id, name, status, pages, theme, preview_url, preview_path, updated_at
-         FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1`
+         FROM websites WHERE lead_id = ? AND archived_at IS NULL ORDER BY id DESC LIMIT 1`
         )
         .get(lid);
     }
@@ -2173,7 +2173,7 @@ async function saveContactForm(workspaceId, leadId, patch, clientEmail, formId) 
       if (form.published) {
         forms.syncSiteFormEmbeds(db, Number(leadId));
         const site = db
-          .prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+          .prepare('SELECT id FROM websites WHERE lead_id = ? AND archived_at IS NULL ORDER BY id DESC LIMIT 1')
           .get(Number(leadId));
         if (site) rematerializeFormSite(db, workspaceId, site.id);
       }
@@ -2191,7 +2191,7 @@ async function deleteContactForm(workspaceId, leadId, formId) {
   return domain.withDb(workspaceId, (db) => {
     const result = forms.deleteForm(db, Number(leadId), Number(formId));
     try {
-      const site = db.prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(Number(leadId));
+      const site = db.prepare('SELECT id FROM websites WHERE lead_id = ? AND archived_at IS NULL ORDER BY id DESC LIMIT 1').get(Number(leadId));
       if (site) rematerializeFormSite(db, workspaceId, site.id);
     } catch {
       /* optional */
@@ -2248,7 +2248,7 @@ async function publishContactForm(workspaceId, leadId, opts = {}, formId) {
       toSite: opts.toSite,
       workspaceId: Number(workspaceId),
     });
-    const site = db.prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(Number(leadId));
+    const site = db.prepare('SELECT id FROM websites WHERE lead_id = ? AND archived_at IS NULL ORDER BY id DESC LIMIT 1').get(Number(leadId));
     const pages = forms.listSitePages(db, Number(leadId));
     return {
       form,
@@ -2802,7 +2802,7 @@ async function saveCallTrackingConfig(workspaceId, leadId, body, clientEmail) {
 
 function seoSiteForLead(db, leadId) {
   const site = db
-    .prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+    .prepare('SELECT id FROM websites WHERE lead_id = ? AND archived_at IS NULL ORDER BY id DESC LIMIT 1')
     .get(Number(leadId));
   if (!site) {
     throw Object.assign(new Error('No website has been built for this business yet.'), { code: 'NO_SITE' });
@@ -3136,7 +3136,7 @@ async function attachSiteModule(workspaceId, leadId, moduleType, opts = {}, clie
       embed_enabled: opts.embed_enabled != null ? opts.embed_enabled : opts.toSite !== false,
       appUrl: appUrl(),
     });
-    const site = db.prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(Number(leadId));
+    const site = db.prepare('SELECT id FROM websites WHERE lead_id = ? AND archived_at IS NULL ORDER BY id DESC LIMIT 1').get(Number(leadId));
     return {
       ...result,
       pages: modules.listSitePages(db, Number(leadId)),
@@ -3162,7 +3162,7 @@ async function detachSiteModule(workspaceId, leadId, moduleType, clientEmail) {
   await requireSiteModules(workspaceId, clientEmail);
   const packed = domain.withDb(workspaceId, (db) => {
     const result = modules.detachModule(db, Number(leadId), moduleType);
-    const site = db.prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(Number(leadId));
+    const site = db.prepare('SELECT id FROM websites WHERE lead_id = ? AND archived_at IS NULL ORDER BY id DESC LIMIT 1').get(Number(leadId));
     return { ...result, siteId: site && site.id };
   });
   let preview = null;

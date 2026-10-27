@@ -80,6 +80,9 @@ function ensureTables(db) {
   if (cols.length && !cols.some((c) => c.name === 'origin')) {
     db.exec('ALTER TABLE websites ADD COLUMN origin TEXT');
   }
+  if (cols.length && !cols.some((c) => c.name === 'archived_at')) {
+    db.exec('ALTER TABLE websites ADD COLUMN archived_at TEXT');
+  }
   const vCols = db.prepare('PRAGMA table_info(website_versions)').all();
   if (vCols.length && !vCols.some((c) => c.name === 'author')) {
     try {
@@ -4577,15 +4580,83 @@ function removeSiteStorageFolders(websiteId, opts = {}) {
 }
 
 /**
- * Delete a website row and all associated on-disk export/preview assets.
+ * Batch 27 — SOFT delete: archive a website. NOTHING is destroyed: the row,
+ * pages/versions, design jobs, assets, export folders and all site-linked
+ * data stay intact so a restore is instant and complete. The site only gets
+ * websites.archived_at stamped; archived sites are excluded from public
+ * rendering, published/export routes, portal and staff site lists (the list
+ * queries filter on archived_at). No Cloudflare Pages teardown happens here.
+ * Deleting an already-archived site is a no-op.
+ *
+ * @returns {{ id, archived: true, alreadyArchived: boolean, name, lead_id, archived_at }}
+ */
+function deleteWebsite(db, websiteId, opts = {}) {
+  ensureTables(db);
+  const id = Number(websiteId);
+  if (!Number.isInteger(id) || id < 1) throw err('INVALID_ID', 'id must be a positive integer.');
+  const site = db.prepare('SELECT * FROM websites WHERE id = ?').get(id);
+  if (!site) throw err('SITE_NOT_FOUND', `Website #${id} not found.`);
+  if (site.archived_at) {
+    return { id, archived: true, alreadyArchived: true, name: site.name, lead_id: site.lead_id, archived_at: site.archived_at };
+  }
+  db.prepare("UPDATE websites SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(id);
+  const row = db.prepare('SELECT archived_at FROM websites WHERE id = ?').get(id);
+  logActivity(db, 'websites', `Website #${id} ("${String(site.name || '').slice(0, 80)}") archived (soft delete).`);
+  return { id, archived: true, alreadyArchived: false, name: site.name, lead_id: site.lead_id, archived_at: row.archived_at };
+}
+
+/**
+ * Batch 27 — restore an archived website: clears archived_at; the site
+ * returns to the normal lists with pages/versions/data exactly as they were
+ * and in its pre-archive publish state (nothing is auto-published).
+ * Restoring a site that is not archived is a no-op.
+ */
+function restoreWebsite(db, websiteId) {
+  ensureTables(db);
+  const id = Number(websiteId);
+  if (!Number.isInteger(id) || id < 1) throw err('INVALID_ID', 'id must be a positive integer.');
+  const site = db.prepare('SELECT * FROM websites WHERE id = ?').get(id);
+  if (!site) throw err('SITE_NOT_FOUND', `Website #${id} not found.`);
+  if (!site.archived_at) {
+    return { id, restored: false, archived: false, name: site.name, lead_id: site.lead_id };
+  }
+  db.prepare("UPDATE websites SET archived_at = NULL, updated_at = datetime('now') WHERE id = ?").run(id);
+  logActivity(db, 'websites', `Website #${id} ("${String(site.name || '').slice(0, 80)}") restored from archive.`);
+  return { id, restored: true, archived: false, name: site.name, lead_id: site.lead_id };
+}
+
+/** Batch 27 — archived websites for the staff Archives page (newest first). */
+function listArchivedWebsites(db) {
+  ensureTables(db);
+  return db
+    .prepare(
+      `SELECT w.id, w.lead_id, w.name, w.industry, w.status, w.origin, w.archived_at, w.created_at, w.updated_at,
+              l.business_name, l.category
+       FROM websites w LEFT JOIN leads l ON l.id = w.lead_id
+       WHERE w.archived_at IS NOT NULL
+       ORDER BY w.archived_at DESC`
+    )
+    .all();
+}
+
+/** True when a website row is archived (soft-deleted). */
+function isArchivedSite(site) {
+  return !!(site && site.archived_at);
+}
+
+/**
+ * PERMANENT destroy — internal cleanup only (e.g. generateSite force-rebuild).
+ * Deletes the website row and all associated on-disk export/preview assets.
  * Safe across shared EXPORT_ROOT: with workspaceId, never removes another
  * workspace's ws-{other}-site-* folders. Does not delete remote Cloudflare
  * Pages projects (may be shared via cf.project). Design jobs are unlinked,
  * not deleted. Contact forms / modules stay on the lead.
+ * NOT exposed as a UI/MCP delete — user-facing delete is the soft archive
+ * above (deleteWebsite).
  *
  * @returns {{ id, deleted: true, removedFolders: string[], skippedFolders: string[] }}
  */
-function deleteWebsite(db, websiteId, opts = {}) {
+function destroyWebsite(db, websiteId, opts = {}) {
   ensureTables(db);
   const id = Number(websiteId);
   if (!Number.isInteger(id) || id < 1) throw err('INVALID_ID', 'id must be a positive integer.');
@@ -4695,7 +4766,7 @@ async function generateSite(db, leadId, opts = {}) {
   if (existing && !opts.force) return { id: existing.id, reused: true };
   if (existing && opts.force) {
     // Full rebuild: wipe DB row + export/preview storage for the previous site.
-    deleteWebsite(db, existing.id, { workspaceId: opts.workspaceId });
+    destroyWebsite(db, existing.id, { workspaceId: opts.workspaceId });
     logActivity(
       db,
       'websites',
@@ -6468,6 +6539,10 @@ module.exports = {
   // lifecycle
   generateSite,
   deleteWebsite,
+  destroyWebsite,
+  restoreWebsite,
+  listArchivedWebsites,
+  isArchivedSite,
   buildPages,
   deterministicCopy,
   saveVersion,

@@ -1507,8 +1507,19 @@ function toolDefs({ clientScoped = false } = {}) {
     {
       name: 'website.delete',
       description:
-        'Delete a website record and purge its EXPORT_ROOT folders (ws-{workspace}-site-{id}*, site-{id}, screenshots, legacy slug exports). Does not wipe other workspaces or delete remote Cloudflare Pages projects. Design jobs are unlinked, not deleted.',
+        'Soft-delete (archive) a website: stamps archived_at and preserves everything — pages/versions, design jobs, assets, export folders, site data. The site vanishes from public routes, portal and site lists; restore with website.unarchive. Nothing is purged and no Cloudflare Pages project is torn down.',
       inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    },
+    {
+      name: 'website.unarchive',
+      description:
+        'Restore an archived (soft-deleted) website: clears archived_at; the site returns to the normal list with pages/versions/data intact, in its pre-archive publish state. No-op when the site is not archived.',
+      inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    },
+    {
+      name: 'website.listArchived',
+      description: 'List archived (soft-deleted) websites with lead/business names and archived dates.',
+      inputSchema: { type: 'object', properties: {} },
     },
     {
       name: 'website.generate',
@@ -3889,6 +3900,8 @@ async function callTool(workspaceId, name, args = {}, ctx = {}) {
       return { ok: true, data: { websiteId: site.id, previewUrl, checks, allOk: checks.every((c) => c.ok) } };
     }
     if (name === 'website.delete') return { ok: true, data: domain.sitesDelete(ws, need(a.id, 'id')) };
+    if (name === 'website.unarchive') return { ok: true, data: domain.sitesRestoreSite(ws, need(a.id, 'id')) };
+    if (name === 'website.listArchived') return { ok: true, data: domain.sitesArchivedList(ws) };
     if (name === 'website.generate') return { ok: true, data: await domain.sitesGenerate(ws, a.leadId, a) };
     if (name === 'website.qa') return { ok: true, data: await domain.sitesQa(ws, a.id) };
     if (name === 'website.export') return { ok: true, data: await domain.sitesExport(ws, a.id) };

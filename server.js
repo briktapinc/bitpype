@@ -587,6 +587,7 @@ app.use(express.static(path.join(__dirname, 'public'), { index: false }));
   app.use(
     '/site-previews',
     require('./server/previewSecurity').isolateStaticPreview,
+    require('./server/previewSecurity').blockArchivedPreviews,
     (req, res, next) => {
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
       res.setHeader('Access-Control-Allow-Origin', '*');

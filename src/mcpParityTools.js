@@ -465,12 +465,14 @@ function createParityTools(ctx) {
       run(args = {}) {
         const { pageArgs, pageResult } = require('./paginate');
         const { page, pageSize, offset } = pageArgs(args || {}, { pageSize: 25, maxSize: 100 });
-        let where = '';
+        require('./websiteEngine').ensureTables(db);
+        const clauses = ['w.archived_at IS NULL'];
         const params = [];
         if (args.status) {
-          where = ' WHERE w.status = ?';
+          clauses.push('w.status = ?');
           params.push(String(args.status));
         }
+        const where = ` WHERE ${clauses.join(' AND ')}`;
         const total = db.prepare(`SELECT COUNT(*) AS c FROM websites w${where}`).get(...params).c;
         const rows = db
           .prepare(
@@ -503,7 +505,7 @@ function createParityTools(ctx) {
 
     'website.delete': {
       description:
-        'Delete a website and purge its EXPORT_ROOT folders / screenshots. Does not delete remote Cloudflare Pages projects or design jobs (jobs are unlinked).',
+        'Soft-delete (archive) a website: stamps archived_at and preserves everything — pages/versions, design jobs, assets, export folders, site data. The site vanishes from public routes and site lists; restore it with website.unarchive. Nothing is purged and no Cloudflare Pages project is torn down.',
       schema: {
         type: 'object',
         properties: { id: { type: 'integer', minimum: 1 } },
@@ -513,6 +515,30 @@ function createParityTools(ctx) {
         const engine = require('./websiteEngine');
         const id = requireId(args.id, 'id');
         return { ok: true, data: engine.deleteWebsite(db, id) };
+      },
+    },
+
+    'website.unarchive': {
+      description:
+        'Restore an archived (soft-deleted) website: clears archived_at; the site returns to the normal list with pages/versions/data intact, in its pre-archive publish state. No-op when the site is not archived.',
+      schema: {
+        type: 'object',
+        properties: { id: { type: 'integer', minimum: 1 } },
+        required: ['id'],
+      },
+      run(args) {
+        const engine = require('./websiteEngine');
+        const id = requireId(args.id, 'id');
+        return { ok: true, data: engine.restoreWebsite(db, id) };
+      },
+    },
+
+    'website.listArchived': {
+      description: 'List archived (soft-deleted) websites with lead/business names and archived dates.',
+      schema: { type: 'object', properties: {} },
+      run() {
+        const engine = require('./websiteEngine');
+        return { ok: true, data: { sites: engine.listArchivedWebsites(db) } };
       },
     },
 

@@ -1162,6 +1162,18 @@ function sitesList(workspaceId, args = {}) {
     const { page, pageSize, offset } = pageArgs(args, { pageSize: 25, maxSize: 100 });
     const clauses = [];
     const params = [];
+    // Batch 27: archived (soft-deleted) sites are hidden by default;
+    // archivedOnly lists only the archive, includeArchived lists everything.
+    try {
+      websiteEngine().ensureTables(db);
+    } catch {
+      /* column add is best-effort here; filter below is guarded the same way */
+    }
+    if (args.archivedOnly) {
+      clauses.push('w.archived_at IS NOT NULL');
+    } else if (!args.includeArchived) {
+      clauses.push('w.archived_at IS NULL');
+    }
     if (args.status) {
       clauses.push('w.status = ?');
       params.push(String(args.status));
@@ -1174,7 +1186,7 @@ function sitesList(workspaceId, args = {}) {
     const total = db.prepare(`SELECT COUNT(*) AS c FROM websites w${where}`).get(...params).c;
     const rows = db
       .prepare(
-        `SELECT w.id, w.lead_id, w.name, w.industry, w.status, w.origin, w.updated_at,
+        `SELECT w.id, w.lead_id, w.name, w.industry, w.status, w.origin, w.updated_at, w.archived_at,
               l.business_name, l.category
        FROM websites w LEFT JOIN leads l ON l.id = w.lead_id
        ${where}
@@ -1260,8 +1272,10 @@ function sitesGet(workspaceId, id) {
   });
 }
 /**
- * Delete a website record and purge its EXPORT_ROOT folders / screenshots.
- * Scoped to this workspace — does not wipe other workspaces' site folders.
+ * Batch 27 — delete is a SOFT delete (archive): the engine stamps
+ * websites.archived_at and preserves everything (pages/versions, design
+ * jobs, assets, export folders, site data). No folders are purged and no
+ * Cloudflare Pages project is torn down, so restore is instant.
  */
 function sitesDelete(workspaceId, id) {
   return withDb(workspaceId, (db) =>
@@ -1269,6 +1283,20 @@ function sitesDelete(workspaceId, id) {
       workspaceId: Number(workspaceId),
     })
   );
+}
+/** Batch 27 — restore an archived website (clears the archive stamp). */
+function sitesRestoreSite(workspaceId, id) {
+  return withDb(workspaceId, (db) => websiteEngine().restoreWebsite(db, Number(id)));
+}
+/** Batch 27 — archived websites for the staff Archives page. */
+function sitesArchivedList(workspaceId) {
+  return withDb(workspaceId, (db) => ({ sites: websiteEngine().listArchivedWebsites(db) }));
+}
+/** Batch 27 — throw SITE_ARCHIVED when a site row is archived (public routes). */
+function assertSiteNotArchived(site) {
+  if (site && site.archived_at) {
+    throw siteErr('SITE_ARCHIVED', `Website #${site.id} is archived and is not publicly available.`);
+  }
 }
 async function sitesGenerate(workspaceId, leadId, opts) {
   return withDb(workspaceId, async (db) => {
@@ -1311,6 +1339,8 @@ async function sitesQa(workspaceId, id) {
 }
 async function sitesExport(workspaceId, id) {
   return withDb(workspaceId, async (db) => {
+    // Batch 27: archived sites vanish from published/export routes.
+    assertSiteNotArchived(websiteEngine().getWebsite(db, Number(id)));
     const adsenseCfg = await resolveAdsenseForSite(workspaceId, db, Number(id));
     const exported = materializeWebsiteExport(db, workspaceId, Number(id), { adsense: adsenseCfg });
     const opt = await optimizeExportImages(exported);
@@ -3059,7 +3089,8 @@ function sitesForLead(workspaceId, leadId) {
   return withDb(workspaceId, (db) => {
     const lid = Number(leadId);
     if (!Number.isInteger(lid)) throw siteErr('INVALID_ID', 'leadId must be an integer.');
-    const row = db.prepare('SELECT id FROM websites WHERE lead_id = ?').get(lid);
+    websiteEngine().ensureTables(db);
+    const row = db.prepare('SELECT id FROM websites WHERE lead_id = ? AND archived_at IS NULL').get(lid);
     return { site: row ? siteRow(db, row.id) : null };
   });
 }
@@ -3206,6 +3237,8 @@ async function sitesPreview(workspaceId, id, opts = {}) {
     cf.ensureColumn(db);
     const engine = websiteEngine();
     const site = engine.getWebsite(db, siteId);
+    // Batch 27: an archived site's public preview URL must not serve it.
+    assertSiteNotArchived(site);
     const existing = site.preview_url || null;
     if (!force && existing && !isLocalPreviewUrl(existing) && (await urlLooksHealthy(existing))) {
       return {
@@ -4360,6 +4393,8 @@ async function cfPublish(workspaceId, websiteId, _ignoredDir) {
   return withDb(workspaceId, async (db) => {
     const cf = require('../src/cloudflare');
     const siteId = Number(websiteId);
+    // Batch 27: archived sites cannot be (re)published.
+    assertSiteNotArchived(websiteEngine().getWebsite(db, siteId));
     // Never trust client-supplied dir — always materialize under the workspace export root.
     // Atomic w.r.t. saved versions: sync → re-read → version snapshot → export that exact JSON.
     const adsenseCfg = await resolveAdsenseForSite(workspaceId, db, siteId);
@@ -5318,6 +5353,8 @@ module.exports = {
   sitesList,
   sitesGet,
   sitesDelete,
+  sitesRestoreSite,
+  sitesArchivedList,
   sitesGenerate,
   sitesQa,
   sitesExport,

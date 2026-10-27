@@ -203,6 +203,8 @@ window.ScoutApi = (() => {
     websites: (q) => get('/websites', q),
     websiteGet: (id) => get('/websites/' + id),
     websiteDelete: (id) => del('/websites/' + id),
+    websitesArchived: () => get('/websites/archives'),
+    websiteUnarchive: (id) => post('/websites/' + id + '/restore', {}),
     websiteByLead: (leadId) => get('/websites/by-lead/' + leadId),
     generateSite: (body) => post('/websites/generate', body),
     websiteSave: (id, body) => put('/websites/' + id, body),

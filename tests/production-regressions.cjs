@@ -5793,6 +5793,128 @@ async function main() {
     assert.ok(!portalSrc26d.includes('rotation_numbers') && !portalSrc26d.includes('cl-cfg-rotate'), 'portal never sees rotation config');
   });
 
+  // ── Batch 27: soft deletes — archive + restore for websites ──
+  const eng27 = require(path.join(root, 'src/websiteEngine.js'));
+  eng27.ensureTables(db);
+  check('batch27 schema: websites.archived_at column exists (additive migration)', () => {
+    const cols = db.prepare('PRAGMA table_info(websites)').all().map((c) => c.name);
+    assert.ok(cols.includes('archived_at'), 'archived_at present');
+  });
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (2701, 'Fixture Archive Alpha', 'arch27@example.invalid')").run();
+  const pages27 = JSON.stringify([{ slug: 'index', title: 'Home', sections: [{ type: 'hero', content: { heading: 'Archive Fixture' } }] }]);
+  const siteId27 = Number(
+    db.prepare('INSERT INTO websites (lead_id, name, theme, pages, status) VALUES (2701, ?, ?, ?, ?)').run(
+      'Fixture Archive Site',
+      '{}',
+      pages27,
+      'approved'
+    ).lastInsertRowid
+  );
+  db.prepare('INSERT INTO website_versions (website_id, version_no, pages, theme, note) VALUES (?, 1, ?, ?, ?)').run(siteId27, pages27, '{}', 'v1 fixture');
+  db.prepare("INSERT INTO design_jobs (type, title, instructions, lead_id, status, website_id) VALUES ('website', 'Fixture Archive Job', 'Build the fixture site.', 2701, 'delivered', ?)").run(siteId27);
+  const exportDir27 = path.join(require(path.join(root, 'src/openPreview.js')).exportRoot(), `site-${siteId27}`);
+  fs.mkdirSync(exportDir27, { recursive: true });
+  fs.writeFileSync(path.join(exportDir27, 'sentinel.txt'), 'batch27');
+  const del27 = eng27.deleteWebsite(db, siteId27);
+  check('batch27 archive: delete stamps archived_at and preserves row, versions, design jobs and the export folder', () => {
+    assert.equal(del27.archived, true);
+    assert.equal(del27.alreadyArchived, false);
+    assert.ok(!('removedFolders' in del27), 'soft delete reports no removed folders');
+    const row = db.prepare('SELECT * FROM websites WHERE id = ?').get(siteId27);
+    assert.ok(row, 'website row still present');
+    assert.ok(row.archived_at, 'archived_at is set');
+    assert.equal(db.prepare('SELECT COUNT(*) AS c FROM website_versions WHERE website_id = ?').get(siteId27).c, 1, 'versions preserved');
+    assert.equal(db.prepare('SELECT COUNT(*) AS c FROM design_jobs WHERE website_id = ?').get(siteId27).c, 1, 'design jobs preserved (not unlinked)');
+    assert.ok(fs.existsSync(path.join(exportDir27, 'sentinel.txt')), 'export folder untouched');
+  });
+  const domain27 = load('server/domain.js', {
+    './workspaceDb': { openWorkspaceDb: () => db },
+    '../src/paginate': require(path.join(root, 'src/paginate.js')),
+    '../src/websiteEngine': eng27,
+    '../src/secretBox': require(path.join(root, 'src/secretBox.js')),
+    './portalContacts': contacts,
+    './billing': { effectivePlan: async () => 'standard' },
+    './stripeClient': { appUrl: () => 'https://example.test' },
+    './siteModules': {},
+  });
+  const listLive27 = domain27.sitesList(1, {});
+  const listArchivedOnly27 = domain27.sitesList(1, { archivedOnly: true });
+  const archives27 = domain27.sitesArchivedList(1);
+  check('batch27 lists: archived site excluded from the normal list, present in archivedOnly + archives list', () => {
+    assert.ok(!listLive27.sites.some((s) => Number(s.id) === siteId27), 'hidden from live list');
+    assert.ok(listArchivedOnly27.sites.some((s) => Number(s.id) === siteId27), 'archivedOnly shows it');
+    const arch = archives27.sites.find((s) => Number(s.id) === siteId27);
+    assert.ok(arch, 'archives listing returns the site');
+    assert.equal(arch.business_name, 'Fixture Archive Alpha');
+    assert.ok(arch.archived_at, 'archives listing carries the archived date');
+  });
+  check('batch27 portal + forLead: archived site resolves as no site', () => {
+    assert.equal(domain27.sitesForLead(1, 2701).site, null, 'sitesForLead hides archived');
+    assert.ok(!portal.loadLeadContext(1, 2701).site, 'portal lead context hides archived');
+  });
+  let exportErr27 = null;
+  try {
+    await domain27.sitesExport(1, siteId27);
+  } catch (e) {
+    exportErr27 = e;
+  }
+  check('batch27 public routes: export of an archived site is refused (SITE_ARCHIVED)', () => {
+    assert.ok(exportErr27, 'sitesExport threw');
+    assert.equal(exportErr27.code, 'SITE_ARCHIVED');
+  });
+  const delAgain27 = eng27.deleteWebsite(db, siteId27);
+  check('batch27 idempotency: deleting an already-archived site is a no-op that stays archived', () => {
+    assert.equal(delAgain27.archived, true);
+    assert.equal(delAgain27.alreadyArchived, true);
+    assert.ok(db.prepare('SELECT archived_at FROM websites WHERE id = ?').get(siteId27).archived_at);
+  });
+  const restore27 = eng27.restoreWebsite(db, siteId27);
+  check('batch27 restore: clears the flag; site reappears in the normal list + portal with pages intact', () => {
+    assert.equal(restore27.restored, true);
+    const row = db.prepare('SELECT * FROM websites WHERE id = ?').get(siteId27);
+    assert.equal(row.archived_at, null);
+    assert.equal(row.pages, pages27, 'pages exactly as before');
+    assert.equal(row.status, 'approved', 'pre-archive publish state kept');
+    assert.ok(domain27.sitesList(1, {}).sites.some((s) => Number(s.id) === siteId27), 'back in live list');
+    assert.ok(!domain27.sitesArchivedList(1).sites.some((s) => Number(s.id) === siteId27), 'gone from archives');
+    assert.ok(portal.loadLeadContext(1, 2701).site, 'portal sees the site again');
+    assert.equal(domain27.sitesForLead(1, 2701).site.id, siteId27, 'sitesForLead resolves again');
+  });
+  const restoreAgain27 = eng27.restoreWebsite(db, siteId27);
+  check('batch27 idempotency: restoring a non-archived site is a no-op', () => {
+    assert.equal(restoreAgain27.restored, false);
+    assert.equal(db.prepare('SELECT archived_at FROM websites WHERE id = ?').get(siteId27).archived_at, null);
+  });
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (2702, 'Fixture Destroy Beta', 'dest27@example.invalid')").run();
+  const siteId27b = Number(
+    db.prepare('INSERT INTO websites (lead_id, name, theme, pages, status) VALUES (2702, ?, ?, ?, ?)').run('Fixture Destroy Site', '{}', pages27, 'draft').lastInsertRowid
+  );
+  eng27.destroyWebsite(db, siteId27b);
+  check('batch27 internal destroy path still permanently removes a site (generate-rebuild cleanup)', () => {
+    assert.equal(db.prepare('SELECT COUNT(*) AS c FROM websites WHERE id = ?').get(siteId27b).c, 0);
+    assert.throws(() => eng27.getWebsite(db, siteId27b), (e) => e.code === 'SITE_NOT_FOUND');
+  });
+  fs.rmSync(exportDir27, { recursive: true, force: true });
+  check('batch27 wiring: staff Archives page, REST routes, preview guard and MCP tools are connected', () => {
+    const appSrc = fs.readFileSync(path.join(root, 'public/js/app.js'), 'utf8');
+    const apiSrc = fs.readFileSync(path.join(root, 'public/js/api.js'), 'utf8');
+    const indexHtml = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
+    const domainApiSrc = fs.readFileSync(path.join(root, 'server/routes/domainApi.js'), 'utf8');
+    const serverSrc = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+    const mcpSrc = fs.readFileSync(path.join(root, 'server/mcp.js'), 'utf8');
+    const paritySrc = fs.readFileSync(path.join(root, 'src/mcpParityTools.js'), 'utf8');
+    assert.ok(appSrc.includes('pageArchives'), 'staff app has the Archives page');
+    assert.ok(appSrc.includes('websiteUnarchive'), 'Archives page restores via the api helper');
+    assert.ok(apiSrc.includes("websitesArchived: () => get('/websites/archives')"), 'api helper for archives list');
+    assert.ok(apiSrc.includes("websiteUnarchive: (id) => post('/websites/' + id + '/restore', {})"), 'api helper for restore');
+    assert.ok(indexHtml.includes('#/archives'), 'nav links to Archives');
+    assert.ok(domainApiSrc.includes("'/websites/archives'"), 'archives route registered');
+    assert.ok(domainApiSrc.includes("'/websites/:id/restore'"), 'restore route registered');
+    assert.ok(serverSrc.includes('blockArchivedPreviews'), 'public preview mount blocks archived sites');
+    assert.ok(mcpSrc.includes("'website.unarchive'") || mcpSrc.includes('website.unarchive'), 'hosted MCP exposes unarchive');
+    assert.ok(paritySrc.includes("'website.listArchived'"), 'parity MCP exposes the archives list');
+  });
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

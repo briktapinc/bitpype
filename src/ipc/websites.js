@@ -127,12 +127,17 @@ function register(ipcMain, db) {
     wrap((args = {}) => {
       const { pageArgs, pageResult } = require('../paginate');
       const { page, pageSize, offset } = pageArgs(args || {}, { pageSize: 25, maxSize: 100 });
-      let where = '';
+      engine.ensureTables(db);
+      const clauses = [];
       const params = [];
+      // Batch 27: archived sites hidden by default (archivedOnly/includeArchived opt in).
+      if (args && args.archivedOnly) clauses.push('w.archived_at IS NOT NULL');
+      else if (!(args && args.includeArchived)) clauses.push('w.archived_at IS NULL');
       if (args && args.status) {
-        where = ' WHERE w.status = ?';
+        clauses.push('w.status = ?');
         params.push(args.status);
       }
+      const where = clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '';
       const total = db.prepare(`SELECT COUNT(*) AS c FROM websites w${where}`).get(...params).c;
       const rows = db
         .prepare(
@@ -152,6 +157,7 @@ function register(ipcMain, db) {
         status: r.status,
         preview_path: r.preview_path,
         origin: r.origin,
+        archived_at: r.archived_at || null,
         created_at: r.created_at,
         updated_at: r.updated_at,
         business_name: r.business_name,
@@ -176,6 +182,21 @@ function register(ipcMain, db) {
       const websiteId = Number(id && id.id !== undefined ? id.id : id);
       if (!Number.isInteger(websiteId) || websiteId < 1) throw siteErr('INVALID_ID', 'id must be a positive integer.');
       return engine.deleteWebsite(db, websiteId);
+    })
+  );
+
+  // Batch 27: archives list + restore (soft-delete companions of sites:delete).
+  ipcMain.handle(
+    'sites:archives',
+    wrap(() => ({ sites: engine.listArchivedWebsites(db) }))
+  );
+
+  ipcMain.handle(
+    'sites:restoreSite',
+    wrap((id) => {
+      const websiteId = Number(id && id.id !== undefined ? id.id : id);
+      if (!Number.isInteger(websiteId) || websiteId < 1) throw siteErr('INVALID_ID', 'id must be a positive integer.');
+      return engine.restoreWebsite(db, websiteId);
     })
   );
 
@@ -301,7 +322,8 @@ function register(ipcMain, db) {
     'sites:forLead',
     wrap((leadId) => {
       if (!Number.isInteger(Number(leadId))) throw siteErr('INVALID_ID', 'leadId must be an integer.');
-      const row = db.prepare('SELECT id FROM websites WHERE lead_id = ?').get(Number(leadId));
+      engine.ensureTables(db);
+      const row = db.prepare('SELECT id FROM websites WHERE lead_id = ? AND archived_at IS NULL').get(Number(leadId));
       return { site: row ? siteRow(db, row.id) : null };
     })
   );

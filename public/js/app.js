@@ -16,6 +16,7 @@ const ROUTES = [
   'dashboard',
   'leads',
   'websites',
+  'archives',
   'domains',
   'design',
   'social',
@@ -41,6 +42,7 @@ const ROUTE_LABELS = {
   dashboard: 'Dashboard',
   leads: 'Leads',
   websites: 'Websites',
+  archives: 'Archives',
   design: 'Design',
   social: 'Social',
   outreach: 'Outreach',
@@ -2106,6 +2108,64 @@ async function assignDesignJob(leadId, shape) {
   return r.data.job;
 }
 
+/** Batch 27 — Archives: soft-deleted websites with a Restore button each. */
+async function pageArchives() {
+  setTitle('Archives');
+  view.classList.remove('wide');
+  view.innerHTML = `
+    <div class="card">
+      <h3>Archived websites</h3>
+      <p class="hint">Deleting a website archives it: pages, versions, forms, modules and data are all preserved, but the site no longer shows publicly or in the Websites list. Restore brings it back exactly as it was.</p>
+      <span class="msg" id="arch-msg"></span>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Name</th><th>Business</th><th>Status</th><th>Archived</th><th></th></tr></thead>
+      <tbody id="arch-body">${loadRowHtml(5, 'Loading archives…')}</tbody>
+    </table></div>`;
+
+  async function load() {
+    let r;
+    try {
+      r = await withLoadTimeout(api.websitesArchived());
+    } catch (e) {
+      const b = $('#arch-body');
+      if (b) b.innerHTML = loadErrorRowHtml(5, 'arch-retry', e.message);
+      return;
+    }
+    const body = $('#arch-body');
+    if (!body) return;
+    const sites = asList(r.data || {}, ['sites', 'rows']);
+    body.innerHTML =
+      sites
+        .map(
+          (s) => `<tr>
+      <td>${esc(s.name)}</td>
+      <td>${esc(s.business_name || '#' + s.lead_id)}</td>
+      <td>${statusBadge(s.status)}</td><td>${esc(fmtDate(s.archived_at))}</td>
+      <td class="actions"><button type="button" class="btn small primary" data-act="restore" data-id="${s.id}" data-name="${esc(s.name)}">Restore</button></td></tr>`
+        )
+        .join('') || '<tr><td colspan="5" class="empty">No archived websites.</td></tr>';
+  }
+  delegate(view, {
+    'arch-retry': () => load(),
+    restore: async (t) => {
+      const id = Number(t.dataset.id);
+      const name = t.dataset.name || '#' + id;
+      if (!window.confirm(`Restore website "${name}"? It returns to the Websites list with everything intact.`)) return;
+      try {
+        await api.websiteUnarchive(id);
+        toast(`Website #${id} restored`, 'ok');
+        setMsg($('#arch-msg'), `Restored website #${id}.`, 'ok');
+        await load();
+      } catch (e) {
+        setMsg($('#arch-msg'), e.message || 'Restore failed.', 'err');
+        toast(e.message || 'Restore failed', 'err');
+      }
+    },
+  });
+  await load();
+}
+
 async function pageWebsites(param) {
   if (param) return pageWebsiteDetail(Number(param));
 
@@ -2158,7 +2218,7 @@ async function pageWebsites(param) {
       <td><button class="link-btn" data-act="open" data-id="${s.id}">${esc(s.name)}</button></td>
       <td>${esc(s.business_name || '#' + s.lead_id)}</td>
       <td>${statusBadge(s.status)}</td><td>${esc(s.origin || '—')}</td><td>${esc(fmtDate(s.updated_at))}</td>
-      <td class="actions"><button type="button" class="btn small danger" data-act="delete" data-id="${s.id}" data-name="${esc(s.name)}">Delete</button></td></tr>`
+      <td class="actions"><button type="button" class="btn small danger" data-act="delete" data-id="${s.id}" data-name="${esc(s.name)}">Archive</button></td></tr>`
         )
         .join('') || '<tr><td colspan="6" class="empty">No websites yet. Build one for a lead above.</td></tr>';
     pager($('#w-pager'), { page: d.page || 1, pages: d.pages || 1, total: d.total || sites.length }, (p) => {
@@ -2186,14 +2246,16 @@ async function pageWebsites(param) {
       const name = t.dataset.name || '#' + id;
       if (
         !window.confirm(
-          `Delete website "${name}"?\n\nThis permanently removes the site record and all of its files/code from storage (export folders, previews, images, screenshots). This cannot be undone.`
+          `Archive website \"${name}\"?
+
+The site will be soft-deleted: it disappears from public view and the Websites list, but everything (pages, versions, forms, modules, data) is preserved and it can be restored from Archives at any time.`
         )
       )
         return;
       try {
         await api.websiteDelete(id);
-        toast(`Website #${id} deleted`, 'ok');
-        setMsg($('#w-msg'), `Deleted website #${id}.`, 'ok');
+        toast(`Website #${id} archived`, 'ok');
+        setMsg($('#w-msg'), `Archived website #${id}. Restore it from Archives.`, 'ok');
         await load();
       } catch (e) {
         setMsg($('#w-msg'), e.message || 'Delete failed.', 'err');
@@ -2271,7 +2333,7 @@ async function pageWebsiteDetail(id) {
         <button class="btn" data-act="assign">Assign design job</button>
         <button class="btn" data-act="rent">Rent to lead</button>
         <button class="btn primary" data-act="publish">Publish to Cloudflare</button>
-        <button class="btn danger" data-act="delete">Delete</button>
+        <button class="btn danger" data-act="delete">Archive</button>
       </div>
     </div>
     ${
@@ -2718,14 +2780,16 @@ async function pageWebsiteDetail(id) {
       const name = site.name || '#' + id;
       if (
         !window.confirm(
-          `Delete website "${name}"?\n\nThis permanently removes the site record and all of its files/code from storage (export folders, previews, images, screenshots). This cannot be undone.`
+          `Archive website \"${name}\"?
+
+The site will be soft-deleted: it disappears from public view and the Websites list, but everything (pages, versions, forms, modules, data) is preserved and it can be restored from Archives at any time.`
         )
       )
         return;
-      out.textContent = 'Deleting…';
+      out.textContent = 'Archiving…';
       try {
         await api.websiteDelete(id);
-        toast(`Website #${id} deleted`, 'ok');
+        toast(`Website #${id} archived`, 'ok');
         window.location.hash = '#/websites';
       } catch (e) {
         out.innerHTML = `<span class="error">${esc(e.message || 'Delete failed')}</span>`;
@@ -8439,6 +8503,7 @@ const PAGES = {
   dashboard: pageDashboard,
   leads: pageLeads,
   websites: pageWebsites,
+  archives: pageArchives,
   domains: pageDomains,
   design: pageDesign,
   social: pageSocial,
