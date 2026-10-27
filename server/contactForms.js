@@ -2617,6 +2617,28 @@ async function acceptSubmission(db, { token, values, workspaceId, planId, ip, us
     .prepare('SELECT * FROM contact_forms WHERE public_token = ? AND published = 1')
     .get(String(token || ''));
   if (!form) throw fail('NOT_FOUND', 'Form not found');
+  // Review fix (archived-site delivery): gate on the WEBSITE's archived
+  // state at send time. Archiving (Batch 27 soft delete) hides a site
+  // in-app but does not tear down its published pages, so this public
+  // endpoint kept accepting + delivering submissions for deleted sites.
+  // When the form's lead has websites and every one is archived, the
+  // form is not live: refuse before anything is stored or delivered.
+  // Leads with no website, or any live website, are unchanged.
+  try {
+    const siteState = db
+      .prepare(
+        `SELECT COUNT(*) AS total,
+                SUM(CASE WHEN archived_at IS NULL THEN 1 ELSE 0 END) AS live
+           FROM websites WHERE lead_id = ?`
+      )
+      .get(form.lead_id);
+    if (siteState && Number(siteState.total) > 0 && Number(siteState.live || 0) === 0) {
+      throw fail('SITE_ARCHIVED', 'This form is no longer available', 410);
+    }
+  } catch (e) {
+    if (e && e.code === 'SITE_ARCHIVED') throw e;
+    /* websites table unavailable in narrow fixtures — flow unchanged */
+  }
   const fields = listFields(db, form.id).map(publicField);
   const payload = validateSubmission(fields, values || {});
 

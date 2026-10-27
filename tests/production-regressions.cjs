@@ -5965,6 +5965,73 @@ async function main() {
     assert.equal(seededLookup1, null);
   });
 
+  // ---- Review fix 2: archived-site form delivery ----
+  // A soft-deleted (archived) site is hidden in-app, but archiving does
+  // NOT tear down its published pages — the public form endpoint kept
+  // accepting and delivering submissions (owner email + LeadScout
+  // capture) for a site the owner deleted. Delivery must be gated on
+  // the website's archived state at send time.
+  const mailStateR2 = { sent: [] };
+  const mailerStubR2 = {
+    sendPlatformMail: async (msg) => { mailStateR2.sent.push(msg); return { sent: true }; },
+  };
+  const cfR2 = load('server/contactForms.js', {
+    './plans': { getPlan: () => ({ id: 'free', entitlements: {} }), normalizePlanId: (v) => v || 'free' },
+    './portalContacts': contacts,
+    './mailer': mailerStubR2,
+    './museRouter': {},
+  });
+  cfR2.ensureTables(db);
+  for (const [id, email] of [[2750, 'r2a@example.invalid'], [2751, 'r2b@example.invalid'], [2752, 'r2c@example.invalid']]) {
+    db.prepare('INSERT INTO leads (id, business_name, email) VALUES (?, ?, ?)').run(id, `Fixture R2 ${id}`, email);
+  }
+  const siteR2 = Number(db.prepare("INSERT INTO websites (lead_id, name, theme, pages, status) VALUES (2750, 'R2 Site', '{}', '[]', 'published')").run().lastInsertRowid);
+  const mkFormR2 = (leadId, token) => {
+    const info = db.prepare("INSERT INTO contact_forms (lead_id, name, title, notify_email, public_token, published) VALUES (?, 'Contact', 'Contact Us', '', ?, 1)").run(leadId, token);
+    db.prepare("INSERT INTO form_fields (form_id, field_key, label, field_type, required) VALUES (?, 'message', 'Message', 'textarea', 0)").run(info.lastInsertRowid);
+  };
+  mkFormR2(2750, 'tok-r2-a');
+  const subR2Live = await cfR2.acceptSubmission(db, { token: 'tok-r2-a', values: { message: 'while live' }, workspaceId: 1, planId: 'free' });
+  check('review2 baseline: form on a live site delivers (owner emailed)', () => {
+    assert.equal(subR2Live.email && subR2Live.email.sent, true);
+    assert.equal(mailStateR2.sent.length, 1);
+  });
+  db.prepare("UPDATE websites SET archived_at = datetime('now') WHERE id = ?").run(siteR2);
+  let subR2ArchivedErr = null;
+  try {
+    await cfR2.acceptSubmission(db, { token: 'tok-r2-a', values: { message: 'after archive' }, workspaceId: 1, planId: 'free' });
+  } catch (e) { subR2ArchivedErr = e; }
+  check('review2 archived site: submission is refused at send time and nothing is delivered', () => {
+    assert.ok(subR2ArchivedErr, 'submission on an archived site must throw');
+    assert.equal(subR2ArchivedErr.code, 'SITE_ARCHIVED');
+    assert.equal(mailStateR2.sent.length, 1, 'no owner email after archiving');
+    assert.equal(db.prepare("SELECT COUNT(*) AS c FROM form_submissions WHERE lead_id = 2750").get().c, 1, 'no second submission stored');
+  });
+  db.prepare('UPDATE websites SET archived_at = NULL WHERE id = ?').run(siteR2);
+  const subR2Restored = await cfR2.acceptSubmission(db, { token: 'tok-r2-a', values: { message: 'after restore' }, workspaceId: 1, planId: 'free' });
+  check('review2 restored site: submissions deliver again', () => {
+    assert.equal(subR2Restored.email && subR2Restored.email.sent, true);
+    assert.equal(mailStateR2.sent.length, 2);
+  });
+  mkFormR2(2751, 'tok-r2-b');
+  const subR2NoSite = await cfR2.acceptSubmission(db, { token: 'tok-r2-b', values: { message: 'no website at all' }, workspaceId: 1, planId: 'free' });
+  check('review2 lead with no website: form flow unchanged', () => {
+    assert.equal(subR2NoSite.email && subR2NoSite.email.sent, true);
+    assert.equal(mailStateR2.sent.length, 3);
+  });
+  // (Schema note: websites.lead_id is UNIQUE — one website per lead, so
+  // there is no mixed live+archived state to preserve.)
+  db.prepare("INSERT INTO websites (lead_id, name, theme, pages, status, archived_at) VALUES (2752, 'R2 Archived', '{}', '[]', 'published', datetime('now'))").run();
+  mkFormR2(2752, 'tok-r2-c');
+  let subR2OtherErr = null;
+  try {
+    await cfR2.acceptSubmission(db, { token: 'tok-r2-c', values: { message: 'other lead archived' }, workspaceId: 1, planId: 'free' });
+  } catch (e) { subR2OtherErr = e; }
+  check('review2 gate is per-lead: another lead whose only site is archived is refused too', () => {
+    assert.ok(subR2OtherErr && subR2OtherErr.code === 'SITE_ARCHIVED');
+    assert.equal(mailStateR2.sent.length, 3);
+  });
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});
