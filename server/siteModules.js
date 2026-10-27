@@ -1197,24 +1197,24 @@ function getEmbedRow(db, leadId, moduleType) {
 }
 
 /**
- * Review fix: is the website behind this public embed token archived
- * (soft-deleted)? Embed tokens outlive the site, so the public module
- * and chatbot routers consult this before serving. A lead with no
- * website (modules also live on lead-level surfaces) is never blocked.
+ * Review fix: an archived (soft-deleted) site's public module surfaces
+ * stop serving — embed tokens outlive the site. Called by the public
+ * token entry points below once the embed's lead is known (inside the
+ * caller's own db scope, so public routes keep their single-domain-
+ * touch invariant). A lead with no website is never blocked: modules
+ * also live on lead-level surfaces.
  */
-function siteArchivedForToken(db, token) {
-  ensureTables(db);
+function assertSiteNotArchived(db, leadId) {
+  let site = null;
   try {
-    const row = db
-      .prepare('SELECT lead_id FROM site_module_embeds WHERE public_token = ?')
-      .get(String(token || ''));
-    if (!row) return false;
-    const site = db
+    site = db
       .prepare('SELECT archived_at FROM websites WHERE lead_id = ?')
-      .get(Number(row.lead_id));
-    return !!(site && site.archived_at);
+      .get(Number(leadId));
   } catch {
-    return false;
+    return; // minimal db without a websites table — nothing to gate on
+  }
+  if (site && site.archived_at) {
+    throw fail('SITE_ARCHIVED', 'This site is no longer available', 410);
   }
 }
 
@@ -3428,6 +3428,7 @@ async function createShopCheckoutByToken(db, token, { productId, returnUrl } = {
   if (!row || row.module_type !== 'ecommerce' || !moduleEmbedActive(row)) {
     throw fail('NOT_FOUND', 'Shop module not found', 404);
   }
+  assertSiteNotArchived(db, row.lead_id);
   assertMemberAccessForEmbed(db, row, opts);
   const product = getProduct(db, row.lead_id, productId);
   if (!product || product.status !== 'published') {
@@ -5364,6 +5365,7 @@ function createPublicEstimateRequestByToken(db, token, data = {}, opts = {}) {
   if (!row || row.module_type !== 'estimate') {
     throw fail('NOT_FOUND', 'Estimate module not found', 404);
   }
+  assertSiteNotArchived(db, row.lead_id);
   assertMemberAccessForEmbed(db, row, opts);
   const request = createEstimateRequest(db, row.lead_id, data);
   const hidden = request.display_mode === 'hidden';
@@ -8131,6 +8133,9 @@ function membersEmbedByToken(db, token) {
     .prepare('SELECT * FROM site_module_embeds WHERE public_token = ? AND published = 1')
     .get(String(token || ''));
   if (!row || row.module_type !== 'members') throw fail('NOT_FOUND', 'Membership module not found', 404);
+  // Review fix: every public member flow funnels through here — an
+  // archived site's membership surface closes with the site.
+  assertSiteNotArchived(db, row.lead_id);
   return row;
 }
 
@@ -9084,6 +9089,8 @@ function getPublicModuleByToken(db, token, opts = {}) {
   if (type === 'ecommerce' && !moduleEmbedActive(row)) {
     throw fail('NOT_FOUND', 'Shop module not found', 404);
   }
+  // Review fix: no public module payload serves an archived site.
+  assertSiteNotArchived(db, leadId);
   // Membership: the members module itself is never gated; its payload
   // carries the caller's own member state for the public auth surface.
   if (type === 'members') return publicMembersPayload(db, row, opts);
@@ -9236,6 +9243,7 @@ function getPublicBookingSlots(db, token, { date, serviceId, serviceSlug } = {},
   if (!row || row.module_type !== 'bookings') {
     throw fail('NOT_FOUND', 'Bookings module not found', 404);
   }
+  assertSiteNotArchived(db, row.lead_id);
   assertMemberAccessForEmbed(db, row, opts);
   return {
     embed: publicEmbed(row),
@@ -9253,6 +9261,7 @@ function createPublicBookingByToken(db, token, data = {}, opts = {}) {
   if (!row || row.module_type !== 'bookings') {
     throw fail('NOT_FOUND', 'Bookings module not found', 404);
   }
+  assertSiteNotArchived(db, row.lead_id);
   assertMemberAccessForEmbed(db, row, opts);
   const appointment = createPublicBooking(db, row.lead_id, data);
   return {
@@ -9303,7 +9312,6 @@ module.exports = {
   listSitePages,
   listEmbeds,
   getEmbedRow,
-  siteArchivedForToken,
   ensureEmbed,
   publicEmbed,
   attachModule,

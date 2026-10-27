@@ -6617,12 +6617,14 @@ async function main() {
     assert.equal(archivedPayloadR9.body && archivedPayloadR9.body.code, 'SITE_ARCHIVED');
   });
 
-  // -- chatbot router gate
+  // -- chatbot router gate (real chatbot.js: the gate lives in
+  // getPublicConfigByToken, through which every public chat flow reads)
+  const chatRealR9 = load('server/chatbot.js', { './siteModules': smR9 });
   const chatRouterR9 = stubRouterR9();
   load('server/routes/chatbotPublic.js', {
     express: { Router: () => chatRouterR9 },
     '../domain': { withDb: (_ws, fn) => fn(db) },
-    '../chatbot': { getPublicConfigByToken: () => ({ enabled: true }) },
+    '../chatbot': chatRealR9,
     '../siteModules': smR9,
     '../rateLimit': { rateLimit: () => (_req, _res, next) => next && next() },
     '../workspaceExists': { assertWorkspaceExists: async () => {} },

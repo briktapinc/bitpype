@@ -704,6 +704,19 @@ function getPublicConfigByToken(db, token) {
     .prepare("SELECT * FROM site_module_embeds WHERE public_token = ? AND module_type = 'chatbot' AND published = 1")
     .get(String(token || ''));
   if (!row || !row.embed_enabled) throw fail('NOT_FOUND', 'Chatbot not found', 404);
+  // Review fix: an archived (soft-deleted) site's chatbot stops
+  // serving — every public chat flow funnels through this config
+  // read. Leads with no website are never blocked.
+  try {
+    const site = db
+      .prepare('SELECT archived_at FROM websites WHERE lead_id = ?')
+      .get(Number(row.lead_id));
+    if (site && site.archived_at) throw fail('SITE_ARCHIVED', 'This site is no longer available', 410);
+  } catch (e) {
+    if (!e || e.code !== 'SITE_ARCHIVED') {
+      /* minimal db without a websites table — nothing to gate on */
+    } else throw e;
+  }
   const settings = getSettings(db, row.lead_id);
   // SMS opt-in (Batch 25): the lead-capture form collects a phone, so it
   // offers the consent checkbox from this block.
