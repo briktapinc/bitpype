@@ -7701,6 +7701,7 @@ async function pageCalls() {
   const d = res.data || {};
   const allRows = asList(d, ['calls']);
   const businesses = asList(d, ['businesses']);
+  const poolNums = asList(d, ['pool']);
   const wsId = d.workspace_id || '';
   const whenLabel = (v) => {
     const t = Date.parse(String(v || '').replace(' ', 'T') + (String(v || '').includes('T') ? '' : 'Z'));
@@ -7749,13 +7750,14 @@ async function pageCalls() {
         .join('')}</div>`
     : '';
   // Forwarding setup (Batch 25c): admin-only. Clients provide just
-  // their phone number (leads.phone — shown on their site as the call
-  // button and used as the destination); tracking number, forwarding,
-  // recording and alerts are configured here.
+  // their phone number (leads.phone — the forward-to destination only;
+  // it never shows on their site). The site's call button shows the
+  // Twilio tracking number; tracking, forwarding, recording, alerts
+  // and rotation (Batch 26d) are configured here.
   const cfgCard = businesses.length
     ? `<div class="card" style="margin-bottom:1rem">
       <h3 style="margin-top:0">Forwarding setup</h3>
-      <p class="hint">Clients only provide their phone number — it shows on their site as the call button and is where their calls ring. Assign the tracking number and forwarding here.</p>
+      <p class="hint">Clients only provide their phone number — it is where their calls ring, and it never appears on their site. Their site's call button shows the Twilio tracking number. Assign the tracking number and forwarding here.</p>
       <label class="field">Business<br />
         <select id="cl-cfg-biz">${businesses.map((b) => `<option value="${esc(b.lead_id)}">${esc(b.lead_name || 'Business')}</option>`).join('')}</select>
       </label>
@@ -7776,6 +7778,34 @@ async function pageCalls() {
         <button type="button" class="btn" id="cl-search" ${configured ? '' : 'disabled'}>Search numbers</button>
       </div>
       <div id="cl-results" style="margin-top:10px"></div>
+    </div>
+    <div class="card" style="margin-bottom:1rem">
+      <h3 style="margin-top:0">Twilio numbers</h3>
+      <p class="hint">The numbers you purchased on the connected Twilio account. Add each one here once — then a forwarding setup below can use it as its tracking number or in a rotation. A number can serve only one business at a time.</p>
+      ${
+        poolNums.length
+          ? poolNums
+              .map((p) => {
+                const a = p.assignment || null;
+                const used = a
+                  ? a.role === 'primary'
+                    ? `Tracking number for ${a.lead_name || 'a business'}`
+                    : `In rotation for ${a.lead_name || 'a business'}`
+                  : 'Unassigned';
+                return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line,#e6e0d8)">
+              <div><strong>${esc(p.phone_number)}</strong>${p.label ? ` <span class="hint">${esc(p.label)}</span>` : ''} <span class="hint">· ${esc(used)}</span></div>
+              <button type="button" class="btn small" data-cl-pool-remove="${esc(p.id)}" ${a ? 'disabled title="In use — remove it from that forwarding setup first."' : ''}>Remove</button>
+            </div>`;
+              })
+              .join('')
+          : '<p class="hint">No numbers in the pool yet.</p>'
+      }
+      <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-top:10px">
+        <label class="field" style="margin:0">Number you purchased<br /><input id="cl-pool-number" type="tel" placeholder="+16105551234" ${configured ? '' : 'disabled'} /></label>
+        <label class="field" style="margin:0">Label (optional)<br /><input id="cl-pool-label" type="text" maxlength="80" placeholder="e.g. Reading line" ${configured ? '' : 'disabled'} /></label>
+        <button type="button" class="btn" id="cl-pool-add" ${configured ? '' : 'disabled'}>Add to pool</button>
+      </div>
+      ${configured ? '' : '<p class="hint" style="margin-top:8px">Connect Twilio first — a number can only join the pool once it is verified on the account.</p>'}
     </div>
     ${bizStrip}
     ${cfgCard}
@@ -7805,6 +7835,50 @@ async function pageCalls() {
     gateBuyPanel();
   });
   gateBuyPanel();
+  // Twilio number pool (Batch 26d): add verifies ownership server-side;
+  // remove is blocked while a setup uses the number (button disabled,
+  // and the API refuses with the business named).
+  const poolAddBtn = document.getElementById('cl-pool-add');
+  if (poolAddBtn) {
+    poolAddBtn.addEventListener('click', async () => {
+      const number = (document.getElementById('cl-pool-number') || {}).value || '';
+      const label = (document.getElementById('cl-pool-label') || {}).value || '';
+      if (!number.trim()) {
+        toast('Enter the purchased number first.', 'err');
+        return;
+      }
+      poolAddBtn.disabled = true;
+      try {
+        const r = await api.adminCallPoolAdd({ phoneNumber: number.trim(), label: label.trim() });
+        const pd = (r && r.data) || {};
+        if (pd.configured === false) {
+          toast('Twilio is not connected yet — nothing was added.', 'err');
+          poolAddBtn.disabled = false;
+          return;
+        }
+        toast(`${(pd.number && pd.number.phone_number) || number} is in the pool.`);
+        pageCalls();
+      } catch (e) {
+        toast(e.message || 'Could not add that number.', 'err');
+        poolAddBtn.disabled = false;
+      }
+    });
+  }
+  view.querySelectorAll('[data-cl-pool-remove]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-cl-pool-remove');
+      if (!window.confirm('Remove this number from the pool? It stays on your Twilio account — it just becomes unavailable to forwarding setups.')) return;
+      btn.disabled = true;
+      try {
+        await api.adminCallPoolRemove(id);
+        toast('Number removed from the pool.');
+        pageCalls();
+      } catch (e) {
+        toast(e.message || 'Remove failed.', 'err');
+        btn.disabled = false;
+      }
+    });
+  });
   const renderCfgForm = () => {
     const host = document.getElementById('cl-cfg-host');
     const sel = document.getElementById('cl-cfg-biz');
@@ -7816,7 +7890,7 @@ async function pageCalls() {
     }
     const c = b.config || {};
     host.innerHTML = `
-      <p class="hint" style="margin:6px 0">Client's number (destination): <strong>${esc(b.lead_phone || '— not provided yet —')}</strong>. Their site's call button shows this number; the button dials the tracking number below, which forwards to it.</p>
+      <p class="hint" style="margin:6px 0">Client's number (destination): <strong>${esc(b.lead_phone || '— not provided yet —')}</strong>. This number never shows on their site — it is only where calls ring. Their site's call button shows and dials the tracking number below, which forwards to it.</p>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
         <label class="field" style="margin:0">Tracking number (Twilio)<br /><input id="cl-cfg-display" type="tel" value="${esc(c.display_number || '')}" placeholder="+16105551234" /></label>
         <label class="field" style="margin:0">Button label<br /><input id="cl-cfg-cta" type="text" maxlength="60" value="${esc(c.cta_text || 'Call us')}" /></label>
@@ -7828,8 +7902,41 @@ async function pageCalls() {
         <label><input type="checkbox" id="cl-cfg-notify"${c.notify_email === false ? '' : ' checked'} /> Email the client when a call comes in</label>
         <label><input type="checkbox" id="cl-cfg-voicemail"${c.voicemail_enabled === false ? '' : ' checked'} /> Voicemail greeting when a call isn't answered (message is transcribed + emailed)</label>
       </div>
+      <div style="margin-top:10px">
+        <label><input type="checkbox" id="cl-cfg-rotate"${c.rotate_enabled ? ' checked' : ''} /> <strong>Rotate numbers</strong> — the site's call button cycles through up to 5 pool numbers; every one forwards to the client's number above. Off = the single tracking number, as usual.</label>
+        <div id="cl-cfg-rotate-host" style="display:${c.rotate_enabled ? 'grid' : 'none'};grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-top:8px">
+          ${[0, 1, 2, 3, 4]
+            .map((i) => {
+              const current = (c.rotation_numbers || [])[i] || '';
+              const options = poolNums
+                .map((p) => {
+                  const usedByOther = p.assignment && Number(p.assignment.lead_id) !== Number(b.lead_id);
+                  const dis = usedByOther && p.phone_number !== current ? ' disabled' : '';
+                  const suffix = p.assignment
+                    ? Number(p.assignment.lead_id) === Number(b.lead_id)
+                      ? p.assignment.role === 'primary'
+                        ? ' · this business’s tracking number'
+                        : ' · in this rotation'
+                      : ` · used by ${p.assignment.lead_name || 'another business'}`
+                    : '';
+                  return `<option value="${esc(p.phone_number)}"${p.phone_number === current ? ' selected' : ''}${dis}>${esc(p.phone_number)}${p.label ? ' · ' + esc(p.label) : ''}${esc(suffix)}</option>`;
+                })
+                .join('');
+              return `<label class="field" style="margin:0">Rotation number ${i + 1}<br /><select id="cl-cfg-rot-${i}"><option value="">— none —</option>${options}</select></label>`;
+            })
+            .join('')}
+        </div>
+        ${poolNums.length ? '' : '<p class="hint" style="margin-top:6px">The pool is empty — add purchased numbers in the Twilio numbers section above first.</p>'}
+      </div>
       <p class="hint" style="margin-top:8px">Voice webhook for an owned Twilio number (POST):<br /><code>${esc(b.voice_url || '')}</code></p>
       <button type="button" class="btn" id="cl-cfg-save">Save forwarding setup</button>`;
+    const rotateBox = document.getElementById('cl-cfg-rotate');
+    if (rotateBox) {
+      rotateBox.addEventListener('change', () => {
+        const host = document.getElementById('cl-cfg-rotate-host');
+        if (host) host.style.display = rotateBox.checked ? 'grid' : 'none';
+      });
+    }
     const saveBtn = document.getElementById('cl-cfg-save');
     if (saveBtn) {
       saveBtn.addEventListener('click', async () => {
@@ -7843,6 +7950,9 @@ async function pageCalls() {
         };
         saveBtn.disabled = true;
         try {
+          const rotation_numbers = [0, 1, 2, 3, 4]
+            .map((i) => val(`cl-cfg-rot-${i}`))
+            .filter((v) => v);
           const r = await api.adminCallConfigSave({
             leadId: Number(sel.value),
             display_number: val('cl-cfg-display'),
@@ -7852,12 +7962,22 @@ async function pageCalls() {
             record_calls: on('cl-cfg-record'),
             notify_email: on('cl-cfg-notify'),
             voicemail_enabled: on('cl-cfg-voicemail'),
+            rotate_enabled: on('cl-cfg-rotate'),
+            rotation_numbers,
           });
           const saved = (r && r.data && r.data.config) || {};
           b.config = { ...(b.config || {}), ...saved };
           if (saved.display_number != null) b.display_number = saved.display_number;
           if (r && r.data && r.data.lead_phone != null) b.lead_phone = r.data.lead_phone;
-          toast(`Forwarding setup saved for ${b.lead_name || 'that business'}.`);
+          const hookFailed = (((r || {}).data || {}).webhook_results || []).filter((w) => !w.ok);
+          if (hookFailed.length) {
+            toast(
+              `Saved for ${b.lead_name || 'that business'} — but Twilio did not accept the voice webhook for ${hookFailed.map((w) => w.phone_number).join(', ')}. Calls to it won't reach BitPype until its voice webhook (below) is set in Twilio; re-saving retries.`,
+              'err'
+            );
+          } else {
+            toast(`Forwarding setup saved for ${b.lead_name || 'that business'}.`);
+          }
           renderCfgForm();
         } catch (e) {
           toast(e.message || 'Save failed — nothing was changed.', 'err');

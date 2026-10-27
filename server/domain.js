@@ -4853,7 +4853,8 @@ async function adminCallsOverview(workspaceId, opts = {}) {
         .prepare(
           `SELECT e.lead_id, l.business_name AS lead_name, l.phone AS lead_phone,
                   c.display_number, c.cta_text, c.redirect_enabled, c.redirect_number,
-                  c.record_calls, c.notify_email, c.twilio_number_sid
+                  c.record_calls, c.notify_email, c.voicemail_enabled, c.rotate_enabled,
+                  c.twilio_number_sid
            FROM site_module_embeds e
            LEFT JOIN leads l ON l.id = e.lead_id
            LEFT JOIN calltracking_configs c ON c.lead_id = e.lead_id
@@ -4875,13 +4876,24 @@ async function adminCallsOverview(workspaceId, opts = {}) {
             redirect_number: r.redirect_number || '',
             record_calls: !!r.record_calls,
             notify_email: r.notify_email == null ? true : !!r.notify_email,
+            voicemail_enabled: r.voicemail_enabled == null ? true : !!r.voicemail_enabled,
+            rotate_enabled: !!r.rotate_enabled,
+            rotation_numbers: modules.getRotationNumbers(db, r.lead_id),
             twilio_number_sid: r.twilio_number_sid || '',
           },
         }));
     } catch {
       businesses = [];
     }
-    return { calls, businesses };
+    // Batch 26d: the workspace Twilio number pool rides along so the
+    // Calls page renders assignments + rotation pickers from one fetch.
+    let pool = [];
+    try {
+      pool = modules.listTwilioNumberPool(db, workspaceId);
+    } catch {
+      pool = [];
+    }
+    return { calls, businesses, pool };
   });
   // Per-business plan + this-month counters (addendum #3 display). The
   // plan resolves the same way other entitlements do — workspace plan,
@@ -4994,11 +5006,151 @@ async function adminSaveCallTrackingConfig(workspaceId, body = {}) {
     workspaceId,
     leadRow.email ? { email: leadRow.email } : {}
   );
-  const config = withDb(workspaceId, (db) => {
-    modules.assertCallTrackingActivation(modules.getCallTrackingConfig(db, id), body, plan);
-    return modules.updateCallTrackingConfig(db, id, body);
+  // Pre-validate the dialable fields BEFORE any write, so a save that
+  // fails validation (including a rotation conflict below) changes
+  // nothing at all.
+  if (body.display_number != null || body.displayNumber != null) {
+    modules.normalizeE164(body.display_number != null ? body.display_number : body.displayNumber, 'Display number');
+  }
+  if (body.redirect_number != null || body.redirectNumber != null) {
+    modules.normalizeE164(body.redirect_number != null ? body.redirect_number : body.redirectNumber, 'Redirect number');
+  }
+  const hasRotation =
+    body.rotate_enabled != null ||
+    body.rotateEnabled != null ||
+    Array.isArray(body.rotation_numbers) ||
+    Array.isArray(body.rotationNumbers);
+  const saved = withDb(workspaceId, (db) => {
+    const current = modules.getCallTrackingConfig(db, id);
+    modules.assertCallTrackingActivation(current, body, plan);
+    const claimedBefore = modules.claimedNumbersFor(db, id, current);
+    const effectivePrimary =
+      body.display_number != null || body.displayNumber != null
+        ? modules.normalizeE164(
+            body.display_number != null ? body.display_number : body.displayNumber,
+            'Display number'
+          )
+        : String(current.display_number || '');
+    // Exclusivity (Batch 26d): a pool number serves ONE setup. Claiming
+    // one another business actively uses — as its tracking number or
+    // in its rotation — fails the whole save, naming that business.
+    if (effectivePrimary && modules.poolNumberRow(db, workspaceId, effectivePrimary)) {
+      const claim = modules.findNumberClaim(db, effectivePrimary, id);
+      if (claim) {
+        const e = new Error(
+          `${effectivePrimary} is already used by ${claim.lead_name || 'another business'} (${claim.role === 'primary' ? 'its tracking number' : 'its rotation'}). A number can serve only one forwarding setup at a time.`
+        );
+        e.code = 'NUMBER_IN_USE';
+        e.status = 409;
+        throw e;
+      }
+    }
+    if (hasRotation) {
+      modules.setCallTrackingRotation(db, id, {
+        rotateEnabled:
+          body.rotate_enabled != null
+            ? !!body.rotate_enabled
+            : body.rotateEnabled != null
+              ? !!body.rotateEnabled
+              : current.rotate_enabled,
+        numbers: Array.isArray(body.rotation_numbers)
+          ? body.rotation_numbers
+          : Array.isArray(body.rotationNumbers)
+            ? body.rotationNumbers
+            : current.rotation_numbers,
+        primaryNumber: effectivePrimary,
+        workspaceId,
+      });
+    }
+    const config = modules.updateCallTrackingConfig(db, id, body);
+    const claimedAfter = modules.claimedNumbersFor(db, id, config);
+    const newlyAssigned = [...claimedAfter].filter((n) => !claimedBefore.has(n));
+    return { config, newlyAssigned };
   });
-  return { config, lead_phone: leadRow.phone || '', plan };
+  // Point each NEWLY assigned pool number's Twilio voice webhook at
+  // this lead's voice route. A Twilio-side failure never rolls back the
+  // saved assignment — it is reported per number so staff can fix it.
+  const webhookResults = [];
+  if (saved.newlyAssigned.length) {
+    const twilioClient = require('./twilioClient');
+    const { appUrl } = require('./stripeClient');
+    const voiceUrl = `${String(appUrl() || '').replace(/\/$/, '')}/api/v1/calls/voice/${Number(workspaceId)}/${id}`;
+    for (const num of saved.newlyAssigned) {
+      const poolRow = withDb(workspaceId, (db) => modules.poolNumberRow(db, workspaceId, num));
+      if (!poolRow || !poolRow.twilio_sid) continue;
+      try {
+        await twilioClient.setNumberVoiceUrl({ sid: poolRow.twilio_sid, voiceUrl, workspaceId });
+        webhookResults.push({ phone_number: num, ok: true });
+      } catch (e) {
+        webhookResults.push({ phone_number: num, ok: false, error: e.message || 'Twilio rejected the webhook update' });
+      }
+    }
+  }
+  return {
+    config: saved.config,
+    rotation: {
+      rotate_enabled: saved.config.rotate_enabled,
+      rotation_numbers: saved.config.rotation_numbers,
+    },
+    webhook_results: webhookResults,
+    lead_phone: leadRow.phone || '',
+    plan,
+  };
+}
+
+/**
+ * Twilio number pool (Batch 26d): the numbers staff purchased on the
+ * workspace's Twilio account. Adding verifies ownership against the
+ * LIVE account (the number must be on it) and stores its SID; removal
+ * is blocked while a forwarding setup actively uses the number.
+ */
+function adminListNumberPool(workspaceId) {
+  const modules = require('./siteModules');
+  return withDb(workspaceId, (db) => ({ numbers: modules.listTwilioNumberPool(db, workspaceId) }));
+}
+
+async function adminAddPoolNumber(workspaceId, body = {}) {
+  const modules = require('./siteModules');
+  const twilioClient = require('./twilioClient');
+  const number = modules.normalizeE164(
+    body.phoneNumber != null ? body.phoneNumber : body.phone_number,
+    'Phone number'
+  );
+  if (!number) {
+    const e = new Error('A phone number is required.');
+    e.code = 'VALIDATION';
+    e.status = 400;
+    throw e;
+  }
+  const owned = await twilioClient.listOwnedNumbers({ workspaceId });
+  if (!owned.configured) return { configured: false };
+  const match = (owned.numbers || []).find((n) => n.phoneNumber === number);
+  if (!match) {
+    const e = new Error(
+      `${number} is not on the connected Twilio account. Only numbers the account owns can join the pool — buy it in Twilio (or with the number shop above) first.`
+    );
+    e.code = 'NOT_OWNED';
+    e.status = 400;
+    throw e;
+  }
+  const saved = withDb(workspaceId, (db) =>
+    modules.addTwilioNumberToPool(db, workspaceId, {
+      phoneNumber: number,
+      label: body.label || '',
+      twilioSid: match.sid,
+    })
+  );
+  return { configured: true, number: saved };
+}
+
+function adminRemovePoolNumber(workspaceId, body = {}) {
+  const modules = require('./siteModules');
+  return withDb(workspaceId, (db) =>
+    modules.removeTwilioNumberFromPool(db, workspaceId, {
+      id: body.id != null ? Number(body.id) : null,
+      phoneNumber: body.phoneNumber != null ? body.phoneNumber : body.phone_number,
+    })
+  );
 }
 
 // ---------- AI SEO tool (Batch 22) ----------
@@ -5094,6 +5246,9 @@ module.exports = {
   adminSearchCallNumbers,
   adminPurchaseCallNumber,
   adminSaveCallTrackingConfig,
+  adminListNumberPool,
+  adminAddPoolNumber,
+  adminRemovePoolNumber,
   leadsList,
   leadsFacets,
   leadsGet,

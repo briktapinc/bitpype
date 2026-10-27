@@ -923,13 +923,13 @@ function clientToolDefs() {
     {
       name: 'calls.getSettings',
       description:
-        'Get the Call Tracking settings for a lead: display_number (the Twilio tracking number the site\'s call button dials — the button shows the lead\'s own phone number), cta_text, redirect_enabled + redirect_number (where calls to the display number are forwarded), record_calls (with spoken consent), voicemail_enabled (unanswered calls get a spoken greeting with the business name and can leave a message that is transcribed and emailed; default on), and twilio_number_sid when the number was bought in the admin. Forwarding is admin-only; portal clients can set only their phone number. Standard/Premium.',
+        'Get the Call Tracking settings for a lead: display_number (the Twilio tracking number the site\'s call button shows and dials — the lead\'s own phone number is only the forward-to destination and never appears on the site), cta_text, redirect_enabled + redirect_number (where calls to the display number are forwarded), record_calls (with spoken consent), voicemail_enabled (unanswered calls get a spoken greeting with the business name and can leave a message that is transcribed and emailed; default on), rotate_enabled + rotation_numbers (Batch 26d pool rotation), and twilio_number_sid when the number was bought in the admin. Forwarding is admin-only; portal clients can set only their phone number. Standard/Premium.',
       inputSchema: schema({ leadId: ID }),
     },
     {
       name: 'calls.updateSettings',
       description:
-        'Update Call Tracking settings: display_number and redirect_number must be E.164 (e.g. +16105551234; US 10-digit numbers are accepted and prefixed +1). Garbage numbers are rejected. Also accepts cta_text, redirect_enabled, record_calls, notify_email (per-call email alert to the business, default on) and voicemail_enabled (greeting + voicemail for unanswered calls, default on). Standard/Premium.',
+        'Update Call Tracking settings: display_number and redirect_number must be E.164 (e.g. +16105551234; US 10-digit numbers are accepted and prefixed +1). Garbage numbers are rejected. Also accepts cta_text, redirect_enabled, record_calls, notify_email (per-call email alert to the business, default on), voicemail_enabled (greeting + voicemail for unanswered calls, default on) and rotate_enabled + rotation_numbers (Batch 26d: up to 5 pool numbers the site button rotates through; members must be in the Twilio number pool and unused by other setups). Standard/Premium.',
       inputSchema: schema({
         leadId: ID,
         display_number: STR,
@@ -941,6 +941,10 @@ function clientToolDefs() {
         record_calls: { type: 'boolean' },
         notify_email: { type: 'boolean' },
         voicemail_enabled: { type: 'boolean' },
+        rotate_enabled: { type: 'boolean' },
+        rotateEnabled: { type: 'boolean' },
+        rotation_numbers: { type: 'array', items: { type: 'string' } },
+        rotationNumbers: { type: 'array', items: { type: 'string' } },
       }),
     },
     {
@@ -1258,6 +1262,24 @@ function toolDefs({ clientScoped = false } = {}) {
       description:
         'End a Site Rental: call forwarding and delivery revert to the site owner immediately, the stamped history freezes (the old tenant keeps it read-only in their portal), and the tenant gets a closing summary email. Workspace token only.',
       inputSchema: schema({ rentalId: ID, id: ID, reason: STR }),
+    },
+    {
+      name: 'calls.poolList',
+      description:
+        'List the workspace Twilio number pool (Batch 26d): numbers staff purchased on the connected Twilio account and registered here, each with its current assignment (which business uses it as its tracking number or in its rotation, or null). Workspace token only — the pool is staff-managed.',
+      inputSchema: schema({}),
+    },
+    {
+      name: 'calls.poolAdd',
+      description:
+        'Add a purchased number to the Twilio number pool. The number must already be owned by the connected Twilio account — ownership is verified live and a foreign number is rejected (NOT_OWNED); its Twilio SID is stored. E.164 (US 10-digit accepted, prefixed +1). Workspace token only.',
+      inputSchema: schema({ phoneNumber: STR, phone_number: STR, label: STR }),
+    },
+    {
+      name: 'calls.poolRemove',
+      description:
+        'Remove a number from the Twilio number pool (by pool id or phoneNumber). Blocked with NUMBER_ASSIGNED — naming the business — while a forwarding setup uses it as its tracking number or in an active rotation. The number stays on the Twilio account. Workspace token only.',
+      inputSchema: schema({ id: ID, phoneNumber: STR, phone_number: STR }),
     },
     {
       name: 'lead.search',
@@ -2649,6 +2671,9 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'calls.getSettings',
     'calls.updateSettings',
     'calls.list',
+    'calls.poolList',
+    'calls.poolAdd',
+    'calls.poolRemove',
     'rentals.list',
     'rentals.get',
     'rentals.create',
@@ -3377,10 +3402,29 @@ async function callClientTool(ws, name, a, ctx = {}) {
     if (!leadId) throw new Error('leadId is required');
     return domain.withDb(ws, (db) => {
       // Free-plan gate (addendum #3): first display number needs a paid plan.
-      modules.assertCallTrackingActivation(modules.getCallTrackingConfig(db, leadId), a, planId);
+      const current = modules.getCallTrackingConfig(db, leadId);
+      modules.assertCallTrackingActivation(current, a, planId);
+      const updated = modules.updateCallTrackingConfig(db, leadId, a);
+      // Batch 26d rotation: same pool/exclusivity validation as the
+      // admin REST save (the voice-webhook pointing stays a REST-side
+      // effect; the numbers' webhooks are re-pointed on the next
+      // admin save if they were not already).
+      if (a.rotate_enabled != null || a.rotateEnabled != null || Array.isArray(a.rotation_numbers) || Array.isArray(a.rotationNumbers)) {
+        modules.setCallTrackingRotation(db, leadId, {
+          rotateEnabled:
+            a.rotate_enabled != null ? !!a.rotate_enabled : a.rotateEnabled != null ? !!a.rotateEnabled : current.rotate_enabled,
+          numbers: Array.isArray(a.rotation_numbers)
+            ? a.rotation_numbers
+            : Array.isArray(a.rotationNumbers)
+              ? a.rotationNumbers
+              : current.rotation_numbers,
+          primaryNumber: updated.display_number,
+          workspaceId: ws,
+        });
+      }
       return {
         plan: planId,
-        settings: modules.updateCallTrackingConfig(db, leadId, a),
+        settings: modules.getCallTrackingConfig(db, leadId),
       };
     });
   }
@@ -3417,6 +3461,16 @@ async function callClientTool(ws, name, a, ctx = {}) {
     if (!rentalId) throw new Error('rentalId is required');
     const ended = await domain.rentalsEnd(ws, rentalId, a.reason || '');
     return { plan: planId, ...ended };
+  }
+  if (name === 'calls.poolList') {
+    return { plan: planId, ...domain.adminListNumberPool(ws) };
+  }
+  if (name === 'calls.poolAdd') {
+    const added = await domain.adminAddPoolNumber(ws, a);
+    return { plan: planId, ...added };
+  }
+  if (name === 'calls.poolRemove') {
+    return { plan: planId, ...domain.adminRemovePoolNumber(ws, a) };
   }
   if (name === 'members.getConfig') {
     const leadId = resolveLeadId(ctx, a.leadId);

@@ -1646,6 +1646,43 @@ router.put(
     }
   }
 );
+// Twilio number pool (Batch 26d): staff register numbers the account
+// owns; forwarding setups claim them (primary or rotation) with
+// exclusivity. Add verifies live ownership; remove is blocked while
+// a setup uses the number.
+router.get('/admin-area/calls/pool', denyLeadScopedToken, async (req, res) => {
+  try {
+    const data = domain.adminListNumberPool(req.auth.workspaceId);
+    data.twilio_configured = await require('../twilioClient').isConfigured({ workspaceId: req.auth.workspaceId });
+    ok(res, data);
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.post(
+  '/admin-area/calls/pool',
+  requireRole('owner', 'admin'),
+  denyLeadScopedToken,
+  async (req, res) => {
+    try {
+      ok(res, await domain.adminAddPoolNumber(req.auth.workspaceId, req.body || {}));
+    } catch (e) {
+      fail(res, e, e.code === 'TWILIO_ERROR' ? 502 : e.status || 400);
+    }
+  }
+);
+router.delete(
+  '/admin-area/calls/pool/:id',
+  requireRole('owner', 'admin'),
+  denyLeadScopedToken,
+  async (req, res) => {
+    try {
+      ok(res, domain.adminRemovePoolNumber(req.auth.workspaceId, { id: Number(req.params.id) }));
+    } catch (e) {
+      fail(res, e, e.status || 400);
+    }
+  }
+);
 
 // AI SEO tool (Batch 22): staff can generate/review/apply a local-SEO
 // proposal for any site in the workspace. The same pending proposal is

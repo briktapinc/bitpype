@@ -151,6 +151,63 @@ async function purchaseNumber({ phoneNumber, voiceUrl, workspaceId } = {}) {
 }
 
 /**
+ * Numbers the connected account already owns (Batch 26d pool source).
+ * Returns { configured:false } when no credentials resolve, like the
+ * other read helpers.
+ */
+async function listOwnedNumbers({ workspaceId, limit = 100 } = {}) {
+  const creds = await getCredentials({ workspaceId });
+  if (!creds.accountSid || !creds.authToken) return { configured: false, numbers: [] };
+  const pageSize = Math.min(100, Math.max(1, Number(limit) || 100));
+  const data = await twilioJson(
+    creds,
+    `/Accounts/${encodeURIComponent(creds.accountSid)}/IncomingPhoneNumbers.json?PageSize=${pageSize}`
+  );
+  const numbers = (Array.isArray(data && data.incoming_phone_numbers) ? data.incoming_phone_numbers : []).map(
+    (n) => ({
+      phoneNumber: String(n.phone_number || ''),
+      sid: String(n.sid || ''),
+      friendlyName: String(n.friendly_name || ''),
+      voiceUrl: String(n.voice_url || ''),
+    })
+  );
+  return { configured: true, numbers };
+}
+
+/**
+ * Point an owned number's voice webhook at a URL (Batch 26d: when a
+ * pool number is assigned to a forwarding setup, its VoiceUrl goes to
+ * that lead's voice route). Throws (TWILIO_ERROR) on Twilio failure —
+ * callers decide whether that is fatal (the pool save flow reports it
+ * per-number instead of rolling back the assignment).
+ */
+async function setNumberVoiceUrl({ sid, voiceUrl, workspaceId } = {}) {
+  const creds = await getCredentials({ workspaceId });
+  if (!creds.accountSid || !creds.authToken) return { configured: false };
+  const numberSid = String(sid || '').trim();
+  if (!numberSid) {
+    const err = new Error('A Twilio number SID is required to set its voice webhook.');
+    err.code = 'VALIDATION';
+    err.status = 400;
+    throw err;
+  }
+  const data = await twilioJson(
+    creds,
+    `/Accounts/${encodeURIComponent(creds.accountSid)}/IncomingPhoneNumbers/${encodeURIComponent(numberSid)}.json`,
+    {
+      method: 'POST',
+      form: { VoiceUrl: String(voiceUrl || ''), VoiceMethod: 'POST' },
+    }
+  );
+  return {
+    configured: true,
+    phoneNumber: String((data && data.phone_number) || ''),
+    sid: String((data && data.sid) || numberSid),
+    voiceUrl: String((data && data.voice_url) || voiceUrl || ''),
+  };
+}
+
+/**
  * Fetch a recording's media bytes with the platform credentials
  * (Twilio recording URLs require account auth). Asks for MP3.
  */
@@ -227,6 +284,8 @@ module.exports = {
   isConfigured,
   searchNumbers,
   purchaseNumber,
+  listOwnedNumbers,
+  setNumberVoiceUrl,
   fetchRecordingMedia,
   validateSignature,
   transcribeRecording,

@@ -5529,6 +5529,270 @@ async function main() {
     assert.ok(callsRouteSrc26c.includes("req.query"), 'recording route reads the vm marker');
   });
 
+  // --- Twilio number pool + rotating numbers (Batch 26d) ---------------
+  // Ely (2026-10-26): staff register purchased Twilio numbers in a pool;
+  // each Forwarding setup may check "Rotate numbers" and claim up to 5
+  // pool numbers that rotate on the site's call button — all forwarding
+  // to the setup's one destination. A pool number serves ONE setup.
+  const sm26d = load('server/siteModules.js', {
+    '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
+    '../src/websiteEngine': require(path.join(root, 'src/websiteEngine.js')),
+    './portalContacts': contacts,
+    '../src/secretBox': require(path.join(root, 'src/secretBox.js')),
+    './membershipStripe': {},
+    './shopStripe': {},
+  });
+  sm26d.ensureTables(db);
+  db.prepare("INSERT INTO leads (id, business_name, email, phone) VALUES (2651, 'Fixture Rotate Alpha', 'rota@example.invalid', '+16105550111')").run();
+  db.prepare("INSERT INTO leads (id, business_name, email, phone) VALUES (2652, 'Fixture Rotate Beta', 'rotb@example.invalid', '')").run();
+  db.prepare("INSERT INTO leads (id, business_name, email, phone) VALUES (2653, 'Fixture Rotate Gamma', 'rotg@example.invalid', '+16105550111')").run();
+  db.prepare("INSERT INTO site_module_embeds (lead_id, module_type, public_token, published) VALUES (2651, 'calltracking', 'tok26d2651', 1)").run();
+  db.prepare("INSERT INTO site_module_embeds (lead_id, module_type, public_token, published) VALUES (2652, 'calltracking', 'tok26d2652', 1)").run();
+  const ownedPool26d = ['+16105550101', '+16105550102', '+16105550103', '+16105550104', '+16105550105', '+16105550106', '+16105550107'].map(
+    (phoneNumber, i) => ({ phoneNumber, sid: `PNpool0${i + 1}`, friendlyName: phoneNumber, voiceUrl: '' })
+  );
+  const voiceUrlCalls26d = [];
+  let poolConfigured26d = true;
+  let voiceUrlFailSid26d = '';
+  const domain26d = load('server/domain.js', {
+    './workspaceDb': { openWorkspaceDb: () => db },
+    './billing': { effectivePlan: async () => 'standard' },
+    './twilioClient': {
+      searchNumbers: async () => ({ configured: false, numbers: [] }),
+      purchaseNumber: async () => ({ configured: false }),
+      listOwnedNumbers: async () =>
+        poolConfigured26d ? { configured: true, numbers: ownedPool26d } : { configured: false, numbers: [] },
+      setNumberVoiceUrl: async (args) => {
+        voiceUrlCalls26d.push(args);
+        if (args.sid === voiceUrlFailSid26d) {
+          const e = new Error('Twilio rejected the webhook update');
+          e.code = 'TWILIO_ERROR';
+          throw e;
+        }
+        return { configured: true, phoneNumber: '', sid: args.sid, voiceUrl: args.voiceUrl };
+      },
+    },
+    './stripeClient': { appUrl: () => 'https://example.test' },
+    './siteModules': sm26d,
+  });
+
+  const poolAdd1 = await domain26d.adminAddPoolNumber(1, { phoneNumber: '6105550101', label: 'Alpha main' });
+  let foreignErr26d = null;
+  try {
+    await domain26d.adminAddPoolNumber(1, { phoneNumber: '+442071234567' });
+  } catch (e) {
+    foreignErr26d = e;
+  }
+  let garbageErr26d = null;
+  try {
+    await domain26d.adminAddPoolNumber(1, { phoneNumber: 'call-me-maybe' });
+  } catch (e) {
+    garbageErr26d = e;
+  }
+  const poolAddDup = await domain26d.adminAddPoolNumber(1, { phoneNumber: '+16105550101' });
+  poolConfigured26d = false;
+  const poolAddOff = await domain26d.adminAddPoolNumber(1, { phoneNumber: '+16105550102' });
+  poolConfigured26d = true;
+  check('batch26d pool add: ownership verified live, E.164 enforced, foreign + garbage rejected, duplicate idempotent', () => {
+    assert.equal(poolAdd1.configured, true);
+    assert.equal(poolAdd1.number.phone_number, '+16105550101', 'US 10-digit input normalized to E.164');
+    assert.equal(poolAdd1.number.twilio_sid, 'PNpool01', 'SID stored from the account listing');
+    assert.equal(poolAdd1.number.label, 'Alpha main');
+    assert.equal(foreignErr26d && foreignErr26d.code, 'NOT_OWNED', 'a number the account does not own is rejected');
+    assert.ok(String(foreignErr26d.message).includes('not on the connected Twilio account'));
+    assert.equal(garbageErr26d && garbageErr26d.code, 'VALIDATION');
+    assert.equal(poolAddDup.number.already_present, true, 're-adding is a no-op');
+    assert.equal(poolAddOff.configured, false, 'no credentials → dormant, nothing written');
+    assert.equal(sm26d.listTwilioNumberPool(db, 1).length, 1, 'only the verified number landed');
+  });
+  for (const n of ['+16105550102', '+16105550103', '+16105550104', '+16105550105', '+16105550106', '+16105550107']) {
+    sm26d.addTwilioNumberToPool(db, 1, { phoneNumber: n, twilioSid: `PNpool0${n.slice(-1)}` });
+  }
+  check('batch26d pool list: every number starts unassigned', () => {
+    const pool = sm26d.listTwilioNumberPool(db, 1);
+    assert.equal(pool.length, 7);
+    assert.ok(pool.every((p) => p.assignment === null));
+  });
+
+  const alphaSave26d = await domain26d.adminSaveCallTrackingConfig(1, {
+    leadId: 2651,
+    display_number: '+16105550101',
+    redirect_number: '+16105550100',
+    rotate_enabled: true,
+    rotation_numbers: ['+16105550102', '+16105550103'],
+  });
+  check('batch26d rotation save: set persists, flag on, newly assigned numbers get the lead voice webhook', () => {
+    assert.equal(alphaSave26d.config.rotate_enabled, true);
+    assert.deepEqual(alphaSave26d.config.rotation_numbers, ['+16105550102', '+16105550103']);
+    assert.equal(alphaSave26d.config.display_number, '+16105550101');
+    const hooked = voiceUrlCalls26d.map((c) => c.sid).sort();
+    assert.deepEqual(hooked, ['PNpool01', 'PNpool02', 'PNpool03'], 'primary + both rotation members pointed at Twilio');
+    assert.ok(voiceUrlCalls26d.every((c) => c.voiceUrl === 'https://example.test/api/v1/calls/voice/1/2651'));
+    assert.ok(alphaSave26d.webhook_results.every((w) => w.ok), 'all webhook updates reported ok');
+    const pool = sm26d.listTwilioNumberPool(db, 1);
+    assert.equal(pool.find((p) => p.phone_number === '+16105550101').assignment.role, 'primary');
+    assert.equal(pool.find((p) => p.phone_number === '+16105550102').assignment.lead_name, 'Fixture Rotate Alpha');
+  });
+
+  let rotStealErr26d = null;
+  try {
+    await domain26d.adminSaveCallTrackingConfig(1, { leadId: 2652, rotate_enabled: true, rotation_numbers: ['+16105550102'] });
+  } catch (e) {
+    rotStealErr26d = e;
+  }
+  let primStealErr26d = null;
+  try {
+    await domain26d.adminSaveCallTrackingConfig(1, { leadId: 2652, display_number: '+16105550103' });
+  } catch (e) {
+    primStealErr26d = e;
+  }
+  let primSteal2Err26d = null;
+  try {
+    await domain26d.adminSaveCallTrackingConfig(1, { leadId: 2652, display_number: '+16105550101' });
+  } catch (e) {
+    primSteal2Err26d = e;
+  }
+  check('batch26d exclusivity: a pool number serves one setup — rotation member or primary, claims fail naming the owner', () => {
+    assert.equal(rotStealErr26d && rotStealErr26d.code, 'NUMBER_IN_USE');
+    assert.ok(String(rotStealErr26d.message).includes('Fixture Rotate Alpha'), 'rotation claim names the owning business');
+    assert.equal(primStealErr26d && primStealErr26d.code, 'NUMBER_IN_USE');
+    assert.ok(String(primStealErr26d.message).includes('Fixture Rotate Alpha'), 'claiming a rotation member as a primary names the owner');
+    assert.equal(primSteal2Err26d && primSteal2Err26d.code, 'NUMBER_IN_USE', 'claiming another setup’s primary fails too');
+    assert.deepEqual(sm26d.getCallTrackingConfig(db, 2652).rotation_numbers, [], 'failed saves wrote nothing');
+    assert.equal(sm26d.getCallTrackingConfig(db, 2652).display_number, '', 'failed primary claims wrote nothing');
+  });
+
+  let tooManyErr26d = null;
+  try {
+    await domain26d.adminSaveCallTrackingConfig(1, {
+      leadId: 2653,
+      rotate_enabled: true,
+      rotation_numbers: ['+16105550101', '+16105550102', '+16105550103', '+16105550104', '+16105550105', '+16105550106'],
+    });
+  } catch (e) {
+    tooManyErr26d = e;
+  }
+  let nonPoolErr26d = null;
+  try {
+    await domain26d.adminSaveCallTrackingConfig(1, { leadId: 2653, rotate_enabled: true, rotation_numbers: ['+16105550999'] });
+  } catch (e) {
+    nonPoolErr26d = e;
+  }
+  check('batch26d rotation limits: more than 5 rejected, non-pool members rejected', () => {
+    assert.equal(tooManyErr26d && tooManyErr26d.code, 'VALIDATION');
+    assert.ok(String(tooManyErr26d.message).includes('5'), 'cap message states the limit');
+    assert.equal(nonPoolErr26d && nonPoolErr26d.code, 'VALIDATION');
+    assert.ok(String(nonPoolErr26d.message).includes('pool'), 'non-pool message points at the pool');
+    assert.deepEqual(sm26d.getCallTrackingConfig(db, 2653).rotation_numbers, [], 'rejected sets wrote nothing');
+  });
+
+  const seenRot26d = [];
+  for (let i = 0; i < 4; i += 1) seenRot26d.push(sm26d.publicCallTrackingPayload(db, 2651));
+  const cfgAlpha26d = sm26d.getCallTrackingConfig(db, 2651);
+  const twimlAlpha26d = sm26d.buildCallTrackingVoiceTwiml(cfgAlpha26d, {
+    workspaceId: 1,
+    leadId: 2651,
+    baseUrl: 'https://example.test',
+  });
+  sm26d.logCallInitiated(db, 2651, { callSid: 'CAROT26D', from: '+16105557777', to: '+16105550103', verified: true });
+  check('batch26d rendering: button rotates round-robin through set members only; every member forwards to the one destination', () => {
+    assert.deepEqual(
+      seenRot26d.map((p) => p.display_number),
+      ['+16105550102', '+16105550103', '+16105550102', '+16105550103'],
+      'round-robin across page loads, members only'
+    );
+    assert.ok(seenRot26d.every((p) => p.tracking_number === p.display_number));
+    assert.equal(seenRot26d[0].display_number_formatted, '(610) 555-0102');
+    for (const p of seenRot26d) {
+      assert.ok(!JSON.stringify(p).includes('5550100'), 'payload never leaks the forward-to destination');
+    }
+    assert.ok(twimlAlpha26d.includes('<Dial callerId="+16105550101"'), 'voice route still presents the tracking identity');
+    assert.ok(twimlAlpha26d.includes('>+16105550100</Dial>'), 'dial target is the setup’s single redirect');
+    const logged = sm26d.getCallLogBySid(db, 'CAROT26D');
+    assert.equal(logged.lead_id, 2651, 'call to a rotation number logs under the setup’s lead');
+    assert.equal(logged.to_number, '+16105550103', 'the dialed member is preserved as to_number');
+  });
+
+  sm26d.updateCallTrackingConfig(db, 2652, { display_number: '+16105550107' });
+  sm26d.setCallTrackingRotation(db, 2652, {
+    rotateEnabled: false,
+    numbers: ['+16105550104'],
+    primaryNumber: '+16105550107',
+    workspaceId: 1,
+  });
+  const offPayload1 = sm26d.publicCallTrackingPayload(db, 2652);
+  const offPayload2 = sm26d.publicCallTrackingPayload(db, 2652);
+  sm26d.setCallTrackingRotation(db, 2653, { rotateEnabled: true, numbers: [], primaryNumber: '', workspaceId: 1 });
+  const emptySetPayload = sm26d.publicCallTrackingPayload(db, 2653);
+  check('batch26d rotate off / empty set: exactly the single-number behavior', () => {
+    assert.equal(offPayload1.display_number, '+16105550107', 'rotate off shows the primary, not the stored set');
+    assert.equal(offPayload2.display_number, '+16105550107', 'no rotation while off');
+    assert.equal(emptySetPayload.display_number, '+16105550111', 'rotate on with an empty set falls back as before (client number pre-assignment)');
+    assert.equal(emptySetPayload.tracking_number, '');
+  });
+
+  let assignedRemoveErr26d = null;
+  try {
+    sm26d.removeTwilioNumberFromPool(db, 1, { phoneNumber: '+16105550102' });
+  } catch (e) {
+    assignedRemoveErr26d = e;
+  }
+  await domain26d.adminSaveCallTrackingConfig(1, {
+    leadId: 2651,
+    rotate_enabled: true,
+    rotation_numbers: ['+16105550103'],
+  });
+  const betaClaim26d = await domain26d.adminSaveCallTrackingConfig(1, {
+    leadId: 2652,
+    rotate_enabled: true,
+    rotation_numbers: ['+16105550104', '+16105550102'],
+  });
+  const removedFree26d = sm26d.removeTwilioNumberFromPool(db, 1, { phoneNumber: '+16105550106' });
+  check('batch26d freeing: shrinking a set releases its numbers for another setup; pool removal blocked only while assigned', () => {
+    assert.equal(assignedRemoveErr26d && assignedRemoveErr26d.code, 'NUMBER_ASSIGNED');
+    assert.ok(String(assignedRemoveErr26d.message).includes('Fixture Rotate Alpha'), 'blocked removal names the business');
+    assert.deepEqual(betaClaim26d.config.rotation_numbers, ['+16105550104', '+16105550102'], 'freed member claimable by the next setup');
+    assert.equal(removedFree26d.removed, true);
+    assert.ok(!sm26d.listTwilioNumberPool(db, 1).some((p) => p.phone_number === '+16105550106'));
+  });
+
+  voiceUrlFailSid26d = 'PNpool05';
+  const gammaSave26d = await domain26d.adminSaveCallTrackingConfig(1, {
+    leadId: 2653,
+    rotate_enabled: true,
+    rotation_numbers: ['+16105550105'],
+  });
+  voiceUrlFailSid26d = '';
+  check('batch26d webhook failure: assignment saves, failure is reported per number, never fatal', () => {
+    assert.deepEqual(gammaSave26d.config.rotation_numbers, ['+16105550105'], 'assignment persisted despite the Twilio failure');
+    const wr = gammaSave26d.webhook_results.find((w) => w.phone_number === '+16105550105');
+    assert.ok(wr, 'webhook result reported for the newly assigned number');
+    assert.equal(wr.ok, false);
+    assert.ok(String(wr.error).includes('Twilio'));
+  });
+
+  const overview26d = await domain26d.adminCallsOverview(1);
+  const appSrc26d = fs.readFileSync(path.join(root, 'public/js/app.js'), 'utf8');
+  const apiSrc26d = fs.readFileSync(path.join(root, 'public/js/api.js'), 'utf8');
+  const domainApiSrc26d = fs.readFileSync(path.join(root, 'server/routes/domainApi.js'), 'utf8');
+  const portalSrc26d = fs.readFileSync(path.join(root, 'public/js/portal.js'), 'utf8');
+  check('batch26d overview + wiring: businesses carry rotation, overview carries the pool, portal untouched', () => {
+    const biz = overview26d.businesses.find((b) => Number(b.lead_id) === 2651);
+    assert.ok(biz, 'business listed');
+    assert.equal(biz.config.rotate_enabled, true);
+    assert.deepEqual(biz.config.rotation_numbers, ['+16105550103']);
+    assert.ok(Array.isArray(overview26d.pool) && overview26d.pool.length >= 6, 'pool rides the overview');
+    assert.ok(appSrc26d.includes('cl-cfg-rotate'), 'admin form carries the Rotate checkbox');
+    assert.ok(appSrc26d.includes('cl-pool-add'), 'pool add form wired');
+    assert.ok(appSrc26d.includes('adminCallPoolAdd'), 'pool add uses the api helper');
+    assert.ok(appSrc26d.includes('rotation_numbers'), 'admin save sends the set');
+    assert.ok(!appSrc26d.includes('it shows on their site as the call button'), 'stale display copy removed');
+    assert.ok(appSrc26d.includes('never appears on their site'), 'corrected display copy present');
+    assert.ok(apiSrc26d.includes("adminCallPoolAdd: (body) => post('/admin-area/calls/pool', body)"), 'api helper wired');
+    assert.ok(domainApiSrc26d.includes("'/admin-area/calls/pool'"), 'pool routes registered');
+    assert.ok(!portalSrc26d.includes('rotation_numbers') && !portalSrc26d.includes('cl-cfg-rotate'), 'portal never sees rotation config');
+  });
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

@@ -469,8 +469,37 @@ function ensureTables(db) {
       record_calls INTEGER NOT NULL DEFAULT 0,
       notify_email INTEGER NOT NULL DEFAULT 1,
       voicemail_enabled INTEGER NOT NULL DEFAULT 1,
+      rotate_enabled INTEGER NOT NULL DEFAULT 0,
+      rotate_counter INTEGER NOT NULL DEFAULT 0,
       twilio_number_sid TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Twilio number pool (Batch 26d): the numbers staff purchased on the
+    -- workspace's Twilio account, registered here so forwarding setups
+    -- can claim them (as a primary display number or in a rotation set)
+    -- with exclusivity. The db file is per-workspace; workspace_id is
+    -- carried anyway for clarity.
+    CREATE TABLE IF NOT EXISTS twilio_numbers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workspace_id INTEGER NOT NULL DEFAULT 0,
+      phone_number TEXT NOT NULL DEFAULT '',
+      label TEXT NOT NULL DEFAULT '',
+      twilio_sid TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(workspace_id, phone_number)
+    );
+
+    -- Rotation set for one forwarding setup (Batch 26d): up to 5 pool
+    -- numbers that rotate on the site's call button; every one of them
+    -- forwards to the setup's single redirect_number because the voice
+    -- route resolves the config by lead.
+    CREATE TABLE IF NOT EXISTS calltracking_rotation_numbers (
+      lead_id INTEGER NOT NULL,
+      phone_number TEXT NOT NULL DEFAULT '',
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (lead_id, phone_number)
     );
 
     CREATE TABLE IF NOT EXISTS call_logs (
@@ -753,6 +782,12 @@ function ensureTables(db) {
     }
     if (ctCols.length && !ctCols.includes('voicemail_enabled')) {
       db.exec('ALTER TABLE calltracking_configs ADD COLUMN voicemail_enabled INTEGER NOT NULL DEFAULT 1');
+    }
+    if (ctCols.length && !ctCols.includes('rotate_enabled')) {
+      db.exec('ALTER TABLE calltracking_configs ADD COLUMN rotate_enabled INTEGER NOT NULL DEFAULT 0');
+    }
+    if (ctCols.length && !ctCols.includes('rotate_counter')) {
+      db.exec('ALTER TABLE calltracking_configs ADD COLUMN rotate_counter INTEGER NOT NULL DEFAULT 0');
     }
   } catch {
     /* race / exists */
@@ -5707,7 +5742,11 @@ function assertCallTrackingActivation(config, body, planId) {
   const requested = String(
     src.display_number != null ? src.display_number : src.displayNumber != null ? src.displayNumber : ''
   ).trim();
-  if (!requested) return;
+  // Batch 26d: claiming rotation numbers is a first tracking number
+  // too — same paid-plan gate as a first display number.
+  const rotationRequested =
+    Array.isArray(src.rotation_numbers) && src.rotation_numbers.some((n) => String(n || '').trim());
+  if (!requested && !rotationRequested) return;
   if (config && String(config.display_number || '').trim()) return;
   const err = new Error(
     'Call Tracking with a number requires a paid plan. Upgrade the plan to add a display number — calls to a number already on the account keep working on any plan.'
@@ -5761,6 +5800,8 @@ function shapeCallTrackingConfig(row, leadId) {
       record_calls: false,
       notify_email: true,
       voicemail_enabled: true,
+      rotate_enabled: false,
+      rotation_numbers: [],
       twilio_number_sid: '',
       updated_at: null,
     };
@@ -5773,13 +5814,20 @@ function shapeCallTrackingConfig(row, leadId) {
     // Batch 26c: voicemail greeting defaults ON wherever a config
     // exists; an admin turns it off per business.
     voicemail_enabled: row.voicemail_enabled == null ? true : !!row.voicemail_enabled,
+    // Batch 26d: rotation is opt-in per setup (default off).
+    rotate_enabled: !!row.rotate_enabled,
   };
 }
 
 function readCallTrackingConfig(db, leadId) {
   ensureTables(db);
   const row = db.prepare('SELECT * FROM calltracking_configs WHERE lead_id = ?').get(Number(leadId));
-  return shapeCallTrackingConfig(row, leadId);
+  const shaped = shapeCallTrackingConfig(row, leadId);
+  // Batch 26d: the rotation set rides along on the config shape (the
+  // numbers are public — they render on the site — so this is safe on
+  // every surface that already reads the full config).
+  shaped.rotation_numbers = getRotationNumbers(db, leadId);
+  return shaped;
 }
 
 function getCallTrackingConfig(db, leadId) {
@@ -5861,6 +5909,249 @@ function updateCallTrackingConfig(db, leadId, data = {}) {
   return getCallTrackingConfig(db, leadId);
 }
 
+/* ------------------------------------------------------------------ */
+/* Twilio number pool + rotation (Batch 26d — Ely 2026-10-26)          */
+/*                                                                     */
+/* Staff register the Twilio numbers they purchased in a per-        */
+/* workspace pool (twilio_numbers). A forwarding setup claims pool    */
+/* numbers — as its primary display_number and/or, with Rotate on,    */
+/* in a rotation set of up to 5 — and a pool number can be actively   */
+/* claimed by only ONE setup at a time. "Actively claimed" = the       */
+/* setup's primary, plus its rotation set while rotation is enabled;  */
+/* a stored-but-disabled set claims nothing, so turning Rotate off    */
+/* frees its numbers. Every claimed number forwards to the setup's    */
+/* single redirect_number because the voice route resolves the        */
+/* config by lead, not by dialed number.                              */
+/* ------------------------------------------------------------------ */
+
+const ROTATION_MAX_NUMBERS = 5;
+
+function rotationError(code, status, message) {
+  const err = new Error(message);
+  err.code = code;
+  err.status = status;
+  return err;
+}
+
+/** The stored rotation set for a setup, in slot order. */
+function getRotationNumbers(db, leadId) {
+  ensureTables(db);
+  try {
+    return db
+      .prepare(
+        'SELECT phone_number FROM calltracking_rotation_numbers WHERE lead_id = ? ORDER BY position ASC, phone_number ASC'
+      )
+      .all(Number(leadId))
+      .map((r) => String(r.phone_number || ''))
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function poolNumberRow(db, workspaceId, phoneNumber) {
+  ensureTables(db);
+  return (
+    db
+      .prepare('SELECT * FROM twilio_numbers WHERE workspace_id = ? AND phone_number = ?')
+      .get(Number(workspaceId) || 0, String(phoneNumber || '')) || null
+  );
+}
+
+/**
+ * Who actively claims a number right now: { lead_id, lead_name, role }
+ * or null. role is 'primary' (the setup's display_number) or 'rotation'
+ * (in its set while Rotate is on). exceptLeadId ignores one setup.
+ */
+function findNumberClaim(db, phoneNumber, exceptLeadId = 0) {
+  ensureTables(db);
+  const num = String(phoneNumber || '');
+  if (!num) return null;
+  const except = Number(exceptLeadId) || 0;
+  const primary = db
+    .prepare(
+      `SELECT c.lead_id, l.business_name
+       FROM calltracking_configs c LEFT JOIN leads l ON l.id = c.lead_id
+       WHERE c.display_number = ? AND c.lead_id != ?`
+    )
+    .get(num, except);
+  if (primary) {
+    return { lead_id: Number(primary.lead_id), lead_name: primary.business_name || '', role: 'primary' };
+  }
+  const rotation = db
+    .prepare(
+      `SELECT r.lead_id, l.business_name
+       FROM calltracking_rotation_numbers r
+       JOIN calltracking_configs c ON c.lead_id = r.lead_id AND c.rotate_enabled = 1
+       LEFT JOIN leads l ON l.id = r.lead_id
+       WHERE r.phone_number = ? AND r.lead_id != ?`
+    )
+    .get(num, except);
+  if (rotation) {
+    return { lead_id: Number(rotation.lead_id), lead_name: rotation.business_name || '', role: 'rotation' };
+  }
+  return null;
+}
+
+/** The set of numbers a setup actively claims (primary ∪ live rotation). */
+function claimedNumbersFor(db, leadId, config) {
+  const cfg = config || readCallTrackingConfig(db, leadId);
+  const out = new Set();
+  const primary = String(cfg.display_number || '').trim();
+  if (primary) out.add(primary);
+  if (cfg.rotate_enabled) {
+    for (const n of getRotationNumbers(db, leadId)) out.add(n);
+  }
+  return out;
+}
+
+/** Pool list with each number's current assignment (or null). */
+function listTwilioNumberPool(db, workspaceId) {
+  ensureTables(db);
+  const rows = db
+    .prepare('SELECT * FROM twilio_numbers WHERE workspace_id = ? ORDER BY phone_number ASC')
+    .all(Number(workspaceId) || 0);
+  return rows.map((r) => ({
+    id: Number(r.id),
+    workspace_id: Number(r.workspace_id) || 0,
+    phone_number: r.phone_number || '',
+    label: r.label || '',
+    twilio_sid: r.twilio_sid || '',
+    created_at: r.created_at || null,
+    assignment: findNumberClaim(db, r.phone_number, 0),
+  }));
+}
+
+/** Register a verified-owned number in the pool. Idempotent per number. */
+function addTwilioNumberToPool(db, workspaceId, { phoneNumber, label, twilioSid } = {}) {
+  ensureTables(db);
+  const num = normalizeE164(phoneNumber, 'Phone number');
+  if (!num) throw rotationError('VALIDATION', 400, 'A phone number is required.');
+  const existing = poolNumberRow(db, workspaceId, num);
+  if (existing) {
+    return {
+      id: Number(existing.id),
+      workspace_id: Number(existing.workspace_id) || 0,
+      phone_number: existing.phone_number,
+      label: existing.label || '',
+      twilio_sid: existing.twilio_sid || '',
+      created_at: existing.created_at || null,
+      already_present: true,
+      assignment: findNumberClaim(db, num, 0),
+    };
+  }
+  const info = db
+    .prepare('INSERT INTO twilio_numbers (workspace_id, phone_number, label, twilio_sid) VALUES (?, ?, ?, ?)')
+    .run(
+      Number(workspaceId) || 0,
+      num,
+      String(label || '').trim().slice(0, 80),
+      String(twilioSid || '').trim().slice(0, 64)
+    );
+  const row = db.prepare('SELECT * FROM twilio_numbers WHERE id = ?').get(info.lastInsertRowid);
+  return {
+    id: Number(row.id),
+    workspace_id: Number(row.workspace_id) || 0,
+    phone_number: row.phone_number,
+    label: row.label || '',
+    twilio_sid: row.twilio_sid || '',
+    created_at: row.created_at || null,
+    already_present: false,
+    assignment: null,
+  };
+}
+
+/**
+ * Remove a pool number. Blocked while any setup actively claims it —
+ * the error names the business so staff know where it is used.
+ */
+function removeTwilioNumberFromPool(db, workspaceId, { id, phoneNumber } = {}) {
+  ensureTables(db);
+  let row = null;
+  if (id != null && Number(id) > 0) {
+    row = db
+      .prepare('SELECT * FROM twilio_numbers WHERE workspace_id = ? AND id = ?')
+      .get(Number(workspaceId) || 0, Number(id));
+  }
+  if (!row && phoneNumber) {
+    row = poolNumberRow(db, workspaceId, normalizeE164(phoneNumber, 'Phone number'));
+  }
+  if (!row) throw rotationError('NOT_FOUND', 404, 'That number is not in the pool.');
+  const claim = findNumberClaim(db, row.phone_number, 0);
+  if (claim) {
+    throw rotationError(
+      'NUMBER_ASSIGNED',
+      409,
+      `${row.phone_number} is in use by ${claim.lead_name || 'another business'} (${claim.role === 'primary' ? 'its tracking number' : 'its rotation'}) — remove it from that forwarding setup first.`
+    );
+  }
+  db.prepare('DELETE FROM twilio_numbers WHERE id = ?').run(row.id);
+  return { removed: true, id: Number(row.id), phone_number: row.phone_number };
+}
+
+/**
+ * Validate + persist a setup's rotation flag and set.
+ * - numbers: pool numbers only, deduped in slot order, at most 5.
+ * - the setup's primary number is dropped from the set (it already
+ *   displays full-time; a slot would be wasted on it).
+ * - exclusivity: no member may be actively claimed by another setup.
+ * Writes the set + rotate_enabled flag; returns the persisted state.
+ */
+function setCallTrackingRotation(db, leadId, { rotateEnabled, numbers, primaryNumber, workspaceId } = {}) {
+  ensureTables(db);
+  const id = Number(leadId);
+  getCallTrackingConfig(db, id); // ensure the config row exists
+  const primary = String(primaryNumber || '').trim();
+  const seen = new Set();
+  const clean = [];
+  for (const raw of Array.isArray(numbers) ? numbers : []) {
+    const num = normalizeE164(raw, 'Rotation number');
+    if (!num || seen.has(num)) continue;
+    seen.add(num);
+    if (num === primary) continue;
+    clean.push(num);
+  }
+  if (clean.length > ROTATION_MAX_NUMBERS) {
+    throw rotationError(
+      'VALIDATION',
+      400,
+      `Rotation is limited to ${ROTATION_MAX_NUMBERS} numbers per forwarding setup.`
+    );
+  }
+  // Pool membership + exclusivity are enforced for the ACTIVE set.
+  // A stored set under Rotate-off claims nothing, so it is only
+  // normalized/capped here — it is fully revalidated when re-enabled.
+  if (rotateEnabled) {
+    for (const num of clean) {
+      if (!poolNumberRow(db, workspaceId, num)) {
+        throw rotationError(
+          'VALIDATION',
+          400,
+          `${num} is not in the Twilio numbers pool — add it to the pool first, then it can join a rotation.`
+        );
+      }
+      const claim = findNumberClaim(db, num, id);
+      if (claim) {
+        throw rotationError(
+          'NUMBER_IN_USE',
+          409,
+          `${num} is already used by ${claim.lead_name || 'another business'} (${claim.role === 'primary' ? 'its tracking number' : 'its rotation'}). A number can serve only one forwarding setup at a time.`
+        );
+      }
+    }
+  }
+  db.prepare('DELETE FROM calltracking_rotation_numbers WHERE lead_id = ?').run(id);
+  const insert = db.prepare(
+    'INSERT INTO calltracking_rotation_numbers (lead_id, phone_number, position) VALUES (?, ?, ?)'
+  );
+  clean.forEach((num, i) => insert.run(id, num, i));
+  db.prepare('UPDATE calltracking_configs SET rotate_enabled = ?, updated_at = datetime(\'now\') WHERE lead_id = ?').run(
+    rotateEnabled ? 1 : 0,
+    id
+  );
+  return { rotate_enabled: !!rotateEnabled, rotation_numbers: clean };
+}
+
 /** Best-effort E.164 for a number stored outside the call-tracking
  * config (leads.phone is free-form). '' when nothing dialable remains. */
 function coercePhoneE164(value) {
@@ -5898,7 +6189,27 @@ function leadPhoneE164(db, leadId) {
  * tracking number is assigned it takes over the display completely. */
 function publicCallTrackingPayload(db, leadId) {
   const config = readCallTrackingConfig(db, leadId);
-  const tracking = String(config.display_number || '').trim();
+  let tracking = String(config.display_number || '').trim();
+  // Batch 26d rotation: with Rotate on and a non-empty set, the button
+  // shows/dials a set member instead of the single tracking number.
+  // Round-robin via a persisted counter on the config row, so page
+  // loads share the numbers evenly; every member still forwards to
+  // the setup's one redirect_number (the voice route resolves the
+  // config by lead). Rotate off / empty set → exactly the single-
+  // number behavior.
+  const rotationSet = config.rotate_enabled ? (config.rotation_numbers || []).filter(Boolean) : [];
+  if (rotationSet.length) {
+    const counter = Number(config.rotate_counter) || 0;
+    tracking = rotationSet[counter % rotationSet.length];
+    try {
+      db.prepare('UPDATE calltracking_configs SET rotate_counter = ? WHERE lead_id = ?').run(
+        counter + 1,
+        Number(leadId)
+      );
+    } catch {
+      /* read-only handle / race — this load still got its number */
+    }
+  }
   const shown = tracking || leadPhoneE164(db, leadId);
   if (!shown) return { configured: false };
   return {
@@ -9104,6 +9415,15 @@ module.exports = {
   getCallTrackingConfig,
   updateCallTrackingConfig,
   publicCallTrackingPayload,
+  getRotationNumbers,
+  setCallTrackingRotation,
+  listTwilioNumberPool,
+  addTwilioNumberToPool,
+  removeTwilioNumberFromPool,
+  findNumberClaim,
+  claimedNumbersFor,
+  poolNumberRow,
+  ROTATION_MAX_NUMBERS,
   buildCallTrackingVoiceTwiml,
   buildVoicemailTwiml,
   VOICEMAIL_MAX_SECONDS,

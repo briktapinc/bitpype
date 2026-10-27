@@ -2041,7 +2041,7 @@ const tools = [
   },
   {
     name: 'calls.getSettings',
-    description: 'Get the Call Tracking settings for a lead: display_number (the Twilio tracking number the site\'s call button dials — the button shows the lead\'s own phone number), cta_text, redirect_enabled + redirect_number (where calls are forwarded), record_calls, voicemail_enabled (greeting + voicemail for unanswered calls; default on), twilio_number_sid. Forwarding is admin-only; portal clients can set only their phone number (Standard/Premium).',
+    description: 'Get the Call Tracking settings for a lead: display_number (the Twilio tracking number the site\'s call button shows and dials — the lead\'s own phone number is only the forward-to destination and never appears on the site), cta_text, redirect_enabled + redirect_number (where calls are forwarded), record_calls, voicemail_enabled (greeting + voicemail for unanswered calls; default on), rotate_enabled + rotation_numbers (pool rotation), twilio_number_sid. Forwarding is admin-only; portal clients can set only their phone number (Standard/Premium).',
     schema: {
       type: 'object',
       properties: { leadId: { type: 'integer', minimum: 1 } },
@@ -2049,7 +2049,7 @@ const tools = [
   },
   {
     name: 'calls.updateSettings',
-    description: 'Update Call Tracking settings (admin-only — portal clients can set only their phone number): display_number and redirect_number in E.164 (US 10-digit accepted, prefixed +1); invalid numbers are rejected; also accepts cta_text, redirect_enabled, record_calls, notify_email (per-call email alert, default on) and voicemail_enabled (greeting + voicemail for unanswered calls, default on) (Standard/Premium).',
+    description: 'Update Call Tracking settings (admin-only — portal clients can set only their phone number): display_number and redirect_number in E.164 (US 10-digit accepted, prefixed +1); invalid numbers are rejected; also accepts cta_text, redirect_enabled, record_calls, notify_email (per-call email alert, default on), voicemail_enabled (greeting + voicemail for unanswered calls, default on) and rotate_enabled + rotation_numbers (up to 5 Twilio pool numbers the site button rotates through; pool members only, exclusively claimed) (Standard/Premium).',
     schema: {
       type: 'object',
       properties: {
@@ -2063,6 +2063,10 @@ const tools = [
         record_calls: { type: 'boolean' },
         notify_email: { type: 'boolean' },
         voicemail_enabled: { type: 'boolean' },
+        rotate_enabled: { type: 'boolean' },
+        rotateEnabled: { type: 'boolean' },
+        rotation_numbers: { type: 'array', items: { type: 'string' } },
+        rotationNumbers: { type: 'array', items: { type: 'string' } },
       },
     },
   },
@@ -2072,6 +2076,38 @@ const tools = [
     schema: {
       type: 'object',
       properties: { leadId: { type: 'integer', minimum: 1 }, limit: { type: 'number' } },
+    },
+  },
+  {
+    name: 'calls.poolList',
+    description: 'List the workspace Twilio number pool: numbers staff purchased on the connected Twilio account, each with its current assignment (tracking number or rotation member for a business, or unassigned). Workspace token only (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    name: 'calls.poolAdd',
+    description: 'Add a purchased number to the Twilio number pool. Ownership is verified live against the connected Twilio account — a number the account does not own is rejected (NOT_OWNED). Workspace token only (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        phoneNumber: { type: 'string' },
+        phone_number: { type: 'string' },
+        label: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'calls.poolRemove',
+    description: 'Remove a number from the Twilio number pool by pool id or phone number. Blocked (NUMBER_ASSIGNED, naming the business) while a forwarding setup uses it. Workspace token only (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', minimum: 1 },
+        phoneNumber: { type: 'string' },
+        phone_number: { type: 'string' },
+      },
     },
   },
   {
