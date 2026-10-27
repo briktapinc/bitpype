@@ -4905,6 +4905,17 @@
             : ''
         }</p>`
       : '';
+    const websiteNumber = String(data.display_number || '').trim();
+    const websiteNumberDisplay = websiteNumber.replace(/^\+1(\d{3})(\d{3})(\d{4})$/, '($1) $2-$3');
+    const leadContactTipHtml = websiteNumber
+      ? `<aside class="calltracking-new-lead-card" style="margin:16px 0;padding:16px 18px;border:1.5px solid var(--gold,#f0b429);border-left:6px solid var(--teal,#0e7a68);border-radius:16px;background:linear-gradient(135deg,var(--warn-soft,#fff3d2),var(--paper,#fffaf4));box-shadow:var(--shadow,0 8px 18px rgba(80,40,20,.06));color:var(--ink,#1c140f)">
+          <h4 style="margin:0 0 6px;font-family:Fraunces,Georgia,serif;font-size:1.08rem;line-height:1.25">Know when a website lead calls</h4>
+          <p style="margin:0">Save your website number <strong>${esc(websiteNumberDisplay)}</strong> in your phone contacts as <strong>New Lead</strong>. When a call comes from your website, your phone will show 'New Lead' — so you always know it's a customer, not a stranger.</p>
+        </aside>`
+      : `<aside class="calltracking-new-lead-card is-muted" style="margin:16px 0;padding:16px 18px;border:1px dashed var(--border-strong,#d3bf9d);border-radius:16px;background:var(--cream,#f3eadf);color:var(--muted,#5c5148)">
+          <h4 style="margin:0 0 6px;font-family:Fraunces,Georgia,serif;font-size:1.08rem;line-height:1.25">Know when a website lead calls</h4>
+          <p style="margin:0">Once your website number is set up here, save it in your phone as 'New Lead' so website calls are easy to spot.</p>
+        </aside>`;
     // Batch 25c split: the client controls exactly one thing — their
     // own phone number. Forwarding is set up by BitPype (admin side).
     const formHtml = `
@@ -4924,6 +4935,7 @@
       <p class="hint">Your site shows your phone number as its call button. Calls ring your phone — and every call is logged here.</p>
       ${billingHtml}
       ${formHtml}
+      ${leadContactTipHtml}
       <h3 style="margin-top:18px">Calls received</h3>
       <div id="modules-calltracking-calls">${callsHtml}</div>`;
   }

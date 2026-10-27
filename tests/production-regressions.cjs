@@ -4539,14 +4539,15 @@ async function main() {
     assert.equal(sm25c.getCallTrackingConfig(db, 2511).display_number, '+16105550199');
   });
   const panel25c = await portal25c.listModuleItems(1, 2511, 'calltracking', 'split@example.invalid');
-  check('batch25c portal payload: phone + read-only calls/billing only, no config fields exposed', () => {
+  check('batch25c portal payload: phone + public display number + read-only calls/billing only, no admin config fields exposed', () => {
     const ct = panel25c.calltracking;
     assert.ok(ct, 'calltracking block present');
     assert.equal(ct.phone_number, '+16105550143');
     assert.equal(ct.tracking_assigned, true);
+    assert.equal(ct.display_number, '+16105550199', 'Batch 26b: the public website number is available for the save-as-contact tip');
     assert.ok(Array.isArray(ct.calls));
     assert.ok(ct.billing && typeof ct.billing.answered === 'number');
-    for (const k of ['config', 'display_number', 'cta_text', 'redirect_enabled', 'redirect_number', 'record_calls', 'notify_email', 'twilio_number_sid', 'voice_url']) {
+    for (const k of ['config', 'cta_text', 'redirect_enabled', 'redirect_number', 'record_calls', 'notify_email', 'twilio_number_sid', 'voice_url']) {
       assert.ok(!(k in ct), `portal payload must not expose ${k}`);
     }
   });
@@ -4639,6 +4640,38 @@ async function main() {
     assert.ok(appSrc25c.includes('cl-cfg-save') && appSrc25c.includes('adminCallConfigSave'), 'admin form wired');
     assert.ok(apiSrc25c.includes("adminCallConfigSave: (body) => put('/admin-area/calls/config', body)"), 'api helper wired');
     assert.ok(domainApiSrc25c.includes("'/admin-area/calls/config'"), 'admin route registered');
+  });
+
+  // --- Call Tracking "New Lead" contact tip (Batch 26b) ----------------
+  const panelBare26b = await portal25c.listModuleItems(1, 2512, 'calltracking', 'split2@example.invalid');
+  check('batch26b portal payload: display_number appears only when a tracking number is assigned and no admin config leaks', () => {
+    assert.equal(panel25c.calltracking.display_number, '+16105550199');
+    assert.equal(panel25c.calltracking.tracking_assigned, true);
+    assert.ok(!('display_number' in panelBare26b.calltracking), 'unassigned panel omits display_number');
+    assert.equal(panelBare26b.calltracking.tracking_assigned, false);
+    for (const panel of [panel25c.calltracking, panelBare26b.calltracking]) {
+      for (const k of ['config', 'cta_text', 'redirect_enabled', 'redirect_number', 'record_calls', 'notify_email', 'twilio_number_sid', 'voice_url']) {
+        assert.ok(!(k in panel), `portal payload must not expose ${k}`);
+      }
+    }
+  });
+  check('batch26b portal card + admin tip: highlighted assigned card formats the website number, unassigned card is muted, admin carries the client tip', () => {
+    const formattedNumber = panel25c.calltracking.display_number.replace(/^\+1(\d{3})(\d{3})(\d{4})$/, '($1) $2-$3');
+    assert.equal(formattedNumber, '(610) 555-0199');
+    assert.ok(portalSrc25c.includes('calltracking-new-lead-card'), 'portal renders the New Lead instruction card');
+    assert.ok(portalSrc25c.includes('Know when a website lead calls'), 'card heading present');
+    assert.ok(portalSrc25c.includes('Save your website number <strong>${esc(websiteNumberDisplay)}</strong>'), 'assigned card names the formatted website number');
+    assert.ok(portalSrc25c.includes("your phone will show 'New Lead'"), 'assigned card explains the caller-name payoff');
+    assert.ok(portalSrc25c.includes('calltracking-new-lead-card is-muted'), 'unassigned card has the muted treatment');
+    assert.ok(
+      portalSrc25c.includes("Once your website number is set up here, save it in your phone as 'New Lead' so website calls are easy to spot."),
+      'unassigned card carries the muted setup copy'
+    );
+    assert.ok(portalSrc25c.includes('${leadContactTipHtml}'), 'card is placed in the Call Tracking panel');
+    assert.ok(
+      appSrc25c.includes("Tip for the client: save this number in their phone as 'New Lead'."),
+      'admin business card carries the subtle client tip'
+    );
   });
 
   // --- Site Rentals "Rent to Lead" (Batch 26) -------------------------

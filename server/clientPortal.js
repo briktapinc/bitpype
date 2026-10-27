@@ -2417,15 +2417,19 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
       // Automatic module (Batch 25c split): the client panel carries
       // ONLY their own phone number (the one field they control), the
       // read-only answered-call billing line, and every call received
-      // (newest first). Forwarding configuration — tracking number,
-      // redirect, recording, notify, webhook — is admin-only and is
-      // never exposed here.
+      // (newest first). Batch 26b adds the public display number when
+      // one is assigned so the client can save that website number as
+      // a phone contact. Forwarding configuration — redirect,
+      // recording, notify, webhook — is admin-only and is never
+      // exposed here.
       items = [];
       const ctConfig = modules.getCallTrackingConfig(db, Number(leadId));
+      const displayNumber = String(ctConfig.display_number || '').trim();
       const leadRow = db.prepare('SELECT phone FROM leads WHERE id = ?').get(Number(leadId));
       calltracking = {
         phone_number: leadRow && leadRow.phone ? String(leadRow.phone) : '',
-        tracking_assigned: !!String(ctConfig.display_number || '').trim(),
+        tracking_assigned: !!displayNumber,
+        ...(displayNumber ? { display_number: displayNumber } : {}),
         calls: modules.listCalls(db, Number(leadId), { limit: 200 }),
         billing: modules.callBillingSummary(db, Number(leadId), planId),
         workspace_id: Number(workspaceId),

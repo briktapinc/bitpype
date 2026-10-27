@@ -7742,7 +7742,7 @@ async function pageCalls() {
           const bl = b.billing || {};
           const allow = bl.allowance >= 100000 ? 'unlimited' : bl.allowance;
           return `<div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line,#e6e0d8)">
-      <div><strong>${esc(b.lead_name || 'Business')}</strong> <span class="hint">${esc(b.plan || '')} plan${b.display_number ? ' · ' + esc(b.display_number) : ''}</span></div>
+      <div><strong>${esc(b.lead_name || 'Business')}</strong> <span class="hint">${esc(b.plan || '')} plan${b.display_number ? ' · ' + esc(b.display_number) : ''}</span>${b.display_number ? `<div class="hint" style="margin-top:2px">Tip for the client: save this number in their phone as 'New Lead'.</div>` : ''}</div>
       <div class="hint">Answered this month: <strong>${esc(bl.answered != null ? bl.answered : 0)} / ${esc(allow != null ? allow : '')}</strong>${bl.overage_due_credits > 0 ? ` · Overage due: <strong>${esc(bl.overage_due_credits)} credits</strong>` : ''}</div>
     </div>`;
         })
