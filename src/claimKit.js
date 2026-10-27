@@ -13,6 +13,115 @@ const outreach = require('./outreach');
 /** Token action letter for the claim page (not a direct interested/uninterested click). */
 const CLAIM_ACTION = 'c';
 
+/* ------------------------------------------------------------------ */
+/* Claim hold (Batch 34): every preview claim popup carries a 7-day   */
+/* hold — expiry = anchor + 7 days, shown as a date + live countdown   */
+/* with a "Get it now!" CTA. The anchor is the preview's build time:    */
+/* the earliest websites.created_at for the lead (the site row's       */
+/* created_at is stamped by the schema default when the preview is     */
+/* built), falling back to the lead's created_at, then to first        */
+/* computation. On first computation the anchor is PERSISTED in the     */
+/* workspace settings table and read back verbatim thereafter, so      */
+/* re-exports, re-publishes, repeat visits and popup re-injections     */
+/* can NEVER reset or extend the expiry — and even recreating the      */
+/* site row cannot move it. One lead's preview = one expiry.           */
+/* No workspace timezone setting exists in the codebase, so the date   */
+/* label is formatted in America/New_York (the same default the        */
+/* social calendar uses in src/socialMedia.js).                        */
+/* ------------------------------------------------------------------ */
+
+const CLAIM_HOLD_DAYS = 7;
+const CLAIM_HOLD_TZ = 'America/New_York';
+
+function claimHoldSettingKey(leadId) {
+  return `claim.hold.anchor.v1.${Number(leadId)}`;
+}
+
+/** Parse a stored timestamp. SQLite datetime('now') values are UTC
+ *  ('YYYY-MM-DD HH:MM:SS', no zone marker); ISO strings pass through. */
+function parseClaimTimestamp(value) {
+  const s = String(value || '').trim();
+  if (!s) return null;
+  let iso = s.includes('T') ? s : s.replace(' ', 'T');
+  if (!/(Z|[+-]\d{2}:?\d{2})$/i.test(iso)) iso += 'Z';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** "Tuesday, Nov 3, 2026" in the hold timezone. */
+function formatClaimDate(date) {
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: CLAIM_HOLD_TZ,
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    }).format(date);
+  } catch {
+    return date.toISOString().slice(0, 10);
+  }
+}
+
+/**
+ * The lead's claim hold: { anchorAt, expiresAt, expiresLabel, expired,
+ * secondsRemaining, daysRemaining } — or null for a bad lead id.
+ * Expiry never blocks the claim: after it passes, the popup switches to
+ * the expired-hold copy and the interested flow keeps working.
+ */
+function claimHold(db, leadId) {
+  const lid = Number(leadId);
+  if (!Number.isInteger(lid) || lid <= 0) return null;
+  let anchor = null;
+  try {
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(claimHoldSettingKey(lid));
+    if (row && row.value) anchor = parseClaimTimestamp(row.value);
+  } catch {
+    /* settings table optional — the created_at anchor is itself stable */
+  }
+  if (!anchor) {
+    let raw = null;
+    try {
+      const site = db.prepare('SELECT MIN(created_at) AS c FROM websites WHERE lead_id = ?').get(lid);
+      raw = site && site.c;
+    } catch {
+      /* websites table optional */
+    }
+    if (!raw) {
+      try {
+        const lead = db.prepare('SELECT created_at FROM leads WHERE id = ?').get(lid);
+        raw = lead && lead.created_at;
+      } catch {
+        /* ignore */
+      }
+    }
+    anchor = parseClaimTimestamp(raw) || new Date();
+    try {
+      // First writer wins; re-read so concurrent computations agree.
+      db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(
+        claimHoldSettingKey(lid),
+        anchor.toISOString()
+      );
+      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(claimHoldSettingKey(lid));
+      const persisted = row && parseClaimTimestamp(row.value);
+      if (persisted) anchor = persisted;
+    } catch {
+      /* persistence is best-effort */
+    }
+  }
+  const expires = new Date(anchor.getTime() + CLAIM_HOLD_DAYS * 24 * 60 * 60 * 1000);
+  const nowMs = Date.now();
+  const secondsRemaining = Math.max(0, Math.floor((expires.getTime() - nowMs) / 1000));
+  return {
+    anchorAt: anchor.toISOString(),
+    expiresAt: expires.toISOString(),
+    expiresLabel: formatClaimDate(expires),
+    expired: nowMs > expires.getTime(),
+    secondsRemaining,
+    daysRemaining: Math.floor(secondsRemaining / 86400),
+  };
+}
+
 function claimPagePath(token) {
   return `/claim.html?t=${encodeURIComponent(token)}`;
 }
@@ -353,11 +462,21 @@ function claimPageMeta(db, workspaceId, leadId) {
   // Hide after Yes (positive) or No (uninterested). "Later" stays showClaimPrompt so
   // a future visit can re-prompt (client may session-hide until then).
   const showClaimPrompt = !intentPositive && !interested && !uninterested;
+  // Batch 34: the 7-day claim hold rides the same meta (popup + claim page +
+  // staff claim_popup status all read it from here). Expiry never suppresses
+  // the prompt — an expired hold renders the expired copy, claim still works.
+  const hold = claimHold(db, lead.id);
   return {
     businessName: displayName,
     siteName,
     status: lead.status,
     siteUrl,
+    claimHold: hold,
+    claimExpiresAt: hold ? hold.expiresAt : null,
+    claimExpiresLabel: hold ? hold.expiresLabel : null,
+    claimExpired: hold ? hold.expired : false,
+    claimSecondsRemaining: hold ? hold.secondsRemaining : null,
+    claimDaysRemaining: hold ? hold.daysRemaining : null,
     // Domain picker CTA (Batch 15): offered while the site has no custom domain.
     domainPickerUrl: siteCustomDomain ? null : buildDomainPickerUrl(workspaceId, lead.id) || null,
     alreadyInterested: !!interested,
@@ -396,7 +515,7 @@ function injectClaimPreviewIntoExport(exportDir, workspaceId, leadId) {
     '',
     '<!-- bitpype-claim-preview -->',
     `<script>window.BitpypeClaim=${JSON.stringify({ apiBase, token, v: 4 })};</script>`,
-    `<script src="${apiBase}/js/claim-preview.js?v=6" defer></script>`,
+    `<script src="${apiBase}/js/claim-preview.js?v=7" defer></script>`,
     '<!-- /bitpype-claim-preview -->',
     '',
   ].join('\n');
@@ -491,6 +610,8 @@ function injectClaimPreviewIntoAllExports(rootDir, opts = {}) {
 
 module.exports = {
   CLAIM_ACTION,
+  CLAIM_HOLD_DAYS,
+  claimHold,
   claimPagePath,
   buildClaimUrl,
   verifyClaimToken,

@@ -1,7 +1,10 @@
 'use strict';
 
 /**
- * Preview-site claim popup: Yes I'm interested / No — not interested / Maybe later.
+ * Preview-site claim popup: Get it now! (interested) / No — not interested / Maybe later.
+ * Batch 34: carries the 7-day claim hold — expiry date + live countdown from
+ * the server meta (claimExpiresAt / claimExpiresLabel / claimExpired); an
+ * expired hold renders the ended copy and the claim buttons keep working.
  * Shows after 10s OR on back/leave (whichever first), only when intent is not positive.
  * Expects window.BitpypeClaim = { apiBase, token }.
  */
@@ -25,6 +28,7 @@
   let visitAnswered = false; // Yes / No / Later this page load (persisted answers)
   let closedWithoutAnswer = false; // X close — hide for this load only; refresh shows again
   let timerId = null;
+  let countdownId = null; // Batch 34: 7-day hold countdown interval
   let armed = false;
   let historyHooked = false;
 
@@ -56,9 +60,78 @@
     return !!document.getElementById('bp-claim-overlay');
   }
 
+  function stopCountdown() {
+    if (countdownId != null) {
+      clearInterval(countdownId);
+      countdownId = null;
+    }
+  }
+
   function remove() {
+    stopCountdown();
     const el = document.getElementById('bp-claim-overlay');
     if (el) el.remove();
+  }
+
+  /* Batch 34 — 7-day claim hold: absolute expiry date + live countdown.
+     The expiry instant comes from the server meta (claimExpiresAt, an
+     absolute ISO time), so the countdown is timezone-free; the date
+     label (claimExpiresLabel) is pre-formatted server-side. When the
+     countdown reaches zero while the popup is open, the block flips to
+     the expired-hold copy live — the claim buttons keep working. */
+  function holdBlockHtml(m) {
+    if (!m || !m.claimExpiresAt) return '';
+    const label = esc(m.claimExpiresLabel || '');
+    if (m.claimExpired) {
+      return [
+        '<div id="bp-claim-hold" class="bp-expired">',
+        '<p class="bp-hold-line">Your 7-day hold ended on <strong>' + label + '</strong> — you can still claim this website.</p>',
+        '<p id="bp-claim-countdown">Hold ended</p>',
+        '</div>',
+      ].join('');
+    }
+    return [
+      '<div id="bp-claim-hold">',
+      '<p class="bp-hold-line">Yours to claim until <strong>' + label + '</strong></p>',
+      '<p id="bp-claim-countdown">…</p>',
+      '</div>',
+    ].join('');
+  }
+
+  function startCountdown(m) {
+    const el = document.getElementById('bp-claim-countdown');
+    if (!el || !m || !m.claimExpiresAt || m.claimExpired) return;
+    const target = Date.parse(m.claimExpiresAt);
+    if (!target) return;
+    const pad = (n) => String(n).padStart(2, '0');
+    function tick() {
+      const remainMs = target - Date.now();
+      if (remainMs <= 0) {
+        stopCountdown();
+        const hold = document.getElementById('bp-claim-hold');
+        if (hold) {
+          hold.classList.add('bp-expired');
+          const line = hold.querySelector('.bp-hold-line');
+          if (line) {
+            line.innerHTML =
+              'Your 7-day hold ended on <strong>' +
+              esc(m.claimExpiresLabel || '') +
+              '</strong> — you can still claim this website.';
+          }
+        }
+        el.textContent = 'Hold ended';
+        return;
+      }
+      const s = Math.floor(remainMs / 1000);
+      const d = Math.floor(s / 86400);
+      const h = Math.floor((s % 86400) / 3600);
+      const mm = Math.floor((s % 3600) / 60);
+      const ss = s % 60;
+      el.textContent =
+        (d > 0 ? d + (d === 1 ? ' day ' : ' days ') : '') + pad(h) + ':' + pad(mm) + ':' + pad(ss) + ' left to claim';
+    }
+    tick();
+    countdownId = setInterval(tick, 1000);
   }
 
   function clearTimer() {
@@ -228,6 +301,13 @@
       'font-family:var(--bp-c-heading);color:var(--bp-c-text);}',
       '#bp-claim-card p{margin:0 0 1rem;line-height:1.45;font-size:1rem;',
       'color:color-mix(in srgb, var(--bp-c-text) 72%, transparent);}',
+      '#bp-claim-hold{margin:0 0 1rem;padding:.75rem .9rem;border-radius:var(--bp-c-radius);',
+      'background:color-mix(in srgb, var(--bp-c-secondary) 14%, var(--bp-c-bg));',
+      'border:1px solid color-mix(in srgb, var(--bp-c-secondary) 32%, transparent);}',
+      '#bp-claim-hold .bp-hold-line{margin:0;font-size:.95rem;line-height:1.4;color:var(--bp-c-text);}',
+      '#bp-claim-countdown{margin:.35rem 0 0;font-size:1.05rem;font-weight:800;letter-spacing:.02em;',
+      'font-variant-numeric:tabular-nums;color:var(--bp-c-primary);}',
+      '#bp-claim-hold.bp-expired #bp-claim-countdown{color:color-mix(in srgb, var(--bp-c-text) 70%, transparent);}',
       '#bp-claim-actions{display:flex;flex-direction:column;gap:.55rem;}',
       '#bp-claim-actions button{font:inherit;font-family:var(--bp-c-font);font-size:1rem;font-weight:700;',
       'padding:.8rem 1rem;border-radius:var(--bp-c-radius);cursor:pointer;border:1px solid transparent;width:100%;}',
@@ -259,8 +339,9 @@
       '<p class="bp-brand">Website preview</p>',
       '<h2 id="bp-claim-title">Do you want to claim this website as yours?</h2>',
       '<p>We built this preview for <strong>' + esc(name) + '</strong>. Say yes if you want to keep it.</p>',
+      holdBlockHtml(m),
       '<div id="bp-claim-actions">',
-      '<button type="button" id="bp-claim-yes">Yes I\'m interested</button>',
+      '<button type="button" id="bp-claim-yes">Get it now!</button>',
       '<button type="button" id="bp-claim-no">No — not interested</button>',
       '<button type="button" id="bp-claim-later">Maybe later</button>',
       '</div>',
@@ -269,6 +350,7 @@
     ].join('');
 
     (document.body || document.documentElement).appendChild(overlay);
+    startCountdown(m);
 
     const msg = document.getElementById('bp-claim-msg');
     const yesBtn = document.getElementById('bp-claim-yes');

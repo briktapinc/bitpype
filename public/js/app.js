@@ -2377,6 +2377,30 @@ async function pageWebsiteDetail(id) {
                     : site.claim_popup.state === 'suppressed'
                       ? 'suppressed — ' + esc(site.claim_popup.reason || 'off')
                       : 'status unavailable'
+                }${
+                  site.claim_popup.expires_at
+                    ? ' · ' +
+                      (site.claim_popup.expired
+                        ? '7-day hold ended ' +
+                          esc(
+                            new Date(site.claim_popup.expires_at).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            })
+                          )
+                        : '7-day hold ends ' +
+                          esc(
+                            new Date(site.claim_popup.expires_at).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            })
+                          ) +
+                          (site.claim_popup.days_remaining != null
+                            ? ' (' + site.claim_popup.days_remaining + 'd left)'
+                            : ''))
+                    : ''
                 }</p>`
               : ''
           }

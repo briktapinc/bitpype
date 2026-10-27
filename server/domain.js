@@ -1233,11 +1233,17 @@ function claimPopupStatus(claimKit, db, workspaceId, leadId) {
   }
   if (!token) return { state: 'suppressed', reason: 'no claim token' };
   const meta = claimKit.claimPageMeta(db, workspaceId, lid);
-  if (meta.showClaimPrompt) return { state: 'injected', reason: null };
-  if (meta.intentPositive) return { state: 'suppressed', reason: 'site owned / engaged' };
-  if (meta.alreadyInterested) return { state: 'suppressed', reason: 'already marked interested' };
-  if (meta.alreadyUninterested) return { state: 'suppressed', reason: 'already marked not interested' };
-  return { state: 'suppressed', reason: 'claim prompt off' };
+  // Batch 34: the 7-day claim hold rides along (display-only for staff).
+  const hold = {
+    expires_at: meta.claimExpiresAt || null,
+    expired: !!meta.claimExpired,
+    days_remaining: meta.claimDaysRemaining != null ? meta.claimDaysRemaining : null,
+  };
+  if (meta.showClaimPrompt) return { state: 'injected', reason: null, ...hold };
+  if (meta.intentPositive) return { state: 'suppressed', reason: 'site owned / engaged', ...hold };
+  if (meta.alreadyInterested) return { state: 'suppressed', reason: 'already marked interested', ...hold };
+  if (meta.alreadyUninterested) return { state: 'suppressed', reason: 'already marked not interested', ...hold };
+  return { state: 'suppressed', reason: 'claim prompt off', ...hold };
 }
 function sitesGet(workspaceId, id) {
   return withDb(workspaceId, (db) => {
