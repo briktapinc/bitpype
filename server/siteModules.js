@@ -41,7 +41,7 @@ const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod16';
+const MODULE_SCRIPT_VER = 'mod17';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -5847,26 +5847,26 @@ function leadPhoneE164(db, leadId) {
   }
 }
 
-/** Public-safe payload: only what the site may show (Batch 25c split).
- * The call button TEXT is the business's own number (leads.phone — the
- * number the client provided, which they expect to see on their site);
- * the tel: target is the admin-assigned tracking number (display_number)
- * when one exists, so calls route through Twilio and get logged, and
- * falls back to the business's own number before a tracking number is
- * set up. The config's redirect_number field itself is never exposed. */
+/** Public-safe payload: only what the site may show (Batch 25c split,
+ * rendering rule corrected by Batch 25c-fix per Ely 2026-10-26 21:46).
+ * The call button displays the Twilio tracking number (display_number)
+ * as BOTH its text and its tel: target, so visitors call the tracking
+ * number and Twilio forwards + logs. The number the client provided
+ * (leads.phone / redirect_number) is the forward-to destination ONLY —
+ * it is never exposed in this payload and never renders on the site.
+ * Fallback before admin assigns a tracking number: the button shows and
+ * dials leads.phone, the only callable number that exists yet; once a
+ * tracking number is assigned it takes over the display completely. */
 function publicCallTrackingPayload(db, leadId) {
   const config = readCallTrackingConfig(db, leadId);
-  const phone = leadPhoneE164(db, leadId);
   const tracking = String(config.display_number || '').trim();
-  const tel = tracking || phone;
-  if (!tel) return { configured: false };
+  const shown = tracking || leadPhoneE164(db, leadId);
+  if (!shown) return { configured: false };
   return {
     configured: true,
-    display_number: tel,
-    display_number_formatted: formatPhoneDisplay(tel),
+    display_number: shown,
+    display_number_formatted: formatPhoneDisplay(shown),
     tracking_number: tracking,
-    phone_number: phone,
-    phone_number_formatted: phone ? formatPhoneDisplay(phone) : '',
     cta_text: config.cta_text || CALL_TRACKING_DEFAULT_CTA,
   };
 }

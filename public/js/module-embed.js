@@ -875,9 +875,11 @@
       return;
     }
     if (type === 'calltracking') {
-      // The call button shows the business's own number (the one they
-      // provided) as its text; the link dials the tracking number when
-      // BitPype has assigned one, so calls are logged and forwarded.
+      // The call button displays the Twilio tracking number as its text
+      // AND dials it, so calls are logged and forwarded to the business.
+      // The business's own number is the forward-to destination only and
+      // never renders here. (Pre-assignment the payload falls back to the
+      // business's number as the only callable number that exists yet.)
       // Unconfigured (no number at all yet) renders nothing.
       var ct = data.calltracking || {};
       if (!ct.configured || !ct.display_number) {
@@ -891,7 +893,7 @@
         '"><span class="bp-mod-call-label">' +
         esc(ct.cta_text || 'Call us') +
         '</span><span class="bp-mod-call-number">' +
-        esc(ct.phone_number_formatted || ct.display_number_formatted || ct.display_number) +
+        esc(ct.display_number_formatted || ct.display_number) +
         '</span></a></div>';
       return;
     }

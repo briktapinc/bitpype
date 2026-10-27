@@ -1292,7 +1292,7 @@ async function main() {
   });
   sm17.ensureTables(db);
   assert.equal(sm17.MODULE_TYPES.length, 19, 'catalog still 19 types');
-  assert.equal(sm17.MODULE_SCRIPT_VER, 'mod16', 'script version: batch 20 mod13, batch 21 mod14, batch 25 mod15, batch 25c mod16');
+  assert.equal(sm17.MODULE_SCRIPT_VER, 'mod17', 'script version: batch 20 mod13, batch 21 mod14, batch 25 mod15, batch 25c mod16, batch 25c-fix mod17');
   const cfg17Default = sm17.getMembersConfig(db, 1701);
   assert.equal(cfg17Default.access_level, 'any_member', 'Part 1 default preserved: any member');
   assert.equal(cfg17Default.access_tier_id, null);
@@ -1982,7 +1982,7 @@ async function main() {
 
   check('batch21 module registered + embed script version bumped', () => {
     assert.ok(sm21.MODULE_TYPES.includes('calltracking'));
-    assert.equal(sm21.MODULE_SCRIPT_VER, 'mod16', 'batch 21 mod14, batch 25 mod15, batch 25c mod16');
+    assert.equal(sm21.MODULE_SCRIPT_VER, 'mod17', 'batch 21 mod14, batch 25 mod15, batch 25c mod16, batch 25c-fix mod17');
     assert.equal(sm21.MODULE_META.calltracking.label, 'Call Tracking');
   });
 
@@ -4206,7 +4206,7 @@ async function main() {
   const embFaq25 = sm25.attachModule(db, 2501, 'faq', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
   const pubFaq25 = sm25.getPublicModuleByToken(db, embFaq25.public_token);
   check('batch25 modules: bookings + estimate payloads carry the opt-in block; other modules do not', () => {
-    assert.equal(sm25.MODULE_SCRIPT_VER, 'mod16', 'batch 25 bumped mod15; batch 25c bumped mod16');
+    assert.equal(sm25.MODULE_SCRIPT_VER, 'mod17', 'batch 25 bumped mod15; batch 25c bumped mod16; batch 25c-fix bumped mod17');
     assert.equal(pubBook25.sms_optin && pubBook25.sms_optin.label, 'Text me updates & offers from Fixture Texts R Us');
     assert.equal(pubEst25.sms_optin && pubEst25.sms_optin.consent_key, 'sms_optin_consent');
     assert.equal(pubFaq25.sms_optin, undefined, 'modules without a phone form get no block');
@@ -4552,21 +4552,40 @@ async function main() {
   });
   await portal25c.saveCallTrackingConfig(1, 2512, { phone: '+16105550100' }, 'split2@example.invalid');
   const embedSrc25c = fs.readFileSync(path.join(root, 'public/js/module-embed.js'), 'utf8');
-  check('batch25c site rendering: button text is the client number, tel target is the tracking number when assigned', () => {
-    assert.equal(sm25c.MODULE_SCRIPT_VER, 'mod16');
+  check('batch25c site rendering: button displays and dials the Twilio tracking number; the client number is forward-to only', () => {
+    assert.equal(sm25c.MODULE_SCRIPT_VER, 'mod17');
     const pubFull = sm25c.publicCallTrackingPayload(db, 2511);
     assert.equal(pubFull.configured, true);
-    assert.equal(pubFull.display_number, '+16105550199', 'tel target = the admin tracking number');
-    assert.equal(pubFull.phone_number, '+16105550143');
-    assert.equal(pubFull.phone_number_formatted, '(610) 555-0143', 'button text source = the client number');
+    assert.equal(pubFull.display_number, '+16105550199', 'button number = the Twilio tracking number (text + tel target)');
+    assert.equal(pubFull.display_number_formatted, '(610) 555-0199', 'button text = the formatted tracking number');
+    assert.equal(pubFull.tracking_number, '+16105550199');
+    assert.ok(!('phone_number' in pubFull), 'public payload never carries the client number');
     const pubBare = sm25c.publicCallTrackingPayload(db, 2512);
     assert.equal(pubBare.configured, true);
     assert.equal(pubBare.tracking_number, '');
-    assert.equal(pubBare.display_number, '+16105550100', 'no tracking assigned → button dials the client number itself');
+    assert.equal(pubBare.display_number, '+16105550100', 'no tracking assigned → fallback shows/dials the client number itself');
+    assert.equal(pubBare.display_number_formatted, '(610) 555-0100');
     assert.ok(
-      embedSrc25c.includes('ct.phone_number_formatted || ct.display_number_formatted'),
-      'embed renders the client number as the button text'
+      embedSrc25c.includes('ct.display_number_formatted || ct.display_number'),
+      'embed renders the tracking number as the button text'
     );
+    assert.ok(!embedSrc25c.includes('ct.phone_number'), 'embed never renders a client-number field');
+  });
+  check('batch25c-fix site rendering: rendered button never contains the redirect number when a tracking number is assigned', () => {
+    const pubFull = sm25c.publicCallTrackingPayload(db, 2511);
+    const cfg = sm25c.getCallTrackingConfig(db, 2511);
+    assert.equal(cfg.redirect_number, '+16105550143', 'fixture: the client number is the forward-to destination');
+    // Compose the button exactly as module-embed.js does from the payload.
+    const buttonHtml =
+      '<a class="bp-mod-call" href="tel:' + pubFull.display_number + '">' +
+      '<span class="bp-mod-call-label">' + pubFull.cta_text + '</span>' +
+      '<span class="bp-mod-call-number">' + (pubFull.display_number_formatted || pubFull.display_number) + '</span></a>';
+    assert.ok(buttonHtml.includes('href="tel:+16105550199"'), 'button dials the tracking number');
+    assert.ok(buttonHtml.includes('(610) 555-0199'), 'button text shows the tracking number');
+    for (const leak of ['+16105550143', '16105550143', '5550143', '555-0143']) {
+      assert.ok(!buttonHtml.includes(leak), `rendered button must not contain the client number (${leak})`);
+      assert.ok(!JSON.stringify(pubFull).includes(leak), `public payload must not contain the client number (${leak})`);
+    }
   });
   db.prepare(
     "INSERT INTO site_module_embeds (lead_id, module_type, public_token, published) VALUES (2511, 'calltracking', 'tok25c2511', 1)"
