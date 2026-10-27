@@ -15,6 +15,13 @@ const SECRET_KEYS = [
   'mcp.http_token',
   'shop.stripe.secret_key',
   'shop.stripe.webhook_secret',
+  // Platform-def secrets (Batch 24b): settable via the validated path,
+  // masked on read like every other SECRET_KEYS member.
+  'muse.model_api_key',
+  'captcha.secret_key',
+  'stripe.secret_key',
+  'stripe.webhook_secret',
+  'twilio.auth_token',
 ];
 
 const SETTING_SEEDS = [
@@ -110,9 +117,11 @@ const SETTING_SEEDS = [
   ['shop.stripe.secret_key', ''],
   ['shop.stripe.webhook_secret', ''],
 ];
-// Keys writable via the settings API (secrets and automation_paused
-// excluded, except design.agent_webhook_secret which is settable
-// but masked on read). Canonical list — port of audit D3.
+// Keys writable via the settings API (automation_paused excluded — it has
+// its own toggle path). Secret keys that are settable here are also in
+// SECRET_KEYS, so they stay masked on read. Canonical list — port of
+// audit D3; Batch 24b extended it to cover every PLATFORM_SETTING_DEFS
+// key so no def'd setting can hard-fail validation again.
 const SETTABLE_KEYS = [
   'ai.base_url',
   'ai.model.default',
@@ -169,6 +178,8 @@ const SETTABLE_KEYS = [
   'sms.enabled',
   'sms.provider',
   'sms.account_sid',
+  'sms.auth_token',
+  'sms.api_key',
   'sms.from_number',
   'sms.webhook_url',
   'hands_off.enabled',
@@ -179,6 +190,57 @@ const SETTABLE_KEYS = [
   'hands_off.template_id',
   'hands_off.channel',
   'hands_off.followup_interested_email',
+  // Platform-def keys (Batch 24b) — previously only reachable through the
+  // unvalidated platform batch save; now covered by validateSetting too.
+  'support.email',
+  'registration.open',
+  'maintenance_mode',
+  'default.workspace_name',
+  'captcha.enabled',
+  'captcha.site_key',
+  'captcha.secret_key',
+  'smtp.pass',
+  'ai.api_key',
+  'muse.model_api_key',
+  'muse.model_base_url',
+  'muse.model_default',
+  'providers.tavily.api_key',
+  'pexels.api_key',
+  'fal.api_key',
+  'cf.api_token',
+  'meta.app_secret',
+  'muse.enabled',
+  'muse.webhook_url',
+  'stripe.secret_key',
+  'stripe.publishable_key',
+  'stripe.webhook_secret',
+  'stripe.price_id_standard',
+  'stripe.price_id_pro',
+  'stripe.price_id_premium',
+  'stripe.price_id',
+  'stripe.price_id_credits',
+  'stripe.product_id_standard',
+  'stripe.product_id_pro',
+  'stripe.product_id_premium',
+  'stripe.product_id_credits',
+  'twilio.account_sid',
+  'twilio.auth_token',
+  'billing.amount_label',
+  'billing.amount_label_standard',
+  'billing.amount_label_pro',
+  'billing.amount_label_premium',
+  'billing.require_subscription',
+  'billing.trial_days',
+  'credits.pack_amount',
+  'credits.pack_label',
+  'credits.per_social_image',
+  'credits.per_social_content',
+  'credits.usd_per_credit',
+  'referrals.reward_percent',
+  'adsense.enabled',
+  'adsense.publisher_id',
+  'adsense.slot_id',
+  'domain_flow.included_max_usd',
 ];
 
 const PROMPT_SEEDS = [
@@ -350,7 +412,7 @@ function validateSetting(key, raw) {
       }
       return { ok: true, value: value.trim() };
     case 'mcp.public_url': {
-      const n = require('../mcpRemote').normalizePublicUrl(value);
+      const n = require('../src/mcpRemote').normalizePublicUrl(value);
       if (!n.ok) return fail(n.error);
       return { ok: true, value: n.value };
     }
@@ -458,6 +520,173 @@ function validateSetting(key, raw) {
       if (v.length > 255) return fail('must be 255 chars or fewer');
       return { ok: true, value: v };
     }
+    // --- SMS (Batch 24b: these defs were settable but had no validator) ---
+    case 'sms.enabled': {
+      const v = String(value).trim().toLowerCase();
+      if (['1', 'true', 'yes'].includes(v)) return { ok: true, value: '1' };
+      if (['0', 'false', 'no', ''].includes(v)) return { ok: true, value: '0' };
+      return fail('must be boolean-like (0/1)');
+    }
+    case 'sms.provider': {
+      const v = value.trim().toLowerCase();
+      if (v === 'twilio' || v === 'vonage' || v === 'custom') return { ok: true, value: v };
+      return fail('must be "twilio", "vonage" or "custom"');
+    }
+    case 'sms.account_sid':
+      if (value.length > 255) return fail('must be 255 chars or fewer');
+      return { ok: true, value: value.trim() };
+    case 'sms.auth_token':
+    case 'sms.api_key':
+      if (value.length > 500) return fail('must be 500 chars or fewer');
+      if (value.includes('\0')) return fail('must not contain null bytes');
+      return { ok: true, value: value.trim() };
+    case 'sms.from_number':
+      if (value.length > 32) return fail('must be 32 chars or fewer');
+      return { ok: true, value: value.trim() };
+    case 'sms.webhook_url': {
+      const v = value.trim();
+      if (v === '') return { ok: true, value: '' };
+      if (!isHttpUrl(v)) return fail('must be an http(s) URL or empty');
+      return { ok: true, value: v };
+    }
+    case 'social.image_price_usd':
+      if (!isNum(value)) return fail('must be a number');
+      if (toNum(value) < 0 || toNum(value) > 100000) return fail('must be between 0 and 100000');
+      return { ok: true, value: String(toNum(value)) };
+    // --- Platform-def keys (Batch 24b audit: every PLATFORM_SETTING_DEFS
+    // key now has a validator, so the "No validator" failure cannot recur) ---
+    case 'support.email':
+      if (value.trim() !== '' && !isEmail(value)) return fail('must be a valid email address or empty');
+      return { ok: true, value: value.trim() };
+    case 'registration.open':
+    case 'maintenance_mode':
+    case 'captcha.enabled':
+    case 'muse.enabled':
+    case 'billing.require_subscription':
+    case 'adsense.enabled': {
+      const v = String(value).trim().toLowerCase();
+      if (['1', 'true', 'yes'].includes(v)) return { ok: true, value: '1' };
+      if (['0', 'false', 'no', ''].includes(v)) return { ok: true, value: '0' };
+      return fail('must be boolean-like (0/1)');
+    }
+    case 'default.workspace_name':
+      if (value.length > 200) return fail('must be 200 chars or fewer');
+      return { ok: true, value: value.trim() };
+    case 'captcha.site_key':
+      if (value.length > 255) return fail('must be 255 chars or fewer');
+      return { ok: true, value: value.trim() };
+    case 'captcha.secret_key':
+    case 'smtp.pass':
+    case 'ai.api_key':
+    case 'muse.model_api_key':
+    case 'providers.tavily.api_key':
+    case 'pexels.api_key':
+    case 'fal.api_key':
+    case 'cf.api_token':
+    case 'meta.app_secret':
+    case 'twilio.auth_token':
+      if (value.length > 500) return fail('must be 500 chars or fewer');
+      if (value.includes('\0')) return fail('must not contain null bytes');
+      return { ok: true, value: value.trim() };
+    case 'muse.model_base_url':
+      if (!isHttpUrl(value)) return fail('must be an http(s) URL');
+      return { ok: true, value: value.trim() };
+    case 'muse.model_default':
+      if (value.length > 200) return fail('must be 200 chars or fewer');
+      if (value.trim() === '') return fail('default model may not be empty');
+      return { ok: true, value: value.trim() };
+    case 'muse.webhook_url': {
+      const v = value.trim();
+      if (v === '') return { ok: true, value: '' };
+      if (!isHttpUrl(v)) return fail('must be an http(s) URL or empty');
+      return { ok: true, value: v };
+    }
+    case 'stripe.publishable_key': {
+      const v = value.trim();
+      if (v && !/^pk_(test|live)_/.test(v)) return fail('must be a Stripe publishable key (pk_test_… or pk_live_…)');
+      if (v.length > 255) return fail('must be 255 chars or fewer');
+      return { ok: true, value: v };
+    }
+    case 'stripe.secret_key': {
+      const v = value.trim();
+      if (v && !/^(sk|rk)_(test|live)_/.test(v))
+        return fail('must be a Stripe secret or restricted key (sk_… or rk_…)');
+      if (v.length > 255) return fail('must be 255 chars or fewer');
+      return { ok: true, value: v };
+    }
+    case 'stripe.webhook_secret': {
+      const v = value.trim();
+      if (v && !/^whsec_/.test(v)) return fail('must be a Stripe webhook signing secret (whsec_…)');
+      if (v.length > 255) return fail('must be 255 chars or fewer');
+      return { ok: true, value: v };
+    }
+    case 'stripe.price_id':
+    case 'stripe.price_id_standard':
+    case 'stripe.price_id_pro':
+    case 'stripe.price_id_premium':
+    case 'stripe.price_id_credits': {
+      const v = value.trim();
+      if (v && !/^price_/.test(v)) return fail('must be a Stripe Price ID (price_…) or empty');
+      if (v.length > 255) return fail('must be 255 chars or fewer');
+      return { ok: true, value: v };
+    }
+    case 'stripe.product_id_standard':
+    case 'stripe.product_id_pro':
+    case 'stripe.product_id_premium':
+    case 'stripe.product_id_credits': {
+      const v = value.trim();
+      if (v && !/^prod_/.test(v)) return fail('must be a Stripe Product ID (prod_…) or empty');
+      if (v.length > 255) return fail('must be 255 chars or fewer');
+      return { ok: true, value: v };
+    }
+    case 'twilio.account_sid':
+      if (value.length > 255) return fail('must be 255 chars or fewer');
+      return { ok: true, value: value.trim() };
+    case 'billing.amount_label':
+    case 'billing.amount_label_standard':
+    case 'billing.amount_label_pro':
+    case 'billing.amount_label_premium':
+    case 'credits.pack_label':
+      if (value.length > 200) return fail('must be 200 chars or fewer');
+      return { ok: true, value: value.trim() };
+    case 'billing.trial_days': {
+      const n = toInt(value);
+      if (n === null || n < 0 || n > 365) return fail('must be an integer between 0 and 365');
+      return { ok: true, value: String(n) };
+    }
+    case 'credits.pack_amount': {
+      const n = toInt(value);
+      if (n === null || n < 0 || n > 1000000) return fail('must be an integer between 0 and 1000000');
+      return { ok: true, value: String(n) };
+    }
+    case 'credits.per_social_image':
+    case 'credits.per_social_content': {
+      const n = toInt(value);
+      if (n === null || n < 0 || n > 10000) return fail('must be an integer between 0 and 10000');
+      return { ok: true, value: String(n) };
+    }
+    case 'credits.usd_per_credit':
+      if (!isNum(value)) return fail('must be a number');
+      if (toNum(value) < 0 || toNum(value) > 1000) return fail('must be between 0 and 1000');
+      return { ok: true, value: String(toNum(value)) };
+    case 'referrals.reward_percent':
+      if (!isNum(value)) return fail('must be a number');
+      if (toNum(value) < 0 || toNum(value) > 100) return fail('must be between 0 and 100');
+      return { ok: true, value: String(toNum(value)) };
+    case 'adsense.publisher_id': {
+      const v = value.trim();
+      if (v && !/^ca-pub-\d+$/.test(v)) return fail('must be an AdSense publisher ID (ca-pub-…) or empty');
+      if (v.length > 64) return fail('must be 64 chars or fewer');
+      return { ok: true, value: v };
+    }
+    case 'adsense.slot_id':
+      if (value.length > 64) return fail('must be 64 chars or fewer');
+      if (value.trim() !== '' && !/^\d+$/.test(value.trim())) return fail('must be a numeric ad unit slot ID or empty');
+      return { ok: true, value: value.trim() };
+    case 'domain_flow.included_max_usd':
+      if (!isNum(value)) return fail('must be a number');
+      if (toNum(value) < 0 || toNum(value) > 100000) return fail('must be between 0 and 100000');
+      return { ok: true, value: String(toNum(value)) };
     default:
       return { ok: false, error: `No validator for setting "${key}".` };
   }

@@ -3925,6 +3925,80 @@ async function main() {
     }
   });
 
+  // ---- Batch 24b: settings validators — the sms.* group (and every other
+  // platform def) must have a registered validator, so saving settings can
+  // never hard-fail with `No validator for setting "…"` again. Both save
+  // paths (domain.settingsSet, ipc settings:set) funnel through
+  // settingsKeys.validateSetting, so it is exercised directly here.
+  const settingsKeys24b = require(path.join(root, 'server/settingsKeys.js'));
+  const platformDefs24b = require(path.join(root, 'server/platform.js')).PLATFORM_SETTING_DEFS;
+  const defByKey24b = new Map(platformDefs24b.map((d) => [d.key, d]));
+  const seedByKey24b = new Map(settingsKeys24b.SETTING_SEEDS);
+  const sampleFor24b = (key) => {
+    if (key === 'mcp.http_port') return '8080'; // seed '' means "unset"; the port validator requires a real port
+    if (defByKey24b.has(key)) return defByKey24b.get(key).default;
+    if (seedByKey24b.has(key)) return seedByKey24b.get(key);
+    return '';
+  };
+
+  check('batch24b meta: every platform setting def has a registered validator', () => {
+    assert.ok(platformDefs24b.length > 0);
+    for (const def of platformDefs24b) {
+      const v = settingsKeys24b.validateSetting(def.key, sampleFor24b(def.key));
+      assert.ok(!/No validator/.test((v && v.error) || ''), def.key + ' must not hit the No-validator default');
+      assert.equal(v.ok, true, def.key + ' should accept its default/sample: ' + (v && v.error));
+    }
+  });
+  check('batch24b meta: every SETTABLE_KEYS entry has a working validator', () => {
+    for (const key of settingsKeys24b.SETTABLE_KEYS) {
+      const v = settingsKeys24b.validateSetting(key, sampleFor24b(key));
+      assert.equal(v.ok, true, key + ' should validate its sample: ' + (v && v.error));
+    }
+  });
+  check('batch24b sms: all sms.* keys accept valid values through validateSetting', () => {
+    const cases24b = [
+      ['sms.enabled', '1', '1'],
+      ['sms.enabled', '0', '0'],
+      ['sms.provider', 'twilio', 'twilio'],
+      ['sms.provider', 'Vonage', 'vonage'],
+      ['sms.provider', 'custom', 'custom'],
+      ['sms.account_sid', 'AC0123456789abcdef0123456789abcdef', 'AC0123456789abcdef0123456789abcdef'],
+      ['sms.auth_token', 'tok_abc123', 'tok_abc123'],
+      ['sms.api_key', 'key_abc123', 'key_abc123'],
+      ['sms.from_number', '+16105550101', '+16105550101'],
+      ['sms.webhook_url', 'https://example.com/sms-inbound', 'https://example.com/sms-inbound'],
+      ['sms.webhook_url', '', ''],
+    ];
+    for (const [key, input, expected] of cases24b) {
+      const v = settingsKeys24b.validateSetting(key, input);
+      assert.equal(v.ok, true, key + ' should accept ' + JSON.stringify(input) + ': ' + (v && v.error));
+      assert.equal(v.value, expected, key + ' normalization');
+    }
+  });
+  check('batch24b sms: enabled rejects a non-boolean value', () => {
+    const v = settingsKeys24b.validateSetting('sms.enabled', 'banana');
+    assert.equal(v.ok, false);
+    assert.match(v.error, /boolean/);
+  });
+  check('batch24b sms: provider rejects an off-enum value', () => {
+    const v = settingsKeys24b.validateSetting('sms.provider', 'pigeon');
+    assert.equal(v.ok, false);
+    assert.match(v.error, /twilio.*vonage.*custom/);
+  });
+  check('batch24b audit: mcp.public_url validator runs instead of throwing (module path)', () => {
+    assert.deepEqual(settingsKeys24b.validateSetting('mcp.public_url', ''), { ok: true, value: '' });
+    assert.equal(settingsKeys24b.validateSetting('mcp.public_url', 'https://example.com').ok, true);
+  });
+  check('batch24b wiring: sms + platform secret keys are settable and masked on read', () => {
+    for (const key of ['sms.auth_token', 'sms.api_key']) {
+      assert.ok(settingsKeys24b.SETTABLE_KEYS.includes(key), key + ' settable');
+      assert.ok(settingsKeys24b.SECRET_KEYS.includes(key), key + ' masked');
+    }
+    for (const key of ['muse.model_api_key', 'captcha.secret_key', 'stripe.secret_key', 'stripe.webhook_secret', 'twilio.auth_token']) {
+      assert.ok(settingsKeys24b.SECRET_KEYS.includes(key), key + ' masked');
+    }
+  });
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});
