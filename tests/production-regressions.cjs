@@ -6358,6 +6358,86 @@ async function main() {
     assert.equal(strangerPlayR5.body && strangerPlayR5.body.error, 'Recording not found');
   });
 
+  // ---- Review fix 6: duplicate-subscription race ----
+  // Two checkout sessions can complete for one user (double submit,
+  // two tabs): Stripe creates a subscription for each, and
+  // syncSubscription blindly overwrote users.stripe_subscription_id
+  // with the last one synced — both stay live at Stripe, the user is
+  // double-billed, and one subscription is orphaned from the DB.
+  const userRowR6 = {
+    id: 42, stripe_customer_id: 'cus_42', stripe_subscription_id: null,
+    subscription_status: 'none', subscription_price_id: '', billing_plan: 'free', current_period_end: null,
+  };
+  const ACTIVE_R6 = new Set(['active', 'trialing', 'past_due']);
+  const queryR6 = async (sql, params = {}) => {
+    const s = String(sql);
+    if (s.includes('UPDATE users SET')) {
+      // Honor the conditional (atomic compare-and-swap) form if present:
+      // apply only when no DIFFERENT live subscription is tracked.
+      if (s.includes('subscription_status NOT IN')) {
+        const mayWrite =
+          !userRowR6.stripe_subscription_id ||
+          userRowR6.stripe_subscription_id === params.subId ||
+          !ACTIVE_R6.has(String(userRowR6.subscription_status || ''));
+        if (!mayWrite) return { affectedRows: 0 };
+      }
+      userRowR6.stripe_subscription_id = params.subId;
+      userRowR6.subscription_status = params.status;
+      userRowR6.subscription_price_id = params.priceId;
+      userRowR6.billing_plan = params.plan;
+      userRowR6.current_period_end = params.periodEnd;
+      return { affectedRows: 1 };
+    }
+    if (s.includes('FROM users')) return [];
+    return [];
+  };
+  const billingR6 = load('server/billing.js', {
+    './db': { query: queryR6, driver: () => 'sqlite' },
+    './platform': { getPlatformSetting: async () => '' },
+    './plans': {
+      PLAN_FREE: 'free', PLAN_STANDARD: 'standard', PLAN_PRO: 'pro', PLAN_PREMIUM: 'premium',
+      normalizePlanId: (v) => v || 'free', getPlan: () => ({}), listPlans: () => [],
+      isPaidPlan: (p) => ['standard', 'pro', 'premium'].includes(p), maxPlan: (a) => a, publicPlan: (p) => p,
+    },
+    './stripeClient': {
+      getStripe: async () => ({ subscriptions: { retrieve: async () => ({}), update: async () => ({}) } }),
+      getPriceIdForPlan: async () => 'price_1', getConfiguredPriceIds: async () => ({}),
+      planIdFromPriceId: async () => 'standard', getPublishableKey: () => '', integrationId: () => 'x',
+    },
+    './credits': { grantFromCheckoutSession: async () => {} },
+    './appUrls': { staffUrl: () => 'https://example.test/billing' },
+    './referrals': { tryAwardForPaidUser: async () => {} },
+  });
+  const subR6 = (id, status = 'active') => ({
+    id, customer: 'cus_42', status,
+    metadata: { user_id: '42', plan: 'standard' },
+    items: { data: [{ price: { id: 'price_1' } }] },
+    current_period_end: 2000000000,
+  });
+  await billingR6.syncSubscription(subR6('sub_1'));
+  check('review6 first completion syncs normally', () => {
+    assert.equal(userRowR6.stripe_subscription_id, 'sub_1');
+    assert.equal(userRowR6.subscription_status, 'active');
+    assert.equal(userRowR6.billing_plan, 'standard');
+  });
+  const dupR6 = await billingR6.syncSubscription(subR6('sub_2'));
+  check('review6 second completion for a different subscription is a no-op (existing state kept)', () => {
+    assert.equal(userRowR6.stripe_subscription_id, 'sub_1', 'tracked subscription must not be overwritten');
+    assert.equal(userRowR6.subscription_status, 'active');
+    assert.ok(dupR6 && dupR6.duplicate === true, 'the duplicate is reported, not silently applied');
+  });
+  await billingR6.syncSubscription(subR6('sub_1', 'canceled'));
+  check('review6 updates for the tracked subscription still apply (cancellation lands)', () => {
+    assert.equal(userRowR6.stripe_subscription_id, 'sub_1');
+    assert.equal(userRowR6.subscription_status, 'canceled');
+    assert.equal(userRowR6.billing_plan, 'free');
+  });
+  await billingR6.syncSubscription(subR6('sub_3'));
+  check('review6 a new subscription may take over once the tracked one is no longer live', () => {
+    assert.equal(userRowR6.stripe_subscription_id, 'sub_3');
+    assert.equal(userRowR6.subscription_status, 'active');
+  });
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

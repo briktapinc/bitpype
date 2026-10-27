@@ -675,14 +675,28 @@ async function syncSubscription(subscription) {
   const periodEndSql = periodEnd ? periodEnd.toISOString().slice(0, 19).replace('T', ' ') : null;
 
   const active = ACTIVE_STATUSES.has(String(subscription.status || ''));
-  await query(
+  // Duplicate-completion guard (review fix): two checkout sessions can
+  // complete for one user (double submit, two tabs) and Stripe creates
+  // a subscription for each. The write is a single conditional UPDATE —
+  // atomic at the row — that lands only when no DIFFERENT live
+  // subscription is tracked: the first completion owns the row, a
+  // second completion for another subscription is a no-op (it stays
+  // live at Stripe but never overwrites the tracked state or gets
+  // referral-awarded here; staff can cancel it from the Stripe
+  // dashboard). Once the tracked subscription leaves an active
+  // status, a new subscription may take over normally.
+  const write = await query(
     `UPDATE users SET
        stripe_subscription_id = :subId,
        subscription_status = :status,
        subscription_price_id = :priceId,
        billing_plan = :plan,
        current_period_end = :periodEnd
-     WHERE id = :id`,
+     WHERE id = :id
+       AND (stripe_subscription_id IS NULL
+            OR stripe_subscription_id = ''
+            OR stripe_subscription_id = :subId
+            OR subscription_status NOT IN ('active', 'trialing', 'past_due'))`,
     {
       subId: subscription.id,
       status: subscription.status || '',
@@ -692,6 +706,16 @@ async function syncSubscription(subscription) {
       id: uid,
     }
   );
+  if (write && write.affectedRows === 0) {
+    console.warn(
+      '[billing] duplicate subscription completion ignored for user',
+      uid,
+      '— incoming',
+      subscription.id,
+      'not applied over the tracked live subscription'
+    );
+    return { duplicate: true };
+  }
 
   // Referral rewards: when a referred client activates a paid plan, credit the referrer.
   if (active && isPaidPlan(plan)) {
