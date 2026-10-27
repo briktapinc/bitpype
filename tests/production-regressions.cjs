@@ -8,6 +8,7 @@ let Database;
 try { Database = require('better-sqlite3'); } catch { Database = require('node:sqlite').DatabaseSync; }
 const db = new Database(':memory:');
 const contacts = require(path.join(root, 'server/portalContacts.js'));
+const portalTabs = require(path.join(root, 'server/portalTabs.js'));
 const results = [];
 function check(name, fn) { fn(); results.push(name); }
 function load(file, mocks) {
@@ -61,7 +62,7 @@ async function main() {
   });
   const portal=load('server/clientPortal.js',{
     bcryptjs:{hashSync:()=> 'fixture'},'./db':{},'./mailer':{},'./stripeClient':{},'./workspaceDb':{},
-    './domain':{withDb:(_ws,fn)=>fn(db)},'./portalContacts':contacts,
+    './domain':{withDb:(_ws,fn)=>fn(db)},'./portalContacts':contacts,'./portalTabs':portalTabs,
   });
   check('portal wrappers ignore allSites and reject missing scope',()=>{
     assert.equal(portal.listLeadScoutContacts(1,1,{allSites:true}).length,1);
@@ -84,7 +85,7 @@ async function main() {
   for(const method of ['get','post','put','patch','delete'])portalRouter[method]=(route,...handlers)=>portalRoutes.push({method,route,handlers});
   load('server/routes/portal.js',{
     express:{Router:()=>portalRouter},'../clientPortal':{...portal,findById:async()=>({id:1,status:'active',workspace_id:1,lead_id:1})},
-    '../captcha':{requireCaptcha:()=>((_req,_res,next)=>next())},'../rateLimit':{rateLimit:()=>((_req,_res,next)=>next())},
+    '../captcha':{requireCaptcha:()=>((_req,_res,next)=>next())},'../rateLimit':{rateLimit:()=>((_req,_res,next)=>next())},'../portalTabs':portalTabs,
   });
   async function callPortal(method,url,query={},params={}){
     const route=portalRoutes.find(x=>x.method===method&&x.route===url);assert(route,url);
@@ -196,7 +197,7 @@ async function main() {
   });
   const portal11 = load('server/clientPortal.js', {
     bcryptjs: { hashSync: () => 'fixture' }, './db': {}, './mailer': {}, './stripeClient': {}, './workspaceDb': {},
-    './domain': { withDb: (_ws, fn) => fn(db) }, './portalContacts': contacts, '../src/designJobs': designJobs,
+    './domain': { withDb: (_ws, fn) => fn(db) }, './portalContacts': contacts, '../src/designJobs': designJobs, './portalTabs': portalTabs,
   });
   assert.equal(portal11.listChangeRequests(1, 102).length, 1);
   assert.throws(() => portal11.listChangeRequests(1, null), (e) => e.code === 'FORBIDDEN');
@@ -205,7 +206,7 @@ async function main() {
   for (const method of ['get', 'post', 'put', 'patch', 'delete']) portalRouter11[method] = (route, ...handlers) => portalRoutes11.push({ method, route, handlers });
   load('server/routes/portal.js', {
     express: { Router: () => portalRouter11 }, '../clientPortal': { ...portal11, findById: async () => ({ id: 7, status: 'active', workspace_id: 1, lead_id: 102 }) },
-    '../captcha': { requireCaptcha: () => ((_req, _res, next) => next()) }, '../rateLimit': { rateLimit: () => ((_req, _res, next) => next()) },
+    '../captcha': { requireCaptcha: () => ((_req, _res, next) => next()) }, '../rateLimit': { rateLimit: () => ((_req, _res, next) => next()) }, '../portalTabs': portalTabs,
   });
   async function callPortal11(method, url, body) {
     const route = portalRoutes11.find((x) => x.method === method && x.route === url); assert(route, url);
@@ -1937,6 +1938,7 @@ async function main() {
   // (7) Portal surface: the Shop panel payload carries the payments
   // status + effective source, and the portal wrappers save/test keys.
   const portal19 = load('server/clientPortal.js', {
+    './portalTabs': portalTabs,
     bcryptjs: { hashSync: () => 'fixture' },
     './db': {},
     './mailer': {},
@@ -3399,6 +3401,7 @@ async function main() {
   });
 
   const portal22 = load('server/clientPortal.js', {
+    './portalTabs': portalTabs,
     bcryptjs: { hashSync: () => 'fixture', compareSync: () => true },
     './db': {},
     './mailer': {},
@@ -3440,6 +3443,7 @@ async function main() {
   for (const m of ['get', 'post', 'put', 'patch', 'delete'])
     portalRouter22[m] = (route, ...handlers) => portalRoutes22.push({ method: m, route, handlers });
   load('server/routes/portal.js', {
+    '../portalTabs': portalTabs,
     express: { Router: () => portalRouter22 },
     '../clientPortal': {
       ...portal22,
@@ -4471,6 +4475,7 @@ async function main() {
   db.prepare("INSERT INTO leads (id, business_name, email, phone) VALUES (2511, 'Fixture Split', 'split@example.invalid', '')").run();
   db.prepare("INSERT INTO leads (id, business_name, email, phone) VALUES (2512, 'Fixture Split Bare', 'split2@example.invalid', '')").run();
   const portal25c = load('server/clientPortal.js', {
+    './portalTabs': portalTabs,
     bcryptjs: { hashSync: () => 'fixture' },
     './db': {},
     './mailer': {},
@@ -5079,6 +5084,7 @@ async function main() {
     priceCents: 500,
   });
   const portal26 = load('server/clientPortal.js', {
+    './portalTabs': portalTabs,
     bcryptjs: { hashSync: () => 'fixture' },
     './db': {},
     './mailer': {},
@@ -5501,6 +5507,7 @@ async function main() {
 
   // Portal payload: the voicemail shows with its flag + transcript.
   const portal26c = load('server/clientPortal.js', {
+    './portalTabs': portalTabs,
     bcryptjs: { hashSync: () => 'fixture' },
     './db': {},
     './mailer': {},

@@ -68,6 +68,15 @@ const PLATFORM_SETTING_DEFS = [
     default: "{name}'s workspace",
   },
   { key: 'captcha.enabled', group: 'general', label: 'Captcha on public forms (1/0)', default: '1' },
+  {
+    // Batch 29: JSON { owner: {tabs, modules}, renter: {tabs, modules} }.
+    // Managed via Admin → Portal access (not the settings forms, and the
+    // 'access' group keeps it out of WORKSPACE_SEED_KEYS).
+    key: 'portal_access.type_defaults',
+    group: 'access',
+    label: 'Portal type defaults (JSON — edit via Admin → Portal access)',
+    default: '',
+  },
   { key: 'captcha.site_key', group: 'general', label: 'Cloudflare Turnstile site key', default: '' },
   { key: 'captcha.secret_key', group: 'general', label: 'Cloudflare Turnstile secret key', default: '', secret: true },
 

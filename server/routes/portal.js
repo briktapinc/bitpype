@@ -185,7 +185,7 @@ router.post('/login', loginLimit, captcha, async (req, res) => {
     const client = await portal.login(email, password);
     await establishPortalSession(req, client);
     ok(res, {
-      client: portal.publicClient(client),
+      client: await portal.publicClientWithAccess(client),
       idleMs: portalIdleMs(req),
     });
   } catch (e) {
@@ -199,7 +199,7 @@ router.post('/magic-login', loginLimit, async (req, res) => {
     const client = await portal.loginWithMagicToken(token);
     await establishPortalSession(req, client);
     ok(res, {
-      client: portal.publicClient(client),
+      client: await portal.publicClientWithAccess(client),
       idleMs: portalIdleMs(req),
     });
   } catch (e) {
@@ -231,7 +231,7 @@ router.get('/me', requireClient, async (req, res) => {
       domainPickerUrl = null;
     }
     ok(res, {
-      client: portal.publicClient(req.client),
+      client: await portal.publicClientWithAccess(req.client),
       lead: ctx.lead,
       site: ctx.site
         ? {
@@ -251,6 +251,125 @@ router.get('/me', requireClient, async (req, res) => {
     fail(res, e, 500);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Batch 29 — per-user tab enforcement. Mounted AFTER the core session
+// routes above (/access, /login, /magic-login, /logout, /me — those stay
+// reachable by every signed-in user) and BEFORE every panel route below,
+// so it runs ahead of all of them. A user whose effective tab set (type
+// defaults + admin overrides — server/portalTabs.js) lacks the route's
+// tab gets a 403; hiding the nav button alone is never the control.
+// Route groups not listed here default to owner-only.
+// ---------------------------------------------------------------------------
+const portalTabs = require('../portalTabs');
+
+const PORTAL_ROUTE_TABS = [
+  ['/site', 'website'],
+  ['/changes', 'changes'],
+  ['/forms', 'forms'],
+  ['/leadscout', 'leadscout'],
+  ['/modules', 'modules'],
+  ['/social', 'social'],
+  ['/calendar', 'social'],
+  ['/referrals', 'referrals'],
+  ['/mcp', 'mcp'],
+  ['/analytics', 'analytics'],
+  ['/seo', 'seo'],
+  ['/rentals', 'rentals'],
+  ['/billing', 'billing'],
+  ['/upsell-tips', 'billing'],
+];
+
+function tabForbidden(res, tab) {
+  return res.status(403).json({
+    ok: false,
+    error: 'This section is not enabled for your account',
+    code: 'TAB_FORBIDDEN',
+    ...(tab ? { tab } : {}),
+  });
+}
+
+async function portalTabGuard(req, res, next) {
+  try {
+    const defaults = await portalTabs.loadConfiguredDefaults();
+    req.portalDefaults = defaults;
+    const p = String(req.path || '');
+    const hit = PORTAL_ROUTE_TABS.find(([prefix]) => p === prefix || p.startsWith(prefix + '/'));
+    if (!hit) {
+      // Unmapped portal route group: owner-only by default.
+      if (portalTabs.normalizeUserType(req.client && req.client.user_type) !== 'owner') {
+        return tabForbidden(res);
+      }
+      return next();
+    }
+    if (!portalTabs.hasTab(req.client, hit[1], defaults)) {
+      return tabForbidden(res, hit[1]);
+    }
+    return next();
+  } catch (e) {
+    return next(e);
+  }
+}
+
+// Module-level enforcement (Batch 29, Ely scope update): inside the
+// Modules tab, a user may only touch modules in their effective module
+// set (type defaults → per-user overrides). The module LIST is filtered
+// in its handler; everything under /modules/<something> is gated here.
+// Specific sub-paths map to their module; the generic /modules/:type
+// routes take the type from the path. Unmapped module sub-paths default
+// to owner-only — EXCEPT the ones call tracking itself needs, which are
+// all under /modules/calltracking and map to 'calltracking'.
+const PORTAL_MODULE_SUBPATHS = [
+  ['bookings', 'bookings'],
+  ['chatbot', 'chatbot'],
+  ['menu', 'menu'],
+  ['estimate', 'estimate'],
+  ['offers', 'offers'],
+  ['socialfeed', 'socialfeed'],
+  ['calltracking', 'calltracking'],
+  ['members', 'members'],
+  ['ecommerce', 'ecommerce'],
+];
+
+function moduleForbidden(res, moduleKey) {
+  return res.status(403).json({
+    ok: false,
+    error: 'This module is not enabled for your account',
+    code: 'MODULE_FORBIDDEN',
+    ...(moduleKey ? { module: moduleKey } : {}),
+  });
+}
+
+async function portalModuleGuard(req, res, next) {
+  try {
+    const p = String(req.path || '');
+    if (p !== '/modules' && !p.startsWith('/modules/')) return next();
+    if (p === '/modules') return next(); // the list handler filters itself
+    const seg = p.split('/')[2] || '';
+    const specific = PORTAL_MODULE_SUBPATHS.find(([prefix]) => seg === prefix);
+    const moduleKey = specific
+      ? specific[1]
+      : portalTabs.PORTAL_MODULES.includes(seg)
+        ? seg
+        : null;
+    const defaults = req.portalDefaults || (await portalTabs.loadConfiguredDefaults());
+    if (!moduleKey) {
+      // Unmapped module sub-path (uploads, future endpoints): owner-only.
+      if (portalTabs.normalizeUserType(req.client && req.client.user_type) !== 'owner') {
+        return moduleForbidden(res);
+      }
+      return next();
+    }
+    if (!portalTabs.hasModule(req.client, moduleKey, defaults)) {
+      return moduleForbidden(res, moduleKey);
+    }
+    return next();
+  } catch (e) {
+    return next(e);
+  }
+}
+
+router.use(requireClient, portalTabGuard, portalModuleGuard);
 
 router.get('/calendar', requireClient, async (req, res) => {
   try {
@@ -877,7 +996,20 @@ router.post('/forms/:id/publish', requireClient, actionLimit, async (req, res) =
 
 router.get('/modules', requireClient, async (req, res) => {
   try {
-    ok(res, await portal.listSiteModules(req.client.workspace_id, req.client.lead_id, req.client.email));
+    const data = await portal.listSiteModules(
+      req.client.workspace_id,
+      req.client.lead_id,
+      req.client.email
+    );
+    // Batch 29: the module list itself is access-filtered — a user only
+    // ever sees modules in their effective set (the endpoints 403 too).
+    const defaults = req.portalDefaults || (await portalTabs.loadConfiguredDefaults());
+    const visibleModules = portalTabs.modulesForUser(req.client, defaults);
+    if (Array.isArray(data.modules)) {
+      data.modules = data.modules.filter((m) => visibleModules.includes(m.type));
+    }
+    data.visibleModules = visibleModules;
+    ok(res, data);
   } catch (e) {
     fail(res, e, 500);
   }

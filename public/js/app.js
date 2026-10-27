@@ -6087,6 +6087,7 @@ async function pageAdmin(param) {
   const tabs = [
     ['overview', 'Overview'],
     ['users', 'Users'],
+    ['access', 'Portal access'],
     ['workspaces', 'Workspaces'],
     ['payments', 'Payments'],
     ['upsell', 'Upsell tips'],
@@ -6120,6 +6121,7 @@ async function pageAdmin(param) {
       (async () => {
         if (tab === 'overview') await renderAdminOverview(body);
         else if (tab === 'users') await renderAdminUsers(body);
+        else if (tab === 'access') await renderAdminPortalAccess(body);
         else if (tab === 'workspaces') await renderAdminWorkspaces(body);
         else if (tab === 'payments') await renderAdminPayments(body);
         else if (tab === 'upsell') await renderAdminUpsellTips(body);
@@ -6373,6 +6375,237 @@ async function renderAdminUsers(el) {
         });
       })
   );
+  // Batch 29: client portal users (types + tab access) live below the
+  // staff users panel on this same tab.
+  renderAdminPortalUsersPanel(el).catch(() => {});
+}
+
+/* Batch 29 — client portal users: type (owner/renter) + per-tab nav
+   overrides. Effective access is enforced by the portal API itself;
+   this UI only writes user_type / nav_overrides via the admin API. */
+function openAdminPortalUserAccess(u, meta) {
+  const tabs = (meta && meta.tabs) || [];
+  const defaults = (meta && meta.typeDefaults) || { owner: [], renter: [] };
+  const modList = (meta && meta.modules) || [];
+  const modDefaults = (meta && meta.moduleTypeDefaults) || { owner: [], renter: [] };
+  // Pre-fill: the user's current effective set when the type is
+  // unchanged; the (admin-configured) type defaults when it switches.
+  const checkedFor = (type) =>
+    type === u.userType ? new Set(u.visibleTabs || []) : new Set(defaults[type] || []);
+  const checkedModsFor = (type) =>
+    type === u.userType ? new Set(u.visibleModules || []) : new Set(modDefaults[type] || []);
+  const checklist = (list, prefix) =>
+    list
+      .map(
+        (t) =>
+          `<label style="font-weight:normal"><input type="checkbox" name="${prefix}${esc(t.key)}" value="1" /> ${esc(t.label)}</label>`
+      )
+      .join('');
+  const m = openModal({
+    title: `Portal access — ${u.email}`,
+    body: `<form id="admin-portal-access-form" class="stack">
+      <p class="hint">${esc(u.businessName || '')} · workspace ${esc(u.workspaceId)} · lead ${esc(u.leadId)}</p>
+      <div><label>User type</label>
+        <select name="user_type" id="admin-portal-type">
+          <option value="owner" ${u.userType === 'owner' ? 'selected' : ''}>Owner</option>
+          <option value="renter" ${u.userType === 'renter' ? 'selected' : ''}>Renter</option>
+        </select></div>
+      <div><label>Portal tabs this user can open</label>
+        <div class="stack" style="gap:0.25rem">${checklist(tabs, 'tab_')}</div>
+      </div>
+      <div><label>Site modules this user can use</label>
+        <div class="stack" style="gap:0.25rem">${checklist(modList, 'mod_')}</div>
+        <p class="hint">Modules live inside the Modules tab — a module only becomes reachable when that tab is also on. Anything ticked differently from the type's defaults (Admin → Portal access) is saved as a per-user override; matching the type exactly clears the override.</p>
+      </div>
+      <div class="msg" id="admin-portal-access-msg"></div>
+    </form>`,
+    buttons: [
+      { label: 'Cancel' },
+      {
+        label: 'Reset to type defaults',
+        cls: 'ghost',
+        onClick: async (modal) => {
+          const msg = $('#admin-portal-access-msg', modal.el);
+          try {
+            const type = $('#admin-portal-type', modal.el).value;
+            await api.adminUpdatePortalUser(u.id, { user_type: type, reset_overrides: true });
+            setMsg(msg, 'Saved', 'ok');
+            modal.close();
+            toast('Portal access reset to type defaults', 'ok');
+            pageAdmin('users');
+          } catch (err) {
+            setMsg(msg, err.message || String(err), 'error');
+            throw err;
+          }
+        },
+      },
+      {
+        label: 'Save',
+        cls: 'primary',
+        onClick: async (modal) => {
+          const msg = $('#admin-portal-access-msg', modal.el);
+          const type = $('#admin-portal-type', modal.el).value;
+          const diff = (list, prefix, defArr) => {
+            const def = new Set(defArr || []);
+            const out = {};
+            list.forEach((t) => {
+              const box = modal.el.querySelector(`[name="${prefix}${t.key}"]`);
+              const on = !!(box && box.checked);
+              if (on !== def.has(t.key)) out[t.key] = on;
+            });
+            return out;
+          };
+          try {
+            await api.adminUpdatePortalUser(u.id, {
+              user_type: type,
+              nav_overrides: diff(tabs, 'tab_', defaults[type]),
+              module_overrides: diff(modList, 'mod_', modDefaults[type]),
+            });
+            setMsg(msg, 'Saved', 'ok');
+            modal.close();
+            toast('Portal access updated', 'ok');
+            pageAdmin('users');
+          } catch (err) {
+            setMsg(msg, err.message || String(err), 'error');
+            throw err;
+          }
+        },
+      },
+    ],
+  });
+  const paint = () => {
+    const type = $('#admin-portal-type', m.el).value;
+    const set = checkedFor(type);
+    tabs.forEach((t) => {
+      const box = m.el.querySelector(`[name="tab_${t.key}"]`);
+      if (box) box.checked = set.has(t.key);
+    });
+    const mset = checkedModsFor(type);
+    modList.forEach((t) => {
+      const box = m.el.querySelector(`[name="mod_${t.key}"]`);
+      if (box) box.checked = mset.has(t.key);
+    });
+  };
+  paint();
+  const typeSel = $('#admin-portal-type', m.el);
+  if (typeSel) typeSel.addEventListener('change', paint);
+  return m;
+}
+
+/* Batch 29 — Admin → Portal access: the default tab + module sets per
+   portal user type. Stored as one platform setting; per-user overrides
+   (Users tab → Access) still win per item. */
+async function renderAdminPortalAccess(el) {
+  const data = (await api.adminPortalAccessDefaults()).data || {};
+  const defaults = data.defaults || { owner: { tabs: [], modules: [] }, renter: { tabs: [], modules: [] } };
+  const factory = data.factory || defaults;
+  const tabList = data.tabs || [];
+  const modList = data.modules || [];
+  const group = (type, label, blurb) => `
+    <div class="panel" style="margin-top:1rem">
+      <div class="panel-h"><h3>${esc(label)}</h3></div>
+      <div class="panel-b">
+        <p class="hint" style="margin-bottom:0.75rem">${esc(blurb)}</p>
+        <div class="row" style="align-items:flex-start;gap:2rem;flex-wrap:wrap">
+          <div><label>Tabs</label><div class="stack" style="gap:0.25rem">
+            ${tabList
+              .map(
+                (t) =>
+                  `<label style="font-weight:normal"><input type="checkbox" data-pa="${type}-tab-${esc(t.key)}" ${defaults[type].tabs.includes(t.key) ? 'checked' : ''} /> ${esc(t.label)}</label>`
+              )
+              .join('')}
+          </div></div>
+          <div><label>Modules</label><div class="stack" style="gap:0.25rem">
+            ${modList
+              .map(
+                (t) =>
+                  `<label style="font-weight:normal"><input type="checkbox" data-pa="${type}-mod-${esc(t.key)}" ${defaults[type].modules.includes(t.key) ? 'checked' : ''} /> ${esc(t.label)}</label>`
+              )
+              .join('')}
+          </div></div>
+        </div>
+      </div>
+    </div>`;
+  el.innerHTML = `
+    <div class="panel">
+      <div class="panel-b">
+        <p class="hint">Defaults apply to every portal user of that type, effective immediately (existing sessions included). Per-user overrides set under <strong>Users → Access</strong> win item-by-item over these defaults. Modules are only reachable while the <strong>Modules</strong> tab is on for that type/user. Clearing every box is allowed — that type then sees nothing until you change it back.</p>
+        <div class="row actions" style="margin-top:0.75rem">
+          <button class="btn" type="button" id="pa-save">Save defaults</button>
+          <button class="btn ghost" type="button" id="pa-factory">Restore factory defaults</button>
+        </div>
+        <div class="msg" id="pa-msg"></div>
+      </div>
+    </div>
+    ${group('owner', 'Owner defaults', 'Site owners. Factory: every tab, every module.')}
+    ${group('renter', 'Renter defaults', 'Site tenants. Factory: Website / Modules / Rentals tabs, Call Tracking module only.')}`;
+  const collect = (src) => {
+    const pick = (type, prefix, list) =>
+      list.filter((t) => {
+        const box = el.querySelector(`[data-pa="${type}-${prefix}-${t.key}"]`);
+        return src === 'dom' ? !!(box && box.checked) : (src[type][prefix === 'tab' ? 'tabs' : 'modules'] || []).includes(t.key);
+      }).map((t) => t.key);
+    return {
+      owner: { tabs: pick('owner', 'tab', tabList), modules: pick('owner', 'mod', modList) },
+      renter: { tabs: pick('renter', 'tab', tabList), modules: pick('renter', 'mod', modList) },
+    };
+  };
+  $('#pa-save').onclick = () =>
+    safeRun($('#pa-msg'), async () => {
+      await api.adminUpdatePortalAccessDefaults(collect('dom'));
+      $('#pa-msg').textContent = 'Defaults saved — they apply to portal users right away.';
+      $('#pa-msg').className = 'msg ok';
+    });
+  $('#pa-factory').onclick = () => {
+    if (!confirm('Restore the factory defaults for both types? Per-user overrides are not touched.')) return;
+    safeRun($('#pa-msg'), async () => {
+      await api.adminUpdatePortalAccessDefaults(factory);
+      toast('Factory defaults restored', 'ok');
+      pageAdmin('access');
+    });
+  };
+}
+
+async function renderAdminPortalUsersPanel(el) {
+  const data = (await api.adminPortalUsers()).data || {};
+  const users = data.users || [];
+  const meta = {
+    tabs: data.tabs || [],
+    typeDefaults: data.typeDefaults || {},
+    modules: data.modules || [],
+    moduleTypeDefaults: data.moduleTypeDefaults || {},
+  };
+  const panel = document.createElement('div');
+  panel.className = 'panel';
+  panel.style.marginTop = '1rem';
+  panel.innerHTML = `
+      <div class="panel-h"><h3>Client portal users</h3></div>
+      <div class="panel-b">
+        <p class="hint" style="margin-bottom:0.75rem">End customers who sign in at /portal. <strong>Owners</strong> see every tab. <strong>Renters</strong> (site tenants) see only Website, Modules and Rentals — enforced by the portal API, not just hidden here. Use Access to change a type or override individual tabs for one user.</p>
+        <table><thead><tr><th>Email</th><th>Business</th><th>Type</th><th>Tabs</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          ${
+            users
+              .map(
+                (u) => `<tr>
+            <td>${esc(u.email)}</td><td>${esc(u.businessName || '')}</td>
+            <td>${esc(u.userType)}${u.navOverrides || u.moduleOverrides ? ' <span class="hint">(custom)</span>' : ''}</td>
+            <td>${esc((u.visibleTabs || []).length)} tabs · ${esc((u.visibleModules || []).length)} modules</td>
+            <td>${esc(u.status || 'active')}</td>
+            <td class="row actions"><button class="btn ghost small" data-portal-access="${u.id}">Access</button></td>
+          </tr>`
+              )
+              .join('') || '<tr><td colspan="6">No portal users yet</td></tr>'
+          }
+        </tbody></table>
+      </div>`;
+  el.appendChild(panel);
+  panel.querySelectorAll('[data-portal-access]').forEach((b) => {
+    b.onclick = () => {
+      const u = users.find((x) => Number(x.id) === Number(b.dataset.portalAccess));
+      if (u) openAdminPortalUserAccess(u, meta);
+    };
+  });
 }
 
 async function renderAdminWorkspaces(el) {

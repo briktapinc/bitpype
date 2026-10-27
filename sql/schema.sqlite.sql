@@ -307,6 +307,9 @@ CREATE TABLE IF NOT EXISTS client_portal_users (
   lead_id INTEGER NOT NULL,
   business_name TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'active',
+  user_type TEXT NOT NULL DEFAULT 'owner',
+  nav_overrides TEXT,
+  module_overrides TEXT,
   last_login_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))

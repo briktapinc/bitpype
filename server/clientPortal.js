@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const { query, driver } = require('./db');
+const portalTabs = require('./portalTabs');
 const { sendPlatformMail } = require('./mailer');
 const { appUrl } = require('./stripeClient');
 const { openWorkspaceDb, dataRoot } = require('./workspaceDb');
@@ -58,6 +59,7 @@ function allowAccessEmail(email) {
 async function findById(id) {
   const rows = await query(
     `SELECT id, email, password_hash, workspace_id, lead_id, business_name, status,
+            user_type, nav_overrides, module_overrides,
             last_login_at, created_at, updated_at
      FROM client_portal_users WHERE id = :id LIMIT 1`,
     { id: Number(id) }
@@ -70,6 +72,7 @@ async function findByEmail(email) {
   if (!e) return null;
   const rows = await query(
     `SELECT id, email, password_hash, workspace_id, lead_id, business_name, status,
+            user_type, nav_overrides, module_overrides,
             last_login_at, created_at, updated_at
      FROM client_portal_users WHERE email = :email LIMIT 1`,
     { email: e }
@@ -259,16 +262,20 @@ async function requestAccess(email) {
   if (!existing) {
     // Unusable random hash only — never emailed. Sign-in is via magic link.
     const passwordHash = await bcrypt.hash(generatePassword(), 12);
+    // Batch 29: a lead who is the tenant of a LIVE site rental starts as
+    // a 'renter' (Website / Modules / Rentals tabs); everyone else 'owner'.
+    const userType = defaultUserTypeForLead(match.workspaceId, match.leadId);
     await query(
       `INSERT INTO client_portal_users
-        (email, password_hash, workspace_id, lead_id, business_name, status)
-       VALUES (:email, :hash, :ws, :lead, :name, 'active')`,
+        (email, password_hash, workspace_id, lead_id, business_name, status, user_type)
+       VALUES (:email, :hash, :ws, :lead, :name, 'active', :userType)`,
       {
         email: e,
         hash: passwordHash,
         ws: match.workspaceId,
         lead: match.leadId,
         name: businessName,
+        userType,
       }
     );
     existing = await findByEmail(e);
@@ -324,7 +331,7 @@ async function loginWithMagicToken(rawToken) {
   const tokenHash = hashToken(raw);
   const rows = await query(
     `SELECT t.id AS token_id, t.expires_at, t.used_at, u.id, u.email, u.workspace_id, u.lead_id,
-            u.business_name, u.status
+            u.business_name, u.status, u.user_type, u.nav_overrides, u.module_overrides
      FROM client_portal_login_tokens t
      JOIN client_portal_users u ON u.id = t.portal_user_id
      WHERE t.token_hash = :tokenHash LIMIT 1`,
@@ -355,6 +362,9 @@ async function loginWithMagicToken(rawToken) {
     workspaceId: row.workspace_id,
     leadId: row.lead_id,
     businessName: row.business_name || '',
+    userType: portalTabs.normalizeUserType(row.user_type),
+    navOverrides: row.nav_overrides || null,
+    moduleOverrides: row.module_overrides || null,
   };
 }
 
@@ -386,18 +396,235 @@ async function login(email, password) {
     workspaceId: user.workspace_id,
     leadId: user.lead_id,
     businessName: user.business_name || '',
+    userType: portalTabs.normalizeUserType(user.user_type),
+    navOverrides: user.nav_overrides || null,
+    moduleOverrides: user.module_overrides || null,
   };
 }
 
-function publicClient(user) {
+function publicClient(user, defaults) {
   if (!user) return null;
+  const userType = portalTabs.normalizeUserType(user.user_type || user.userType);
+  const overridesRaw = user.nav_overrides ?? user.navOverrides;
+  const overrides = portalTabs.parseNavOverrides(overridesRaw);
+  const hasOverrides = overridesRaw != null && String(overridesRaw).trim() !== '';
+  const moduleOverridesRaw = user.module_overrides ?? user.moduleOverrides;
+  const moduleOverrides = portalTabs.parseModuleOverrides(moduleOverridesRaw);
+  const hasModuleOverrides =
+    moduleOverridesRaw != null && String(moduleOverridesRaw).trim() !== '';
   return {
     id: user.id,
     email: user.email,
     workspaceId: user.workspace_id || user.workspaceId,
     leadId: user.lead_id || user.leadId,
     businessName: user.business_name || user.businessName || '',
+    // Batch 29: the portal frontend renders its nav from visibleTabs and
+    // its module list from visibleModules; the API enforces the same
+    // sets server-side (server/portalTabs.js). `defaults` is the
+    // resolved type-defaults object; omitted = factory defaults.
+    userType,
+    navOverrides: hasOverrides ? overrides : null,
+    moduleOverrides: hasModuleOverrides ? moduleOverrides : null,
+    visibleTabs: portalTabs.effectiveTabs(userType, overridesRaw, defaults),
+    visibleModules: portalTabs.effectiveModules(userType, moduleOverridesRaw, defaults),
   };
+}
+
+/**
+ * publicClient + the admin-configured type defaults applied (async —
+ * the configured defaults live in a platform setting). The portal
+ * login/me payloads use this so the rendered nav always matches what
+ * the API will enforce.
+ */
+async function publicClientWithAccess(user) {
+  if (!user) return null;
+  let defaults;
+  try {
+    defaults = await portalTabs.loadConfiguredDefaults();
+  } catch {
+    defaults = undefined;
+  }
+  return publicClient(user, defaults);
+}
+
+/**
+ * Batch 29 — default user_type for a newly provisioned portal user:
+ * 'renter' when the lead is the tenant of a live (trial/active) site
+ * rental in its workspace DB, else 'owner'. Never throws — any lookup
+ * problem (no rentals table yet, unreadable DB) falls back to 'owner'.
+ */
+function defaultUserTypeForLead(workspaceId, leadId) {
+  try {
+    const ws = Number(workspaceId);
+    const lid = Number(leadId);
+    if (!ws || !lid) return 'owner';
+    const db = openWorkspaceDb(ws);
+    const row = db
+      .prepare(
+        `SELECT id FROM site_rentals
+          WHERE tenant_lead_id = ? AND status IN ('trial', 'active') LIMIT 1`
+      )
+      .get(lid);
+    return row ? 'renter' : 'owner';
+  } catch {
+    return 'owner';
+  }
+}
+
+/** Admin view of one portal user (no password hash, ever). */
+function portalUserView(row, defaults) {
+  if (!row) return null;
+  const userType = portalTabs.normalizeUserType(row.user_type);
+  const overrides = portalTabs.parseNavOverrides(row.nav_overrides);
+  const hasOverrides = row.nav_overrides != null && String(row.nav_overrides).trim() !== '';
+  const moduleOverrides = portalTabs.parseModuleOverrides(row.module_overrides);
+  const hasModuleOverrides =
+    row.module_overrides != null && String(row.module_overrides).trim() !== '';
+  return {
+    id: row.id,
+    email: row.email,
+    workspaceId: row.workspace_id,
+    leadId: row.lead_id,
+    businessName: row.business_name || '',
+    status: row.status,
+    lastLoginAt: row.last_login_at || null,
+    createdAt: row.created_at || null,
+    userType,
+    navOverrides: hasOverrides ? overrides : null,
+    moduleOverrides: hasModuleOverrides ? moduleOverrides : null,
+    visibleTabs: portalTabs.effectiveTabs(userType, row.nav_overrides, defaults),
+    visibleModules: portalTabs.effectiveModules(userType, row.module_overrides, defaults),
+  };
+}
+
+/** Staff (super-admin) list of client portal users, for Admin → Users. */
+async function listPortalUsers({ q = '', limit = 200 } = {}) {
+  const lim = Math.min(500, Math.max(1, Number(limit) || 200));
+  const needle = String(q || '').trim();
+  const cols = `id, email, workspace_id, lead_id, business_name, status,
+                user_type, nav_overrides, module_overrides, last_login_at, created_at`;
+  const rows = needle
+    ? await query(
+        `SELECT ${cols} FROM client_portal_users
+          WHERE email LIKE :like OR business_name LIKE :like
+          ORDER BY id DESC LIMIT ${lim}`,
+        { like: `%${needle}%` }
+      )
+    : await query(`SELECT ${cols} FROM client_portal_users ORDER BY id DESC LIMIT ${lim}`);
+  const defaults = await portalTabs.loadConfiguredDefaults();
+  return {
+    users: rows.map((row) => portalUserView(row, defaults)),
+    tabs: portalTabs.PORTAL_TABS.map((key) => ({ key, label: portalTabs.TAB_LABELS[key] })),
+    modules: portalTabs.PORTAL_MODULES.map((key) => ({
+      key,
+      label: portalTabs.MODULE_LABELS[key],
+    })),
+    // The CURRENT configured type defaults (Admin → Portal access) —
+    // the checklists pre-fill and diff against these.
+    typeDefaults: defaults.tabs,
+    moduleTypeDefaults: defaults.modules,
+    factoryDefaults: portalTabs.FACTORY_DEFAULTS,
+  };
+}
+
+/**
+ * Staff (super-admin) access update: set user_type and/or nav overrides.
+ * patch.resetOverrides clears overrides back to the type defaults;
+ * patch.navOverrides (object) replaces them — an empty/equal-to-default
+ * set is stored as NULL so "no overrides" stays the canonical state.
+ */
+async function updatePortalUserAccess(id, patch = {}) {
+  const uid = Number(id);
+  if (!uid) throw Object.assign(new Error('NOT_FOUND'), { code: 'NOT_FOUND' });
+  const existing = await findById(uid);
+  if (!existing) throw Object.assign(new Error('NOT_FOUND'), { code: 'NOT_FOUND' });
+
+  const sets = [];
+  const params = { id: uid };
+  const rawType = patch.user_type ?? patch.userType;
+  if (rawType !== undefined) {
+    const t = String(rawType || '')
+      .trim()
+      .toLowerCase();
+    if (!portalTabs.USER_TYPES.includes(t)) {
+      throw Object.assign(new Error(`Invalid user_type: ${rawType}`), { code: 'INVALID' });
+    }
+    sets.push('user_type = :userType');
+    params.userType = t;
+  }
+  if (patch.reset_overrides === true || patch.resetOverrides === true) {
+    sets.push('nav_overrides = NULL');
+    sets.push('module_overrides = NULL');
+  } else {
+    if (patch.nav_overrides !== undefined || patch.navOverrides !== undefined) {
+      const clean = portalTabs.sanitizeNavOverrides(patch.nav_overrides ?? patch.navOverrides);
+      if (Object.keys(clean).length === 0) {
+        sets.push('nav_overrides = NULL');
+      } else {
+        sets.push('nav_overrides = :navOverrides');
+        params.navOverrides = JSON.stringify(clean);
+      }
+    }
+    if (patch.module_overrides !== undefined || patch.moduleOverrides !== undefined) {
+      const clean = portalTabs.sanitizeModuleOverrides(
+        patch.module_overrides ?? patch.moduleOverrides
+      );
+      if (Object.keys(clean).length === 0) {
+        sets.push('module_overrides = NULL');
+      } else {
+        sets.push('module_overrides = :moduleOverrides');
+        params.moduleOverrides = JSON.stringify(clean);
+      }
+    }
+  }
+  if (sets.length) {
+    sets.push(
+      driver() === 'sqlite' ? "updated_at = datetime('now')" : 'updated_at = CURRENT_TIMESTAMP'
+    );
+    await query(`UPDATE client_portal_users SET ${sets.join(', ')} WHERE id = :id`, params);
+  }
+  const defaults = await portalTabs.loadConfiguredDefaults();
+  return portalUserView(await findById(uid), defaults);
+}
+
+/**
+ * Batch 29 — admin-configured portal type defaults (Admin → Portal
+ * access). Stored as one JSON platform setting; the factory defaults
+ * apply wherever the stored config is absent or invalid.
+ */
+async function getPortalAccessDefaults() {
+  const defaults = await portalTabs.loadConfiguredDefaults();
+  return {
+    defaults: {
+      owner: { tabs: defaults.tabs.owner, modules: defaults.modules.owner },
+      renter: { tabs: defaults.tabs.renter, modules: defaults.modules.renter },
+    },
+    factory: {
+      owner: {
+        tabs: portalTabs.FACTORY_DEFAULTS.tabs.owner,
+        modules: portalTabs.FACTORY_DEFAULTS.modules.owner,
+      },
+      renter: {
+        tabs: portalTabs.FACTORY_DEFAULTS.tabs.renter,
+        modules: portalTabs.FACTORY_DEFAULTS.modules.renter,
+      },
+    },
+    tabs: portalTabs.PORTAL_TABS.map((key) => ({ key, label: portalTabs.TAB_LABELS[key] })),
+    modules: portalTabs.PORTAL_MODULES.map((key) => ({
+      key,
+      label: portalTabs.MODULE_LABELS[key],
+    })),
+  };
+}
+
+async function setPortalAccessDefaults(input) {
+  const clean = portalTabs.sanitizeTypeDefaults(input);
+  await require('./platform').setPlatformSetting(
+    portalTabs.SETTINGS_KEY,
+    JSON.stringify(clean)
+  );
+  portalTabs.invalidateDefaultsCache();
+  return getPortalAccessDefaults();
 }
 
 function loadLeadContext(workspaceId, leadId) {
@@ -3602,6 +3829,13 @@ module.exports = {
   login,
   loginWithMagicToken,
   publicClient,
+  publicClientWithAccess,
+  defaultUserTypeForLead,
+  portalUserView,
+  listPortalUsers,
+  updatePortalUserAccess,
+  getPortalAccessDefaults,
+  setPortalAccessDefaults,
   loadLeadContext,
   calendarPosts,
   generatePostBrandedImage,

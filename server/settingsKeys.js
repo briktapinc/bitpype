@@ -193,6 +193,7 @@ const SETTABLE_KEYS = [
   // Platform-def keys (Batch 24b) — previously only reachable through the
   // unvalidated platform batch save; now covered by validateSetting too.
   'support.email',
+  'portal_access.type_defaults',
   'registration.open',
   'maintenance_mode',
   'default.workspace_name',
@@ -572,6 +573,22 @@ function validateSetting(key, raw) {
     case 'default.workspace_name':
       if (value.length > 200) return fail('must be 200 chars or fewer');
       return { ok: true, value: value.trim() };
+    case 'portal_access.type_defaults': {
+      // Batch 29: JSON { owner: {tabs, modules}, renter: {tabs, modules} }.
+      // Stored raw; portalTabs sanitizes against known tabs/modules and
+      // falls back to factory defaults on anything unreadable.
+      const v = value.trim();
+      if (v === '') return { ok: true, value: '' };
+      if (v.length > 20000) return fail('must be 20000 chars or fewer');
+      let parsed;
+      try {
+        parsed = JSON.parse(v);
+      } catch {
+        return fail('must be valid JSON');
+      }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return fail('must be a JSON object');
+      return { ok: true, value: JSON.stringify(parsed) };
+    }
     case 'captcha.site_key':
       if (value.length > 255) return fail('must be 255 chars or fewer');
       return { ok: true, value: value.trim() };

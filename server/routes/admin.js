@@ -92,6 +92,60 @@ router.delete('/users/:id', async (req, res) => {
   }
 });
 
+// ---------- Client portal users (Batch 29: user types + nav access) ----------
+// Portal users are end customers (client_portal_users), distinct from the
+// staff users above. Admin sets each one's type ('owner' | 'renter') and
+// optional per-tab overrides; the portal API enforces the result.
+router.get('/portal-users', async (req, res) => {
+  try {
+    ok(res, await require('../clientPortal').listPortalUsers(req.query));
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.patch('/portal-users/:id', async (req, res) => {
+  try {
+    const data = await require('../clientPortal').updatePortalUserAccess(
+      Number(req.params.id),
+      req.body || {}
+    );
+    await platform.audit(
+      req.session.userId,
+      'portal_user.access',
+      `portalUserId=${req.params.id} ${JSON.stringify(req.body || {})}`
+    );
+    ok(res, { user: data });
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
+// ---------- Portal access type defaults (Batch 29) ----------
+// The factory defaults ship in code (server/portalTabs.js); what admin
+// saves here is stored as the `portal_access.type_defaults` platform
+// setting and becomes the live default tab/module set per user type.
+// Per-user overrides (PATCH /portal-users/:id) still win per item.
+router.get('/portal-access-defaults', async (req, res) => {
+  try {
+    ok(res, await require('../clientPortal').getPortalAccessDefaults());
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.put('/portal-access-defaults', async (req, res) => {
+  try {
+    const data = await require('../clientPortal').setPortalAccessDefaults(req.body || {});
+    await platform.audit(
+      req.session.userId,
+      'portal_access.defaults',
+      JSON.stringify((req.body || {}).renter || {})
+    );
+    ok(res, data);
+  } catch (e) {
+    fail(res, e, 400);
+  }
+});
+
 // ---------- Workspaces ----------
 router.get('/workspaces', async (req, res) => {
   try {

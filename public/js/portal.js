@@ -139,6 +139,24 @@
     'rentals',
     'billing',
   ];
+  // Batch 29: the /me payload carries the tabs this user may open
+  // (user type defaults + admin overrides, computed server-side in
+  // portalTabs.js). null = no restriction info (show everything).
+  // The API enforces the same set with 403s — this only drives the nav.
+  let portalVisibleTabs = null;
+  function portalTabVisible(id) {
+    return !portalVisibleTabs || portalVisibleTabs.includes(id);
+  }
+  function applyPortalVisibleTabs() {
+    document.querySelectorAll('#portal-nav [data-panel]').forEach((btn) => {
+      const id = btn.getAttribute('data-panel');
+      if (id === 'mcp') {
+        btn.hidden = !portalTabVisible('mcp') || !state.mcpPaid;
+      } else {
+        btn.hidden = !portalTabVisible(id);
+      }
+    });
+  }
   const PANEL_ALIASES = {
     website: 'website',
     preview: 'website',
@@ -243,7 +261,12 @@
       showPortalLogin();
       return null;
     }
-    const next = PORTAL_PANELS.includes(panel) ? panel : 'website';
+    let next = PORTAL_PANELS.includes(panel) ? panel : 'website';
+    // Batch 29: a deep link / hash naming a tab this user cannot open
+    // lands on their first visible tab instead.
+    if (!portalTabVisible(next)) {
+      next = PORTAL_PANELS.find((p) => portalTabVisible(p)) || 'website';
+    }
     if (next !== 'website' && state.editFullscreen) setEditFullscreen(false);
 
     PORTAL_PANELS.forEach((id) => {
@@ -306,7 +329,7 @@
       showPortalPanel(btn.getAttribute('data-panel'));
     });
     portalNav.addEventListener('keydown', (ev) => {
-      const tabs = [...portalNav.querySelectorAll('[data-panel]')];
+      const tabs = [...portalNav.querySelectorAll('[data-panel]')].filter((t) => !t.hidden);
       const current = tabs.findIndex((t) => t.getAttribute('aria-selected') === 'true');
       if (current < 0) return;
       let next = -1;
@@ -3449,7 +3472,7 @@
     const paid = planId === 'standard' || planId === 'pro' || planId === 'premium';
     state.mcpPaid = paid;
     const nav = document.getElementById('nav-mcp');
-    if (nav) nav.hidden = !paid;
+    if (nav) nav.hidden = !paid || !portalTabVisible('mcp');
     const upgrade = document.getElementById('mcp-upgrade');
     const app = document.getElementById('mcp-app');
     if (paid) {
@@ -4137,6 +4160,10 @@
           const meta = byType.get(type);
           if (!meta) return '';
           const summary = summaryList.find((x) => x.type === type);
+          // Batch 29: the server filters the summary to the modules in
+          // this user's effective set — a type absent from the summary
+          // is not rendered at all.
+          if (summaryList.length && !summary) return '';
           const count = summary ? summary.count : 0;
           const emb = summary && summary.embed;
           const live = !!(emb && emb.published && emb.embed_enabled);
@@ -4150,6 +4177,7 @@
         </button>`;
         })
         .join('');
+      if (!rows) return '';
       return `<div class="modules-side-group">${esc(group.label)}</div>${rows}`;
     }).join('');
   }
@@ -5727,8 +5755,11 @@
       if (upgrade) upgrade.hidden = moduleState.enabled;
       if (app) app.hidden = !moduleState.enabled;
       if (!moduleState.enabled) return;
-      if (!MODULE_TYPES.some((m) => m.type === moduleState.current)) {
-        moduleState.current = 'blog';
+      // Batch 29: land on a module this user may actually open (the
+      // summary is already filtered to their effective module set).
+      const available = (Array.isArray(data.modules) ? data.modules : []).map((m) => m.type);
+      if (!available.includes(moduleState.current)) {
+        moduleState.current = available[0] || 'blog';
       }
       renderModuleTypeTabs();
       await loadModuleItems();
@@ -5873,17 +5904,22 @@
         domainBtn.setAttribute('href', '#');
       }
     }
+    // Batch 29: render the nav from the /me payload's visible tabs and
+    // only eager-load panels this user may open (the API 403s the rest).
+    portalVisibleTabs =
+      me.client && Array.isArray(me.client.visibleTabs) ? me.client.visibleTabs.slice() : null;
+    applyPortalVisibleTabs();
     showApp();
-    await Promise.all([
-      loadEditablePreview(me.previewUrl),
-      loadCalendar(),
-      loadBilling(),
-      loadForms().catch(() => {}),
-      loadLeadScout().catch(() => {}),
-      loadModules().catch(() => {}),
-      loadSocialAccounts().catch(() => {}),
-    ]);
-    scheduleUpsellTip();
+    const eager = [loadEditablePreview(me.previewUrl)];
+    if (portalTabVisible('social')) {
+      eager.push(loadCalendar(), loadSocialAccounts().catch(() => {}));
+    }
+    if (portalTabVisible('billing')) eager.push(loadBilling());
+    if (portalTabVisible('forms')) eager.push(loadForms().catch(() => {}));
+    if (portalTabVisible('leadscout')) eager.push(loadLeadScout().catch(() => {}));
+    if (portalTabVisible('modules')) eager.push(loadModules().catch(() => {}));
+    await Promise.all(eager);
+    if (portalTabVisible('billing')) scheduleUpsellTip();
   }
 
   function hideUpsellTip() {

@@ -325,6 +325,9 @@ async function migrate() {
         lead_id INTEGER NOT NULL,
         business_name TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL DEFAULT 'active',
+        user_type TEXT NOT NULL DEFAULT 'owner',
+        nav_overrides TEXT,
+        module_overrides TEXT,
         last_login_at TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -427,6 +430,19 @@ async function migrate() {
       CREATE INDEX IF NOT EXISTS idx_mcp_oauth_refresh_exp ON mcp_oauth_refresh_tokens(expires_at);
       CREATE INDEX IF NOT EXISTS idx_mcp_oauth_clients_exp ON mcp_oauth_clients(expires_at);
     `);
+    // Batch 29: portal user types + per-user nav overrides. The column
+    // default backfills every existing portal user to 'owner'.
+    ensureColumnSqlite(db, 'client_portal_users', 'user_type', "TEXT NOT NULL DEFAULT 'owner'");
+    ensureColumnSqlite(db, 'client_portal_users', 'nav_overrides', 'TEXT');
+    ensureColumnSqlite(db, 'client_portal_users', 'module_overrides', 'TEXT');
+    try {
+      db.exec(
+        `UPDATE client_portal_users SET user_type = 'owner'
+          WHERE user_type IS NULL OR user_type NOT IN ('owner', 'renter')`
+      );
+    } catch {
+      /* table may not exist on a bare schema */
+    }
     try {
       ensureColumnSqlite(db, 'workspace_tokens', 'lead_id', 'INTEGER');
     } catch {
@@ -547,6 +563,9 @@ async function migrate() {
         lead_id BIGINT UNSIGNED NOT NULL,
         business_name VARCHAR(200) NOT NULL DEFAULT '',
         status VARCHAR(20) NOT NULL DEFAULT 'active',
+        user_type VARCHAR(20) NOT NULL DEFAULT 'owner',
+        nav_overrides TEXT NULL,
+        module_overrides TEXT NULL,
         last_login_at DATETIME NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -625,6 +644,16 @@ async function migrate() {
         KEY idx_stripe_events_type (type)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
+    // Batch 29: portal user types + per-user nav overrides (existing
+    // tables only — the CREATE above covers fresh installs). The column
+    // default backfills every existing portal user to 'owner'.
+    await ensureColumnMysql(conn, 'client_portal_users', 'user_type', "VARCHAR(20) NOT NULL DEFAULT 'owner'");
+    await ensureColumnMysql(conn, 'client_portal_users', 'nav_overrides', 'TEXT NULL');
+    await ensureColumnMysql(conn, 'client_portal_users', 'module_overrides', 'TEXT NULL');
+    await conn.query(
+      `UPDATE client_portal_users SET user_type = 'owner'
+        WHERE user_type IS NULL OR user_type NOT IN ('owner', 'renter')`
+    );
     await ensureColumnMysql(conn, 'workspace_tokens', 'lead_id', 'BIGINT UNSIGNED NULL');
     await ensureColumnMysql(conn, 'job_runs', 'trigger_source', "VARCHAR(40) NOT NULL DEFAULT 'legacy'");
     await ensureColumnMysql(conn, 'job_runs', 'triggered_by', "VARCHAR(120) NOT NULL DEFAULT 'unknown'");
