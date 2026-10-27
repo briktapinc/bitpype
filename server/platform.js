@@ -40,6 +40,7 @@ const PLATFORM_SECRET_KEYS = [
   'pexels.api_key',
   'providers.tavily.api_key',
   'fal.api_key',
+  'google.places_api_key',
   'sms.auth_token',
   'sms.api_key',
   'stripe.secret_key',
@@ -125,6 +126,10 @@ const PLATFORM_SETTING_DEFS = [
   { key: 'providers.tavily.api_key', group: 'keys', label: 'Tavily API key', default: '', secret: true },
   { key: 'pexels.api_key', group: 'keys', label: 'Pexels API key', default: '', secret: true },
   { key: 'fal.api_key', group: 'keys', label: 'Fal API key', default: '', secret: true },
+  // Google Reviews module (Batch 30): platform-only secret — read
+  // server-side by the module's fetch; excluded from WORKSPACE_SEED_KEYS
+  // below so the key never lands in per-workspace storage.
+  { key: 'google.places_api_key', group: 'keys', label: 'Google Places API key (Reviews module)', default: '', secret: true },
   { key: 'cf.api_token', group: 'keys', label: 'Cloudflare API token', default: '', secret: true },
   { key: 'cf.account_id', group: 'keys', label: 'Cloudflare account id (platform preview account)', default: '' },
   { key: 'cf.project', group: 'keys', label: 'Cloudflare Pages project (optional override)', default: '' },
@@ -297,6 +302,7 @@ const WORKSPACE_SEED_KEYS = PLATFORM_SETTING_DEFS.filter(
         'cf.account_id',
         'cf.preview_domain',
         'cf.project',
+        'google.places_api_key',
       ].includes(k)
   );
 

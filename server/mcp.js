@@ -70,7 +70,7 @@ function clientToolDefs() {
     {
       name: 'website.addModule',
       description:
-        'Attach a site module (blog|ecommerce|courses|gallery|directory|faq|testimonials|team|events|bookings|chatbot|offers|menu|careers|video|estimate|socialfeed|calltracking|members) into the live site template with an in-page JS mount (not an iframe). Standard/Premium siteModules. chatbot = sitewide floating bubble (chat-embed.js); visitor replies go through portal CLIENT MCP chatbot.* only — never admin design.*/lead.* or workspace ws_ tokens. INTENT: appointments with availability → bookings module (never a contact form); then bookings.createService (published) + bookings.setHours. Structured requests → forms.create purpose=…; general inquiries → contact form. Alias: modules.attach. Bookings: optional show_request_form. Offers: settings.layout = "cards" (default) or "horizontal" (banner rows). After attach, call site.publish. Non-bookings attach on appointment-intent pages returns a warning. STYLING: wrap mount; theme.customCss under .bitpype-module-embed.',
+        'Attach a site module (blog|ecommerce|courses|gallery|directory|faq|testimonials|team|events|bookings|chatbot|offers|menu|careers|video|estimate|socialfeed|calltracking|members|googlereviews) into the live site template with an in-page JS mount (not an iframe). Standard/Premium siteModules. chatbot = sitewide floating bubble (chat-embed.js); visitor replies go through portal CLIENT MCP chatbot.* only — never admin design.*/lead.* or workspace ws_ tokens. INTENT: appointments with availability → bookings module (never a contact form); then bookings.createService (published) + bookings.setHours. Structured requests → forms.create purpose=…; general inquiries → contact form. Alias: modules.attach. Bookings: optional show_request_form. Offers: settings.layout = "cards" (default) or "horizontal" (banner rows). After attach, call site.publish. Non-bookings attach on appointment-intent pages returns a warning. STYLING: wrap mount; theme.customCss under .bitpype-module-embed.',
       inputSchema: schema({
         leadId: ID,
         module: {
@@ -95,6 +95,7 @@ function clientToolDefs() {
             'socialfeed',
             'calltracking',
             'members',
+            'googlereviews',
           ],
         },
         moduleType: {
@@ -119,6 +120,7 @@ function clientToolDefs() {
             'socialfeed',
             'calltracking',
             'members',
+            'googlereviews',
           ],
         },
         title: STR,
@@ -918,6 +920,30 @@ function clientToolDefs() {
       name: 'socialfeed.preview',
       description:
         'Preview exactly what the Social Feed will render for a lead: merged published items (BitPype-published first, then live account posts), the config, connected accounts, and a plain-language note on what the feed shows. Standard/Premium.',
+      inputSchema: schema({ leadId: ID }),
+    },
+    {
+      name: 'googlereviews.getConfig',
+      description:
+        'Get the Google Reviews config for a lead: place_id (the business’s Google Place ID), max_reviews (1–5), min_rating (0–5, half steps). Reviews are fetched server-side with the platform Google Places key and cached for 24h — the module renders nothing until a key + Place ID + a successful fetch exist. Standard/Premium.',
+      inputSchema: schema({ leadId: ID }),
+    },
+    {
+      name: 'googlereviews.updateConfig',
+      description:
+        'Update the Google Reviews config: place_id (validated as a Place ID token), max_reviews (1–5), min_rating (0–5). Saving a new Place ID does not fetch by itself — call googlereviews.refresh to pull reviews in (the portal save validates against Google when the platform key exists). Standard/Premium.',
+      inputSchema: schema({ leadId: ID, place_id: STR, placeId: STR, max_reviews: NUM, maxReviews: NUM, min_rating: NUM, minRating: NUM }),
+    },
+    {
+      name: 'googlereviews.preview',
+      description:
+        'Preview the Google Reviews module state for a lead: config, whether the platform Google key is configured, a state code + plain-language message (no_key / no_place_id / never_fetched / error / empty / ready), the cached rating summary, and the reviews that will render. Standard/Premium.',
+      inputSchema: schema({ leadId: ID }),
+    },
+    {
+      name: 'googlereviews.refresh',
+      description:
+        'Force a server-side refresh of a lead’s cached Google reviews (bypasses the 24h cache). Returns ok:false with a code (NO_KEY / NO_PLACE_ID / PLACES_NOT_FOUND / PLACES_DENIED / PLACES_ERROR) when it cannot fetch; the last good cache is always kept. Standard/Premium.',
       inputSchema: schema({ leadId: ID }),
     },
     {
@@ -2679,6 +2705,10 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'socialfeed.getConfig',
     'socialfeed.updateConfig',
     'socialfeed.preview',
+    'googlereviews.getConfig',
+    'googlereviews.updateConfig',
+    'googlereviews.preview',
+    'googlereviews.refresh',
     'calls.getSettings',
     'calls.updateSettings',
     'calls.list',
@@ -3399,6 +3429,44 @@ async function callClientTool(ws, name, a, ctx = {}) {
       plan: planId,
       preview: modules.socialFeedPreview(db, leadId),
     }));
+  }
+  if (name === 'googlereviews.getConfig') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      config: modules.getGoogleReviewsConfig(db, leadId),
+    }));
+  }
+  if (name === 'googlereviews.updateConfig') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      config: modules.updateGoogleReviewsConfig(db, leadId, a),
+    }));
+  }
+  if (name === 'googlereviews.preview') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, async (db) => ({
+      plan: planId,
+      preview: await modules.googleReviewsPreview(db, leadId),
+    }));
+  }
+  if (name === 'googlereviews.refresh') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, async (db) => {
+      const result = await modules.refreshGoogleReviews(db, leadId, { force: true });
+      return {
+        plan: planId,
+        ok: !!result.ok,
+        code: result.code || null,
+        error: result.error || null,
+        preview: await modules.googleReviewsPreview(db, leadId),
+      };
+    });
   }
   if (name === 'calls.getSettings') {
     const leadId = resolveLeadId(ctx, a.leadId);

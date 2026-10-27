@@ -996,6 +996,7 @@ const tools = [
             'socialfeed',
             'calltracking',
             'members',
+            'googlereviews',
           ],
         },
         moduleType: {
@@ -1019,6 +1020,7 @@ const tools = [
             'socialfeed',
             'calltracking',
             'members',
+            'googlereviews',
           ],
         },
         title: { type: 'string' },
@@ -2034,6 +2036,46 @@ const tools = [
   {
     name: 'socialfeed.preview',
     description: 'Preview exactly what the Social Feed will render for a lead: merged published items, config, connected accounts, and a plain-language note on what the feed shows (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: { leadId: { type: 'integer', minimum: 1 } },
+    },
+  },
+  {
+    name: 'googlereviews.getConfig',
+    description: 'Get the Google Reviews config for a lead: place_id, max_reviews (1–5), min_rating (0–5). Reviews are fetched server-side with the platform Google Places key and cached 24h; the module renders nothing until key + Place ID + a successful fetch exist (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: { leadId: { type: 'integer', minimum: 1 } },
+    },
+  },
+  {
+    name: 'googlereviews.updateConfig',
+    description: 'Update the Google Reviews config: place_id (Place ID token), max_reviews (1–5), min_rating (0–5, half steps). Call googlereviews.refresh to pull reviews in after setting a Place ID (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        place_id: { type: 'string' },
+        placeId: { type: 'string' },
+        max_reviews: { type: 'number' },
+        maxReviews: { type: 'number' },
+        min_rating: { type: 'number' },
+        minRating: { type: 'number' },
+      },
+    },
+  },
+  {
+    name: 'googlereviews.preview',
+    description: 'Preview the Google Reviews module state for a lead: config, platform-key presence, state + plain-language message (no_key / no_place_id / never_fetched / error / empty / ready), cached rating summary, and the reviews that will render (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: { leadId: { type: 'integer', minimum: 1 } },
+    },
+  },
+  {
+    name: 'googlereviews.refresh',
+    description: 'Force a server-side refresh of a lead’s cached Google reviews (bypasses the 24h cache). Returns ok:false with a code (NO_KEY / NO_PLACE_ID / PLACES_NOT_FOUND / PLACES_DENIED / PLACES_ERROR) when it cannot fetch; the last good cache is kept (Standard/Premium).',
     schema: {
       type: 'object',
       properties: { leadId: { type: 'integer', minimum: 1 } },

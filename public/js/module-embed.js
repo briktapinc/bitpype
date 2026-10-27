@@ -296,6 +296,28 @@
       '.bitpype-module-embed .bp-mod-social-text{margin:0;line-height:1.55;font-size:0.96rem;}',
       '.bitpype-module-embed .bp-mod-social-link{margin-top:auto;font-weight:700;color:var(--bp-mod-accent);text-decoration:none;font-size:0.9rem;}',
       '.bitpype-module-embed .bp-mod-social-link:hover{text-decoration:underline;}',
+      // Google Reviews
+      '.bitpype-module-embed .bp-mod-googlereviews{display:flex;flex-direction:column;gap:1.1rem;}',
+      '.bitpype-module-embed .bp-mod-gr-summary{display:flex;align-items:center;gap:0.9rem;flex-wrap:wrap;border:1px solid var(--bp-mod-line);border-radius:1.1rem;background:var(--bp-mod-paper);padding:1.1rem 1.25rem;}',
+      '.bitpype-module-embed .bp-mod-gr-score{font-size:1.9rem;font-weight:800;line-height:1;color:var(--bp-mod-ink,#1c1917);}',
+      '.bitpype-module-embed .bp-mod-gr-stars{font-size:1.15rem;letter-spacing:0.12em;color:#f59e0b;line-height:1;}',
+      '.bitpype-module-embed .bp-mod-gr-count{color:var(--bp-mod-muted);font-size:0.92rem;}',
+      '.bitpype-module-embed .bp-mod-gr-count a{color:var(--bp-mod-accent);font-weight:700;text-decoration:none;}',
+      '.bitpype-module-embed .bp-mod-gr-count a:hover{text-decoration:underline;}',
+      '.bitpype-module-embed .bp-mod-gr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1.1rem;}',
+      '.bitpype-module-embed .bp-mod-gr-card{border:1px solid var(--bp-mod-line);border-radius:1.1rem;background:var(--bp-mod-paper);padding:1.1rem 1.2rem 1.2rem;display:flex;flex-direction:column;gap:0.55rem;}',
+      '.bitpype-module-embed .bp-mod-gr-head{display:flex;align-items:center;gap:0.65rem;}',
+      '.bitpype-module-embed .bp-mod-gr-avatar{width:38px;height:38px;border-radius:999px;object-fit:cover;flex:none;}',
+      '.bitpype-module-embed .bp-mod-gr-avatar-fallback{width:38px;height:38px;border-radius:999px;flex:none;display:flex;align-items:center;justify-content:center;background:var(--bp-mod-accent);color:#fff;font-weight:800;font-size:1rem;}',
+      '.bitpype-module-embed .bp-mod-gr-author{font-weight:700;line-height:1.25;}',
+      '.bitpype-module-embed .bp-mod-gr-author a{color:inherit;text-decoration:none;}',
+      '.bitpype-module-embed .bp-mod-gr-author a:hover{text-decoration:underline;}',
+      '.bitpype-module-embed .bp-mod-gr-when{color:var(--bp-mod-muted);font-size:0.84rem;line-height:1.3;}',
+      '.bitpype-module-embed .bp-mod-gr-cardstars{font-size:0.95rem;letter-spacing:0.12em;color:#f59e0b;line-height:1;}',
+      '.bitpype-module-embed .bp-mod-gr-text{margin:0;line-height:1.55;font-size:0.96rem;}',
+      '.bitpype-module-embed .bp-mod-gr-attrib{margin:0;color:var(--bp-mod-muted);font-size:0.84rem;}',
+      '.bitpype-module-embed .bp-mod-gr-attrib a{color:var(--bp-mod-accent);font-weight:700;text-decoration:none;}',
+      '.bitpype-module-embed .bp-mod-gr-attrib a:hover{text-decoration:underline;}',
       // Call Tracking
       '.bitpype-module-embed .bp-mod-calltracking{display:flex;}',
       '.bitpype-module-embed .bp-mod-call{display:inline-flex;flex-direction:column;gap:0.15rem;border:1.5px solid var(--bp-mod-accent);border-radius:1rem;padding:0.9rem 1.3rem;background:var(--bp-mod-paper);text-decoration:none;}',
@@ -394,6 +416,11 @@
     }
     if (type === 'socialfeed') {
       // No public empty state for Social Feed — the section renders nothing.
+      return { kicker: '', title: '', text: '' };
+    }
+    if (type === 'googlereviews') {
+      // No public empty state for Google Reviews — dormant or empty
+      // configurations render nothing (never a placeholder).
       return { kicker: '', title: '', text: '' };
     }
     if (type === 'video') {
@@ -838,6 +865,96 @@
     return html;
   }
 
+  function grStarsHtml(rating) {
+    var r = Math.max(0, Math.min(5, Math.round(Number(rating) || 0)));
+    if (!r) return '';
+    return '★'.repeat(r) + '☆'.repeat(5 - r);
+  }
+
+  function grTruncate(text, limit) {
+    var s = String(text || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return s.length > limit ? s.slice(0, limit - 1).trimEnd() + '…' : s;
+  }
+
+  function googleReviewCardHtml(it) {
+    var html = '<article class="bp-mod-gr-card">';
+    html += '<div class="bp-mod-gr-head">';
+    if (it.photo_uri) {
+      html += '<img class="bp-mod-gr-avatar" src="' + esc(it.photo_uri) + '" alt="" loading="lazy">';
+    } else {
+      html +=
+        '<span class="bp-mod-gr-avatar-fallback" aria-hidden="true">' +
+        esc(String(it.author || 'G').slice(0, 1).toUpperCase()) +
+        '</span>';
+    }
+    html += '<div>';
+    html += '<p class="bp-mod-gr-author" style="margin:0">';
+    if (it.author_uri) {
+      html +=
+        '<a href="' + esc(it.author_uri) + '" target="_blank" rel="noopener">' + esc(it.author || '') + '</a>';
+    } else {
+      html += esc(it.author || '');
+    }
+    html += '</p>';
+    if (it.relative_time) html += '<p class="bp-mod-gr-when" style="margin:0">' + esc(it.relative_time) + '</p>';
+    html += '</div></div>';
+    var stars = grStarsHtml(it.rating);
+    if (stars) {
+      html +=
+        '<p class="bp-mod-gr-cardstars" style="margin:0" aria-label="' +
+        esc(it.rating) +
+        ' of 5 stars">' +
+        stars +
+        '</p>';
+    }
+    if (it.text) html += '<p class="bp-mod-gr-text">' + esc(grTruncate(it.text, 320)) + '</p>';
+    html += '</article>';
+    return html;
+  }
+
+  function googleReviewsHtml(gr, items) {
+    var html = '<div class="bp-mod-googlereviews">';
+    var score = gr.rating != null ? Number(gr.rating) : null;
+    html += '<div class="bp-mod-gr-summary">';
+    if (score != null && isFinite(score)) {
+      html += '<span class="bp-mod-gr-score">' + esc(score.toFixed(1)) + '</span>';
+      html +=
+        '<span class="bp-mod-gr-stars" aria-label="' +
+        esc(score.toFixed(1)) +
+        ' out of 5 stars">' +
+        grStarsHtml(score) +
+        '</span>';
+    }
+    var countText =
+      (gr.total ? gr.total + (gr.total === 1 ? ' review' : ' reviews') + ' on Google' : 'Reviews on Google') +
+      (gr.name ? ' · ' + gr.name : '');
+    html += '<span class="bp-mod-gr-count">';
+    if (gr.google_maps_uri) {
+      html += '<a href="' + esc(gr.google_maps_uri) + '" target="_blank" rel="noopener">' + esc(countText) + '</a>';
+    } else {
+      html += esc(countText);
+    }
+    html += '</span></div>';
+    html += '<div class="bp-mod-gr-grid">';
+    for (var gi = 0; gi < items.length; gi++) {
+      html += googleReviewCardHtml(items[gi]);
+    }
+    html += '</div>';
+    // Google attribution: reviews are shown unaltered, credited to
+    // their authors above, with the listing linked here.
+    html += '<p class="bp-mod-gr-attrib">Reviews powered by ';
+    if (gr.google_maps_uri) {
+      html += '<a href="' + esc(gr.google_maps_uri) + '" target="_blank" rel="noopener">Google</a>';
+    } else {
+      html += 'Google';
+    }
+    html += '</p>';
+    html += '</div>';
+    return html;
+  }
+
   function wireVideoFacades(root) {
     var btns = root.querySelectorAll('[data-bp-video-embed]');
     for (var i = 0; i < btns.length; i++) {
@@ -905,6 +1022,18 @@
     if (type === 'socialfeed' && !items.length) {
       // An empty Social Feed renders nothing at all — no placeholder cards.
       el.innerHTML = '';
+      return;
+    }
+    if (type === 'googlereviews') {
+      // Dormant states (no platform key, no Place ID, nothing fetched,
+      // or no reviews passing the filter) render nothing at all — the
+      // payload omits the summary whenever there is nothing to show.
+      var grData = data.googlereviews;
+      if (!grData || !items.length) {
+        el.innerHTML = '';
+        return;
+      }
+      el.innerHTML = html + googleReviewsHtml(grData, items);
       return;
     }
     if (!items.length) {

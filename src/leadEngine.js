@@ -1156,6 +1156,8 @@ const MERGE_SINGLETON_TABLES = [
   'estimate_configs',
   'socialfeed_configs',
   'socialfeed_cache',
+  'googlereviews_configs',
+  'googlereviews_cache',
   'calltracking_configs',
   'members_configs',
   'membership_stripe_keys',

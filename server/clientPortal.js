@@ -2575,13 +2575,14 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
   const planId = await requireSiteModules(workspaceId, clientEmail);
   const type = String(moduleType || '').toLowerCase();
   const includeArchived = !!(opts && opts.includeArchived);
-  return domain.withDb(workspaceId, (db) => {
+  return domain.withDb(workspaceId, async (db) => {
     modules.ensureTables(db);
     let items = [];
     let booking = null;
     let menu = null;
     let estimate = null;
     let socialfeed = null;
+    let googlereviews = null;
     let calltracking = null;
     let members = null;
     let shop = null;
@@ -2640,6 +2641,12 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
       // config plus a preview of exactly what will render.
       items = [];
       socialfeed = modules.socialFeedPreview(db, Number(leadId));
+    } else if (type === 'googlereviews') {
+      // Automatic module (Batch 30): no items to manage — the panel
+      // shows the Place ID config, the connection state in plain words,
+      // and the cached reviews exactly as they will render.
+      items = [];
+      googlereviews = await modules.googleReviewsPreview(db, Number(leadId));
     } else if (type === 'calltracking') {
       // Automatic module (Batch 25c split): the client panel carries
       // ONLY their own phone number (the one field they control), the
@@ -2699,6 +2706,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     if (menu) out.categories = menu.categories;
     if (estimate) out.estimate = estimate;
     if (socialfeed) out.socialfeed = socialfeed;
+    if (googlereviews) out.googlereviews = googlereviews;
     if (calltracking) out.calltracking = calltracking;
     if (members) out.members = members;
     if (shop) out.shop = shop;
@@ -3214,6 +3222,65 @@ async function refreshSocialFeed(workspaceId, leadId, clientEmail) {
     return {
       refreshed: !!result.ok,
       preview: modules.socialFeedPreview(db, Number(leadId)),
+    };
+  });
+}
+
+/**
+ * Google Reviews config save (Batch 30). Setting a NEW Place ID is
+ * validated against Google before anything is stored (when the platform
+ * key exists): a Place ID Google cannot find fails the save with a clear
+ * message and nothing is written. A verified fetch doubles as the first
+ * cache fill, so the module lights up immediately. With no platform key
+ * the config saves dormant and activates when the key is added.
+ */
+async function saveGoogleReviewsConfig(workspaceId, leadId, body, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, async (db) => {
+    const id = Number(leadId);
+    const prev = modules.readGoogleReviewsConfig(db, id);
+    const rawPlace = body ? (body.place_id != null ? body.place_id : body.placeId) : null;
+    const nextPlace = rawPlace != null ? String(rawPlace).trim() : prev.place_id;
+    let prefetched = null;
+    if (nextPlace && nextPlace !== prev.place_id) {
+      modules.assertGooglePlaceId(nextPlace);
+      const key = await modules.resolveGooglePlacesApiKey();
+      if (key) {
+        try {
+          prefetched = await modules.fetchGooglePlaceDetails(key, nextPlace);
+        } catch (e) {
+          if (e && e.code === 'PLACES_NOT_FOUND') {
+            throw Object.assign(
+              new Error('Google could not find that Place ID — check it and try again. Nothing was saved.'),
+              { code: 'VALIDATION', status: 400 }
+            );
+          }
+          throw Object.assign(
+            new Error(`Could not check that Place ID with Google right now (${(e && e.message) || e}). Nothing was saved — try again in a moment.`),
+            { code: 'PLACES_UNAVAILABLE', status: 502 }
+          );
+        }
+      }
+    }
+    const config = modules.updateGoogleReviewsConfig(db, id, body || {});
+    if (prefetched) modules.storeGoogleReviewsCache(db, id, prefetched);
+    return { config, preview: await modules.googleReviewsPreview(db, id) };
+  });
+}
+
+async function refreshGoogleReviews(workspaceId, leadId, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, async (db) => {
+    const result = await modules.refreshGoogleReviews(db, Number(leadId), { force: true });
+    return {
+      refreshed: !!result.ok,
+      code: result.code || null,
+      error: result.error || null,
+      preview: await modules.googleReviewsPreview(db, Number(leadId)),
     };
   });
 }
@@ -3879,6 +3946,8 @@ module.exports = {
   saveBookingHours,
   saveEstimateConfig,
   saveSocialFeedConfig,
+  saveGoogleReviewsConfig,
+  refreshGoogleReviews,
   saveCallTrackingConfig,
   getSeoTool,
   getMyRentals,

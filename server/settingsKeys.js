@@ -22,6 +22,7 @@ const SECRET_KEYS = [
   'stripe.secret_key',
   'stripe.webhook_secret',
   'twilio.auth_token',
+  'google.places_api_key',
 ];
 
 const SETTING_SEEDS = [
@@ -208,6 +209,7 @@ const SETTABLE_KEYS = [
   'providers.tavily.api_key',
   'pexels.api_key',
   'fal.api_key',
+  'google.places_api_key',
   'cf.api_token',
   'meta.app_secret',
   'muse.enabled',
@@ -599,6 +601,7 @@ function validateSetting(key, raw) {
     case 'providers.tavily.api_key':
     case 'pexels.api_key':
     case 'fal.api_key':
+    case 'google.places_api_key':
     case 'cf.api_token':
     case 'meta.app_secret':
     case 'twilio.auth_token':

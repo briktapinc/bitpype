@@ -3326,6 +3326,33 @@ function createParityTools(ctx) {
       return { ok: true, data: siteModules().socialFeedPreview(db, leadId) };
     }),
 
+    'googlereviews.getConfig': parityEntry('googlereviews.getConfig', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().getGoogleReviewsConfig(db, leadId) };
+    }),
+    'googlereviews.updateConfig': parityEntry('googlereviews.updateConfig', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().updateGoogleReviewsConfig(db, leadId, { ...args }) };
+    }),
+    'googlereviews.preview': parityEntry('googlereviews.preview', async (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: await siteModules().googleReviewsPreview(db, leadId) };
+    }),
+    'googlereviews.refresh': parityEntry('googlereviews.refresh', async (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const modules = siteModules();
+      const result = await modules.refreshGoogleReviews(db, leadId, { force: true });
+      return {
+        ok: true,
+        data: {
+          refreshed: !!result.ok,
+          code: result.code || null,
+          error: result.error || null,
+          preview: await modules.googleReviewsPreview(db, leadId),
+        },
+      };
+    }),
+
     'calls.getSettings': parityEntry('calls.getSettings', (args) => {
       const leadId = requireId(args.leadId, 'leadId');
       return { ok: true, data: siteModules().getCallTrackingConfig(db, leadId) };

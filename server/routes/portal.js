@@ -326,6 +326,7 @@ const PORTAL_MODULE_SUBPATHS = [
   ['estimate', 'estimate'],
   ['offers', 'offers'],
   ['socialfeed', 'socialfeed'],
+  ['googlereviews', 'googlereviews'],
   ['calltracking', 'calltracking'],
   ['members', 'members'],
   ['ecommerce', 'ecommerce'],
@@ -1255,6 +1256,28 @@ router.put('/modules/socialfeed/config', requireClient, actionLimit, async (req,
 router.post('/modules/socialfeed/refresh', requireClient, actionLimit, async (req, res) => {
   try {
     ok(res, await portal.refreshSocialFeed(req.client.workspace_id, req.client.lead_id, req.client.email));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+// Google Reviews config + manual refresh (Batch 30) — before the
+// generic /modules/:type routes. Saving a new Place ID validates it
+// against Google first (see clientPortal.saveGoogleReviewsConfig).
+router.put('/modules/googlereviews/config', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.saveGoogleReviewsConfig(req.client.workspace_id, req.client.lead_id, req.body || {}, req.client.email)
+    );
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/modules/googlereviews/refresh', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(res, await portal.refreshGoogleReviews(req.client.workspace_id, req.client.lead_id, req.client.email));
   } catch (e) {
     fail(res, e);
   }

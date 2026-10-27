@@ -3857,11 +3857,12 @@
     { type: 'video', label: 'Video' },
     { type: 'estimate', label: 'Instant Estimate' },
     { type: 'socialfeed', label: 'Social Feed' },
+    { type: 'googlereviews', label: 'Google Reviews' },
     { type: 'calltracking', label: 'Call Tracking' },
     { type: 'members', label: 'Membership' },
   ];
   const MODULE_NAV_GROUPS = [
-    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed'] },
+    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed', 'googlereviews'] },
     { id: 'people', label: 'People', types: ['team', 'testimonials', 'careers', 'members'] },
     { id: 'schedule', label: 'Schedule', types: ['events', 'bookings'] },
     { id: 'assist', label: 'Assist', types: ['chatbot', 'calltracking'] },
@@ -3884,6 +3885,7 @@
     video: { singular: 'video', plural: 'videos', newBtn: 'New video', kicker: 'Video' },
     estimate: { singular: 'option', plural: 'options', newBtn: 'New option', kicker: 'Estimate option' },
     socialfeed: { singular: 'post', plural: 'posts', newBtn: 'New post', kicker: 'Social post' },
+    googlereviews: { singular: 'review', plural: 'reviews', newBtn: 'New review', kicker: 'Google review' },
     calltracking: { singular: 'call', plural: 'calls', newBtn: 'New call', kicker: 'Call' },
     members: { singular: 'member', plural: 'members', newBtn: 'New member', kicker: 'Member' },
   };
@@ -3940,6 +3942,11 @@
   function moduleFieldDefs(type) {
     if (type === 'socialfeed') {
       // Automatic module — no item editor; the Feed pane carries the settings.
+      return [];
+    }
+    if (type === 'googlereviews') {
+      // Automatic module — no item editor; the Reviews pane carries the
+      // Place ID settings and the cached-review preview.
       return [];
     }
     if (type === 'calltracking') {
@@ -4192,6 +4199,7 @@
     const estCalcPane = document.getElementById('modules-pane-estimate-calc');
     const estReqPane = document.getElementById('modules-pane-estimate-requests');
     const sfPane = document.getElementById('modules-pane-socialfeed');
+    const grPane = document.getElementById('modules-pane-googlereviews');
     const ctPane = document.getElementById('modules-pane-calltracking');
     const membersPane = document.getElementById('modules-pane-members');
     const results = document.getElementById('modules-pane-results');
@@ -4200,9 +4208,10 @@
     const isChatbot = moduleState.current === 'chatbot';
     const isEstimate = moduleState.current === 'estimate';
     const isSocialfeed = moduleState.current === 'socialfeed';
+    const isGoogleReviews = moduleState.current === 'googlereviews';
     const isCallTracking = moduleState.current === 'calltracking';
     const isMembers = moduleState.current === 'members';
-    const showTabs = isBookings || isChatbot || isEstimate || isSocialfeed || isCallTracking || isMembers;
+    const showTabs = isBookings || isChatbot || isEstimate || isSocialfeed || isGoogleReviews || isCallTracking || isMembers;
     if (isBookings) {
       const allowed = new Set(['content', 'hours', 'appointments']);
       if (!allowed.has(moduleState.pane)) moduleState.pane = 'content';
@@ -4215,6 +4224,9 @@
     } else if (isSocialfeed) {
       // The feed has no item list — its only pane is the Feed pane.
       moduleState.pane = 'feed';
+    } else if (isGoogleReviews) {
+      // Google Reviews has no item list — its only pane is Reviews.
+      moduleState.pane = 'reviews';
     } else if (isCallTracking) {
       // Call Tracking has no item list either — its only pane is Calls.
       moduleState.pane = 'calls';
@@ -4235,6 +4247,8 @@
             ? 'Estimate sections'
             : isSocialfeed
               ? 'Social Feed sections'
+              : isGoogleReviews
+                ? 'Google Reviews sections'
               : isCallTracking
                 ? 'Call Tracking sections'
                 : isMembers
@@ -4254,9 +4268,10 @@
             (isChatbot && forAttr === 'chatbot') ||
             (isEstimate && forAttr === 'estimate') ||
             (isSocialfeed && forAttr === 'socialfeed') ||
+            (isGoogleReviews && forAttr === 'googlereviews') ||
             (isCallTracking && forAttr === 'calltracking') ||
             (isMembers && forAttr === 'members') ||
-            (forAttr === 'both' && showTabs && !isSocialfeed && !isCallTracking && !isMembers)
+            (forAttr === 'both' && showTabs && !isSocialfeed && !isGoogleReviews && !isCallTracking && !isMembers)
           : visible;
         btn.hidden = !showBtn;
         if (pane === 'content' && showBtn) {
@@ -4277,6 +4292,7 @@
     if (estCalcPane) estCalcPane.hidden = !(isEstimate && moduleState.pane === 'calc');
     if (estReqPane) estReqPane.hidden = !(isEstimate && moduleState.pane === 'requests');
     if (sfPane) sfPane.hidden = !(isSocialfeed && moduleState.pane === 'feed');
+    if (grPane) grPane.hidden = !(isGoogleReviews && moduleState.pane === 'reviews');
     if (ctPane) ctPane.hidden = !(isCallTracking && moduleState.pane === 'calls');
     if (membersPane) membersPane.hidden = !(isMembers && moduleState.pane === 'members');
     if (results) results.hidden = true;
@@ -4311,6 +4327,8 @@
           ? 'Manage questions for your FAQ module. These are separate from your site’s designed FAQ section, which is edited under Website.'
           : moduleState.current === 'socialfeed'
             ? 'Your feed updates itself from your social posts — there is nothing to add by hand.'
+            : moduleState.current === 'googlereviews'
+              ? 'Your Google reviews pull in automatically — set your Place ID once and BitPype keeps them fresh.'
             : moduleState.current === 'members'
               ? 'Members join from your site — use the Members tab to choose what they can see and manage their accounts.'
               : moduleState.current === 'calltracking'
@@ -4341,6 +4359,7 @@
       video: 'videos',
       estimate: 'estimate',
       socialfeed: 'social-feed',
+      googlereviews: 'reviews',
       calltracking: 'call',
       members: 'members',
     };
@@ -4881,6 +4900,71 @@
       </div>
       <h3 style="margin-top:18px">What your visitors will see</h3>
       <div id="modules-socialfeed-preview">${previewHtml}</div>`;
+  }
+
+  function renderGoogleReviewsAdminPanel() {
+    const host = document.getElementById('modules-googlereviews-panel');
+    if (!host) return;
+    if (moduleState.current !== 'googlereviews') {
+      host.innerHTML = '';
+      return;
+    }
+    const data = moduleState.googlereviews || {};
+    const cfg = data.config || {};
+    const summary = data.summary || {};
+    const reviews = Array.isArray(data.reviews) ? data.reviews : [];
+    const stars = (n) => {
+      const r = Math.max(0, Math.min(5, Math.round(Number(n) || 0)));
+      return r ? '★'.repeat(r) + '☆'.repeat(5 - r) : '';
+    };
+    const whenLabel = (v) => {
+      const t = Date.parse(String(v || '').replace(' ', 'T') + (String(v || '').includes('T') ? '' : 'Z'));
+      return Number.isFinite(t) ? new Date(t).toLocaleString() : '';
+    };
+    const previewHtml = reviews.length
+      ? reviews
+          .map(
+            (r) => `
+        <div style="padding:8px 0;border-bottom:1px solid var(--line,#e6e0d8)">
+          <strong>${esc(r.author || '')}</strong>
+          <span style="color:#f59e0b">${esc(stars(r.rating))}</span>
+          ${r.relative_time ? `<span class="hint"> · ${esc(r.relative_time)}</span>` : ''}
+          ${r.text ? `<div>${esc(r.text.length > 300 ? r.text.slice(0, 299).trimEnd() + '…' : r.text)}</div>` : ''}
+        </div>`
+          )
+          .join('')
+      : '<p class="hint">No reviews to preview yet.</p>';
+    const minOptions = [
+      [0, 'Show all reviews'],
+      [3, '3 stars and up'],
+      [4, '4 stars and up'],
+      [4.5, '5 stars only (4.5+)'],
+      [5, '5 stars only'],
+    ];
+    host.innerHTML = `
+      <h3>Google Reviews</h3>
+      <p class="hint">${esc(data.message || 'Your Google reviews pull in automatically.')}</p>
+      ${
+        summary.rating != null
+          ? `<p><strong>${esc(summary.name || 'Your business')}</strong> — <span style="color:#f59e0b">${esc(stars(summary.rating))}</span> <strong>${esc(Number(summary.rating).toFixed(1))}</strong> from ${esc(summary.total || 0)} Google reviews${summary.fetched_at ? ` · last updated ${esc(whenLabel(summary.fetched_at))}` : ''}</p>`
+          : ''
+      }
+      ${summary.last_error && data.state !== 'no_key' ? `<p class="hint">Last check hit a problem: ${esc(summary.last_error)}</p>` : ''}
+      <div class="field"><label>Google Place ID</label>
+        <input type="text" id="googlereviews-place-id" value="${esc(cfg.place_id || '')}" placeholder="e.g. ChIJN1t_tDeuEmsRUsoyG83frY4" autocomplete="off" spellcheck="false" />
+        <p class="hint">The unique ID of your business on Google Maps. Changing it checks the new ID with Google before saving.</p></div>
+      <div class="field"><label>Reviews to show</label>
+        <input type="number" id="googlereviews-max-reviews" value="${esc(cfg.max_reviews != null ? cfg.max_reviews : 5)}" min="1" max="5" /></div>
+      <div class="field"><label>Minimum rating</label>
+        <select id="googlereviews-min-rating">
+          ${minOptions.map(([v, label]) => `<option value="${v}"${Number(cfg.min_rating || 0) === v ? ' selected' : ''}>${label}</option>`).join('')}
+        </select></div>
+      <div class="row" style="gap:6px">
+        <button type="button" class="btn soft small" id="btn-googlereviews-config-save">Save review settings</button>
+        <button type="button" class="btn ghost small" id="btn-googlereviews-refresh">Refresh reviews now</button>
+      </div>
+      <h3 style="margin-top:18px">What your visitors will see</h3>
+      <div id="modules-googlereviews-preview">${previewHtml}</div>`;
   }
 
   function renderCallTrackingAdminPanel() {
@@ -5461,6 +5545,7 @@
     moduleState.chatbot = data.chatbot || null;
     moduleState.estimate = data.estimate || null;
     moduleState.socialfeed = data.socialfeed || null;
+    moduleState.googlereviews = data.googlereviews || null;
     moduleState.calltracking = data.calltracking || null;
     moduleState.members = data.members || null;
     moduleState.shop = data.shop || null;
@@ -5479,6 +5564,7 @@
     renderBookingAdminPanel();
     renderEstimateAdminPanel();
     renderSocialFeedAdminPanel();
+    renderGoogleReviewsAdminPanel();
     renderCallTrackingAdminPanel();
     renderMembersAdminPanel();
     renderMenuCategoriesPanel();
@@ -7176,6 +7262,42 @@
           const r = await api('/modules/socialfeed/refresh', { method: 'POST', body: '{}' });
           if (r && r.preview) moduleState.socialfeed = r.preview;
           moduleMsg('Feed is up to date.', true);
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg(e.message, false);
+        }
+      }
+      if (ev.target && ev.target.id === 'btn-googlereviews-config-save') {
+        const val = (id) => {
+          const n = document.getElementById(id);
+          return n ? n.value : undefined;
+        };
+        moduleMsg('Saving review settings…', true);
+        try {
+          const r = await api('/modules/googlereviews/config', {
+            method: 'PUT',
+            body: JSON.stringify({
+              place_id: val('googlereviews-place-id'),
+              max_reviews: Number(val('googlereviews-max-reviews')),
+              min_rating: Number(val('googlereviews-min-rating')),
+            }),
+          });
+          if (r && r.preview) moduleState.googlereviews = r.preview;
+          moduleMsg('Review settings saved.', true);
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg(e.message, false);
+        }
+      }
+      if (ev.target && ev.target.id === 'btn-googlereviews-refresh') {
+        moduleMsg('Refreshing reviews from Google…', true);
+        try {
+          const r = await api('/modules/googlereviews/refresh', { method: 'POST', body: '{}' });
+          if (r && r.preview) moduleState.googlereviews = r.preview;
+          moduleMsg(
+            r && r.refreshed ? 'Reviews are up to date.' : (r && r.preview && r.preview.message) || 'Reviews could not be refreshed yet.',
+            true
+          );
           await loadModuleItems();
         } catch (e) {
           moduleMsg(e.message, false);

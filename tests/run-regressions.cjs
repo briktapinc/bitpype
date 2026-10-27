@@ -9,7 +9,7 @@ const checks=[
  'idempotency-regressions','ingestion-bounds-regressions','api-error-regressions',
  'account-link-regressions','account-link-browser-check','upsell-browser-check',
  'preview-security-regressions','preview-browser-check','schedule-regressions',
- 'portal-navigation-regressions','portal-usertypes-regressions','production-regressions','public-workspace-regressions',
+ 'portal-navigation-regressions','portal-usertypes-regressions','google-reviews-regressions','production-regressions','public-workspace-regressions',
  'url-safety-regressions','isolated-startup-check'
 ];
 if(process.argv.includes('--ocr'))checks.push('knowledge-ocr-check');

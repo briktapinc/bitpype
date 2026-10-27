@@ -3,7 +3,8 @@
 /**
  * Site content modules (Blog, Ecommerce, Courses, Gallery, Directory,
  * FAQ, Testimonials, Team, Events, Bookings, Chatbot, Offers, Menu,
- * Careers, Video, Instant Estimate, Social Feed, Call Tracking).
+ * Careers, Video, Instant Estimate, Social Feed, Call Tracking,
+ * Membership, Google Reviews).
  * Workspace SQLite tables per lead; in-page JS embeds (legacy iframe URL kept);
  * portal + MCP CRUD.
  * Gated by plan entitlement `siteModules` (Standard + Premium).
@@ -35,13 +36,14 @@ const MODULE_TYPES = [
   'socialfeed',
   'calltracking',
   'members',
+  'googlereviews',
 ];
 const MANAGED_ATTR = 'data-bitpype-module';
 const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod17';
+const MODULE_SCRIPT_VER = 'mod18';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -71,6 +73,7 @@ const MODULE_META = {
   socialfeed: { label: 'Social Feed', defaultTitle: 'Social Feed', defaultSlug: 'social-feed' },
   calltracking: { label: 'Call Tracking', defaultTitle: 'Call Us', defaultSlug: 'call' },
   members: { label: 'Membership', defaultTitle: 'Members', defaultSlug: 'members' },
+  googlereviews: { label: 'Google Reviews', defaultTitle: 'Google Reviews', defaultSlug: 'reviews' },
 };
 
 const BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'];
@@ -455,6 +458,22 @@ function ensureTables(db) {
     CREATE TABLE IF NOT EXISTS socialfeed_cache (
       lead_id INTEGER PRIMARY KEY,
       items_json TEXT NOT NULL DEFAULT '[]',
+      fetched_at TEXT,
+      last_error TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS googlereviews_configs (
+      lead_id INTEGER PRIMARY KEY,
+      place_id TEXT NOT NULL DEFAULT '',
+      max_reviews INTEGER NOT NULL DEFAULT 5,
+      min_rating REAL NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS googlereviews_cache (
+      lead_id INTEGER PRIMARY KEY,
+      payload_json TEXT NOT NULL DEFAULT '',
       fetched_at TEXT,
       last_error TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -5722,6 +5741,372 @@ function publicSocialFeedPayload(db, leadId) {
   };
 }
 
+/* ── Google Reviews (Batch 30) ───────────────────────────────────────────────
+ * Automatic module — no per-item CRUD. The business's Google Place ID is
+ * stored per lead; reviews are fetched SERVER-SIDE from the Google Places
+ * API (New) using the PLATFORM key (google.places_api_key, Admin →
+ * Settings, secretBox-encrypted) and cached in googlereviews_cache for
+ * 24h. The key never reaches the exported site or any client JS — the
+ * public payload carries only the cached, already-public review data.
+ * Honesty states: no key, no Place ID, no successful fetch yet, or zero
+ * matching reviews → the module renders NOTHING on the public site (no
+ * placeholder, no invented reviews — ever). Fetch failures keep the last
+ * good cache and surface only in the portal/admin, never on the site. */
+
+const GOOGLE_REVIEWS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const GOOGLE_REVIEWS_MAX_CAP = 5; // the Places API returns at most 5 reviews
+const GOOGLE_REVIEWS_DEFAULT_MAX = 5;
+const GOOGLE_REVIEWS_TEXT_LIMIT = 1200;
+const GOOGLE_PLACES_FIELD_MASK = 'displayName,rating,userRatingCount,reviews,googleMapsUri';
+
+function assertGooglePlaceId(value) {
+  const v = String(value || '').trim();
+  if (!v) return '';
+  // Place IDs are URL-safe tokens (letters, digits, '-' and '_'),
+  // e.g. ChIJN1t_tDeuEmsRUsoyG83frY4 — reject anything else up front so
+  // a bad ID fails at save with a clear message, not inside a fetch.
+  if (v.length < 8 || v.length > 256 || !/^[A-Za-z0-9_-]+$/.test(v)) {
+    throw fail(
+      'VALIDATION',
+      'That does not look like a Google Place ID. A Place ID is a long code of letters, numbers, dashes and underscores (for example ChIJN1t_tDeuEmsRUsoyG83frY4) — copy it exactly from Google.'
+    );
+  }
+  return v;
+}
+
+function clampGoogleReviewsMax(value, fallback = GOOGLE_REVIEWS_DEFAULT_MAX) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(1, Math.min(GOOGLE_REVIEWS_MAX_CAP, n));
+}
+
+function normalizeGoogleMinRating(value, fallback = 0) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  // Half-star steps (0, 0.5, … 5) — review ratings are whole stars, so
+  // 4 and 4.5 both mean "4 stars and up" in effect; keep the steps anyway.
+  return Math.max(0, Math.min(5, Math.round(n * 2) / 2));
+}
+
+function readGoogleReviewsConfig(db, leadId) {
+  ensureTables(db);
+  const row = db.prepare('SELECT * FROM googlereviews_configs WHERE lead_id = ?').get(Number(leadId));
+  if (!row) {
+    return {
+      lead_id: Number(leadId),
+      place_id: '',
+      max_reviews: GOOGLE_REVIEWS_DEFAULT_MAX,
+      min_rating: 0,
+      updated_at: null,
+    };
+  }
+  return {
+    ...row,
+    place_id: String(row.place_id || '').trim(),
+    max_reviews: clampGoogleReviewsMax(row.max_reviews),
+    min_rating: normalizeGoogleMinRating(row.min_rating),
+  };
+}
+
+function getGoogleReviewsConfig(db, leadId) {
+  ensureTables(db);
+  const id = Number(leadId);
+  const existing = db.prepare('SELECT lead_id FROM googlereviews_configs WHERE lead_id = ?').get(id);
+  if (!existing) {
+    db.prepare('INSERT INTO googlereviews_configs (lead_id) VALUES (?)').run(id);
+  }
+  return readGoogleReviewsConfig(db, id);
+}
+
+function updateGoogleReviewsConfig(db, leadId, data = {}) {
+  ensureTables(db);
+  const row = getGoogleReviewsConfig(db, leadId);
+  let placeId = row.place_id;
+  if (data.place_id != null || data.placeId != null) {
+    placeId = assertGooglePlaceId(data.place_id != null ? data.place_id : data.placeId);
+  }
+  const maxReviews =
+    data.max_reviews != null || data.maxReviews != null
+      ? clampGoogleReviewsMax(data.max_reviews != null ? data.max_reviews : data.maxReviews, row.max_reviews)
+      : row.max_reviews;
+  const minRating =
+    data.min_rating != null || data.minRating != null
+      ? normalizeGoogleMinRating(data.min_rating != null ? data.min_rating : data.minRating, row.min_rating)
+      : row.min_rating;
+  db.prepare(
+    `UPDATE googlereviews_configs SET place_id = ?, max_reviews = ?, min_rating = ?, updated_at = datetime('now') WHERE lead_id = ?`
+  ).run(placeId, maxReviews, minRating, Number(leadId));
+  return getGoogleReviewsConfig(db, leadId);
+}
+
+/** One Places (New) review → the stored/public shape. Text is verbatim
+ * (Google attribution policy: reviews are shown unaltered); only length
+ * is bounded for storage, and display truncation happens at render. */
+function shapeGoogleReview(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const attribution = raw.authorAttribution || {};
+  const text = raw.text && typeof raw.text === 'object' ? String(raw.text.text || '') : String(raw.text || '');
+  const rating = Math.max(0, Math.min(5, Math.round(Number(raw.rating) || 0)));
+  const author = String(attribution.displayName || '').trim();
+  if (!author && !text && !rating) return null;
+  return {
+    author,
+    author_uri: attribution.uri ? String(attribution.uri) : '',
+    photo_uri: attribution.photoUri ? String(attribution.photoUri) : '',
+    rating,
+    relative_time: String(raw.relativePublishTimeDescription || ''),
+    publish_time: raw.publishTime ? String(raw.publishTime) : '',
+    text: text.slice(0, GOOGLE_REVIEWS_TEXT_LIMIT),
+  };
+}
+
+/** Places (New) place-details JSON → the cached payload shape. */
+function parseGooglePlaceDetails(json) {
+  const src = json && typeof json === 'object' ? json : {};
+  const reviews = (Array.isArray(src.reviews) ? src.reviews : []).map(shapeGoogleReview).filter(Boolean);
+  return {
+    name: src.displayName && typeof src.displayName === 'object' ? String(src.displayName.text || '') : '',
+    rating: src.rating != null && Number.isFinite(Number(src.rating)) ? Number(src.rating) : null,
+    total: src.userRatingCount != null ? Math.max(0, Math.round(Number(src.userRatingCount) || 0)) : 0,
+    google_maps_uri: src.googleMapsUri ? String(src.googleMapsUri) : '',
+    reviews,
+  };
+}
+
+function readGoogleReviewsCache(db, leadId) {
+  ensureTables(db);
+  const row = db.prepare('SELECT * FROM googlereviews_cache WHERE lead_id = ?').get(Number(leadId));
+  if (!row) return { data: null, fetched_at: null, last_error: '' };
+  let data = null;
+  const parsed = parseJsonLoose(row.payload_json, null);
+  if (parsed && typeof parsed === 'object' && Array.isArray(parsed.reviews)) data = parsed;
+  return { data, fetched_at: row.fetched_at || null, last_error: row.last_error || '' };
+}
+
+function storeGoogleReviewsCache(db, leadId, payload) {
+  ensureTables(db);
+  db.prepare(
+    `INSERT INTO googlereviews_cache (lead_id, payload_json, fetched_at, last_error, updated_at)
+     VALUES (?, ?, datetime('now'), '', datetime('now'))
+     ON CONFLICT(lead_id) DO UPDATE SET
+       payload_json = excluded.payload_json, fetched_at = excluded.fetched_at,
+       last_error = '', updated_at = datetime('now')`
+  ).run(Number(leadId), JSON.stringify(payload || {}));
+  return readGoogleReviewsCache(db, leadId);
+}
+
+function googleReviewsCacheStale(db, leadId) {
+  const { fetched_at } = readGoogleReviewsCache(db, leadId);
+  if (!fetched_at) return true;
+  return Date.now() - feedTimeMs(fetched_at) > GOOGLE_REVIEWS_CACHE_TTL_MS;
+}
+
+/** The platform Places key. opts.apiKey wins (tests, explicit callers);
+ * otherwise the Admin → Settings platform secret. Never logged. */
+async function resolveGooglePlacesApiKey(opts = {}) {
+  if (opts.apiKey != null) return String(opts.apiKey || '').trim();
+  try {
+    const platform = require('./platform');
+    return String((await platform.getPlatformSetting('google.places_api_key', '')) || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+async function googlePlacesConfigured(opts = {}) {
+  return !!(await resolveGooglePlacesApiKey(opts));
+}
+
+/** One server-side Places (New) details fetch. Throws an Error with a
+ * `.code`: PLACES_NOT_FOUND (bad Place ID), PLACES_DENIED (key/quota),
+ * PLACES_ERROR (anything else). The key travels in a header only. */
+async function fetchGooglePlaceDetails(apiKey, placeId, fetchImpl) {
+  const key = String(apiKey || '').trim();
+  if (!key) throw Object.assign(new Error('Google Places API key is not configured'), { code: 'NO_KEY' });
+  const id = assertGooglePlaceId(placeId);
+  if (!id) throw Object.assign(new Error('Google Place ID is not set'), { code: 'NO_PLACE_ID' });
+  const doFetch = fetchImpl || (typeof fetch === 'function' ? fetch : null);
+  if (!doFetch) throw Object.assign(new Error('No fetch implementation available'), { code: 'PLACES_ERROR' });
+  const url = `https://places.googleapis.com/v1/places/${encodeURIComponent(id)}`;
+  let res;
+  try {
+    res = await doFetch(url, {
+      method: 'GET',
+      headers: {
+        'X-Goog-Api-Key': key,
+        'X-Goog-FieldMask': GOOGLE_PLACES_FIELD_MASK,
+        Accept: 'application/json',
+      },
+    });
+  } catch (e) {
+    throw Object.assign(new Error(`Could not reach Google Places: ${(e && e.message) || e}`), { code: 'PLACES_ERROR' });
+  }
+  let body = null;
+  try {
+    body = await res.json();
+  } catch {
+    body = null;
+  }
+  if (!res.ok) {
+    const gmsg =
+      (body && body.error && (body.error.message || body.error.status)) || `HTTP ${res.status}`;
+    if (res.status === 404) {
+      throw Object.assign(new Error(`Google could not find that Place ID (${gmsg})`), { code: 'PLACES_NOT_FOUND' });
+    }
+    if (res.status === 400 && /place/i.test(String(gmsg))) {
+      throw Object.assign(new Error(`Google rejected that Place ID (${gmsg})`), { code: 'PLACES_NOT_FOUND' });
+    }
+    if (res.status === 401 || res.status === 403 || res.status === 429) {
+      throw Object.assign(new Error(`Google Places request was refused (${gmsg})`), { code: 'PLACES_DENIED' });
+    }
+    throw Object.assign(new Error(`Google Places request failed (${gmsg})`), { code: 'PLACES_ERROR' });
+  }
+  return parseGooglePlaceDetails(body);
+}
+
+const googleReviewsRefreshInFlight = new Set();
+
+/**
+ * Refresh the cached Google reviews for a lead. Honors the 24h TTL
+ * unless `force`. Dormant-clean: with no platform key or no Place ID it
+ * returns a coded result WITHOUT touching the cache or the network.
+ * Failures keep the last good cache; only last_error is updated.
+ */
+async function refreshGoogleReviews(db, leadId, opts = {}) {
+  const id = Number(leadId);
+  ensureTables(db);
+  const config = readGoogleReviewsConfig(db, id);
+  if (!config.place_id) {
+    const cache = readGoogleReviewsCache(db, id);
+    return { ok: false, code: 'NO_PLACE_ID', error: 'No Google Place ID is set for this business yet.', data: cache.data, fetched_at: cache.fetched_at };
+  }
+  const apiKey = await resolveGooglePlacesApiKey(opts);
+  if (!apiKey) {
+    const cache = readGoogleReviewsCache(db, id);
+    return { ok: false, code: 'NO_KEY', error: 'The platform Google Places key is not configured yet.', data: cache.data, fetched_at: cache.fetched_at };
+  }
+  if (!opts.force && !googleReviewsCacheStale(db, id)) {
+    const cache = readGoogleReviewsCache(db, id);
+    return { ok: true, skipped: 'fresh', data: cache.data, fetched_at: cache.fetched_at };
+  }
+  if (googleReviewsRefreshInFlight.has(id)) {
+    const cache = readGoogleReviewsCache(db, id);
+    return { ok: true, skipped: 'in-flight', data: cache.data, fetched_at: cache.fetched_at };
+  }
+  googleReviewsRefreshInFlight.add(id);
+  try {
+    const payload = await fetchGooglePlaceDetails(apiKey, config.place_id, opts.fetchImpl);
+    const cache = storeGoogleReviewsCache(db, id, payload);
+    return { ok: true, data: cache.data, fetched_at: cache.fetched_at };
+  } catch (e) {
+    try {
+      db.prepare(
+        `INSERT INTO googlereviews_cache (lead_id, payload_json, fetched_at, last_error, updated_at)
+         VALUES (?, '', NULL, ?, datetime('now'))
+         ON CONFLICT(lead_id) DO UPDATE SET last_error = excluded.last_error, updated_at = datetime('now')`
+      ).run(id, String((e && e.message) || e).slice(0, 500));
+    } catch {
+      /* cache is best-effort */
+    }
+    const cache = readGoogleReviewsCache(db, id);
+    return { ok: false, code: (e && e.code) || 'PLACES_ERROR', error: (e && e.message) || String(e), data: cache.data, fetched_at: cache.fetched_at };
+  } finally {
+    googleReviewsRefreshInFlight.delete(id);
+  }
+}
+
+/** Fire-and-forget refresh used by read paths (public payload, portal
+ * preview). Dormant configurations exit silently — the public page must
+ * never wait on, or break because of, Google. */
+function maybeRefreshGoogleReviews(db, leadId) {
+  try {
+    if (!googleReviewsCacheStale(db, leadId)) return;
+    if (!readGoogleReviewsConfig(db, leadId).place_id) return;
+    refreshGoogleReviews(db, leadId).catch(() => {});
+  } catch {
+    /* reviews must never break a page */
+  }
+}
+
+/** The reviews that will actually render: cached, min-rating filtered,
+ * capped at the configured count. */
+function googleReviewsItems(db, leadId, opts = {}) {
+  const config = opts.config || readGoogleReviewsConfig(db, leadId);
+  const { data } = readGoogleReviewsCache(db, leadId);
+  if (!data || !Array.isArray(data.reviews)) return [];
+  const min = normalizeGoogleMinRating(opts.min_rating != null ? opts.min_rating : config.min_rating);
+  const max = clampGoogleReviewsMax(opts.max_reviews != null ? opts.max_reviews : config.max_reviews);
+  return data.reviews.filter((r) => (Number(r.rating) || 0) >= min).slice(0, max);
+}
+
+/** Public payload — null whenever there is nothing honest to show. */
+function publicGoogleReviewsPayload(db, leadId) {
+  const config = readGoogleReviewsConfig(db, leadId);
+  maybeRefreshGoogleReviews(db, leadId);
+  const { data } = readGoogleReviewsCache(db, leadId);
+  if (!config.place_id || !data) return null;
+  const reviews = googleReviewsItems(db, leadId, { config });
+  if (!reviews.length) return null;
+  return {
+    config: { max_reviews: config.max_reviews, min_rating: config.min_rating },
+    name: data.name || '',
+    rating: data.rating,
+    total: data.total || 0,
+    google_maps_uri: data.google_maps_uri || '',
+    reviews,
+  };
+}
+
+/**
+ * Portal/admin state for the module: config, key presence, a state code
+ * + plain-language message, and the cached summary. Async because key
+ * presence lives in the platform settings store.
+ */
+async function googleReviewsPreview(db, leadId, opts = {}) {
+  const config = readGoogleReviewsConfig(db, leadId);
+  maybeRefreshGoogleReviews(db, leadId);
+  const cache = readGoogleReviewsCache(db, leadId);
+  const keyConfigured = await googlePlacesConfigured(opts);
+  const reviews = googleReviewsItems(db, leadId, { config });
+  let state;
+  let message;
+  if (!keyConfigured) {
+    state = 'no_key';
+    message = 'Waiting for the platform Google connection — BitPype needs to add the Google Places API key in Admin → Settings before reviews can load. Your Place ID and settings are saved and will light up automatically.';
+  } else if (!config.place_id) {
+    state = 'no_place_id';
+    message = 'Add your Google Place ID to start showing your Google reviews here and on your website.';
+  } else if (!cache.data) {
+    state = cache.last_error ? 'error' : 'never_fetched';
+    message = cache.last_error
+      ? `The last check for reviews failed: ${cache.last_error}`
+      : 'Your Place ID is saved. Reviews have not been fetched yet — use Refresh now to pull them in.';
+  } else if (!reviews.length) {
+    state = 'empty';
+    message = config.min_rating > 0
+      ? 'Google returned reviews, but none meet the minimum rating you set — lower the minimum to show more.'
+      : 'Google has no reviews to show for this business yet. New reviews will appear here automatically.';
+  } else {
+    state = 'ready';
+    message = 'Your Google reviews are live on your website.';
+  }
+  return {
+    config,
+    key_configured: keyConfigured,
+    state,
+    message,
+    summary: {
+      name: cache.data ? cache.data.name || '' : '',
+      rating: cache.data ? cache.data.rating : null,
+      total: cache.data ? cache.data.total || 0 : 0,
+      review_count: reviews.length,
+      fetched_at: cache.fetched_at,
+      last_error: cache.last_error || '',
+    },
+    reviews,
+  };
+}
+
 /* ── Call Tracking (Twilio Voice) ────────────────────────────────────────────
  *
  * Client/admin split (Batch 25c, Ely 2026-10-26): the client only ever
@@ -9057,6 +9442,14 @@ function moduleItemCount(db, leadId, type) {
       return 0;
     }
   }
+  if (type === 'googlereviews') {
+    // The tab badge counts the reviews that will actually render.
+    try {
+      return googleReviewsItems(db, leadId).length;
+    } catch {
+      return 0;
+    }
+  }
   if (type === 'calltracking') {
     // The tab badge counts calls received on the tracking number.
     ensureTables(db);
@@ -9107,6 +9500,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
   let menuCategories = null;
   let estimate = null;
   let socialfeed = null;
+  let googlereviews = null;
   let calltracking = null;
   let total_published = null;
   if (type === 'blog') {
@@ -9153,6 +9547,11 @@ function getPublicModuleByToken(db, token, opts = {}) {
   } else if (type === 'socialfeed') {
     socialfeed = publicSocialFeedPayload(db, leadId);
     items = socialfeed.items;
+  } else if (type === 'googlereviews') {
+    // Null whenever there is nothing honest to show (dormant states) —
+    // the embed then renders nothing at all.
+    googlereviews = publicGoogleReviewsPayload(db, leadId);
+    items = googlereviews ? googlereviews.reviews : [];
   } else if (type === 'calltracking') {
     calltracking = publicCallTrackingPayload(db, leadId);
   } else if (type === 'chatbot') {
@@ -9194,6 +9593,15 @@ function getPublicModuleByToken(db, token, opts = {}) {
   }
   if (estimate) out.estimate = estimate;
   if (socialfeed) out.socialfeed = socialfeed.config;
+  if (googlereviews) {
+    out.googlereviews = {
+      name: googlereviews.name,
+      rating: googlereviews.rating,
+      total: googlereviews.total,
+      google_maps_uri: googlereviews.google_maps_uri,
+      config: googlereviews.config,
+    };
+  }
   if (calltracking) out.calltracking = calltracking;
   return out;
 }
@@ -9460,6 +9868,23 @@ module.exports = {
   socialFeedItems,
   socialFeedPreview,
   publicSocialFeedPayload,
+  GOOGLE_REVIEWS_CACHE_TTL_MS,
+  assertGooglePlaceId,
+  readGoogleReviewsConfig,
+  getGoogleReviewsConfig,
+  updateGoogleReviewsConfig,
+  shapeGoogleReview,
+  parseGooglePlaceDetails,
+  readGoogleReviewsCache,
+  storeGoogleReviewsCache,
+  googleReviewsCacheStale,
+  resolveGooglePlacesApiKey,
+  googlePlacesConfigured,
+  fetchGooglePlaceDetails,
+  refreshGoogleReviews,
+  googleReviewsItems,
+  publicGoogleReviewsPayload,
+  googleReviewsPreview,
   normalizeE164,
   formatPhoneDisplay,
   getCallTrackingConfig,

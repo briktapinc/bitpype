@@ -181,9 +181,9 @@ async function main() {
     let me = (await json(await get(portalJar, '/api/v1/portal/me'))).data;
     check('/me owner: userType owner', me.client.userType === 'owner');
     check('/me owner: all 12 tabs', me.client.visibleTabs.length === 12);
-    check('/me owner: all 19 modules', me.client.visibleModules.length === 19);
+    check('/me owner: all 20 modules', me.client.visibleModules.length === 20);
     let mods = (await json(await get(portalJar, '/api/v1/portal/modules'))).data;
-    check('owner module list = 19', Array.isArray(mods.modules) && mods.modules.length === 19);
+    check('owner module list = 20', Array.isArray(mods.modules) && mods.modules.length === 20);
     const userId = me.client.id;
 
     // ---- admin surface ----
@@ -194,7 +194,7 @@ async function main() {
     check('admin lists portal user as owner', !!listed && listed.userType === 'owner');
     check('admin payload: configured defaults are factory (renter tabs)', JSON.stringify(adminList.typeDefaults.renter) === '["website","modules","rentals"]');
     check('admin payload: configured module defaults (renter = calltracking)', JSON.stringify(adminList.moduleTypeDefaults.renter) === '["calltracking"]');
-    check('admin payload: 12 tabs + 19 modules metadata', adminList.tabs.length === 12 && adminList.modules.length === 19);
+    check('admin payload: 12 tabs + 20 modules metadata', adminList.tabs.length === 12 && adminList.modules.length === 20);
 
     // ---- flip to renter: tabs enforced ----
     res = await patch(adminJar, `/api/v1/admin/portal-users/${userId}`, { user_type: 'renter' });
@@ -283,7 +283,7 @@ async function main() {
     // ---- restore owner: everything opens back up ----
     res = await patch(adminJar, `/api/v1/admin/portal-users/${userId}`, { user_type: 'owner', reset_overrides: true });
     patched = (await json(res)).data.user;
-    check('restore owner: 12 tabs / 19 modules', patched.visibleTabs.length === 12 && patched.visibleModules.length === 19);
+    check('restore owner: 12 tabs / 20 modules', patched.visibleTabs.length === 12 && patched.visibleModules.length === 20);
     res = await get(portalJar, '/api/v1/portal/billing');
     const billBody = await json(res);
     check('owner GET /billing → not TAB_FORBIDDEN', !(res.status === 403 && billBody.code === 'TAB_FORBIDDEN'));
