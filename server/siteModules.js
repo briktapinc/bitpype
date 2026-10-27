@@ -488,6 +488,9 @@ function ensureTables(db) {
       counted INTEGER NOT NULL DEFAULT 0,
       transcription_billed INTEGER NOT NULL DEFAULT 0,
       notify_status TEXT NOT NULL DEFAULT 'none',
+      website_id INTEGER,
+      tenant_lead_id INTEGER,
+      rental_id INTEGER,
       verified INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -718,6 +721,17 @@ function ensureTables(db) {
     }
     if (callCols.length && !callCols.includes('notify_status')) {
       db.exec("ALTER TABLE call_logs ADD COLUMN notify_status TEXT NOT NULL DEFAULT 'none'");
+    }
+    // Site Rentals stamp (Batch 26): the site + tenant + rental a call
+    // belongs to, snapshotted when the call is logged.
+    if (callCols.length && !callCols.includes('website_id')) {
+      db.exec('ALTER TABLE call_logs ADD COLUMN website_id INTEGER');
+    }
+    if (callCols.length && !callCols.includes('tenant_lead_id')) {
+      db.exec('ALTER TABLE call_logs ADD COLUMN tenant_lead_id INTEGER');
+    }
+    if (callCols.length && !callCols.includes('rental_id')) {
+      db.exec('ALTER TABLE call_logs ADD COLUMN rental_id INTEGER');
     }
     const ctCols = db
       .prepare('PRAGMA table_info(calltracking_configs)')
@@ -5918,18 +5932,38 @@ function getCallLogBySid(db, callSid) {
   return db.prepare('SELECT * FROM call_logs WHERE call_sid = ?').get(String(callSid || '')) || null;
 }
 
+/** Batch 26: the site-rental stamp for a call being logged (lazy +
+ *  guarded — stamping must never break a Twilio webhook). */
+function callRentalStamp(db, leadId) {
+  try {
+    return require('./rentals').resolveStamp(db, leadId);
+  } catch {
+    return { websiteId: null, tenantLeadId: null, rentalId: null };
+  }
+}
+
 /** Log the inbound leg when Twilio first posts the voice webhook. */
 function logCallInitiated(db, leadId, { callSid, from, to, verified } = {}) {
   ensureTables(db);
   const sid = String(callSid || '').trim();
   if (!sid) return null;
+  const stamp = callRentalStamp(db, leadId);
   db.prepare(
-    `INSERT INTO call_logs (lead_id, call_sid, from_number, to_number, status, verified)
-     VALUES (?, ?, ?, ?, 'initiated', ?)
+    `INSERT INTO call_logs (lead_id, call_sid, from_number, to_number, status, verified, website_id, tenant_lead_id, rental_id)
+     VALUES (?, ?, ?, ?, 'initiated', ?, ?, ?, ?)
      ON CONFLICT(call_sid) DO UPDATE SET
        verified = MAX(call_logs.verified, excluded.verified),
        updated_at = datetime('now')`
-  ).run(Number(leadId), sid, String(from || '').slice(0, 40), String(to || '').slice(0, 40), verified ? 1 : 0);
+  ).run(
+    Number(leadId),
+    sid,
+    String(from || '').slice(0, 40),
+    String(to || '').slice(0, 40),
+    verified ? 1 : 0,
+    stamp.websiteId,
+    stamp.tenantLeadId,
+    stamp.rentalId
+  );
   return getCallLogBySid(db, sid);
 }
 
@@ -5949,9 +5983,10 @@ function upsertCallStatus(db, leadId, params = {}, { verified } = {}) {
     : null;
   const existing = getCallLogBySid(db, sid);
   if (!existing) {
+    const stamp = callRentalStamp(db, leadId);
     db.prepare(
-      `INSERT INTO call_logs (lead_id, call_sid, from_number, to_number, status, duration_seconds, verified)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO call_logs (lead_id, call_sid, from_number, to_number, status, duration_seconds, verified, website_id, tenant_lead_id, rental_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       Number(leadId),
       sid,
@@ -5959,7 +5994,10 @@ function upsertCallStatus(db, leadId, params = {}, { verified } = {}) {
       String(params.To || '').slice(0, 40),
       status || 'initiated',
       duration,
-      verified ? 1 : 0
+      verified ? 1 : 0,
+      stamp.websiteId,
+      stamp.tenantLeadId,
+      stamp.rentalId
     );
   } else {
     db.prepare(

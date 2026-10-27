@@ -5025,6 +5025,46 @@ function seoApply(workspaceId, websiteId, actor = 'staff') {
   return withDb(workspaceId, (db) => seoTool.applySeoProposal(db, websiteId, { actor, actorKind: 'staff' }));
 }
 
+// ---------- Site Rentals (Batch 26) ----------
+// A rental links a tenant Lead to a rented Website (server/rentals.js).
+// Staff surface: screen data (rentals + site/lead pickers), detail with
+// the stamped charge history, and the create/end/pause/resume actions.
+// Activation + closing emails ride the rentals orchestrators.
+function rentalsScreen(workspaceId) {
+  const rentals = require('./rentals');
+  return withDb(workspaceId, (db) => rentals.screenData(db));
+}
+
+function rentalsList(workspaceId, filters = {}) {
+  const rentals = require('./rentals');
+  return withDb(workspaceId, (db) => rentals.listRentals(db, filters));
+}
+
+function rentalsDetail(workspaceId, rentalId) {
+  const rentals = require('./rentals');
+  return withDb(workspaceId, (db) => rentals.rentalDetail(db, rentalId));
+}
+
+async function rentalsCreate(workspaceId, input = {}, createdBy = 'staff') {
+  const rentals = require('./rentals');
+  return rentals.createRental(workspaceId, input, { createdBy });
+}
+
+async function rentalsEnd(workspaceId, rentalId, reason = '') {
+  const rentals = require('./rentals');
+  return rentals.endRental(workspaceId, rentalId, { reason });
+}
+
+function rentalsPause(workspaceId, rentalId) {
+  const rentals = require('./rentals');
+  return rentals.pauseRental(workspaceId, rentalId);
+}
+
+function rentalsResume(workspaceId, rentalId) {
+  const rentals = require('./rentals');
+  return rentals.resumeRental(workspaceId, rentalId);
+}
+
 module.exports = {
   withDb,
   openWorkspaceDb,
@@ -5033,6 +5073,13 @@ module.exports = {
   seoState,
   seoGenerate,
   seoApply,
+  rentalsScreen,
+  rentalsList,
+  rentalsDetail,
+  rentalsCreate,
+  rentalsEnd,
+  rentalsPause,
+  rentalsResume,
   adminFormsList,
   adminFormSubmissions,
   adminLeadScoutContacts,

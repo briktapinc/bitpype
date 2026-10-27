@@ -2765,6 +2765,26 @@ async function saveCallTrackingConfig(workspaceId, leadId, body, clientEmail) {
       phone,
       Number(leadId)
     );
+    // Site Rentals (Batch 26): while this lead's site is rented out,
+    // the forwarding destination belongs to the tenant — the owner's
+    // portal phone save still updates their lead phone, but must not
+    // stomp the tenant's redirect.
+    let rented = false;
+    try {
+      rented = !!require('./rentals').liveRentalForLead(db, Number(leadId));
+    } catch {
+      rented = false;
+    }
+    if (rented) {
+      const cfg = db
+        .prepare('SELECT display_number FROM calltracking_configs WHERE lead_id = ?')
+        .get(Number(leadId));
+      return {
+        phone_number: phone,
+        tracking_assigned: !!(cfg && String(cfg.display_number || '').trim()),
+        rental_active: true,
+      };
+    }
     const config = modules.updateCallTrackingConfig(db, Number(leadId), { redirect_number: phone });
     return { phone_number: phone, tracking_assigned: !!String(config.display_number || '').trim() };
   });
@@ -2790,6 +2810,16 @@ async function getSeoTool(workspaceId, leadId, clientEmail) {
   const domain = require('./domain');
   const seoTool = require('./seoTool');
   return domain.withDb(workspaceId, (db) => seoTool.getSeoState(db, seoSiteForLead(db, leadId)));
+}
+
+/* Site Rentals (Batch 26): the tenant's read-only view of their
+   rentals — status, this month's site leads, charges, amount due and
+   the stamped site-lead history (which survives the rental ending).
+   The lead comes from the portal session, never from the request. */
+async function getMyRentals(workspaceId, leadId, clientEmail) {
+  const domain = require('./domain');
+  const rentals = require('./rentals');
+  return domain.withDb(workspaceId, (db) => ({ rentals: rentals.tenantView(db, Number(leadId)) }));
 }
 
 async function generateSeoTool(workspaceId, leadId, clientEmail) {
@@ -3613,6 +3643,7 @@ module.exports = {
   saveSocialFeedConfig,
   saveCallTrackingConfig,
   getSeoTool,
+  getMyRentals,
   generateSeoTool,
   applySeoTool,
   saveOffersDisplaySettings,

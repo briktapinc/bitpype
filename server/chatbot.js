@@ -325,6 +325,9 @@ function ensureTables(db) {
       phone TEXT NOT NULL DEFAULT '',
       message TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'new',
+      website_id INTEGER,
+      tenant_lead_id INTEGER,
+      rental_id INTEGER,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -345,6 +348,20 @@ function ensureTables(db) {
     CREATE INDEX IF NOT EXISTS idx_chatbot_leads_lead ON chatbot_leads(lead_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_chatbot_escalations_lead ON chatbot_escalations(lead_id, status);
   `);
+  // Site Rentals stamp (Batch 26) for databases created before it.
+  try {
+    const cols = db
+      .prepare('PRAGMA table_info(chatbot_leads)')
+      .all()
+      .map((c) => String(c.name || ''));
+    for (const col of ['website_id', 'tenant_lead_id', 'rental_id']) {
+      if (cols.length && !cols.includes(col)) {
+        db.exec(`ALTER TABLE chatbot_leads ADD COLUMN ${col} INTEGER`);
+      }
+    }
+  } catch {
+    /* race / exists */
+  }
 }
 
 function parseSettingsRow(row) {
@@ -1250,14 +1267,45 @@ function captureLead(db, token, data = {}) {
   if (!name && !email && !phone) {
     throw fail('VALIDATION', 'name, email, or phone required', 400);
   }
+  // Site Rentals (Batch 26): stamp the capture with the site + tenant
+  // it belongs to and record the per-lead charge when a rental is live.
+  let rentalStamp = { websiteId: null, tenantLeadId: null, rentalId: null };
+  try {
+    rentalStamp = require('./rentals').resolveStamp(db, Number(leadId));
+  } catch {
+    /* stamping must never break a capture */
+  }
   const info = db
     .prepare(
       `
-    INSERT INTO chatbot_leads (lead_id, session_id, name, email, phone, message, status)
-    VALUES (?, ?, ?, ?, ?, ?, 'new')
+    INSERT INTO chatbot_leads (lead_id, session_id, name, email, phone, message, status, website_id, tenant_lead_id, rental_id)
+    VALUES (?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)
   `
     )
-    .run(Number(leadId), sessionId, name, email, phone, message);
+    .run(
+      Number(leadId),
+      sessionId,
+      name,
+      email,
+      phone,
+      message,
+      rentalStamp.websiteId,
+      rentalStamp.tenantLeadId,
+      rentalStamp.rentalId
+    );
+  const chatbotLeadId = Number(info.lastInsertRowid);
+  if (rentalStamp.rentalId) {
+    try {
+      require('./rentals').recordCaptureCharge(db, {
+        ownerLeadId: Number(leadId),
+        sourceKind: 'chatbot',
+        chatbotLeadId,
+        contactLabel: name || email || phone || '',
+      });
+    } catch {
+      /* billing must never break a capture */
+    }
+  }
 
   if (sessionId) {
     addMessage(db, sessionId, leadId, 'system', 'Thanks — we received your contact details and will follow up.');
@@ -1283,6 +1331,21 @@ function captureLead(db, token, data = {}) {
   });
 
   const business = loadBusinessSupportContext(db, leadId);
+  // Site Rentals (Batch 26): resolve the tenant's delivery contacts
+  // while the stamp is fresh (alert email chain + the tenant's phone).
+  let rentalDelivery = null;
+  if (rentalStamp.rentalId && rentalStamp.tenantLeadId) {
+    try {
+      const rentals = require('./rentals');
+      const tenant = rentals.leadRow(db, rentalStamp.tenantLeadId);
+      rentalDelivery = {
+        email: rentals.tenantAlertEmail(db, rentalStamp.tenantLeadId),
+        phone: tenant ? String(tenant.phone || '').trim() : '',
+      };
+    } catch {
+      rentalDelivery = null;
+    }
+  }
   let chatSummary = '';
   if (sessionId) {
     chatSummary = listMessages(db, sessionId, { limit: 30 })
@@ -1307,6 +1370,11 @@ function captureLead(db, token, data = {}) {
       chatSummary,
       business,
       escalateEmail: settings.escalate_email || '',
+      // Site Rentals (Batch 26): while the site is rented, the chat
+      // lead is the tenant's site lead — notify the tenant instead.
+      deliveryEmail: rentalDelivery ? rentalDelivery.email : '',
+      deliveryPhone: rentalDelivery ? rentalDelivery.phone : '',
+      tenantLeadId: rentalStamp.tenantLeadId || null,
     },
   };
 }
@@ -1320,8 +1388,10 @@ async function notifyOwnerOnChatLead(workspaceId, payload = {}) {
   try {
     const biz = payload.business || {};
     const bizName = biz.businessName || 'your business';
-    const toEmail = String(payload.escalateEmail || biz.email || '').trim();
-    const toPhone = String(biz.phone || '').trim();
+    // Site Rentals (Batch 26): a rented site's chat leads notify the
+    // tenant (their alert email + phone), not the site owner.
+    const toEmail = String(payload.deliveryEmail || payload.escalateEmail || biz.email || '').trim();
+    const toPhone = String(payload.deliveryPhone || biz.phone || '').trim();
     const visitorBits = [payload.name, payload.email, payload.phone].filter(Boolean).join(' · ');
     const need =
       String(payload.visitorMessage || '').trim() ||

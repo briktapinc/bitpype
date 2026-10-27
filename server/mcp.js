@@ -948,6 +948,7 @@ function clientToolDefs() {
         'List calls received on a lead’s tracking number, newest first (max 200): caller, display number, status, duration, recording + transcript state. Standard/Premium.',
       inputSchema: schema({ leadId: ID, limit: NUM }),
     },
+
     {
       name: 'members.getConfig',
       description:
@@ -1223,6 +1224,40 @@ function toolDefs({ clientScoped = false } = {}) {
   if (clientScoped) return dedupeToolDefs(clientToolDefs());
   return dedupeToolDefs([
     ...clientToolDefs(),
+    {
+      name: 'rentals.list',
+      description:
+        'List Site Rentals ("Rent to Lead") in this workspace. A rental links a tenant lead to a rented website: model (flat | per_lead), price_cents, trial leads, status (trial | active | paused | ended) and counters (qualified site leads, charged credits, amount due). Optionally filter by websiteId, tenantLeadId or status. Workspace token only — renting is staff-driven.',
+      inputSchema: schema({ websiteId: ID, tenantLeadId: ID, status: STR, limit: NUM }),
+    },
+    {
+      name: 'rentals.get',
+      description:
+        'Get one Site Rental in full: terms, counters, the stamped charge history (the per-lead invoice — every billed site lead with time, source and charge) and the tenant\u2019s site-lead history. Workspace token only.',
+      inputSchema: schema({ rentalId: ID, id: ID }),
+    },
+    {
+      name: 'rentals.create',
+      description:
+        'Rent a website to a tenant lead ("Rent to Lead"). Activation points the site\u2019s call forwarding at the tenant\u2019s phone (the Twilio tracking number stays displayed) and routes form, booking, chat and call delivery to the tenant; the tenant is emailed that the site is live. model: flat (tracked only) or per_lead (per qualified site lead, charged in credits at $1 = 1 credit — priceCents must be whole dollars; trialLeads are free). A second live rental on the same site is blocked (RENTAL_SITE_OCCUPIED); a niche+town clash with another live rental fails with RENTAL_CONFLICT unless overrideConflict is true. Workspace token only.',
+      inputSchema: schema({
+        websiteId: ID,
+        tenantLeadId: ID,
+        model: STR,
+        priceCents: NUM,
+        price_cents: NUM,
+        trialLeads: NUM,
+        trial_leads: NUM,
+        startAt: STR,
+        overrideConflict: { type: 'boolean' },
+      }),
+    },
+    {
+      name: 'rentals.end',
+      description:
+        'End a Site Rental: call forwarding and delivery revert to the site owner immediately, the stamped history freezes (the old tenant keeps it read-only in their portal), and the tenant gets a closing summary email. Workspace token only.',
+      inputSchema: schema({ rentalId: ID, id: ID, reason: STR }),
+    },
     {
       name: 'lead.search',
       description:
@@ -2613,6 +2648,10 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'calls.getSettings',
     'calls.updateSettings',
     'calls.list',
+    'rentals.list',
+    'rentals.get',
+    'rentals.create',
+    'rentals.end',
     'members.getConfig',
     'members.updateConfig',
     'members.listMembers',
@@ -3351,6 +3390,32 @@ async function callClientTool(ws, name, a, ctx = {}) {
       plan: planId,
       calls: modules.listCalls(db, leadId, { limit: a.limit || 200 }),
     }));
+  }
+  if (name === 'rentals.list') {
+    return {
+      plan: planId,
+      rentals: domain.rentalsList(ws, {
+        websiteId: a.websiteId != null ? Number(a.websiteId) : null,
+        tenantLeadId: a.tenantLeadId != null ? Number(a.tenantLeadId) : null,
+        status: a.status || null,
+        limit: a.limit || 200,
+      }),
+    };
+  }
+  if (name === 'rentals.get') {
+    const rentalId = Number(a.rentalId != null ? a.rentalId : a.id);
+    if (!rentalId) throw new Error('rentalId is required');
+    return { plan: planId, ...domain.rentalsDetail(ws, rentalId) };
+  }
+  if (name === 'rentals.create') {
+    const created = await domain.rentalsCreate(ws, a, 'mcp');
+    return { plan: planId, ...created };
+  }
+  if (name === 'rentals.end') {
+    const rentalId = Number(a.rentalId != null ? a.rentalId : a.id);
+    if (!rentalId) throw new Error('rentalId is required');
+    const ended = await domain.rentalsEnd(ws, rentalId, a.reason || '');
+    return { plan: planId, ...ended };
   }
   if (name === 'members.getConfig') {
     const leadId = resolveLeadId(ctx, a.leadId);

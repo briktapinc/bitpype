@@ -4641,6 +4641,467 @@ async function main() {
     assert.ok(domainApiSrc25c.includes("'/admin-area/calls/config'"), 'admin route registered');
   });
 
+  // --- Site Rentals "Rent to Lead" (Batch 26) -------------------------
+  // A rental LINKS a tenant lead to a rented website. While live, the
+  // site's call redirect + delivery resolve to the tenant, every
+  // capture/call is stamped (website_id, tenant_lead_id, rental_id),
+  // and per-lead charges settle through the credits engine — soft:
+  // a zero balance flips charges to 'due', never blocks delivery.
+  const rentalsState26 = { balance: 100, spends: [], mails: [] };
+  const creditsStub26 = {
+    spend: async (_ws, amount, opts = {}) => {
+      const key = `${opts.reason}|${opts.refType}|${opts.refId}`;
+      if (rentalsState26.spends.some((s) => s.key === key)) return { alreadySpent: true };
+      const amt = Math.max(0, Math.floor(Number(amount) || 0));
+      if (rentalsState26.balance < amt) {
+        const e = new Error('Insufficient credits');
+        e.code = 'INSUFFICIENT_CREDITS';
+        throw e;
+      }
+      rentalsState26.balance -= amt;
+      rentalsState26.spends.push({ key, amount: amt });
+      return { spent: amt };
+    },
+  };
+  const rentals26 = load('server/rentals.js', {
+    './domain': { withDb: (_ws, fn) => fn(db) },
+    './credits': creditsStub26,
+    './mailer': {
+      sendPlatformMail: async (msg) => {
+        rentalsState26.mails.push(msg);
+        return { sent: true };
+      },
+    },
+    './stripeClient': { appUrl: () => 'https://example.test' },
+    './callNotify': {
+      resolveNotifyRecipient: (d, leadId) => {
+        const l = d.prepare('SELECT email FROM leads WHERE id = ?').get(Number(leadId));
+        return l ? String(l.email || '').trim() : '';
+      },
+    },
+    './siteModules': sm25c,
+  });
+  const sm26 = load('server/siteModules.js', {
+    '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
+    '../src/websiteEngine': require(path.join(root, 'src/websiteEngine.js')),
+    './portalContacts': contacts,
+    '../src/secretBox': require(path.join(root, 'src/secretBox.js')),
+    './membershipStripe': {},
+    './shopStripe': {},
+    './rentals': rentals26,
+  });
+  sm26.ensureTables(db);
+  rentals26.ensureRentals(db);
+  db.prepare("INSERT INTO leads (id, business_name, email, phone, category, city) VALUES (2601, 'Fixture Septic Co', 'owner26@example.invalid', '6105550101', 'Septic Services', 'Reading')").run();
+  db.prepare("INSERT INTO leads (id, business_name, email, phone, category, city) VALUES (2602, 'Fixture Renter One', 'tenant26@example.invalid', '6105550111', 'Septic Services', 'Reading')").run();
+  db.prepare("INSERT INTO leads (id, business_name, email, phone, category, city) VALUES (2603, 'Fixture Renter Two', 'tenant2-26@example.invalid', '6105550122', 'Roofing', 'Reading')").run();
+  db.prepare("INSERT INTO leads (id, business_name, email, phone, category, city) VALUES (2604, 'Fixture Septic Two', 'owner2-26@example.invalid', '6105550144', 'Septic Services', 'Reading')").run();
+  db.prepare("INSERT INTO leads (id, business_name, email, phone, category, city) VALUES (2605, 'Fixture Renter Three', 'tenant3-26@example.invalid', '6105550133', 'Septic Services', 'Reading')").run();
+  db.prepare("INSERT INTO leads (id, business_name, email, phone, category, city) VALUES (2606, 'Fixture Roof Co', 'owner3-26@example.invalid', '6105550155', 'Roofing', 'Reading')").run();
+  db.prepare("INSERT INTO websites (id, lead_id, name, industry, theme, pages, status) VALUES (2601, 2601, 'Reading Septic Pros', 'Septic Services', '{}', '[]', 'published')").run();
+  db.prepare("INSERT INTO websites (id, lead_id, name, industry, theme, pages, status) VALUES (2602, 2604, 'Reading Septic Two Site', 'Septic Services', '{}', '[]', 'published')").run();
+  db.prepare("INSERT INTO websites (id, lead_id, name, industry, theme, pages, status) VALUES (2604, 2606, 'Reading Roofers', 'Roofing', '{}', '[]', 'published')").run();
+  sm26.updateCallTrackingConfig(db, 2601, {
+    display_number: '6105550199',
+    redirect_number: '+16105550101',
+    redirect_enabled: true,
+  });
+  const chargesFor26 = (rid) =>
+    db.prepare('SELECT * FROM site_rental_charges WHERE rental_id = ? ORDER BY id ASC').all(rid);
+  const cfgOf26 = (leadId) => sm26.getCallTrackingConfig(db, leadId);
+
+  const createdA26 = await rentals26.createRental(
+    1,
+    { websiteId: 2601, tenantLeadId: 2602, model: 'per_lead', priceCents: 2500, trialLeads: 2 },
+    { createdBy: 'test' }
+  );
+  const rentalA26 = createdA26.rental.id;
+  check('batch26 schema: rentals + charges tables, one-live partial index, stamp columns', () => {
+    const tbls = db
+      .prepare("SELECT name FROM sqlite_master WHERE type IN ('table','index') AND name LIKE '%site_rental%'")
+      .all()
+      .map((r) => r.name);
+    assert.ok(tbls.includes('site_rentals') && tbls.includes('site_rental_charges'));
+    assert.ok(tbls.includes('idx_site_rentals_one_live'));
+    const evCols = db.prepare('PRAGMA table_info(leadscout_events)').all().map((c) => c.name);
+    assert.ok(evCols.includes('website_id') && evCols.includes('tenant_lead_id') && evCols.includes('rental_id'));
+    const logCols = db.prepare('PRAGMA table_info(call_logs)').all().map((c) => c.name);
+    assert.ok(logCols.includes('rental_id'));
+  });
+  check('batch26 create: starts in trial; activation forwards calls to the TENANT phone, display number untouched, previous redirect snapshotted', () => {
+    assert.equal(createdA26.rental.status, 'trial');
+    assert.equal(createdA26.activation.callRouting, 'written');
+    const cfg = cfgOf26(2601);
+    assert.equal(cfg.redirect_number, '+16105550111', 'forward-TO is the tenant number');
+    assert.equal(cfg.display_number, '+16105550199', 'Twilio display number never changes (25c rule)');
+    const row = db.prepare('SELECT * FROM site_rentals WHERE id = ?').get(rentalA26);
+    assert.equal(row.prev_redirect_number, '+16105550101');
+    assert.equal(row.applied_redirect_number, '+16105550111');
+  });
+  check('batch26 create: activation email "Your site is live" goes to the tenant', () => {
+    assert.equal(rentalsState26.mails.length, 1);
+    assert.equal(rentalsState26.mails[0].to, 'tenant26@example.invalid');
+    assert.equal(rentalsState26.mails[0].subject, 'Your site is live');
+  });
+  const occupiedErr26 = await rentals26
+    .createRental(1, { websiteId: 2601, tenantLeadId: 2603, model: 'per_lead', priceCents: 1000 })
+    .then(() => null, (e) => e);
+  check('batch26 one live rental per site: second create is a hard RENTAL_SITE_OCCUPIED', () => {
+    assert.ok(occupiedErr26);
+    assert.equal(occupiedErr26.code, 'RENTAL_SITE_OCCUPIED');
+    assert.equal(occupiedErr26.status, 409);
+    assert.throws(
+      () =>
+        db
+          .prepare(
+            "INSERT INTO site_rentals (website_id, tenant_lead_id, owner_lead_id, model, price_cents, status) VALUES (2601, 2603, 2601, 'flat', 100, 'active')"
+          )
+          .run(),
+      /UNIQUE constraint/
+    );
+  });
+  const conflictErr26 = await rentals26
+    .createRental(1, { websiteId: 2602, tenantLeadId: 2605, model: 'per_lead', priceCents: 2000 })
+    .then(() => null, (e) => e);
+  const createdC26 = await rentals26.createRental(1, {
+    websiteId: 2602,
+    tenantLeadId: 2605,
+    model: 'per_lead',
+    priceCents: 2000,
+    overrideConflict: true,
+  });
+  check('batch26 niche+town conflict: warning names the clash, override creates with the warning attached', () => {
+    assert.ok(conflictErr26);
+    assert.equal(conflictErr26.code, 'RENTAL_CONFLICT');
+    assert.equal(conflictErr26.conflicts.length, 1);
+    assert.equal(conflictErr26.conflicts[0].website_id, 2601);
+    assert.equal(createdC26.warnings.length, 1);
+    assert.equal(createdC26.activation.reason, 'no_calltracking_config', 'owner without a tracking config: routing skipped, rental still live');
+  });
+  await rentals26.endRental(1, createdC26.rental.id, { reason: 'fixture cleanup' });
+  check('batch26 delivery resolution: stamp + delivery lead + tenant alert email all point at the tenant while live', () => {
+    const stamp = rentals26.resolveStamp(db, 2601);
+    assert.equal(stamp.websiteId, 2601);
+    assert.equal(stamp.tenantLeadId, 2602);
+    assert.equal(stamp.rentalId, rentalA26);
+    assert.equal(rentals26.deliveryLeadId(db, 2601), 2602);
+    assert.equal(rentals26.tenantAlertEmail(db, 2602), 'tenant26@example.invalid');
+  });
+  const wholeDollarErr26 = (() => {
+    try {
+      rentals26.createRentalRow(db, { websiteId: 2602, tenantLeadId: 2605, model: 'per_lead', priceCents: 2550 });
+      return null;
+    } catch (e) {
+      return e;
+    }
+  })();
+  check('batch26 validation: per-lead price must be whole dollars ($1 = 1 credit)', () => {
+    assert.ok(wholeDollarErr26);
+    assert.equal(wholeDollarErr26.code, 'VALIDATION');
+  });
+
+  const capA26 = contacts.captureFromSubmission(db, {
+    leadId: 2601,
+    submissionId: 26001,
+    formId: 2601,
+    formName: 'Contact',
+    payload: { name: 'Site Visitor One', email: 'visitor1@example.invalid', phone: '6105550201' },
+  });
+  const capA26dup = contacts.captureFromSubmission(db, {
+    leadId: 2601,
+    submissionId: 26001,
+    formId: 2601,
+    formName: 'Contact',
+    payload: { name: 'Site Visitor One', email: 'visitor1@example.invalid', phone: '6105550201' },
+  });
+  const bookA26 = contacts.captureFromBooking(db, {
+    leadId: 2601,
+    booking: {
+      id: 26001,
+      customer_name: 'Booker One',
+      customer_email: 'booker@example.invalid',
+      customer_phone: '6105550202',
+      status: 'confirmed',
+      starts_at: '2026-11-01 10:00',
+    },
+    serviceName: 'Septic pumping',
+  });
+  const estA26 = contacts.captureFromEstimate(db, {
+    leadId: 2601,
+    request: { id: 26001, name: 'Est One', email: 'est@example.invalid', phone: '6105550203', selections: [] },
+  });
+  check('batch26 captures stamped: form + booking + estimate events carry website/tenant/rental and open pending charges; re-capture dedupes', () => {
+    for (const ev of [capA26, bookA26, estA26]) {
+      const row = db.prepare('SELECT website_id, tenant_lead_id, rental_id FROM leadscout_events WHERE id = ?').get(ev.eventId);
+      assert.equal(row.website_id, 2601);
+      assert.equal(row.tenant_lead_id, 2602);
+      assert.equal(row.rental_id, rentalA26);
+    }
+    assert.equal(capA26dup.deduped, true);
+    const charges = chargesFor26(rentalA26);
+    assert.equal(charges.length, 3, 'one charge per qualified capture — the deduped re-capture adds none');
+    assert.ok(charges.every((c) => c.status === 'pending' && c.source_kind === 'capture'));
+  });
+
+  const embed26 = sm26.ensureEmbed(db, 2601, 'chatbot', { workspaceId: 1 });
+  // A module sync may have pre-created the row without a public token.
+  if (!embed26.public_token) {
+    db.prepare("UPDATE site_module_embeds SET public_token = '1_fixturetoken26' WHERE id = ?").run(embed26.id);
+    embed26.public_token = '1_fixturetoken26';
+  }
+  db.prepare('UPDATE site_module_embeds SET embed_enabled = 1, published = 1 WHERE id = ?').run(embed26.id);
+  const chatbot26 = load('server/chatbot.js', {
+    './rentals': rentals26,
+    './siteModules': sm26,
+    './smsOptIn': { optInBlock: () => null, businessNameForLead: () => '' },
+  });
+  const chatCap26 = chatbot26.captureLead(db, embed26.public_token, {
+    name: 'Chat Visitor',
+    email: 'chatvisitor@example.invalid',
+    phone: '6105550204',
+    message: 'Do you pump septic tanks?',
+  });
+  check('batch26 chatbot capture: lead stamped + charged as a chatbot site lead; notify payload delivers to the tenant', () => {
+    const row = db
+      .prepare('SELECT website_id, tenant_lead_id, rental_id FROM chatbot_leads WHERE id = ?')
+      .get(chatCap26.lead.id);
+    assert.equal(row.website_id, 2601);
+    assert.equal(row.tenant_lead_id, 2602);
+    assert.equal(row.rental_id, rentalA26);
+    const charge = db
+      .prepare("SELECT * FROM site_rental_charges WHERE source_kind = 'chatbot' AND chatbot_lead_id = ?")
+      .get(chatCap26.lead.id);
+    assert.ok(charge && charge.status === 'pending');
+    assert.equal(chatCap26._notify.deliveryEmail, 'tenant26@example.invalid');
+    assert.equal(chatCap26._notify.deliveryPhone, '6105550111');
+  });
+
+  const settle1_26 = await rentals26.settlePendingCharges(1);
+  check('batch26 settle: trial leads consumed first (in order), then credits debit exactly once per lead; rental flips trial → active', () => {
+    assert.equal(settle1_26.trialed, 2);
+    assert.equal(settle1_26.charged, 2);
+    assert.equal(settle1_26.due, 0);
+    const charges = chargesFor26(rentalA26);
+    assert.deepEqual(charges.map((c) => c.status), ['trial', 'trial', 'charged', 'charged']);
+    assert.equal(rentalsState26.spends.length, 2);
+    assert.ok(rentalsState26.spends.every((s) => s.amount === 25 && s.key.startsWith('Rental site lead|site_rental_lead|')));
+    assert.equal(rentalsState26.balance, 50);
+    const row = db.prepare('SELECT status, trial_used FROM site_rentals WHERE id = ?').get(rentalA26);
+    assert.equal(row.status, 'active');
+    assert.equal(row.trial_used, 2);
+  });
+
+  sm26.logCallInitiated(db, 2601, { callSid: 'CA26a', from: '+16105550209', to: '+16105550199', verified: true });
+  sm26.upsertCallStatus(
+    db,
+    2601,
+    {
+      CallSid: 'CA26a',
+      From: '+16105550209',
+      To: '+16105550199',
+      CallStatus: 'completed',
+      DialCallStatus: 'completed',
+      DialCallDuration: '30',
+    },
+    { verified: true }
+  );
+  const callSettle26 = await rentals26.settleCallCharge(1, 'CA26a');
+  check('batch26 counted call (answered ≥15s): call log stamped at log time and billed as a site lead', () => {
+    const call = db.prepare("SELECT website_id, tenant_lead_id, rental_id, counted FROM call_logs WHERE call_sid = 'CA26a'").get();
+    assert.equal(call.website_id, 2601);
+    assert.equal(call.tenant_lead_id, 2602);
+    assert.equal(call.rental_id, rentalA26);
+    assert.equal(call.counted, 1);
+    assert.equal(callSettle26.settled, true);
+    const charge = db.prepare("SELECT * FROM site_rental_charges WHERE source_kind = 'call' AND rental_id = ?").get(rentalA26);
+    assert.ok(charge && charge.status === 'charged' && charge.credits_debited === 25);
+    assert.equal(rentalsState26.balance, 25);
+  });
+
+  rentalsState26.balance = 0;
+  const capDue26 = contacts.captureFromSubmission(db, {
+    leadId: 2601,
+    submissionId: 26002,
+    formId: 2601,
+    formName: 'Contact',
+    payload: { name: 'Site Visitor Two', email: 'visitor2@example.invalid', phone: '6105550205' },
+  });
+  const settle2_26 = await rentals26.settlePendingCharges(1);
+  check('batch26 soft cap: at zero balance the capture still lands (delivery never blocked) and the charge flips to due with the amount accruing', () => {
+    assert.ok(capDue26.eventId, 'capture succeeded at zero balance');
+    assert.equal(settle2_26.due, 1);
+    const charge = db
+      .prepare('SELECT * FROM site_rental_charges WHERE event_id = ?')
+      .get(capDue26.eventId);
+    assert.equal(charge.status, 'due');
+    assert.equal(charge.amount_due_cents, 2500);
+    const counters = rentals26.rentalCounters(db, rentalA26);
+    assert.equal(counters.qualified_leads, 6);
+    assert.equal(counters.amount_due_cents, 2500);
+    assert.equal(counters.charged_credits, 75);
+  });
+
+  const createdF26 = await rentals26.createRental(1, {
+    websiteId: 2604,
+    tenantLeadId: 2603,
+    model: 'flat',
+    priceCents: 49900,
+  });
+  const capF26 = contacts.captureFromSubmission(db, {
+    leadId: 2606,
+    submissionId: 26005,
+    formId: 2606,
+    formName: 'Contact',
+    payload: { name: 'Roof Visitor', email: 'roofvisitor@example.invalid', phone: '6105550206' },
+  });
+  check('batch26 flat model: captures are stamped + tracked but never charged', () => {
+    const row = db.prepare('SELECT website_id, tenant_lead_id, rental_id FROM leadscout_events WHERE id = ?').get(capF26.eventId);
+    assert.equal(row.website_id, 2604);
+    assert.equal(row.tenant_lead_id, 2603);
+    assert.equal(row.rental_id, createdF26.rental.id);
+    assert.equal(chargesFor26(createdF26.rental.id).length, 0);
+    assert.equal(rentals26.rentalCounters(db, createdF26.rental.id).qualified_leads, 0);
+  });
+
+  const historyBeforeSwap26 = rentals26.tenantSiteLeads(db, rentalA26).length;
+  const endedA26 = await rentals26.endRental(1, rentalA26, { reason: 'term complete' });
+  check('batch26 end: forwarding restored to the owner snapshot, delivery resolution clears, closing summary emailed', () => {
+    assert.equal(endedA26.unroute.restored, true);
+    assert.equal(cfgOf26(2601).redirect_number, '+16105550101');
+    assert.equal(rentals26.resolveStamp(db, 2601).rentalId, null);
+    assert.equal(rentals26.deliveryLeadId(db, 2601), 2601);
+    const closing = rentalsState26.mails[rentalsState26.mails.length - 1];
+    assert.equal(closing.to, 'tenant26@example.invalid');
+    assert.ok(closing.subject.startsWith('Your rental of'));
+    const view = rentals26.tenantView(db, 2602);
+    assert.equal(view.length, 1, 'the old tenant keeps exactly their own rental, read-only');
+    assert.equal(view[0].status, 'ended');
+    assert.equal(view[0].history.length, historyBeforeSwap26);
+    assert.equal(historyBeforeSwap26, 6);
+  });
+
+  const createdB26 = await rentals26.createRental(1, {
+    websiteId: 2601,
+    tenantLeadId: 2603,
+    model: 'per_lead',
+    priceCents: 1000,
+    trialLeads: 0,
+  });
+  const rentalB26 = createdB26.rental.id;
+  const capB26 = contacts.captureFromSubmission(db, {
+    leadId: 2601,
+    submissionId: 26003,
+    formId: 2601,
+    formName: 'Contact',
+    payload: { name: 'New Tenant Visitor', email: 'visitor3@example.invalid', phone: '6105550207' },
+  });
+  await rentals26.settlePendingCharges(1);
+  check('batch26 tenant swap: new captures stamp the NEW tenant; the old tenant\u2019s frozen history does not move; new tenant\u2019s portal view is isolated', () => {
+    assert.equal(createdB26.rental.status, 'active', 'no trial leads → active immediately');
+    assert.equal(cfgOf26(2601).redirect_number, '+16105550122');
+    const row = db.prepare('SELECT tenant_lead_id, rental_id FROM leadscout_events WHERE id = ?').get(capB26.eventId);
+    assert.equal(row.tenant_lead_id, 2603);
+    assert.equal(row.rental_id, rentalB26);
+    assert.equal(rentals26.tenantSiteLeads(db, rentalA26).length, historyBeforeSwap26, 'old tenant history frozen');
+    const charge = db.prepare('SELECT * FROM site_rental_charges WHERE rental_id = ?').get(rentalB26);
+    assert.equal(charge.status, 'due', 'zero balance → due at the NEW rental\u2019s $10 price');
+    assert.equal(charge.amount_due_cents, 1000);
+    const viewB = rentals26.tenantView(db, 2603);
+    assert.ok(viewB.length >= 2 && viewB.every((v) => v.tenant_lead_id === 2603));
+    assert.equal(rentals26.tenantView(db, 2602).length, 1, 'tenant A never sees tenant B\u2019s rentals');
+  });
+
+  const pausedB26 = rentals26.pauseRental(1, rentalB26);
+  const capPaused26 = contacts.captureFromSubmission(db, {
+    leadId: 2601,
+    submissionId: 26004,
+    formId: 2601,
+    formName: 'Contact',
+    payload: { name: 'Paused Visitor', email: 'visitor4@example.invalid', phone: '6105550208' },
+  });
+  const resumedB26 = rentals26.resumeRental(1, rentalB26);
+  check('batch26 pause/resume: pause un-routes and frees the slot (captures go unstamped), resume re-routes to the tenant', () => {
+    assert.equal(pausedB26.rental.status, 'paused');
+    assert.equal(pausedB26.unroute.restored, true);
+    const row = db.prepare('SELECT rental_id FROM leadscout_events WHERE id = ?').get(capPaused26.eventId);
+    assert.equal(row.rental_id, null);
+    assert.equal(chargesFor26(rentalB26).length, 1, 'no charge accrues while paused');
+    assert.equal(resumedB26.rental.status, 'active');
+    assert.equal(cfgOf26(2601).redirect_number, '+16105550122');
+  });
+
+  sm26.updateCallTrackingConfig(db, 2601, { redirect_number: '+16105550999' });
+  const endedB26 = await rentals26.endRental(1, rentalB26, { reason: 'admin moved on' });
+  check('batch26 end never stomps an admin-changed redirect', () => {
+    assert.equal(endedB26.unroute.restored, false);
+    assert.equal(endedB26.unroute.reason, 'redirect_changed_since_activation');
+    assert.equal(cfgOf26(2601).redirect_number, '+16105550999');
+  });
+
+  db.prepare("INSERT INTO websites (id, lead_id, name, industry, theme, pages, status) VALUES (2511, 2511, 'Fixture Bakery Site', 'Bakery', '{}', '[]', 'published')").run();
+  const createdG26 = await rentals26.createRental(1, {
+    websiteId: 2511,
+    tenantLeadId: 2602,
+    model: 'per_lead',
+    priceCents: 500,
+  });
+  const portal26 = load('server/clientPortal.js', {
+    bcryptjs: { hashSync: () => 'fixture' },
+    './db': {},
+    './mailer': {},
+    './stripeClient': { appUrl: () => 'https://example.test' },
+    './workspaceDb': {},
+    './domain': { withDb: (_ws, fn) => fn(db) },
+    './portalContacts': contacts,
+    './siteModules': sm26,
+    './rentals': rentals26,
+    './shopStripe': {},
+    './billing': { effectivePlan: async () => 'standard' },
+    './plans': { getPlan: () => ({ entitlements: { siteModules: true, chatbot: false } }) },
+  });
+  const portalSave26 = await portal26.saveCallTrackingConfig(
+    1,
+    2511,
+    { phone: '6105550177' },
+    'split@example.invalid'
+  );
+  check('batch26 portal guard: while the owner\u2019s site is rented out, the portal phone save updates leads.phone but cannot stomp the tenant\u2019s forwarding', () => {
+    assert.equal(cfgOf26(2511).redirect_number, '+16105550111', 'activation pointed 2511\u2019s forwarding at the tenant');
+    assert.equal(portalSave26.rental_active, true);
+    assert.equal(db.prepare('SELECT phone FROM leads WHERE id = 2511').get().phone, '+16105550177');
+    assert.equal(cfgOf26(2511).redirect_number, '+16105550111', 'portal save left the tenant redirect in place');
+  });
+  await rentals26.endRental(1, createdG26.rental.id, { reason: 'fixture cleanup' });
+
+  const rentalsSrc26 = fs.readFileSync(path.join(root, 'server/rentals.js'), 'utf8');
+  const domainApiSrc26 = fs.readFileSync(path.join(root, 'server/routes/domainApi.js'), 'utf8');
+  const portalRouteSrc26 = fs.readFileSync(path.join(root, 'server/routes/portal.js'), 'utf8');
+  const mcpSrc26 = fs.readFileSync(path.join(root, 'server/mcp.js'), 'utf8');
+  const catalogSrc26 = fs.readFileSync(path.join(root, 'src/mcpCatalog.js'), 'utf8');
+  const contactFormsSrc26 = fs.readFileSync(path.join(root, 'server/contactForms.js'), 'utf8');
+  const ownerNotifySrc26 = fs.readFileSync(path.join(root, 'server/ownerNotify.js'), 'utf8');
+  const callsRouteSrc26 = fs.readFileSync(path.join(root, 'server/routes/calls.js'), 'utf8');
+  const modulesPublicSrc26 = fs.readFileSync(path.join(root, 'server/routes/modulesPublic.js'), 'utf8');
+  const appSrc26 = fs.readFileSync(path.join(root, 'public/js/app.js'), 'utf8');
+  const portalJsSrc26 = fs.readFileSync(path.join(root, 'public/js/portal.js'), 'utf8');
+  const portalHtmlSrc26 = fs.readFileSync(path.join(root, 'public/portal.html'), 'utf8');
+  check('batch26 wiring: staff routes, portal route, MCP parity, delivery seams and both UIs are connected', () => {
+    assert.ok(rentalsSrc26.includes('idx_site_rentals_one_live'));
+    assert.ok(domainApiSrc26.includes("'/admin-area/rentals'") && domainApiSrc26.includes('rentalsCreate'));
+    assert.ok(portalRouteSrc26.includes("'/rentals'") && portalRouteSrc26.includes('getMyRentals'));
+    for (const n of ['rentals.list', 'rentals.get', 'rentals.create', 'rentals.end']) {
+      assert.ok(mcpSrc26.includes(`'${n}'`) || mcpSrc26.includes(`name: '${n}'`), `mcp def/handler ${n}`);
+      assert.ok(catalogSrc26.includes(`name: '${n}'`), `catalog ${n}`);
+    }
+    assert.ok(contactFormsSrc26.includes('liveRentalForLead'), 'form alerts resolve to the tenant');
+    assert.ok(ownerNotifySrc26.includes('rentalRoutable'), 'booking/estimate alerts resolve to the tenant');
+    assert.ok(callsRouteSrc26.includes('settleCallCharge'), 'terminal call status settles the rental charge');
+    assert.ok(modulesPublicSrc26.includes('fireRentalSettle'), 'booking/estimate routes settle charges');
+    assert.ok(appSrc26.includes('pageRentals') && appSrc26.includes('rentalsPreselect'), 'staff Rentals page + entry points');
+    assert.ok(portalJsSrc26.includes('loadRentals') && portalJsSrc26.includes('renderRentals'), 'portal tenant view wired');
+    assert.ok(portalHtmlSrc26.includes('nav-rentals') && portalHtmlSrc26.includes('sec-rentals'), 'portal Rentals tab present');
+  });
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

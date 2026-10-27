@@ -53,7 +53,23 @@ async function dispatch(workspaceId, build) {
     const prep = domain.withDb(workspaceId, (db) => {
       const built = build(db);
       if (!built || !built.leadId) return null;
-      return { ...built, recipient: resolveNotifyRecipient(db, built.leadId) };
+      let recipient = resolveNotifyRecipient(db, built.leadId);
+      // Site Rentals (Batch 26): bookings + estimate requests on a
+      // rented site are the tenant's site leads — deliver to the
+      // tenant's alert email while a rental is live. (Member signups,
+      // memberships and shop orders are not rental-routed.)
+      if (built.rentalRoutable) {
+        try {
+          const rentals = require('./rentals');
+          const deliveryId = rentals.deliveryLeadId(db, built.leadId);
+          if (deliveryId && Number(deliveryId) !== Number(built.leadId)) {
+            recipient = rentals.tenantAlertEmail(db, deliveryId) || recipient;
+          }
+        } catch {
+          /* keep the owner recipient */
+        }
+      }
+      return { ...built, recipient };
     });
     if (!prep) return { sent: false, reason: 'not_found' };
     if (!prep.recipient) {
@@ -110,6 +126,7 @@ async function notifyOwnerOfBooking(workspaceId, bookingId) {
     ].filter(Boolean);
     return {
       leadId: Number(row.lead_id),
+      rentalRoutable: true,
       subject: 'New booking from your website',
       paragraphs,
       cta: portalCta('View bookings in your portal'),
@@ -149,6 +166,7 @@ async function notifyOwnerOfEstimateRequest(workspaceId, requestId) {
     ].filter(Boolean);
     return {
       leadId: Number(row.lead_id),
+      rentalRoutable: true,
       subject: 'New estimate request from your website',
       paragraphs,
       cta: portalCta('View estimate requests in your portal'),

@@ -68,7 +68,16 @@ async function notifyCallByEmail(workspaceId, leadId, callSid) {
         return null;
       }
       if (!modules.claimCallNotify(db, callSid)) return null; // already claimed / done
-      return { call, recipient: resolveNotifyRecipient(db, Number(leadId)) };
+      // Site Rentals (Batch 26): a call stamped to a tenant is the
+      // tenant's site lead — the notification goes to the tenant's
+      // alert chain (their form notify_email → their email), falling
+      // back to the site owner's chain when the tenant has none.
+      let recipient = '';
+      if (call.tenant_lead_id) {
+        recipient = resolveNotifyRecipient(db, Number(call.tenant_lead_id));
+      }
+      if (!recipient) recipient = resolveNotifyRecipient(db, Number(leadId));
+      return { call, recipient };
     });
     if (!prep) return { sent: false, reason: 'not_claimed' };
     const finish = (status) => {

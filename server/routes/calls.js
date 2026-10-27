@@ -159,6 +159,13 @@ router.post('/status/:workspaceId/:leadId', async (req, res) => {
     if (row && modules.isTerminalCallStatus(row.status)) {
       // Soft-cap settlement (addendum #3): background, never blocking.
       Promise.resolve(callBilling.settleCallBilling(ids.workspaceId, ids.leadId, row.call_sid)).catch(() => {});
+      // Site Rentals (Batch 26): a counted call on a rented site is a
+      // qualified site lead for the tenant — background, soft billing.
+      try {
+        Promise.resolve(require('../rentals').settleCallCharge(ids.workspaceId, row.call_sid)).catch(() => {});
+      } catch {
+        /* rentals unavailable — call flow unaffected */
+      }
       // One notification email per call (addendum #4): background too.
       Promise.resolve(callNotify.notifyCallByEmail(ids.workspaceId, ids.leadId, row.call_sid)).catch(() => {});
     }

@@ -130,6 +130,15 @@ router.post('/:token/lead', writeLimit, async (req, res) => {
         console.warn('[chatbotPublic] lead notify failed:', err && err.message ? err.message : err);
       });
     }
+    // Site Rentals (Batch 26): settle any pending per-lead rental
+    // charges for this workspace (the capture above may have created
+    // one). Fire-and-forget; soft billing never touches the response.
+    try {
+      const p = require('../rentals').settlePendingCharges(workspaceId);
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    } catch {
+      /* rentals unavailable */
+    }
     // SMS opt-in (Batch 25): the capture form's consent checkbox rides
     // the same /lead POST. Fire-and-forget like the owner notify — the
     // handler never throws and a texting problem never surfaces here.

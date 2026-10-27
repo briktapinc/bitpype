@@ -136,6 +136,7 @@
     'mcp',
     'analytics',
     'seo',
+    'rentals',
     'billing',
   ];
   const PANEL_ALIASES = {
@@ -166,6 +167,9 @@
     analytics: 'analytics',
     tracking: 'analytics',
     seo: 'seo',
+    rentals: 'rentals',
+    rented: 'rentals',
+    rental: 'rentals',
     plans: 'billing',
     subscribe: 'billing',
     mcp: 'mcp',
@@ -264,6 +268,7 @@
     if (next === 'referrals') loadReferrals().catch(() => {});
     if (next === 'analytics') loadAnalytics();
     if (next === 'seo' && typeof loadSeoTool === 'function') loadSeoTool().catch(() => {});
+    if (next === 'rentals' && typeof loadRentals === 'function') loadRentals().catch(() => {});
     if (next === 'forms') loadForms().catch(() => {});
     if (next === 'leadscout') loadLeadScout().catch(() => {});
     if (next === 'modules') loadModules().catch(() => {});
@@ -3050,6 +3055,67 @@
     }
   }
   let seoEpoch = 0;
+  let rentalsEpoch = 0;
+  async function loadRentals() {
+    const epoch = ++rentalsEpoch;
+    const host = document.getElementById('rentals-host');
+    if (!host) return;
+    host.innerHTML = '<p class="hint">Loading your rentals…</p>';
+    let st;
+    try {
+      st = await api('/rentals');
+    } catch (e) {
+      if (epoch !== rentalsEpoch) return;
+      host.innerHTML = `<p class="hint">${esc(e.message || 'Your rentals could not be loaded.')}</p>`;
+      return;
+    }
+    if (epoch !== rentalsEpoch) return;
+    renderRentals(st);
+  }
+
+  function renderRentals(st) {
+    const host = document.getElementById('rentals-host');
+    if (!host) return;
+    const list = st && Array.isArray(st.rentals) ? st.rentals : [];
+    if (!list.length) {
+      host.innerHTML =
+        '<div class="panel"><h3>You don\u2019t have a rented site yet</h3><p>When you rent a lead website from us, it shows up here — with every lead it sends you, what each one cost, and anything due. Talk to the BitPype team if you\u2019d like a site in your trade and town.</p></div>';
+      return;
+    }
+    const dollars = (c) => '$' + (Number(c || 0) / 100).toFixed(2);
+    const statusText = (r) =>
+      r.status === 'trial'
+        ? 'Live — free trial leads'
+        : r.status === 'active'
+          ? 'Live'
+          : r.status === 'paused'
+            ? 'Paused'
+            : 'Ended' + (r.ended_at ? ' ' + String(r.ended_at).slice(0, 10) : '');
+    host.innerHTML = list
+      .map((r) => {
+        const month = r.this_month || {};
+        const due = r.counters ? Number(r.counters.amount_due_cents || 0) : 0;
+        const history = Array.isArray(r.history) ? r.history : [];
+        return `
+      <div class="panel">
+        <h3>${esc((r.site && r.site.name) || 'Your rented site')}</h3>
+        <p><span class="status-pill">${esc(statusText(r))}</span>
+        <span class="hint" style="margin-left:8px">${r.model === 'per_lead' ? esc(dollars(r.price_cents)) + ' per lead' : esc(dollars(r.price_cents)) + ' / month flat'}${r.trial_leads ? ` · ${esc(r.trial_used || 0)} of ${esc(r.trial_leads)} free trial leads used` : ''} · since ${esc(String(r.started_at || r.created_at || '').slice(0, 10))}</span></p>
+        <p style="display:flex;gap:18px;flex-wrap:wrap;margin:10px 0">
+          <span><strong>${esc(month.qualified_leads || 0)}</strong> site leads this month</span>
+          <span><strong>${esc(month.credits_charged || 0)}</strong> credits charged this month</span>
+          <span>Amount due: <strong>${esc(dollars(due))}</strong></span>
+        </p>
+        ${due > 0 ? '<p class="hint">Your balance ran out before some leads could be charged, so they are listed as due above. Leads are never held back — top up your credits with the BitPype team and we will settle it.</p>' : ''}
+        <h4>Site leads</h4>
+        <table><thead><tr><th scope="col">When</th><th scope="col">Type</th><th scope="col">Contact</th><th scope="col">Charge</th></tr></thead><tbody>
+        ${history.map((h) => `<tr><td>${esc(String(h.at || '').slice(0, 16))}</td><td>${esc(h.source_label || h.source || '')}</td><td>${esc(h.label || '')}</td><td>${h.charge ? esc(h.charge.status === 'trial' ? 'Free (trial)' : h.charge.status === 'charged' ? h.charge.credits + ' credits' : h.charge.status === 'due' ? dollars(h.charge.amount_due_cents) + ' due' : h.charge.status) : '—'}</td></tr>`).join('') || '<tr><td colspan="4">No leads yet — they will appear here the moment your site sends you one.</td></tr>'}
+        </tbody></table>
+      </div>`;
+      })
+      .join('');
+  }
+
   async function loadSeoTool() {
     const epoch = ++seoEpoch;
     const host = document.getElementById('seo-host');

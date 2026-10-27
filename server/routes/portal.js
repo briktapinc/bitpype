@@ -1147,6 +1147,17 @@ router.put('/modules/calltracking/config', requireClient, actionLimit, async (re
   }
 });
 
+// Site Rentals (Batch 26) — the tenant's read-only rental view. The
+// lead comes from the portal session, so a request can never name
+// another business's rentals.
+router.get('/rentals', requireClient, async (req, res) => {
+  try {
+    ok(res, await portal.getMyRentals(req.client.workspace_id, req.client.lead_id, req.client.email));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 // AI SEO tool (Batch 22) — the owner's own site only: the lead comes
 // from the portal session, so a request can never name another site.
 router.get('/seo', requireClient, async (req, res) => {

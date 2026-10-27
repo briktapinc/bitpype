@@ -197,6 +197,20 @@ router.get('/:token/order-status', readLimit, async (req, res) => {
   }
 });
 
+/**
+ * Site Rentals (Batch 26): settle pending per-lead rental charges for
+ * the workspace after a capture that may have created one (booking /
+ * estimate). Fire-and-forget — soft billing never blocks a visitor.
+ */
+function fireRentalSettle(workspaceId) {
+  try {
+    const p = require('../rentals').settlePendingCharges(workspaceId);
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  } catch {
+    /* rentals unavailable */
+  }
+}
+
 /** Public appointment booking (creates pending or auto-confirmed appointment). */
 router.post('/:token/book', bookLimit, captcha, async (req, res) => {
   try {
@@ -207,6 +221,7 @@ router.post('/:token/book', bookLimit, captcha, async (req, res) => {
     );
     res.json({ ok: true, data: { ...data, workspaceId } });
     fireOwnerNotify('notifyOwnerOfBooking', workspaceId, data && data.appointment && data.appointment.id);
+    fireRentalSettle(workspaceId);
     fireSmsOptIn(workspaceId, {
       leadId: data && data.embed && data.embed.lead_id,
       name: body.customer_name || body.name || '',
@@ -232,6 +247,7 @@ router.post('/:token/estimate', estimateLimit, captcha, async (req, res) => {
     );
     res.json({ ok: true, data: { ...data, workspaceId } });
     fireOwnerNotify('notifyOwnerOfEstimateRequest', workspaceId, data && data.request && data.request.id);
+    fireRentalSettle(workspaceId);
     fireSmsOptIn(workspaceId, {
       leadId: data && data.embed && data.embed.lead_id,
       name: body.name || '',

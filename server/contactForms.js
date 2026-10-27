@@ -2700,6 +2700,27 @@ async function acceptSubmission(db, { token, values, workspaceId, planId, ip, us
       notifyTo = '';
     }
   }
+  // Site Rentals (Batch 26): while the site is rented, form alerts are
+  // the tenant's site leads — delivery resolves to the tenant's alert
+  // email, overriding the owner chain above.
+  try {
+    const rentals = require('./rentals');
+    const rental = rentals.liveRentalForLead(db, form.lead_id);
+    if (rental) {
+      const tenantTo = rentals.tenantAlertEmail(db, rental.tenant_lead_id);
+      if (tenantTo) notifyTo = tenantTo;
+    }
+  } catch {
+    /* rental routing must never break a submission */
+  }
+  // Site Rentals (Batch 26): the capture above may have created a
+  // per-lead rental charge — settle in the background (soft billing).
+  try {
+    const p = require('./rentals').settlePendingCharges(workspaceId);
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  } catch {
+    /* rentals unavailable */
+  }
   let emailResult = null;
   if (notifyTo) {
     try {

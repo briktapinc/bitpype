@@ -123,6 +123,44 @@ function ensureTables(db) {
   } catch {
     /* race / exists */
   }
+  // Site Rentals stamp (Batch 26): every capture carries the site it
+  // came from and — while a rental is live — the tenant + rental it
+  // belongs to, as a snapshot that is never rewritten.
+  try {
+    const cols = db
+      .prepare('PRAGMA table_info(leadscout_events)')
+      .all()
+      .map((c) => String(c.name || ''));
+    const addEventCol = (name, ddl) => {
+      if (!cols.includes(name)) db.exec(`ALTER TABLE leadscout_events ADD COLUMN ${ddl}`);
+    };
+    addEventCol('website_id', 'website_id INTEGER');
+    addEventCol('tenant_lead_id', 'tenant_lead_id INTEGER');
+    addEventCol('rental_id', 'rental_id INTEGER');
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_leadscout_events_rental ON leadscout_events(rental_id, id DESC)'
+    );
+  } catch {
+    /* race / exists */
+  }
+}
+
+/** Batch 26 rental stamp + charge — lazy + guarded: stamping must
+ *  never break a visitor capture. */
+function rentalStamp(db, leadId) {
+  try {
+    return require('./rentals').resolveStamp(db, leadId);
+  } catch {
+    return { websiteId: null, tenantLeadId: null, rentalId: null };
+  }
+}
+
+function rentalCharge(db, args) {
+  try {
+    return require('./rentals').recordCaptureCharge(db, args);
+  } catch {
+    return null;
+  }
 }
 
 function normEmail(email) {
@@ -258,12 +296,14 @@ function captureFromSubmission(
     const contact = upsertContact(db, fields);
     const existing = db.prepare('SELECT id FROM leadscout_events WHERE submission_id = ?').get(Number(submissionId));
     if (existing) return { contact, eventId: existing.id, deduped: true };
+    const stamp = rentalStamp(db, leadId);
     const info = db
       .prepare(
         `
       INSERT INTO leadscout_events
-        (contact_id, lead_id, kind, source_label, page_slug, form_id, submission_id, payload_json)
-      VALUES (?, ?, 'submission', ?, ?, ?, ?, ?)
+        (contact_id, lead_id, kind, source_label, page_slug, form_id, submission_id, payload_json,
+         website_id, tenant_lead_id, rental_id)
+      VALUES (?, ?, 'submission', ?, ?, ?, ?, ?, ?, ?, ?)
     `
       )
       .run(
@@ -273,9 +313,21 @@ function captureFromSubmission(
         String(pageSlug || '').slice(0, 120),
         formId != null ? Number(formId) : null,
         Number(submissionId),
-        submissionCopies.serialize(db, submissionId, payload || {}, { encrypted: protect })
+        submissionCopies.serialize(db, submissionId, payload || {}, { encrypted: protect }),
+        stamp.websiteId,
+        stamp.tenantLeadId,
+        stamp.rentalId
       );
-    return { contact, eventId: info.lastInsertRowid };
+    const eventId = Number(info.lastInsertRowid);
+    if (stamp.rentalId) {
+      rentalCharge(db, {
+        ownerLeadId: leadId,
+        sourceKind: 'capture',
+        eventId,
+        contactLabel: fields.name || fields.email || fields.phone || '',
+      });
+    }
+    return { contact, eventId };
   } catch (e) {
     recordFailure(db, {
       kind: 'submission',
@@ -318,12 +370,14 @@ function captureFromBooking(db, { leadId, booking, serviceName, pageSlug } = {})
       );
       return { contact, eventId: existing.id, deduped: true };
     }
+    const stamp = rentalStamp(db, leadId);
     const info = db
       .prepare(
         `
       INSERT INTO leadscout_events
-        (contact_id, lead_id, kind, source_label, page_slug, booking_id, status, starts_at, service_name, payload_json)
-      VALUES (?, ?, 'appointment', ?, ?, ?, ?, ?, ?, ?)
+        (contact_id, lead_id, kind, source_label, page_slug, booking_id, status, starts_at, service_name, payload_json,
+         website_id, tenant_lead_id, rental_id)
+      VALUES (?, ?, 'appointment', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
       )
       .run(
@@ -341,9 +395,21 @@ function captureFromBooking(db, { leadId, booking, serviceName, pageSlug } = {})
           customer_phone: booking.customer_phone,
           notes: booking.notes,
           ends_at: booking.ends_at,
-        }).slice(0, 8000)
+        }).slice(0, 8000),
+        stamp.websiteId,
+        stamp.tenantLeadId,
+        stamp.rentalId
       );
-    return { contact, eventId: info.lastInsertRowid };
+    const eventId = Number(info.lastInsertRowid);
+    if (stamp.rentalId) {
+      rentalCharge(db, {
+        ownerLeadId: leadId,
+        sourceKind: 'capture',
+        eventId,
+        contactLabel: fields.name || fields.email || fields.phone || '',
+      });
+    }
+    return { contact, eventId };
   } catch (e) {
     recordFailure(db, {
       kind: 'appointment',
@@ -381,12 +447,14 @@ function captureFromEstimate(db, { leadId, request, pageSlug } = {}) {
         selections = [];
       }
     }
+    const stamp = rentalStamp(db, leadId);
     const info = db
       .prepare(
         `
       INSERT INTO leadscout_events
-        (contact_id, lead_id, kind, source_label, page_slug, estimate_request_id, payload_json)
-      VALUES (?, ?, 'estimate', ?, ?, ?, ?)
+        (contact_id, lead_id, kind, source_label, page_slug, estimate_request_id, payload_json,
+         website_id, tenant_lead_id, rental_id)
+      VALUES (?, ?, 'estimate', ?, ?, ?, ?, ?, ?, ?)
     `
       )
       .run(
@@ -403,9 +471,21 @@ function captureFromEstimate(db, { leadId, request, pageSlug } = {}) {
           estimate_cents: request.estimate_cents,
           display_mode: request.display_mode || '',
           selections: Array.isArray(selections) ? selections : [],
-        }).slice(0, 8000)
+        }).slice(0, 8000),
+        stamp.websiteId,
+        stamp.tenantLeadId,
+        stamp.rentalId
       );
-    return { contact, eventId: info.lastInsertRowid };
+    const eventId = Number(info.lastInsertRowid);
+    if (stamp.rentalId) {
+      rentalCharge(db, {
+        ownerLeadId: leadId,
+        sourceKind: 'capture',
+        eventId,
+        contactLabel: fields.name || fields.email || fields.phone || '',
+      });
+    }
+    return { contact, eventId };
   } catch (e) {
     recordFailure(db, {
       kind: 'estimate',
@@ -436,12 +516,23 @@ function captureFromCall(db, { leadId, call } = {}) {
       db.prepare('UPDATE leadscout_events SET status = ? WHERE id = ?').run(String(call.status || ''), existing.id);
       return { contact, eventId: existing.id, deduped: true };
     }
+    // The call's own stamp (written on call_logs at log time) is the
+    // snapshot of record; fall back to resolving the stamp now.
+    const callStamp =
+      call.rental_id != null || call.website_id != null
+        ? {
+            websiteId: call.website_id != null ? Number(call.website_id) : null,
+            tenantLeadId: call.tenant_lead_id != null ? Number(call.tenant_lead_id) : null,
+            rentalId: call.rental_id != null ? Number(call.rental_id) : null,
+          }
+        : rentalStamp(db, leadId);
     const info = db
       .prepare(
         `
       INSERT INTO leadscout_events
-        (contact_id, lead_id, kind, source_label, page_slug, call_log_id, status, payload_json)
-      VALUES (?, ?, 'call', ?, ?, ?, ?, ?)
+        (contact_id, lead_id, kind, source_label, page_slug, call_log_id, status, payload_json,
+         website_id, tenant_lead_id, rental_id)
+      VALUES (?, ?, 'call', ?, ?, ?, ?, ?, ?, ?, ?)
     `
       )
       .run(
@@ -458,7 +549,10 @@ function captureFromCall(db, { leadId, call } = {}) {
           call_sid: call.call_sid || '',
           status: call.status || '',
           duration_seconds: call.duration_seconds != null ? call.duration_seconds : null,
-        }).slice(0, 8000)
+        }).slice(0, 8000),
+        callStamp.websiteId,
+        callStamp.tenantLeadId,
+        callStamp.rentalId
       );
     return { contact, eventId: info.lastInsertRowid };
   } catch (e) {

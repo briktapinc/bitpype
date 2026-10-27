@@ -2074,6 +2074,53 @@ const tools = [
     },
   },
   {
+    name: 'rentals.list',
+    description: 'List Site Rentals ("Rent to Lead") in this workspace: each links a tenant lead to a rented website with model (flat | per_lead), price_cents, trial leads, status and counters (qualified site leads, charged credits, amount due). Filter by websiteId, tenantLeadId or status.',
+    schema: {
+      type: 'object',
+      properties: {
+        websiteId: { type: 'integer' },
+        tenantLeadId: { type: 'integer' },
+        status: { type: 'string' },
+        limit: { type: 'integer' },
+      },
+    },
+  },
+  {
+    name: 'rentals.get',
+    description: 'Get one Site Rental in full: terms, counters, the stamped charge history (the per-lead invoice) and the tenant’s site-lead history.',
+    schema: {
+      type: 'object',
+      properties: { rentalId: { type: 'integer' }, id: { type: 'integer' } },
+    },
+  },
+  {
+    name: 'rentals.create',
+    description: 'Rent a website to a tenant lead ("Rent to Lead"). Activation points call forwarding at the tenant’s phone (the Twilio tracking number stays displayed) and routes form, booking, chat and call delivery to the tenant; the tenant is emailed that the site is live. Per-lead prices must be whole dollars ($1 = 1 credit); trialLeads are free. A second live rental on the same site is blocked; a niche+town clash fails with RENTAL_CONFLICT unless overrideConflict is true.',
+    schema: {
+      type: 'object',
+      properties: {
+        websiteId: { type: 'integer' },
+        tenantLeadId: { type: 'integer' },
+        model: { type: 'string' },
+        priceCents: { type: 'integer' },
+        price_cents: { type: 'integer' },
+        trialLeads: { type: 'integer' },
+        trial_leads: { type: 'integer' },
+        startAt: { type: 'string' },
+        overrideConflict: { type: 'boolean' },
+      },
+    },
+  },
+  {
+    name: 'rentals.end',
+    description: 'End a Site Rental: forwarding and delivery revert to the site owner, the stamped history freezes (the old tenant keeps it read-only in their portal), and the tenant gets a closing summary email.',
+    schema: {
+      type: 'object',
+      properties: { rentalId: { type: 'integer' }, id: { type: 'integer' }, reason: { type: 'string' } },
+    },
+  },
+  {
     name: 'members.getConfig',
     description: 'Get the Membership config for a lead: gate_mode (off, selected or whole_site), gated_pages, public_pages (always-public exceptions), signup_mode (open or approval), wall_headline, access_level (any_member, any_paid or tier) and access_tier_id. The Members page itself is always public (Standard/Premium).',
     schema: {

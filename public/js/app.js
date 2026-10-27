@@ -27,6 +27,7 @@ const ROUTES = [
   'shop',
   'calls',
   'seo',
+  'rentals',
   'modules',
   'courses',
   'analytics',
@@ -51,6 +52,7 @@ const ROUTE_LABELS = {
   memberships: 'Memberships',
   calls: 'Calls',
   seo: 'SEO',
+  rentals: 'Rentals',
   modules: 'Modules',
   courses: 'Courses',
   analytics: 'Analytics',
@@ -1845,6 +1847,7 @@ async function openLeadDrawer(id) {
         <button class="btn small" data-act="dupes">Find duplicates</button>
         <button class="btn small" data-act="pipeline">Record intent</button>
         <button class="btn small" data-act="queue-sms">Queue SMS</button>
+        <button class="btn small" data-act="rent">Rent a site</button>
         <button class="btn small danger" data-act="delete">Delete</button>
       </div>
       <div id="ld-merge"></div>
@@ -1946,6 +1949,10 @@ async function openLeadDrawer(id) {
   }
 
   delegate(dr.el, {
+    rent: () => {
+      rentalsPreselect = { tenantLeadId: id };
+      window.location.hash = '#/rentals';
+    },
     score: async () => {
       const r = await api.scoreLead(id);
       toast('Score: ' + r.data.score, 'ok');
@@ -2262,6 +2269,7 @@ async function pageWebsiteDetail(id) {
         <button class="btn" data-act="optimize">Optimize images</button>
         <button class="btn" data-act="regen">Regenerate</button>
         <button class="btn" data-act="assign">Assign design job</button>
+        <button class="btn" data-act="rent">Rent to lead</button>
         <button class="btn primary" data-act="publish">Publish to Cloudflare</button>
         <button class="btn danger" data-act="delete">Delete</button>
       </div>
@@ -2556,6 +2564,10 @@ async function pageWebsiteDetail(id) {
   }
 
   delegate(view, {
+    rent: () => {
+      rentalsPreselect = { websiteId: Number(id) };
+      window.location.hash = '#/rentals';
+    },
     'menu-up': async (t) => {
       await wdReorder('menu', Number(t.dataset.i), -1, 'move');
     },
@@ -7982,6 +7994,222 @@ async function pageMemberships() {
   wireBusinessFilter('ms-biz', renderSites);
 }
 
+/* Site Rentals (Batch 26) — set from the lead drawer ("Rent a site")
+   or the website detail page ("Rent to lead") to prefill the create
+   form; consumed (and cleared) by pageRentals. */
+let rentalsPreselect = null;
+
+async function pageRentals() {
+  let res;
+  try {
+    res = await withLoadTimeout(api.adminRentals());
+  } catch (e) {
+    view.innerHTML = loadErrorCardHtml(e.message);
+    wirePageRetry(() => pageRentals());
+    return;
+  }
+  const d = res.data || {};
+  const rentals = asList(d, ['rentals']);
+  const sites = asList(d, ['sites']);
+  const leads = asList(d, ['leads']);
+  const pre = rentalsPreselect || {};
+  rentalsPreselect = null;
+  const cents = (c) => moneyCents(Number(c || 0), 'usd');
+  const priceLabel = (r) =>
+    r.model === 'per_lead' ? `${cents(r.price_cents)} per lead` : `${cents(r.price_cents)} / month (flat)`;
+  const statusPill = (s) =>
+    `<span class="badge">${esc(s)}${''}</span>`;
+  const siteName = (r) => esc((r.site && r.site.name) || 'Site #' + r.website_id);
+  const tenantName = (r) => esc((r.tenant && r.tenant.business_name) || 'Lead #' + r.tenant_lead_id);
+
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Rentals</h1><p class="lede">Rent a ranked niche site to one local business — "Rent to Lead". While a rental is live, the site's calls forward to the tenant's phone and its form, booking and chat leads are delivered to the tenant. Per-lead rentals bill in credits ($1 = 1 credit); delivery never stops at a zero balance — the amount due just accrues. Ending a rental routes everything back to the site owner.</p></div></div>
+    <div class="card" style="margin-bottom:1rem">
+      <h3 style="margin-top:0">Rent a site</h3>
+      <div class="row">
+        <div class="field"><label>Website</label><select id="rent-site">${sites.map((s) => `<option value="${esc(s.id)}" ${Number(pre.websiteId) === Number(s.id) ? 'selected' : ''}>${esc(s.owner_business || s.name)}${s.owner_city ? ' · ' + esc(s.owner_city) : ''}${s.industry ? ' · ' + esc(s.industry) : ''}</option>`).join('')}</select></div>
+        <div class="field"><label>Tenant (lead)</label><select id="rent-tenant">${leads.map((l) => `<option value="${esc(l.id)}" ${Number(pre.tenantLeadId) === Number(l.id) ? 'selected' : ''}>${esc(l.business_name || 'Lead #' + l.id)}${l.city ? ' · ' + esc(l.city) : ''}${l.phone ? ' · ' + esc(l.phone) : ''}</option>`).join('')}</select></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>Pricing model</label><select id="rent-model"><option value="per_lead">Per lead</option><option value="flat">Flat monthly</option></select></div>
+        <div class="field"><label>Price ($)</label><input id="rent-price" type="number" min="0" step="1" value="25" /><span class="hint" id="rent-price-hint">Per qualified lead. Whole dollars — charged in credits.</span></div>
+        <div class="field"><label>Free trial leads</label><input id="rent-trial" type="number" min="0" step="1" value="0" /></div>
+        <div class="field"><label>Start date (optional)</label><input id="rent-start" type="date" /></div>
+      </div>
+      <div class="inline"><button class="btn primary" id="rent-create" type="button">Start rental</button><span class="msg" id="rent-msg"></span></div>
+      <div id="rent-conflict"></div>
+    </div>
+    <div class="card" style="margin-bottom:1rem">
+      <div class="inline" style="justify-content:space-between"><h3 style="margin:0">All rentals</h3>
+      <input id="rent-filter" type="search" placeholder="Filter by business…" style="max-width:260px" /></div>
+      <div class="table-wrap"><table class="table"><thead><tr><th>Site</th><th>Tenant</th><th>Terms</th><th>Status</th><th>Site leads</th><th>Charged</th><th>Amount due</th><th>Started</th><th></th></tr></thead>
+      <tbody id="rent-rows"></tbody></table></div>
+    </div>
+    <div id="rent-detail"></div>`;
+
+  const rowsEl = document.getElementById('rent-rows');
+  const renderRows = (list) => {
+    rowsEl.innerHTML =
+      list
+        .map(
+          (r) => `<tr>
+        <td>${siteName(r)}<div class="hint">${esc((r.site && r.site.town) || '')}${r.site && r.site.town && r.site.niche ? ' · ' : ''}${esc((r.site && r.site.niche) || '')}</div></td>
+        <td>${tenantName(r)}</td>
+        <td>${esc(priceLabel(r))}${r.trial_leads ? `<div class="hint">${esc(r.trial_used || 0)} of ${esc(r.trial_leads)} trial leads used</div>` : ''}</td>
+        <td>${statusPill(r.status)}</td>
+        <td>${esc(r.counters ? r.counters.qualified_leads : 0)}</td>
+        <td>${esc(r.counters ? r.counters.charged_credits : 0)} credits</td>
+        <td>${r.counters && r.counters.amount_due_cents ? '<strong>' + esc(cents(r.counters.amount_due_cents)) + '</strong>' : cents(0)}</td>
+        <td>${esc(fmtDate(r.started_at || r.start_at || r.created_at))}</td>
+        <td><button class="btn small" data-rent-view="${esc(r.id)}" type="button">View</button></td>
+      </tr>`
+        )
+        .join('') || '<tr><td colspan="9" class="empty">No rentals yet.</td></tr>';
+  };
+  renderRows(rentals);
+  const filterEl = document.getElementById('rent-filter');
+  filterEl.addEventListener('input', () => {
+    const q = filterEl.value.trim().toLowerCase();
+    renderRows(
+      q
+        ? rentals.filter((r) =>
+            [
+              r.site && r.site.name,
+              r.tenant && r.tenant.business_name,
+              r.site && r.site.niche,
+              r.site && r.site.town,
+            ]
+              .filter(Boolean)
+              .join(' ')
+              .toLowerCase()
+              .includes(q)
+          )
+        : rentals
+    );
+  });
+
+  const detailEl = document.getElementById('rent-detail');
+  const renderDetail = async (id) => {
+    detailEl.innerHTML = '<p class="hint">Loading…</p>';
+    try {
+      const r = await api.adminRentalGet(id);
+      const dd = r.data || {};
+      const rental = dd.rental || {};
+      const charges = dd.charges || [];
+      const history = dd.history || [];
+      const live = rental.status === 'trial' || rental.status === 'active';
+      detailEl.innerHTML = `
+      <div class="card">
+        <div class="inline" style="justify-content:space-between"><h3 style="margin:0">${siteName(rental)} → ${tenantName(rental)}</h3>${statusPill(rental.status)}</div>
+        <p class="hint">${esc(priceLabel(rental))} · started ${esc(fmtDate(rental.started_at || rental.created_at))}${rental.ended_at ? ' · ended ' + esc(fmtDate(rental.ended_at)) + (rental.end_reason ? ' (' + esc(rental.end_reason) + ')' : '') : ''}</p>
+        ${kv('Qualified site leads', rental.counters ? rental.counters.qualified_leads : 0)}
+        ${kv('Trial leads used', `${rental.trial_used || 0} of ${rental.trial_leads || 0}`)}
+        ${kv('Credits charged', rental.counters ? rental.counters.charged_credits : 0)}
+        ${kv('Amount due', cents(rental.counters ? rental.counters.amount_due_cents : 0))}
+        ${
+          live
+            ? `<div class="inline" style="margin-top:10px">
+            ${rental.status !== 'paused' ? `<button class="btn small" id="rent-pause" type="button">Pause</button>` : ''}
+            <span class="field" style="margin:0"><input id="rent-end-reason" placeholder="End reason (optional)" /></span>
+            <button class="btn small danger" id="rent-end" type="button">End rental</button>
+            <span class="msg" id="rent-detail-msg"></span></div>`
+            : rental.status === 'paused'
+              ? `<div class="inline" style="margin-top:10px"><button class="btn small primary" id="rent-resume" type="button">Resume rental</button>
+            <span class="field" style="margin:0"><input id="rent-end-reason" placeholder="End reason (optional)" /></span>
+            <button class="btn small danger" id="rent-end" type="button">End rental</button>
+            <span class="msg" id="rent-detail-msg"></span></div>`
+              : ''
+        }
+        <h4>Per-lead charges</h4>
+        <div class="table-wrap"><table class="table"><thead><tr><th>When</th><th>Source</th><th>Contact</th><th>Status</th><th>Charge</th></tr></thead><tbody>
+        ${charges.map((c) => `<tr><td>${esc(fmtDate(c.created_at))}</td><td>${esc(c.source_kind)}</td><td>${esc(c.contact_label || '')}</td><td>${esc(c.status)}</td><td>${c.status === 'trial' ? 'trial' : c.status === 'charged' ? esc(c.credits_debited) + ' credits' : c.status === 'due' ? esc(cents(c.amount_due_cents)) + ' due' : '—'}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">No charges yet.</td></tr>'}
+        </tbody></table></div>
+        <h4>Site leads delivered</h4>
+        <div class="table-wrap"><table class="table"><thead><tr><th>When</th><th>Source</th><th>Contact</th><th>Charge</th></tr></thead><tbody>
+        ${history.map((h) => `<tr><td>${esc(fmtDate(h.at))}</td><td>${esc(h.source_label || h.source)}</td><td>${esc(h.label || '')}</td><td>${h.charge ? esc(h.charge.status) + (h.charge.credits ? ' · ' + esc(h.charge.credits) + ' credits' : '') + (h.charge.amount_due_cents ? ' · ' + esc(cents(h.charge.amount_due_cents)) + ' due' : '') : '—'}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">No site leads yet.</td></tr>'}
+        </tbody></table></div>
+      </div>`;
+      const msg = document.getElementById('rent-detail-msg');
+      const wire = (btnId, fn, okText) => {
+        const b = document.getElementById(btnId);
+        if (!b) return;
+        b.addEventListener('click', async () => {
+          b.disabled = true;
+          try {
+            await fn();
+            toast(okText, 'ok');
+            pageRentals();
+          } catch (e) {
+            b.disabled = false;
+            if (msg) msg.textContent = e.message || 'Action failed.';
+          }
+        });
+      };
+      wire('rent-pause', () => api.adminRentalPause(rental.id), 'Rental paused — routing reverted to the owner.');
+      wire('rent-resume', () => api.adminRentalResume(rental.id), 'Rental resumed — routing re-applied.');
+      wire('rent-end', () => api.adminRentalEnd(rental.id, { reason: (document.getElementById('rent-end-reason') || {}).value || '' }), 'Rental ended.');
+    } catch (e) {
+      detailEl.innerHTML = `<p class="error">${esc(e.message)}</p>`;
+    }
+  };
+  rowsEl.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-rent-view]');
+    if (btn) renderDetail(Number(btn.getAttribute('data-rent-view')));
+  });
+
+  const modelSel = document.getElementById('rent-model');
+  const priceHint = document.getElementById('rent-price-hint');
+  modelSel.addEventListener('change', () => {
+    priceHint.textContent =
+      modelSel.value === 'per_lead'
+        ? 'Per qualified lead. Whole dollars — charged in credits.'
+        : 'Per month. Tracked and reported only — flat rentals are not charged per lead.';
+  });
+  const createBtn = document.getElementById('rent-create');
+  const createMsg = document.getElementById('rent-msg');
+  const conflictEl = document.getElementById('rent-conflict');
+  const doCreate = async (overrideConflict) => {
+    const dollars = Number(document.getElementById('rent-price').value || 0);
+    const body = {
+      websiteId: Number(document.getElementById('rent-site').value),
+      tenantLeadId: Number(document.getElementById('rent-tenant').value),
+      model: modelSel.value,
+      priceCents: Math.round(dollars * 100),
+      trialLeads: Number(document.getElementById('rent-trial').value || 0),
+      startAt: document.getElementById('rent-start').value || undefined,
+      overrideConflict: !!overrideConflict,
+    };
+    createBtn.disabled = true;
+    createMsg.textContent = 'Starting rental…';
+    try {
+      const r = await api.adminRentalCreate(body);
+      const rd = r.data || {};
+      toast(
+        rd.activation && rd.activation.callRouting !== 'written'
+          ? 'Rental started — call routing skipped: ' + (rd.activation.reason || 'not configured')
+          : 'Rental started — delivery now routes to the tenant.',
+        'ok'
+      );
+      pageRentals();
+    } catch (e) {
+      createBtn.disabled = false;
+      const conflicts =
+        e && e.data && e.data.error && e.data.error.details ? e.data.error.details.conflicts : null;
+      if (e && e.code === 'RENTAL_CONFLICT' && Array.isArray(conflicts) && conflicts.length) {
+        createMsg.textContent = '';
+        conflictEl.innerHTML = `
+          <div class="alert warn" style="margin-top:10px"><strong>Exclusivity warning:</strong> another live rental already covers this niche + town:
+          ${conflicts.map((c) => `<div>• ${esc(c.site_name || 'Site #' + c.website_id)} → ${esc(c.tenant_business_name || 'Lead #' + c.tenant_lead_id)} (${esc(c.niche || '')}, ${esc(c.town || '')})</div>`).join('')}
+          <div style="margin-top:8px"><button class="btn small" id="rent-create-anyway" type="button">Create anyway</button></div></div>`;
+        document.getElementById('rent-create-anyway').addEventListener('click', () => doCreate(true));
+      } else {
+        createMsg.textContent = e.message || 'Create failed.';
+      }
+    }
+  };
+  createBtn.addEventListener('click', () => doCreate(false));
+}
+
 async function pageSeo() {
   let res;
   try {
@@ -8101,6 +8329,7 @@ const PAGES = {
   memberships: pageMemberships,
   calls: pageCalls,
   seo: pageSeo,
+  rentals: pageRentals,
   modules: pageModules,
   courses: pageCourses,
   analytics: pageAnalytics,

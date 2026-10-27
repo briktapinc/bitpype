@@ -1690,6 +1690,75 @@ router.post(
   }
 );
 
+// Site Rentals (Batch 26): staff rent a niche site to a tenant lead.
+// Create can 409 with RENTAL_SITE_OCCUPIED (hard block) or
+// RENTAL_CONFLICT (niche+town warning — resend with overrideConflict).
+router.get('/admin-area/rentals', denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, domain.rentalsScreen(req.auth.workspaceId));
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.get('/admin-area/rentals/:id', denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, domain.rentalsDetail(req.auth.workspaceId, Number(req.params.id)));
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 500);
+  }
+});
+router.post(
+  '/admin-area/rentals',
+  requireRole('owner', 'admin'),
+  denyLeadScopedToken,
+  async (req, res) => {
+    try {
+      ok(res, await domain.rentalsCreate(req.auth.workspaceId, req.body || {}, 'staff'));
+    } catch (e) {
+      if (e && e.code === 'RENTAL_CONFLICT') {
+        return fail(res, e, 409);
+      }
+      fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.code === 'RENTAL_SITE_OCCUPIED' ? 409 : e.status || 400);
+    }
+  }
+);
+router.post(
+  '/admin-area/rentals/:id/end',
+  requireRole('owner', 'admin'),
+  denyLeadScopedToken,
+  async (req, res) => {
+    try {
+      ok(res, await domain.rentalsEnd(req.auth.workspaceId, Number(req.params.id), (req.body || {}).reason || ''));
+    } catch (e) {
+      fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.status || 400);
+    }
+  }
+);
+router.post(
+  '/admin-area/rentals/:id/pause',
+  requireRole('owner', 'admin'),
+  denyLeadScopedToken,
+  (req, res) => {
+    try {
+      ok(res, domain.rentalsPause(req.auth.workspaceId, Number(req.params.id)));
+    } catch (e) {
+      fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.status || 400);
+    }
+  }
+);
+router.post(
+  '/admin-area/rentals/:id/resume',
+  requireRole('owner', 'admin'),
+  denyLeadScopedToken,
+  (req, res) => {
+    try {
+      ok(res, domain.rentalsResume(req.auth.workspaceId, Number(req.params.id)));
+    } catch (e) {
+      fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.code === 'RENTAL_SITE_OCCUPIED' ? 409 : e.status || 400);
+    }
+  }
+);
+
 // ---------- Domain purchase transactions (Batch 15) ----------
 router.get('/admin-area/domain-transactions', denyLeadScopedToken, (req, res) => {
   try {
