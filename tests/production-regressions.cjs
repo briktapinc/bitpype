@@ -6163,6 +6163,130 @@ async function main() {
     assert.equal(sqlitePlain.value, 'Fixture Co', 'non-secret keys still stored plain');
   });
 
+  // ---- Review fix 4: Twilio recording webhook + media fetch ----
+  // The recording webhook itself has verified Twilio signatures since
+  // Batch 21 (pinned below against regression). The open hole was the
+  // media fetch: fetchRecordingMedia took the stored RecordingUrl —
+  // a value a webhook post controls — and fetched it WITH the Twilio
+  // Basic-auth header, so a hostile URL both leaked the credentials
+  // to that host and pulled arbitrary content into playback/transcripts.
+  const fetchesR4 = [];
+  const loadTwilioR4 = (fetchImpl) => {
+    const mod = { exports: {} };
+    vm.runInNewContext(fs.readFileSync(path.join(root, 'server/twilioClient.js'), 'utf8'), {
+      module: mod, exports: mod.exports,
+      require: (name) => {
+        if (name === './platform') {
+          return { getPlatformSetting: async (k) => ({ 'twilio.account_sid': 'ACr4', 'twilio.auth_token': 'tok-r4' })[k] || '' };
+        }
+        if (!name.startsWith('.')) return require(name);
+        throw new Error('Unexpected dependency: ' + name);
+      },
+      process: { env: {} }, console, Buffer, URL, URLSearchParams, FormData, Blob,
+      fetch: fetchImpl, setTimeout, clearTimeout,
+    }, { filename: 'server/twilioClient.js' });
+    return mod.exports;
+  };
+  const twilioR4 = loadTwilioR4(async (url, opts) => {
+    fetchesR4.push({ url: String(url), opts });
+    return { ok: true, status: 200, headers: { get: () => 'audio/mpeg' }, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer };
+  });
+  const ssrfInternalR4 = await twilioR4.fetchRecordingMedia('https://169.254.169.254/latest/meta-data/iam');
+  const ssrfHostR4 = await twilioR4.fetchRecordingMedia('https://recordings.evil.example/steal');
+  const ssrfUserinfoR4 = await twilioR4.fetchRecordingMedia('https://api.twilio.com@evil.example/x');
+  check('review4 media fetch: non-Twilio recording URLs are refused and never fetched (no credential leak)', () => {
+    assert.equal(fetchesR4.length, 0, 'no fetch may fire for a non-Twilio URL');
+    for (const r of [ssrfInternalR4, ssrfHostR4, ssrfUserinfoR4]) {
+      assert.equal(r.ok, false);
+      assert.equal(r.reason, 'untrusted_url');
+    }
+  });
+  const goodMediaR4 = await twilioR4.fetchRecordingMedia('https://api.twilio.com/2010-04-01/Accounts/ACr4/Recordings/REr4');
+  check('review4 media fetch: a genuine Twilio recording URL still downloads with auth', () => {
+    assert.equal(goodMediaR4.ok, true);
+    assert.equal(fetchesR4.length, 1);
+    assert.ok(fetchesR4[0].url.endsWith('/Recordings/REr4.mp3'));
+    assert.ok(String(fetchesR4[0].opts.headers.Authorization || '').startsWith('Basic '));
+  });
+
+  // Route-level pin: with credentials configured, a forged (unsigned)
+  // recording post is a 403 and stores nothing; a correctly signed one
+  // stores the recording.
+  const storedR4 = [];
+  const handlersR4 = { post: {}, get: {} };
+  const fakeRouterR4 = {
+    post: (p, ...h) => { handlersR4.post[p] = h[h.length - 1]; },
+    get: (p, ...h) => { handlersR4.get[p] = h[h.length - 1]; },
+    use: () => {},
+  };
+  const realTwilioR4 = loadTwilioR4(async () => { throw new Error('no fetch in route test'); });
+  load('server/routes/calls.js', {
+    express: { Router: () => fakeRouterR4 },
+    '../domain': { withDb: (_ws, fn) => fn(db) },
+    '../workspaceExists': { assertWorkspaceExists: async (id) => { if (Number(id) !== 1) throw new Error('no ws'); } },
+    '../siteModules': {
+      upsertCallStatus: () => ({}),
+      storeCallRecording: (_db, callSid, rec) => {
+        storedR4.push({ callSid, ...rec });
+        return { call_sid: callSid, recording_url: rec.recordingUrl, is_voicemail: 0, transcript_status: 'none' };
+      },
+      setCallTranscript: () => {},
+      getCallLogBySid: () => null,
+    },
+    '../portalContacts': contacts,
+    '../twilioClient': {
+      getCredentials: async () => ({ accountSid: 'ACr4', authToken: 'tok-r4' }),
+      validateSignature: realTwilioR4.validateSignature,
+      fetchRecordingMedia: async () => ({ configured: false }),
+      transcribeRecording: async () => ({ ok: false, reason: 'stub' }),
+    },
+    '../clientPortal': { findById: () => null },
+    '../workspace': { getMembership: () => null, findWorkspaceByToken: () => null },
+    '../callNotify': { notifyCallByEmail: async () => ({ sent: false }) },
+    '../callBilling': { settleCallBilling: async () => ({}), transcribeCallRecording: async () => ({ ok: false }) },
+    '../stripeClient': { appUrl: () => 'https://example.test' },
+  });
+  db.prepare('INSERT INTO leads (id, business_name, email) VALUES (?, ?, ?)').run(2765, 'Fixture R4 Calls', 'r4@example.invalid');
+  const fakeResR4 = () => ({
+    statusCode: 200, headers: {}, body: null,
+    status(c) { this.statusCode = c; return this; },
+    set(k, v) { this.headers[k] = v; return this; },
+    type() { return this; },
+    send(b) { this.body = b; return this; },
+    json(o) { this.body = o; return this; },
+  });
+  const recBodyR4 = { CallSid: 'CAr4', RecordingSid: 'REr4', RecordingUrl: 'https://api.twilio.com/rec/REr4', RecordingDuration: '9', RecordingStatus: 'completed' };
+  const recPathR4 = '/api/v1/calls/recording/1/2765';
+  const forgedResR4 = fakeResR4();
+  await handlersR4.post['/recording/:workspaceId/:leadId'](
+    { params: { workspaceId: '1', leadId: '2765' }, body: recBodyR4, headers: {}, originalUrl: recPathR4, query: {} },
+    forgedResR4
+  );
+  check('review4 recording webhook: unsigned/forged post is 403 and stores nothing', () => {
+    assert.equal(forgedResR4.statusCode, 403);
+    assert.equal(storedR4.length, 0);
+  });
+  const cryptoR4 = require('node:crypto');
+  const signR4 = (url, params, token) => {
+    let data = url;
+    for (const k of Object.keys(params).sort()) data += k + String(params[k]);
+    return cryptoR4.createHmac('sha1', token).update(Buffer.from(data, 'utf-8')).digest('base64');
+  };
+  const signedResR4 = fakeResR4();
+  await handlersR4.post['/recording/:workspaceId/:leadId'](
+    {
+      params: { workspaceId: '1', leadId: '2765' }, body: recBodyR4,
+      headers: { 'x-twilio-signature': signR4('https://example.test' + recPathR4, recBodyR4, 'tok-r4') },
+      originalUrl: recPathR4, query: {},
+    },
+    signedResR4
+  );
+  check('review4 recording webhook: correctly signed post still stores the recording', () => {
+    assert.equal(signedResR4.statusCode, 200);
+    assert.equal(storedR4.length, 1);
+    assert.equal(storedR4[0].recordingUrl, 'https://api.twilio.com/rec/REr4');
+  });
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

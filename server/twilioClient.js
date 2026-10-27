@@ -217,6 +217,20 @@ async function fetchRecordingMedia(recordingUrl, opts = {}) {
   let url = String(recordingUrl || '');
   if (!url) return { configured: true, ok: false, reason: 'no_url' };
   if (!/\.(mp3|wav)$/i.test(url)) url += '.mp3';
+  // SSRF guard (review fix): the fetch carries the account's Basic-auth
+  // header, and the URL comes from a stored webhook field — only ever
+  // fetch Twilio's own API host over https, or a hostile RecordingUrl
+  // leaks the credentials to that host and pulls arbitrary content
+  // into playback / transcription.
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { configured: true, ok: false, reason: 'untrusted_url' };
+  }
+  if (parsed.protocol !== 'https:' || parsed.hostname !== 'api.twilio.com') {
+    return { configured: true, ok: false, reason: 'untrusted_url' };
+  }
   const res = await twilioFetch(creds, url);
   if (!res.ok) return { configured: true, ok: false, reason: `http_${res.status}` };
   const buffer = Buffer.from(await res.arrayBuffer());
