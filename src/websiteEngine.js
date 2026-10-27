@@ -3567,7 +3567,11 @@ function pageMetaFields(page) {
     p.chromeOverride === true || p.chrome_override === true || p.useSiteChrome === false || p.use_site_chrome === false;
   // Batch 31 (H): per-page noindex flag for thank-you / utility pages.
   const noindex = p.noindex === true || p.noIndex === true || p.no_index === true || p.robotsNoindex === true;
-  return { description, ogImage, canonical, customJs, customHead, overrideChrome, noindex };
+  // Batch 32: og:type override (static blog post pages ship "article").
+  const ogType = String(p.ogType || p.og_type || '')
+    .trim()
+    .slice(0, 40);
+  return { description, ogImage, canonical, customJs, customHead, overrideChrome, noindex, ogType };
 }
 
 function pageJsTag(pageJs) {
@@ -3625,6 +3629,7 @@ function docShell({
   noindex,
   seoHead,
   gscToken,
+  ogType,
 }) {
   const t = normalizeTheme(theme);
   const themeJs = themeJsTag(t);
@@ -3641,7 +3646,7 @@ function docShell({
     desc ? `<meta property="og:description" content="${esc(desc)}">` : '',
     ogImg ? `<meta property="og:image" content="${esc(ogImg)}">` : '',
     canon ? `<meta property="og:url" content="${esc(canon)}">` : '',
-    `<meta property="og:type" content="website">`,
+    `<meta property="og:type" content="${esc(ogType && String(ogType).trim() ? String(ogType).trim() : 'website')}">`,
     ogImg ? `<meta name="twitter:card" content="summary_large_image">` : `<meta name="twitter:card" content="summary">`,
     `<meta name="twitter:title" content="${esc(title)}">`,
     desc ? `<meta name="twitter:description" content="${esc(desc)}">` : '',
@@ -3709,12 +3714,13 @@ function seoContextFromOpts(opts) {
   const seo = o.seo && typeof o.seo === 'object' ? o.seo : null;
   if (seo) return seo;
   // Direct opts (tests / simple callers): { seoBaseUrl, seoBusiness, … }
-  if (o.seoBaseUrl != null || o.seoBusiness != null || o.gscToken != null || o.moduleFaqItems != null) {
+  if (o.seoBaseUrl != null || o.seoBusiness != null || o.gscToken != null || o.moduleFaqItems != null || o.blog != null) {
     return {
       baseUrl: o.seoBaseUrl || '',
       business: o.seoBusiness || null,
       moduleFaqItems: o.moduleFaqItems || [],
       gscToken: o.gscToken || '',
+      blog: o.blog || null,
     };
   }
   return null;
@@ -3815,7 +3821,248 @@ function buildSeoHeadExtras(page, pages, theme, opts) {
     const faqLd = seoSchema.buildFaqPageLd(merged);
     if (faqLd) blocks.push(seoSchema.ldJsonScript(faqLd, 'faqpage'));
   }
+  // Batch 32 (C6): static blog post pages carry BlogPosting JSON-LD.
+  // The synthetic post page rides its post data on page.blogPost; the
+  // author/publisher is the site's business from the SEO context.
+  const bp = page && typeof page === 'object' ? page.blogPost : null;
+  if (bp && !existingTypes.has('BlogPosting')) {
+    const baseUrl = String(seo.baseUrl || '').trim().replace(/\/+$/, '');
+    const postPath = bp.urlPath || pageUrlPath(page && page.slug);
+    const postUrl = baseUrl ? absoluteSeoUrl(baseUrl, postPath) : postPath;
+    const cover = bp.coverImage ? absolutizeSeoUrl(baseUrl, bp.coverImage) : '';
+    const biz = seo.business && typeof seo.business === 'object' ? seo.business : {};
+    const ld = seoSchema.buildBlogPostingLd(
+      {
+        title: bp.title,
+        description: bp.description || bp.excerpt,
+        image: cover,
+        datePublished: seoDateIso(bp.publishedAt),
+        dateModified: seoDateIso(bp.updatedAt) || seoDateIso(bp.publishedAt),
+        url: postUrl,
+      },
+      {
+        businessName: biz.businessName || biz.name || '',
+        businessUrl: baseUrl ? `${baseUrl}/` : biz.url || '',
+        publisherLogo:
+          t.logoMode === 'image' && t.logoUrl ? absolutizeSeoUrl(baseUrl, t.logoUrl) : '',
+      }
+    );
+    if (ld) blocks.push(seoSchema.ldJsonScript(ld, 'blogposting'));
+  }
   return blocks.join('\n');
+}
+
+/* ------------------------------------------------------------------ */
+/* Static blog (Batch 32 — C6)                                         */
+/*                                                                     */
+/* Blog posts used to exist only as a client-side module payload on    */
+/* one shared ?bpItem= URL — invisible to crawlers, no rankable URLs.  */
+/* The exporter now server-renders: (1) a static card snapshot inside  */
+/* every blog mount in the exported HTML (real post URLs, titles,      */
+/* dates, covers in the raw HTML), and (2) one static page per         */
+/* published post under the blog page's canonical path, with           */
+/* BlogPosting JSON-LD (buildSeoHeadExtras) and a sitemap entry with   */
+/* the post's own lastmod. The runtime module behavior (portal,        */
+/* in-app previews) is untouched — module-embed.js keeps the static    */
+/* snapshot on marked mounts and redirects legacy ?bpItem= links to    */
+/* the static post page (Cloudflare Pages _redirects cannot match      */
+/* query strings, so a server 301 for ?bpItem= is impossible; the      */
+/* client redirect + static index are the least-bad landing).          */
+/*                                                                     */
+/* seo.blog shape (built by buildSeoExportContext):                    */
+/*   { pagePath: 'blog',                    canonical blog page path   */
+/*     posts: [{ slug, title, description, coverImage, bodyHtml,       */
+/*               publishedAt, updatedAt }], published only, newest 1st */
+/*     embeds: { <token>: { postLimit, showExcerpt } } }               */
+/* ------------------------------------------------------------------ */
+
+/** Normalize a stored date ('YYYY-MM-DD HH:MM:SS' UTC or ISO) to ISO. */
+function seoDateIso(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  let s = raw;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s)) s = `${s.replace(' ', 'T')}Z`;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString();
+}
+
+/** 'Oct 27, 2026' — matches the module embed's dateLabel presentation. */
+function seoDateLabel(value) {
+  const iso = seoDateIso(value);
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleDateString('en-US', {
+      timeZone: 'UTC',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return iso.slice(0, 10);
+  }
+}
+
+/** First ~30 words of a post body as plain text (payload excerpt parity). */
+function deriveBlogExcerptText(bodyHtml, wordLimit = 30) {
+  const plain = seoSchema.stripHtmlToText(bodyHtml || '');
+  if (!plain) return '';
+  const words = plain.split(/\s+/).filter(Boolean);
+  if (words.length <= wordLimit) return words.join(' ');
+  return `${words.slice(0, wordLimit).join(' ')}…`;
+}
+
+/** Normalize one raw blog post row / fixture into the export shape. */
+function normalizeBlogPost(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const slug = canonicalSlugPath(raw.slug || '');
+  const title = seoSchema.cleanStr(raw.title, 200);
+  if (!slug || !title) return null;
+  const bodyHtml = String(raw.bodyHtml != null ? raw.bodyHtml : raw.body_html || '');
+  const explicit = seoSchema.cleanStr(raw.description || raw.excerpt, 500);
+  return {
+    slug: slug.split('/').pop(),
+    title,
+    description: explicit || deriveBlogExcerptText(bodyHtml),
+    coverImage: String(raw.coverImage != null ? raw.coverImage : raw.cover_image || '').trim(),
+    bodyHtml,
+    publishedAt: raw.publishedAt != null ? raw.publishedAt : raw.published_at || raw.created_at || '',
+    updatedAt: raw.updatedAt != null ? raw.updatedAt : raw.updated_at || raw.published_at || raw.created_at || '',
+  };
+}
+
+/** Canonical public path of one static post page: /blog/<post-slug>. */
+function blogPostPath(blog, post) {
+  const base = String((blog && blog.pagePath) || 'blog').replace(/^\/+|\/+$/g, '');
+  return `/${base}/${post.slug}`;
+}
+
+/** Cover/asset src for static output: absolute with a base, else root-relative. */
+function staticAssetSrc(value, baseUrl) {
+  const v = String(value || '').trim();
+  if (!v) return '';
+  const abs = absolutizeSeoUrl(baseUrl, v);
+  if (/^(https?:|data:|\/)/i.test(abs)) return abs;
+  return `/${abs}`;
+}
+
+/**
+ * Server-rendered blog card list for one mount (mirrors the module
+ * embed's card markup + classes so theme/module CSS styles it the
+ * same). Honors the mount's post_limit / show_excerpt settings.
+ */
+function buildStaticBlogCardsHtml(blog, embedCfg, baseUrl) {
+  const cfg = embedCfg && typeof embedCfg === 'object' ? embedCfg : {};
+  let posts = Array.isArray(blog.posts) ? blog.posts : [];
+  if (cfg.postLimit != null && Number(cfg.postLimit) > 0) posts = posts.slice(0, Number(cfg.postLimit));
+  if (!posts.length) return '';
+  const showExcerpt = cfg.showExcerpt !== false;
+  const cards = posts.map((post) => {
+    const href = blogPostPath(blog, post);
+    const cover = post.coverImage ? staticAssetSrc(post.coverImage, baseUrl) : '';
+    const coverHtml = cover
+      ? `<a class="bp-mod-cover" href="${esc(href)}" style="background-image:url('${esc(cover)}')"></a>`
+      : `<a class="bp-mod-cover bp-mod-cover-fallback" href="${esc(href)}" aria-hidden="true">${esc(
+          post.title.charAt(0).toUpperCase() || '?'
+        )}</a>`;
+    const date = seoDateLabel(post.publishedAt);
+    return (
+      `<article class="bp-mod-card">${coverHtml}<div class="bp-mod-body">` +
+      `<h2><a href="${esc(href)}">${esc(post.title)}</a></h2>` +
+      (date ? `<p class="bp-mod-meta">${esc(date)}</p>` : '') +
+      (showExcerpt && post.description ? `<p class="bp-mod-excerpt">${esc(post.description)}</p>` : '') +
+      `</div></article>`
+    );
+  });
+  return `<div class="bp-mod-grid" data-bitpype-static-blog-list="1">${cards.join('')}</div>`;
+}
+
+/**
+ * Inject the static snapshot into every blog mount in one exported
+ * page: the mount div gains data-bitpype-static-blog="1" (the client
+ * embed keeps the snapshot instead of re-rendering ?bpItem= links)
+ * and the cards become its first child.
+ */
+function injectStaticBlogSnapshot(html, blog, baseUrl) {
+  let doc = String(html || '');
+  if (!blog || !Array.isArray(blog.posts) || !blog.posts.length) return doc;
+  const tagRe = /<div\b[^>]*\bclass\s*=\s*["'][^"']*\bbitpype-module-embed\b[^"']*["'][^>]*>/gi;
+  return doc.replace(tagRe, (tag) => {
+    const token = (tag.match(/data-bitpype-module-token\s*=\s*["']([^"']+)["']/i) || [])[1] || '';
+    const type = (tag.match(/data-bitpype-module-type\s*=\s*["']([^"']+)["']/i) || [])[1] || '';
+    const cfg = token && blog.embeds ? blog.embeds[token] : null;
+    if (!cfg && type !== 'blog') return tag;
+    const cards = buildStaticBlogCardsHtml(blog, cfg || {}, baseUrl);
+    if (!cards) return tag;
+    const open = tag.endsWith('/>')
+      ? tag
+      : tag.replace(/>$/, ' data-bitpype-static-blog="1">');
+    return open + cards;
+  });
+}
+
+const BLOG_POST_CSS = [
+  '.bp-post{max-width:760px;margin:0 auto;padding:12px 0 28px}',
+  '.bp-post-back{margin:0 0 18px;font-size:.95rem}',
+  '.bp-post h1{margin:0 0 10px;line-height:1.18}',
+  '.bp-post-meta{margin:0 0 20px;opacity:.72}',
+  '.bp-post-cover{display:block;width:100%;height:auto;border-radius:12px;margin:0 0 24px}',
+  '.bp-post-body{line-height:1.68}',
+  '.bp-post-body img{max-width:100%;height:auto}',
+].join('\n');
+
+/** The article body for one static post page (H1, date, cover, full body). */
+function blogArticleHtml(blog, post, baseUrl) {
+  const back = blogPostPath(blog, { slug: '' }).replace(/\/$/, '') || '/blog';
+  const iso = seoDateIso(post.publishedAt);
+  const label = seoDateLabel(post.publishedAt);
+  const cover = post.coverImage ? staticAssetSrc(post.coverImage, baseUrl) : '';
+  return (
+    `<article class="bp-post" data-bitpype-blog-post="1">` +
+    `<style data-bitpype-blog-post-css="1">${BLOG_POST_CSS}</style>` +
+    `<p class="bp-post-back"><a href="${esc(back)}">← All posts</a></p>` +
+    `<h1>${esc(post.title)}</h1>` +
+    (label
+      ? `<p class="bp-post-meta"><time datetime="${esc(iso || label)}">${esc(label)}</time></p>`
+      : '') +
+    (cover ? `<img class="bp-post-cover" src="${esc(cover)}" alt="${esc(post.title)}">` : '') +
+    `<div class="bp-post-body">${post.bodyHtml || ''}</div>` +
+    `</article>`
+  );
+}
+
+/**
+ * Synthetic page object for one static post page: the blog page's own
+ * nav/footer sections (site chrome stays identical), the article in
+ * between, and page.blogPost so buildSeoHeadExtras emits BlogPosting.
+ * Rendered through renderPage like any other page.
+ */
+function buildBlogPostPage(blog, post, anchorPage, baseUrl) {
+  const sections = [];
+  const anchorSections = anchorPage && Array.isArray(anchorPage.sections) ? anchorPage.sections : [];
+  const clone = (s) => JSON.parse(JSON.stringify(s));
+  const navSec = anchorSections.find((s) => s && s.type === 'nav');
+  const footerSec = [...anchorSections].reverse().find((s) => s && s.type === 'footer');
+  if (navSec) sections.push(clone(navSec));
+  sections.push({ type: 'html', content: { html: blogArticleHtml(blog, post, baseUrl) } });
+  if (footerSec) sections.push(clone(footerSec));
+  return {
+    slug: `${String(blog.pagePath || 'blog').replace(/^\/+|\/+$/g, '')}/${post.slug}`,
+    title: post.title,
+    description: post.description,
+    ogImage: post.coverImage ? staticAssetSrc(post.coverImage, baseUrl) : '',
+    ogType: 'article',
+    navVisible: false,
+    blogPost: {
+      title: post.title,
+      description: post.description,
+      coverImage: post.coverImage,
+      publishedAt: post.publishedAt,
+      updatedAt: post.updatedAt,
+      urlPath: blogPostPath(blog, post),
+    },
+    sections,
+    updatedAt: post.updatedAt || post.publishedAt || '',
+  };
 }
 
 /** Inject auto SEO blocks into a full document's <head> (idempotent). */
@@ -3908,6 +4155,17 @@ function buildSitemapXml(pages, opts) {
     const d = rawMod ? new Date(String(rawMod).replace(' ', 'T')) : null;
     const lastmod = d && !Number.isNaN(d.getTime()) ? d.toISOString().slice(0, 10) : '';
     urls.push(`  <url>\n    <loc>${escXml(loc)}</loc>${lastmod ? `\n    <lastmod>${lastmod}</lastmod>` : ''}\n  </url>`);
+  }
+  // Batch 32 (C6): extra URL entries (static blog post pages) with
+  // their own honest lastmod (the post's updated/published stamp).
+  for (const extra of Array.isArray(o.extraUrls) ? o.extraUrls : []) {
+    if (!extra || !extra.path) continue;
+    const loc = baseUrl ? absoluteSeoUrl(baseUrl, extra.path) : extra.path;
+    const iso = seoDateIso(extra.lastmod);
+    const lastmod = iso ? iso.slice(0, 10) : '';
+    urls.push(
+      `  <url>\n    <loc>${escXml(loc)}</loc>${lastmod ? `\n    <lastmod>${lastmod}</lastmod>` : ''}\n  </url>`
+    );
   }
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`;
 }
@@ -4187,6 +4445,7 @@ function renderPage(page, allPages, theme, opts) {
             seoHead: pageSeo.seoHead,
             pageJs: pageMeta.customJs,
             pageHead: pageMeta.customHead,
+            ogType: pageMeta.ogType,
           })
         ),
         t
@@ -4250,6 +4509,7 @@ function renderPage(page, allPages, theme, opts) {
         seoHead: pageSeo.seoHead,
         pageJs: pageMeta.customJs,
         pageHead: pageMeta.customHead,
+        ogType: pageMeta.ogType,
       }),
       t
     )
@@ -6433,6 +6693,55 @@ async function qaSite(db, websiteId) {
             if (words < 600) seoWarns.push(`${label}: thin page (~${words} visible words, target 1000+)`);
           }
         }
+        // Batch 32 (C6): a site with published blog posts must ship
+        // static post pages + a server-rendered blog index. An export
+        // that still relies on the ?bpItem= client pattern FAILS.
+        try {
+          let publishedSlugs = [];
+          try {
+            publishedSlugs = db
+              .prepare("SELECT slug FROM blog_posts WHERE lead_id = ? AND status = 'published'")
+              .all(site.lead_id)
+              .map((r) => String(r.slug || ''))
+              .filter(Boolean);
+          } catch {
+            publishedSlugs = [];
+          }
+          if (publishedSlugs.length) {
+            const blogCtxQa = qaSeo && qaSeo.blog ? qaSeo.blog : null;
+            if (!blogCtxQa) {
+              seoFails.push(
+                'blog: published posts exist but no static blog was threaded into the export (missing blog page/mount, or the blog page is member-gated)'
+              );
+            } else {
+              const anchorObj = pages.find(
+                (p) => p && canonicalSlugPath(p.slug) === String(blogCtxQa.pagePath || '')
+              );
+              const anchorFile = anchorObj
+                ? anchorObj === homePageObj || isHomePage(anchorObj, pages)
+                  ? 'index.html'
+                  : pageFileName(anchorObj.slug)
+                : '';
+              const anchorHtml =
+                anchorFile && fs.existsSync(path.join(exportDir, anchorFile))
+                  ? fs.readFileSync(path.join(exportDir, anchorFile), 'utf8')
+                  : '';
+              if (!anchorHtml || !anchorHtml.includes('data-bitpype-static-blog')) {
+                seoFails.push('blog: index page lacks the server-rendered static blog snapshot');
+              } else if (/bpItem=/.test(anchorHtml)) {
+                seoFails.push('blog: index still links the ?bpItem= client-side pattern');
+              }
+              for (const slug of publishedSlugs) {
+                const postFile = pageFileName(`${blogCtxQa.pagePath}/${slug}`);
+                if (!fs.existsSync(path.join(exportDir, postFile))) {
+                  seoFails.push(`blog: missing static post page ${postFile}`);
+                }
+              }
+            }
+          }
+        } catch (e) {
+          seoFails.push(`blog: static blog check errored (${e.message || e})`);
+        }
         check(
           'seo-foundations',
           seoFails.length === 0,
@@ -6834,6 +7143,14 @@ function writeStaticPages(pages, theme, outDir, opts) {
   fs.mkdirSync(outDir, { recursive: true });
   const home = homePage(pages);
   const written = [];
+  // Batch 32 (C6): static blog context (published posts + mounts),
+  // threaded via opts.seo.blog by buildSeoExportContext.
+  const seoForBlog = seoContextFromOpts(opts || {});
+  const baseUrlForBlog = seoForBlog ? String(seoForBlog.baseUrl || '').trim().replace(/\/+$/, '') : '';
+  const blogCtx =
+    seoForBlog && seoForBlog.blog && Array.isArray(seoForBlog.blog.posts) && seoForBlog.blog.posts.length
+      ? seoForBlog.blog
+      : null;
   for (const p of pages) {
     const file = p === home || isHomePage(p, pages) ? 'index.html' : pageFileName(p.slug);
     let pageHtml = renderPage(p, pages, theme, opts);
@@ -6842,6 +7159,9 @@ function writeStaticPages(pages, theme, outDir, opts) {
     // filenames and bare slugs are all normalized here, so no exported
     // link can fall back to the home page.
     pageHtml = normalizeInternalLinksToCanonical(pageHtml, pages);
+    // Batch 32 (C6): server-render the blog card snapshot into any blog
+    // mount on this page (real post URLs in the raw HTML).
+    if (blogCtx) pageHtml = injectStaticBlogSnapshot(pageHtml, blogCtx, baseUrlForBlog);
     // Final guard: sanitize/render must leave managed embed loaders intact.
     pageHtml = ensureManagedEmbedScripts(pageHtml);
     const embedAssert = assertManagedEmbedScripts(pageHtml, `export ${file}`);
@@ -6855,6 +7175,47 @@ function writeStaticPages(pages, theme, outDir, opts) {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, pageHtml, 'utf8');
     written.push(file);
+  }
+  // Batch 32 (C6): one static page per published blog post, rendered
+  // through the same pipeline (site chrome, canonical, og article,
+  // BlogPosting JSON-LD). An authored page at the same canonical path
+  // always wins — the post page is skipped, never overwritten.
+  const blogSitemapUrls = [];
+  if (blogCtx) {
+    try {
+      const anchorPage =
+        pages.find((p) => p && canonicalSlugPath(p.slug) === String(blogCtx.pagePath || '')) || null;
+      const takenPaths = new Set(pages.map((p) => canonicalSlugPath(p && p.slug)));
+      for (const rawPost of blogCtx.posts) {
+        const post = normalizeBlogPost(rawPost);
+        if (!post) continue;
+        const postPage = buildBlogPostPage(blogCtx, post, anchorPage, baseUrlForBlog);
+        const postKey = canonicalSlugPath(postPage.slug);
+        if (takenPaths.has(postKey)) continue;
+        let postHtml = renderPage(postPage, pages, theme, opts);
+        postHtml = normalizeInternalLinksToCanonical(postHtml, pages);
+        postHtml = ensureManagedEmbedScripts(postHtml);
+        const postAssert = assertManagedEmbedScripts(postHtml, `export blog ${post.slug}`);
+        if (!postAssert.ok) {
+          throw err(
+            'EMBED_SCRIPT_MISSING',
+            `Publish/export refused: blog post ${post.slug} missing managed embed scripts: ${postAssert.missing.join(', ')}`
+          );
+        }
+        const postFile = pageFileName(postPage.slug);
+        const postTarget = path.join(outDir, postFile);
+        fs.mkdirSync(path.dirname(postTarget), { recursive: true });
+        fs.writeFileSync(postTarget, postHtml, 'utf8');
+        if (!written.includes(postFile)) written.push(postFile);
+        blogSitemapUrls.push({
+          path: blogPostPath(blogCtx, post),
+          lastmod: post.updatedAt || post.publishedAt || '',
+        });
+      }
+    } catch (e) {
+      if (e && e.code === 'EMBED_SCRIPT_MISSING') throw e;
+      console.warn('[websiteEngine] static blog pages emit:', e.message || e);
+    }
   }
   // Batch 31 (C2/C3/C1): every export ships a themed 404.html (served
   // with a TRUE 404 status by Cloudflare Pages and the app preview
@@ -6877,7 +7238,11 @@ function writeStaticPages(pages, theme, outDir, opts) {
   try {
     fs.writeFileSync(
       path.join(outDir, 'sitemap.xml'),
-      buildSitemapXml(pages, { baseUrl, siteUpdatedAt: (opts && opts.siteUpdatedAt) || '' }),
+      buildSitemapXml(pages, {
+        baseUrl,
+        siteUpdatedAt: (opts && opts.siteUpdatedAt) || '',
+        extraUrls: blogSitemapUrls,
+      }),
       'utf8'
     );
     if (!written.includes('sitemap.xml')) written.push('sitemap.xml');
@@ -6981,15 +7346,16 @@ async function localizeWebsiteRemoteImages(db, websiteId) {
 }
 
 /**
- * Build the export-time SEO context for a stored site (Batch 31):
- * lead-derived LocalBusiness data, published FAQ-module items, the
- * site's absolute base URL (custom domain → published URL), and the
- * per-site GSC verification token. Used by exportStatic AND by
- * server/domain.js materializeWebsiteExport so every export funnel
- * (preview, publish, QA) emits the same SEO foundations.
+ * Build the export-time SEO context for a stored site (Batch 31;
+ * Batch 32 adds the blog): lead-derived LocalBusiness data, published
+ * FAQ-module items, published blog posts + mounts (for static post
+ * pages), the site's absolute base URL (custom domain → published
+ * URL), and the per-site GSC verification token. Used by exportStatic
+ * AND by server/domain.js materializeWebsiteExport so every export
+ * funnel (preview, publish, QA) emits the same SEO foundations.
  */
 function buildSeoExportContext(db, websiteId) {
-  const ctx = { baseUrl: '', business: null, moduleFaqItems: [], gscToken: '', siteUpdatedAt: '' };
+  const ctx = { baseUrl: '', business: null, moduleFaqItems: [], gscToken: '', siteUpdatedAt: '', blog: null };
   try {
     const site = getWebsite(db, websiteId);
     ctx.siteUpdatedAt = site.updated_at || '';
@@ -7063,6 +7429,97 @@ function buildSeoExportContext(db, websiteId) {
         ctx.moduleFaqItems = rows || [];
       } catch {
         /* faq_items optional */
+      }
+      // Batch 32 (C6): thread the blog through the SAME context so
+      // every export funnel (exportStatic, materialize/cfPublish, QA)
+      // emits static post pages + the index snapshot. Published posts
+      // only; the anchor is the page carrying the blog mount (an
+      // embed's target page first). A member-gated blog page keeps
+      // everything behind the wall — no static blog at all.
+      try {
+        const embedRows = db
+          .prepare(
+            "SELECT public_token, target_page_slug, settings_json FROM site_module_embeds WHERE lead_id = ? AND module_type = 'blog' AND published = 1"
+          )
+          .all(lead.id);
+        if (embedRows.length && site.pages) {
+          const sitePages = JSON.parse(site.pages);
+          const tokens = new Set(embedRows.map((r) => String(r.public_token || '')).filter(Boolean));
+          const pageHasBlogMount = (p) => {
+            if (!p || typeof p !== 'object') return false;
+            if (Array.isArray(p.sections)) {
+              for (const s of p.sections) {
+                const c = (s && s.content) || {};
+                const tok = String(c.public_token || c.publicToken || '');
+                if (tok && tokens.has(tok)) return true;
+              }
+            }
+            if (typeof p.html === 'string') {
+              for (const tok of tokens) if (tok && p.html.includes(tok)) return true;
+            }
+            return false;
+          };
+          let anchor = null;
+          for (const row of embedRows) {
+            const target = canonicalSlugPath(row.target_page_slug || '');
+            if (!target) continue;
+            const cand = sitePages.find((p) => p && canonicalSlugPath(p.slug) === target);
+            if (cand && pageHasBlogMount(cand)) {
+              anchor = cand;
+              break;
+            }
+          }
+          if (!anchor) {
+            const mounted = sitePages.filter(pageHasBlogMount);
+            anchor =
+              mounted.find((p) => /(^|\/)blog$/.test(canonicalSlugPath(p.slug))) || mounted[0] || null;
+          }
+          if (!anchor) {
+            anchor = sitePages.find((p) => p && /(^|\/)blog$/.test(canonicalSlugPath(p.slug))) || null;
+          }
+          if (anchor) {
+            let gated = false;
+            try {
+              const mods = require('../server/siteModules');
+              if (typeof mods.memberGateCheck === 'function') {
+                gated = !!mods.memberGateCheck(db, lead.id, anchor.slug).locked;
+              }
+            } catch {
+              /* gate check is best-effort; the materialize funnel also gates */
+            }
+            if (!gated) {
+              const postRows = db
+                .prepare(
+                  "SELECT slug, title, excerpt, body_html, cover_image, published_at, updated_at, created_at FROM blog_posts WHERE lead_id = ? AND status = 'published' ORDER BY COALESCE(published_at, created_at) DESC, id DESC"
+                )
+                .all(lead.id);
+              const posts = postRows.map(normalizeBlogPost).filter(Boolean);
+              if (posts.length) {
+                const embeds = {};
+                for (const row of embedRows) {
+                  let settings = {};
+                  try {
+                    settings = JSON.parse(row.settings_json || '{}') || {};
+                  } catch {
+                    settings = {};
+                  }
+                  const limit = Number(settings.post_limit);
+                  embeds[String(row.public_token)] = {
+                    postLimit: Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : null,
+                    showExcerpt: !(
+                      settings.show_excerpt === false ||
+                      settings.show_excerpt === 0 ||
+                      settings.show_excerpt === 'false'
+                    ),
+                  };
+                }
+                ctx.blog = { pagePath: canonicalSlugPath(anchor.slug) || 'blog', posts, embeds };
+              }
+            }
+          }
+        }
+      } catch {
+        /* blog context is additive — never break an export over it */
       }
     }
     try {
@@ -7237,6 +7694,14 @@ module.exports = {
   buildRobotsTxt,
   buildRedirects,
   build404Page,
+  // Static blog (Batch 32)
+  normalizeBlogPost,
+  blogPostPath,
+  buildStaticBlogCardsHtml,
+  injectStaticBlogSnapshot,
+  buildBlogPostPage,
+  seoDateIso,
+  seoDateLabel,
   stampPageUpdatedAt,
   normalizeRoute,
   navAnchorLabel,

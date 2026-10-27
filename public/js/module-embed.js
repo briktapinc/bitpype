@@ -2637,6 +2637,16 @@
       });
   }
 
+  /** Canonical static post URL for a legacy ?bpItem= redirect (Batch 32). */
+  function staticBlogPostUrl(data, slug) {
+    var stem = pathStem((data && data.embed && data.embed.target_page_slug) || '');
+    if (!stem || stem === 'home' || stem === 'index') {
+      stem = pathStem(location.pathname);
+    }
+    if (!stem || stem === 'home' || stem === 'index') stem = 'blog';
+    return '/' + stem + '/' + encodeURIComponent(slug);
+  }
+
   function mountOne(el) {
     var token = el.getAttribute(TOKEN_ATTR) || '';
     if (!token) {
@@ -2649,9 +2659,18 @@
     if (document.body && document.body.children.length <= 2 && el.parentElement === document.body) {
       el.classList.add('bitpype-module-standalone');
     }
-    el.innerHTML = '<p class="bp-mod-loading">Loading…</p>';
-    var base = apiBase(el);
+    // Batch 32: static blog exports server-render the post cards into
+    // the mount (data-bitpype-static-blog="1") with real post URLs.
+    // Keep that snapshot — never wipe it for the ?bpItem= pattern. A
+    // legacy ?bpItem=<slug> link resolves its post below and redirects
+    // to the canonical static post page (the CDN redirect layer cannot
+    // match query strings, so this client redirect is the least-bad
+    // landing; if resolution fails the snapshot simply stays).
+    var staticBlog = el.getAttribute('data-bitpype-static-blog') === '1';
     var item = currentItemKey();
+    if (staticBlog && !item) return;
+    if (!staticBlog) el.innerHTML = '<p class="bp-mod-loading">Loading…</p>';
+    var base = apiBase(el);
     var path =
       (base || '') +
       '/api/v1/modules/public/' +
@@ -2669,11 +2688,18 @@
           renderLocked(el, data);
           return;
         }
+        if (staticBlog) {
+          if (data.module_type === 'blog' && data.item && data.item.slug) {
+            location.replace(staticBlogPostUrl(data, data.item.slug));
+          }
+          return;
+        }
         if (data.item) renderItem(el, data);
         else renderList(el, data);
         if (data.module_type === 'ecommerce') wireShop(el, base, token);
       })
       .catch(function (e) {
+        if (staticBlog) return; // snapshot stays — never dead-end
         el.innerHTML = '<p class="bp-mod-err">' + esc(e.message || 'Failed to load module') + '</p>';
       });
   }

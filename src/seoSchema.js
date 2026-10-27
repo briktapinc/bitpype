@@ -293,6 +293,52 @@ function buildFaqPageLd(items) {
   return { '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: list };
 }
 
+/**
+ * BlogPosting JSON-LD for one static blog post page (Batch 32 — C6).
+ * post: { title, description, image, datePublished, dateModified }
+ * ctx:  { businessName, businessUrl, postUrl, publisherLogo }
+ * Author/publisher are the site's business (an Organization) — the
+ * same entity the LocalBusiness block describes. Only real data is
+ * emitted: no image without a cover, no dates without stamps.
+ */
+function buildBlogPostingLd(post, ctx) {
+  const p = post && typeof post === 'object' ? post : {};
+  const c = ctx && typeof ctx === 'object' ? ctx : {};
+  const headline = cleanStr(p.title || p.headline, 200);
+  if (!headline) return null;
+  const ld = {
+    '@context': 'https://schema.org',
+    '@type': 'BlogPosting',
+    headline,
+  };
+  const description = cleanStr(p.description || p.excerpt, 600);
+  if (description) ld.description = description;
+  const image = cleanStr(p.image || p.coverImage, 1000);
+  if (image) ld.image = [image];
+  const published = cleanStr(p.datePublished || p.publishedAt, 60);
+  if (published) ld.datePublished = published;
+  const modified = cleanStr(p.dateModified || p.updatedAt, 60);
+  if (modified) ld.dateModified = modified;
+  const postUrl = cleanStr(p.url || c.postUrl, 1000);
+  if (postUrl) {
+    ld.url = postUrl;
+    ld.mainEntityOfPage = { '@type': 'WebPage', '@id': postUrl };
+  }
+  const bizName = cleanStr(c.businessName || c.name, 200);
+  if (bizName) {
+    const org = { '@type': 'Organization', name: bizName };
+    const bizUrl = cleanStr(c.businessUrl || c.url, 500);
+    if (bizUrl && /^https?:\/\//i.test(bizUrl)) org.url = bizUrl;
+    ld.author = org;
+    const publisher = { '@type': 'Organization', name: bizName };
+    if (org.url) publisher.url = org.url;
+    const logo = cleanStr(c.publisherLogo || c.logo, 1000);
+    if (logo) publisher.logo = { '@type': 'ImageObject', url: logo };
+    ld.publisher = publisher;
+  }
+  return ld;
+}
+
 /** Serialize a JSON-LD object for embedding inside a <script> tag. */
 function ldJsonScript(ld, marker) {
   if (!ld) return '';
@@ -356,6 +402,7 @@ module.exports = {
   serviceAreaTowns,
   buildLocalBusinessLd,
   buildFaqPageLd,
+  buildBlogPostingLd,
   ldJsonScript,
   ldJsonTypesIn,
   hasLocalBusinessType,
