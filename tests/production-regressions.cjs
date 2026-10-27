@@ -5135,6 +5135,400 @@ async function main() {
     assert.ok(portalHtmlSrc26.includes('nav-rentals') && portalHtmlSrc26.includes('sec-rentals'), 'portal Rentals tab present');
   });
 
+  // --- Voicemail greeting + owner email (Batch 26c) -------------------
+  // Ely (2026-10-26): an unanswered tracked call plays a greeting with
+  // the business name and takes a message; the voicemail is
+  // transcribed through the existing billing path and emailed to the
+  // owner. Admin-side toggle (voicemail_enabled, default ON); the
+  // portal only displays voicemails (marker + transcript).
+  const sm26c = load('server/siteModules.js', {
+    '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
+    '../src/websiteEngine': require(path.join(root, 'src/websiteEngine.js')),
+    './portalContacts': contacts,
+    '../src/secretBox': require(path.join(root, 'src/secretBox.js')),
+    './membershipStripe': {},
+    './shopStripe': {},
+  });
+  sm26c.ensureTables(db);
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (2611, 'Fixture Voicemail Biz', 'vm@example.invalid')").run();
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (2612, 'Fixture Voicemail Off', 'vmoff@example.invalid')").run();
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (2613, 'Fixture Voicemail Broke', 'vmbroke@example.invalid')").run();
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (2614, 'Fixture Voicemail Bare', 'vmbare@example.invalid')").run();
+  db.prepare("INSERT INTO contact_forms (lead_id, name, notify_email) VALUES (2611, 'Contact form', 'vm-alerts@example.invalid')").run();
+  db.prepare("INSERT INTO contact_forms (lead_id, name, notify_email) VALUES (2613, 'Contact form', 'vmbroke-alerts@example.invalid')").run();
+  sm26c.updateCallTrackingConfig(db, 2611, {
+    display_number: '+16105550199',
+    redirect_enabled: true,
+    redirect_number: '+16105550100',
+    record_calls: false,
+  });
+  sm26c.updateCallTrackingConfig(db, 2612, {
+    display_number: '+16105550199',
+    redirect_enabled: true,
+    redirect_number: '+16105550100',
+    voicemail_enabled: false,
+  });
+  sm26c.updateCallTrackingConfig(db, 2613, {
+    display_number: '+16105550199',
+    redirect_enabled: true,
+    redirect_number: '+16105550100',
+  });
+
+  check('batch26c config: voicemail defaults ON, admin toggle persists both ways', () => {
+    assert.equal(sm26c.getCallTrackingConfig(db, 2611).voicemail_enabled, true, 'default on for an existing config');
+    assert.equal(sm26c.getCallTrackingConfig(db, 2614).voicemail_enabled, true, 'default on for a fresh config');
+    assert.equal(sm26c.getCallTrackingConfig(db, 2612).voicemail_enabled, false, 'explicit off persists');
+    sm26c.updateCallTrackingConfig(db, 2612, { voicemail_enabled: true });
+    assert.equal(sm26c.getCallTrackingConfig(db, 2612).voicemail_enabled, true, 'admin can turn it back on');
+    sm26c.updateCallTrackingConfig(db, 2612, { voicemailEnabled: false });
+    assert.equal(sm26c.getCallTrackingConfig(db, 2612).voicemail_enabled, false, 'camelCase alias works');
+  });
+
+  const vmTwiml26c = sm26c.buildVoicemailTwiml(sm26c.getCallTrackingConfig(db, 2611), {
+    workspaceId: 1,
+    leadId: 2611,
+    baseUrl: 'https://example.test',
+    businessName: 'Fixture Voicemail Biz',
+  });
+  const vmTwimlBare26c = sm26c.buildVoicemailTwiml(sm26c.getCallTrackingConfig(db, 2611), {
+    workspaceId: 1,
+    leadId: 2611,
+    baseUrl: 'https://example.test',
+    businessName: '',
+  });
+  check('batch26c twiml: greeting names the business, Record posts to the vm-flagged recording webhook', () => {
+    assert.ok(vmTwiml26c.includes('<Say>Thanks for calling Fixture Voicemail Biz.'));
+    assert.ok(
+      vmTwiml26c.includes(
+        "We're sorry we missed your call. Please leave your name, number, and a brief message after the tone, and we'll get back to you as soon as we can."
+      )
+    );
+    assert.ok(vmTwiml26c.includes('<Record'));
+    assert.ok(vmTwiml26c.includes('maxLength="120"'));
+    assert.ok(vmTwiml26c.includes('playBeep="true"'));
+    assert.ok(vmTwiml26c.includes('recordingStatusCallback="https://example.test/api/v1/calls/recording/1/2611?vm=1"'));
+    assert.ok(vmTwiml26c.includes('action="https://example.test/api/v1/calls/recording/1/2611?vm=1"'));
+    assert.ok(!vmTwiml26c.includes('<Dial'), 'voicemail branch never dials');
+    assert.ok(vmTwimlBare26c.includes('<Say>Thanks for calling. We\'re sorry we missed your call.'), 'nameless fallback');
+  });
+  const answeredTwiml26c = sm26c.buildCallTrackingVoiceTwiml(sm26c.getCallTrackingConfig(db, 2611), {
+    workspaceId: 1,
+    leadId: 2611,
+    baseUrl: 'https://example.test',
+  });
+  check('batch26c twiml: answered-call voice TwiML is unchanged (dial, no greeting, no Record)', () => {
+    assert.ok(answeredTwiml26c.includes('<Dial callerId="+16105550199"'));
+    assert.ok(answeredTwiml26c.includes('>+16105550100</Dial>'));
+    assert.ok(!answeredTwiml26c.includes('missed your call'));
+    assert.ok(!answeredTwiml26c.includes('<Record'));
+  });
+
+  // Voicemail notify behind the REAL billing path (stub credits/plan/
+  // STT, mirroring the batch21 billing rig) + a recording mailer.
+  const vmCredit26c = { balance: 5, spends: [] };
+  let vmPlan26c = 'standard';
+  let vmSttCalls26c = 0;
+  const vmBilling26c = load('server/callBilling.js', {
+    './domain': { withDb: (_ws, fn) => fn(db) },
+    './siteModules': sm26c,
+    './credits': {
+      getBalance: async () => vmCredit26c.balance,
+      spend: async (ws, amount, meta) => {
+        if (vmCredit26c.balance < amount) {
+          const e = new Error('Not enough credits');
+          e.code = 'INSUFFICIENT_CREDITS';
+          throw e;
+        }
+        vmCredit26c.balance -= amount;
+        vmCredit26c.spends.push({ amount, ...meta });
+        return { balance: vmCredit26c.balance };
+      },
+    },
+    './billing': { effectivePlan: async () => vmPlan26c },
+    './twilioClient': {
+      transcribeRecording: async () => {
+        vmSttCalls26c += 1;
+        return { ok: true, text: 'Hi, this is Pat — my sink is leaking, please call me back.' };
+      },
+    },
+  });
+  const vmMails26c = [];
+  const vmMailer26c = {
+    sendPlatformMail: async (msg) => {
+      vmMails26c.push(msg);
+      return { sent: true };
+    },
+  };
+  const vmCallNotify26c = load('server/callNotify.js', {
+    './domain': { withDb: (_ws, fn) => fn(db) },
+    './siteModules': sm26c,
+    './mailer': vmMailer26c,
+    './stripeClient': { appUrl: () => 'https://example.test' },
+  });
+  const voicemailNotify26c = load('server/voicemailNotify.js', {
+    './domain': { withDb: (_ws, fn) => fn(db) },
+    './siteModules': sm26c,
+    './mailer': vmMailer26c,
+    './callBilling': vmBilling26c,
+    './callNotify': { resolveNotifyRecipient: vmCallNotify26c.resolveNotifyRecipient },
+    './stripeClient': { appUrl: () => 'https://example.test' },
+  });
+
+  // Route level: voice → missed Dial action → greeting; recording
+  // callback (signed over the FULL url incl. ?vm=1) → store + email.
+  const handlers26c = { get: {}, post: {} };
+  const fakeRouter26c = {
+    get: (p, ...h) => {
+      handlers26c.get[p] = h[h.length - 1];
+    },
+    post: (p, ...h) => {
+      handlers26c.post[p] = h[h.length - 1];
+    },
+    use: () => {},
+  };
+  const missedCallAlerts26c = [];
+  load('server/routes/calls.js', {
+    express: { Router: () => fakeRouter26c },
+    '../domain': { withDb: (_ws, fn) => fn(db) },
+    '../workspaceExists': { assertWorkspaceExists: (id) => Number(id) === 1 },
+    '../siteModules': sm26c,
+    '../portalContacts': contacts,
+    '../twilioClient': {
+      getCredentials: async () => ({ accountSid: 'ACtest26c', authToken: 'tok26c' }),
+      validateSignature: realTwilio21.validateSignature,
+      transcribeRecording: async () => ({ ok: false, reason: 'no_stt_key' }),
+      fetchRecordingMedia: async () => ({ configured: false }),
+    },
+    '../clientPortal': { findById: () => null },
+    '../workspace': { getMembership: () => null, findWorkspaceByToken: () => null },
+    '../callNotify': {
+      notifyCallByEmail: async (ws, leadId, callSid) => {
+        missedCallAlerts26c.push(callSid);
+        return { sent: true };
+      },
+    },
+    '../voicemailNotify': voicemailNotify26c,
+    '../callBilling': {
+      settleCallBilling: async () => ({ settled: true }),
+      transcribeCallRecording: async () => ({ ok: false, reason: 'route_stub' }),
+    },
+    '../stripeClient': { appUrl: () => 'https://example.test' },
+  });
+  function fakeRes26c() {
+    return {
+      statusCode: 200,
+      body: null,
+      status(c) {
+        this.statusCode = c;
+        return this;
+      },
+      set() {
+        return this;
+      },
+      type() {
+        return this;
+      },
+      send(b) {
+        this.body = b;
+        return this;
+      },
+    };
+  }
+  const callRoute26c = async (kind, leadId, body, query) => {
+    const pathQ = query ? `?${query}` : '';
+    const p = `/api/v1/calls/${kind}/1/${leadId}${pathQ}`;
+    const r = fakeRes26c();
+    await handlers26c.post[`/${kind}/:workspaceId/:leadId`](
+      {
+        params: { workspaceId: '1', leadId: String(leadId) },
+        body,
+        query: query ? Object.fromEntries(new URLSearchParams(query)) : {},
+        headers: { 'x-twilio-signature': signFor21('https://example.test' + p, body, 'tok26c') },
+        originalUrl: p,
+      },
+      r
+    );
+    return r;
+  };
+  const waitFor26c = async (fn, ms = 800) => {
+    const start = Date.now();
+    while (Date.now() - start < ms) {
+      if (fn()) return true;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    return fn();
+  };
+
+  const vmVoiceRes26c = await callRoute26c('voice', 2611, {
+    CallSid: 'CAVM26C',
+    From: '+16105557777',
+    To: '+16105550199',
+  });
+  check('batch26c route: inbound voice webhook still returns the forwarding Dial (no voicemail yet)', () => {
+    assert.equal(vmVoiceRes26c.statusCode, 200);
+    assert.ok(String(vmVoiceRes26c.body).includes('<Dial'));
+    assert.ok(!String(vmVoiceRes26c.body).includes('missed your call'));
+  });
+  const vmDialRes26c = await callRoute26c('status', 2611, {
+    CallSid: 'CAVM26C',
+    From: '+16105557777',
+    To: '+16105550199',
+    CallStatus: 'in-progress',
+    DialCallStatus: 'no-answer',
+    DialCallDuration: '0',
+  });
+  check('batch26c route: unanswered Dial action returns the greeting + Record TwiML', () => {
+    assert.equal(vmDialRes26c.statusCode, 200);
+    const body = String(vmDialRes26c.body);
+    assert.ok(body.includes('<Say>Thanks for calling Fixture Voicemail Biz.'));
+    assert.ok(body.includes('<Record'));
+    assert.ok(body.includes('recording/1/2611?vm=1'));
+    const row = sm26c.getCallLogBySid(db, 'CAVM26C');
+    assert.equal(row.status, 'no-answer');
+    assert.equal(row.is_voicemail, 0, 'not a voicemail until a message is actually left');
+    assert.equal(missedCallAlerts26c.length, 1, 'the missed-call alert still fires as before');
+  });
+  const vmRecParams26c = {
+    CallSid: 'CAVM26C',
+    RecordingSid: 'REvm26c',
+    RecordingUrl: 'https://api.twilio.com/rec/REvm26c',
+    RecordingDuration: '14',
+    RecordingStatus: 'completed',
+  };
+  const vmRecRes26c = await callRoute26c('recording', 2611, vmRecParams26c, 'vm=1');
+  await waitFor26c(() => vmMails26c.length >= 1);
+  check('batch26c route: vm recording is stored flagged, transcribed per credit rules, emailed once with transcript', () => {
+    assert.equal(vmRecRes26c.statusCode, 200, 'signed ?vm=1 callback must validate (full-url signature)');
+    const row = sm26c.getCallLogBySid(db, 'CAVM26C');
+    assert.equal(row.is_voicemail, 1);
+    assert.equal(row.recording_url, 'https://api.twilio.com/rec/REvm26c');
+    assert.equal(row.recording_duration, 14);
+    assert.equal(row.transcript_status, 'done');
+    assert.equal(row.transcription_billed, 1);
+    assert.equal(row.voicemail_notify_status, 'sent');
+    const spends = vmCredit26c.spends.filter((x) => x.reason === 'Call transcription');
+    assert.equal(spends.length, 1, 'exactly one transcription credit');
+    assert.equal(spends[0].refId, 'CAVM26C');
+    assert.equal(vmMails26c.length, 1, 'exactly one voicemail email');
+    const msg = vmMails26c[0];
+    assert.equal(msg.to, 'vm-alerts@example.invalid');
+    assert.equal(msg.subject, 'New voicemail from +16105557777');
+    const text = (msg.paragraphs || []).join('\n') + '\n' + (msg.text || '');
+    assert.ok(text.includes('my sink is leaking'), 'email carries the transcript');
+    assert.ok(
+      text.includes('https://example.test/api/v1/calls/recording-file/1/CAVM26C'),
+      'email links the authenticated playback route'
+    );
+    assert.ok(!text.includes('api.twilio.com/rec'), 'raw Twilio media URL never emailed');
+  });
+  // The <Record> action post AND the status callback both land in real
+  // life — a second identical callback must not re-email or re-bill.
+  const vmRecRes2_26c = await callRoute26c('recording', 2611, vmRecParams26c, 'vm=1');
+  await new Promise((r) => setTimeout(r, 60));
+  check('batch26c route: a duplicate vm recording callback sends nothing twice', () => {
+    assert.equal(vmRecRes2_26c.statusCode, 200);
+    assert.equal(vmMails26c.length, 1);
+    assert.equal(vmCredit26c.spends.filter((x) => x.reason === 'Call transcription').length, 1);
+    assert.equal(vmSttCalls26c, 1, 'STT ran once');
+  });
+
+  // Answered calls: Dial action completes → empty TwiML, no greeting.
+  await callRoute26c('voice', 2611, { CallSid: 'CAANS26C', From: '+16105557777', To: '+16105550199' });
+  const ansDialRes26c = await callRoute26c('status', 2611, {
+    CallSid: 'CAANS26C',
+    From: '+16105557777',
+    To: '+16105550199',
+    CallStatus: 'completed',
+    DialCallStatus: 'completed',
+    DialCallDuration: '42',
+  });
+  check('batch26c route: answered Dial action returns empty TwiML and the call counts as before', () => {
+    assert.equal(String(ansDialRes26c.body), '<?xml version="1.0" encoding="UTF-8"?><Response/>');
+    const row = sm26c.getCallLogBySid(db, 'CAANS26C');
+    assert.equal(row.status, 'completed');
+    assert.equal(row.counted, 1);
+    assert.equal(row.is_voicemail, 0);
+  });
+
+  // Voicemail disabled: unanswered call ends exactly as it did before.
+  await callRoute26c('voice', 2612, { CallSid: 'CAOFF26C', From: '+16105557777', To: '+16105550199' });
+  const offDialRes26c = await callRoute26c('status', 2612, {
+    CallSid: 'CAOFF26C',
+    From: '+16105557777',
+    To: '+16105550199',
+    CallStatus: 'in-progress',
+    DialCallStatus: 'busy',
+    DialCallDuration: '0',
+  });
+  check('batch26c route: voicemail_enabled=0 → unanswered call ends with empty TwiML (no greeting)', () => {
+    assert.equal(String(offDialRes26c.body), '<?xml version="1.0" encoding="UTF-8"?><Response/>');
+    assert.equal(sm26c.getCallLogBySid(db, 'CAOFF26C').is_voicemail, 0);
+  });
+
+  // Zero balance: the voicemail is kept and emailed; transcript is
+  // skipped by the billing path and the email says so by omission.
+  sm26c.logCallInitiated(db, 2613, { callSid: 'CABROKE26C', from: '+16105558888', to: '+16105550199', verified: true });
+  sm26c.upsertCallStatus(
+    db,
+    2613,
+    { CallSid: 'CABROKE26C', From: '+16105558888', To: '+16105550199', CallStatus: 'no-answer', DialCallStatus: 'no-answer', DialCallDuration: '0' },
+    { verified: true }
+  );
+  sm26c.storeCallRecording(db, 'CABROKE26C', {
+    recordingSid: 'REbroke26c',
+    recordingUrl: 'https://api.twilio.com/rec/REbroke26c',
+    recordingDuration: '9',
+    voicemail: true,
+  });
+  vmCredit26c.balance = 0;
+  const sttBefore26c = vmSttCalls26c;
+  const brokeNotify26c = await voicemailNotify26c.notifyVoicemailByEmail(1, 2613, 'CABROKE26C');
+  vmCredit26c.balance = 5;
+  check('batch26c notify: zero balance still emails the voicemail, transcript skipped, status honest', () => {
+    assert.equal(brokeNotify26c.sent, true);
+    const row = sm26c.getCallLogBySid(db, 'CABROKE26C');
+    assert.equal(row.transcript_status, 'skipped_no_credits');
+    assert.equal(row.transcript, '');
+    assert.equal(row.voicemail_notify_status, 'sent');
+    assert.equal(vmSttCalls26c, sttBefore26c, 'STT never attempted at zero balance');
+    const msg = vmMails26c[vmMails26c.length - 1];
+    assert.equal(msg.to, 'vmbroke-alerts@example.invalid');
+    assert.equal(msg.subject, 'New voicemail from +16105558888');
+    const text = (msg.paragraphs || []).join('\n') + '\n' + (msg.text || '');
+    assert.ok(!text.includes('Transcript:'), 'no transcript block when transcription was skipped');
+    assert.ok(text.includes('recording-file/1/CABROKE26C'), 'playback link still included');
+  });
+
+  // Portal payload: the voicemail shows with its flag + transcript.
+  const portal26c = load('server/clientPortal.js', {
+    bcryptjs: { hashSync: () => 'fixture' },
+    './db': {},
+    './mailer': {},
+    './stripeClient': { appUrl: () => 'https://example.test' },
+    './workspaceDb': {},
+    './domain': { withDb: (_ws, fn) => fn(db) },
+    './portalContacts': contacts,
+    './siteModules': sm26c,
+    './shopStripe': {},
+    './billing': { effectivePlan: async () => 'standard' },
+    './plans': { getPlan: () => ({ entitlements: { siteModules: true, chatbot: false } }) },
+  });
+  const panel26c = await portal26c.listModuleItems(1, 2611, 'calltracking', 'vm@example.invalid');
+  const portalSrc26c = fs.readFileSync(path.join(root, 'public/js/portal.js'), 'utf8');
+  const appSrc26c = fs.readFileSync(path.join(root, 'public/js/app.js'), 'utf8');
+  const callsRouteSrc26c = fs.readFileSync(path.join(root, 'server/routes/calls.js'), 'utf8');
+  check('batch26c portal: call list marks the voicemail and carries its transcript; admin owns the toggle', () => {
+    const vmCall = (panel26c.calltracking.calls || []).find((c) => c.call_sid === 'CAVM26C');
+    assert.ok(vmCall, 'voicemail call present in the portal list');
+    assert.equal(vmCall.is_voicemail, 1);
+    assert.ok(vmCall.transcript.includes('sink is leaking'), 'transcript rides the portal payload');
+    assert.ok(portalSrc26c.includes('c.is_voicemail'), 'portal renders a voicemail marker from the flag');
+    assert.ok(portalSrc26c.includes('>Voicemail</span>'), 'marker label present');
+    assert.ok(appSrc26c.includes('cl-cfg-voicemail'), 'admin forwarding form carries the voicemail toggle');
+    assert.ok(appSrc26c.includes('voicemail_enabled: on(\'cl-cfg-voicemail\')'), 'admin save sends the toggle');
+    assert.ok(callsRouteSrc26c.includes("req.query"), 'recording route reads the vm marker');
+  });
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

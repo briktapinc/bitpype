@@ -5,8 +5,11 @@
  *
  * Public (Twilio-facing) endpoints, mounted at /api/v1/calls:
  *   POST /voice/:workspaceId/:leadId      → TwiML for an inbound call
- *   POST /status/:workspaceId/:leadId     → Dial action / status callback
- *   POST /recording/:workspaceId/:leadId  → recording status callback
+ *   POST /status/:workspaceId/:leadId     → Dial action / status callback;
+ *     an unanswered Dial outcome returns the voicemail greeting TwiML
+ *     (Batch 26c) instead of ending the call, when voicemail is enabled
+ *   POST /recording/:workspaceId/:leadId  → recording status callback;
+ *     ?vm=1 marks a voicemail recording (transcribe + owner email flow)
  *   GET  /recording-file/:workspaceId/:callSid → authenticated playback
  *
  * Dormant-safe: with no platform Twilio credentials configured the
@@ -27,6 +30,9 @@ const { assertWorkspaceExists } = require('../workspaceExists');
 const twilioClient = require('../twilioClient');
 const callBilling = require('../callBilling');
 const callNotify = require('../callNotify');
+// Voicemail flow (Batch 26c) is required lazily at the recording
+// branch — same pattern as the rentals settle below — so this router
+// keeps loading in contexts that stub only the original seams.
 const { appUrl } = require('../stripeClient');
 const clientPortal = require('../clientPortal');
 const { getMembership, findWorkspaceByToken } = require('../workspace');
@@ -84,7 +90,9 @@ async function checkSignature(req) {
     Number.isInteger(workspaceId) && workspaceId > 0 ? { workspaceId } : {}
   );
   if (!authToken) return { ok: true, verified: false };
-  const url = `${publicBaseUrl(req)}${String(req.originalUrl || req.url || '').split('?')[0]}`;
+  // Twilio signs the full request URL INCLUDING any query string (the
+  // voicemail <Record> callbacks carry ?vm=1) — never strip it.
+  const url = `${publicBaseUrl(req)}${String(req.originalUrl || req.url || '')}`;
   const valid = twilioClient.validateSignature(authToken, url, req.body || {}, req.headers['x-twilio-signature']);
   return valid ? { ok: true, verified: true } : { ok: false, verified: false };
 }
@@ -143,6 +151,7 @@ router.post('/status/:workspaceId/:leadId', async (req, res) => {
   const sig = await checkSignature(req);
   if (!sig.ok) return res.status(403).type('text/plain').send('Invalid Twilio signature');
   if (!(await workspaceExists(ids.workspaceId))) return res.type('text/xml').send(EMPTY_TWIML);
+  let responseTwiml = EMPTY_TWIML;
   try {
     const row = await domain.withDb(ids.workspaceId, (db) => {
       if (!leadExists(db, ids.leadId)) return null;
@@ -170,10 +179,33 @@ router.post('/status/:workspaceId/:leadId', async (req, res) => {
       Promise.resolve(callNotify.notifyCallByEmail(ids.workspaceId, ids.leadId, row.call_sid)).catch(() => {});
     }
     if (row && row.recording_url) maybeTranscribe(ids.workspaceId, ids.leadId, row);
+    // Voicemail (Batch 26c): this route is the <Dial> action callback.
+    // When the business leg ended unanswered (no-answer / busy /
+    // failed — the caller hung up on their own is 'canceled' and gets
+    // no greeting), hand the still-live caller leg the greeting +
+    // <Record> TwiML instead of ending the call. The greeting names
+    // the business whose site the number belongs to (the config's
+    // lead — for a rented site that is the site owner the site
+    // presents as; delivery of the message resolves to the tenant).
+    const dialStatus = String((req.body && req.body.DialCallStatus) || '').trim().toLowerCase();
+    if (row && (dialStatus === 'no-answer' || dialStatus === 'busy' || dialStatus === 'failed')) {
+      const vmTwiml = await domain.withDb(ids.workspaceId, (db) => {
+        const config = modules.getCallTrackingConfig(db, ids.leadId);
+        if (!config.display_number || !config.voicemail_enabled) return null;
+        const lead = db.prepare('SELECT business_name FROM leads WHERE id = ?').get(ids.leadId);
+        return modules.buildVoicemailTwiml(config, {
+          workspaceId: ids.workspaceId,
+          leadId: ids.leadId,
+          baseUrl: publicBaseUrl(req),
+          businessName: lead ? lead.business_name : '',
+        });
+      });
+      if (vmTwiml) responseTwiml = vmTwiml;
+    }
   } catch (e) {
     console.warn('[calls] status webhook failed:', e.message || e);
   }
-  return res.type('text/xml').send(EMPTY_TWIML);
+  return res.type('text/xml').send(responseTwiml);
 });
 
 router.post('/recording/:workspaceId/:leadId', async (req, res) => {
@@ -184,6 +216,14 @@ router.post('/recording/:workspaceId/:leadId', async (req, res) => {
   if (!(await workspaceExists(ids.workspaceId))) return res.type('text/xml').send(EMPTY_TWIML);
   try {
     const body = req.body || {};
+    // Voicemail recordings (Batch 26c) post to this same route with
+    // ?vm=1 baked into the <Record> callback/action URLs: the message
+    // is flagged on the call and routed to the voicemail flow
+    // (transcribe → owner email) instead of the generic transcription
+    // trigger, so the transcript can ride along in the email. Both the
+    // <Record> action post and the recording status callback can land
+    // — the voicemail flow claims its email exactly once.
+    const isVoicemail = String((req.query && req.query.vm) || '') === '1';
     const row = await domain.withDb(ids.workspaceId, (db) => {
       if (!leadExists(db, ids.leadId)) return null;
       if (body.CallSid) modules.upsertCallStatus(db, ids.leadId, { CallSid: body.CallSid }, { verified: sig.verified });
@@ -191,9 +231,20 @@ router.post('/recording/:workspaceId/:leadId', async (req, res) => {
         recordingSid: body.RecordingSid,
         recordingUrl: body.RecordingUrl,
         recordingDuration: body.RecordingDuration,
+        voicemail: isVoicemail,
       });
     });
-    if (row) maybeTranscribe(ids.workspaceId, ids.leadId, row);
+    if (row && isVoicemail && row.is_voicemail && row.recording_url) {
+      try {
+        Promise.resolve(
+          require('../voicemailNotify').notifyVoicemailByEmail(ids.workspaceId, ids.leadId, row.call_sid)
+        ).catch(() => {});
+      } catch {
+        /* voicemail flow unavailable — recording is still stored */
+      }
+    } else if (row) {
+      maybeTranscribe(ids.workspaceId, ids.leadId, row);
+    }
   } catch (e) {
     console.warn('[calls] recording webhook failed:', e.message || e);
   }

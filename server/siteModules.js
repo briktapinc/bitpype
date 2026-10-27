@@ -468,6 +468,7 @@ function ensureTables(db) {
       redirect_number TEXT NOT NULL DEFAULT '',
       record_calls INTEGER NOT NULL DEFAULT 0,
       notify_email INTEGER NOT NULL DEFAULT 1,
+      voicemail_enabled INTEGER NOT NULL DEFAULT 1,
       twilio_number_sid TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -488,6 +489,8 @@ function ensureTables(db) {
       counted INTEGER NOT NULL DEFAULT 0,
       transcription_billed INTEGER NOT NULL DEFAULT 0,
       notify_status TEXT NOT NULL DEFAULT 'none',
+      is_voicemail INTEGER NOT NULL DEFAULT 0,
+      voicemail_notify_status TEXT NOT NULL DEFAULT 'none',
       website_id INTEGER,
       tenant_lead_id INTEGER,
       rental_id INTEGER,
@@ -733,12 +736,23 @@ function ensureTables(db) {
     if (callCols.length && !callCols.includes('rental_id')) {
       db.exec('ALTER TABLE call_logs ADD COLUMN rental_id INTEGER');
     }
+    // Voicemail (Batch 26c): a recording left after an unanswered dial
+    // is flagged on the call, with its own exactly-once email state.
+    if (callCols.length && !callCols.includes('is_voicemail')) {
+      db.exec('ALTER TABLE call_logs ADD COLUMN is_voicemail INTEGER NOT NULL DEFAULT 0');
+    }
+    if (callCols.length && !callCols.includes('voicemail_notify_status')) {
+      db.exec("ALTER TABLE call_logs ADD COLUMN voicemail_notify_status TEXT NOT NULL DEFAULT 'none'");
+    }
     const ctCols = db
       .prepare('PRAGMA table_info(calltracking_configs)')
       .all()
       .map((c) => String(c.name || ''));
     if (ctCols.length && !ctCols.includes('notify_email')) {
       db.exec('ALTER TABLE calltracking_configs ADD COLUMN notify_email INTEGER NOT NULL DEFAULT 1');
+    }
+    if (ctCols.length && !ctCols.includes('voicemail_enabled')) {
+      db.exec('ALTER TABLE calltracking_configs ADD COLUMN voicemail_enabled INTEGER NOT NULL DEFAULT 1');
     }
   } catch {
     /* race / exists */
@@ -5746,6 +5760,7 @@ function shapeCallTrackingConfig(row, leadId) {
       redirect_number: '',
       record_calls: false,
       notify_email: true,
+      voicemail_enabled: true,
       twilio_number_sid: '',
       updated_at: null,
     };
@@ -5755,6 +5770,9 @@ function shapeCallTrackingConfig(row, leadId) {
     redirect_enabled: !!row.redirect_enabled,
     record_calls: !!row.record_calls,
     notify_email: row.notify_email == null ? true : !!row.notify_email,
+    // Batch 26c: voicemail greeting defaults ON wherever a config
+    // exists; an admin turns it off per business.
+    voicemail_enabled: row.voicemail_enabled == null ? true : !!row.voicemail_enabled,
   };
 }
 
@@ -5812,6 +5830,12 @@ function updateCallTrackingConfig(db, leadId, data = {}) {
         ? !!data.notify_email
         : !!data.notifyEmail
       : row.notify_email;
+  const voicemailEnabled =
+    data.voicemail_enabled != null || data.voicemailEnabled != null
+      ? data.voicemail_enabled != null
+        ? !!data.voicemail_enabled
+        : !!data.voicemailEnabled
+      : row.voicemail_enabled;
   const numberSid =
     data.twilio_number_sid != null || data.twilioNumberSid != null
       ? String(data.twilio_number_sid != null ? data.twilio_number_sid : data.twilioNumberSid)
@@ -5821,7 +5845,7 @@ function updateCallTrackingConfig(db, leadId, data = {}) {
   db.prepare(
     `UPDATE calltracking_configs
      SET display_number = ?, cta_text = ?, redirect_enabled = ?, redirect_number = ?,
-         record_calls = ?, notify_email = ?, twilio_number_sid = ?, updated_at = datetime('now')
+         record_calls = ?, notify_email = ?, voicemail_enabled = ?, twilio_number_sid = ?, updated_at = datetime('now')
      WHERE lead_id = ?`
   ).run(
     displayNumber,
@@ -5830,6 +5854,7 @@ function updateCallTrackingConfig(db, leadId, data = {}) {
     redirectNumber,
     recordCalls ? 1 : 0,
     notifyEmail ? 1 : 0,
+    voicemailEnabled ? 1 : 0,
     numberSid,
     Number(leadId)
   );
@@ -5925,6 +5950,37 @@ function buildCallTrackingVoiceTwiml(config, { workspaceId, leadId, baseUrl } = 
       '<Say>Thanks for calling. Please reach us through our website and we will get right back to you.</Say><Hangup/>';
   }
   return `${out}</Response>`;
+}
+
+/* Voicemail (Batch 26c — Ely 2026-10-26): when the forwarded call is
+ * not answered (Dial action reports no-answer / busy / failed), the
+ * caller hears a greeting spoken with the business's name and is
+ * invited to leave a message. The <Record> posts to the SAME recording
+ * webhook as answered-call recordings — flagged ?vm=1 so the recording
+ * is stored as a voicemail, transcribed through the existing billing
+ * path, and emailed to the owner (server/voicemailNotify.js). The
+ * greeting is the whole experience: no separate recording notice is
+ * stacked on top of it (leaving a voicemail is inherently a recording
+ * the caller chooses to make). */
+const VOICEMAIL_MAX_SECONDS = 120;
+
+function buildVoicemailTwiml(config, { workspaceId, leadId, baseUrl, businessName } = {}) {
+  const head = '<?xml version="1.0" encoding="UTF-8"?>';
+  const base = String(baseUrl || '').replace(/\/$/, '');
+  const recordingUrl =
+    `${base}/api/v1/calls/recording/${Number(workspaceId)}/${Number(leadId)}?vm=1`;
+  const name = String(businessName || '').trim();
+  const greeting = name
+    ? `Thanks for calling ${name}. We're sorry we missed your call. Please leave your name, number, and a brief message after the tone, and we'll get back to you as soon as we can.`
+    : `Thanks for calling. We're sorry we missed your call. Please leave your name, number, and a brief message after the tone, and we'll get back to you as soon as we can.`;
+  return (
+    `${head}<Response>` +
+    `<Say>${xmlEscape(greeting)}</Say>` +
+    `<Record maxLength="${VOICEMAIL_MAX_SECONDS}" playBeep="true" finishOnKey="#" ` +
+    `action="${xmlEscape(recordingUrl)}" method="POST" ` +
+    `recordingStatusCallback="${xmlEscape(recordingUrl)}" recordingStatusCallbackMethod="POST"/>` +
+    `</Response>`
+  );
 }
 
 function getCallLogBySid(db, callSid) {
@@ -6044,8 +6100,11 @@ function upsertCallStatus(db, leadId, params = {}, { verified } = {}) {
   return getCallLogBySid(db, sid);
 }
 
-/** Store recording facts (from the recording callback or a Dial action). */
-function storeCallRecording(db, callSid, { recordingSid, recordingUrl, recordingDuration } = {}) {
+/** Store recording facts (from the recording callback or a Dial action).
+ * `voicemail: true` flags the call as a voicemail (Batch 26c) — set by
+ * the recording route when the callback carries the ?vm=1 marker the
+ * voicemail <Record> was built with. Sticky: never un-flags. */
+function storeCallRecording(db, callSid, { recordingSid, recordingUrl, recordingDuration, voicemail } = {}) {
   ensureTables(db);
   const sid = String(callSid || '').trim();
   if (!sid) return null;
@@ -6058,6 +6117,7 @@ function storeCallRecording(db, callSid, { recordingSid, recordingUrl, recording
        recording_sid = CASE WHEN ? <> '' THEN ? ELSE recording_sid END,
        recording_url = CASE WHEN ? <> '' THEN ? ELSE recording_url END,
        recording_duration = COALESCE(?, recording_duration),
+       is_voicemail = MAX(is_voicemail, ?),
        updated_at = datetime('now')
      WHERE call_sid = ?`
   ).run(
@@ -6066,6 +6126,7 @@ function storeCallRecording(db, callSid, { recordingSid, recordingUrl, recording
     String(recordingUrl || ''),
     String(recordingUrl || ''),
     dur,
+    voicemail ? 1 : 0,
     sid
   );
   return getCallLogBySid(db, sid);
@@ -6206,6 +6267,33 @@ function setCallNotifyStatus(db, callSid, status) {
     String(status || 'none'),
     sid
   );
+  return getCallLogBySid(db, sid);
+}
+
+/* ── Voicemail email state (Batch 26c) ───────────────────────────────
+ * The voicemail email is a SEPARATE exactly-once send from the missed-
+ * call alert: claim flips voicemail_notify_status 'none' → 'pending'
+ * before the attempt; outcomes 'sent' | 'failed' | 'skipped' | 'off'. */
+
+function claimVoicemailNotify(db, callSid) {
+  ensureTables(db);
+  const sid = String(callSid || '').trim();
+  if (!sid) return false;
+  const info = db
+    .prepare(
+      "UPDATE call_logs SET voicemail_notify_status = 'pending', updated_at = datetime('now') WHERE call_sid = ? AND voicemail_notify_status = 'none'"
+    )
+    .run(sid);
+  return Number(info.changes) === 1;
+}
+
+function setVoicemailNotifyStatus(db, callSid, status) {
+  ensureTables(db);
+  const sid = String(callSid || '').trim();
+  if (!sid) return null;
+  db.prepare(
+    'UPDATE call_logs SET voicemail_notify_status = ?, updated_at = datetime(\'now\') WHERE call_sid = ?'
+  ).run(String(status || 'none'), sid);
   return getCallLogBySid(db, sid);
 }
 
@@ -9017,6 +9105,8 @@ module.exports = {
   updateCallTrackingConfig,
   publicCallTrackingPayload,
   buildCallTrackingVoiceTwiml,
+  buildVoicemailTwiml,
+  VOICEMAIL_MAX_SECONDS,
   getCallLogBySid,
   logCallInitiated,
   upsertCallStatus,
@@ -9038,6 +9128,8 @@ module.exports = {
   markTranscriptionBilled,
   claimCallNotify,
   setCallNotifyStatus,
+  claimVoicemailNotify,
+  setVoicemailNotifyStatus,
   MEMBER_STATUSES,
   MEMBER_GATE_MODES,
   MEMBER_SIGNUP_MODES,

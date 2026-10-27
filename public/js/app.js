@@ -7826,6 +7826,7 @@ async function pageCalls() {
         <label><input type="checkbox" id="cl-cfg-redirect-enabled"${c.redirect_enabled ? ' checked' : ''} /> Forward calls</label>
         <label><input type="checkbox" id="cl-cfg-record"${c.record_calls ? ' checked' : ''} /> Record calls</label>
         <label><input type="checkbox" id="cl-cfg-notify"${c.notify_email === false ? '' : ' checked'} /> Email the client when a call comes in</label>
+        <label><input type="checkbox" id="cl-cfg-voicemail"${c.voicemail_enabled === false ? '' : ' checked'} /> Voicemail greeting when a call isn't answered (message is transcribed + emailed)</label>
       </div>
       <p class="hint" style="margin-top:8px">Voice webhook for an owned Twilio number (POST):<br /><code>${esc(b.voice_url || '')}</code></p>
       <button type="button" class="btn" id="cl-cfg-save">Save forwarding setup</button>`;
@@ -7850,6 +7851,7 @@ async function pageCalls() {
             redirect_number: val('cl-cfg-redirect'),
             record_calls: on('cl-cfg-record'),
             notify_email: on('cl-cfg-notify'),
+            voicemail_enabled: on('cl-cfg-voicemail'),
           });
           const saved = (r && r.data && r.data.config) || {};
           b.config = { ...(b.config || {}), ...saved };

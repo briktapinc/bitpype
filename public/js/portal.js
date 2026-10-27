@@ -4883,13 +4883,20 @@
             const transcript = c.transcript
               ? `<div style="margin-top:6px"><strong>Transcript</strong><div>${esc(c.transcript)}</div></div>`
               : '<div class="hint" style="margin-top:6px">No transcript</div>';
+            const vmBadge = c.is_voicemail
+              ? ' <span style="display:inline-block;padding:1px 8px;border-radius:999px;background:var(--warn-soft,#fff3d2);border:1px solid var(--gold,#f0b429);color:var(--ink,#1c140f);font-size:.78rem;font-weight:600">Voicemail</span>'
+              : '';
+            const vmLength =
+              c.is_voicemail && c.recording_duration != null
+                ? ` · Message: ${esc(durLabel(c.recording_duration))}`
+                : '';
             return `
         <div style="padding:10px 0;border-bottom:1px solid var(--line,#e6e0d8)">
           <div class="row" style="justify-content:space-between;gap:8px">
-            <div><strong>${esc(c.from_number || 'Unknown caller')}</strong> <span class="hint">→ ${esc(c.to_number || '')}</span></div>
+            <div><strong>${esc(c.from_number || 'Unknown caller')}</strong>${vmBadge} <span class="hint">→ ${esc(c.to_number || '')}</span></div>
             <span class="hint">${esc(whenLabel(c.created_at))}</span>
           </div>
-          <div class="hint">Status: ${esc(c.status || '')} · Duration: ${esc(durLabel(c.duration_seconds))}${c.verified ? '' : ' · unverified'}</div>
+          <div class="hint">Status: ${esc(c.status || '')} · Duration: ${esc(durLabel(c.duration_seconds))}${vmLength}${c.verified ? '' : ' · unverified'}</div>
           ${rec}
           ${transcript}
         </div>`;

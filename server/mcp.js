@@ -923,13 +923,13 @@ function clientToolDefs() {
     {
       name: 'calls.getSettings',
       description:
-        'Get the Call Tracking settings for a lead: display_number (the Twilio tracking number the site\'s call button dials — the button shows the lead\'s own phone number), cta_text, redirect_enabled + redirect_number (where calls to the display number are forwarded), record_calls (with spoken consent), and twilio_number_sid when the number was bought in the admin. Forwarding is admin-only; portal clients can set only their phone number. Standard/Premium.',
+        'Get the Call Tracking settings for a lead: display_number (the Twilio tracking number the site\'s call button dials — the button shows the lead\'s own phone number), cta_text, redirect_enabled + redirect_number (where calls to the display number are forwarded), record_calls (with spoken consent), voicemail_enabled (unanswered calls get a spoken greeting with the business name and can leave a message that is transcribed and emailed; default on), and twilio_number_sid when the number was bought in the admin. Forwarding is admin-only; portal clients can set only their phone number. Standard/Premium.',
       inputSchema: schema({ leadId: ID }),
     },
     {
       name: 'calls.updateSettings',
       description:
-        'Update Call Tracking settings: display_number and redirect_number must be E.164 (e.g. +16105551234; US 10-digit numbers are accepted and prefixed +1). Garbage numbers are rejected. Also accepts cta_text, redirect_enabled, record_calls and notify_email (per-call email alert to the business, default on). Standard/Premium.',
+        'Update Call Tracking settings: display_number and redirect_number must be E.164 (e.g. +16105551234; US 10-digit numbers are accepted and prefixed +1). Garbage numbers are rejected. Also accepts cta_text, redirect_enabled, record_calls, notify_email (per-call email alert to the business, default on) and voicemail_enabled (greeting + voicemail for unanswered calls, default on). Standard/Premium.',
       inputSchema: schema({
         leadId: ID,
         display_number: STR,
@@ -940,6 +940,7 @@ function clientToolDefs() {
         redirectNumber: STR,
         record_calls: { type: 'boolean' },
         notify_email: { type: 'boolean' },
+        voicemail_enabled: { type: 'boolean' },
       }),
     },
     {
