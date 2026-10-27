@@ -64,6 +64,30 @@ function validateSmsConfig(cfg) {
 }
 
 /**
+ * THE workspace-settings reader for SMS consumers (Batch 25b).
+ *
+ * Workspace secret settings are secretBox-ENCRYPTED at rest
+ * (server/domain.js setSetting encrypts SECRET_KEYS — sms.auth_token /
+ * sms.api_key among them). A raw `SELECT key, value FROM settings`
+ * hands callers ciphertext, and Twilio then rejects the "token". This
+ * reader decrypts every value through src/secretBox (prefix-gated, so
+ * plaintext values pass through untouched) — the same pattern as
+ * src/outreach.js readSettings. Every path that feeds resolveSmsSettings
+ * must build its settings map HERE, never from a raw settings read.
+ */
+function readWorkspaceSettings(db) {
+  const out = {};
+  try {
+    for (const row of db.prepare('SELECT key, value FROM settings').all()) {
+      out[row.key] = require('./secretBox').decryptSetting(row.key, row.value);
+    }
+  } catch {
+    /* settings table may not exist yet in tests */
+  }
+  return out;
+}
+
+/**
  * Merge workspace settings with platform_settings for any empty sms.* keys.
  * Safe when server/platform is unavailable (Electron / tests).
  */
@@ -289,6 +313,7 @@ module.exports = {
   isValidPhone,
   readSmsConfig,
   validateSmsConfig,
+  readWorkspaceSettings,
   resolveSmsSettings,
   getSmsProvider,
   companionSmsDraft,

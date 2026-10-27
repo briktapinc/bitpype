@@ -1366,12 +1366,9 @@ async function notifyOwnerOnChatLead(workspaceId, payload = {}) {
         const domain = require('./domain');
         const phone = sms.normalizePhone(toPhone);
         if (phone) {
-          const settings = domain.withDb(workspaceId, (db) => {
-            const rows = db.prepare('SELECT key, value FROM settings').all();
-            const map = {};
-            for (const r of rows) map[r.key] = r.value;
-            return map;
-          });
+          // Decrypting reader (Batch 25b): sms.* secrets are encrypted
+          // at rest; a raw settings read would hand Twilio ciphertext.
+          const settings = domain.withDb(workspaceId, (db) => sms.readWorkspaceSettings(db));
           const resolved = await sms.resolveSmsSettings(settings);
           const provider = sms.getSmsProvider(resolved, null);
           const body = sms.plainSmsBody(

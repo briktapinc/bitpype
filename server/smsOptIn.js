@@ -94,16 +94,13 @@ function businessNameForLead(db, leadId) {
   }
 }
 
-/** Workspace settings map (same read the chatbot owner-SMS uses). */
+/**
+ * Workspace settings map — MUST go through the shared decrypting reader
+ * in src/sms.js (Batch 25b): sms.* secrets are secretBox-encrypted at
+ * rest, and a raw settings read would hand Twilio ciphertext.
+ */
 function readWorkspaceSettings(db) {
-  try {
-    const rows = db.prepare('SELECT key, value FROM settings').all();
-    const map = {};
-    for (const r of rows) map[r.key] = r.value;
-    return map;
-  } catch {
-    return {};
-  }
+  return sms.readWorkspaceSettings(db);
 }
 
 /**

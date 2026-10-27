@@ -5,11 +5,18 @@
  *
  * ONE place talks to Twilio: number search/purchase (staff "Buy a
  * number"), recording media fetches (authenticated playback proxy +
- * transcription), and webhook signature validation. Platform
- * credentials live in platform settings (twilio.account_sid /
- * twilio.auth_token) — when they are empty every entry point reports
- * "not configured" and the feature stays dormant; nothing here throws
- * just because Twilio is not connected.
+ * transcription), and webhook signature validation.
+ *
+ * Credential resolution (Batch 25b), first complete pair wins:
+ *   1. Platform settings twilio.account_sid / twilio.auth_token.
+ *   2. The workspace's SMS settings (sms.account_sid + sms.auth_token /
+ *      sms.api_key), read DECRYPTED via src/sms.js — this is where the
+ *      owner actually manages Twilio keys (Admin → SMS), so that one
+ *      entry point now feeds both SMS and call tracking. Needs a
+ *      workspace context: callers pass { workspaceId }.
+ *   3. Neither → every entry point reports "not configured" and the
+ *      feature stays dormant; nothing here throws just because Twilio
+ *      is not connected.
  *
  * Transcription reuses the platform's existing AI key (ai.api_key /
  * ai.base_url — the OpenAI-compatible key other features use) against
@@ -23,19 +30,38 @@ const platform = require('./platform');
 
 const TWILIO_API_BASE = 'https://api.twilio.com/2010-04-01';
 
-async function getCredentials() {
+async function getCredentials(opts = {}) {
   const [sid, token] = await Promise.all([
     platform.getPlatformSetting('twilio.account_sid', ''),
     platform.getPlatformSetting('twilio.auth_token', ''),
   ]);
-  return {
+  const platformPair = {
     accountSid: String(sid || '').trim(),
     authToken: String(token || '').trim(),
   };
+  if (platformPair.accountSid && platformPair.authToken) {
+    return { ...platformPair, source: 'platform' };
+  }
+  // Fallback: the workspace's SMS settings. The pair is taken whole —
+  // never mix a SID from one account with a token from another.
+  const workspaceId = Number(opts && opts.workspaceId);
+  if (Number.isInteger(workspaceId) && workspaceId > 0) {
+    try {
+      const { openWorkspaceDb } = require('./workspaceDb');
+      const sms = require('../src/sms');
+      const cfg = sms.readSmsConfig(sms.readWorkspaceSettings(openWorkspaceDb(workspaceId)));
+      if (cfg.accountSid && cfg.authToken) {
+        return { accountSid: cfg.accountSid, authToken: cfg.authToken, source: 'workspace' };
+      }
+    } catch {
+      /* workspace unreadable → stay dormant */
+    }
+  }
+  return { ...platformPair, source: 'none' };
 }
 
-async function isConfigured() {
-  const c = await getCredentials();
+async function isConfigured(opts = {}) {
+  const c = await getCredentials(opts);
   return !!(c.accountSid && c.authToken);
 }
 
@@ -75,8 +101,8 @@ async function twilioJson(creds, pathOrUrl, opts) {
 }
 
 /** Available US local numbers (voice-capable) for an area code. */
-async function searchNumbers({ areaCode, limit = 20 } = {}) {
-  const creds = await getCredentials();
+async function searchNumbers({ areaCode, limit = 20, workspaceId } = {}) {
+  const creds = await getCredentials({ workspaceId });
   if (!creds.accountSid || !creds.authToken) return { configured: false, numbers: [] };
   const ac = String(areaCode || '')
     .replace(/\D/g, '')
@@ -106,8 +132,8 @@ async function searchNumbers({ areaCode, limit = 20 } = {}) {
  * URL for one lead. Throws (TWILIO_ERROR) on Twilio failure — callers
  * must persist NOTHING until this resolves.
  */
-async function purchaseNumber({ phoneNumber, voiceUrl } = {}) {
-  const creds = await getCredentials();
+async function purchaseNumber({ phoneNumber, voiceUrl, workspaceId } = {}) {
+  const creds = await getCredentials({ workspaceId });
   if (!creds.accountSid || !creds.authToken) return { configured: false };
   const data = await twilioJson(creds, `/Accounts/${encodeURIComponent(creds.accountSid)}/IncomingPhoneNumbers.json`, {
     method: 'POST',
@@ -128,8 +154,8 @@ async function purchaseNumber({ phoneNumber, voiceUrl } = {}) {
  * Fetch a recording's media bytes with the platform credentials
  * (Twilio recording URLs require account auth). Asks for MP3.
  */
-async function fetchRecordingMedia(recordingUrl) {
-  const creds = await getCredentials();
+async function fetchRecordingMedia(recordingUrl, opts = {}) {
+  const creds = await getCredentials(opts);
   if (!creds.accountSid || !creds.authToken) return { configured: false };
   let url = String(recordingUrl || '');
   if (!url) return { configured: true, ok: false, reason: 'no_url' };
@@ -168,13 +194,13 @@ function validateSignature(authToken, url, params, signature) {
  * throws: 'no_stt_key' when ai.api_key is unset, 'download_failed' /
  * 'stt_failed' on errors.
  */
-async function transcribeRecording(recordingUrl) {
+async function transcribeRecording(recordingUrl, opts = {}) {
   try {
     const apiKey = String((await platform.getPlatformSetting('ai.api_key', '')) || '').trim();
     if (!apiKey) return { ok: false, reason: 'no_stt_key' };
     const baseUrl =
       String((await platform.getPlatformSetting('ai.base_url', '')) || '').trim() || 'https://api.openai.com/v1';
-    const media = await fetchRecordingMedia(recordingUrl);
+    const media = await fetchRecordingMedia(recordingUrl, opts);
     if (!media.configured) return { ok: false, reason: 'no_twilio' };
     if (!media.ok) return { ok: false, reason: 'download_failed' };
     const form = new FormData();

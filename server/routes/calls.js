@@ -76,7 +76,13 @@ function leadExists(db, leadId) {
  * - token set + bad/missing signature → not ok (caller 403s)
  */
 async function checkSignature(req) {
-  const { authToken } = await twilioClient.getCredentials();
+  // Workspace context from the route params: when the platform pair is
+  // unset, the signature token resolves from this workspace's SMS
+  // settings (Batch 25b credential fallback).
+  const workspaceId = Number(req.params && req.params.workspaceId);
+  const { authToken } = await twilioClient.getCredentials(
+    Number.isInteger(workspaceId) && workspaceId > 0 ? { workspaceId } : {}
+  );
   if (!authToken) return { ok: true, verified: false };
   const url = `${publicBaseUrl(req)}${String(req.originalUrl || req.url || '').split('?')[0]}`;
   const valid = twilioClient.validateSignature(authToken, url, req.body || {}, req.headers['x-twilio-signature']);
@@ -253,7 +259,7 @@ router.get('/recording-file/:workspaceId/:callSid', async (req, res) => {
   if (caller.leadId != null && Number(row.lead_id) !== caller.leadId) {
     return res.status(404).json({ ok: false, error: 'Recording not found' });
   }
-  const media = await twilioClient.fetchRecordingMedia(row.recording_url);
+  const media = await twilioClient.fetchRecordingMedia(row.recording_url, { workspaceId });
   if (!media.configured) {
     return res.status(503).json({ ok: false, error: 'Call recording playback is not configured' });
   }

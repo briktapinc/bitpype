@@ -4280,6 +4280,178 @@ async function main() {
     assert.ok(modulesRouteSrc25.includes('fireSmsOptIn'), 'module routes fire the opt-in hook');
   });
 
+  // --- Batch 25b: decrypt workspace SMS secrets on read + twilio -----
+  // credential fallback -------------------------------------------------
+  // Workspace secret settings are secretBox-ENCRYPTED at rest, but
+  // Batch 25's settings reader (and the chatbot owner-notify path that
+  // predates it) read the settings table RAW — sms.auth_token would
+  // reach Twilio as ciphertext and auth would fail in production (the
+  // stubbed provider hid it). The fix centralizes a decrypting reader
+  // in src/sms.js (readWorkspaceSettings, the src/outreach.js pattern)
+  // and points every SMS consumer at it. twilioClient additionally
+  // falls back to the workspace sms.* pair when the platform twilio.*
+  // pair is unset, so the one place Ely manages Twilio keys (Admin →
+  // SMS) feeds call tracking too. Below, the REAL secretBox and REAL
+  // src/sms.js run in VMs keyed with a throwaway SETTINGS_ENCRYPTION_KEY
+  // so the encrypt/decrypt path under test is the production one.
+  const crypto25b = require('node:crypto');
+  const keyHex25b = crypto25b.randomBytes(32).toString('hex');
+  const loadBox25b = () => {
+    const mod = { exports: {} };
+    vm.runInNewContext(fs.readFileSync(path.join(root, 'src/secretBox.js'), 'utf8'), {
+      module: mod, exports: mod.exports,
+      require: (name) => {
+        if (name === '../server/settingsKeys') return require(path.join(root, 'server/settingsKeys.js'));
+        if (!name.startsWith('.')) return require(name);
+        throw new Error('Unexpected dependency: ' + name);
+      },
+      process: { env: { SETTINGS_ENCRYPTION_KEY: keyHex25b } }, console, Buffer,
+    }, { filename: 'src/secretBox.js' });
+    return mod.exports;
+  };
+  const box25b = loadBox25b();
+  const twilioHttp25b = [];
+  let twilioHttpImpl25b = async () => ({
+    ok: true, status: 201,
+    text: async () => JSON.stringify({ sid: 'SM25b', status: 'queued' }),
+  });
+  const loadSms25b = () => {
+    const mod = { exports: {} };
+    vm.runInNewContext(fs.readFileSync(path.join(root, 'src/sms.js'), 'utf8'), {
+      module: mod, exports: mod.exports,
+      require: (name) => {
+        if (name === './secretBox') return box25b;
+        if (name === '../server/platform') return { getPlatformSetting: async () => '' };
+        if (!name.startsWith('.')) return require(name);
+        throw new Error('Unexpected dependency: ' + name);
+      },
+      process: { env: {} }, console, Buffer, URL, URLSearchParams,
+      fetch: async (url, opts) => { twilioHttp25b.push({ url: String(url), opts }); return twilioHttpImpl25b(url, opts); },
+      setTimeout, clearTimeout,
+    }, { filename: 'src/sms.js' });
+    return mod.exports;
+  };
+  const smsVm25b = loadSms25b();
+  const setRaw25b = (k, v) =>
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v);
+  const PLAIN_TOKEN25B = 'tok25b-plaintext-secret';
+  setRaw25b('sms.enabled', '1');
+  setRaw25b('sms.provider', 'twilio');
+  setRaw25b('sms.account_sid', 'AC25b');
+  setRaw25b('sms.from_number', '+16105550199');
+  // Written exactly as domain.setSetting writes it: encryptSetting(key, v).
+  setRaw25b('sms.auth_token', box25b.encryptSetting('sms.auth_token', PLAIN_TOKEN25B));
+  check('batch25b fixture: the token is ciphertext at rest and plaintext via the decrypting reader', () => {
+    const raw = db.prepare("SELECT value FROM settings WHERE key = 'sms.auth_token'").get().value;
+    assert.ok(box25b.isEncrypted(raw), 'stored value carries the enc:v1: prefix');
+    assert.notEqual(raw, PLAIN_TOKEN25B);
+    // domain.js's sanctioned getter is exactly decryptSetting(key, row.value):
+    assert.equal(box25b.decryptSetting('sms.auth_token', raw), PLAIN_TOKEN25B);
+    const map = smsVm25b.readWorkspaceSettings(db);
+    assert.equal(map['sms.auth_token'], PLAIN_TOKEN25B, 'centralized reader decrypts');
+    assert.equal(map['sms.account_sid'], 'AC25b', 'plaintext values pass through');
+  });
+
+  const smsOptIn25b = load('server/smsOptIn.js', {
+    '../src/sms': smsVm25b,
+    './portalContacts': contacts,
+  });
+  const optinRes25b = await smsOptIn25b.handleSmsOptIn(db, {
+    leadId: 2501, name: 'Encrypted Erin', phone: '6105550143', consent: true, source: 'batch25b',
+  });
+  check('batch25b opt-in: welcome text is sent with the DECRYPTED token (real Twilio auth header)', () => {
+    assert.equal(optinRes25b.sent, true);
+    assert.equal(twilioHttp25b.length, 1, 'exactly one Twilio API call');
+    const call = twilioHttp25b[0];
+    assert.ok(call.url.includes('/Accounts/AC25b/Messages.json'));
+    assert.equal(
+      call.opts.headers.Authorization,
+      'Basic ' + Buffer.from('AC25b:' + PLAIN_TOKEN25B).toString('base64'),
+      'provider received the plaintext token, not the at-rest ciphertext'
+    );
+    const body = new URLSearchParams(call.opts.body);
+    assert.equal(body.get('To'), '+16105550143');
+    assert.equal(body.get('From'), '+16105550199');
+    assert.ok(body.get('Body').startsWith('Welcome to Fixture Texts R Us texts'));
+  });
+
+  // Twilio client credential resolution: platform pair → workspace
+  // sms.* fallback (decrypted) → dormant.
+  const PLAIN_WS_TOKEN25B = 'tok25b-workspace-secret';
+  setRaw25b('sms.account_sid', 'ACws25b');
+  setRaw25b('sms.auth_token', box25b.encryptSetting('sms.auth_token', PLAIN_WS_TOKEN25B));
+  twilioHttp25b.length = 0;
+  twilioHttpImpl25b = async () => ({
+    ok: true, status: 200,
+    json: async () => ({
+      available_phone_numbers: [
+        { phone_number: '+16105550199', friendly_name: '(610) 555-0199', locality: 'Reading', region: 'PA' },
+      ],
+    }),
+    text: async () => '{}',
+  });
+  const emptyDb25b = new Database(':memory:');
+  function loadTwilio25b(platformSettings, wsDb) {
+    const mod = { exports: {} };
+    vm.runInNewContext(fs.readFileSync(path.join(root, 'server/twilioClient.js'), 'utf8'), {
+      module: mod, exports: mod.exports,
+      require: (name) => {
+        if (name === './platform') return { getPlatformSetting: async (k) => platformSettings[k] || '' };
+        if (name === './workspaceDb') return { openWorkspaceDb: () => wsDb };
+        if (name === '../src/sms') return smsVm25b;
+        if (!name.startsWith('.')) return require(name);
+        throw new Error('Unexpected dependency: ' + name);
+      },
+      process: { env: {} }, console, Buffer, URL, URLSearchParams, FormData, Blob,
+      fetch: async (url, opts) => { twilioHttp25b.push({ url: String(url), opts }); return twilioHttpImpl25b(url, opts); },
+      setTimeout, clearTimeout,
+    }, { filename: 'server/twilioClient.js' });
+    return mod.exports;
+  }
+  const twilioWs25b = loadTwilio25b({}, db);
+  const credsWs25b = await twilioWs25b.getCredentials({ workspaceId: 1 });
+  const foundWs25b = await twilioWs25b.searchNumbers({ areaCode: '610', workspaceId: 1 });
+  check('batch25b twilio fallback: workspace sms.* pair (decrypted) is used when the platform pair is unset', () => {
+    assert.equal(credsWs25b.accountSid, 'ACws25b');
+    assert.equal(credsWs25b.authToken, PLAIN_WS_TOKEN25B);
+    assert.equal(credsWs25b.source, 'workspace');
+    assert.equal(foundWs25b.configured, true);
+    assert.equal(foundWs25b.numbers.length, 1);
+    const call = twilioHttp25b[twilioHttp25b.length - 1];
+    assert.equal(
+      call.opts.headers.Authorization,
+      'Basic ' + Buffer.from('ACws25b:' + PLAIN_WS_TOKEN25B).toString('base64')
+    );
+  });
+  const twilioPlat25b = loadTwilio25b({ 'twilio.account_sid': 'ACplat25b', 'twilio.auth_token': 'tokPlat25b' }, db);
+  const credsPlat25b = await twilioPlat25b.getCredentials({ workspaceId: 1 });
+  check('batch25b twilio resolution: a set platform pair still wins over the workspace pair', () => {
+    assert.equal(credsPlat25b.accountSid, 'ACplat25b');
+    assert.equal(credsPlat25b.authToken, 'tokPlat25b');
+    assert.equal(credsPlat25b.source, 'platform');
+  });
+  const twilioNone25b = loadTwilio25b({}, emptyDb25b);
+  const credsNone25b = await twilioNone25b.getCredentials();
+  const credsEmptyWs25b = await twilioNone25b.getCredentials({ workspaceId: 99 });
+  const configuredWs25b = await twilioWs25b.isConfigured({ workspaceId: 1 });
+  const configuredNone25b = await twilioNone25b.isConfigured();
+  check('batch25b twilio dormant: no workspace context (or an unconfigured workspace) stays unconfigured', () => {
+    assert.equal(credsNone25b.accountSid, '');
+    assert.equal(credsNone25b.authToken, '');
+    assert.equal(credsNone25b.source, 'none');
+    assert.equal(credsEmptyWs25b.source, 'none');
+    assert.equal(configuredWs25b, true, 'isConfigured honors the workspace fallback');
+    assert.equal(configuredNone25b, false);
+  });
+  const chatbotSrc25b = fs.readFileSync(path.join(root, 'server/chatbot.js'), 'utf8');
+  const smsOptInSrc25b = fs.readFileSync(path.join(root, 'server/smsOptIn.js'), 'utf8');
+  check('batch25b wiring: chatbot owner-notify + smsOptIn read settings via the decrypting reader', () => {
+    assert.ok(chatbotSrc25b.includes('sms.readWorkspaceSettings(db)'), 'chatbot uses the decrypting reader');
+    assert.ok(smsOptInSrc25b.includes('sms.readWorkspaceSettings(db)'), 'smsOptIn delegates to the decrypting reader');
+    assert.ok(!smsOptInSrc25b.includes('SELECT key, value FROM settings'), 'no raw settings read left in smsOptIn');
+  });
+  emptyDb25b.close();
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

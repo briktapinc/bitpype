@@ -131,7 +131,7 @@ async function transcribeCallRecording(workspaceId, leadId, callSid) {
         return { ok: false, reason: 'skipped_no_credits' };
       }
     }
-    const result = await twilioClient.transcribeRecording(call.recording_url);
+    const result = await twilioClient.transcribeRecording(call.recording_url, { workspaceId });
     if (!result.ok) {
       const status = result.reason === 'no_stt_key' ? 'unavailable' : 'failed';
       domain.withDb(workspaceId, (db) => modules.setCallTranscript(db, callSid, { status }));

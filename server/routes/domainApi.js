@@ -1599,12 +1599,13 @@ router.get('/admin-area/memberships', denyLeadScopedToken, async (req, res) => {
 });
 
 // Call Tracking (Batch 21): every call across the workspace's sites,
-// plus the Twilio number shop. Dormant-safe — without platform Twilio
-// credentials the number endpoints report { configured: false }.
+// plus the Twilio number shop. Dormant-safe — with no Twilio credentials
+// (platform twilio.* or the workspace's sms.* — Batch 25b) the number
+// endpoints report { configured: false }.
 router.get('/admin-area/calls', denyLeadScopedToken, async (req, res) => {
   try {
     const data = await domain.adminCallsOverview(req.auth.workspaceId, { limit: req.query.limit });
-    data.twilio_configured = await require('../twilioClient').isConfigured();
+    data.twilio_configured = await require('../twilioClient').isConfigured({ workspaceId: req.auth.workspaceId });
     data.workspace_id = req.auth.workspaceId;
     ok(res, data);
   } catch (e) {

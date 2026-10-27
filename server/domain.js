@@ -4892,7 +4892,7 @@ async function adminCallsOverview(workspaceId, opts = {}) {
 
 async function adminSearchCallNumbers(workspaceId, { areaCode } = {}) {
   const twilioClient = require('./twilioClient');
-  return twilioClient.searchNumbers({ areaCode });
+  return twilioClient.searchNumbers({ areaCode, workspaceId });
 }
 
 async function adminPurchaseCallNumber(workspaceId, { leadId, phoneNumber } = {}) {
@@ -4932,7 +4932,7 @@ async function adminPurchaseCallNumber(workspaceId, { leadId, phoneNumber } = {}
   }
   const voiceUrl = `${String(appUrl() || '').replace(/\/$/, '')}/api/v1/calls/voice/${Number(workspaceId)}/${id}`;
   // Twilio first: if the purchase fails, NOTHING is persisted.
-  const bought = await twilioClient.purchaseNumber({ phoneNumber: number, voiceUrl });
+  const bought = await twilioClient.purchaseNumber({ phoneNumber: number, voiceUrl, workspaceId });
   if (!bought.configured) return { configured: false };
   const config = withDb(workspaceId, (db) =>
     modules.updateCallTrackingConfig(db, id, {
