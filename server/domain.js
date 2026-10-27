@@ -384,6 +384,14 @@ function materializeWebsiteExport(db, workspaceId, siteId, opts = {}) {
   let pages = parseJsonField(fresh.pages, 'pages');
   const theme = parseJsonField(fresh.theme, 'theme');
   pages = engine.normalizePagesNavLinks(pages);
+  // Batch 31 (C3): keep per-page updatedAt honest across sync write-backs —
+  // stamp against the pages as they were when this export started.
+  try {
+    const beforeArr = beforePages ? JSON.parse(beforePages) : [];
+    if (Array.isArray(beforeArr)) pages = engine.stampPageUpdatedAt(beforeArr, pages);
+  } catch {
+    /* best-effort */
+  }
 
   // Atomic publish: snapshot a version when sync mutates pages; else reuse edit's version.
   let versionRow = null;
@@ -441,9 +449,17 @@ function materializeWebsiteExport(db, workspaceId, siteId, opts = {}) {
 
   const folder = siteExportFolder(db, workspaceId, siteId);
   const images = engine.imagesForWebsite(db, siteId);
+  // Batch 31: thread the SEO context (lead entity, FAQ-module items,
+  // base URL, GSC token) so EVERY export funnel emits the foundations.
+  const seoCtx = engine.buildSeoExportContext(db, siteId);
   // websiteId lets writeStaticPages merge site-{id}/assets into the CF Pages payload.
   // Without this, /assets/* on pages.dev falls through to HTML (broken photos/fonts).
-  const exported = openPreview.exportPages(exportPageList, theme, folder, { images, websiteId: siteId });
+  const exported = openPreview.exportPages(exportPageList, theme, folder, {
+    images,
+    websiteId: siteId,
+    seo: seoCtx,
+    siteUpdatedAt: seoCtx.siteUpdatedAt,
+  });
   try {
     const recovered = engine.recoverMissingExportAssets(pages, theme, exported.dir, { websiteId: siteId });
     if (recovered.length && Array.isArray(exported.files)) {
@@ -4402,6 +4418,17 @@ async function cfPublish(workspaceId, websiteId, _ignoredDir) {
       pinVersion: true,
       adsense: adsenseCfg,
     });
+    // Batch 31 (J): the publish path runs the export image optimizer
+    // too (preview/export already did) — with WebP conversion, and any
+    // .jpg→.webp renames are rewritten in the exported HTML.
+    try {
+      const opt = await optimizeExportImages(exported, { preferWebp: true });
+      if (opt && Array.isArray(opt.renamed) && opt.renamed.length) {
+        require('../src/imageOptimize').rewriteExportHtmlFiles(exported.dir, opt.renamed);
+      }
+    } catch (e) {
+      console.warn('[domain] cfPublish optimizeExportImages:', e.message || e);
+    }
     const deployedVersion = exported.versionNo != null ? Number(exported.versionNo) : null;
     const result = await cf.publishDirectory(db, {
       websiteId: siteId,
@@ -4469,6 +4496,15 @@ async function domainsLink(workspaceId, body = {}) {
         const exported = materializeWebsiteExport(db, workspaceId, Number(websiteId), {
           adsense: adsenseCfg,
         });
+        // Batch 31 (J): same WebP optimizer as cfPublish.
+        try {
+          const opt = await optimizeExportImages(exported, { preferWebp: true });
+          if (opt && Array.isArray(opt.renamed) && opt.renamed.length) {
+            require('../src/imageOptimize').rewriteExportHtmlFiles(exported.dir, opt.renamed);
+          }
+        } catch (e) {
+          console.warn('[domain] domainsLink optimizeExportImages:', e.message || e);
+        }
         await cf.publishDirectory(db, {
           websiteId: Number(websiteId),
           workspaceId: Number(workspaceId),
@@ -5212,6 +5248,25 @@ function seoApply(workspaceId, websiteId, actor = 'staff') {
   return withDb(workspaceId, (db) => seoTool.applySeoProposal(db, websiteId, { actor, actorKind: 'staff' }));
 }
 
+// Google Search Console verification (Batch 31 — I). Per-site token in
+// workspace settings (key seo.gsc.site.<websiteId>); the exporter emits
+// <meta name="google-site-verification"> on every page when set. The
+// token is a public verification value, not a secret.
+function seoGscKey(websiteId) {
+  return `seo.gsc.site.${Number(websiteId)}`;
+}
+function seoGetGscToken(workspaceId, websiteId) {
+  return withDb(workspaceId, (db) => ({ websiteId: Number(websiteId), gscToken: getSetting(db, seoGscKey(websiteId), '') || '' }));
+}
+function seoSetGscToken(workspaceId, websiteId, token) {
+  return withDb(workspaceId, (db) => {
+    const clean = String(token || '').trim().replace(/[^A-Za-z0-9_-]/g, '').slice(0, 200);
+    setSetting(db, seoGscKey(websiteId), clean);
+    logActivity(db, 'seo', `GSC verification token ${clean ? 'set' : 'cleared'} for website ${Number(websiteId)}.`);
+    return { websiteId: Number(websiteId), gscToken: clean };
+  });
+}
+
 // ---------- Site Rentals (Batch 26) ----------
 // A rental links a tenant Lead to a rented Website (server/rentals.js).
 // Staff surface: screen data (rentals + site/lead pickers), detail with
@@ -5260,6 +5315,8 @@ module.exports = {
   seoState,
   seoGenerate,
   seoApply,
+  seoGetGscToken,
+  seoSetGscToken,
   rentalsScreen,
   rentalsList,
   rentalsDetail,

@@ -33,6 +33,7 @@ const path = require('path');
 const ai = require('./ai');
 const googleFonts = require('../public/js/fonts.js');
 const siteIcons = require('./siteIcons');
+const seoSchema = require('./seoSchema');
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                             */
@@ -3047,12 +3048,104 @@ function sectionToHtml(section, theme, edit) {
 /* page / site rendering                                               */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Canonical export filename for a page slug (Batch 31 — C1 URL unification).
+ * ONE canonical form everywhere: nested dash paths, e.g. slug
+ * "services/20-yard-dumpster-rental" → file "services/20-yard-dumpster-rental.html",
+ * served at the canonical URL "/services/20-yard-dumpster-rental".
+ * The pre-Batch-31 form flattened "/" and other separators to "_"
+ * (services_20-yard-dumpster-rental.html) — see legacyPageFileName, kept
+ * only so exports can redirect legacy URLs and normalize legacy links.
+ */
+function canonicalSlugPath(slug) {
+  const raw = String(slug || '/')
+    .trim()
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '');
+  if (!raw || raw === 'home' || raw === 'index' || raw === 'index.html') return '';
+  return raw
+    .split('/')
+    .map((seg) =>
+      seg
+        .replace(/\.html?$/i, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9-_]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+    )
+    .filter(Boolean)
+    .join('/');
+}
+
 function pageFileName(slug) {
+  const p = canonicalSlugPath(slug);
+  if (!p) return 'index.html';
+  return `${p}.html`;
+}
+
+/** Pre-Batch-31 filename form (separators flattened to "_"). Legacy only. */
+function legacyPageFileName(slug) {
   const s = String(slug || '/')
     .replace(/^\//, '')
     .replace(/\/$/, '');
   if (!s || s === 'home' || s === 'index') return 'index.html';
   return s.replace(/[^a-z0-9-_]/gi, '_') + '.html';
+}
+
+/**
+ * Canonical public URL path for a page: home → "/", others →
+ * "/services/20-yard-dumpster-rental" (extensionless, dash form).
+ * This is the ONLY form internal links, canonicals and sitemaps use.
+ */
+function pageUrlPath(slug) {
+  const p = canonicalSlugPath(slug);
+  return p ? `/${p}` : '/';
+}
+
+/** Map any internal href spelling (file, legacy file, canonical) to its page. */
+function pageForHref(href, pages) {
+  if (!Array.isArray(pages) || !pages.length) return null;
+  const h = String(href || '').trim();
+  if (!h || /^(mailto:|tel:|javascript:|https?:|\/\/)/i.test(h)) return null;
+  const home = homePage(pages);
+  let bare = h.split('#')[0].split('?')[0].replace(/^\.\//, '');
+  if (bare.startsWith('/')) bare = bare.slice(1);
+  bare = bare.replace(/\/$/, '');
+  if (!bare || bare === 'index' || bare === 'index.html' || bare === 'home' || bare === 'home.html') return home;
+  const target = bare.replace(/\.html?$/i, '').toLowerCase();
+  for (const p of pages) {
+    if (p === home || isHomePage(p, pages)) continue;
+    const canon = canonicalSlugPath(p.slug);
+    if (canon && target === canon) return p;
+    const legacy = legacyPageFileName(p.slug).replace(/\.html?$/i, '').toLowerCase();
+    if (legacy && target === legacy) return p;
+    const flat = canon.replace(/\//g, '-');
+    if (flat && target === flat) return p;
+  }
+  return null;
+}
+
+/**
+ * Rewrite internal page links in exported HTML to the ONE canonical URL
+ * form (extensionless dash path). Recognizes canonical paths, exported
+ * filenames (flat + nested), legacy underscore filenames, and bare slugs.
+ * External/mailto/tel/anchor-only hrefs are untouched.
+ */
+function normalizeInternalLinksToCanonical(html, pages) {
+  let s = String(html || '');
+  if (!Array.isArray(pages) || !pages.length) return s;
+  s = s.replace(/\bhref\s*=\s*(["'])([^"']+)\1/gi, (whole, quote, href) => {
+    const trimmed = String(href || '').trim();
+    if (!trimmed || trimmed.startsWith('#')) return whole;
+    const hashIdx = trimmed.indexOf('#');
+    const frag = hashIdx >= 0 ? trimmed.slice(hashIdx) : '';
+    const noFrag = hashIdx >= 0 ? trimmed.slice(0, hashIdx) : trimmed;
+    const qIdx = noFrag.indexOf('?');
+    const query = qIdx >= 0 ? noFrag.slice(qIdx) : '';
+    const page = pageForHref(trimmed, pages);
+    if (!page) return whole;
+    return `href=${quote}${pageUrlPath(page.slug)}${query}${frag && frag !== '#' ? frag : ''}${quote}`;
+  });
+  return s;
 }
 
 /**
@@ -3269,6 +3362,17 @@ function rewriteFileLinksToAnchors(html, pages) {
     const bare = file.replace(/\.html$/i, '');
     const id = anchorId(p.slug);
     const patterns = new Set([file, bare, `./${file}`, `./${bare}`, `/${file}`, `/${bare}`]);
+    // Canonical URL path + legacy underscore filename forms (Batch 31).
+    const canon = pageUrlPath(p.slug);
+    if (canon !== '/') {
+      patterns.add(canon);
+      patterns.add(`${canon}.html`);
+    }
+    if (!isHome) {
+      const legacy = legacyPageFileName(p.slug);
+      const legacyBare = legacy.replace(/\.html$/i, '');
+      [legacy, legacyBare, `./${legacy}`, `/${legacy}`, `/${legacyBare}`].forEach((x) => patterns.add(x));
+    }
     if (isHome) {
       ['/', '/index.html', 'index.html', './index.html', 'home', '/home', 'home.html', './home.html'].forEach((x) =>
         patterns.add(x)
@@ -3300,10 +3404,10 @@ function rewriteAnchorLinksToFiles(html, pages) {
   // Longer anchor ids first so #service-areas beats #service if both exist.
   const targets = pages
     .map((p) => {
-      const isHome = p === home || isHomePage(p, pages);
       return {
         id: anchorId(p.slug),
-        file: isHome ? 'index.html' : pageFileName(p.slug),
+        // Batch 31: hash links become the canonical URL path on export.
+        file: pageUrlPath(p.slug),
       };
     })
     .filter((t) => t.id && !seen.has(t.id) && (seen.add(t.id) || true))
@@ -3366,6 +3470,25 @@ function validateExportNavLinks(pages, outDir) {
       let target = null;
       if (expectedFiles.has(bare)) target = bare;
       else if (!bare.endsWith('.html') && expectedFiles.has(`${bare}.html`)) target = `${bare}.html`;
+      if (!target) {
+        // Canonical URL path (/services/20-yard-…) resolves through the
+        // page map (Batch 31). Any other resolvable spelling (legacy
+        // underscore filename, flat-dash path) is a defect: exported
+        // links must use the ONE canonical form.
+        const page = pageForHref(href, pages);
+        if (page) {
+          target = page === home || isHomePage(page, pages) ? 'index.html' : pageFileName(page.slug);
+          const canonBare = pageUrlPath(page.slug).slice(1);
+          const canonicalSpellings = new Set(
+            page === home || isHomePage(page, pages)
+              ? ['', 'index', 'index.html', 'home', 'home.html']
+              : [canonBare, `${canonBare}.html`]
+          );
+          if (!canonicalSpellings.has(bare.toLowerCase())) {
+            missing.push(`${file}->${href} (non-canonical)`);
+          }
+        }
+      }
       if (!target) continue;
       checked += 1;
       if (!fs.existsSync(path.join(outDir, target))) missing.push(`${file}->${href}`);
@@ -3442,7 +3565,9 @@ function pageMetaFields(page) {
         : '';
   const overrideChrome =
     p.chromeOverride === true || p.chrome_override === true || p.useSiteChrome === false || p.use_site_chrome === false;
-  return { description, ogImage, canonical, customJs, customHead, overrideChrome };
+  // Batch 31 (H): per-page noindex flag for thank-you / utility pages.
+  const noindex = p.noindex === true || p.noIndex === true || p.no_index === true || p.robotsNoindex === true;
+  return { description, ogImage, canonical, customJs, customHead, overrideChrome, noindex };
 }
 
 function pageJsTag(pageJs) {
@@ -3487,7 +3612,20 @@ function injectFaviconLink(docHtml, theme) {
   return `<!DOCTYPE html><html lang="en"><head>${tag}</head><body>${doc}</body></html>`;
 }
 
-function docShell({ title, body, theme, script, description, ogImage, canonical, pageJs, pageHead }) {
+function docShell({
+  title,
+  body,
+  theme,
+  script,
+  description,
+  ogImage,
+  canonical,
+  pageJs,
+  pageHead,
+  noindex,
+  seoHead,
+  gscToken,
+}) {
   const t = normalizeTheme(theme);
   const themeJs = themeJsTag(t);
   const pageJsTagHtml = pageJsTag(pageJs);
@@ -3497,11 +3635,17 @@ function docShell({ title, body, theme, script, description, ogImage, canonical,
   const fav = faviconLinkTag(t);
   const ogImg = ogImage && String(ogImage).trim() ? String(ogImage).trim() : '';
   const canon = canonical && String(canonical).trim() ? String(canonical).trim() : '';
+  const gsc = gscToken && String(gscToken).trim() ? String(gscToken).trim().slice(0, 200) : '';
   const ogTags = [
     `<meta property="og:title" content="${esc(title)}">`,
     desc ? `<meta property="og:description" content="${esc(desc)}">` : '',
     ogImg ? `<meta property="og:image" content="${esc(ogImg)}">` : '',
+    canon ? `<meta property="og:url" content="${esc(canon)}">` : '',
     `<meta property="og:type" content="website">`,
+    ogImg ? `<meta name="twitter:card" content="summary_large_image">` : `<meta name="twitter:card" content="summary">`,
+    `<meta name="twitter:title" content="${esc(title)}">`,
+    desc ? `<meta name="twitter:description" content="${esc(desc)}">` : '',
+    ogImg ? `<meta name="twitter:image" content="${esc(ogImg)}">` : '',
   ]
     .filter(Boolean)
     .join('\n');
@@ -3512,8 +3656,11 @@ function docShell({ title, body, theme, script, description, ogImage, canonical,
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(desc)}">
+${noindex ? '<meta name="robots" content="noindex">' : ''}
+${gsc ? `<meta name="google-site-verification" content="${esc(gsc)}">` : ''}
 ${canon ? `<link rel="canonical" href="${esc(canon)}">` : ''}
 ${ogTags}
+${seoHead || ''}
 ${fav}
 <style data-ws-theme="1">${siteCss(t)}</style>
 ${themeHead}
@@ -3542,6 +3689,327 @@ function injectThemeHead(docHtml, theme, pageHead = '') {
     return doc.replace(/<html\b[^>]*>/i, (m) => `${m}\n<head>${chunks}</head>`);
   }
   return `<!DOCTYPE html><html lang="en"><head>${chunks}</head><body>${doc}</body></html>`;
+}
+
+/* ------------------------------------------------------------------ */
+/* SEO foundations (Batch 31)                                          */
+/*                                                                     */
+/* opts.seo threads the site's SEO context through render/export:      */
+/*   { baseUrl,            absolute site base (domain known) or ''     */
+/*     business: {...},    LocalBusiness context from the lead record  */
+/*     moduleFaqItems: [], published FAQ-module items for FAQPage      */
+/*     gscToken: '' }      Google Search Console verification token    */
+/* Dedupe rule: an explicit ld+json block in theme.customHead or the   */
+/* page's customHead wins for its @type — the auto block for that      */
+/* type is skipped (documented in the design prompt, §SEO).            */
+/* ------------------------------------------------------------------ */
+
+function seoContextFromOpts(opts) {
+  const o = opts && typeof opts === 'object' ? opts : {};
+  const seo = o.seo && typeof o.seo === 'object' ? o.seo : null;
+  if (seo) return seo;
+  // Direct opts (tests / simple callers): { seoBaseUrl, seoBusiness, … }
+  if (o.seoBaseUrl != null || o.seoBusiness != null || o.gscToken != null || o.moduleFaqItems != null) {
+    return {
+      baseUrl: o.seoBaseUrl || '',
+      business: o.seoBusiness || null,
+      moduleFaqItems: o.moduleFaqItems || [],
+      gscToken: o.gscToken || '',
+    };
+  }
+  return null;
+}
+
+function absoluteSeoUrl(baseUrl, urlPath) {
+  const base = String(baseUrl || '').trim().replace(/\/+$/, '');
+  if (!base) return '';
+  const p = urlPath == null ? '/' : String(urlPath);
+  return base + (p.startsWith('/') ? p : `/${p}`);
+}
+
+function absolutizeSeoUrl(baseUrl, value) {
+  const v = String(value || '').trim();
+  if (!v) return '';
+  if (/^https?:\/\//i.test(v) || v.startsWith('data:')) return v;
+  const base = String(baseUrl || '').trim().replace(/\/+$/, '');
+  if (!base) return v;
+  return base + (v.startsWith('/') ? v : `/${v}`);
+}
+
+/** First real image on a page (hero/image section, gallery, content image). */
+function firstPageImage(page) {
+  const sections = page && Array.isArray(page.sections) ? page.sections : [];
+  for (const s of sections) {
+    const c = (s && s.content) || {};
+    const candidates = [
+      c.backgroundImage,
+      c.image && typeof c.image === 'object' ? c.image.url : c.image,
+      c.url,
+      Array.isArray(c.images) && c.images[0]
+        ? typeof c.images[0] === 'object'
+          ? c.images[0].url
+          : c.images[0]
+        : '',
+    ];
+    for (const cand of candidates) {
+      const v = String(cand || '').trim();
+      if (v && !v.startsWith('data:')) return v;
+    }
+  }
+  return '';
+}
+
+/** FAQ items authored as page sections ({q, a} in faq section content). */
+function faqItemsFromPage(page) {
+  const items = [];
+  for (const s of (page && page.sections) || []) {
+    if (s && s.type === 'faq' && s.content && Array.isArray(s.content.items)) {
+      for (const it of s.content.items) if (it) items.push(it);
+    }
+  }
+  return items;
+}
+
+/**
+ * Build the auto SEO head blocks for one page render: LocalBusiness
+ * (home page / single-page sites only — one entity block per site is
+ * enough for crawlers) + FAQPage (any page carrying FAQ content).
+ * Returns '' when no SEO context is threaded.
+ */
+function buildSeoHeadExtras(page, pages, theme, opts) {
+  const seo = seoContextFromOpts(opts);
+  if (!seo) return '';
+  const t = normalizeTheme(theme);
+  const headHtml = `${t.customHead || ''}\n${pageMetaFields(page).customHead || ''}`;
+  const existingTypes = seoSchema.ldJsonTypesIn(headHtml);
+  const blocks = [];
+  const home = homePage(pages);
+  const isHomeRender = page === home || isHomePage(page, pages || [page]);
+  if (seo.business && (isHomeRender || !pages || pages.length <= 1)) {
+    if (!seoSchema.hasLocalBusinessType(existingTypes)) {
+      const biz = Object.assign({}, seo.business);
+      if (!biz.url && seo.baseUrl) biz.url = String(seo.baseUrl).replace(/\/+$/, '') + '/';
+      if (!biz.image) {
+        const img = firstPageImage(page) || (t.logoMode === 'image' ? t.logoUrl : '');
+        if (img) biz.image = absolutizeSeoUrl(seo.baseUrl, img);
+      }
+      const ld = seoSchema.buildLocalBusinessLd(biz);
+      if (ld) blocks.push(seoSchema.ldJsonScript(ld, 'localbusiness'));
+    }
+  }
+  if (!existingTypes.has('FAQPage')) {
+    // Section-authored FAQs + published FAQ-module items merge into one
+    // FAQPage block (deduped by question). Module content mounts most
+    // often on the home or faq-slug page.
+    const slugKey = canonicalSlugPath(page && page.slug);
+    const moduleApplies =
+      Array.isArray(seo.moduleFaqItems) && seo.moduleFaqItems.length && (isHomeRender || /(^|\/)faq$/.test(slugKey));
+    const seenQ = new Set();
+    const merged = [];
+    for (const it of [...faqItemsFromPage(page), ...(moduleApplies ? seo.moduleFaqItems : [])]) {
+      const q = seoSchema.cleanStr((it && (it.q || it.question)) || '', 200).toLowerCase();
+      if (q && seenQ.has(q)) continue;
+      if (q) seenQ.add(q);
+      merged.push(it);
+    }
+    const faqLd = seoSchema.buildFaqPageLd(merged);
+    if (faqLd) blocks.push(seoSchema.ldJsonScript(faqLd, 'faqpage'));
+  }
+  return blocks.join('\n');
+}
+
+/** Inject auto SEO blocks into a full document's <head> (idempotent). */
+function injectSeoHeadExtras(docHtml, extras) {
+  let doc = String(docHtml || '');
+  if (!extras || !String(extras).trim()) return doc;
+  if (/data-bitpype-seo\s*=/.test(doc)) return doc;
+  if (/<\/head>/i.test(doc)) return doc.replace(/<\/head>/i, `${extras}\n</head>`);
+  if (/<head\b[^>]*>/i.test(doc)) return doc.replace(/<head\b[^>]*>/i, (m) => `${m}\n${extras}`);
+  return doc;
+}
+
+/**
+ * Resolve the render-time SEO values for one page: canonical (explicit
+ * pageMeta wins; else base + canonical path), og:image (explicit wins;
+ * else page image, else site logo), noindex, GSC token, schema extras.
+ */
+function resolvePageSeo(page, pages, theme, opts) {
+  const seo = seoContextFromOpts(opts);
+  const meta = pageMetaFields(page);
+  const t = normalizeTheme(theme);
+  const baseUrl = seo ? String(seo.baseUrl || '').trim().replace(/\/+$/, '') : '';
+  let canonical = meta.canonical;
+  if (!canonical && seo) {
+    // Absolute when the site domain is known; root-relative canonical
+    // path otherwise (upgraded to absolute on the first export after a
+    // domain attaches — exports are re-materialized at publish).
+    canonical = baseUrl
+      ? absoluteSeoUrl(baseUrl, pageUrlPath(page && page.slug))
+      : pageUrlPath(page && page.slug);
+  }
+  let ogImage = meta.ogImage;
+  if (!ogImage) ogImage = firstPageImage(page) || (t.logoMode === 'image' ? t.logoUrl : '') || '';
+  if (ogImage) ogImage = absolutizeSeoUrl(baseUrl, ogImage);
+  return {
+    canonical,
+    ogImage,
+    noindex: meta.noindex,
+    gscToken: seo ? seo.gscToken || '' : '',
+    seoHead: buildSeoHeadExtras(page, pages, theme, opts),
+    hasSeoContext: !!seo,
+  };
+}
+
+/**
+ * Apply resolved SEO head values to a freeform full document: canonical
+ * link, robots noindex, GSC verification, og:image fallback. Explicit
+ * tags already in the document always win; auto schema extras ride
+ * injectSeoHeadExtras.
+ */
+function applySeoHeadToDocument(docHtml, pageSeo) {
+  let doc = String(docHtml || '');
+  if (!pageSeo || !doc.trim()) return doc;
+  const inserts = [];
+  if (pageSeo.canonical && !/<link\b[^>]*rel\s*=\s*["']canonical["']/i.test(doc)) {
+    inserts.push(`<link rel="canonical" href="${esc(pageSeo.canonical)}">`);
+  }
+  if (pageSeo.noindex && !/<meta\b[^>]*name\s*=\s*["']robots["']/i.test(doc)) {
+    inserts.push('<meta name="robots" content="noindex">');
+  }
+  if (pageSeo.gscToken && !/google-site-verification/i.test(doc)) {
+    inserts.push(`<meta name="google-site-verification" content="${esc(String(pageSeo.gscToken).trim().slice(0, 200))}">`);
+  }
+  if (pageSeo.ogImage && !/<meta\b[^>]*property\s*=\s*["']og:image["']/i.test(doc)) {
+    inserts.push(`<meta property="og:image" content="${esc(pageSeo.ogImage)}">`);
+  }
+  if (inserts.length) {
+    const chunk = inserts.join('\n');
+    if (/<\/head>/i.test(doc)) doc = doc.replace(/<\/head>/i, `${chunk}\n</head>`);
+    else if (/<head\b[^>]*>/i.test(doc)) doc = doc.replace(/<head\b[^>]*>/i, (m) => `${m}\n${chunk}`);
+  }
+  return injectSeoHeadExtras(doc, pageSeo.seoHead);
+}
+
+/** sitemap.xml body: indexable pages only, honest per-page lastmod. */
+function buildSitemapXml(pages, opts) {
+  const o = opts && typeof opts === 'object' ? opts : {};
+  const baseUrl = String(o.baseUrl || '').trim().replace(/\/+$/, '');
+  const siteUpdated = o.siteUpdatedAt ? String(o.siteUpdatedAt) : '';
+  const escXml = (s) =>
+    String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const urls = [];
+  for (const p of Array.isArray(pages) ? pages : []) {
+    if (!p) continue;
+    if (pageMetaFields(p).noindex) continue;
+    const loc = baseUrl
+      ? absoluteSeoUrl(baseUrl, pageUrlPath(p.slug))
+      : pageUrlPath(p.slug);
+    const rawMod = p.updatedAt || p.updated_at || siteUpdated || '';
+    const d = rawMod ? new Date(String(rawMod).replace(' ', 'T')) : null;
+    const lastmod = d && !Number.isNaN(d.getTime()) ? d.toISOString().slice(0, 10) : '';
+    urls.push(`  <url>\n    <loc>${escXml(loc)}</loc>${lastmod ? `\n    <lastmod>${lastmod}</lastmod>` : ''}\n  </url>`);
+  }
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`;
+}
+
+/** robots.txt body: allow-all + Sitemap line when an absolute base is known. */
+function buildRobotsTxt(opts) {
+  const o = opts && typeof opts === 'object' ? opts : {};
+  const baseUrl = String(o.baseUrl || '').trim().replace(/\/+$/, '');
+  let txt = 'User-agent: *\nAllow: /\n';
+  if (baseUrl) txt += `\nSitemap: ${baseUrl}/sitemap.xml\n`;
+  return txt;
+}
+
+/**
+ * Cloudflare Pages _redirects body: legacy underscore filenames → the
+ * canonical dash URL for every page, so pre-Batch-31 links keep working
+ * and nothing falls back to the home page.
+ */
+function buildRedirects(pages) {
+  const lines = [];
+  for (const p of Array.isArray(pages) ? pages : []) {
+    if (!p || isHomePage(p, pages)) continue;
+    const legacy = legacyPageFileName(p.slug);
+    const canon = pageUrlPath(p.slug);
+    if (legacy === 'index.html') continue;
+    lines.push(`/${legacy} ${canon} 301`);
+    const legacyBare = `/${legacy.replace(/\.html$/i, '')}`;
+    if (legacyBare !== canon) lines.push(`${legacyBare} ${canon} 301`);
+  }
+  return lines.length ? lines.join('\n') + '\n' : '';
+}
+
+/**
+ * Themed 404 page (site chrome + "page not found" + link home).
+ * Serving layers return it with a TRUE 404 status (Cloudflare Pages
+ * does this natively for 404.html; the app preview mounts serve it
+ * with an explicit 404 — see server.js / previewServer.js).
+ */
+function build404Page(pages, theme, opts) {
+  const home = homePage(pages) || (Array.isArray(pages) ? pages[0] : null);
+  const t = normalizeTheme(theme);
+  const bizName =
+    (opts && opts.businessName) || t.brandName || (home && home.title) || 'This business';
+  const body = `<main class="bp-404" style="max-width:760px;margin:0 auto;padding:64px 28px;text-align:center">
+<h1>Page not found</h1>
+<p>The page you are looking for is not here. It may have moved, or the link may be out of date.</p>
+<p><a href="/">Back to the home page</a></p>
+</main>`;
+  let doc = docShell({
+    title: `Page not found — ${bizName}`,
+    body,
+    theme: t,
+    description: 'The requested page could not be found.',
+    noindex: true,
+  });
+  // Reuse the site's own chrome (nav/footer partials) when present.
+  try {
+    const withChrome = applySitePartials(body, t, home || {});
+    if (withChrome && withChrome !== body) {
+      doc = docShell({
+        title: `Page not found — ${bizName}`,
+        body: withChrome,
+        theme: t,
+        description: 'The requested page could not be found.',
+        noindex: true,
+      });
+    }
+  } catch {
+    /* chrome is best-effort */
+  }
+  return doc;
+}
+
+/**
+ * Stamp per-page updatedAt (Batch 31 — C3 honest sitemap lastmod).
+ * Compares old vs new page lists by slug over the page content (minus
+ * updatedAt itself); changed/new pages get `nowIso`, unchanged pages
+ * keep their previous stamp. Pure — callers persist the result.
+ */
+function stampPageUpdatedAt(oldPages, newPages, nowIso) {
+  const now = nowIso || new Date().toISOString();
+  const oldByKey = new Map();
+  for (const p of Array.isArray(oldPages) ? oldPages : []) {
+    if (p) oldByKey.set(canonicalSlugPath(p.slug) || 'index', p);
+  }
+  const strip = (p) => {
+    const c = Object.assign({}, p);
+    delete c.updatedAt;
+    delete c.updated_at;
+    return JSON.stringify(c);
+  };
+  return (Array.isArray(newPages) ? newPages : []).map((p) => {
+    if (!p || typeof p !== 'object') return p;
+    const key = canonicalSlugPath(p.slug) || 'index';
+    const old = oldByKey.get(key);
+    if (!old) return Object.assign({}, p, { updatedAt: now });
+    if (strip(old) === strip(p)) {
+      const keep = old.updatedAt || old.updated_at || null;
+      return keep ? Object.assign({}, p, { updatedAt: keep }) : Object.assign({}, p, { updatedAt: now });
+    }
+    return Object.assign({}, p, { updatedAt: now });
+  });
 }
 
 /** Apply site-level header/footer partials unless the page opts out. */
@@ -3667,6 +4135,7 @@ function renderPage(page, allPages, theme, opts) {
   }
   const finishPage = (html) => assertAndDedupeNavHtml(html, `renderPage:${String(pageForRender.slug || pageIndex)}`);
   const pageMeta = pageMetaFields(pageForRender);
+  const pageSeo = resolvePageSeo(pageForRender, pages, t, o);
   if (freeHtml) {
     if (looksLikeFullDocument(freeHtml)) {
       // sanitizeHtml strips author <link rel="icon"> — reinject from theme.favicon.
@@ -3675,6 +4144,8 @@ function renderPage(page, allPages, theme, opts) {
         t,
         pageMeta.customHead
       );
+      // Batch 31: auto canonical / noindex / GSC / og:image / schema.
+      doc = applySeoHeadToDocument(doc, pageSeo);
       // Per-page custom JS at body end (author scripts survive sanitizeJs only).
       if (pageMeta.customJs) {
         const tag = pageJsTag(pageMeta.customJs);
@@ -3709,8 +4180,11 @@ function renderPage(page, allPages, theme, opts) {
             theme: t,
             script: scripts,
             description: pageMeta.description,
-            ogImage: pageMeta.ogImage,
-            canonical: pageMeta.canonical,
+            ogImage: pageSeo.ogImage,
+            canonical: pageSeo.canonical,
+            noindex: pageSeo.noindex,
+            gscToken: pageSeo.gscToken,
+            seoHead: pageSeo.seoHead,
             pageJs: pageMeta.customJs,
             pageHead: pageMeta.customHead,
           })
@@ -3727,7 +4201,7 @@ function renderPage(page, allPages, theme, opts) {
   } catch {
     navLinks = pages.map((p) => ({
       label: p.title || p.slug,
-      href: preview ? `#${anchorId(p.slug)}` : pageFileName(p.slug),
+      href: preview ? `#${anchorId(p.slug)}` : pageUrlPath(p.slug),
     }));
   }
   // Structured nav links: drop duplicate route/label before rendering.
@@ -3769,8 +4243,11 @@ function renderPage(page, allPages, theme, opts) {
         theme: t,
         script: scripts,
         description: pageMeta.description,
-        ogImage: pageMeta.ogImage,
-        canonical: pageMeta.canonical,
+        ogImage: pageSeo.ogImage,
+        canonical: pageSeo.canonical,
+        noindex: pageSeo.noindex,
+        gscToken: pageSeo.gscToken,
+        seoHead: pageSeo.seoHead,
         pageJs: pageMeta.customJs,
         pageHead: pageMeta.customHead,
       }),
@@ -4854,8 +5331,18 @@ function saveVersion(db, websiteId, note, author) {
 function restoreVersion(db, versionId) {
   const v = db.prepare('SELECT * FROM website_versions WHERE id = ?').get(versionId);
   if (!v) throw err('VERSION_NOT_FOUND', `Version #${versionId} not found.`);
+  // Batch 31 (C3): stamp per-page updatedAt against the pre-restore pages.
+  let restoredPagesJson = v.pages;
+  try {
+    const current = getWebsite(db, v.website_id);
+    const oldPages = typeof current.pages === 'string' ? JSON.parse(current.pages) : current.pages;
+    const restored = typeof v.pages === 'string' ? JSON.parse(v.pages) : v.pages;
+    if (Array.isArray(restored)) restoredPagesJson = JSON.stringify(stampPageUpdatedAt(oldPages, restored));
+  } catch {
+    /* stamping is best-effort; the stored pages stay valid either way */
+  }
   db.prepare("UPDATE websites SET pages = ?, theme = ?, updated_at = datetime('now') WHERE id = ?").run(
-    v.pages,
+    restoredPagesJson,
     v.theme,
     v.website_id
   );
@@ -4872,8 +5359,17 @@ function saveSite(db, websiteId, pages, theme, note, author) {
     theme,
     typeof site.theme === 'string' ? JSON.parse(site.theme) : site.theme
   );
+  // Batch 31 (C3): per-page updatedAt stamps — a page's stamp moves only
+  // when THAT page's content changes, so sitemap lastmod stays honest.
+  let stampedPages = pages;
+  try {
+    const oldPages = typeof site.pages === 'string' ? JSON.parse(site.pages) : site.pages;
+    if (Array.isArray(oldPages) && Array.isArray(pages)) stampedPages = stampPageUpdatedAt(oldPages, pages);
+  } catch {
+    /* best-effort */
+  }
   db.prepare("UPDATE websites SET pages = ?, theme = ?, updated_at = datetime('now') WHERE id = ?").run(
-    JSON.stringify(pages),
+    JSON.stringify(stampedPages),
     JSON.stringify(normalizeTheme(theme)),
     websiteId
   );
@@ -5771,7 +6267,13 @@ async function qaSite(db, websiteId) {
       const openPreviewMod = require('./openPreview');
       const exportDir = path.join(openPreviewMod.exportRoot(), `qa-site-${websiteId}`);
       const images = imagesForWebsite(db, websiteId);
-      writeStaticPages(pages, theme, exportDir, { images, websiteId });
+      const qaSeo = buildSeoExportContext(db, websiteId);
+      writeStaticPages(pages, theme, exportDir, {
+        images,
+        websiteId,
+        seo: qaSeo,
+        siteUpdatedAt: qaSeo.siteUpdatedAt,
+      });
       const assetCheck = validateExportAssets(pages, theme, exportDir);
       const miss = assetCheck.missing || [];
       let deployDetail = '';
@@ -5873,17 +6375,95 @@ async function qaSite(db, websiteId) {
           ? cropProblems.slice(0, 4).join('; ')
           : 'Cropped images match declared aspect (or no crop metadata).'
       );
+
+      // 10b. SEO foundations (Batch 31 — REQUIRED): the export must ship
+      // sitemap.xml / robots.txt / 404.html, the home page must carry the
+      // auto LocalBusiness schema + a canonical, and no internal link may
+      // resolve to the home-page fallback. Thin pages / missing meta
+      // description / missing og:image are warnings (check passes, the
+      // detail names the page + defect).
+      try {
+        const seoFails = [];
+        const seoWarns = [];
+        for (const artifact of ['sitemap.xml', 'robots.txt', '404.html']) {
+          if (!fs.existsSync(path.join(exportDir, artifact))) seoFails.push(`export: missing ${artifact}`);
+        }
+        const homeFile = path.join(exportDir, 'index.html');
+        const homeHtml = fs.existsSync(homeFile) ? fs.readFileSync(homeFile, 'utf8') : '';
+        const homeTypes = seoSchema.ldJsonTypesIn(homeHtml);
+        if (!seoSchema.hasLocalBusinessType(homeTypes)) {
+          seoFails.push('index.html (home): missing LocalBusiness schema');
+        }
+        const homePageObj = homePage(pages);
+        for (const p of pages) {
+          const isHomeP = p === homePageObj || isHomePage(p, pages);
+          const file = isHomeP ? 'index.html' : pageFileName(p.slug);
+          const abs = path.join(exportDir, file);
+          if (!fs.existsSync(abs)) continue;
+          const pageHtml = fs.readFileSync(abs, 'utf8');
+          const label = `${file} (${String(p.slug || '/')})`;
+          if (!/<link\b[^>]*rel\s*=\s*["']canonical["']/i.test(pageHtml)) {
+            seoFails.push(`${label}: missing canonical`);
+          }
+          // Home-fallback detection: a link whose target page exists but
+          // whose href serves the home document instead of its own file.
+          const hrefs = [...pageHtml.matchAll(/\bhref\s*=\s*["']([^"']+)["']/gi)].map((m) => m[1]);
+          for (const href of hrefs) {
+            const targetPage = pageForHref(href, pages);
+            if (!targetPage || targetPage === homePageObj || isHomePage(targetPage, pages)) continue;
+            const targetFile = pageFileName(targetPage.slug);
+            const spellings = new Set([
+              pageUrlPath(targetPage.slug).slice(1),
+              targetFile,
+              legacyPageFileName(targetPage.slug),
+              legacyPageFileName(targetPage.slug).replace(/\.html$/i, ''),
+            ]);
+            const bare = href.split('#')[0].split('?')[0].replace(/^\.\//, '').replace(/^\//, '');
+            if (spellings.has(bare) && bare !== pageUrlPath(targetPage.slug).slice(1) && bare !== targetFile) {
+              seoFails.push(`${label}: link "${href}" uses a non-canonical form (home-fallback risk)`);
+            }
+          }
+          const meta = pageMetaFields(p);
+          if (!meta.description) seoWarns.push(`${label}: missing meta description`);
+          if (!/<meta\b[^>]*property\s*=\s*["']og:image["']/i.test(pageHtml)) {
+            seoWarns.push(`${label}: missing og:image`);
+          }
+          if (!meta.noindex) {
+            const words = visibleTextFromHtml(pageHtml).split(/\s+/).filter(Boolean).length;
+            if (words < 600) seoWarns.push(`${label}: thin page (~${words} visible words, target 1000+)`);
+          }
+        }
+        check(
+          'seo-foundations',
+          seoFails.length === 0,
+          seoFails.length
+            ? seoFails.slice(0, 8).join('; ')
+            : `SEO foundations present (LocalBusiness schema, canonical, sitemap.xml, robots.txt, 404.html).${seoWarns.length ? ` Warnings: ${seoWarns.slice(0, 6).join('; ')}` : ''}`
+        );
+        check(
+          'seo-content-warnings',
+          true,
+          seoWarns.length ? seoWarns.slice(0, 8).join('; ') : 'No SEO content warnings.'
+        );
+      } catch (e) {
+        check('seo-foundations', false, `SEO check failed: ${e.message || e}`);
+        check('seo-content-warnings', true, 'SEO warnings skipped (check error).');
+      }
     } catch (e) {
       check('assets-present-in-export', false, `Export asset check failed: ${e.message || e}`);
       check('multipage-nav-export', false, `Export nav check failed: ${e.message || e}`);
       check('nav-labels-unique', false, `Nav label check failed: ${e.message || e}`);
       check('images-crop-aspect', false, `Crop check failed: ${e.message || e}`);
+      check('seo-foundations', false, `SEO check failed: ${e.message || e}`);
+      check('seo-content-warnings', true, 'SEO warnings skipped (export failed).');
     }
   } else {
     check('assets-present-in-export', false, 'Skipped (render failed).');
     check('multipage-nav-export', false, 'Skipped (render failed).');
     check('nav-labels-unique', false, 'Skipped (render failed).');
     check('images-crop-aspect', false, 'Skipped (render failed).');
+    check('seo-foundations', false, 'Skipped (render failed).');
+    check('seo-content-warnings', true, 'Skipped (render failed).');
   }
 
   // Horizontal overflow at 390px (headless) — best-effort when puppeteer available.
@@ -6257,6 +6837,11 @@ function writeStaticPages(pages, theme, outDir, opts) {
   for (const p of pages) {
     const file = p === home || isHomePage(p, pages) ? 'index.html' : pageFileName(p.slug);
     let pageHtml = renderPage(p, pages, theme, opts);
+    // Batch 31 (C1): every internal link in the exported HTML uses the
+    // ONE canonical URL form — legacy underscore filenames, exported
+    // filenames and bare slugs are all normalized here, so no exported
+    // link can fall back to the home page.
+    pageHtml = normalizeInternalLinksToCanonical(pageHtml, pages);
     // Final guard: sanitize/render must leave managed embed loaders intact.
     pageHtml = ensureManagedEmbedScripts(pageHtml);
     const embedAssert = assertManagedEmbedScripts(pageHtml, `export ${file}`);
@@ -6266,8 +6851,47 @@ function writeStaticPages(pages, theme, outDir, opts) {
         `Publish/export refused: ${file} missing managed embed scripts: ${embedAssert.missing.join(', ')}`
       );
     }
-    fs.writeFileSync(path.join(outDir, file), pageHtml, 'utf8');
+    const target = path.join(outDir, file);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, pageHtml, 'utf8');
     written.push(file);
+  }
+  // Batch 31 (C2/C3/C1): every export ships a themed 404.html (served
+  // with a TRUE 404 status by Cloudflare Pages and the app preview
+  // mounts), robots.txt, sitemap.xml with honest per-page lastmod, and
+  // a _redirects map from legacy underscore URLs to canonical ones.
+  const seo = seoContextFromOpts(opts || {});
+  const baseUrl = seo ? String(seo.baseUrl || '').trim().replace(/\/+$/, '') : '';
+  try {
+    fs.writeFileSync(path.join(outDir, '404.html'), build404Page(pages, theme, opts || {}), 'utf8');
+    if (!written.includes('404.html')) written.push('404.html');
+  } catch (e) {
+    console.warn('[websiteEngine] 404.html emit:', e.message || e);
+  }
+  try {
+    fs.writeFileSync(path.join(outDir, 'robots.txt'), buildRobotsTxt({ baseUrl }), 'utf8');
+    if (!written.includes('robots.txt')) written.push('robots.txt');
+  } catch (e) {
+    console.warn('[websiteEngine] robots.txt emit:', e.message || e);
+  }
+  try {
+    fs.writeFileSync(
+      path.join(outDir, 'sitemap.xml'),
+      buildSitemapXml(pages, { baseUrl, siteUpdatedAt: (opts && opts.siteUpdatedAt) || '' }),
+      'utf8'
+    );
+    if (!written.includes('sitemap.xml')) written.push('sitemap.xml');
+  } catch (e) {
+    console.warn('[websiteEngine] sitemap.xml emit:', e.message || e);
+  }
+  try {
+    const redirects = buildRedirects(pages);
+    if (redirects) {
+      fs.writeFileSync(path.join(outDir, '_redirects'), redirects, 'utf8');
+      if (!written.includes('_redirects')) written.push('_redirects');
+    }
+  } catch (e) {
+    console.warn('[websiteEngine] _redirects emit:', e.message || e);
   }
   const images = opts && Array.isArray(opts.images) ? opts.images : [];
   const assetFiles = copyDeliverableImages(images, outDir);
@@ -6356,12 +6980,117 @@ async function localizeWebsiteRemoteImages(db, websiteId) {
   return { id: websiteId, localized: assets.length, pages: next };
 }
 
+/**
+ * Build the export-time SEO context for a stored site (Batch 31):
+ * lead-derived LocalBusiness data, published FAQ-module items, the
+ * site's absolute base URL (custom domain → published URL), and the
+ * per-site GSC verification token. Used by exportStatic AND by
+ * server/domain.js materializeWebsiteExport so every export funnel
+ * (preview, publish, QA) emits the same SEO foundations.
+ */
+function buildSeoExportContext(db, websiteId) {
+  const ctx = { baseUrl: '', business: null, moduleFaqItems: [], gscToken: '', siteUpdatedAt: '' };
+  try {
+    const site = getWebsite(db, websiteId);
+    ctx.siteUpdatedAt = site.updated_at || '';
+    const lead = site.lead_id ? db.prepare('SELECT * FROM leads WHERE id = ?').get(site.lead_id) : null;
+    // Absolute base: a linked custom domain wins; else the published
+    // preview URL when it is a real hosted URL (not a local path).
+    if (site.custom_domain) {
+      ctx.baseUrl = `https://${String(site.custom_domain).replace(/^https?:\/\//i, '').replace(/\/+$/, '')}`;
+    }
+    if (!ctx.baseUrl) {
+      try {
+        const dom = db
+          .prepare(
+            "SELECT domain_name, public_url FROM site_domains WHERE website_id = ? AND status NOT IN ('failed','unlinked','removed') ORDER BY id DESC LIMIT 1"
+          )
+          .get(websiteId);
+        if (dom && dom.public_url && /^https?:\/\//i.test(dom.public_url)) {
+          ctx.baseUrl = String(dom.public_url).replace(/\/+$/, '');
+        } else if (dom && dom.domain_name) {
+          ctx.baseUrl = `https://${String(dom.domain_name).replace(/^https?:\/\//i, '').replace(/\/+$/, '')}`;
+        }
+      } catch {
+        /* site_domains is optional */
+      }
+    }
+    if (!ctx.baseUrl && site.preview_url && /^https?:\/\//i.test(site.preview_url) && !/localhost|127\.0\.0\.1/i.test(site.preview_url)) {
+      ctx.baseUrl = String(site.preview_url).replace(/\/+$/, '');
+    }
+    if (lead) {
+      let towns = [];
+      try {
+        const factRows = db
+          .prepare(
+            "SELECT fact_key, value FROM business_facts WHERE lead_id = ? AND claim_class IN ('VERIFIED','OWNER_PROVIDED')"
+          )
+          .all(lead.id);
+        towns = seoSchema.serviceAreaTowns(factRows);
+      } catch {
+        /* business_facts optional */
+      }
+      let services = [];
+      try {
+        const parsed = lead.services ? JSON.parse(lead.services) : [];
+        if (Array.isArray(parsed)) services = parsed.map((s) => String(s || '').trim()).filter(Boolean);
+      } catch {
+        /* ignore malformed */
+      }
+      ctx.business = {
+        businessName: lead.business_name || site.name || '',
+        category: lead.category || site.industry || '',
+        description: lead.description || '',
+        phone: lead.phone || '',
+        email: lead.email || '',
+        url: ctx.baseUrl ? `${ctx.baseUrl}/` : lead.website || '',
+        address: lead.address || '',
+        city: lead.city || '',
+        state: lead.state || '',
+        postalCode: lead.postal_code || '',
+        country: lead.country || 'US',
+        latitude: lead.latitude,
+        longitude: lead.longitude,
+        hours: lead.hours || '',
+        socialLinks: lead.social_links || '',
+        towns,
+        services,
+      };
+      try {
+        const rows = db
+          .prepare("SELECT question, answer_html FROM faq_items WHERE lead_id = ? AND status = 'published' ORDER BY sort_order ASC, id ASC")
+          .all(lead.id);
+        ctx.moduleFaqItems = rows || [];
+      } catch {
+        /* faq_items optional */
+      }
+    }
+    try {
+      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(`seo.gsc.site.${websiteId}`);
+      if (row && row.value) {
+        ctx.gscToken = String(require('./secretBox').decryptSetting(`seo.gsc.site.${websiteId}`, row.value) || '').trim();
+      }
+    } catch {
+      /* settings optional */
+    }
+  } catch {
+    /* SEO context is additive — never break an export over it */
+  }
+  return ctx;
+}
+
 function exportStatic(db, websiteId, outDir) {
   const site = getWebsite(db, websiteId);
   const pages = JSON.parse(site.pages);
   const theme = JSON.parse(site.theme);
   const images = imagesForWebsite(db, websiteId);
-  const written = writeStaticPages(pages, theme, outDir, { images, websiteId });
+  const seo = buildSeoExportContext(db, websiteId);
+  const written = writeStaticPages(pages, theme, outDir, {
+    images,
+    websiteId,
+    seo,
+    siteUpdatedAt: seo.siteUpdatedAt,
+  });
   const recovered = recoverMissingExportAssets(pages, theme, outDir, { websiteId });
   for (const rel of recovered) {
     if (!written.files.includes(rel)) written.files.push(rel);
@@ -6494,6 +7223,21 @@ module.exports = {
   renderPageAt,
   renderSite,
   pageFileName,
+  legacyPageFileName,
+  canonicalSlugPath,
+  pageUrlPath,
+  pageForHref,
+  normalizeInternalLinksToCanonical,
+  // SEO foundations (Batch 31)
+  seoContextFromOpts,
+  buildSeoExportContext,
+  buildSeoHeadExtras,
+  resolvePageSeo,
+  buildSitemapXml,
+  buildRobotsTxt,
+  buildRedirects,
+  build404Page,
+  stampPageUpdatedAt,
   normalizeRoute,
   navAnchorLabel,
   isComparableNavHref,

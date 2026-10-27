@@ -597,8 +597,29 @@ app.use(express.static(path.join(__dirname, 'public'), { index: false }));
       index: ['index.html'],
       fallthrough: true,
       redirect: true,
+      extensions: ['html'],
     })
   );
+  // Batch 31 (C2): unknown preview paths serve the SITE's themed
+  // 404.html with a TRUE 404 status — never the home page (soft 404).
+  app.use('/site-previews', (req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    const seg = String(req.path || '').split('/').filter(Boolean)[0];
+    if (!seg) return next();
+    try {
+      const fsMod = require('fs');
+      const pathMod = require('path');
+      const notFound = pathMod.join(exportRoot(), seg, '404.html');
+      if (fsMod.existsSync(notFound)) {
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        return res.status(404).sendFile(notFound);
+      }
+    } catch {
+      /* fall through to the generic 404 */
+    }
+    return next();
+  });
 }
 
 app.get('*', (req, res, next) => {

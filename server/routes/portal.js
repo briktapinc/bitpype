@@ -1339,6 +1339,24 @@ router.post('/seo/apply', requireClient, actionLimit, async (req, res) => {
   }
 });
 
+// Batch 31 (I): Google Search Console verification token for the
+// owner's own site — emitted as a meta tag on every exported page.
+router.post('/seo/gsc', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.setSeoGscToken(
+        req.client.workspace_id,
+        req.client.lead_id,
+        req.client.email,
+        (req.body || {}).token || (req.body || {}).gscToken || ''
+      )
+    );
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 // Membership config — before the generic /modules/:type routes (member
 // approve/disable/delete ride the generic PUT/DELETE /modules/members/:id).
 router.put('/modules/members/config', requireClient, actionLimit, async (req, res) => {

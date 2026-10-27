@@ -140,7 +140,34 @@ function handle(req, res) {
       target = path.join(target, 'index.html');
     }
 
+    // Batch 31: extensionless canonical URLs (/services/20-yard-…)
+    // resolve to their .html file.
+    if ((!fs.existsSync(target) || !fs.statSync(target).isFile()) && !path.extname(target)) {
+      const withHtml = `${target}.html`;
+      if (fs.existsSync(withHtml) && fs.statSync(withHtml).isFile()) target = withHtml;
+    }
+
     if (!fs.existsSync(target) || !fs.statSync(target).isFile()) {
+      // Batch 31 (C2): serve the site's themed 404.html with a TRUE
+      // 404 status (first path segment = the export folder).
+      const seg = String(u.pathname || '').split('/').filter(Boolean)[0];
+      if (seg) {
+        try {
+          const notFound = path.join(resolved.root, seg, '404.html');
+          if (fs.existsSync(notFound) && fs.statSync(notFound).isFile()) {
+            const buf404 = fs.readFileSync(notFound);
+            send(
+              res,
+              404,
+              { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': buf404.length },
+              req.method === 'HEAD' ? '' : buf404
+            );
+            return;
+          }
+        } catch {
+          /* fall through to plain 404 */
+        }
+      }
       send(res, 404, { 'Content-Type': 'text/plain; charset=utf-8' }, 'Not found');
       return;
     }

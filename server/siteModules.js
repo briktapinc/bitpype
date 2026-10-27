@@ -1159,15 +1159,20 @@ function resolveTargetSlug(explicit, stored, fallback) {
 }
 
 /**
- * Relative multipage filename. Must match src/websiteEngine.js pageFileName:
- * home/index → index.html, everything else → {slug}.html.
+ * Relative multipage filename. Must match src/websiteEngine.js pageFileName
+ * (Batch 31 canonical form): home/index → index.html, everything else →
+ * nested dash path + .html (services/20-yard-dumpster-rental.html).
  */
 function pageFileName(slug) {
-  const s = String(slug || '/')
-    .replace(/^\//, '')
-    .replace(/\/$/, '');
-  if (!s || s === 'home' || s === 'index') return 'index.html';
-  return s.replace(/[^a-z0-9-_]/gi, '_') + '.html';
+  try {
+    return require('../src/websiteEngine').pageFileName(slug);
+  } catch {
+    const s = String(slug || '/')
+      .replace(/^\//, '')
+      .replace(/\/$/, '');
+    if (!s || s === 'home' || s === 'index') return 'index.html';
+    return s.replace(/[^a-z0-9-_]/gi, '_') + '.html';
+  }
 }
 
 function moduleEmbedActive(row) {
@@ -9573,6 +9578,17 @@ function getPublicModuleByToken(db, token, opts = {}) {
     settings,
     items,
   };
+  // Batch 31 (C5): FAQ module payloads carry FAQPage JSON-LD built from
+  // the same published items, so module FAQs are schema-visible; the
+  // client embed injects it next to the rendered questions.
+  if (type === 'faq' && items.length) {
+    try {
+      const faqLd = require('../src/seoSchema').buildFaqPageLd(items);
+      if (faqLd) out.schema = faqLd;
+    } catch {
+      /* schema is additive */
+    }
+  }
   if (total_published != null) {
     out.total_published = total_published;
     out.post_limit = settings.post_limit;

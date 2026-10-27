@@ -839,7 +839,8 @@ function reorderSections(pages, pageIndex, fromIndex, direction) {
 
 /**
  * Build nav link tree for structured render (and MCP).
- * opts.preview → #anchor hrefs; else *.html files.
+ * opts.preview → #anchor hrefs; else the canonical URL path (Batch 31:
+ * extensionless dash form — the ONE internal-link form everywhere).
  */
 function buildNavLinks(pages, opts = {}) {
   const list = Array.isArray(pages) ? pages : [];
@@ -852,11 +853,10 @@ function buildNavLinks(pages, opts = {}) {
     if (!isNavVisible(page)) return;
     const href = preview
       ? `#${engine.anchorId ? engine.anchorId(item.slug) : String(item.slug || 'home').replace(/^\//, '')}`
-      : item.file;
-    // Prefer engine.anchorId / pageFileName already on item.file
+      : engine.pageUrlPath(item.slug);
     let anchorHref = href;
     try {
-      anchorHref = preview ? `#${require('./websiteEngine').anchorId(item.slug)}` : item.file;
+      anchorHref = preview ? `#${require('./websiteEngine').anchorId(item.slug)}` : engine.pageUrlPath(item.slug);
     } catch {
       anchorHref = href;
     }
@@ -875,7 +875,7 @@ function buildNavLinks(pages, opts = {}) {
                 return String(c.slug || '').replace(/^\//, '');
               }
             })()}`
-          : c.file,
+          : engine.pageUrlPath(c.slug),
         slug: c.slug,
       }));
     links.push({
@@ -913,8 +913,8 @@ function buildFooterLinks(pages, opts = {}) {
     const children = visual
       .filter((c) => c.depth === 1 && slugKey(c.parentSlug) === pageSlugKey({ slug: item.slug }))
       .filter((c) => !exclude.has(slugKey(c.slug)))
-      .map((c) => ({ label: c.title, href: c.file, slug: c.slug }));
-    links.push({ label: item.title, href: item.file, slug: item.slug, children });
+      .map((c) => ({ label: c.title, href: engine.pageUrlPath(c.slug), slug: c.slug }));
+    links.push({ label: item.title, href: engine.pageUrlPath(item.slug), slug: item.slug, children });
   });
   return links;
 }
@@ -964,6 +964,21 @@ function buildPageHrefIndex(pages) {
     byFile.set(file, i);
     const bare = file.replace(/\.html$/i, '');
     if (bare && bare !== file) byFile.set(bare, i);
+    // Batch 31: canonical URL path + legacy underscore filename spellings
+    // resolve to the same page, so nav sync recognizes every form.
+    try {
+      const canon = engine.pageUrlPath(p.slug).replace(/^\//, '').toLowerCase();
+      if (canon) {
+        byFile.set(canon, i);
+        byFile.set(`${canon}.html`, i);
+      }
+      const legacy = engine.legacyPageFileName(p.slug).toLowerCase();
+      byFile.set(legacy, i);
+      const legacyBare = legacy.replace(/\.html$/i, '');
+      if (legacyBare && legacyBare !== legacy) byFile.set(legacyBare, i);
+    } catch {
+      /* optional */
+    }
     try {
       const aid = String(engine.anchorId(p.slug) || '').toLowerCase();
       if (aid) byAnchor.set(aid, i);
@@ -1062,7 +1077,10 @@ function syncLegacyNavTags(html, navLinks, list, fileSet, hrefIndex) {
     const resolveLink = (file, label) => {
       const existing = pageLinks.get(String(file || '').toLowerCase());
       if (existing) return existing;
-      return `<a href="${escapeHtml(file)}">${escapeHtml(label || file)}</a>`;
+      // Fresh anchors use the canonical URL path (Batch 31).
+      const slugGuess = String(file || '').replace(/\.html$/i, '');
+      const href = slugGuess === 'index' || slugGuess === '' ? '/' : `/${slugGuess.replace(/^\/+/, '')}`;
+      return `<a href="${escapeHtml(href)}">${escapeHtml(label || file)}</a>`;
     };
     const filteredOther = other.filter((chunk) => keepNonPageNavLink(chunk, hrefIndex));
 

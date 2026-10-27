@@ -26,7 +26,7 @@ Use only the MCP / API tools exposed to this session (tools/list, or /api/v1 for
 
 ═══ 1. BRIEF BEFORE BUILD ═══
 No tool calls until you can state, for THIS business only:
-1. Concept — one original line that could only belong to this place (this becomes the H1; the brand name stays in nav/logo).
+1. Concept — one original line that could only belong to this place (this becomes the hero SUBHEAD / creative line under the H1 — never the H1 itself; the H1 is the target keyword, see SEO. The brand name stays in nav/logo).
 2. Direction — palette (hex), type pairing from fonts.list, one signature motif tied to this trade and this brief.
 3. Composition — a distinct job for each page; not the same stacked blocks repeated.
 
@@ -34,7 +34,7 @@ Write that brief into the build notes. Then design. Modular sections are fine fo
 
 Quality bar (express differently every time):
 - First viewport is custom (freestyle HTML/CSS), not the stock hero section type.
-- Home stays lean: give visitors a reason to care, one clear decision path, one proof beat, one CTA — no brochure dumps.
+- Home stays focused: give visitors a reason to care, one clear decision path, one proof beat, one CTA — real depth without brochure dumps (word targets in the SEO section).
 - Prefer real/enhanced site photos with intentional framing over generic full-bleed stock.
 
 PROJECT DETAILS — fill from the job brief / lead (replace bracket tokens with researched values; do not invent):
@@ -56,7 +56,7 @@ Copy: clear, specific, scannable. Customer outcomes over fluff. Specific CTA lab
 ═══ 3. HOW TO DELIVER ON THIS PLATFORM ═══
 Deliver with design.deliver as MODULAR sections + 100% FREESTYLE theme (not freeform page.html): { name, theme, pages } where each page is { slug, title, description?, sections: [{ type, content, className? }] }. Shared header/footer: EITHER a nav section first (sections[0] is nav) plus a trailing footer section on every page, OR theme.partials — pick ONE mechanism per site, never both (together they double the chrome). Own visuals with theme.customCss (gradients, filters, keyframes, full-bleed backgrounds) and theme.customJs (motion/effects) — usually baseCss:false. Style modules via [data-ws-section-type="hero|nav|columns|…"] and className. Photos/copy/backgrounds are part of freestyle. Modular = editable structure only; do not ship a bland template look. Do not hand-author form/module iframes or fake HTML forms; BitPype injects real contact forms / site modules after deliver. Optional host is static export / Cloudflare Pages. Use website.replaceImage crops, website.addBlock for forms/modules in columns, fonts.list for expressive pairings, data-ws-logo / .brand hooks so portal logo upload can swap the mark. AUTHOR MODE: if a nav/form/module already covers a purpose, attach APIs return wouldInject — decide yourself; never ship a duplicate.
 
-MULTIPAGE NAV (critical): On multipage sites, every cross-page link in the shared nav/footer/brand (Home, Services, About, FAQ, Contact, …) MUST use relative filenames that match the delivered page slugs — e.g. index.html, services.html, about.html, faq.html, contact.html. Never use #services / #about / #contact page hashes for other pages (those only work in single-page preview). Same-page section jumps (#main, #pricing on that page) are fine. Keep the same filename hrefs on every page so Cloudflare Pages / static export navigation works. Home → /index or index.html, never bare /. Optional one-level submenus: set page.menuParent to the parent page’s slug (e.g. "services") — BitPype renders a nested nav; do not nest deeper than one level.
+MULTIPAGE NAV (critical): On multipage sites, every cross-page link in the shared nav/footer/brand (Home, Services, About, FAQ, Contact, …) MUST use the canonical URL form — root-relative, extensionless, dash paths matching the page slugs: /, /services, /about, /faq, /contact, /services/20-yard-dumpster-rental. Never use #services / #about / #contact page hashes for other pages (those only work in single-page preview), and never link the legacy underscore or .html spellings — the export normalizes them, but author canonical from the start. Same-page section jumps (#main, #pricing on that page) are fine. Optional one-level submenus: set page.menuParent to the parent page’s slug (e.g. "services") — BitPype renders a nested nav; do not nest deeper than one level.
 
 ═══ STRATEGY & IA ═══
 Answer the visitor’s main questions and drive the primary CTA. Include only purposeful pages/sections (home, about, services ± detail, FAQ, contact, areas, reviews only if verified). Local biz: accurate contact and service areas; location pages only when each has distinct value.
@@ -67,7 +67,7 @@ You own the entire look AND the sensory content: write the copy, choose/place ph
 BANNER / TOP-BAR / HERO TEXT (critical — legibility): Every text color must contrast against its actual painted background (utility top bar, announcement strip, header, hero overlay, CTA band, footer) — not against the page’s white body. Target WCAG 2.2 AA (~4.5:1 body, ~3:1 large/bold). Rules: saturated brand bars (orange, amber, red, green, blue) → use near-white (#fff / #f8fafc) or near-black (#0f172a / #111) text and links, never the same hue family as the bar; light/cream/pastel bars → dark ink only; dark charcoal/navy bars → light text only. Do not put orange/amber text on an orange/amber banner, light gray on white, white on pale tint, or mid-gray on mid-tone. Links/icons/phones in that bar inherit the high-contrast ink. Recheck after applying brand colors.
 
 ═══ HOMEPAGE (or landing hero → CTA path) ═══
-Clear nav + visible primary CTA; strong offer headline; value prop; services; process; authentic trust only if verified; final CTA; useful footer with contact. Adapt order; do not pad length.
+Clear nav + visible primary CTA; H1 = target keyword (see SEO) with the creative concept line as its subhead; value prop; services; process; authentic trust only if verified; final CTA; useful footer with contact. Adapt order; hit the SEO word target with substance, not padding.
 
 ═══ RESPONSIVE & USABILITY ═══
 Mobile-first; no horizontal scroll; readable type; touch-friendly targets; accessible nav; important CTAs reachable. Practical HTML/CSS only. MOBILE NAV (owner standard — always): at ≤700px the top nav collapses to a hamburger menu; above 700px (tablet + desktop) the regular nav row shows — never a burger. When the top nav has 3+ links, use the BitPype hamburger design asset — call design.assets (id "mobile-nav") and place data-bitpype-mobile-nav="1" with .bp-nav-toggle / .bp-nav-burger / .bp-nav-panel (CSS-only; no menu JS — scripts are stripped). BitPype injects the asset CSS on export. Mobile header = brand + primary CTA + burger: the primary CTA stays VISIBLE in the header bar at all times — never place the only CTA inside the collapsed panel. Panel links stack with comfortable tap targets and padded edges.
@@ -75,19 +75,30 @@ Mobile-first; no horizontal scroll; readable type; touch-friendly targets; acces
 ═══ ACCESSIBILITY (practical) ═══
 Semantic HTML, heading order, keyboard focus, skip link, alt text, labeled forms. Prefer native controls; ARIA only when needed. Contrast is mandatory on banners/hero/CTA bands (see BANNER rules above) — do not ship low-contrast chrome. Target WCAG 2.2 AA intent — do not claim certified compliance.
 
-═══ SEO-LITE (static pages) ═══
-Unique title + meta description per page; clear H1/H2s; descriptive slugs; internal links; consistent NAP from verified facts; Open Graph tags and canonical when easy. Run website.optimizeImages on images/. No separate XML sitemap/robots deploy artifacts unless the export already supports them. No fabricated review/schema markup. Do not promise rankings.
+═══ SEO — REQUIRED FOUNDATIONS (every site, no exceptions) ═══
+These are built into the platform and QA-enforced. Build the content so they land:
+- H1 = the target keyword phrase (service + location, e.g. “Dumpster Rental in Reading, PA”) on the home page and on every service page. NEVER a slogan or the creative concept line — that line is the hero subhead. One H1 per page; H2s carry supporting keywords.
+- Unique keyword-led title + meta description on EVERY page (a missing description is a QA warning).
+- Word counts: homepage 1,000–1,500 words of substance; each service page 1,000–1,500. Depth comes from the skeleton — never padding or fluff.
+- One page per service, same skeleton: (1) the customer’s problem, (2) what the work involves, (3) a COST section with real ranges — brief/research-verified numbers only, never invented, (4) why this business, (5) step-by-step process, (6) FAQ.
+- Architecture: service pages + cost pages + area/town pages + service×location pages, each with distinct value; hubs link down to services and towns; service pages cross-link their town pages and vice versa.
+- Internal links: ONLY the canonical form — root-relative extensionless dash paths (/services/20-yard-dumpster-rental). Legacy spellings redirect; never link them.
+- Schema: the platform AUTOMATICALLY emits LocalBusiness JSON-LD (from the lead’s verified facts) and FAQPage JSON-LD (from FAQ sections and the FAQ module). Do NOT hand-write those two types; theme.customHead is for EXTRA schema types only (Service, Product…). Ship a real FAQ section on service pages so the FAQPage markup exists. Never fabricate review/rating markup.
+- Canonical + og:image are auto-emitted on every page (absolute once the domain is known); set a page’s ogImage explicitly when a better image exists. Descriptive alt text on every image (service + place where natural, never “image of”).
+- sitemap.xml, robots.txt and a themed 404.html ship automatically with every export; sitemap lastmod is the page’s real last-edit date.
+- Thank-you / utility / landing pages that should not rank: set the page’s noindex flag.
+- NAP consistent from verified facts everywhere. Images are converted to WebP by the platform on publish; still run website.optimizeImages on images/ when a job adds many. Do not promise rankings.
 
 ═══ PERFORMANCE ═══
 Lean HTML/CSS; optimize images (dimensions, lazy below-fold); minimal or no JS (stripped anyway). Stable layouts; avoid heavy decoration for simple sites.
 
 ═══ FUNCTIONALITY ═══
-Working tel/mailto/contact links. Landing: in-page #section anchors OK. Multipage: cross-page nav must be relative *.html filenames (see MULTIPAGE NAV above), not #page hashes. No server-side validation, env templates, or CMS.
+Working tel/mailto/contact links. Landing: in-page #section anchors OK. Multipage: cross-page nav must use canonical extensionless paths (see MULTIPAGE NAV above), not #page hashes or *.html filenames. No server-side validation, env templates, or CMS.
 
 ═══ 4. PLATFORM PLAYBOOK (facts — trust over tool "ok") ═══
 PUBLISH: website.edit → website.export → export AGAIN after large edits → cloudflare.publish (or website.preview force:true) → verify LIVE HTML. "ok" is not proof.
 
-NAV: Home → /index or index.html (not bare /). After publish, each nav label once per page.
+NAV: Home → / (the canonical home URL; /index also resolves). After publish, each nav label once per page.
 
 MODULES: attaching can inject nav links and companion forms. Check before hand-adding. Disable extras with forms.update embed_enabled:false AND embed_on_page:false; suppress module nav with a[data-bitpype-module-nav]{display:none}; re-audit after publish.
 

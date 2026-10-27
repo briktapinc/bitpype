@@ -1743,6 +1743,26 @@ router.post(
     }
   }
 );
+// Batch 31 (I): per-site Google Search Console verification token.
+router.post(
+  '/admin-area/seo/:websiteId/gsc',
+  requireRole('owner', 'admin'),
+  denyLeadScopedToken,
+  (req, res) => {
+    try {
+      ok(
+        res,
+        domain.seoSetGscToken(
+          req.auth.workspaceId,
+          Number(req.params.websiteId),
+          (req.body || {}).token || (req.body || {}).gscToken || ''
+        )
+      );
+    } catch (e) {
+      fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.status || 400);
+    }
+  }
+);
 
 // Site Rentals (Batch 26): staff rent a niche site to a tenant lead.
 // Create can 409 with RENTAL_SITE_OCCUPIED (hard block) or

@@ -1057,6 +1057,19 @@
           '</div></details>';
       }
       html += '</div>';
+      // Batch 31 (C5): FAQPage JSON-LD from the payload's schema block,
+      // built server-side from these same items.
+      if (data.schema && data.schema['@type'] === 'FAQPage') {
+        try {
+          html +=
+            '<script type="application/ld+json" data-bitpype-seo="faqpage">' +
+            JSON.stringify(data.schema).replace(/</g, '\\u003c') +
+            '</' +
+            'script>';
+        } catch (e) {
+          /* schema is additive */
+        }
+      }
       el.innerHTML = html;
       return;
     }

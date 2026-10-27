@@ -3077,6 +3077,21 @@ async function applySeoTool(workspaceId, leadId, clientEmail) {
   );
 }
 
+/* Batch 31 (I): the owner sets their own site's Google Search Console
+   verification token from the portal SEO tab. Site resolved from the
+   session lead, never from the request. */
+async function setSeoGscToken(workspaceId, leadId, clientEmail, token) {
+  const domain = require('./domain');
+  return domain.withDb(workspaceId, (db) => {
+    const websiteId = seoSiteForLead(db, leadId);
+    const clean = String(token || '').trim().replace(/[^A-Za-z0-9_-]/g, '').slice(0, 200);
+    db.prepare(
+      'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+    ).run(`seo.gsc.site.${websiteId}`, require('../src/secretBox').encryptSetting(`seo.gsc.site.${websiteId}`, clean));
+    return { websiteId, gscToken: clean };
+  });
+}
+
 async function saveOffersDisplaySettings(workspaceId, leadId, body, clientEmail) {
   const domain = require('./domain');
   const modules = require('./siteModules');
@@ -3950,6 +3965,7 @@ module.exports = {
   refreshGoogleReviews,
   saveCallTrackingConfig,
   getSeoTool,
+  setSeoGscToken,
   getMyRentals,
   generateSeoTool,
   applySeoTool,

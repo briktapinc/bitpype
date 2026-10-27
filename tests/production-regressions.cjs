@@ -3246,7 +3246,10 @@ async function main() {
       return { text: canned22, model: 'stub-model', promptTokens: 10, completionTokens: 10, costUsd: 0 };
     },
   };
-  const seo22 = load('server/seoTool.js', { '../src/ai': stubAi22 });
+  const seo22 = load('server/seoTool.js', {
+    '../src/ai': stubAi22,
+    '../src/seoSchema': require(path.join(root, 'src/seoSchema.js')),
+  });
   seo22.ensureSeoTables(db);
   db.prepare(
     `INSERT INTO leads (id, business_name, category, phone, email, city, state, address, postal_code, services)

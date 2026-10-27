@@ -3160,9 +3160,45 @@
     const host = document.getElementById('seo-host');
     if (!host) return;
     const d = st || {};
+    // Batch 31: Google Search Console verification — the owner pastes
+    // the token from Search Console's HTML-tag method; every exported
+    // page then carries the verification meta tag.
+    const gscPanel = `
+      <div class="panel">
+        <h3>Google Search Console</h3>
+        <p>Verify your site with Google: in Search Console, add your website and choose the <strong>HTML tag</strong> verification method, then paste the token (the <code>content</code> value) here. We put the verification tag on every page of your site at the next publish.</p>
+        <p style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input type="text" id="seo-gsc-token" value="${esc(d.gscToken || '')}" placeholder="Verification token" style="flex:1;min-width:220px" autocomplete="off" spellcheck="false">
+          <button type="button" class="btn soft" id="seo-gsc-save">Save token</button>
+        </p>
+        <p class="hint" id="seo-gsc-message" role="status">${d.gscToken ? 'A verification token is saved for your site.' : 'No token saved yet.'}</p>
+      </div>`;
+    const wireGsc = () => {
+      const btn = document.getElementById('seo-gsc-save');
+      const input = document.getElementById('seo-gsc-token');
+      const gmsg = document.getElementById('seo-gsc-message');
+      if (!btn || !input) return;
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        if (gmsg) gmsg.textContent = 'Saving…';
+        try {
+          const r = await api('/seo/gsc', { method: 'POST', body: JSON.stringify({ token: input.value }) });
+          if (gmsg) {
+            gmsg.textContent = r.gscToken
+              ? 'Saved — the verification tag lands on your site at the next publish.'
+              : 'Token cleared.';
+          }
+        } catch (e) {
+          if (gmsg) gmsg.textContent = e.message || 'Could not save the token — please try again.';
+        }
+        btn.disabled = false;
+      });
+    };
     if (!d.configured) {
       host.innerHTML =
-        '<div class="panel"><h3>SEO is not switched on yet</h3><p>The AI behind this tool is not configured on our side yet, so there is nothing to generate right now. Check back soon — when it is on, you will be able to generate local SEO keywords for your business here and apply them to your site in one click.</p></div>';
+        '<div class="panel"><h3>SEO is not switched on yet</h3><p>The AI behind this tool is not configured on our side yet, so there is nothing to generate right now. Check back soon — when it is on, you will be able to generate local SEO keywords for your business here and apply them to your site in one click.</p></div>' +
+        gscPanel;
+      wireGsc();
       return;
     }
     const pending = d.pending || null;
@@ -3190,7 +3226,9 @@
         </p>
         <p class="hint" id="seo-message" role="status"></p>
       </div>
-      ${history.length ? `<div class="panel"><h3>Applied before</h3>${history.map((h) => `<p style="margin:6px 0"><strong>${esc(h.change_count)}</strong> change(s) applied by ${h.actor_kind === 'owner' ? 'you' : 'the BitPype team'} · ${esc(h.applied_at || '')}${h.keywords && h.keywords.primary ? `<br><span class="hint">Primary keyword: ${esc(h.keywords.primary)}</span>` : ''}</p>`).join('')}</div>` : ''}`;
+      ${history.length ? `<div class="panel"><h3>Applied before</h3>${history.map((h) => `<p style="margin:6px 0"><strong>${esc(h.change_count)}</strong> change(s) applied by ${h.actor_kind === 'owner' ? 'you' : 'the BitPype team'} · ${esc(h.applied_at || '')}${h.keywords && h.keywords.primary ? `<br><span class="hint">Primary keyword: ${esc(h.keywords.primary)}</span>` : ''}</p>`).join('')}</div>` : ''}
+      ${gscPanel}`;
+    wireGsc();
     const msg = document.getElementById('seo-message');
     const genBtn = document.getElementById('seo-generate');
     if (genBtn) {

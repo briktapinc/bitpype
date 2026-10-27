@@ -38,6 +38,7 @@
  */
 
 const ai = require('../src/ai');
+const seoSchema = require('../src/seoSchema');
 
 const SCHEMA_OPEN = '<!--bitpype-seo-schema-->';
 const SCHEMA_CLOSE = '<!--/bitpype-seo-schema-->';
@@ -168,6 +169,21 @@ function buildContext(db, site, lead) {
   } catch {
     /* context stays lead-based */
   }
+  // Batch 31: the context now carries everything the shared schema
+  // builder can use — email, url, hours, socials, geo, service towns.
+  let towns = [];
+  try {
+    const factRows = db
+      .prepare(
+        "SELECT fact_key, value FROM business_facts WHERE lead_id = ? AND claim_class IN ('VERIFIED','OWNER_PROVIDED')"
+      )
+      .all(Number(site.lead_id));
+    towns = seoSchema.serviceAreaTowns(factRows);
+  } catch {
+    /* business_facts is optional */
+  }
+  const lat = lead && lead.latitude != null ? Number(lead.latitude) : null;
+  const lng = lead && lead.longitude != null ? Number(lead.longitude) : null;
   return {
     businessName: String((lead && lead.business_name) || site.name || 'Local business').trim(),
     category: String((lead && lead.category) || site.industry || '').trim(),
@@ -177,6 +193,13 @@ function buildContext(db, site, lead) {
     postalCode: String((lead && lead.postal_code) || '').trim(),
     country: String((lead && lead.country) || 'US').trim() || 'US',
     phone: String((lead && lead.phone) || '').trim(),
+    email: String((lead && lead.email) || '').trim(),
+    url: String((lead && lead.website) || '').trim(),
+    hours: lead && lead.hours ? String(lead.hours) : '',
+    socialLinks: lead && lead.social_links ? String(lead.social_links) : '',
+    latitude: Number.isFinite(lat) ? lat : null,
+    longitude: Number.isFinite(lng) ? lng : null,
+    towns,
     services: [...services].slice(0, 12),
   };
 }
@@ -311,51 +334,19 @@ function collectTargets(pages, theme) {
   return targets.slice(0, MAX_TARGETS);
 }
 
-function schemaTypeFor(category) {
-  const c = String(category || '').toLowerCase();
-  const map = [
-    [/plumb/, 'Plumber'],
-    [/electric/, 'Electrician'],
-    [/hvac|heating|air conditioning/, 'HVACBusiness'],
-    [/roof/, 'RoofingContractor'],
-    [/restaurant|cafe|bakery|pizza/, 'Restaurant'],
-    [/dent/, 'Dentist'],
-    [/lawyer|attorney|law firm/, 'Attorney'],
-    [/salon|barber|beauty/, 'HairSalon'],
-    [/auto repair|mechanic|car repair/, 'AutoRepair'],
-    [/contractor|construction|remodel/, 'GeneralContractor'],
-    [/landscap|lawn/, 'LandscapingBusiness'],
-    [/clean/, 'LocalBusiness'],
-    [/real estate|realtor/, 'RealEstateAgent'],
-    [/gym|fitness/, 'ExerciseGym'],
-    [/vet/, 'VeterinaryCare'],
-    [/plumber/, 'Plumber'],
-  ];
-  for (const [re, type] of map) if (re.test(c)) return type;
-  return 'LocalBusiness';
-}
-
-/** LocalBusiness JSON-LD built from lead facts; only the description comes from the AI. */
+/**
+ * LocalBusiness JSON-LD — delegated to the shared builder
+ * (src/seoSchema.js, Batch 31) so the AI tool and the auto-emitted
+ * export schema can never drift. The tool's manual schema still rides
+ * theme.customHead; when present it WINS over the auto-emitted block
+ * for its @type (the renderer's dedupe rule), so applying a proposal
+ * refines the entity instead of duplicating it. Only the description
+ * comes from the AI.
+ */
 function buildSchemaLd(context, description) {
-  const ld = {
-    '@context': 'https://schema.org',
-    '@type': schemaTypeFor(context.category),
-    name: context.businessName,
-  };
-  if (description) ld.description = description;
-  if (context.phone) ld.telephone = context.phone;
-  if (context.address || context.city || context.state || context.postalCode) {
-    const addr = { '@type': 'PostalAddress' };
-    if (context.address) addr.streetAddress = context.address;
-    if (context.city) addr.addressLocality = context.city;
-    if (context.state) addr.addressRegion = context.state;
-    if (context.postalCode) addr.postalCode = context.postalCode;
-    if (context.country) addr.addressCountry = context.country;
-    ld.address = addr;
-  }
-  if (context.city) ld.areaServed = context.state ? `${context.city}, ${context.state}` : context.city;
-  if (context.services.length) ld.knowsAbout = context.services.slice(0, 8);
-  return ld;
+  const ctx = Object.assign({}, context || {});
+  if (description) ctx.description = description;
+  return seoSchema.buildLocalBusinessLd(ctx) || { '@context': 'https://schema.org', '@type': 'LocalBusiness' };
 }
 
 function clampValue(value, kind) {
@@ -466,8 +457,21 @@ function getSeoState(db, websiteId) {
     .prepare('SELECT * FROM seo_history WHERE website_id = ? ORDER BY id DESC LIMIT 10')
     .all(site.id)
     .map(shapeHistoryRow);
+  // Batch 31 (I): the site's Google Search Console verification token
+  // rides the SEO state so the portal/admin SEO surfaces can show and
+  // edit it; exports emit it as a meta tag on every page.
+  let gscToken = '';
+  try {
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(`seo.gsc.site.${site.id}`);
+    if (row && row.value) {
+      gscToken = String(require('../src/secretBox').decryptSetting(`seo.gsc.site.${site.id}`, row.value) || '').trim();
+    }
+  } catch {
+    /* settings optional */
+  }
   return {
     configured,
+    gscToken,
     site: {
       id: site.id,
       name: site.name,
