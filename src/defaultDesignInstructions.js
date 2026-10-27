@@ -58,7 +58,7 @@ BOOKINGS: createService is DRAFT; publish via bookings.updateService with id + l
 
 IMAGES: uploadAsset assets/ should ship on Pages when published with the right websiteId — still verify in a browser. If broken, data-URI fallback (~1100px JPEG q72, keep payloads lean) or registry images/. No hotlinked temp hosts or raw Pexels/Unsplash URLs. curl is not evidence (CORP/CORS). Prefer aspect-ratio + object-fit:cover + height:auto for framed photos. Screenshots can be stale — trust the live URL.
 
-CSS: full rules in theme.customCss; inline <style> on home if preview looks unstyled. body{overflow-x:clip}. Favicon: set and verify in live <head>; don’t promise until seen. Mobile: design.assets "mobile-nav" when 3+ links.
+CSS: full rules in theme.customCss; inline <style> on home if preview looks unstyled. body{overflow-x:clip}. Favicon: set and verify in live <head>; don’t promise until seen. Mobile: design.assets "mobile-nav" when 3+ links. MOBILE NAV (owner standard — always): at ≤700px the top nav collapses to a hamburger menu; above 700px (tablet + desktop) the regular nav row shows — never a burger. CSS-only (the mobile-nav asset pattern); no menu JS — scripts are stripped. Mobile header = brand + primary CTA + burger: the primary CTA stays VISIBLE in the header bar at all times — never place the only CTA inside the collapsed panel. Panel links stack with comfortable tap targets and padded edges.
 
 Ignore noisy QA artifacts (stray "null", unparseable AI QA, data-URI registry complaints, template-conformity). Real QA: links, unique nav, one form, no overflow at 390px, photos visible.
 
