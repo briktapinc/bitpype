@@ -4001,13 +4001,14 @@ function injectStaticBlogSnapshot(html, blog, baseUrl) {
 }
 
 const BLOG_POST_CSS = [
-  '.bp-post{max-width:760px;margin:0 auto;padding:12px 0 28px}',
+  '.bp-post{box-sizing:border-box;max-width:760px;margin:0 auto;padding:12px 28px 28px}',
   '.bp-post-back{margin:0 0 18px;font-size:.95rem}',
   '.bp-post h1{margin:0 0 10px;line-height:1.18}',
   '.bp-post-meta{margin:0 0 20px;opacity:.72}',
   '.bp-post-cover{display:block;width:100%;height:auto;border-radius:12px;margin:0 0 24px}',
   '.bp-post-body{line-height:1.68}',
   '.bp-post-body img{max-width:100%;height:auto}',
+  '@media(max-width:700px){.bp-post{padding-left:22px;padding-right:22px}}',
 ].join('\n');
 
 /** The article body for one static post page (H1, date, cover, full body). */
