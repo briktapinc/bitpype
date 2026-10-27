@@ -4943,10 +4943,38 @@ async function adminPurchaseCallNumber(workspaceId, { leadId, phoneNumber } = {}
   return { configured: true, phoneNumber: bought.phoneNumber, sid: bought.sid, config };
 }
 
+// ---------- AI SEO tool (Batch 22) ----------
+// Staff surface: any website in the workspace. The service layer is
+// server/seoTool.js; proposals are shared with the client portal, so a
+// proposal generated here is the one the owner sees (and vice versa).
+function seoListSites(workspaceId) {
+  const seoTool = require('./seoTool');
+  return withDb(workspaceId, (db) => seoTool.listSeoSites(db));
+}
+
+function seoState(workspaceId, websiteId) {
+  const seoTool = require('./seoTool');
+  return withDb(workspaceId, (db) => seoTool.getSeoState(db, websiteId));
+}
+
+async function seoGenerate(workspaceId, websiteId, actor = 'staff') {
+  const seoTool = require('./seoTool');
+  return withDb(workspaceId, (db) => seoTool.generateSeoProposal(db, websiteId, { actor }));
+}
+
+function seoApply(workspaceId, websiteId, actor = 'staff') {
+  const seoTool = require('./seoTool');
+  return withDb(workspaceId, (db) => seoTool.applySeoProposal(db, websiteId, { actor, actorKind: 'staff' }));
+}
+
 module.exports = {
   withDb,
   openWorkspaceDb,
   dashboardStats,
+  seoListSites,
+  seoState,
+  seoGenerate,
+  seoApply,
   adminFormsList,
   adminFormSubmissions,
   adminLeadScoutContacts,

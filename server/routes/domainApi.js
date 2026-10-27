@@ -1631,6 +1631,49 @@ router.post(
   }
 );
 
+// AI SEO tool (Batch 22): staff can generate/review/apply a local-SEO
+// proposal for any site in the workspace. The same pending proposal is
+// what the site owner sees in the portal. Dormant-safe — state reports
+// configured:false until an AI key is set in Settings.
+router.get('/admin-area/seo', denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, domain.seoListSites(req.auth.workspaceId));
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.get('/admin-area/seo/:websiteId', denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, domain.seoState(req.auth.workspaceId, Number(req.params.websiteId)));
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 500);
+  }
+});
+router.post(
+  '/admin-area/seo/:websiteId/generate',
+  requireRole('owner', 'admin'),
+  denyLeadScopedToken,
+  async (req, res) => {
+    try {
+      ok(res, await domain.seoGenerate(req.auth.workspaceId, Number(req.params.websiteId), 'staff'));
+    } catch (e) {
+      fail(res, e, e.code === 'AI_NOT_CONFIGURED' ? 403 : e.code === 'NOT_FOUND' ? 404 : e.status || 400);
+    }
+  }
+);
+router.post(
+  '/admin-area/seo/:websiteId/apply',
+  requireRole('owner', 'admin'),
+  denyLeadScopedToken,
+  (req, res) => {
+    try {
+      ok(res, domain.seoApply(req.auth.workspaceId, Number(req.params.websiteId), 'staff'));
+    } catch (e) {
+      fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.status || 400);
+    }
+  }
+);
+
 // ---------- Domain purchase transactions (Batch 15) ----------
 router.get('/admin-area/domain-transactions', denyLeadScopedToken, (req, res) => {
   try {

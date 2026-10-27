@@ -135,6 +135,7 @@
     'referrals',
     'mcp',
     'analytics',
+    'seo',
     'billing',
   ];
   const PANEL_ALIASES = {
@@ -164,6 +165,7 @@
     billing: 'billing',
     analytics: 'analytics',
     tracking: 'analytics',
+    seo: 'seo',
     plans: 'billing',
     subscribe: 'billing',
     mcp: 'mcp',
@@ -261,6 +263,7 @@
     if (next === 'changes') loadChangesHistory().catch(() => {});
     if (next === 'referrals') loadReferrals().catch(() => {});
     if (next === 'analytics') loadAnalytics();
+    if (next === 'seo' && typeof loadSeoTool === 'function') loadSeoTool().catch(() => {});
     if (next === 'forms') loadForms().catch(() => {});
     if (next === 'leadscout') loadLeadScout().catch(() => {});
     if (next === 'modules') loadModules().catch(() => {});
@@ -3046,6 +3049,94 @@
       table.append(tr);
     }
   }
+  let seoEpoch = 0;
+  async function loadSeoTool() {
+    const epoch = ++seoEpoch;
+    const host = document.getElementById('seo-host');
+    if (!host) return;
+    host.innerHTML = '<p class="hint">Loading your SEO tool…</p>';
+    let st;
+    try {
+      st = await api('/seo');
+    } catch (e) {
+      if (epoch !== seoEpoch) return;
+      host.innerHTML = `<p class="hint">${esc(e.message || 'The SEO tool could not be loaded.')}</p>`;
+      return;
+    }
+    if (epoch !== seoEpoch) return;
+    renderSeoTool(st);
+  }
+
+  function renderSeoTool(st) {
+    const host = document.getElementById('seo-host');
+    if (!host) return;
+    const d = st || {};
+    if (!d.configured) {
+      host.innerHTML =
+        '<div class="panel"><h3>SEO is not switched on yet</h3><p>The AI behind this tool is not configured on our side yet, so there is nothing to generate right now. Check back soon — when it is on, you will be able to generate local SEO keywords for your business here and apply them to your site in one click.</p></div>';
+      return;
+    }
+    const pending = d.pending || null;
+    const proposal = pending && pending.proposal ? pending.proposal : null;
+    const kw = proposal && proposal.keywords ? proposal.keywords : null;
+    const changes = proposal && Array.isArray(proposal.changes) ? proposal.changes : [];
+    const history = Array.isArray(d.history) ? d.history : [];
+    const cell = (v) =>
+      v ? `<span style="white-space:pre-wrap;word-break:break-word">${esc(v)}</span>` : '<span class="hint">(empty)</span>';
+    host.innerHTML = `
+      <div class="panel">
+        <h3>${proposal ? 'Your proposed SEO changes' : 'Generate your SEO proposal'}</h3>
+        ${
+          proposal
+            ? `<p>We picked the keywords nearby customers actually search for and drafted the changes below. <strong>Nothing is live yet</strong> — review every line, then apply in one click. Changes land on your site right away; they show on the public site at the next publish.</p>
+               ${kw && (kw.primary || (kw.supporting || []).length) ? `<p><strong>Primary keyword:</strong> ${esc(kw.primary || '—')}${(kw.supporting || []).length ? `<br><span class="hint">Supporting: ${kw.supporting.map((s) => esc(s)).join(' · ')}</span>` : ''}</p>` : ''}
+               <table><thead><tr><th scope="col">Change</th><th scope="col">Current</th><th scope="col">Proposed</th></tr></thead><tbody>
+               ${changes.map((c) => `<tr><td>${esc(c.label || c.kind)}</td><td>${cell(c.current)}</td><td>${cell(c.proposed)}</td></tr>`).join('') || '<tr><td colspan="3">The AI proposed no changes — your site already covers these keywords well.</td></tr>'}
+               </tbody></table>`
+            : '<p>One click and the AI reads your business and your pages, picks your best local keywords, and drafts better page titles, descriptions, headings, image descriptions and a LocalBusiness schema for Google. You review everything before anything changes.</p>'
+        }
+        <p style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="btn soft" id="seo-generate">${proposal ? 'Regenerate proposal' : 'Generate proposal'}</button>
+          ${proposal && changes.length ? '<button type="button" class="btn" id="seo-apply">Apply these changes</button>' : ''}
+        </p>
+        <p class="hint" id="seo-message" role="status"></p>
+      </div>
+      ${history.length ? `<div class="panel"><h3>Applied before</h3>${history.map((h) => `<p style="margin:6px 0"><strong>${esc(h.change_count)}</strong> change(s) applied by ${h.actor_kind === 'owner' ? 'you' : 'the BitPype team'} · ${esc(h.applied_at || '')}${h.keywords && h.keywords.primary ? `<br><span class="hint">Primary keyword: ${esc(h.keywords.primary)}</span>` : ''}</p>`).join('')}</div>` : ''}`;
+    const msg = document.getElementById('seo-message');
+    const genBtn = document.getElementById('seo-generate');
+    if (genBtn) {
+      genBtn.addEventListener('click', async () => {
+        genBtn.disabled = true;
+        if (msg) msg.textContent = 'Generating — the AI is reviewing your site…';
+        try {
+          renderSeoTool(await api('/seo/generate', { method: 'POST' }));
+        } catch (e) {
+          genBtn.disabled = false;
+          if (msg) msg.textContent = e.message || 'Generation failed — please try again.';
+        }
+      });
+    }
+    const applyBtn = document.getElementById('seo-apply');
+    if (applyBtn) {
+      applyBtn.addEventListener('click', async () => {
+        applyBtn.disabled = true;
+        if (msg) msg.textContent = 'Applying…';
+        try {
+          const r = await api('/seo/apply', { method: 'POST' });
+          renderSeoTool(r.state);
+          const m2 = document.getElementById('seo-message');
+          if (m2) {
+            const skipped = Array.isArray(r.skipped) ? r.skipped.length : 0;
+            m2.textContent = `Done — ${Array.isArray(r.applied) ? r.applied.length : 0} change(s) applied to your site${skipped ? `, ${skipped} skipped because that part of the page had changed` : ''}. They go public at the next publish.`;
+          }
+        } catch (e) {
+          applyBtn.disabled = false;
+          if (msg) msg.textContent = e.message || 'Apply failed — please try again.';
+        }
+      });
+    }
+  }
+
   async function loadAnalytics() {
     const epoch = ++analyticsEpoch;
     const msg = document.getElementById('analytics-message');

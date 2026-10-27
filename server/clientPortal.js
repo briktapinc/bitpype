@@ -2746,6 +2746,44 @@ async function saveCallTrackingConfig(workspaceId, leadId, body, clientEmail) {
   });
 }
 
+/* AI SEO tool (Batch 22): the owner runs the same proposal flow staff
+   use, pinned to their own lead's website. The website is resolved from
+   the session lead — never from the request — so another business's
+   site is unreachable from here. Not plan-gated: SEO is a site service,
+   not a site module. */
+
+function seoSiteForLead(db, leadId) {
+  const site = db
+    .prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+    .get(Number(leadId));
+  if (!site) {
+    throw Object.assign(new Error('No website has been built for this business yet.'), { code: 'NO_SITE' });
+  }
+  return site.id;
+}
+
+async function getSeoTool(workspaceId, leadId, clientEmail) {
+  const domain = require('./domain');
+  const seoTool = require('./seoTool');
+  return domain.withDb(workspaceId, (db) => seoTool.getSeoState(db, seoSiteForLead(db, leadId)));
+}
+
+async function generateSeoTool(workspaceId, leadId, clientEmail) {
+  const domain = require('./domain');
+  const seoTool = require('./seoTool');
+  return domain.withDb(workspaceId, (db) =>
+    seoTool.generateSeoProposal(db, seoSiteForLead(db, leadId), { actor: 'owner' })
+  );
+}
+
+async function applySeoTool(workspaceId, leadId, clientEmail) {
+  const domain = require('./domain');
+  const seoTool = require('./seoTool');
+  return domain.withDb(workspaceId, (db) =>
+    seoTool.applySeoProposal(db, seoSiteForLead(db, leadId), { actor: 'owner', actorKind: 'owner' })
+  );
+}
+
 async function saveOffersDisplaySettings(workspaceId, leadId, body, clientEmail) {
   const domain = require('./domain');
   const modules = require('./siteModules');
@@ -3550,6 +3588,9 @@ module.exports = {
   saveEstimateConfig,
   saveSocialFeedConfig,
   saveCallTrackingConfig,
+  getSeoTool,
+  generateSeoTool,
+  applySeoTool,
   saveOffersDisplaySettings,
   saveMembersConfig,
   saveMembershipKeys,

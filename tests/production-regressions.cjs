@@ -3232,6 +3232,297 @@ async function main() {
     assert.equal(mailState21b.sent.length, mailBeforeMem + 1);
   });
 
+  // --- AI SEO tool (Batch 22): generate → preview → apply on the staff
+  // facade and the owner portal, AI stubbed at the src/ai seam ---------
+  const realAi22 = require(path.join(root, 'src/ai.js'));
+  let canned22 = '{}';
+  let lastChatArgs22 = null;
+  const stubAi22 = {
+    aiConfigured: (d) => realAi22.aiConfigured(d),
+    chat: async (args) => {
+      lastChatArgs22 = args;
+      return { text: canned22, model: 'stub-model', promptTokens: 10, completionTokens: 10, costUsd: 0 };
+    },
+  };
+  const seo22 = load('server/seoTool.js', { '../src/ai': stubAi22 });
+  seo22.ensureSeoTables(db);
+  db.prepare(
+    `INSERT INTO leads (id, business_name, category, phone, email, city, state, address, postal_code, services)
+     VALUES (2201, 'Fixture Plumbing Co', 'Plumber', '+16105550100', 'seo@example.invalid', 'Reading', 'PA', '12 Main St', '19601', '["Drain cleaning","Water heaters"]')`
+  ).run();
+  db.prepare(
+    `INSERT INTO leads (id, business_name, category, email, city, state)
+     VALUES (2202, 'Fixture Other Biz', 'Bakery', 'other@example.invalid', 'York', 'PA')`
+  ).run();
+  const pages2201 = [
+    {
+      slug: 'index',
+      title: 'Fixture Plumbing Co',
+      sections: [
+        { type: 'hero', content: { headline: 'We Fix Pipes', subheadline: 'Fast help', image: { url: 'https://img.test/hero.jpg', alt: '' } } },
+        { type: 'services', content: { title: 'Our Services', items: [{ name: 'Drain cleaning' }, { name: 'Water heaters' }] } },
+        { type: 'gallery', content: { title: 'Gallery', images: [{ url: 'https://img.test/van.jpg', alt: '' }, { url: 'https://img.test/crew.jpg', alt: 'Crew' }] } },
+      ],
+    },
+    {
+      slug: 'services',
+      title: 'Services',
+      description: 'Old description',
+      sections: [
+        { type: 'heading', content: { heading: 'What We Do' } },
+        { type: 'text_image', content: { heading: 'Meet the Team', image: { url: 'https://img.test/team.jpg', alt: 'Team photo working on a sink repair job' } } },
+      ],
+    },
+  ];
+  db.prepare('INSERT INTO websites (id, lead_id, name, industry, theme, pages, status) VALUES (2201, 2201, ?, ?, ?, ?, ?)').run(
+    'Fixture Plumbing Co',
+    'Plumbing',
+    JSON.stringify({ primary: '#123456', customHead: '<meta name="robots" content="index">' }),
+    JSON.stringify(pages2201),
+    'published'
+  );
+  const pages2202 = [{ slug: 'index', title: 'Other Biz', sections: [{ type: 'hero', content: { headline: 'Fresh Bread' } }] }];
+  db.prepare('INSERT INTO websites (id, lead_id, name, industry, theme, pages, status) VALUES (2202, 2202, ?, ?, ?, ?, ?)').run(
+    'Fixture Other Biz',
+    'Bakery',
+    JSON.stringify({}),
+    JSON.stringify(pages2202),
+    'draft'
+  );
+  const siteRow22 = (id) => db.prepare('SELECT * FROM websites WHERE id = ?').get(id);
+
+  db.prepare("DELETE FROM settings WHERE key = 'ai.api_key'").run();
+  assert.equal(seo22.getSeoState(db, 2201).configured, false);
+  await assert.rejects(seo22.generateSeoProposal(db, 2201, { actor: 'staff' }), (e) => e.code === 'AI_NOT_CONFIGURED');
+  results.push('batch22 state: unconfigured AI reports configured:false and generate refuses');
+  db.prepare("INSERT INTO settings (key, value) VALUES ('ai.api_key', 'sk-test22') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
+  assert.equal(seo22.getSeoState(db, 2201).configured, true);
+
+  const cannedSeo22 = (title) =>
+    JSON.stringify({
+      keywords: { primary: 'plumber in Reading PA', supporting: ['drain cleaning Reading PA', 'water heater repair Reading'] },
+      values: {
+        'meta_title:index': title,
+        'meta_desc:index':
+          'Fixture Plumbing Co provides drain cleaning and water heater services in Reading, PA. Call today for fast, friendly plumbing help.',
+        'heading:index:0:headline': 'Trusted Plumber in Reading, PA',
+        'alt:index:0:image': 'Plumber repairing a kitchen sink in Reading PA',
+        'alt:index:2:images.0': 'Fixture Plumbing Co service van in Reading PA',
+        'meta_title:services': 'Services',
+        'bogus:id': 'must be dropped',
+      },
+      schemaDescription: 'Fixture Plumbing Co is a plumbing company in Reading, PA offering drain cleaning and water heater services.',
+    });
+  canned22 = cannedSeo22('Plumber in Reading, PA | Fixture Plumbing Co');
+  const genState22 = await seo22.generateSeoProposal(db, 2201, { actor: 'staff' });
+  check('batch22 generate: canned AI parses into keywords + current-vs-proposed changes; unknown ids and no-ops dropped', () => {
+    assert.ok(lastChatArgs22, 'AI seam was called');
+    const promptText = lastChatArgs22.messages.map((m) => m.content).join('\n');
+    assert.ok(promptText.includes('Fixture Plumbing Co'));
+    assert.ok(promptText.includes('Reading'));
+    assert.ok(promptText.includes('meta_title:index'));
+    assert.equal(lastChatArgs22.db, db);
+    const proposal = genState22.pending.proposal;
+    assert.equal(proposal.keywords.primary, 'plumber in Reading PA');
+    assert.equal(proposal.keywords.supporting.length, 2);
+    const byId = Object.fromEntries(proposal.changes.map((c) => [c.id, c]));
+    assert.equal(byId['meta_title:index'].current, 'Fixture Plumbing Co');
+    assert.equal(byId['meta_title:index'].proposed, 'Plumber in Reading, PA | Fixture Plumbing Co');
+    assert.equal(byId['meta_desc:index'].current, '');
+    assert.ok(byId['meta_desc:index'].proposed.includes('Reading, PA'));
+    assert.equal(byId['heading:index:0:headline'].current, 'We Fix Pipes');
+    assert.equal(byId['alt:index:2:images.0'].current, '');
+    assert.ok(!('meta_title:services' in byId), 'no-op value dropped');
+    assert.ok(!('bogus:id' in byId), 'unknown target id dropped');
+    assert.ok(!('alt:services:1:image' in byId), 'image with a real alt is not a target');
+    const schema = byId['schema'];
+    assert.ok(schema, 'schema change proposed');
+    assert.equal(schema.current, '');
+    const ld = JSON.parse(schema.proposed);
+    assert.equal(ld['@type'], 'Plumber');
+    assert.equal(ld.name, 'Fixture Plumbing Co');
+    assert.equal(ld.telephone, '+16105550100');
+    assert.equal(ld.address.addressLocality, 'Reading');
+    assert.equal(genState22.pending.generated_by, 'staff');
+  });
+  check('batch22 generate: nothing is applied by generating', () => {
+    const site = siteRow22(2201);
+    assert.equal(JSON.parse(site.pages)[0].title, 'Fixture Plumbing Co');
+    assert.ok(!String(JSON.parse(site.theme).customHead || '').includes('ld+json'));
+  });
+
+  canned22 = cannedSeo22('Reading PA Plumber | Fixture Plumbing');
+  const regenState22 = await seo22.generateSeoProposal(db, 2201, { actor: 'staff' });
+  check('batch22 regenerate: replaces the pending proposal wholesale, still applies nothing', () => {
+    const byId = Object.fromEntries(regenState22.pending.proposal.changes.map((c) => [c.id, c]));
+    assert.equal(byId['meta_title:index'].proposed, 'Reading PA Plumber | Fixture Plumbing');
+    assert.equal(JSON.parse(siteRow22(2201).pages)[0].title, 'Fixture Plumbing Co');
+    assert.equal(db.prepare('SELECT COUNT(*) AS c FROM seo_proposals WHERE website_id = 2201').get().c, 1);
+  });
+
+  const applyRes22 = seo22.applySeoProposal(db, 2201, { actor: 'staff', actorKind: 'staff' });
+  check('batch22 apply: writes pages + theme schema in one action, records history, clears pending', () => {
+    assert.equal(applyRes22.skipped.length, 0);
+    assert.ok(applyRes22.applied.length >= 5);
+    const site = siteRow22(2201);
+    const pages = JSON.parse(site.pages);
+    assert.equal(pages[0].title, 'Reading PA Plumber | Fixture Plumbing');
+    assert.ok(pages[0].description.includes('drain cleaning and water heater services in Reading, PA'));
+    assert.equal(pages[0].sections[0].content.headline, 'Trusted Plumber in Reading, PA');
+    assert.equal(pages[0].sections[0].content.image.alt, 'Plumber repairing a kitchen sink in Reading PA');
+    assert.equal(pages[0].sections[2].content.images[0].alt, 'Fixture Plumbing Co service van in Reading PA');
+    assert.equal(pages[1].title, 'Services', 'untouched page keeps its title');
+    const theme = JSON.parse(site.theme);
+    assert.ok(theme.customHead.includes('<meta name="robots" content="index">'), 'existing head content preserved');
+    assert.ok(theme.customHead.includes('application/ld+json'));
+    assert.ok(theme.customHead.includes('"@type": "Plumber"'));
+    const state = seo22.getSeoState(db, 2201);
+    assert.equal(state.pending, null);
+    assert.equal(state.history.length, 1);
+    assert.equal(state.history[0].actor_kind, 'staff');
+    assert.equal(state.history[0].change_count, applyRes22.applied.length);
+    assert.equal(state.history[0].keywords.primary, 'plumber in Reading PA');
+    assert.throws(() => seo22.applySeoProposal(db, 2201, { actor: 'staff' }), (e) => e.code === 'NO_PROPOSAL');
+  });
+
+  check('batch22 render: the exported page HTML carries the new title, description and schema', () => {
+    const engine22 = require(path.join(root, 'src/websiteEngine.js'));
+    const site = siteRow22(2201);
+    const pages = JSON.parse(site.pages);
+    const html = engine22.renderPage(pages[0], pages, JSON.parse(site.theme));
+    assert.ok(html.includes('<title>Reading PA Plumber | Fixture Plumbing</title>'));
+    assert.ok(html.includes('name="description"'));
+    assert.ok(html.includes('drain cleaning and water heater services in Reading, PA'));
+    assert.ok(html.includes('application/ld+json'));
+    assert.ok(html.includes('Trusted Plumber in Reading, PA'));
+    assert.ok(html.includes('alt="Plumber repairing a kitchen sink in Reading PA"'));
+  });
+
+  const portal22 = load('server/clientPortal.js', {
+    bcryptjs: { hashSync: () => 'fixture', compareSync: () => true },
+    './db': {},
+    './mailer': {},
+    './stripeClient': {},
+    './workspaceDb': {},
+    './domain': { withDb: (_ws, fn) => fn(db) },
+    './portalContacts': contacts,
+    './seoTool': seo22,
+  });
+  canned22 = JSON.stringify({
+    keywords: { primary: 'plumber in Reading PA', supporting: [] },
+    values: { 'meta_desc:services': 'Drain cleaning and water heaters in Reading, PA from Fixture Plumbing Co — book a visit today.' },
+    // Same description as the staff-applied schema, so the schema the
+    // portal proposal rebuilds is identical and no schema change joins.
+    schemaDescription: 'Fixture Plumbing Co is a plumbing company in Reading, PA offering drain cleaning and water heater services.',
+  });
+  const portalGen22 = await portal22.generateSeoTool(1, 2201, 'seo@example.invalid');
+  check('batch22 portal: owner generate lands on their own site only', () => {
+    assert.equal(portalGen22.site.id, 2201);
+    assert.ok(portalGen22.pending);
+    assert.equal(portalGen22.pending.generated_by, 'owner');
+    assert.equal(seo22.getSeoState(db, 2202).pending, null);
+  });
+  const portalApply22 = await portal22.applySeoTool(1, 2201, 'seo@example.invalid');
+  check('batch22 portal: owner apply records actor_kind owner; the other business is untouched', () => {
+    assert.equal(portalApply22.applied.length, 1);
+    const pages = JSON.parse(siteRow22(2201).pages);
+    assert.ok(pages[1].description.startsWith('Drain cleaning and water heaters in Reading, PA'));
+    const hist = seo22.getSeoState(db, 2201).history;
+    assert.equal(hist[0].actor_kind, 'owner');
+    assert.equal(JSON.parse(siteRow22(2202).pages)[0].title, 'Other Biz');
+    assert.equal(seo22.getSeoState(db, 2202).history.length, 0);
+  });
+  await assert.rejects(portal22.getSeoTool(1, 2999, 'ghost@example.invalid'), (e) => e.code === 'NO_SITE');
+  results.push('batch22 portal: a lead with no website gets NO_SITE, never another site');
+
+  const portalRoutes22 = [];
+  const portalRouter22 = { use() {} };
+  for (const m of ['get', 'post', 'put', 'patch', 'delete'])
+    portalRouter22[m] = (route, ...handlers) => portalRoutes22.push({ method: m, route, handlers });
+  load('server/routes/portal.js', {
+    express: { Router: () => portalRouter22 },
+    '../clientPortal': {
+      ...portal22,
+      findById: async () => ({ id: 7, status: 'active', workspace_id: 1, lead_id: 2201, email: 'seo@example.invalid' }),
+    },
+    '../captcha': { requireCaptcha: () => (_req, _res, next) => next() },
+    '../rateLimit': { rateLimit: () => (_req, _res, next) => next() },
+  });
+  async function callPortal22(method, url, body = {}) {
+    const route = portalRoutes22.find((x) => x.method === method && x.route === url);
+    assert(route, url);
+    const req = { session: { clientPortalId: 7, clientLastActiveAt: Date.now() }, body, query: {}, params: {}, app: { locals: {} } };
+    let status = 200,
+      payload;
+    const res = {
+      status(v) {
+        status = v;
+        return this;
+      },
+      json(v) {
+        payload = v;
+        return this;
+      },
+    };
+    for (const handler of route.handlers) {
+      let advanced = false;
+      await handler(req, res, () => {
+        advanced = true;
+      });
+      if (!advanced) break;
+    }
+    return { status, body: payload };
+  }
+  canned22 = cannedSeo22('Portal Route Plumber Reading PA');
+  await seo22.generateSeoProposal(db, 2201, { actor: 'owner' });
+  const routeApply22 = await callPortal22('post', '/seo/apply', { websiteId: 2202 });
+  check('batch22 portal routes: the session lead wins over a body websiteId naming another business', () => {
+    assert.equal(routeApply22.status, 200);
+    assert.equal(routeApply22.body.ok, true);
+    assert.equal(JSON.parse(siteRow22(2201).pages)[0].title, 'Portal Route Plumber Reading PA');
+    assert.equal(JSON.parse(siteRow22(2202).pages)[0].title, 'Other Biz');
+    assert.equal(seo22.getSeoState(db, 2202).pending, null);
+  });
+  const routeState22 = await callPortal22('get', '/seo');
+  check('batch22 portal routes: GET /seo returns only the session business state', () => {
+    assert.equal(routeState22.status, 200);
+    assert.equal(routeState22.body.data.site.id, 2201);
+    assert.equal(routeState22.body.data.configured, true);
+  });
+
+  const domain22 = load('server/domain.js', {
+    './workspaceDb': { openWorkspaceDb: () => db },
+    './seoTool': seo22,
+  });
+  canned22 = JSON.stringify({
+    keywords: { primary: 'bakery in York PA', supporting: [] },
+    values: { 'meta_title:index': 'Bakery in York, PA | Fixture Other Biz' },
+    schemaDescription: 'A neighborhood bakery in York, PA.',
+  });
+  const staffGen22 = await domain22.seoGenerate(1, 2202, 'staff');
+  const staffApply22 = domain22.seoApply(1, 2202, 'staff');
+  check('batch22 staff facade: list spans the workspace; staff can generate + apply for any site', () => {
+    const list = domain22.seoListSites(1);
+    const ids = list.sites.map((s) => s.id);
+    assert.ok(ids.includes(2201) && ids.includes(2202));
+    assert.equal(list.configured, true);
+    assert.ok(staffGen22.pending);
+    assert.equal(staffApply22.skipped.length, 0);
+    assert.equal(JSON.parse(siteRow22(2202).pages)[0].title, 'Bakery in York, PA | Fixture Other Biz');
+    const theme = JSON.parse(siteRow22(2202).theme);
+    assert.ok(theme.customHead.includes('"@type": "Restaurant"'), 'bakery maps to a Restaurant schema');
+    assert.equal(domain22.seoState(1, 2202).history[0].actor_kind, 'staff');
+  });
+
+  check('batch22 schema block: re-applying replaces the marked block in place', () => {
+    const once = seo22.upsertSchemaBlock('<meta name="x" content="1">', '{"v":1}');
+    const twice = seo22.upsertSchemaBlock(once, '{"v":2}');
+    assert.equal((twice.match(/<!--bitpype-seo-schema-->/g) || []).length, 1);
+    assert.ok(twice.includes('<meta name="x" content="1">'));
+    assert.equal(seo22.currentSchema({ customHead: twice }), '{"v":2}');
+    assert.equal(seo22.currentSchema({ customHead: '<meta name="x">' }), '');
+  });
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

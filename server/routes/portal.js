@@ -1145,6 +1145,32 @@ router.put('/modules/calltracking/config', requireClient, actionLimit, async (re
   }
 });
 
+// AI SEO tool (Batch 22) — the owner's own site only: the lead comes
+// from the portal session, so a request can never name another site.
+router.get('/seo', requireClient, async (req, res) => {
+  try {
+    ok(res, await portal.getSeoTool(req.client.workspace_id, req.client.lead_id, req.client.email));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/seo/generate', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(res, await portal.generateSeoTool(req.client.workspace_id, req.client.lead_id, req.client.email));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/seo/apply', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(res, await portal.applySeoTool(req.client.workspace_id, req.client.lead_id, req.client.email));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 // Membership config — before the generic /modules/:type routes (member
 // approve/disable/delete ride the generic PUT/DELETE /modules/members/:id).
 router.put('/modules/members/config', requireClient, actionLimit, async (req, res) => {
