@@ -6485,6 +6485,51 @@ async function main() {
     assert.equal(orderStatusR7(orderC7), 'failed');
   });
 
+  // ---- Review fix 8: shop checkout ignores detach ----
+  // detachModule flips the embed to published=0 / embed_enabled=0 and
+  // the sync strips it from the site — but createShopCheckoutByToken
+  // (and the public shop payload) only checked that the token's row
+  // was an ecommerce embed, so a detached shop kept taking orders
+  // from anyone holding the token. Gate both on moduleEmbedActive,
+  // the same predicate the rest of the module system uses.
+  const smR8 = load('server/siteModules.js', {
+    '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
+    './shopStripe': { isConfiguredForLead: () => false, resolveForLead: () => { throw Object.assign(new Error('no keys'), { code: 'SHOP_STRIPE_NOT_CONFIGURED' }); } },
+  });
+  smR8.ensureTables(db);
+  db.prepare('INSERT INTO leads (id, business_name, email) VALUES (?, ?, ?)').run(2790, 'Fixture R8 Shop', 'r8@example.invalid');
+  db.prepare("INSERT INTO websites (lead_id, name, theme, pages) VALUES (2790, 'R8 Site', '{}', '[]')").run();
+  const embR8 = smR8.attachModule(db, 2790, 'ecommerce', { workspaceId: 1, appUrl: 'https://example.test' });
+  const tokenR8 = embR8.embed ? embR8.embed.public_token : smR8.getEmbedRow(db, 2790, 'ecommerce').public_token;
+  const prodR8 = smR8.createProduct(db, 2790, { name: 'R8 Widget', price_cents: 1200, status: 'published', checkout_url: 'https://pay.example/r8' });
+  const coAttachedR8 = await smR8.createShopCheckoutByToken(db, tokenR8, { productId: prodR8.id, returnUrl: 'https://example.test/done' }, {});
+  check('review8 attached + published shop: checkout works (external mode fixture)', () => {
+    assert.equal(coAttachedR8.mode, 'external');
+    assert.equal(coAttachedR8.url, 'https://pay.example/r8');
+    assert.ok(smR8.getPublicModuleByToken(db, tokenR8, {}), 'public payload serves while attached');
+  });
+  smR8.detachModule(db, 2790, 'ecommerce');
+  let coDetachedErrR8 = null;
+  try {
+    await smR8.createShopCheckoutByToken(db, tokenR8, { productId: prodR8.id, returnUrl: 'https://example.test/done' }, {});
+  } catch (e) { coDetachedErrR8 = e; }
+  let payloadDetachedErrR8 = null;
+  try {
+    smR8.getPublicModuleByToken(db, tokenR8, {});
+  } catch (e) { payloadDetachedErrR8 = e; }
+  check('review8 detached shop: checkout refused and public payload no longer serves', () => {
+    assert.ok(coDetachedErrR8, 'checkout on a detached shop must throw');
+    assert.equal(coDetachedErrR8.code, 'NOT_FOUND');
+    assert.ok(payloadDetachedErrR8, 'public payload on a detached shop must throw');
+    assert.equal(payloadDetachedErrR8.code, 'NOT_FOUND');
+  });
+  smR8.attachModule(db, 2790, 'ecommerce', { workspaceId: 1, appUrl: 'https://example.test' });
+  const tokenR8b = smR8.getEmbedRow(db, 2790, 'ecommerce').public_token;
+  const coReattachedR8 = await smR8.createShopCheckoutByToken(db, tokenR8b, { productId: prodR8.id, returnUrl: 'https://example.test/done' }, {});
+  check('review8 re-attached shop: checkout works again', () => {
+    assert.equal(coReattachedR8.mode, 'external');
+  });
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

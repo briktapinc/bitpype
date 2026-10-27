@@ -3400,7 +3400,10 @@ function applyShopStripeEvent(db, event) {
 async function createShopCheckoutByToken(db, token, { productId, returnUrl } = {}, opts = {}) {
   ensureTables(db);
   const row = db.prepare('SELECT * FROM site_module_embeds WHERE public_token = ?').get(String(token || ''));
-  if (!row || row.module_type !== 'ecommerce') {
+  // Review fix: a DETACHED shop (published=0 / embed_enabled=0) must not
+  // take orders — the token row survives detach, so gate on the same
+  // moduleEmbedActive predicate the sync and payload paths use.
+  if (!row || row.module_type !== 'ecommerce' || !moduleEmbedActive(row)) {
     throw fail('NOT_FOUND', 'Shop module not found', 404);
   }
   assertMemberAccessForEmbed(db, row, opts);
@@ -9054,6 +9057,11 @@ function getPublicModuleByToken(db, token, opts = {}) {
   if (!row) throw fail('NOT_FOUND', 'Module not found', 404);
   const leadId = row.lead_id;
   const type = row.module_type;
+  // Review fix: the public shop payload stops serving when the shop is
+  // detached/unpublished (same gate as shop checkout, above).
+  if (type === 'ecommerce' && !moduleEmbedActive(row)) {
+    throw fail('NOT_FOUND', 'Shop module not found', 404);
+  }
   // Membership: the members module itself is never gated; its payload
   // carries the caller's own member state for the public auth surface.
   if (type === 'members') return publicMembersPayload(db, row, opts);
