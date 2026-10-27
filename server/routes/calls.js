@@ -314,7 +314,14 @@ router.get('/recording-file/:workspaceId/:callSid', async (req, res) => {
   if (!row || !row.recording_url) {
     return res.status(404).json({ ok: false, error: 'Recording not found' });
   }
-  if (caller.leadId != null && Number(row.lead_id) !== caller.leadId) {
+  // Owner OR stamped tenant (Batch 26 rentals): a rented site's calls
+  // live on the owner's row but are the tenant's leads — the tenant's
+  // portal must hear them too. Anyone else stays a 404.
+  if (
+    caller.leadId != null &&
+    Number(row.lead_id) !== caller.leadId &&
+    Number(row.tenant_lead_id || 0) !== caller.leadId
+  ) {
     return res.status(404).json({ ok: false, error: 'Recording not found' });
   }
   const media = await twilioClient.fetchRecordingMedia(row.recording_url, { workspaceId });

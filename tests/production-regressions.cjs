@@ -6287,6 +6287,77 @@ async function main() {
     assert.equal(storedR4[0].recordingUrl, 'https://api.twilio.com/rec/REr4');
   });
 
+  // ---- Review fix 5: tenant recording playback ----
+  // Playback authorized only caller.leadId === call_logs.lead_id (the
+  // OWNER). Rental calls are stamped with tenant_lead_id (Batch 26)
+  // and delivered to the tenant everywhere else — but the tenant's own
+  // portal playback 404'd on their own calls.
+  const handlersR5 = { post: {}, get: {} };
+  const fakeRouterR5 = {
+    post: (p, ...h) => { handlersR5.post[p] = h[h.length - 1]; },
+    get: (p, ...h) => { handlersR5.get[p] = h[h.length - 1]; },
+    use: () => {},
+  };
+  const callRowR5 = {
+    call_sid: 'CAr5', lead_id: 2770, tenant_lead_id: 2771,
+    recording_url: 'https://api.twilio.com/rec/REr5',
+  };
+  let portalClientR5 = null;
+  load('server/routes/calls.js', {
+    express: { Router: () => fakeRouterR5 },
+    '../domain': { withDb: (_ws, fn) => fn(db) },
+    '../workspaceExists': { assertWorkspaceExists: async (id) => { if (Number(id) !== 1) throw new Error('no ws'); } },
+    '../siteModules': {
+      getCallLogBySid: () => callRowR5,
+      upsertCallStatus: () => ({}),
+      storeCallRecording: () => null,
+      setCallTranscript: () => {},
+    },
+    '../portalContacts': contacts,
+    '../twilioClient': {
+      getCredentials: async () => ({ accountSid: 'ACr5', authToken: 'tok-r5' }),
+      validateSignature: () => false,
+      fetchRecordingMedia: async () => ({ configured: true, ok: true, buffer: Buffer.from('mp3bytes'), contentType: 'audio/mpeg' }),
+    },
+    '../clientPortal': { findById: async () => portalClientR5 },
+    '../workspace': { getMembership: async () => null, findWorkspaceByToken: async () => null },
+    '../callNotify': { notifyCallByEmail: async () => ({ sent: false }) },
+    '../callBilling': { settleCallBilling: async () => ({}), transcribeCallRecording: async () => ({ ok: false }) },
+    '../stripeClient': { appUrl: () => 'https://example.test' },
+  });
+  const fakeResR5 = () => ({
+    statusCode: 200, headers: {}, body: null,
+    status(c) { this.statusCode = c; return this; },
+    set(k, v) { this.headers[k] = v; return this; },
+    setHeader(k, v) { this.headers[k] = v; return this; },
+    type() { return this; },
+    send(b) { this.body = b; return this; },
+    json(o) { this.body = o; return this; },
+  });
+  const playR5 = async (leadId) => {
+    portalClientR5 = { status: 'active', workspace_id: 1, lead_id: leadId };
+    const res = fakeResR5();
+    await handlersR5.get['/recording-file/:workspaceId/:callSid'](
+      { params: { workspaceId: '1', callSid: 'CAr5' }, headers: {}, portalSession: { clientPortalId: 99 }, session: null },
+      res
+    );
+    return res;
+  };
+  const tenantPlayR5 = await playR5(2771);
+  check('review5 tenant can play a call stamped to them on a rented site', () => {
+    assert.equal(tenantPlayR5.statusCode, 200);
+    assert.equal(String(tenantPlayR5.body), 'mp3bytes');
+  });
+  const ownerPlayR5 = await playR5(2770);
+  check('review5 owner playback unchanged', () => {
+    assert.equal(ownerPlayR5.statusCode, 200);
+  });
+  const strangerPlayR5 = await playR5(2772);
+  check('review5 an unrelated lead still cannot play the recording', () => {
+    assert.equal(strangerPlayR5.statusCode, 404);
+    assert.equal(strangerPlayR5.body && strangerPlayR5.body.error, 'Recording not found');
+  });
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});
