@@ -413,7 +413,10 @@ async function pushDefaultsToWorkspaces({ force = false, keys = null } = {}) {
         `INSERT INTO workspace_settings (workspace_id, \`key\`, value)
          VALUES (:workspaceId, :key, :value)
          ON DUPLICATE KEY UPDATE value = VALUES(value)`,
-        { workspaceId: w.id, key, value }
+        // Seed values arrive decrypted from the platform store; SECRET_KEYS
+        // must be re-encrypted for this store (workspace.setSetting's
+        // scheme) or they sit in plaintext at rest.
+        { workspaceId: w.id, key, value: require('../src/secretBox').encryptSetting(key, value) }
       );
       updated++;
     }
@@ -430,7 +433,7 @@ async function pushDefaultsToWorkspaces({ force = false, keys = null } = {}) {
         }
         db.prepare(
           'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
-        ).run(key, value);
+        ).run(key, require('../src/secretBox').encryptSetting(key, value));
       }
     } catch {
       /* workspace sqlite optional */

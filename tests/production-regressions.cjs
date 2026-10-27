@@ -6032,6 +6032,137 @@ async function main() {
     assert.equal(mailStateR2.sent.length, 3);
   });
 
+  // ---- Review fix 3: raw encrypted-secret reads ----
+  // Workspace secrets are secretBox-encrypted at rest (enc:v1:). The
+  // decrypting readers (domain.getSetting, src/sms.readWorkspaceSettings,
+  // outreach.readSettings) are the sanctioned paths — Batch 25b pinned
+  // the SMS opt-in + Twilio credential paths. The audit found three
+  // remaining raw paths that hand ciphertext (or store plaintext) for
+  // SECRET_KEYS: designJobs' flat settings bag feeding the SMTP
+  // provider, museAgent's workspace fallback for muse.model_api_key,
+  // and admin.pushDefaultsToWorkspaces writing seed secrets unencrypted
+  // into both workspace stores.
+  const cryptoR3 = require('node:crypto');
+  const keyR3 = cryptoR3.randomBytes(32);
+  const boxR3 = {
+    PREFIX: 'enc:v1:',
+    isEncrypted: (v) => typeof v === 'string' && v.startsWith('enc:v1:'),
+    encryptValue: (plain) => {
+      if (plain == null || plain === '' || String(plain).startsWith('enc:v1:')) return plain;
+      const iv = cryptoR3.randomBytes(12);
+      const cipher = cryptoR3.createCipheriv('aes-256-gcm', keyR3, iv);
+      const body = Buffer.concat([cipher.update(String(plain), 'utf8'), cipher.final()]);
+      return 'enc:v1:' + Buffer.concat([iv, cipher.getAuthTag(), body]).toString('base64');
+    },
+    decryptValue: (stored) => {
+      if (typeof stored !== 'string' || !stored.startsWith('enc:v1:')) return stored;
+      const buf = Buffer.from(stored.slice('enc:v1:'.length), 'base64');
+      const decipher = cryptoR3.createDecipheriv('aes-256-gcm', keyR3, buf.subarray(0, 12));
+      decipher.setAuthTag(buf.subarray(12, 28));
+      return Buffer.concat([decipher.update(buf.subarray(28)), decipher.final()]).toString('utf8');
+    },
+    // Mirrors the real secretBox: encryptSetting is SECRET_KEYS-gated.
+    encryptSetting: (k, v) => (require(path.join(root, 'server/settingsKeys.js')).SECRET_KEYS.includes(k) ? boxR3.encryptValue(v) : v),
+    decryptSetting: (k, v) => boxR3.decryptValue(v),
+    hasKey: () => true,
+  };
+  // Hermetic fixture DBs: the shared suite db holds ciphertext from
+  // several throwaway keys, and a bulk decrypt rightly throws on a
+  // foreign key's rows — so each path gets a fresh db keyed only by boxR3.
+  const freshDbR3 = () => {
+    const d = new Database(':memory:');
+    d.exec('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)');
+    d.exec('CREATE TABLE leads (id INTEGER PRIMARY KEY, business_name TEXT, email TEXT)');
+    d.exec('CREATE TABLE suppression_list (email TEXT, reason TEXT)');
+    d.exec('CREATE TABLE campaigns (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, status TEXT)');
+    d.exec(
+      'CREATE TABLE campaign_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, campaign_id INTEGER, lead_id INTEGER, to_email TEXT, subject TEXT, body TEXT, status TEXT, sent_at TEXT, error TEXT)'
+    );
+    return d;
+  };
+  const setRawR3 = (d, k, v) =>
+    d.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v);
+
+  // (a) design delivery mail must receive the DECRYPTED smtp.pass.
+  const dbDjR3 = freshDbR3();
+  setRawR3(dbDjR3, 'automation_paused', '0');
+  setRawR3(dbDjR3, 'smtp.host', 'smtp.fixture.invalid');
+  setRawR3(dbDjR3, 'smtp.from_email', 'design@fixture.invalid');
+  setRawR3(dbDjR3, 'smtp.pass', boxR3.encryptSetting('smtp.pass', 'r3-smtp-plaintext'));
+  dbDjR3.prepare('INSERT INTO leads (id, business_name, email) VALUES (?, ?, ?)').run(2760, 'Fixture R3 Design', 'lead-r3@example.invalid');
+  let capturedBagR3 = null;
+  const djR3 = load('src/designJobs.js', {
+    './websiteEngine': { ensureTables: () => {} },
+    './pexels': {},
+    './defaultDesignInstructions': { DEFAULT_WEBSITE_DESIGN_INSTRUCTIONS: '', defaultWebsiteInstructions: () => '' },
+    './secretBox': boxR3,
+    './emailRedesign': { ensureTables: () => {} },
+    './designLearning': { ensureTables: () => {}, attachLessonsToBrief: () => {}, refreshJobBriefLessons: () => {} },
+    './email': {
+      getProvider: (settings) => {
+        capturedBagR3 = settings;
+        return { name: 'capture', send: async () => ({}) };
+      },
+    },
+    './mailjetSender': { assertMailjetSenderActive: async () => {} },
+  });
+  djR3.ensureTables(dbDjR3);
+  const jobR3 = Number(
+    dbDjR3.prepare("INSERT INTO design_jobs (lead_id, title, type, status, contact_email, instructions) VALUES (2760, 'R3 Site', 'website', 'waiting_on_client', 'lead-r3@example.invalid', 'Build it')").run().lastInsertRowid
+  );
+  dbDjR3.prepare('INSERT INTO design_questions (job_id, question, answer, internal) VALUES (?, ?, NULL, 0)').run(jobR3, 'What colors?');
+  await djR3.emailQuestions(dbDjR3, jobR3, {});
+  check('review3 design mail: SMTP provider receives the decrypted smtp.pass, not ciphertext', () => {
+    assert.ok(capturedBagR3, 'provider was constructed');
+    assert.equal(capturedBagR3['smtp.pass'], 'r3-smtp-plaintext');
+  });
+
+  // (b) museAgent workspace fallback must decrypt muse.model_api_key.
+  const dbMuseR3 = freshDbR3();
+  setRawR3(dbMuseR3, 'muse.model_api_key', boxR3.encryptSetting('muse.model_api_key', 'r3-muse-plaintext'));
+  const museAgentR3 = load('server/museAgent.js', {
+    './platform': { getPlatformSetting: async () => '' },
+    '../src/defaultDesignInstructions': { defaultWebsiteInstructions: () => '' },
+    '../src/secretBox': boxR3,
+  });
+  const museCfgR3 = await museAgentR3.resolveMuseConfig(dbMuseR3);
+  check('review3 muse agent: workspace fallback returns the decrypted muse.model_api_key', () => {
+    assert.equal(museCfgR3.apiKey, 'r3-muse-plaintext');
+  });
+
+  // (c) pushDefaultsToWorkspaces must store seed secrets encrypted in
+  // BOTH the SQLite settings table and the MySQL workspace_settings row.
+  const dbAdminR3 = freshDbR3();
+  const mysqlWritesR3 = [];
+  const adminR3 = load('server/admin.js', {
+    './db': {
+      query: async (sql, params) => {
+        if (String(sql).includes('FROM workspaces')) return [{ id: 1 }];
+        if (String(sql).includes('INSERT INTO workspace_settings')) mysqlWritesR3.push(params);
+        return [];
+      },
+      withConnection: async () => {},
+      driver: () => 'sqlite',
+    },
+    './platform': {
+      workspaceSeedFromPlatform: async () => ({ 'ai.api_key': 'r3-ai-plaintext', 'app.name': 'Fixture Co' }),
+    },
+    './workspace': { createUserWithWorkspace: async () => ({}), slugify: (s) => String(s) },
+    './workspaceDb': { openWorkspaceDb: () => dbAdminR3 },
+    '../src/secretBox': boxR3,
+  });
+  await adminR3.pushDefaultsToWorkspaces({ force: true, keys: ['ai.api_key', 'app.name'] });
+  check('review3 admin seed push: secrets are stored encrypted in both workspace stores', () => {
+    const sqliteRow = dbAdminR3.prepare("SELECT value FROM settings WHERE key = 'ai.api_key'").get();
+    assert.ok(sqliteRow && boxR3.isEncrypted(sqliteRow.value), 'sqlite value is enc:v1: ciphertext');
+    assert.equal(boxR3.decryptSetting('ai.api_key', sqliteRow.value), 'r3-ai-plaintext');
+    const mysqlSecret = mysqlWritesR3.find((p) => p && p.key === 'ai.api_key');
+    assert.ok(mysqlSecret && boxR3.isEncrypted(mysqlSecret.value), 'mysql value is enc:v1: ciphertext');
+    assert.equal(boxR3.decryptSetting('ai.api_key', mysqlSecret.value), 'r3-ai-plaintext');
+    const sqlitePlain = dbAdminR3.prepare("SELECT value FROM settings WHERE key = 'app.name'").get();
+    assert.equal(sqlitePlain.value, 'Fixture Co', 'non-secret keys still stored plain');
+  });
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

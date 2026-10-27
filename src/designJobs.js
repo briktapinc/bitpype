@@ -999,7 +999,12 @@ function ensureActiveCampaign(db, name) {
 function readFlatSettings(db) {
   const out = {};
   try {
-    for (const row of db.prepare('SELECT key, value FROM settings').all()) out[row.key] = row.value;
+    // Decrypt per row (the src/outreach.js readSettings pattern): SECRET_KEYS
+    // are enc:v1: ciphertext at rest, and this bag feeds the SMTP provider —
+    // a raw read hands it ciphertext as the password.
+    for (const row of db.prepare('SELECT key, value FROM settings').all()) {
+      out[row.key] = require('./secretBox').decryptSetting(row.key, row.value);
+    }
   } catch {
     /* ignore */
   }

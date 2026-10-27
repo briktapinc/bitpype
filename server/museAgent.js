@@ -55,7 +55,10 @@ function fail(code, message) {
 function getDbSetting(db, key, def = '') {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-    return row && row.value != null ? String(row.value) : def;
+    // SECRET_KEYS (incl. muse.model_api_key) are secretBox-encrypted at
+    // rest — decrypt on read like every other sanctioned reader, or the
+    // workspace fallback hands the API ciphertext as its key.
+    return row && row.value != null ? String(require('../src/secretBox').decryptSetting(key, row.value)) : def;
   } catch {
     return def;
   }
