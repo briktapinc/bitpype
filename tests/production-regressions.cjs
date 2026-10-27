@@ -5915,6 +5915,56 @@ async function main() {
     assert.ok(paritySrc.includes("'website.listArchived'"), 'parity MCP exposes the archives list');
   });
 
+  // ---- Review fix 1 (CRITICAL verification): shadow staff account ----
+  // The 2026-10-27 code review claimed a seeded staff user
+  // (support@bitpype.com) with a default-password fallback
+  // (process.env.ADMIN_PASSWORD || 'bitpype-staff') in "server/auth.js".
+  // Verified ABSENT: no such file, strings, or fallback anywhere in the
+  // tree or git history, and no such user row in production data
+  // (existence-only query: 0 'support' users, 1 super admin). These
+  // checks pin the safe state so it cannot silently regress.
+  check('review1 no default-credential staff seed or password fallback exists in server code', () => {
+    const scanDirs = ['server', 'server/routes'];
+    const files = [path.join(root, 'server.js')];
+    for (const d of scanDirs) {
+      for (const f of fs.readdirSync(path.join(root, d))) {
+        if (f.endsWith('.js')) files.push(path.join(root, d, f));
+      }
+    }
+    for (const f of files) {
+      const src = fs.readFileSync(f, 'utf8');
+      assert.ok(!src.includes('bitpype-staff'), `${f} must not contain a default staff password`);
+      assert.ok(!src.includes('support@bitpype'), `${f} must not seed a built-in staff identity`);
+      assert.ok(!src.includes('ADMIN_PASSWORD'), `${f} must not reference an admin password env fallback`);
+      // No literal fallback on any password env. Sole documented exception:
+      // server/db.js's MYSQL_PASSWORD dev default (DB-connection convenience,
+      // not an auth credential — held as a judgment call in the fix report).
+      for (const m of src.matchAll(/process\.env\.([A-Z_]*PASSWORD[A-Z_]*)\s*\|\|/g)) {
+        assert.ok(f.endsWith('server/db.js') && m[1] === 'MYSQL_PASSWORD', `${f} must not fall back from password env ${m[1]} to a literal`);
+      }
+    }
+  });
+  check('review1 bootstrap owner creation is opt-in: requires BOTH bootstrap email and password env', () => {
+    const serverSrc = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+    const gate = 'process.env.BOOTSTRAP_EMAIL && process.env.BOOTSTRAP_PASSWORD';
+    assert.ok(serverSrc.includes(gate), 'bootstrap block is gated on both env vars');
+    assert.ok(serverSrc.indexOf(gate) < serverSrc.indexOf('createUserWithWorkspace({'), 'gate precedes any bootstrap user creation');
+  });
+  check('review1 login path resolves users only from the users table via bcrypt compare', () => {
+    const authSrc = fs.readFileSync(path.join(root, 'server/routes/auth.js'), 'utf8');
+    assert.ok(authSrc.includes('findUserByEmail(email)'), 'login looks the user up in the users table');
+    assert.ok(authSrc.includes('bcrypt.compare'), 'login verifies with bcrypt against the stored hash');
+    assert.ok(!/password\s*===|===\s*password/.test(authSrc.replace('password || ', '')), 'no literal password comparison in the login route');
+  });
+  const wsMod1 = load('server/workspace.js', {
+    './db': { query: async () => [], withConnection: async () => {}, driver: 'sqlite' },
+    './settingsKeys': { SETTING_SEEDS: new Map(), PROMPT_SEEDS: [] },
+  });
+  const seededLookup1 = await wsMod1.findUserByEmail('support@bitpype.com');
+  check('review1 user lookup for the alleged seeded identity returns no user (login would 401)', () => {
+    assert.equal(seededLookup1, null);
+  });
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});
