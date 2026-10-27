@@ -42,6 +42,17 @@ async function workspaceFromReq(req) {
     throw err;
   }
   await assertWorkspaceExists(workspaceId);
+  // Review fix: an archived (soft-deleted) site's public chatbot
+  // surfaces stop serving — the embed token outlives the site.
+  const archived = domain.withDb(workspaceId, (db) =>
+    siteModules.siteArchivedForToken(db, req.params.token)
+  );
+  if (archived) {
+    const err = new Error('This site is no longer available');
+    err.code = 'SITE_ARCHIVED';
+    err.status = 410;
+    throw err;
+  }
   return workspaceId;
 }
 

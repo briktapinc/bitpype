@@ -1196,6 +1196,28 @@ function getEmbedRow(db, leadId, moduleType) {
     .get(Number(leadId), assertModuleType(moduleType));
 }
 
+/**
+ * Review fix: is the website behind this public embed token archived
+ * (soft-deleted)? Embed tokens outlive the site, so the public module
+ * and chatbot routers consult this before serving. A lead with no
+ * website (modules also live on lead-level surfaces) is never blocked.
+ */
+function siteArchivedForToken(db, token) {
+  ensureTables(db);
+  try {
+    const row = db
+      .prepare('SELECT lead_id FROM site_module_embeds WHERE public_token = ?')
+      .get(String(token || ''));
+    if (!row) return false;
+    const site = db
+      .prepare('SELECT archived_at FROM websites WHERE lead_id = ?')
+      .get(Number(row.lead_id));
+    return !!(site && site.archived_at);
+  } catch {
+    return false;
+  }
+}
+
 function listEmbeds(db, leadId) {
   ensureTables(db);
   return db.prepare('SELECT * FROM site_module_embeds WHERE lead_id = ? ORDER BY module_type').all(Number(leadId));
@@ -9281,6 +9303,7 @@ module.exports = {
   listSitePages,
   listEmbeds,
   getEmbedRow,
+  siteArchivedForToken,
   ensureEmbed,
   publicEmbed,
   attachModule,

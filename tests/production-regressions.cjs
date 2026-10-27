@@ -6530,6 +6530,125 @@ async function main() {
     assert.equal(coReattachedR8.mode, 'external');
   });
 
+  // ---- Review fix 9: archived sites in public surfaces ----
+  // Batch 27 pinned listings/portal/export. Verification of the
+  // remaining public surfaces found two still serving an archived
+  // site: the public module routes and the public chatbot routes —
+  // their embed tokens outlive the site and neither router consulted
+  // the website's archived state. (The /site-previews gate itself is
+  // pinned below: canonical ws-{ws}-site-{id} folders resolve the
+  // right workspace row.)
+  const smR9 = load('server/siteModules.js', {
+    '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
+    './shopStripe': { isConfiguredForLead: () => false, resolveForLead: () => { throw Object.assign(new Error('no keys'), { code: 'SHOP_STRIPE_NOT_CONFIGURED' }); } },
+  });
+  smR9.ensureTables(db);
+  db.prepare('INSERT INTO leads (id, business_name, email) VALUES (?, ?, ?)').run(2795, 'Fixture R9 Modules', 'r9@example.invalid');
+  const siteR9 = Number(db.prepare("INSERT INTO websites (lead_id, name, theme, pages, status) VALUES (2795, 'R9 Site', '{}', '[]', 'published')").run().lastInsertRowid);
+  smR9.attachModule(db, 2795, 'faq', { workspaceId: 1, appUrl: 'https://example.test' });
+  const tokenR9 = smR9.getEmbedRow(db, 2795, 'faq').public_token;
+
+  // -- preview gate pins (unit level, fixture workspace db)
+  const dbPrevR9 = new Database(':memory:');
+  dbPrevR9.exec('CREATE TABLE websites (id INTEGER PRIMARY KEY, archived_at TEXT)');
+  dbPrevR9.prepare('INSERT INTO websites (id, archived_at) VALUES (5, NULL)').run();
+  dbPrevR9.prepare("INSERT INTO websites (id, archived_at) VALUES (6, '2026-10-27 00:00:00')").run();
+  const prevSecR9 = load('server/previewSecurity.js', { './workspaceDb': { openWorkspaceDb: () => dbPrevR9 } });
+  const runGateR9 = (p) => {
+    const out = { status: null, nexted: false };
+    prevSecR9.blockArchivedPreviews(
+      { path: p },
+      { status(c) { out.status = c; return this; }, send() { return this; } },
+      () => { out.nexted = true; }
+    );
+    return out;
+  };
+  check('review9 preview gate: archived canonical folder 404s, live + non-site paths pass through', () => {
+    assert.equal(runGateR9('/ws-1-site-6/index.html').status, 404);
+    assert.equal(runGateR9('/ws-1-site-5/index.html').nexted, true);
+    assert.equal(runGateR9('/ws-1-design-9/index.html').nexted, true);
+    assert.equal(runGateR9('/something-else/').nexted, true);
+  });
+
+  // -- modules router gate
+  const stubRouterR9 = () => {
+    const routes = { get: {}, post: {}, use: [] };
+    return {
+      routes,
+      get: (p, ...h) => { routes.get[p] = h[h.length - 1]; },
+      post: (p, ...h) => { routes.post[p] = h[h.length - 1]; },
+      use: (...h) => { routes.use.push(h[h.length - 1]); },
+    };
+  };
+  const fakeResR9 = () => ({
+    statusCode: 200, body: null,
+    status(c) { this.statusCode = c; return this; },
+    json(o) { this.body = o; return this; },
+    set() { return this; }, setHeader() { return this; }, type() { return this; }, send(b) { this.body = b; return this; },
+  });
+  const modRouterR9 = stubRouterR9();
+  load('server/routes/modulesPublic.js', {
+    express: { Router: () => modRouterR9 },
+    '../domain': { withDb: (_ws, fn) => fn(db) },
+    '../siteModules': smR9,
+    '../captcha': { requireCaptcha: () => (_req, _res, next) => next && next(), clientIp: () => '127.0.0.1', getCaptchaConfig: async () => ({}) },
+    '../rateLimit': { rateLimit: () => (_req, _res, next) => next && next() },
+    '../workspaceExists': { assertWorkspaceExists: async () => {} },
+    '../ownerNotify': {},
+    '../rentals': { settlePendingCharges: async () => {} },
+  });
+  const getPayloadR9 = async () => {
+    const res = fakeResR9();
+    await modRouterR9.routes.get['/:token'](
+      { params: { token: tokenR9 }, query: { w: '1' }, body: {}, headers: {}, get: () => '' },
+      res
+    );
+    return res;
+  };
+  const livePayloadR9 = await getPayloadR9();
+  check('review9 modules payload serves while the site is live', () => {
+    assert.equal(livePayloadR9.statusCode, 200);
+    assert.equal(livePayloadR9.body && livePayloadR9.body.ok, true);
+  });
+  db.prepare("UPDATE websites SET archived_at = datetime('now') WHERE id = ?").run(siteR9);
+  const archivedPayloadR9 = await getPayloadR9();
+  check('review9 modules payload refuses once the site is archived', () => {
+    assert.equal(archivedPayloadR9.statusCode, 410);
+    assert.equal(archivedPayloadR9.body && archivedPayloadR9.body.code, 'SITE_ARCHIVED');
+  });
+
+  // -- chatbot router gate
+  const chatRouterR9 = stubRouterR9();
+  load('server/routes/chatbotPublic.js', {
+    express: { Router: () => chatRouterR9 },
+    '../domain': { withDb: (_ws, fn) => fn(db) },
+    '../chatbot': { getPublicConfigByToken: () => ({ enabled: true }) },
+    '../siteModules': smR9,
+    '../rateLimit': { rateLimit: () => (_req, _res, next) => next && next() },
+    '../workspaceExists': { assertWorkspaceExists: async () => {} },
+  });
+  smR9.attachModule(db, 2795, 'chatbot', { workspaceId: 1, appUrl: 'https://example.test' });
+  const chatTokenR9 = smR9.getEmbedRow(db, 2795, 'chatbot').public_token;
+  const chatResR9 = fakeResR9();
+  await chatRouterR9.routes.get['/:token'](
+    { params: { token: chatTokenR9 }, query: { w: '1' }, body: {}, headers: {}, get: () => '' },
+    chatResR9
+  );
+  check('review9 chatbot public config refuses once the site is archived', () => {
+    assert.equal(chatResR9.statusCode, 410);
+    assert.equal(chatResR9.body && chatResR9.body.code, 'SITE_ARCHIVED');
+  });
+  db.prepare('UPDATE websites SET archived_at = NULL WHERE id = ?').run(siteR9);
+  const chatResR9b = fakeResR9();
+  await chatRouterR9.routes.get['/:token'](
+    { params: { token: chatTokenR9 }, query: { w: '1' }, body: {}, headers: {}, get: () => '' },
+    chatResR9b
+  );
+  check('review9 chatbot serves again after restore', () => {
+    assert.equal(chatResR9b.statusCode, 200);
+    assert.equal(chatResR9b.body && chatResR9b.body.ok, true);
+  });
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});
