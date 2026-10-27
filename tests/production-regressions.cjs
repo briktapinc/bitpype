@@ -6438,6 +6438,53 @@ async function main() {
     assert.equal(userRowR6.subscription_status, 'active');
   });
 
+  // ---- Review fix 7: shop orders marked paid without payment_status ----
+  // checkout.session.completed also fires for async payment methods
+  // whose money has not landed (payment_status 'unpaid'); the shop
+  // handler flipped the order to 'paid' on the event type alone —
+  // the flaw Batch 21b's membership flow avoids by gating on
+  // payment_status. Mirrored here.
+  const smR7 = load('server/siteModules.js', {
+    '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
+  });
+  smR7.ensureTables(db);
+  db.prepare('INSERT INTO leads (id, business_name, email) VALUES (?, ?, ?)').run(2780, 'Fixture R7 Shop', 'r7@example.invalid');
+  const mkOrderR7 = (session) =>
+    Number(
+      db.prepare(
+        "INSERT INTO ecommerce_orders (lead_id, product_id, product_name, amount_cents, currency, status, stripe_session_id) VALUES (2780, NULL, 'Widget', 2500, 'USD', 'pending', ?)"
+      ).run(session).lastInsertRowid
+    );
+  const orderStatusR7 = (id) => db.prepare('SELECT status FROM ecommerce_orders WHERE id = ?').get(id).status;
+  const evtR7 = (type, session, paymentStatus) => ({
+    type,
+    data: { object: { id: session, payment_intent: 'pi_r7', payment_status: paymentStatus, customer_details: { email: 'buyer@example.invalid' } } },
+  });
+  const orderA7 = mkOrderR7('cs_r7_unpaid');
+  const appliedA7 = smR7.applyShopStripeEvent(db, evtR7('checkout.session.completed', 'cs_r7_unpaid', 'unpaid'));
+  check('review7 completed-but-unpaid session does NOT mark the order paid', () => {
+    assert.equal(appliedA7.status, 'pending');
+    assert.equal(orderStatusR7(orderA7), 'pending');
+  });
+  const appliedA7b = smR7.applyShopStripeEvent(db, evtR7('checkout.session.async_payment_succeeded', 'cs_r7_unpaid', 'paid'));
+  check('review7 async payment success settles the order as paid', () => {
+    assert.equal(appliedA7b.status, 'paid');
+    assert.equal(orderStatusR7(orderA7), 'paid');
+  });
+  const orderB7 = mkOrderR7('cs_r7_paid');
+  const appliedB7 = smR7.applyShopStripeEvent(db, evtR7('checkout.session.completed', 'cs_r7_paid', 'paid'));
+  check('review7 completed + payment_status paid marks paid (normal card flow unchanged)', () => {
+    assert.equal(appliedB7.status, 'paid');
+    assert.equal(orderStatusR7(orderB7), 'paid');
+  });
+  const orderC7 = mkOrderR7('cs_r7_fail');
+  smR7.applyShopStripeEvent(db, evtR7('checkout.session.completed', 'cs_r7_fail', 'unpaid'));
+  const appliedC7 = smR7.applyShopStripeEvent(db, evtR7('checkout.session.async_payment_failed', 'cs_r7_fail', 'unpaid'));
+  check('review7 unpaid completion followed by async failure ends failed, never paid', () => {
+    assert.equal(appliedC7.status, 'failed');
+    assert.equal(orderStatusR7(orderC7), 'failed');
+  });
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

@@ -3360,6 +3360,17 @@ function applyShopStripeEvent(db, event) {
   }
   if (order.status === 'paid') return { matched: true, orderId: order.id, status: 'paid' };
   if (type === 'checkout.session.completed' || type === 'checkout.session.async_payment_succeeded') {
+    // Review fix (mirrors the membership flow's payment_status gate):
+    // checkout.session.completed also fires for async payment methods
+    // whose money has NOT landed — Stripe reports payment_status
+    // 'unpaid' and settles later via async_payment_succeeded/failed.
+    // Marking paid on the event type alone fulfilled unpaid orders.
+    // An explicitly unpaid completion leaves the order pending; a
+    // session with no payment_status (older payloads) or one reported
+    // paid / no_payment_required completes exactly as before.
+    if (type === 'checkout.session.completed' && String(obj.payment_status || '') === 'unpaid') {
+      return { matched: true, orderId: order.id, status: order.status };
+    }
     updateShopOrder(db, order.id, {
       status: 'paid',
       stripe_payment_intent: String(obj.payment_intent || order.stripe_payment_intent || ''),
