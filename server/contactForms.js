@@ -2653,7 +2653,20 @@ async function acceptSubmission(db, { token, values, workspaceId, planId, ip, us
     console.warn('[contactForms] LeadScout capture failed; submission retained id=', submissionId);
   }
 
-  const notifyTo = String(form.notify_email || clientEmail || '').trim();
+  // Recipient chain (Batch 21b): this form's notify_email → an explicit
+  // caller-supplied client email → the LEAD's email, resolved at SEND
+  // time. Forms whose notify_email was never defaulted at creation
+  // (older forms, imports) used to alert nobody even though the lead
+  // has a perfectly good email on file.
+  let notifyTo = String(form.notify_email || clientEmail || '').trim();
+  if (!notifyTo) {
+    try {
+      const lead = db.prepare('SELECT email FROM leads WHERE id = ?').get(form.lead_id);
+      notifyTo = String((lead && lead.email) || '').trim();
+    } catch {
+      notifyTo = '';
+    }
+  }
   let emailResult = null;
   if (notifyTo) {
     try {

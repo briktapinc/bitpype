@@ -58,9 +58,35 @@ router.post('/:workspaceId', async (req, res) => {
     // not to retry a request we can never accept.
     return res.status(400).json({ ok: false, error: 'Webhook signature verification failed' });
   }
+  // Batch 21b: remember the order's pre-apply status so the owner
+  // email fires only on the pending → paid transition (Stripe
+  // redeliveries and repeat events stay silent).
+  let priorOrderStatus = null;
+  if (event && event.type && event.type.startsWith('checkout.session.')) {
+    const obj = (event.data && event.data.object) || {};
+    try {
+      priorOrderStatus = domain.withDb(workspaceId, (db) => {
+        const order = siteModules.getShopOrderBySession(db, String(obj.id || ''));
+        return order ? order.status : null;
+      });
+    } catch {
+      priorOrderStatus = null;
+    }
+  }
   try {
     const result = domain.withDb(workspaceId, (db) => siteModules.applyShopStripeEvent(db, event));
-    return res.json({ ok: true, received: true, key_source: keySource, ...result });
+    const response = res.json({ ok: true, received: true, key_source: keySource, ...result });
+    if (result && result.matched && result.status === 'paid' && result.orderId && priorOrderStatus !== 'paid') {
+      try {
+        const ownerNotify = require('../ownerNotify');
+        ownerNotify
+          .notifyOwnerOfShopOrder(workspaceId, result.orderId)
+          .catch((e) => console.warn('[shop-webhook] owner notify failed:', e && e.message));
+      } catch (e) {
+        console.warn('[shop-webhook] owner notify failed:', e && e.message);
+      }
+    }
+    return response;
   } catch (e) {
     // 500 so Stripe retries — the event itself is verified and valid.
     console.error('[shop-webhook] apply failed', workspaceId, event && event.type, e && e.message);

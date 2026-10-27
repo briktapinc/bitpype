@@ -43,6 +43,27 @@ function gateOpts(req) {
   };
 }
 
+/**
+ * Batch 21b: email the site owner about a visitor-created record
+ * (booking / estimate request / member signup). Fire-and-forget after
+ * the visitor's response — ownerNotify never throws, and a mail
+ * problem must never surface to the visitor.
+ */
+function fireOwnerNotify(fnName, workspaceId, recordId) {
+  if (!recordId) return;
+  try {
+    const ownerNotify = require('../ownerNotify');
+    const fn = ownerNotify[fnName];
+    if (typeof fn !== 'function') return;
+    const p = fn(workspaceId, recordId);
+    if (p && typeof p.catch === 'function') {
+      p.catch((e) => console.warn('[modulesPublic] owner notify failed:', e && e.message));
+    }
+  } catch (e) {
+    console.warn('[modulesPublic] owner notify failed:', e && e.message);
+  }
+}
+
 async function workspaceFromReq(req) {
   const fromToken = siteModules.parseWorkspaceFromToken(req.params.token);
   const fromQuery = Number(
@@ -164,6 +185,7 @@ router.post('/:token/book', bookLimit, captcha, async (req, res) => {
       siteModules.createPublicBookingByToken(db, req.params.token, body, gateOpts(req))
     );
     res.json({ ok: true, data: { ...data, workspaceId } });
+    fireOwnerNotify('notifyOwnerOfBooking', workspaceId, data && data.appointment && data.appointment.id);
   } catch (e) {
     fail(res, e);
   }
@@ -180,6 +202,7 @@ router.post('/:token/estimate', estimateLimit, captcha, async (req, res) => {
       siteModules.createPublicEstimateRequestByToken(db, req.params.token, body, gateOpts(req))
     );
     res.json({ ok: true, data: { ...data, workspaceId } });
+    fireOwnerNotify('notifyOwnerOfEstimateRequest', workspaceId, data && data.request && data.request.id);
   } catch (e) {
     fail(res, e);
   }
@@ -218,6 +241,7 @@ router.post('/:token/members/signup', memberLimit, captcha, async (req, res) => 
     const body = req.body || {};
     const data = domain.withDb(workspaceId, (db) => siteModules.publicMemberSignup(db, req.params.token, body));
     res.json({ ok: true, data: { ...data, workspaceId } });
+    fireOwnerNotify('notifyOwnerOfMemberSignup', workspaceId, data && data.member && data.member.id);
   } catch (e) {
     fail(res, e);
   }

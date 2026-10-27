@@ -2787,6 +2787,451 @@ async function main() {
   });
   mailState21.behavior = 'ok';
 
+  // --- Batch 21b: owner email notifications for every visitor form ----
+  // Every visitor-created record emails the site owner. Contact forms
+  // always did — except when the form's notify_email was empty: the
+  // alert silently went nowhere. acceptSubmission now falls back to
+  // the LEAD's email at send time. Bookings, estimate requests, member
+  // signups, paid memberships (Stripe webhook) and paid shop orders
+  // (Stripe webhook) notify via server/ownerNotify.js, fired once per
+  // created record; webhooks gate on the pending → paid / new-row
+  // transition so redeliveries stay silent.
+  const mailState21b = { sent: [], behavior: 'ok' };
+  const mailerStub21b = {
+    sendPlatformMail: async (msg) => {
+      if (mailState21b.behavior === 'fail') throw new Error('SMTP blew up');
+      if (mailState21b.behavior === 'unconfigured') {
+        const e = new Error('Platform SMTP is not configured');
+        e.code = 'SMTP_NOT_CONFIGURED';
+        throw e;
+      }
+      mailState21b.sent.push(msg);
+      return { sent: true };
+    },
+  };
+  const flush21b = () => new Promise((r) => setImmediate(r));
+  const lastMail21b = () => mailState21b.sent[mailState21b.sent.length - 1];
+  const sm21b = load('server/siteModules.js', {
+    '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
+    '../src/websiteEngine': require(path.join(root, 'src/websiteEngine.js')),
+    './portalContacts': contacts,
+    '../src/secretBox': require(path.join(root, 'src/secretBox.js')),
+    './membershipStripe': {},
+    './shopStripe': {},
+  });
+  sm21b.ensureTables(db);
+  const callNotify21b = load('server/callNotify.js', {
+    './domain': { withDb: (_ws, fn) => fn(db) },
+    './siteModules': sm21b,
+    './mailer': mailerStub21b,
+    './stripeClient': { appUrl: () => 'https://example.test' },
+  });
+  const ownerNotify21b = load('server/ownerNotify.js', {
+    './domain': { withDb: (_ws, fn) => fn(db) },
+    './mailer': mailerStub21b,
+    './callNotify': callNotify21b,
+    './stripeClient': { appUrl: () => 'https://example.test' },
+  });
+  for (const [id, name, email] of [
+    [2181, 'Fixture Forms B', 'formsb@example.invalid'],
+    [2182, 'Fixture Bare Forms B', ''],
+    [2183, 'Fixture Bookings B', 'booksb@example.invalid'],
+    [2184, 'Fixture Estimate B', 'estb@example.invalid'],
+    [2185, 'Fixture Members B', 'memb@example.invalid'],
+    [2186, 'Fixture Shop B', 'shopb@example.invalid'],
+    [2187, 'Fixture Bookings Bare', ''],
+  ]) {
+    db.prepare('INSERT INTO leads (id, business_name, email) VALUES (?, ?, ?)').run(id, name, email);
+  }
+  const homePages21b = JSON.stringify([
+    {
+      slug: 'index',
+      title: 'Home',
+      sections: [
+        { type: 'nav', content: {} },
+        { type: 'html', content: { html: '<p>hi</p>' } },
+        { type: 'footer', content: {} },
+      ],
+    },
+  ]);
+  for (const id of [2183, 2184, 2185, 2186, 2187]) {
+    db.prepare('INSERT INTO websites (lead_id, name, theme, pages) VALUES (?, ?, ?, ?)').run(id, `Site ${id}`, '{}', homePages21b);
+  }
+
+  // (a) Contact forms — the empty-notify_email hole is fixed at send time.
+  const cf21b = load('server/contactForms.js', {
+    './plans': { getPlan: () => ({ id: 'free', entitlements: {} }), normalizePlanId: (v) => v || 'free' },
+    './portalContacts': contacts,
+    './mailer': mailerStub21b,
+    './museRouter': {},
+  });
+  cf21b.ensureTables(db);
+  const mkForm21b = (leadId, token, notifyEmail) => {
+    const info = db
+      .prepare(
+        "INSERT INTO contact_forms (lead_id, name, title, notify_email, public_token, published) VALUES (?, 'Contact', 'Contact Us', ?, ?, 1)"
+      )
+      .run(leadId, notifyEmail, token);
+    db.prepare(
+      "INSERT INTO form_fields (form_id, field_key, label, field_type, required) VALUES (?, 'message', 'Message', 'textarea', 0)"
+    ).run(info.lastInsertRowid);
+    return info.lastInsertRowid;
+  };
+  mkForm21b(2181, 'tok-21b-a', '');
+  const subA21b = await cf21b.acceptSubmission(db, {
+    token: 'tok-21b-a',
+    values: { message: 'Hello from a visitor' },
+    workspaceId: 1,
+    planId: 'free',
+  });
+  check('batch21b forms: empty notify_email falls back to the lead email at send time', () => {
+    assert.equal(subA21b.email && subA21b.email.sent, true);
+    assert.equal(mailState21b.sent.length, 1);
+    assert.equal(mailState21b.sent[0].to, 'formsb@example.invalid');
+    assert.equal(mailState21b.sent[0].subject, 'New form submission — Contact Us');
+  });
+  mkForm21b(2181, 'tok-21b-b', 'explicit@example.invalid');
+  const subB21b = await cf21b.acceptSubmission(db, {
+    token: 'tok-21b-b',
+    values: { message: 'Second visitor' },
+    workspaceId: 1,
+    planId: 'free',
+  });
+  check('batch21b forms: a set form notify_email still wins over the lead email', () => {
+    assert.equal(subB21b.email && subB21b.email.sent, true);
+    assert.equal(mailState21b.sent.length, 2);
+    assert.equal(mailState21b.sent[1].to, 'explicit@example.invalid');
+  });
+  mkForm21b(2182, 'tok-21b-c', '');
+  const subC21b = await cf21b.acceptSubmission(db, {
+    token: 'tok-21b-c',
+    values: { message: 'No one home' },
+    workspaceId: 1,
+    planId: 'free',
+  });
+  check('batch21b forms: no recipient anywhere sends nothing and keeps the submission', () => {
+    assert.equal(subC21b.email && subC21b.email.sent, false);
+    assert.equal(subC21b.email && subC21b.email.error, 'NO_NOTIFY_EMAIL');
+    assert.equal(mailState21b.sent.length, 2);
+    assert.equal(db.prepare('SELECT COUNT(*) AS c FROM form_submissions WHERE id = ?').get(subC21b.id).c, 1);
+  });
+
+  // (b) Route harness for the public module routes + both Stripe webhooks.
+  function stubRouter21b() {
+    const routes = [];
+    const router = { use() {} };
+    for (const m of ['get', 'post', 'put', 'patch', 'delete']) {
+      router[m] = (route, ...handlers) => routes.push({ method: m, route, handlers });
+    }
+    return { routes, router };
+  }
+  async function callRoute21b(routes, method, routePath, req) {
+    const route = routes.find((x) => x.method === method && x.route === routePath);
+    assert(route, `${method} ${routePath} registered`);
+    let status = 200;
+    let body;
+    const res = {
+      status(v) {
+        status = v;
+        return this;
+      },
+      json(v) {
+        body = v;
+        return this;
+      },
+    };
+    for (const handler of route.handlers) {
+      let advanced = false;
+      await handler(req, res, () => {
+        advanced = true;
+      });
+      if (!advanced) break;
+    }
+    return { status, body };
+  }
+  const reqFor21b = (params, body) => ({ params, body: body || {}, query: {}, headers: {}, get: () => '' });
+  const mod21b = stubRouter21b();
+  load('server/routes/modulesPublic.js', {
+    express: { Router: () => mod21b.router },
+    '../domain': { withDb: (_ws, fn) => fn(db) },
+    '../siteModules': sm21b,
+    '../captcha': {
+      requireCaptcha: () => (_req, _res, next) => next(),
+      getCaptchaConfig: async () => ({ enabled: false }),
+    },
+    '../rateLimit': { rateLimit: () => (_req, _res, next) => next() },
+    '../workspaceExists': { assertWorkspaceExists: async () => {} },
+    '../ownerNotify': ownerNotify21b,
+  });
+  async function bookViaRoute21b(token, serviceId, customerEmail) {
+    for (let add = 2; add <= 45; add++) {
+      const d = new Date();
+      d.setDate(d.getDate() + add);
+      if (d.getDay() === 0 || d.getDay() === 6) continue;
+      const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      let avail;
+      try {
+        avail = sm21b.getPublicBookingSlots(db, token, { date: ymd, serviceId });
+      } catch {
+        continue;
+      }
+      if (!avail.slots || !avail.slots.length) continue;
+      const slot = avail.slots[0];
+      return callRoute21b(
+        mod21b.routes,
+        'post',
+        '/:token/book',
+        reqFor21b(
+          { token },
+          {
+            service_id: serviceId,
+            customer_name: 'Walk In',
+            customer_email: customerEmail,
+            date: ymd,
+            time: slot.label || String(slot.starts_at).slice(11, 16),
+          }
+        )
+      );
+    }
+    throw new Error('no bookable slot found');
+  }
+
+  // Bookings: owner email on create, form notify address wins the chain.
+  const embBook21b = sm21b.attachModule(db, 2183, 'bookings', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
+  const svcBook21b = sm21b.createBookingService(db, 2183, {
+    name: 'Haircut',
+    status: 'published',
+    duration_minutes: 60,
+  });
+  db.prepare('DELETE FROM contact_forms WHERE lead_id = 2183').run();
+  db.prepare(
+    "INSERT INTO contact_forms (lead_id, name, notify_email) VALUES (2183, 'Contact', 'bookalerts@example.invalid')"
+  ).run();
+  const mailBeforeBook21b = mailState21b.sent.length;
+  const bookRes1 = await bookViaRoute21b(embBook21b.public_token, svcBook21b.id, 'walkin@example.invalid');
+  await flush21b();
+  check('batch21b bookings: a public booking emails the owner once (form notify wins)', () => {
+    assert.equal(bookRes1.status, 200);
+    assert.equal(bookRes1.body.ok, true);
+    assert.equal(mailState21b.sent.length, mailBeforeBook21b + 1);
+    const msg = lastMail21b();
+    assert.equal(msg.to, 'bookalerts@example.invalid');
+    assert.equal(msg.subject, 'New booking from your website');
+    const body = (msg.paragraphs || []).join('\n');
+    assert.ok(body.includes('Haircut'));
+    assert.ok(body.includes('Walk In'));
+  });
+  mailState21b.behavior = 'fail';
+  const bookCountBeforeFail = db.prepare('SELECT COUNT(*) AS c FROM bookings WHERE lead_id = 2183').get().c;
+  const bookRes2 = await bookViaRoute21b(embBook21b.public_token, svcBook21b.id, 'second@example.invalid');
+  await flush21b();
+  mailState21b.behavior = 'ok';
+  check('batch21b bookings: a mailer failure never fails the booking', () => {
+    assert.equal(bookRes2.status, 200);
+    assert.equal(bookRes2.body.ok, true);
+    assert.equal(
+      db.prepare('SELECT COUNT(*) AS c FROM bookings WHERE lead_id = 2183').get().c,
+      bookCountBeforeFail + 1
+    );
+  });
+  const embBookBare = sm21b.attachModule(db, 2187, 'bookings', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
+  const svcBare21b = sm21b.createBookingService(db, 2187, { name: 'Trim', status: 'published', duration_minutes: 30 });
+  const mailBeforeBare = mailState21b.sent.length;
+  const bookRes3 = await bookViaRoute21b(embBookBare.public_token, svcBare21b.id, 'bare@example.invalid');
+  await flush21b();
+  check('batch21b bookings: no owner email anywhere sends nothing; booking still created', () => {
+    assert.equal(bookRes3.status, 200);
+    assert.equal(bookRes3.body.ok, true);
+    assert.equal(mailState21b.sent.length, mailBeforeBare);
+    assert.equal(db.prepare('SELECT COUNT(*) AS c FROM bookings WHERE lead_id = 2187').get().c, 1);
+  });
+
+  // Estimate requests: owner email on create.
+  const embEst21b = sm21b.attachModule(db, 2184, 'estimate', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
+  const optEst21b = sm21b.createEstimateOption(db, 2184, { label: 'Deep clean', input_type: 'checkbox', price: 40 });
+  const mailBeforeEst = mailState21b.sent.length;
+  const estRes = await callRoute21b(
+    mod21b.routes,
+    'post',
+    '/:token/estimate',
+    reqFor21b(
+      { token: embEst21b.public_token },
+      { name: 'Est Visitor', email: 'estvis@example.invalid', selections: [{ option_id: optEst21b.id, checked: true }] }
+    )
+  );
+  await flush21b();
+  check('batch21b estimates: a public estimate request emails the owner', () => {
+    assert.equal(estRes.status, 200);
+    assert.equal(estRes.body.ok, true);
+    assert.equal(mailState21b.sent.length, mailBeforeEst + 1);
+    const msg = lastMail21b();
+    assert.equal(msg.to, 'estb@example.invalid');
+    assert.equal(msg.subject, 'New estimate request from your website');
+    const body = (msg.paragraphs || []).join('\n');
+    assert.ok(body.includes('Est Visitor'));
+    assert.ok(body.includes('Deep clean'));
+  });
+
+  // Member signups: owner email on create (approval visibility).
+  const embMem21b = sm21b.attachModule(db, 2185, 'members', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
+  const mailBeforeSignup = mailState21b.sent.length;
+  const signupRes = await callRoute21b(
+    mod21b.routes,
+    'post',
+    '/:token/members/signup',
+    reqFor21b(
+      { token: embMem21b.public_token },
+      { name: 'New Member', email: 'newmember@example.invalid', password: 'password123' }
+    )
+  );
+  await flush21b();
+  check('batch21b members: a public member signup emails the owner', () => {
+    assert.equal(signupRes.status, 200);
+    assert.equal(signupRes.body.ok, true);
+    assert.equal(mailState21b.sent.length, mailBeforeSignup + 1);
+    const msg = lastMail21b();
+    assert.equal(msg.to, 'memb@example.invalid');
+    assert.equal(msg.subject, 'New member signup from your website');
+    assert.ok((msg.paragraphs || []).join('\n').includes('newmember@example.invalid'));
+  });
+
+  // Notifier robustness, direct: mailer failure is reported, not thrown;
+  // a missing record is a quiet no-op.
+  mailState21b.behavior = 'fail';
+  const directFail21b = await ownerNotify21b.notifyOwnerOfEstimateRequest(1, estRes.body.data.request.id);
+  mailState21b.behavior = 'ok';
+  const directGone21b = await ownerNotify21b.notifyOwnerOfBooking(1, 99999999);
+  check('batch21b notify: mailer failure and missing record never throw', () => {
+    assert.equal(directFail21b.sent, false);
+    assert.equal(directFail21b.reason, 'send_failed');
+    assert.equal(directGone21b.sent, false);
+    assert.equal(directGone21b.reason, 'not_found');
+  });
+
+  // Shop orders: owner email only on the pending → paid transition.
+  const shopHook21b = stubRouter21b();
+  load('server/routes/shopWebhook.js', {
+    express: { Router: () => shopHook21b.router },
+    '../domain': { withDb: (_ws, fn) => fn(db) },
+    '../siteModules': sm21b,
+    '../shopStripe': {
+      constructEventForShop: (_db, raw) => ({
+        event: JSON.parse(Buffer.isBuffer(raw) ? raw.toString('utf8') : String(raw)),
+        source: 'lead',
+      }),
+    },
+    '../workspaceExists': { assertWorkspaceExists: async () => {} },
+    '../ownerNotify': ownerNotify21b,
+  });
+  const prodShop21b = sm21b.createProduct(db, 2186, { name: 'Widget', price_cents: 2500, status: 'published' });
+  db.prepare(
+    "INSERT INTO ecommerce_orders (lead_id, product_id, product_name, amount_cents, currency, status, stripe_session_id) VALUES (2186, ?, 'Widget', 2500, 'USD', 'pending', 'cs_test_21b')"
+  ).run(prodShop21b.id);
+  const shopEvent21b = {
+    type: 'checkout.session.completed',
+    data: {
+      object: { id: 'cs_test_21b', payment_intent: 'pi_21b', customer_details: { email: 'buyer@example.invalid' } },
+    },
+  };
+  const shopReq21b = () => ({
+    params: { workspaceId: '1' },
+    body: Buffer.from(JSON.stringify(shopEvent21b)),
+    headers: {},
+    get: () => '',
+  });
+  const mailBeforeShop = mailState21b.sent.length;
+  const shopRes1 = await callRoute21b(shopHook21b.routes, 'post', '/:workspaceId', shopReq21b());
+  await flush21b();
+  check('batch21b shop: a paid order emails the owner', () => {
+    assert.equal(shopRes1.status, 200);
+    assert.equal(shopRes1.body.ok, true);
+    assert.equal(mailState21b.sent.length, mailBeforeShop + 1);
+    const msg = lastMail21b();
+    assert.equal(msg.to, 'shopb@example.invalid');
+    assert.equal(msg.subject, 'New order from your website');
+    const body = (msg.paragraphs || []).join('\n');
+    assert.ok(body.includes('Widget'));
+    assert.ok(body.includes('$25.00'));
+    assert.equal(
+      db.prepare("SELECT status FROM ecommerce_orders WHERE stripe_session_id = 'cs_test_21b'").get().status,
+      'paid'
+    );
+  });
+  const shopRes2 = await callRoute21b(shopHook21b.routes, 'post', '/:workspaceId', shopReq21b());
+  await flush21b();
+  check('batch21b shop: a redelivered webhook does not email the owner again', () => {
+    assert.equal(shopRes2.status, 200);
+    assert.equal(mailState21b.sent.length, mailBeforeShop + 1);
+  });
+
+  // Memberships: owner email only when checkout CREATES the subscription.
+  const memHook21b = stubRouter21b();
+  load('server/routes/membershipWebhook.js', {
+    express: { Router: () => memHook21b.router },
+    '../domain': { withDb: (_ws, fn) => fn(db) },
+    '../siteModules': sm21b,
+    '../membershipStripe': {
+      resolveLeadForEvent: (_db, peek) => Number(peek.data.object.metadata.bitpype_lead_id),
+      constructEventForLead: (_db, _leadId, raw) =>
+        JSON.parse(Buffer.isBuffer(raw) ? raw.toString('utf8') : String(raw)),
+    },
+    '../workspaceExists': { assertWorkspaceExists: async () => {} },
+    '../ownerNotify': ownerNotify21b,
+  });
+  const tier21b = sm21b.insertMembershipTier(db, 2185, {
+    name: 'Gold',
+    description: '',
+    price_cents: 1500,
+    interval: 'month',
+    sort_order: 0,
+  });
+  const member21b = sm21b.signupMember(db, 2185, {
+    name: 'Paying Pat',
+    email: 'patpay@example.invalid',
+    password: 'password123',
+  }).member;
+  const memEvent21b = {
+    type: 'checkout.session.completed',
+    data: {
+      object: {
+        customer: 'cus_21b',
+        subscription: 'sub_21b',
+        payment_status: 'paid',
+        metadata: {
+          bitpype_lead_id: '2185',
+          bitpype_member_id: String(member21b.id),
+          bitpype_tier_id: String(tier21b.id),
+        },
+      },
+    },
+  };
+  const memReq21b = () => ({
+    params: { workspaceId: '1' },
+    body: Buffer.from(JSON.stringify(memEvent21b)),
+    headers: {},
+    get: () => '',
+  });
+  const mailBeforeMem = mailState21b.sent.length;
+  const memRes1 = await callRoute21b(memHook21b.routes, 'post', '/:workspaceId', memReq21b());
+  await flush21b();
+  check('batch21b memberships: a newly created paid membership emails the owner', () => {
+    assert.equal(memRes1.status, 200);
+    assert.equal(memRes1.body.ok, true);
+    assert.equal(mailState21b.sent.length, mailBeforeMem + 1);
+    const msg = lastMail21b();
+    assert.equal(msg.to, 'memb@example.invalid');
+    assert.equal(msg.subject, 'New membership from your website');
+    const body = (msg.paragraphs || []).join('\n');
+    assert.ok(body.includes('Gold'));
+    assert.ok(body.includes('patpay@example.invalid'));
+  });
+  const memRes2 = await callRoute21b(memHook21b.routes, 'post', '/:workspaceId', memReq21b());
+  await flush21b();
+  check('batch21b memberships: a redelivered webhook does not email the owner again', () => {
+    assert.equal(memRes2.status, 200);
+    assert.equal(mailState21b.sent.length, mailBeforeMem + 1);
+  });
+
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

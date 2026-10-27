@@ -65,9 +65,44 @@ router.post('/:workspaceId', async (req, res) => {
     // not to retry a request we can never accept.
     return res.status(400).json({ ok: false, error: 'Webhook signature verification failed' });
   }
+  // Batch 21b: snapshot this member's existing subscriptions so the
+  // owner email fires only when checkout completion CREATES the
+  // subscription row (redeliveries update the same row and stay silent).
+  let subIdsBefore = null;
+  if (event && event.type === 'checkout.session.completed') {
+    const meta = (event.data && event.data.object && event.data.object.metadata) || {};
+    const leadId = Number(meta.bitpype_lead_id);
+    const memberId = Number(meta.bitpype_member_id);
+    if (leadId && memberId) {
+      try {
+        subIdsBefore = domain.withDb(workspaceId, (db) =>
+          siteModules.listMemberSubscriptions(db, leadId, { memberId }).map((s) => s.id)
+        );
+      } catch {
+        subIdsBefore = null;
+      }
+    }
+  }
   try {
     const result = domain.withDb(workspaceId, (db) => siteModules.applyMembershipStripeEvent(db, event));
-    return res.json({ ok: true, received: true, ...result });
+    const response = res.json({ ok: true, received: true, ...result });
+    if (
+      subIdsBefore &&
+      result &&
+      result.matched &&
+      result.subscriptionId &&
+      !subIdsBefore.includes(result.subscriptionId)
+    ) {
+      try {
+        const ownerNotify = require('../ownerNotify');
+        ownerNotify
+          .notifyOwnerOfMembership(workspaceId, result.subscriptionId)
+          .catch((e) => console.warn('[membership-webhook] owner notify failed:', e && e.message));
+      } catch (e) {
+        console.warn('[membership-webhook] owner notify failed:', e && e.message);
+      }
+    }
+    return response;
   } catch (e) {
     // 500 so Stripe retries — the event itself is verified and valid.
     console.error('[membership-webhook] apply failed', workspaceId, event && event.type, e && e.message);
