@@ -41,7 +41,7 @@ const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod14';
+const MODULE_SCRIPT_VER = 'mod15';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -8658,6 +8658,16 @@ function getPublicModuleByToken(db, token, opts = {}) {
   }
   if (booking) out.booking = booking;
   if (menuCategories) out.categories = menuCategories;
+  // SMS opt-in (Batch 25): bookings + instant estimate collect a phone
+  // number, so their forms offer the consent checkbox from this block.
+  if (type === 'bookings' || type === 'estimate') {
+    try {
+      const smsOptIn = require('./smsOptIn');
+      out.sms_optin = smsOptIn.optInBlock(smsOptIn.businessNameForLead(db, leadId));
+    } catch {
+      out.sms_optin = null;
+    }
+  }
   if (estimate) out.estimate = estimate;
   if (socialfeed) out.socialfeed = socialfeed.config;
   if (calltracking) out.calltracking = calltracking;

@@ -76,6 +76,8 @@
       '.bp-chat-lead textarea{min-height:64px;resize:vertical;}',
       '.bp-chat-lead .bp-chat-lead-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;}',
       '.bp-chat-lead .bp-chat-lead-actions button{appearance:none;border:0;border-radius:999px;padding:8px 12px;font:inherit;cursor:pointer;}',
+      '.bp-chat-lead .bp-chat-lead-sms{display:flex;align-items:flex-start;gap:8px;font-size:0.88rem;cursor:pointer;}',
+      '.bp-chat-lead .bp-chat-lead-sms input{width:auto;margin-top:2px;}',
       '.bp-chat-lead .bp-chat-lead-submit{background:' + color + ';color:#fff;font-weight:600;}',
       '.bp-chat-lead .bp-chat-lead-cancel{background:#eee;}',
       '.bp-chat-status{font-size:12px;color:#666;padding:0 14px 8px;background:#f6f7f8;flex-shrink:0;}',
@@ -141,6 +143,8 @@
       '<input type="text" class="bp-chat-lead-name" placeholder="Name" autocomplete="name" />',
       '<input type="email" class="bp-chat-lead-email" placeholder="Email" autocomplete="email" />',
       '<input type="tel" class="bp-chat-lead-phone" placeholder="Phone" autocomplete="tel" />',
+      // SMS opt-in (Batch 25): unchecked by default, never required.
+      '<label class="bp-chat-lead-sms"><input type="checkbox" class="bp-chat-lead-sms-optin" /> <span class="bp-chat-lead-sms-label">Text me updates &amp; offers</span></label>',
       '<textarea class="bp-chat-lead-msg" placeholder="How can we help?"></textarea>',
       '<div class="bp-chat-lead-actions">',
       '<button type="button" class="bp-chat-lead-submit">Send</button>',
@@ -392,6 +396,10 @@
               name: panel.querySelector('.bp-chat-lead-name').value,
               email: panel.querySelector('.bp-chat-lead-email').value,
               phone: panel.querySelector('.bp-chat-lead-phone').value,
+              sms_optin_consent: !!(
+                panel.querySelector('.bp-chat-lead-sms-optin') &&
+                panel.querySelector('.bp-chat-lead-sms-optin').checked
+              ),
               message: panel.querySelector('.bp-chat-lead-msg').value,
             }),
           });
@@ -411,6 +419,10 @@
       .then(function (data) {
         state.settings = (data && data.settings) || {};
         ensureStyles(state.settings.primary_color || '');
+        var smsLabel = panel.querySelector('.bp-chat-lead-sms-label');
+        if (smsLabel && data && data.sms_optin && data.sms_optin.label) {
+          smsLabel.textContent = data.sms_optin.label;
+        }
         var title = panel.querySelector('.bp-chat-title');
         if (title) title.textContent = state.settings.bubble_label || 'Chat';
         bubble.setAttribute('aria-label', state.settings.bubble_label || 'Open chat');

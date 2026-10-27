@@ -18,7 +18,7 @@ const FIELD_TYPES = ['text', 'email', 'tel', 'phone', 'textarea', 'select', 'dat
 const MANAGED_ATTR = 'data-bitpype-managed';
 const EMBED_TOKEN_ATTR = 'data-bitpype-form-embed';
 const SCRIPT_ATTR = 'data-bitpype-form-script';
-const FORM_SCRIPT_VER = 'form7';
+const FORM_SCRIPT_VER = 'form8';
 const HAND_ROLLED_FORM_WARNING =
   'Hand-rolled forms are not allowed — use the contact_form module, an existing form module, or create one with forms.create.';
 
@@ -2572,7 +2572,17 @@ function getPublicFormByToken(db, token) {
     .prepare('SELECT * FROM contact_forms WHERE public_token = ? AND published = 1')
     .get(String(token || ''));
   if (!row) throw fail('NOT_FOUND', 'Form not found');
-  return publicForm(row, listFields(db, row.id));
+  const form = publicForm(row, listFields(db, row.id));
+  // SMS opt-in (Batch 25): when the form collects a phone number the
+  // renderer adds the consent checkbox from this block. Lazy require —
+  // the opt-in must never break the form itself.
+  try {
+    const smsOptIn = require('./smsOptIn');
+    form.sms_optin = smsOptIn.optInBlockForForm(form.fields, smsOptIn.businessNameForLead(db, row.lead_id));
+  } catch {
+    form.sms_optin = null;
+  }
+  return form;
 }
 
 function validateSubmission(fields, values) {
@@ -2653,6 +2663,29 @@ async function acceptSubmission(db, { token, values, workspaceId, planId, ip, us
     console.warn('[contactForms] LeadScout capture failed; submission retained id=', submissionId);
   }
 
+  // SMS opt-in (Batch 25) — the visitor checked the texting consent box.
+  // Records the opt-in on the LeadScout contact and sends the welcome
+  // text. Self-guarded end to end: a texting problem never fails a
+  // submission (same contract as the capture + owner email paths).
+  let smsOptInResult = null;
+  try {
+    const smsOptIn = require('./smsOptIn');
+    const portalContacts = require('./portalContacts');
+    const identity = portalContacts.pickContactFields(payload);
+    const phoneKey = smsOptIn.phoneFieldKeyFor(fields);
+    smsOptInResult = await smsOptIn.handleSmsOptIn(db, {
+      leadId: form.lead_id,
+      name: identity.name || '',
+      email: identity.email || '',
+      phone: (phoneKey && payload[phoneKey]) || identity.phone || '',
+      consent: values ? values[smsOptIn.CONSENT_KEY] : undefined,
+      source: `form:${form.id}`,
+      formId: form.id,
+    });
+  } catch (e) {
+    console.warn('[contactForms] SMS opt-in failed; submission retained id=', submissionId);
+  }
+
   // Recipient chain (Batch 21b): this form's notify_email → an explicit
   // caller-supplied client email → the LEAD's email, resolved at SEND
   // time. Forms whose notify_email was never defaulted at creation
@@ -2719,6 +2752,7 @@ async function acceptSubmission(db, { token, values, workspaceId, planId, ip, us
     success_message: form.success_message,
     email: emailResult,
     muse: museResult,
+    sms_optin: smsOptInResult,
   };
 }
 

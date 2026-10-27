@@ -1292,7 +1292,7 @@ async function main() {
   });
   sm17.ensureTables(db);
   assert.equal(sm17.MODULE_TYPES.length, 19, 'catalog still 19 types');
-  assert.equal(sm17.MODULE_SCRIPT_VER, 'mod14', 'script version bumped by batch 20 to mod13, batch 21 to mod14');
+  assert.equal(sm17.MODULE_SCRIPT_VER, 'mod15', 'script version: batch 20 mod13, batch 21 mod14, batch 25 mod15');
   const cfg17Default = sm17.getMembersConfig(db, 1701);
   assert.equal(cfg17Default.access_level, 'any_member', 'Part 1 default preserved: any member');
   assert.equal(cfg17Default.access_tier_id, null);
@@ -1982,7 +1982,7 @@ async function main() {
 
   check('batch21 module registered + embed script version bumped', () => {
     assert.ok(sm21.MODULE_TYPES.includes('calltracking'));
-    assert.equal(sm21.MODULE_SCRIPT_VER, 'mod14');
+    assert.equal(sm21.MODULE_SCRIPT_VER, 'mod15');
     assert.equal(sm21.MODULE_META.calltracking.label, 'Call Tracking');
   });
 
@@ -3997,6 +3997,287 @@ async function main() {
     for (const key of ['muse.model_api_key', 'captcha.secret_key', 'stripe.secret_key', 'stripe.webhook_secret', 'twilio.auth_token']) {
       assert.ok(settingsKeys24b.SECRET_KEYS.includes(key), key + ' masked');
     }
+  });
+
+  // --- Batch 25: SMS opt-in on web forms ------------------------------
+  // Every visitor form that collects a phone gains an unchecked-by-
+  // default consent checkbox naming the business. Consent + a plausible
+  // phone records the opt-in on the LeadScout contact (proof of
+  // consent) and sends ONE welcome text via the platform SMS seam
+  // (src/sms.js + sms.* settings). No consent / SMS off / sender down
+  // never fails the visitor's submission. The sender is stubbed at the
+  // src/sms provider seam — no live texts.
+  const realSms25 = require(path.join(root, 'src/sms.js'));
+  const smsSends25 = [];
+  let smsThrow25 = false;
+  const smsStub25 = {
+    ...realSms25,
+    resolveSmsSettings: async (s) => ({ ...(s || {}) }),
+    getSmsProvider: () => ({
+      name: 'stub25',
+      send: async ({ to, body }) => {
+        if (smsThrow25) throw new Error('Twilio boom (fixture)');
+        smsSends25.push({ to, body });
+        return { ok: true, provider: 'twilio', messageId: 'SM25fixture', status: 'queued' };
+      },
+    }),
+  };
+  const smsOptIn25 = load('server/smsOptIn.js', {
+    '../src/sms': smsStub25,
+    './portalContacts': contacts,
+    './domain': { withDb: (_ws, fn) => fn(db) },
+  });
+  const mailerStub25 = { sendPlatformMail: async () => ({ sent: true }) };
+  const cf25 = load('server/contactForms.js', {
+    './plans': { getPlan: () => ({ id: 'free', entitlements: {} }), normalizePlanId: (v) => v || 'free' },
+    './portalContacts': contacts,
+    './mailer': mailerStub25,
+    './museRouter': {},
+    './smsOptIn': smsOptIn25,
+  });
+  cf25.ensureTables(db);
+  const sm25 = load('server/siteModules.js', {
+    '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
+    '../src/websiteEngine': require(path.join(root, 'src/websiteEngine.js')),
+    './portalContacts': contacts,
+    '../src/secretBox': require(path.join(root, 'src/secretBox.js')),
+    './membershipStripe': {},
+    './shopStripe': {},
+    './smsOptIn': smsOptIn25,
+  });
+  sm25.ensureTables(db);
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (2501, 'Fixture Texts R Us', 'texts@example.invalid')").run();
+  db.prepare("INSERT INTO leads (id, business_name, email) VALUES (2502, 'Fixture Booking Texts', 'booktexts@example.invalid')").run();
+  const homePages25 = JSON.stringify([{ slug: 'index', file: 'index.html', title: 'Home', nav_label: 'Home', html: '<p>hi</p>', sections: [] }]);
+  for (const id of [2501, 2502]) {
+    db.prepare('INSERT INTO websites (lead_id, name, theme, pages) VALUES (?, ?, ?, ?)').run(id, `Site ${id}`, '{}', homePages25);
+  }
+  const setSetting25 = (k, v) =>
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v);
+  setSetting25('sms.enabled', '1');
+  setSetting25('sms.provider', 'twilio');
+  setSetting25('sms.account_sid', 'AC25fixture');
+  setSetting25('sms.auth_token', 'tok25');
+  setSetting25('sms.from_number', '+16105550199');
+  const contactByPhone25 = (phone) =>
+    db.prepare('SELECT * FROM leadscout_contacts WHERE phone_norm = ?').get(contacts.normPhone(phone));
+  const mkForm25 = (leadId, token, withPhone) => {
+    const info = db
+      .prepare("INSERT INTO contact_forms (lead_id, name, title, notify_email, public_token, published) VALUES (?, 'Contact', 'Contact Us', '', ?, 1)")
+      .run(leadId, token);
+    const fid = Number(info.lastInsertRowid);
+    const addField = (key, label, type, req, sort) =>
+      db.prepare('INSERT INTO form_fields (form_id, field_key, label, field_type, required, sort_order) VALUES (?, ?, ?, ?, ?, ?)').run(fid, key, label, type, req, sort);
+    addField('name', 'Name', 'text', 1, 1);
+    addField('email', 'Email', 'email', 1, 2);
+    if (withPhone) addField('phone', 'Phone', 'tel', 0, 3);
+    addField('message', 'Message', 'textarea', 1, 4);
+    return fid;
+  };
+  const formId25 = mkForm25(2501, 'tok-25-a', true);
+  mkForm25(2501, 'tok-25-nophone', false);
+  const pubForm25 = cf25.getPublicFormByToken(db, 'tok-25-a');
+  const pubFormNoPhone25 = cf25.getPublicFormByToken(db, 'tok-25-nophone');
+  const formEmbedSrc25 = fs.readFileSync(path.join(root, 'public/js/form-embed.js'), 'utf8');
+  const contactFormsSrc25 = fs.readFileSync(path.join(root, 'server/contactForms.js'), 'utf8');
+  check('batch25 render: form schema carries the opt-in block naming the business; renderer draws it unchecked', () => {
+    assert.ok(contactFormsSrc25.includes("FORM_SCRIPT_VER = 'form8'"), 'form embed cache-bust bumped');
+    assert.ok(pubForm25.sms_optin, 'sms_optin block present when the form collects a phone');
+    assert.equal(pubForm25.sms_optin.consent_key, 'sms_optin_consent');
+    assert.equal(pubForm25.sms_optin.phone_field_key, 'phone');
+    assert.equal(pubForm25.sms_optin.label, 'Text me updates & offers from Fixture Texts R Us');
+    assert.equal(pubFormNoPhone25.sms_optin, null, 'no phone field → no opt-in block');
+    assert.ok(formEmbedSrc25.includes("smsInput.name = 'sms_optin_consent'"), 'renderer adds the consent checkbox');
+    assert.ok(!formEmbedSrc25.includes('smsInput.checked'), 'checkbox is never pre-checked');
+    assert.ok(formEmbedSrc25.includes('values.sms_optin_consent = !!smsConsentInput.checked'), 'consent rides the submit values');
+  });
+
+  const subNoConsent25 = await cf25.acceptSubmission(db, {
+    token: 'tok-25-a',
+    values: { name: 'No Consent', email: 'noconsent@example.invalid', phone: '4845550101', message: 'Hi' },
+    workspaceId: 1,
+    planId: 'free',
+  });
+  check('batch25 submit: without consent nothing is recorded and no text is sent', () => {
+    assert.ok(subNoConsent25.id, 'submission still succeeds');
+    assert.equal(subNoConsent25.sms_optin && subNoConsent25.sms_optin.reason, 'no_consent');
+    const c = contactByPhone25('4845550101');
+    assert.ok(c, 'LeadScout capture still created the contact');
+    assert.equal(Number(c.sms_opted_in), 0);
+    assert.equal(smsSends25.length, 0);
+  });
+
+  const subConsent25 = await cf25.acceptSubmission(db, {
+    token: 'tok-25-a',
+    values: { name: 'Opted In', email: 'optedin@example.invalid', phone: '4845550102', message: 'Yes please', sms_optin_consent: true },
+    workspaceId: 1,
+    planId: 'free',
+  });
+  check('batch25 submit: consent records the opt-in on the contact and sends exactly one welcome text', () => {
+    assert.equal(subConsent25.sms_optin && subConsent25.sms_optin.sent, true);
+    assert.equal(smsSends25.length, 1);
+    assert.equal(smsSends25[0].to, '+14845550102');
+    assert.equal(
+      smsSends25[0].body,
+      "Welcome to Fixture Texts R Us texts — you're enrolled! Msg & data rates may apply. Reply STOP to end, HELP for help."
+    );
+    const c = contactByPhone25('4845550102');
+    assert.equal(Number(c.sms_opted_in), 1);
+    assert.ok(c.sms_opted_in_at, 'consent timestamp recorded');
+    assert.equal(c.sms_opt_in_source, `form:${formId25}`);
+    assert.equal(c.sms_confirm_status, 'sent');
+    const ev = db.prepare("SELECT * FROM leadscout_events WHERE contact_id = ? AND kind = 'sms_opt_in'").get(c.id);
+    assert.ok(ev, 'opt-in timeline event written');
+    assert.equal(Number(ev.form_id), formId25);
+  });
+
+  const subAgain25 = await cf25.acceptSubmission(db, {
+    token: 'tok-25-a',
+    values: { name: 'Opted In', email: 'optedin@example.invalid', phone: '4845550102', message: 'Me again', sms_optin_consent: true },
+    workspaceId: 1,
+    planId: 'free',
+  });
+  check('batch25 resubmit: an already-enrolled contact is not re-texted and never duplicated', () => {
+    assert.equal(subAgain25.sms_optin && subAgain25.sms_optin.reason, 'already_enrolled');
+    assert.equal(smsSends25.length, 1, 'no second welcome text');
+    const rows = db.prepare('SELECT * FROM leadscout_contacts WHERE phone_norm = ?').all(contacts.normPhone('4845550102'));
+    assert.equal(rows.length, 1, 'one contact row');
+    assert.equal(Number(rows[0].sms_opted_in), 1);
+    assert.ok(rows[0].sms_opted_in_at, 'consent timestamp refreshed');
+    const evCount = db
+      .prepare("SELECT COUNT(*) AS c FROM leadscout_events WHERE contact_id = ? AND kind = 'sms_opt_in'")
+      .get(rows[0].id).c;
+    assert.equal(evCount, 1, 'no duplicate enrollment event');
+  });
+
+  setSetting25('sms.enabled', '0');
+  const subDormant25 = await cf25.acceptSubmission(db, {
+    token: 'tok-25-a',
+    values: { name: 'Dormant Dan', email: 'dormant@example.invalid', phone: '4845550103', message: 'Hi', sms_optin_consent: true },
+    workspaceId: 1,
+    planId: 'free',
+  });
+  setSetting25('sms.enabled', '1');
+  check('batch25 dormant: SMS disabled records the opt-in, skips the send, submission succeeds', () => {
+    assert.ok(subDormant25.id, 'submission succeeds while SMS is off');
+    assert.equal(subDormant25.sms_optin && subDormant25.sms_optin.skippedSend, true);
+    const c = contactByPhone25('4845550103');
+    assert.equal(Number(c.sms_opted_in), 1, 'opt-in recorded anyway');
+    assert.equal(c.sms_confirm_status, 'skipped');
+    assert.match(c.sms_confirm_error, /sms\.enabled is off/);
+    assert.equal(smsSends25.length, 1, 'no text sent');
+  });
+
+  smsThrow25 = true;
+  const subThrow25 = await cf25.acceptSubmission(db, {
+    token: 'tok-25-a',
+    values: { name: 'Unlucky Uma', email: 'uma@example.invalid', phone: '4845550104', message: 'Hi', sms_optin_consent: true },
+    workspaceId: 1,
+    planId: 'free',
+  });
+  smsThrow25 = false;
+  check('batch25 failure: a throwing sender never fails the submission and the failure is stamped', () => {
+    assert.ok(subThrow25.id, 'submission succeeds despite the sender throwing');
+    const c = contactByPhone25('4845550104');
+    assert.equal(Number(c.sms_opted_in), 1);
+    assert.equal(c.sms_confirm_status, 'failed');
+    assert.match(c.sms_confirm_error, /Twilio boom/);
+    assert.equal(smsSends25.length, 1);
+  });
+
+  const contactCountBeforeBad25 = db.prepare('SELECT COUNT(*) AS c FROM leadscout_contacts').get().c;
+  const badPhone25 = await smsOptIn25.handleSmsOptIn(db, {
+    leadId: 2501,
+    phone: '123',
+    consent: true,
+    source: 'form:x',
+  });
+  check('batch25 guard: consent with an implausible phone records nothing and sends nothing', () => {
+    assert.equal(badPhone25.skipped, true);
+    assert.equal(badPhone25.reason, 'invalid_phone');
+    assert.equal(db.prepare('SELECT COUNT(*) AS c FROM leadscout_contacts').get().c, contactCountBeforeBad25);
+    assert.equal(smsSends25.length, 1);
+  });
+
+  const embBook25 = sm25.attachModule(db, 2501, 'bookings', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
+  const pubBook25 = sm25.getPublicModuleByToken(db, embBook25.public_token);
+  const embEst25 = sm25.attachModule(db, 2501, 'estimate', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
+  const pubEst25 = sm25.getPublicModuleByToken(db, embEst25.public_token);
+  const embFaq25 = sm25.attachModule(db, 2501, 'faq', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
+  const pubFaq25 = sm25.getPublicModuleByToken(db, embFaq25.public_token);
+  check('batch25 modules: bookings + estimate payloads carry the opt-in block; other modules do not', () => {
+    assert.equal(sm25.MODULE_SCRIPT_VER, 'mod15');
+    assert.equal(pubBook25.sms_optin && pubBook25.sms_optin.label, 'Text me updates & offers from Fixture Texts R Us');
+    assert.equal(pubEst25.sms_optin && pubEst25.sms_optin.consent_key, 'sms_optin_consent');
+    assert.equal(pubFaq25.sms_optin, undefined, 'modules without a phone form get no block');
+  });
+
+  // Route-level: the estimate POST carries the consent through the
+  // fire-and-forget hook into the contact + welcome text.
+  const mod25 = stubRouter21b();
+  load('server/routes/modulesPublic.js', {
+    express: { Router: () => mod25.router },
+    '../domain': { withDb: (_ws, fn) => fn(db) },
+    '../siteModules': sm25,
+    '../captcha': {
+      requireCaptcha: () => (_req, _res, next) => next(),
+      getCaptchaConfig: async () => ({ enabled: false }),
+    },
+    '../rateLimit': { rateLimit: () => (_req, _res, next) => next() },
+    '../workspaceExists': { assertWorkspaceExists: async () => {} },
+    '../ownerNotify': { notifyOwnerOfEstimateRequest: async () => ({ sent: false }) },
+    '../smsOptIn': smsOptIn25,
+  });
+  const estRoute25 = await callRoute21b(
+    mod25.routes,
+    'post',
+    '/:token/estimate',
+    reqFor21b(
+      { token: embEst25.public_token },
+      { name: 'Route Visitor', email: 'route@example.invalid', phone: '6105557777', sms_optin_consent: true, selections: [] }
+    )
+  );
+  await flush21b();
+  await flush21b();
+  check('batch25 routes: an estimate submission with consent enrolls the contact and texts once', () => {
+    assert.equal(estRoute25.status, 200);
+    assert.equal(estRoute25.body.ok, true);
+    const c = contactByPhone25('6105557777');
+    assert.ok(c, 'contact created');
+    assert.equal(Number(c.sms_opted_in), 1);
+    assert.equal(c.sms_opt_in_source, 'estimate');
+    assert.equal(smsSends25.length, 2);
+    assert.equal(smsSends25[1].to, '+16105557777');
+    assert.ok(smsSends25[1].body.startsWith('Welcome to Fixture Texts R Us texts'));
+  });
+
+  const wrapRes25 = await smsOptIn25.handleSmsOptInForWorkspace(1, {
+    leadId: 2502,
+    phone: '6105558888',
+    consent: true,
+    source: 'booking',
+  });
+  check('batch25 wrapper: the workspace-scoped path (bookings/chatbot routes) records + sends', () => {
+    assert.equal(wrapRes25.sent, true);
+    const c = contactByPhone25('6105558888');
+    assert.equal(Number(c.sms_opted_in), 1);
+    assert.equal(c.sms_opt_in_source, 'booking');
+    assert.equal(smsSends25.length, 3);
+    assert.ok(smsSends25[2].body.startsWith('Welcome to Fixture Booking Texts texts'));
+  });
+
+  const chatbotSrc25 = fs.readFileSync(path.join(root, 'server/chatbot.js'), 'utf8');
+  const chatbotRouteSrc25 = fs.readFileSync(path.join(root, 'server/routes/chatbotPublic.js'), 'utf8');
+  const chatEmbedSrc25 = fs.readFileSync(path.join(root, 'public/js/chat-embed.js'), 'utf8');
+  const moduleEmbedSrc25 = fs.readFileSync(path.join(root, 'public/js/module-embed.js'), 'utf8');
+  const modulesRouteSrc25 = fs.readFileSync(path.join(root, 'server/routes/modulesPublic.js'), 'utf8');
+  check('batch25 wiring: chatbot config + embeds carry the consent pair end to end', () => {
+    assert.ok(chatbotSrc25.includes("CHAT_SCRIPT_VER = 'chat6'"), 'chat embed cache-bust bumped');
+    assert.ok(chatbotSrc25.includes('sms_optin: smsOptInBlock'), 'chat public config carries the block');
+    assert.ok(chatbotRouteSrc25.includes('sms_optin_consent') && chatbotRouteSrc25.includes('handleSmsOptInForWorkspace'), 'chat lead route fires the opt-in');
+    assert.ok(chatEmbedSrc25.includes('bp-chat-lead-sms-optin') && chatEmbedSrc25.includes('sms_optin_consent'), 'chat embed renders + submits the consent');
+    assert.ok(moduleEmbedSrc25.split('sms_optin_consent').length - 1 >= 4, 'module embed: booking + estimate render and submit the consent');
+    assert.ok(modulesRouteSrc25.includes('fireSmsOptIn'), 'module routes fire the opt-in hook');
   });
 
   db.close();console.log(JSON.stringify({passed:results.length,results},null,2));

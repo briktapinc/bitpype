@@ -100,6 +100,29 @@ function ensureTables(db) {
   } catch {
     /* race / exists */
   }
+  // SMS opt-in state (Batch 25): the consent record lives on the contact
+  // itself — sms_opted_in + the consent timestamp + the source are the
+  // business's proof of consent. sms_opted_out_at is written by any
+  // future STOP/opt-out path; a contact counts as enrolled only when
+  // their latest opt-in is newer than their latest opt-out.
+  try {
+    const cols = db
+      .prepare('PRAGMA table_info(leadscout_contacts)')
+      .all()
+      .map((c) => String(c.name || ''));
+    const addContactCol = (name, ddl) => {
+      if (!cols.includes(name)) db.exec(`ALTER TABLE leadscout_contacts ADD COLUMN ${ddl}`);
+    };
+    addContactCol('sms_opted_in', 'sms_opted_in INTEGER NOT NULL DEFAULT 0');
+    addContactCol('sms_opted_in_at', 'sms_opted_in_at TEXT');
+    addContactCol('sms_opt_in_source', "sms_opt_in_source TEXT NOT NULL DEFAULT ''");
+    addContactCol('sms_opted_out_at', 'sms_opted_out_at TEXT');
+    addContactCol('sms_confirm_status', "sms_confirm_status TEXT NOT NULL DEFAULT ''");
+    addContactCol('sms_confirm_at', 'sms_confirm_at TEXT');
+    addContactCol('sms_confirm_error', "sms_confirm_error TEXT NOT NULL DEFAULT ''");
+  } catch {
+    /* race / exists */
+  }
 }
 
 function normEmail(email) {
@@ -450,6 +473,88 @@ function captureFromCall(db, { leadId, call } = {}) {
   }
 }
 
+/**
+ * Record an SMS opt-in on the LeadScout contact (Batch 25).
+ *
+ * Phone-keyed upsert (same dedupe as every other capture): a repeat
+ * opt-in refreshes the consent timestamp + source on the ONE contact
+ * row, never a duplicate. Returns `shouldSend` only on an enrollment
+ * transition — the contact was not enrolled, or had opted out since
+ * their last opt-in — so the welcome text goes out once per enrollment,
+ * not once per submission. An 'sms_opt_in' timeline event is written on
+ * transitions only. Never throws: failures land in the capture-failure
+ * queue like every other capture kind.
+ */
+function recordSmsOptIn(db, { leadId, name, email, phone, source, formId } = {}) {
+  ensureTables(db);
+  try {
+    const fields = {
+      name: String(name || '').slice(0, 200),
+      email: String(email || '').slice(0, 240),
+      phone: String(phone || '').slice(0, 60),
+    };
+    if (!normPhone(fields.phone)) {
+      return { skipped: true, reason: 'invalid_phone' };
+    }
+    const contact = upsertContact(db, fields);
+    const optedOutSince =
+      !!contact.sms_opted_out_at &&
+      (!contact.sms_opted_in_at || String(contact.sms_opted_out_at) > String(contact.sms_opted_in_at));
+    const alreadyEnrolled = Number(contact.sms_opted_in || 0) === 1 && !optedOutSince;
+    const src = String(source || '').slice(0, 160);
+    db.prepare(
+      `
+      UPDATE leadscout_contacts
+      SET sms_opted_in = 1, sms_opted_in_at = datetime('now'), sms_opt_in_source = ?,
+          updated_at = datetime('now')
+      WHERE id = ?
+    `
+    ).run(src, contact.id);
+    let eventId = null;
+    if (!alreadyEnrolled) {
+      const info = db
+        .prepare(
+          `
+      INSERT INTO leadscout_events
+        (contact_id, lead_id, kind, source_label, form_id, payload_json, status)
+      VALUES (?, ?, 'sms_opt_in', ?, ?, ?, 'enrolled')
+    `
+        )
+        .run(
+          contact.id,
+          leadId != null ? Number(leadId) : null,
+          src,
+          formId != null ? Number(formId) : null,
+          JSON.stringify({ phone: fields.phone, source: src }).slice(0, 8000)
+        );
+      eventId = info.lastInsertRowid;
+    }
+    const fresh = db.prepare('SELECT * FROM leadscout_contacts WHERE id = ?').get(contact.id);
+    return { contact: fresh, enrolled: true, alreadyEnrolled, shouldSend: !alreadyEnrolled, eventId };
+  } catch (e) {
+    recordFailure(db, {
+      kind: 'sms_opt_in',
+      leadId,
+      error: e.message || String(e),
+      payload: { phone, source },
+    });
+    return { error: e.message || String(e) };
+  }
+}
+
+/** Stamp the welcome-text outcome (sent | skipped | failed) on the contact. */
+function markSmsConfirmResult(db, { contactId, status, error } = {}) {
+  ensureTables(db);
+  db.prepare(
+    `
+    UPDATE leadscout_contacts
+    SET sms_confirm_status = ?, sms_confirm_at = datetime('now'), sms_confirm_error = ?
+    WHERE id = ?
+  `
+  ).run(String(status || '').slice(0, 40), String(error || '').slice(0, 300), Number(contactId));
+  return db.prepare('SELECT * FROM leadscout_contacts WHERE id = ?').get(Number(contactId));
+}
+
 function validLeadScope(leadId) {
   if (leadId == null) return null; // Explicit workspace-level internal callers only.
   const id = Number(leadId);
@@ -686,6 +791,8 @@ module.exports = {
   captureFromBooking,
   captureFromEstimate,
   captureFromCall,
+  recordSmsOptIn,
+  markSmsConfirmResult,
   listContacts,
   getContact,
   captureHealth,

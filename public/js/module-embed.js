@@ -192,6 +192,8 @@
       '.bitpype-module-embed .bp-mod-slot:hover{',
       'border-color:var(--bp-mod-accent);color:var(--bp-mod-accent);',
       '}',
+      '.bitpype-module-embed .bp-mod-check{display:flex;align-items:center;gap:0.55rem;font-weight:400 !important;cursor:pointer;}',
+      '.bitpype-module-embed .bp-mod-check input{width:auto !important;}',
       '.bitpype-module-embed .bp-mod-book-msg{margin:0;color:var(--bp-mod-muted);}',
       '.bitpype-module-embed .bp-mod-book-msg.ok{color:var(--bp-mod-accent);}',
       '.bitpype-module-embed .bp-mod-book-msg.err{color:#9b2c2c;}',
@@ -1179,6 +1181,12 @@
       '<div class="bp-mod-book-row"><label for="bp-name">Name</label><input id="bp-name" name="customer_name" required autocomplete="name" /></div>' +
       '<div class="bp-mod-book-row"><label for="bp-email">Email</label><input id="bp-email" name="customer_email" type="email" autocomplete="email" /></div>' +
       '<div class="bp-mod-book-row"><label for="bp-phone">Phone</label><input id="bp-phone" name="customer_phone" type="tel" autocomplete="tel" /></div>' +
+      // SMS opt-in (Batch 25): unchecked by default, never required.
+      (data.sms_optin && data.sms_optin.label
+        ? '<div class="bp-mod-book-row"><label class="bp-mod-check"><input type="checkbox" name="sms_optin_consent" /> ' +
+          esc(data.sms_optin.label) +
+          '</label></div>'
+        : '') +
       '<div class="bp-mod-book-row"><label for="bp-notes">Notes</label><textarea id="bp-notes" name="notes" rows="3"></textarea></div>' +
       '<div class="bp-mod-captcha" data-bp-captcha hidden></div>' +
       '<button type="submit" class="bp-mod-btn">Request appointment</button>' +
@@ -1364,6 +1372,7 @@
       (async function () {
         try {
           var captchaToken = await captcha.getToken();
+          var smsConsent = form.querySelector('[name="sms_optin_consent"]');
           var body = {
             service_id: Number(form.service_id.value),
             starts_at: selectedSlot,
@@ -1371,6 +1380,7 @@
             customer_email: email,
             customer_phone: phone,
             notes: form.notes.value,
+            sms_optin_consent: !!(smsConsent && smsConsent.checked),
             captchaToken: captchaToken,
           };
           var r = await fetch((base || '') + '/api/v1/modules/public/' + encodeURIComponent(token) + '/book', {
@@ -1507,6 +1517,12 @@
       '<div class="bp-mod-book-row"><label>Your name</label><input name="name" required autocomplete="name" /></div>' +
       '<div class="bp-mod-book-row"><label>Email</label><input name="email" type="email" autocomplete="email" /></div>' +
       '<div class="bp-mod-book-row"><label>Phone</label><input name="phone" type="tel" autocomplete="tel" /></div>' +
+      // SMS opt-in (Batch 25): unchecked by default, never required.
+      (data.sms_optin && data.sms_optin.label
+        ? '<div class="bp-mod-book-row"><label class="bp-mod-check"><input type="checkbox" name="sms_optin_consent" /> ' +
+          esc(data.sms_optin.label) +
+          '</label></div>'
+        : '') +
       '<div class="bp-mod-book-row"><label>Anything we should know? (optional)</label><textarea name="notes" rows="3"></textarea></div>' +
       '<div class="bp-mod-captcha" data-bp-captcha hidden></div>' +
       '<button type="submit" class="bp-mod-btn">' +
@@ -1639,11 +1655,13 @@
       (async function () {
         try {
           var captchaToken = await captcha.getToken();
+          var smsConsent = form.querySelector('[name="sms_optin_consent"]');
           var body = {
             name: name,
             email: email,
             phone: phone,
             notes: notes,
+            sms_optin_consent: !!(smsConsent && smsConsent.checked),
             selections: collectSelections(),
             captchaToken: captchaToken,
           };

@@ -224,6 +224,23 @@
       formEl.appendChild(wrap);
     });
 
+    // SMS opt-in (Batch 25): unchecked by default and never required —
+    // the form submits exactly the same when the visitor leaves it alone.
+    if (form.sms_optin && form.sms_optin.label) {
+      var smsWrap = document.createElement('div');
+      smsWrap.className = 'bp-form-field bp-form-check';
+      var smsInput = document.createElement('input');
+      smsInput.type = 'checkbox';
+      smsInput.id = 'bpf_sms_optin_consent';
+      smsInput.name = 'sms_optin_consent';
+      var smsLabel = document.createElement('label');
+      smsLabel.setAttribute('for', 'bpf_sms_optin_consent');
+      smsLabel.textContent = form.sms_optin.label;
+      smsWrap.appendChild(smsInput);
+      smsWrap.appendChild(smsLabel);
+      formEl.appendChild(smsWrap);
+    }
+
     formEl.appendChild(captchaBox);
 
     var btn = document.createElement('button');
@@ -253,6 +270,8 @@
           if (!field) return;
           values[f.field_key] = f.field_type === 'checkbox' ? !!field.checked : field.value;
         });
+        var smsConsentInput = formEl.elements.sms_optin_consent;
+        if (smsConsentInput) values.sms_optin_consent = !!smsConsentInput.checked;
         var captchaToken = await captcha.getToken();
         var submit = await fetch((base || '') + '/api/v1/forms/public/' + encodeURIComponent(token) + '/submit', {
           method: 'POST',

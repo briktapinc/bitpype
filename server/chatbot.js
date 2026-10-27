@@ -14,7 +14,7 @@ const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 
-const CHAT_SCRIPT_VER = 'chat5';
+const CHAT_SCRIPT_VER = 'chat6';
 const CHAT_ATTR = 'data-bitpype-chat';
 const CHAT_TOKEN_ATTR = 'data-bitpype-chat-token';
 const CHAT_SCRIPT_ATTR = 'data-bitpype-chat-script';
@@ -688,9 +688,19 @@ function getPublicConfigByToken(db, token) {
     .get(String(token || ''));
   if (!row || !row.embed_enabled) throw fail('NOT_FOUND', 'Chatbot not found', 404);
   const settings = getSettings(db, row.lead_id);
+  // SMS opt-in (Batch 25): the lead-capture form collects a phone, so it
+  // offers the consent checkbox from this block.
+  let smsOptInBlock = null;
+  try {
+    const smsOptIn = require('./smsOptIn');
+    smsOptInBlock = smsOptIn.optInBlock(smsOptIn.businessNameForLead(db, row.lead_id));
+  } catch {
+    smsOptInBlock = null;
+  }
   return {
     embed: modules.publicEmbed(row),
     module_type: 'chatbot',
+    sms_optin: smsOptInBlock,
     settings: {
       greeting: settings.greeting,
       bubble_label: settings.bubble_label,

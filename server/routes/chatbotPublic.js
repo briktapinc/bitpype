@@ -130,6 +130,30 @@ router.post('/:token/lead', writeLimit, async (req, res) => {
         console.warn('[chatbotPublic] lead notify failed:', err && err.message ? err.message : err);
       });
     }
+    // SMS opt-in (Batch 25): the capture form's consent checkbox rides
+    // the same /lead POST. Fire-and-forget like the owner notify — the
+    // handler never throws and a texting problem never surfaces here.
+    try {
+      const body = req.body || {};
+      const smsOptIn = require('../smsOptIn');
+      if (smsOptIn.truthyConsent(body.sms_optin_consent) && body.phone) {
+        const p = smsOptIn.handleSmsOptInForWorkspace(workspaceId, {
+          leadId: notifyPayload ? notifyPayload.leadId : undefined,
+          businessName:
+            notifyPayload && notifyPayload.business ? notifyPayload.business.businessName : undefined,
+          name: body.name || '',
+          email: body.email || '',
+          phone: body.phone,
+          consent: body.sms_optin_consent,
+          source: 'chatbot',
+        });
+        if (p && typeof p.catch === 'function') {
+          p.catch((err) => console.warn('[chatbotPublic] sms opt-in failed:', err && err.message));
+        }
+      }
+    } catch (err) {
+      console.warn('[chatbotPublic] sms opt-in failed:', err && err.message);
+    }
   } catch (e) {
     fail(res, e);
   }

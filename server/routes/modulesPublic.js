@@ -64,6 +64,27 @@ function fireOwnerNotify(fnName, workspaceId, recordId) {
   }
 }
 
+/**
+ * Batch 25: SMS opt-in for the module forms that collect a phone
+ * (bookings, instant estimate). Fire-and-forget after the visitor's
+ * response, same pattern as fireOwnerNotify — the opt-in handler
+ * never throws, records the consent on the LeadScout contact, and
+ * sends the welcome text when SMS is configured.
+ */
+function fireSmsOptIn(workspaceId, args) {
+  if (!args || !args.phone) return;
+  try {
+    const smsOptIn = require('../smsOptIn');
+    if (!smsOptIn.truthyConsent(args.consent)) return;
+    const p = smsOptIn.handleSmsOptInForWorkspace(workspaceId, args);
+    if (p && typeof p.catch === 'function') {
+      p.catch((e) => console.warn('[modulesPublic] sms opt-in failed:', e && e.message));
+    }
+  } catch (e) {
+    console.warn('[modulesPublic] sms opt-in failed:', e && e.message);
+  }
+}
+
 async function workspaceFromReq(req) {
   const fromToken = siteModules.parseWorkspaceFromToken(req.params.token);
   const fromQuery = Number(
@@ -186,6 +207,14 @@ router.post('/:token/book', bookLimit, captcha, async (req, res) => {
     );
     res.json({ ok: true, data: { ...data, workspaceId } });
     fireOwnerNotify('notifyOwnerOfBooking', workspaceId, data && data.appointment && data.appointment.id);
+    fireSmsOptIn(workspaceId, {
+      leadId: data && data.embed && data.embed.lead_id,
+      name: body.customer_name || body.name || '',
+      email: body.customer_email || body.email || '',
+      phone: body.customer_phone || body.phone || '',
+      consent: body.sms_optin_consent,
+      source: 'booking',
+    });
   } catch (e) {
     fail(res, e);
   }
@@ -203,6 +232,14 @@ router.post('/:token/estimate', estimateLimit, captcha, async (req, res) => {
     );
     res.json({ ok: true, data: { ...data, workspaceId } });
     fireOwnerNotify('notifyOwnerOfEstimateRequest', workspaceId, data && data.request && data.request.id);
+    fireSmsOptIn(workspaceId, {
+      leadId: data && data.embed && data.embed.lead_id,
+      name: body.name || '',
+      email: body.email || '',
+      phone: body.phone || '',
+      consent: body.sms_optin_consent,
+      source: 'estimate',
+    });
   } catch (e) {
     fail(res, e);
   }
