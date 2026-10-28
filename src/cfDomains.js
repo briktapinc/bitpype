@@ -858,7 +858,14 @@ async function verifyDomainResolves(db, domainName, projectName, opts = {}) {
 
 /**
  * Attach a domain to a website's Pages project and store the link.
- * Publishes the site first when needed so a project exists.
+ * Publishes the site first when needed so a project exists. Batch 44:
+ * the publish receives the domain being linked as its SEO base
+ * override ({ seoBaseUrl }) — the stored custom_domain / site_domains
+ * state below is written only after the publish, so an export that
+ * derived its base from stored state would bake the stale preview
+ * host into canonical / sitemap / robots. The override is scoped to
+ * that one export: if the publish throws, no stored state changes and
+ * the site never claims a domain it doesn't have.
  */
 async function linkDomainToWebsite(db, opts = {}) {
   ensureTables(db);
@@ -879,10 +886,12 @@ async function linkDomainToWebsite(db, opts = {}) {
   if (!project)
     throw fail('NO_PROJECT', 'Could not resolve a Cloudflare Pages project for this site. Publish a preview first.');
 
+  const publicUrl = `https://${domain}`;
+
   // Ensure project exists by publishing when preview is missing/local.
   const needsPublish = !site.preview_url || cf.isLocalPreviewUrl(site.preview_url) || opts.forcePublish;
   if (needsPublish && typeof opts.publishFn === 'function') {
-    await opts.publishFn(websiteId, project);
+    await opts.publishFn(websiteId, project, { seoBaseUrl: publicUrl });
   }
 
   const attached = await pagesAddDomain(db, project, domain);
@@ -892,8 +901,6 @@ async function linkDomainToWebsite(db, opts = {}) {
   // throws (missing token scope, conflict, unconfirmed record), so the
   // caller's flow fails honestly instead of reporting a dead site live.
   const dns = await ensurePagesDnsRecord(db, domain, project);
-
-  const publicUrl = `https://${domain}`;
 
   db.prepare(
     `

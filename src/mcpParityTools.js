@@ -2663,9 +2663,11 @@ function createParityTools(ctx) {
           leadId: args.leadId,
           project: args.project,
           forcePublish: !!args.forcePublish,
-          publishFn: async (id, project) => {
+          publishFn: async (id, project, linkCtx) => {
             const outDir = path.join(os.tmpdir(), `website-scout-export-${id}-${Date.now()}`);
-            const exported = await engine.exportStatic(db, id, outDir);
+            const exported = await engine.exportStatic(db, id, outDir, {
+              seoBaseUrl: linkCtx && linkCtx.seoBaseUrl,
+            });
             const dir = (exported && (exported.dir || exported.path)) || outDir;
             await cf.publishDirectory(db, { websiteId: id, dir, project });
           },

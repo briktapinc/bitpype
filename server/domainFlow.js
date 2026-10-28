@@ -868,7 +868,10 @@ async function completeTransaction(db, workspaceId, txnId, deps = {}) {
         workspaceId,
         forcePublish: true,
         source: 'domain_flow',
-        publishFn: (websiteId, project) => deps.publishSite(db, websiteId, project),
+        // Batch 44: forward the link context (seoBaseUrl = the domain
+        // being linked) so the published export bakes the linked
+        // domain as its SEO base, not the stale preview host.
+        publishFn: (websiteId, project, linkCtx) => deps.publishSite(db, websiteId, project, linkCtx),
       });
       return { detail: `Linked ${txn.domain} → ${r.publicUrl} (project ${r.project}), site published` };
     });

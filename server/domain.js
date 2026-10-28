@@ -451,7 +451,9 @@ function materializeWebsiteExport(db, workspaceId, siteId, opts = {}) {
   const images = engine.imagesForWebsite(db, siteId);
   // Batch 31: thread the SEO context (lead entity, FAQ-module items,
   // base URL, GSC token) so EVERY export funnel emits the foundations.
-  const seoCtx = engine.buildSeoExportContext(db, siteId);
+  // Batch 44: opts.seoBaseUrl carries the link-time base override (the
+  // domain being linked) from domainsLink / domainFlowComplete.
+  const seoCtx = engine.buildSeoExportContext(db, siteId, { seoBaseUrl: opts.seoBaseUrl });
   // websiteId lets writeStaticPages merge site-{id}/assets into the CF Pages payload.
   // Without this, /assets/* on pages.dev falls through to HTML (broken photos/fonts).
   const exported = openPreview.exportPages(exportPageList, theme, folder, {
@@ -4498,10 +4500,11 @@ async function domainsLink(workspaceId, body = {}) {
       workspaceId,
       forcePublish: !!body.forcePublish,
       source: body.source || 'link',
-      publishFn: async (websiteId, project) => {
+      publishFn: async (websiteId, project, linkCtx) => {
         const adsenseCfg = await resolveAdsenseForSite(workspaceId, db, Number(websiteId));
         const exported = materializeWebsiteExport(db, workspaceId, Number(websiteId), {
           adsense: adsenseCfg,
+          seoBaseUrl: linkCtx && linkCtx.seoBaseUrl,
         });
         // Batch 31 (J): same WebP optimizer as cfPublish.
         try {
@@ -4564,10 +4567,11 @@ function adminDomainTransaction(workspaceId, id) {
 async function domainFlowComplete(workspaceId, id) {
   return withDb(workspaceId, async (db) =>
     require('./domainFlow').completeTransaction(db, workspaceId, id, {
-      publishSite: async (db2, websiteId, project) => {
+      publishSite: async (db2, websiteId, project, linkCtx) => {
         const adsenseCfg = await resolveAdsenseForSite(workspaceId, db2, Number(websiteId));
         const exported = materializeWebsiteExport(db2, workspaceId, Number(websiteId), {
           adsense: adsenseCfg,
+          seoBaseUrl: linkCtx && linkCtx.seoBaseUrl,
         });
         const cf = require('../src/cloudflare');
         await cf.publishDirectory(db2, {

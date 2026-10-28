@@ -7347,6 +7347,26 @@ async function localizeWebsiteRemoteImages(db, websiteId) {
 }
 
 /**
+ * Batch 44: collapse a per-deployment Pages host
+ * (<label>.<project>.pages.dev — one label more than the project's own
+ * subdomain) to the stable project subdomain (<project>.pages.dev).
+ * Any other URL is returned unchanged.
+ */
+function collapsePagesDevDeploymentHost(url) {
+  try {
+    const u = new URL(url);
+    const labels = u.hostname.split('.');
+    if (labels.length > 3 && labels[labels.length - 2] === 'pages' && labels[labels.length - 1] === 'dev') {
+      u.hostname = labels.slice(1).join('.');
+      return u.origin;
+    }
+  } catch {
+    /* unparseable — keep the raw value */
+  }
+  return url;
+}
+
+/**
  * Build the export-time SEO context for a stored site (Batch 31;
  * Batch 32 adds the blog): lead-derived LocalBusiness data, published
  * FAQ-module items, published blog posts + mounts (for static post
@@ -7354,13 +7374,26 @@ async function localizeWebsiteRemoteImages(db, websiteId) {
  * URL), and the per-site GSC verification token. Used by exportStatic
  * AND by server/domain.js materializeWebsiteExport so every export
  * funnel (preview, publish, QA) emits the same SEO foundations.
+ *
+ * Batch 44: opts.seoBaseUrl is an explicit base override threaded from
+ * linkDomainToWebsite through the publish funnel while a domain is
+ * being linked. During a link-with-publish the stored custom_domain /
+ * site_domains state is written only AFTER the publish, so derivation
+ * would bake the stale preview host — a per-deployment Pages subdomain
+ * that trails the live deployment by one — into the canonical,
+ * sitemap and robots of the export being deployed. The override wins
+ * over every derived base and applies to this export only.
  */
-function buildSeoExportContext(db, websiteId) {
+function buildSeoExportContext(db, websiteId, opts = {}) {
   const ctx = { baseUrl: '', business: null, moduleFaqItems: [], gscToken: '', siteUpdatedAt: '', blog: null };
   try {
     const site = getWebsite(db, websiteId);
     ctx.siteUpdatedAt = site.updated_at || '';
     const lead = site.lead_id ? db.prepare('SELECT * FROM leads WHERE id = ?').get(site.lead_id) : null;
+    let seoBaseOverride = '';
+    if (opts && typeof opts.seoBaseUrl === 'string' && /^https?:\/\//i.test(opts.seoBaseUrl.trim())) {
+      seoBaseOverride = opts.seoBaseUrl.trim().replace(/\/+$/, '');
+    }
     // Absolute base: a linked custom domain wins; else the published
     // preview URL when it is a real hosted URL (not a local path).
     if (site.custom_domain) {
@@ -7383,8 +7416,13 @@ function buildSeoExportContext(db, websiteId) {
       }
     }
     if (!ctx.baseUrl && site.preview_url && /^https?:\/\//i.test(site.preview_url) && !/localhost|127\.0\.0\.1/i.test(site.preview_url)) {
-      ctx.baseUrl = String(site.preview_url).replace(/\/+$/, '');
+      // Batch 44: a per-deployment preview host (<hash>.<project>
+      // .pages.dev) trails the live deployment by one — collapse it to
+      // the stable project subdomain so the SEO base names a host that
+      // keeps serving this site.
+      ctx.baseUrl = collapsePagesDevDeploymentHost(String(site.preview_url).replace(/\/+$/, ''));
     }
+    if (seoBaseOverride) ctx.baseUrl = seoBaseOverride;
     if (lead) {
       let towns = [];
       try {
@@ -7537,12 +7575,14 @@ function buildSeoExportContext(db, websiteId) {
   return ctx;
 }
 
-function exportStatic(db, websiteId, outDir) {
+function exportStatic(db, websiteId, outDir, opts = {}) {
   const site = getWebsite(db, websiteId);
   const pages = JSON.parse(site.pages);
   const theme = JSON.parse(site.theme);
   const images = imagesForWebsite(db, websiteId);
-  const seo = buildSeoExportContext(db, websiteId);
+  // Batch 44: opts.seoBaseUrl threads the link-time base override (see
+  // buildSeoExportContext) for the IPC/MCP link funnels.
+  const seo = buildSeoExportContext(db, websiteId, { seoBaseUrl: opts.seoBaseUrl });
   const written = writeStaticPages(pages, theme, outDir, {
     images,
     websiteId,
