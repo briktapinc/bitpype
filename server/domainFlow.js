@@ -708,7 +708,14 @@ function adminDetail(db, id) {
 }
 
 // ---------------------------------------------------------------------------
-// Completion — register → link (+publish) → live. Idempotent per step.
+// Completion — register → dns → link (+publish) → live. Idempotent per step.
+// Batch 43: DNS pointing is its OWN step (Ely, pointing at the Completion
+// checklist + the staff link tool: "it should be included in these
+// steps"). The dns step owns the Batch 42 ensure for this flow and then
+// VERIFIES the name resolves — "live" is only reachable past a verified
+// name. Record in place but not resolving yet is neither success nor
+// failure: the transaction returns to 'paid' (resumable) with the honest
+// pending detail on the dns step; re-clicking Complete re-runs safely.
 // ---------------------------------------------------------------------------
 
 async function composeClientLiveEmail(db, txn) {
@@ -792,7 +799,54 @@ async function completeTransaction(db, workspaceId, txnId, deps = {}) {
       return { detail: `Registered ${txn.domain} (${(r && r.price) || moneyText(txn.registrar_price_cents)}/yr)` };
     });
 
-    // Step 2 — link to the site (publishes first via the injected publishSite).
+    // ---- Batch 43 dns step (begin) ----
+    // Step 2 — DNS: point the name at the site, then verify it resolves.
+    // The ensure is the Batch 42 one; linkDomainToWebsite keeps its own
+    // ensure for the manual paths, and because the ensure is idempotent
+    // the link step below sees the correct CNAME and no-ops — across
+    // dns + link the record is created exactly once.
+    {
+      let dns;
+      try {
+        dns = await cf.ensureDomainDnsForWebsite(db, {
+          domain: txn.domain,
+          websiteId: txn.website_id,
+          workspaceId,
+        });
+      } catch (e) {
+        appendStep(db, txnId, 'dns', false, (e && e.message) || String(e));
+        throw e;
+      }
+      const verify = await cf.verifyDomainResolves(db, txn.domain, dns.project, deps.dnsVerify || {});
+      if (!verify.resolved) {
+        // Honest pending: the record exists but nothing resolves yet.
+        // NOT live, NOT failed — the transaction returns to 'paid' so
+        // the Complete button stays available and a re-click resumes:
+        // register skips via its site_domains state, the ensure no-ops
+        // on the existing CNAME, the link re-runs idempotently.
+        const detail = `DNS record is in place (${txn.domain} → ${dns.target}) but the name is not resolving yet — give it a few minutes, then click Complete again to finish. Nothing is marked live until the name resolves.`;
+        appendStep(db, txnId, 'dns', false, detail);
+        patchTransaction(db, txnId, { status: 'paid', error: null });
+        return {
+          transaction: publicTxn(getTransaction(db, txnId)),
+          completed: false,
+          pending: 'dns',
+          message: detail,
+        };
+      }
+      appendStep(
+        db,
+        txnId,
+        'dns',
+        true,
+        `Pointed ${txn.domain} at ${dns.target} (${dns.created ? 'DNS record created' : 'DNS record already in place'}) — name is resolving (${
+          verify.via === 'pages' ? 'Pages reports the domain active' : 'public DNS is answering'
+        })`
+      );
+    }
+    // ---- Batch 43 dns step (end) ----
+
+    // Step 3 — link to the site (publishes first via the injected publishSite).
     await runStep('link', async () => {
       const site = txn.website_id
         ? db.prepare('SELECT id, custom_domain FROM websites WHERE id = ?').get(txn.website_id)
@@ -819,7 +873,9 @@ async function completeTransaction(db, workspaceId, txnId, deps = {}) {
       return { detail: `Linked ${txn.domain} → ${r.publicUrl} (project ${r.project}), site published` };
     });
 
-    // Step 3 — live.
+    // Step 4 — live. Only reachable with register + dns (verified
+    // resolving) + link all green, so the checklist's Live line and this
+    // status can never again be checked on an unreachable name.
     patchTransaction(db, txnId, { status: 'live', error: null });
     db.prepare(`UPDATE domain_transactions SET completed_at = datetime('now') WHERE id = ?`).run(Number(txnId));
     appendStep(db, txnId, 'live', true, `Site is live at https://${txn.domain}`);

@@ -731,6 +731,132 @@ async function ensurePagesDnsRecord(db, domainName, projectName) {
 }
 
 /**
+ * Batch 43 — the completion flow's dns step needs the ensure for a
+ * transaction's website, with the Pages project resolved exactly the
+ * way linkDomainToWebsite resolves it (explicit project, else
+ * cf.resolveProjectName). Kept here so server/domainFlow gains no new
+ * module dependency. Returns the ensure summary plus the project, so
+ * the caller can hand the same project to verifyDomainResolves.
+ */
+async function ensureDomainDnsForWebsite(db, opts = {}) {
+  ensureTables(db);
+  const domain = normalizeDomain(opts.domain);
+  if (!domain) throw fail('INVALID', 'Invalid domain name.');
+  const websiteId = Number(opts.websiteId);
+  let project =
+    typeof opts.project === 'string' && opts.project.trim() ? opts.project.trim().toLowerCase() : '';
+  if (!project) {
+    project = cf.resolveProjectName(db, websiteId, null, opts.workspaceId);
+  }
+  if (!project) {
+    throw fail(
+      'NO_PROJECT',
+      'Could not resolve a Cloudflare Pages project for this site. Publish a preview first.'
+    );
+  }
+  const dns = await ensurePagesDnsRecord(db, domain, project);
+  return { ...dns, project };
+}
+
+// ---------- Resolution verification (Batch 43) ----------
+/**
+ * Creating the record is not the same as the name resolving. Batch 42's
+ * go-live still checked "Live" on a transaction whose name did not
+ * resolve anywhere, because nothing ever VERIFIED resolution. The
+ * completion flow's dns step (server/domainFlow) now polls — briefly —
+ * until one of two independent witnesses says the name works:
+ *   - Cloudflare Pages reports the project's custom domain "active", or
+ *   - a public resolver (Cloudflare's own DNS-over-HTTPS) answers an A
+ *     query for the apex (a proxied CNAME answers with A records).
+ * Both readers and the sleep are injectable so tests never wait on a
+ * real clock or touch a real network. Reader errors count as "not yet",
+ * never as success. Returns { resolved, via, pagesStatus, attempts } —
+ * it does not throw on a name that simply hasn't propagated; the caller
+ * decides what an unresolved name means (the flow parks the
+ * transaction, resumable, instead of marking it live).
+ */
+function dohRequest(domain) {
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        host: 'cloudflare-dns.com',
+        path: `/dns-query?name=${encodeURIComponent(domain)}&type=A`,
+        method: 'GET',
+        timeout: 8000,
+        headers: { Accept: 'application/dns-json' },
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          let json = null;
+          try {
+            json = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          } catch {
+            json = null;
+          }
+          resolve({ statusCode: res.statusCode, json });
+        });
+      }
+    );
+    req.on('timeout', () => req.destroy(new Error('REQUEST_TIMEOUT')));
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+async function defaultDohAnswer(domain) {
+  const resp = await dohRequest(domain);
+  const j = resp && resp.json;
+  return !!(j && j.Status === 0 && Array.isArray(j.Answer) && j.Answer.length > 0);
+}
+
+async function verifyDomainResolves(db, domainName, projectName, opts = {}) {
+  const domain = normalizeDomain(domainName);
+  const project = String(projectName || '')
+    .trim()
+    .toLowerCase();
+  if (!domain) throw fail('INVALID', 'Invalid domain name.');
+  if (!project) throw fail('INVALID', 'Pages project name is required.');
+  const attempts = Math.min(12, Math.max(1, Number(opts.attempts) || 5));
+  const intervalMsRaw = Number(opts.intervalMs);
+  const intervalMs = Number.isFinite(intervalMsRaw) && intervalMsRaw >= 0 ? intervalMsRaw : 4000;
+  const sleep =
+    typeof opts.sleep === 'function' ? opts.sleep : (ms) => new Promise((r) => setTimeout(r, ms));
+  const dohLookup = typeof opts.dohLookup === 'function' ? opts.dohLookup : defaultDohAnswer;
+  const readPagesStatus =
+    typeof opts.pagesStatus === 'function'
+      ? opts.pagesStatus
+      : async () => {
+          const list = await pagesListDomains(db, project);
+          const hit = (list.domains || []).find(
+            (d) => String((d && d.name) || '').toLowerCase() === domain
+          );
+          return hit ? hit.status : null;
+        };
+  let pagesStatus = null;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      pagesStatus = await readPagesStatus();
+    } catch {
+      pagesStatus = null;
+    }
+    if (pagesStatus && String(pagesStatus).toLowerCase() === 'active') {
+      return { resolved: true, via: 'pages', pagesStatus, attempts: i + 1 };
+    }
+    let answered = false;
+    try {
+      answered = await dohLookup(domain);
+    } catch {
+      answered = false;
+    }
+    if (answered) return { resolved: true, via: 'dns', pagesStatus, attempts: i + 1 };
+    if (i < attempts - 1) await sleep(intervalMs);
+  }
+  return { resolved: false, via: null, pagesStatus, attempts };
+}
+
+/**
  * Attach a domain to a website's Pages project and store the link.
  * Publishes the site first when needed so a project exists.
  */
@@ -925,6 +1051,8 @@ module.exports = {
   pagesListDomains,
   pagesDeleteDomain,
   ensurePagesDnsRecord,
+  ensureDomainDnsForWebsite,
+  verifyDomainResolves,
   linkDomainToWebsite,
   unlinkDomain,
   listLinked,

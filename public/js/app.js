@@ -3264,6 +3264,7 @@ async function pageDomains(param, query) {
     const checkRow = (label, done, pendingLabel) =>
       `<div class="panel-h"><div>${done ? '✓' : '○'} <strong>${esc(label)}</strong></div><span class="hint">${done ? esc(done.detail || 'done') : esc(pendingLabel || 'pending')}</span></div>`;
     const regStep = stepState('register');
+    const dnsStep = stepState('dns');
     const linkStep = stepState('link');
     const canComplete = t.status === 'paid' || t.status === 'failed';
     txnDetailHtml = `
@@ -3288,6 +3289,7 @@ async function pageDomains(param, query) {
       <h4>Completion checklist</h4>
       ${checkRow('Payment received', t.paidAt ? { detail: 'paid ' + fmtDate(t.paidAt) } : null, 'waiting for payment')}
       ${checkRow('Domain registered at Cloudflare', regStep && regStep.ok ? regStep : null, regStep ? regStep.detail : 'not started')}
+      ${checkRow('DNS pointed at the site', dnsStep && dnsStep.ok ? dnsStep : null, dnsStep ? dnsStep.detail : 'not started')}
       ${checkRow('Site published & domain linked', linkStep && linkStep.ok ? linkStep : null, linkStep ? linkStep.detail : 'not started')}
       ${checkRow('Live', t.status === 'live' ? { detail: 'live at https://' + t.domain } : null, 'not yet')}
       ${
@@ -3333,7 +3335,7 @@ async function pageDomains(param, query) {
     </div>
     <div class="card">
       <h3>Link a domain to a site</h3>
-      <p class="hint">Use a domain you just bought, or one already on this Cloudflare account. The site is published to Pages if needed, then the hostname is attached.</p>
+      <p class="hint">Use a domain you just bought, or one already on this Cloudflare account. The site is published to Pages if needed, the hostname is attached, and the domain's DNS is pointed at the site — linking only succeeds once the name is actually pointed at the site.</p>
       <form id="dom-link-form" class="row end">
         <div class="field"><label>Domain</label><input name="domain" required placeholder="example.com" /></div>
         <div class="field"><label>Website</label><select name="websiteId" required><option value="">Select…</option>${siteOpts}</select></div>
@@ -3429,7 +3431,13 @@ async function pageDomains(param, query) {
         websiteId: Number(body.websiteId),
         forcePublish: true,
       });
-      setMsg(msg, `Linked — ${(r.data && r.data.publicUrl) || body.domain}`, 'ok');
+      const dns = (r.data && r.data.dns) || null;
+      const dnsNote = dns
+        ? dns.created
+          ? ` DNS record created — ${body.domain} now points at ${dns.target}.`
+          : ` DNS already pointed at ${dns.target} — nothing to change.`
+        : '';
+      setMsg(msg, `Linked — ${(r.data && r.data.publicUrl) || body.domain}.${dnsNote}`, 'ok');
       pageDomains();
     } catch (err) {
       setMsg(msg, err.message || 'Link failed', 'err');
@@ -3526,8 +3534,16 @@ async function pageDomains(param, query) {
     },
     'dom-link-row': async (t) => {
       try {
-        await api.domainsLink({ domain: t.dataset.domain, websiteId: Number(t.dataset.site), forcePublish: true });
-        toast('Domain linked', 'ok');
+        const r = await api.domainsLink({ domain: t.dataset.domain, websiteId: Number(t.dataset.site), forcePublish: true });
+        const dns = (r.data && r.data.dns) || null;
+        toast(
+          dns
+            ? dns.created
+              ? `Domain linked — DNS record created (${t.dataset.domain} → ${dns.target})`
+              : `Domain linked — DNS already pointed at ${dns.target}`
+            : 'Domain linked',
+          'ok'
+        );
         pageDomains();
       } catch (err) {
         toast(err.message, 'err');
@@ -3562,6 +3578,8 @@ async function pageDomains(param, query) {
         const d = (r && r.data) || {};
         if (d.completed) {
           toast('Site is live', 'ok');
+        } else if (d.pending) {
+          toast(d.message || 'DNS is pointed at the site, but the name is not resolving yet — click Complete again in a few minutes.', 'ok');
         } else {
           toast(d.error || 'Completion failed — see the transaction for the step error', 'err');
         }

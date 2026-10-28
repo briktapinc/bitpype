@@ -91,7 +91,13 @@ let httpsPatch;
         const name = new URLSearchParams(p.split('?')[1] || '').get('name');
         payload = { success: true, result: [{ id: ZONE_ID, name }] };
       } else if (p.includes('/pages/projects/') && p.endsWith('/domains')) {
-        payload = { success: true, result: { name: body && body.name, status: 'pending' } };
+        // POST = attach; GET = list. Batch 43's flow dns step polls the
+        // list to verify resolution — the fixture domain reports active,
+        // like a name whose DNS already resolves.
+        payload =
+          options.method === 'GET'
+            ? { success: true, result: [{ name: 'dns-link.com', status: 'active' }] }
+            : { success: true, result: { name: body && body.name, status: 'pending' } };
       } else if (p.includes('/registrar/domain-check')) {
         const names = (body && body.domains) || [];
         payload = {
@@ -317,7 +323,7 @@ async function main() {
     },
   });
 
-  await checkAsync('domainFlow: DNS ensured during link → transaction reaches live, client emailed', async () => {
+  await checkAsync('domainFlow: DNS ensured (Batch 43: in its own dns step) → transaction reaches live, client emailed', async () => {
     resetHttp([]);
     const { db, txnId } = makeFlowDb();
     const sent = [];
@@ -335,7 +341,7 @@ async function main() {
     db.close();
   });
 
-  await checkAsync('domainFlow: DNS 403 → link step fails with scope guidance, transaction NEVER live', async () => {
+  await checkAsync('domainFlow: DNS 403 → dns step fails with scope guidance, transaction NEVER live', async () => {
     resetHttp([]);
     dnsPostAuth403 = true;
     const { db, txnId } = makeFlowDb();
@@ -347,9 +353,12 @@ async function main() {
     assert.equal(txn.status, 'failed');
     assert.ok(txn.error.includes('Zone') && txn.error.includes('DNS') && txn.error.includes('Edit'), 'txn error carries the token guidance: ' + txn.error);
     const steps = JSON.parse(txn.steps_json || '[]');
-    const link = steps.find((s) => s.step === 'link');
-    assert.ok(link && link.ok === false, 'link step recorded as failed');
-    assert.ok(link.detail.includes('Zone → DNS → Edit'), 'step detail is the actionable guidance');
+    // Batch 43: DNS is its own step — the failure is recorded there and
+    // the link step never runs.
+    const dnsStep = steps.find((s) => s.step === 'dns');
+    assert.ok(dnsStep && dnsStep.ok === false, 'dns step recorded as failed');
+    assert.ok(dnsStep.detail.includes('Zone → DNS → Edit'), 'step detail is the actionable guidance');
+    assert.equal(steps.find((s) => s.step === 'link'), undefined, 'link step never runs when DNS fails');
     assert.equal(steps.find((s) => s.step === 'live'), undefined, 'no live step recorded');
     assert.equal(sent.length, 0, 'no "your site is live" email for a dead name');
     db.close();

@@ -801,6 +801,13 @@ async function main() {
       return { domain, status: 'registered', registrationState: 'succeeded', price: f.registrationCost || null, currency: f.currency || 'USD' };
     },
     registrationStatus: async (d, domain) => ({ domain, state: cfRegStatusState, completed: cfRegStatusState === 'succeeded' }),
+    // Batch 43: the completion flow's dns step calls the website-scoped
+    // ensure + the resolution verifier on the same injected cf surface.
+    ensureDomainDnsForWebsite: async (d, opts) => {
+      cfCalls.push('dns:' + opts.domain);
+      return { zoneId: 'fixture-zone', target: 'fixture-project.pages.dev', created: true, project: 'fixture-project' };
+    },
+    verifyDomainResolves: async (d, domain, project) => ({ resolved: true, via: 'pages', pagesStatus: 'active', attempts: 1 }),
     linkDomainToWebsite: async (d, opts) => {
       cfCalls.push('link:' + opts.domain);
       if (typeof opts.publishFn === 'function') await opts.publishFn(opts.websiteId, 'fixture-project');
