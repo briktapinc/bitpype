@@ -927,21 +927,27 @@ async function main() {
   assert.equal(txn1Paid.stripe_subscription_id, 'sub_123');
   assert.equal(txn1Paid.stripe_customer_id, 'cus_123');
   assert.equal(txn1Paid.amount_paid_cents, 9900);
-  assert.equal(sentMail.length, 1, 'exactly one admin email');
-  assert.equal(sentMail[0].to, 'admin@example.test', 'admin email goes to the resolved report address');
-  assert(sentMail[0].subject.includes('fixturebakery.com'), 'subject names the chosen domain');
-  assert(JSON.stringify(sentMail[0]).includes(`#/domains?txn=${txn1.id}`), 'email deep-links the transaction');
-  assert(JSON.stringify(sentMail[0]).includes('$12.99'), 'email shows the true registrar cost');
+  assert.equal(sentMail.length, 2, 'one admin email + one client payment email (Batch 36)');
+  const adminMail = sentMail.find((m) => m.to === 'admin@example.test');
+  const clientPaidMail = sentMail.find((m) => m.to === 'owner@example.invalid');
+  assert(adminMail, 'admin email sent');
+  assert.equal(adminMail.to, 'admin@example.test', 'admin email goes to the resolved report address');
+  assert(adminMail.subject.includes('fixturebakery.com'), 'subject names the chosen domain');
+  assert(JSON.stringify(adminMail).includes(`#/domains?txn=${txn1.id}`), 'email deep-links the transaction');
+  assert(JSON.stringify(adminMail).includes('$12.99'), 'email shows the true registrar cost');
+  assert(clientPaidMail, 'client payment-received email sent at paid time (Batch 36)');
+  assert(clientPaidMail.subject.includes('Payment received'), 'client email is the payment confirmation');
+  assert(JSON.stringify(clientPaidMail).includes('fixturebakery.com'), 'client email names the chosen domain');
   const hook2 = await df.onDomainCheckoutPaid(hookSession, { openDb: () => db, sendMail: sendMailStub, platform: platformStub });
   assert.equal(hook2.duplicate, true, 'repeat webhook is a no-op');
-  assert.equal(sentMail.length, 1, 'no second admin email');
+  assert.equal(sentMail.length, 2, 'no second admin or client email');
   const hookSkip = await df.onDomainCheckoutPaid({ metadata: { user_id: '5' } }, { openDb: () => db, sendMail: sendMailStub, platform: platformStub });
   assert.equal(hookSkip.skipped, true, 'sessions without domain metadata are ignored');
   // Composer dry-run (the QA path): same content without sending.
   const composed = await df.composeAdminPaidEmail(db, 1, txn1.id, { platform: platformStub });
   assert.equal(composed.to, 'admin@example.test');
   assert(composed.paragraphs.join(' ').includes('Fixture Bakery Site'));
-  check('batch15 webhook: paid marks the right transaction via metadata, one admin email with deep link + registrar cost, idempotent', () => {});
+  check('batch15 webhook: paid marks the right transaction via metadata, one admin email with deep link + registrar cost, idempotent (Batch 36 adds the client payment email)', () => {});
 
   // Completion orchestration with stubbed registrar + publish.
   cfCalls.length = 0;

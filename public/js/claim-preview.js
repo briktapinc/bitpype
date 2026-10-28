@@ -40,7 +40,14 @@
       .replace(/"/g, '&quot;');
   }
 
-  function markDone() {
+  /* Batch 36: persistence is for REAL answers only. persistDone() may be
+     called solely from decide() (Yes / No). Server-meta suppression (e.g.
+     alreadyInterested after a click whose lead was later reset by an
+     admin) must never write this flag — otherwise the browser is burned
+     forever and can never show the popup again even when the server
+     would. Suppression instead sets the in-memory visitAnswered guard,
+     which lasts only for this page load; the next visit re-checks. */
+  function persistDone() {
     try {
       if (window.localStorage) localStorage.setItem(storageKey, '1');
     } catch {
@@ -204,12 +211,12 @@
       }
       const d = data.data || {};
       if (d.action === 'interested') {
-        markDone();
+        persistDone();
         disarm();
         if (msgEl) msgEl.textContent = 'Thanks — we recorded your interest. BitPype will follow up soon.';
         setTimeout(remove, 1600);
       } else if (d.action === 'uninterested') {
-        markDone();
+        persistDone();
         disarm();
         if (msgEl) msgEl.textContent = 'Got it — we will take this preview down.';
         setTimeout(remove, 1600);
@@ -436,7 +443,10 @@
     if (!res.ok || !data.ok) return;
     meta = data.data || {};
     if (meta.showClaimPrompt === false || meta.intentPositive || meta.alreadyInterested || meta.alreadyUninterested) {
-      markDone();
+      // Server-side suppression — remember it for THIS page load only
+      // (visitAnswered), never in localStorage: if the lead is reset
+      // later, the next visit must be free to show the popup again.
+      visitAnswered = true;
       return;
     }
 

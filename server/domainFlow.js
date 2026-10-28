@@ -13,7 +13,9 @@
  * the transaction: on paid, the admin gets ONE email deep-linking the
  * transaction in the staff Domains page, where "Complete registration & go
  * live" runs registerDomain → linkDomainToWebsite (which publishes) → live,
- * then emails the client.
+ * then emails the client. The client ALSO gets a payment-received email at
+ * paid time (Batch 36), so a paying customer never sits in silence between
+ * checkout and the admin's manual go-live step.
  *
  * Registrar prices come from src/cfDomains (Cloudflare bills the platform's
  * Cloudflare account at registration time — the admin always sees the true
@@ -521,6 +523,47 @@ async function defaultSendMail(mail) {
 }
 
 /**
+ * Client payment-received email (Batch 36) — fired at paid time alongside
+ * the admin notification, so the paying client hears from us immediately
+ * instead of waiting in silence for the manual go-live step. Price text
+ * mirrors what the picker page showed: the platform-configured plan label
+ * (billing.amount_label_*, the same label billing.catalogForApi renders),
+ * falling back to the amount actually paid on the transaction.
+ */
+async function composeClientPaymentEmail(db, workspaceId, txnId, deps = {}) {
+  const txn = getTransaction(db, txnId);
+  if (!txn) throw fail('NOT_FOUND', 'Domain transaction not found');
+  const lead = leadRow(db, txn.lead_id) || {};
+  const planId = normalizePlanId(txn.plan_id);
+  const plan = getPlan(planId) || {};
+  const planName = plan.name || txn.plan_id;
+  let priceText = '';
+  try {
+    const platform = deps.platform || require('./platform');
+    const label = String((await platform.getPlatformSetting(`billing.amount_label_${planId}`, '')) || '').trim();
+    const m = /\$\s*[0-9][0-9,]*(?:\.[0-9]{1,2})?/.exec(label);
+    if (m) priceText = `${m[0].replace(/\s+/g, '')}/mo`;
+  } catch {
+    /* label is cosmetic — fall through to the paid amount */
+  }
+  if (!priceText && txn.amount_paid_cents != null) priceText = `${moneyText(txn.amount_paid_cents)}/mo`;
+  const paragraphs = [
+    `Thank you — your payment is confirmed. You're on the ${planName} plan${priceText ? ` (${priceText})` : ''}, and ${txn.domain} is included with your plan.`,
+    `We're registering ${txn.domain} and putting your site live. We'll email you the moment it's up. There's nothing else you need to do.`,
+    'Just reply to this email if you have any questions.',
+  ];
+  return {
+    to: String(lead.email || '').trim(),
+    subject: `Payment received for ${txn.domain}`,
+    title: 'Payment received — thank you!',
+    paragraphs,
+    text: paragraphs.join('\n\n'),
+    transactionId: txn.id,
+    domain: txn.domain,
+  };
+}
+
+/**
  * Billing webhook hook: a plan checkout session carrying our metadata marks
  * the transaction paid and fires the ONE admin email. Idempotent — the
  * billing layer already claims event ids, and markPaid no-ops on repeats,
@@ -567,7 +610,40 @@ async function onDomainCheckoutPaid(session, deps = {}) {
     }
     console.warn('[domainFlow] admin email failed for txn', txnId, emailError);
   }
-  return { ok: true, transactionId: txnId, email, emailError, transaction: publicTxn(getTransaction(db, txnId)) };
+  // Batch 36 — client payment-received email. Rides the same once-only
+  // markPaid transition (this block only runs when `changed`), so a
+  // duplicate webhook can never resend it. Best-effort: a failure is
+  // recorded as a step and never unwinds the paid state.
+  let clientEmail = null;
+  let clientEmailError = null;
+  try {
+    const mail = await composeClientPaymentEmail(db, workspaceId, txnId, deps);
+    if (mail.to) {
+      await (deps.sendMail || defaultSendMail)(mail);
+      clientEmail = { to: mail.to, subject: mail.subject };
+      appendStep(db, txnId, 'client_payment_email', true, `Client payment email sent to ${mail.to}`);
+    } else {
+      clientEmailError = 'No client email address on file — skipped';
+      appendStep(db, txnId, 'client_payment_email', false, clientEmailError);
+    }
+  } catch (e) {
+    clientEmailError = (e && e.message) || String(e);
+    try {
+      appendStep(db, txnId, 'client_payment_email', false, clientEmailError);
+    } catch {
+      /* ignore */
+    }
+    console.warn('[domainFlow] client payment email failed for txn', txnId, clientEmailError);
+  }
+  return {
+    ok: true,
+    transactionId: txnId,
+    email,
+    emailError,
+    clientEmail,
+    clientEmailError,
+    transaction: publicTxn(getTransaction(db, txnId)),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -806,6 +882,7 @@ module.exports = {
   startCheckout,
   resolveReportEmail,
   composeAdminPaidEmail,
+  composeClientPaymentEmail,
   onDomainCheckoutPaid,
   composeClientLiveEmail,
   adminList,

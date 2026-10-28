@@ -145,6 +145,19 @@
         const n = Number(v);
         return Number.isFinite(n) ? '$' + n.toFixed(2) : '';
       }
+      /* Batch 36: registrars reject raw business names (punctuation and
+         diacritics read as IDN — "Internationalized Domain Names not
+         supported"). Clean a query to plain [a-zA-Z0-9\s-] before it is
+         shown in the box or searched. */
+      function sanitizeDomainQuery(raw) {
+        return String(raw == null ? '' : raw)
+          .normalize('NFKD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-zA-Z0-9\s-]/g, '')
+          .replace(/\s+/g, ' ')
+          .replace(/-{2,}/g, '-')
+          .trim();
+      }
       function setMsg(el, text, tone) {
         el.className = 'msg' + (tone ? ' ' + tone : '');
         el.textContent = text || '';
@@ -252,14 +265,15 @@
         capNote.textContent =
           'Domains up to $' + Number(d.includedMaxUsd || 25).toFixed(0) +
           ' are included free with your plan. Premium domains are marked — contact us about those and we will sort it out.';
-        qInput.value = d.businessName || '';
+        qInput.value = sanitizeDomainQuery(d.businessName || '');
         renderPlans(d.plans, d.defaultPlan);
         picker.hidden = false;
         if (qInput.value) doSearch();
       }
 
       async function doSearch() {
-        const q = qInput.value.trim();
+        const q = sanitizeDomainQuery(qInput.value);
+        qInput.value = q;
         if (q.length < 2) {
           setMsg(searchMsg, 'Enter at least 2 characters to search.', 'err');
           return;

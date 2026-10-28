@@ -515,7 +515,7 @@ function injectClaimPreviewIntoExport(exportDir, workspaceId, leadId) {
     '',
     '<!-- bitpype-claim-preview -->',
     `<script>window.BitpypeClaim=${JSON.stringify({ apiBase, token, v: 4 })};</script>`,
-    `<script src="${apiBase}/js/claim-preview.js?v=7" defer></script>`,
+    `<script src="${apiBase}/js/claim-preview.js?v=8" defer></script>`,
     '<!-- /bitpype-claim-preview -->',
     '',
   ].join('\n');
