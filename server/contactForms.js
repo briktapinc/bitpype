@@ -2802,7 +2802,7 @@ async function acceptSubmission(db, { token, values, workspaceId, planId, ip, us
 function listSubmissions(db, leadId, { limit = 50, offset = 0, includePayload = true, formId = null } = {}) {
   ensureTables(db);
   const forms = listFormRows(db, leadId);
-  if (!forms.length) return { form: null, forms: [], submissions: [] };
+  if (!forms.length) return { form: null, forms: [], submissions: [], total: 0 };
   const lim = Math.min(100, Math.max(1, Number(limit) || 50));
   const off = Math.max(0, Number(offset) || 0);
   let rows;
@@ -2828,11 +2828,68 @@ function listSubmissions(db, leadId, { limit = 50, offset = 0, includePayload = 
 
   const primary = formId != null ? forms.find((f) => Number(f.id) === Number(formId)) || forms[0] : forms[0];
 
+  // Batch 45: total for pager/load-more labels (same scope as the page).
+  const totalRow =
+    formId != null
+      ? db
+          .prepare('SELECT COUNT(*) AS c FROM form_submissions WHERE lead_id = ? AND form_id = ?')
+          .get(Number(leadId), Number(formId))
+      : db.prepare('SELECT COUNT(*) AS c FROM form_submissions WHERE lead_id = ?').get(Number(leadId));
+
   return {
     form: publicForm(primary, listFields(db, primary.id)),
     forms: forms.map((f) => publicForm(f, [])),
     submissions: rows.map((r) => publicSubmission(r, { includePayload })),
+    total: Number(totalRow && totalRow.c) || 0,
   };
+}
+
+/**
+ * Batch 45 — hard-delete ONE form submission (spam / test cleanup).
+ * The linked LeadScout timeline event is deleted with it (its unique
+ * submission_id ref would otherwise dangle); the LeadScout CONTACT and
+ * its other events are preserved. Cross-lead ids are a 404, never a
+ * delete of someone else's submission.
+ */
+function deleteSubmission(db, leadId, submissionId) {
+  ensureTables(db);
+  const tx = db.transaction(() => deleteSubmissionInTx(db, leadId, submissionId));
+  const id = tx();
+  return { deleted: true, id };
+}
+
+/** Batch 45 — bulk delete (spam sweep). Unknown/cross-lead ids are reported, never fatal. */
+function deleteSubmissions(db, leadId, ids) {
+  ensureTables(db);
+  const wanted = [...new Set((Array.isArray(ids) ? ids : []).map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 500);
+  const deleted = [];
+  const missing = [];
+  const tx = db.transaction(() => {
+    for (const id of wanted) {
+      try {
+        deleteSubmissionInTx(db, leadId, id);
+        deleted.push(id);
+      } catch (e) {
+        if (e && e.code === 'NOT_FOUND') missing.push(id);
+        else throw e;
+      }
+    }
+  });
+  tx();
+  return { deleted, missing, deletedCount: deleted.length };
+}
+
+function deleteSubmissionInTx(db, leadId, submissionId) {
+  const row = db
+    .prepare('SELECT id FROM form_submissions WHERE id = ? AND lead_id = ?')
+    .get(Number(submissionId), Number(leadId));
+  if (!row) throw fail('NOT_FOUND', 'Submission not found');
+  const evTable = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'leadscout_events'")
+    .get();
+  if (evTable) db.prepare('DELETE FROM leadscout_events WHERE submission_id = ?').run(row.id);
+  db.prepare('DELETE FROM form_submissions WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
+  return row.id;
 }
 
 function getSubmission(db, leadId, submissionId, { includePayload = true } = {}) {
@@ -2910,6 +2967,8 @@ module.exports = {
   acceptSubmission,
   listSubmissions,
   getSubmission,
+  deleteSubmission,
+  deleteSubmissions,
   embedSnippet,
   publicForm,
   publicSubmission,

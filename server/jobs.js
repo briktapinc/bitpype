@@ -300,6 +300,34 @@ async function tickDueJobs() {
   return outcomes;
 }
 
+// Batch 45 — retention sweep: activity_log (180 days) + website_versions
+// (newest 50 per site) in every workspace DB, at most once per 6 hours.
+// Quiet: engine logs a single activity row per workspace only when rows
+// were actually pruned; failures per workspace are swallowed so the
+// scheduler never dies on housekeeping.
+let lastRetentionSweepAt = 0;
+const RETENTION_SWEEP_MS = 6 * 3600 * 1000;
+async function runRetentionSweep() {
+  const now = Date.now();
+  if (now - lastRetentionSweepAt < RETENTION_SWEEP_MS) return;
+  lastRetentionSweepAt = now;
+  try {
+    const rows = await query('SELECT id FROM workspaces');
+    const { openWorkspaceDb } = require('./workspaceDb');
+    const engine = require('../src/websiteEngine');
+    for (const row of rows || []) {
+      try {
+        const db = openWorkspaceDb(Number(row.id));
+        engine.runRetentionPrunes(db);
+      } catch {
+        /* one bad workspace never blocks the sweep */
+      }
+    }
+  } catch (e) {
+    console.warn('[scheduler] retention sweep failed:', e.message || e);
+  }
+}
+
 function startScheduler({ intervalMs = 30000 } = {}) {
   let timer = null;
   let running = false;
@@ -308,6 +336,7 @@ function startScheduler({ intervalMs = 30000 } = {}) {
     running = true;
     try {
       await tickDueJobs();
+      await runRetentionSweep();
     } catch (e) {
       console.error('[scheduler]', e.message);
     } finally {

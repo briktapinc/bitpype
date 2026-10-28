@@ -2175,7 +2175,32 @@ async function openLeadDrawer(id) {
       await reload();
     },
     delete: async () => {
-      if (!window.confirm('Delete this lead?')) return;
+      // Batch 45 (B1): show the pre-flight reference summary in the
+      // confirm — a lead delete archives (never silently destroys) any
+      // live website first, and retires its domain links.
+      let refs = null;
+      try {
+        refs = (await api.leadReferences(id)).data.references;
+      } catch {
+        refs = null;
+      }
+      let msg = 'Delete this lead? This cannot be undone.';
+      if (refs) {
+        const parts = [];
+        if (refs.websites) {
+          parts.push(
+            `${refs.websites} website(s) (${refs.websitesActive} live, ${refs.websitesArchived} archived) — live sites are archived first, never silently destroyed`
+          );
+        }
+        if (refs.siteDomains) parts.push(`${refs.siteDomains} domain link(s) will be retired`);
+        if (refs.designJobs) parts.push(`${refs.designJobs} design job(s) keep their own lifecycle`);
+        if (refs.domainTransactions) parts.push(`${refs.domainTransactions} domain transaction record(s) stay as history`);
+        if (refs.formSubmissions) parts.push(`${refs.formSubmissions} form submission(s) will be deleted`);
+        if (refs.bookings) parts.push(`${refs.bookings} booking(s) keep their records`);
+        if (refs.callLogs) parts.push(`${refs.callLogs} call log(s) keep their records`);
+        if (parts.length) msg = `Delete this lead?\n\n${parts.join('\n')}\n\nThis cannot be undone.`;
+      }
+      if (!window.confirm(msg)) return;
       await api.deleteLead(id);
       toast('Lead deleted', 'ok');
       dr.close();
@@ -2276,12 +2301,35 @@ async function pageArchives() {
       <td>${esc(s.name)}</td>
       <td>${esc(s.business_name || '#' + s.lead_id)}</td>
       <td>${statusBadge(s.status)}</td><td>${esc(fmtDate(s.archived_at))}</td>
-      <td class="actions"><button type="button" class="btn small primary" data-act="restore" data-id="${s.id}" data-name="${esc(s.name)}">Restore</button></td></tr>`
+      <td class="actions"><button type="button" class="btn small primary" data-act="restore" data-id="${s.id}" data-name="${esc(s.name)}">Restore</button> <button type="button" class="btn small danger" data-act="purge" data-id="${s.id}" data-name="${esc(s.name)}">Purge</button></td></tr>`
         )
         .join('') || '<tr><td colspan="5" class="empty">No archived websites.</td></tr>';
   }
   delegate(view, {
     'arch-retry': () => load(),
+    // Batch 45 — permanent purge: type-to-confirm (exact site name),
+    // enforced again server-side. This is the ONLY hard website delete.
+    purge: async (t) => {
+      const id = Number(t.dataset.id);
+      const name = t.dataset.name || '';
+      const typed = window.prompt(
+        `PERMANENTLY delete the archived website "${name}"?\n\nThis destroys its pages, versions and export files and cannot be undone. Type the exact site name to confirm:`
+      );
+      if (typed == null) return;
+      if (typed !== name) {
+        setMsg($('#arch-msg'), 'Purge cancelled — the name did not match.', 'err');
+        return;
+      }
+      try {
+        await api.websitePurge(id, typed);
+        toast(`Website #${id} purged permanently`, 'ok');
+        setMsg($('#arch-msg'), `Purged website #${id} permanently.`, 'ok');
+        await load();
+      } catch (e) {
+        setMsg($('#arch-msg'), e.message || 'Purge failed.', 'err');
+        toast(e.message || 'Purge failed', 'err');
+      }
+    },
     restore: async (t) => {
       const id = Number(t.dataset.id);
       const name = t.dataset.name || '#' + id;
@@ -3191,6 +3239,7 @@ async function mountLearning(host) {
 }
 
 let domainsQuery = {};
+let txnOffset = 0;
 async function pageDomains(param, query) {
   if (query && typeof query === 'object') domainsQuery = query;
   const txnId = Number((domainsQuery && domainsQuery.txn) || 0) || null;
@@ -3199,7 +3248,7 @@ async function pageDomains(param, query) {
     withLoadTimeout(api.domainsList()).catch(() => null),
     withLoadTimeout(api.websites({ pageSize: 100 })).catch(() => null),
     withLoadTimeout(api.leads({ pageSize: 200 })).catch(() => null),
-    withLoadTimeout(api.adminDomainTransactions()).catch(() => null),
+    withLoadTimeout(api.adminDomainTransactions({ limit: 100, offset: txnOffset })).catch(() => null),
     txnId ? withLoadTimeout(api.adminDomainTransaction(txnId)).catch(() => null) : Promise.resolve(null),
   ]);
   const purchases = asList((txnRes && txnRes.data) || {}, ['transactions', 'rows']);
@@ -3244,13 +3293,14 @@ async function pageDomains(param, query) {
             <td>${t.registrarPriceCents != null ? esc(moneyCents(t.registrarPriceCents, t.registrarCurrency || 'USD')) + '/yr' : '—'}</td>
             <td>${txnBadge(t)}</td>
             <td>${t.createdAt ? esc(fmtDate(t.createdAt)) : '—'}</td>
-            <td class="actions"><button class="btn small" data-act="txn-view" data-id="${esc(t.id)}">View</button></td>
+            <td class="actions"><button class="btn small" data-act="txn-view" data-id="${esc(t.id)}">View</button>${t.status === 'pending_payment' || t.status === 'failed' ? ` <button class="btn small danger" data-act="txn-void" data-id="${esc(t.id)}">Void</button>` : ''}</td>
           </tr>`
             )
             .join('') || '<tr><td colspan="8" class="empty">No domain purchases yet. They appear here when a client picks a domain and pays for a plan.</td></tr>'
         }
         </tbody>
       </table></div>
+      <div class="pagination" style="margin-top:8px"><button class="btn small" data-act="txn-prev" ${txnOffset <= 0 ? 'disabled' : ''}>← Newer</button> <span class="hint">${esc(((txnRes && txnRes.data) || {}).total != null ? `${txnOffset + 1}–${txnOffset + purchases.length} of ${((txnRes && txnRes.data) || {}).total}` : `${purchases.length} shown`)}</span> <button class="btn small" data-act="txn-next" ${purchases.length < 100 ? 'disabled' : ''}>Older →</button></div>
     </div>`;
   let txnDetailHtml = '';
   if (txnDetail && txnDetail.transaction) {
@@ -3561,6 +3611,27 @@ async function pageDomains(param, query) {
     },
     'txn-view': (t) => {
       window.location.hash = '#/domains?txn=' + encodeURIComponent(t.dataset.id);
+    },
+    // Batch 45 — void a dead-end transaction (pending payment / failed
+    // only; the API refuses paid/live with 409).
+    'txn-void': async (t) => {
+      const id = Number(t.dataset.id);
+      if (!window.confirm('Void this transaction? It drops out of the claim page and domain picker. Paid or live transactions cannot be voided.')) return;
+      try {
+        await api.adminDomainTransactionVoid(id);
+        toast('Transaction voided', 'ok');
+        pageDomains(null, domainsQuery);
+      } catch (err) {
+        toast(err.message || 'Void failed', 'err');
+      }
+    },
+    'txn-prev': () => {
+      txnOffset = Math.max(0, txnOffset - 100);
+      pageDomains(null, domainsQuery);
+    },
+    'txn-next': () => {
+      txnOffset += 100;
+      pageDomains(null, domainsQuery);
     },
     'txn-complete': async (t) => {
       const id = Number(t.dataset.id);
@@ -6799,7 +6870,7 @@ async function renderAdminPortalUsersPanel(el) {
             <td>${esc(u.userType)}${u.navOverrides || u.moduleOverrides ? ' <span class="hint">(custom)</span>' : ''}</td>
             <td>${esc((u.visibleTabs || []).length)} tabs · ${esc((u.visibleModules || []).length)} modules</td>
             <td>${esc(u.status || 'active')}${u.mfaEnabled ? ' · <span class="hint">2FA on</span>' : ''}</td>
-            <td class="row actions"><button class="btn ghost small" data-portal-access="${u.id}">Access</button><button class="btn ghost small" data-portal-reset-mfa="${u.id}">Reset MFA</button></td>
+            <td class="row actions"><button class="btn ghost small" data-portal-access="${u.id}">Access</button><button class="btn ghost small" data-portal-reset-mfa="${u.id}">Reset MFA</button><button class="btn ghost small" data-portal-delete="${u.id}">Delete</button></td>
           </tr>`
               )
               .join('') || '<tr><td colspan="6">No portal users yet</td></tr>'
@@ -6811,6 +6882,22 @@ async function renderAdminPortalUsersPanel(el) {
     b.onclick = () => {
       const u = users.find((x) => Number(x.id) === Number(b.dataset.portalAccess));
       if (u) openAdminPortalUserAccess(u, meta);
+    };
+  });
+  // Batch 45 — super-admin portal user delete (row + MFA setup go;
+  // the lead and its data stay — this removes sign-in access only).
+  panel.querySelectorAll('[data-portal-delete]').forEach((b) => {
+    b.onclick = async () => {
+      const u = users.find((x) => Number(x.id) === Number(b.dataset.portalDelete));
+      const who = u ? u.email : 'this client';
+      if (!confirm(`Delete the portal sign-in for ${who}? They will no longer be able to log in. Their business, website and billing records are NOT deleted.`)) return;
+      try {
+        await api.adminDeletePortalUser(b.dataset.portalDelete);
+        toast('Portal user deleted', 'ok');
+        pageAdmin('users');
+      } catch (err) {
+        toast(err.message, 'err');
+      }
     };
   });
   panel.querySelectorAll('[data-portal-reset-mfa]').forEach((b) => {
@@ -7783,21 +7870,76 @@ async function pageForms() {
 
 async function openFormSubmissions(formId) {
   const d = openDrawer({ title: 'Submissions', html: '<p class="hint">Loading…</p>' });
+  // Batch 45: submissions can be deleted (spam/test) one by one or in
+  // bulk, and the list pages with the engine's offset (50 at a time).
+  const shown = [];
+  const cardHtml = (s) =>
+    `<div class="card" data-sub-card="${s.id}"><div class="panel-h"><h3>${esc(fmtDate(s.created_at))}</h3><span><span class="badge ${
+      s.encrypted ? 'info' : ''
+    }">${esc(s.routing || 'email')}</span> <button class="btn small danger" data-sub-del="${s.id}">Delete</button></span></div>${payloadTableHtml(s.payload)}</div>`;
+  const wireCards = () => {
+    d.body.querySelectorAll('[data-sub-del]').forEach((b) => {
+      b.onclick = async () => {
+        const subId = Number(b.dataset.subDel);
+        if (!window.confirm('Delete this submission permanently?')) return;
+        try {
+          await api.adminDeleteFormSubmission(formId, subId);
+          const card = d.body.querySelector(`[data-sub-card="${subId}"]`);
+          if (card) card.remove();
+          const i = shown.indexOf(subId);
+          if (i >= 0) shown.splice(i, 1);
+          toast('Submission deleted', 'ok');
+        } catch (e) {
+          toast(e.message || 'Delete failed', 'err');
+        }
+      };
+    });
+  };
   try {
     const res = await withLoadTimeout(api.adminFormSubmissions(formId, { limit: 50 }));
     const data = res.data || {};
     const subs = asList(data, ['submissions']);
+    subs.forEach((s) => shown.push(s.id));
     d.title.textContent = `${data.form ? data.form.name || data.form.title : 'Form'} — ${data.lead_name || ''}`;
-    d.body.innerHTML = subs.length
-      ? subs
-          .map(
-            (s) =>
-              `<div class="card"><div class="panel-h"><h3>${esc(fmtDate(s.created_at))}</h3><span class="badge ${
-                s.encrypted ? 'info' : ''
-              }">${esc(s.routing || 'email')}</span></div>${payloadTableHtml(s.payload)}</div>`
-          )
-          .join('')
-      : '<p class="hint">No submissions for this form yet.</p>';
+    d.body.innerHTML =
+      (subs.length
+        ? subs.map(cardHtml).join('')
+        : '<p class="hint">No submissions for this form yet.</p>') +
+      `<div class="inline" style="gap:8px;margin-top:10px"><button class="btn" id="sub-more">Load more</button><button class="btn danger" id="sub-del-shown">Delete shown</button></div>`;
+    wireCards();
+    const more = d.body.querySelector('#sub-more');
+    if (more) {
+      if (subs.length < 50) more.style.display = 'none';
+      more.onclick = async () => {
+        more.disabled = true;
+        try {
+          const r2 = await withLoadTimeout(api.adminFormSubmissions(formId, { limit: 50, offset: shown.length }));
+          const extra = asList(r2.data || {}, ['submissions']);
+          extra.forEach((s) => shown.push(s.id));
+          more.insertAdjacentHTML('beforebegin', extra.map(cardHtml).join(''));
+          wireCards();
+          if (extra.length < 50) more.style.display = 'none';
+        } catch (e) {
+          toast(e.message || 'Load more failed', 'err');
+        } finally {
+          more.disabled = false;
+        }
+      };
+    }
+    const delShown = d.body.querySelector('#sub-del-shown');
+    if (delShown) {
+      delShown.onclick = async () => {
+        if (!shown.length) return;
+        if (!window.confirm(`Delete the ${shown.length} shown submission(s) permanently?`)) return;
+        try {
+          const r = await api.adminDeleteFormSubmissionsBulk(formId, shown.slice());
+          toast(`Deleted ${(r.data && r.data.deletedCount) || 0} submission(s)`, 'ok');
+          openFormSubmissions(formId);
+        } catch (e) {
+          toast(e.message || 'Bulk delete failed', 'err');
+        }
+      };
+    }
   } catch (e) {
     d.body.innerHTML = `<p class="error">${esc(e.message)}</p>`;
   }
@@ -7815,7 +7957,7 @@ async function pageLeadScout() {
     return;
   }
   const d = res.data || {};
-  const contacts = asList(d, ['contacts']);
+  let contacts = asList(d, ['contacts']);
   const health = d.health;
   // Businesses that have contacts, from the loaded contacts' event leads
   // (attached by the admin-area route — contacts themselves are deduped
@@ -7843,7 +7985,7 @@ async function pageLeadScout() {
         <td>${esc(c.event_count || 0)}</td>
         <td>${c.last_event_at ? esc(fmtDate(c.last_event_at)) : c.updated_at ? esc(fmtDate(c.updated_at)) : '—'}</td>
         <td>${c.created_at ? esc(fmtDate(c.created_at)) : '—'}</td>
-        <td class="actions"><button class="btn small" data-act="view" data-id="${c.id}">View</button></td></tr>`;
+        <td class="actions"><button class="btn small" data-act="view" data-id="${c.id}">View</button> <button class="btn small danger" data-act="del-contact" data-id="${c.id}">Delete</button></td></tr>`;
       })
       .join('') ||
     `<tr><td colspan="7" class="empty">${
@@ -7854,10 +7996,42 @@ async function pageLeadScout() {
   const renderContacts = () => {
     view.querySelector('#ls-body').innerHTML = contactRows(visibleContacts());
     view.querySelectorAll('[data-act="view"]').forEach((b) => (b.onclick = () => openLeadScoutContact(Number(b.dataset.id))));
+    view.querySelectorAll('[data-act="del-contact"]').forEach((b) => (b.onclick = () => deleteLeadScoutContact(Number(b.dataset.id))));
+    const more = view.querySelector('#ls-more');
+    if (more) more.style.display = contacts.length && contacts.length % 100 === 0 ? '' : 'none';
   };
+  // Batch 45 — delete a contact (engine refuses rental-charged contacts).
+  async function deleteLeadScoutContact(id) {
+    if (!window.confirm('Delete this LeadScout contact and its history? This cannot be undone.')) return;
+    try {
+      await api.adminDeleteLeadScoutContact(id);
+      contacts = contacts.filter((c) => Number(c.id) !== id);
+      renderContacts();
+      toast('Contact deleted', 'ok');
+    } catch (e) {
+      toast(e.message || 'Delete failed', 'err');
+    }
+  }
+  // Batch 45 — page through contacts with the engine's existing offset.
+  async function loadMoreContacts(btn) {
+    btn.disabled = true;
+    try {
+      const more = await withLoadTimeout(
+        api.adminLeadScoutContacts({ q: leadScoutState.q, limit: 100, offset: contacts.length })
+      );
+      const extra = asList(more.data || {}, ['contacts']);
+      for (const c of extra) c.businesses = c.businesses || [];
+      contacts = contacts.concat(extra);
+      renderContacts();
+    } catch (e) {
+      toast(e.message || 'Load more failed', 'err');
+    } finally {
+      btn.disabled = false;
+    }
+  }
   view.innerHTML = `
     <div class="page-head"><div><h1>LeadScout</h1><p class="lede">Deduped contacts captured from site forms and bookings — the same store the client portal reads. Not the outreach CRM (that's Leads).</p></div>
-    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
+    <div class="page-actions"><button class="btn" data-act="clear-resolved">Clear resolved failures</button> <button class="btn" data-act="refresh">Refresh</button></div></div>
     ${
       health && health.open_failures
         ? `<div class="alert warn"><strong>Capture health:</strong> ${esc(health.open_failures)} open capture failure(s) — some submissions or bookings may not have been recorded.</div>`
@@ -7871,9 +8045,20 @@ async function pageLeadScout() {
     <div class="table-wrap"><table>
       <thead><tr><th>Contact</th><th>Email</th><th>Phone</th><th>Events</th><th>Last activity</th><th>First seen</th><th></th></tr></thead>
       <tbody id="ls-body"></tbody>
-    </table></div>`;
+    </table></div>
+    <div class="pagination"><button class="btn" id="ls-more" style="display:none">Load more contacts</button></div>`;
   renderContacts();
   view.querySelector('[data-act="refresh"]').onclick = () => pageLeadScout();
+  view.querySelector('[data-act="clear-resolved"]').onclick = async (e) => {
+    try {
+      const r = await api.adminClearLeadScoutResolved();
+      toast(`Cleared ${(r.data && r.data.cleared) || 0} resolved failure(s)`, 'ok');
+    } catch (err) {
+      toast(err.message || 'Clear failed', 'err');
+    }
+  };
+  const lsMore = view.querySelector('#ls-more');
+  if (lsMore) lsMore.onclick = () => loadMoreContacts(lsMore);
   $('#ls-search').onsubmit = (e) => {
     e.preventDefault();
     leadScoutState.q = new FormData(e.target).get('q') || '';
@@ -8213,16 +8398,22 @@ async function pageAnalytics() {
 }
 
 async function pageCalls() {
+  // Batch 45: the call list is paged (50/page) through the engine offset —
+  // history past the first page is reachable, and clean test calls can be
+  // deleted (the button only renders on uncounted rows; the API refuses
+  // counted/billed/charged logs regardless).
+  const CALL_PAGE = 50;
+  let callOffset = 0;
   let res;
   try {
-    res = await withLoadTimeout(api.adminCalls());
+    res = await withLoadTimeout(api.adminCalls({ limit: CALL_PAGE, offset: 0 }));
   } catch (e) {
     view.innerHTML = loadErrorCardHtml(e.message);
     wirePageRetry(() => pageCalls());
     return;
   }
   const d = res.data || {};
-  const allRows = asList(d, ['calls']);
+  let allRows = asList(d, ['calls']);
   const businesses = asList(d, ['businesses']);
   const poolNums = asList(d, ['pool']);
   const wsId = d.workspace_id || '';
@@ -8245,6 +8436,7 @@ async function pageCalls() {
         <td>${esc(c.to_number || '—')}</td>
         <td>${esc(c.status || '—')}${c.verified ? '' : ' <span class="hint">(unverified)</span>'}</td>
         <td>${esc(durLabel(c.duration_seconds))}</td>
+        <td>${Number(c.counted || 0) === 0 ? `<button type="button" class="btn small danger" data-cl-del="${c.id}">Delete</button>` : ''}</td>
       </tr>`;
         if (!c.recording_url && !c.transcript) return main;
         const player = c.recording_url
@@ -8253,11 +8445,11 @@ async function pageCalls() {
         const transcript = c.transcript
           ? `<div style="margin-top:6px"><strong>Transcript</strong><div>${esc(c.transcript)}</div></div>`
           : '<div class="hint" style="margin-top:6px">No transcript</div>';
-        return `${main}<tr><td colspan="6" style="background:var(--paper-2,#faf7f1)">${player}${transcript}</td></tr>`;
+        return `${main}<tr><td colspan="7" style="background:var(--paper-2,#faf7f1)">${player}${transcript}</td></tr>`;
       })
       .join('');
   const table = (rowsHtml) =>
-    `<table class="table"><thead><tr><th>Time</th><th>Business</th><th>From</th><th>To</th><th>Status</th><th>Duration</th></tr></thead><tbody id="cl-body">${rowsHtml}</tbody></table>`;
+    `<table class="table"><thead><tr><th>Time</th><th>Business</th><th>From</th><th>To</th><th>Status</th><th>Duration</th><th></th></tr></thead><tbody id="cl-body">${rowsHtml}</tbody></table>`;
   const configured = !!d.twilio_configured;
   const bizById = new Map(businesses.map((b) => [String(b.lead_id), b]));
   const bizStrip = businesses.length
@@ -8334,7 +8526,8 @@ async function pageCalls() {
     ${cfgCard}
     ${businessFilterBarHtml([...allRows, ...businesses], 'cl-biz')}
     <div class="card"><div class="table-wrap">${table(callRows(allRows))}</div>
-    ${allRows.length ? '' : '<p class="hint" style="margin-top:10px">No calls yet.</p>'}</div>`;
+    ${allRows.length ? '' : '<p class="hint" style="margin-top:10px">No calls yet.</p>'}
+    <div class="pagination" style="margin-top:10px"><button type="button" class="btn" id="cl-prev">← Newer</button> <span class="hint" id="cl-page-label"></span> <button type="button" class="btn" id="cl-next">Older →</button></div></div>`;
   const selectedBiz = () => {
     const sel = document.getElementById('cl-biz');
     return sel && sel.value ? bizById.get(String(sel.value)) || null : null;
@@ -8352,9 +8545,55 @@ async function pageCalls() {
       sb.disabled = false;
     }
   };
+  const wireCallDeletes = () => {
+    view.querySelectorAll('[data-cl-del]').forEach((b) => {
+      b.onclick = async () => {
+        const id = Number(b.dataset.clDel);
+        if (!window.confirm('Delete this call log? Only uncounted, unbilled test calls can be deleted.')) return;
+        try {
+          await api.adminDeleteCall(id);
+          allRows = allRows.filter((c) => Number(c.id) !== id);
+          const body = document.getElementById('cl-body');
+          if (body) body.innerHTML = callRows(allRows);
+          wireCallDeletes();
+          toast('Call log deleted', 'ok');
+        } catch (e) {
+          toast(e.message || 'Delete failed', 'err');
+        }
+      };
+    });
+  };
+  const syncCallPager = () => {
+    const prev = document.getElementById('cl-prev');
+    const next = document.getElementById('cl-next');
+    const label = document.getElementById('cl-page-label');
+    if (prev) prev.disabled = callOffset <= 0;
+    if (next) next.disabled = allRows.length < CALL_PAGE;
+    if (label) label.textContent = allRows.length ? `Calls ${callOffset + 1}–${callOffset + allRows.length}` : 'No calls on this page';
+  };
+  const loadCallPage = async (nextOffset) => {
+    try {
+      const r = await withLoadTimeout(api.adminCalls({ limit: CALL_PAGE, offset: nextOffset }));
+      callOffset = nextOffset;
+      allRows = asList(r.data || {}, ['calls']);
+      const body = document.getElementById('cl-body');
+      if (body) body.innerHTML = callRows(allRows);
+      wireCallDeletes();
+      syncCallPager();
+    } catch (e) {
+      toast(e.message || 'Could not load that page', 'err');
+    }
+  };
+  const clPrev = document.getElementById('cl-prev');
+  const clNext = document.getElementById('cl-next');
+  if (clPrev) clPrev.onclick = () => loadCallPage(Math.max(0, callOffset - CALL_PAGE));
+  if (clNext) clNext.onclick = () => loadCallPage(callOffset + CALL_PAGE);
+  wireCallDeletes();
+  syncCallPager();
   wireBusinessFilter('cl-biz', (val) => {
     const body = document.getElementById('cl-body');
     if (body) body.innerHTML = callRows(applyBusinessFilter(allRows, val));
+    wireCallDeletes();
     gateBuyPanel();
   });
   gateBuyPanel();

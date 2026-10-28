@@ -529,6 +529,22 @@ async function listPortalUsers({ q = '', limit = 200 } = {}) {
 }
 
 /**
+ * Batch 45 — staff (super-admin) hard delete of a client portal user.
+ * The TOTP secret/recovery hashes live ON this row, so deleting it also
+ * removes the MFA enrollment; live sessions die on their next request
+ * because requireClient re-reads the user row every time. Mirrors the
+ * staff-user delete posture (Admin → Users, super-admin router).
+ */
+async function deletePortalUser(id) {
+  const uid = Number(id);
+  if (!uid) throw Object.assign(new Error('NOT_FOUND'), { code: 'NOT_FOUND' });
+  const existing = await findById(uid);
+  if (!existing) throw Object.assign(new Error('NOT_FOUND'), { code: 'NOT_FOUND' });
+  await query('DELETE FROM client_portal_users WHERE id = :id', { id: uid });
+  return { deleted: true, id: uid, email: existing.email };
+}
+
+/**
  * Staff (super-admin) access update: set user_type and/or nav overrides.
  * patch.resetOverrides clears overrides back to the type defaults;
  * patch.navOverrides (object) replaces them — an empty/equal-to-default
@@ -2538,6 +2554,32 @@ async function getFormSubmission(workspaceId, leadId, submissionId, clientEmail 
   return domain.withDb(workspaceId, (db) => forms.getSubmission(db, Number(leadId), Number(submissionId)));
 }
 
+/** Batch 45 — portal hard-delete of one form submission (spam/test cleanup). */
+async function deleteFormSubmission(workspaceId, leadId, submissionId, clientEmail = '') {
+  const domain = require('./domain');
+  const forms = require('./contactForms');
+  const billing = require('./billing');
+  const { getPlan } = require('./plans');
+  const planId = await billing.effectivePlan(workspaceId, { email: clientEmail });
+  if (!getPlan(planId).entitlements.formInbox) {
+    throw Object.assign(new Error('Form inbox requires a paid plan (Standard, Pro, or Premium)'), { code: 'FORBIDDEN', status: 403 });
+  }
+  return domain.withDb(workspaceId, (db) => forms.deleteSubmission(db, Number(leadId), Number(submissionId)));
+}
+
+/** Batch 45 — portal bulk delete of form submissions. */
+async function deleteFormSubmissions(workspaceId, leadId, ids, clientEmail = '') {
+  const domain = require('./domain');
+  const forms = require('./contactForms');
+  const billing = require('./billing');
+  const { getPlan } = require('./plans');
+  const planId = await billing.effectivePlan(workspaceId, { email: clientEmail });
+  if (!getPlan(planId).entitlements.formInbox) {
+    throw Object.assign(new Error('Form inbox requires a paid plan (Standard, Pro, or Premium)'), { code: 'FORBIDDEN', status: 403 });
+  }
+  return domain.withDb(workspaceId, (db) => forms.deleteSubmissions(db, Number(leadId), Array.isArray(ids) ? ids : []));
+}
+
 async function requireSiteModules(workspaceId, clientEmail) {
   const billing = require('./billing');
   const { getPlan } = require('./plans');
@@ -2579,6 +2621,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
   return domain.withDb(workspaceId, async (db) => {
     modules.ensureTables(db);
     let items = [];
+    let blogTotal = null;
     let booking = null;
     let menu = null;
     let estimate = null;
@@ -2587,7 +2630,16 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     let calltracking = null;
     let members = null;
     let shop = null;
-    if (type === 'blog') items = modules.listBlogPosts(db, Number(leadId));
+    if (type === 'blog') {
+      // Batch 45: server-side paging when the caller asks for a page
+      // (portal blog tab); no limit = the historical full list.
+      const blogLimit = opts && opts.limit != null ? Number(opts.limit) : null;
+      items = modules.listBlogPosts(db, Number(leadId), {
+        limit: blogLimit,
+        offset: opts && opts.offset != null ? Number(opts.offset) : 0,
+      });
+      blogTotal = modules.countBlogPosts(db, Number(leadId));
+    }
     else if (type === 'ecommerce') {
       items = modules.listProducts(db, Number(leadId)).map((p) => ({
         ...p,
@@ -2665,7 +2717,10 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
         phone_number: leadRow && leadRow.phone ? String(leadRow.phone) : '',
         tracking_assigned: !!displayNumber,
         ...(displayNumber ? { display_number: displayNumber } : {}),
-        calls: modules.listCalls(db, Number(leadId), { limit: 200 }),
+        calls: modules.listCalls(db, Number(leadId), {
+          limit: opts && opts.limit != null ? Number(opts.limit) : 200,
+          offset: opts && opts.offset != null ? Number(opts.offset) : 0,
+        }),
         billing: modules.callBillingSummary(db, Number(leadId), planId),
         workspace_id: Number(workspaceId),
       };
@@ -2676,7 +2731,10 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
       items = [];
       members = {
         config: modules.getMembersConfig(db, Number(leadId)),
-        members: modules.listSiteMembers(db, Number(leadId), { limit: 200 }),
+        members: modules.listSiteMembers(db, Number(leadId), {
+          limit: opts && opts.limit != null ? Number(opts.limit) : 200,
+          offset: opts && opts.offset != null ? Number(opts.offset) : 0,
+        }),
         counts: modules.countSiteMembers(db, Number(leadId)),
         tiers: modules.listMembershipTiers(db, Number(leadId), { includeInactive: true }),
         payments: modules.membershipStripeStatus(db, Number(leadId)),
@@ -2703,6 +2761,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
       embed: modules.publicEmbed(emb, appUrl()),
       pages: modules.listSitePages(db, Number(leadId)),
     };
+    if (blogTotal != null) out.total = blogTotal;
     if (booking) out.booking = booking;
     if (menu) out.categories = menu.categories;
     if (estimate) out.estimate = estimate;
@@ -3325,6 +3384,22 @@ async function saveBookingHours(workspaceId, leadId, body, clientEmail) {
   }));
 }
 
+/** Batch 45 — portal delete of one appointment (wires the long-dead engine fn). */
+async function deleteBookingAppointment(workspaceId, leadId, id, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => modules.deleteAppointment(db, Number(leadId), id));
+}
+
+/** Batch 45 — portal delete of one estimate request (wires the long-dead engine fn). */
+async function deleteEstimateRequest(workspaceId, leadId, id, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => modules.deleteEstimateRequest(db, Number(leadId), id));
+}
+
 async function updateBookingAppointment(workspaceId, leadId, id, body, clientEmail) {
   const domain = require('./domain');
   const modules = require('./siteModules');
@@ -3887,6 +3962,22 @@ function getLeadScoutContact(workspaceId, leadId, contactId, { workspaceWide = f
   return domain.withDb(workspaceId, (db) => contacts.getContact(db, contactId, { leadId: scope }));
 }
 
+/** Batch 45 — LeadScout contact delete (lead-scoped from the portal; workspace-wide from staff). */
+function deleteLeadScoutContact(workspaceId, leadId, contactId, { workspaceWide = false } = {}) {
+  const domain = require('./domain');
+  const contacts = require('./portalContacts');
+  const scope = leadScoutScope(leadId, workspaceWide);
+  return domain.withDb(workspaceId, (db) => contacts.deleteContact(db, contactId, { leadId: scope }));
+}
+
+/** Batch 45 — clear resolved LeadScout capture failures. */
+function clearLeadScoutResolvedFailures(workspaceId, leadId, { workspaceWide = false } = {}) {
+  const domain = require('./domain');
+  const contacts = require('./portalContacts');
+  const scope = leadScoutScope(leadId, workspaceWide);
+  return domain.withDb(workspaceId, (db) => contacts.clearResolvedFailures(db, { leadId: scope }));
+}
+
 function leadScoutHealth(workspaceId, leadId, { workspaceWide = false } = {}) {
   const domain = require('./domain');
   const contacts = require('./portalContacts');
@@ -3917,6 +4008,7 @@ module.exports = {
   portalUserView,
   listPortalUsers,
   updatePortalUserAccess,
+  deletePortalUser,
   getPortalAccessDefaults,
   setPortalAccessDefaults,
   loadLeadContext,
@@ -3940,6 +4032,12 @@ module.exports = {
   publishContactForm,
   listFormSubmissions,
   getFormSubmission,
+  deleteFormSubmission,
+  deleteFormSubmissions,
+  deleteLeadScoutContact,
+  clearLeadScoutResolvedFailures,
+  deleteBookingAppointment,
+  deleteEstimateRequest,
   listSiteModules,
   listModuleItems,
   createModuleItem,
@@ -3986,6 +4084,8 @@ module.exports = {
   refreshSocialFeed,
   updateEstimateRequest,
   updateBookingAppointment,
+  deleteBookingAppointment,
+  deleteEstimateRequest,
   createBookingBlockAdmin,
   deleteBookingBlockAdmin,
   createClientMcpToken,

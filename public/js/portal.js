@@ -3937,8 +3937,12 @@
     applyFormToEditor(data.form || {}, data.embed);
   }
 
-  async function loadFormSubmissions() {
-    const sub = await api('/forms/submissions');
+  // Batch 45 — submissions inbox paging (server: 50/page + total).
+  let formSubsShown = [];
+  let formSubsTotal = null;
+
+  async function loadFormSubmissions(more) {
+    const sub = await api(more ? `/forms/submissions?limit=50&offset=${formSubsShown.length}` : '/forms/submissions?limit=50');
     formState.plan = sub.plan || 'free';
     updateFormsPlanLine(formState.plan);
     const notice = document.getElementById('form-inbox-notice');
@@ -3946,10 +3950,19 @@
     if (!sub.inbox) {
       notice.textContent = sub.notice || 'Submissions are emailed only on Free.';
       list.innerHTML = '';
+      formSubsShown = [];
+      formSubsTotal = null;
     } else {
-      notice.textContent = `${(sub.submissions || []).length} recent submission(s).`;
-      list.innerHTML = (sub.submissions || []).length
-        ? (sub.submissions || [])
+      const fresh = sub.submissions || [];
+      formSubsTotal = sub.total != null ? Number(sub.total) : null;
+      formSubsShown = more ? formSubsShown.concat(fresh) : fresh;
+      const rows = formSubsShown;
+      notice.textContent =
+        formSubsTotal != null
+          ? `${rows.length} of ${formSubsTotal} submission(s).`
+          : `${rows.length} recent submission(s).`;
+      list.innerHTML = rows.length
+        ? rows
             .map((s) => {
               const payload = s.payload || {};
               const preview = Object.entries(payload)
@@ -3959,6 +3972,7 @@
               return `<article class="post-card" style="margin-bottom:8px">
             <div class="post-body">
               <div class="post-meta">
+                <label style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" class="sub-select" value="${esc(s.id)}" /></label>
                 <span>${esc(
                   String(s.created_at || '')
                     .replace('T', ' ')
@@ -3967,13 +3981,45 @@
                 <span class="status-pill">${esc(s.routing || '')}</span>
                 ${s.form_id != null ? `<span class="hint">form #${esc(String(s.form_id))}</span>` : ''}
                 ${s.encrypted ? '<span class="hint">encrypted</span>' : ''}
+                <button type="button" class="btn ghost small" data-sub-delete="${esc(s.id)}">Delete</button>
               </div>
               <p class="post-cap">${preview || '(empty)'}</p>
             </div>
           </article>`;
             })
-            .join('')
+            .join('') +
+          `<div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">
+            <button type="button" class="btn ghost small" id="subs-delete-selected">Delete selected</button>
+            ${formSubsTotal != null && rows.length < formSubsTotal ? '<button type="button" class="btn soft small" id="subs-load-more">Load more</button>' : ''}
+          </div>`
         : '<p class="hint">No submissions yet.</p>';
+      list.querySelectorAll('[data-sub-delete]').forEach((btn) => {
+        btn.onclick = async () => {
+          if (!window.confirm('Delete this submission? The sender stays in LeadScout.')) return;
+          try {
+            await api(`/forms/submissions/${encodeURIComponent(btn.getAttribute('data-sub-delete'))}`, { method: 'DELETE' });
+            loadFormSubmissions().catch(() => {});
+          } catch (e) {
+            window.alert(e.message || 'Delete failed');
+          }
+        };
+      });
+      const bulkBtn = document.getElementById('subs-delete-selected');
+      if (bulkBtn) {
+        bulkBtn.onclick = async () => {
+          const ids = Array.from(list.querySelectorAll('.sub-select:checked')).map((n) => Number(n.value));
+          if (!ids.length) return;
+          if (!window.confirm(`Delete ${ids.length} submission(s)? The senders stay in LeadScout.`)) return;
+          try {
+            await api('/forms/submissions/delete-bulk', { method: 'POST', body: JSON.stringify({ ids }) });
+            loadFormSubmissions().catch(() => {});
+          } catch (e) {
+            window.alert(e.message || 'Delete failed');
+          }
+        };
+      }
+      const moreBtn = document.getElementById('subs-load-more');
+      if (moreBtn) moreBtn.onclick = () => loadFormSubmissions(true).catch(() => {});
     }
   }
 
@@ -4160,6 +4206,11 @@
     showArchivedAppointments: false,
     members: null,
     memberSearch: '',
+    // Batch 45 — server-side paging state for the long lists.
+    blogOffset: 0,
+    blogTotal: null,
+    memberOffset: 0,
+    callOffset: 0,
   };
 
   let formsPane = 'setup';
@@ -4901,6 +4952,20 @@
       </article>`;
       })
       .join('');
+    // Batch 45 — blog pager (server pages of 6; total comes from the API).
+    if (type === 'blog' && moduleState.blogTotal != null) {
+      const off = moduleState.blogOffset || 0;
+      const total = moduleState.blogTotal;
+      const pager = document.createElement('div');
+      pager.className = 'pagination';
+      pager.style.marginTop = '10px';
+      pager.innerHTML = `<button type="button" class="btn small" data-blog-prev ${off <= 0 ? 'disabled' : ''}>← Newer</button> <span class="hint">${total ? off + 1 : 0}–${Math.min(off + items.length, total)} of ${total}</span> <button type="button" class="btn small" data-blog-next ${off + items.length >= total ? 'disabled' : ''}>Older →</button>`;
+      box.appendChild(pager);
+      const prev = pager.querySelector('[data-blog-prev]');
+      const next = pager.querySelector('[data-blog-next]');
+      if (prev) prev.onclick = () => { moduleState.blogOffset = Math.max(0, off - 6); loadModuleItems().catch(() => {}); };
+      if (next) next.onclick = () => { moduleState.blogOffset = off + 6; loadModuleItems().catch(() => {}); };
+    }
   }
 
   function renderBookingAdminPanel() {
@@ -4954,6 +5019,7 @@
             ${!isArchived && a.status === 'confirmed' ? `<button type="button" class="btn ghost small" data-appt-status="${a.id}" data-status="completed">Done</button>` : ''}
             ${canArchive ? `<button type="button" class="btn ghost small" data-appt-archive="${a.id}" data-archived="true">Archive</button>` : ''}
             ${isArchived ? `<button type="button" class="btn ghost small" data-appt-archive="${a.id}" data-archived="false">Restore</button>` : ''}
+            ${!isArchived ? `<button type="button" class="btn ghost small" data-appt-delete="${a.id}">Delete</button>` : ''}
           </div>
         </div>`;
           })
@@ -5056,6 +5122,7 @@
             ${r.status !== 'contacted' ? `<button type="button" class="btn soft small" data-est-req-status="${r.id}" data-status="contacted">Mark contacted</button>` : ''}
             ${r.status !== 'closed' ? `<button type="button" class="btn ghost small" data-est-req-status="${r.id}" data-status="closed">Close</button>` : ''}
             ${r.status === 'closed' ? `<button type="button" class="btn ghost small" data-est-req-status="${r.id}" data-status="new">Reopen</button>` : ''}
+            <button type="button" class="btn ghost small" data-est-req-delete="${r.id}">Delete</button>
           </div>
         </div>`;
             })
@@ -5288,7 +5355,13 @@
       ${formHtml}
       ${leadContactTipHtml}
       <h3 style="margin-top:18px">Calls received</h3>
-      <div id="modules-calltracking-calls">${callsHtml}</div>`;
+      <div id="modules-calltracking-calls">${callsHtml}</div>
+      <div class="pagination" style="margin-top:8px"><button type="button" class="btn small" id="calls-prev" ${(moduleState.callOffset || 0) <= 0 ? 'disabled' : ''}>← Newer</button> <button type="button" class="btn small" id="calls-next" ${calls.length < 50 ? 'disabled' : ''}>Older →</button></div>`;
+    // Batch 45 — calls pager wiring (server pages of 50).
+    const cPrev = document.getElementById('calls-prev');
+    const cNext = document.getElementById('calls-next');
+    if (cPrev) cPrev.onclick = () => { moduleState.callOffset = Math.max(0, (moduleState.callOffset || 0) - 50); loadModuleItems().catch(() => {}); };
+    if (cNext) cNext.onclick = () => { moduleState.callOffset = (moduleState.callOffset || 0) + 50; loadModuleItems().catch(() => {}); };
   }
 
   function memberRowHtml(m, tiers) {
@@ -5522,7 +5595,13 @@
         <p class="hint">Stripe sends these to confirm payments, renewals, and cancellations so member access stays in sync.</p></div>
       <h3 style="margin-top:18px">Members</h3>
       <div class="field"><input type="search" id="members-search" placeholder="Search by name or email…" value="${esc(moduleState.memberSearch || '')}" /></div>
-      <div id="modules-members-list">${rowsHtml}</div>`;
+      <div id="modules-members-list">${rowsHtml}</div>
+      <div class="pagination" style="margin-top:8px"><button type="button" class="btn small" id="members-prev" ${(moduleState.memberOffset || 0) <= 0 ? 'disabled' : ''}>← Newer</button> <span class="hint">${counts.total ? `Members ${(moduleState.memberOffset || 0) + 1}–${(moduleState.memberOffset || 0) + allMembers.length} of ${counts.total}` : ''}</span> <button type="button" class="btn small" id="members-next" ${allMembers.length < 50 ? 'disabled' : ''}>Older →</button></div>`;
+    // Batch 45 — members pager wiring (server pages of 50).
+    const mPrev = document.getElementById('members-prev');
+    const mNext = document.getElementById('members-next');
+    if (mPrev) mPrev.onclick = () => { moduleState.memberOffset = Math.max(0, (moduleState.memberOffset || 0) - 50); loadModuleItems().catch(() => {}); };
+    if (mNext) mNext.onclick = () => { moduleState.memberOffset = (moduleState.memberOffset || 0) + 50; loadModuleItems().catch(() => {}); };
   }
 
   function moduleModalMsg(text, ok) {
@@ -5768,9 +5847,23 @@
   async function loadModuleItems() {
     const type = moduleState.current;
     storeModuleType(type);
-    const qs = type === 'bookings' && moduleState.showArchivedAppointments ? '?includeArchived=1' : '';
+    // Batch 45 — blog/members/calls fetch ONE server page at a time
+    // (6/50/50) instead of the whole history.
+    let qs = type === 'bookings' && moduleState.showArchivedAppointments ? '?includeArchived=1' : '';
+    if (type === 'blog') qs = `?limit=6&offset=${moduleState.blogOffset || 0}`;
+    if (type === 'members') qs = `?limit=50&offset=${moduleState.memberOffset || 0}`;
+    if (type === 'calltracking') qs = `?limit=50&offset=${moduleState.callOffset || 0}`;
     const data = await api(`/modules/${encodeURIComponent(type)}${qs}`);
     moduleState.items = Array.isArray(data.items) ? data.items : [];
+    if (type === 'blog') {
+      moduleState.blogTotal = data.total != null ? Number(data.total) : null;
+      // Batch 45: an out-of-range page (e.g. after deleting the last post
+      // on the last page) steps back instead of stranding the user.
+      if (!moduleState.items.length && (moduleState.blogOffset || 0) > 0 && (moduleState.blogTotal || 0) > 0) {
+        moduleState.blogOffset = Math.max(0, moduleState.blogOffset - 6);
+        return loadModuleItems();
+      }
+    }
     moduleState.pages = Array.isArray(data.pages) ? data.pages : moduleState.pages;
     moduleState.embed = data.embed || null;
     moduleState.booking = data.booking || null;
@@ -6096,8 +6189,10 @@
   }
 
   let leadScoutSelectedId = null;
+  // Batch 45 — LeadScout paging (server supports offset; 80/page).
+  let leadScoutShown = [];
 
-  async function loadLeadScout() {
+  async function loadLeadScout(more) {
     const listEl = document.getElementById('leadscout-list');
     const msgEl = document.getElementById('msg-leadscout-list');
     const healthBox = document.getElementById('leadscout-health');
@@ -6105,8 +6200,11 @@
     if (!listEl) return;
     try {
       const q = (document.getElementById('leadscout-q') && document.getElementById('leadscout-q').value) || '';
-      const data = await api(`/leadscout/contacts?limit=80&q=${encodeURIComponent(q)}`);
-      const contacts = data.contacts || [];
+      const offset = more ? leadScoutShown.length : 0;
+      const data = await api(`/leadscout/contacts?limit=80&offset=${offset}&q=${encodeURIComponent(q)}`);
+      const fresh = data.contacts || [];
+      const contacts = more ? leadScoutShown.concat(fresh) : fresh;
+      leadScoutShown = contacts;
       const health = data.health || {};
       if (healthBox) {
         if (health.open_failures > 0) {
@@ -6122,17 +6220,22 @@
         listEl.innerHTML =
           '<p class="hint" style="margin:0">No contacts yet. Form submissions and bookings appear here automatically.</p>';
       } else {
-        listEl.innerHTML = contacts
-          .map((c) => {
-            const active = Number(c.id) === Number(leadScoutSelectedId) ? ' is-active' : '';
-            const sub = [c.email, c.phone].filter(Boolean).join(' · ') || 'No contact info';
-            return `<button type="button" class="leadscout-row${active}" data-id="${c.id}" style="display:block;width:100%;text-align:left;padding:10px 12px;margin:0 0 6px;border:1px solid var(--line,#e2e8f0);background:${active ? 'rgba(0,0,0,.04)' : 'transparent'};cursor:pointer">
+        listEl.innerHTML =
+          contacts
+            .map((c) => {
+              const active = Number(c.id) === Number(leadScoutSelectedId) ? ' is-active' : '';
+              const sub = [c.email, c.phone].filter(Boolean).join(' · ') || 'No contact info';
+              return `<button type="button" class="leadscout-row${active}" data-id="${c.id}" style="display:block;width:100%;text-align:left;padding:10px 12px;margin:0 0 6px;border:1px solid var(--line,#e2e8f0);background:${active ? 'rgba(0,0,0,.04)' : 'transparent'};cursor:pointer">
             <strong style="display:block">${esc(c.name || 'Contact')}</strong>
             <span class="hint" style="font-size:.85rem">${esc(sub)}</span>
             <span class="hint" style="display:block;font-size:.8rem;margin-top:2px">${Number(c.event_count) || 0} event${Number(c.event_count) === 1 ? '' : 's'}</span>
           </button>`;
-          })
-          .join('');
+            })
+            .join('') +
+          // Batch 45 — load-more while a full page came back.
+          (fresh.length >= 80
+            ? '<button type="button" class="btn ghost small" id="leadscout-more" style="margin-top:4px">Load more contacts</button>'
+            : '');
         listEl.querySelectorAll('[data-id]').forEach((btn) => {
           btn.onclick = () => {
             leadScoutSelectedId = Number(btn.getAttribute('data-id'));
@@ -6140,6 +6243,8 @@
             loadLeadScout().catch(() => {});
           };
         });
+        const moreBtn = document.getElementById('leadscout-more');
+        if (moreBtn) moreBtn.onclick = () => loadLeadScout(true).catch(() => {});
       }
       if (msgEl) msgEl.textContent = '';
       if (leadScoutSelectedId) await loadLeadScoutDetail(leadScoutSelectedId);
@@ -6188,7 +6293,24 @@
         <h3 style="margin:0 0 6px;font-size:1.15rem">${esc(c.name || 'Contact')}</h3>
         <p style="margin:0 0 12px" class="hint">${esc([c.email, c.phone].filter(Boolean).join(' · ') || '—')}</p>
         <h4 style="margin:0 0 8px;font-size:1rem">Activity</h4>
-        ${eventsHtml}`;
+        ${eventsHtml}
+        <div style="margin-top:14px"><button type="button" class="btn ghost small" id="leadscout-delete-contact">Delete contact</button>
+        <span class="hint"> Removes the contact and its activity. A contact tied to a charged rental event cannot be deleted.</span></div>`;
+      const delBtn = document.getElementById('leadscout-delete-contact');
+      if (delBtn) {
+        delBtn.onclick = async () => {
+          if (!window.confirm('Delete this contact and its activity? This cannot be undone.')) return;
+          try {
+            await api(`/leadscout/contacts/${Number(id)}`, { method: 'DELETE' });
+            leadScoutSelectedId = null;
+            detail.hidden = true;
+            if (empty) empty.hidden = false;
+            await loadLeadScout();
+          } catch (e) {
+            window.alert(e.message || 'Delete failed');
+          }
+        };
+      }
     } catch (e) {
       detail.hidden = false;
       if (empty) empty.hidden = true;
@@ -7112,6 +7234,19 @@
       }
     };
   }
+  // Batch 45 — clear resolved capture failures from the health panel.
+  const btnLeadScoutClear = document.getElementById('btn-leadscout-clear-resolved');
+  if (btnLeadScoutClear) {
+    btnLeadScoutClear.onclick = async () => {
+      try {
+        await api('/leadscout/failures/clear-resolved', { method: 'POST', body: '{}' });
+        await loadLeadScout();
+      } catch (e) {
+        const msg = document.getElementById('msg-leadscout-list');
+        if (msg) msg.textContent = e.message || 'Clear failed';
+      }
+    };
+  }
   const leadScoutQ = document.getElementById('leadscout-q');
   if (leadScoutQ) {
     let t = null;
@@ -7360,6 +7495,20 @@
         }
         return;
       }
+      const apptDelBtn = ev.target.closest('[data-appt-delete]');
+      if (apptDelBtn) {
+        const id = Number(apptDelBtn.getAttribute('data-appt-delete'));
+        if (!window.confirm('Delete this appointment? The booking is removed; the customer stays in LeadScout.')) return;
+        moduleMsg('Deleting appointment…', true);
+        try {
+          await api(`/modules/bookings/appointments/${id}`, { method: 'DELETE' });
+          moduleMsg('Appointment deleted.', true);
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg(e.message, false);
+        }
+        return;
+      }
       const apptBtn = ev.target.closest('[data-appt-status]');
       if (apptBtn) {
         const id = Number(apptBtn.getAttribute('data-appt-status'));
@@ -7423,6 +7572,20 @@
         } catch (e) {
           moduleMsg(e.message, false);
         }
+      }
+      const estReqDelBtn = ev.target.closest('[data-est-req-delete]');
+      if (estReqDelBtn) {
+        const id = Number(estReqDelBtn.getAttribute('data-est-req-delete'));
+        if (!window.confirm('Delete this estimate request? The request is removed; the customer stays in LeadScout.')) return;
+        moduleMsg('Deleting request…', true);
+        try {
+          await api(`/modules/estimate/requests/${id}`, { method: 'DELETE' });
+          moduleMsg('Request deleted.', true);
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg(e.message, false);
+        }
+        return;
       }
       const estReqBtn = ev.target.closest('[data-est-req-status]');
       if (estReqBtn) {

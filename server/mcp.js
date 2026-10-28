@@ -905,6 +905,12 @@ function clientToolDefs() {
       inputSchema: schema({ leadId: ID, limit: NUM }),
     },
     {
+      name: 'estimate.deleteRequest',
+      description:
+        'Delete one Instant Estimate request by id (hard delete; its LeadScout event is removed, the contact stays). Standard/Premium.',
+      inputSchema: schema({ id: ID, leadId: ID }, ['id']),
+    },
+    {
       name: 'socialfeed.getConfig',
       description:
         'Get the Social Feed config for a lead (networks facebook/instagram/both, max_posts 1–24, layout grid/list). The feed itself is automatic — it shows posts published through BitPype plus, when a Meta account is connected, the account’s latest posts. Standard/Premium.',
@@ -1219,6 +1225,12 @@ function clientToolDefs() {
         },
         ['id', 'leadId']
       ),
+    },
+    {
+      name: 'bookings.deleteAppointment',
+      description:
+        'Delete one appointment by id (hard delete; its LeadScout event is removed, the contact stays). Prefer bookings.updateStatus cancelled for a normal cancellation. Standard/Premium.',
+      inputSchema: schema({ id: ID, leadId: ID }, ['id', 'leadId']),
     },
     {
       name: 'bookings.slots',
@@ -2702,6 +2714,7 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'estimate.updateOption',
     'estimate.deleteOption',
     'estimate.listRequests',
+    'estimate.deleteRequest',
     'socialfeed.getConfig',
     'socialfeed.updateConfig',
     'socialfeed.preview',
@@ -2743,6 +2756,7 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'bookings.setSettings',
     'bookings.list',
     'bookings.updateStatus',
+    'bookings.deleteAppointment',
     'bookings.slots',
   ]);
   if (moduleToolNames.has(name) && !entitlements.siteModules) {
@@ -3398,6 +3412,15 @@ async function callClientTool(ws, name, a, ctx = {}) {
       ...modules.deleteEstimateOption(db, leadId || Number(ctx.leadId), id),
     }));
   }
+  if (name === 'estimate.deleteRequest') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      ...modules.deleteEstimateRequest(db, leadId || Number(ctx.leadId), id),
+    }));
+  }
   if (name === 'estimate.listRequests') {
     const leadId = resolveLeadId(ctx, a.leadId);
     if (!leadId) throw new Error('leadId is required');
@@ -3780,6 +3803,15 @@ async function callClientTool(ws, name, a, ctx = {}) {
       }
       return { plan: planId, appointment };
     });
+  }
+  if (name === 'bookings.deleteAppointment') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      ...modules.deleteAppointment(db, leadId || Number(ctx.leadId), id),
+    }));
   }
   if (name === 'bookings.slots') {
     const leadId = resolveLeadId(ctx, a.leadId);

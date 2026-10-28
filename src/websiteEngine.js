@@ -5571,6 +5571,61 @@ async function generateSite(db, leadId, opts = {}) {
   return { id: websiteId, industry, aiUsed, reused: false };
 }
 
+/**
+ * Batch 45 — website_versions retention: keep the newest `keep` versions
+ * per site. Versions grow one row per save per site, forever; 50 is far
+ * beyond any realistic restore need and bounds the table. Returns the
+ * number of rows pruned. Never touches the newest `keep` rows.
+ */
+function pruneWebsiteVersions(db, websiteId, keep = 50) {
+  ensureTables(db);
+  const keepN = Math.max(1, Number(keep) || 50);
+  const info = db
+    .prepare(
+      `DELETE FROM website_versions
+       WHERE website_id = ?
+         AND id NOT IN (
+           SELECT id FROM website_versions
+           WHERE website_id = ?
+           ORDER BY version_no DESC, id DESC
+           LIMIT ?
+         )`
+    )
+    .run(Number(websiteId), Number(websiteId), keepN);
+  return Number(info.changes || 0);
+}
+
+/**
+ * Batch 45 — periodic retention sweep for one workspace DB (invoked by
+ * the scheduler, throttled there): activity_log older than 180 days and
+ * website_versions beyond the newest 50 per site. Quiet by design — a
+ * single summary activity row is written ONLY when something was
+ * pruned. Financial/audit tables are never touched.
+ */
+function runRetentionPrunes(db) {
+  ensureTables(db);
+  let activityPruned = 0;
+  let versionsPruned = 0;
+  try {
+    const info = db
+      .prepare("DELETE FROM activity_log WHERE at < datetime('now', '-180 days')")
+      .run();
+    activityPruned = Number(info.changes || 0);
+  } catch {
+    /* activity_log absent on a bare DB */
+  }
+  const sites = db.prepare('SELECT id FROM websites').all();
+  for (const s of sites) versionsPruned += pruneWebsiteVersions(db, s.id, 50);
+  if (activityPruned || versionsPruned) {
+    logActivity(
+      db,
+      'retention',
+      `Retention prune: removed ${activityPruned} activity rows older than 180 days and ${versionsPruned} website versions beyond the newest 50 per site.`
+    );
+  }
+  return { activityPruned, versionsPruned };
+}
+
 /** Snapshot current pages+theme as a new version. Returns the version row. */
 function saveVersion(db, websiteId, note, author) {
   ensureTables(db);
@@ -5585,6 +5640,12 @@ function saveVersion(db, websiteId, note, author) {
       'INSERT INTO website_versions (website_id, version_no, pages, theme, note, author) VALUES (?, ?, ?, ?, ?, ?)'
     )
     .run(websiteId, next, site.pages, site.theme, note ? String(note).slice(0, 500) : null, authorVal);
+  // Batch 45: prune-on-save keeps the version history bounded.
+  try {
+    pruneWebsiteVersions(db, websiteId, 50);
+  } catch {
+    /* pruning must never break a save */
+  }
   return db.prepare('SELECT * FROM website_versions WHERE id = ?').get(Number(info.lastInsertRowid));
 }
 
@@ -7796,6 +7857,8 @@ module.exports = {
   buildPages,
   deterministicCopy,
   saveVersion,
+  pruneWebsiteVersions,
+  runRetentionPrunes,
   restoreVersion,
   saveSite,
   getWebsite,

@@ -1039,6 +1039,34 @@ router.get('/forms/submissions/:id', requireClient, async (req, res) => {
   }
 });
 
+// Batch 45 — submission cleanup: hard delete (spam/test), single + bulk.
+router.post('/forms/submissions/delete-bulk', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.deleteFormSubmissions(
+        req.client.workspace_id,
+        req.client.lead_id,
+        (req.body && req.body.ids) || [],
+        req.client.email
+      )
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'FORBIDDEN' ? 403 : 400);
+  }
+});
+
+router.delete('/forms/submissions/:id', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.deleteFormSubmission(req.client.workspace_id, req.client.lead_id, req.params.id, req.client.email)
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.code === 'FORBIDDEN' ? 403 : 400);
+  }
+});
+
 router.post('/forms/publish', requireClient, actionLimit, async (req, res) => {
   try {
     const body = req.body || {};
@@ -1224,6 +1252,18 @@ router.put('/modules/bookings/appointments/:id', requireClient, actionLimit, asy
   }
 });
 
+// Batch 45 — delete an appointment outright (cancel stays the soft path).
+router.delete('/modules/bookings/appointments/:id', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.deleteBookingAppointment(req.client.workspace_id, req.client.lead_id, req.params.id, req.client.email)
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
 router.post('/modules/bookings/blocks', requireClient, actionLimit, async (req, res) => {
   try {
     ok(
@@ -1357,6 +1397,18 @@ router.put('/modules/estimate/requests/:id', requireClient, actionLimit, async (
         req.body || {},
         req.client.email
       )
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
+// Batch 45 — delete an estimate request outright (spam/test cleanup).
+router.delete('/modules/estimate/requests/:id', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.deleteEstimateRequest(req.client.workspace_id, req.client.lead_id, req.params.id, req.client.email)
     );
   } catch (e) {
     fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
@@ -1648,6 +1700,8 @@ router.get('/modules/:type', requireClient, async (req, res) => {
       res,
       await portal.listModuleItems(req.client.workspace_id, req.client.lead_id, req.params.type, req.client.email, {
         includeArchived,
+        limit: req.query.limit,
+        offset: req.query.offset,
       })
     );
   } catch (e) {
@@ -1812,6 +1866,24 @@ router.get('/leadscout/health', requireClient, async (req, res) => {
 router.post('/leadscout/retry', requireClient, actionLimit, async (req, res) => {
   try {
     ok(res, await portal.retryLeadScoutFailures(req.client.workspace_id, req.client.lead_id));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+// Batch 45 — contact delete (own-business contacts only; the engine
+// refuses contacts shared with another business) + clear resolved failures.
+router.delete('/leadscout/contacts/:id', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(res, await portal.deleteLeadScoutContact(req.client.workspace_id, req.client.lead_id, req.params.id));
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.status || 400);
+  }
+});
+
+router.post('/leadscout/failures/clear-resolved', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(res, await portal.clearLeadScoutResolvedFailures(req.client.workspace_id, req.client.lead_id));
   } catch (e) {
     fail(res, e);
   }

@@ -136,6 +136,20 @@ router.patch('/portal-users/:id', async (req, res) => {
   }
 });
 
+// Batch 45 — super-admin delete of a client portal user (this router is
+// requireSuperAdmin-gated end to end). Mirrors the staff-user delete:
+// engine removes the row (TOTP material lives on it; sessions die on
+// their next requireClient read) and the action is platform-audited.
+router.delete('/portal-users/:id', async (req, res) => {
+  try {
+    const data = await require('../clientPortal').deletePortalUser(Number(req.params.id));
+    await platform.audit(req.session.userId, 'portal_user.delete', `portalUserId=${req.params.id} email=${data.email}`);
+    ok(res, data);
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
 // Batch 40 — MFA reset for a portal client who lost their authenticator
 // and recovery codes (portal TOTP is opt-in; clearing returns them to
 // password-only sign-in until they choose to re-enable it).

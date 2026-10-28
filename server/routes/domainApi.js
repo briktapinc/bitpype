@@ -234,10 +234,20 @@ router.patch('/leads/:id', scopeLeadParam, (req, res) => {
     fail(res, e);
   }
 });
+// Batch 45 (B1): pre-flight reference summary for the delete confirm.
+router.get('/leads/:id/references', scopeLeadParam, (req, res) => {
+  try {
+    ok(res, { references: domain.leadsReferences(req.auth.workspaceId, Number(req.params.id)) });
+  } catch (e) {
+    fail(res, e);
+  }
+});
 router.delete('/leads/:id', scopeLeadParam, (req, res) => {
   try {
-    domain.leadsDelete(req.auth.workspaceId, Number(req.params.id));
-    ok(res, { id: Number(req.params.id) });
+    // Batch 45 (B1): return the full outcome (reference summary + which
+    // websites were archive-firsted) instead of a bare id.
+    const result = domain.leadsDelete(req.auth.workspaceId, Number(req.params.id));
+    ok(res, result && typeof result === 'object' ? result : { id: Number(req.params.id) });
   } catch (e) {
     if (/FOREIGN KEY|SQLITE_CONSTRAINT/i.test(String((e && e.message) || ''))) {
       e.code = e.code || 'FK_CONFLICT';
@@ -936,6 +946,18 @@ router.post('/websites/:id/restore', scopeWebsite, (req, res) => {
     fail(res, e);
   }
 });
+// Batch 45: PERMANENT purge of an archived website (staff only; the body
+// must carry the exact site name — type-to-confirm enforced server-side).
+router.delete('/websites/:id/purge', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
+  try {
+    ok(
+      res,
+      domain.sitesPurgeSite(req.auth.workspaceId, Number(req.params.id), (req.body || {}).confirmName)
+    );
+  } catch (e) {
+    fail(res, e, e.status || (e.code === 'SITE_NOT_FOUND' ? 404 : 400));
+  }
+});
 router.post('/websites/generate', pinTokenLeadFilter, scopeBodyLead, async (req, res) => {
   try {
     ok(res, await domain.sitesGenerate(req.auth.workspaceId, Number(req.body.leadId), req.body || {}));
@@ -1534,6 +1556,27 @@ router.get('/admin-area/forms/:id/submissions', denyLeadScopedToken, (req, res) 
     fail(res, e);
   }
 });
+// Batch 45 — staff submission cleanup (spam/test), single + bulk.
+router.post('/admin-area/forms/:id/submissions/delete-bulk', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
+  try {
+    ok(
+      res,
+      domain.adminDeleteFormSubmissions(req.auth.workspaceId, Number(req.params.id), (req.body || {}).ids || [])
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+router.delete('/admin-area/forms/:id/submissions/:submissionId', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
+  try {
+    ok(
+      res,
+      domain.adminDeleteFormSubmission(req.auth.workspaceId, Number(req.params.id), Number(req.params.submissionId))
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
 router.get('/admin-area/leadscout/contacts', denyLeadScopedToken, (req, res) => {
   try {
     ok(
@@ -1553,6 +1596,22 @@ router.get('/admin-area/leadscout/contacts/:id', denyLeadScopedToken, (req, res)
     ok(res, domain.adminLeadScoutContact(req.auth.workspaceId, Number(req.params.id)));
   } catch (e) {
     fail(res, e);
+  }
+});
+// Batch 45 — staff LeadScout cleanup: delete a contact (charged-event
+// guard in the engine) + clear resolved capture failures.
+router.delete('/admin-area/leadscout/contacts/:id', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, domain.adminDeleteLeadScoutContact(req.auth.workspaceId, Number(req.params.id)));
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.status || 400);
+  }
+});
+router.post('/admin-area/leadscout/failures/clear-resolved', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, domain.adminClearLeadScoutResolved(req.auth.workspaceId));
+  } catch (e) {
+    fail(res, e, 500);
   }
 });
 router.get('/admin-area/bookings', denyLeadScopedToken, (req, res) => {
@@ -1621,12 +1680,20 @@ router.get('/admin-area/memberships', denyLeadScopedToken, async (req, res) => {
 // endpoints report { configured: false }.
 router.get('/admin-area/calls', denyLeadScopedToken, async (req, res) => {
   try {
-    const data = await domain.adminCallsOverview(req.auth.workspaceId, { limit: req.query.limit });
+    const data = await domain.adminCallsOverview(req.auth.workspaceId, { limit: req.query.limit, offset: req.query.offset });
     data.twilio_configured = await require('../twilioClient').isConfigured({ workspaceId: req.auth.workspaceId });
     data.workspace_id = req.auth.workspaceId;
     ok(res, data);
   } catch (e) {
     fail(res, e, 500);
+  }
+});
+// Batch 45 — staff delete of a clean call log (engine refuses counted/billed/charged).
+router.delete('/admin-area/calls/:id', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, domain.adminDeleteCallLog(req.auth.workspaceId, Number(req.params.id)));
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.status || 400);
   }
 });
 router.get('/admin-area/calls/numbers/available', denyLeadScopedToken, async (req, res) => {
@@ -1836,9 +1903,17 @@ router.post(
 // ---------- Domain purchase transactions (Batch 15) ----------
 router.get('/admin-area/domain-transactions', denyLeadScopedToken, (req, res) => {
   try {
-    ok(res, domain.adminDomainTransactions(req.auth.workspaceId, { limit: req.query.limit }));
+    ok(res, domain.adminDomainTransactions(req.auth.workspaceId, { limit: req.query.limit, offset: req.query.offset }));
   } catch (e) {
     fail(res, e, 500);
+  }
+});
+// Batch 45 — void a pending_payment/failed transaction (paid/live → 409 in the engine).
+router.post('/admin-area/domain-transactions/:id/void', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, domain.adminVoidDomainTransaction(req.auth.workspaceId, Number(req.params.id)));
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.status || 400);
   }
 });
 router.get('/admin-area/domain-transactions/:id', denyLeadScopedToken, (req, res) => {

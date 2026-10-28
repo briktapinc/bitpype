@@ -3117,12 +3117,27 @@ function syncPublishedModules(db, leadId, opts = {}) {
 
 /* ── Blog ── */
 
-function listBlogPosts(db, leadId, { includeDrafts = true } = {}) {
+function listBlogPosts(db, leadId, { includeDrafts = true, limit = null, offset = 0 } = {}) {
   ensureTables(db);
   let sql = 'SELECT * FROM blog_posts WHERE lead_id = ?';
   if (!includeDrafts) sql += " AND status = 'published'";
   sql += ' ORDER BY COALESCE(published_at, created_at) DESC, id DESC';
-  return db.prepare(sql).all(Number(leadId));
+  const params = [Number(leadId)];
+  // Batch 45: paging is opt-in — callers that need every post (exports,
+  // static blog snapshots) pass no limit and keep the full list.
+  if (limit != null) {
+    sql += ' LIMIT ? OFFSET ?';
+    params.push(Math.min(200, Math.max(1, Number(limit) || 50)), Math.max(0, Number(offset) || 0));
+  }
+  return db.prepare(sql).all(...params);
+}
+
+function countBlogPosts(db, leadId, { includeDrafts = true } = {}) {
+  ensureTables(db);
+  let sql = 'SELECT COUNT(*) AS c FROM blog_posts WHERE lead_id = ?';
+  if (!includeDrafts) sql += " AND status = 'published'";
+  const row = db.prepare(sql).get(Number(leadId));
+  return Number(row && row.c) || 0;
 }
 
 function getBlogPost(db, leadId, idOrSlug) {
@@ -5325,11 +5340,30 @@ function updateEstimateRequestStatus(db, leadId, id, status) {
   return getEstimateRequest(db, leadId, row.id);
 }
 
+/** Batch 45: remove the LeadScout timeline event(s) referencing a module
+ * row being deleted (the contact itself is always preserved). The events
+ * table/columns are owned by portalContacts and may not exist yet on a
+ * bare DB, so absence is a no-op, never an error. */
+function deleteLeadScoutEventsByRef(db, column, refId) {
+  const allowed = ['submission_id', 'booking_id', 'estimate_request_id', 'call_log_id'];
+  if (!allowed.includes(column)) return 0;
+  const t = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'leadscout_events'").get();
+  if (!t) return 0;
+  const cols = db
+    .prepare('PRAGMA table_info(leadscout_events)')
+    .all()
+    .map((c) => String(c.name || ''));
+  if (!cols.includes(column)) return 0;
+  const info = db.prepare(`DELETE FROM leadscout_events WHERE ${column} = ?`).run(Number(refId));
+  return Number(info.changes || 0);
+}
+
 function deleteEstimateRequest(db, leadId, id) {
   ensureTables(db);
   const row = getEstimateRequest(db, leadId, id);
   if (!row) throw fail('NOT_FOUND', 'Estimate request not found', 404);
   db.prepare('DELETE FROM estimate_requests WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
+  deleteLeadScoutEventsByRef(db, 'estimate_request_id', row.id);
   return { deleted: true, id: row.id };
 }
 
@@ -6889,26 +6923,60 @@ function isTerminalCallStatus(status) {
   return CALL_TERMINAL_STATUSES.includes(String(status || '').trim().toLowerCase());
 }
 
-function listCalls(db, leadId, { limit = CALL_LIST_CAP } = {}) {
+function listCalls(db, leadId, { limit = CALL_LIST_CAP, offset = 0 } = {}) {
   ensureTables(db);
   const lim = Math.min(CALL_LIST_CAP, Math.max(1, Number(limit) || CALL_LIST_CAP));
+  const off = Math.max(0, Number(offset) || 0);
   return db
-    .prepare('SELECT * FROM call_logs WHERE lead_id = ? ORDER BY id DESC LIMIT ?')
-    .all(Number(leadId), lim);
+    .prepare('SELECT * FROM call_logs WHERE lead_id = ? ORDER BY id DESC LIMIT ? OFFSET ?')
+    .all(Number(leadId), lim, off);
 }
 
 /** Staff oversight: every call in the workspace, newest first. */
-function listAllCalls(db, { limit = CALL_LIST_CAP } = {}) {
+function listAllCalls(db, { limit = CALL_LIST_CAP, offset = 0 } = {}) {
   ensureTables(db);
   const lim = Math.min(CALL_LIST_CAP, Math.max(1, Number(limit) || CALL_LIST_CAP));
+  const off = Math.max(0, Number(offset) || 0);
   return db
     .prepare(
       `SELECT c.*, l.business_name AS lead_name
        FROM call_logs c
        LEFT JOIN leads l ON l.id = c.lead_id
-       ORDER BY c.id DESC LIMIT ?`
+       ORDER BY c.id DESC LIMIT ? OFFSET ?`
     )
-    .all(lim);
+    .all(lim, off);
+}
+
+/**
+ * Batch 45 — test-call cleanup ONLY. A call log is billing history the
+ * moment it counted toward a plan allowance, was billed for transcription,
+ * or carries a rental charge; those are refused with 409 and stay forever.
+ * A clean, uncounted, uncharged log (e.g. a staff test call) may be
+ * deleted by staff. The LeadScout call event goes with it; the contact
+ * stays.
+ */
+function deleteCallLog(db, id) {
+  ensureTables(db);
+  const row = db.prepare('SELECT * FROM call_logs WHERE id = ?').get(Number(id));
+  if (!row) throw fail('NOT_FOUND', 'Call log not found', 404);
+  if (Number(row.counted || 0) !== 0) {
+    throw fail('CALL_COUNTED', 'Counted calls are billing history and cannot be deleted.', 409);
+  }
+  if (Number(row.transcription_billed || 0) !== 0) {
+    throw fail('CALL_BILLED', 'This call was billed for transcription and cannot be deleted.', 409);
+  }
+  const chargeTable = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'site_rental_charges'")
+    .get();
+  if (chargeTable) {
+    const charge = db.prepare('SELECT id FROM site_rental_charges WHERE call_log_id = ? LIMIT 1').get(row.id);
+    if (charge) {
+      throw fail('CALL_CHARGED', 'This call carries a rental charge and cannot be deleted.', 409);
+    }
+  }
+  db.prepare('DELETE FROM call_logs WHERE id = ?').run(row.id);
+  deleteLeadScoutEventsByRef(db, 'call_log_id', row.id);
+  return { deleted: true, id: row.id };
 }
 
 /* ── Call billing bookkeeping (addendum #3) ──────────────────────────
@@ -7620,6 +7688,7 @@ function resetMemberPassword(db, leadId, rawToken, newPassword) {
 function listSiteMembers(db, leadId, opts = {}) {
   ensureTables(db);
   const limit = Math.min(500, Math.max(1, Number(opts.limit) || 200));
+  const offset = Math.max(0, Number(opts.offset) || 0);
   const params = [Number(leadId)];
   let sql = 'SELECT * FROM site_members WHERE lead_id = ?';
   const status = String(opts.status || '')
@@ -7637,8 +7706,8 @@ function listSiteMembers(db, leadId, opts = {}) {
     sql += ' AND (email LIKE ? OR lower(name) LIKE ?)';
     params.push(`%${search}%`, `%${search}%`);
   }
-  sql += ' ORDER BY id DESC LIMIT ?';
-  params.push(limit);
+  sql += ' ORDER BY id DESC LIMIT ? OFFSET ?';
+  params.push(limit, offset);
   return db
     .prepare(sql)
     .all(...params)
@@ -9400,11 +9469,12 @@ function deleteAppointment(db, leadId, id) {
   const row = getAppointment(db, leadId, id);
   if (!row) throw fail('NOT_FOUND', 'Appointment not found', 404);
   db.prepare('DELETE FROM bookings WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
+  deleteLeadScoutEventsByRef(db, 'booking_id', row.id);
   return { deleted: true, id: row.id };
 }
 
 function moduleItemCount(db, leadId, type) {
-  if (type === 'blog') return listBlogPosts(db, leadId).length;
+  if (type === 'blog') return countBlogPosts(db, leadId);
   if (type === 'ecommerce') return listProducts(db, leadId).length;
   if (type === 'courses') return listCourses(db, leadId, { withLessons: false }).length;
   if (type === 'gallery') return listAlbums(db, leadId, { withImages: false }).length;
@@ -9926,6 +9996,8 @@ module.exports = {
   isTerminalCallStatus,
   listCalls,
   listAllCalls,
+  deleteCallLog,
+  countBlogPosts,
   CALL_ALLOWANCE_BY_PLAN,
   CALL_COUNT_MIN_SECONDS,
   CALL_OVERAGE_BLOCK,

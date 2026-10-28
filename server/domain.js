@@ -162,6 +162,10 @@ function leadsUpdate(workspaceId, id, patch) {
 function leadsDelete(workspaceId, id) {
   return withDb(workspaceId, (db) => leadEngine().deleteLead(db, id));
 }
+/** Batch 45 (B1) — pre-flight reference counts for the lead-delete confirm. */
+function leadsReferences(workspaceId, id) {
+  return withDb(workspaceId, (db) => leadEngine().leadReferenceSummary(db, Number(id)));
+}
 function leadsScore(workspaceId, id) {
   return withDb(workspaceId, (db) => leadEngine().scoreLead(db, id));
 }
@@ -1312,6 +1316,31 @@ function sitesDelete(workspaceId, id) {
 /** Batch 27 — restore an archived website (clears the archive stamp). */
 function sitesRestoreSite(workspaceId, id) {
   return withDb(workspaceId, (db) => websiteEngine().restoreWebsite(db, Number(id)));
+}
+/**
+ * Batch 45 — PERMANENT purge of an ARCHIVED website (Archives page,
+ * type-to-confirm in the UI; the route also requires the exact site
+ * name in the body). Wires the previously unreachable
+ * websiteEngine.destroyWebsite. A live (non-archived) site is refused:
+ * archive is always the first step.
+ */
+function sitesPurgeSite(workspaceId, id, confirmName) {
+  return withDb(workspaceId, (db) => {
+    const engine = websiteEngine();
+    const site = engine.getWebsite(db, Number(id));
+    if (!site) throw siteErr('SITE_NOT_FOUND', `Website #${id} not found.`);
+    if (!site.archived_at) {
+      const e = siteErr('NOT_ARCHIVED', 'Only an archived website can be purged. Archive it first.');
+      e.status = 409;
+      throw e;
+    }
+    if (String(confirmName || '') !== String(site.name || '')) {
+      const e = siteErr('CONFIRM_REQUIRED', 'Type the exact site name to confirm the permanent purge.');
+      e.status = 400;
+      throw e;
+    }
+    return engine.destroyWebsite(db, Number(id), { workspaceId: Number(workspaceId) });
+  });
 }
 /** Batch 27 — archived websites for the staff Archives page. */
 function sitesArchivedList(workspaceId) {
@@ -4561,6 +4590,36 @@ async function domainFlowCheckout(token, body = {}) {
 function adminDomainTransactions(workspaceId, opts = {}) {
   return withDb(workspaceId, (db) => require('./domainFlow').adminList(db, opts));
 }
+/** Batch 45 — staff void of a pending_payment/failed domain transaction. */
+function adminVoidDomainTransaction(workspaceId, id) {
+  return withDb(workspaceId, (db) => {
+    const out = require('./domainFlow').voidTransaction(db, Number(id));
+    try {
+      db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
+        'domains',
+        `Staff voided domain transaction #${id}`
+      );
+    } catch {
+      /* activity log is best-effort */
+    }
+    return out;
+  });
+}
+/** Batch 45 — staff delete of a clean (uncounted/uncharged) call log. */
+function adminDeleteCallLog(workspaceId, id) {
+  return withDb(workspaceId, (db) => {
+    const out = require('./siteModules').deleteCallLog(db, Number(id));
+    try {
+      db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
+        'calls',
+        `Staff deleted call log #${id} (uncounted test-call cleanup)`
+      );
+    } catch {
+      /* activity log is best-effort */
+    }
+    return out;
+  });
+}
 function adminDomainTransaction(workspaceId, id) {
   return withDb(workspaceId, (db) => require('./domainFlow').adminDetail(db, id));
 }
@@ -4749,6 +4808,46 @@ function adminFormSubmissions(workspaceId, formId, opts = {}) {
   });
 }
 
+/** Batch 45 — staff delete of one submission on a form (spam/test cleanup). */
+function adminDeleteFormSubmission(workspaceId, formId, submissionId) {
+  return withDb(workspaceId, (db) => {
+    const forms = require('./contactForms');
+    forms.ensureTables(db);
+    const row = db.prepare('SELECT * FROM contact_forms WHERE id = ?').get(Number(formId));
+    if (!row) throw Object.assign(new Error('Form not found'), { code: 'NOT_FOUND' });
+    const out = forms.deleteSubmission(db, row.lead_id, Number(submissionId));
+    try {
+      db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
+        'forms',
+        `Staff deleted form submission #${submissionId} on form #${formId} (lead #${row.lead_id})`
+      );
+    } catch {
+      /* activity log is best-effort */
+    }
+    return out;
+  });
+}
+
+/** Batch 45 — staff bulk delete of submissions on a form. */
+function adminDeleteFormSubmissions(workspaceId, formId, ids) {
+  return withDb(workspaceId, (db) => {
+    const forms = require('./contactForms');
+    forms.ensureTables(db);
+    const row = db.prepare('SELECT * FROM contact_forms WHERE id = ?').get(Number(formId));
+    if (!row) throw Object.assign(new Error('Form not found'), { code: 'NOT_FOUND' });
+    const out = forms.deleteSubmissions(db, row.lead_id, Array.isArray(ids) ? ids : []);
+    try {
+      db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
+        'forms',
+        `Staff bulk-deleted ${out.deletedCount} form submission(s) on form #${formId} (lead #${row.lead_id})`
+      );
+    } catch {
+      /* activity log is best-effort */
+    }
+    return out;
+  });
+}
+
 function adminLeadScoutContacts(workspaceId, opts = {}) {
   const portal = require('./clientPortal');
   const contacts = portal.listLeadScoutContacts(workspaceId, null, opts, { workspaceWide: true });
@@ -4797,6 +4896,27 @@ function adminLeadScoutContacts(workspaceId, opts = {}) {
 function adminLeadScoutContact(workspaceId, id) {
   const portal = require('./clientPortal');
   return portal.getLeadScoutContact(workspaceId, null, id, { workspaceWide: true });
+}
+
+/** Batch 45 — staff (workspace-wide) LeadScout contact delete. */
+function adminDeleteLeadScoutContact(workspaceId, id) {
+  return withDb(workspaceId, (db) => {
+    const out = require('./portalContacts').deleteContact(db, Number(id), {});
+    try {
+      db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
+        'leadscout',
+        `Staff deleted LeadScout contact #${id} (${out.eventsRemoved} event(s) removed)`
+      );
+    } catch {
+      /* activity log is best-effort */
+    }
+    return out;
+  });
+}
+
+/** Batch 45 — staff clear of resolved LeadScout capture failures. */
+function adminClearLeadScoutResolved(workspaceId) {
+  return withDb(workspaceId, (db) => require('./portalContacts').clearResolvedFailures(db, {}));
 }
 
 function adminBookingsOverview(workspaceId, opts = {}) {
@@ -4922,7 +5042,7 @@ async function adminCallsOverview(workspaceId, opts = {}) {
   const data = withDb(workspaceId, (db) => {
     const modules = require('./siteModules');
     modules.ensureTables(db);
-    const calls = modules.listAllCalls(db, { limit: opts.limit });
+    const calls = modules.listAllCalls(db, { limit: opts.limit, offset: opts.offset });
     // Businesses that can hold a number: leads with the module attached.
     // Batch 25c: the admin surface is the ONLY place forwarding is
     // configured, so each business carries the client's provided number
@@ -5337,6 +5457,12 @@ module.exports = {
   rentalsResume,
   adminFormsList,
   adminFormSubmissions,
+  adminDeleteFormSubmission,
+  adminDeleteFormSubmissions,
+  adminDeleteLeadScoutContact,
+  adminClearLeadScoutResolved,
+  adminDeleteCallLog,
+  adminVoidDomainTransaction,
   adminLeadScoutContacts,
   adminLeadScoutContact,
   adminBookingsOverview,
@@ -5358,6 +5484,7 @@ module.exports = {
   leadsCreate,
   leadsUpdate,
   leadsDelete,
+  leadsReferences,
   leadsScore,
   leadsQualify,
   leadsMerge,
@@ -5422,6 +5549,7 @@ module.exports = {
   sitesGet,
   sitesDelete,
   sitesRestoreSite,
+  sitesPurgeSite,
   sitesArchivedList,
   sitesGenerate,
   sitesQa,

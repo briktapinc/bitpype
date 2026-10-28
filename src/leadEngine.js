@@ -719,24 +719,111 @@ function updateLead(db, id, obj) {
   return getLead(db, id);
 }
 
-/** Delete a lead and its dependent rows. */
+/** Tolerant reference counter: feature tables may not exist on older tenant DBs. */
+function countLeadRefs(db, table, leadId, extraSql = '', extraParams = []) {
+  const found = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
+  if (!found) return 0;
+  const row = db.prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE lead_id = ? ${extraSql}`).get(leadId, ...extraParams);
+  return Number(row && row.c) || 0;
+}
+
+/**
+ * Batch 45 (B1) — pre-flight reference summary for the delete confirm:
+ * exactly what a lead delete will touch, computed BEFORE anything is
+ * deleted so the UI can show it and the caller can decide with open eyes.
+ */
+function leadReferenceSummary(db, id) {
+  const leadId = Number(id);
+  let websites = [];
+  try {
+    websites = db.prepare('SELECT id, archived_at FROM websites WHERE lead_id = ? ORDER BY id').all(leadId);
+  } catch {
+    websites = [];
+  }
+  const websiteIds = websites.map((w) => Number(w.id));
+  let siteDomains = countLeadRefs(db, 'site_domains', leadId);
+  if (websiteIds.length) {
+    const found = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'site_domains'").get();
+    if (found) {
+      const ph = websiteIds.map(() => '?').join(',');
+      const row = db
+        .prepare(`SELECT COUNT(*) AS c FROM site_domains WHERE lead_id = ? OR website_id IN (${ph})`)
+        .get(leadId, ...websiteIds);
+      siteDomains = Number(row && row.c) || 0;
+    }
+  }
+  return {
+    websites: websites.length,
+    websitesActive: websites.filter((w) => !w.archived_at).length,
+    websitesArchived: websites.filter((w) => !!w.archived_at).length,
+    websiteIds,
+    siteDomains,
+    designJobs: countLeadRefs(db, 'design_jobs', leadId),
+    domainTransactions: countLeadRefs(db, 'domain_transactions', leadId),
+    bookings: countLeadRefs(db, 'bookings', leadId),
+    callLogs: countLeadRefs(db, 'call_logs', leadId),
+    contactForms: countLeadRefs(db, 'contact_forms', leadId),
+    formSubmissions: countLeadRefs(db, 'form_submissions', leadId),
+  };
+}
+
+/**
+ * Delete a lead and its dependent rows.
+ *
+ * Batch 45 (B1 hardening): this used to lean on the schema cascade —
+ * websites.lead_id is ON DELETE CASCADE — so deleting a lead silently
+ * HARD-deleted its website row + versions while the Cloudflare Pages
+ * project kept serving and site_domains stayed 'linked' at a dead site.
+ * Now, inside the same transaction:
+ *   1. The reference summary is computed first (also returned, so the
+ *      confirm the user saw matches what happened).
+ *   2. Every non-archived website is soft-archived through the website
+ *      path (websiteEngine.deleteWebsite — the Batch 27 archive), never
+ *      silently hard-deleted by the cascade. The archived rows then
+ *      follow the lead; nothing LIVE is ever destroyed by this call.
+ *   3. site_domains rows for the lead / its websites are deleted in-tx
+ *      (they are plain refs with no FK — they used to dangle 'linked').
+ * Design jobs keep their own lifecycle (deliberately not deleted).
+ */
 function deleteLead(db, id) {
   const existing = getLead(db, id);
   if (!existing) throw validationError(`lead not found: ${id}`);
+  let summary = null;
+  const archivedWebsiteIds = [];
   const tx = db.transaction(() => {
+    summary = leadReferenceSummary(db, id);
+    // Archive-first for websites (soft delete via the website path).
+    if (summary.websiteIds.length) {
+      const engine = require('./websiteEngine');
+      for (const siteId of summary.websiteIds) {
+        const site = db.prepare('SELECT archived_at FROM websites WHERE id = ?').get(siteId);
+        if (site && !site.archived_at) {
+          engine.deleteWebsite(db, siteId);
+          archivedWebsiteIds.push(siteId);
+        }
+      }
+    }
     const drop = (table) => {
       // Some tenant DBs predate a feature table; skip tables that do not exist.
       const found = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
       if (found) db.prepare(`DELETE FROM ${table} WHERE lead_id = ?`).run(id);
     };
+    // site_domains cleanup (B1): the lead's own rows plus any rows that
+    // point at the lead's websites, all inside this transaction.
+    const sdTable = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'site_domains'").get();
+    if (sdTable) {
+      db.prepare('DELETE FROM site_domains WHERE lead_id = ?').run(id);
+      if (summary.websiteIds.length) {
+        const ph = summary.websiteIds.map(() => '?').join(',');
+        db.prepare(`DELETE FROM site_domains WHERE website_id IN (${ph})`).run(...summary.websiteIds);
+      }
+    }
     // Dependency order, all inside this one transaction: submissions belong
     // to the lead's forms, so they go before the forms themselves. ai_usage
     // is the hard blocker — its FK to leads has no ON DELETE CASCADE, so the
     // lead delete failed FK_CONFLICT whenever a lead had AI usage rows.
     // contact_forms / design_learning_events carry plain lead_id columns (no
-    // FK) and would otherwise be left orphaned. Websites and design jobs are
-    // deliberately NOT deleted here: websites follow their schema cascade
-    // and design jobs keep their own lifecycle.
+    // FK) and would otherwise be left orphaned.
     drop('form_submissions');
     drop('contact_forms');
     drop('ai_usage');
@@ -747,7 +834,7 @@ function deleteLead(db, id) {
     db.prepare('DELETE FROM leads WHERE id = ?').run(id);
   });
   tx();
-  return { ok: true, id };
+  return { ok: true, id, summary, archivedWebsiteIds };
 }
 
 /* ------------------------------------------------------------------ */
@@ -1837,6 +1924,7 @@ module.exports = {
   getLead,
   updateLead,
   deleteLead,
+  leadReferenceSummary,
   // import / discover / dedup / merge
   importCsv,
   discoverLeads,

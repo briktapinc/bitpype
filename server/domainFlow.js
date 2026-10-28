@@ -31,7 +31,7 @@ const { staffUrl } = require('./appUrls');
 
 const DEFAULT_INCLUDED_MAX_USD = 25;
 const STALE_PENDING_HOURS = 72;
-const STATUSES = ['pending_payment', 'paid', 'registering', 'live', 'failed'];
+const STATUSES = ['pending_payment', 'paid', 'registering', 'live', 'failed', 'voided'];
 
 function fail(code, message, extra) {
   const e = new Error(message);
@@ -653,16 +653,45 @@ async function onDomainCheckoutPaid(session, deps = {}) {
 function adminList(db, opts = {}) {
   ensureTables(db);
   const limit = Math.min(200, Math.max(1, Number(opts.limit) || 100));
+  const offset = Math.max(0, Number(opts.offset) || 0);
   const rows = db
     .prepare(
       `SELECT t.*, l.business_name AS lead_name, l.email AS lead_email, w.name AS website_name
        FROM domain_transactions t
        LEFT JOIN leads l ON l.id = t.lead_id
        LEFT JOIN websites w ON w.id = t.website_id
-       ORDER BY t.id DESC LIMIT ?`
+       ORDER BY t.id DESC LIMIT ? OFFSET ?`
     )
-    .all(limit);
-  return { transactions: rows.map(publicTxn) };
+    .all(limit, offset);
+  const totalRow = db.prepare('SELECT COUNT(*) AS c FROM domain_transactions').get();
+  return { transactions: rows.map(publicTxn), total: Number(totalRow && totalRow.c) || 0 };
+}
+
+/**
+ * Batch 45 — staff void for a transaction that will never complete.
+ * Only the two dead-end states may be voided ('pending_payment',
+ * 'failed'); a paid or live transaction is the audit trail for real
+ * money / a real domain and voiding it is refused with 409. A voided
+ * transaction drops out of every "open transaction" read (pickerMeta's
+ * status list, checkout resume via markPaid's pending-only guard), so
+ * the claim page and domain picker stop offering around it.
+ */
+function voidTransaction(db, id) {
+  ensureTables(db);
+  const row = getTransaction(db, id);
+  if (!row) throw fail('NOT_FOUND', 'Domain transaction not found');
+  if (row.status !== 'pending_payment' && row.status !== 'failed') {
+    throw fail(
+      'TXN_NOT_VOIDABLE',
+      `A ${row.status} transaction cannot be voided — only pending-payment or failed transactions can.`,
+      { status: 409 }
+    );
+  }
+  db.prepare(
+    `UPDATE domain_transactions SET status = 'voided', updated_at = datetime('now') WHERE id = ?`
+  ).run(row.id);
+  appendStep(db, row.id, 'voided', true, 'Voided by staff (Batch 45 cleanup)');
+  return { transaction: publicTxn(getTransaction(db, row.id)), voided: true };
 }
 
 function adminDetail(db, id) {
@@ -946,6 +975,7 @@ module.exports = {
   composeClientLiveEmail,
   adminList,
   adminDetail,
+  voidTransaction,
   completeTransaction,
   publicTxn,
   displayStatus,

@@ -146,11 +146,18 @@ function ensureTables(db) {
 }
 
 /** Batch 26 rental stamp + charge — lazy + guarded: stamping must
- *  never break a visitor capture. */
+ *  never break a visitor capture. Batch 45 (B5): failures are LOGGED
+ *  with context — the exactly-once guarantee comes from the rentals
+ *  unique indexes, but a non-duplicate failure (missing table on an old
+ *  DB, stamp mis-resolution) used to leave a qualified capture silently
+ *  unbilled with no trace anywhere. Behavior is otherwise unchanged. */
 function rentalStamp(db, leadId) {
   try {
     return require('./rentals').resolveStamp(db, leadId);
-  } catch {
+  } catch (e) {
+    console.warn(
+      `[portalContacts] rentalStamp failed for lead ${leadId}: ${(e && e.message) || e}`
+    );
     return { websiteId: null, tenantLeadId: null, rentalId: null };
   }
 }
@@ -158,7 +165,12 @@ function rentalStamp(db, leadId) {
 function rentalCharge(db, args) {
   try {
     return require('./rentals').recordCaptureCharge(db, args);
-  } catch {
+  } catch (e) {
+    console.warn(
+      `[portalContacts] rentalCharge failed for lead ${args && args.ownerLeadId} event ${args && args.eventId} kind ${
+        args && args.sourceKind
+      }: ${(e && e.message) || e}`
+    );
     return null;
   }
 }
@@ -781,6 +793,64 @@ function getContact(db, id, { leadId = null } = {}) {
   };
 }
 
+/**
+ * Batch 45 — hard-delete a LeadScout contact. Events cascade via the
+ * leadscout_events FK. Money guard: if any of the contact's events
+ * carries a rental charge (site_rental_charges.event_id), deletion is
+ * refused — the charge ledger must never point at a vanished event.
+ * Lead-scoped callers (the portal) may only delete a contact whose
+ * events ALL belong to their lead; a contact shared with another
+ * business is a staff-level (workspace-wide) delete.
+ */
+function deleteContact(db, id, { leadId = null } = {}) {
+  ensureTables(db);
+  const scope = validLeadScope(leadId);
+  const contact = db.prepare('SELECT * FROM leadscout_contacts WHERE id = ?').get(Number(id));
+  if (!contact) throw fail('NOT_FOUND', 'LeadScout contact not found', 404);
+  const events = db.prepare('SELECT id, lead_id FROM leadscout_events WHERE contact_id = ?').all(contact.id);
+  if (scope != null) {
+    if (!events.length || events.some((e) => Number(e.lead_id) !== scope)) {
+      throw fail(
+        'CONTACT_SHARED',
+        'This contact also belongs to another business — only staff can delete it.',
+        409
+      );
+    }
+  }
+  const chargeTable = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'site_rental_charges'")
+    .get();
+  if (chargeTable && events.length) {
+    const ids = events.map((e) => Number(e.id));
+    const placeholders = ids.map(() => '?').join(',');
+    const charge = db
+      .prepare(`SELECT id FROM site_rental_charges WHERE event_id IN (${placeholders}) LIMIT 1`)
+      .get(...ids);
+    if (charge) {
+      throw fail(
+        'CONTACT_CHARGED',
+        'This contact has rental-charged activity and cannot be deleted.',
+        409
+      );
+    }
+  }
+  db.prepare('DELETE FROM leadscout_contacts WHERE id = ?').run(contact.id);
+  return { deleted: true, id: contact.id, eventsRemoved: events.length };
+}
+
+/** Batch 45 — clear RESOLVED capture failures (housekeeping; open ones stay for retry). */
+function clearResolvedFailures(db, { leadId = null } = {}) {
+  ensureTables(db);
+  const scope = validLeadScope(leadId);
+  const info =
+    scope == null
+      ? db.prepare('DELETE FROM leadscout_capture_failures WHERE resolved_at IS NOT NULL').run()
+      : db
+          .prepare('DELETE FROM leadscout_capture_failures WHERE resolved_at IS NOT NULL AND lead_id = ?')
+          .run(scope);
+  return { cleared: Number(info.changes || 0) };
+}
+
 function captureHealth(db, { leadId = null } = {}) {
   ensureTables(db);
   leadId = validLeadScope(leadId);
@@ -889,6 +959,8 @@ module.exports = {
   markSmsConfirmResult,
   listContacts,
   getContact,
+  deleteContact,
+  clearResolvedFailures,
   captureHealth,
   retryOpenFailures,
   pickContactFields,
