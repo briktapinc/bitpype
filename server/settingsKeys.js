@@ -244,6 +244,16 @@ const SETTABLE_KEYS = [
   'adsense.publisher_id',
   'adsense.slot_id',
   'domain_flow.included_max_usd',
+  'domain.registrant_first_name',
+  'domain.registrant_last_name',
+  'domain.registrant_organization',
+  'domain.registrant_email',
+  'domain.registrant_phone',
+  'domain.registrant_address',
+  'domain.registrant_city',
+  'domain.registrant_state',
+  'domain.registrant_postal_code',
+  'domain.registrant_country',
 ];
 
 const PROMPT_SEEDS = [
@@ -707,6 +717,35 @@ function validateSetting(key, raw) {
       if (!isNum(value)) return fail('must be a number');
       if (toNum(value) < 0 || toNum(value) > 100000) return fail('must be between 0 and 100000');
       return { ok: true, value: String(toNum(value)) };
+    // --- Domain registrant contact (Batch 38). Blank is allowed HERE —
+    // completeness is enforced at registration time by
+    // src/cfDomains.buildRegistrantContact, not by the settings save. ---
+    case 'domain.registrant_email':
+      if (value.trim() !== '' && !isEmail(value)) return fail('must be a valid email address or empty');
+      if (value.length > 90) return fail('must be 90 chars or fewer');
+      return { ok: true, value: value.trim() };
+    case 'domain.registrant_country': {
+      const v = value.trim().toUpperCase();
+      if (v !== '' && !/^[A-Z]{2}$/.test(v)) return fail('must be an ISO 2-letter country code (e.g. US) or empty');
+      return { ok: true, value: v };
+    }
+    case 'domain.registrant_first_name':
+    case 'domain.registrant_last_name':
+      if (value.length > 60) return fail('must be 60 chars or fewer');
+      return { ok: true, value: value.trim() };
+    case 'domain.registrant_phone':
+      if (value.length > 32) return fail('must be 32 chars or fewer');
+      if (value.includes('\0')) return fail('must not contain null bytes');
+      return { ok: true, value: value.trim() };
+    case 'domain.registrant_organization':
+    case 'domain.registrant_address':
+    case 'domain.registrant_city':
+    case 'domain.registrant_state':
+      if (value.length > 100) return fail('must be 100 chars or fewer');
+      return { ok: true, value: value.trim() };
+    case 'domain.registrant_postal_code':
+      if (value.length > 20) return fail('must be 20 chars or fewer');
+      return { ok: true, value: value.trim() };
     default:
       return { ok: false, error: `No validator for setting "${key}".` };
   }

@@ -5549,6 +5549,7 @@ const SETTINGS_TABS = [
   ['sms', 'SMS', 'sec-sms'],
   ['social', 'Social', 'sec-meta'],
   ['cloudflare', 'Cloudflare', 'sec-cf'],
+  ['domains', 'Domains', 'sec-domains'],
   ['shop', 'Shop payments', 'sec-shop'],
   ['keys', 'Provider keys', 'sec-keys'],
   ['footer', 'Footer & scoring', 'sec-mail'],
@@ -5824,6 +5825,17 @@ async function pageSettings(param) {
           ${secret('cf.api_token', 'API token')}
           <div class="inline"><button class="btn primary" data-act="save" data-sec="sec-cf">Save Cloudflare settings</button><button class="btn" data-act="cf-test">Test connection</button><span class="msg" data-msg="sec-cf"></span></div>
           <div id="cf-out" class="hint" style="margin-top:8px"></div>
+        </section>
+
+        <section class="card" id="sec-domains"${showSec('sec-domains')}><h2>Domain registration</h2>
+          <p class="hint">Default registrant contact sent with every domain registered through BitPype (Cloudflare Registrar). Registrations are blocked until every field except Organization is filled — Cloudflare rejects purchases that arrive without a registrant contact. This is the platform's contact (the domain owner of record), not the client's.</p>
+          <div class="row">${f('domain.registrant_first_name', 'First name')}${f('domain.registrant_last_name', 'Last name')}</div>
+          ${f('domain.registrant_organization', 'Organization (optional)')}
+          <div class="row">${f('domain.registrant_email', 'Email', { type: 'email' })}${f('domain.registrant_phone', 'Phone', { placeholder: '+1 610 555 0123' })}</div>
+          ${f('domain.registrant_address', 'Street address')}
+          <div class="row">${f('domain.registrant_city', 'City')}${f('domain.registrant_state', 'State / province')}${f('domain.registrant_postal_code', 'Postal code')}</div>
+          ${f('domain.registrant_country', 'Country (ISO 2-letter)', { placeholder: 'US' })}
+          ${save('sec-domains', 'Save domain settings')}
         </section>
 
         <section class="card" id="sec-shop"${showSec('sec-shop')}><h2>Shop payments (Stripe)</h2>

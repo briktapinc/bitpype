@@ -274,6 +274,36 @@ const PLATFORM_SETTING_DEFS = [
     label: 'Domain flow: max domain registration price (USD) included free with a plan',
     default: '25',
   },
+
+  // Domain registration (Batch 38): the platform's default registrant
+  // contact, sent as registrant_contact with EVERY Cloudflare Registrar
+  // purchase (src/cfDomains.buildRegistrantContact). Platform-owned
+  // (Ely's) contact — NOT derived from lead records. Read workspace-first,
+  // platform-fallback per field (same order as the CF credentials).
+  // Organization is the only optional field; registrations pre-flight and
+  // refuse to call Cloudflare until the rest are filled (Admin →
+  // Settings → Domains). Group 'domains' keeps these OUT of
+  // WORKSPACE_SEED_KEYS (platform-owned, not per-workspace defaults).
+  { key: 'domain.registrant_first_name', group: 'domains', label: 'Domain registrant: first name', default: '' },
+  { key: 'domain.registrant_last_name', group: 'domains', label: 'Domain registrant: last name', default: '' },
+  {
+    key: 'domain.registrant_organization',
+    group: 'domains',
+    label: 'Domain registrant: organization (optional)',
+    default: '',
+  },
+  { key: 'domain.registrant_email', group: 'domains', label: 'Domain registrant: email', default: '' },
+  { key: 'domain.registrant_phone', group: 'domains', label: 'Domain registrant: phone', default: '' },
+  { key: 'domain.registrant_address', group: 'domains', label: 'Domain registrant: street address', default: '' },
+  { key: 'domain.registrant_city', group: 'domains', label: 'Domain registrant: city', default: '' },
+  { key: 'domain.registrant_state', group: 'domains', label: 'Domain registrant: state / province', default: '' },
+  { key: 'domain.registrant_postal_code', group: 'domains', label: 'Domain registrant: postal code', default: '' },
+  {
+    key: 'domain.registrant_country',
+    group: 'domains',
+    label: 'Domain registrant: country (ISO 2-letter)',
+    default: 'US',
+  },
 ];
 
 const WORKSPACE_SEED_KEYS = PLATFORM_SETTING_DEFS.filter(

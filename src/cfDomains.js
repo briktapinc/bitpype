@@ -127,6 +127,95 @@ async function creds(db) {
   return c;
 }
 
+// ---------- Registrant contact (Batch 38) ----------
+/**
+ * The platform's default registrant contact, sent as `registrant_contact`
+ * with EVERY Cloudflare Registrar purchase. Before Batch 38 no contact was
+ * ever sent, so registration depended on the Cloudflare account having a
+ * default address-book entry — when it doesn't, Cloudflare fails the
+ * purchase with "No registrant contact provided and no default address
+ * book entry found for this account."
+ *
+ * Settings live in PLATFORM_SETTING_DEFS (group 'domains', Admin →
+ * Settings → Domains) and resolve workspace-first, platform-fallback per
+ * field — the same order cf.resolveCfCredentials uses for the token /
+ * account. Organization is the only optional field.
+ *
+ * Field shape follows the Cloudflare Registrar API's registrant_contact
+ * object (developers.cloudflare.com/api/resources/registrar →
+ * DomainRegistrantContact): snake_case first_name / last_name /
+ * organization / email / phone / address / city / state / zip / country.
+ * The settings key domain.registrant_postal_code maps to CF's `zip`.
+ */
+const REGISTRANT_FIELDS = [
+  { setting: 'domain.registrant_first_name', field: 'first_name', label: 'First name', required: true },
+  { setting: 'domain.registrant_last_name', field: 'last_name', label: 'Last name', required: true },
+  { setting: 'domain.registrant_organization', field: 'organization', label: 'Organization', required: false },
+  { setting: 'domain.registrant_email', field: 'email', label: 'Email', required: true },
+  { setting: 'domain.registrant_phone', field: 'phone', label: 'Phone', required: true },
+  { setting: 'domain.registrant_address', field: 'address', label: 'Street address', required: true },
+  { setting: 'domain.registrant_city', field: 'city', label: 'City', required: true },
+  { setting: 'domain.registrant_state', field: 'state', label: 'State / province', required: true },
+  { setting: 'domain.registrant_postal_code', field: 'zip', label: 'Postal code', required: true },
+  { setting: 'domain.registrant_country', field: 'country', label: 'Country', required: true },
+];
+
+function readWorkspaceSetting(db, key) {
+  try {
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+    if (!row || typeof row.value !== 'string') return '';
+    try {
+      return String(require('./secretBox').decryptSetting(key, row.value) || '');
+    } catch {
+      return row.value;
+    }
+  } catch {
+    return '';
+  }
+}
+
+async function resolveRegistrantSetting(db, key) {
+  const local = readWorkspaceSetting(db, key).trim();
+  if (local) return local;
+  try {
+    const platform = require('../server/platform');
+    return String((await platform.getPlatformSetting(key, '')) || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Build the Cloudflare `registrant_contact` object from settings.
+ * `resolveSetting(key)` may be sync or async and returns the raw value.
+ * Throws a typed REGISTRANT_INCOMPLETE error naming every missing
+ * required setting and where to fill it in. Exported for unit tests.
+ */
+async function buildRegistrantContact(resolveSetting) {
+  const contact = {};
+  const missing = [];
+  for (const f of REGISTRANT_FIELDS) {
+    let v = '';
+    try {
+      v = String((await resolveSetting(f.setting)) || '').trim();
+    } catch {
+      v = '';
+    }
+    if (f.field === 'country' && v) v = v.toUpperCase();
+    if (v) contact[f.field] = v;
+    else if (f.required) missing.push(`${f.label} (${f.setting})`);
+  }
+  if (missing.length) {
+    throw fail(
+      'REGISTRANT_INCOMPLETE',
+      `Domain registrant contact is incomplete — missing: ${missing.join(', ')}. ` +
+        'Fill in the registrant contact under Admin → Settings → Domains, then retry. No domain was registered.',
+      { missing }
+    );
+  }
+  return contact;
+}
+
 function mapSearchDomain(row) {
   if (!row || typeof row !== 'object') return null;
   const name = normalizeDomain(row.name || row.domain_name || row.domain);
@@ -217,6 +306,12 @@ async function registerDomain(db, domainName, opts = {}) {
   const websiteId = opts.websiteId != null ? Number(opts.websiteId) : null;
   const leadId = opts.leadId != null ? Number(opts.leadId) : null;
 
+  // Batch 38: pre-flight the registrant contact BEFORE any Cloudflare
+  // call — a partial contact must never reach the registrar (it fails
+  // there with the raw "No registrant contact provided…" error, after a
+  // billable attempt has already been made).
+  const registrantContact = await buildRegistrantContact((key) => resolveRegistrantSetting(db, key));
+
   // Real-time check before billable register
   const checked = await checkDomains(db, [domain]);
   const hit = (checked.domains || []).find((d) => d.domain === domain);
@@ -230,7 +325,7 @@ async function registerDomain(db, domainName, opts = {}) {
   }
 
   const { token, accountId } = await creds(db);
-  const body = { domain_name: domain, years };
+  const body = { domain_name: domain, years, registrant_contact: registrantContact };
   const resp = await apiRequest({
     method: 'POST',
     apiPath: `${API_BASE}/accounts/${accountId}/registrar/registrations`,
@@ -580,6 +675,8 @@ function recordSearchIntent(db, leadId, query) {
 module.exports = {
   ensureTables,
   normalizeDomain,
+  buildRegistrantContact,
+  REGISTRANT_FIELDS,
   searchDomains,
   checkDomains,
   listOwnedDomains,
