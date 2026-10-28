@@ -582,6 +582,154 @@ async function pagesDeleteDomain(db, projectName, domainName) {
   return { ok: true, project, domain };
 }
 
+// ---------- DNS for Pages custom domains (Batch 42) ----------
+/**
+ * Attaching a custom domain to a Pages project does NOT create the DNS
+ * record the name needs — the dashboard flow creates it interactively,
+ * the API flow must do it explicitly. Batch 41's first live registration
+ * proved it: the domain registered, attached to the project and the
+ * transaction went "live", but the zone had ZERO records, the Pages
+ * custom domain sat at status "pending" and the site never resolved.
+ *
+ * ensurePagesDnsRecord guarantees the apex CNAME (<domain> →
+ * <project>.pages.dev, proxied) exists in the domain's zone:
+ *   - zone looked up by name in the connected account;
+ *   - an existing CNAME with the right target is success (idempotent);
+ *   - an apex A/AAAA record (or a CNAME pointing somewhere else) is a
+ *     CONFLICT — fail naming it, never delete or overwrite DNS we did
+ *     not create;
+ *   - otherwise the CNAME is created, then READ BACK before the link
+ *     may call itself done. Any failure throws, so a flow can never
+ *     report a site live on a name that does not resolve.
+ *
+ * The DNS calls need Zone → DNS → Edit on the API token. Registrar +
+ * Pages scopes are NOT enough — Cloudflare answers 403 code 10000
+ * "Authentication error", which dnsCfError translates into the same
+ * actionable token guidance cfError gives for Registrar calls.
+ */
+function dnsCfError(resp, fallback) {
+  let msg = '';
+  if (resp && resp.json && Array.isArray(resp.json.errors) && resp.json.errors.length) {
+    const e = resp.json.errors[0];
+    if (e && e.message) msg = String(e.message);
+  }
+  if (!msg && resp && resp.json && resp.json.error && resp.json.error.message) {
+    msg = String(resp.json.error.message);
+  }
+  if (!msg) msg = `${fallback || 'Cloudflare request failed'} (HTTP ${resp ? resp.statusCode : '?'})`;
+  const firstCode =
+    resp && resp.json && Array.isArray(resp.json.errors) && resp.json.errors.length
+      ? resp.json.errors[0] && resp.json.errors[0].code
+      : null;
+  if (
+    resp &&
+    (resp.statusCode === 401 || resp.statusCode === 403) &&
+    (/authentication error/i.test(msg) || Number(firstCode) === 10000)
+  ) {
+    return 'Cloudflare rejected this DNS call — the API token is missing the DNS permission. Edit your API token (Settings → Cloudflare) and add Zone → DNS → Edit (keep Account → Registrar → Edit and Pages → Edit). Then save and retry.';
+  }
+  return msg;
+}
+
+function sameDnsTarget(content, expected) {
+  return (
+    String(content || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\.$/, '') === expected
+  );
+}
+
+async function findZoneId(token, accountId, domain) {
+  const resp = await apiRequest({
+    method: 'GET',
+    apiPath: `${API_BASE}/zones?name=${encodeURIComponent(domain)}&account.id=${encodeURIComponent(accountId)}`,
+    token,
+  });
+  if (resp.statusCode !== 200) {
+    throw fail('CF_ERROR', dnsCfError(resp, `Could not look up the DNS zone for ${domain}`));
+  }
+  const list = Array.isArray(resp.json && resp.json.result) ? resp.json.result : [];
+  const zone = list.find((z) => z && String(z.name || '').toLowerCase() === domain) || list[0];
+  if (!zone || !zone.id) {
+    throw fail(
+      'ZONE_NOT_FOUND',
+      `No DNS zone for ${domain} was found in the connected Cloudflare account — the domain's DNS must be hosted on Cloudflare before BitPype can point it at the site. If the domain was just registered, wait a moment and retry.`
+    );
+  }
+  return zone.id;
+}
+
+async function listApexDnsRecords(token, zoneId, domain) {
+  const resp = await apiRequest({
+    method: 'GET',
+    apiPath: `${API_BASE}/zones/${encodeURIComponent(zoneId)}/dns_records?name=${encodeURIComponent(domain)}&per_page=100`,
+    token,
+  });
+  if (resp.statusCode !== 200) {
+    throw fail('CF_ERROR', dnsCfError(resp, `Could not read DNS records for ${domain}`));
+  }
+  const list = Array.isArray(resp.json && resp.json.result) ? resp.json.result : [];
+  return list.filter(
+    (r) =>
+      r &&
+      String(r.name || '')
+        .toLowerCase()
+        .replace(/\.$/, '') === domain
+  );
+}
+
+async function ensurePagesDnsRecord(db, domainName, projectName) {
+  const domain = normalizeDomain(domainName);
+  const project = String(projectName || '')
+    .trim()
+    .toLowerCase();
+  if (!domain) throw fail('INVALID', 'Invalid domain name.');
+  if (!project) throw fail('INVALID', 'Pages project name is required.');
+  const { token, accountId } = await creds(db);
+  const target = `${project}.pages.dev`;
+  const zoneId = await findZoneId(token, accountId, domain);
+
+  const apex = await listApexDnsRecords(token, zoneId, domain);
+  const isApexServer = (r) => ['A', 'AAAA', 'CNAME'].includes(String(r.type || '').toUpperCase());
+  const existing = apex
+    .filter(isApexServer)
+    .find((r) => String(r.type || '').toUpperCase() === 'CNAME' && sameDnsTarget(r.content, target));
+  let created = false;
+  if (!existing) {
+    const conflict = apex.filter(isApexServer)[0];
+    if (conflict) {
+      throw fail(
+        'DNS_CONFLICT',
+        `${domain} already has a ${String(conflict.type || '').toUpperCase()} record at its root pointing to ${conflict.content} — BitPype will not overwrite or delete DNS it did not create. Change or remove that record in Cloudflare DNS for ${domain}, then retry.`
+      );
+    }
+    const resp = await apiRequest({
+      method: 'POST',
+      apiPath: `${API_BASE}/zones/${encodeURIComponent(zoneId)}/dns_records`,
+      token,
+      body: { type: 'CNAME', name: domain, content: target, proxied: true, ttl: 1 },
+    });
+    if (resp.statusCode !== 200 && resp.statusCode !== 201) {
+      throw fail('CF_ERROR', dnsCfError(resp, `Could not create the DNS record for ${domain}`));
+    }
+    created = true;
+  }
+
+  // Read-back: the link is only done when the record is actually there.
+  const after = await listApexDnsRecords(token, zoneId, domain);
+  const confirmed = after.some(
+    (r) => String(r.type || '').toUpperCase() === 'CNAME' && sameDnsTarget(r.content, target)
+  );
+  if (!confirmed) {
+    throw fail(
+      'DNS_UNCONFIRMED',
+      `The DNS record for ${domain} → ${target} could not be confirmed at Cloudflare. Retry in a moment; if it persists, check the DNS tab for ${domain} in the Cloudflare dashboard.`
+    );
+  }
+  return { zoneId, target, created };
+}
+
 /**
  * Attach a domain to a website's Pages project and store the link.
  * Publishes the site first when needed so a project exists.
@@ -612,6 +760,13 @@ async function linkDomainToWebsite(db, opts = {}) {
   }
 
   const attached = await pagesAddDomain(db, project, domain);
+
+  // Batch 42: attaching to the Pages project does not create DNS — ensure
+  // the apex CNAME exists BEFORE anything is marked linked. Any failure
+  // throws (missing token scope, conflict, unconfirmed record), so the
+  // caller's flow fails honestly instead of reporting a dead site live.
+  const dns = await ensurePagesDnsRecord(db, domain, project);
+
   const publicUrl = `https://${domain}`;
 
   db.prepare(
@@ -654,6 +809,7 @@ async function linkDomainToWebsite(db, opts = {}) {
     project,
     publicUrl,
     pages: attached,
+    dns,
   };
 }
 
@@ -768,6 +924,7 @@ module.exports = {
   pagesAddDomain,
   pagesListDomains,
   pagesDeleteDomain,
+  ensurePagesDnsRecord,
   linkDomainToWebsite,
   unlinkDomain,
   listLinked,
