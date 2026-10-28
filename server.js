@@ -57,49 +57,17 @@ if (IS_PROD) {
 const app = express();
 
 app.set('trust proxy', 1);
-const cspReportOnly = (() => {
-  const raw = String(process.env.CSP_REPORT_ONLY || '')
-    .trim()
-    .toLowerCase();
-  if (raw === '1' || raw === 'true') return true;
-  if (raw === '0' || raw === 'false') return false;
-  // Enforce in production; report-only elsewhere so local/dev shells stay flexible.
-  return process.env.NODE_ENV !== 'production';
-})();
-app.use(
-  helmet({
-    // Staff/portal shells; embed routes override below. Set CSP_REPORT_ONLY=1 to observe only.
-    contentSecurityPolicy: {
-      useDefaults: true,
-      reportOnly: cspReportOnly,
-      directives: {
-        'default-src': ["'self'"],
-        'script-src': ["'self'", "'unsafe-inline'", 'https://challenges.cloudflare.com'],
-        'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-        'font-src': ["'self'", 'https://fonts.gstatic.com', 'data:'],
-        'img-src': ["'self'", 'data:', 'blob:', 'https:'],
-        'connect-src': ["'self'", 'https:'],
-        'frame-src': ["'self'", 'https://challenges.cloudflare.com', 'https:'],
-        'frame-ancestors': ["'self'"],
-      },
-    },
-    // HSTS only meaningful behind HTTPS (trust proxy + X-Forwarded-Proto).
-    hsts: cookieSecureHint(),
-  })
-);
-
-function cookieSecureHint() {
-  if (process.env.COOKIE_SECURE === '1' || process.env.COOKIE_SECURE === 'true') {
-    return { maxAge: 15552000, includeSubDomains: true, preload: false };
-  }
-  if (process.env.COOKIE_SECURE === '0' || process.env.COOKIE_SECURE === 'false') return false;
-  if (/^https:/i.test(String(process.env.APP_URL || ''))) {
-    return { maxAge: 15552000, includeSubDomains: true, preload: false };
-  }
-  return false;
-}
-// Published sites (CF Pages / client domains) iframe /embed/form.html — helmet's
-// default X-Frame-Options: SAMEORIGIN makes Chrome show "refused to connect".
+// Batch 47: the header policy lives in server/securityHeaders.js — helmet
+// (CSP + baseline headers) plus a fill-only-when-absent middleware that
+// adds Permissions-Policy and guarantees HSTS on HTTPS responses. The
+// /embed override below still widens framing for published-site embeds.
+const securityHeaders = require('./server/securityHeaders');
+app.use(helmet(securityHeaders.helmetOptions()));
+app.use(securityHeaders.securityHeaders());
+// Published sites (CF Pages / client domains) iframe /embed/form.html — the
+// app CSP's frame-ancestors 'self' would block that, so embeds widen it here.
+// (The X-Frame-Options removal is a no-op since Batch 47 disabled helmet's
+// frameguard; kept so a future helmet change can't silently re-break embeds.)
 app.use('/embed', (req, res, next) => {
   res.removeHeader('X-Frame-Options');
   res.setHeader(

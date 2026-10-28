@@ -33,7 +33,13 @@ function optStr(v, max = 2000) {
   return s;
 }
 
-const SORT_COLUMNS = {
+// Batch 47: SORT_COLUMNS is the leads:list ORDER BY allowlist — the ONLY
+// source of column names interpolated into SQL. Frozen so nothing can add
+// or rewrite an entry at runtime, and membership is tested with
+// hasOwnProperty (see the handler): a plain truthiness lookup also matches
+// inherited Object.prototype keys ('constructor', 'hasOwnProperty', …),
+// which would interpolate a function's source into the query.
+const SORT_COLUMNS = Object.freeze({
   name: 'business_name',
   category: 'category',
   score: 'score',
@@ -41,7 +47,7 @@ const SORT_COLUMNS = {
   source: 'source',
   updated: 'updated_at',
   group: 'lead_group',
-};
+});
 
 function wrap(handler) {
   return async (_event, ...args) => {
@@ -82,7 +88,14 @@ function register(ipcMain, db) {
           ? String(filters.websitePresence).trim().toLowerCase()
           : '';
       const websitePresence = websitePresenceRaw === 'has' || websitePresenceRaw === 'no' ? websitePresenceRaw : null;
-      const sortKey = SORT_COLUMNS[filters.sort] ? filters.sort : 'updated';
+      // Batch 47: strict allowlist — own-property membership only (a truthy
+      // lookup would accept inherited keys like 'constructor'); any other
+      // sort value, injection-shaped or not, falls back to 'updated'. The
+      // direction is a strict two-value outcome: exactly 'asc' → ASC,
+      // everything else → DESC. Neither is ever interpolated raw.
+      const sortKey = Object.prototype.hasOwnProperty.call(SORT_COLUMNS, filters.sort)
+        ? filters.sort
+        : 'updated';
       const order = String(filters.order || 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
       const page = reqInt(filters.page ?? 1, 'page', { min: 1, max: 100000 });
       const pageSize = reqInt(filters.pageSize ?? 25, 'pageSize', { min: 1, max: 200 });

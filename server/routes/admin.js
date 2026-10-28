@@ -264,8 +264,18 @@ router.delete('/workspaces/:id/members/:userId', async (req, res) => {
 router.get('/settings', async (req, res) => {
   try {
     const settings = await platform.getAllPlatformSettings({ redact: true });
+    // Batch 47: captcha status rides along so Admin → Settings can show
+    // whether Turnstile is actually configured/enforcing instead of an
+    // admin having to assume it. Status only — never key material.
+    let captcha = null;
+    try {
+      captcha = await require('../captcha').getCaptchaStatus();
+    } catch {
+      captcha = null; /* the settings page must not die on a status read */
+    }
     ok(res, {
       settings,
+      captcha,
       defs: platform.PLATFORM_SETTING_DEFS.map((d) => ({
         key: d.key,
         group: d.group,

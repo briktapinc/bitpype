@@ -20,13 +20,38 @@ async function getCaptchaConfig() {
   // Production: captcha stays on whenever not force-disabled. Missing keys fail closed
   // at verify time instead of silently skipping login/register protection.
   const enabled = !forceOff && (keysPresent || !allowSkip);
+  const misconfigured = enabled && !keysPresent;
+  // Batch 47: one-word state so admin surfaces can say plainly whether
+  // captcha is really on — 'enforcing' | 'misconfigured' (production wants
+  // keys it doesn't have; verifies fail closed) | 'off' (disabled in
+  // settings) | 'skipped' (no keys, allowed only outside production or
+  // with CAPTCHA_OPTIONAL=1).
+  const state = forceOff ? 'off' : misconfigured ? 'misconfigured' : enabled ? 'enforcing' : 'skipped';
   return {
     enabled,
     provider: 'turnstile',
     siteKey: keysPresent && enabled ? siteKey : '',
     keysPresent,
+    configured: keysPresent,
     forceOff,
-    misconfigured: enabled && !keysPresent,
+    misconfigured,
+    state,
+  };
+}
+
+/**
+ * Batch 47: the admin-facing status shape (Admin → Settings embeds this).
+ * `configured` is the field nobody should have to guess: are both
+ * Turnstile keys actually saved? No secret material is ever included.
+ */
+async function getCaptchaStatus() {
+  const cfg = await getCaptchaConfig();
+  return {
+    configured: cfg.keysPresent,
+    enabled: cfg.enabled,
+    misconfigured: cfg.misconfigured,
+    forceOff: cfg.forceOff,
+    state: cfg.state,
   };
 }
 
@@ -124,6 +149,7 @@ function requireCaptcha() {
 
 module.exports = {
   getCaptchaConfig,
+  getCaptchaStatus,
   verifyCaptchaToken,
   requireCaptcha,
   clientIp,

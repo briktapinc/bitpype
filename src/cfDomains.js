@@ -521,6 +521,26 @@ async function registrationStatus(db, domainName) {
   return { domain, state, completed: !!result.completed, workflow: result };
 }
 
+/**
+ * Batch 47: does this Cloudflare error mean "the domain is already on the
+ * project"? Live proof (Berks repair, 2026-10-28): re-attaching an attached
+ * domain fails the POST with "You have already added this custom domain",
+ * which made the app's link non-idempotent and forced a detach→link dance.
+ * Match on the error text (the errors[] entries and the raw body), never on
+ * status alone — a 400 can equally be a genuine configuration failure.
+ */
+function isAlreadyAddedError(resp) {
+  const texts = [];
+  if (resp && resp.json && Array.isArray(resp.json.errors)) {
+    for (const e of resp.json.errors) if (e && e.message) texts.push(String(e.message));
+  }
+  if (resp && resp.json && resp.json.error && resp.json.error.message) {
+    texts.push(String(resp.json.error.message));
+  }
+  if (resp && resp.text) texts.push(String(resp.text).slice(0, 1000));
+  return texts.some((t) => /already\s+(added|exists|attached)/i.test(t) || /has already been added/i.test(t));
+}
+
 async function pagesAddDomain(db, projectName, domainName) {
   const { token, accountId } = await creds(db);
   const project = String(projectName || '')
@@ -529,6 +549,24 @@ async function pagesAddDomain(db, projectName, domainName) {
   const domain = normalizeDomain(domainName);
   if (!project) throw fail('INVALID', 'Pages project name is required.');
   if (!domain) throw fail('INVALID', 'Invalid domain name.');
+
+  // Batch 47: already-attached tolerance. If the domain is already on the
+  // project, the attach is satisfied — report it as pre-existing instead
+  // of failing the whole link. The list is advisory: if it errors, the
+  // POST below stays authoritative and its result decides.
+  const findAttached = async () => {
+    const listed = await pagesListDomains(db, project);
+    return (
+      (listed.domains || []).find((d) => String((d && d.name) || '').toLowerCase() === domain) || null
+    );
+  };
+  try {
+    const hit = await findAttached();
+    if (hit) return { name: domain, status: hit.status || null, preExisting: true };
+  } catch {
+    /* list failed — fall through to the authoritative POST */
+  }
+
   const resp = await apiRequest({
     method: 'POST',
     apiPath: `${API_BASE}/accounts/${accountId}/pages/projects/${encodeURIComponent(project)}/domains`,
@@ -536,6 +574,18 @@ async function pagesAddDomain(db, projectName, domainName) {
     body: { name: domain },
   });
   if (resp.statusCode !== 200 && resp.statusCode !== 201) {
+    // The list may have raced a concurrent attach: on the specific
+    // already-added refusal, confirm against the project before believing
+    // either way. Confirmed → pre-existing success; anything else → the
+    // original error stands and the link fails honestly (Batch 42/43).
+    if (isAlreadyAddedError(resp)) {
+      try {
+        const hit = await findAttached();
+        if (hit) return { name: domain, status: hit.status || null, preExisting: true };
+      } catch {
+        /* confirmation failed — the original error stands */
+      }
+    }
     throw fail('CF_ERROR', cfError(resp, 'Could not attach domain to Pages project'));
   }
   return (resp.json && resp.json.result) || { name: domain };

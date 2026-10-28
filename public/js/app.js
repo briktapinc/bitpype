@@ -7463,10 +7463,35 @@ function pricingPanelHtml(state) {
   </div>`;
 }
 
+// Batch 47: captcha status banner for Admin → Settings (General group,
+// where the captcha.* keys live). Driven by the server's computed status —
+// the point is that "captcha is on" is never assumed when it isn't.
+function captchaStatusHtml(st) {
+  if (!st || !st.state) return '';
+  const map = {
+    enforcing: ['ok', 'Turnstile captcha is configured and enforcing on public forms and sign-in.'],
+    misconfigured: [
+      'error',
+      '⚠ Captcha is REQUIRED on this install but the Turnstile keys are not set — every public form submit and sign-in will fail (503) until both the site key and the secret key are saved below.',
+    ],
+    off: [
+      'error',
+      '⚠ Captcha is turned OFF below (captcha.enabled = 0). Public forms and sign-in are unprotected.',
+    ],
+    skipped: [
+      '',
+      'Captcha is not enforcing on this install: no Turnstile keys are saved. Skipping is only possible outside production or with CAPTCHA_OPTIONAL=1 — a production install without keys refuses to boot.',
+    ],
+  };
+  const [cls, text] = map[st.state] || ['', 'Captcha status unknown.'];
+  return `<div class="panel"><div class="panel-b"><div class="msg ${cls}" role="status">${esc(text)}</div></div></div>`;
+}
+
 async function renderAdminSettings(el, group) {
   const res = await api.adminSettings();
   const settings = res.data.settings || {};
   const defs = (res.data.defs || []).filter((d) => d.group === group);
+  const captchaStatus = group === 'general' ? (res.data && res.data.captcha) || null : null;
   let pricingState = null;
   if (group === 'billing') {
     try {
@@ -7490,6 +7515,7 @@ async function renderAdminSettings(el, group) {
        Plan and credits-pack amounts are set with <strong>Update pricing</strong> above — it creates the Stripe Products and Prices, fills the <span class="mono">price_…</span>/<span class="mono">prod_…</span> ids below in automatically, and keeps the customer-facing price labels in sync. Edit the ids directly only for a manual setup. Set the credits pack size + per-image/content rates below. Leave keys empty until you paste real Dashboard values. Prefer a restricted API key (rk_…).</p>`
       : '<span class="hint">Defaults apply to new workspaces. Secrets are write-only.</span>';
   el.innerHTML = `
+    ${captchaStatus ? captchaStatusHtml(captchaStatus) : ''}
     ${group === 'billing' ? pricingPanelHtml(pricingState) : ''}
     <div class="panel">
       <div class="panel-h"><h3>${esc(title)}</h3></div>
