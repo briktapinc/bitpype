@@ -21,6 +21,7 @@ const {
   planIdFromPriceId,
   getPublishableKey,
   integrationId,
+  appUrl,
 } = require('./stripeClient');
 const credits = require('./credits');
 const { staffUrl } = require('./appUrls');
@@ -360,7 +361,10 @@ async function getLiveSubscription(user) {
 
 /**
  * Cancel at period end (downgrade to Free after current period).
- * Access stays paid until current_period_end; webhook clears plan when canceled.
+ * Access stays paid until current_period_end and the website stays LIVE
+ * for the whole paid period; only when Stripe concludes the subscription
+ * (customer.subscription.deleted) does the plan clear and the site come
+ * offline (see disableSitesForEndedSubscription).
  */
 async function scheduleCancelAtPeriodEnd(userId) {
   const user = await getUserBilling(userId);
@@ -379,12 +383,15 @@ async function scheduleCancelAtPeriodEnd(userId) {
   const periodEnd = updated.current_period_end
     ? new Date(updated.current_period_end * 1000).toISOString()
     : user.current_period_end || null;
+  const endLabel = periodEnd ? formatDateLong(periodEnd) : null;
   return {
     action: 'cancel_at_period_end',
     plan: planOfUser(await getUserBilling(userId)),
     cancelAtPeriodEnd: true,
     currentPeriodEnd: periodEnd,
-    message: 'Your plan stays active until the end of the billing period, then moves to Free.',
+    message: endLabel
+      ? `Your plan stays active until ${endLabel} — and your website stays live until then. After that date your plan moves to Free and your website comes offline.`
+      : 'Your plan stays active until the end of the billing period — and your website stays live until then. After that your plan moves to Free and your website comes offline.',
   };
 }
 
@@ -731,26 +738,59 @@ async function syncSubscription(subscription) {
   }
 }
 
-async function recordPaymentFromInvoice(invoice) {
-  if (!invoice || !invoice.id) return null;
-  const existing = await query('SELECT id FROM payments WHERE stripe_invoice_id = :iid LIMIT 1', { iid: invoice.id });
-  if (existing[0]) return existing[0].id;
+/** "$99.00" for USD; "99.00 EUR" otherwise. Cents in, display string out. */
+function formatMoney(cents, currency) {
+  const amount = (Number(cents) || 0) / 100;
+  const cur = String(currency || 'usd').toLowerCase();
+  return cur === 'usd' ? `$${amount.toFixed(2)}` : `${amount.toFixed(2)} ${cur.toUpperCase()}`;
+}
 
-  let userId = null;
+/** "November 27, 2026" from unix seconds, an ISO string, or a Date. */
+function formatDateLong(value) {
+  if (value == null || value === '') return null;
+  const d =
+    value instanceof Date
+      ? value
+      : typeof value === 'number'
+        ? new Date(value * 1000)
+        : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('en-US', { timeZone: 'UTC', month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+/** The users-row id an invoice belongs to (customer → subscription metadata → tracked subscription). */
+async function resolveUserIdFromInvoice(invoice, q = query) {
+  if (!invoice) return null;
   if (invoice.customer) {
-    const rows = await query('SELECT id FROM users WHERE stripe_customer_id = :cid LIMIT 1', {
+    const rows = await q('SELECT id FROM users WHERE stripe_customer_id = :cid LIMIT 1', {
       cid: String(invoice.customer),
     });
-    if (rows[0]) userId = rows[0].id;
+    if (rows[0]) return rows[0].id;
   }
-  if (!userId && invoice.subscription_details && invoice.subscription_details.metadata) {
-    userId = Number(invoice.subscription_details.metadata.user_id) || null;
+  if (invoice.subscription_details && invoice.subscription_details.metadata) {
+    const uid = Number(invoice.subscription_details.metadata.user_id) || null;
+    if (uid) return uid;
   }
-  if (!userId && invoice.subscription) {
+  if (invoice.subscription) {
     const subId = typeof invoice.subscription === 'string' ? invoice.subscription : invoice.subscription.id;
-    const rows = await query('SELECT id FROM users WHERE stripe_subscription_id = :sid LIMIT 1', { sid: subId });
-    if (rows[0]) userId = rows[0].id;
+    const rows = await q('SELECT id FROM users WHERE stripe_subscription_id = :sid LIMIT 1', { sid: subId });
+    if (rows[0]) return rows[0].id;
   }
+  return null;
+}
+
+/**
+ * Record an invoice payment once (stripe_invoice_id is unique).
+ * Returns { id, inserted } — inserted is true ONLY for the call that
+ * actually wrote the row, so webhook consumers (the Batch 37 renewal
+ * email) can ride the dedupe and never double-fire on redelivery.
+ */
+async function recordPaymentFromInvoice(invoice) {
+  if (!invoice || !invoice.id) return { id: null, inserted: false };
+  const existing = await query('SELECT id FROM payments WHERE stripe_invoice_id = :iid LIMIT 1', { iid: invoice.id });
+  if (existing[0]) return { id: existing[0].id, inserted: false };
+
+  const userId = await resolveUserIdFromInvoice(invoice);
 
   const amount = Number(invoice.amount_paid != null ? invoice.amount_paid : invoice.amount_due) || 0;
   const pi =
@@ -777,15 +817,352 @@ async function recordPaymentFromInvoice(invoice) {
         description: invoice.description || `Invoice ${invoice.number || invoice.id}`,
       }
     );
-    return result.insertId || null;
+    return { id: result.insertId || null, inserted: true };
   } catch (e) {
     // Concurrent invoice.paid webhooks — unique stripe_invoice_id.
     if (e.code === 'ER_DUP_ENTRY' || /unique|duplicate/i.test(String(e.message || ''))) {
       const rows = await query('SELECT id FROM payments WHERE stripe_invoice_id = :iid LIMIT 1', { iid: invoice.id });
-      return rows[0] ? rows[0].id : null;
+      return { id: rows[0] ? rows[0].id : null, inserted: false };
     }
     throw e;
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Batch 37 — renewal email + site-offline at subscription end.        */
+/*                                                                     */
+/* Ely's spec (2026-10-27): email the client every month when their    */
+/* subscription renews, with a way to cancel; cancelling keeps the     */
+/* plan AND the website live until the end of the paid period — only   */
+/* then does the site come offline.                                    */
+/*                                                                     */
+/* Scope: PLATFORM plan subscriptions only (this module). Site-        */
+/* membership subscriptions run on site owners' own Stripe keys        */
+/* (server/siteModules.js) and are a different subsystem — untouched.  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Durable manage/cancel link for billing emails. The client portal's
+ * billing panel is deep-linkable via ?panel= (portal.js treats it as a
+ * deep-link seed for email links), and its "Manage billing" button POSTs
+ * the client-authenticated /billing/portal route, which creates a fresh
+ * Stripe billing-portal session on click — so this one stable URL never
+ * expires the way a raw portal-session URL would.
+ */
+function billingManageUrl() {
+  const raw = typeof appUrl === 'function' ? appUrl() : '';
+  const base = String(raw || '').replace(/\/$/, '');
+  return `${base}/portal?panel=billing`;
+}
+
+/**
+ * Resolve the websites a billing user owns, across every workspace they
+ * belong to. A user reaches a site two ways in this codebase:
+ *  - their lead in the workspace carries their email (email↔lead is
+ *    unique per workspace) and websites.lead_id points at it;
+ *  - a domain-flow transaction in the workspace names them directly
+ *    (domain_transactions.billing_user_id).
+ * Workspace tenant DBs are SQLite files opened via workspaceDb.
+ * Returns [{ workspaceId, leadId, site, domains: [domainName, …] }].
+ */
+async function resolveUserSites(user, deps = {}) {
+  if (!user || !user.id) return [];
+  const q = deps.query || query;
+  const openDb = deps.openDb || ((ws) => require('./workspaceDb').openWorkspaceDb(ws));
+  const email = String(user.email || '').trim().toLowerCase();
+  const memberRows = await q('SELECT workspace_id FROM workspace_members WHERE user_id = :uid', {
+    uid: Number(user.id),
+  });
+  const workspaceIds = [...new Set((memberRows || []).map((r) => Number(r.workspace_id)).filter(Boolean))];
+  const out = [];
+  for (const workspaceId of workspaceIds) {
+    let db;
+    try {
+      db = openDb(workspaceId);
+    } catch (e) {
+      console.warn('[billing] resolveUserSites openDb:', workspaceId, e.message);
+      continue;
+    }
+    if (!db) continue;
+    const leadIds = new Set();
+    if (email) {
+      try {
+        for (const row of db
+          .prepare('SELECT id FROM leads WHERE lower(email) = ?')
+          .all(email)) leadIds.add(Number(row.id));
+      } catch {
+        /* leads table always exists in a workspace db; stay defensive */
+      }
+    }
+    try {
+      const hasTxn = db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'domain_transactions'")
+        .get();
+      if (hasTxn) {
+        for (const row of db
+          .prepare('SELECT DISTINCT lead_id FROM domain_transactions WHERE billing_user_id = ?')
+          .all(Number(user.id))) {
+          if (row.lead_id) leadIds.add(Number(row.lead_id));
+        }
+      }
+    } catch {
+      /* domain flow not installed in this workspace db */
+    }
+    for (const leadId of leadIds) {
+      let sites = [];
+      try {
+        sites = db.prepare('SELECT * FROM websites WHERE lead_id = ?').all(leadId);
+      } catch {
+        sites = [];
+      }
+      for (const site of sites) {
+        let domains = [];
+        try {
+          const hasDomains = db
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'site_domains'")
+            .get();
+          if (hasDomains) {
+            domains = db
+              .prepare("SELECT domain_name FROM site_domains WHERE website_id = ? AND status = 'linked'")
+              .all(site.id)
+              .map((r) => r.domain_name)
+              .filter(Boolean);
+          }
+        } catch {
+          domains = [];
+        }
+        out.push({ workspaceId, leadId, site, domains });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Batch 37 — monthly renewal email. Fired from the invoice.paid webhook
+ * branch ONLY when the caller actually inserted a new payment row
+ * (recordPaymentFromInvoice's dedupe), so Stripe redeliveries can never
+ * double-send. Only subscription CYCLE renewals qualify: the first
+ * payment (billing_reason 'subscription_create') already gets Batch
+ * 36's payment-received email / the signup flows. Best-effort by
+ * contract — the caller wraps this so a mail failure never fails the
+ * webhook; the return value reports what happened.
+ */
+async function sendRenewalEmailForInvoice(invoice, opts = {}) {
+  const deps = opts.deps || {};
+  if (!invoice || String(invoice.billing_reason || '') !== 'subscription_cycle') {
+    return { sent: false, reason: 'not_a_cycle_renewal' };
+  }
+  const amountPaid = Number(invoice.amount_paid != null ? invoice.amount_paid : 0) || 0;
+  if (!(amountPaid > 0)) return { sent: false, reason: 'no_amount_paid' };
+
+  let user = opts.user || null;
+  if (!user) {
+    const uid = await resolveUserIdFromInvoice(invoice, deps.query || query);
+    if (uid) user = await getUserBilling(uid);
+  }
+  if (!user || !user.email) return { sent: false, reason: 'no_billing_user' };
+  if (String(user.status || 'active') === 'disabled' || user.deleted_at) {
+    return { sent: false, reason: 'user_disabled' };
+  }
+
+  const subscription = opts.subscription || null;
+  let planId = null;
+  if (subscription) {
+    try {
+      planId = (await resolvePlanFromSubscription(subscription)).plan;
+    } catch {
+      planId = null;
+    }
+  }
+  if (!planId || !isPaidPlan(planId)) planId = planOfUser(user);
+  const planName = (getPlan(planId) && getPlan(planId).name) || 'Bitpype';
+
+  // The cycle invoice's period_end IS the next renewal date for a
+  // monthly plan; the live subscription's current_period_end agrees.
+  const linePeriod =
+    invoice.lines && invoice.lines.data && invoice.lines.data[0] && invoice.lines.data[0].period
+      ? invoice.lines.data[0].period.end
+      : null;
+  const periodEndSec =
+    (subscription && subscription.current_period_end) || invoice.period_end || linePeriod || null;
+  const nextRenewal = periodEndSec ? formatDateLong(periodEndSec) : null;
+  const paidOn = invoice.created ? formatDateLong(invoice.created) : null;
+  const amountLabel = formatMoney(amountPaid, invoice.currency);
+  const manageUrl = billingManageUrl();
+
+  let siteLine = null;
+  try {
+    const sites = await resolveUserSites(user, deps);
+    const live = sites.find((s) => s.site && (s.site.custom_domain || (s.domains && s.domains.length)));
+    const domain =
+      (live && (live.site.custom_domain || live.domains[0])) ||
+      (sites[0] && sites[0].site && sites[0].site.custom_domain) ||
+      null;
+    if (domain) siteLine = `Your website (${domain}) stays live while your plan is active.`;
+  } catch (e) {
+    console.warn('[billing] renewal email site lookup:', e.message);
+  }
+
+  const paragraphs = [
+    `Good news — your ${planName} plan renewed${paidOn ? ` on ${paidOn}` : ''}. We charged ${amountLabel} to the card on file, and your plan is paid up${nextRenewal ? ` through ${nextRenewal}` : ' for the new period'}.`,
+    ...(siteLine ? [siteLine] : []),
+    nextRenewal
+      ? `Your next renewal is ${nextRenewal}. You can update your card, switch plans, or cancel any time from your billing page — the button below opens it. If you cancel, nothing switches off straight away: your plan and your website stay live until ${nextRenewal}, the end of the period you've paid for.`
+      : 'You can update your card, switch plans, or cancel any time from your billing page — the button below opens it. If you cancel, nothing switches off straight away: your plan and your website stay live until the end of the period you\'ve paid for.',
+    'Questions about this charge? Just reply to this email.',
+  ];
+  const subject = `Your Bitpype ${planName} plan renewed — ${amountLabel}`;
+  const sendMail = deps.sendMail || (async (mail) => require('./mailer').sendPlatformMail(mail));
+  await sendMail({
+    to: user.email,
+    subject,
+    title: subject,
+    preheader: `${planName} renewed at ${amountLabel}${nextRenewal ? ` — paid through ${nextRenewal}` : ''}.`,
+    paragraphs,
+    text: paragraphs.join('\n\n'),
+    cta: { url: manageUrl, label: 'Manage or cancel your plan' },
+  });
+  return { sent: true, to: user.email, subject, plan: planId, nextRenewal };
+}
+
+function ensureSubscriptionSiteDisableTables(db) {
+  db.exec(`CREATE TABLE IF NOT EXISTS subscription_site_disables (
+    website_id INTEGER PRIMARY KEY,
+    workspace_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    subscription_id TEXT,
+    prior_status TEXT,
+    prior_custom_domain TEXT,
+    reason TEXT NOT NULL DEFAULT 'subscription_ended',
+    disabled_at TEXT DEFAULT (datetime('now'))
+  )`);
+}
+
+/**
+ * Batch 37 — take a subscription owner's website(s) offline when the
+ * subscription has ENDED (customer.subscription.deleted — period-end
+ * cancellation concluding, or dunning exhaustion). NOT a trigger for
+ * scheduling a cancel: subscription.updated with cancel_at_period_end
+ * never reaches this function, so the site stays live for the whole
+ * paid period, exactly as the cancel copy promises.
+ *
+ * The disable primitive is Batch 27's soft archive (websites.archived_at
+ * via websiteEngine.deleteWebsite — reversible with restoreWebsite; the
+ * row, pages and data are untouched) PLUS unlinking any linked custom
+ * domain (cfDomains.unlinkDomain detaches it from the Pages project, so
+ * the public address stops serving; re-link restores it). A bookkeeping
+ * row per site (subscription_site_disables) records prior state,
+ * timestamp and reason 'subscription_ended', and makes replays no-ops.
+ * Sites an admin already archived are left exactly as they are.
+ */
+async function disableSitesForEndedSubscription(subscription, deps = {}) {
+  if (!subscription || !subscription.id) return { disabled: [], skipped: 'no_subscription' };
+  let user = null;
+  const metaUid = Number((subscription.metadata && subscription.metadata.user_id) || 0);
+  if (metaUid) user = await getUserBilling(metaUid);
+  if (!user && subscription.customer) {
+    const rows = await (deps.query || query)(
+      'SELECT id FROM users WHERE stripe_customer_id = :cid LIMIT 1',
+      { cid: String(subscription.customer) }
+    );
+    if (rows[0]) user = await getUserBilling(rows[0].id);
+  }
+  if (!user) return { disabled: [], skipped: 'no_user' };
+  // Orphan/duplicate guard (the R6 lesson): if the user now tracks a
+  // DIFFERENT live subscription, this deletion is not their live plan
+  // ending — leave their sites alone.
+  if (
+    user.stripe_subscription_id &&
+    String(user.stripe_subscription_id) !== String(subscription.id) &&
+    ACTIVE_STATUSES.has(String(user.subscription_status || ''))
+  ) {
+    return { disabled: [], skipped: 'other_subscription_tracked', userId: user.id };
+  }
+
+  const archiveSite =
+    deps.archiveSite || ((db, id) => require('../src/websiteEngine').deleteWebsite(db, id));
+  const unlinkDomain =
+    deps.unlinkDomain || (async (db, domain) => require('../src/cfDomains').unlinkDomain(db, { domain }));
+  const openDb = deps.openDb || ((ws) => require('./workspaceDb').openWorkspaceDb(ws));
+
+  const sites = await resolveUserSites(user, deps);
+  const byWorkspace = new Map();
+  for (const entry of sites) {
+    if (!byWorkspace.has(entry.workspaceId)) byWorkspace.set(entry.workspaceId, []);
+    byWorkspace.get(entry.workspaceId).push(entry);
+  }
+
+  const disabled = [];
+  const skipped = [];
+  for (const [workspaceId, entries] of byWorkspace) {
+    let db;
+    try {
+      db = openDb(workspaceId);
+    } catch (e) {
+      console.warn('[billing] disable sites openDb:', workspaceId, e.message);
+      continue;
+    }
+    if (!db) continue;
+    ensureSubscriptionSiteDisableTables(db);
+    for (const { site, domains } of entries) {
+      const prior = db
+        .prepare('SELECT website_id FROM subscription_site_disables WHERE website_id = ?')
+        .get(site.id);
+      if (prior) {
+        skipped.push({ workspaceId, websiteId: site.id, reason: 'already_disabled' });
+        continue;
+      }
+      if (site.archived_at) {
+        skipped.push({ workspaceId, websiteId: site.id, reason: 'already_archived' });
+        continue;
+      }
+      const linkedDomains = [...new Set([...(domains || []), site.custom_domain].filter(Boolean))];
+      const isLive = String(site.status || '') === 'published' || linkedDomains.length > 0;
+      if (!isLive) {
+        skipped.push({ workspaceId, websiteId: site.id, reason: 'not_live' });
+        continue;
+      }
+      db.prepare(
+        `INSERT INTO subscription_site_disables
+           (website_id, workspace_id, user_id, subscription_id, prior_status, prior_custom_domain, reason)
+         VALUES (?, ?, ?, ?, ?, ?, 'subscription_ended')`
+      ).run(
+        site.id,
+        workspaceId,
+        Number(user.id),
+        String(subscription.id),
+        site.status || null,
+        site.custom_domain || null
+      );
+      const unlinked = [];
+      for (const domain of linkedDomains) {
+        try {
+          await unlinkDomain(db, domain);
+          unlinked.push(domain);
+        } catch (e) {
+          console.warn('[billing] disable site unlink:', domain, e.message);
+        }
+      }
+      const res = archiveSite(db, site.id);
+      try {
+        db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
+          'billing',
+          `Website #${site.id} taken offline (subscription_ended, user #${user.id}, sub ${subscription.id}); prior status ${site.status || 'unknown'}${unlinked.length ? `; unlinked ${unlinked.join(', ')}` : ''}.`
+        );
+      } catch {
+        /* activity log is best-effort */
+      }
+      disabled.push({
+        workspaceId,
+        websiteId: site.id,
+        priorStatus: site.status || null,
+        unlinked,
+        alreadyArchived: !!(res && res.alreadyArchived),
+      });
+    }
+  }
+  return { userId: user.id, disabled, skipped };
 }
 
 async function recordRefundFromCharge(charge, refund) {
@@ -935,7 +1312,7 @@ async function fulfillCreditsCheckout(session) {
   await credits.grantFromCheckoutSession(sess);
 }
 
-async function handleWebhookEvent(event) {
+async function handleWebhookEvent(event, deps = {}) {
   const claimed = await claimStripeEvent(event);
   if (!claimed) {
     console.log('[billing] skip duplicate stripe event', event && event.id, event && event.type);
@@ -943,7 +1320,7 @@ async function handleWebhookEvent(event) {
   }
 
   try {
-    await dispatchWebhookEvent(event);
+    await dispatchWebhookEvent(event, deps);
     return { ok: true };
   } catch (e) {
     await releaseStripeEvent(event && event.id);
@@ -951,7 +1328,7 @@ async function handleWebhookEvent(event) {
   }
 }
 
-async function dispatchWebhookEvent(event) {
+async function dispatchWebhookEvent(event, deps = {}) {
   const type = event.type;
   const obj = event.data && event.data.object;
 
@@ -994,16 +1371,41 @@ async function dispatchWebhookEvent(event) {
 
   if (type.startsWith('customer.subscription.') && obj) {
     await syncSubscription(obj);
+    // Batch 37: the subscription has ENDED (a period-end cancellation
+    // concluding, or dunning exhaustion) — the owner's website comes
+    // offline now, not before. subscription.updated (which is how a
+    // scheduled cancel arrives) deliberately does NOT reach this.
+    // Best-effort like the domain-flow hook above: a site-disable
+    // failure must never fail the billing webhook.
+    if (type === 'customer.subscription.deleted') {
+      try {
+        await disableSitesForEndedSubscription(obj, deps);
+      } catch (e) {
+        console.warn('[billing] subscription-end site disable:', e.message);
+      }
+    }
     return;
   }
 
   if (type === 'invoice.paid' && obj) {
-    await recordPaymentFromInvoice(obj);
+    const recorded = await recordPaymentFromInvoice(obj);
+    let sub = null;
     if (obj.subscription) {
       const stripe = await getStripe();
       const subId = typeof obj.subscription === 'string' ? obj.subscription : obj.subscription.id;
-      const sub = await stripe.subscriptions.retrieve(subId);
+      sub = await stripe.subscriptions.retrieve(subId);
       await syncSubscription(sub);
+    }
+    // Batch 37: monthly renewal email — ONLY on a genuine subscription
+    // cycle renewal whose payment row was newly inserted (the dedupe in
+    // recordPaymentFromInvoice), never for the first payment, and never
+    // twice. Best-effort: a mail failure must never fail the webhook.
+    if (recorded && recorded.inserted) {
+      try {
+        await sendRenewalEmailForInvoice(obj, { subscription: sub, deps });
+      } catch (e) {
+        console.warn('[billing] renewal email:', e.message);
+      }
     }
     return;
   }
@@ -1275,6 +1677,9 @@ module.exports = {
   resolveWorkspaceIdForUser,
   syncSubscription,
   handleWebhookEvent,
+  sendRenewalEmailForInvoice,
+  disableSitesForEndedSubscription,
+  resolveUserSites,
   billingSummary,
   catalogForApi,
   listPayments,
