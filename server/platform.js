@@ -275,9 +275,10 @@ const PLATFORM_SETTING_DEFS = [
     default: '25',
   },
 
-  // Domain registration (Batch 38): the platform's default registrant
-  // contact, sent as registrant_contact with EVERY Cloudflare Registrar
-  // purchase (src/cfDomains.buildRegistrantContact). Platform-owned
+  // Domain registration (Batch 38; wire shape corrected Batch 41): the
+  // platform's default registrant contact, sent as contacts.registrant
+  // with EVERY Cloudflare Registrar purchase
+  // (src/cfDomains.buildRegistrantContact). Platform-owned
   // (Ely's) contact — NOT derived from lead records. Read workspace-first,
   // platform-fallback per field (same order as the CF credentials).
   // Organization is the only optional field; registrations pre-flight and

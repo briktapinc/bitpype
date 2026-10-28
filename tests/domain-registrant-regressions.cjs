@@ -9,18 +9,29 @@
  *      them); settingsKeys makes every one settable + validated (the
  *      Batch 24b meta-test requires a validator per def).
  *   2. BUILDER — cfDomains.buildRegistrantContact maps the settings to
- *      the Cloudflare Registrar `registrant_contact` object (snake_case
- *      first_name/last_name/organization/email/phone/address/city/
- *      state/zip/country; postal_code → zip; country uppercased;
- *      organization optional + omitted when blank). Any missing required
- *      setting throws REGISTRANT_INCOMPLETE naming each missing setting
- *      and pointing at Admin → Settings → Domains.
+ *      the `contacts.registrant` object the Create Registration endpoint
+ *      actually documents (Batch 41 hotfix): email; phone in dotted E.164
+ *      (+1.6105550123 — cfDomains.normalizeRegistrantPhone strips the
+ *      formatting admins type and inserts the dot, and Ely's stored
+ *      dot-less "+1…" value normalizes too); postal_info.name as ONE
+ *      combined string (the API accepts no first/last split) with
+ *      organization only when set; nested postal_info.address with
+ *      street/city/state/postal_code/country_code. Any missing required
+ *      setting — or an un-normalizable phone — throws
+ *      REGISTRANT_INCOMPLETE naming each missing setting and pointing at
+ *      Admin → Settings → Domains. (Batch 38 originally shipped the flat
+ *      `registrant_contact` resource shape — first_name/last_name/…/
+ *      zip/country — which the create endpoint IGNORES; a live
+ *      registration with all settings saved still failed code-10000
+ *      "No registrant contact provided…". The wire assertions below pin
+ *      the documented shape and forbid the old key outright.)
  *   3. REGISTER PRE-FLIGHT — registerDomain builds the contact BEFORE
  *      any Cloudflare call: complete settings → the registrations POST
- *      carries registrant_contact; incomplete → zero HTTP calls and the
- *      actionable error. domainFlow.completeTransaction surfaces that
- *      error in the transaction's register step + error field, never
- *      advancing to live and never creating a site_domains row.
+ *      carries contacts.registrant and NO registrant_contact key;
+ *      incomplete → zero HTTP calls and the actionable error.
+ *      domainFlow.completeTransaction surfaces that error in the
+ *      transaction's register step + error field, never advancing to
+ *      live and never creating a site_domains row.
  *   4. SEARCH DECOUPLED — searchDomains / checkDomains never consult the
  *      registrant contact: with every registrant setting blank they
  *      still return priced results (the staff-page incident was the Buy
@@ -31,11 +42,12 @@
  * cfDomains is required (cfDomains calls https.request at call time).
  * No real network, no real registrations.
  *
- * Negative proofs: dropping registrant_contact from the register body
- * fails the register checks; placing any registrar call before the
- * pre-flight (or moving the builder out of the register path) fails on
- * the HTTP-call accounting; removing a def or its validator fails the
- * settings checks; making organization required fails the builder check.
+ * Negative proofs: sending the old `registrant_contact` body (or
+ * dropping contacts.registrant) fails the register checks; placing any
+ * registrar call before the pre-flight (or moving the builder out of
+ * the register path) fails on the HTTP-call accounting; removing a def
+ * or its validator fails the settings checks; making organization
+ * required fails the builder check.
  *
  * Run via tests/run-regressions.cjs (DB_DRIVER=sqlite).
  */
@@ -134,17 +146,24 @@ const FULL_SETTINGS = {
   'domain.registrant_postal_code': '19508',
   'domain.registrant_country': 'us',
 };
-const EXPECTED_CONTACT = {
-  first_name: 'Ely',
-  last_name: 'Ayertey',
-  organization: 'BitPype',
+// The documented Create Registration shape (Batch 41): FULL_SETTINGS'
+// phone '+1 610 555 0123' normalizes to the dotted form; the two name
+// settings combine into postal_info.name; postal_code → address.postal_code;
+// country 'us' → country_code 'US'.
+const EXPECTED_REGISTRANT = {
   email: 'owner@bitpype.test',
-  phone: '+1 610 555 0123',
-  address: '112 N Mill St',
-  city: 'Birdsboro',
-  state: 'PA',
-  zip: '19508',
-  country: 'US',
+  phone: '+1.6105550123',
+  postal_info: {
+    name: 'Ely Ayertey',
+    organization: 'BitPype',
+    address: {
+      street: '112 N Mill St',
+      city: 'Birdsboro',
+      state: 'PA',
+      postal_code: '19508',
+      country_code: 'US',
+    },
+  },
 };
 
 function makeDb(settings) {
@@ -209,16 +228,46 @@ async function main() {
   /* ---------- 3-4: the builder ---------- */
   const resolverFrom = (map) => (key) => map[key] || '';
 
-  await checkAsync('builder: complete settings → exact Cloudflare registrant_contact shape', async () => {
-    const contact = await cfDomains.buildRegistrantContact(resolverFrom(FULL_SETTINGS));
-    assert.deepEqual(contact, EXPECTED_CONTACT);
+  await checkAsync('builder: complete settings → exact documented contacts.registrant shape', async () => {
+    const registrant = await cfDomains.buildRegistrantContact(resolverFrom(FULL_SETTINGS));
+    assert.deepEqual(registrant, EXPECTED_REGISTRANT);
+    assert.ok(!('registrant_contact' in registrant) && !('first_name' in registrant), 'no resource-shape keys');
   });
 
   await checkAsync('builder: organization is optional and omitted when blank', async () => {
     const map = { ...FULL_SETTINGS, 'domain.registrant_organization': '  ' };
-    const contact = await cfDomains.buildRegistrantContact(resolverFrom(map));
-    assert.ok(!('organization' in contact), 'no organization key when blank');
-    assert.equal(contact.email, EXPECTED_CONTACT.email);
+    const registrant = await cfDomains.buildRegistrantContact(resolverFrom(map));
+    assert.ok(!('organization' in registrant.postal_info), 'no organization key when blank');
+    assert.equal(registrant.email, EXPECTED_REGISTRANT.email);
+  });
+
+  await checkAsync('builder: phone normalization to the endpoint dotted E.164 shape', async () => {
+    const cases = [
+      ['+16105550123', '+1.6105550123'], // stored dot-less "+1" + 10 digits (Ely's live value shape)
+      ['+1 610 555 0123', '+1.6105550123'], // spaced
+      ['+1 (610) 555-0123', '+1.6105550123'], // dashes + parens
+      ['(610) 555-0123', '+1.6105550123'], // bare 10-digit, registrant country US
+      ['+1.6105550123', '+1.6105550123'], // already dotted → unchanged
+    ];
+    for (const [stored, expected] of cases) {
+      assert.equal(cfDomains.normalizeRegistrantPhone(stored, 'US'), expected, stored);
+      const registrant = await cfDomains.buildRegistrantContact(
+        resolverFrom({ ...FULL_SETTINGS, 'domain.registrant_phone': stored })
+      );
+      assert.equal(registrant.phone, expected, 'builder normalizes ' + stored);
+    }
+    assert.equal(cfDomains.normalizeRegistrantPhone('call the office', 'US'), null, 'letters unusable');
+    assert.equal(cfDomains.normalizeRegistrantPhone('555-0123', 'US'), null, '7-digit local number unusable');
+    const bad = { ...FULL_SETTINGS, 'domain.registrant_phone': 'call the office' };
+    await assert.rejects(
+      () => cfDomains.buildRegistrantContact(resolverFrom(bad)),
+      (e) => {
+        assert.equal(e.code, 'REGISTRANT_INCOMPLETE', 'un-normalizable phone is a pre-flight failure');
+        assert.ok(e.message.includes('domain.registrant_phone'), 'names the phone setting');
+        assert.ok(e.message.includes('Admin → Settings → Domains'), 'points at the fix location');
+        return true;
+      }
+    );
   });
 
   await checkAsync('builder: each missing required setting is named, with the fix location', async () => {
@@ -239,7 +288,7 @@ async function main() {
   });
 
   /* ---------- 5-6: register path over stubbed HTTP ---------- */
-  await checkAsync('register: complete settings → registrations POST carries registrant_contact', async () => {
+  await checkAsync('register: complete settings → registrations POST carries contacts.registrant (documented shape only)', async () => {
     httpCalls.length = 0;
     const db = makeDb(FULL_SETTINGS);
     const r = await cfDomains.registerDomain(db, 'registrant-probe.com', {});
@@ -248,7 +297,9 @@ async function main() {
     const reg = httpCalls.find((c) => c.path.includes('/registrar/registrations'));
     assert.ok(reg, 'registrations call made');
     assert.equal(reg.body.domain_name, 'registrant-probe.com');
-    assert.deepEqual(reg.body.registrant_contact, EXPECTED_CONTACT);
+    assert.equal(reg.body.years, 1);
+    assert.deepEqual(reg.body.contacts, { registrant: EXPECTED_REGISTRANT });
+    assert.ok(!('registrant_contact' in reg.body), 'the ignored Batch 38 key must never be sent');
     const row = db.prepare('SELECT * FROM site_domains WHERE domain_name = ?').get('registrant-probe.com');
     assert.ok(row && row.status === 'registered', 'site_domains row recorded');
     db.close();
@@ -338,7 +389,8 @@ async function main() {
     assert.ok(reg && reg.ok === true, 'register step ok (later link step may fail on the bare fixture): ' + JSON.stringify(steps));
     const regCall = httpCalls.find((c) => c.path.includes('/registrar/registrations'));
     assert.ok(regCall, 'registrations call made');
-    assert.deepEqual(regCall.body.registrant_contact, EXPECTED_CONTACT);
+    assert.deepEqual(regCall.body.contacts, { registrant: EXPECTED_REGISTRANT });
+    assert.ok(!('registrant_contact' in regCall.body), 'no ignored key on the wire');
     const row = db.prepare('SELECT * FROM site_domains WHERE domain_name = ?').get('registrant-flow.com');
     assert.ok(row && row.status === 'registered', 'domain recorded as registered');
     assert.ok(out.error == null || !/registrant/i.test(out.error), 'no registrant error anywhere');

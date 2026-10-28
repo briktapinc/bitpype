@@ -127,11 +127,12 @@ async function creds(db) {
   return c;
 }
 
-// ---------- Registrant contact (Batch 38) ----------
+// ---------- Registrant contact (Batch 38, wire shape fixed Batch 41) ----------
 /**
- * The platform's default registrant contact, sent as `registrant_contact`
- * with EVERY Cloudflare Registrar purchase. Before Batch 38 no contact was
- * ever sent, so registration depended on the Cloudflare account having a
+ * The platform's default registrant contact, sent with EVERY Cloudflare
+ * Registrar purchase inside the Create Registration body as
+ * `contacts: { registrant: … }`. Before Batch 38 no contact was ever
+ * sent, so registration depended on the Cloudflare account having a
  * default address-book entry — when it doesn't, Cloudflare fails the
  * purchase with "No registrant contact provided and no default address
  * book entry found for this account."
@@ -141,11 +142,31 @@ async function creds(db) {
  * field — the same order cf.resolveCfCredentials uses for the token /
  * account. Organization is the only optional field.
  *
- * Field shape follows the Cloudflare Registrar API's registrant_contact
- * object (developers.cloudflare.com/api/resources/registrar →
- * DomainRegistrantContact): snake_case first_name / last_name /
- * organization / email / phone / address / city / state / zip / country.
- * The settings key domain.registrant_postal_code maps to CF's `zip`.
+ * WIRE SHAPE — read this before touching the builder (Batch 41 hotfix):
+ * the Create Registration endpoint (POST /accounts/{id}/registrar/
+ * registrations) takes `contacts.registrant` holding `email`, a dotted
+ * E.164 `phone` (+1.6105550123), and `postal_info` whose `name` is ONE
+ * string — separate first/last name fields are NOT accepted — with a
+ * nested `postal_info.address` using `street` / `city` / `state` /
+ * `postal_code` / `country_code`. Only the registrant role is sent;
+ * omitted roles derive from it. Sources: the Registrar API guide's
+ * worked example (developers.cloudflare.com/registrar/registrar-api/)
+ * + the Create Registration API reference (fetched 2026-10-28).
+ *
+ * TRAP (how Batch 38 went wrong): the flat snake_case `registrant_contact`
+ * object (first_name / last_name / … / zip / country) is the shape of the
+ * domain RESOURCE's contact representation (DomainRegistrantContact in
+ * the API reference / cloudflare-go) — the create endpoint IGNORES that
+ * key entirely. Batch 38 shipped exactly that shape; a live registration
+ * on 2026-10-28 with all ten settings saved still failed code-10000
+ * "No registrant contact provided…", which is how the trap was found.
+ * Do not re-derive the create body from the resource shape.
+ *
+ * The REGISTRANT_FIELDS table below maps the SETTINGS (unchanged since
+ * Batch 38 — saved admin values stay valid) to the resolved values the
+ * builder maps onto the wire shape: the two name settings combine into
+ * postal_info.name; domain.registrant_postal_code lands in the address's
+ * `postal_code`; the country becomes `country_code` (uppercased).
  */
 const REGISTRANT_FIELDS = [
   { setting: 'domain.registrant_first_name', field: 'first_name', label: 'First name', required: true },
@@ -186,13 +207,56 @@ async function resolveRegistrantSetting(db, key) {
 }
 
 /**
- * Build the Cloudflare `registrant_contact` object from settings.
- * `resolveSetting(key)` may be sync or async and returns the raw value.
- * Throws a typed REGISTRANT_INCOMPLETE error naming every missing
- * required setting and where to fill it in. Exported for unit tests.
+ * Normalize a stored registrant phone to the shape the Create
+ * Registration schema wants: E.164 with a DOT between the country code
+ * and the national number ("+1.6105550123"). The settings UI stores
+ * whatever the admin typed ("+1 610 555 0123", "(610) 555-0123", …), so
+ * normalization happens here, at build time.
+ *
+ * Rules:
+ *   - Already dotted ("+1.6105550123", any country code): kept as-is —
+ *     it is already in the endpoint's documented shape.
+ *   - NANP numbers become "+1.<10 digits>": "+1" + 10 digits (the shape
+ *     actually stored in production), a bare 11-digit 1…, or a bare
+ *     10-digit number when the registrant country is US.
+ *   - Any other country code ("+<digits>", no dot): passed through
+ *     UNDOTTED. There is no safe way to split an arbitrary international
+ *     number into country code + national number, and guessing the split
+ *     would silently corrupt the contact — the stored value must then
+ *     already be the full international number.
+ *   - Anything else (letters, extensions, a second '+', fewer than 7 or
+ *     more than 15 digits) returns null, and the builder treats that as
+ *     a pre-flight failure — a malformed contact is never sent.
+ * Exported for unit tests.
+ */
+function normalizeRegistrantPhone(raw, country) {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  const compact = s.replace(/[\s()\-]/g, '');
+  if (/^\+\d{1,3}\.\d{5,}$/.test(compact)) return compact; // already CF-shaped
+  if (!compact.startsWith('+') && compact.includes('+')) return null;
+  const digits = compact.replace(/^\+/, '');
+  if (!/^\d{7,15}$/.test(digits)) return null;
+  if (/^1\d{10}$/.test(digits)) return '+1.' + digits.slice(1);
+  if (!compact.startsWith('+') && /^\d{10}$/.test(digits) && String(country || '').toUpperCase() === 'US') {
+    return '+1.' + digits;
+  }
+  if (compact.startsWith('+')) return '+' + digits; // non-NANP: cannot split the country code safely
+  return null;
+}
+
+/**
+ * Build the `contacts.registrant` object for the Create Registration
+ * body from settings. `resolveSetting(key)` may be sync or async and
+ * returns the raw value. Settings resolution + the missing-field
+ * pre-flight are unchanged from Batch 38 (same keys, same typed
+ * REGISTRANT_INCOMPLETE error naming every missing required setting and
+ * where to fill it in); only the returned SHAPE is the documented
+ * create-endpoint structure (Batch 41 — see the header block above).
+ * Exported for unit tests.
  */
 async function buildRegistrantContact(resolveSetting) {
-  const contact = {};
+  const values = {};
   const missing = [];
   for (const f of REGISTRANT_FIELDS) {
     let v = '';
@@ -202,7 +266,7 @@ async function buildRegistrantContact(resolveSetting) {
       v = '';
     }
     if (f.field === 'country' && v) v = v.toUpperCase();
-    if (v) contact[f.field] = v;
+    if (v) values[f.field] = v;
     else if (f.required) missing.push(`${f.label} (${f.setting})`);
   }
   if (missing.length) {
@@ -213,7 +277,25 @@ async function buildRegistrantContact(resolveSetting) {
       { missing }
     );
   }
-  return contact;
+  const phone = normalizeRegistrantPhone(values.phone, values.country);
+  if (!phone) {
+    throw fail(
+      'REGISTRANT_INCOMPLETE',
+      `Domain registrant phone is not a usable number — "${values.phone}" (domain.registrant_phone). ` +
+        'Enter the full international number (e.g. +1 610 555 0123) under Admin → Settings → Domains, then retry. No domain was registered.',
+      { missing: ['Phone (domain.registrant_phone)'] }
+    );
+  }
+  const postalInfo = { name: `${values.first_name} ${values.last_name}`.trim() };
+  if (values.organization) postalInfo.organization = values.organization;
+  postalInfo.address = {
+    street: values.address,
+    city: values.city,
+    state: values.state,
+    postal_code: values.zip,
+    country_code: values.country,
+  };
+  return { email: values.email, phone, postal_info: postalInfo };
 }
 
 function mapSearchDomain(row) {
@@ -306,11 +388,11 @@ async function registerDomain(db, domainName, opts = {}) {
   const websiteId = opts.websiteId != null ? Number(opts.websiteId) : null;
   const leadId = opts.leadId != null ? Number(opts.leadId) : null;
 
-  // Batch 38: pre-flight the registrant contact BEFORE any Cloudflare
-  // call — a partial contact must never reach the registrar (it fails
-  // there with the raw "No registrant contact provided…" error, after a
-  // billable attempt has already been made).
-  const registrantContact = await buildRegistrantContact((key) => resolveRegistrantSetting(db, key));
+  // Batch 38/41: pre-flight the registrant contact BEFORE any Cloudflare
+  // call — a partial or malformed contact must never reach the registrar
+  // (it fails there with the raw "No registrant contact provided…" error,
+  // after a billable attempt has already been made).
+  const registrant = await buildRegistrantContact((key) => resolveRegistrantSetting(db, key));
 
   // Real-time check before billable register
   const checked = await checkDomains(db, [domain]);
@@ -325,7 +407,7 @@ async function registerDomain(db, domainName, opts = {}) {
   }
 
   const { token, accountId } = await creds(db);
-  const body = { domain_name: domain, years, registrant_contact: registrantContact };
+  const body = { domain_name: domain, years, contacts: { registrant } };
   const resp = await apiRequest({
     method: 'POST',
     apiPath: `${API_BASE}/accounts/${accountId}/registrar/registrations`,
@@ -676,6 +758,7 @@ module.exports = {
   ensureTables,
   normalizeDomain,
   buildRegistrantContact,
+  normalizeRegistrantPhone,
   REGISTRANT_FIELDS,
   searchDomains,
   checkDomains,
