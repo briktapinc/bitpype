@@ -921,6 +921,22 @@ textarea:focus {
 .auth-card .terms-row {
   margin: 4px 0 18px;
 }
+/* Batch 40: recovery-code grid on the staff MFA enrollment screen. */
+.mfa-codes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+  margin: 4px 0 20px;
+  padding: 16px;
+  border: 1px solid var(--line, #e3ddd0);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.03);
+}
+.mfa-codes code {
+  font-size: 1.05rem;
+  letter-spacing: 0.08em;
+  text-align: center;
+}
 .hint,
 .note,
 .muted {

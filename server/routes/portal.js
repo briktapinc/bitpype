@@ -6,9 +6,12 @@
  */
 
 const express = require('express');
+const bcrypt = require('bcryptjs');
+const QRCode = require('qrcode');
 const portal = require('../clientPortal');
 const { requireCaptcha } = require('../captcha');
 const { rateLimit } = require('../rateLimit');
+const mfa = require('../mfa');
 
 const router = express.Router();
 const accessLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 12 });
@@ -176,13 +179,48 @@ async function establishPortalSession(req, client) {
   req.session.clientLastActiveAt = Date.now();
   delete req.session.userId;
   delete req.session.workspaceId;
+  delete req.session.portalMfaChallenge;
   await saveSession(req);
+}
+
+// Batch 40 — portal TOTP is OPT-IN. When a client has enabled it, a
+// password (or magic link) alone never establishes the session: the
+// login parks a short-lived challenge in the regenerated session and
+// POST /mfa/verify completes it. Magic links are gated identically —
+// an emailed link must not be a side door around the second factor.
+const PORTAL_MFA_CHALLENGE_MS = 10 * 60 * 1000;
+
+async function parkPortalMfaChallenge(req, res, client) {
+  await regenerateSession(req);
+  delete req.session.clientPortalId;
+  delete req.session.clientWorkspaceId;
+  delete req.session.clientLeadId;
+  delete req.session.userId;
+  delete req.session.workspaceId;
+  req.session.portalMfaChallenge = {
+    portalUserId: client.id,
+    expiresAt: Date.now() + PORTAL_MFA_CHALLENGE_MS,
+  };
+  await saveSession(req);
+  ok(res, { mfaRequired: true });
+}
+
+function portalMfaChallenge(req) {
+  const ch = req.session && req.session.portalMfaChallenge;
+  if (!ch || !ch.portalUserId || !ch.expiresAt || ch.expiresAt < Date.now()) {
+    if (req.session) delete req.session.portalMfaChallenge;
+    return null;
+  }
+  return ch;
 }
 
 router.post('/login', loginLimit, captcha, async (req, res) => {
   try {
     const { email, password } = req.body || {};
     const client = await portal.login(email, password);
+    if (await mfa.isEnabled('portal', client.id)) {
+      return await parkPortalMfaChallenge(req, res, client);
+    }
     await establishPortalSession(req, client);
     ok(res, {
       client: await portal.publicClientWithAccess(client),
@@ -197,12 +235,50 @@ router.post('/magic-login', loginLimit, async (req, res) => {
   try {
     const token = (req.body && req.body.token) || '';
     const client = await portal.loginWithMagicToken(token);
+    if (await mfa.isEnabled('portal', client.id)) {
+      return await parkPortalMfaChallenge(req, res, client);
+    }
     await establishPortalSession(req, client);
     ok(res, {
       client: await portal.publicClientWithAccess(client),
       idleMs: portalIdleMs(req),
     });
   } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/mfa/verify', loginLimit, async (req, res) => {
+  try {
+    const ch = portalMfaChallenge(req);
+    if (!ch) {
+      return res.status(400).json({ ok: false, error: 'Sign in again to continue.', code: 'MFA_CHALLENGE_EXPIRED' });
+    }
+    await mfa.verifyLoginCode('portal', ch.portalUserId, (req.body || {}).code);
+    const row = await portal.findById(ch.portalUserId);
+    if (!row || String(row.status) !== 'active') {
+      return res.status(401).json({ ok: false, error: 'INVALID_CREDENTIALS', code: 'INVALID_CREDENTIALS' });
+    }
+    const client = {
+      id: row.id,
+      email: row.email,
+      workspaceId: row.workspace_id,
+      leadId: row.lead_id,
+      businessName: row.business_name || '',
+      userType: require('../portalTabs').normalizeUserType(row.user_type),
+      navOverrides: row.nav_overrides || null,
+      moduleOverrides: row.module_overrides || null,
+    };
+    await establishPortalSession(req, client);
+    ok(res, {
+      client: await portal.publicClientWithAccess(client),
+      idleMs: portalIdleMs(req),
+    });
+  } catch (e) {
+    if (e && e.code && String(e.code).startsWith('MFA_')) {
+      const http = e.code === 'MFA_LOCKED' ? 429 : 401;
+      return res.status(http).json({ ok: false, error: e.message || e.code, code: e.code });
+    }
     fail(res, e);
   }
 });
@@ -249,6 +325,70 @@ router.get('/me', requireClient, async (req, res) => {
     });
   } catch (e) {
     fail(res, e, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Batch 40 — portal MFA management (opt-in TOTP). Mounted with the core
+// session routes above (before the tab guard below) so EVERY signed-in
+// client — owner or renter — can manage their own second factor.
+// ---------------------------------------------------------------------------
+
+function mfaRouteFail(res, e) {
+  if (e && e.code && String(e.code).startsWith('MFA_')) {
+    const http = e.code === 'MFA_LOCKED' ? 429 : e.code === 'MFA_NO_PENDING' ? 400 : 401;
+    return res.status(http).json({ ok: false, error: e.message || e.code, code: e.code });
+  }
+  return fail(res, e);
+}
+
+async function requirePortalPassword(req, userId) {
+  const password = String((req.body || {}).password || '');
+  const row = await portal.findById(userId);
+  const okPw = row ? await bcrypt.compare(password, row.password_hash) : false;
+  if (!row || !okPw) {
+    throw Object.assign(new Error('INVALID_CREDENTIALS'), { code: 'INVALID_CREDENTIALS' });
+  }
+  return row;
+}
+
+router.get('/mfa', requireClient, async (req, res) => {
+  try {
+    const state = await mfa.getState('portal', req.client.id);
+    ok(res, { enabled: state.enabled });
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+
+router.post('/mfa/enroll/start', requireClient, actionLimit, async (req, res) => {
+  try {
+    const row = await requirePortalPassword(req, req.client.id);
+    const enrollment = await mfa.startEnrollment('portal', row.id, row.email);
+    const qrDataUrl = await QRCode.toDataURL(enrollment.otpauthUrl, { margin: 1, width: 220 });
+    ok(res, { secret: enrollment.secret, otpauthUrl: enrollment.otpauthUrl, qrDataUrl });
+  } catch (e) {
+    mfaRouteFail(res, e);
+  }
+});
+
+router.post('/mfa/enroll/confirm', requireClient, actionLimit, async (req, res) => {
+  try {
+    const { recoveryCodes } = await mfa.confirmEnrollment('portal', req.client.id, (req.body || {}).code);
+    ok(res, { enabled: true, recoveryCodes });
+  } catch (e) {
+    mfaRouteFail(res, e);
+  }
+});
+
+router.post('/mfa/disable', requireClient, actionLimit, async (req, res) => {
+  try {
+    await requirePortalPassword(req, req.client.id);
+    await mfa.verifyLoginCode('portal', req.client.id, (req.body || {}).code);
+    await mfa.clearMfa('portal', req.client.id);
+    ok(res, { enabled: false });
+  } catch (e) {
+    mfaRouteFail(res, e);
   }
 });
 

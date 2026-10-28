@@ -452,6 +452,17 @@ async function migrate() {
     ensureColumnSqlite(db, 'job_runs', 'triggered_by', "TEXT NOT NULL DEFAULT 'unknown'");
     ensureColumnSqlite(db, 'workspace_tokens', 'expires_at', 'INTEGER');
     ensureColumnSqlite(db, 'workspace_tokens', 'oauth_user_id', 'INTEGER');
+    // Batch 40: MFA (TOTP) state on both login surfaces — staff users
+    // (required) and client portal users (opt-in). Secrets are stored
+    // secretBox-encrypted; recovery codes as SHA-256 hashes only.
+    for (const table of ['users', 'client_portal_users']) {
+      ensureColumnSqlite(db, table, 'totp_secret', 'TEXT');
+      ensureColumnSqlite(db, table, 'totp_pending_secret', 'TEXT');
+      ensureColumnSqlite(db, table, 'totp_enabled', 'INTEGER NOT NULL DEFAULT 0');
+      ensureColumnSqlite(db, table, 'totp_recovery_hashes', 'TEXT');
+      ensureColumnSqlite(db, table, 'totp_failed_attempts', 'INTEGER NOT NULL DEFAULT 0');
+      ensureColumnSqlite(db, table, 'totp_locked_until', 'TEXT');
+    }
     await require('./oauthTokenPolicy').backfill(query);
     return;
   }
@@ -659,6 +670,17 @@ async function migrate() {
     await ensureColumnMysql(conn, 'job_runs', 'triggered_by', "VARCHAR(120) NOT NULL DEFAULT 'unknown'");
     await ensureColumnMysql(conn, 'workspace_tokens', 'expires_at', 'BIGINT NULL');
     await ensureColumnMysql(conn, 'workspace_tokens', 'oauth_user_id', 'BIGINT UNSIGNED NULL');
+    // Batch 40: MFA (TOTP) state on both login surfaces — staff users
+    // (required) and client portal users (opt-in). Secrets are stored
+    // secretBox-encrypted; recovery codes as SHA-256 hashes only.
+    for (const table of ['users', 'client_portal_users']) {
+      await ensureColumnMysql(conn, table, 'totp_secret', 'TEXT NULL');
+      await ensureColumnMysql(conn, table, 'totp_pending_secret', 'TEXT NULL');
+      await ensureColumnMysql(conn, table, 'totp_enabled', 'TINYINT(1) NOT NULL DEFAULT 0');
+      await ensureColumnMysql(conn, table, 'totp_recovery_hashes', 'TEXT NULL');
+      await ensureColumnMysql(conn, table, 'totp_failed_attempts', 'INT NOT NULL DEFAULT 0');
+      await ensureColumnMysql(conn, table, 'totp_locked_until', 'DATETIME NULL');
+    }
     await conn.query(`
       CREATE TABLE IF NOT EXISTS upsell_tips (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,

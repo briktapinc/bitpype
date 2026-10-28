@@ -1908,6 +1908,14 @@
       html { scroll-behavior: auto; }
     }
 
+    /* Batch 40: account security (TOTP) section. */
+    #sec-security .mfa-qr { text-align: center; margin: 12px 0; }
+    #sec-security .mfa-key { text-align: center; font-size: 1rem; letter-spacing: 0.08em; overflow-wrap: anywhere; }
+    #sec-security .mfa-codes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; margin: 12px 0; padding: 16px; border: 1px solid rgba(127, 127, 127, 0.35); border-radius: 12px; }
+    #sec-security .mfa-codes code { font-size: 1.05rem; letter-spacing: 0.08em; text-align: center; }
+    #sec-security .field { margin-bottom: 14px; max-width: 420px; }
+    #sec-security input { width: 100%; }
+
     /* Mobile editor: keep controls scrollable and reserve usable preview space. */
     .logo-bar [hidden] { display: none !important; }
     #sec-preview.is-edit-fullscreen .logo-bar { flex-shrink: 0; }
@@ -1958,6 +1966,15 @@
           <p class="hint">No password yet? Use Request access for a sign-in link.</p>
           <p class="msg" id="msg-login"></p>
         </form>
+        <form id="form-mfa" class="hidden">
+          <div class="field">
+            <label for="mfa-code" id="mfa-code-label">Authenticator code</label>
+            <input id="mfa-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" />
+          </div>
+          <button class="btn" type="submit" id="btn-mfa">Verify and enter</button>
+          <p class="hint"><a href="#" id="mfa-toggle">Use a recovery code instead</a></p>
+          <p class="msg" id="msg-mfa"></p>
+        </form>
       </div>
     </div>
 
@@ -1968,6 +1985,7 @@
           <p class="who" id="biz-name">Your project</p>
           <p class="meta" id="biz-meta"></p>
         </div>
+        <button type="button" class="btn ghost" id="btn-security">Security</button>
         <button type="button" class="btn ghost" id="btn-logout">Log out</button>
       </header>
 
@@ -1985,6 +2003,17 @@
         <button type="button" role="tab" id="nav-rentals" data-panel="rentals" aria-controls="sec-rentals" aria-selected="false">Rentals</button>
         <button type="button" role="tab" id="nav-billing" data-panel="billing" aria-controls="sec-billing" aria-selected="false">Billing</button>
       </nav>
+
+      <section class="block" id="sec-security" hidden>
+        <div class="block-head">
+          <div>
+            <h2>Account security</h2>
+            <p class="lede">Two-factor authentication for your portal sign-in — an optional extra layer on top of your password.</p>
+          </div>
+          <button type="button" class="btn ghost" id="btn-security-close">Done</button>
+        </div>
+        <div id="security-body"><p class="hint">Loading…</p></div>
+      </section>
 
       <section class="block portal-panel" id="sec-preview" role="tabpanel" aria-labelledby="nav-website" data-panel="website">
         <div class="block-head">

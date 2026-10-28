@@ -59,7 +59,7 @@ function allowAccessEmail(email) {
 async function findById(id) {
   const rows = await query(
     `SELECT id, email, password_hash, workspace_id, lead_id, business_name, status,
-            user_type, nav_overrides, module_overrides,
+            user_type, nav_overrides, module_overrides, totp_enabled,
             last_login_at, created_at, updated_at
      FROM client_portal_users WHERE id = :id LIMIT 1`,
     { id: Number(id) }
@@ -72,7 +72,7 @@ async function findByEmail(email) {
   if (!e) return null;
   const rows = await query(
     `SELECT id, email, password_hash, workspace_id, lead_id, business_name, status,
-            user_type, nav_overrides, module_overrides,
+            user_type, nav_overrides, module_overrides, totp_enabled,
             last_login_at, created_at, updated_at
      FROM client_portal_users WHERE email = :email LIMIT 1`,
     { email: e }
@@ -488,6 +488,7 @@ function portalUserView(row, defaults) {
     businessName: row.business_name || '',
     status: row.status,
     lastLoginAt: row.last_login_at || null,
+    mfaEnabled: Number(row.totp_enabled) === 1,
     createdAt: row.created_at || null,
     userType,
     navOverrides: hasOverrides ? overrides : null,
@@ -502,7 +503,7 @@ async function listPortalUsers({ q = '', limit = 200 } = {}) {
   const lim = Math.min(500, Math.max(1, Number(limit) || 200));
   const needle = String(q || '').trim();
   const cols = `id, email, workspace_id, lead_id, business_name, status,
-                user_type, nav_overrides, module_overrides, last_login_at, created_at`;
+                user_type, nav_overrides, module_overrides, totp_enabled, last_login_at, created_at`;
   const rows = needle
     ? await query(
         `SELECT ${cols} FROM client_portal_users

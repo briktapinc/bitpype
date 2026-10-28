@@ -44,7 +44,7 @@ async function listUsers({ q = '', limit = 100 } = {}) {
   const like = `%${String(q || '').trim()}%`;
   if (String(q || '').trim()) {
     return query(
-      `SELECT u.id, u.email, u.name, u.is_super_admin, u.status, u.last_login_at, u.created_at,
+      `SELECT u.id, u.email, u.name, u.is_super_admin, u.status, u.last_login_at, u.created_at, u.totp_enabled,
               (SELECT COUNT(*) FROM workspace_members m WHERE m.user_id = u.id) AS workspace_count
        FROM users u
        WHERE ${notDeletedClause('u')}
@@ -55,7 +55,7 @@ async function listUsers({ q = '', limit = 100 } = {}) {
     );
   }
   return query(
-    `SELECT u.id, u.email, u.name, u.is_super_admin, u.status, u.last_login_at, u.created_at,
+    `SELECT u.id, u.email, u.name, u.is_super_admin, u.status, u.last_login_at, u.created_at, u.totp_enabled,
             (SELECT COUNT(*) FROM workspace_members m WHERE m.user_id = u.id) AS workspace_count
      FROM users u
      WHERE ${notDeletedClause('u')}

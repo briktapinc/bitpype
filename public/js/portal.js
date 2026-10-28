@@ -5,6 +5,7 @@
   const app = document.getElementById('app');
   const formAccess = document.getElementById('form-access');
   const formLogin = document.getElementById('form-login');
+  const formMfa = document.getElementById('form-mfa');
   const tabAccess = document.getElementById('tab-access');
   const tabLogin = document.getElementById('tab-login');
 
@@ -267,6 +268,9 @@
     if (!portalTabVisible(next)) {
       next = PORTAL_PANELS.find((p) => portalTabVisible(p)) || 'website';
     }
+    // Batch 40: switching tabs always closes the Security section.
+    const secSecurityEl = document.getElementById('sec-security');
+    if (secSecurityEl) secSecurityEl.hidden = true;
     if (next !== 'website' && state.editFullscreen) setEditFullscreen(false);
 
     PORTAL_PANELS.forEach((id) => {
@@ -390,6 +394,7 @@
     tabLogin.setAttribute('aria-selected', access ? 'false' : 'true');
     formAccess.classList.toggle('hidden', !access);
     formLogin.classList.toggle('hidden', access);
+    if (formMfa) formMfa.classList.add('hidden');
   }
 
   tabAccess.onclick = () => setTab('access');
@@ -461,13 +466,19 @@
           captchaToken,
         }),
       });
-      state.client = data.client;
       document.getElementById('login-password').value = '';
       try {
         captchaLogin.reset && captchaLogin.reset();
       } catch {
         /* */
       }
+      // Batch 40: opt-in TOTP — the password was right, but no session
+      // exists until the code step completes.
+      if (data && data.mfaRequired) {
+        showMfaForm();
+        return;
+      }
+      state.client = data.client;
       await loadDashboard();
     } catch (e) {
       msg.className = 'msg err';
@@ -482,6 +493,69 @@
     }
   };
 
+  // Batch 40 — portal second-factor step (opt-in TOTP). Shown after a
+  // correct password or magic link when the account has MFA enabled;
+  // the server holds only a challenge until /mfa/verify succeeds.
+  let mfaUseRecovery = false;
+  function showMfaForm() {
+    showGate();
+    setTab('login');
+    if (!formMfa) return;
+    formLogin.classList.add('hidden');
+    formAccess.classList.add('hidden');
+    formMfa.classList.remove('hidden');
+    const msg = document.getElementById('msg-mfa');
+    if (msg) {
+      msg.className = 'msg';
+      msg.textContent = 'Your password was accepted — one more step.';
+    }
+    const input = document.getElementById('mfa-code');
+    if (input) input.focus();
+  }
+
+  const mfaToggle = document.getElementById('mfa-toggle');
+  if (mfaToggle) {
+    mfaToggle.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      mfaUseRecovery = !mfaUseRecovery;
+      const input = document.getElementById('mfa-code');
+      const label = document.getElementById('mfa-code-label');
+      if (label) label.textContent = mfaUseRecovery ? 'Recovery code' : 'Authenticator code';
+      if (input) {
+        input.placeholder = mfaUseRecovery ? 'XXXX-XXXX' : '123456';
+        input.setAttribute('inputmode', mfaUseRecovery ? 'text' : 'numeric');
+        input.value = '';
+        input.focus();
+      }
+      mfaToggle.textContent = mfaUseRecovery ? 'Use my authenticator app instead' : 'Use a recovery code instead';
+    });
+  }
+
+  if (formMfa) {
+    formMfa.onsubmit = async (ev) => {
+      ev.preventDefault();
+      const msg = document.getElementById('msg-mfa');
+      const btn = document.getElementById('btn-mfa');
+      msg.className = 'msg';
+      msg.textContent = 'Checking…';
+      btn.disabled = true;
+      try {
+        const data = await api('/mfa/verify', {
+          method: 'POST',
+          body: JSON.stringify({ code: document.getElementById('mfa-code').value.trim() }),
+        });
+        state.client = data.client;
+        formMfa.classList.add('hidden');
+        await loadDashboard();
+      } catch (e) {
+        msg.className = 'msg err';
+        msg.textContent = e.message;
+      } finally {
+        btn.disabled = false;
+      }
+    };
+  }
+
   document.getElementById('btn-logout').onclick = async () => {
     try {
       await api('/logout', { method: 'POST', body: '{}' });
@@ -492,6 +566,126 @@
     showPortalLogin();
     await mountCaptchas();
   };
+
+  // Batch 40 — Account security section (opt-in TOTP management). Not a
+  // portal tab: it sits outside the Batch 29 tab system so every
+  // signed-in client (owner or renter) can reach it, and the API
+  // routes are mounted with the core session routes server-side.
+  const secSecurity = document.getElementById('sec-security');
+  const securityBody = document.getElementById('security-body');
+
+  function showSecurity() {
+    if (!secSecurity) return;
+    document.querySelectorAll('section.portal-panel').forEach((sec) => sec.setAttribute('hidden', ''));
+    secSecurity.hidden = false;
+    loadMfaSecurity();
+  }
+  function hideSecurity() {
+    if (secSecurity) secSecurity.hidden = true;
+  }
+  const btnSecurity = document.getElementById('btn-security');
+  if (btnSecurity) btnSecurity.onclick = () => showSecurity();
+  const btnSecurityClose = document.getElementById('btn-security-close');
+  if (btnSecurityClose) {
+    btnSecurityClose.onclick = () => {
+      hideSecurity();
+      syncPortalPanelFromHash();
+    };
+  }
+
+  async function loadMfaSecurity() {
+    if (!securityBody) return;
+    securityBody.innerHTML = '<p class="hint">Loading…</p>';
+    try {
+      const data = await api('/mfa');
+      renderMfaSecurity(!!data.enabled);
+    } catch (e) {
+      securityBody.innerHTML = `<p class="msg err">${esc(e.message)}</p>`;
+    }
+  }
+
+  function renderMfaSecurity(enabled, recoveryCodes) {
+    if (!securityBody) return;
+    if (recoveryCodes && recoveryCodes.length) {
+      securityBody.innerHTML = `
+        <p><strong>Two-factor authentication is on.</strong> Save these recovery codes somewhere safe — if you lose your authenticator app, one of these codes signs you in once. They will not be shown again.</p>
+        <div class="mfa-codes">${recoveryCodes.map((c) => `<code>${esc(c)}</code>`).join('')}</div>
+        <button type="button" class="btn" id="mfa-sec-done">I've saved my codes</button>`;
+      document.getElementById('mfa-sec-done').onclick = () => renderMfaSecurity(true);
+      return;
+    }
+    if (enabled) {
+      securityBody.innerHTML = `
+        <p><strong>Two-factor authentication is on.</strong> Signing in asks for a 6-digit code from your authenticator app after your password.</p>
+        <p class="hint">To turn it off, enter your password and a current code (or a recovery code).</p>
+        <div class="field"><label for="mfa-sec-password">Password</label><input id="mfa-sec-password" type="password" autocomplete="current-password" /></div>
+        <div class="field"><label for="mfa-sec-code">Authenticator or recovery code</label><input id="mfa-sec-code" type="text" autocomplete="one-time-code" placeholder="123456 or XXXX-XXXX" /></div>
+        <button type="button" class="btn" id="mfa-sec-disable">Turn off two-factor authentication</button>
+        <p class="msg" id="mfa-sec-msg"></p>`;
+      document.getElementById('mfa-sec-disable').onclick = async () => {
+        const msg = document.getElementById('mfa-sec-msg');
+        msg.className = 'msg';
+        msg.textContent = 'Checking…';
+        try {
+          await api('/mfa/disable', {
+            method: 'POST',
+            body: JSON.stringify({
+              password: document.getElementById('mfa-sec-password').value,
+              code: document.getElementById('mfa-sec-code').value.trim(),
+            }),
+          });
+          renderMfaSecurity(false);
+        } catch (e) {
+          msg.className = 'msg err';
+          msg.textContent = e.message;
+        }
+      };
+      return;
+    }
+    securityBody.innerHTML = `
+      <p><strong>Two-factor authentication is off.</strong> Turn it on and signing in will also ask for a 6-digit code from an authenticator app (Google Authenticator, Authy, 1Password…) after your password.</p>
+      <div class="field"><label for="mfa-sec-password">Confirm your password to set it up</label><input id="mfa-sec-password" type="password" autocomplete="current-password" /></div>
+      <button type="button" class="btn" id="mfa-sec-start">Set up two-factor authentication</button>
+      <p class="msg" id="mfa-sec-msg"></p>
+      <div id="mfa-sec-enroll"></div>`;
+    document.getElementById('mfa-sec-start').onclick = async () => {
+      const msg = document.getElementById('mfa-sec-msg');
+      msg.className = 'msg';
+      msg.textContent = 'Preparing…';
+      try {
+        const data = await api('/mfa/enroll/start', {
+          method: 'POST',
+          body: JSON.stringify({ password: document.getElementById('mfa-sec-password').value }),
+        });
+        msg.textContent = '';
+        const host = document.getElementById('mfa-sec-enroll');
+        host.innerHTML = `
+          <div class="mfa-qr"><img src="${data.qrDataUrl}" alt="Authenticator setup QR code" width="220" height="220" /></div>
+          <p class="hint mfa-key">Can't scan? Enter this key in the app manually:<br /><code>${esc(data.secret || '')}</code></p>
+          <div class="field"><label for="mfa-sec-code">6-digit code from the app</label><input id="mfa-sec-code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" /></div>
+          <button type="button" class="btn" id="mfa-sec-confirm">Confirm and turn on</button>
+          <p class="msg" id="mfa-sec-msg2"></p>`;
+        document.getElementById('mfa-sec-confirm').onclick = async () => {
+          const msg2 = document.getElementById('mfa-sec-msg2');
+          msg2.className = 'msg';
+          msg2.textContent = 'Checking…';
+          try {
+            const done = await api('/mfa/enroll/confirm', {
+              method: 'POST',
+              body: JSON.stringify({ code: document.getElementById('mfa-sec-code').value.trim() }),
+            });
+            renderMfaSecurity(true, done.recoveryCodes || []);
+          } catch (e) {
+            msg2.className = 'msg err';
+            msg2.textContent = e.message;
+          }
+        };
+      } catch (e) {
+        msg.className = 'msg err';
+        msg.textContent = e.message;
+      }
+    };
+  }
 
   function syncPublishButton() {
     const pubBtn = document.getElementById('btn-publish-site');
@@ -7893,7 +8087,7 @@
     }
     setTab('login');
     try {
-      await api('/magic-login', {
+      const data = await api('/magic-login', {
         method: 'POST',
         body: JSON.stringify({ token: magic }),
       });
@@ -7904,6 +8098,12 @@
         window.history.replaceState({}, '', u.pathname + u.search + u.hash);
       } catch {
         /* ignore */
+      }
+      // Batch 40: a magic link is a sign-in, not a side door — when the
+      // account has TOTP on, the code step still stands.
+      if (data && data.mfaRequired) {
+        showMfaForm();
+        return 'mfa';
       }
       return true;
     } catch (e) {
@@ -7920,6 +8120,7 @@
     await mountCaptchas();
     try {
       const usedMagic = await tryMagicLogin();
+      if (usedMagic === 'mfa') return;
       if (usedMagic) {
         await loadDashboard();
         return;

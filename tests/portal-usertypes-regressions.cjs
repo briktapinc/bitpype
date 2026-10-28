@@ -175,6 +175,25 @@ async function main() {
     const patch = (jar, p, body) => jar.fetch(BASE + p, { method: 'PATCH', body: JSON.stringify(body || {}) });
     const put = (jar, p, body) => jar.fetch(BASE + p, { method: 'PUT', body: JSON.stringify(body || {}) });
 
+    // Batch 40: staff TOTP is REQUIRED — a correct staff password now
+    // returns an MFA challenge instead of a session. Complete the
+    // forced enrollment (first login) or the code step (later logins)
+    // with the real TOTP core so the admin-surface checks below run
+    // against a fully signed-in session, exactly as a human's would.
+    const totp40 = require(path.join(root, 'src/totp.js'));
+    const staffSecrets40 = new Map();
+    async function completeStaffMfa(jar, loginRes) {
+      const body = await json(loginRes);
+      if (!body || !body.data || !body.data.mfaRequired) return body;
+      if (body.data.mfaStage === 'enroll') {
+        const start = await json(await post(jar, '/api/v1/auth/mfa/enroll/start', {}));
+        staffSecrets40.set(jar, start.data.secret);
+        const done = await post(jar, '/api/v1/auth/mfa/enroll/confirm', { code: totp40.totp(start.data.secret) });
+        return json(done);
+      }
+      return json(await post(jar, '/api/v1/auth/mfa/verify', { code: totp40.totp(staffSecrets40.get(jar)) }));
+    }
+
     // ---- owner baseline ----
     let res = await post(portalJar, '/api/v1/portal/login', { email: PORTAL_EMAIL, password: PORTAL_PASSWORD });
     check('portal login (owner) 200', res.status === 200);
@@ -189,6 +208,7 @@ async function main() {
     // ---- admin surface ----
     res = await post(adminJar, '/api/v1/auth/login', { email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
     check('staff admin login 200', res.status === 200);
+    await completeStaffMfa(adminJar, res);
     const adminList = (await json(await get(adminJar, '/api/v1/admin/portal-users'))).data;
     const listed = (adminList.users || []).find((u) => u.id === userId);
     check('admin lists portal user as owner', !!listed && listed.userType === 'owner');
@@ -293,6 +313,7 @@ async function main() {
     // ---- admin endpoints are staff-only ----
     res = await post(staffJar, '/api/v1/auth/login', { email: STAFF_EMAIL, password: STAFF_PASSWORD });
     check('plain staff login 200', res.status === 200);
+    await completeStaffMfa(staffJar, res);
     res = await get(staffJar, '/api/v1/admin/portal-users');
     check('non-super staff GET /admin/portal-users → 403', res.status === 403);
     res = await get(staffJar, '/api/v1/admin/portal-access-defaults');

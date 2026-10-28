@@ -2,10 +2,12 @@
 
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const QRCode = require('qrcode');
 const { createUserWithWorkspace, findUserByEmail, listWorkspacesForUser } = require('../workspace');
 const { requireAuth } = require('../middleware');
 const { rateLimit } = require('../rateLimit');
 const { requireCaptcha } = require('../captcha');
+const mfa = require('../mfa');
 
 const router = express.Router();
 const authLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 40 });
@@ -176,22 +178,126 @@ router.post('/login', authLimit, captcha, async (req, res, next) => {
       return res.status(503).json({ ok: false, error: 'MAINTENANCE_MODE' });
     }
 
-    const workspaces = await listWorkspacesForUser(user.id);
+    // Batch 40 — TOTP is REQUIRED for staff accounts. A correct
+    // password alone never issues a session: the login parks a
+    // short-lived challenge in the (regenerated) session and the
+    // client completes either the forced enrollment (no confirmed
+    // TOTP yet) or the code step. req.session.userId is set only by
+    // finishStaffLogin, after the second factor succeeds.
+    const mfaState = await mfa.getState('staff', user.id);
     await regenerateSession(req);
-    // Staff cookie only — never carry client portal keys on this session.
     delete req.session.clientPortalId;
     delete req.session.clientWorkspaceId;
     delete req.session.clientLeadId;
-    req.session.userId = user.id;
-    req.session.workspaceId = workspaces[0] ? workspaces[0].id : null;
+    delete req.session.userId;
+    delete req.session.workspaceId;
+    req.session.mfaChallenge = {
+      userId: user.id,
+      email: user.email,
+      stage: mfaState.enabled ? 'verify' : 'enroll',
+      expiresAt: Date.now() + MFA_CHALLENGE_MS,
+    };
     await saveSession(req);
-    try {
-      await require('../admin').touchLogin(user.id);
-    } catch {
-      /* ignore */
-    }
-    res.json({ ok: true, data: await authPayload(user, req.session.workspaceId, workspaces) });
+    return res.json({
+      ok: true,
+      data: { mfaRequired: true, mfaStage: req.session.mfaChallenge.stage },
+    });
   } catch (e) {
+    next(e);
+  }
+});
+
+const MFA_CHALLENGE_MS = 10 * 60 * 1000;
+
+/** Issue the real staff session — the ONLY place login sets userId. */
+async function finishStaffLogin(req, res, user) {
+  const workspaces = await listWorkspacesForUser(user.id);
+  await regenerateSession(req);
+  // Staff cookie only — never carry client portal keys on this session.
+  delete req.session.clientPortalId;
+  delete req.session.clientWorkspaceId;
+  delete req.session.clientLeadId;
+  delete req.session.mfaChallenge;
+  delete req.session.portalMfaChallenge;
+  req.session.userId = user.id;
+  req.session.workspaceId = workspaces[0] ? workspaces[0].id : null;
+  await saveSession(req);
+  try {
+    await require('../admin').touchLogin(user.id);
+  } catch {
+    /* ignore */
+  }
+  return authPayload(user, req.session.workspaceId, workspaces);
+}
+
+/** The parked second-factor challenge, or null when absent/expired. */
+function staffMfaChallenge(req, stage) {
+  const ch = req.session && req.session.mfaChallenge;
+  if (!ch || !ch.userId || !ch.expiresAt || ch.expiresAt < Date.now()) {
+    if (req.session) delete req.session.mfaChallenge;
+    return null;
+  }
+  if (stage && ch.stage !== stage) return null;
+  return ch;
+}
+
+function mfaFail(res, e) {
+  const http = e.code === 'MFA_LOCKED' ? 429 : e.code === 'MFA_CHALLENGE_EXPIRED' || e.code === 'MFA_NO_PENDING' ? 400 : 401;
+  return res.status(http).json({ ok: false, error: e.message || e.code, code: e.code });
+}
+
+/** Re-load the challenged account fresh (status may have changed). */
+async function loadStaffUser(ch) {
+  const user = await findUserByEmail(ch.email);
+  if (!user || Number(user.id) !== Number(ch.userId)) return null;
+  if (String(user.status || 'active') === 'disabled' || user.deleted_at) return null;
+  return user;
+}
+
+router.post('/mfa/enroll/start', authLimit, async (req, res) => {
+  try {
+    const ch = staffMfaChallenge(req, 'enroll');
+    if (!ch) {
+      return res.status(400).json({ ok: false, error: 'Sign in again to set up two-factor authentication.', code: 'MFA_CHALLENGE_EXPIRED' });
+    }
+    const enrollment = await mfa.startEnrollment('staff', ch.userId, ch.email);
+    const qrDataUrl = await QRCode.toDataURL(enrollment.otpauthUrl, { margin: 1, width: 220 });
+    res.json({ ok: true, data: { secret: enrollment.secret, otpauthUrl: enrollment.otpauthUrl, qrDataUrl } });
+  } catch (e) {
+    mfaFail(res, e);
+  }
+});
+
+router.post('/mfa/enroll/confirm', authLimit, async (req, res, next) => {
+  try {
+    const ch = staffMfaChallenge(req, 'enroll');
+    if (!ch) {
+      return res.status(400).json({ ok: false, error: 'Sign in again to set up two-factor authentication.', code: 'MFA_CHALLENGE_EXPIRED' });
+    }
+    const { recoveryCodes } = await mfa.confirmEnrollment('staff', ch.userId, (req.body || {}).code);
+    const user = await loadStaffUser(ch);
+    if (!user) return res.status(403).json({ ok: false, error: 'ACCOUNT_DISABLED' });
+    const payload = await finishStaffLogin(req, res, user);
+    res.json({ ok: true, data: { ...payload, mfaEnrolled: true, recoveryCodes } });
+  } catch (e) {
+    if (e && e.code && String(e.code).startsWith('MFA_')) return mfaFail(res, e);
+    next(e);
+  }
+});
+
+router.post('/mfa/verify', authLimit, async (req, res, next) => {
+  try {
+    const ch = staffMfaChallenge(req, 'verify');
+    if (!ch) {
+      return res.status(400).json({ ok: false, error: 'Sign in again to continue.', code: 'MFA_CHALLENGE_EXPIRED' });
+    }
+    await mfa.verifyLoginCode('staff', ch.userId, (req.body || {}).code);
+    const user = await loadStaffUser(ch);
+    if (!user) return res.status(403).json({ ok: false, error: 'ACCOUNT_DISABLED' });
+    const payload = await finishStaffLogin(req, res, user);
+    res.json({ ok: true, data: payload });
+  } catch (e) {
+    if (e && e.code && String(e.code).startsWith('MFA_')) return mfaFail(res, e);
     next(e);
   }
 });

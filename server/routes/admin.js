@@ -92,6 +92,22 @@ router.delete('/users/:id', async (req, res) => {
   }
 });
 
+// Batch 40 — MFA reset: clears a staff member's TOTP secret + enabled
+// flag + recovery codes. Staff TOTP is required, so the user simply
+// re-enrolls inline at their next login (no lockout state exists).
+router.post('/users/:id/mfa/reset', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const target = await admin.getUser(id);
+    if (!target) return fail(res, Object.assign(new Error('NOT_FOUND'), { code: 'NOT_FOUND' }), 404);
+    await require('../mfa').clearMfa('staff', id);
+    await platform.audit(req.session.userId, 'user.mfa_reset', `userId=${id}`);
+    ok(res, { reset: true });
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+
 // ---------- Client portal users (Batch 29: user types + nav access) ----------
 // Portal users are end customers (client_portal_users), distinct from the
 // staff users above. Admin sets each one's type ('owner' | 'renter') and
@@ -117,6 +133,22 @@ router.patch('/portal-users/:id', async (req, res) => {
     ok(res, { user: data });
   } catch (e) {
     fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
+// Batch 40 — MFA reset for a portal client who lost their authenticator
+// and recovery codes (portal TOTP is opt-in; clearing returns them to
+// password-only sign-in until they choose to re-enable it).
+router.post('/portal-users/:id/mfa/reset', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const target = await require('../clientPortal').findById(id);
+    if (!target) return fail(res, Object.assign(new Error('NOT_FOUND'), { code: 'NOT_FOUND' }), 404);
+    await require('../mfa').clearMfa('portal', id);
+    await platform.audit(req.session.userId, 'portal_user.mfa_reset', `portalUserId=${id}`);
+    ok(res, { reset: true });
+  } catch (e) {
+    fail(res, e, 500);
   }
 });
 

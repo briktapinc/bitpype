@@ -1,0 +1,272 @@
+'use strict';
+
+/**
+ * Batch 40 — MFA (TOTP) service for both login surfaces.
+ *
+ *   staff  → platform `users` table; TOTP is REQUIRED (Ely 2026-10-28):
+ *            a staff login with no confirmed TOTP is routed into the
+ *            inline enrollment flow and gets NO session until a code
+ *            confirms the secret.
+ *   portal → platform `client_portal_users` table; TOTP is OPT-IN:
+ *            the code step appears at login only when the client has
+ *            enabled it from the portal Security section.
+ *
+ * (Portal users live in the platform DB — server/clientPortal.js is
+ * explicit that the table is "platform DB only, never workspace
+ * SQLite" — so both surfaces store their MFA state here.)
+ *
+ * Storage (columns added by server/db.js migrate on both tables):
+ *   totp_secret           confirmed secret, secretBox-encrypted
+ *   totp_pending_secret   enrollment-in-progress secret, encrypted;
+ *                         NEVER counts as enabled on its own, so a
+ *                         half-finished enrollment can't lock anyone
+ *                         out or silently arm MFA
+ *   totp_enabled          1 only after a code confirmed the secret
+ *   totp_recovery_hashes  JSON array of SHA-256 hashes (codes are
+ *                         single-use: a match removes its hash)
+ *   totp_failed_attempts  consecutive failed code attempts
+ *   totp_locked_until     set when attempts hit MAX_FAILED_ATTEMPTS;
+ *                         while in the future, EVERY code (even a
+ *                         correct one) is refused with MFA_LOCKED.
+ *                         Persisted per account, so re-logging in
+ *                         does not reset the throttle.
+ *
+ * Secrets are encrypted with src/secretBox (AES-256-GCM when
+ * SETTINGS_ENCRYPTION_KEY is configured, as in production) and are
+ * never returned by any function here except startEnrollment, which
+ * hands the NEW pending secret to its owner for QR/manual setup.
+ */
+
+const { query } = require('./db');
+const secretBox = require('../src/secretBox');
+const totp = require('../src/totp');
+
+const SURFACES = {
+  staff: 'users',
+  portal: 'client_portal_users',
+};
+
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCK_MS = 15 * 60 * 1000;
+
+function tableFor(surface) {
+  const table = SURFACES[surface];
+  if (!table) throw new Error(`unknown MFA surface: ${surface}`);
+  return table;
+}
+
+function codedError(code, message, extra) {
+  return Object.assign(new Error(message || code), { code, ...(extra || {}) });
+}
+
+function toSqlDateTime(ms) {
+  return new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+}
+
+function parseSqlDateTime(value) {
+  if (!value) return null;
+  const d = new Date(String(value).replace(' ', 'T') + 'Z');
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+async function readRow(surface, id) {
+  const table = tableFor(surface);
+  const rows = await query(
+    `SELECT totp_secret, totp_pending_secret, totp_enabled, totp_recovery_hashes,
+            totp_failed_attempts, totp_locked_until
+     FROM ${table} WHERE id = :id LIMIT 1`,
+    { id: Number(id) }
+  );
+  return rows[0] || null;
+}
+
+async function getState(surface, id) {
+  const row = await readRow(surface, id);
+  if (!row) return { exists: false, enabled: false, hasPending: false, lockedUntil: null };
+  const locked = parseSqlDateTime(row.totp_locked_until);
+  return {
+    exists: true,
+    enabled: Number(row.totp_enabled) === 1 && !!row.totp_secret,
+    hasPending: !!row.totp_pending_secret,
+    lockedUntil: locked && locked.getTime() > Date.now() ? locked : null,
+  };
+}
+
+async function isEnabled(surface, id) {
+  return (await getState(surface, id)).enabled;
+}
+
+function decryptSecret(stored) {
+  if (!stored) return null;
+  try {
+    return secretBox.decryptValue(stored);
+  } catch {
+    return null;
+  }
+}
+
+async function assertNotLocked(surface, id) {
+  const state = await getState(surface, id);
+  if (state.lockedUntil) {
+    throw codedError('MFA_LOCKED', 'Too many incorrect codes. Try again in a few minutes.', {
+      lockedUntil: state.lockedUntil.toISOString(),
+    });
+  }
+}
+
+/** Count a failed code attempt; the MAX-th consecutive failure locks. */
+async function recordFailure(surface, id) {
+  const table = tableFor(surface);
+  const row = await readRow(surface, id);
+  const attempts = (row ? Number(row.totp_failed_attempts) || 0 : 0) + 1;
+  if (attempts >= MAX_FAILED_ATTEMPTS) {
+    await query(`UPDATE ${table} SET totp_failed_attempts = 0, totp_locked_until = :until WHERE id = :id`, {
+      until: toSqlDateTime(Date.now() + LOCK_MS),
+      id: Number(id),
+    });
+    throw codedError('MFA_LOCKED', 'Too many incorrect codes. Try again in a few minutes.', {
+      lockedUntil: new Date(Date.now() + LOCK_MS).toISOString(),
+    });
+  }
+  await query(`UPDATE ${table} SET totp_failed_attempts = :n WHERE id = :id`, {
+    n: attempts,
+    id: Number(id),
+  });
+}
+
+async function recordSuccess(surface, id) {
+  const table = tableFor(surface);
+  await query(`UPDATE ${table} SET totp_failed_attempts = 0, totp_locked_until = NULL WHERE id = :id`, {
+    id: Number(id),
+  });
+}
+
+/**
+ * Try a code against a stored (encrypted) secret, or against the
+ * stored recovery-code hashes. Both shapes are always attempted in
+ * order (TOTP first): a recovery code whose hex happens to contain
+ * exactly six digits must still reach the recovery branch — gating
+ * the branch on "doesn't look like a TOTP code" would silently reject
+ * ~1 in 4 recovery codes. A recovery match CONSUMES the code (its
+ * hash is removed before this returns). Throws MFA_INVALID_CODE.
+ */
+async function tryCode(surface, id, row, rawCode) {
+  const code = String(rawCode || '').trim();
+  if (!code) throw codedError('MFA_INVALID_CODE', 'Enter the code from your authenticator app.');
+
+  const secret = decryptSecret(row.totp_secret || row.totp_pending_secret);
+  if (secret && totp.verify(secret, code) != null) return { via: 'totp' };
+
+  const hash = totp.hashRecoveryCode(code);
+  if (hash && row.totp_recovery_hashes) {
+    let hashes = [];
+    try {
+      hashes = JSON.parse(row.totp_recovery_hashes) || [];
+    } catch {
+      hashes = [];
+    }
+    const idx = hashes.indexOf(hash);
+    if (idx >= 0) {
+      hashes.splice(idx, 1);
+      const table = tableFor(surface);
+      await query(`UPDATE ${table} SET totp_recovery_hashes = :h WHERE id = :id`, {
+        h: JSON.stringify(hashes),
+        id: Number(id),
+      });
+      return { via: 'recovery' };
+    }
+  }
+  throw codedError('MFA_INVALID_CODE', 'That code is not correct.');
+}
+
+/**
+ * Begin (or restart) enrollment: a fresh pending secret is stored
+ * encrypted and returned ONCE to its owner for QR/manual setup.
+ * Enrollment is not active until confirmEnrollment verifies a code.
+ */
+async function startEnrollment(surface, id, email) {
+  const table = tableFor(surface);
+  const secret = totp.generateSecret();
+  await query(`UPDATE ${table} SET totp_pending_secret = :s WHERE id = :id`, {
+    s: secretBox.encryptValue(secret),
+    id: Number(id),
+  });
+  return { secret, otpauthUrl: totp.otpauthUrl(secret, email) };
+}
+
+/**
+ * Confirm enrollment with a code from the authenticator app. On
+ * success the pending secret becomes the confirmed secret, MFA turns
+ * on, and 10 single-use recovery codes are generated — the plaintext
+ * codes are returned here and never stored or shown again.
+ */
+async function confirmEnrollment(surface, id, rawCode) {
+  const table = tableFor(surface);
+  await assertNotLocked(surface, id);
+  const row = await readRow(surface, id);
+  if (!row || !row.totp_pending_secret) {
+    throw codedError('MFA_NO_PENDING', 'Start the authenticator setup first.');
+  }
+  try {
+    await tryCode(surface, id, { ...row, totp_secret: row.totp_pending_secret, totp_recovery_hashes: null }, rawCode);
+  } catch (e) {
+    if (e.code === 'MFA_INVALID_CODE') await recordFailure(surface, id);
+    throw e;
+  }
+  const recoveryCodes = totp.generateRecoveryCodes(totp.RECOVERY_CODE_COUNT);
+  const hashes = recoveryCodes.map((c) => totp.hashRecoveryCode(c));
+  await query(
+    `UPDATE ${table}
+     SET totp_secret = totp_pending_secret, totp_pending_secret = NULL,
+         totp_enabled = 1, totp_recovery_hashes = :h,
+         totp_failed_attempts = 0, totp_locked_until = NULL
+     WHERE id = :id`,
+    { h: JSON.stringify(hashes), id: Number(id) }
+  );
+  return { recoveryCodes };
+}
+
+/**
+ * Verify a code for an account with MFA enabled (the login second
+ * factor, or the code half of portal self-disable). Accepts a TOTP
+ * code or a recovery code. Throws MFA_INVALID_CODE / MFA_LOCKED.
+ */
+async function verifyLoginCode(surface, id, rawCode) {
+  await assertNotLocked(surface, id);
+  const row = await readRow(surface, id);
+  if (!row || Number(row.totp_enabled) !== 1 || !row.totp_secret) {
+    throw codedError('MFA_NOT_ENABLED', 'Two-factor authentication is not enabled for this account.');
+  }
+  try {
+    const result = await tryCode(surface, id, row, rawCode);
+    await recordSuccess(surface, id);
+    return result;
+  } catch (e) {
+    if (e.code === 'MFA_INVALID_CODE') await recordFailure(surface, id);
+    throw e;
+  }
+}
+
+/** Clear every MFA field (self-disable after auth, or admin reset). */
+async function clearMfa(surface, id) {
+  const table = tableFor(surface);
+  await query(
+    `UPDATE ${table}
+     SET totp_secret = NULL, totp_pending_secret = NULL, totp_enabled = 0,
+         totp_recovery_hashes = NULL, totp_failed_attempts = 0, totp_locked_until = NULL
+     WHERE id = :id`,
+    { id: Number(id) }
+  );
+}
+
+module.exports = {
+  SURFACES,
+  MAX_FAILED_ATTEMPTS,
+  LOCK_MS,
+  getState,
+  isEnabled,
+  startEnrollment,
+  confirmEnrollment,
+  verifyLoginCode,
+  clearMfa,
+};

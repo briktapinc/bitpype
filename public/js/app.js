@@ -1071,6 +1071,14 @@ function renderAuth(forcedMode) {
         body.acceptTerms = true;
       }
       const res = mode === 'login' ? await api.login(body) : await api.register(body);
+      // Batch 40: staff TOTP is required — a correct password returns a
+      // second-factor challenge instead of a session. Enrollment (first
+      // time) and the code step both complete through renderAuthMfa,
+      // which boots the app with the payload the confirm/verify returns.
+      if (mode === 'login' && res.data && res.data.mfaRequired) {
+        renderAuthMfa(res.data);
+        return;
+      }
       signedIn = true;
       api.setWorkspaceId(res.data.workspaceId);
       if (inviteToken) {
@@ -1099,8 +1107,134 @@ function renderAuth(forcedMode) {
   });
 }
 
-function updateBillingBanner() {
-  const el = document.getElementById('billing-banner');
+// Batch 40 — staff second-factor screens, rendered into the auth gate.
+// Stage 'enroll' is the forced first-time setup: QR + manual key, one
+// confirming code, then the one-time recovery codes. Stage 'verify' is
+// the returning-user code step; a link toggles the same field to take
+// a recovery code instead. Neither stage holds a session — the
+// confirm/verify response carries the full auth payload and bootApp
+// takes it from there.
+function renderAuthMfa(challenge) {
+  const stage = challenge && challenge.mfaStage === 'enroll' ? 'enroll' : 'verify';
+  authGate.classList.remove('hidden');
+  shell.classList.add('hidden');
+  authGate.dataset.mode = 'mfa';
+  const brand = `<div class="auth-brand"><span class="brand-mark" style="background:#171512;color:#f3ead8">BP</span><h1>Bitpype</h1></div>`;
+
+  async function finishWith(payload) {
+    signedIn = true;
+    api.setWorkspaceId(payload.workspaceId);
+    await bootApp(payload);
+  }
+
+  function showRecoveryCodes(codes, payload) {
+    authGate.innerHTML = `
+    <div class="auth-card">
+      ${brand}
+      <h2 style="margin:0 0 8px">Save your recovery codes</h2>
+      <p class="sub">If you lose your authenticator app, one of these codes signs you in once. Each works a single time, and they will not be shown again.</p>
+      <div class="mfa-codes">${codes.map((c) => `<code>${esc(c)}</code>`).join('')}</div>
+      <button class="btn primary" id="mfa-codes-done" type="button" style="width:100%">I've saved my codes — continue</button>
+    </div>`;
+    $('#mfa-codes-done', authGate).onclick = () => finishWith(payload);
+  }
+
+  function paintVerify() {
+    let useRecovery = false;
+    authGate.innerHTML = `
+    <div class="auth-card">
+      ${brand}
+      <h2 style="margin:0 0 8px">Two-factor authentication</h2>
+      <p class="sub" id="mfa-verify-hint">Enter the 6-digit code from your authenticator app.</p>
+      <form id="mfa-form">
+        <div class="field"><label for="mfa-code" id="mfa-code-label">Authenticator code</label><input id="mfa-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" /></div>
+        <button class="btn primary" type="submit" style="width:100%">Verify</button>
+        <div class="msg" id="mfa-msg"></div>
+      </form>
+      <div class="auth-links">
+        <button type="button" id="mfa-toggle">Use a recovery code instead</button>
+        <button type="button" id="mfa-back">Back to log in</button>
+      </div>
+    </div>`;
+    $('#mfa-back', authGate).onclick = () => renderAuth('login');
+    $('#mfa-toggle', authGate).onclick = () => {
+      useRecovery = !useRecovery;
+      $('#mfa-code-label', authGate).textContent = useRecovery ? 'Recovery code' : 'Authenticator code';
+      const input = $('#mfa-code', authGate);
+      input.placeholder = useRecovery ? 'XXXX-XXXX' : '123456';
+      input.setAttribute('inputmode', useRecovery ? 'text' : 'numeric');
+      input.value = '';
+      input.focus();
+      $('#mfa-toggle', authGate).textContent = useRecovery
+        ? 'Use my authenticator app instead'
+        : 'Use a recovery code instead';
+      $('#mfa-verify-hint', authGate).textContent = useRecovery
+        ? 'Enter one of the recovery codes you saved when you set this up.'
+        : 'Enter the 6-digit code from your authenticator app.';
+    };
+    $('#mfa-form', authGate).addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const msg = $('#mfa-msg', authGate);
+      setMsg(msg, 'Checking…');
+      try {
+        const res = await api.mfaVerify($('#mfa-code', authGate).value.trim());
+        await finishWith(res.data);
+      } catch (err) {
+        setMsg(msg, err.message, 'error');
+      }
+    });
+    $('#mfa-code', authGate).focus();
+  }
+
+  async function paintEnroll() {
+    authGate.innerHTML = `
+    <div class="auth-card">
+      ${brand}
+      <h2 style="margin:0 0 8px">Set up two-factor authentication</h2>
+      <p class="sub">Staff accounts require an authenticator app. Scan this code with yours (Google Authenticator, Authy, 1Password…), then enter the 6-digit code it shows to finish.</p>
+      <div id="mfa-enroll-body"><p class="sub">Preparing your setup code…</p></div>
+      <div class="auth-links"><button type="button" id="mfa-back">Back to log in</button></div>
+    </div>`;
+    $('#mfa-back', authGate).onclick = () => renderAuth('login');
+    const host = $('#mfa-enroll-body', authGate);
+    try {
+      const res = await api.mfaEnrollStart();
+      const d = res.data || {};
+      host.innerHTML = `
+        <div style="text-align:center"><img src="${d.qrDataUrl}" alt="Authenticator setup QR code" width="220" height="220" /></div>
+        <p class="sub" style="text-align:center">Can't scan? Enter this key manually:<br /><code style="font-size:1rem;letter-spacing:0.08em">${esc(d.secret || '')}</code></p>
+        <form id="mfa-form">
+          <div class="field"><label for="mfa-code">6-digit code from the app</label><input id="mfa-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" /></div>
+          <button class="btn primary" type="submit" style="width:100%">Confirm and sign in</button>
+          <div class="msg" id="mfa-msg"></div>
+        </form>`;
+      $('#mfa-form', authGate).addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const msg = $('#mfa-msg', authGate);
+        setMsg(msg, 'Checking…');
+        try {
+          const r = await api.mfaEnrollConfirm($('#mfa-code', authGate).value.trim());
+          const payload = r.data || {};
+          const codes = payload.recoveryCodes || [];
+          delete payload.recoveryCodes;
+          if (codes.length) showRecoveryCodes(codes, payload);
+          else await finishWith(payload);
+        } catch (err) {
+          setMsg(msg, err.message, 'error');
+        }
+      });
+      const codeInput = $('#mfa-code', authGate);
+      if (codeInput) codeInput.focus();
+    } catch (err) {
+      host.innerHTML = `<div class="msg error">${esc(err.message)}</div>`;
+    }
+  }
+
+  if (stage === 'enroll') paintEnroll();
+  else paintVerify();
+}
+
+function updateBillingBanner() {  const el = document.getElementById('billing-banner');
   if (!el) return;
   if (subscriptionStatus === 'past_due') {
     el.classList.remove('hidden');
@@ -6304,6 +6438,7 @@ async function renderAdminUsers(el) {
               ${isSelf ? '' : `<button class="btn ghost small" data-toggle-sa="${u.id}" data-on="${Number(u.is_super_admin) ? 0 : 1}">${Number(u.is_super_admin) ? 'Demote' : 'Make super'}</button>`}
               ${isSelf ? '' : `<button class="btn ghost small" data-toggle-st="${u.id}" data-st="${blocked ? 'active' : 'disabled'}">${blocked ? 'Unblock' : 'Block'}</button>`}
               <button class="btn ghost small" data-reset="${u.id}">Reset pw</button>
+              <button class="btn ghost small" data-reset-mfa="${u.id}" title="${Number(u.totp_enabled) ? 'Two-factor is ON for this user — reset clears it and they re-enroll at next sign-in' : 'Clear any two-factor setup for this user'}">Reset MFA${Number(u.totp_enabled) ? ' (on)' : ''}</button>
               ${isSelf ? '' : `<button class="btn danger small" data-del="${u.id}">Delete</button>`}
             </td>
           </tr>`;
@@ -6386,6 +6521,24 @@ async function renderAdminUsers(el) {
         } catch (err) {
           toast(err.message, 'err');
         }
+      })
+  );
+  $$('[data-reset-mfa]').forEach(
+    (b) =>
+      (b.onclick = async () => {
+        const u = users.find((x) => Number(x.id) === Number(b.dataset.resetMfa));
+        const who = u ? u.email : 'this user';
+        if (
+          !confirm(
+            `Reset two-factor authentication for ${who}? Their authenticator setup and recovery codes are cleared; staff must re-enroll at their next sign-in.`
+          )
+        )
+          return;
+        await safeRun(b, async () => {
+          await api.adminResetUserMfa(b.dataset.resetMfa);
+          toast('Two-factor reset — they will re-enroll at next sign-in', 'ok');
+          pageAdmin('users');
+        });
       })
   );
   $$('[data-del]').forEach(
@@ -6627,8 +6780,8 @@ async function renderAdminPortalUsersPanel(el) {
             <td>${esc(u.email)}</td><td>${esc(u.businessName || '')}</td>
             <td>${esc(u.userType)}${u.navOverrides || u.moduleOverrides ? ' <span class="hint">(custom)</span>' : ''}</td>
             <td>${esc((u.visibleTabs || []).length)} tabs · ${esc((u.visibleModules || []).length)} modules</td>
-            <td>${esc(u.status || 'active')}</td>
-            <td class="row actions"><button class="btn ghost small" data-portal-access="${u.id}">Access</button></td>
+            <td>${esc(u.status || 'active')}${u.mfaEnabled ? ' · <span class="hint">2FA on</span>' : ''}</td>
+            <td class="row actions"><button class="btn ghost small" data-portal-access="${u.id}">Access</button><button class="btn ghost small" data-portal-reset-mfa="${u.id}">Reset MFA</button></td>
           </tr>`
               )
               .join('') || '<tr><td colspan="6">No portal users yet</td></tr>'
@@ -6640,6 +6793,25 @@ async function renderAdminPortalUsersPanel(el) {
     b.onclick = () => {
       const u = users.find((x) => Number(x.id) === Number(b.dataset.portalAccess));
       if (u) openAdminPortalUserAccess(u, meta);
+    };
+  });
+  panel.querySelectorAll('[data-portal-reset-mfa]').forEach((b) => {
+    b.onclick = async () => {
+      const u = users.find((x) => Number(x.id) === Number(b.dataset.portalResetMfa));
+      const who = u ? u.email : 'this client';
+      if (
+        !confirm(
+          `Reset two-factor authentication for ${who}? Their authenticator setup and recovery codes are cleared; they sign in with just their password until they turn it on again.`
+        )
+      )
+        return;
+      try {
+        await api.adminResetPortalUserMfa(b.dataset.portalResetMfa);
+        toast('Portal two-factor reset', 'ok');
+        pageAdmin('users');
+      } catch (err) {
+        toast(err.message, 'err');
+      }
     };
   });
 }

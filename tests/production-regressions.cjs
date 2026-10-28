@@ -86,6 +86,7 @@ async function main() {
   load('server/routes/portal.js',{
     express:{Router:()=>portalRouter},'../clientPortal':{...portal,findById:async()=>({id:1,status:'active',workspace_id:1,lead_id:1})},
     '../captcha':{requireCaptcha:()=>((_req,_res,next)=>next())},'../rateLimit':{rateLimit:()=>((_req,_res,next)=>next())},'../portalTabs':portalTabs,
+    '../mfa':{isEnabled:async()=>false},
   });
   async function callPortal(method,url,query={},params={}){
     const route=portalRoutes.find(x=>x.method===method&&x.route===url);assert(route,url);
@@ -207,6 +208,7 @@ async function main() {
   load('server/routes/portal.js', {
     express: { Router: () => portalRouter11 }, '../clientPortal': { ...portal11, findById: async () => ({ id: 7, status: 'active', workspace_id: 1, lead_id: 102 }) },
     '../captcha': { requireCaptcha: () => ((_req, _res, next) => next()) }, '../rateLimit': { rateLimit: () => ((_req, _res, next) => next()) }, '../portalTabs': portalTabs,
+    '../mfa': { isEnabled: async () => false },
   });
   async function callPortal11(method, url, body) {
     const route = portalRoutes11.find((x) => x.method === method && x.route === url); assert(route, url);
@@ -3460,6 +3462,7 @@ async function main() {
     },
     '../captcha': { requireCaptcha: () => (_req, _res, next) => next() },
     '../rateLimit': { rateLimit: () => (_req, _res, next) => next() },
+    '../mfa': { isEnabled: async () => false },
   });
   async function callPortal22(method, url, body = {}) {
     const route = portalRoutes22.find((x) => x.method === method && x.route === url);
@@ -3578,6 +3581,14 @@ async function main() {
     workspacePlan: async () => 'free',
     getUserBilling: async () => ({}),
   };
+  // Batch 40: staff login now interposes a required TOTP factor. The
+  // fixture user has MFA enabled, so /login returns a challenge and the
+  // session is issued only by /mfa/verify (stubbed code check here;
+  // the real crypto is pinned by tests/mfa-totp-regressions.cjs).
+  const mfa23 = {
+    getState: async () => ({ exists: true, enabled: true, hasPending: false, lockedUntil: null }),
+    verifyLoginCode: async () => ({ via: 'totp' }),
+  };
   const authRoutes23 = [];
   const authRouter23 = { use() {} };
   for (const method of ['get', 'post', 'put', 'patch', 'delete'])
@@ -3589,6 +3600,7 @@ async function main() {
     '../middleware': { requireAuth: (_req, _res, next) => next() },
     '../rateLimit': { rateLimit: () => (_req, _res, next) => next() },
     '../captcha': { requireCaptcha: () => (_req, _res, next) => next() },
+    '../mfa': mfa23,
     '../platform': platform23,
     '../billing': billing23,
     '../admin': { touchLogin: async () => {} },
@@ -3596,10 +3608,10 @@ async function main() {
     '../invites': { acceptInvite: async () => ({ workspaceId: 2401 }) },
     '../db': { query: async () => [] },
   });
-  async function callAuth23(method, url, body = {}) {
+  async function callAuth23(method, url, body = {}, session = {}) {
     const route = authRoutes23.find((x) => x.method === method && x.route === url);
     assert(route, method + ' ' + url);
-    const req = { body, session: {}, app: { locals: {} }, headers: {} };
+    const req = { body, session, app: { locals: {} }, headers: {} };
     let status = 200,
       payload;
     const res = {
@@ -3661,7 +3673,18 @@ async function main() {
   check('batch23 login: existing users can still log in while registration is OFF', () => {
     assert.equal(loginOff23.status, 200);
     assert.equal(loginOff23.body.ok, true);
-    assert.equal(loginOff23.body.data.user.email, 'member23@example.invalid');
+    // Batch 40: password alone issues no session — a TOTP challenge is
+    // parked instead; the verify step completes the same login.
+    assert.equal(loginOff23.body.data.mfaRequired, true);
+    assert.equal(loginOff23.body.data.mfaStage, 'verify');
+    assert.equal(loginOff23.session.userId, undefined);
+  });
+  const loginVerify23 = await callAuth23('post', '/mfa/verify', { code: '123456' }, loginOff23.session);
+  check('batch40 login: the TOTP step completes the batch23 login', () => {
+    assert.equal(loginVerify23.status, 200);
+    assert.equal(loginVerify23.body.ok, true);
+    assert.equal(loginVerify23.body.data.user.email, 'member23@example.invalid');
+    assert.equal(loginVerify23.session.userId, 2301);
   });
 
   settings23.set('registration.open', '1');
