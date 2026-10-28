@@ -9,7 +9,7 @@ const checks=[
  'idempotency-regressions','ingestion-bounds-regressions','api-error-regressions',
  'account-link-regressions','account-link-browser-check','upsell-browser-check',
  'preview-security-regressions','preview-browser-check','schedule-regressions',
- 'portal-navigation-regressions','portal-usertypes-regressions','google-reviews-regressions','seo-foundations-regressions','blog-static-regressions','blog-post-padding-regressions','claim-hold-regressions','interested-followup-regressions','domain-payment-email-regressions','billing-renewal-regressions','domain-registrant-regressions','production-regressions','public-workspace-regressions',
+ 'portal-navigation-regressions','portal-usertypes-regressions','google-reviews-regressions','seo-foundations-regressions','blog-static-regressions','blog-post-padding-regressions','claim-hold-regressions','claim-purchased-suppression-regressions','interested-followup-regressions','domain-payment-email-regressions','billing-renewal-regressions','domain-registrant-regressions','production-regressions','public-workspace-regressions',
  'url-safety-regressions','isolated-startup-check'
 ];
 if(process.argv.includes('--ocr'))checks.push('knowledge-ocr-check');

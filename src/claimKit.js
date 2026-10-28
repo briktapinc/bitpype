@@ -430,17 +430,20 @@ function claimPageMeta(db, workspaceId, leadId) {
   // should never see). Fall back to the lead name only when the site has none.
   let siteName = '';
   let siteCustomDomain = '';
+  let siteId = null;
   try {
     const site = db
-      .prepare('SELECT name, custom_domain FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+      .prepare('SELECT id, name, custom_domain FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
       .get(lead.id);
+    siteId = site ? Number(site.id) || null : null;
     siteName = (site && String(site.name || '').trim()) || '';
     siteCustomDomain = (site && String(site.custom_domain || '').trim()) || '';
   } catch {
     try {
       const site = db
-        .prepare('SELECT name FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+        .prepare('SELECT id, name FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
         .get(lead.id);
+      siteId = site ? Number(site.id) || null : null;
       siteName = (site && String(site.name || '').trim()) || '';
     } catch {
       siteName = '';
@@ -459,9 +462,36 @@ function claimPageMeta(db, workspaceId, leadId) {
     .get(lead.id);
   const laterCount = Number(laterRow && laterRow.c) || 0;
   const intentPositive = isIntentPositive(db, lead);
+  // Batch 39 (Ely 2026-10-28): "If purchase of domain is completed and
+  // site is setup, don't show the interested popup." A domain transaction
+  // in status 'live' is exactly that state — completeRegistration sets it
+  // only AFTER registerDomain + linkDomainToWebsite (publish) succeed, so
+  // the domain is registered and the site is live on it. 'paid' alone does
+  // NOT suppress (payment taken; registration can still fail or sit
+  // un-completed). Scoped to THIS site — the website resolved above for
+  // this lead: a live transaction for a different website of the same
+  // lead must not suppress this site's popup. Like every other server-side
+  // suppression this is state, not a browser memory: the popup script
+  // treats showClaimPrompt=false as session-only (Batch 36), so nothing
+  // is persisted client-side for this reason either.
+  let purchasedTxn = null;
+  if (siteId) {
+    try {
+      purchasedTxn = db
+        .prepare(
+          `SELECT id, domain FROM domain_transactions
+           WHERE lead_id = ? AND website_id = ? AND status = 'live'
+           ORDER BY id DESC LIMIT 1`
+        )
+        .get(lead.id, siteId);
+    } catch {
+      purchasedTxn = null; // table is created lazily by domainFlow.ensureTables
+    }
+  }
+  const alreadyPurchased = !!purchasedTxn;
   // Hide after Yes (positive) or No (uninterested). "Later" stays showClaimPrompt so
   // a future visit can re-prompt (client may session-hide until then).
-  const showClaimPrompt = !intentPositive && !interested && !uninterested;
+  const showClaimPrompt = !alreadyPurchased && !intentPositive && !interested && !uninterested;
   // Batch 34: the 7-day claim hold rides the same meta (popup + claim page +
   // staff claim_popup status all read it from here). Expiry never suppresses
   // the prompt — an expired hold renders the expired copy, claim still works.
@@ -481,6 +511,8 @@ function claimPageMeta(db, workspaceId, leadId) {
     domainPickerUrl: siteCustomDomain ? null : buildDomainPickerUrl(workspaceId, lead.id) || null,
     alreadyInterested: !!interested,
     alreadyUninterested: !!uninterested,
+    alreadyPurchased,
+    purchasedDomain: purchasedTxn ? purchasedTxn.domain || null : null,
     alreadyDeferred: laterCount > 0,
     laterCount,
     intentPositive,

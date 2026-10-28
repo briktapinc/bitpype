@@ -1240,6 +1240,7 @@ function claimPopupStatus(claimKit, db, workspaceId, leadId) {
     days_remaining: meta.claimDaysRemaining != null ? meta.claimDaysRemaining : null,
   };
   if (meta.showClaimPrompt) return { state: 'injected', reason: null, ...hold };
+  if (meta.alreadyPurchased) return { state: 'suppressed', reason: 'domain purchased — site live', ...hold };
   if (meta.intentPositive) return { state: 'suppressed', reason: 'site owned / engaged', ...hold };
   if (meta.alreadyInterested) return { state: 'suppressed', reason: 'already marked interested', ...hold };
   if (meta.alreadyUninterested) return { state: 'suppressed', reason: 'already marked not interested', ...hold };
