@@ -48,6 +48,8 @@ const PLATFORM_SECRET_KEYS = [
   'twilio.auth_token',
   'meta.app_secret',
   'captcha.secret_key',
+  // Batch 46 (GBP manager): platform Google OAuth client secret.
+  'gbp.oauth_client_secret',
 ];
 
 /** Catalog of platform settings shown in the admin UI. */
@@ -304,6 +306,48 @@ const PLATFORM_SETTING_DEFS = [
     group: 'domains',
     label: 'Domain registrant: country (ISO 2-letter)',
     default: 'US',
+  },
+
+  // Google Business Profile manager (Batch 46, Phase 1): the platform's
+  // Google OAuth client + Business Profile API application state. Group
+  // 'gbp' keeps these OUT of WORKSPACE_SEED_KEYS (platform-owned, edited
+  // in Admin → Google Business). The API stays at quota 0 until Google
+  // approves the application (checklist: gbp-google-clock-checklist);
+  // gbp.api_approval_state is the flag every GBP surface renders from —
+  // 'pending' holds change sets at "ready", 'approved' unlocks the push
+  // path. The OAuth client itself is created by Ely in Google Cloud
+  // (checklist Step 4) — until client id/secret land here, the connect
+  // flow renders an honest "not configured yet" state.
+  {
+    key: 'gbp.oauth_client_id',
+    group: 'gbp',
+    label: 'Google OAuth client ID (Business Profile manager)',
+    default: '',
+  },
+  {
+    key: 'gbp.oauth_client_secret',
+    group: 'gbp',
+    label: 'Google OAuth client secret',
+    default: '',
+    secret: true,
+  },
+  {
+    key: 'gbp.cloud_project_number',
+    group: 'gbp',
+    label: 'Google Cloud project NUMBER (Business Profile API application)',
+    default: '',
+  },
+  {
+    key: 'gbp.api_approval_state',
+    group: 'gbp',
+    label: 'Business Profile API approval state (pending|approved)',
+    default: 'pending',
+  },
+  {
+    key: 'gbp.api_approved_at',
+    group: 'gbp',
+    label: 'Business Profile API approved date (YYYY-MM-DD)',
+    default: '',
   },
 ];
 

@@ -23,6 +23,10 @@ const SECRET_KEYS = [
   'stripe.webhook_secret',
   'twilio.auth_token',
   'google.places_api_key',
+  // Batch 46 (GBP manager): the platform Google OAuth client secret —
+  // encrypted at rest like every other SECRET_KEYS member, never seeded
+  // into workspace storage (group 'gbp' stays out of WORKSPACE_SEED_KEYS).
+  'gbp.oauth_client_secret',
 ];
 
 const SETTING_SEEDS = [
@@ -210,6 +214,12 @@ const SETTABLE_KEYS = [
   'pexels.api_key',
   'fal.api_key',
   'google.places_api_key',
+  // Batch 46 (GBP manager): platform Google Business Profile settings.
+  'gbp.oauth_client_id',
+  'gbp.oauth_client_secret',
+  'gbp.cloud_project_number',
+  'gbp.api_approval_state',
+  'gbp.api_approved_at',
   'cf.api_token',
   'meta.app_secret',
   'muse.enabled',
@@ -612,12 +622,37 @@ function validateSetting(key, raw) {
     case 'pexels.api_key':
     case 'fal.api_key':
     case 'google.places_api_key':
+    case 'gbp.oauth_client_secret':
     case 'cf.api_token':
     case 'meta.app_secret':
     case 'twilio.auth_token':
       if (value.length > 500) return fail('must be 500 chars or fewer');
       if (value.includes('\0')) return fail('must not contain null bytes');
       return { ok: true, value: value.trim() };
+    // Batch 46 (GBP manager): non-secret platform Google settings.
+    case 'gbp.oauth_client_id': {
+      const v = value.trim();
+      if (v.length > 255) return fail('must be 255 chars or fewer');
+      if (v && !/^[A-Za-z0-9._-]+$/.test(v)) return fail('does not look like a Google OAuth client ID');
+      if (value.includes('\0')) return fail('must not contain null bytes');
+      return { ok: true, value: v };
+    }
+    case 'gbp.cloud_project_number': {
+      const v = value.trim();
+      if (v && !/^\d{1,20}$/.test(v)) return fail('must be the numeric Cloud project number (digits only)');
+      return { ok: true, value: v };
+    }
+    case 'gbp.api_approval_state': {
+      const v = value.trim().toLowerCase();
+      if (v === '') return { ok: true, value: 'pending' };
+      if (v !== 'pending' && v !== 'approved') return fail("must be 'pending' or 'approved'");
+      return { ok: true, value: v };
+    }
+    case 'gbp.api_approved_at': {
+      const v = value.trim();
+      if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) return fail('must be a date (YYYY-MM-DD) or empty');
+      return { ok: true, value: v };
+    }
     case 'muse.model_base_url':
       if (!isHttpUrl(value)) return fail('must be an http(s) URL');
       return { ok: true, value: value.trim() };

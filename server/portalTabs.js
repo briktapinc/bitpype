@@ -41,6 +41,10 @@ const PORTAL_TABS = [
   'seo',
   'rentals',
   'billing',
+  // Batch 46: Google Business Profile manager — owner factory default
+  // gains it via PORTAL_TABS.slice(); renters stay on their factory
+  // three (a tenant rents a site, not the business's Google profile).
+  'gbp',
 ];
 
 const TAB_LABELS = {
@@ -56,6 +60,7 @@ const TAB_LABELS = {
   seo: 'SEO',
   rentals: 'Rentals',
   billing: 'Billing',
+  gbp: 'Google Profile',
 };
 
 const USER_TYPES = ['owner', 'renter'];

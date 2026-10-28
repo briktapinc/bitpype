@@ -1930,6 +1930,306 @@ async function openQueueSmsModal(leadId) {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Google Profile (Batch 46, Phase 1) — lead drawer section.          */
+/* Prefill + draft change sets work today; pushing is held at "ready" */
+/* until Google approves the Business Profile API application.        */
+/* ------------------------------------------------------------------ */
+
+const GBP_DAYS = [
+  ['sunday', 'Sunday'],
+  ['monday', 'Monday'],
+  ['tuesday', 'Tuesday'],
+  ['wednesday', 'Wednesday'],
+  ['thursday', 'Thursday'],
+  ['friday', 'Friday'],
+  ['saturday', 'Saturday'],
+];
+
+function gbpStatusBadge(status) {
+  return (
+    {
+      connected: '<span class="badge ok">connected</span>',
+      invited: '<span class="badge warn">invite sent</span>',
+      disconnected: '<span class="badge">disconnected</span>',
+      error: '<span class="badge err">error</span>',
+      none: '<span class="badge">not connected</span>',
+      draft: '<span class="badge">draft</span>',
+      ready: '<span class="badge warn">ready — awaiting push</span>',
+      pushed: '<span class="badge ok">pushed</span>',
+      failed: '<span class="badge err">failed</span>',
+    }[status] || `<span class="badge">${esc(status)}</span>`
+  );
+}
+
+function gbpHoursRowsHtml(state) {
+  const hours = (state && state.hours) || {};
+  return GBP_DAYS.map(([key, label]) => {
+    const periods = Array.isArray(hours[key]) ? hours[key] : [];
+    const first = periods[0] || { open: '', close: '' };
+    const second = periods[1] || { open: '', close: '' };
+    const closed = periods.length === 0;
+    return `<div class="row" data-gbp-day="${key}">
+      <div class="field" style="flex:0 0 110px"><label>${label}</label>
+        <label class="hint" style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-h="closed" ${closed ? 'checked' : ''}/> Closed</label></div>
+      <div class="field"><label>Open</label><input data-h="open" value="${esc(first.open || '')}" placeholder="09:00" /></div>
+      <div class="field"><label>Close</label><input data-h="close" value="${esc(first.close || '')}" placeholder="17:00" /></div>
+      <div class="field"><label>2nd open</label><input data-h="open2" value="${esc(second.open || '')}" /></div>
+      <div class="field"><label>2nd close</label><input data-h="close2" value="${esc(second.close || '')}" /></div>
+    </div>`;
+  }).join('');
+}
+
+function gbpCollectState(root) {
+  const v = (name) => {
+    const el = root.querySelector(`[data-gbp="${name}"]`);
+    return el ? el.value.trim() : '';
+  };
+  const hours = {};
+  root.querySelectorAll('[data-gbp-day]').forEach((row) => {
+    const day = row.getAttribute('data-gbp-day');
+    const closed = row.querySelector('[data-h="closed"]').checked;
+    const periods = [];
+    if (!closed) {
+      const o1 = row.querySelector('[data-h="open"]').value.trim();
+      const c1 = row.querySelector('[data-h="close"]').value.trim();
+      const o2 = row.querySelector('[data-h="open2"]').value.trim();
+      const c2 = row.querySelector('[data-h="close2"]').value.trim();
+      if (o1 && c1) periods.push({ open: o1, close: c1 });
+      if (o2 && c2) periods.push({ open: o2, close: c2 });
+    }
+    hours[day] = periods;
+  });
+  return {
+    name: v('name'),
+    primary_category: v('primary_category'),
+    additional_categories: v('additional_categories')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+    description: v('description'),
+    phone: v('phone'),
+    website: v('website'),
+    location_mode: v('location_mode'),
+    address: {
+      line1: v('addr_line1'),
+      line2: v('addr_line2'),
+      city: v('addr_city'),
+      region: v('addr_region'),
+      postal_code: v('addr_postal'),
+      country: v('addr_country') || 'US',
+    },
+    service_areas: v('service_areas')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+    hours,
+    attributes: {},
+    photos: [],
+  };
+}
+
+async function loadLeadGbp(dr, leadId) {
+  const host = () => $('#ld-gbp', dr.el);
+  if (!host()) return;
+  let data;
+  try {
+    data = (await api.gbpPanel(leadId)).data;
+  } catch (e) {
+    host().innerHTML = `<p class="error">${esc(e.message)}</p>`;
+    return;
+  }
+  render(data);
+
+  function render(d) {
+    const el = host();
+    if (!el) return;
+    const cfg = d.config || {};
+    const conn = d.connection || {};
+    const pre = d.prefill || { fields: {} };
+    const st = (pre && pre.proposedState) || {};
+    const fieldRows = Object.values(pre.fields || {})
+      .map(
+        (f) => `<tr>
+          <td>${esc(f.label)}</td>
+          <td>${esc(f.googleText || '—')}</td>
+          <td>${esc(f.proposedText || '—')} <span class="badge">${esc(f.source || '')}</span></td>
+          <td>${f.conflict ? '<span class="badge warn">conflict — Google value kept</span>' : ''}</td>
+        </tr>`
+      )
+      .join('');
+    const csRows = ((d.changeSets && d.changeSets.rows) || [])
+      .map((cs) => {
+        const errs =
+          cs.validation && !cs.validation.ok
+            ? `<div class="hint" style="color:var(--coral)">${(cs.validation.errors || []).map((x) => esc(x.message)).join('<br/>')}</div>`
+            : '';
+        const diff = (cs.changes || [])
+          .map(
+            (c) =>
+              `<div class="kv"><span class="k">${esc(c.label)}</span><span>${esc(c.beforeText || '—')} → <strong>${esc(c.afterText || '—')}</strong></span></div>`
+          )
+          .join('');
+        return `<div class="kv" style="display:block">
+          <span class="k">#${cs.id} ${gbpStatusBadge(cs.status)}</span>
+          <span>${(cs.changes || []).length} change(s) · ${esc(fmtDate(cs.created_at))}${cs.author ? ` · ${esc(cs.author)}` : ''}</span>
+          <div class="inline" style="margin-top:6px">
+            <button class="btn small" data-gbp-act="diff" data-id="${cs.id}">Diff</button>
+            <button class="btn small" data-gbp-act="validate" data-id="${cs.id}">Validate</button>
+            <button class="btn small primary" data-gbp-act="push" data-id="${cs.id}">Push to Google</button>
+          </div>
+          <div class="gbp-diff" data-diff="${cs.id}" hidden>${diff || '<p class="hint">No field changes.</p>'}</div>
+          ${errs}
+          <span class="msg" data-gbp-msg="${cs.id}"></span>
+        </div>`;
+      })
+      .join('');
+    el.innerHTML = `
+      ${
+        cfg.apiPending
+          ? `<p class="hint" style="border:1px solid var(--gold);background:var(--paper);border-radius:10px;padding:10px 12px"><strong>Google API access still pending</strong> — prefill, drafts and validation work now; pushing unlocks when Google approves the application. Nothing is sent to Google in the meantime.</p>`
+          : ''
+      }
+      <div class="kv"><span class="k">Connection</span><span>${gbpStatusBadge(conn.status)} ${conn.method === 'manager' ? '· manager invite' : '· Google sign-in'}${conn.google_account_id ? ` · account ${esc(conn.google_account_id)}` : ''}${conn.last_sync_at ? ` · last sync ${esc(fmtDate(conn.last_sync_at))}` : ''}</span></div>
+      <div class="row">
+        <div class="field"><label>Google Place ID</label><input data-gbp-conn="place" value="${esc(conn.place_id || '')}" placeholder="ChIJ…" /></div>
+      </div>
+      <div class="inline">
+        <button class="btn small" data-gbp-act="save-place">Save Place ID</button>
+        ${
+          cfg.oauthReady
+            ? '<button class="btn small" data-gbp-act="connect">Connect Google</button>'
+            : `<button class="btn small" disabled>Connect Google</button> <span class="hint">${esc(cfg.oauthNotConfiguredMessage || 'Google sign-in is not configured yet.')}</span>`
+        }
+        <button class="btn small" data-gbp-act="invite">Record manager invite</button>
+        ${conn.status === 'connected' || conn.status === 'invited' ? '<button class="btn small danger" data-gbp-act="disconnect">Disconnect</button>' : ''}
+        <button class="btn small" data-gbp-act="places">Refresh from Places</button>
+        <span class="msg" data-gbp-msg="conn"></span>
+      </div>
+      ${pre.websiteNote ? `<p class="hint">${esc(pre.websiteNote)}</p>` : ''}
+      <h4 style="margin:14px 0 6px">Prefill — what BitPype has vs what Google shows</h4>
+      <table class="tbl"><thead><tr><th>Field</th><th>Google now</th><th>Proposed</th><th></th></tr></thead><tbody>${fieldRows}</tbody></table>
+      <h4 style="margin:14px 0 6px">Edit profile draft</h4>
+      <form id="ld-gbp-form">
+        <div class="row">
+          <div class="field"><label>Business name</label><input data-gbp="name" value="${esc(st.name || '')}" /></div>
+          <div class="field"><label>Primary category</label><input data-gbp="primary_category" value="${esc(st.primary_category || '')}" /></div>
+        </div>
+        <div class="field"><label>Additional categories (comma-separated)</label><input data-gbp="additional_categories" value="${esc((st.additional_categories || []).join(', '))}" /></div>
+        <div class="field"><label>Description (750 max)</label><textarea data-gbp="description" rows="3" maxlength="900">${esc(st.description || '')}</textarea></div>
+        <div class="row">
+          <div class="field"><label>Primary phone</label><input data-gbp="phone" value="${esc(st.phone || '')}" /></div>
+          <div class="field"><label>Website</label><input data-gbp="website" value="${esc(st.website || '')}" /></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Location type</label><select data-gbp="location_mode">
+            <option value="storefront" ${st.location_mode !== 'service_area' ? 'selected' : ''}>Storefront (public address)</option>
+            <option value="service_area" ${st.location_mode === 'service_area' ? 'selected' : ''}>Service area (address hidden)</option>
+          </select></div>
+          <div class="field"><label>Service areas (comma-separated)</label><input data-gbp="service_areas" value="${esc((st.service_areas || []).join(', '))}" /></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Street address</label><input data-gbp="addr_line1" value="${esc((st.address || {}).line1 || '')}" /></div>
+          <div class="field"><label>Address line 2</label><input data-gbp="addr_line2" value="${esc((st.address || {}).line2 || '')}" /></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>City</label><input data-gbp="addr_city" value="${esc((st.address || {}).city || '')}" /></div>
+          <div class="field"><label>State / region</label><input data-gbp="addr_region" value="${esc((st.address || {}).region || '')}" /></div>
+          <div class="field"><label>Postal code</label><input data-gbp="addr_postal" value="${esc((st.address || {}).postal_code || '')}" /></div>
+          <div class="field"><label>Country</label><input data-gbp="addr_country" value="${esc((st.address || {}).country || 'US')}" /></div>
+        </div>
+        <details><summary>Opening hours</summary>${gbpHoursRowsHtml(st)}</details>
+        <div class="inline" style="margin-top:10px">
+          <button class="btn primary small" type="submit">Save draft change set</button>
+          <span class="msg" data-gbp-msg="form"></span>
+        </div>
+      </form>
+      <h4 style="margin:14px 0 6px">Change sets</h4>
+      ${csRows || '<p class="hint">No change sets yet. Edit the draft above and save — nothing reaches Google without a saved change set.</p>'}
+      ${
+        d.reviews
+          ? `<h4 style="margin:14px 0 6px">Reviews (Places sample)</h4><p class="hint">${esc(d.reviews.rating != null ? d.reviews.rating + ' ★ · ' : '')}${esc(String(d.reviews.total || 0))} reviews · ${esc(d.reviews.note || '')}</p>`
+          : ''
+      }`;
+
+    const msg = (key, text, cls) => {
+      const m = el.querySelector(`[data-gbp-msg="${key}"]`);
+      if (m) {
+        m.textContent = text;
+        m.className = 'msg ' + (cls || '');
+      }
+    };
+    const refresh = async () => render((await api.gbpPanel(leadId)).data);
+
+    el.querySelectorAll('[data-gbp-act]').forEach((b) => {
+      b.onclick = async () => {
+        const act = b.getAttribute('data-gbp-act');
+        const id = b.getAttribute('data-id');
+        try {
+          if (act === 'save-place') {
+            await api.gbpConnection(leadId, { place_id: el.querySelector('[data-gbp-conn="place"]').value });
+            msg('conn', 'Place ID saved', 'ok');
+            refresh();
+          } else if (act === 'invite') {
+            await api.gbpConnection(leadId, { action: 'invite' });
+            msg('conn', 'Manager invite recorded', 'ok');
+            refresh();
+          } else if (act === 'disconnect') {
+            await api.gbpConnection(leadId, { action: 'disconnect' });
+            refresh();
+          } else if (act === 'connect') {
+            const r = (await api.gbpOauthStart(leadId)).data;
+            if (r.configured && r.url) window.location.assign(r.url);
+            else msg('conn', r.message || 'Google sign-in is not configured yet.', 'err');
+          } else if (act === 'places') {
+            const r = (await api.gbpPlacesPrefill(leadId)).data;
+            if (r.places && !r.places.ok) msg('conn', r.places.message || 'Places prefill is dormant.', 'err');
+            if (r.panel) render(r.panel);
+          } else if (act === 'diff') {
+            const box = el.querySelector(`[data-diff="${id}"]`);
+            if (box) box.hidden = !box.hidden;
+          } else if (act === 'validate') {
+            const r = (await api.gbpValidateChangeSet(leadId, Number(id))).data;
+            msg(
+              id,
+              r.validation.ok
+                ? 'Valid — change set is ready.'
+                : 'Validation errors: ' + (r.validation.errors || []).map((x) => x.message).join(' '),
+              r.validation.ok ? 'ok' : 'err'
+            );
+            refresh();
+          } else if (act === 'push') {
+            const r = (await api.gbpPushChangeSet(leadId, Number(id))).data;
+            msg(id, r.ok ? 'Pushed to Google.' : r.message || 'Push did not go through.', r.ok ? 'ok' : 'err');
+            if (r.ok) refresh();
+          }
+        } catch (e) {
+          msg(id || 'conn', e.message, 'err');
+        }
+      };
+    });
+
+    const form = $('#ld-gbp-form', el);
+    if (form) {
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        try {
+          const state = gbpCollectState(form);
+          // Photos/attributes ride along from the proposal (edited via
+          // their own surfaces; not part of this form).
+          state.photos = st.photos || [];
+          state.attributes = st.attributes || {};
+          const r = (await api.gbpCreateChangeSet(leadId, state)).data;
+          msg('form', `Draft change set #${r.changeSet.id} saved (${(r.changeSet.changes || []).length} change(s))`, 'ok');
+          refresh();
+        } catch (err) {
+          msg('form', err.message, 'err');
+        }
+      };
+    }
+  }
+}
+
 async function openLeadDrawer(id) {
   const dr = openDrawer({ title: 'Lead #' + id, html: '<p class="hint">Loading…</p>' });
 
@@ -2029,6 +2329,9 @@ async function openLeadDrawer(id) {
             : `<p class="hint">No website yet.</p><button class="btn small" data-act="gen">Build template site</button>`
         }
       </section>
+      <section><h3>Google Profile</h3>
+        <div id="ld-gbp"><p class="hint">Loading…</p></div>
+      </section>
       <section><h3>Social (Facebook / Instagram)</h3>
         <p class="hint">Generate a month of posts, weekly client approval, then schedule to Meta. Images optional.</p>
         <a class="btn small" href="#/social?leadId=${esc(id)}">Open Social for this lead</a>
@@ -2062,6 +2365,8 @@ async function openLeadDrawer(id) {
       <section><h3>Timeline</h3>
         ${timeline.map((ev) => `<div class="kv"><span class="k">${esc(ev.type)}</span><span>${esc(ev.detail || '')}</span><span class="sub-line">${esc(ev.kind || '')} · ${esc(fmtDate(ev.at))}</span></div>`).join('') || '<p class="hint">No events yet.</p>'}
       </section>`;
+
+    loadLeadGbp(dr, id);
 
     guardSubmit($('#ld-form', dr.el), async (e) => {
       e.preventDefault();
@@ -6334,6 +6639,7 @@ function parseHash() {
 /* ------------------------------------------------------------------ */
 
 let adminTab = 'overview';
+let gbpAdminPage = 1;
 
 async function pageAdmin(param) {
   if (!currentUserIsSuperAdmin) {
@@ -6353,6 +6659,7 @@ async function pageAdmin(param) {
     ['email', 'Email'],
     // SMS admin tab hidden until a send path exists (settings still accept sms.* keys).
     ['keys', 'API keys'],
+    ['gbp', 'Google Business'],
     ['billing', 'Stripe'],
     ['adsense', 'AdSense'],
     ['general', 'General'],
@@ -6385,6 +6692,7 @@ async function pageAdmin(param) {
         else if (tab === 'payments') await renderAdminPayments(body);
         else if (tab === 'upsell') await renderAdminUpsellTips(body);
         else if (tab === 'adsense') await renderAdminAdsense(body);
+        else if (tab === 'gbp') await renderAdminGbp(body);
         else if (tab === 'email' || tab === 'sms' || tab === 'keys' || tab === 'general' || tab === 'billing')
           await renderAdminSettings(body, tab);
         else if (tab === 'audit') await renderAdminAudit(body);
@@ -7303,6 +7611,145 @@ async function renderAdminSettings(el, group) {
       msg.className = 'msg error';
     }
   };
+}
+
+async function renderAdminGbp(el) {
+  // Batch 46 — Google Business Profile manager oversight: platform
+  // Google settings (OAuth client, project number, API approval flag)
+  // + the read-only roll-up of every lead's connection state and the
+  // change sets held at "ready" by the pending approval.
+  const res = await api.adminSettings();
+  const settings = res.data.settings || {};
+  const defs = (res.data.defs || []).filter((d) => d.group === 'gbp');
+  let ov = null;
+  try {
+    ov = (await api.gbpOverview(gbpAdminPage)).data;
+  } catch {
+    ov = null; /* roll-up is best-effort; the settings form still works */
+  }
+  const cfg = (ov && ov.config) || {};
+  const approval = cfg.approvalState || settings['gbp.api_approval_state'] || 'pending';
+  const redirectUri = `${window.location.origin}/api/v1/gbp/oauth/callback`;
+  const statusBadge = (s) =>
+    ({
+      connected: '<span class="badge ok">connected</span>',
+      invited: '<span class="badge warn">invite sent</span>',
+      disconnected: '<span class="badge">disconnected</span>',
+      error: '<span class="badge err">error</span>',
+      none: '<span class="badge">not connected</span>',
+    })[s] || `<span class="badge">${esc(s)}</span>`;
+  const rows = ov ? ov.rows || [] : [];
+  el.innerHTML = `
+    <div class="panel">
+      <div class="panel-h"><h3>Google Business Profile manager</h3></div>
+      <div class="panel-b">
+        <p class="hint">Per-lead Google profile management (panel lives on each lead's drawer and in the client portal).
+        The Business Profile API stays at quota 0 until Google approves the application — profile verified 60+ days,
+        then the access form with the Cloud project number below (owner checklist: <span class="mono">gbp-google-clock-checklist-2026-10-28.md</span>).
+        While approval is <strong>pending</strong>, change sets validate and wait at "ready"; nothing is sent to Google.</p>
+        <p class="hint">API access: <strong>${esc(approval)}</strong>${cfg.approvedAt ? ` (approved ${esc(cfg.approvedAt)})` : ''}
+        · OAuth client: <strong>${cfg.oauthReady ? 'configured' : 'not configured yet'}</strong>
+        · Places prefill key: <strong>${cfg.placesConfigured ? 'configured' : 'not set'}</strong>
+        · Change sets awaiting push: <strong>${ov ? ov.awaitingPushTotal || 0 : '—'}</strong></p>
+        <p class="hint">When creating the Google OAuth client, register this redirect URI:<br/><span class="mono">${esc(redirectUri)}</span></p>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-h"><h3>Connections (this workspace)</h3></div>
+      <div class="panel-b">
+        ${
+          ov
+            ? `<table class="tbl"><thead><tr><th>Business</th><th>Location</th><th>Status</th><th>Place ID</th><th>Awaiting push</th></tr></thead>
+               <tbody>${rows
+                 .map(
+                   (r) => `<tr>
+                     <td><a href="#/leads?id=${esc(r.lead_id)}">${esc(r.business_name || 'Lead #' + r.lead_id)}</a></td>
+                     <td>${esc([r.city, r.state].filter(Boolean).join(', '))}</td>
+                     <td>${statusBadge(r.connection_status)}</td>
+                     <td class="mono">${esc(r.place_id || '—')}</td>
+                     <td>${r.awaiting_push || 0}</td>
+                   </tr>`
+                 )
+                 .join('')}</tbody></table>
+               <div class="inline" style="margin-top:10px">
+                 <button class="btn small" data-gbp-page="prev" ${ov.page <= 1 ? 'disabled' : ''}>← Prev</button>
+                 <span class="hint">Page ${ov.page} of ${ov.pages} · ${ov.total} leads</span>
+                 <button class="btn small" data-gbp-page="next" ${ov.page >= ov.pages ? 'disabled' : ''}>Next →</button>
+               </div>`
+            : '<p class="hint">The connection roll-up could not be loaded.</p>'
+        }
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-h"><h3>Platform Google settings</h3></div>
+      <div class="panel-b">
+        <form id="gbp-set-form" class="stack">
+          ${defs
+            .map((d) => {
+              const val = settings[d.key] || '';
+              if (d.key === 'gbp.api_approval_state') {
+                const cur = String(val || 'pending').toLowerCase() === 'approved' ? 'approved' : 'pending';
+                return `<div>
+              <label>${esc(d.label)} <span class="mono hint">${esc(d.key)}</span></label>
+              <select name="${esc(d.key)}">
+                <option value="pending"${cur === 'pending' ? ' selected' : ''}>Pending — change sets hold at "ready", nothing is sent</option>
+                <option value="approved"${cur === 'approved' ? ' selected' : ''}>Approved — push path unlocked (Phase 2 wiring completes it)</option>
+              </select>
+              <p class="hint">Flip this only when Google's approval email lands. It is the single flag every Google Profile surface reads.</p>
+            </div>`;
+              }
+              return `<div>
+              <label>${esc(d.label)} <span class="mono hint">${esc(d.key)}</span></label>
+              ${
+                d.secret
+                  ? `<input name="${esc(d.key)}" type="password" placeholder="${val === '***' ? 'Set (currently configured)' : 'Not set'}" autocomplete="new-password" />`
+                  : `<input name="${esc(d.key)}" value="${esc(val)}" />`
+              }
+            </div>`;
+            })
+            .join('')}
+          <div class="row actions"><button class="btn" type="submit">Save</button></div>
+          <div class="msg" id="gbp-set-msg"></div>
+        </form>
+      </div>
+    </div>`;
+
+  el.querySelectorAll('[data-gbp-page]').forEach((b) => {
+    b.onclick = () => {
+      gbpAdminPage = Math.max(1, gbpAdminPage + (b.dataset.gbpPage === 'next' ? 1 : -1));
+      renderAdminGbp(el);
+    };
+  });
+
+  const form = $('#gbp-set-form', el);
+  if (form) {
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const plain = {};
+      const secrets = [];
+      for (const d of defs) {
+        const v = fd.get(d.key);
+        if (d.secret) {
+          if (v && String(v).trim()) secrets.push([d.key, String(v)]);
+        } else {
+          plain[d.key] = v == null ? '' : String(v);
+        }
+      }
+      const msg = $('#gbp-set-msg', el);
+      try {
+        if (Object.keys(plain).length) await api.adminSettingsSave(plain);
+        for (const [k, v] of secrets) await api.adminSettingsSecret(k, v);
+        msg.textContent = 'Saved';
+        msg.className = 'msg ok';
+        toast('Google Business settings saved', 'ok');
+        renderAdminGbp(el);
+      } catch (err) {
+        msg.textContent = err.message;
+        msg.className = 'msg error';
+      }
+    };
+  }
 }
 
 async function renderAdminAdsense(el) {

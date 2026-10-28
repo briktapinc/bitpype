@@ -319,6 +319,9 @@ app.use('/api/v1/admin', adminRoutes);
 // Billing stays reachable without a paid plan (checkout / portal / delete).
 app.use('/api/v1/billing', billingRoutes);
 app.use('/api/v1/invites', inviteRoutes);
+// Google Business Profile manager (Batch 46): the router carries its
+// own OAuth callback (state-signed, pre-session) + staff-session stack.
+app.use('/api/v1/gbp', require('./server/routes/gbp'));
 // Meta OAuth callback + client weekly approval (no session).
 app.use('/api/v1/social', socialPublicRoutes);
 app.use('/api/v1/site-analytics/public', require('./server/routes/siteAnalyticsPublic'));

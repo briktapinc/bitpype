@@ -418,6 +418,7 @@ const PORTAL_ROUTE_TABS = [
   ['/rentals', 'rentals'],
   ['/billing', 'billing'],
   ['/upsell-tips', 'billing'],
+  ['/gbp', 'gbp'],
 ];
 
 function tabForbidden(res, tab) {
@@ -1546,6 +1547,152 @@ router.post('/seo/gsc', requireClient, actionLimit, async (req, res) => {
     );
   } catch (e) {
     fail(res, e);
+  }
+});
+
+// Google Business Profile manager (Batch 46, Phase 1) — the site
+// owner's own profile panel. The lead ALWAYS comes from the portal
+// session (req.client.lead_id), never from the request; change sets
+// are fetched through getChangeSetForLead, so a change-set id from
+// another lead's account resolves to 404 here. Tab gate: '/gbp' →
+// 'gbp' in PORTAL_ROUTE_TABS above (owners by factory default).
+function portalGbpDb(req) {
+  return require('../workspaceDb').openWorkspaceDb(req.client.workspace_id);
+}
+async function portalGbpCfg() {
+  return require('./gbp').loadGbpConfig();
+}
+function portalGbpFail(res, e) {
+  if (e && e.code === 'NOT_FOUND') {
+    return res.status(404).json({ ok: false, error: e.message, code: e.code });
+  }
+  return fail(res, e);
+}
+
+router.get('/gbp', requireClient, async (req, res) => {
+  try {
+    const gbp = require('../../src/gbp');
+    const cfg = await portalGbpCfg();
+    ok(
+      res,
+      gbp.panelData(portalGbpDb(req), req.client.lead_id, {
+        cfg,
+        placesConfigured: !!cfg.placesApiKey,
+      })
+    );
+  } catch (e) {
+    portalGbpFail(res, e);
+  }
+});
+
+router.post('/gbp/places-prefill', requireClient, actionLimit, async (req, res) => {
+  try {
+    const gbp = require('../../src/gbp');
+    const cfg = await portalGbpCfg();
+    const db = portalGbpDb(req);
+    const places = await gbp.placesPrefillForLead(db, req.client.lead_id, { apiKey: cfg.placesApiKey });
+    const panel = gbp.panelData(db, req.client.lead_id, {
+      cfg,
+      placesConfigured: !!cfg.placesApiKey,
+      placesState: places.ok ? places.state : null,
+    });
+    ok(res, {
+      places: { ok: places.ok, code: places.code, message: places.message, meta: places.meta || null },
+      panel,
+    });
+  } catch (e) {
+    portalGbpFail(res, e);
+  }
+});
+
+router.put('/gbp/connection', requireClient, actionLimit, async (req, res) => {
+  try {
+    const gbp = require('../../src/gbp');
+    const db = portalGbpDb(req);
+    const body = req.body || {};
+    let conn;
+    if (body.action === 'disconnect') conn = gbp.disconnect(db, req.client.lead_id);
+    else if (body.place_id !== undefined || body.placeId !== undefined) {
+      conn = gbp.setConnectionPlaceId(db, req.client.lead_id, body.place_id != null ? body.place_id : body.placeId);
+    } else {
+      throw Object.assign(new Error('Nothing to update — pass place_id or an action.'), { code: 'VALIDATION' });
+    }
+    ok(res, { connection: conn });
+  } catch (e) {
+    portalGbpFail(res, e);
+  }
+});
+
+router.get('/gbp/oauth/start', requireClient, async (req, res) => {
+  try {
+    const gbp = require('../../src/gbp');
+    const cfg = await portalGbpCfg();
+    ok(
+      res,
+      gbp.buildOauthStart(portalGbpDb(req), {
+        workspaceId: req.client.workspace_id,
+        leadId: req.client.lead_id,
+        actor: `portal:${req.client.id}`,
+        returnTo: '/portal?gbp=connected#gbp',
+        cfg,
+        appUrl: require('./gbp').requestAppUrl(req),
+      })
+    );
+  } catch (e) {
+    portalGbpFail(res, e);
+  }
+});
+
+router.post('/gbp/change-sets', requireClient, actionLimit, async (req, res) => {
+  try {
+    const gbp = require('../../src/gbp');
+    const cs = gbp.createChangeSet(portalGbpDb(req), req.client.lead_id, {
+      author: `portal:${req.client.id}`,
+      state: (req.body || {}).state || {},
+    });
+    ok(res, { changeSet: cs });
+  } catch (e) {
+    portalGbpFail(res, e);
+  }
+});
+
+router.get('/gbp/change-sets', requireClient, async (req, res) => {
+  try {
+    const gbp = require('../../src/gbp');
+    ok(
+      res,
+      gbp.listChangeSets(portalGbpDb(req), req.client.lead_id, {
+        page: req.query.page,
+        pageSize: req.query.pageSize || 50,
+      })
+    );
+  } catch (e) {
+    portalGbpFail(res, e);
+  }
+});
+
+router.post('/gbp/change-sets/:id/validate', requireClient, actionLimit, async (req, res) => {
+  try {
+    const gbp = require('../../src/gbp');
+    const db = portalGbpDb(req);
+    const cs = gbp.getChangeSetForLead(db, req.client.lead_id, Number(req.params.id));
+    if (!cs) throw Object.assign(new Error('Change set not found'), { code: 'NOT_FOUND' });
+    ok(res, gbp.validateChangeSet(db, cs.id));
+  } catch (e) {
+    portalGbpFail(res, e);
+  }
+});
+
+router.post('/gbp/change-sets/:id/push', requireClient, actionLimit, async (req, res) => {
+  try {
+    const gbp = require('../../src/gbp');
+    const cfg = await portalGbpCfg();
+    const db = portalGbpDb(req);
+    const cs = gbp.getChangeSetForLead(db, req.client.lead_id, Number(req.params.id));
+    if (!cs) throw Object.assign(new Error('Change set not found'), { code: 'NOT_FOUND' });
+    ok(res, await gbp.pushChangeSet(db, cs.id, { approvalState: cfg.approvalState, googleClient: null }));
+  } catch (e) {
+    portalGbpFail(res, e);
   }
 });
 

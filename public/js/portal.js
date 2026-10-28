@@ -139,6 +139,7 @@
     'seo',
     'rentals',
     'billing',
+    'gbp',
   ];
   // Batch 29: the /me payload carries the tabs this user may open
   // (user type defaults + admin overrides, computed server-side in
@@ -304,6 +305,7 @@
       loadSocialAccounts().catch(() => {});
     }
     if (next === 'billing') loadBilling().catch(() => {});
+    if (next === 'gbp' && typeof loadGbpPanel === 'function') loadGbpPanel().catch(() => {});
 
     if (opts.updateHash !== false) {
       const want = panelHash(next);
@@ -3273,6 +3275,289 @@
   }
   let seoEpoch = 0;
   let rentalsEpoch = 0;
+  // ── Google Business Profile (Batch 46, Phase 1) ──────────────────
+  // The owner's own profile panel. Drafts + validation work today;
+  // pushing is held at "ready" until Google approves the Business
+  // Profile API application — the server says so plainly, and this
+  // panel shows that message instead of a fake success.
+  let gbpEpoch = 0;
+
+  async function loadGbpPanel() {
+    const epoch = ++gbpEpoch;
+    const host = document.getElementById('gbp-host');
+    if (!host) return;
+    host.innerHTML = '<p class="hint">Loading your Google Profile…</p>';
+    let data;
+    try {
+      data = await api('/gbp');
+    } catch (e) {
+      if (epoch !== gbpEpoch) return;
+      host.innerHTML = `<p class="hint">${esc(e.message || 'Your Google Profile could not be loaded.')}</p>`;
+      return;
+    }
+    if (epoch !== gbpEpoch) return;
+    renderGbpPanel(data);
+  }
+
+  const GBP_PORTAL_DAYS = [
+    ['sunday', 'Sunday'],
+    ['monday', 'Monday'],
+    ['tuesday', 'Tuesday'],
+    ['wednesday', 'Wednesday'],
+    ['thursday', 'Thursday'],
+    ['friday', 'Friday'],
+    ['saturday', 'Saturday'],
+  ];
+
+  function gbpBadge(status) {
+    return (
+      {
+        connected: '<span class="badge ok">connected</span>',
+        invited: '<span class="badge warn">invite sent</span>',
+        disconnected: '<span class="badge">disconnected</span>',
+        error: '<span class="badge err">error</span>',
+        none: '<span class="badge">not connected</span>',
+        draft: '<span class="badge">draft</span>',
+        ready: '<span class="badge warn">ready — awaiting push</span>',
+        pushed: '<span class="badge ok">pushed</span>',
+        failed: '<span class="badge err">failed</span>',
+      }[status] || `<span class="badge">${esc(status)}</span>`
+    );
+  }
+
+  function gbpCollectPortalState(form) {
+    const v = (name) => {
+      const el = form.querySelector(`[data-gbp="${name}"]`);
+      return el ? el.value.trim() : '';
+    };
+    const hours = {};
+    form.querySelectorAll('[data-gbp-day]').forEach((row) => {
+      const day = row.getAttribute('data-gbp-day');
+      const closed = row.querySelector('[data-h="closed"]').checked;
+      const periods = [];
+      if (!closed) {
+        const o1 = row.querySelector('[data-h="open"]').value.trim();
+        const c1 = row.querySelector('[data-h="close"]').value.trim();
+        const o2 = row.querySelector('[data-h="open2"]').value.trim();
+        const c2 = row.querySelector('[data-h="close2"]').value.trim();
+        if (o1 && c1) periods.push({ open: o1, close: c1 });
+        if (o2 && c2) periods.push({ open: o2, close: c2 });
+      }
+      hours[day] = periods;
+    });
+    return {
+      name: v('name'),
+      primary_category: v('primary_category'),
+      additional_categories: v('additional_categories').split(',').map((s) => s.trim()).filter(Boolean),
+      description: v('description'),
+      phone: v('phone'),
+      website: v('website'),
+      location_mode: v('location_mode'),
+      address: {
+        line1: v('addr_line1'),
+        line2: v('addr_line2'),
+        city: v('addr_city'),
+        region: v('addr_region'),
+        postal_code: v('addr_postal'),
+        country: v('addr_country') || 'US',
+      },
+      service_areas: v('service_areas').split(',').map((s) => s.trim()).filter(Boolean),
+      hours,
+      attributes: {},
+      photos: [],
+    };
+  }
+
+  function renderGbpPanel(d) {
+    const host = document.getElementById('gbp-host');
+    if (!host) return;
+    const data = d || {};
+    const cfg = data.config || {};
+    const conn = data.connection || {};
+    const pre = data.prefill || { fields: {} };
+    const st = pre.proposedState || {};
+    const addr = st.address || {};
+    const hours = st.hours || {};
+    const fieldRows = Object.values(pre.fields || {})
+      .map(
+        (f) => `<tr>
+          <td>${esc(f.label)}</td>
+          <td>${esc(f.googleText || '—')}</td>
+          <td>${esc(f.proposedText || '—')}</td>
+          <td>${f.conflict ? '<span class="badge warn">differs — Google\u2019s value kept</span>' : ''}</td>
+        </tr>`
+      )
+      .join('');
+    const csRows = ((data.changeSets && data.changeSets.rows) || [])
+      .map((cs) => {
+        const diff = (cs.changes || [])
+          .map(
+            (c) =>
+              `<div class="kv"><span class="k">${esc(c.label)}</span><span>${esc(c.beforeText || '—')} → <strong>${esc(c.afterText || '—')}</strong></span></div>`
+          )
+          .join('');
+        const errs =
+          cs.validation && !cs.validation.ok
+            ? `<p class="hint" style="color:var(--coral)">${(cs.validation.errors || []).map((x) => esc(x.message)).join('<br/>')}</p>`
+            : '';
+        return `<div class="panel" style="margin-top:10px">
+          <p><strong>Draft #${cs.id}</strong> ${gbpBadge(cs.status)} <span class="hint">${(cs.changes || []).length} change(s)</span></p>
+          <p style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn soft" data-gbp-act="diff" data-id="${cs.id}">Review changes</button>
+            <button type="button" class="btn soft" data-gbp-act="validate" data-id="${cs.id}">Validate</button>
+            <button type="button" class="btn" data-gbp-act="push" data-id="${cs.id}">Push to Google</button>
+          </p>
+          <div data-gbp-diff="${cs.id}" hidden>${diff || '<p class="hint">No field changes.</p>'}</div>
+          ${errs}
+          <p class="hint" data-gbp-msg="${cs.id}" role="status"></p>
+        </div>`;
+      })
+      .join('');
+    host.innerHTML = `
+      ${
+        cfg.apiPending
+          ? `<div class="panel" style="border:1px solid var(--gold);background:var(--paper)">
+               <h3>Google API access still pending</h3>
+               <p>Everything here works — connect, compare, draft, validate. Pushing changes to Google unlocks the moment Google approves our Business Profile API access. Until then, validated drafts wait safely at "ready" and <strong>nothing is sent</strong>.</p>
+             </div>`
+          : ''
+      }
+      <div class="panel">
+        <h3>Connection</h3>
+        <p>Status: ${gbpBadge(conn.status)}${conn.last_sync_at ? ` · last synced ${esc(String(conn.last_sync_at).slice(0, 10))}` : ''}</p>
+        <p style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input type="text" id="gbp-place-id" value="${esc(conn.place_id || '')}" placeholder="Google Place ID (optional for now)" style="flex:1;min-width:220px" autocomplete="off" spellcheck="false">
+          <button type="button" class="btn soft" data-gbp-act="save-place">Save Place ID</button>
+          ${
+            cfg.oauthReady
+              ? '<button type="button" class="btn" data-gbp-act="connect">Connect Google</button>'
+              : `<button type="button" class="btn" disabled>Connect Google</button>`
+          }
+          ${conn.status === 'connected' || conn.status === 'invited' ? '<button type="button" class="btn soft" data-gbp-act="disconnect">Disconnect</button>' : ''}
+        </p>
+        ${cfg.oauthReady ? '' : `<p class="hint">${esc(cfg.oauthNotConfiguredMessage || 'Google sign-in is not configured yet.')}</p>`}
+        <p class="hint" data-gbp-msg="conn" role="status"></p>
+      </div>
+      <div class="panel">
+        <h3>What Google shows vs what we have</h3>
+        ${pre.websiteNote ? `<p class="hint">${esc(pre.websiteNote)}</p>` : ''}
+        <table><thead><tr><th scope="col">Field</th><th scope="col">Google now</th><th scope="col">Proposed</th><th scope="col"></th></tr></thead>
+        <tbody>${fieldRows}</tbody></table>
+      </div>
+      <div class="panel">
+        <h3>Edit your profile draft</h3>
+        <form id="gbp-form">
+          <p><label>Business name<br><input type="text" data-gbp="name" value="${esc(st.name || '')}" style="width:100%"></label></p>
+          <p><label>Primary category<br><input type="text" data-gbp="primary_category" value="${esc(st.primary_category || '')}" style="width:100%"></label></p>
+          <p><label>Additional categories (comma-separated)<br><input type="text" data-gbp="additional_categories" value="${esc((st.additional_categories || []).join(', '))}" style="width:100%"></label></p>
+          <p><label>Description (750 characters max)<br><textarea data-gbp="description" rows="3" style="width:100%">${esc(st.description || '')}</textarea></label></p>
+          <p><label>Primary phone<br><input type="text" data-gbp="phone" value="${esc(st.phone || '')}" style="width:100%"></label></p>
+          <p><label>Website<br><input type="text" data-gbp="website" value="${esc(st.website || '')}" style="width:100%"></label></p>
+          <p><label>Location type<br><select data-gbp="location_mode">
+            <option value="storefront" ${st.location_mode !== 'service_area' ? 'selected' : ''}>Storefront (public address)</option>
+            <option value="service_area" ${st.location_mode === 'service_area' ? 'selected' : ''}>Service area (address hidden)</option>
+          </select></label></p>
+          <p><label>Service areas (comma-separated)<br><input type="text" data-gbp="service_areas" value="${esc((st.service_areas || []).join(', '))}" style="width:100%"></label></p>
+          <p><label>Street address<br><input type="text" data-gbp="addr_line1" value="${esc(addr.line1 || '')}" style="width:100%"></label></p>
+          <p><label>Address line 2<br><input type="text" data-gbp="addr_line2" value="${esc(addr.line2 || '')}" style="width:100%"></label></p>
+          <p style="display:flex;gap:8px;flex-wrap:wrap">
+            <label style="flex:1;min-width:140px">City<br><input type="text" data-gbp="addr_city" value="${esc(addr.city || '')}" style="width:100%"></label>
+            <label style="flex:1;min-width:120px">State / region<br><input type="text" data-gbp="addr_region" value="${esc(addr.region || '')}" style="width:100%"></label>
+            <label style="flex:1;min-width:110px">Postal code<br><input type="text" data-gbp="addr_postal" value="${esc(addr.postal_code || '')}" style="width:100%"></label>
+            <label style="flex:0 0 90px">Country<br><input type="text" data-gbp="addr_country" value="${esc(addr.country || 'US')}" style="width:100%"></label>
+          </p>
+          <details><summary>Opening hours</summary>
+            ${GBP_PORTAL_DAYS.map(([key, label]) => {
+              const periods = Array.isArray(hours[key]) ? hours[key] : [];
+              const f1 = periods[0] || { open: '', close: '' };
+              const f2 = periods[1] || { open: '', close: '' };
+              return `<p data-gbp-day="${key}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+                <strong style="flex:0 0 100px">${label}</strong>
+                <label><input type="checkbox" data-h="closed" ${periods.length === 0 ? 'checked' : ''}> Closed</label>
+                <label>Open <input type="text" data-h="open" value="${esc(f1.open || '')}" placeholder="09:00" size="6"></label>
+                <label>Close <input type="text" data-h="close" value="${esc(f1.close || '')}" placeholder="17:00" size="6"></label>
+                <label>2nd open <input type="text" data-h="open2" value="${esc(f2.open || '')}" size="6"></label>
+                <label>2nd close <input type="text" data-h="close2" value="${esc(f2.close || '')}" size="6"></label>
+              </p>`;
+            }).join('')}
+          </details>
+          <p style="margin-top:10px"><button type="submit" class="btn">Save draft changes</button></p>
+          <p class="hint" data-gbp-msg="form" role="status"></p>
+        </form>
+      </div>
+      <div class="panel">
+        <h3>Your change drafts</h3>
+        ${csRows || '<p class="hint">No drafts yet. Edit the profile above and save — a draft is always created first, and you review the exact changes before anything can be pushed.</p>'}
+      </div>
+      ${
+        data.reviews
+          ? `<div class="panel"><h3>Reviews (sample)</h3><p>${esc(data.reviews.rating != null ? data.reviews.rating + ' ★ · ' : '')}${esc(String(data.reviews.total || 0))} reviews on Google. ${esc(data.reviews.note || '')}</p></div>`
+          : ''
+      }`;
+
+    const msg = (key, text) => {
+      const m = host.querySelector(`[data-gbp-msg="${key}"]`);
+      if (m) m.textContent = text;
+    };
+    host.querySelectorAll('[data-gbp-act]').forEach((b) => {
+      b.addEventListener('click', async () => {
+        const act = b.getAttribute('data-gbp-act');
+        const id = b.getAttribute('data-id');
+        try {
+          if (act === 'save-place') {
+            await api('/gbp/connection', {
+              method: 'PUT',
+              body: JSON.stringify({ place_id: document.getElementById('gbp-place-id').value }),
+            });
+            msg('conn', 'Place ID saved.');
+            loadGbpPanel();
+          } else if (act === 'disconnect') {
+            await api('/gbp/connection', { method: 'PUT', body: JSON.stringify({ action: 'disconnect' }) });
+            loadGbpPanel();
+          } else if (act === 'connect') {
+            const r = await api('/gbp/oauth/start');
+            if (r.configured && r.url) window.location.assign(r.url);
+            else msg('conn', r.message || 'Google sign-in is not configured yet.');
+          } else if (act === 'diff') {
+            const box = host.querySelector(`[data-gbp-diff="${id}"]`);
+            if (box) box.hidden = !box.hidden;
+          } else if (act === 'validate') {
+            const r = await api(`/gbp/change-sets/${id}/validate`, { method: 'POST', body: '{}' });
+            msg(
+              id,
+              r.validation && r.validation.ok
+                ? 'Valid — this draft is ready.'
+                : 'Please fix: ' + ((r.validation && r.validation.errors) || []).map((x) => x.message).join(' ')
+            );
+            if (r.validation && r.validation.ok) loadGbpPanel();
+          } else if (act === 'push') {
+            const r = await api(`/gbp/change-sets/${id}/push`, { method: 'POST', body: '{}' });
+            msg(id, r.ok ? 'Pushed to Google.' : r.message || 'Push did not go through.');
+            if (r.ok) loadGbpPanel();
+          }
+        } catch (e) {
+          msg(id || 'conn', e.message || 'Something went wrong.');
+        }
+      });
+    });
+    const form = document.getElementById('gbp-form');
+    if (form) {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+          const state = gbpCollectPortalState(form);
+          state.photos = st.photos || [];
+          state.attributes = st.attributes || {};
+          const r = await api('/gbp/change-sets', { method: 'POST', body: JSON.stringify({ state }) });
+          msg('form', `Draft #${r.changeSet.id} saved with ${(r.changeSet.changes || []).length} change(s). Review it below, validate, and it will wait at "ready" until pushing unlocks.`);
+          loadGbpPanel();
+        } catch (err) {
+          msg('form', err.message || 'The draft could not be saved.');
+        }
+      });
+    }
+  }
+
   async function loadRentals() {
     const epoch = ++rentalsEpoch;
     const host = document.getElementById('rentals-host');
