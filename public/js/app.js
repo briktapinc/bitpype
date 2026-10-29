@@ -858,7 +858,7 @@ let signedIn = false;
 // renderAuthMfa's finishWith once a real session exists.
 let pendingInviteToken = '';
 
-// Registration visibility for the bitpype.com auth screen (Admin Settings →
+// Registration visibility for the auth screen (Admin Settings →
 // General → registration.open). Defaults to visible; loadRegistrationOpen()
 // refreshes it from the public /auth/config payload at boot. Failures keep
 // the default so a config hiccup can never break the sign-in screen.
@@ -7640,6 +7640,15 @@ async function renderAdminSettings(el, group) {
                   // so this form's Save writes the same values back.
                   return `<input type="hidden" name="${esc(d.key)}" value="${esc(val)}" />`;
                 }
+                if (d.key === 'general.public_url') {
+                  // Batch 56: the canonical public URL — validated server-side
+                  // (platform.setPlatformSetting); the hint states the stakes.
+                  return `<div>
+              <label>${esc(d.label)} <span class="mono hint">${esc(d.key)}</span></label>
+              <input name="${esc(d.key)}" type="url" value="${esc(val)}" placeholder="https://example.com" />
+              <p class="hint">Links in emails and pages are built from this address. Claim, billing, portal and sign-in links all point here — change it only when the app itself moves to a new domain.</p>
+            </div>`;
+                }
                 if (d.key === 'registration.open') {
                   const on = String(val || '1') === '1';
                   return `<div>
@@ -7648,7 +7657,7 @@ async function renderAdminSettings(el, group) {
                 <option value="1"${on ? ' selected' : ''}>On — Register tab shown, sign-ups allowed</option>
                 <option value="0"${on ? '' : ' selected'}>Off — Register tab hidden, sign-ups rejected</option>
               </select>
-              <p class="hint">Show or hide the Register tab on the bitpype.com sign-in screen and activate or deactivate new-account sign-ups. People with accounts can always log in. The client portal has no registration and is not affected.</p>
+              <p class="hint">Show or hide the Register tab on the sign-in screen and activate or deactivate new-account sign-ups. People with accounts can always log in. The client portal has no registration and is not affected.</p>
             </div>`;
                 }
                 return `<div>

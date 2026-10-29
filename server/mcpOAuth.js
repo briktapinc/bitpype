@@ -30,11 +30,10 @@ let _lastPruneAt = 0;
 const PRUNE_EVERY_MS = 60 * 1000;
 
 function appBaseUrl() {
-  const raw = String(process.env.APP_URL || '')
-    .trim()
-    .replace(/\/+$/, '');
-  if (raw) return raw;
-  return 'http://127.0.0.1:3000';
+  // Batch 56: the MCP issuer/resource URLs are public links — they resolve
+  // from the canonical public URL (stripeClient.appUrl), never a localhost
+  // guess.
+  return require('./stripeClient').appUrl();
 }
 
 function mcpResourceUrl() {

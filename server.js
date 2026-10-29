@@ -483,26 +483,87 @@ app.get('/email-assets/:wsId/:file', (req, res) => {
   });
 });
 
+// Batch 56: the public marketing/legal pages carry NO hardcoded domain —
+// they contain {{PUBLIC_URL}} / {{SUPPORT_EMAIL}} tokens filled at serve
+// time from the canonical settings: general.public_url via the resolver
+// (stripeClient.appUrl), and support.email — falling back to
+// team@<public host> so day-one output matches the previous hardcoded
+// pages byte for byte. File bodies are cached; tokens are substituted per
+// request so an admin edit to the Public URL applies without a redeploy.
+const fs = require('fs');
+const templatedPageCache = new Map();
+function readTemplatedPage(rel) {
+  if (!templatedPageCache.has(rel)) {
+    try {
+      templatedPageCache.set(rel, fs.readFileSync(path.join(__dirname, 'public', rel), 'utf8'));
+    } catch {
+      templatedPageCache.set(rel, null);
+    }
+  }
+  return templatedPageCache.get(rel);
+}
+async function templatedTokens() {
+  let publicUrl = '';
+  try {
+    publicUrl = require('./server/stripeClient').appUrl();
+  } catch {
+    publicUrl = '';
+  }
+  let supportEmail = '';
+  try {
+    supportEmail = String((await require('./server/platform').getPlatformSetting('support.email', '')) || '').trim();
+  } catch {
+    supportEmail = '';
+  }
+  if (!supportEmail && publicUrl) {
+    try {
+      supportEmail = `team@${new URL(publicUrl).hostname}`;
+    } catch {
+      supportEmail = '';
+    }
+  }
+  return { publicUrl, supportEmail };
+}
+async function sendTemplatedPage(res, rel) {
+  const raw = readTemplatedPage(rel);
+  if (raw == null) return res.status(404).end();
+  try {
+    const { publicUrl, supportEmail } = await templatedTokens();
+    const html = raw.split('{{PUBLIC_URL}}').join(publicUrl).split('{{SUPPORT_EMAIL}}').join(supportEmail);
+    return res.type('html').send(html);
+  } catch {
+    return res.sendFile(path.join(__dirname, 'public', rel));
+  }
+}
+
 // Marketing home at `/`. Staff SPA lives at `/app` so public visitors never hit the desk UI.
 // Logged-in staff hitting `/` are sent to `/app` so existing bookmarks keep working.
 app.get('/', (req, res) => {
   if (req.session && req.session.userId) {
     return res.redirect(302, '/app');
   }
-  return res.sendFile(path.join(__dirname, 'public', 'home.html'));
+  return sendTemplatedPage(res, 'home.html');
 });
 
 // Widget tour lives at /how. express.static will not map /how → how.html,
 // and the HTML catch-all below would otherwise send the homepage.
 app.get(['/how', '/how/'], (_req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'how.html'));
+  return sendTemplatedPage(res, 'how.html');
 });
 
 // Standalone "How it works" marketing page. Same pattern as /how: without an
 // explicit route the HTML catch-all below would send the homepage.
 app.get(['/how-it-works', '/how-it-works/'], (_req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'how-it-works.html'));
+  return sendTemplatedPage(res, 'how-it-works.html');
 });
+
+// Batch 56: direct file paths for the templated pages are intercepted
+// BEFORE express.static so a raw {{TOKEN}} is never served.
+app.get('/home.html', (_req, res) => sendTemplatedPage(res, 'home.html'));
+app.get('/how.html', (_req, res) => sendTemplatedPage(res, 'how.html'));
+app.get('/how-it-works.html', (_req, res) => sendTemplatedPage(res, 'how-it-works.html'));
+app.get('/legal/privacy.html', (_req, res) => sendTemplatedPage(res, 'legal/privacy.html'));
+app.get('/legal/terms.html', (_req, res) => sendTemplatedPage(res, 'legal/terms.html'));
 
 app.get(['/website-promo', '/website-promo/'], (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'website-promo.html'));
@@ -616,7 +677,7 @@ app.get('*', (req, res, next) => {
   }
   // Unknown browser paths → marketing home (APIs already handled above).
   if (req.accepts('html')) {
-    return res.sendFile(path.join(__dirname, 'public', 'home.html'));
+    return sendTemplatedPage(res, 'home.html');
   }
   return next();
 });
@@ -654,6 +715,11 @@ async function main() {
   const mig = await platform.migratePlatformSecrets().catch(() => ({ migrated: 0 }));
   if (mig.migrated) console.log(`[platform] encrypted ${mig.migrated} plaintext secret(s) at rest`);
   console.log('[platform] settings seeded');
+
+  // Batch 56: prime the public-URL resolver cache from the stored
+  // general.public_url setting (Admin → Settings → General).
+  await require('./server/stripeClient').refreshPublicUrl().catch(() => '');
+  console.log('[platform] public URL resolver primed');
 
   await require('./server/captcha').assertProductionReady();
   await pruneExpiredSessions();

@@ -31,7 +31,15 @@ function fail(code, message) {
 }
 
 function appUrl() {
-  return String(process.env.APP_URL || 'http://127.0.0.1:3080').replace(/\/$/, '');
+  // Batch 56: the stored screenshot public_url is a public link — it
+  // resolves from the canonical public URL (stripeClient.appUrl). The old
+  // env / loopback read remains only as a fallback for processes where the
+  // server modules cannot load.
+  try {
+    return require('../server/stripeClient').appUrl();
+  } catch {
+    return String(process.env.APP_URL || 'http://127.0.0.1:3080').replace(/\/+$/, '');
+  }
 }
 
 function ensureTables(db) {

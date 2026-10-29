@@ -29,6 +29,15 @@ const claimKit = require('../src/claimKit');
 const { getPlan, normalizePlanId, isPaidPlan } = require('./plans');
 const { staffUrl } = require('./appUrls');
 
+/** Batch 56: public app base via the single resolver (stripeClient.appUrl). */
+function publicAppBase() {
+  try {
+    return require('./stripeClient').appUrl();
+  } catch {
+    return String(process.env.APP_URL || '').replace(/\/+$/, '');
+  }
+}
+
 const DEFAULT_INCLUDED_MAX_USD = 25;
 const STALE_PENDING_HOURS = 72;
 const STATUSES = ['pending_payment', 'paid', 'registering', 'live', 'failed', 'voided'];
@@ -434,7 +443,7 @@ async function startCheckout(db, workspaceId, { leadId, domain, planId }, deps =
   patchTransaction(db, txn.id, { billing_user_id: Number(userId) });
 
   const billing = deps.billing || require('./billing');
-  const appBase = String(process.env.APP_URL || '').replace(/\/$/, '');
+  const appBase = publicAppBase();
   const pickerUrl = buildPickerUrl(workspaceId, lead.id);
   try {
     const session = await billing.createCheckoutSession(userId, plan, {
@@ -778,7 +787,7 @@ async function composeClientLiveEmail(db, txn) {
     ? db.prepare('SELECT id, name FROM websites WHERE id = ?').get(txn.website_id)
     : siteRow(db, txn.lead_id);
   const business = (site && site.name) || lead.business_name || 'Your business';
-  const appBase = String(process.env.APP_URL || '').replace(/\/$/, '');
+  const appBase = publicAppBase();
   const liveUrl = `https://${txn.domain}`;
   const paragraphs = [
     `Good news — the website for ${business} is now live at ${liveUrl}.`,

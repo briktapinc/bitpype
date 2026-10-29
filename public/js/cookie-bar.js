@@ -33,6 +33,21 @@
       'body.bp-cookie-pad{padding-bottom:max(88px, calc(72px + env(safe-area-inset-bottom,0px)));}',
     ].join('');
 
+    // Batch 56: no hardcoded platform domain. This script is served from
+    // the platform origin (previewChrome injects it as
+    // <public URL>/js/cookie-bar.js into exported client sites), so the
+    // script's OWN origin is the platform origin — the Privacy link is
+    // derived from it and tracks the configured public URL automatically.
+    let platformOrigin = '';
+    try {
+      if (document.currentScript && document.currentScript.src) {
+        platformOrigin = new URL(document.currentScript.src).origin;
+      }
+    } catch (e) {
+      platformOrigin = '';
+    }
+    const privacyUrl = platformOrigin ? platformOrigin + '/legal/privacy.html' : '/legal/privacy.html';
+
     const bar = document.createElement('div');
     bar.id = 'bp-cookie-bar';
     bar.setAttribute('role', 'dialog');
@@ -40,7 +55,7 @@
     bar.setAttribute('aria-label', 'Cookie notice');
     bar.innerHTML = [
       '<p>We use cookies to run this site and understand how it is used. By continuing, you agree to our use of cookies.',
-      ' <a href="https://bitpype.com/legal/privacy.html" target="_blank" rel="noopener noreferrer">Privacy</a></p>',
+      ' <a href="' + privacyUrl + '" target="_blank" rel="noopener noreferrer">Privacy</a></p>',
       '<div class="bp-cookie-actions">',
       '<button type="button" id="bp-cookie-accept">Got it</button>',
       '</div>',
