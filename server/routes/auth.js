@@ -8,6 +8,7 @@ const { requireAuth } = require('../middleware');
 const { rateLimit } = require('../rateLimit');
 const { requireCaptcha } = require('../captcha');
 const mfa = require('../mfa');
+const apiErrors = require('../apiErrors');
 
 const router = express.Router();
 const authLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 40 });
@@ -252,7 +253,7 @@ function staffMfaChallenge(req, stage) {
 
 function mfaFail(res, e) {
   const http = e.code === 'MFA_LOCKED' ? 429 : e.code === 'MFA_CHALLENGE_EXPIRED' || e.code === 'MFA_NO_PENDING' ? 400 : 401;
-  return res.status(http).json({ ok: false, error: e.message || e.code, code: e.code });
+  return apiErrors.sendError(res, e, http, { area: 'auth' });
 }
 
 /** Re-load the challenged account fresh (status may have changed). */
@@ -328,7 +329,7 @@ router.post('/reset-password', authLimit, captcha, async (req, res, next) => {
     await require('../passwordReset').confirmReset(token, password);
     res.json({ ok: true, data: { reset: true } });
   } catch (e) {
-    res.status(400).json({ ok: false, error: e.message, code: e.code });
+    apiErrors.sendError(res, e, 400, { area: 'auth' });
   }
 });
 
@@ -356,7 +357,7 @@ router.post('/accept-invite', requireAuth, async (req, res, next) => {
       },
     });
   } catch (e) {
-    res.status(400).json({ ok: false, error: e.message, code: e.code });
+    apiErrors.sendError(res, e, 400, { area: 'auth' });
   }
 });
 

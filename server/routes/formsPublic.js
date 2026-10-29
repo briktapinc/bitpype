@@ -12,6 +12,7 @@ const billing = require('../billing');
 const { requireCaptcha, clientIp, getCaptchaConfig } = require('../captcha');
 const { rateLimit } = require('../rateLimit');
 const { assertWorkspaceExists } = require('../workspaceExists');
+const apiErrors = require('../apiErrors');
 
 const router = express.Router();
 const submitLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 40 });
@@ -29,8 +30,7 @@ function fail(res, e, status = 400) {
           : typeof e.status === 'number'
             ? e.status
             : status;
-  const msg = http >= 500 ? 'Server error' : e.message || String(e);
-  res.status(http).json({ ok: false, error: msg, code: e.code });
+  apiErrors.sendError(res, e, http, { area: 'formsPublic', mask5xx: true });
 }
 
 async function workspaceFromReq(req) {

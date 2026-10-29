@@ -9,6 +9,7 @@ const domain = require('../domain');
 const { requireCaptcha } = require('../captcha');
 const { rateLimit } = require('../rateLimit');
 const { assertWorkspaceExists } = require('../workspaceExists');
+const apiErrors = require('../apiErrors');
 
 const router = express.Router();
 const formLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 60 });
@@ -17,7 +18,7 @@ const captcha = requireCaptcha();
 
 function fail(res, e, status = 400) {
   const http = e.code === 'NOT_FOUND' ? 404 : e.code === 'INVALID' ? 400 : status;
-  res.status(http).json({ ok: false, error: e.message || String(e), code: e.code });
+  apiErrors.sendError(res, e, http, { area: 'designPublic' });
 }
 
 async function workspaceIdFrom(req) {

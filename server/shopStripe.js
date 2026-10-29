@@ -37,7 +37,8 @@ function getSetting(db, key) {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
     return row && typeof row.value === 'string' ? secretBox.decryptSetting(key, row.value) : null;
-  } catch {
+  } catch (e) {
+    console.warn('[shopStripe] getSetting:', e.message || e);
     return null;
   }
 }

@@ -108,6 +108,11 @@
         undefined;
       err.status = res.status;
       err.data = data;
+      // Batch 54: carry the server's error reference id for errText().
+      err.ref =
+        (nested && typeof nested.ref === 'string' && nested.ref) ||
+        (data && typeof data.ref === 'string' && data.ref) ||
+        undefined;
       if (
         res.status === 401 &&
         (err.code === 'AUTH_REQUIRED' || err.code === 'SESSION_IDLE' || err.message === 'AUTH_REQUIRED')
@@ -117,7 +122,7 @@
           const msg = document.getElementById('msg-login');
           if (msg) {
             msg.className = 'msg err';
-            msg.textContent = err.message || 'Signed out after 30 hours of inactivity. Please sign in again.';
+            msg.textContent = errText(err);
           }
         }
       }
@@ -440,7 +445,7 @@
       }
     } catch (e) {
       msg.className = 'msg err';
-      msg.textContent = e.message;
+      msg.textContent = errText(e);
       try {
         captchaAccess.reset && captchaAccess.reset();
       } catch {
@@ -484,7 +489,7 @@
       await loadDashboard();
     } catch (e) {
       msg.className = 'msg err';
-      msg.textContent = e.message === 'INVALID_CREDENTIALS' ? 'Email or password is incorrect.' : e.message;
+      msg.textContent = errText(e);
       try {
         captchaLogin.reset && captchaLogin.reset();
       } catch {
@@ -551,7 +556,7 @@
         await loadDashboard();
       } catch (e) {
         msg.className = 'msg err';
-        msg.textContent = e.message;
+        msg.textContent = errText(e);
       } finally {
         btn.disabled = false;
       }
@@ -602,7 +607,7 @@
       const data = await api('/mfa');
       renderMfaSecurity(!!data.enabled);
     } catch (e) {
-      securityBody.innerHTML = `<p class="msg err">${esc(e.message)}</p>`;
+      securityBody.innerHTML = `<p class="msg err">${esc(errText(e))}</p>`;
     }
   }
 
@@ -639,7 +644,7 @@
           renderMfaSecurity(false);
         } catch (e) {
           msg.className = 'msg err';
-          msg.textContent = e.message;
+          msg.textContent = errText(e);
         }
       };
       return;
@@ -679,12 +684,12 @@
             renderMfaSecurity(true, done.recoveryCodes || []);
           } catch (e) {
             msg2.className = 'msg err';
-            msg2.textContent = e.message;
+            msg2.textContent = errText(e);
           }
         };
       } catch (e) {
         msg.className = 'msg err';
-        msg.textContent = e.message;
+        msg.textContent = errText(e);
       }
     };
   }
@@ -756,7 +761,7 @@
     } catch (e) {
       if (msg) {
         msg.className = 'msg err';
-        msg.textContent = e.message || 'Could not publish preview';
+        msg.textContent = errText(e);
       }
     } finally {
       state.publishBusy = false;
@@ -1354,7 +1359,7 @@
     } catch (e) {
       if (msg) {
         msg.className = 'msg err';
-        msg.textContent = e.message || 'Could not insert block';
+        msg.textContent = errText(e);
       }
     }
   }
@@ -1373,7 +1378,7 @@
     } catch (e) {
       if (msg) {
         msg.className = 'msg err';
-        msg.textContent = e.message || 'Could not insert widget';
+        msg.textContent = errText(e);
       }
     }
   }
@@ -1392,7 +1397,7 @@
     } catch (e) {
       if (msg) {
         msg.className = 'msg err';
-        msg.textContent = e.message || 'Could not insert form';
+        msg.textContent = errText(e);
       }
     }
   }
@@ -1467,7 +1472,7 @@
       });
       if (msg) {
         msg.className = 'msg err';
-        msg.textContent = e.message || 'Could not load site modules';
+        msg.textContent = errText(e);
       }
     }
   }
@@ -1507,7 +1512,7 @@
       });
       setStructureMsg(`${okMessage}`, 'ok');
     } catch (e) {
-      setStructureMsg(e.message || 'Could not save', 'err');
+      setStructureMsg(errText(e), 'err');
       await loadStructure({ quiet: true });
     } finally {
       state.structureBusy = false;
@@ -1556,7 +1561,7 @@
     } catch (e) {
       if (msg) {
         msg.className = 'msg err';
-        msg.textContent = e.message || 'Could not insert form';
+        msg.textContent = errText(e);
       }
     }
   }
@@ -1595,7 +1600,7 @@
       renderStructureLists();
       return data;
     } catch (e) {
-      if (!opts.quiet) setStructureMsg(e.message || 'Could not load menu order', 'err');
+      if (!opts.quiet) setStructureMsg(errText(e), 'err');
       return null;
     }
   }
@@ -1655,7 +1660,7 @@
         }
       }, 3500);
     } catch (e) {
-      setStructureMsg(e.message || 'Could not reorder', 'err');
+      setStructureMsg(errText(e), 'err');
       await loadStructure({ quiet: true });
     } finally {
       state.structureBusy = false;
@@ -1860,7 +1865,7 @@
     } catch (e) {
       if (msg) {
         msg.className = 'msg err';
-        msg.textContent = e.message || 'Could not update logo';
+        msg.textContent = errText(e);
       }
       syncLogoUi();
     } finally {
@@ -2061,8 +2066,8 @@
         setAgentChatStatus('Could not fully apply that change.', 'err');
       }
     } catch (e) {
-      appendAgentBubble('assistant', e.message || 'Something went wrong.');
-      setAgentChatStatus(e.message || 'Request failed', 'err');
+      appendAgentBubble('assistant', errText(e));
+      setAgentChatStatus(errText(e), 'err');
     } finally {
       state.agentChatBusy = false;
       syncAgentChatUi();
@@ -2338,7 +2343,7 @@
     } catch (e) {
       if (msg) {
         msg.className = 'msg err';
-        msg.textContent = e.message || 'Could not update image';
+        msg.textContent = errText(e);
       }
       postImageBusyToFrame(src, false);
     } finally {
@@ -2459,13 +2464,11 @@
       const insufficient = e && (e.code === 'INSUFFICIENT_CREDITS' || /not enough credits/i.test(e.message || ''));
       if (modalMsg) {
         modalMsg.className = 'msg err';
-        modalMsg.textContent = insufficient
-          ? e.message || 'Not enough credits. Buy more in Billing.'
-          : e.message || 'Could not generate image';
+        modalMsg.textContent = errText(e);
       }
       if (msg && insufficient) {
         msg.className = 'msg err';
-        msg.textContent = e.message || 'Not enough credits. Buy more in Billing.';
+        msg.textContent = errText(e);
       }
       postImageBusyToFrame(src, false);
     } finally {
@@ -2544,7 +2547,7 @@
     } catch (e) {
       if (msg) {
         msg.className = 'msg err';
-        msg.textContent = e.message || 'Could not update list';
+        msg.textContent = errText(e);
       }
       // Freeform DOM already changed — reload to resync if save failed
       if (action === 'freeform-save') {
@@ -2657,7 +2660,7 @@
         const msg = document.getElementById('msg-edit');
         if (msg) {
           msg.className = 'msg err';
-          msg.textContent = e.message || 'Could not save font';
+          msg.textContent = errText(e);
         }
       });
       return;
@@ -2891,7 +2894,7 @@
       msg.textContent = 'Caption saved.';
     } catch (e) {
       msg.className = 'msg err';
-      msg.textContent = e.message;
+      msg.textContent = errText(e);
     } finally {
       if (btn) btn.disabled = false;
     }
@@ -2933,7 +2936,7 @@
           : `Branded image ready. Used ${charged} credit${charged === 1 ? '' : 's'} (${state.creditsBalance} left).`;
     } catch (e) {
       msg.className = 'msg err';
-      msg.textContent = e.message;
+      msg.textContent = errText(e);
       if (btn) btn.disabled = false;
     }
   }
@@ -3016,7 +3019,7 @@
       const msg = document.getElementById('msg-social');
       if (msg) {
         msg.className = 'msg err';
-        msg.textContent = e.message || 'Could not load your social calendar.';
+        msg.textContent = errText(e);
       }
     }
   }
@@ -3245,7 +3248,7 @@
       }
     } catch (e) {
       if (msg) {
-        msg.textContent = e.message || String(e);
+        msg.textContent = errText(e);
         msg.className = 'msg err';
       }
     } finally {
@@ -3292,7 +3295,7 @@
       data = await api('/gbp');
     } catch (e) {
       if (epoch !== gbpEpoch) return;
-      host.innerHTML = `<p class="hint">${esc(e.message || 'Your Google Profile could not be loaded.')}</p>`;
+      host.innerHTML = `<p class="hint">${esc(errText(e))}</p>`;
       return;
     }
     if (epoch !== gbpEpoch) return;
@@ -3536,7 +3539,7 @@
             if (r.ok) loadGbpPanel();
           }
         } catch (e) {
-          msg(id || 'conn', e.message || 'Something went wrong.');
+          msg(id || 'conn', errText(e));
         }
       });
     });
@@ -3552,7 +3555,7 @@
           msg('form', `Draft #${r.changeSet.id} saved with ${(r.changeSet.changes || []).length} change(s). Review it below, validate, and it will wait at "ready" until pushing unlocks.`);
           loadGbpPanel();
         } catch (err) {
-          msg('form', err.message || 'The draft could not be saved.');
+          msg('form', errText(err));
         }
       });
     }
@@ -3568,7 +3571,7 @@
       st = await api('/rentals');
     } catch (e) {
       if (epoch !== rentalsEpoch) return;
-      host.innerHTML = `<p class="hint">${esc(e.message || 'Your rentals could not be loaded.')}</p>`;
+      host.innerHTML = `<p class="hint">${esc(errText(e))}</p>`;
       return;
     }
     if (epoch !== rentalsEpoch) return;
@@ -3628,7 +3631,7 @@
       st = await api('/seo');
     } catch (e) {
       if (epoch !== seoEpoch) return;
-      host.innerHTML = `<p class="hint">${esc(e.message || 'The SEO tool could not be loaded.')}</p>`;
+      host.innerHTML = `<p class="hint">${esc(errText(e))}</p>`;
       return;
     }
     if (epoch !== seoEpoch) return;
@@ -3668,7 +3671,7 @@
               : 'Token cleared.';
           }
         } catch (e) {
-          if (gmsg) gmsg.textContent = e.message || 'Could not save the token — please try again.';
+          if (gmsg) gmsg.textContent = errText(e);
         }
         btn.disabled = false;
       });
@@ -3718,7 +3721,7 @@
           renderSeoTool(await api('/seo/generate', { method: 'POST' }));
         } catch (e) {
           genBtn.disabled = false;
-          if (msg) msg.textContent = e.message || 'Generation failed — please try again.';
+          if (msg) msg.textContent = errText(e);
         }
       });
     }
@@ -3737,7 +3740,7 @@
           }
         } catch (e) {
           applyBtn.disabled = false;
-          if (msg) msg.textContent = e.message || 'Apply failed — please try again.';
+          if (msg) msg.textContent = errText(e);
         }
       });
     }
@@ -3786,7 +3789,7 @@
     } catch (e) {
       if (epoch === analyticsEpoch) {
         msg.className = 'msg err';
-        msg.textContent = e.message || 'Could not load analytics.';
+        msg.textContent = errText(e);
       }
     } finally {
       if (epoch === analyticsEpoch)
@@ -3811,7 +3814,7 @@
       await loadAnalytics();
     } catch (e) {
       msg.className = 'msg err';
-      msg.textContent = e.message || 'Could not save tracking settings.';
+      msg.textContent = errText(e);
     } finally {
       button.disabled = false;
     }
@@ -3832,7 +3835,7 @@
       if (noticeEl) {
         noticeEl.hidden = false;
         noticeEl.innerHTML =
-          `Billing could not be loaded (${esc(e.message || 'error')}). ` +
+          `Billing could not be loaded (${esc(errText(e))}). ` +
           '<button type="button" class="btn ghost small" id="bill-retry">Retry</button>';
         const retry = document.getElementById('bill-retry');
         if (retry) retry.onclick = () => loadBilling().catch(() => {});
@@ -4026,7 +4029,7 @@
           .join('') ||
         '<tr><td colspan="5" class="empty-cell">No tokens yet. Create one to connect your agent.</td></tr>';
     } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="5" class="empty-cell">${esc(e.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="5" class="empty-cell">${esc(errText(e))}</td></tr>`;
     }
   }
 
@@ -4285,7 +4288,7 @@
             await api(`/forms/submissions/${encodeURIComponent(btn.getAttribute('data-sub-delete'))}`, { method: 'DELETE' });
             loadFormSubmissions().catch(() => {});
           } catch (e) {
-            window.alert(e.message || 'Delete failed');
+            window.alert(errText(e));
           }
         };
       });
@@ -4299,7 +4302,7 @@
             await api('/forms/submissions/delete-bulk', { method: 'POST', body: JSON.stringify({ ids }) });
             loadFormSubmissions().catch(() => {});
           } catch (e) {
-            window.alert(e.message || 'Delete failed');
+            window.alert(errText(e));
           }
         };
       }
@@ -4323,7 +4326,7 @@
       const msg = document.getElementById('msg-forms-list');
       if (msg) {
         msg.className = 'msg err';
-        msg.textContent = e.message || 'Could not load your forms.';
+        msg.textContent = errText(e);
       }
     }
   }
@@ -4348,7 +4351,7 @@
       await loadFormSubmissions();
     } catch (e) {
       const notice = document.getElementById('form-inbox-notice');
-      if (notice) notice.textContent = `Submissions could not be loaded (${e.message || 'error'}).`;
+      if (notice) notice.textContent = `Submissions could not be loaded (${errText(e)}).`;
     }
   }
 
@@ -4397,7 +4400,7 @@
       }
       if (msg) {
         msg.className = 'msg err';
-        msg.textContent = e.message;
+        msg.textContent = errText(e);
       }
     }
   }
@@ -5051,7 +5054,7 @@
         } catch (e) {
           if (msg) {
             msg.className = 'msg err';
-            msg.textContent = e.message || 'Save failed';
+            msg.textContent = errText(e);
           }
         }
       };
@@ -5071,7 +5074,7 @@
         <div class="row" style="justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line,#e6e0d8);flex-wrap:wrap">
           <div>
             <strong>${esc(e.reason || 'escalation')}</strong>
-            <div class="hint">${esc(e.message || '')}</div>
+            <div class="hint">${esc(errText(e))}</div>
             <div class="hint">${esc(e.created_at || '')}</div>
           </div>
           <button type="button" class="btn soft small" data-chat-resolve="${e.id}">Resolve</button>
@@ -5120,7 +5123,7 @@
           await loadModuleItems();
           renderChatbotInboxPanel();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
       };
     });
@@ -5991,7 +5994,7 @@
           await uploadModuleFieldImage(key, file);
           moduleModalMsg('Photo uploaded.', true);
         } catch (e) {
-          moduleModalMsg(e.message || 'Upload failed', false);
+          moduleModalMsg(errText(e), false);
         }
       };
     });
@@ -6260,7 +6263,7 @@
             el.textContent = 'Stripe keys saved. Your shop now charges your own Stripe account.';
           }
         } catch (e) {
-          msg(e.message || 'Could not save the Stripe keys.', false);
+          msg(errText(e), false);
         }
       };
     }
@@ -6282,7 +6285,7 @@
             msg('Stripe did not accept the saved secret key. Check the key in your Stripe dashboard and save it again.', false);
           }
         } catch (e) {
-          msg(e.message || 'The connection test could not run.', false);
+          msg(errText(e), false);
         }
       };
     }
@@ -6303,7 +6306,7 @@
               : 'Your keys were removed. Checkout is off until keys are saved again.';
           }
         } catch (e) {
-          msg(e.message || 'Could not disconnect Stripe.', false);
+          msg(errText(e), false);
         }
       };
     }
@@ -6349,7 +6352,7 @@
           moduleMsg('Offer layout saved.', true);
           renderOffersDisplayPanel();
         } catch (e) {
-          moduleMsg(e.message || 'Could not save the offer layout.', false);
+          moduleMsg(errText(e), false);
         }
       };
     }
@@ -6387,7 +6390,7 @@
       try {
         await loadModuleItems();
       } catch (e) {
-        moduleMsg(e.message || 'Could not reload the menu.', false);
+        moduleMsg(errText(e), false);
       }
     };
     const addBtn = document.getElementById('btn-menu-cat-add');
@@ -6401,7 +6404,7 @@
           moduleMsg('Category added.', true);
           await reload();
         } catch (e) {
-          moduleMsg(e.message || 'Could not add the category.', false);
+          moduleMsg(errText(e), false);
         }
       };
     }
@@ -6420,7 +6423,7 @@
           moduleMsg('Category saved.', true);
           await reload();
         } catch (e) {
-          moduleMsg(e.message || 'Could not save the category.', false);
+          moduleMsg(errText(e), false);
         }
       };
     });
@@ -6433,7 +6436,7 @@
           moduleMsg('Category deleted.', true);
           await reload();
         } catch (e) {
-          moduleMsg(e.message || 'Could not delete the category.', false);
+          moduleMsg(errText(e), false);
         }
       };
     });
@@ -6460,7 +6463,7 @@
       renderModuleTypeTabs();
       await loadModuleItems();
     } catch (e) {
-      moduleMsg(e.message, false);
+      moduleMsg(errText(e), false);
       if (app && app.hidden && upgrade && upgrade.hidden) app.hidden = false;
       const box = document.getElementById('modules-items');
       if (box && app && !app.hidden) {
@@ -6539,7 +6542,7 @@
         '<button type="button" class="btn ghost small" id="leadscout-retry">Retry</button></p>';
       const retry = document.getElementById('leadscout-retry');
       if (retry) retry.onclick = () => loadLeadScout().catch(() => {});
-      if (msgEl) msgEl.textContent = e.message || 'Failed to load contacts';
+      if (msgEl) msgEl.textContent = errText(e);
     }
   }
 
@@ -6592,14 +6595,14 @@
             if (empty) empty.hidden = false;
             await loadLeadScout();
           } catch (e) {
-            window.alert(e.message || 'Delete failed');
+            window.alert(errText(e));
           }
         };
       }
     } catch (e) {
       detail.hidden = false;
       if (empty) empty.hidden = true;
-      detail.innerHTML = `<p class="msg">${esc(e.message || 'Failed to load contact')}</p>`;
+      detail.innerHTML = `<p class="msg">${esc(errText(e))}</p>`;
     }
   }
 
@@ -6977,7 +6980,7 @@
       } catch (e) {
         if (msg) {
           msg.className = 'msg err';
-          msg.textContent = e.message || 'Invalid color';
+          msg.textContent = errText(e);
         }
         return;
       }
@@ -7026,7 +7029,7 @@
       } catch (e) {
         if (msg) {
           msg.className = 'msg err';
-          msg.textContent = e.message || 'Could not save colors';
+          msg.textContent = errText(e);
         }
       } finally {
         state.themeSaving = false;
@@ -7089,7 +7092,7 @@
         const msg = document.getElementById('msg-logo');
         if (msg) {
           msg.className = 'msg err';
-          msg.textContent = e.message || 'Could not upload logo';
+          msg.textContent = errText(e);
         }
       }
     };
@@ -7119,7 +7122,7 @@
         const msg = document.getElementById('msg-logo');
         if (msg) {
           msg.className = 'msg err';
-          msg.textContent = e.message || 'Could not upload logo';
+          msg.textContent = errText(e);
         }
       }
     };
@@ -7178,7 +7181,7 @@
       }, 4000);
     } catch (e) {
       msg.className = 'msg err';
-      msg.textContent = e.message;
+      msg.textContent = errText(e);
     } finally {
       btn.disabled = false;
       cancel.disabled = false;
@@ -7246,7 +7249,7 @@
       loadChangesHistory().catch(() => {});
     } catch (e) {
       msg.className = 'msg err';
-      msg.textContent = e.message;
+      msg.textContent = errText(e);
     } finally {
       btn.disabled = false;
     }
@@ -7279,7 +7282,7 @@
           : 'New posts added to your calendar.';
     } catch (e) {
       msg.className = 'msg err';
-      msg.textContent = e.message;
+      msg.textContent = errText(e);
     } finally {
       weekBtn.disabled = false;
       monthBtn.disabled = false;
@@ -7324,7 +7327,7 @@
         await loadCalendar();
       } catch (e) {
         msg.className = 'msg err';
-        msg.textContent = e.message;
+        msg.textContent = errText(e);
       }
       return;
     }
@@ -7352,7 +7355,7 @@
       await loadCalendar();
     } catch (e) {
       msg.className = 'msg err';
-      msg.textContent = e.message;
+      msg.textContent = errText(e);
     }
   };
 
@@ -7368,7 +7371,7 @@
         else throw new Error('No OAuth URL');
       } catch (e) {
         msg.className = 'msg err';
-        msg.textContent = e.message;
+        msg.textContent = errText(e);
       }
     };
   }
@@ -7386,7 +7389,7 @@
         await loadSocialAccounts();
       } catch (e) {
         msg.className = 'msg err';
-        msg.textContent = e.message;
+        msg.textContent = errText(e);
       }
     };
   }
@@ -7462,7 +7465,7 @@
       return data;
     } catch (e) {
       msg.className = 'msg err';
-      msg.textContent = e.message;
+      msg.textContent = errText(e);
       return null;
     }
   }
@@ -7498,7 +7501,7 @@
       await loadForms();
     } catch (e) {
       msg.className = 'msg err';
-      msg.textContent = e.message;
+      msg.textContent = errText(e);
     }
   }
 
@@ -7515,7 +7518,7 @@
         await loadLeadScout();
       } catch (e) {
         const msg = document.getElementById('msg-leadscout-list');
-        if (msg) msg.textContent = e.message || 'Retry failed';
+        if (msg) msg.textContent = errText(e);
       }
     };
   }
@@ -7528,7 +7531,7 @@
         await loadLeadScout();
       } catch (e) {
         const msg = document.getElementById('msg-leadscout-list');
-        if (msg) msg.textContent = e.message || 'Clear failed';
+        if (msg) msg.textContent = errText(e);
       }
     };
   }
@@ -7570,7 +7573,7 @@
       } catch (e) {
         if (msg) {
           msg.className = 'msg err';
-          msg.textContent = e.message;
+          msg.textContent = errText(e);
         }
       }
     };
@@ -7601,7 +7604,7 @@
         msg.textContent = 'Form deleted.';
       } catch (e) {
         msg.className = 'msg err';
-        msg.textContent = e.message;
+        msg.textContent = errText(e);
       }
     };
   }
@@ -7646,7 +7649,7 @@
         const msg = document.getElementById('msg-mcp');
         if (msg) {
           msg.className = 'msg err';
-          msg.textContent = e.message;
+          msg.textContent = errText(e);
         }
       }
     });
@@ -7674,7 +7677,7 @@
         await refreshMcpTokens();
       } catch (e) {
         msg.className = 'msg err';
-        msg.textContent = e.message;
+        msg.textContent = errText(e);
       }
     };
   }
@@ -7698,7 +7701,7 @@
       try {
         await loadModuleItems();
       } catch (e) {
-        moduleMsg(e.message, false);
+        moduleMsg(errText(e), false);
       }
     });
   }
@@ -7758,7 +7761,7 @@
           await loadModuleItems();
           moduleMsg('', true);
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
       }
     });
@@ -7776,7 +7779,7 @@
           moduleMsg(archived ? 'Appointment archived.' : 'Appointment restored.', true);
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
         return;
       }
@@ -7790,7 +7793,7 @@
           moduleMsg('Appointment deleted.', true);
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
         return;
       }
@@ -7807,7 +7810,7 @@
           moduleMsg('Appointment updated.', true);
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
         return;
       }
@@ -7834,7 +7837,7 @@
           moduleMsg('Hours saved.', true);
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
         return;
       }
@@ -7855,7 +7858,7 @@
           moduleMsg('Settings saved.', true);
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
       }
       const estReqDelBtn = ev.target.closest('[data-est-req-delete]');
@@ -7868,7 +7871,7 @@
           moduleMsg('Request deleted.', true);
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
         return;
       }
@@ -7885,7 +7888,7 @@
           moduleMsg('Request updated.', true);
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
         return;
       }
@@ -7912,7 +7915,7 @@
           moduleMsg('Calculator saved.', true);
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
       }
       if (ev.target && ev.target.id === 'btn-socialfeed-config-save') {
@@ -7933,7 +7936,7 @@
           moduleMsg('Feed settings saved.', true);
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
       }
       if (ev.target && ev.target.id === 'btn-socialfeed-refresh') {
@@ -7944,7 +7947,7 @@
           moduleMsg('Feed is up to date.', true);
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
       }
       if (ev.target && ev.target.id === 'btn-googlereviews-config-save') {
@@ -7966,7 +7969,7 @@
           moduleMsg('Review settings saved.', true);
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
       }
       if (ev.target && ev.target.id === 'btn-googlereviews-refresh') {
@@ -7980,7 +7983,7 @@
           );
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
       }
       if (ev.target && ev.target.id === 'btn-calltracking-phone-save') {
@@ -7996,7 +7999,7 @@
           moduleMsg('Your number is saved — it shows on your site and your calls forward to it.', true);
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
       }
       if (ev.target && ev.target.id === 'btn-members-config-save') {
@@ -8031,7 +8034,7 @@
           );
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
         return;
       }
@@ -8048,7 +8051,7 @@
           moduleMsg(status === 'active' ? 'Member is active.' : 'Member disabled.', true);
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
         return;
       }
@@ -8062,7 +8065,7 @@
           moduleMsg('Member deleted.', true);
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
         return;
       }
@@ -8085,7 +8088,7 @@
           moduleMsg('Stripe keys saved (encrypted). Paid plans can now be activated.', true);
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
         return;
       }
@@ -8097,7 +8100,7 @@
           moduleMsg('Stripe disconnected.', true);
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
         return;
       }
@@ -8157,7 +8160,7 @@
           }
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
         return;
       }
@@ -8190,7 +8193,7 @@
           moduleMsg('Plan deleted.', true);
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
         return;
       }
@@ -8212,7 +8215,7 @@
           moduleMsg('Comp granted — this member now has free access to that plan.', true);
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
         return;
       }
@@ -8225,7 +8228,7 @@
           moduleMsg('Comp revoked.', true);
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
         return;
       }
@@ -8244,7 +8247,7 @@
           moduleMsg('Subscription set to cancel at the end of the paid period.', true);
           await loadModuleItems();
         } catch (e) {
-          moduleMsg(e.message, false);
+          moduleMsg(errText(e), false);
         }
         return;
       }
@@ -8346,7 +8349,7 @@
         moduleMsg('Saved.', true);
         await loadModules();
       } catch (e) {
-        moduleModalMsg(e.message, false);
+        moduleModalMsg(errText(e), false);
       }
     };
   }
@@ -8365,7 +8368,7 @@
         moduleMsg('Deleted.', true);
         await loadModules();
       } catch (e) {
-        moduleModalMsg(e.message, false);
+        moduleModalMsg(errText(e), false);
       }
     };
   }
@@ -8393,7 +8396,7 @@
         await loadModules();
         if (state.previewUrl) loadEditablePreview(state.previewUrl).catch(() => {});
       } catch (e) {
-        moduleMsg(e.message, false);
+        moduleMsg(errText(e), false);
       }
     };
   }
@@ -8411,7 +8414,7 @@
         await loadModules();
         if (state.previewUrl) loadEditablePreview(state.previewUrl).catch(() => {});
       } catch (e) {
-        moduleMsg(e.message, false);
+        moduleMsg(errText(e), false);
       }
     };
   }
@@ -8441,7 +8444,7 @@
       else throw new Error('No portal URL returned');
     } catch (e) {
       msg.className = 'msg err';
-      msg.textContent = e.message;
+      msg.textContent = errText(e);
     }
   };
 
@@ -8460,7 +8463,7 @@
         else throw new Error('No checkout URL returned');
       } catch (e) {
         msg.className = 'msg err';
-        msg.textContent = e.message;
+        msg.textContent = errText(e);
       }
     };
   }
@@ -8501,7 +8504,7 @@
       await loadBilling();
     } catch (e) {
       msg.className = 'msg err';
-      msg.textContent = e.message;
+      msg.textContent = errText(e);
     }
   }
 
@@ -8516,7 +8519,7 @@
       await loadBilling();
     } catch (e) {
       msg.className = 'msg err';
-      msg.textContent = e.message;
+      msg.textContent = errText(e);
     }
   }
 
@@ -8557,7 +8560,7 @@
     } catch (e) {
       if (msg) {
         msg.className = 'msg err';
-        msg.textContent = e.message || 'That sign-in link is invalid or expired.';
+        msg.textContent = errText(e);
       }
       return false;
     }
@@ -8581,12 +8584,10 @@
       const msg = document.getElementById('msg-login');
       if (msg && err && err.code === 'SESSION_IDLE') {
         msg.className = 'msg err';
-        msg.textContent = err.message || 'Signed out after 30 hours of inactivity. Please sign in again.';
+        msg.textContent = errText(err);
       } else if (!authFail && err && err.message && msg) {
         msg.className = 'msg err';
-        msg.textContent = /unavailable|failed|network|fetch/i.test(err.message)
-          ? 'Could not restore your session — check your connection and refresh.'
-          : err.message;
+        msg.textContent = errText(err);
       }
     }
   })();

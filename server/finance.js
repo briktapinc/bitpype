@@ -78,8 +78,9 @@ function ensureTables(db) {
 function ensureDomainTables(db) {
   try {
     require('./domainFlow').ensureTables(db);
-  } catch {
+  } catch (e) {
     /* domainFlow always ships with this module in practice */
+    console.warn('[finance] ensureDomainTables:', e.message || e);
   }
 }
 

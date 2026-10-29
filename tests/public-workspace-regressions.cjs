@@ -5,7 +5,7 @@ const results=[];
 function load(file,mocks,env={}){
  const module={exports:{}};
  vm.runInNewContext(fs.readFileSync(path.join(root,file),'utf8'),{
-  module,exports:module.exports,require:n=>{if(Object.hasOwn(mocks,n))return mocks[n];if(!n.startsWith('.'))return require(n);throw new Error('Unexpected dependency '+n)},
+  module,exports:module.exports,require:n=>{if(Object.hasOwn(mocks,n))return mocks[n];if(n==='../apiErrors')return require('../server/apiErrors');if(!n.startsWith('.'))return require(n);throw new Error('Unexpected dependency '+n)},
   process:{env},console:{...console,error(){}},Buffer,URL,URLSearchParams,Date,setTimeout,clearTimeout,
  },{filename:file});return module.exports;
 }

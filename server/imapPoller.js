@@ -23,7 +23,8 @@ async function listWorkspaceIds() {
         .readdirSync(root)
         .map((n) => Number(n))
         .filter((n) => Number.isInteger(n) && n > 0);
-    } catch {
+    } catch (e) {
+      console.warn('[imapPoller] listWorkspaceIds:', e.message || e);
       return [];
     }
   }

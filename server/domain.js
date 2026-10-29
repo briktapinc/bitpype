@@ -57,8 +57,10 @@ function dashboardStats(workspaceId) {
     try {
       designWaiting = db.prepare("SELECT COUNT(*) AS c FROM design_jobs WHERE status = 'waiting_on_agent'").get().c;
       designQuestions = db.prepare("SELECT COUNT(*) AS c FROM design_jobs WHERE status = 'questions_pending'").get().c;
-    } catch {
-      /* no table yet */
+    } catch (e) {
+      /* no table yet on a fresh workspace — but a real failure must not
+         pass as zero counts silently (Batch 54). */
+      console.warn('[domain] dashboardStats design_jobs:', e.message || e);
     }
     const outreachToday = db
       .prepare(
@@ -1267,8 +1269,9 @@ function sitesGet(workspaceId, id) {
     row.version_saved_at = latest ? latest.created_at : null;
     try {
       row.formsUnembedded = require('./contactForms').listUnembeddedForms(db, row.lead_id);
-    } catch {
+    } catch (e) {
       row.formsUnembedded = [];
+      console.warn('[domain] sitesGet formsUnembedded:', e.message || e);
     }
     // Shop state for the staff detail page: does this site's lead have the
     // Shop (ecommerce) module, and can it actually take payments? Since
@@ -2487,7 +2490,8 @@ async function sitesSetLogo(workspaceId, siteId, opts = {}) {
         preview_path: previewRow && previewRow.preview_path,
         export_slug: previewRow && previewRow.export_slug,
       });
-    } catch {
+    } catch (e) {
+      console.warn('[domain] export preview base:', e.message || e);
       return null;
     }
   })();
@@ -4985,10 +4989,16 @@ function adminLeadScoutContacts(workspaceId, opts = {}) {
   const portal = require('./clientPortal');
   const contacts = portal.listLeadScoutContacts(workspaceId, null, opts, { workspaceWide: true });
   let health = null;
+  const warnings = [];
   try {
     health = portal.leadScoutHealth(workspaceId, null, { workspaceWide: true });
-  } catch {
+  } catch (e) {
     health = null;
+    console.warn('[domain] adminLeadScoutContacts health:', e.message || e);
+    warnings.push({
+      section: 'health',
+      message: 'LeadScout capture health could not be loaded.',
+    });
   }
   // Batch 18 (additive): contacts are workspace-deduped, so their business
   // identity lives on their events. Attach each contact's businesses
@@ -5019,11 +5029,12 @@ function adminLeadScoutContacts(workspaceId, opts = {}) {
           c.businesses = list;
         }
       });
-    } catch {
+    } catch (e) {
       // Filter metadata only — never fail the contacts list over it.
+      console.warn('[domain] adminLeadScoutContacts businesses:', e.message || e);
     }
   }
-  return { contacts, health };
+  return { contacts, health, warnings };
 }
 
 function adminLeadScoutContact(workspaceId, id) {
@@ -5417,6 +5428,9 @@ async function adminCallsOverview(workspaceId, opts = {}) {
         twilio_number_sid: r.twilio_number_sid || '',
       },
     });
+    // Batch 54: a failed sub-builder must not masquerade as empty data —
+    // it logs AND rides back on `warnings` so the page can say so.
+    const warnings = [];
     let businesses = [];
     try {
       businesses = db
@@ -5433,8 +5447,13 @@ async function adminCallsOverview(workspaceId, opts = {}) {
         )
         .all()
         .map(shapeCallBiz);
-    } catch {
+    } catch (e) {
       businesses = [];
+      console.warn('[domain] adminCallsOverview businesses:', e.message || e);
+      warnings.push({
+        section: 'businesses',
+        message: 'The business list for call tracking could not be loaded.',
+      });
     }
     // Batch 51: the forwarding-setup picker offers EVERY lead — setup is
     // how a business ENTERS call tracking, so gating the picker on the
@@ -5462,18 +5481,28 @@ async function adminCallsOverview(workspaceId, opts = {}) {
         )
         .all()
         .map((r) => ({ ...shapeCallBiz(r), configured: !!r.has_config, has_module: !!r.has_module }));
-    } catch {
+    } catch (e) {
       pickerBusinesses = [];
+      console.warn('[domain] adminCallsOverview pickerBusinesses:', e.message || e);
+      warnings.push({
+        section: 'pickerBusinesses',
+        message: 'The forwarding-setup business list could not be loaded.',
+      });
     }
     // Batch 26d: the workspace Twilio number pool rides along so the
     // Calls page renders assignments + rotation pickers from one fetch.
     let pool = [];
     try {
       pool = modules.listTwilioNumberPool(db, workspaceId);
-    } catch {
+    } catch (e) {
       pool = [];
+      console.warn('[domain] adminCallsOverview pool:', e.message || e);
+      warnings.push({
+        section: 'pool',
+        message: 'The Twilio number pool could not be loaded.',
+      });
     }
-    return { calls, businesses, pickerBusinesses, pool };
+    return { calls, businesses, pickerBusinesses, pool, warnings };
   });
   // Per-business plan + this-month counters (addendum #3 display). The
   // plan resolves the same way other entitlements do — workspace plan,
@@ -5490,8 +5519,16 @@ async function adminCallsOverview(workspaceId, opts = {}) {
         workspaceId,
         leadRow && leadRow.email ? { email: leadRow.email } : {}
       );
-    } catch {
+    } catch (e) {
       plan = 'free';
+      console.warn('[domain] adminCallsOverview plan:', e.message || e);
+      if (!data.warnings.some((w) => w.section === 'plan')) {
+        data.warnings.push({
+          section: 'plan',
+          message:
+            'Plan details for one or more businesses could not be loaded — a paid business may show as free.',
+        });
+      }
     }
     b.plan = plan;
     b.billing = withDb(workspaceId, (db) => modules.callBillingSummary(db, b.lead_id, plan));

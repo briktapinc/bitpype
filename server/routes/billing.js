@@ -3,6 +3,7 @@
 const express = require('express');
 const billing = require('../billing');
 const { requireAuth } = require('../middleware');
+const apiErrors = require('../apiErrors');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -29,7 +30,7 @@ function fail(res, e, status = 400) {
               : typeof e.status === 'number'
                 ? e.status
                 : status;
-  res.status(http).json({ ok: false, error: e.message || String(e), code: e.code });
+  apiErrors.sendError(res, e, http, { area: 'billing' });
 }
 
 router.get('/summary', async (req, res) => {

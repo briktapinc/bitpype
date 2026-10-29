@@ -24,6 +24,7 @@ const { openWorkspaceDb } = require('../workspaceDb');
 const { assertWorkspaceExists } = require('../workspaceExists');
 const { requireWorkspace, requireSubscription } = require('../middleware');
 const gbp = require('../../src/gbp');
+const apiErrors = require('../apiErrors');
 
 const router = express.Router();
 
@@ -59,9 +60,7 @@ function ok(res, data) {
 
 function fail(res, e) {
   const http = e && e.code === 'NOT_FOUND' ? 404 : e && e.code === 'FORBIDDEN' ? 403 : 400;
-  res
-    .status(http)
-    .json({ ok: false, error: (e && e.message) || String(e), code: e && e.code });
+  apiErrors.sendError(res, e, http, { area: 'gbp' });
 }
 
 /** Only same-app destinations may ride the OAuth state back out. */

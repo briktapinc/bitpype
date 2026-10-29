@@ -11,6 +11,7 @@ const chatbot = require('../chatbot');
 const siteModules = require('../siteModules');
 const { rateLimit } = require('../rateLimit');
 const { assertWorkspaceExists } = require('../workspaceExists');
+const apiErrors = require('../apiErrors');
 
 const router = express.Router();
 const readLimit = rateLimit({ windowMs: 60 * 1000, max: 180 });
@@ -27,7 +28,7 @@ function fail(res, e, status = 400) {
           : typeof e.status === 'number'
             ? e.status
             : status;
-  res.status(http).json({ ok: false, error: e.message || String(e), code: e.code });
+  apiErrors.sendError(res, e, http, { area: 'chatbotPublic' });
 }
 
 async function workspaceFromReq(req) {

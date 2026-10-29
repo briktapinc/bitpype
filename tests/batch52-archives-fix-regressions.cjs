@@ -60,7 +60,7 @@ async function checkAsync(name, fn) {
 
 /* ---------------- 1. static undefined-callee scan ---------------- */
 
-const CLIENT_FILES = ['fonts.js', 'api.js', 'captcha.js', 'navGroups.js', 'app.js'];
+const CLIENT_FILES = ['fonts.js', 'errorCopy.js', 'api.js', 'captcha.js', 'navGroups.js', 'app.js'];
 
 function stripCommentsAndStrings(src) {
   let out = '';

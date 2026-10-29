@@ -27,7 +27,7 @@ async function main(){
  assert.equal(jobs.computeNextRun({interval_minutes:15,cron_expr:'daily:00:00'},from).toISOString(),'2026-10-20T00:15:00.000Z');
  assert.equal(jobs.computeNextRun({},from).toISOString(),'2026-10-20T06:00:00.000Z');
  const routes=[];const router={use(){},get(){},post(){},delete(){},patch(url,...handlers){routes.push(handlers);}};
- const routeContext={module:{exports:{}},require(id){if(id==='express')return {Router:()=>router};if(id==='../jobs')return {updateJob:async()=>{throw Object.assign(new Error('Invalid daily time'),{code:'INVALID'});}};if(id==='../db')return {query};if(id==='../middleware')return {requireWorkspace(){},denyLeadScopedToken(){},requireRole:()=>()=>{}};throw Error('Unexpected route import');}};
+ const routeContext={module:{exports:{}},require(id){if(id==='express')return {Router:()=>router};if(id==='../jobs')return {updateJob:async()=>{throw Object.assign(new Error('Invalid daily time'),{code:'INVALID'});}};if(id==='../db')return {query};if(id==='../middleware')return {requireWorkspace(){},denyLeadScopedToken(){},requireRole:()=>()=>{}};if(id==='../apiErrors')return require('../server/apiErrors');throw Error('Unexpected route import');}};
  vm.runInNewContext(fs.readFileSync(path.join(root,'server/routes/jobs.js'),'utf8'),routeContext);
  const res={status(code){this.code=code;return this;},json(value){this.body=value;}};
  await routes[0].at(-1)({auth:{workspaceId:1},params:{id:'1'},body:{}},res,e=>{throw e;});

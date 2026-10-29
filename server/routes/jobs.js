@@ -4,6 +4,7 @@ const express = require('express');
 const jobs = require('../jobs');
 const { query } = require('../db');
 const { requireWorkspace, requireRole, denyLeadScopedToken } = require('../middleware');
+const apiErrors = require('../apiErrors');
 
 const router = express.Router();
 router.use(requireWorkspace, denyLeadScopedToken);
@@ -36,7 +37,7 @@ router.post('/', requireRole('owner', 'admin', 'member'), async (req, res, next)
     const job = await jobs.createJob(req.auth.workspaceId, req.body || {});
     res.status(201).json({ ok: true, data: { job } });
   } catch (e) {
-    if (e.code === 'INVALID') return res.status(400).json({ ok: false, error: e.message });
+    if (e.code === 'INVALID') return apiErrors.sendError(res, e, 400, { area: 'jobs' });
     next(e);
   }
 });
@@ -46,7 +47,7 @@ router.patch('/:id', requireRole('owner', 'admin', 'member'), async (req, res, n
     const job = await jobs.updateJob(req.auth.workspaceId, Number(req.params.id), req.body || {});
     res.json({ ok: true, data: { job } });
   } catch (e) {
-    if (e.code === 'INVALID') return res.status(400).json({ ok: false, error: e.message });
+    if (e.code === 'INVALID') return apiErrors.sendError(res, e, 400, { area: 'jobs' });
     if (e.code === 'NOT_FOUND') return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
     next(e);
   }
@@ -73,7 +74,7 @@ router.post('/:id/run', requireRole('owner', 'admin', 'token'), async (req, res,
   } catch (e) {
     if (e.code === 'NOT_FOUND') return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
     if (e.code === 'JOB_RUNNING') return res.status(409).json({ ok: false, error: e.message, code: e.code });
-    res.status(500).json({ ok: false, error: e.message });
+    apiErrors.sendError(res, e, 500, { area: 'jobs' });
   }
 });
 

@@ -25,6 +25,7 @@ const domain = require('../domain');
 const { requireCaptcha, getCaptchaConfig } = require('../captcha');
 const { rateLimit } = require('../rateLimit');
 const { assertWorkspaceExists } = require('../workspaceExists');
+const apiErrors = require('../apiErrors');
 const {
   sniffBrochureType,
   declaredFamily,
@@ -64,8 +65,7 @@ function fail(res, e, status = 400) {
           : typeof e.status === 'number'
             ? e.status
             : status;
-  const msg = http >= 500 ? 'Server error' : e.message || String(e);
-  res.status(http).json({ ok: false, error: msg, code: e.code });
+  apiErrors.sendError(res, e, http, { area: 'websitePromo', mask5xx: true });
 }
 
 function clip(s, max) {

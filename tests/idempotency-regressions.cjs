@@ -39,7 +39,7 @@ if(process.argv[2]==='worker'){
   const domain={leadsCreate(_ws,body){calls++;return {id:777,name:body.name}}};
   const router=new Proxy({}, {get(_t,method){return (route,...handlers)=>{routes.push({method,route,handlers});return router}}});
   function load(file,mocks,extra=''){
-   const m={exports:{}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8')+extra,{module:m,exports:m.exports,require:n=>Object.hasOwn(mocks,n)?mocks[n]:require(n),console,Buffer,process,setTimeout,clearTimeout});return m.exports;
+   const m={exports:{}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8')+extra,{module:m,exports:m.exports,require:n=>Object.hasOwn(mocks,n)?mocks[n]:n==='../apiErrors'?require('../server/apiErrors'):require(n),console,Buffer,process,setTimeout,clearTimeout});return m.exports;
   }
   const middleware=new Proxy({}, {get(){return ()=>()=>{}}});
   load('server/routes/domainApi.js',{'express':{Router:()=>router},'../domain':domain,'../idempotency':idem,'../middleware':middleware,'../workspaceDb':{openWorkspaceDb:()=>db}});

@@ -135,7 +135,8 @@ function findLeadMatches(email) {
       .readdirSync(root, { withFileTypes: true })
       .filter((d) => d.isDirectory() && /^\d+$/.test(d.name))
       .map((d) => Number(d.name));
-  } catch {
+  } catch (e) {
+    console.warn('[clientPortal] findLeadMatches readdir:', e.message || e);
     return [];
   }
 
@@ -145,7 +146,8 @@ function findLeadMatches(email) {
     let db;
     try {
       db = openWorkspaceDb(workspaceId);
-    } catch {
+    } catch (e) {
+      console.warn('[clientPortal] findLeadMatches openWorkspaceDb:', e.message || e);
       continue;
     }
 

@@ -578,7 +578,10 @@ function recordCaptureCharge(db, { ownerLeadId, sourceKind, eventId, chatbotLead
       callLogId,
       contactLabel,
     });
-  } catch {
+  } catch (e) {
+    // Never throws by design (billing must not break capture) — but a
+    // swallowed charge failure is money silence, so it always logs.
+    console.warn('[rentals] recordCaptureCharge:', e.message || e);
     return null;
   }
 }

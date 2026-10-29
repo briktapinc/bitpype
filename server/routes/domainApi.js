@@ -9,6 +9,7 @@ const express = require('express');
 const domain = require('../domain');
 const idempotency = require('../idempotency');
 const { requireRole, requireTokenLeadScope, denyLeadScopedToken, pinTokenLeadFilter } = require('../middleware');
+const apiErrors = require('../apiErrors');
 
 const router = express.Router();
 // Workspace auth is applied at mount time in server.js (before paywall).
@@ -47,14 +48,20 @@ function fail(res, e, status = 400) {
         ? msg
         : 'Delete blocked by a related record (foreign key)';
   }
-  const error = { code: errCode, message };
+  let error = { code: errCode, message };
   // Structured extras (e.g. DUPLICATE_EMAIL names the existing lead so
   // agent callers can update it instead of retrying the create).
   if (e && e.details && typeof e.details === 'object') error.details = e.details;
-  res.status(http >= 400 && http < 600 ? http : 400).json({
-    ok: false,
-    error,
-  });
+  let ref;
+  if (http >= 500 && errCode === 'ERROR') {
+    // Batch 54: an uncoded 5xx is unexpected — log the real error with a
+    // reference id and answer generically (server/apiErrors contract).
+    ref = apiErrors.logError('domainApi', e);
+    error = { code: 'INTERNAL', message: apiErrors.GENERIC_MESSAGE, ref };
+  }
+  const body = { ok: false, error };
+  if (ref) body.ref = ref;
+  res.status(http >= 400 && http < 600 ? http : 400).json(body);
 }
 
 /** Compact deliver receipt — never echo the full payload. */

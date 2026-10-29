@@ -112,7 +112,8 @@ function applyToExportDir(dir, cfg) {
   let names;
   try {
     names = fs.readdirSync(dir).filter((x) => /\.html?$/i.test(x));
-  } catch {
+  } catch (e) {
+    console.warn('[adsense] applyToExportDir readdir:', e.message || e);
     return 0;
   }
   let n = 0;
@@ -152,7 +153,8 @@ function readCachedConfig(db, siteId) {
       slotId: cleanSlotId(cfg.slotId),
       plan: String(cfg.plan || 'free'),
     };
-  } catch {
+  } catch (e) {
+    console.warn('[adsense] resolveConfig:', e.message || e);
     return null;
   }
 }
@@ -169,7 +171,8 @@ function writeCachedConfig(db, siteId, cfg) {
       'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
     ).run(cacheKey(siteId), require('../src/secretBox').encryptSetting(cacheKey(siteId), v));
     return true;
-  } catch {
+  } catch (e) {
+    console.warn('[adsense] writeCachedConfig:', e.message || e);
     return false;
   }
 }

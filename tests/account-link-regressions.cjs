@@ -1,7 +1,7 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),crypto=require('node:crypto');
 const root=path.resolve(process.env.BITPYPE_TEST_ROOT||path.join(__dirname,'..')),results=[];
-function load(file,mocks,env={}){const module={exports:{}};vm.runInNewContext(fs.readFileSync(path.join(root,file),'utf8'),{module,exports:module.exports,require:n=>{if(n in mocks)return mocks[n];if(!n.startsWith('.'))return require(n);throw Error('Unexpected import '+n);},process:{env},console,URL,URLSearchParams,Buffer,Date});return module.exports;}
+function load(file,mocks,env={}){const module={exports:{}};vm.runInNewContext(fs.readFileSync(path.join(root,file),'utf8'),{module,exports:module.exports,require:n=>{if(n in mocks)return mocks[n];if(n==='../apiErrors')return require('../server/apiErrors');if(!n.startsWith('.'))return require(n);throw Error('Unexpected import '+n);},process:{env},console,URL,URLSearchParams,Buffer,Date});return module.exports;}
 const urls=load('server/appUrls.js',{'./stripeClient':{appUrl:()=> 'https://bitpype.test/'}});
 const qs=new URLSearchParams({connected:'1',leadId:'2',fb:'1',ig:'0'});
 function check(name,fn){fn();results.push(name);}

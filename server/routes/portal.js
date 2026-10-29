@@ -12,6 +12,7 @@ const portal = require('../clientPortal');
 const { requireCaptcha } = require('../captcha');
 const { rateLimit } = require('../rateLimit');
 const mfa = require('../mfa');
+const apiErrors = require('../apiErrors');
 
 const router = express.Router();
 const accessLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 12 });
@@ -75,7 +76,7 @@ function fail(res, e, status = 400) {
                             : typeof e.status === 'number'
                               ? e.status
                               : status;
-  res.status(http).json({ ok: false, error: e.message || String(e), code: e.code });
+  apiErrors.sendError(res, e, http, { area: 'portal' });
 }
 
 function regenerateSession(req) {

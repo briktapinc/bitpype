@@ -2540,7 +2540,8 @@ function listUnembeddedForms(db, leadId) {
   let pages;
   try {
     pages = JSON.parse(site.pages || '[]');
-  } catch {
+  } catch (e) {
+    console.warn('[contactForms] listUnembeddedForms pages parse:', e.message || e);
     return [];
   }
   if (!Array.isArray(pages)) return [];

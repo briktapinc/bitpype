@@ -3,6 +3,7 @@
 const express = require('express');
 const invites = require('../invites');
 const { requireWorkspace, requireRole, requireSubscription } = require('../middleware');
+const apiErrors = require('../apiErrors');
 
 const router = express.Router();
 router.use(requireWorkspace, requireSubscription, requireRole('owner', 'admin'));
@@ -11,7 +12,7 @@ function ok(res, data) {
   res.json({ ok: true, data });
 }
 function fail(res, e, status = 400) {
-  res.status(e.code === 'NOT_FOUND' ? 404 : status).json({ ok: false, error: e.message || String(e), code: e.code });
+  apiErrors.sendError(res, e, e.code === 'NOT_FOUND' ? 404 : status, { area: 'invites' });
 }
 
 router.get('/', async (req, res) => {

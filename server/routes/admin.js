@@ -4,6 +4,7 @@ const express = require('express');
 const admin = require('../admin');
 const platform = require('../platform');
 const { requireAuth, requireSuperAdmin } = require('../middleware');
+const apiErrors = require('../apiErrors');
 
 const router = express.Router();
 router.use(requireAuth, requireSuperAdmin);
@@ -14,11 +15,7 @@ function ok(res, data) {
 function fail(res, e, status = 400) {
   const code = e.code || status;
   const http = typeof code === 'number' ? code : e.code === 'NOT_FOUND' ? 404 : status;
-  res.status(http >= 400 && http < 600 ? http : 400).json({
-    ok: false,
-    error: e.message || String(e),
-    code: e.code,
-  });
+  apiErrors.sendError(res, e, http, { area: 'admin' });
 }
 
 router.get('/overview', async (req, res) => {

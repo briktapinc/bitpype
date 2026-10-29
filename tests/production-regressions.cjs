@@ -9,6 +9,7 @@ try { Database = require('better-sqlite3'); } catch { Database = require('node:s
 const db = new Database(':memory:');
 const contacts = require(path.join(root, 'server/portalContacts.js'));
 const portalTabs = require(path.join(root, 'server/portalTabs.js'));
+const apiErrors = require(path.join(root, 'server/apiErrors.js')); // Batch 54: route files require it; VM mocks hand them the real module
 const results = [];
 function check(name, fn) { fn(); results.push(name); }
 function load(file, mocks) {
@@ -16,6 +17,9 @@ function load(file, mocks) {
   vm.runInNewContext(fs.readFileSync(path.join(root, file), 'utf8'), {
     module, exports: module.exports, require: name => {
       if (Object.hasOwn(mocks, name)) return mocks[name];
+      // Batch 54: route files require the shared error shaper; it is a
+      // dependency-free leaf, so VM loads get the real module.
+      if (name === '../apiErrors') return apiErrors;
       if (!name.startsWith('.')) return require(name);
       throw new Error('Unexpected dependency: ' + name);
     }, process: { env: {} }, console, Buffer, URL, Date, setTimeout, clearTimeout,
@@ -86,7 +90,7 @@ async function main() {
   load('server/routes/portal.js',{
     express:{Router:()=>portalRouter},'../clientPortal':{...portal,findById:async()=>({id:1,status:'active',workspace_id:1,lead_id:1})},
     '../captcha':{requireCaptcha:()=>((_req,_res,next)=>next())},'../rateLimit':{rateLimit:()=>((_req,_res,next)=>next())},'../portalTabs':portalTabs,
-    '../mfa':{isEnabled:async()=>false},
+    '../mfa':{isEnabled:async()=>false},'../apiErrors':apiErrors,
   });
   async function callPortal(method,url,query={},params={}){
     const route=portalRoutes.find(x=>x.method===method&&x.route===url);assert(route,url);
@@ -109,7 +113,7 @@ async function main() {
   const jobs=new Proxy({}, {get:()=>async()=>{jobCalls++;return {ok:true}}});
   load('server/routes/jobs.js',{
     express:{Router:()=>router},'../jobs':jobs,'../db':{query:async()=>{jobCalls++;return []}},
-    '../middleware':{...middleware,requireWorkspace:(_req,_res,next)=>next()},
+    '../middleware':{...middleware,requireWorkspace:(_req,_res,next)=>next()},'../apiErrors':apiErrors,
   });
   async function call(route,auth){
     const req={auth,params:{id:'1'},body:{}};let status=200,body;
@@ -208,7 +212,7 @@ async function main() {
   load('server/routes/portal.js', {
     express: { Router: () => portalRouter11 }, '../clientPortal': { ...portal11, findById: async () => ({ id: 7, status: 'active', workspace_id: 1, lead_id: 102 }) },
     '../captcha': { requireCaptcha: () => ((_req, _res, next) => next()) }, '../rateLimit': { rateLimit: () => ((_req, _res, next) => next()) }, '../portalTabs': portalTabs,
-    '../mfa': { isEnabled: async () => false },
+    '../mfa': { isEnabled: async () => false }, '../apiErrors': apiErrors,
   });
   async function callPortal11(method, url, body) {
     const route = portalRoutes11.find((x) => x.method === method && x.route === url); assert(route, url);
@@ -2979,6 +2983,7 @@ async function main() {
     '../rateLimit': { rateLimit: () => (_req, _res, next) => next() },
     '../workspaceExists': { assertWorkspaceExists: async () => {} },
     '../ownerNotify': ownerNotify21b,
+    '../apiErrors': apiErrors,
   });
   async function bookViaRoute21b(token, serviceId, customerEmail) {
     for (let add = 2; add <= 45; add++) {
@@ -3139,6 +3144,7 @@ async function main() {
     },
     '../workspaceExists': { assertWorkspaceExists: async () => {} },
     '../ownerNotify': ownerNotify21b,
+    '../apiErrors': apiErrors,
   });
   const prodShop21b = sm21b.createProduct(db, 2186, { name: 'Widget', price_cents: 2500, status: 'published' });
   db.prepare(
@@ -3194,6 +3200,7 @@ async function main() {
     },
     '../workspaceExists': { assertWorkspaceExists: async () => {} },
     '../ownerNotify': ownerNotify21b,
+    '../apiErrors': apiErrors,
   });
   const tier21b = sm21b.insertMembershipTier(db, 2185, {
     name: 'Gold',
@@ -3469,7 +3476,7 @@ async function main() {
     },
     '../captcha': { requireCaptcha: () => (_req, _res, next) => next() },
     '../rateLimit': { rateLimit: () => (_req, _res, next) => next() },
-    '../mfa': { isEnabled: async () => false },
+    '../mfa': { isEnabled: async () => false }, '../apiErrors': apiErrors,
   });
   async function callPortal22(method, url, body = {}) {
     const route = portalRoutes22.find((x) => x.method === method && x.route === url);
@@ -3631,6 +3638,7 @@ async function main() {
     '../passwordReset': { requestReset: async () => ({}), confirmReset: async () => {} },
     '../invites': { acceptInvite: async () => ({ workspaceId: 2401 }) },
     '../db': { query: async () => [] },
+    '../apiErrors': apiErrors,
   });
   async function callAuth23(method, url, body = {}, session = {}) {
     const route = authRoutes23.find((x) => x.method === method && x.route === url);

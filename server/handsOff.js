@@ -146,7 +146,8 @@ function sitesCreatedToday(db) {
           "SELECT COUNT(*) AS c FROM design_jobs WHERE status = 'delivered' AND date(updated_at) = date('now', 'localtime')"
         )
         .get().c;
-    } catch {
+    } catch (e) {
+      console.warn('[handsOff] deliveredToday:', e.message || e);
       return 0;
     }
   }

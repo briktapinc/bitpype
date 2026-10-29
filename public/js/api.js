@@ -25,6 +25,12 @@ window.ScoutApi = (() => {
     err.status = res.status;
     err.data = data;
     err.code = code;
+    // Batch 54: the server's error reference id (unexpected 5xx) rides
+    // along so errText() can quote it back for support.
+    err.ref =
+      (nested && typeof nested.ref === 'string' && nested.ref) ||
+      (data && typeof data.ref === 'string' && data.ref) ||
+      undefined;
     if (res.status === 401 && code === 'AUTH_REQUIRED' && typeof onAuthRequired === 'function') {
       try {
         onAuthRequired();

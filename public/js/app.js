@@ -268,6 +268,17 @@ function loadErrorCardHtml(message) {
   return `<div class="card error-card"><h2>Could not load</h2><p>${esc(message || 'Request failed')}</p><p><button class="btn" data-act="page-retry">Retry</button></p></div>`;
 }
 
+// Batch 54: overview payloads carry `warnings` when a sub-builder failed
+// and its section fell back to empty/default data (the server logs the
+// real error). Render them as a visible notice — partial data must
+// never present itself as complete.
+function warningsBannerHtml(warnings) {
+  const list = Array.isArray(warnings) ? warnings.filter((w) => w && w.message) : [];
+  if (!list.length) return '';
+  const items = list.map((w) => `<li>${esc(w.message)}</li>`).join('');
+  return `<div class="alert warn" role="alert"><strong>Some data couldn't be loaded — this page may be incomplete.</strong><ul>${items}</ul></div>`;
+}
+
 function wirePageRetry(retryFn) {
   const b = view.querySelector('[data-act="page-retry"]');
   if (b) b.addEventListener('click', () => retryFn());
@@ -324,7 +335,7 @@ async function safeRun(btn, fn) {
       goToLogin();
       return undefined;
     }
-    toast(err && err.message ? err.message : String(err), 'err');
+    toast(errText(err), 'err');
     return undefined;
   } finally {
     if (isBtn && btn.isConnected) btn.disabled = false;
@@ -534,7 +545,7 @@ function mountLeadPicker(host, opts) {
       ul.innerHTML = html || '<li class="empty">No matches</li>';
       ul.classList.remove('hidden');
     } catch (e) {
-      toast(e.message, 'err');
+      toast(errText(e), 'err');
     }
   }, 250);
 
@@ -551,7 +562,7 @@ function mountLeadPicker(host, opts) {
         next = (r.data && r.data.lead) || r.data || next;
       } catch (err) {
         if (!next) {
-          toast(err.message || 'Lead not found', 'err');
+          toast(errText(err), 'err');
           return;
         }
       }
@@ -632,7 +643,7 @@ function mountPreview(host, renderFn, hooks) {
       }
       setMsg(msg, '');
     } catch (e) {
-      setMsg(msg, e.message, 'err');
+      setMsg(msg, errText(e), 'err');
     }
   }
   sel.onchange = load;
@@ -745,7 +756,7 @@ function bindFontToolbar(prefix, preview, getPages, getTheme, save) {
       setMsg(msg, okText || 'Fonts saved.', 'ok');
       if (preview) preview.reload();
     } catch (e) {
-      setMsg(msg, e.message || 'Could not save fonts', 'err');
+      setMsg(msg, errText(e), 'err');
     }
   }
 
@@ -1103,7 +1114,7 @@ function renderAuth(forcedMode) {
           toast('Invite accepted', 'ok');
           window.location.hash = '#/dashboard';
         } catch (invErr) {
-          toast(invErr.message || 'Invite failed', 'err');
+          toast(errText(invErr), 'err');
         }
       }
       await bootApp(res.data);
@@ -1113,7 +1124,7 @@ function renderAuth(forcedMode) {
       } catch {
         /* ignore */
       }
-      setMsg(msg, err.message, 'error');
+      setMsg(msg, errText(err), 'error');
     }
   });
 }
@@ -1151,7 +1162,7 @@ function renderAuthMfa(challenge) {
         }
         toast('Invite accepted', 'ok');
       } catch (invErr) {
-        toast(invErr.message || 'Invite failed', 'err');
+        toast(errText(invErr), 'err');
       }
     }
     await bootApp(payload);
@@ -1210,7 +1221,7 @@ function renderAuthMfa(challenge) {
         const res = await api.mfaVerify($('#mfa-code', authGate).value.trim());
         await finishWith(res.data);
       } catch (err) {
-        setMsg(msg, err.message, 'error');
+        setMsg(msg, errText(err), 'error');
       }
     });
     $('#mfa-code', authGate).focus();
@@ -1250,13 +1261,13 @@ function renderAuthMfa(challenge) {
           if (codes.length) showRecoveryCodes(codes, payload);
           else await finishWith(payload);
         } catch (err) {
-          setMsg(msg, err.message, 'error');
+          setMsg(msg, errText(err), 'error');
         }
       });
       const codeInput = $('#mfa-code', authGate);
       if (codeInput) codeInput.focus();
     } catch (err) {
-      host.innerHTML = `<div class="msg error">${esc(err.message)}</div>`;
+      host.innerHTML = `<div class="msg error">${esc(errText(err))}</div>`;
     }
   }
 
@@ -1345,7 +1356,7 @@ async function bootApp(meData) {
       toast('Invite accepted', 'ok');
       window.location.hash = '#/dashboard';
     } catch (err) {
-      toast(err.message || 'Invite failed', 'err');
+      toast(errText(err), 'err');
     }
   }
 
@@ -1571,7 +1582,7 @@ async function pageLeads(param, query) {
       ]);
     } catch (e) {
       if (!mine() || !$('#l-body')) return;
-      body.innerHTML = loadErrorRowHtml(9, 'l-retry', e.message);
+      body.innerHTML = loadErrorRowHtml(9, 'l-retry', errText(e));
       return;
     }
     if (!mine() || !$('#l-body')) return;
@@ -1607,7 +1618,7 @@ async function pageLeads(param, query) {
   }
   leadsReload = () => {
     if ($('#l-body')) {
-      load().catch((e) => toast(e.message, 'err'));
+      load().catch((e) => toast(errText(e), 'err'));
       loadFacets();
     }
   };
@@ -1619,7 +1630,7 @@ async function pageLeads(param, query) {
     leadsState.group = $('#l-group').value;
     leadsState.category = $('#l-cat').value;
     leadsState.page = 1;
-    load().catch((e) => toast(e.message, 'err'));
+    load().catch((e) => toast(errText(e), 'err'));
     loadFacets();
   };
   $('#l-q').addEventListener('input', debounce(applyFilters, 300));
@@ -1771,7 +1782,7 @@ async function openDiscoverModal() {
             msg.innerHTML = `Provider <b>${esc(x.provider)}</b>: created <b>${esc(x.created)}</b>, skipped <b>${esc(x.skipped)}</b>, scored <b>${esc(x.scored)}</b>, queried <b>${esc(x.queried)}</b>.${x.warning ? `<br>${esc(x.warning)}` : ''}${names ? `<br><span class="hint">${names}</span>` : ''}`;
             if (leadsReload) leadsReload();
           } catch (err) {
-            setMsg(msg, err.message, 'err');
+            setMsg(msg, errText(err), 'err');
           } finally {
             btn.textContent = 'Run discovery';
           }
@@ -1902,7 +1913,7 @@ function openQueuedSmsModal(q) {
             toast(s.sent ? `SMS sent to ${s.to}` : 'Queued but not sent', s.sent ? 'ok' : 'err');
             mm.close();
           } catch (err) {
-            setMsg($('#qs-msg', mm.el), err.message || 'Send failed', 'err');
+            setMsg($('#qs-msg', mm.el), errText(err), 'err');
             btn.textContent = 'Send now';
           }
         },
@@ -1944,7 +1955,7 @@ async function openQueueSmsModal(leadId) {
             mm.close();
             openQueuedSmsModal(q);
           } catch (err) {
-            toast(err.message || 'Could not queue SMS', 'err');
+            toast(errText(err), 'err');
           }
         },
       },
@@ -2066,7 +2077,7 @@ async function loadLeadGbp(dr, leadId) {
   try {
     data = (await api.gbpPanel(leadId)).data;
   } catch (e) {
-    host().innerHTML = `<p class="error">${esc(e.message)}</p>`;
+    host().innerHTML = `<p class="error">${esc(errText(e))}</p>`;
     return;
   }
   render(data);
@@ -2234,7 +2245,7 @@ async function loadLeadGbp(dr, leadId) {
             if (r.ok) refresh();
           }
         } catch (e) {
-          msg(id || 'conn', e.message, 'err');
+          msg(id || 'conn', errText(e), 'err');
         }
       };
     });
@@ -2253,7 +2264,7 @@ async function loadLeadGbp(dr, leadId) {
           msg('form', `Draft change set #${r.changeSet.id} saved (${(r.changeSet.changes || []).length} change(s))`, 'ok');
           refresh();
         } catch (err) {
-          msg('form', err.message, 'err');
+          msg('form', errText(err), 'err');
         }
       };
     }
@@ -2272,7 +2283,7 @@ async function openLeadDrawer(id) {
       api.websiteByLead(id),
     ]);
     if (leadR.status !== 'fulfilled') {
-      dr.body.innerHTML = `<p class="error">${esc(leadR.reason && leadR.reason.message)}</p>`;
+      dr.body.innerHTML = `<p class="error">${esc(errText(leadR.reason))}</p>`;
       return;
     }
     const data = leadR.value.data;
@@ -2406,7 +2417,7 @@ async function openLeadDrawer(id) {
         setMsg(msg, 'Saved', 'ok');
         if (leadsReload) leadsReload();
       } catch (err) {
-        setMsg(msg, err.message, 'err');
+        setMsg(msg, errText(err), 'err');
       }
     });
     guardSubmit($('#ld-fact', dr.el), async (e) => {
@@ -2499,8 +2510,8 @@ async function openLeadDrawer(id) {
         await api.leadPostcard(id);
         toast('Postcard downloaded', 'ok');
       } catch (e) {
-        if (box) box.innerHTML = `<span class="error">${esc(e.message || String(e))}</span>`;
-        toast(e.message || 'Postcard failed', 'err');
+        if (box) box.innerHTML = `<span class="error">${esc(errText(e))}</span>`;
+        toast(errText(e), 'err');
       }
     },
     gen: async () => {
@@ -2622,7 +2633,7 @@ async function pageArchives() {
       r = await withLoadTimeout(api.websitesArchived());
     } catch (e) {
       const b = $('#arch-body');
-      if (b) b.innerHTML = loadErrorRowHtml(5, 'arch-retry', e.message);
+      if (b) b.innerHTML = loadErrorRowHtml(5, 'arch-retry', errText(e));
       return;
     }
     const body = $('#arch-body');
@@ -2660,8 +2671,8 @@ async function pageArchives() {
         setMsg($('#arch-msg'), `Purged website #${id} permanently.`, 'ok');
         await load();
       } catch (e) {
-        setMsg($('#arch-msg'), e.message || 'Purge failed.', 'err');
-        toast(e.message || 'Purge failed', 'err');
+        setMsg($('#arch-msg'), errText(e), 'err');
+        toast(errText(e), 'err');
       }
     },
     restore: async (t) => {
@@ -2674,8 +2685,8 @@ async function pageArchives() {
         setMsg($('#arch-msg'), `Restored website #${id}.`, 'ok');
         await load();
       } catch (e) {
-        setMsg($('#arch-msg'), e.message || 'Restore failed.', 'err');
-        toast(e.message || 'Restore failed', 'err');
+        setMsg($('#arch-msg'), errText(e), 'err');
+        toast(errText(e), 'err');
       }
     },
   });
@@ -2720,7 +2731,7 @@ async function pageWebsites(param) {
     } catch (e) {
       const b = $('#w-body');
       if (!mine() || !b) return;
-      b.innerHTML = loadErrorRowHtml(6, 'w-retry', e.message);
+      b.innerHTML = loadErrorRowHtml(6, 'w-retry', errText(e));
       return;
     }
     const body = $('#w-body');
@@ -2774,8 +2785,8 @@ The site will be soft-deleted: it disappears from public view and the Websites l
         setMsg($('#w-msg'), `Archived website #${id}. Restore it from Archives.`, 'ok');
         await load();
       } catch (e) {
-        setMsg($('#w-msg'), e.message || 'Delete failed.', 'err');
-        toast(e.message || 'Delete failed', 'err');
+        setMsg($('#w-msg'), errText(e), 'err');
+        toast(errText(e), 'err');
       }
     },
     assign: async () => {
@@ -3122,7 +3133,7 @@ async function pageWebsiteDetail(id) {
       host.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:10px">${captures.map(thumb).join('')}</div>
         ${renditions.length ? `<p class="hint" style="margin-top:10px">Campaign renditions</p><div style="display:flex;flex-wrap:wrap;gap:10px">${renditions.map(thumb).join('')}</div>` : ''}`;
     } catch (e) {
-      host.innerHTML = `<span class="error">${esc(e.message || 'Could not load screenshots')}</span>`;
+      host.innerHTML = `<span class="error">${esc(errText(e))}</span>`;
     }
   }
   loadWdShots();
@@ -3161,7 +3172,7 @@ async function pageWebsiteDetail(id) {
       setMsg(msg, 'Order saved', 'ok');
       preview.reload();
     } catch (e) {
-      setMsg(msg, e.message || 'Reorder failed', 'err');
+      setMsg(msg, errText(e), 'err');
     }
   }
 
@@ -3200,7 +3211,7 @@ async function pageWebsiteDetail(id) {
         setMsg(msg, 'Screenshots updated', 'ok');
         await loadWdShots();
       } catch (e) {
-        setMsg(msg, e.message || 'Capture failed', 'err');
+        setMsg(msg, errText(e), 'err');
       }
     },
     'shot-copy': async (t) => {
@@ -3235,7 +3246,7 @@ async function pageWebsiteDetail(id) {
         const r = await api.websiteExportZip(id);
         out.innerHTML = `Downloaded <span class="mono">${esc(r.filename)}</span>${r.bytes != null ? ` (${esc(String(r.bytes))} bytes)` : ''}.`;
       } catch (e) {
-        out.innerHTML = `<span class="error">ZIP failed: ${esc(e.message || String(e))}</span>`;
+        out.innerHTML = `<span class="error">ZIP failed: ${esc(errText(e))}</span>`;
       }
     },
     postcard: async () => {
@@ -3263,9 +3274,9 @@ async function pageWebsiteDetail(id) {
         out.innerHTML = `Downloaded postcard <span class="mono">${esc(r.filename)}</span>${r.bytes != null ? ` (${esc(String(r.bytes))} bytes)` : ''}.`;
         toast('Postcard downloaded', 'ok');
       } catch (e) {
-        out.innerHTML = `<span class="error">Postcard failed: ${esc(e.message || String(e))}</span>`;
+        out.innerHTML = `<span class="error">Postcard failed: ${esc(errText(e))}</span>`;
         if (box && !box.querySelector('img')) {
-          box.innerHTML = `<span class="error">${esc(e.message || String(e))}</span>`;
+          box.innerHTML = `<span class="error">${esc(errText(e))}</span>`;
         }
       }
     },
@@ -3294,7 +3305,7 @@ async function pageWebsiteDetail(id) {
           (r.pagesUpdated != null ? `<div class="hint">Pages updated: ${esc(String(r.pagesUpdated))}</div>` : '');
         preview.reload();
       } catch (e) {
-        out.innerHTML = `<span class="error">${esc(e.message || 'Optimize failed')}</span>`;
+        out.innerHTML = `<span class="error">${esc(errText(e))}</span>`;
       }
     },
     regen: async () => {
@@ -3332,7 +3343,7 @@ The site will be soft-deleted: it disappears from public view and the Websites l
         toast(`Website #${id} archived`, 'ok');
         window.location.hash = '#/websites';
       } catch (e) {
-        out.innerHTML = `<span class="error">${esc(e.message || 'Delete failed')}</span>`;
+        out.innerHTML = `<span class="error">${esc(errText(e))}</span>`;
       }
     },
     restore: async (t) => {
@@ -3362,7 +3373,7 @@ The site will be soft-deleted: it disappears from public view and the Websites l
         }
       } catch (e) {
         t.disabled = false;
-        toast(e.message || 'Could not load more versions', 'err');
+        toast(errText(e), 'err');
       }
     },
     save: async () => {
@@ -3371,7 +3382,7 @@ The site will be soft-deleted: it disappears from public view and the Websites l
       try {
         parsed = JSON.parse($('#wd-json').value);
       } catch (e) {
-        setMsg(msg, 'Invalid JSON: ' + e.message, 'err');
+        setMsg(msg, 'Invalid JSON: ' + errText(e), 'err');
         return;
       }
       const r = await api.websiteSave(id, {
@@ -3390,7 +3401,7 @@ The site will be soft-deleted: it disappears from public view and the Websites l
         toast('Using text logo', 'ok');
         pageWebsiteDetail(id);
       } catch (e) {
-        setMsg(msg, e.message || 'Failed', 'err');
+        setMsg(msg, errText(e), 'err');
       }
     },
     'logo-upload': async () => {
@@ -3414,7 +3425,7 @@ The site will be soft-deleted: it disappears from public view and the Websites l
           toast('Logo uploaded', 'ok');
           pageWebsiteDetail(id);
         } catch (e) {
-          setMsg(msg, e.message || 'Upload failed', 'err');
+          setMsg(msg, errText(e), 'err');
         }
       };
       input.click();
@@ -3516,7 +3527,7 @@ async function mountLearning(host) {
     try {
       res = (await api.learningPlaybook()).data;
     } catch (e) {
-      host.innerHTML = `<p class="error">Learning unavailable: ${esc(e.message)}</p>`;
+      host.innerHTML = `<p class="error">Learning unavailable: ${esc(errText(e))}</p>`;
       return;
     }
     const st = res.status || {};
@@ -3802,7 +3813,7 @@ async function pageDomains(param, query) {
       setMsg(searchMsg, `${domains.length} suggestion(s)`, 'ok');
       renderSearchResults(domains);
     } catch (err) {
-      setMsg(searchMsg, err.message || 'Search failed', 'err');
+      setMsg(searchMsg, errText(err), 'err');
     }
   };
 
@@ -3826,7 +3837,7 @@ async function pageDomains(param, query) {
       setMsg(msg, `Linked — ${(r.data && r.data.publicUrl) || body.domain}.${dnsNote}`, 'ok');
       pageDomains();
     } catch (err) {
-      setMsg(msg, err.message || 'Link failed', 'err');
+      setMsg(msg, errText(err), 'err');
     }
   };
 
@@ -3850,7 +3861,7 @@ async function pageDomains(param, query) {
             .join('')}</tbody></table></div>`
         : '<p class="hint">No domains on this Cloudflare account yet.</p>';
     } catch (err) {
-      setMsg(msg, err.message || 'Could not list owned domains', 'err');
+      setMsg(msg, errText(err), 'err');
     }
   };
 
@@ -3872,7 +3883,7 @@ async function pageDomains(param, query) {
           d.registrable ? 'ok' : 'err'
         );
       } catch (err) {
-        setMsg(searchMsg, err.message, 'err');
+        setMsg(searchMsg, errText(err), 'err');
       }
     },
     'dom-buy': async (t) => {
@@ -3902,7 +3913,7 @@ async function pageDomains(param, query) {
         }
         pageDomains();
       } catch (err) {
-        setMsg(searchMsg, err.message || 'Purchase failed', 'err');
+        setMsg(searchMsg, errText(err), 'err');
       }
     },
     'dom-use-link': (t) => {
@@ -3915,7 +3926,7 @@ async function pageDomains(param, query) {
         await api.domainsStatus(t.dataset.domain);
         pageDomains();
       } catch (err) {
-        toast(err.message, 'err');
+        toast(errText(err), 'err');
       }
     },
     'dom-link-row': async (t) => {
@@ -3932,7 +3943,7 @@ async function pageDomains(param, query) {
         );
         pageDomains();
       } catch (err) {
-        toast(err.message, 'err');
+        toast(errText(err), 'err');
       }
     },
     'dom-unlink': async (t) => {
@@ -3942,7 +3953,7 @@ async function pageDomains(param, query) {
         toast('Unlinked', 'ok');
         pageDomains();
       } catch (err) {
-        toast(err.message, 'err');
+        toast(errText(err), 'err');
       }
     },
     'txn-view': (t) => {
@@ -3958,7 +3969,7 @@ async function pageDomains(param, query) {
         toast('Transaction voided', 'ok');
         pageDomains(null, domainsQuery);
       } catch (err) {
-        toast(err.message || 'Void failed', 'err');
+        toast(errText(err), 'err');
       }
     },
     // Batch 51 — permanently remove a voided/failed transaction row.
@@ -3971,7 +3982,7 @@ async function pageDomains(param, query) {
         toast('Transaction removed', 'ok');
         pageDomains(null, domainsQuery);
       } catch (err) {
-        toast(err.message || 'Remove failed', 'err');
+        toast(errText(err), 'err');
       }
     },
     'txn-prev': () => {
@@ -4005,7 +4016,7 @@ async function pageDomains(param, query) {
         }
         pageDomains(null, domainsQuery);
       } catch (err) {
-        setMsg(msg, err.message || 'Completion failed', 'err');
+        setMsg(msg, errText(err), 'err');
         t.disabled = false;
       }
     },
@@ -4024,7 +4035,7 @@ async function pageDesign(param) {
       ])
     );
   } catch (e) {
-    view.innerHTML = loadErrorCardHtml(e.message);
+    view.innerHTML = loadErrorCardHtml(errText(e));
     wirePageRetry(() => pageDesign());
     return;
   }
@@ -4577,7 +4588,7 @@ async function pageOutreach(param, query) {
   try {
     st = (await withLoadTimeout(api.outreachStats())).data;
   } catch (e) {
-    view.innerHTML = loadErrorCardHtml(e.message);
+    view.innerHTML = loadErrorCardHtml(errText(e));
     wirePageRetry(() => pageOutreach(param, query));
     return;
   }
@@ -4628,7 +4639,7 @@ async function pageOutreach(param, query) {
       );
     } catch (e) {
       if (!$('#o-tab')) return;
-      host.innerHTML = `<div class="card error-card"><p>Could not load this tab (${esc(e.message || 'request failed')}).</p><p><button class="btn" data-act="o-retry">Retry</button></p></div>`;
+      host.innerHTML = `<div class="card error-card"><p>Could not load this tab (${esc(errText(e))}).</p><p><button class="btn" data-act="o-retry">Retry</button></p></div>`;
       const b = host.querySelector('[data-act="o-retry"]');
       if (b) b.addEventListener('click', () => loadTab());
     }
@@ -5066,7 +5077,7 @@ function mountEmailBodyEditor(host, { initialHtml } = {}) {
       insertHtml(`<p><img src="${esc(r.url)}" alt="" style="max-width:100%;height:auto;"></p>`);
       toast('Image added', 'ok');
     } catch (err) {
-      toast(err.message || 'Upload failed', 'err');
+      toast(errText(err), 'err');
     }
   };
 
@@ -5202,7 +5213,7 @@ function openAiWriteModal({ existingSubject, existingBody, onApplied }) {
             if (typeof onApplied === 'function') onApplied(r, leadId || null);
             mm.close();
           } catch (err) {
-            setMsg(msg, err.message || 'AI draft failed', 'err');
+            setMsg(msg, errText(err), 'err');
             btn.textContent = 'Generate';
           }
         },
@@ -5318,7 +5329,7 @@ async function tabTemplates(host) {
       toast('Template saved', 'ok');
       tabTemplates(host);
     } catch (err) {
-      setMsg($('#tp-msg', host), err.message, 'err');
+      setMsg($('#tp-msg', host), errText(err), 'err');
     }
   });
 
@@ -5413,7 +5424,7 @@ async function tabSuppression(host) {
       toast('Added', 'ok');
       tabSuppression(host);
     } catch (err) {
-      setMsg($('#sp-msg', host), err.message, 'err');
+      setMsg($('#sp-msg', host), errText(err), 'err');
     }
   });
   delegate(host, {
@@ -5434,7 +5445,7 @@ async function pagePipeline() {
   try {
     res = await withLoadTimeout(api.pipeline());
   } catch (e) {
-    view.innerHTML = loadErrorCardHtml(e.message);
+    view.innerHTML = loadErrorCardHtml(errText(e));
     wirePageRetry(() => pagePipeline());
     return;
   }
@@ -5503,7 +5514,7 @@ async function pageSocial(_param, query = {}) {
   try {
     ov = (await withLoadTimeout(api.socialOverview())).data;
   } catch (e) {
-    view.innerHTML = loadErrorCardHtml(e.message);
+    view.innerHTML = loadErrorCardHtml(errText(e));
     wirePageRetry(() => pageSocial(_param, query));
     return;
   }
@@ -5663,7 +5674,7 @@ async function pageSocial(_param, query = {}) {
         setMsg(msg, `Created campaign #${r.data.campaign.id} with ${r.data.posts.length} posts.`, 'ok');
         window.location.hash = `#/social?campaignId=${r.data.campaign.id}`;
       } catch (err) {
-        setMsg(msg, err.message, 'err');
+        setMsg(msg, errText(err), 'err');
       }
     };
   }
@@ -5816,7 +5827,7 @@ async function pageJobs() {
   try {
     res = await withLoadTimeout(api.jobsList());
   } catch (e) {
-    view.innerHTML = loadErrorCardHtml(e.message);
+    view.innerHTML = loadErrorCardHtml(errText(e));
     wirePageRetry(() => pageJobs());
     return;
   }
@@ -5883,7 +5894,7 @@ async function pageJobs() {
       toast('Job created', 'ok');
       pageJobs();
     } catch (err) {
-      setMsg($('#job-msg'), err.message, 'err');
+      setMsg($('#job-msg'), errText(err), 'err');
     }
   });
   delegate(view, {
@@ -6495,7 +6506,7 @@ async function pageSettings(param) {
         }
       </tbody></table></div>`;
     } catch (err) {
-      host.innerHTML = `<p class="hint">${esc(err.message || 'Could not load members')}</p>`;
+      host.innerHTML = `<p class="hint">${esc(errText(err))}</p>`;
     }
   }
   refreshMembers();
@@ -6527,7 +6538,7 @@ async function pageSettings(param) {
         }
       </tbody></table></div>`;
     } catch (err) {
-      host.innerHTML = `<p class="hint">${esc(err.message || 'Could not load invites')}</p>`;
+      host.innerHTML = `<p class="hint">${esc(errText(err))}</p>`;
     }
   }
   refreshInvites();
@@ -6546,7 +6557,7 @@ async function pageSettings(param) {
         e.target.reset();
         refreshInvites();
       } catch (err) {
-        setMsg(msg, err.message, 'err');
+        setMsg(msg, errText(err), 'err');
       }
     });
   }
@@ -6573,7 +6584,7 @@ async function pageSettings(param) {
       setMsg(msg, 'Saved', 'ok');
       toast('Settings saved', 'ok');
     } catch (err) {
-      setMsg(msg, err.message, 'err');
+      setMsg(msg, errText(err), 'err');
     }
     return btn;
   }
@@ -6630,7 +6641,7 @@ async function pageSettings(param) {
         if (r.skipped) setMsg(msg, r.reason || 'skipped', 'err');
         else setMsg(msg, `Fetched ${r.fetched || 0}, processed ${r.processed || 0}`, 'ok');
       } catch (err) {
-        setMsg(msg, err.message, 'err');
+        setMsg(msg, errText(err), 'err');
       }
     },
     // Batch 48: test-send through the SELECTED mail provider.
@@ -6646,7 +6657,7 @@ async function pageSettings(param) {
         const r = (await api.mailTest(to)).data;
         setMsg(msg, `Sent via ${r.provider} to ${r.to}`, 'ok');
       } catch (err) {
-        setMsg(msg, err.message, 'err');
+        setMsg(msg, errText(err), 'err');
       }
     },
     'disc-save': async () => {
@@ -6672,7 +6683,7 @@ async function pageSettings(param) {
         $('#ds-status').textContent =
           `${r.enabled ? 'Enabled' : 'Disabled'} · next: ${r.next_run || '—'} · last: ${r.last_run || '—'}`;
       } catch (err) {
-        setMsg(msg, err.message, 'err');
+        setMsg(msg, errText(err), 'err');
       }
     },
     'disc-run': async () => {
@@ -6704,7 +6715,7 @@ async function pageSettings(param) {
             'ok'
           );
       } catch (err) {
-        setMsg(msg, err.message, 'err');
+        setMsg(msg, errText(err), 'err');
       }
     },
   });
@@ -6791,7 +6802,7 @@ async function pageAdmin(param) {
       20000
     );
   } catch (err) {
-    body.innerHTML = `<div class="card error-card"><p>${esc(err.message)}</p><p><button class="btn" data-act="admin-retry">Retry</button></p></div>`;
+    body.innerHTML = `<div class="card error-card"><p>${esc(errText(err))}</p><p><button class="btn" data-act="admin-retry">Retry</button></p></div>`;
     const rb = body.querySelector('[data-act="admin-retry"]');
     if (rb) rb.addEventListener('click', () => pageAdmin(param));
   }
@@ -6873,7 +6884,7 @@ function openAdminEditUser(u) {
             toast('User updated', 'ok');
             pageAdmin('users');
           } catch (err) {
-            setMsg(msg, err.message || String(err), 'error');
+            setMsg(msg, errText(err), 'error');
             throw err;
           }
         },
@@ -6948,7 +6959,7 @@ async function renderAdminUsers(el) {
       msg.className = 'msg ok';
       pageAdmin('users');
     } catch (err) {
-      msg.textContent = err.message;
+      msg.textContent = errText(err);
       msg.className = 'msg error';
     }
   });
@@ -7006,7 +7017,7 @@ async function renderAdminUsers(el) {
           await api.adminUpdateUser(b.dataset.reset, { password });
           toast('Password updated', 'ok');
         } catch (err) {
-          toast(err.message, 'err');
+          toast(errText(err), 'err');
         }
       })
   );
@@ -7110,7 +7121,7 @@ function openAdminPortalUserAccess(u, meta) {
             toast('Portal access reset to type defaults', 'ok');
             pageAdmin('users');
           } catch (err) {
-            setMsg(msg, err.message || String(err), 'error');
+            setMsg(msg, errText(err), 'error');
             throw err;
           }
         },
@@ -7142,7 +7153,7 @@ function openAdminPortalUserAccess(u, meta) {
             toast('Portal access updated', 'ok');
             pageAdmin('users');
           } catch (err) {
-            setMsg(msg, err.message || String(err), 'error');
+            setMsg(msg, errText(err), 'error');
             throw err;
           }
         },
@@ -7294,7 +7305,7 @@ async function renderAdminPortalUsersPanel(el) {
         toast('Portal user deleted', 'ok');
         pageAdmin('users');
       } catch (err) {
-        toast(err.message, 'err');
+        toast(errText(err), 'err');
       }
     };
   });
@@ -7313,7 +7324,7 @@ async function renderAdminPortalUsersPanel(el) {
         toast('Portal two-factor reset', 'ok');
         pageAdmin('users');
       } catch (err) {
-        toast(err.message, 'err');
+        toast(errText(err), 'err');
       }
     };
   });
@@ -7371,7 +7382,7 @@ async function renderAdminWorkspaces(el) {
       await api.adminCreateWorkspace(body);
       pageAdmin('workspaces');
     } catch (err) {
-      $('#admin-ws-msg').textContent = err.message;
+      $('#admin-ws-msg').textContent = errText(err);
       $('#admin-ws-msg').className = 'msg error';
     }
   });
@@ -7483,7 +7494,7 @@ async function renderAdminPayments(el) {
           toast('Refund created', 'ok');
           pageAdmin('payments');
         } catch (err) {
-          toast(err.message, 'err');
+          toast(errText(err), 'err');
         }
       })
   );
@@ -7696,7 +7707,7 @@ async function renderAdminSettings(el, group) {
           /* small print refreshes on next page load */
         }
       } catch (err) {
-        msg.textContent = err.message;
+        msg.textContent = errText(err);
         msg.className = 'msg error';
       }
     };
@@ -7723,7 +7734,7 @@ async function renderAdminSettings(el, group) {
       msg.className = 'msg ok';
       toast('Platform settings saved', 'ok');
     } catch (err) {
-      msg.textContent = err.message;
+      msg.textContent = errText(err);
       msg.className = 'msg error';
     }
   };
@@ -7861,7 +7872,7 @@ async function renderAdminGbp(el) {
         toast('Google Business settings saved', 'ok');
         renderAdminGbp(el);
       } catch (err) {
-        msg.textContent = err.message;
+        msg.textContent = errText(err);
         msg.className = 'msg error';
       }
     };
@@ -7944,7 +7955,7 @@ async function renderAdminAdsense(el) {
       toast('AdSense settings saved', 'ok');
       await renderAdminAdsense(el);
     } catch (err) {
-      msg.textContent = err.message;
+      msg.textContent = errText(err);
       msg.className = 'msg error';
     }
   };
@@ -8150,7 +8161,7 @@ async function pageBilling(param, query) {
         toast('Account deleted', 'ok');
         renderAuth();
       } catch (err) {
-        toast(err.message, 'err');
+        toast(errText(err), 'err');
       }
     };
   }
@@ -8397,7 +8408,7 @@ async function runClearAllFlow({ noun, scopeLabel, extra, call }) {
     );
     return d;
   } catch (e) {
-    toast(e.message || 'Clear-all failed', 'err');
+    toast(errText(e), 'err');
     return null;
   }
 }
@@ -8443,7 +8454,7 @@ async function pageForms() {
   try {
     res = await withLoadTimeout(api.adminForms());
   } catch (e) {
-    view.innerHTML = loadErrorCardHtml(e.message);
+    view.innerHTML = loadErrorCardHtml(errText(e));
     wirePageRetry(() => pageForms());
     return;
   }
@@ -8523,7 +8534,7 @@ async function openFormSubmissions(formId) {
           if (i >= 0) shown.splice(i, 1);
           toast('Submission deleted', 'ok');
         } catch (e) {
-          toast(e.message || 'Delete failed', 'err');
+          toast(errText(e), 'err');
         }
       };
     });
@@ -8553,7 +8564,7 @@ async function openFormSubmissions(formId) {
           wireCards();
           if (extra.length < 50) more.style.display = 'none';
         } catch (e) {
-          toast(e.message || 'Load more failed', 'err');
+          toast(errText(e), 'err');
         } finally {
           more.disabled = false;
         }
@@ -8569,12 +8580,12 @@ async function openFormSubmissions(formId) {
           toast(`Deleted ${(r.data && r.data.deletedCount) || 0} submission(s)`, 'ok');
           openFormSubmissions(formId);
         } catch (e) {
-          toast(e.message || 'Bulk delete failed', 'err');
+          toast(errText(e), 'err');
         }
       };
     }
   } catch (e) {
-    d.body.innerHTML = `<p class="error">${esc(e.message)}</p>`;
+    d.body.innerHTML = `<p class="error">${esc(errText(e))}</p>`;
   }
 }
 
@@ -8585,7 +8596,7 @@ async function pageLeadScout() {
   try {
     res = await withLoadTimeout(api.adminLeadScoutContacts({ q: leadScoutState.q, limit: 100 }));
   } catch (e) {
-    view.innerHTML = loadErrorCardHtml(e.message);
+    view.innerHTML = loadErrorCardHtml(errText(e));
     wirePageRetry(() => pageLeadScout());
     return;
   }
@@ -8642,7 +8653,7 @@ async function pageLeadScout() {
       renderContacts();
       toast('Contact deleted', 'ok');
     } catch (e) {
-      toast(e.message || 'Delete failed', 'err');
+      toast(errText(e), 'err');
     }
   }
   // Batch 45 — page through contacts with the engine's existing offset.
@@ -8657,7 +8668,7 @@ async function pageLeadScout() {
       contacts = contacts.concat(extra);
       renderContacts();
     } catch (e) {
-      toast(e.message || 'Load more failed', 'err');
+      toast(errText(e), 'err');
     } finally {
       btn.disabled = false;
     }
@@ -8670,6 +8681,7 @@ async function pageLeadScout() {
         ? `<div class="alert warn"><strong>Capture health:</strong> ${esc(health.open_failures)} open capture failure(s) — some submissions or bookings may not have been recorded.</div>`
         : ''
     }
+    ${warningsBannerHtml(d.warnings)}
     <form id="ls-search"><div class="row"><div class="field"><label>Search contacts</label><input name="q" value="${esc(
       leadScoutState.q
     )}" placeholder="Name, email, or phone" /></div><div class="field"><label>Search businesses</label><input type="search" id="ls-biz-search" placeholder="Type to filter…" autocomplete="off" /></div><div class="field"><label>Business</label><select id="ls-biz"><option value="">All businesses</option>${bizOptions
@@ -8687,7 +8699,7 @@ async function pageLeadScout() {
       const r = await api.adminClearLeadScoutResolved();
       toast(`Cleared ${(r.data && r.data.cleared) || 0} resolved failure(s)`, 'ok');
     } catch (err) {
-      toast(err.message || 'Clear failed', 'err');
+      toast(errText(err), 'err');
     }
   };
   const lsMore = view.querySelector('#ls-more');
@@ -8754,7 +8766,7 @@ async function openLeadScoutContact(id) {
       }
       </div>`;
   } catch (e) {
-    d.body.innerHTML = `<p class="error">${esc(e.message)}</p>`;
+    d.body.innerHTML = `<p class="error">${esc(errText(e))}</p>`;
   }
 }
 
@@ -8763,7 +8775,7 @@ async function pageBookings() {
   try {
     res = await withLoadTimeout(api.adminBookings());
   } catch (e) {
-    view.innerHTML = loadErrorCardHtml(e.message);
+    view.innerHTML = loadErrorCardHtml(errText(e));
     wirePageRetry(() => pageBookings());
     return;
   }
@@ -8849,7 +8861,7 @@ async function pageShop() {
   try {
     res = await withLoadTimeout(api.adminShop());
   } catch (e) {
-    view.innerHTML = loadErrorCardHtml(e.message);
+    view.innerHTML = loadErrorCardHtml(errText(e));
     wirePageRetry(() => pageShop());
     return;
   }
@@ -8938,7 +8950,7 @@ async function pageModules() {
   try {
     res = await withLoadTimeout(api.adminModules());
   } catch (e) {
-    view.innerHTML = loadErrorCardHtml(e.message);
+    view.innerHTML = loadErrorCardHtml(errText(e));
     wirePageRetry(() => pageModules());
     return;
   }
@@ -9007,7 +9019,7 @@ async function pageCourses() {
   try {
     res = await withLoadTimeout(api.adminCourses());
   } catch (e) {
-    view.innerHTML = loadErrorCardHtml(e.message);
+    view.innerHTML = loadErrorCardHtml(errText(e));
     wirePageRetry(() => pageCourses());
     return;
   }
@@ -9065,7 +9077,7 @@ async function pageAnalytics() {
   try {
     res = await withLoadTimeout(api.adminAnalytics());
   } catch (e) {
-    view.innerHTML = loadErrorCardHtml(e.message);
+    view.innerHTML = loadErrorCardHtml(errText(e));
     wirePageRetry(() => pageAnalytics());
     return;
   }
@@ -9122,7 +9134,7 @@ async function pageCalls() {
   try {
     res = await withLoadTimeout(api.adminCalls({ limit: CALL_PAGE, offset: 0 }));
   } catch (e) {
-    view.innerHTML = loadErrorCardHtml(e.message);
+    view.innerHTML = loadErrorCardHtml(errText(e));
     wirePageRetry(() => pageCalls());
     return;
   }
@@ -9206,6 +9218,7 @@ async function pageCalls() {
   view.innerHTML = `
     <div class="page-head"><div><h1>Calls</h1><p class="lede">Every call to a client's tracking number — the number their site shows — across all sites. Completed calls also save the caller as a LeadScout contact on that business.</p></div>
     <div class="page-actions"><button class="btn danger" id="cl-clear-all" ${allRows.length ? '' : 'disabled'}>Clear all…</button></div></div>
+    ${warningsBannerHtml(d.warnings)}
     <div class="card" style="margin-bottom:1rem">
       <h3 style="margin-top:0">Buy a tracking number</h3>
       ${
@@ -9283,7 +9296,7 @@ async function pageCalls() {
           wireCallDeletes();
           toast('Call log deleted', 'ok');
         } catch (e) {
-          toast(e.message || 'Delete failed', 'err');
+          toast(errText(e), 'err');
         }
       };
     });
@@ -9306,7 +9319,7 @@ async function pageCalls() {
       wireCallDeletes();
       syncCallPager();
     } catch (e) {
-      toast(e.message || 'Could not load that page', 'err');
+      toast(errText(e), 'err');
     }
   };
   const clPrev = document.getElementById('cl-prev');
@@ -9346,7 +9359,7 @@ async function pageCalls() {
         toast(`${(pd.number && pd.number.phone_number) || number} is in the pool.`);
         pageCalls();
       } catch (e) {
-        toast(e.message || 'Could not add that number.', 'err');
+        toast(errText(e), 'err');
         poolAddBtn.disabled = false;
       }
     });
@@ -9361,7 +9374,7 @@ async function pageCalls() {
         toast('Number removed from the pool.');
         pageCalls();
       } catch (e) {
-        toast(e.message || 'Remove failed.', 'err');
+        toast(errText(e), 'err');
         btn.disabled = false;
       }
     });
@@ -9468,7 +9481,7 @@ async function pageCalls() {
           }
           renderCfgForm();
         } catch (e) {
-          toast(e.message || 'Save failed — nothing was changed.', 'err');
+          toast(errText(e), 'err');
           saveBtn.disabled = false;
         }
       });
@@ -9548,13 +9561,13 @@ async function pageCalls() {
               host.innerHTML = `<p><strong>${esc(pd.phoneNumber || number)}</strong> is now ${esc(bizName)}'s tracking number — their call button dials it and calls forward per the forwarding setup below.</p>`;
               toast(`Number ${pd.phoneNumber || number} attached to ${bizName}.`);
             } catch (e) {
-              toast(e.message || 'Purchase failed — nothing was changed.', 'err');
+              toast(errText(e), 'err');
               btn.disabled = false;
             }
           });
         });
       } catch (e) {
-        host.innerHTML = `<p class="hint">${esc(e.message || 'Search failed.')}</p>`;
+        host.innerHTML = `<p class="hint">${esc(errText(e))}</p>`;
       }
     });
   }
@@ -9565,7 +9578,7 @@ async function pageMemberships() {
   try {
     res = await withLoadTimeout(api.adminMemberships());
   } catch (e) {
-    view.innerHTML = loadErrorCardHtml(e.message);
+    view.innerHTML = loadErrorCardHtml(errText(e));
     wirePageRetry(() => pageMemberships());
     return;
   }
@@ -9654,7 +9667,7 @@ async function pageRentals() {
   try {
     res = await withLoadTimeout(api.adminRentals());
   } catch (e) {
-    view.innerHTML = loadErrorCardHtml(e.message);
+    view.innerHTML = loadErrorCardHtml(errText(e));
     wirePageRetry(() => pageRentals());
     return;
   }
@@ -9806,7 +9819,7 @@ async function pageRentals() {
             pageRentals();
           } catch (e) {
             b.disabled = false;
-            if (msg) msg.textContent = e.message || 'Action failed.';
+            if (msg) msg.textContent = errText(e);
           }
         });
       };
@@ -9814,7 +9827,7 @@ async function pageRentals() {
       wire('rent-resume', () => api.adminRentalResume(rental.id), 'Rental resumed — routing re-applied.');
       wire('rent-end', () => api.adminRentalEnd(rental.id, { reason: (document.getElementById('rent-end-reason') || {}).value || '' }), 'Rental ended.');
     } catch (e) {
-      detailEl.innerHTML = `<p class="error">${esc(e.message)}</p>`;
+      detailEl.innerHTML = `<p class="error">${esc(errText(e))}</p>`;
     }
   };
   rowsEl.addEventListener('click', (ev) => {
@@ -9868,7 +9881,7 @@ async function pageRentals() {
           <div style="margin-top:8px"><button class="btn small" id="rent-create-anyway" type="button">Create anyway</button></div></div>`;
         document.getElementById('rent-create-anyway').addEventListener('click', () => doCreate(true));
       } else {
-        createMsg.textContent = e.message || 'Create failed.';
+        createMsg.textContent = errText(e);
       }
     }
   };
@@ -9880,7 +9893,7 @@ async function pageSeo() {
   try {
     res = await withLoadTimeout(api.adminSeoSites());
   } catch (e) {
-    view.innerHTML = loadErrorCardHtml(e.message);
+    view.innerHTML = loadErrorCardHtml(errText(e));
     wirePageRetry(() => pageSeo());
     return;
   }
@@ -9936,7 +9949,7 @@ async function pageSeo() {
           renderState(await api.adminSeoGenerate(sel.value));
         } catch (e) {
           genBtn.disabled = false;
-          if (status) status.textContent = e.message || 'Generation failed.';
+          if (status) status.textContent = errText(e);
         }
       });
     }
@@ -9957,7 +9970,7 @@ async function pageSeo() {
           }
         } catch (e) {
           applyBtn.disabled = false;
-          if (status) status.textContent = e.message || 'Apply failed.';
+          if (status) status.textContent = errText(e);
         }
       });
     }
@@ -9968,7 +9981,7 @@ async function pageSeo() {
     try {
       renderState(await api.adminSeoState(sel.value));
     } catch (e) {
-      body.innerHTML = loadErrorCardHtml(e.message);
+      body.innerHTML = loadErrorCardHtml(errText(e));
       wirePageRetry(() => loadState());
     }
   };
@@ -10029,7 +10042,7 @@ async function pageFinance(param, query) {
       withLoadTimeout(api.financeLedger({ ...periodQ, category: state.category || undefined, page: state.page, pageSize: 25 })),
     ]);
   } catch (e) {
-    view.innerHTML = loadErrorCardHtml(e.message);
+    view.innerHTML = loadErrorCardHtml(errText(e));
     wirePageRetry(() => pageFinance(param, query));
     return;
   }
@@ -10179,7 +10192,7 @@ async function pageFinance(param, query) {
         toast('Expense added', 'ok');
         navigate();
       } catch (e) {
-        if (msg) msg.textContent = e.message || 'Could not add the expense.';
+        if (msg) msg.textContent = errText(e);
       }
     });
   }
@@ -10210,7 +10223,7 @@ async function pageFinance(param, query) {
         a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 5000);
       } catch (e) {
-        toast(e.message || 'Export failed', 'err');
+        toast(errText(e), 'err');
       }
     });
   }
@@ -10222,7 +10235,7 @@ async function pageFinance(param, query) {
         toast('Expense deleted', 'ok');
         navigate();
       } catch (e) {
-        toast(e.message || 'Delete failed', 'err');
+        toast(errText(e), 'err');
       }
     });
   });
@@ -10299,7 +10312,7 @@ async function navigate() {
       if (inv.data && inv.data.productAccess != null) productAccess = !!inv.data.productAccess;
       toast('Invite accepted', 'ok');
     } catch (err) {
-      toast(err.message || 'Invite failed', 'err');
+      toast(errText(err), 'err');
     }
     window.location.hash = '#/dashboard';
     return;
@@ -10348,7 +10361,7 @@ async function navigate() {
       window.location.hash = '#/billing';
       return;
     }
-    view.innerHTML = `<div class="card error-card"><h2>Page failed to load</h2><p>${esc(err.message)}</p><p><button class="btn" data-act="page-retry">Retry</button></p></div>`;
+    view.innerHTML = `<div class="card error-card"><h2>Page failed to load</h2><p>${esc(errText(err))}</p><p><button class="btn" data-act="page-retry">Retry</button></p></div>`;
     wirePageRetry(() => navigate());
   }
 }
@@ -10362,7 +10375,7 @@ if (wsSelect) {
       if (r.data && r.data.productAccess != null) productAccess = !!r.data.productAccess;
       if (r.data && r.data.subscribed != null) userSubscribed = !!r.data.subscribed;
     } catch (err) {
-      toast(err.message, 'err');
+      toast(errText(err), 'err');
     }
     leadsState.selected.clear();
     try {
@@ -10486,13 +10499,13 @@ initNavGroups();
     }
     renderAuth();
     if (err && err.status === 403) {
-      toast(err.message || 'Account unavailable', 'err');
+      toast(errText(err), 'err');
       return;
     }
     if (err && err.status >= 500) {
       toast('Server temporarily unavailable — refresh in a moment.', 'err');
       return;
     }
-    toast((err && err.message) || 'Could not restore session — try refreshing.', 'err');
+    toast(errText(err), 'err');
   }
 })();

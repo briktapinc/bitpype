@@ -14,6 +14,7 @@ const { migrate, ping } = require('./server/db');
 const { MySQLSessionStore } = require('./server/sessionStore');
 const { findWorkspaceByToken } = require('./server/workspace');
 const { handleJsonRpc, SERVER_INFO } = require('./server/mcp');
+const apiErrors = require('./server/apiErrors');
 const { startScheduler } = require('./server/jobs');
 
 const authRoutes = require('./server/routes/auth');
@@ -264,7 +265,7 @@ app.get('/api/v1/openapi.json', (_req, res) => {
     const { buildOpenApi } = require('./server/openapiV1');
     res.json(buildOpenApi());
   } catch (e) {
-    res.status(500).json({ ok: false, error: { code: 'OPENAPI', message: e.message || String(e) } });
+    apiErrors.sendError(res, e, 500, { area: 'openapi', nested: true });
   }
 });
 
@@ -278,7 +279,7 @@ app.get('/api/v1/captcha/config', async (_req, res) => {
     const captcha = require('./server/captcha');
     res.json({ ok: true, data: await captcha.getCaptchaConfig() });
   } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
+    apiErrors.sendError(res, e, 500, { area: 'captcha' });
   }
 });
 
@@ -445,8 +446,7 @@ async function mcpHandler(req, res) {
     if (result == null) return res.status(204).end();
     return res.json(result);
   } catch (e) {
-    console.error('[mcp]', e);
-    return res.status(500).json({ ok: false, error: e.message });
+    apiErrors.sendError(res, e, 500, { area: 'mcp' });
   }
 }
 
@@ -622,10 +622,17 @@ app.get('*', (req, res, next) => {
 });
 
 app.use((err, _req, res, _next) => {
-  console.error(err);
-  const status = err.status || 500;
-  const clientMsg = status >= 500 ? 'Server error' : err.message || 'Request failed';
-  res.status(status).json({ ok: false, error: clientMsg, code: err.code });
+  if (res.headersSent) return _next(err);
+  // Batch 54: every error that reaches the central handler is shaped by
+  // server/apiErrors — unexpected 5xx are logged with a reference id and
+  // answered generically (code INTERNAL + ref); authored errors keep
+  // their code + message; body-parser failures become BAD_JSON.
+  const status = err.status || err.statusCode || 500;
+  const shaped = apiErrors.shapeError(err, status, 'http');
+  if (!shaped.ref) console.error(err);
+  const body = { ok: false, error: shaped.message, code: shaped.code };
+  if (shaped.ref) body.ref = shaped.ref;
+  res.status(shaped.status).json(body);
 });
 
 async function pruneExpiredSessions() {

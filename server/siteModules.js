@@ -5581,7 +5581,8 @@ function localSocialFeedItems(db, leadId) {
          ORDER BY published_at DESC, id DESC`
       )
       .all(Number(leadId));
-  } catch {
+  } catch (e) {
+    console.warn('[siteModules] localSocialFeedItems:', e.message || e);
     return [];
   }
   const items = [];
@@ -6406,7 +6407,8 @@ function getRotationNumbers(db, leadId) {
       .all(Number(leadId))
       .map((r) => String(r.phone_number || ''))
       .filter(Boolean);
-  } catch {
+  } catch (e) {
+    console.warn('[siteModules] getRotationNumbers:', e.message || e);
     return [];
   }
 }
@@ -9494,7 +9496,8 @@ function moduleItemCount(db, leadId, type) {
   if (type === 'chatbot') {
     try {
       return require('./chatbot').listKnowledge(db, leadId).length;
-    } catch {
+    } catch (e) {
+      console.warn('[siteModules] moduleItemCount chatbot:', e.message || e);
       return 0;
     }
   }
@@ -9513,7 +9516,8 @@ function moduleItemCount(db, leadId, type) {
     // The tab badge counts what the feed will actually show.
     try {
       return socialFeedItems(db, leadId).length;
-    } catch {
+    } catch (e) {
+      console.warn('[siteModules] moduleItemCount socialfeed:', e.message || e);
       return 0;
     }
   }
@@ -9521,7 +9525,8 @@ function moduleItemCount(db, leadId, type) {
     // The tab badge counts the reviews that will actually render.
     try {
       return googleReviewsItems(db, leadId).length;
-    } catch {
+    } catch (e) {
+      console.warn('[siteModules] moduleItemCount googlereviews:', e.message || e);
       return 0;
     }
   }

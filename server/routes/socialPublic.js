@@ -11,6 +11,7 @@ const { requireCaptcha } = require('../captcha');
 const { rateLimit } = require('../rateLimit');
 const { assertWorkspaceExists } = require('../workspaceExists');
 const { socialReturnPath } = require('../appUrls');
+const apiErrors = require('../apiErrors');
 
 const router = express.Router();
 const approveLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 60 });
@@ -19,7 +20,7 @@ const captcha = requireCaptcha();
 
 function fail(res, e, status = 400) {
   const http = e.code === 'NOT_FOUND' ? 404 : status;
-  res.status(http).json({ ok: false, error: e.message || String(e), code: e.code });
+  apiErrors.sendError(res, e, http, { area: 'socialPublic' });
 }
 
 router.get('/meta/callback', async (req, res) => {
