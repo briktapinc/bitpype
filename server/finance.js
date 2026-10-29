@@ -497,6 +497,52 @@ function deleteExpense(db, id) {
   return { ok: true, id: row.id, label: row.label, amountCents: row.amount_cents };
 }
 
+/**
+ * Batch 62 — AI usage by workspace (platform money visibility).
+ * The per-workspace Finance summary above only ever sees ONE tenant
+ * DB; a hosted platform needs the cross-tenant picture: every
+ * workspace's ai_usage for the period, summed with the same aiSpend
+ * math (so the two views can never disagree), labeled estimated like
+ * every other AI figure. `workspaces` is [{id, name}] from the server
+ * DB and `openDb(id)` resolves a tenant DB — a workspace whose DB
+ * cannot be opened (or has no ai_usage yet) reports zeros rather than
+ * breaking the table, and zero-usage workspaces still get a row.
+ */
+function aiUsageByWorkspace(period, workspaces, openDb) {
+  const rows = [];
+  const totals = { calls: 0, promptTokens: 0, completionTokens: 0, tokens: 0, usd: 0, cents: 0, estimated: true };
+  for (const ws of workspaces || []) {
+    let ai = { usd: 0, cents: 0, calls: 0, promptTokens: 0, completionTokens: 0 };
+    try {
+      const db = openDb(ws.id);
+      if (db) ai = aiSpend(db, period);
+    } catch {
+      /* zero-usage row below */
+    }
+    const tokens = (Number(ai.promptTokens) || 0) + (Number(ai.completionTokens) || 0);
+    rows.push({
+      workspaceId: Number(ws.id),
+      name: ws.name || '',
+      calls: Number(ai.calls) || 0,
+      promptTokens: Number(ai.promptTokens) || 0,
+      completionTokens: Number(ai.completionTokens) || 0,
+      tokens,
+      usd: Number(ai.usd) || 0,
+      cents: Number(ai.cents) || 0,
+      estimated: true,
+    });
+    totals.calls += Number(ai.calls) || 0;
+    totals.promptTokens += Number(ai.promptTokens) || 0;
+    totals.completionTokens += Number(ai.completionTokens) || 0;
+    totals.tokens += tokens;
+    totals.usd += Number(ai.usd) || 0;
+    totals.cents += Number(ai.cents) || 0;
+  }
+  rows.sort((a, b) => b.cents - a.cents || a.workspaceId - b.workspaceId);
+  totals.usd = Math.round(totals.usd * 1e6) / 1e6;
+  return { period, rows, totals };
+}
+
 module.exports = {
   CATEGORIES,
   CATEGORY_LABELS,
@@ -513,4 +559,5 @@ module.exports = {
   addExpense,
   deleteExpense,
   publicExpense,
+  aiUsageByWorkspace,
 };

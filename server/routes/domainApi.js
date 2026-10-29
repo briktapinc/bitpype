@@ -1276,9 +1276,21 @@ router.post('/email/assets', denyLeadScopedToken, async (req, res) => {
 });
 
 // Settings (workspace SQLite — same keys as desktop)
+// Batch 62 (review E-3): the domain-registrant block is personal data
+// (name, organisation, email, phone, street address) that token-driven
+// jobs (lead hunting, site builds) never need. It is returned only to
+// interactive sessions; token callers get every other setting (secrets
+// stay masked by settingsGetAll either way). The MCP facade reads the
+// engine directly and is unaffected.
 router.get('/settings', denyLeadScopedToken, (req, res) => {
   try {
-    ok(res, { settings: domain.settingsGetAll(req.auth.workspaceId) });
+    const settings = domain.settingsGetAll(req.auth.workspaceId);
+    if (req.auth && req.auth.via === 'token' && settings && typeof settings === 'object') {
+      for (const k of Object.keys(settings)) {
+        if (k.startsWith('domain.registrant_')) delete settings[k];
+      }
+    }
+    ok(res, { settings });
   } catch (e) {
     fail(res, e);
   }
@@ -1568,7 +1580,7 @@ router.get('/admin-area/forms', denyLeadScopedToken, (req, res) => {
     fail(res, e, 500);
   }
 });
-router.get('/admin-area/forms/:id/submissions', denyLeadScopedToken, (req, res) => {
+router.get('/admin-area/forms/:id/submissions', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
   try {
     ok(
       res,
@@ -1602,7 +1614,11 @@ router.delete('/admin-area/forms/:id/submissions/:submissionId', requireRole('ow
     fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
   }
 });
-router.get('/admin-area/leadscout/contacts', denyLeadScopedToken, (req, res) => {
+// Batch 62 (review E-3): LeadScout contacts are visitor PII (names,
+// emails, phones) — reads now require an owner/admin session, like the
+// deletes below already did. Capture itself is engine-side (forms,
+// bookings) and never used this route.
+router.get('/admin-area/leadscout/contacts', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
   try {
     ok(
       res,
@@ -1616,7 +1632,7 @@ router.get('/admin-area/leadscout/contacts', denyLeadScopedToken, (req, res) => 
     fail(res, e, 500);
   }
 });
-router.get('/admin-area/leadscout/contacts/:id', denyLeadScopedToken, (req, res) => {
+router.get('/admin-area/leadscout/contacts/:id', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
   try {
     ok(res, domain.adminLeadScoutContact(req.auth.workspaceId, Number(req.params.id)));
   } catch (e) {
@@ -1639,14 +1655,18 @@ router.post('/admin-area/leadscout/failures/clear-resolved', requireRole('owner'
     fail(res, e, 500);
   }
 });
-router.get('/admin-area/bookings', denyLeadScopedToken, (req, res) => {
+// Batch 62 (review E-3): bookings carry customer names/phones —
+// owner/admin session reads only, like the other admin-area PII.
+router.get('/admin-area/bookings', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
   try {
     ok(res, domain.adminBookingsOverview(req.auth.workspaceId, { limit: req.query.limit }));
   } catch (e) {
     fail(res, e, 500);
   }
 });
-router.get('/admin-area/shop', denyLeadScopedToken, (req, res) => {
+// Batch 62 (review E-3): shop overview carries orders (customer PII +
+// money) — owner/admin session reads only.
+router.get('/admin-area/shop', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
   try {
     ok(res, domain.adminShopOverview(req.auth.workspaceId, { limit: req.query.limit }));
   } catch (e) {
@@ -1679,7 +1699,7 @@ router.get('/admin-area/analytics', denyLeadScopedToken, (req, res) => {
 // site whose owner connected their own Stripe keys. Payout reads are
 // cached + failure-isolated in membershipStripe — a Stripe outage can
 // never break this screen. View-only: no money moves from here.
-router.get('/admin-area/memberships', denyLeadScopedToken, async (req, res) => {
+router.get('/admin-area/memberships', requireRole('owner', 'admin'), denyLeadScopedToken, async (req, res) => {
   try {
     const data = domain.adminMembershipsOverview(req.auth.workspaceId);
     const membershipStripe = require('../membershipStripe');
@@ -1726,7 +1746,9 @@ clearAllRoute('/admin-area/calls/clear-all', domain.adminClearAllCalls);
 // plus the Twilio number shop. Dormant-safe — with no Twilio credentials
 // (platform twilio.* or the workspace's sms.* — Batch 25b) the number
 // endpoints report { configured: false }.
-router.get('/admin-area/calls', denyLeadScopedToken, async (req, res) => {
+// Batch 62 (review E-3): call logs carry caller phone numbers and the
+// tracking config — owner/admin session reads only.
+router.get('/admin-area/calls', requireRole('owner', 'admin'), denyLeadScopedToken, async (req, res) => {
   try {
     const data = await domain.adminCallsOverview(req.auth.workspaceId, { limit: req.query.limit, offset: req.query.offset });
     data.twilio_configured = await require('../twilioClient').isConfigured({ workspaceId: req.auth.workspaceId });
@@ -1744,7 +1766,7 @@ router.delete('/admin-area/calls/:id', requireRole('owner', 'admin'), denyLeadSc
     fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.status || 400);
   }
 });
-router.get('/admin-area/calls/numbers/available', denyLeadScopedToken, async (req, res) => {
+router.get('/admin-area/calls/numbers/available', requireRole('owner', 'admin'), denyLeadScopedToken, async (req, res) => {
   try {
     ok(res, await domain.adminSearchCallNumbers(req.auth.workspaceId, { areaCode: req.query.areaCode || '' }));
   } catch (e) {
@@ -1782,7 +1804,7 @@ router.put(
 // owns; forwarding setups claim them (primary or rotation) with
 // exclusivity. Add verifies live ownership; remove is blocked while
 // a setup uses the number.
-router.get('/admin-area/calls/pool', denyLeadScopedToken, async (req, res) => {
+router.get('/admin-area/calls/pool', requireRole('owner', 'admin'), denyLeadScopedToken, async (req, res) => {
   try {
     const data = domain.adminListNumberPool(req.auth.workspaceId);
     data.twilio_configured = await require('../twilioClient').isConfigured({ workspaceId: req.auth.workspaceId });
@@ -1882,14 +1904,16 @@ router.post(
 // Site Rentals (Batch 26): staff rent a niche site to a tenant lead.
 // Create can 409 with RENTAL_SITE_OCCUPIED (hard block) or
 // RENTAL_CONFLICT (niche+town warning — resend with overrideConflict).
-router.get('/admin-area/rentals', denyLeadScopedToken, (req, res) => {
+// Batch 62 (review E-3): rentals carry tenant + charge data —
+// owner/admin session reads only.
+router.get('/admin-area/rentals', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
   try {
     ok(res, domain.rentalsScreen(req.auth.workspaceId));
   } catch (e) {
     fail(res, e, 500);
   }
 });
-router.get('/admin-area/rentals/:id', denyLeadScopedToken, (req, res) => {
+router.get('/admin-area/rentals/:id', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
   try {
     ok(res, domain.rentalsDetail(req.auth.workspaceId, Number(req.params.id)));
   } catch (e) {
@@ -1949,7 +1973,9 @@ router.post(
 );
 
 // ---------- Domain purchase transactions (Batch 15) ----------
-router.get('/admin-area/domain-transactions', denyLeadScopedToken, (req, res) => {
+// Batch 62 (review E-3): transaction reads expose amounts + the
+// billing user's identity — owner/admin session reads only.
+router.get('/admin-area/domain-transactions', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
   try {
     ok(res, domain.adminDomainTransactions(req.auth.workspaceId, { limit: req.query.limit, offset: req.query.offset }));
   } catch (e) {
@@ -1973,7 +1999,7 @@ router.delete('/admin-area/domain-transactions/:id', requireRole('owner', 'admin
     fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.status || 400);
   }
 });
-router.get('/admin-area/domain-transactions/:id', denyLeadScopedToken, (req, res) => {
+router.get('/admin-area/domain-transactions/:id', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
   try {
     ok(res, domain.adminDomainTransaction(req.auth.workspaceId, Number(req.params.id)));
   } catch (e) {
@@ -1994,21 +2020,24 @@ router.post(
 );
 
 // ---------- Finance dashboard (Batch 49) ----------
-router.get('/admin-area/finance/summary', denyLeadScopedToken, (req, res) => {
+// Batch 62 (review E-3): the finance reads are staff money data — the
+// workspace bearer token no longer reads them (its writes were already
+// role-gated). Owner/admin SESSION only, via requireRole.
+router.get('/admin-area/finance/summary', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
   try {
     ok(res, domain.financeSummary(req.auth.workspaceId, req.query));
   } catch (e) {
     fail(res, e, e.code === 'INVALID' ? 422 : 500);
   }
 });
-router.get('/admin-area/finance/ledger', denyLeadScopedToken, (req, res) => {
+router.get('/admin-area/finance/ledger', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
   try {
     ok(res, domain.financeLedger(req.auth.workspaceId, req.query));
   } catch (e) {
     fail(res, e, e.code === 'INVALID' ? 422 : 500);
   }
 });
-router.get('/admin-area/finance/export.csv', denyLeadScopedToken, (req, res) => {
+router.get('/admin-area/finance/export.csv', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
   try {
     const out = domain.financeCsv(req.auth.workspaceId, req.query);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -2023,6 +2052,19 @@ router.post('/admin-area/finance/expenses', requireRole('owner', 'admin'), denyL
     ok(res, domain.financeAddExpense(req.auth.workspaceId, req.body || {}, req.auth.userId));
   } catch (e) {
     fail(res, e, e.code === 'INVALID' ? 422 : 400);
+  }
+});
+// Batch 62 — per-workspace AI cost view: platform money visibility
+// across tenants, so on top of the owner/admin session gate it is
+// SUPER-ADMIN only. Read-only.
+router.get('/admin-area/finance/ai-by-workspace', requireRole('owner', 'admin'), denyLeadScopedToken, async (req, res) => {
+  try {
+    if (!req.sessionUser || Number(req.sessionUser.is_super_admin) !== 1) {
+      return res.status(403).json({ ok: false, error: 'FORBIDDEN', code: 'SUPER_ADMIN_REQUIRED' });
+    }
+    ok(res, await domain.financeAiByWorkspace(req.query));
+  } catch (e) {
+    fail(res, e, e.code === 'INVALID' ? 422 : 500);
   }
 });
 router.delete(
