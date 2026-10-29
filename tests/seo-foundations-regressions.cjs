@@ -298,13 +298,17 @@ async function main() {
 
   check('C1 crawl: every internal link is canonical and resolves to a real exported file (zero home-fallback)', () => {
     const files = ['index.html', 'services/drain-cleaning.html', 'services/20-yard-dumpster-rental.html', 'faq.html', 'thank-you.html'];
+    // Batch 60: every export also ships generated legal pages (/terms,
+    // /privacy) and links them from every page footer — they are real
+    // pages of the export, so the crawl universe includes them.
+    const ALL_PAGES = [...PAGES, { slug: 'terms' }, { slug: 'privacy' }];
     let links = 0;
     for (const file of files) {
       const html = read(file);
       const hrefs = [...html.matchAll(/\bhref\s*=\s*["']([^"']+)["']/gi)].map((m) => m[1]);
       for (const href of hrefs) {
         if (!href || /^(mailto:|tel:|https?:|javascript:|#)/i.test(href)) continue;
-        const targetPage = engine.pageForHref(href, PAGES);
+        const targetPage = engine.pageForHref(href, ALL_PAGES);
         assert(targetPage, `${file}: link ${href} resolves to NO page (home-fallback risk)`);
         const canon = engine.pageUrlPath(targetPage.slug);
         const bare = href.split('#')[0].split('?')[0];
