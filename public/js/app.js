@@ -10626,6 +10626,32 @@ async function pageFinance(param, query) {
   const period = sum.period || periodQ;
   const money = (c) => moneyCents(c || 0, 'USD');
 
+  // Batch 62 — per-workspace AI costs. Super-admin only: the endpoint
+  // refuses everyone else and the section simply doesn't render.
+  let aiWsHtml = '';
+  try {
+    const aiRes = await withLoadTimeout(api.financeAiByWorkspace(periodQ));
+    const aiWs = (aiRes && aiRes.data) || null;
+    if (aiWs && Array.isArray(aiWs.rows)) {
+      const rowHtml = aiWs.rows
+        .map(
+          (r) =>
+            `<tr><td>${esc(r.name || '')} <span class="hint">#${esc(r.workspaceId)}</span></td><td style="text-align:right">${esc(r.calls || 0)}</td><td style="text-align:right">${esc((r.tokens || 0).toLocaleString())}</td><td style="text-align:right">${money(r.cents || 0)}</td></tr>`
+        )
+        .join('');
+      const t = aiWs.totals || {};
+      aiWsHtml = `<div class="card">
+      <div class="panel-h"><h3>AI usage by workspace</h3><span class="hint">estimated · all workspaces, this period</span></div>
+      <table class="table"><thead><tr><th>Workspace</th><th style="text-align:right">Calls</th><th style="text-align:right">Tokens</th><th style="text-align:right">Est. cost</th></tr></thead>
+      <tbody>${rowHtml || '<tr><td colspan="4" class="hint">No workspaces yet.</td></tr>'}
+      <tr><td><strong>All workspaces</strong></td><td style="text-align:right"><strong>${esc(t.calls || 0)}</strong></td><td style="text-align:right"><strong>${esc((t.tokens || 0).toLocaleString())}</strong></td><td style="text-align:right"><strong>${money(t.cents || 0)}</strong></td></tr></tbody></table>
+      <p class="hint">AI figures are estimates from the app's per-call cost log — the same numbers the AI card above sums for this workspace alone.</p>
+    </div>`;
+    }
+  } catch {
+    aiWsHtml = '';
+  }
+
   const catCard = (key) => {
     const c = cats[key] || { label: key, totalCents: 0, autoCents: 0, manualCents: 0 };
     let sub = '';
@@ -10693,6 +10719,7 @@ async function pageFinance(param, query) {
       <div class="stat-card"><div class="stat-label">${esc((sum.collected && sum.collected.label) || 'Collected')}</div><div class="stat-value">${money(sum.collected && sum.collected.cents)}</div><div class="hint">money in — context only, not expenditure</div></div>
     </div>
     <p class="hint" style="margin:-4px 0 14px">${esc(sum.aiNote || '')}</p>
+    ${aiWsHtml}
     <div class="card">
       <div class="panel-h"><h3>Spend over time</h3><span class="hint">${esc(series.granularity)} buckets</span></div>
       ${seriesHtml}

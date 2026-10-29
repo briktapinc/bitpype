@@ -439,6 +439,7 @@ window.ScoutApi = (() => {
     adminClearAllCalls: (body) => post('/admin-area/calls/clear-all', body || {}),
     financeSummary: (q) => get('/admin-area/finance/summary', q),
     financeLedger: (q) => get('/admin-area/finance/ledger', q),
+    financeAiByWorkspace: (q) => get('/admin-area/finance/ai-by-workspace', q),
     financeAddExpense: (body) => post('/admin-area/finance/expenses', body || {}),
     financeDeleteExpense: (id) => del('/admin-area/finance/expenses/' + id),
 

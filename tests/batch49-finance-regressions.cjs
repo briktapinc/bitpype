@@ -308,7 +308,11 @@ checkAsync('role guard: member session and token callers are denied owner/admin'
     const src = fs.readFileSync(path.join(root, 'server/routes/domainApi.js'), 'utf8');
     assert.match(src, /router\.post\('\/admin-area\/finance\/expenses', requireRole\('owner', 'admin'\), denyLeadScopedToken/);
     assert.match(src, /'\/admin-area\/finance\/expenses\/:id',\s*requireRole\('owner', 'admin'\),\s*denyLeadScopedToken/);
-    assert.match(src, /router\.get\('\/admin-area\/finance\/summary', denyLeadScopedToken/);
+    // Batch 62 supersedes the Batch 49-era pin that read routes were
+    // token-accessible: the finance GETs now carry the same role gate.
+    assert.match(src, /router\.get\('\/admin-area\/finance\/summary', requireRole\('owner', 'admin'\), denyLeadScopedToken/);
+    assert.match(src, /router\.get\('\/admin-area\/finance\/ledger', requireRole\('owner', 'admin'\), denyLeadScopedToken/);
+    assert.match(src, /router\.get\('\/admin-area\/finance\/export\.csv', requireRole\('owner', 'admin'\), denyLeadScopedToken/);
   });
 });
 

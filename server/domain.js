@@ -4767,6 +4767,18 @@ function financeCsv(workspaceId, q = {}) {
     };
   });
 }
+/**
+ * Batch 62 — cross-workspace AI cost view for the platform Finance
+ * page (super-admin surface in the route). Enumerates every workspace
+ * from the server DB and sums each tenant DB's ai_usage for the
+ * period via finance.aiUsageByWorkspace. Read-only.
+ */
+async function financeAiByWorkspace(q = {}) {
+  const finance = require('./finance');
+  const period = finance.resolvePeriod(q);
+  const workspaces = await require('./db').query('SELECT id, name FROM workspaces ORDER BY id');
+  return finance.aiUsageByWorkspace(period, workspaces, (id) => openWorkspaceDb(id));
+}
 async function domainFlowComplete(workspaceId, id) {
   return withDb(workspaceId, async (db) =>
     require('./domainFlow').completeTransaction(db, workspaceId, id, {
@@ -6084,6 +6096,7 @@ module.exports = {
   financeAddExpense,
   financeDeleteExpense,
   financeCsv,
+  financeAiByWorkspace,
   runDiscoveryJobTick,
   runOutreachJobTick,
   runImapPollTick: imapPoll,
