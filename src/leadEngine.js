@@ -790,8 +790,17 @@ function deleteLead(db, id) {
   if (!existing) throw validationError(`lead not found: ${id}`);
   let summary = null;
   const archivedWebsiteIds = [];
+  let siteRows = [];
   const tx = db.transaction(() => {
     summary = leadReferenceSummary(db, id);
+    // Batch 67: remember the site rows (name/preview path) before the
+    // cascade takes them, so their export folders can be removed and
+    // the deletion can be activity-logged after the transaction.
+    try {
+      siteRows = db.prepare('SELECT id, name, preview_path FROM websites WHERE lead_id = ?').all(id);
+    } catch {
+      siteRows = [];
+    }
     // Archive-first for websites (soft delete via the website path).
     if (summary.websiteIds.length) {
       const engine = require('./websiteEngine');
@@ -834,7 +843,48 @@ function deleteLead(db, id) {
     db.prepare('DELETE FROM leads WHERE id = ?').run(id);
   });
   tx();
-  return { ok: true, id, summary, archivedWebsiteIds };
+  // Batch 67 — a lead delete must not be silent, and must not orphan
+  // storage. Forensics (2026-10-29): deleting fixture lead 641 took
+  // its ARCHIVED website 28's row with it via the websites.lead_id
+  // CASCADE (versions + claim manifest followed), wrote NO activity
+  // row, and left ws-1-site-28-…'s export folder on disk — with no
+  // websites row left, no purge could ever reclaim it, and the folder
+  // kept serving publicly until the preview gate was made fail-closed
+  // (Batch 67 M-1). So: log the deletion with the website ids that
+  // followed the lead, and remove those sites' export folders (the
+  // rows are gone; the folders are pure orphans). Best-effort: a
+  // storage failure never resurrects the lead.
+  try {
+    db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
+      'leads',
+      `Lead #${id} ("${String(existing.business_name || '').slice(0, 80)}") deleted; ` +
+        `${siteRows.length} website row(s) followed the lead` +
+        (siteRows.length ? ` (ids: ${siteRows.map((s) => s.id).join(', ')})` : '') +
+        '; export folders removed where present.'
+    );
+  } catch {
+    /* activity logging must never break the delete */
+  }
+  let removedExportFolders = 0;
+  if (siteRows.length) {
+    try {
+      const engine = require('./websiteEngine');
+      for (const site of siteRows) {
+        try {
+          const res = engine.removeSiteStorageFolders(site.id, {
+            siteName: site.name,
+            previewPath: site.preview_path,
+          });
+          removedExportFolders += (res.removed || []).length;
+        } catch {
+          /* best-effort per site */
+        }
+      }
+    } catch {
+      /* best-effort */
+    }
+  }
+  return { ok: true, id, summary, archivedWebsiteIds, removedExportFolders };
 }
 
 /* ------------------------------------------------------------------ */

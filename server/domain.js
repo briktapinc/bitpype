@@ -732,6 +732,23 @@ async function designPreviewUrl(workspaceId, id, open = false) {
       throw e;
     }
     if (row.website_id) {
+      // Batch 67 (M-2): the job is linked to a website, whose canonical
+      // folder is the gated preview path — a design-preview folder left
+      // over from before the link is a stale duplicate of the same
+      // content. Remove it (best-effort, export-root contained) so the
+      // leak can't relocate there.
+      try {
+        const fsMod = require('fs');
+        const pathMod = require('path');
+        const rootDir = require('../src/openPreview').exportRoot();
+        const dir = pathMod.join(rootDir, `ws-${workspaceId}-design-${jobId}`);
+        const rel = pathMod.relative(pathMod.resolve(rootDir), pathMod.resolve(dir));
+        if (rel && !rel.startsWith('..') && !pathMod.isAbsolute(rel)) {
+          fsMod.rmSync(dir, { recursive: true, force: true });
+        }
+      } catch {
+        /* best-effort cleanup; the gate covers any residue */
+      }
       const preview = await sitesPreview(workspaceId, row.website_id, { force: true });
       return { id: jobId, websiteId: row.website_id, ...preview, opened: !!open };
     }

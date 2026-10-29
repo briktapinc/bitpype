@@ -5274,9 +5274,25 @@ function collectSiteExportFolders(websiteId, opts = {}) {
   }
   for (const name of candidates) found.add(name);
 
+  // Batch 67 (M-2): design-preview folders of jobs linked to this site
+  // hold a full copy of the delivered site. On purge they must go too —
+  // destroyWebsite unlinks the jobs (website_id = NULL), after which
+  // the folder would be an ungated orphan. Names embed the workspace,
+  // so match any ws-*-design-{jobId} for the known job ids.
+  const designJobIds = (Array.isArray(opts.designJobIds) ? opts.designJobIds : [])
+    .map(Number)
+    .filter((n) => Number.isInteger(n) && n > 0);
+  if (designJobIds.length && workspaceId != null && Number(workspaceId) > 0) {
+    for (const jobId of designJobIds) found.add(`ws-${Number(workspaceId)}-design-${jobId}`);
+  }
+
   try {
     for (const name of fs.readdirSync(root)) {
       if (folderBelongsToSite(name, id, workspaceId, siteName)) found.add(name);
+      if (designJobIds.length) {
+        const dm = name.match(/^ws-\d+-design-(\d+)$/);
+        if (dm && designJobIds.includes(Number(dm[1]))) found.add(name);
+      }
     }
   } catch {
     /* optional */
@@ -5410,10 +5426,23 @@ function destroyWebsite(db, websiteId, opts = {}) {
   if (!site) throw err('SITE_NOT_FOUND', `Website #${id} not found.`);
 
   const workspaceId = opts.workspaceId != null ? Number(opts.workspaceId) : null;
+  // Batch 67 (M-2): capture the design jobs linked to this site BEFORE
+  // the transaction unlinks them, so their design-preview folders can
+  // be removed with the site's own folders below.
+  let designJobIds = [];
+  try {
+    designJobIds = db
+      .prepare('SELECT id FROM design_jobs WHERE website_id = ?')
+      .all(id)
+      .map((r) => r.id);
+  } catch {
+    /* table may be absent */
+  }
   const storageOpts = {
     workspaceId: Number.isInteger(workspaceId) && workspaceId > 0 ? workspaceId : null,
     siteName: site.name,
     previewPath: site.preview_path,
+    designJobIds,
   };
 
   // Snapshot screenshot paths before DB wipe (files usually live under site-{id}/).
@@ -7894,6 +7923,8 @@ module.exports = {
   generateSite,
   deleteWebsite,
   destroyWebsite,
+  removeSiteStorageFolders,
+  collectSiteExportFolders,
   restoreWebsite,
   listArchivedWebsites,
   isArchivedSite,
