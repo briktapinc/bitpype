@@ -5,9 +5,14 @@
  * DERIVED from the site owner's subscription state and enforced at
  * Cloudflare Registrar.
  *
- *   - Owner subscribed (an owner/admin of the workspace holding an
- *     active paid subscription — billing.workspaceHasSubscription —
- *     or the domain transaction's billing user being subscribed):
+ *   - Owner subscribed: the domain transaction's billing user (the
+ *     client who actually paid for the domain — Batch 69/H-3:
+ *     consulted FIRST, because the workspace answer in an agency
+ *     workspace is satisfied by the owner's super-admin bypass and
+ *     says nothing about the payer), else the lead-email-resolved
+ *     portal owner (Batch 69/Low #11), else any owner/admin of the
+ *     workspace holding an active paid subscription —
+ *     billing.workspaceHasSubscription:
  *     renewal mode 'auto', registrar auto_renew ON. Cloudflare charges
  *     the account's default payment method up to 30 days before expiry.
  *   - Owner NOT subscribed (canceled-and-ended, deleted, never
@@ -82,7 +87,20 @@ async function defaultWorkspaceSubscribed(workspaceId) {
   return billing().workspaceHasSubscription(workspaceId);
 }
 
-async function defaultDomainBillingUserSubscribed(db, row) {
+/**
+ * Batch 69 (final-review H-3): the billing user of the domain's
+ * latest qualifying domain-flow transaction — the person who
+ * actually paid for the domain. Returns { userId, subscribed }, or
+ * null when the domain has NO qualifying transaction (no row, no
+ * billing user, or the domain-flow tables are absent). Tri-state on
+ * purpose: an UNSUBSCRIBED payer must conclude 'manual' even when
+ * the workspace check says subscribed — in the agency workspace the
+ * workspace answer is satisfied by the owner's super-admin bypass
+ * (billing.isSubscribed returns true unconditionally for user 1,
+ * whose own subscription_status is 'none'), which says nothing
+ * about the client who paid for this domain.
+ */
+async function defaultDomainBillingUser(db, row) {
   try {
     const txn = db
       .prepare(
@@ -92,20 +110,76 @@ async function defaultDomainBillingUserSubscribed(db, row) {
          ORDER BY id DESC LIMIT 1`
       )
       .get(row.domain_name);
-    if (!txn || !txn.billing_user_id) return false;
-    const user = await billing().getUserBilling(txn.billing_user_id);
-    return billing().isSubscribed(user);
+    if (!txn || !txn.billing_user_id) return null;
+    const userId = Number(txn.billing_user_id);
+    const user = await billing().getUserBilling(userId);
+    return { userId, subscribed: billing().isSubscribed(user) };
   } catch {
-    return false; // domain flow tables not present in every workspace
+    return null; // domain flow tables not present in every workspace
+  }
+}
+
+/**
+ * Batch 69 (final-review Low #11): when a domain has no qualifying
+ * transaction (admin-registered, failed/voided txn, pre-domain-flow
+ * domain), resolve the owner through the domain's lead email — the
+ * same lead-email → user resolution billing.resolveUserSites uses —
+ * restricted to users who are members of THIS workspace. Without it,
+ * a subscribed portal owner with no qualifying transaction derives
+ * 'manual' and their auto_renew is forced OFF while they pay.
+ * Returns { userId, subscribed }, or null when no member matches.
+ */
+async function defaultLeadEmailUser(db, workspaceId, row) {
+  try {
+    if (!row || !row.lead_id) return null;
+    const lead = db.prepare('SELECT email FROM leads WHERE id = ?').get(row.lead_id);
+    const email = String((lead && lead.email) || '').trim().toLowerCase();
+    if (!email) return null;
+    const userRows = await query('SELECT id FROM users WHERE lower(email) = :email LIMIT 1', { email });
+    const userId = userRows && userRows[0] ? Number(userRows[0].id) : 0;
+    if (!userId) return null;
+    const memberRows = await query(
+      'SELECT 1 AS x FROM workspace_members WHERE workspace_id = :ws AND user_id = :uid LIMIT 1',
+      { ws: Number(workspaceId), uid: userId }
+    );
+    if (!memberRows || !memberRows.length) return null;
+    const user = await billing().getUserBilling(userId);
+    if (!user) return null;
+    return { userId, subscribed: billing().isSubscribed(user) };
+  } catch {
+    return null;
   }
 }
 
 /**
  * The mode for one domain: 'auto' while subscribed, else 'manual'.
- * deps.workspaceSubscribed may be pre-resolved by the caller (the
- * reconcile computes it once per workspace).
+ * Derivation order (Batch 69):
+ *   1. the domain-flow transaction's billing user (H-3),
+ *   2. the lead-email-resolved portal owner (Low #11),
+ *   3. the workspace owner/admin subscription check (fallback —
+ *      deps.workspaceSubscribedValue may be pre-resolved by the
+ *      caller; the reconcile computes it once per workspace).
  */
 async function deriveDomainMode(db, workspaceId, row, deps = {}) {
+  let payer = null;
+  if (typeof deps.domainBillingUser === 'function') {
+    payer = await deps.domainBillingUser(db, row);
+  } else if (typeof deps.domainBillingUserSubscribed === 'function') {
+    // Legacy boolean hook: a true answer proves a subscribed payer;
+    // false is ambiguous (no payer at all vs an unsubscribed payer),
+    // so only a true short-circuits here.
+    if (await deps.domainBillingUserSubscribed(db, row)) return 'auto';
+  } else {
+    payer = await defaultDomainBillingUser(db, row);
+  }
+  if (payer) return payer.subscribed ? 'auto' : 'manual';
+
+  const leadUser =
+    typeof deps.leadEmailUser === 'function'
+      ? await deps.leadEmailUser(db, workspaceId, row)
+      : await defaultLeadEmailUser(db, workspaceId, row);
+  if (leadUser) return leadUser.subscribed ? 'auto' : 'manual';
+
   let subscribed;
   if (typeof deps.workspaceSubscribedValue === 'boolean') {
     subscribed = deps.workspaceSubscribedValue;
@@ -113,13 +187,6 @@ async function deriveDomainMode(db, workspaceId, row, deps = {}) {
     subscribed = !!(await deps.workspaceSubscribed(workspaceId));
   } else {
     subscribed = !!(await defaultWorkspaceSubscribed(workspaceId));
-  }
-  if (!subscribed) {
-    const viaTxn =
-      typeof deps.domainBillingUserSubscribed === 'function'
-        ? !!(await deps.domainBillingUserSubscribed(db, row))
-        : !!(await defaultDomainBillingUserSubscribed(db, row));
-    subscribed = viaTxn;
   }
   return subscribed ? 'auto' : 'manual';
 }
@@ -160,6 +227,27 @@ async function reconcileWorkspace(db, workspaceId, deps = {}) {
     }
     return { workspaceId, error: message, domains: [] };
   }
+  // Batch 69 (final-review M-3): a Registrations-API failure that
+  // fell back to the legacy list must be LOUD. The legacy list is
+  // deprecated and was proven live to return EMPTY while domains
+  // exist, so reconciling against it would silently skip every
+  // domain — no PATCH, no error, enforcement off indefinitely.
+  // Treat it exactly like a list failure: stamp renewal_error on
+  // every live row and record the degraded sweep.
+  if (regs && regs.registrarError) {
+    const message = `registrar registrations list failed — legacy fallback not trusted for renewal enforcement: ${regs.registrarError}`.slice(0, 300);
+    for (const row of rows) {
+      try {
+        db.prepare(
+          `UPDATE site_domains SET renewal_error = ?, renewal_checked_at = datetime('now') WHERE id = ?`
+        ).run(message, row.id);
+      } catch {
+        /* */
+      }
+    }
+    logActivity(db, `Domain renewal reconcile (workspace ${workspaceId}): SKIPPED — ${message}`);
+    return { workspaceId, error: message, source: regs.source || 'legacy', domains: [] };
+  }
   const regMap = new Map();
   for (const d of (regs && regs.domains) || []) regMap.set(String(d.domain || '').toLowerCase(), d);
 
@@ -189,11 +277,24 @@ async function reconcileWorkspace(db, workspaceId, deps = {}) {
     let changed = false;
     let pending = false;
     let error = null;
-    if (observed !== desiredAuto) {
+    // Batch 69 (final-review Low #8): the registrar can report
+    // auto_renew as null (state not yet known). null is UNKNOWN, not
+    // drift — PATCHing on it would re-PATCH every hourly sweep
+    // forever. Skip the write and store nothing about the desired
+    // state; the next sweep re-reads the registrar state.
+    if (observed !== null && observed !== desiredAuto) {
       try {
         const res = await setAuto(db, domain, desiredAuto);
-        after = res && res.autoRenew != null ? !!res.autoRenew : desiredAuto;
         pending = !!(res && res.pending);
+        // While the registrar workflow is still pending, the desired
+        // state is NOT yet the observed state — keep reporting the
+        // last observed value so the stored row never claims a state
+        // the registrar hasn't confirmed.
+        after = pending
+          ? observed
+          : res && res.autoRenew != null
+            ? !!res.autoRenew
+            : desiredAuto;
         changed = true;
       } catch (e) {
         error = (e && e.message) || 'auto-renew update failed';
@@ -287,6 +388,7 @@ async function reconcileWorkspace(db, workspaceId, deps = {}) {
       mode,
       registrarAutoRenewBefore: observed,
       registrarAutoRenewAfter: after,
+      autoRenewUnknown: observed === null,
       changed,
       pending,
       expiresAt: reg.expiresAt || null,
@@ -298,7 +400,7 @@ async function reconcileWorkspace(db, workspaceId, deps = {}) {
       .filter((d) => d.inRegistrar)
       .map(
         (d) =>
-          `${d.domain}=${d.mode}${d.changed ? ` (auto_renew→${d.registrarAutoRenewAfter ? 'on' : 'off'})` : ''}${d.error ? ` ERROR ${d.error}` : ''}`
+          `${d.domain}=${d.mode}${d.changed ? ` (auto_renew→${d.pending ? 'pending' : d.registrarAutoRenewAfter ? 'on' : 'off'})` : ''}${d.error ? ` ERROR ${d.error}` : ''}`
       );
     logActivity(db, `Domain renewal reconcile (workspace ${workspaceId}): ${bits.join('; ')}`);
   }

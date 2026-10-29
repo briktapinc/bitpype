@@ -409,6 +409,13 @@ async function listOwnedDomains(db) {
  * legacy GET /registrar/domains list (used by listOwnedDomains above)
  * is deprecated by Cloudflare, so on any failure of the new list we
  * fall back to it and say which source answered.
+ *
+ * Batch 69 (final-review M-3): the fallback return carries
+ * `registrarError` — the registrations failure is NEVER swallowed
+ * silently. The legacy list was proven live to return empty while
+ * domains exist, so callers that enforce state from this list (the
+ * renewal reconcile) must treat a legacy-sourced answer as a FAILED
+ * list, not a successful empty one.
  */
 async function listRegistrations(db) {
   const { token, accountId } = await creds(db);
@@ -450,7 +457,11 @@ async function listRegistrations(db) {
     return { domains, source: 'registrations' };
   } catch (e) {
     const legacy = await listOwnedDomains(db);
-    return { domains: legacy.domains, source: 'legacy' };
+    return {
+      domains: legacy.domains,
+      source: 'legacy',
+      registrarError: (e && e.message) || 'registrations list failed',
+    };
   }
 }
 
@@ -466,6 +477,28 @@ async function listRegistrations(db) {
  * NOTE: Cloudflare offers NO renew/extend endpoint — manual renewal
  * is a dashboard action (see server/domainRenewals.requestManualRenewal).
  */
+/**
+ * Batch 69 (final-review Low #8): a workflow's links.self is normally
+ * an ABSOLUTE URL (https://api.cloudflare.com/client/v4/...).
+ * Prefixing API_BASE onto it produced a malformed path and every
+ * poll 404'd (reported as pending forever). Absolute → use its path
+ * as-is; already-based path → as-is; bare path → prefix API_BASE
+ * (the historical relative form).
+ */
+function workflowSelfPath(self) {
+  const s = String(self || '');
+  if (/^https?:\/\//i.test(s)) {
+    try {
+      const u = new URL(s);
+      return u.pathname + u.search;
+    } catch {
+      return s;
+    }
+  }
+  if (s.startsWith(API_BASE)) return s;
+  return `${API_BASE}${s.startsWith('/') ? '' : '/'}${s}`;
+}
+
 async function setRegistrationAutoRenew(db, domainName, autoRenew) {
   const domain = normalizeDomain(domainName);
   if (!domain) throw fail('INVALID', 'Invalid domain name.');
@@ -492,7 +525,7 @@ async function setRegistrationAutoRenew(db, domainName, autoRenew) {
     try {
       const poll = await apiRequest({
         method: 'GET',
-        apiPath: `${API_BASE}${result.links.self}`,
+        apiPath: workflowSelfPath(result.links.self),
         token,
         timeoutMs: 30000,
       });
@@ -1248,6 +1281,7 @@ module.exports = {
   listOwnedDomains,
   listRegistrations,
   setRegistrationAutoRenew,
+  workflowSelfPath,
   registerDomain,
   registrationStatus,
   pagesAddDomain,
