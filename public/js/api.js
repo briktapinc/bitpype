@@ -476,6 +476,16 @@ window.ScoutApi = (() => {
 
     // ---- Platform super admin ----
     adminOverview: () => get('/admin/overview'),
+    // Mailing list + newsletter (Batch 71, super admin only)
+    adminMailingListSubscribers: (q) => get('/admin/mailing-list/subscribers', q),
+    adminMailingListAdd: (body) => post('/admin/mailing-list/subscribers', body),
+    adminMailingListImport: (text) => post('/admin/mailing-list/subscribers/import', { text }),
+    adminMailingListUnsubscribe: (id) => post('/admin/mailing-list/subscribers/' + id + '/unsubscribe', {}),
+    adminMailingListResubscribe: (id) => post('/admin/mailing-list/subscribers/' + id + '/resubscribe', {}),
+    adminMailingListRemove: (id) => del('/admin/mailing-list/subscribers/' + id),
+    adminMailingListSends: (q) => get('/admin/mailing-list/sends', q),
+    adminMailingListPreview: (body) => post('/admin/mailing-list/preview', body),
+    adminMailingListSend: (body) => post('/admin/mailing-list/send', body),
     adminAudit: (q) => get('/admin/audit', q),
     adminUsers: (q) => get('/admin/users', q),
     adminUser: (id) => get('/admin/users/' + id),

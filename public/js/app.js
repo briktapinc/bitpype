@@ -65,6 +65,7 @@ const ROUTE_LABELS = {
   billing: 'Billing',
   finance: 'Finance',
   admin: 'Admin',
+  'mailing-list': 'Mailing list',
 };
 let currentUserIsSuperAdmin = false;
 let currentUserId = null;
@@ -1400,6 +1401,8 @@ async function bootApp(meData) {
   subscriptionStatus = (meData.user && meData.user.subscriptionStatus) || 'none';
   const navAdmin = document.getElementById('nav-admin');
   if (navAdmin) navAdmin.classList.toggle('hidden', !currentUserIsSuperAdmin);
+  const navMailingList = document.getElementById('nav-mailing-list');
+  if (navMailingList) navMailingList.classList.toggle('hidden', !currentUserIsSuperAdmin);
   fillWorkspaces(meData.workspaces, meData.workspaceId || api.getWorkspaceId());
   updateBillingBanner();
 
@@ -10980,6 +10983,237 @@ async function pageFinance(param, query) {
   if (next) next.addEventListener('click', () => (window.location.hash = hashFor({ page: state.page + 1 })));
 }
 
+/* Batch 71 — Admin mailing list + newsletter (BitPype's own list).
+   Platform-level and super-admin only, like the Admin page; data comes
+   from /admin/mailing-list/* (server/mailingList.js). */
+const mlState = { page: 1, pageSize: 50, search: '', status: '', previewToken: '', recipientCount: 0 };
+
+async function pageMailingList() {
+  if (!currentUserIsSuperAdmin) {
+    view.innerHTML =
+      '<div class="card error-card"><h2>Super admin only</h2><p>The mailing list belongs to the platform owner.</p></div>';
+    return;
+  }
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Mailing list</h1><p class="lede">BitPype&rsquo;s own mailing list — subscribers you add yourself, and the newsletter you send them. Unsubscribed addresses stay on the list (marked) and are never emailed or silently re-subscribed.</p></div></div>
+    <div class="stats-cards" id="ml-counts"><div class="stat-card"><div class="n">…</div><div class="l">Loading</div></div></div>
+    <div class="card"><h3>Subscribers</h3>
+      <div class="row">
+        <div class="field"><label>Search</label><input id="ml-search" placeholder="Email or name" value="${esc(mlState.search)}" /></div>
+        <div class="field"><label>Status</label><select id="ml-status">
+          <option value="" ${mlState.status === '' ? 'selected' : ''}>All</option>
+          <option value="subscribed" ${mlState.status === 'subscribed' ? 'selected' : ''}>Subscribed</option>
+          <option value="unsubscribed" ${mlState.status === 'unsubscribed' ? 'selected' : ''}>Unsubscribed</option>
+        </select></div>
+      </div>
+      <div id="ml-list"><p class="hint"><span class="load-spin" aria-hidden="true"></span> Loading…</p></div>
+    </div>
+    <div class="card"><h3>Add a subscriber</h3>
+      <form id="ml-add-form"><div class="row">
+        <div class="field"><label>Name (optional)</label><input name="name" placeholder="Ada Lovelace" /></div>
+        <div class="field"><label>Email</label><input name="email" required placeholder="ada@example.com" /></div>
+      </div><button class="btn" type="submit">Add subscriber</button> <span class="hint" id="ml-add-result"></span></form>
+    </div>
+    <div class="card"><h3>Import subscribers</h3>
+      <p class="hint">Paste one email per line, or CSV (email,name). Duplicates and unsubscribed addresses are reported, never silently changed.</p>
+      <div class="field"><textarea id="ml-import-text" rows="6" placeholder="ada@example.com, Ada Lovelace&#10;grace@example.com"></textarea></div>
+      <button class="btn" id="ml-import-btn" type="button">Import</button> <span class="hint" id="ml-import-result"></span>
+    </div>
+    <div class="card"><h3>Compose newsletter</h3>
+      <div class="field"><label>Subject</label><input id="ml-subject" placeholder="What&rsquo;s new at BitPype" /></div>
+      <div class="field"><label>Body (HTML)</label><textarea id="ml-body" rows="10" placeholder="<p>Hi {{name}},</p><p>…</p>"></textarea></div>
+      <p class="hint">Placeholders: <code>{{name}}</code>, <code>{{email}}</code>, <code>{{unsubscribe_url}}</code>. Anything else is sent literally. Every email carries its own signed unsubscribe link.</p>
+      <button class="btn" id="ml-preview-btn" type="button">Preview</button>
+      <div id="ml-preview"></div>
+    </div>
+    <div class="card"><h3>Send history</h3><div id="ml-history"><p class="hint">Loading…</p></div></div>`;
+
+  const renderCounts = (counts) => {
+    $('#ml-counts').innerHTML = `
+      <div class="stat-card"><div class="n">${counts.total}</div><div class="l">Total</div></div>
+      <div class="stat-card"><div class="n">${counts.subscribed}</div><div class="l">Subscribed</div></div>
+      <div class="stat-card"><div class="n">${counts.unsubscribed}</div><div class="l">Unsubscribed</div></div>`;
+  };
+
+  const loadList = async () => {
+    const box = $('#ml-list');
+    try {
+      const res = await api.adminMailingListSubscribers({
+        page: mlState.page,
+        pageSize: mlState.pageSize,
+        search: mlState.search,
+        status: mlState.status,
+      });
+      const d = res.data || {};
+      renderCounts(d.counts || { total: 0, subscribed: 0, unsubscribed: 0 });
+      const pages = Math.max(1, Math.ceil((d.total || 0) / mlState.pageSize));
+      const rows = (d.rows || [])
+        .map(
+          (r) => `<tr>
+            <td>${esc(r.email)}</td><td>${esc(r.name || '')}</td>
+            <td>${r.status === 'subscribed' ? '<span class="badge ok">subscribed</span>' : '<span class="badge">unsubscribed</span>'}</td>
+            <td>${esc(r.source || '')}</td><td>${esc(String(r.created_at || '').slice(0, 10))}</td>
+            <td class="row-actions">
+              ${r.status === 'subscribed'
+                ? `<button class="btn small" data-ml-act="unsub" data-id="${r.id}">Unsubscribe</button>`
+                : `<button class="btn small" data-ml-act="resub" data-id="${r.id}">Re-subscribe</button>`}
+              <button class="btn small danger" data-ml-act="remove" data-id="${r.id}" data-email="${esc(r.email)}">Remove</button>
+            </td></tr>`
+        )
+        .join('');
+      box.innerHTML = `
+        <table class="table"><thead><tr><th>Email</th><th>Name</th><th>Status</th><th>Source</th><th>Added</th><th></th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="6" class="hint">No subscribers match.</td></tr>'}</tbody></table>
+        <div class="row pager">
+          <button class="btn small" id="ml-prev" ${mlState.page <= 1 ? 'disabled' : ''}>← Prev</button>
+          <span class="hint">Page ${mlState.page} of ${pages} · ${d.total || 0} matching</span>
+          <button class="btn small" id="ml-next" ${mlState.page >= pages ? 'disabled' : ''}>Next →</button>
+        </div>`;
+      const prev = $('#ml-prev');
+      if (prev) prev.onclick = () => { mlState.page--; loadList(); };
+      const next = $('#ml-next');
+      if (next) next.onclick = () => { mlState.page++; loadList(); };
+      box.querySelectorAll('[data-ml-act]').forEach((b) => {
+        b.onclick = async () => {
+          const id = Number(b.dataset.id);
+          try {
+            if (b.dataset.mlAct === 'unsub') await api.adminMailingListUnsubscribe(id);
+            else if (b.dataset.mlAct === 'resub') {
+              if (!window.confirm('Re-subscribe this address? Only do this when they asked to come back.')) return;
+              await api.adminMailingListResubscribe(id);
+            } else if (b.dataset.mlAct === 'remove') {
+              if (!window.confirm(`Remove ${b.dataset.email} from the mailing list entirely? This deletes the record.`)) return;
+              await api.adminMailingListRemove(id);
+            }
+            toast('Mailing list updated', 'ok');
+            loadList();
+            loadHistory();
+          } catch (e) {
+            toast(errText(e), 'error');
+          }
+        };
+      });
+    } catch (e) {
+      box.innerHTML = `<div class="card error-card"><p>${esc(errText(e))}</p></div>`;
+    }
+  };
+
+  const loadHistory = async () => {
+    const box = $('#ml-history');
+    try {
+      const res = await api.adminMailingListSends({ page: 1, pageSize: 50 });
+      const d = res.data || {};
+      const rows = (d.rows || [])
+        .map(
+          (r) => `<tr><td>${esc(String(r.created_at || '').slice(0, 16).replace('T', ' '))}</td><td>${esc(r.subject)}</td>
+            <td>${r.attempted}</td><td>${r.sent}</td><td>${r.failed}</td><td>${r.skipped}</td></tr>`
+        )
+        .join('');
+      box.innerHTML = `<table class="table"><thead><tr><th>Date</th><th>Subject</th><th>Attempted</th><th>Sent</th><th>Failed</th><th>Skipped (suppressed)</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="6" class="hint">No newsletters sent yet.</td></tr>'}</tbody></table>`;
+    } catch (e) {
+      box.innerHTML = `<p class="hint">${esc(errText(e))}</p>`;
+    }
+  };
+
+  let searchTimer = null;
+  $('#ml-search').addEventListener('input', (e) => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      mlState.search = e.target.value.trim();
+      mlState.page = 1;
+      loadList();
+    }, 300);
+  });
+  $('#ml-status').addEventListener('change', (e) => {
+    mlState.status = e.target.value;
+    mlState.page = 1;
+    loadList();
+  });
+
+  $('#ml-add-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const out = $('#ml-add-result');
+    try {
+      const res = await api.adminMailingListAdd({ name: fd.get('name'), email: fd.get('email') });
+      const d = res.data || {};
+      out.textContent = d.added
+        ? `Added ${d.subscriber.email}.`
+        : d.reason === 'unsubscribed'
+          ? `${d.subscriber.email} is unsubscribed — re-subscribe them from the list if they asked to come back.`
+          : `${d.subscriber.email} is already on the list.`;
+      e.target.reset();
+      mlState.page = 1;
+      loadList();
+    } catch (err) {
+      out.textContent = errText(err);
+    }
+  });
+
+  $('#ml-import-btn').onclick = async () => {
+    const out = $('#ml-import-result');
+    const text = $('#ml-import-text').value;
+    if (!text.trim()) { out.textContent = 'Paste at least one email first.'; return; }
+    try {
+      const res = await api.adminMailingListImport(text);
+      const d = res.data || {};
+      out.textContent = `Added ${d.added} · duplicates ${d.duplicates} · unsubscribed (not changed) ${d.blockedUnsubscribed} · invalid ${d.invalid.length}${d.invalid.length ? ': ' + d.invalid.slice(0, 5).join(' | ') : ''}`;
+      mlState.page = 1;
+      loadList();
+    } catch (err) {
+      out.textContent = errText(err);
+    }
+  };
+
+  $('#ml-preview-btn').onclick = async () => {
+    const box = $('#ml-preview');
+    box.innerHTML = '<p class="hint">Rendering preview…</p>';
+    try {
+      const res = await api.adminMailingListPreview({
+        subject: $('#ml-subject').value,
+        bodyHtml: $('#ml-body').value,
+      });
+      const d = res.data || {};
+      mlState.previewToken = d.previewToken;
+      mlState.recipientCount = d.recipientCount;
+      box.innerHTML = `
+        <div class="card" style="margin-top:12px">
+          <p class="hint">Preview for ${esc(d.sampleSubscriber.email)}${d.sampleSubscriber.real ? '' : ' (sample — the list is empty)'} · Subject: <strong>${esc(d.rendered.subject)}</strong></p>
+          <iframe id="ml-preview-frame" sandbox="" style="width:100%;height:340px;border:1px solid #ddd;background:#fff" title="Newsletter preview"></iframe>
+          <p><strong>${d.recipientCount}</strong> subscriber(s) will be emailed (${d.subscribedCount} subscribed, ${d.suppressedCount} skipped via the suppression list).</p>
+          <button class="btn danger" id="ml-send-btn" type="button">Send newsletter to ${d.recipientCount} subscriber(s)</button>
+          <span class="hint" id="ml-send-result"></span>
+        </div>`;
+      const frame = $('#ml-preview-frame');
+      frame.srcdoc = `<!DOCTYPE html><html><body style="font-family:Georgia,serif;padding:16px">${d.rendered.html}</body></html>`;
+      $('#ml-send-btn').onclick = async () => {
+        if (!window.confirm(`Send this newsletter now to exactly ${mlState.recipientCount} subscriber(s)?`)) return;
+        const out = $('#ml-send-result');
+        try {
+          const res2 = await api.adminMailingListSend({
+            subject: $('#ml-subject').value,
+            bodyHtml: $('#ml-body').value,
+            previewToken: mlState.previewToken,
+            confirmCount: mlState.recipientCount,
+          });
+          const s = res2.data || {};
+          out.textContent = `Sent ${s.sent} of ${s.attempted} attempted (${s.failed} failed, ${s.skippedSuppressed} suppressed).`;
+          toast('Newsletter sent', 'ok');
+          loadHistory();
+        } catch (err) {
+          out.textContent = errText(err);
+        }
+      };
+    } catch (err) {
+      box.innerHTML = `<p class="hint">${esc(errText(err))}</p>`;
+    }
+  };
+
+  loadList();
+  loadHistory();
+}
+
 const PAGES = {
   dashboard: pageDashboard,
   leads: pageLeads,
@@ -11007,6 +11241,7 @@ const PAGES = {
   billing: pageBilling,
   finance: pageFinance,
   admin: pageAdmin,
+  'mailing-list': pageMailingList,
 };
 
 async function navigate() {
@@ -11079,7 +11314,7 @@ async function navigate() {
       '<div class="card error-card"><h2>Page not found</h2><p>Choose a page from the navigation.</p></div>';
     return;
   }
-  if (route === 'admin' && !currentUserIsSuperAdmin) {
+  if ((route === 'admin' || route === 'mailing-list') && !currentUserIsSuperAdmin) {
     view.innerHTML =
       '<div class="card error-card"><h2>Super admin only</h2><p>Your account is not a platform administrator.</p></div>';
     return;

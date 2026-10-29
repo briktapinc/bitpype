@@ -646,4 +646,109 @@ router.post('/domains/reconcile', async (req, res) => {
   }
 });
 
+// ---------- Mailing list + newsletter (Batch 71) ----------
+// BitPype's OWN mailing list — platform-level, staff (super admin)
+// only like everything else in this router. Subscribers are managed
+// ONLY here (add / import by the admin); sends honor the list's
+// unsubscribes plus the Outreach suppression list. Full rules in
+// server/mailingList.js.
+const mailingList = require('../mailingList');
+
+router.get('/mailing-list/subscribers', async (req, res) => {
+  try {
+    ok(res, await mailingList.listSubscribers(req.query || {}));
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.post('/mailing-list/subscribers', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const result = await mailingList.addSubscriber({ name: b.name, email: b.email }, { source: 'admin' });
+    await platform.audit(
+      req.session.userId,
+      'mailing_list.add',
+      `email=${mailingList.normalizeEmail(b.email)} added=${result.added}${result.reason ? ` reason=${result.reason}` : ''}`
+    );
+    ok(res, result);
+  } catch (e) {
+    fail(res, e, e.code === 'VALIDATION' ? 400 : 500);
+  }
+});
+router.post('/mailing-list/subscribers/import', async (req, res) => {
+  try {
+    const result = await mailingList.importSubscribers((req.body || {}).text);
+    await platform.audit(
+      req.session.userId,
+      'mailing_list.import',
+      `added=${result.added} duplicates=${result.duplicates} blockedUnsubscribed=${result.blockedUnsubscribed} invalid=${result.invalid.length}`
+    );
+    ok(res, result);
+  } catch (e) {
+    fail(res, e, e.code === 'VALIDATION' ? 400 : 500);
+  }
+});
+router.post('/mailing-list/subscribers/:id/unsubscribe', async (req, res) => {
+  try {
+    const sub = await mailingList.setSubscriberStatus(Number(req.params.id), 'unsubscribed');
+    await platform.audit(req.session.userId, 'mailing_list.unsubscribe', `subscriberId=${sub.id} email=${sub.email}`);
+    ok(res, { subscriber: sub });
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 500);
+  }
+});
+router.post('/mailing-list/subscribers/:id/resubscribe', async (req, res) => {
+  try {
+    const sub = await mailingList.setSubscriberStatus(Number(req.params.id), 'subscribed');
+    await platform.audit(req.session.userId, 'mailing_list.resubscribe', `subscriberId=${sub.id} email=${sub.email}`);
+    ok(res, { subscriber: sub });
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 500);
+  }
+});
+router.delete('/mailing-list/subscribers/:id', async (req, res) => {
+  try {
+    const result = await mailingList.removeSubscriber(Number(req.params.id));
+    await platform.audit(req.session.userId, 'mailing_list.remove', `subscriberId=${req.params.id} email=${result.email}`);
+    ok(res, result);
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 500);
+  }
+});
+router.get('/mailing-list/sends', async (req, res) => {
+  try {
+    ok(res, await mailingList.listSends(req.query || {}));
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.post('/mailing-list/preview', async (req, res) => {
+  try {
+    const b = req.body || {};
+    ok(res, await mailingList.previewNewsletter({ subject: b.subject, bodyHtml: b.bodyHtml, subscriberId: b.subscriberId }));
+  } catch (e) {
+    fail(res, e, e.code === 'VALIDATION' ? 400 : 500);
+  }
+});
+router.post('/mailing-list/send', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const result = await mailingList.sendNewsletter({
+      subject: b.subject,
+      bodyHtml: b.bodyHtml,
+      previewToken: b.previewToken,
+      confirmCount: b.confirmCount,
+      createdBy: req.session.userId,
+    });
+    await platform.audit(
+      req.session.userId,
+      'mailing_list.send',
+      `sendId=${result.sendId} subject=${JSON.stringify(result.subject)} attempted=${result.attempted} sent=${result.sent} failed=${result.failed} skippedSuppressed=${result.skippedSuppressed}`
+    );
+    ok(res, result);
+  } catch (e) {
+    fail(res, e, ['VALIDATION', 'PREVIEW_REQUIRED', 'CONFIRM_MISMATCH'].includes(e.code) ? 400 : 500);
+  }
+});
+
 module.exports = router;

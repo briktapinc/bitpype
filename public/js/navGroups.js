@@ -47,7 +47,7 @@ const NAV_GROUPS = [
       'finance',
     ],
   },
-  { id: 'system', label: 'System', items: ['jobs', 'mcp', 'settings', 'admin'] },
+  { id: 'system', label: 'System', items: ['jobs', 'mcp', 'settings', 'admin', 'mailing-list'] },
 ];
 
 /** Group id containing `route`, or null for top-level/unknown routes. */

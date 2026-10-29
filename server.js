@@ -32,6 +32,7 @@ const chatbotPublicRoutes = require('./server/routes/chatbotPublic');
 const outreachPublicRoutes = require('./server/routes/outreachPublic');
 const websitePromoRoutes = require('./server/routes/websitePromo');
 const landingRoutes = require('./server/routes/landing');
+const mailingListPublicRoutes = require('./server/routes/mailingListPublic');
 // Batch 59: public install-script callback + bundle download.
 const hostingerCallbackRoutes = require('./server/routes/hostingerCallback');
 const { rateLimit: rateLimitFactory } = require('./server/rateLimit');
@@ -384,6 +385,9 @@ app.use(
 app.use('/api/v1/website-promo', websitePromoRoutes);
 // Batch 58: /landing software-interest form (Turnstile + lead create in ws1).
 app.use('/api/v1/landing', landingRoutes);
+// Batch 71: public unsubscribe link for the Admin mailing list
+// (HMAC token, no session — flips one subscriber, nothing else exposed).
+app.use('/api/v1/mailing-list', mailingListPublicRoutes);
 // Batch 59: Hostinger one-click deploy — a customer VM's install
 // script phones home here and downloads its source bundle here
 // (per-deployment token auth inside the router; no session/workspace).

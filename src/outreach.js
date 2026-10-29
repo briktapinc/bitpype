@@ -1618,6 +1618,7 @@ module.exports = {
   resolveWebsiteLink,
   personalizeExtras,
   signInterestToken,
+  interestLinkSecret,
   verifyInterestToken,
   buildInterestAnchor,
   interestResponsePath,

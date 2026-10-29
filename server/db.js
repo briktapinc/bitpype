@@ -484,6 +484,26 @@ async function migrate() {
         at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_rate_limit_hits ON rate_limit_hits (bucket, k, at);
+      CREATE TABLE IF NOT EXISTS mailing_list_subscribers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'subscribed',
+        source TEXT NOT NULL DEFAULT 'admin',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        unsubscribed_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_mailing_list_status ON mailing_list_subscribers (status);
+      CREATE TABLE IF NOT EXISTS mailing_list_sends (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subject TEXT NOT NULL,
+        recipients_attempted INTEGER NOT NULL DEFAULT 0,
+        recipients_sent INTEGER NOT NULL DEFAULT 0,
+        recipients_failed INTEGER NOT NULL DEFAULT 0,
+        recipients_skipped INTEGER NOT NULL DEFAULT 0,
+        created_by INTEGER,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
     `);
     // Batch 29: portal user types + per-user nav overrides. The column
     // default backfills every existing portal user to 'owner'.
@@ -848,6 +868,34 @@ async function migrate() {
         k VARCHAR(255) NOT NULL,
         at BIGINT NOT NULL,
         KEY idx_rate_limit_hits (bucket, k, at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    // Batch 71: Admin-only mailing list + newsletter (BitPype's own
+    // list — platform-level, NOT a workspace table; server/mailingList.js).
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS mailing_list_subscribers (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        email VARCHAR(254) NOT NULL,
+        name VARCHAR(200) NOT NULL DEFAULT '',
+        status VARCHAR(20) NOT NULL DEFAULT 'subscribed',
+        source VARCHAR(20) NOT NULL DEFAULT 'admin',
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        unsubscribed_at DATETIME NULL,
+        UNIQUE KEY uq_mailing_list_email (email),
+        KEY idx_mailing_list_status (status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS mailing_list_sends (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        subject VARCHAR(255) NOT NULL,
+        recipients_attempted INT NOT NULL DEFAULT 0,
+        recipients_sent INT NOT NULL DEFAULT 0,
+        recipients_failed INT NOT NULL DEFAULT 0,
+        recipients_skipped INT NOT NULL DEFAULT 0,
+        created_by BIGINT UNSIGNED NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY idx_mailing_list_sends_at (created_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
   });
