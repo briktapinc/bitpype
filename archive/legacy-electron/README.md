@@ -12,7 +12,7 @@ engines").
 The production web app (`server.js` + `server/` + `src/` + `public/`) is what
 Docker builds and what bitpype.com runs. The files that were at the repo root
 were a second, older application: an Electron shell (`main.js`, `preload.js`,
-`renderer/`), its IPC handlers (`src/ipc/`), its database layer (`src/db.js`),
+`renderer/`), its database layer (`src/db.js`),
 and **second copies of engines that also live in `server/` / `src/`** —
 `domain.js`, `siteModules.js`, `clientPortal.js`, `websiteEngine.js`,
 `designJobs.js`, `clientMcp.js`, `mcp.js`, `mcpCatalog.js`, … Every duplicate
@@ -40,6 +40,15 @@ reappears outside it.
 
 ## Deliberately NOT archived
 
+- `src/ipc/` (the Electron IPC handlers) — **kept in the live tree.** Two
+  regression files reference it by filesystem path, which a require-graph
+  walk cannot see: `tests/batch47-hardening-regressions.cjs` does
+  `require(path.join(root, 'src/ipc/leads.js')).register(...)` and exercises
+  the handler, and `tests/seo-base-url-regressions.cjs` source-scans
+  `src/ipc/domains.js`. It was archived in Batch 55's first pass and
+  restored the same day when the full suite caught exactly this. The
+  handlers stay as parity references for those suites; they are not part
+  of the production require graph.
 - `src/mcp.js`, `src/mcpCatalog.js`, `src/mcpParityTools.js` — the stdio MCP
   family is still referenced by repo tooling (`scripts/smoke-design-learning.js`
   reads `src/mcp.js`; scripts require the catalog/parity modules).
@@ -58,7 +67,6 @@ Everything kept its relative structure, so restoring is mechanical:
 # from the repo root — move a file (or the whole tree) back
 git mv archive/legacy-electron/main.js ./main.js
 git mv archive/legacy-electron/renderer ./renderer
-git mv archive/legacy-electron/src/ipc ./src/ipc
 # (repeat for the engines you need), or dig any single file out of history:
 git log --follow -- archive/legacy-electron/domain.js
 ```
