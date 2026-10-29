@@ -31,6 +31,9 @@ const SECRET_KEYS = [
   // encrypted at rest like every other SECRET_KEYS member, never seeded
   // into workspace storage (group 'gbp' stays out of WORKSPACE_SEED_KEYS).
   'gbp.oauth_client_secret',
+  // Batch 59: Hostinger API token — platform-only secret (buys real VPS
+  // servers); masked on read, never seeded into workspace storage.
+  'hostinger.api_token',
 ];
 
 const SETTING_SEEDS = [
@@ -196,6 +199,12 @@ const SETTABLE_KEYS = [
   // Batch 58: landing page YouTube videos — validated/canonicalized by
   // server/landingVideos.js (see the validateSetting case below).
   'landing.video_embeds',
+  // Batch 59: Hostinger one-click deploy settings (platform-level; the
+  // token is also in SECRET_KEYS above so it stays masked on read).
+  'hostinger.api_token',
+  'hostinger.default_price_id',
+  'hostinger.data_center_id',
+  'hostinger.template_id',
   'shop.stripe.publishable_key',
   'shop.stripe.secret_key',
   'shop.stripe.webhook_secret',
@@ -536,6 +545,22 @@ function validateSetting(key, raw) {
         return fail(e.message);
       }
     }
+    case 'hostinger.default_price_id': {
+      // Batch 59: a Hostinger catalog price ID, e.g.
+      // hostingercom-vps-kvm2-usd-1m — identifier charset only.
+      const v = value.trim();
+      if (v.length > 120) return fail('must be 120 chars or fewer');
+      if (v && !/^[A-Za-z0-9._-]+$/.test(v)) return fail('must be a Hostinger catalog price ID (letters, digits, dot, dash, underscore)');
+      return { ok: true, value: v };
+    }
+    case 'hostinger.data_center_id':
+    case 'hostinger.template_id': {
+      // Batch 59: numeric Hostinger API IDs, or blank (deploy refuses
+      // with HOSTINGER_NOT_CONFIGURED until both are set).
+      const v = value.trim();
+      if (v && !/^\d{1,10}$/.test(v)) return fail('must be a numeric Hostinger ID (digits only) or blank');
+      return { ok: true, value: v };
+    }
     case 'mcp.public_url': {
       const n = require('../src/mcpRemote').normalizePublicUrl(value);
       if (!n.ok) return fail(n.error);
@@ -719,6 +744,7 @@ function validateSetting(key, raw) {
     case 'captcha.secret_key':
     case 'smtp.pass':
     case 'mail.cf_token':
+    case 'hostinger.api_token':
     case 'ai.api_key':
     case 'muse.model_api_key':
     case 'providers.tavily.api_key':

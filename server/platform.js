@@ -52,6 +52,8 @@ const PLATFORM_SECRET_KEYS = [
   'captcha.secret_key',
   // Batch 46 (GBP manager): platform Google OAuth client secret.
   'gbp.oauth_client_secret',
+  // Batch 59: Hostinger API token (buys real VPS servers — platform only).
+  'hostinger.api_token',
 ];
 
 /** Catalog of platform settings shown in the admin UI. */
@@ -98,6 +100,20 @@ const PLATFORM_SETTING_DEFS = [
   // server/landingVideos.js extracts the IDs at save time (both write
   // choke points); pasted HTML is never stored or rendered.
   { key: 'landing.video_embeds', group: 'landing', label: 'Landing page videos (YouTube)', default: '[]' },
+
+  // Hostinger one-click deploys (Batch 59): platform-only — the API
+  // token buys REAL VPS servers on the connected Hostinger account, so
+  // it is secretBox-encrypted, never seeded into workspaces (this group
+  // stays out of WORKSPACE_SEED_KEYS), and every deploy is gated behind
+  // a priced confirmation in the lead drawer. The three defaults are
+  // Hostinger catalog/API identifiers (NOT prices): the catalog price
+  // ID of the VPS plan to buy, plus the data center and OS template IDs
+  // the purchase setup requires. Live prices are always read back from
+  // the Hostinger catalog at confirm time — never stored here.
+  { key: 'hostinger.api_token', group: 'hostinger', label: 'Hostinger API token (hPanel → API)', default: '', secret: true },
+  { key: 'hostinger.default_price_id', group: 'hostinger', label: 'Default VPS plan — catalog price ID (e.g. hostingercom-vps-kvm2-usd-1m)', default: '' },
+  { key: 'hostinger.data_center_id', group: 'hostinger', label: 'Default data center ID (Hostinger API)', default: '' },
+  { key: 'hostinger.template_id', group: 'hostinger', label: 'Default OS template ID — Ubuntu (Hostinger API)', default: '' },
 
   // Cost defaults for new workspaces
   { key: 'cost.daily_budget_usd', group: 'general', label: 'Default daily AI budget (USD)', default: '10' },
@@ -545,6 +561,24 @@ async function setPlatformSetting(key, value) {
   // (embed code, link, ID), only YouTube video IDs are ever stored.
   if (key === 'landing.video_embeds') {
     v = require('./landingVideos').validateLandingVideoEmbedsSetting(v);
+  }
+  // Batch 59: Hostinger defaults are API identifiers, not free text —
+  // reject anything that cannot be a catalog price id / numeric id at
+  // this choke point too, so no write path can land a malformed default
+  // that a later deploy would send to the Hostinger API.
+  if (key === 'hostinger.default_price_id' && v !== '' && !/^[A-Za-z0-9._-]{1,120}$/.test(v)) {
+    const e = new Error('hostinger.default_price_id must be a Hostinger catalog price ID (letters, digits, dot, dash, underscore)');
+    e.code = 'VALIDATION';
+    throw e;
+  }
+  if (
+    (key === 'hostinger.data_center_id' || key === 'hostinger.template_id') &&
+    v !== '' &&
+    !/^\d{1,10}$/.test(v)
+  ) {
+    const e = new Error(`${key} must be a numeric Hostinger ID (digits only) or blank`);
+    e.code = 'VALIDATION';
+    throw e;
   }
   await query(
     `INSERT INTO platform_settings (\`key\`, value)

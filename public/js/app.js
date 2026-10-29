@@ -2271,6 +2271,160 @@ async function loadLeadGbp(dr, leadId) {
   }
 }
 
+// Batch 59: one-click Hostinger deployment panel in the lead drawer
+// (software-interest leads only — the section itself is only rendered
+// for those). States: dormant (Hostinger unconfigured) → deploy
+// button → typed-DEPLOY confirmation against the LIVE catalog price →
+// polled provisioning/installing → ready (instance link) | failed
+// (coded reason + VM id + retry). Exactly-once is enforced server-
+// side; this panel just renders the deployment the server reports.
+async function loadLeadHostinger(dr, leadId) {
+  const host = () => $('#ld-hostinger', dr.el);
+  const wsId = api.getWorkspaceId();
+  const money = (cents, currency) => {
+    if (cents == null) return '—';
+    try {
+      return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: currency || 'USD' });
+    } catch {
+      return `${(cents / 100).toFixed(2)} ${currency || ''}`;
+    }
+  };
+  const periodText = (plan) => (plan && plan.period ? ` / ${plan.period} ${plan.periodUnit || ''}`.trimEnd() : '');
+
+  async function refresh() {
+    if (!host()) return;
+    let view;
+    try {
+      view = (await api.leadHostingerDeployment(leadId, wsId)).data;
+    } catch (e) {
+      const el = host();
+      if (el) el.innerHTML = `<p class="hint">Deployment status could not be loaded: ${esc(errText(e))}</p>`;
+      return;
+    }
+    if (!host()) return;
+    paint(view);
+    const dep = view.deployment;
+    if (dep && ['queued', 'provisioning', 'installing'].includes(dep.status)) {
+      setTimeout(() => {
+        if (host()) refresh();
+      }, 5000);
+    }
+  }
+
+  function paint(view) {
+    const el = host();
+    if (!el) return;
+    if (!view.eligible) {
+      el.innerHTML = '<p class="hint">Not a software-interest lead.</p>';
+      return;
+    }
+    if (!view.configured) {
+      el.innerHTML = `<p class="hint">Hostinger is not connected yet, so this deploy button is dormant. Add the API token and the catalog defaults in <a href="#/admin/hostinger">Platform admin → Settings → Hostinger</a>${(view.missing || []).length ? ` — missing: ${esc(view.missing.join(', '))}` : ''}.</p>`;
+      return;
+    }
+    const dep = view.deployment;
+    if (!dep) return paintStart('');
+    if (dep.status === 'failed') return paintFailed(dep);
+    if (dep.status === 'ready') {
+      el.innerHTML = `
+        <p><span class="badge">ready</span> ${dep.instanceUrl ? `<a href="${esc(dep.instanceUrl)}" target="_blank" rel="noopener">${esc(dep.instanceUrl)}</a>` : ''}</p>
+        ${kv('Plan', dep.planName)}${kv('Admin email', dep.adminEmail)}
+        ${kv('Server', [dep.hostname, dep.ipAddress].filter(Boolean).join(' · '))}
+        ${dep.emailSentAt ? `<p class="hint">Setup email sent ${esc(fmtDate(dep.emailSentAt))} — the one-time password link is good for 72 hours after the instance reported ready; after that the customer uses “Forgot password”.</p>` : '<p class="hint">No setup-email send is recorded for this deployment.</p>'}
+        ${dep.warning ? `<p class="hint">⚠ ${esc(dep.warning)}</p>` : ''}`;
+      return;
+    }
+    el.innerHTML = `
+      <p><span class="badge">${esc(dep.status)}</span> Deployment #${dep.id} — ${esc(dep.planName || '')}</p>
+      ${kv('Started', fmtDate(dep.createdAt))}
+      ${dep.vmId ? kv('Hostinger VM', dep.vmId) : ''}
+      ${dep.hostname ? kv('Hostname', dep.hostname) : ''}
+      <p class="hint">${dep.status === 'installing' ? 'The server is up and the BitPype install is running on it. This panel refreshes every few seconds; the setup email goes out automatically when it finishes.' : 'Buying and booting the VPS on the connected Hostinger account. This panel refreshes every few seconds.'}</p>`;
+  }
+
+  function paintStart(note) {
+    const el = host();
+    if (!el) return;
+    el.innerHTML = `
+      ${note ? `<p class="hint">${esc(note)}</p>` : '<p class="hint">Provision a fresh Hostinger VPS and install a standard BitPype for this signup. The exact live catalog price is confirmed before anything is bought.</p>'}
+      <button class="btn small" id="ld-hostinger-deploy">Deploy on Hostinger…</button>`;
+    $('#ld-hostinger-deploy', el).onclick = () => showConfirm(false);
+  }
+
+  function paintFailed(dep) {
+    const el = host();
+    if (!el) return;
+    el.innerHTML = `
+      <p><span class="badge">failed</span> Deployment #${dep.id} — ${esc(dep.errorCode || 'DEPLOY_FAILED')}</p>
+      <p class="hint">${esc(dep.errorDetail || '')}</p>
+      ${dep.vmId ? `<p class="hint">Hostinger VM ${esc(dep.vmId)}${dep.hostname ? ` (${esc(dep.hostname)})` : ''} may still exist — check hPanel and remove it there if it is not needed.</p>` : ''}
+      <button class="btn small" id="ld-hostinger-retry">Retry deployment…</button>`;
+    $('#ld-hostinger-retry', el).onclick = () => showConfirm(true);
+  }
+
+  async function showConfirm(isRetry) {
+    const el = host();
+    if (!el) return;
+    el.innerHTML = '<p class="hint">Reading the live Hostinger catalog…</p>';
+    let preview;
+    try {
+      preview = (await api.leadHostingerPreview(leadId, wsId)).data;
+    } catch (e) {
+      const el2 = host();
+      if (el2) {
+        el2.innerHTML = `<p class="hint">${esc(errText(e))}</p><button class="btn small" id="ld-hostinger-back">Back</button>`;
+        $('#ld-hostinger-back', el2).onclick = () => refresh();
+      }
+      return;
+    }
+    const el2 = host();
+    if (!el2 || !preview.plan) return;
+    const plan = preview.plan;
+    const firstPeriod = plan.firstPeriodPriceCents != null ? plan.firstPeriodPriceCents : plan.priceCents;
+    el2.innerHTML = `
+      <p><strong>Confirm deployment${isRetry ? ' (retry)' : ''}</strong></p>
+      ${kv('Customer', `${preview.lead.name || ''} — ${preview.lead.email || ''}`)}
+      ${kv('VPS plan', plan.itemName || plan.priceId)}
+      ${kv('First period', `${money(firstPeriod, plan.currency)}${plan.priceName ? ` (${esc(plan.priceName)})` : ''}`)}
+      ${kv('Then', `${money(plan.priceCents, plan.currency)}${esc(periodText(plan))}`)}
+      ${kv('Data center / template', `${plan.dataCenterId} / ${plan.templateId}`)}
+      <p class="hint">This purchases a real VPS on the connected Hostinger account, charged to its default payment method, and installs a fresh standard BitPype whose admin account is the customer's email. A one-time password-setup link is emailed to them when it is ready.</p>
+      <div class="field"><label>Type DEPLOY to confirm the purchase</label><input id="ld-hostinger-type" autocomplete="off" /></div>
+      <div class="inline" style="margin-top:8px">
+        <button class="btn small primary" id="ld-hostinger-confirm" disabled>Buy &amp; deploy</button>
+        <button class="btn small" id="ld-hostinger-cancel">Cancel</button>
+        <span class="msg" id="ld-hostinger-msg"></span>
+      </div>`;
+    const typeEl = $('#ld-hostinger-type', el2);
+    const confirmBtn = $('#ld-hostinger-confirm', el2);
+    typeEl.oninput = () => {
+      confirmBtn.disabled = typeEl.value.trim() !== 'DEPLOY';
+    };
+    $('#ld-hostinger-cancel', el2).onclick = () => refresh();
+    confirmBtn.onclick = async () => {
+      const msg = $('#ld-hostinger-msg', el2);
+      confirmBtn.disabled = true;
+      try {
+        const body = { confirmPriceCents: plan.priceCents, confirmFirstPeriodCents: firstPeriod };
+        if (isRetry) await api.leadHostingerRetry(leadId, wsId, body);
+        else await api.leadHostingerStart(leadId, wsId, body);
+        toast('Deployment started', 'ok');
+        refresh();
+      } catch (e) {
+        if (e && e.code === 'PRICE_CHANGED') {
+          setMsg(msg, 'The catalog price changed — reloading the current price…', 'err');
+          setTimeout(() => showConfirm(isRetry), 900);
+          return;
+        }
+        setMsg(msg, errText(e), 'err');
+        confirmBtn.disabled = false;
+      }
+    };
+  }
+
+  refresh();
+}
+
 async function openLeadDrawer(id) {
   const dr = openDrawer({ title: 'Lead #' + id, html: '<p class="hint">Loading…</p>' });
 
@@ -2314,6 +2468,15 @@ async function openLeadDrawer(id) {
       return n.length === 10 ? `(${n.slice(0, 3)}) ${n.slice(3, 6)}-${n.slice(6)}` : '';
     };
     const phoneDisplay = fmtUsPhone(lead.phone);
+    // Batch 59: the one-click Hostinger deploy lives on software-
+    // interest leads only (the /landing signups), super-admin only —
+    // its API is platform-admin regardless.
+    const isSoftwareLead =
+      !!currentUserIsSuperAdmin &&
+      (String(lead.lead_group || '').toLowerCase() === 'software interest' ||
+        lead.source === 'landing-software' ||
+        (lead.tags || []).includes('landing-software') ||
+        (lead.tags || []).includes('software-interest'));
 
     dr.title.textContent = lead.business_name || 'Lead #' + id;
     dr.body.innerHTML = `
@@ -2373,6 +2536,9 @@ async function openLeadDrawer(id) {
       <section><h3>Google Profile</h3>
         <div id="ld-gbp"><p class="hint">Loading…</p></div>
       </section>
+      ${isSoftwareLead ? `<section><h3>Software deployment</h3>
+        <div id="ld-hostinger"><p class="hint">Loading…</p></div>
+      </section>` : ''}
       <section><h3>Social (Facebook / Instagram)</h3>
         <p class="hint">Generate a month of posts, weekly client approval, then schedule to Meta. Images optional.</p>
         <a class="btn small" href="#/social?leadId=${esc(id)}">Open Social for this lead</a>
@@ -2408,6 +2574,7 @@ async function openLeadDrawer(id) {
       </section>`;
 
     loadLeadGbp(dr, id);
+    if (isSoftwareLead) loadLeadHostinger(dr, id);
 
     guardSubmit($('#ld-form', dr.el), async (e) => {
       e.preventDefault();
@@ -6772,6 +6939,7 @@ async function pageAdmin(param) {
     ['adsense', 'AdSense'],
     ['general', 'General'],
     ['landing', 'Landing'],
+    ['hostinger', 'Hostinger'],
     ['audit', 'Audit'],
   ];
 
@@ -6802,7 +6970,7 @@ async function pageAdmin(param) {
         else if (tab === 'upsell') await renderAdminUpsellTips(body);
         else if (tab === 'adsense') await renderAdminAdsense(body);
         else if (tab === 'gbp') await renderAdminGbp(body);
-        else if (tab === 'email' || tab === 'sms' || tab === 'keys' || tab === 'general' || tab === 'billing' || tab === 'landing')
+        else if (tab === 'email' || tab === 'sms' || tab === 'keys' || tab === 'general' || tab === 'billing' || tab === 'landing' || tab === 'hostinger')
           await renderAdminSettings(body, tab);
         else if (tab === 'audit') await renderAdminAudit(body);
         else body.innerHTML = '<p class="hint">Unknown tab</p>';
@@ -7683,6 +7851,40 @@ function pcFillBlock(block, planState, useDefaults) {
   if (cad && ent.supportCadence != null) cad.value = ent.supportCadence;
 }
 
+// Batch 59: Hostinger status + connection test panel for
+// Admin → Settings → Hostinger. The four hostinger.* fields themselves
+// render in the generic form below; this panel reports whether the
+// feature is actually armed and pings the account on demand.
+function hostingerPanelHtml(state) {
+  if (!state) {
+    return `<div class="panel" style="margin-bottom:1rem">
+      <div class="panel-h"><h3>Hostinger connection</h3></div>
+      <div class="panel-b"><p class="hint">Hostinger status could not be loaded — reload the page to try again. The settings form below still works.</p></div>
+    </div>`;
+  }
+  const rows = [
+    `<div class="kv"><span class="k">API token</span><span>${state.tokenSet ? 'Saved' : 'Not set — create one in hPanel → Profile → API, paste it below and Save'}</span></div>`,
+    `<div class="kv"><span class="k">One-click deploys</span><span>${
+      state.configured
+        ? 'Armed — software-interest leads get a working “Deploy on Hostinger” button in their lead drawer'
+        : 'Dormant — still missing: ' + esc((state.missing || []).join(', '))
+    }</span></div>`,
+    `<div class="kv"><span class="k">Default VPS plan</span><span class="mono">${esc(state.defaultPriceId || '—')}</span></div>`,
+    `<div class="kv"><span class="k">Data center / template</span><span>${esc(state.dataCenterId != null ? String(state.dataCenterId) : '—')} / ${esc(state.templateId != null ? String(state.templateId) : '—')}</span></div>`,
+  ].join('');
+  return `<div class="panel" style="margin-bottom:1rem">
+    <div class="panel-h"><h3>Hostinger connection</h3></div>
+    <div class="panel-b" style="padding-bottom:0">
+      <p class="hint">One-click deployments buy a real VPS on the connected Hostinger account (charged to its default payment method) and install a fresh, standard BitPype for a /landing software signup. The deploy button lives on the lead itself — open a software-interest lead and use the “Software deployment” section. Prices are always read live from the Hostinger catalog at click time; nothing is bought without the typed confirmation.</p>
+    </div>
+    <div class="panel-b">
+      ${rows}
+      <div class="row actions" style="margin-top:10px"><button class="btn" type="button" id="hostinger-test">Test connection</button></div>
+      <div class="msg" id="hostinger-test-msg"></div>
+    </div>
+  </div>`;
+}
+
 // Batch 47: captcha status banner for Admin → Settings (General group,
 // where the captcha.* keys live). Driven by the server's computed status —
 // the point is that "captcha is on" is never assumed when it isn't.
@@ -7714,6 +7916,14 @@ async function renderAdminSettings(el, group) {
   const captchaStatus = group === 'general' ? (res.data && res.data.captcha) || null : null;
   let pricingState = null;
   let planContentsState = null;
+  let hostingerState = null;
+  if (group === 'hostinger') {
+    try {
+      hostingerState = (await api.adminHostingerStatus()).data;
+    } catch {
+      hostingerState = null; /* panel renders a could-not-load note; form still works */
+    }
+  }
   if (group === 'billing') {
     try {
       pricingState = (await api.adminPricing()).data;
@@ -7734,6 +7944,7 @@ async function renderAdminSettings(el, group) {
       general: 'General',
       billing: 'Stripe & subscription',
       landing: 'Landing page',
+      hostinger: 'Hostinger (one-click VPS deploys)',
     }[group] || group;
   const webhookHint =
     group === 'billing'
@@ -7745,6 +7956,7 @@ async function renderAdminSettings(el, group) {
     ${captchaStatus ? captchaStatusHtml(captchaStatus) : ''}
     ${group === 'billing' ? pricingPanelHtml(pricingState) : ''}
     ${group === 'billing' ? planContentsPanelHtml(planContentsState) : ''}
+    ${group === 'hostinger' ? hostingerPanelHtml(hostingerState) : ''}
     <div class="panel">
       <div class="panel-h"><h3>${esc(title)}</h3></div>
       <div class="panel-b" style="padding-bottom:0">${webhookHint}</div>
@@ -7819,6 +8031,27 @@ async function renderAdminSettings(el, group) {
         </form>
       </div>
     </div>`;
+
+  const hostingerTestBtn = $('#hostinger-test');
+  if (hostingerTestBtn) {
+    hostingerTestBtn.onclick = async () => {
+      const msg = $('#hostinger-test-msg');
+      hostingerTestBtn.disabled = true;
+      setMsg(msg, 'Contacting Hostinger…', '');
+      try {
+        const res = (await api.adminHostingerTest()).data;
+        setMsg(
+          msg,
+          `Connected — ${res.paymentMethods} payment method(s)${res.hasDefaultPaymentMethod ? ' (default available for purchases)' : ' — WARNING: no default payment method, purchases will fail'}, catalog: ${res.catalogItems} item(s) / ${res.catalogPrices} price(s).${res.configured ? '' : ' Deploys still dormant — missing: ' + (res.missing || []).join(', ')}`,
+          'ok'
+        );
+      } catch (err) {
+        setMsg(msg, errText(err), 'err');
+      } finally {
+        hostingerTestBtn.disabled = false;
+      }
+    };
+  }
 
   const pricingForm = $('#pricing-form');
   if (pricingForm) {

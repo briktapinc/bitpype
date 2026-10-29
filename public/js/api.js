@@ -498,6 +498,17 @@ window.ScoutApi = (() => {
     adminPricingUpdate: (amounts) => put('/admin/settings/pricing', { amounts }),
     adminPlanContents: () => get('/admin/settings/plans-contents'),
     adminPlanContentsUpdate: (contents) => put('/admin/settings/plans-contents', { contents }),
+    // Hostinger one-click deploys (Batch 59)
+    adminHostingerStatus: () => get('/admin/settings/hostinger'),
+    adminHostingerTest: () => post('/admin/settings/hostinger/test', {}),
+    leadHostingerDeployment: (leadId, wsId) =>
+      get('/admin/leads/' + leadId + '/hostinger-deployment', { workspaceId: wsId }),
+    leadHostingerPreview: (leadId, wsId) =>
+      post('/admin/leads/' + leadId + '/hostinger-deployment/preview', { workspaceId: wsId }),
+    leadHostingerStart: (leadId, wsId, body) =>
+      post('/admin/leads/' + leadId + '/hostinger-deployment', { workspaceId: wsId, ...(body || {}) }),
+    leadHostingerRetry: (leadId, wsId, body) =>
+      post('/admin/leads/' + leadId + '/hostinger-deployment/retry', { workspaceId: wsId, ...(body || {}) }),
     adminPushDefaults: (body) => post('/admin/settings/push', body || {}),
     adminPayments: (q) => get('/admin/payments', q),
     // Google Business Profile manager (Batch 46)
