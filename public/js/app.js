@@ -841,6 +841,11 @@ function bindFontToolbar(prefix, preview, getPages, getTheme, save) {
 
 const PUBLIC_ROUTES = new Set(['login', 'register', 'forgot', 'reset', 'invite']);
 let signedIn = false;
+// Batch 53: an invite token that arrived with a sign-in/register submit
+// is parked here while the second-factor challenge runs (register now
+// parks the same MFA challenge as login — review E-4), then accepted by
+// renderAuthMfa's finishWith once a real session exists.
+let pendingInviteToken = '';
 
 // Registration visibility for the bitpype.com auth screen (Admin Settings →
 // General → registration.open). Defaults to visible; loadRegistrationOpen()
@@ -1077,7 +1082,11 @@ function renderAuth(forcedMode) {
       // second-factor challenge instead of a session. Enrollment (first
       // time) and the code step both complete through renderAuthMfa,
       // which boots the app with the payload the confirm/verify returns.
-      if (mode === 'login' && res.data && res.data.mfaRequired) {
+      // Batch 53: registration parks the same challenge (it used to skip
+      // straight to a session), so the check is no longer login-only; a
+      // pending invite rides through the challenge via pendingInviteToken.
+      if (res.data && res.data.mfaRequired) {
+        if (inviteToken) pendingInviteToken = inviteToken;
         renderAuthMfa(res.data);
         return;
       }
@@ -1126,6 +1135,25 @@ function renderAuthMfa(challenge) {
   async function finishWith(payload) {
     signedIn = true;
     api.setWorkspaceId(payload.workspaceId);
+    // Batch 53: accept an invite that was parked before the second-factor
+    // detour — the same acceptance the no-challenge path performs inline
+    // (register used to reach it directly; now both login and register
+    // arrive here with the session freshly issued by finishStaffLogin).
+    if (pendingInviteToken) {
+      const invite = pendingInviteToken;
+      pendingInviteToken = '';
+      try {
+        const inv = await api.acceptInvite(invite);
+        if (inv.data && inv.data.workspaceId) {
+          api.setWorkspaceId(inv.data.workspaceId);
+          payload.workspaceId = inv.data.workspaceId;
+          if (inv.data.workspaces) payload.workspaces = inv.data.workspaces;
+        }
+        toast('Invite accepted', 'ok');
+      } catch (invErr) {
+        toast(invErr.message || 'Invite failed', 'err');
+      }
+    }
     await bootApp(payload);
   }
 

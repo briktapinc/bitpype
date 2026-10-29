@@ -135,24 +135,33 @@ router.post('/register', authLimit, captcha, async (req, res, next) => {
       }
       throw e;
     }
+    // Batch 53 (review E-4) — registration must not bypass the MFA gate.
+    // Before this fix, register issued a full staff session on password
+    // alone, while login parks a second-factor challenge (Batch 40:
+    // TOTP required for staff) — so "staff session ⇒ MFA verified" was
+    // false for every account's first session. Registration now follows
+    // the login path exactly: the account + workspace exist, but the
+    // session carries only the short-lived mfaChallenge (stage 'enroll'
+    // for a brand-new account) and req.session.userId is set solely by
+    // finishStaffLogin once enrollment/verification completes.
+    const mfaState = await mfa.getState('staff', created.userId);
     await regenerateSession(req);
     delete req.session.clientPortalId;
     delete req.session.clientWorkspaceId;
     delete req.session.clientLeadId;
-    req.session.userId = created.userId;
-    req.session.workspaceId = created.workspaceId;
-    await saveSession(req);
-    const workspaces = await listWorkspacesForUser(created.userId);
-    const user = {
-      id: created.userId,
+    delete req.session.userId;
+    delete req.session.workspaceId;
+    req.session.mfaChallenge = {
+      userId: created.userId,
       email: String(email).trim().toLowerCase(),
-      name: name || '',
-      is_super_admin: 0,
-      subscription_status: 'none',
-      billing_plan: 'free',
-      status: 'active',
+      stage: mfaState.enabled ? 'verify' : 'enroll',
+      expiresAt: Date.now() + MFA_CHALLENGE_MS,
     };
-    res.json({ ok: true, data: await authPayload(user, created.workspaceId, workspaces) });
+    await saveSession(req);
+    return res.json({
+      ok: true,
+      data: { mfaRequired: true, mfaStage: req.session.mfaChallenge.stage },
+    });
   } catch (e) {
     next(e);
   }

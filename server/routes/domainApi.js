@@ -100,6 +100,16 @@ function numLead(...vals) {
   return null;
 }
 
+// Batch 53 (review E-2): bulk lead DELETE is the same destructive
+// operation as DELETE /leads/:id, so it carries the same owner/admin
+// gate — applied conditionally so the non-destructive bulk actions
+// (status / tag / research / …) keep their existing access.
+const gateBulkLeadDelete = (req, res, next) => {
+  if (String((req.body || {}).action || '') === 'delete') {
+    return requireRole('owner', 'admin')(req, res, next);
+  }
+  return next();
+};
 const scopeLeadParam = requireTokenLeadScope((req) => numLead(req.params.id));
 const scopeLeadIdParam = requireTokenLeadScope((req) => numLead(req.params.leadId));
 const scopeBodyLead = requireTokenLeadScope((req) => numLead(req.body && req.body.leadId));
@@ -242,7 +252,7 @@ router.get('/leads/:id/references', scopeLeadParam, (req, res) => {
     fail(res, e);
   }
 });
-router.delete('/leads/:id', scopeLeadParam, (req, res) => {
+router.delete('/leads/:id', requireRole('owner', 'admin'), scopeLeadParam, (req, res) => {
   try {
     // Batch 45 (B1): return the full outcome (reference summary + which
     // websites were archive-firsted) instead of a bare id.
@@ -330,7 +340,7 @@ router.get('/leads/:id/claim-kit', scopeLeadParam, async (req, res) => {
     fail(res, e, 500);
   }
 });
-router.post('/leads/merge', denyLeadScopedToken, (req, res) => {
+router.post('/leads/merge', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
   try {
     ok(res, { lead: domain.leadsMerge(req.auth.workspaceId, req.body.keepId, req.body.dropIds) });
   } catch (e) {
@@ -344,7 +354,7 @@ router.post('/leads/import', denyLeadScopedToken, (req, res) => {
     fail(res, e);
   }
 });
-router.post('/leads/bulk', denyLeadScopedToken, async (req, res) => {
+router.post('/leads/bulk', denyLeadScopedToken, gateBulkLeadDelete, async (req, res) => {
   try {
     ok(res, { bulk: await domain.leadsBulk(req.auth.workspaceId, req.body || {}) });
   } catch (e) {
@@ -663,7 +673,7 @@ router.get('/design/:id/asset-base', scopeDesign, async (req, res) => {
     fail(res, e, 500);
   }
 });
-router.post('/design/:id/remove-delivery', scopeDesign, (req, res) => {
+router.post('/design/:id/remove-delivery', requireRole('owner', 'admin'), scopeDesign, (req, res) => {
   try {
     ok(res, {
       job: domain.designRemoveDelivery(req.auth.workspaceId, Number(req.params.id), req.body && req.body.path),
@@ -672,7 +682,7 @@ router.post('/design/:id/remove-delivery', scopeDesign, (req, res) => {
     fail(res, e);
   }
 });
-router.delete('/design/:id/delivery', scopeDesign, (req, res) => {
+router.delete('/design/:id/delivery', requireRole('owner', 'admin'), scopeDesign, (req, res) => {
   try {
     ok(res, {
       job: domain.designRemoveDelivery(
@@ -710,7 +720,7 @@ router.patch('/design/:id', scopeDesign, (req, res) => {
     fail(res, e);
   }
 });
-router.delete('/design/:id', scopeDesign, (req, res) => {
+router.delete('/design/:id', requireRole('owner', 'admin'), scopeDesign, (req, res) => {
   try {
     ok(res, domain.designDelete(req.auth.workspaceId, Number(req.params.id)));
   } catch (e) {
@@ -931,7 +941,7 @@ router.get('/websites/:id', scopeWebsite, (req, res) => {
     fail(res, e);
   }
 });
-router.delete('/websites/:id', scopeWebsite, (req, res) => {
+router.delete('/websites/:id', requireRole('owner', 'admin'), scopeWebsite, (req, res) => {
   try {
     ok(res, domain.sitesDelete(req.auth.workspaceId, Number(req.params.id)));
   } catch (e) {
@@ -1121,7 +1131,7 @@ router.post('/campaigns/:id/cancel', denyLeadScopedToken, (req, res) => {
     fail(res, e);
   }
 });
-router.delete('/campaigns/:id', denyLeadScopedToken, (req, res) => {
+router.delete('/campaigns/:id', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
   try {
     ok(res, domain.campaignsDelete(req.auth.workspaceId, Number(req.params.id)));
   } catch (e) {
@@ -1149,7 +1159,7 @@ router.post('/templates', denyLeadScopedToken, (req, res) => {
     fail(res, e);
   }
 });
-router.delete('/templates/:id', denyLeadScopedToken, (req, res) => {
+router.delete('/templates/:id', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
   try {
     ok(res, domain.templatesDelete(req.auth.workspaceId, Number(req.params.id)));
   } catch (e) {
@@ -1184,7 +1194,7 @@ router.post('/suppression', denyLeadScopedToken, (req, res) => {
     fail(res, e);
   }
 });
-router.delete('/suppression/:id', denyLeadScopedToken, (req, res) => {
+router.delete('/suppression/:id', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
   try {
     ok(res, domain.suppressionRemove(req.auth.workspaceId, Number(req.params.id)));
   } catch (e) {

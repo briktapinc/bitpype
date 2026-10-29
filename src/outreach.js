@@ -698,16 +698,66 @@ function applyInterestResponse(db, leadId, action) {
 }
 
 /**
+ * The ONLY action values the claim surface may act on (Batch 53, review
+ * finding E-1). The shipped clients — the standalone claim page
+ * (public/claim.html) and the injected preview popup
+ * (public/js/claim-preview.js) — send exactly 'interested' |
+ * 'uninterested' | 'later'; 'yes' / 'no' / 'deferred' / 'maybe' /
+ * 'maybe_later' are the historical synonyms the engine has always
+ * normalised. Anything else (typos, garbage, a MISSING action) is NOT a
+ * decision: before this allow-list existed, every unrecognised value
+ * fell through to "interested", so anyone holding a lead's public claim
+ * token could forge engagement and trigger a real follow-up email.
+ */
+const CLAIM_ACTION_ALIASES = {
+  interested: ['interested', 'yes'],
+  uninterested: ['uninterested', 'no'],
+  later: ['later', 'deferred', 'maybe', 'maybe_later'],
+};
+
+/** Normalise a raw claim action to its canonical family, or null. */
+function normalizeClaimAction(action) {
+  const raw = String(action == null ? '' : action)
+    .toLowerCase()
+    .trim();
+  if (!raw) return null;
+  for (const [family, aliases] of Object.entries(CLAIM_ACTION_ALIASES)) {
+    if (aliases.includes(raw)) return family;
+  }
+  return null;
+}
+
+/**
+ * Return the canonical claim action family, or — for an unrecognised /
+ * missing action — write a forensic activity row and throw VALIDATION.
+ * A rejection changes NO lead state and dispatches NO email.
+ */
+function assertClaimAction(db, leadId, action) {
+  const act = normalizeClaimAction(action);
+  if (act) return act;
+  const shown = String(action == null ? '' : action).slice(0, 40);
+  try {
+    logActivity(
+      db,
+      'outreach',
+      `Claim action rejected for lead #${leadId}: unrecognised action ${JSON.stringify(shown)} — no state change, no email sent`
+    );
+  } catch {
+    /* the forensic row must never mask the rejection itself */
+  }
+  throw Object.assign(new Error('Unknown claim action'), { code: 'VALIDATION' });
+}
+
+/**
  * Claim popup / claim page decision: Yes / No / Later.
  * - interested | uninterested → applyInterestResponse (engaged / lost)
  * - later | deferred | maybe → record claim.later (0 pts); does not change status;
  *   popup may re-show on a future visit (session hide only on the client)
+ * - anything else → VALIDATION (allow-list above; no state change, no email)
  */
 function applyClaimResponse(db, leadId, action) {
-  const raw = String(action || '')
-    .toLowerCase()
-    .trim();
-  if (raw === 'later' || raw === 'deferred' || raw === 'maybe' || raw === 'maybe_later') {
+  const claimAct = assertClaimAction(db, leadId, action);
+  if (claimAct === 'later') {
     const id = Number(leadId);
     if (!Number.isInteger(id) || id <= 0) throw new Error('Invalid leadId');
     const lead = db.prepare('SELECT id, business_name, status FROM leads WHERE id = ?').get(id);
@@ -742,7 +792,7 @@ function applyClaimResponse(db, leadId, action) {
       businessName: lead.business_name || '',
     };
   }
-  const act = raw === 'uninterested' || raw === 'no' ? 'uninterested' : 'interested';
+  const act = claimAct; // 'interested' | 'uninterested' (allow-listed above)
   const detailNote = act === 'uninterested' ? 'Chose No on claim popup' : 'Chose Yes on claim popup';
   const result = applyInterestResponse(db, leadId, act);
   // Prefer claim-specific activity wording when coming from the claim UI
@@ -1550,6 +1600,8 @@ module.exports = {
   interestResponsePath,
   applyInterestResponse,
   applyClaimResponse,
+  normalizeClaimAction,
+  assertClaimAction,
   setInterestedListener,
   listCampaigns,
   setCampaignStatus,

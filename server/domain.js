@@ -3814,7 +3814,16 @@ function outreachClaimMeta(token) {
 function outreachClaimDecide(token, action) {
   const claimKit = require('../src/claimKit');
   const { workspaceId, leadId } = claimKit.verifyClaimToken(token);
-  return withDb(workspaceId, (db) => outreach().applyClaimResponse(db, leadId, action));
+  const o = outreach();
+  // Batch 53 (review E-1): the claim action allow-list is enforced in the
+  // engine (applyClaimResponse), and asserted again here so the public
+  // facade never forwards an unrecognised action — assertClaimAction
+  // writes the forensic activity row, then throws VALIDATION (→ HTTP 400)
+  // before any state change or email dispatch can happen.
+  return withDb(workspaceId, (db) => {
+    o.assertClaimAction(db, leadId, action);
+    return o.applyClaimResponse(db, leadId, action);
+  });
 }
 
 /**
