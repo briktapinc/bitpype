@@ -10056,6 +10056,7 @@ async function navigate() {
     if (on) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
   });
+  syncNavGroups(route);
   topTitle.textContent = ROUTE_LABELS[route] || '';
   view.onclick = null;
   view.onchange = null;
@@ -10148,6 +10149,59 @@ if (menuBtn) menuBtn.addEventListener('click', openNav);
 if (sidebarClose) sidebarClose.addEventListener('click', closeNav);
 if (sidebarBackdrop) sidebarBackdrop.addEventListener('click', closeNav);
 window.addEventListener('hashchange', navigate);
+
+/* ---------- Batch 50: sidebar submenu groups ----------
+ * Structure lives in public/js/navGroups.js (window.NavGroups): daily
+ * drivers stay top-level, the rest sit in collapsible groups. State
+ * persists per group in localStorage ('scout.navGroups'); the group
+ * holding the current route always expands on navigation so the
+ * active item is never hidden (see navResolveExpanded). */
+const NAV_STORE_KEY = 'scout.navGroups';
+let navStoredState = null;
+function loadNavStored() {
+  try {
+    return JSON.parse(localStorage.getItem(NAV_STORE_KEY) || '{}') || {};
+  } catch {
+    return {};
+  }
+}
+function saveNavStored(map) {
+  try {
+    localStorage.setItem(NAV_STORE_KEY, JSON.stringify(map));
+  } catch {
+    /* storage unavailable — expansion just won't persist */
+  }
+}
+function applyNavGroups(map) {
+  $$('.nav-section[data-nav-group]').forEach((sec) => {
+    const open = !!map[sec.dataset.navGroup];
+    sec.classList.toggle('collapsed', !open);
+    const btn = sec.querySelector('[data-nav-toggle]');
+    if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+}
+function syncNavGroups(route) {
+  if (!window.NavGroups) return;
+  if (navStoredState === null) navStoredState = loadNavStored();
+  navStoredState = window.NavGroups.navResolveExpanded(route, navStoredState);
+  saveNavStored(navStoredState);
+  applyNavGroups(navStoredState);
+  const gid = window.NavGroups.navGroupForRoute(route);
+  $$('[data-nav-toggle]').forEach((b) => b.classList.toggle('has-active', b.dataset.navToggle === gid));
+}
+function initNavGroups() {
+  $$('[data-nav-toggle]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.navToggle;
+      if (navStoredState === null) navStoredState = loadNavStored();
+      navStoredState = { ...navStoredState, [id]: !navStoredState[id] };
+      saveNavStored(navStoredState);
+      applyNavGroups(navStoredState);
+    });
+  });
+  syncNavGroups(parseHash().route);
+}
+initNavGroups();
 
 (async function init() {
   if (typeof api.setOnAuthRequired === 'function') api.setOnAuthRequired(() => goToLogin());

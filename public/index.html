@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=app-warm2" />
+  <link rel="stylesheet" href="/styles.css?v=app-warm3" />
 </head>
 <body>
   <div id="auth-gate" class="auth-gate hidden"></div>
@@ -23,12 +23,10 @@
         <button type="button" class="sidebar-close" id="sidebar-close" aria-label="Close menu">&times;</button>
       </div>
       <nav class="nav-links" aria-label="Primary">
-        <div class="nav-group">Overview</div>
         <a href="#/dashboard" data-route="dashboard">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z"/></svg>
           Dashboard
         </a>
-        <div class="nav-group">Work</div>
         <a href="#/leads" data-route="leads">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm8 1a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM3 19c.4-2.6 2.6-4 5-4s4.6 1.4 5 4M14 15c2.1.2 3.8 1.4 4.4 4"/></svg>
           Leads
@@ -37,100 +35,138 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v12H4zM4 10h16M8 6V4m8 2V4"/></svg>
           Websites
         </a>
-        <a href="#/archives" data-route="archives">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v4H4zM6 9h12v10H6zM10 13h4"/></svg>
-          Archives
-        </a>
-        <a href="#/domains" data-route="domains">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 0c2.5 2.5 4 5.5 4 9s-1.5 6.5-4 9m0-18c-2.5 2.5-4 5.5-4 9s1.5 6.5 4 9M3.5 9h17M3.5 15h17"/></svg>
-          Domains
-        </a>
-        <a href="#/design" data-route="design">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 16l4-8 4 6 3-4 5 6H4zM8 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>
-          Design
-        </a>
-        <a href="#/outreach" data-route="outreach">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v12H4zM4 7l8 6 8-6"/></svg>
-          Outreach
-        </a>
-        <a href="#/pipeline" data-route="pipeline">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4v16H5zM10 8h4v12h-4zM15 6h4v14h-4z"/></svg>
-          Pipeline
-        </a>
-        <div class="nav-group">Site tools</div>
-        <a href="#/forms" data-route="forms">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14v18H5zM8 8h8M8 12h8M8 16h5"/></svg>
-          Forms
-        </a>
-        <a href="#/leadscout" data-route="leadscout">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 20c.8-3.2 4-5 8-5s7.2 1.8 8 5"/></svg>
-          LeadScout
-        </a>
-        <a href="#/bookings" data-route="bookings">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v15H5zM5 9h14M8 3v4M16 3v4"/></svg>
-          Bookings
-        </a>
-        <a href="#/shop" data-route="shop">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7l1.5-3h13L20 7l-1.5 1.5v11h-13v-11L4 7zM9.5 19.5v-6h5v6"/></svg>
-          Shop
-        </a>
-        <a href="#/memberships" data-route="memberships">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 20c.8-3.2 4-5 8-5s7.2 1.8 8 5M17 4.5h4M19 2.5v4"/></svg>
-          Memberships
-        </a>
-        <a href="#/calls" data-route="calls">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.9.34 1.79.65 2.65a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.43-1.22a2 2 0 0 1 2.11-.45c.86.31 1.75.53 2.65.65A2 2 0 0 1 22 16.92z"/></svg>
-          Calls
-        </a>
-        <a href="#/seo" data-route="seo">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm0 0a7 7 0 0 1 0 14M4.5 9h13M4.5 15h13M11 4c-2 2.3-3 5-3 7s1 4.7 3 7m0-14c2 2.3 3 5 3 7s-1 4.7-3 7"/></svg>
-          SEO
-        </a>
-        <a href="#/rentals" data-route="rentals">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6M9 11h.01M15 11h.01"/></svg>
-          Rentals
-        </a>
-        <a href="#/modules" data-route="modules">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg>
-          Modules
-        </a>
-        <a href="#/courses" data-route="courses">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4L2 9l10 5 10-5-10-5zM6 11.5V16c0 1.7 2.7 3 6 3s6-1.3 6-3v-4.5"/></svg>
-          Courses
-        </a>
-        <a href="#/social" data-route="social">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm10 2a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM3 19c.5-2.8 2.8-4.5 5.5-4.5S13.5 16.2 14 19M15 15.2c2.2.3 4 1.6 4.7 3.8"/></svg>
-          Social
-        </a>
-        <a href="#/analytics" data-route="analytics">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V11M10 20V5M16 20v-8M21 20H3"/></svg>
-          Analytics
-        </a>
-        <div class="nav-group">System</div>
-        <a href="#/jobs" data-route="jobs">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3 2"/></svg>
-          Jobs
-        </a>
-        <a href="#/mcp" data-route="mcp">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8V5a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2v3M8 16v3a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2v-3M4 12h6m4 0h6M9 9h6v6H9z"/></svg>
-          MCP
-        </a>
-        <a href="#/settings" data-route="settings">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h10M4 17h16M16 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"/></svg>
-          Settings
-        </a>
-        <a href="#/billing" data-route="billing">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18v10H3zM3 10h18M7 14h4"/></svg>
-          Billing
-        </a>
-        <a href="#/finance" data-route="finance">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-8M21 20H3"/></svg>
-          Finance
-        </a>
-        <a href="#/admin" data-route="admin" id="nav-admin" class="hidden" title="Platform super admin">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 8.5-8 9-4.5-.5-8-4-8-9V7l8-4zM9 12l2 2 4-4"/></svg>
-          Admin
-        </a>
+        <div class="nav-section" data-nav-group="work">
+          <button type="button" class="nav-group-toggle" data-nav-toggle="work" aria-expanded="true" aria-controls="nav-sub-work">
+            <span>Work</span>
+            <svg class="nav-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="nav-submenu" id="nav-sub-work" role="group" aria-label="Work">
+            <a href="#/archives" data-route="archives">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v4H4zM6 9h12v10H6zM10 13h4"/></svg>
+              Archives
+            </a>
+            <a href="#/design" data-route="design">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 16l4-8 4 6 3-4 5 6H4zM8 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>
+              Design
+            </a>
+            <a href="#/outreach" data-route="outreach">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v12H4zM4 7l8 6 8-6"/></svg>
+              Outreach
+            </a>
+            <a href="#/pipeline" data-route="pipeline">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4v16H5zM10 8h4v12h-4zM15 6h4v14h-4z"/></svg>
+              Pipeline
+            </a>
+          </div>
+        </div>
+        <div class="nav-section" data-nav-group="domains-calls">
+          <button type="button" class="nav-group-toggle" data-nav-toggle="domains-calls" aria-expanded="true" aria-controls="nav-sub-domains-calls">
+            <span>Domains &amp; Calls</span>
+            <svg class="nav-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="nav-submenu" id="nav-sub-domains-calls" role="group" aria-label="Domains &amp; Calls">
+            <a href="#/domains" data-route="domains">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 0c2.5 2.5 4 5.5 4 9s-1.5 6.5-4 9m0-18c-2.5 2.5-4 5.5-4 9s1.5 6.5 4 9M3.5 9h17M3.5 15h17"/></svg>
+              Domains
+            </a>
+            <a href="#/calls" data-route="calls">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.9.34 1.79.65 2.65a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.43-1.22a2 2 0 0 1 2.11-.45c.86.31 1.75.53 2.65.65A2 2 0 0 1 22 16.92z"/></svg>
+              Calls
+            </a>
+          </div>
+        </div>
+        <div class="nav-section" data-nav-group="site-tools">
+          <button type="button" class="nav-group-toggle" data-nav-toggle="site-tools" aria-expanded="true" aria-controls="nav-sub-site-tools">
+            <span>Site tools</span>
+            <svg class="nav-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="nav-submenu" id="nav-sub-site-tools" role="group" aria-label="Site tools">
+            <a href="#/forms" data-route="forms">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14v18H5zM8 8h8M8 12h8M8 16h5"/></svg>
+              Forms
+            </a>
+            <a href="#/leadscout" data-route="leadscout">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 20c.8-3.2 4-5 8-5s7.2 1.8 8 5"/></svg>
+              LeadScout
+            </a>
+            <a href="#/bookings" data-route="bookings">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v15H5zM5 9h14M8 3v4M16 3v4"/></svg>
+              Bookings
+            </a>
+            <a href="#/shop" data-route="shop">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7l1.5-3h13L20 7l-1.5 1.5v11h-13v-11L4 7zM9.5 19.5v-6h5v6"/></svg>
+              Shop
+            </a>
+            <a href="#/memberships" data-route="memberships">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 20c.8-3.2 4-5 8-5s7.2 1.8 8 5M17 4.5h4M19 2.5v4"/></svg>
+              Memberships
+            </a>
+            <a href="#/seo" data-route="seo">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm0 0a7 7 0 0 1 0 14M4.5 9h13M4.5 15h13M11 4c-2 2.3-3 5-3 7s1 4.7 3 7m0-14c2 2.3 3 5 3 7s-1 4.7-3 7"/></svg>
+              SEO
+            </a>
+            <a href="#/rentals" data-route="rentals">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6M9 11h.01M15 11h.01"/></svg>
+              Rentals
+            </a>
+            <a href="#/modules" data-route="modules">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg>
+              Modules
+            </a>
+            <a href="#/courses" data-route="courses">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4L2 9l10 5 10-5-10-5zM6 11.5V16c0 1.7 2.7 3 6 3s6-1.3 6-3v-4.5"/></svg>
+              Courses
+            </a>
+            <a href="#/social" data-route="social">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm10 2a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM3 19c.5-2.8 2.8-4.5 5.5-4.5S13.5 16.2 14 19M15 15.2c2.2.3 4 1.6 4.7 3.8"/></svg>
+              Social
+            </a>
+            <a href="#/analytics" data-route="analytics">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V11M10 20V5M16 20v-8M21 20H3"/></svg>
+              Analytics
+            </a>
+          </div>
+        </div>
+        <div class="nav-section" data-nav-group="money">
+          <button type="button" class="nav-group-toggle" data-nav-toggle="money" aria-expanded="true" aria-controls="nav-sub-money">
+            <span>Money</span>
+            <svg class="nav-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="nav-submenu" id="nav-sub-money" role="group" aria-label="Money">
+            <a href="#/billing" data-route="billing">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18v10H3zM3 10h18M7 14h4"/></svg>
+              Billing
+            </a>
+            <a href="#/finance" data-route="finance">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-8M21 20H3"/></svg>
+              Finance
+            </a>
+          </div>
+        </div>
+        <div class="nav-section" data-nav-group="system">
+          <button type="button" class="nav-group-toggle" data-nav-toggle="system" aria-expanded="true" aria-controls="nav-sub-system">
+            <span>System</span>
+            <svg class="nav-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="nav-submenu" id="nav-sub-system" role="group" aria-label="System">
+            <a href="#/jobs" data-route="jobs">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3 2"/></svg>
+              Jobs
+            </a>
+            <a href="#/mcp" data-route="mcp">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8V5a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2v3M8 16v3a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2v-3M4 12h6m4 0h6M9 9h6v6H9z"/></svg>
+              MCP
+            </a>
+            <a href="#/settings" data-route="settings">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h10M4 17h16M16 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"/></svg>
+              Settings
+            </a>
+            <a href="#/admin" data-route="admin" id="nav-admin" class="hidden" title="Platform super admin">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 8.5-8 9-4.5-.5-8-4-8-9V7l8-4zM9 12l2 2 4-4"/></svg>
+              Admin
+            </a>
+          </div>
+        </div>
       </nav>
       <a href="#/settings/automation" id="shell-automation" class="shell-status" title="Click to pause / resume automation">Checking automation…</a>
     </aside>
@@ -155,6 +191,7 @@
   <script src="/js/fonts.js?v=fonts1"></script>
   <script src="/js/api.js?v=security-r9-errors1-batch9"></script>
   <script src="/js/captcha.js"></script>
-  <script src="/js/app.js?v=batch19-shop1"></script>
+  <script src="/js/navGroups.js?v=batch50-menu1"></script>
+  <script src="/js/app.js?v=batch50-menu1"></script>
 </body>
 </html>

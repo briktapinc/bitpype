@@ -174,16 +174,65 @@ a {
   flex-direction: column;
   gap: 2px;
 }
-.nav-group {
+/* Batch 50: collapsible submenu groups. Sections render expanded in
+   the HTML (no-JS = the full menu, exactly as before); app.js applies
+   the stored/collapsed state via .collapsed on .nav-section. */
+.nav-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nav-group-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
   padding: 14px 12px 5px;
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
   font-size: 10.5px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.09em;
   color: var(--sidebar-muted);
+  text-align: left;
 }
-.nav-group:first-child {
-  padding-top: 2px;
+.nav-group-toggle:hover {
+  color: #fff;
+}
+.nav-group-toggle:focus-visible {
+  outline: 2px solid #f0b429;
+  outline-offset: 1px;
+  color: #fff;
+}
+.nav-group-toggle.has-active {
+  color: #fff;
+}
+.nav-chevron {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: 0 0 auto;
+  transition: transform 0.15s ease;
+}
+.nav-section.collapsed .nav-chevron {
+  transform: rotate(-90deg);
+}
+.nav-submenu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nav-section.collapsed .nav-submenu {
+  display: none;
 }
 .nav-links a {
   display: flex;
@@ -2092,7 +2141,8 @@ details[open] > summary {
   .btn,
   .chip,
   .tabs button,
-  .nav-links a {
+  .nav-links a,
+  .nav-chevron {
     transition: none;
   }
 }
