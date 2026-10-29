@@ -496,6 +496,8 @@ window.ScoutApi = (() => {
     adminSettingsSecret: (key, value) => put('/admin/settings/secret', { key, value }),
     adminPricing: () => get('/admin/settings/pricing'),
     adminPricingUpdate: (amounts) => put('/admin/settings/pricing', { amounts }),
+    adminPlanContents: () => get('/admin/settings/plans-contents'),
+    adminPlanContentsUpdate: (contents) => put('/admin/settings/plans-contents', { contents }),
     adminPushDefaults: (body) => post('/admin/settings/push', body || {}),
     adminPayments: (q) => get('/admin/payments', q),
     // Google Business Profile manager (Batch 46)

@@ -258,6 +258,35 @@ const PLATFORM_SETTING_DEFS = [
     label: 'Premium plan price label (e.g. $499/mo)',
     default: 'Premium · monthly',
   },
+  // Batch 57: per-plan CONTENTS overrides (name / tagline / features /
+  // entitlements) as JSON, owned by the Package contents panel in
+  // Admin → Settings → Billing (server/planContents.js). Empty = the
+  // code catalog in server/plans.js. Prices are NOT here — they stay
+  // with the Plan pricing panel above.
+  {
+    key: 'plans.contents_free',
+    group: 'billing',
+    label: 'Free plan contents override (JSON — set by Package contents)',
+    default: '',
+  },
+  {
+    key: 'plans.contents_standard',
+    group: 'billing',
+    label: 'Standard plan contents override (JSON — set by Package contents)',
+    default: '',
+  },
+  {
+    key: 'plans.contents_pro',
+    group: 'billing',
+    label: 'Pro plan contents override (JSON — set by Package contents)',
+    default: '',
+  },
+  {
+    key: 'plans.contents_premium',
+    group: 'billing',
+    label: 'Premium plan contents override (JSON — set by Package contents)',
+    default: '',
+  },
   {
     key: 'billing.require_subscription',
     group: 'billing',
@@ -496,6 +525,15 @@ async function setPlatformSetting(key, value) {
   // Batch 56: validate + normalize the public URL here, at the single write
   // choke point every save path funnels through.
   if (key === 'general.public_url') v = validatePublicUrlSetting(v);
+  // Batch 57: same treatment for the plan-contents overrides — validate +
+  // canonicalize the JSON here so no write path (admin API, generic
+  // settings save, MCP/IPC facade) can land a malformed override row.
+  // Lazy require: planContents requires this module at load time.
+  if (key.startsWith('plans.contents_')) {
+    const planId = key.slice('plans.contents_'.length);
+    const normalized = require('./planContents').validatePlanContents(planId, v);
+    v = normalized ? JSON.stringify(normalized) : '';
+  }
   await query(
     `INSERT INTO platform_settings (\`key\`, value)
      VALUES (:key, :value)
@@ -509,6 +547,16 @@ async function setPlatformSetting(key, value) {
       require('./stripeClient').setPublicUrlCache(v);
     } catch {
       /* resolver falls back to env/default until the next boot refresh */
+    }
+  }
+  if (key.startsWith('plans.contents_')) {
+    // Batch 57: keep the sync plan-contents resolver (server/plans.js)
+    // in step with the save — lazy require: planContents requires this
+    // module at load time.
+    try {
+      require('./planContents').setContentsCacheForKey(key, v);
+    } catch {
+      /* resolver keeps the boot-primed overrides until the next boot */
     }
   }
   return { key, set: true };

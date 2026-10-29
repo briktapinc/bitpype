@@ -275,6 +275,13 @@ const SETTABLE_KEYS = [
   'billing.amount_label_premium',
   'billing.require_subscription',
   'billing.trial_days',
+  // Batch 57: plan CONTENTS overrides (Package contents panel) — the
+  // rule is delegated to server/planContents.validatePlanContents,
+  // mirroring general.public_url → platform (Batch 56).
+  'plans.contents_free',
+  'plans.contents_standard',
+  'plans.contents_pro',
+  'plans.contents_premium',
   'credits.pack_amount',
   'credits.pack_label',
   'credits.per_social_image',
@@ -492,6 +499,25 @@ function validateSetting(key, raw) {
       // loaded after this module in some entry points.
       try {
         return { ok: true, value: require('./platform').validatePublicUrlSetting(value) };
+      } catch (e) {
+        return fail(e.message);
+      }
+    }
+    case 'plans.contents_free':
+    case 'plans.contents_standard':
+    case 'plans.contents_pro':
+    case 'plans.contents_premium': {
+      // Batch 57: identical rule to the platform write choke point
+      // (platform.setPlatformSetting) — the value is a JSON plan-contents
+      // override validated + canonicalized by server/planContents.js;
+      // '' clears the override. Lazy require: planContents loads
+      // platform.js, which loads after this module in some entry points.
+      const t = value.trim();
+      if (t === '') return { ok: true, value: '' };
+      try {
+        const planId = key.slice('plans.contents_'.length);
+        const normalized = require('./planContents').validatePlanContents(planId, t);
+        return { ok: true, value: JSON.stringify(normalized) };
       } catch (e) {
         return fail(e.message);
       }

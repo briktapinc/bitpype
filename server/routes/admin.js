@@ -360,6 +360,38 @@ router.put('/settings/pricing', async (req, res) => {
   }
 });
 
+// ---------- Package contents (Batch 57) ----------
+// Plan names / taglines / feature bullets / entitlements, editable like
+// the amounts above: see server/planContents.js. Contents changes take
+// effect for everyone on the plan immediately (entitlements included).
+router.get('/settings/plans-contents', async (req, res) => {
+  try {
+    ok(res, await require('../planContents').getPlanContentsState());
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.put('/settings/plans-contents', async (req, res) => {
+  try {
+    const result = await require('../planContents').updatePlanContents(
+      req.body && req.body.contents ? req.body.contents : req.body
+    );
+    try {
+      await platform.savePlatformDefaultsSnapshot();
+    } catch (e) {
+      console.warn('[admin] defaults snapshot', e.message);
+    }
+    await platform.audit(
+      req.session.userId,
+      'platform.plans_contents',
+      `updated=${result.updated.join(',') || 'none'} reset=${result.reset.join(',') || 'none'} unchanged=${result.unchanged.join(',') || 'none'}`
+    );
+    ok(res, result);
+  } catch (e) {
+    fail(res, e, e.code === 'VALIDATION' ? 400 : 500);
+  }
+});
+
 router.post('/settings/push', async (req, res) => {
   try {
     const result = await admin.pushDefaultsToWorkspaces({

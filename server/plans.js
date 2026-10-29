@@ -166,12 +166,56 @@ function normalizePlanId(raw) {
   return PLAN_FREE;
 }
 
+/* ------------------------------------------------------------------ */
+/* Batch 57 — admin-editable plan CONTENTS overrides.                  */
+/*                                                                     */
+/* The PLANS catalog above stays the code default. An admin can        */
+/* override a plan's name / tagline / feature bullets / entitlements   */
+/* from Admin → Settings → Billing → Package contents; the overrides   */
+/* live in platform settings (plans.contents_<plan>, one JSON row per   */
+/* plan) and are validated + owned by server/planContents.js, which    */
+/* pushes the parsed overrides into this module. Resolution is         */
+/* centralised HERE so every consumer of getPlan / listPlans /         */
+/* publicPlan sees the same contents — nobody reads the raw catalog    */
+/* for display. Merge rule: an override field replaces the default     */
+/* field wholesale (features and entitlements are never merged         */
+/* key-by-key — a partial entitlements merge could silently grant a   */
+/* default the admin meant to revoke). id / priceLabel / interval are  */
+/* never overridable: ids + rank are structural, prices live in the    */
+/* pricing panel (server/pricingAdmin.js).                             */
+/* ------------------------------------------------------------------ */
+let contentsOverrides = {};
+
+function resolvePlan(id) {
+  const base = PLANS[id] || PLANS[PLAN_FREE];
+  const o = contentsOverrides[base.id];
+  if (!o) return base;
+  const merged = { ...base };
+  if (typeof o.name === 'string') merged.name = o.name;
+  if (typeof o.tagline === 'string') merged.tagline = o.tagline;
+  if (Array.isArray(o.features)) merged.features = o.features.slice();
+  if (o.entitlements && typeof o.entitlements === 'object') {
+    merged.entitlements = { ...o.entitlements };
+  }
+  return merged;
+}
+
+/** Called by server/planContents.js (boot prime + every save). */
+function setContentsOverrides(map) {
+  contentsOverrides = map && typeof map === 'object' ? map : {};
+}
+
+/** Test/debug view of the active overrides (parsed objects, by plan id). */
+function getContentsOverrides() {
+  return contentsOverrides;
+}
+
 function getPlan(planId) {
-  return PLANS[normalizePlanId(planId)] || PLANS[PLAN_FREE];
+  return resolvePlan(normalizePlanId(planId));
 }
 
 function listPlans() {
-  return [PLAN_FREE, PLAN_STANDARD, PLAN_PRO, PLAN_PREMIUM].map((id) => ({ ...PLANS[id] }));
+  return [PLAN_FREE, PLAN_STANDARD, PLAN_PRO, PLAN_PREMIUM].map((id) => ({ ...resolvePlan(id) }));
 }
 
 function isPaidPlan(planId) {
@@ -212,4 +256,6 @@ module.exports = {
   isPaidPlan,
   maxPlan,
   publicPlan,
+  setContentsOverrides,
+  getContentsOverrides,
 };
