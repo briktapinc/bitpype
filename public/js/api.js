@@ -109,6 +109,7 @@ window.ScoutApi = (() => {
 
     // ---- auth ----
     authConfig: () => get('/auth/config'),
+    authPlans: () => get('/auth/plans'),
     me: () => get('/auth/me'),
     login: (body) => post('/auth/login', body),
     mfaEnrollStart: () => post('/auth/mfa/enroll/start', {}),
