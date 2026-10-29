@@ -31,6 +31,7 @@ const modulesPublicRoutes = require('./server/routes/modulesPublic');
 const chatbotPublicRoutes = require('./server/routes/chatbotPublic');
 const outreachPublicRoutes = require('./server/routes/outreachPublic');
 const websitePromoRoutes = require('./server/routes/websitePromo');
+const landingRoutes = require('./server/routes/landing');
 const portalRoutes = require('./server/routes/portal');
 const { publicRouter: mcpOAuthPublic, sessionRouter: mcpOAuthSession } = require('./server/routes/mcpOAuth');
 const mcpOAuth = require('./server/mcpOAuth');
@@ -375,6 +376,8 @@ app.use(
 );
 // Facebook-ad website promo lead form (Turnstile + lead create).
 app.use('/api/v1/website-promo', websitePromoRoutes);
+// Batch 58: /landing software-interest form (Turnstile + lead create in ws1).
+app.use('/api/v1/landing', landingRoutes);
 // Client portal routes are mounted earlier with portalSession (separate cookie).
 // Resolve workspace first, then paywall (workspace owner plan covers members).
 app.use('/api/v1/jobs', requireWorkspace, requireSubscription, jobsRoutes);
@@ -536,6 +539,39 @@ async function sendTemplatedPage(res, rel) {
   }
 }
 
+// Batch 58: /landing is a templated page PLUS a serve-time videos
+// section. The {{LANDING_VIDEOS}} token in public/landing.html is
+// replaced with section HTML built by server/landingVideos.js from the
+// canonical IDs stored in the landing.video_embeds platform setting —
+// or with '' when no videos are configured, so the section does not
+// render at all. A settings read failure degrades to no videos, never
+// to a broken page.
+async function sendLandingPage(res) {
+  const raw = readTemplatedPage('landing.html');
+  if (raw == null) return res.status(404).end();
+  try {
+    const { publicUrl, supportEmail } = await templatedTokens();
+    let videosHtml = '';
+    try {
+      const stored = await require('./server/platform').getPlatformSetting('landing.video_embeds', '[]');
+      const landingVideos = require('./server/landingVideos');
+      videosHtml = landingVideos.landingVideosSectionHtml(landingVideos.parseStoredLandingVideoEmbeds(stored));
+    } catch {
+      videosHtml = '';
+    }
+    const html = raw
+      .split('{{PUBLIC_URL}}')
+      .join(publicUrl)
+      .split('{{SUPPORT_EMAIL}}')
+      .join(supportEmail)
+      .split('{{LANDING_VIDEOS}}')
+      .join(videosHtml);
+    return res.type('html').send(html);
+  } catch {
+    return res.sendFile(path.join(__dirname, 'public', 'landing.html'));
+  }
+}
+
 // Marketing home at `/`. Staff SPA lives at `/app` so public visitors never hit the desk UI.
 // Logged-in staff hitting `/` are sent to `/app` so existing bookmarks keep working.
 app.get('/', (req, res) => {
@@ -557,11 +593,18 @@ app.get(['/how-it-works', '/how-it-works/'], (_req, res) => {
   return sendTemplatedPage(res, 'how-it-works.html');
 });
 
+// Batch 58: /landing sells the software itself to prospective agency
+// owners. Same explicit-route pattern (plus the videos substitution).
+app.get(['/landing', '/landing/'], (_req, res) => {
+  return sendLandingPage(res);
+});
+
 // Batch 56: direct file paths for the templated pages are intercepted
 // BEFORE express.static so a raw {{TOKEN}} is never served.
 app.get('/home.html', (_req, res) => sendTemplatedPage(res, 'home.html'));
 app.get('/how.html', (_req, res) => sendTemplatedPage(res, 'how.html'));
 app.get('/how-it-works.html', (_req, res) => sendTemplatedPage(res, 'how-it-works.html'));
+app.get('/landing.html', (_req, res) => sendLandingPage(res));
 app.get('/legal/privacy.html', (_req, res) => sendTemplatedPage(res, 'legal/privacy.html'));
 app.get('/legal/terms.html', (_req, res) => sendTemplatedPage(res, 'legal/terms.html'));
 

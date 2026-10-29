@@ -193,6 +193,9 @@ const SETTABLE_KEYS = [
   // settings save paths funnel through validateSetting (Batch 24b
   // invariant) — registered here with the platform rule delegated below.
   'general.public_url',
+  // Batch 58: landing page YouTube videos — validated/canonicalized by
+  // server/landingVideos.js (see the validateSetting case below).
+  'landing.video_embeds',
   'shop.stripe.publishable_key',
   'shop.stripe.secret_key',
   'shop.stripe.webhook_secret',
@@ -518,6 +521,17 @@ function validateSetting(key, raw) {
         const planId = key.slice('plans.contents_'.length);
         const normalized = require('./planContents').validatePlanContents(planId, t);
         return { ok: true, value: JSON.stringify(normalized) };
+      } catch (e) {
+        return fail(e.message);
+      }
+    }
+    case 'landing.video_embeds': {
+      // Batch 58: identical rule to the platform write choke point —
+      // only canonical YouTube video IDs are stored (JSON array string);
+      // non-YouTube input is a coded rejection. Lazy require mirrors the
+      // general.public_url case above.
+      try {
+        return { ok: true, value: require('./landingVideos').validateLandingVideoEmbedsSetting(value) };
       } catch (e) {
         return fail(e.message);
       }
