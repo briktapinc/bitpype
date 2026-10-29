@@ -9384,10 +9384,11 @@ async function pageBookings() {
         <td>${esc(s.duration_minutes || 30)} min</td>
         <td>${s.price_cents ? esc(moneyCents(s.price_cents, s.currency)) : '—'}</td>
         <td>${esc(s.status || 'draft')}</td>
-        <td>${esc(s.booking_count || 0)}</td></tr>`
+        <td>${esc(s.booking_count || 0)}</td>
+        <td class="actions"><button class="btn small danger" data-svc-del="${esc(s.id)}" data-lead="${esc(s.lead_id)}" data-name="${esc(s.name || '')}" data-biz="${esc(s.lead_name || 'Lead #' + s.lead_id)}" data-count="${esc(s.booking_count || 0)}">Delete</button></td></tr>`
       )
       .join('') ||
-    `<tr><td colspan="6" class="empty">${
+    `<tr><td colspan="7" class="empty">${
       filtered
         ? 'No services for this business.'
         : 'No services yet. Services are created per site via MCP bookings.createService.'
@@ -9411,7 +9412,7 @@ async function pageBookings() {
     </table></div></div>
     <div class="card"><div class="panel-h"><h3>Services</h3><span class="hint" id="bk-svc-count">${services.length} shown</span></div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Service</th><th>Business</th><th>Duration</th><th>Price</th><th>Status</th><th>Bookings</th></tr></thead>
+      <thead><tr><th>Service</th><th>Business</th><th>Duration</th><th>Price</th><th>Status</th><th>Bookings</th><th></th></tr></thead>
       <tbody id="bk-svc-body"></tbody>
     </table></div></div>`;
   renderBookings('');
@@ -9434,6 +9435,31 @@ async function pageBookings() {
       });
       if (out) pageBookings();
     };
+  }
+  // Batch 66 — per-record service delete (the tbody persists across
+  // filter re-renders, so one delegated listener covers every row).
+  const svcBody = view.querySelector('#bk-svc-body');
+  if (svcBody) {
+    svcBody.addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('[data-svc-del]');
+      if (!btn) return;
+      const name = btn.dataset.name || 'this service';
+      const biz = btn.dataset.biz || '';
+      const count = Number(btn.dataset.count || 0);
+      let msg = `Delete the service “${name}”${biz ? ` for ${biz}` : ''}?`;
+      if (count > 0) {
+        msg += `\n\nIt has ${count} appointment(s) on record — past appointments keep the service name on their record.`;
+      }
+      msg += '\n\nThis cannot be undone.';
+      if (!window.confirm(msg)) return;
+      try {
+        await api.adminDeleteBookingService(Number(btn.dataset.lead), Number(btn.dataset.svcDel));
+        toast('Service deleted', 'ok');
+        pageBookings();
+      } catch (e) {
+        toast(errText(e), 'err');
+      }
+    });
   }
 }
 
@@ -9552,10 +9578,13 @@ async function pageModules() {
         <td>${esc(i.website_name || '—')}</td>
         <td>${esc(i.target_page_slug || '—')}</td>
         <td>${i.published ? '<span class="badge ok">published</span>' : '<span class="badge">draft</span>'}</td>
-        <td>${i.updated_at ? esc(fmtDate(i.updated_at)) : '—'}</td></tr>`
+        <td>${i.updated_at ? esc(fmtDate(i.updated_at)) : '—'}</td>
+        <td class="actions"><button class="btn small danger" data-mod-del="${esc(i.lead_id)}" data-type="${esc(i.module_type)}" data-label="${esc(labelFor(i.module_type))}" data-biz="${esc(i.lead_name || 'Lead #' + i.lead_id)}" data-purge="${esc(
+          ((i.purge && i.purge.parts) || []).map((p) => `${p.count} ${p.label}`).join(' · ')
+        )}">Delete</button></td></tr>`
       )
       .join('') ||
-    `<tr><td colspan="6" class="empty">${filtered ? 'No modules installed for this business.' : 'No modules installed yet.'}</td></tr>`;
+    `<tr><td colspan="7" class="empty">${filtered ? 'No modules installed for this business.' : 'No modules installed yet.'}</td></tr>`;
   view.innerHTML = `
     <div class="page-head"><div><h1>Modules</h1><p class="lede">Platform modules and where they are installed. Attach or detach modules per site from the Design flow or MCP.</p></div>
     <div class="page-actions"><button class="btn danger" data-act="clear-all" ${installs.length ? '' : 'disabled'}>Clear all…</button> <button class="btn" data-act="refresh">Refresh</button></div></div>
@@ -9565,7 +9594,7 @@ async function pageModules() {
         .join('')}</div></div>
     ${businessFilterBarHtml(installs, 'md-biz')}
     <div class="table-wrap"><table>
-      <thead><tr><th>Module</th><th>Business</th><th>Website</th><th>Page</th><th>Published</th><th>Updated</th></tr></thead>
+      <thead><tr><th>Module</th><th>Business</th><th>Website</th><th>Page</th><th>Published</th><th>Updated</th><th></th></tr></thead>
       <tbody id="md-body"></tbody>
     </table></div>`;
   const renderInstalls = (v) => {
@@ -9573,6 +9602,31 @@ async function pageModules() {
   };
   renderInstalls('');
   view.querySelector('[data-act="refresh"]').onclick = () => pageModules();
+  // Batch 66 — per-record module delete (embed + content purge; the
+  // tbody persists across filter re-renders, one delegated listener).
+  const mdBody = view.querySelector('#md-body');
+  if (mdBody) {
+    mdBody.addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('[data-mod-del]');
+      if (!btn) return;
+      const label = btn.dataset.label || btn.dataset.type;
+      const biz = btn.dataset.biz || '';
+      const purge = btn.dataset.purge || '';
+      let msg = `Delete the ${label} module${biz ? ` for ${biz}` : ''}?`;
+      msg += purge
+        ? `\n\nThis permanently deletes the module and its content: ${purge}.`
+        : '\n\nThis permanently deletes the module (it has no content rows).';
+      msg += '\n\nDetach only unpublishes. Delete cannot be undone.';
+      if (!window.confirm(msg)) return;
+      try {
+        await api.adminDeleteModuleInstall(Number(btn.dataset.modDel), btn.dataset.type);
+        toast('Module deleted', 'ok');
+        pageModules();
+      } catch (e) {
+        toast(errText(e), 'err');
+      }
+    });
+  }
   let mdBiz = '';
   wireBusinessFilter('md-biz', (v) => {
     mdBiz = v;

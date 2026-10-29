@@ -401,6 +401,10 @@ window.ScoutApi = (() => {
     adminDeleteLeadScoutContact: (id) => del('/admin-area/leadscout/contacts/' + id),
     adminClearLeadScoutResolved: () => post('/admin-area/leadscout/failures/clear-resolved', {}),
     adminBookings: (q) => get('/admin-area/bookings', q),
+    adminDeleteBookingService: (leadId, id) =>
+      del('/admin-area/bookings/services/' + encodeURIComponent(id) + '?leadId=' + encodeURIComponent(leadId)),
+    adminDeleteModuleInstall: (leadId, type) =>
+      del('/admin-area/modules/installs/' + encodeURIComponent(leadId) + '/' + encodeURIComponent(type)),
     adminShop: (q) => get('/admin-area/shop', q),
     adminCourses: () => get('/admin-area/courses'),
     adminModules: () => get('/admin-area/modules'),

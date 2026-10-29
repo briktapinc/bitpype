@@ -1664,6 +1664,21 @@ router.get('/admin-area/bookings', requireRole('owner', 'admin'), denyLeadScoped
     fail(res, e, 500);
   }
 });
+// Batch 66 — staff per-record delete of one booking service. The
+// engine refuses (409 SERVICE_HAS_UPCOMING) while upcoming
+// appointments reference the service; past appointments keep a
+// snapshotted name. Owner/admin session only, like the other
+// admin-area deletes.
+router.delete('/admin-area/bookings/services/:id', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
+  try {
+    ok(
+      res,
+      domain.adminDeleteBookingService(req.auth.workspaceId, Number(req.query.leadId), Number(req.params.id))
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.status || 400);
+  }
+});
 // Batch 62 (review E-3): shop overview carries orders (customer PII +
 // money) — owner/admin session reads only.
 router.get('/admin-area/shop', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
@@ -1687,6 +1702,24 @@ router.get('/admin-area/modules', denyLeadScopedToken, (req, res) => {
     fail(res, e, 500);
   }
 });
+// Batch 66 — staff per-record delete of one module install (embed +
+// its content/config; detach is the non-destructive sibling and is
+// untouched). Owner/admin session only, like the other deletes.
+router.delete(
+  '/admin-area/modules/installs/:leadId/:type',
+  requireRole('owner', 'admin'),
+  denyLeadScopedToken,
+  (req, res) => {
+    try {
+      ok(
+        res,
+        domain.adminDeleteModuleInstall(req.auth.workspaceId, Number(req.params.leadId), String(req.params.type || ''))
+      );
+    } catch (e) {
+      fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.status || 400);
+    }
+  }
+);
 router.get('/admin-area/analytics', denyLeadScopedToken, (req, res) => {
   try {
     ok(res, domain.adminAnalyticsOverview(req.auth.workspaceId));

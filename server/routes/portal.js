@@ -1978,6 +1978,30 @@ router.post('/modules/:type/detach', requireClient, actionLimit, async (req, res
   }
 });
 
+// Batch 66 — per-record module DELETE (purge, not detach). Owner-only:
+// renters manage only their effective module set day-to-day (Batch 29)
+// and module removal destroys the business's content, so it follows
+// the owner-only default for destructive module operations. The
+// portalModuleGuard above has already scoped :type to the caller's
+// effective module set.
+router.delete('/modules/:type', requireClient, actionLimit, async (req, res) => {
+  try {
+    if (portalTabs.normalizeUserType(req.client && req.client.user_type) !== 'owner') {
+      return res.status(403).json({
+        ok: false,
+        error: 'Only the business owner can delete a module',
+        code: 'MODULE_DELETE_OWNER_ONLY',
+      });
+    }
+    ok(
+      res,
+      await portal.deleteSiteModule(req.client.workspace_id, req.client.lead_id, req.params.type, req.client.email)
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.status || 400);
+  }
+});
+
 /* ── LeadScout (form + booking contacts) ── */
 
 router.get('/leadscout/contacts', requireClient, async (req, res) => {
