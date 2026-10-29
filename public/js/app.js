@@ -10267,7 +10267,8 @@ async function pageRentals() {
   const tenantName = (r) => esc((r.tenant && r.tenant.business_name) || 'Lead #' + r.tenant_lead_id);
 
   view.innerHTML = `
-    <div class="page-head"><div><h1>Rentals</h1><p class="lede">Rent a ranked niche site to one local business — "Rent to Lead". While a rental is live, the site's calls forward to the tenant's phone and its form, booking and chat leads are delivered to the tenant. Per-lead rentals bill in credits ($1 = 1 credit); delivery never stops at a zero balance — the amount due just accrues. Ending a rental routes everything back to the site owner.</p></div></div>
+    <div class="page-head"><div><h1>Rentals</h1><p class="lede">Rent a ranked niche site to one local business — "Rent to Lead". While a rental is live, the site's calls forward to the tenant's phone and its form, booking and chat leads are delivered to the tenant. Per-lead rentals bill in credits ($1 = 1 credit); delivery never stops at a zero balance — the amount due just accrues. Ending a rental routes everything back to the site owner.</p></div>
+    <div class="page-actions"><button class="btn danger" id="rent-clear-all" type="button" ${rentals.length ? '' : 'disabled'}>Clear all…</button> <button class="btn" id="rent-refresh" type="button">Refresh</button></div></div>
     <div class="card" style="margin-bottom:1rem">
       <h3 style="margin-top:0">Rent a site</h3>
       <div class="row">
@@ -10285,7 +10286,7 @@ async function pageRentals() {
     </div>
     <div class="card" style="margin-bottom:1rem">
       <div class="inline" style="justify-content:space-between"><h3 style="margin:0">All rentals</h3>
-      <span class="inline"><input id="rent-filter" type="search" placeholder="Filter by business…" style="max-width:260px" /> <button class="btn small danger" id="rent-clear-all" type="button" ${rentals.length ? '' : 'disabled'}>Clear all…</button></span></div>
+      <input id="rent-filter" type="search" placeholder="Filter by business…" style="max-width:260px" /></div>
       <div class="table-wrap"><table class="table"><thead><tr><th>Site</th><th>Tenant</th><th>Terms</th><th>Status</th><th>Site leads</th><th>Charged</th><th>Amount due</th><th>Started</th><th></th></tr></thead>
       <tbody id="rent-rows"></tbody></table></div>
     </div>
@@ -10307,6 +10308,28 @@ async function pageRentals() {
       if (out) pageRentals();
     });
   }
+  const rentRefresh = document.getElementById('rent-refresh');
+  if (rentRefresh) rentRefresh.addEventListener('click', () => pageRentals());
+  // Batch 65 — per-record delete of an ended rental (the engine
+  // refuses live/paused rentals and any rental with charges still
+  // open; the tenant lead itself is never deleted).
+  const deleteRental = async (id) => {
+    const r = rentals.find((x) => Number(x.id) === Number(id)) || {};
+    const label = `${(r.site && r.site.name) || 'Site #' + r.website_id} → ${(r.tenant && r.tenant.business_name) || 'Lead #' + r.tenant_lead_id}`;
+    if (
+      !window.confirm(
+        `Delete the rental record for ${label}? This permanently removes the ended rental and its charge history. The site is already unrented, and the tenant's lead record is NOT deleted.`
+      )
+    )
+      return;
+    try {
+      await api.adminRentalDelete(id);
+      toast('Rental deleted', 'ok');
+      pageRentals();
+    } catch (e) {
+      toast(errText(e), 'err');
+    }
+  };
   const renderRows = (list) => {
     rowsEl.innerHTML =
       list
@@ -10320,7 +10343,7 @@ async function pageRentals() {
         <td>${esc(r.counters ? r.counters.charged_credits : 0)} credits</td>
         <td>${r.counters && r.counters.amount_due_cents ? '<strong>' + esc(cents(r.counters.amount_due_cents)) + '</strong>' : cents(0)}</td>
         <td>${esc(fmtDate(r.started_at || r.start_at || r.created_at))}</td>
-        <td><button class="btn small" data-rent-view="${esc(r.id)}" type="button">View</button></td>
+        <td class="actions"><button class="btn small" data-rent-view="${esc(r.id)}" type="button">View</button>${r.status === 'ended' ? ` <button class="btn small danger" data-rent-del="${esc(r.id)}" type="button">Delete</button>` : ''}</td>
       </tr>`
         )
         .join('') || '<tr><td colspan="9" class="empty">No rentals yet.</td></tr>';
@@ -10377,7 +10400,8 @@ async function pageRentals() {
             <span class="field" style="margin:0"><input id="rent-end-reason" placeholder="End reason (optional)" /></span>
             <button class="btn small danger" id="rent-end" type="button">End rental</button>
             <span class="msg" id="rent-detail-msg"></span></div>`
-              : ''
+              : `<div class="inline" style="margin-top:10px"><button class="btn small danger" id="rent-delete" type="button">Delete record</button>
+            <span class="msg" id="rent-detail-msg"></span></div>`
         }
         <h4>Per-lead charges</h4>
         <div class="table-wrap"><table class="table"><thead><tr><th>When</th><th>Source</th><th>Contact</th><th>Status</th><th>Charge</th></tr></thead><tbody>
@@ -10407,11 +10431,38 @@ async function pageRentals() {
       wire('rent-pause', () => api.adminRentalPause(rental.id), 'Rental paused — routing reverted to the owner.');
       wire('rent-resume', () => api.adminRentalResume(rental.id), 'Rental resumed — routing re-applied.');
       wire('rent-end', () => api.adminRentalEnd(rental.id, { reason: (document.getElementById('rent-end-reason') || {}).value || '' }), 'Rental ended.');
+      // Batch 65 — delete from the detail panel mirrors the row action
+      // (ended rentals only; the button is not rendered otherwise).
+      const rentDeleteBtn = document.getElementById('rent-delete');
+      if (rentDeleteBtn) {
+        rentDeleteBtn.addEventListener('click', async () => {
+          if (
+            !window.confirm(
+              `Delete the rental record for ${(rental.site && rental.site.name) || 'Site #' + rental.website_id} → ${(rental.tenant && rental.tenant.business_name) || 'Lead #' + rental.tenant_lead_id}? This permanently removes the ended rental and its charge history. The tenant's lead record is NOT deleted.`
+            )
+          )
+            return;
+          rentDeleteBtn.disabled = true;
+          try {
+            await api.adminRentalDelete(rental.id);
+            toast('Rental deleted', 'ok');
+            pageRentals();
+          } catch (e) {
+            rentDeleteBtn.disabled = false;
+            if (msg) msg.textContent = errText(e);
+          }
+        });
+      }
     } catch (e) {
       detailEl.innerHTML = `<p class="error">${esc(errText(e))}</p>`;
     }
   };
   rowsEl.addEventListener('click', (ev) => {
+    const del = ev.target.closest('[data-rent-del]');
+    if (del) {
+      deleteRental(Number(del.getAttribute('data-rent-del')));
+      return;
+    }
     const btn = ev.target.closest('[data-rent-view]');
     if (btn) renderDetail(Number(btn.getAttribute('data-rent-view')));
   });

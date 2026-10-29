@@ -1971,6 +1971,17 @@ router.post(
     }
   }
 );
+// Batch 65 — per-record rental delete (Rentals page row action). Same
+// owner/admin + no-lead-token guard as every other admin delete; the
+// engine refuses live rentals and any rental with money in flight.
+router.delete('/admin-area/rentals/:id', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
+  try {
+    const actor = (req.sessionUser && req.sessionUser.email) || '';
+    ok(res, domain.adminDeleteRental(req.auth.workspaceId, Number(req.params.id), { actor }));
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.status || 400);
+  }
+});
 
 // ---------- Domain purchase transactions (Batch 15) ----------
 // Batch 62 (review E-3): transaction reads expose amounts + the

@@ -488,13 +488,17 @@ function endRentalRow(db, rentalId, { reason = '' } = {}) {
 
 /**
  * Batch 51 — hard-delete an ENDED rental record (the clear-all path for
- * historical rentals; there is no single-delete UI). Live rentals
- * (trial/active) are NEVER deleted here — ending one unroutes the site
- * first, and that stays the End action's job. A paused rental is not
- * history yet either. A rental whose charges still carry money in
- * flight (status 'pending' or 'due') keeps its record — the charge
- * ledger must not vanish under an outstanding balance. Settled charge
- * rows (charged/trial) are the rental's own history and go with it.
+ * historical rentals; Batch 65 adds the per-record delete UI on top of
+ * this same engine). Live rentals (trial/active) are NEVER deleted
+ * here — ending one unroutes the site first, and that stays the End
+ * action's job. A paused rental is not history yet either. A rental
+ * whose charges still carry money in flight (status 'pending',
+ * 'charging' or 'due') keeps its record — the charge ledger must not
+ * vanish under an outstanding balance. Settled charge rows
+ * (charged/trial) are the rental's own history and go with it.
+ * Batch 65: the refusal names exactly what is open (count by state +
+ * amount due, also on error.details) instead of a bare count, and the
+ * result reports how many charge rows went with the record.
  */
 function deleteEndedRental(db, rentalId) {
   ensureRentals(db);
@@ -508,15 +512,40 @@ function deleteEndedRental(db, rentalId) {
   }
   const open = db
     .prepare(
-      `SELECT COUNT(*) AS c FROM site_rental_charges WHERE rental_id = ? AND status IN ('pending', 'due')`
+      `SELECT COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) AS pending,
+              COALESCE(SUM(CASE WHEN status = 'charging' THEN 1 ELSE 0 END), 0) AS charging,
+              COALESCE(SUM(CASE WHEN status = 'due' THEN 1 ELSE 0 END), 0) AS due,
+              COALESCE(SUM(CASE WHEN status = 'due' THEN amount_due_cents ELSE 0 END), 0) AS amount_due_cents
+         FROM site_rental_charges
+        WHERE rental_id = ? AND status IN ('pending', 'charging', 'due')`
     )
     .get(Number(rental.id));
-  if (open && Number(open.c) > 0) {
-    throw fail('RENTAL_CHARGES_OPEN', 'This rental still has unsettled charges and cannot be removed.', 409);
+  const openCount = Number(open.pending || 0) + Number(open.charging || 0) + Number(open.due || 0);
+  if (openCount > 0) {
+    const parts = [];
+    if (Number(open.pending)) parts.push(`${open.pending} pending`);
+    if (Number(open.charging)) parts.push(`${open.charging} settling`);
+    if (Number(open.due)) parts.push(`${open.due} due (${money(open.amount_due_cents)} owed)`);
+    const e = fail(
+      'RENTAL_CHARGES_OPEN',
+      `This rental still has unsettled charges and cannot be removed — ${openCount} open charge${openCount === 1 ? '' : 's'}: ${parts.join(', ')}. Settle them or write them off first.`,
+      409
+    );
+    e.details = {
+      openCharges: openCount,
+      pending: Number(open.pending || 0),
+      charging: Number(open.charging || 0),
+      due: Number(open.due || 0),
+      amountDueCents: Number(open.amount_due_cents || 0),
+    };
+    throw e;
   }
+  const chargeCount = db
+    .prepare('SELECT COUNT(*) AS c FROM site_rental_charges WHERE rental_id = ?')
+    .get(Number(rental.id));
   db.prepare('DELETE FROM site_rental_charges WHERE rental_id = ?').run(Number(rental.id));
   db.prepare('DELETE FROM site_rentals WHERE id = ?').run(Number(rental.id));
-  return { deleted: true, id: Number(rental.id) };
+  return { deleted: true, id: Number(rental.id), charges_removed: Number(chargeCount ? chargeCount.c : 0) };
 }
 
 function pauseRentalRow(db, rentalId) {

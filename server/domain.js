@@ -5235,6 +5235,57 @@ function adminClearAllRentals(workspaceId, opts = {}) {
   });
 }
 
+/**
+ * Batch 65 — staff per-record delete of ONE rental (the Rentals page
+ * row action). Same engine as clear-all (rentals.deleteEndedRental):
+ * only an ENDED rental can go, and never with money in flight —
+ * pending/settling/due charges refuse with RENTAL_CHARGES_OPEN naming
+ * the amounts. The tenant LEAD is never touched; only the rental link
+ * and its own charge rows are removed (capture rows stamped with the
+ * rental id in other tables are the tenant's lead history — a snapshot
+ * by design, per the rentals module header — and stay). Audited with
+ * a snapshot of what was removed.
+ */
+function adminDeleteRental(workspaceId, id, opts = {}) {
+  return withDb(workspaceId, (db) => {
+    const rentals = require('./rentals');
+    rentals.ensureRentals(db);
+    const rental = rentals.getRental(db, Number(id));
+    if (!rental) {
+      const e = new Error('Rental not found');
+      e.code = 'NOT_FOUND';
+      e.status = 404;
+      throw e;
+    }
+    const counters = rentals.rentalCounters(db, Number(id));
+    const site = rentals.websiteRow(db, rental.website_id);
+    const tenant = rentals.leadRow(db, rental.tenant_lead_id);
+    const snapshot = {
+      rental_id: Number(rental.id),
+      website_id: Number(rental.website_id),
+      site_name: (site && (site.name || site.business_name)) || `Site #${rental.website_id}`,
+      tenant_lead_id: Number(rental.tenant_lead_id),
+      tenant_name: (tenant && tenant.business_name) || `Lead #${rental.tenant_lead_id}`,
+      status: rental.status,
+      model: rental.model,
+      price_cents: Number(rental.price_cents || 0),
+      qualified_leads: counters.qualified_leads,
+      charged_credits: counters.charged_credits,
+      amount_due_cents: counters.amount_due_cents,
+    };
+    const out = rentals.deleteEndedRental(db, Number(id));
+    try {
+      db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
+        'rentals',
+        `Staff${opts.actor ? ` (${opts.actor})` : ''} deleted rental #${snapshot.rental_id} (${snapshot.site_name} → ${snapshot.tenant_name}; was ${snapshot.status}; ${out.charges_removed || 0} charge row(s) removed; ${snapshot.qualified_leads} site lead(s), ${snapshot.charged_credits} credit(s) charged, $${(snapshot.amount_due_cents / 100).toFixed(2)} due at delete)`
+      );
+    } catch {
+      /* activity log is best-effort */
+    }
+    return { ...out, snapshot };
+  });
+}
+
 function adminClearAllModules(workspaceId, opts = {}) {
   assertClearAllConfirm(opts.confirm);
   const leadId = Number(opts.leadId) || null;
@@ -5896,6 +5947,7 @@ module.exports = {
   adminDeleteLeadScoutContact,
   adminClearLeadScoutResolved,
   adminDeleteCallLog,
+  adminDeleteRental,
   adminVoidDomainTransaction,
   adminDeleteDomainTransaction,
   adminClearAllForms,

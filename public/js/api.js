@@ -424,6 +424,7 @@ window.ScoutApi = (() => {
     adminRentalEnd: (id, body) => post('/admin-area/rentals/' + id + '/end', body || {}),
     adminRentalPause: (id) => post('/admin-area/rentals/' + id + '/pause', {}),
     adminRentalResume: (id) => post('/admin-area/rentals/' + id + '/resume', {}),
+    adminRentalDelete: (id) => del('/admin-area/rentals/' + id),
     adminDomainTransactions: (q) => get('/admin-area/domain-transactions', q),
     adminDomainTransaction: (id) => get('/admin-area/domain-transactions/' + id),
     adminDomainTransactionComplete: (id) => post('/admin-area/domain-transactions/' + id + '/complete', {}),

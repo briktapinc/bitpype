@@ -1302,6 +1302,12 @@ function toolDefs({ clientScoped = false } = {}) {
       inputSchema: schema({ rentalId: ID, id: ID, reason: STR }),
     },
     {
+      name: 'rentals.delete',
+      description:
+        'Permanently delete ONE ended Site Rental record and its settled charge history (Batch 65 — the Rentals page per-record delete). Refuses live (trial/active) rentals (RENTAL_ACTIVE — end it first), paused rentals (RENTAL_NOT_ENDED), and any rental with money in flight: pending/settling/due charges fail with RENTAL_CHARGES_OPEN naming the amounts. The tenant lead is never deleted — only the rental link goes. Workspace token only.',
+      inputSchema: schema({ rentalId: ID, id: ID }),
+    },
+    {
       name: 'calls.poolList',
       description:
         'List the workspace Twilio number pool (Batch 26d): numbers staff purchased on the connected Twilio account and registered here, each with its current assignment (which business uses it as its tracking number or in its rotation, or null). Workspace token only — the pool is staff-managed.',
@@ -2732,6 +2738,7 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'rentals.get',
     'rentals.create',
     'rentals.end',
+    'rentals.delete',
     'members.getConfig',
     'members.updateConfig',
     'members.listMembers',
@@ -3563,6 +3570,12 @@ async function callClientTool(ws, name, a, ctx = {}) {
     if (!rentalId) throw new Error('rentalId is required');
     const ended = await domain.rentalsEnd(ws, rentalId, a.reason || '');
     return { plan: planId, ...ended };
+  }
+  if (name === 'rentals.delete') {
+    const rentalId = Number(a.rentalId != null ? a.rentalId : a.id);
+    if (!rentalId) throw new Error('rentalId is required');
+    const deleted = domain.adminDeleteRental(ws, rentalId, { actor: 'mcp' });
+    return { plan: planId, ...deleted };
   }
   if (name === 'calls.poolList') {
     return { plan: planId, ...domain.adminListNumberPool(ws) };
