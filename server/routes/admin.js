@@ -392,6 +392,99 @@ router.put('/settings/plans-contents', async (req, res) => {
   }
 });
 
+// ---------- Batch 59: Hostinger one-click deploys ----------
+// Settings status + account ping for Admin → Settings → Hostinger.
+router.get('/settings/hostinger', async (req, res) => {
+  try {
+    const dep = require('../hostingerDeploy');
+    const cfg = await dep.getConfig();
+    ok(res, {
+      tokenSet: cfg.tokenSet,
+      configured: cfg.configured,
+      missing: cfg.missing,
+      defaultPriceId: cfg.priceId || '',
+      dataCenterId: cfg.dataCenterId,
+      templateId: cfg.templateId,
+    });
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.post('/settings/hostinger/test', async (req, res) => {
+  try {
+    ok(res, await require('../hostingerDeploy').testConnection());
+  } catch (e) {
+    fail(res, e, 400);
+  }
+});
+
+// Per-lead deployment view + actions. The workspaceId query/body arg
+// is required: deployments hang off a workspace's lead (the /landing
+// signups live in ws1), and the drawer knows its workspace.
+function deploymentWorkspace(req) {
+  const raw = (req.query && req.query.workspaceId) || (req.body && req.body.workspaceId);
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0) {
+    const e = new Error('workspaceId is required');
+    e.code = 'VALIDATION';
+    throw e;
+  }
+  return n;
+}
+router.get('/leads/:leadId/hostinger-deployment', async (req, res) => {
+  try {
+    const ws = deploymentWorkspace(req);
+    ok(
+      res,
+      await require('../hostingerDeploy').getLeadDeploymentView(ws, Number(req.params.leadId), {
+        withPreview: req.query.preview === '1',
+      })
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+router.post('/leads/:leadId/hostinger-deployment/preview', async (req, res) => {
+  try {
+    const ws = deploymentWorkspace(req);
+    ok(res, await require('../hostingerDeploy').previewForLead(ws, Number(req.params.leadId)));
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+router.post('/leads/:leadId/hostinger-deployment', async (req, res) => {
+  try {
+    const ws = deploymentWorkspace(req);
+    const b = req.body || {};
+    const deployment = await require('../hostingerDeploy').startDeployment({
+      workspaceId: ws,
+      leadId: Number(req.params.leadId),
+      actorUserId: req.session.userId,
+      confirmPriceCents: b.confirmPriceCents != null ? Number(b.confirmPriceCents) : null,
+      confirmFirstPeriodCents: b.confirmFirstPeriodCents != null ? Number(b.confirmFirstPeriodCents) : null,
+    });
+    ok(res, { deployment });
+  } catch (e) {
+    fail(res, e, e.code === 'DEPLOYMENT_ACTIVE' ? 409 : e.code === 'PRICE_CHANGED' ? 409 : e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+router.post('/leads/:leadId/hostinger-deployment/retry', async (req, res) => {
+  try {
+    const ws = deploymentWorkspace(req);
+    const b = req.body || {};
+    const deployment = await require('../hostingerDeploy').retryDeployment({
+      workspaceId: ws,
+      leadId: Number(req.params.leadId),
+      actorUserId: req.session.userId,
+      confirmPriceCents: b.confirmPriceCents != null ? Number(b.confirmPriceCents) : null,
+      confirmFirstPeriodCents: b.confirmFirstPeriodCents != null ? Number(b.confirmFirstPeriodCents) : null,
+    });
+    ok(res, { deployment });
+  } catch (e) {
+    fail(res, e, e.code === 'DEPLOYMENT_ACTIVE' ? 409 : e.code === 'PRICE_CHANGED' ? 409 : e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
 router.post('/settings/push', async (req, res) => {
   try {
     const result = await admin.pushDefaultsToWorkspaces({

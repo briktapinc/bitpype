@@ -306,6 +306,41 @@ async function migrate() {
         used_at TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
+      CREATE TABLE IF NOT EXISTS deployments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workspace_id INTEGER NOT NULL,
+        lead_id INTEGER NOT NULL,
+        lead_email TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'queued',
+        plan_item_id TEXT NOT NULL DEFAULT '',
+        plan_name TEXT NOT NULL DEFAULT '',
+        price_cents INTEGER,
+        first_period_price_cents INTEGER,
+        currency TEXT NOT NULL DEFAULT '',
+        hostinger_order_id TEXT,
+        hostinger_subscription_id TEXT,
+        hostinger_vm_id TEXT,
+        hostinger_script_id TEXT,
+        hostname TEXT,
+        ip_address TEXT,
+        instance_url TEXT,
+        admin_email TEXT NOT NULL DEFAULT '',
+        setup_token_hash TEXT,
+        setup_expires_at TEXT,
+        callback_secret_hash TEXT,
+        bundle_token_hash TEXT,
+        active_lead_key TEXT UNIQUE,
+        email_sent_at TEXT,
+        warning TEXT,
+        error_code TEXT,
+        error_detail TEXT,
+        created_by INTEGER,
+        purchase_started_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_deployments_lead ON deployments(workspace_id, lead_id);
+      CREATE INDEX IF NOT EXISTS idx_deployments_status ON deployments(status);
       CREATE TABLE IF NOT EXISTS workspace_invites (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         workspace_id INTEGER NOT NULL,
@@ -553,6 +588,44 @@ async function migrate() {
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uq_prt_hash (token_hash),
         KEY idx_prt_user (user_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS deployments (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        workspace_id BIGINT UNSIGNED NOT NULL,
+        lead_id BIGINT UNSIGNED NOT NULL,
+        lead_email VARCHAR(254) NOT NULL DEFAULT '',
+        status VARCHAR(24) NOT NULL DEFAULT 'queued',
+        plan_item_id VARCHAR(120) NOT NULL DEFAULT '',
+        plan_name VARCHAR(190) NOT NULL DEFAULT '',
+        price_cents BIGINT NULL,
+        first_period_price_cents BIGINT NULL,
+        currency VARCHAR(8) NOT NULL DEFAULT '',
+        hostinger_order_id VARCHAR(64) NULL,
+        hostinger_subscription_id VARCHAR(64) NULL,
+        hostinger_vm_id VARCHAR(64) NULL,
+        hostinger_script_id VARCHAR(64) NULL,
+        hostname VARCHAR(190) NULL,
+        ip_address VARCHAR(64) NULL,
+        instance_url VARCHAR(300) NULL,
+        admin_email VARCHAR(254) NOT NULL DEFAULT '',
+        setup_token_hash CHAR(64) NULL,
+        setup_expires_at DATETIME NULL,
+        callback_secret_hash CHAR(64) NULL,
+        bundle_token_hash CHAR(64) NULL,
+        active_lead_key VARCHAR(64) NULL,
+        email_sent_at DATETIME NULL,
+        warning VARCHAR(500) NULL,
+        error_code VARCHAR(48) NULL,
+        error_detail VARCHAR(1000) NULL,
+        created_by BIGINT UNSIGNED NULL,
+        purchase_started_at DATETIME NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_deployments_active_lead (active_lead_key),
+        KEY idx_deployments_lead (workspace_id, lead_id),
+        KEY idx_deployments_status (status)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
     await conn.query(`

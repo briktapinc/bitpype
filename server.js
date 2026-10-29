@@ -32,6 +32,12 @@ const chatbotPublicRoutes = require('./server/routes/chatbotPublic');
 const outreachPublicRoutes = require('./server/routes/outreachPublic');
 const websitePromoRoutes = require('./server/routes/websitePromo');
 const landingRoutes = require('./server/routes/landing');
+// Batch 59: public install-script callback + bundle download.
+const hostingerCallbackRoutes = require('./server/routes/hostingerCallback');
+const { rateLimit: rateLimitFactory } = require('./server/rateLimit');
+const hostingerDeployLimit = rateLimitFactory({ name: 'hostinger-deploy', windowMs: 15 * 60 * 1000, max: 40 });
+// Batch 59: deployment ticker (provisioning/install watchdog).
+const hostingerDeploy = require('./server/hostingerDeploy');
 const portalRoutes = require('./server/routes/portal');
 const { publicRouter: mcpOAuthPublic, sessionRouter: mcpOAuthSession } = require('./server/routes/mcpOAuth');
 const mcpOAuth = require('./server/mcpOAuth');
@@ -378,6 +384,10 @@ app.use(
 app.use('/api/v1/website-promo', websitePromoRoutes);
 // Batch 58: /landing software-interest form (Turnstile + lead create in ws1).
 app.use('/api/v1/landing', landingRoutes);
+// Batch 59: Hostinger one-click deploy — a customer VM's install
+// script phones home here and downloads its source bundle here
+// (per-deployment token auth inside the router; no session/workspace).
+app.use('/api/v1/hostinger-deploy', hostingerDeployLimit, hostingerCallbackRoutes);
 // Client portal routes are mounted earlier with portalSession (separate cookie).
 // Resolve workspace first, then paywall (workspace owner plan covers members).
 app.use('/api/v1/jobs', requireWorkspace, requireSubscription, jobsRoutes);
@@ -802,6 +812,12 @@ async function main() {
   }
 
   startScheduler({ intervalMs: Number(process.env.JOB_TICK_MS || 30000) });
+  // Batch 59: resume/watch Hostinger deployments left mid-flight.
+  try {
+    hostingerDeploy.startDeploymentTicker();
+  } catch (e) {
+    console.warn('[hostingerDeploy] ticker not started:', e.message);
+  }
   try {
     require('./server/imapPoller').startImapPoller({
       intervalMs: Number(process.env.IMAP_POLL_MS || 120000),
