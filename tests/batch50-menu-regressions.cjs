@@ -8,7 +8,7 @@
  * structure (NAV_TOP_LEVEL + NAV_GROUPS) that app.js uses for
  * expand/collapse state, and this file pins the two to each other:
  *
- *  - the full sidebar inventory (26 items: label + href + route — the
+ *  - the full sidebar inventory (27 items: label + href + route — the
  *    25 pre-Batch-50 items plus Batch 49's Finance) survives verbatim —
  *    no item lost, no label renamed, no route moved;
  *  - every inventory route appears EXACTLY ONCE across the config;
@@ -78,6 +78,9 @@ const INVENTORY = [
   ['billing', 'Billing'],
   ['finance', 'Finance'],
   ['admin', 'Admin'],
+  // Batch 71: the Admin mailing list joins the System group (super-admin
+  // hidden gate, like Admin). Deliberate inventory growth, not drift.
+  ['mailing-list', 'Mailing list'],
 ];
 
 function sidebarAnchors() {
@@ -95,7 +98,7 @@ function sidebarAnchors() {
   return out;
 }
 
-check('inventory: all 26 items (25 pre-Batch-50 + Finance) survive with labels + routes unchanged', () => {
+check('inventory: all items (25 pre-Batch-50 + Finance + Batch 71 Mailing list) survive with labels + routes unchanged', () => {
   const anchors = sidebarAnchors();
   assert.equal(anchors.length, INVENTORY.length, `expected ${INVENTORY.length} sidebar anchors, got ${anchors.length}`);
   const byRoute = new Map(anchors.map((a) => [a.route, a]));
@@ -132,7 +135,7 @@ check('config: top-level daily drivers + group labels/membership pinned', () => 
   assert.deepEqual(byId['site-tools'], [
     'forms', 'leadscout', 'bookings', 'shop', 'memberships', 'seo', 'rentals', 'modules', 'courses', 'social', 'analytics',
   ]);
-  assert.deepEqual(byId['system'], ['jobs', 'mcp', 'settings', 'admin']);
+  assert.deepEqual(byId['system'], ['jobs', 'mcp', 'settings', 'admin', 'mailing-list']);
 });
 
 check('config: Money group carries Billing + Finance (Batch 49 slotted into the FINANCE_SLOT)', () => {
