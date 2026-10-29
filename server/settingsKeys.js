@@ -59,9 +59,17 @@ const SETTING_SEEDS = [
   ['design.agent_webhook_secret', ''],
   ['design.learning.enabled', '1'],
   ['providers.tavily.search_depth', 'advanced'],
-  ['smtp.host', 'in-v3.mailjet.com'],
+  // Batch 55 (review B-1): smtp.host seeds EMPTY. The old default seeded
+  // a real Mailjet host with empty credentials, so a fresh install's
+  // getProvider returned a live SmtpProvider instead of the stub and
+  // mail paths (forgot-password) hung on a doomed outbound connection.
+  // Empty host = stub provider until an admin configures real SMTP.
+  // Seeding never overwrites stored values (INSERT IGNORE semantics),
+  // so configured workspaces keep their host untouched.
+  ['smtp.host', ''],
   ['smtp.port', '587'],
   ['smtp.secure', '0'],
+  ['smtp.require_tls', '1'],
   ['smtp.user', ''],
   ['smtp.from_name', 'Bitpype'],
   ['smtp.from_email', 'team@bitpype.com'],
@@ -158,6 +166,7 @@ const SETTABLE_KEYS = [
   'smtp.host',
   'smtp.port',
   'smtp.secure',
+  'smtp.require_tls',
   'smtp.user',
   'smtp.from_name',
   'smtp.from_email',
@@ -388,6 +397,15 @@ function validateSetting(key, raw) {
       const v = String(value).trim().toLowerCase();
       if (['1', 'true', 'yes'].includes(v)) return { ok: true, value: '1' };
       if (['0', 'false', 'no', ''].includes(v)) return { ok: true, value: '0' };
+      return fail('must be boolean-like (0/1)');
+    }
+    case 'smtp.require_tls': {
+      // Batch 55: same boolean-like shape as smtp.secure. Empty is NOT
+      // accepted here — the seed/platform default ('1') supplies the
+      // value; a stored blank would be ambiguous, so reject it.
+      const v = String(value).trim().toLowerCase();
+      if (['1', 'true', 'yes', 'on'].includes(v)) return { ok: true, value: '1' };
+      if (['0', 'false', 'no', 'off'].includes(v)) return { ok: true, value: '0' };
       return fail('must be boolean-like (0/1)');
     }
     case 'smtp.user':

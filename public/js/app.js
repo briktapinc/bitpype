@@ -6358,7 +6358,7 @@ async function pageSettings(param) {
         <section class="card" id="sec-smtp"${showSec('sec-smtp')}><h2>Email (SMTP + IMAP)</h2>
           <p class="hint">Outbound mail (design jobs, outreach, notifications) goes through the provider selected below — Custom SMTP (Mailjet today) or native Cloudflare. Each job email also includes a public <strong>client form</strong> link for answers and change requests (works without IMAP). Optional IMAP still polls replies with <code>[Job #N]</code>.</p>
           <h3 style="margin:12px 0 8px;font-size:15px">Mail provider</h3>
-          <p class="hint">Active provider: <strong>${s['mail.provider'] === 'cloudflare' ? 'Cloudflare (native)' : 'Custom SMTP (Mailjet)'}</strong>${s['mail.provider'] === 'cloudflare' ? (s['mail.cf_token'] === '***' ? ' — API token saved.' : ' — API token NOT saved yet: sends will fail until it is set below.') : s['smtp.host'] ? '' : ' — SMTP host is empty, so mail is not configured (sends are logged, not delivered).'}</p>
+          <p class="hint">Active provider: <strong>${s['mail.provider'] === 'cloudflare' ? 'Cloudflare (native)' : 'Custom SMTP (Mailjet)'}</strong>${s['mail.provider'] === 'cloudflare' ? (s['mail.cf_token'] === '***' ? ' — API token saved.' : ' — API token NOT saved yet: sends will fail until it is set below.') : s['smtp.host'] ? (!s['smtp.user'] || !s['smtp.pass'] ? ' — SMTP credentials are missing: mail will fail until the username and password are set below.' : '') : ' — SMTP host is empty, so mail is not configured (sends are logged, not delivered).'}</p>
           <div class="row">${f('mail.provider', 'Send mail via', { options: [['custom', 'Custom SMTP (Mailjet)'], ['cloudflare', 'Cloudflare (native)']], def: 'custom' })}</div>
           <div id="mail-custom-fields">
           <h3 style="margin:12px 0 8px;font-size:15px">SMTP (outbound)</h3>
@@ -6371,7 +6371,14 @@ async function pageSettings(param) {
                 ['1', 'Yes'],
               ],
             }
-          )}</div>
+          )}${f('smtp.require_tls', 'Require TLS', {
+            options: [
+              ['1', 'Yes — never send the password unencrypted'],
+              ['0', 'No — allow plain (not recommended)'],
+            ],
+            def: '1',
+            hint: 'With Yes, a server that offers no encryption is refused before the password is sent.',
+          })}</div>
           <div class="row">${f('smtp.user', 'Username')}${secret('smtp.pass', 'Password')}</div>
           </div>
           <div id="mail-cf-fields">

@@ -5,7 +5,10 @@
  * Providers:
  *   - SmtpProvider : minimal SMTP client over node:net / node:tls
  *                    (EHLO, STARTTLS, AUTH LOGIN, MAIL FROM, RCPT TO, DATA).
- *                    No third-party mail dependencies.
+ *                    No third-party mail dependencies. Batch 55: TLS is
+ *                    REQUIRED by default (smtp.require_tls) — credentials
+ *                    are never sent over an unencrypted connection unless
+ *                    the admin explicitly opts out.
  *   - StubProvider  : used when smtp.host is empty. Logs to activity_log and
  *                    reports the message as "sent" without touching the network.
  *
@@ -43,10 +46,17 @@ function readSmtpConfig(settings) {
   const portRaw = get('smtp.port', '');
   const secureRaw = get('smtp.secure', '').toLowerCase();
   const secure = secureRaw === '1' || secureRaw === 'true' || secureRaw === 'yes';
+  // Batch 55 (review C-2): require-TLS is the DEFAULT posture. Only an
+  // explicit opt-out value ('0'/'false'/'no'/'off') restores the legacy
+  // opportunistic behaviour; an unset key — every workspace predating
+  // this batch — means require TLS.
+  const requireTlsRaw = get('smtp.require_tls', '').toLowerCase();
+  const requireTls = !['0', 'false', 'no', 'off'].includes(requireTlsRaw);
   return {
     host: get('smtp.host'),
     port: portRaw ? parseInt(portRaw, 10) : secure ? 465 : 587,
     secure,
+    requireTls,
     user: get('smtp.user'),
     pass: get('smtp.pass'),
     fromName: get('smtp.from_name'),
@@ -115,7 +125,16 @@ function validateMailSettings(settings) {
   }
   const smtpCfg = readSmtpConfig(settings);
   if (!smtpCfg.host) return [];
-  return validateSmtpConfig(smtpCfg);
+  const errors = validateSmtpConfig(smtpCfg);
+  // Batch 55 (review B-1 companion): a host with NO username at all is
+  // the half-configured state the old Mailjet seed produced — the
+  // provider would open a real connection that can only fail. Name it
+  // here so the settings surface can warn before a send is attempted.
+  // (User set + pass empty is already covered by validateSmtpConfig.)
+  if (!smtpCfg.user) {
+    errors.push('smtp.host is set but smtp.user/smtp.pass are empty — mail will fail: credentials missing');
+  }
+  return errors;
 }
 
 /** Build a multipart/alternative MIME message. Handles dot-stuffing. */
@@ -179,6 +198,7 @@ class SmtpClient {
     this.socket = null;
     this.buffer = '';
     this.pending = null; // {resolve, reject, timer}
+    this.encrypted = false; // true once the wire is TLS (implicit or STARTTLS)
   }
 
   _onData(chunk) {
@@ -242,6 +262,7 @@ class SmtpClient {
       });
     });
     this.socket = socket;
+    this.encrypted = !!secure; // implicit TLS (port 465 style) is encrypted from byte one
     socket.setTimeout(COMMAND_TIMEOUT_MS, () => socket.destroy(new Error('SMTP socket timeout')));
     socket.on('data', (c) => this._onData(c));
     socket.on('error', () => {
@@ -269,7 +290,36 @@ class SmtpClient {
         upgraded.setTimeout(COMMAND_TIMEOUT_MS, () => upgraded.destroy(new Error('SMTP socket timeout')));
         upgraded.on('data', (c) => this._onData(c));
       });
+      this.encrypted = true;
       await this._command(`EHLO ${host}`, 250); // re-EHLO after TLS
+    }
+
+    // Batch 55 (review C-2): never let credentials cross an unencrypted
+    // wire. Under the default require-TLS posture an unencrypted
+    // connection (no implicit TLS, no STARTTLS on offer) fails the send
+    // BEFORE AUTH with a coded error — the password is never written to
+    // the socket. With smtp.require_tls explicitly off, the legacy
+    // behaviour remains as a deliberate opt-out, but sending credentials
+    // in plaintext logs a loud warning. B55_NEGATIVE=1 is a test-only
+    // shim that restores the pre-fix fall-through so the regression
+    // suite can prove this gate is what stops the leak.
+    if (!this.encrypted && process.env.B55_NEGATIVE !== '1') {
+      if (this.cfg.requireTls) {
+        const err = new Error(
+          'SMTP_TLS_REQUIRED: The mail server did not offer an encrypted connection, so no password was sent.'
+        );
+        err.code = 'SMTP_TLS_REQUIRED';
+        throw err;
+      }
+      if (this.cfg.user) {
+        try {
+          console.warn(
+            '[smtp] WARNING: sending SMTP credentials over an UNENCRYPTED connection (smtp.require_tls is off) — the password is readable on the wire.'
+          );
+        } catch {
+          /* warning must never break a send */
+        }
+      }
     }
 
     const { user, pass } = this.cfg;
