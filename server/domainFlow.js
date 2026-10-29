@@ -694,6 +694,31 @@ function voidTransaction(db, id) {
   return { transaction: publicTxn(getTransaction(db, row.id)), voided: true };
 }
 
+/**
+ * Batch 51 — staff removal of a TERMINAL junk transaction. Only
+ * 'voided' and 'failed' rows may be removed (hard delete; the step log
+ * lives on the row as steps_json, so nothing else references it).
+ * 'pending_payment' must be voided first, and paid/registering/live
+ * rows are the audit trail for real money / a real domain — removing
+ * them is refused with 409, always.
+ */
+function deleteTransaction(db, id) {
+  ensureTables(db);
+  const row = getTransaction(db, id);
+  if (!row) throw fail('NOT_FOUND', 'Domain transaction not found');
+  if (row.status !== 'voided' && row.status !== 'failed') {
+    throw fail(
+      'TXN_NOT_DELETABLE',
+      row.status === 'pending_payment'
+        ? 'A pending-payment transaction cannot be removed — void it first.'
+        : `A ${row.status} transaction cannot be removed — only voided or failed transactions can.`,
+      { status: 409 }
+    );
+  }
+  db.prepare('DELETE FROM domain_transactions WHERE id = ?').run(row.id);
+  return { deleted: true, id: row.id, domain: row.domain, status: row.status };
+}
+
 function adminDetail(db, id) {
   ensureTables(db);
   const row = db
@@ -976,6 +1001,7 @@ module.exports = {
   adminList,
   adminDetail,
   voidTransaction,
+  deleteTransaction,
   completeTransaction,
   publicTxn,
   displayStatus,

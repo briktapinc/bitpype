@@ -1682,6 +1682,29 @@ router.get('/admin-area/memberships', denyLeadScopedToken, async (req, res) => {
   }
 });
 
+// Batch 51 — clear-all (bulk delete) for staff list surfaces. Every
+// route runs the surface's existing single-delete engine function per
+// item (see domain.adminClearAll*); items the single delete refuses
+// are skipped and reported. confirm must be the literal 'DELETE'
+// (type-to-confirm, enforced in the facade as well as the UI).
+const clearAllRoute = (path, fn) =>
+  router.post(path, requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
+    try {
+      const b = req.body || {};
+      ok(res, fn(req.auth.workspaceId, { leadId: b.leadId != null ? Number(b.leadId) : null, confirm: b.confirm }));
+    } catch (e) {
+      fail(res, e, e.code === 'CONFIRM_REQUIRED' || e.code === 'VALIDATION' ? 400 : e.status || 400);
+    }
+  });
+clearAllRoute('/admin-area/forms/clear-all', domain.adminClearAllForms);
+clearAllRoute('/admin-area/bookings/clear-all', domain.adminClearAllBookings);
+clearAllRoute('/admin-area/leadscout/contacts/clear-all', domain.adminClearAllLeadScoutContacts);
+clearAllRoute('/admin-area/memberships/clear-all', domain.adminClearAllMembers);
+clearAllRoute('/admin-area/rentals/clear-all', domain.adminClearAllRentals);
+clearAllRoute('/admin-area/modules/clear-all', domain.adminClearAllModules);
+clearAllRoute('/admin-area/courses/clear-all', domain.adminClearAllCourses);
+clearAllRoute('/admin-area/calls/clear-all', domain.adminClearAllCalls);
+
 // Call Tracking (Batch 21): every call across the workspace's sites,
 // plus the Twilio number shop. Dormant-safe — with no Twilio credentials
 // (platform twilio.* or the workspace's sms.* — Batch 25b) the number
@@ -1920,6 +1943,15 @@ router.get('/admin-area/domain-transactions', denyLeadScopedToken, (req, res) =>
 router.post('/admin-area/domain-transactions/:id/void', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
   try {
     ok(res, domain.adminVoidDomainTransaction(req.auth.workspaceId, Number(req.params.id)));
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.status || 400);
+  }
+});
+// Batch 51 — remove a voided/failed transaction (pending → void first;
+// paid/registering/live → 409 in the engine, always).
+router.delete('/admin-area/domain-transactions/:id', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, domain.adminDeleteDomainTransaction(req.auth.workspaceId, Number(req.params.id)));
   } catch (e) {
     fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.status || 400);
   }

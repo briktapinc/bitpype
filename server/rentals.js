@@ -486,6 +486,39 @@ function endRentalRow(db, rentalId, { reason = '' } = {}) {
   return { rental: getRental(db, rental.id), unroute };
 }
 
+/**
+ * Batch 51 — hard-delete an ENDED rental record (the clear-all path for
+ * historical rentals; there is no single-delete UI). Live rentals
+ * (trial/active) are NEVER deleted here — ending one unroutes the site
+ * first, and that stays the End action's job. A paused rental is not
+ * history yet either. A rental whose charges still carry money in
+ * flight (status 'pending' or 'due') keeps its record — the charge
+ * ledger must not vanish under an outstanding balance. Settled charge
+ * rows (charged/trial) are the rental's own history and go with it.
+ */
+function deleteEndedRental(db, rentalId) {
+  ensureRentals(db);
+  const rental = getRental(db, rentalId);
+  if (!rental) throw fail('NOT_FOUND', 'Rental not found', 404);
+  if (isLiveStatus(rental.status)) {
+    throw fail('RENTAL_ACTIVE', 'Active rental — end it before it can be removed.', 409);
+  }
+  if (rental.status !== 'ended') {
+    throw fail('RENTAL_NOT_ENDED', `Only an ended rental can be removed (this one is ${rental.status}).`, 409);
+  }
+  const open = db
+    .prepare(
+      `SELECT COUNT(*) AS c FROM site_rental_charges WHERE rental_id = ? AND status IN ('pending', 'due')`
+    )
+    .get(Number(rental.id));
+  if (open && Number(open.c) > 0) {
+    throw fail('RENTAL_CHARGES_OPEN', 'This rental still has unsettled charges and cannot be removed.', 409);
+  }
+  db.prepare('DELETE FROM site_rental_charges WHERE rental_id = ?').run(Number(rental.id));
+  db.prepare('DELETE FROM site_rentals WHERE id = ?').run(Number(rental.id));
+  return { deleted: true, id: Number(rental.id) };
+}
+
 function pauseRentalRow(db, rentalId) {
   ensureRentals(db);
   const rental = getRental(db, rentalId);
@@ -1126,6 +1159,7 @@ module.exports = {
   unrouteRental,
   createRentalRow,
   endRentalRow,
+  deleteEndedRental,
   pauseRentalRow,
   resumeRentalRow,
   recordCaptureCharge,

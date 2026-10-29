@@ -3599,7 +3599,7 @@ async function pageDomains(param, query) {
             <td>${t.registrarPriceCents != null ? esc(moneyCents(t.registrarPriceCents, t.registrarCurrency || 'USD')) + '/yr' : '—'}</td>
             <td>${txnBadge(t)}</td>
             <td>${t.createdAt ? esc(fmtDate(t.createdAt)) : '—'}</td>
-            <td class="actions"><button class="btn small" data-act="txn-view" data-id="${esc(t.id)}">View</button>${t.status === 'pending_payment' || t.status === 'failed' ? ` <button class="btn small danger" data-act="txn-void" data-id="${esc(t.id)}">Void</button>` : ''}</td>
+            <td class="actions"><button class="btn small" data-act="txn-view" data-id="${esc(t.id)}">View</button>${t.status === 'pending_payment' || t.status === 'failed' ? ` <button class="btn small danger" data-act="txn-void" data-id="${esc(t.id)}">Void</button>` : ''}${t.status === 'voided' || t.status === 'failed' ? ` <button class="btn small danger" data-act="txn-remove" data-id="${esc(t.id)}" data-domain="${esc(t.domain)}">Remove</button>` : ''}</td>
           </tr>`
             )
             .join('') || '<tr><td colspan="8" class="empty">No domain purchases yet. They appear here when a client picks a domain and pays for a plan.</td></tr>'
@@ -3682,7 +3682,8 @@ async function pageDomains(param, query) {
         <div class="field" style="flex:2;min-width:200px"><label>Keyword or name</label>
           <input name="q" required placeholder="acme plumbing" autocomplete="off" /></div>
         <div class="field" style="flex:1;min-width:180px"><label>Lead (optional)</label>
-          <select name="leadId"><option value="">None</option>${leadOpts}</select></div>
+          <input type="search" id="dom-search-lead-search" placeholder="Type to filter…" autocomplete="off" style="margin-bottom:6px" />
+          <select name="leadId" id="dom-search-lead"><option value="">None</option>${leadOpts}</select></div>
         <div class="field" style="flex:0 0 auto"><label>&nbsp;</label>
           <button class="btn primary" type="submit">Search</button></div>
       </form>
@@ -3762,6 +3763,7 @@ async function pageDomains(param, query) {
         .join('')}</tbody></table></div>`;
   }
 
+  wireSelectSearch($('#dom-search-lead-search'), $('#dom-search-lead'));
   $('#dom-search-form').onsubmit = async (e) => {
     e.preventDefault();
     const body = formObject(e.target);
@@ -3929,6 +3931,19 @@ async function pageDomains(param, query) {
         pageDomains(null, domainsQuery);
       } catch (err) {
         toast(err.message || 'Void failed', 'err');
+      }
+    },
+    // Batch 51 — permanently remove a voided/failed transaction row.
+    'txn-remove': async (t) => {
+      const id = Number(t.dataset.id);
+      const domain = t.dataset.domain || 'this domain';
+      if (!window.confirm(`Remove the transaction for ${domain} permanently? The row is deleted for good. Paid or live transactions can never be removed.`)) return;
+      try {
+        await api.adminDomainTransactionRemove(id);
+        toast('Transaction removed', 'ok');
+        pageDomains(null, domainsQuery);
+      } catch (err) {
+        toast(err.message || 'Remove failed', 'err');
       }
     },
     'txn-prev': () => {
@@ -5513,6 +5528,7 @@ async function pageSocial(_param, query = {}) {
       <h3>Client / lead</h3>
       <div class="row">
         <div class="field"><label>Lead</label>
+          <input type="search" id="soc-lead-search" placeholder="Type to filter…" autocomplete="off" style="margin-bottom:6px" />
           <select id="soc-lead">
             <option value="">Select a lead…</option>
             ${leads.map((l) => `<option value="${esc(l.id)}" ${Number(l.id) === selectedLeadId ? 'selected' : ''}>${esc(l.business_name || '#' + l.id)}</option>`).join('')}
@@ -5596,6 +5612,7 @@ async function pageSocial(_param, query = {}) {
     const id = Number($('#soc-lead').value);
     window.location.hash = id ? `#/social?leadId=${id}` : '#/social';
   };
+  wireSelectSearch($('#soc-lead-search'), $('#soc-lead'));
 
   const gen = $('#soc-gen');
   if (gen) {
@@ -8306,6 +8323,56 @@ function bizFilterKey(row) {
 function bizFilterLabel(row) {
   return (row && row.lead_name) || (row && row.lead_id != null ? 'Lead #' + row.lead_id : 'Unknown business');
 }
+// Batch 51 — type-to-filter for business <select>s. With hundreds of
+// leads a bare dropdown is unusable, so every business picker gets a
+// search box that hides non-matching options as you type. The select
+// itself stays the value source (existing change handlers untouched);
+// the "All businesses" empty option is never hidden.
+function bizOptionMatches(label, query) {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return true;
+  return String(label || '').toLowerCase().includes(q);
+}
+function filterSelectOptions(sel, query) {
+  if (!sel) return;
+  for (const opt of sel.options) {
+    opt.hidden = opt.value === '' ? false : !bizOptionMatches(opt.textContent, query);
+  }
+}
+function wireSelectSearch(input, sel) {
+  if (!input || !sel) return;
+  input.addEventListener('input', () => filterSelectOptions(sel, input.value));
+}
+function selectSearchHtml(id, label) {
+  return `<div class="field"><label for="${id}">${esc(label || 'Search')}</label><input type="search" id="${id}" placeholder="Type to filter…" autocomplete="off" /></div>`;
+}
+// Batch 51 — shared clear-all flow for staff list surfaces: a confirm
+// that names the scope, the type-to-confirm prompt (the Batch 45
+// idiom — the API enforces confirm:'DELETE' too), then a
+// deleted/skipped toast. Returns the result payload or null.
+async function runClearAllFlow({ noun, scopeLabel, extra, call }) {
+  const scope = scopeLabel || 'all businesses';
+  if (
+    !window.confirm(
+      `Clear ALL ${noun} (${scope})?${extra ? ' ' + extra : ''} Protected items are skipped and reported. This cannot be undone.`
+    )
+  )
+    return null;
+  if (prompt('Type DELETE to confirm') !== 'DELETE') return null;
+  try {
+    const r = await call();
+    const d = (r && r.data) || {};
+    const skipped = d.skippedCount || 0;
+    toast(
+      `Cleared ${noun}: deleted ${d.deleted || 0}${skipped ? `, skipped ${skipped} (protected)` : ''}`,
+      skipped ? '' : 'ok'
+    );
+    return d;
+  } catch (e) {
+    toast(e.message || 'Clear-all failed', 'err');
+    return null;
+  }
+}
 function businessFilterBarHtml(rows, id) {
   const seen = new Map();
   for (const r of rows || []) {
@@ -8315,7 +8382,7 @@ function businessFilterBarHtml(rows, id) {
   const options = [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   return `<div class="filter-bar"><div class="field"><label for="${id}">Business</label><select id="${id}"><option value="">All businesses</option>${options
     .map(([value, label]) => `<option value="${esc(value)}">${esc(label)}</option>`)
-    .join('')}</select></div></div>`;
+    .join('')}</select></div>${selectSearchHtml(id + '-search', 'Search businesses')}</div>`;
 }
 function applyBusinessFilter(rows, value) {
   if (!value) return rows;
@@ -8324,6 +8391,8 @@ function applyBusinessFilter(rows, value) {
 function wireBusinessFilter(id, onChange) {
   const sel = view.querySelector('#' + id);
   if (sel) sel.onchange = () => onChange(sel.value);
+  const search = view.querySelector('#' + id + '-search');
+  if (search && sel) wireSelectSearch(search, sel);
 }
 
 function payloadTableHtml(payload) {
@@ -8375,7 +8444,7 @@ async function pageForms() {
   };
   view.innerHTML = `
     <div class="page-head"><div><h1>Forms</h1><p class="lede">Every BitPype form across your sites, with submission counts. Open a form to read its submissions.</p></div>
-    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
+    <div class="page-actions"><button class="btn danger" data-act="clear-all" ${forms.length ? '' : 'disabled'}>Clear all…</button> <button class="btn" data-act="refresh">Refresh</button></div></div>
     ${businessFilterBarHtml(forms, 'fm-biz')}
     <div class="table-wrap"><table>
       <thead><tr><th>Form</th><th>Business</th><th>Kind</th><th>Status</th><th>Submissions</th><th>Last submission</th><th></th></tr></thead>
@@ -8383,7 +8452,25 @@ async function pageForms() {
     </table></div>`;
   renderForms(forms, false);
   view.querySelector('[data-act="refresh"]').onclick = () => pageForms();
-  wireBusinessFilter('fm-biz', (v) => renderForms(applyBusinessFilter(forms, v), !!v));
+  let fmBiz = '';
+  wireBusinessFilter('fm-biz', (v) => {
+    fmBiz = v;
+    renderForms(applyBusinessFilter(forms, v), !!v);
+  });
+  const fmClear = view.querySelector('[data-act="clear-all"]');
+  if (fmClear) {
+    fmClear.onclick = async () => {
+      const sel = view.querySelector('#fm-biz');
+      const scopeLabel = fmBiz ? sel.options[sel.selectedIndex].textContent : 'all businesses';
+      const out = await runClearAllFlow({
+        noun: 'forms',
+        scopeLabel,
+        extra: 'Deleting a form deletes its submissions too. The last remaining form for a business is kept (it cannot be deleted) and will be skipped.',
+        call: () => api.adminClearAllForms({ leadId: fmBiz ? Number(fmBiz) : null, confirm: 'DELETE' }),
+      });
+      if (out) pageForms();
+    };
+  }
 }
 
 async function openFormSubmissions(formId) {
@@ -8549,7 +8636,7 @@ async function pageLeadScout() {
   }
   view.innerHTML = `
     <div class="page-head"><div><h1>LeadScout</h1><p class="lede">Deduped contacts captured from site forms and bookings — the same store the client portal reads. Not the outreach CRM (that's Leads).</p></div>
-    <div class="page-actions"><button class="btn" data-act="clear-resolved">Clear resolved failures</button> <button class="btn" data-act="refresh">Refresh</button></div></div>
+    <div class="page-actions"><button class="btn danger" data-act="clear-all" ${contacts.length ? '' : 'disabled'}>Clear all…</button> <button class="btn" data-act="clear-resolved">Clear resolved failures</button> <button class="btn" data-act="refresh">Refresh</button></div></div>
     ${
       health && health.open_failures
         ? `<div class="alert warn"><strong>Capture health:</strong> ${esc(health.open_failures)} open capture failure(s) — some submissions or bookings may not have been recorded.</div>`
@@ -8557,7 +8644,7 @@ async function pageLeadScout() {
     }
     <form id="ls-search"><div class="row"><div class="field"><label>Search contacts</label><input name="q" value="${esc(
       leadScoutState.q
-    )}" placeholder="Name, email, or phone" /></div><div class="field"><label>Business</label><select id="ls-biz"><option value="">All businesses</option>${bizOptions
+    )}" placeholder="Name, email, or phone" /></div><div class="field"><label>Search businesses</label><input type="search" id="ls-biz-search" placeholder="Type to filter…" autocomplete="off" /></div><div class="field"><label>Business</label><select id="ls-biz"><option value="">All businesses</option>${bizOptions
       .map(([value, label]) => `<option value="${esc(value)}"${value === leadScoutState.biz ? ' selected' : ''}>${esc(label)}</option>`)
       .join('')}</select></div><div class="field"><label>&nbsp;</label><button class="btn primary" type="submit">Search</button></div></div></form>
     <div class="table-wrap"><table>
@@ -8586,6 +8673,26 @@ async function pageLeadScout() {
     leadScoutState.biz = e.target.value || '';
     renderContacts();
   };
+  wireSelectSearch(view.querySelector('#ls-biz-search'), view.querySelector('#ls-biz'));
+  const lsClear = view.querySelector('[data-act="clear-all"]');
+  if (lsClear) {
+    lsClear.onclick = async () => {
+      const sel = view.querySelector('#ls-biz');
+      const scopeLabel = leadScoutState.biz ? sel.options[sel.selectedIndex].textContent : 'all businesses';
+      const out = await runClearAllFlow({
+        noun: 'LeadScout contacts',
+        scopeLabel,
+        extra:
+          'Contacts are deduped across businesses, so a contact in scope is removed entirely. Contacts with rental-charged activity cannot be deleted and will be skipped.',
+        call: () =>
+          api.adminClearAllLeadScoutContacts({
+            leadId: leadScoutState.biz ? Number(leadScoutState.biz) : null,
+            confirm: 'DELETE',
+          }),
+      });
+      if (out) pageLeadScout();
+    };
+  }
 }
 
 async function openLeadScoutContact(id) {
@@ -8674,7 +8781,7 @@ async function pageBookings() {
   };
   view.innerHTML = `
     <div class="page-head"><div><h1>Bookings</h1><p class="lede">Appointments and bookable services across every site. Clients manage appointment status from their portal.</p></div>
-    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
+    <div class="page-actions"><button class="btn danger" data-act="clear-all" ${appointments.length ? '' : 'disabled'}>Clear all…</button> <button class="btn" data-act="refresh">Refresh</button></div></div>
     ${businessFilterBarHtml(appointments.concat(services), 'bk-biz')}
     <div class="card"><div class="panel-h"><h3>Appointments</h3><span class="hint" id="bk-appt-count">${appointments.length} shown</span></div>
     <div class="table-wrap"><table>
@@ -8688,7 +8795,25 @@ async function pageBookings() {
     </table></div></div>`;
   renderBookings('');
   view.querySelector('[data-act="refresh"]').onclick = () => pageBookings();
-  wireBusinessFilter('bk-biz', renderBookings);
+  let bkBiz = '';
+  wireBusinessFilter('bk-biz', (v) => {
+    bkBiz = v;
+    renderBookings(v);
+  });
+  const bkClear = view.querySelector('[data-act="clear-all"]');
+  if (bkClear) {
+    bkClear.onclick = async () => {
+      const sel = view.querySelector('#bk-biz');
+      const scopeLabel = bkBiz ? sel.options[sel.selectedIndex].textContent : 'all businesses';
+      const out = await runClearAllFlow({
+        noun: 'appointments',
+        scopeLabel,
+        extra: 'Services are not touched — appointments only.',
+        call: () => api.adminClearAllBookings({ leadId: bkBiz ? Number(bkBiz) : null, confirm: 'DELETE' }),
+      });
+      if (out) pageBookings();
+    };
+  }
 }
 
 async function pageShop() {
@@ -8797,31 +8922,56 @@ async function pageModules() {
     const c = catalog.find((x) => x.type === t);
     return c ? c.label : t;
   };
-  view.innerHTML = `
-    <div class="page-head"><div><h1>Modules</h1><p class="lede">Platform modules and where they are installed. Attach or detach modules per site from the Design flow or MCP.</p></div>
-    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
-    <div class="card"><div class="panel-h"><h3>Catalog</h3></div>
-      <div class="chips">${catalog
-        .map((c) => `<span class="chip">${esc(c.label)}<span>${esc(counts[c.type] || 0)} installed</span></span>`)
-        .join('')}</div></div>
-    <div class="table-wrap"><table>
-      <thead><tr><th>Module</th><th>Business</th><th>Website</th><th>Page</th><th>Published</th><th>Updated</th></tr></thead>
-      <tbody>${
-        installs
-          .map(
-            (i) => `<tr>
+  const installRows = (list, filtered) =>
+    list
+      .map(
+        (i) => `<tr>
         <td>${esc(labelFor(i.module_type))}<div class="hint">${esc(i.title || '')}</div></td>
         <td>${esc(i.lead_name || 'Lead #' + i.lead_id)}</td>
         <td>${esc(i.website_name || '—')}</td>
         <td>${esc(i.target_page_slug || '—')}</td>
         <td>${i.published ? '<span class="badge ok">published</span>' : '<span class="badge">draft</span>'}</td>
         <td>${i.updated_at ? esc(fmtDate(i.updated_at)) : '—'}</td></tr>`
-          )
-          .join('') || '<tr><td colspan="6" class="empty">No modules installed yet.</td></tr>'
-      }
-      </tbody>
+      )
+      .join('') ||
+    `<tr><td colspan="6" class="empty">${filtered ? 'No modules installed for this business.' : 'No modules installed yet.'}</td></tr>`;
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Modules</h1><p class="lede">Platform modules and where they are installed. Attach or detach modules per site from the Design flow or MCP.</p></div>
+    <div class="page-actions"><button class="btn danger" data-act="clear-all" ${installs.length ? '' : 'disabled'}>Clear all…</button> <button class="btn" data-act="refresh">Refresh</button></div></div>
+    <div class="card"><div class="panel-h"><h3>Catalog</h3></div>
+      <div class="chips">${catalog
+        .map((c) => `<span class="chip">${esc(c.label)}<span>${esc(counts[c.type] || 0)} installed</span></span>`)
+        .join('')}</div></div>
+    ${businessFilterBarHtml(installs, 'md-biz')}
+    <div class="table-wrap"><table>
+      <thead><tr><th>Module</th><th>Business</th><th>Website</th><th>Page</th><th>Published</th><th>Updated</th></tr></thead>
+      <tbody id="md-body"></tbody>
     </table></div>`;
+  const renderInstalls = (v) => {
+    view.querySelector('#md-body').innerHTML = installRows(applyBusinessFilter(installs, v), !!v);
+  };
+  renderInstalls('');
   view.querySelector('[data-act="refresh"]').onclick = () => pageModules();
+  let mdBiz = '';
+  wireBusinessFilter('md-biz', (v) => {
+    mdBiz = v;
+    renderInstalls(v);
+  });
+  const mdClear = view.querySelector('[data-act="clear-all"]');
+  if (mdClear) {
+    mdClear.onclick = async () => {
+      const sel = view.querySelector('#md-biz');
+      const scopeLabel = mdBiz ? sel.options[sel.selectedIndex].textContent : 'all businesses';
+      const out = await runClearAllFlow({
+        noun: 'module attachments',
+        scopeLabel,
+        extra:
+          'Clear-all DETACHES modules (the same detach the Design flow uses) — module content is kept, and live sites change on their next publish.',
+        call: () => api.adminClearAllModules({ leadId: mdBiz ? Number(mdBiz) : null, confirm: 'DELETE' }),
+      });
+      if (out) pageModules();
+    };
+  }
 }
 
 async function pageCourses() {
@@ -8850,7 +9000,7 @@ async function pageCourses() {
     }</td></tr>`;
   view.innerHTML = `
     <div class="page-head"><div><h1>Courses</h1><p class="lede">Courses published through the courses module, across every site.</p></div>
-    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
+    <div class="page-actions"><button class="btn danger" data-act="clear-all" ${courses.length ? '' : 'disabled'}>Clear all…</button> <button class="btn" data-act="refresh">Refresh</button></div></div>
     ${businessFilterBarHtml(courses, 'co-biz')}
     <div class="table-wrap"><table>
       <thead><tr><th>Course</th><th>Business</th><th>Lessons</th><th>Status</th><th>Updated</th></tr></thead>
@@ -8861,7 +9011,25 @@ async function pageCourses() {
   };
   renderCourses('');
   view.querySelector('[data-act="refresh"]').onclick = () => pageCourses();
-  wireBusinessFilter('co-biz', renderCourses);
+  let coBiz = '';
+  wireBusinessFilter('co-biz', (v) => {
+    coBiz = v;
+    renderCourses(v);
+  });
+  const coClear = view.querySelector('[data-act="clear-all"]');
+  if (coClear) {
+    coClear.onclick = async () => {
+      const sel = view.querySelector('#co-biz');
+      const scopeLabel = coBiz ? sel.options[sel.selectedIndex].textContent : 'all businesses';
+      const out = await runClearAllFlow({
+        noun: 'courses',
+        scopeLabel,
+        extra: 'Lessons inside each course are deleted with it.',
+        call: () => api.adminClearAllCourses({ leadId: coBiz ? Number(coBiz) : null, confirm: 'DELETE' }),
+      });
+      if (out) pageCourses();
+    };
+  }
 }
 
 async function pageAnalytics() {
@@ -8933,6 +9101,12 @@ async function pageCalls() {
   const d = res.data || {};
   let allRows = asList(d, ['calls']);
   const businesses = asList(d, ['businesses']);
+  // Batch 51: the forwarding-setup picker is fed by pickerBusinesses —
+  // EVERY lead (setup is how a business enters call tracking). The
+  // module-attached-only `businesses` list still drives the billing
+  // strip and the log filter below.
+  const pickerBusinesses = asList(d, ['pickerBusinesses']);
+  const cfgList = pickerBusinesses.length ? pickerBusinesses : businesses;
   const poolNums = asList(d, ['pool']);
   const wsId = d.workspace_id || '';
   const whenLabel = (v) => {
@@ -8970,6 +9144,7 @@ async function pageCalls() {
     `<table class="table"><thead><tr><th>Time</th><th>Business</th><th>From</th><th>To</th><th>Status</th><th>Duration</th><th></th></tr></thead><tbody id="cl-body">${rowsHtml}</tbody></table>`;
   const configured = !!d.twilio_configured;
   const bizById = new Map(businesses.map((b) => [String(b.lead_id), b]));
+  const cfgById = new Map(cfgList.map((b) => [String(b.lead_id), b]));
   const bizStrip = businesses.length
     ? `<div class="card" style="margin-bottom:1rem"><h3 style="margin-top:0">This month by business</h3>${businesses
         .map((b) => {
@@ -8987,18 +9162,22 @@ async function pageCalls() {
   // it never shows on their site). The site's call button shows the
   // Twilio tracking number; tracking, forwarding, recording, alerts
   // and rotation (Batch 26d) are configured here.
-  const cfgCard = businesses.length
+  const cfgCard = cfgList.length
     ? `<div class="card" style="margin-bottom:1rem">
       <h3 style="margin-top:0">Forwarding setup</h3>
       <p class="hint">Clients only provide their phone number — it is where their calls ring, and it never appears on their site. Their site's call button shows the Twilio tracking number. Assign the tracking number and forwarding here.</p>
+      <label class="field">Search businesses<br />
+        <input type="search" id="cl-cfg-search" placeholder="Type to filter…" autocomplete="off" />
+      </label>
       <label class="field">Business<br />
-        <select id="cl-cfg-biz">${businesses.map((b) => `<option value="${esc(b.lead_id)}">${esc(b.lead_name || 'Business')}</option>`).join('')}</select>
+        <select id="cl-cfg-biz">${cfgList.map((b) => `<option value="${esc(b.lead_id)}">${esc(b.lead_name || 'Business')}</option>`).join('')}</select>
       </label>
       <div id="cl-cfg-host"></div>
     </div>`
     : '';
   view.innerHTML = `
-    <div class="page-head"><div><h1>Calls</h1><p class="lede">Every call to a client's tracking number — the number their site shows — across all sites. Completed calls also save the caller as a LeadScout contact on that business.</p></div></div>
+    <div class="page-head"><div><h1>Calls</h1><p class="lede">Every call to a client's tracking number — the number their site shows — across all sites. Completed calls also save the caller as a LeadScout contact on that business.</p></div>
+    <div class="page-actions"><button class="btn danger" id="cl-clear-all" ${allRows.length ? '' : 'disabled'}>Clear all…</button></div></div>
     <div class="card" style="margin-bottom:1rem">
       <h3 style="margin-top:0">Buy a tracking number</h3>
       ${
@@ -9163,7 +9342,7 @@ async function pageCalls() {
     const host = document.getElementById('cl-cfg-host');
     const sel = document.getElementById('cl-cfg-biz');
     if (!host || !sel) return;
-    const b = bizById.get(String(sel.value));
+    const b = cfgById.get(String(sel.value));
     if (!b) {
       host.innerHTML = '';
       return;
@@ -9171,6 +9350,7 @@ async function pageCalls() {
     const c = b.config || {};
     host.innerHTML = `
       <p class="hint" style="margin:6px 0">Client's number (destination): <strong>${esc(b.lead_phone || '— not provided yet —')}</strong>. This number never shows on their site — it is only where calls ring. Their site's call button shows and dials the tracking number below, which forwards to it.</p>
+      ${b.has_module === false ? '<p class="hint" style="margin:6px 0"><strong>Call tracking is not attached to this business\u2019s site yet.</strong> You can save the forwarding setup now — it takes effect as soon as the module is attached to their site.</p>' : ''}
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
         <label class="field" style="margin:0">Tracking number (Twilio)<br /><input id="cl-cfg-display" type="tel" value="${esc(c.display_number || '')}" placeholder="+16105551234" /></label>
         <label class="field" style="margin:0">Button label<br /><input id="cl-cfg-cta" type="text" maxlength="60" value="${esc(c.cta_text || 'Call us')}" /></label>
@@ -9269,7 +9449,22 @@ async function pageCalls() {
   const cfgBizSel = document.getElementById('cl-cfg-biz');
   if (cfgBizSel) {
     cfgBizSel.addEventListener('change', renderCfgForm);
+    wireSelectSearch(document.getElementById('cl-cfg-search'), cfgBizSel);
     renderCfgForm();
+  }
+  const clClear = document.getElementById('cl-clear-all');
+  if (clClear) {
+    clClear.addEventListener('click', async () => {
+      const b = selectedBiz();
+      const out = await runClearAllFlow({
+        noun: 'call logs',
+        scopeLabel: b ? b.lead_name || 'the selected business' : 'all businesses',
+        extra: 'Only uncounted, unbilled, uncharged logs can be deleted — counted or charged calls are billing history and will be skipped.',
+        call: () =>
+          api.adminClearAllCalls({ leadId: b ? Number(b.lead_id) : null, confirm: 'DELETE' }),
+      });
+      if (out) pageCalls();
+    });
   }
   const searchBtn = document.getElementById('cl-search');
   if (searchBtn) {
@@ -9382,7 +9577,7 @@ async function pageMemberships() {
     }</td></tr>`;
   view.innerHTML = `
     <div class="page-head"><div><h1>Memberships</h1><p class="lede">Paid memberships across client sites. Members pay each site owner through the owner's own Stripe account — BitPype never holds this money; this screen is oversight only.</p></div>
-    <div class="page-actions"><button class="btn" data-act="refresh">Refresh</button></div></div>
+    <div class="page-actions"><button class="btn danger" data-act="clear-members" disabled title="Pick a business first — members are cleared per site.">Clear all members…</button> <button class="btn" data-act="refresh">Refresh</button></div></div>
     ${businessFilterBarHtml(sites, 'ms-biz')}
     <div class="table-wrap"><table>
       <thead><tr><th>Site</th><th>Members</th><th>Paid subs (active)</th><th>Est. monthly revenue</th><th>Owner Stripe</th><th>Payouts (owner's Stripe)</th></tr></thead>
@@ -9393,7 +9588,32 @@ async function pageMemberships() {
   };
   renderSites('');
   view.querySelector('[data-act="refresh"]').onclick = () => pageMemberships();
-  wireBusinessFilter('ms-biz', renderSites);
+  let msBiz = '';
+  const msClear = view.querySelector('[data-act="clear-members"]');
+  wireBusinessFilter('ms-biz', (v) => {
+    msBiz = v;
+    renderSites(v);
+    if (msClear) {
+      msClear.disabled = !v;
+      msClear.title = v ? '' : 'Pick a business first — members are cleared per site.';
+    }
+  });
+  if (msClear) {
+    msClear.onclick = async () => {
+      if (!msBiz) return;
+      const sel = view.querySelector('#ms-biz');
+      const scopeLabel = sel.options[sel.selectedIndex].textContent;
+      const site = sites.find((s) => String(s.lead_id) === String(msBiz));
+      const out = await runClearAllFlow({
+        noun: `members (${(site && site.members_count) || 0} on this site)`,
+        scopeLabel,
+        extra:
+          "Each member's local subscription records go with the account. A member's Stripe subscription lives on the site owner's own Stripe account and is NOT cancelled by this.",
+        call: () => api.adminClearAllMembers({ leadId: Number(msBiz), confirm: 'DELETE' }),
+      });
+      if (out) pageMemberships();
+    };
+  }
 }
 
 /* Site Rentals (Batch 26) — set from the lead drawer ("Rent a site")
@@ -9429,8 +9649,8 @@ async function pageRentals() {
     <div class="card" style="margin-bottom:1rem">
       <h3 style="margin-top:0">Rent a site</h3>
       <div class="row">
-        <div class="field"><label>Website</label><select id="rent-site">${sites.map((s) => `<option value="${esc(s.id)}" ${Number(pre.websiteId) === Number(s.id) ? 'selected' : ''}>${esc(s.owner_business || s.name)}${s.owner_city ? ' · ' + esc(s.owner_city) : ''}${s.industry ? ' · ' + esc(s.industry) : ''}</option>`).join('')}</select></div>
-        <div class="field"><label>Tenant (lead)</label><select id="rent-tenant">${leads.map((l) => `<option value="${esc(l.id)}" ${Number(pre.tenantLeadId) === Number(l.id) ? 'selected' : ''}>${esc(l.business_name || 'Lead #' + l.id)}${l.city ? ' · ' + esc(l.city) : ''}${l.phone ? ' · ' + esc(l.phone) : ''}</option>`).join('')}</select></div>
+        <div class="field"><label>Website</label><input type="search" id="rent-site-search" placeholder="Type to filter…" autocomplete="off" style="margin-bottom:6px" /><select id="rent-site">${sites.map((s) => `<option value="${esc(s.id)}" ${Number(pre.websiteId) === Number(s.id) ? 'selected' : ''}>${esc(s.owner_business || s.name)}${s.owner_city ? ' · ' + esc(s.owner_city) : ''}${s.industry ? ' · ' + esc(s.industry) : ''}</option>`).join('')}</select></div>
+        <div class="field"><label>Tenant (lead)</label><input type="search" id="rent-tenant-search" placeholder="Type to filter…" autocomplete="off" style="margin-bottom:6px" /><select id="rent-tenant">${leads.map((l) => `<option value="${esc(l.id)}" ${Number(pre.tenantLeadId) === Number(l.id) ? 'selected' : ''}>${esc(l.business_name || 'Lead #' + l.id)}${l.city ? ' · ' + esc(l.city) : ''}${l.phone ? ' · ' + esc(l.phone) : ''}</option>`).join('')}</select></div>
       </div>
       <div class="row">
         <div class="field"><label>Pricing model</label><select id="rent-model"><option value="per_lead">Per lead</option><option value="flat">Flat monthly</option></select></div>
@@ -9443,13 +9663,28 @@ async function pageRentals() {
     </div>
     <div class="card" style="margin-bottom:1rem">
       <div class="inline" style="justify-content:space-between"><h3 style="margin:0">All rentals</h3>
-      <input id="rent-filter" type="search" placeholder="Filter by business…" style="max-width:260px" /></div>
+      <span class="inline"><input id="rent-filter" type="search" placeholder="Filter by business…" style="max-width:260px" /> <button class="btn small danger" id="rent-clear-all" type="button" ${rentals.length ? '' : 'disabled'}>Clear all…</button></span></div>
       <div class="table-wrap"><table class="table"><thead><tr><th>Site</th><th>Tenant</th><th>Terms</th><th>Status</th><th>Site leads</th><th>Charged</th><th>Amount due</th><th>Started</th><th></th></tr></thead>
       <tbody id="rent-rows"></tbody></table></div>
     </div>
     <div id="rent-detail"></div>`;
 
   const rowsEl = document.getElementById('rent-rows');
+  wireSelectSearch(document.getElementById('rent-site-search'), document.getElementById('rent-site'));
+  wireSelectSearch(document.getElementById('rent-tenant-search'), document.getElementById('rent-tenant'));
+  const rentClear = document.getElementById('rent-clear-all');
+  if (rentClear) {
+    rentClear.addEventListener('click', async () => {
+      const out = await runClearAllFlow({
+        noun: 'rentals',
+        scopeLabel: 'all rentals',
+        extra:
+          'Only ENDED rental records are removed. Live (trial/active) and paused rentals are never removed here — end them first — and rentals with unsettled charges are kept.',
+        call: () => api.adminClearAllRentals({ confirm: 'DELETE' }),
+      });
+      if (out) pageRentals();
+    });
+  }
   const renderRows = (list) => {
     rowsEl.innerHTML =
       list

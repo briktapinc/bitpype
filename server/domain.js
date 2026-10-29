@@ -4646,6 +4646,21 @@ function adminVoidDomainTransaction(workspaceId, id) {
     return out;
   });
 }
+/** Batch 51 — staff removal of a voided/failed domain transaction. */
+function adminDeleteDomainTransaction(workspaceId, id) {
+  return withDb(workspaceId, (db) => {
+    const out = require('./domainFlow').deleteTransaction(db, Number(id));
+    try {
+      db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
+        'domains',
+        `Staff removed domain transaction #${id} (${out.domain}, was ${out.status})`
+      );
+    } catch {
+      /* activity log is best-effort */
+    }
+    return out;
+  });
+}
 /** Batch 45 — staff delete of a clean (uncounted/uncharged) call log. */
 function adminDeleteCallLog(workspaceId, id) {
   return withDb(workspaceId, (db) => {
@@ -5028,6 +5043,221 @@ function adminClearLeadScoutResolved(workspaceId) {
   return withDb(workspaceId, (db) => require('./portalContacts').clearResolvedFailures(db, {}));
 }
 
+/* ------------------------------------------------------------------ */
+/* Batch 51 — clear-all (bulk delete) for staff list surfaces.         */
+/* Every surface runs its EXISTING single-delete engine function per   */
+/* item; an item the single delete refuses is skipped and counted      */
+/* with the engine's reason. Requires confirm === 'DELETE' (the UI's   */
+/* type-to-confirm, enforced again here so no caller can skip it).     */
+/* Scope: leadId when the surface's business filter is set, else the   */
+/* whole workspace surface. One summary activity_log row per run.      */
+/* ------------------------------------------------------------------ */
+function clearAllError(code, message, status) {
+  return Object.assign(new Error(message), { code, status });
+}
+function assertClearAllConfirm(confirm) {
+  if (String(confirm || '') !== 'DELETE') {
+    throw clearAllError('CONFIRM_REQUIRED', 'Type DELETE to confirm this clear-all.', 400);
+  }
+}
+function runClearAll(db, { area, surface, scopeLabel, items, remove }) {
+  const deleted = [];
+  const skipped = [];
+  for (const item of items) {
+    try {
+      remove(item);
+      deleted.push(item.id);
+    } catch (e) {
+      skipped.push({ id: item.id, reason: (e && e.message) || 'delete refused' });
+    }
+  }
+  try {
+    db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
+      area,
+      `Staff cleared ${surface} (${scopeLabel}): deleted ${deleted.length}, skipped ${skipped.length}` +
+        (skipped.length ? ` — skipped: ${skipped.map((s) => `#${s.id} (${s.reason})`).join('; ').slice(0, 900)}` : '')
+    );
+  } catch {
+    /* activity log is best-effort */
+  }
+  return { deleted: deleted.length, deletedIds: deleted, skipped, skippedCount: skipped.length, scope: scopeLabel };
+}
+function clearAllScopeLabel(db, leadId) {
+  if (!leadId) return 'all businesses';
+  const lead = db.prepare('SELECT business_name FROM leads WHERE id = ?').get(Number(leadId));
+  return `business: ${(lead && lead.business_name) || 'Lead #' + leadId}`;
+}
+
+function adminClearAllForms(workspaceId, opts = {}) {
+  assertClearAllConfirm(opts.confirm);
+  const leadId = Number(opts.leadId) || null;
+  return withDb(workspaceId, (db) => {
+    const forms = require('./contactForms');
+    forms.ensureTables(db);
+    const items = db
+      .prepare(
+        `SELECT id, lead_id FROM contact_forms ${leadId ? 'WHERE lead_id = ?' : ''} ORDER BY lead_id ASC, id ASC`
+      )
+      .all(...(leadId ? [leadId] : []));
+    return runClearAll(db, {
+      area: 'forms',
+      surface: 'forms',
+      scopeLabel: clearAllScopeLabel(db, leadId),
+      items,
+      remove: (item) => forms.deleteForm(db, Number(item.lead_id), Number(item.id)),
+    });
+  });
+}
+
+function adminClearAllBookings(workspaceId, opts = {}) {
+  assertClearAllConfirm(opts.confirm);
+  const leadId = Number(opts.leadId) || null;
+  return withDb(workspaceId, (db) => {
+    const modules = require('./siteModules');
+    modules.ensureTables(db);
+    const items = db
+      .prepare(
+        `SELECT id, lead_id FROM bookings WHERE archived_at IS NULL ${leadId ? 'AND lead_id = ?' : ''} ORDER BY id ASC`
+      )
+      .all(...(leadId ? [leadId] : []));
+    return runClearAll(db, {
+      area: 'bookings',
+      surface: 'appointments',
+      scopeLabel: clearAllScopeLabel(db, leadId),
+      items,
+      remove: (item) => modules.deleteAppointment(db, Number(item.lead_id), Number(item.id)),
+    });
+  });
+}
+
+function adminClearAllLeadScoutContacts(workspaceId, opts = {}) {
+  assertClearAllConfirm(opts.confirm);
+  const leadId = Number(opts.leadId) || null;
+  return withDb(workspaceId, (db) => {
+    const portalContacts = require('./portalContacts');
+    portalContacts.ensureTables(db);
+    // A contact is in scope for a business when any of its events belongs
+    // to that business. Deleting still removes the whole (deduped)
+    // contact — exactly what the single delete does.
+    const items = leadId
+      ? db
+          .prepare(
+            `SELECT DISTINCT c.id FROM leadscout_contacts c
+             JOIN leadscout_events e ON e.contact_id = c.id AND e.lead_id = ?
+             ORDER BY c.id ASC`
+          )
+          .all(leadId)
+      : db.prepare('SELECT id FROM leadscout_contacts ORDER BY id ASC').all();
+    return runClearAll(db, {
+      area: 'leadscout',
+      surface: 'LeadScout contacts',
+      scopeLabel: clearAllScopeLabel(db, leadId),
+      items,
+      remove: (item) => portalContacts.deleteContact(db, Number(item.id), {}),
+    });
+  });
+}
+
+function adminClearAllMembers(workspaceId, opts = {}) {
+  assertClearAllConfirm(opts.confirm);
+  const leadId = Number(opts.leadId) || null;
+  if (!leadId) {
+    throw clearAllError('VALIDATION', 'Pick a business first — members are cleared per site.', 400);
+  }
+  return withDb(workspaceId, (db) => {
+    const modules = require('./siteModules');
+    modules.ensureTables(db);
+    const items = db
+      .prepare('SELECT id FROM site_members WHERE lead_id = ? ORDER BY id ASC')
+      .all(leadId);
+    return runClearAll(db, {
+      area: 'memberships',
+      surface: 'members',
+      scopeLabel: clearAllScopeLabel(db, leadId),
+      items,
+      remove: (item) => modules.deleteSiteMember(db, leadId, Number(item.id)),
+    });
+  });
+}
+
+function adminClearAllRentals(workspaceId, opts = {}) {
+  assertClearAllConfirm(opts.confirm);
+  return withDb(workspaceId, (db) => {
+    const rentals = require('./rentals');
+    rentals.ensureRentals(db);
+    const items = db.prepare('SELECT id FROM site_rentals ORDER BY id ASC').all();
+    return runClearAll(db, {
+      area: 'rentals',
+      surface: 'rentals',
+      scopeLabel: 'all rentals',
+      items,
+      remove: (item) => rentals.deleteEndedRental(db, Number(item.id)),
+    });
+  });
+}
+
+function adminClearAllModules(workspaceId, opts = {}) {
+  assertClearAllConfirm(opts.confirm);
+  const leadId = Number(opts.leadId) || null;
+  return withDb(workspaceId, (db) => {
+    const modules = require('./siteModules');
+    modules.ensureTables(db);
+    const items = db
+      .prepare(
+        `SELECT id, lead_id, module_type FROM site_module_embeds ${leadId ? 'WHERE lead_id = ?' : ''} ORDER BY lead_id ASC, id ASC`
+      )
+      .all(...(leadId ? [leadId] : []));
+    return runClearAll(db, {
+      area: 'modules',
+      surface: 'module attachments (detached)',
+      scopeLabel: clearAllScopeLabel(db, leadId),
+      items,
+      remove: (item) => {
+        const out = modules.detachModule(db, Number(item.lead_id), item.module_type);
+        if (!out || !out.embed) throw clearAllError('NOT_FOUND', 'Module attachment not found', 404);
+      },
+    });
+  });
+}
+
+function adminClearAllCourses(workspaceId, opts = {}) {
+  assertClearAllConfirm(opts.confirm);
+  const leadId = Number(opts.leadId) || null;
+  return withDb(workspaceId, (db) => {
+    const modules = require('./siteModules');
+    modules.ensureTables(db);
+    const items = db
+      .prepare(`SELECT id, lead_id FROM courses ${leadId ? 'WHERE lead_id = ?' : ''} ORDER BY id ASC`)
+      .all(...(leadId ? [leadId] : []));
+    return runClearAll(db, {
+      area: 'courses',
+      surface: 'courses',
+      scopeLabel: clearAllScopeLabel(db, leadId),
+      items,
+      remove: (item) => modules.deleteCourse(db, Number(item.lead_id), Number(item.id)),
+    });
+  });
+}
+
+function adminClearAllCalls(workspaceId, opts = {}) {
+  assertClearAllConfirm(opts.confirm);
+  const leadId = Number(opts.leadId) || null;
+  return withDb(workspaceId, (db) => {
+    const modules = require('./siteModules');
+    modules.ensureTables(db);
+    const items = db
+      .prepare(`SELECT id FROM call_logs ${leadId ? 'WHERE lead_id = ?' : ''} ORDER BY id ASC`)
+      .all(...(leadId ? [leadId] : []));
+    return runClearAll(db, {
+      area: 'calls',
+      surface: 'call logs',
+      scopeLabel: clearAllScopeLabel(db, leadId),
+      items,
+      remove: (item) => modules.deleteCallLog(db, Number(item.id)),
+    });
+  });
+}
+
 function adminBookingsOverview(workspaceId, opts = {}) {
   return withDb(workspaceId, (db) => {
     const modules = require('./siteModules');
@@ -5158,6 +5388,26 @@ async function adminCallsOverview(workspaceId, opts = {}) {
     // (leads.phone — the destination), the full admin-owned config, and
     // the voice webhook URL an owned Twilio number must point at.
     const { appUrl } = require('./stripeClient');
+    const shapeCallBiz = (r) => ({
+      lead_id: r.lead_id,
+      lead_name: r.lead_name || '',
+      lead_phone: r.lead_phone || '',
+      display_number: r.display_number || '',
+      twilio_number_sid: r.twilio_number_sid || '',
+      voice_url: `${String(appUrl() || '').replace(/\/$/, '')}/api/v1/calls/voice/${Number(workspaceId)}/${Number(r.lead_id)}`,
+      config: {
+        display_number: r.display_number || '',
+        cta_text: r.cta_text || 'Call us',
+        redirect_enabled: r.redirect_enabled == null ? true : !!r.redirect_enabled,
+        redirect_number: r.redirect_number || '',
+        record_calls: !!r.record_calls,
+        notify_email: r.notify_email == null ? true : !!r.notify_email,
+        voicemail_enabled: r.voicemail_enabled == null ? true : !!r.voicemail_enabled,
+        rotate_enabled: !!r.rotate_enabled,
+        rotation_numbers: modules.getRotationNumbers(db, r.lead_id),
+        twilio_number_sid: r.twilio_number_sid || '',
+      },
+    });
     let businesses = [];
     try {
       businesses = db
@@ -5173,28 +5423,38 @@ async function adminCallsOverview(workspaceId, opts = {}) {
            ORDER BY l.business_name ASC`
         )
         .all()
-        .map((r) => ({
-          lead_id: r.lead_id,
-          lead_name: r.lead_name || '',
-          lead_phone: r.lead_phone || '',
-          display_number: r.display_number || '',
-          twilio_number_sid: r.twilio_number_sid || '',
-          voice_url: `${String(appUrl() || '').replace(/\/$/, '')}/api/v1/calls/voice/${Number(workspaceId)}/${Number(r.lead_id)}`,
-          config: {
-            display_number: r.display_number || '',
-            cta_text: r.cta_text || 'Call us',
-            redirect_enabled: r.redirect_enabled == null ? true : !!r.redirect_enabled,
-            redirect_number: r.redirect_number || '',
-            record_calls: !!r.record_calls,
-            notify_email: r.notify_email == null ? true : !!r.notify_email,
-            voicemail_enabled: r.voicemail_enabled == null ? true : !!r.voicemail_enabled,
-            rotate_enabled: !!r.rotate_enabled,
-            rotation_numbers: modules.getRotationNumbers(db, r.lead_id),
-            twilio_number_sid: r.twilio_number_sid || '',
-          },
-        }));
+        .map(shapeCallBiz);
     } catch {
       businesses = [];
+    }
+    // Batch 51: the forwarding-setup picker offers EVERY lead — setup is
+    // how a business ENTERS call tracking, so gating the picker on the
+    // module already being attached made new businesses unconfigurable.
+    // pickerBusinesses carries the same shape (default config when the
+    // lead has none) plus has_module/configured flags; `businesses`
+    // above stays module-attached-only for the billing strip + log
+    // filter, whose per-business plan/counter reads assume tracked
+    // businesses.
+    let pickerBusinesses = [];
+    try {
+      pickerBusinesses = db
+        .prepare(
+          `SELECT l.id AS lead_id, l.business_name AS lead_name, l.phone AS lead_phone,
+                  c.display_number, c.cta_text, c.redirect_enabled, c.redirect_number,
+                  c.record_calls, c.notify_email, c.voicemail_enabled, c.rotate_enabled,
+                  c.twilio_number_sid,
+                  CASE WHEN c.lead_id IS NULL THEN 0 ELSE 1 END AS has_config,
+                  CASE WHEN e.lead_id IS NULL THEN 0 ELSE 1 END AS has_module
+           FROM leads l
+           LEFT JOIN calltracking_configs c ON c.lead_id = l.id
+           LEFT JOIN (SELECT DISTINCT lead_id FROM site_module_embeds WHERE module_type = 'calltracking') e
+             ON e.lead_id = l.id
+           ORDER BY l.business_name ASC`
+        )
+        .all()
+        .map((r) => ({ ...shapeCallBiz(r), configured: !!r.has_config, has_module: !!r.has_module }));
+    } catch {
+      pickerBusinesses = [];
     }
     // Batch 26d: the workspace Twilio number pool rides along so the
     // Calls page renders assignments + rotation pickers from one fetch.
@@ -5204,7 +5464,7 @@ async function adminCallsOverview(workspaceId, opts = {}) {
     } catch {
       pool = [];
     }
-    return { calls, businesses, pool };
+    return { calls, businesses, pickerBusinesses, pool };
   });
   // Per-business plan + this-month counters (addendum #3 display). The
   // plan resolves the same way other entitlements do — workspace plan,
@@ -5572,6 +5832,15 @@ module.exports = {
   adminClearLeadScoutResolved,
   adminDeleteCallLog,
   adminVoidDomainTransaction,
+  adminDeleteDomainTransaction,
+  adminClearAllForms,
+  adminClearAllBookings,
+  adminClearAllLeadScoutContacts,
+  adminClearAllMembers,
+  adminClearAllRentals,
+  adminClearAllModules,
+  adminClearAllCourses,
+  adminClearAllCalls,
   adminLeadScoutContacts,
   adminLeadScoutContact,
   adminBookingsOverview,
