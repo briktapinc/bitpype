@@ -380,6 +380,15 @@ async function scheduleCancelAtPeriodEnd(userId) {
     cancel_at_period_end: true,
   });
   await syncSubscription(updated);
+  // Batch 63: cancel confirmation email (deduped per subscription +
+  // period inside lifecycleComms — the customer.subscription.updated
+  // webhook echo of this same change lands on the same claim).
+  // Best-effort: a mail failure never fails the cancel.
+  try {
+    await require('./lifecycleComms').sendCancelConfirmation(updated, {});
+  } catch (e) {
+    console.warn('[billing] cancel confirmation email:', e.message);
+  }
   const periodEnd = updated.current_period_end
     ? new Date(updated.current_period_end * 1000).toISOString()
     : user.current_period_end || null;
@@ -409,6 +418,13 @@ async function resumeSubscription(userId) {
     cancel_at_period_end: false,
   });
   await syncSubscription(updated);
+  // Batch 63: if the user cancels again later in the same period, the
+  // confirmation + T-3 reminder must fire again — clear their claims.
+  try {
+    await require('./lifecycleComms').clearCancelClaims(user.stripe_subscription_id, {});
+  } catch (e) {
+    console.warn('[billing] cancel claims clear:', e.message);
+  }
   return {
     action: 'resumed',
     plan: planOfUser(await getUserBilling(userId)),
@@ -1378,10 +1394,22 @@ async function dispatchWebhookEvent(event, deps = {}) {
     // Best-effort like the domain-flow hook above: a site-disable
     // failure must never fail the billing webhook.
     if (type === 'customer.subscription.deleted') {
+      let disableResult = null;
       try {
-        await disableSitesForEndedSubscription(obj, deps);
+        disableResult = await disableSitesForEndedSubscription(obj, deps);
       } catch (e) {
         console.warn('[billing] subscription-end site disable:', e.message);
+      }
+      // Batch 63: post-termination notice — what was archived, what
+      // state the domains are in, how to come back. Rides the disable
+      // result (the orphan guard inside suppresses the email for a
+      // subscription that was never the user's live plan).
+      if (disableResult) {
+        try {
+          await require('./lifecycleComms').sendTerminationNotice(obj, disableResult, deps);
+        } catch (e) {
+          console.warn('[billing] termination notice:', e.message);
+        }
       }
     }
     // Batch 60: re-derive domain renewal modes for the subscriber's
@@ -1394,6 +1422,17 @@ async function dispatchWebhookEvent(event, deps = {}) {
       await require('./domainRenewals').reconcileForSubscriptionEvent(obj, type, deps);
     } catch (e) {
       console.warn('[billing] domain renewal reconcile:', e.message);
+    }
+    // Batch 63: cancel confirmation when the cancel flag arrives via
+    // the sync path (Stripe dashboard, or the echo of the in-app
+    // flow) — lifecycleComms dedupes per subscription + period, so
+    // the two paths can never double-send.
+    if (obj.cancel_at_period_end) {
+      try {
+        await require('./lifecycleComms').sendCancelConfirmation(obj, deps);
+      } catch (e) {
+        console.warn('[billing] cancel confirmation email:', e.message);
+      }
     }
     return;
   }
@@ -1429,6 +1468,16 @@ async function dispatchWebhookEvent(event, deps = {}) {
       } catch (e) {
         console.warn('[billing] renewal email:', e.message);
       }
+      // Batch 63: plan-only first-payment receipt. The renewal sender
+      // above deliberately excludes billing_reason
+      // 'subscription_create'; this covers it, cross-checked inside
+      // against the domain flow so a domain signup is never emailed
+      // twice about the same payment.
+      try {
+        await require('./lifecycleComms').sendFirstPaymentReceipt(obj, { subscription: sub, deps });
+      } catch (e) {
+        console.warn('[billing] first payment receipt:', e.message);
+      }
     }
     return;
   }
@@ -1440,6 +1489,14 @@ async function dispatchWebhookEvent(event, deps = {}) {
       const subId = typeof obj.subscription === 'string' ? obj.subscription : obj.subscription.id;
       const sub = await stripe.subscriptions.retrieve(subId);
       await syncSubscription(sub);
+    }
+    // Batch 63: failed-payment email. Access continues while Stripe
+    // retries (past_due is an active status here) and the copy says
+    // exactly that. Deduped per invoice inside lifecycleComms.
+    try {
+      await require('./lifecycleComms').sendPaymentFailedEmail(obj, deps);
+    } catch (e) {
+      console.warn('[billing] payment failed email:', e.message);
     }
     return;
   }

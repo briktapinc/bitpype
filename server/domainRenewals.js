@@ -242,6 +242,41 @@ async function reconcileWorkspace(db, workspaceId, deps = {}) {
         `Manual renewal observed for ${domain}: expiry extended to ${reg.expiresAt} (was ${row.manual_renew_from_expiry})`
       );
     }
+    // Batch 63: lifecycle notices — a flip auto→manual (owner
+    // unsubscribed) and a completed manual renewal each email the
+    // owner. Optional via deps (wired by default in
+    // reconcileWorkspaces); every call is best-effort and deduped
+    // inside lifecycleComms, and a notifier failure never fails the
+    // reconcile.
+    if (typeof deps.notifyDomainEvent === 'function') {
+      if (row.renewal_mode === 'auto' && mode === 'manual') {
+        try {
+          await deps.notifyDomainEvent(db, workspaceId, {
+            type: 'flip',
+            domain,
+            expiresAt: reg.expiresAt || null,
+            websiteId: row.website_id,
+            leadId: row.lead_id,
+          });
+        } catch (e) {
+          console.warn('[domainRenewals] flip notice:', e && e.message);
+        }
+      }
+      if (renewalObserved) {
+        try {
+          await deps.notifyDomainEvent(db, workspaceId, {
+            type: 'manual_renewed',
+            domain,
+            expiresAt: reg.expiresAt || null,
+            prevExpiry: row.manual_renew_from_expiry || null,
+            websiteId: row.website_id,
+            leadId: row.lead_id,
+          });
+        } catch (e) {
+          console.warn('[domainRenewals] renewal notice:', e && e.message);
+        }
+      }
+    }
     if (changed) changedCount++;
     out.push({
       domain,
@@ -272,6 +307,21 @@ async function reconcileWorkspace(db, workspaceId, deps = {}) {
 
 async function reconcileWorkspaces(workspaceIds, deps = {}) {
   const openDb = deps.openDb || ((ws) => require('./workspaceDb').openWorkspaceDb(ws));
+  // Batch 63: wire the lifecycle notifier by default (production
+  // paths — ticker, webhooks, admin reconcile). Callers that inject
+  // their own (tests) keep theirs; the lazy require keeps this module
+  // loadable in sandboxes that never wire comms, and notifyDomainEvent
+  // itself never throws.
+  const effectiveDeps = { ...deps };
+  if (typeof effectiveDeps.notifyDomainEvent !== 'function') {
+    effectiveDeps.notifyDomainEvent = async (db, ws, event) => {
+      try {
+        await require('./lifecycleComms').notifyDomainEvent(db, ws, event, effectiveDeps);
+      } catch (e) {
+        console.warn('[domainRenewals] lifecycle notice:', e && e.message);
+      }
+    };
+  }
   const workspaces = [];
   const domains = [];
   for (const ws of [...new Set((workspaceIds || []).map(Number).filter(Boolean))]) {
@@ -284,7 +334,7 @@ async function reconcileWorkspaces(workspaceIds, deps = {}) {
     }
     if (!db) continue;
     try {
-      const res = await reconcileWorkspace(db, ws, deps);
+      const res = await reconcileWorkspace(db, ws, effectiveDeps);
       workspaces.push(res);
       for (const d of res.domains || []) domains.push({ workspaceId: ws, ...d });
     } catch (e) {

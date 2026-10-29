@@ -376,6 +376,23 @@ router.put('/settings/plans-contents', async (req, res) => {
     const result = await require('../planContents').updatePlanContents(
       req.body && req.body.contents ? req.body.contents : req.body
     );
+    // Batch 63: opt-in subscriber notice — only when the panel's
+    // "Email this change to current subscribers" checkbox was checked,
+    // and only for plans whose contents actually changed (updated or
+    // reset). Best-effort per plan; failures surface in the response,
+    // never as a failed save.
+    let notified = null;
+    if (req.body && req.body.emailSubscribers === true) {
+      notified = {};
+      for (const planId of [...(result.updated || []), ...(result.reset || [])]) {
+        try {
+          notified[planId] = await require('../lifecycleComms').sendPlanContentsNotice(planId, {});
+        } catch (e) {
+          console.warn('[admin] contents notice', planId, e.message);
+          notified[planId] = { sent: 0, error: e.message };
+        }
+      }
+    }
     try {
       await platform.savePlatformDefaultsSnapshot();
     } catch (e) {
@@ -384,9 +401,9 @@ router.put('/settings/plans-contents', async (req, res) => {
     await platform.audit(
       req.session.userId,
       'platform.plans_contents',
-      `updated=${result.updated.join(',') || 'none'} reset=${result.reset.join(',') || 'none'} unchanged=${result.unchanged.join(',') || 'none'}`
+      `updated=${result.updated.join(',') || 'none'} reset=${result.reset.join(',') || 'none'} unchanged=${result.unchanged.join(',') || 'none'}${notified ? ` notified=${Object.entries(notified).map(([p, n]) => `${p}:${(n && n.sent) || 0}`).join(',') || 'none'}` : ''}`
     );
-    ok(res, result);
+    ok(res, { ...result, notified });
   } catch (e) {
     fail(res, e, e.code === 'VALIDATION' ? 400 : 500);
   }

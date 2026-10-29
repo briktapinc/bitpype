@@ -825,6 +825,14 @@ async function main() {
   } catch (e) {
     console.warn('[domainRenewals] ticker not started:', e.message);
   }
+  // Batch 63: hourly lifecycle comms sweep (pre-renewal reminders,
+  // domain lapse/flip notices, cancel reminders, rental statements —
+  // every send deduped in lifecycle_comms_sends).
+  try {
+    require('./server/lifecycleComms').startLifecycleTicker();
+  } catch (e) {
+    console.warn('[lifecycleComms] ticker not started:', e.message);
+  }
   try {
     require('./server/imapPoller').startImapPoller({
       intervalMs: Number(process.env.IMAP_POLL_MS || 120000),

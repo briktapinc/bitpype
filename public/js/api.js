@@ -499,7 +499,8 @@ window.ScoutApi = (() => {
     adminPricing: () => get('/admin/settings/pricing'),
     adminPricingUpdate: (amounts) => put('/admin/settings/pricing', { amounts }),
     adminPlanContents: () => get('/admin/settings/plans-contents'),
-    adminPlanContentsUpdate: (contents) => put('/admin/settings/plans-contents', { contents }),
+    adminPlanContentsUpdate: (contents, opts) =>
+      put('/admin/settings/plans-contents', { contents, emailSubscribers: !!(opts && opts.emailSubscribers) }),
     // Hostinger one-click deploys (Batch 59)
     adminHostingerStatus: () => get('/admin/settings/hostinger'),
     adminHostingerTest: () => post('/admin/settings/hostinger/test', {}),
