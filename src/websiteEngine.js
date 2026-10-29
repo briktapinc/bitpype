@@ -34,6 +34,7 @@ const ai = require('./ai');
 const googleFonts = require('../public/js/fonts.js');
 const siteIcons = require('./siteIcons');
 const seoSchema = require('./seoSchema');
+const siteLegal = require('./siteLegal');
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                             */
@@ -6714,7 +6715,7 @@ async function qaSite(db, websiteId) {
       try {
         const seoFails = [];
         const seoWarns = [];
-        for (const artifact of ['sitemap.xml', 'robots.txt', '404.html']) {
+        for (const artifact of ['sitemap.xml', 'robots.txt', '404.html', 'terms.html', 'privacy.html']) {
           if (!fs.existsSync(path.join(exportDir, artifact))) seoFails.push(`export: missing ${artifact}`);
         }
         const homeFile = path.join(exportDir, 'index.html');
@@ -7212,6 +7213,17 @@ function writeStaticPages(pages, theme, outDir, opts) {
   fs.mkdirSync(outDir, { recursive: true });
   const home = homePage(pages);
   const written = [];
+  // Batch 60: generated site-level legal pages (Terms + Privacy) join the
+  // export here. Export-time only — never written back to websites.pages;
+  // an owner-authored page at the same canonical slug always wins (see
+  // src/siteLegal.js). The QA foundations check fails exports whose
+  // terms.html / privacy.html are missing, so a generation failure is
+  // caught rather than silently shipped.
+  try {
+    const seoForLegal = seoContextFromOpts(opts || {});
+    const legalCtx = siteLegal.legalContextFromSeo(seoForLegal, pages);
+    pages = siteLegal.withLegalPages(pages, legalCtx, { canon: canonicalSlugPath });
+  } catch { /* QA foundations fails the export if the pages are missing */ }
   // Batch 32 (C6): static blog context (published posts + mounts),
   // threaded via opts.seo.blog by buildSeoExportContext.
   const seoForBlog = seoContextFromOpts(opts || {});
@@ -7228,6 +7240,9 @@ function writeStaticPages(pages, theme, outDir, opts) {
     // filenames and bare slugs are all normalized here, so no exported
     // link can fall back to the home page.
     pageHtml = normalizeInternalLinksToCanonical(pageHtml, pages);
+    // Batch 60: every exported page links the site's legal pages
+    // (idempotent; skipped when the page already links both).
+    pageHtml = siteLegal.injectLegalLinks(pageHtml, { urlFor: pageUrlPath });
     // Batch 32 (C6): server-render the blog card snapshot into any blog
     // mount on this page (real post URLs in the raw HTML).
     if (blogCtx) pageHtml = injectStaticBlogSnapshot(pageHtml, blogCtx, baseUrlForBlog);
@@ -7457,6 +7472,7 @@ function buildSeoExportContext(db, websiteId, opts = {}) {
   try {
     const site = getWebsite(db, websiteId);
     ctx.siteUpdatedAt = site.updated_at || '';
+    ctx.siteName = site.name || '';
     const lead = site.lead_id ? db.prepare('SELECT * FROM leads WHERE id = ?').get(site.lead_id) : null;
     let seoBaseOverride = '';
     if (opts && typeof opts.seoBaseUrl === 'string' && /^https?:\/\//i.test(opts.seoBaseUrl.trim())) {
@@ -7536,6 +7552,26 @@ function buildSeoExportContext(db, websiteId, opts = {}) {
         ctx.moduleFaqItems = rows || [];
       } catch {
         /* faq_items optional */
+      }
+      // Batch 60: attached modules + analytics state drive the generated
+      // site-level legal pages (module-aware clauses; truthful claims).
+      try {
+        const modRows = db
+          .prepare('SELECT DISTINCT module_type FROM site_module_embeds WHERE lead_id = ? AND published = 1')
+          .all(lead.id);
+        ctx.legalModules = (modRows || []).map((r) => String(r.module_type || '')).filter(Boolean);
+      } catch {
+        ctx.legalModules = [];
+      }
+      try {
+        const a = db
+          .prepare('SELECT internal_enabled, google_ids FROM site_analytics_settings WHERE website_id = ?')
+          .get(websiteId);
+        let googleIds = [];
+        try { const parsed = a && a.google_ids ? JSON.parse(a.google_ids) : []; if (Array.isArray(parsed)) googleIds = parsed.map((x) => String(x || '').trim()).filter(Boolean); } catch { /* ignore */ }
+        ctx.legalAnalytics = { internal: !!(a && a.internal_enabled), googleIds };
+      } catch {
+        ctx.legalAnalytics = { internal: false, googleIds: [] };
       }
       // Batch 32 (C6): thread the blog through the SAME context so
       // every export funnel (exportStatic, materialize/cfPublish, QA)
