@@ -429,6 +429,12 @@ async function migrate() {
       CREATE INDEX IF NOT EXISTS idx_mcp_oauth_codes_exp ON mcp_oauth_auth_codes(expires_at);
       CREATE INDEX IF NOT EXISTS idx_mcp_oauth_refresh_exp ON mcp_oauth_refresh_tokens(expires_at);
       CREATE INDEX IF NOT EXISTS idx_mcp_oauth_clients_exp ON mcp_oauth_clients(expires_at);
+      CREATE TABLE IF NOT EXISTS rate_limit_hits (
+        bucket TEXT NOT NULL,
+        k TEXT NOT NULL,
+        at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_rate_limit_hits ON rate_limit_hits (bucket, k, at);
     `);
     // Batch 29: portal user types + per-user nav overrides. The column
     // default backfills every existing portal user to 'owner'.
@@ -730,6 +736,15 @@ async function migrate() {
         payload_json MEDIUMTEXT NOT NULL,
         expires_at BIGINT NOT NULL,
         KEY idx_mcp_oauth_clients_exp (expires_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    // Batch 55: durable rate-limit counters (server/rateLimitStore.js).
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS rate_limit_hits (
+        bucket VARCHAR(160) NOT NULL,
+        k VARCHAR(255) NOT NULL,
+        at BIGINT NOT NULL,
+        KEY idx_rate_limit_hits (bucket, k, at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
   });
