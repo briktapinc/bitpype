@@ -687,7 +687,9 @@ app.use(express.static(path.join(__dirname, 'public'), { index: false }));
   );
   // Batch 31 (C2): unknown preview paths serve the SITE's themed
   // 404.html with a TRUE 404 status — never the home page (soft 404).
-  app.use('/site-previews', (req, res, next) => {
+  // Batch 64: the archive gate runs here too — a missing file inside an
+  // archived site's folder must not leak the site's themed 404 page.
+  app.use('/site-previews', require('./server/previewSecurity').blockArchivedPreviews, (req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next();
     const seg = String(req.path || '').split('/').filter(Boolean)[0];
     if (!seg) return next();
