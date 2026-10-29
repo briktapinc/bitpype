@@ -227,12 +227,16 @@ function partA() {
 
   const deploy = require(path.join(root, 'server/hostingerDeploy.js'));
 
-  check('markers: software-interest detection (stored group casing, source, tags) + ordinary lead excluded', () => {
-    assert.equal(deploy.isSoftwareInterestLead({ lead_group: 'Software interest' }), true);
-    assert.equal(deploy.isSoftwareInterestLead({ lead_group: 'Software Interest' }), true);
+  check('markers: software-interest detection is the CREATED-BY source only (Batch 68 / review M-5)', () => {
+    // Batch 68 tightened this: tags/lead_group alone used to qualify,
+    // but the landing fold (and imports) can stamp those onto leads
+    // /landing never created — eligibility now keys off source only.
     assert.equal(deploy.isSoftwareInterestLead({ source: 'landing-software' }), true);
-    assert.equal(deploy.isSoftwareInterestLead({ tags: ['landing-software'] }), true);
-    assert.equal(deploy.isSoftwareInterestLead({ tags: ['software-interest'] }), true);
+    assert.equal(deploy.isSoftwareInterestLead({ source: 'landing-software', lead_group: 'Home services', tags: [] }), true);
+    assert.equal(deploy.isSoftwareInterestLead({ lead_group: 'Software interest' }), false);
+    assert.equal(deploy.isSoftwareInterestLead({ lead_group: 'Software Interest' }), false);
+    assert.equal(deploy.isSoftwareInterestLead({ tags: ['landing-software'] }), false);
+    assert.equal(deploy.isSoftwareInterestLead({ tags: ['software-interest'] }), false);
     assert.equal(deploy.isSoftwareInterestLead({ lead_group: 'Home services', source: 'manual', tags: [] }), false);
     assert.equal(deploy.isSoftwareInterestLead({}), false);
     assert.equal(deploy.isSoftwareInterestLead(null), false);
@@ -585,6 +589,7 @@ async function partB() {
       stub.firstPrice = 799;
       const res = await post(`/api/v1/admin/leads/${L1}/hostinger-deployment`, {
         workspaceId: 1,
+        confirmText: 'DEPLOY',
         confirmPriceCents: 1399,
         confirmFirstPeriodCents: 699,
       });
@@ -600,6 +605,7 @@ async function partB() {
       stub.vmState = 'running';
       const res = await post(`/api/v1/admin/leads/${L1}/hostinger-deployment`, {
         workspaceId: 1,
+        confirmText: 'DEPLOY',
         confirmPriceCents: 1499,
         confirmFirstPeriodCents: 799,
       });
@@ -624,6 +630,7 @@ async function partB() {
     await checkAsync('double-click / replay while active → 409 DEPLOYMENT_ACTIVE, still exactly one purchase', async () => {
       const res = await post(`/api/v1/admin/leads/${L1}/hostinger-deployment`, {
         workspaceId: 1,
+        confirmText: 'DEPLOY',
         confirmPriceCents: 1499,
         confirmFirstPeriodCents: 799,
       });
@@ -727,6 +734,7 @@ async function partB() {
       const price = body.data.plan;
       res = await post(`/api/v1/admin/leads/${L3}/hostinger-deployment`, {
         workspaceId: 1,
+        confirmText: 'DEPLOY',
         confirmPriceCents: price.priceCents,
         confirmFirstPeriodCents: price.firstPeriodPriceCents,
       });
@@ -758,6 +766,7 @@ async function partB() {
       const price2 = body.data.plan;
       res = await post(`/api/v1/admin/leads/${L3}/hostinger-deployment/retry`, {
         workspaceId: 1,
+        confirmText: 'DEPLOY',
         confirmPriceCents: price2.priceCents,
         confirmFirstPeriodCents: price2.firstPeriodPriceCents,
       });
@@ -893,10 +902,10 @@ async function partC() {
       `INSERT INTO deployments
         (workspace_id, lead_id, lead_email, status, plan_item_id, plan_name, price_cents,
          first_period_price_cents, currency, admin_email, callback_secret_hash,
-         bundle_token_hash, active_lead_key, created_by, hostinger_vm_id, hostname)
+         bundle_token_hash, active_lead_key, created_by, hostinger_vm_id, hostname, hostinger_script_id)
        VALUES (:ws, :lead, :email, :status, :priceId, :planName, :priceCents,
          :firstPeriod, :currency, :email, :cbHash, :bundleHash, :activeKey, :actor,
-         :vmId, :hostname)`,
+         :vmId, :hostname, '777')`,
       {
         ws: v.ws,
         lead: v.lead,
