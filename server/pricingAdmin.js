@@ -40,7 +40,7 @@
 
 const platform = require('./platform');
 const stripeClient = require('./stripeClient');
-const { PLAN_STANDARD, PLAN_PRO, PLAN_PREMIUM, PLANS } = require('./plans');
+const { PLAN_STANDARD, PLAN_PRO, PLAN_PREMIUM, PLANS, getPlan } = require('./plans');
 
 const MAX_AMOUNT_USD = 100000;
 
@@ -99,9 +99,23 @@ const ITEMS = [
   },
 ];
 
+/** Batch 57: a plan's display name can be overridden in Package
+ *  contents — resolve it live so this panel and the synced price labels
+ *  use the current name, not the load-time catalog name. */
+function displayName(item) {
+  if (item.kind === 'plan' && item.planId) {
+    try {
+      return getPlan(item.planId).name || item.name;
+    } catch {
+      return item.name;
+    }
+  }
+  return item.name;
+}
+
 function invalidAmount(item, value) {
   const e = new Error(
-    `Invalid amount for ${item.name}: ${JSON.stringify(value)} — enter a USD amount over $0 and up to $${MAX_AMOUNT_USD}, with at most 2 decimal places.`
+    `Invalid amount for ${displayName(item)}: ${JSON.stringify(value)} — enter a USD amount over $0 and up to $${MAX_AMOUNT_USD}, with at most 2 decimal places.`
   );
   e.code = 'INVALID_AMOUNT';
   return e;
@@ -161,7 +175,7 @@ async function labelFor(item, cents) {
     const pack = Math.max(1, Math.floor(Number(await platform.getPlatformSetting('credits.pack_amount', '50')) || 50));
     return `${pack} credits · $${formatUsd(cents)}`;
   }
-  return `${item.name} · $${formatUsd(cents)}/mo`;
+  return `${displayName(item)} · $${formatUsd(cents)}/mo`;
 }
 
 /**
@@ -220,7 +234,7 @@ async function getPricingState() {
     const cur = await resolveCurrent(item, stripe);
     items.push({
       id: item.id,
-      name: item.name,
+      name: displayName(item),
       kind: item.kind,
       interval: item.interval,
       priceSetting: item.priceSetting,
@@ -273,7 +287,7 @@ async function findOrCreateProduct(stripe, item, hintProductIds) {
 }
 
 function stripeFailure(item, e) {
-  const err = new Error(`Stripe rejected the ${item.name} price change: ${e.message || String(e)}`);
+  const err = new Error(`Stripe rejected the ${displayName(item)} price change: ${e.message || String(e)}`);
   err.code = 'STRIPE_ERROR';
   err.item = item.id;
   return err;
@@ -395,13 +409,13 @@ async function updatePricing(amounts) {
         await stripe.prices.update(oldId, { active: false });
       } catch (e) {
         warnings.push(
-          `${item.name}: new price saved, but the old price ${oldId} could not be deactivated (${e.message}). It stays active in Stripe but checkout no longer uses it; deactivate it in the Stripe dashboard if you want it retired.`
+          `${displayName(item)}: new price saved, but the old price ${oldId} could not be deactivated (${e.message}). It stays active in Stripe but checkout no longer uses it; deactivate it in the Stripe dashboard if you want it retired.`
         );
       }
     }
     if (envOverridden(item)) {
       warnings.push(
-        `${item.name}: an environment variable (${item.envVars.join(' / ')}) also sets this price and takes precedence over the saved setting until it is removed.`
+        `${displayName(item)}: an environment variable (${item.envVars.join(' / ')}) also sets this price and takes precedence over the saved setting until it is removed.`
       );
     }
   }
@@ -411,7 +425,7 @@ async function updatePricing(amounts) {
     mode,
     updated: changed.map((item) => ({
       id: item.id,
-      name: item.name,
+      name: displayName(item),
       cents: desired.get(item.id),
       amountUsd: desired.get(item.id) / 100,
       oldPriceId: currents.get(item.id).priceId || null,

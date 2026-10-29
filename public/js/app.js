@@ -7571,6 +7571,117 @@ function pricingPanelHtml(state) {
   </div>`;
 }
 
+// Batch 57: the Package contents panel owns these JSON settings — the
+// generic billing form carries them as hidden inputs so a plain Save can
+// never wipe them, and the structured editor below is the surface.
+const PLANS_CONTENTS_MANAGED_KEYS = new Set([
+  'plans.contents_free',
+  'plans.contents_standard',
+  'plans.contents_pro',
+  'plans.contents_premium',
+]);
+
+function pcEntitlementLabel(key) {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .replace(/^./, (c) => c.toUpperCase());
+}
+
+function pcFeatureRowHtml(value) {
+  return `<div class="pc-feature row" style="gap:.4rem;margin-bottom:.4rem">
+    <input data-feature value="${esc(value)}" maxlength="120" style="flex:1" />
+    <button type="button" class="btn small" data-act="feat-up" title="Move up">↑</button>
+    <button type="button" class="btn small" data-act="feat-down" title="Move down">↓</button>
+    <button type="button" class="btn small" data-act="feat-del" title="Remove">✕</button>
+  </div>`;
+}
+
+function pcPlanBlockHtml(p, cadenceOptions) {
+  const c = p.contents || p.defaults;
+  const defEnt = p.defaults.entitlements || {};
+  const resEnt = c.entitlements || {};
+  const checks = Object.keys(defEnt)
+    .filter((k) => k !== 'supportCadence')
+    .map(
+      (k) => `<label style="display:inline-flex;align-items:center;gap:.35rem;margin:0 .9rem .4rem 0">
+        <input type="checkbox" data-ent="${esc(k)}" ${resEnt[k] === true ? 'checked' : ''} /> ${esc(pcEntitlementLabel(k))}
+      </label>`
+    )
+    .join('');
+  const cadenceVal = resEnt.supportCadence != null ? resEnt.supportCadence : defEnt.supportCadence;
+  const cadence = `<label>Support cadence
+      <select data-field="supportCadence">
+        ${cadenceOptions.map((v) => `<option value="${esc(v)}"${cadenceVal === v ? ' selected' : ''}>${esc(v)}</option>`).join('')}
+      </select>
+    </label>`;
+  return `<fieldset class="pc-plan" data-plan="${esc(p.id)}" style="border:1px solid var(--line,#ddd);border-radius:12px;padding:1rem 1.1rem;margin:0 0 1rem">
+    <div class="row" style="justify-content:space-between;align-items:baseline">
+      <h4 style="margin:.1rem 0 .6rem">${esc(p.defaults.name)} <span class="hint mono">${esc(p.id)}</span></h4>
+      <span class="hint" data-pc-badge>${p.hasOverride ? 'Customized — differs from the built-in defaults' : 'Using built-in defaults'}</span>
+    </div>
+    <div>
+      <label>Plan name</label>
+      <input data-field="name" value="${esc(c.name || '')}" maxlength="60" />
+    </div>
+    <div>
+      <label>Tagline</label>
+      <input data-field="tagline" value="${esc(c.tagline || '')}" maxlength="140" />
+    </div>
+    <div>
+      <label>Feature bullets</label>
+      <div class="pc-features">${(c.features || []).map((f) => pcFeatureRowHtml(f)).join('')}</div>
+      <button type="button" class="btn small" data-act="add-feature">Add feature</button>
+    </div>
+    <div>
+      <label>Entitlements</label>
+      <div>${checks}</div>
+      ${cadence}
+    </div>
+    <div class="row actions">
+      <button type="button" class="btn small" data-act="reset-plan">Reset to defaults</button>
+    </div>
+  </fieldset>`;
+}
+
+function planContentsPanelHtml(state) {
+  if (!state) {
+    return `<div class="panel" style="margin-bottom:1rem">
+      <div class="panel-h"><h3>Package contents</h3></div>
+      <div class="panel-b"><p class="hint">Package contents could not be loaded — reload the page to try again. The settings form below still works.</p></div>
+    </div>`;
+  }
+  const cadenceOptions = state.cadenceOptions && state.cadenceOptions.length ? state.cadenceOptions : ['none', 'monthly', 'weekly'];
+  return `<div class="panel" style="margin-bottom:1rem">
+    <div class="panel-h"><h3>Package contents</h3></div>
+    <div class="panel-b" style="padding-bottom:0">
+      <p class="hint">Edit what each package <strong>is</strong> — its name, tagline, feature bullets and entitlements. Amounts are set with <strong>Plan pricing</strong> above.</p>
+      <p class="hint"><strong>Warning:</strong> contents and entitlement changes apply to <strong>EVERYONE on the plan immediately, including existing subscribers</strong> — unlike prices, which only affect new checkouts. Turning an entitlement off removes that capability from current customers on the plan as soon as you save. Saving a plan exactly as its built-in defaults clears its customization.</p>
+    </div>
+    <div class="panel-b">
+      <form id="plan-contents-form" class="stack">
+        ${(state.plans || []).map((p) => pcPlanBlockHtml(p, cadenceOptions)).join('')}
+        <div class="row actions"><button class="btn" type="submit">Save package contents</button></div>
+        <div class="msg" id="plan-contents-msg"></div>
+      </form>
+    </div>
+  </div>`;
+}
+
+function pcFillBlock(block, planState, useDefaults) {
+  const src = useDefaults ? planState.defaults : planState.contents || planState.defaults;
+  block.querySelector('[data-field="name"]').value = src.name || '';
+  block.querySelector('[data-field="tagline"]').value = src.tagline || '';
+  const wrap = block.querySelector('.pc-features');
+  wrap.innerHTML = (src.features || []).map((f) => pcFeatureRowHtml(f)).join('');
+  const ent = src.entitlements || {};
+  block.querySelectorAll('[data-ent]').forEach((cb) => {
+    cb.checked = ent[cb.dataset.ent] === true;
+  });
+  const cad = block.querySelector('[data-field="supportCadence"]');
+  if (cad && ent.supportCadence != null) cad.value = ent.supportCadence;
+}
+
 // Batch 47: captcha status banner for Admin → Settings (General group,
 // where the captcha.* keys live). Driven by the server's computed status —
 // the point is that "captcha is on" is never assumed when it isn't.
@@ -7601,11 +7712,17 @@ async function renderAdminSettings(el, group) {
   const defs = (res.data.defs || []).filter((d) => d.group === group);
   const captchaStatus = group === 'general' ? (res.data && res.data.captcha) || null : null;
   let pricingState = null;
+  let planContentsState = null;
   if (group === 'billing') {
     try {
       pricingState = (await api.adminPricing()).data;
     } catch {
       pricingState = null; /* panel renders a could-not-load note; form still works */
+    }
+    try {
+      planContentsState = (await api.adminPlanContents()).data;
+    } catch {
+      planContentsState = null; /* panel renders a could-not-load note; form still works */
     }
   }
   const title =
@@ -7625,6 +7742,7 @@ async function renderAdminSettings(el, group) {
   el.innerHTML = `
     ${captchaStatus ? captchaStatusHtml(captchaStatus) : ''}
     ${group === 'billing' ? pricingPanelHtml(pricingState) : ''}
+    ${group === 'billing' ? planContentsPanelHtml(planContentsState) : ''}
     <div class="panel">
       <div class="panel-h"><h3>${esc(title)}</h3></div>
       <div class="panel-b" style="padding-bottom:0">${webhookHint}</div>
@@ -7635,9 +7753,9 @@ async function renderAdminSettings(el, group) {
               .map((d) => {
                 const isSecret = d.secret;
                 const val = settings[d.key] || '';
-                if (group === 'billing' && PRICING_MANAGED_KEYS.has(d.key)) {
-                  // Owned by the Update pricing panel above; carried hidden
-                  // so this form's Save writes the same values back.
+                if (group === 'billing' && (PRICING_MANAGED_KEYS.has(d.key) || PLANS_CONTENTS_MANAGED_KEYS.has(d.key))) {
+                  // Owned by the panels above; carried hidden so this
+                  // form's Save writes the same values back.
                   return `<input type="hidden" name="${esc(d.key)}" value="${esc(val)}" />`;
                 }
                 if (d.key === 'general.public_url') {
@@ -7721,6 +7839,97 @@ async function renderAdminSettings(el, group) {
           }
         } catch {
           /* small print refreshes on next page load */
+        }
+      } catch (err) {
+        msg.textContent = errText(err);
+        msg.className = 'msg error';
+      }
+    };
+  }
+
+  const pcForm = $('#plan-contents-form');
+  if (pcForm && planContentsState) {
+    pcForm.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-act]');
+      if (!btn) return;
+      const act = btn.dataset.act;
+      const block = btn.closest('.pc-plan');
+      if (!block) return;
+      if (act === 'add-feature') {
+        const wrap = block.querySelector('.pc-features');
+        wrap.insertAdjacentHTML('beforeend', pcFeatureRowHtml(''));
+        const inp = wrap.lastElementChild && wrap.lastElementChild.querySelector('input');
+        if (inp) inp.focus();
+      } else if (act === 'feat-del') {
+        const row = btn.closest('.pc-feature');
+        if (row) row.remove();
+      } else if (act === 'feat-up') {
+        const row = btn.closest('.pc-feature');
+        if (row && row.previousElementSibling) row.parentNode.insertBefore(row, row.previousElementSibling);
+      } else if (act === 'feat-down') {
+        const row = btn.closest('.pc-feature');
+        if (row && row.nextElementSibling) row.parentNode.insertBefore(row.nextElementSibling, row);
+      } else if (act === 'reset-plan') {
+        const p = (planContentsState.plans || []).find((x) => x.id === block.dataset.plan);
+        if (p) pcFillBlock(block, p, true);
+        const msg = $('#plan-contents-msg');
+        if (msg) {
+          msg.textContent = `${block.dataset.plan}: defaults restored in the editor — Save to clear its customization.`;
+          msg.className = 'msg';
+        }
+      }
+    });
+    pcForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const msg = $('#plan-contents-msg');
+      const contents = {};
+      for (const block of pcForm.querySelectorAll('.pc-plan')) {
+        const p = (planContentsState.plans || []).find((x) => x.id === block.dataset.plan);
+        if (!p) continue;
+        const features = [...block.querySelectorAll('[data-feature]')]
+          .map((i) => i.value.trim())
+          .filter((v) => v !== '');
+        if (!features.length) {
+          msg.textContent = `${p.id}: keep at least one feature bullet.`;
+          msg.className = 'msg error';
+          return;
+        }
+        const entitlements = {};
+        const cad = block.querySelector('[data-field="supportCadence"]');
+        for (const k of Object.keys(p.defaults.entitlements || {})) {
+          if (k === 'supportCadence') {
+            if (cad) entitlements.supportCadence = cad.value;
+            continue;
+          }
+          const cb = block.querySelector(`[data-ent="${k}"]`);
+          entitlements[k] = !!(cb && cb.checked);
+        }
+        const candidate = {
+          name: block.querySelector('[data-field="name"]').value.trim(),
+          tagline: block.querySelector('[data-field="tagline"]').value.trim(),
+          features,
+          entitlements,
+        };
+        // Saving a plan exactly as its defaults clears the override.
+        contents[p.id] = JSON.stringify(candidate) === JSON.stringify(p.defaults) ? null : candidate;
+      }
+      msg.textContent = 'Saving…';
+      msg.className = 'msg';
+      try {
+        const d = (await api.adminPlanContentsUpdate(contents)).data || {};
+        const parts = [];
+        if ((d.updated || []).length) parts.push(`Updated: ${d.updated.join(', ')}`);
+        if ((d.reset || []).length) parts.push(`Reset to defaults: ${d.reset.join(', ')}`);
+        if ((d.unchanged || []).length) parts.push(`Unchanged: ${d.unchanged.join(', ')}`);
+        if (!parts.length) parts.push('Nothing to change.');
+        toast('Package contents saved', 'ok');
+        // Re-render the whole settings view so badges, editor state and
+        // the generic form's hidden carries all reflect the save.
+        await renderAdminSettings(el, group);
+        const msg2 = $('#plan-contents-msg');
+        if (msg2) {
+          msg2.textContent = parts.join(' · ');
+          msg2.className = 'msg ok';
         }
       } catch (err) {
         msg.textContent = errText(err);

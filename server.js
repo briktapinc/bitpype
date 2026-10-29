@@ -721,6 +721,11 @@ async function main() {
   await require('./server/stripeClient').refreshPublicUrl().catch(() => '');
   console.log('[platform] public URL resolver primed');
 
+  // Batch 57: prime the plan-contents resolver from the stored
+  // plans.contents_* overrides (Admin → Settings → Billing).
+  await require('./server/planContents').refreshPlanContents().catch(() => {});
+  console.log('[platform] plan contents resolver primed');
+
   await require('./server/captcha').assertProductionReady();
   await pruneExpiredSessions();
   setInterval(
