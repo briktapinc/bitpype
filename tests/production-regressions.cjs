@@ -6638,16 +6638,27 @@ async function main() {
   dbPrevR9.prepare("INSERT INTO websites (id, archived_at) VALUES (6, '2026-10-27 00:00:00')").run();
   const prevSecR9 = load('server/previewSecurity.js', { './workspaceDb': { openWorkspaceDb: () => dbPrevR9 } });
   const runGateR9 = (p) => {
-    const out = { status: null, nexted: false };
+    const out = { status: null, body: null, nexted: false };
     prevSecR9.blockArchivedPreviews(
       { path: p },
-      { status(c) { out.status = c; return this; }, send() { return this; } },
+      {
+        status(c) { out.status = c; return this; },
+        setHeader() { return this; },
+        json(o) { out.body = o; return this; },
+        send() { return this; },
+      },
       () => { out.nexted = true; }
     );
     return out;
   };
-  check('review9 preview gate: archived canonical folder 404s, live + non-site paths pass through', () => {
-    assert.equal(runGateR9('/ws-1-site-6/index.html').status, 404);
+  // Batch 64: the archived answer is 410 SITE_ARCHIVED (the module API's
+  // body), and the canonical {id}-{exportSlug} folder shape resolves —
+  // Batch 27's end-anchored regex missed it and archived previews served.
+  check('review9 preview gate: archived canonical folder 410s, live + non-site paths pass through', () => {
+    const bare = runGateR9('/ws-1-site-6/index.html');
+    assert.equal(bare.status, 410);
+    assert.equal(bare.body && bare.body.code, 'SITE_ARCHIVED');
+    assert.equal(runGateR9('/ws-1-site-6-e2ed807be54c21d091/index.html').status, 410);
     assert.equal(runGateR9('/ws-1-site-5/index.html').nexted, true);
     assert.equal(runGateR9('/ws-1-design-9/index.html').nexted, true);
     assert.equal(runGateR9('/something-else/').nexted, true);
