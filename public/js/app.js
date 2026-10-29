@@ -2576,7 +2576,6 @@ async function assignDesignJob(leadId, shape) {
 
 /** Batch 27 — Archives: soft-deleted websites with a Restore button each. */
 async function pageArchives() {
-  setTitle('Archives');
   view.classList.remove('wide');
   view.innerHTML = `
     <div class="card">
