@@ -477,6 +477,7 @@ router.post('/leads/:leadId/hostinger-deployment', async (req, res) => {
       workspaceId: ws,
       leadId: Number(req.params.leadId),
       actorUserId: req.session.userId,
+      confirmText: b.confirmText != null ? String(b.confirmText) : null,
       confirmPriceCents: b.confirmPriceCents != null ? Number(b.confirmPriceCents) : null,
       confirmFirstPeriodCents: b.confirmFirstPeriodCents != null ? Number(b.confirmFirstPeriodCents) : null,
     });
@@ -493,6 +494,7 @@ router.post('/leads/:leadId/hostinger-deployment/retry', async (req, res) => {
       workspaceId: ws,
       leadId: Number(req.params.leadId),
       actorUserId: req.session.userId,
+      confirmText: b.confirmText != null ? String(b.confirmText) : null,
       confirmPriceCents: b.confirmPriceCents != null ? Number(b.confirmPriceCents) : null,
       confirmFirstPeriodCents: b.confirmFirstPeriodCents != null ? Number(b.confirmFirstPeriodCents) : null,
     });

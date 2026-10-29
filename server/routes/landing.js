@@ -21,11 +21,13 @@
  * model requires a name and this prospect IS a person, not a business.
  *
  * One email = one lead (the platform rule): a repeat submission for an
- * email that already owns a lead folds into that lead — tags unioned,
- * empty fields filled, NO fields overwritten — and the interest is
- * recorded as a `landing_software_interest` lead event so it stays
- * visible even when the existing lead is a website client. The visitor
- * gets the same polite success either way.
+ * email that already owns a lead folds into that lead and the interest
+ * is recorded as a `landing_software_interest` lead event. Batch 68
+ * (review M-5): the marker-carrying fold (tags unioned, empty fields
+ * filled, nothing overwritten) applies only when /landing created
+ * that lead; a fold into a lead from any other source records the
+ * event ONLY, so a submission can never make a foreign lead
+ * deploy-eligible. The visitor gets the same polite success either way.
  */
 
 const express = require('express');
@@ -74,37 +76,49 @@ function validation(message) {
 
 /**
  * Fold a landing submission into the lead that already owns the email.
- * Mirrors websitePromo's fold: fill only empty scalar fields, union the
- * tags, never overwrite — plus an explicit interest event, because for
- * this form the marker matters even on a fully-populated client lead.
+ *
+ * Batch 68 (final review M-5): the fold splits on WHO created the
+ * existing lead. If /landing created it (source 'landing-software' —
+ * a repeat submission by the same prospect), the historical behavior
+ * stands: fill only empty scalar fields, union the tags, never
+ * overwrite. If the lead came from ANYWHERE else (a website client, an
+ * import, a manual entry), the submission is recorded as an interest
+ * EVENT ONLY — no field fills and no tag/group union. The old fold
+ * unioned the software-interest markers onto foreign leads, which
+ * silently made them one-click-deployable (deploy eligibility keyed
+ * off those markers); fills could likewise change deploy behavior
+ * (e.g. lead_group). The interest stays visible either way.
  */
 function foldLandingIntoExistingLead(workspaceId, existingLeadId, payload, noteParts) {
   const got = domain.leadsGet(workspaceId, existingLeadId);
   const existing = got && got.lead ? got.lead : null;
   const leadId = existing ? existing.id : existingLeadId;
 
-  const isEmpty = (v) =>
-    v === null ||
-    v === undefined ||
-    v === '' ||
-    (Array.isArray(v) && v.length === 0) ||
-    (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0);
-  const patch = {};
-  for (const f of ['phone', 'category', 'lead_group']) {
-    if (existing && isEmpty(existing[f]) && !isEmpty(payload[f])) patch[f] = payload[f];
-  }
-  if (existing && isEmpty(existing.notes)) {
-    patch.notes = noteParts.join('\n').slice(0, 10000);
-  }
-  const existingTags = (existing && existing.tags) || [];
-  const tagUnion = [...new Set([...existingTags, ...(payload.tags || [])])];
-  if (tagUnion.length !== existingTags.length) patch.tags = tagUnion;
-  if (Object.keys(patch).length) {
-    try {
-      domain.leadsUpdate(workspaceId, leadId, patch);
-    } catch (e) {
-      // A fill failure must not fail the visitor's submission.
-      console.warn(`landing: fold field-fill failed for lead ${leadId}:`, e && e.message);
+  const createdByLanding = !!existing && String(existing.source || '') === 'landing-software';
+  if (createdByLanding) {
+    const isEmpty = (v) =>
+      v === null ||
+      v === undefined ||
+      v === '' ||
+      (Array.isArray(v) && v.length === 0) ||
+      (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0);
+    const patch = {};
+    for (const f of ['phone', 'category', 'lead_group']) {
+      if (isEmpty(existing[f]) && !isEmpty(payload[f])) patch[f] = payload[f];
+    }
+    if (isEmpty(existing.notes)) {
+      patch.notes = noteParts.join('\n').slice(0, 10000);
+    }
+    const existingTags = existing.tags || [];
+    const tagUnion = [...new Set([...existingTags, ...(payload.tags || [])])];
+    if (tagUnion.length !== existingTags.length) patch.tags = tagUnion;
+    if (Object.keys(patch).length) {
+      try {
+        domain.leadsUpdate(workspaceId, leadId, patch);
+      } catch (e) {
+        // A fill failure must not fail the visitor's submission.
+        console.warn(`landing: fold field-fill failed for lead ${leadId}:`, e && e.message);
+      }
     }
   }
   try {

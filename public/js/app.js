@@ -2463,7 +2463,7 @@ async function loadLeadHostinger(dr, leadId) {
       const msg = $('#ld-hostinger-msg', el2);
       confirmBtn.disabled = true;
       try {
-        const body = { confirmPriceCents: plan.priceCents, confirmFirstPeriodCents: firstPeriod };
+        const body = { confirmText: typeEl.value.trim(), confirmPriceCents: plan.priceCents, confirmFirstPeriodCents: firstPeriod };
         if (isRetry) await api.leadHostingerRetry(leadId, wsId, body);
         else await api.leadHostingerStart(leadId, wsId, body);
         toast('Deployment started', 'ok');

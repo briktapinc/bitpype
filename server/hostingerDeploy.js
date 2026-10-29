@@ -4,8 +4,9 @@
  * Batch 59 — one-click Hostinger deployment for /landing software
  * signups (Ely's order, 2026-10-29).
  *
- * A software-interest lead (source 'landing-software' / lead_group
- * 'Software Interest' — see server/routes/landing.js) can be deployed
+ * A software-interest lead (created by the /landing form — source
+ * 'landing-software'; see server/routes/landing.js and the Batch 68
+ * note on isSoftwareInterestLead) can be deployed
  * a fresh, STANDARD-edition BitPype install on a new Hostinger VPS,
  * bought through the Hostinger API (see server/hostingerClient.js for
  * the doc-verified endpoints). New installs are never given any
@@ -156,15 +157,14 @@ async function testConnection() {
 
 function isSoftwareInterestLead(lead) {
   if (!lead) return false;
-  const tags = Array.isArray(lead.tags) ? lead.tags : [];
-  return (
-    // Stored lead_group is 'Software interest' (landing route), while
-    // the lead engine title-cases some paths — match case-insensitively.
-    String(lead.lead_group || '').toLowerCase() === 'software interest' ||
-    String(lead.source || '') === 'landing-software' ||
-    tags.includes('landing-software') ||
-    tags.includes('software-interest')
-  );
+  // Batch 68 (final review M-5): eligibility keys off the CREATED-BY
+  // marker only — the lead's source, which the /landing route sets
+  // when (and only when) it CREATES the lead. Tags and lead_group no
+  // longer confer eligibility: the landing fold used to union them
+  // onto ANY existing lead with the same email, and imports / manual
+  // edits can set them too — either way a lead /landing didn't create
+  // must never become one-click-deployable off the back of them.
+  return String(lead.source || '') === 'landing-software';
 }
 
 function loadLead(workspaceId, leadId) {
@@ -289,9 +289,27 @@ async function failDeployment(id, code, message, detail) {
  * any kind — a plain standard install — and no first-party domain
  * literal: callback/bundle URLs arrive fully built.
  */
+/**
+ * Batch 68 (final review H-4): the admin email is validated against a
+ * strict addr-spec subset — no quotes, no `$`, no backticks, nothing
+ * that can act inside a shell script — and a failing address is
+ * REFUSED, not silently mangled (a mangled admin email would strand
+ * the customer's install). The workspace name is display-only, so it
+ * keeps the silent-sanitize treatment, now stripping `$` and
+ * backticks too. Independently of both, the generated script never
+ * places either value inside the unquoted .env heredoc (see below).
+ */
+const DEPLOY_EMAIL_RE = /^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$/;
+
 function buildBootstrapScript({ deploymentId, leadEmail, workspaceName, callbackUrl, callbackSecret, bundleUrl }) {
-  const cleanEmail = String(leadEmail || '').replace(/['"\\\n\r]/g, '').slice(0, 200);
-  const cleanWs = String(workspaceName || 'Primary').replace(/['"\\\n\r]/g, '').slice(0, 80) || 'Primary';
+  const cleanEmail = String(leadEmail || '').trim().slice(0, 200);
+  if (!DEPLOY_EMAIL_RE.test(cleanEmail)) {
+    throw coded(
+      'VALIDATION',
+      'The lead email contains characters that cannot be embedded safely in the install script — correct the lead email before deploying.'
+    );
+  }
+  const cleanWs = String(workspaceName || 'Primary').replace(/['"\\$`\n\r]/g, '').slice(0, 80) || 'Primary';
   const template = `#!/bin/bash
 # BitPype one-click install — deployment %%ID%% (standard edition).
 # Runs once as root on a fresh Ubuntu VPS (Hostinger post-install hook;
@@ -334,11 +352,11 @@ MYSQL_DATABASE=website_scout
 SESSION_SECRET=$SESSION_SECRET
 SETTINGS_ENCRYPTION_KEY=$SETTINGS_ENCRYPTION_KEY
 APP_URL=$INSTANCE_URL
-BOOTSTRAP_EMAIL=%%EMAIL%%
 BOOTSTRAP_PASSWORD=$BOOTSTRAP_PASSWORD
-BOOTSTRAP_WORKSPACE=%%WORKSPACE%%
 BOOTSTRAP_SUPER_ADMIN=1
 EOF
+printf '%s\\n' 'BOOTSTRAP_EMAIL=%%EMAIL%%' >> .env
+printf '%s\\n' 'BOOTSTRAP_WORKSPACE=%%WORKSPACE%%' >> .env
 cat > docker-compose.override.yml <<'EOF'
 services:
   web:
@@ -438,13 +456,15 @@ async function previewForLead(workspaceId, leadId) {
 
 /* ------------------------------- start ------------------------------ */
 
-async function startDeployment({ workspaceId, leadId, actorUserId, confirmPriceCents, confirmFirstPeriodCents }) {
+async function startDeployment({ workspaceId, leadId, actorUserId, confirmText, confirmPriceCents, confirmFirstPeriodCents }) {
   const lead = loadLead(workspaceId, leadId);
   if (!isSoftwareInterestLead(lead)) {
     throw coded('NOT_SOFTWARE_LEAD', 'One-click deployment is only available on software-interest leads (the /landing signups).');
   }
   const email = String(lead.email || '').trim();
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (!email || !DEPLOY_EMAIL_RE.test(email)) {
+    // Batch 68 (H-4): the same strict charset the bootstrap script
+    // enforces — the loose [^\s@] shape accepted `$`/backtick payloads.
     throw coded('VALIDATION', 'This lead has no usable email address — the instance admin account needs one.');
   }
   const cfg = await getConfig();
@@ -461,18 +481,31 @@ async function startDeployment({ workspaceId, leadId, actorUserId, confirmPriceC
     e.deploymentId = Number(prev.id);
     throw e;
   }
+  // Batch 68 (final review Low #4): the typed-DEPLOY confirmation and
+  // BOTH price confirmations are enforced HERE, server-side and
+  // unconditionally — before Batch 68 the price checks ran only when
+  // the caller bothered to send the fields, so a bare API call bought
+  // at whatever the live catalog said. (Placed after the config /
+  // active-deployment checks so the dormant and already-running
+  // answers stay exactly as Batch 59 pinned them.)
+  if (String(confirmText || '') !== 'DEPLOY') {
+    throw coded('CONFIRM_REQUIRED', 'Type DEPLOY to confirm the purchase.');
+  }
+  if (confirmPriceCents == null || confirmFirstPeriodCents == null) {
+    throw coded('CONFIRM_REQUIRED', 'Both catalog price confirmations are required — review the live price and confirm again.');
+  }
   const items = await client().getCatalog();
   const price = client().findCatalogPrice(items, cfg.priceId);
   if (!price) {
     throw coded('PLAN_UNAVAILABLE', `The configured VPS plan (${cfg.priceId}) is not in the Hostinger catalog on this account.`);
   }
   const firstPeriod = price.firstPeriodPriceCents != null ? price.firstPeriodPriceCents : price.priceCents;
-  if (confirmPriceCents != null && Number(confirmPriceCents) !== price.priceCents) {
+  if (Number(confirmPriceCents) !== price.priceCents) {
     const e = coded('PRICE_CHANGED', 'The catalog price changed since the confirmation was shown — review the new price and confirm again.', JSON.stringify(price));
     e.plan = price;
     throw e;
   }
-  if (confirmFirstPeriodCents != null && Number(confirmFirstPeriodCents) !== firstPeriod) {
+  if (Number(confirmFirstPeriodCents) !== firstPeriod) {
     const e = coded('PRICE_CHANGED', 'The catalog price changed since the confirmation was shown — review the new price and confirm again.', JSON.stringify(price));
     e.plan = price;
     throw e;
@@ -578,15 +611,43 @@ async function advanceDeployment(id) {
   if (dep.status === 'installing') return stepInstallWatch(dep);
 }
 
+/**
+ * Batch 68 (final review H-6): atomically claim a queued deployment
+ * for the purchase step. The UPDATE only matches while the row is
+ * still 'queued', and the caller proceeds only when exactly one row
+ * was affected — so two overlapping advances (the start setImmediate
+ * racing a ticker tick, or two ticks) can never both reach the money
+ * call. The claim also stamps purchase_started_at BEFORE the call:
+ * if the process dies mid-purchase, the resume path sees the stamp
+ * with no order/vm/subscription and fails PURCHASE_OUTCOME_UNKNOWN
+ * instead of buying twice.
+ */
+async function claimDeploymentForPurchase(id) {
+  const ts = driver() === 'sqlite' ? "datetime('now')" : 'CURRENT_TIMESTAMP';
+  const r = await query(
+    `UPDATE deployments SET status = 'provisioning', purchase_started_at = :now, updated_at = ${ts} WHERE id = :id AND status = 'queued'`,
+    { id: Number(id), now: nowSql() }
+  );
+  const n = r && (r.affectedRows != null ? r.affectedRows : r.changes);
+  return Number(n) === 1;
+}
+
 async function stepPurchase(dep) {
+  // Batch 68 (H-6): never purchase without the install script — the
+  // row is inserted before createPostInstallScript completes, and a
+  // purchase in that window would buy a VM with no install attached.
+  // (The ticker also excludes scriptless queued rows; this is the
+  // hard gate behind it.)
+  if (!dep.hostinger_script_id) {
+    console.warn('[hostingerDeploy] purchase deferred — install script not created yet', dep.id);
+    return;
+  }
+  // Atomic claim: exactly one concurrent advance proceeds.
+  if (!(await claimDeploymentForPurchase(dep.id))) return;
   const cfg = await getConfig();
   if (!cfg.configured) {
     return failDeployment(dep.id, 'HOSTINGER_NOT_CONFIGURED', 'Hostinger settings were incomplete when the purchase step ran.', cfg.missing.join(','));
   }
-  // Mark BEFORE the money call: if the process dies mid-purchase, the
-  // resume path sees purchase_started_at with no order/vm/subscription
-  // and fails PURCHASE_OUTCOME_UNKNOWN instead of buying twice.
-  await updateDeployment(dep.id, { status: 'provisioning', purchase_started_at: nowSql() });
   let res;
   try {
     res = await client().purchaseVirtualMachine({
@@ -594,7 +655,20 @@ async function stepPurchase(dep) {
       setup: setupBody(cfg, dep),
     });
   } catch (e) {
-    let code = e.code || 'HOSTINGER_PURCHASE_FAILED';
+    const rawCode = e.code || 'HOSTINGER_PURCHASE_FAILED';
+    if (rawCode === 'HOSTINGER_UNREACHABLE' || rawCode === 'HOSTINGER_API') {
+      // Batch 68 (final review H-5): the outcome is UNKNOWN — a
+      // timeout/5xx can land AFTER Hostinger processed the payment.
+      // Do NOT fail the deployment here: 'failed' is retryable, and a
+      // retry would buy a second VM. The row stays 'provisioning'
+      // with purchase_started_at stamped (by the claim), and
+      // stepProvision's lost-purchase guard converts it to
+      // PURCHASE_OUTCOME_UNKNOWN after the grace window — the honest
+      // path where a human checks hPanel before any retry.
+      console.warn('[hostingerDeploy] purchase outcome ambiguous — left provisioning for the outcome-unknown guard', dep.id, rawCode, e && e.message);
+      return;
+    }
+    let code = rawCode;
     if (code === 'HOSTINGER_VALIDATION' && /item|plan|price|catalog/i.test(String(e.detail || e.message || ''))) {
       code = 'PLAN_UNAVAILABLE';
     }
@@ -867,14 +941,29 @@ function startDeploymentTicker() {
   });
 }
 
+let tickInFlight = false;
 async function tickDeployments() {
-  const rows = await query(
-    `SELECT id FROM deployments WHERE status IN ('queued','provisioning','installing') ORDER BY id ASC LIMIT 10`
-  );
-  for (const row of rows || []) {
-    await advanceDeployment(Number(row.id)).catch((e) =>
-      console.warn('[hostingerDeploy] advance', row.id, e && e.message)
+  // Batch 68 (H-6): re-entrancy guard — a slow tick must never overlap
+  // the next one (the atomic purchase claim is the second line of
+  // defence behind this).
+  if (tickInFlight) return;
+  tickInFlight = true;
+  try {
+    const rows = await query(
+      // Queued rows enter the advanceable set only once their install
+      // script exists (H-6: the row is inserted before
+      // createPostInstallScript completes).
+      `SELECT id FROM deployments WHERE status IN ('provisioning','installing')
+          OR (status = 'queued' AND hostinger_script_id IS NOT NULL)
+        ORDER BY id ASC LIMIT 10`
     );
+    for (const row of rows || []) {
+      await advanceDeployment(Number(row.id)).catch((e) =>
+        console.warn('[hostingerDeploy] advance', row.id, e && e.message)
+      );
+    }
+  } finally {
+    tickInFlight = false;
   }
 }
 
