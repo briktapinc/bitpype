@@ -98,6 +98,20 @@ router.get('/config', async (_req, res, next) => {
   }
 });
 
+// Batch 61 — the Register tab's plan step reads the SAME catalog the
+// billing summary serves (billing.catalogForApi: Batch 57 contents +
+// settings pricing), so what a new owner picks from is byte-for-byte
+// what they will be charged from. Public like /config: plan names and
+// prices are already public on the claim/picker pages.
+router.get('/plans', async (_req, res, next) => {
+  try {
+    const billing = require('../billing');
+    res.json({ ok: true, data: { plans: await billing.catalogForApi() } });
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.post('/register', authLimit, captcha, async (req, res, next) => {
   try {
     const platform = require('../platform');
@@ -112,6 +126,22 @@ router.post('/register', authLimit, captcha, async (req, res, next) => {
     const { email, password, name, workspaceName, acceptTerms } = req.body || {};
     if (!acceptTerms) {
       return res.status(400).json({ ok: false, error: 'You must accept the Terms and Privacy Policy' });
+    }
+    // Batch 61 — optional plan choice from the register plan step.
+    // Validated against the live catalog BEFORE anything is created:
+    // an unknown plan is a client error, never a half-created account.
+    // Absent/empty means the Free default (the signup form preselects it).
+    const requestedPlan = String((req.body || {}).plan || '')
+      .trim()
+      .toLowerCase();
+    let planEntry = null;
+    if (requestedPlan) {
+      const billing = require('../billing');
+      const catalog = await billing.catalogForApi();
+      planEntry = (catalog || []).find((p) => p && p.id === requestedPlan) || null;
+      if (!planEntry) {
+        return res.status(400).json({ ok: false, error: 'Unknown plan', code: 'INVALID_PLAN' });
+      }
     }
     if (!email || !password) {
       return res.status(400).json({ ok: false, error: 'email and password are required' });
@@ -135,6 +165,27 @@ router.post('/register', authLimit, captcha, async (req, res, next) => {
         return res.status(400).json({ ok: false, error: 'Unable to create account', code: 'REGISTRATION_FAILED' });
       }
       throw e;
+    }
+    // Batch 61 — persist the plan choice (+ Stripe checkout for paid
+    // plans) and send the exactly-once welcome email. Best-effort by
+    // contract (server/signup.js swallows its own failures): a Stripe
+    // or mail problem must never fail a registration that has already
+    // legitimately created the account.
+    let planChoice = null;
+    try {
+      const signup = require('../signup');
+      const out = await signup.afterSignup({
+        userId: created.userId,
+        workspaceId: created.workspaceId,
+        email,
+        name,
+        workspaceName,
+        planId: planEntry ? planEntry.id : 'free',
+        catalogEntry: planEntry,
+      });
+      planChoice = out.planChoice;
+    } catch (e) {
+      console.warn('[auth] signup follow-up failed:', e.message);
     }
     // Batch 53 (review E-4) — registration must not bypass the MFA gate.
     // Before this fix, register issued a full staff session on password
@@ -161,7 +212,7 @@ router.post('/register', authLimit, captcha, async (req, res, next) => {
     await saveSession(req);
     return res.json({
       ok: true,
-      data: { mfaRequired: true, mfaStage: req.session.mfaChallenge.stage },
+      data: { mfaRequired: true, mfaStage: req.session.mfaChallenge.stage, planChoice },
     });
   } catch (e) {
     next(e);

@@ -857,6 +857,10 @@ let signedIn = false;
 // parks the same MFA challenge as login — review E-4), then accepted by
 // renderAuthMfa's finishWith once a real session exists.
 let pendingInviteToken = '';
+// Batch 61: a paid plan picked at registration creates its Stripe
+// checkout up front; the URL rides through the MFA detour (like the
+// invite token) and the browser goes there once enrollment completes.
+let pendingSignupCheckoutUrl = '';
 
 // Registration visibility for the auth screen (Admin Settings →
 // General → registration.open). Defaults to visible; loadRegistrationOpen()
@@ -971,6 +975,7 @@ function renderAuth(forcedMode) {
             ? `<div id="reg-extra" class="hidden">
           <div class="field"><label for="a-name">Your name</label><input id="a-name" name="name" type="text" /></div>
           <div class="field"><label for="a-ws">Workspace name</label><input id="a-ws" name="workspaceName" type="text" placeholder="My agency" /></div>
+          <div class="field" id="reg-plan-field"><label>Choose your plan</label><div id="reg-plan-options"><p class="hint">Loading plans…</p></div></div>
           <label class="terms-row">
             <input type="checkbox" name="acceptTerms" id="a-terms" value="1" />
             <span>I agree to the <a href="/legal/terms.html" target="_blank" rel="noopener">Terms of Service</a> and <a href="/legal/privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.</span>
@@ -1045,6 +1050,34 @@ function renderAuth(forcedMode) {
     }
   })();
 
+  // Batch 61 — plan step: the register form offers the live plan
+  // catalog (GET /auth/plans = billing.catalogForApi verbatim). Free is
+  // the preselected no-card default; picking a paid plan creates its
+  // checkout at register time and the submit handler below routes the
+  // browser there after the MFA enrollment completes. If the catalog
+  // can't load, registration still works — the owner starts on Free
+  // and can upgrade from Billing, exactly as before this step existed.
+  (async () => {
+    const box = $('#reg-plan-options', authGate);
+    if (!box) return;
+    try {
+      const r = await api.authPlans();
+      const plans = (r && r.data && r.data.plans) || [];
+      if (!plans.length) throw new Error('empty catalog');
+      box.innerHTML = plans
+        .map(
+          (p) => `<label class="plan-option" style="display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin:6px 0;cursor:pointer">
+            <input type="radio" name="plan" value="${esc(p.id)}" ${p.id === 'free' ? 'checked' : ''} style="margin-top:3px" />
+            <span><strong>${esc(p.name)}</strong> · ${esc(p.priceLabel || (p.id === 'free' ? 'Free' : ''))}<br/><span class="hint">${esc(p.tagline || '')}</span></span>
+          </label>`
+        )
+        .join('');
+    } catch {
+      box.innerHTML =
+        '<p class="hint">Plans could not load — you will start on Free and can upgrade any time from Billing.</p>';
+    }
+  })();
+
   $$('[data-tab]', authGate).forEach((btn) => {
     btn.addEventListener('click', () => {
       mode = btn.dataset.tab;
@@ -1089,6 +1122,12 @@ function renderAuth(forcedMode) {
         body.acceptTerms = true;
       }
       const res = mode === 'login' ? await api.login(body) : await api.register(body);
+      // Batch 61: a paid plan picked at registration already created
+      // its Stripe checkout — stash the URL so it survives the MFA
+      // detour below (consumed in renderAuthMfa's finishWith).
+      if (mode === 'register' && res.data && res.data.planChoice && res.data.planChoice.checkoutUrl) {
+        pendingSignupCheckoutUrl = res.data.planChoice.checkoutUrl;
+      }
       // Batch 40: staff TOTP is required — a correct password returns a
       // second-factor challenge instead of a session. Enrollment (first
       // time) and the code step both complete through renderAuthMfa,
@@ -1117,6 +1156,14 @@ function renderAuth(forcedMode) {
           toast(errText(invErr), 'err');
         }
       }
+      // Batch 61: no-challenge path (defensive — register parks a
+      // challenge since Batch 53) still honours a pending checkout.
+      if (pendingSignupCheckoutUrl) {
+        const url = pendingSignupCheckoutUrl;
+        pendingSignupCheckoutUrl = '';
+        window.location.href = url;
+        return;
+      }
       await bootApp(res.data);
     } catch (err) {
       try {
@@ -1144,6 +1191,17 @@ function renderAuthMfa(challenge) {
   const brand = `<div class="auth-brand"><span class="brand-mark" style="background:#171512;color:#f3ead8">BP</span><h1>Bitpype</h1></div>`;
 
   async function finishWith(payload) {
+    // Batch 61: registration with a paid plan goes to its Stripe
+    // checkout as soon as the second factor completes — the workspace
+    // exists either way, and cancelling checkout just leaves the owner
+    // on Free until they upgrade from Billing.
+    if (pendingSignupCheckoutUrl) {
+      const url = pendingSignupCheckoutUrl;
+      pendingSignupCheckoutUrl = '';
+      toast('Workspace ready — opening secure checkout to activate your plan', 'ok');
+      window.location.href = url;
+      return;
+    }
     signedIn = true;
     api.setWorkspaceId(payload.workspaceId);
     // Batch 53: accept an invite that was parked before the second-factor

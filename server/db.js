@@ -425,6 +425,20 @@ async function migrate() {
         type TEXT NOT NULL DEFAULT '',
         processed_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
+      CREATE TABLE IF NOT EXISTS signup_plan_choices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL UNIQUE,
+        workspace_id INTEGER,
+        plan_id TEXT NOT NULL DEFAULT 'free',
+        status TEXT NOT NULL DEFAULT 'free',
+        checkout_session_id TEXT,
+        checkout_url TEXT,
+        checkout_error TEXT,
+        welcome_status TEXT NOT NULL DEFAULT 'pending',
+        welcome_sent_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
       CREATE TABLE IF NOT EXISTS upsell_tips (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT NOT NULL,
@@ -732,6 +746,22 @@ async function migrate() {
         type VARCHAR(80) NOT NULL DEFAULT '',
         processed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         KEY idx_stripe_events_type (type)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS signup_plan_choices (
+        id BIGINT PRIMARY KEY AUTO_INCREMENT,
+        user_id BIGINT NOT NULL UNIQUE,
+        workspace_id BIGINT NULL,
+        plan_id VARCHAR(40) NOT NULL DEFAULT 'free',
+        status VARCHAR(40) NOT NULL DEFAULT 'free',
+        checkout_session_id VARCHAR(120) NULL,
+        checkout_url TEXT NULL,
+        checkout_error VARCHAR(80) NULL,
+        welcome_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        welcome_sent_at DATETIME NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
     // Batch 29: portal user types + per-user nav overrides (existing
