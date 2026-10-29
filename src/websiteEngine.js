@@ -286,12 +286,19 @@ const MANAGED_EMBED_KINDS = [
 ];
 
 function defaultAppApiBase() {
+  // Batch 56: the export API base resolves from the canonical public URL
+  // (stripeClient.appUrl); the env read remains only as a fallback if the
+  // resolver cannot load.
   try {
-    return String(process.env.APP_URL || '')
-      .trim()
-      .replace(/\/+$/, '');
+    return require('../server/stripeClient').appUrl();
   } catch {
-    return '';
+    try {
+      return String(process.env.APP_URL || '')
+        .trim()
+        .replace(/\/+$/, '');
+    } catch {
+      return '';
+    }
   }
 }
 

@@ -8,7 +8,14 @@ const fs = require('fs');
 const path = require('path');
 
 function appBase() {
-  return String(process.env.APP_URL || '').replace(/\/$/, '') || 'https://bitpype.com';
+  // Batch 56: preview/cookie-bar script URLs are built from the canonical
+  // public URL via the single resolver (stripeClient.appUrl). The env/''
+  // fallback only fires in contexts where the server modules cannot load.
+  try {
+    return require('../server/stripeClient').appUrl();
+  } catch {
+    return String(process.env.APP_URL || '').replace(/\/+$/, '');
+  }
 }
 
 function listHtmlFiles(dir) {

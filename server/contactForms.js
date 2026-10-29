@@ -1533,7 +1533,13 @@ function unpublishForm(db, leadId, formId = null) {
 }
 
 function appBaseUrl() {
-  return String(process.env.APP_URL || '').replace(/\/$/, '');
+  // Batch 56: resolve from the canonical public URL (stripeClient.appUrl);
+  // the env read remains only as a fallback if the resolver cannot load.
+  try {
+    return require('./stripeClient').appUrl();
+  } catch {
+    return String(process.env.APP_URL || '').replace(/\/+$/, '');
+  }
 }
 
 function escapeAttr(s) {
@@ -2928,7 +2934,9 @@ function publicSubmission(row, { includePayload = true } = {}) {
 }
 
 function embedSnippet(form, appUrl) {
-  const base = String(appUrl || process.env.APP_URL || '').replace(/\/$/, '');
+  // Batch 56: an explicit appUrl param wins; otherwise the canonical
+  // resolver base (appBaseUrl above).
+  const base = String(appUrl || appBaseUrl()).replace(/\/+$/, '');
   if (!form || !form.public_token || !form.published) {
     return { html: '', url: null, embed_mode: 'js' };
   }

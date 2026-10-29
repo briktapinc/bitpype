@@ -466,7 +466,7 @@ function resolveWebsiteLink(db, leadId) {
   if (site.preview_url && String(site.preview_url).trim()) {
     return String(site.preview_url).trim();
   }
-  const appBase = String(process.env.APP_URL || '').replace(/\/$/, '');
+  const appBase = publicAppBase();
   if (!appBase || !site.preview_path) return '';
   const p = String(site.preview_path).replace(/\\/g, '/');
   const m = p.match(/website-scout-exports\/([^/]+)/i) || p.match(/\/([^/]+-site-[^/]+)\/?$/i);
@@ -481,12 +481,34 @@ function resolveWebsiteLink(db, leadId) {
 /* Signed interest / not-interested email links                        */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Batch 56: public app base via the single resolver (stripeClient.appUrl,
+ * fed by the general.public_url setting). The env read remains only as a
+ * fallback for processes where the server modules cannot load.
+ */
+function publicAppBase() {
+  try {
+    return require('../server/stripeClient').appUrl();
+  } catch {
+    return String(process.env.APP_URL || '').replace(/\/+$/, '');
+  }
+}
+
 /** HMAC secret — same family as Meta OAuth state (SESSION_SECRET). */
 function interestLinkSecret() {
   const secret = process.env.SESSION_SECRET || process.env.OUTREACH_LINK_SECRET || '';
   if (secret && secret !== 'dev-change-me') return secret;
   // Refuse the hardcoded dev fallback on real public hosts (forging risk).
-  const app = String(process.env.APP_URL || '');
+  // Batch 56: judge "public host" by the CONFIGURED public URL (stored
+  // general.public_url setting or APP_URL env — not the def default, so a
+  // bare dev shell keeps its dev fallback exactly as before). If the
+  // resolver cannot even be read, fail closed and treat it as public.
+  let app = '';
+  try {
+    app = require('../server/stripeClient').configuredPublicUrl();
+  } catch {
+    app = 'https://resolver-unavailable.invalid';
+  }
   const publicHost = app && !/localhost|127\.0\.0\.1/i.test(app) && /^https?:\/\//i.test(app);
   if (publicHost || process.env.NODE_ENV === 'production') {
     throw Object.assign(new Error('SESSION_SECRET (or OUTREACH_LINK_SECRET) must be set for interest response links'), {
@@ -569,10 +591,11 @@ function interestResponsePath(token) {
 
 /**
  * HTML anchor for {{interested}} / {{uninterested}}.
- * Empty string when APP_URL or workspaceId is missing (same as other merge vars).
+ * Empty string when the workspaceId is invalid or signing fails (same as
+ * other merge vars).
  */
 function buildInterestAnchor(workspaceId, leadId, action) {
-  const base = String(process.env.APP_URL || '').replace(/\/$/, '');
+  const base = publicAppBase();
   const w = Number(workspaceId);
   if (!base || !Number.isInteger(w) || w <= 0) return '';
   const act = action === 'uninterested' || action === 'u' ? 'uninterested' : 'interested';

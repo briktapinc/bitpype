@@ -5,8 +5,31 @@
  * All outbound app mail should go through renderBrandedEmail / ensureBrandedEmail.
  */
 
-const LOGO_URL = process.env.BITPYPE_EMAIL_LOGO_URL || 'https://bitpype.com/brand/bitpype-mark.svg';
-const SITE_URL = process.env.APP_URL || 'https://bitpype.com';
+// Batch 56: the logo + site links in every branded email resolve from the
+// canonical public URL (Admin → Settings → General) through the single
+// resolver — computed per render, not at module load, so an admin change
+// applies to the next email sent. BITPYPE_EMAIL_LOGO_URL still overrides
+// the logo asset when explicitly set.
+function siteUrl() {
+  try {
+    return require('../server/stripeClient').appUrl();
+  } catch {
+    return String(process.env.APP_URL || '').replace(/\/+$/, '');
+  }
+}
+function logoUrl() {
+  if (process.env.BITPYPE_EMAIL_LOGO_URL) return process.env.BITPYPE_EMAIL_LOGO_URL;
+  const base = siteUrl();
+  return base ? `${base}/brand/bitpype-mark.svg` : '/brand/bitpype-mark.svg';
+}
+function siteHostLabel() {
+  const base = siteUrl();
+  try {
+    return base ? new URL(base).hostname : '';
+  } catch {
+    return '';
+  }
+}
 const BRAND_MARKER = 'data-bitpype-mail="1"';
 
 const COLORS = {
@@ -127,7 +150,7 @@ function renderBrandedEmail(opts = {}) {
   else if (Array.isArray(opts.paragraphs)) textParts.push(opts.paragraphs.join('\n\n'));
   else textParts.push(stripHtml(bodyHtml));
   if (cta) textParts.push(`${cta.label}: ${cta.url}`);
-  textParts.push(footerNote, SITE_URL.replace(/\/$/, ''));
+  textParts.push(footerNote, siteUrl());
   const text = textParts.filter(Boolean).join('\n\n');
 
   const ctaHtml = cta
@@ -168,8 +191,8 @@ function renderBrandedEmail(opts = {}) {
               <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                 <tr>
                   <td width="40" height="40" style="width:40px;height:40px;border-radius:10px;background:${COLORS.markBg};vertical-align:middle;">
-                    <a href="${escapeHtml(SITE_URL.replace(/\/$/, ''))}" style="text-decoration:none;">
-                      <img src="${escapeHtml(LOGO_URL)}" width="40" height="40" alt="Bitpype"
+                    <a href="${escapeHtml(siteUrl())}" style="text-decoration:none;">
+                      <img src="${escapeHtml(logoUrl())}" width="40" height="40" alt="Bitpype"
                            style="display:block;width:40px;height:40px;border:0;border-radius:10px;">
                     </a>
                   </td>
@@ -195,7 +218,7 @@ function renderBrandedEmail(opts = {}) {
           <tr>
             <td style="padding:18px 8px 0;font-family:Segoe UI,Helvetica Neue,Arial,sans-serif;font-size:12px;line-height:1.45;color:${COLORS.muted};text-align:center;">
               ${escapeHtml(footerNote)}<br>
-              <a href="${escapeHtml(SITE_URL.replace(/\/$/, ''))}" style="color:${COLORS.accentDark};text-decoration:none;">bitpype.com</a>
+              <a href="${escapeHtml(siteUrl())}" style="color:${COLORS.accentDark};text-decoration:none;">${escapeHtml(siteHostLabel())}</a>
             </td>
           </tr>
         </table>
@@ -259,7 +282,15 @@ function ensureBrandedEmail(opts = {}) {
 }
 
 module.exports = {
-  LOGO_URL,
+  // Batch 56: LOGO_URL stays exported for compatibility but resolves at
+  // access time (it used to be a module-load constant with a hardcoded
+  // fallback domain).
+  get LOGO_URL() {
+    return logoUrl();
+  },
+  siteUrl,
+  logoUrl,
+  siteHostLabel,
   BRAND_MARKER,
   COLORS,
   escapeHtml,

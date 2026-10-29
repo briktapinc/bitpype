@@ -127,10 +127,25 @@ function claimPagePath(token) {
 }
 
 /**
- * Stable public claim URL (HMAC token). Empty string when APP_URL / workspace missing.
+ * Public app base for claim / domain-picker links — the single resolver
+ * (Batch 56: stripeClient.appUrl, fed by the general.public_url setting).
+ * The env read remains only as a fallback for processes where the server
+ * modules cannot load.
+ */
+function appBase() {
+  try {
+    return require('../server/stripeClient').appUrl();
+  } catch {
+    return String(process.env.APP_URL || '').replace(/\/+$/, '');
+  }
+}
+
+/**
+ * Stable public claim URL (HMAC token). Empty string when the workspace /
+ * lead ids are invalid or token signing fails.
  */
 function buildClaimUrl(workspaceId, leadId) {
-  const base = String(process.env.APP_URL || '').replace(/\/$/, '');
+  const base = appBase();
   const w = Number(workspaceId);
   const l = Number(leadId);
   if (!base || !Number.isInteger(w) || w <= 0 || !Number.isInteger(l) || l <= 0) return '';
@@ -159,10 +174,10 @@ function domainPickerPath(token) {
 
 /**
  * Stable public domain-picker URL (HMAC token, action 'd').
- * Empty string when APP_URL / workspace missing.
+ * Empty string when the workspace / lead ids are invalid or signing fails.
  */
 function buildDomainPickerUrl(workspaceId, leadId) {
-  const base = String(process.env.APP_URL || '').replace(/\/$/, '');
+  const base = appBase();
   const w = Number(workspaceId);
   const l = Number(leadId);
   if (!base || !Number.isInteger(w) || w <= 0 || !Number.isInteger(l) || l <= 0) return '';
@@ -287,11 +302,19 @@ function buildPostcardPdf({ businessName, pitch, siteUrl, claimUrl, siteQrPng, c
       align: 'center',
     });
 
+    // Batch 56: the postcard footer shows the resolved public host, never
+    // a hardcoded domain.
+    let hostLabel = '';
+    try {
+      hostLabel = new URL(appBase()).hostname;
+    } catch {
+      hostLabel = '';
+    }
     doc
       .fillColor('#7a8a83')
       .font('Helvetica')
       .fontSize(7)
-      .text('bitpype.com', pad, H - 18, { width: W - pad * 2, align: 'right' });
+      .text(hostLabel, pad, H - 18, { width: W - pad * 2, align: 'right' });
 
     doc.end();
   });
@@ -540,7 +563,7 @@ function injectClaimPreviewIntoExport(exportDir, workspaceId, leadId) {
     token = m ? decodeURIComponent(m[1]) : '';
   }
   if (!token) return { injected: 0, reason: 'no_token' };
-  const apiBase = String(process.env.APP_URL || '').replace(/\/$/, '');
+  const apiBase = appBase();
   if (!apiBase) return { injected: 0, reason: 'no_app_url' };
 
   const snippet = [

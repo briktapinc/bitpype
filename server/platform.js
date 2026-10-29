@@ -57,12 +57,19 @@ const PLATFORM_SECRET_KEYS = [
 /** Catalog of platform settings shown in the admin UI. */
 const PLATFORM_SETTING_DEFS = [
   // General
+  // Batch 56: the app's canonical public base URL. EVERY first-party
+  // absolute link (claim/billing/portal emails, OAuth callbacks, og tags,
+  // staff/portal links) is built from this value through the single
+  // resolver, stripeClient.appUrl(). This def default is the ONLY place
+  // the literal production domain may appear in shipped code — pinned by
+  // tests/batch56-no-hardcoded-domains-regressions.cjs.
+  { key: 'general.public_url', group: 'general', label: 'Public URL', default: 'https://bitpype.com' },
   { key: 'app.name', group: 'general', label: 'App name', default: 'Bitpype' },
   { key: 'support.email', group: 'general', label: 'Support email', default: '' },
   {
     key: 'registration.open',
     group: 'general',
-    label: 'Open registration — Register tab & sign-ups (bitpype.com)',
+    label: 'Open registration — Register tab & sign-ups',
     default: '1',
   },
   { key: 'maintenance_mode', group: 'general', label: 'Maintenance mode (1/0)', default: '0' },
@@ -97,7 +104,10 @@ const PLATFORM_SETTING_DEFS = [
   { key: 'smtp.user', group: 'email', label: 'SMTP user', default: '' },
   { key: 'smtp.pass', group: 'email', label: 'SMTP password', default: '', secret: true },
   { key: 'smtp.from_name', group: 'email', label: 'From name', default: 'Bitpype' },
-  { key: 'smtp.from_email', group: 'email', label: 'From email', default: 'team@bitpype.com' },
+  // Batch 56: no hardcoded first-party address as a default — fresh installs
+  // start unconfigured (the Batch 55 pattern); existing installs keep their
+  // stored value (seed is INSERT IGNORE, saves are explicit).
+  { key: 'smtp.from_email', group: 'email', label: 'From email', default: '' },
   // Batch 48: selectable mail provider. Default 'custom' = the SMTP
   // settings above (Mailjet today); 'cloudflare' = native Cloudflare
   // Email Sending. The account id falls back to the workspace/platform
@@ -398,6 +408,9 @@ const WORKSPACE_SEED_KEYS = PLATFORM_SETTING_DEFS.filter(
         'registration.open',
         'maintenance_mode',
         'support.email',
+        // Batch 56: the app's public URL is platform identity, never a
+        // per-workspace value (same treatment as support.email).
+        'general.public_url',
         'default.workspace_name',
         'cf.api_token',
         'cf.account_id',
@@ -423,6 +436,44 @@ async function getPlatformSetting(key, fallback = '') {
   return def ? def.default : fallback;
 }
 
+/**
+ * Batch 56: general.public_url is validated + normalized at save time so
+ * EVERY write path (admin batch save, single save, MCP/IPC facades) enforces
+ * the same rule — the resolver (stripeClient.appUrl) builds customer-facing
+ * links from this value, so an empty or malformed value must never land.
+ * Rule: a valid https URL at the site root (no path, query or fragment);
+ * trailing slashes are normalized away. Returns the canonical value
+ * (URL origin) or throws a coded VALIDATION error with a plain message.
+ */
+function validatePublicUrlSetting(value) {
+  const v = String(value == null ? '' : value).trim().replace(/\/+$/, '');
+  const bad = (msg) => {
+    const e = new Error(msg);
+    e.code = 'VALIDATION';
+    return e;
+  };
+  if (!v) {
+    throw bad('Public URL is required — links in emails and pages are built from this address.');
+  }
+  let u;
+  try {
+    u = new URL(v);
+  } catch {
+    throw bad('Public URL must be a valid https address, like https://example.com — with no path after the domain.');
+  }
+  if (
+    u.protocol !== 'https:' ||
+    (u.pathname !== '' && u.pathname !== '/') ||
+    u.search ||
+    u.hash ||
+    u.username ||
+    u.password
+  ) {
+    throw bad('Public URL must be a valid https address, like https://example.com — with no path after the domain.');
+  }
+  return u.origin;
+}
+
 async function setPlatformSetting(key, value) {
   const def = PLATFORM_SETTING_DEFS.find((d) => d.key === key);
   if (!def) {
@@ -430,14 +481,37 @@ async function setPlatformSetting(key, value) {
     e.code = 'UNKNOWN_SETTING';
     throw e;
   }
-  const v = value == null ? '' : String(value);
+  let v = value == null ? '' : String(value);
+  // Batch 56: validate + normalize the public URL here, at the single write
+  // choke point every save path funnels through.
+  if (key === 'general.public_url') v = validatePublicUrlSetting(v);
   await query(
     `INSERT INTO platform_settings (\`key\`, value)
      VALUES (:key, :value)
      ON DUPLICATE KEY UPDATE value = VALUES(value)`,
     { key, value: isPlatformSecret(key) ? secretBox.encryptValue(v) : v }
   );
+  if (key === 'general.public_url') {
+    // Keep the sync resolver cache (stripeClient.appUrl) in step with the
+    // save — lazy require: stripeClient requires this module at load time.
+    try {
+      require('./stripeClient').setPublicUrlCache(v);
+    } catch {
+      /* resolver falls back to env/default until the next boot refresh */
+    }
+  }
   return { key, set: true };
+}
+
+/**
+ * Stored row only — NO def-default fallback. The public-URL resolver needs
+ * to distinguish "an admin saved a value" from "nothing stored" so its
+ * resolution order can be stored → APP_URL env → def default.
+ */
+async function getStoredPlatformSetting(key) {
+  const rows = await query('SELECT value FROM platform_settings WHERE `key` = :key LIMIT 1', { key });
+  if (rows && rows[0]) return isPlatformSecret(key) ? secretBox.decryptValue(rows[0].value) : rows[0].value;
+  return '';
 }
 
 async function seedPlatformDefaults() {
@@ -552,6 +626,8 @@ module.exports = {
   WORKSPACE_SEED_KEYS,
   ensurePlatformTables,
   getPlatformSetting,
+  getStoredPlatformSetting,
+  validatePublicUrlSetting,
   setPlatformSetting,
   seedPlatformDefaults,
   migratePlatformSecrets,

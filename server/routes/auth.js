@@ -83,7 +83,7 @@ async function authPayload(user, workspaceId, workspaces) {
   };
 }
 
-// Public auth-screen config (no session): lets the bitpype.com sign-in page
+// Public auth-screen config (no session): lets the sign-in page
 // show or hide its Register tab before anyone is signed in. Exposes only the
 // registration flag — mirrors the /api/v1/captcha/config pattern. The client
 // portal has no registration and never reads this.

@@ -64,7 +64,10 @@ const SETTING_SEEDS = [
   ['smtp.secure', '0'],
   ['smtp.user', ''],
   ['smtp.from_name', 'Bitpype'],
-  ['smtp.from_email', 'team@bitpype.com'],
+  // Batch 56: no hardcoded first-party address — fresh workspaces start
+  // unconfigured (the Batch 55 pattern); sends resolve their From via the
+  // workspace/platform settings chain as before.
+  ['smtp.from_email', ''],
   // Batch 48: mail provider selector. 'custom' (default) = today's SMTP
   // behaviour; 'cloudflare' = native Cloudflare Email Sending. The
   // account id stays empty by default — the mailer falls back to
@@ -177,6 +180,10 @@ const SETTABLE_KEYS = [
   'score.threshold_qualified',
   'score.threshold_hot',
   'app.name',
+  // Batch 56: the canonical public URL is platform identity, but both
+  // settings save paths funnel through validateSetting (Batch 24b
+  // invariant) — registered here with the platform rule delegated below.
+  'general.public_url',
   'shop.stripe.publishable_key',
   'shop.stripe.secret_key',
   'shop.stripe.webhook_secret',
@@ -460,6 +467,17 @@ function validateSetting(key, raw) {
         return fail('must be a valid domain name or empty');
       }
       return { ok: true, value: value.trim() };
+    case 'general.public_url': {
+      // Batch 56: identical rule to the platform write choke point
+      // (platform.validatePublicUrlSetting) — required, https, site root
+      // only, normalized to the URL origin. Lazy require: platform.js is
+      // loaded after this module in some entry points.
+      try {
+        return { ok: true, value: require('./platform').validatePublicUrlSetting(value) };
+      } catch (e) {
+        return fail(e.message);
+      }
+    }
     case 'mcp.public_url': {
       const n = require('../src/mcpRemote').normalizePublicUrl(value);
       if (!n.ok) return fail(n.error);

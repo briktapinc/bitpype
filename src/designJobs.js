@@ -1156,7 +1156,15 @@ function setContactEmail(db, jobId, email, phone) {
 }
 
 function appBaseUrl() {
-  return String(process.env.APP_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
+  // Batch 56: the design-change client link is a PUBLIC link — it resolves
+  // from the canonical public URL (stripeClient.appUrl). The old env /
+  // loopback read remains only as a fallback for processes where the
+  // server modules cannot load.
+  try {
+    return require('../server/stripeClient').appUrl();
+  } catch {
+    return String(process.env.APP_URL || 'http://127.0.0.1:3000').replace(/\/+$/, '');
+  }
 }
 
 /** Ensure the job has a public client-form token; returns the token. */

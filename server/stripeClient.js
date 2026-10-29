@@ -85,15 +85,83 @@ async function planIdFromPriceId(priceId) {
   return null;
 }
 
-function appUrl() {
-  const raw = String(process.env.APP_URL || '').trim();
-  if (!raw) {
-    if (process.env.NODE_ENV === 'production') {
-      throw Object.assign(new Error('APP_URL must be set in production'), { code: 'APP_URL_REQUIRED' });
-    }
-    return 'http://localhost:3000';
+/* ------------------------------------------------------------------ */
+/* Public URL resolver (Batch 56)                                      */
+/*                                                                     */
+/* appUrl() is THE resolver for the app's public base URL — every      */
+/* first-party absolute link (claim/billing/portal emails, OAuth       */
+/* callbacks, staff/portal links, og tags) is built from it. Do not    */
+/* read APP_URL or the setting anywhere else.                          */
+/*                                                                     */
+/* Resolution order:                                                   */
+/*   1. the stored platform setting `general.public_url`               */
+/*      (Admin → Settings → General), cached here and refreshed at     */
+/*      boot (refreshPublicUrl, called by server.js) and on every      */
+/*      save (platform.setPlatformSetting calls setPublicUrlCache);    */
+/*   2. the APP_URL env var;                                           */
+/*   3. the setting's def default in PLATFORM_SETTING_DEFS — the only  */
+/*      place the production domain literal lives in shipped code.     */
+/*                                                                     */
+/* The value can only come back empty if all three are somehow blank,  */
+/* so the loud APP_URL_REQUIRED throw stays for that case: a silent    */
+/* localhost fallback in production would send real customers broken   */
+/* links. (In non-production the def default now answers instead of    */
+/* the old localhost guess — set APP_URL or the setting for local      */
+/* link building.)                                                     */
+/* ------------------------------------------------------------------ */
+let cachedPublicUrl = '';
+
+function normalizePublicUrl(raw) {
+  return String(raw == null ? '' : raw)
+    .trim()
+    .replace(/\/+$/, '');
+}
+
+function publicUrlDefDefault() {
+  try {
+    const def = (platform.PLATFORM_SETTING_DEFS || []).find((d) => d.key === 'general.public_url');
+    return def ? normalizePublicUrl(def.default) : '';
+  } catch {
+    return '';
   }
-  return raw.replace(/\/$/, '');
+}
+
+/** Called by platform.setPlatformSetting after a successful save. */
+function setPublicUrlCache(value) {
+  cachedPublicUrl = normalizePublicUrl(value);
+}
+
+/** Boot hook (server.js): prime the cache from the stored setting row. */
+async function refreshPublicUrl() {
+  try {
+    const stored = await platform.getStoredPlatformSetting('general.public_url');
+    if (stored && /^https?:\/\//i.test(String(stored).trim())) setPublicUrlCache(stored);
+  } catch {
+    /* cache stays empty — env/default resolution still applies */
+  }
+  return cachedPublicUrl;
+}
+
+/**
+ * The explicitly CONFIGURED public URL — stored setting or APP_URL env —
+ * WITHOUT the def-default fallback. For callers that must distinguish
+ * "configured" from "defaulted" (the interest-link secret guard refuses
+ * its dev fallback on configured public hosts). Not a second resolver:
+ * appUrl() remains the single source for link building.
+ */
+function configuredPublicUrl() {
+  return cachedPublicUrl || normalizePublicUrl(process.env.APP_URL);
+}
+
+function appUrl() {
+  const raw = cachedPublicUrl || normalizePublicUrl(process.env.APP_URL) || publicUrlDefDefault();
+  if (!raw) {
+    throw Object.assign(
+      new Error('Public URL is not configured: set "Public URL" in Admin → Settings → General (or the APP_URL env var).'),
+      { code: 'APP_URL_REQUIRED' }
+    );
+  }
+  return raw;
 }
 
 function integrationId(label = 'billing-checkout') {
@@ -111,5 +179,9 @@ module.exports = {
   planIdFromPriceId,
   getSecretKey,
   appUrl,
+  configuredPublicUrl,
+  setPublicUrlCache,
+  refreshPublicUrl,
+  normalizePublicUrl,
   integrationId,
 };

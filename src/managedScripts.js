@@ -7,8 +7,17 @@ const LOADERS = Object.freeze({
 });
 
 function appBase() {
+  // Batch 56: loader script URLs resolve from the canonical public URL
+  // (stripeClient.appUrl); the env read remains only as a fallback if the
+  // resolver cannot load. The origin validation below is unchanged.
+  let raw = '';
   try {
-    const url = new URL(String(process.env.APP_URL || ''));
+    raw = require('../server/stripeClient').appUrl();
+  } catch {
+    raw = String(process.env.APP_URL || '');
+  }
+  try {
+    const url = new URL(String(raw || ''));
     return /^https?:$/.test(url.protocol) && !url.username && !url.password ? url.origin : '';
   } catch {
     return '';

@@ -248,7 +248,13 @@ function fail(code, message, status) {
 }
 
 function appBaseUrl() {
-  return String(process.env.APP_URL || '').replace(/\/$/, '');
+  // Batch 56: resolve from the canonical public URL (stripeClient.appUrl);
+  // the env read remains only as a fallback if the resolver cannot load.
+  try {
+    return require('./stripeClient').appUrl();
+  } catch {
+    return String(process.env.APP_URL || '').replace(/\/+$/, '');
+  }
 }
 
 function escapeHtml(s) {

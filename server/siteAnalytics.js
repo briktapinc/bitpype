@@ -116,7 +116,8 @@ function allowedOrigin(db, site, origin) {
 }
 function isAppOrigin(origin) {
   try {
-    return new URL(process.env.APP_URL || 'https://bitpype.com').origin === origin;
+    // Batch 56: app origin comes from the single public-URL resolver.
+    return new URL(require('./stripeClient').appUrl()).origin === origin;
   } catch {
     return false;
   }
@@ -197,7 +198,8 @@ function inject(db, websiteId, dir) {
   if (!exists(db)) return 0;
   const row = db.prepare('SELECT * FROM site_analytics_settings WHERE website_id=?').get(websiteId);
   if (!row) return 0;
-  const base = new URL(process.env.APP_URL || 'https://bitpype.com');
+  // Batch 56: the analytics script base is the resolved public URL.
+  const base = new URL(require('./stripeClient').appUrl());
   if (base.protocol !== 'https:') throw invalid('Analytics requires an HTTPS app URL.');
   const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
   let n = 0;

@@ -49,8 +49,12 @@ async function loadGbpConfig() {
 }
 
 function requestAppUrl(req) {
-  if (process.env.APP_URL) return String(process.env.APP_URL).replace(/\/+$/, '');
-  return `${req.protocol}://${req.get('host')}`;
+  // Batch 56: OAuth redirect URIs must be the canonical public URL (the one
+  // registered with Google), not whatever host the admin happened to use —
+  // resolve from the single public-URL resolver. `req` is kept in the
+  // signature for the existing callers.
+  void req;
+  return require('../stripeClient').appUrl();
 }
 
 function ok(res, data) {
