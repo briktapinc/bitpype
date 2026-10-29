@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Terms of Service — Bitpype</title>
+  <title>Terms of Service — BitPype</title>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -38,21 +38,222 @@
   </header>
   <main class="view" style="max-width:720px;padding:2rem 1.25rem 3rem">
     <h1>Terms of Service</h1>
-    <p class="lede">Last updated: October 10, 2026</p>
+    <p class="lede">Last updated: October 29, 2026</p>
     <div class="panel"><div class="panel-b stack">
-      <p>By creating an account or using Bitpype, you agree to these Terms.</p>
-      <h3>Service</h3>
-      <p>BitPype designs and manages websites for businesses, and provides tools for finding customers, sending outreach, and running your site. Features may change as we improve the product.</p>
-      <h3>Accounts &amp; billing</h3>
-      <p>You are responsible for account credentials and for activity under your account. Paid plans are billed through Stripe on a recurring basis as shown at checkout. You can cancel in the billing portal; access continues through the paid period unless otherwise stated.</p>
-      <h3>Acceptable use</h3>
-      <p>You must not use the service for unlawful spam, abuse of third-party APIs, or to violate applicable marketing and privacy laws. We may suspend accounts that threaten the platform or other users.</p>
-      <h3>Data</h3>
-      <p>You retain rights to content you upload. We process data to provide the service. See our <a href="/legal/privacy.html">Privacy Policy</a>.</p>
-      <h3>Disclaimer</h3>
-      <p>The service is provided “as is” without warranties of uninterrupted availability. We are not liable for indirect or consequential damages to the extent permitted by law.</p>
-      <h3>Contact</h3>
-      <p>Questions about these terms: email us at <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a>.</p>
+      <p>These Terms of Service ("Terms") are an agreement between you and BitPype ("BitPype," "we," "us") for the BitPype platform at {{PUBLIC_URL}} — the software, websites, and related services we provide (together, the "Service"). By creating an account, accepting an invite, connecting an integration, or using the Service, you agree to these Terms. If you use the Service for a business or organization, you represent that you can bind that business to these Terms, and "you" means that business.</p>
+      <p>If you do not agree, do not use the Service.</p>
+
+      <h3>1. What BitPype is</h3>
+      <p>BitPype is a platform for local businesses and the agencies that serve them. Depending on your plan, it provides: AI-assisted website design and publishing; lead management and outreach tools; website modules (forms, bookings, call tracking, memberships, shops, courses, blogs, chatbots, reviews, and more); domain registration and DNS automation; client portals; and an API/MCP interface that lets you and your AI tools work with your workspace programmatically.</p>
+      <p>Features change as the product develops. We may add, change, or retire features; when a change materially reduces a paid feature you rely on, we will give reasonable notice through the Service or by email.</p>
+
+      <h3>2. Accounts, workspaces, and roles</h3>
+      <p><strong>Workspaces.</strong> Your work lives in a workspace with its own database, settings, members, and API tokens. You are responsible for everything that happens in your workspace — including actions by your members, your renters, your connected integrations, and anyone using your API tokens.</p>
+      <p><strong>Roles.</strong> Workspace members have roles (such as owner, admin, and member). Destructive operations — deleting leads or websites, merging leads, and bulk deletes — are restricted to owners and admins. You are responsible for giving roles only to people who should have them.</p>
+      <p><strong>Portal users.</strong> The client portal has two user types. <em>Owners</em> can access every portal tab and module by default. <em>Renters</em> (businesses renting a website through Rent-to-Lead) by default see only their website, their modules, their rentals, and the call-tracking module. Workspace admins can widen or narrow what each type — or an individual user — can access. You are responsible for the access you grant.</p>
+      <p><strong>Account security.</strong> Keep your password and any multi-factor authentication (MFA) recovery codes secret. Staff accounts must enroll in MFA; portal users may be offered or required to enroll depending on workspace configuration. Tell us promptly at {{SUPPORT_EMAIL}} if you believe your account or a token has been compromised. We may require re-authentication or reset credentials to protect an account.</p>
+      <p><strong>Eligibility.</strong> The Service is for business use. You must be at least 18 years old and able to form a binding contract to hold an account.</p>
+
+      <h3>3. Plans, billing, and credits</h3>
+      <p><strong>Plans.</strong> BitPype offers a Free plan and paid plans (currently Standard, Pro, and Premium). Each plan's contents — features, entitlements, and limits — are described in the plan catalog shown in the Service. We may change plan contents for the future; changes to what a plan <em>includes</em> apply to everyone on that plan, including existing subscribers.</p>
+      <p><strong>Prices.</strong> Subscription prices are set in our billing settings and charged through Stripe. If we change a plan's price, the new price applies to <strong>new checkouts</strong>. Existing subscribers keep the price they signed up with for as long as that subscription continues, unless Stripe or a plan change you initiate moves you to a different price.</p>
+      <p><strong>Plan changes.</strong> Upgrades and downgrades take effect through Stripe and are prorated; any proration appears on your next invoice.</p>
+      <p><strong>Trials.</strong> If a checkout offers a trial, it lasts the number of days shown at checkout; your payment method is charged when the trial ends unless you cancel first.</p>
+      <p><strong>Billing emails.</strong> You will receive an email when your first payment succeeds, and an email each time your subscription renews, with a link to manage or cancel your subscription in the portal's billing panel. Keep your account email current — these notices go to the email on your account.</p>
+      <p><strong>Payment failures.</strong> If a payment fails, Stripe may retry it. We may restrict paid features while an account is past due, and a subscription that is cancelled or terminated by Stripe for non-payment ends as described in Section 4.</p>
+      <p><strong>Refunds.</strong> Subscription payments are collected by Stripe. Except where the law requires otherwise, fees are non-refundable and there are no refunds or credits for partial periods — but see Section 4: cancelling stops future charges and keeps your plan and website live until the end of the period you already paid for. If you believe a charge is wrong, contact us at {{SUPPORT_EMAIL}} and we will review it. A refund, if issued, does not by itself cancel your subscription; cancel separately if you also want the subscription to end.</p>
+      <p><strong>Credits.</strong> Some features run on prepaid credits (for example, AI-generated social images and content, call transcription below the Premium plan, and per-lead rental charges, where 1 credit = $1 of value). Credits are sold in packs through Stripe, are recorded in your workspace's credit ledger, have no cash value, are not transferable between workspaces, and are not refundable except where the law requires. We may change what credits buy or what features cost in credits, for future use.</p>
+      <p><strong>Taxes.</strong> Prices do not include taxes unless stated. You are responsible for any taxes that apply to your purchases and, for your own shop and membership sales, to your customers.</p>
+
+      <h3>4. Cancelling your subscription — exactly what happens</h3>
+      <p>You can cancel at any time from the portal's billing panel (or by emailing us). Cancellation works like this, and there are no exceptions hidden elsewhere:</p>
+      <ol>
+        <li><strong>Cancelling sets your subscription to end at the close of the current paid period.</strong> You are not charged again.</li>
+        <li><strong>Until that period ends, nothing changes.</strong> Your plan stays active and your website stays live.</li>
+        <li><strong>When the period ends and the subscription is deleted, your plan returns to Free and the websites tied to your account are taken offline</strong>: each live site is soft-archived (not deleted) and its custom domain is unlinked, so it stops resolving to the site. We keep an audit record of what was disabled and why.</li>
+        <li><strong>Resubscribing does not automatically bring sites back.</strong> A site taken offline under step 3 stays offline until it is restored — contact us and we will restore it, but do not assume a new subscription republishes your site on its own.</li>
+        <li>You can undo a cancellation before the period ends from the same billing panel; your renewal then continues as before.</li>
+      </ol>
+      <p><strong>Account deletion.</strong> You may delete your account from Billing. Deleting your account cancels any active subscription immediately, permanently disables your login, removes you from your workspaces, and replaces your personal details on the account record with a tombstone. Billing records (payments, refunds) are retained as described in the Privacy Policy. Deleting your account is not the same as deleting a workspace you own — if you are the only owner of a workspace, contact us first if you need the workspace's contents dealt with.</p>
+
+      <h3>5. Your content and your websites</h3>
+      <p><strong>You own your content.</strong> Businesses, text, photos, logos, and other material you or your visitors provide ("Your Content") remain yours. You grant us the licenses we need to host, copy, process, display, and transmit Your Content to operate the Service — including sending it to the third-party processors listed in Section 10 and the Privacy Policy when a feature you use requires it.</p>
+      <p><strong>You are responsible for your websites.</strong> The websites built and published through BitPype are <em>your</em> publications. You are solely responsible for:</p>
+      <ul>
+        <li>the accuracy and legality of everything on them — your offers, prices, claims, testimonials, licenses, and credentials;</li>
+        <li>having the rights to everything you upload (photos, logos, text) and everything you ask us to use;</li>
+        <li>your own legal obligations to your visitors and customers — including your privacy policy (Section 6), accessibility, consumer-protection, advertising, and industry-specific rules (for example, health, legal, financial, or real-estate regulations);</li>
+        <li>complying with the terms of the platforms your site connects to (for example, Google, Meta, Stripe, Twilio).</li>
+      </ul>
+      <p><strong>AI-generated content.</strong> The Service uses AI to draft and generate designs, copy, images, and responses. AI output can be wrong, generic, or similar to output generated for others. We do not warrant that AI-generated content is accurate, original, or cleared for any intellectual-property use. <strong>Review and approve everything before it goes live</strong> — once published, AI-generated content on your site is your content, with the responsibilities above.</p>
+      <p><strong>Template legal pages.</strong> BitPype generates starter Terms and Privacy pages for websites it builds, using your business details on file and clauses matched to the features enabled on that site (see Section 6). These are <strong>templates, not legal advice</strong>. You must review, edit, and own them. Our responsibility is limited to generating a template that matches the features enabled on the site at generation time; your obligations to your visitors remain yours.</p>
+      <p><strong>Feedback.</strong> If you send us suggestions, you give us permission to use them without owing you anything.</p>
+
+      <h3>6. Websites built by BitPype — site-level terms</h3>
+      <p>When we generate a website for a business (whether the business is you, your client, or a lead who later claims the site):</p>
+      <ul>
+        <li>The site carries generated <strong>Terms</strong> and <strong>Privacy</strong> pages at <code>/terms</code> and <code>/privacy</code>, linked in the site footer and listed in the sitemap. The pages are assembled <strong>only from the business details verified in the site's record</strong> (business name, contact details, domain) — we do not invent facts for them — and include clause blocks <strong>only for the modules and features actually enabled on that site</strong> (for example, a call-recording disclosure appears only on sites with call tracking).</li>
+        <li>If you replace either page with your own version in the site's pages, yours is the one that publishes; the generated version never overwrites yours.</li>
+        <li>The generated pages do not make BitPype the operator of your business. Between you and your visitors, <strong>you</strong> are the seller, service provider, and data controller; BitPype is your service provider and processor.</li>
+      </ul>
+
+      <h3>7. Feature-specific terms</h3>
+
+      <h4>7.1 Domains</h4>
+      <ul>
+        <li>Domains purchased through BitPype are registered through <strong>Cloudflare Registrar</strong>, in an account controlled by BitPype, using the platform's registered contact details — not yours — unless we agree otherwise in writing. Cloudflare's Domain Registration Agreement and the relevant registry policies apply to every registration.</li>
+        <li><strong>Included domains.</strong> If your first plan payment includes a domain, any available domain whose first-year registration price is at or under the included cap (currently $25) is included at no extra charge. Domains priced above the cap ("premium" domains) are not sold through the automatic flow; contact us if you want one.</li>
+        <li><strong>Renewals.</strong> Domains renew at the registrar's then-current price for that domain. The renewal price shown at purchase is the registrar's current renewal price and can change. You are responsible for keeping a valid payment method and for telling us if you do not want a domain renewed. Expired domains can be lost and may be registered by someone else.</li>
+        <li><strong>DNS.</strong> When you link a domain to a site, we create and manage the DNS records needed for the site to resolve (including the go-live checks that confirm the name resolves before we call a site live). Do not change records we manage without telling us; your site may go offline.</li>
+        <li><strong>Leaving.</strong> If your subscription ends, linked domains are unlinked from the site (Section 4). The registration itself remains in the registrar account described above; contact us to arrange a transfer of a domain you paid for, and we will cooperate in good faith. Transfers are subject to registry rules (including transfer locks) and any unpaid charges.</li>
+      </ul>
+
+      <h4>7.2 Call tracking, recording, and transcription</h4>
+      <ul>
+        <li>Sites with call tracking display a <strong>tracking phone number</strong> (provided through Twilio). That number is what visitors see and dial; calls forward to the destination number you give us. The destination number is used only for forwarding and is never displayed on the site.</li>
+        <li><strong>Plan allowances.</strong> A call counts against your monthly call allowance when it is answered and lasts at least <strong>15 seconds</strong>. Plans differ in allowance; the Premium plan includes call transcription (below), and other plans are charged <strong>1 credit per transcript</strong> — with a zero credit balance, recording still happens but transcription is skipped.</li>
+        <li><strong>Recording and transcription.</strong> Tracked calls may be <strong>recorded</strong>, and recordings may be <strong>transcribed</strong> automatically (speech-to-text, currently OpenAI's Whisper) and stored with the call log in your workspace. Unanswered calls that reach voicemail are recorded as voicemail and emailed to the business.</li>
+        <li><strong>Number rotation.</strong> If rotation is enabled, the site's call button rotates through a pool of up to five tracking numbers; every number in the pool forwards and records the same way.</li>
+        <li><strong>Your consent duties — read this carefully.</strong> Call-recording and wiretapping laws vary: some U.S. states allow one-party consent, others require <strong>all parties</strong> to consent, and other countries have their own rules. <strong>You are solely responsible</strong> for notifying and obtaining consent from callers and your own staff as the laws that apply to you require, and for configuring or disabling recording accordingly. The site template's call-tracking disclosure does not replace your own notices (for example, a greeting announcement). BitPype is not liable for recordings you make without required consent.</li>
+        <li><strong>Your communications generally.</strong> The same principle covers everything the Service sends for you: you are responsible for complying with the TCPA, CAN-SPAM, state telemarketing and privacy laws, and carrier rules for calls, texts, and emails you place, send, record, or automate through BitPype — including honoring opt-outs. Our suppression lists and default opt-out footers help, but compliance is yours.</li>
+      </ul>
+
+      <h4>7.3 Forms, bookings, estimates, and LeadScout</h4>
+      <ul>
+        <li><strong>Forms.</strong> Every form on your site (contact, booking, estimate, membership, shop checkout, and others) delivers its submissions to you, and the site owner is emailed about each visitor submission. Form submissions may be stored encrypted in your workspace.</li>
+        <li><strong>LeadScout.</strong> Submissions automatically create or update a contact in your workspace's LeadScout, deduplicated by email or phone across your sites, with the submission, booking, or estimate attached. For this visitor data, <strong>you are the controller and BitPype is your processor</strong>: we handle it only to run the Service and on your instructions through the product. You are responsible for having a lawful basis to collect and use it, and for answering your visitors' data requests (we will assist as described in the Privacy Policy).</li>
+        <li><strong>Bookings.</strong> A visitor's booking is created <strong>pending</strong> unless the site's booking settings auto-confirm it, in which case it is <strong>confirmed</strong> immediately. A pending booking is a <em>request</em>, not a confirmed appointment, until you confirm it. You are responsible for honoring, confirming, or declining bookings and for telling customers which state their booking is in.</li>
+        <li><strong>Estimates.</strong> An estimate request is a request for a quote. It is not a quote, a price promise, or a contract.</li>
+      </ul>
+
+      <h4>7.4 Memberships and shops — your Stripe, your sales</h4>
+      <ul>
+        <li>Memberships and shops run on <strong>your own Stripe account</strong> (keys you save in the portal, encrypted at rest) — or, for shops, workspace Stripe keys staff configured. Money from your members and customers settles <strong>directly in that Stripe account. BitPype never holds, routes, or has custody of those funds</strong>, takes no percentage of them through this feature, and is <strong>not the seller or merchant of record</strong> for anything your site sells.</li>
+        <li>You are responsible for your products, memberships, pricing, fulfillment, refunds and returns (under your own stated policy), sales tax, chargebacks, and compliance with Stripe's terms and card-network rules.</li>
+        <li><strong>Gating is your configuration.</strong> Membership gating hides gated page bodies behind member login in the published site. You are responsible for deciding what to gate and for what you publish publicly; do not put anything behind the gate that you have not verified you may sell or share.</li>
+        <li>Members are your customers. Their accounts exist on your site, under your privacy policy and terms.</li>
+      </ul>
+
+      <h4>7.5 Rentals (Rent-to-Lead)</h4>
+      <ul>
+        <li>A rental links a website to one tenant business at a time. While a rental is live, the site's call forwarding and its form, booking, estimate, and chatbot deliveries go to the <strong>tenant</strong>; every capture on the site is stamped with the tenant and the rental, and that record stays with the tenant's history even after the rental ends. A new tenant never sees a prior tenant's captures.</li>
+        <li><strong>Per-lead billing, when that model applies:</strong> a qualified lead is one stamped capture (form, booking, estimate, or chatbot lead) or one answered call of at least 15 seconds. Each qualified lead is charged <strong>exactly once</strong> — trial leads included in the rental are consumed first; after that, each lead debits credits at the rental's per-lead price. If the credit balance cannot cover a lead, the charge is recorded as <strong>due</strong> and accrues on the rental — <strong>lead delivery is never blocked by billing</strong>. Flat-rate rentals are tracked and reported only.</li>
+        <li>The site owner keeps ownership of the site and its content at all times; a rental does not transfer the website, the domain, or the owner's other data to the tenant.</li>
+      </ul>
+
+      <h4>7.6 Google Reviews and Google Business Profile</h4>
+      <ul>
+        <li><strong>Reviews module.</strong> If enabled and configured with your Google Place ID, the module fetches your business's reviews from the <strong>Google Places API</strong> and caches them for 24 hours, showing at most five reviews with Google attribution. Reviews are written by Google users, are Google's and their authors' content — not ours and not yours — and are subject to Google's terms. The module shows nothing until it is configured; we never fabricate reviews.</li>
+        <li><strong>Google Business Profile manager.</strong> The GBP tools let you connect a Google account and prepare <strong>draft change sets</strong> (prefilled from your lead record, Google Places, and your site) with validation and a diff before anything is sent. <strong>Today, nothing is sent to Google</strong>: while Google's API access for BitPype is pending, change sets stop at "ready" with the message "Google API access still pending — nothing was sent." Do not rely on the manager to update your Google profile until we announce live sending.</li>
+      </ul>
+
+      <h4>7.7 Chatbot and AI features</h4>
+      <ul>
+        <li>The site chatbot answers visitors from the knowledge base you provide. When no connected agent is replying, an <strong>AI fallback</strong> (a large language model) may answer as your business's support assistant. You are responsible for the knowledge you give it and for AI answers given in your name — review the knowledge base and transcripts, and treat chatbot statements to your visitors as your own.</li>
+        <li>Chatbot conversations are stored in your workspace (sessions, messages, escalations, captured leads) so you can read and follow up on them.</li>
+        <li><strong>AI usage metering.</strong> When the Service calls an AI provider for you, we record the task type, the model used, token counts, and an estimated cost in your workspace's AI usage ledger. Depending on configuration, AI features may run under BitPype's provider accounts or under API keys you supply in settings — in which case that provider's charges are yours.</li>
+      </ul>
+
+      <h4>7.8 API and MCP access</h4>
+      <ul>
+        <li>Your workspace API/MCP token acts with <strong>broad authority over your workspace</strong> — it can read and change leads, websites, designs, and outreach, much like a signed-in member. A smaller number of destructive operations (deleting leads or websites, merging leads, bulk deletes) additionally require an owner or admin role. Client-scoped tokens see only the one site/lead they are issued for.</li>
+        <li><strong>Token custody is your responsibility.</strong> Treat tokens like passwords: store them securely, rotate them if they leak, and revoke ones you no longer use. Actions taken with your token are treated as your actions, whether or not you personally made them. We are not liable for misuse of a token you failed to protect.</li>
+        <li>The same applies to connected AI agents on your account: you are responsible for what they do in your workspace.</li>
+      </ul>
+
+      <h4>7.9 Outreach and automation</h4>
+      <ul>
+        <li>Campaign and outreach tools send email and SMS through the configured providers on your behalf. Suppression lists (unsubscribed, bounced, do-not-contact, complaint) are honored for campaign sends.</li>
+        <li>If you enable <strong>hands-off mode</strong>, the Service can automatically discover leads, design and publish sites, and send outreach and follow-ups for your workspace. You are responsible for reviewing its configuration and for everything it sends or publishes while enabled.</li>
+        <li>Businesses may receive claim pages inviting them to respond about a site built for them; responses are limited to the presented choices (interested, not interested, later).</li>
+      </ul>
+
+      <h4>7.10 Ads on Free-plan sites</h4>
+      <p>BitPype may display <strong>its own</strong> Google AdSense advertising on websites whose customer is on the Free plan (every page of those sites). Paid plans never carry our ads. Ad revenue from those placements belongs to BitPype. If you do not want ads on a site, upgrade the site's customer to a paid plan.</p>
+
+      <h4>7.11 Managed one-click deployments (Hostinger)</h4>
+      <p>If you arrange for a separate BitPype installation to be deployed for you or a customer through the in-admin Hostinger deployment flow:</p>
+      <ul>
+        <li>The server is purchased through the Hostinger API and lives on <strong>BitPype's Hostinger account</strong> — it is a managed instance, not a transfer of Hostinger account ownership. The deployment runs the <strong>standard edition</strong> of BitPype (it is not a vendor/reseller master copy, and the install registry and update feed remain on our deployment).</li>
+        <li>During setup, the instance generates its own secrets on the server; BitPype's platform stores only hashes of the one-time setup credentials. The customer sets their own admin password through a one-time setup link (valid 72 hours).</li>
+        <li>The instance's data lives on that server. BitPype may access, suspend, or terminate a managed instance for abuse, security incidents, non-payment of agreed charges, or legal process, and may update its software.</li>
+        <li>Hostinger's Universal Terms of Service apply to the underlying server (Section 10). BitPype is not liable for Hostinger outages affecting a managed instance.</li>
+      </ul>
+
+      <h4>7.12 Referrals</h4>
+      <p>If you use the referral program, rewards are calculated from the settings shown in the Service at the time and may be changed or ended prospectively. Fraudulent or self-referrals earn nothing.</p>
+
+      <h3>8. Acceptable use</h3>
+      <p>You must not use the Service to:</p>
+      <ul>
+        <li>break the law, or to send unlawful spam, robocalls, or texts;</li>
+        <li>infringe anyone's intellectual-property or privacy rights;</li>
+        <li>publish content that is fraudulent, deceptive, or that you do not have the right to publish;</li>
+        <li>attempt to breach, probe, or overload the platform or other customers' workspaces, or to bypass role gates, plan entitlements, or rate limits;</li>
+        <li>abuse third-party APIs connected to the Service, or violate those providers' terms;</li>
+        <li>resell or white-label platform access except under a separate written agreement with us;</li>
+        <li>use the Service to build a competing hosted platform using our infrastructure accounts (Cloudflare, Hostinger, Stripe, Twilio) as your own.</li>
+      </ul>
+      <p>We may investigate violations and suspend or terminate accounts that threaten the platform, other customers, or third parties.</p>
+
+      <h3>9. Intellectual property</h3>
+      <p>The Service itself — the platform, software, designs of the product, and BitPype branding — belongs to BitPype and its licensors. These Terms give you a limited, revocable, non-transferable right to use the Service for your business while your account is in good standing; no other license is granted or implied.</p>
+      <p>Stock photos obtained through the Service (for example, from Pexels) are used under those providers' licenses; attribution is included where the provider requires it. AI-generated images are covered by Section 5.</p>
+
+      <h3>10. Third-party services — read this section</h3>
+      <p><strong>BitPype runs on other companies' platforms.</strong> The Service depends on third-party services, including:</p>
+      <ul>
+        <li><strong>Cloudflare</strong> — website hosting (Pages), DNS, domain registration (Registrar), bot protection (Turnstile), and optionally email sending;</li>
+        <li><strong>Hostinger</strong> — the servers the platform itself runs on, and servers for managed one-click deployments;</li>
+        <li><strong>Stripe</strong> — subscription billing, credits, and domain-flow payments, and (with your own account) your membership and shop payments;</li>
+        <li><strong>Twilio</strong> — phone numbers, call forwarding/recording/voicemail, and SMS;</li>
+        <li><strong>Mailjet</strong> — transactional email delivery (SMTP), unless Cloudflare Email Sending is selected instead;</li>
+        <li><strong>OpenAI</strong> — AI models and call transcription (Whisper); an alternate AI model provider (Meta's Muse Model API) may be configured instead;</li>
+        <li><strong>fal.ai</strong> — AI image generation; <strong>Pexels</strong> — stock photos; <strong>Tavily</strong> — web research for lead discovery;</li>
+        <li><strong>Google</strong> — Places API (reviews and profile data), Business Profile APIs, Fonts, AdSense, and (if you add your own tag IDs) Analytics on your sites;</li>
+        <li><strong>Meta</strong> — Facebook and Instagram publishing and feeds for accounts you connect;</li>
+        <li><strong>YouTube and Vimeo</strong> — video embeds on websites (privacy-enhanced mode where supported).</li>
+      </ul>
+      <p>The full list with what each one does is in the Privacy Policy's processor list.</p>
+      <p><strong>Their terms apply to you too.</strong> Your use of the Service is also subject to the terms of the providers underneath it — in particular <strong>Cloudflare's Self-Serve Subscription Agreement</strong> (<a href="https://www.cloudflare.com/terms/">cloudflare.com/terms</a>) and <strong>Domain Registration Agreement</strong> (<a href="https://www.cloudflare.com/domain-registration-agreement/">cloudflare.com/domain-registration-agreement</a>), and <strong>Hostinger's Universal Terms of Service</strong> (<a href="https://www.hostinger.com/legal/universal-terms-of-service-agreement/">hostinger.com/legal/universal-terms-of-service-agreement</a>). If your use would violate a provider's terms, it violates these Terms as well. Each provider's own terms govern that provider's services.</p>
+      <p><strong>We are not liable for third-party outages or changes.</strong> To the fullest extent the law allows, <strong>BitPype is not responsible or liable for outages, downtime, slowness, degraded performance, data loss, pricing changes, feature changes, policy or terms changes, suspensions, or discontinuations of any third-party service</strong> — including Cloudflare, Hostinger, Stripe, Twilio, Google, Meta, Mailjet, or any AI provider. If they are down, the parts of BitPype that depend on them may be down or degraded too, and that is not a breach of these Terms by us and does not entitle you to refunds or credits. Your sole remedy for third-party failures is whatever those providers offer under their own terms.</p>
+      <p><strong>No provider is our agent.</strong> Listing a provider does not make it our partner, agent, or subcontractor for your purposes; each provider answers under its own terms.</p>
+
+      <h3>11. Copyright and DMCA</h3>
+      <p>BitPype respects copyright. If you believe content hosted through the Service infringes your copyright, send a notice to {{SUPPORT_EMAIL}} with: your name and contact details; identification of the copyrighted work; the URL or location of the infringing material; a good-faith statement that the use is unauthorized; and a statement, under penalty of perjury, that you are authorized to act, with your physical or electronic signature.</p>
+      <p>We will review notices and remove or disable access to infringing material where appropriate. If your content was removed and you believe it was a mistake, send a counter-notice with your contact details, identification of the removed material, and a statement under penalty of perjury that the removal was a mistake or misidentification, consenting to the jurisdiction of the federal court for your address (or the Eastern District of Pennsylvania if outside the U.S.). We may restore material 10–14 business days after a valid counter-notice unless the complainant files a court action.</p>
+      <p><strong>Repeat infringers lose their accounts.</strong> We terminate accounts of repeat infringers where appropriate.</p>
+
+      <h3>12. Warranty disclaimer</h3>
+      <p>THE SERVICE IS PROVIDED <strong>"AS IS" AND "AS AVAILABLE."</strong> To the fullest extent the law allows, we disclaim all warranties — express, implied, or statutory — including merchantability, fitness for a particular purpose, non-infringement, and any warranty that the Service will be uninterrupted, error-free, or secure, or that AI output or third-party data (including reviews, directory data, and registrar pricing) will be accurate. Some jurisdictions do not allow certain disclaimers; those that don't apply to you are limited to the minimum extent required.</p>
+
+      <h3>13. Limitation of liability</h3>
+      <p>To the fullest extent the law allows:</p>
+      <ul>
+        <li>BitPype's total liability for all claims arising from or related to the Service is capped at <strong>the amounts you paid BitPype in the twelve months before the claim</strong> (or $100 if you paid nothing).</li>
+        <li>Neither party is liable for indirect, incidental, special, consequential, or punitive damages, or for lost profits, revenue, goodwill, or data — even if advised they were possible.</li>
+        <li>Nothing in these Terms limits liability that cannot be limited by law, or liability for fraud.</li>
+      </ul>
+
+      <h3>14. Indemnification</h3>
+      <p>You will defend and indemnify BitPype (and its owner and helpers) against claims, damages, and reasonable legal fees arising from: your content and websites; your use of the Service in violation of these Terms or the law; your communications with callers, visitors, leads, members, and customers (including recording, telemarketing, and privacy claims); your products, memberships, and sales; and your domains. We will notify you of claims we want indemnified and cooperate reasonably; you control the defense, but may not settle a claim that imposes duties on us without our written consent.</p>
+
+      <h3>15. Suspension and termination</h3>
+      <p>We may suspend or terminate your access if you violate these Terms, abuse the platform or providers, create legal or security risk, or fail to pay. Where practical, we will warn you first. You may stop using the Service and cancel at any time (Section 4 describes what cancellation does). Sections that by their nature should survive — content licenses for material already delivered, payment obligations, Sections 10–14, and this one — survive termination.</p>
+      <p>On termination of a workspace, its data remains available for export through the product for a reasonable period and is then deleted or anonymized in the ordinary course, subject to the retention described in the Privacy Policy.</p>
+
+      <h3>16. Changes to these Terms</h3>
+      <p>We may update these Terms. When we make a material change, we will post the updated Terms with a new "last updated" date and, for material changes, notify account owners by email or in the Service at least 14 days before the change takes effect. Continuing to use the Service after the effective date means you accept the updated Terms. If you do not accept them, cancel before the effective date.</p>
+
+      <h3>17. Governing law and disputes</h3>
+      <p>These Terms are governed by the laws of the <strong>Commonwealth of Pennsylvania</strong>, without regard to its conflict-of-laws rules. Disputes will be resolved in the state or federal courts located in Pennsylvania, and both sides consent to that venue — unless a law that applies to you gives you a mandatory right to a different forum. Where a provider's terms (Section 10) impose arbitration or a different forum for claims against that provider, their terms control those claims.</p>
+
+      <h3>18. General</h3>
+      <p>These Terms, plus any plan details and invoices, are the entire agreement between you and BitPype for the Service and replace earlier versions. If a provision is unenforceable, the rest stand. Our failure to enforce a provision is not a waiver. You may not assign these Terms or your account without our written consent; we may assign them in connection with a sale of the business. Notices to you go to your account email; notices to us go to {{SUPPORT_EMAIL}}.</p>
+
+      <h3>19. Contact</h3>
+      <p>Questions about these Terms: {{SUPPORT_EMAIL}}.</p>
+      <p>See also our <a href="/legal/privacy.html">Privacy Policy</a>.</p>
     </div></div>
   </main>
 </body>

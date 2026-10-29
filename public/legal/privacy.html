@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Privacy Policy — Bitpype</title>
+  <title>Privacy Policy — BitPype</title>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -38,19 +38,119 @@
   </header>
   <main class="view" style="max-width:720px;padding:2rem 1.25rem 3rem">
     <h1>Privacy Policy</h1>
-    <p class="lede">Last updated: October 10, 2026</p>
+    <p class="lede">Last updated: October 29, 2026</p>
     <div class="panel"><div class="panel-b stack">
-      <p>This policy describes how Bitpype handles personal data.</p>
-      <h3>What we collect</h3>
-      <p>Account information (email, name, password hash), workspace content you enter (leads, sites, outreach), billing identifiers from Stripe, and basic technical logs needed to operate the service.</p>
-      <h3>How we use data</h3>
-      <p>We use data to authenticate you, provide product features, process subscriptions, prevent abuse, and improve reliability. We do not sell your personal data.</p>
-      <h3>Processors</h3>
-      <p>Payment processing is handled by Stripe. Email delivery may use your configured SMTP provider. AI and search providers process prompts/API calls when you enable those integrations.</p>
-      <h3>Retention &amp; deletion</h3>
-      <p>You may delete your account from Billing. Deletion disables login and removes workspace memberships; payment records may be retained for accounting and fraud prevention.</p>
-      <h3>Contact</h3>
-      <p>Privacy requests: email us at <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a>.</p>
+      <p>This policy explains what personal data BitPype ("BitPype," "we," "us") collects, why, who it goes to, and the choices you have. It covers two different situations, and the difference matters:</p>
+      <ol>
+        <li><strong>Your data as our customer</strong> — account holders, workspace members, portal users, and visitors to our own pages (like {{PUBLIC_URL}} and its landing page). For this data, BitPype is the <strong>controller</strong>.</li>
+        <li><strong>Your visitors' data</strong> — people who visit websites built on BitPype, submit forms, book, call, chat, join memberships, or buy from those sites. For that data, the <strong>business that runs the site is the controller</strong> and BitPype is its <strong>processor</strong>: we handle the data only to run the Service for that business.</li>
+      </ol>
+
+      <h3>1. What we collect — customers and account holders</h3>
+      <ul>
+        <li><strong>Account data.</strong> Name, email address, password (stored as a bcrypt hash — we never store your plain password), multi-factor authentication settings, role, and workspace memberships.</li>
+        <li><strong>Workspace data.</strong> The content you work with in the Service: leads and business records you add or import, websites and their pages, design-job inputs (including photos you upload and images from a business's public pages you ask us to design from), forms and their submissions, campaigns and outreach lists, settings, and files you upload.</li>
+        <li><strong>Billing data.</strong> Subscriptions, plans, payments, and refunds are processed by <strong>Stripe</strong>. We store Stripe identifiers (customer, subscription, invoice, payment, refund IDs), amounts, statuses, and plan history — we do <strong>not</strong> store full card numbers. Domain purchases add registrar transaction records and the domain names you register.</li>
+        <li><strong>API and MCP activity.</strong> Token creation and use, and records of actions taken through the API/MCP, so workspace owners can see what their tokens and connected agents did.</li>
+        <li><strong>Technical data.</strong> Server logs (IP address, timestamps, request paths, error references), security events, and rate-limit counters (stored per IP in our database so limits survive restarts).</li>
+        <li><strong>Communications.</strong> Emails you send us, support requests, and — if you submit our landing-page interest form — your full name, email, and phone number, which are stored as a lead in our workspace so we can follow up.</li>
+        <li><strong>Connected accounts.</strong> If you connect integrations, we store the connection credentials encrypted (for example, Google OAuth tokens for the Business Profile tools, Meta tokens for connected Facebook/Instagram accounts, your own Stripe keys for memberships/shop, and Twilio settings), plus the data those integrations return (for example, your Google reviews and social posts).</li>
+      </ul>
+
+      <h3>2. What we process for your visitors (as your processor)</h3>
+      <p>If you run a website on BitPype, the Service processes the following about your visitors <strong>on your behalf</strong>:</p>
+      <ul>
+        <li><strong>Form submissions</strong> (contact, estimate, membership, shop, and other forms): the fields the visitor submits. Submissions may be stored encrypted. Every submission is also copied into your LeadScout contacts (Section 4).</li>
+        <li><strong>Bookings:</strong> name, contact details, service, and time requested, and the booking's status.</li>
+        <li><strong>Calls:</strong> when call tracking is enabled, the caller's number, the number dialed, duration, whether the call was answered, <strong>call recordings, voicemail recordings, and machine-generated transcripts</strong> of recordings.</li>
+        <li><strong>Chat:</strong> chatbot conversations (messages, session data), escalations, and contact details a visitor leaves in chat.</li>
+        <li><strong>Member accounts:</strong> on sites with memberships, members' names, emails, password hashes, and subscription status — members are <em>your</em> customers.</li>
+        <li><strong>Shop orders:</strong> order details and the Stripe payment identifiers from your own Stripe account.</li>
+        <li><strong>Site analytics:</strong> our built-in analytics stores <strong>daily aggregate counts</strong> (pages viewed, by day and path) — not per-visitor profiles — and keeps them for 90 days. If you add your own Google tag IDs, Google Analytics runs under your account and its own terms.</li>
+        <li><strong>Reviews:</strong> if the Google Reviews module is enabled, the site displays your Google reviews fetched from Google (reviewer names and text as Google provides them), cached for 24 hours.</li>
+      </ul>
+      <p>We process this data only to provide the Service to you and on your documented instructions (your use of the product). We do not use your visitors' data for our own marketing, and we do not sell it (Section 6).</p>
+
+      <h3>3. How we use data</h3>
+      <p>We use personal data to: create and secure accounts (including MFA); run the features you use (design, publishing, outreach, billing, calls, rentals, deployments); charge and record payments, credits, and rental charges; send transactional emails (payment-received, renewal, voicemail, form notifications, setup links); prevent abuse (bot checks, rate limits, suppression lists); debug and improve reliability; and comply with legal obligations. AI features send the necessary content to the configured AI provider to produce the output you asked for (Section 5).</p>
+      <p><strong>AI usage records.</strong> When AI features run, we record the task type, model, token counts, and estimated cost in your workspace's AI usage ledger for cost controls and the admin Finance views. The content of prompts and outputs is stored only inside the features themselves (for example, a design job, a chatbot knowledge base, or a transcript), not in the usage ledger.</p>
+
+      <h3>4. LeadScout and contacts</h3>
+      <p>Form, booking, estimate, membership, shop, and chatbot captures automatically create or update a contact for the site owner, deduplicated by email or phone across the owner's sites, with the underlying submission or appointment attached. If a visitor opts in to SMS on a form, the opt-in, its source, and its time are recorded on the contact. The site owner (our customer) controls this data as controller; we process it as described in Section 2.</p>
+
+      <h3>5. Who data goes to — our processors</h3>
+      <p>We share personal data with the providers below only as needed to run the Service. Each provider's own privacy policy and terms also apply to its handling.</p>
+      <p><strong>Infrastructure</strong></p>
+      <ul>
+        <li><strong>Cloudflare</strong> — hosts published websites (Pages), provides DNS and domain registration (Registrar), bot protection on forms (Turnstile), and optionally sends email (Cloudflare Email Sending) if that provider is selected. Website content, domain records, form-protection signals, and email content pass through Cloudflare for those functions.</li>
+        <li><strong>Hostinger</strong> — provides the servers the platform runs on (all platform data at rest sits on Hostinger infrastructure) and the servers for managed one-click deployments (that instance's data sits on its own server).</li>
+      </ul>
+      <p><strong>Payments</strong></p>
+      <ul>
+        <li><strong>Stripe</strong> — processes platform subscriptions, credit packs, and domain-flow payments (card data goes to Stripe, never to our servers), and — using the <strong>site owner's own Stripe account</strong> — membership and shop payments on customer sites.</li>
+      </ul>
+      <p><strong>Communications</strong></p>
+      <ul>
+        <li><strong>Twilio</strong> — provides tracking phone numbers, call forwarding, call and voicemail recording, and SMS sending/receiving. Call audio, caller numbers, and message content pass through Twilio.</li>
+        <li><strong>Mailjet</strong> — sends transactional email by SMTP (recipient addresses and email content), unless Cloudflare Email Sending is selected instead.</li>
+        <li><strong>Your own mailbox provider</strong> — if a workspace enables inbound email polling (IMAP) or custom SMTP, that provider handles mail as configured by the workspace.</li>
+      </ul>
+      <p><strong>AI and content providers</strong></p>
+      <ul>
+        <li><strong>OpenAI</strong> — language-model requests behind AI features, and call transcription (Whisper) of recordings you enable it for.</li>
+        <li><strong>Meta (Muse Model API)</strong> — an alternate language-model provider, used only when configured in place of the default.</li>
+        <li><strong>fal.ai</strong> — AI image generation from prompts.</li>
+        <li><strong>Pexels</strong> — stock photo search and download (search terms are sent; downloaded photos carry photographer attribution).</li>
+        <li><strong>Tavily</strong> — web research queries for lead discovery.</li>
+      </ul>
+      <p><strong>Google and Meta services</strong></p>
+      <ul>
+        <li><strong>Google</strong> — Places API (fetching a business's reviews and profile details), Business Profile APIs (OAuth connection you authorize; change sets are prepared locally — see the Terms for the current sending status), Fonts (your browser fetches fonts from Google when pages load), AdSense (advertising on Free-plan sites — Google may set advertising cookies there), and Analytics (only on sites whose owner added their own tag IDs, under the owner's account).</li>
+        <li><strong>Meta (Facebook/Instagram)</strong> — if you connect social accounts, publishing and feed data flow through the Meta Graph API under your authorization.</li>
+        <li><strong>YouTube / Vimeo</strong> — embedded videos on websites and our landing page are served by those providers when a visitor plays them; they may set their own cookies at that point.</li>
+      </ul>
+      <p><strong>Other sharing.</strong> We may disclose data when the law requires it (court orders, lawful requests), to protect the platform and its users from fraud and abuse, or in connection with a sale or restructuring of the business (with notice). We do not share data with data brokers or advertisers for their own marketing. Our own AdSense placements (above) are the only advertising on the platform, and only on Free-plan sites.</p>
+
+      <h3>6. We do not sell personal data</h3>
+      <p>We do not sell, rent, or trade personal data — ours or your visitors' — to third parties for their marketing. If a privacy law gives you a "do not sell or share" right, this is our answer: there is nothing to opt out of because we do not do it.</p>
+
+      <h3>7. Cookies and similar storage</h3>
+      <ul>
+        <li><strong>On the platform (our app and portal):</strong> a session cookie (http-only, same-site, up to 14 days) keeps you signed in; the portal session also has an idle timeout. Cloudflare Turnstile may set cookies when you use protected forms, to tell humans from bots. Stripe's checkout runs on Stripe's own pages under Stripe's cookie policy.</li>
+        <li><strong>On websites we publish:</strong> BitPype itself sets no tracking cookies. The cookie-notice choice on those sites is stored in your browser's local storage, not a cookie. Depending on the site's enabled features, the following may apply: a member-login session cookie on sites with memberships; Google Analytics cookies on sites whose owner added their own Google tag; AdSense advertising cookies on Free-plan sites; and cookies from YouTube/Vimeo when you play embedded videos.</li>
+        <li><strong>Our landing page</strong> loads videos only as privacy-enhanced (no-cookie) YouTube embeds.</li>
+      </ul>
+
+      <h3>8. Retention</h3>
+      <ul>
+        <li><strong>Account and workspace data</strong> is kept while the account is active and for a reasonable period after cancellation to allow restoration of sites disabled at subscription end, after which it is deleted or anonymized in the ordinary course.</li>
+        <li><strong>Billing records</strong> (payments, refunds, invoices) are retained for accounting, tax, and fraud-prevention purposes after account deletion.</li>
+        <li><strong>Call recordings and transcripts</strong> are kept in the workspace while the call log is kept; workspace owners can delete call logs the product marks eligible.</li>
+        <li><strong>Site analytics aggregates</strong> are retained 90 days. <strong>AI usage ledger rows</strong> are retained with the workspace for cost history. <strong>Security and rate-limit records</strong> are retained for abuse prevention and then rotated out.</li>
+        <li><strong>Deleted accounts</strong> are tombstoned immediately (login disabled, personal details replaced); backups containing older copies expire in the ordinary backup cycle.</li>
+      </ul>
+
+      <h3>9. Security</h3>
+      <p>Security measures actually in place today include: passwords hashed with bcrypt; API keys and provider secrets encrypted at rest; MFA (TOTP) required for staff accounts and available for portal users; signature verification on payment and telephony webhooks; bot protection that fails closed in production; per-IP rate limits on public forms and sign-in; TLS required for outbound SMTP credentials; sessions that are http-only and only created after MFA checks pass; role-based gates on destructive operations; and per-workspace database isolation, so one workspace's data is not reachable from another's. No system is perfectly secure — if we learn of a breach affecting your data, we will notify you as the law requires.</p>
+
+      <h3>10. Your rights and requests</h3>
+      <p>Depending on where you live, you may have rights to access, correct, delete, or export your personal data, and to object to or restrict some processing.</p>
+      <ul>
+        <li><strong>Account holders:</strong> most data is visible and editable in the product (leads, contacts, sites, call logs). Account deletion is available in Billing. For anything else — or if you are a <strong>visitor to a customer's site</strong> — note that for site data the <em>business</em> is the controller: contact the business first. If you contact us at {{SUPPORT_EMAIL}} about a customer's site, we will route the request to that customer and assist them as their processor, including helping them delete the relevant records.</li>
+        <li>We respond to verified requests within the time the applicable law requires.</li>
+      </ul>
+
+      <h3>11. Children</h3>
+      <p>The Service is a business tool and is not directed to children under 13. We do not knowingly collect children's data as a controller. If you believe a child has given us data directly, contact us and we will delete it.</p>
+
+      <h3>12. Cross-border processing</h3>
+      <p>Our infrastructure and providers are primarily in the United States. If you use the Service from elsewhere, your data will be processed in the U.S. and in the countries where the providers in Section 5 operate, under their terms.</p>
+
+      <h3>13. Changes to this policy</h3>
+      <p>We may update this policy. Material changes will be posted with a new "last updated" date and, for material changes, notified to account owners by email or in the Service at least 14 days before taking effect.</p>
+
+      <h3>14. Contact</h3>
+      <p>Privacy questions and requests: {{SUPPORT_EMAIL}}. The data controller for platform account data is BitPype, Blandon, Pennsylvania, USA.</p>
       <p>See also our <a href="/legal/terms.html">Terms of Service</a>.</p>
     </div></div>
   </main>
