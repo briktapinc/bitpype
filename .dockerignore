@@ -26,3 +26,6 @@ baseline-*.txt
 *.key
 backups
 .aws
+# Batch 55: the legacy Electron app is archived in-repo; it must never
+# enter the production image build context.
+archive
