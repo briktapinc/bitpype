@@ -1384,6 +1384,17 @@ async function dispatchWebhookEvent(event, deps = {}) {
         console.warn('[billing] subscription-end site disable:', e.message);
       }
     }
+    // Batch 60: re-derive domain renewal modes for the subscriber's
+    // workspaces. syncSubscription above has already stored the new
+    // state, so a cancel scheduled for period end keeps status
+    // 'active' (renewal stays 'auto' for the whole paid period) while
+    // a deleted subscription flips its domains to 'manual' and turns
+    // registrar auto-renew OFF. Best-effort like the hooks above.
+    try {
+      await require('./domainRenewals').reconcileForSubscriptionEvent(obj, type, deps);
+    } catch (e) {
+      console.warn('[billing] domain renewal reconcile:', e.message);
+    }
     return;
   }
 
@@ -1395,6 +1406,18 @@ async function dispatchWebhookEvent(event, deps = {}) {
       const subId = typeof obj.subscription === 'string' ? obj.subscription : obj.subscription.id;
       sub = await stripe.subscriptions.retrieve(subId);
       await syncSubscription(sub);
+      // Batch 60: a paid invoice is the activation / renewal /
+      // reactivation signal — reconcile domain renewal modes so a
+      // (re)subscribed owner's domains go back to 'auto'.
+      try {
+        await require('./domainRenewals').reconcileForSubscriptionEvent(
+          sub,
+          'customer.subscription.updated',
+          deps
+        );
+      } catch (e) {
+        console.warn('[billing] domain renewal reconcile (invoice.paid):', e.message);
+      }
     }
     // Batch 37: monthly renewal email — ONLY on a genuine subscription
     // cycle renewal whose payment row was newly inserted (the dedupe in

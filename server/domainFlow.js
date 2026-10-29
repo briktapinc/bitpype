@@ -126,6 +126,13 @@ function publicTxn(row) {
     leadName: row.lead_name != null ? row.lead_name : undefined,
     leadEmail: row.lead_email != null ? row.lead_email : undefined,
     websiteName: row.website_name != null ? row.website_name : undefined,
+    // Batch 60: renewal state of the underlying domain when the row
+    // carries it (adminList/adminDetail join the latest site_domains
+    // row for the domain); absent on every other call path.
+    renewalMode: row.renewal_mode !== undefined ? row.renewal_mode : undefined,
+    domainExpiresAt: row.domain_expires_at !== undefined ? row.domain_expires_at : undefined,
+    manualRenewRequestedAt:
+      row.manual_renew_requested_at !== undefined ? row.manual_renew_requested_at : undefined,
   };
 }
 
@@ -659,16 +666,44 @@ async function onDomainCheckoutPaid(session, deps = {}) {
 // Admin views
 // ---------------------------------------------------------------------------
 
+// Batch 60: renewal columns on site_domains are additive; older DBs
+// (and test doubles) may not carry them. Join only when present.
+function renewalSelect(db) {
+  const none = 'NULL AS renewal_mode, NULL AS domain_expires_at, NULL AS manual_renew_requested_at';
+  try {
+    const cols = db.prepare('PRAGMA table_info(site_domains)').all();
+    const names = new Set((cols || []).map((c) => c && c.name));
+    if (names.has('renewal_mode') && names.has('expires_at') && names.has('manual_renew_requested_at')) {
+      return {
+        select:
+          'sd.renewal_mode AS renewal_mode, sd.expires_at AS domain_expires_at, sd.manual_renew_requested_at AS manual_renew_requested_at',
+        join: 'LEFT JOIN site_domains sd ON sd.id = (SELECT id FROM site_domains WHERE domain_name = t.domain ORDER BY id DESC LIMIT 1)',
+      };
+    }
+  } catch {
+    /* fall through to the no-join shape */
+  }
+  return { select: none, join: '' };
+}
+
 function adminList(db, opts = {}) {
   ensureTables(db);
+  try {
+    cfDomains.ensureTables(db); // site_domains renewal columns (Batch 60)
+  } catch {
+    /* */
+  }
   const limit = Math.min(200, Math.max(1, Number(opts.limit) || 100));
   const offset = Math.max(0, Number(opts.offset) || 0);
+  const ren = renewalSelect(db);
   const rows = db
     .prepare(
-      `SELECT t.*, l.business_name AS lead_name, l.email AS lead_email, w.name AS website_name
+      `SELECT t.*, l.business_name AS lead_name, l.email AS lead_email, w.name AS website_name,
+              ${ren.select}
        FROM domain_transactions t
        LEFT JOIN leads l ON l.id = t.lead_id
        LEFT JOIN websites w ON w.id = t.website_id
+       ${ren.join}
        ORDER BY t.id DESC LIMIT ? OFFSET ?`
     )
     .all(limit, offset);
@@ -730,12 +765,20 @@ function deleteTransaction(db, id) {
 
 function adminDetail(db, id) {
   ensureTables(db);
+  try {
+    cfDomains.ensureTables(db);
+  } catch {
+    /* */
+  }
+  const renD = renewalSelect(db);
   const row = db
     .prepare(
-      `SELECT t.*, l.business_name AS lead_name, l.email AS lead_email, w.name AS website_name
+      `SELECT t.*, l.business_name AS lead_name, l.email AS lead_email, w.name AS website_name,
+              ${renD.select}
        FROM domain_transactions t
        LEFT JOIN leads l ON l.id = t.lead_id
        LEFT JOIN websites w ON w.id = t.website_id
+       ${renD.join}
        WHERE t.id = ? LIMIT 1`
     )
     .get(Number(id));
