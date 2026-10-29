@@ -3562,20 +3562,37 @@ async function main() {
       createdUsers23++;
       return { userId: 2300 + createdUsers23, workspaceId: 2400 + createdUsers23, email };
     },
-    findUserByEmail: async (email) =>
-      String(email || '').toLowerCase() === 'member23@example.invalid'
-        ? {
-            id: 2301,
-            email: 'member23@example.invalid',
-            name: 'Member',
-            password_hash: passwordHash23,
-            is_super_admin: 0,
-            subscription_status: 'none',
-            billing_plan: 'free',
-            status: 'active',
-            created_at: '2026-01-01',
-          }
-        : null,
+    findUserByEmail: async (email) => {
+      const e = String(email || '').toLowerCase();
+      if (e === 'member23@example.invalid')
+        return {
+          id: 2301,
+          email: 'member23@example.invalid',
+          name: 'Member',
+          password_hash: passwordHash23,
+          is_super_admin: 0,
+          subscription_status: 'none',
+          billing_plan: 'free',
+          status: 'active',
+          created_at: '2026-01-01',
+        };
+      // Batch 53: the account created by the register check below must be
+      // findable so its parked MFA challenge can complete (finishStaffLogin
+      // re-loads the user by the challenge email, exactly like login).
+      if (e === 'new23@example.invalid' && createdUsers23 > 0)
+        return {
+          id: 2301,
+          email: 'new23@example.invalid',
+          name: 'New',
+          password_hash: passwordHash23,
+          is_super_admin: 0,
+          subscription_status: 'none',
+          billing_plan: 'free',
+          status: 'active',
+          created_at: '2026-01-01',
+        };
+      return null;
+    },
     listWorkspacesForUser: async () => [{ id: 2401, name: 'Fixture WS', role: 'owner' }],
   };
   const billing23 = {
@@ -3702,7 +3719,19 @@ async function main() {
     assert.equal(regOn23.status, 200);
     assert.equal(regOn23.body.ok, true);
     assert.equal(createdUsers23, 1);
-    assert.equal(regOn23.session.userId, 2301);
+    // Batch 53: register no longer issues a full session on password
+    // alone — it parks the SAME MFA challenge as login (the fixture's
+    // MFA state is enabled, so the stage is 'verify').
+    assert.equal(regOn23.body.data.mfaRequired, true);
+    assert.equal(regOn23.body.data.mfaStage, 'verify');
+    assert.equal(regOn23.session.userId, undefined);
+  });
+  const regVerify23 = await callAuth23('post', '/mfa/verify', { code: '123456' }, regOn23.session);
+  check('batch53 register: the parked challenge completes the registration like a login', () => {
+    assert.equal(regVerify23.status, 200);
+    assert.equal(regVerify23.body.ok, true);
+    assert.equal(regVerify23.body.data.user.email, 'new23@example.invalid');
+    assert.equal(regVerify23.session.userId, 2301);
   });
 
   check('batch23 gates: endpoint gate, boot payload, tab gate and settings toggle are wired', () => {
