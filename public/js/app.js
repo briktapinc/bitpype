@@ -6771,6 +6771,7 @@ async function pageAdmin(param) {
     ['billing', 'Stripe'],
     ['adsense', 'AdSense'],
     ['general', 'General'],
+    ['landing', 'Landing'],
     ['audit', 'Audit'],
   ];
 
@@ -6801,7 +6802,7 @@ async function pageAdmin(param) {
         else if (tab === 'upsell') await renderAdminUpsellTips(body);
         else if (tab === 'adsense') await renderAdminAdsense(body);
         else if (tab === 'gbp') await renderAdminGbp(body);
-        else if (tab === 'email' || tab === 'sms' || tab === 'keys' || tab === 'general' || tab === 'billing')
+        else if (tab === 'email' || tab === 'sms' || tab === 'keys' || tab === 'general' || tab === 'billing' || tab === 'landing')
           await renderAdminSettings(body, tab);
         else if (tab === 'audit') await renderAdminAudit(body);
         else body.innerHTML = '<p class="hint">Unknown tab</p>';
@@ -7615,6 +7616,7 @@ async function renderAdminSettings(el, group) {
       keys: 'Default API keys',
       general: 'General',
       billing: 'Stripe & subscription',
+      landing: 'Landing page',
     }[group] || group;
   const webhookHint =
     group === 'billing'
@@ -7647,6 +7649,29 @@ async function renderAdminSettings(el, group) {
               <label>${esc(d.label)} <span class="mono hint">${esc(d.key)}</span></label>
               <input name="${esc(d.key)}" type="url" value="${esc(val)}" placeholder="https://example.com" />
               <p class="hint">Links in emails and pages are built from this address. Claim, billing, portal and sign-in links all point here — change it only when the app itself moves to a new domain.</p>
+            </div>`;
+                }
+                if (d.key === 'landing.video_embeds') {
+                  // Batch 58: stored value is a canonical JSON array of
+                  // YouTube IDs; show Ely one youtu.be link per line for
+                  // editing. The server extracts IDs from whatever is
+                  // pasted (embed code, link, or ID) at save time.
+                  let display = '';
+                  try {
+                    const ids = JSON.parse(val || '[]');
+                    display = Array.isArray(ids)
+                      ? ids
+                          .filter((x) => typeof x === 'string')
+                          .map((id) => `https://youtu.be/${id}`)
+                          .join('\n')
+                      : val;
+                  } catch {
+                    display = val;
+                  }
+                  return `<div>
+              <label>${esc(d.label)} <span class="mono hint">${esc(d.key)}</span></label>
+              <textarea name="${esc(d.key)}" rows="6" placeholder="Paste a YouTube embed code or link">${esc(display)}</textarea>
+              <p class="hint">Paste a YouTube embed code or link — one video per line; several are welcome. Only YouTube is accepted: the app stores just the video IDs and builds the embeds itself, so pasted page code is never kept. Videos appear in the videos section on /landing; leave this empty and that section does not show at all.</p>
             </div>`;
                 }
                 if (d.key === 'registration.open') {

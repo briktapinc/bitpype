@@ -92,6 +92,13 @@ const PLATFORM_SETTING_DEFS = [
   { key: 'captcha.site_key', group: 'general', label: 'Cloudflare Turnstile site key', default: '' },
   { key: 'captcha.secret_key', group: 'general', label: 'Cloudflare Turnstile secret key', default: '', secret: true },
 
+  // Landing page (Batch 58): YouTube videos on /landing. The stored
+  // value is a canonical JSON array of YouTube video IDs — Ely pastes
+  // embed codes/links in Admin → Settings → Landing and
+  // server/landingVideos.js extracts the IDs at save time (both write
+  // choke points); pasted HTML is never stored or rendered.
+  { key: 'landing.video_embeds', group: 'landing', label: 'Landing page videos (YouTube)', default: '[]' },
+
   // Cost defaults for new workspaces
   { key: 'cost.daily_budget_usd', group: 'general', label: 'Default daily AI budget (USD)', default: '10' },
   { key: 'cost.max_websites_per_day', group: 'general', label: 'Default max websites / day', default: '25' },
@@ -496,6 +503,11 @@ async function setPlatformSetting(key, value) {
   // Batch 56: validate + normalize the public URL here, at the single write
   // choke point every save path funnels through.
   if (key === 'general.public_url') v = validatePublicUrlSetting(v);
+  // Batch 58: landing videos canonicalize here too — whatever was pasted
+  // (embed code, link, ID), only YouTube video IDs are ever stored.
+  if (key === 'landing.video_embeds') {
+    v = require('./landingVideos').validateLandingVideoEmbedsSetting(v);
+  }
   await query(
     `INSERT INTO platform_settings (\`key\`, value)
      VALUES (:key, :value)

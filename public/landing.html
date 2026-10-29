@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Start your own AI digital agency — BitPype</title>
+  <meta name="description" content="BitPype is the platform BitPype itself runs on: leads, AI-designed websites, domains, bookings, call tracking, billing and finance in one place. Now opening to agency owners." />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="BitPype" />
+  <meta property="og:title" content="Start your own AI digital agency — BitPype" />
+  <meta property="og:description" content="The software BitPype itself runs on — leads, AI-designed sites, domains, bookings, call tracking, billing — opening to agency owners." />
+  <meta property="og:url" content="{{PUBLIC_URL}}/landing" />
+  <meta property="og:image" content="{{PUBLIC_URL}}/brand/bitpype-mark.svg" />
+  <meta name="twitter:card" content="summary" />
+  <link rel="icon" href="/brand/bitpype-mark.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;1,9..144,500&family=Figtree:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    /* App design system (same tokens as public/how-it-works.html): warm
+       /how widget theme — cream/paper surfaces, ink text, teal accent,
+       dark ink nav, Figtree body, Fraunces display headlines. */
+    :root {
+      --bg: #f7f1e8;
+      --surface: #fffaf4;
+      --surface-2: #f3eadf;
+      --ink: #1c140f;
+      --muted: #5c5148;
+      --border: #e7dbc4;
+      --border-strong: #d3bf9d;
+      --accent: #0e7a68;
+      --accent-dark: #0a5c4f;
+      --accent-soft: #e5f6f2;
+      --teal: #0e7a68;
+      --coral: #ef5d45;
+      --gold: #f0b429;
+      --plum: #6d4ea3;
+      --sidebar: #1c140f;
+      --sidebar-text: #fffaf4;
+      --sidebar-muted: #b3a08c;
+      --shadow: 0 1px 2px rgba(80, 40, 20, 0.05), 0 8px 18px rgba(80, 40, 20, 0.06);
+      --shadow-lg: 0 24px 60px rgba(28, 20, 15, 0.25), 0 4px 16px rgba(80, 40, 20, 0.08);
+      --radius: 20px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: Figtree, 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+      background:
+        radial-gradient(880px 420px at 100% -8%, rgba(14, 122, 104, 0.12), transparent 58%),
+        radial-gradient(720px 380px at -12% 8%, rgba(109, 78, 163, 0.1), transparent 52%),
+        var(--bg);
+      overflow-x: clip;
+      line-height: 1.5;
+    }
+    a { color: inherit; }
+    img { display: block; max-width: 100%; }
+    :focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+    .skip {
+      position: absolute; left: -999px; top: 8px; background: #fff; color: #000; padding: 8px 12px; z-index: 50;
+    }
+    .skip:focus { left: 12px; }
+
+    .nav {
+      position: sticky; top: 0; z-index: 20;
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 10px 18px;
+      padding: 16px 28px;
+      background: rgba(28, 20, 15, 0.97);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid rgba(255, 250, 244, 0.08);
+    }
+    .logo {
+      display: inline-flex; align-items: center; gap: 10px;
+      text-decoration: none; color: var(--sidebar-text);
+      font-family: Fraunces, Georgia, serif; font-weight: 700; font-size: 1.4rem; letter-spacing: -0.03em;
+      min-width: 0;
+    }
+    .logo img { width: 36px; height: 36px; border-radius: 10px; flex: none; }
+    .nav-links {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;
+      gap: 8px 16px;
+    }
+    .nav-links a { color: var(--sidebar-text); opacity: 0.82; text-decoration: none; font-weight: 700; }
+    .nav-links a:hover { color: var(--sidebar-text); opacity: 1; }
+    .nav-links a[aria-current="page"] { opacity: 1; text-decoration: underline; text-underline-offset: 4px; }
+    .nav-login {
+      background: var(--accent); color: #fff !important; opacity: 1 !important;
+      padding: 8px 14px; border-radius: 999px;
+    }
+    .nav-login:hover { background: var(--accent-dark); color: #fff !important; }
+
+    .wrap { max-width: 1120px; margin: 0 auto; padding-left: 28px; padding-right: 28px; }
+
+    .hero { padding-top: 64px; padding-bottom: 12px; }
+    .kicker {
+      margin: 0 0 18px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-size: 0.78rem;
+      color: #8a3b28;
+    }
+    h1 {
+      margin: 0 0 22px;
+      font-family: Fraunces, Georgia, serif;
+      font-weight: 500;
+      font-size: clamp(2.7rem, 6.2vw, 5.35rem);
+      line-height: 0.96;
+      letter-spacing: -0.045em;
+      overflow-wrap: break-word;
+      max-width: 14ch;
+    }
+    h1 em, .videos h2 em {
+      font-style: italic;
+      font-weight: 500;
+      color: transparent;
+      background: linear-gradient(100deg, var(--coral), #d4890b 45%, var(--teal));
+      -webkit-background-clip: text;
+      background-clip: text;
+    }
+    .lede { margin: 0 0 28px; max-width: 58ch; color: var(--muted); font-size: 1.18rem; }
+    .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-height: 52px; padding: 0 18px; border-radius: 999px;
+      text-decoration: none; font-weight: 700; max-width: 100%;
+      border: 0; cursor: pointer; font: inherit;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-dark); }
+    .btn-secondary {
+      background: var(--surface); color: var(--ink);
+      border: 1.5px solid var(--border-strong);
+    }
+    .btn-secondary:hover { border-color: var(--accent); color: var(--accent-dark); }
+
+    .steps {
+      list-style: none; margin: 0 auto; padding-top: 28px; padding-bottom: 8px;
+      display: grid; gap: 20px;
+    }
+    .step {
+      margin: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) + 6px);
+      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset, var(--shadow);
+      padding: 36px 40px;
+      display: grid; grid-template-columns: 120px minmax(0, 1fr);
+      gap: 12px 36px; align-items: start;
+    }
+    .step-num {
+      font-family: Fraunces, Georgia, serif; font-weight: 700;
+      font-size: 2.6rem; line-height: 1; color: var(--accent-dark);
+    }
+    .step:nth-child(1) .step-num { color: #c83b4a; }
+    .step:nth-child(3) .step-num { color: var(--plum); }
+    .step h2 {
+      margin: 0 0 10px; font-family: Fraunces, Georgia, serif; font-weight: 500;
+      font-size: 2rem; letter-spacing: -0.03em; line-height: 1.1;
+    }
+    .step p { margin: 0 0 12px; color: var(--muted); max-width: 62ch; }
+    .step p:last-child { margin-bottom: 0; }
+    .step p strong { color: var(--ink); }
+
+    .feature-group { padding-top: 48px; }
+    .feature-group h2 {
+      margin: 0 0 10px; font-family: Fraunces, Georgia, serif; font-weight: 500;
+      font-size: 2.2rem; letter-spacing: -0.03em; line-height: 1.05;
+    }
+    .feature-group .section-lede { margin: 0 0 22px; color: var(--muted); max-width: 62ch; }
+    .cards {
+      list-style: none; margin: 0; padding: 0;
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 28px 28px 30px;
+      min-width: 0;
+    }
+    .card h3 {
+      margin: 0 0 8px; font-family: Fraunces, Georgia, serif; font-weight: 700;
+      font-size: 1.28rem; letter-spacing: -0.02em; line-height: 1.15;
+    }
+    .card p { margin: 0; color: var(--muted); }
+
+    .videos { padding-top: 56px; }
+    .videos h2 {
+      margin: 0 0 10px; font-family: Fraunces, Georgia, serif; font-weight: 500;
+      font-size: 2.2rem; letter-spacing: -0.03em; line-height: 1.05;
+    }
+    .videos .section-lede { margin: 0 0 22px; color: var(--muted); max-width: 62ch; }
+    .video-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+    .video-frame {
+      border-radius: var(--radius); overflow: hidden;
+      border: 1px solid var(--border); box-shadow: var(--shadow);
+      background: #000; aspect-ratio: 16 / 9;
+    }
+    .video-frame iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+    .faq { padding-top: 56px; padding-bottom: 8px; }
+    .faq h2 {
+      margin: 0 0 18px; font-family: Fraunces, Georgia, serif; font-weight: 500;
+      font-size: 2.2rem; letter-spacing: -0.03em; line-height: 1.05;
+    }
+    .faq details {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow);
+      padding: 22px 28px; margin: 0 0 14px;
+    }
+    .faq summary { font-weight: 700; cursor: pointer; }
+    .faq details p { margin: 10px 0 0; color: var(--muted); max-width: 68ch; }
+
+    .cta-band { padding-top: 48px; }
+    .cta-inner {
+      background:
+        radial-gradient(420px 240px at 92% 110%, rgba(240, 180, 41, 0.4), transparent 62%),
+        linear-gradient(165deg, #1c140f 0%, #12382f 72%);
+      color: var(--sidebar-text);
+      border-radius: calc(var(--radius) + 6px);
+      box-shadow: var(--shadow-lg);
+      padding: 48px 40px;
+    }
+    .cta-inner h2 {
+      margin: 0 0 12px; font-family: Fraunces, Georgia, serif; font-weight: 500;
+      font-size: clamp(2rem, 4.5vw, 3.2rem); letter-spacing: -0.035em; line-height: 1.02;
+    }
+    .cta-inner p { margin: 0 0 26px; color: rgba(255, 250, 244, 0.82); max-width: 52ch; }
+    .interest-form { display: grid; gap: 16px; max-width: 560px; }
+    .interest-form label { display: block; font-weight: 700; margin: 0 0 6px; }
+    .interest-form input {
+      width: 100%; min-height: 52px; border-radius: 14px;
+      border: 1.5px solid rgba(255, 250, 244, 0.35);
+      background: rgba(255, 250, 244, 0.96); color: var(--ink);
+      padding: 12px 16px; font: inherit;
+    }
+    .interest-form input:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+    #captcha-box { min-height: 78px; }
+    .form-msg { margin: 0; min-height: 1.5em; font-weight: 700; }
+    .form-msg.error { color: #ffb4a2; }
+    .form-success {
+      max-width: 560px; border: 1.5px solid rgba(255, 250, 244, 0.35);
+      border-radius: var(--radius); padding: 28px;
+      background: rgba(255, 250, 244, 0.08);
+    }
+    .form-success h3 { margin: 0 0 8px; font-family: Fraunces, Georgia, serif; font-size: 1.5rem; }
+    .form-success p { margin: 0; }
+    .is-hidden { display: none !important; }
+
+    footer { padding-top: 28px; padding-bottom: 40px; color: var(--muted); }
+    .footer-inner {
+      border-top: 1px solid var(--border); padding-top: 20px;
+      display: flex; flex-wrap: wrap; gap: 12px 24px;
+      justify-content: space-between; align-items: flex-start; width: 100%;
+    }
+    footer strong { font-family: Fraunces, Georgia, serif; color: var(--ink); font-size: 1.25rem; }
+    footer p { margin: 4px 0 0; }
+    footer nav { display: flex; flex-wrap: wrap; gap: 10px 16px; }
+    footer a { color: var(--muted); text-decoration: none; font-weight: 700; }
+    footer a:hover { color: var(--accent-dark); }
+
+    @media (max-width: 960px) {
+      .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 860px) {
+      .nav { padding: 14px 16px; }
+      .wrap { padding-left: 16px; padding-right: 16px; }
+      .hero { padding-top: 32px; }
+      .step { grid-template-columns: minmax(0, 1fr); padding: 28px 24px; gap: 10px; }
+      .cards { grid-template-columns: minmax(0, 1fr); }
+      .video-grid { grid-template-columns: minmax(0, 1fr); }
+      .cta-inner { padding: 36px 24px; }
+      .faq details { padding: 20px 22px; }
+      footer { padding-bottom: 36px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+      html { scroll-behavior: auto; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="nav">
+    <a class="logo" href="/"><img src="/brand/bitpype-mark.svg" alt="" width="36" height="36" /> BitPype</a>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="/landing" aria-current="page">For agency owners</a>
+      <a href="/how-it-works">How it works</a>
+      <a href="/website-promo">Get a website</a>
+      <a href="/portal" class="nav-login">Client login</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero wrap">
+      <p class="kicker">The platform, for agency owners</p>
+      <h1>Start your own <em>AI digital agency.</em></h1>
+      <p class="lede">BitPype is the software BitPype itself runs on. It finds local clients, designs their websites with AI, launches them on real domains, and runs the bookings, calls, billing and follow-up behind them — and now the platform itself is opening to people who want to run that same play under their own name.</p>
+      <div class="actions">
+        <a class="btn btn-primary" href="#interest">Register your interest</a>
+        <a class="btn btn-secondary" href="#features">See everything it does</a>
+      </div>
+    </section>
+
+    <ol class="steps wrap">
+      <li class="step">
+        <span class="step-num">01</span>
+        <div>
+          <h2>Bring the clients</h2>
+          <p><strong>Work a lead pipeline, not a spreadsheet.</strong> Research, scoring, outreach and claim pages live in one place, and every reply lands back on the same lead.</p>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">02</span>
+        <div>
+          <h2>Launch their websites</h2>
+          <p><strong>AI designs a unique site per client</strong> — real modules for bookings, shops, courses and calls, a domain bought and connected in the app, published to Cloudflare.</p>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-num">03</span>
+        <div>
+          <h2>Run it like a business</h2>
+          <p><strong>Clients get a portal; you get the numbers.</strong> Plans and Stripe billing, a finance dashboard, form inboxes and follow-up — the agency's back office is the same software.</p>
+        </div>
+      </li>
+    </ol>
+
+    <div id="features">
+      <section class="feature-group wrap">
+        <h2>Win clients.</h2>
+        <p class="section-lede">The front of the agency: finding businesses, proving value, and turning replies into customers.</p>
+        <ul class="cards">
+          <li class="card">
+            <h3>Lead pipeline, scored</h3>
+            <p>Every prospect in one pipeline — researched facts with sources, 0–100 scoring and qualification, tags, groups and CSV import.</p>
+          </li>
+          <li class="card">
+            <h3>LeadScout capture</h3>
+            <p>Form submissions, bookings and social captures become deduplicated contacts automatically. One email, one lead — never a duplicate.</p>
+          </li>
+          <li class="card">
+            <h3>Claim pages &amp; follow-up</h3>
+            <p>Send a prospect a page to claim their site. When they tap “I'm interested”, the follow-up email goes out on its own.</p>
+          </li>
+          <li class="card">
+            <h3>Outreach campaigns</h3>
+            <p>Email and SMS campaigns run from the same lead list, with a suppression list respected across sends.</p>
+          </li>
+          <li class="card">
+            <h3>Rent-to-Lead sites</h3>
+            <p>Rent a finished site to one exclusive local business and charge exactly once per qualified event — form captures and counted calls.</p>
+          </li>
+          <li class="card">
+            <h3>Promo lead forms</h3>
+            <p>A public intake form for your own ads, with captcha protection and brochure uploads that feed the design brief.</p>
+          </li>
+        </ul>
+      </section>
+
+      <section class="feature-group wrap">
+        <h2>Build &amp; launch sites.</h2>
+        <p class="section-lede">What your clients actually receive: a real website, on their domain, with working parts — not a template and a prayer.</p>
+        <ul class="cards">
+          <li class="card">
+            <h3>AI-designed, one at a time</h3>
+            <p>Design jobs build a unique site around each business's real facts, then automated QA reviews screenshots before anything is delivered.</p>
+          </li>
+          <li class="card">
+            <h3>20 native modules</h3>
+            <p>Blog, shop, courses, gallery, directory, FAQ, testimonials, team, events, bookings, chatbot, offers, menus, careers, video, instant estimate, social feed, call tracking, memberships and Google Reviews.</p>
+          </li>
+          <li class="card">
+            <h3>Bookings that book</h3>
+            <p>Services and weekly hours drive a real slot picker, so customers choose an actually-open time — not a “preferred date” text box.</p>
+          </li>
+          <li class="card">
+            <h3>Call tracking</h3>
+            <p>A tracked number on the site forwards to the client. Calls are counted, recorded and transcribed, and voicemail reaches the owner by email.</p>
+          </li>
+          <li class="card">
+            <h3>Domains, handled</h3>
+            <p>Search, buy and connect domains inside the app. DNS is pointed automatically and the site publishes to Cloudflare Pages.</p>
+          </li>
+          <li class="card">
+            <h3>SEO foundations</h3>
+            <p>Every export ships a sitemap, robots file, a real 404 page, canonical URLs, and LocalBusiness and FAQ schema built from verified facts.</p>
+          </li>
+        </ul>
+      </section>
+
+      <section class="feature-group wrap">
+        <h2>Run the business.</h2>
+        <p class="section-lede">The back office your clients never see — and the reason the agency stays manageable as it grows.</p>
+        <ul class="cards">
+          <li class="card">
+            <h3>Client portal</h3>
+            <p>Clients preview and edit their site, read form submissions, manage bookings and members, and see their plan — without calling you.</p>
+          </li>
+          <li class="card">
+            <h3>Plans &amp; Stripe billing</h3>
+            <p>Free, Standard, Pro and Premium plans on Stripe subscriptions. Edit an amount in admin and the app creates and switches the Stripe price for you.</p>
+          </li>
+          <li class="card">
+            <h3>Finance dashboard</h3>
+            <p>Domain costs, AI spend and manual expenses in one ledger with CSV export — what the agency actually spends, by period.</p>
+          </li>
+          <li class="card">
+            <h3>Forms &amp; memberships</h3>
+            <p>A form builder for every site, plus memberships with gated pages and paid tiers that settle to the site owner's own Stripe account.</p>
+          </li>
+          <li class="card">
+            <h3>Google Business Profiles</h3>
+            <p>Prepare and validate profile updates for clients from the portal, with every change set tracked per business.</p>
+          </li>
+          <li class="card">
+            <h3>Security posture</h3>
+            <p>Turnstile on public forms, per-IP rate limits that survive restarts, staff MFA, and role-gated destructive actions.</p>
+          </li>
+        </ul>
+      </section>
+
+      <section class="feature-group wrap">
+        <h2>Powered by AI.</h2>
+        <p class="section-lede">This is the part a normal website builder cannot copy: the platform is built to be driven by AI agents, not just clicked by humans.</p>
+        <ul class="cards">
+          <li class="card">
+            <h3>An MCP API with 200+ tools</h3>
+            <p>Leads, design, modules, domains, publishing and billing are exposed as tools, so an AI agent can run the same workflows your team does.</p>
+          </li>
+          <li class="card">
+            <h3>Agent-native design jobs</h3>
+            <p>Briefs wait in a queue an AI designer picks up: deliver the site, take the automated QA notes, redesign, improve — a real production loop.</p>
+          </li>
+          <li class="card">
+            <h3>AI site chatbot</h3>
+            <p>Client sites can carry a chatbot that answers visitors and routes the conversation into the client's portal.</p>
+          </li>
+          <li class="card">
+            <h3>Research &amp; scoring built in</h3>
+            <p>Lead research, scoring and outreach drafting are model-assisted steps inside the pipeline — with facts kept separate from copy.</p>
+          </li>
+          <li class="card">
+            <h3>Call transcription</h3>
+            <p>Recorded calls are transcribed automatically, so a client's phone leads are readable next to their form leads.</p>
+          </li>
+          <li class="card">
+            <h3>The same desk, every client</h3>
+            <p>Because agents and staff share one toolset, the work is consistent across every site your agency runs.</p>
+          </li>
+        </ul>
+      </section>
+    </div>
+
+{{LANDING_VIDEOS}}
+
+    <section class="faq wrap">
+      <h2>Questions.</h2>
+      <details>
+        <summary>Is this the same software BitPype uses for its own clients?</summary>
+        <p>Yes — this page is about the platform itself. The client websites BitPype builds and manages run on this software, through the same pipeline described above.</p>
+      </details>
+      <details>
+        <summary>Do I need to be a developer?</summary>
+        <p>The day-to-day work happens in admin screens, the client portal, and AI agents working through the MCP tools. The design pipeline is agent-run: you bring the clients and the judgment, the software does the building.</p>
+      </details>
+      <details>
+        <summary>What happens when I register interest?</summary>
+        <p>Your name, email and phone land in our own lead pipeline — the very system this page describes — and the team gets in touch. Access and pricing are being set with the first group of operators, which is why the form comes first.</p>
+      </details>
+      <details>
+        <summary>Can my clients log in and manage their own sites?</summary>
+        <p>Yes. Every client site comes with the portal: preview and edits, form submissions, bookings, members and plan details, on a computer or a phone.</p>
+      </details>
+    </section>
+
+    <section class="cta-band wrap" id="interest">
+      <div class="cta-inner">
+        <h2>Run your agency on it.</h2>
+        <p>Leave your details and we'll be in touch about running your own AI digital agency on the BitPype platform. Your details go into our own lead pipeline — the same system this page is selling.</p>
+        <form class="interest-form" id="landing-form" novalidate>
+          <div>
+            <label for="lf-name">Full name</label>
+            <input id="lf-name" name="fullName" type="text" autocomplete="name" required maxlength="120" />
+          </div>
+          <div>
+            <label for="lf-email">Email</label>
+            <input id="lf-email" name="email" type="email" autocomplete="email" required maxlength="200" />
+          </div>
+          <div>
+            <label for="lf-phone">Phone number</label>
+            <input id="lf-phone" name="phone" type="tel" autocomplete="tel" required maxlength="40" />
+          </div>
+          <div id="captcha-box" aria-label="Captcha"></div>
+          <p class="form-msg" id="landing-msg" role="status"></p>
+          <div>
+            <button type="submit" class="btn btn-primary" id="landing-submit">Register my interest</button>
+          </div>
+        </form>
+        <div class="form-success is-hidden" id="landing-success">
+          <h3>You're on the list.</h3>
+          <p>Thanks — we received your details and will be in touch shortly.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="wrap">
+    <div class="footer-inner">
+      <div>
+        <strong>BitPype</strong>
+        <p>The website, handled with you.</p>
+      </div>
+      <nav aria-label="Footer">
+        <a href="/landing">For agency owners</a>
+        <a href="/how-it-works">How it works</a>
+        <a href="/portal">Client portal</a>
+        <a href="/app">Team login</a>
+        <a href="/legal/privacy.html">Privacy</a>
+        <a href="/legal/terms.html">Terms</a>
+        <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a>
+      </nav>
+    </div>
+  </footer>
+
+  <script src="/js/captcha.js"></script>
+  <script>
+    (function () {
+      const form = document.getElementById('landing-form');
+      const msg = document.getElementById('landing-msg');
+      const success = document.getElementById('landing-success');
+      const btn = document.getElementById('landing-submit');
+      let captcha = { enabled: false, getToken: async () => '', reset: () => {} };
+      (async () => {
+        try {
+          captcha = await window.ScoutCaptcha.mount(document.getElementById('captcha-box'));
+        } catch (e) {
+          console.warn('captcha mount failed', e);
+        }
+      })();
+      function setMsg(text, isError) {
+        msg.textContent = text || '';
+        msg.className = 'form-msg' + (isError ? ' error' : '');
+      }
+      form.addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        const fullName = document.getElementById('lf-name').value.trim();
+        const email = document.getElementById('lf-email').value.trim();
+        const phone = document.getElementById('lf-phone').value.trim();
+        if (!fullName) return setMsg('Please enter your full name.', true);
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setMsg('Please enter a valid email address.', true);
+        if (!phone) return setMsg('Please enter your phone number.', true);
+        btn.disabled = true;
+        setMsg('Sending…', false);
+        try {
+          const captchaToken = await captcha.getToken();
+          const res = await fetch('/api/v1/landing/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fullName, email, phone, captchaToken }),
+          });
+          const data = await res.json().catch(() => null);
+          if (!res.ok || !data || !data.ok) {
+            throw new Error((data && data.error) || 'Something went wrong — please try again.');
+          }
+          form.classList.add('is-hidden');
+          success.classList.remove('is-hidden');
+          success.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } catch (e) {
+          setMsg(e && e.message ? e.message : 'Something went wrong — please try again.', true);
+          if (captcha.reset) captcha.reset();
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
