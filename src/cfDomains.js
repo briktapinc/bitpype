@@ -63,6 +63,28 @@ function ensureTables(db) {
   } catch {
     /* */
   }
+  // Batch 60 (renewals policy): per-domain renewal bookkeeping on
+  // site_domains. renewal_mode is DERIVED from the workspace owner's
+  // subscription state by server/domainRenewals.js ('auto' while an
+  // owner/admin is subscribed, else 'manual'); renewal_auto_renew is
+  // the last auto_renew state observed/applied at Cloudflare Registrar.
+  try {
+    const cols = db.prepare('PRAGMA table_info(site_domains)').all();
+    const have = new Set(cols.map((c) => c && c.name));
+    const add = (name, type) => {
+      if (!have.has(name)) db.exec(`ALTER TABLE site_domains ADD COLUMN ${name} ${type}`);
+    };
+    add('expires_at', 'TEXT');
+    add('renewal_mode', 'TEXT');
+    add('renewal_auto_renew', 'INTEGER');
+    add('renewal_checked_at', 'TEXT');
+    add('renewal_error', 'TEXT');
+    add('manual_renew_requested_at', 'TEXT');
+    add('manual_renew_requested_by', 'INTEGER');
+    add('manual_renew_from_expiry', 'TEXT');
+  } catch {
+    /* */
+  }
 }
 
 function apiRequest({ method, apiPath, token, body, timeoutMs }) {
@@ -377,6 +399,120 @@ async function listOwnedDomains(db) {
         autoRenew: row.auto_renew != null ? !!row.auto_renew : null,
       }))
       .filter((d) => d.domain),
+  };
+}
+
+/**
+ * Batch 60 — read the account's registrations from the CURRENT Registrar
+ * API (GET /accounts/{id}/registrar/registrations, cursor-paginated;
+ * each registration resource carries auto_renew + expires_at). The
+ * legacy GET /registrar/domains list (used by listOwnedDomains above)
+ * is deprecated by Cloudflare, so on any failure of the new list we
+ * fall back to it and say which source answered.
+ */
+async function listRegistrations(db) {
+  const { token, accountId } = await creds(db);
+  try {
+    const domains = [];
+    let cursor = null;
+    for (let page = 0; page < 10; page++) {
+      const params = new URLSearchParams({ per_page: '100' });
+      if (cursor) params.set('cursor', cursor);
+      const resp = await apiRequest({
+        method: 'GET',
+        apiPath: `${API_BASE}/accounts/${accountId}/registrar/registrations?${params}`,
+        token,
+      });
+      if (resp.statusCode !== 200) throw fail('CF_ERROR', cfError(resp, 'Could not list registrar registrations'));
+      const result = resp.json && resp.json.result;
+      const list = Array.isArray(result)
+        ? result
+        : (result && (result.registrations || result.domains)) || [];
+      for (const row of list) {
+        const name = normalizeDomain(row.domain_name || row.name);
+        if (!name) continue;
+        domains.push({
+          domain: name,
+          status: row.status || null,
+          expiresAt: row.expires_at || null,
+          autoRenew: row.auto_renew != null ? !!row.auto_renew : null,
+        });
+      }
+      const next =
+        (resp.json && resp.json.result_info && resp.json.result_info.cursor) ||
+        (result && !Array.isArray(result) && result.cursor) ||
+        null;
+      if (!next || next === cursor) break;
+      cursor = next;
+    }
+    return { domains, source: 'registrations' };
+  } catch (e) {
+    const legacy = await listOwnedDomains(db);
+    return { domains: legacy.domains, source: 'legacy' };
+  }
+}
+
+/**
+ * Batch 60 — toggle a registration's auto_renew at Cloudflare.
+ * PATCH /accounts/{id}/registrar/registrations/{domain} is documented
+ * to support updating auto_renew ONLY (developers.cloudflare.com →
+ * Registrar API → Update Registration). The endpoint answers a
+ * workflow object: 200 with a terminal state, or 202 while it runs —
+ * poll links.self a few times; a still-running workflow is reported
+ * as pending (the renewal sweep confirms the end state later) rather
+ * than treated as a failure. A terminal 'failed' state IS a failure.
+ * NOTE: Cloudflare offers NO renew/extend endpoint — manual renewal
+ * is a dashboard action (see server/domainRenewals.requestManualRenewal).
+ */
+async function setRegistrationAutoRenew(db, domainName, autoRenew) {
+  const domain = normalizeDomain(domainName);
+  if (!domain) throw fail('INVALID', 'Invalid domain name.');
+  const { token, accountId } = await creds(db);
+  const resp = await apiRequest({
+    method: 'PATCH',
+    apiPath: `${API_BASE}/accounts/${accountId}/registrar/registrations/${encodeURIComponent(domain)}`,
+    token,
+    body: { auto_renew: !!autoRenew },
+    timeoutMs: 60000,
+  });
+  if (resp.statusCode !== 200 && resp.statusCode !== 202) {
+    throw fail('CF_ERROR', cfError(resp, `Could not update auto-renew for ${domain}`));
+  }
+  let result = (resp.json && resp.json.result) || {};
+  let state = result.state || (result.completed ? 'succeeded' : null);
+  if (state === 'failed') {
+    throw fail('CF_ERROR', (result.error && result.error.message) || `Auto-renew update failed for ${domain}`);
+  }
+  let polls = 0;
+  while (state && state !== 'succeeded' && result.links && result.links.self && polls < 5) {
+    polls++;
+    await new Promise((r) => setTimeout(r, 1200));
+    try {
+      const poll = await apiRequest({
+        method: 'GET',
+        apiPath: `${API_BASE}${result.links.self}`,
+        token,
+        timeoutMs: 30000,
+      });
+      if (poll.statusCode === 200 && poll.json && poll.json.result) {
+        result = poll.json.result;
+        state = result.state || state;
+        if (state === 'failed') {
+          throw fail('CF_ERROR', (result.error && result.error.message) || `Auto-renew update failed for ${domain}`);
+        }
+      } else break;
+    } catch (e) {
+      if (e && e.code === 'CF_ERROR') throw e;
+      break;
+    }
+  }
+  const reg = (result.context && result.context.registration) || null;
+  return {
+    domain,
+    autoRenew: reg && reg.auto_renew != null ? !!reg.auto_renew : !!autoRenew,
+    expiresAt: (reg && reg.expires_at) || null,
+    state: state || 'succeeded',
+    pending: state !== 'succeeded',
   };
 }
 
@@ -1073,6 +1209,12 @@ function publicRow(row) {
     publicUrl: row.public_url,
     registrationState: row.registration_state,
     error: row.error,
+    expiresAt: row.expires_at || null,
+    renewalMode: row.renewal_mode || null,
+    renewalAutoRenew: row.renewal_auto_renew != null ? !!row.renewal_auto_renew : null,
+    renewalCheckedAt: row.renewal_checked_at || null,
+    renewalError: row.renewal_error || null,
+    manualRenewRequestedAt: row.manual_renew_requested_at || null,
     meta,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -1102,6 +1244,8 @@ module.exports = {
   searchDomains,
   checkDomains,
   listOwnedDomains,
+  listRegistrations,
+  setRegistrationAutoRenew,
   registerDomain,
   registrationStatus,
   pagesAddDomain,

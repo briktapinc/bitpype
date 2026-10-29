@@ -509,6 +509,10 @@ window.ScoutApi = (() => {
       post('/admin/leads/' + leadId + '/hostinger-deployment', { workspaceId: wsId, ...(body || {}) }),
     leadHostingerRetry: (leadId, wsId, body) =>
       post('/admin/leads/' + leadId + '/hostinger-deployment/retry', { workspaceId: wsId, ...(body || {}) }),
+    // Domain renewals (Batch 60): manual-mode admin action + reconcile sweep
+    adminDomainRenewManual: (domain, wsId) =>
+      post('/admin/domains/renew-manual', { domain, workspaceId: wsId }),
+    adminDomainReconcile: (wsId) => post('/admin/domains/reconcile', { workspaceId: wsId }),
     adminPushDefaults: (body) => post('/admin/settings/push', body || {}),
     adminPayments: (q) => get('/admin/payments', q),
     // Google Business Profile manager (Batch 46)

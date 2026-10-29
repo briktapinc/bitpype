@@ -818,6 +818,13 @@ async function main() {
   } catch (e) {
     console.warn('[hostingerDeploy] ticker not started:', e.message);
   }
+  // Batch 60: hourly domain-renewal reconcile (idempotent, PATCHes
+  // the registrar only on drift; first pass a few minutes after boot).
+  try {
+    require('./server/domainRenewals').startRenewalTicker();
+  } catch (e) {
+    console.warn('[domainRenewals] ticker not started:', e.message);
+  }
   try {
     require('./server/imapPoller').startImapPoller({
       intervalMs: Number(process.env.IMAP_POLL_MS || 120000),

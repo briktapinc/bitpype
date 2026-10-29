@@ -569,4 +569,62 @@ router.delete('/upsell-tips/:id', async (req, res) => {
   }
 });
 
+// ---------- Domain renewals (Batch 60) ----------
+// Renewal mode is derived from the site owner's subscription state by
+// server/domainRenewals.js ('auto' while subscribed, 'manual'
+// otherwise). Manual renewal is a registrar-dashboard action (the
+// Cloudflare API cannot renew), so this endpoint records the intent
+// and returns the dashboard link + instructions. The reconcile route
+// runs the idempotent sweep on demand (the same pass the hourly
+// ticker and the deploy run).
+router.post('/domains/renew-manual', async (req, res) => {
+  try {
+    const ws = deploymentWorkspace(req);
+    const domain = String((req.body && req.body.domain) || '').trim();
+    if (!domain) {
+      const err = new Error('A domain is required');
+      err.code = 'VALIDATION';
+      throw err;
+    }
+    const { openWorkspaceDb } = require('../workspaceDb');
+    const db = openWorkspaceDb(ws);
+    if (!db) {
+      const err = new Error('Workspace database not available');
+      err.code = 'NOT_FOUND';
+      throw err;
+    }
+    const result = await require('../domainRenewals').requestManualRenewal(
+      db,
+      ws,
+      domain,
+      req.session.userId
+    );
+    await platform.audit(
+      req.session.userId,
+      'domain.manual_renew_requested',
+      `workspaceId=${ws} domain=${result.domain}`
+    );
+    ok(res, result);
+  } catch (e) {
+    fail(res, e, e.status || 400);
+  }
+});
+router.post('/domains/reconcile', async (req, res) => {
+  try {
+    const renewals = require('../domainRenewals');
+    const wsRaw = (req.body && req.body.workspaceId) || (req.query && req.query.workspaceId);
+    const result = wsRaw
+      ? await renewals.reconcileWorkspaces([Number(wsRaw)])
+      : await renewals.reconcileAll();
+    await platform.audit(
+      req.session.userId,
+      'domain.renewals_reconciled',
+      `workspaces=${(result.workspaces || []).length} domains=${(result.domains || []).length}`
+    );
+    ok(res, result);
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+
 module.exports = router;

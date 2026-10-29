@@ -3789,6 +3789,14 @@ async function pageDomains(param, query) {
     const cls = s === 'live' ? 'ok' : s === 'failed' || s === 'abandoned' ? 'danger' : s === 'paid' || s === 'registering' ? 'warn' : '';
     return `<span class="badge ${cls}">${esc(pretty(s))}</span>`;
   };
+  // Batch 60 renewal badge: mode is derived from the owner's
+  // subscription state (auto while subscribed, manual otherwise).
+  const renewalBadge = (mode) =>
+    mode === 'auto'
+      ? `<span class="badge ok">Auto-renew</span>`
+      : mode === 'manual'
+        ? `<span class="badge warn">Manual renewal only — owner not subscribed</span>`
+        : '';
   const purchasesHtml = `
     <div class="card">
       <div class="panel-h"><h3>Domain purchases</h3><span class="hint">${purchases.length} transaction(s) — clients who picked a domain and paid for a plan</span></div>
@@ -3803,7 +3811,7 @@ async function pageDomains(param, query) {
             <td>${esc(t.planName || t.planId)}</td>
             <td>${t.amountPaidCents != null ? esc(moneyCents(t.amountPaidCents, 'USD')) : '—'}</td>
             <td>${t.registrarPriceCents != null ? esc(moneyCents(t.registrarPriceCents, t.registrarCurrency || 'USD')) + '/yr' : '—'}</td>
-            <td>${txnBadge(t)}</td>
+            <td>${txnBadge(t)}${t.renewalMode ? `<div style="margin-top:4px">${renewalBadge(t.renewalMode)}</div>` : ''}</td>
             <td>${t.createdAt ? esc(fmtDate(t.createdAt)) : '—'}</td>
             <td class="actions"><button class="btn small" data-act="txn-view" data-id="${esc(t.id)}">View</button>${t.status === 'pending_payment' || t.status === 'failed' ? ` <button class="btn small danger" data-act="txn-void" data-id="${esc(t.id)}">Void</button>` : ''}${t.status === 'voided' || t.status === 'failed' ? ` <button class="btn small danger" data-act="txn-remove" data-id="${esc(t.id)}" data-domain="${esc(t.domain)}">Remove</button>` : ''}</td>
           </tr>`
@@ -3846,6 +3854,7 @@ async function pageDomains(param, query) {
           <p>Domain: <span class="mono">${esc(t.domain)}</span><br>
           Plan: ${esc(t.planName || t.planId)} · Amount paid: ${t.amountPaidCents != null ? esc(moneyCents(t.amountPaidCents, 'USD')) : '—'}<br>
           Registrar cost: ${t.registrarPriceCents != null ? esc(moneyCents(t.registrarPriceCents, t.registrarCurrency || 'USD')) + '/yr' : '—'} (Cloudflare account)<br>
+          ${t.renewalMode ? `Renewal: ${renewalBadge(t.renewalMode)}${t.domainExpiresAt ? ` · expires ${esc(fmtDate(t.domainExpiresAt))}` : ''}${t.manualRenewRequestedAt ? `<br><span class="hint">Manual renewal requested ${esc(fmtDate(t.manualRenewRequestedAt))} — renew it in the Cloudflare dashboard.</span>` : ''}${t.renewalMode === 'manual' ? `<br><button class="btn small" data-act="dom-renew-manual" data-domain="${esc(t.domain)}" style="margin-top:6px">Renew manually…</button>` : ''}<br>` : ''}
           <span class="hint">Stripe session ${esc(t.stripeSessionId || '—')} · subscription ${esc(t.stripeSubscriptionId || '—')} · customer ${esc(t.stripeCustomerId || '—')}</span></p></div>
       </div>
       <h4>Completion checklist</h4>
@@ -3913,7 +3922,7 @@ async function pageDomains(param, query) {
     <div class="card">
       <h3>Linked &amp; registered</h3>
       <div class="table-wrap"><table>
-        <thead><tr><th>Domain</th><th>Status</th><th>Website</th><th>Price</th><th></th></tr></thead>
+        <thead><tr><th>Domain</th><th>Status</th><th>Website</th><th>Price</th><th>Expires</th><th>Renewal</th><th></th></tr></thead>
         <tbody id="dom-linked-body">${
           linked
             .map(
@@ -3924,14 +3933,17 @@ async function pageDomains(param, query) {
             <td>${esc(d.status)}${d.registrationState ? `<div class="hint">${esc(d.registrationState)}</div>` : ''}</td>
             <td>${d.websiteId ? `<a href="#/websites/${esc(d.websiteId)}">#${esc(d.websiteId)}</a>` : '—'}</td>
             <td class="mono">${d.price != null ? esc(String(d.price)) + (d.currency ? ' ' + esc(d.currency) : '') : '—'}</td>
+            <td>${d.expiresAt ? esc(fmtDate(d.expiresAt)) : '—'}${d.renewalError ? `<div class="hint" style="color:#b00">${esc(d.renewalError)}</div>` : ''}</td>
+            <td>${renewalBadge(d.renewalMode)}${d.manualRenewRequestedAt ? `<div class="hint">renewal requested ${esc(fmtDate(d.manualRenewRequestedAt))}</div>` : ''}</td>
             <td class="actions">
               ${d.status === 'registering' ? `<button class="btn small" data-act="dom-poll" data-domain="${esc(d.domain)}">Refresh status</button>` : ''}
               ${d.status === 'registered' && d.websiteId ? `<button class="btn small" data-act="dom-link-row" data-domain="${esc(d.domain)}" data-site="${esc(d.websiteId)}">Link to site</button>` : ''}
+              ${d.renewalMode === 'manual' ? `<button class="btn small" data-act="dom-renew-manual" data-domain="${esc(d.domain)}">Renew manually…</button>` : ''}
               ${d.status === 'linked' ? `<button class="btn small danger" data-act="dom-unlink" data-domain="${esc(d.domain)}">Unlink</button>` : ''}
             </td>
           </tr>`
             )
-            .join('') || '<tr><td colspan="5" class="empty">No domains yet — search above to get started.</td></tr>'
+            .join('') || '<tr><td colspan="7" class="empty">No domains yet — search above to get started.</td></tr>'
         }
         </tbody>
       </table></div>
@@ -4119,6 +4131,27 @@ async function pageDomains(param, query) {
         await api.domainsUnlink({ domain: t.dataset.domain });
         toast('Unlinked', 'ok');
         pageDomains();
+      } catch (err) {
+        toast(errText(err), 'err');
+      }
+    },
+    // Batch 60 — manual renewal: the registrar API cannot renew, so
+    // the server records the intent and hands back the Cloudflare
+    // dashboard link + steps; the new expiry is picked up by the sweep.
+    'dom-renew-manual': async (t) => {
+      const domain = t.dataset.domain;
+      if (
+        !window.confirm(
+          `Record a manual renewal for ${domain}?\n\nCloudflare does not allow renewals through its API — you renew in the Cloudflare dashboard (Manage domains → ${domain} → Registration → Renew/Extend Domain). This records the request and tracks the expiry before/after.`
+        )
+      )
+        return;
+      try {
+        const r = await api.adminDomainRenewManual(domain, api.getWorkspaceId());
+        const d = (r && r.data) || {};
+        toast(`Manual renewal recorded for ${domain}${d.expiresAt ? ` — current expiry ${fmtDate(d.expiresAt)}` : ''}. Renew it in the Cloudflare dashboard.`, 'ok');
+        if (d.dashboardUrl) window.open(d.dashboardUrl, '_blank', 'noopener');
+        pageDomains(null, domainsQuery);
       } catch (err) {
         toast(errText(err), 'err');
       }
