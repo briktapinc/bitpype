@@ -3565,6 +3565,36 @@ async function detachSiteModule(workspaceId, leadId, moduleType, clientEmail) {
   };
 }
 
+/**
+ * Batch 66 — owner-only per-record module delete from the portal.
+ * Unlike detach (unpublish, content kept), this purges the embed AND
+ * its lead-scoped content/config via the engine. The owner check
+ * lives in the route (portal user types are a route-layer concept);
+ * this facade mirrors detachSiteModule's shape, including the live
+ * preview republish so the site stops showing the module at once.
+ */
+async function deleteSiteModule(workspaceId, leadId, moduleType, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  const packed = domain.withDb(workspaceId, (db) => {
+    const result = modules.deleteModule(db, Number(leadId), moduleType);
+    const site = db.prepare('SELECT id FROM websites WHERE lead_id = ? AND archived_at IS NULL ORDER BY id DESC LIMIT 1').get(Number(leadId));
+    return { ...result, siteId: site && site.id };
+  });
+  let preview = null;
+  if (packed.siteId) {
+    preview = await publishLiveAfterEmbed(workspaceId, packed.siteId);
+  }
+  const { siteId, ...rest } = packed;
+  return {
+    ...rest,
+    previewUrl: preview && preview.url,
+    via: preview && preview.via,
+    publicPreviewUpdated: !!(preview && (preview.via === 'cloudflare' || preview.via === 'app_url')),
+  };
+}
+
 async function requireClientMcpPlan(workspaceId, clientEmail) {
   const billing = require('./billing');
   const { isPaidPlan } = require('./plans');
@@ -4053,6 +4083,7 @@ module.exports = {
   deleteMenuCategory,
   attachSiteModule,
   detachSiteModule,
+  deleteSiteModule,
   getChatbotAdmin,
   saveChatbotSettings,
   uploadChatbotKnowledge,

@@ -875,6 +875,15 @@ function ensureTables(db) {
     if (!bookingCols.includes('archived_at')) {
       db.exec('ALTER TABLE bookings ADD COLUMN archived_at TEXT');
     }
+    // Batch 66: appointments hold only a service_id FK — when a service
+    // is deleted, its name/duration are snapshotted onto its bookings
+    // first so past appointments never lose their readable service.
+    if (bookingCols.length && !bookingCols.includes('service_name_snapshot')) {
+      db.exec("ALTER TABLE bookings ADD COLUMN service_name_snapshot TEXT NOT NULL DEFAULT ''");
+    }
+    if (bookingCols.length && !bookingCols.includes('service_duration_snapshot')) {
+      db.exec('ALTER TABLE bookings ADD COLUMN service_duration_snapshot INTEGER');
+    }
   } catch {
     /* race / exists */
   }
@@ -1447,6 +1456,197 @@ function detachModule(db, leadId, moduleType) {
   ).run(row.id);
   const sync = syncSiteModuleEmbeds(db, leadId);
   return { embed: publicEmbed(getEmbedRow(db, leadId, type)), sync };
+}
+
+/* ── Batch 66: per-record module delete (Ely, 2026-10-29) ──────────
+ * Detach (above) only unpublishes — the embed row and ALL content
+ * survive. Delete is the purge: the embed row goes AND the module's
+ * lead-scoped content/config goes with it. The data model scopes
+ * everything by (lead_id, module_type) — site_module_embeds is
+ * UNIQUE(lead_id, module_type), so the one embed IS the module
+ * instance for the business; there is no second embed of the same
+ * type whose content could be shared. Content of OTHER module types
+ * and other leads is never touched (every step is lead-scoped).
+ *
+ * Records a module merely COLLECTED stay behind, by the codebase's
+ * own precedents: ecommerce_orders (Batch 51 gave shop orders no
+ * delete path; they carry product_name snapshots), call_logs +
+ * calls_billing (Batch 45/51 delete those per-record under their own
+ * guards). Pool numbers are NOT released by hand: findNumberClaim
+ * derives claims from calltracking_configs, so purging the config
+ * (and its rotation rows) frees the number automatically.
+ * Bookings is guarded like the single-service delete: upcoming
+ * appointments block the purge; past ones are already name-safe only
+ * while their service exists, so deleting the module deletes past
+ * appointments with it (they have no other surface without it).
+ */
+
+function moduleTableExists(db, table) {
+  try {
+    return !!db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(table);
+  } catch {
+    return false;
+  }
+}
+
+/** Ordered purge steps for a module type: [{ table, label, countSql, deleteSql, params }]. */
+function modulePurgeSteps(leadId, type) {
+  const lid = Number(leadId);
+  const byLead = (table, label) => ({
+    table,
+    label,
+    params: [lid],
+    countSql: `SELECT COUNT(*) AS c FROM ${table} WHERE lead_id = ?`,
+    deleteSql: `DELETE FROM ${table} WHERE lead_id = ?`,
+  });
+  const viaParent = (table, label, parentTable, parentKey) => ({
+    table,
+    label,
+    params: [lid],
+    countSql: `SELECT COUNT(*) AS c FROM ${table} WHERE ${parentKey} IN (SELECT id FROM ${parentTable} WHERE lead_id = ?)`,
+    deleteSql: `DELETE FROM ${table} WHERE ${parentKey} IN (SELECT id FROM ${parentTable} WHERE lead_id = ?)`,
+  });
+  switch (type) {
+    case 'blog':
+      return [byLead('blog_posts', 'blog posts')];
+    case 'ecommerce':
+      // Orders stay (see header note); products + the shop's own
+      // payment-key config are the module's content/config.
+      return [byLead('ecommerce_products', 'products'), byLead('shop_stripe_keys', 'shop payment settings')];
+    case 'courses':
+      return [viaParent('course_lessons', 'course lessons', 'courses', 'course_id'), byLead('courses', 'courses')];
+    case 'gallery':
+      return [viaParent('gallery_images', 'gallery images', 'gallery_albums', 'album_id'), byLead('gallery_albums', 'gallery albums')];
+    case 'directory':
+      return [byLead('directory_listings', 'directory listings')];
+    case 'faq':
+      return [byLead('faq_items', 'FAQ items')];
+    case 'testimonials':
+      return [byLead('testimonials', 'testimonials')];
+    case 'team':
+      return [byLead('team_members', 'team members')];
+    case 'events':
+      return [byLead('events', 'events')];
+    case 'bookings':
+      return [
+        byLead('bookings', 'appointments'),
+        byLead('booking_services', 'booking services'),
+        byLead('booking_hours', 'booking hours'),
+        byLead('booking_blocks', 'booking blocked dates'),
+        byLead('booking_settings', 'booking settings'),
+      ];
+    case 'chatbot':
+      return [
+        byLead('chatbot_messages', 'chat messages'),
+        byLead('chatbot_sessions', 'chat conversations'),
+        byLead('chatbot_escalations', 'chat escalations'),
+        byLead('chatbot_leads', 'chat lead captures'),
+        byLead('chatbot_knowledge', 'chatbot knowledge items'),
+        byLead('chatbot_settings', 'chatbot settings'),
+      ];
+    case 'offers':
+      return [byLead('offers', 'offers')];
+    case 'menu':
+      return [byLead('menu_items', 'menu items'), byLead('menu_categories', 'menu categories')];
+    case 'careers':
+      return [byLead('careers_postings', 'careers postings')];
+    case 'video':
+      return [byLead('video_items', 'videos')];
+    case 'estimate':
+      return [
+        byLead('estimate_requests', 'estimate requests'),
+        byLead('estimate_options', 'estimate options'),
+        byLead('estimate_configs', 'estimate settings'),
+      ];
+    case 'socialfeed':
+      return [byLead('socialfeed_cache', 'social feed cache'), byLead('socialfeed_configs', 'social feed settings')];
+    case 'calltracking':
+      // call_logs + calls_billing stay (see header note); the pooled
+      // Twilio number's claim is derived from the config, so purging
+      // config + rotation rows releases it.
+      return [
+        byLead('calltracking_rotation_numbers', 'rotation numbers'),
+        byLead('calltracking_configs', 'call tracking setup'),
+      ];
+    case 'members':
+      // deleteSiteMember precedent: local subscription records go
+      // with the account; the Stripe subscription itself lives on the
+      // owner's Stripe and is theirs to cancel there.
+      return [
+        byLead('site_member_sessions', 'member sessions'),
+        byLead('site_member_reset_tokens', 'member reset tokens'),
+        byLead('site_member_preview_grants', 'member preview grants'),
+        byLead('member_subscriptions', 'member subscriptions'),
+        byLead('membership_tiers', 'membership tiers'),
+        byLead('site_members', 'member accounts'),
+        byLead('members_configs', 'membership settings'),
+        byLead('membership_stripe_keys', 'membership payment settings'),
+      ];
+    case 'googlereviews':
+      return [byLead('googlereviews_cache', 'Google Reviews cache'), byLead('googlereviews_configs', 'Google Reviews settings')];
+    default:
+      return [];
+  }
+}
+
+/** What deleteModule WOULD purge for (lead, type) — feeds confirm copy + audits. */
+function moduleContentCounts(db, leadId, moduleType) {
+  ensureTables(db);
+  const type = assertModuleType(moduleType);
+  const parts = [];
+  let total = 0;
+  for (const step of modulePurgeSteps(leadId, type)) {
+    if (!moduleTableExists(db, step.table)) continue;
+    const row = db.prepare(step.countSql).get(...step.params);
+    const count = Number(row && row.c) || 0;
+    if (count > 0) parts.push({ table: step.table, label: step.label, count });
+    total += count;
+  }
+  return { module_type: type, total, parts };
+}
+
+function deleteModule(db, leadId, moduleType) {
+  ensureTables(db);
+  const type = assertModuleType(moduleType);
+  const lid = Number(leadId);
+  const embed = getEmbedRow(db, lid, type);
+  if (!embed) throw fail('NOT_FOUND', 'Module is not installed for this business', 404);
+  if (type === 'bookings') {
+    const upcoming = listUpcomingAppointments(db, lid);
+    if (upcoming.length) {
+      throw fail(
+        'MODULE_HAS_UPCOMING',
+        `The Bookings module has ${upcoming.length} upcoming appointment${upcoming.length === 1 ? '' : 's'}. Cancel them before deleting the module.`,
+        409
+      );
+    }
+  }
+  // LeadScout events reference bookings / estimate requests by id —
+  // unlink them exactly like the per-record deletes do (Batch 45), so
+  // purging the module leaves no dangling refs.
+  if (type === 'bookings') {
+    const ids = db.prepare('SELECT id FROM bookings WHERE lead_id = ?').all(lid);
+    for (const r of ids) deleteLeadScoutEventsByRef(db, 'booking_id', r.id);
+  }
+  if (type === 'estimate') {
+    const ids = db.prepare('SELECT id FROM estimate_requests WHERE lead_id = ?').all(lid);
+    for (const r of ids) deleteLeadScoutEventsByRef(db, 'estimate_request_id', r.id);
+  }
+  const purged = {};
+  let purgedTotal = 0;
+  for (const step of modulePurgeSteps(lid, type)) {
+    if (!moduleTableExists(db, step.table)) continue;
+    const info = db.prepare(step.deleteSql).run(...step.params);
+    if (info.changes) {
+      purged[step.table] = info.changes;
+      purgedTotal += info.changes;
+    }
+  }
+  db.prepare('DELETE FROM site_module_embeds WHERE id = ?').run(embed.id);
+  const sync = syncSiteModuleEmbeds(db, lid);
+  return { deleted: true, module_type: type, lead_id: lid, purged, purged_total: purgedTotal, sync };
 }
 
 function moduleScriptTag(appUrl) {
@@ -9136,12 +9336,58 @@ function updateBookingService(db, leadId, id, data = {}) {
   return getBookingService(db, leadId, raw.id);
 }
 
+/**
+ * Batch 66 — appointments that still block a service (or the whole
+ * Bookings module) from being deleted: live bookings in the future.
+ * Cancelled/completed rows and archived rows never block; their
+ * service name is snapshotted instead (see deleteBookingService).
+ */
+function listUpcomingAppointments(db, leadId, serviceId = null) {
+  ensureTables(db);
+  const sql = serviceId
+    ? 'SELECT * FROM bookings WHERE lead_id = ? AND service_id = ? AND archived_at IS NULL'
+    : 'SELECT * FROM bookings WHERE lead_id = ? AND archived_at IS NULL';
+  const rows = db.prepare(sql).all(...(serviceId ? [Number(leadId), Number(serviceId)] : [Number(leadId)]));
+  const now = Date.now();
+  return rows.filter((b) => {
+    const st = String(b.status || '').toLowerCase();
+    if (st !== 'pending' && st !== 'confirmed') return false;
+    const t = new Date(String(b.starts_at || '')).getTime();
+    return Number.isFinite(t) && t >= now;
+  });
+}
+
 function deleteBookingService(db, leadId, id) {
   ensureTables(db);
   const row = db.prepare('SELECT * FROM booking_services WHERE lead_id = ? AND id = ?').get(Number(leadId), Number(id));
   if (!row) throw fail('NOT_FOUND', 'Service not found', 404);
+  // Batch 66 (Ely: per-record service delete): a service with upcoming
+  // appointments cannot be deleted out from under its customers —
+  // cancel or reassign them first. Past appointments keep a readable
+  // service via the snapshot columns (the bookings table holds only a
+  // service_id FK, so the name/duration are copied onto the rows
+  // before the service goes; appointment lists COALESCE to them).
+  const upcoming = listUpcomingAppointments(db, leadId, row.id);
+  if (upcoming.length) {
+    throw fail(
+      'SERVICE_HAS_UPCOMING',
+      `This service has ${upcoming.length} upcoming appointment${upcoming.length === 1 ? '' : 's'}. Cancel or reassign them before deleting the service.`,
+      409
+    );
+  }
+  const snap = db
+    .prepare(
+      `UPDATE bookings SET service_name_snapshot = ?, service_duration_snapshot = ?
+       WHERE lead_id = ? AND service_id = ? AND COALESCE(service_name_snapshot, '') = ''`
+    )
+    .run(String(row.name || ''), row.duration_minutes != null ? Number(row.duration_minutes) : null, Number(leadId), row.id);
   db.prepare('DELETE FROM booking_services WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
-  return { deleted: true, id: row.id };
+  return {
+    deleted: true,
+    id: row.id,
+    name: row.name || '',
+    past_appointments_snapshotted: snap.changes || 0,
+  };
 }
 
 function listAppointments(
@@ -9151,7 +9397,7 @@ function listAppointments(
 ) {
   ensureTables(db);
   let sql = `
-    SELECT b.*, s.name AS service_name, s.duration_minutes AS service_duration
+    SELECT b.*, COALESCE(NULLIF(b.service_name_snapshot, ''), s.name) AS service_name, COALESCE(b.service_duration_snapshot, s.duration_minutes) AS service_duration
     FROM bookings b
     LEFT JOIN booking_services s ON s.id = b.service_id
     WHERE b.lead_id = ?
@@ -9184,7 +9430,7 @@ function getAppointment(db, leadId, id) {
   return db
     .prepare(
       `
-    SELECT b.*, s.name AS service_name, s.duration_minutes AS service_duration
+    SELECT b.*, COALESCE(NULLIF(b.service_name_snapshot, ''), s.name) AS service_name, COALESCE(b.service_duration_snapshot, s.duration_minutes) AS service_duration
     FROM bookings b
     LEFT JOIN booking_services s ON s.id = b.service_id
     WHERE b.lead_id = ? AND b.id = ?
@@ -9800,6 +10046,9 @@ function portalSummary(db, leadId, { appUrl, siteModules = false } = {}) {
         type,
         label: MODULE_META[type].label,
         count: moduleItemCount(db, leadId, type),
+        // Batch 66: what a per-record module delete would purge —
+        // drives the portal delete confirm's real counts.
+        purge: moduleContentCounts(db, leadId, type),
         embed: emb,
       };
     }),
@@ -9821,6 +10070,8 @@ module.exports = {
   publicEmbed,
   attachModule,
   detachModule,
+  deleteModule,
+  moduleContentCounts,
   parseEmbedSettings,
   writeEmbedSettings,
   maybeProvisionBookingsCompanionForm,
@@ -10112,6 +10363,7 @@ module.exports = {
   createBookingService,
   updateBookingService,
   deleteBookingService,
+  listUpcomingAppointments,
   listAppointments,
   moduleItemCount,
   getAppointment,

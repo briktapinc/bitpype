@@ -4967,6 +4967,15 @@
     const detachBtn = document.getElementById('btn-modules-detach');
     if (attachBtn) attachBtn.hidden = onSite;
     if (detachBtn) detachBtn.hidden = !onSite;
+    // Batch 66 — per-record module delete (purge). Owners only (the
+    // route enforces it too); visible whenever the module is installed
+    // for this business, even while detached, since delete also
+    // clears content a detach left behind.
+    const deleteBtn = document.getElementById('btn-modules-purge');
+    if (deleteBtn) {
+      const isOwner = !!(state.client && state.client.userType === 'owner');
+      deleteBtn.hidden = !(emb && isOwner);
+    }
     if (status) {
       if (isChatbot) {
         status.innerHTML = onSite
@@ -8411,6 +8420,39 @@
           body: '{}',
         });
         moduleMsg('Removed from site.', true);
+        await loadModules();
+        if (state.previewUrl) loadEditablePreview(state.previewUrl).catch(() => {});
+      } catch (e) {
+        moduleMsg(errText(e), false);
+      }
+    };
+  }
+
+  // Batch 66 — delete (purge) the current module: embed + content.
+  // The confirm carries the module's real content counts from the
+  // summary payload; the server repeats the guard checks anyway.
+  // (Distinct id from the item modal's btn-modules-delete.)
+  const btnModulesPurge = document.getElementById('btn-modules-purge');
+  if (btnModulesPurge) {
+    btnModulesPurge.onclick = async () => {
+      const meta = MODULE_TYPES.find((m) => m.type === moduleState.current);
+      const label = meta ? meta.label : moduleState.current;
+      const entry = ((moduleState.summary && moduleState.summary.modules) || []).find(
+        (m) => m.type === moduleState.current
+      );
+      const parts = (entry && entry.purge && entry.purge.parts) || [];
+      const what = parts.length ? parts.map((p) => `${p.count} ${p.label}`).join(', ') : 'no content rows';
+      if (
+        !window.confirm(
+          `Delete the ${label} module from your business?\n\nThis permanently deletes the module and its content (${what}).\n\nRemove only takes it off your site and keeps content. Delete cannot be undone.`
+        )
+      ) {
+        return;
+      }
+      moduleMsg('Deleting module…', true);
+      try {
+        await api(`/modules/${encodeURIComponent(moduleState.current)}`, { method: 'DELETE' });
+        moduleMsg('Module deleted.', true);
         await loadModules();
         if (state.previewUrl) loadEditablePreview(state.previewUrl).catch(() => {});
       } catch (e) {

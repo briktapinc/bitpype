@@ -5304,7 +5304,7 @@ function adminBookingsOverview(workspaceId, opts = {}) {
     const limit = Math.min(500, Math.max(1, Number(opts.limit) || 200));
     const appointments = db
       .prepare(
-        `SELECT b.*, s.name AS service_name, s.duration_minutes AS service_duration, l.business_name AS lead_name
+        `SELECT b.*, COALESCE(NULLIF(b.service_name_snapshot, ''), s.name) AS service_name, COALESCE(b.service_duration_snapshot, s.duration_minutes) AS service_duration, l.business_name AS lead_name
          FROM bookings b
          LEFT JOIN booking_services s ON s.id = b.service_id
          LEFT JOIN leads l ON l.id = b.lead_id
@@ -5322,6 +5322,30 @@ function adminBookingsOverview(workspaceId, opts = {}) {
       )
       .all();
     return { appointments, services };
+  });
+}
+
+/** Batch 66 — staff per-record delete of one booking service (the
+ * engine refuses with SERVICE_HAS_UPCOMING while upcoming appointments
+ * reference it; past appointments keep a snapshotted service name). */
+function adminDeleteBookingService(workspaceId, leadId, serviceId) {
+  return withDb(workspaceId, (db) => {
+    const modules = require('./siteModules');
+    modules.ensureTables(db);
+    const lead = db.prepare('SELECT business_name FROM leads WHERE id = ?').get(Number(leadId));
+    const out = modules.deleteBookingService(db, Number(leadId), Number(serviceId));
+    try {
+      db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
+        'bookings',
+        `Staff deleted service #${out.id} "${out.name}" for ${lead ? lead.business_name : 'lead #' + Number(leadId)}` +
+          (out.past_appointments_snapshotted
+            ? ` (${out.past_appointments_snapshotted} past appointment(s) kept the service name)`
+            : '')
+      );
+    } catch {
+      /* activity log is best-effort */
+    }
+    return out;
   });
 }
 
@@ -5390,8 +5414,35 @@ function adminModulesOverview(workspaceId) {
       )
       .all();
     const counts = {};
-    for (const i of installs) counts[i.module_type] = (counts[i.module_type] || 0) + 1;
+    for (const i of installs) {
+      counts[i.module_type] = (counts[i.module_type] || 0) + 1;
+      // Batch 66: what a per-record delete of this install would purge
+      // (drives the row's delete confirm + keeps staff honest about
+      // blast radius before they click).
+      i.purge = modules.moduleContentCounts(db, i.lead_id, i.module_type);
+    }
     return { catalog, installs, counts };
+  });
+}
+
+/** Batch 66 — staff per-record delete of one module install: the
+ * embed row AND its lead-scoped content/config are purged by the
+ * engine (detach keeps content; delete does not). */
+function adminDeleteModuleInstall(workspaceId, leadId, moduleType) {
+  return withDb(workspaceId, (db) => {
+    const modules = require('./siteModules');
+    modules.ensureTables(db);
+    const lead = db.prepare('SELECT business_name FROM leads WHERE id = ?').get(Number(leadId));
+    const out = modules.deleteModule(db, Number(leadId), String(moduleType || ''));
+    try {
+      db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
+        'modules',
+        `Staff deleted the ${out.module_type} module for ${lead ? lead.business_name : 'lead #' + Number(leadId)} — purged ${out.purged_total} content row(s)`
+      );
+    } catch {
+      /* activity log is best-effort */
+    }
+    return out;
   });
 }
 
@@ -5909,6 +5960,8 @@ module.exports = {
   adminLeadScoutContacts,
   adminLeadScoutContact,
   adminBookingsOverview,
+  adminDeleteBookingService,
+  adminDeleteModuleInstall,
   adminShopOverview,
   adminCoursesList,
   adminModulesOverview,
