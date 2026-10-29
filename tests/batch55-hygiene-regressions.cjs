@@ -446,15 +446,21 @@ async function archiveSuite() {
       'clientPortal.js',
       'renderer/index.html',
       'server.js.tmp/server.js',
-      'src/ipc/websites.js',
       'src/db.js',
       'src/authorContentScan.js',
       'README.md',
     ]) {
       assert.ok(fs.existsSync(path.join(arch, rel)), `missing from archive: ${rel}`);
     }
-    for (const rel of ['domain.js', 'main.js', 'websiteEngine.js', 'renderer', 'server.js.tmp', 'src/ipc', 'src/db.js', 'src/authorContentScan.js']) {
+    for (const rel of ['domain.js', 'main.js', 'websiteEngine.js', 'renderer', 'server.js.tmp', 'src/db.js', 'src/authorContentScan.js']) {
       assert.ok(!fs.existsSync(path.join(root, rel)), `still at old home: ${rel}`);
+    }
+    // Documented exception: src/ipc stays in the live tree — two
+    // regression files reference it by path (batch47 requires
+    // src/ipc/leads.js and registers it; seo-base-url source-scans
+    // src/ipc/domains.js). The Batch 55 archive README carries the why.
+    for (const rel of ['src/ipc/leads.js', 'src/ipc/domains.js']) {
+      assert.ok(fs.existsSync(path.join(root, rel)), `test-referenced IPC handler missing: ${rel}`);
     }
   });
 
