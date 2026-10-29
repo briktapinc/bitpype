@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Thanks — we got your details — BitPype</title>
+  <meta name="description" content="Thanks for your interest in BitPype. We received your details and will be in touch shortly — watch the demo or book an appointment in the meantime." />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="BitPype" />
+  <meta property="og:title" content="Thanks — we got your details — BitPype" />
+  <meta property="og:description" content="We received your details and will be in touch shortly. Watch the BitPype demo or book an appointment." />
+  <meta property="og:url" content="{{PUBLIC_URL}}/thankyou" />
+  <meta property="og:image" content="{{PUBLIC_URL}}/brand/bitpype-mark.svg" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="robots" content="noindex" />
+  <link rel="icon" href="/brand/bitpype-mark.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;1,9..144,500&family=Figtree:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    /* Same design system as public/landing.html: warm /how widget
+       theme — cream/paper surfaces, ink text, teal accent, dark ink
+       nav, Figtree body, Fraunces display headlines. */
+    :root {
+      --bg: #f7f1e8;
+      --surface: #fffaf4;
+      --surface-2: #f3eadf;
+      --ink: #1c140f;
+      --muted: #5c5148;
+      --border: #e7dbc4;
+      --border-strong: #d3bf9d;
+      --accent: #0e7a68;
+      --accent-dark: #0a5c4f;
+      --accent-soft: #e5f6f2;
+      --teal: #0e7a68;
+      --coral: #ef5d45;
+      --gold: #f0b429;
+      --plum: #6d4ea3;
+      --sidebar: #1c140f;
+      --sidebar-text: #fffaf4;
+      --sidebar-muted: #b3a08c;
+      --shadow: 0 1px 2px rgba(80, 40, 20, 0.05), 0 8px 18px rgba(80, 40, 20, 0.06);
+      --shadow-lg: 0 24px 60px rgba(28, 20, 15, 0.25), 0 4px 16px rgba(80, 40, 20, 0.08);
+      --radius: 20px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: Figtree, 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+      background:
+        radial-gradient(880px 420px at 100% -8%, rgba(14, 122, 104, 0.12), transparent 58%),
+        radial-gradient(720px 380px at -12% 8%, rgba(109, 78, 163, 0.1), transparent 52%),
+        var(--bg);
+      overflow-x: clip;
+      line-height: 1.5;
+    }
+    a { color: inherit; }
+    img { display: block; max-width: 100%; }
+    :focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+    .skip {
+      position: absolute; left: -999px; top: 8px; background: #fff; color: #000; padding: 8px 12px; z-index: 50;
+    }
+    .skip:focus { left: 12px; }
+
+    .nav {
+      position: sticky; top: 0; z-index: 20;
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 10px 18px;
+      padding: 16px 28px;
+      background: rgba(28, 20, 15, 0.97);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid rgba(255, 250, 244, 0.08);
+    }
+    .logo {
+      display: inline-flex; align-items: center; gap: 10px;
+      text-decoration: none; color: var(--sidebar-text);
+      font-family: Fraunces, Georgia, serif; font-weight: 700; font-size: 1.4rem; letter-spacing: -0.03em;
+      min-width: 0;
+    }
+    .nav-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 20px; }
+    .nav-links a { color: var(--sidebar-muted); text-decoration: none; font-weight: 600; }
+    .nav-links a:hover { color: var(--sidebar-text); }
+    .nav-links .nav-login {
+      color: var(--sidebar-text); border: 1.5px solid rgba(255, 250, 244, 0.35);
+      border-radius: 999px; padding: 8px 16px;
+    }
+
+    .wrap { max-width: 1120px; margin: 0 auto; padding-left: 28px; padding-right: 28px; }
+
+    .thanks-hero { padding-top: 64px; padding-bottom: 8px; text-align: left; }
+    .kicker {
+      margin: 0 0 18px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-size: 0.78rem;
+      color: #8a3b28;
+    }
+    h1 {
+      margin: 0 0 22px;
+      font-family: Fraunces, Georgia, serif;
+      font-weight: 500;
+      font-size: clamp(2.6rem, 6vw, 4.6rem);
+      line-height: 0.98;
+      letter-spacing: -0.045em;
+      overflow-wrap: break-word;
+      max-width: 16ch;
+    }
+    h1 em, .thankyou-video h2 em {
+      font-style: italic;
+      font-weight: 500;
+      color: transparent;
+      background: linear-gradient(100deg, var(--coral), #d4890b 45%, var(--teal));
+      -webkit-background-clip: text;
+      background-clip: text;
+    }
+    .lede { margin: 0 0 16px; max-width: 58ch; color: var(--muted); font-size: 1.18rem; }
+    .check-note {
+      display: inline-block; margin: 8px 0 0; padding: 12px 20px;
+      background: var(--accent-soft); border: 1px solid var(--border);
+      border-radius: 999px; font-weight: 600; color: var(--accent-dark);
+    }
+
+    /* Serve-time sections (Batch 70): the demo video + booking blocks
+       are built by server/landingThankYou.js from admin settings and
+       substituted for the token below; each renders as a padded card —
+       text never touches a container edge. */
+    .thankyou-video, .thankyou-booking {
+      margin-top: 40px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) + 6px);
+      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset, var(--shadow);
+      padding: 40px 44px;
+    }
+    .thankyou-video h2, .thankyou-booking h2 {
+      margin: 0 0 14px; font-family: Fraunces, Georgia, serif; font-weight: 500;
+      font-size: 2.2rem; letter-spacing: -0.03em; line-height: 1.05;
+    }
+    .section-lede { margin: 0 0 22px; color: var(--muted); max-width: 62ch; font-size: 1.08rem; }
+    .video-frame {
+      border-radius: var(--radius); overflow: hidden;
+      border: 1px solid var(--border); box-shadow: var(--shadow);
+      background: #000; aspect-ratio: 16 / 9;
+    }
+    .video-frame iframe { width: 100%; height: 100%; border: 0; display: block; }
+    .booking-cta { margin: 4px 0 0; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-height: 52px; padding: 0 18px; border-radius: 999px;
+      text-decoration: none; font-weight: 700; max-width: 100%;
+      border: 0; cursor: pointer; font: inherit;
+    }
+    .btn-lg { min-height: 60px; padding: 0 30px; font-size: 1.1rem; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-dark); }
+
+    footer { padding-top: 44px; padding-bottom: 40px; color: var(--muted); }
+    .footer-inner {
+      border-top: 1px solid var(--border); padding-top: 20px;
+      display: flex; flex-wrap: wrap; gap: 12px 24px;
+      justify-content: space-between; align-items: flex-start; width: 100%;
+    }
+    footer strong { font-family: Fraunces, Georgia, serif; color: var(--ink); font-size: 1.25rem; }
+    footer p { margin: 4px 0 0; }
+    footer nav { display: flex; flex-wrap: wrap; gap: 10px 16px; }
+    footer a { color: var(--muted); text-decoration: none; font-weight: 700; }
+    footer a:hover { color: var(--accent-dark); }
+
+    @media (max-width: 700px) {
+      .nav { padding: 14px 16px; }
+      .wrap { padding-left: 22px; padding-right: 22px; }
+      .thanks-hero { padding-top: 36px; }
+      .thankyou-video, .thankyou-booking { padding: 28px 24px; margin-top: 28px; }
+      footer { padding-bottom: 36px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+      html { scroll-behavior: auto; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="nav">
+    <a class="logo" href="/"><img src="/brand/bitpype-mark.svg" alt="" width="36" height="36" /> BitPype</a>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="/landing">For agency owners</a>
+      <a href="/how-it-works">How it works</a>
+      <a href="/website-promo">Get a website</a>
+      <a href="/portal" class="nav-login">Client login</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="thanks-hero wrap">
+      <p class="kicker">Interest registered</p>
+      <h1>Thanks — <em>you're on the list.</em></h1>
+      <p class="lede">We received your details, and a thank-you email is on its way to your inbox. You will hear back from us shortly — a member of the BitPype team will be in touch to talk through what you have in mind.</p>
+      <p class="check-note">No need to do anything else — unless you'd like to keep going below.</p>
+    </section>
+
+    <div class="wrap">
+{{THANKYOU_SECTIONS}}
+    </div>
+  </main>
+
+  <footer class="wrap">
+    <div class="footer-inner">
+      <div>
+        <strong>BitPype</strong>
+        <p>The website, handled with you.</p>
+      </div>
+      <nav aria-label="Footer">
+        <a href="/landing">For agency owners</a>
+        <a href="/how-it-works">How it works</a>
+        <a href="/portal">Client portal</a>
+        <a href="/app">Team login</a>
+        <a href="/legal/privacy.html">Privacy</a>
+        <a href="/legal/terms.html">Terms</a>
+        <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

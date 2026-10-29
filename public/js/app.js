@@ -8096,6 +8096,28 @@ async function renderAdminSettings(el, group) {
               <p class="hint">Paste a YouTube embed code or link — one video per line; several are welcome. Only YouTube is accepted: the app stores just the video IDs and builds the embeds itself, so pasted page code is never kept. Videos appear in the videos section on /landing; leave this empty and that section does not show at all.</p>
             </div>`;
                 }
+                if (d.key === 'landing.thankyou_video') {
+                  // Batch 70: stored value is a single canonical YouTube
+                  // ID; show it as a youtu.be link for editing. The
+                  // server extracts the ID from whatever is pasted
+                  // (embed code, link, or ID) at save time.
+                  const display = /^[A-Za-z0-9_-]{11}$/.test(val) ? `https://youtu.be/${val}` : val;
+                  return `<div>
+              <label>${esc(d.label)} <span class="mono hint">${esc(d.key)}</span></label>
+              <input name="${esc(d.key)}" type="text" value="${esc(display)}" placeholder="Paste a YouTube embed code or link" />
+              <p class="hint">One video for the /thankyou page visitors land on after the landing form — a walkthrough or demo works well here. Paste a YouTube embed code or link; only the video ID is stored and the app builds the player itself. Leave empty and no video shows on /thankyou.</p>
+            </div>`;
+                }
+                if (d.key === 'landing.thankyou_calendly_url') {
+                  // Batch 70: validated server-side — https on
+                  // calendly.com only; anything else is rejected at
+                  // save time with the reason shown to the admin.
+                  return `<div>
+              <label>${esc(d.label)} <span class="mono hint">${esc(d.key)}</span></label>
+              <input name="${esc(d.key)}" type="url" value="${esc(val)}" placeholder="https://calendly.com/your-link" />
+              <p class="hint">Your Calendly booking link. When set, the /thankyou page shows a prominent “Book your appointment” button that opens it. Must be an https://calendly.com link. Leave empty and no booking button shows.</p>
+            </div>`;
+                }
                 if (d.key === 'registration.open') {
                   const on = String(val || '1') === '1';
                   return `<div>

@@ -568,6 +568,16 @@
           if (!res.ok || !data || !data.ok) {
             throw new Error((data && data.error) || 'Something went wrong — please try again.');
           }
+          // Batch 70: the server sends successful visitors on to the
+          // /thankyou page (demo video + booking link live there). The
+          // inline success block stays as the fallback if a response
+          // somehow arrives without the redirect.
+          const redirectUrl = data.data && data.data.redirectUrl;
+          if (redirectUrl) {
+            setMsg('Thanks — taking you to the next step…', false);
+            window.location.assign(redirectUrl);
+            return;
+          }
           form.classList.add('is-hidden');
           success.classList.remove('is-hidden');
           success.scrollIntoView({ behavior: 'smooth', block: 'center' });

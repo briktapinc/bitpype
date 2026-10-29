@@ -199,6 +199,10 @@ const SETTABLE_KEYS = [
   // Batch 58: landing page YouTube videos — validated/canonicalized by
   // server/landingVideos.js (see the validateSetting case below).
   'landing.video_embeds',
+  // Batch 70: /thankyou demo video + Calendly link — validated /
+  // canonicalized by server/landingThankYou.js (cases below).
+  'landing.thankyou_video',
+  'landing.thankyou_calendly_url',
   // Batch 59: Hostinger one-click deploy settings (platform-level; the
   // token is also in SECRET_KEYS above so it stays masked on read).
   'hostinger.api_token',
@@ -541,6 +545,24 @@ function validateSetting(key, raw) {
       // general.public_url case above.
       try {
         return { ok: true, value: require('./landingVideos').validateLandingVideoEmbedsSetting(value) };
+      } catch (e) {
+        return fail(e.message);
+      }
+    }
+    case 'landing.thankyou_video': {
+      // Batch 70: identical rule to the platform write choke point —
+      // a single YouTube video, stored as the canonical video ID only.
+      try {
+        return { ok: true, value: require('./landingThankYou').validateThankYouVideoSetting(value) };
+      } catch (e) {
+        return fail(e.message);
+      }
+    }
+    case 'landing.thankyou_calendly_url': {
+      // Batch 70: identical rule to the platform write choke point —
+      // only an https URL on calendly.com is stored.
+      try {
+        return { ok: true, value: require('./landingThankYou').validateThankYouCalendlyUrl(value) };
       } catch (e) {
         return fail(e.message);
       }

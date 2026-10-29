@@ -582,6 +582,42 @@ async function sendLandingPage(res) {
   }
 }
 
+// Batch 70: /thankyou is where a successful /landing submission lands.
+// A templated page like /landing, PLUS serve-time sections built by
+// server/landingThankYou.js from the landing.thankyou_video +
+// landing.thankyou_calendly_url platform settings — or '' for each when
+// unset, so that section does not render at all. A settings read
+// failure degrades to no sections, never to a broken page, and no raw
+// setting value ever reaches the page (the video renders as an iframe
+// built from the stored ID; the Calendly link as a validated CTA href).
+async function sendThankYouPage(res) {
+  const raw = readTemplatedPage('thankyou.html');
+  if (raw == null) return res.status(404).end();
+  try {
+    const { publicUrl, supportEmail } = await templatedTokens();
+    let sectionsHtml = '';
+    try {
+      const platform = require('./server/platform');
+      const landingThankYou = require('./server/landingThankYou');
+      const videoId = await platform.getPlatformSetting('landing.thankyou_video', '');
+      const calendlyUrl = await platform.getPlatformSetting('landing.thankyou_calendly_url', '');
+      sectionsHtml = landingThankYou.thankYouSectionsHtml({ videoId, calendlyUrl });
+    } catch {
+      sectionsHtml = '';
+    }
+    const html = raw
+      .split('{{PUBLIC_URL}}')
+      .join(publicUrl)
+      .split('{{SUPPORT_EMAIL}}')
+      .join(supportEmail)
+      .split('{{THANKYOU_SECTIONS}}')
+      .join(sectionsHtml);
+    return res.type('html').send(html);
+  } catch {
+    return res.sendFile(path.join(__dirname, 'public', 'thankyou.html'));
+  }
+}
+
 // Marketing home at `/`. Staff SPA lives at `/app` so public visitors never hit the desk UI.
 // Logged-in staff hitting `/` are sent to `/app` so existing bookmarks keep working.
 app.get('/', (req, res) => {
@@ -609,12 +645,19 @@ app.get(['/landing', '/landing/'], (_req, res) => {
   return sendLandingPage(res);
 });
 
+// Batch 70: /thankyou — the post-submission page (demo video + Calendly
+// booking button from the Landing settings).
+app.get(['/thankyou', '/thankyou/'], (_req, res) => {
+  return sendThankYouPage(res);
+});
+
 // Batch 56: direct file paths for the templated pages are intercepted
 // BEFORE express.static so a raw {{TOKEN}} is never served.
 app.get('/home.html', (_req, res) => sendTemplatedPage(res, 'home.html'));
 app.get('/how.html', (_req, res) => sendTemplatedPage(res, 'how.html'));
 app.get('/how-it-works.html', (_req, res) => sendTemplatedPage(res, 'how-it-works.html'));
 app.get('/landing.html', (_req, res) => sendLandingPage(res));
+app.get('/thankyou.html', (_req, res) => sendThankYouPage(res));
 app.get('/legal/privacy.html', (_req, res) => sendTemplatedPage(res, 'legal/privacy.html'));
 app.get('/legal/terms.html', (_req, res) => sendTemplatedPage(res, 'legal/terms.html'));
 

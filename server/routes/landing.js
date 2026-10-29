@@ -28,6 +28,12 @@
  * that lead; a fold into a lead from any other source records the
  * event ONLY, so a submission can never make a foreign lead
  * deploy-eligible. The visitor gets the same polite success either way.
+ *
+ * Batch 70: a successful submission (either path) also sends the
+ * submitter a thank-you email via server/landingThankYou.js
+ * (best-effort — a mail failure never fails the submission) and the
+ * success response carries redirectUrl '/thankyou', where the page
+ * sends the visitor next.
  */
 
 const express = require('express');
@@ -36,6 +42,7 @@ const { requireCaptcha, getCaptchaConfig } = require('../captcha');
 const { rateLimit } = require('../rateLimit');
 const { assertWorkspaceExists } = require('../workspaceExists');
 const apiErrors = require('../apiErrors');
+const landingThankYou = require('../landingThankYou');
 
 const router = express.Router();
 const submitLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 });
@@ -196,11 +203,28 @@ router.post('/submit', submitLimit, captcha, async (req, res) => {
       /* ignore */
     }
 
+    // Batch 70: thank-you email to the submitter — on BOTH the new-lead
+    // path and the duplicate-email fold path. Best-effort by design
+    // (sendLandingThankYou never throws; the extra try/catch keeps that
+    // guarantee even if the helper changes): a mail failure is logged
+    // and the visitor still succeeds.
+    try {
+      const ty = await landingThankYou.sendLandingThankYou({ fullName, email });
+      if (!ty.sent) {
+        console.warn(`landing: thank-you email not sent for lead #${lead.id} (${ty.reason || 'unknown'})`);
+      }
+    } catch (e) {
+      console.warn(`landing: thank-you email failed for lead #${lead.id}:`, e && e.message);
+    }
+
     res.json({
       ok: true,
       data: {
         id: lead.id,
         message: 'Thanks — we received your details and will be in touch shortly.',
+        // Batch 70: the page navigates here on success (inline success
+        // block remains the fallback when this is somehow absent).
+        redirectUrl: '/thankyou',
       },
     });
   } catch (e) {

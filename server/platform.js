@@ -101,6 +101,15 @@ const PLATFORM_SETTING_DEFS = [
   // choke points); pasted HTML is never stored or rendered.
   { key: 'landing.video_embeds', group: 'landing', label: 'Landing page videos (YouTube)', default: '[]' },
 
+  // Thank-you page (Batch 70): after a /landing submission the visitor
+  // is redirected to /thankyou, which shows a demo video and a Calendly
+  // booking button — both pasted here by Ely. The video stores the
+  // canonical YouTube ID only (Batch 58 parser); the Calendly link must
+  // be an https URL on calendly.com. Empty = that section of /thankyou
+  // does not render at all.
+  { key: 'landing.thankyou_video', group: 'landing', label: 'Thank-you page demo video (YouTube)', default: '' },
+  { key: 'landing.thankyou_calendly_url', group: 'landing', label: 'Thank-you page Calendly link', default: '' },
+
   // Hostinger one-click deploys (Batch 59): platform-only — the API
   // token buys REAL VPS servers on the connected Hostinger account, so
   // it is secretBox-encrypted, never seeded into workspaces (this group
@@ -561,6 +570,16 @@ async function setPlatformSetting(key, value) {
   // (embed code, link, ID), only YouTube video IDs are ever stored.
   if (key === 'landing.video_embeds') {
     v = require('./landingVideos').validateLandingVideoEmbedsSetting(v);
+  }
+  // Batch 70: same choke-point treatment for the /thankyou settings —
+  // the demo video stores a canonical YouTube ID only, and the booking
+  // link must be an https calendly.com URL; anything else is a coded
+  // rejection no write path can land.
+  if (key === 'landing.thankyou_video') {
+    v = require('./landingThankYou').validateThankYouVideoSetting(v);
+  }
+  if (key === 'landing.thankyou_calendly_url') {
+    v = require('./landingThankYou').validateThankYouCalendlyUrl(v);
   }
   // Batch 59: Hostinger defaults are API identifiers, not free text —
   // reject anything that cannot be a catalog price id / numeric id at
