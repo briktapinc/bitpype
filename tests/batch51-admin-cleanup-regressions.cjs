@@ -38,6 +38,15 @@ process.env.DB_DRIVER = 'sqlite';
 process.env.SQLITE_PATH = path.join(temp, 'platform.sqlite');
 process.env.WORKSPACE_DATA_DIR = path.join(temp, 'workspaces');
 process.env.EXPORT_ROOT = path.join(temp, 'exports');
+// Hermetic env: stripeClient.appUrl() throws APP_URL_REQUIRED when
+// NODE_ENV=production and APP_URL is unset — and the app image bakes
+// NODE_ENV=production in, so the regression-gate container hits that
+// throw where a dev shell does not. adminCallsOverview's per-business
+// voice_url build then fails inside its catch-all and `businesses`
+// comes back [] (gate failure 2026-10-28, B1). Production sets APP_URL
+// via compose env; this test must not depend on ambient env, so pin it
+// unconditionally (B3 asserts the exact voice_url built from it).
+process.env.APP_URL = 'http://localhost:3000';
 process.env.SESSION_SECRET = process.env.SESSION_SECRET || ['dev', 'test', 'only'].join('-');
 process.env.SETTINGS_ENCRYPTION_KEY =
   process.env.SETTINGS_ENCRYPTION_KEY || Buffer.alloc(32, 9).toString('base64');
@@ -219,7 +228,7 @@ async function testCallsPicker() {
     assert.equal(p.config.cta_text, 'Call us');
     assert.equal(p.config.redirect_enabled, true);
     assert.equal(p.config.display_number, '');
-    assert.match(p.voice_url, /\/api\/v1\/calls\/voice\/1\/2$/);
+    assert.equal(p.voice_url, 'http://localhost:3000/api/v1/calls/voice/1/2');
     const p1 = data.pickerBusinesses.find((b) => Number(b.lead_id) === 1);
     assert.equal(p1.has_module, true);
   });
