@@ -7921,6 +7921,7 @@ function planContentsPanelHtml(state) {
     <div class="panel-b">
       <form id="plan-contents-form" class="stack">
         ${(state.plans || []).map((p) => pcPlanBlockHtml(p, cadenceOptions)).join('')}
+        <label class="hint" style="display:flex;gap:6px;align-items:flex-start"><input type="checkbox" id="plan-contents-email-subs" style="margin-top:2px" /> <span><strong>Email this change to current subscribers</strong> — off by default. When checked, owners on each plan you actually changed get one email with the plan's new feature list. Prices are never mentioned (existing subscribers keep their price).</span></label>
         <div class="row actions"><button class="btn" type="submit">Save package contents</button></div>
         <div class="msg" id="plan-contents-msg"></div>
       </form>
@@ -8264,12 +8265,18 @@ async function renderAdminSettings(el, group) {
       }
       msg.textContent = 'Saving…';
       msg.className = 'msg';
+      const emailSubsEl = $('#plan-contents-email-subs');
+      const emailSubscribers = !!(emailSubsEl && emailSubsEl.checked);
       try {
-        const d = (await api.adminPlanContentsUpdate(contents)).data || {};
+        const d = (await api.adminPlanContentsUpdate(contents, { emailSubscribers })).data || {};
         const parts = [];
         if ((d.updated || []).length) parts.push(`Updated: ${d.updated.join(', ')}`);
         if ((d.reset || []).length) parts.push(`Reset to defaults: ${d.reset.join(', ')}`);
         if ((d.unchanged || []).length) parts.push(`Unchanged: ${d.unchanged.join(', ')}`);
+        if (d.notified) {
+          const bits = Object.entries(d.notified).map(([p, n]) => `${p} ×${(n && n.sent) || 0}`);
+          parts.push(bits.length ? `Subscribers emailed: ${bits.join(', ')}` : 'Subscribers emailed: none (no plans changed)');
+        }
         if (!parts.length) parts.push('Nothing to change.');
         toast('Package contents saved', 'ok');
         // Re-render the whole settings view so badges, editor state and
