@@ -36,6 +36,8 @@ const PLATFORM_SECRET_KEYS = [
   'ai.api_key',
   'muse.model_api_key',
   'smtp.pass',
+  // Batch 48: Cloudflare Email Sending token for the native mail provider.
+  'mail.cf_token',
   'cf.api_token',
   'pexels.api_key',
   'providers.tavily.api_key',
@@ -96,6 +98,30 @@ const PLATFORM_SETTING_DEFS = [
   { key: 'smtp.pass', group: 'email', label: 'SMTP password', default: '', secret: true },
   { key: 'smtp.from_name', group: 'email', label: 'From name', default: 'Bitpype' },
   { key: 'smtp.from_email', group: 'email', label: 'From email', default: 'team@bitpype.com' },
+  // Batch 48: selectable mail provider. Default 'custom' = the SMTP
+  // settings above (Mailjet today); 'cloudflare' = native Cloudflare
+  // Email Sending. The account id falls back to the workspace/platform
+  // cf.account_id when mail.cf_account_id is empty. mail.* keys in the
+  // email group auto-seed into workspaces (WORKSPACE_SEED_KEYS).
+  {
+    key: 'mail.provider',
+    group: 'email',
+    label: 'Mail provider (custom = SMTP/Mailjet, cloudflare = Cloudflare Email Sending)',
+    default: 'custom',
+  },
+  {
+    key: 'mail.cf_account_id',
+    group: 'email',
+    label: 'Cloudflare account ID for email (blank = use the Cloudflare account ID)',
+    default: '',
+  },
+  {
+    key: 'mail.cf_token',
+    group: 'email',
+    label: 'Cloudflare Email Sending API token',
+    default: '',
+    secret: true,
+  },
   {
     key: 'mail.footer',
     group: 'email',

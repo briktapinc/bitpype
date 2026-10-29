@@ -3,6 +3,10 @@
 const SECRET_KEYS = [
   'ai.api_key',
   'smtp.pass',
+  // Batch 48: Cloudflare Email Sending API token for the native mail
+  // provider — secretBox-encrypted at rest, masked '***' on read,
+  // exactly like smtp.pass.
+  'mail.cf_token',
   'mail.imap.pass',
   'cf.api_token',
   'pexels.api_key',
@@ -61,6 +65,12 @@ const SETTING_SEEDS = [
   ['smtp.user', ''],
   ['smtp.from_name', 'Bitpype'],
   ['smtp.from_email', 'team@bitpype.com'],
+  // Batch 48: mail provider selector. 'custom' (default) = today's SMTP
+  // behaviour; 'cloudflare' = native Cloudflare Email Sending. The
+  // account id stays empty by default — the mailer falls back to
+  // cf.account_id (Cloudflare settings) when it is.
+  ['mail.provider', 'custom'],
+  ['mail.cf_account_id', ''],
   ['mail.footer', 'Reply STOP to opt out of future messages.'],
   ['mail.inbound_drop_dir', ''],
   ['mail.imap.enabled', '1'],
@@ -108,6 +118,7 @@ const SETTING_SEEDS = [
   ['discovery.schedule.last_error', ''],
   ['discovery.schedule.last_result', ''],
   ['smtp.pass', ''],
+  ['mail.cf_token', ''],
   ['sms.enabled', '0'],
   ['sms.provider', 'twilio'],
   ['sms.account_sid', ''],
@@ -150,6 +161,10 @@ const SETTABLE_KEYS = [
   'smtp.user',
   'smtp.from_name',
   'smtp.from_email',
+  // Batch 48: mail provider selector + native Cloudflare fields.
+  'mail.provider',
+  'mail.cf_account_id',
+  'mail.cf_token',
   'mail.footer',
   'mail.inbound_drop_dir',
   'mail.imap.enabled',
@@ -381,6 +396,17 @@ function validateSetting(key, raw) {
       return { ok: true, value: value.trim() };
     case 'smtp.from_email':
       if (value.trim() !== '' && !isEmail(value)) return fail('must be a valid email address or empty');
+      return { ok: true, value: value.trim() };
+    // Batch 48: mail provider selector + native Cloudflare account id.
+    case 'mail.provider': {
+      const v = String(value).trim().toLowerCase();
+      if (!['custom', 'cloudflare'].includes(v)) return fail("must be 'custom' or 'cloudflare'");
+      return { ok: true, value: v };
+    }
+    case 'mail.cf_account_id':
+      if (value.trim() !== '' && !/^[0-9a-fA-F]{32}$/.test(value.trim())) {
+        return fail('must be a 32-character hex account ID or empty');
+      }
       return { ok: true, value: value.trim() };
     case 'mail.footer':
       if (value.length > 5000) return fail('must be 5000 chars or fewer');
@@ -616,6 +642,7 @@ function validateSetting(key, raw) {
       return { ok: true, value: value.trim() };
     case 'captcha.secret_key':
     case 'smtp.pass':
+    case 'mail.cf_token':
     case 'ai.api_key':
     case 'muse.model_api_key':
     case 'providers.tavily.api_key':

@@ -1352,6 +1352,14 @@ router.post('/cloudflare/test', requireRole('owner', 'admin'), async (req, res) 
     fail(res, e, 500);
   }
 });
+// Batch 48: test-send through the workspace's selected mail provider.
+router.post('/settings/mail-test', requireRole('owner', 'admin'), async (req, res) => {
+  try {
+    ok(res, await domain.mailTestSend(req.auth.workspaceId, req.body || {}));
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
 router.post('/cloudflare/publish', requireRole('owner', 'admin'), async (req, res) => {
   try {
     ok(res, await domain.cfPublish(req.auth.workspaceId, Number(req.body.websiteId)));

@@ -6299,7 +6299,11 @@ async function pageSettings(param) {
         </section>
 
         <section class="card" id="sec-smtp"${showSec('sec-smtp')}><h2>Email (SMTP + IMAP)</h2>
-          <p class="hint">SMTP sends design/outreach mail. Each job email also includes a public <strong>client form</strong> link for answers and change requests (works without IMAP). Optional IMAP still polls replies with <code>[Job #N]</code>.</p>
+          <p class="hint">Outbound mail (design jobs, outreach, notifications) goes through the provider selected below — Custom SMTP (Mailjet today) or native Cloudflare. Each job email also includes a public <strong>client form</strong> link for answers and change requests (works without IMAP). Optional IMAP still polls replies with <code>[Job #N]</code>.</p>
+          <h3 style="margin:12px 0 8px;font-size:15px">Mail provider</h3>
+          <p class="hint">Active provider: <strong>${s['mail.provider'] === 'cloudflare' ? 'Cloudflare (native)' : 'Custom SMTP (Mailjet)'}</strong>${s['mail.provider'] === 'cloudflare' ? (s['mail.cf_token'] === '***' ? ' — API token saved.' : ' — API token NOT saved yet: sends will fail until it is set below.') : s['smtp.host'] ? '' : ' — SMTP host is empty, so mail is not configured (sends are logged, not delivered).'}</p>
+          <div class="row">${f('mail.provider', 'Send mail via', { options: [['custom', 'Custom SMTP (Mailjet)'], ['cloudflare', 'Cloudflare (native)']], def: 'custom' })}</div>
+          <div id="mail-custom-fields">
           <h3 style="margin:12px 0 8px;font-size:15px">SMTP (outbound)</h3>
           <div class="row">${f('smtp.host', 'Host', { placeholder: 'mail.example.com' })}${f('smtp.port', 'Port', { type: 'number', min: 1 })}${f(
             'smtp.secure',
@@ -6312,6 +6316,12 @@ async function pageSettings(param) {
             }
           )}</div>
           <div class="row">${f('smtp.user', 'Username')}${secret('smtp.pass', 'Password')}</div>
+          </div>
+          <div id="mail-cf-fields">
+          <h3 style="margin:12px 0 8px;font-size:15px">Cloudflare Email Sending (native)</h3>
+          <p class="hint">Sends via Cloudflare's Email Sending REST API. The token needs the <strong>Email Sending: Edit</strong> permission, and the domain of the From email below must be onboarded for Email Sending in Cloudflare. The From name/email below are shared with SMTP.</p>
+          <div class="row">${secret('mail.cf_token', 'Cloudflare API token')}${f('mail.cf_account_id', 'Account ID (optional)', { placeholder: s['cf.account_id'] ? 'Defaults to ' + s['cf.account_id'] : 'Defaults to the Cloudflare tab account ID' })}</div>
+          </div>
           <div class="row">${f('smtp.from_name', 'From name')}${f('smtp.from_email', 'From email')}</div>
           <h3 style="margin:18px 0 8px;font-size:15px">IMAP (inbound replies)</h3>
           <div class="row">${f('mail.imap.enabled', 'IMAP polling', { options: onOff })}${f('mail.imap.auto_submit', 'Auto-queue change requests', { options: onOff, def: '0', hint: 'When on, redesign/improve replies are submitted to waiting_on_agent.' })}</div>
@@ -6328,6 +6338,8 @@ async function pageSettings(param) {
           <div class="row">${f('mail.imap.user', 'IMAP username', { placeholder: '(defaults to SMTP user)' })}${secret('mail.imap.pass', 'IMAP password', 'Leave blank to reuse the SMTP password.')}</div>
           <div class="row">${f('mail.imap.mailbox', 'Mailbox', { def: 'INBOX' })}${f('mail.inbound_drop_dir', 'Drop folder (optional)', { placeholder: '(default: workspace data / inbound-email)' })}</div>
           <div class="inline">${save('sec-smtp', 'Save email settings')}<button class="btn" type="button" data-act="imap-test">Poll inbox now</button><span class="msg" data-msg="imap-test"></span></div>
+          <div class="inline" style="margin-top:8px"><label class="fld" style="flex:1"><span>Send a test email to</span><input id="mail-test-to" type="email" placeholder="you@example.com"></label><button class="btn" type="button" data-act="mail-test">Send test email</button><span class="msg" data-msg="mail-test"></span></div>
+          <p class="hint">The test send uses the provider selected above (save first if you just changed it).</p>
         </section>
 
         <section class="card" id="sec-meta"${showSec('sec-meta')}><h2>Social (Meta)</h2>
@@ -6401,6 +6413,22 @@ async function pageSettings(param) {
     if (!b) return;
     window.location.hash = '#/settings/' + b.dataset.tab;
   };
+
+  // Batch 48: the mail provider select toggles which field group shows —
+  // SMTP fields for Custom, token + account id for Cloudflare (native).
+  // The From name/email row stays visible either way (shared identity).
+  const mailProvSel = document.querySelector('[data-key="mail.provider"]');
+  const syncMailProviderFields = () => {
+    const native = !!mailProvSel && mailProvSel.value === 'cloudflare';
+    const cfBox = document.getElementById('mail-cf-fields');
+    const customBox = document.getElementById('mail-custom-fields');
+    if (cfBox) cfBox.style.display = native ? '' : 'none';
+    if (customBox) customBox.style.display = native ? 'none' : '';
+  };
+  if (mailProvSel) {
+    mailProvSel.addEventListener('change', syncMailProviderFields);
+    syncMailProviderFields();
+  }
 
   mountLearning($('#st-learning'));
 
@@ -6555,6 +6583,22 @@ async function pageSettings(param) {
         const r = (await api.emailImapPoll({ force: true })).data;
         if (r.skipped) setMsg(msg, r.reason || 'skipped', 'err');
         else setMsg(msg, `Fetched ${r.fetched || 0}, processed ${r.processed || 0}`, 'ok');
+      } catch (err) {
+        setMsg(msg, err.message, 'err');
+      }
+    },
+    // Batch 48: test-send through the SELECTED mail provider.
+    'mail-test': async () => {
+      const msg = $('[data-msg="mail-test"]');
+      const to = (($('#mail-test-to') || {}).value || '').trim();
+      if (!to) {
+        setMsg(msg, 'Enter an email address first', 'err');
+        return;
+      }
+      setMsg(msg, 'Sending…');
+      try {
+        const r = (await api.mailTest(to)).data;
+        setMsg(msg, `Sent via ${r.provider} to ${r.to}`, 'ok');
       } catch (err) {
         setMsg(msg, err.message, 'err');
       }

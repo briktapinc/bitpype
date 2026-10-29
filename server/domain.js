@@ -4345,6 +4345,47 @@ function settingsSetSecret(workspaceId, key, value) {
     return { key, set: !!value };
   });
 }
+
+/**
+ * Batch 48 — "Send test email" from Admin → Settings → Email. Sends one
+ * plain test message through the workspace's SELECTED mail provider
+ * (mail.provider: Custom SMTP or native Cloudflare) to the address the
+ * admin typed. Provider config errors surface loudly (getProvider
+ * throws field-specific messages for a half-configured native setup);
+ * the stub means mail is not configured at all and is reported as such,
+ * never as a successful test.
+ */
+async function mailTestSend(workspaceId, body = {}) {
+  const to = String((body && (body.to || body.email)) || '').trim();
+  const { getProvider, isValidEmail } = require('../src/email');
+  if (!isValidEmail(to)) throw new Error('Enter a valid email address for the test send.');
+  return withDb(workspaceId, async (db) => {
+    const settings = {};
+    for (const row of db.prepare('SELECT key FROM settings').all()) {
+      settings[row.key] = getSetting(db, row.key, '');
+    }
+    const provider = getProvider(settings, db);
+    if (provider.name === 'stub') {
+      throw new Error(
+        'Mail is not configured — set an SMTP host (Custom) or complete the Cloudflare fields (Native) first.'
+      );
+    }
+    const subject = 'Bitpype mail test';
+    const result = await provider.send({
+      to,
+      subject,
+      title: subject,
+      text: `This is a test email from Bitpype, sent through the ${provider.name} provider. If you received it, your mail settings work.`,
+    });
+    logActivity(db, 'settings', `Mail test sent to ${to} via ${provider.name}`);
+    return {
+      ok: true,
+      provider: provider.name,
+      messageId: result && result.messageId ? result.messageId : null,
+      to,
+    };
+  });
+}
 function automationSet(workspaceId, paused) {
   return withDb(workspaceId, (db) => {
     setSetting(db, 'automation_paused', paused ? '1' : '0');
@@ -5622,6 +5663,7 @@ module.exports = {
   settingsGetAll,
   settingsSet,
   settingsSetSecret,
+  mailTestSend,
   automationSet,
   promptsList,
   promptsSave,

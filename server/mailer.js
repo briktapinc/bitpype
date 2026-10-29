@@ -5,7 +5,22 @@ const { assertMailjetSenderActive } = require('../src/mailjetSender');
 const { renderBrandedEmail, ensureBrandedEmail } = require('../src/emailTemplate');
 
 async function platformSmtpSettings() {
-  const keys = ['smtp.host', 'smtp.port', 'smtp.secure', 'smtp.user', 'smtp.pass', 'smtp.from_name', 'smtp.from_email'];
+  // Batch 48: the mail provider selector + Cloudflare fields ride along
+  // so platform mail honours the same Custom/Cloudflare choice. cf.account_id
+  // is included as the account-id fallback for the native provider.
+  const keys = [
+    'smtp.host',
+    'smtp.port',
+    'smtp.secure',
+    'smtp.user',
+    'smtp.pass',
+    'smtp.from_name',
+    'smtp.from_email',
+    'mail.provider',
+    'mail.cf_token',
+    'mail.cf_account_id',
+    'cf.account_id',
+  ];
   const out = {};
   for (const k of keys) out[k] = await platform.getPlatformSetting(k, '');
   return out;
@@ -19,8 +34,12 @@ async function sendPlatformMail({ to, subject, html, text, title, paragraphs, ct
   const settings = await platformSmtpSettings();
   const { getProvider } = require('../src/email');
   const provider = getProvider(settings, null);
-  if (provider.name === 'stub' || !settings['smtp.host']) {
-    const e = new Error('Platform SMTP is not configured');
+  // Batch 48: the stub check alone decides "not configured" now — with
+  // the native Cloudflare provider selected, smtp.host may legitimately
+  // be empty while mail is fully configured. (For custom this is
+  // identical to before: no host has always meant the stub.)
+  if (provider.name === 'stub') {
+    const e = new Error('Platform mail is not configured');
     e.code = 'SMTP_NOT_CONFIGURED';
     throw e;
   }

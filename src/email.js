@@ -18,6 +18,7 @@
 
 const net = require('node:net');
 const tls = require('node:tls');
+const https = require('node:https');
 const crypto = require('node:crypto');
 const { ensureBrandedEmail, stripHtml: stripHtmlBranded } = require('./emailTemplate');
 
@@ -63,6 +64,58 @@ function validateSmtpConfig(cfg) {
   if (!isValidEmail(cfg.fromEmail)) errors.push('smtp.from_email is not a valid email address');
   if (cfg.user && !cfg.pass) errors.push('smtp.user is set but smtp.pass is empty');
   return errors;
+}
+
+/**
+ * Batch 48 — selectable mail provider. `mail.provider` is 'custom' (the
+ * default; today's SMTP behaviour, byte-identical) or 'cloudflare'
+ * (Cloudflare Email Sending REST API). Anything other than the exact
+ * value 'cloudflare' means custom, so an unset key — every workspace
+ * predating this batch — keeps today's behaviour.
+ *
+ * The from identity stays shared with SMTP (smtp.from_email/from_name).
+ * The Cloudflare account id prefers the dedicated mail.cf_account_id
+ * and falls back to the workspace's Cloudflare-settings account id
+ * (cf.account_id), mirroring how the token lives in its own key while
+ * the account is a property of the Cloudflare connection.
+ */
+function readMailConfig(settings) {
+  const s = settings || {};
+  const provider =
+    String(s['mail.provider'] || '').trim().toLowerCase() === 'cloudflare' ? 'cloudflare' : 'custom';
+  return {
+    provider,
+    cfToken: String(s['mail.cf_token'] || '').trim(),
+    cfAccountId:
+      String(s['mail.cf_account_id'] || '').trim() || String(s['cf.account_id'] || '').trim(),
+  };
+}
+
+/**
+ * Field-specific validation for the SELECTED provider.
+ * - cloudflare: token + account id + a valid shared from address are
+ *   required. Errors name the settings fields so the admin UI (and any
+ *   caller) can point at exactly what is missing. Native selected but
+ *   unconfigured is a hard error — never a silent fallback.
+ * - custom: today's SMTP validation, except that an empty smtp.host is
+ *   the legitimate fully-unconfigured state (the stub provider), not an
+ *   error — so the host error is dropped in that case only.
+ */
+function validateMailSettings(settings) {
+  const mail = readMailConfig(settings);
+  if (mail.provider === 'cloudflare') {
+    const errors = [];
+    if (!mail.cfToken) errors.push('mail.cf_token is empty');
+    if (!mail.cfAccountId) errors.push('mail.cf_account_id / cf.account_id is empty');
+    const smtpCfg = readSmtpConfig(settings);
+    if (!isValidEmail(smtpCfg.fromEmail)) {
+      errors.push('smtp.from_email is not a valid email address');
+    }
+    return errors;
+  }
+  const smtpCfg = readSmtpConfig(settings);
+  if (!smtpCfg.host) return [];
+  return validateSmtpConfig(smtpCfg);
 }
 
 /** Build a multipart/alternative MIME message. Handles dot-stuffing. */
@@ -298,6 +351,137 @@ class SmtpProvider {
   }
 }
 
+/**
+ * Batch 48 — Cloudflare Email Sending provider (native). Same send
+ * interface and result shape as SmtpProvider, via the Cloudflare Email
+ * Sending REST API:
+ *   POST https://api.cloudflare.com/client/v4/accounts/{account_id}/email/sending/send
+ *   Authorization: Bearer <API_TOKEN>  (token needs Email Sending: Edit;
+ *   the sender domain must be onboarded for Email Sending)
+ *   Body: { to, from, subject, html, text } — from may be a named
+ *   address object { email, name }. Success envelope:
+ *   { success: true, result: { delivered, permanent_bounces, queued } }.
+ *   Failures use the standard Cloudflare envelope
+ *   { success: false, errors: [{ code, message }] }.
+ * Docs: https://developers.cloudflare.com/email-service/api/send-emails/rest-api/
+ *
+ * Failures surface exactly like SMTP failures: send() throws with the
+ * provider's message in the error — no silent swallow, no fake success.
+ */
+function cfEmailPost(accountId, token, body) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(body);
+    const req = https.request(
+      {
+        hostname: 'api.cloudflare.com',
+        path: `/client/v4/accounts/${encodeURIComponent(accountId)}/email/sending/send`,
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload),
+        },
+        timeout: 30000,
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const raw = Buffer.concat(chunks).toString('utf8');
+          let json = null;
+          try {
+            json = JSON.parse(raw);
+          } catch {
+            /* non-JSON body — handled by the caller as a failure */
+          }
+          resolve({ status: res.statusCode || 0, json, raw });
+        });
+      }
+    );
+    req.on('timeout', () => req.destroy(new Error('Cloudflare email request timed out')));
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+class CloudflareProvider {
+  constructor(mailCfg, smtpCfg) {
+    const errors = [];
+    if (!mailCfg.cfToken) errors.push('mail.cf_token is empty');
+    if (!mailCfg.cfAccountId) errors.push('mail.cf_account_id / cf.account_id is empty');
+    if (!isValidEmail(smtpCfg.fromEmail)) {
+      errors.push('smtp.from_email is not a valid email address');
+    }
+    if (errors.length) throw new Error('Invalid Cloudflare mail config: ' + errors.join('; '));
+    this.mail = mailCfg;
+    this.fromName = smtpCfg.fromName;
+    this.fromEmail = smtpCfg.fromEmail;
+    this.name = 'cloudflare';
+  }
+
+  async send({ to, subject, html, text, title, cta, ctaLabel, preheader, footerNote, skipBrand }) {
+    if (!isValidEmail(to)) throw new Error(`Invalid recipient email: ${to}`);
+    let outHtml = html;
+    let outText = text;
+    if (!skipBrand) {
+      const branded = ensureBrandedEmail({
+        subject,
+        title,
+        html,
+        text,
+        cta,
+        ctaLabel,
+        preheader,
+        footerNote,
+      });
+      outHtml = branded.html;
+      outText = branded.text;
+    }
+    const recipient = to.trim();
+    const body = {
+      to: recipient,
+      from: this.fromName ? { email: this.fromEmail, name: this.fromName } : this.fromEmail,
+      subject,
+      html: outHtml,
+      text: outText,
+      // Mirror the one-click unsubscribe headers the SMTP MIME carries.
+      headers: {
+        'List-Unsubscribe': `<mailto:${this.fromEmail}?subject=unsubscribe>`,
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      },
+    };
+    const { status, json, raw } = await cfEmailPost(this.mail.cfAccountId, this.mail.cfToken, body);
+    if (status >= 400 || !json || json.success !== true) {
+      const errs = json && Array.isArray(json.errors) ? json.errors : [];
+      const detail = errs.length
+        ? errs.map((e) => `${e.code} ${e.message}`).join('; ')
+        : String(raw || '').slice(0, 200) || 'no response body';
+      const err = new Error(`Cloudflare email send failed (HTTP ${status}): ${detail}`);
+      err.code = 'CF_EMAIL_SEND_FAILED';
+      err.cfErrors = errs;
+      throw err;
+    }
+    const result = json.result || {};
+    const bounced = Array.isArray(result.permanent_bounces) ? result.permanent_bounces : [];
+    if (bounced.includes(recipient)) {
+      const err = new Error(
+        `Cloudflare email send failed: permanent bounce for ${recipient}`
+      );
+      err.code = 'CF_EMAIL_BOUNCED';
+      throw err;
+    }
+    const delivered = Array.isArray(result.delivered) ? result.delivered : [];
+    const queued = Array.isArray(result.queued) ? result.queued : [];
+    return {
+      ok: true,
+      provider: 'cloudflare',
+      messageId: result.message_id || 'cf-' + crypto.randomBytes(8).toString('hex'),
+      response: `delivered: ${delivered.join(', ') || '-'}; queued: ${queued.join(', ') || '-'}`,
+    };
+  }
+}
+
 /** No-op provider for when SMTP is not configured. Records activity only. */
 class StubProvider {
   constructor(db) {
@@ -321,11 +505,22 @@ class StubProvider {
 }
 
 /**
- * Choose a provider from flat settings. Returns StubProvider when smtp.host
- * is empty so the rest of the pipeline keeps working in dev / tests.
- * `db` is optional and only used by the stub for activity logging.
+ * Choose a provider from flat settings.
+ *
+ * Batch 48: when `mail.provider` is 'cloudflare' the CloudflareProvider
+ * is returned and its constructor throws a loud, field-specific config
+ * error if the token/account/from are incomplete — Native explicitly
+ * selected NEVER silently falls back to SMTP or the stub. Otherwise the
+ * behaviour is exactly the pre-Batch-48 one: StubProvider when smtp.host
+ * is empty so the rest of the pipeline keeps working in dev / tests,
+ * else SmtpProvider. `db` is optional and only used by the stub for
+ * activity logging.
  */
 function getProvider(settings, db) {
+  const mail = readMailConfig(settings || {});
+  if (mail.provider === 'cloudflare') {
+    return new CloudflareProvider(mail, readSmtpConfig(settings || {}));
+  }
   const cfg = readSmtpConfig(settings || {});
   if (!cfg.host) return new StubProvider(db);
   return new SmtpProvider(cfg);
@@ -497,8 +692,11 @@ module.exports = {
   isValidEmail,
   readSmtpConfig,
   validateSmtpConfig,
+  readMailConfig,
+  validateMailSettings,
   buildMime,
   SmtpProvider,
+  CloudflareProvider,
   StubProvider,
   getProvider,
   personalize,

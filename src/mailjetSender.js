@@ -44,6 +44,10 @@ function mailjetGet(path, apiKey, apiSecret) {
  * When SMTP host is Mailjet, refuse to pretend success if From address is Inactive.
  */
 async function assertMailjetSenderActive(settings) {
+  // Batch 48: native Cloudflare sending has no Mailjet sender to verify.
+  if (String((settings && settings['mail.provider']) || '').trim().toLowerCase() === 'cloudflare') {
+    return null;
+  }
   const host = String((settings && settings['smtp.host']) || '').toLowerCase();
   if (!host.includes('mailjet.com')) return null;
   const apiKey = settings['smtp.user'];

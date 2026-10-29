@@ -426,6 +426,7 @@ window.ScoutApi = (() => {
     settingsGet: () => get('/settings'),
     settingsSet: (key, value) => put('/settings', { key, value }),
     settingsSecret: (key, value) => put('/settings/secret', { key, value }),
+    mailTest: (to) => post('/settings/mail-test', { to }),
     automation: (paused) => post('/settings/automation', { paused }),
     handsOffStatus: () => get('/hands-off'),
     handsOffRun: (force) => post('/hands-off/run', { force: !!force }),
