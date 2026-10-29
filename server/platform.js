@@ -91,9 +91,20 @@ const PLATFORM_SETTING_DEFS = [
   { key: 'cost.max_outreach_per_day', group: 'general', label: 'Default max outreach / day', default: '200' },
 
   // Email / SMTP (site defaults; secrets live in data/platform-defaults.json on the server)
-  { key: 'smtp.host', group: 'email', label: 'SMTP host', default: 'in-v3.mailjet.com' },
+  // Batch 55 (review B-1): smtp.host defaults EMPTY — the old Mailjet
+  // host default made fresh installs look "configured" with no
+  // credentials, so the stub never engaged and mail paths hung on real
+  // outbound connections. seedPlatformDefaults uses INSERT IGNORE, so
+  // existing installs keep whatever host they already have stored.
+  { key: 'smtp.host', group: 'email', label: 'SMTP host', default: '' },
   { key: 'smtp.port', group: 'email', label: 'SMTP port', default: '587' },
   { key: 'smtp.secure', group: 'email', label: 'SMTP secure (1/0)', default: '0' },
+  {
+    key: 'smtp.require_tls',
+    group: 'email',
+    label: 'SMTP require TLS (1/0) — refuse to send the password over an unencrypted connection',
+    default: '1',
+  },
   { key: 'smtp.user', group: 'email', label: 'SMTP user', default: '' },
   { key: 'smtp.pass', group: 'email', label: 'SMTP password', default: '', secret: true },
   { key: 'smtp.from_name', group: 'email', label: 'From name', default: 'Bitpype' },

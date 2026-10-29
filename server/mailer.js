@@ -12,6 +12,7 @@ async function platformSmtpSettings() {
     'smtp.host',
     'smtp.port',
     'smtp.secure',
+    'smtp.require_tls',
     'smtp.user',
     'smtp.pass',
     'smtp.from_name',
