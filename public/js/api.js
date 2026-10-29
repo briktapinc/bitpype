@@ -421,6 +421,10 @@ window.ScoutApi = (() => {
     adminDomainTransaction: (id) => get('/admin-area/domain-transactions/' + id),
     adminDomainTransactionComplete: (id) => post('/admin-area/domain-transactions/' + id + '/complete', {}),
     adminDomainTransactionVoid: (id) => post('/admin-area/domain-transactions/' + id + '/void', {}),
+    financeSummary: (q) => get('/admin-area/finance/summary', q),
+    financeLedger: (q) => get('/admin-area/finance/ledger', q),
+    financeAddExpense: (body) => post('/admin-area/finance/expenses', body || {}),
+    financeDeleteExpense: (id) => del('/admin-area/finance/expenses/' + id),
 
     // ---- settings / prompts ----
     settingsGet: () => get('/settings'),

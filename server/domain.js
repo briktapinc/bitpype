@@ -4664,6 +4664,74 @@ function adminDeleteCallLog(workspaceId, id) {
 function adminDomainTransaction(workspaceId, id) {
   return withDb(workspaceId, (db) => require('./domainFlow').adminDetail(db, id));
 }
+// ---------- Finance dashboard (Batch 49) ----------
+function financeSummary(workspaceId, q = {}) {
+  return withDb(workspaceId, (db) => {
+    const finance = require('./finance');
+    const period = finance.resolvePeriod(q);
+    return { ...finance.summary(db, period), series: finance.series(db, period) };
+  });
+}
+function financeLedger(workspaceId, q = {}) {
+  return withDb(workspaceId, (db) => {
+    const finance = require('./finance');
+    const period = finance.resolvePeriod(q);
+    return { period, ...finance.ledger(db, period, q) };
+  });
+}
+function financeAddExpense(workspaceId, body = {}, userId = null) {
+  return withDb(workspaceId, (db) => {
+    const finance = require('./finance');
+    const amountCents =
+      body.amountCents != null
+        ? Number(body.amountCents)
+        : body.amount != null
+          ? Math.round(Number(body.amount) * 100)
+          : NaN;
+    const row = finance.addExpense(db, {
+      date: body.date,
+      category: body.category,
+      label: body.label,
+      amountCents,
+      note: body.note,
+      createdBy: userId,
+    });
+    try {
+      db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
+        'finance',
+        `Staff added expense #${row.id}: ${row.category} ${row.label} ($${(row.amountCents / 100).toFixed(2)}) on ${row.date}`
+      );
+    } catch {
+      /* activity log is best-effort */
+    }
+    return row;
+  });
+}
+function financeDeleteExpense(workspaceId, id) {
+  return withDb(workspaceId, (db) => {
+    const finance = require('./finance');
+    const out = finance.deleteExpense(db, Number(id));
+    try {
+      db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
+        'finance',
+        `Staff deleted expense #${out.id}: ${out.label} ($${(out.amountCents / 100).toFixed(2)})`
+      );
+    } catch {
+      /* activity log is best-effort */
+    }
+    return out;
+  });
+}
+function financeCsv(workspaceId, q = {}) {
+  return withDb(workspaceId, (db) => {
+    const finance = require('./finance');
+    const period = finance.resolvePeriod(q);
+    return {
+      filename: `bitpype-finance-${period.from}-to-${period.to}.csv`,
+      csv: finance.ledgerCsv(db, period, q),
+    };
+  });
+}
 async function domainFlowComplete(workspaceId, id) {
   return withDb(workspaceId, async (db) =>
     require('./domainFlow').completeTransaction(db, workspaceId, id, {
@@ -5689,6 +5757,11 @@ module.exports = {
   adminDomainTransactions,
   adminDomainTransaction,
   domainFlowComplete,
+  financeSummary,
+  financeLedger,
+  financeAddExpense,
+  financeDeleteExpense,
+  financeCsv,
   runDiscoveryJobTick,
   runOutreachJobTick,
   runImapPollTick: imapPoll,

@@ -9,7 +9,7 @@ const checks=[
  'idempotency-regressions','ingestion-bounds-regressions','api-error-regressions',
  'account-link-regressions','account-link-browser-check','upsell-browser-check',
  'preview-security-regressions','preview-browser-check','schedule-regressions',
- 'portal-navigation-regressions','portal-usertypes-regressions','google-reviews-regressions','seo-foundations-regressions','blog-static-regressions','blog-post-padding-regressions','claim-hold-regressions','claim-purchased-suppression-regressions','interested-followup-regressions','domain-payment-email-regressions','billing-renewal-regressions','domain-registrant-regressions','domain-dns-link-regressions','domain-dns-step-regressions','seo-base-url-regressions','batch45-deletes-regressions','batch45-pagination-regressions','batch47-hardening-regressions','batch48-mail-provider-regressions','production-regressions','public-workspace-regressions',
+ 'portal-navigation-regressions','portal-usertypes-regressions','google-reviews-regressions','seo-foundations-regressions','blog-static-regressions','blog-post-padding-regressions','claim-hold-regressions','claim-purchased-suppression-regressions','interested-followup-regressions','domain-payment-email-regressions','billing-renewal-regressions','domain-registrant-regressions','domain-dns-link-regressions','domain-dns-step-regressions','seo-base-url-regressions','batch45-deletes-regressions','batch45-pagination-regressions','batch47-hardening-regressions','batch48-mail-provider-regressions','batch49-finance-regressions','production-regressions','public-workspace-regressions',
  'url-safety-regressions','isolated-startup-check','mfa-totp-regressions','gbp-manager-regressions'
 ];
 if(process.argv.includes('--ocr'))checks.push('knowledge-ocr-check');

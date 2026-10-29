@@ -36,6 +36,7 @@ const ROUTES = [
   'mcp',
   'settings',
   'billing',
+  'finance',
   'admin',
 ];
 const ROUTE_LABELS = {
@@ -62,6 +63,7 @@ const ROUTE_LABELS = {
   mcp: 'MCP',
   settings: 'Settings',
   billing: 'Billing',
+  finance: 'Finance',
   admin: 'Admin',
 };
 let currentUserIsSuperAdmin = false;
@@ -9714,6 +9716,260 @@ async function pageSeo() {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Finance (Batch 49) — recorded expenditure + manual expenses         */
+/* ------------------------------------------------------------------ */
+
+const FIN_CATEGORIES = ['domains', 'ai', 'cloudflare', 'hosting', 'calls', 'email', 'other'];
+const FIN_PRESETS = [
+  ['today', 'Today'],
+  ['7d', '7 days'],
+  ['30d', '30 days'],
+  ['90d', '90 days'],
+  ['12m', '12 months'],
+  ['mtd', 'Month to date'],
+  ['custom', 'Custom'],
+];
+
+async function pageFinance(param, query) {
+  const q = query && typeof query === 'object' ? query : {};
+  const preset = FIN_PRESETS.some(([k]) => k === q.preset) ? q.preset : '30d';
+  const state = {
+    preset,
+    from: q.from || '',
+    to: q.to || '',
+    category: FIN_CATEGORIES.includes(q.category) ? q.category : '',
+    page: Math.max(1, Number(q.page) || 1),
+  };
+  const periodQ = { preset };
+  if (preset === 'custom') {
+    periodQ.from = state.from;
+    periodQ.to = state.to;
+  }
+  const hashFor = (over) => {
+    const s = { ...state, ...over };
+    const sp = new URLSearchParams();
+    sp.set('preset', s.preset);
+    if (s.preset === 'custom') {
+      if (s.from) sp.set('from', s.from);
+      if (s.to) sp.set('to', s.to);
+    }
+    if (s.category) sp.set('category', s.category);
+    if (s.page > 1) sp.set('page', s.page);
+    return `#/finance?${sp.toString()}`;
+  };
+
+  let sumRes;
+  let ledRes;
+  try {
+    [sumRes, ledRes] = await Promise.all([
+      withLoadTimeout(api.financeSummary(periodQ)),
+      withLoadTimeout(api.financeLedger({ ...periodQ, category: state.category || undefined, page: state.page, pageSize: 25 })),
+    ]);
+  } catch (e) {
+    view.innerHTML = loadErrorCardHtml(e.message);
+    wirePageRetry(() => pageFinance(param, query));
+    return;
+  }
+  const sum = sumRes.data || {};
+  const led = ledRes.data || { rows: [], total: 0, page: 1, pages: 1 };
+  const cats = sum.categories || {};
+  const period = sum.period || periodQ;
+  const money = (c) => moneyCents(c || 0, 'USD');
+
+  const catCard = (key) => {
+    const c = cats[key] || { label: key, totalCents: 0, autoCents: 0, manualCents: 0 };
+    let sub = '';
+    if (key === 'domains') {
+      sub = `${c.txnCount || 0} registration(s)${c.manualCents ? ` · incl. ${money(c.manualCents)} manual` : ''}`;
+    } else if (key === 'ai') {
+      sub = `${c.calls || 0} calls · ${((c.promptTokens || 0) + (c.completionTokens || 0)).toLocaleString()} tokens · estimated`;
+    } else if (c.manualCents) {
+      sub = `${c.manualCount || 0} manual entr${c.manualCount === 1 ? 'y' : 'ies'}`;
+    } else {
+      sub = 'no manual entries';
+    }
+    return `<div class="stat-card"><div class="stat-label">${esc(c.label || key)}</div><div class="stat-value">${money(c.totalCents)}</div><div class="hint">${esc(sub)}</div></div>`;
+  };
+
+  const series = sum.series || { granularity: 'daily', buckets: [] };
+  const maxBucket = Math.max(1, ...series.buckets.map((b) => b.totalCents || 0));
+  const seriesHtml = series.buckets.length
+    ? series.buckets
+        .map((b) => {
+          const pct = Math.max(0, Math.round(((b.totalCents || 0) / maxBucket) * 100));
+          return `<div style="display:flex;align-items:center;gap:10px;margin:3px 0">
+            <span class="hint" style="flex:0 0 92px">${esc(b.label)}</span>
+            <span style="flex:1;background:var(--accent-soft);border-radius:6px;height:14px;overflow:hidden"><span style="display:block;height:100%;width:${pct}%;background:var(--accent)"></span></span>
+            <span style="flex:0 0 84px;text-align:right;font-variant-numeric:tabular-nums">${money(b.totalCents)}</span>
+          </div>`;
+        })
+        .join('')
+    : '<p class="hint">Nothing recorded in this period.</p>';
+
+  const catOptions = FIN_CATEGORIES.map((c) => {
+    const label = (cats[c] && cats[c].label) || c;
+    return `<option value="${esc(c)}" ${state.category === c ? 'selected' : ''}>${esc(label)}</option>`;
+  }).join('');
+
+  view.innerHTML = `
+    <div class="page-head">
+      <div>
+        <h1>Finance</h1>
+        <p class="lede">What the business spends, ${esc(period.from)} → ${esc(period.to)} (UTC). Domain registrar charges and AI usage are recorded by the app itself; hosting, the Cloudflare plan, Twilio and similar bills are added as manual expenses below.</p>
+      </div>
+    </div>
+    <div class="chips" style="margin-bottom:14px">${FIN_PRESETS.map(
+      ([k, label]) =>
+        `<a class="chip" href="${hashFor({ preset: k, page: 1 })}" style="text-decoration:none;color:inherit;${state.preset === k ? 'border-color:var(--accent);font-weight:700' : ''}">${esc(label)}</a>`
+    ).join('')}</div>
+    ${
+      preset === 'custom'
+        ? `<form id="fin-custom" class="row end" style="margin-bottom:14px">
+        <div class="field"><label>From</label><input type="date" name="from" value="${esc(state.from)}" required /></div>
+        <div class="field"><label>To</label><input type="date" name="to" value="${esc(state.to)}" required /></div>
+        <div class="field" style="flex:0 0 auto"><label>&nbsp;</label><button class="btn primary" type="submit">Apply</button></div>
+      </form>`
+        : ''
+    }
+    <div class="stats-cards">
+      <div class="stat-card"><div class="stat-label">Total expenditure</div><div class="stat-value">${money(sum.totalExpenditureCents)}</div><div class="hint">recorded + manual, this period</div></div>
+      ${catCard('domains')}
+      ${catCard('ai')}
+      ${catCard('cloudflare')}
+      ${catCard('hosting')}
+      ${catCard('calls')}
+      ${catCard('email')}
+      ${catCard('other')}
+      <div class="stat-card"><div class="stat-label">${esc((sum.collected && sum.collected.label) || 'Collected')}</div><div class="stat-value">${money(sum.collected && sum.collected.cents)}</div><div class="hint">money in — context only, not expenditure</div></div>
+    </div>
+    <p class="hint" style="margin:-4px 0 14px">${esc(sum.aiNote || '')}</p>
+    <div class="card">
+      <div class="panel-h"><h3>Spend over time</h3><span class="hint">${esc(series.granularity)} buckets</span></div>
+      ${seriesHtml}
+    </div>
+    <div class="card">
+      <div class="panel-h"><h3>Add an expense</h3><span class="hint">for bills the app doesn't see — Workers plan, VPS, Twilio top-ups…</span></div>
+      <form id="fin-add" class="row end">
+        <div class="field"><label>Date</label><input type="date" name="date" required value="${esc(period.to)}" /></div>
+        <div class="field"><label>Category</label><select name="category">${FIN_CATEGORIES.map((c) => `<option value="${esc(c)}">${esc((cats[c] && cats[c].label) || c)}</option>`).join('')}</select></div>
+        <div class="field" style="flex:2;min-width:180px"><label>Label</label><input name="label" required maxlength="200" placeholder="e.g. Cloudflare Workers Paid" /></div>
+        <div class="field"><label>Amount (USD)</label><input name="amount" type="number" min="0.01" step="0.01" required placeholder="5.00" /></div>
+        <div class="field" style="flex:2;min-width:160px"><label>Note (optional)</label><input name="note" maxlength="1000" /></div>
+        <div class="field" style="flex:0 0 auto"><label>&nbsp;</label><button class="btn primary" type="submit">Add expense</button></div>
+      </form>
+      <span class="msg" id="fin-add-msg"></span>
+    </div>
+    <div class="card">
+      <div class="panel-h"><h3>Ledger</h3>
+        <span class="inline">
+          <select id="fin-filter">${'<option value="">All categories</option>' + catOptions}</select>
+          <button class="btn small" id="fin-csv">Download CSV</button>
+        </span>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Date</th><th>Category</th><th>Source</th><th>Label</th><th style="text-align:right">Amount</th><th></th></tr></thead>
+        <tbody>${
+          (led.rows || [])
+            .map(
+              (r) => `<tr>
+            <td>${esc(r.date)}</td>
+            <td>${esc(r.categoryLabel || r.category)}</td>
+            <td><span class="badge">${esc(r.source)}</span></td>
+            <td>${esc(r.label)}</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">${money(r.amountCents)}</td>
+            <td class="actions">${r.deletable ? `<button class="btn small danger" data-act="fin-del" data-id="${esc(r.refId)}">Delete</button>` : ''}</td>
+          </tr>`
+            )
+            .join('') || '<tr><td colspan="6" class="empty">No expenditure recorded in this period.</td></tr>'
+        }
+        </tbody>
+      </table></div>
+      <div class="pagination" style="margin-top:8px">
+        <button class="btn small" data-act="fin-prev" ${led.page <= 1 ? 'disabled' : ''}>← Prev</button>
+        <span class="hint">Page ${esc(led.page)} of ${esc(led.pages)} · ${esc(led.total)} row(s)</span>
+        <button class="btn small" data-act="fin-next" ${led.page >= led.pages ? 'disabled' : ''}>Next →</button>
+      </div>
+    </div>`;
+
+  const customForm = $('#fin-custom');
+  if (customForm) {
+    customForm.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const fd = new FormData(customForm);
+      window.location.hash = hashFor({ preset: 'custom', from: fd.get('from'), to: fd.get('to'), page: 1 });
+    });
+  }
+  const addForm = $('#fin-add');
+  if (addForm) {
+    addForm.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const fd = new FormData(addForm);
+      const msg = $('#fin-add-msg');
+      try {
+        await api.financeAddExpense({
+          date: fd.get('date'),
+          category: fd.get('category'),
+          label: fd.get('label'),
+          amount: Number(fd.get('amount')),
+          note: fd.get('note') || undefined,
+        });
+        toast('Expense added', 'ok');
+        navigate();
+      } catch (e) {
+        if (msg) msg.textContent = e.message || 'Could not add the expense.';
+      }
+    });
+  }
+  const filter = $('#fin-filter');
+  if (filter) {
+    filter.addEventListener('change', () => {
+      window.location.hash = hashFor({ category: filter.value, page: 1 });
+    });
+  }
+  const csvBtn = $('#fin-csv');
+  if (csvBtn) {
+    csvBtn.addEventListener('click', async () => {
+      try {
+        const headers = { 'Content-Type': 'application/json' };
+        const ws = api.getWorkspaceId();
+        if (ws) headers['X-Workspace-Id'] = String(ws);
+        const qs = new URLSearchParams(periodQ);
+        if (state.category) qs.set('category', state.category);
+        const res = await fetch(`/api/v1/admin-area/finance/export.csv?${qs.toString()}`, {
+          credentials: 'include',
+          headers,
+        });
+        if (!res.ok) throw new Error(`Export failed (${res.status})`);
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `bitpype-finance-${period.from}-to-${period.to}.csv`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      } catch (e) {
+        toast(e.message || 'Export failed', 'err');
+      }
+    });
+  }
+  view.querySelectorAll('[data-act="fin-del"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!window.confirm('Delete this expense entry? This cannot be undone.')) return;
+      try {
+        await api.financeDeleteExpense(btn.getAttribute('data-id'));
+        toast('Expense deleted', 'ok');
+        navigate();
+      } catch (e) {
+        toast(e.message || 'Delete failed', 'err');
+      }
+    });
+  });
+  const prev = view.querySelector('[data-act="fin-prev"]');
+  if (prev) prev.addEventListener('click', () => (window.location.hash = hashFor({ page: state.page - 1 })));
+  const next = view.querySelector('[data-act="fin-next"]');
+  if (next) next.addEventListener('click', () => (window.location.hash = hashFor({ page: state.page + 1 })));
+}
+
 const PAGES = {
   dashboard: pageDashboard,
   leads: pageLeads,
@@ -9739,6 +9995,7 @@ const PAGES = {
   mcp: pageMcp,
   settings: pageSettings,
   billing: pageBilling,
+  finance: pageFinance,
   admin: pageAdmin,
 };
 

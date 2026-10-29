@@ -1944,4 +1944,49 @@ router.post(
   }
 );
 
+// ---------- Finance dashboard (Batch 49) ----------
+router.get('/admin-area/finance/summary', denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, domain.financeSummary(req.auth.workspaceId, req.query));
+  } catch (e) {
+    fail(res, e, e.code === 'INVALID' ? 422 : 500);
+  }
+});
+router.get('/admin-area/finance/ledger', denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, domain.financeLedger(req.auth.workspaceId, req.query));
+  } catch (e) {
+    fail(res, e, e.code === 'INVALID' ? 422 : 500);
+  }
+});
+router.get('/admin-area/finance/export.csv', denyLeadScopedToken, (req, res) => {
+  try {
+    const out = domain.financeCsv(req.auth.workspaceId, req.query);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${out.filename}"`);
+    res.send(out.csv);
+  } catch (e) {
+    fail(res, e, e.code === 'INVALID' ? 422 : 500);
+  }
+});
+router.post('/admin-area/finance/expenses', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, domain.financeAddExpense(req.auth.workspaceId, req.body || {}, req.auth.userId));
+  } catch (e) {
+    fail(res, e, e.code === 'INVALID' ? 422 : 400);
+  }
+});
+router.delete(
+  '/admin-area/finance/expenses/:id',
+  requireRole('owner', 'admin'),
+  denyLeadScopedToken,
+  (req, res) => {
+    try {
+      ok(res, domain.financeDeleteExpense(req.auth.workspaceId, Number(req.params.id)));
+    } catch (e) {
+      fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+    }
+  }
+);
+
 module.exports = router;
