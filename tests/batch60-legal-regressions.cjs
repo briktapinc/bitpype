@@ -626,6 +626,14 @@ async function renewalChecks() {
     assert.equal(byDomain['sweep-manual.example'].workspaceId, 12);
   });
 
+  // D12 — registrar list page size stays within the API's cap (the
+  // deploy-day reconcile found per_page=100 is a 400; max is 50).
+  check('D12 registrar list uses per_page=50 (API cap)', () => {
+    const src = fs.readFileSync(path.join(root, 'src/cfDomains.js'), 'utf8');
+    assert.ok(src.includes("per_page: '50'"), 'listRegistrations must page at 50');
+    assert.ok(!src.includes("per_page: '100'"), 'per_page 100 is rejected by the Registrar API');
+  });
+
   // D11 — a requested manual renewal is observed complete when the
   // registrar expiry moves past the recorded pre-renewal expiry.
   const db11 = renewalDb('renewed.example', {

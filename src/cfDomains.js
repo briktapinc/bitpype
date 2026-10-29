@@ -416,7 +416,9 @@ async function listRegistrations(db) {
     const domains = [];
     let cursor = null;
     for (let page = 0; page < 10; page++) {
-      const params = new URLSearchParams({ per_page: '100' });
+      // Cloudflare caps per_page at 50 on this endpoint (a 100 ask is
+      // a 400 — found live at the Batch 60 deploy reconcile).
+      const params = new URLSearchParams({ per_page: '50' });
       if (cursor) params.set('cursor', cursor);
       const resp = await apiRequest({
         method: 'GET',
