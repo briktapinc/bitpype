@@ -2659,7 +2659,7 @@ async function pageLeadDetail(id, query) {
 
     dr.title.textContent = lead.business_name || 'Lead #' + id;
     dr.body.innerHTML = `
-      <div class="inline" style="margin:10px 0 0">
+      <div class="inline lead-actions">
         <button class="btn small" data-act="score">Score</button>
         <button class="btn small" data-act="qualify">Qualify</button>
         <button class="btn small" data-act="research">Research</button>

@@ -1443,6 +1443,14 @@ details[open] > summary {
   letter-spacing: 0.08em;
   color: var(--coral);
 }
+/* Batch 81 — the lead page's top action row (Score / Qualify /
+   Research / … / Delete) sat flush against the first card: the row
+   carried no bottom margin and .lead-page sections carry no top
+   margin. Give the row the same 18px rhythm the cards use between
+   each other, so the buttons never touch the card below them. */
+.lead-page .lead-actions {
+  margin: 10px 0 18px;
+}
 @media (max-width: 700px) {
   .lead-page section {
     padding: 18px 16px;
