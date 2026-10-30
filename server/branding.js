@@ -112,7 +112,22 @@ async function refreshBranding() {
   } catch {
     /* keep the previous cache (defaults on first boot) */
   }
+  lastRefreshAt = Date.now();
   return { ...cache };
+}
+
+let lastRefreshAt = 0;
+
+/**
+ * Throttled refresh for request paths: an out-of-process write (a
+ * settings import, a second instance, a proof script) converges into
+ * this process's cache within a few seconds instead of only at the
+ * next in-process write or reboot. At most one store read per
+ * interval; failures keep the previous cache.
+ */
+async function refreshBrandingIfStale(maxAgeMs = 5000) {
+  if (Date.now() - lastRefreshAt < maxAgeMs) return { ...cache };
+  return refreshBranding();
 }
 
 function brandingState() {
@@ -192,6 +207,7 @@ module.exports = {
   customLogoPath,
   customLogoFile,
   refreshBranding,
+  refreshBrandingIfStale,
   brandingState,
   sniffLogoMime,
   saveLogo,

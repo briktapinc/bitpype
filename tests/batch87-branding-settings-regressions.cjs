@@ -136,7 +136,8 @@ function partA() {
     const serverJs = read('server.js');
     assert.ok(serverJs.includes("app.get('/brand/logo-white.png'"), 'dark brand URL intercepted');
     assert.ok(serverJs.includes("'/brand/logo-black.png', '/brand/logo-email.png'"), 'light brand URLs intercepted');
-    assert.ok(serverJs.includes("require('./server/branding').tagline()"), 'shell tagline comes from the branding cache');
+    assert.ok(serverJs.includes('branding.tagline()'), 'shell tagline comes from the branding cache');
+    assert.ok(serverJs.includes('refreshBrandingIfStale'), 'request paths converge out-of-process writes within seconds');
     assert.ok(serverJs.includes('refreshBranding'), 'branding cache primed at boot');
     const authRoutes = read('server/routes/auth.js');
     assert.ok(authRoutes.includes('tagline'), '/auth/config carries the tagline');

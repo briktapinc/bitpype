@@ -105,7 +105,9 @@ router.get('/config', async (_req, res, next) => {
     // (production-regressions' strict require map) get the default.
     let tagline = 'Local business desk';
     try {
-      tagline = require('../branding').tagline();
+      const branding = require('../branding');
+      await branding.refreshBrandingIfStale();
+      tagline = branding.tagline();
     } catch {
       /* default tagline */
     }

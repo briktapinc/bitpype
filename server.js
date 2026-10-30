@@ -492,10 +492,12 @@ app.get('/ws', mcpHandler);
 // the static default below, untouched. Headers mirror the /brand
 // static mount (email proxies read these cross-origin).
 function serveCustomBrandLogo(variant) {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     let custom = null;
     try {
-      custom = require('./server/branding').customLogoFile(variant);
+      const branding = require('./server/branding');
+      await branding.refreshBrandingIfStale();
+      custom = branding.customLogoFile(variant);
     } catch {
       custom = null;
     }
@@ -845,7 +847,7 @@ app.get(['/solo', '/solo/'], (_req, res) => {
 });
 app.get('/solo.html', (_req, res) => sendSoloPage(res));
 
-app.get(['/app', '/app/'], (_req, res) => {
+app.get(['/app', '/app/'], async (_req, res) => {
   // Batch 87: the sidebar brand block renders the Admin-configured
   // tagline (Admin → Settings → Branding). Serve-time substitution on
   // the cached shell file, mirroring sendTemplatedPage; any failure
@@ -853,7 +855,9 @@ app.get(['/app', '/app/'], (_req, res) => {
   try {
     const raw = readTemplatedPage('index.html');
     if (raw == null) throw new Error('shell unreadable');
-    const tagline = require('./server/branding').tagline();
+    const branding = require('./server/branding');
+    await branding.refreshBrandingIfStale();
+    const tagline = branding.tagline();
     const esc = String(tagline)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
