@@ -129,6 +129,12 @@ a {
   gap: 10px;
   padding: 4px 8px 8px;
 }
+.brand-logo {
+  display: block;
+  height: 36px;
+  width: auto;
+  margin-bottom: 3px;
+}
 .brand-mark {
   width: 36px;
   height: 36px;

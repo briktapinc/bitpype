@@ -20,6 +20,7 @@
   header{background:linear-gradient(160deg,#FFFDF7 0%,#F7ECD4 58%,#F3E3C2 100%);border-bottom:3px solid var(--ink);padding:26px 0 58px}
   .brand{display:flex;align-items:center;gap:12px;font-weight:800;font-size:22px}
   .brand .mark{width:42px;height:42px;border-radius:12px;background:var(--ink);color:#FAE02E;display:flex;align-items:center;justify-content:center;font-family:'Fraunces',serif;font-weight:800;font-size:24px;border:2px solid var(--ink);box-shadow:3px 3px 0 var(--gold)}
+  .brand .markimg{width:42px;height:42px;display:block;flex:0 0 auto}
   .brand small{display:block;font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.14em;text-transform:uppercase}
   .hero{margin-top:46px;max-width:780px}
   .kicker{display:inline-block;background:var(--ink);color:#FAE02E;font-weight:700;font-size:13px;letter-spacing:.16em;text-transform:uppercase;padding:7px 14px;border-radius:999px}
@@ -66,12 +67,15 @@
   footer p{color:#CBBFA9;font-size:15px;max-width:620px;margin-top:12px}
   @media print{.card,table,.checklist,.callout{box-shadow:none}section{padding-top:26px}}
 </style>
+  <link rel="icon" href="/brand/favicon.ico" sizes="any" />
+  <link rel="icon" type="image/png" href="/brand/favicon.png" />
+  <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" />
 </head>
 <body>
 
 <header>
   <div class="wrap">
-    <div class="brand"><span class="mark">B</span><span>BitPype<small>Websites that book appointments</small></span></div>
+    <div class="brand"><img class="markimg" src="/brand/logo-icon.png" alt="" /><span>BitPype<small>Websites that book appointments</small></span></div>
     <div class="hero">
       <span class="kicker">Client Onboarding Pack</span>
       <h1>Welcome aboard. Here's how we get you <em>live &amp; ringing.</em></h1>
@@ -159,7 +163,7 @@
 
 <footer>
   <div class="wrap">
-    <div class="brand"><span class="mark">B</span><span>BitPype<small style="color:#CBBFA9">Websites that book appointments</small></span></div>
+    <div class="brand"><img class="markimg" src="/brand/logo-icon.png" alt="" /><span>BitPype<small style="color:#CBBFA9">Websites that book appointments</small></span></div>
     <p>The BitPype Client Onboarding Pack. Pairs with the BitPype portal tutorial video — keep both handy during your first month.</p>
   </div>
 </footer>

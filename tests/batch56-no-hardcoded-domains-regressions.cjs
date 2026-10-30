@@ -201,7 +201,7 @@ check('links: with public_url=https://example.test, claim + interest + email lin
     assert.ok(anchor.includes('https://example.test/'), 'interest anchor on configured host');
     assert.ok(!anchor.includes('bitpype.com'), 'interest anchor carries no hardcoded domain');
     assert.equal(emailTemplate.siteUrl(), 'https://example.test');
-    assert.equal(emailTemplate.LOGO_URL, 'https://example.test/brand/bitpype-mark.svg');
+    assert.equal(emailTemplate.LOGO_URL, 'https://example.test/brand/logo-email.png');
   } finally {
     restoreResolver();
   }
@@ -213,7 +213,7 @@ check('links: production-shaped config reproduces todays links byte-for-byte (ho
     setEnv('https://bitpype.com');
     const claim = claimKit.buildClaimUrl(1, 2);
     assert.ok(claim.startsWith('https://bitpype.com/'), `claim URL keeps production host: ${claim}`);
-    assert.equal(emailTemplate.LOGO_URL, 'https://bitpype.com/brand/bitpype-mark.svg');
+    assert.equal(emailTemplate.LOGO_URL, 'https://bitpype.com/brand/logo-email.png');
   } finally {
     restoreResolver();
   }

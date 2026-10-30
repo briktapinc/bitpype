@@ -20,7 +20,7 @@ function siteUrl() {
 function logoUrl() {
   if (process.env.BITPYPE_EMAIL_LOGO_URL) return process.env.BITPYPE_EMAIL_LOGO_URL;
   const base = siteUrl();
-  return base ? `${base}/brand/bitpype-mark.svg` : '/brand/bitpype-mark.svg';
+  return base ? `${base}/brand/logo-email.png` : '/brand/logo-email.png';
 }
 function siteHostLabel() {
   const base = siteUrl();
@@ -188,20 +188,11 @@ function renderBrandedEmail(opts = {}) {
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;">
           <tr>
             <td style="padding:0 4px 18px;">
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
-                <tr>
-                  <td width="40" height="40" style="width:40px;height:40px;border-radius:10px;background:${COLORS.markBg};vertical-align:middle;">
-                    <a href="${escapeHtml(siteUrl())}" style="text-decoration:none;">
-                      <img src="${escapeHtml(logoUrl())}" width="40" height="40" alt="Bitpype"
-                           style="display:block;width:40px;height:40px;border:0;border-radius:10px;">
-                    </a>
-                  </td>
-                  <td style="padding-left:12px;vertical-align:middle;">
-                    <div style="font-family:Segoe UI,Helvetica Neue,Arial,sans-serif;font-size:17px;font-weight:700;letter-spacing:-0.02em;color:${COLORS.ink};">Bitpype</div>
-                    <div style="font-family:Segoe UI,Helvetica Neue,Arial,sans-serif;font-size:12px;color:${COLORS.muted};">Local business desk</div>
-                  </td>
-                </tr>
-              </table>
+              <a href="${escapeHtml(siteUrl())}" style="text-decoration:none;">
+                <img src="${escapeHtml(logoUrl())}" width="180" height="39" alt="Bitpype"
+                     style="display:block;width:180px;height:39px;border:0;">
+              </a>
+              <div style="font-family:Segoe UI,Helvetica Neue,Arial,sans-serif;font-size:12px;color:${COLORS.muted};margin-top:7px;">Local business desk</div>
             </td>
           </tr>
           <tr>
