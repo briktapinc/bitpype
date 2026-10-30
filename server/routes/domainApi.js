@@ -347,6 +347,69 @@ router.get('/leads/:id/claim-kit', scopeLeadParam, async (req, res) => {
     fail(res, e, 500);
   }
 });
+/* Batch 74 — per-lead onboarding checklist (staff only). Reads and
+ * writes alike carry the admin-area guard chain (owner/admin session,
+ * lead-scoped tokens denied): the checklist is internal ops state, and
+ * portal/lead tokens must never tick it. All items are OPTIONAL —
+ * these routes only record ticks; nothing anywhere gates on them. */
+function onboardingActor(req) {
+  return {
+    id: req.auth && req.auth.userId != null ? Number(req.auth.userId) : null,
+    email: (req.sessionUser && req.sessionUser.email) || null,
+  };
+}
+router.get(
+  '/leads/:id/onboarding',
+  requireRole('owner', 'admin'),
+  denyLeadScopedToken,
+  (req, res) => {
+    try {
+      ok(res, domain.leadOnboardingGet(req.auth.workspaceId, Number(req.params.id)));
+    } catch (e) {
+      fail(res, e);
+    }
+  }
+);
+router.put(
+  '/leads/:id/onboarding/:key',
+  requireRole('owner', 'admin'),
+  denyLeadScopedToken,
+  (req, res) => {
+    try {
+      const done = !!(req.body && req.body.done);
+      ok(
+        res,
+        domain.leadOnboardingSet(req.auth.workspaceId, Number(req.params.id), req.params.key, done, onboardingActor(req))
+      );
+    } catch (e) {
+      fail(res, e);
+    }
+  }
+);
+router.post(
+  '/leads/:id/onboarding/run',
+  requireRole('owner', 'admin'),
+  denyLeadScopedToken,
+  async (req, res) => {
+    try {
+      ok(res, await domain.leadOnboardingRun(req.auth.workspaceId, Number(req.params.id)));
+    } catch (e) {
+      fail(res, e);
+    }
+  }
+);
+router.post(
+  '/leads/:id/onboarding/confirm',
+  requireRole('owner', 'admin'),
+  denyLeadScopedToken,
+  async (req, res) => {
+    try {
+      ok(res, await domain.leadOnboardingConfirm(req.auth.workspaceId, Number(req.params.id), onboardingActor(req)));
+    } catch (e) {
+      fail(res, e);
+    }
+  }
+);
 router.post('/leads/merge', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
   try {
     ok(res, { lead: domain.leadsMerge(req.auth.workspaceId, req.body.keepId, req.body.dropIds) });

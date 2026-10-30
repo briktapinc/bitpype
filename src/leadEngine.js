@@ -835,6 +835,7 @@ function deleteLead(db, id) {
     // FK) and would otherwise be left orphaned.
     drop('form_submissions');
     drop('contact_forms');
+    drop('lead_onboarding_items');
     drop('ai_usage');
     drop('design_learning_events');
     drop('business_facts');

@@ -2036,6 +2036,119 @@ async function openQueueSmsModal(leadId) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Onboarding checklist (Batch 74) — lead drawer section.            */
+/* The 12-item onboarding run sheet as plain ticks: every item is     */
+/* optional, nothing gates on it. "Run checklist" asks the server     */
+/* what the data can prove (pass / not yet / needs your eyes);         */
+/* Confirm applies ONLY the passes, server re-verified.               */
+/* ------------------------------------------------------------------ */
+
+function onboardingVerdictBadge(verdict) {
+  return (
+    {
+      pass: '<span class="badge ok">auto-pass</span>',
+      fail: '<span class="badge err">not yet</span>',
+      manual: '<span class="badge warn">needs your eyes</span>',
+    }[verdict] || ''
+  );
+}
+
+async function loadLeadOnboarding(dr, leadId) {
+  const host = () => $('#ld-onboarding', dr.el);
+  if (!host()) return;
+  let state;
+  try {
+    state = (await api.leadOnboarding(leadId)).data;
+  } catch (e) {
+    host().innerHTML = `<p class="error">${esc(errText(e))}</p>`;
+    return;
+  }
+  render(state, null);
+
+  function render(st, run) {
+    const el = host();
+    if (!el) return;
+    const results = run && Array.isArray(run.results) ? run.results : null;
+    const byKey = {};
+    if (results) for (const r of results) byKey[r.key] = r;
+    const doneByKey = {};
+    for (const i of st.items) doneByKey[i.key] = i.done;
+    const passUndone = results
+      ? results.filter((r) => r.verdict === 'pass' && !doneByKey[r.key]).length
+      : 0;
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px">
+        <span class="hint">Onboarding — ${st.doneCount} of ${st.total} ticked. Every item is optional; tick them as you go.</span>
+        <button class="btn small" type="button" data-onb-run>Run checklist</button>
+      </div>
+      ${st.items
+        .map((i) => {
+          const r = results ? byKey[i.key] : null;
+          return `<div>
+        <label class="pick-row"><input type="checkbox" data-onb-key="${esc(i.key)}" ${i.done ? 'checked' : ''} /><span>${i.done ? '✓ ' : ''}${esc(i.label)}</span></label>
+        ${i.done && i.doneBy ? `<div class="sub-line" style="margin-left:28px">${esc(i.doneBy)}${i.doneAt ? ' · ' + esc(fmtDate(i.doneAt)) : ''}${i.via === 'autorun' ? ' · via Run checklist' : ''}</div>` : ''}
+        ${r ? `<div class="sub-line" style="margin-left:28px">${onboardingVerdictBadge(r.verdict)} ${esc(r.detail)}</div>` : ''}
+      </div>`;
+        })
+        .join('')}
+      ${
+        results
+          ? `<div style="margin-top:10px">${
+              passUndone
+                ? `<button class="btn primary small" type="button" data-onb-confirm>Confirm — apply ${passUndone} passed check${passUndone === 1 ? '' : 's'}</button>`
+                : '<span class="hint">Nothing new to apply — the rest stay unticked for a human.</span>'
+            }</div>`
+          : ''
+      }`;
+
+    el.querySelectorAll('[data-onb-key]').forEach((box) => {
+      box.addEventListener('change', async () => {
+        box.disabled = true;
+        try {
+          const next = (await api.leadOnboardingSet(leadId, box.dataset.onbKey, box.checked)).data;
+          render(next, run);
+        } catch (e) {
+          toast(errText(e), 'err');
+          render(st, run);
+        }
+      });
+    });
+    const runBtn = el.querySelector('[data-onb-run]');
+    if (runBtn) {
+      runBtn.addEventListener('click', async () => {
+        runBtn.disabled = true;
+        runBtn.textContent = 'Checking…';
+        try {
+          const out = (await api.leadOnboardingRun(leadId)).data;
+          render(out.state || st, out);
+        } catch (e) {
+          toast(errText(e), 'err');
+          render(st, run);
+        }
+      });
+    }
+    const confirmBtn = el.querySelector('[data-onb-confirm]');
+    if (confirmBtn) {
+      confirmBtn.addEventListener('click', async () => {
+        confirmBtn.disabled = true;
+        try {
+          const out = (await api.leadOnboardingConfirm(leadId)).data;
+          toast(
+            out.appliedCount
+              ? `Applied ${out.appliedCount} passed check${out.appliedCount === 1 ? '' : 's'}`
+              : 'Nothing new passed on re-check — nothing applied',
+            'ok'
+          );
+          render(out.state, out);
+        } catch (e) {
+          toast(errText(e), 'err');
+          render(st, run);
+        }
+      });
+    }
+  }
+}
+
 /* Google Profile (Batch 46, Phase 1) — lead drawer section.          */
 /* Prefill + draft change sets work today; pushing is held at "ready" */
 /* until Google approves the Business Profile API application.        */
@@ -2597,6 +2710,9 @@ async function openLeadDrawer(id) {
             : `<p class="hint">No website yet.</p><button class="btn small" data-act="gen">Build template site</button>`
         }
       </section>
+      <section><h3>Onboarding checklist</h3>
+        <div id="ld-onboarding"><p class="hint">Loading…</p></div>
+      </section>
       <section><h3>Google Profile</h3>
         <div id="ld-gbp"><p class="hint">Loading…</p></div>
       </section>
@@ -2638,6 +2754,7 @@ async function openLeadDrawer(id) {
       </section>`;
 
     loadLeadGbp(dr, id);
+    loadLeadOnboarding(dr, id);
     if (isSoftwareLead) loadLeadHostinger(dr, id);
 
     guardSubmit($('#ld-form', dr.el), async (e) => {

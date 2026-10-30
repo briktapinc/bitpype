@@ -48,6 +48,18 @@ CREATE TABLE IF NOT EXISTS lead_events (
   at TEXT DEFAULT (datetime('now'))
 );
 
+-- Batch 74: per-lead onboarding checklist state (staff-only; a row
+-- exists only while the item is ticked done — absence = not done).
+CREATE TABLE IF NOT EXISTS lead_onboarding_items (
+  lead_id INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  item_key TEXT NOT NULL,
+  done_by TEXT,
+  done_by_id INTEGER,
+  via TEXT NOT NULL DEFAULT 'manual',
+  done_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (lead_id, item_key)
+);
+
 CREATE TABLE IF NOT EXISTS lead_scores (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   lead_id INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,

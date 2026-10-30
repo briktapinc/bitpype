@@ -193,6 +193,62 @@ function leadsDuplicates(workspaceId, id) {
     return leadEngine().findDuplicates(db, lead);
   });
 }
+/* ---------- Onboarding checklist (Batch 74) ----------
+ * Per-lead staff run sheet (server/onboardingChecklist.js owns the
+ * item definition + storage + the read-only auto-run engine). All 12
+ * items are OPTIONAL — nothing in the app gates on completion. */
+const onboardingChecklist = () => require('./onboardingChecklist');
+
+function leadOnboardingGet(workspaceId, leadId) {
+  return withDb(workspaceId, (db) => onboardingChecklist().getState(db, Number(leadId)));
+}
+
+function leadOnboardingSet(workspaceId, leadId, key, done, actor = {}) {
+  return withDb(workspaceId, (db) =>
+    onboardingChecklist().setItem(db, Number(leadId), String(key || ''), !!done, actor, 'manual')
+  );
+}
+
+async function leadOnboardingRun(workspaceId, leadId) {
+  const id = Number(leadId);
+  // The portal-account check reads the PLATFORM db (client_portal_users
+  // + its last_login_at sign-in signal). Lazy require, the idiom this
+  // file already uses for platform access. A lookup failure degrades
+  // that one item to 'manual' — never to a fake pass.
+  let portalUser = null;
+  let portalLookupFailed = false;
+  try {
+    const rows = await require('./db').query(
+      'SELECT id, email, last_login_at FROM client_portal_users WHERE workspace_id = :w AND lead_id = :l ORDER BY id ASC LIMIT 1',
+      { w: Number(workspaceId), l: id }
+    );
+    portalUser = rows && rows[0] ? rows[0] : null;
+  } catch {
+    portalLookupFailed = true;
+  }
+  return withDb(workspaceId, (db) => {
+    onboardingChecklist().assertLead(db, id);
+    const results = onboardingChecklist().evaluate(db, id, { portalUser, portalLookupFailed });
+    return { leadId: id, results, state: onboardingChecklist().getState(db, id) };
+  });
+}
+
+async function leadOnboardingConfirm(workspaceId, leadId, actor = {}) {
+  // Confirm NEVER trusts a client-submitted pass list: it re-runs the
+  // engine server-side and applies whatever passes right now.
+  const run = await leadOnboardingRun(workspaceId, leadId);
+  return withDb(workspaceId, (db) => {
+    const applied = onboardingChecklist().applyPasses(db, run.leadId, run.results, actor);
+    return {
+      leadId: run.leadId,
+      applied,
+      appliedCount: applied.length,
+      results: run.results,
+      state: onboardingChecklist().getState(db, run.leadId),
+    };
+  });
+}
+
 function leadsAddFact(workspaceId, leadId, fact) {
   return withDb(workspaceId, (db) => {
     const id = Number(leadId);
@@ -6067,6 +6123,10 @@ module.exports = {
   leadsCreate,
   leadsUpdate,
   leadsDelete,
+  leadOnboardingGet,
+  leadOnboardingSet,
+  leadOnboardingRun,
+  leadOnboardingConfirm,
   leadsReferences,
   leadsScore,
   leadsQualify,
