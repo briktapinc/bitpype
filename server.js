@@ -934,6 +934,14 @@ async function main() {
   } catch (e) {
     console.warn('[lifecycleComms] ticker not started:', e.message);
   }
+  // Batch 76: Missed-Call Rescue sweep — 60s cadence drives the
+  // ~1-minute text-back SLA, voice-escalation windows, quiet-hours
+  // deferrals and the estimate follow-up sequence.
+  try {
+    require('./server/callRescue').startRescueTicker();
+  } catch (e) {
+    console.warn('[callRescue] ticker not started:', e.message);
+  }
   try {
     require('./server/imapPoller').startImapPoller({
       intervalMs: Number(process.env.IMAP_POLL_MS || 120000),

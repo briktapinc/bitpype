@@ -2717,6 +2717,11 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
       const leadRow = db.prepare('SELECT phone FROM leads WHERE id = ?').get(Number(leadId));
       calltracking = {
         phone_number: leadRow && leadRow.phone ? String(leadRow.phone) : '',
+        // Batch 76: the owner's Missed-Call Rescue opt-in rides the
+        // same panel (the one toggle they control; engine settings
+        // stay admin-side). Lazy require — callRescue sits above
+        // siteModules/portalContacts, never the reverse at load time.
+        rescue_enabled: !!require('./callRescue').getRescueConfig(db, Number(leadId)).enabled,
         tracking_assigned: !!displayNumber,
         ...(displayNumber ? { display_number: displayNumber } : {}),
         calls: modules.listCalls(db, Number(leadId), {
@@ -3056,12 +3061,36 @@ async function saveCallTrackingConfig(workspaceId, leadId, body, clientEmail) {
   await requireSiteModules(workspaceId, clientEmail);
   const src = body || {};
   const raw = src.phone != null ? src.phone : src.phone_number != null ? src.phone_number : src.phoneNumber;
-  if (raw == null) {
+  // Batch 76: the Missed-Call Rescue toggle may ride along with the
+  // phone save, or be saved on its own — it is the second (and only
+  // other) field this endpoint accepts, whitelisted by construction
+  // exactly like the phone number.
+  const hasRescueToggle = src.rescue_enabled != null || src.rescueEnabled != null;
+  if (raw == null && !hasRescueToggle) {
     throw Object.assign(new Error('Your phone number is required.'), { code: 'VALIDATION', status: 400 });
+  }
+  if (raw == null) {
+    // Rescue-toggle-only save: no phone write at all.
+    const rescueOnly = domain.withDb(workspaceId, (db) => {
+      const callRescue = require('./callRescue');
+      const cfg = callRescue.setRescueConfig(db, Number(leadId), {
+        enabled: !!(src.rescue_enabled != null ? src.rescue_enabled : src.rescueEnabled),
+      });
+      const ct = modules.getCallTrackingConfig(db, Number(leadId));
+      return {
+        rescue_enabled: cfg.enabled,
+        tracking_assigned: !!String(ct.display_number || '').trim(),
+        twilio_number_sid: String(ct.twilio_number_sid || ''),
+      };
+    });
+    if (rescueOnly.rescue_enabled) {
+      await pointRescueSmsWebhook(workspaceId, leadId, rescueOnly.twilio_number_sid);
+    }
+    return { rescue_enabled: rescueOnly.rescue_enabled, tracking_assigned: rescueOnly.tracking_assigned };
   }
   // Garbage numbers are rejected before anything is written.
   const phone = modules.normalizeE164(raw, 'Your phone number');
-  return domain.withDb(workspaceId, (db) => {
+  const saved = await domain.withDb(workspaceId, (db) => {
     db.prepare("UPDATE leads SET phone = ?, updated_at = datetime('now') WHERE id = ?").run(
       phone,
       Number(leadId)
@@ -3087,8 +3116,47 @@ async function saveCallTrackingConfig(workspaceId, leadId, body, clientEmail) {
       };
     }
     const config = modules.updateCallTrackingConfig(db, Number(leadId), { redirect_number: phone });
-    return { phone_number: phone, tracking_assigned: !!String(config.display_number || '').trim() };
+    return {
+      phone_number: phone,
+      tracking_assigned: !!String(config.display_number || '').trim(),
+      twilio_number_sid: String(config.twilio_number_sid || ''),
+    };
   });
+  // Batch 76: apply the rescue toggle when it rode along, then (on
+  // enable) point the tracking number's SMS webhook at the rescue
+  // route — best-effort, exactly like the voice-webhook assignment.
+  if (hasRescueToggle) {
+    const enabled = domain.withDb(workspaceId, (db) =>
+      require('./callRescue').setRescueConfig(db, Number(leadId), {
+        enabled: !!(src.rescue_enabled != null ? src.rescue_enabled : src.rescueEnabled),
+      }).enabled
+    );
+    saved.rescue_enabled = enabled;
+    if (enabled) await pointRescueSmsWebhook(workspaceId, leadId, saved.twilio_number_sid);
+  }
+  return saved;
+}
+
+/**
+ * Batch 76: when Missed-Call Rescue is switched on for a lead whose
+ * tracking number we manage, point that number's Twilio SMS webhook
+ * at this workspace's rescue SMS route so caller replies reach the
+ * conversation. Best-effort by design (same posture as the voice
+ * webhook assignment in adminSaveCallTrackingConfig): a Twilio-side
+ * failure is logged, never rolled back into the owner's save.
+ */
+async function pointRescueSmsWebhook(workspaceId, leadId, numberSid) {
+  const sid = String(numberSid || '').trim();
+  if (!sid) return { skipped: 'no_number_sid' };
+  try {
+    const { appUrl } = require('./stripeClient');
+    const smsUrl = `${String(appUrl() || '').replace(/\/$/, '')}/api/v1/calls/sms/${Number(workspaceId)}`;
+    const res = await require('./twilioClient').setNumberSmsUrl({ sid, smsUrl, workspaceId });
+    return res && res.configured ? { set: true } : { skipped: 'twilio_not_configured' };
+  } catch (e) {
+    console.warn('[clientPortal] rescue SMS webhook set failed for lead', leadId, e && e.message);
+    return { failed: true };
+  }
 }
 
 /* AI SEO tool (Batch 22): the owner runs the same proposal flow staff

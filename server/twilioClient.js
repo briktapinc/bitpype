@@ -208,6 +208,82 @@ async function setNumberVoiceUrl({ sid, voiceUrl, workspaceId } = {}) {
 }
 
 /**
+ * Send an SMS from an arbitrary account number (Batch 76 — Missed-Call
+ * Rescue texts come FROM the site's tracking number, not the workspace
+ * SMS from-number, so src/sms.js's provider cannot be used). Returns
+ * { configured:false } when no credentials resolve; throws TWILIO_ERROR
+ * on a Twilio failure so callers can record the failed attempt.
+ */
+async function sendSms({ from, to, body, workspaceId } = {}) {
+  const creds = await getCredentials({ workspaceId });
+  if (!creds.accountSid || !creds.authToken) return { configured: false };
+  const data = await twilioJson(creds, `/Accounts/${encodeURIComponent(creds.accountSid)}/Messages.json`, {
+    method: 'POST',
+    form: { From: String(from || ''), To: String(to || ''), Body: String(body || '') },
+  });
+  return { configured: true, sid: String((data && data.sid) || ''), status: String((data && data.status) || '') };
+}
+
+/**
+ * Originate an outbound voice call (Batch 76 — the rescue voice
+ * callback). `url` is the TwiML URL Twilio fetches when the callee
+ * answers. Returns { configured:false } when dormant; throws
+ * TWILIO_ERROR on failure.
+ */
+async function createCall({ from, to, url, statusCallback, workspaceId } = {}) {
+  const creds = await getCredentials({ workspaceId });
+  if (!creds.accountSid || !creds.authToken) return { configured: false };
+  const form = {
+    From: String(from || ''),
+    To: String(to || ''),
+    Url: String(url || ''),
+    Method: 'POST',
+  };
+  if (statusCallback) {
+    form.StatusCallback = String(statusCallback);
+    form.StatusCallbackMethod = 'POST';
+  }
+  const data = await twilioJson(creds, `/Accounts/${encodeURIComponent(creds.accountSid)}/Calls.json`, {
+    method: 'POST',
+    form,
+  });
+  return { configured: true, sid: String((data && data.sid) || ''), status: String((data && data.status) || '') };
+}
+
+/**
+ * Point an owned number's SMS webhook at a URL (Batch 76: when rescue
+ * is enabled for a lead, the tracking number's SmsUrl goes to the
+ * rescue inbound-SMS route so caller replies reach the conversation).
+ * Throws (TWILIO_ERROR) on Twilio failure — callers treat it as
+ * best-effort and report, never roll back the opt-in.
+ */
+async function setNumberSmsUrl({ sid, smsUrl, workspaceId } = {}) {
+  const creds = await getCredentials({ workspaceId });
+  if (!creds.accountSid || !creds.authToken) return { configured: false };
+  const numberSid = String(sid || '').trim();
+  if (!numberSid) {
+    const err = new Error('A Twilio number SID is required to set its SMS webhook.');
+    err.code = 'VALIDATION';
+    err.status = 400;
+    throw err;
+  }
+  const data = await twilioJson(
+    creds,
+    `/Accounts/${encodeURIComponent(creds.accountSid)}/IncomingPhoneNumbers/${encodeURIComponent(numberSid)}.json`,
+    {
+      method: 'POST',
+      form: { SmsUrl: String(smsUrl || ''), SmsMethod: 'POST' },
+    }
+  );
+  return {
+    configured: true,
+    phoneNumber: String((data && data.phone_number) || ''),
+    sid: String((data && data.sid) || numberSid),
+    smsUrl: String((data && data.sms_url) || smsUrl || ''),
+  };
+}
+
+/**
  * Fetch a recording's media bytes with the platform credentials
  * (Twilio recording URLs require account auth). Asks for MP3.
  */
@@ -300,6 +376,9 @@ module.exports = {
   purchaseNumber,
   listOwnedNumbers,
   setNumberVoiceUrl,
+  sendSms,
+  createCall,
+  setNumberSmsUrl,
   fetchRecordingMedia,
   validateSignature,
   transcribeRecording,

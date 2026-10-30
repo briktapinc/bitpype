@@ -5644,7 +5644,12 @@
         data.tracking_assigned
           ? '<p class="hint" style="margin-top:8px">Call forwarding is active — a BitPype tracking number routes your website calls to this phone, and every call is logged below.</p>'
           : '<p class="hint" style="margin-top:8px">Save your number and we will finish setting up call forwarding for your site.</p>'
-      }`;
+      }
+      <div class="field" style="margin-top:14px"><label style="display:flex;gap:8px;align-items:flex-start;font-weight:600">
+        <input type="checkbox" id="calltracking-rescue-enabled" ${data.rescue_enabled ? 'checked' : ''} style="margin-top:3px" />
+        <span>Missed-Call Rescue — never lose a job to a missed call</span></label>
+        <p class="hint" style="margin-top:6px">When a call to your website number is missed, we text the caller back within about a minute and can book the job straight into your appointments. If they don't reply, we call them. It also follows up on open estimates. Rescue only runs while call tracking is set up on your site.</p>
+      </div>`;
     host.innerHTML = `
       <h3>Call Tracking</h3>
       <p class="hint">Your site shows your phone number as its call button. Calls ring your phone — and every call is logged here.</p>
@@ -7998,12 +8003,18 @@
       if (ev.target && ev.target.id === 'btn-calltracking-phone-save') {
         // Batch 25c: the client saves ONLY their phone number — the
         // endpoint ignores everything else by construction.
+        // Batch 76: the Missed-Call Rescue toggle is the one other
+        // whitelisted field that may ride along with this save.
         const node = document.getElementById('calltracking-phone-number');
+        const rescueNode = document.getElementById('calltracking-rescue-enabled');
         moduleMsg('Saving your number…', true);
         try {
           await api('/modules/calltracking/config', {
             method: 'PUT',
-            body: JSON.stringify({ phone: node ? node.value : '' }),
+            body: JSON.stringify({
+              phone: node ? node.value : '',
+              rescue_enabled: rescueNode ? !!rescueNode.checked : undefined,
+            }),
           });
           moduleMsg('Your number is saved — it shows on your site and your calls forward to it.', true);
           await loadModuleItems();

@@ -5914,6 +5914,33 @@ async function adminSaveCallTrackingConfig(workspaceId, body = {}) {
       }
     }
   }
+  // Batch 76: Missed-Call Rescue engine settings are admin-side (the
+  // portal owner controls only the on/off toggle). Any rescue_* keys
+  // in the save body land in call_rescue_configs via the engine's own
+  // whitelist; the shaped config rides the response either way.
+  const hasRescueKeys = [
+    'rescue_enabled',
+    'rescueEnabled',
+    'rescue_reply_window_minutes',
+    'rescueReplyWindowMinutes',
+    'rescue_quiet_start',
+    'rescueQuietStart',
+    'rescue_quiet_end',
+    'rescueQuietEnd',
+  ].some((k) => body[k] != null);
+  const rescue = withDb(workspaceId, (db) => {
+    const callRescue = require('./callRescue');
+    if (hasRescueKeys) {
+      callRescue.setRescueConfig(db, id, {
+        enabled: body.rescue_enabled != null ? body.rescue_enabled : body.rescueEnabled,
+        reply_window_minutes:
+          body.rescue_reply_window_minutes != null ? body.rescue_reply_window_minutes : body.rescueReplyWindowMinutes,
+        quiet_start: body.rescue_quiet_start != null ? body.rescue_quiet_start : body.rescueQuietStart,
+        quiet_end: body.rescue_quiet_end != null ? body.rescue_quiet_end : body.rescueQuietEnd,
+      });
+    }
+    return callRescue.getRescueConfig(db, id);
+  });
   return {
     config: saved.config,
     rotation: {
@@ -5923,6 +5950,7 @@ async function adminSaveCallTrackingConfig(workspaceId, body = {}) {
     webhook_results: webhookResults,
     lead_phone: leadRow.phone || '',
     plan,
+    rescue,
   };
 }
 

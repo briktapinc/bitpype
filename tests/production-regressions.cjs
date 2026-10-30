@@ -12,6 +12,16 @@ const portalTabs = require(path.join(root, 'server/portalTabs.js'));
 const apiErrors = require(path.join(root, 'server/apiErrors.js')); // Batch 54: route files require it; VM mocks hand them the real module
 const results = [];
 function check(name, fn) { fn(); results.push(name); }
+// Batch 76: the missed-call rescue engine is required (lazily) by
+// routes/calls.js and clientPortal.js; VM loads get an inert stub —
+// the engine itself is pinned by batch76's own regression file.
+const callRescueStub = {
+  getRescueConfig: () => ({ enabled: false, reply_window_minutes: 10, quiet_start: '21:00', quiet_end: '08:00' }),
+  setRescueConfig: () => ({ enabled: false }),
+  maybeCreateRescue: async () => ({ created: false, reason: 'stubbed' }),
+  handleInboundSms: async () => ({ handled: false }),
+  handleVoiceInput: async () => '<Response/>',
+};
 function load(file, mocks) {
   const module = { exports: {} };
   vm.runInNewContext(fs.readFileSync(path.join(root, file), 'utf8'), {
@@ -20,6 +30,7 @@ function load(file, mocks) {
       // Batch 54: route files require the shared error shaper; it is a
       // dependency-free leaf, so VM loads get the real module.
       if (name === '../apiErrors') return apiErrors;
+      if (name === '../callRescue' || name === './callRescue') return callRescueStub;
       if (!name.startsWith('.')) return require(name);
       throw new Error('Unexpected dependency: ' + name);
     }, process: { env: {} }, console, Buffer, URL, Date, setTimeout, clearTimeout,
@@ -2334,6 +2345,7 @@ async function main() {
       },
     },
     '../stripeClient': { appUrl: () => 'https://example.test' },
+    '../rateLimit': { rateLimit: () => ((_req, _res, next) => next()) },
   });
   function fakeRes21() {
     return {
@@ -5395,6 +5407,7 @@ async function main() {
       transcribeCallRecording: async () => ({ ok: false, reason: 'route_stub' }),
     },
     '../stripeClient': { appUrl: () => 'https://example.test' },
+    '../rateLimit': { rateLimit: () => ((_req, _res, next) => next()) },
   });
   function fakeRes26c() {
     return {
@@ -6328,6 +6341,7 @@ async function main() {
     '../callNotify': { notifyCallByEmail: async () => ({ sent: false }) },
     '../callBilling': { settleCallBilling: async () => ({}), transcribeCallRecording: async () => ({ ok: false }) },
     '../stripeClient': { appUrl: () => 'https://example.test' },
+    '../rateLimit': { rateLimit: () => ((_req, _res, next) => next()) },
   });
   db.prepare('INSERT INTO leads (id, business_name, email) VALUES (?, ?, ?)').run(2765, 'Fixture R4 Calls', 'r4@example.invalid');
   const fakeResR4 = () => ({
@@ -6407,6 +6421,7 @@ async function main() {
     '../callNotify': { notifyCallByEmail: async () => ({ sent: false }) },
     '../callBilling': { settleCallBilling: async () => ({}), transcribeCallRecording: async () => ({ ok: false }) },
     '../stripeClient': { appUrl: () => 'https://example.test' },
+    '../rateLimit': { rateLimit: () => ((_req, _res, next) => next()) },
   });
   const fakeResR5 = () => ({
     statusCode: 200, headers: {}, body: null,

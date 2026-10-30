@@ -30,6 +30,11 @@ const { assertWorkspaceExists } = require('../workspaceExists');
 const twilioClient = require('../twilioClient');
 const callBilling = require('../callBilling');
 const callNotify = require('../callNotify');
+const { rateLimit } = require('../rateLimit');
+// Missed-Call Rescue (Batch 76) is required lazily at the call sites,
+// same pattern as the voicemail flow below.
+const smsWebhookLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 300, name: 'twilio-sms-webhook' });
+const rescueVoiceLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 300, name: 'twilio-rescue-voice' });
 // Voicemail flow (Batch 26c) is required lazily at the recording
 // branch — same pattern as the rentals settle below — so this router
 // keeps loading in contexts that stub only the original seams.
@@ -177,6 +182,16 @@ router.post('/status/:workspaceId/:leadId', async (req, res) => {
       }
       // One notification email per call (addendum #4): background too.
       Promise.resolve(callNotify.notifyCallByEmail(ids.workspaceId, ids.leadId, row.call_sid)).catch(() => {});
+      // Missed-Call Rescue (Batch 76): a terminal MISSED call on a
+      // rescue-enabled call-tracking site opens exactly one rescue
+      // (the engine re-checks miss + eligibility + suppression).
+      try {
+        Promise.resolve(
+          require('../callRescue').maybeCreateRescue(ids.workspaceId, ids.leadId, row.call_sid)
+        ).catch(() => {});
+      } catch {
+        /* rescue unavailable — call flow unaffected */
+      }
     }
     if (row && row.recording_url) maybeTranscribe(ids.workspaceId, ids.leadId, row);
     // Voicemail (Batch 26c): this route is the <Dial> action callback.
@@ -249,6 +264,62 @@ router.post('/recording/:workspaceId/:leadId', async (req, res) => {
     console.warn('[calls] recording webhook failed:', e.message || e);
   }
   return res.type('text/xml').send(EMPTY_TWIML);
+});
+
+/**
+ * Missed-Call Rescue (Batch 76) — inbound SMS on a tracking number.
+ * Twilio posts { From, To, Body, MessageSid }; the engine resolves
+ * the lead from the dialed tracking number, honors STOP before
+ * anything else, and advances the rescue conversation. Replies are
+ * delivered by the engine over the same number. Signature rules are
+ * identical to the voice webhooks (dormant mode skips, configured
+ * mode hard-403s a bad signature).
+ */
+router.post('/sms/:workspaceId', smsWebhookLimit, async (req, res) => {
+  const workspaceId = Number(req.params.workspaceId);
+  if (!Number.isInteger(workspaceId) || workspaceId <= 0) return res.type('text/xml').send(EMPTY_TWIML);
+  const sig = await checkSignature(req);
+  if (!sig.ok) return res.status(403).type('text/plain').send('Invalid Twilio signature');
+  if (!(await workspaceExists(workspaceId))) return res.type('text/xml').send(EMPTY_TWIML);
+  try {
+    await require('../callRescue').handleInboundSms(workspaceId, {
+      from: req.body && req.body.From,
+      to: req.body && req.body.To,
+      body: req.body && req.body.Body,
+      messageSid: req.body && req.body.MessageSid,
+    });
+  } catch (e) {
+    console.warn('[calls] rescue sms webhook failed:', e.message || e);
+  }
+  return res.type('text/xml').send(EMPTY_TWIML);
+});
+
+/**
+ * Missed-Call Rescue (Batch 76) — the voice callback's TwiML route.
+ * Twilio fetches this when the callee answers (no input → prompt for
+ * the conversation's current stage) and posts each Gather result
+ * back here. The engine carries the conversation state, so the call
+ * never re-asks what the texts already collected.
+ */
+router.post('/rescue-voice/:workspaceId/:rescueId', rescueVoiceLimit, async (req, res) => {
+  const workspaceId = Number(req.params.workspaceId);
+  const rescueId = Number(req.params.rescueId);
+  if (!Number.isInteger(workspaceId) || workspaceId <= 0 || !Number.isInteger(rescueId) || rescueId <= 0) {
+    return res.type('text/xml').send(HANGUP_TWIML);
+  }
+  const sig = await checkSignature(req);
+  if (!sig.ok) return res.status(403).type('text/plain').send('Invalid Twilio signature');
+  if (!(await workspaceExists(workspaceId))) return res.type('text/xml').send(HANGUP_TWIML);
+  try {
+    const twiml = await require('../callRescue').handleVoiceInput(workspaceId, rescueId, {
+      digits: req.body && req.body.Digits,
+      speech: req.body && req.body.SpeechResult,
+    });
+    return res.type('text/xml').send(twiml || HANGUP_TWIML);
+  } catch (e) {
+    console.warn('[calls] rescue voice failed:', e.message || e);
+    return res.type('text/xml').send(HANGUP_TWIML);
+  }
 });
 
 /**
