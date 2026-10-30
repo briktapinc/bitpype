@@ -34,6 +34,20 @@
  * (best-effort — a mail failure never fails the submission) and the
  * success response carries redirectUrl '/thankyou', where the page
  * sends the visitor next.
+ *
+ * Batch 75: demo-source marking. The Solo Agency playbook (/solo)
+ * points its "Book a demo" CTAs at /landing?ref=solo-demo; the page
+ * mirrors that exact value into a hidden demo_source field. Here it is
+ * validated against a one-value allowlist — only the literal
+ * 'solo-demo' has any effect; anything else is ignored and never
+ * stored. A marked submission gets, on BOTH the create and fold
+ * paths: the 'solo-demo' tag unioned onto the lead (tags only — the
+ * marker never touches source/category/lead_group, and Hostinger
+ * deploy eligibility keys off lead.source alone, so the tag cannot
+ * make any lead deploy-eligible) and ONE deduped
+ * `landing_solo_demo_interest` lead event, so staff see the solo demo
+ * interest on the lead in admin without repeat submissions stacking
+ * duplicates.
  */
 
 const express = require('express');
@@ -49,6 +63,67 @@ const submitLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 });
 const captcha = requireCaptcha();
 
 const INTEREST_NOTE = 'Interested in the BitPype software / agency license — submitted via /landing';
+
+// Batch 75: the one accepted demo_source value, its tag, its event.
+const SOLO_DEMO_VALUE = 'solo-demo';
+const SOLO_DEMO_TAG = 'solo-demo';
+const SOLO_DEMO_EVENT = 'landing_solo_demo_interest';
+const SOLO_DEMO_EVENT_DETAIL =
+  'Interested in a demo — arrived from the Solo Agency playbook (/solo) "Book a demo" CTA and submitted the /landing interest form.';
+const SOLO_DEMO_NOTE_LINE = 'Source: Solo Agency playbook demo CTA (/solo, Book a demo)';
+
+/**
+ * Batch 75: apply the solo-demo mark to a lead — the 'solo-demo' tag
+ * (unioned; nothing else on the lead changes) plus the solo event,
+ * inserted only if the lead does not already carry one, so repeat
+ * submissions never stack duplicates. Best-effort in the fold style:
+ * a marking failure is logged and never fails the visitor's
+ * submission.
+ */
+function markSoloDemoInterest(workspaceId, leadId) {
+  try {
+    // The tag is written with a direct single-column UPDATE, not the
+    // lead engine: leadsUpdate canonicalizes sibling fields on write
+    // (e.g. '' lead_group/category come back NULL), and this marker
+    // must change literally nothing about the lead except its tags —
+    // above all on a foreign lead (Batch 68).
+    domain.withDb(workspaceId, (db) => {
+      const row = db.prepare('SELECT tags FROM leads WHERE id = ?').get(leadId);
+      if (!row) return;
+      let tags = [];
+      try {
+        tags = JSON.parse(row.tags || '[]');
+      } catch {
+        tags = [];
+      }
+      if (!Array.isArray(tags)) tags = [];
+      if (!tags.includes(SOLO_DEMO_TAG)) {
+        db.prepare('UPDATE leads SET tags = ? WHERE id = ?').run(
+          JSON.stringify([...tags, SOLO_DEMO_TAG]),
+          leadId
+        );
+      }
+    });
+  } catch (e) {
+    console.warn(`landing: solo-demo tag failed for lead ${leadId}:`, e && e.message);
+  }
+  try {
+    domain.withDb(workspaceId, (db) => {
+      const seen = db
+        .prepare('SELECT COUNT(*) AS c FROM lead_events WHERE lead_id = ? AND type = ?')
+        .get(leadId, SOLO_DEMO_EVENT);
+      if (!seen || !seen.c) {
+        db.prepare('INSERT INTO lead_events (lead_id, type, detail) VALUES (?, ?, ?)').run(
+          leadId,
+          SOLO_DEMO_EVENT,
+          SOLO_DEMO_EVENT_DETAIL
+        );
+      }
+    });
+  } catch (e) {
+    console.warn(`landing: solo-demo event failed for lead ${leadId}:`, e && e.message);
+  }
+}
 
 function landingWorkspaceId() {
   const n = Number(process.env.LANDING_WORKSPACE_ID || 1);
@@ -165,7 +240,11 @@ router.post('/submit', submitLimit, captcha, async (req, res) => {
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw validation('A valid email is required');
     if (!phone) throw validation('Phone number is required');
 
+    // Batch 75: one-value allowlist — only the exact marker counts.
+    const soloDemo = clip(body.demo_source, 40) === SOLO_DEMO_VALUE;
+
     const noteParts = [INTEREST_NOTE, `Contact: ${fullName} · ${email} · ${phone}`];
+    if (soloDemo) noteParts.push(SOLO_DEMO_NOTE_LINE);
 
     let lead;
     let folded = false;
@@ -189,6 +268,10 @@ router.post('/submit', submitLimit, captcha, async (req, res) => {
       folded = true;
       lead = foldLandingIntoExistingLead(workspaceId, e.existingLeadId, payload, noteParts);
     }
+
+    // Batch 75: the solo-demo mark applies on BOTH paths (fresh lead
+    // and duplicate-email fold), after the lead exists either way.
+    if (soloDemo) markSoloDemoInterest(workspaceId, lead.id);
 
     try {
       domain.withDb(workspaceId, (db) => {
@@ -234,3 +317,6 @@ router.post('/submit', submitLimit, captcha, async (req, res) => {
 
 module.exports = router;
 module.exports.INTEREST_NOTE = INTEREST_NOTE;
+module.exports.SOLO_DEMO_VALUE = SOLO_DEMO_VALUE;
+module.exports.SOLO_DEMO_TAG = SOLO_DEMO_TAG;
+module.exports.SOLO_DEMO_EVENT = SOLO_DEMO_EVENT;

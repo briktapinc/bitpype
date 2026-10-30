@@ -541,12 +541,23 @@ async function templatedTokens() {
   }
   return { publicUrl, supportEmail };
 }
+// Batch 75: Ely's Facebook / earnings disclaimer rides in the footer
+// small print of exactly the marketing pages. The verbatim text and the
+// injection live in server/marketingDisclaimer.js (single source).
+// Templated pages opt in via TEMPLATED_PAGE_SCHEMES keyed by rel — the
+// legal pages are absent from the map and never gain the block; the
+// dedicated senders below (landing, thankyou, website-promo) inject
+// explicitly. /app, /portal and the transactional flow pages use other
+// senders entirely and stay untouched.
+const marketingDisclaimer = require('./server/marketingDisclaimer');
+
 async function sendTemplatedPage(res, rel) {
   const raw = readTemplatedPage(rel);
   if (raw == null) return res.status(404).end();
   try {
     const { publicUrl, supportEmail } = await templatedTokens();
-    const html = raw.split('{{PUBLIC_URL}}').join(publicUrl).split('{{SUPPORT_EMAIL}}').join(supportEmail);
+    let html = raw.split('{{PUBLIC_URL}}').join(publicUrl).split('{{SUPPORT_EMAIL}}').join(supportEmail);
+    html = marketingDisclaimer.injectDisclaimer(html, marketingDisclaimer.TEMPLATED_PAGE_SCHEMES[rel]);
     return res.type('html').send(html);
   } catch {
     return res.sendFile(path.join(__dirname, 'public', rel));
@@ -573,13 +584,14 @@ async function sendLandingPage(res) {
     } catch {
       videosHtml = '';
     }
-    const html = raw
+    let html = raw
       .split('{{PUBLIC_URL}}')
       .join(publicUrl)
       .split('{{SUPPORT_EMAIL}}')
       .join(supportEmail)
       .split('{{LANDING_VIDEOS}}')
       .join(videosHtml);
+    html = marketingDisclaimer.injectDisclaimer(html, 'light');
     return res.type('html').send(html);
   } catch {
     return res.sendFile(path.join(__dirname, 'public', 'landing.html'));
@@ -609,13 +621,14 @@ async function sendThankYouPage(res) {
     } catch {
       sectionsHtml = '';
     }
-    const html = raw
+    let html = raw
       .split('{{PUBLIC_URL}}')
       .join(publicUrl)
       .split('{{SUPPORT_EMAIL}}')
       .join(supportEmail)
       .split('{{THANKYOU_SECTIONS}}')
       .join(sectionsHtml);
+    html = marketingDisclaimer.injectDisclaimer(html, 'light');
     return res.type('html').send(html);
   } catch {
     return res.sendFile(path.join(__dirname, 'public', 'thankyou.html'));
@@ -674,9 +687,39 @@ app.get('/onboarding.html', (_req, res) => sendTemplatedPage(res, 'onboarding.ht
 app.get('/legal/privacy.html', (_req, res) => sendTemplatedPage(res, 'legal/privacy.html'));
 app.get('/legal/terms.html', (_req, res) => sendTemplatedPage(res, 'legal/terms.html'));
 
+// Batch 75: website-promo is a marketing page, so it goes through the
+// disclaimer injection like the other marketing senders. The file has
+// no template tokens, so it is read raw (same bytes as the old
+// sendFile) and only the footer disclaimer block is added.
+function sendWebsitePromoPage(res) {
+  const raw = readTemplatedPage('website-promo.html');
+  if (raw == null) return res.status(404).end();
+  return res.type('html').send(marketingDisclaimer.injectDisclaimer(raw, 'light'));
+}
+
 app.get(['/website-promo', '/website-promo/'], (_req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'website-promo.html'));
+  return sendWebsitePromoPage(res);
 });
+app.get('/website-promo.html', (_req, res) => sendWebsitePromoPage(res));
+
+// Batch 75: /solo hosts the Solo Agency Playbook (Ely's standalone
+// branded HTML from his files, copied to public/solo.html). It is a
+// complete self-contained document — served VERBATIM: no template
+// tokens, and NO disclaimer injection, because the playbook's footer
+// already carries the Batch 75 disclaimer text (the hosted copy's only
+// change is the six demo-CTA placeholders pointing at /landing until
+// Ely supplies the real demo link). solo.html is deliberately absent
+// from TEMPLATED_PAGE_SCHEMES.
+function sendSoloPage(res) {
+  const raw = readTemplatedPage('solo.html');
+  if (raw == null) return res.status(404).end();
+  return res.type('html').send(raw);
+}
+
+app.get(['/solo', '/solo/'], (_req, res) => {
+  return sendSoloPage(res);
+});
+app.get('/solo.html', (_req, res) => sendSoloPage(res));
 
 app.get(['/app', '/app/'], (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));

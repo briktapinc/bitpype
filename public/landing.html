@@ -496,6 +496,7 @@
             <label for="lf-phone">Phone number</label>
             <input id="lf-phone" name="phone" type="tel" autocomplete="tel" required maxlength="40" />
           </div>
+          <input id="lf-demo-source" name="demo_source" type="hidden" value="" />
           <div id="captcha-box" aria-label="Captcha"></div>
           <p class="form-msg" id="landing-msg" role="status"></p>
           <div>
@@ -532,6 +533,19 @@
   <script>
     (function () {
       const form = document.getElementById('landing-form');
+      // Batch 75: visitors arriving from the Solo Agency playbook's
+      // "Book a demo" CTAs land with ?ref=solo-demo. Mirror that exact
+      // value into the hidden demo_source field so the interest is
+      // source-marked server-side (tag + lead event in admin). Any
+      // other value is ignored — the field stays empty and the form
+      // behaves exactly as it always has. No visible UI change.
+      try {
+        if (new URLSearchParams(window.location.search).get('ref') === 'solo-demo') {
+          document.getElementById('lf-demo-source').value = 'solo-demo';
+        }
+      } catch (e) {
+        /* no marker — plain submission */
+      }
       const msg = document.getElementById('landing-msg');
       const success = document.getElementById('landing-success');
       const btn = document.getElementById('landing-submit');
@@ -562,7 +576,13 @@
           const res = await fetch('/api/v1/landing/submit', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fullName, email, phone, captchaToken }),
+            body: JSON.stringify({
+              fullName,
+              email,
+              phone,
+              captchaToken,
+              demo_source: document.getElementById('lf-demo-source').value,
+            }),
           });
           const data = await res.json().catch(() => null);
           if (!res.ok || !data || !data.ok) {
