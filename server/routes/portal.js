@@ -526,10 +526,12 @@ router.use(requireClient, portalTabGuard, portalModuleGuard);
 // for the Copy action; the download route returns the exact source
 // bytes as a file attachment.
 // ---------------------------------------------------------------------------
-const agentSoul = require('../agentSoul');
-
+// (agentSoul is required lazily inside the handlers, like the other
+// heavy route dependencies in this file, so stubbed VM loaders of this
+// module never resolve it.)
 router.get('/agent-soul', requireClient, async (req, res) => {
   try {
+    const agentSoul = require('../agentSoul');
     const doc = agentSoul.loadSoul();
     ok(res, { filename: agentSoul.DOWNLOAD_FILENAME, markdown: doc.markdown, html: doc.html });
   } catch (e) {
@@ -539,6 +541,7 @@ router.get('/agent-soul', requireClient, async (req, res) => {
 
 router.get('/agent-soul/download', requireClient, async (req, res) => {
   try {
+    const agentSoul = require('../agentSoul');
     const doc = agentSoul.loadSoul();
     res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${agentSoul.DOWNLOAD_FILENAME}"`);
