@@ -524,6 +524,22 @@
     }
   }
 
+  /** The stored session plus the members token it belongs to (the key suffix). */
+  function storedMemberSessionEntry() {
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf(MEMBER_SESSION_PREFIX) === 0) {
+          var v = localStorage.getItem(k);
+          if (v) return { token: k.slice(MEMBER_SESSION_PREFIX.length), session: v };
+        }
+      }
+    } catch (e) {
+      /* storage unavailable */
+    }
+    return null;
+  }
+
   function memberPreviewGrant() {
     try {
       return window.__BP_MEMBER_PREVIEW_GRANT__ || '';
@@ -2637,6 +2653,7 @@
         var j = res.j;
         if (res.status === 401 || (j && j.code === 'MEMBER_LOCKED')) {
           renderGateWall(el, (j && j.gate) || {});
+          wireMemberNavLogout();
           return;
         }
         if (!j || !j.ok) throw new Error((j && j.error) || 'Failed to load');
@@ -2644,6 +2661,7 @@
         var mounts = el.querySelectorAll('[data-bitpype-module][data-bitpype-module-token]');
         for (var i = 0; i < mounts.length; i++) mountOne(mounts[i]);
         wireVideoFacades(el);
+        wireMemberNavLogout();
       })
       .catch(function (e) {
         el.innerHTML = '<p class="bp-mod-err">' + esc(e.message || 'Failed to load page') + '</p>';
@@ -2710,6 +2728,7 @@
         if (data.item) renderItem(el, data);
         else renderList(el, data);
         if (data.module_type === 'ecommerce') wireShop(el, base, token);
+        wireMemberNavLogout();
       })
       .catch(function (e) {
         if (staticBlog) return; // snapshot stays — never dead-end
@@ -2717,12 +2736,110 @@
       });
   }
 
-  function boot() {
-    ensureStyles();
+  /* ── Member nav logout (Batch 82) ──
+   * The members page card has always carried a Log out button; the site's
+   * top nav did not, so a signed-in member browsing the site had no way
+   * out short of returning to the members page. When a member session
+   * exists, mirror a Log out link into the top nav right after the
+   * Members link, cloned from that link so it inherits the site's own
+   * nav styling (classes + <li> wrapping). The click runs the exact
+   * members-page logout flow — capture the session headers first, clear
+   * the stored session, POST /members/logout on the same route — then
+   * re-mounts the page so gated content locks again. Signed out, nothing
+   * is added: the nav renders exactly as before. */
+  var MEMBER_NAV_LOGOUT_ATTR = 'data-bp-member-nav-logout';
+
+  function memberNavItems() {
+    // Managed module nav: the attr sits on the anchor, or on its <li>.
+    var managed = document.querySelectorAll('[data-bitpype-module-nav="members"]');
+    if (managed.length) return Array.prototype.slice.call(managed);
+    // Structured-nav fallback: the members page is a plain page anchor
+    // (default slug) inside the site chrome.
+    var out = [];
+    var chrome = document.querySelectorAll('nav a, header a');
+    for (var i = 0; i < chrome.length; i++) {
+      var href = String(chrome[i].getAttribute('href') || '').trim();
+      var stem = href
+        .replace(/^#/, '')
+        .replace(/^\//, '')
+        .replace(/\.html?$/i, '')
+        .split('/')
+        .pop();
+      if (stem === 'members') out.push(chrome[i]);
+    }
+    return out;
+  }
+
+  function removeMemberNavLogout() {
+    var olds = document.querySelectorAll('[' + MEMBER_NAV_LOGOUT_ATTR + ']');
+    for (var i = 0; i < olds.length; i++) {
+      if (olds[i].parentNode) olds[i].parentNode.removeChild(olds[i]);
+    }
+  }
+
+  function memberNavLogoutNode(rowItem, anchor) {
+    var a = document.createElement('a');
+    a.setAttribute('href', '#');
+    var cls = anchor.getAttribute('class');
+    if (cls) a.setAttribute('class', cls);
+    a.textContent = 'Log out';
+    if (!rowItem || rowItem.tagName !== 'LI') {
+      a.setAttribute(MEMBER_NAV_LOGOUT_ATTR, '1');
+      return a;
+    }
+    var wrap = document.createElement('li');
+    var liCls = rowItem.getAttribute('class');
+    if (liCls) wrap.setAttribute('class', liCls);
+    wrap.setAttribute(MEMBER_NAV_LOGOUT_ATTR, '1');
+    wrap.appendChild(a);
+    return wrap;
+  }
+
+  function wireMemberNavLogout() {
+    var entry = storedMemberSessionEntry();
+    removeMemberNavLogout();
+    if (!entry) return;
+    var items = memberNavItems();
+    for (var i = 0; i < items.length; i++) {
+      (function (item) {
+        // Row item = the element occupying the nav row: the <li> when the
+        // members link is list-wrapped, else the element itself.
+        var anchor = item.tagName === 'A' ? item : item.querySelector('a');
+        if (!anchor) return;
+        var rowItem =
+          item.tagName === 'LI'
+            ? item
+            : anchor.parentNode && anchor.parentNode.tagName === 'LI'
+              ? anchor.parentNode
+              : item;
+        if (!rowItem.parentNode) return;
+        var node = memberNavLogoutNode(rowItem, anchor);
+        rowItem.parentNode.insertBefore(node, rowItem.nextSibling);
+        var clickTarget = node.tagName === 'A' ? node : node.querySelector('a');
+        if (!clickTarget) return;
+        clickTarget.addEventListener('click', function (ev) {
+          ev.preventDefault();
+          var headers = jsonHeaders(); // session header captured BEFORE clearing — same order as the members-page button
+          saveMemberSession(entry.token, '');
+          memberPost(apiBase(clickTarget), entry.token, '/members/logout', {}, headers).catch(function () {});
+          removeMemberNavLogout();
+          mountAll();
+        });
+      })(items[i]);
+    }
+  }
+
+  function mountAll() {
     var nodes = document.querySelectorAll('[data-bitpype-module][data-bitpype-module-token]');
     for (var i = 0; i < nodes.length; i++) mountOne(nodes[i]);
     var gates = document.querySelectorAll('[data-bitpype-member-gate]');
     for (var g = 0; g < gates.length; g++) mountGate(gates[g]);
+  }
+
+  function boot() {
+    ensureStyles();
+    mountAll();
+    wireMemberNavLogout();
   }
 
   window.BitpypeModules = {

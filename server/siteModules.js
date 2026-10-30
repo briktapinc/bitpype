@@ -43,7 +43,7 @@ const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod20';
+const MODULE_SCRIPT_VER = 'mod21';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -3046,6 +3046,7 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
   const base = appUrl || appBaseUrl();
   // embed_enabled / toSite off → not active, so neither the page embed nor the nav link is kept.
   const embeds = listEmbeds(db, leadId).filter(moduleEmbedActive);
+  const membersActive = embeds.some((e) => e.module_type === 'members');
   const activeTokens = new Set(embeds.map((e) => String(e.public_token || '').trim()).filter(Boolean));
   const reveal = new Set((Array.isArray(revealSlugs) ? revealSlugs : []).map((s) => normalizeSlug(s)).filter(Boolean));
 
@@ -3054,6 +3055,9 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
     if (pageUsesSections(page)) {
       page.sections = page.sections
         .filter((sec) => {
+          // Batch 82: the member-nav script carrier lives only while a
+          // members embed is active on the site.
+          if (sec && sec.content && sec.content.bitpype_member_nav_managed) return membersActive;
           if (!(sec && sec.content && sec.content.bitpype_module_managed)) return true;
           // Keep managed mount sections that still hold an active token.
           const html = typeof sec.content.html === 'string' ? sec.content.html : '';
@@ -3210,6 +3214,49 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
       }
     } else if (typeof page.html === 'string' && page.html.trim()) {
       if ([...activeTokens].some((t) => htmlHasModuleToken(page.html, t))) {
+        page.html = ensureModuleEmbedScript(page.html, base);
+      }
+    }
+  }
+
+  // Batch 82: while a members embed is active, guarantee the module loader
+  // on EVERY page — the member nav logout (module-embed.js) must be able to
+  // run from any page's top nav, not just pages hosting a module mount.
+  // Same sitewide treatment the chatbot pass gives its loader below. With
+  // no stored member session the script adds nothing to the nav, and its
+  // stylesheet is class-scoped (.bp-mod-*), so plain pages are untouched
+  // visually. Sections pages carry the loader in their nav section when it
+  // has authored chrome; otherwise a managed carrier section rides before
+  // the footer (dropped by Pass 1 once members is no longer active).
+  if (membersActive) {
+    for (const page of pages) {
+      if (pageUsesSections(page)) {
+        let placed = false;
+        for (const sec of page.sections || []) {
+          if (!sec || !sec.content || typeof sec.content.html !== 'string') continue;
+          if (/\/js\/module-embed\.js/i.test(sec.content.html)) {
+            placed = true;
+            break;
+          }
+        }
+        if (placed) continue;
+        const navSec = (page.sections || []).find(
+          (s) => s && s.type === 'nav' && s.content && typeof s.content.html === 'string' && s.content.html.trim()
+        );
+        if (navSec) {
+          navSec.content = Object.assign({}, navSec.content, {
+            html: ensureModuleEmbedScript(navSec.content.html, base),
+          });
+        } else {
+          const scriptSec = {
+            type: 'html',
+            content: { html: moduleScriptTag(base), bitpype_member_nav_managed: 1 },
+          };
+          const footerAt = page.sections.findIndex((s) => s && s.type === 'footer');
+          if (footerAt >= 0) page.sections.splice(footerAt, 0, scriptSec);
+          else page.sections.push(scriptSec);
+        }
+      } else if (typeof page.html === 'string' && page.html.trim()) {
         page.html = ensureModuleEmbedScript(page.html, base);
       }
     }
