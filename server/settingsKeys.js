@@ -203,6 +203,11 @@ const SETTABLE_KEYS = [
   // canonicalized by server/landingThankYou.js (cases below).
   'landing.thankyou_video',
   'landing.thankyou_calendly_url',
+  // Batch 87: admin branding (logo slots + tagline) — validated with
+  // the identical rule to the platform write choke point (cases below).
+  'branding.logo_dark',
+  'branding.logo_light',
+  'branding.tagline',
   // Batch 59: Hostinger one-click deploy settings (platform-level; the
   // token is also in SECRET_KEYS above so it stays masked on read).
   'hostinger.api_token',
@@ -566,6 +571,25 @@ function validateSetting(key, raw) {
       } catch (e) {
         return fail(e.message);
       }
+    }
+    case 'branding.logo_dark':
+    case 'branding.logo_light': {
+      // Batch 87: identical rule to the platform write choke point —
+      // '' (the built-in default asset) or a /brand-files/ path minted
+      // by server/branding.js's upload path for THIS variant.
+      const variant = key === 'branding.logo_dark' ? 'dark' : 'light';
+      const v = value.trim();
+      if (v !== '' && !new RegExp(`^/brand-files/logo-${variant}-\\d+-[a-z0-9]{6}\\.(png|jpg|svg|webp)$`).test(v)) {
+        return fail('must be blank (built-in logo) or a logo uploaded in Admin → Settings → Branding');
+      }
+      return { ok: true, value: v };
+    }
+    case 'branding.tagline': {
+      // Batch 87: identical rule to the platform write choke point —
+      // a single short line; blank = the default tagline.
+      const v = value.trim();
+      if (v.length > 120 || /[\r\n]/.test(v)) return fail('must be a single line of at most 120 characters');
+      return { ok: true, value: v };
     }
     case 'hostinger.default_price_id': {
       // Batch 59: a Hostinger catalog price ID, e.g.

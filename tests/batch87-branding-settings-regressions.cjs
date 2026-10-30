@@ -156,6 +156,19 @@ function partA() {
     const tpl = read('src/emailTemplate.js');
     assert.ok(tpl.includes('width:180px;text-align:center'), 'email header tagline centered under the 180px logo');
   });
+
+  check('A6 settings:set facade registers the branding keys with the choke-point rules (Batch 24b invariant)', () => {
+    const sk = require(path.join(root, 'server/settingsKeys.js'));
+    for (const key of ['branding.logo_dark', 'branding.logo_light', 'branding.tagline']) {
+      assert.ok(sk.SETTABLE_KEYS.includes(key), `${key} is settable via settings:set`);
+    }
+    assert.equal(sk.validateSetting('branding.logo_light', '').ok, true, 'blank logo accepted (default)');
+    assert.equal(sk.validateSetting('branding.logo_light', '/brand-files/logo-light-1700000000000-abcdef.png').ok, true, 'minted path accepted');
+    assert.equal(sk.validateSetting('branding.logo_light', '/brand-files/logo-dark-1700000000000-abcdef.png').ok, false, 'wrong-variant path rejected');
+    assert.equal(sk.validateSetting('branding.logo_dark', 'https://evil.example/x.png').ok, false, 'foreign URL rejected');
+    assert.equal(sk.validateSetting('branding.tagline', 'Local business desk').ok, true, 'default tagline accepted');
+    assert.equal(sk.validateSetting('branding.tagline', 'x'.repeat(121)).ok, false, 'over-long tagline rejected');
+  });
 }
 
 /* ================================================================== */
