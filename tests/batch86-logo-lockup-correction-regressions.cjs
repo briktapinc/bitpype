@@ -88,7 +88,10 @@ const LIGHT_ONLY = [
   'public/domain-picker.html',
   'public/domain-success.html',
   'public/member-reset.html',
-  'public/js/app.js',
+  /* public/js/app.js removed from LIGHT_ONLY in the Batch 88 combined
+     close: its only lockups are the two AUTH GATE brands, and Ely's
+     2026-10-30 screenshot ruling puts the gate on the DARK ground —
+     the auth brands use the white lockup (pinned in batch87 A7). */
 ];
 /* Light header + DARK footer band — both lockups, each on its ground. */
 const BOTH = ['public/how.html', 'public/solo.html', 'public/onboarding.html'];
