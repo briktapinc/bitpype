@@ -563,9 +563,15 @@ async function composeClientPaymentEmail(db, workspaceId, txnId, deps = {}) {
     /* label is cosmetic — fall through to the paid amount */
   }
   if (!priceText && txn.amount_paid_cents != null) priceText = `${moneyText(txn.amount_paid_cents)}/mo`;
+  // Batch 73: while the site is being built, point the client at the
+  // onboarding pack (/onboarding) — what happens next + the few things
+  // we need from them. Base via the Batch 56 single resolver, never a
+  // hardcoded domain.
+  const onboardingUrl = `${publicAppBase()}/onboarding`;
   const paragraphs = [
     `Thank you — your payment is confirmed. You're on the ${planName} plan${priceText ? ` (${priceText})` : ''}, and ${txn.domain} is included with your plan.`,
     `We're registering ${txn.domain} and putting your site live. We'll email you the moment it's up. There's nothing else you need to do.`,
+    'While we build your website: your onboarding pack explains what happens next and the few things we need from you.',
     'Just reply to this email if you have any questions.',
   ];
   return {
@@ -573,6 +579,7 @@ async function composeClientPaymentEmail(db, workspaceId, txnId, deps = {}) {
     subject: `Payment received for ${txn.domain}`,
     title: 'Payment received — thank you!',
     paragraphs,
+    cta: { url: onboardingUrl, label: 'Read your onboarding pack' },
     text: paragraphs.join('\n\n'),
     transactionId: txn.id,
     domain: txn.domain,

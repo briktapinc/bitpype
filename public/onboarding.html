@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Welcome to BitPype — Your Client Onboarding Pack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,800&family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#FBF6EC; --cream:#FFFDF7; --ink:#221C15; --muted:#6B5D4F;
+    --teal:#0E7C72; --teal-dark:#0A5F57; --plum:#5B2A86; --gold:#E9A13B; --coral:#E4572E;
+    --line:#EADFCE; --card:#FFFFFF; --soft:#F4EAD8;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Figtree',system-ui,sans-serif;background:var(--paper);color:var(--ink);line-height:1.65;font-size:17px}
+  h1,h2,h3{font-family:'Fraunces',serif;line-height:1.15}
+  .wrap{max-width:1000px;margin:0 auto;padding:0 28px}
+  header{background:linear-gradient(160deg,#FFFDF7 0%,#F7ECD4 58%,#F3E3C2 100%);border-bottom:3px solid var(--ink);padding:26px 0 58px}
+  .brand{display:flex;align-items:center;gap:12px;font-weight:800;font-size:22px}
+  .brand .mark{width:42px;height:42px;border-radius:12px;background:var(--ink);color:#FAE02E;display:flex;align-items:center;justify-content:center;font-family:'Fraunces',serif;font-weight:800;font-size:24px;border:2px solid var(--ink);box-shadow:3px 3px 0 var(--gold)}
+  .brand small{display:block;font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.14em;text-transform:uppercase}
+  .hero{margin-top:46px;max-width:780px}
+  .kicker{display:inline-block;background:var(--ink);color:#FAE02E;font-weight:700;font-size:13px;letter-spacing:.16em;text-transform:uppercase;padding:7px 14px;border-radius:999px}
+  .hero h1{font-size:clamp(38px,5.6vw,58px);font-weight:800;margin:20px 0 16px}
+  .hero h1 em{font-style:normal;color:var(--teal-dark);box-shadow:inset 0 -0.32em 0 #F6D68A}
+  .hero p.lede{font-size:20.5px;color:#3D342A}
+  section{padding:52px 0 6px}
+  .sec-head{display:flex;align-items:baseline;gap:16px;margin-bottom:10px}
+  .sec-num{font-family:'Fraunces',serif;font-weight:800;font-size:15px;background:var(--teal);color:#fff;border-radius:10px;padding:5px 11px;border:2px solid var(--ink);box-shadow:2.5px 2.5px 0 var(--ink);white-space:nowrap}
+  .sec-head h2{font-size:clamp(27px,3.8vw,36px);font-weight:800}
+  .sec-sub{color:var(--muted);font-size:17.5px;max-width:740px;margin-bottom:24px}
+  p{margin-bottom:15px}
+  .grid{display:grid;gap:18px}
+  .grid.cols-3{grid-template-columns:repeat(3,1fr)}
+  .grid.cols-2{grid-template-columns:repeat(2,1fr)}
+  @media(max-width:820px){.grid.cols-3,.grid.cols-2{grid-template-columns:1fr}}
+  .card{background:var(--card);border:2px solid var(--ink);border-radius:20px;padding:24px 26px;box-shadow:5px 5px 0 rgba(34,28,21,.9)}
+  .card h3{font-size:20px;margin-bottom:7px}
+  .card p{font-size:15.5px;color:#3D342A;margin-bottom:8px}
+  .card .tag{display:inline-block;font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;padding:4px 10px;border-radius:999px;margin-bottom:11px;border:1.5px solid var(--ink)}
+  .tag.teal{background:#DDF0EC}.tag.gold{background:#FBE7BE}.tag.coral{background:#FBDCD2}.tag.plum{background:#EADFF7}
+  .steps{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:6px 0 20px}
+  @media(max-width:820px){.steps{grid-template-columns:1fr 1fr}}
+  .step{background:var(--cream);border:2px solid var(--ink);border-radius:16px;padding:18px;text-align:center}
+  .step b{font-family:'Fraunces',serif;font-size:18.5px;display:block}
+  .step span{font-size:13.5px;color:var(--muted);font-weight:600}
+  .step .n{display:inline-flex;width:30px;height:30px;border-radius:50%;background:var(--ink);color:#FAE02E;align-items:center;justify-content:center;font-weight:800;font-size:15px;margin-bottom:8px}
+  .checklist{list-style:none;background:var(--card);border:2px solid var(--ink);border-radius:20px;padding:24px 28px;box-shadow:5px 5px 0 rgba(34,28,21,.9);margin-bottom:22px}
+  .checklist li{padding:8px 0 8px 36px;position:relative;font-size:16px;border-top:1.5px dashed var(--line)}
+  .checklist li:first-child{border-top:none}
+  .checklist li::before{content:"";position:absolute;left:0;top:10px;width:19px;height:19px;border-radius:6px;border:2px solid var(--ink);background:var(--soft)}
+  .checklist li .why{display:block;font-size:14px;color:var(--muted)}
+  .req{font-size:11.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:2.5px 8px;border-radius:999px;border:1.5px solid var(--ink);vertical-align:2px;margin-left:6px}
+  .req.must{background:#FBDCD2}.req.nice{background:#DDF0EC}
+  .callout{border:2px solid var(--ink);border-radius:20px;padding:22px 26px;margin:20px 0;box-shadow:5px 5px 0 rgba(34,28,21,.9)}
+  .callout.warn{background:#FDF0E4}.callout.good{background:#E7F3EF}
+  .callout h3{font-size:18.5px;margin-bottom:5px}
+  .callout p{margin-bottom:0;font-size:15.5px}
+  table{width:100%;border-collapse:separate;border-spacing:0;background:var(--card);border:2px solid var(--ink);border-radius:18px;overflow:hidden;margin:12px 0 20px;box-shadow:5px 5px 0 rgba(34,28,21,.9)}
+  th{background:var(--ink);color:#FFF6E3;text-align:left;font-size:13.5px;letter-spacing:.06em;text-transform:uppercase;padding:12px 17px}
+  td{padding:12px 17px;border-top:1.5px solid var(--line);font-size:15.5px;vertical-align:top}
+  tr td:first-child{font-weight:700;white-space:nowrap}
+  footer{margin-top:64px;background:var(--ink);color:#EDE3D0;padding:42px 0 50px;border-top:3px solid var(--gold)}
+  footer p{color:#CBBFA9;font-size:15px;max-width:620px;margin-top:12px}
+  @media print{.card,table,.checklist,.callout{box-shadow:none}section{padding-top:26px}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="brand"><span class="mark">B</span><span>BitPype<small>Websites that book appointments</small></span></div>
+    <div class="hero">
+      <span class="kicker">Client Onboarding Pack</span>
+      <h1>Welcome aboard. Here's how we get you <em>live &amp; ringing.</em></h1>
+      <p class="lede">You made a good decision — your new website is about to start doing a real job: answering questions, capturing leads, and booking appointments while you work. This pack walks you through exactly what happens next, the few things we need from you, and how to get the most out of your site in the first 30 days.</p>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+<section>
+  <div class="sec-head"><span class="sec-num">01</span><h2>What happens next</h2></div>
+  <p class="sec-sub">Four steps between today and a website that's working for you. Most of the work is ours — your part is short, and we'll tell you exactly when it's your turn.</p>
+  <div class="steps">
+    <div class="step"><span class="n">1</span><b>We build</b><span>Your site is designed — made for your business, not from a cookie cutter</span></div>
+    <div class="step"><span class="n">2</span><b>You review</b><span>We send you a private preview. You tell us what to adjust</span></div>
+    <div class="step"><span class="n">3</span><b>We go live</b><span>Your domain points at your site, your phone number is wired up, everything is tested</span></div>
+    <div class="step"><span class="n">4</span><b>It works</b><span>Calls get tracked, forms land in your inbox, and your portal shows it all</span></div>
+  </div>
+  <div class="callout good"><h3>Your one job during the build</h3><p>Complete the checklist in the next section. Everything on it is something only you know — your real hours, your real services, the phone number that should ring. Send it back complete and your build never stalls waiting on a question.</p></div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="sec-num">02</span><h2>What we need from you</h2></div>
+  <p class="sec-sub">Gather these once, at the start, and you'll rarely be asked for anything again. Items marked <strong>Needed</strong> hold up the build without them; <strong>Helpful</strong> items make your site stronger but won't block it.</p>
+  <ul class="checklist">
+    <li><b>Your logo</b> — the best file you have (the one from your sign shop or printer is perfect). <span class="req must">Needed</span><span class="why">Why: it anchors your site's colors and identity. No logo? Tell us — we'll work from your signage and truck lettering instead.</span></li>
+    <li><b>Your exact business hours</b> — including holidays and seasonal changes. <span class="req must">Needed</span><span class="why">Why: wrong hours are the #1 reason customers get frustrated — and Google shows them everywhere.</span></li>
+    <li><b>Your services, in your words</b> — the full list of what you actually do, and what you want <em>more</em> of. <span class="req must">Needed</span><span class="why">Why: we only publish services you really offer. If it's not on your list, it won't be on your site.</span></li>
+    <li><b>The phone number that should ring</b> — the one you actually answer during business hours. <span class="req must">Needed</span><span class="why">Why: your website displays its own tracking number, and every call forwards to this one. Double-check the digits — a typo here means missed customers, quietly.</span></li>
+    <li><b>Your service area</b> — the towns and neighborhoods you want work from. <span class="req must">Needed</span><span class="why">Why: this is how your site gets found by people near you — and how we avoid sending you jobs an hour away.</span></li>
+    <li><b>Your domain choice</b> — pick your web address from the options we send, or tell us about one you already own. <span class="req must">Needed</span><span class="why">Why: nothing goes live until your name points at your site. While your plan stays active, your domain renews automatically — one less thing to remember.</span></li>
+    <li><b>Photos of your real work</b> — your crew, your truck, finished jobs, your shop. Phone photos are great. <span class="req nice">Helpful</span><span class="why">Why: real photos outsell stock photos every time. Customers hire the business they can picture showing up.</span></li>
+    <li><b>Your Google listing</b> — if you have a Google Business Profile, tell us which email it's under. <span class="req nice">Helpful</span><span class="why">Why: we can connect it to your portal so your hours and info stay in sync — and your real Google reviews can appear on your site.</span></li>
+    <li><b>One decision-maker</b> — the person who approves the design and requests changes. <span class="req nice">Helpful</span><span class="why">Why: one voice keeps your site consistent. Everyone else can still view the portal — approvals just move faster with one name on them.</span></li>
+  </ul>
+</section>
+
+<section>
+  <div class="sec-head"><span class="sec-num">03</span><h2>Your portal, in five minutes</h2></div>
+  <p class="sec-sub">Your client portal is where you watch your website work. Signing in takes ten seconds: enter your email, and we'll send you a one-time sign-in link — no password to remember. Here's the whole tour:</p>
+  <table>
+    <tr><th style="width:170px">Tab</th><th>What it's for</th></tr>
+    <tr><td>Website</td><td>See your site exactly as customers see it, and open the live version anytime.</td></tr>
+    <tr><td>Forms</td><td>Every message your website forms collect. You'll also get an email the moment one arrives.</td></tr>
+    <tr><td>LeadScout</td><td>Your automatic contact book — everyone who reaches out, saved and deduped for you.</td></tr>
+    <tr><td>Changes</td><td>Your request line to us. New hours, new photos, a new page — describe it here and we build it.</td></tr>
+    <tr><td>Modules</td><td>Your site's working features — bookings, reviews, call tracking, your chatbot, and more.</td></tr>
+    <tr><td>Billing</td><td>Your plan, what it includes, and your payment history.</td></tr>
+  </table>
+  <p>There's a full video tutorial of the portal waiting for you — it walks every tab, including the ones your plan adds later. Watch it once and you'll never wonder where anything is.</p>
+</section>
+
+<section>
+  <div class="sec-head"><span class="sec-num">04</span><h2>Go-live day — your two checks</h2></div>
+  <p class="sec-sub">We test everything before we call a site live. Then we ask you to do the two checks only you can do:</p>
+  <ul class="checklist">
+    <li><b>Open your address and look at your site.</b> <span class="why">Not the preview link — your real domain, on your phone, like a customer. If it loads and looks like you, we're live.</span></li>
+    <li><b>Call your website's number from another phone.</b> <span class="why">Your phone should ring. That one call proves the whole chain — the number on the site, the forwarding, and the call log in your portal, where you'll see the test call listed.</span></li>
+  </ul>
+  <div class="callout warn"><h3>A note about Google</h3><p>Getting found on Google is a climb, not a switch. Your site launches with all the right foundations — sitemap, business details, local pages — but rankings build over weeks as Google learns to trust the site. Anyone who promises you page one overnight is selling you something. We'll show you your analytics honestly as they grow.</p></div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="sec-num">05</span><h2>Your first 30 days</h2></div>
+  <p class="sec-sub">A website pays off fastest when its owner does four small things. None of them takes more than ten minutes.</p>
+  <div class="grid cols-2">
+    <div class="card"><span class="tag teal">Weekly</span><h3>Glance at your portal</h3><p>Check your calls and form leads once a week. You'll spot patterns fast — which services people ask about, which hours they call. That's marketing intelligence you used to pay for, or guess at.</p></div>
+    <div class="card"><span class="tag gold">After every good job</span><h3>Ask for the review</h3><p>Happy customer in front of you? Ask them to leave a Google review and tell them your website makes it easy to find you. Reviews are the fuel your rankings run on.</p></div>
+    <div class="card"><span class="tag coral">Whenever something changes</span><h3>Use the Changes tab</h3><p>New service, new hire, holiday hours, a price you're proud of — send it through Changes the day it happens. A website that's always current is one customers trust with a booking.</p></div>
+    <div class="card"><span class="tag plum">Once</span><h3>Put your address everywhere</h3><p>Your trucks, invoices, business cards, Facebook page, email signature. Every place your name appears is a chance for someone to land on a site that books the appointment for you.</p></div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="sec-num">06</span><h2>Getting help</h2></div>
+  <p class="sec-sub">One rule covers almost everything: <strong>if it's about your website, it starts in the Changes tab of your portal.</strong> Your request lands with our team, attached to your site, with nothing lost in a text thread.</p>
+  <div class="grid cols-2">
+    <div class="card"><h3>A great change request looks like…</h3><p>"Update our hours — we now close at 4 on Fridays." One request per change, in your own words. Attach the photo right to the request when it's about a photo. You'll hear back the same business day, even if the work itself lands a day later.</p></div>
+    <div class="card"><h3>If something seems broken…</h3><p>Note what you saw and when, and send it the same way. "The booking form didn't send at 2pm Tuesday" is a report we can act on immediately. Screenshots help if you have one — if not, your words are enough.</p></div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="brand"><span class="mark">B</span><span>BitPype<small style="color:#CBBFA9">Websites that book appointments</small></span></div>
+    <p>The BitPype Client Onboarding Pack. Pairs with the BitPype portal tutorial video — keep both handy during your first month.</p>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -655,6 +655,14 @@ app.get(['/thankyou', '/thankyou/'], (_req, res) => {
   return sendThankYouPage(res);
 });
 
+// Batch 73: /onboarding — the client onboarding pack as a public page,
+// linked from the domain flow's payment-received email (the moment a
+// client has subscribed and their website is in progress). Client
+// sections only: the pack's internal staff run sheet is never hosted.
+app.get(['/onboarding', '/onboarding/'], (_req, res) => {
+  return sendTemplatedPage(res, 'onboarding.html');
+});
+
 // Batch 56: direct file paths for the templated pages are intercepted
 // BEFORE express.static so a raw {{TOKEN}} is never served.
 app.get('/home.html', (_req, res) => sendTemplatedPage(res, 'home.html'));
@@ -662,6 +670,7 @@ app.get('/how.html', (_req, res) => sendTemplatedPage(res, 'how.html'));
 app.get('/how-it-works.html', (_req, res) => sendTemplatedPage(res, 'how-it-works.html'));
 app.get('/landing.html', (_req, res) => sendLandingPage(res));
 app.get('/thankyou.html', (_req, res) => sendThankYouPage(res));
+app.get('/onboarding.html', (_req, res) => sendTemplatedPage(res, 'onboarding.html'));
 app.get('/legal/privacy.html', (_req, res) => sendTemplatedPage(res, 'legal/privacy.html'));
 app.get('/legal/terms.html', (_req, res) => sendTemplatedPage(res, 'legal/terms.html'));
 
