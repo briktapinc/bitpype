@@ -475,6 +475,7 @@ const PORTAL_MODULE_SUBPATHS = [
   ['members', 'members'],
   ['ecommerce', 'ecommerce'],
   ['datatables', 'datatables'],
+  ['charts', 'charts'],
 ];
 
 function moduleForbidden(res, moduleKey) {

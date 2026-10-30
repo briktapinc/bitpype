@@ -4587,9 +4587,10 @@
     { type: 'calltracking', label: 'Call Tracking' },
     { type: 'members', label: 'Membership' },
     { type: 'datatables', label: 'Data Tables' },
+    { type: 'charts', label: 'Charts' },
   ];
   const MODULE_NAV_GROUPS = [
-    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed', 'googlereviews', 'datatables'] },
+    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed', 'googlereviews', 'datatables', 'charts'] },
     { id: 'people', label: 'People', types: ['team', 'testimonials', 'careers', 'members'] },
     { id: 'schedule', label: 'Schedule', types: ['events', 'bookings'] },
     { id: 'assist', label: 'Assist', types: ['chatbot', 'calltracking'] },
@@ -4616,6 +4617,7 @@
     calltracking: { singular: 'call', plural: 'calls', newBtn: 'New call', kicker: 'Call' },
     members: { singular: 'member', plural: 'members', newBtn: 'New member', kicker: 'Member' },
     datatables: { singular: 'row', plural: 'rows', newBtn: 'New row', kicker: 'Table row' },
+    charts: { singular: 'chart', plural: 'charts', newBtn: 'New chart', kicker: 'Chart' },
   };
   const BOOKING_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const MODULE_STORAGE_KEY = 'bp-portal-module';
@@ -4716,6 +4718,43 @@
       });
       defs.push({ key: 'status', label: 'Status', kind: 'select', options: ['published', 'pending'] });
       return defs;
+    }
+    if (type === 'charts') {
+      // Batch 90: a chart is one editor item. Table-binding pickers are
+      // built from the site's Data Table columns (carried by the items
+      // payload); manual data round-trips as one "Label | v | v" line
+      // per point.
+      const meta = moduleState.charts || {};
+      const cols = Array.isArray(meta.datatable_columns) ? meta.datatable_columns : [];
+      const colKeys = cols.map((c) => c.key);
+      const numericKeys = cols.filter((c) => c.type === 'number' || c.type === 'currency').map((c) => c.key);
+      return [
+        { key: 'title', label: 'Chart title', required: true },
+        { key: 'chart_type', label: 'Chart type', kind: 'select', options: ['bar', 'hbar', 'line', 'area', 'pie', 'doughnut'] },
+        { key: 'source', label: 'Data source', kind: 'select', options: ['table', 'manual'] },
+        {
+          key: 'label_column',
+          label: 'Table: label column',
+          kind: 'select',
+          options: [''].concat(colKeys),
+        },
+        {
+          key: 'value_columns',
+          label: 'Table: value columns (comma-separated keys' + (numericKeys.length ? ' — numeric: ' + numericKeys.join(', ') : '') + ')',
+          placeholder: 'e.g. sales',
+        },
+        { key: 'aggregation', label: 'Table: aggregation', kind: 'select', options: ['sum', 'count', 'average', 'none'] },
+        { key: 'series_names', label: 'Manual: series names (comma-separated)' },
+        {
+          key: 'data_text',
+          label: 'Manual: data — one line per point, Label | value | value',
+          kind: 'textarea',
+          placeholder: 'Jan | 120 | 80',
+        },
+        { key: 'colors', label: 'Colors (comma-separated hex, optional)', placeholder: '#0e7a68, #e8873a' },
+        { key: 'show_legend', label: 'Show legend', kind: 'select', options: ['Yes', 'No'] },
+        { key: 'show_values', label: 'Show values', kind: 'select', options: ['No', 'Yes'] },
+      ];
     }
     if (type === 'blog') {
       return [
@@ -5093,6 +5132,8 @@
                 ? 'The number you set here is the one your site shows — calls to it ring your real phone and are logged below.'
               : moduleState.current === 'datatables'
                 ? 'One table of your data — prices, listings, schedules, anything — shown on your site as a table, card wall, results list or simple list. Visitors can submit rows if you turn submissions on.'
+              : moduleState.current === 'charts'
+                ? 'Charts drawn from your Data Table or from numbers you type in — bar, line, pie and more. A chart bound to the table updates itself whenever the table changes.'
               : `Manage ${copy.plural} for your ${(meta && meta.label) || 'module'}.`;
     }
     const newBtn = document.getElementById('btn-modules-new');
@@ -5123,6 +5164,7 @@
       calltracking: 'call',
       members: 'members',
       datatables: 'data-table',
+      charts: 'charts',
     };
     let want = selected || defaults[moduleState.current] || 'home';
     const opts = Array.isArray(pages) && pages.length ? pages : [{ slug: want, title: want }];
@@ -5391,6 +5433,13 @@
     if (type === 'video') {
       if (it.provider) bits.push(`<span>${esc(it.provider === 'youtube' ? 'YouTube' : it.provider === 'vimeo' ? 'Vimeo' : it.provider)}</span>`);
       if (it.url) bits.push(`<span>${esc(it.url)}</span>`);
+    }
+    if (type === 'charts') {
+      bits.length = 0;
+      bits.push(`<span class="status-pill">${esc(it.chart_type || 'bar')}</span>`);
+      bits.push(`<span>${esc(it.source === 'table' ? 'from Data Table' : 'manual data')}</span>`);
+      const pts = it.computed && Array.isArray(it.computed.labels) ? it.computed.labels.length : 0;
+      bits.push(`<span>${pts} point${pts === 1 ? '' : 's'}</span>`);
     }
     if (type === 'datatables') {
       if (it.source === 'visitor') bits.push('<span>visitor submission</span>');
@@ -6376,6 +6425,17 @@
       if (out.status) res.status = out.status;
       return res;
     }
+    if (moduleState.current === 'charts') {
+      // Batch 90: value columns travel as an array; everything else is
+      // already in a server-accepted shape (comma strings for colors
+      // and series names, Yes/No toggles, data_text lines).
+      if (typeof out.value_columns === 'string') {
+        out.value_columns = out.value_columns
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+      }
+    }
     return out;
   }
 
@@ -6419,6 +6479,7 @@
     moduleState.members = data.members || null;
     moduleState.shop = data.shop || null;
     moduleState.datatable = data.datatable || null;
+    moduleState.charts = data.charts || null;
     moduleState.categories = Array.isArray(data.categories) ? data.categories : [];
     if (type === 'bookings') {
       const booking = moduleState.booking || {};

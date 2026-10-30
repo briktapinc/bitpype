@@ -871,6 +871,10 @@ function deleteLead(db, id) {
     // conversation; their rows drop here and the files are unlinked
     // after the transaction (paths collected before the tx below).
     drop('site_chat_attachments');
+    // Batch 90: chart definitions belong to the lead's Charts module;
+    // they carry a plain lead_id with no FK, so drop them explicitly
+    // (module delete also sweeps them via modulePurgeSteps).
+    drop('charts');
     drop('lead_onboarding_items');
     drop('ai_usage');
     drop('design_learning_events');

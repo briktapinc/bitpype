@@ -3332,6 +3332,29 @@ function createParityTools(ctx) {
       return { ok: true, data: siteModules().clearDataTableRows(db, leadId) };
     }),
 
+    'charts.get': parityEntry('charts.get', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().getChartsModule(db, leadId) };
+    }),
+    'charts.create': parityEntry('charts.create', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: { chart: siteModules().createChart(db, leadId, { ...args }) } };
+    }),
+    'charts.update': parityEntry('charts.update', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: { chart: siteModules().updateChart(db, leadId, id, { ...args }) } };
+    }),
+    'charts.delete': parityEntry('charts.delete', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: siteModules().deleteChart(db, leadId, id) };
+    }),
+    'charts.clear': parityEntry('charts.clear', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().clearCharts(db, leadId) };
+    }),
+
     'estimate.getConfig': parityEntry('estimate.getConfig', (args) => {
       const leadId = requireId(args.leadId, 'leadId');
       return { ok: true, data: siteModules().getEstimateConfig(db, leadId) };

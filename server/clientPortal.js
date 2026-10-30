@@ -2633,6 +2633,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     let members = null;
     let shop = null;
     let datatable = null;
+    let charts = null;
     if (type === 'blog') {
       // Batch 45: server-side paging when the caller asks for a page
       // (portal blog tab); no limit = the historical full list.
@@ -2785,6 +2786,37 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
         pending_count: table.pending_count,
       };
     }
+    else if (type === 'charts') {
+      // Batch 90: each chart is one item in the routed editor — scalar
+      // fields flattened to editor-friendly strings (the typed
+      // definition rides along), with the computed data the public
+      // site will draw. The charts block carries the Data Table's
+      // columns so the editor can offer binding pickers.
+      const mod = modules.getChartsModule(db, Number(leadId));
+      items = mod.charts.map((c) => ({
+        id: c.id,
+        title: c.title,
+        chart_type: c.chart_type,
+        source: c.source,
+        label_column: c.label_column || '',
+        value_columns: (c.value_columns || []).join(', '),
+        aggregation: c.aggregation,
+        colors: (c.colors || []).join(', '),
+        show_legend: c.show_legend ? 'Yes' : 'No',
+        show_values: c.show_values ? 'Yes' : 'No',
+        series_names: (c.data.series || []).map((s) => s.name).join(', '),
+        data_text: modules.chartDataToText(c.data),
+        sort_order: c.sort_order,
+        definition: c,
+        computed: c.computed,
+      }));
+      charts = {
+        chart_count: mod.chart_count,
+        datatable_configured: mod.datatable.configured,
+        datatable_title: mod.datatable.title,
+        datatable_columns: mod.datatable.columns,
+      };
+    }
     else if (type === 'chatbot') {
       const chat = require('./chatbot');
       const summary = chat.portalChatbotSummary(db, Number(leadId));
@@ -2814,6 +2846,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     if (members) out.members = members;
     if (shop) out.shop = shop;
     if (datatable) out.datatable = datatable;
+    if (charts) out.charts = charts;
     return out;
   });
 }
@@ -2846,6 +2879,7 @@ async function createModuleItem(workspaceId, leadId, moduleType, body, clientEma
         status: body && body.status,
         sort_order: body && body.sort_order,
       });
+    else if (type === 'charts') item = modules.createChart(db, Number(leadId), body || {});
     else if (type === 'socialfeed')
       throw Object.assign(new Error('Social Feed updates itself from your social posts — there are no items to add.'), {
         code: 'VALIDATION',
@@ -2892,6 +2926,7 @@ async function updateModuleItem(workspaceId, leadId, moduleType, id, body, clien
     else if (type === 'video') item = modules.updateVideoItem(db, Number(leadId), id, body || {});
     else if (type === 'estimate') item = modules.updateEstimateOption(db, Number(leadId), id, body || {});
     else if (type === 'datatables') item = modules.updateDataTableRow(db, Number(leadId), id, body || {});
+    else if (type === 'charts') item = modules.updateChart(db, Number(leadId), id, body || {});
     else if (type === 'socialfeed')
       throw Object.assign(new Error('Social Feed updates itself from your social posts — there are no items to edit.'), {
         code: 'VALIDATION',
@@ -2936,6 +2971,7 @@ async function deleteModuleItem(workspaceId, leadId, moduleType, id, clientEmail
     if (type === 'video') return modules.deleteVideoItem(db, Number(leadId), id);
     if (type === 'estimate') return modules.deleteEstimateOption(db, Number(leadId), id);
     if (type === 'datatables') return modules.deleteDataTableRow(db, Number(leadId), id);
+    if (type === 'charts') return modules.deleteChart(db, Number(leadId), id);
     if (type === 'socialfeed')
       throw Object.assign(new Error('Social Feed updates itself from your social posts — there are no items to delete.'), {
         code: 'VALIDATION',

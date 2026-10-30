@@ -998,6 +998,7 @@ const tools = [
             'members',
             'googlereviews',
             'datatables',
+            'charts',
           ],
         },
         moduleType: {
@@ -1023,6 +1024,7 @@ const tools = [
             'members',
             'googlereviews',
             'datatables',
+            'charts',
           ],
         },
         title: { type: 'string' },
@@ -1907,6 +1909,84 @@ const tools = [
   {
     name: 'datatables.clear',
     description: 'Delete ALL rows from the lead\'s Data Table (columns and settings are kept) (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: { leadId: { type: 'integer', minimum: 1 } },
+      required: ['leadId'],
+    },
+  },
+  {
+    name: 'charts.get',
+    description:
+      'Get the lead\'s Charts: every chart definition (title, type bar|hbar|line|area|pie|doughnut, source, binding/manual data, style) with its computed plottable data, plus the Data Table columns available for binding. Table-bound charts aggregate PUBLISHED Data Table rows only. Max 20 charts per site (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: { leadId: { type: 'integer', minimum: 1 } },
+    },
+  },
+  {
+    name: 'charts.create',
+    description:
+      'Create a chart on the lead\'s site. source "table": label_column + value_columns name Data Table columns (number/currency; aggregation sum|count|average|none — count needs no value columns). source "manual": data = { labels, series: [{ name, values }] } (max 50 points, 4 series) or data_text lines "Label | 10 | 4" with series_names. colors: hex palette; show_legend / show_values toggles (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        title: { type: 'string' },
+        chart_type: { type: 'string', enum: ['bar', 'hbar', 'line', 'area', 'pie', 'doughnut'] },
+        source: { type: 'string', enum: ['table', 'manual'] },
+        label_column: { type: 'string' },
+        value_columns: { type: 'array', items: { type: 'string' } },
+        aggregation: { type: 'string', enum: ['sum', 'count', 'average', 'none'] },
+        data: { type: 'object' },
+        data_text: { type: 'string' },
+        series_names: { type: 'string' },
+        colors: { type: 'array', items: { type: 'string' } },
+        show_legend: { type: 'boolean' },
+        show_values: { type: 'boolean' },
+        sort_order: { type: 'number' },
+      },
+      required: ['leadId'],
+    },
+  },
+  {
+    name: 'charts.update',
+    description:
+      'Update a chart by id — any of title, chart_type, source, label_column, value_columns, aggregation, data / data_text, colors, show_legend, show_values, sort_order. Only the fields passed change (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        id: { type: 'integer', minimum: 1 },
+        title: { type: 'string' },
+        chart_type: { type: 'string', enum: ['bar', 'hbar', 'line', 'area', 'pie', 'doughnut'] },
+        source: { type: 'string', enum: ['table', 'manual'] },
+        label_column: { type: 'string' },
+        value_columns: { type: 'array', items: { type: 'string' } },
+        aggregation: { type: 'string', enum: ['sum', 'count', 'average', 'none'] },
+        data: { type: 'object' },
+        data_text: { type: 'string' },
+        series_names: { type: 'string' },
+        colors: { type: 'array', items: { type: 'string' } },
+        show_legend: { type: 'boolean' },
+        show_values: { type: 'boolean' },
+        sort_order: { type: 'number' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'charts.delete',
+    description: 'Delete one chart by id (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: { leadId: { type: 'integer', minimum: 1 }, id: { type: 'integer', minimum: 1 } },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'charts.clear',
+    description: 'Delete ALL charts from the lead\'s site (the Data Table itself is untouched) (Standard/Premium).',
     schema: {
       type: 'object',
       properties: { leadId: { type: 'integer', minimum: 1 } },

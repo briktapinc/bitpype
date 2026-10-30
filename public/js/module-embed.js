@@ -389,6 +389,17 @@
       '.bitpype-module-embed .bp-mod-dt-row-body{margin:0.3rem 0 0;line-height:1.55;}',
       '.bitpype-module-embed .bp-mod-dt-row-side{color:var(--bp-mod-muted);font-size:0.88rem;text-align:right;flex:none;display:flex;flex-direction:column;gap:0.3rem;align-items:flex-end;}',
       '.bitpype-module-embed .bp-mod-dt-form{margin-top:1.9rem;border-top:1px solid var(--bp-mod-line);padding-top:1.5rem;max-width:36rem;}',
+      '.bitpype-module-embed .bp-mod-chart{margin:0 0 2.25rem;}',
+      '.bitpype-module-embed .bp-mod-chart:last-child{margin-bottom:0;}',
+      '.bitpype-module-embed .bp-mod-chart-title{margin:0 0 0.75rem;font-size:1.15rem;letter-spacing:-0.01em;}',
+      '.bitpype-module-embed .bp-mod-chart-svg{display:block;width:100%;height:auto;}',
+      '.bitpype-module-embed .bp-mod-chart-legend{display:flex;flex-wrap:wrap;gap:0.4rem 1.1rem;margin:0.65rem 0 0;padding:0;list-style:none;font-size:0.9rem;color:var(--bp-mod-muted);}',
+      '.bitpype-module-embed .bp-mod-chart-legend li{display:inline-flex;align-items:center;gap:0.45rem;}',
+      '.bitpype-module-embed .bp-mod-chart-dot{width:0.8rem;height:0.8rem;border-radius:0.25rem;flex:none;display:inline-block;}',
+      '.bitpype-module-embed .bp-chart-tick{fill:var(--bp-mod-muted);font-size:12px;}',
+      '.bitpype-module-embed .bp-chart-val{fill:var(--bp-mod-ink);font-size:11px;font-weight:600;}',
+      '.bitpype-module-embed .bp-chart-grid{stroke:var(--bp-mod-line);stroke-width:1;}',
+      '.bitpype-module-embed .bp-chart-axis{stroke:var(--bp-mod-line);stroke-width:1.5;}',
       '.bitpype-module-embed .bp-mod-dt-form-title{margin:0 0 1rem;font-size:1.12rem;}',
     ].join('');
     var style = document.createElement('style');
@@ -1086,6 +1097,12 @@
       renderDataTable(el, data, html);
       return;
     }
+    if (type === 'charts') {
+      // Batch 90: handled before the generic empty check — the payload
+      // carries computed charts (items stays empty by design).
+      renderCharts(el, data, html);
+      return;
+    }
     if (type === 'careers' && !items.length) {
       // Careers renders nothing at all when there are no active postings.
       el.innerHTML = '';
@@ -1712,6 +1729,344 @@
     if (/^data:image\//i.test(url)) return url;
     if (/\.(png|jpe?g|gif|webp|svg|avif)(\?|#|$)/i.test(url)) return url;
     return '';
+  }
+
+  /* CHART-SVG-BEGIN — pure chart markup builders (Batch 90). These
+   * functions are deliberately self-contained (own escaping, no DOM)
+   * so the regression suite can extract and execute them in Node.
+   * Charts render as inline SVG — no external chart library — so a
+   * client site stays fully self-contained. */
+  function chartEscText(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+  function chartNum(v) {
+    var n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  }
+  function chartFmtNum(v) {
+    var r = Math.round(chartNum(v) * 100) / 100;
+    var neg = r < 0;
+    var parts = String(Math.abs(r)).split('.');
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return (neg ? '-' : '') + parts.join('.');
+  }
+  function chartColorAt(colors, i) {
+    var list = Array.isArray(colors) && colors.length ? colors : ['#0e7a68', '#e8873a', '#3a6ea8', '#b04a6e'];
+    return list[i % list.length];
+  }
+  function chartTrunc(s, n) {
+    var str = String(s == null ? '' : s);
+    return str.length > n ? str.slice(0, n - 1) + '…' : str;
+  }
+  function chartDesc(chart) {
+    var labels = Array.isArray(chart.labels) ? chart.labels : [];
+    var series = Array.isArray(chart.series) ? chart.series : [];
+    var first = series[0];
+    var bits = [];
+    if (first) {
+      for (var i = 0; i < labels.length && i < 12; i++) {
+        bits.push(String(labels[i]) + ': ' + chartFmtNum(first.values ? first.values[i] : 0));
+      }
+    }
+    return (chart.chart_type || 'chart') + ' chart. ' + bits.join(', ');
+  }
+  function chartScale(values) {
+    var min = 0;
+    var max = 0;
+    values.forEach(function (v) {
+      var n = chartNum(v);
+      if (n < min) min = n;
+      if (n > max) max = n;
+    });
+    if (max - min < 1e-9) max = min + 1;
+    return { min: min, max: max };
+  }
+  function chartPieSvg(chart, W, H) {
+    var series = Array.isArray(chart.series) ? chart.series : [];
+    var labels = Array.isArray(chart.labels) ? chart.labels : [];
+    var values = series.length ? series[0].values || [] : [];
+    var vals = labels.map(function (_, i) {
+      return Math.max(0, chartNum(values[i]));
+    });
+    var total = vals.reduce(function (a, b) {
+      return a + b;
+    }, 0);
+    var cx = W / 2;
+    var cy = H / 2;
+    var R = 148;
+    var inner = chart.chart_type === 'doughnut' ? 86 : 0;
+    var out = '';
+    if (total <= 0) {
+      return (
+        '<text x="' + cx + '" y="' + cy + '" text-anchor="middle" class="bp-chart-tick">No data yet</text>'
+      );
+    }
+    var nonZero = vals.filter(function (v) {
+      return v > 0;
+    }).length;
+    if (nonZero === 1) {
+      var only = vals.indexOf(Math.max.apply(null, vals));
+      var col = chartColorAt(chart.colors, only);
+      if (inner) {
+        out +=
+          '<path fill="' + col + '" fill-rule="evenodd" d="M ' + (cx - R) + ',' + cy +
+          ' a ' + R + ',' + R + ' 0 1,0 ' + 2 * R + ',0 a ' + R + ',' + R + ' 0 1,0 ' + -2 * R + ',0' +
+          ' M ' + (cx - inner) + ',' + cy +
+          ' a ' + inner + ',' + inner + ' 0 1,0 ' + 2 * inner + ',0 a ' + inner + ',' + inner + ' 0 1,0 ' + -2 * inner + ',0"/>';
+      } else {
+        out += '<circle cx="' + cx + '" cy="' + cy + '" r="' + R + '" fill="' + col + '"/>';
+      }
+      return out;
+    }
+    var acc = -Math.PI / 2;
+    vals.forEach(function (v, i) {
+      if (v <= 0) return;
+      var frac = v / total;
+      var a0 = acc;
+      var a1 = acc + frac * Math.PI * 2;
+      acc = a1;
+      var large = frac > 0.5 ? 1 : 0;
+      var x0 = cx + R * Math.cos(a0);
+      var y0 = cy + R * Math.sin(a0);
+      var x1 = cx + R * Math.cos(a1);
+      var y1 = cy + R * Math.sin(a1);
+      var d;
+      if (inner) {
+        var ix0 = cx + inner * Math.cos(a0);
+        var iy0 = cy + inner * Math.sin(a0);
+        var ix1 = cx + inner * Math.cos(a1);
+        var iy1 = cy + inner * Math.sin(a1);
+        d =
+          'M ' + x0.toFixed(2) + ',' + y0.toFixed(2) +
+          ' A ' + R + ',' + R + ' 0 ' + large + ' 1 ' + x1.toFixed(2) + ',' + y1.toFixed(2) +
+          ' L ' + ix1.toFixed(2) + ',' + iy1.toFixed(2) +
+          ' A ' + inner + ',' + inner + ' 0 ' + large + ' 0 ' + ix0.toFixed(2) + ',' + iy0.toFixed(2) + ' Z';
+      } else {
+        d =
+          'M ' + cx + ',' + cy +
+          ' L ' + x0.toFixed(2) + ',' + y0.toFixed(2) +
+          ' A ' + R + ',' + R + ' 0 ' + large + ' 1 ' + x1.toFixed(2) + ',' + y1.toFixed(2) + ' Z';
+      }
+      out += '<path d="' + d + '" fill="' + chartColorAt(chart.colors, i) + '"/>';
+      if (chart.show_values && frac >= 0.05) {
+        var mid = (a0 + a1) / 2;
+        var lr = inner ? (R + inner) / 2 : R * 0.62;
+        var lx = cx + lr * Math.cos(mid);
+        var ly = cy + lr * Math.sin(mid);
+        out +=
+          '<text x="' + lx.toFixed(2) + '" y="' + ly.toFixed(2) + '" text-anchor="middle" dy="0.35em" class="bp-chart-val" fill="#fff">' +
+          Math.round(frac * 100) + '%</text>';
+      }
+    });
+    return out;
+  }
+  function chartCartesianSvg(chart, W) {
+    var labels = Array.isArray(chart.labels) ? chart.labels : [];
+    var series = Array.isArray(chart.series) ? chart.series : [];
+    var type = chart.chart_type || 'bar';
+    var all = [];
+    series.forEach(function (s) {
+      (s.values || []).forEach(function (v) {
+        all.push(v);
+      });
+    });
+    var scale = chartScale(all);
+    var out = '';
+    var i, j;
+    if (type === 'hbar') {
+      var rowH = series.length * 24 + 16;
+      var Hh = 26 + labels.length * rowH + 34;
+      var ml = 148, mr = 48, mt = 6, mb = 30;
+      var pw = W - ml - mr;
+      var ph = Hh - mt - mb;
+      var xs = function (v) {
+        return ml + ((chartNum(v) - scale.min) / (scale.max - scale.min)) * pw;
+      };
+      for (i = 0; i <= 4; i++) {
+        var tv = scale.min + ((scale.max - scale.min) * i) / 4;
+        var tx = xs(tv);
+        out += '<line x1="' + tx.toFixed(1) + '" y1="' + mt + '" x2="' + tx.toFixed(1) + '" y2="' + (mt + ph) + '" class="bp-chart-grid"/>';
+        out +=
+          '<text x="' + tx.toFixed(1) + '" y="' + (mt + ph + 20) + '" text-anchor="middle" class="bp-chart-tick">' +
+          chartEscText(chartFmtNum(tv)) + '</text>';
+      }
+      labels.forEach(function (label, li) {
+        var gy = mt + li * rowH;
+        out +=
+          '<text x="' + (ml - 10) + '" y="' + (gy + rowH / 2) + '" text-anchor="end" dy="0.35em" class="bp-chart-tick">' +
+          chartEscText(chartTrunc(label, 18)) + '</text>';
+        series.forEach(function (s, si) {
+          var v = chartNum(s.values ? s.values[li] : 0);
+          var by = gy + 6 + si * 24;
+          var x0 = xs(Math.min(0, v));
+          var x1 = xs(Math.max(0, v));
+          out +=
+            '<rect x="' + x0.toFixed(1) + '" y="' + by + '" width="' + Math.max(1.5, x1 - x0).toFixed(1) +
+            '" height="17" rx="3" fill="' + chartColorAt(chart.colors, si) + '"/>';
+          if (chart.show_values) {
+            var vx = v >= 0 ? x1 + 6 : x0 - 6;
+            out +=
+              '<text x="' + vx.toFixed(1) + '" y="' + (by + 8.5) + '" dy="0.35em" text-anchor="' + (v >= 0 ? 'start' : 'end') +
+              '" class="bp-chart-val">' + chartEscText(chartFmtNum(v)) + '</text>';
+          }
+        });
+      });
+      return { svg: out, height: Hh };
+    }
+    var H = 380;
+    var m = { l: 58, r: 14, t: 16, b: 54 };
+    var plotW = W - m.l - m.r;
+    var plotH = H - m.t - m.b;
+    var ys = function (v) {
+      return m.t + plotH - ((chartNum(v) - scale.min) / (scale.max - scale.min)) * plotH;
+    };
+    for (i = 0; i <= 4; i++) {
+      var gv = scale.min + ((scale.max - scale.min) * i) / 4;
+      var gy2 = ys(gv);
+      out +=
+        '<line x1="' + m.l + '" y1="' + gy2.toFixed(1) + '" x2="' + (m.l + plotW) + '" y2="' + gy2.toFixed(1) +
+        '" class="' + (Math.abs(gv) < 1e-9 ? 'bp-chart-axis' : 'bp-chart-grid') + '"/>';
+      out +=
+        '<text x="' + (m.l - 8) + '" y="' + gy2.toFixed(1) + '" text-anchor="end" dy="0.35em" class="bp-chart-tick">' +
+        chartEscText(chartFmtNum(gv)) + '</text>';
+    }
+    var groupW = labels.length ? plotW / labels.length : plotW;
+    labels.forEach(function (label, li) {
+      var cxp = m.l + groupW * (li + 0.5);
+      out +=
+        '<text x="' + cxp.toFixed(1) + '" y="' + (m.t + plotH + 22) + '" text-anchor="middle" class="bp-chart-tick">' +
+        chartEscText(chartTrunc(label, 12)) + '</text>';
+    });
+    if (type === 'bar') {
+      var barArea = groupW * 0.72;
+      var barW = series.length ? barArea / series.length : barArea;
+      labels.forEach(function (_, li) {
+        series.forEach(function (s, si) {
+          var v = chartNum(s.values ? s.values[li] : 0);
+          var bx = m.l + groupW * li + (groupW - barArea) / 2 + si * barW;
+          var yTop = ys(Math.max(0, v));
+          var yBot = ys(Math.min(0, v));
+          out +=
+            '<rect x="' + bx.toFixed(1) + '" y="' + yTop.toFixed(1) + '" width="' + Math.max(1.5, barW - 2).toFixed(1) +
+            '" height="' + Math.max(1, yBot - yTop).toFixed(1) + '" rx="3" fill="' + chartColorAt(chart.colors, si) + '"/>';
+          if (chart.show_values) {
+            out +=
+              '<text x="' + (bx + barW / 2).toFixed(1) + '" y="' + (yTop - 5).toFixed(1) + '" text-anchor="middle" class="bp-chart-val">' +
+              chartEscText(chartFmtNum(v)) + '</text>';
+          }
+        });
+      });
+    } else {
+      // line + area share the point geometry.
+      series.forEach(function (s, si) {
+        var pts = labels.map(function (_, li) {
+          var px = labels.length > 1 ? m.l + groupW * (li + 0.5) : m.l + plotW / 2;
+          return [px, ys(s.values ? s.values[li] : 0)];
+        });
+        var col = chartColorAt(chart.colors, si);
+        if (type === 'area' && pts.length) {
+          var baseY = ys(0);
+          var d = 'M ' + pts[0][0].toFixed(1) + ',' + pts[0][1].toFixed(1);
+          for (j = 1; j < pts.length; j++) d += ' L ' + pts[j][0].toFixed(1) + ',' + pts[j][1].toFixed(1);
+          d += ' L ' + pts[pts.length - 1][0].toFixed(1) + ',' + baseY.toFixed(1) + ' L ' + pts[0][0].toFixed(1) + ',' + baseY.toFixed(1) + ' Z';
+          out += '<path d="' + d + '" fill="' + col + '" fill-opacity="0.22" stroke="none"/>';
+        }
+        if (pts.length) {
+          out +=
+            '<polyline fill="none" stroke="' + col + '" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" points="' +
+            pts.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ') + '"/>';
+          pts.forEach(function (p, li) {
+            out += '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="3.5" fill="' + col + '"/>';
+            if (chart.show_values) {
+              out +=
+                '<text x="' + p[0].toFixed(1) + '" y="' + (p[1] - 9).toFixed(1) + '" text-anchor="middle" class="bp-chart-val">' +
+                chartEscText(chartFmtNum(s.values ? s.values[li] : 0)) + '</text>';
+            }
+          });
+        }
+      });
+    }
+    return { svg: out, height: H };
+  }
+  function chartSvgMarkup(chart) {
+    var W = 720;
+    var isPie = chart.chart_type === 'pie' || chart.chart_type === 'doughnut';
+    var body;
+    var H;
+    if (isPie) {
+      H = 380;
+      body = chartPieSvg(chart, W, H);
+    } else {
+      var built = chartCartesianSvg(chart, W);
+      body = built.svg;
+      H = built.height;
+    }
+    return (
+      '<svg class="bp-mod-chart-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' +
+      chartEscText(chart.title || 'Chart') + '"><title>' + chartEscText(chart.title || 'Chart') + '</title><desc>' +
+      chartEscText(chartDesc(chart)) + '</desc>' + body + '</svg>'
+    );
+  }
+  function chartLegendHtml(chart) {
+    if (chart.show_legend === false) return '';
+    var labels = Array.isArray(chart.labels) ? chart.labels : [];
+    var series = Array.isArray(chart.series) ? chart.series : [];
+    var isPie = chart.chart_type === 'pie' || chart.chart_type === 'doughnut';
+    var items = '';
+    var i;
+    if (isPie) {
+      var values = series.length ? series[0].values || [] : [];
+      var total = 0;
+      for (i = 0; i < labels.length; i++) total += Math.max(0, chartNum(values[i]));
+      for (i = 0; i < labels.length; i++) {
+        var v = Math.max(0, chartNum(values[i]));
+        items +=
+          '<li><span class="bp-mod-chart-dot" style="background:' + chartColorAt(chart.colors, i) + '"></span>' +
+          chartEscText(labels[i]) +
+          (chart.show_values && total > 0
+            ? ' — ' + chartEscText(chartFmtNum(v)) + ' (' + Math.round((v / total) * 100) + '%)'
+            : '') +
+          '</li>';
+      }
+    } else {
+      if (series.length < 2) return '';
+      for (i = 0; i < series.length; i++) {
+        items +=
+          '<li><span class="bp-mod-chart-dot" style="background:' + chartColorAt(chart.colors, i) + '"></span>' +
+          chartEscText(series[i].name || 'Series ' + (i + 1)) + '</li>';
+      }
+    }
+    return items ? '<ul class="bp-mod-chart-legend">' + items + '</ul>' : '';
+  }
+  /* CHART-SVG-END */
+
+  function renderCharts(el, data, prefixHtml) {
+    var payload = data.charts || {};
+    var charts = Array.isArray(payload.charts) ? payload.charts : [];
+    var html = '';
+    var rendered = 0;
+    charts.forEach(function (chart) {
+      var labels = Array.isArray(chart.labels) ? chart.labels : [];
+      var series = Array.isArray(chart.series) ? chart.series : [];
+      if (!labels.length || !series.length) return;
+      rendered++;
+      html += '<section class="bp-mod-chart">';
+      if (chart.title) html += '<h3 class="bp-mod-chart-title">' + esc(chart.title) + '</h3>';
+      html += chartSvgMarkup(chart);
+      html += chartLegendHtml(chart);
+      html += '</section>';
+    });
+    if (!rendered) {
+      // Nothing configured with data yet — render nothing (the
+      // dormant-module pattern, like Google Reviews / Social Feed).
+      el.innerHTML = '';
+      return;
+    }
+    el.innerHTML = prefixHtml + html;
   }
 
   function renderDataTable(el, data, prefixHtml) {

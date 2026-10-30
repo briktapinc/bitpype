@@ -38,13 +38,14 @@ const MODULE_TYPES = [
   'members',
   'googlereviews',
   'datatables',
+  'charts',
 ];
 const MANAGED_ATTR = 'data-bitpype-module';
 const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod22';
+const MODULE_SCRIPT_VER = 'mod23';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -76,6 +77,7 @@ const MODULE_META = {
   members: { label: 'Membership', defaultTitle: 'Members', defaultSlug: 'members' },
   googlereviews: { label: 'Google Reviews', defaultTitle: 'Google Reviews', defaultSlug: 'reviews' },
   datatables: { label: 'Data Tables', defaultTitle: 'Data Table', defaultSlug: 'data-table' },
+  charts: { label: 'Charts', defaultTitle: 'Charts', defaultSlug: 'charts' },
 };
 
 const BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'];
@@ -501,6 +503,20 @@ function ensureTables(db) {
       values_json TEXT NOT NULL DEFAULT '{}',
       status TEXT NOT NULL DEFAULT 'published',
       source TEXT NOT NULL DEFAULT 'owner',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS charts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      chart_type TEXT NOT NULL DEFAULT 'bar',
+      source TEXT NOT NULL DEFAULT 'manual',
+      config_json TEXT NOT NULL DEFAULT '{}',
+      data_json TEXT NOT NULL DEFAULT '',
+      style_json TEXT NOT NULL DEFAULT '{}',
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -1609,6 +1625,8 @@ function modulePurgeSteps(leadId, type) {
       return [byLead('googlereviews_cache', 'Google Reviews cache'), byLead('googlereviews_configs', 'Google Reviews settings')];
     case 'datatables':
       return [byLead('datatable_rows', 'data table rows'), byLead('datatable_configs', 'data table settings')];
+    case 'charts':
+      return [byLead('charts', 'charts')];
     default:
       return [];
   }
@@ -7016,6 +7034,585 @@ function createPublicDataTableSubmissionByToken(db, token, data = {}, opts = {})
   };
 }
 
+/* ── Charts (Batch 90) ─────────────────────────────────────────────────────
+ *
+ * A data-visualization module (Ely 2026-10-30: "add a graphs module to
+ * take data from the datatables or any source and display as any graph
+ * style" — shipped as Charts). The module instance is one-per-site
+ * like every module (site_module_embeds is UNIQUE(lead_id,
+ * module_type)); the instance holds up to CHART_MAX_CHARTS chart
+ * definitions, each rendered by the embed in order.
+ *
+ * A chart's data comes from one of two sources:
+ *   - 'table'  — bound to the site's Data Table: a label column plus
+ *     one or more numeric value columns, aggregated (sum / count /
+ *     average) per label, or plotted row-by-row ('none'). Computed
+ *     server-side at payload time from PUBLISHED rows only — pending
+ *     visitor submissions are never charted, and the public payload
+ *     carries only the computed labels + series, never raw rows.
+ *   - 'manual' — a dataset stored on the chart itself (labels + up to
+ *     CHART_MAX_SERIES series), entered via the portal editor or MCP.
+ *     The stored shape ({ labels, series }) is the extension point:
+ *     future sources produce the same shape and plug in unchanged.
+ *
+ * Styles: bar | hbar | line | area | pie | doughnut, switchable by
+ * config without touching the data. The embed renders inline SVG (no
+ * external chart library), so client sites stay self-contained.
+ */
+
+const CHART_TYPES = ['bar', 'hbar', 'line', 'area', 'pie', 'doughnut'];
+const CHART_SOURCES = ['table', 'manual'];
+const CHART_AGGREGATIONS = ['sum', 'count', 'average', 'none'];
+const CHART_MAX_CHARTS = 20;
+const CHART_MAX_POINTS = 50;
+const CHART_MAX_SERIES = 4;
+const CHART_MAX_COLORS = 12;
+const CHART_DEFAULT_COLORS = [
+  '#0e7a68',
+  '#e8873a',
+  '#3a6ea8',
+  '#b04a6e',
+  '#5b8c3e',
+  '#7a5ba8',
+  '#c2a13a',
+  '#4a8c8c',
+];
+
+function chartBool(value, fallback) {
+  if (value == null) return fallback;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  const s = String(value).trim().toLowerCase();
+  if (['yes', 'true', '1', 'on'].includes(s)) return true;
+  if (['no', 'false', '0', 'off', ''].includes(s)) return false;
+  return fallback;
+}
+
+function normalizeChartColors(raw) {
+  if (raw == null || raw === '') return null; // null = keep/default
+  let list = raw;
+  if (typeof list === 'string') list = list.split(',');
+  if (!Array.isArray(list)) throw fail('VALIDATION', 'colors must be an array of hex colors');
+  const out = [];
+  for (const entry of list) {
+    const s = String(entry || '').trim();
+    if (!s) continue;
+    const m = s.match(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/);
+    if (!m) throw fail('VALIDATION', `Invalid color "${s}" — use hex like #0e7a68`);
+    let hex = m[1].toLowerCase();
+    if (hex.length === 3) hex = hex.split('').map((c) => c + c).join('');
+    if (!out.includes('#' + hex)) out.push('#' + hex);
+  }
+  if (out.length > CHART_MAX_COLORS) {
+    throw fail('VALIDATION', `A chart can use at most ${CHART_MAX_COLORS} colors`);
+  }
+  return out;
+}
+
+function chartNumber(value, where) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const n = Number(value.replace(/[$,]/g, '').trim());
+    if (Number.isFinite(n) && value.trim() !== '') return n;
+  }
+  throw fail('VALIDATION', `Chart data needs a number at ${where}, got "${value}"`);
+}
+
+function finishChartData(labels, series) {
+  if (labels.length > CHART_MAX_POINTS) {
+    throw fail('VALIDATION', `A chart can have at most ${CHART_MAX_POINTS} data points`);
+  }
+  if (series.length > CHART_MAX_SERIES) {
+    throw fail('VALIDATION', `A chart can have at most ${CHART_MAX_SERIES} series`);
+  }
+  for (const s of series) {
+    if (s.values.length !== labels.length) {
+      throw fail(
+        'VALIDATION',
+        `Series "${s.name}" has ${s.values.length} values for ${labels.length} labels — they must match`
+      );
+    }
+  }
+  return { labels, series };
+}
+
+/**
+ * A manual dataset, accepted in two shapes:
+ *   structured: { labels: [...], series: [{ name, values: [...] }] }
+ *   text:       { data_text: "Label | 10 | 4\n…", series_names: "A, B" }
+ * The text form is what the portal editor round-trips (one point per
+ * line, values separated by | or ,). Values must be numbers — numeric
+ * strings are coerced ("$1,200" → 1200); anything else is rejected.
+ */
+function normalizeChartData(raw) {
+  if (raw == null) return { labels: [], series: [] };
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw fail('VALIDATION', 'data must be an object with labels + series (or data_text)');
+  }
+  if (raw.data_text != null) {
+    const namesRaw = raw.series_names;
+    const names = Array.isArray(namesRaw)
+      ? namesRaw.map((n) => String(n || '').trim().slice(0, 60))
+      : String(namesRaw || '')
+          .split(',')
+          .map((n) => n.trim().slice(0, 60))
+          .filter(Boolean);
+    const labels = [];
+    const columns = [];
+    const lines = String(raw.data_text).split(/\r?\n/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const cells = (trimmed.includes('|') ? trimmed.split('|') : trimmed.split(',')).map((c) => c.trim());
+      labels.push(cells[0].slice(0, 80));
+      const vals = cells.slice(1);
+      if (columns.length && vals.length !== columns.length) {
+        throw fail(
+          'VALIDATION',
+          `Data line "${trimmed.slice(0, 40)}" has ${vals.length} values — every line needs the same count`
+        );
+      }
+      vals.forEach((v, i) => {
+        if (!columns[i]) columns[i] = [];
+        columns[i].push(chartNumber(v, `line "${cells[0]}", value ${i + 1}`));
+      });
+    }
+    const series = columns.map((values, i) => ({ name: names[i] || `Series ${i + 1}`, values }));
+    return finishChartData(labels, series);
+  }
+  if (raw.labels == null && raw.series == null) return { labels: [], series: [] };
+  if (!Array.isArray(raw.labels)) throw fail('VALIDATION', 'data.labels must be an array');
+  if (!Array.isArray(raw.series)) throw fail('VALIDATION', 'data.series must be an array');
+  const labels = raw.labels.map((l) => String(l == null ? '' : l).slice(0, 80));
+  const series = raw.series.map((s, i) => {
+    const entry = s && typeof s === 'object' ? s : {};
+    if (!Array.isArray(entry.values)) {
+      throw fail('VALIDATION', `Series ${i + 1} needs a values array`);
+    }
+    return {
+      name: String(entry.name || `Series ${i + 1}`).trim().slice(0, 60) || `Series ${i + 1}`,
+      values: entry.values.map((v, j) => chartNumber(v, `series ${i + 1}, point ${j + 1}`)),
+    };
+  });
+  return finishChartData(labels, series);
+}
+
+/** The portal editor's text form of a stored dataset (round-trips). */
+function chartDataToText(data) {
+  const d = data && typeof data === 'object' ? data : { labels: [], series: [] };
+  const labels = Array.isArray(d.labels) ? d.labels : [];
+  const series = Array.isArray(d.series) ? d.series : [];
+  return labels
+    .map((label, i) => [label, ...series.map((s) => (s.values && s.values[i] != null ? s.values[i] : ''))].join(' | '))
+    .join('\n');
+}
+
+function normalizeChartBinding(columns, raw, base) {
+  const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const out = {
+    label_column: base ? base.label_column : null,
+    value_columns: base ? [...base.value_columns] : [],
+    aggregation: base ? base.aggregation : 'sum',
+  };
+  if (src.label_column != null) {
+    const key = String(src.label_column || '').trim().toLowerCase();
+    out.label_column = key || null;
+  }
+  if (src.value_columns != null) {
+    // The portal editor sends a comma-separated string; MCP sends an array.
+    if (typeof src.value_columns === 'string') src.value_columns = src.value_columns.split(',');
+    if (!Array.isArray(src.value_columns)) {
+      throw fail('VALIDATION', 'value_columns must be an array of column keys');
+    }
+    const seen = new Set();
+    out.value_columns = [];
+    for (const v of src.value_columns) {
+      const key = String(v || '').trim().toLowerCase();
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        out.value_columns.push(key);
+      }
+    }
+    if (out.value_columns.length > CHART_MAX_SERIES) {
+      throw fail('VALIDATION', `A chart can plot at most ${CHART_MAX_SERIES} value columns`);
+    }
+  }
+  if (src.aggregation != null) {
+    const a = String(src.aggregation).trim().toLowerCase();
+    if (!CHART_AGGREGATIONS.includes(a)) {
+      throw fail('VALIDATION', `Invalid aggregation "${src.aggregation}" — use: ${CHART_AGGREGATIONS.join(', ')}`);
+    }
+    out.aggregation = a;
+  }
+  // Validate against the table's CURRENT schema whenever the keys are
+  // being set (a dangling key stored earlier is pruned at compute time
+  // instead — the schema may have changed since the binding was saved).
+  const byKey = new Map((columns || []).map((c) => [c.key, c]));
+  if (src.label_column != null && out.label_column && !byKey.has(out.label_column)) {
+    throw fail('VALIDATION', `Label column "${out.label_column}" is not a column of the site's Data Table`);
+  }
+  if (src.value_columns != null) {
+    for (const key of out.value_columns) {
+      const col = byKey.get(key);
+      if (!col) throw fail('VALIDATION', `Value column "${key}" is not a column of the site's Data Table`);
+      if (out.aggregation !== 'count' && col.type !== 'number' && col.type !== 'currency') {
+        throw fail(
+          'VALIDATION',
+          `Value column "${key}" is a ${col.type} column — charts can only plot number or currency columns`
+        );
+      }
+    }
+  }
+  return out;
+}
+
+function normalizeChartStyle(raw, base) {
+  const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const out = {
+    colors: base ? [...base.colors] : [],
+    show_legend: base ? base.show_legend : true,
+    show_values: base ? base.show_values : false,
+  };
+  if (src.colors != null) {
+    const colors = normalizeChartColors(src.colors);
+    if (colors) out.colors = colors;
+  }
+  if (src.show_legend != null) out.show_legend = chartBool(src.show_legend, out.show_legend);
+  if (src.show_values != null) out.show_values = chartBool(src.show_values, out.show_values);
+  return out;
+}
+
+/** Flatten a stored binding/style/data patch: sub-objects OR flat keys. */
+function chartPatch(data, subKey, flatKeys) {
+  const out = {};
+  const sub = data && typeof data[subKey] === 'object' && data[subKey] && !Array.isArray(data[subKey]) ? data[subKey] : {};
+  for (const k of flatKeys) {
+    if (data && data[k] != null) out[k] = data[k];
+    else if (sub[k] != null) out[k] = sub[k];
+  }
+  return out;
+}
+
+function shapeChart(row) {
+  if (!row) return null;
+  let config = {};
+  let data = { labels: [], series: [] };
+  let style = {};
+  try {
+    config = JSON.parse(row.config_json || '{}') || {};
+  } catch {
+    config = {};
+  }
+  try {
+    data = JSON.parse(row.data_json || '') || { labels: [], series: [] };
+  } catch {
+    data = { labels: [], series: [] };
+  }
+  try {
+    style = JSON.parse(row.style_json || '{}') || {};
+  } catch {
+    style = {};
+  }
+  return {
+    id: Number(row.id),
+    lead_id: Number(row.lead_id),
+    title: String(row.title || ''),
+    chart_type: CHART_TYPES.includes(row.chart_type) ? row.chart_type : 'bar',
+    source: CHART_SOURCES.includes(row.source) ? row.source : 'manual',
+    label_column: config.label_column || null,
+    value_columns: Array.isArray(config.value_columns) ? config.value_columns : [],
+    aggregation: CHART_AGGREGATIONS.includes(config.aggregation) ? config.aggregation : 'sum',
+    data: {
+      labels: Array.isArray(data.labels) ? data.labels : [],
+      series: Array.isArray(data.series) ? data.series : [],
+    },
+    colors: Array.isArray(style.colors) ? style.colors : [],
+    show_legend: style.show_legend !== false,
+    show_values: style.show_values === true,
+    sort_order: Number(row.sort_order) || 0,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function listCharts(db, leadId) {
+  ensureTables(db);
+  return db
+    .prepare('SELECT * FROM charts WHERE lead_id = ? ORDER BY sort_order ASC, id ASC')
+    .all(Number(leadId))
+    .map(shapeChart);
+}
+
+function getChart(db, leadId, id) {
+  ensureTables(db);
+  const row = db
+    .prepare('SELECT * FROM charts WHERE lead_id = ? AND id = ?')
+    .get(Number(leadId), Number(id));
+  return shapeChart(row);
+}
+
+function countCharts(db, leadId) {
+  ensureTables(db);
+  const row = db.prepare('SELECT COUNT(*) AS c FROM charts WHERE lead_id = ?').get(Number(leadId));
+  return Number(row && row.c) || 0;
+}
+
+/**
+ * Merge a create/update patch over the existing chart (or defaults).
+ * Binding keys validate against the site's Data Table schema; manual
+ * data validates standalone. Returns the storage-shaped record.
+ */
+function normalizeChartInput(db, leadId, data = {}, existing = null) {
+  const tableCfg = getDataTableConfig(db, Number(leadId));
+  const binding = normalizeChartBinding(
+    tableCfg.columns,
+    chartPatch(data, 'config', ['label_column', 'value_columns', 'aggregation']),
+    existing
+      ? {
+          label_column: existing.label_column,
+          value_columns: existing.value_columns,
+          aggregation: existing.aggregation,
+        }
+      : null
+  );
+  const style = normalizeChartStyle(
+    chartPatch(data, 'style', ['colors', 'show_legend', 'show_values']),
+    existing ? { colors: existing.colors, show_legend: existing.show_legend, show_values: existing.show_values } : null
+  );
+  let chartType = existing ? existing.chart_type : 'bar';
+  if (data.chart_type != null) {
+    const t = String(data.chart_type).trim().toLowerCase();
+    if (!CHART_TYPES.includes(t)) {
+      throw fail('VALIDATION', `Invalid chart type "${data.chart_type}" — use: ${CHART_TYPES.join(', ')}`);
+    }
+    chartType = t;
+  }
+  let source = existing ? existing.source : 'manual';
+  if (data.source != null) {
+    const s = String(data.source).trim().toLowerCase();
+    if (!CHART_SOURCES.includes(s)) {
+      throw fail('VALIDATION', `Invalid chart source "${data.source}" — use: ${CHART_SOURCES.join(', ')}`);
+    }
+    source = s;
+  }
+  let manual = existing ? existing.data : { labels: [], series: [] };
+  if (data.data != null) manual = normalizeChartData(data.data);
+  else if (data.data_text != null) {
+    manual = normalizeChartData({ data_text: data.data_text, series_names: data.series_names });
+  }
+  return {
+    title: data.title != null ? String(data.title).trim().slice(0, 120) : existing ? existing.title : '',
+    chart_type: chartType,
+    source,
+    config: binding,
+    data: manual,
+    style,
+    sort_order:
+      data.sort_order != null && Number.isFinite(Number(data.sort_order))
+        ? Number(data.sort_order)
+        : existing
+          ? existing.sort_order
+          : null,
+  };
+}
+
+function createChart(db, leadId, data = {}) {
+  ensureTables(db);
+  const lid = Number(leadId);
+  if (countCharts(db, lid) >= CHART_MAX_CHARTS) {
+    throw fail('VALIDATION', `A site can have at most ${CHART_MAX_CHARTS} charts`);
+  }
+  const norm = normalizeChartInput(db, lid, data, null);
+  const sortOrder =
+    norm.sort_order != null
+      ? norm.sort_order
+      : db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS m FROM charts WHERE lead_id = ?').get(lid).m + 1;
+  const info = db
+    .prepare(
+      `INSERT INTO charts (lead_id, title, chart_type, source, config_json, data_json, style_json, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      lid,
+      norm.title,
+      norm.chart_type,
+      norm.source,
+      JSON.stringify(norm.config),
+      JSON.stringify(norm.data),
+      JSON.stringify(norm.style),
+      sortOrder
+    );
+  return getChart(db, lid, info.lastInsertRowid);
+}
+
+function updateChart(db, leadId, id, data = {}) {
+  ensureTables(db);
+  const lid = Number(leadId);
+  const existing = getChart(db, lid, id);
+  if (!existing) throw fail('NOT_FOUND', 'Chart not found', 404);
+  const norm = normalizeChartInput(db, lid, data, existing);
+  db.prepare(
+    `UPDATE charts SET title = ?, chart_type = ?, source = ?, config_json = ?, data_json = ?,
+       style_json = ?, sort_order = ?, updated_at = datetime('now') WHERE lead_id = ? AND id = ?`
+  ).run(
+    norm.title,
+    norm.chart_type,
+    norm.source,
+    JSON.stringify(norm.config),
+    JSON.stringify(norm.data),
+    JSON.stringify(norm.style),
+    norm.sort_order != null ? norm.sort_order : existing.sort_order,
+    lid,
+    Number(id)
+  );
+  return getChart(db, lid, id);
+}
+
+function deleteChart(db, leadId, id) {
+  ensureTables(db);
+  const info = db
+    .prepare('DELETE FROM charts WHERE lead_id = ? AND id = ?')
+    .run(Number(leadId), Number(id));
+  if (!info.changes) throw fail('NOT_FOUND', 'Chart not found', 404);
+  return { deleted: true };
+}
+
+function clearCharts(db, leadId) {
+  ensureTables(db);
+  const info = db.prepare('DELETE FROM charts WHERE lead_id = ?').run(Number(leadId));
+  return { deleted: info.changes };
+}
+
+/** A table cell as a chart label, formatted per the column's type. */
+function chartLabelText(col, value) {
+  if (value == null || value === '') return '(blank)';
+  if (!col) return String(value);
+  if (col.type === 'boolean') return value ? 'Yes' : 'No';
+  if (col.type === 'link' && typeof value === 'object') return String(value.label || value.url || '');
+  return String(value);
+}
+
+function roundChartValue(n) {
+  const r = Math.round((Number(n) || 0) * 100) / 100;
+  return r === 0 ? 0 : r;
+}
+
+/**
+ * The chart's plottable data, from whichever source it is bound to.
+ * Table-bound charts read PUBLISHED rows only (pending visitor
+ * submissions are never charted) and aggregate per label; stored
+ * binding keys that no longer exist in the schema are pruned here,
+ * mirroring the Data Tables display-role pruning.
+ */
+function computeChartData(db, leadId, chart) {
+  if (!chart || chart.source !== 'table') {
+    const d = chart ? chart.data : { labels: [], series: [] };
+    return { labels: [...d.labels], series: d.series.map((s) => ({ name: s.name, values: [...s.values] })), truncated: false };
+  }
+  const lid = Number(leadId);
+  const cfg = getDataTableConfig(db, lid);
+  const byKey = new Map(cfg.columns.map((c) => [c.key, c]));
+  const labelCol = chart.label_column ? byKey.get(chart.label_column) : null;
+  if (!labelCol) return { labels: [], series: [], truncated: false };
+  const valueCols = (chart.value_columns || [])
+    .map((k) => byKey.get(k))
+    .filter((c) => c && (chart.aggregation === 'count' || c.type === 'number' || c.type === 'currency'));
+  if (chart.aggregation !== 'count' && !valueCols.length) {
+    return { labels: [], series: [], truncated: false };
+  }
+  const rows = listDataTableRows(db, lid, { includePending: false });
+  const cell = (row, key) => (row.values ? row.values[key] : null);
+  const num = (row, key) => {
+    const v = cell(row, key);
+    return typeof v === 'number' && Number.isFinite(v) ? v : null;
+  };
+  if (chart.aggregation === 'none') {
+    const capped = rows.slice(0, CHART_MAX_POINTS);
+    return {
+      labels: capped.map((r) => chartLabelText(labelCol, cell(r, labelCol.key))),
+      series: valueCols.map((c) => ({
+        name: c.label || c.key,
+        values: capped.map((r) => roundChartValue(num(r, c.key) || 0)),
+      })),
+      truncated: rows.length > CHART_MAX_POINTS,
+    };
+  }
+  // Grouped aggregation: sum / count / average per distinct label.
+  const groups = new Map();
+  for (const row of rows) {
+    const label = chartLabelText(labelCol, cell(row, labelCol.key));
+    if (!groups.has(label)) groups.set(label, { count: 0, sums: valueCols.map(() => 0), nums: valueCols.map(() => 0) });
+    const g = groups.get(label);
+    g.count += 1;
+    valueCols.forEach((c, i) => {
+      const v = num(row, c.key);
+      if (v != null) {
+        g.sums[i] += v;
+        g.nums[i] += 1;
+      }
+    });
+  }
+  const allLabels = [...groups.keys()];
+  const labels = allLabels.slice(0, CHART_MAX_POINTS);
+  let series;
+  if (chart.aggregation === 'count') {
+    series = [{ name: 'Count', values: labels.map((l) => groups.get(l).count) }];
+  } else {
+    series = valueCols.map((c, i) => ({
+      name: c.label || c.key,
+      values: labels.map((l) => {
+        const g = groups.get(l);
+        if (chart.aggregation === 'average') {
+          return g.nums[i] ? roundChartValue(g.sums[i] / g.nums[i]) : 0;
+        }
+        return roundChartValue(g.sums[i]);
+      }),
+    }));
+  }
+  return { labels, series, truncated: allLabels.length > CHART_MAX_POINTS };
+}
+
+/** One chart as the public site renders it: definition + computed data. */
+function publicChart(chart, computed) {
+  return {
+    id: chart.id,
+    title: chart.title,
+    chart_type: chart.chart_type,
+    colors: chart.colors.length ? chart.colors : CHART_DEFAULT_COLORS,
+    show_legend: chart.show_legend,
+    show_values: chart.show_values,
+    labels: computed.labels,
+    series: computed.series,
+  };
+}
+
+/** The public (visitor) view: every chart with its computed data. */
+function publicChartsPayload(db, leadId) {
+  const charts = listCharts(db, Number(leadId)).map((chart) =>
+    publicChart(chart, computeChartData(db, Number(leadId), chart))
+  );
+  return { charts };
+}
+
+/** Everything the owner/agent surfaces need in one read. */
+function getChartsModule(db, leadId) {
+  const lid = Number(leadId);
+  const charts = listCharts(db, lid).map((chart) => ({
+    ...chart,
+    computed: computeChartData(db, lid, chart),
+  }));
+  const table = getDataTableConfig(db, lid);
+  return {
+    charts,
+    chart_count: charts.length,
+    datatable: {
+      configured: table.columns.length > 0,
+      title: table.title,
+      columns: table.columns,
+    },
+  };
+}
+
 /* ── Call Tracking (Twilio Voice) ────────────────────────────────────────────
  *
  * Client/admin split (Batch 25c, Ely 2026-10-26): the client only ever
@@ -10456,6 +11053,12 @@ function moduleItemCount(db, leadId, type) {
     // including visitor submissions still pending approval.
     return countDataTableRows(db, leadId);
   }
+  if (type === 'charts') {
+    // The tab badge counts the chart definitions on the site.
+    ensureTables(db);
+    const row = db.prepare('SELECT COUNT(*) AS c FROM charts WHERE lead_id = ?').get(Number(leadId));
+    return Number(row && row.c) || 0;
+  }
   if (type === 'members') {
     // The tab badge counts active members.
     ensureTables(db);
@@ -10503,6 +11106,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
   let googlereviews = null;
   let calltracking = null;
   let datatable = null;
+  let charts = null;
   let total_published = null;
   if (type === 'blog') {
     items = listBlogPosts(db, leadId, { includeDrafts: false }).map((p) => ({
@@ -10563,6 +11167,12 @@ function getPublicModuleByToken(db, token, opts = {}) {
       sort_order: r.sort_order,
     }));
     datatable = publicDataTablePayload(db, leadId);
+  } else if (type === 'charts') {
+    // Computed chart data only — table-bound charts aggregate the
+    // table's PUBLISHED rows server-side (see computeChartData); the
+    // public payload never carries raw rows.
+    charts = publicChartsPayload(db, leadId);
+    items = [];
   } else if (type === 'chatbot') {
     try {
       const chat = require('./chatbot');
@@ -10631,6 +11241,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
   }
   if (calltracking) out.calltracking = calltracking;
   if (datatable) out.datatable = datatable;
+  if (charts) out.charts = charts;
   return out;
 }
 
@@ -10939,6 +11550,25 @@ module.exports = {
   publicDataTablePayload,
   createPublicDataTableSubmission,
   createPublicDataTableSubmissionByToken,
+  CHART_TYPES,
+  CHART_SOURCES,
+  CHART_AGGREGATIONS,
+  CHART_MAX_CHARTS,
+  CHART_MAX_POINTS,
+  CHART_MAX_SERIES,
+  CHART_DEFAULT_COLORS,
+  normalizeChartData,
+  chartDataToText,
+  listCharts,
+  getChart,
+  countCharts,
+  createChart,
+  updateChart,
+  deleteChart,
+  clearCharts,
+  computeChartData,
+  publicChartsPayload,
+  getChartsModule,
   normalizeE164,
   formatPhoneDisplay,
   getCallTrackingConfig,

@@ -97,6 +97,7 @@ function clientToolDefs() {
             'members',
             'googlereviews',
             'datatables',
+            'charts',
           ],
         },
         moduleType: {
@@ -123,6 +124,7 @@ function clientToolDefs() {
             'members',
             'googlereviews',
             'datatables',
+            'charts',
           ],
         },
         title: STR,
@@ -813,6 +815,71 @@ function clientToolDefs() {
     {
       name: 'datatables.clear',
       description: 'Delete ALL rows from the lead\'s Data Table (columns and settings are kept). Standard/Premium.',
+      inputSchema: schema({ leadId: ID }, ['leadId']),
+    },
+    {
+      name: 'charts.get',
+      description:
+        'Get the lead\'s Charts: every chart definition (title, type, source, binding/manual data, style) with its computed plottable data, plus the Data Table columns available for binding. Chart types: bar|hbar|line|area|pie|doughnut. Sources: table (bound to the Data Table — label_column + value_columns of number/currency columns, aggregation sum|count|average|none, computed from PUBLISHED rows only) or manual (a stored dataset). Max 20 charts per site. Standard/Premium.',
+      inputSchema: schema({ leadId: ID }),
+    },
+    {
+      name: 'charts.create',
+      description:
+        'Create a chart on the lead\'s site. For source "table": label_column + value_columns name Data Table columns (aggregation sum|count|average|none; count needs no value columns). For source "manual": data = { labels: [...], series: [{ name, values: [...] }] } (max 50 points, 4 series, numbers only) or data_text lines "Label | 10 | 4" with series_names. colors: hex palette; show_legend / show_values toggles. Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          title: STR,
+          chart_type: STR,
+          source: STR,
+          label_column: STR,
+          value_columns: { type: 'array', items: { type: 'string' } },
+          aggregation: STR,
+          data: { type: 'object' },
+          data_text: STR,
+          series_names: STR,
+          colors: { type: 'array', items: { type: 'string' } },
+          show_legend: { type: 'boolean' },
+          show_values: { type: 'boolean' },
+          sort_order: NUM,
+        },
+        ['leadId']
+      ),
+    },
+    {
+      name: 'charts.update',
+      description:
+        'Update a chart by id — any of title, chart_type, source, label_column, value_columns, aggregation, data / data_text, colors, show_legend, show_values, sort_order. Only the fields passed change. Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          id: ID,
+          title: STR,
+          chart_type: STR,
+          source: STR,
+          label_column: STR,
+          value_columns: { type: 'array', items: { type: 'string' } },
+          aggregation: STR,
+          data: { type: 'object' },
+          data_text: STR,
+          series_names: STR,
+          colors: { type: 'array', items: { type: 'string' } },
+          show_legend: { type: 'boolean' },
+          show_values: { type: 'boolean' },
+          sort_order: NUM,
+        },
+        ['id']
+      ),
+    },
+    {
+      name: 'charts.delete',
+      description: 'Delete one chart by id. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, id: ID }, ['id']),
+    },
+    {
+      name: 'charts.clear',
+      description: 'Delete ALL charts from the lead\'s site (the Data Table itself is untouched). Standard/Premium.',
       inputSchema: schema({ leadId: ID }, ['leadId']),
     },
     {
@@ -2844,6 +2911,11 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'datatables.updateRow',
     'datatables.deleteRow',
     'datatables.clear',
+    'charts.get',
+    'charts.create',
+    'charts.update',
+    'charts.delete',
+    'charts.clear',
     'careers.list',
     'careers.create',
     'careers.update',
@@ -3510,6 +3582,43 @@ async function callClientTool(ws, name, a, ctx = {}) {
     return domain.withDb(ws, (db) => ({
       plan: planId,
       ...modules.clearDataTableRows(db, leadId),
+    }));
+  }
+
+  if (name === 'charts.get') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({ plan: planId, ...modules.getChartsModule(db, leadId) }));
+  }
+  if (name === 'charts.create') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({ plan: planId, chart: modules.createChart(db, leadId, a) }));
+  }
+  if (name === 'charts.update') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      chart: modules.updateChart(db, leadId || Number(ctx.leadId), id, a),
+    }));
+  }
+  if (name === 'charts.delete') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      ...modules.deleteChart(db, leadId || Number(ctx.leadId), id),
+    }));
+  }
+  if (name === 'charts.clear') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      ...modules.clearCharts(db, leadId),
     }));
   }
 
