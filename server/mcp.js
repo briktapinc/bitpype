@@ -2070,6 +2070,18 @@ function parityToolDefs() {
       inputSchema: schema({ id: ID, websiteId: ID, forcePreview: { type: 'boolean' }, previewUrl: STR }, []),
     },
     {
+      name: 'site.chatAttachments',
+      description:
+        'List image attachments a client uploaded in the portal "Improve with AI" design chat for a lead (newest first): id, file name, mime, size, websiteId, chat turn ref, created_at. These are the client\'s own reference images for design analysis — fetch one with site.chatAttachment.',
+      inputSchema: schema({ leadId: ID, limit: { type: 'integer', minimum: 1, maximum: 100 } }, ['leadId']),
+    },
+    {
+      name: 'site.chatAttachment',
+      description:
+        'Fetch ONE design-chat image attachment (by id from site.chatAttachments, scoped to leadId) as base64 + dataUrl so it can be analyzed during the design process. Returns id, name, mime, sizeBytes, createdAt, base64, dataUrl.',
+      inputSchema: schema({ id: ID, leadId: ID }, ['id', 'leadId']),
+    },
+    {
       name: 'website.versions',
       description: 'List saved versions of a website (version_no, note, author, created_at).',
       inputSchema: schema({ id: ID, page: { type: 'integer' }, pageSize: { type: 'integer' } }, ['id']),
@@ -2505,6 +2517,38 @@ async function callParityTool(ws, name, a) {
         leadId: a.leadId,
         designJobId: a.designJobId,
       });
+    }
+    case 'site.chatAttachments': {
+      const leadId = a.leadId != null ? Number(a.leadId) : undefined;
+      if (!(Number.isInteger(leadId) && leadId > 0)) {
+        throw Object.assign(new Error('leadId is required'), { code: 'INVALID_ARGS' });
+      }
+      const chatAtt = require('./siteChatAttachments');
+      return domain.withDb(ws, (db) => ({ attachments: chatAtt.listAttachments(db, { leadId, limit: a.limit }) }));
+    }
+    case 'site.chatAttachment': {
+      const attId = a.id != null ? Number(a.id) : undefined;
+      const leadId = a.leadId != null ? Number(a.leadId) : undefined;
+      if (!(Number.isInteger(attId) && attId > 0) || !(Number.isInteger(leadId) && leadId > 0)) {
+        throw Object.assign(new Error('id and leadId are required'), { code: 'INVALID_ARGS' });
+      }
+      const chatAtt = require('./siteChatAttachments');
+      const found = domain.withDb(ws, (db) => chatAtt.readAttachment(db, { leadId, id: attId }));
+      if (!found) {
+        throw Object.assign(new Error('Attachment not found for this lead'), { code: 'NOT_FOUND' });
+      }
+      const b64 = found.buffer.toString('base64');
+      return {
+        id: found.row.id,
+        leadId,
+        websiteId: found.row.website_id || null,
+        name: found.row.original_name || 'image',
+        mime: found.row.mime,
+        sizeBytes: found.row.size_bytes,
+        createdAt: found.row.created_at,
+        base64: b64,
+        dataUrl: `data:${found.row.mime};base64,${b64}`,
+      };
     }
     case 'website.versions':
       return domain.sitesVersions(ws, need(a.id, 'id'), a);

@@ -64,6 +64,7 @@
     previewPageSlug: null,
     agentChatBusy: false,
     agentChatHistory: [],
+    agentChatPending: [],
   };
 
   const THEME_KEYS = ['primary', 'secondary', 'bg', 'text'];
@@ -2029,16 +2030,110 @@
     el.classList.toggle('is-err', kind === 'err');
   }
 
-  function appendAgentBubble(role, text) {
+  function appendAgentBubble(role, text, attachments) {
     const list = document.getElementById('agent-chat-messages');
     const empty = document.getElementById('agent-chat-empty');
     if (!list) return;
     if (empty) empty.remove();
     const div = document.createElement('div');
     div.className = `agent-bubble ${role === 'user' ? 'user' : 'assistant'}`;
-    div.textContent = String(text || '');
+    if (text) {
+      const span = document.createElement('span');
+      span.textContent = String(text);
+      div.appendChild(span);
+    }
+    // Batch 89: attached images render inline in the bubble; the <img>
+    // src is the authorized attachment route (thumbnail), and clicking
+    // opens the full image from the same route.
+    const atts = Array.isArray(attachments) ? attachments : [];
+    if (atts.length) {
+      const imgs = document.createElement('div');
+      imgs.className = 'bubble-imgs';
+      for (const att of atts) {
+        if (!att || !att.url) continue;
+        const a = document.createElement('a');
+        a.href = att.url;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        const img = document.createElement('img');
+        img.src = att.thumbUrl || att.url;
+        img.alt = att.name || 'Attached image';
+        img.loading = 'lazy';
+        a.appendChild(img);
+        imgs.appendChild(a);
+      }
+      div.appendChild(imgs);
+    }
     list.appendChild(div);
     list.scrollTop = list.scrollHeight;
+  }
+
+  function renderAgentChatPending() {
+    const wrap = document.getElementById('agent-chat-pending');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    wrap.hidden = !state.agentChatPending.length;
+    state.agentChatPending.forEach((att, idx) => {
+      const chip = document.createElement('span');
+      chip.className = 'agent-chat-chip';
+      const img = document.createElement('img');
+      img.src = att.thumbUrl || att.url;
+      img.alt = '';
+      const name = document.createElement('span');
+      name.className = 'chip-name';
+      name.textContent = att.name || 'Image';
+      const rm = document.createElement('button');
+      rm.type = 'button';
+      rm.className = 'chip-remove';
+      rm.setAttribute('aria-label', 'Remove attachment');
+      rm.textContent = '×';
+      rm.addEventListener('click', () => {
+        state.agentChatPending.splice(idx, 1);
+        renderAgentChatPending();
+      });
+      chip.appendChild(img);
+      chip.appendChild(name);
+      chip.appendChild(rm);
+      wrap.appendChild(chip);
+    });
+  }
+
+  async function onAgentChatFiles(fileList) {
+    const files = Array.from(fileList || []);
+    for (const file of files) {
+      if (state.agentChatPending.length >= 4) {
+        setAgentChatStatus('Up to 4 images per message.', 'err');
+        break;
+      }
+      if (!/^image\/(png|jpe?g|webp|gif)$/i.test(file.type || '')) {
+        setAgentChatStatus('Images only — PNG, JPG, WebP or GIF.', 'err');
+        continue;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        setAgentChatStatus('That image is over the 10 MB limit.', 'err');
+        continue;
+      }
+      setAgentChatStatus('Attaching image…', 'busy');
+      try {
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error('Could not read that file.'));
+          reader.readAsDataURL(file);
+        });
+        const att = await api('/site/agent-chat/attachments', {
+          method: 'POST',
+          body: JSON.stringify({ data: dataUrl, name: file.name }),
+        });
+        if (att && att.id) {
+          state.agentChatPending.push(att);
+          renderAgentChatPending();
+          setAgentChatStatus('', '');
+        }
+      } catch (e) {
+        setAgentChatStatus(errText(e), 'err');
+      }
+    }
   }
 
   function syncAgentChatUi() {
@@ -2054,14 +2149,16 @@
 
   async function sendAgentChat(message) {
     const text = String(message || '').trim();
-    if (!text || state.agentChatBusy) return;
+    const pending = state.agentChatPending.slice();
+    if ((!text && !pending.length) || state.agentChatBusy) return;
     state.agentChatBusy = true;
     syncAgentChatUi();
-    appendAgentBubble('user', text);
+    appendAgentBubble('user', text, pending);
     setAgentChatStatus('Updating your site…', 'busy');
     const history = state.agentChatHistory.slice(-10);
     try {
       const body = { message: text, history };
+      if (pending.length) body.attachmentIds = pending.map((p) => p.id);
       if (state.previewPageSlug) body.pageSlug = state.previewPageSlug;
       const data = await api('/site/agent-chat', {
         method: 'POST',
@@ -2069,7 +2166,11 @@
       });
       const reply = (data && data.reply) || 'Done — check the preview.';
       appendAgentBubble('assistant', reply);
-      state.agentChatHistory.push({ role: 'user', content: text });
+      state.agentChatPending = [];
+      renderAgentChatPending();
+      const historyText =
+        text + pending.map((p) => `\n[Attached image: ${p.name || 'image'}]`).join('');
+      state.agentChatHistory.push({ role: 'user', content: historyText || '(image attached)' });
       state.agentChatHistory.push({ role: 'assistant', content: reply });
       if (state.agentChatHistory.length > 20) {
         state.agentChatHistory = state.agentChatHistory.slice(-20);
@@ -2116,6 +2217,13 @@
     const input = document.getElementById('agent-chat-input');
     const toggle = document.getElementById('agent-chat-toggle');
     const panel = document.getElementById('agent-chat');
+    const fileInput = document.getElementById('agent-chat-file');
+    if (fileInput) {
+      fileInput.addEventListener('change', (ev) => {
+        onAgentChatFiles(ev.target.files);
+        ev.target.value = '';
+      });
+    }
     if (form) {
       form.addEventListener('submit', (ev) => {
         ev.preventDefault();

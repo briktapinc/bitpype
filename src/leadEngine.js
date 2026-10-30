@@ -799,6 +799,7 @@ function deleteLead(db, id) {
   let summary = null;
   const archivedWebsiteIds = [];
   let siteRows = [];
+  let chatAttachmentRows = [];
   const tx = db.transaction(() => {
     summary = leadReferenceSummary(db, id);
     // Batch 67: remember the site rows (name/preview path) before the
@@ -808,6 +809,20 @@ function deleteLead(db, id) {
       siteRows = db.prepare('SELECT id, name, preview_path FROM websites WHERE lead_id = ?').all(id);
     } catch {
       siteRows = [];
+    }
+    // Batch 89: remember design-chat attachment files before their rows
+    // drop, so the files can be unlinked after the transaction.
+    try {
+      const attTable = db
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'site_chat_attachments'")
+        .get();
+      if (attTable) {
+        chatAttachmentRows = db
+          .prepare('SELECT stored_rel, thumb_rel FROM site_chat_attachments WHERE lead_id = ?')
+          .all(id);
+      }
+    } catch {
+      chatAttachmentRows = [];
     }
     // Archive-first for websites (soft delete via the website path).
     if (summary.websiteIds.length) {
@@ -852,6 +867,10 @@ function deleteLead(db, id) {
     drop('site_member_sessions');
     drop('site_members');
     drop('site_module_embeds');
+    // Batch 89: design-chat image attachments belong to the lead's
+    // conversation; their rows drop here and the files are unlinked
+    // after the transaction (paths collected before the tx below).
+    drop('site_chat_attachments');
     drop('lead_onboarding_items');
     drop('ai_usage');
     drop('design_learning_events');
@@ -902,7 +921,22 @@ function deleteLead(db, id) {
       /* best-effort */
     }
   }
-  return { ok: true, id, summary, archivedWebsiteIds, removedExportFolders };
+  // Batch 89 — unlink the design-chat attachment files whose rows the
+  // transaction dropped (stored_rel is storage-root-relative, so no
+  // workspace knowledge is needed here). Best-effort, like the export
+  // folders above: a storage failure never resurrects the lead.
+  let removedChatAttachments = 0;
+  if (chatAttachmentRows.length) {
+    try {
+      const chatAtt = require('../server/siteChatAttachments');
+      const before = chatAttachmentRows.length;
+      chatAtt.deleteFilesForRows(chatAttachmentRows);
+      removedChatAttachments = before;
+    } catch {
+      /* best-effort */
+    }
+  }
+  return { ok: true, id, summary, archivedWebsiteIds, removedExportFolders, removedChatAttachments };
 }
 
 /* ------------------------------------------------------------------ */
