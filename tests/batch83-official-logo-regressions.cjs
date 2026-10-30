@@ -91,9 +91,8 @@ const LEGAL = ['public/legal/terms.html', 'public/legal/privacy.html', 'public/s
 
 function partA() {
   const pngs = [
-    'logo-full.png',
-    'logo-mark.png',
-    'logo-light.png',
+    'logo-white.png',
+    'logo-black.png',
     'logo-icon.png',
     'logo-email.png',
     'og-image.png',
@@ -112,7 +111,7 @@ function partA() {
   });
 
   check('A2 masters are the official 450x120 uploads; old mark file retained on disk', () => {
-    for (const f of ['logo-full.png', 'logo-mark.png']) {
+    for (const f of ['logo-white.png', 'logo-black.png']) {
       const buf = fs.readFileSync(path.join(root, 'public/brand', f));
       assert.equal(buf.readUInt32BE(16), 450, `${f} width 450`);
       assert.equal(buf.readUInt32BE(20), 120, `${f} height 120`);
@@ -128,27 +127,27 @@ function partA() {
 function partB() {
   check('B1 staff shell (dark sidebar) carries the white lockup + favicon', () => {
     const html = read('public/index.html');
-    assert.ok(html.includes('/brand/logo-full.png'), 'sidebar uses logo-full.png');
+    assert.ok(html.includes('/brand/logo-white.png'), 'sidebar uses logo-white.png');
     assert.ok(html.includes('/brand/favicon.ico'), 'staff shell favicon updated');
     assert.ok(!html.includes('>BP</span>'), 'BP text tile gone from the shell brand');
   });
 
-  check('B2 staff auth screens use the mark icon (no BP tile span left in app.js)', () => {
+  check('B2 staff auth screens use the black lockup (no BP tile span left in app.js)', () => {
     const appJs = read('public/js/app.js');
-    assert.ok(appJs.includes('/brand/logo-icon.png'), 'auth brand uses logo-icon.png');
+    assert.ok(appJs.includes('/brand/logo-black.png'), 'auth brand uses logo-black.png');
     assert.ok(!appJs.includes('>BP</span>'), 'no BP tile span remains');
   });
 
-  check('B3 portal gate + topbar use the mark icon', () => {
+  check('B3 portal gate + topbar use the black lockup', () => {
     const portal = read('public/portal.html');
-    assert.ok(count(portal, '/brand/logo-icon.png') >= 2, 'both portal logo spots use the icon');
+    assert.ok(count(portal, '/brand/logo-black.png') >= 2, 'both portal logo spots use the black lockup');
     assert.ok(portal.includes('/brand/favicon.ico'), 'portal favicon updated');
   });
 
-  check('B4 marketing pages: mark icon header, new favicon, og:image on the dark card', () => {
+  check('B4 marketing pages: black lockup header, new favicon, og:image on the dark card', () => {
     for (const rel of MARKETING) {
       const html = read(rel);
-      assert.ok(html.includes('/brand/logo-icon.png'), `${rel} header uses logo-icon.png`);
+      assert.ok(html.includes('/brand/logo-black.png'), `${rel} header uses logo-black.png`);
       assert.ok(html.includes('/brand/favicon.ico'), `${rel} favicon updated`);
       if (html.includes('og:image')) {
         assert.ok(html.includes('/brand/og-image.png'), `${rel} og:image uses og-image.png`);
@@ -156,25 +155,26 @@ function partB() {
     }
   });
 
-  check('B5 legal + SMS policy pages use the mark icon on their dark brand band', () => {
+  check('B5 legal + SMS policy pages use the black lockup on their light brand line', () => {
     for (const rel of LEGAL) {
       const html = read(rel);
-      assert.ok(html.includes('/brand/logo-icon.png'), `${rel} uses logo-icon.png`);
+      assert.ok(html.includes('/brand/logo-black.png'), `${rel} uses logo-black.png`);
     }
   });
 
-  check('B6 /solo + /onboarding brand blocks use the mark icon (B tile gone)', () => {
+  check('B6 /solo + /onboarding brand blocks use the full lockups (B tile gone)', () => {
     for (const rel of ['public/solo.html', 'public/onboarding.html']) {
       const html = read(rel);
-      assert.ok(html.includes('/brand/logo-icon.png'), `${rel} uses logo-icon.png`);
+      assert.ok(html.includes('/brand/logo-black.png'), `${rel} header uses logo-black.png`);
+      assert.ok(html.includes('/brand/logo-white.png'), `${rel} dark footer uses logo-white.png`);
       assert.ok(!html.includes('<span class="mark">B</span>'), `${rel} B tile removed`);
     }
   });
 
-  check('B7 transactional flow pages carry the mark in their brand line', () => {
+  check('B7 transactional flow pages carry the black lockup in their brand line', () => {
     for (const rel of ['public/claim.html', 'public/domain-picker.html', 'public/domain-success.html', 'public/member-reset.html']) {
       const html = read(rel);
-      assert.ok(html.includes('/brand/logo-icon.png'), `${rel} brand line uses logo-icon.png`);
+      assert.ok(html.includes('/brand/logo-black.png'), `${rel} brand line uses logo-black.png`);
     }
   });
 
@@ -242,8 +242,8 @@ async function partC() {
 
     await checkAsync('C1 brand assets serve 200 with image types', async () => {
       const cases = [
-        ['/brand/logo-full.png', 'image/png'],
-        ['/brand/logo-light.png', 'image/png'],
+        ['/brand/logo-white.png', 'image/png'],
+        ['/brand/logo-black.png', 'image/png'],
         ['/brand/logo-icon.png', 'image/png'],
         ['/brand/logo-email.png', 'image/png'],
         ['/brand/og-image.png', 'image/png'],
@@ -260,14 +260,14 @@ async function partC() {
 
     await checkAsync('C2 key pages serve the new logo and no old mark', async () => {
       const pages = [
-        ['/', 'logo-icon.png'],
-        ['/app', 'logo-full.png'],
-        ['/portal', 'logo-icon.png'],
-        ['/landing', 'logo-icon.png'],
-        ['/solo', 'logo-icon.png'],
-        ['/onboarding', 'logo-icon.png'],
-        ['/legal/terms.html', 'logo-icon.png'],
-        ['/sms-policy', 'logo-icon.png'],
+        ['/', 'logo-black.png'],
+        ['/app', 'logo-white.png'],
+        ['/portal', 'logo-black.png'],
+        ['/landing', 'logo-black.png'],
+        ['/solo', 'logo-black.png'],
+        ['/onboarding', 'logo-black.png'],
+        ['/legal/terms.html', 'logo-black.png'],
+        ['/sms-policy', 'logo-black.png'],
       ];
       for (const [p, needle] of pages) {
         const r = await fetch(BASE + p, { redirect: 'follow' });

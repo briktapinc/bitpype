@@ -189,7 +189,7 @@ function renderBrandedEmail(opts = {}) {
           <tr>
             <td style="padding:0 4px 18px;">
               <a href="${escapeHtml(siteUrl())}" style="text-decoration:none;">
-                <img src="${escapeHtml(logoUrl())}" width="180" height="39" alt="Bitpype"
+                <img src="${escapeHtml(logoUrl())}" width="180" height="48" alt="Bitpype"
                      style="display:block;width:180px;height:39px;border:0;">
               </a>
               <div style="font-family:Segoe UI,Helvetica Neue,Arial,sans-serif;font-size:12px;color:${COLORS.muted};margin-top:7px;">Local business desk</div>
