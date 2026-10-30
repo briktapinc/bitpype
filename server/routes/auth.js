@@ -99,7 +99,10 @@ router.get('/config', async (_req, res, next) => {
   try {
     const platform = require('../platform');
     const open = await platform.getPlatformSetting('registration.open', '1');
-    res.json({ ok: true, data: { registrationOpen: open === '1' } });
+    // Batch 87: the staff auth screen renders the Admin-configured
+    // brand tagline (sync cache; default when unset).
+    const tagline = require('../branding').tagline();
+    res.json({ ok: true, data: { registrationOpen: open === '1', tagline } });
   } catch (e) {
     next(e);
   }

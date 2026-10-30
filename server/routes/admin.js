@@ -357,6 +357,46 @@ router.get('/settings/adsense-state', async (req, res) => {
     fail(res, e, 500);
   }
 });
+// Batch 87 — Branding: the site logo for dark/light screens + the
+// tagline state for the Admin → Settings → Branding panel. Reads are
+// served from the sync branding cache (primed at boot, refreshed on
+// every branding.* write); logo uploads are base64-in-JSON like the
+// platform's other admin image paths, validated + stored on the data
+// volume by server/branding.js. The tagline itself saves through the
+// generic PUT /settings above (branding.tagline def).
+router.get('/settings/branding', async (req, res) => {
+  try {
+    const branding = require('../branding');
+    await branding.refreshBranding();
+    ok(res, branding.brandingState());
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.post('/settings/branding/logo', async (req, res) => {
+  try {
+    const branding = require('../branding');
+    const b = req.body || {};
+    const raw = String(b.dataBase64 || b.data || '');
+    const buf = raw ? Buffer.from(raw.replace(/^data:[^,]*,/, ''), 'base64') : Buffer.alloc(0);
+    const out = await branding.saveLogo(String(b.variant || ''), buf);
+    await platform.audit(req.session.userId, 'branding.logo', `variant=${b.variant} url=${out.url} bytes=${out.bytes}`);
+    ok(res, out);
+  } catch (e) {
+    fail(res, e, 400);
+  }
+});
+router.post('/settings/branding/logo/reset', async (req, res) => {
+  try {
+    const branding = require('../branding');
+    const variant = String((req.body || {}).variant || '');
+    const out = await branding.resetLogo(variant);
+    await platform.audit(req.session.userId, 'branding.logo_reset', `variant=${variant}`);
+    ok(res, out);
+  } catch (e) {
+    fail(res, e, 400);
+  }
+});
 router.put('/settings', async (req, res) => {
   try {
     const result = await platform.setPlatformSettingsBatch(

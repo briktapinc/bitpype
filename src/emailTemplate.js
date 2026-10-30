@@ -22,6 +22,17 @@ function logoUrl() {
   const base = siteUrl();
   return base ? `${base}/brand/logo-email.png` : '/brand/logo-email.png';
 }
+// Batch 87: the header tagline + default footer note read the
+// Admin-configured branding tagline (Admin → Settings → Branding) —
+// lazy require per render, same pattern as siteUrl(); any failure
+// falls back to the default text, never a blank tagline.
+function bpTagline() {
+  try {
+    return require('../server/branding').tagline();
+  } catch {
+    return 'Local business desk';
+  }
+}
 function siteHostLabel() {
   const base = siteUrl();
   try {
@@ -125,7 +136,7 @@ function extractFirstUrl(text) {
 function renderBrandedEmail(opts = {}) {
   const title = String(opts.title || 'Bitpype').trim();
   const preheader = String(opts.preheader || '').trim();
-  const footerNote = String(opts.footerNote || 'Bitpype · Local business desk').trim();
+  const footerNote = String(opts.footerNote || `Bitpype · ${bpTagline()}`).trim();
   const cta =
     opts.cta && opts.cta.url ? { url: String(opts.cta.url), label: String(opts.cta.label || 'Open link') } : null;
 
@@ -192,7 +203,7 @@ function renderBrandedEmail(opts = {}) {
                 <img src="${escapeHtml(logoUrl())}" width="180" height="48" alt="Bitpype"
                      style="display:block;width:180px;height:39px;border:0;">
               </a>
-              <div style="font-family:Segoe UI,Helvetica Neue,Arial,sans-serif;font-size:12px;color:${COLORS.muted};margin-top:7px;">Local business desk</div>
+              <div style="font-family:Segoe UI,Helvetica Neue,Arial,sans-serif;font-size:12px;color:${COLORS.muted};margin-top:7px;width:180px;text-align:center;">${escapeHtml(bpTagline())}</div>
             </td>
           </tr>
           <tr>

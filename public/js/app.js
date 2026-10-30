@@ -843,11 +843,20 @@ let pendingSignupCheckoutUrl = '';
 // refreshes it from the public /auth/config payload at boot. Failures keep
 // the default so a config hiccup can never break the sign-in screen.
 let registrationOpen = true;
+// Batch 87: the brand tagline (Admin → Settings → Branding) rides the
+// same public /auth/config payload; the auth screen and the sidebar
+// brand block render it. Defaults to the built-in text on any hiccup.
+let brandTagline = 'Local business desk';
 async function loadRegistrationOpen() {
   try {
     const res = await api.authConfig();
     if (res && res.data && typeof res.data.registrationOpen === 'boolean') {
       registrationOpen = res.data.registrationOpen;
+    }
+    if (res && res.data && typeof res.data.tagline === 'string' && res.data.tagline.trim()) {
+      brandTagline = res.data.tagline.trim();
+      const bt = document.querySelector('.brand-tag');
+      if (bt) bt.textContent = brandTagline;
     }
   } catch {
     /* keep the default: registration visible */
@@ -935,7 +944,7 @@ function renderAuth(forcedMode) {
   authGate.innerHTML = `
     <div class="auth-card">
       <div class="auth-brand"><img class="auth-logo-lockup" src="/brand/logo-black.png" alt="BitPype" /></div>
-      <p class="sub">Local business desk — sign in to your workspace.</p>
+      <p class="sub">${esc(brandTagline)} — sign in to your workspace.</p>
       ${inviteNote}
       <div class="tabs" id="auth-tabs">
         <button type="button" class="active" data-tab="login">Log in</button>
@@ -7171,6 +7180,7 @@ async function pageAdmin(param) {
     ['billing', 'Stripe'],
     ['adsense', 'AdSense'],
     ['general', 'General'],
+    ['branding', 'Branding'],
     ['landing', 'Landing'],
     ['hostinger', 'Hostinger'],
     ['audit', 'Audit'],
@@ -7205,7 +7215,7 @@ async function pageAdmin(param) {
         else if (tab === 'upsell') await renderAdminUpsellTips(body);
         else if (tab === 'adsense') await renderAdminAdsense(body);
         else if (tab === 'gbp') await renderAdminGbp(body);
-        else if (tab === 'email' || tab === 'sms' || tab === 'keys' || tab === 'general' || tab === 'billing' || tab === 'landing' || tab === 'hostinger')
+        else if (tab === 'email' || tab === 'sms' || tab === 'keys' || tab === 'general' || tab === 'billing' || tab === 'landing' || tab === 'hostinger' || tab === 'branding')
           await renderAdminSettings(body, tab);
         else if (tab === 'audit') await renderAdminAudit(body);
         else body.innerHTML = '<p class="hint">Unknown tab</p>';
@@ -8022,6 +8032,11 @@ async function renderAdminPayments(el) {
   );
 }
 
+// Batch 87: the Branding panel owns the two logo slots — the generic
+// settings form carries them as hidden inputs so a plain Save (e.g. of
+// the tagline) can never wipe an uploaded logo.
+const BRANDING_MANAGED_KEYS = new Set(['branding.logo_dark', 'branding.logo_light']);
+
 // Batch 24: the Update pricing panel owns these Stripe id settings — the
 // generic billing form carries them as hidden inputs so a plain Save can
 // never wipe them, and amounts (not ids) are the editable surface.
@@ -8256,6 +8271,49 @@ function captchaStatusHtml(st) {
   return `<div class="panel"><div class="panel-b"><div class="msg ${cls}" role="status">${esc(text)}</div></div></div>`;
 }
 
+// Batch 87 — Admin → Settings → Branding: the two site-logo slots.
+// Each slot previews the logo currently in effect (the uploaded file,
+// or the built-in default), offers upload/replace (PNG, JPG, SVG or
+// WebP, up to 4 MB) and a reset back to the built-in logo. The preview
+// background matches the slot's screens so the lockup reads as it will
+// in the app: the dark-screens slot previews on ink, the light-screens
+// slot on paper.
+function brandingPanelHtml(state) {
+  if (!state) {
+    return `<div class="panel" style="margin-bottom:1rem">
+      <div class="panel-h"><h3>Site logo</h3></div>
+      <div class="panel-b"><p class="hint">Branding status could not be loaded — reload the page to try again. The tagline field below still works.</p></div>
+    </div>`;
+  }
+  const slot = (variant, label, hint, current, fallbackUrl, dark) => {
+    const inUse = current || fallbackUrl;
+    return `<div class="kv" style="align-items:flex-start">
+      <span class="k">${esc(label)}</span>
+      <span>
+        <span style="display:inline-block;padding:10px 14px;border-radius:8px;background:${dark ? '#141414' : '#F6F6F4'};border:1px solid var(--line, #ddd)">
+          <img src="${esc(inUse)}" alt="${esc(label)} preview" style="display:block;max-width:240px;max-height:64px" />
+        </span>
+        <br/><span class="hint">${esc(hint)} ${current ? 'A custom logo is in use.' : 'The built-in BitPype logo is in use.'}</span>
+        <span class="row actions" style="margin-top:8px">
+          <label class="btn" style="cursor:pointer">Upload / replace<input type="file" id="branding-file-${variant}" accept=".png,.jpg,.jpeg,.svg,.webp,image/png,image/jpeg,image/svg+xml,image/webp" style="display:none" /></label>
+          ${current ? `<button class="btn" type="button" id="branding-reset-${variant}">Reset to default</button>` : ''}
+        </span>
+        <span class="msg" id="branding-msg-${variant}"></span>
+      </span>
+    </div>`;
+  };
+  return `<div class="panel" style="margin-bottom:1rem">
+    <div class="panel-h"><h3>Site logo</h3></div>
+    <div class="panel-b" style="padding-bottom:0">
+      <p class="hint">These logos appear across the app itself — sign-in, the staff area, the client portal, marketing pages and emails. Client websites keep their own branding and are not affected.</p>
+    </div>
+    <div class="panel-b">
+      ${slot('dark', 'Logo for dark screens', 'Shown on dark backgrounds — use a white or light logo.', state.logoDark, state.defaults.logoDarkUrl, true)}
+      ${slot('light', 'Logo for light screens', 'Shown on light backgrounds — use a black or dark logo.', state.logoLight, state.defaults.logoLightUrl, false)}
+    </div>
+  </div>`;
+}
+
 async function renderAdminSettings(el, group) {
   const res = await api.adminSettings();
   const settings = res.data.settings || {};
@@ -8264,6 +8322,14 @@ async function renderAdminSettings(el, group) {
   let pricingState = null;
   let planContentsState = null;
   let hostingerState = null;
+  let brandingState = null;
+  if (group === 'branding') {
+    try {
+      brandingState = (await api.adminBranding()).data;
+    } catch {
+      brandingState = null; /* panel renders a could-not-load note; form still works */
+    }
+  }
   if (group === 'hostinger') {
     try {
       hostingerState = (await api.adminHostingerStatus()).data;
@@ -8289,6 +8355,7 @@ async function renderAdminSettings(el, group) {
       sms: 'SMS',
       keys: 'Default API keys',
       general: 'General',
+      branding: 'Branding',
       billing: 'Stripe & subscription',
       landing: 'Landing page',
       hostinger: 'Hostinger (one-click VPS deploys)',
@@ -8304,6 +8371,7 @@ async function renderAdminSettings(el, group) {
     ${group === 'billing' ? pricingPanelHtml(pricingState) : ''}
     ${group === 'billing' ? planContentsPanelHtml(planContentsState) : ''}
     ${group === 'hostinger' ? hostingerPanelHtml(hostingerState) : ''}
+    ${group === 'branding' ? brandingPanelHtml(brandingState) : ''}
     <div class="panel">
       <div class="panel-h"><h3>${esc(title)}</h3></div>
       <div class="panel-b" style="padding-bottom:0">${webhookHint}</div>
@@ -8318,6 +8386,20 @@ async function renderAdminSettings(el, group) {
                   // Owned by the panels above; carried hidden so this
                   // form's Save writes the same values back.
                   return `<input type="hidden" name="${esc(d.key)}" value="${esc(val)}" />`;
+                }
+                if (group === 'branding' && BRANDING_MANAGED_KEYS.has(d.key)) {
+                  // Owned by the Site logo panel above; carried hidden
+                  // so this form's Save writes the same values back.
+                  return `<input type="hidden" name="${esc(d.key)}" value="${esc(val)}" />`;
+                }
+                if (d.key === 'branding.tagline') {
+                  // Batch 87: the brand tagline — blank restores the
+                  // built-in default text (never renders blank).
+                  return `<div>
+              <label>${esc(d.label)} <span class="mono hint">${esc(d.key)}</span></label>
+              <input name="${esc(d.key)}" type="text" value="${esc(val)}" maxlength="120" placeholder="Local business desk" />
+              <p class="hint">Shown under the logo on the sign-in screen, in the staff sidebar and in emails. Leave blank to use the default, “Local business desk”.</p>
+            </div>`;
                 }
                 if (d.key === 'general.public_url') {
                   // Batch 56: the canonical public URL — validated server-side
@@ -8420,6 +8502,64 @@ async function renderAdminSettings(el, group) {
         hostingerTestBtn.disabled = false;
       }
     };
+  }
+
+  // Batch 87 — Branding panel wiring: per-slot upload (FileReader →
+  // base64 JSON, the platform's established admin image path) + reset.
+  // On success the settings tab re-renders so previews + state refresh.
+  if (group === 'branding') {
+    for (const variant of ['dark', 'light']) {
+      const fileInput = $(`#branding-file-${variant}`);
+      if (fileInput) {
+        fileInput.addEventListener('change', async () => {
+          const file = fileInput.files && fileInput.files[0];
+          if (!file) return;
+          const msg = $(`#branding-msg-${variant}`);
+          const done = (text, cls) => {
+            if (msg) {
+              msg.textContent = text;
+              msg.className = `msg ${cls || ''}`;
+            }
+          };
+          if (file.size > 4 * 1024 * 1024) {
+            done('That file is over the 4 MB logo limit.', 'error');
+            return;
+          }
+          done('Uploading…', '');
+          try {
+            const dataUrl = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(String(reader.result || ''));
+              reader.onerror = reject;
+              reader.readAsDataURL(file);
+            });
+            await api.adminBrandingLogo(variant, dataUrl);
+            toast('Logo saved', 'ok');
+            await renderAdminSettings(el, group);
+          } catch (err) {
+            done(errText(err), 'error');
+          }
+        });
+      }
+      const resetBtn = $(`#branding-reset-${variant}`);
+      if (resetBtn) {
+        resetBtn.onclick = async () => {
+          const msg = $(`#branding-msg-${variant}`);
+          resetBtn.disabled = true;
+          try {
+            await api.adminBrandingLogoReset(variant);
+            toast('Logo reset to the built-in default', 'ok');
+            await renderAdminSettings(el, group);
+          } catch (err) {
+            if (msg) {
+              msg.textContent = errText(err);
+              msg.className = 'msg error';
+            }
+            resetBtn.disabled = false;
+          }
+        };
+      }
+    }
   }
 
   const pricingForm = $('#pricing-form');

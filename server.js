@@ -129,7 +129,7 @@ app.use('/api/v1/membership/webhook', express.raw({ type: 'application/json' }),
 // (~4/3 inflation), so an 8mb JSON cap would reject the documented 8MB
 // brochure before the route's own size check ever runs.
 app.use((req, res, next) => {
-  const large = /^\/api\/v1\/(design|portal|websites|mcp|website-promo)/i.test(req.path || '');
+  const large = /^\/api\/v1\/(design|portal|websites|mcp|website-promo|admin)/i.test(req.path || '');
   const promo = /^\/api\/v1\/website-promo/i.test(req.path || '');
   const analytics = req.path.startsWith('/api/v1/site-analytics/public/');
   return express.json({ limit: analytics ? '1kb' : promo ? '12mb' : large ? '8mb' : process.env.JSON_BODY_LIMIT || '1mb' })(
@@ -483,6 +483,32 @@ app.get('/mcp', mcpHandler);
 app.post('/ws', mcpHandler);
 app.get('/ws', mcpHandler);
 
+// Batch 87 — Admin-configured brand logos: when a custom logo is set
+// in Admin → Settings → Branding, the canonical brand URLs serve the
+// uploaded file (data volume) instead of the committed default asset.
+// Every surface keeps referencing the canonical paths (staff sidebar,
+// auth, portal, marketing pages, the email wrapper), so no markup
+// changes when the logo changes. Unset or corrupt → fall through to
+// the static default below, untouched. Headers mirror the /brand
+// static mount (email proxies read these cross-origin).
+function serveCustomBrandLogo(variant) {
+  return (req, res, next) => {
+    let custom = null;
+    try {
+      custom = require('./server/branding').customLogoFile(variant);
+    } catch {
+      custom = null;
+    }
+    if (!custom) return next();
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    return res.type(custom.contentType).sendFile(custom.file);
+  };
+}
+app.get('/brand/logo-white.png', serveCustomBrandLogo('dark'));
+app.get(['/brand/logo-black.png', '/brand/logo-email.png'], serveCustomBrandLogo('light'));
+
 // Brand assets are embedded in outbound HTML email; email proxies need cross-origin reads.
 app.use(
   '/brand',
@@ -820,7 +846,23 @@ app.get(['/solo', '/solo/'], (_req, res) => {
 app.get('/solo.html', (_req, res) => sendSoloPage(res));
 
 app.get(['/app', '/app/'], (_req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  // Batch 87: the sidebar brand block renders the Admin-configured
+  // tagline (Admin → Settings → Branding). Serve-time substitution on
+  // the cached shell file, mirroring sendTemplatedPage; any failure
+  // falls back to the file as committed (default tagline baked in).
+  try {
+    const raw = readTemplatedPage('index.html');
+    if (raw == null) throw new Error('shell unreadable');
+    const tagline = require('./server/branding').tagline();
+    const esc = String(tagline)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+    res.type('html').send(raw.replace('<span class="brand-tag">Local business desk</span>', `<span class="brand-tag">${esc}</span>`));
+  } catch {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  }
 });
 
 // Legacy bookmark: staff shell used to live at /index.html
@@ -977,6 +1019,11 @@ async function main() {
   // plans.contents_* overrides (Admin → Settings → Billing).
   await require('./server/planContents').refreshPlanContents().catch(() => {});
   console.log('[platform] plan contents resolver primed');
+
+  // Batch 87: prime the branding cache (Admin → Settings → Branding
+  // logos + tagline) so first paint already serves configured values.
+  await require('./server/branding').refreshBranding().catch(() => {});
+  console.log('[platform] branding cache primed');
 
   await require('./server/captcha').assertProductionReady();
   await pruneExpiredSessions();

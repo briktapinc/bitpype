@@ -533,6 +533,10 @@ window.ScoutApi = (() => {
     // Hostinger one-click deploys (Batch 59)
     adminHostingerStatus: () => get('/admin/settings/hostinger'),
     adminHostingerTest: () => post('/admin/settings/hostinger/test', {}),
+    // Branding (Batch 87): site logos for dark/light screens + tagline
+    adminBranding: () => get('/admin/settings/branding'),
+    adminBrandingLogo: (variant, dataBase64) => post('/admin/settings/branding/logo', { variant, dataBase64 }),
+    adminBrandingLogoReset: (variant) => post('/admin/settings/branding/logo/reset', { variant }),
     leadHostingerDeployment: (leadId, wsId) =>
       get('/admin/leads/' + leadId + '/hostinger-deployment', { workspaceId: wsId }),
     leadHostingerPreview: (leadId, wsId) =>

@@ -164,6 +164,8 @@ a {
 .brand-tag {
   color: var(--sidebar-muted);
   font-size: 12px;
+  /* Batch 87: tagline centered so logo + tagline read as one unit. */
+  text-align: center;
 }
 .sidebar-close {
   display: none;
@@ -1966,6 +1968,8 @@ details[open] > summary {
 }
 .auth-card .sub {
   margin: 0 0 1rem;
+  /* Batch 87: centered under the auth logo lockup. */
+  text-align: center;
 }
 .auth-card .tabs {
   width: 100%;

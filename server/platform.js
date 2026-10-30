@@ -457,6 +457,18 @@ const PLATFORM_SETTING_DEFS = [
     label: 'Business Profile API approved date (YYYY-MM-DD)',
     default: '',
   },
+  // Branding (Batch 87 — Ely 2026-10-30): the site logo for dark and
+  // light screens + the brand tagline, editable in Admin → Settings →
+  // Branding. Empty logo value = the committed default asset
+  // (public/brand/logo-white.png / logo-black.png); uploaded files are
+  // stored on the data volume by server/branding.js and the setting
+  // holds their /brand-files/ path (validated at the setPlatformSetting
+  // choke point). NOT workspace-seeded (group 'branding' is outside
+  // WORKSPACE_SEED_KEYS) — platform surfaces only; client sites keep
+  // their own branding.
+  { key: 'branding.logo_dark', group: 'branding', label: 'Logo for dark screens', default: '' },
+  { key: 'branding.logo_light', group: 'branding', label: 'Logo for light screens', default: '' },
+  { key: 'branding.tagline', group: 'branding', label: 'Tagline', default: 'Local business desk' },
 ];
 
 const WORKSPACE_SEED_KEYS = PLATFORM_SETTING_DEFS.filter(
@@ -599,6 +611,26 @@ async function setPlatformSetting(key, value) {
     e.code = 'VALIDATION';
     throw e;
   }
+  // Batch 87: branding values are constrained at the same choke point —
+  // logo slots may only hold '' (the built-in default asset) or a
+  // /brand-files/ path minted by server/branding.js's upload path, and
+  // the tagline is a single short line (blank = the default text).
+  if (key === 'branding.logo_dark' || key === 'branding.logo_light') {
+    const variant = key === 'branding.logo_dark' ? 'dark' : 'light';
+    if (v !== '' && !new RegExp(`^/brand-files/logo-${variant}-\\d+-[a-z0-9]{6}\\.(png|jpg|svg|webp)$`).test(v)) {
+      const e = new Error(`${key} must be blank (built-in logo) or a logo uploaded in Admin → Settings → Branding`);
+      e.code = 'VALIDATION';
+      throw e;
+    }
+  }
+  if (key === 'branding.tagline') {
+    v = v.trim();
+    if (v.length > 120 || /[\r\n]/.test(v)) {
+      const e = new Error('branding.tagline must be a single line of at most 120 characters (blank = the default tagline)');
+      e.code = 'VALIDATION';
+      throw e;
+    }
+  }
   await query(
     `INSERT INTO platform_settings (\`key\`, value)
      VALUES (:key, :value)
@@ -622,6 +654,16 @@ async function setPlatformSetting(key, value) {
       require('./planContents').setContentsCacheForKey(key, v);
     } catch {
       /* resolver keeps the boot-primed overrides until the next boot */
+    }
+  }
+  if (key.startsWith('branding.')) {
+    // Batch 87: keep the sync branding cache (logos + tagline) in step
+    // with the save — fire-and-forget refresh; the cache module reads
+    // through this one, never the reverse at load time.
+    try {
+      require('./branding').refreshBranding().catch(() => {});
+    } catch {
+      /* cache keeps the boot-primed values until the next refresh */
     }
   }
   return { key, set: true };
