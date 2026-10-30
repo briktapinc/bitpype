@@ -245,6 +245,63 @@
       justify-content: flex-end;
       gap: 8px;
     }
+    .agent-chat-attach {
+      cursor: pointer;
+      margin-right: auto;
+    }
+    .agent-chat-pending {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .agent-chat-pending[hidden] { display: none; }
+    .agent-chat-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 6px 4px 4px;
+      border: 1px solid var(--border-strong);
+      border-radius: 10px;
+      background: var(--surface-2);
+      font-size: 0.78rem;
+      max-width: 100%;
+    }
+    .agent-chat-chip img {
+      width: 34px;
+      height: 34px;
+      object-fit: cover;
+      border-radius: 7px;
+      display: block;
+    }
+    .agent-chat-chip .chip-name {
+      max-width: 130px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .agent-chat-chip .chip-remove {
+      border: none;
+      background: none;
+      cursor: pointer;
+      font-size: 0.95rem;
+      line-height: 1;
+      padding: 2px 4px;
+      color: var(--muted);
+    }
+    .agent-bubble .bubble-imgs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .agent-bubble .bubble-imgs a { display: block; }
+    .agent-bubble .bubble-imgs img {
+      width: 104px;
+      height: 104px;
+      object-fit: cover;
+      border-radius: 10px;
+      display: block;
+    }
     .website-preview-col {
       min-width: 0;
       display: flex;
@@ -2226,7 +2283,7 @@
           <aside class="agent-chat" id="agent-chat" aria-label="Site improvement chat">
             <div class="agent-chat-head">
               <h3>Improve with AI</h3>
-              <p>Describe a change — we’ll update the preview.</p>
+              <p>Describe a change — or attach an image for reference — and we’ll update the preview.</p>
               <button type="button" class="agent-chat-toggle" id="agent-chat-toggle" aria-expanded="true">Hide chat</button>
             </div>
             <div class="agent-chat-messages" id="agent-chat-messages" role="log" aria-live="polite">
@@ -2236,7 +2293,10 @@
             <form class="agent-chat-compose" id="agent-chat-form">
               <label class="sr-only" for="agent-chat-input">Describe a site improvement</label>
               <textarea id="agent-chat-input" maxlength="4000" rows="3" placeholder="What should we change?"></textarea>
+              <div class="agent-chat-pending" id="agent-chat-pending" hidden></div>
               <div class="agent-chat-actions">
+                <label class="btn ghost small agent-chat-attach" for="agent-chat-file">Attach image</label>
+                <input type="file" id="agent-chat-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
                 <button type="submit" class="btn small" id="agent-chat-send">Send</button>
               </div>
             </form>

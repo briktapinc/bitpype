@@ -20,6 +20,7 @@ const loginLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 30 });
 const actionLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 60 });
 const editLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 40 });
 const agentChatLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 });
+const chatUploadLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 30 });
 const captcha = requireCaptcha();
 
 function ok(res, data) {
@@ -844,6 +845,54 @@ router.post('/site/agent-chat', requireClient, agentChatLimit, async (req, res) 
     ok(res, data);
   } catch (e) {
     fail(res, e, 500);
+  }
+});
+
+// Batch 89 — design-chat image attachments. Upload is base64-in-JSON
+// (codebase convention), validated by magic bytes in clientPortal /
+// siteChatAttachments (PNG/JPG/WebP/GIF, ≤10 MB, no SVG). There is NO
+// public URL for an attachment: the fetch route re-checks the portal
+// session's lead on every request, and another lead's id answers 404.
+router.post('/site/agent-chat/attachments', requireClient, chatUploadLimit, async (req, res) => {
+  try {
+    if (
+      Number(req.session.clientLeadId) !== Number(req.client.lead_id) ||
+      Number(req.session.clientWorkspaceId) !== Number(req.client.workspace_id)
+    ) {
+      return res.status(403).json({ ok: false, error: 'FORBIDDEN', code: 'FORBIDDEN' });
+    }
+    const data = await portal.uploadSiteChatImage(req.client.workspace_id, req.client.lead_id, req.body || {});
+    ok(res, data);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.get('/site/agent-chat/attachments/:id', requireClient, async (req, res) => {
+  try {
+    if (
+      !req.session ||
+      Number(req.session.clientLeadId) !== Number(req.client.lead_id) ||
+      Number(req.session.clientWorkspaceId) !== Number(req.client.workspace_id)
+    ) {
+      return res.status(403).json({ ok: false, error: 'FORBIDDEN', code: 'FORBIDDEN' });
+    }
+    const found = portal.fetchSiteChatImage(
+      req.client.workspace_id,
+      req.client.lead_id,
+      Number(req.params.id),
+      String(req.query.variant || '')
+    );
+    if (!found) {
+      return fail(res, Object.assign(new Error('Attachment not found'), { code: 'NOT_FOUND' }));
+    }
+    res.setHeader('Content-Type', found.mime);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('Content-Disposition', `inline; filename="${found.fileName}"`);
+    return res.send(found.buffer);
+  } catch (e) {
+    return fail(res, e);
   }
 });
 

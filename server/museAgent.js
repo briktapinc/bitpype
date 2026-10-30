@@ -410,7 +410,7 @@ function buildPortalSystemPrompt(leadId, pageSlug) {
   ].join('\n');
 }
 
-function normalizePortalHistory(history, userMessage) {
+function normalizePortalHistory(history, userMessage, images) {
   const out = [];
   const list = Array.isArray(history) ? history.slice(-10) : [];
   for (const row of list) {
@@ -420,9 +420,29 @@ function normalizePortalHistory(history, userMessage) {
     out.push({ role: row.role, content: content.slice(0, 4000) });
   }
   const msg = String(userMessage || '').trim();
-  if (!msg) throw fail('EMPTY', 'Message is required.');
+  // Batch 89: images attached to this chat turn ride the final user
+  // message as OpenAI-style vision parts so the design loop can analyze
+  // them (colors, layout, photo content) while applying the change. An
+  // image-only message (no text) is valid when images are present.
+  const imgs = (Array.isArray(images) ? images : []).filter((im) => im && im.dataUrl);
+  if (!msg && !imgs.length) throw fail('EMPTY', 'Message is required.');
   if (msg.length > 4000) throw fail('TOO_LONG', 'Message is too long (max 4000 characters).');
-  out.push({ role: 'user', content: msg });
+  if (!imgs.length) {
+    out.push({ role: 'user', content: msg });
+    return out;
+  }
+  const names = imgs.map((im) => String(im.name || 'image').slice(0, 120)).join(', ');
+  const text =
+    (msg ||
+      'I attached image(s) with no written message. Analyze them and apply the improvement they most clearly suggest for my site (for example matching their colors or branding, or using the photo where it fits), then tell me what you did.') +
+    `\n\n[Attached image(s) for analysis: ${names}. Look at them carefully and use what you see — colors, layout, branding, photo content and quality — to guide the changes you make.]`;
+  out.push({
+    role: 'user',
+    content: [
+      { type: 'text', text },
+      ...imgs.map((im) => ({ type: 'image_url', image_url: { url: im.dataUrl } })),
+    ],
+  });
   return out;
 }
 
@@ -433,7 +453,7 @@ function normalizePortalHistory(history, userMessage) {
 async function runPortalImproveLoop(
   workspaceId,
   leadId,
-  { db, message, history, pageSlug, maxSteps = MAX_PORTAL_STEPS } = {}
+  { db, message, history, pageSlug, images, maxSteps = MAX_PORTAL_STEPS } = {}
 ) {
   const domain = require('./domain');
   const mcp = require('./mcp');
@@ -477,9 +497,10 @@ async function runPortalImproveLoop(
   }
 
   const { tools, toolNames } = mcpToolsToOpenAi(mcp.toolDefs({ clientScoped: true }));
+  const modelImages = (Array.isArray(images) ? images : []).filter((im) => im && im.dataUrl);
   const messages = [
     { role: 'system', content: buildPortalSystemPrompt(lid, pageSlug) },
-    ...normalizePortalHistory(history, message),
+    ...normalizePortalHistory(history, message, modelImages),
   ];
 
   let steps = 0;
@@ -491,6 +512,24 @@ async function runPortalImproveLoop(
   let finalReply = '';
   const consecutiveToolErrors = { n: 0 };
   let nudged = false;
+  // Batch 89: if the model endpoint rejects the vision parts, the turn
+  // retries ONCE with the images stripped and a note saying the files are
+  // saved with the conversation — the design work continues instead of
+  // the whole chat failing, and the result reports imagesDropped so the
+  // caller never claims the model saw images it did not.
+  let visionDropped = false;
+  const stripImageParts = () => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === 'user' && Array.isArray(m.content)) {
+        const textPart = m.content.find((p) => p && p.type === 'text');
+        m.content =
+          (textPart ? String(textPart.text) : '') +
+          '\n\n[Note: the attached image(s) could not be shown to you directly. They are saved with this conversation as design-chat attachments — staff can open them from the lead record. Work from the written description.]';
+        break;
+      }
+    }
+  };
 
   const logStep = (promptTokens, completionTokens, step) => {
     domain.withDb(workspaceId, (d) => {
@@ -531,8 +570,25 @@ async function runPortalImproveLoop(
         max_tokens: 4096,
       });
     } catch (e) {
-      lastError = e.code || 'MUSE_REQUEST_FAILED';
-      break;
+      if (modelImages.length && !visionDropped) {
+        visionDropped = true;
+        stripImageParts();
+        try {
+          data = await chatCompletions(config, {
+            model: config.model,
+            messages,
+            tools,
+            tool_choice: 'auto',
+            max_tokens: 4096,
+          });
+        } catch (e2) {
+          lastError = e2.code || 'MUSE_REQUEST_FAILED';
+          break;
+        }
+      } else {
+        lastError = e.code || 'MUSE_REQUEST_FAILED';
+        break;
+      }
     }
 
     const usage = (data && data.usage) || {};
@@ -641,6 +697,11 @@ async function runPortalImproveLoop(
     error: lastError,
     costUsd: totalCost,
     model: config.model,
+    // Batch 89: honest accounting of the attached images — the caller
+    // (and the report) can tell whether the model actually received them.
+    attachments: modelImages.length,
+    imagesSent: modelImages.length > 0 && !visionDropped,
+    imagesDropped: visionDropped,
   };
 }
 
@@ -649,6 +710,7 @@ module.exports = {
   museConfigured,
   runJobLoop,
   runPortalImproveLoop,
+  normalizePortalHistory,
   DENY_TOOLS,
   MAX_STEPS,
   MAX_PORTAL_STEPS,

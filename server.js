@@ -128,11 +128,17 @@ app.use('/api/v1/membership/webhook', express.raw({ type: 'application/json' }),
 // website-promo gets 12mb: its brochure upload rides base64-in-JSON
 // (~4/3 inflation), so an 8mb JSON cap would reject the documented 8MB
 // brochure before the route's own size check ever runs.
+// The design-chat attachment upload gets 15mb for the same reason: its
+// documented cap is a 10 MB image, which inflates to ~13.3 MB of base64
+// before the route's own magic-byte + size validation runs (Batch 89).
 app.use((req, res, next) => {
   const large = /^\/api\/v1\/(design|portal|websites|mcp|website-promo|admin)/i.test(req.path || '');
   const promo = /^\/api\/v1\/website-promo/i.test(req.path || '');
+  const chatUpload = /^\/api\/v1\/portal\/site\/agent-chat\/attachments/i.test(req.path || '');
   const analytics = req.path.startsWith('/api/v1/site-analytics/public/');
-  return express.json({ limit: analytics ? '1kb' : promo ? '12mb' : large ? '8mb' : process.env.JSON_BODY_LIMIT || '1mb' })(
+  return express.json({
+    limit: analytics ? '1kb' : chatUpload ? '15mb' : promo ? '12mb' : large ? '8mb' : process.env.JSON_BODY_LIMIT || '1mb',
+  })(
     req,
     res,
     next

@@ -4262,6 +4262,9 @@ module.exports = {
   listClientMcpTokens,
   revokeClientMcpToken,
   runSiteAgentChat,
+  uploadSiteChatImage,
+  fetchSiteChatImage,
+  listSiteChatImages,
   submitChangeRequest,
   listChangeRequests,
   ensureBillingUserForPortalClient,
@@ -4295,23 +4298,82 @@ module.exports = {
  * Portal Muse agent chat: run lead-scoped improve loop, then return fresh editable HTML.
  * Body: { message, history?, pageSlug? }
  */
+/** Batch 89 — design-chat image attachments (server/siteChatAttachments.js). */
+async function uploadSiteChatImage(workspaceId, leadId, payload = {}) {
+  const domain = require('./domain');
+  const chatAtt = require('./siteChatAttachments');
+  const raw = String((payload && (payload.data != null ? payload.data : payload.dataBase64)) || '');
+  const b64 = raw.includes(',') ? raw.slice(raw.indexOf(',') + 1) : raw;
+  const buffer = Buffer.from(b64.replace(/\s+/g, ''), 'base64');
+  return domain.withDb(workspaceId, async (db) => {
+    const site = resolveClientSite(db, leadId);
+    if (!site) {
+      throw Object.assign(new Error('No website is available yet'), { code: 'NO_SITE' });
+    }
+    return chatAtt.saveAttachment(db, {
+      workspaceId,
+      leadId,
+      websiteId: site.id,
+      buffer,
+      originalName: payload && payload.name,
+    });
+  });
+}
+
+function fetchSiteChatImage(workspaceId, leadId, id, variant) {
+  const domain = require('./domain');
+  const chatAtt = require('./siteChatAttachments');
+  return domain.withDb(workspaceId, (db) => chatAtt.readAttachment(db, { leadId, id, variant }));
+}
+
+function listSiteChatImages(workspaceId, leadId, limit) {
+  const domain = require('./domain');
+  const chatAtt = require('./siteChatAttachments');
+  return domain.withDb(workspaceId, (db) => chatAtt.listAttachments(db, { leadId, limit }));
+}
+
 async function runSiteAgentChat(workspaceId, leadId, body = {}) {
   const museAgent = require('./museAgent');
   const domain = require('./domain');
+  const chatAtt = require('./siteChatAttachments');
   const message = String((body && body.message) || '').trim();
-  if (!message) {
+  // Batch 89: a chat turn may carry image attachments (uploaded first via
+  // uploadSiteChatImage). An image-only turn is valid; a turn with
+  // neither text nor images is still EMPTY, exactly as before.
+  const attachmentIds = chatAtt.normalizeAttachmentIds(body && body.attachmentIds);
+  if (!message && !attachmentIds.length) {
     throw Object.assign(new Error('Message is required'), { code: 'EMPTY' });
   }
   if (message.length > 4000) {
     throw Object.assign(new Error('Message is too long (max 4000 characters)'), { code: 'TOO_LONG' });
   }
 
+  let attachmentRows = [];
+  let siteId = null;
   domain.withDb(workspaceId, (db) => {
     const site = resolveClientSite(db, leadId);
     if (!site || !Array.isArray(site.pages) || !site.pages.length) {
       throw Object.assign(new Error('No website is available yet'), { code: 'NO_SITE' });
     }
+    siteId = site.id;
+    if (attachmentIds.length) {
+      // Ownership is enforced here: every id must belong to THIS lead.
+      attachmentRows = chatAtt.loadForChat(db, { leadId, ids: attachmentIds });
+    }
   });
+
+  // Stamp the turn linkage and prepare the model-bound image copies
+  // (downscaled data URLs) so the design loop can analyze the images.
+  const turnRef = attachmentIds.length
+    ? `turn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    : null;
+  let modelImages = [];
+  if (attachmentRows.length) {
+    domain.withDb(workspaceId, (db) =>
+      chatAtt.linkToTurn(db, { leadId, ids: attachmentIds, websiteId: siteId, messageRef: turnRef })
+    );
+    modelImages = await chatAtt.buildModelImages(attachmentRows);
+  }
 
   const pageSlug =
     body.pageSlug != null && String(body.pageSlug).trim() !== '' ? String(body.pageSlug).trim() : undefined;
@@ -4322,6 +4384,7 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
       message,
       history: body.history,
       pageSlug,
+      images: modelImages,
     })
   );
 
@@ -4374,6 +4437,11 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     mutated: !!(loop && loop.mutated),
     published: !!(loop && loop.published),
     model: loop && loop.model,
+    // Batch 89: echo the turn's attachments (thumbnail URLs are the
+    // authorized fetch route) + whether the model received the images.
+    attachments: attachmentRows.map((row) => chatAtt.publicRow(row)),
+    imagesSent: !!(loop && loop.imagesSent),
+    imagesDropped: !!(loop && loop.imagesDropped),
     error:
       loop && loop.error && loop.error !== 'muse_not_configured' && loop.error !== 'budget_exceeded'
         ? loop.error
