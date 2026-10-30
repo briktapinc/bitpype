@@ -253,18 +253,21 @@ router.patch('/leads/:id', scopeLeadParam, (req, res) => {
   }
 });
 // Batch 45 (B1): pre-flight reference summary for the delete confirm.
-router.get('/leads/:id/references', scopeLeadParam, (req, res) => {
+// Batch 85: async — the summary now merges platform portal accounts.
+router.get('/leads/:id/references', scopeLeadParam, async (req, res) => {
   try {
-    ok(res, { references: domain.leadsReferences(req.auth.workspaceId, Number(req.params.id)) });
+    ok(res, { references: await domain.leadsReferences(req.auth.workspaceId, Number(req.params.id)) });
   } catch (e) {
     fail(res, e);
   }
 });
-router.delete('/leads/:id', requireRole('owner', 'admin'), scopeLeadParam, (req, res) => {
+router.delete('/leads/:id', requireRole('owner', 'admin'), scopeLeadParam, async (req, res) => {
   try {
     // Batch 45 (B1): return the full outcome (reference summary + which
     // websites were archive-firsted) instead of a bare id.
-    const result = domain.leadsDelete(req.auth.workspaceId, Number(req.params.id));
+    // Batch 85: awaited — the delete also sweeps attached portal
+    // accounts + member data in the same operation.
+    const result = await domain.leadsDelete(req.auth.workspaceId, Number(req.params.id));
     ok(res, result && typeof result === 'object' ? result : { id: Number(req.params.id) });
   } catch (e) {
     if (/FOREIGN KEY|SQLITE_CONSTRAINT/i.test(String((e && e.message) || ''))) {

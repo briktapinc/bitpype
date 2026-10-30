@@ -589,7 +589,7 @@ async function partC() {
       assert.equal(res.status, 200, 'owner can still delete a campaign');
     });
     await checkAsync('MCP path unaffected: facade deletes run without any HTTP role context', async () => {
-      const r = domain.leadsDelete(WS, L_SCRATCH);
+      const r = await domain.leadsDelete(WS, L_SCRATCH);
       assert(r && typeof r === 'object', 'facade leadsDelete returns its outcome');
       assert(!leadRow(L_SCRATCH), 'scratch lead deleted via facade');
       domain.designDelete(WS, JOB2_ID);

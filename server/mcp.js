@@ -3921,7 +3921,7 @@ async function callTool(workspaceId, name, args = {}, ctx = {}) {
     }
     if (name === 'lead.delete') {
       try {
-        domain.leadsDelete(ws, a.id);
+        await domain.leadsDelete(ws, a.id);
         return { ok: true, data: { id: a.id } };
       } catch (e) {
         if (/FOREIGN KEY|SQLITE_CONSTRAINT/i.test(String((e && e.message) || ''))) {

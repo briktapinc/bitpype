@@ -764,6 +764,14 @@ function leadReferenceSummary(db, id) {
     callLogs: countLeadRefs(db, 'call_logs', leadId),
     contactForms: countLeadRefs(db, 'contact_forms', leadId),
     formSubmissions: countLeadRefs(db, 'form_submissions', leadId),
+    // Batch 85: member data owned by this lead's site. These tables key
+    // on lead_id with no FK to leads, so a lead delete used to orphan
+    // them (found by the Batch 82 live proof). Portal accounts live in
+    // the platform DB and are inventoried by the domain facade, which
+    // merges them into this summary as `portalAccounts`.
+    siteMembers: countLeadRefs(db, 'site_members', leadId),
+    siteMemberSessions: countLeadRefs(db, 'site_member_sessions', leadId),
+    siteModuleEmbeds: countLeadRefs(db, 'site_module_embeds', leadId),
   };
 }
 
@@ -835,6 +843,15 @@ function deleteLead(db, id) {
     // FK) and would otherwise be left orphaned.
     drop('form_submissions');
     drop('contact_forms');
+    // Batch 85: member data goes with the lead — sessions first (they
+    // belong to members), then the member accounts and the module embed
+    // rows that mount the lead's modules. All three key on lead_id with
+    // no FK, so without this they outlived the lead as orphans. Portal
+    // accounts (platform DB) are swept by the domain facade in the same
+    // delete operation.
+    drop('site_member_sessions');
+    drop('site_members');
+    drop('site_module_embeds');
     drop('lead_onboarding_items');
     drop('ai_usage');
     drop('design_learning_events');

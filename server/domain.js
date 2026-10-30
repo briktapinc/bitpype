@@ -161,12 +161,102 @@ function leadsCreate(workspaceId, obj) {
 function leadsUpdate(workspaceId, id, patch) {
   return withDb(workspaceId, (db) => leadEngine().updateLead(db, id, patch));
 }
-function leadsDelete(workspaceId, id) {
-  return withDb(workspaceId, (db) => leadEngine().deleteLead(db, id));
+/* Batch 85 — portal accounts attached to a lead (platform MySQL).
+ * Leaving these behind when a lead was deleted stranded the account:
+ * sign-in authenticated, then failed with "Linked business not found"
+ * (Ely's own portal account pointed at a demo lead deleted 2026-10-29).
+ * The delete flow now inventories them for the confirm and sweeps them
+ * in the same operation. The read idiom matches leadOnboardingRun. */
+function isMissingTableError(e) {
+  return /no such table|does not exist|doesn't exist|ER_NO_SUCH_TABLE/i.test(String((e && e.message) || ''));
 }
-/** Batch 45 (B1) — pre-flight reference counts for the lead-delete confirm. */
-function leadsReferences(workspaceId, id) {
-  return withDb(workspaceId, (db) => leadEngine().leadReferenceSummary(db, Number(id)));
+async function portalAccountsForLead(workspaceId, leadId) {
+  try {
+    const rows = await require('./db').query(
+      'SELECT id, email, user_type FROM client_portal_users WHERE workspace_id = :w AND lead_id = :l ORDER BY id ASC',
+      { w: Number(workspaceId), l: Number(leadId) }
+    );
+    return {
+      accounts: (rows || []).map((r) => ({ id: Number(r.id), email: r.email, userType: r.user_type })),
+      failed: false,
+    };
+  } catch (e) {
+    if (isMissingTableError(e)) return { accounts: [], failed: false };
+    console.error(
+      `[domain] portal account lookup failed for lead ${leadId} in workspace ${workspaceId}:`,
+      (e && e.message) || e
+    );
+    return { accounts: null, failed: true };
+  }
+}
+/** Remove ONE portal account and its login tokens. Returns 1. */
+async function sweepPortalAccount(portalUserId) {
+  const platformDb = require('./db');
+  await platformDb.query('DELETE FROM client_portal_login_tokens WHERE portal_user_id = :uid', {
+    uid: Number(portalUserId),
+  });
+  await platformDb.query('DELETE FROM client_portal_users WHERE id = :uid', { uid: Number(portalUserId) });
+  return 1;
+}
+/** Remove every portal account for (workspace, lead) without a prior read. */
+async function sweepPortalAccountsForLead(workspaceId, leadId) {
+  const platformDb = require('./db');
+  const params = { w: Number(workspaceId), l: Number(leadId) };
+  try {
+    await platformDb.query(
+      `DELETE FROM client_portal_login_tokens WHERE portal_user_id IN
+         (SELECT id FROM client_portal_users WHERE workspace_id = :w AND lead_id = :l)`,
+      params
+    );
+    const out = await platformDb.query(
+      'DELETE FROM client_portal_users WHERE workspace_id = :w AND lead_id = :l',
+      params
+    );
+    return Number((out && (out.affectedRows ?? out.changes)) || 0);
+  } catch (e) {
+    if (isMissingTableError(e)) return 0;
+    throw e;
+  }
+}
+
+async function leadsDelete(workspaceId, id) {
+  const leadId = Number(id);
+  // Inventory the attached portal accounts BEFORE the workspace delete,
+  // so the sweep targets exact rows and the result can report them.
+  const portal = await portalAccountsForLead(workspaceId, leadId);
+  const result = withDb(workspaceId, (db) => leadEngine().deleteLead(db, leadId));
+  // The portal sweep runs in the same operation; a failure here is loud
+  // (the caller sees it), never the silent dangling account of Batch 85's
+  // bug report.
+  let portalAccountsRemoved = 0;
+  try {
+    if (portal.accounts) {
+      for (const acct of portal.accounts) portalAccountsRemoved += await sweepPortalAccount(acct.id);
+    } else {
+      // The inventory read failed before the delete — sweep by
+      // (workspace, lead) directly so a transient read failure cannot
+      // strand the accounts.
+      portalAccountsRemoved = await sweepPortalAccountsForLead(workspaceId, leadId);
+    }
+  } catch (e) {
+    throw Object.assign(
+      new Error(
+        `Lead ${leadId} was deleted, but removing its portal account(s) failed: ${(e && e.message) || e}`
+      ),
+      { code: 'PORTAL_SWEEP_FAILED' }
+    );
+  }
+  return { ...result, portalAccounts: portal.accounts || [], portalAccountsRemoved };
+}
+/** Batch 45 (B1) — pre-flight reference counts for the lead-delete confirm.
+ *  Batch 85: async — merges the platform-side portal accounts into the
+ *  workspace summary so the confirm names them explicitly. */
+async function leadsReferences(workspaceId, id) {
+  const summary = withDb(workspaceId, (db) => leadEngine().leadReferenceSummary(db, Number(id)));
+  const portal = await portalAccountsForLead(workspaceId, Number(id));
+  summary.portalAccounts = portal.accounts;
+  summary.portalLookupFailed = portal.failed;
+  return summary;
 }
 function leadsScore(workspaceId, id) {
   return withDb(workspaceId, (db) => leadEngine().scoreLead(db, id));
@@ -276,7 +366,11 @@ function prospectScore(workspaceId, leadId) {
   });
 }
 async function leadsBulk(workspaceId, payload) {
-  return withDb(workspaceId, async (db) => {
+  // Batch 85: bulk deletes get the same portal-account sweep as the
+  // single-lead delete — the sweep is platform-side, so it runs after
+  // the workspace transaction, per successfully deleted lead.
+  const deletedIds = [];
+  const results = await withDb(workspaceId, async (db) => {
     const engine = leadEngine();
     const action = String(payload.action || '');
     const ids = (payload.ids || []).map(Number);
@@ -284,8 +378,10 @@ async function leadsBulk(workspaceId, payload) {
     const results = { action, processed: 0, failed: 0, errors: [] };
     for (const id of ids) {
       try {
-        if (action === 'delete') engine.deleteLead(db, id);
-        else if (action === 'status') engine.updateLead(db, id, { status: value });
+        if (action === 'delete') {
+          engine.deleteLead(db, id);
+          deletedIds.push(id);
+        } else if (action === 'status') engine.updateLead(db, id, { status: value });
         else if (action === 'set_group') engine.updateLead(db, id, { lead_group: engine.normalizeGroupName(value) });
         else if (action === 'set_category') engine.updateLead(db, id, { category: value });
         else if (action === 'tag' || action === 'untag') {
@@ -304,6 +400,18 @@ async function leadsBulk(workspaceId, payload) {
     }
     return results;
   });
+  if (deletedIds.length) {
+    results.portalAccountsRemoved = 0;
+    for (const id of deletedIds) {
+      try {
+        results.portalAccountsRemoved += await sweepPortalAccountsForLead(workspaceId, id);
+      } catch (e) {
+        results.failed++;
+        results.errors.push({ id, error: `portal sweep: ${e.message}` });
+      }
+    }
+  }
+  return results;
 }
 
 // ---------- Providers / discovery ----------

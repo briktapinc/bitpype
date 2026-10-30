@@ -2895,6 +2895,18 @@ async function pageLeadDetail(id, query) {
         if (refs.designJobs) parts.push(`${refs.designJobs} design job(s) keep their own lifecycle`);
         if (refs.domainTransactions) parts.push(`${refs.domainTransactions} domain transaction record(s) stay as history`);
         if (refs.formSubmissions) parts.push(`${refs.formSubmissions} form submission(s) will be deleted`);
+        // Batch 85: portal accounts + site member data are swept by the
+        // delete — name them explicitly, never leave them silent.
+        if (refs.portalAccounts && refs.portalAccounts.length) {
+          const list = refs.portalAccounts.map((a) => `${a.email} (${a.userType || 'owner'})`).join(', ');
+          parts.push(`${refs.portalAccounts.length} portal account(s) will be deleted: ${list}`);
+        }
+        if (refs.portalLookupFailed) {
+          parts.push('WARNING: the portal account check failed — attached portal accounts could not be listed');
+        }
+        if (refs.siteMembers) parts.push(`${refs.siteMembers} site member account(s) will be deleted`);
+        if (refs.siteMemberSessions) parts.push(`${refs.siteMemberSessions} member session(s) will be deleted`);
+        if (refs.siteModuleEmbeds) parts.push(`${refs.siteModuleEmbeds} module embed(s) will be removed`);
         if (refs.bookings) parts.push(`${refs.bookings} booking(s) keep their records`);
         if (refs.callLogs) parts.push(`${refs.callLogs} call log(s) keep their records`);
         if (parts.length) msg = `Delete this lead?\n\n${parts.join('\n')}\n\nThis cannot be undone.`;
