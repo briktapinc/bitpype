@@ -3229,12 +3229,39 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
   // has authored chrome; otherwise a managed carrier section rides before
   // the footer (dropped by Pass 1 once members is no longer active).
   if (membersActive) {
+    // Section-carried tags must use the render-approved loader form
+    // (managedScripts.loaderTag: exact appBase src, no version query) —
+    // sanitizeHtml strips every other script from section html at render,
+    // including moduleScriptTag's ?v= form, which only survives inside
+    // site_module mount sections. Pages already carrying a module mount
+    // (or a loader) are covered: the mount's own script runs the nav wiring.
+    // Approved form = managedScripts.loaderTag (the platform's canonical
+    // loader: appBase src, no version query) — exactly what
+    // managedScripts.approvedScript accepts at render, on the app origin
+    // that also serves exported sites. Fall back to a base-built approved
+    // tag, then to the versioned mount tag, if the resolver is unavailable.
+    let sitewideTag = '';
+    try {
+      sitewideTag = require('../src/managedScripts').loaderTag('module-embed.js');
+    } catch {
+      sitewideTag = '';
+    }
+    if (!sitewideTag && base) {
+      sitewideTag = `<script src="${escapeAttr(String(base).replace(/\/$/, ''))}/js/module-embed.js" defer ${SCRIPT_ATTR}="1"></script>`;
+    }
+    if (!sitewideTag) sitewideTag = moduleScriptTag(base);
+    const ensureSitewideScript = (html) => {
+      let s = String(html || '');
+      s = s.replace(new RegExp(`<script\\b[^>]*\\b${SCRIPT_ATTR}\\b[^>]*>\\s*<\\/script>`, 'gi'), '');
+      s = s.replace(/<script\b[^>]*\/js\/module-embed\.js[^>]*>\s*<\/script>/gi, '');
+      return `${s}\n${sitewideTag}`;
+    };
     for (const page of pages) {
       if (pageUsesSections(page)) {
         let placed = false;
         for (const sec of page.sections || []) {
           if (!sec || !sec.content || typeof sec.content.html !== 'string') continue;
-          if (/\/js\/module-embed\.js/i.test(sec.content.html)) {
+          if (/\/js\/module-embed\.js/i.test(sec.content.html) || /bitpype-module-embed/i.test(sec.content.html)) {
             placed = true;
             break;
           }
@@ -3245,12 +3272,12 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
         );
         if (navSec) {
           navSec.content = Object.assign({}, navSec.content, {
-            html: ensureModuleEmbedScript(navSec.content.html, base),
+            html: ensureSitewideScript(navSec.content.html),
           });
         } else {
           const scriptSec = {
             type: 'html',
-            content: { html: moduleScriptTag(base), bitpype_member_nav_managed: 1 },
+            content: { html: sitewideTag, bitpype_member_nav_managed: 1 },
           };
           const footerAt = page.sections.findIndex((s) => s && s.type === 'footer');
           if (footerAt >= 0) page.sections.splice(footerAt, 0, scriptSec);

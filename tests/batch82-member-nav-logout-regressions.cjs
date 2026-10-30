@@ -326,13 +326,31 @@ async function partD(postJson) {
     page.on('pageerror', (e) => errors.push(e.message));
     const requests = [];
     await page.setRequestInterception(true);
-    page.on('request', (r) => {
+    page.on('request', async (r) => {
       const url = r.url();
       requests.push({ method: r.method(), url });
       if (url === `${BASE}/bp82-home`) return r.respond({ status: 200, contentType: 'text/html', body: homeHtml });
       if (url === `${BASE}/bp82-about`) return r.respond({ status: 200, contentType: 'text/html', body: aboutHtml });
       if (url === `${BASE}/bp82-members`) return r.respond({ status: 200, contentType: 'text/html', body: membersHtml });
       if (url.startsWith(BASE)) return r.continue();
+      // The sitewide loader tag points at the platform public origin
+      // (https://bitpype.test in this fixture — the production shape, where
+      // the public URL IS the app origin). Proxy those requests to the
+      // spawned server so the script and its API calls really execute.
+      if (url.startsWith('https://bitpype.test/')) {
+        try {
+          const target = BASE + url.slice('https://bitpype.test'.length);
+          const init = { method: r.method(), headers: r.headers() };
+          if (!['GET', 'HEAD'].includes(r.method())) init.body = r.postData() || undefined;
+          const resp = await fetch(target, init);
+          const body = Buffer.from(await resp.arrayBuffer());
+          const headers = {};
+          resp.headers.forEach((v, k) => { headers[k] = v; });
+          return r.respond({ status: resp.status, headers, body });
+        } catch {
+          return r.abort();
+        }
+      }
       return r.abort();
     });
     const logoutPosts = () =>
