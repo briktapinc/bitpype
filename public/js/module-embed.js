@@ -194,6 +194,8 @@
       '}',
       '.bitpype-module-embed .bp-mod-check{display:flex;align-items:center;gap:0.55rem;font-weight:400 !important;cursor:pointer;}',
       '.bitpype-module-embed .bp-mod-check input{width:auto !important;}',
+      '.bitpype-module-embed .bp-sms-policy-note{margin:0;font-size:0.8rem;line-height:1.5;color:var(--bp-mod-muted);}',
+      '.bitpype-module-embed .bp-sms-policy-note a{color:inherit;text-decoration:underline;}',
       '.bitpype-module-embed .bp-mod-book-msg{margin:0;color:var(--bp-mod-muted);}',
       '.bitpype-module-embed .bp-mod-book-msg.ok{color:var(--bp-mod-accent);}',
       '.bitpype-module-embed .bp-mod-book-msg.err{color:#9b2c2c;}',
@@ -1280,6 +1282,15 @@
     el.innerHTML = html;
   }
 
+  // SMS policy consent line (Batch 77): the payload's sms_policy block
+  // (server/smsPolicy.js) rendered as small print under the opt-in
+  // checkbox — disclosure only, never an input, never required.
+  function smsPolicyRow(data) {
+    return data.sms_policy && data.sms_policy.html
+      ? '<div class="bp-mod-book-row"><p class="bp-sms-policy-note">' + data.sms_policy.html + '</p></div>'
+      : '';
+  }
+
   function renderBookings(el, data, prefixHtml) {
     var services = Array.isArray(data.items) ? data.items : [];
     if (!services.length) {
@@ -1333,6 +1344,7 @@
           esc(data.sms_optin.label) +
           '</label></div>'
         : '') +
+      smsPolicyRow(data) +
       '<div class="bp-mod-book-row"><label for="bp-notes">Notes</label><textarea id="bp-notes" name="notes" rows="3"></textarea></div>' +
       '<div class="bp-mod-captcha" data-bp-captcha hidden></div>' +
       '<button type="submit" class="bp-mod-btn">Request appointment</button>' +
@@ -1669,6 +1681,7 @@
           esc(data.sms_optin.label) +
           '</label></div>'
         : '') +
+      smsPolicyRow(data) +
       '<div class="bp-mod-book-row"><label>Anything we should know? (optional)</label><textarea name="notes" rows="3"></textarea></div>' +
       '<div class="bp-mod-captcha" data-bp-captcha hidden></div>' +
       '<button type="submit" class="bp-mod-btn">' +

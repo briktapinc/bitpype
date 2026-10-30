@@ -733,10 +733,19 @@ function getPublicConfigByToken(db, token) {
   } catch {
     smsOptInBlock = null;
   }
+  // Batch 77: the SMS-policy consent line rides with the opt-in block
+  // (the chat lead-capture form collects a phone number).
+  let smsPolicyBlock = null;
+  try {
+    smsPolicyBlock = require('./smsPolicy').policyBlock();
+  } catch {
+    smsPolicyBlock = null;
+  }
   return {
     embed: modules.publicEmbed(row),
     module_type: 'chatbot',
     sms_optin: smsOptInBlock,
+    sms_policy: smsPolicyBlock,
     settings: {
       greeting: settings.greeting,
       bubble_label: settings.bubble_label,

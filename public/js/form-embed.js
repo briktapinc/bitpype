@@ -65,6 +65,8 @@
       '.bitpype-form-embed textarea{min-height:120px;resize:vertical;}',
       '.bitpype-form-embed .bp-form-check{display:flex;align-items:center;gap:0.55rem;}',
       '.bitpype-form-embed .bp-form-check input{width:auto;}',
+      '.bitpype-form-embed .bp-sms-policy-note{margin:0.15rem 0 0;font-size:0.8rem;line-height:1.5;color:var(--bp-form-muted);}',
+      '.bitpype-form-embed .bp-sms-policy-note a{color:inherit;text-decoration:underline;}',
       '.bitpype-form-embed .bp-form-btn{',
       'appearance:none;border:0;border-radius:999px;background:var(--bp-form-accent);color:#fff;',
       'font:inherit;font-weight:700;padding:0.75rem 1.25rem;cursor:pointer;margin-top:0.35rem;',
@@ -239,6 +241,17 @@
       smsWrap.appendChild(smsInput);
       smsWrap.appendChild(smsLabel);
       formEl.appendChild(smsWrap);
+    }
+
+    // SMS policy consent line (Batch 77): disclosure under the opt-in
+    // checkbox, present exactly when the form collects a phone number
+    // (the payload's sms_policy block rides with sms_optin). It is not
+    // an input and never affects submission.
+    if (form.sms_policy && form.sms_policy.html) {
+      var policyNote = document.createElement('p');
+      policyNote.className = 'bp-sms-policy-note';
+      policyNote.innerHTML = form.sms_policy.html;
+      formEl.appendChild(policyNote);
     }
 
     formEl.appendChild(captchaBox);

@@ -9933,6 +9933,13 @@ function getPublicModuleByToken(db, token, opts = {}) {
     } catch {
       out.sms_optin = null;
     }
+    // Batch 77: the SMS-policy consent line rides with the opt-in
+    // block — both module forms always render a phone field.
+    try {
+      out.sms_policy = require('./smsPolicy').policyBlock();
+    } catch {
+      out.sms_policy = null;
+    }
   }
   if (estimate) out.estimate = estimate;
   if (socialfeed) out.socialfeed = socialfeed.config;

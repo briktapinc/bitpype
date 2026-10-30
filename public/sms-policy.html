@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SMS Policy — BitPype</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Figtree:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    /* Public-page chrome in the app design system (tokens from /styles.css):
+       dark nav + Fraunces display headline, matching the legal pages. */
+    .legal-nav {
+      position: sticky; top: 0; z-index: 20;
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 10px 18px;
+      padding: 14px 28px;
+      background: var(--sidebar);
+      border-bottom: 1px solid rgba(255, 250, 244, 0.08);
+    }
+    .legal-brand {
+      display: inline-flex; align-items: center; gap: 10px;
+      text-decoration: none; color: var(--sidebar-text);
+      font-family: Fraunces, Georgia, serif; font-weight: 700; font-size: 1.3rem; letter-spacing: -0.03em;
+    }
+    .legal-brand img { width: 32px; height: 32px; border-radius: 9px; }
+    .legal-back { color: var(--sidebar-text); opacity: 0.82; text-decoration: none; font-weight: 700; }
+    .legal-back:hover { opacity: 1; }
+    main.view h1 { font-family: Fraunces, Georgia, serif; font-weight: 500; letter-spacing: -0.03em; }
+    @media (max-width: 700px) { .legal-nav { padding: 12px 16px; } }
+  </style>
+</head>
+<body>
+  <header class="legal-nav">
+    <a class="legal-brand" href="/"><img src="/brand/bitpype-mark.svg" alt="" width="32" height="32" /> BitPype</a>
+    <a class="legal-back" href="/">← Back to home</a>
+  </header>
+  <main class="view" style="max-width:720px;padding:2rem 1.25rem 3rem">
+    <h1>SMS Policy</h1>
+    <p class="lede">Last updated: October 30, 2026</p>
+    <div class="panel"><div class="panel-b stack">
+      <p>This policy explains the text-message (SMS) programs run on the <strong>BitPype</strong> platform. BitPype is the platform; the messages themselves come from the <strong>business you contacted</strong> — a business that uses BitPype for its website, bookings, and customer follow-up — and are sent via BitPype from that business's phone number.</p>
+
+      <h3>1. What messages you may receive</h3>
+      <p>If you give your phone number to a business that uses BitPype, you may receive text messages about your dealings with that business, including:</p>
+      <ul>
+        <li><strong>Appointment and booking messages</strong> — confirmations, reminders, and schedule changes for appointments you book.</li>
+        <li><strong>Missed-call follow-up</strong> — if you call a business and your call is missed, a follow-up text from the same number you called, which may include an automated conversation that can answer questions and book an appointment for you.</li>
+        <li><strong>Estimate follow-up</strong> — messages about an estimate you requested, including reminders while the estimate is open and an offer to get it scheduled.</li>
+        <li><strong>Service and order notifications</strong> — updates about a service, order, or request you made with the business.</li>
+        <li><strong>Replies to you</strong> — responses when you text a business's number first.</li>
+      </ul>
+
+      <h3>2. How you opt in</h3>
+      <p>You opt in to receive these messages when you:</p>
+      <ul>
+        <li>call a business's published phone number;</li>
+        <li>submit a form that includes your phone number (for example a contact, booking, or estimate form on the business's website); or</li>
+        <li>text a business's phone number.</li>
+      </ul>
+      <p>By opting in, you agree to receive the messages described above at the number you provided. Consent is not a condition of purchasing any goods or services.</p>
+
+      <h3>3. Frequency and rates</h3>
+      <p><strong>Message frequency varies</strong> — it depends on your interactions with the business, such as the appointments you book and the estimates you have open. <strong>Message and data rates may apply</strong>, depending on your mobile carrier and plan.</p>
+
+      <h3>4. How to opt out or get help</h3>
+      <ul>
+        <li>Reply <strong>STOP</strong> at any time to opt out. After you reply STOP, you will receive one final confirmation message and no further text messages from that business's program.</li>
+        <li>Reply <strong>HELP</strong> for help, or contact the business you were communicating with directly.</li>
+      </ul>
+
+      <h3>5. Carriers</h3>
+      <p>Wireless carriers are not liable for delayed or undelivered messages. Delivery is subject to your carrier's network and coverage.</p>
+
+      <h3>6. How your information is shared</h3>
+      <p><strong>Mobile information will not be shared with third parties or affiliates for marketing or promotional purposes. Text messaging originator opt-in data and consent will not be shared with any third parties.</strong> Your phone number and message content are used only to run the messaging described in this policy, as set out in our <a href="/legal/privacy.html">Privacy Policy</a>.</p>
+
+      <h3>7. Contact</h3>
+      <p>For questions about a message you received, contact the business you were communicating with — its name and number are on the messages themselves. For questions about BitPype or this policy, reach us through <a href="{{PUBLIC_URL}}">{{PUBLIC_URL}}</a>.</p>
+      <p>See also our <a href="/legal/privacy.html">Privacy Policy</a> and <a href="/legal/terms.html">Terms of Service</a>.</p>
+    </div></div>
+  </main>
+</body>
+</html>

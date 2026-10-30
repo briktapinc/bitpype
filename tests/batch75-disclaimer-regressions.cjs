@@ -130,7 +130,9 @@ function partA() {
       src.includes('marketingDisclaimer.TEMPLATED_PAGE_SCHEMES[rel]'),
       'sendTemplatedPage injects by rel map'
     );
-    assert.equal(count(src, "marketingDisclaimer.injectDisclaimer(html, 'light')"), 2, 'landing + thankyou senders inject');
+    // Batch 77: the website-promo sender now substitutes templated
+    // tokens before injecting, so it uses the (html, …) form too — 3.
+    assert.equal(count(src, "marketingDisclaimer.injectDisclaimer(html, 'light')"), 3, 'landing + thankyou + website-promo senders inject');
     assert.ok(src.includes("app.get(['/solo', '/solo/']"), '/solo clean route');
     assert.ok(src.includes("app.get('/solo.html'"), '/solo.html intercept');
     assert.ok(src.includes("app.get('/website-promo.html'"), '/website-promo.html intercept');

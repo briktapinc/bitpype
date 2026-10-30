@@ -242,6 +242,8 @@
     .interest-form input:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
     #captcha-box { min-height: 78px; }
     .form-msg { margin: 0; min-height: 1.5em; font-weight: 700; }
+    .sms-consent-note { margin: 0; font-size: 0.8rem; line-height: 1.55; opacity: 0.85; }
+    .sms-consent-note a { color: inherit; text-decoration: underline; }
     .form-msg.error { color: #ffb4a2; }
     .form-success {
       max-width: 560px; border: 1.5px solid rgba(255, 250, 244, 0.35);
@@ -497,6 +499,7 @@
             <input id="lf-phone" name="phone" type="tel" autocomplete="tel" required maxlength="40" />
           </div>
           <input id="lf-demo-source" name="demo_source" type="hidden" value="" />
+          <p class="sms-consent-note">By providing your phone number, you agree to receive text messages about your inquiry or appointment from this business, sent via BitPype. Msg &amp; data rates may apply. Reply STOP to end. See our <a href="{{PUBLIC_URL}}/sms-policy" target="_blank" rel="noopener">SMS Policy</a>.</p>
           <div id="captcha-box" aria-label="Captcha"></div>
           <p class="form-msg" id="landing-msg" role="status"></p>
           <div>

@@ -2589,6 +2589,15 @@ function getPublicFormByToken(db, token) {
   } catch {
     form.sms_optin = null;
   }
+  // Batch 77: the SMS-policy consent line rides with the opt-in block —
+  // the block exists exactly when the form collects a phone number, so
+  // the disclosure appears exactly there too (and never on phoneless
+  // forms). Disclosure only; submission behavior is untouched.
+  try {
+    form.sms_policy = form.sms_optin ? require('./smsPolicy').policyBlock() : null;
+  } catch {
+    form.sms_policy = null;
+  }
   return form;
 }
 

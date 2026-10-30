@@ -78,6 +78,8 @@
       '.bp-chat-lead .bp-chat-lead-actions button{appearance:none;border:0;border-radius:999px;padding:8px 12px;font:inherit;cursor:pointer;}',
       '.bp-chat-lead .bp-chat-lead-sms{display:flex;align-items:flex-start;gap:8px;font-size:0.88rem;cursor:pointer;}',
       '.bp-chat-lead .bp-chat-lead-sms input{width:auto;margin-top:2px;}',
+      '.bp-chat-lead .bp-chat-lead-sms-policy{margin:0;font-size:0.75rem;line-height:1.5;color:#666;}',
+      '.bp-chat-lead .bp-chat-lead-sms-policy a{color:inherit;text-decoration:underline;}',
       '.bp-chat-lead .bp-chat-lead-submit{background:' + color + ';color:#fff;font-weight:600;}',
       '.bp-chat-lead .bp-chat-lead-cancel{background:#eee;}',
       '.bp-chat-status{font-size:12px;color:#666;padding:0 14px 8px;background:#f6f7f8;flex-shrink:0;}',
@@ -145,6 +147,9 @@
       '<input type="tel" class="bp-chat-lead-phone" placeholder="Phone" autocomplete="tel" />',
       // SMS opt-in (Batch 25): unchecked by default, never required.
       '<label class="bp-chat-lead-sms"><input type="checkbox" class="bp-chat-lead-sms-optin" /> <span class="bp-chat-lead-sms-label">Text me updates &amp; offers</span></label>',
+      // SMS policy consent line (Batch 77): filled from the payload's
+      // sms_policy block when the config arrives; stays hidden without it.
+      '<p class="bp-chat-lead-sms-policy" hidden></p>',
       '<textarea class="bp-chat-lead-msg" placeholder="How can we help?"></textarea>',
       '<div class="bp-chat-lead-actions">',
       '<button type="button" class="bp-chat-lead-submit">Send</button>',
@@ -422,6 +427,11 @@
         var smsLabel = panel.querySelector('.bp-chat-lead-sms-label');
         if (smsLabel && data && data.sms_optin && data.sms_optin.label) {
           smsLabel.textContent = data.sms_optin.label;
+        }
+        var smsPolicy = panel.querySelector('.bp-chat-lead-sms-policy');
+        if (smsPolicy && data && data.sms_policy && data.sms_policy.html) {
+          smsPolicy.innerHTML = data.sms_policy.html;
+          smsPolicy.hidden = false;
         }
         var title = panel.querySelector('.bp-chat-title');
         if (title) title.textContent = state.settings.bubble_label || 'Chat';

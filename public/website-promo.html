@@ -207,6 +207,8 @@
     .step-title:focus-visible { outline-offset: 4px; }
     .step-lede { margin: 0 0 16px; color: var(--muted); font-size: 0.95rem; }
     .field-error { margin: 0; font-size: 0.85rem; font-weight: 600; color: var(--danger); }
+    .sms-consent-note { margin: 0; font-size: 0.8rem; line-height: 1.55; color: var(--muted); }
+    .sms-consent-note a { color: inherit; text-decoration: underline; }
     input[aria-invalid='true'], textarea[aria-invalid='true'] { border-color: var(--danger); }
     .wizard-nav { margin-top: 22px; }
     .wizard-nav .spacer { flex: 1; }
@@ -283,6 +285,7 @@
             <div class="field">
               <label for="phone">Phone <span class="req" aria-hidden="true">*</span></label>
               <input id="phone" name="phone" type="tel" autocomplete="tel" required maxlength="40" />
+              <p class="sms-consent-note">By providing your phone number, you agree to receive text messages about your inquiry or appointment from this business, sent via BitPype. Msg &amp; data rates may apply. Reply STOP to end. See our <a href="{{PUBLIC_URL}}/sms-policy" target="_blank" rel="noopener">SMS Policy</a>.</p>
           
               <p class="field-error" id="err-phone" hidden></p>
             </div>

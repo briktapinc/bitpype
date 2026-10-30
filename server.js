@@ -687,14 +687,35 @@ app.get('/onboarding.html', (_req, res) => sendTemplatedPage(res, 'onboarding.ht
 app.get('/legal/privacy.html', (_req, res) => sendTemplatedPage(res, 'legal/privacy.html'));
 app.get('/legal/terms.html', (_req, res) => sendTemplatedPage(res, 'legal/terms.html'));
 
+// Batch 77: /sms-policy — the public text-messaging policy page (the
+// URL Ely pastes into the Twilio A2P registration). A legal-family
+// page served through the templated sender so its {{PUBLIC_URL}}
+// contact link resolves at serve time; sms-policy.html is deliberately
+// NOT in marketingDisclaimer.TEMPLATED_PAGE_SCHEMES — legal pages never
+// carry the marketing disclaimer (pinned by
+// tests/batch77-sms-policy-regressions.cjs).
+app.get(['/sms-policy', '/sms-policy/'], (_req, res) => {
+  return sendTemplatedPage(res, 'sms-policy.html');
+});
+app.get('/sms-policy.html', (_req, res) => sendTemplatedPage(res, 'sms-policy.html'));
+
 // Batch 75: website-promo is a marketing page, so it goes through the
-// disclaimer injection like the other marketing senders. The file has
-// no template tokens, so it is read raw (same bytes as the old
-// sendFile) and only the footer disclaimer block is added.
-function sendWebsitePromoPage(res) {
+// disclaimer injection like the other marketing senders.
+// Batch 77: the promo form now carries an SMS-consent line whose policy
+// link is a {{PUBLIC_URL}} token — so the sender substitutes the
+// standard templated tokens (same resolver as every other public page)
+// before injecting the disclaimer. A token failure degrades to the raw
+// file, exactly like sendTemplatedPage's fallback.
+async function sendWebsitePromoPage(res) {
   const raw = readTemplatedPage('website-promo.html');
   if (raw == null) return res.status(404).end();
-  return res.type('html').send(marketingDisclaimer.injectDisclaimer(raw, 'light'));
+  try {
+    const { publicUrl, supportEmail } = await templatedTokens();
+    const html = raw.split('{{PUBLIC_URL}}').join(publicUrl).split('{{SUPPORT_EMAIL}}').join(supportEmail);
+    return res.type('html').send(marketingDisclaimer.injectDisclaimer(html, 'light'));
+  } catch {
+    return res.type('html').send(marketingDisclaimer.injectDisclaimer(raw, 'light'));
+  }
 }
 
 app.get(['/website-promo', '/website-promo/'], (_req, res) => {
