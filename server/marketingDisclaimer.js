@@ -11,7 +11,8 @@
  * Single source: server.js injects disclaimerHtml() into exactly the
  * marketing page set at serve time —
  *   templated: home.html, how.html, how-it-works.html, onboarding.html
- *   dedicated senders: landing.html, thankyou.html, website-promo.html
+ *   dedicated senders: landing.html, thankyou.html, website-promo.html,
+ *   creator.html (Batch 79)
  * The legal pages, /app, /portal and every transactional flow page are
  * deliberately NOT in the set and never receive the block. Neither does
  * /solo (public/solo.html): the playbook's own footer already carries

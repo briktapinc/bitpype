@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BitPype Solo for Creators — your audience, your platform</title>
+  <meta name="description" content="You built the audience. BitPype Solo installs the entire BitPype platform as your own business, so you can sell websites to the followers who already trust you — your instance, your prices, your Stripe." />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="BitPype" />
+  <meta property="og:title" content="BitPype Solo for Creators — your audience, your platform" />
+  <meta property="og:description" content="The entire BitPype platform, installed as your own instance. Sell websites to your own audience: your brand, your prices, your customers." />
+  <meta property="og:url" content="{{PUBLIC_URL}}/creator" />
+  <meta property="og:image" content="{{PUBLIC_URL}}/brand/bitpype-mark.svg" />
+  <meta name="twitter:card" content="summary" />
+  <link rel="icon" href="/brand/bitpype-mark.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;1,9..144,500&family=Figtree:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    /* App design system (same tokens as public/landing.html): warm
+       /how widget theme — cream/paper surfaces, ink text, teal accent,
+       dark ink nav, Figtree body, Fraunces display headlines. */
+    :root {
+      --bg: #f7f1e8;
+      --surface: #fffaf4;
+      --surface-2: #f3eadf;
+      --ink: #1c140f;
+      --muted: #5c5148;
+      --border: #e7dbc4;
+      --border-strong: #d3bf9d;
+      --accent: #0e7a68;
+      --accent-dark: #0a5c4f;
+      --accent-soft: #e5f6f2;
+      --teal: #0e7a68;
+      --coral: #ef5d45;
+      --gold: #f0b429;
+      --plum: #6d4ea3;
+      --sidebar: #1c140f;
+      --sidebar-text: #fffaf4;
+      --sidebar-muted: #b3a08c;
+      --shadow: 0 1px 2px rgba(80, 40, 20, 0.05), 0 8px 18px rgba(80, 40, 20, 0.06);
+      --shadow-lg: 0 24px 60px rgba(28, 20, 15, 0.25), 0 4px 16px rgba(80, 40, 20, 0.08);
+      --radius: 20px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: Figtree, 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+      background:
+        radial-gradient(880px 420px at 100% -8%, rgba(14, 122, 104, 0.12), transparent 58%),
+        radial-gradient(720px 380px at -12% 8%, rgba(109, 78, 163, 0.1), transparent 52%),
+        var(--bg);
+      overflow-x: clip;
+      line-height: 1.5;
+    }
+    a { color: inherit; }
+    img { display: block; max-width: 100%; }
+    :focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+    .skip {
+      position: absolute; left: -999px; top: 8px; background: #fff; color: #000; padding: 8px 12px; z-index: 50;
+    }
+    .skip:focus { left: 12px; }
+
+    .nav {
+      position: sticky; top: 0; z-index: 20;
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 10px 18px;
+      padding: 16px 28px;
+      background: rgba(28, 20, 15, 0.97);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid rgba(255, 250, 244, 0.08);
+    }
+    .logo {
+      display: inline-flex; align-items: center; gap: 10px;
+      text-decoration: none; color: var(--sidebar-text);
+      font-family: Fraunces, Georgia, serif; font-weight: 700; font-size: 1.4rem; letter-spacing: -0.03em;
+      min-width: 0;
+    }
+    .logo img { width: 36px; height: 36px; border-radius: 10px; flex: none; }
+    .nav-links {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;
+      gap: 8px 16px;
+    }
+    .nav-links a { color: var(--sidebar-text); opacity: 0.82; text-decoration: none; font-weight: 700; }
+    .nav-links a:hover { color: var(--sidebar-text); opacity: 1; }
+    .nav-links a[aria-current="page"] { opacity: 1; text-decoration: underline; text-underline-offset: 4px; }
+    .nav-login {
+      background: var(--accent); color: #fff !important; opacity: 1 !important;
+      padding: 8px 14px; border-radius: 999px;
+    }
+    .nav-login:hover { background: var(--accent-dark); color: #fff !important; }
+
+    .wrap { max-width: 1120px; margin: 0 auto; padding-left: 28px; padding-right: 28px; }
+
+    .hero { padding-top: 64px; padding-bottom: 12px; }
+    .kicker {
+      margin: 0 0 18px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-size: 0.78rem;
+      color: #8a3b28;
+    }
+    h1 {
+      margin: 0 0 22px;
+      font-family: Fraunces, Georgia, serif;
+      font-weight: 500;
+      font-size: clamp(2.7rem, 6.2vw, 5.35rem);
+      line-height: 0.96;
+      letter-spacing: -0.045em;
+      overflow-wrap: break-word;
+      max-width: 15ch;
+    }
+    h1 em {
+      font-style: italic;
+      font-weight: 500;
+      color: transparent;
+      background: linear-gradient(100deg, var(--coral), #d4890b 45%, var(--teal));
+      -webkit-background-clip: text;
+      background-clip: text;
+    }
+    .lede { margin: 0 0 28px; max-width: 58ch; color: var(--muted); font-size: 1.18rem; }
+    .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-height: 52px; padding: 0 18px; border-radius: 999px;
+      text-decoration: none; font-weight: 700; max-width: 100%;
+      border: 0; cursor: pointer; font: inherit;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-dark); }
+    .btn-secondary {
+      background: var(--surface); color: var(--ink);
+      border: 1.5px solid var(--border-strong);
+    }
+    .btn-secondary:hover { border-color: var(--accent); color: var(--accent-dark); }
+
+    .section { padding-top: 56px; }
+    .section h2 {
+      margin: 0 0 10px; font-family: Fraunces, Georgia, serif; font-weight: 500;
+      font-size: 2.2rem; letter-spacing: -0.03em; line-height: 1.05;
+    }
+    .section .section-lede { margin: 0 0 22px; color: var(--muted); max-width: 62ch; }
+    .section p.body-copy { margin: 0 0 14px; color: var(--muted); max-width: 62ch; }
+    .section p.body-copy strong { color: var(--ink); }
+
+    .opp-grid {
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px;
+      list-style: none; margin: 0 0 20px; padding: 0;
+    }
+    .opp-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) + 6px);
+      box-shadow: var(--shadow);
+      padding: 30px 30px 32px;
+      min-width: 0;
+    }
+    .opp-card .opp-aud {
+      margin: 0 0 4px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+      font-size: 0.75rem; color: var(--accent-dark);
+    }
+    .opp-card .opp-calc { margin: 0 0 14px; color: var(--muted); font-size: 0.98rem; }
+    .opp-card .opp-big {
+      margin: 0; font-family: Fraunces, Georgia, serif; font-weight: 700;
+      font-size: 2rem; letter-spacing: -0.02em; line-height: 1.1;
+    }
+    .opp-card .opp-sub { margin: 6px 0 0; color: var(--muted); font-size: 0.92rem; }
+    .opp-cover {
+      background: var(--accent-soft);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 26px 30px;
+      margin: 0 0 20px;
+    }
+    .opp-cover p { margin: 0; max-width: 68ch; }
+    .opp-cover p strong { color: var(--accent-dark); }
+    .example-note {
+      border: 1.5px dashed var(--border-strong);
+      border-radius: var(--radius);
+      padding: 22px 28px;
+      background: rgba(255, 250, 244, 0.65);
+    }
+    .example-note p { margin: 0; font-size: 0.98rem; color: var(--ink); max-width: 72ch; }
+    .example-note p strong { letter-spacing: 0.02em; }
+
+    .cards {
+      list-style: none; margin: 0; padding: 0;
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 28px 28px 30px;
+      min-width: 0;
+    }
+    .card h3 {
+      margin: 0 0 8px; font-family: Fraunces, Georgia, serif; font-weight: 700;
+      font-size: 1.28rem; letter-spacing: -0.02em; line-height: 1.15;
+    }
+    .card p { margin: 0; color: var(--muted); }
+
+    .price-band {
+      margin-top: 20px;
+      background:
+        radial-gradient(420px 240px at 92% 110%, rgba(240, 180, 41, 0.4), transparent 62%),
+        linear-gradient(165deg, #1c140f 0%, #12382f 72%);
+      color: var(--sidebar-text);
+      border-radius: calc(var(--radius) + 6px);
+      box-shadow: var(--shadow-lg);
+      padding: 40px 40px 42px;
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 36px; align-items: center;
+    }
+    .price-band h3 {
+      margin: 0 0 8px; font-family: Fraunces, Georgia, serif; font-weight: 500;
+      font-size: 1.9rem; letter-spacing: -0.03em; line-height: 1.05;
+    }
+    .price-band p { margin: 0; color: rgba(255, 250, 244, 0.82); max-width: 52ch; }
+    .price-band .price {
+      font-family: Fraunces, Georgia, serif; font-weight: 700;
+      font-size: clamp(2.4rem, 5vw, 3.6rem); letter-spacing: -0.03em; line-height: 1;
+      white-space: nowrap;
+    }
+    .price-band .price span { font-size: 0.45em; color: #f6d68a; font-weight: 500; }
+
+    .steps {
+      list-style: none; margin: 0; padding: 0;
+      display: grid; gap: 20px;
+    }
+    .step {
+      margin: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) + 6px);
+      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset, var(--shadow);
+      padding: 30px 36px;
+      display: grid; grid-template-columns: 100px minmax(0, 1fr);
+      gap: 10px 32px; align-items: start;
+    }
+    .step-num {
+      font-family: Fraunces, Georgia, serif; font-weight: 700;
+      font-size: 2.3rem; line-height: 1; color: var(--accent-dark);
+    }
+    .step:nth-child(1) .step-num { color: #c83b4a; }
+    .step:nth-child(3) .step-num { color: var(--plum); }
+    .step h3 {
+      margin: 0 0 8px; font-family: Fraunces, Georgia, serif; font-weight: 500;
+      font-size: 1.6rem; letter-spacing: -0.03em; line-height: 1.1;
+    }
+    .step p { margin: 0; color: var(--muted); max-width: 62ch; }
+    .step p strong { color: var(--ink); }
+
+    .faq { padding-top: 56px; padding-bottom: 8px; }
+    .faq h2 {
+      margin: 0 0 18px; font-family: Fraunces, Georgia, serif; font-weight: 500;
+      font-size: 2.2rem; letter-spacing: -0.03em; line-height: 1.05;
+    }
+    .faq details {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow);
+      padding: 22px 28px; margin: 0 0 14px;
+    }
+    .faq summary { font-weight: 700; cursor: pointer; }
+    .faq details p { margin: 10px 0 0; color: var(--muted); max-width: 68ch; }
+
+    .cta-band { padding-top: 48px; }
+    .cta-inner {
+      background:
+        radial-gradient(420px 240px at 92% 110%, rgba(240, 180, 41, 0.4), transparent 62%),
+        linear-gradient(165deg, #1c140f 0%, #12382f 72%);
+      color: var(--sidebar-text);
+      border-radius: calc(var(--radius) + 6px);
+      box-shadow: var(--shadow-lg);
+      padding: 48px 40px;
+    }
+    .cta-inner h2 {
+      margin: 0 0 12px; font-family: Fraunces, Georgia, serif; font-weight: 500;
+      font-size: clamp(2rem, 4.5vw, 3.2rem); letter-spacing: -0.035em; line-height: 1.02;
+    }
+    .cta-inner p { margin: 0 0 26px; color: rgba(255, 250, 244, 0.82); max-width: 52ch; }
+    .interest-form { display: grid; gap: 16px; max-width: 560px; }
+    .interest-form label { display: block; font-weight: 700; margin: 0 0 6px; }
+    .interest-form .optional { font-weight: 400; opacity: 0.75; font-size: 0.9em; }
+    .interest-form input,
+    .interest-form select,
+    .interest-form textarea {
+      width: 100%; min-height: 52px; border-radius: 14px;
+      border: 1.5px solid rgba(255, 250, 244, 0.35);
+      background: rgba(255, 250, 244, 0.96); color: var(--ink);
+      padding: 12px 16px; font: inherit;
+    }
+    .interest-form textarea { min-height: 120px; resize: vertical; }
+    .interest-form input:focus-visible,
+    .interest-form select:focus-visible,
+    .interest-form textarea:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+    #captcha-box { min-height: 78px; }
+    .form-msg { margin: 0; min-height: 1.5em; font-weight: 700; }
+    .sms-consent-note { margin: 0; font-size: 0.8rem; line-height: 1.55; opacity: 0.85; }
+    .sms-consent-note a { color: inherit; text-decoration: underline; }
+    .form-msg.error { color: #ffb4a2; }
+    .form-success {
+      max-width: 560px; border: 1.5px solid rgba(255, 250, 244, 0.35);
+      border-radius: var(--radius); padding: 28px;
+      background: rgba(255, 250, 244, 0.08);
+    }
+    .form-success h3 { margin: 0 0 8px; font-family: Fraunces, Georgia, serif; font-size: 1.5rem; }
+    .form-success p { margin: 0; }
+    .is-hidden { display: none !important; }
+
+    footer { padding-top: 28px; padding-bottom: 40px; color: var(--muted); }
+    .footer-inner {
+      border-top: 1px solid var(--border); padding-top: 20px;
+      display: flex; flex-wrap: wrap; gap: 12px 24px;
+      justify-content: space-between; align-items: flex-start; width: 100%;
+    }
+    footer strong { font-family: Fraunces, Georgia, serif; color: var(--ink); font-size: 1.25rem; }
+    footer p { margin: 4px 0 0; }
+    footer nav { display: flex; flex-wrap: wrap; gap: 10px 16px; }
+    footer a { color: var(--muted); text-decoration: none; font-weight: 700; }
+    footer a:hover { color: var(--accent-dark); }
+
+    @media (max-width: 960px) {
+      .cards, .opp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .price-band { grid-template-columns: minmax(0, 1fr); }
+    }
+    @media (max-width: 860px) {
+      .nav { padding: 14px 16px; }
+      .wrap { padding-left: 16px; padding-right: 16px; }
+      .hero { padding-top: 32px; }
+      .step { grid-template-columns: minmax(0, 1fr); padding: 26px 24px; gap: 8px; }
+      .cards, .opp-grid { grid-template-columns: minmax(0, 1fr); }
+      .cta-inner { padding: 36px 24px; }
+      .price-band { padding: 32px 24px; }
+      .opp-card, .opp-cover, .example-note { padding-left: 22px; padding-right: 22px; }
+      .faq details { padding: 20px 22px; }
+      footer { padding-bottom: 36px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+      html { scroll-behavior: auto; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="nav">
+    <a class="logo" href="/"><img src="/brand/bitpype-mark.svg" alt="" width="36" height="36" /> BitPype</a>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="/landing">For agency owners</a>
+      <a href="/creator" aria-current="page">For creators</a>
+      <a href="/how-it-works">How it works</a>
+      <a href="/website-promo">Get a website</a>
+      <a href="/portal" class="nav-login">Client login</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero wrap">
+      <p class="kicker">BitPype Solo — the creator path</p>
+      <h1>You built the audience. <em>Own the platform.</em></h1>
+      <p class="lede">Your followers are business owners, side-hustlers and people with an idea they have been sitting on — and every one of them needs a website. BitPype Solo installs the entire BitPype platform as <strong>your own business</strong>, so the websites your audience needs carry your brand, your prices and your Stripe account. Not another brand deal. An asset you own.</p>
+      <div class="actions">
+        <a class="btn btn-primary" href="#apply">Apply for Solo</a>
+        <a class="btn btn-secondary" href="#opportunity">See the opportunity</a>
+      </div>
+    </section>
+
+    <section class="section wrap" id="opportunity">
+      <h2>The opportunity, in plain numbers.</h2>
+      <p class="section-lede">A creator's scarcest asset is not content — it is a way to turn trust into a business. Websites are a monthly subscription, and you do not need many followers to become customers before the arithmetic gets interesting. Here is the shape of it, with example numbers:</p>
+
+      <ul class="opp-grid">
+        <li class="opp-card">
+          <p class="opp-aud">25,000 followers</p>
+          <p class="opp-calc">If 1 in 100 becomes a website customer, that is <strong>250 customers</strong>. At an example plan price of $99/month:</p>
+          <p class="opp-big">$24,750<span style="font-size:0.5em;color:var(--muted)"> / month</span></p>
+          <p class="opp-sub">in recurring website revenue, on your own platform.</p>
+        </li>
+        <li class="opp-card">
+          <p class="opp-aud">100,000 followers</p>
+          <p class="opp-calc">The same 1-in-100 conversion is <strong>1,000 customers</strong>. At the same example $99/month plan price:</p>
+          <p class="opp-big">$99,000<span style="font-size:0.5em;color:var(--muted)"> / month</span></p>
+          <p class="opp-sub">in recurring website revenue, on your own platform.</p>
+        </li>
+        <li class="opp-card">
+          <p class="opp-aud">500,000 followers</p>
+          <p class="opp-calc">At half that rate — 1 in 200 — it is <strong>2,500 customers</strong>. At the same example $99/month plan price:</p>
+          <p class="opp-big">$247,500<span style="font-size:0.5em;color:var(--muted)"> / month</span></p>
+          <p class="opp-sub">in recurring website revenue, on your own platform.</p>
+        </li>
+      </ul>
+
+      <div class="opp-cover">
+        <p><strong>Where the license fits:</strong> Solo is $1,999/month. At the example $99/month plan price above, roughly the first 21 customers cover the license (21 × $99 = $2,079). Every customer after that is margin on a business you own — your instance, your prices, your Stripe.</p>
+      </div>
+
+      <div class="example-note">
+        <p><strong>Example math — not an earnings promise.</strong> The scenarios above are illustrations built from an example plan price ($99/month) and example conversion rates (0.5%–1%). Operators set their own prices, charge their own customers, and keep their own revenue. Your results depend on your audience, your niche and your effort. BitPype does not guarantee customers, revenue or income, and no operator results are shown on this page because the creator program is new.</p>
+      </div>
+    </section>
+
+    <section class="section wrap" id="included">
+      <h2>What Solo includes.</h2>
+      <p class="section-lede">One offer: the entire platform, installed as yours, with the training to run it. This is the same BitPype software BitPype itself runs on — leads, AI-designed websites, domains, bookings, call tracking, billing and follow-up in one place.</p>
+      <ul class="cards">
+        <li class="card">
+          <h3>Your own instance</h3>
+          <p>The entire BitPype platform deployed for you with our one-click installer — on your domain, under your brand, configured and live. Your clients, your prices, your business.</p>
+        </li>
+        <li class="card">
+          <h3>The full website platform</h3>
+          <p>Clients get real websites with the full module catalog: bookings, forms, call tracking, follow-up automation, memberships, shop, courses, blog, gallery, testimonials, chatbot and more.</p>
+        </li>
+        <li class="card">
+          <h3>Training, end to end</h3>
+          <p>Tutorials, the full operator playbook, and a live implementation session where we build a client site with you, start to finish — before you announce to anyone.</p>
+        </li>
+        <li class="card">
+          <h3>The keys are yours</h3>
+          <p>Full admin access to your instance. Your Stripe account takes the payments, your customers stay your customers, and your data is yours — we train you and hand it over.</p>
+        </li>
+        <li class="card">
+          <h3>A pipeline that fills itself</h3>
+          <p>Lead scoring, claim pages and follow-up are built in — and your first source of leads is the audience you already have, pointed at an offer under your name.</p>
+        </li>
+        <li class="card">
+          <h3>The back office, handled</h3>
+          <p>Plans and Stripe billing, a finance dashboard, form inboxes and a client portal — the unglamorous machinery of an agency, already built and running.</p>
+        </li>
+      </ul>
+
+      <div class="price-band">
+        <div>
+          <h3>BitPype Solo — one offer, everything included.</h3>
+          <p>Your own installed platform, the training, the playbook and the keys. You set the prices your audience pays; this is simply what the license costs.</p>
+        </div>
+        <p class="price">$1,999<span> / month</span></p>
+      </div>
+    </section>
+
+    <section class="section wrap" id="not-technical">
+      <h2>You do not need to be technical.</h2>
+      <p class="body-copy"><strong>The install is done for you.</strong> We deploy your instance, configure it and brand it — you never touch a server, a database or a line of code.</p>
+      <p class="body-copy"><strong>The training is included.</strong> Tutorials, the playbook and a live implementation session mean you learn the business on a real build, with us next to you — not from a manual.</p>
+      <p class="body-copy"><strong>The platform does the delivery work.</strong> AI designs each client's site; bookings, calls, forms and follow-up run themselves. Your job is the one you are already good at: selling to an audience that trusts you, and looking after them.</p>
+    </section>
+
+    <section class="section wrap" id="how">
+      <h2>How it works.</h2>
+      <p class="section-lede">Five steps between this page and a website business running under your name.</p>
+      <ol class="steps">
+        <li class="step">
+          <span class="step-num">01</span>
+          <div>
+            <h3>Apply below</h3>
+            <p><strong>Tell us about your audience</strong> — where it lives, how big it is, and what the people in it are building. Creator applications are reviewed personally.</p>
+          </div>
+        </li>
+        <li class="step">
+          <span class="step-num">02</span>
+          <div>
+            <h3>We install your instance</h3>
+            <p><strong>Your domain, your brand, your Stripe.</strong> The entire platform goes live as your business — you watch it happen, you hold the admin keys.</p>
+          </div>
+        </li>
+        <li class="step">
+          <span class="step-num">03</span>
+          <div>
+            <h3>Training + playbook</h3>
+            <p><strong>Learn it on a real build.</strong> Tutorials and the operator playbook, plus a live implementation session where your first client site ships with us beside you.</p>
+          </div>
+        </li>
+        <li class="step">
+          <span class="step-num">04</span>
+          <div>
+            <h3>Announce to your audience</h3>
+            <p><strong>Your followers hear it from you first</strong> — the offer, under your name, pointed at your platform. The trust is already there; this gives it somewhere to go.</p>
+          </div>
+        </li>
+        <li class="step">
+          <span class="step-num">05</span>
+          <div>
+            <h3>Sell websites on your platform</h3>
+            <p><strong>Your prices, your customers, recurring every month.</strong> The platform delivers and runs the sites; you run the business.</p>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <section class="faq wrap">
+      <h2>Questions.</h2>
+      <details>
+        <summary>Is Solo a franchise?</summary>
+        <p>No. Solo is a license to run your own instance of the BitPype platform as your own business — your brand, your domain, your prices, your customers, your Stripe account. We install it, train you, and hand over full admin.</p>
+      </details>
+      <details>
+        <summary>Do I need an audience of business owners?</summary>
+        <p>Not only business owners. The audiences that fit best are full of people building something — a trade, a salon, a food truck, a coaching offer, a side business, an idea they keep posting about. If your followers regularly ask how to get started or get more customers, that is the signal.</p>
+      </details>
+      <details>
+        <summary>Do I set my own prices?</summary>
+        <p>Yes. The $99/month in the examples above is only an example. Your instance carries your plans at your prices, and payments settle to your own Stripe account.</p>
+      </details>
+      <details>
+        <summary>What happens when I apply?</summary>
+        <p>Your application lands in our own lead pipeline — the same system this page describes — and we review it personally. If your audience fits, we will walk you through the platform, the deployment and your first 90 days before anything is decided.</p>
+      </details>
+    </section>
+
+    <section class="cta-band wrap" id="apply">
+      <div class="cta-inner">
+        <h2>Apply for Solo.</h2>
+        <p>Tell us about the audience you have built. If it fits, this becomes the business it was always capable of being — running on a platform with your name on it.</p>
+        <form class="interest-form" id="creator-form" novalidate>
+          <div>
+            <label for="cf-name">Full name</label>
+            <input id="cf-name" name="fullName" type="text" autocomplete="name" required maxlength="120" />
+          </div>
+          <div>
+            <label for="cf-email">Email</label>
+            <input id="cf-email" name="email" type="email" autocomplete="email" required maxlength="200" />
+          </div>
+          <div>
+            <label for="cf-platform">Main platform</label>
+            <select id="cf-platform" name="platform" required>
+              <option value="">Choose your main platform…</option>
+              <option value="youtube">YouTube</option>
+              <option value="instagram">Instagram</option>
+              <option value="tiktok">TikTok</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div>
+            <label for="cf-followers">Follower count</label>
+            <select id="cf-followers" name="followerRange" required>
+              <option value="">Choose a range…</option>
+              <option value="under-10k">Under 10,000</option>
+              <option value="10k-50k">10,000 – 50,000</option>
+              <option value="50k-250k">50,000 – 250,000</option>
+              <option value="250k-1m">250,000 – 1 million</option>
+              <option value="over-1m">Over 1 million</option>
+            </select>
+          </div>
+          <div>
+            <label for="cf-niche">Your niche / category</label>
+            <input id="cf-niche" name="niche" type="text" autocomplete="off" required maxlength="160" placeholder="e.g. home fitness coaching, local food, trades" />
+          </div>
+          <div>
+            <label for="cf-audience">Tell us about your audience</label>
+            <textarea id="cf-audience" name="audience" required maxlength="4000" placeholder="What do your followers do? What businesses, trades or ideas do they have? What do they ask you for?"></textarea>
+          </div>
+          <div>
+            <label for="cf-phone">Phone number <span class="optional">(optional)</span></label>
+            <input id="cf-phone" name="phone" type="tel" autocomplete="tel" maxlength="40" />
+          </div>
+          <p class="sms-consent-note">By providing your phone number, you agree to receive text messages about your inquiry or appointment from this business, sent via BitPype. Msg &amp; data rates may apply. Reply STOP to end. See our <a href="{{PUBLIC_URL}}/sms-policy" target="_blank" rel="noopener">SMS Policy</a>.</p>
+          <div id="captcha-box" aria-label="Captcha"></div>
+          <p class="form-msg" id="creator-msg" role="status"></p>
+          <div>
+            <button type="submit" class="btn btn-primary" id="creator-submit">Submit my application</button>
+          </div>
+        </form>
+        <div class="form-success is-hidden" id="creator-success">
+          <h3>Application received.</h3>
+          <p>Thanks — we review creator applications personally and will be in touch. Keep an eye on your inbox.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="wrap">
+    <div class="footer-inner">
+      <div>
+        <strong>BitPype</strong>
+        <p>The website, handled with you.</p>
+      </div>
+      <nav aria-label="Footer">
+        <a href="/landing">For agency owners</a>
+        <a href="/creator">For creators</a>
+        <a href="/how-it-works">How it works</a>
+        <a href="/portal">Client portal</a>
+        <a href="/app">Team login</a>
+        <a href="/legal/privacy.html">Privacy</a>
+        <a href="/legal/terms.html">Terms</a>
+        <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a>
+      </nav>
+    </div>
+  </footer>
+
+  <script src="/js/captcha.js"></script>
+  <script>
+    (function () {
+      const form = document.getElementById('creator-form');
+      const msg = document.getElementById('creator-msg');
+      const success = document.getElementById('creator-success');
+      const btn = document.getElementById('creator-submit');
+      let captcha = { enabled: false, getToken: async () => '', reset: () => {} };
+      (async () => {
+        try {
+          captcha = await window.ScoutCaptcha.mount(document.getElementById('captcha-box'));
+        } catch (e) {
+          console.warn('captcha mount failed', e);
+        }
+      })();
+      function setMsg(text, isError) {
+        msg.textContent = text || '';
+        msg.className = 'form-msg' + (isError ? ' error' : '');
+      }
+      form.addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        const fullName = document.getElementById('cf-name').value.trim();
+        const email = document.getElementById('cf-email').value.trim();
+        const platform = document.getElementById('cf-platform').value;
+        const followerRange = document.getElementById('cf-followers').value;
+        const niche = document.getElementById('cf-niche').value.trim();
+        const audience = document.getElementById('cf-audience').value.trim();
+        const phone = document.getElementById('cf-phone').value.trim();
+        if (!fullName) return setMsg('Please enter your full name.', true);
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setMsg('Please enter a valid email address.', true);
+        if (!platform) return setMsg('Please choose your main platform.', true);
+        if (!followerRange) return setMsg('Please choose your follower range.', true);
+        if (!niche) return setMsg('Please tell us your niche or category.', true);
+        if (!audience) return setMsg('Please tell us about your audience.', true);
+        btn.disabled = true;
+        setMsg('Sending…', false);
+        try {
+          const captchaToken = await captcha.getToken();
+          const res = await fetch('/api/v1/creator/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fullName, email, platform, followerRange, niche, audience, phone, captchaToken }),
+          });
+          const data = await res.json().catch(() => null);
+          if (!res.ok || !data || !data.ok) {
+            throw new Error((data && data.error) || 'Something went wrong — please try again.');
+          }
+          form.classList.add('is-hidden');
+          success.classList.remove('is-hidden');
+          success.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } catch (e) {
+          setMsg(e && e.message ? e.message : 'Something went wrong — please try again.', true);
+          if (captcha.reset) captcha.reset();
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
