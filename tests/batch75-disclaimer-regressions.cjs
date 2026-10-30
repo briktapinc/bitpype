@@ -139,7 +139,10 @@ function partA() {
   check('A: hosted solo file — placeholder-free, CTAs carry the solo-demo marker, disclaimer already inside', () => {
     const solo = fs.readFileSync(path.join(root, 'public/solo.html'), 'utf8');
     assert.equal(count(solo, 'PASTE-DEMO-LINK-HERE'), 0, 'no dead placeholder ships');
-    assert.equal(count(solo, 'href="/landing?ref=solo-demo"'), 6, 'all six demo CTAs point at /landing?ref=solo-demo');
+    assert.equal(count(solo, 'href="/landing?ref=solo-demo"'), 7, 'all seven demo CTAs point at /landing?ref=solo-demo');
+    assert.ok(solo.includes('id="license"'), 'Solo License offer section present');
+    assert.ok(solo.includes('The Solo License'), 'license headline present');
+    assert.ok(solo.includes('$1,999'), 'license price present');
     assert.equal(count(solo, 'href="/landing"'), 0, 'no unmarked CTA remains');
     for (const pin of PINS) assert.equal(count(solo, pin), 1, `solo pin once: ${pin}`);
     assert.equal(count(solo, 'bp-earnings-disclaimer'), 0, 'solo carries the text in its own footer, not the injected block');
@@ -222,7 +225,9 @@ async function partBC() {
         assert.equal(r.text, hosted, `${p} serves the hosted file verbatim`);
         assert.ok(r.text.includes('<h1>Run a <em>solo agency</em> on BitPype</h1>'), 'playbook headline');
         assert.equal(count(r.text, 'PASTE-DEMO-LINK-HERE'), 0, 'no placeholder');
-        assert.equal(count(r.text, 'href="/landing?ref=solo-demo"'), 6, 'six demo CTAs carry the solo-demo marker');
+        assert.equal(count(r.text, 'href="/landing?ref=solo-demo"'), 7, 'seven demo CTAs carry the solo-demo marker');
+        assert.ok(r.text.includes('The Solo License'), 'license section served');
+        assert.ok(r.text.includes('$1,999'), 'license price served');
         for (const pin of PINS) assert.equal(count(r.text, pin), 1, `solo pin exactly once: ${pin}`);
         assert.equal(count(r.text, 'bp-earnings-disclaimer'), 0, 'no injected second copy');
       }
