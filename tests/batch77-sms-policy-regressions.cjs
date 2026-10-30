@@ -206,16 +206,24 @@ async function seed() {
 
   const siteModules = require(path.join(root, 'server', 'siteModules.js'));
   siteModules.ensureTables(wdb);
-  fixture.bookingsToken = siteModules.ensureEmbed(wdb, 1, 'bookings', { workspaceId: 1 }).public_token;
+  // ensureEmbed creates an UNPUBLISHED embed; the public payload
+  // lookup requires published = 1, which attachModule sets (the same
+  // call the portal attach flow uses).
+  const publishedToken = (type) => {
+    siteModules.ensureEmbed(wdb, 1, type, { workspaceId: 1 });
+    siteModules.attachModule(wdb, 1, type, { workspaceId: 1 });
+    return siteModules.getEmbedRow(wdb, 1, type).public_token;
+  };
+  fixture.bookingsToken = publishedToken('bookings');
   siteModules.createBookingService(wdb, 1, {
     name: 'Fixture Service',
     duration_minutes: 30,
     price_cents: 0,
     status: 'published',
   });
-  fixture.estimateToken = siteModules.ensureEmbed(wdb, 1, 'estimate', { workspaceId: 1 }).public_token;
-  fixture.membersToken = siteModules.ensureEmbed(wdb, 1, 'members', { workspaceId: 1 }).public_token;
-  fixture.chatToken = siteModules.ensureEmbed(wdb, 1, 'chatbot', { workspaceId: 1 }).public_token;
+  fixture.estimateToken = publishedToken('estimate');
+  fixture.membersToken = publishedToken('members');
+  fixture.chatToken = publishedToken('chatbot');
   assert.ok(fixture.formPhoneToken && fixture.formNoPhoneToken, 'form tokens minted');
   assert.ok(fixture.bookingsToken && fixture.estimateToken && fixture.membersToken && fixture.chatToken, 'module tokens minted');
 }
@@ -275,7 +283,7 @@ async function partB(getText, getJson, postJson) {
       ['estimate', fixture.estimateToken],
     ]) {
       const r = await getJson(`/api/v1/modules/public/${token}`);
-      assert.equal(r.status, 200, `${label} payload 200`);
+      assert.equal(r.status, 200, `${label} payload 200 (body: ${JSON.stringify(r.json).slice(0, 200)})`);
       assert.ok(r.json.data.sms_policy, `${label} carries sms_policy`);
       assert.equal(r.json.data.sms_policy.url, POLICY_URL);
     }
@@ -321,22 +329,26 @@ async function partC() {
     const fixtureHtml = `<!doctype html><meta charset="utf-8"><title>Fixture site</title><body>
       <div class="bitpype-form-embed" data-bitpype-managed="1" data-bitpype-form-embed="${fixture.formPhoneToken}" data-bitpype-api="${BASE}"></div>
       <div class="bitpype-form-embed" data-bitpype-managed="1" data-bitpype-form-embed="${fixture.formNoPhoneToken}" data-bitpype-api="${BASE}"></div>
-      <div class="bitpype-module-embed" data-bitpype-module="1" data-bitpype-module-type="bookings" data-bitpype-module-token=<redacted> data-bitpype-api="${BASE}"></div>
-      <div class="bitpype-module-embed" data-bitpype-module="1" data-bitpype-module-type="estimate" data-bitpype-module-token=<redacted> data-bitpype-api="${BASE}"></div>
-      <div class="bitpype-chat-embed" data-bitpype-chat-token=<redacted></div>
+      <div class="bitpype-module-embed" data-bitpype-module="1" data-bitpype-module-type="bookings" data-bitpype-module-token="${fixture.bookingsToken}" data-bitpype-api="${BASE}"></div>
+      <div class="bitpype-module-embed" data-bitpype-module="1" data-bitpype-module-type="estimate" data-bitpype-module-token="${fixture.estimateToken}" data-bitpype-api="${BASE}"></div>
+      <div class="bitpype-chat-embed" data-bitpype-chat-token="${fixture.chatToken}"></div>
       <script src="${BASE}/js/form-embed.js" defer></script>
       <script src="${BASE}/js/module-embed.js" defer></script>
       <script src="${BASE}/js/chat-embed.js" defer></script>
     </body>`;
+    // The fixture page is served from the server's OWN origin (via
+    // interception): Chromium's Private Network Access policy blocks
+    // a public-origin page from loading scripts off loopback, which
+    // would starve the embeds before they run.
     await page.setRequestInterception(true);
     page.on('request', (r) => {
-      if (r.url().startsWith('http://fixture.example/')) {
+      if (r.url() === `${BASE}/bp77-fixture`) {
         return r.respond({ status: 200, contentType: 'text/html', body: fixtureHtml });
       }
       if (r.url().startsWith(BASE)) return r.continue();
       return r.abort();
     });
-    await page.goto('http://fixture.example/', { waitUntil: 'domcontentloaded' });
+    await page.goto(`${BASE}/bp77-fixture`, { waitUntil: 'domcontentloaded' });
 
     await checkAsync('C: phone contact form renders the consent note with the absolute policy link', async () => {
       const sel = `.bitpype-form-embed[data-bitpype-form-embed="${fixture.formPhoneToken}"] .bp-sms-policy-note`;
@@ -356,14 +368,14 @@ async function partC() {
     });
 
     await checkAsync('C: booking form renders the consent note', async () => {
-      const sel = `.bitpype-module-embed[data-bitpype-module-token=<redacted> .bp-sms-policy-note`;
+      const sel = `.bitpype-module-embed[data-bitpype-module-token="${fixture.bookingsToken}"] .bp-sms-policy-note`;
       await page.waitForSelector(sel, { timeout: 20000 });
       const href = await page.$eval(sel, (el) => el.querySelector('a') && el.querySelector('a').href);
       assert.equal(href, POLICY_URL);
     });
 
     await checkAsync('C: estimate form renders the consent note', async () => {
-      const sel = `.bitpype-module-embed[data-bitpype-module-token=<redacted> .bp-sms-policy-note`;
+      const sel = `.bitpype-module-embed[data-bitpype-module-token="${fixture.estimateToken}"] .bp-sms-policy-note`;
       await page.waitForSelector(sel, { timeout: 20000 });
       const href = await page.$eval(sel, (el) => el.querySelector('a') && el.querySelector('a').href);
       assert.equal(href, POLICY_URL);
