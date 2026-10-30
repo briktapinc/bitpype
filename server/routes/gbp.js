@@ -205,7 +205,7 @@ router.get('/leads/:leadId/oauth/start', async (req, res) => {
         workspaceId: req.auth.workspaceId,
         leadId: id,
         actor: `staff:${req.auth.userId}`,
-        returnTo: `/app#/leads?id=${id}&gbp=connected`,
+        returnTo: `/app#/leads/${id}?gbp=connected`,
         cfg,
         appUrl: requestAppUrl(req),
       })

@@ -393,7 +393,6 @@ a {
 .toolbar,
 .bulk-bar,
 .modal-actions,
-.drawer-actions,
 .inline {
   display: flex;
   flex-wrap: wrap;
@@ -1380,7 +1379,7 @@ details[open] > summary {
   width: 100%;
 }
 
-/* ---------- Modal / drawer / toast ---------- */
+/* ---------- Modal / toast ---------- */
 @keyframes rise-in {
   from {
     opacity: 0;
@@ -1425,58 +1424,29 @@ details[open] > summary {
   justify-content: flex-end;
   margin-top: 16px;
 }
-.drawer {
-  position: fixed;
-  inset: 0;
-  z-index: 90;
-  background: rgba(18, 14, 12, 0.48);
-  backdrop-filter: blur(3px);
-  display: flex;
-  justify-content: flex-end;
-}
-.drawer-card {
-  width: min(600px, 100%);
-  height: 100%;
+/* Batch 78 — the slide-over drawer is gone; the lead detail is a full
+   page (#/leads/<id>) whose sections render as roomy cards. */
+.lead-page section {
   background: var(--surface);
-  border-radius: 26px 0 0 26px;
-  box-shadow: -16px 0 40px rgba(28, 20, 15, 0.22);
-  display: flex;
-  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 22px 24px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.7) inset,
+    var(--shadow);
+  margin: 0 0 18px;
 }
-.drawer-header,
-.drawer-actions {
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--border);
-}
-.drawer-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.drawer-header h2 {
-  margin: 0;
-  font-family: Fraunces, Georgia, serif;
-  font-size: 20px;
-}
-.drawer-actions {
-  border-bottom: 0;
-  border-top: 1px solid var(--border);
-}
-.drawer-body {
-  padding: 8px 18px 24px;
-  overflow: auto;
-  flex: 1;
-}
-.drawer-body section {
-  margin: 16px 0 22px;
-}
-.drawer-body h3 {
-  margin: 0 0 8px;
+.lead-page section > h3 {
+  margin: 0 0 10px;
   font-size: 12.5px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--coral);
+}
+@media (max-width: 700px) {
+  .lead-page section {
+    padding: 18px 16px;
+  }
 }
 .icon-btn {
   width: 32px;

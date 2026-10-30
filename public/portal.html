@@ -1795,10 +1795,10 @@
       padding: 8px 10px;
       border-radius: 10px;
     }
-    .modal.modules-item-modal {
-      width: min(540px, 100%);
-      max-height: min(90vh, 760px);
-      overflow-y: auto;
+    /* Batch 78: the item editor is a page now — keep the form column
+       at the readable width the modal used to give it. */
+    #sec-module-item {
+      max-width: 760px;
     }
     .mod-image-row {
       display: grid;
@@ -2471,19 +2471,20 @@
         </div>
       </div>
 
-      <div class="modal-backdrop" id="modules-item-modal" hidden>
-        <div class="modal modules-item-modal" role="dialog" aria-modal="true" aria-labelledby="modules-modal-title">
-          <h2 id="modules-modal-title">New item</h2>
-          <p class="lede" id="modules-modal-lede"></p>
-          <div id="modules-fields"></div>
-          <p class="msg" id="msg-modules-modal"></p>
-          <div class="modal-actions">
-            <button type="button" class="btn ghost" id="btn-modules-cancel">Cancel</button>
-            <button type="button" class="btn ghost" id="btn-modules-delete" style="color:#9b2c2c">Delete</button>
-            <button type="button" class="btn" id="btn-modules-save">Save</button>
-          </div>
+      <!-- Batch 78: the module item editor is a routed page
+           (#/module-item), not a modal popup. Same ids, same wiring. -->
+      <section class="block portal-panel" id="sec-module-item" data-panel="module-item" aria-label="Module item editor" hidden>
+        <p style="margin:0 0 12px"><button type="button" class="btn ghost small" id="btn-module-item-back">← Back to modules</button></p>
+        <h2 id="modules-modal-title">New item</h2>
+        <p class="lede" id="modules-modal-lede"></p>
+        <div id="modules-fields"></div>
+        <p class="msg" id="msg-modules-modal"></p>
+        <div class="modal-actions">
+          <button type="button" class="btn ghost" id="btn-modules-cancel">Cancel</button>
+          <button type="button" class="btn ghost" id="btn-modules-delete" style="color:#9b2c2c">Delete</button>
+          <button type="button" class="btn" id="btn-modules-save">Save</button>
         </div>
-      </div>
+      </section>
 
       <section class="block portal-panel" id="sec-social" role="tabpanel" aria-labelledby="nav-social" data-panel="social" hidden>
         <h2>Social calendar</h2>

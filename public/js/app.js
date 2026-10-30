@@ -444,35 +444,9 @@ function openModal({ title, body, wide, buttons }) {
   return m;
 }
 
-function openDrawer({ title, html, actionsHtml }) {
-  const el = document.createElement('div');
-  el.className = 'drawer';
-  el.innerHTML = `<div class="drawer-card" role="dialog" aria-modal="true">
-    <div class="drawer-header"><h2>${esc(title)}</h2><button type="button" class="icon-btn" data-close aria-label="Close">&times;</button></div>
-    <div class="drawer-body">${html || ''}</div>
-    ${actionsHtml ? `<div class="drawer-actions">${actionsHtml}</div>` : ''}</div>`;
-  const onKey = (e) => {
-    if (e.key === 'Escape') d.close();
-  };
-  const d = {
-    el,
-    body: $('.drawer-body', el),
-    title: $('.drawer-header h2', el),
-    close() {
-      el.remove();
-      document.removeEventListener('keydown', onKey);
-      overlays.delete(d);
-    },
-  };
-  overlays.add(d);
-  el.addEventListener('mousedown', (e) => {
-    if (e.target === el) d.close();
-  });
-  $('[data-close]', el).onclick = () => d.close();
-  document.addEventListener('keydown', onKey);
-  document.body.appendChild(el);
-  return d;
-}
+/* Batch 78: the slide-over drawer (openDrawer) is GONE — lead detail,
+   form submissions and LeadScout contacts are full routed pages now
+   (#/leads/<id>, #/forms/<id>, #/leadscout/<id>). */
 
 /** Single-lead typeahead picker. Returns { get(), set(lead), clear() }. */
 function mountLeadPicker(host, opts) {
@@ -1543,6 +1517,8 @@ const leadsState = {
 };
 
 async function pageLeads(param, query) {
+  // Batch 78: #/leads/<id> is the full lead page (was a slide-over drawer).
+  if (param) return pageLeadDetail(Number(param), query);
   if (query && query.status !== undefined) {
     leadsState.status = query.status;
     leadsState.page = 1;
@@ -1741,7 +1717,9 @@ async function pageLeads(param, query) {
   }
 
   delegate(view, {
-    open: (t) => openLeadDrawer(Number(t.dataset.id)),
+    open: (t) => {
+      window.location.hash = '#/leads/' + t.dataset.id;
+    },
     'l-retry': () => {
       const b = $('#l-body');
       if (b) b.innerHTML = loadRowHtml(9, 'Loading leads…');
@@ -1782,7 +1760,9 @@ async function pageLeads(param, query) {
   });
 
   await Promise.all([load(), loadFacets()]);
-  if (query && query.id) openLeadDrawer(Number(query.id));
+  // Legacy deep links (the old id-query lead links — old bookmarks and
+  // OAuth returns) land on the lead page now (Batch 78).
+  if (query && query.id) window.location.hash = '#/leads/' + Number(query.id);
 }
 
 async function openDiscoverModal() {
@@ -1986,7 +1966,7 @@ function openQueuedSmsModal(q) {
   });
 }
 
-/** Compose + queue a one-off SMS for a specific lead (drawer action). */
+/** Compose + queue a one-off SMS for a specific lead (lead page action). */
 async function openQueueSmsModal(leadId) {
   let lead = {};
   try {
@@ -2036,7 +2016,7 @@ async function openQueueSmsModal(leadId) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Onboarding checklist (Batch 74) — lead drawer section.            */
+/* Onboarding checklist (Batch 74) — lead page section.              */
 /* The 12-item onboarding run sheet as plain ticks: every item is     */
 /* optional, nothing gates on it. "Run checklist" asks the server     */
 /* what the data can prove (pass / not yet / needs your eyes);         */
@@ -2149,7 +2129,7 @@ async function loadLeadOnboarding(dr, leadId) {
   }
 }
 
-/* Google Profile (Batch 46, Phase 1) — lead drawer section.          */
+/* Google Profile (Batch 46, Phase 1) — lead page section.            */
 /* Prefill + draft change sets work today; pushing is held at "ready" */
 /* until Google approves the Business Profile API application.        */
 /* ------------------------------------------------------------------ */
@@ -2448,7 +2428,7 @@ async function loadLeadGbp(dr, leadId) {
   }
 }
 
-// Batch 59: one-click Hostinger deployment panel in the lead drawer
+// Batch 59: one-click Hostinger deployment panel on the lead page
 // (software-interest leads only — the section itself is only rendered
 // for those). States: dormant (Hostinger unconfigured) → deploy
 // button → typed-DEPLOY confirmation against the LIVE catalog price →
@@ -2602,8 +2582,26 @@ async function loadLeadHostinger(dr, leadId) {
   refresh();
 }
 
-async function openLeadDrawer(id) {
-  const dr = openDrawer({ title: 'Lead #' + id, html: '<p class="hint">Loading…</p>' });
+/* Batch 78 — the lead detail is a full routed page (#/leads/<id>), not
+   a slide-over drawer. `dr` is the page handle ({ el, body, title,
+   close }) the section loaders (Onboarding / Google Profile /
+   Hostinger) were written against; it now points at the page DOM and
+   close() navigates back to the leads list. */
+async function pageLeadDetail(id, query) {
+  view.innerHTML = `
+    <div class="page-head">
+      <div><h1 id="ld-title">Lead #${esc(id)}</h1><p class="lede">Details, score &amp; intent, website, onboarding checklist, Google Profile, facts and timeline — everything about this lead on one page.</p></div>
+      <div class="page-actions"><button class="btn" data-act="back">← Back to leads</button></div>
+    </div>
+    <div class="lead-page" id="ld-body"><p class="hint">Loading…</p></div>`;
+  const dr = {
+    el: view,
+    body: $('#ld-body', view),
+    title: $('#ld-title', view),
+    close() {
+      window.location.hash = '#/leads';
+    },
+  };
 
   async function reload() {
     const [leadR, tlR, psR, intR, siteR] = await Promise.allSettled([
@@ -2779,6 +2777,9 @@ async function openLeadDrawer(id) {
   }
 
   delegate(dr.el, {
+    back: () => {
+      window.location.hash = '#/leads';
+    },
     rent: () => {
       rentalsPreselect = { tenantLeadId: id };
       window.location.hash = '#/rentals';
@@ -3194,7 +3195,7 @@ async function pageWebsiteDetail(id) {
         <a href="#/websites" class="btn small">&larr; All websites</a>
         <h1 style="margin-top:10px">${esc(site.name || 'Website #' + id)}</h1>
         <p class="lede">${statusBadge(site.status)} <span class="badge">${esc(site.origin || 'template')}</span>
-          · Lead <a href="#/leads?id=${esc(site.lead_id)}">#${esc(site.lead_id)}</a> · updated ${esc(fmtDate(site.updated_at))}</p>
+          · Lead <a href="#/leads/${esc(site.lead_id)}">#${esc(site.lead_id)}</a> · updated ${esc(fmtDate(site.updated_at))}</p>
       </div>
       <div class="page-actions">
         <button class="btn" data-act="qa">Run QA</button>
@@ -4642,7 +4643,7 @@ async function pageDesignDetail(id) {
         <p class="lede">${statusBadge(job.status)} <span class="badge">${esc(job.type)}</span>
           ${job.website_shape || job.site_shape ? `<span class="badge">${esc(job.website_shape || job.site_shape)}</span>` : ''}${job.website_pages ? `<span class="badge">${esc(job.website_pages)} pages</span>` : ''}
           ${job.request_kind ? `<span class="badge warn">${esc(job.request_kind)}</span>` : ''}
-          ${job.lead_id ? ` · Lead <a href="#/leads?id=${esc(job.lead_id)}">#${esc(job.lead_id)}</a>` : ''}
+          ${job.lead_id ? ` · Lead <a href="#/leads/${esc(job.lead_id)}">#${esc(job.lead_id)}</a>` : ''}
           · updated ${esc(fmtDate(job.updated_at))}</p>
       </div>
       <div class="page-actions"><button class="btn danger" data-act="delete">Delete job</button></div>
@@ -5879,7 +5880,7 @@ async function pagePipeline() {
   delegate(view, {
     refresh: () => pagePipeline(),
     open: (t) => {
-      window.location.hash = '#/leads?id=' + t.dataset.id;
+      window.location.hash = '#/leads/' + t.dataset.id;
     },
     intent: (t) => openIntentModal(Number(t.dataset.id), () => pagePipeline()),
   });
@@ -8081,7 +8082,7 @@ function hostingerPanelHtml(state) {
     `<div class="kv"><span class="k">API token</span><span>${state.tokenSet ? 'Saved' : 'Not set — create one in hPanel → Profile → API, paste it below and Save'}</span></div>`,
     `<div class="kv"><span class="k">One-click deploys</span><span>${
       state.configured
-        ? 'Armed — software-interest leads get a working “Deploy on Hostinger” button in their lead drawer'
+        ? 'Armed — software-interest leads get a working “Deploy on Hostinger” button on their lead page'
         : 'Dormant — still missing: ' + esc((state.missing || []).join(', '))
     }</span></div>`,
     `<div class="kv"><span class="k">Default VPS plan</span><span class="mono">${esc(state.defaultPriceId || '—')}</span></div>`,
@@ -8496,7 +8497,7 @@ async function renderAdminGbp(el) {
     <div class="panel">
       <div class="panel-h"><h3>Google Business Profile manager</h3></div>
       <div class="panel-b">
-        <p class="hint">Per-lead Google profile management (panel lives on each lead's drawer and in the client portal).
+        <p class="hint">Per-lead Google profile management (panel lives on each lead's page and in the client portal).
         The Business Profile API stays at quota 0 until Google approves the application — profile verified 60+ days,
         then the access form with the Cloud project number below (owner checklist: <span class="mono">gbp-google-clock-checklist-2026-10-28.md</span>).
         While approval is <strong>pending</strong>, change sets validate and wait at "ready"; nothing is sent to Google.</p>
@@ -8516,7 +8517,7 @@ async function renderAdminGbp(el) {
                <tbody>${rows
                  .map(
                    (r) => `<tr>
-                     <td><a href="#/leads?id=${esc(r.lead_id)}">${esc(r.business_name || 'Lead #' + r.lead_id)}</a></td>
+                     <td><a href="#/leads/${esc(r.lead_id)}">${esc(r.business_name || 'Lead #' + r.lead_id)}</a></td>
                      <td>${esc([r.city, r.state].filter(Boolean).join(', '))}</td>
                      <td>${statusBadge(r.connection_status)}</td>
                      <td class="mono">${esc(r.place_id || '—')}</td>
@@ -9211,7 +9212,9 @@ function payloadTableHtml(payload) {
     .join('')}</tbody></table></div>`;
 }
 
-async function pageForms() {
+async function pageForms(param) {
+  // Batch 78: #/forms/<id> is the submissions page (was a slide-over drawer).
+  if (param) return pageFormSubmissions(Number(param));
   let res;
   try {
     res = await withLoadTimeout(api.adminForms());
@@ -9241,7 +9244,12 @@ async function pageForms() {
     }</td></tr>`;
   const renderForms = (list, filtered) => {
     view.querySelector('#fm-body').innerHTML = formRows(list, filtered);
-    view.querySelectorAll('[data-act="subs"]').forEach((b) => (b.onclick = () => openFormSubmissions(Number(b.dataset.id))));
+    view.querySelectorAll('[data-act="subs"]').forEach(
+      (b) =>
+        (b.onclick = () => {
+          window.location.hash = '#/forms/' + b.dataset.id;
+        })
+    );
   };
   view.innerHTML = `
     <div class="page-head"><div><h1>Forms</h1><p class="lede">Every BitPype form across your sites, with submission counts. Open a form to read its submissions.</p></div>
@@ -9274,8 +9282,19 @@ async function pageForms() {
   }
 }
 
-async function openFormSubmissions(formId) {
-  const d = openDrawer({ title: 'Submissions', html: '<p class="hint">Loading…</p>' });
+/* Batch 78 — form submissions are a full routed page (#/forms/<id>),
+   not a slide-over drawer. `d` is the page handle ({ body, title }). */
+async function pageFormSubmissions(formId) {
+  view.innerHTML = `
+    <div class="page-head"><div><h1 id="fs-title">Submissions</h1><p class="lede">Submissions for this form, newest first — 50 at a time, delete spam or test entries right here.</p></div>
+    <div class="page-actions"><button class="btn" id="fs-back">← Back to forms</button></div></div>
+    <div id="fs-body"><p class="hint">Loading…</p></div>`;
+  const fsBack = $('#fs-back', view);
+  if (fsBack)
+    fsBack.onclick = () => {
+      window.location.hash = '#/forms';
+    };
+  const d = { body: $('#fs-body', view), title: $('#fs-title', view) };
   // Batch 45: submissions can be deleted (spam/test) one by one or in
   // bulk, and the list pages with the engine's offset (50 at a time).
   const shown = [];
@@ -9340,7 +9359,7 @@ async function openFormSubmissions(formId) {
         try {
           const r = await api.adminDeleteFormSubmissionsBulk(formId, shown.slice());
           toast(`Deleted ${(r.data && r.data.deletedCount) || 0} submission(s)`, 'ok');
-          openFormSubmissions(formId);
+          pageFormSubmissions(formId);
         } catch (e) {
           toast(errText(e), 'err');
         }
@@ -9353,7 +9372,9 @@ async function openFormSubmissions(formId) {
 
 const leadScoutState = { q: '', biz: '' };
 
-async function pageLeadScout() {
+async function pageLeadScout(param) {
+  // Batch 78: #/leadscout/<id> is the contact page (was a slide-over drawer).
+  if (param) return pageLeadScoutContact(Number(param));
   let res;
   try {
     res = await withLoadTimeout(api.adminLeadScoutContacts({ q: leadScoutState.q, limit: 100 }));
@@ -9401,7 +9422,12 @@ async function pageLeadScout() {
     }</td></tr>`;
   const renderContacts = () => {
     view.querySelector('#ls-body').innerHTML = contactRows(visibleContacts());
-    view.querySelectorAll('[data-act="view"]').forEach((b) => (b.onclick = () => openLeadScoutContact(Number(b.dataset.id))));
+    view.querySelectorAll('[data-act="view"]').forEach(
+      (b) =>
+        (b.onclick = () => {
+          window.location.hash = '#/leadscout/' + b.dataset.id;
+        })
+    );
     view.querySelectorAll('[data-act="del-contact"]').forEach((b) => (b.onclick = () => deleteLeadScoutContact(Number(b.dataset.id))));
     const more = view.querySelector('#ls-more');
     if (more) more.style.display = contacts.length && contacts.length % 100 === 0 ? '' : 'none';
@@ -9497,8 +9523,20 @@ async function pageLeadScout() {
   }
 }
 
-async function openLeadScoutContact(id) {
-  const d = openDrawer({ title: 'Contact', html: '<p class="hint">Loading…</p>' });
+/* Batch 78 — the LeadScout contact detail is a full routed page
+   (#/leadscout/<id>), not a slide-over drawer. `d` is the page
+   handle ({ body, title }). */
+async function pageLeadScoutContact(id) {
+  view.innerHTML = `
+    <div class="page-head"><div><h1 id="lc-title">Contact</h1><p class="lede">LeadScout contact detail and full event history.</p></div>
+    <div class="page-actions"><button class="btn" id="lc-back">← Back to LeadScout</button></div></div>
+    <div id="lc-body"><p class="hint">Loading…</p></div>`;
+  const lcBack = $('#lc-back', view);
+  if (lcBack)
+    lcBack.onclick = () => {
+      window.location.hash = '#/leadscout';
+    };
+  const d = { body: $('#lc-body', view), title: $('#lc-title', view) };
   try {
     const res = await withLoadTimeout(api.adminLeadScoutContact(id));
     const data = res.data || {};
@@ -10479,7 +10517,7 @@ async function pageMemberships() {
   }
 }
 
-/* Site Rentals (Batch 26) — set from the lead drawer ("Rent a site")
+/* Site Rentals (Batch 26) — set from the lead page ("Rent a site")
    or the website detail page ("Rent to lead") to prefill the create
    form; consumed (and cleared) by pageRentals. */
 let rentalsPreselect = null;

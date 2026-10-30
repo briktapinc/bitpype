@@ -146,6 +146,11 @@
     'billing',
     'gbp',
   ];
+  // Batch 78: routed sub-pages that live under a nav tab (converted
+  // from modal popups — pages, not popups). Not nav tabs themselves:
+  // visibility follows the parent tab's Batch 29 user-type rules.
+  const PORTAL_SUBPANELS = ['module-item'];
+  const PORTAL_SUBPANEL_PARENT = { 'module-item': 'modules' };
   // Batch 29: the /me payload carries the tabs this user may open
   // (user type defaults + admin overrides, computed server-side in
   // portalTabs.js). null = no restriction info (show everything).
@@ -210,6 +215,7 @@
     if (!key) return null;
     if (PANEL_ALIASES[key]) return PANEL_ALIASES[key];
     if (PORTAL_PANELS.includes(key)) return key;
+    if (PORTAL_SUBPANELS.includes(key)) return key;
     return null;
   }
 
@@ -268,11 +274,20 @@
       showPortalLogin();
       return null;
     }
-    let next = PORTAL_PANELS.includes(panel) ? panel : 'website';
+    let next =
+      PORTAL_PANELS.includes(panel) || PORTAL_SUBPANELS.includes(panel) ? panel : 'website';
     // Batch 29: a deep link / hash naming a tab this user cannot open
-    // lands on their first visible tab instead.
-    if (!portalTabVisible(next)) {
+    // lands on their first visible tab instead. Batch 78: sub-pages
+    // inherit their parent tab's visibility, exactly as the popup did.
+    const nextParent = PORTAL_SUBPANEL_PARENT[next] || next;
+    if (!portalTabVisible(nextParent)) {
       next = PORTAL_PANELS.find((p) => portalTabVisible(p)) || 'website';
+    }
+    // Batch 78: a bare #/module-item landing (refresh, back/forward)
+    // with no editor prepared goes to Modules instead of an empty page.
+    if (next === 'module-item') {
+      const fieldsEl = document.getElementById('modules-fields');
+      if (!fieldsEl || !fieldsEl.children.length) next = 'modules';
     }
     // Batch 40: switching tabs always closes the Security section.
     const secSecurityEl = document.getElementById('sec-security');
@@ -292,6 +307,24 @@
         tab.tabIndex = active ? 0 : -1;
       }
     });
+
+    // Batch 78: sub-page sections toggle with the panels; the parent
+    // tab shows as the active nav item while a sub-page is open.
+    PORTAL_SUBPANELS.forEach((id) => {
+      const sec = document.querySelector(`section.portal-panel[data-panel="${id}"]`);
+      if (!sec) return;
+      if (id === next) sec.removeAttribute('hidden');
+      else sec.setAttribute('hidden', '');
+    });
+    if (PORTAL_SUBPANEL_PARENT[next]) {
+      const parentTab = document.querySelector(
+        `#portal-nav [data-panel="${PORTAL_SUBPANEL_PARENT[next]}"]`
+      );
+      if (parentTab) {
+        parentTab.setAttribute('aria-selected', 'true');
+        parentTab.tabIndex = 0;
+      }
+    }
 
     const wrap = document.querySelector('.wrap');
     if (wrap) wrap.classList.toggle('is-website-wide', next === 'website');
@@ -5913,11 +5946,12 @@
     el.textContent = text || '';
   }
 
+  // Batch 78: the item editor is the #/module-item page now — closing
+  // it means going back to the Modules page it was opened from.
   function closeModuleModal() {
     moduleState.editingId = null;
-    const modal = document.getElementById('modules-item-modal');
-    if (modal) modal.hidden = true;
     moduleModalMsg('', true);
+    showPortalPanel('modules');
   }
 
   function updateModuleImagePreview(key, url) {
@@ -6039,12 +6073,11 @@
   }
 
   function openModuleEditor(item) {
-    const modal = document.getElementById('modules-item-modal');
     const fields = document.getElementById('modules-fields');
     const titleEl = document.getElementById('modules-modal-title');
     const ledeEl = document.getElementById('modules-modal-lede');
     const delBtn = document.getElementById('btn-modules-delete');
-    if (!modal || !fields) return;
+    if (!fields) return;
     moduleState.editingId = item && item.id ? item.id : null;
     moduleState.pendingKnowledgeFiles = [];
     const copy = moduleCopy(moduleState.current);
@@ -6077,7 +6110,8 @@
     }
     wireModuleFieldUploads();
     moduleModalMsg('', true);
-    modal.hidden = false;
+    // Batch 78: navigate to the editor page (was: unhide a modal).
+    showPortalPanel('module-item');
     const first = fields.querySelector('input, textarea, select');
     if (first) first.focus();
   }
@@ -8301,12 +8335,10 @@
     btnModulesNew.onclick = () => openModuleEditor(null);
   }
 
-  const modulesItemModal = document.getElementById('modules-item-modal');
-  if (modulesItemModal) {
-    modulesItemModal.addEventListener('click', (ev) => {
-      if (ev.target === modulesItemModal) closeModuleModal();
-    });
-  }
+  // Batch 78: the editor page's Back button (the modal backdrop and
+  // its click-to-close are gone with the popup).
+  const btnModuleItemBack = document.getElementById('btn-module-item-back');
+  if (btnModuleItemBack) btnModuleItemBack.onclick = () => closeModuleModal();
 
   const btnModulesCancel = document.getElementById('btn-modules-cancel');
   if (btnModulesCancel) btnModulesCancel.onclick = () => closeModuleModal();
