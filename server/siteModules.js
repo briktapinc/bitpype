@@ -4,7 +4,7 @@
  * Site content modules (Blog, Ecommerce, Courses, Gallery, Directory,
  * FAQ, Testimonials, Team, Events, Bookings, Chatbot, Offers, Menu,
  * Careers, Video, Instant Estimate, Social Feed, Call Tracking,
- * Membership, Google Reviews).
+ * Membership, Google Reviews, Data Tables).
  * Workspace SQLite tables per lead; in-page JS embeds (legacy iframe URL kept);
  * portal + MCP CRUD.
  * Gated by plan entitlement `siteModules` (Standard + Premium).
@@ -37,13 +37,14 @@ const MODULE_TYPES = [
   'calltracking',
   'members',
   'googlereviews',
+  'datatables',
 ];
 const MANAGED_ATTR = 'data-bitpype-module';
 const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod21';
+const MODULE_SCRIPT_VER = 'mod22';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -74,6 +75,7 @@ const MODULE_META = {
   calltracking: { label: 'Call Tracking', defaultTitle: 'Call Us', defaultSlug: 'call' },
   members: { label: 'Membership', defaultTitle: 'Members', defaultSlug: 'members' },
   googlereviews: { label: 'Google Reviews', defaultTitle: 'Google Reviews', defaultSlug: 'reviews' },
+  datatables: { label: 'Data Tables', defaultTitle: 'Data Table', defaultSlug: 'data-table' },
 };
 
 const BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'];
@@ -482,6 +484,25 @@ function ensureTables(db) {
       payload_json TEXT NOT NULL DEFAULT '',
       fetched_at TEXT,
       last_error TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS datatable_configs (
+      lead_id INTEGER PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT '',
+      columns_json TEXT NOT NULL DEFAULT '[]',
+      display_json TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS datatable_rows (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER NOT NULL,
+      values_json TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'published',
+      source TEXT NOT NULL DEFAULT 'owner',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -1586,6 +1607,8 @@ function modulePurgeSteps(leadId, type) {
       ];
     case 'googlereviews':
       return [byLead('googlereviews_cache', 'Google Reviews cache'), byLead('googlereviews_configs', 'Google Reviews settings')];
+    case 'datatables':
+      return [byLead('datatable_rows', 'data table rows'), byLead('datatable_configs', 'data table settings')];
     default:
       return [];
   }
@@ -6427,6 +6450,572 @@ async function googleReviewsPreview(db, leadId, opts = {}) {
   };
 }
 
+/* ── Data Tables (Batch 88) ──────────────────────────────────────────────────
+ *
+ * A generic structured-data module (Ely 2026-10-30: "add datatables
+ * module so mcp can use it to build app-like features websites", then
+ * widened: "it should be flexible enough to be designed into anything —
+ * a twitter wall or Google search page style or a list with a form
+ * field to submit"). ONE dataset per site (named columns + rows, full
+ * CRUD via MCP + the portal editor) rendered by ONE of several
+ * presentation templates chosen per instance: an interactive table
+ * (search / sort / pagination), a card wall, a search-results-style
+ * list, or a simple list. A display mapping says which column plays
+ * which role (title / body / image / link / meta / badge) in the
+ * role-based templates; defaults are inferred from column order+type.
+ *
+ * Visitor submissions are the module's only public write path and ride
+ * the same protections as bookings/estimate (per-IP rate limiter +
+ * Turnstile on the route). An instance's submit_mode decides what a
+ * submission becomes: 'off' (no form), 'moderated' (DEFAULT — lands
+ * as a pending row, invisible until the owner approves it in the
+ * portal or via MCP), or 'live' (published immediately). Rows carry a
+ * status ('published' | 'pending') and a source ('owner' | 'visitor');
+ * the public payload only ever serves published rows.
+ */
+
+const DATATABLE_COLUMN_TYPES = ['text', 'number', 'currency', 'date', 'link', 'boolean'];
+const DATATABLE_TEMPLATES = ['table', 'wall', 'results', 'list'];
+const DATATABLE_SUBMIT_MODES = ['off', 'moderated', 'live'];
+const DATATABLE_ROLES = ['title', 'body', 'image', 'link', 'meta', 'badge'];
+const DATATABLE_MAX_COLUMNS = 12;
+const DATATABLE_MAX_ROWS = 500;
+const DATATABLE_ROW_STATUSES = ['published', 'pending'];
+
+function normalizeDataTableColumns(raw) {
+  if (raw == null) return [];
+  if (!Array.isArray(raw)) throw fail('VALIDATION', 'columns must be an array of { key, label, type }');
+  if (raw.length > DATATABLE_MAX_COLUMNS) {
+    throw fail('VALIDATION', `A data table can have at most ${DATATABLE_MAX_COLUMNS} columns`);
+  }
+  const seen = new Set();
+  const out = [];
+  for (const entry of raw) {
+    const col = entry && typeof entry === 'object' ? entry : {};
+    const key = String(col.key || '')
+      .trim()
+      .toLowerCase();
+    if (!/^[a-z][a-z0-9_]{0,39}$/.test(key)) {
+      throw fail('VALIDATION', `Invalid column key "${col.key || ''}" — use lowercase letters, digits and underscores, starting with a letter`);
+    }
+    if (seen.has(key)) throw fail('VALIDATION', `Duplicate column key "${key}"`);
+    seen.add(key);
+    const label = String(col.label || '').trim().slice(0, 80);
+    if (!label) throw fail('VALIDATION', `Column "${key}" needs a label`);
+    const type = String(col.type || 'text').trim().toLowerCase();
+    if (!DATATABLE_COLUMN_TYPES.includes(type)) {
+      throw fail('VALIDATION', `Invalid column type "${col.type || ''}" for "${key}" — use: ${DATATABLE_COLUMN_TYPES.join(', ')}`);
+    }
+    out.push({ key, label, type });
+  }
+  return out;
+}
+
+/** Role defaults inferred from column order + type (overridable). */
+function inferDataTableRoles(columns) {
+  const roles = { title: null, body: null, image: null, link: null, meta: null, badge: null };
+  const texts = columns.filter((c) => c.type === 'text');
+  const links = columns.filter((c) => c.type === 'link');
+  if (texts[0]) roles.title = texts[0].key;
+  if (texts[1]) roles.body = texts[1].key;
+  else if (texts[0]) roles.body = null;
+  if (links[0]) roles.image = links[0].key;
+  if (links[1]) roles.link = links[1].key;
+  const dateCol = columns.find((c) => c.type === 'date');
+  const moneyCol = columns.find((c) => c.type === 'currency' || c.type === 'number');
+  if (dateCol) roles.meta = dateCol.key;
+  else if (moneyCol) roles.meta = moneyCol.key;
+  const boolCol = columns.find((c) => c.type === 'boolean');
+  if (boolCol) roles.badge = boolCol.key;
+  return roles;
+}
+
+function normalizeDataTableDisplay(columns, raw, base) {
+  const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const current = base || {
+    template: 'table',
+    roles: inferDataTableRoles(columns),
+    submit_mode: 'moderated',
+    submit_fields: null, // null = derive from roles at read time
+  };
+  const out = {
+    template: current.template,
+    roles: { ...current.roles },
+    submit_mode: current.submit_mode,
+    submit_fields: current.submit_fields == null ? null : [...current.submit_fields],
+  };
+  if (src.template != null) {
+    const t = String(src.template).trim().toLowerCase();
+    if (!DATATABLE_TEMPLATES.includes(t)) {
+      throw fail('VALIDATION', `Invalid template "${src.template}" — use: ${DATATABLE_TEMPLATES.join(', ')}`);
+    }
+    out.template = t;
+  }
+  if (src.roles != null) {
+    if (typeof src.roles !== 'object' || Array.isArray(src.roles)) {
+      throw fail('VALIDATION', 'roles must be an object mapping role → column key');
+    }
+    const keys = new Set(columns.map((c) => c.key));
+    for (const role of DATATABLE_ROLES) {
+      if (!(role in src.roles)) continue;
+      const v = src.roles[role];
+      if (v == null || v === '') {
+        out.roles[role] = null;
+        continue;
+      }
+      const key = String(v).trim().toLowerCase();
+      if (!keys.has(key)) throw fail('VALIDATION', `Role "${role}" points at unknown column "${v}"`);
+      out.roles[role] = key;
+    }
+  }
+  if (src.submit_mode != null) {
+    const m = String(src.submit_mode).trim().toLowerCase();
+    if (!DATATABLE_SUBMIT_MODES.includes(m)) {
+      throw fail('VALIDATION', `Invalid submit_mode "${src.submit_mode}" — use: ${DATATABLE_SUBMIT_MODES.join(', ')}`);
+    }
+    out.submit_mode = m;
+  }
+  if (src.submit_fields != null) {
+    if (!Array.isArray(src.submit_fields)) throw fail('VALIDATION', 'submit_fields must be an array of column keys');
+    const keys = new Set(columns.map((c) => c.key));
+    const fields = [];
+    for (const f of src.submit_fields) {
+      const key = String(f || '').trim().toLowerCase();
+      if (!keys.has(key)) throw fail('VALIDATION', `submit_fields names unknown column "${f}"`);
+      if (!fields.includes(key)) fields.push(key);
+    }
+    if (fields.length > DATATABLE_MAX_COLUMNS) throw fail('VALIDATION', 'Too many submit fields');
+    out.submit_fields = fields;
+  }
+  // Stored roles/fields can outlive a column they point at (schema was
+  // replaced) — prune anything dangling so renders never chase ghosts.
+  const keys = new Set(columns.map((c) => c.key));
+  for (const role of DATATABLE_ROLES) {
+    if (out.roles[role] && !keys.has(out.roles[role])) out.roles[role] = null;
+  }
+  if (out.submit_fields) out.submit_fields = out.submit_fields.filter((k) => keys.has(k));
+  return out;
+}
+
+/** The visitor-facing submit fields: configured set, else title+body roles. */
+function dataTableSubmitFieldKeys(config) {
+  if (Array.isArray(config.submit_fields)) return config.submit_fields;
+  const keys = [];
+  for (const role of ['title', 'body']) {
+    const k = config.roles && config.roles[role];
+    if (k && !keys.includes(k)) keys.push(k);
+  }
+  return keys;
+}
+
+function readDataTableConfig(db, leadId) {
+  ensureTables(db);
+  const row = db.prepare('SELECT * FROM datatable_configs WHERE lead_id = ?').get(Number(leadId));
+  if (!row) return null;
+  let columns = [];
+  try {
+    columns = normalizeDataTableColumns(JSON.parse(row.columns_json || '[]'));
+  } catch {
+    columns = [];
+  }
+  let display = {};
+  try {
+    display = JSON.parse(row.display_json || '') || {};
+  } catch {
+    display = {};
+  }
+  const merged = normalizeDataTableDisplay(columns, display, null);
+  return {
+    lead_id: Number(row.lead_id),
+    title: String(row.title || ''),
+    columns,
+    template: merged.template,
+    roles: merged.roles,
+    submit_mode: merged.submit_mode,
+    submit_fields: merged.submit_fields,
+    updated_at: row.updated_at,
+  };
+}
+
+function getDataTableConfig(db, leadId) {
+  const cfg = readDataTableConfig(db, leadId);
+  if (cfg) return cfg;
+  return {
+    lead_id: Number(leadId),
+    title: '',
+    columns: [],
+    template: 'table',
+    roles: inferDataTableRoles([]),
+    submit_mode: 'moderated',
+    submit_fields: null,
+    updated_at: null,
+  };
+}
+
+/**
+ * Create or update the table definition. `data` may carry: title,
+ * columns (replaces the schema wholesale), template, roles,
+ * submit_mode, submit_fields. When columns change, stored row values
+ * for removed keys are kept in the rows (harmless — reads and renders
+ * only ever look at current column keys).
+ */
+function updateDataTableConfig(db, leadId, data = {}) {
+  ensureTables(db);
+  const lid = Number(leadId);
+  const existing = readDataTableConfig(db, lid);
+  const columns = data.columns != null ? normalizeDataTableColumns(data.columns) : existing ? existing.columns : [];
+  const display = normalizeDataTableDisplay(
+    columns,
+    {
+      template: data.template,
+      roles: data.roles,
+      submit_mode: data.submit_mode,
+      submit_fields: data.submit_fields,
+    },
+    existing
+      ? {
+          template: existing.template,
+          roles: existing.roles,
+          submit_mode: existing.submit_mode,
+          submit_fields: existing.submit_fields,
+        }
+      : null
+  );
+  const title =
+    data.title != null ? String(data.title).trim().slice(0, 120) : existing ? existing.title : '';
+  const displayJson = JSON.stringify({
+    template: display.template,
+    roles: display.roles,
+    submit_mode: display.submit_mode,
+    submit_fields: display.submit_fields,
+  });
+  db.prepare(
+    `INSERT INTO datatable_configs (lead_id, title, columns_json, display_json, updated_at)
+     VALUES (?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(lead_id) DO UPDATE SET title = excluded.title,
+       columns_json = excluded.columns_json, display_json = excluded.display_json,
+       updated_at = datetime('now')`
+  ).run(lid, title, JSON.stringify(columns), displayJson);
+  // The embed carries the page-facing title; keep it in step when the
+  // table is renamed and the module is attached.
+  if (data.title != null) {
+    db.prepare(
+      "UPDATE site_module_embeds SET title = ?, updated_at = datetime('now') WHERE lead_id = ? AND module_type = 'datatables'"
+    ).run(title || MODULE_META.datatables.defaultTitle, lid);
+  }
+  return getDataTableConfig(db, lid);
+}
+
+function normalizeDataTableCell(col, value) {
+  if (value == null || value === '') return null;
+  switch (col.type) {
+    case 'text':
+      return String(value).slice(0, 2000);
+    case 'number': {
+      const n = typeof value === 'number' ? value : Number(String(value).replace(/[$,]/g, '').trim());
+      if (!Number.isFinite(n)) throw fail('VALIDATION', `Column "${col.key}" expects a number, got "${value}"`);
+      return n;
+    }
+    case 'currency': {
+      const n = typeof value === 'number' ? value : Number(String(value).replace(/[$,]/g, '').trim());
+      if (!Number.isFinite(n)) throw fail('VALIDATION', `Column "${col.key}" expects an amount, got "${value}"`);
+      return Math.round(n * 100) / 100;
+    }
+    case 'date': {
+      const s = String(value).trim().slice(0, 10);
+      const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) throw fail('VALIDATION', `Column "${col.key}" expects a date as YYYY-MM-DD, got "${value}"`);
+      const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+      if (d.getUTCFullYear() !== Number(m[1]) || d.getUTCMonth() !== Number(m[2]) - 1 || d.getUTCDate() !== Number(m[3])) {
+        throw fail('VALIDATION', `Column "${col.key}" got a date that does not exist: "${value}"`);
+      }
+      return s;
+    }
+    case 'link': {
+      let url = '';
+      let label = '';
+      if (typeof value === 'object') {
+        url = String(value.url || value.href || '').trim();
+        label = String(value.label || value.text || '').trim().slice(0, 200);
+      } else {
+        url = String(value).trim();
+      }
+      if (!url) throw fail('VALIDATION', `Column "${col.key}" expects a URL`);
+      let parsed;
+      try {
+        parsed = new URL(url);
+      } catch {
+        throw fail('VALIDATION', `Column "${col.key}" got an invalid URL: "${url}"`);
+      }
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        throw fail('VALIDATION', `Column "${col.key}" links must start with http:// or https://`);
+      }
+      return { url: parsed.toString(), label: label || parsed.toString() };
+    }
+    case 'boolean': {
+      if (typeof value === 'boolean') return value;
+      const s = String(value).trim().toLowerCase();
+      if (['true', '1', 'yes', 'y'].includes(s)) return true;
+      if (['false', '0', 'no', 'n'].includes(s)) return false;
+      throw fail('VALIDATION', `Column "${col.key}" expects true/false, got "${value}"`);
+    }
+    default:
+      return String(value).slice(0, 2000);
+  }
+}
+
+/**
+ * Validate + normalize a values object against the schema. Unknown
+ * keys are rejected (catches agent typos). With `partial`, only the
+ * provided keys are returned (row updates merge). With
+ * `onlyKeys` (visitor submissions), only those columns are read —
+ * anything else the client sent is ignored, never stored.
+ */
+function normalizeDataTableValues(columns, raw, { partial = false, onlyKeys = null } = {}) {
+  if (!columns.length) throw fail('VALIDATION', 'Define the table columns before adding rows');
+  const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : null;
+  if (!src) throw fail('VALIDATION', 'values must be an object keyed by column');
+  const byKey = new Map(columns.map((c) => [c.key, c]));
+  if (!onlyKeys) {
+    for (const key of Object.keys(src)) {
+      if (!byKey.has(key)) throw fail('VALIDATION', `Unknown column "${key}" — this table has: ${columns.map((c) => c.key).join(', ')}`);
+    }
+  }
+  const out = {};
+  const wanted = onlyKeys || columns.map((c) => c.key);
+  for (const key of wanted) {
+    if (!(key in src)) {
+      if (!partial && !onlyKeys) out[key] = null;
+      continue;
+    }
+    out[key] = normalizeDataTableCell(byKey.get(key), src[key]);
+  }
+  return out;
+}
+
+function shapeDataTableRow(row) {
+  if (!row) return row;
+  let values = {};
+  try {
+    values = JSON.parse(row.values_json || '{}') || {};
+  } catch {
+    values = {};
+  }
+  return {
+    id: row.id,
+    values,
+    status: row.status === 'pending' ? 'pending' : 'published',
+    source: row.source === 'visitor' ? 'visitor' : 'owner',
+    sort_order: row.sort_order || 0,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function listDataTableRows(db, leadId, { includePending = true } = {}) {
+  ensureTables(db);
+  let sql = 'SELECT * FROM datatable_rows WHERE lead_id = ?';
+  if (!includePending) sql += " AND status = 'published'";
+  sql += ' ORDER BY sort_order ASC, id ASC';
+  return db.prepare(sql).all(Number(leadId)).map(shapeDataTableRow);
+}
+
+function getDataTableRow(db, leadId, id) {
+  ensureTables(db);
+  const row = db
+    .prepare('SELECT * FROM datatable_rows WHERE lead_id = ? AND id = ?')
+    .get(Number(leadId), Number(id));
+  return shapeDataTableRow(row) || null;
+}
+
+function countDataTableRows(db, leadId, status = null) {
+  ensureTables(db);
+  let sql = 'SELECT COUNT(*) AS c FROM datatable_rows WHERE lead_id = ?';
+  const params = [Number(leadId)];
+  if (status) {
+    sql += ' AND status = ?';
+    params.push(status);
+  }
+  const row = db.prepare(sql).get(...params);
+  return Number(row && row.c) || 0;
+}
+
+function insertDataTableRow(db, lid, values, { status, source, sortOrder }) {
+  const info = db
+    .prepare(
+      `INSERT INTO datatable_rows (lead_id, values_json, status, source, sort_order)
+       VALUES (?, ?, ?, ?, ?)`
+    )
+    .run(lid, JSON.stringify(values), status, source, sortOrder);
+  return getDataTableRow(db, lid, info.lastInsertRowid);
+}
+
+function createDataTableRow(db, leadId, data = {}) {
+  ensureTables(db);
+  const lid = Number(leadId);
+  const cfg = getDataTableConfig(db, lid);
+  const values = normalizeDataTableValues(cfg.columns, data.values != null ? data.values : data);
+  if (countDataTableRows(db, lid) >= DATATABLE_MAX_ROWS) {
+    throw fail('VALIDATION', `This table already has the maximum of ${DATATABLE_MAX_ROWS} rows`);
+  }
+  const status = data.status != null ? String(data.status).toLowerCase() : 'published';
+  if (!DATATABLE_ROW_STATUSES.includes(status)) {
+    throw fail('VALIDATION', `Invalid row status "${data.status}" — use: ${DATATABLE_ROW_STATUSES.join(', ')}`);
+  }
+  const sortOrder =
+    data.sort_order != null
+      ? Number(data.sort_order) || 0
+      : db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS m FROM datatable_rows WHERE lead_id = ?').get(lid).m + 1;
+  return insertDataTableRow(db, lid, values, { status, source: 'owner', sortOrder });
+}
+
+/** Bulk seed: validate everything first, then insert in one pass. */
+function addDataTableRows(db, leadId, rows) {
+  ensureTables(db);
+  const lid = Number(leadId);
+  if (!Array.isArray(rows)) throw fail('VALIDATION', 'rows must be an array of { values } objects');
+  const cfg = getDataTableConfig(db, lid);
+  const prepared = rows.map((r) => {
+    const item = r && typeof r === 'object' ? r : {};
+    return normalizeDataTableValues(cfg.columns, item.values != null ? item.values : item);
+  });
+  if (countDataTableRows(db, lid) + prepared.length > DATATABLE_MAX_ROWS) {
+    throw fail('VALIDATION', `Adding ${prepared.length} rows would exceed the maximum of ${DATATABLE_MAX_ROWS} rows per table`);
+  }
+  let next = db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS m FROM datatable_rows WHERE lead_id = ?').get(lid).m;
+  const added = prepared.map((values) => insertDataTableRow(db, lid, values, { status: 'published', source: 'owner', sortOrder: ++next }));
+  return { added: added.length, rows: added };
+}
+
+function updateDataTableRow(db, leadId, id, data = {}) {
+  ensureTables(db);
+  const lid = Number(leadId);
+  const row = getDataTableRow(db, lid, id);
+  if (!row) throw fail('NOT_FOUND', 'Data table row not found', 404);
+  const cfg = getDataTableConfig(db, lid);
+  let values = row.values;
+  const rawValues = data.values != null ? data.values : null;
+  if (rawValues != null) {
+    const patch = normalizeDataTableValues(cfg.columns, rawValues, { partial: true });
+    values = { ...values, ...patch };
+  }
+  let status = row.status;
+  if (data.status != null) {
+    status = String(data.status).toLowerCase();
+    if (!DATATABLE_ROW_STATUSES.includes(status)) {
+      throw fail('VALIDATION', `Invalid row status "${data.status}" — use: ${DATATABLE_ROW_STATUSES.join(', ')}`);
+    }
+  }
+  const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
+  db.prepare(
+    "UPDATE datatable_rows SET values_json = ?, status = ?, sort_order = ?, updated_at = datetime('now') WHERE id = ? AND lead_id = ?"
+  ).run(JSON.stringify(values), status, sortOrder, row.id, lid);
+  return getDataTableRow(db, lid, row.id);
+}
+
+function deleteDataTableRow(db, leadId, id) {
+  ensureTables(db);
+  const row = getDataTableRow(db, leadId, id);
+  if (!row) throw fail('NOT_FOUND', 'Data table row not found', 404);
+  db.prepare('DELETE FROM datatable_rows WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
+  return { deleted: true, id: row.id };
+}
+
+function clearDataTableRows(db, leadId) {
+  ensureTables(db);
+  const info = db.prepare('DELETE FROM datatable_rows WHERE lead_id = ?').run(Number(leadId));
+  return { deleted: info.changes };
+}
+
+/** Everything the owner/agent surfaces need in one read. */
+function getDataTable(db, leadId) {
+  const cfg = getDataTableConfig(db, leadId);
+  const rows = listDataTableRows(db, leadId);
+  return {
+    title: cfg.title,
+    columns: cfg.columns,
+    template: cfg.template,
+    roles: cfg.roles,
+    submit_mode: cfg.submit_mode,
+    submit_fields: dataTableSubmitFieldKeys(cfg),
+    submit_fields_configured: Array.isArray(cfg.submit_fields),
+    rows,
+    row_count: rows.length,
+    pending_count: rows.filter((r) => r.status === 'pending').length,
+    updated_at: cfg.updated_at,
+  };
+}
+
+/** The public (visitor) view: published rows only + render config. */
+function publicDataTablePayload(db, leadId) {
+  const cfg = getDataTableConfig(db, leadId);
+  const submitKeys = cfg.submit_mode === 'off' ? [] : dataTableSubmitFieldKeys(cfg);
+  const byKey = new Map(cfg.columns.map((c) => [c.key, c]));
+  return {
+    title: cfg.title,
+    template: cfg.template,
+    roles: cfg.roles,
+    columns: cfg.columns,
+    submit: {
+      enabled: cfg.submit_mode !== 'off' && submitKeys.length > 0,
+      mode: cfg.submit_mode,
+      fields: submitKeys.map((k) => byKey.get(k)).filter(Boolean),
+    },
+  };
+}
+
+/**
+ * The module's only public write path. Called by the token route
+ * (rate limiter + Turnstile run in front of it, exactly like bookings
+ * and estimate requests). A submission may only fill the configured
+ * submit fields; it lands pending (moderated) or published (live).
+ */
+function createPublicDataTableSubmission(db, leadId, data = {}) {
+  ensureTables(db);
+  const lid = Number(leadId);
+  const cfg = getDataTableConfig(db, lid);
+  if (cfg.submit_mode === 'off') {
+    throw fail('VALIDATION', 'This table is not accepting submissions', 403);
+  }
+  const fieldKeys = dataTableSubmitFieldKeys(cfg);
+  if (!fieldKeys.length) throw fail('VALIDATION', 'This table is not accepting submissions', 403);
+  const values = normalizeDataTableValues(cfg.columns, data.values != null ? data.values : data, {
+    onlyKeys: fieldKeys,
+  });
+  const filled = fieldKeys.filter((k) => values[k] != null && values[k] !== '');
+  if (!filled.length) throw fail('VALIDATION', 'Fill in at least one field before submitting');
+  if (countDataTableRows(db, lid) >= DATATABLE_MAX_ROWS) {
+    throw fail('VALIDATION', 'This table is full right now — please try again later', 409);
+  }
+  const status = cfg.submit_mode === 'live' ? 'published' : 'pending';
+  const sortOrder =
+    db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS m FROM datatable_rows WHERE lead_id = ?').get(lid).m + 1;
+  const row = insertDataTableRow(db, lid, values, { status, source: 'visitor', sortOrder });
+  return { row, mode: cfg.submit_mode };
+}
+
+function createPublicDataTableSubmissionByToken(db, token, data = {}, opts = {}) {
+  ensureTables(db);
+  const row = db
+    .prepare('SELECT * FROM site_module_embeds WHERE public_token = ? AND published = 1')
+    .get(String(token || ''));
+  if (!row || row.module_type !== 'datatables') {
+    throw fail('NOT_FOUND', 'Data table not found', 404);
+  }
+  assertSiteNotArchived(db, row.lead_id);
+  assertMemberAccessForEmbed(db, row, opts);
+  const { row: created, mode } = createPublicDataTableSubmission(db, row.lead_id, data);
+  return {
+    embed: publicEmbed(row),
+    row: { id: created.id, status: created.status },
+    mode,
+    message:
+      mode === 'live'
+        ? 'Thanks — your submission is live.'
+        : 'Thanks — your submission was received and is awaiting approval.',
+  };
+}
+
 /* ── Call Tracking (Twilio Voice) ────────────────────────────────────────────
  *
  * Client/admin split (Batch 25c, Ely 2026-10-26): the client only ever
@@ -9862,6 +10451,11 @@ function moduleItemCount(db, leadId, type) {
     const row = db.prepare('SELECT COUNT(*) AS c FROM call_logs WHERE lead_id = ?').get(Number(leadId));
     return Number(row && row.c) || 0;
   }
+  if (type === 'datatables') {
+    // The tab badge counts every row the owner has to manage,
+    // including visitor submissions still pending approval.
+    return countDataTableRows(db, leadId);
+  }
   if (type === 'members') {
     // The tab badge counts active members.
     ensureTables(db);
@@ -9908,6 +10502,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
   let socialfeed = null;
   let googlereviews = null;
   let calltracking = null;
+  let datatable = null;
   let total_published = null;
   if (type === 'blog') {
     items = listBlogPosts(db, leadId, { includeDrafts: false }).map((p) => ({
@@ -9960,6 +10555,14 @@ function getPublicModuleByToken(db, token, opts = {}) {
     items = googlereviews ? googlereviews.reviews : [];
   } else if (type === 'calltracking') {
     calltracking = publicCallTrackingPayload(db, leadId);
+  } else if (type === 'datatables') {
+    // Published rows only — pending visitor submissions never serve.
+    items = listDataTableRows(db, leadId, { includePending: false }).map((r) => ({
+      id: r.id,
+      values: r.values,
+      sort_order: r.sort_order,
+    }));
+    datatable = publicDataTablePayload(db, leadId);
   } else if (type === 'chatbot') {
     try {
       const chat = require('./chatbot');
@@ -10027,6 +10630,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
     };
   }
   if (calltracking) out.calltracking = calltracking;
+  if (datatable) out.datatable = datatable;
   return out;
 }
 
@@ -10314,6 +10918,27 @@ module.exports = {
   googleReviewsItems,
   publicGoogleReviewsPayload,
   googleReviewsPreview,
+  DATATABLE_COLUMN_TYPES,
+  DATATABLE_TEMPLATES,
+  DATATABLE_SUBMIT_MODES,
+  DATATABLE_ROLES,
+  DATATABLE_MAX_COLUMNS,
+  DATATABLE_MAX_ROWS,
+  normalizeDataTableColumns,
+  getDataTableConfig,
+  updateDataTableConfig,
+  listDataTableRows,
+  getDataTableRow,
+  createDataTableRow,
+  addDataTableRows,
+  updateDataTableRow,
+  deleteDataTableRow,
+  clearDataTableRows,
+  countDataTableRows,
+  getDataTable,
+  publicDataTablePayload,
+  createPublicDataTableSubmission,
+  createPublicDataTableSubmissionByToken,
   normalizeE164,
   formatPhoneDisplay,
   getCallTrackingConfig,

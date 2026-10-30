@@ -3284,6 +3284,54 @@ function createParityTools(ctx) {
       return { ok: true, data: siteModules().deleteMenuCategory(db, leadId, id) };
     }),
 
+    'datatables.get': parityEntry('datatables.get', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().getDataTable(db, leadId) };
+    }),
+    'datatables.setColumns': parityEntry('datatables.setColumns', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return {
+        ok: true,
+        data: { config: siteModules().updateDataTableConfig(db, leadId, { title: args.title, columns: args.columns }) },
+      };
+    }),
+    'datatables.setDisplay': parityEntry('datatables.setDisplay', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return {
+        ok: true,
+        data: {
+          config: siteModules().updateDataTableConfig(db, leadId, {
+            template: args.template,
+            roles: args.roles,
+            submit_mode: args.submit_mode,
+            submit_fields: args.submit_fields,
+          }),
+        },
+      };
+    }),
+    'datatables.addRow': parityEntry('datatables.addRow', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: { row: siteModules().createDataTableRow(db, leadId, { ...args }) } };
+    }),
+    'datatables.addRows': parityEntry('datatables.addRows', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().addDataTableRows(db, leadId, Array.isArray(args.rows) ? args.rows : []) };
+    }),
+    'datatables.updateRow': parityEntry('datatables.updateRow', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: { row: siteModules().updateDataTableRow(db, leadId, id, { ...args }) } };
+    }),
+    'datatables.deleteRow': parityEntry('datatables.deleteRow', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: siteModules().deleteDataTableRow(db, leadId, id) };
+    }),
+    'datatables.clear': parityEntry('datatables.clear', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().clearDataTableRows(db, leadId) };
+    }),
+
     'estimate.getConfig': parityEntry('estimate.getConfig', (args) => {
       const leadId = requireId(args.leadId, 'leadId');
       return { ok: true, data: siteModules().getEstimateConfig(db, leadId) };

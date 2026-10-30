@@ -170,6 +170,26 @@ function partA() {
     assert.equal(sk.validateSetting('branding.tagline', 'Local business desk').ok, true, 'default tagline accepted');
     assert.equal(sk.validateSetting('branding.tagline', 'x'.repeat(121)).ok, false, 'over-long tagline rejected');
   });
+
+  check('A7 auth gate brand: dark-variant lockup only, no duplicate text wordmark (Ely screenshot fix)', () => {
+    const appNorm = read('public/js/app.js').replace(/\\/g, '');
+    const blocks = appNorm.match(/<div class="auth-brand">.*?<\/div>/g) || [];
+    assert.equal(blocks.length, 2, 'both auth screens (login + MFA) build an auth brand');
+    for (const b of blocks) {
+      assert.ok(b.includes('src="/brand/logo-white.png"'), 'auth gate is a DARK surface — lockup is the dark variant (branding.logo_dark via the canonical URL)');
+      assert.ok(!b.includes('logo-black'), 'the black lockup never renders on the dark gate (invisible wordmark)');
+      const textOnly = b.replace(/<img[^>]*>/, '').replace(/<[^>]+>/g, '').trim();
+      assert.equal(textOnly, '', 'no standalone BitPype text wordmark beside the lockup — the lockup carries the wordmark');
+    }
+  });
+
+  check('A8 exported-site footer: legal links centered with the copyright line (Ely screenshot fix)', () => {
+    const engine = read('src/websiteEngine.js');
+    const rule = engine.match(/\.bp-legal-links\s*\{([^}]*)\}/);
+    assert.ok(rule && /text-align:\s*center/.test(rule[1]), '.bp-legal-links is centered like .copyright');
+    const copy = engine.match(/\.copyright\s*\{([^}]*)\}/);
+    assert.ok(copy && /text-align:\s*center/.test(copy[1]), '.copyright stays centered (no regression)');
+  });
 }
 
 /* ================================================================== */

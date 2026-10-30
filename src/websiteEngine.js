@@ -548,6 +548,7 @@ section.block{padding:56px 0}
 .footer-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;max-width:1080px;margin:0 auto;padding:0 20px}
 .footer h4{color:#fff;margin-bottom:10px}
 .copyright{text-align:center;margin-top:28px;opacity:.7;font-size:.85rem}
+.bp-legal-links{text-align:center;margin-top:10px;font-size:.85rem}
 .page-anchor{scroll-margin-top:70px}
 .photo{margin:0}
 .photo img,.hero-photo img{width:100%;object-fit:cover;border-radius:12px;display:block;background:#e5e7eb}

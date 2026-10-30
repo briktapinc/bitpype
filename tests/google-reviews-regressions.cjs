@@ -77,7 +77,7 @@ async function main() {
 
   // ── Catalog + portalTabs registration ──
   check('batch30 catalog: googlereviews is the 20th module type with meta', () => {
-    assert.equal(sm.MODULE_TYPES.length, 20);
+    assert.equal(sm.MODULE_TYPES.length, 21);
     assert.equal(sm.MODULE_TYPES[19], 'googlereviews');
     assert.equal(sm.MODULE_META.googlereviews.label, 'Google Reviews');
     assert.equal(sm.MODULE_META.googlereviews.defaultSlug, 'reviews');

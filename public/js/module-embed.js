@@ -345,6 +345,51 @@
       '.bitpype-module-embed .bp-mod-forgot{margin-top:1rem;border-top:1px solid var(--bp-mod-line);padding-top:1rem;}',
       '.bitpype-module-embed .bp-mod-forgot summary{cursor:pointer;font-weight:600;font-size:0.94rem;}',
       '.bitpype-module-embed .bp-mod-forgot form{margin-top:0.8rem;}',
+      // Data Tables (Batch 88)
+      '.bitpype-module-embed .bp-mod-dt-toolbar{display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;margin:0 0 1rem;}',
+      '.bitpype-module-embed .bp-mod-dt-search{flex:1;min-width:180px;padding:0.65rem 0.9rem;border:1px solid var(--bp-mod-line);border-radius:0.7rem;background:var(--bp-mod-paper);color:inherit;font:inherit;}',
+      '.bitpype-module-embed .bp-mod-dt-pagesize{display:inline-flex;gap:0.45rem;align-items:center;color:var(--bp-mod-muted);font-size:0.92rem;}',
+      '.bitpype-module-embed .bp-mod-dt-pagesize select{padding:0.5rem 0.6rem;border:1px solid var(--bp-mod-line);border-radius:0.7rem;background:var(--bp-mod-paper);color:inherit;font:inherit;}',
+      '.bitpype-module-embed .bp-mod-dt-tablewrap{overflow-x:auto;border:1px solid var(--bp-mod-line);border-radius:1.1rem;background:var(--bp-mod-paper);}',
+      '.bitpype-module-embed .bp-mod-dt-table{width:100%;border-collapse:collapse;}',
+      '.bitpype-module-embed .bp-mod-dt-table th,.bitpype-module-embed .bp-mod-dt-table td{padding:0.8rem 1rem;text-align:left;vertical-align:top;}',
+      '.bitpype-module-embed .bp-mod-dt-table thead th{border-bottom:2px solid var(--bp-mod-line);white-space:nowrap;}',
+      '.bitpype-module-embed .bp-mod-dt-table tbody tr+tr td{border-top:1px solid var(--bp-mod-line);}',
+      '.bitpype-module-embed .bp-mod-dt-sort{background:none;border:0;font:inherit;font-weight:700;cursor:pointer;color:inherit;display:inline-flex;gap:0.35rem;align-items:center;padding:0;}',
+      '.bitpype-module-embed .bp-mod-dt-sort:hover{color:var(--bp-mod-accent);}',
+      '.bitpype-module-embed .bp-mod-dt-arrow{font-size:0.8em;color:var(--bp-mod-accent);}',
+      '.bitpype-module-embed .bp-mod-dt-none{color:var(--bp-mod-muted);padding:1.1rem 1.2rem;margin:0;}',
+      '.bitpype-module-embed .bp-mod-dt-pager{display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;margin-top:1rem;}',
+      '.bitpype-module-embed .bp-mod-dt-pageinfo{color:var(--bp-mod-muted);font-size:0.92rem;}',
+      '.bitpype-module-embed .bp-mod-dt-wall{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1.1rem;}',
+      '.bitpype-module-embed .bp-mod-dt-card{border:1px solid var(--bp-mod-line);border-radius:1.1rem;background:var(--bp-mod-paper);padding:1.1rem 1.2rem 1.2rem;display:flex;flex-direction:column;gap:0.55rem;}',
+      '.bitpype-module-embed .bp-mod-dt-card-head{display:flex;align-items:center;gap:0.65rem;}',
+      '.bitpype-module-embed .bp-mod-dt-avatar{width:42px;height:42px;border-radius:999px;object-fit:cover;flex:none;}',
+      '.bitpype-module-embed .bp-mod-dt-avatar-fallback{width:42px;height:42px;border-radius:999px;flex:none;display:flex;align-items:center;justify-content:center;background:var(--bp-mod-accent);color:#fff;font-weight:800;font-size:1.05rem;}',
+      '.bitpype-module-embed .bp-mod-dt-card-title{font-weight:700;line-height:1.25;margin:0;}',
+      '.bitpype-module-embed .bp-mod-dt-card-meta{color:var(--bp-mod-muted);font-size:0.84rem;line-height:1.3;margin:0;}',
+      '.bitpype-module-embed .bp-mod-dt-card-body{margin:0;line-height:1.55;}',
+      '.bitpype-module-embed .bp-mod-dt-card-link{color:var(--bp-mod-accent);font-weight:700;text-decoration:none;}',
+      '.bitpype-module-embed .bp-mod-dt-card-link:hover{text-decoration:underline;}',
+      '.bitpype-module-embed .bp-mod-dt-badge{display:inline-block;border:1px solid var(--bp-mod-line);border-radius:999px;padding:0.08rem 0.6rem;font-size:0.78rem;font-weight:700;margin-left:auto;flex:none;}',
+      '.bitpype-module-embed .bp-mod-dt-results{display:flex;flex-direction:column;gap:1.35rem;max-width:44rem;}',
+      '.bitpype-module-embed .bp-mod-dt-result-title{font-size:1.15rem;font-weight:600;color:var(--bp-mod-accent);text-decoration:none;line-height:1.3;}',
+      'a.bp-mod-dt-result-title:hover{text-decoration:underline;}',
+      '.bitpype-module-embed .bp-mod-dt-result-url{color:var(--bp-mod-muted);font-size:0.85rem;margin:0.15rem 0 0;overflow-wrap:anywhere;}',
+      '.bitpype-module-embed .bp-mod-dt-result-snippet{margin:0.25rem 0 0;line-height:1.55;}',
+      '.bitpype-module-embed .bp-mod-dt-result-meta{color:var(--bp-mod-muted);font-size:0.85rem;margin:0.25rem 0 0;}',
+      '.bitpype-module-embed .bp-mod-dt-list{display:flex;flex-direction:column;}',
+      '.bitpype-module-embed .bp-mod-dt-row{display:flex;gap:1rem;align-items:flex-start;padding:1rem 0.25rem;border-top:1px solid var(--bp-mod-line);}',
+      '.bitpype-module-embed .bp-mod-dt-row:first-child{border-top:0;}',
+      '.bitpype-module-embed .bp-mod-dt-thumb{width:56px;height:56px;border-radius:0.8rem;object-fit:cover;flex:none;}',
+      '.bitpype-module-embed .bp-mod-dt-row-main{flex:1;min-width:0;}',
+      '.bitpype-module-embed .bp-mod-dt-row-title{font-weight:700;margin:0;line-height:1.3;}',
+      '.bitpype-module-embed .bp-mod-dt-row-title a{color:inherit;text-decoration:none;}',
+      '.bitpype-module-embed .bp-mod-dt-row-title a:hover{color:var(--bp-mod-accent);}',
+      '.bitpype-module-embed .bp-mod-dt-row-body{margin:0.3rem 0 0;line-height:1.55;}',
+      '.bitpype-module-embed .bp-mod-dt-row-side{color:var(--bp-mod-muted);font-size:0.88rem;text-align:right;flex:none;display:flex;flex-direction:column;gap:0.3rem;align-items:flex-end;}',
+      '.bitpype-module-embed .bp-mod-dt-form{margin-top:1.9rem;border-top:1px solid var(--bp-mod-line);padding-top:1.5rem;max-width:36rem;}',
+      '.bitpype-module-embed .bp-mod-dt-form-title{margin:0 0 1rem;font-size:1.12rem;}',
     ].join('');
     var style = document.createElement('style');
     style.id = STYLE_ID;
@@ -427,6 +472,9 @@
     }
     if (type === 'video') {
       return { kicker: 'Videos', title: 'No videos yet', text: 'Videos will appear here when published.' };
+    }
+    if (type === 'datatables') {
+      return { kicker: 'Data Table', title: 'Nothing here yet', text: 'Rows will appear here once they are added.' };
     }
     return { kicker: 'Module', title: 'Nothing published yet', text: 'Published items will appear here.' };
   }
@@ -1032,6 +1080,12 @@
         '</span></a></div>';
       return;
     }
+    if (type === 'datatables') {
+      // Batch 88: handled before the generic empty check — the visitor
+      // submit form renders even when the table has no rows yet.
+      renderDataTable(el, data, html);
+      return;
+    }
     if (type === 'careers' && !items.length) {
       // Careers renders nothing at all when there are no active postings.
       el.innerHTML = '';
@@ -1587,6 +1641,522 @@
       })();
     });
     loadSlots();
+  }
+
+  /* ── Data Tables (Batch 88) ──
+   * One dataset, four presentations (table / wall / results / list)
+   * chosen per instance in its config, plus an optional visitor
+   * submit form. State lives on el._bpDt; search / sort / paging are
+   * client-side over the served rows (published only — the server
+   * never sends pending submissions). */
+  function dtDateLabel(v) {
+    var s = String(v || '');
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+    if (m) {
+      try {
+        return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString(undefined, {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+        });
+      } catch (e) {
+        return s;
+      }
+    }
+    return dateLabel(s);
+  }
+
+  function dtCellText(col, v) {
+    if (v == null || v === '') return '';
+    if (!col) return String(v);
+    if (col.type === 'boolean') return v ? 'Yes' : 'No';
+    if (col.type === 'currency') {
+      var c = Number(v);
+      return isNaN(c) ? String(v) : '$' + c.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    if (col.type === 'number') {
+      var n = Number(v);
+      return isNaN(n) ? String(v) : n.toLocaleString('en-US');
+    }
+    if (col.type === 'date') return dtDateLabel(v);
+    if (col.type === 'link') {
+      if (typeof v === 'object') return String(v.label || v.url || '');
+      return String(v);
+    }
+    return String(v);
+  }
+
+  function dtLinkParts(v) {
+    if (v == null || v === '') return null;
+    if (typeof v === 'object') {
+      if (!v.url) return null;
+      return { url: String(v.url), label: String(v.label || v.url) };
+    }
+    var s = String(v);
+    return { url: s, label: s };
+  }
+
+  function dtCellHtml(col, v) {
+    if (col && col.type === 'link') {
+      var parts = dtLinkParts(v);
+      if (!parts) return '';
+      return '<a href="' + esc(parts.url) + '" target="_blank" rel="noopener">' + esc(parts.label) + '</a>';
+    }
+    return esc(dtCellText(col, v));
+  }
+
+  function dtImageUrl(v) {
+    var parts = dtLinkParts(v);
+    var url = parts ? parts.url : v == null ? '' : String(v);
+    if (!url) return '';
+    if (/^data:image\//i.test(url)) return url;
+    if (/\.(png|jpe?g|gif|webp|svg|avif)(\?|#|$)/i.test(url)) return url;
+    return '';
+  }
+
+  function renderDataTable(el, data, prefixHtml) {
+    var dt = data.datatable || {};
+    var columns = Array.isArray(dt.columns) ? dt.columns : [];
+    var colByKey = {};
+    columns.forEach(function (c) {
+      colByKey[c.key] = c;
+    });
+    var state = {
+      rows: Array.isArray(data.items) ? data.items : [],
+      columns: columns,
+      colByKey: colByKey,
+      template: dt.template || 'table',
+      roles: dt.roles || {},
+      submit: dt.submit || { enabled: false, mode: 'off', fields: [] },
+      query: '',
+      sortKey: null,
+      sortDir: 1,
+      page: 1,
+      pageSize: 10,
+    };
+    el._bpDt = state;
+
+    function roleVal(row, role) {
+      var key = state.roles[role];
+      if (!key || !row.values) return null;
+      return row.values[key];
+    }
+    function roleText(row, role) {
+      var key = state.roles[role];
+      if (!key) return '';
+      return dtCellText(state.colByKey[key], row.values ? row.values[key] : null);
+    }
+    function titleText(row) {
+      var t = roleText(row, 'title');
+      if (t) return t;
+      for (var i = 0; i < state.columns.length; i++) {
+        var v = dtCellText(state.columns[i], row.values ? row.values[state.columns[i].key] : null);
+        if (v) return v;
+      }
+      return '';
+    }
+    function linkParts(row) {
+      var key = state.roles.link;
+      if (!key || !row.values) return null;
+      return dtLinkParts(row.values[key]);
+    }
+    function badgeHtml(row) {
+      var b = roleText(row, 'badge');
+      return b ? '<span class="bp-mod-dt-badge">' + esc(b) + '</span>' : '';
+    }
+    function filteredRows() {
+      var rows = state.rows.slice();
+      if (state.query) {
+        var q = state.query.toLowerCase();
+        rows = rows.filter(function (row) {
+          return state.columns
+            .map(function (c) {
+              return dtCellText(c, row.values ? row.values[c.key] : null);
+            })
+            .join(' ')
+            .toLowerCase()
+            .includes(q);
+        });
+      }
+      if (state.sortKey) {
+        var col = state.colByKey[state.sortKey];
+        var numeric = col && (col.type === 'number' || col.type === 'currency');
+        rows.sort(function (a, b) {
+          var av = a.values ? a.values[state.sortKey] : null;
+          var bv = b.values ? b.values[state.sortKey] : null;
+          if (av == null || av === '') return 1;
+          if (bv == null || bv === '') return -1;
+          var cmp;
+          if (numeric) cmp = (Number(av) || 0) - (Number(bv) || 0);
+          else cmp = dtCellText(col, av).localeCompare(dtCellText(col, bv));
+          return cmp * state.sortDir;
+        });
+      }
+      return rows;
+    }
+    function tableHtml(rows) {
+      var head = state.columns
+        .map(function (c) {
+          var arrow =
+            state.sortKey === c.key ? '<span class="bp-mod-dt-arrow">' + (state.sortDir === 1 ? '↑' : '↓') + '</span>' : '';
+          return (
+            '<th><button type="button" class="bp-mod-dt-sort" data-dt-sort="' +
+            esc(c.key) +
+            '">' +
+            esc(c.label || c.key) +
+            arrow +
+            '</button></th>'
+          );
+        })
+        .join('');
+      var body = rows
+        .map(function (row) {
+          return (
+            '<tr>' +
+            state.columns
+              .map(function (c) {
+                return '<td>' + dtCellHtml(c, row.values ? row.values[c.key] : null) + '</td>';
+              })
+              .join('') +
+            '</tr>'
+          );
+        })
+        .join('');
+      if (!rows.length) {
+        body =
+          '<tr><td colspan="' +
+          Math.max(1, state.columns.length) +
+          '"><p class="bp-mod-dt-none">No rows match your search.</p></td></tr>';
+      }
+      return (
+        '<div class="bp-mod-dt-tablewrap"><table class="bp-mod-dt-table"><thead><tr>' +
+        head +
+        '</tr></thead><tbody>' +
+        body +
+        '</tbody></table></div>'
+      );
+    }
+    function wallHtml(rows) {
+      if (!rows.length) return '<p class="bp-mod-dt-none">No rows match your search.</p>';
+      return (
+        '<div class="bp-mod-dt-wall">' +
+        rows
+          .map(function (row) {
+            var img = dtImageUrl(roleVal(row, 'image'));
+            var title = titleText(row);
+            var avatar = img
+              ? '<img class="bp-mod-dt-avatar" src="' + esc(img) + '" alt="" loading="lazy" />'
+              : '<span class="bp-mod-dt-avatar-fallback" aria-hidden="true">' +
+                esc(String(title || '?').trim().charAt(0).toUpperCase() || '?') +
+                '</span>';
+            var meta = roleText(row, 'meta');
+            var body = roleText(row, 'body');
+            var link = linkParts(row);
+            return (
+              '<article class="bp-mod-dt-card"><div class="bp-mod-dt-card-head">' +
+              avatar +
+              '<div><p class="bp-mod-dt-card-title">' +
+              esc(title) +
+              '</p>' +
+              (meta ? '<p class="bp-mod-dt-card-meta">' + esc(meta) + '</p>' : '') +
+              '</div>' +
+              badgeHtml(row) +
+              '</div>' +
+              (body ? '<p class="bp-mod-dt-card-body">' + esc(body) + '</p>' : '') +
+              (link
+                ? '<p style="margin:0"><a class="bp-mod-dt-card-link" href="' +
+                  esc(link.url) +
+                  '" target="_blank" rel="noopener">' +
+                  esc(link.label) +
+                  '</a></p>'
+                : '') +
+              '</article>'
+            );
+          })
+          .join('') +
+        '</div>'
+      );
+    }
+    function resultsHtml(rows) {
+      if (!rows.length) return '<p class="bp-mod-dt-none">No rows match your search.</p>';
+      return (
+        '<div class="bp-mod-dt-results">' +
+        rows
+          .map(function (row) {
+            var link = linkParts(row);
+            var title = titleText(row);
+            var body = roleText(row, 'body');
+            var meta = roleText(row, 'meta');
+            var badge = roleText(row, 'badge');
+            var titleHtml = link
+              ? '<a class="bp-mod-dt-result-title" href="' + esc(link.url) + '" target="_blank" rel="noopener">' + esc(title) + '</a>'
+              : '<span class="bp-mod-dt-result-title">' + esc(title) + '</span>';
+            var urlLine = link
+              ? '<p class="bp-mod-dt-result-url">' + esc(link.url.replace(/^https?:\/\//i, '')) + '</p>'
+              : '';
+            var metaBits = [meta, badge].filter(Boolean).join(' · ');
+            return (
+              '<div class="bp-mod-dt-result">' +
+              titleHtml +
+              urlLine +
+              (body ? '<p class="bp-mod-dt-result-snippet">' + esc(body) + '</p>' : '') +
+              (metaBits ? '<p class="bp-mod-dt-result-meta">' + esc(metaBits) + '</p>' : '') +
+              '</div>'
+            );
+          })
+          .join('') +
+        '</div>'
+      );
+    }
+    function listHtml(rows) {
+      if (!rows.length) return '<p class="bp-mod-dt-none">No rows match your search.</p>';
+      return (
+        '<div class="bp-mod-dt-list">' +
+        rows
+          .map(function (row) {
+            var img = dtImageUrl(roleVal(row, 'image'));
+            var title = titleText(row);
+            var body = roleText(row, 'body');
+            var meta = roleText(row, 'meta');
+            var link = linkParts(row);
+            var titleInner = link
+              ? '<a href="' + esc(link.url) + '" target="_blank" rel="noopener">' + esc(title) + '</a>'
+              : esc(title);
+            return (
+              '<div class="bp-mod-dt-row">' +
+              (img ? '<img class="bp-mod-dt-thumb" src="' + esc(img) + '" alt="" loading="lazy" />' : '') +
+              '<div class="bp-mod-dt-row-main"><p class="bp-mod-dt-row-title">' +
+              titleInner +
+              '</p>' +
+              (body ? '<p class="bp-mod-dt-row-body">' + esc(body) + '</p>' : '') +
+              '</div>' +
+              (meta || roleText(row, 'badge')
+                ? '<div class="bp-mod-dt-row-side">' +
+                  (meta ? '<span>' + esc(meta) + '</span>' : '') +
+                  badgeHtml(row) +
+                  '</div>'
+                : '') +
+              '</div>'
+            );
+          })
+          .join('') +
+        '</div>'
+      );
+    }
+    function bodyHtml(rows) {
+      if (!state.rows.length) return renderEmpty('datatables');
+      if (state.template === 'wall') return wallHtml(rows);
+      if (state.template === 'results') return resultsHtml(rows);
+      if (state.template === 'list') return listHtml(rows);
+      return tableHtml(rows);
+    }
+    function submitFormHtml() {
+      var sub = state.submit;
+      if (!sub.enabled || !Array.isArray(sub.fields) || !sub.fields.length) return '';
+      var rows = sub.fields
+        .map(function (col) {
+          var input;
+          if (col.type === 'text' && state.roles.body === col.key) {
+            input = '<textarea data-dt-field="' + esc(col.key) + '" rows="3"></textarea>';
+          } else if (col.type === 'boolean') {
+            input =
+              '<select data-dt-field="' + esc(col.key) + '"><option value=""></option><option value="Yes">Yes</option><option value="No">No</option></select>';
+          } else if (col.type === 'date') {
+            input = '<input data-dt-field="' + esc(col.key) + '" type="date" />';
+          } else if (col.type === 'number' || col.type === 'currency') {
+            input = '<input data-dt-field="' + esc(col.key) + '" type="number" step="any" />';
+          } else if (col.type === 'link') {
+            input = '<input data-dt-field="' + esc(col.key) + '" type="url" placeholder="https://…" />';
+          } else {
+            input = '<input data-dt-field="' + esc(col.key) + '" type="text" />';
+          }
+          return '<div class="bp-mod-book-row"><label>' + esc(col.label || col.key) + '</label>' + input + '</div>';
+        })
+        .join('');
+      return (
+        '<form class="bp-mod-book bp-mod-dt-form" data-dt-form>' +
+        '<h3 class="bp-mod-dt-form-title">Submit an entry</h3>' +
+        rows +
+        '<div class="bp-mod-captcha" data-dt-captcha hidden></div>' +
+        '<button type="submit" class="bp-mod-btn">Submit</button>' +
+        '<p class="bp-mod-book-msg" data-dt-msg></p>' +
+        '</form>'
+      );
+    }
+
+    el.innerHTML =
+      (prefixHtml || '') +
+      '<div class="bp-mod-dt">' +
+      '<div class="bp-mod-dt-toolbar">' +
+      '<input type="search" class="bp-mod-dt-search" data-dt-search placeholder="Search…" aria-label="Search this table" />' +
+      '<label class="bp-mod-dt-pagesize">Show <select data-dt-size><option value="10">10</option><option value="25">25</option><option value="50">50</option></select></label>' +
+      '</div>' +
+      '<div data-dt-body></div>' +
+      '<div class="bp-mod-dt-pager">' +
+      '<button type="button" class="bp-mod-btn ghost" data-dt-prev>← Prev</button>' +
+      '<span class="bp-mod-dt-pageinfo" data-dt-pageinfo></span>' +
+      '<button type="button" class="bp-mod-btn ghost" data-dt-next>Next →</button>' +
+      '</div>' +
+      submitFormHtml() +
+      '</div>';
+
+    var bodyBox = el.querySelector('[data-dt-body]');
+    var pageInfo = el.querySelector('[data-dt-pageinfo]');
+    var prevBtn = el.querySelector('[data-dt-prev]');
+    var nextBtn = el.querySelector('[data-dt-next]');
+
+    function paint() {
+      var all = filteredRows();
+      var pages = Math.max(1, Math.ceil(all.length / state.pageSize));
+      if (state.page > pages) state.page = pages;
+      if (state.page < 1) state.page = 1;
+      var start = (state.page - 1) * state.pageSize;
+      var pageRows = all.slice(start, start + state.pageSize);
+      if (bodyBox) bodyBox.innerHTML = bodyHtml(pageRows);
+      if (pageInfo) {
+        pageInfo.textContent = state.rows.length
+          ? 'Page ' + state.page + ' of ' + pages + ' · ' + all.length + (all.length === 1 ? ' row' : ' rows')
+          : '';
+      }
+      if (prevBtn) prevBtn.disabled = state.page <= 1;
+      if (nextBtn) nextBtn.disabled = state.page >= pages;
+    }
+
+    var searchInput = el.querySelector('[data-dt-search]');
+    if (searchInput) {
+      searchInput.addEventListener('input', function () {
+        state.query = String(searchInput.value || '').trim();
+        state.page = 1;
+        paint();
+      });
+    }
+    var sizeSel = el.querySelector('[data-dt-size]');
+    if (sizeSel) {
+      sizeSel.addEventListener('change', function () {
+        state.pageSize = Number(sizeSel.value) || 10;
+        state.page = 1;
+        paint();
+      });
+    }
+    if (prevBtn) {
+      prevBtn.addEventListener('click', function () {
+        if (state.page > 1) {
+          state.page -= 1;
+          paint();
+        }
+      });
+    }
+    if (nextBtn) {
+      nextBtn.addEventListener('click', function () {
+        state.page += 1;
+        paint();
+      });
+    }
+    if (bodyBox) {
+      bodyBox.addEventListener('click', function (ev) {
+        var btn = ev.target && ev.target.closest ? ev.target.closest('[data-dt-sort]') : null;
+        if (!btn) return;
+        var key = btn.getAttribute('data-dt-sort');
+        if (state.sortKey === key) state.sortDir = state.sortDir === 1 ? -1 : 1;
+        else {
+          state.sortKey = key;
+          state.sortDir = 1;
+        }
+        state.page = 1;
+        paint();
+      });
+    }
+    paint();
+    bindDataTableForm(el, data);
+  }
+
+  function bindDataTableForm(el, data) {
+    var form = el.querySelector('[data-dt-form]');
+    if (!form) return;
+    var token = el.getAttribute(TOKEN_ATTR) || '';
+    var base = apiBase(el);
+    var msg = form.querySelector('[data-dt-msg]');
+    var captchaBox = form.querySelector('[data-dt-captcha]');
+    var submitBtn = form.querySelector('button[type="submit"]');
+    var captcha = {
+      enabled: false,
+      getToken: async function () {
+        return '';
+      },
+      reset: function () {},
+    };
+    (async function () {
+      try {
+        if (base) await loadScript(base + '/js/captcha.js?v=mod5');
+        if (window.ScoutCaptcha && captchaBox) {
+          captcha = await window.ScoutCaptcha.mount(captchaBox, { apiBase: base });
+        }
+      } catch (e) {
+        /* captcha optional when disabled server-side */
+      }
+    })();
+
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var values = {};
+      form.querySelectorAll('[data-dt-field]').forEach(function (input) {
+        values[input.getAttribute('data-dt-field')] = input.value;
+      });
+      if (submitBtn) submitBtn.disabled = true;
+      if (msg) {
+        msg.textContent = 'Submitting…';
+        msg.className = 'bp-mod-book-msg';
+      }
+      (async function () {
+        try {
+          var captchaToken = await captcha.getToken();
+          var r = await fetch((base || '') + '/api/v1/modules/public/' + encodeURIComponent(token) + '/submit', {
+            method: 'POST',
+            credentials: 'omit',
+            headers: jsonHeaders(),
+            body: JSON.stringify({ values: values, captchaToken: captchaToken }),
+          });
+          var j = await r.json();
+          if (!r.ok || !j || !j.ok) throw new Error((j && j.error) || 'Submission failed');
+          var mode = j.data && j.data.mode;
+          if (msg) {
+            msg.textContent = (j.data && j.data.message) || 'Thanks — your submission was received.';
+            msg.className = 'bp-mod-book-msg ok';
+          }
+          form.reset();
+          if (captcha.reset) captcha.reset();
+          if (mode === 'live') {
+            // The new row is already published — refetch the payload
+            // and repaint so the visitor sees it in place.
+            try {
+              var path =
+                (base || '') + '/api/v1/modules/public/' + encodeURIComponent(token) + '?' + pageQuery();
+              var rr = await fetch(path, { credentials: 'omit', headers: authHeaders() });
+              var jj = await rr.json();
+              if (jj && jj.ok && jj.data && el._bpDt) {
+                el._bpDt.rows = Array.isArray(jj.data.items) ? jj.data.items : el._bpDt.rows;
+                renderDataTable(el, jj.data, shouldShowTitle(el) ? '<h2 class="bp-mod-title">' + esc(jj.data.title || jj.data.module_type) + '</h2>' : '');
+                var newMsg = el.querySelector('[data-dt-msg]');
+                if (newMsg) {
+                  newMsg.textContent = (j.data && j.data.message) || 'Thanks — your submission is live.';
+                  newMsg.className = 'bp-mod-book-msg ok';
+                }
+              }
+            } catch (e2) {
+              /* the submission landed; a stale view is not an error */
+            }
+          }
+        } catch (e) {
+          if (msg) {
+            msg.textContent = e.message || 'Submission failed';
+            msg.className = 'bp-mod-book-msg err';
+          }
+          if (captcha.reset) captcha.reset();
+        } finally {
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      })();
+    });
   }
 
   function fmtMoney(cents) {

@@ -943,7 +943,7 @@ function renderAuth(forcedMode) {
 
   authGate.innerHTML = `
     <div class="auth-card">
-      <div class="auth-brand"><img class="auth-logo-lockup" src="/brand/logo-black.png" alt="BitPype" /></div>
+      <div class="auth-brand"><img class="auth-logo-lockup" src="/brand/logo-white.png" alt="BitPype" /></div>
       <p class="sub">${esc(brandTagline)} — sign in to your workspace.</p>
       ${inviteNote}
       <div class="tabs" id="auth-tabs">
@@ -1173,7 +1173,7 @@ function renderAuthMfa(challenge) {
   authGate.classList.remove('hidden');
   shell.classList.add('hidden');
   authGate.dataset.mode = 'mfa';
-  const brand = `<div class="auth-brand"><img class="auth-logo-lockup" src="/brand/logo-black.png" alt="BitPype" /></div>`;
+  const brand = `<div class="auth-brand"><img class="auth-logo-lockup" src="/brand/logo-white.png" alt="BitPype" /></div>`;
 
   async function finishWith(payload) {
     // Batch 61: registration with a paid plan goes to its Stripe

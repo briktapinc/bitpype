@@ -473,6 +473,7 @@ const PORTAL_MODULE_SUBPATHS = [
   ['calltracking', 'calltracking'],
   ['members', 'members'],
   ['ecommerce', 'ecommerce'],
+  ['datatables', 'datatables'],
 ];
 
 function moduleForbidden(res, moduleKey) {
@@ -1467,6 +1468,27 @@ router.put('/modules/offers/settings', requireClient, actionLimit, async (req, r
         req.client.email
       )
     );
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+// Data Tables config + clear (Batch 88) — before the generic
+// /modules/:type routes so 'datatables' is never parsed as an id.
+router.put('/modules/datatables/config', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.saveDataTableConfig(req.client.workspace_id, req.client.lead_id, req.body || {}, req.client.email)
+    );
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/modules/datatables/clear', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(res, await portal.clearDataTable(req.client.workspace_id, req.client.lead_id, req.client.email));
   } catch (e) {
     fail(res, e);
   }

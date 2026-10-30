@@ -4478,9 +4478,10 @@
     { type: 'googlereviews', label: 'Google Reviews' },
     { type: 'calltracking', label: 'Call Tracking' },
     { type: 'members', label: 'Membership' },
+    { type: 'datatables', label: 'Data Tables' },
   ];
   const MODULE_NAV_GROUPS = [
-    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed', 'googlereviews'] },
+    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed', 'googlereviews', 'datatables'] },
     { id: 'people', label: 'People', types: ['team', 'testimonials', 'careers', 'members'] },
     { id: 'schedule', label: 'Schedule', types: ['events', 'bookings'] },
     { id: 'assist', label: 'Assist', types: ['chatbot', 'calltracking'] },
@@ -4506,6 +4507,7 @@
     googlereviews: { singular: 'review', plural: 'reviews', newBtn: 'New review', kicker: 'Google review' },
     calltracking: { singular: 'call', plural: 'calls', newBtn: 'New call', kicker: 'Call' },
     members: { singular: 'member', plural: 'members', newBtn: 'New member', kicker: 'Member' },
+    datatables: { singular: 'row', plural: 'rows', newBtn: 'New row', kicker: 'Table row' },
   };
   const BOOKING_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const MODULE_STORAGE_KEY = 'bp-portal-module';
@@ -4581,6 +4583,31 @@
       // Members join from the public site — no item editor; the Members
       // pane carries the gating settings and the member list.
       return [];
+    }
+    if (type === 'datatables') {
+      // Batch 88: the row editor's fields ARE the table's columns —
+      // built from the schema the panel / MCP defined.
+      const table = moduleState.datatable || {};
+      const cols = Array.isArray(table.columns) ? table.columns : [];
+      const roles = table.roles || {};
+      const defs = cols.map((col) => {
+        const def = { key: col.key, label: col.label || col.key };
+        if (col.type === 'boolean') {
+          def.kind = 'select';
+          def.options = ['', 'Yes', 'No'];
+        } else if (col.type === 'text' && roles.body === col.key) {
+          def.kind = 'textarea';
+        } else if (col.type === 'date') {
+          def.placeholder = 'YYYY-MM-DD';
+        } else if (col.type === 'link') {
+          def.placeholder = 'https://…';
+        } else if (col.type === 'currency') {
+          def.placeholder = 'e.g. 49.99';
+        }
+        return def;
+      });
+      defs.push({ key: 'status', label: 'Status', kind: 'select', options: ['published', 'pending'] });
+      return defs;
     }
     if (type === 'blog') {
       return [
@@ -4956,6 +4983,8 @@
               ? 'Members join from your site — use the Members tab to choose what they can see and manage their accounts.'
               : moduleState.current === 'calltracking'
                 ? 'The number you set here is the one your site shows — calls to it ring your real phone and are logged below.'
+              : moduleState.current === 'datatables'
+                ? 'One table of your data — prices, listings, schedules, anything — shown on your site as a table, card wall, results list or simple list. Visitors can submit rows if you turn submissions on.'
               : `Manage ${copy.plural} for your ${(meta && meta.label) || 'module'}.`;
     }
     const newBtn = document.getElementById('btn-modules-new');
@@ -4985,6 +5014,7 @@
       googlereviews: 'reviews',
       calltracking: 'call',
       members: 'members',
+      datatables: 'data-table',
     };
     let want = selected || defaults[moduleState.current] || 'home';
     const opts = Array.isArray(pages) && pages.length ? pages : [{ slug: want, title: want }];
@@ -5191,6 +5221,11 @@
   }
 
   function moduleItemTitle(it, type) {
+    if (type === 'datatables') {
+      const cols = ((moduleState.datatable || {}).columns) || [];
+      const first = cols[0] && it[cols[0].key];
+      return first ? String(first) : `#${it.id}`;
+    }
     if (type === 'faq') return it.question || `#${it.id}`;
     if (type === 'testimonials') return it.author_name || it.name || it.title || `#${it.id}`;
     if (type === 'team') return it.name || it.title || `#${it.id}`;
@@ -5249,6 +5284,19 @@
       if (it.provider) bits.push(`<span>${esc(it.provider === 'youtube' ? 'YouTube' : it.provider === 'vimeo' ? 'Vimeo' : it.provider)}</span>`);
       if (it.url) bits.push(`<span>${esc(it.url)}</span>`);
     }
+    if (type === 'datatables') {
+      if (it.source === 'visitor') bits.push('<span>visitor submission</span>');
+      const cols = ((moduleState.datatable || {}).columns) || [];
+      let shown = 0;
+      for (const col of cols) {
+        if (shown >= 3) break;
+        const v = it[col.key];
+        if (v != null && String(v).trim() !== '') {
+          bits.push(`<span>${esc(col.label || col.key)}: ${esc(String(v))}</span>`);
+          shown += 1;
+        }
+      }
+    }
     if (type === 'estimate') {
       bits.length = 0;
       const st = it.status || (it.active ? 'active' : 'inactive');
@@ -5296,11 +5344,32 @@
           <div class="item-card-meta">${moduleItemMeta(it, type)}</div>
         </div>
         <div class="item-card-actions">
+          ${type === 'datatables' && it.status === 'pending' ? `<button type="button" class="btn soft small" data-dt-approve="${it.id}">Approve</button>` : ''}
           <button type="button" class="btn soft small" data-module-edit="${it.id}">Edit</button>
         </div>
       </article>`;
       })
       .join('');
+    // Batch 88 — pending visitor submissions get a one-click approve.
+    if (type === 'datatables') {
+      box.querySelectorAll('[data-dt-approve]').forEach((btn) => {
+        btn.onclick = async () => {
+          const id = btn.getAttribute('data-dt-approve');
+          btn.disabled = true;
+          try {
+            await api(`/modules/datatables/${encodeURIComponent(id)}`, {
+              method: 'PUT',
+              body: JSON.stringify({ status: 'published' }),
+            });
+            moduleMsg('Submission approved — it is live on your site now.', true);
+            await loadModuleItems();
+          } catch (e) {
+            btn.disabled = false;
+            moduleMsg(errText(e), false);
+          }
+        };
+      });
+    }
     // Batch 45 — blog pager (server pages of 6; total comes from the API).
     if (type === 'blog' && moduleState.blogTotal != null) {
       const off = moduleState.blogOffset || 0;
@@ -6187,6 +6256,18 @@
       out.images = [{ image_url: out.image_url }];
       delete out.image_url;
     }
+    if (moduleState.current === 'datatables') {
+      // Batch 88: the editor fields are the table's columns — ship them
+      // as one values object (the server validates types per column).
+      const cols = ((moduleState.datatable || {}).columns) || [];
+      const values = {};
+      for (const col of cols) {
+        if (out[col.key] != null) values[col.key] = out[col.key];
+      }
+      const res = { values };
+      if (out.status) res.status = out.status;
+      return res;
+    }
     return out;
   }
 
@@ -6229,6 +6310,7 @@
     moduleState.calltracking = data.calltracking || null;
     moduleState.members = data.members || null;
     moduleState.shop = data.shop || null;
+    moduleState.datatable = data.datatable || null;
     moduleState.categories = Array.isArray(data.categories) ? data.categories : [];
     if (type === 'bookings') {
       const booking = moduleState.booking || {};
@@ -6248,6 +6330,7 @@
     renderCallTrackingAdminPanel();
     renderMembersAdminPanel();
     renderMenuCategoriesPanel();
+    renderDatatablesPanel();
     renderOffersDisplayPanel();
     renderShopPaymentsPanel();
     syncModulesPaneTabs();
@@ -6418,6 +6501,192 @@
           moduleState.embed.settings.layout = saved;
           moduleMsg('Offer layout saved.', true);
           renderOffersDisplayPanel();
+        } catch (e) {
+          moduleMsg(errText(e), false);
+        }
+      };
+    }
+  }
+
+  function renderDatatablesPanel() {
+    const host = document.getElementById('modules-datatables-panel');
+    if (!host) return;
+    if (moduleState.current !== 'datatables') {
+      host.innerHTML = '';
+      host.hidden = true;
+      return;
+    }
+    host.hidden = false;
+    const table = moduleState.datatable || {};
+    const columns = Array.isArray(table.columns) ? table.columns : [];
+    const roles = table.roles || {};
+    const submitFields = Array.isArray(table.submit_fields) ? table.submit_fields : [];
+    const pending = Number(table.pending_count) || 0;
+    const COLUMN_TYPES = ['text', 'number', 'currency', 'date', 'link', 'boolean'];
+    const TEMPLATES = [
+      ['table', 'Table — searchable, sortable, paged'],
+      ['wall', 'Card wall — social-wall style cards'],
+      ['results', 'Results list — search-results style'],
+      ['list', 'Simple list — clean stacked rows'],
+    ];
+    const ROLE_DEFS = [
+      ['title', 'Title'],
+      ['body', 'Body text'],
+      ['image', 'Image'],
+      ['link', 'Link'],
+      ['meta', 'Meta line'],
+      ['badge', 'Badge'],
+    ];
+    const colOptions = (selected) =>
+      `<option value=""${!selected ? ' selected' : ''}>— none —</option>` +
+      columns
+        .map((c) => `<option value="${esc(c.key)}"${selected === c.key ? ' selected' : ''}>${esc(c.label || c.key)}</option>`)
+        .join('');
+    const colRowHtml = (c) => `<div data-dt-col-row style="display:flex;gap:8px;align-items:center;padding:6px 0;flex-wrap:wrap">
+        <input type="text" data-dt-col-key value="${esc(c.key || '')}" placeholder="key (e.g. price)" style="flex:1;min-width:110px" aria-label="Column key" />
+        <input type="text" data-dt-col-label value="${esc(c.label || '')}" placeholder="Label (e.g. Price)" style="flex:1;min-width:110px" aria-label="Column label" />
+        <select data-dt-col-type aria-label="Column type">${COLUMN_TYPES.map((t) => `<option value="${t}"${c.type === t ? ' selected' : ''}>${t}</option>`).join('')}</select>
+        <button type="button" class="btn soft small" data-dt-col-remove>Remove</button>
+      </div>`;
+    host.innerHTML = `<div class="card" style="margin-bottom:14px">
+      <h3 style="margin:0 0 6px">Table setup</h3>
+      <p class="hint" style="margin:0 0 8px">Name your table and define its columns (up to 12). Rows are edited in the list below — each row editor follows these columns.</p>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="text" id="dt-title" value="${esc(table.title || '')}" placeholder="Table name (e.g. Price list)" style="flex:1;min-width:180px" />
+        <button type="button" class="btn soft small" id="btn-dt-save-title">Save name</button>
+      </div>
+      <div id="dt-cols" style="margin-top:10px">${columns.map(colRowHtml).join('') || '<p class="hint">No columns yet — add your first one below.</p>'}</div>
+      <div class="row" style="gap:6px;flex-wrap:wrap;margin-top:6px">
+        <button type="button" class="btn soft small" id="btn-dt-col-add">Add column</button>
+        <button type="button" class="btn soft small" id="btn-dt-save-cols">Save columns</button>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <h3 style="margin:0 0 6px">How it appears on your site</h3>
+      <p class="hint" style="margin:0 0 8px">Pick a layout, then tell it which column plays which part. Anything left on “— none —” is simply skipped.</p>
+      <div class="field"><label>Layout</label>
+        <select id="dt-template">${TEMPLATES.map(([v, l]) => `<option value="${v}"${table.template === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
+      ${ROLE_DEFS.map(([role, label]) => `<div class="field"><label>${label} column</label><select data-dt-role="${role}">${colOptions(roles[role])}</select></div>`).join('')}
+      <div class="field"><label>Visitor submissions</label>
+        <select id="dt-submit-mode">
+          <option value="off"${table.submit_mode === 'off' ? ' selected' : ''}>Off — no submission form</option>
+          <option value="moderated"${table.submit_mode !== 'off' && table.submit_mode !== 'live' ? ' selected' : ''}>Moderated — you approve each submission first</option>
+          <option value="live"${table.submit_mode === 'live' ? ' selected' : ''}>Live — submissions appear right away</option>
+        </select></div>
+      <div class="field"><label>Fields the submission form collects</label>
+        ${columns.length ? columns.map((c) => `<label style="display:inline-flex;gap:6px;align-items:center;margin:0 12px 6px 0"><input type="checkbox" data-dt-submit-field="${esc(c.key)}"${submitFields.includes(c.key) ? ' checked' : ''} /> ${esc(c.label || c.key)}</label>`).join('') : '<p class="hint">Define columns first.</p>'}
+      </div>
+      <button type="button" class="btn soft small" id="btn-dt-save-display">Save appearance</button>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <h3 style="margin:0 0 6px">Rows</h3>
+      ${pending ? `<p class="hint" style="margin:0 0 8px"><strong>${pending} visitor submission${pending === 1 ? '' : 's'} waiting for approval</strong> — look for the rows marked “pending” below and hit Approve.</p>` : '<p class="hint" style="margin:0 0 8px">Rows are managed in the list below.</p>'}
+      <button type="button" class="btn ghost small" id="btn-dt-clear">Delete all rows</button>
+    </div>`;
+    const reload = async () => {
+      try {
+        await loadModuleItems();
+      } catch (e) {
+        moduleMsg(errText(e), false);
+      }
+    };
+    const saveTitleBtn = document.getElementById('btn-dt-save-title');
+    if (saveTitleBtn) {
+      saveTitleBtn.onclick = async () => {
+        const input = document.getElementById('dt-title');
+        try {
+          await api('/modules/datatables/config', {
+            method: 'PUT',
+            body: JSON.stringify({ title: String((input && input.value) || '').trim() }),
+          });
+          moduleMsg('Table name saved.', true);
+          await reload();
+        } catch (e) {
+          moduleMsg(errText(e), false);
+        }
+      };
+    }
+    const colsHost = document.getElementById('dt-cols');
+    const addColBtn = document.getElementById('btn-dt-col-add');
+    if (addColBtn && colsHost) {
+      addColBtn.onclick = () => {
+        if (colsHost.querySelectorAll('[data-dt-col-row]').length >= 12) {
+          moduleMsg('A table can have at most 12 columns.', false);
+          return;
+        }
+        const wrap = document.createElement('div');
+        wrap.innerHTML = colRowHtml({ key: '', label: '', type: 'text' });
+        const row = wrap.firstElementChild;
+        colsHost.appendChild(row);
+        const rm = row.querySelector('[data-dt-col-remove]');
+        if (rm) rm.onclick = () => row.remove();
+        const keyInput = row.querySelector('[data-dt-col-key]');
+        if (keyInput) keyInput.focus();
+      };
+    }
+    host.querySelectorAll('[data-dt-col-remove]').forEach((btn) => {
+      btn.onclick = () => {
+        const row = btn.closest('[data-dt-col-row]');
+        if (row) row.remove();
+      };
+    });
+    const saveColsBtn = document.getElementById('btn-dt-save-cols');
+    if (saveColsBtn) {
+      saveColsBtn.onclick = async () => {
+        const cols = [];
+        host.querySelectorAll('[data-dt-col-row]').forEach((row) => {
+          const key = String((row.querySelector('[data-dt-col-key]') || {}).value || '').trim();
+          const label = String((row.querySelector('[data-dt-col-label]') || {}).value || '').trim();
+          const type = String((row.querySelector('[data-dt-col-type]') || {}).value || 'text');
+          if (key || label) cols.push({ key, label, type });
+        });
+        try {
+          await api('/modules/datatables/config', { method: 'PUT', body: JSON.stringify({ columns: cols }) });
+          moduleMsg('Columns saved.', true);
+          await reload();
+        } catch (e) {
+          moduleMsg(errText(e), false);
+        }
+      };
+    }
+    const saveDisplayBtn = document.getElementById('btn-dt-save-display');
+    if (saveDisplayBtn) {
+      saveDisplayBtn.onclick = async () => {
+        const rolesOut = {};
+        host.querySelectorAll('[data-dt-role]').forEach((sel) => {
+          rolesOut[sel.getAttribute('data-dt-role')] = sel.value || null;
+        });
+        const fields = [];
+        host.querySelectorAll('[data-dt-submit-field]').forEach((cb) => {
+          if (cb.checked) fields.push(cb.getAttribute('data-dt-submit-field'));
+        });
+        const modeSel = document.getElementById('dt-submit-mode');
+        const tplSel = document.getElementById('dt-template');
+        try {
+          await api('/modules/datatables/config', {
+            method: 'PUT',
+            body: JSON.stringify({
+              template: tplSel ? tplSel.value : undefined,
+              roles: rolesOut,
+              submit_mode: modeSel ? modeSel.value : undefined,
+              submit_fields: fields,
+            }),
+          });
+          moduleMsg('Appearance saved.', true);
+          await reload();
+        } catch (e) {
+          moduleMsg(errText(e), false);
+        }
+      };
+    }
+    const clearBtn = document.getElementById('btn-dt-clear');
+    if (clearBtn) {
+      clearBtn.onclick = async () => {
+        if (!window.confirm('Delete ALL rows from this table? The columns and settings stay. This cannot be undone.')) return;
+        try {
+          const res = await api('/modules/datatables/clear', { method: 'POST', body: JSON.stringify({}) });
+          moduleMsg(`Deleted ${(res && res.deleted) || 0} rows.`, true);
+          await reload();
         } catch (e) {
           moduleMsg(errText(e), false);
         }

@@ -262,6 +262,36 @@ router.post('/:token/estimate', estimateLimit, captcha, async (req, res) => {
   }
 });
 
+const datatableSubmitLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 40 });
+
+/**
+ * Data Tables (Batch 88): the module's only public write path — a
+ * visitor submission into the site's table. Same protections as the
+ * booking / estimate posts above (per-IP rate limit + Turnstile);
+ * whether the row lands pending or live is the instance's
+ * submit_mode, decided server-side in siteModules.
+ */
+router.post('/:token/submit', datatableSubmitLimit, captcha, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    const body = req.body || {};
+    const data = domain.withDb(workspaceId, (db) =>
+      siteModules.createPublicDataTableSubmissionByToken(
+        db,
+        req.params.token,
+        { values: body.values != null ? body.values : body },
+        gateOpts(req)
+      )
+    );
+    res.json({ ok: true, data: { ...data, workspaceId } });
+  } catch (e) {
+    if (e && e.code === 'MEMBER_LOCKED') {
+      return res.status(401).json({ ok: false, error: e.message, code: e.code, gate: e.gate || null });
+    }
+    fail(res, e, e.status || 400);
+  }
+});
+
 /* ── Membership (site user accounts + page gating) ── */
 
 const memberLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 40 });

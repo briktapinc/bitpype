@@ -49,7 +49,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 // The approved document, byte for byte (~/workspace/your_files/
 // bitpype-agent-soul.md as shipped). A content edit must update this
 // pin deliberately — that is the point of pinning it.
-const SOUL_SHA256 = '7a7dd6e8ad438d5cd8e36ea344323bf0a39798b15f114bc8fd62f75f510dcbee';
+const SOUL_SHA256 = 'ebc5a251b4dbaeb68b051213013651aecef24e30f7ada905f72b77c1ded27eb8';
 const SOUL_HEADINGS = [
   '## 1. Who you are here',
   '## 2. The work',

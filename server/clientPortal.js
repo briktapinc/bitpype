@@ -2632,6 +2632,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     let calltracking = null;
     let members = null;
     let shop = null;
+    let datatable = null;
     if (type === 'blog') {
       // Batch 45: server-side paging when the caller asks for a page
       // (portal blog tab); no limit = the historical full list.
@@ -2749,6 +2750,41 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
         webhook_path: `/api/v1/membership/webhook/${Number(workspaceId)}`,
       };
     }
+    else if (type === 'datatables') {
+      // Batch 88: rows ride the generic item CRUD with flattened,
+      // editor-friendly cell strings (the typed values stay under
+      // `values`); the config block drives the panel + dynamic fields.
+      const table = modules.getDataTable(db, Number(leadId));
+      const cols = table.columns || [];
+      items = table.rows.map((r) => {
+        const flat = {
+          id: r.id,
+          sort_order: r.sort_order,
+          status: r.status,
+          source: r.source,
+          values: r.values,
+        };
+        for (const col of cols) {
+          const v = r.values ? r.values[col.key] : null;
+          if (v == null) flat[col.key] = '';
+          else if (col.type === 'boolean') flat[col.key] = v ? 'Yes' : 'No';
+          else if (col.type === 'link') flat[col.key] = typeof v === 'object' ? String(v.url || '') : String(v);
+          else flat[col.key] = String(v);
+        }
+        return flat;
+      });
+      datatable = {
+        title: table.title,
+        columns: table.columns,
+        template: table.template,
+        roles: table.roles,
+        submit_mode: table.submit_mode,
+        submit_fields: table.submit_fields,
+        submit_fields_configured: table.submit_fields_configured,
+        row_count: table.row_count,
+        pending_count: table.pending_count,
+      };
+    }
     else if (type === 'chatbot') {
       const chat = require('./chatbot');
       const summary = chat.portalChatbotSummary(db, Number(leadId));
@@ -2777,6 +2813,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     if (calltracking) out.calltracking = calltracking;
     if (members) out.members = members;
     if (shop) out.shop = shop;
+    if (datatable) out.datatable = datatable;
     return out;
   });
 }
@@ -2803,6 +2840,12 @@ async function createModuleItem(workspaceId, leadId, moduleType, body, clientEma
     else if (type === 'careers') item = modules.createCareersPosting(db, Number(leadId), body || {});
     else if (type === 'video') item = modules.createVideoItem(db, Number(leadId), body || {});
     else if (type === 'estimate') item = modules.createEstimateOption(db, Number(leadId), body || {});
+    else if (type === 'datatables')
+      item = modules.createDataTableRow(db, Number(leadId), {
+        values: body && body.values != null ? body.values : body || {},
+        status: body && body.status,
+        sort_order: body && body.sort_order,
+      });
     else if (type === 'socialfeed')
       throw Object.assign(new Error('Social Feed updates itself from your social posts — there are no items to add.'), {
         code: 'VALIDATION',
@@ -2848,6 +2891,7 @@ async function updateModuleItem(workspaceId, leadId, moduleType, id, body, clien
     else if (type === 'careers') item = modules.updateCareersPosting(db, Number(leadId), id, body || {});
     else if (type === 'video') item = modules.updateVideoItem(db, Number(leadId), id, body || {});
     else if (type === 'estimate') item = modules.updateEstimateOption(db, Number(leadId), id, body || {});
+    else if (type === 'datatables') item = modules.updateDataTableRow(db, Number(leadId), id, body || {});
     else if (type === 'socialfeed')
       throw Object.assign(new Error('Social Feed updates itself from your social posts — there are no items to edit.'), {
         code: 'VALIDATION',
@@ -2891,6 +2935,7 @@ async function deleteModuleItem(workspaceId, leadId, moduleType, id, clientEmail
     if (type === 'careers') return modules.deleteCareersPosting(db, Number(leadId), id);
     if (type === 'video') return modules.deleteVideoItem(db, Number(leadId), id);
     if (type === 'estimate') return modules.deleteEstimateOption(db, Number(leadId), id);
+    if (type === 'datatables') return modules.deleteDataTableRow(db, Number(leadId), id);
     if (type === 'socialfeed')
       throw Object.assign(new Error('Social Feed updates itself from your social posts — there are no items to delete.'), {
         code: 'VALIDATION',
@@ -3040,6 +3085,28 @@ async function saveSocialFeedConfig(workspaceId, leadId, body, clientEmail) {
   return domain.withDb(workspaceId, (db) => ({
     config: modules.updateSocialFeedConfig(db, Number(leadId), body || {}),
   }));
+}
+
+/**
+ * Data Tables (Batch 88): the panel's config save — title, column
+ * schema, presentation template + display roles, and the visitor
+ * submit settings, all normalized server-side in siteModules.
+ */
+async function saveDataTableConfig(workspaceId, leadId, body, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => ({
+    config: modules.updateDataTableConfig(db, Number(leadId), body || {}),
+  }));
+}
+
+/** Data Tables (Batch 88): delete every row; columns/settings stay. */
+async function clearDataTable(workspaceId, leadId, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => modules.clearDataTableRows(db, Number(leadId)));
 }
 
 /**
@@ -4161,6 +4228,8 @@ module.exports = {
   saveBookingHours,
   saveEstimateConfig,
   saveSocialFeedConfig,
+  saveDataTableConfig,
+  clearDataTable,
   saveGoogleReviewsConfig,
   refreshGoogleReviews,
   saveCallTrackingConfig,

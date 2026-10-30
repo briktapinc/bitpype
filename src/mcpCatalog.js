@@ -997,6 +997,7 @@ const tools = [
             'calltracking',
             'members',
             'googlereviews',
+            'datatables',
           ],
         },
         moduleType: {
@@ -1021,6 +1022,7 @@ const tools = [
             'calltracking',
             'members',
             'googlereviews',
+            'datatables',
           ],
         },
         title: { type: 'string' },
@@ -1808,6 +1810,107 @@ const tools = [
       type: 'object',
       properties: { id: { type: 'integer', minimum: 1 }, leadId: { type: 'integer', minimum: 1 } },
       required: ['id'],
+    },
+  },
+  {
+    name: 'datatables.get',
+    description:
+      'Get the lead\'s Data Table: title, column schema, presentation template + display roles, submit settings, and ALL rows (published + pending visitor submissions). One table per site (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: { leadId: { type: 'integer', minimum: 1 } },
+    },
+  },
+  {
+    name: 'datatables.setColumns',
+    description:
+      'Define (or replace) the Data Table column schema and optionally its title. columns: [{ key, label, type }] — key is a lowercase identifier, type is text|number|currency|date|link|boolean; max 12 columns. Replacing the schema keeps existing row values for keys that survive (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        title: { type: 'string' },
+        columns: { type: 'array', items: { type: 'object' } },
+      },
+      required: ['leadId', 'columns'],
+    },
+  },
+  {
+    name: 'datatables.setDisplay',
+    description:
+      'Set how the Data Table renders on the site: template table|wall|results|list; roles { title, body, image, link, meta, badge } mapping each role to a column key (null clears); submit_mode off|moderated|live (visitor submissions: moderated = pending until approved, the default); submit_fields = column keys the visitor form collects (default: the title + body columns) (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        template: { type: 'string', enum: ['table', 'wall', 'results', 'list'] },
+        roles: { type: 'object' },
+        submit_mode: { type: 'string', enum: ['off', 'moderated', 'live'] },
+        submit_fields: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['leadId'],
+    },
+  },
+  {
+    name: 'datatables.addRow',
+    description:
+      'Add one row to the Data Table. values is an object keyed by column key (validated against the schema; currency accepts "$49.99", dates are YYYY-MM-DD, links are URLs or { url, label }). status defaults to published. Max 500 rows (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        values: { type: 'object' },
+        status: { type: 'string', enum: ['published', 'pending'] },
+        sort_order: { type: 'number' },
+      },
+      required: ['leadId', 'values'],
+    },
+  },
+  {
+    name: 'datatables.addRows',
+    description:
+      'Seed several Data Table rows at once. rows: [{ values: {…} }] — every row is validated before any is inserted. Max 500 rows per table (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        rows: { type: 'array', items: { type: 'object' } },
+      },
+      required: ['leadId', 'rows'],
+    },
+  },
+  {
+    name: 'datatables.updateRow',
+    description:
+      'Update a Data Table row by id: pass values to merge cell changes, status to publish/approve (published) or unpublish (pending) a row, sort_order to reorder (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        id: { type: 'integer', minimum: 1 },
+        values: { type: 'object' },
+        status: { type: 'string', enum: ['published', 'pending'] },
+        sort_order: { type: 'number' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'datatables.deleteRow',
+    description: 'Delete a Data Table row by id (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: { leadId: { type: 'integer', minimum: 1 }, id: { type: 'integer', minimum: 1 } },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'datatables.clear',
+    description: 'Delete ALL rows from the lead\'s Data Table (columns and settings are kept) (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: { leadId: { type: 'integer', minimum: 1 } },
+      required: ['leadId'],
     },
   },
   {
