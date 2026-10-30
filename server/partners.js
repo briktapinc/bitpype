@@ -65,7 +65,7 @@ let tablesReady = false;
 
 async function ensurePartnerTables() {
   if (tablesReady) return;
-  if (driver === 'mysql') {
+  if (driver() === 'mysql') {
     await query(
       `CREATE TABLE IF NOT EXISTS partner_earnings (
          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,

@@ -184,6 +184,12 @@ function partA() {
     assert.ok(indexHtml.includes('data-route="partner-earnings"'), 'sidebar anchor');
     const adminJs = fs.readFileSync(path.join(root, 'server', 'admin.js'), 'utf8');
     assert.ok(adminJs.includes('account_type'), 'admin user management carries account_type');
+    // Dialect guard (live-proof find, Batch 80): db.driver is a
+    // FUNCTION — partners.js must call it. Comparing the function
+    // itself silently took the SQLite DDL branch on MySQL.
+    const partnersSrc = fs.readFileSync(path.join(root, 'server', 'partners.js'), 'utf8');
+    assert.ok(partnersSrc.includes("driver() === 'mysql'"), 'partners dialect check calls driver()');
+    assert.ok(!/[^.]driver ===/.test(partnersSrc), 'no bare driver comparison remains');
   });
 
   check('deploy eligibility: a partner-app lead is NOT deploy-eligible (Batch 68 rule)', () => {
