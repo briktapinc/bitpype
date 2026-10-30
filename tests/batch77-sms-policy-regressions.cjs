@@ -168,6 +168,11 @@ const fixture = {};
 async function seed() {
   const db = require(path.join(root, 'server/db.js'));
   await db.migrate();
+  // Pin the public URL so the resolver is deterministic in the spawned
+  // server (a seeded general.public_url would otherwise win over
+  // APP_URL — Batch 56 resolution order; same pin as Batch 76).
+  const platform = require(path.join(root, 'server', 'platform.js'));
+  await platform.setPlatformSetting('general.public_url', 'https://bitpype.test');
   await db.query("INSERT INTO workspaces (id, name, slug) VALUES (1, 'SMS Policy Fixture', 'sms-policy-fixture')");
   const { openWorkspaceDb } = require(path.join(root, 'server/workspaceDb.js'));
   const wdb = openWorkspaceDb(1);
