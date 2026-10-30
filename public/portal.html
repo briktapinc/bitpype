@@ -1844,6 +1844,41 @@
       overflow-x: auto;
       white-space: pre;
     }
+    /* Batch 84: the Agent SOUL.md document, rendered from
+       server/agent-soul.md into #soul-doc. Warm-theme document type:
+       generous padding, never text on an edge. */
+    .soul-doc { padding: 30px 34px; }
+    .soul-doc h1 {
+      font-family: Fraunces, Georgia, serif;
+      font-size: 1.65rem;
+      line-height: 1.2;
+      margin: 0 0 14px;
+      color: var(--ink);
+    }
+    .soul-doc h2 {
+      font-size: 1.12rem;
+      margin: 28px 0 10px;
+      color: var(--ink);
+    }
+    .soul-doc h2:first-of-type { margin-top: 22px; }
+    .soul-doc h3 { font-size: 1rem; margin: 20px 0 8px; color: var(--ink); }
+    .soul-doc p { margin: 0 0 12px; line-height: 1.68; color: var(--text); }
+    .soul-doc ul, .soul-doc ol { margin: 0 0 14px; padding-left: 24px; line-height: 1.62; }
+    .soul-doc li { margin-bottom: 7px; }
+    .soul-doc hr { border: none; border-top: 1px solid var(--border); margin: 22px 0; }
+    .soul-doc code {
+      font-family: Consolas, 'Cascadia Mono', monospace;
+      font-size: 0.86em;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1px 5px;
+      white-space: nowrap;
+    }
+    @media (max-width: 700px) {
+      .soul-doc { padding: 22px 20px; }
+      .soul-doc code { white-space: normal; }
+    }
     .mcp-table-wrap {
       width: 100%;
       overflow-x: auto;
@@ -2000,6 +2035,7 @@
         <button type="button" role="tab" id="nav-social" data-panel="social" aria-controls="sec-social" aria-selected="false">Social</button>
         <button type="button" role="tab" id="nav-referrals" data-panel="referrals" aria-controls="sec-referrals" aria-selected="false">Referrals</button>
         <button type="button" role="tab" id="nav-mcp" data-panel="mcp" aria-controls="sec-mcp" aria-selected="false" hidden>MCP</button>
+        <button type="button" role="tab" id="nav-soul" data-panel="soul" aria-controls="sec-soul" aria-selected="false">Agent SOUL.md</button>
         <button type="button" role="tab" id="nav-analytics" data-panel="analytics" aria-controls="sec-analytics" aria-selected="false">Analytics</button>
         <button type="button" role="tab" id="nav-seo" data-panel="seo" aria-controls="sec-seo" aria-selected="false">SEO</button>
         <button type="button" role="tab" id="nav-gbp" data-panel="gbp" aria-controls="sec-gbp" aria-selected="false">Google Profile</button>
@@ -2525,6 +2561,7 @@
       <section class="block portal-panel" id="sec-mcp" role="tabpanel" aria-labelledby="nav-mcp" data-panel="mcp" hidden>
         <h2>MCP</h2>
         <p class="lede">Connect Muse, Claude, Cursor, or any MCP client to manage your website — pages, modules, theme, publish, and billing links. Social scheduling via MCP is Premium-only. Form submissions stay in the Forms tab, not MCP.</p>
+        <p class="hint" style="margin:0 0 14px">New to agent access? <a href="#/soul">Add the BitPype SOUL.md to your agent first →</a></p>
         <div class="panel" id="mcp-upgrade">
           <p style="margin:0 0 12px">Upgrade to <strong>Standard</strong>, <strong>Pro</strong> or <strong>Premium</strong> to mint MCP tokens and connect an AI agent to your site.</p>
           <button type="button" class="btn" id="btn-mcp-upgrade">View plans</button>
@@ -2580,6 +2617,17 @@
             </div>
           </div>
         </div>
+      </section>
+
+      <section class="block portal-panel" id="sec-soul" role="tabpanel" aria-labelledby="nav-soul" data-panel="soul" hidden>
+        <h2>Agent SOUL.md</h2>
+        <p class="lede">This is the instruction file for AI agents that work in BitPype. Add it to your agent before the agent uses BitPype — it teaches the agent how to operate this platform the way it is meant to be operated.</p>
+        <div class="row" style="margin-bottom:16px">
+          <button type="button" class="btn soft small" id="btn-soul-copy">Copy SOUL.md</button>
+          <a class="btn soft small" id="btn-soul-download" href="/api/v1/portal/agent-soul/download" download>Download SOUL.md</a>
+        </div>
+        <p class="msg" id="msg-soul" role="status"></p>
+        <div class="panel soul-doc" id="soul-doc"><p class="hint" style="margin:0">Loading…</p></div>
       </section>
 
       <section class="block portal-panel" id="sec-referrals" role="tabpanel" aria-labelledby="nav-referrals" data-panel="referrals" hidden>

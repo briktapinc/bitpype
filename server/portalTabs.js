@@ -43,6 +43,11 @@ const PORTAL_TABS = [
   'social',
   'referrals',
   'mcp',
+  // Batch 84: the BitPype Agent SOUL.md page — owner factory default
+  // gains it via PORTAL_TABS.slice() (partners too); renters stay on
+  // their factory three (an agent instruction file is the operator's,
+  // not a site tenant's).
+  'soul',
   'analytics',
   'seo',
   'rentals',
@@ -62,6 +67,7 @@ const TAB_LABELS = {
   social: 'Social',
   referrals: 'Referrals',
   mcp: 'MCP',
+  soul: 'Agent SOUL.md',
   analytics: 'Analytics',
   seo: 'SEO',
   rentals: 'Rentals',

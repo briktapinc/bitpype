@@ -414,6 +414,7 @@ const PORTAL_ROUTE_TABS = [
   ['/calendar', 'social'],
   ['/referrals', 'referrals'],
   ['/mcp', 'mcp'],
+  ['/agent-soul', 'soul'],
   ['/analytics', 'analytics'],
   ['/seo', 'seo'],
   ['/rentals', 'rentals'],
@@ -513,6 +514,39 @@ async function portalModuleGuard(req, res, next) {
 }
 
 router.use(requireClient, portalTabGuard, portalModuleGuard);
+
+// ---------------------------------------------------------------------------
+// Batch 84 — Agent SOUL.md page. The document ships as ONE server-side
+// source file (server/agent-soul.md, served via server/agentSoul.js) so
+// it can be updated in a single place. Access rides the Batch 29 tab
+// guard above: PORTAL_ROUTE_TABS maps /agent-soul → 'soul', which the
+// owner + partner factory tab sets include and renters lack — a renter
+// gets TAB_FORBIDDEN here, never just a hidden nav button. The read
+// route returns the rendered HTML for the page plus the raw markdown
+// for the Copy action; the download route returns the exact source
+// bytes as a file attachment.
+// ---------------------------------------------------------------------------
+const agentSoul = require('../agentSoul');
+
+router.get('/agent-soul', requireClient, async (req, res) => {
+  try {
+    const doc = agentSoul.loadSoul();
+    ok(res, { filename: agentSoul.DOWNLOAD_FILENAME, markdown: doc.markdown, html: doc.html });
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+
+router.get('/agent-soul/download', requireClient, async (req, res) => {
+  try {
+    const doc = agentSoul.loadSoul();
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${agentSoul.DOWNLOAD_FILENAME}"`);
+    res.send(doc.markdown);
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
 
 router.get('/calendar', requireClient, async (req, res) => {
   try {

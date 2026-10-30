@@ -140,6 +140,7 @@
     'social',
     'referrals',
     'mcp',
+    'soul',
     'analytics',
     'seo',
     'rentals',
@@ -206,6 +207,8 @@
     agent: 'mcp',
     muse: 'mcp',
     cursor: 'mcp',
+    soul: 'soul',
+    'agent-soul': 'soul',
   };
 
   function resolvePortalPanel(raw) {
@@ -330,6 +333,7 @@
     if (wrap) wrap.classList.toggle('is-website-wide', next === 'website');
 
     if (next === 'mcp' && state.mcpPaid) refreshMcpTokens().catch(() => {});
+    if (next === 'soul' && typeof loadAgentSoul === 'function') loadAgentSoul().catch(() => {});
     if (next === 'changes') loadChangesHistory().catch(() => {});
     if (next === 'referrals') loadReferrals().catch(() => {});
     if (next === 'analytics') loadAnalytics();
@@ -3988,6 +3992,21 @@
     const planId = String(state.plan || fallbackPlanId || 'free');
     const name = state.planName || PLAN_NAMES[planId] || planId;
     el.textContent = `Your plan: ${name}.`;
+  }
+
+  // Batch 84 — Agent SOUL.md panel. The server owns the document
+  // (server/agent-soul.md); this loader fetches the rendered HTML for
+  // reading plus the raw markdown the Copy button puts on the
+  // clipboard, exactly as served — the page never re-types the text.
+  let soulMarkdown = '';
+  let soulLoaded = false;
+  async function loadAgentSoul() {
+    if (soulLoaded) return;
+    const data = await api('/agent-soul');
+    soulMarkdown = data.markdown || '';
+    const doc = document.getElementById('soul-doc');
+    if (doc) doc.innerHTML = data.html || '';
+    soulLoaded = true;
   }
 
   const mcpEndpoint = () => `${window.location.origin}/mcp`;
@@ -7658,6 +7677,28 @@
   }
 
   initMcpEndpointUi();
+
+  const btnSoulCopy = document.getElementById('btn-soul-copy');
+  if (btnSoulCopy) {
+    btnSoulCopy.onclick = async () => {
+      const msg = document.getElementById('msg-soul');
+      try {
+        if (!soulLoaded) await loadAgentSoul();
+        if (!soulMarkdown) throw new Error('The document is still loading — try again in a moment.');
+        const copied = await copyText(soulMarkdown);
+        if (!copied) throw new Error('Copy failed — use Download instead.');
+        if (msg) {
+          msg.className = 'msg ok';
+          msg.textContent = 'SOUL.md copied — paste it into your agent to add it.';
+        }
+      } catch (e) {
+        if (msg) {
+          msg.className = 'msg err';
+          msg.textContent = errText(e);
+        }
+      }
+    };
+  }
 
   const btnMcpCopyConfig = document.getElementById('btn-mcp-copy-config');
   if (btnMcpCopyConfig) {
