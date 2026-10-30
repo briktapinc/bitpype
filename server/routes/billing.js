@@ -55,6 +55,16 @@ router.post('/credits/checkout', async (req, res) => {
   try {
     const workspaceId = (req.body && req.body.workspaceId) || (req.session && req.session.workspaceId);
     const quantity = req.body && req.body.quantity;
+    // Batch 80: partner purchase gate — a partner's credits purchase
+    // becomes an approval request; no checkout session is created.
+    const partners = require('../partners');
+    const gate = await partners.gatePurchase({
+      userId: req.session && req.session.userId,
+      workspaceId: workspaceId || null,
+      actionKind: 'credits_checkout',
+      payload: { workspaceId: workspaceId || null, quantity: quantity != null ? quantity : null },
+    });
+    if (gate) return res.status(202).json({ ok: true, data: gate });
     ok(res, await billing.createCreditsCheckoutSession(req.session.userId, workspaceId, { quantity }));
   } catch (e) {
     fail(res, e);

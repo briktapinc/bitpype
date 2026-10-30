@@ -23,6 +23,12 @@
  *   renter → tabs [website, modules, rentals], modules [calltracking]
  *            (a site tenant gets their site, the call log, and their
  *            rental view — nothing else unless admin widens it).
+ *   partner → every tab, every module (Batch 80, Creator Partner
+ *            program — partners work with the full toolset; the type
+ *            rides this same registry so admin-configured defaults +
+ *            per-user overrides apply to partners too. Staff-side
+ *            partner accounts are platform `users` classified by
+ *            users.account_type — see server/partners.js).
  */
 
 const { MODULE_TYPES, MODULE_META } = require('./siteModules');
@@ -63,7 +69,7 @@ const TAB_LABELS = {
   gbp: 'Google Profile',
 };
 
-const USER_TYPES = ['owner', 'renter'];
+const USER_TYPES = ['owner', 'renter', 'partner'];
 
 // ------------------------------------------------------------- modules
 const PORTAL_MODULES = MODULE_TYPES.slice();
@@ -76,10 +82,12 @@ const FACTORY_DEFAULTS = {
   tabs: {
     owner: PORTAL_TABS.slice(),
     renter: ['website', 'modules', 'rentals'],
+    partner: PORTAL_TABS.slice(),
   },
   modules: {
     owner: PORTAL_MODULES.slice(),
     renter: ['calltracking'],
+    partner: PORTAL_MODULES.slice(),
   },
 };
 
@@ -94,6 +102,16 @@ function normalizeUserType(raw) {
     .trim()
     .toLowerCase();
   return USER_TYPES.includes(t) ? t : 'owner';
+}
+
+/**
+ * Owner-tier types (Batch 80): 'owner' and 'partner' both carry full
+ * portal authority; 'renter' is the restricted tier. Owner-only route
+ * defaults and destructive actions check this, not === 'owner'.
+ */
+function isOwnerTier(raw) {
+  const t = normalizeUserType(raw);
+  return t === 'owner' || t === 'partner';
 }
 
 /**
@@ -289,6 +307,7 @@ module.exports = {
   MODULE_TYPE_DEFAULTS,
   SETTINGS_KEY,
   normalizeUserType,
+  isOwnerTier,
   parseNavOverrides,
   parseModuleOverrides,
   sanitizeNavOverrides,

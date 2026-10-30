@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Work with us — BitPype</title>
+  <meta name="description" content="Four ways to build a website business on BitPype: partner free and earn 30%, run your own Solo instance as a creator or operator, or own the software and build your agency." />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="BitPype" />
+  <meta property="og:title" content="Work with us — BitPype" />
+  <meta property="og:description" content="Partner, Creator, Solo or Software — four doors into the same platform. Find the one that fits you." />
+  <meta property="og:url" content="{{PUBLIC_URL}}/work-with-us" />
+  <meta property="og:image" content="{{PUBLIC_URL}}/brand/bitpype-mark.svg" />
+  <meta name="twitter:card" content="summary" />
+  <link rel="icon" href="/brand/bitpype-mark.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;1,9..144,500&family=Figtree:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    /* App design system (same tokens as public/landing.html): warm
+       /how widget theme — cream/paper surfaces, ink text, teal accent,
+       dark ink nav, Figtree body, Fraunces display headlines. */
+    :root {
+      --bg: #f7f1e8;
+      --surface: #fffaf4;
+      --surface-2: #f3eadf;
+      --ink: #1c140f;
+      --muted: #5c5148;
+      --border: #e7dbc4;
+      --border-strong: #d3bf9d;
+      --accent: #0e7a68;
+      --accent-dark: #0a5c4f;
+      --accent-soft: #e5f6f2;
+      --teal: #0e7a68;
+      --coral: #ef5d45;
+      --gold: #f0b429;
+      --plum: #6d4ea3;
+      --sidebar: #1c140f;
+      --sidebar-text: #fffaf4;
+      --sidebar-muted: #b3a08c;
+      --shadow: 0 1px 2px rgba(80, 40, 20, 0.05), 0 8px 18px rgba(80, 40, 20, 0.06);
+      --shadow-lg: 0 24px 60px rgba(28, 20, 15, 0.25), 0 4px 16px rgba(80, 40, 20, 0.08);
+      --radius: 20px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: Figtree, 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+      background:
+        radial-gradient(880px 420px at 100% -8%, rgba(14, 122, 104, 0.12), transparent 58%),
+        radial-gradient(720px 380px at -12% 8%, rgba(109, 78, 163, 0.1), transparent 52%),
+        var(--bg);
+      overflow-x: clip;
+      line-height: 1.5;
+    }
+    a { color: inherit; }
+    img { display: block; max-width: 100%; }
+    :focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+    .skip {
+      position: absolute; left: -999px; top: 8px; background: #fff; color: #000; padding: 8px 12px; z-index: 50;
+    }
+    .skip:focus { left: 12px; }
+
+    .nav {
+      position: sticky; top: 0; z-index: 20;
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 10px 18px;
+      padding: 16px 28px;
+      background: rgba(28, 20, 15, 0.97);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid rgba(255, 250, 244, 0.08);
+    }
+    .logo {
+      display: inline-flex; align-items: center; gap: 10px;
+      text-decoration: none; color: var(--sidebar-text);
+      font-family: Fraunces, Georgia, serif; font-weight: 700; font-size: 1.4rem; letter-spacing: -0.03em;
+      min-width: 0;
+    }
+    .logo img { width: 36px; height: 36px; border-radius: 10px; flex: none; }
+    .nav-links {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;
+      gap: 8px 16px;
+    }
+    .nav-links a { color: var(--sidebar-text); opacity: 0.82; text-decoration: none; font-weight: 700; }
+    .nav-links a:hover { color: var(--sidebar-text); opacity: 1; }
+    .nav-links a[aria-current="page"] { opacity: 1; text-decoration: underline; text-underline-offset: 4px; }
+    .nav-login {
+      background: var(--accent); color: #fff !important; opacity: 1 !important;
+      padding: 8px 14px; border-radius: 999px;
+    }
+    .nav-login:hover { background: var(--accent-dark); color: #fff !important; }
+
+    .wrap { max-width: 1120px; margin: 0 auto; padding-left: 28px; padding-right: 28px; }
+
+    .hero { padding-top: 64px; padding-bottom: 8px; }
+    .kicker {
+      margin: 0 0 18px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-size: 0.78rem;
+      color: #8a3b28;
+    }
+    h1 {
+      margin: 0 0 22px;
+      font-family: Fraunces, Georgia, serif;
+      font-weight: 500;
+      font-size: clamp(2.7rem, 6.2vw, 5.35rem);
+      line-height: 0.96;
+      letter-spacing: -0.045em;
+      overflow-wrap: break-word;
+      max-width: 15ch;
+    }
+    h1 em {
+      font-style: italic;
+      font-weight: 500;
+      color: transparent;
+      background: linear-gradient(100deg, var(--coral), #d4890b 45%, var(--teal));
+      -webkit-background-clip: text;
+      background-clip: text;
+    }
+    .lede { margin: 0 0 28px; max-width: 58ch; color: var(--muted); font-size: 1.18rem; }
+
+    .personas { padding-top: 40px; display: grid; gap: 28px; }
+    .persona {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) + 6px);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+      min-width: 0;
+    }
+    .persona.flip { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+    .persona .photo { min-height: 100%; }
+    .persona .photo img {
+      width: 100%; height: 100%; aspect-ratio: auto; object-fit: cover;
+    }
+    .persona .body { padding: 40px 44px; min-width: 0; }
+    .persona .tag {
+      display: inline-block; margin: 0 0 14px;
+      font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+      font-size: 0.75rem; color: var(--accent-dark);
+      background: var(--accent-soft); border: 1px solid var(--border);
+      padding: 6px 12px; border-radius: 999px;
+    }
+    .persona h2 {
+      margin: 0 0 10px; font-family: Fraunces, Georgia, serif; font-weight: 500;
+      font-size: 2rem; letter-spacing: -0.03em; line-height: 1.05;
+    }
+    .persona .who { margin: 0 0 12px; font-weight: 700; color: var(--ink); }
+    .persona .desc { margin: 0 0 22px; color: var(--muted); max-width: 56ch; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-height: 52px; padding: 0 18px; border-radius: 999px;
+      text-decoration: none; font-weight: 700; max-width: 100%;
+      border: 0; cursor: pointer; font: inherit;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-dark); }
+    .btn-secondary {
+      background: var(--surface); color: var(--ink);
+      border: 1.5px solid var(--border-strong);
+    }
+    .btn-secondary:hover { border-color: var(--accent); color: var(--accent-dark); }
+
+    .closing { padding-top: 48px; padding-bottom: 8px; }
+    .closing p { margin: 0; color: var(--muted); max-width: 62ch; font-size: 1.05rem; }
+    .closing p strong { color: var(--ink); }
+
+    footer { padding-top: 28px; padding-bottom: 40px; color: var(--muted); }
+    .footer-inner {
+      border-top: 1px solid var(--border); padding-top: 20px;
+      display: flex; flex-wrap: wrap; gap: 12px 24px;
+      justify-content: space-between; align-items: flex-start; width: 100%;
+    }
+    footer strong { font-family: Fraunces, Georgia, serif; color: var(--ink); font-size: 1.25rem; }
+    footer p { margin: 4px 0 0; }
+    footer nav { display: flex; flex-wrap: wrap; gap: 10px 16px; }
+    footer a { color: var(--muted); text-decoration: none; font-weight: 700; }
+    footer a:hover { color: var(--accent-dark); }
+
+    @media (max-width: 860px) {
+      .nav { padding: 14px 16px; }
+      .wrap { padding-left: 16px; padding-right: 16px; }
+      .hero { padding-top: 32px; }
+      .persona, .persona.flip { grid-template-columns: minmax(0, 1fr); }
+      .persona .photo img { aspect-ratio: 16 / 10; height: auto; }
+      .persona .body { padding: 28px 24px 32px; }
+      footer { padding-bottom: 36px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+      html { scroll-behavior: auto; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="nav">
+    <a class="logo" href="/"><img src="/brand/bitpype-mark.svg" alt="" width="36" height="36" /> BitPype</a>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="/landing">For agency owners</a>
+      <a href="/creator">For creators</a>
+      <a href="/partner">Partner</a>
+      <a href="/how-it-works">How it works</a>
+      <a href="/website-promo">Get a website</a>
+      <a href="/portal" class="nav-login">Client login</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero wrap">
+      <p class="kicker">Work with us</p>
+      <h1>Four doors. <em>One platform.</em></h1>
+      <p class="lede">BitPype is one website platform with four ways to build a business on it — from a free partnership that pays you 30% of every customer payment, to your own licensed instance where every dollar is yours. Find the door that fits you.</p>
+    </section>
+
+    <section class="personas wrap">
+      <article class="persona">
+        <div class="photo">
+          <img src="/brand/work-partner.jpg" alt="A partner recording at home with a microphone and laptop" loading="lazy" width="1100" height="733" />
+        </div>
+        <div class="body">
+          <p class="tag">Partner · free</p>
+          <h2>Build for your audience</h2>
+          <p class="who">For creators, community leaders and connectors with an audience.</p>
+          <p class="desc">Apply free and we set you up with your own BitPype workspace. You build and run websites for your audience on the standard plans, look after your customers, and earn 30% of every monthly payment they make — paid monthly once your balance reaches $500. No license fee, no instance to run.</p>
+          <a class="btn btn-primary" href="/partner">Explore partnering</a>
+        </div>
+      </article>
+
+      <article class="persona flip">
+        <div class="body">
+          <p class="tag">Creator · Solo license</p>
+          <h2>Your audience, your platform</h2>
+          <p class="who">For content creators whose followers are building businesses.</p>
+          <p class="desc">Your followers are business owners and dreamers — a built-in market for websites. Solo installs the entire BitPype platform as your own instance: your brand, your prices, your Stripe, and you keep 100% of what your customers pay. $1,999/month, training and the keys included.</p>
+          <a class="btn btn-primary" href="/creator">Explore Solo for creators</a>
+        </div>
+        <div class="photo">
+          <img src="/brand/work-creator.jpg" alt="A creator setting up a ring light to record" loading="lazy" width="1100" height="733" />
+        </div>
+      </article>
+
+      <article class="persona">
+        <div class="photo">
+          <img src="/brand/work-solo.jpg" alt="An operator smiling at her desk with a laptop" loading="lazy" width="1100" height="733" />
+        </div>
+        <div class="body">
+          <p class="tag">Solo · license the platform</p>
+          <h2>Run it as your own company</h2>
+          <p class="who">For operators and agencies who want the whole system.</p>
+          <p class="desc">The Solo license installs the entire BitPype platform as your own instance — one-click deployment, the full training and playbook, and a complete admin handover. You run it as your business, under your name, for $1,999/month.</p>
+          <a class="btn btn-primary" href="/solo">Read the Solo playbook</a>
+        </div>
+      </article>
+
+      <article class="persona flip">
+        <div class="body">
+          <p class="tag">Software · own your agency stack</p>
+          <h2>Own the software, build the agency</h2>
+          <p class="who">For agency owners who want the platform itself.</p>
+          <p class="desc">BitPype is the software an agency runs on: leads, AI-designed websites, domains, bookings, call tracking, billing and follow-up in one place. See how agency owners use it as the foundation of their business — and how the one-click deployment gets an instance running.</p>
+          <a class="btn btn-primary" href="/landing">See the software</a>
+        </div>
+        <div class="photo">
+          <img src="/brand/work-software.jpg" alt="A team reviewing work on a large screen" loading="lazy" width="1100" height="733" />
+        </div>
+      </article>
+    </section>
+
+    <section class="closing wrap">
+      <p><strong>Not sure which door is yours?</strong> If you have an audience and want zero upfront cost, start with <a href="/partner">Partner</a>. If you want the whole platform under your own name, start with <a href="/creator">Solo</a>. Either way, a person reviews your application — nobody is auto-approved, and nobody is a tourist.</p>
+    </section>
+  </main>
+
+  <footer class="wrap">
+    <div class="footer-inner">
+      <div>
+        <strong>BitPype</strong>
+        <p>The website, handled with you.</p>
+      </div>
+      <nav aria-label="Footer">
+        <a href="/landing">For agency owners</a>
+        <a href="/creator">For creators</a>
+        <a href="/work-with-us" aria-current="page">Work with us</a>
+        <a href="/how-it-works">How it works</a>
+        <a href="/portal">Client portal</a>
+        <a href="/app">Team login</a>
+        <a href="/legal/privacy.html">Privacy</a>
+        <a href="/legal/terms.html">Terms</a>
+        <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

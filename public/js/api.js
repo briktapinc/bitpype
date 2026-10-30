@@ -496,6 +496,15 @@ window.ScoutApi = (() => {
     adminUser: (id) => get('/admin/users/' + id),
     adminCreateUser: (body) => post('/admin/users', body),
     adminUpdateUser: (id, body) => patch('/admin/users/' + id, body),
+    // Batch 80 — Creator Partner program (super-admin surfaces).
+    adminPartners: () => get('/admin/partners'),
+    adminPartnerEarnings: (userId) => get('/admin/partners/' + userId + '/earnings'),
+    adminRecordPartnerPayout: (userId, body) => post('/admin/partners/' + userId + '/payouts', body),
+    adminPartnerApprovals: (q) => get('/admin/partner-approvals', q),
+    adminDecidePartnerApproval: (id, body) => post('/admin/partner-approvals/' + id + '/decide', body),
+    // Batch 80 — the signed-in partner's own views.
+    partnerMe: () => get('/partners/me'),
+    partnerApprovals: () => get('/partners/approvals'),
     adminDeleteUser: (id) => del('/admin/users/' + id),
     adminResetUserMfa: (id) => post('/admin/users/' + id + '/mfa/reset', {}),
     adminPortalUsers: (q) => get('/admin/portal-users', q),

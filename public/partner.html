@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BitPype Partner — build for your audience, earn 30% monthly</title>
+  <meta name="description" content="The free BitPype partnership: we set you up with your own BitPype workspace, you build websites for your audience on the standard plans, and you earn 30% of every monthly payment for as long as each customer stays." />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="BitPype" />
+  <meta property="og:title" content="BitPype Partner — build for your audience, earn 30% monthly" />
+  <meta property="og:description" content="Apply free. We set you up, you build websites for the people who already trust you, and you earn 30% of every monthly payment. Monthly payouts from $500." />
+  <meta property="og:url" content="{{PUBLIC_URL}}/partner" />
+  <meta property="og:image" content="{{PUBLIC_URL}}/brand/bitpype-mark.svg" />
+  <meta name="twitter:card" content="summary" />
+  <link rel="icon" href="/brand/bitpype-mark.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;1,9..144,500&family=Figtree:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    /* App design system (same tokens as public/landing.html): warm
+       /how widget theme — cream/paper surfaces, ink text, teal accent,
+       dark ink nav, Figtree body, Fraunces display headlines. */
+    :root {
+      --bg: #f7f1e8;
+      --surface: #fffaf4;
+      --surface-2: #f3eadf;
+      --ink: #1c140f;
+      --muted: #5c5148;
+      --border: #e7dbc4;
+      --border-strong: #d3bf9d;
+      --accent: #0e7a68;
+      --accent-dark: #0a5c4f;
+      --accent-soft: #e5f6f2;
+      --teal: #0e7a68;
+      --coral: #ef5d45;
+      --gold: #f0b429;
+      --plum: #6d4ea3;
+      --sidebar: #1c140f;
+      --sidebar-text: #fffaf4;
+      --sidebar-muted: #b3a08c;
+      --shadow: 0 1px 2px rgba(80, 40, 20, 0.05), 0 8px 18px rgba(80, 40, 20, 0.06);
+      --shadow-lg: 0 24px 60px rgba(28, 20, 15, 0.25), 0 4px 16px rgba(80, 40, 20, 0.08);
+      --radius: 20px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: Figtree, 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+      background:
+        radial-gradient(880px 420px at 100% -8%, rgba(14, 122, 104, 0.12), transparent 58%),
+        radial-gradient(720px 380px at -12% 8%, rgba(109, 78, 163, 0.1), transparent 52%),
+        var(--bg);
+      overflow-x: clip;
+      line-height: 1.5;
+    }
+    a { color: inherit; }
+    img { display: block; max-width: 100%; }
+    :focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+    .skip {
+      position: absolute; left: -999px; top: 8px; background: #fff; color: #000; padding: 8px 12px; z-index: 50;
+    }
+    .skip:focus { left: 12px; }
+
+    .nav {
+      position: sticky; top: 0; z-index: 20;
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 10px 18px;
+      padding: 16px 28px;
+      background: rgba(28, 20, 15, 0.97);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid rgba(255, 250, 244, 0.08);
+    }
+    .logo {
+      display: inline-flex; align-items: center; gap: 10px;
+      text-decoration: none; color: var(--sidebar-text);
+      font-family: Fraunces, Georgia, serif; font-weight: 700; font-size: 1.4rem; letter-spacing: -0.03em;
+      min-width: 0;
+    }
+    .logo img { width: 36px; height: 36px; border-radius: 10px; flex: none; }
+    .nav-links {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;
+      gap: 8px 16px;
+    }
+    .nav-links a { color: var(--sidebar-text); opacity: 0.82; text-decoration: none; font-weight: 700; }
+    .nav-links a:hover { color: var(--sidebar-text); opacity: 1; }
+    .nav-links a[aria-current="page"] { opacity: 1; text-decoration: underline; text-underline-offset: 4px; }
+    .nav-login {
+      background: var(--accent); color: #fff !important; opacity: 1 !important;
+      padding: 8px 14px; border-radius: 999px;
+    }
+    .nav-login:hover { background: var(--accent-dark); color: #fff !important; }
+
+    .wrap { max-width: 1120px; margin: 0 auto; padding-left: 28px; padding-right: 28px; }
+
+    .hero { padding-top: 64px; padding-bottom: 12px; }
+    .kicker {
+      margin: 0 0 18px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-size: 0.78rem;
+      color: #8a3b28;
+    }
+    h1 {
+      margin: 0 0 22px;
+      font-family: Fraunces, Georgia, serif;
+      font-weight: 500;
+      font-size: clamp(2.7rem, 6.2vw, 5.35rem);
+      line-height: 0.96;
+      letter-spacing: -0.045em;
+      overflow-wrap: break-word;
+      max-width: 15ch;
+    }
+    h1 em {
+      font-style: italic;
+      font-weight: 500;
+      color: transparent;
+      background: linear-gradient(100deg, var(--coral), #d4890b 45%, var(--teal));
+      -webkit-background-clip: text;
+      background-clip: text;
+    }
+    .lede { margin: 0 0 28px; max-width: 58ch; color: var(--muted); font-size: 1.18rem; }
+    .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-height: 52px; padding: 0 18px; border-radius: 999px;
+      text-decoration: none; font-weight: 700; max-width: 100%;
+      border: 0; cursor: pointer; font: inherit;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-dark); }
+    .btn-secondary {
+      background: var(--surface); color: var(--ink);
+      border: 1.5px solid var(--border-strong);
+    }
+    .btn-secondary:hover { border-color: var(--accent); color: var(--accent-dark); }
+
+    .section { padding-top: 56px; }
+    .section h2 {
+      margin: 0 0 10px; font-family: Fraunces, Georgia, serif; font-weight: 500;
+      font-size: 2.2rem; letter-spacing: -0.03em; line-height: 1.05;
+    }
+    .section .section-lede { margin: 0 0 22px; color: var(--muted); max-width: 62ch; }
+    .section p.body-copy { margin: 0 0 14px; color: var(--muted); max-width: 62ch; }
+    .section p.body-copy strong { color: var(--ink); }
+
+    .opp-grid {
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px;
+      list-style: none; margin: 0 0 20px; padding: 0;
+    }
+    .opp-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) + 6px);
+      box-shadow: var(--shadow);
+      padding: 30px 30px 32px;
+      min-width: 0;
+    }
+    .opp-card .opp-aud {
+      margin: 0 0 4px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+      font-size: 0.75rem; color: var(--accent-dark);
+    }
+    .opp-card .opp-calc { margin: 0 0 14px; color: var(--muted); font-size: 0.98rem; }
+    .opp-card .opp-big {
+      margin: 0; font-family: Fraunces, Georgia, serif; font-weight: 700;
+      font-size: 2rem; letter-spacing: -0.02em; line-height: 1.1;
+    }
+    .opp-card .opp-sub { margin: 6px 0 0; color: var(--muted); font-size: 0.92rem; }
+    .opp-cover {
+      background: var(--accent-soft);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 26px 30px;
+      margin: 0 0 20px;
+    }
+    .opp-cover p { margin: 0; max-width: 68ch; }
+    .opp-cover p strong { color: var(--accent-dark); }
+    .example-note {
+      border: 1.5px dashed var(--border-strong);
+      border-radius: var(--radius);
+      padding: 22px 28px;
+      background: rgba(255, 250, 244, 0.65);
+    }
+    .example-note p { margin: 0; font-size: 0.98rem; color: var(--ink); max-width: 72ch; }
+    .example-note p strong { letter-spacing: 0.02em; }
+
+    .cards {
+      list-style: none; margin: 0; padding: 0;
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 28px 28px 30px;
+      min-width: 0;
+    }
+    .card h3 {
+      margin: 0 0 8px; font-family: Fraunces, Georgia, serif; font-weight: 700;
+      font-size: 1.28rem; letter-spacing: -0.02em; line-height: 1.15;
+    }
+    .card p { margin: 0; color: var(--muted); }
+
+    .price-band {
+      margin-top: 20px;
+      background:
+        radial-gradient(420px 240px at 92% 110%, rgba(240, 180, 41, 0.4), transparent 62%),
+        linear-gradient(165deg, #1c140f 0%, #12382f 72%);
+      color: var(--sidebar-text);
+      border-radius: calc(var(--radius) + 6px);
+      box-shadow: var(--shadow-lg);
+      padding: 40px 40px 42px;
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 36px; align-items: center;
+    }
+    .price-band h3 {
+      margin: 0 0 8px; font-family: Fraunces, Georgia, serif; font-weight: 500;
+      font-size: 1.9rem; letter-spacing: -0.03em; line-height: 1.05;
+    }
+    .price-band p { margin: 0; color: rgba(255, 250, 244, 0.82); max-width: 52ch; }
+    .price-band .price {
+      font-family: Fraunces, Georgia, serif; font-weight: 700;
+      font-size: clamp(2.4rem, 5vw, 3.6rem); letter-spacing: -0.03em; line-height: 1;
+      white-space: nowrap;
+    }
+    .price-band .price span { font-size: 0.45em; color: #f6d68a; font-weight: 500; }
+
+    .steps {
+      list-style: none; margin: 0; padding: 0;
+      display: grid; gap: 20px;
+    }
+    .step {
+      margin: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) + 6px);
+      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset, var(--shadow);
+      padding: 30px 36px;
+      display: grid; grid-template-columns: 100px minmax(0, 1fr);
+      gap: 10px 32px; align-items: start;
+    }
+    .step-num {
+      font-family: Fraunces, Georgia, serif; font-weight: 700;
+      font-size: 2.3rem; line-height: 1; color: var(--accent-dark);
+    }
+    .step:nth-child(1) .step-num { color: #c83b4a; }
+    .step:nth-child(3) .step-num { color: var(--plum); }
+    .step h3 {
+      margin: 0 0 8px; font-family: Fraunces, Georgia, serif; font-weight: 500;
+      font-size: 1.6rem; letter-spacing: -0.03em; line-height: 1.1;
+    }
+    .step p { margin: 0; color: var(--muted); max-width: 62ch; }
+    .step p strong { color: var(--ink); }
+
+    .terms {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) + 6px);
+      box-shadow: var(--shadow);
+      padding: 30px 36px;
+    }
+    .terms ul { margin: 0; padding-left: 20px; color: var(--muted); display: grid; gap: 10px; }
+    .terms li strong { color: var(--ink); }
+
+    .faq { padding-top: 56px; padding-bottom: 8px; }
+    .faq h2 {
+      margin: 0 0 18px; font-family: Fraunces, Georgia, serif; font-weight: 500;
+      font-size: 2.2rem; letter-spacing: -0.03em; line-height: 1.05;
+    }
+    .faq details {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow);
+      padding: 22px 28px; margin: 0 0 14px;
+    }
+    .faq summary { font-weight: 700; cursor: pointer; }
+    .faq details p { margin: 10px 0 0; color: var(--muted); max-width: 68ch; }
+
+    .cta-band { padding-top: 48px; }
+    .cta-inner {
+      background:
+        radial-gradient(420px 240px at 92% 110%, rgba(240, 180, 41, 0.4), transparent 62%),
+        linear-gradient(165deg, #1c140f 0%, #12382f 72%);
+      color: var(--sidebar-text);
+      border-radius: calc(var(--radius) + 6px);
+      box-shadow: var(--shadow-lg);
+      padding: 48px 40px;
+    }
+    .cta-inner h2 {
+      margin: 0 0 12px; font-family: Fraunces, Georgia, serif; font-weight: 500;
+      font-size: clamp(2rem, 4.5vw, 3.2rem); letter-spacing: -0.035em; line-height: 1.02;
+    }
+    .cta-inner p { margin: 0 0 26px; color: rgba(255, 250, 244, 0.82); max-width: 52ch; }
+    .interest-form { display: grid; gap: 16px; max-width: 560px; }
+    .interest-form label { display: block; font-weight: 700; margin: 0 0 6px; }
+    .interest-form .optional { font-weight: 400; opacity: 0.75; font-size: 0.9em; }
+    .interest-form input,
+    .interest-form select,
+    .interest-form textarea {
+      width: 100%; min-height: 52px; border-radius: 14px;
+      border: 1.5px solid rgba(255, 250, 244, 0.35);
+      background: rgba(255, 250, 244, 0.96); color: var(--ink);
+      padding: 12px 16px; font: inherit;
+    }
+    .interest-form textarea { min-height: 120px; resize: vertical; }
+    .interest-form input:focus-visible,
+    .interest-form select:focus-visible,
+    .interest-form textarea:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+    #captcha-box { min-height: 78px; }
+    .form-msg { margin: 0; min-height: 1.5em; font-weight: 700; }
+    .sms-consent-note { margin: 0; font-size: 0.8rem; line-height: 1.55; opacity: 0.85; }
+    .sms-consent-note a { color: inherit; text-decoration: underline; }
+    .form-msg.error { color: #ffb4a2; }
+    .form-success {
+      max-width: 560px; border: 1.5px solid rgba(255, 250, 244, 0.35);
+      border-radius: var(--radius); padding: 28px;
+      background: rgba(255, 250, 244, 0.08);
+    }
+    .form-success h3 { margin: 0 0 8px; font-family: Fraunces, Georgia, serif; font-size: 1.5rem; }
+    .form-success p { margin: 0; }
+    .is-hidden { display: none !important; }
+
+    footer { padding-top: 28px; padding-bottom: 40px; color: var(--muted); }
+    .footer-inner {
+      border-top: 1px solid var(--border); padding-top: 20px;
+      display: flex; flex-wrap: wrap; gap: 12px 24px;
+      justify-content: space-between; align-items: flex-start; width: 100%;
+    }
+    footer strong { font-family: Fraunces, Georgia, serif; color: var(--ink); font-size: 1.25rem; }
+    footer p { margin: 4px 0 0; }
+    footer nav { display: flex; flex-wrap: wrap; gap: 10px 16px; }
+    footer a { color: var(--muted); text-decoration: none; font-weight: 700; }
+    footer a:hover { color: var(--accent-dark); }
+
+    @media (max-width: 960px) {
+      .cards, .opp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .price-band { grid-template-columns: minmax(0, 1fr); }
+    }
+    @media (max-width: 860px) {
+      .nav { padding: 14px 16px; }
+      .wrap { padding-left: 16px; padding-right: 16px; }
+      .hero { padding-top: 32px; }
+      .step { grid-template-columns: minmax(0, 1fr); padding: 26px 24px; gap: 8px; }
+      .cards, .opp-grid { grid-template-columns: minmax(0, 1fr); }
+      .cta-inner { padding: 36px 24px; }
+      .price-band { padding: 32px 24px; }
+      .opp-card, .opp-cover, .example-note { padding-left: 22px; padding-right: 22px; }
+      .faq details { padding: 20px 22px; }
+      .terms { padding: 24px 22px; }
+      footer { padding-bottom: 36px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+      html { scroll-behavior: auto; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="nav">
+    <a class="logo" href="/"><img src="/brand/bitpype-mark.svg" alt="" width="36" height="36" /> BitPype</a>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="/landing">For agency owners</a>
+      <a href="/creator">For creators</a>
+      <a href="/partner" aria-current="page">Partner</a>
+      <a href="/how-it-works">How it works</a>
+      <a href="/website-promo">Get a website</a>
+      <a href="/portal" class="nav-login">Client login</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero wrap">
+      <p class="kicker">BitPype Partner — free to join</p>
+      <h1>Build for your audience. <em>Earn on every payment.</em></h1>
+      <p class="lede">The people who follow you need websites. As a BitPype partner, you build and run those websites from <strong>your own BitPype workspace</strong> — the full platform, scoped to your customers — and you earn <strong>30% of every monthly payment</strong> each customer makes, for as long as they stay. No license fee. No instance to babysit. Apply free, and we set you up.</p>
+      <div class="actions">
+        <a class="btn btn-primary" href="#apply">Apply to partner</a>
+        <a class="btn btn-secondary" href="#opportunity">See the opportunity</a>
+      </div>
+    </section>
+
+    <section class="section wrap" id="opportunity">
+      <h2>The opportunity, in plain numbers.</h2>
+      <p class="section-lede">Partners sell the standard BitPype plans — the same plans, at the same prices, that BitPype sells directly. Your share is 30% of every payment a customer in your workspace makes. Here is the shape of it, with example numbers:</p>
+
+      <ul class="opp-grid">
+        <li class="opp-card">
+          <p class="opp-aud">5 website customers</p>
+          <p class="opp-calc">Five customers on an example $99/month plan pay $495/month between them. Your 30% share:</p>
+          <p class="opp-big">$148.50<span style="font-size:0.5em;color:var(--muted)"> / month</span></p>
+          <p class="opp-sub">for as long as those customers stay subscribed.</p>
+        </li>
+        <li class="opp-card">
+          <p class="opp-aud">20 website customers</p>
+          <p class="opp-calc">Twenty customers on the same example $99/month plan pay $1,980/month. Your 30% share:</p>
+          <p class="opp-big">$594<span style="font-size:0.5em;color:var(--muted)"> / month</span></p>
+          <p class="opp-sub">past the $500 mark — payout territory, every month.</p>
+        </li>
+        <li class="opp-card">
+          <p class="opp-aud">50 website customers</p>
+          <p class="opp-calc">Fifty customers on the same example $99/month plan pay $4,950/month. Your 30% share:</p>
+          <p class="opp-big">$1,485<span style="font-size:0.5em;color:var(--muted)"> / month</span></p>
+          <p class="opp-sub">a real income line, built one website at a time.</p>
+        </li>
+      </ul>
+
+      <div class="opp-cover">
+        <p><strong>When you get paid:</strong> earnings land in your partner balance the moment a customer's payment clears. Payouts run monthly, once your balance reaches <strong>$500</strong> — your dashboard shows every payment, your running balance and your payout history, so the numbers are never a mystery.</p>
+      </div>
+
+      <div class="example-note">
+        <p><strong>Example math — not an earnings promise.</strong> The scenarios above are illustrations built from an example plan price ($99/month) and the standard 30% partner share. How many customers you sign up, and how long they stay, is up to you and your audience. BitPype does not guarantee customers, revenue or income, and no partner results are shown on this page because the partner program is new.</p>
+      </div>
+    </section>
+
+    <section class="section wrap" id="included">
+      <h2>What a partner gets.</h2>
+      <p class="section-lede">Everything a BitPype staffer uses to run client websites — inside a workspace that holds only your customers, your leads and your sites.</p>
+      <ul class="cards">
+        <li class="card">
+          <h3>Your own workspace</h3>
+          <p>We create your partner account and workspace — invite-only, never self-serve. Your leads, websites, customers, forms and bookings live there, and only there.</p>
+        </li>
+        <li class="card">
+          <h3>The full website platform</h3>
+          <p>Build and publish real websites with the full module catalog: bookings, forms, call tracking, follow-up automation, memberships, shop, courses, blog, gallery, testimonials, chatbot and more.</p>
+        </li>
+        <li class="card">
+          <h3>30% of every payment</h3>
+          <p>Every monthly subscription payment from your customers credits your partner balance at 30% — automatically, the moment it clears, tracked per payment in your earnings dashboard.</p>
+        </li>
+        <li class="card">
+          <h3>The standard plans</h3>
+          <p>You sell the standard BitPype catalog at the standard prices — the same offer BitPype itself sells. No discount games, no pricing homework.</p>
+        </li>
+        <li class="card">
+          <h3>Big spends, double-checked</h3>
+          <p>Anything that costs money — a domain registration, a tracking number, a credits top-up, a deployment — is double-checked and approved by our team before it runs. You never fat-finger a charge; we keep an eye on the spend together.</p>
+        </li>
+        <li class="card">
+          <h3>The platform, handled</h3>
+          <p>Hosting, updates, billing rails and the machinery underneath are ours to run. Your job is the part only you can do: your audience, your customers, their websites.</p>
+        </li>
+      </ul>
+    </section>
+
+    <section class="section wrap" id="how">
+      <h2>How it works.</h2>
+      <p class="section-lede">Five steps between this page and your first customer's website going live.</p>
+      <ol class="steps">
+        <li class="step">
+          <span class="step-num">01</span>
+          <div>
+            <h3>Apply below</h3>
+            <p><strong>Tell us about your audience</strong> — where it lives, how big it is, and the customers you would serve. Partner accounts are created by our team after review; there is no public signup, on purpose.</p>
+          </div>
+        </li>
+        <li class="step">
+          <span class="step-num">02</span>
+          <div>
+            <h3>We set you up</h3>
+            <p><strong>Your account and workspace are created for you</strong>, with a walkthrough of the platform before you announce anything to anyone.</p>
+          </div>
+        </li>
+        <li class="step">
+          <span class="step-num">03</span>
+          <div>
+            <h3>Offer websites to your audience</h3>
+            <p><strong>Your followers hear it from you first</strong> — real websites on the standard plans, built and run by you on BitPype, under the name they already trust: yours.</p>
+          </div>
+        </li>
+        <li class="step">
+          <span class="step-num">04</span>
+          <div>
+            <h3>Build and look after your customers</h3>
+            <p><strong>You are their person.</strong> Partners support their own customers day to day — and the BitPype team backs you up on platform issues.</p>
+          </div>
+        </li>
+        <li class="step">
+          <span class="step-num">05</span>
+          <div>
+            <h3>Earn 30%, paid monthly</h3>
+            <p><strong>Every payment credits your balance at 30%.</strong> Once it reaches $500, payouts go out monthly — and your earnings dashboard shows every cent of it.</p>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <section class="section wrap" id="terms">
+      <h2>The terms, in plain words.</h2>
+      <div class="terms">
+        <ul>
+          <li><strong>Free to join.</strong> There is no partner license fee and no monthly partner charge. You earn commission; that is the whole model.</li>
+          <li><strong>30% of every subscription payment</strong> from customers in your workspace, credited when the payment clears. Refunded or disputed payments reverse their commission.</li>
+          <li><strong>Monthly payouts from $500.</strong> When your accrued balance reaches $500 you are payout-eligible; payouts are recorded in your dashboard with the method and date.</li>
+          <li><strong>Your taxes are yours.</strong> Payouts are gross — BitPype does not withhold tax. You are responsible for your own taxes on partner earnings.</li>
+          <li><strong>Standard plans only.</strong> Partners sell the standard BitPype catalog at standard prices. (Want your own prices and 100% of the revenue? That is <a href="/solo">Solo</a>.)</li>
+          <li><strong>You support your customers.</strong> Day-to-day customer care is the partner's job; the BitPype team handles the platform and backs you up.</li>
+          <li><strong>Purchases are approved by our team.</strong> Actions that spend money — domains, tracking numbers, credits, deployments — run only after a quick approval, so spend is never a surprise.</li>
+        </ul>
+      </div>
+
+      <div class="price-band">
+        <div>
+          <h3>Want your own instance and 100%?</h3>
+          <p>Solo is the license: the entire BitPype platform installed as your own business — your brand, your prices, your Stripe, every dollar yours. It costs $1,999/month; partnering is the free way in.</p>
+        </div>
+        <p class="price"><a href="/creator" style="color:inherit;text-decoration:none">See Solo <span>→</span></a></p>
+      </div>
+      <p class="body-copy" style="margin-top:16px">Creators, start with <a href="/creator"><strong>Solo for creators</strong></a> — the same license, pitched for audiences. The full operator story lives in the <a href="/solo"><strong>Solo playbook</strong></a>.</p>
+    </section>
+
+    <section class="faq wrap">
+      <h2>Questions.</h2>
+      <details>
+        <summary>Is partnering really free?</summary>
+        <p>Yes. There is no fee to apply, no license to buy and no monthly partner charge. BitPype earns its share from the subscriptions your customers pay; you earn 30% of those payments. The only money that ever moves is customer subscriptions and your payouts.</p>
+      </details>
+      <details>
+        <summary>Why is there no public signup?</summary>
+        <p>Because we don't want tourists. Partner accounts are created by our team after we review an application — a partner represents BitPype to their customers, so we keep the door narrow and the standard high.</p>
+      </details>
+      <details>
+        <summary>When exactly do I get paid?</summary>
+        <p>Your balance grows with every customer payment (30%, credited on payment). Once the balance reaches $500 you are payout-eligible, and payouts are made monthly. Your earnings dashboard shows the per-payment history and every payout we have recorded.</p>
+      </details>
+      <details>
+        <summary>What if a customer cancels or gets a refund?</summary>
+        <p>Commission is earned on payments that stay collected. If a payment is refunded or disputed, that payment's commission reverses out of your balance — the per-payment history in your dashboard shows it.</p>
+      </details>
+      <details>
+        <summary>Can I set my own prices?</summary>
+        <p>Partners sell the standard BitPype plans at the standard prices — it keeps the offer simple and the same for every customer. If you want your own pricing and to keep 100%, look at <a href="/solo">Solo</a>: your own instance of the whole platform, licensed monthly.</p>
+      </details>
+      <details>
+        <summary>Do I need to be technical?</summary>
+        <p>No. The platform does the heavy lifting — AI-assisted design, bookings, calls, forms and follow-up built in — and we walk you through your workspace before you start. Your skill is your audience and looking after your customers.</p>
+      </details>
+    </section>
+
+    <section class="cta-band wrap" id="apply">
+      <div class="cta-inner">
+        <h2>Apply to partner.</h2>
+        <p>Tell us about the audience you have built and the customers you would serve. We review every application personally — if it fits, we create your workspace and walk you through it.</p>
+        <form class="interest-form" id="partner-form" novalidate>
+          <div>
+            <label for="pf-name">Full name</label>
+            <input id="pf-name" name="fullName" type="text" autocomplete="name" required maxlength="120" />
+          </div>
+          <div>
+            <label for="pf-email">Email</label>
+            <input id="pf-email" name="email" type="email" autocomplete="email" required maxlength="200" />
+          </div>
+          <div>
+            <label for="pf-platform">Main platform / channel</label>
+            <select id="pf-platform" name="platform" required>
+              <option value="">Choose your main platform…</option>
+              <option value="youtube">YouTube</option>
+              <option value="instagram">Instagram</option>
+              <option value="tiktok">TikTok</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div>
+            <label for="pf-followers">Audience size</label>
+            <select id="pf-followers" name="followerRange" required>
+              <option value="">Choose a range…</option>
+              <option value="under-10k">Under 10,000</option>
+              <option value="10k-50k">10,000 – 50,000</option>
+              <option value="50k-250k">50,000 – 250,000</option>
+              <option value="250k-1m">250,000 – 1 million</option>
+              <option value="over-1m">Over 1 million</option>
+            </select>
+          </div>
+          <div>
+            <label for="pf-niche">Your niche / category</label>
+            <input id="pf-niche" name="niche" type="text" autocomplete="off" required maxlength="160" placeholder="e.g. home fitness coaching, local food, trades" />
+          </div>
+          <div>
+            <label for="pf-audience">Tell us about your audience and the customers you would serve</label>
+            <textarea id="pf-audience" name="audience" required maxlength="4000" placeholder="What do your followers do? What businesses, trades or ideas do they have? Who would you build websites for first?"></textarea>
+          </div>
+          <div>
+            <label for="pf-phone">Phone number <span class="optional">(optional)</span></label>
+            <input id="pf-phone" name="phone" type="tel" autocomplete="tel" maxlength="40" />
+          </div>
+          <p class="sms-consent-note">By providing your phone number, you agree to receive text messages about your inquiry or appointment from this business, sent via BitPype. Msg &amp; data rates may apply. Reply STOP to end. See our <a href="{{PUBLIC_URL}}/sms-policy" target="_blank" rel="noopener">SMS Policy</a>.</p>
+          <div id="captcha-box" aria-label="Captcha"></div>
+          <p class="form-msg" id="partner-msg" role="status"></p>
+          <div>
+            <button type="submit" class="btn btn-primary" id="partner-submit">Submit my application</button>
+          </div>
+        </form>
+        <div class="form-success is-hidden" id="partner-success">
+          <h3>Application received.</h3>
+          <p>Thanks — we review partner applications personally and will be in touch. Keep an eye on your inbox.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="wrap">
+    <div class="footer-inner">
+      <div>
+        <strong>BitPype</strong>
+        <p>The website, handled with you.</p>
+      </div>
+      <nav aria-label="Footer">
+        <a href="/landing">For agency owners</a>
+        <a href="/creator">For creators</a>
+        <a href="/work-with-us">Work with us</a>
+        <a href="/how-it-works">How it works</a>
+        <a href="/portal">Client portal</a>
+        <a href="/app">Team login</a>
+        <a href="/legal/privacy.html">Privacy</a>
+        <a href="/legal/terms.html">Terms</a>
+        <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a>
+      </nav>
+    </div>
+  </footer>
+
+  <script src="/js/captcha.js"></script>
+  <script>
+    (function () {
+      const form = document.getElementById('partner-form');
+      const msg = document.getElementById('partner-msg');
+      const success = document.getElementById('partner-success');
+      const btn = document.getElementById('partner-submit');
+      let captcha = { enabled: false, getToken: async () => '', reset: () => {} };
+      (async () => {
+        try {
+          captcha = await window.ScoutCaptcha.mount(document.getElementById('captcha-box'));
+        } catch (e) {
+          console.warn('captcha mount failed', e);
+        }
+      })();
+      function setMsg(text, isError) {
+        msg.textContent = text || '';
+        msg.className = 'form-msg' + (isError ? ' error' : '');
+      }
+      form.addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        const fullName = document.getElementById('pf-name').value.trim();
+        const email = document.getElementById('pf-email').value.trim();
+        const platform = document.getElementById('pf-platform').value;
+        const followerRange = document.getElementById('pf-followers').value;
+        const niche = document.getElementById('pf-niche').value.trim();
+        const audience = document.getElementById('pf-audience').value.trim();
+        const phone = document.getElementById('pf-phone').value.trim();
+        if (!fullName) return setMsg('Please enter your full name.', true);
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setMsg('Please enter a valid email address.', true);
+        if (!platform) return setMsg('Please choose your main platform.', true);
+        if (!followerRange) return setMsg('Please choose your audience size range.', true);
+        if (!niche) return setMsg('Please tell us your niche or category.', true);
+        if (!audience) return setMsg('Please tell us about your audience and the customers you would serve.', true);
+        btn.disabled = true;
+        setMsg('Sending…', false);
+        try {
+          const captchaToken = await captcha.getToken();
+          const res = await fetch('/api/v1/partner/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fullName, email, platform, followerRange, niche, audience, phone, captchaToken }),
+          });
+          const data = await res.json().catch(() => null);
+          if (!res.ok || !data || !data.ok) {
+            throw new Error((data && data.error) || 'Something went wrong — please try again.');
+          }
+          form.classList.add('is-hidden');
+          success.classList.remove('is-hidden');
+          success.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } catch (e) {
+          setMsg(e && e.message ? e.message : 'Something went wrong — please try again.', true);
+          if (captcha.reset) captcha.reset();
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

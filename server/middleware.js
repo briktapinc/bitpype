@@ -194,6 +194,14 @@ async function requireSubscription(req, res, next) {
     if (req.auth && req.auth.via === 'token') {
       const ok = await billing.workspaceHasProductAccess(req.auth.workspaceId);
       if (!ok) {
+        // Batch 80: a partner-operated workspace is run by a platform
+        // operator account — the partner's token keeps working before
+        // the workspace's first paying customer exists.
+        try {
+          if (await require('./partners').workspaceHasPartner(req.auth.workspaceId)) return next();
+        } catch {
+          /* fall through to the paywall */
+        }
         return res.status(402).json({ ok: false, error: 'SUBSCRIPTION_REQUIRED', code: 'SUBSCRIPTION_REQUIRED' });
       }
       return next();
@@ -206,6 +214,10 @@ async function requireSubscription(req, res, next) {
     if (String(user.status || 'active') === 'disabled' || user.deleted_at) {
       return res.status(403).json({ ok: false, error: 'ACCOUNT_DISABLED' });
     }
+    // Batch 80: partner accounts are platform operators working their
+    // own workspace — they never carry a personal subscription, so the
+    // paywall never applies to the partner's own session.
+    if (user.account_type === 'partner') return next();
     if (billing.hasProductAccess(user)) return next();
 
     const workspaceId =

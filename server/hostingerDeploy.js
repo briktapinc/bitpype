@@ -457,6 +457,29 @@ async function previewForLead(workspaceId, leadId) {
 /* ------------------------------- start ------------------------------ */
 
 async function startDeployment({ workspaceId, leadId, actorUserId, confirmText, confirmPriceCents, confirmFirstPeriodCents }) {
+  // Batch 80: partner purchase gate — a deployment start initiated by
+  // a partner account creates an approval request and buys NOTHING.
+  // (The REST entry point is super-admin-only, so this is defense in
+  // depth at the facade: any future partner-reachable caller is gated
+  // here. Approval execution re-enters with the ADMIN as the actor.)
+  if (actorUserId) {
+    const partners = require('./partners');
+    if (await partners.isPartnerUser(actorUserId)) {
+      const gate = await partners.createApprovalRequest({
+        workspaceId,
+        requestedBy: actorUserId,
+        actionKind: 'hostinger_deploy',
+        payload: { leadId, confirmText, confirmPriceCents, confirmFirstPeriodCents },
+      });
+      return {
+        approvalRequired: true,
+        approvalId: gate.id,
+        actionKind: 'hostinger_deploy',
+        message:
+          'This purchase needs admin approval first. Your request was sent to the BitPype team — nothing was charged or started.',
+      };
+    }
+  }
   const lead = loadLead(workspaceId, leadId);
   if (!isSoftwareInterestLead(lead)) {
     throw coded('NOT_SOFTWARE_LEAD', 'One-click deployment is only available on software-interest leads (the /landing signups).');

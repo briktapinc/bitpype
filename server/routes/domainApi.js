@@ -8,6 +8,7 @@
 const express = require('express');
 const domain = require('../domain');
 const idempotency = require('../idempotency');
+const partners = require('../partners');
 const { requireRole, requireTokenLeadScope, denyLeadScopedToken, pinTokenLeadFilter } = require('../middleware');
 const apiErrors = require('../apiErrors');
 
@@ -461,7 +462,7 @@ router.get('/discovery/schedule', denyLeadScopedToken, (req, res) => {
     fail(res, e);
   }
 });
-router.put('/discovery/schedule', requireRole('owner', 'admin'), (req, res) => {
+router.put('/discovery/schedule', requireRole('owner', 'admin'), partners.denyPartnerSettings, (req, res) => {
   try {
     ok(res, { schedule: domain.discoverySet(req.auth.workspaceId, req.body || {}) });
   } catch (e) {
@@ -1358,21 +1359,21 @@ router.get('/settings', denyLeadScopedToken, (req, res) => {
     fail(res, e);
   }
 });
-router.put('/settings', requireRole('owner', 'admin'), (req, res) => {
+router.put('/settings', requireRole('owner', 'admin'), partners.denyPartnerSettings, (req, res) => {
   try {
     ok(res, domain.settingsSet(req.auth.workspaceId, req.body.key, req.body.value));
   } catch (e) {
     fail(res, e);
   }
 });
-router.put('/settings/secret', requireRole('owner', 'admin'), (req, res) => {
+router.put('/settings/secret', requireRole('owner', 'admin'), partners.denyPartnerSettings, (req, res) => {
   try {
     ok(res, domain.settingsSetSecret(req.auth.workspaceId, req.body.key, req.body.value));
   } catch (e) {
     fail(res, e);
   }
 });
-router.post('/settings/automation', requireRole('owner', 'admin'), (req, res) => {
+router.post('/settings/automation', requireRole('owner', 'admin'), partners.denyPartnerSettings, (req, res) => {
   try {
     ok(res, domain.automationSet(req.auth.workspaceId, !!(req.body && req.body.paused)));
   } catch (e) {
@@ -1386,14 +1387,14 @@ router.get('/prompts', denyLeadScopedToken, (req, res) => {
     fail(res, e);
   }
 });
-router.put('/prompts/:key', requireRole('owner', 'admin'), (req, res) => {
+router.put('/prompts/:key', requireRole('owner', 'admin'), partners.denyPartnerSettings, (req, res) => {
   try {
     ok(res, domain.promptsSave(req.auth.workspaceId, req.params.key, req.body.body));
   } catch (e) {
     fail(res, e);
   }
 });
-router.post('/prompts/:key/reset', requireRole('owner', 'admin'), (req, res) => {
+router.post('/prompts/:key/reset', requireRole('owner', 'admin'), partners.denyPartnerSettings, (req, res) => {
   try {
     ok(res, domain.promptsReset(req.auth.workspaceId, req.params.key));
   } catch (e) {
@@ -1430,7 +1431,7 @@ router.get('/cloudflare', denyLeadScopedToken, (req, res) => {
     fail(res, e);
   }
 });
-router.put('/cloudflare', requireRole('owner', 'admin'), (req, res) => {
+router.put('/cloudflare', requireRole('owner', 'admin'), partners.denyPartnerSettings, (req, res) => {
   try {
     ok(res, domain.cfSaveConfig(req.auth.workspaceId, req.body || {}));
   } catch (e) {
@@ -1445,7 +1446,7 @@ router.post('/cloudflare/test', requireRole('owner', 'admin'), async (req, res) 
   }
 });
 // Batch 48: test-send through the workspace's selected mail provider.
-router.post('/settings/mail-test', requireRole('owner', 'admin'), async (req, res) => {
+router.post('/settings/mail-test', requireRole('owner', 'admin'), partners.denyPartnerSettings, async (req, res) => {
   try {
     ok(res, await domain.mailTestSend(req.auth.workspaceId, req.body || {}));
   } catch (e) {
@@ -1505,6 +1506,15 @@ router.post('/domains/check', denyLeadScopedToken, async (req, res) => {
 });
 router.post('/domains/register', requireRole('owner', 'admin', 'member'), denyLeadScopedToken, async (req, res) => {
   try {
+    // Batch 80: partner purchase gate — a partner's registration
+    // becomes an approval request; nothing is charged or registered.
+    const gate = await partners.gatePurchase({
+      userId: req.auth && req.auth.userId,
+      workspaceId: req.auth.workspaceId,
+      actionKind: 'domain_register',
+      payload: req.body || {},
+    });
+    if (gate) return res.status(202).json({ ok: true, data: gate });
     ok(res, await domain.domainsRegister(req.auth.workspaceId, req.body || {}));
   } catch (e) {
     fail(res, e, 500);
@@ -1899,6 +1909,14 @@ router.post(
   denyLeadScopedToken,
   async (req, res) => {
     try {
+      // Batch 80: partner purchase gate (Twilio charges the platform).
+      const gate = await partners.gatePurchase({
+        userId: req.auth && req.auth.userId,
+        workspaceId: req.auth.workspaceId,
+        actionKind: 'call_number_purchase',
+        payload: req.body || {},
+      });
+      if (gate) return res.status(202).json({ ok: true, data: gate });
       ok(res, await domain.adminPurchaseCallNumber(req.auth.workspaceId, req.body || {}));
     } catch (e) {
       fail(res, e, e.code === 'TWILIO_ERROR' ? 502 : e.code === 'PLAN_REQUIRED' ? 402 : e.status || 400);
@@ -2143,6 +2161,15 @@ router.post(
   denyLeadScopedToken,
   async (req, res) => {
     try {
+      // Batch 80: partner purchase gate — completing a paid domain
+      // flow executes the registrar registration (platform spend).
+      const gate = await partners.gatePurchase({
+        userId: req.auth && req.auth.userId,
+        workspaceId: req.auth.workspaceId,
+        actionKind: 'domain_flow_complete',
+        payload: { txnId: Number(req.params.id) },
+      });
+      if (gate) return res.status(202).json({ ok: true, data: gate });
       ok(res, await domain.domainFlowComplete(req.auth.workspaceId, Number(req.params.id)));
     } catch (e) {
       fail(res, e, 500);

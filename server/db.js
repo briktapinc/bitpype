@@ -262,6 +262,13 @@ async function migrate() {
     } catch {
       /* */
     }
+    try {
+      // Batch 80: partner program account classification ('standard' |
+      // 'partner'); every existing user backfills to 'standard'.
+      ensureColumnSqlite(db, 'users', 'account_type', "TEXT NOT NULL DEFAULT 'standard'");
+    } catch {
+      /* */
+    }
     db.exec(`
       CREATE TABLE IF NOT EXISTS platform_settings (
         key TEXT NOT NULL PRIMARY KEY,
@@ -504,6 +511,45 @@ async function migrate() {
         created_by INTEGER,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
+      CREATE TABLE IF NOT EXISTS partner_earnings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        partner_user_id INTEGER NOT NULL,
+        workspace_id INTEGER,
+        kind TEXT NOT NULL DEFAULT 'credit',
+        amount_cents INTEGER NOT NULL DEFAULT 0,
+        currency TEXT NOT NULL DEFAULT 'usd',
+        credit_key TEXT UNIQUE,
+        stripe_invoice_id TEXT,
+        stripe_charge_id TEXT,
+        payment_id INTEGER,
+        payout_id INTEGER,
+        related_entry_id INTEGER,
+        note TEXT,
+        created_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_partner_earnings_user ON partner_earnings (partner_user_id, id DESC);
+      CREATE TABLE IF NOT EXISTS partner_payouts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        partner_user_id INTEGER NOT NULL,
+        amount_cents INTEGER NOT NULL DEFAULT 0,
+        method TEXT,
+        note TEXT,
+        paid_by INTEGER,
+        created_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS partner_approval_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workspace_id INTEGER,
+        requested_by INTEGER NOT NULL,
+        action_kind TEXT NOT NULL,
+        payload_json TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        decided_by INTEGER,
+        decided_at TEXT,
+        result_json TEXT,
+        created_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_partner_approvals_status ON partner_approval_requests (status, id DESC);
     `);
     // Batch 29: portal user types + per-user nav overrides. The column
     // default backfills every existing portal user to 'owner'.
@@ -513,7 +559,7 @@ async function migrate() {
     try {
       db.exec(
         `UPDATE client_portal_users SET user_type = 'owner'
-          WHERE user_type IS NULL OR user_type NOT IN ('owner', 'renter')`
+          WHERE user_type IS NULL OR user_type NOT IN ('owner', 'renter', 'partner')`
       );
     } catch {
       /* table may not exist on a bare schema */
@@ -562,6 +608,8 @@ async function migrate() {
     await ensureColumnMysql(conn, 'users', 'billing_plan', "VARCHAR(40) NOT NULL DEFAULT 'free'");
     await ensureColumnMysql(conn, 'users', 'current_period_end', 'DATETIME NULL');
     await ensureColumnMysql(conn, 'users', 'deleted_at', 'DATETIME NULL');
+    // Batch 80: partner program account classification.
+    await ensureColumnMysql(conn, 'users', 'account_type', "VARCHAR(20) NOT NULL DEFAULT 'standard'");
     await conn.query(`
       CREATE TABLE IF NOT EXISTS platform_settings (
         \`key\` VARCHAR(120) NOT NULL PRIMARY KEY,
@@ -577,6 +625,53 @@ async function migrate() {
         detail TEXT NULL,
         at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         KEY idx_platform_audit_at (at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS partner_earnings (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        partner_user_id BIGINT UNSIGNED NOT NULL,
+        workspace_id BIGINT UNSIGNED NULL,
+        kind VARCHAR(16) NOT NULL DEFAULT 'credit',
+        amount_cents INT NOT NULL DEFAULT 0,
+        currency VARCHAR(8) NOT NULL DEFAULT 'usd',
+        credit_key VARCHAR(255) NULL,
+        stripe_invoice_id VARCHAR(255) NULL,
+        stripe_charge_id VARCHAR(255) NULL,
+        payment_id BIGINT UNSIGNED NULL,
+        payout_id BIGINT UNSIGNED NULL,
+        related_entry_id BIGINT UNSIGNED NULL,
+        note VARCHAR(255) NULL,
+        created_at VARCHAR(32) NULL,
+        UNIQUE KEY uq_partner_earnings_key (credit_key),
+        KEY idx_partner_earnings_user (partner_user_id, id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS partner_payouts (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        partner_user_id BIGINT UNSIGNED NOT NULL,
+        amount_cents INT NOT NULL DEFAULT 0,
+        method VARCHAR(64) NULL,
+        note VARCHAR(255) NULL,
+        paid_by BIGINT UNSIGNED NULL,
+        created_at VARCHAR(32) NULL,
+        KEY idx_partner_payouts_user (partner_user_id, id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS partner_approval_requests (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        workspace_id BIGINT UNSIGNED NULL,
+        requested_by BIGINT UNSIGNED NOT NULL,
+        action_kind VARCHAR(48) NOT NULL,
+        payload_json TEXT NULL,
+        status VARCHAR(16) NOT NULL DEFAULT 'pending',
+        decided_by BIGINT UNSIGNED NULL,
+        decided_at VARCHAR(32) NULL,
+        result_json TEXT NULL,
+        created_at VARCHAR(32) NULL,
+        KEY idx_partner_approvals_status (status, id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
     await conn.query(`
@@ -792,7 +887,7 @@ async function migrate() {
     await ensureColumnMysql(conn, 'client_portal_users', 'module_overrides', 'TEXT NULL');
     await conn.query(
       `UPDATE client_portal_users SET user_type = 'owner'
-        WHERE user_type IS NULL OR user_type NOT IN ('owner', 'renter')`
+        WHERE user_type IS NULL OR user_type NOT IN ('owner', 'renter', 'partner')`
     );
     await ensureColumnMysql(conn, 'workspace_tokens', 'lead_id', 'BIGINT UNSIGNED NULL');
     await ensureColumnMysql(conn, 'job_runs', 'trigger_source', "VARCHAR(40) NOT NULL DEFAULT 'legacy'");

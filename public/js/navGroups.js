@@ -45,6 +45,7 @@ const NAV_GROUPS = [
     items: [
       'billing',
       'finance',
+      'partner-earnings',
     ],
   },
   { id: 'system', label: 'System', items: ['jobs', 'mcp', 'settings', 'admin', 'mailing-list'] },

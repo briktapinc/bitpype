@@ -42,8 +42,9 @@ if(process.argv[2]==='worker'){
    const m={exports:{}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8')+extra,{module:m,exports:m.exports,require:n=>Object.hasOwn(mocks,n)?mocks[n]:n==='../apiErrors'?require('../server/apiErrors'):require(n),console,Buffer,process,setTimeout,clearTimeout});return m.exports;
   }
   const middleware=new Proxy({}, {get(){return ()=>()=>{}}});
-  load('server/routes/domainApi.js',{'express':{Router:()=>router},'../domain':domain,'../idempotency':idem,'../middleware':middleware,'../workspaceDb':{openWorkspaceDb:()=>db}});
-  const mcp=load('server/mcp.js',{'./domain':domain,'./jobs':{},'./workspace':{},'./clientMcp':{},'./idempotency':idem,'./workspaceDb':{openWorkspaceDb:()=>other}},';callClientTool=async()=>undefined;');
+  const partnersStub={workspaceHasPartner:async()=>false,gatePurchaseForWorkspace:async()=>null,denyPartnerSettings:(req,res,next)=>next()};
+  load('server/routes/domainApi.js',{'express':{Router:()=>router},'../domain':domain,'../idempotency':idem,'../middleware':middleware,'../workspaceDb':{openWorkspaceDb:()=>db},'../partners':partnersStub});
+  const mcp=load('server/mcp.js',{'./domain':domain,'./jobs':{},'./workspace':{},'./clientMcp':{},'./idempotency':idem,'./workspaceDb':{openWorkspaceDb:()=>other},'./partners':partnersStub},';callClientTool=async()=>undefined;');
   const route=routes.find(r=>r.method==='post'&&r.route==='/leads');
   const req={headers:{'idempotency-key':'transport-key'},auth:{workspaceId:1},body:{name:'Cross transport fixture'}};
   let restResult;const res={json(v){restResult=v},status(){return this}};

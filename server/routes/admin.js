@@ -89,6 +89,72 @@ router.delete('/users/:id', async (req, res) => {
   }
 });
 
+// ---------- Creator Partners (Batch 80) ----------
+// Partner accounts are created through the Users routes above with
+// accountType 'partner' (admin-created only). Here: balances across
+// partners, record-payout (the app records it; money moves outside),
+// and the purchase-approval queue.
+router.get('/partners', async (req, res) => {
+  try {
+    ok(res, { partners: await require('../partners').listPartners() });
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.get('/partners/:userId/earnings', async (req, res) => {
+  try {
+    ok(res, await require('../partners').earningsSummary(Number(req.params.userId)));
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.post('/partners/:userId/payouts', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const data = await require('../partners').recordPayout({
+      partnerUserId: Number(req.params.userId),
+      amountCents: b.amountCents != null ? Number(b.amountCents) : null,
+      method: b.method || '',
+      note: b.note || '',
+      paidBy: req.session.userId,
+    });
+    await platform.audit(
+      req.session.userId,
+      'partner.payout',
+      `partnerUserId=${req.params.userId} amountCents=${data.amountCents}`
+    );
+    ok(res, data);
+  } catch (e) {
+    fail(res, e, e.status || 400);
+  }
+});
+router.get('/partner-approvals', async (req, res) => {
+  try {
+    ok(res, {
+      approvals: await require('../partners').listApprovals({ status: req.query.status || null }),
+    });
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.post('/partner-approvals/:id/decide', async (req, res) => {
+  try {
+    const data = await require('../partners').decideApproval({
+      approvalId: Number(req.params.id),
+      adminUserId: req.session.userId,
+      approve: !!(req.body && req.body.approve),
+    });
+    await platform.audit(
+      req.session.userId,
+      'partner.approval_decide',
+      `approvalId=${req.params.id} status=${data.status} kind=${data.actionKind}`
+    );
+    ok(res, data);
+  } catch (e) {
+    fail(res, e, e.status || 400);
+  }
+});
+
 // Batch 40 — MFA reset: clears a staff member's TOTP secret + enabled
 // flag + recovery codes. Staff TOTP is required, so the user simply
 // re-enrolls inline at their next login (no lockout state exists).

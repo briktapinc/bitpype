@@ -3864,6 +3864,36 @@ async function callTool(workspaceId, name, args = {}, ctx = {}) {
       }
     }
 
+    // Batch 80: partner-operated workspaces inherit the partner
+    // restrictions on this surface too (MCP callers are workspace
+    // tokens; the workspace's operator IS the partner). Settings
+    // writes are denied outright; a domain registration becomes an
+    // approval request instead of a charge. Non-partner workspaces
+    // are untouched.
+    const partnersMod = require('./partners');
+    const PARTNER_SETTINGS_TOOLS = ['settings.set', 'automation.pause', 'automation.resume', 'prompts.save'];
+    if (
+      PARTNER_SETTINGS_TOOLS.includes(name) ||
+      (name === 'discovery.schedule' && a.action === 'set')
+    ) {
+      if (await partnersMod.workspaceHasPartner(ws)) {
+        return {
+          ok: false,
+          error:
+            'PARTNER_SETTINGS_FORBIDDEN: Partner accounts cannot change settings. Ask the BitPype team if something needs updating.',
+          code: 'PARTNER_SETTINGS_FORBIDDEN',
+        };
+      }
+    }
+    if (name === 'domains.register') {
+      const gate = await partnersMod.gatePurchaseForWorkspace({
+        workspaceId: ws,
+        actionKind: 'domain_register',
+        payload: a,
+      });
+      if (gate) return { ok: true, data: gate };
+    }
+
     const clientOut = await callClientTool(ws, name, a, ctx);
     if (clientOut !== undefined) return { ok: true, data: clientOut };
 

@@ -8,8 +8,9 @@
  * structure (NAV_TOP_LEVEL + NAV_GROUPS) that app.js uses for
  * expand/collapse state, and this file pins the two to each other:
  *
- *  - the full sidebar inventory (27 items: label + href + route — the
- *    25 pre-Batch-50 items plus Batch 49's Finance) survives verbatim —
+ *  - the full sidebar inventory (28 items: label + href + route — the
+ *    25 pre-Batch-50 items plus Batch 49's Finance, Batch 71's Mailing
+ *    list and Batch 80's Partner earnings) survives verbatim —
  *    no item lost, no label renamed, no route moved;
  *  - every inventory route appears EXACTLY ONCE across the config;
  *  - group membership + labels are pinned;
@@ -77,6 +78,10 @@ const INVENTORY = [
   ['settings', 'Settings'],
   ['billing', 'Billing'],
   ['finance', 'Finance'],
+  // Batch 80: Partner earnings joins the Money group (partner-only
+  // hidden gate, unhidden for partner accounts at boot). Deliberate
+  // inventory growth, not drift.
+  ['partner-earnings', 'Partner earnings'],
   ['admin', 'Admin'],
   // Batch 71: the Admin mailing list joins the System group (super-admin
   // hidden gate, like Admin). Deliberate inventory growth, not drift.
@@ -98,7 +103,7 @@ function sidebarAnchors() {
   return out;
 }
 
-check('inventory: all items (25 pre-Batch-50 + Finance + Batch 71 Mailing list) survive with labels + routes unchanged', () => {
+check('inventory: all items (25 pre-Batch-50 + Finance + Batch 71 Mailing list + Batch 80 Partner earnings) survive with labels + routes unchanged', () => {
   const anchors = sidebarAnchors();
   assert.equal(anchors.length, INVENTORY.length, `expected ${INVENTORY.length} sidebar anchors, got ${anchors.length}`);
   const byRoute = new Map(anchors.map((a) => [a.route, a]));
@@ -138,9 +143,9 @@ check('config: top-level daily drivers + group labels/membership pinned', () => 
   assert.deepEqual(byId['system'], ['jobs', 'mcp', 'settings', 'admin', 'mailing-list']);
 });
 
-check('config: Money group carries Billing + Finance (Batch 49 slotted into the FINANCE_SLOT)', () => {
+check('config: Money group carries Billing + Finance (Batch 49 slotted into the FINANCE_SLOT) + Partner earnings (Batch 80)', () => {
   const money = NavGroups.NAV_GROUPS.find((g) => g.id === 'money');
-  assert.deepEqual(money.items, ['billing', 'finance'], 'Money holds Billing + Finance after integration');
+  assert.deepEqual(money.items, ['billing', 'finance', 'partner-earnings'], 'Money holds Billing + Finance + Partner earnings after integration');
   assert.equal(NavGroups.navGroupForRoute('finance'), 'money', 'finance routes to the Money group');
   assert.ok(!navSrc.includes('FINANCE_SLOT'), 'the FINANCE_SLOT marker is consumed by the integration');
 });

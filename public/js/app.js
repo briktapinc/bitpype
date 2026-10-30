@@ -68,6 +68,7 @@ const ROUTE_LABELS = {
   'mailing-list': 'Mailing list',
 };
 let currentUserIsSuperAdmin = false;
+let currentUserIsPartner = false;
 let currentUserId = null;
 let requireSubscription = false;
 let userSubscribed = true;
@@ -1365,6 +1366,7 @@ async function bootApp(meData) {
   authGate.dataset.mode = '';
   shell.classList.remove('hidden');
   currentUserIsSuperAdmin = !!(meData.isSuperAdmin || (meData.user && meData.user.isSuperAdmin));
+  currentUserIsPartner = !!(meData.isPartner || (meData.user && meData.user.isPartner));
   currentUserId = meData.user && meData.user.id != null ? Number(meData.user.id) : null;
   requireSubscription = !!meData.requireSubscription;
   userSubscribed = meData.subscribed != null ? !!meData.subscribed : !!(meData.user && meData.user.subscribed);
@@ -1377,6 +1379,8 @@ async function bootApp(meData) {
   if (navAdmin) navAdmin.classList.toggle('hidden', !currentUserIsSuperAdmin);
   const navMailingList = document.getElementById('nav-mailing-list');
   if (navMailingList) navMailingList.classList.toggle('hidden', !currentUserIsSuperAdmin);
+  const navPartnerEarnings = document.getElementById('nav-partner-earnings');
+  if (navPartnerEarnings) navPartnerEarnings.classList.toggle('hidden', !currentUserIsPartner);
   fillWorkspaces(meData.workspaces, meData.workspaceId || api.getWorkspaceId());
   updateBillingBanner();
 
@@ -7142,6 +7146,8 @@ async function pageAdmin(param) {
   const tabs = [
     ['overview', 'Overview'],
     ['users', 'Users'],
+    ['partners', 'Partners'],
+    ['approvals', 'Approvals'],
     ['access', 'Portal access'],
     ['workspaces', 'Workspaces'],
     ['payments', 'Payments'],
@@ -7179,6 +7185,8 @@ async function pageAdmin(param) {
       (async () => {
         if (tab === 'overview') await renderAdminOverview(body);
         else if (tab === 'users') await renderAdminUsers(body);
+        else if (tab === 'partners') await renderAdminPartners(body);
+        else if (tab === 'approvals') await renderAdminApprovals(body);
         else if (tab === 'access') await renderAdminPortalAccess(body);
         else if (tab === 'workspaces') await renderAdminWorkspaces(body);
         else if (tab === 'payments') await renderAdminPayments(body);
@@ -7197,6 +7205,95 @@ async function pageAdmin(param) {
     const rb = body.querySelector('[data-act="admin-retry"]');
     if (rb) rb.addEventListener('click', () => pageAdmin(param));
   }
+}
+
+/* Batch 80 — Admin → Partners: balances across partner accounts and
+   the record-payout action. The app RECORDS payouts; the money itself
+   moves outside the app (manual/Stripe by Ely). Payouts are gross —
+   partners handle their own taxes. */
+async function renderAdminPartners(el) {
+  const res = await api.adminPartners();
+  const partners = (res.data && res.data.partners) || [];
+  const money = (c) => moneyCents(c || 0, 'USD');
+  const rows = partners
+    .map(
+      (p) => `<tr>
+        <td>${esc(p.email)}<br><span class="hint">${esc(p.name || '')}</span></td>
+        <td>${esc((p.workspaceIds || []).join(', ') || '—')}</td>
+        <td style="text-align:right">${money(p.balanceCents)}</td>
+        <td>${p.eligible ? '<strong>Eligible</strong>' : '<span class="hint">below $500</span>'}</td>
+        <td class="row actions">
+          <input type="text" data-payout-method="${p.userId}" placeholder="Method (e.g. Stripe)" style="max-width:150px" />
+          <input type="text" data-payout-note="${p.userId}" placeholder="Note" style="max-width:150px" />
+          <button class="btn ghost small" data-payout="${p.userId}" ${p.balanceCents > 0 ? '' : 'disabled'}>Record payout (full balance)</button>
+        </td>
+      </tr>`
+    )
+    .join('');
+  el.innerHTML = `
+    <div class="panel"><div class="panel-b">
+      <p class="hint" style="margin-bottom:0.75rem">Partners earn the commission rate (platform setting <code>partners.commission_percent</code>, default 30%) on subscription payments from customers in their workspace. Payouts are monthly once a balance reaches $500, are recorded here only — send the money outside the app — and are <strong>gross</strong>: partners are responsible for their own taxes. Partner accounts are created in the Users tab (create user, then “Make partner”).</p>
+      <table><thead><tr><th>Partner</th><th>Workspaces</th><th style="text-align:right">Balance</th><th>Payout status</th><th></th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="5" class="hint">No partner accounts yet.</td></tr>'}</tbody></table>
+    </div></div>`;
+  $$('[data-payout]').forEach(
+    (b) =>
+      (b.onclick = async () => {
+        const uid = b.dataset.payout;
+        const method = (el.querySelector(`[data-payout-method="${uid}"]`) || {}).value || '';
+        const note = (el.querySelector(`[data-payout-note="${uid}"]`) || {}).value || '';
+        if (!confirm('Record a payout of this partner\'s FULL current balance as PAID? Only do this after the money has actually been sent.'))
+          return;
+        await safeRun(b, async () => {
+          const out = await api.adminRecordPartnerPayout(uid, { method, note });
+          toast(`Payout recorded: ${moneyCents(out.data.amountCents || 0, 'USD')}`, 'ok');
+          pageAdmin('partners');
+        });
+      })
+  );
+}
+
+/* Batch 80 — Admin → Approvals: the partner purchase-approval queue.
+   Approve executes the stored purchase with the admin as the actor;
+   deny closes the request with the decision recorded. */
+async function renderAdminApprovals(el) {
+  const res = await api.adminPartnerApprovals();
+  const approvals = (res.data && res.data.approvals) || [];
+  const rows = approvals
+    .map(
+      (a) => `<tr>
+        <td>${esc(String(a.createdAt || '').slice(0, 10))}</td>
+        <td>${esc(a.actionKind)}</td>
+        <td>ws ${esc(a.workspaceId != null ? a.workspaceId : '—')} · user ${esc(a.requestedBy)}</td>
+        <td><code style="font-size:0.8rem">${esc(JSON.stringify(a.payload || {}).slice(0, 140))}</code></td>
+        <td>${esc(a.status)}${a.status === 'failed' && a.result ? `<br><span class="hint">${esc(a.result.message || a.result.error || '')}</span>` : ''}</td>
+        <td class="row actions">${a.status === 'pending' ? `<button class="btn ghost small" data-approve="${a.id}">Approve &amp; run</button> <button class="btn ghost small" data-deny="${a.id}">Deny</button>` : ''}</td>
+      </tr>`
+    )
+    .join('');
+  el.innerHTML = `
+    <div class="panel"><div class="panel-b">
+      <p class="hint" style="margin-bottom:0.75rem">Purchases a partner starts (domain registrations, tracking numbers, credits, domain-flow completions, Hostinger deployments) land here instead of executing. Approving runs the stored action as you; denying closes it with the decision recorded.</p>
+      <table><thead><tr><th>Date</th><th>Action</th><th>Scope</th><th>Payload</th><th>Status</th><th></th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="6" class="hint">No approval requests yet.</td></tr>'}</tbody></table>
+    </div></div>`;
+  const decide = async (b, approve) => {
+    if (
+      !confirm(
+        approve
+          ? 'Approve and EXECUTE this purchase now? This spends real money / starts the stored action.'
+          : 'Deny this purchase request? It will be closed and never executed.'
+      )
+    )
+      return;
+    await safeRun(b, async () => {
+      const out = await api.adminDecidePartnerApproval(b.dataset.approve || b.dataset.deny, { approve });
+      toast(`Request ${out.data.status}`, out.data.status === 'failed' ? 'err' : 'ok');
+      pageAdmin('approvals');
+    });
+  };
+  $$('[data-approve]').forEach((b) => (b.onclick = () => decide(b, true)));
+  $$('[data-deny]').forEach((b) => (b.onclick = () => decide(b, false)));
 }
 
 async function renderAdminOverview(el) {
@@ -7321,9 +7418,10 @@ async function renderAdminUsers(el) {
                 return `<tr>
             <td>${esc(u.email)}${isSelf ? ' <span class="hint">(you)</span>' : ''}</td><td>${esc(u.name)}</td>
             <td>${esc(adminUserStatusLabel(u.status))}</td><td>${esc(u.workspace_count)}</td>
-            <td>${Number(u.is_super_admin) ? 'super' : 'user'}</td>
+            <td>${Number(u.is_super_admin) ? 'super' : u.account_type === 'partner' ? 'partner' : 'user'}</td>
             <td class="row actions">
               <button class="btn ghost small" data-edit="${u.id}">Edit</button>
+              ${isSelf ? '' : `<button class="btn ghost small" data-toggle-partner="${u.id}" data-on="${u.account_type === 'partner' ? 0 : 1}">${u.account_type === 'partner' ? 'Make standard' : 'Make partner'}</button>`}
               ${isSelf ? '' : `<button class="btn ghost small" data-toggle-sa="${u.id}" data-on="${Number(u.is_super_admin) ? 0 : 1}">${Number(u.is_super_admin) ? 'Demote' : 'Make super'}</button>`}
               ${isSelf ? '' : `<button class="btn ghost small" data-toggle-st="${u.id}" data-st="${blocked ? 'active' : 'disabled'}">${blocked ? 'Unblock' : 'Block'}</button>`}
               <button class="btn ghost small" data-reset="${u.id}">Reset pw</button>
@@ -7377,6 +7475,27 @@ async function renderAdminUsers(el) {
         await safeRun(b, async () => {
           await api.adminUpdateUser(b.dataset.toggleSa, { is_super_admin: promoting });
           toast(promoting ? 'Super admin granted' : 'Super admin removed', 'ok');
+          pageAdmin('users');
+        });
+      })
+  );
+  $$('[data-toggle-partner]').forEach(
+    (b) =>
+      (b.onclick = async () => {
+        const making = Number(b.dataset.on) === 1;
+        const u = users.find((x) => Number(x.id) === Number(b.dataset.togglePartner));
+        const who = u ? u.email : 'this user';
+        if (
+          !confirm(
+            making
+              ? `Make ${who} a PARTNER? They keep full staff access inside their own workspace only, cannot change settings, need approval for purchases, and earn commission on their workspace's customer payments.`
+              : `Remove partner status from ${who}? Their earnings ledger and payout history stay on record.`
+          )
+        )
+          return;
+        await safeRun(b, async () => {
+          await api.adminUpdateUser(b.dataset.togglePartner, { account_type: making ? 'partner' : 'standard' });
+          toast(making ? 'Partner status granted' : 'Partner status removed', 'ok');
           pageAdmin('users');
         });
       })
@@ -11414,6 +11533,81 @@ async function pageMailingList() {
   loadHistory();
 }
 
+/* Batch 80 — partner earnings: the signed-in partner's balance,
+   per-payment commission history, payout history, pending purchase
+   approvals, and the partner terms block. Data: GET /partners/me +
+   /partners/approvals (server/routes/partners.js). */
+async function pagePartnerEarnings() {
+  view.innerHTML = '<div class="card"><p class="hint">Loading your earnings…</p></div>';
+  let me;
+  let approvals;
+  try {
+    [me, approvals] = await Promise.all([
+      withLoadTimeout(api.partnerMe()),
+      withLoadTimeout(api.partnerApprovals()),
+    ]);
+  } catch (e) {
+    view.innerHTML = loadErrorCardHtml(errText(e));
+    wirePageRetry(() => pagePartnerEarnings());
+    return;
+  }
+  const d = (me && me.data) || {};
+  const money = (c) => moneyCents(c || 0, 'USD');
+  const terms = d.terms || {};
+  const entryRows = (d.entries || [])
+    .map(
+      (en) =>
+        `<tr><td>${esc(String(en.createdAt || '').slice(0, 10))}</td><td>${esc(en.kind)}</td><td>${esc(en.stripeInvoiceId || en.note || '—')}</td><td style="text-align:right">${en.amountCents < 0 ? '−' : ''}${money(Math.abs(en.amountCents))}</td></tr>`
+    )
+    .join('');
+  const payoutRows = (d.payouts || [])
+    .map(
+      (p) =>
+        `<tr><td>${esc(String(p.createdAt || '').slice(0, 10))}</td><td>${esc(p.method || '—')}</td><td>${esc(p.note || '')}</td><td style="text-align:right">${money(p.amountCents)}</td></tr>`
+    )
+    .join('');
+  const approvalRows = ((approvals && approvals.data && approvals.data.approvals) || [])
+    .map(
+      (a) =>
+        `<tr><td>${esc(String(a.createdAt || '').slice(0, 10))}</td><td>${esc(a.actionKind)}</td><td>${esc(a.status)}</td></tr>`
+    )
+    .join('');
+  view.innerHTML = `
+  <div class="page-head"><h2>Partner earnings</h2></div>
+  <div class="cards">
+    <div class="card"><div class="panel-h"><h3>Your balance</h3></div>
+      <p style="font-size:2rem;font-weight:800;margin:6px 0">${money(d.balanceCents)}</p>
+      <p class="hint">${d.eligible ? 'Payout-eligible — payouts run monthly.' : `Payouts start at ${money(d.thresholdCents)}.`}</p>
+    </div>
+    <div class="card"><div class="panel-h"><h3>Your rate</h3></div>
+      <p style="font-size:2rem;font-weight:800;margin:6px 0">${esc(d.ratePercent != null ? d.ratePercent : 30)}%</p>
+      <p class="hint">of every subscription payment from customers in your workspace, credited when the payment clears.</p>
+    </div>
+  </div>
+  <div class="card">
+    <div class="panel-h"><h3>Payment history</h3><span class="hint">credits, refund/dispute reversals and payouts</span></div>
+    <table class="table"><thead><tr><th>Date</th><th>Kind</th><th>Reference</th><th style="text-align:right">Amount</th></tr></thead>
+    <tbody>${entryRows || '<tr><td colspan="4" class="hint">No earnings yet — your first customer payment lands here.</td></tr>'}</tbody></table>
+  </div>
+  <div class="card">
+    <div class="panel-h"><h3>Payout history</h3></div>
+    <table class="table"><thead><tr><th>Date</th><th>Method</th><th>Note</th><th style="text-align:right">Amount</th></tr></thead>
+    <tbody>${payoutRows || '<tr><td colspan="4" class="hint">No payouts recorded yet.</td></tr>'}</tbody></table>
+  </div>
+  <div class="card">
+    <div class="panel-h"><h3>Purchase approvals</h3><span class="hint">spends our team double-checks before they run</span></div>
+    <table class="table"><thead><tr><th>Date</th><th>Action</th><th>Status</th></tr></thead>
+    <tbody>${approvalRows || '<tr><td colspan="3" class="hint">No purchase requests yet.</td></tr>'}</tbody></table>
+  </div>
+  <div class="card">
+    <div class="panel-h"><h3>Partner terms</h3></div>
+    <p>${esc(terms.taxes || 'Payouts are gross — no tax is withheld. You are responsible for your own taxes on partner earnings.')}</p>
+    <p>${esc(terms.support || 'You support your own customers day to day; the BitPype team backs you up on platform issues.')}</p>
+    <p>${esc(terms.catalog || 'Partners sell the standard BitPype plans at the standard prices.')}</p>
+    <p>${esc(terms.purchases || 'Anything that costs money is double-checked and approved by the BitPype team before it runs.')}</p>
+  </div>`;
+}
+
 const PAGES = {
   dashboard: pageDashboard,
   leads: pageLeads,
@@ -11440,6 +11634,7 @@ const PAGES = {
   settings: pageSettings,
   billing: pageBilling,
   finance: pageFinance,
+  'partner-earnings': pagePartnerEarnings,
   admin: pageAdmin,
   'mailing-list': pageMailingList,
 };

@@ -60,6 +60,9 @@ async function authPayload(user, workspaceId, workspaces) {
   const plan = billing.planOfUser(user);
   const workspacePlan = wsId ? await billing.workspacePlan(wsId) : plan;
   const isSuperAdmin = Number(user.is_super_admin) === 1;
+  // Batch 80: partner classification rides the payload so the SPA can
+  // show the partner Earnings nav and the partner terms block.
+  const accountType = String(user.account_type || 'standard');
   return {
     user: {
       id: user.id,
@@ -67,6 +70,8 @@ async function authPayload(user, workspaceId, workspaces) {
       name: user.name || '',
       created_at: user.created_at,
       isSuperAdmin,
+      accountType,
+      isPartner: accountType === 'partner',
       subscriptionStatus: user.subscription_status || 'none',
       currentPeriodEnd: user.current_period_end || null,
       subscribed,
@@ -75,6 +80,8 @@ async function authPayload(user, workspaceId, workspaces) {
     workspaceId: wsId,
     workspaces,
     isSuperAdmin,
+    accountType,
+    isPartner: accountType === 'partner',
     subscribed,
     workspaceSubscribed,
     plan,
@@ -427,7 +434,7 @@ router.post('/logout', (req, res) => {
 router.get('/me', requireAuth, async (req, res, next) => {
   try {
     const rows = await require('../db').query(
-      `SELECT id, email, name, is_super_admin, status, created_at,
+      `SELECT id, email, name, is_super_admin, account_type, status, created_at,
               subscription_status, billing_plan, current_period_end, deleted_at
        FROM users WHERE id = :id LIMIT 1`,
       { id: req.session.userId }

@@ -44,7 +44,7 @@ async function listUsers({ q = '', limit = 100 } = {}) {
   const like = `%${String(q || '').trim()}%`;
   if (String(q || '').trim()) {
     return query(
-      `SELECT u.id, u.email, u.name, u.is_super_admin, u.status, u.last_login_at, u.created_at, u.totp_enabled,
+      `SELECT u.id, u.email, u.name, u.is_super_admin, u.account_type, u.status, u.last_login_at, u.created_at, u.totp_enabled,
               (SELECT COUNT(*) FROM workspace_members m WHERE m.user_id = u.id) AS workspace_count
        FROM users u
        WHERE ${notDeletedClause('u')}
@@ -55,7 +55,7 @@ async function listUsers({ q = '', limit = 100 } = {}) {
     );
   }
   return query(
-    `SELECT u.id, u.email, u.name, u.is_super_admin, u.status, u.last_login_at, u.created_at, u.totp_enabled,
+    `SELECT u.id, u.email, u.name, u.is_super_admin, u.account_type, u.status, u.last_login_at, u.created_at, u.totp_enabled,
             (SELECT COUNT(*) FROM workspace_members m WHERE m.user_id = u.id) AS workspace_count
      FROM users u
      WHERE ${notDeletedClause('u')}
@@ -66,7 +66,7 @@ async function listUsers({ q = '', limit = 100 } = {}) {
 
 async function getUser(id) {
   const rows = await query(
-    `SELECT id, email, name, is_super_admin, status, last_login_at, created_at, updated_at, deleted_at
+    `SELECT id, email, name, is_super_admin, account_type, status, last_login_at, created_at, updated_at, deleted_at
      FROM users WHERE id = :id LIMIT 1`,
     { id: Number(id) }
   );
@@ -82,7 +82,7 @@ async function getUser(id) {
   return { user: rows[0], memberships };
 }
 
-async function createUser({ email, password, name, workspaceName, superAdmin = false }) {
+async function createUser({ email, password, name, workspaceName, superAdmin = false, accountType = null }) {
   const existing = await query('SELECT id FROM users WHERE email = :email LIMIT 1', {
     email: String(email || '')
       .trim()
@@ -100,7 +100,23 @@ async function createUser({ email, password, name, workspaceName, superAdmin = f
     workspaceName: workspaceName || undefined,
   });
   if (superAdmin) await setSuperAdmin(created.userId, true);
+  // Batch 80: admin-created partner accounts (the ONLY way a partner
+  // account comes to exist — registration stays closed). The new user
+  // owns the workspace createUserWithWorkspace just seeded.
+  const type = normalizeAccountType(accountType);
+  if (type) {
+    await query('UPDATE users SET account_type = :type WHERE id = :id', { type, id: created.userId });
+  }
   return created;
+}
+
+/** Batch 80: 'standard' | 'partner' (null = leave unchanged/invalid). */
+function normalizeAccountType(raw) {
+  if (raw == null) return null;
+  const t = String(raw).trim().toLowerCase();
+  if (t === 'partner') return 'partner';
+  if (t === 'standard' || t === 'user' || t === '') return 'standard';
+  return null;
 }
 
 /** Normalize status: UI "blocked" maps to DB status "disabled" (blocks sign-in). */
@@ -188,6 +204,15 @@ async function updateUser(id, patch = {}, { actorUserId = null } = {}) {
       }
     }
     await setSuperAdmin(uid, on);
+  }
+  if (patch.account_type != null || patch.accountType != null) {
+    const type = normalizeAccountType(patch.account_type != null ? patch.account_type : patch.accountType);
+    if (!type) {
+      const e = new Error('account_type must be "standard" or "partner"');
+      e.code = 'VALIDATION';
+      throw e;
+    }
+    await query('UPDATE users SET account_type = :type WHERE id = :id', { type, id: uid });
   }
   if (patch.password) {
     if (String(patch.password).length < 8) {

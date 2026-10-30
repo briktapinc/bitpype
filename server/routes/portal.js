@@ -439,7 +439,7 @@ async function portalTabGuard(req, res, next) {
     const hit = PORTAL_ROUTE_TABS.find(([prefix]) => p === prefix || p.startsWith(prefix + '/'));
     if (!hit) {
       // Unmapped portal route group: owner-only by default.
-      if (portalTabs.normalizeUserType(req.client && req.client.user_type) !== 'owner') {
+      if (!portalTabs.isOwnerTier(req.client && req.client.user_type)) {
         return tabForbidden(res);
       }
       return next();
@@ -498,7 +498,7 @@ async function portalModuleGuard(req, res, next) {
     const defaults = req.portalDefaults || (await portalTabs.loadConfiguredDefaults());
     if (!moduleKey) {
       // Unmapped module sub-path (uploads, future endpoints): owner-only.
-      if (portalTabs.normalizeUserType(req.client && req.client.user_type) !== 'owner') {
+      if (!portalTabs.isOwnerTier(req.client && req.client.user_type)) {
         return moduleForbidden(res);
       }
       return next();
@@ -1986,7 +1986,7 @@ router.post('/modules/:type/detach', requireClient, actionLimit, async (req, res
 // effective module set.
 router.delete('/modules/:type', requireClient, actionLimit, async (req, res) => {
   try {
-    if (portalTabs.normalizeUserType(req.client && req.client.user_type) !== 'owner') {
+    if (!portalTabs.isOwnerTier(req.client && req.client.user_type)) {
       return res.status(403).json({
         ok: false,
         error: 'Only the business owner can delete a module',

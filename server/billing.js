@@ -33,7 +33,7 @@ const HEALTHY_PAID_STATUSES = new Set(['active', 'trialing']);
 
 async function getUserBilling(userId) {
   const rows = await query(
-    `SELECT id, email, name, status, is_super_admin,
+    `SELECT id, email, name, status, is_super_admin, account_type,
             stripe_customer_id, stripe_subscription_id, subscription_status,
             subscription_price_id, billing_plan, current_period_end, deleted_at
      FROM users WHERE id = :id LIMIT 1`,
@@ -1479,6 +1479,18 @@ async function dispatchWebhookEvent(event, deps = {}) {
         console.warn('[billing] first payment receipt:', e.message);
       }
     }
+    // Batch 80: partner commission — a subscription payment collected
+    // from a customer in a partner's workspace credits the partner's
+    // earnings ledger (exactly once per invoice; the ledger's unique
+    // credit_key is the guard, so this runs on every dispatch).
+    // Best-effort: a credit failure must never fail the webhook.
+    if (recorded && recorded.id) {
+      try {
+        await require('./partners').creditForInvoicePaid(obj, { paymentId: recorded.id });
+      } catch (e) {
+        console.warn('[billing] partner credit:', e.message);
+      }
+    }
     return;
   }
 
@@ -1503,12 +1515,38 @@ async function dispatchWebhookEvent(event, deps = {}) {
 
   if (type === 'charge.refunded' && obj) {
     const refunds = (obj.refunds && obj.refunds.data) || [];
-    for (const r of refunds) await recordRefundFromCharge(obj, r);
+    for (const r of refunds) {
+      await recordRefundFromCharge(obj, r);
+      // Batch 80: reverse the partner commission for this refund
+      // (proportional to the charge's total refunded amount; exactly
+      // once per refund id). Best-effort like the other hooks.
+      try {
+        await require('./partners').reverseForRefund({
+          refundId: r.id,
+          invoiceId: obj.invoice || null,
+          chargeId: obj.id,
+          chargeAmountCents: obj.amount,
+          amountRefundedCents: obj.amount_refunded,
+        });
+      } catch (e) {
+        console.warn('[billing] partner refund reversal:', e.message);
+      }
+    }
     return;
   }
 
   if (type === 'charge.dispute.created' && obj) {
     await markSubscriptionAtRisk(obj.customer, 'dispute');
+    // Batch 80: a dispute reverses the partner commission on the
+    // disputed charge in full. Best-effort.
+    try {
+      await require('./partners').reverseForDispute({
+        disputeId: obj.id,
+        chargeId: typeof obj.charge === 'string' ? obj.charge : (obj.charge && obj.charge.id) || null,
+      });
+    } catch (e) {
+      console.warn('[billing] partner dispute reversal:', e.message);
+    }
     return;
   }
 

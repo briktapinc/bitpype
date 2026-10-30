@@ -88,7 +88,7 @@ function freshPlatformDb() {
       is_super_admin INTEGER DEFAULT 0, stripe_customer_id TEXT,
       stripe_subscription_id TEXT, subscription_status TEXT,
       subscription_price_id TEXT, billing_plan TEXT, current_period_end TEXT,
-      deleted_at TEXT
+      deleted_at TEXT, account_type TEXT DEFAULT 'standard'
     );
     CREATE TABLE payments (
       id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, workspace_id INTEGER,
@@ -614,6 +614,13 @@ const claims = () => platformDb.prepare('SELECT ref_key, kind FROM lifecycle_com
       './workspaceDb': wsDbStub,
       './rentals': { closeRentalsForWebsite: async () => ({ closed: 0 }) },
       './lifecycleComms': comms,
+      // Batch 80: billing's partner-earnings hook — no partners exist
+      // in this fixture world, so every entry point is a no-op.
+      './partners': {
+        creditForInvoicePaid: async () => ({ credited: false, reason: 'no_partner' }),
+        reverseForRefund: async () => ({ reversed: false }),
+        reverseForDispute: async () => ({ reversed: false }),
+      },
     });
   }
   const evt = (type, object) => ({ type, data: { object } });

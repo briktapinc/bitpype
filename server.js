@@ -34,6 +34,9 @@ const websitePromoRoutes = require('./server/routes/websitePromo');
 const landingRoutes = require('./server/routes/landing');
 // Batch 79: /creator Solo application form (Turnstile + lead create in ws1).
 const creatorRoutes = require('./server/routes/creator');
+// Batch 80: /partner application form + the partner's session API.
+const partnerRoutes = require('./server/routes/partner');
+const partnersRoutes = require('./server/routes/partners');
 const mailingListPublicRoutes = require('./server/routes/mailingListPublic');
 // Batch 59: public install-script callback + bundle download.
 const hostingerCallbackRoutes = require('./server/routes/hostingerCallback');
@@ -389,6 +392,10 @@ app.use('/api/v1/website-promo', websitePromoRoutes);
 app.use('/api/v1/landing', landingRoutes);
 // Batch 79: /creator Solo application form (Turnstile + lead create in ws1).
 app.use('/api/v1/creator', creatorRoutes);
+// Batch 80: /partner application form (Turnstile + lead create in ws1)
+// and the signed-in partner's earnings/approvals API.
+app.use('/api/v1/partner', partnerRoutes);
+app.use('/api/v1/partners', partnersRoutes);
 // Batch 71: public unsubscribe link for the Admin mailing list
 // (HMAC token, no session — flips one subscriber, nothing else exposed).
 app.use('/api/v1/mailing-list', mailingListPublicRoutes);
@@ -620,6 +627,37 @@ async function sendCreatorPage(res) {
   }
 }
 
+// Batch 80: /partner pitches the FREE partner program, and
+// /work-with-us hubs every opportunity page. Same dedicated-sender
+// pattern as /creator: Batch 56 tokens substituted at serve time and
+// the Batch 75 marketing disclaimer injected (both pages talk about
+// earnings, so the disclaimer set membership is deliberate).
+async function sendPartnerPage(res) {
+  const raw = readTemplatedPage('partner.html');
+  if (raw == null) return res.status(404).end();
+  try {
+    const { publicUrl, supportEmail } = await templatedTokens();
+    let html = raw.split('{{PUBLIC_URL}}').join(publicUrl).split('{{SUPPORT_EMAIL}}').join(supportEmail);
+    html = marketingDisclaimer.injectDisclaimer(html, 'light');
+    return res.type('html').send(html);
+  } catch {
+    return res.sendFile(path.join(__dirname, 'public', 'partner.html'));
+  }
+}
+
+async function sendWorkWithUsPage(res) {
+  const raw = readTemplatedPage('work-with-us.html');
+  if (raw == null) return res.status(404).end();
+  try {
+    const { publicUrl, supportEmail } = await templatedTokens();
+    let html = raw.split('{{PUBLIC_URL}}').join(publicUrl).split('{{SUPPORT_EMAIL}}').join(supportEmail);
+    html = marketingDisclaimer.injectDisclaimer(html, 'light');
+    return res.type('html').send(html);
+  } catch {
+    return res.sendFile(path.join(__dirname, 'public', 'work-with-us.html'));
+  }
+}
+
 // Batch 70: /thankyou is where a successful /landing submission lands.
 // A templated page like /landing, PLUS serve-time sections built by
 // server/landingThankYou.js from the landing.thankyou_video +
@@ -689,6 +727,15 @@ app.get(['/creator', '/creator/'], (_req, res) => {
   return sendCreatorPage(res);
 });
 
+// Batch 80: /partner — the free partner program; /work-with-us — the
+// hub listing every opportunity page.
+app.get(['/partner', '/partner/'], (_req, res) => {
+  return sendPartnerPage(res);
+});
+app.get(['/work-with-us', '/work-with-us/'], (_req, res) => {
+  return sendWorkWithUsPage(res);
+});
+
 // Batch 70: /thankyou — the post-submission page (demo video + Calendly
 // booking button from the Landing settings).
 app.get(['/thankyou', '/thankyou/'], (_req, res) => {
@@ -710,6 +757,8 @@ app.get('/how.html', (_req, res) => sendTemplatedPage(res, 'how.html'));
 app.get('/how-it-works.html', (_req, res) => sendTemplatedPage(res, 'how-it-works.html'));
 app.get('/landing.html', (_req, res) => sendLandingPage(res));
 app.get('/creator.html', (_req, res) => sendCreatorPage(res));
+app.get('/partner.html', (_req, res) => sendPartnerPage(res));
+app.get('/work-with-us.html', (_req, res) => sendWorkWithUsPage(res));
 app.get('/thankyou.html', (_req, res) => sendThankYouPage(res));
 app.get('/onboarding.html', (_req, res) => sendTemplatedPage(res, 'onboarding.html'));
 app.get('/legal/privacy.html', (_req, res) => sendTemplatedPage(res, 'legal/privacy.html'));
