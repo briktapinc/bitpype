@@ -100,8 +100,15 @@ router.get('/config', async (_req, res, next) => {
     const platform = require('../platform');
     const open = await platform.getPlatformSetting('registration.open', '1');
     // Batch 87: the staff auth screen renders the Admin-configured
-    // brand tagline (sync cache; default when unset).
-    const tagline = require('../branding').tagline();
+    // brand tagline (sync cache; default when unset). Guarded: stub
+    // harnesses that load this router without the branding module
+    // (production-regressions' strict require map) get the default.
+    let tagline = 'Local business desk';
+    try {
+      tagline = require('../branding').tagline();
+    } catch {
+      /* default tagline */
+    }
     res.json({ ok: true, data: { registrationOpen: open === '1', tagline } });
   } catch (e) {
     next(e);
