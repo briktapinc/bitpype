@@ -32,6 +32,8 @@ const chatbotPublicRoutes = require('./server/routes/chatbotPublic');
 const outreachPublicRoutes = require('./server/routes/outreachPublic');
 const websitePromoRoutes = require('./server/routes/websitePromo');
 const landingRoutes = require('./server/routes/landing');
+// Batch 79: /creator Solo application form (Turnstile + lead create in ws1).
+const creatorRoutes = require('./server/routes/creator');
 const mailingListPublicRoutes = require('./server/routes/mailingListPublic');
 // Batch 59: public install-script callback + bundle download.
 const hostingerCallbackRoutes = require('./server/routes/hostingerCallback');
@@ -385,6 +387,8 @@ app.use(
 app.use('/api/v1/website-promo', websitePromoRoutes);
 // Batch 58: /landing software-interest form (Turnstile + lead create in ws1).
 app.use('/api/v1/landing', landingRoutes);
+// Batch 79: /creator Solo application form (Turnstile + lead create in ws1).
+app.use('/api/v1/creator', creatorRoutes);
 // Batch 71: public unsubscribe link for the Admin mailing list
 // (HMAC token, no session — flips one subscriber, nothing else exposed).
 app.use('/api/v1/mailing-list', mailingListPublicRoutes);
@@ -598,6 +602,24 @@ async function sendLandingPage(res) {
   }
 }
 
+// Batch 79: /creator pitches the Solo license to content creators.
+// Same dedicated-sender pattern as /landing: Batch 56 tokens are
+// substituted at serve time and the Batch 75 marketing disclaimer is
+// injected (the page carries example-math about earnings, so the
+// disclaimer set membership is deliberate). No serve-time sections.
+async function sendCreatorPage(res) {
+  const raw = readTemplatedPage('creator.html');
+  if (raw == null) return res.status(404).end();
+  try {
+    const { publicUrl, supportEmail } = await templatedTokens();
+    let html = raw.split('{{PUBLIC_URL}}').join(publicUrl).split('{{SUPPORT_EMAIL}}').join(supportEmail);
+    html = marketingDisclaimer.injectDisclaimer(html, 'light');
+    return res.type('html').send(html);
+  } catch {
+    return res.sendFile(path.join(__dirname, 'public', 'creator.html'));
+  }
+}
+
 // Batch 70: /thankyou is where a successful /landing submission lands.
 // A templated page like /landing, PLUS serve-time sections built by
 // server/landingThankYou.js from the landing.thankyou_video +
@@ -662,6 +684,11 @@ app.get(['/landing', '/landing/'], (_req, res) => {
   return sendLandingPage(res);
 });
 
+// Batch 79: /creator — the Solo license pitched to content creators.
+app.get(['/creator', '/creator/'], (_req, res) => {
+  return sendCreatorPage(res);
+});
+
 // Batch 70: /thankyou — the post-submission page (demo video + Calendly
 // booking button from the Landing settings).
 app.get(['/thankyou', '/thankyou/'], (_req, res) => {
@@ -682,6 +709,7 @@ app.get('/home.html', (_req, res) => sendTemplatedPage(res, 'home.html'));
 app.get('/how.html', (_req, res) => sendTemplatedPage(res, 'how.html'));
 app.get('/how-it-works.html', (_req, res) => sendTemplatedPage(res, 'how-it-works.html'));
 app.get('/landing.html', (_req, res) => sendLandingPage(res));
+app.get('/creator.html', (_req, res) => sendCreatorPage(res));
 app.get('/thankyou.html', (_req, res) => sendThankYouPage(res));
 app.get('/onboarding.html', (_req, res) => sendTemplatedPage(res, 'onboarding.html'));
 app.get('/legal/privacy.html', (_req, res) => sendTemplatedPage(res, 'legal/privacy.html'));

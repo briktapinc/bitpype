@@ -196,6 +196,16 @@ async function seed() {
     'INSERT INTO users (email, password_hash, name, is_super_admin, status) VALUES (:e, :h, :n, 1, :s)',
     { e: PORTAL_EMAIL, h: hash('Unused78!pw'), n: 'Fixture Owner Biz', s: 'active' }
   );
+  // Workspace membership: the auth middleware requires a
+  // workspace_members row before any workspace-scoped call answers
+  // (the SPA's workspace picker enforces the same rule).
+  const memberRows = await db.query('SELECT id, email FROM users');
+  for (const u of memberRows) {
+    await db.query('INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (1, :u, :r)', {
+      u: u.id,
+      r: 'owner',
+    });
+  }
 
   const { openWorkspaceDb } = require(path.join(root, 'server/workspaceDb.js'));
   const wdb = openWorkspaceDb(1);
@@ -205,6 +215,13 @@ async function seed() {
       "INSERT INTO leads (id, business_name, email, phone, status, category, city) VALUES (1, ?, 'lead@fixture.test', '555-010-7800', 'new', 'Plumbing', 'Reading')"
     )
     .run(LEAD_NAME);
+  // One researched fact on file — the Batch 74 lead_record auto-check
+  // passes only with name+phone+email AND >= 1 fact.
+  wdb
+    .prepare(
+      "INSERT INTO business_facts (lead_id, fact_key, value, source, claim_class) VALUES (1, 'hours', 'Mon-Fri 8-5', 'fixture', 'VERIFIED')"
+    )
+    .run();
   wdb
     .prepare("INSERT INTO leads (id, business_name, email, status) VALUES (501, 'Fixture Owner Biz', ?, 'customer')")
     .run(PORTAL_EMAIL);
@@ -295,6 +312,9 @@ async function staffLogin(jar) {
       assert.equal(done.status, 200, 'MFA verify completed');
     }
   }
+  // Pin the session to workspace 1, exactly like the SPA's picker.
+  const ws = await post(jar, '/api/v1/auth/workspace', { workspaceId: 1 });
+  assert.equal(ws.status, 200, 'workspace selection completed');
 }
 
 /* ===================================================================== */
@@ -334,7 +354,8 @@ async function staffLogin(jar) {
     await staffLogin(staffJar);
     await checkAsync('B1 staff session works; the checklist endpoints the page calls answer', async () => {
       const r = await get(staffJar, '/api/v1/leads/1/onboarding');
-      assert.equal(r.status, 200);
+      const peek = await r.clone().text().catch(() => '');
+      assert.equal(r.status, 200, `onboarding GET status ${r.status}: ${peek.slice(0, 300)}`);
       const body = await json(r);
       assert.equal(body.data.items.length, 12, '12 checklist items');
       assert.equal(body.data.doneCount, 0);
@@ -348,7 +369,8 @@ async function staffLogin(jar) {
           values: { name: 'Casey Fixture', email: 'casey78@fixture.test', phone: '+15555550178', message: 'Need a quote' },
         }),
       });
-      assert.equal(r.status, 200, `submit status ${r.status}`);
+      const submitBody = await r.clone().json().catch(() => null);
+      assert.equal(r.status, 200, `submit status ${r.status}: ${JSON.stringify(submitBody)}`);
       const contacts = await json(await get(staffJar, '/api/v1/admin-area/leadscout/contacts?limit=100'));
       const rows = (contacts.data && (contacts.data.contacts || contacts.data.rows)) || [];
       const mine = rows.find((c) => c.email === 'casey78@fixture.test');
@@ -447,7 +469,10 @@ async function staffLogin(jar) {
     await checkAsync('C5 Back to leads returns to the list', async () => {
       await page.click('[data-act="back"]');
       await page.waitForFunction(() => location.hash === '#/leads', { timeout: 10000 });
-      await page.waitForSelector('#l-body', { timeout: 20000 });
+      // Wait for the rows, not just the shell: a list render that
+      // resolves late would otherwise paint over the NEXT page
+      // (every page writes #view when its fetch lands).
+      await page.waitForSelector('#l-body [data-act="open"]', { timeout: 20000 });
     });
 
     await checkAsync('C6 form submissions page renders + back navigates', async () => {
@@ -459,17 +484,34 @@ async function staffLogin(jar) {
       assert.equal(await page.$('.drawer'), null, 'no drawer on the submissions page');
       await page.click('#fs-back');
       await page.waitForFunction(() => location.hash === '#/forms', { timeout: 10000 });
+      await page.waitForFunction(
+        () => document.querySelector('#view') && document.querySelector('#view').innerText.includes('Contact 78'),
+        { timeout: 20000 }
+      );
     });
 
     await checkAsync('C7 LeadScout contact page renders + back navigates', async () => {
       await page.goto(`${BASE}/app#/leadscout/${fixture.contactId}`, { waitUntil: 'domcontentloaded' });
-      await page.waitForFunction(
-        () => document.querySelector('#lc-body') && document.querySelector('#lc-body').innerText.includes('casey78@fixture.test'),
-        { timeout: 20000 }
-      );
+      try {
+        await page.waitForFunction(
+          () => document.querySelector('#lc-body') && document.querySelector('#lc-body').innerText.includes('casey78@fixture.test'),
+          { timeout: 20000 }
+        );
+      } catch (e) {
+        const dbg = await page.evaluate(() => ({
+          hash: location.hash,
+          lc: document.querySelector('#lc-body') ? document.querySelector('#lc-body').innerText.slice(0, 400) : '(no #lc-body)',
+          view: document.querySelector('#view') ? document.querySelector('#view').innerText.slice(0, 200) : '(no #view)',
+        }));
+        throw new Error(`C7 debug: ${JSON.stringify(dbg)} errors=${pageErrors.join('; ')}`);
+      }
       assert.equal(await page.$('.drawer'), null, 'no drawer on the contact page');
       await page.click('#lc-back');
       await page.waitForFunction(() => location.hash === '#/leadscout', { timeout: 10000 });
+      await page.waitForFunction(
+        () => document.querySelector('#view') && document.querySelector('#view').innerText.includes('Casey Fixture'),
+        { timeout: 20000 }
+      );
     });
 
     await checkAsync('C8 no uncaught page errors in the staff app', async () => {
@@ -488,30 +530,77 @@ async function staffLogin(jar) {
     await setJarCookies(ppage, portalJar);
 
     await checkAsync('D1 Modules → New item lands on the #/module-item PAGE; save round-trips', async () => {
+      try {
+        await d1Body();
+      } catch (e) {
+        const dbg = await ppage
+          .evaluate(() => ({
+            hash: location.hash,
+            modulesAppHidden: document.querySelector('#modules-app')?.hasAttribute('hidden'),
+            tabs: document.querySelectorAll('[data-module-type]').length,
+            editorHidden: document.querySelector('#sec-module-item')?.hasAttribute('hidden'),
+            msg: document.querySelector('#msg-modules')?.textContent || '',
+            msgModal: document.querySelector('#msg-modules-modal')?.textContent || '',
+          }))
+          .catch(() => ({}));
+        throw new Error(`D1 debug: ${JSON.stringify(dbg)} errors=${portalErrors.join('; ')} :: ${e.message}`);
+      }
+    });
+
+    // The modules sidebar re-renders as async loads land, which can
+    // detach a node between query and click — retry against a fresh
+    // node until the click's effect is visible.
+    async function clickUntil(page, selector, verify, tries = 8) {
+      for (let i = 0; i < tries; i++) {
+        const el = await page.$(selector);
+        if (el) {
+          try {
+            await el.click();
+          } catch {}
+          if (await verify()) return;
+        }
+        await new Promise((r) => setTimeout(r, 600));
+      }
+      throw new Error(`click on ${selector} never took effect`);
+    }
+
+    async function d1Body() {
       await ppage.goto(`${BASE}/portal#/modules`, { waitUntil: 'domcontentloaded' });
       await ppage.waitForSelector('#modules-app:not([hidden])', { timeout: 25000 });
       await ppage.waitForSelector('[data-module-type="testimonials"]', { timeout: 20000 });
-      await ppage.click('[data-module-type="testimonials"]');
+      await clickUntil(ppage, '[data-module-type="testimonials"]', () =>
+        ppage.evaluate(() => {
+          const b = document.querySelector('[data-module-type="testimonials"]');
+          return !!(b && b.classList.contains('is-active'));
+        })
+      );
       await ppage.waitForSelector('#btn-modules-new', { timeout: 20000 });
-      await ppage.click('#btn-modules-new');
+      await clickUntil(ppage, '#btn-modules-new', () =>
+        ppage.evaluate(() => location.hash === '#/module-item')
+      );
       await ppage.waitForFunction(() => location.hash === '#/module-item', { timeout: 10000 });
       await ppage.waitForSelector('#sec-module-item:not([hidden])', { timeout: 10000 });
       assert.equal(await ppage.$('#modules-item-modal'), null, 'the old modal element is gone');
       await ppage.waitForSelector('#modules-fields [data-mod-field="quote"]', { timeout: 10000 });
       await ppage.type('#modules-fields [data-mod-field="quote"]', 'Fixture quote 78 — the page editor works.');
       await ppage.type('#modules-fields [data-mod-field="author_name"]', 'Fixture Author 78');
-      await ppage.click('#btn-modules-save');
+      await clickUntil(ppage, '#btn-modules-save', () =>
+        ppage.evaluate(() => location.hash === '#/modules')
+      );
       await ppage.waitForFunction(() => location.hash === '#/modules', { timeout: 20000 });
       const list = await json(await get(portalJar, '/api/v1/portal/modules/testimonials'));
-      assert.ok(list && Array.isArray(list.items) && list.items.length >= 1, 'testimonials list answers');
+      const items = (list && list.data && list.data.items) || [];
+      assert.ok(Array.isArray(items) && items.length >= 1, 'testimonials list answers');
       assert.ok(
         JSON.stringify(list).includes('Fixture quote 78'),
         'saved testimonial read back through the API'
       );
-    });
+    }
 
     await checkAsync('D2 Back button leaves the editor page without saving', async () => {
-      await ppage.click('#btn-modules-new');
+      await clickUntil(ppage, '#btn-modules-new', () =>
+        ppage.evaluate(() => location.hash === '#/module-item')
+      );
       await ppage.waitForFunction(() => location.hash === '#/module-item', { timeout: 10000 });
       await ppage.click('#btn-module-item-back');
       await ppage.waitForFunction(() => location.hash === '#/modules', { timeout: 10000 });
