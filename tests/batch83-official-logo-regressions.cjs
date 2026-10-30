@@ -132,9 +132,9 @@ function partB() {
     assert.ok(!html.includes('>BP</span>'), 'BP text tile gone from the shell brand');
   });
 
-  check('B2 staff auth screens use the black lockup (no BP tile span left in app.js)', () => {
+  check('B2 staff auth screens use the white lockup (dark gate — Ely 2026-10-30 screenshot ruling; no BP tile span left in app.js)', () => {
     const appJs = read('public/js/app.js');
-    assert.ok(appJs.includes('/brand/logo-black.png'), 'auth brand uses logo-black.png');
+    assert.ok(appJs.includes('/brand/logo-white.png'), 'auth brand uses logo-white.png');
     assert.ok(!appJs.includes('>BP</span>'), 'no BP tile span remains');
   });
 
