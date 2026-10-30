@@ -1482,7 +1482,7 @@ async function pageDashboard() {
       }</div>
     </div>
     <div class="card">
-      <div class="panel-h"><h3>Recent activity</h3></div>
+      <div class="panel-h"><h3>Recent activity</h3>${activity.length ? '<button class="btn small danger" data-act="clear-activity">Clear all…</button>' : ''}</div>
       <ul class="list">${
         activity.length
           ? activity
@@ -1518,6 +1518,9 @@ async function pageDashboard() {
       if (!window.confirm('Pause ALL automation now: discovery, research, generation and outreach?')) return;
       await setAutomation(true);
       pageDashboard();
+    },
+    'clear-activity': async () => {
+      await runClearActivityFlow(() => pageDashboard());
     },
   });
 }
@@ -9018,6 +9021,42 @@ async function runClearAllFlow({ noun, scopeLabel, extra, call }) {
     return null;
   }
 }
+// Batch 72 — clear-all for Recent Activity, shared by the Dashboard and
+// Analytics panels (both render the same workspace activity_log). Same
+// confirm idiom as the Batch 51 flow, but the count comes from the
+// activity endpoint's total (the panels only show the newest rows) and
+// nothing is ever "skipped" — the facade deletes the whole log, or the
+// confirm gate refuses everything. On success the caller re-renders its
+// page, which lands the panel on its "No activity yet." empty state.
+async function runClearActivityFlow(refresh) {
+  let total;
+  try {
+    const r = await api.activity({ limit: 1 });
+    total = (r && r.data && r.data.total) || 0;
+  } catch (e) {
+    toast(errText(e), 'err');
+    return;
+  }
+  if (!total) {
+    toast('No activity to clear.');
+    return;
+  }
+  if (
+    !window.confirm(
+      `Clear ALL recent activity (this workspace)? This removes ${total} ${total === 1 ? 'entry' : 'entries'} from the activity log. This cannot be undone.`
+    )
+  )
+    return;
+  if (prompt('Type DELETE to confirm') !== 'DELETE') return;
+  try {
+    const r = await api.adminClearAllActivity({ confirm: 'DELETE' });
+    const d = (r && r.data) || {};
+    toast(`Cleared activity: deleted ${d.deleted || 0}`, 'ok');
+    if (refresh) refresh();
+  } catch (e) {
+    toast(errText(e), 'err');
+  }
+}
 function businessFilterBarHtml(rows, id) {
   const seen = new Map();
   for (const r of rows || []) {
@@ -9772,7 +9811,7 @@ async function pageAnalytics() {
       <div class="chips">${chipRow(msgByStatus)}</div></div>
     <div class="card"><div class="panel-h"><h3>Email events by type</h3></div>
       <div class="chips">${chipRow(eventsByType)}</div></div>
-    <div class="card"><div class="panel-h"><h3>Recent activity</h3></div>
+    <div class="card"><div class="panel-h"><h3>Recent activity</h3>${activity.length ? '<button class="btn small danger" data-act="clear-activity">Clear all…</button>' : ''}</div>
       <ul class="list">${
         activity.length
           ? activity
@@ -9781,6 +9820,12 @@ async function pageAnalytics() {
           : '<li class="hint">No activity yet.</li>'
       }</ul></div>`;
   view.querySelector('[data-act="refresh"]').onclick = () => pageAnalytics();
+  const anClear = view.querySelector('[data-act="clear-activity"]');
+  if (anClear) {
+    anClear.onclick = async () => {
+      await runClearActivityFlow(() => pageAnalytics());
+    };
+  }
 }
 
 async function pageCalls() {

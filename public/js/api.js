@@ -442,6 +442,7 @@ window.ScoutApi = (() => {
     adminClearAllModules: (body) => post('/admin-area/modules/clear-all', body || {}),
     adminClearAllCourses: (body) => post('/admin-area/courses/clear-all', body || {}),
     adminClearAllCalls: (body) => post('/admin-area/calls/clear-all', body || {}),
+    adminClearAllActivity: (body) => post('/admin-area/activity/clear-all', body || {}),
     financeSummary: (q) => get('/admin-area/finance/summary', q),
     financeLedger: (q) => get('/admin-area/finance/ledger', q),
     financeAiByWorkspace: (q) => get('/admin-area/finance/ai-by-workspace', q),

@@ -5365,6 +5365,23 @@ function adminClearAllCalls(workspaceId, opts = {}) {
   });
 }
 
+/* Batch 72 — clear-all for Recent Activity (the workspace activity_log
+   behind the Dashboard + Analytics panels). Same confirm gate as the
+   Batch 51 clear-alls, but deliberately NOT runClearAll: that helper
+   writes a summary row INTO activity_log, which would instantly refill
+   the panel this clear just emptied. The durable record of the clear
+   lives in the PLATFORM audit log instead (written by the route —
+   'activity.clear', workspace id + count + actor). Workspace-scoped by
+   construction: withDb opens only the caller's workspace store. */
+function adminClearActivity(workspaceId, opts = {}) {
+  assertClearAllConfirm(opts.confirm);
+  return withDb(workspaceId, (db) => {
+    const total = db.prepare('SELECT COUNT(*) AS c FROM activity_log').get().c;
+    if (total) db.prepare('DELETE FROM activity_log').run();
+    return { deleted: total, scope: 'this workspace' };
+  });
+}
+
 function adminBookingsOverview(workspaceId, opts = {}) {
   return withDb(workspaceId, (db) => {
     const modules = require('./siteModules');
@@ -6026,6 +6043,7 @@ module.exports = {
   adminClearAllModules,
   adminClearAllCourses,
   adminClearAllCalls,
+  adminClearActivity,
   adminLeadScoutContacts,
   adminLeadScoutContact,
   adminBookingsOverview,

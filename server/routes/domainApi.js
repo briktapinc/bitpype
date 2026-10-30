@@ -1775,6 +1775,30 @@ clearAllRoute('/admin-area/modules/clear-all', domain.adminClearAllModules);
 clearAllRoute('/admin-area/courses/clear-all', domain.adminClearAllCourses);
 clearAllRoute('/admin-area/calls/clear-all', domain.adminClearAllCalls);
 
+// Batch 72 — clear-all for Recent Activity (workspace activity_log).
+// Same owner/admin + no-lead-scoped-token guard as the Batch 51
+// clear-alls, but async: the clear's durable record is a PLATFORM audit
+// entry (platform.audit — the admin.js pattern), never an activity_log
+// row, so the emptied panel does not refill with its own clear entry.
+// confirm must be the literal 'DELETE' (enforced in the facade too).
+router.post('/admin-area/activity/clear-all', requireRole('owner', 'admin'), denyLeadScopedToken, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const out = domain.adminClearActivity(req.auth.workspaceId, { confirm: b.confirm });
+    // Lazy require (the codebase idiom): a top-level platform import
+    // here breaks the VM module-loader in idempotency-regressions,
+    // which only mocks this router's original require set.
+    await require('../platform').audit(
+      req.auth.userId,
+      'activity.clear',
+      `workspaceId=${req.auth.workspaceId} deleted=${out.deleted}`
+    );
+    ok(res, out);
+  } catch (e) {
+    fail(res, e, e.code === 'CONFIRM_REQUIRED' || e.code === 'VALIDATION' ? 400 : e.status || 400);
+  }
+});
+
 // Call Tracking (Batch 21): every call across the workspace's sites,
 // plus the Twilio number shop. Dormant-safe — with no Twilio credentials
 // (platform twilio.* or the workspace's sms.* — Batch 25b) the number
