@@ -4559,7 +4559,32 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
   }
 
   const intent = cls && cls.intent ? String(cls.intent) : 'ambiguous';
-  const ready = !!(cls && cls.ready);
+  let ready = !!(cls && cls.ready);
+  // Batch 94: settled dimensions — facts the owner has already
+  // decided (stated outright in the request, or answered during
+  // clarification). They persist on the pending row, ride every
+  // later classification, and are never asked about again. This
+  // turn's newly settled facts merge into the running set.
+  const settledNow = chatPending.mergeSettledFacts(
+    pending ? pending.settled : [],
+    cls && Array.isArray(cls.settled) ? cls.settled : []
+  );
+  // Batch 94 CONVERGENCE SEAM: one clarification round is the
+  // budget. Once a clarify-kind pending has used its round, a
+  // further answer implements the change with design defaults
+  // instead of asking again — unless the answer introduced a
+  // genuinely new decision with no default (classifier-flagged
+  // newAmbiguity). The batch94 suite negative-proofs this seam:
+  // shimming it off lets a stubborn classifier loop questions
+  // forever, which is exactly Ely's complaint.
+  const forceReady =
+    !ready &&
+    !!pending &&
+    pending.kind === 'clarify' &&
+    Number(pending.rounds || 0) >= 1 &&
+    !(cls && cls.newAmbiguity) &&
+    (intent === 'clarify_answer' || intent === 'change' || intent === 'ambiguous');
+  if (forceReady) ready = true;
   // The size gate (Batch 93): a ready change judged BIG is queued to
   // the design agent instead of being implemented in the chat. This
   // single expression is the gate the batch93 suite negative-proofs.
@@ -4682,6 +4707,8 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
           requestText: message,
           questionsText: loop.reply,
           answers: [],
+          settled: settledNow,
+          rounds: 0,
           pageSlug,
         })
       );
@@ -4694,7 +4721,23 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     const keepPending = !!pending && intent !== 'change';
     const baseRequest = keepPending ? pending.requestText : message;
     const priorAnswers = keepPending ? pending.answers : [];
-    loop = await runLoop({ message, mode: 'clarify', clarifyAbout: baseRequest, clarifyKind: 'open' });
+    // Batch 94: this round's number (persisted on the pending row;
+    // the convergence seam above reads it next turn), and the
+    // clarify loop now hears what is settled + what was already
+    // asked and answered, so it cannot regenerate the same
+    // checklist in new words.
+    const roundNow = keepPending ? Number(pending.rounds || 0) + 1 : 1;
+    loop = await runLoop({
+      message,
+      mode: 'clarify',
+      clarifyAbout: baseRequest,
+      clarifyKind: 'open',
+      clarifySettled: settledNow,
+      clarifyPriorQa: keepPending
+        ? { questionsText: pending.questionsText || '', answers: priorAnswers }
+        : null,
+      clarifyRound: roundNow,
+    });
     if (loop && !loop.error) {
       const answers =
         intent === 'clarify_answer' && keepPending ? [...priorAnswers, message].slice(-20) : priorAnswers;
@@ -4705,14 +4748,18 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
           requestText: baseRequest,
           questionsText: loop.reply,
           answers,
+          settled: settledNow,
+          rounds: roundNow,
           pageSlug,
         })
       );
     }
   } else {
-    // Ready: a specific change (fresh, clarified, or an either/or the
-    // owner confirmed). SMALL is implemented in-chat; BIG is queued.
-    const fromClarify = !!pending && intent === 'clarify_answer';
+    // Ready: a specific change (fresh, clarified, an either/or the
+    // owner confirmed, or a clarification the Batch 94 convergence
+    // seam closed with defaults). SMALL is implemented in-chat;
+    // BIG is queued.
+    const fromClarify = !!pending && (intent === 'clarify_answer' || forceReady);
     const answers = fromClarify ? [...pending.answers, message] : [];
     const specText = fromClarify
       ? [
@@ -4720,8 +4767,11 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
           '',
           'Clarifications from the owner:',
           ...answers.map((a) => `- ${a}`),
+          ...(settledNow.length
+            ? ['', 'Settled decisions (binding — apply exactly, do not second-guess):', ...settledNow.map((s) => `- ${s}`)]
+            : []),
           '',
-          'Implement this change now, following the clarifications.',
+          'Implement this change now, following the clarifications. Fill any remaining gaps with the design defaults and state them in your summary.',
         ].join('\n')
       : message;
     if (isBig) {

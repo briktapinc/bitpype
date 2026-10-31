@@ -479,6 +479,8 @@ function portalIntentFallback(pending) {
     ready: false,
     size: 'small',
     borderline: false,
+    settled: [],
+    newAmbiguity: false,
     fallback: true,
   };
 }
@@ -486,7 +488,7 @@ function portalIntentFallback(pending) {
 function buildClassifierSystemPrompt(pending, hasImages) {
   const lines = [
     'You are the router for a website design agent chat. The speaker is a business owner talking to the design agent that maintains THEIR OWN website inside their site builder. Decide what their latest message is, so the agent can respond correctly.',
-    'Reply with ONLY a JSON object (no prose, no code fences): {"intent": "...", "ready": true|false, "size": "small"|"big", "borderline": true|false}',
+    'Reply with ONLY a JSON object (no prose, no code fences): {"intent": "...", "ready": true|false, "size": "small"|"big", "borderline": true|false, "settled": ["..."], "new_ambiguity": true|false}',
     '',
     'INTENTS:',
     '- "question" — the owner asks something about their website, its design or content, or asks for design advice for the site ("why does my header look empty?", "what colours suit a bakery?", "what does my services page say?", "what do you think of this logo?"). No change is being requested.',
@@ -497,6 +499,14 @@ function buildClassifierSystemPrompt(pending, hasImages) {
     'PRIORITY RULES:',
     '- A message phrased as a question seeking information about the site (what / why / which / how / when / is there / can you tell me, or ending in "?") is ALWAYS "question" — never "ambiguous", never "change" — unless it explicitly asks for something to be changed ("can you change…", "could you make…", "please add…"). Asking what the headline IS is a question; asking to change it is a change.',
     '- "ambiguous" is ONLY for short statements of opinion or feeling about the site that neither ask a question nor request anything ("the blue looks bad", "the header feels empty", "not sure about the font"). If they asked something, it is a question; if they asked FOR something, it is a change.',
+    '',
+    'DEFAULTS DOCTRINE — the agent is a designer, not a form. It applies sensible defaults instead of interrogating the owner, and states them afterwards:',
+    '- Scope the owner stated is SETTLED: "entire site" means all pages, "on the homepage" means the homepage. Stated scope never blocks readiness and is never asked about again.',
+    '- A colour-only request changes only the colour. Font, size, and weight staying the same is the DEFAULT — never a question, never a blocker.',
+    '- Contrast is a RULE, never a question: headings and text on dark sections always stay light enough to read. Never ask whether dark-section headings should also go dark.',
+    '- "black" or "darker" for headings/text on light backgrounds means pure black #000000 by default.',
+    '- When a tone is needed (e.g. a cream for dark sections), the agent uses the site\'s OWN existing tone from the site context (its paper / cream colour). Never ask the owner to choose between hex codes — picking the exact tone is the agent\'s job.',
+    '- Any remaining matter of taste or polish (exact spacing, shade nuance) is the designer\'s call and does NOT block readiness.',
   ];
   if (pending) {
     lines.push(
@@ -505,6 +515,7 @@ function buildClassifierSystemPrompt(pending, hasImages) {
       'When a change is pending, a reply that answers the agent\'s questions or adds detail to that pending change is "clarify_answer". A message that clearly starts a DIFFERENT new change is "change" (it replaces the pending one). A side question while one is pending is "question".',
       'EXCEPTION: if the pending "original request" was itself a question or a comment rather than a change request, it is not a real pending change — judge this message on its own: a concrete change instruction is a fresh "change", a question is a "question".',
       'READINESS WITH A PENDING OPEN: judge readiness against the most concrete instruction on the table, NOT against the pending questions. If the latest message — alone or with the earlier answers — contains a complete instruction (a named target plus the new value or change to make), ready=true, even if the pending clarification asked different questions that remain unanswered. An unanswered goal question ("what is the main goal?", "who is it for?") NEVER blocks a concrete edit the owner has spelled out.',
+      'TERSE REPLIES ARE ANSWERS: short imperatives and confirmations ("just make them black", "yes", "do it", "go ahead", "the darker one") are the owner being satisfied — they settle the dimension(s) they address, and with the defaults covering the rest that is "clarify_answer" with ready=true. Short assertions about the current state ("they are not", "still not black", "it didn\'t change") are corrections meaning "proceed / fix it" — also "clarify_answer" with ready=true for the pending change, not a new vague request.',
       '',
       'PENDING CHANGE awaiting clarification:',
       `Original request: "${String(pending.requestText || '').slice(0, 600)}"`
@@ -520,13 +531,30 @@ function buildClassifierSystemPrompt(pending, hasImages) {
     if (answers.length) {
       lines.push(`Owner's answers so far: ${answers.map((a) => `"${String(a).slice(0, 300)}"`).join(' | ')}`);
     }
+    const settled = Array.isArray(pending.settled) ? pending.settled : [];
+    if (settled.length) {
+      lines.push(
+        `SETTLED for this change — already decided by the owner; treat as final, never as still open: ${settled
+          .map((s) => `"${String(s).slice(0, 200)}"`)
+          .join(' · ')}`
+      );
+    }
+    const rounds = Number(pending.rounds) || 0;
+    if (rounds > 0) {
+      lines.push(
+        `Clarification rounds already used for this change: ${rounds}. Policy: ONE round is the budget — after it, gaps are filled by the defaults and the change is implemented. So a reply that answers the questions AT ALL is ready=true, unless it introduces a genuinely new decision that has no default (then ready=false and new_ambiguity=true).`
+      );
+    }
   }
   lines.push(
     '',
-    'READY (only meaningful for intent "change" and "clarify_answer"): true when a competent designer who can see the whole site could implement the request — together with any pending request and earlier answers — without guessing a decision that changes WHAT gets built. Remaining matters of taste the designer can decide (the exact shade, spacing, polish) do NOT block readiness. A concrete target plus a concrete new value (a replacement headline, a colour, a phone number, a specific instruction about a named element) is ALWAYS ready=true. ready=false is only for genuinely missing decisions — which page or section, what the new content should say, or which of several directions; vague directions with no specifics at all ("make it pop", "improve the homepage", "make it more professional") are ready=false. Once the owner has supplied the missing specifics in a follow-up, ready=true — do not keep a clarification alive out of caution. For BIG jobs the bar is lower, not higher: the design agent refines details in the queue, so once the scope is named (which pages or areas, what to add or restructure) ready=true even if style details are still open — do not hold a big job in clarification over taste details the design agent can decide.',
+    'READY (only meaningful for intent "change" and "clarify_answer"): true when a competent designer who can see the whole site could implement the request — together with any pending request, settled facts, and earlier answers — without guessing a decision that changes WHAT gets built. The DEFAULTS DOCTRINE covers the rest: exact shade, scope already stated, font preservation on a colour change, dark-section readability, and palette tones are NEVER reasons for ready=false. A concrete target plus a concrete new value (a replacement headline, a colour, a phone number, a specific instruction about a named element) is ALWAYS ready=true, and so is a named property plus a direction ("entire site, H3s darker" — the defaults pin the shade). ready=false is ONLY for a genuinely missing decision with no default: which page or section when it is unstated AND matters, what brand-new content should say, which of several materially different directions, or what a new element should do / where it goes ("add a booking button" with no hint of where or what it books). Vague directions with no specifics at all ("make it pop", "improve the homepage", "make it more professional") are ready=false. Once the owner has supplied the missing specifics in a follow-up, ready=true — do not keep a clarification alive out of caution. For BIG jobs the bar is lower, not higher: the design agent refines details in the queue, so once the scope is named (which pages or areas, what to add or restructure) ready=true even if style details are still open — do not hold a big job in clarification over taste details the design agent can decide.',
+    '',
+    'SETTLED (output): list the short facts THIS message settles for the change, as "dimension: value" strings — including anything the owner states outright (stated scope, a chosen colour, a page named). Examples: "scope: entire site", "H3 colour: black #000000", "target page: services". Empty array when the message settles nothing new.',
+    'NEW_AMBIGUITY (output): true ONLY when this message introduces a brand-new material decision that was not part of the request so far and has no default (rare). Changing one\'s mind, answering tersely, or correcting the current state is NOT new ambiguity.',
     '',
     'SIZE (judge only when ready=true, and judge the FINAL clarified request):',
-    '- "small": a single spot, well-scoped — one text/copy edit, swapping one image, changing one link, a colour or style tweak on one element, one heading or button.',
+    '- "small": a single spot, well-scoped — one text/copy edit, swapping one image, changing one link, a colour or style tweak on one element, one heading or button. A single global style value (one heading colour for the whole site) is still "small" — one tweak, applied in one place.',
     '- "big": spans multiple sections or pages, restructures a layout, adds a new page, sets up a new module or feature, or is a broad redesign ("redo the homepage", "give the site a modern look").',
     '- "borderline": true when the size call is genuinely debatable; otherwise false.'
   );
@@ -543,9 +571,15 @@ function buildClassifierSystemPrompt(pending, hasImages) {
  * Batch 93 — classify one portal chat message (question / change /
  * off-topic / ambiguous / clarification answer / cancel), with the
  * request's readiness and — once ready — its size (small = the chat
- * implements it; big = queue to the design agent). One tool-less
- * model call; the caller routes on the result. Returns
- * { intent, ready, size, borderline, fallback } or
+ * implements it; big = queue to the design agent). Batch 94: the
+ * result also carries the dimensions this message SETTLES (short
+ * "dimension: value" facts, persisted on the pending change and
+ * never re-asked) and newAmbiguity (the message introduced a fresh
+ * decision with no default — the only excuse for a second
+ * clarification round). One tool-less model call; the caller
+ * routes on the result. Returns
+ * { intent, ready, size, borderline, settled, newAmbiguity,
+ *   fallback } or
  * { error: 'muse_not_configured' | 'budget_exceeded' }.
  */
 async function classifyPortalChatIntent(
@@ -661,11 +695,19 @@ async function classifyPortalChatIntent(
   // clarify_answer / cancel are meaningless with nothing pending.
   if (!pending && intent === 'clarify_answer') intent = 'change';
   if (!pending && intent === 'cancel') intent = 'ambiguous';
+  const settled = Array.isArray(parsed.settled)
+    ? parsed.settled
+        .map((s) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 200))
+        .filter(Boolean)
+        .slice(0, 12)
+    : [];
   return {
     intent,
     ready,
     size: parsed.size === 'big' ? 'big' : 'small',
     borderline: parsed.borderline === true,
+    settled,
+    newAmbiguity: parsed.new_ambiguity === true,
     fallback: false,
   };
 }
@@ -697,10 +739,34 @@ function buildPortalSystemPrompt(leadId, pageSlug, mode = 'build', ctx = {}) {
         'Ask ONE short question: do they want you to change it, or were they just asking / commenting? One or two sentences total — the single either/or question and nothing else.'
       );
     } else {
+      // Batch 94: ONE round only, and only about decisions that are
+      // genuinely open — never about settled facts, never about
+      // anything the defaults cover. The owner was driven through
+      // four rounds of near-identical checklists before this fix.
+      const settled = Array.isArray(ctx.clarifySettled) ? ctx.clarifySettled : [];
+      const prior = ctx.clarifyPriorQa && typeof ctx.clarifyPriorQa === 'object' ? ctx.clarifyPriorQa : null;
+      const round = Number(ctx.clarifyRound) || 1;
       lines.push(
-        `The owner asked for a change that is not specific enough to implement without guessing: "${about}".`,
-        'Ask the 2–4 questions that most decide the design — what exactly changes, where on the site, and which style, colours, or content. Number the questions plainly, keep the whole reply short and friendly, and end with the questions: the owner will answer, and then you will implement. Do not implement anything yet.',
-        'If the owner attached image(s) with no clear instruction, ask what they would like done with them (use them on the site, match their colours/branding, or something else).'
+        `The owner asked for a change that is missing a decision you cannot default: "${about}".`,
+        `This is clarification round ${round} for this change — and the LAST round of questions. After the owner answers, every remaining gap is filled with the defaults below and the change is implemented. Ask AT MOST 3 questions, numbered plainly, and ONLY about decisions that are (a) not already settled, (b) not already answered, and (c) not covered by a default. Keep the whole reply short and friendly, and end with the questions. Do not implement anything yet.`
+      );
+      if (settled.length) {
+        lines.push(
+          `Already settled — do NOT ask about these again: ${settled.map((s) => `"${String(s).slice(0, 200)}"`).join(' · ')}`
+        );
+      }
+      if (prior && (prior.questionsText || (Array.isArray(prior.answers) && prior.answers.length))) {
+        lines.push(
+          `You already asked: "${String(prior.questionsText || '').slice(0, 700)}"${
+            Array.isArray(prior.answers) && prior.answers.length
+              ? ` — the owner answered: ${prior.answers.map((a) => `"${String(a).slice(0, 300)}"`).join(' | ')}`
+              : ''
+          } Do not repeat any of those questions; ask only about the NEW decision the latest answer opened up.`
+        );
+      }
+      lines.push(
+        'DEFAULTS — never ask about these, they are already decided: a colour-only change keeps the same font, size, and weight; scope the owner already stated is the scope; headings/text on dark sections always stay light enough to read; "black"/"darker" on light backgrounds means pure black #000000; when a tone is needed the site\'s own existing paper/cream colour is used — never ask the owner to pick between hex codes, and never re-ask a question from an earlier round in new words.',
+        'If the owner attached image(s) with no clear instruction, ask what they would like done with them (use them on the site, match their colours/branding, or something else) — that counts as one of the questions.'
       );
     }
     return lines.join('\n');
@@ -713,7 +779,11 @@ function buildPortalSystemPrompt(leadId, pageSlug, mode = 'build', ctx = {}) {
     'Workflow: site.get → site.render (includeHtml false unless you need HTML) → mutate with site.editText / theme.set / pages.structure.update / etc. → site.publish so the preview updates.',
     'For text changes, use exact ids from site.render textTargets. Never invent edit ids. If the target is absent, inspect site.render with includeHtml:true. Tool wire aliases must be used exactly as advertised.',
     'Prefer small, accurate edits. Do not invent phone/email/address. Do not delete the whole site.',
-    'When finished, stop calling tools and reply in 1–3 short plain-English sentences summarizing what you changed (or why you could not).',
+    // Batch 94 defaults doctrine (implementation side): decide the
+    // polish yourself, then DISCLOSE the defaults in the summary —
+    // correction-after replaces questions-before.
+    'Design defaults — apply these without asking: a colour-only change touches colour only (font, size, weight unchanged); scope the owner stated ("entire site", "on the homepage") is the scope; headings and text on dark sections stay light enough to read — never darken them into a dark background; "black" / "darker" on light backgrounds means pure black #000000; when a light tone is needed on dark sections, use the site\'s own existing paper/cream colour from the site context or theme.',
+    'When finished, stop calling tools and reply in 1–3 short plain-English sentences summarizing what you changed (or why you could not). When you applied any design default, end the summary with one short "Defaults applied: …" line naming them (e.g. "Defaults applied: H3s pure black on light sections across all pages; dark sections keep the site\'s light cream so they stay readable; fonts unchanged.") so the owner can correct a default afterwards if it is not what they wanted.',
   ].join('\n');
 }
 
@@ -767,7 +837,7 @@ function normalizePortalHistory(history, userMessage, images, imagesMode = 'buil
 async function runPortalImproveLoop(
   workspaceId,
   leadId,
-  { db, message, history, pageSlug, images, mode = 'build', clarifyAbout = '', clarifyKind = '', siteContext = '', maxSteps } = {}
+  { db, message, history, pageSlug, images, mode = 'build', clarifyAbout = '', clarifyKind = '', clarifySettled = [], clarifyPriorQa = null, clarifyRound = 1, siteContext = '', maxSteps } = {}
 ) {
   const domain = require('./domain');
   const mcp = require('./mcp');
@@ -827,7 +897,7 @@ async function runPortalImproveLoop(
   const messages = [
     {
       role: 'system',
-      content: buildPortalSystemPrompt(lid, pageSlug, runMode, { clarifyAbout, clarifyKind }),
+      content: buildPortalSystemPrompt(lid, pageSlug, runMode, { clarifyAbout, clarifyKind, clarifySettled, clarifyPriorQa, clarifyRound }),
     },
     // Tier 1 whole-site context: the agent's standing knowledge of
     // the ENTIRE site, loaded every turn in every mode. Tier 2 is
