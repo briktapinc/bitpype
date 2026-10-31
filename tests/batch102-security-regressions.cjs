@@ -382,13 +382,18 @@ function makeCfDb({ withCreds = true, project = '' } = {}) {
     const { query } = require(path.join(root, 'server', 'db.js'));
     const workspaceMod = require(path.join(root, 'server', 'workspace.js'));
     const partners = require(path.join(root, 'server', 'partners.js'));
-    const created = await workspaceMod.createUserWithWorkspace({
+    // Partners are created the only way they can be: by an admin, with
+    // the account type set at creation (batch80 fixture pattern).
+    const admin = require(path.join(root, 'server', 'admin.js'));
+    const createdRaw = await admin.createUser({
       email: 'partner102@fixture.test',
       password: 'fixture-password-102',
       name: 'Partner Fixture',
       workspaceName: 'Partner Fixture WS',
+      accountType: 'partner',
     });
-    await query('UPDATE users SET account_type = :t WHERE id = :id', { t: 'partner', id: created.userId });
+    const created = { userId: Number(createdRaw.userId), workspaceId: Number(createdRaw.workspaceId) };
+    assert.ok(await partners.isPartnerUser(created.userId), 'fixture user is a partner');
 
     // Session caller (Batch 80 behaviour preserved).
     const g1 = await partners.gatePurchaseForRequest({
@@ -409,12 +414,13 @@ function makeCfDb({ withCreds = true, project = '' } = {}) {
     assert.ok(g2 && g2.approvalRequired === true, 'partner TOKEN call is gated (SEC-18)');
     n++;
     // Non-partner workspace: no gate on either surface.
-    const plain = await workspaceMod.createUserWithWorkspace({
+    const plainRaw = await workspaceMod.createUserWithWorkspace({
       email: 'plain102@fixture.test',
       password: 'fixture-password-102',
       name: 'Plain Fixture',
       workspaceName: 'Plain Fixture WS',
     });
+    const plain = { userId: Number(plainRaw.userId), workspaceId: Number(plainRaw.workspaceId) };
     const g3 = await partners.gatePurchaseForRequest({
       auth: { via: 'token' },
       workspaceId: plain.workspaceId,
