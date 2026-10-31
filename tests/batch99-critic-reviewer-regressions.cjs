@@ -147,14 +147,47 @@ const COLOUR_PLAN = {
     assert.ok(d2.violations.some((v) => v.includes('custom CSS')), 'unplanned CSS change is collateral');
     n++;
 
-    // Theme core change without theme.set -> violation.
+    // Theme TOKEN change without theme.set -> violation.
     mdb.prepare('UPDATE websites SET theme = ? WHERE lead_id = 7').run(
       JSON.stringify({ ...themeV2, primary: '#0000ff' })
     );
     const fp3 = critic.siteFingerprint(mdb, 7);
     const d3 = critic.diffFingerprints(fp2, fp3, colourPlan());
     assert.equal(d3.themeCoreChanged, true);
-    assert.ok(d3.violations.some((v) => v.includes('theme settings')), 'unplanned theme change is collateral');
+    assert.ok(d3.violations.some((v) => v.includes('theme token')), 'unplanned token change is collateral');
+    assert.ok(d3.tokenChanges.some((t) => t.startsWith('primary:')), 'the drifted token is named');
+    n += 3;
+
+    // Platform canonicalization is NOT collateral (measured
+    // live in the Batch 99 proof diag): font stacks gain
+    // fallbacks, default fields materialize, pages gain
+    // updatedAt stamps — all on the save path, none of it
+    // agent work.
+    mdb.prepare('UPDATE websites SET theme = ? WHERE lead_id = 7').run(
+      JSON.stringify({
+        ...themeV2,
+        primary: '#7a4a21',
+        headingFont: '"Fraunces", serif',
+        font: '"Figtree", sans-serif',
+        secondary: '#0e2a5c',
+        bg: '#ffffff',
+        text: '#1f2937',
+        logoMode: 'text',
+      })
+    );
+    const pagesStamped = pagesV1.map((p) => ({ ...p, updatedAt: '2026-10-31T13:00:00.000Z' }));
+    mdb.prepare('UPDATE websites SET pages = ? WHERE lead_id = 7').run(JSON.stringify(pagesStamped));
+    const fpCanon = critic.siteFingerprint(mdb, 7);
+    const dCanon = critic.diffFingerprints(fp2, fpCanon, colourPlan());
+    assert.equal(dCanon.tokenChanges.length, 0, 'canonicalized fonts + materialized defaults are not token drift');
+    assert.equal(dCanon.changedPages.length, 0, 'updatedAt stamps are not page changes');
+    assert.equal(dCanon.violations.length, 0, 'a canonicalization-only diff is clean');
+    n += 3;
+
+    // Fingerprint format mismatch -> collateral report-only.
+    const dVer = critic.diffFingerprints({ ...fp2, v: 1 }, fpCanon, colourPlan());
+    assert.equal(dVer.versionMismatch, true);
+    assert.equal(dVer.violations.length, 0, 'an old-format baseline never fabricates violations');
     n += 2;
 
     // Out-of-scope page change -> violation; in-scope is clean.

@@ -51,11 +51,42 @@ function parseJsonField(raw, fallback) {
   }
 }
 
+const THEME_TOKEN_KEYS = ['primary', 'secondary', 'accent', 'paper', 'bg', 'ink', 'text', 'headingFont', 'font'];
+
 /**
- * Fingerprint of one lead's site: per-page hashes, a theme hash
- * split into "core" (everything except customCss) and customCss,
- * so the collateral diff can tell a style-rule change from a
- * structural theme change.
+ * Normalize a theme token for comparison. The platform's save
+ * path canonicalizes themes on EVERY write (measured live,
+ * Batch 99 proof diag 2026-10-31): font stacks gain fallbacks
+ * ("Fraunces" -> "\"Fraunces\", serif") and default fields
+ * materialize out of thin air (secondary, bg, logoMode, ...).
+ * None of that is agent work, so tokens compare by their
+ * normalized design value: fonts by first family, colours by
+ * normalized hex, empties as null.
+ */
+function normTokenValue(key, value) {
+  if (value == null || value === '') return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  if (/font/i.test(key)) return text.split(',')[0].replace(/["']/g, '').trim().toLowerCase() || null;
+  return cascade.normColor(text) || text.toLowerCase();
+}
+
+function themeTokens(theme) {
+  const out = {};
+  for (const key of THEME_TOKEN_KEYS) {
+    out[key] = normTokenValue(key, theme && typeof theme === 'object' ? theme[key] : null);
+  }
+  return out;
+}
+
+/**
+ * Fingerprint of one lead's site: per-page hashes (page-level
+ * bookkeeping keys — updatedAt/createdAt stamps the save path
+ * adds on every write — stripped before hashing), theme tokens
+ * for the collateral comparison, and a customCss hash. The
+ * fingerprint carries a format version: baselines stamped by
+ * an older format are not diffed (the Batch 99 reviewer treats
+ * a version mismatch as "no baseline" — verify[] still gates).
  */
 function siteFingerprint(db, leadId) {
   const row = db.prepare('SELECT id, pages, theme FROM websites WHERE lead_id = ?').get(leadId);
@@ -69,16 +100,23 @@ function siteFingerprint(db, leadId) {
       const slug = String((page && page.slug) || '');
       if (!slug) continue;
       slugs.push(slug);
-      pagesHash[slug] = sha256(canonicalJson(page));
+      const projection = page && typeof page === 'object' ? { ...page } : page;
+      if (projection && typeof projection === 'object') {
+        delete projection.updatedAt;
+        delete projection.createdAt;
+      }
+      pagesHash[slug] = sha256(canonicalJson(projection));
     }
   }
   const themeCore = theme && typeof theme === 'object' ? { ...theme } : {};
   const customCss = typeof themeCore.customCss === 'string' ? themeCore.customCss : '';
   delete themeCore.customCss;
   return {
+    v: 2,
     siteId: Number(row.id) || null,
     slugs,
     pagesHash,
+    themeTokens: themeTokens(theme),
     themeCoreHash: sha256(canonicalJson(themeCore)),
     customCssHash: sha256(customCss),
   };
@@ -134,6 +172,15 @@ function diffFingerprints(before, after, plan) {
     violations: [],
   };
   if (!before || !after) return out;
+  if (before.v !== after.v) {
+    // Fingerprint format changed between the baseline and now
+    // (e.g. a job queued before the Batch 99 calibration
+    // shipped): hashes are incomparable, so collateral is
+    // report-only — the verify[] checks still gate.
+    out.changed = true;
+    out.versionMismatch = true;
+    return out;
+  }
   const scope = scopedSlugs(plan);
   const surfaces = planSurfaces(plan || {});
   const beforeSlugs = new Set(before.slugs || []);
@@ -147,17 +194,30 @@ function diffFingerprints(before, after, plan) {
   }
   out.themeCoreChanged = before.themeCoreHash !== after.themeCoreHash;
   out.customCssChanged = before.customCssHash !== after.customCssHash;
+  // Theme TOKEN drift: an EXISTING design token whose value
+  // actually changed (defaults materializing out of thin air
+  // and font-fallback canonicalization are platform save-path
+  // behaviour, not agent work — see normTokenValue).
+  const tokenChanges = [];
+  const beforeTokens = before.themeTokens || {};
+  const afterTokens = after.themeTokens || {};
+  for (const key of Object.keys(afterTokens)) {
+    const b = beforeTokens[key];
+    const a = afterTokens[key];
+    if (b != null && a != null && b !== a) tokenChanges.push(`${key}: ${b} -> ${a}`);
+  }
+  out.tokenChanges = tokenChanges;
   out.changed =
     out.changedPages.length > 0 || out.addedPages.length > 0 || out.removedPages.length > 0 ||
-    out.themeCoreChanged || out.customCssChanged;
+    tokenChanges.length > 0 || out.customCssChanged;
 
   if (scope) {
     for (const slug of [...out.changedPages, ...out.addedPages, ...out.removedPages]) {
       if (!scope.has(slug)) out.violations.push(`page "${slug}" changed but is outside the plan's scope`);
     }
   }
-  if (out.themeCoreChanged && !surfaces.themeCore) {
-    out.violations.push('theme settings changed but the plan has no theme.set step');
+  if (tokenChanges.length && !surfaces.themeCore) {
+    out.violations.push(`theme token(s) changed (${tokenChanges.join('; ')}) but the plan has no theme.set step`);
   }
   if (out.customCssChanged && !surfaces.customCss) {
     out.violations.push('custom CSS changed but the plan has no style-rule step');
