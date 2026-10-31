@@ -4597,6 +4597,7 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
   let siteId = null;
   let pageCount = 0;
   let siteContext = '';
+  let siteTheme = {};
   domain.withDb(workspaceId, (db) => {
     const site = resolveClientSite(db, leadId);
     if (!site || !Array.isArray(site.pages) || !site.pages.length) {
@@ -4604,6 +4605,7 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     }
     siteId = site.id;
     pageCount = site.pages.length;
+    siteTheme = site.theme && typeof site.theme === 'object' ? site.theme : {};
     siteContext = buildSiteMap(db, site);
     if (attachmentIds.length) {
       // Ownership is enforced here: every id must belong to THIS lead.
@@ -4626,6 +4628,36 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
 
   const pageSlug =
     body.pageSlug != null && String(body.pageSlug).trim() !== '' ? String(body.pageSlug).trim() : undefined;
+
+  // Batch 98 — Tier-1 v2 (review finding M1: the map was
+  // style-blind). The site context learns the site's CURRENT
+  // computed styles: the cascade evaluator (server/
+  // siteStyleCascade.js) runs over the real render of the page
+  // the owner is looking at, so the classifier, the planner and
+  // the build loop can SEE e.g. the current H3 colour — on light
+  // and dark sections separately — instead of guessing. The
+  // chat's own style rules are listed too: they are part of the
+  // site's current style state. Best-effort by design: a render
+  // hiccup loses the style block, never the turn.
+  try {
+    const cascade = require('./siteStyleCascade');
+    const styleRules = require('./styleRules');
+    const renderedNow = renderClientSite(workspaceId, leadId, { editable: false, pageSlug });
+    const styleLines = cascade.keyStyleLines(renderedNow.html);
+    const ownRules = styleRules.listStyleRules(siteTheme.customCss || '');
+    if (styleLines.length || ownRules.length) {
+      const block = ['Current styles (computed from the live page — trust these over assumptions):'];
+      block.push(...styleLines);
+      if (ownRules.length) {
+        block.push(
+          `Chat-set style rules in force: ${ownRules.map((r) => `${r.selector} { ${r.property}: ${r.value} }`).join('; ')}`
+        );
+      }
+      siteContext = `${siteContext}\n${block.join('\n')}`;
+    }
+  } catch {
+    /* Tier-1 v2 is additive context — never a turn breaker */
+  }
 
   // Batch 93: the chat is a design AGENT. Every message is classified
   // first (question / change / off-topic / ambiguous / clarification
@@ -4697,6 +4729,64 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
   const chatPlanner = require('./siteChatPlanner');
   const forceReady = !ready && chatPlanner.shouldForceReady(pending, { ...cls, intent });
   if (forceReady) ready = true;
+
+  // Batch 98 — THE PLANNER (four-role rebuild, step 1). One call
+  // site for the whole handler: for a ready change the planner
+  // writes the explicit plan object (scope / settled / defaults /
+  // steps / verify) and it is PERSISTED per site
+  // (server/siteChatPlan.js). In-chat, the plan sandboxes the
+  // implementor; for a big change, the plan IS the queued job's
+  // spec. A planning miss never traps the owner — fetchPlan
+  // returns null and the turn proceeds unplanned, still inside
+  // the design allowlist (the pre-rebuild behaviour).
+  let turnPlan = null;
+  let turnPlanId = null;
+  const fetchPlan = async (specForPlan, rework) => {
+    try {
+      if (!museAgent || typeof museAgent.planPortalChange !== 'function') return null;
+      const planned = await domain.withDb(workspaceId, async (db) =>
+        museAgent.planPortalChange(workspaceId, leadId, {
+          db,
+          message,
+          specText: specForPlan,
+          history: serverHistory,
+          settled: settledNow,
+          siteContext,
+          images: modelImages,
+          rework: rework || null,
+        })
+      );
+      if (!planned || planned.error || !planned.plan) return null;
+      const planObj = planned.plan;
+      planObj.settled = chatPending.mergeSettledFacts(planObj.settled || [], settledNow);
+      const saved = domain.withDb(workspaceId, (db) =>
+        require('./siteChatPlan').savePlan(db, { leadId, plan: planObj })
+      );
+      return saved ? { plan: planObj, planId: saved.id } : null;
+    } catch (e) {
+      console.warn('[clientPortal] planner failed (continuing unplanned):', e.message || e);
+      return null;
+    }
+  };
+
+  // Batch 98: an image-only turn (pictures, no words) routes
+  // through the PLANNER instead of the clarification trap — the
+  // planner sees the image(s) and either writes an executable
+  // plan (the turn becomes ready) or produces none, in which
+  // case the normal clarification path asks what to do with them.
+  if (
+    !ready &&
+    attachmentRows.length &&
+    !message &&
+    (intent === 'change' || intent === 'ambiguous' || intent === 'clarify_answer')
+  ) {
+    const p = await fetchPlan('', null);
+    if (p) {
+      turnPlan = p.plan;
+      turnPlanId = p.planId;
+      ready = true;
+    }
+  }
   // The size gate (Batch 93): a ready change judged BIG is queued to
   // the design agent instead of being implemented in the chat. This
   // single expression is the gate the batch93 suite negative-proofs.
@@ -4722,10 +4812,19 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
   // are stamped into the job brief so completion can write back to
   // this thread (deliverJob hook) and the claiming agent can fetch
   // the owner's images via site.chatAttachments / site.chatAttachment.
-  const queueBigJob = (specText) => {
+  const queueBigJob = (specText, plan = null) => {
+    const planText = plan ? require('./siteChatPlan').renderPlanForJob(plan) : '';
     const instructions = [
       'Queued from the portal site-builder chat — the owner asked for the change below and clarified it in conversation. Improve the EXISTING site; do not rebuild it from scratch.',
       '',
+      // Batch 98: when the planner wrote a plan, the plan IS the
+      // spec — rendered verbatim ahead of the owner's words, and
+      // also stored machine-readable in the job brief
+      // (chat_origin.plans) so the delivery can be verified
+      // against it (Batch 99 critic/reviewer gate).
+      ...(planText
+        ? [planText, '', "The owner's clarified request, in their words:"]
+        : []),
       specText,
       attachmentIds.length
         ? `\nThe owner attached image(s) in the chat: attachment ids ${attachmentIds.join(', ')}. Fetch them before designing with the MCP tools site.chatAttachments / site.chatAttachment (leadId ${Number(leadId)}).`
@@ -4775,11 +4874,19 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
       } catch {
         briefObj = {};
       }
+      // Batch 98: the plan(s) ride the brief machine-readably —
+      // on a merge into an open job the earlier plans stay (the
+      // delivery is verified against ALL of them, Batch 99).
+      const priorOrigin =
+        briefObj.chat_origin && typeof briefObj.chat_origin === 'object' ? briefObj.chat_origin : {};
+      const plans = Array.isArray(priorOrigin.plans) ? priorOrigin.plans.slice(0, 4) : [];
+      if (plan) plans.push(plan);
       briefObj.chat_origin = {
         source: 'portal_site_chat',
         attachmentIds,
         websiteId: siteId,
         queuedAt: new Date().toISOString(),
+        ...(plans.length ? { plans, plan: plans[plans.length - 1] } : {}),
       };
       db.prepare('UPDATE design_jobs SET brief = ? WHERE id = ?').run(JSON.stringify(briefObj), jobId);
       return jobId;
@@ -4808,7 +4915,7 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
       domain.withDb(workspaceId, (db) => chatPending.clearPending(db, leadId));
     }
     loop = await runLoop({ message, mode: 'answer' });
-  } else if (intent === 'ambiguous' && !pending) {
+  } else if (intent === 'ambiguous' && !pending && !turnPlan) {
     mode = 'clarify';
     loop = await runLoop({ message, mode: 'clarify', clarifyAbout: message, clarifyKind: 'either_or' });
     if (loop && !loop.error) {
@@ -4891,9 +4998,32 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
           'Implement this change now, following the clarifications. Fill any remaining gaps with the design defaults and state them in your summary.',
         ].join('\n')
       : message;
-    if (isBig) {
+    // Batch 98: an image-only turn has no message text — the
+    // spec is the plan the planner wrote from the image(s).
+    const effectiveSpec =
+      turnPlan && !String(specText || '').trim()
+        ? 'The owner attached image(s) with no written instruction. A plan was written from the image(s) — implement it.'
+        : specText;
+    // Batch 98: the PLANNER writes the plan for this change
+    // (skipped when the image-only routing already produced one).
+    // The plan finalizes routing: its size governs the fork; the
+    // classifier's hypothesis (isBig) stands when planning fails.
+    if (!turnPlan) {
+      const p = await fetchPlan(effectiveSpec, null);
+      if (p) {
+        turnPlan = p.plan;
+        turnPlanId = p.planId;
+      }
+    }
+    const planSaysBig = turnPlan ? turnPlan.size === 'big' : isBig;
+    if (planSaysBig) {
       mode = 'queued';
-      queuedJobId = queueBigJob(specText);
+      queuedJobId = queueBigJob(effectiveSpec, turnPlan);
+      if (turnPlanId) {
+        domain.withDb(workspaceId, (db) =>
+          require('./siteChatPlan').setPlanStatus(db, turnPlanId, 'queued', { jobId: queuedJobId })
+        );
+      }
       if (pending) {
         domain.withDb(workspaceId, (db) => chatPending.clearPending(db, leadId));
       }
@@ -4903,7 +5033,12 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
       }. They’ll pick it up from the design queue, and I’ll post their summary here in this chat when it’s done. Your site hasn’t been changed yet.`;
     } else {
       mode = 'build';
-      loop = await runLoop({ message: specText, mode: 'build' });
+      loop = await runLoop({ message: effectiveSpec, mode: 'build', plan: turnPlan || undefined });
+      if (turnPlanId) {
+        domain.withDb(workspaceId, (db) =>
+          require('./siteChatPlan').setPlanStatus(db, turnPlanId, loop && loop.mutated ? 'implemented' : 'failed')
+        );
+      }
       if (pending && loop && (!loop.error || loop.mutated)) {
         domain.withDb(workspaceId, (db) => chatPending.clearPending(db, leadId));
       }
@@ -5001,6 +5136,10 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     // housekeeping note appended to the reply.
     pendingExpired: pendingExpiredInfo,
     queuedJobId,
+    // Batch 98: the persisted plan this turn ran on (null when
+    // the change was unplanned or the turn made no change).
+    planId: turnPlanId,
+    planSize: turnPlan ? turnPlan.size : null,
     // Batch 89: echo the turn's attachments (thumbnail URLs are the
     // authorized fetch route) + whether the model received the images.
     attachments: attachmentRows.map((row) => chatAtt.publicRow(row)),

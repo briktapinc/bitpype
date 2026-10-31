@@ -119,12 +119,57 @@ const PORTAL_READONLY_TOOLS = new Set([
 const PORTAL_MODE_STEPS = { build: MAX_PORTAL_STEPS, answer: 6, clarify: 5 };
 
 /**
- * THE read-only fence (Batch 93). Build mode may use the full
- * client-scoped catalog minus DENY_TOOLS (the historical behaviour);
- * answer / clarify modes may use ONLY the read allowlist.
+ * Batch 98 (SEC-06) — build mode's POSITIVE allowlist. Until now
+ * build mode could use the whole client-scoped catalog minus a
+ * 12-tool deny list (review finding M2: billing.*, social.*,
+ * chatbot.*, members.grantComp, datatables.clear and more were
+ * reachable from a chat turn). The fence is now default-deny:
+ * build mode may use ONLY the read allowlist plus the design /
+ * content writes below — the tools that design or author the
+ * owner's OWN site. Money (billing.*), outbound channels
+ * (social.*, email/sms/outreach), the visitor chatbot's
+ * conversation tools, member comp grants, bulk clears
+ * (datatables.clear, charts.clear) and every workspace/admin
+ * surface are simply not in the set, so they are never offered
+ * and refused again at dispatch.
+ */
+const PORTAL_DESIGN_WRITE_TOOLS = new Set([
+  ...PORTAL_MUTATE_TOOLS,
+  'blog.create', 'blog.update', 'blog.delete',
+  'faq.create', 'faq.update', 'faq.delete',
+  'gallery.addImage', 'gallery.create', 'gallery.update', 'gallery.delete',
+  'menu.addCategory', 'menu.create', 'menu.delete', 'menu.deleteCategory', 'menu.update', 'menu.updateCategory',
+  'team.create', 'team.update', 'team.delete',
+  'testimonials.create', 'testimonials.update', 'testimonials.delete',
+  'events.create', 'events.update', 'events.delete',
+  'careers.create', 'careers.update', 'careers.delete',
+  'courses.addLesson', 'courses.create', 'courses.update', 'courses.delete',
+  'video.create', 'video.update', 'video.delete',
+  'directory.create', 'directory.update', 'directory.delete',
+  'offers.create', 'offers.update', 'offers.delete',
+  'charts.create', 'charts.update', 'charts.delete',
+  'datatables.addRow', 'datatables.addRows', 'datatables.updateRow', 'datatables.deleteRow',
+  'datatables.setColumns', 'datatables.setDisplay',
+  'forms.create', 'forms.update', 'forms.delete', 'forms.suggestFields',
+  'bookings.createService', 'bookings.updateService', 'bookings.deleteService',
+  'bookings.setHours', 'bookings.setSettings',
+  'estimate.createOption', 'estimate.updateOption', 'estimate.deleteOption', 'estimate.updateConfig',
+  'members.createTier', 'members.updateTier', 'members.updateConfig',
+  'ecommerce.create', 'ecommerce.update', 'ecommerce.delete',
+  'googlereviews.updateConfig', 'googlereviews.refresh',
+  'socialfeed.updateConfig',
+]);
+
+/** Everything build mode may touch: reads ∪ design/content writes. */
+const PORTAL_DESIGN_TOOLS = new Set([...PORTAL_READONLY_TOOLS, ...PORTAL_DESIGN_WRITE_TOOLS]);
+
+/**
+ * THE fence (Batch 93, rebuilt Batch 98). Build mode is a
+ * POSITIVE allowlist (PORTAL_DESIGN_TOOLS — SEC-06); answer /
+ * clarify modes may use ONLY the read allowlist.
  */
 function portalModeAllowsTool(mode, name) {
-  if (mode === 'build') return !DENY_TOOLS.has(name);
+  if (mode === 'build') return PORTAL_DESIGN_TOOLS.has(name);
   return PORTAL_READONLY_TOOLS.has(name);
 }
 
@@ -718,6 +763,184 @@ async function classifyPortalChatIntent(
   };
 }
 
+/**
+ * Batch 98 — THE PLANNER (four-role rebuild, step 1). The
+ * classifier above remains the routing front-end (intent /
+ * readiness / size hypothesis, budget-pinned in Batch 96); once
+ * a change is READY, this upgraded planner call writes the
+ * explicit plan object the rest of the system executes and
+ * verifies: scope, settled facts, defaults applied, ordered
+ * steps (design-allowlist tools only), and mechanical verify[]
+ * checks. The plan is persisted by the caller
+ * (server/siteChatPlan.js) — for a big job it IS the queued
+ * spec; for a small one it sandboxes the implementor.
+ */
+function buildPlannerSystemPrompt({ settled, hasImages, rework } = {}) {
+  const lines = [
+    'You are the PLANNER in a four-role website design system (Planner → Implementor → Critic → Reviewer). You never edit anything yourself. You read the owner\'s request, the settled facts, and the whole-site context — which includes the site\'s CURRENT computed styles — and you emit ONE explicit plan as JSON. An implementor will execute exactly your steps, no more and no less, and a critic will then mechanically verify your verify checks against the rendered site.',
+    'Reply with ONLY a JSON object (no prose, no code fences): {"scope":{"pages":["all"],"sections":null},"settled":["dimension: value"],"defaultsApplied":["..."],"steps":[{"tool":"theme.styleRule","args":{"selector":"h3","property":"color","value":"#444444"},"expect":"every H3 computes to #444444 on light sections"}],"verify":[{"kind":"computedStyle","selector":"h3","property":"color","equals":"#444444","where":"light"}],"size":"small"}',
+    '',
+    ...chatPlanner.CLASSIFIER_DOCTRINE_LINES,
+    '',
+    'STEP RULES:',
+    `- Steps may use ONLY these tools: ${[...PORTAL_DESIGN_WRITE_TOOLS].join(', ')}. Read tools (site.get, site.render, theme.get, pages.structure and the content list/get tools) are always available to the implementor for grounding — do not spend steps on them.`,
+    '- Keep steps minimal, ordered and complete: one step per tool action. A whole-site element style change is ONE theme.styleRule step. A new page is a pages.structure.update step; a module is a modules.attach step.',
+    '- Resolve everything to concrete values inside the steps: named colours become hexes (per the doctrine), replacement text is written out in full. For site.editText use args {"text": "<the exact new text>", "target": "<the current text or a precise description of the element>"} — the implementor grounds the exact edit id from the render.',
+    '- expect: the observable outcome of the step, one short phrase.',
+    '',
+    'VERIFY RULES — the critic checks these mechanically against the rendered site, so write checks that can genuinely pass or fail:',
+    '- For a colour/style change: one computedStyle check per distinct outcome — selector + property + the EXACT equals value (a hex for colours), with "where": "light" or "dark" when the contrast rule splits the outcome (dark headings on light sections AND the site\'s light tone kept on dark sections = TWO checks).',
+    '- For a text/content change: a presence check carrying the exact new text.',
+    '- Never write a check for something your steps do not change.',
+    '',
+    'SIZE: "small" = one spot, or one global style value applied in one place (a per-element style rule is always small). "big" = spans multiple sections or pages, restructures a layout, adds a new page, sets up a new module or feature, or is a broad redesign.',
+    'SETTLED (output): carry through every settled fact you are given, plus any new fact this request settles, as "dimension: value" strings.',
+    'DEFAULTS APPLIED (output): name every default you used to fill a gap — the owner reads these afterwards and can correct them.',
+  ];
+  const settledList = Array.isArray(settled) ? settled.filter(Boolean) : [];
+  if (settledList.length) {
+    lines.push(
+      '',
+      `SETTLED FACTS — already decided by the owner; binding, never re-decide them: ${settledList.map((s) => `"${String(s).slice(0, 200)}"`).join(' · ')}`
+    );
+  }
+  if (rework && Array.isArray(rework.failures) && rework.failures.length) {
+    lines.push(
+      '',
+      'REWORK: a previous attempt at this change FAILED verification. The critic measured the rendered site — its findings are ground truth, not opinion:',
+      ...rework.failures.map((f) => `- ${String(f).slice(0, 300)}`),
+      'Write a CORRECTED plan that makes the verify checks pass this time. Do not repeat a step that already produced the wrong result unchanged.'
+    );
+  }
+  if (hasImages) {
+    lines.push(
+      '',
+      'The owner attached image(s) to this request — they are part of the user message. Plan from what they show (a photo to place, colours/branding to match, a logo to set) using the tools above.'
+    );
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Run the planner for one READY portal chat change. Returns
+ * { plan } with the validated plan object (server/siteChatPlan
+ * semantics: any step outside the design allowlist invalidates
+ * the whole plan), { plan: null } when the model produced no
+ * usable plan (the caller falls back to an unplanned — but
+ * still allowlist-sandboxed — implementation), or
+ * { error: 'muse_not_configured' | 'budget_exceeded' }.
+ * The token-budget loop mirrors the classifier's pinned
+ * discipline: the model reasons, so a truncated first attempt
+ * retries once at the larger budget.
+ */
+async function planPortalChange(
+  workspaceId,
+  leadId,
+  { db, message, specText, history, settled, siteContext, images, rework } = {}
+) {
+  const domain = require('./domain');
+  const chatPlan = require('./siteChatPlan');
+  const lid = Number(leadId);
+  const config = await domain.withDb(workspaceId, async (d) => resolveMuseConfig(db || d));
+  if (!museConfigured(config)) return { error: 'muse_not_configured', plan: null };
+  const { budget, spent } = domain.withDb(workspaceId, (d) => {
+    const use = db || d;
+    return {
+      budget: parseFloat(getDbSetting(use, 'cost.daily_budget_usd', '10')) || 0,
+      spent: todaySpendUsd(use),
+    };
+  });
+  if (budget > 0 && spent >= budget) return { error: 'budget_exceeded', plan: null };
+
+  const convo = [];
+  const list = Array.isArray(history) ? history.slice(-6) : [];
+  for (const row of list) {
+    if (!row || (row.role !== 'user' && row.role !== 'assistant')) continue;
+    const content = String(row.content || '').trim();
+    if (content) convo.push({ role: row.role, content: content.slice(0, 1500) });
+  }
+  const spec = String(specText || message || '').trim();
+  const imgs = (Array.isArray(images) ? images : []).filter((im) => im && im.dataUrl);
+  const requestText =
+    spec || '(The owner attached image(s) with no written message — plan what the image(s) most clearly call for.)';
+  convo.push({
+    role: 'user',
+    content: imgs.length
+      ? [
+          { type: 'text', text: `${requestText}\n\n[Attached image(s) are part of this request.]` },
+          ...imgs.map((im) => ({ type: 'image_url', image_url: { url: im.dataUrl } })),
+        ]
+      : requestText,
+  });
+
+  const planMessages = [
+    { role: 'system', content: buildPlannerSystemPrompt({ settled, hasImages: imgs.length > 0, rework }) },
+  ];
+  if (siteContext) {
+    planMessages.push({
+      role: 'system',
+      content: `SITE CONTEXT (the owner's whole site, including current computed styles):\n${String(siteContext).slice(0, 8000)}`,
+    });
+  }
+  planMessages.push(...convo);
+
+  let plan = null;
+  for (const maxTokens of [1200, 2400]) {
+    let data = null;
+    let raw = '';
+    let finishReason = '';
+    try {
+      data = await chatCompletions(config, {
+        model: config.model,
+        messages: planMessages,
+        max_tokens: maxTokens,
+      });
+    } catch {
+      return { plan: null, error: 'request_failed' };
+    }
+    try {
+      const usage = (data && data.usage) || {};
+      domain.withDb(workspaceId, (d) => {
+        const use = db || d;
+        const promptTokens = Number(usage.prompt_tokens) || 0;
+        const completionTokens = Number(usage.completion_tokens) || 0;
+        const per1kPrompt = parseFloat(getDbSetting(use, 'cost.per_1k_prompt', '0.0015')) || 0;
+        const per1kCompletion = parseFloat(getDbSetting(use, 'cost.per_1k_completion', '0.002')) || 0;
+        logUsage(use, {
+          task: 'portal_agent',
+          model: config.model,
+          promptTokens,
+          completionTokens,
+          costUsd: (promptTokens / 1000) * per1kPrompt + (completionTokens / 1000) * per1kCompletion,
+          leadId: lid,
+          note: 'portal plan',
+        });
+      });
+    } catch {
+      /* usage logging must never break planning */
+    }
+    try {
+      const choice = data && data.choices && data.choices[0];
+      raw = String((choice && choice.message && choice.message.content) || '');
+      finishReason = String((choice && choice.finish_reason) || '');
+      const match = raw.match(/\{[\s\S]*\}/);
+      if (match) {
+        const parsed = JSON.parse(match[0]);
+        plan = chatPlan.validatePlan(parsed, PORTAL_DESIGN_TOOLS);
+      }
+    } catch {
+      plan = null;
+    }
+    if (plan) break;
+    // Retry only when the answer never really arrived (reasoning
+    // ate the budget); a complete-but-invalid plan is a planning
+    // miss, not a truncation — the caller falls back.
+    if (finishReason !== 'length' && raw.trim()) break;
+    plan = null;
+  }
+  return { plan };
+}
+
 function buildPortalSystemPrompt(leadId, pageSlug, mode = 'build', ctx = {}) {
   const pageHint = pageSlug
     ? `Focus on page slug "${String(pageSlug).slice(0, 80)}" when using site.render / edits unless the user asks for another page.`
@@ -858,7 +1081,7 @@ function normalizePortalHistory(history, userMessage, images, imagesMode = 'buil
 async function runPortalImproveLoop(
   workspaceId,
   leadId,
-  { db, message, history, pageSlug, images, mode = 'build', clarifyAbout = '', clarifyKind = '', clarifySettled = [], clarifyPriorQa = null, clarifyRound = 1, siteContext = '', maxSteps } = {}
+  { db, message, history, pageSlug, images, mode = 'build', clarifyAbout = '', clarifyKind = '', clarifySettled = [], clarifyPriorQa = null, clarifyRound = 1, siteContext = '', maxSteps, plan = null } = {}
 ) {
   const domain = require('./domain');
   const mcp = require('./mcp');
@@ -910,10 +1133,32 @@ async function runPortalImproveLoop(
   // Batch 93: the fence is structural — in read-only modes the write
   // tools are never even OFFERED to the model (portalModeAllowsTool),
   // and the dispatch below refuses them a second time.
+  // Batch 98: THE IMPLEMENTOR sandbox. In build mode with a plan,
+  // the offered catalog narrows further — read tools (for grounding)
+  // plus exactly the tools the plan's steps name (and site.publish,
+  // the system act that makes an implemented change visible). A
+  // mutating tool outside the plan is refused at dispatch with a
+  // structured NOT_IN_PLAN error: the implementor executes the
+  // plan, it does not improvise a different change.
+  const activePlan = runMode === 'build' && plan && Array.isArray(plan.steps) && plan.steps.length ? plan : null;
+  const planToolSet = activePlan ? new Set(activePlan.steps.map((s) => s.tool)) : null;
+  if (planToolSet) planToolSet.add('site.publish');
   const scopedDefs = mcp
     .toolDefs({ clientScoped: true })
-    .filter((t) => t && portalModeAllowsTool(runMode, t.name));
+    .filter((t) => t && portalModeAllowsTool(runMode, t.name))
+    .filter((t) => !planToolSet || PORTAL_READONLY_TOOLS.has(t.name) || planToolSet.has(t.name));
   const { tools, toolNames } = mcpToolsToOpenAi(scopedDefs);
+  const stepResults = activePlan
+    ? activePlan.steps.map((s) => ({ tool: s.tool, status: 'pending', error: null }))
+    : [];
+  let planViolations = 0;
+  const recordStepResult = (name, ok, errorText) => {
+    if (!activePlan || PORTAL_READONLY_TOOLS.has(name) || name === 'site.publish') return;
+    const idx = stepResults.findIndex((r) => r.tool === name && r.status === 'pending');
+    if (idx < 0) return;
+    stepResults[idx].status = ok ? 'done' : 'failed';
+    stepResults[idx].error = ok ? null : String(errorText || 'tool failed').slice(0, 300);
+  };
   const modelImages = (Array.isArray(images) ? images : []).filter((im) => im && im.dataUrl);
   const messages = [
     {
@@ -933,6 +1178,27 @@ async function runPortalImproveLoop(
         ),
       }),
     },
+    ...(activePlan
+      ? [
+          {
+            role: 'system',
+            content: [
+              'THE PLAN — the planner has already decided this change. Execute exactly these steps, in order, and nothing else:',
+              ...activePlan.steps.map(
+                (s, i) =>
+                  `${i + 1}. ${s.tool}${s.args && Object.keys(s.args).length ? ` ${JSON.stringify(s.args).slice(0, 600)}` : ''}${s.expect ? ` — expect: ${s.expect}` : ''}`
+              ),
+              'RULES: any tool outside this plan is refused by the system — do not attempt one. Read tools stay available to ground exact ids and current content before you edit. If a step cannot be executed, STOP and reply naming the step number and the reason — never improvise a different change.',
+              ...(Array.isArray(activePlan.settled) && activePlan.settled.length
+                ? [`Settled facts (binding): ${activePlan.settled.map((s) => `"${String(s).slice(0, 200)}"`).join(' · ')}`]
+                : []),
+              ...(Array.isArray(activePlan.defaultsApplied) && activePlan.defaultsApplied.length
+                ? [`Defaults the planner applied: ${activePlan.defaultsApplied.join('; ')}`]
+                : []),
+            ].join('\n'),
+          },
+        ]
+      : []),
     // Tier 1 whole-site context: the agent's standing knowledge of
     // the ENTIRE site, loaded every turn in every mode. Tier 2 is
     // the read/inspect tools, used when a question or edit needs
@@ -1103,6 +1369,24 @@ async function runPortalImproveLoop(
         continue;
       }
 
+      // Batch 98: the plan sandbox at dispatch — a mutating tool
+      // the plan does not name is refused with a structured
+      // NOT_IN_PLAN error and never reaches mcp.callTool, even if
+      // its wire name somehow resolved into the offered catalog.
+      if (planToolSet && !PORTAL_READONLY_TOOLS.has(name) && !planToolSet.has(name)) {
+        planViolations++;
+        messages.push({
+          role: 'tool',
+          tool_call_id: tc.id,
+          content: JSON.stringify({
+            ok: false,
+            error: `NOT_IN_PLAN: ${name} is not one of this change's planned steps. Execute only the plan's steps, in order.`,
+          }),
+        });
+        consecutiveToolErrors.n++;
+        continue;
+      }
+
       toolCalls++;
       let outcome;
       try {
@@ -1113,10 +1397,12 @@ async function runPortalImproveLoop(
 
       if (!outcome || outcome.ok === false) {
         consecutiveToolErrors.n++;
+        recordStepResult(name, false, outcome && outcome.error ? outcome.error : 'tool failed');
       } else {
         consecutiveToolErrors.n = 0;
         if (PORTAL_MUTATE_TOOLS.has(name)) mutated = true;
         if (name === 'site.publish') published = true;
+        recordStepResult(name, true, null);
       }
 
       const compact = JSON.stringify(outcome);
@@ -1175,6 +1461,12 @@ async function runPortalImproveLoop(
     attachments: modelImages.length,
     imagesSent: modelImages.length > 0 && !visionDropped,
     imagesDropped: visionDropped,
+    // Batch 98: the implementor's account of the plan — per-step
+    // outcomes the reviewer (Batch 99) and the transcript can
+    // rely on structurally, not from the reply prose.
+    stepResults: activePlan ? stepResults : null,
+    planComplete: activePlan ? stepResults.every((r) => r.status === 'done') : null,
+    planViolations,
   };
 }
 
@@ -1184,6 +1476,10 @@ module.exports = {
   runJobLoop,
   runPortalImproveLoop,
   classifyPortalChatIntent,
+  planPortalChange,
+  buildPlannerSystemPrompt,
+  PORTAL_DESIGN_TOOLS,
+  PORTAL_DESIGN_WRITE_TOOLS,
   buildClassifierSystemPrompt,
   normalizePortalHistory,
   portalModeAllowsTool,
