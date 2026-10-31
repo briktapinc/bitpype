@@ -430,7 +430,27 @@ const GOOD_PLAN_JSON = JSON.stringify({
         .run(`ZZ B98 ${label}`, 'Bakery', '(610) 555-0198');
       const leadId = Number(info.lastInsertRowid);
       fixtureSites[leadId] = { id: 7000 + leadId, pages: FIXTURE_PAGES, theme: { primary: '#7a4a21' } };
+      // Batch 99 reviewer fidelity: the critic fingerprints and
+      // renders the REAL websites row, so the fixture carries
+      // one (seeded H3 colour in theme customCss) and the fake
+      // loop below actually changes it, like production.
+      realDb
+        .prepare('INSERT INTO websites (lead_id, name, status, pages, theme) VALUES (?, ?, ?, ?, ?)')
+        .run(
+          leadId,
+          `ZZ B98 ${label}`,
+          'draft',
+          JSON.stringify(FIXTURE_PAGES),
+          JSON.stringify({ primary: '#7a4a21', customCss: 'h3 { color: #7a4a21; }' })
+        );
       return leadId;
+    };
+    const applyFakeStyleRule = (leadId) => {
+      const row = realDb.prepare('SELECT theme FROM websites WHERE lead_id = ?').get(leadId);
+      const theme = JSON.parse(row.theme || '{}');
+      theme.customCss =
+        'h3 { color: #7a4a21; }\n/* bitpype:chat-rules:start */\nh3 { color: #444444; }\n/* bitpype:chat-rules:end */';
+      realDb.prepare('UPDATE websites SET theme = ? WHERE lead_id = ?').run(JSON.stringify(theme), leadId);
     };
     let classifyQueue = [];
     let planCalls = [];
@@ -445,10 +465,13 @@ const GOOD_PLAN_JSON = JSON.stringify({
         planCalls.push(opts);
         return planResult;
       },
-      runPortalImproveLoop: async (_ws, _lead, opts) => {
+      runPortalImproveLoop: async (_ws, leadId, opts) => {
         loopCalls.push(opts);
         const base = { steps: 1, model: 'fixture-model', imagesSent: false, imagesDropped: false };
-        if (opts.mode === 'build') return { ...base, reply: 'Done.', mutated: true, published: true, toolCalls: 1 };
+        if (opts.mode === 'build') {
+          applyFakeStyleRule(leadId);
+          return { ...base, reply: 'Done.', mutated: true, published: true, toolCalls: 1 };
+        }
         return { ...base, reply: 'Answer.', mutated: false, published: false, toolCalls: 0 };
       },
     };
@@ -461,14 +484,18 @@ const GOOD_PLAN_JSON = JSON.stringify({
       process,
       resolveClientSite: (_db, leadId) => fixtureSites[Number(leadId)] || null,
       publishClientSitePreview: async () => ({ previewUrl: 'https://bitpype.test/preview/site' }),
-      renderClientSite: () => ({
-        html: '<html><body>preview</body></html>',
-        previewUrl: 'https://bitpype.test/preview/site',
-        editable: true,
-        theme: null,
-        logo: null,
-        pages: [],
-      }),
+      renderClientSite: (_ws, leadId) => {
+        const row = realDb.prepare('SELECT theme FROM websites WHERE lead_id = ?').get(Number(leadId));
+        const theme = row ? JSON.parse(row.theme || '{}') : {};
+        return {
+          html: `<html><head><style>${theme.customCss || ''}</style></head><body><section><h3>ZZ Heading</h3></section></body></html>`,
+          previewUrl: 'https://bitpype.test/preview/site',
+          editable: true,
+          theme: null,
+          logo: null,
+          pages: [],
+        };
+      },
       require: (name) =>
         name === './museAgent'
           ? fakeMuseAgent

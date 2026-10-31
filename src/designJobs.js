@@ -2236,13 +2236,108 @@ async function deliverJob(db, jobId, payload, agentClaims, opts = {}) {
       const summary = [payload.summary, payload.message, payload.notes]
         .map((v) => (v != null ? String(v).trim() : ''))
         .find(Boolean);
+      let writeBack = summary
+        ? `Your queued design job is done. ${summary}`
+        : `Your queued design job (#${jobId}) has been completed by the design agent — take a look at your site preview.`;
+      // Batch 99 — CRITIC + REVIEWER gate for chat-origin
+      // deliveries: when the job carries the planner's plan(s),
+      // the delivered site is verified against them (rendered
+      // output + collateral diff vs the queue-time baseline)
+      // BEFORE the owner is told it's done. Fail -> the job
+      // bounces back to the queue with the findings appended
+      // (max 2 bounces), then the delivery is accepted with the
+      // caveat disclosed. Best-effort: a gate error falls back
+      // to the plain write-back and never breaks a delivery.
+      const gatePlans = row.type === 'improvement' && Array.isArray(origin.plans) ? origin.plans : [];
+      if (gatePlans.length) {
+        try {
+          const critic = require('../server/siteChatCritic');
+          const siteRow = db.prepare('SELECT pages, theme FROM websites WHERE lead_id = ?').get(row.lead_id);
+          const sitePages = parseJson(siteRow && siteRow.pages, []) || [];
+          const siteTheme = parseJson(siteRow && siteRow.theme, {}) || {};
+          const scopeUnion = new Set();
+          let scopeAll = false;
+          for (const p of gatePlans) {
+            const pages = (p && p.scope && p.scope.pages) || [];
+            if (!pages.length || pages.includes('all')) scopeAll = true;
+            else pages.forEach((s) => scopeUnion.add(String(s)));
+          }
+          const mergedPlan = {
+            intent: gatePlans.map((p) => (p && p.intent) || '').filter(Boolean).join(' '),
+            size: 'big',
+            scope: { pages: scopeAll ? ['all'] : [...scopeUnion] },
+            steps: gatePlans.flatMap((p) => (p && p.steps) || []),
+            verify: gatePlans.flatMap((p) => (p && p.verify) || []),
+          };
+          const report = critic.runCritic({
+            plan: mergedPlan,
+            before: origin.baseline || null,
+            after: critic.siteFingerprint(db, row.lead_id),
+            renderPageHtml: (slug) => {
+              try {
+                return engine.renderPageAt(sitePages, siteTheme, { pageSlug: slug });
+              } catch {
+                return '';
+              }
+            },
+            expectChange: !!origin.baseline,
+          });
+          const verifyRecord = {
+            state: report.verdict === 'pass' ? 'passed' : 'failed',
+            at: new Date().toISOString(),
+            checks: (report.checks || []).map((c) => ({ kind: c.kind, pass: !!c.pass, actual: String(c.actual || '') })),
+            failures: report.failures || [],
+          };
+          const briefNow = parseJson(getRow(db, jobId).brief, {}) || {};
+          const originNow =
+            briefNow.chat_origin && typeof briefNow.chat_origin === 'object' ? briefNow.chat_origin : { ...origin };
+          const bounces = Number(originNow.bounces || 0);
+          if (report.verdict === 'pass') {
+            const styleEvidence = (report.checks || [])
+              .filter((c) => c.kind === 'computedStyle' && c.pass)
+              .map((c) => `${c.check.selector} ${c.check.property} = ${c.actual}`)
+              .slice(0, 3);
+            const passedCount = (report.checks || []).filter((c) => c.pass).length;
+            writeBack += `\n\nVerified before posting this: ${passedCount} of ${(report.checks || []).length} checks passed against the rendered site${
+              styleEvidence.length ? ` (${styleEvidence.join('; ')})` : ''
+            }.`;
+            originNow.verify = verifyRecord;
+            briefNow.chat_origin = originNow;
+            db.prepare('UPDATE design_jobs SET brief = ? WHERE id = ?').run(JSON.stringify(briefNow), jobId);
+          } else if (bounces < 2) {
+            verifyRecord.state = 'bounced';
+            originNow.verify = verifyRecord;
+            originNow.bounces = bounces + 1;
+            briefNow.chat_origin = originNow;
+            const findings = (report.failures || []).map((f) => `- ${f}`).join('\n');
+            const rowNow = getRow(db, jobId);
+            db.prepare(
+              "UPDATE design_jobs SET status = 'waiting_on_agent', instructions = ?, brief = ?, updated_at = datetime('now') WHERE id = ?"
+            ).run(
+              `${rowNow.instructions}\n\n---\nAUTOMATED REVIEW (delivery bounced, attempt ${bounces + 1} of 2): verification against the plan failed:\n${findings}\nFix exactly what the findings name, re-check the rendered result, and deliver again.`,
+              JSON.stringify(briefNow),
+              jobId
+            );
+            logActivity(db, `Design job #${jobId}: chat delivery bounced by the reviewer (verification failed).`);
+            writeBack =
+              `Quick update on your queued design job: the design agent delivered work, but it didn't pass verification yet — ${(report.failures || [])[0] || 'the rendered site does not match the plan'}. ` +
+              `I've sent it back to them with the details, and I'll post here when it passes. Nothing is being called done until it checks out.`;
+          } else {
+            verifyRecord.state = 'caveated';
+            originNow.verify = verifyRecord;
+            briefNow.chat_origin = originNow;
+            db.prepare('UPDATE design_jobs SET brief = ? WHERE id = ?').run(JSON.stringify(briefNow), jobId);
+            writeBack += `\n\nOne honest caveat: automated verification still flags ${(report.failures || [])[0] || 'a mismatch against the plan'} — I've accepted the delivery so you're not stuck waiting, but that part may need another look.`;
+          }
+        } catch (gateErr) {
+          console.warn('[designJobs] Batch 99 delivery gate:', gateErr.message || gateErr);
+        }
+      }
       thread.addMessage(db, {
         leadId: row.lead_id,
         jobId,
         source: 'design_job',
-        content: summary
-          ? `Your queued design job is done. ${summary}`
-          : `Your queued design job (#${jobId}) has been completed by the design agent — take a look at your site preview.`,
+        content: writeBack,
       });
     }
   } catch (e) {

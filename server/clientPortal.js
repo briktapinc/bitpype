@@ -4598,6 +4598,11 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
   let pageCount = 0;
   let siteContext = '';
   let siteTheme = {};
+  // Batch 99: the pre-turn site fingerprint — the critic diffs
+  // the post-turn site against it (collateral + "did anything
+  // actually change"), and queueBigJob stamps it into the job
+  // brief as the delivery baseline.
+  let turnFingerprintBefore = null;
   domain.withDb(workspaceId, (db) => {
     const site = resolveClientSite(db, leadId);
     if (!site || !Array.isArray(site.pages) || !site.pages.length) {
@@ -4606,6 +4611,11 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     siteId = site.id;
     pageCount = site.pages.length;
     siteTheme = site.theme && typeof site.theme === 'object' ? site.theme : {};
+    try {
+      turnFingerprintBefore = require('./siteChatCritic').siteFingerprint(db, leadId);
+    } catch {
+      turnFingerprintBefore = null;
+    }
     siteContext = buildSiteMap(db, site);
     if (attachmentIds.length) {
       // Ownership is enforced here: every id must belong to THIS lead.
@@ -4741,6 +4751,10 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
   // the design allowlist (the pre-rebuild behaviour).
   let turnPlan = null;
   let turnPlanId = null;
+  // Batch 99: the clarified spec this turn implements (hoisted
+  // for the reviewer) + the reviewer's verdict for the payload.
+  let turnSpecText = '';
+  let turnReview = null;
   const fetchPlan = async (specForPlan, rework) => {
     try {
       if (!museAgent || typeof museAgent.planPortalChange !== 'function') return null;
@@ -4886,6 +4900,11 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
         attachmentIds,
         websiteId: siteId,
         queuedAt: new Date().toISOString(),
+        // Batch 99: the pre-request site fingerprint — the
+        // deliverJob critic diffs the DELIVERED site against it
+        // (collateral). Earliest wins on merges: the delivery is
+        // judged against the state before the first request.
+        baseline: priorOrigin.baseline || turnFingerprintBefore || null,
         ...(plans.length ? { plans, plan: plans[plans.length - 1] } : {}),
       };
       db.prepare('UPDATE design_jobs SET brief = ? WHERE id = ?').run(JSON.stringify(briefObj), jobId);
@@ -5004,6 +5023,7 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
       turnPlan && !String(specText || '').trim()
         ? 'The owner attached image(s) with no written instruction. A plan was written from the image(s) — implement it.'
         : specText;
+    turnSpecText = effectiveSpec;
     // Batch 98: the PLANNER writes the plan for this change
     // (skipped when the image-only routing already produced one).
     // The plan finalizes routing: its size governs the fork; the
@@ -5086,6 +5106,117 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     }
   }
 
+  // Batch 99 — REVIEWER gate (in-chat builds). The critic checks
+  // the ACTUAL rendered result against the plan's verify[] and
+  // diffs the site fingerprint (collateral + did-anything-change);
+  // the reviewer ships the summary only on a pass. On a fail it
+  // sends bounded rework back through the planner (<= 2 cycles),
+  // and if the change still does not verify, the reviewer
+  // escalates by queueing the job itself, plan + findings
+  // attached, and says so plainly. Unplanned builds get the same
+  // mutation-sanity critic (a claimed change that changed nothing
+  // is never reported as done).
+  if (mode === 'build' && loop) {
+    try {
+      const siteCritic = require('./siteChatCritic');
+      const chatPlanMod = require('./siteChatPlan');
+      const renderForCritic = (slug) => {
+        try {
+          return renderClientSite(workspaceId, leadId, { editable: false, pageSlug: slug }).html;
+        } catch {
+          return '';
+        }
+      };
+      const runCriticNow = () =>
+        domain.withDb(workspaceId, (db) =>
+          siteCritic.runCritic({
+            plan: turnPlan || { intent: '', scope: { pages: ['all'] }, steps: [], verify: [] },
+            before: turnFingerprintBefore,
+            after: siteCritic.siteFingerprint(db, leadId),
+            renderPageHtml: renderForCritic,
+            expectChange: !!loop.mutated,
+          })
+        );
+      let report = runCriticNow();
+      let cycles = 0;
+      while (report.verdict === 'fail' && turnPlan && cycles < 2) {
+        const attempt = await fetchPlan(turnSpecText || effectiveText, { failures: report.failures });
+        if (!attempt || !attempt.plan) break;
+        if (attempt.plan.size === 'big') {
+          // A rework that outgrew the chat: adopt the new plan
+          // and let the escalation below queue it.
+          if (turnPlanId) {
+            domain.withDb(workspaceId, (db) => chatPlanMod.setPlanStatus(db, turnPlanId, 'superseded'));
+          }
+          turnPlan = attempt.plan;
+          turnPlanId = attempt.planId;
+          break;
+        }
+        if (turnPlanId) {
+          domain.withDb(workspaceId, (db) => chatPlanMod.setPlanStatus(db, turnPlanId, 'superseded'));
+        }
+        turnPlan = attempt.plan;
+        turnPlanId = attempt.planId;
+        cycles += 1;
+        loop = await runLoop({ message: turnSpecText || effectiveText, mode: 'build', plan: turnPlan });
+        if (loop && loop.error && !loop.mutated) break;
+        if (loop && loop.mutated && !loop.published) {
+          try {
+            await publishClientSitePreview(workspaceId, leadId);
+            loop.published = true;
+          } catch (e) {
+            console.warn('[clientPortal] reviewer rework publish:', e.message || e);
+          }
+        }
+        report = runCriticNow();
+      }
+      const reviewChecks = (report.checks || []).map((c) => ({ kind: c.kind, pass: !!c.pass, actual: String(c.actual || '') }));
+      if (report.verdict === 'pass') {
+        turnReview = { verdict: 'pass', cycles, checks: reviewChecks };
+        if (turnPlanId) {
+          domain.withDb(workspaceId, (db) => {
+            chatPlanMod.setPlanReview(db, turnPlanId, turnReview);
+            chatPlanMod.setPlanStatus(db, turnPlanId, 'implemented');
+          });
+        }
+      } else if (turnPlan) {
+        // Escalate: the reviewer creates the queued job itself —
+        // plan + critic findings — and the reply discloses it.
+        const findingsText = (report.failures || []).map((f) => `- ${f}`).join('\n');
+        const escSpec = [
+          turnSpecText || effectiveText,
+          '',
+          `AUTOMATED REVIEWER ESCALATION: the in-chat attempt did not pass verification after ${cycles} rework cycle(s). Critic findings:`,
+          findingsText || '- the rendered site does not match the plan',
+          'Fix exactly what the findings name, then verify against the plan before delivering.',
+        ].join('\n');
+        const escJobId = queueBigJob(escSpec, turnPlan);
+        if (turnPlanId) {
+          domain.withDb(workspaceId, (db) => {
+            chatPlanMod.setPlanReview(db, turnPlanId, { verdict: 'escalated', cycles, checks: reviewChecks });
+            chatPlanMod.setPlanStatus(db, turnPlanId, 'escalated', escJobId ? { jobId: escJobId } : {});
+          });
+        }
+        turnReview = { verdict: 'escalated', cycles, checks: reviewChecks, escalatedJobId: escJobId || null };
+        const firstFailure = (report.failures || [])[0] || 'the rendered site does not match the plan';
+        replyOverride =
+          `I worked on this directly, but my verification pass says it isn't right yet — ${firstFailure}. ` +
+          `Rather than leave you with a half-done change, I've queued it for the design agent with the plan and the full findings; they'll finish it and I'll post here when it passes verification.` +
+          (report.collateral && report.collateral.changed
+            ? ' Note: part of the change did land on your staged site in the meantime — the agent will reconcile it.'
+            : ' Nothing on your site was changed.');
+      } else {
+        turnReview = { verdict: 'fail', cycles, checks: reviewChecks };
+        if (loop.mutated && report.collateral && !report.collateral.changed) {
+          replyOverride =
+            "I ran the change, but verifying the site afterwards shows nothing actually changed — so I won't pretend it worked. Nothing on your site was altered. Could you rephrase what you'd like, or try again in a moment?";
+        }
+      }
+    } catch (reviewErr) {
+      console.warn('[clientPortal] reviewer gate:', (reviewErr && reviewErr.message) || reviewErr);
+    }
+  }
+
   let reply = replyOverride != null ? replyOverride : (loop && loop.reply) || '';
   if (mode === 'build' && cls && cls.borderline && loop && loop.mutated) {
     reply = `Small enough to do right here in the chat.\n\n${reply}`;
@@ -5140,6 +5271,10 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     // the change was unplanned or the turn made no change).
     planId: turnPlanId,
     planSize: turnPlan ? turnPlan.size : null,
+    // Batch 99: the reviewer's verdict for this build turn —
+    // pass (with the critic's check list), escalated (the
+    // reviewer queued the job itself; escalatedJobId), or fail.
+    review: turnReview,
     // Batch 89: echo the turn's attachments (thumbnail URLs are the
     // authorized fetch route) + whether the model received the images.
     attachments: attachmentRows.map((row) => chatAtt.publicRow(row)),
