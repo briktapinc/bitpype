@@ -273,14 +273,20 @@ function makeCfDb({ withCreds = true, project = '' } = {}) {
     // Over-cap price -> refused, no registration POST.
     stubPrice = 30.0;
     httpCalls.length = 0;
-    await assert.rejects(() => cfDomains.registerDomain(dbOk, 'pricey-fixture.com', {}), /DOMAIN_OVER_CAP/);
+    await assert.rejects(
+      () => cfDomains.registerDomain(dbOk, 'pricey-fixture.com', {}),
+      (e) => e && e.code === 'DOMAIN_OVER_CAP'
+    );
     n++;
     assert.equal(httpCalls.filter((c) => c.method === 'POST' && c.path.includes('/registrar/registrations')).length, 0);
     n++;
 
     // Unpriced -> refused (price cannot be verified under the cap).
     stubPriced = false;
-    await assert.rejects(() => cfDomains.registerDomain(dbOk, 'unpriced-fixture.com', {}), /DOMAIN_OVER_CAP/);
+    await assert.rejects(
+      () => cfDomains.registerDomain(dbOk, 'unpriced-fixture.com', {}),
+      (e) => e && e.code === 'DOMAIN_OVER_CAP'
+    );
     n++;
     group('SEC-05 own-token + SEC-02 price cap at registerDomain', n);
   }
