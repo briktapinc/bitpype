@@ -67,6 +67,11 @@
     agentChatPending: [],
     agentChatHistoryLoaded: false,
     agentChatServerIds: new Set(),
+    // Batch 104: optimistic preview patches currently shown in
+    // the preview iframe, keyed by patch id. A patch is a
+    // PROVISIONAL render only — the verified build is the truth
+    // and replaces it (see resolveAgentChatPatches).
+    agentChatPatches: new Map(),
   };
 
   const THEME_KEYS = ['primary', 'secondary', 'bg', 'text'];
@@ -2008,6 +2013,9 @@
         postEditModeToFrame(true);
       }
       if (scrollPos) restorePreviewScroll(scrollPos);
+      // Batch 104: the new document starts bridge-empty —
+      // re-apply any still-unverified optimistic patches.
+      reapplyAgentChatPatches();
     });
     frame.srcdoc = html || '<p style="font-family:sans-serif;padding:1rem">Empty preview.</p>';
     if (!keepEdit) syncEditModeUi();
@@ -2237,6 +2245,212 @@
     }
   }
 
+  // ---------------------------------------------------------------
+  // Batch 104 — OPTIMISTIC PREVIEW. When a change is accepted,
+  // the owner sees it in the preview instantly; the verified
+  // build remains the only truth. Three tiers:
+  //   1. A deterministic quoted-text swap ("change "X" to "Y"")
+  //      is parsed HERE, locally, and patched into the preview
+  //      at send time — no server round-trip.
+  //   2. Other small changes: the server derives a patch spec
+  //      from the turn's plan (payload.optimisticPatch) and it
+  //      is applied when the plan returns.
+  //   3. Structural changes get a skeleton treatment on the
+  //      preview — never fake content.
+  // Transport is the owner-only postMessage bridge into the
+  // preview iframe (public/js/preview-bridge.js) with an
+  // allowlist of ops (text / style / vars — never raw HTML).
+  // A patch is preview-only: on verification success the
+  // verified render replaces it; on failure it is reverted and
+  // the owner gets a plain-language notice.
+  // ---------------------------------------------------------------
+
+  function parseAgentChatTextSwap(text) {
+    const s = String(text || '').trim();
+    if (!s || s.length > 1200) return null;
+    // A question that merely quotes text is not a change.
+    if (
+      /^(what|why|how|when|where|who|which|is|are|was|were|do|does|did|can|could|should|would)\b/i.test(s) &&
+      s.endsWith('?')
+    ) {
+      return null;
+    }
+    const OPEN = '["\\u201C]';
+    const CLOSE = '["\\u201D]';
+    const BODY = '[^"\\u201C\\u201D]';
+    const patterns = [
+      new RegExp(
+        '\\b(?:change|replace|swap|update|edit|rename|set)\\b' +
+          BODY +
+          '{0,60}?' +
+          OPEN +
+          '(' +
+          BODY +
+          '{1,240}?)' +
+          CLOSE +
+          '\\s*(?:to|into|with)\\s*' +
+          OPEN +
+          '(' +
+          BODY +
+          '{1,400}?)' +
+          CLOSE,
+        'i'
+      ),
+      new RegExp(
+        '\\bmake\\b' +
+          BODY +
+          '{0,60}?' +
+          OPEN +
+          '(' +
+          BODY +
+          '{1,240}?)' +
+          CLOSE +
+          '\\s+say\\s+' +
+          OPEN +
+          '(' +
+          BODY +
+          '{1,400}?)' +
+          CLOSE,
+        'i'
+      ),
+    ];
+    for (const re of patterns) {
+      const m = s.match(re);
+      if (!m) continue;
+      const from = m[1].trim();
+      const to = m[2].trim();
+      if (from.length >= 2 && to && from !== to) return { from, to };
+    }
+    return null;
+  }
+
+  function postAgentPatchMessage(msg) {
+    const frame = state.previewFrame;
+    if (!frame || !frame.contentWindow) return;
+    try {
+      frame.contentWindow.postMessage({ source: 'ws-portal', ...msg }, '*');
+    } catch {
+      /* a dead frame drops the patch silently — verification is server-side */
+    }
+  }
+
+  function syncAgentPatchUi() {
+    const box = document.getElementById('preview-box');
+    if (!box) return;
+    let any = false;
+    let skeleton = false;
+    for (const p of state.agentChatPatches.values()) {
+      any = true;
+      if (p.tier === 3) skeleton = true;
+    }
+    box.classList.toggle('is-patch-skeleton', skeleton);
+    box.classList.toggle('is-patch-applying', any && !skeleton);
+  }
+
+  function applyAgentPatchWithRetry(patch) {
+    syncAgentPatchUi();
+    if (!patch || !Array.isArray(patch.ops) || !patch.ops.length) return;
+    if (patch._timer) clearTimeout(patch._timer);
+    patch._acked = false;
+    let attempts = 0;
+    const delays = [120, 350, 700, 1200, 2000];
+    const post = () => {
+      if (!state.agentChatPatches.has(patch.id) || patch._acked) return;
+      postAgentPatchMessage({ type: 'chat-patch-apply', patchId: patch.id, ops: patch.ops });
+      attempts += 1;
+      if (attempts <= delays.length) patch._timer = setTimeout(post, delays[attempts - 1]);
+    };
+    post();
+  }
+
+  function trackAgentPatch(patch) {
+    if (!patch || !patch.id) return null;
+    const tracked = { createdAt: Date.now(), ...patch };
+    state.agentChatPatches.set(tracked.id, tracked);
+    applyAgentPatchWithRetry(tracked);
+    return tracked;
+  }
+
+  function dropAgentPatch(id, opts = {}) {
+    const patch = state.agentChatPatches.get(id);
+    if (!patch) return;
+    if (patch._timer) clearTimeout(patch._timer);
+    state.agentChatPatches.delete(id);
+    if (opts.revert) postAgentPatchMessage({ type: 'chat-patch-revert', patchId: id });
+    syncAgentPatchUi();
+  }
+
+  function handleAgentPatchResult(data) {
+    const patch = state.agentChatPatches.get(String(data.patchId || ''));
+    if (!patch) return;
+    if (typeof data.applied === 'number') {
+      patch._acked = true;
+      if (patch._timer) clearTimeout(patch._timer);
+      if (data.applied === 0 && patch.ops.length) {
+        // The spec grounded nothing in this preview document
+        // (e.g. the text lives on another page) — drop it
+        // quietly rather than badge a change that isn't shown.
+        state.agentChatPatches.delete(patch.id);
+        syncAgentPatchUi();
+      }
+    }
+  }
+
+  /** A fresh preview document starts bridge-empty: re-apply the
+   * patches whose jobs are still unverified. */
+  function reapplyAgentChatPatches() {
+    for (const patch of state.agentChatPatches.values()) {
+      applyAgentPatchWithRetry(patch);
+    }
+  }
+
+  /**
+   * Resolve tracked patches against the poller's truth (Batch
+   * 101 queue states + the job-linked write-back messages):
+   *   delivered  -> the verified render wins: drop the patch
+   *                 and reload the preview from the real site.
+   *   in_review  -> the delivery bounced in verification:
+   *                 revert the patch, reload the truth, and
+   *                 say plainly what happened.
+   *   stale >24h -> drop quietly (job long resolved/abandoned).
+   */
+  function resolveAgentChatPatches(queue, messages) {
+    if (!state.agentChatPatches.size) return;
+    const q = Array.isArray(queue) ? queue : [];
+    const msgs = Array.isArray(messages) ? messages : [];
+    const reloadTruth = () => {
+      loadEditablePreview(state.previewUrl, {
+        preserveEditMode: state.editMode,
+        preserveFullscreen: state.editFullscreen,
+      }).catch(() => {});
+    };
+    for (const patch of [...state.agentChatPatches.values()]) {
+      if (patch.jobId == null) continue;
+      const entry = q.find((x) => x && Number(x.jobId) === Number(patch.jobId));
+      const msg = msgs.find((m) => m && m.jobId != null && Number(m.jobId) === Number(patch.jobId));
+      const msgText = msg ? String(msg.content || '') : '';
+      const bounced =
+        (entry && entry.state === 'in_review') || /didn.t pass verification/i.test(msgText);
+      const delivered =
+        (entry && entry.state === 'delivered') ||
+        /queued design job is done|has been completed/i.test(msgText);
+      if (bounced) {
+        dropAgentPatch(patch.id, { revert: true });
+        setAgentChatStatus(
+          'That change didn’t pass verification, so the preview is back to your current site while the design agent reworks it.',
+          ''
+        );
+        reloadTruth();
+      } else if (delivered) {
+        dropAgentPatch(patch.id);
+        reloadTruth();
+      } else if (Date.now() - (patch.createdAt || 0) > 24 * 3600 * 1000) {
+        dropAgentPatch(patch.id, { revert: true });
+      }
+    }
+    syncAgentPatchUi();
+  }
+
   async function sendAgentChat(message) {
     const text = String(message || '').trim();
     const pending = state.agentChatPending.slice();
@@ -2245,6 +2459,16 @@
     syncAgentChatUi();
     appendAgentBubble('user', text, pending);
     setAgentChatStatus('Updating your site…', 'busy');
+    // Batch 104 Tier 1: a quoted text swap is patched into the
+    // preview the moment the message is sent. It is provisional
+    // until the server's verified outcome for this turn lands
+    // (see the response handling below).
+    let turnPatchId = null;
+    const swap = parseAgentChatTextSwap(text);
+    if (swap && state.previewFrame) {
+      turnPatchId = `t1-${Date.now()}`;
+      trackAgentPatch({ id: turnPatchId, tier: 1, ops: [{ op: 'text', from: swap.from, to: swap.to }], jobId: null });
+    }
     try {
       // Batch 96: no history is sent — the server loads this
       // site's saved transcript itself; the local array is now
@@ -2258,6 +2482,26 @@
       });
       if (data && data.chatUsage) renderAgentChatUsage(data.chatUsage);
       if (data && data.queueStatus) renderAgentChatQueue([data.queueStatus]);
+      // Batch 104: reconcile this turn's patches with the
+      // server's outcome. A queued change's server-derived spec
+      // supersedes the Tier-1 guess and stays tracked under its
+      // job id until the poller resolves it; every other outcome
+      // ends the Tier-1 patch (the verified render below is the
+      // truth for builds, and non-change turns revert it).
+      const sp = data && data.optimisticPatch;
+      let queuedPatch = null;
+      let patchFailed = false;
+      if (sp && sp.state === 'queued' && sp.jobId != null) {
+        queuedPatch = trackAgentPatch({
+          id: `job-${sp.jobId}`,
+          tier: sp.tier === 2 ? 2 : 3,
+          ops: Array.isArray(sp.ops) ? sp.ops : [],
+          jobId: Number(sp.jobId),
+        });
+      } else if (sp && sp.state === 'failed') {
+        patchFailed = true;
+      }
+      if (turnPatchId) dropAgentPatch(turnPatchId, { revert: true });
       const reply = (data && data.reply) || 'Done — check the preview.';
       appendAgentBubble('assistant', reply);
       state.agentChatPending = [];
@@ -2297,7 +2541,20 @@
       if (data && data.error && !data.mutated) {
         setAgentChatStatus('Could not fully apply that change.', 'err');
       }
+      // Batch 104: the preview now shows the fresh render; put
+      // the queued change's patch onto it and say what the badge
+      // means. A failed-verification build gets the plain notice
+      // (the preview already shows the truth — nothing was kept).
+      if (queuedPatch) {
+        applyAgentPatchWithRetry(queuedPatch);
+        setAgentChatStatus('Previewing that change now — it becomes final once it passes verification.', 'busy');
+      } else if (patchFailed) {
+        setAgentChatStatus('That change didn’t pass verification, so the preview shows your site as it is.', 'err');
+      }
     } catch (e) {
+      // Batch 104: the turn never landed — the speculative
+      // Tier-1 patch comes back off (the frame was not swapped).
+      if (turnPatchId) dropAgentPatch(turnPatchId, { revert: true });
       appendAgentBubble('assistant', errText(e));
       setAgentChatStatus(errText(e), 'err');
     } finally {
@@ -2332,6 +2589,10 @@
       if (msgs.length && state.agentChatHistory.length > 20) {
         state.agentChatHistory = state.agentChatHistory.slice(-20);
       }
+      // Batch 104: queued optimistic patches resolve against
+      // this same truth — delivered confirms (verified render
+      // reloads), a verification bounce reverts with a notice.
+      resolveAgentChatPatches(data && data.queue, msgs);
     } catch {
       /* updates are best-effort; the chat itself must never break */
     }
@@ -2886,6 +3147,10 @@
         data.y <= 10000000
       )
         state.previewScroll = { x: data.x, y: data.y };
+      return;
+    }
+    if (data.type === 'chat-patch-result') {
+      handleAgentPatchResult(data);
       return;
     }
     const allowedTypes = [

@@ -5297,6 +5297,56 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     }
   }
 
+  // Batch 104 — OPTIMISTIC PREVIEW: derive this turn's patch spec
+  // deterministically from the plan (server/siteChatPatch.js —
+  // pure code, no extra model calls, so Batch 97 caps and the
+  // chat doctrine are untouched). The portal applies the spec to
+  // the preview iframe the moment it arrives (queued jobs) while
+  // verification proceeds through the existing paths; the
+  // verified render — this payload's html for in-chat builds,
+  // the deliverJob write-back for queued jobs — is the only
+  // truth and always wins. States:
+  //   queued   — a job (owner-queued big change, or the
+  //              reviewer's escalation) will be verified later;
+  //              the patch rides with its job id so the updates
+  //              poller can confirm it (delivered) or revert it
+  //              (bounced to in_review) when the job resolves.
+  //   verified — the in-chat build passed the reviewer; the
+  //              payload html IS the verified render.
+  //   failed   — the build ran but verification says nothing
+  //              (or not enough) changed; the client drops any
+  //              speculative preview patch for this turn.
+  let optimisticPatch = null;
+  try {
+    const chatPatch = require('./siteChatPatch');
+    if (mode === 'queued' && queuedJobId) {
+      optimisticPatch = chatPatch.deriveOptimisticPatch(turnPlan, { jobId: queuedJobId }) || {
+        v: 1,
+        tier: 3,
+        ops: [],
+        jobId: Number(queuedJobId),
+      };
+      optimisticPatch.state = 'queued';
+    } else if (mode === 'build' && turnReview && turnReview.verdict === 'escalated') {
+      const escId = turnReview.escalatedJobId != null ? Number(turnReview.escalatedJobId) : null;
+      optimisticPatch = chatPatch.deriveOptimisticPatch(turnPlan, { jobId: escId }) || {
+        v: 1,
+        tier: 3,
+        ops: [],
+        jobId: escId,
+      };
+      optimisticPatch.state = 'queued';
+    } else if (mode === 'build' && turnReview && turnReview.verdict === 'pass') {
+      const derived = chatPatch.deriveOptimisticPatch(turnPlan, {});
+      if (derived) optimisticPatch = { ...derived, state: 'verified' };
+    } else if (mode === 'build' && turnReview && turnReview.verdict === 'fail') {
+      optimisticPatch = { v: 1, tier: 0, ops: [], state: 'failed' };
+    }
+  } catch (patchErr) {
+    console.warn('[clientPortal] optimistic patch derivation:', (patchErr && patchErr.message) || patchErr);
+    optimisticPatch = null;
+  }
+
   const rendered = renderClientSite(workspaceId, leadId, {
     editable: true,
     pageSlug,
@@ -5349,6 +5399,9 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     // pass (with the critic's check list), escalated (the
     // reviewer queued the job itself; escalatedJobId), or fail.
     review: turnReview,
+    // Batch 104: the optimistic-preview patch spec for this
+    // turn (null when the turn made no previewable change).
+    optimisticPatch,
     // Batch 89: echo the turn's attachments (thumbnail URLs are the
     // authorized fetch route) + whether the model received the images.
     attachments: attachmentRows.map((row) => chatAtt.publicRow(row)),

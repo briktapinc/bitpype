@@ -681,6 +681,50 @@
       display: block;
       background: var(--surface);
     }
+    /* Batch 104 — optimistic preview treatments: a badge while a
+       design-chat change is shown-but-unverified, and a skeleton
+       shimmer for structural changes (never fake content). The
+       classes sit on #preview-box itself, so they survive the
+       iframe swaps the chat performs. */
+    #preview-box.is-patch-applying {
+      border-color: var(--warn);
+      box-shadow: 0 0 0 3px rgba(138, 95, 4, 0.18), var(--shadow);
+    }
+    #preview-box.is-patch-applying::after,
+    #preview-box.is-patch-skeleton::after {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 6;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: #141414;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 650;
+      letter-spacing: 0.01em;
+      pointer-events: none;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+    }
+    #preview-box.is-patch-applying::after { content: 'Previewing your change — verifying…'; }
+    #preview-box.is-patch-skeleton::after { content: 'Rebuilding — preview updates once verified'; }
+    #preview-box.is-patch-skeleton::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: 5;
+      pointer-events: none;
+      background: linear-gradient(100deg, rgba(255, 255, 255, 0) 30%, rgba(20, 20, 20, 0.07) 50%, rgba(255, 255, 255, 0) 70%);
+      background-size: 220% 100%;
+      animation: patch-skeleton-sweep 1.8s ease-in-out infinite;
+    }
+    @keyframes patch-skeleton-sweep {
+      from { background-position: 180% 0; }
+      to { background-position: -80% 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #preview-box.is-patch-skeleton::before { animation: none; }
+    }
     .preview-empty {
       padding: 48px 24px;
       text-align: center;
