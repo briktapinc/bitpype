@@ -904,25 +904,58 @@
       background: rgba(255, 250, 244, 0.85);
     }
     .structure-insert-row button:disabled { opacity: 0.35; cursor: not-allowed; }
-    .modal.structure-module-modal { max-width: 420px; }
+    .modal.structure-module-modal { max-width: 560px; }
     .structure-module-list {
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      margin: 12px 0 0;
+      gap: 16px;
+      margin: 14px 0 0;
     }
+    /* Batch 91: picker entries are mini cards in a 2-up grid, with the
+       same icon family as the module cards. */
+    .structure-block-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .structure-block-group > p { grid-column: 1 / -1; }
     .structure-module-list button {
+      display: flex;
+      align-items: center;
+      gap: 10px;
       text-align: left;
       border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 10px 12px;
+      border-radius: 12px;
+      padding: 11px 13px;
       background: var(--surface);
       font: inherit;
       font-weight: 650;
+      font-size: 0.92rem;
       cursor: pointer;
       color: var(--ink);
+      transition: border-color 0.15s ease, background 0.15s ease;
     }
     .structure-module-list button:hover { border-color: var(--border-strong); background: #faf3e7; }
+    .structure-module-list button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .picker-card-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 9px;
+      background: var(--surface-2);
+      color: var(--ink);
+      flex: none;
+    }
+    .picker-card-icon .module-icon-svg { width: 18px; height: 18px; }
+    .picker-card-icon.tint-content { background: var(--accent-soft); color: var(--accent-dark); }
+    .picker-card-icon.tint-people { background: var(--info-soft); color: var(--plum); }
+    .picker-card-icon.tint-schedule { background: var(--warn-soft); color: var(--warn); }
+    .picker-card-icon.tint-assist { background: #fdeee9; color: #cf4a33; }
+    @media (max-width: 480px) {
+      .structure-block-group { grid-template-columns: 1fr; }
+    }
     .modal.structure-page-modal { max-width: 420px; }
     .structure-page-modal label {
       display: block;
@@ -1552,34 +1585,37 @@
 
     /* Modules mini-admin */
     .modules-admin {
-      display: grid;
-      grid-template-columns: minmax(168px, 220px) minmax(0, 1fr);
+      display: flex;
+      flex-direction: column;
       gap: 16px;
-      align-items: start;
+      align-items: stretch;
     }
     .modules-admin-side {
-      position: sticky;
-      top: 12px;
-      padding: 14px 12px;
+      padding: 16px 18px 18px;
       border-radius: var(--radius);
       border: 1px solid var(--border);
       background: var(--surface);
       box-shadow: var(--shadow);
     }
     .modules-admin-side-hint {
-      margin: 0 8px 12px;
+      margin: 0 2px 14px;
       font-size: 0.82rem;
       color: var(--muted);
       line-height: 1.35;
     }
+    /* Batch 91: the module picker is a grid of small clickable cards
+       (Ely 2026-10-30). Five across on desktop — the portal column is
+       932px wide, so 5 cards land at ~175px each while 6 would cramp
+       to ~145px; the grid steps down on narrower screens. The whole
+       card is the click target; each card carries the module's icon. */
     .modules-side-nav {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
     }
     .modules-side-group {
-      margin: 10px 0 4px;
-      padding: 0 8px;
+      grid-column: 1 / -1;
+      margin: 10px 2px 0;
       font-size: 0.68rem;
       font-weight: 800;
       letter-spacing: 0.08em;
@@ -1587,54 +1623,85 @@
       color: var(--muted);
     }
     .modules-side-group:first-child { margin-top: 0; }
-    .module-tab {
+    .module-card {
       display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 7px;
       width: 100%;
-      border: 0;
-      border-radius: 10px;
-      padding: 9px 10px;
+      min-height: 116px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px;
       font: inherit;
-      font-size: 0.92rem;
-      font-weight: 550;
-      background: transparent;
+      background: var(--surface);
       color: var(--ink);
       cursor: pointer;
       text-align: left;
-      transition: background 0.15s ease, color 0.15s ease;
+      box-shadow: 0 1px 2px rgba(80, 40, 20, 0.04);
+      transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
     }
-    .module-tab:hover { background: var(--surface-2); }
-    .module-tab.is-active {
-      background: var(--ink);
-      color: #fff;
+    .module-card:hover { border-color: var(--border-strong); background: #faf3e7; box-shadow: var(--shadow); }
+    .module-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .module-card.is-active {
+      border-color: var(--ink);
+      background: #fdf6ea;
+      box-shadow: 0 0 0 1px var(--ink), var(--shadow);
     }
-    .module-tab-label { min-width: 0; }
-    .module-tab-meta {
+    .module-card-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+      width: 100%;
+    }
+    .module-card-icon {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      justify-content: center;
+      width: 38px;
+      height: 38px;
+      border-radius: 11px;
+      background: var(--accent-soft);
+      color: var(--accent-dark);
       flex: none;
     }
-    .module-tab-count {
-      font-size: 0.78rem;
-      font-weight: 700;
-      opacity: 0.7;
-      min-width: 1.25rem;
-      text-align: right;
+    .module-card-icon.tint-people { background: var(--info-soft); color: var(--plum); }
+    .module-card-icon.tint-schedule { background: var(--warn-soft); color: var(--warn); }
+    .module-card-icon.tint-assist { background: #fdeee9; color: #cf4a33; }
+    .module-icon-svg { width: 22px; height: 22px; display: block; }
+    .module-card-live {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: 999px;
+      padding: 3px 8px;
+      background: var(--accent-soft);
+      color: var(--accent-dark);
+      font-size: 0.66rem;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      white-space: nowrap;
     }
-    .module-tab.is-active .module-tab-count { opacity: 0.85; }
-    .module-tab-live {
-      width: 7px;
-      height: 7px;
+    .module-card-live-dot {
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
       background: var(--accent);
-      box-shadow: 0 0 0 2px var(--accent-soft);
+      flex: none;
     }
-    .module-tab.is-active .module-tab-live {
-      background: #8ef0dc;
-      box-shadow: none;
+    .module-card-name { font-size: 0.95rem; font-weight: 700; line-height: 1.25; }
+    .module-card-meta { font-size: 0.8rem; color: var(--muted); line-height: 1.3; }
+    @media (max-width: 900px) {
+      .modules-side-nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
+    @media (max-width: 700px) {
+      .modules-side-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    @media (max-width: 520px) {
+      .modules-side-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .module-card { min-height: 0; }
     }
     .modules-admin-main { min-width: 0; }
     .portal-pane-tabs {
@@ -1689,32 +1756,8 @@
       box-shadow: 0 1px 3px rgba(80, 40, 20, 0.14);
     }
     @media (max-width: 760px) {
-      .modules-admin {
-        grid-template-columns: 1fr;
-      }
       .modules-admin-side {
-        position: static;
-        padding: 12px;
-      }
-      .modules-side-nav {
-        flex-direction: row;
-        flex-wrap: nowrap;
-        overflow-x: auto;
-        gap: 6px;
-        padding-bottom: 2px;
-        -webkit-overflow-scrolling: touch;
-      }
-      .modules-side-group { display: none; }
-      .module-tab {
-        width: auto;
-        flex: none;
-        border: 1.5px solid var(--border);
-        border-radius: 999px;
-        padding: 8px 12px;
-        background: var(--surface);
-      }
-      .module-tab.is-active {
-        border-color: var(--ink);
+        padding: 14px;
       }
     }
     .modules-embed-card {
@@ -2446,7 +2489,7 @@
 
       <section class="block portal-panel" id="sec-modules" role="tabpanel" aria-labelledby="nav-modules" data-panel="modules" hidden>
         <h2>Site modules</h2>
-        <p class="lede">Manage content for each module on the left, then place it on a page. Chatbot is a sitewide floating bubble that answers visitors from your knowledge items. Included with Standard, Pro and Premium.</p>
+        <p class="lede">Pick a module below to manage its content, then place it on a page. Chatbot is a sitewide floating bubble that answers visitors from your knowledge items. Included with Standard, Pro and Premium.</p>
         <div class="panel" id="modules-upgrade" hidden>
           <p style="margin:0 0 12px">Upgrade to <strong>Standard</strong>, <strong>Pro</strong> or <strong>Premium</strong> to unlock site modules.</p>
           <button type="button" class="btn" id="btn-modules-upgrade">View plans</button>

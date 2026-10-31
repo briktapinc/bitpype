@@ -1350,6 +1350,82 @@ details[open] > summary {
   color: rgba(255, 250, 244, 0.82);
 }
 
+/* Batch 91: Modules page catalog as small cards with per-type icons —
+   the same card family as the portal module picker (6 across on the
+   wide staff view, stepping down). Display-only: the catalog chips
+   had no click action, and the cards gain none. */
+.modcat-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.modcat-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(80, 40, 20, 0.04);
+}
+.modcat-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  flex: none;
+}
+.modcat-icon.tint-people {
+  background: #ece4f7;
+  color: #6d4ea3;
+}
+.modcat-icon.tint-schedule {
+  background: #fff3d2;
+  color: #8a5f04;
+}
+.modcat-icon.tint-assist {
+  background: #fdeee9;
+  color: #cf4a33;
+}
+.modcat-svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+.modcat-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.25;
+}
+.modcat-meta {
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.3;
+}
+@media (max-width: 1100px) {
+  .modcat-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .modcat-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 520px) {
+  .modcat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 /* ---------- Tabs (segmented control) ---------- */
 .tabs {
   display: flex;

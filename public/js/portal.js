@@ -1329,39 +1329,39 @@
     let html = '';
     if (showLayouts) {
       html += `<div class="structure-block-group"><p class="hint" style="margin:0 0 8px">Design modules — Content</p>${CONTENT_BLOCKS.map(
-        (b) => `<button type="button" data-structure-section-type="${esc(b.type)}">${esc(b.label)}</button>`
+        (b) => `<button type="button" class="picker-card" data-structure-section-type="${esc(b.type)}"><span class="picker-card-icon" aria-hidden="true">${blockIconSvg(b.type)}</span><span>${esc(b.label)}</span></button>`
       ).join('')}</div>`;
-      html += `<div class="structure-block-group" style="margin-top:14px"><p class="hint" style="margin:0 0 8px">Design modules — Layout</p>${LAYOUT_BLOCKS.map(
+      html += `<div class="structure-block-group"><p class="hint" style="margin:0 0 8px">Design modules — Layout</p>${LAYOUT_BLOCKS.map(
         (b) =>
-          `<button type="button" data-structure-section-type="${esc(b.type)}"${b.cols ? ` data-structure-cols="${b.cols}"` : ''}>${esc(b.label)}</button>`
+          `<button type="button" class="picker-card" data-structure-section-type="${esc(b.type)}"${b.cols ? ` data-structure-cols="${b.cols}"` : ''}><span class="picker-card-icon" aria-hidden="true">${blockIconSvg(b.type)}</span><span>${esc(b.label)}</span></button>`
       ).join('')}</div>`;
       if (includeLegacy) {
-        html += `<div class="structure-block-group" style="margin-top:14px"><p class="hint" style="margin:0 0 8px">Page sections</p>${LEGACY_SECTION_BLOCKS.map(
-          (b) => `<button type="button" data-structure-section-type="${esc(b.type)}">${esc(b.label)}</button>`
+        html += `<div class="structure-block-group"><p class="hint" style="margin:0 0 8px">Page sections</p>${LEGACY_SECTION_BLOCKS.map(
+          (b) => `<button type="button" class="picker-card" data-structure-section-type="${esc(b.type)}"><span class="picker-card-icon" aria-hidden="true">${blockIconSvg(b.type)}</span><span>${esc(b.label)}</span></button>`
         ).join('')}</div>`;
       }
     }
     if (showWidgets) {
-      html += `<div class="structure-block-group" style="margin-top:14px"><p class="hint" style="margin:0 0 8px">Widgets — Forms</p>${
+      html += `<div class="structure-block-group"><p class="hint" style="margin:0 0 8px">Widgets — Forms</p>${
         forms.length
           ? forms
               .map((f) => {
                 const form = f.form || f;
-                return `<button type="button" data-structure-form-id="${esc(String(form.id))}">${esc(form.name || form.title || 'Form ' + form.id)}</button>`;
+                return `<button type="button" class="picker-card" data-structure-form-id="${esc(String(form.id))}"><span class="picker-card-icon" aria-hidden="true">${blockIconSvg('form')}</span><span>${esc(form.name || form.title || 'Form ' + form.id)}</span></button>`;
               })
               .join('')
           : '<p class="hint">No forms yet. Create one in Forms.</p>'
       }</div>`;
       html += canModules
-        ? `<div class="structure-block-group" style="margin-top:14px"><p class="hint" style="margin:0 0 8px">Widgets — Site modules</p><p class="hint" style="margin:0 0 8px">Placed widgets are styled to match your site automatically.</p>${
+        ? `<div class="structure-block-group"><p class="hint" style="margin:0 0 8px">Widgets — Site modules</p><p class="hint" style="margin:0 0 8px">Placed widgets are styled to match your site automatically.</p>${
             (mods || [])
               .map(
                 (m) =>
-                  `<button type="button" data-structure-module-type="${esc(m.type)}">${esc(m.label || m.type)}</button>`
+                  `<button type="button" class="picker-card" data-structure-module-type="${esc(m.type)}"><span class="picker-card-icon${moduleIconTint(m.type)}" aria-hidden="true">${moduleIconSvg(m.type)}</span><span>${esc(m.label || m.type)}</span></button>`
               )
               .join('') || '<p class="hint">No modules available.</p>'
           }</div>`
-        : '<p class="hint" style="margin-top:12px">Site modules require a paid plan (Standard, Pro, or Premium).</p>';
+        : '<p class="hint">Site modules require a paid plan (Standard, Pro, or Premium).</p>';
     }
     return html || '<p class="hint">Nothing to insert.</p>';
   }
@@ -4595,6 +4595,69 @@
     { id: 'schedule', label: 'Schedule', types: ['events', 'bookings'] },
     { id: 'assist', label: 'Assist', types: ['chatbot', 'calltracking'] },
   ];
+  // Batch 91: curated inline-SVG icon family for the module cards —
+  // one glyph per module type, all drawn on the same 24x24 stroke grid
+  // (1.8 stroke, round caps/joins, currentColor). No emoji, no icon
+  // fonts, no external requests: the paths live here beside the
+  // catalog. MODULE_ICON_FALLBACK (building blocks) covers any future
+  // type without a glyph of its own yet, so a card never renders
+  // iconless.
+  const MODULE_ICON_PATHS = {
+    blog: '<path d="M6 3.5h8.5L19 8v12.5H6z"/><path d="M14.5 3.5V8H19"/><path d="M9 12.5h6.5"/><path d="M9 16h6.5"/>',
+    ecommerce: '<path d="M5.5 8h13l-1.1 12.5H6.6L5.5 8z"/><path d="M9 10.5V6.5a3 3 0 0 1 6 0v4"/>',
+    courses: '<path d="M12 6.2C10.2 4.6 8 4.2 4 4.2v13.6c4 0 6.2.4 8 2 1.8-1.6 4-2 8-2V4.2c-4 0-6.2.4-8 2z"/><path d="M12 6.2v13.6"/>',
+    gallery: '<rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M4.5 18l4.7-4.2 3.3 2.8 2.8-2.3 4.2 3.7"/>',
+    directory: '<path d="M9.5 6H20"/><path d="M9.5 12H20"/><path d="M9.5 18H20"/><circle cx="4.8" cy="6" r="1.1"/><circle cx="4.8" cy="12" r="1.1"/><circle cx="4.8" cy="18" r="1.1"/>',
+    faq: '<circle cx="12" cy="12" r="8.8"/><path d="M9.6 9.4a2.6 2.6 0 1 1 3.4 2.5c-.7.3-1 .8-1 1.6v.4"/><circle cx="12" cy="16.9" r="0.4" fill="currentColor"/>',
+    testimonials: '<path d="M4 5h16v10.5H9.5L4 19.5z"/><path d="M8 8.8v3"/><path d="M12 8.8v3"/>',
+    team: '<circle cx="9" cy="8" r="3.1"/><path d="M3.6 19.2c.6-3 2.7-4.6 5.4-4.6s4.8 1.6 5.4 4.6"/><path d="M15.8 5.3a3.1 3.1 0 0 1 0 5.7"/><path d="M17.6 14.9c1.6.7 2.6 2.1 2.9 4.3"/>',
+    events: '<rect x="3.5" y="5" width="17" height="16" rx="2"/><path d="M3.5 10h17"/><path d="M8 3v4"/><path d="M16 3v4"/><circle cx="12" cy="15.5" r="1.6"/>',
+    bookings: '<rect x="3.5" y="5" width="17" height="16" rx="2"/><path d="M3.5 10h17"/><path d="M8 3v4"/><path d="M16 3v4"/><path d="M9.2 15.8l2 2 3.6-3.8"/>',
+    chatbot: '<rect x="4" y="8.5" width="16" height="10.5" rx="3"/><path d="M12 8.5V5"/><circle cx="12" cy="3.8" r="1.1"/><circle cx="9" cy="13" r="0.4" fill="currentColor"/><circle cx="15" cy="13" r="0.4" fill="currentColor"/><path d="M9.2 16.2h5.6"/>',
+    offers: '<path d="M3.8 3.8H12L20.2 12a2 2 0 0 1 0 2.8l-5.4 5.4a2 2 0 0 1-2.8 0L3.8 12z"/><circle cx="8.2" cy="8.2" r="1.4"/>',
+    menu: '<path d="M6 3h12v18l-2-1.4-2 1.4-2-1.4L10 21l-2-1.4L6 21z"/><path d="M9.2 8h5.6"/><path d="M9.2 12h5.6"/>',
+    careers: '<rect x="3" y="8" width="18" height="12" rx="2"/><path d="M9 8V6.5A2.5 2.5 0 0 1 11.5 4h1A2.5 2.5 0 0 1 15 6.5V8"/><path d="M3 13h18"/>',
+    video: '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10.4 9.4l5.2 2.6-5.2 2.6z" fill="currentColor" stroke="none"/>',
+    estimate: '<rect x="6" y="3" width="12" height="18" rx="2"/><path d="M9.2 6.8h5.6"/><circle cx="9.4" cy="11" r="0.4" fill="currentColor"/><circle cx="12" cy="11" r="0.4" fill="currentColor"/><circle cx="14.6" cy="11" r="0.4" fill="currentColor"/><circle cx="9.4" cy="14.4" r="0.4" fill="currentColor"/><circle cx="12" cy="14.4" r="0.4" fill="currentColor"/><circle cx="14.6" cy="14.4" r="0.4" fill="currentColor"/><circle cx="9.4" cy="17.8" r="0.4" fill="currentColor"/><circle cx="12" cy="17.8" r="0.4" fill="currentColor"/><circle cx="14.6" cy="17.8" r="0.4" fill="currentColor"/>',
+    socialfeed: '<circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/><path d="M8.6 15.4a4.8 4.8 0 0 1 0-6.8"/><path d="M15.4 8.6a4.8 4.8 0 0 1 0 6.8"/><path d="M6 18a8.8 8.8 0 0 1 0-12"/><path d="M18 6a8.8 8.8 0 0 1 0 12"/>',
+    googlereviews: '<path d="M12 3.6l2.5 5.2 5.7.7-4.2 3.9 1.1 5.6L12 16.3l-5.1 2.7 1.1-5.6L3.8 9.5l5.7-.7z"/>',
+    calltracking: '<path d="M5.2 3.8h3.6L10.3 8 8.2 9.6a12.5 12.5 0 0 0 6.2 6.2l1.6-2.1 4.3 1.5v3.6a2 2 0 0 1-2.1 2A16.8 16.8 0 0 1 3.2 5.9a2 2 0 0 1 2-2.1z"/>',
+    members: '<rect x="4" y="3" width="16" height="18" rx="2"/><circle cx="12" cy="10" r="2.6"/><path d="M7.6 17.8c.8-2.1 2.4-3.2 4.4-3.2s3.6 1.1 4.4 3.2"/>',
+    datatables: '<rect x="3.5" y="4" width="17" height="16" rx="1.6"/><path d="M3.5 9.4h17"/><path d="M3.5 14.7h17"/><path d="M9.2 4v16"/><path d="M14.8 4v16"/>',
+    charts: '<path d="M4 4v16h16"/><rect x="7.2" y="12" width="2.9" height="8"/><rect x="11.6" y="8.5" width="2.9" height="11.5"/><rect x="16" y="14.5" width="2.9" height="5.5"/>',
+  };
+  const MODULE_ICON_FALLBACK = '<rect x="4" y="4" width="7" height="7" rx="1.6"/><rect x="13" y="4" width="7" height="7" rx="1.6"/><rect x="4" y="13" width="7" height="7" rx="1.6"/><rect x="13" y="13" width="7" height="7" rx="1.6"/>';
+  function moduleIconSvg(type) {
+    return `<svg class="module-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${MODULE_ICON_PATHS[type] || MODULE_ICON_FALLBACK}</svg>`;
+  }
+  // Icon chip tint follows the module's nav group (platform palette).
+  function moduleIconTint(type) {
+    const g = MODULE_NAV_GROUPS.find((grp) => grp.types.includes(type));
+    return g ? ` tint-${g.id}` : '';
+  }
+  // Glyphs for the Insert-block picker (design blocks + forms), same
+  // stroke family; site modules reuse MODULE_ICON_PATHS above.
+  const BLOCK_ICON_PATHS = {
+    heading: '<path d="M6 4v16"/><path d="M18 4v16"/><path d="M6 12h12"/>',
+    text: '<path d="M5 6h14"/><path d="M5 10h14"/><path d="M5 14h9"/><path d="M5 18h9"/>',
+    image: MODULE_ICON_PATHS.gallery,
+    html: '<path d="M8.5 7L3.8 12l4.7 5"/><path d="M15.5 7l4.7 5-4.7 5"/>',
+    columns: '<rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M9.2 5v14"/><path d="M14.8 5v14"/>',
+    text_image: '<rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M7 9.5h4"/><path d="M7 13h4"/><circle cx="15.8" cy="10.2" r="1.1"/><path d="M13.2 17.5l2.6-2.4 1.9 1.7 1.6-1.4"/>',
+    cards: MODULE_ICON_FALLBACK,
+    hero: '<rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="9" cy="9.8" r="1.3"/><path d="M3.8 17.5l4.7-3.8 3.4 2.7 3-2.3 5.3 3.9"/>',
+    services: '<path d="M9.5 6H20"/><path d="M9.5 12H20"/><path d="M9.5 18H20"/><path d="M3.8 5.8l1.3 1.3L7.4 4.8"/><path d="M3.8 11.8l1.3 1.3 2.3-2.3"/><path d="M3.8 17.8l1.3 1.3 2.3-2.3"/>',
+    benefits: '<path d="M12 3l7 2.5v5.7c0 4.6-3 7.9-7 9.8-4-1.9-7-5.2-7-9.8V5.5z"/><path d="M9 11.6l2.2 2.2 3.8-4"/>',
+    about: '<circle cx="12" cy="12" r="8.8"/><path d="M12 11v5"/><circle cx="12" cy="7.9" r="0.4" fill="currentColor"/>',
+    faq: MODULE_ICON_PATHS.faq,
+    cta: '<path d="M3.8 10.2v3.6h2.7l8.7 4.7V5.5L6.5 10.2z"/><path d="M18.5 9.2a4.4 4.4 0 0 1 0 5.6"/>',
+    reviews: MODULE_ICON_PATHS.googlereviews,
+    gallery: MODULE_ICON_PATHS.gallery,
+    form: '<rect x="5.5" y="4" width="13" height="17" rx="2"/><path d="M9 4.2a3 3 0 0 1 6 0"/><path d="M9 11h6"/><path d="M9 15h4"/>',
+  };
+  function blockIconSvg(type) {
+    return `<svg class="module-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${BLOCK_ICON_PATHS[type] || MODULE_ICON_FALLBACK}</svg>`;
+  }
   const MODULE_ITEM_COPY = {
     blog: { singular: 'post', plural: 'posts', newBtn: 'New post', kicker: 'Blog post' },
     ecommerce: { singular: 'product', plural: 'products', newBtn: 'New product', kicker: 'Product' },
@@ -4972,12 +5035,13 @@
           const emb = summary && summary.embed;
           const live = !!(emb && emb.published && emb.embed_enabled);
           const sel = type === moduleState.current;
-          return `<button type="button" class="module-tab${sel ? ' is-active' : ''}" data-module-type="${esc(type)}" role="tab" aria-selected="${sel ? 'true' : 'false'}">
-          <span class="module-tab-label">${esc(meta.label)}</span>
-          <span class="module-tab-meta">
-            ${live ? '<span class="module-tab-live" title="On your site" aria-label="On your site"></span>' : ''}
-            <span class="module-tab-count">${count}</span>
+          return `<button type="button" class="module-card${sel ? ' is-active' : ''}" data-module-type="${esc(type)}" role="tab" aria-selected="${sel ? 'true' : 'false'}">
+          <span class="module-card-top">
+            <span class="module-card-icon${moduleIconTint(type)}" aria-hidden="true">${moduleIconSvg(type)}</span>
+            ${live ? '<span class="module-card-live"><span class="module-card-live-dot"></span>On site</span>' : ''}
           </span>
+          <span class="module-card-name">${esc(meta.label)}</span>
+          <span class="module-card-meta">${count} ${esc(moduleCopy(type).plural)}</span>
         </button>`;
         })
         .join('');
