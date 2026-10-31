@@ -4850,7 +4850,12 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     // owner confirmed, or a clarification the Batch 94 convergence
     // seam closed with defaults). SMALL is implemented in-chat;
     // BIG is queued.
-    const fromClarify = !!pending && (intent === 'clarify_answer' || forceReady);
+    // A forced-ready 'change' is a NEW change the classifier
+    // declared different from the pending one — it implements on
+    // its own text (the stale request is never merged into its
+    // spec); clarify_answer / ambiguous replies to the pending
+    // build the clarified spec from the original request.
+    const fromClarify = !!pending && (intent === 'clarify_answer' || (forceReady && intent === 'ambiguous'));
     const answers = fromClarify ? [...pending.answers, message] : [];
     const specText = fromClarify
       ? [

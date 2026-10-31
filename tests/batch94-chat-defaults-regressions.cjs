@@ -777,9 +777,10 @@ const ALL_DEFS = [...READS, ...WRITES].map((name) => ({
       assert.equal(planner.shouldForceReady(pend(0), cls('clarify_answer')), false, 'round budget not yet used');
       assert.equal(planner.shouldForceReady(pend(1), cls('clarify_answer', true)), false, 'new ambiguity earns its round');
       assert.equal(planner.shouldForceReady(pend(1), cls('question')), false, 'questions never force-build');
-      assert.equal(planner.shouldForceReady(pend(1, 'either_or'), cls('change')), false, 'either/or pendings are not clarify rounds');
+      assert.equal(planner.shouldForceReady(pend(0, 'either_or'), cls('clarify_answer')), true, 'the either/or question IS the one round — a substantive reply resolves it');
+      assert.equal(planner.shouldForceReady(pend(0, 'either_or'), cls('question')), false, 'a side question never forces an either/or');
       assert.equal(planner.shouldForceReady(null, cls('change')), false);
-      n += 6;
+      n += 7;
     }
     group('Part 5 style rules + planner units', n);
   }
@@ -924,6 +925,33 @@ const ALL_DEFS = [...READS, ...WRITES].map((name) => ({
     assert.ok(!String(themeB.customCss || '').includes('chat-rules'), 'site B stylesheet has NO trace of site A\'s rule');
     n += 2;
     group('S(vii) cross-site isolation: no state leaks between websites', n);
+  }
+
+  // ---------------------------------------------------------------
+  // S(viii) — either/or convergence (live-proof find): a change
+  // misrouted to the either/or question must still converge —
+  // the owner's confirmation implements, never converts into an
+  // open clarify round that then absorbs later requests.
+  // ---------------------------------------------------------------
+  {
+    let n = 0;
+    const lead = seedChatLead('EO');
+    resetTurn();
+    classifyQueue = [{ intent: 'ambiguous', ready: false, size: 'small', settled: [], fallback: false }];
+    const res1 = await runChat(lead, { message: 'change all h3 to dark grey' });
+    assert.equal(res1.mode, 'clarify', 'turn 1 asks the either/or question');
+    const p1 = chatPending.getPending(realDb, lead);
+    assert.ok(p1 && p1.kind === 'either_or', 'an either/or pending persisted');
+    n += 2;
+    resetTurn();
+    classifyQueue = [{ intent: 'clarify_answer', ready: false, size: 'small', settled: [], fallback: false }];
+    const res2 = await runChat(lead, { message: 'Yes, dark grey — apply it' });
+    assert.equal(res2.mode, 'build', 'the confirmation implements — no conversion to an open clarify round');
+    assert.equal(chatPending.getPending(realDb, lead), null, 'pending cleared after implementation');
+    const buildCall = loopCalls.find((c) => c.mode === 'build');
+    assert.ok(buildCall, 'the build loop ran');
+    n += 3;
+    group('S(viii) either/or pending converges on the confirmation', n);
   }
 
   // ---------------------------------------------------------------

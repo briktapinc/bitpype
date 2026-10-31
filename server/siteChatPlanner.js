@@ -36,16 +36,21 @@ const FORCE_READY_INTENTS = new Set(['clarify_answer', 'change', 'ambiguous']);
  * the classifier flagged a genuinely new ambiguity that the
  * answer introduced (newAmbiguity), in which case ONE more round
  * may ask about that new thing only.
+ *
+ * Either/or pendings are covered from the start: the either/or
+ * question ("change it, or just asking?") IS the one round, so
+ * any substantive reply resolves it. (Caught live in the Batch 94
+ * proof: an either/or pending for "change all h3 to dark grey"
+ * converted into an open clarify round, and the owner's NEXT,
+ * unrelated request was then absorbed into the stuck pending.)
+ * Questions, cancels and off-topic replies never force — those
+ * branches run before the seam and are not in the intent set.
  */
 function shouldForceReady(pending, cls) {
-  return !!(
-    pending &&
-    pending.kind === 'clarify' &&
-    Number(pending.rounds || 0) >= CONVERGENCE_ROUNDS &&
-    cls &&
-    !cls.newAmbiguity &&
-    FORCE_READY_INTENTS.has(cls.intent)
-  );
+  if (!pending || !cls || cls.newAmbiguity) return false;
+  if (!FORCE_READY_INTENTS.has(cls.intent)) return false;
+  if (pending.kind === 'either_or') return true;
+  return pending.kind === 'clarify' && Number(pending.rounds || 0) >= CONVERGENCE_ROUNDS;
 }
 
 const CLASSIFIER_DOCTRINE_LINES = [
