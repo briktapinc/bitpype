@@ -4182,6 +4182,21 @@ async function callTool(workspaceId, name, args = {}, ctx = {}) {
     .replace(/_/g, '.');
 
   try {
+    // Batch 103 (SEC-09): vendor design-agent token class. Enforced
+    // before everything else at dispatch — a vendor token can drive
+    // design/website/module/content tools and lead reads only; spend,
+    // messaging, account and deletion surfaces refuse outright.
+    if (ctx && ctx.tokenClass === 'vendor_design') {
+      const { vendorToolAllowed } = require('./vendorTools');
+      if (!vendorToolAllowed(name)) {
+        return {
+          ok: false,
+          error: 'VENDOR_TOKEN_FORBIDDEN',
+          message: `Tool ${name} is not available to vendor design-agent tokens. This token class covers design, website, module and content tools plus lead reads.`,
+        };
+      }
+    }
+
     if (ctx && ctx.leadId) {
       const clientNames = new Set(clientToolDefs().map((t) => t.name));
       if (!clientNames.has(name)) {

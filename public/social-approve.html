@@ -72,7 +72,7 @@
           <label class="row">
             <input type="checkbox" class="pick" value="${esc(p.id)}" checked />
             <div>
-              <div class="meta">${esc((p.scheduled_at || '').replace('T', ' ').slice(0, 16))} UTC · ${(p.platforms || []).join(', ')} · ${p.with_image ? 'photo' : 'text only'} · ${esc(p.status)}</div>
+              <div class="meta">${esc((p.scheduled_at || '').replace('T', ' ').slice(0, 16))} UTC · ${esc((p.platforms || []).join(', '))} · ${p.with_image ? 'photo' : 'text only'} · ${esc(p.status)}</div>
               <div class="caption">${esc(p.caption)}</div>
               ${p.image_url ? `<img class="thumb" src="${esc(p.image_url)}" alt="" />` : ''}
             </div>

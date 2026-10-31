@@ -15,6 +15,18 @@ const mfa = require('../mfa');
 const apiErrors = require('../apiErrors');
 
 const router = express.Router();
+
+// Batch 103 (SEC-21): auth-event logging must NEVER break portal
+// authentication (best-effort; some harnesses whitelist this
+// router's module dependencies, so the require may fail quietly).
+async function recordAuthEventSafe(evt) {
+  try {
+    await require('../securityEvents').recordAuthEvent(evt);
+  } catch {
+    /* audit is best-effort */
+  }
+}
+
 const accessLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 12 });
 const loginLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 30 });
 const actionLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 60 });
@@ -224,11 +236,29 @@ router.post('/login', loginLimit, captcha, async (req, res) => {
       return await parkPortalMfaChallenge(req, res, client);
     }
     await establishPortalSession(req, client);
+    // Batch 103 (SEC-21): portal login success leaves an auth event.
+    await recordAuthEventSafe({
+      surface: 'portal',
+      event: 'login_success',
+      email: email || null,
+      userId: client.id,
+      workspaceId: client.workspace_id || client.workspaceId || null,
+      ip: req.ip,
+    });
     ok(res, {
       client: await portal.publicClientWithAccess(client),
       idleMs: portalIdleMs(req),
     });
   } catch (e) {
+    // Batch 103 (SEC-21): failed portal logins too (bad credentials,
+    // unknown email, disabled account — the thrown code is the detail).
+    await recordAuthEventSafe({
+      surface: 'portal',
+      event: 'login_failure',
+      email: (req.body || {}).email || null,
+      ip: req.ip,
+      detail: (e && (e.code || e.message)) || 'login failed',
+    });
     fail(res, e);
   }
 });

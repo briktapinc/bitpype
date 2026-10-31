@@ -573,6 +573,10 @@ async function migrate() {
     ensureColumnSqlite(db, 'job_runs', 'triggered_by', "TEXT NOT NULL DEFAULT 'unknown'");
     ensureColumnSqlite(db, 'workspace_tokens', 'expires_at', 'INTEGER');
     ensureColumnSqlite(db, 'workspace_tokens', 'oauth_user_id', 'INTEGER');
+    // Batch 103 (SEC-09): token class — 'standard' (default) or
+    // 'vendor_design' (the restricted Solo vendor design-agent class,
+    // enforced at MCP dispatch).
+    ensureColumnSqlite(db, 'workspace_tokens', 'token_class', "TEXT NOT NULL DEFAULT 'standard'");
     // Batch 40: MFA (TOTP) state on both login surfaces — staff users
     // (required) and client portal users (opt-in). Secrets are stored
     // secretBox-encrypted; recovery codes as SHA-256 hashes only.
@@ -894,6 +898,8 @@ async function migrate() {
     await ensureColumnMysql(conn, 'job_runs', 'triggered_by', "VARCHAR(120) NOT NULL DEFAULT 'unknown'");
     await ensureColumnMysql(conn, 'workspace_tokens', 'expires_at', 'BIGINT NULL');
     await ensureColumnMysql(conn, 'workspace_tokens', 'oauth_user_id', 'BIGINT UNSIGNED NULL');
+    // Batch 103 (SEC-09): token class (see the sqlite block above).
+    await ensureColumnMysql(conn, 'workspace_tokens', 'token_class', "VARCHAR(32) NOT NULL DEFAULT 'standard'");
     // Batch 40: MFA (TOTP) state on both login surfaces — staff users
     // (required) and client portal users (opt-in). Secrets are stored
     // secretBox-encrypted; recovery codes as SHA-256 hashes only.

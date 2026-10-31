@@ -54,12 +54,16 @@ router.get('/status', async (req, res, next) => {
 router.post('/token', requireRole('owner', 'admin'), async (req, res, next) => {
   try {
     const name = (req.body && req.body.name) || 'MCP';
-    const created = await createWorkspaceToken(req.auth.workspaceId, name);
+    // Batch 103 (SEC-09): owners/admins may mint a restricted
+    // 'vendor_design' token for a Solo licensee's design agent.
+    const tokenClass = (req.body && req.body.tokenClass) || undefined;
+    const created = await createWorkspaceToken(req.auth.workspaceId, name, { tokenClass });
     res.json({
       ok: true,
       data: {
         token: created.token,
         prefix: created.prefix,
+        tokenClass: created.tokenClass,
         hint: 'Copy now — the full token is shown only once.',
       },
     });

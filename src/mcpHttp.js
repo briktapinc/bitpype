@@ -13,6 +13,19 @@
 //   POST /message         — legacy message POST (Bearer token)
 //   /mcp is kept as an alias of /ws for older client configs.
 
+// Batch 103 (SEC-15): this stdio-era HTTP transport (port 8742,
+// permissive CORS) must never run in production. It is DISABLED by
+// default and refuses to start unless MCP_HTTP_ENABLED=1 is set
+// explicitly (private-network/dev use only). The production MCP
+// surface is server.js /mcp on the main app — this file is not
+// imported by it.
+if (process.env.MCP_HTTP_ENABLED !== '1') {
+  console.error(
+    'mcpHttp is disabled (SEC-15). Set MCP_HTTP_ENABLED=1 only for private-network development use; production MCP is served by the main app on /mcp.'
+  );
+  process.exit(1);
+}
+
 const http = require('http');
 const crypto = require('crypto');
 const Database = require('better-sqlite3');

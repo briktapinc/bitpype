@@ -144,11 +144,20 @@ function hashToken(token) {
   return crypto.createHash('sha256').update(String(token)).digest('hex');
 }
 
+const TOKEN_CLASSES = ['standard', 'vendor_design'];
+
 async function createWorkspaceToken(
   workspaceId,
   name = 'MCP',
-  { leadId = null, expiresAt = null, oauthUserId = null } = {}
+  { leadId = null, expiresAt = null, oauthUserId = null, tokenClass = null } = {}
 ) {
+  // Batch 103 (SEC-09): token class. 'vendor_design' is the restricted
+  // Solo vendor design-agent class; anything unknown is refused rather
+  // than silently downgraded/upgraded.
+  const cleanTokenClass = tokenClass == null || tokenClass === '' ? 'standard' : String(tokenClass);
+  if (!TOKEN_CLASSES.includes(cleanTokenClass)) {
+    throw Object.assign(new Error(`Unknown token class: ${cleanTokenClass}`), { code: 'INVALID' });
+  }
   const scopedLead = leadId != null && Number.isInteger(Number(leadId)) && Number(leadId) > 0 ? Number(leadId) : null;
   if (
     (expiresAt != null || oauthUserId != null) &&
@@ -166,11 +175,11 @@ async function createWorkspaceToken(
   const tokenHash = hashToken(raw);
   const prefix = raw.slice(0, 10);
   await query(
-    `INSERT INTO workspace_tokens (workspace_id, name, token_hash, token_prefix, lead_id, expires_at, oauth_user_id)
-     VALUES (:workspaceId, :name, :tokenHash, :prefix, :leadId, :expiresAt, :oauthUserId)`,
-    { workspaceId, name, tokenHash, prefix, leadId: scopedLead, expiresAt, oauthUserId }
+    `INSERT INTO workspace_tokens (workspace_id, name, token_hash, token_prefix, lead_id, expires_at, oauth_user_id, token_class)
+     VALUES (:workspaceId, :name, :tokenHash, :prefix, :leadId, :expiresAt, :oauthUserId, :tokenClass)`,
+    { workspaceId, name, tokenHash, prefix, leadId: scopedLead, expiresAt, oauthUserId, tokenClass: cleanTokenClass }
   );
-  return { token: raw, prefix, leadId: scopedLead };
+  return { token: raw, prefix, leadId: scopedLead, tokenClass: cleanTokenClass };
 }
 
 const tokenTouchAt = new Map(); // token_id -> last touch ms
@@ -179,7 +188,7 @@ const TOKEN_TOUCH_MIN_MS = 5 * 60 * 1000;
 async function findWorkspaceByToken(rawToken) {
   const tokenHash = hashToken(rawToken);
   const rows = await query(
-    `SELECT t.id AS token_id, t.workspace_id, t.lead_id, w.name, w.slug
+    `SELECT t.id AS token_id, t.workspace_id, t.lead_id, t.token_prefix, t.token_class, w.name, w.slug
      FROM workspace_tokens t
      JOIN workspaces w ON w.id = t.workspace_id
      WHERE t.token_hash = :tokenHash
@@ -221,6 +230,7 @@ module.exports = {
   logActivity,
   createWorkspaceToken,
   findWorkspaceByToken,
+  TOKEN_CLASSES,
   seedWorkspaceDefaults,
   hashToken,
   slugify,

@@ -422,8 +422,16 @@ app.use('/api/v1', requireWorkspace, requireSubscription, domainApi);
 
 async function mcpHandler(req, res) {
   try {
+    const securityEvents = require('./server/securityEvents');
     const auth = req.headers.authorization || '';
     if (!auth.startsWith('Bearer ')) {
+      // Batch 103 (SEC-21): MCP 401s leave an auth-event trace.
+      await securityEvents.recordAuthEvent({
+        surface: 'mcp',
+        event: 'mcp_401',
+        ip: req.ip,
+        detail: 'missing bearer token',
+      });
       res.setHeader('WWW-Authenticate', mcpOAuth.wwwAuthenticateHeader());
       return res.status(401).json({
         ok: false,
@@ -431,8 +439,16 @@ async function mcpHandler(req, res) {
         error_description: 'Authentication required',
       });
     }
-    const ws = await findWorkspaceByToken(auth.slice(7).trim());
+    const presentedToken = auth.slice(7).trim();
+    const ws = await findWorkspaceByToken(presentedToken);
     if (!ws) {
+      await securityEvents.recordAuthEvent({
+        surface: 'mcp',
+        event: 'mcp_401',
+        tokenPrefix: presentedToken.slice(0, 10),
+        ip: req.ip,
+        detail: 'invalid token',
+      });
       res.setHeader('WWW-Authenticate', mcpOAuth.wwwAuthenticateHeader());
       return res.status(401).json({ ok: false, error: 'INVALID_TOKEN' });
     }
@@ -451,6 +467,74 @@ async function mcpHandler(req, res) {
     const mcpCtx = {
       tokenId: ws.token_id,
       leadId: ws.lead_id != null ? Number(ws.lead_id) : null,
+      // Batch 103: token identity for the SEC-09 vendor class check,
+      // SEC-07 rate limiting and the SEC-08 audit log.
+      tokenPrefix: ws.token_prefix || presentedToken.slice(0, 10),
+      tokenClass: ws.token_class || 'standard',
+    };
+
+    // Batch 103 (SEC-07): per-token rate limits on tools/call, backed
+    // by the DB limiter (Batch 55 store). General ceiling 600/min per
+    // token; a tighter 60/min bucket for AI/design/image tools. A
+    // store failure fails OPEN with a warning — the same DB backs
+    // auth itself, so a dead store already fails the request earlier.
+    const MCP_RL_WINDOW_MS = 60 * 1000;
+    const MCP_RL_GENERAL_MAX = 600;
+    const MCP_RL_AI_MAX = 60;
+    const mcpIsAiTool = (toolName) => {
+      const n = String(toolName || '');
+      if (n === 'design.pending' || n === 'design.list' || n === 'design.get') return false;
+      return n.startsWith('ai.') || n.startsWith('design.') || n.startsWith('image') || n.includes('generate');
+    };
+    const mcpRateLimited = async (item) => {
+      if (!item || item.method !== 'tools/call') return false;
+      try {
+        const store = require('./server/rateLimitStore');
+        const key = String(ws.token_id);
+        const general = await store.recordHit('mcp:general', key, MCP_RL_WINDOW_MS, Date.now());
+        if (general > MCP_RL_GENERAL_MAX) return true;
+        if (mcpIsAiTool(item.params && item.params.name)) {
+          const ai = await store.recordHit('mcp:ai', key, MCP_RL_WINDOW_MS, Date.now());
+          if (ai > MCP_RL_AI_MAX) return true;
+        }
+      } catch (e) {
+        console.warn('[mcp] rate limit store unavailable, failing open:', e.message);
+      }
+      return false;
+    };
+    const mcpRateLimitResponse = (item) => ({
+      jsonrpc: '2.0',
+      id: item && item.id != null ? item.id : null,
+      error: { code: -32029, message: 'RATE_LIMITED: too many MCP requests for this token; slow down and retry shortly.' },
+    });
+
+    // Batch 103 (SEC-08): audit every tools/call outcome.
+    const mcpAudit = async (item, result) => {
+      if (!item || item.method !== 'tools/call') return;
+      let ok = false;
+      let error = null;
+      try {
+        if (result && result.error) {
+          error = result.error.message || 'jsonrpc error';
+        } else if (result && result.result && Array.isArray(result.result.content) && result.result.content[0]) {
+          const parsed = JSON.parse(result.result.content[0].text || '{}');
+          ok = parsed.ok !== false;
+          if (!ok) error = parsed.error || parsed.message || 'tool error';
+        }
+      } catch {
+        /* unparsable outcome — record as error-free unknown */
+        ok = false;
+        error = 'unparsable outcome';
+      }
+      await securityEvents.recordMcpCall({
+        workspaceId: ws.workspace_id,
+        tokenId: ws.token_id,
+        tokenPrefix: mcpCtx.tokenPrefix,
+        tool: item.params && item.params.name,
+        args: (item.params && item.params.arguments) || {},
+        ok,
+        error,
+      });
     };
 
     if (req.method === 'GET') {
@@ -476,12 +560,21 @@ async function mcpHandler(req, res) {
       }
       const out = [];
       for (const item of body) {
+        if (await mcpRateLimited(item)) {
+          out.push(mcpRateLimitResponse(item));
+          continue;
+        }
         const r = await handleJsonRpc(ws.workspace_id, item, mcpCtx);
+        await mcpAudit(item, r);
         if (r) out.push(r);
       }
       return res.json(out.length === 1 ? out[0] : out);
     }
+    if (await mcpRateLimited(body)) {
+      return res.status(429).json({ ok: false, error: 'RATE_LIMITED', code: 'RATE_LIMITED' });
+    }
     const result = await handleJsonRpc(ws.workspace_id, body, mcpCtx);
+    await mcpAudit(body, result);
     if (result == null) return res.status(204).end();
     return res.json(result);
   } catch (e) {

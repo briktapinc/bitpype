@@ -11,6 +11,19 @@ const mfa = require('../mfa');
 const apiErrors = require('../apiErrors');
 
 const router = express.Router();
+
+// Batch 103 (SEC-21): auth-event logging must NEVER break
+// authentication. Some harnesses whitelist this router's module
+// dependencies, so even the require is allowed to fail quietly —
+// the audit trail is best-effort by design.
+async function recordAuthEventSafe(evt) {
+  try {
+    await require('../securityEvents').recordAuthEvent(evt);
+  } catch {
+    /* audit is best-effort */
+  }
+}
+
 const authLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 40 });
 const captcha = requireCaptcha();
 
@@ -249,7 +262,17 @@ router.post('/login', authLimit, captcha, async (req, res, next) => {
     const user = await findUserByEmail(email);
     const hash = user ? user.password_hash : DUMMY_PASSWORD_HASH;
     const ok = await bcrypt.compare(String(password || ''), hash);
-    if (!user || !ok) return res.status(401).json({ ok: false, error: 'INVALID_CREDENTIALS' });
+    if (!user || !ok) {
+      // Batch 103 (SEC-21): failed staff logins leave an auth event.
+      await recordAuthEventSafe({
+        surface: 'staff',
+        event: 'login_failure',
+        email: email || null,
+        userId: user ? user.id : null,
+        ip: req.ip,
+      });
+      return res.status(401).json({ ok: false, error: 'INVALID_CREDENTIALS' });
+    }
     if (String(user.status || 'active') === 'disabled' || user.deleted_at) {
       return res.status(403).json({ ok: false, error: 'ACCOUNT_DISABLED' });
     }
@@ -302,6 +325,15 @@ async function finishStaffLogin(req, res, user) {
   req.session.userId = user.id;
   req.session.workspaceId = workspaces[0] ? workspaces[0].id : null;
   await saveSession(req);
+  // Batch 103 (SEC-21): a completed staff login (password + MFA).
+  await recordAuthEventSafe({
+    surface: 'staff',
+    event: 'login_success',
+    email: user.email,
+    userId: user.id,
+    workspaceId: req.session.workspaceId,
+    ip: req.ip,
+  });
   try {
     await require('../admin').touchLogin(user.id);
   } catch {
@@ -366,8 +398,9 @@ router.post('/mfa/enroll/confirm', authLimit, async (req, res, next) => {
 });
 
 router.post('/mfa/verify', authLimit, async (req, res, next) => {
+  let ch = null; // outer scope: the SEC-21 catch hook reads it
   try {
-    const ch = staffMfaChallenge(req, 'verify');
+    ch = staffMfaChallenge(req, 'verify');
     if (!ch) {
       return res.status(400).json({ ok: false, error: 'Sign in again to continue.', code: 'MFA_CHALLENGE_EXPIRED' });
     }
@@ -377,7 +410,19 @@ router.post('/mfa/verify', authLimit, async (req, res, next) => {
     const payload = await finishStaffLogin(req, res, user);
     res.json({ ok: true, data: payload });
   } catch (e) {
-    if (e && e.code && String(e.code).startsWith('MFA_')) return mfaFail(res, e);
+    if (e && e.code && String(e.code).startsWith('MFA_')) {
+      // Batch 103 (SEC-21): MFA failures + lockouts are auth events
+      // (lockouts also raise the alert line in securityEvents).
+      await recordAuthEventSafe({
+        surface: 'staff',
+        event: e.code === 'MFA_LOCKED' ? 'mfa_lockout' : 'mfa_failure',
+        email: ch ? ch.email : null,
+        userId: ch ? ch.userId : null,
+        ip: req.ip,
+        detail: e.code,
+      });
+      return mfaFail(res, e);
+    }
     next(e);
   }
 });

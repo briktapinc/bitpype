@@ -3499,17 +3499,19 @@ async function urlLooksHealthyOnce(url) {
   if (!/\/$/.test(url) && !/\.[a-z0-9]+$/i.test(url.split('?')[0])) {
     candidates.push(url + '/');
   }
+  // Batch 103 (SEC-24): route through the SSRF guard — the URL is
+  // workspace-influenced, so every hop is re-validated against public
+  // addresses (the old code fetched with redirects followed, blind).
+  // fetchPublic is https-only in practice for public hosts; a URL the
+  // guard refuses simply reads as unhealthy.
+  const { fetchPublic } = require('./urlSafety');
   for (const candidate of candidates) {
     try {
-      const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-      const timer = ctrl ? setTimeout(() => ctrl.abort(), 10000) : null;
-      const res = await fetch(candidate, {
+      const res = await fetchPublic(candidate, {
         method: 'GET',
-        redirect: 'follow',
-        signal: ctrl ? ctrl.signal : undefined,
+        timeoutMs: 10000,
         headers: { Accept: 'text/html' },
       });
-      if (timer) clearTimeout(timer);
       if (!res.ok) continue;
       const html = await res.text();
       // Reject empty / error shells; require real markup (and prefer themed CSS).
@@ -4352,16 +4354,11 @@ async function emailUploadAsset(workspaceId, args = {}) {
   } else if (buffer.slice(0, 4).toString('ascii') === 'RIFF' && buffer.slice(8, 12).toString('ascii') === 'WEBP') {
     ext = 'webp';
     mime = 'image/webp';
-  } else if (/^image\/(png|jpeg|jpg|gif|webp)$/.test(mime)) {
-    ext =
-      mime === 'image/jpeg' || mime === 'image/jpg'
-        ? 'jpg'
-        : mime === 'image/webp'
-          ? 'webp'
-          : mime === 'image/gif'
-            ? 'gif'
-            : 'png';
   } else {
+    // Batch 103 (SEC-23): the caller-claimed mime is NOT evidence.
+    // The old fallback trusted it for the stored extension, which let
+    // arbitrary bytes (e.g. HTML) be stored as .png. Magic bytes or
+    // refusal — nothing in between.
     throw new Error('Unrecognized image data (png, jpeg, gif, webp only)');
   }
 
@@ -4385,8 +4382,11 @@ async function emailUploadAsset(workspaceId, args = {}) {
     } else {
       buffer = await pipeline.png().toBuffer();
     }
-  } catch {
-    /* keep original buffer */
+  } catch (e) {
+    // Batch 103 (SEC-23): fail CLOSED. A failed re-encode used to keep
+    // the raw buffer verbatim — exactly the bytes the magic check
+    // cannot vouch for beyond their header.
+    throw new Error(`Image re-encode failed: ${(e && e.message) || e}`);
   }
 
   const name = `em-${Date.now().toString(36)}-${crypto.randomBytes(4).toString('hex')}.${ext}`;

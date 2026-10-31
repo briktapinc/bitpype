@@ -35,6 +35,36 @@ router.get('/audit', async (req, res) => {
 });
 
 // ---------- Users ----------
+// Batch 103 (SEC-08): MCP dispatch audit log — super-admin only via
+// the router-level gate above. 90-day retention is enforced at write.
+router.get('/mcp-audit', async (req, res) => {
+  try {
+    const securityEvents = require('../securityEvents');
+    const rows = await securityEvents.listMcpAudit({
+      workspaceId: req.query.workspaceId ? Number(req.query.workspaceId) : null,
+      limit: req.query.limit ? Number(req.query.limit) : 100,
+    });
+    ok(res, { entries: rows });
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+
+// Batch 103 (SEC-21): auth events (logins, MFA failures/lockouts,
+// MCP 401s) — the queryable trace Audit 2 §L found missing.
+router.get('/auth-events', async (req, res) => {
+  try {
+    const securityEvents = require('../securityEvents');
+    const rows = await securityEvents.listAuthEvents({
+      surface: req.query.surface || null,
+      limit: req.query.limit ? Number(req.query.limit) : 100,
+    });
+    ok(res, { entries: rows });
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+
 router.get('/users', async (req, res) => {
   try {
     ok(res, { users: await admin.listUsers(req.query) });
