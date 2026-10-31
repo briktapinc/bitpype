@@ -689,16 +689,31 @@ async function seedPlatformDefaults() {
   }
 }
 
-/** Persist current platform_settings into data/platform-defaults.json (secrets included). */
+/**
+ * Persist current platform_settings into data/platform-defaults.json.
+ * Batch 102 (SEC-03): secret keys are written as EMPTY markers, never
+ * values — the previous version persisted every platform secret in
+ * plaintext (mode 644) and the file rode along in backup tars,
+ * defeating encryption at rest (Audit 1 Q3 #6). Empty is the safe
+ * marker here: seedPlatformDefaults treats '' as "absent" and falls
+ * back to the def default, so a restore never seeds a fake secret.
+ * The file is written mode 600 (and chmodded, since writeFileSync's
+ * mode only applies at creation).
+ */
 async function savePlatformDefaultsSnapshot() {
   const all = await getAllPlatformSettings({ redact: false });
   const out = {};
   for (const def of PLATFORM_SETTING_DEFS) {
-    out[def.key] = all[def.key] != null ? String(all[def.key]) : def.default;
+    out[def.key] = isPlatformSecret(def.key) ? '' : all[def.key] != null ? String(all[def.key]) : def.default;
   }
   const p = platformDefaultsPath();
   fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, JSON.stringify(out, null, 2));
+  fs.writeFileSync(p, JSON.stringify(out, null, 2), { mode: 0o600 });
+  try {
+    fs.chmodSync(p, 0o600);
+  } catch {
+    /* best effort — content is already secret-free */
+  }
   return { path: p, keys: Object.keys(out).length };
 }
 

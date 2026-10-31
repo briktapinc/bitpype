@@ -1863,8 +1863,18 @@ async function applyClientImageUpload(workspaceId, leadId, payload = {}) {
     fs.mkdirSync(imgDir, { recursive: true });
     const absPath = path.join(imgDir, name);
     fs.writeFileSync(absPath, buffer);
-    // Also mirror into site-{id}/{images|assets} so CF materialize always finds the file.
+    // Also mirror into the site staging folder so CF materialize always
+    // finds the file. Batch 102 (SEC-20): mirror into the workspace-
+    // scoped staging folder (materialize reads it first); the legacy
+    // site-{id} mirror is kept for older readers.
     try {
+      const scopedDir = path.join(
+        openPreview.exportRoot(),
+        require('../src/assetValidation').siteStorageFolder(workspaceId, site.id),
+        sub
+      );
+      fs.mkdirSync(scopedDir, { recursive: true });
+      fs.copyFileSync(absPath, path.join(scopedDir, name));
       const appDir = path.join(openPreview.exportRoot(), `site-${site.id}`, sub);
       fs.mkdirSync(appDir, { recursive: true });
       fs.copyFileSync(absPath, path.join(appDir, name));

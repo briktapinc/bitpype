@@ -5984,12 +5984,16 @@ function registeredImageUrlSet(db, websiteId) {
   try {
     const openPreview = require('./openPreview');
     const root = openPreview.exportRoot();
+    // Batch 102 (SEC-20): include the workspace-scoped staging folder.
+    const stagingFolders = require('./assetValidation').siteStorageFoldersForDb(db, websiteId);
     for (const sub of ['images', 'assets']) {
-      const dir = path.join(root, `site-${websiteId}`, sub);
-      if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) continue;
-      for (const name of fs.readdirSync(dir)) {
-        const abs = path.join(dir, name);
-        if (fs.statSync(abs).isFile()) urls.add(`${sub}/${name}`);
+      for (const staging of stagingFolders) {
+        const dir = path.join(root, staging, sub);
+        if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) continue;
+        for (const name of fs.readdirSync(dir)) {
+          const abs = path.join(dir, name);
+          if (fs.statSync(abs).isFile()) urls.add(`${sub}/${name}`);
+        }
       }
     }
   } catch {
@@ -7378,20 +7382,28 @@ function writeStaticPages(pages, theme, outDir, opts) {
     if (!written.includes(f)) written.push(f);
   }
   // Copy stable website.uploadAsset files (assets/<filename> — never renamed).
+  // Batch 102 (SEC-20): read the workspace-scoped staging folder too
+  // (legacy first, scoped wins a clash) when the caller knows the ws.
   if (opts && opts.websiteId != null) {
     try {
       const openPreview = require('./openPreview');
-      const srcAssets = path.join(openPreview.exportRoot(), `site-${opts.websiteId}`, 'assets');
+      const assetFolders =
+        opts.workspaceId != null
+          ? require('./assetValidation').siteStorageFolders(opts.workspaceId, opts.websiteId).reverse()
+          : [`site-${opts.websiteId}`];
       const destAssets = path.join(outDir, 'assets');
-      if (fs.existsSync(srcAssets) && fs.statSync(srcAssets).isDirectory()) {
-        fs.mkdirSync(destAssets, { recursive: true });
-        for (const name of fs.readdirSync(srcAssets)) {
-          const from = path.join(srcAssets, name);
-          const to = path.join(destAssets, name);
-          if (fs.statSync(from).isFile()) {
-            fs.copyFileSync(from, to);
-            const rel = `assets/${name}`;
-            if (!written.includes(rel)) written.push(rel);
+      for (const folder of assetFolders) {
+        const srcAssets = path.join(openPreview.exportRoot(), folder, 'assets');
+        if (fs.existsSync(srcAssets) && fs.statSync(srcAssets).isDirectory()) {
+          fs.mkdirSync(destAssets, { recursive: true });
+          for (const name of fs.readdirSync(srcAssets)) {
+            const from = path.join(srcAssets, name);
+            const to = path.join(destAssets, name);
+            if (fs.statSync(from).isFile()) {
+              fs.copyFileSync(from, to);
+              const rel = `assets/${name}`;
+              if (!written.includes(rel)) written.push(rel);
+            }
           }
         }
       }
@@ -7450,7 +7462,11 @@ async function localizeWebsiteRemoteImages(db, websiteId) {
   }
   const openPreview = require('./openPreview');
   const pexels = require('./pexels');
-  const imgDir = path.join(openPreview.exportRoot(), `site-${websiteId}`, 'images');
+  const imgDir = path.join(
+    openPreview.exportRoot(),
+    require('./assetValidation').siteStorageFolderForDb(db, websiteId),
+    'images'
+  );
   const { pages: next, assets } = await pexels.localizeUrlsInPages(pages, imgDir, { prefix: 'pexels' });
   if (assets.length) {
     saveSite(db, websiteId, next, theme, 'Localized stock image hotlinks into app storage');
@@ -7720,6 +7736,9 @@ function exportStatic(db, websiteId, outDir, opts = {}) {
   const written = writeStaticPages(pages, theme, outDir, {
     images,
     websiteId,
+    // Batch 102 (SEC-20): lets writeStaticPages find assets staged in
+    // the workspace-scoped folder (derived from the DB path).
+    workspaceId: require('./assetValidation').workspaceIdFromDb(db),
     seo,
     siteUpdatedAt: seo.siteUpdatedAt,
   });
@@ -7727,21 +7746,25 @@ function exportStatic(db, websiteId, outDir, opts = {}) {
   for (const rel of recovered) {
     if (!written.files.includes(rel)) written.files.push(rel);
   }
-  // Copy any app-storage site-{id}/images + assets into this export folder.
+  // Copy any app-storage site images + assets into this export folder.
+  // Batch 102 (SEC-20): both staging folders (legacy first, scoped wins).
   try {
     const openPreview = require('./openPreview');
+    const stagingFolders = require('./assetValidation').siteStorageFoldersForDb(db, websiteId).reverse();
     for (const folder of ['images', 'assets']) {
-      const srcDir = path.join(openPreview.exportRoot(), `site-${websiteId}`, folder);
       const destDir = path.join(outDir, folder);
-      if (fs.existsSync(srcDir)) {
-        fs.mkdirSync(destDir, { recursive: true });
-        for (const name of fs.readdirSync(srcDir)) {
-          const from = path.join(srcDir, name);
-          const to = path.join(destDir, name);
-          if (fs.statSync(from).isFile()) {
-            fs.copyFileSync(from, to);
-            const rel = `${folder}/${name}`;
-            if (!written.files.includes(rel)) written.files.push(rel);
+      for (const staging of stagingFolders) {
+        const srcDir = path.join(openPreview.exportRoot(), staging, folder);
+        if (fs.existsSync(srcDir)) {
+          fs.mkdirSync(destDir, { recursive: true });
+          for (const name of fs.readdirSync(srcDir)) {
+            const from = path.join(srcDir, name);
+            const to = path.join(destDir, name);
+            if (fs.statSync(from).isFile()) {
+              fs.copyFileSync(from, to);
+              const rel = `${folder}/${name}`;
+              if (!written.files.includes(rel)) written.files.push(rel);
+            }
           }
         }
       }
@@ -7821,7 +7844,11 @@ async function attachPexelsImages(db, websiteId, opts = {}) {
   } catch {
     throw err('EXPORT_ROOT', 'App export storage is not available.');
   }
-  const imgDir = path.join(exportRoot, `site-${websiteId}`, 'images');
+  const imgDir = path.join(
+    exportRoot,
+    require('./assetValidation').siteStorageFolderForDb(db, websiteId),
+    'images'
+  );
   const localPhotos = await pexels.localizePhotos(photos, imgDir, { prefix: 'pexels' });
   if (!localPhotos.length) throw err('PEXELS_DOWNLOAD', 'Could not store Pexels photos in app storage.');
   const industry = TEMPLATES[site.industry] ? site.industry : detectIndustry(lead && lead.category);

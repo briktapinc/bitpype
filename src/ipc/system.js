@@ -343,7 +343,7 @@ function register(ipcMain, db) {
           ' through ' +
           versions[versions.length - 1] +
           ').',
-        'Queuing waiting_on_agent (assign / redesign / improve / email submit) writes the optional agent trigger file and may desktop-notify or run Settings → Design agent command. Redesign/improvements also POST design.agent_webhook_url when set. Use design.agentTrigger for path/status; claim work with design.next.',
+        'Queuing waiting_on_agent (assign / redesign / improve / email submit) writes the optional agent trigger file and may desktop-notify. Redesign/improvements also POST design.agent_webhook_url when set (staff-configured). Use design.agentTrigger for path/status; claim work with design.next.',
         'design.review returns screenshot paths only (no base64). design.emailRedesign covers paste/drop inbound change requests — IMAP is not wired yet.',
         'design.lessons exposes the learning playbook/events; briefs include learned_lessons when Settings → Design learning is on.',
         'email.send and other autonomous tools honor the kill switch, the suppression list, and the daily caps from Settings.',

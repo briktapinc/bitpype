@@ -559,6 +559,20 @@ async function registerDomain(db, domainName, opts = {}) {
   const websiteId = opts.websiteId != null ? Number(opts.websiteId) : null;
   const leadId = opts.leadId != null ? Number(opts.leadId) : null;
 
+  // Batch 102 (SEC-05): registration is SPEND — it must run on the
+  // workspace's OWN Cloudflare credentials, enforced FIRST, before any
+  // Cloudflare call is made on anyone's account. The platform fallback
+  // keeps serving previews/publish, but a workspace without its own
+  // token can no longer register domains against the platform
+  // operator's account.
+  const cred = await creds(db);
+  if (cred.via !== 'workspace') {
+    throw fail(
+      'CF_WORKSPACE_TOKEN_REQUIRED',
+      'Domain registration requires this workspace\u2019s own Cloudflare API token (Settings \u2192 Cloudflare). The platform fallback covers previews and publishing only.'
+    );
+  }
+
   // Batch 38/41: pre-flight the registrant contact BEFORE any Cloudflare
   // call — a partial or malformed contact must never reach the registrar
   // (it fails there with the raw "No registrant contact provided…" error,
@@ -577,7 +591,29 @@ async function registerDomain(db, domainName, opts = {}) {
     );
   }
 
-  const { token, accountId } = await creds(db);
+  // Batch 102 (SEC-02): the same price cap the guided domain flow
+  // enforces (domain_flow.included_max_usd, default $25) applies here —
+  // registerDomain is the one choke point every registration path
+  // (guided flow completion, MCP, REST, IPC) funnels through, so the
+  // cap + the own-token rule hold uniformly. Premium names stay on the
+  // guided "contact us" path, exactly as the client flow presents them.
+  const capRaw = await resolveRegistrantSetting(db, 'domain_flow.included_max_usd');
+  const capUsd = Number(capRaw) > 0 ? Number(capRaw) : 25;
+  const capCents = Math.round(capUsd * 100);
+  const priceCents =
+    hit.registrationCost == null || hit.registrationCost === '' || !Number.isFinite(Number(hit.registrationCost))
+      ? null
+      : Math.round(Number(hit.registrationCost) * 100);
+  const currency = String(hit.currency || 'USD').toUpperCase();
+  if (priceCents == null || currency !== 'USD' || priceCents > capCents) {
+    throw fail(
+      'DOMAIN_OVER_CAP',
+      priceCents == null
+        ? `Cannot register ${domain}: its price could not be verified at or under the $${capUsd} registration cap. Premium or unpriced domains go through the guided domain flow.`
+        : `Cannot register ${domain}: price ${currency} ${(priceCents / 100).toFixed(2)} exceeds the $${capUsd} registration cap. Premium domains go through the guided domain flow.`
+    );
+  }
+  const { token, accountId } = cred;
   const body = { domain_name: domain, years, contacts: { registrant } };
   const resp = await apiRequest({
     method: 'POST',
@@ -760,6 +796,118 @@ async function pagesAddDomain(db, projectName, domainName) {
     throw fail('CF_ERROR', cfError(resp, 'Could not attach domain to Pages project'));
   }
   return (resp.json && resp.json.result) || { name: domain };
+}
+
+/**
+ * Batch 102 (SEC-19) — delete a Pages project outright. Used by the
+ * permanent-purge teardown only, and only for the site's own auto
+ * project (bp-w{ws}-s{id}); shared/custom projects are never deleted.
+ */
+async function pagesDeleteProject(db, projectName) {
+  const { token, accountId } = await creds(db);
+  const project = String(projectName || '')
+    .trim()
+    .toLowerCase();
+  if (!project) throw fail('INVALID', 'Pages project name is required.');
+  const resp = await apiRequest({
+    method: 'DELETE',
+    apiPath: `${API_BASE}/accounts/${accountId}/pages/projects/${encodeURIComponent(project)}`,
+    token,
+  });
+  if (resp.statusCode !== 200 && resp.statusCode !== 204) {
+    throw fail('CF_ERROR', cfError(resp, 'Could not delete Pages project'));
+  }
+  return { ok: true, project };
+}
+
+/**
+ * Batch 102 (SEC-19) — remove the apex CNAME(s) the link path created
+ * for a Pages project (<domain> → <project>.pages.dev). Mirrors the
+ * ensure-side rule: only records pointing at THIS site's project are
+ * deleted — DNS pointing anywhere else is not ours to remove.
+ */
+async function removePagesDnsRecord(db, domainName, projectName) {
+  const domain = normalizeDomain(domainName);
+  const project = String(projectName || '')
+    .trim()
+    .toLowerCase();
+  if (!domain || !project) throw fail('INVALID', 'Domain and project are required.');
+  const { token, accountId } = await creds(db);
+  const zoneId = await findZoneId(token, accountId, domain);
+  const target = `${project}.pages.dev`;
+  const apex = await listApexDnsRecords(token, zoneId, domain);
+  const mine = apex.filter(
+    (r) => String(r.type || '').toUpperCase() === 'CNAME' && sameDnsTarget(r.content, target)
+  );
+  let removed = 0;
+  for (const rec of mine) {
+    const resp = await apiRequest({
+      method: 'DELETE',
+      apiPath: `${API_BASE}/zones/${encodeURIComponent(zoneId)}/dns_records/${encodeURIComponent(rec.id)}`,
+      token,
+    });
+    if (resp.statusCode !== 200 && resp.statusCode !== 204) {
+      throw fail('CF_ERROR', dnsCfError(resp, `Could not remove the DNS record for ${domain}`));
+    }
+    removed++;
+  }
+  return { ok: true, domain, project, removed };
+}
+
+/**
+ * Batch 102 (SEC-19) — Cloudflare teardown for a PERMANENT website
+ * purge. The caller (domain.sitesPurgeSite) invokes this BEFORE the
+ * local destroy nulls site_domains.website_id. Per linked domain:
+ * detach it from the Pages project + remove the apex CNAME the link
+ * path created. Then the Pages project itself is deleted — but only
+ * when it is the site's own auto-named project (bp-w{ws}-s{id}); a
+ * shared or custom cf.project may serve other sites and is left alone.
+ * Never throws: per-step failures are collected into `errors` and
+ * surfaced by the caller (purge result + activity log) — a broken CF
+ * token must not make a purge impossible, but it must never be silent
+ * either (Audit 2 §M: "permanently deleted" sites kept serving).
+ */
+async function teardownWebsiteCloudflare(db, { websiteId, workspaceId } = {}) {
+  const out = { domains: [], dnsRemoved: 0, project: null, projectDeleted: false, errors: [] };
+  let rows = [];
+  try {
+    rows = db.prepare('SELECT domain_name FROM site_domains WHERE website_id = ?').all(Number(websiteId));
+  } catch {
+    rows = [];
+  }
+  const project = cf.resolveProjectName(db, Number(websiteId), null, workspaceId);
+  out.project = project || null;
+  for (const row of rows) {
+    const domain = normalizeDomain(row && row.domain_name);
+    if (!domain) continue;
+    const entry = { domain, detached: false, dnsRemoved: 0 };
+    if (project) {
+      try {
+        await pagesDeleteDomain(db, project, domain);
+        entry.detached = true;
+      } catch (e) {
+        out.errors.push(`detach ${domain}: ${(e && e.message) || e}`);
+      }
+      try {
+        const dns = await removePagesDnsRecord(db, domain, project);
+        entry.dnsRemoved = dns.removed || 0;
+        out.dnsRemoved += entry.dnsRemoved;
+      } catch (e) {
+        out.errors.push(`dns ${domain}: ${(e && e.message) || e}`);
+      }
+    }
+    out.domains.push(entry);
+  }
+  const autoProject = cf.defaultProjectForWebsite(Number(websiteId), workspaceId);
+  if (project && autoProject && project === autoProject) {
+    try {
+      await pagesDeleteProject(db, project);
+      out.projectDeleted = true;
+    } catch (e) {
+      out.errors.push(`project ${project}: ${(e && e.message) || e}`);
+    }
+  }
+  return out;
 }
 
 async function pagesListDomains(db, projectName) {
@@ -1287,6 +1435,9 @@ module.exports = {
   pagesAddDomain,
   pagesListDomains,
   pagesDeleteDomain,
+  pagesDeleteProject,
+  removePagesDnsRecord,
+  teardownWebsiteCloudflare,
   ensurePagesDnsRecord,
   ensureDomainDnsForWebsite,
   verifyDomainResolves,

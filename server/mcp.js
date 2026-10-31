@@ -4224,6 +4224,17 @@ async function callTool(workspaceId, name, args = {}, ctx = {}) {
       });
       if (gate) return { ok: true, data: gate };
     }
+    // Batch 102 (SEC-11): pool adds buy Twilio numbers charged to the
+    // platform — the partner approval gate now covers them on MCP too,
+    // matching the REST purchase surface (Audit 1 Q2).
+    if (name === 'calls.poolAdd') {
+      const gate = await partnersMod.gatePurchaseForWorkspace({
+        workspaceId: ws,
+        actionKind: 'call_number_purchase',
+        payload: a,
+      });
+      if (gate) return { ok: true, data: gate };
+    }
 
     const clientOut = await callClientTool(ws, name, a, ctx);
     if (clientOut !== undefined) return { ok: true, data: clientOut };

@@ -697,6 +697,21 @@ async function gatePurchase({ userId, workspaceId, actionKind, payload }) {
 }
 
 /**
+ * Batch 102 (SEC-18) — request-flavored gate for REST routes. Session
+ * callers gate on the acting user (the original Batch 80 behaviour);
+ * TOKEN callers carry no userId, and the old gate silently no-oped for
+ * them (Audit 2 §B-1: a partner's own ws_ token flowed straight into
+ * domain registration). Token calls therefore gate on the WORKSPACE,
+ * exactly like MCP dispatch does.
+ */
+async function gatePurchaseForRequest({ auth, workspaceId, actionKind, payload }) {
+  if (auth && auth.via === 'token') {
+    return gatePurchaseForWorkspace({ workspaceId, actionKind, payload });
+  }
+  return gatePurchase({ userId: auth && auth.userId, workspaceId, actionKind, payload });
+}
+
+/**
  * Workspace-flavored gate for MCP tools (token callers carry no user):
  * a purchase tool called against a partner's workspace is treated as
  * partner-initiated and gated the same way, attributed to the
@@ -868,6 +883,7 @@ module.exports = {
   decideApproval,
   gatePurchase,
   gatePurchaseForWorkspace,
+  gatePurchaseForRequest,
   denyPartnerSettings,
   recurringBaseCents,
   attributeInvoiceWorkspace,

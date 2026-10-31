@@ -808,7 +808,7 @@ function createParityTools(ctx) {
             typeof site.theme === 'string' ? JSON.parse(site.theme || '{}') : site.theme || {}
           );
           if (args.brandName) theme.brandName = String(args.brandName).slice(0, 120);
-          const folder = `site-${siteId}`;
+          const folder = require('./assetValidation').siteStorageFolderForDb(db, siteId);
           const imgDir = path.join(openPreview.exportRoot(), folder, 'images');
           fs.mkdirSync(imgDir, { recursive: true });
           fs.writeFileSync(path.join(imgDir, 'logo.png'), result.buffer);
@@ -887,7 +887,7 @@ function createParityTools(ctx) {
             throw argError('Logo image must be between 1 byte and 5.5 MB.');
           }
           const processed = await logoProcess.processLogoBuffer(buffer);
-          const folder = `site-${siteId}`;
+          const folder = require('./assetValidation').siteStorageFolderForDb(db, siteId);
           const imgDir = path.join(openPreview.exportRoot(), folder, 'images');
           fs.mkdirSync(imgDir, { recursive: true });
           fs.writeFileSync(path.join(imgDir, 'logo.png'), processed.buffer);
@@ -1174,7 +1174,11 @@ function createParityTools(ctx) {
           outExt = path.extname(destName) || '.jpg';
         }
         const folder = isAsset ? 'assets' : 'images';
-        const imgDir = path.join(openPreview.exportRoot(), `site-${siteId}`, folder);
+        const imgDir = path.join(
+          openPreview.exportRoot(),
+          require('./assetValidation').siteStorageFolderForDb(db, siteId),
+          folder
+        );
         fs.mkdirSync(imgDir, { recursive: true });
         const dest = path.join(imgDir, destName);
         fs.writeFileSync(dest, buffer);
@@ -1290,7 +1294,17 @@ function createParityTools(ctx) {
         if (dataB64.length > maxB64) throw argError(`Asset too large (max ${Math.round(maxBytes / 1024 / 1024)} MB).`);
         const buffer = Buffer.from(dataB64, 'base64');
         if (!buffer.length) throw argError('Empty asset data');
-        const assetsDir = path.join(openPreview.exportRoot(), `site-${siteId}`, 'assets');
+        // Batch 102 (SEC-20): content must match the extension (magic
+        // bytes / script-free SVG), same rule as domain.sitesUploadAsset.
+        const assetCheck = require('./assetValidation').validateAssetBuffer(filename, buffer);
+        if (!assetCheck.ok) throw argError(assetCheck.error);
+        // Batch 102 (SEC-20): workspace-scoped staging folder.
+        const parityWsId = Number(process.env.WORKSPACE_ID || process.env.DEFAULT_WORKSPACE_ID || 1);
+        const assetsDir = path.join(
+          openPreview.exportRoot(),
+          require('./assetValidation').siteStorageFolder(parityWsId, siteId),
+          'assets'
+        );
         fs.mkdirSync(assetsDir, { recursive: true });
         const dest = path.join(assetsDir, filename);
         fs.writeFileSync(dest, buffer);

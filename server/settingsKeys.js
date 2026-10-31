@@ -98,7 +98,11 @@ const SETTING_SEEDS = [
   ['score.threshold_qualified', '50'],
   ['score.threshold_hot', '70'],
   ['app.name', 'Bitpype'],
-  ['cf.account_id', '2b529c9c689b4e139de72bba42d7148b'],
+  // Batch 102 (SEC-14): no hardcoded account id seed — fresh workspaces
+  // start unconfigured instead of silently coupling to the platform
+  // operator's Cloudflare account on the fallback path. Existing
+  // workspaces keep their stored value (seeding never overwrites).
+  ['cf.account_id', ''],
   ['cf.project', ''],
   ['cf.preview_domain', 'briktapinc.workers.dev'],
   ['meta.app_id', ''],
@@ -224,9 +228,15 @@ const SETTABLE_KEYS = [
   'mcp.http_port',
   'providers.tavily.search_depth',
   'design.agent_notify',
-  'design.agent_trigger_command',
+  // Batch 102 (SEC-01): 'design.agent_trigger_command' and
+  // 'design.agent_webhook_url' are deliberately NOT settable via the
+  // settings API anymore. The trigger command was a workspace-token
+  // RCE chain (settings.set -> spawn shell) and is deleted outright;
+  // the webhook URL is staff-only (set by direct platform access) so a
+  // workspace token can no longer point the server's POSTs at internal
+  // addresses (SSRF, proven live in Audit 2 §G). Stored values are
+  // untouched — ws1's staff-configured webhook keeps firing.
   'design.agent_trigger_file',
-  'design.agent_webhook_url',
   'design.agent_webhook_secret',
   'design.learning.enabled',
   'design.learning.max_playbook',
@@ -628,20 +638,10 @@ function validateSetting(key, raw) {
       if (['0', 'false', 'no', ''].includes(v)) return { ok: true, value: '0' };
       return fail('must be boolean-like (0/1)');
     }
-    case 'design.agent_trigger_command':
-      if (value.length > 2000) return fail('must be 2000 chars or fewer');
-      if (value.includes('\0')) return fail('must not contain null bytes');
-      return { ok: true, value };
     case 'design.agent_trigger_file':
       if (value.length > 500) return fail('must be 500 chars or fewer');
       if (value.includes('\0')) return fail('must not contain null bytes');
       return { ok: true, value: value.trim() };
-    case 'design.agent_webhook_url': {
-      const v = value.trim();
-      if (v === '') return { ok: true, value: '' };
-      if (!isHttpUrl(v)) return fail('must be an http(s) URL or empty');
-      return { ok: true, value: v };
-    }
     case 'design.agent_webhook_secret':
       if (value.length > 500) return fail('must be 500 chars or fewer');
       if (value.includes('\0')) return fail('must not contain null bytes');

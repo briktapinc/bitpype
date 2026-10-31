@@ -1032,11 +1032,11 @@ router.post('/websites/:id/restore', scopeWebsite, (req, res) => {
 });
 // Batch 45: PERMANENT purge of an archived website (staff only; the body
 // must carry the exact site name — type-to-confirm enforced server-side).
-router.delete('/websites/:id/purge', requireRole('owner', 'admin'), denyLeadScopedToken, (req, res) => {
+router.delete('/websites/:id/purge', requireRole('owner', 'admin'), denyLeadScopedToken, async (req, res) => {
   try {
     ok(
       res,
-      domain.sitesPurgeSite(req.auth.workspaceId, Number(req.params.id), (req.body || {}).confirmName)
+      await domain.sitesPurgeSite(req.auth.workspaceId, Number(req.params.id), (req.body || {}).confirmName)
     );
   } catch (e) {
     fail(res, e, e.status || (e.code === 'SITE_NOT_FOUND' ? 404 : 400));
@@ -1511,8 +1511,10 @@ router.post('/domains/register', requireRole('owner', 'admin', 'member'), denyLe
   try {
     // Batch 80: partner purchase gate — a partner's registration
     // becomes an approval request; nothing is charged or registered.
-    const gate = await partners.gatePurchase({
-      userId: req.auth && req.auth.userId,
+    // Batch 102 (SEC-18): token callers gate on the workspace — the
+    // userId gate silently no-oped for bearer tokens (Audit 2 §B-1).
+    const gate = await partners.gatePurchaseForRequest({
+      auth: req.auth,
       workspaceId: req.auth.workspaceId,
       actionKind: 'domain_register',
       payload: req.body || {},
@@ -1913,8 +1915,9 @@ router.post(
   async (req, res) => {
     try {
       // Batch 80: partner purchase gate (Twilio charges the platform).
-      const gate = await partners.gatePurchase({
-        userId: req.auth && req.auth.userId,
+      // Batch 102 (SEC-18): token callers gate on the workspace.
+      const gate = await partners.gatePurchaseForRequest({
+        auth: req.auth,
         workspaceId: req.auth.workspaceId,
         actionKind: 'call_number_purchase',
         payload: req.body || {},
@@ -2166,8 +2169,9 @@ router.post(
     try {
       // Batch 80: partner purchase gate — completing a paid domain
       // flow executes the registrar registration (platform spend).
-      const gate = await partners.gatePurchase({
-        userId: req.auth && req.auth.userId,
+      // Batch 102 (SEC-18): token callers gate on the workspace.
+      const gate = await partners.gatePurchaseForRequest({
+        auth: req.auth,
         workspaceId: req.auth.workspaceId,
         actionKind: 'domain_flow_complete',
         payload: { txnId: Number(req.params.id) },

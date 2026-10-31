@@ -572,8 +572,12 @@ function websiteImageDirs(db, siteId, opts = {}) {
   const openPreview = require('./openPreview');
   const dirs = [];
   const root = openPreview.exportRoot();
+  // Batch 102 (SEC-20): workspace-scoped staging folder first, legacy second.
+  const wsForDirs = opts.workspaceId != null ? Number(opts.workspaceId) : require('./assetValidation').workspaceIdFromDb(db);
+  for (const staging of require('./assetValidation').siteStorageFolders(wsForDirs, siteId)) {
+    dirs.push(path.join(root, staging, 'images'));
+  }
   const appDir = path.join(root, `site-${siteId}`, 'images');
-  dirs.push(appDir);
 
   try {
     const site = db.prepare('SELECT id, preview_path, export_slug FROM websites WHERE id = ?').get(Number(siteId));

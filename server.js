@@ -13,6 +13,7 @@ const cors = require('cors');
 const { migrate, ping } = require('./server/db');
 const { MySQLSessionStore } = require('./server/sessionStore');
 const { findWorkspaceByToken } = require('./server/workspace');
+const { requireSuperAdmin } = require('./server/middleware');
 const { handleJsonRpc, SERVER_INFO } = require('./server/mcp');
 const apiErrors = require('./server/apiErrors');
 const { startScheduler } = require('./server/jobs');
@@ -279,7 +280,11 @@ app.get('/api/v1/health', (_req, res) => {
     access_order: 'prefer /api/v1; MCP is transport fallback',
   });
 });
-app.get('/api/v1/openapi.json', (_req, res) => {
+// Batch 102 (SEC-12): the OpenAPI document is staff-only — it was
+// public by design (Audit 1 Q3 #5) and maps the whole API surface
+// for unauthenticated readers. Super-admin session required, same
+// bar as the /api/v1/admin router.
+app.get('/api/v1/openapi.json', requireSuperAdmin, (_req, res) => {
   try {
     const { buildOpenApi } = require('./server/openapiV1');
     res.json(buildOpenApi());

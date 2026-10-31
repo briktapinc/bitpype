@@ -642,22 +642,29 @@ function materializeWebsiteExport(db, workspaceId, siteId, opts = {}) {
   } catch (e) {
     console.warn('[domain] recoverMissingExportAssets:', e.message);
   }
-  // Copy app-storage site-{id}/images + assets into the publish folder (same-origin for Pages).
+  // Copy app-storage site images + assets into the publish folder (same-origin for Pages).
+  // Batch 102 (SEC-20): staging lives in the workspace-scoped folder
+  // (ws-<ws>-site-<id>); the legacy site-<id> folder is still read so
+  // assets staged before the scoping change keep shipping. Legacy is
+  // copied first — the scoped folder wins a filename clash.
   try {
     const fs = require('fs');
     const pathMod = require('path');
+    const storageFolders = require('../src/assetValidation').siteStorageFolders(workspaceId, siteId).reverse();
     for (const sub of ['images', 'assets']) {
-      const srcDir = pathMod.join(openPreview.exportRoot(), `site-${siteId}`, sub);
       const destDir = pathMod.join(exported.dir, sub);
-      if (!fs.existsSync(srcDir)) continue;
-      fs.mkdirSync(destDir, { recursive: true });
-      for (const name of fs.readdirSync(srcDir)) {
-        const from = pathMod.join(srcDir, name);
-        const to = pathMod.join(destDir, name);
-        if (fs.statSync(from).isFile()) {
-          fs.copyFileSync(from, to);
-          const rel = `${sub}/${name}`;
-          if (Array.isArray(exported.files) && !exported.files.includes(rel)) exported.files.push(rel);
+      for (const folder of storageFolders) {
+        const srcDir = pathMod.join(openPreview.exportRoot(), folder, sub);
+        if (!fs.existsSync(srcDir)) continue;
+        fs.mkdirSync(destDir, { recursive: true });
+        for (const name of fs.readdirSync(srcDir)) {
+          const from = pathMod.join(srcDir, name);
+          const to = pathMod.join(destDir, name);
+          if (fs.statSync(from).isFile()) {
+            fs.copyFileSync(from, to);
+            const rel = `${sub}/${name}`;
+            if (Array.isArray(exported.files) && !exported.files.includes(rel)) exported.files.push(rel);
+          }
         }
       }
     }
@@ -1507,24 +1514,61 @@ function sitesRestoreSite(workspaceId, id) {
  * name in the body). Wires the previously unreachable
  * websiteEngine.destroyWebsite. A live (non-archived) site is refused:
  * archive is always the first step.
+ *
+ * Batch 102 (SEC-19): purge now tears down Cloudflare FIRST — custom
+ * domains are detached from the Pages project, the apex CNAMEs the
+ * link path created are removed, and the site's own auto-named Pages
+ * project is deleted — before the local destroy runs (destroy nulls
+ * site_domains.website_id, so the linkage must be read beforehand).
+ * Teardown failures never block the local purge, but they are never
+ * silent either: they ride the result and the activity log (Audit 2
+ * §M found "permanently deleted" sites serving indefinitely because
+ * purge made no Cloudflare calls at all). Archive (soft delete) is
+ * unchanged — it intentionally keeps everything for restore.
  */
-function sitesPurgeSite(workspaceId, id, confirmName) {
-  return withDb(workspaceId, (db) => {
-    const engine = websiteEngine();
-    const site = engine.getWebsite(db, Number(id));
-    if (!site) throw siteErr('SITE_NOT_FOUND', `Website #${id} not found.`);
-    if (!site.archived_at) {
-      const e = siteErr('NOT_ARCHIVED', 'Only an archived website can be purged. Archive it first.');
-      e.status = 409;
-      throw e;
+async function sitesPurgeSite(workspaceId, id, confirmName) {
+  const db = openWorkspaceDb(workspaceId);
+  try {
+    const ai = require('../src/ai');
+    if (typeof ai.setDb === 'function') ai.setDb(db);
+  } catch {
+    /* ignore — same side effect withDb performs */
+  }
+  const engine = websiteEngine();
+  const site = engine.getWebsite(db, Number(id));
+  if (!site) throw siteErr('SITE_NOT_FOUND', `Website #${id} not found.`);
+  if (!site.archived_at) {
+    const e = siteErr('NOT_ARCHIVED', 'Only an archived website can be purged. Archive it first.');
+    e.status = 409;
+    throw e;
+  }
+  if (String(confirmName || '') !== String(site.name || '')) {
+    const e = siteErr('CONFIRM_REQUIRED', 'Type the exact site name to confirm the permanent purge.');
+    e.status = 400;
+    throw e;
+  }
+  let cloudflare = null;
+  try {
+    cloudflare = await require('../src/cfDomains').teardownWebsiteCloudflare(db, {
+      websiteId: Number(id),
+      workspaceId: Number(workspaceId),
+    });
+  } catch (e) {
+    cloudflare = { domains: [], dnsRemoved: 0, project: null, projectDeleted: false, errors: [`teardown: ${(e && e.message) || e}`] };
+  }
+  const destroyed = engine.destroyWebsite(db, Number(id), { workspaceId: Number(workspaceId) });
+  if (cloudflare && (cloudflare.projectDeleted || cloudflare.dnsRemoved || (cloudflare.errors && cloudflare.errors.length))) {
+    try {
+      db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
+        'websites',
+        `Purge Cloudflare teardown for website #${Number(id)}: project=${cloudflare.project || '—'} deleted=${!!cloudflare.projectDeleted} dnsRemoved=${cloudflare.dnsRemoved || 0}` +
+          (cloudflare.errors && cloudflare.errors.length ? ` ERRORS: ${cloudflare.errors.join(' | ').slice(0, 1200)}` : '')
+      );
+    } catch {
+      /* logging best-effort */
     }
-    if (String(confirmName || '') !== String(site.name || '')) {
-      const e = siteErr('CONFIRM_REQUIRED', 'Type the exact site name to confirm the permanent purge.');
-      e.status = 400;
-      throw e;
-    }
-    return engine.destroyWebsite(db, Number(id), { workspaceId: Number(workspaceId) });
-  });
+  }
+  return { ...destroyed, cloudflare };
 }
 /** Batch 27 — archived websites for the staff Archives page. */
 function sitesArchivedList(workspaceId) {
@@ -1689,14 +1733,18 @@ async function sitesOptimizeImages(workspaceId, siteId, opts = {}) {
       try {
         const fs = require('fs');
         const pathMod = require('path');
-        const srcDir = pathMod.join(require('../src/openPreview').exportRoot(), `site-${resolvedId}`, 'images');
         const destDir = pathMod.join(exported.dir, 'images');
-        if (fs.existsSync(srcDir)) {
-          fs.mkdirSync(destDir, { recursive: true });
-          for (const name of fs.readdirSync(srcDir)) {
-            const from = pathMod.join(srcDir, name);
-            const to = pathMod.join(destDir, name);
-            if (fs.statSync(from).isFile()) fs.copyFileSync(from, to);
+        // Batch 102 (SEC-20): read both staging folders (scoped wins).
+        const optFolders = require('../src/assetValidation').siteStorageFolders(workspaceId, resolvedId).reverse();
+        for (const folder of optFolders) {
+          const srcDir = pathMod.join(require('../src/openPreview').exportRoot(), folder, 'images');
+          if (fs.existsSync(srcDir)) {
+            fs.mkdirSync(destDir, { recursive: true });
+            for (const name of fs.readdirSync(srcDir)) {
+              const from = pathMod.join(srcDir, name);
+              const to = pathMod.join(destDir, name);
+              if (fs.statSync(from).isFile()) fs.copyFileSync(from, to);
+            }
           }
         }
         if (result.renamed && result.renamed.length) {
@@ -2915,8 +2963,17 @@ async function applyCropToSiteImage(workspaceId, siteId, imageUrl, cropOpts) {
   const openPreview = require('../src/openPreview');
   const rel = String(imageUrl || '').replace(/^\.?\//, '');
   if (!/^(?:images|assets)\//i.test(rel)) return null;
-  const abs = path.join(openPreview.exportRoot(), `site-${siteId}`, rel);
-  if (!fs.existsSync(abs)) {
+  // Batch 102 (SEC-20): the file may live in the workspace-scoped
+  // staging folder or the legacy one — crop whichever actually holds it.
+  let abs = null;
+  for (const folder of require('../src/assetValidation').siteStorageFolders(workspaceId, siteId)) {
+    const candidate = path.join(openPreview.exportRoot(), folder, rel);
+    if (fs.existsSync(candidate)) {
+      abs = candidate;
+      break;
+    }
+  }
+  if (!abs) {
     // Also try slug export folder images/
     return null;
   }
@@ -2979,7 +3036,18 @@ function sitesUploadAsset(workspaceId, siteId, opts = {}) {
     }
     const buffer = Buffer.from(dataB64, 'base64');
     if (!buffer.length) throw siteErr('EMPTY', 'Empty asset data');
-    const assetsDir = path.join(openPreview.exportRoot(), `site-${resolvedId}`, 'assets');
+    // Batch 102 (SEC-20): the bytes must match the extension — a
+    // script-bearing SVG or HTML-under-.png is rejected here, never
+    // stored (Audit 2 §D-1).
+    const assetCheck = require('../src/assetValidation').validateAssetBuffer(filename, buffer);
+    if (!assetCheck.ok) throw siteErr('INVALID_ASSET', assetCheck.error);
+    // Batch 102 (SEC-20): workspace-scoped staging folder — the legacy
+    // site-<id> folder collided across workspaces (per-workspace ids).
+    const assetsDir = path.join(
+      openPreview.exportRoot(),
+      require('../src/assetValidation').siteStorageFolder(workspaceId, resolvedId),
+      'assets'
+    );
     fs.mkdirSync(assetsDir, { recursive: true });
     const dest = path.join(assetsDir, filename);
     fs.writeFileSync(dest, buffer);

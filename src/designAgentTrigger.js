@@ -3,21 +3,30 @@
 /**
  * Optional auto-trigger when a design job becomes waiting_on_agent.
  * Never throws into the caller — redesign / improvements / assign must keep
- * working if notifications, trigger files, or shell commands fail.
+ * working if notifications, trigger files, or webhooks fail.
  *
  * meta.reason vocabulary (watchers can filter):
  *   assigned | redesign | improvements | questions_answered | refreshed | queue | chatbot
  *
  * Settings (all optional):
  *   design.agent_notify          — "1" (default) / "0" desktop Notification
- *   design.agent_trigger_command — shell command; placeholders {{job_id}},
- *                                  {{reason}}, {{status}}, {{message}}
  *   design.agent_trigger_file    — override path for the JSON trigger file
  *                                  (default: <db-dir>/design-agent-trigger.json)
  *   design.agent_webhook_url     — http(s) URL; POSTed for redesign|
- *                                  improvements|chatbot (empty = skip)
+ *                                  improvements|chatbot (empty = skip).
+ *                                  STAFF-ONLY since Batch 102 (SEC-01): no
+ *                                  longer settable via the settings API, so
+ *                                  a workspace token cannot aim the server's
+ *                                  POSTs at internal addresses (SSRF).
  *   design.agent_webhook_secret  — optional; sent as Authorization: Bearer and
  *                                  X-Webhook-Secret when non-empty
+ *
+ * Batch 102 (SEC-01) — the shell trigger is DELETED. The former
+ * design.agent_trigger_command setting let any workspace-token holder
+ * write a shell command that the server executed through a shell when
+ * a design job queued — a complete RCE chain (Audit 1 Q3 #3). The
+ * design-queue watcher cron supersedes the wake-an-agent purpose.
+ * Stored values of the old key are inert: nothing reads them anymore.
  *
  * Chatbot boundary: reason=chatbot means the CLIENT agent should use portal
  * MCP chatbot.* tools only — never admin design.* / lead.* or a workspace ws_ token.
@@ -25,7 +34,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
 
 // redesign|improvements: design change flow. chatbot: visitor chat needs client MCP reply.
 const WEBHOOK_REASONS = new Set(['redesign', 'improvements', 'chatbot']);
@@ -65,13 +73,6 @@ function resolveDbDir() {
     /* MCP / plain Node */
   }
   return process.cwd();
-}
-
-function expandPlaceholders(template, vars) {
-  return String(template).replace(/\{\{(job_id|reason|status|message)\}\}/g, (_, key) => {
-    const v = vars[key];
-    return v == null ? '' : String(v);
-  });
 }
 
 function resolveTriggerFilePath(db) {
@@ -212,7 +213,6 @@ async function fireAgentWebhook(db, meta = {}, opts = {}) {
 function agentTriggerStatus(db) {
   const filePath = resolveTriggerFilePath(db);
   const notifyEnabled = getSetting(db, 'design.agent_notify', '1') !== '0';
-  const command = getSetting(db, 'design.agent_trigger_command', '').trim();
   const webhookUrl = getSetting(db, 'design.agent_webhook_url', '').trim();
   const webhookSecret = getSetting(db, 'design.agent_webhook_secret', '').trim();
   let lastPayload = null;
@@ -234,11 +234,14 @@ function agentTriggerStatus(db) {
     triggerFilePath: filePath,
     fileExists,
     notifyEnabled,
-    commandConfigured: !!command,
+    // Batch 102 (SEC-01): the shell trigger command was deleted; the
+    // field is reported as permanently unconfigured so old consumers
+    // don't claim a command will run.
+    commandConfigured: false,
     webhookConfigured: !!webhookUrl,
     webhookSecretConfigured: !!webhookSecret,
     lastPayload,
-    hint: 'Queuing waiting_on_agent (assign, redesign, improve, email submit, questions answered, chatbot) writes this file and may desktop-notify / run the configured command. Redesign/improvements/chatbot also POST design.agent_webhook_url when set. Design: design.next. Chatbot: client MCP chatbot.pending — never admin tools from visitor chat.',
+    hint: 'Queuing waiting_on_agent (assign, redesign, improve, email submit, questions answered, chatbot) writes this file and may desktop-notify. Redesign/improvements/chatbot also POST design.agent_webhook_url when set (staff-configured). Design: design.next. Chatbot: client MCP chatbot.pending — never admin tools from visitor chat.',
   };
 }
 
@@ -259,57 +262,6 @@ function showDesktopNotification(payload) {
   } catch {
     return false;
   }
-}
-
-function runTriggerCommand(db, payload) {
-  const cmd = getSetting(db, 'design.agent_trigger_command', '').trim();
-  if (!cmd) return { skipped: true };
-
-  const expanded = expandPlaceholders(cmd, {
-    job_id: payload.job_id != null ? String(payload.job_id) : '',
-    reason: payload.reason || '',
-    status: payload.status || '',
-    message: String(payload.message || '').slice(0, 500),
-  });
-
-  return new Promise((resolve) => {
-    let settled = false;
-    const done = (result) => {
-      if (settled) return;
-      settled = true;
-      resolve(result);
-    };
-
-    let child;
-    try {
-      child = spawn(expanded, {
-        shell: true,
-        // Keep attached long enough for short scripts; long-running agents
-        // should daemonize themselves inside the user command.
-        stdio: 'ignore',
-        windowsHide: true,
-        env: {
-          ...process.env,
-          WS_DESIGN_JOB_ID: payload.job_id != null ? String(payload.job_id) : '',
-          WS_DESIGN_REASON: String(payload.reason || ''),
-          WS_DESIGN_STATUS: String(payload.status || ''),
-          WS_DESIGN_MESSAGE: String(payload.message || '').slice(0, 500),
-        },
-      });
-    } catch (e) {
-      done({ ok: false, error: e.message || String(e) });
-      return;
-    }
-
-    child.on('error', (e) => done({ ok: false, error: e.message || String(e) }));
-    // Treat successful spawn as success; do not wait for exit (may be long-lived).
-    try {
-      child.unref();
-    } catch {
-      /* ignore */
-    }
-    setTimeout(() => done({ ok: true, command: expanded.slice(0, 200) }), 80);
-  });
 }
 
 /**
@@ -361,18 +313,8 @@ function fireAgentTriggers(db, meta = {}) {
         logActivity(db, `Agent desktop notification failed: ${e.message || e}`);
       }
 
-      try {
-        const result = await runTriggerCommand(db, payload);
-        if (result && !result.skipped) {
-          if (result.ok) {
-            logActivity(db, `Agent trigger command launched (job #${payload.job_id ?? '?'}, ${payload.reason}).`);
-          } else {
-            logActivity(db, `Agent trigger command failed: ${(result && result.error) || 'unknown'}`);
-          }
-        }
-      } catch (e) {
-        logActivity(db, `Agent trigger command failed: ${e.message || e}`);
-      }
+      // Batch 102 (SEC-01): no shell command runs here anymore — the
+      // spawn path was deleted. The watcher cron claims queued jobs.
 
       // Webhook: redesign | improvements submissions only (not assign / Q&A / refresh).
       try {
@@ -404,7 +346,6 @@ module.exports = {
   fireAgentTriggers,
   fireAgentWebhook,
   buildWebhookPayload,
-  expandPlaceholders,
   resolveDbDir,
   resolveTriggerFilePath,
   agentTriggerStatus,
