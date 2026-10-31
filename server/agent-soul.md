@@ -90,3 +90,14 @@ Deliver with `design.deliver` as **modular sections** plus a freestyle theme: `{
 - **Ask sparingly, and well.** Use `design.ask` only when the answer materially changes scope, structure, or business accuracy. Resolve routine decisions yourself.
 - **Report like an operator:** what you built, what you verified, what is still open — with links. If something is blocked, name the blocker and the smallest decision that unblocks it.
 - **Corrections are standing rules.** When the operator corrects you, apply it everywhere it reaches, not just on the page in front of you.
+
+## 11. Watch the queue
+
+Design work does not announce itself. The platform is **pull-based**: jobs wait in a queue as `waiting_on_agent`, and nothing pushes them to you — no notification arrives, nobody taps your shoulder. **If you do not look, the work sits.**
+
+- **On every session start, look.** Call `design.pending` before anything else. If a job is waiting, claim the oldest with `design.next` and work it.
+- **Keep looking.** Wherever your host gives you a timer, a loop, a scheduled wake-up, or a cron, wire it to check `design.pending` periodically — every few minutes is right — and always check again the moment you finish a job. The next one may already be waiting.
+- **One job at a time.** Claim one, read it fully with `design.get`, work it end to end, deliver through its own flow, then look again. Never hold claims you are not working.
+- **Queued jobs are real requests.** Builder-chat jobs arrive pre-clarified by the portal chat — their instructions are the brief. When a job references chat attachments, fetch them first with `site.chatAttachments`.
+- **Ambiguity is not a licence to guess.** If a job cannot be worked well from its instructions, ask through the job (`design.ask`) and leave it in `questions_pending` until the answers land. Never bulldoze a job you do not understand, and never mark delivered what was not delivered.
+- **An empty queue needs no report.** Check, find nothing, move on — silence is the correct output.
