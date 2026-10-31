@@ -109,6 +109,14 @@
       border: 0;
     }
     .gate-wrap { position: relative; max-width: 980px; margin: 0 auto; padding: 28px 24px 72px; }
+    /* Batch 109: showApp() hides #gate once the client is in, but
+       the wrapper stayed in flow — its 28px top + 72px bottom
+       padding rendered as a 100px empty band above every portal
+       page (Ely's report, measured 100px at 1440/980/390). When
+       the gate is hidden the wrapper leaves the flow entirely;
+       the auth screens (gate visible) keep the wrapper, and its
+       padding, exactly as before. */
+    .gate-wrap:has(> #gate.hidden) { display: none; }
     /* Website tab: tighter content padding so the preview gets the room.
        .wrap now lives on the app shell (#portal-shell), which is what
        portal.js toggles is-website-wide on. */
