@@ -146,6 +146,16 @@ const ALL_DEFS = [...READS, ...WRITES].map((name) => ({
     const t = (body.tools || []).find((x) => x.function.description === desc);
     return t ? t.function.name : null;
   };
+  // A reasoning model that spends the whole budget thinking returns
+  // content:null with finish_reason 'length' (proven live).
+  const truncatedReply = () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      choices: [{ message: { content: null }, finish_reason: 'length' }],
+      usage: { completion_tokens: 300 },
+    }),
+  });
 
   // ---------------------------------------------------------------
   // Part 1 — museAgent: classifier + loop modes + the fence
@@ -224,7 +234,23 @@ const ALL_DEFS = [...READS, ...WRITES].map((name) => ({
     const answerNoPending = await classifyWith('{"intent":"clarify_answer","ready":true}');
     assert.equal(answerNoPending.intent, 'change', 'clarify_answer without pending becomes change');
     n += 2;
-    group('1a classifier: parsing + fallbacks', n);
+    // Reasoning-model truncation: attempt 1 returns no content
+    // (finish_reason 'length') → the classifier retries ONCE with a
+    // bigger budget and parses attempt 2, instead of silently
+    // degrading to the ambiguous fallback (the live-proof bug).
+    {
+      const f = loopFixture((body, i) =>
+        i === 1 ? truncatedReply() : textReply('{"intent":"question","ready":false}')
+      );
+      const out = await f.agent.classifyPortalChatIntent(1, 7, { db: stubDb(), message: 'What is my headline?' });
+      assert.equal(out.intent, 'question', 'retry recovers the real classification');
+      assert.equal(out.fallback, false);
+      assert.equal(f.requests.length, 2, 'exactly one truncation retry');
+      assert.ok(f.requests[0].max_tokens >= 1000, 'classifier budgets for reasoning tokens');
+      assert.ok(f.requests[1].max_tokens > f.requests[0].max_tokens, 'retry budget is bigger');
+      n += 5;
+    }
+    group('1a classifier: parsing + fallbacks + truncation retry', n);
   }
 
   // 1b. Answer mode: read-only tools, Tier-1 context, real answer.

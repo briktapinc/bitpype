@@ -591,19 +591,30 @@ async function classifyPortalChatIntent(
   }
   classifyMessages.push(...convo);
 
-  let data;
-  try {
-    data = await chatCompletions(config, {
-      model: config.model,
-      messages: classifyMessages,
-      max_tokens: 300,
-    });
-  } catch {
-    return portalIntentFallback(pending);
-  }
+  // The live model is a reasoning model: on messages it deliberates
+  // over, hidden reasoning can consume the entire token budget and
+  // return finish_reason 'length' with NO content at all (proven
+  // live 2026-10-30: a plain question burned 298 of 300 tokens on
+  // reasoning, the JSON never arrived, and routing silently degraded
+  // to the fallback — every message looked "ambiguous"). Budget for
+  // reasoning + answer, and retry once, bigger, on truncation/empty.
+  let data = null;
+  let parsed = null;
+  for (const maxTokens of [1200, 2400]) {
+    data = null;
+    parsed = null;
+    try {
+      data = await chatCompletions(config, {
+        model: config.model,
+        messages: classifyMessages,
+        max_tokens: maxTokens,
+      });
+    } catch {
+      return portalIntentFallback(pending);
+    }
 
-  try {
-    const usage = (data && data.usage) || {};
+    try {
+      const usage = (data && data.usage) || {};
     domain.withDb(workspaceId, (d) => {
       const use = db || d;
       const promptTokens = Number(usage.prompt_tokens) || 0;
@@ -621,15 +632,24 @@ async function classifyPortalChatIntent(
       });
     });
   } catch {
-    /* usage logging must never break routing */
-  }
+      /* usage logging must never break routing */
+    }
 
-  let parsed = null;
-  try {
-    const raw = String((data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '');
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (match) parsed = JSON.parse(match[0]);
-  } catch {
+    let raw = '';
+    let finishReason = '';
+    try {
+      const choice = data && data.choices && data.choices[0];
+      raw = String((choice && choice.message && choice.message.content) || '');
+      finishReason = String((choice && choice.finish_reason) || '');
+      const match = raw.match(/\{[\s\S]*\}/);
+      if (match) parsed = JSON.parse(match[0]);
+    } catch {
+      parsed = null;
+    }
+    if (parsed && PORTAL_INTENTS.has(String(parsed.intent || ''))) break;
+    // Retry only when the answer never arrived (reasoning ate the
+    // budget / empty content); a genuine non-JSON answer falls back.
+    if (finishReason !== 'length' && raw.trim()) break;
     parsed = null;
   }
   if (!parsed || !PORTAL_INTENTS.has(String(parsed.intent || ''))) {
