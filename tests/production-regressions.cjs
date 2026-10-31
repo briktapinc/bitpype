@@ -6221,6 +6221,11 @@ async function main() {
     './platform': { getPlatformSetting: async () => '' },
     '../src/defaultDesignInstructions': { defaultWebsiteInstructions: () => '' },
     '../src/secretBox': boxR3,
+    // Batch 94: museAgent requires the planner + capability
+    // registry at top level; both are dependency-light leaves, so
+    // VM loads get the real modules (cf. the apiErrors precedent).
+    './siteChatPlanner': require(path.join(root, 'server', 'siteChatPlanner.js')),
+    './portalCapabilities': require(path.join(root, 'server', 'portalCapabilities.js')),
   });
   const museCfgR3 = await museAgentR3.resolveMuseConfig(dbMuseR3);
   check('review3 muse agent: workspace fallback returns the decrypted muse.model_api_key', () => {
