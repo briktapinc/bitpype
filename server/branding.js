@@ -24,6 +24,11 @@
  * (/brand/logo-white.png, /brand/logo-black.png, /brand/logo-email.png)
  * and serves the custom file when one is configured; otherwise the
  * request falls through to the committed default asset untouched.
+ * server.js also serves the stored `/brand-files/<filename>` path
+ * itself (Batch 92: Batch 87 minted the path but never mounted it, so
+ * the Admin → Settings → Branding previews — whose <img> src is the
+ * stored path — 404'd while the canonical URLs served the custom
+ * logo fine).
  *
  * The sync cache mirrors the stripeClient public-URL and planContents
  * patterns: primed at boot, refreshed inside setPlatformSetting's
@@ -75,24 +80,31 @@ function customLogoPath(variant) {
 }
 
 /**
- * Absolute file for the configured custom logo of a variant, or null
- * when unset / the stored value is corrupt / the file is gone. The
- * basename is re-validated against the strict filename pattern before
- * any filesystem use, so a tampered setting can never escape the
- * brand directory.
+ * Absolute file for a stored logo filename, or null when the name is
+ * not a minted logo filename / the file is gone. The basename is
+ * validated against the strict filename pattern before any filesystem
+ * use, so a tampered name can never escape the brand directory.
  */
-function customLogoFile(variant) {
-  const url = customLogoPath(variant);
-  if (!url) return null;
-  const name = url.slice(FILE_URL_PREFIX.length);
-  if (!FILE_NAME_RE.test(name)) return null;
-  const file = path.join(brandDir(), name);
+function storedLogoFile(name) {
+  const n = String(name == null ? '' : name);
+  if (!FILE_NAME_RE.test(n)) return null;
+  const file = path.join(brandDir(), n);
   try {
     if (!fs.statSync(file).isFile()) return null;
   } catch {
     return null;
   }
-  return { file, name, contentType: EXT_TO_MIME[name.split('.').pop()] || 'image/png' };
+  return { file, name: n, contentType: EXT_TO_MIME[n.split('.').pop()] || 'image/png' };
+}
+
+/**
+ * Absolute file for the configured custom logo of a variant, or null
+ * when unset / the stored value is corrupt / the file is gone.
+ */
+function customLogoFile(variant) {
+  const url = customLogoPath(variant);
+  if (!url) return null;
+  return storedLogoFile(url.slice(FILE_URL_PREFIX.length));
 }
 
 /** Refresh the sync cache from the platform settings store. Never throws. */
@@ -134,6 +146,13 @@ function brandingState() {
   return {
     logoDark: cache.dark,
     logoLight: cache.light,
+    // Batch 92 honesty flags: a slot can be configured while its file
+    // is missing (wiped volume, partial restore). The settings UI
+    // must not claim "A custom logo is in use" over a broken preview
+    // in that case — it shows the built-in default and says the file
+    // is missing. Real surfaces already fall back via customLogoFile.
+    logoDarkMissing: Boolean(cache.dark) && !customLogoFile('dark'),
+    logoLightMissing: Boolean(cache.light) && !customLogoFile('light'),
     tagline: tagline(),
     defaults: {
       logoDarkUrl: '/brand/logo-white.png',
@@ -206,6 +225,7 @@ module.exports = {
   tagline,
   customLogoPath,
   customLogoFile,
+  storedLogoFile,
   refreshBranding,
   refreshBrandingIfStale,
   brandingState,

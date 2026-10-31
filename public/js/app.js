@@ -8330,15 +8330,23 @@ function brandingPanelHtml(state) {
       <div class="panel-b"><p class="hint">Branding status could not be loaded — reload the page to try again. The tagline field below still works.</p></div>
     </div>`;
   }
-  const slot = (variant, label, hint, current, fallbackUrl, dark) => {
-    const inUse = current || fallbackUrl;
+  const slot = (variant, label, hint, current, fallbackUrl, dark, missing) => {
+    // Batch 92: when the slot is configured but its file is missing,
+    // preview the built-in default and say so — never a broken image
+    // under a "custom logo is in use" claim.
+    const inUse = current && !missing ? current : fallbackUrl;
+    const stateCopy = missing
+      ? 'A custom logo was uploaded, but its file is missing — the built-in BitPype logo is in use. Upload again to fix this slot.'
+      : current
+        ? 'A custom logo is in use.'
+        : 'The built-in BitPype logo is in use.';
     return `<div class="kv" style="align-items:flex-start">
       <span class="k">${esc(label)}</span>
       <span>
         <span style="display:inline-block;padding:10px 14px;border-radius:8px;background:${dark ? '#141414' : '#F6F6F4'};border:1px solid var(--line, #ddd)">
           <img src="${esc(inUse)}" alt="${esc(label)} preview" style="display:block;max-width:240px;max-height:64px" />
         </span>
-        <br/><span class="hint">${esc(hint)} ${current ? 'A custom logo is in use.' : 'The built-in BitPype logo is in use.'}</span>
+        <br/><span class="hint">${esc(hint)} ${stateCopy}</span>
         <span class="row actions" style="margin-top:8px">
           <label class="btn" style="cursor:pointer">Upload / replace<input type="file" id="branding-file-${variant}" accept=".png,.jpg,.jpeg,.svg,.webp,image/png,image/jpeg,image/svg+xml,image/webp" style="display:none" /></label>
           ${current ? `<button class="btn" type="button" id="branding-reset-${variant}">Reset to default</button>` : ''}
@@ -8353,8 +8361,8 @@ function brandingPanelHtml(state) {
       <p class="hint">These logos appear across the app itself — sign-in, the staff area, the client portal, marketing pages and emails. Client websites keep their own branding and are not affected.</p>
     </div>
     <div class="panel-b">
-      ${slot('dark', 'Logo for dark screens', 'Shown on dark backgrounds — use a white or light logo.', state.logoDark, state.defaults.logoDarkUrl, true)}
-      ${slot('light', 'Logo for light screens', 'Shown on light backgrounds — use a black or dark logo.', state.logoLight, state.defaults.logoLightUrl, false)}
+      ${slot('dark', 'Logo for dark screens', 'Shown on dark backgrounds — use a white or light logo.', state.logoDark, state.defaults.logoDarkUrl, true, state.logoDarkMissing)}
+      ${slot('light', 'Logo for light screens', 'Shown on light backgrounds — use a black or dark logo.', state.logoLight, state.defaults.logoLightUrl, false, state.logoLightMissing)}
     </div>
   </div>`;
 }

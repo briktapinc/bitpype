@@ -517,6 +517,29 @@ function serveCustomBrandLogo(variant) {
 app.get('/brand/logo-white.png', serveCustomBrandLogo('dark'));
 app.get(['/brand/logo-black.png', '/brand/logo-email.png'], serveCustomBrandLogo('light'));
 
+// Batch 92 — serve the stored /brand-files/<filename> path itself.
+// Batch 87 minted that path as "the served path" and the Admin →
+// Settings → Branding previews use it as their <img> src, but no
+// route ever mounted it: previews 404'd (broken-image placeholders
+// under a "custom logo is in use" claim) while the canonical URLs
+// above served the custom logo correctly. The filename is strictly
+// validated by branding.storedLogoFile (minted names only, resolved
+// inside the brand dir on the data volume); anything else 404s.
+// Headers mirror serveCustomBrandLogo.
+app.get('/brand-files/:name', (req, res) => {
+  let stored = null;
+  try {
+    stored = require('./server/branding').storedLogoFile(req.params.name);
+  } catch {
+    stored = null;
+  }
+  if (!stored) return res.status(404).end();
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  return res.type(stored.contentType).sendFile(stored.file);
+});
+
 // Brand assets are embedded in outbound HTML email; email proxies need cross-origin reads.
 app.use(
   '/brand',
