@@ -131,7 +131,12 @@ const pretty = (s) => String(s == null ? '' : s).replace(/_/g, ' ');
 const fmtDate = (s) =>
   String(s || '')
     .slice(0, 16)
-    .replace('T', ' ');
+    .replace('T', ' ')
+    // Batch 107: non-breaking hyphen/space — a rendered timestamp is
+    // one unbreakable token, so a squeezed table column can never
+    // split a date mid-word (display only; storage is untouched).
+    .replace(/-/g, '\u2011')
+    .replace(/ /g, '\u00A0');
 const money = (n) => '$' + (Number.isFinite(Number(n)) ? Number(n).toFixed(2) : '0.00');
 const statusBadge = (s) => `<span class="badge status-${esc(s)}">${esc(pretty(s) || '—')}</span>`;
 
@@ -2364,7 +2369,7 @@ async function loadLeadGbp(dr, leadId) {
       </div>
       ${pre.websiteNote ? `<p class="hint">${esc(pre.websiteNote)}</p>` : ''}
       <h4 style="margin:14px 0 6px">Prefill — what BitPype has vs what Google shows</h4>
-      <table class="tbl"><thead><tr><th>Field</th><th>Google now</th><th>Proposed</th><th></th></tr></thead><tbody>${fieldRows}</tbody></table>
+      <div class="table-scroll"><table class="tbl"><thead><tr><th>Field</th><th>Google now</th><th>Proposed</th><th></th></tr></thead><tbody>${fieldRows}</tbody></table></div>
       <h4 style="margin:14px 0 6px">Edit profile draft</h4>
       <form id="ld-gbp-form">
         <div class="row">
@@ -3647,12 +3652,12 @@ async function pageWebsiteDetail(id) {
       out.innerHTML = '<span class="hint">Running QA…</span>';
       const r = (await api.websiteQa(id)).data;
       out.innerHTML = `<p><strong class="${r.pass ? 'check-pass' : 'check-fail'}">${r.pass ? 'PASS' : 'FAIL'}</strong></p>
-        <table><thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead><tbody>${(r.checks || [])
+        <div class="table-scroll"><table><thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead><tbody>${(r.checks || [])
           .map(
             (c) =>
               `<tr><td class="mono">${esc(c.name)}</td><td class="${c.pass ? 'check-pass' : 'check-fail'}">${c.pass ? 'PASS' : 'FAIL'}</td><td class="hint">${esc(c.detail || '')}</td></tr>`
           )
-          .join('')}</tbody></table>`;
+          .join('')}</tbody></table></div>`;
     },
     export: async () => {
       out.textContent = 'Exporting…';
@@ -6692,10 +6697,10 @@ async function pageSettings(param) {
           ${secret('ai.api_key', 'API key', 'Stored on the server; never displayed again.')}
           ${f('ai.base_url', 'Base URL')}
           <div class="field"><label>Model routing</label>
-            <table><thead><tr><th>Task</th><th>Model (blank = default)</th></tr></thead><tbody>
+            <div class="table-scroll"><table><thead><tr><th>Task</th><th>Model (blank = default)</th></tr></thead><tbody>
               <tr><td>default</td><td><input data-key="ai.model.default" value="${esc(s['ai.model.default'] || '')}" /></td></tr>
               ${MODEL_TASKS.map((t) => `<tr><td>${esc(t)}</td><td><input data-key="ai.model.${t}" value="${esc(s['ai.model.' + t] || '')}" /></td></tr>`).join('')}
-            </tbody></table></div>
+            </tbody></table></div></div>
           ${save('sec-ai', 'Save AI settings')}
         </section>
 
@@ -9141,7 +9146,7 @@ async function pageBilling(param, query) {
             : ''
         }
         <div class="msg" id="bill-credits-msg"></div>
-        <table><thead><tr><th>When</th><th>Change</th><th>Balance</th><th>Reason</th></tr></thead>
+        <div class="table-scroll"><table><thead><tr><th>When</th><th>Change</th><th>Balance</th><th>Reason</th></tr></thead>
         <tbody>
           ${
             ((summary.credits && summary.credits.recent) || [])
@@ -9155,7 +9160,7 @@ async function pageBilling(param, query) {
               )
               .join('') || '<tr><td colspan="4">No credit activity yet</td></tr>'
           }
-        </tbody></table>
+        </tbody></table></div>
       </div>
     </div>
     <div class="panel" id="bill-panel-payments"${billingTab === 'payments' ? '' : ' hidden'}>
@@ -10387,7 +10392,7 @@ async function pageCalls() {
       })
       .join('');
   const table = (rowsHtml) =>
-    `<table class="table"><thead><tr><th>Time</th><th>Business</th><th>From</th><th>To</th><th>Status</th><th>Duration</th><th></th></tr></thead><tbody id="cl-body">${rowsHtml}</tbody></table>`;
+    `<div class="table-scroll"><table class="table"><thead><tr><th>Time</th><th>Business</th><th>From</th><th>To</th><th>Status</th><th>Duration</th><th></th></tr></thead><tbody id="cl-body">${rowsHtml}</tbody></table></div>`;
   const configured = !!d.twilio_configured;
   const bizById = new Map(businesses.map((b) => [String(b.lead_id), b]));
   const cfgById = new Map(cfgList.map((b) => [String(b.lead_id), b]));
@@ -11643,8 +11648,8 @@ async function pageMailingList() {
         )
         .join('');
       box.innerHTML = `
-        <table class="table"><thead><tr><th>Email</th><th>Name</th><th>Status</th><th>Source</th><th>Added</th><th></th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="6" class="hint">No subscribers match.</td></tr>'}</tbody></table>
+        <div class="table-scroll"><table class="table"><thead><tr><th>Email</th><th>Name</th><th>Status</th><th>Source</th><th>Added</th><th></th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="6" class="hint">No subscribers match.</td></tr>'}</tbody></table></div>
         <div class="row pager">
           <button class="btn small" id="ml-prev" ${mlState.page <= 1 ? 'disabled' : ''}>← Prev</button>
           <span class="hint">Page ${mlState.page} of ${pages} · ${d.total || 0} matching</span>
@@ -11686,12 +11691,12 @@ async function pageMailingList() {
       const d = res.data || {};
       const rows = (d.rows || [])
         .map(
-          (r) => `<tr><td>${esc(String(r.created_at || '').slice(0, 16).replace('T', ' '))}</td><td>${esc(r.subject)}</td>
+          (r) => `<tr><td>${esc(fmtDate(r.created_at))}</td><td>${esc(r.subject)}</td>
             <td>${r.attempted}</td><td>${r.sent}</td><td>${r.failed}</td><td>${r.skipped}</td></tr>`
         )
         .join('');
-      box.innerHTML = `<table class="table"><thead><tr><th>Date</th><th>Subject</th><th>Attempted</th><th>Sent</th><th>Failed</th><th>Skipped (suppressed)</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="6" class="hint">No newsletters sent yet.</td></tr>'}</tbody></table>`;
+      box.innerHTML = `<div class="table-scroll"><table class="table"><thead><tr><th>Date</th><th>Subject</th><th>Attempted</th><th>Sent</th><th>Failed</th><th>Skipped (suppressed)</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="6" class="hint">No newsletters sent yet.</td></tr>'}</tbody></table></div>`;
     } catch (e) {
       box.innerHTML = `<p class="hint">${esc(errText(e))}</p>`;
     }

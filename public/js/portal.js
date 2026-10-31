@@ -3261,6 +3261,9 @@
         String(iso || '')
           .replace('T', ' ')
           .slice(0, 16)
+          // Batch 107: non-breaking separators (see fmtMcpDate).
+          .replace(/-/g, '\u2011')
+          .replace(/ /g, '\u00A0')
       ) + ' UTC'
     );
   }
@@ -4180,7 +4183,7 @@
         ${due > 0 ? '<p class="hint">Your balance ran out before some leads could be charged, so they are listed as due above. Leads are never held back — top up your credits with the BitPype team and we will settle it.</p>' : ''}
         <h4>Site leads</h4>
         <table><thead><tr><th scope="col">When</th><th scope="col">Type</th><th scope="col">Contact</th><th scope="col">Charge</th></tr></thead><tbody>
-        ${history.map((h) => `<tr><td>${esc(String(h.at || '').slice(0, 16))}</td><td>${esc(h.source_label || h.source || '')}</td><td>${esc(h.label || '')}</td><td>${h.charge ? esc(h.charge.status === 'trial' ? 'Free (trial)' : h.charge.status === 'charged' ? h.charge.credits + ' credits' : h.charge.status === 'due' ? dollars(h.charge.amount_due_cents) + ' due' : h.charge.status) : '—'}</td></tr>`).join('') || '<tr><td colspan="4">No leads yet — they will appear here the moment your site sends you one.</td></tr>'}
+        ${history.map((h) => `<tr><td>${esc(String(h.at || '').slice(0, 16).replace(/-/g, '\u2011').replace(/ /g, '\u00A0'))}</td><td>${esc(h.source_label || h.source || '')}</td><td>${esc(h.label || '')}</td><td>${h.charge ? esc(h.charge.status === 'trial' ? 'Free (trial)' : h.charge.status === 'charged' ? h.charge.credits + ' credits' : h.charge.status === 'due' ? dollars(h.charge.amount_due_cents) + ' due' : h.charge.status) : '—'}</td></tr>`).join('') || '<tr><td colspan="4">No leads yet — they will appear here the moment your site sends you one.</td></tr>'}
         </tbody></table>
       </div>`;
       })
@@ -4558,7 +4561,9 @@
 
   function fmtMcpDate(v) {
     if (!v) return '—';
-    return String(v).replace('T', ' ').slice(0, 16);
+    // Batch 107: non-breaking separators — a rendered timestamp is one
+    // unbreakable token inside table cells (display only).
+    return String(v).replace('T', ' ').slice(0, 16).replace(/-/g, '\u2011').replace(/ /g, '\u00A0');
   }
 
   function initMcpEndpointUi() {

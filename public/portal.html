@@ -1413,6 +1413,20 @@
       min-width: 0;
       overflow: hidden;
     }
+    /* Batch 107: a panel whose direct child is a bare table (Google
+       Profile compare, Rentals history, SEO changes, Analytics) scrolls
+       sideways instead of clipping the table at the panel edge. Inert
+       whenever the table fits; mirrors the staff app's rule. */
+    .panel:has(> table) {
+      overflow-x: auto;
+    }
+    /* Batch 107: portal tables keep a width floor at phone widths so
+       columns stop compressing (same pattern as the staff app);
+       timestamps render through non-breaking helpers in portal.js. */
+    @media (max-width: 700px) {
+      .panel table:has(tr > :nth-child(3)) { min-width: 430px; }
+      .panel table:has(tr > :nth-child(4)) { min-width: 520px; }
+    }
     .cal-scroll {
       width: 100%;
       max-width: 100%;
@@ -2025,6 +2039,34 @@
       flex-wrap: wrap;
       gap: 8px;
       align-items: center;
+      min-width: 0;
+      max-width: 100%;
+    }
+    /* Batch 107: the Show-on-page label + select is one flex item; the
+       select must be allowed to shrink (a select sizes to its widest
+       option, which ran the whole row off the card — Ely's screenshot,
+       2026-10-31). At phone widths the pair stacks, label above field. */
+    .modules-page-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0;
+      min-width: 0;
+    }
+    .modules-page-select {
+      min-width: 120px;
+      width: auto;
+      max-width: 100%;
+    }
+    @media (max-width: 700px) {
+      .modules-embed-actions { flex: 1 1 100%; }
+      .modules-page-label {
+        flex: 1 1 100%;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 4px;
+      }
+      .modules-page-select { width: 100%; min-width: 0; }
     }
     .modules-embed-details {
       margin: 12px 0 0;
@@ -2764,9 +2806,9 @@
                     <p class="hint" style="margin:6px 0 0">Tip: placed modules are styled to match your site automatically.</p>
                   </div>
                   <div class="modules-embed-actions">
-                    <label class="hint" style="display:flex;align-items:center;gap:6px;margin:0">
+                    <label class="hint modules-page-label">
                       Show on page
-                      <select id="modules-target-page" style="min-width:120px;width:auto"></select>
+                      <select id="modules-target-page" class="modules-page-select"></select>
                     </label>
                     <button type="button" class="btn" id="btn-modules-attach">Add to site</button>
                     <button type="button" class="btn ghost" id="btn-modules-detach">Remove</button>

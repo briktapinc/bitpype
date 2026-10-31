@@ -600,8 +600,12 @@ td.actions,
 }
 /* Admin panels whose body is a bare table scroll the body instead of
    letting the table burst out of the panel on narrow screens. Inert
-   whenever the content fits. */
-.panel-b:has(> table) {
+   whenever the content fits. Batch 107: the same containment extends
+   to cards and panels whose direct child is a bare table (finance,
+   partner earnings) — one rule for every table in the app. */
+.panel-b:has(> table),
+.card:has(> table),
+.panel:has(> table) {
   overflow-x: auto;
 }
 /* Sticky actions column: when a table scrolls sideways, pin its last
@@ -614,7 +618,11 @@ td.actions,
 .table-scroll td.actions,
 .table-scroll td:last-child:has(button),
 .panel-b td.actions,
-.panel-b td:last-child:has(button) {
+.panel-b td:last-child:has(button),
+.card td.actions,
+.card td:last-child:has(button),
+.panel td.actions,
+.panel td:last-child:has(button) {
   position: sticky;
   right: 0;
   background: var(--surface);
@@ -625,7 +633,11 @@ td.actions,
 .table-scroll tbody tr:hover td.actions,
 .table-scroll tbody tr:hover td:last-child:has(button),
 .panel-b tbody tr:hover td.actions,
-.panel-b tbody tr:hover td:last-child:has(button) {
+.panel-b tbody tr:hover td:last-child:has(button),
+.card tbody tr:hover td.actions,
+.card tbody tr:hover td:last-child:has(button),
+.panel tbody tr:hover td.actions,
+.panel tbody tr:hover td:last-child:has(button) {
   background: #faf3e7;
 }
 .table-wrap table:has(td.actions) thead th:last-child,
@@ -633,7 +645,11 @@ td.actions,
 .table-scroll table:has(td.actions) thead th:last-child,
 .table-scroll table:has(td:last-child button) thead th:last-child,
 .panel-b table:has(td.actions) thead th:last-child,
-.panel-b table:has(td:last-child button) thead th:last-child {
+.panel-b table:has(td:last-child button) thead th:last-child,
+.card table:has(td.actions) thead th:last-child,
+.card table:has(td:last-child button) thead th:last-child,
+.panel table:has(td.actions) thead th:last-child,
+.panel table:has(td:last-child button) thead th:last-child {
   position: sticky;
   right: 0;
   background: #f8f1e3;
@@ -649,12 +665,20 @@ td.actions,
   .table-scroll td:last-child:has(button),
   .panel-b td.actions,
   .panel-b td:last-child:has(button),
+  .card td.actions,
+  .card td:last-child:has(button),
+  .panel td.actions,
+  .panel td:last-child:has(button),
   .table-wrap table:has(td.actions) thead th:last-child,
   .table-wrap table:has(td:last-child button) thead th:last-child,
   .table-scroll table:has(td.actions) thead th:last-child,
   .table-scroll table:has(td:last-child button) thead th:last-child,
   .panel-b table:has(td.actions) thead th:last-child,
-  .panel-b table:has(td:last-child button) thead th:last-child {
+  .panel-b table:has(td:last-child button) thead th:last-child,
+  .card table:has(td.actions) thead th:last-child,
+  .card table:has(td:last-child button) thead th:last-child,
+  .panel table:has(td.actions) thead th:last-child,
+  .panel table:has(td:last-child button) thead th:last-child {
     border-left: 1px solid var(--border);
     box-shadow: -8px 0 8px -8px rgba(80, 40, 20, 0.22);
   }
@@ -2213,5 +2237,42 @@ details[open] > summary {
   .nav-links a,
   .nav-chevron {
     transition: none;
+  }
+}
+
+/* ---------- Batch 107: one mobile pattern for staff tables ----------
+   At phone widths a table inside any scroll container keeps a width
+   floor scaled to its column count, so columns stop compressing
+   until dates and statuses break mid-word (the Native Social drafts
+   screenshot, 2026-10-31): the container scrolls sideways instead —
+   the sticky actions column keeps row actions reachable — and the
+   page itself never scrolls horizontally. Floors only: cell text
+   still wraps at word boundaries in the room the floor provides, and
+   fmtDate renders timestamps with non-breaking separators so a date
+   can never split. Desktop rendering is untouched. */
+@media (max-width: 860px) {
+  :is(.table-wrap, .table-scroll, .panel-b, .card, .panel, .modal)
+    table:has(tr > :nth-child(4)) {
+    min-width: 540px;
+  }
+  :is(.table-wrap, .table-scroll, .panel-b, .card, .panel, .modal)
+    table:has(tr > :nth-child(5)) {
+    min-width: 630px;
+  }
+  :is(.table-wrap, .table-scroll, .panel-b, .card, .panel, .modal)
+    table:has(tr > :nth-child(6)) {
+    min-width: 720px;
+  }
+  :is(.table-wrap, .table-scroll, .panel-b, .card, .panel, .modal)
+    table:has(tr > :nth-child(7)) {
+    min-width: 810px;
+  }
+  :is(.table-wrap, .table-scroll, .panel-b, .card, .panel, .modal)
+    table:has(tr > :nth-child(8)) {
+    min-width: 900px;
+  }
+  :is(.table-wrap, .table-scroll, .panel-b, .card, .panel, .modal)
+    table:has(tr > :nth-child(9)) {
+    min-width: 990px;
   }
 }
