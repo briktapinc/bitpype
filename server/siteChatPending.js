@@ -25,6 +25,14 @@
  * The routing layer caps clarification at ONE round by default:
  * once rounds >= 1, a further answer implements the change with
  * design defaults instead of asking again (see runSiteAgentChat).
+ *
+ * Batch 96 — pending state EXPIRES (review finding H7): a
+ * clarification the owner walks away from must not steer the
+ * conversation forever. A row untouched for PENDING_TTL_DAYS is
+ * stale: reads sweep it (the row is deleted, never resurrected),
+ * the next owner message starts fresh, and runSiteAgentChat
+ * tells the owner plainly that the old request was let go
+ * (getPendingWithExpiry hands it the swept row for that note).
  */
 
 function ensureTable(db) {
@@ -121,10 +129,53 @@ function rowToPending(row) {
   };
 }
 
-function getPending(db, leadId) {
+/**
+ * Batch 96 — the pending TTL. "Untouched" is measured from
+ * updated_at: every save (a new question round, an answer, fresh
+ * settled facts) refreshes it, so an actively-clarifying thread
+ * stays alive; a thread abandoned for the full TTL expires.
+ */
+const PENDING_TTL_DAYS = 7;
+const PENDING_TTL_MS = PENDING_TTL_DAYS * 24 * 60 * 60 * 1000;
+
+/** Milliseconds since epoch for a stored datetime('now') value
+ * (UTC, 'YYYY-MM-DD HH:MM:SS'). NaN when unparseable — callers
+ * treat an unparseable timestamp as NOT expired: never sweep on
+ * data we cannot read. */
+function pendingTimestampMs(value) {
+  if (!value) return NaN;
+  return Date.parse(`${String(value).replace(' ', 'T')}Z`);
+}
+
+function isPendingExpired(row, nowMs = Date.now()) {
+  if (!row) return false;
+  const ts = pendingTimestampMs(row.updated_at) || pendingTimestampMs(row.created_at);
+  if (!Number.isFinite(ts)) return false;
+  return nowMs - ts > PENDING_TTL_MS;
+}
+
+/**
+ * Read this lead's pending clarification, sweeping it first if
+ * it has expired. Returns { pending, expired }: `pending` is the
+ * live row (or null); `expired` is the swept row in pending
+ * shape (or null) so the caller can tell the owner honestly
+ * what was let go. The sweep is a DELETE — an expired pending
+ * is never resurrected by a later reply; the conversation
+ * starts fresh.
+ */
+function getPendingWithExpiry(db, leadId, nowMs = Date.now()) {
   ensureTable(db);
-  const row = db.prepare('SELECT * FROM site_chat_pending WHERE lead_id = ?').get(Number(leadId));
-  return rowToPending(row);
+  const lid = Number(leadId);
+  const row = db.prepare('SELECT * FROM site_chat_pending WHERE lead_id = ?').get(lid);
+  if (row && isPendingExpired(row, nowMs)) {
+    db.prepare('DELETE FROM site_chat_pending WHERE lead_id = ?').run(lid);
+    return { pending: null, expired: rowToPending(row) };
+  }
+  return { pending: rowToPending(row), expired: null };
+}
+
+function getPending(db, leadId) {
+  return getPendingWithExpiry(db, leadId).pending;
 }
 
 function savePending(db, { leadId, kind, requestText, questionsText, answers, settled, rounds, pageSlug } = {}) {
@@ -164,8 +215,12 @@ function clearPending(db, leadId) {
 }
 
 module.exports = {
+  PENDING_TTL_DAYS,
+  PENDING_TTL_MS,
   ensureTable,
   getPending,
+  getPendingWithExpiry,
+  isPendingExpired,
   savePending,
   clearPending,
   mergeSettledFacts,

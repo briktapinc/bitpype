@@ -2157,9 +2157,11 @@
     syncAgentChatUi();
     appendAgentBubble('user', text, pending);
     setAgentChatStatus('Updating your site…', 'busy');
-    const history = state.agentChatHistory.slice(-10);
     try {
-      const body = { message: text, history };
+      // Batch 96: no history is sent — the server loads this
+      // site's saved transcript itself; the local array is now
+      // display state only.
+      const body = { message: text };
       if (pending.length) body.attachmentIds = pending.map((p) => p.id);
       if (state.previewPageSlug) body.pageSlug = state.previewPageSlug;
       const data = await api('/site/agent-chat', {

@@ -552,7 +552,9 @@ function loadChatAtt() {
                 ? require(path.join(root, 'server', 'siteChatPending.js'))
                 : name === './siteChatPlanner'
                   ? require(path.join(root, 'server', 'siteChatPlanner.js'))
-                  : require(name),
+                  : name === './siteChatThread'
+                    ? require(path.join(root, 'server', 'siteChatThread.js'))
+                    : require(name),
     });
     const runChat = m.exports;
 

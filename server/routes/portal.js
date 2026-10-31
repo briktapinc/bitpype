@@ -832,7 +832,10 @@ router.post('/site/theme', requireClient, editLimit, async (req, res) => {
 
 /**
  * Muse agent chat — describe a site improvement; agent edits via client tools and returns fresh preview HTML.
- * Body: { message: string, history?: [{ role, content }], pageSlug?: string }
+ * Body: { message: string, pageSlug?: string, attachmentIds?: number[] }
+ * Batch 96: conversation history is NOT accepted from the client —
+ * the pipeline loads the site's server-side transcript tail itself
+ * (a history field in the body is ignored).
  */
 router.post('/site/agent-chat', requireClient, agentChatLimit, async (req, res) => {
   try {

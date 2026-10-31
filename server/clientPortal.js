@@ -4426,7 +4426,9 @@ module.exports = {
 
 /**
  * Portal Muse agent chat: run lead-scoped improve loop, then return fresh editable HTML.
- * Body: { message, history?, pageSlug? }
+ * Body: { message, pageSlug?, attachmentIds? } — Batch 96: no
+ * client history; the pipeline loads the site's saved transcript
+ * tail itself (a history field in the body is ignored).
  */
 /** Batch 89 — design-chat image attachments (server/siteChatAttachments.js). */
 async function uploadSiteChatImage(workspaceId, leadId, payload = {}) {
@@ -4467,6 +4469,7 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
   const domain = require('./domain');
   const chatAtt = require('./siteChatAttachments');
   const chatPending = require('./siteChatPending');
+  const chatThread = require('./siteChatThread');
   const designJobs = require('../src/designJobs');
   const message = String((body && body.message) || '').trim();
   // Batch 89: a chat turn may carry image attachments (uploaded first via
@@ -4628,12 +4631,27 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
   // pending change stored server-side, specific SMALL changes are
   // implemented in-chat, specific BIG changes are queued to the
   // design agent, and off-topic messages are declined.
-  const pending = domain.withDb(workspaceId, (db) => chatPending.getPending(db, leadId));
+  // Batch 96: pending state is read through the TTL sweep — a
+  // clarification abandoned for PENDING_TTL_DAYS (7) is deleted
+  // here, before it can steer this turn, and the swept row is
+  // kept aside so the reply can tell the owner honestly that
+  // the old request was let go (see the note at reply assembly).
+  // This turn starts fresh; a stale pending never resurrects.
+  const { pending, expired: expiredPending } = domain.withDb(workspaceId, (db) =>
+    chatPending.getPendingWithExpiry(db, leadId)
+  );
+  // Batch 96 (§12.4): the saved transcript is the conversation's
+  // source of truth. The classifier and the improve loop are fed
+  // THIS site's server-side tail — the history array browsers
+  // used to send is retired and ignored if one still arrives,
+  // so a stale or tampered client can neither lose the thread
+  // nor invent one.
+  const serverHistory = domain.withDb(workspaceId, (db) => chatThread.listContextTail(db, leadId));
   const cls = await domain.withDb(workspaceId, async (db) =>
     museAgent.classifyPortalChatIntent(workspaceId, leadId, {
       db,
       message,
-      history: body.history,
+      history: serverHistory,
       pending,
       hasImages: modelImages.length > 0,
       siteContext,
@@ -4685,7 +4703,7 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     domain.withDb(workspaceId, async (db) =>
       museAgent.runPortalImproveLoop(workspaceId, leadId, {
         db,
-        history: body.history,
+        history: serverHistory,
         pageSlug,
         images: modelImages,
         siteContext,
@@ -4942,6 +4960,21 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
       reply += `\n\n— Still holding your earlier change request (“${still.requestText.slice(0, 90)}”) whenever you’re ready to pick it back up.`;
     }
   }
+  // Batch 96: if this turn swept an expired pending (TTL), say
+  // so — honestly, once, in the reply itself, and in the payload
+  // as pendingExpired. The owner learns the old request is gone;
+  // nothing about it steered this turn.
+  let pendingExpiredInfo = null;
+  if (expiredPending) {
+    pendingExpiredInfo = {
+      requestText: expiredPending.requestText,
+      createdAt: expiredPending.createdAt,
+      updatedAt: expiredPending.updatedAt,
+    };
+    if (reply) {
+      reply += `\n\n— One bit of housekeeping: your earlier change request (“${expiredPending.requestText.slice(0, 90)}”) had been waiting over a week, so I let it go rather than act on a stale request. If you’d still like it, just tell me and we’ll start it fresh.`;
+    }
+  }
 
   const rendered = renderClientSite(workspaceId, leadId, {
     editable: true,
@@ -4960,6 +4993,10 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     // still pending + the design job when a big change was queued.
     mode,
     pendingClarification: !!pendingNow,
+    // Batch 96: the pending clarification this turn swept as
+    // expired (TTL), or null — the machine-readable half of the
+    // housekeeping note appended to the reply.
+    pendingExpired: pendingExpiredInfo,
     queuedJobId,
     // Batch 89: echo the turn's attachments (thumbnail URLs are the
     // authorized fetch route) + whether the model received the images.

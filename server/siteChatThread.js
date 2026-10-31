@@ -4,15 +4,25 @@
  * Batch 93 — server-side assistant messages for the portal
  * site-builder chat thread.
  *
- * The chat thread itself lives in the portal page (client-side
- * history), but a BIG change queued to the design agent finishes
- * asynchronously — long after the chat turn that queued it. When a
+ * A BIG change queued to the design agent finishes asynchronously
+ * — long after the chat turn that queued it. When a
  * chat-originated design job is delivered (src/designJobs.js
  * deliverJob hook), its completion summary is written HERE as an
  * assistant message. The portal fetches undelivered messages via
  * GET /api/v1/portal/site/agent-chat/updates when the chat opens and
  * after each send, appends them to the thread, and they are marked
  * delivered so each one surfaces exactly once.
+ *
+ * Batch 94 — completed chat turns are persisted here too
+ * (recordSiteChatTurn), so the thread survives reloads and the
+ * panel can show the site's recent history on open.
+ *
+ * Batch 96 — this store is now the conversation's source of
+ * truth (§12.4): the chat pipeline loads its own context tail
+ * from here (listContextTail) instead of trusting a history
+ * array sent by the browser, and operators can look a site's
+ * transcript up (MCP site.chatTranscript) instead of asking the
+ * owner to paste it.
  */
 
 function ensureTable(db) {
@@ -38,6 +48,18 @@ function ensureTable(db) {
  * route for exactly this many of THIS site's latest messages.
  */
 const CHAT_HISTORY_LIMIT = 50;
+
+/**
+ * Batch 96 — how much of the saved transcript the chat pipeline
+ * itself loads as conversation context. The transcript is the
+ * source of truth (§12.4): runSiteAgentChat loads THIS tail
+ * server-side for the classifier and the improve loop, and the
+ * history array the browser used to send is retired — ignored
+ * if a client still sends one. 10 matches the window the loop
+ * always worked with (it sliced the client array to the last
+ * 10); the classifier slices its own last 6 from the same tail.
+ */
+const CHAT_CONTEXT_LIMIT = 10;
 
 function addMessage(db, { leadId, content, source = null, jobId = null, role = 'assistant', delivered = false } = {}) {
   ensureTable(db);
@@ -86,6 +108,19 @@ function listRecent(db, leadId, limit = CHAT_HISTORY_LIMIT) {
   return rows.reverse().map(rowToMessage);
 }
 
+/**
+ * The conversation-context tail for the chat pipeline: this
+ * site's most recent messages as plain { role, content } pairs,
+ * oldest-first — exactly the shape the classifier and the
+ * improve loop consume. Includes agent write-backs (a queued
+ * job's completion is part of the conversation the owner had).
+ * Strictly per lead, like every read of this store.
+ */
+function listContextTail(db, leadId, limit = CHAT_CONTEXT_LIMIT) {
+  const cap = Math.max(1, Math.min(CHAT_HISTORY_LIMIT, Number(limit) || CHAT_CONTEXT_LIMIT));
+  return listRecent(db, leadId, cap).map((m) => ({ role: m.role, content: m.content }));
+}
+
 /** Fetch this lead's undelivered messages and mark them delivered. */
 function takeUndelivered(db, leadId, limit = 10) {
   ensureTable(db);
@@ -110,8 +145,10 @@ function takeUndelivered(db, leadId, limit = 10) {
 
 module.exports = {
   CHAT_HISTORY_LIMIT,
+  CHAT_CONTEXT_LIMIT,
   ensureTable,
   addMessage,
   takeUndelivered,
   listRecent,
+  listContextTail,
 };

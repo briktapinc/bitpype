@@ -2236,6 +2236,12 @@ function parityToolDefs() {
       inputSchema: schema({ id: ID, leadId: ID }, ['id', 'leadId']),
     },
     {
+      name: 'site.chatTranscript',
+      description:
+        'Operator lookup (Batch 96): read a site\'s portal "Improve with AI" design-chat transcript — the server-side record of the owner\'s chat with the design agent for THIS lead only (owner + assistant turns and design-agent write-backs, oldest first, most recent window). Use it to debug a chat conversation from the stored transcript instead of asking the owner to paste it. Returns leadId, limit, count, messages [{id, role, content, source, jobId, createdAt}].',
+      inputSchema: schema({ leadId: ID, limit: { type: 'integer', minimum: 1, maximum: 50 } }, ['leadId']),
+    },
+    {
       name: 'website.versions',
       description: 'List saved versions of a website (version_no, note, author, created_at).',
       inputSchema: schema({ id: ID, page: { type: 'integer' }, pageSize: { type: 'integer' } }, ['id']),
@@ -2703,6 +2709,17 @@ async function callParityTool(ws, name, a) {
         base64: b64,
         dataUrl: `data:${found.row.mime};base64,${b64}`,
       };
+    }
+    case 'site.chatTranscript': {
+      const leadId = a.leadId != null ? Number(a.leadId) : undefined;
+      if (!(Number.isInteger(leadId) && leadId > 0)) {
+        throw Object.assign(new Error('leadId is required'), { code: 'INVALID_ARGS' });
+      }
+      const thread = require('./siteChatThread');
+      return domain.withDb(ws, (db) => {
+        const messages = thread.listRecent(db, leadId, a.limit);
+        return { leadId, limit: thread.CHAT_HISTORY_LIMIT, count: messages.length, messages };
+      });
     }
     case 'website.versions':
       return domain.sitesVersions(ws, need(a.id, 'id'), a);
