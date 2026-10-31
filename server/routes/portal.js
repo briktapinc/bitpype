@@ -880,17 +880,35 @@ router.post('/site/agent-chat', requireClient, agentChatLimit, async (req, res) 
     // Batch 94 — save the completed turn into THIS site's thread
     // so the chat window can show its recent history on open.
     // Best-effort: a history write must never fail the chat.
+    let recordedIds = [];
+    let recordedUserText = '';
     try {
       const body = req.body || {};
       const userText =
         String(body.message || '').trim() ||
         (Array.isArray(body.attachmentIds) && body.attachmentIds.length ? '[Image attached]' : '');
-      await portal.recordSiteChatTurn(req.client.workspace_id, req.client.lead_id, {
+      recordedUserText = userText;
+      const rec = await portal.recordSiteChatTurn(req.client.workspace_id, req.client.lead_id, {
         userText,
         assistantText: data && data.reply ? String(data.reply) : '',
       });
+      recordedIds = (rec && rec.ids) || [];
     } catch (histErr) {
       console.warn('[portal] chat history record failed:', histErr.message);
+    }
+    // Batch 100 — fold the turn into this site's rolling
+    // summary (settled facts, changes applied, open items),
+    // citing the recorded message ids. Best-effort, same rule.
+    try {
+      if (data && data.mode !== 'limit') {
+        await portal.updateSiteChatSummary(req.client.workspace_id, req.client.lead_id, {
+          userText: recordedUserText,
+          result: data,
+          ids: recordedIds,
+        });
+      }
+    } catch (sumErr) {
+      console.warn('[portal] chat summary update failed:', sumErr.message);
     }
     ok(res, data);
   } catch (e) {

@@ -2048,6 +2048,48 @@
     el.hidden = false;
   }
 
+  // Batch 100 — the rolling summary block: what the agent
+  // remembers about THIS site (settled choices, changes applied,
+  // open items), rendered once at the top of the thread from the
+  // history payload. Text is set via textContent throughout —
+  // summary entries are owner/agent text, never markup.
+  function renderAgentChatSummary(summary) {
+    const list = document.getElementById('agent-chat-messages');
+    if (!list || !summary || document.getElementById('agent-chat-summary')) return;
+    const sections = [
+      ['decisions', 'Decisions'],
+      ['preferences', 'Preferences'],
+      ['settledStyle', 'Settled style choices'],
+      ['changesApplied', 'Changes applied'],
+      ['openItems', 'Open items'],
+    ];
+    const details = document.createElement('details');
+    details.id = 'agent-chat-summary';
+    details.className = 'agent-chat-summary';
+    const head = document.createElement('summary');
+    head.textContent = 'What your design agent remembers about this site';
+    details.appendChild(head);
+    let any = false;
+    for (const [key, label] of sections) {
+      const entries = (Array.isArray(summary[key]) ? summary[key] : []).filter((e) => e && e.status === 'active');
+      if (!entries.length) continue;
+      any = true;
+      const title = document.createElement('div');
+      title.className = 'agent-chat-summary-section';
+      title.textContent = label;
+      details.appendChild(title);
+      const ul = document.createElement('ul');
+      for (const entry of entries) {
+        const li = document.createElement('li');
+        li.textContent = String(entry.text || '');
+        ul.appendChild(li);
+      }
+      details.appendChild(ul);
+    }
+    if (!any) return;
+    list.insertBefore(details, list.firstChild);
+  }
+
   function appendAgentBubble(role, text, attachments) {
     const list = document.getElementById('agent-chat-messages');
     const empty = document.getElementById('agent-chat-empty');
@@ -2274,6 +2316,7 @@
     try {
       const data = await api('/site/agent-chat/history');
       if (data && data.chatUsage) renderAgentChatUsage(data.chatUsage);
+      if (data && data.summary) renderAgentChatSummary(data.summary);
       const msgs = (data && data.messages) || [];
       if (!msgs.length || state.agentChatHistory.length) return;
       for (const m of msgs) {

@@ -4390,6 +4390,7 @@ module.exports = {
   runSiteAgentChat,
   takeSiteChatUpdates,
   recordSiteChatTurn,
+  updateSiteChatSummary,
   getSiteChatHistory,
   gateSiteChatRequest,
   getSiteChatUsage,
@@ -4667,6 +4668,23 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     }
   } catch {
     /* Tier-1 v2 is additive context — never a turn breaker */
+  }
+
+  // Batch 100 — the per-site ROLLING SUMMARY rides the context
+  // alongside the transcript tail: settled decisions, style
+  // choices, changes applied and open items from the WHOLE
+  // conversation, not just the recent tail (server/
+  // siteChatSummary.js, keyed by lead like every chat store —
+  // a summary can never cross sites). Best-effort like Tier-1 v2.
+  try {
+    const chatSummary = require('./siteChatSummary');
+    const summary = domain.withDb(workspaceId, (db) => chatSummary.getSummary(db, leadId));
+    const summaryText = chatSummary.renderSummaryText(summary);
+    if (summaryText) {
+      siteContext = `${siteContext}\n\nCONVERSATION SUMMARY (rolling digest of this site's earlier chat — settled facts here are binding, do not re-ask them):\n${summaryText}`;
+    }
+  } catch {
+    /* rolling summary is additive context — never a turn breaker */
   }
 
   // Batch 93: the chat is a design AGENT. Every message is classified
@@ -5266,6 +5284,9 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     // expired (TTL), or null — the machine-readable half of the
     // housekeeping note appended to the reply.
     pendingExpired: pendingExpiredInfo,
+    // Batch 100: the turn's settled facts ride the payload so
+    // the route can fold them into the rolling summary.
+    settled: settledNow,
     queuedJobId,
     // Batch 98: the persisted plan this turn ran on (null when
     // the change was unplanned or the turn made no change).
@@ -5335,10 +5356,42 @@ function recordSiteChatTurn(workspaceId, leadId, { userText = '', assistantText 
 function getSiteChatHistory(workspaceId, leadId) {
   const domain = require('./domain');
   const thread = require('./siteChatThread');
+  const chatSummary = require('./siteChatSummary');
   return domain.withDb(workspaceId, (db) => ({
     messages: thread.listRecent(db, leadId),
     limit: thread.CHAT_HISTORY_LIMIT,
+    // Batch 100: the rolling summary ships with the history so
+    // the chat window can show the owner what the agent
+    // remembers about THIS site (same per-lead keying).
+    summary: chatSummary.getSummary(db, leadId),
   }));
+}
+
+/**
+ * Batch 100 — merge one completed chat turn into the site's
+ * rolling summary. Called by the portal chat route right after
+ * the turn is recorded (the recorded message ids are the
+ * citations the summary entries carry). Settled facts come from
+ * the classifier's output for the turn, which rides the result
+ * payload's `settled` field when present; the deterministic
+ * merge lives in server/siteChatSummary.js.
+ */
+function updateSiteChatSummary(workspaceId, leadId, { userText = '', result = {}, ids = [] } = {}) {
+  const domain = require('./domain');
+  const chatSummary = require('./siteChatSummary');
+  const idList = Array.isArray(ids) ? ids : [];
+  return domain.withDb(workspaceId, (db) =>
+    chatSummary.mergeTurn(db, leadId, {
+      userText,
+      userMsgId: idList.length ? idList[0] : null,
+      assistantMsgId: idList.length > 1 ? idList[1] : null,
+      settledFacts: Array.isArray(result.settled) ? result.settled : [],
+      mode: result.mode || null,
+      mutated: !!result.mutated,
+      queuedJobId: result.queuedJobId || null,
+      reviewVerdict: result.review ? result.review.verdict : null,
+    })
+  );
 }
 
 /**
