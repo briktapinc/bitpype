@@ -246,7 +246,10 @@ function makeCfDb({ withCreds = true, project = '' } = {}) {
     const dbNoCreds = makeCfDb({ withCreds: false });
     cfDomains.ensureTables(dbNoCreds);
     httpCalls.length = 0;
-    await assert.rejects(() => cfDomains.registerDomain(dbNoCreds, 'cheap-fixture.com', {}), /CF_WORKSPACE_TOKEN_REQUIRED/);
+    await assert.rejects(
+      () => cfDomains.registerDomain(dbNoCreds, 'cheap-fixture.com', {}),
+      (e) => e && e.code === 'CF_WORKSPACE_TOKEN_REQUIRED'
+    );
     n++;
     assert.equal(
       httpCalls.filter((c) => c.path.includes('/registrar/')).length,
