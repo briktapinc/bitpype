@@ -465,10 +465,18 @@ function makeCfDb({ withCreds = true, project = '' } = {}) {
   {
     let n = 0;
     const mcpSrc = fs.readFileSync(path.join(root, 'server', 'mcp.js'), 'utf8');
-    const poolGate = mcpSrc.indexOf("name === 'calls.poolAdd'");
-    assert.ok(poolGate > 0, 'MCP dispatch has a calls.poolAdd partner gate');
+    // Anchor on the dispatch-level SEC-11 gate block (the first
+    // 'calls.poolAdd' occurrence in the file is the tool handler).
+    const poolGate = mcpSrc.indexOf('SEC-11');
+    assert.ok(poolGate > 0, 'MCP dispatch carries the SEC-11 gate block');
     n++;
-    assert.ok(mcpSrc.slice(poolGate, poolGate + 400).includes('gatePurchaseForWorkspace'), 'poolAdd gate uses the workspace gate');
+    const gateBlock = mcpSrc.slice(poolGate, poolGate + 600);
+    assert.ok(
+      gateBlock.includes("name === 'calls.poolAdd'") &&
+        gateBlock.includes('gatePurchaseForWorkspace') &&
+        gateBlock.includes('call_number_purchase'),
+      'poolAdd gate uses the workspace gate with the call_number_purchase kind'
+    );
     n++;
     const serverSrc = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
     assert.ok(
