@@ -2209,10 +2209,38 @@
     } finally {
       state.agentChatBusy = false;
       syncAgentChatUi();
+      fetchAgentChatUpdates();
+    }
+  }
+
+  // Batch 93: design-agent completions for chat-queued big jobs are
+  // delivered server-side into the thread. Fetch any undelivered
+  // ones and append them as assistant bubbles (and into the chat
+  // history, so later turns know the outcome). Runs when the chat
+  // wires up, after each send, and on a gentle interval while the
+  // builder is open — a queued job may finish at any time.
+  async function fetchAgentChatUpdates() {
+    try {
+      const data = await api('/site/agent-chat/updates');
+      const msgs = (data && data.messages) || [];
+      for (const m of msgs) {
+        if (!m || !m.content) continue;
+        appendAgentBubble('assistant', m.content);
+        state.agentChatHistory.push({ role: 'assistant', content: m.content });
+      }
+      if (msgs.length && state.agentChatHistory.length > 20) {
+        state.agentChatHistory = state.agentChatHistory.slice(-20);
+      }
+    } catch {
+      /* updates are best-effort; the chat itself must never break */
     }
   }
 
   function wireAgentChat() {
+    fetchAgentChatUpdates();
+    if (!wireAgentChat._poll) {
+      wireAgentChat._poll = setInterval(fetchAgentChatUpdates, 60000);
+    }
     const form = document.getElementById('agent-chat-form');
     const input = document.getElementById('agent-chat-input');
     const toggle = document.getElementById('agent-chat-toggle');

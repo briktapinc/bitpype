@@ -213,6 +213,38 @@
     }
     .agent-chat-status.is-busy { color: var(--warn); }
     .agent-chat-status.is-err { color: var(--danger); }
+    /* Batch 93: while the agent is working on a turn ("Updating
+       your site…", "Attaching image…") the busy status is animated —
+       a gentle pulse on the line plus a pulsing lead dot. Pure CSS
+       keyed on .is-busy, which setAgentChatStatus toggles for
+       exactly the turn's duration, so the animation starts and
+       stops with the work and leaves no state behind. */
+    .agent-chat-status.is-busy {
+      animation: agent-chat-busy-pulse 1.6s ease-in-out infinite;
+    }
+    .agent-chat-status.is-busy::before {
+      content: '';
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      margin-right: 7px;
+      border-radius: 50%;
+      background: var(--warn);
+      vertical-align: 2px;
+      animation: agent-chat-busy-dot 1.6s ease-in-out infinite;
+    }
+    @keyframes agent-chat-busy-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    @keyframes agent-chat-busy-dot {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(0.6); opacity: 0.55; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .agent-chat-status.is-busy,
+      .agent-chat-status.is-busy::before { animation: none; }
+    }
     .agent-chat-compose {
       display: flex;
       flex-direction: column;

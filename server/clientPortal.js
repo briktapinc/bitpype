@@ -4298,6 +4298,7 @@ module.exports = {
   listClientMcpTokens,
   revokeClientMcpToken,
   runSiteAgentChat,
+  takeSiteChatUpdates,
   uploadSiteChatImage,
   fetchSiteChatImage,
   listSiteChatImages,
@@ -4372,6 +4373,8 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
   const museAgent = require('./museAgent');
   const domain = require('./domain');
   const chatAtt = require('./siteChatAttachments');
+  const chatPending = require('./siteChatPending');
+  const designJobs = require('../src/designJobs');
   const message = String((body && body.message) || '').trim();
   // Batch 89: a chat turn may carry image attachments (uploaded first via
   // uploadSiteChatImage). An image-only turn is valid; a turn with
@@ -4384,14 +4387,120 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     throw Object.assign(new Error('Message is too long (max 4000 characters)'), { code: 'TOO_LONG' });
   }
 
+  // Batch 93 (context tiers): Tier 1 — a structured whole-site map
+  // built fresh each turn from the workspace DB: business basics,
+  // every page with its sections/content summaries, the module
+  // inventory with key content (incl. DataTables / Charts), and the
+  // brand/style settings. It rides the classifier, every chat mode,
+  // and a queued big job's spec. Tier 2 is the agent's read tools,
+  // used when a turn needs full detail beyond the map. The map is
+  // deliberately a SUMMARY (capped) — raw full-site text every turn
+  // would bury the conversation and degrade answers.
+  const buildSiteMap = (db, site) => {
+    const lines = [];
+    const clip = (v, n) =>
+      String(v == null ? '' : v)
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, n);
+    try {
+      const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(Number(leadId)) || {};
+      const basics = [
+        lead.business_name ? `Business: ${clip(lead.business_name, 90)}` : '',
+        lead.category ? `Category: ${clip(lead.category, 60)}` : '',
+        lead.phone ? `Phone: ${clip(lead.phone, 30)}` : '',
+        lead.email ? `Email: ${clip(lead.email, 60)}` : '',
+        [lead.city, lead.state].filter(Boolean).length
+          ? `Location: ${clip([lead.city, lead.state].filter(Boolean).join(', '), 60)}`
+          : '',
+        lead.address ? `Address: ${clip(lead.address, 90)}` : '',
+      ].filter(Boolean);
+      if (basics.length) lines.push(basics.join(' · '));
+    } catch {
+      /* basics are best-effort */
+    }
+    lines.push(`Website: ${clip(site.name, 90) || 'Untitled'} (status ${clip(site.status, 20) || 'draft'})`);
+    const theme = site.theme && typeof site.theme === 'object' ? site.theme : {};
+    const themeBits = [];
+    for (const key of ['primaryColor', 'primary_color', 'secondaryColor', 'accentColor', 'backgroundColor', 'textColor', 'fontHeading', 'fontBody', 'font', 'logoUrl', 'logo']) {
+      if (theme[key] != null && String(theme[key]).trim() !== '') {
+        themeBits.push(`${key}: ${clip(theme[key], 60)}`);
+      }
+    }
+    if (themeBits.length) lines.push(`Brand/style: ${themeBits.join(' · ')}`);
+    lines.push('Pages:');
+    for (const page of site.pages || []) {
+      if (!page || typeof page !== 'object') continue;
+      const slug = clip(page.slug || page.id || 'index', 40);
+      const title = clip(page.title || page.name || '', 70);
+      lines.push(`- /${slug}${title ? ` — ${title}` : ''}`);
+      const sections = Array.isArray(page.sections) ? page.sections : [];
+      for (const sec of sections.slice(0, 14)) {
+        if (!sec || typeof sec !== 'object') continue;
+        const c = sec.content && typeof sec.content === 'object' ? sec.content : sec;
+        const bits = [];
+        for (const key of ['heading', 'title', 'headline', 'subtitle', 'text', 'body', 'description']) {
+          if (c[key] != null && typeof c[key] === 'string' && c[key].trim()) {
+            bits.push(clip(c[key], 110));
+            if (bits.length >= 2) break;
+          }
+        }
+        lines.push(`    · ${clip(sec.type || sec.kind || 'section', 30)}${bits.length ? `: ${bits.join(' — ')}` : ''}`);
+      }
+      if (sections.length > 14) lines.push(`    · …and ${sections.length - 14} more sections`);
+    }
+    try {
+      const embeds = db
+        .prepare('SELECT module_type FROM site_module_embeds WHERE lead_id = ? ORDER BY module_type')
+        .all(Number(leadId));
+      if (embeds.length) {
+        lines.push(`Modules on the site: ${embeds.map((e) => e.module_type).join(', ')}`);
+      }
+    } catch {
+      /* module inventory is best-effort */
+    }
+    try {
+      const dt = db.prepare('SELECT title, columns_json FROM datatable_configs WHERE lead_id = ?').get(Number(leadId));
+      if (dt) {
+        let cols = '';
+        try {
+          const parsed = JSON.parse(dt.columns_json || '[]');
+          if (Array.isArray(parsed)) cols = parsed.map((col) => clip(col.label || col.key, 30)).filter(Boolean).join(', ');
+        } catch {
+          cols = '';
+        }
+        lines.push(`Data Table: "${clip(dt.title, 60)}"${cols ? ` (columns: ${cols})` : ''}`);
+      }
+    } catch {
+      /* table summary is best-effort */
+    }
+    try {
+      const chartRows = db.prepare('SELECT * FROM charts WHERE lead_id = ? LIMIT 20').all(Number(leadId));
+      for (const ch of chartRows) {
+        const label = clip(ch.title || ch.name || 'Chart', 50);
+        const type = clip(ch.chart_type || ch.type || '', 20);
+        lines.push(`Chart: "${label}"${type ? ` (${type})` : ''}`);
+      }
+    } catch {
+      /* chart summary is best-effort */
+    }
+    const map = lines.join('\n');
+    return map.length > 7000 ? `${map.slice(0, 7000)}\n[site map truncated — full detail is available through the read tools]` : map;
+  };
+
   let attachmentRows = [];
   let siteId = null;
+  let pageCount = 0;
+  let siteContext = '';
   domain.withDb(workspaceId, (db) => {
     const site = resolveClientSite(db, leadId);
     if (!site || !Array.isArray(site.pages) || !site.pages.length) {
       throw Object.assign(new Error('No website is available yet'), { code: 'NO_SITE' });
     }
     siteId = site.id;
+    pageCount = site.pages.length;
+    siteContext = buildSiteMap(db, site);
     if (attachmentIds.length) {
       // Ownership is enforced here: every id must belong to THIS lead.
       attachmentRows = chatAtt.loadForChat(db, { leadId, ids: attachmentIds });
@@ -4414,15 +4523,220 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
   const pageSlug =
     body.pageSlug != null && String(body.pageSlug).trim() !== '' ? String(body.pageSlug).trim() : undefined;
 
-  const loop = await domain.withDb(workspaceId, async (db) =>
-    museAgent.runPortalImproveLoop(workspaceId, leadId, {
+  // Batch 93: the chat is a design AGENT. Every message is classified
+  // first (question / change / off-topic / ambiguous / clarification
+  // answer / cancel) and routed: questions are answered read-only,
+  // underspecified changes ask clarification questions with the
+  // pending change stored server-side, specific SMALL changes are
+  // implemented in-chat, specific BIG changes are queued to the
+  // design agent, and off-topic messages are declined.
+  const pending = domain.withDb(workspaceId, (db) => chatPending.getPending(db, leadId));
+  const cls = await domain.withDb(workspaceId, async (db) =>
+    museAgent.classifyPortalChatIntent(workspaceId, leadId, {
       db,
       message,
       history: body.history,
-      pageSlug,
-      images: modelImages,
+      pending,
+      hasImages: modelImages.length > 0,
+      siteContext,
     })
   );
+  if (cls && cls.error === 'muse_not_configured') {
+    throw Object.assign(
+      new Error('AI site chat is not configured yet. Ask your BitPype admin to add the Muse Model API key.'),
+      { code: 'AI_NOT_CONFIGURED' }
+    );
+  }
+  if (cls && cls.error === 'budget_exceeded') {
+    throw Object.assign(new Error('Daily AI budget reached. Try again tomorrow or contact support.'), {
+      code: 'BUDGET_EXCEEDED',
+    });
+  }
+
+  const intent = cls && cls.intent ? String(cls.intent) : 'ambiguous';
+  const ready = !!(cls && cls.ready);
+  // The size gate (Batch 93): a ready change judged BIG is queued to
+  // the design agent instead of being implemented in the chat. This
+  // single expression is the gate the batch93 suite negative-proofs.
+  const isBig = !!(cls && cls.size === 'big');
+
+  const runLoop = async (loopOpts) =>
+    domain.withDb(workspaceId, async (db) =>
+      museAgent.runPortalImproveLoop(workspaceId, leadId, {
+        db,
+        history: body.history,
+        pageSlug,
+        images: modelImages,
+        siteContext,
+        ...loopOpts,
+      })
+    );
+
+  // Queue a BIG change through the EXISTING design-job queue
+  // (designJobs.createJob — the same queue the staff flow uses).
+  // Chat jobs carry type 'improvement' so they never collide with
+  // the lead's main 'website' job. The clarified spec is distilled
+  // into the job instructions, and the chat origin + attachment ids
+  // are stamped into the job brief so completion can write back to
+  // this thread (deliverJob hook) and the claiming agent can fetch
+  // the owner's images via site.chatAttachments / site.chatAttachment.
+  const queueBigJob = (specText) => {
+    const instructions = [
+      'Queued from the portal site-builder chat — the owner asked for the change below and clarified it in conversation. Improve the EXISTING site; do not rebuild it from scratch.',
+      '',
+      specText,
+      attachmentIds.length
+        ? `\nThe owner attached image(s) in the chat: attachment ids ${attachmentIds.join(', ')}. Fetch them before designing with the MCP tools site.chatAttachments / site.chatAttachment (leadId ${Number(leadId)}).`
+        : '',
+      '\nWhen you deliver with design.deliver, include a short plain-English summary of what you changed in the payload\'s "summary" field — it is posted back to the owner in this chat thread.',
+      siteContext
+        ? `\nSite context (whole-site map at queue time — pull full page content, exact styles, and module data with the site tools when you need detail):\n${siteContext}`
+        : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+    return domain.withDb(workspaceId, (db) => {
+      designJobs.ensureTables(db);
+      let jobId = null;
+      const open = db
+        .prepare(
+          "SELECT * FROM design_jobs WHERE lead_id = ? AND type = 'improvement' AND status != 'delivered' ORDER BY id DESC LIMIT 1"
+        )
+        .get(Number(leadId));
+      if (open) {
+        // createJob would REPLACE an open job's instructions; a
+        // second big ask must not silently erase the first — append.
+        const merged = `${open.instructions}\n\n---\nAdditional queued request from the owner (builder chat):\n${instructions}`;
+        db.prepare(
+          "UPDATE design_jobs SET instructions = ?, status = 'waiting_on_agent', updated_at = datetime('now') WHERE id = ?"
+        ).run(merged, open.id);
+        designJobs.notifyAgentQueue(
+          db,
+          `Design job #${open.id} updated from the site-builder chat. Status waiting_on_agent — MCP agents: design.next or design.pending.`,
+          { jobId: open.id, reason: 'refreshed', status: 'waiting_on_agent' }
+        );
+        jobId = Number(open.id);
+      } else {
+        const created = designJobs.createJob(db, {
+          leadId: Number(leadId),
+          type: 'improvement',
+          title: `Improvement: ${(message || 'Site change').slice(0, 70)}`,
+          instructions,
+          siteShape: pageCount > 1 ? 'multipage' : 'landing',
+        });
+        jobId = Number(created.id);
+      }
+      const row = db.prepare('SELECT brief FROM design_jobs WHERE id = ?').get(jobId);
+      let briefObj = {};
+      try {
+        briefObj = JSON.parse((row && row.brief) || '{}') || {};
+      } catch {
+        briefObj = {};
+      }
+      briefObj.chat_origin = {
+        source: 'portal_site_chat',
+        attachmentIds,
+        websiteId: siteId,
+        queuedAt: new Date().toISOString(),
+      };
+      db.prepare('UPDATE design_jobs SET brief = ? WHERE id = ?').run(JSON.stringify(briefObj), jobId);
+      return jobId;
+    });
+  };
+
+  let mode = 'answer';
+  let loop = null;
+  let replyOverride = null;
+  let queuedJobId = null;
+
+  if (intent === 'offtopic') {
+    mode = 'offtopic';
+    replyOverride =
+      "I'm the design agent for your website, so I can only help with your site — its design, content, and how it looks and works. Ask me anything about your website, or tell me about a change you'd like.";
+  } else if (intent === 'cancel' && pending) {
+    domain.withDb(workspaceId, (db) => chatPending.clearPending(db, leadId));
+    mode = 'answer';
+    replyOverride = 'No problem — I’ve dropped that change request. Your site hasn’t been changed.';
+  } else if (intent === 'question') {
+    mode = 'answer';
+    // An either/or check that resolves as "just asking" is closed
+    // out; a clarification-pending change stays alive (requirement:
+    // answer the question, keep the pending change).
+    if (pending && pending.kind === 'either_or') {
+      domain.withDb(workspaceId, (db) => chatPending.clearPending(db, leadId));
+    }
+    loop = await runLoop({ message, mode: 'answer' });
+  } else if (intent === 'ambiguous' && !pending) {
+    mode = 'clarify';
+    loop = await runLoop({ message, mode: 'clarify', clarifyAbout: message, clarifyKind: 'either_or' });
+    if (loop && !loop.error) {
+      domain.withDb(workspaceId, (db) =>
+        chatPending.savePending(db, {
+          leadId,
+          kind: 'either_or',
+          requestText: message,
+          questionsText: loop.reply,
+          answers: [],
+          pageSlug,
+        })
+      );
+    }
+  } else if (!ready) {
+    // Clarification gate: an underspecified change (fresh, a
+    // clarification answer that is still not specific enough, or an
+    // ambiguous message while a change is pending) — ask, never edit.
+    mode = 'clarify';
+    const keepPending = !!pending && intent !== 'change';
+    const baseRequest = keepPending ? pending.requestText : message;
+    const priorAnswers = keepPending ? pending.answers : [];
+    loop = await runLoop({ message, mode: 'clarify', clarifyAbout: baseRequest, clarifyKind: 'open' });
+    if (loop && !loop.error) {
+      const answers =
+        intent === 'clarify_answer' && keepPending ? [...priorAnswers, message].slice(-20) : priorAnswers;
+      domain.withDb(workspaceId, (db) =>
+        chatPending.savePending(db, {
+          leadId,
+          kind: 'clarify',
+          requestText: baseRequest,
+          questionsText: loop.reply,
+          answers,
+          pageSlug,
+        })
+      );
+    }
+  } else {
+    // Ready: a specific change (fresh, clarified, or an either/or the
+    // owner confirmed). SMALL is implemented in-chat; BIG is queued.
+    const fromClarify = !!pending && intent === 'clarify_answer';
+    const answers = fromClarify ? [...pending.answers, message] : [];
+    const specText = fromClarify
+      ? [
+          pending.requestText,
+          '',
+          'Clarifications from the owner:',
+          ...answers.map((a) => `- ${a}`),
+          '',
+          'Implement this change now, following the clarifications.',
+        ].join('\n')
+      : message;
+    if (isBig) {
+      mode = 'queued';
+      queuedJobId = queueBigJob(specText);
+      if (pending) {
+        domain.withDb(workspaceId, (db) => chatPending.clearPending(db, leadId));
+      }
+      const sizeNote = cls && cls.borderline ? 'This one’s on the bigger side' : 'This is a bigger job';
+      replyOverride = `${sizeNote}, so I’m not doing it live in the chat — I’ve queued it for the design agent with the full details${
+        attachmentIds.length ? ', including the image(s) you attached' : ''
+      }. They’ll pick it up from the design queue, and I’ll post their summary here in this chat when it’s done. Your site hasn’t been changed yet.`;
+    } else {
+      mode = 'build';
+      loop = await runLoop({ message: specText, mode: 'build' });
+      if (pending && loop && (!loop.error || loop.mutated)) {
+        domain.withDb(workspaceId, (db) => chatPending.clearPending(db, leadId));
+      }
+    }
+  }
 
   if (loop && loop.error === 'muse_not_configured') {
     throw Object.assign(
@@ -4437,9 +4751,13 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
   }
 
   if (loop && loop.error && !loop.mutated) {
-    console.warn('[clientPortal] AI improvement failed:', String(loop.error).slice(0, 80));
+    console.warn('[clientPortal] AI chat turn failed:', String(loop.error).slice(0, 80));
     throw Object.assign(
-      new Error('The AI could not apply this change. No website changes were saved. Please try again.'),
+      new Error(
+        mode === 'build'
+          ? 'The AI could not apply this change. No website changes were saved. Please try again.'
+          : 'The AI could not answer just now. No website changes were saved. Please try again.'
+      ),
       { code: 'AI_IMPROVEMENT_FAILED', status: 502 }
     );
   }
@@ -4461,18 +4779,37 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     }
   }
 
+  let reply = replyOverride != null ? replyOverride : (loop && loop.reply) || '';
+  if (mode === 'build' && cls && cls.borderline && loop && loop.mutated) {
+    reply = `Small enough to do right here in the chat.\n\n${reply}`;
+  }
+  if (mode === 'answer' && !replyOverride) {
+    // Requirement: a question answered mid-clarification keeps the
+    // pending change visible, subtly, in the reply itself.
+    const still = domain.withDb(workspaceId, (db) => chatPending.getPending(db, leadId));
+    if (still && still.kind === 'clarify' && !reply.includes(still.requestText.slice(0, 30))) {
+      reply += `\n\n— Still holding your earlier change request (“${still.requestText.slice(0, 90)}”) whenever you’re ready to pick it back up.`;
+    }
+  }
+
   const rendered = renderClientSite(workspaceId, leadId, {
     editable: true,
     pageSlug,
   });
+  const pendingNow = domain.withDb(workspaceId, (db) => chatPending.getPending(db, leadId));
 
   return {
-    reply: (loop && loop.reply) || '',
+    reply,
     steps: (loop && loop.steps) || 0,
     toolCalls: (loop && loop.toolCalls) || 0,
     mutated: !!(loop && loop.mutated),
     published: !!(loop && loop.published),
     model: loop && loop.model,
+    // Batch 93: how this turn was routed + whether a clarification is
+    // still pending + the design job when a big change was queued.
+    mode,
+    pendingClarification: !!pendingNow,
+    queuedJobId,
     // Batch 89: echo the turn's attachments (thumbnail URLs are the
     // authorized fetch route) + whether the model received the images.
     attachments: attachmentRows.map((row) => chatAtt.publicRow(row)),
@@ -4489,6 +4826,16 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     logo: rendered.logo || null,
     pages: rendered.pages || null,
   };
+}
+
+// Batch 93: design-agent completions for chat-queued jobs land in
+// site_chat_messages (written by the deliverJob hook); the portal
+// fetches them here and they are marked delivered — each surfaces
+// in the thread exactly once.
+function takeSiteChatUpdates(workspaceId, leadId) {
+  const domain = require('./domain');
+  const thread = require('./siteChatThread');
+  return domain.withDb(workspaceId, (db) => ({ messages: thread.takeUndelivered(db, leadId) }));
 }
 
 /**

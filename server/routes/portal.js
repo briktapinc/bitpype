@@ -849,6 +849,25 @@ router.post('/site/agent-chat', requireClient, agentChatLimit, async (req, res) 
   }
 });
 
+// Batch 93 — design-agent completions for chat-queued big jobs land
+// in the thread through here: returns this lead's undelivered
+// assistant messages (e.g. a queued job's completion summary) and
+// marks them delivered, so each surfaces exactly once.
+router.get('/site/agent-chat/updates', requireClient, async (req, res) => {
+  try {
+    if (
+      Number(req.session.clientLeadId) !== Number(req.client.lead_id) ||
+      Number(req.session.clientWorkspaceId) !== Number(req.client.workspace_id)
+    ) {
+      return res.status(403).json({ ok: false, error: 'FORBIDDEN', code: 'FORBIDDEN' });
+    }
+    const data = await portal.takeSiteChatUpdates(req.client.workspace_id, req.client.lead_id);
+    ok(res, data);
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+
 // Batch 89 — design-chat image attachments. Upload is base64-in-JSON
 // (codebase convention), validated by magic bytes in clientPortal /
 // siteChatAttachments (PNG/JPG/WebP/GIF, ≤10 MB, no SVG). There is NO

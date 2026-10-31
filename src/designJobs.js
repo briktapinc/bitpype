@@ -2224,6 +2224,30 @@ async function deliverJob(db, jobId, payload, agentClaims, opts = {}) {
     ).run(encoded, JSON.stringify(claims), websiteId, jobId);
   }
   logActivity(db, `Design job #${jobId} delivered by agent (${row.type}${siteShape ? `, ${siteShape}` : ''}).`);
+  // Batch 93: a job queued from the portal site-builder chat reports
+  // back into that chat thread — the owner's completion summary is
+  // stored as an assistant message and surfaces in the thread via
+  // GET /portal/site/agent-chat/updates. Best-effort by design: a
+  // write-back failure must never break a delivery.
+  try {
+    const origin = (parseJson(row.brief, {}) || {}).chat_origin;
+    if (origin && origin.source === 'portal_site_chat' && row.lead_id) {
+      const thread = require('../server/siteChatThread');
+      const summary = [payload.summary, payload.message, payload.notes]
+        .map((v) => (v != null ? String(v).trim() : ''))
+        .find(Boolean);
+      thread.addMessage(db, {
+        leadId: row.lead_id,
+        jobId,
+        source: 'design_job',
+        content: summary
+          ? `Your queued design job is done. ${summary}`
+          : `Your queued design job (#${jobId}) has been completed by the design agent — take a look at your site preview.`,
+      });
+    }
+  } catch (e) {
+    console.warn('[designJobs] chat write-back failed:', e.message || e);
+  }
   try {
     require('./designLearning').observeDeliver(db, jobId, {
       hadPrior: hadPriorDelivery,

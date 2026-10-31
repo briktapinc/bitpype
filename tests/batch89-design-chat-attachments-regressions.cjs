@@ -535,12 +535,18 @@ function loadChatAtt() {
                   imagesDropped: false,
                 };
               },
+              // Batch 93: the chat classifies before it loops; this
+              // stub keeps the slice on the direct build path the
+              // Batch 89 assertions were written against.
+              classifyPortalChatIntent: async () => ({ intent: 'change', ready: true, size: 'small' }),
             }
           : name === './domain'
             ? { withDb: (_ws, fn) => fn(realDb) }
             : name === './siteChatAttachments'
               ? chatAtt
-              : require(name),
+              : name === './siteChatPending'
+                ? require(path.join(root, 'server', 'siteChatPending.js'))
+                : require(name),
     });
     const runChat = m.exports;
 

@@ -871,6 +871,11 @@ function deleteLead(db, id) {
     // conversation; their rows drop here and the files are unlinked
     // after the transaction (paths collected before the tx below).
     drop('site_chat_attachments');
+    // Batch 93: the builder chat's pending clarification and any
+    // undelivered design-agent thread messages belong to the lead's
+    // conversation too — they drop with the lead.
+    drop('site_chat_pending');
+    drop('site_chat_messages');
     // Batch 90: chart definitions belong to the lead's Charts module;
     // they carry a plain lead_id with no FK, so drop them explicitly
     // (module delete also sweeps them via modulePurgeSteps).

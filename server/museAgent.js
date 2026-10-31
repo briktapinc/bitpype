@@ -46,6 +46,79 @@ const DENY_TOOLS = new Set([
   'handsOff.status',
 ]);
 
+/**
+ * Batch 93 — the portal chat is a design AGENT, not a build pipe:
+ * a message may be a question, an underspecified change (clarify
+ * first), a specific change (implement), or off-topic (decline).
+ * Question / clarification turns run READ-ONLY. PORTAL_MUTATE_TOOLS
+ * is NOT the fence — it only lists the tools after which the preview
+ * refreshes, while the client-scoped catalog carries many more
+ * mutating tools (blog.create, datatables.addRow, …). The fence is
+ * this explicit ALLOWLIST of pure reads (get / list / preview /
+ * render), applied through the single seam portalModeAllowsTool():
+ * read-only modes never OFFER a tool outside the list, and the
+ * dispatch refuses one even if a wire name somehow resolves.
+ */
+const PORTAL_READONLY_TOOLS = new Set([
+  'site.get',
+  'site.render',
+  'theme.get',
+  'pages.structure',
+  'modules.list',
+  'blog.list',
+  'careers.list',
+  'courses.list',
+  'datatables.get',
+  'charts.get',
+  'directory.list',
+  'ecommerce.list',
+  'ecommerce.listOrders',
+  'events.list',
+  'faq.list',
+  'forms.get',
+  'forms.list',
+  'gallery.list',
+  'menu.list',
+  'offers.list',
+  'team.list',
+  'testimonials.list',
+  'video.list',
+  'bookings.list',
+  'bookings.services',
+  'bookings.getHours',
+  'bookings.slots',
+  'estimate.getConfig',
+  'estimate.listOptions',
+  'estimate.listRequests',
+  'members.getConfig',
+  'members.listTiers',
+  'members.listMembers',
+  'members.listSubscriptions',
+  'calls.list',
+  'calls.getSettings',
+  'googlereviews.getConfig',
+  'googlereviews.preview',
+  'socialfeed.getConfig',
+  'socialfeed.preview',
+  'social.accounts.list',
+  'social.calendar',
+  'social.posts.list',
+  'fonts.list',
+]);
+
+/** Step caps per chat mode — Q&A / clarification turns stay cheap. */
+const PORTAL_MODE_STEPS = { build: MAX_PORTAL_STEPS, answer: 6, clarify: 5 };
+
+/**
+ * THE read-only fence (Batch 93). Build mode may use the full
+ * client-scoped catalog minus DENY_TOOLS (the historical behaviour);
+ * answer / clarify modes may use ONLY the read allowlist.
+ */
+function portalModeAllowsTool(mode, name) {
+  if (mode === 'build') return !DENY_TOOLS.has(name);
+  return PORTAL_READONLY_TOOLS.has(name);
+}
+
 function fail(code, message) {
   const err = new Error(message);
   err.code = code;
@@ -394,10 +467,218 @@ async function runJobLoop(workspaceId, job, { db, maxSteps = MAX_STEPS } = {}) {
   };
 }
 
-function buildPortalSystemPrompt(leadId, pageSlug) {
+const PORTAL_INTENTS = new Set(['question', 'change', 'offtopic', 'ambiguous', 'clarify_answer', 'cancel']);
+
+function portalIntentFallback(pending) {
+  // Classification failed (endpoint error / unparseable reply). Never
+  // fall back to editing: with a pending change, treat the message as
+  // another clarification answer that is not yet sufficient; without
+  // one, ask the either/or question. Both paths are read-only.
+  return {
+    intent: pending ? 'clarify_answer' : 'ambiguous',
+    ready: false,
+    size: 'small',
+    borderline: false,
+    fallback: true,
+  };
+}
+
+function buildClassifierSystemPrompt(pending, hasImages) {
+  const lines = [
+    'You are the router for a website design agent chat. The speaker is a business owner talking to the design agent that maintains THEIR OWN website inside their site builder. Decide what their latest message is, so the agent can respond correctly.',
+    'Reply with ONLY a JSON object (no prose, no code fences): {"intent": "...", "ready": true|false, "size": "small"|"big", "borderline": true|false}',
+    '',
+    'INTENTS:',
+    '- "question" — the owner asks something about their website, its design or content, or asks for design advice for the site ("why does my header look empty?", "what colours suit a bakery?", "what does my services page say?", "what do you think of this logo?"). No change is being requested.',
+    '- "change" — the owner asks for a modification to the site.',
+    '- "ambiguous" — the message could be a comment/question OR a change request; it is genuinely unclear whether they want anything done ("the blue looks bad", "the header feels empty").',
+    '- "offtopic" — unrelated to their website, its content, or design (weather, news, trivia, jokes, other topics). Questions about what their site should SAY or how it should look are "question", never offtopic.',
+  ];
+  if (pending) {
+    lines.push(
+      '- "clarify_answer" — a change is pending clarification (below) and this message answers those questions or adds detail to that pending change.',
+      '- "cancel" — the owner wants to drop the pending change and do nothing else.',
+      'When a change is pending, most short replies are "clarify_answer". A message that clearly starts a DIFFERENT new change is "change" (it replaces the pending one). A side question while one is pending is "question".',
+      '',
+      'PENDING CHANGE awaiting clarification:',
+      `Original request: "${String(pending.requestText || '').slice(0, 600)}"`
+    );
+    if (pending.kind === 'either_or') {
+      lines.push(
+        'The agent asked ONE question: do they want that changed, or were they just asking/commenting? This message is their response — if they confirm the change, that is "clarify_answer" (judge ready/size for the original request); if they were just asking, that is "question".'
+      );
+    } else if (pending.questionsText) {
+      lines.push(`Questions the agent asked: "${String(pending.questionsText).slice(0, 900)}"`);
+    }
+    const answers = Array.isArray(pending.answers) ? pending.answers : [];
+    if (answers.length) {
+      lines.push(`Owner's answers so far: ${answers.map((a) => `"${String(a).slice(0, 300)}"`).join(' | ')}`);
+    }
+  }
+  lines.push(
+    '',
+    'READY (only meaningful for intent "change" and "clarify_answer"): true only when the request — together with any pending request and earlier answers — pins down WHAT changes, WHERE, and TO WHAT, well enough to implement without guessing a key design decision. Vague directions ("make it pop", "improve the homepage", "make it more professional") are ready=false. A concrete edit ("change the headline to \'Fresh Bread Daily\'", "make the header dark blue") is ready=true.',
+    '',
+    'SIZE (judge only when ready=true, and judge the FINAL clarified request):',
+    '- "small": a single spot, well-scoped — one text/copy edit, swapping one image, changing one link, a colour or style tweak on one element, one heading or button.',
+    '- "big": spans multiple sections or pages, restructures a layout, adds a new page, sets up a new module or feature, or is a broad redesign ("redo the homepage", "give the site a modern look").',
+    '- "borderline": true when the size call is genuinely debatable; otherwise false.'
+  );
+  if (hasImages) {
+    lines.push(
+      '',
+      'The owner attached image(s) to this message. If there is no text, the message is only about the image(s): with no instruction at all it is "change" with ready=false (the agent will ask what to do with them). Text asking for an opinion of an image ("what do you think of this logo?") is a "question".'
+    );
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Batch 93 — classify one portal chat message (question / change /
+ * off-topic / ambiguous / clarification answer / cancel), with the
+ * request's readiness and — once ready — its size (small = the chat
+ * implements it; big = queue to the design agent). One tool-less
+ * model call; the caller routes on the result. Returns
+ * { intent, ready, size, borderline, fallback } or
+ * { error: 'muse_not_configured' | 'budget_exceeded' }.
+ */
+async function classifyPortalChatIntent(
+  workspaceId,
+  leadId,
+  { db, message, history, pending, hasImages, siteContext } = {}
+) {
+  const domain = require('./domain');
+  const lid = Number(leadId);
+  const config = await domain.withDb(workspaceId, async (d) => resolveMuseConfig(db || d));
+  if (!museConfigured(config)) return { error: 'muse_not_configured', intent: null };
+  const { budget, spent } = domain.withDb(workspaceId, (d) => {
+    const use = db || d;
+    return {
+      budget: parseFloat(getDbSetting(use, 'cost.daily_budget_usd', '10')) || 0,
+      spent: todaySpendUsd(use),
+    };
+  });
+  if (budget > 0 && spent >= budget) return { error: 'budget_exceeded', intent: null };
+
+  const convo = [];
+  const list = Array.isArray(history) ? history.slice(-6) : [];
+  for (const row of list) {
+    if (!row || (row.role !== 'user' && row.role !== 'assistant')) continue;
+    const content = String(row.content || '').trim();
+    if (content) convo.push({ role: row.role, content: content.slice(0, 1500) });
+  }
+  const text = String(message || '').trim();
+  convo.push({
+    role: 'user',
+    content: text || `(The owner attached image(s) with no written message.)`,
+  });
+
+  // Tier 1 site context (capped tighter here — routing needs the
+  // lay of the land, not the full map) grounds intent + size calls.
+  const classifyMessages = [
+    { role: 'system', content: buildClassifierSystemPrompt(pending, !!hasImages) },
+  ];
+  if (siteContext) {
+    classifyMessages.push({
+      role: 'system',
+      content: `SITE CONTEXT (the owner's whole site, summary):\n${String(siteContext).slice(0, 4000)}`,
+    });
+  }
+  classifyMessages.push(...convo);
+
+  let data;
+  try {
+    data = await chatCompletions(config, {
+      model: config.model,
+      messages: classifyMessages,
+      max_tokens: 300,
+    });
+  } catch {
+    return portalIntentFallback(pending);
+  }
+
+  try {
+    const usage = (data && data.usage) || {};
+    domain.withDb(workspaceId, (d) => {
+      const use = db || d;
+      const promptTokens = Number(usage.prompt_tokens) || 0;
+      const completionTokens = Number(usage.completion_tokens) || 0;
+      const per1kPrompt = parseFloat(getDbSetting(use, 'cost.per_1k_prompt', '0.0015')) || 0;
+      const per1kCompletion = parseFloat(getDbSetting(use, 'cost.per_1k_completion', '0.002')) || 0;
+      logUsage(use, {
+        task: 'portal_agent',
+        model: config.model,
+        promptTokens,
+        completionTokens,
+        costUsd: (promptTokens / 1000) * per1kPrompt + (completionTokens / 1000) * per1kCompletion,
+        leadId: lid,
+        note: 'portal classify',
+      });
+    });
+  } catch {
+    /* usage logging must never break routing */
+  }
+
+  let parsed = null;
+  try {
+    const raw = String((data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '');
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) parsed = JSON.parse(match[0]);
+  } catch {
+    parsed = null;
+  }
+  if (!parsed || !PORTAL_INTENTS.has(String(parsed.intent || ''))) {
+    return portalIntentFallback(pending);
+  }
+  let intent = String(parsed.intent);
+  const ready = parsed.ready === true;
+  // clarify_answer / cancel are meaningless with nothing pending.
+  if (!pending && intent === 'clarify_answer') intent = 'change';
+  if (!pending && intent === 'cancel') intent = 'ambiguous';
+  return {
+    intent,
+    ready,
+    size: parsed.size === 'big' ? 'big' : 'small',
+    borderline: parsed.borderline === true,
+    fallback: false,
+  };
+}
+
+function buildPortalSystemPrompt(leadId, pageSlug, mode = 'build', ctx = {}) {
   const pageHint = pageSlug
     ? `Focus on page slug "${String(pageSlug).slice(0, 80)}" when using site.render / edits unless the user asks for another page.`
     : 'Use site.render to inspect the current page before editing.';
+  if (mode === 'answer') {
+    return [
+      'You are BitPype’s site co-pilot inside the client portal — the design agent for this business’s website.',
+      'The owner is asking a QUESTION about their site, its design or content, or asking for design advice for the site. Answer it directly and conversationally, grounded in the actual site.',
+      `Lead id is ${Number(leadId)}. Always pass leadId on tools that accept it.`,
+      'You may inspect the site with the read-only tools provided (site.get, site.render, and the content list/get tools) so your answer reflects what is really on the site. This turn is READ-ONLY: you have no editing tools and must not change anything, and you must not claim to have changed anything.',
+      'If the owner attached image(s), they are part of the question — assess them in relation to the site (branding, colours, quality, fit) as asked.',
+      'Keep the answer focused and practical: a short paragraph, or a few short bullets when listing. If the owner actually wants a change made, they can just say so and you will apply it.',
+    ].join('\n');
+  }
+  if (mode === 'clarify') {
+    const about = String(ctx.clarifyAbout || '').slice(0, 600);
+    const lines = [
+      'You are BitPype’s site co-pilot inside the client portal — the design agent for this business’s website.',
+      `Lead id is ${Number(leadId)}. Always pass leadId on tools that accept it.`,
+      'This turn is READ-ONLY: you have no editing tools and must not change anything, and you must not claim to have changed anything. You may inspect the site with the read-only tools provided so your questions are informed by what is actually on the site.',
+    ];
+    if (ctx.clarifyKind === 'either_or') {
+      lines.push(
+        `The owner's message could be a comment or a question, or a request to change something: "${about}".`,
+        'Ask ONE short question: do they want you to change it, or were they just asking / commenting? One or two sentences total — the single either/or question and nothing else.'
+      );
+    } else {
+      lines.push(
+        `The owner asked for a change that is not specific enough to implement without guessing: "${about}".`,
+        'Ask the 2–4 questions that most decide the design — what exactly changes, where on the site, and which style, colours, or content. Number the questions plainly, keep the whole reply short and friendly, and end with the questions: the owner will answer, and then you will implement. Do not implement anything yet.',
+        'If the owner attached image(s) with no clear instruction, ask what they would like done with them (use them on the site, match their colours/branding, or something else).'
+      );
+    }
+    return lines.join('\n');
+  }
   return [
     'You are BitPype’s site co-pilot inside the client portal.',
     'The business owner describes improvements in plain language. You apply them with tools only — no admin/workspace tools.',
@@ -410,7 +691,7 @@ function buildPortalSystemPrompt(leadId, pageSlug) {
   ].join('\n');
 }
 
-function normalizePortalHistory(history, userMessage, images) {
+function normalizePortalHistory(history, userMessage, images, imagesMode = 'build') {
   const out = [];
   const list = Array.isArray(history) ? history.slice(-10) : [];
   for (const row of list) {
@@ -424,6 +705,9 @@ function normalizePortalHistory(history, userMessage, images) {
   // message as OpenAI-style vision parts so the design loop can analyze
   // them (colors, layout, photo content) while applying the change. An
   // image-only message (no text) is valid when images are present.
+  // Batch 93: in read-only modes (answer / clarify) the framing must
+  // not instruct the model to apply changes — the images are the
+  // subject of the question or of the clarification.
   const imgs = (Array.isArray(images) ? images : []).filter((im) => im && im.dataUrl);
   if (!msg && !imgs.length) throw fail('EMPTY', 'Message is required.');
   if (msg.length > 4000) throw fail('TOO_LONG', 'Message is too long (max 4000 characters).');
@@ -433,9 +717,13 @@ function normalizePortalHistory(history, userMessage, images) {
   }
   const names = imgs.map((im) => String(im.name || 'image').slice(0, 120)).join(', ');
   const text =
-    (msg ||
-      'I attached image(s) with no written message. Analyze them and apply the improvement they most clearly suggest for my site (for example matching their colors or branding, or using the photo where it fits), then tell me what you did.') +
-    `\n\n[Attached image(s) for analysis: ${names}. Look at them carefully and use what you see — colors, layout, branding, photo content and quality — to guide the changes you make.]`;
+    imagesMode === 'discuss'
+      ? (msg ||
+          'I attached image(s) with no written message. Look at them carefully — I want to talk about them in relation to my site.') +
+        `\n\n[Attached image(s): ${names}. Look at them carefully — colors, layout, branding, photo content and quality — they are part of what I am asking about.]`
+      : (msg ||
+          'I attached image(s) with no written message. Analyze them and apply the improvement they most clearly suggest for my site (for example matching their colors or branding, or using the photo where it fits), then tell me what you did.') +
+        `\n\n[Attached image(s) for analysis: ${names}. Look at them carefully and use what you see — colors, layout, branding, photo content and quality — to guide the changes you make.]`;
   out.push({
     role: 'user',
     content: [
@@ -453,12 +741,18 @@ function normalizePortalHistory(history, userMessage, images) {
 async function runPortalImproveLoop(
   workspaceId,
   leadId,
-  { db, message, history, pageSlug, images, maxSteps = MAX_PORTAL_STEPS } = {}
+  { db, message, history, pageSlug, images, mode = 'build', clarifyAbout = '', clarifyKind = '', siteContext = '', maxSteps } = {}
 ) {
   const domain = require('./domain');
   const mcp = require('./mcp');
   const lid = Number(leadId);
   if (!Number.isInteger(lid) || lid < 1) throw fail('INVALID', 'leadId required');
+  // Batch 93: chat modes — 'build' implements a change with the full
+  // tool catalog; 'answer' and 'clarify' are READ-ONLY turns (question
+  // answering / clarification questions) fenced to PORTAL_READONLY_TOOLS.
+  const runMode = mode === 'answer' || mode === 'clarify' ? mode : 'build';
+  const stepCap =
+    Number.isInteger(maxSteps) && maxSteps > 0 ? maxSteps : PORTAL_MODE_STEPS[runMode] || MAX_PORTAL_STEPS;
 
   const config = await domain.withDb(workspaceId, async (d) => resolveMuseConfig(db || d));
   if (!museConfigured(config)) {
@@ -496,11 +790,32 @@ async function runPortalImproveLoop(
     };
   }
 
-  const { tools, toolNames } = mcpToolsToOpenAi(mcp.toolDefs({ clientScoped: true }));
+  // Batch 93: the fence is structural — in read-only modes the write
+  // tools are never even OFFERED to the model (portalModeAllowsTool),
+  // and the dispatch below refuses them a second time.
+  const scopedDefs = mcp
+    .toolDefs({ clientScoped: true })
+    .filter((t) => t && portalModeAllowsTool(runMode, t.name));
+  const { tools, toolNames } = mcpToolsToOpenAi(scopedDefs);
   const modelImages = (Array.isArray(images) ? images : []).filter((im) => im && im.dataUrl);
   const messages = [
-    { role: 'system', content: buildPortalSystemPrompt(lid, pageSlug) },
-    ...normalizePortalHistory(history, message, modelImages),
+    {
+      role: 'system',
+      content: buildPortalSystemPrompt(lid, pageSlug, runMode, { clarifyAbout, clarifyKind }),
+    },
+    // Tier 1 whole-site context: the agent's standing knowledge of
+    // the ENTIRE site, loaded every turn in every mode. Tier 2 is
+    // the read/inspect tools, used when a question or edit needs
+    // full detail beyond the map.
+    ...(siteContext
+      ? [
+          {
+            role: 'system',
+            content: `WHOLE-SITE CONTEXT — Tier 1 map of this site (your standing knowledge; it covers every page, the current design/styles, modules and their key content, and the business basics):\n${String(siteContext).slice(0, 8000)}\nGround what you say about the site in this context or in what the read tools return — never invent content, prices, or details. If neither covers something, fetch it with the tools or say you don't see it on the site.`,
+          },
+        ]
+      : []),
+    ...normalizePortalHistory(history, message, modelImages, runMode === 'build' ? 'build' : 'discuss'),
   ];
 
   let steps = 0;
@@ -550,7 +865,7 @@ async function runPortalImproveLoop(
     });
   };
 
-  while (steps < maxSteps) {
+  while (steps < stepCap) {
     if (budget > 0) {
       const nowSpent = domain.withDb(workspaceId, (d) => todaySpendUsd(db || d));
       if (nowSpent >= budget) {
@@ -601,7 +916,9 @@ async function runPortalImproveLoop(
     if (!calls.length) {
       finalReply = msg.content != null ? String(msg.content).trim() : '';
       messages.push({ role: 'assistant', content: finalReply });
-      if (!mutated && !nudged && steps < maxSteps) {
+      // Batch 93: the apply-the-change nudge exists only in build
+      // mode — in answer / clarify modes a plain reply IS the goal.
+      if (runMode === 'build' && !mutated && !nudged && steps < stepCap) {
         nudged = true;
         messages.push({
           role: 'user',
@@ -635,6 +952,22 @@ async function runPortalImproveLoop(
           role: 'tool',
           tool_call_id: tc.id,
           content: JSON.stringify({ ok: false, error: `Tool ${name} is not allowed in portal chat.` }),
+        });
+        consecutiveToolErrors.n++;
+        continue;
+      }
+
+      // Batch 93: second fence layer — even if a write tool's wire
+      // name somehow resolves in a read-only mode, it is refused here
+      // and never reaches mcp.callTool.
+      if (!portalModeAllowsTool(runMode, name)) {
+        messages.push({
+          role: 'tool',
+          tool_call_id: tc.id,
+          content: JSON.stringify({
+            ok: false,
+            error: 'That tool is not available on this turn — this chat turn is read-only and cannot change the site.',
+          }),
         });
         consecutiveToolErrors.n++;
         continue;
@@ -680,11 +1013,20 @@ async function runPortalImproveLoop(
   }
 
   if (!finalReply) {
-    finalReply = mutated
-      ? 'Done — I updated your site. Check the preview on the right.'
-      : lastError
-        ? 'I could not finish that change. Try rephrasing, or use Edit for a quick text tweak.'
-        : 'I looked at your site but did not apply a change. Try a more specific request.';
+    if (runMode === 'answer') {
+      finalReply = lastError
+        ? 'I could not pull an answer together for that just now — please try asking again.'
+        : 'I looked at your site but could not form an answer — try asking a different way.';
+    } else if (runMode === 'clarify') {
+      finalReply =
+        'Before I change anything, tell me a little more about what you would like — what should change, and where on the site?';
+    } else {
+      finalReply = mutated
+        ? 'Done — I updated your site. Check the preview on the right.'
+        : lastError
+          ? 'I could not finish that change. Try rephrasing, or use Edit for a quick text tweak.'
+          : 'I looked at your site but did not apply a change. Try a more specific request.';
+    }
   }
 
   return {
@@ -694,6 +1036,7 @@ async function runPortalImproveLoop(
     toolCalls,
     mutated,
     published,
+    mode: runMode,
     error: lastError,
     costUsd: totalCost,
     model: config.model,
@@ -710,7 +1053,12 @@ module.exports = {
   museConfigured,
   runJobLoop,
   runPortalImproveLoop,
+  classifyPortalChatIntent,
+  buildClassifierSystemPrompt,
   normalizePortalHistory,
+  portalModeAllowsTool,
+  PORTAL_READONLY_TOOLS,
+  PORTAL_MUTATE_TOOLS,
   DENY_TOOLS,
   MAX_STEPS,
   MAX_PORTAL_STEPS,
