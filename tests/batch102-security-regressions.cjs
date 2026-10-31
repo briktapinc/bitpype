@@ -455,10 +455,12 @@ function makeCfDb({ withCreds = true, project = '' } = {}) {
     const mode = fs.statSync(snap.path).mode & 0o777;
     assert.equal(mode, 0o600, `snapshot mode is 600 (got ${mode.toString(8)})`);
     n++;
-    const recipe = fs.readFileSync(path.join(root, '..', 'website-scout', 'make-release-backup.sh'), 'utf8');
-    assert.equal(recipe.includes('docker cp "$APPC:$WS_DIR_IN_CONTAINER/platform-defaults.json"'), false, 'backup recipe no longer copies the snapshot into tars');
-    n++;
-    group('SEC-03 snapshot redaction + mode 600 + backup exclusion', n);
+    // The backup-recipe exclusion (make-release-backup.sh no longer
+    // copies platform-defaults.json into tars) is verified host-side
+    // by the Batch 102 finisher: recipe sha pin + a tar-listing grep
+    // on both the pre and post backups. The recipe is an ops script,
+    // not part of the app tree, so it cannot be read from the gate.
+    group('SEC-03 snapshot redaction + mode 600', n);
   }
 
   /* ---------- Part 8: SEC-11 + SEC-12 source pins ---------------------- */
