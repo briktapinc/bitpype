@@ -4870,13 +4870,37 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
       .join('\n');
     return domain.withDb(workspaceId, (db) => {
       designJobs.ensureTables(db);
+      const chatQueue = require('./siteChatQueue');
       let jobId = null;
+      // Batch 101 — merge honesty: prefer an UNSTARTED open job
+      // for merging. A job an agent has already claimed
+      // (in_progress) is that agent's working spec — the new
+      // ask must never silently rewrite it; it becomes a second
+      // job instead (see the else-branch below).
       const open = db
         .prepare(
-          "SELECT * FROM design_jobs WHERE lead_id = ? AND type = 'improvement' AND status != 'delivered' ORDER BY id DESC LIMIT 1"
+          "SELECT * FROM design_jobs WHERE lead_id = ? AND type = 'improvement' AND status != 'delivered' ORDER BY (status = 'waiting_on_agent') DESC, id DESC LIMIT 1"
         )
         .get(Number(leadId));
-      if (open) {
+      if (open && !chatQueue.shouldMergeIntoOpenJob(open)) {
+        // Direct insert — designJobs.createJob would REPLACE
+        // the claimed job's instructions, which is exactly the
+        // dishonesty this batch removes.
+        const shape = pageCount > 1 ? 'multipage' : 'landing';
+        const brief0 = designJobs.buildBrief(db, Number(leadId), instructions, 'improvement', shape);
+        const info = db
+          .prepare(
+            `INSERT INTO design_jobs (type, title, instructions, lead_id, contact_email, status, brief, site_shape, built_by)
+             VALUES ('improvement', ?, ?, ?, NULL, 'waiting_on_agent', ?, ?, NULL)`
+          )
+          .run(`Improvement: ${(message || 'Site change').slice(0, 70)}`, instructions, Number(leadId), JSON.stringify(brief0), shape);
+        jobId = Number(info.lastInsertRowid);
+        designJobs.notifyAgentQueue(
+          db,
+          `Design job #${jobId} assigned (improvement) from the site-builder chat — a second queued job; job #${open.id} is already being built and was left untouched. Status waiting_on_agent — MCP agents: design.next or design.pending.`,
+          { jobId, reason: 'assigned', status: 'waiting_on_agent' }
+        );
+      } else if (open) {
         // createJob would REPLACE an open job's instructions; a
         // second big ask must not silently erase the first — append.
         const merged = `${open.instructions}\n\n---\nAdditional queued request from the owner (builder chat):\n${instructions}`;
@@ -5288,6 +5312,25 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     // the route can fold them into the rolling summary.
     settled: settledNow,
     queuedJobId,
+    // Batch 101: the honest state of the job this turn queued
+    // (derived from the job row, never assumed).
+    queueStatus: queuedJobId
+      ? domain.withDb(workspaceId, (db) => {
+          try {
+            const row = db.prepare('SELECT * FROM design_jobs WHERE id = ?').get(queuedJobId);
+            if (!row) return null;
+            let brief = {};
+            try {
+              brief = JSON.parse(row.brief || '{}') || {};
+            } catch {
+              brief = {};
+            }
+            return require('./siteChatQueue').jobChatState(row, brief);
+          } catch {
+            return null;
+          }
+        })
+      : null,
     // Batch 98: the persisted plan this turn ran on (null when
     // the change was unplanned or the turn made no change).
     planId: turnPlanId,
@@ -5314,6 +5357,37 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
   };
 }
 
+// Batch 101 — this site's chat-origin design jobs with their
+// HONEST states (server/siteChatQueue.js derives each state
+// from the job's real status + verification record). Shared by
+// the history payload and the updates poller so the portal's
+// queue line is the same truth everywhere.
+function chatQueueStatuses(db, leadId) {
+  const chatQueue = require('./siteChatQueue');
+  try {
+    const rows = db
+      .prepare(
+        "SELECT * FROM design_jobs WHERE lead_id = ? AND type = 'improvement' ORDER BY id DESC LIMIT 6"
+      )
+      .all(Number(leadId));
+    const out = [];
+    for (const row of rows) {
+      let brief = {};
+      try {
+        brief = JSON.parse(row.brief || '{}') || {};
+      } catch {
+        brief = {};
+      }
+      if (!brief.chat_origin || brief.chat_origin.source !== 'portal_site_chat') continue;
+      out.push(chatQueue.jobChatState(row, brief));
+      if (out.length >= 3) break;
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 // Batch 93: design-agent completions for chat-queued jobs land in
 // site_chat_messages (written by the deliverJob hook); the portal
 // fetches them here and they are marked delivered — each surfaces
@@ -5321,7 +5395,13 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
 function takeSiteChatUpdates(workspaceId, leadId) {
   const domain = require('./domain');
   const thread = require('./siteChatThread');
-  return domain.withDb(workspaceId, (db) => ({ messages: thread.takeUndelivered(db, leadId) }));
+  return domain.withDb(workspaceId, (db) => ({
+    messages: thread.takeUndelivered(db, leadId),
+    // Batch 101: queue states ride the poller too, so the
+    // portal's queue line tracks queued -> building ->
+    // in_review -> delivered without a reload.
+    queue: chatQueueStatuses(db, leadId),
+  }));
 }
 
 /**
@@ -5364,6 +5444,9 @@ function getSiteChatHistory(workspaceId, leadId) {
     // the chat window can show the owner what the agent
     // remembers about THIS site (same per-lead keying).
     summary: chatSummary.getSummary(db, leadId),
+    // Batch 101: honest queue states for this site's
+    // chat-origin design jobs.
+    queue: chatQueueStatuses(db, leadId),
   }));
 }
 

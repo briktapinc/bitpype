@@ -2344,12 +2344,25 @@ async function deliverJob(db, jobId, payload, agentClaims, opts = {}) {
     console.warn('[designJobs] chat write-back failed:', e.message || e);
   }
   try {
-    require('./designLearning').observeDeliver(db, jobId, {
-      hadPrior: hadPriorDelivery,
-      requestKind: priorRequestKind,
-      siteShape: siteShape || row.site_shape || null,
-      pageCount: row.type === 'website' && payload.pages ? payload.pages.length : null,
-    });
+    // Batch 101 — playbook fence: a chat-origin job's title and
+    // brief carry the owner's own words from a private portal
+    // conversation; the shared design playbook
+    // (design_learning_events) must never ingest them, so a
+    // chat delivery teaches the playbook nothing. (Re-verified
+    // live in the Batch 101 isolation battery; Audit 2 §I
+    // cleared the earlier H6 shape.)
+    const briefForLearning = parseJson(row.brief, {}) || {};
+    const isChatOriginJob = !!(
+      briefForLearning.chat_origin && briefForLearning.chat_origin.source === 'portal_site_chat'
+    );
+    if (!isChatOriginJob) {
+      require('./designLearning').observeDeliver(db, jobId, {
+        hadPrior: hadPriorDelivery,
+        requestKind: priorRequestKind,
+        siteShape: siteShape || row.site_shape || null,
+        pageCount: row.type === 'website' && payload.pages ? payload.pages.length : null,
+      });
+    }
   } catch {
     /* learning optional */
   }

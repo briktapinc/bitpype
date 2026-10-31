@@ -2048,6 +2048,36 @@
     el.hidden = false;
   }
 
+  // Batch 101 — the queue status line: the honest state of
+  // this site's queued design job(s), straight from the job
+  // rows (queued / building / in verification / waiting on
+  // you / delivered). Fed by the history payload, the updates
+  // poller and chat responses — same truth everywhere.
+  const AGENT_QUEUE_LABELS = {
+    queued: 'queued for the design agent',
+    building: 'being built by the design agent',
+    in_review: 'back with the design agent after verification',
+    waiting_on_you: 'waiting on your answer',
+    delivered: 'delivered',
+  };
+  function renderAgentChatQueue(queue) {
+    const el = document.getElementById('agent-chat-queue');
+    if (!el) return;
+    const items = Array.isArray(queue) ? queue.filter((q) => q && q.jobId) : [];
+    if (!items.length) {
+      el.hidden = true;
+      el.textContent = '';
+      return;
+    }
+    const parts = items.map((q) => {
+      const label = AGENT_QUEUE_LABELS[q.state] || AGENT_QUEUE_LABELS.queued;
+      const age = q.ageMinutes != null && q.state !== 'delivered' ? ` · ${q.ageMinutes}m` : '';
+      return `Design job #${q.jobId}: ${label}${age}`;
+    });
+    el.textContent = parts.join('  ·  ');
+    el.hidden = false;
+  }
+
   // Batch 100 — the rolling summary block: what the agent
   // remembers about THIS site (settled choices, changes applied,
   // open items), rendered once at the top of the thread from the
@@ -2227,6 +2257,7 @@
         body: JSON.stringify(body),
       });
       if (data && data.chatUsage) renderAgentChatUsage(data.chatUsage);
+      if (data && data.queueStatus) renderAgentChatQueue([data.queueStatus]);
       const reply = (data && data.reply) || 'Done — check the preview.';
       appendAgentBubble('assistant', reply);
       state.agentChatPending = [];
@@ -2285,6 +2316,7 @@
   async function fetchAgentChatUpdates() {
     try {
       const data = await api('/site/agent-chat/updates');
+      if (data && data.queue) renderAgentChatQueue(data.queue);
       const msgs = (data && data.messages) || [];
       for (const m of msgs) {
         if (!m || !m.content) continue;
@@ -2316,6 +2348,7 @@
     try {
       const data = await api('/site/agent-chat/history');
       if (data && data.chatUsage) renderAgentChatUsage(data.chatUsage);
+      if (data && data.queue) renderAgentChatQueue(data.queue);
       if (data && data.summary) renderAgentChatSummary(data.summary);
       const msgs = (data && data.messages) || [];
       if (!msgs.length || state.agentChatHistory.length) return;
