@@ -326,7 +326,9 @@ async function facadeRoundTrip() {
       .then(() => null, (err) => err);
     assert.ok(e && e.code === 'CONFIRM_REQUIRED', `got ${e && (e.code || e.message)}`);
     assert.equal(domain.sitesArchivedList(1).sites.length, 1, 'site kept after refused purge');
-    domain.sitesPurgeSite(1, 5201, 'Fixture Archived Site');
+    // Batch 102 (SEC-19): sitesPurgeSite is async (Cloudflare teardown
+    // runs before the local destroy) — await it before counting rows.
+    await domain.sitesPurgeSite(1, 5201, 'Fixture Archived Site');
     assert.equal(wdb.prepare('SELECT COUNT(*) AS c FROM websites WHERE id = 5201').get().c, 0, 'row destroyed');
     assert.deepEqual(domain.sitesArchivedList(1).sites, []);
   });
