@@ -69,9 +69,12 @@ async function checkAsync(name, fn) {
 const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
 const count = (s, sub) => String(s).split(sub).length - 1;
 
-/* Surfaces whose chrome is LIGHT — black lockup, never the white one. */
+/* Surfaces whose chrome is LIGHT — black lockup, never the white one.
+   (public/portal.html left this list in Batch 105: the portal took
+   the staff app's shell, so its brand now sits on the DARK sidenav —
+   white lockup there, black lockup kept on the light login gate.
+   Pinned per-surface in B1b below.) */
 const LIGHT_ONLY = [
-  'public/portal.html',
   'public/home.html',
   'public/landing.html',
   'public/how-it-works.html',
@@ -138,6 +141,13 @@ function partB() {
       assert.ok(src.includes('/brand/logo-black.png'), `${rel} uses logo-black.png`);
       assert.ok(!src.includes('/brand/logo-white.png'), `${rel} must not use the white lockup`);
     }
+  });
+
+  check('B1b portal (Batch 105 shell): black on the light gate, white only as the dark-sidenav brand', () => {
+    const src = read('public/portal.html');
+    assert.ok(src.includes('/brand/logo-black.png'), 'portal gate uses logo-black.png');
+    assert.ok(src.includes('<img class="portal-brand-logo" src="/brand/logo-white.png"'), 'portal sidenav brand uses logo-white.png');
+    assert.equal(count(src, '/brand/logo-white.png'), 1, 'the white lockup appears exactly once in the portal (the dark sidenav brand)');
   });
 
   check('B2 mixed pages put black on light headers, white on dark footers', () => {

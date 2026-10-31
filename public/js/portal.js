@@ -9615,6 +9615,27 @@
     }
   }
 
+  // Batch 105 — app-shell drawer wiring, mirroring the staff
+  // app's menu behaviour: the menu button opens the sidenav
+  // drawer, and the close button, the backdrop, or choosing a
+  // section closes it. Null-safe for stripped DOMs.
+  const portalShellEl = document.getElementById('portal-shell');
+  const portalMenuBtn = document.getElementById('portal-menu-btn');
+  const portalNavCloseBtn = document.getElementById('portal-nav-close');
+  const portalBackdropEl = document.getElementById('portal-backdrop');
+  function closePortalNav() {
+    if (portalShellEl) portalShellEl.classList.remove('nav-open');
+    if (portalBackdropEl) portalBackdropEl.hidden = true;
+  }
+  function openPortalNav() {
+    if (portalShellEl) portalShellEl.classList.add('nav-open');
+    if (portalBackdropEl) portalBackdropEl.hidden = false;
+  }
+  if (portalMenuBtn) portalMenuBtn.addEventListener('click', openPortalNav);
+  if (portalNavCloseBtn) portalNavCloseBtn.addEventListener('click', closePortalNav);
+  if (portalBackdropEl) portalBackdropEl.addEventListener('click', closePortalNav);
+  if (portalNav) portalNav.addEventListener('click', closePortalNav);
+
   (async function boot() {
     wireAgentChat();
     await mountCaptchas();

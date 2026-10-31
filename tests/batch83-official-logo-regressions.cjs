@@ -138,9 +138,13 @@ function partB() {
     assert.ok(!appJs.includes('>BP</span>'), 'no BP tile span remains');
   });
 
-  check('B3 portal gate + topbar use the black lockup', () => {
+  check('B3 portal lockups match their surfaces (Batch 105 shell)', () => {
     const portal = read('public/portal.html');
-    assert.ok(count(portal, '/brand/logo-black.png') >= 2, 'both portal logo spots use the black lockup');
+    // Batch 105: the portal took the staff app's shell — the brand
+    // moved into the DARK sidenav (white lockup, per the rule);
+    // the login gate stays a light surface (black lockup).
+    assert.ok(count(portal, '/brand/logo-black.png') >= 1, 'portal gate (light surface) uses the black lockup');
+    assert.ok(portal.includes('<img class="portal-brand-logo" src="/brand/logo-white.png"'), 'portal sidebar brand (dark surface) uses the white lockup');
     assert.ok(portal.includes('/brand/favicon.ico'), 'portal favicon updated');
   });
 
