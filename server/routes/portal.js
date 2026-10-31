@@ -843,6 +843,39 @@ router.post('/site/agent-chat', requireClient, agentChatLimit, async (req, res) 
       return res.status(403).json({ ok: false, error: 'FORBIDDEN', code: 'FORBIDDEN' });
     }
     const data = await portal.runSiteAgentChat(req.client.workspace_id, req.client.lead_id, req.body || {});
+    // Batch 94 — save the completed turn into THIS site's thread
+    // so the chat window can show its recent history on open.
+    // Best-effort: a history write must never fail the chat.
+    try {
+      const body = req.body || {};
+      const userText =
+        String(body.message || '').trim() ||
+        (Array.isArray(body.attachmentIds) && body.attachmentIds.length ? '[Image attached]' : '');
+      await portal.recordSiteChatTurn(req.client.workspace_id, req.client.lead_id, {
+        userText,
+        assistantText: data && data.reply ? String(data.reply) : '',
+      });
+    } catch (histErr) {
+      console.warn('[portal] chat history record failed:', histErr.message);
+    }
+    ok(res, data);
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+
+// Batch 94 — the chat window's initial load: this site's most
+// recent CHAT_HISTORY_LIMIT (50) saved messages, oldest-first.
+// Session-pinned to the client's own lead, like every chat route.
+router.get('/site/agent-chat/history', requireClient, async (req, res) => {
+  try {
+    if (
+      Number(req.session.clientLeadId) !== Number(req.client.lead_id) ||
+      Number(req.session.clientWorkspaceId) !== Number(req.client.workspace_id)
+    ) {
+      return res.status(403).json({ ok: false, error: 'FORBIDDEN', code: 'FORBIDDEN' });
+    }
+    const data = await portal.getSiteChatHistory(req.client.workspace_id, req.client.lead_id);
     ok(res, data);
   } catch (e) {
     fail(res, e, 500);

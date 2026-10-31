@@ -158,6 +158,21 @@ function portalToolDefs() {
       }),
     },
     {
+      name: 'theme.styleRule',
+      description:
+        'Apply ONE scoped style rule to the site stylesheet: restyle a SPECIFIC element across the whole site (or inside one kind of section) — e.g. selector "h3" + property "color" + value "#444444" makes ALL H3 headings that colour, in-chat, on the spot. This is the tool for per-element styling (theme.set only changes global theme colours). Selector grammar: an element (h1–h6, p, a, li, blockquote, …), a .class, or section[data-ws-section-type="<type>"] followed by an element/class. Properties: color, background-color, border-color, font-family, font-size, font-weight, font-style, letter-spacing, line-height, text-transform, text-decoration, margin-top, margin-bottom, padding-top, padding-bottom. Re-applying the same selector+property replaces it; pass remove:true (selector+property, no value) to delete a rule. Rules live in a managed block of theme.customCss.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          selector: STR,
+          property: STR,
+          value: STR,
+          remove: { type: 'boolean' },
+        },
+        ['selector', 'property']
+      ),
+    },
+    {
       name: 'fonts.list',
       description:
         'List curated Google Fonts available for theme.font / theme.headingFont (same catalog as the portal Theme bar). Free — local catalog only; no Google API key or billed calls. Optional group filter: Sans|Serif|Display|Mono. Pick a name then pass it to website.setTheme / theme.set / design.deliver theme.',
@@ -609,6 +624,12 @@ async function dispatchPortalTool(ws, name, a, ctx = {}) {
   if (name === 'theme.set') {
     requireEnt('inlineEdits', 'Theme edits are not on your plan.');
     const out = await portal.applyClientThemeColors(ws, leadId, a);
+    return { plan: planId, ...out };
+  }
+
+  if (name === 'theme.styleRule') {
+    requireEnt('inlineEdits', 'Style rules are not on your plan.');
+    const out = await portal.applyClientStyleRule(ws, leadId, a);
     return { plan: planId, ...out };
   }
 

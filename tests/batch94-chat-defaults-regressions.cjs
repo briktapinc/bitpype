@@ -69,19 +69,37 @@ function loadAgentSource() {
 }
 
 function loadPortalSliceSource() {
-  let src = fs.readFileSync(path.join(root, 'server', 'clientPortal.js'), 'utf8');
-  if (NEGATIVE === 'defaults') {
-    const shimmed = src.replace(
-      'Number(pending.rounds || 0) >= 1',
-      'Number(pending.rounds || 0) >= 999 // B94 NEGATIVE SHIM — convergence seam disabled'
-    );
-    assert.notEqual(shimmed, src, 'defaults shim must change the source');
-    src = shimmed;
-  }
+  const src = fs.readFileSync(path.join(root, 'server', 'clientPortal.js'), 'utf8');
   const start = src.indexOf('async function runSiteAgentChat(');
   const end = src.indexOf('/**', start);
   assert.ok(start > 0 && end > start, 'slice bounds found');
   return src.slice(start, end);
+}
+
+// The planner module, optionally shimmed for the negative proof:
+// B94_NEGATIVE=defaults raises the convergence budget so the seam
+// can never fire — the shipped bug (endless question rounds) must
+// come back in scenario S(i).
+function loadPlannerModule() {
+  let src = fs.readFileSync(path.join(root, 'server', 'siteChatPlanner.js'), 'utf8');
+  if (NEGATIVE === 'defaults') {
+    const shimmed = src.replace(
+      'const CONVERGENCE_ROUNDS = 1;',
+      'const CONVERGENCE_ROUNDS = 999; // B94 NEGATIVE SHIM — convergence seam disabled'
+    );
+    assert.notEqual(shimmed, src, 'defaults shim must change the planner source');
+    src = shimmed;
+  }
+  const m = { exports: {} };
+  vm.runInNewContext(src + ';module.exports = module.exports;', {
+    module: m,
+    exports: m.exports,
+    console,
+    Buffer,
+    process,
+    require: (name) => require(name.startsWith('.') ? path.join(root, 'server', name) : name),
+  });
+  return m.exports;
 }
 
 const READS = ['site.get', 'site.render', 'theme.get', 'blog.list'];
@@ -394,9 +412,11 @@ const ALL_DEFS = [...READS, ...WRITES].map((name) => ({
     require: (name) =>
       name === './museAgent'
         ? fakeMuseAgent
-        : name === './domain'
-          ? { withDb: (_ws, fn) => fn(realDb) }
-          : require(name.startsWith('.') ? path.join(root, 'server', name) : name),
+        : name === './siteChatPlanner'
+          ? loadPlannerModule()
+          : name === './domain'
+            ? { withDb: (_ws, fn) => fn(realDb) }
+            : require(name.startsWith('.') ? path.join(root, 'server', name) : name),
   });
   const runChat = (leadId, body) => sliceMod.exports.runSiteAgentChat(1, leadId, body);
   const jobCount = (leadId) =>
@@ -655,13 +675,24 @@ const ALL_DEFS = [...READS, ...WRITES].map((name) => ({
   {
     let n = 0;
     const agent = fs.readFileSync(path.join(root, 'server', 'museAgent.js'), 'utf8');
-    assert.ok(agent.includes('DEFAULTS DOCTRINE'), 'classifier defaults doctrine ships');
+    assert.ok(agent.includes('CLASSIFIER_DOCTRINE_LINES'), 'classifier consumes the planner doctrine');
     assert.ok(agent.includes('TERSE REPLIES ARE ANSWERS'), 'terse-reply doctrine ships');
     assert.ok(agent.includes('new_ambiguity'), 'classifier emits new_ambiguity');
-    assert.ok(agent.includes('Design defaults — apply these without asking'), 'build defaults ship');
-    assert.ok(agent.includes('Defaults applied:'), 'summary disclosure ships');
     assert.ok(agent.includes('AT MOST 3 questions'), 'clarify cap ships');
+    assert.ok(agent.includes("'theme.styleRule'"), 'style rule tool is in the mutate set');
+    assert.ok(agent.includes('portalCapabilityText'), 'capability registry wired into prompts');
     n += 6;
+    const plannerSrc = fs.readFileSync(path.join(root, 'server', 'siteChatPlanner.js'), 'utf8');
+    assert.ok(plannerSrc.includes('DEFAULTS DOCTRINE'), 'planner owns the defaults doctrine');
+    assert.ok(plannerSrc.includes('Design defaults — apply these without asking'), 'planner owns the build defaults');
+    assert.ok(plannerSrc.includes('Defaults applied:'), 'planner owns the disclosure line');
+    assert.ok(plannerSrc.includes('shouldForceReady'), 'planner owns the convergence policy');
+    assert.ok(plannerSrc.includes('resolveNamedColour'), 'planner owns named-colour resolution');
+    n += 5;
+    const mcpSrc = fs.readFileSync(path.join(root, 'server', 'clientMcp.js'), 'utf8');
+    assert.ok(mcpSrc.includes("name: 'theme.styleRule'"), 'style rule tool defined in the client registry');
+    assert.ok(mcpSrc.includes('applyClientStyleRule'), 'style rule dispatch wired');
+    n += 2;
     const portal = fs.readFileSync(path.join(root, 'server', 'clientPortal.js'), 'utf8');
     assert.ok(portal.includes('CONVERGENCE SEAM'), 'convergence seam ships in the router');
     assert.ok(portal.includes('mergeSettledFacts'), 'settled merge wired');
@@ -673,6 +704,277 @@ const ALL_DEFS = [...READS, ...WRITES].map((name) => ({
     assert.ok(store.includes('ALTER TABLE site_chat_pending ADD COLUMN'), 'migration ships');
     n += 2;
     group('Part 4 wiring pins', n);
+  }
+
+  // ---------------------------------------------------------------
+  // Part 5 — styleRules + planner units (the implementor core and
+  // the planner policy, both pure modules)
+  // ---------------------------------------------------------------
+  {
+    let n = 0;
+    const styleRules = require(path.join(root, 'server', 'styleRules.js'));
+    const planner = loadPlannerModule();
+    assert.equal(styleRules.validateSelector('h3'), 'h3');
+    assert.equal(styleRules.validateSelector('H3'), 'h3');
+    assert.equal(
+      styleRules.validateSelector('section[data-ws-section-type="hero"] h3'),
+      'section[data-ws-section-type="hero"] h3'
+    );
+    assert.equal(styleRules.validateSelector('.price-card'), '.price-card');
+    assert.equal(styleRules.validateSelector('div > p'), null, 'combinators rejected');
+    assert.equal(styleRules.validateSelector('#main'), null, 'id selectors rejected');
+    assert.equal(styleRules.validateSelector('h3, p'), null, 'selector lists rejected');
+    assert.equal(styleRules.validateSelector('script'), null, 'non-styleable tags rejected');
+    assert.equal(styleRules.validateSelector('h3:hover'), null, 'pseudo-classes rejected');
+    n += 9;
+    assert.deepEqual(styleRules.validateDeclaration('color', '#ABC'), { property: 'color', value: '#aabbcc' });
+    assert.throws(() => styleRules.validateDeclaration('color', 'red'), (e) => e.code === 'INVALID_VALUE');
+    assert.throws(() => styleRules.validateDeclaration('position', 'absolute'), (e) => e.code === 'INVALID_PROPERTY');
+    assert.deepEqual(styleRules.validateDeclaration('font-size', '20px'), { property: 'font-size', value: '20px' });
+    assert.throws(() => styleRules.validateDeclaration('font-size', '20'), (e) => e.code === 'INVALID_VALUE');
+    assert.deepEqual(styleRules.validateDeclaration('font-weight', '700'), { property: 'font-weight', value: '700' });
+    n += 6;
+    let css = 'body { margin: 0; }';
+    css = styleRules.upsertStyleRule(css, { selector: 'h3', property: 'color', value: '#000' });
+    assert.ok(css.includes('h3 { color: #000000; }'), 'rule written into the managed block');
+    assert.ok(css.startsWith('body { margin: 0; }'), 'author CSS preserved');
+    css = styleRules.upsertStyleRule(css, { selector: 'h3', property: 'font-weight', value: '700' });
+    assert.ok(css.includes('h3 { color: #000000; font-weight: 700; }'), 'second declaration joins the same rule');
+    css = styleRules.upsertStyleRule(css, { selector: 'h3', property: 'color', value: '#444444' });
+    assert.ok(css.includes('color: #444444;') && !css.includes('#000000'), 're-applying replaces the value');
+    css = styleRules.upsertStyleRule(css, { selector: 'h3', property: 'color', value: null });
+    css = styleRules.upsertStyleRule(css, { selector: 'h3', property: 'font-weight', value: null });
+    assert.ok(!css.includes('chat-rules'), 'removing the last declaration removes the block');
+    assert.throws(
+      () => styleRules.upsertStyleRule('', { selector: 'h3', property: 'color', value: 'red; } body { display: none' }),
+      (e) => e.code === 'INVALID_VALUE',
+      'CSS injection through a value is rejected'
+    );
+    assert.throws(
+      () => styleRules.upsertStyleRule('', { selector: 'h3 } body {', property: 'color', value: '#000000' }),
+      (e) => e.code === 'INVALID_SELECTOR',
+      'CSS injection through a selector is rejected'
+    );
+    n += 8;
+    // Planner: named colours resolve by default — never a question.
+    // (Field-wise compares: the planner is VM-loaded, cross-realm.)
+    const rc = (name, theme) => {
+      const r = planner.resolveNamedColour(name, theme);
+      return r ? `${r.hex}|${r.source}` : null;
+    };
+    assert.equal(rc('dark grey', {}), '#444444|standard');
+    assert.equal(rc('dark grey', { secondary: '#141414' }), '#141414|site');
+    assert.equal(rc('dark grey', { secondary: '#eeeeee' }), '#444444|standard', 'a light site tone is not passed off as dark grey');
+    assert.equal(rc('black', {}), '#000000|standard');
+    assert.equal(rc('cream', { paper: '#F6F6F4' }), '#f6f6f4|site');
+    assert.equal(rc('banana', {}), null);
+    n += 6;
+    // Planner: convergence policy matrix.
+    const pend = (rounds, kind = 'clarify') => ({ kind, rounds });
+    const cls = (intent, newAmbiguity = false) => ({ intent, newAmbiguity });
+    if (NEGATIVE !== 'defaults') {
+      assert.equal(planner.shouldForceReady(pend(1), cls('clarify_answer')), true);
+      assert.equal(planner.shouldForceReady(pend(0), cls('clarify_answer')), false, 'round budget not yet used');
+      assert.equal(planner.shouldForceReady(pend(1), cls('clarify_answer', true)), false, 'new ambiguity earns its round');
+      assert.equal(planner.shouldForceReady(pend(1), cls('question')), false, 'questions never force-build');
+      assert.equal(planner.shouldForceReady(pend(1, 'either_or'), cls('change')), false, 'either/or pendings are not clarify rounds');
+      assert.equal(planner.shouldForceReady(null, cls('change')), false);
+      n += 6;
+    }
+    group('Part 5 style rules + planner units', n);
+  }
+
+  // ---------------------------------------------------------------
+  // Part 6 — capability registry: claims derive from the tools
+  // actually offered (defect 2: refusal/claim contradiction)
+  // ---------------------------------------------------------------
+  {
+    let n = 0;
+    const caps = require(path.join(root, 'server', 'portalCapabilities.js'));
+    const clientMcp = require(path.join(root, 'server', 'clientMcp.js'));
+    const allNames = clientMcp.portalToolDefs().map((t) => t.name);
+    assert.ok(allNames.includes('theme.styleRule'), 'the style tool is in the served registry');
+    const withStyle = caps.portalCapabilityLines(allNames);
+    assert.ok(
+      withStyle.some((l) => l.includes('H3') && l.includes('SPECIFIC elements')),
+      'capability list claims per-element styling — because the tool exists'
+    );
+    const withoutStyle = caps.portalCapabilityLines(allNames.filter((x) => x !== 'theme.styleRule'));
+    assert.ok(
+      !withoutStyle.some((l) => l.includes('SPECIFIC elements')),
+      'remove the tool and the claim disappears — one source of truth'
+    );
+    assert.ok(caps.portalCapabilityText(allNames).includes('single source of truth'));
+    n += 4;
+    // The SAME registry text reaches the answer prompt (the "what
+    // changes can you make" surface) and the build prompt.
+    const f = loopFixture(() => textReply('Here is what I can do.'));
+    const buildRes = await f.agent.runPortalImproveLoop(1, 999, { db: stubDb(), message: 'change all h3 to dark grey', history: [] });
+    assert.equal(buildRes.ok, true);
+    const buildSys = systemText(f.requests[0]);
+    assert.ok(buildSys.includes('Per-element styling is a SMALL in-chat job'), 'build prompt teaches the style tool');
+    assert.ok(buildSys.includes('YOUR CAPABILITIES'), 'build prompt carries the registry text');
+    n += 3;
+    const f2 = loopFixture(() => textReply('I can edit text, colours, and per-element styling.'));
+    const ansRes = await f2.agent.runPortalImproveLoop(1, 999, { db: stubDb(), message: 'what changes can you make', history: [], mode: 'answer' });
+    assert.equal(ansRes.ok, true);
+    const ansSys = systemText(f2.requests[0]);
+    assert.ok(ansSys.includes('YOUR CAPABILITIES'), 'answer prompt carries the same registry text');
+    assert.ok(ansSys.includes('answer from the capabilities list'), 'answer mode is grounded in the registry');
+    n += 3;
+    group('Part 6 capability registry consistency', n);
+  }
+
+  // ---------------------------------------------------------------
+  // S(i)2 — "change all h3 to dark grey" (Ely's second
+  // transcript): implemented IN-CHAT on turn 1 through the real
+  // style-rule dispatch — no queue, no question, the applied
+  // colour named. Under B94_NEGATIVE=stylerule the registry view
+  // loses the tool, the loop falls back to the shipped refusal,
+  // and this group goes RED.
+  // ---------------------------------------------------------------
+  {
+    let n = 0;
+    const lead = seedChatLead('GREY');
+    realDb
+      .prepare('INSERT INTO websites (lead_id, name, status, pages, theme) VALUES (?, ?, ?, ?, ?)')
+      .run(lead, 'ZZ B94 Grey', 'draft', JSON.stringify(FIXTURE_PAGES), JSON.stringify(FIXTURE_THEME));
+    const clientMcp = require(path.join(root, 'server', 'clientMcp.js'));
+    let registryNames = clientMcp.portalToolDefs().map((t) => t.name);
+    if (NEGATIVE === 'stylerule') registryNames = registryNames.filter((x) => x !== 'theme.styleRule');
+    const plannerReal = require(path.join(root, 'server', 'siteChatPlanner.js'));
+    const portalReal = require(path.join(root, 'server', 'clientPortal.js'));
+    const origLoop = fakeMuseAgent.runPortalImproveLoop;
+    fakeMuseAgent.runPortalImproveLoop = async (_ws, leadArg, opts) => {
+      if (opts.mode !== 'build') return origLoop(_ws, leadArg, opts);
+      if (!registryNames.includes('theme.styleRule')) {
+        // The shipped behaviour: refuse + claim it must be queued.
+        return {
+          steps: 1, model: 'fixture-model', imagesSent: false, imagesDropped: false,
+          reply: "I couldn't change just the H3s — my editing tools only change overall text colors, not H3-specific styling. Your request is queued as a design update.",
+          mutated: false, published: false, toolCalls: 0,
+        };
+      }
+      const row = realDb.prepare('SELECT theme FROM websites WHERE lead_id = ?').get(leadArg);
+      const resolved = plannerReal.resolveNamedColour('dark grey', JSON.parse(row.theme || '{}'));
+      await portalReal.applyClientStyleRule(1, leadArg, { selector: 'h3', property: 'color', value: resolved.hex });
+      return {
+        steps: 2, model: 'fixture-model', imagesSent: false, imagesDropped: false,
+        reply: `Done — made all H3s dark grey ${resolved.hex} across the whole site.`,
+        mutated: true, published: true, toolCalls: 2,
+      };
+    };
+    resetTurn();
+    classifyQueue = [{ intent: 'change', ready: true, size: 'small', settled: ['H3 colour: dark grey'], fallback: false }];
+    const res = await runChat(lead, { message: 'change all h3 to dark grey' });
+    fakeMuseAgent.runPortalImproveLoop = origLoop;
+    assert.equal(res.mode, 'build', 'turn 1 implements in-chat');
+    assert.equal(res.mutated, true, 'the style rule was applied');
+    assert.equal(jobCount(lead), 0, 'NO design_jobs row — nothing queued for lack of tools');
+    const themeRow = realDb.prepare('SELECT theme FROM websites WHERE lead_id = ?').get(lead);
+    const themeObj = JSON.parse(themeRow.theme || '{}');
+    assert.ok(
+      String(themeObj.customCss || '').includes('h3 { color: #444444; }'),
+      'an H3-scoped rule with the resolved dark grey exists in the site stylesheet'
+    );
+    assert.ok(String(res.reply).includes('#444444'), 'completion message names the applied colour');
+    assert.ok(!String(res.reply).includes('?'), 'no question was asked');
+    n += 6;
+    group('S(i)2 H3 dark grey → in-chat style rule on turn 1', n);
+  }
+
+  // ---------------------------------------------------------------
+  // S(vii) — CROSS-SITE ISOLATION (Ely's hard rule): site A's
+  // pending/settled state and style rules are invisible to site
+  // B's chat — same workspace, different websites.
+  // ---------------------------------------------------------------
+  {
+    let n = 0;
+    const leadA = seedChatLead('ISO-A');
+    const leadB = seedChatLead('ISO-B');
+    for (const [lead, nm] of [[leadA, 'ISO A'], [leadB, 'ISO B']]) {
+      realDb
+        .prepare('INSERT INTO websites (lead_id, name, status, pages, theme) VALUES (?, ?, ?, ?, ?)')
+        .run(lead, `ZZ B94 ${nm}`, 'draft', JSON.stringify(FIXTURE_PAGES), JSON.stringify(FIXTURE_THEME));
+    }
+    resetTurn();
+    classifyQueue = [{ intent: 'change', ready: false, size: 'small', settled: ['scope: entire site'], fallback: false }];
+    const resA = await runChat(leadA, { message: 'entire site, H3s darker' });
+    assert.equal(resA.mode, 'clarify');
+    const pendA = chatPending.getPending(realDb, leadA);
+    assert.ok(pendA && pendA.rounds === 1 && pendA.settled.includes('scope: entire site'), 'site A pending + settled persisted');
+    assert.equal(chatPending.getPending(realDb, leadB), null, 'site B has NO pending — A\'s state does not leak');
+    n += 3;
+    // Site B's first turn must classify with no pending in sight.
+    resetTurn();
+    classifyQueue = [{ intent: 'question', ready: false, size: 'small', settled: [], fallback: false }];
+    const resB = await runChat(leadB, { message: 'What is my headline?' });
+    assert.equal(resB.mode, 'answer');
+    assert.equal(classifyCalls[0].pending, null, 'site B classification saw NO pending from site A');
+    assert.equal(chatPending.getPending(realDb, leadB), null, 'site B still has no pending after its turn');
+    const pendA2 = chatPending.getPending(realDb, leadA);
+    assert.ok(pendA2 && pendA2.rounds === 1, 'site A pending untouched by site B\'s turn');
+    n += 4;
+    // Style rules are stored inside each site's OWN theme.
+    const portalReal = require(path.join(root, 'server', 'clientPortal.js'));
+    await portalReal.applyClientStyleRule(1, leadA, { selector: 'h3', property: 'color', value: '#000000' });
+    const themeA = JSON.parse(realDb.prepare('SELECT theme FROM websites WHERE lead_id = ?').get(leadA).theme || '{}');
+    const themeB = JSON.parse(realDb.prepare('SELECT theme FROM websites WHERE lead_id = ?').get(leadB).theme || '{}');
+    assert.ok(String(themeA.customCss || '').includes('h3 { color: #000000; }'), 'site A carries its rule');
+    assert.ok(!String(themeB.customCss || '').includes('chat-rules'), 'site B stylesheet has NO trace of site A\'s rule');
+    n += 2;
+    group('S(vii) cross-site isolation: no state leaks between websites', n);
+  }
+
+  // ---------------------------------------------------------------
+  // Part 9 — chat history display: the panel's initial load is
+  // THIS site's latest 50 saved messages (Ely: "display x amount
+  // of chat history in chat window"), no other site's, and turn
+  // rows never resurface as "updates".
+  // ---------------------------------------------------------------
+  {
+    let n = 0;
+    const thread = require(path.join(root, 'server', 'siteChatThread.js'));
+    const portalReal = require(path.join(root, 'server', 'clientPortal.js'));
+    assert.equal(thread.CHAT_HISTORY_LIMIT, 50, 'one named constant: 50');
+    const leadH = seedChatLead('HIST');
+    const leadH2 = seedChatLead('HIST2');
+    for (let i = 1; i <= 30; i++) {
+      portalReal.recordSiteChatTurn(1, leadH, { userText: `H user ${i}`, assistantText: `H agent ${i}` });
+    }
+    thread.addMessage(realDb, { leadId: leadH, content: 'H writeback', source: 'design_agent' });
+    for (let i = 1; i <= 5; i++) {
+      portalReal.recordSiteChatTurn(1, leadH2, { userText: `B user ${i}`, assistantText: `B agent ${i}` });
+    }
+    const hist = portalReal.getSiteChatHistory(1, leadH);
+    assert.equal(hist.limit, 50);
+    assert.equal(hist.messages.length, 50, 'exactly the latest 50 messages');
+    assert.ok(hist.messages.every((m) => m.content.startsWith('H ')), "no other site's messages in the load");
+    const ids = hist.messages.map((m) => m.id);
+    assert.ok(ids.every((v, i) => i === 0 || v > ids[i - 1]), 'oldest-first order');
+    assert.equal(
+      hist.messages[hist.messages.length - 1].content,
+      'H writeback',
+      'agent write-backs interleave into the history'
+    );
+    n += 6;
+    const hist2 = portalReal.getSiteChatHistory(1, leadH2);
+    assert.equal(hist2.messages.length, 10, 'the other site gets only its own 10');
+    assert.ok(hist2.messages.every((m) => m.content.startsWith('B ')));
+    n += 2;
+    const upd = portalReal.takeSiteChatUpdates(1, leadH);
+    assert.equal(upd.messages.length, 1, 'turn rows never resurface as updates — only the write-back does');
+    assert.equal(upd.messages[0].content, 'H writeback');
+    assert.equal(portalReal.takeSiteChatUpdates(1, leadH).messages.length, 0, 'write-back still delivered exactly once');
+    n += 3;
+    const routes = fs.readFileSync(path.join(root, 'server', 'routes', 'portal.js'), 'utf8');
+    assert.ok(routes.includes("'/site/agent-chat/history'"), 'history route ships');
+    assert.ok(routes.includes('recordSiteChatTurn'), 'completed turns are recorded');
+    const portalJs = fs.readFileSync(path.join(root, 'public', 'js', 'portal.js'), 'utf8');
+    assert.ok(portalJs.includes('loadAgentChatHistory'), 'panel loads history on open');
+    assert.ok(portalJs.includes('agentChatServerIds'), 'panel dedupes server messages by id');
+    n += 4;
+    group('Part 9 chat history: latest 50, per-site, no update echoes', n);
   }
 
   console.log(JSON.stringify({ passed: true, groups, negative: NEGATIVE || null }));

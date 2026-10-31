@@ -381,7 +381,11 @@ function loadChatAtt() {
                 ? domainStub
                 : name === './mcp'
                   ? { toolDefs: () => defs, callTool: async () => ({ ok: true, data: {} }) }
-                  : require(name),
+                  : name === './siteChatPlanner'
+                    ? require(path.join(root, 'server', 'siteChatPlanner.js'))
+                    : name === './portalCapabilities'
+                      ? require(path.join(root, 'server', 'portalCapabilities.js'))
+                      : require(name),
         fetch: async (_url, opts) => {
           const body = JSON.parse(opts.body);
           requests.push(body);
@@ -546,7 +550,9 @@ function loadChatAtt() {
               ? chatAtt
               : name === './siteChatPending'
                 ? require(path.join(root, 'server', 'siteChatPending.js'))
-                : require(name),
+                : name === './siteChatPlanner'
+                  ? require(path.join(root, 'server', 'siteChatPlanner.js'))
+                  : require(name),
     });
     const runChat = m.exports;
 

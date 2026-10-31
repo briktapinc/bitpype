@@ -65,6 +65,8 @@
     agentChatBusy: false,
     agentChatHistory: [],
     agentChatPending: [],
+    agentChatHistoryLoaded: false,
+    agentChatServerIds: new Set(),
   };
 
   const THEME_KEYS = ['primary', 'secondary', 'bg', 'text'];
@@ -2225,6 +2227,12 @@
       const msgs = (data && data.messages) || [];
       for (const m of msgs) {
         if (!m || !m.content) continue;
+        // Batch 94: never render a server message twice — the
+        // initial history load may already include this id.
+        if (m.id != null) {
+          if (state.agentChatServerIds.has(m.id)) continue;
+          state.agentChatServerIds.add(m.id);
+        }
         appendAgentBubble('assistant', m.content);
         state.agentChatHistory.push({ role: 'assistant', content: m.content });
       }
@@ -2236,7 +2244,31 @@
     }
   }
 
+  // Batch 94: on open, the chat window shows this site's most
+  // recent saved messages (server-side CHAT_HISTORY_LIMIT = 50) —
+  // the thread survives reloads and devices. Loaded once per page;
+  // rendered ids are remembered so the updates poller can never
+  // double-render a write-back that history already showed.
+  async function loadAgentChatHistory() {
+    if (state.agentChatHistoryLoaded) return;
+    state.agentChatHistoryLoaded = true;
+    try {
+      const data = await api('/site/agent-chat/history');
+      const msgs = (data && data.messages) || [];
+      if (!msgs.length || state.agentChatHistory.length) return;
+      for (const m of msgs) {
+        if (!m || !m.content) continue;
+        if (m.id != null) state.agentChatServerIds.add(m.id);
+        state.agentChatHistory.push({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content });
+        appendAgentBubble(m.role === 'user' ? 'user' : 'assistant', m.content);
+      }
+    } catch {
+      /* history is best-effort; the chat itself must never break */
+    }
+  }
+
   function wireAgentChat() {
+    loadAgentChatHistory();
     fetchAgentChatUpdates();
     if (!wireAgentChat._poll) {
       wireAgentChat._poll = setInterval(fetchAgentChatUpdates, 60000);

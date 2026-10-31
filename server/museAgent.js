@@ -8,6 +8,14 @@
 const platform = require('./platform');
 const crypto = require('node:crypto');
 const { defaultWebsiteInstructions } = require('../src/defaultDesignInstructions');
+// Batch 94: the PLANNER module owns the defaults doctrine +
+// convergence policy as data (server/siteChatPlanner.js), and the
+// capability registry (server/portalCapabilities.js) derives what
+// the agent may claim it can do from the tools it actually has.
+// Prompts below CONSUME both — they keep no private copies, so
+// the four-role rebuild can lift the policy without the prompts.
+const chatPlanner = require('./siteChatPlanner');
+const { portalCapabilityText } = require('./portalCapabilities');
 
 const MAX_STEPS = 36;
 const MAX_PORTAL_STEPS = 20;
@@ -21,6 +29,7 @@ const PORTAL_MUTATE_TOOLS = new Set([
   'site.generateImage',
   'site.setLogo',
   'theme.set',
+  'theme.styleRule',
   'pages.structure.update',
   'modules.attach',
   'modules.detach',
@@ -500,13 +509,10 @@ function buildClassifierSystemPrompt(pending, hasImages) {
     '- A message phrased as a question seeking information about the site (what / why / which / how / when / is there / can you tell me, or ending in "?") is ALWAYS "question" — never "ambiguous", never "change" — unless it explicitly asks for something to be changed ("can you change…", "could you make…", "please add…"). Asking what the headline IS is a question; asking to change it is a change.',
     '- "ambiguous" is ONLY for short statements of opinion or feeling about the site that neither ask a question nor request anything ("the blue looks bad", "the header feels empty", "not sure about the font"). If they asked something, it is a question; if they asked FOR something, it is a change.',
     '',
-    'DEFAULTS DOCTRINE — the agent is a designer, not a form. It applies sensible defaults instead of interrogating the owner, and states them afterwards:',
-    '- Scope the owner stated is SETTLED: "entire site" means all pages, "on the homepage" means the homepage. Stated scope never blocks readiness and is never asked about again.',
-    '- A colour-only request changes only the colour. Font, size, and weight staying the same is the DEFAULT — never a question, never a blocker.',
-    '- Contrast is a RULE, never a question: headings and text on dark sections always stay light enough to read. Never ask whether dark-section headings should also go dark.',
-    '- "black" or "darker" for headings/text on light backgrounds means pure black #000000 by default.',
-    '- When a tone is needed (e.g. a cream for dark sections), the agent uses the site\'s OWN existing tone from the site context (its paper / cream colour). Never ask the owner to choose between hex codes — picking the exact tone is the agent\'s job.',
-    '- Any remaining matter of taste or polish (exact spacing, shade nuance) is the designer\'s call and does NOT block readiness.',
+    // The doctrine itself lives in the PLANNER module
+    // (server/siteChatPlanner.js) as data — this prompt consumes
+    // it verbatim so the rebuild's planner keeps one copy.
+    ...chatPlanner.CLASSIFIER_DOCTRINE_LINES,
   ];
   if (pending) {
     lines.push(
@@ -554,7 +560,7 @@ function buildClassifierSystemPrompt(pending, hasImages) {
     'NEW_AMBIGUITY (output): true ONLY when this message introduces a brand-new material decision that was not part of the request so far and has no default (rare). Changing one\'s mind, answering tersely, or correcting the current state is NOT new ambiguity.',
     '',
     'SIZE (judge only when ready=true, and judge the FINAL clarified request):',
-    '- "small": a single spot, well-scoped — one text/copy edit, swapping one image, changing one link, a colour or style tweak on one element, one heading or button. A single global style value (one heading colour for the whole site) is still "small" — one tweak, applied in one place.',
+    '- "small": a single spot, well-scoped — one text/copy edit, swapping one image, changing one link, a colour or style tweak on one element, one heading or button. A single global style value (one heading colour for the whole site) is still "small" — one tweak, applied in one place. A per-element style rule (e.g. "change all H3s to dark grey") is "small" too — the style-rule tool applies it in-chat; never size it "big" and never treat it as undoable for lack of tools.',
     '- "big": spans multiple sections or pages, restructures a layout, adds a new page, sets up a new module or feature, or is a broad redesign ("redo the homepage", "give the site a modern look").',
     '- "borderline": true when the size call is genuinely debatable; otherwise false.'
   );
@@ -724,6 +730,15 @@ function buildPortalSystemPrompt(leadId, pageSlug, mode = 'build', ctx = {}) {
       'You may inspect the site with the read-only tools provided (site.get, site.render, and the content list/get tools) so your answer reflects what is really on the site. This turn is READ-ONLY: you have no editing tools and must not change anything, and you must not claim to have changed anything.',
       'If the owner attached image(s), they are part of the question — assess them in relation to the site (branding, colours, quality, fit) as asked.',
       'Keep the answer focused and practical: a short paragraph, or a few short bullets when listing. If the owner actually wants a change made, they can just say so and you will apply it.',
+      // Batch 94: capability claims come from the registry, so a
+      // "what changes can you make" answer can never contradict
+      // what the build mode would do with the same request.
+      ...(ctx.capabilities
+        ? [
+            'If the owner asks what changes you can make, answer from the capabilities list below — exactly those, no more and no less. Never tell the owner you cannot do something that is listed there.',
+            ctx.capabilities,
+          ]
+        : []),
     ].join('\n');
   }
   if (mode === 'clarify') {
@@ -765,7 +780,7 @@ function buildPortalSystemPrompt(leadId, pageSlug, mode = 'build', ctx = {}) {
         );
       }
       lines.push(
-        'DEFAULTS — never ask about these, they are already decided: a colour-only change keeps the same font, size, and weight; scope the owner already stated is the scope; headings/text on dark sections always stay light enough to read; "black"/"darker" on light backgrounds means pure black #000000; when a tone is needed the site\'s own existing paper/cream colour is used — never ask the owner to pick between hex codes, and never re-ask a question from an earlier round in new words.',
+        chatPlanner.CLARIFY_DEFAULTS_LINE,
         'If the owner attached image(s) with no clear instruction, ask what they would like done with them (use them on the site, match their colours/branding, or something else) — that counts as one of the questions.'
       );
     }
@@ -776,14 +791,20 @@ function buildPortalSystemPrompt(leadId, pageSlug, mode = 'build', ctx = {}) {
     'The business owner describes improvements in plain language. You apply them with tools only — no admin/workspace tools.',
     `Lead id is ${Number(leadId)}. Always pass leadId on tools that accept it.`,
     pageHint,
-    'Workflow: site.get → site.render (includeHtml false unless you need HTML) → mutate with site.editText / theme.set / pages.structure.update / etc. → site.publish so the preview updates.',
+    'Workflow: site.get → site.render (includeHtml false unless you need HTML) → mutate with site.editText / theme.set / theme.styleRule / pages.structure.update / etc. → site.publish so the preview updates.',
     'For text changes, use exact ids from site.render textTargets. Never invent edit ids. If the target is absent, inspect site.render with includeHtml:true. Tool wire aliases must be used exactly as advertised.',
     'Prefer small, accurate edits. Do not invent phone/email/address. Do not delete the whole site.',
-    // Batch 94 defaults doctrine (implementation side): decide the
-    // polish yourself, then DISCLOSE the defaults in the summary —
-    // correction-after replaces questions-before.
-    'Design defaults — apply these without asking: a colour-only change touches colour only (font, size, weight unchanged); scope the owner stated ("entire site", "on the homepage") is the scope; headings and text on dark sections stay light enough to read — never darken them into a dark background; "black" / "darker" on light backgrounds means pure black #000000; when a light tone is needed on dark sections, use the site\'s own existing paper/cream colour from the site context or theme.',
-    'When finished, stop calling tools and reply in 1–3 short plain-English sentences summarizing what you changed (or why you could not). When you applied any design default, end the summary with one short "Defaults applied: …" line naming them (e.g. "Defaults applied: H3s pure black on light sections across all pages; dark sections keep the site\'s light cream so they stay readable; fonts unchanged.") so the owner can correct a default afterwards if it is not what they wanted.',
+    // Batch 94: capabilities are registry-derived (one source of
+    // truth) — the agent must never refuse a listed capability
+    // (the H3 refusal + queue) nor promise an unlisted one.
+    ...(ctx.capabilities ? [ctx.capabilities] : []),
+    'Per-element styling is a SMALL in-chat job you do on the spot with theme.styleRule: selector "h3" + property "color" + a concrete hex recolours EVERY H3 through the site stylesheet; scope a rule with section[data-ws-section-type="<type>"] when the owner names a part of the site (e.g. dark sections). Never say your tools only change overall text colours, and never queue a style-sized job for lack of tools.',
+    // Batch 94 defaults doctrine (implementation side) lives in
+    // the PLANNER module: decide the polish yourself, then
+    // DISCLOSE the defaults in the summary — correction-after
+    // replaces questions-before.
+    chatPlanner.BUILD_DEFAULTS_LINE,
+    chatPlanner.BUILD_DISCLOSURE_LINE,
   ].join('\n');
 }
 
@@ -897,7 +918,20 @@ async function runPortalImproveLoop(
   const messages = [
     {
       role: 'system',
-      content: buildPortalSystemPrompt(lid, pageSlug, runMode, { clarifyAbout, clarifyKind, clarifySettled, clarifyPriorQa, clarifyRound }),
+      content: buildPortalSystemPrompt(lid, pageSlug, runMode, {
+        clarifyAbout,
+        clarifyKind,
+        clarifySettled,
+        clarifyPriorQa,
+        clarifyRound,
+        // Batch 94: capability text derived from the BUILD catalog
+        // (what the agent can do when asked to make a change) —
+        // injected into answer + build prompts alike so capability
+        // claims can never contradict behaviour.
+        capabilities: portalCapabilityText(
+          mcp.toolDefs({ clientScoped: true }).filter((t) => t && portalModeAllowsTool('build', t.name)).map((t) => t.name)
+        ),
+      }),
     },
     // Tier 1 whole-site context: the agent's standing knowledge of
     // the ENTIRE site, loaded every turn in every mode. Tier 2 is

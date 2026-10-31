@@ -1079,6 +1079,96 @@ async function applyClientThemeColors(workspaceId, leadId, colors = {}) {
 }
 
 /**
+ * Batch 94 — the implementor's element-style capability for the
+ * portal design chat: apply ONE scoped style rule (e.g. selector
+ * "h3", property "color", value "#444444" → every H3 on the site)
+ * into the managed block of theme.customCss. Before this, the
+ * in-chat agent could only change global theme colours, so it
+ * refused and queued canonical small jobs ("make all H3s dark
+ * grey"). All validation lives in server/styleRules.js (selector
+ * grammar + property allowlist + per-property value checks) —
+ * nothing unvalidated reaches the stylesheet. Persistence mirrors
+ * applyClientThemeColors (sitesSave + deliverable sync + preview).
+ */
+async function applyClientStyleRule(workspaceId, leadId, args = {}) {
+  const domain = require('./domain');
+  const styleRules = require('./styleRules');
+  const googleFonts = require('../public/js/fonts.js');
+  const selector = styleRules.validateSelector(args.selector);
+  if (!selector) {
+    throw Object.assign(
+      new Error('Selector is outside the allowed grammar (an element like h3, a .class, or section-scoped)'),
+      { code: 'INVALID_SELECTOR' }
+    );
+  }
+  const property = String(args.property || '').trim().toLowerCase();
+  const removing = args.remove === true || args.value == null;
+  let value = removing ? null : String(args.value);
+  if (!removing && property === 'font-family') {
+    value = googleFonts.safeStack(value);
+  }
+  // Validate BEFORE opening the DB so a bad rule never writes.
+  const decl = removing ? null : styleRules.validateDeclaration(property, value);
+
+  const prepared = domain.withDb(workspaceId, (db) => {
+    const lead = db.prepare('SELECT id FROM leads WHERE id = ? LIMIT 1').get(Number(leadId));
+    if (!lead) {
+      throw Object.assign(new Error('Linked business not found'), { code: 'NOT_FOUND' });
+    }
+    const site = resolveClientSite(db, leadId);
+    if (!site || !Array.isArray(site.pages) || !site.pages.length) {
+      throw Object.assign(new Error('No website is available to edit yet'), { code: 'NO_SITE' });
+    }
+    const oldTheme = site.theme && typeof site.theme === 'object' ? site.theme : {};
+    const customCss = styleRules.upsertStyleRule(String(oldTheme.customCss || ''), {
+      selector,
+      property,
+      value: removing ? null : decl.value,
+    });
+    const theme = { ...oldTheme, customCss };
+    return { siteId: site.id, pages: site.pages, theme, previewFallback: resolvePreviewUrl(site) };
+  });
+
+  const saved = domain.sitesSave(workspaceId, prepared.siteId, {
+    pages: prepared.pages,
+    theme: prepared.theme,
+    note: 'Client portal style rule',
+  });
+  syncDesignDeliverablePages(workspaceId, leadId, prepared.siteId, prepared.pages, prepared.theme);
+
+  let previewUrl = prepared.previewFallback;
+  let publicPreviewUpdated = false;
+  try {
+    const preview = await domain.sitesPreview(workspaceId, prepared.siteId, { force: true });
+    if (preview && preview.url) {
+      previewUrl = preview.url;
+      publicPreviewUpdated = true;
+    }
+  } catch (e) {
+    console.warn('[clientPortal] force preview after style rule:', e.message);
+    const previewRow = domain.withDb(workspaceId, (db) =>
+      db.prepare('SELECT preview_url, preview_path FROM websites WHERE id = ?').get(prepared.siteId)
+    );
+    previewUrl = resolvePreviewUrl(previewRow) || prepared.previewFallback;
+  }
+
+  try {
+    domain.intentRecord(workspaceId, Number(leadId), 'theme.styleRule', 'Client portal style rule');
+  } catch {
+    /* optional */
+  }
+
+  return {
+    siteId: prepared.siteId,
+    rule: removing ? { selector, property, removed: true } : { selector, property, value: decl.value },
+    rules: styleRules.listStyleRules(prepared.theme.customCss),
+    version: saved.version,
+    previewUrl,
+    publicPreviewUpdated,
+  };
+}
+
+/**
  * Rematerialize the site export and refresh the public preview URL (Cloudflare Pages when configured).
  */
 async function publishClientSitePreview(workspaceId, leadId) {
@@ -3824,7 +3914,7 @@ async function createClientMcpToken(workspaceId, leadId, clientEmail, opts = {})
     ...created,
     hint:
       'Lead-scoped Bearer token for Muse or any MCP client. Connect to your workspace /mcp URL. ' +
-      'Start with site.get, then site.editText / pages.structure.update / modules.* / site.publish. ' +
+      'Start with site.get, then site.editText / pages.structure.update / modules.* / theme.set (global colours/fonts) / theme.styleRule (per-element styling, e.g. all H3s) / site.publish. ' +
       'Social post scheduling via social.posts.* is Premium only; form inbox stays in the portal UI.',
   };
 }
@@ -4299,6 +4389,8 @@ module.exports = {
   revokeClientMcpToken,
   runSiteAgentChat,
   takeSiteChatUpdates,
+  recordSiteChatTurn,
+  getSiteChatHistory,
   uploadSiteChatImage,
   fetchSiteChatImage,
   listSiteChatImages,
@@ -4316,6 +4408,7 @@ module.exports = {
   resolveExportPreviewBase,
   renderClientSite,
   applyClientThemeColors,
+  applyClientStyleRule,
   publishClientSitePreview,
   applyClientTextEdits,
   applyClientImageUpload,
@@ -4574,16 +4667,14 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
   // further answer implements the change with design defaults
   // instead of asking again — unless the answer introduced a
   // genuinely new decision with no default (classifier-flagged
-  // newAmbiguity). The batch94 suite negative-proofs this seam:
-  // shimming it off lets a stubborn classifier loop questions
-  // forever, which is exactly Ely's complaint.
-  const forceReady =
-    !ready &&
-    !!pending &&
-    pending.kind === 'clarify' &&
-    Number(pending.rounds || 0) >= 1 &&
-    !(cls && cls.newAmbiguity) &&
-    (intent === 'clarify_answer' || intent === 'change' || intent === 'ambiguous');
+  // newAmbiguity). The POLICY lives in the planner module
+  // (server/siteChatPlanner.shouldForceReady) so the four-role
+  // rebuild lifts it whole; this handler only wires it. The
+  // batch94 suite negative-proofs the seam: shimming the policy
+  // off lets a stubborn classifier loop questions forever, which
+  // is exactly Ely's complaint.
+  const chatPlanner = require('./siteChatPlanner');
+  const forceReady = !ready && chatPlanner.shouldForceReady(pending, { ...cls, intent });
   if (forceReady) ready = true;
   // The size gate (Batch 93): a ready change judged BIG is queued to
   // the design agent instead of being implemented in the chat. This
@@ -4891,6 +4982,44 @@ function takeSiteChatUpdates(workspaceId, leadId) {
   const domain = require('./domain');
   const thread = require('./siteChatThread');
   return domain.withDb(workspaceId, (db) => ({ messages: thread.takeUndelivered(db, leadId) }));
+}
+
+/**
+ * Batch 94 — persist one completed chat turn (owner message +
+ * agent reply) into THIS site's thread, marked delivered: the
+ * owner already saw both live, so the rows are history for the
+ * next panel open, never "updates". Keyed by lead like every
+ * other chat-state store — a turn can only land in its own
+ * site's thread.
+ */
+function recordSiteChatTurn(workspaceId, leadId, { userText = '', assistantText = '' } = {}) {
+  const domain = require('./domain');
+  const thread = require('./siteChatThread');
+  return domain.withDb(workspaceId, (db) => {
+    const ids = [];
+    const user = String(userText || '').trim();
+    if (user) {
+      ids.push(thread.addMessage(db, { leadId, role: 'user', content: user, source: 'portal_chat', delivered: true }));
+    }
+    const assistant = String(assistantText || '').trim();
+    if (assistant) {
+      ids.push(
+        thread.addMessage(db, { leadId, role: 'assistant', content: assistant, source: 'portal_chat', delivered: true })
+      );
+    }
+    return { recorded: ids.length, ids };
+  });
+}
+
+/** Batch 94 — the chat window's initial load: this site's latest
+ * CHAT_HISTORY_LIMIT messages, oldest-first. Per-site only. */
+function getSiteChatHistory(workspaceId, leadId) {
+  const domain = require('./domain');
+  const thread = require('./siteChatThread');
+  return domain.withDb(workspaceId, (db) => ({
+    messages: thread.listRecent(db, leadId),
+    limit: thread.CHAT_HISTORY_LIMIT,
+  }));
 }
 
 /**

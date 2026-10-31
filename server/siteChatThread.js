@@ -31,21 +31,59 @@ function ensureTable(db) {
   `);
 }
 
-function addMessage(db, { leadId, content, source = null, jobId = null, role = 'assistant' } = {}) {
+/**
+ * Batch 94 — how many saved messages the chat window shows on
+ * open (Ely: "display x amount of chat history in chat window").
+ * One named constant; the panel's initial load asks the history
+ * route for exactly this many of THIS site's latest messages.
+ */
+const CHAT_HISTORY_LIMIT = 50;
+
+function addMessage(db, { leadId, content, source = null, jobId = null, role = 'assistant', delivered = false } = {}) {
   ensureTable(db);
   const info = db
     .prepare(
-      `INSERT INTO site_chat_messages (lead_id, role, content, source, job_id)
-       VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO site_chat_messages (lead_id, role, content, source, job_id, delivered_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
     )
     .run(
       Number(leadId),
       role === 'user' ? 'user' : 'assistant',
       String(content || '').slice(0, 4000),
       source ? String(source).slice(0, 60) : null,
-      jobId != null ? Number(jobId) : null
+      jobId != null ? Number(jobId) : null,
+      // Turn rows are already on the owner's screen — they are
+      // history, not updates, so they must never resurface through
+      // takeUndelivered. Write-backs (delivered=false) still do.
+      delivered ? new Date().toISOString().replace('T', ' ').slice(0, 19) : null
     );
   return Number(info.lastInsertRowid);
+}
+
+function rowToMessage(r) {
+  return {
+    id: Number(r.id),
+    role: r.role === 'user' ? 'user' : 'assistant',
+    content: String(r.content || ''),
+    source: r.source || null,
+    jobId: r.job_id != null ? Number(r.job_id) : null,
+    createdAt: r.created_at || null,
+  };
+}
+
+/**
+ * This site's most recent messages (chat turns + agent
+ * write-backs interleaved), oldest-first, capped at `limit`.
+ * Strictly per lead — a site only ever reads its own thread.
+ */
+function listRecent(db, leadId, limit = CHAT_HISTORY_LIMIT) {
+  ensureTable(db);
+  const lid = Number(leadId);
+  const cap = Math.max(1, Math.min(CHAT_HISTORY_LIMIT, Number(limit) || CHAT_HISTORY_LIMIT));
+  const rows = db
+    .prepare('SELECT * FROM site_chat_messages WHERE lead_id = ? ORDER BY id DESC LIMIT ?')
+    .all(lid, cap);
+  return rows.reverse().map(rowToMessage);
 }
 
 /** Fetch this lead's undelivered messages and mark them delivered. */
@@ -67,18 +105,13 @@ function takeUndelivered(db, leadId, limit = 10) {
         .join(',')})`
     ).run(...ids);
   }
-  return rows.map((r) => ({
-    id: Number(r.id),
-    role: r.role === 'user' ? 'user' : 'assistant',
-    content: String(r.content || ''),
-    source: r.source || null,
-    jobId: r.job_id != null ? Number(r.job_id) : null,
-    createdAt: r.created_at || null,
-  }));
+  return rows.map(rowToMessage);
 }
 
 module.exports = {
+  CHAT_HISTORY_LIMIT,
   ensureTable,
   addMessage,
   takeUndelivered,
+  listRecent,
 };
