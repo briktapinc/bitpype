@@ -48,6 +48,11 @@
       --shadow: 0 1px 2px rgba(80, 40, 20, 0.05), 0 8px 18px rgba(80, 40, 20, 0.06);
       --shadow-lg: 0 24px 60px rgba(28, 20, 15, 0.25), 0 4px 16px rgba(80, 40, 20, 0.08);
       --radius: 26px;
+      /* Batch 108: THE portal card gap — one uniform standard. Every
+         grid, flex stack, or sibling margin that separates two cards
+         in the portal uses this token, so cards never touch and the
+         margin between any two cards is always the same. */
+      --card-gap: 16px;
       color-scheme: light;
       /* Legacy portal aliases (portal.js inline styles use these names). */
       --paper: var(--surface);
@@ -120,7 +125,7 @@
     .website-workspace {
       display: grid;
       grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
-      gap: 16px;
+      gap: var(--card-gap);
       align-items: stretch;
       min-height: min(72vh, 860px);
     }
@@ -712,10 +717,23 @@
     .portal-cards {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 14px;
-      margin-bottom: 14px;
+      gap: var(--card-gap);
+      margin-bottom: var(--card-gap);
     }
     .portal-cards > .panel { margin-bottom: 0; }
+    /* Batch 108: stacked sibling panels are cards too. The JS-rendered
+       hosts (SEO / GBP / Rentals) and section-level panel stacks render
+       .panel siblings with no container gap of their own — before this
+       rule they rendered touching (measured 0px). One standard: the
+       same --card-gap as every card grid. Margins collapse with any
+       legacy inline margin, so the effective gap is the standard,
+       never the sum. */
+    #seo-host > .panel + .panel,
+    #gbp-host > .panel + .panel,
+    #rentals-host > .panel + .panel,
+    section.portal-panel > .panel + .panel {
+      margin-top: var(--card-gap);
+    }
     @media (max-width: 980px) {
       .portal-cards { grid-template-columns: 1fr; }
     }
@@ -1145,7 +1163,7 @@
     .structure-module-list {
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: var(--card-gap);
       margin: 14px 0 0;
     }
     /* Batch 91: picker entries are mini cards in a 2-up grid, with the
@@ -1153,7 +1171,7 @@
     .structure-block-group {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 10px;
+      gap: var(--card-gap);
     }
     .structure-block-group > p { grid-column: 1 / -1; }
     .structure-module-list button {
@@ -1479,7 +1497,7 @@
     .post-list {
       margin: 18px 0 0;
       display: grid;
-      gap: 14px;
+      gap: var(--card-gap);
       grid-template-columns: 1fr;
     }
     .post-card {
@@ -1603,7 +1621,7 @@
     .bill-alert.warn { background: var(--warn-soft); border: 1px solid #eed9a0; color: #7a5200; }
     .plan-grid {
       display: grid;
-      gap: 14px;
+      gap: var(--card-gap);
       grid-template-columns: repeat(3, minmax(0, 1fr));
       margin-top: 14px;
     }
@@ -1752,7 +1770,7 @@
     .post-card:has(.post-body:only-child) { grid-template-columns: minmax(0, 1fr); }
     .item-list {
       display: grid;
-      gap: 12px;
+      gap: var(--card-gap);
       margin-top: 4px;
     }
     .item-card {
@@ -1839,7 +1857,7 @@
     .modules-admin {
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: var(--card-gap);
       align-items: stretch;
     }
     .modules-admin-side {
@@ -1863,7 +1881,7 @@
     .modules-side-nav {
       display: grid;
       grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 12px;
+      gap: var(--card-gap);
     }
     .modules-side-group {
       grid-column: 1 / -1;
@@ -2013,7 +2031,7 @@
       }
     }
     .modules-embed-card {
-      margin-bottom: 16px;
+      margin-bottom: var(--card-gap);
       padding: 18px 20px;
       border-radius: var(--radius);
       border: 1px solid var(--border);
@@ -2771,7 +2789,7 @@
           <input type="search" id="leadscout-q" placeholder="Search name, email, phone…" style="flex:1;min-width:180px" />
           <button type="button" class="btn soft small" id="btn-leadscout-refresh">Refresh</button>
         </div>
-        <div class="leadscout-layout" style="display:grid;grid-template-columns:minmax(220px,1fr) minmax(280px,1.4fr);gap:14px">
+        <div class="leadscout-layout" style="display:grid;grid-template-columns:minmax(220px,1fr) minmax(280px,1.4fr);gap:var(--card-gap)">
           <div class="panel" style="margin:0">
             <strong style="display:block;margin-bottom:10px">Contacts</strong>
             <div id="leadscout-list"></div>
@@ -2928,7 +2946,7 @@
       <section class="block portal-panel" id="sec-social" role="tabpanel" aria-labelledby="nav-social" data-panel="social" hidden>
         <h2>Social calendar</h2>
         <p class="lede" id="cal-lede">This month’s scheduled posts.</p>
-        <div class="panel" style="margin-bottom:14px">
+        <div class="panel" style="margin-bottom:var(--card-gap)">
           <strong style="display:block;margin-bottom:8px">Facebook / Instagram</strong>
           <p class="hint" id="social-accounts-hint">Connect a Page to schedule posts automatically.</p>
           <div id="social-accounts-list"></div>
@@ -3036,7 +3054,7 @@
         <p class="lede">Refer a business. When they start a paid plan, you earn social credits (~10% of their plan value).</p>
         <div class="portal-cards">
         <div class="panel">
-          <div class="row" style="flex-wrap:wrap;gap:12px;margin-bottom:8px">
+          <div class="row" style="flex-wrap:wrap;gap:var(--card-gap);margin-bottom:8px">
             <div class="stat-card" style="min-width:120px;flex:1">
               <div class="n" style="font-size:1.25rem" id="ref-earned">0</div>
               <div class="l">Credits earned</div>

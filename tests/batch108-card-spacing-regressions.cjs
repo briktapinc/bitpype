@@ -1,0 +1,432 @@
+'use strict';
+/**
+ * Batch 108 — PORTAL CARD SPACING: one uniform gap standard.
+ * Ely's order 2026-10-31 ~19:25 EDT: "Some cards in portal touch each
+ * other, make sure there are equal margins between each card."
+ *
+ * THE AUDIT (rendered DOM measurement in Chromium, stub API, before
+ * the fix — not CSS reading): the JS-rendered panel hosts stacked
+ * their cards with NO separation at all — #seo-host 3 panels at 0px,
+ * #gbp-host 5 panels at 0px, #rentals-host 2 panels at 0px, at every
+ * width. Everything else was a patchwork: portal-cards / plan-grid /
+ * post-list / LeadScout layout at 14px, item lists and the Batch 91
+ * module-card grid at 12px, the Insert-block picker at 10px, form
+ * submission cards at 8px, stacked static panels hand-margined at 14
+ * or 16px depending on the section.
+ *
+ * THE STANDARD: --card-gap: 16px — the value the portal's own
+ * stacked-panel margins and newest flex stacks (modules-admin,
+ * structure-module-list, website-workspace) already used. Every card
+ * grid/flex container now takes `gap: var(--card-gap)`; stacked
+ * sibling panels (which have no container gap) take the same value
+ * via a sibling rule; the JS templates that hand-set card margins
+ * (module settings .card blocks, submission post-cards, GBP draft
+ * panels) use the token too. Spacing only — no card design, icon, or
+ * behaviour changed.
+ *
+ * Proven here:
+ *  Part 1 — source pins: the token, every container rule on the
+ *    token, the sibling-stack rule, the JS template margins, the old
+ *    off-standard values gone, SEC-13 census untouched.
+ *  Part 2 — real Chromium, stub API: at 1440 / 980 / 390, EVERY
+ *    adjacent-card gap on every audited surface measures the
+ *    standard (16px): portal-cards (Analytics/Referrals/Billing),
+ *    plan cards, item-card lists (Forms + Modules), the Batch 91
+ *    module-card grid, post cards (Social + form Submissions),
+ *    LeadScout layout panels, the DataTables settings card stack,
+ *    the Insert-block picker, referral stat cards, and the stacked
+ *    panels of Changes / Social / MCP / SEO / GBP / Rentals.
+ *
+ * NEGATIVE PROOF: B108_NEGATIVE=gap serves portal.html with the
+ * sibling-stack rule stripped and the module-card grid gap zeroed ->
+ * Part 2 goes RED on exactly those surfaces.
+ * B108_SKIP_BROWSER=1 skips Part 2 locally (no Chromium on the dev
+ * box); the gate always runs it in-image.
+ */
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = path.resolve(__dirname, '..');
+const NEGATIVE = process.env.B108_NEGATIVE || '';
+const groups = [];
+function group(name, n) {
+  groups.push(`${name} (${n})`);
+  console.log(`  ok ${name} — ${n} checks`);
+}
+
+const MODULE_TYPES = [
+  'blog', 'ecommerce', 'courses', 'gallery', 'directory', 'faq',
+  'testimonials', 'team', 'events', 'bookings', 'chatbot', 'offers',
+  'menu', 'careers', 'video', 'estimate', 'socialfeed',
+  'googlereviews', 'calltracking', 'members', 'datatables', 'charts',
+];
+
+(async () => {
+  const portalHtml = fs.readFileSync(path.join(root, 'public', 'portal.html'), 'utf8');
+  const portalJs = fs.readFileSync(path.join(root, 'public', 'js', 'portal.js'), 'utf8');
+
+  // ---------------------------------------------------------------
+  // Part 1 — source pins + census
+  // ---------------------------------------------------------------
+  {
+    let n = 0;
+    const has = (src, s, label) => { assert.ok(src.includes(s), label); n += 1; };
+    const hasNot = (src, s, label) => { assert.ok(!src.includes(s), label); n += 1; };
+    const ruleHas = (selector, snippet, label) => {
+      // Top-level portal rules are 4-space indented; slice the rule body.
+      const idx = portalHtml.indexOf(String.fromCharCode(10) + '    ' + selector + ' {');
+      assert.ok(idx >= 0, `${label} — rule exists`);
+      const body = portalHtml.slice(idx, portalHtml.indexOf('}', idx));
+      assert.ok(body.includes(snippet), `${label} — contains ${snippet}`);
+      n += 2;
+    };
+
+    has(portalHtml, '--card-gap: 16px;', 'the one card-gap token (16px)');
+    ruleHas('.portal-cards', 'gap: var(--card-gap)', 'portal-cards grid gap');
+    ruleHas('.portal-cards', 'margin-bottom: var(--card-gap)', 'portal-cards stack margin');
+    ruleHas('.modules-side-nav', 'gap: var(--card-gap)', 'Batch 91 module-card grid gap');
+    ruleHas('.structure-block-group', 'gap: var(--card-gap)', 'Insert-block picker grid gap');
+    ruleHas('.item-list', 'gap: var(--card-gap)', 'item-card list gap');
+    ruleHas('.post-list', 'gap: var(--card-gap)', 'post-card list gap');
+    ruleHas('.plan-grid', 'gap: var(--card-gap)', 'billing plan grid gap');
+    ruleHas('.modules-admin', 'gap: var(--card-gap)', 'modules admin stack gap');
+    ruleHas('.structure-module-list', 'gap: var(--card-gap)', 'picker group stack gap');
+    ruleHas('.website-workspace', 'gap: var(--card-gap)', 'website workspace gap');
+    ruleHas('.modules-embed-card', 'margin-bottom: var(--card-gap)', 'embed card margin');
+    // The sibling-stack rule that separates the previously touching panels.
+    has(portalHtml, '#seo-host > .panel + .panel,', 'stack rule covers SEO host');
+    has(portalHtml, '#gbp-host > .panel + .panel,', 'stack rule covers GBP host');
+    has(portalHtml, '#rentals-host > .panel + .panel,', 'stack rule covers Rentals host');
+    has(portalHtml, 'section.portal-panel > .panel + .panel {', 'stack rule covers section panel stacks');
+    has(portalHtml, 'margin-top: var(--card-gap);', 'stack rule uses the token');
+    // Inline card separations in the static HTML.
+    has(portalHtml, 'gap:var(--card-gap)', 'LeadScout layout inline gap on token');
+    has(portalHtml, 'flex-wrap:wrap;gap:var(--card-gap);margin-bottom:8px', 'referral stat row gap on token');
+    has(portalHtml, '<div class="panel" style="margin-bottom:var(--card-gap)">', 'social accounts panel margin on token');
+    // JS template card margins on the token.
+    const flatJs = portalJs.split(String.fromCharCode(92)).join('');
+    assert.equal(flatJs.split('<div class="card" style="margin-bottom:var(--card-gap)"').length - 1, 6, 'all six module settings .card blocks on token'); n += 1;
+    has(flatJs, '<article class="post-card" style="margin-bottom:var(--card-gap)">', 'submission post-card margin on token');
+    has(flatJs, '<div class="panel" style="margin-top:var(--card-gap)">', 'GBP draft panel margin on token');
+    // Off-standard values are gone from the card surfaces.
+    hasNot(portalJs, 'margin-bottom:14px', 'no 14px card margins left in portal.js');
+    hasNot(flatJs, 'post-card" style="margin-bottom:8px"', 'submission cards no longer at 8px');
+    hasNot(flatJs, 'panel" style="margin-top:10px"', 'GBP draft panels no longer at 10px');
+    // SEC-13 census untouched (portal.js edits are same-line value swaps).
+    const { census } = require(path.join(root, 'scripts', 'xss-census.cjs'));
+    const cz = census();
+    assert.equal(cz.summary.total, 407, 'SEC-13 census total unchanged'); n += 1;
+    const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
+    const BASELINE = new Set(require(path.join(root, 'tests', 'batch103-xss-baseline.json')));
+    assert.deepEqual([...reviewed].filter((x) => !BASELINE.has(x)), [], 'no new RAW/IDENT sinks vs baseline'); n += 1;
+    assert.deepEqual([...BASELINE].filter((x) => !reviewed.has(x)), [], 'no baseline sink unaccounted'); n += 1;
+    group('Part 1 source pins + census', n);
+  }
+
+  if (process.env.B108_SKIP_BROWSER === '1') {
+    console.log('  skip Part 2 browser (B108_SKIP_BROWSER=1 — local iteration only)');
+    console.log(`BATCH108 REGRESSION PASS — ${groups.join('; ')}`);
+    return;
+  }
+
+  // ---------------------------------------------------------------
+  // Part 2 — real Chromium: every adjacent card gap == 16px
+  // ---------------------------------------------------------------
+  const puppeteer = require('puppeteer');
+  const http = require('node:http');
+  const express = require('express');
+  const launch = () =>
+    puppeteer.launch({
+      headless: true,
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+      args: ['--no-sandbox', '--disable-dev-shm-usage'],
+    });
+
+  const PAGES = [
+    { slug: 'index', title: 'Home' },
+    { slug: 'services', title: 'Services' },
+  ];
+  const EMBED = { published: true, embed_enabled: true, page_slug: 'index', embed_url: 'https://fixture.invalid/embed/b108' };
+  const ITEM = (i) => ({
+    id: i, title: `Fixture Item ${i} With A Title`, name: `Fixture Item ${i}`,
+    status: 'published', question: 'Fixture question?', author: 'Fixture Author',
+    role: 'Fixture Role', price_cents: 2500, kind: 'doc',
+  });
+  const modulePayload = (type) => {
+    const data = { items: [ITEM(1), ITEM(2), ITEM(3)], embed: { ...EMBED }, pages: PAGES, categories: [] };
+    if (type === 'bookings') data.booking = { settings: {}, hours: [], appointments: [], active_appointment_count: 0 };
+    if (type === 'chatbot') data.chatbot = { settings: {}, escalations: [] };
+    if (type === 'estimate') data.estimate = { config: {}, requests: [] };
+    if (type === 'socialfeed') data.socialfeed = { settings: {}, posts: [] };
+    if (type === 'googlereviews') data.googlereviews = { settings: {}, reviews: [] };
+    if (type === 'calltracking') data.calltracking = { settings: {}, calls: [] };
+    if (type === 'members') data.members = { settings: {}, members: [] };
+    if (type === 'ecommerce') data.shop = { settings: {}, payments: {} };
+    if (type === 'datatables')
+      data.datatable = {
+        title: 'Prices', template: 'table', submit_mode: 'off', roles: {},
+        columns: [
+          { key: 'name', label: 'Name', type: 'text' },
+          { key: 'price', label: 'Price', type: 'currency' },
+        ],
+      };
+    if (type === 'charts')
+      data.charts = { datatable_columns: [{ key: 'name', type: 'text' }, { key: 'sales', type: 'currency' }] };
+    return data;
+  };
+  const RENTAL = (nm) => ({
+    site: { name: nm }, status: 'active', model: 'per_lead', price_cents: 2500,
+    started_at: '2026-09-01', this_month: { qualified_leads: 3, credits_charged: 6 },
+    counters: { amount_due_cents: 0 }, history: [],
+  });
+
+  const app = express();
+  app.use(express.json());
+  app.get('/api/v1/captcha/config', (_q, r) => r.json({ ok: true, data: { enabled: false } }));
+  app.get('/api/v1/portal/me', (_q, r) =>
+    r.json({
+      ok: true,
+      data: {
+        client: { id: 2, email: 'owner@b108.fixture', businessName: 'ZZ B108 Bakery', userType: 'owner', visibleTabs: ['website', 'changes', 'forms', 'leadscout', 'modules', 'social', 'referrals', 'mcp', 'soul', 'analytics', 'seo', 'gbp', 'rentals', 'billing'] },
+        lead: { business_name: 'ZZ B108 Bakery', city: 'Blandon', state: 'PA' },
+        site: { id: 30, name: 'ZZ B108 Bakery' },
+        previewUrl: null,
+      },
+    })
+  );
+  app.get('/api/v1/portal/modules', (_q, r) =>
+    r.json({ ok: true, data: { plan: 'premium', siteModules: true, pages: PAGES, modules: MODULE_TYPES.map((type) => ({ type, count: 3, embed: { ...EMBED } })) } })
+  );
+  app.get('/api/v1/portal/modules/:type', (req, r) => r.json({ ok: true, data: modulePayload(req.params.type) }));
+  app.get('/api/v1/portal/forms/submissions', (_q, r) =>
+    r.json({
+      ok: true,
+      data: {
+        inbox: true, plan: 'pro', total: 2,
+        submissions: [
+          { id: 1, created_at: '2026-10-30T10:00:00', routing: 'email', form_id: 11, payload: { name: 'Jane', message: 'Hello there' } },
+          { id: 2, created_at: '2026-10-30T11:00:00', routing: 'email', form_id: 11, payload: { name: 'John', message: 'Second one' } },
+        ],
+      },
+    })
+  );
+  app.get('/api/v1/portal/forms', (_q, r) =>
+    r.json({
+      ok: true,
+      data: {
+        forms: [
+          { id: 11, name: 'Contact form', published: 1, form_kind: 'contact', target_page_slug: 'contact' },
+          { id: 12, name: 'Estimate form', published: 1, form_kind: 'estimate', target_page_slug: 'contact' },
+          { id: 13, name: 'Booking form', published: 0, form_kind: 'booking', target_page_slug: 'contact' },
+        ],
+      },
+    })
+  );
+  app.get('/api/v1/portal/billing', (_q, r) =>
+    r.json({
+      ok: true,
+      data: {
+        plan: 'standard', canSelfServe: true,
+        plans: [
+          { id: 'free', name: 'Free', priceLabel: 'Free', tagline: 'Launch a site.', features: ['Website'], checkout: false, priceConfigured: true },
+          { id: 'standard', name: 'Standard', priceLabel: '$99/mo', tagline: 'Support included.', features: ['Website', 'Edits'], checkout: true, priceConfigured: true },
+          { id: 'pro', name: 'Pro', priceLabel: '$169/mo', tagline: 'Social included.', features: ['Website', 'Edits', 'Social'], checkout: true, priceConfigured: true },
+        ],
+      },
+    })
+  );
+  app.get('/api/v1/portal/seo', (_q, r) =>
+    r.json({
+      ok: true,
+      data: {
+        configured: true, gscToken: '', pending: null,
+        history: [{ change_count: 2, actor_kind: 'owner', applied_at: '2026-10-01', keywords: { primary: 'bakery reading pa' } }],
+      },
+    })
+  );
+  app.get('/api/v1/portal/gbp', (_q, r) =>
+    r.json({
+      ok: true,
+      data: {
+        config: { apiPending: true, oauthReady: false, oauthNotConfiguredMessage: 'Google sign-in is not configured yet.' },
+        connection: { status: 'none' },
+        prefill: {
+          fields: { name: { label: 'Business name', googleText: 'ZZ B108 Bakery LLC', proposedText: 'ZZ B108 Bakery' } },
+          proposedState: { name: 'ZZ B108 Bakery', address: {}, hours: {} },
+        },
+        changeSets: { rows: [] },
+      },
+    })
+  );
+  app.get('/api/v1/portal/rentals', (_q, r) => r.json({ ok: true, data: { rentals: [RENTAL('ZZ Site One'), RENTAL('ZZ Site Two')] } }));
+  app.get('/api/v1/portal/referrals', (_q, r) => r.json({ ok: true, data: { totals: {}, creditMath: {}, referrals: [] } }));
+  app.get('/api/v1/portal/leadscout/contacts', (_q, r) =>
+    r.json({ ok: true, data: { contacts: [{ id: 1, name: 'Jane Fixture', email: 'jane@fixture.invalid', phone: '', event_count: 2 }], health: {} } })
+  );
+  app.get('/api/v1/portal/social/accounts', (_q, r) => r.json({ ok: true, data: { accounts: [], metaConfigured: false } }));
+  app.get('/api/v1/portal/calendar', (_q, r) =>
+    r.json({
+      ok: true,
+      data: {
+        year: 2026, month: 10,
+        posts: [
+          { id: 1, caption: 'First fixture post caption', platforms: ['facebook'], image_url: null, status: 'draft' },
+          { id: 2, caption: 'Second fixture post caption', platforms: ['instagram'], image_url: null, status: 'draft' },
+        ],
+      },
+    })
+  );
+  app.get('/api/v1/portal/analytics', (_q, r) =>
+    r.json({ ok: true, data: { internalEnabled: true, googleIds: [], visits: 128, clicks: 34, pages: [{ path: '/services', visits: 55 }], clickTypes: [{ kind: 'phone', count: 12 }], daily: [{ day: '2026-10-22', visits: 9, clicks: 2 }] } })
+  );
+  app.use('/api/v1/portal', (_q, r) => r.json({ ok: true, data: { plan: 'premium', plans: [], forms: [], modules: [], contacts: [], accounts: [], previewUrl: null } }));
+  app.use((req, res, next) => {
+    if ((req.path === '/portal' || req.path === '/portal.html') && NEGATIVE === 'gap') {
+      let src = fs.readFileSync(path.join(root, 'public', 'portal.html'), 'utf8');
+      // Strip the sibling-stack rule and zero the module-card grid gap:
+      // Part 2 must go red on the GBP/SEO/Rentals stacks and the grid.
+      src = src.replace(/#seo-host > \.panel \+ \.panel,[\s\S]*?margin-top: var\(--card-gap\);\n    \}\n/, '');
+      src = src.replace(/(\.modules-side-nav \{[^}]*?)gap: var\(--card-gap\);/, '$1gap: 0;');
+      res.type('text/html').send(src);
+      return;
+    }
+    next();
+  });
+  app.get('/portal', (_q, r) => r.sendFile(path.join(root, 'public', 'portal.html')));
+  app.use(express.static(path.join(root, 'public'), { index: false }));
+
+  const MEASURE = (containerSel, itemSel) => {
+    const box = document.querySelector(containerSel);
+    if (!box) return { error: 'no container' };
+    const els = [...box.querySelectorAll(itemSel)].filter((e) => {
+      const r = e.getBoundingClientRect();
+      const cs = getComputedStyle(e);
+      return r.width > 0 && r.height > 0 && cs.display !== 'none' && cs.visibility !== 'hidden';
+    });
+    const rects = els.map((e) => {
+      const r = e.getBoundingClientRect();
+      return { l: r.left, t: r.top, r: r.right, b: r.bottom };
+    });
+    const gaps = [];
+    for (let i = 0; i < rects.length; i++) {
+      for (let j = i + 1; j < rects.length; j++) {
+        const a = rects[i], b = rects[j];
+        const vOv = Math.min(a.b, b.b) - Math.max(a.t, b.t);
+        const hOv = Math.min(a.r, b.r) - Math.max(a.l, b.l);
+        if (vOv > 4 && b.l >= a.r - 1 && b.l - a.r < 40) gaps.push(Math.round((b.l - a.r) * 10) / 10);
+        if (hOv > 4 && b.t >= a.b - 1 && b.t - a.b < 40) gaps.push(Math.round((b.t - a.b) * 10) / 10);
+      }
+    }
+    return { count: rects.length, gaps };
+  };
+
+  {
+    let n = 0;
+    const server = http.createServer(app);
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const browser = await launch();
+    try {
+      for (const width of [1440, 980, 390]) {
+        const page = await browser.newPage();
+        await page.setViewport({ width, height: 1000 });
+        await page.setRequestInterception(true);
+        page.on('request', (r) => (r.url().startsWith(base) ? r.continue() : r.abort()));
+        await page.goto(base + '/portal', { waitUntil: 'networkidle0', timeout: 30000 });
+        await page.waitForSelector('#nav-website', { visible: true, timeout: 10000 });
+        const navTo = async (panel) => {
+          const w = await page.evaluate(() => window.innerWidth);
+          if (w <= 900) {
+            await page.click('#portal-menu-btn');
+            await page.waitForFunction(() => document.getElementById('portal-shell').classList.contains('nav-open'), { timeout: 5000 }).catch(() => {});
+            await page.waitForFunction(() => document.getElementById('portal-sidebar').getBoundingClientRect().x >= -1, { timeout: 5000 }).catch(() => {});
+          }
+          await page.click('#nav-' + panel);
+          await new Promise((r) => setTimeout(r, 700));
+        };
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const expectStandard = async (label, c, i) => {
+          const res = await page.evaluate(MEASURE, c, i);
+          assert.ok(!res.error, `${label} @${width}: container present`);
+          assert.ok(res.gaps.length >= 1, `${label} @${width}: at least one adjacent card pair (got ${JSON.stringify(res)})`);
+          for (const g of res.gaps) {
+            assert.ok(Math.abs(g - 16) <= 0.6, `${label} @${width}: adjacent gap ${g}px == 16px standard`);
+            n += 1;
+          }
+        };
+
+        await navTo('analytics');
+        await expectStandard('portal-cards analytics', '#sec-analytics .portal-cards', ':scope > .panel');
+        await navTo('referrals');
+        await expectStandard('portal-cards referrals', '#sec-referrals .portal-cards', ':scope > .panel');
+        await expectStandard('referral stat cards', '#sec-referrals .panel .row', ':scope > .stat-card');
+        await expectStandard('referrals cards->panel stack', '#sec-referrals', ':scope > .portal-cards, :scope > .panel');
+        await navTo('billing');
+        await expectStandard('portal-cards billing', '#sec-billing .portal-cards', ':scope > .panel');
+        await expectStandard('plan grid', '#bill-plan-grid', ':scope > .plan-card');
+        await navTo('seo');
+        await expectStandard('seo panel stack (was 0px)', '#seo-host', ':scope > .panel');
+        await navTo('gbp');
+        await expectStandard('gbp panel stack (was 0px)', '#gbp-host', ':scope > .panel');
+        await navTo('rentals');
+        await expectStandard('rentals panel stack (was 0px)', '#rentals-host', ':scope > .panel');
+        await navTo('changes');
+        await expectStandard('changes panel stack', '#sec-changes', ':scope > .panel');
+        await navTo('social');
+        await expectStandard('social panel stack', '#sec-social', ':scope > .panel');
+        await expectStandard('social post list', '#post-list', ':scope > .post-card');
+        await navTo('forms');
+        await page.waitForSelector('#forms-list .item-card', { timeout: 8000 }).catch(() => {});
+        await expectStandard('forms item list', '#forms-list', ':scope > .item-card');
+        await page.click('button[data-forms-pane="results"]');
+        await sleep(700);
+        await expectStandard('form submission cards (were 8px)', '#form-submissions', ':scope > .post-card');
+        await navTo('leadscout');
+        await expectStandard('leadscout layout panels', '.leadscout-layout', ':scope > .panel');
+        await navTo('modules');
+        await page.waitForSelector('#modules-type-tabs .module-card', { timeout: 8000 }).catch(() => {});
+        await expectStandard('module card grid (Batch 91)', '#modules-type-tabs', ':scope > .module-card');
+        await expectStandard('modules item list', '#modules-items', ':scope > .item-card');
+        await page.evaluate(() => {
+          const cards = [...document.querySelectorAll('#modules-type-tabs .module-card')];
+          const dt = cards.find((c) => /Data Tables/i.test(c.textContent));
+          if (dt) dt.click();
+        });
+        await sleep(900);
+        await expectStandard('datatables settings card stack', '#modules-datatables-panel', ':scope > .card');
+        await navTo('mcp');
+        await page.evaluate(() => {
+          const up = document.getElementById('mcp-upgrade');
+          const app2 = document.getElementById('mcp-app');
+          if (up) up.hidden = true;
+          if (app2) app2.hidden = false;
+        });
+        await sleep(200);
+        await expectStandard('mcp panel stack', '#mcp-app', ':scope > .panel');
+        await navTo('website');
+        await page.evaluate(() => {
+          const list = document.getElementById('structure-module-list');
+          const btn = (label) =>
+            `<button type="button"><span class="picker-card-icon tint-content"></span>${label}</button>`;
+          list.innerHTML =
+            `<div class="structure-block-group"><p class="hint" style="margin:0 0 8px">Design modules — Content</p>${btn('Heading')}${btn('Text')}${btn('Image')}${btn('Button')}</div>` +
+            `<div class="structure-block-group"><p class="hint" style="margin:0 0 8px">Design modules — Layout</p>${btn('Columns')}${btn('Spacer')}</div>`;
+          document.getElementById('structure-module-modal').hidden = false;
+        });
+        await sleep(300);
+        await expectStandard('picker block-group cards (were 10px)', '.structure-block-group', ':scope > button');
+        await page.close();
+      }
+    } finally {
+      await browser.close();
+      server.close();
+    }
+    group('Part 2 browser gap measurements (1440/980/390)', n);
+  }
+
+  console.log(`BATCH108 REGRESSION PASS — ${groups.join('; ')}`);
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

@@ -58,7 +58,9 @@ check('A1 side nav is a 5-across card grid on desktop', () => {
   assert.ok(m, 'modules-side-nav rule exists');
   assert.ok(m[1].includes('display: grid'), 'grid display');
   assert.ok(m[1].includes('grid-template-columns: repeat(5, minmax(0, 1fr))'), '5 columns at desktop width');
-  assert.ok(m[1].includes('gap: 12px'), 'roomy gap');
+  // Batch 108: the gap is the portal-wide --card-gap standard (16px),
+  // superseding the original 12px pin — one uniform card gap everywhere.
+  assert.ok(m[1].includes('gap: var(--card-gap)'), 'uniform card gap (Batch 108)');
 });
 
 check('A2 grid steps down 4 / 3 / 2 on narrower screens', () => {

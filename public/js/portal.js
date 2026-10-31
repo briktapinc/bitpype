@@ -3972,7 +3972,7 @@
           cs.validation && !cs.validation.ok
             ? `<p class="hint" style="color:var(--coral)">${(cs.validation.errors || []).map((x) => esc(x.message)).join('<br/>')}</p>`
             : '';
-        return `<div class="panel" style="margin-top:10px">
+        return `<div class="panel" style="margin-top:var(--card-gap)">
           <p><strong>Draft #${cs.id}</strong> ${gbpBadge(cs.status)} <span class="hint">${(cs.changes || []).length} change(s)</span></p>
           <p style="display:flex;gap:8px;flex-wrap:wrap">
             <button type="button" class="btn soft" data-gbp-act="diff" data-id="${cs.id}">Review changes</button>
@@ -4843,7 +4843,7 @@
                 .slice(0, 3)
                 .map(([k, v]) => `${esc(k)}: ${esc(String(v).slice(0, 80))}`)
                 .join(' · ');
-              return `<article class="post-card" style="margin-bottom:8px">
+              return `<article class="post-card" style="margin-bottom:var(--card-gap)">
             <div class="post-body">
               <div class="post-meta">
                 <label style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" class="sub-select" value="${esc(s.id)}" /></label>
@@ -7015,7 +7015,7 @@
       : source === 'workspace'
         ? '<p class="hint"><strong>Using the workspace Stripe keys.</strong> Checkout works today through the Stripe keys BitPype saved for this workspace — payments land in that account, not yours. To take shop payments into your OWN Stripe account, paste your keys here; your keys take over as soon as they are saved.</p>'
         : '<p class="hint"><strong>Not connected.</strong> Shop checkout is off until Stripe keys are saved. Paste your own Stripe keys — the money goes straight to your Stripe account, never through BitPype.</p>';
-    host.innerHTML = `<div class="card" style="margin-bottom:14px">
+    host.innerHTML = `<div class="card" style="margin-bottom:var(--card-gap)">
       <h3 style="margin:0 0 6px">Payments — your Stripe account</h3>
       ${statusHtml}
       <div class="field"><label>Publishable key</label>
@@ -7132,7 +7132,7 @@
     host.hidden = false;
     const settings = (moduleState.embed && moduleState.embed.settings) || {};
     const layout = settings.layout === 'horizontal' ? 'horizontal' : 'cards';
-    host.innerHTML = `<div class="card" style="margin-bottom:14px">
+    host.innerHTML = `<div class="card" style="margin-bottom:var(--card-gap)">
       <h3 style="margin:0 0 6px">How offers appear</h3>
       <p class="hint" style="margin:0 0 8px">Cards shows your offers as a grid of cards. Horizontal shows each offer as a wide banner strip — handy for a single big promotion near the top of a page.</p>
       <div style="display:flex;gap:8px;align-items:center;padding-top:4px">
@@ -7207,7 +7207,7 @@
         <select data-dt-col-type aria-label="Column type">${COLUMN_TYPES.map((t) => `<option value="${t}"${c.type === t ? ' selected' : ''}>${t}</option>`).join('')}</select>
         <button type="button" class="btn soft small" data-dt-col-remove>Remove</button>
       </div>`;
-    host.innerHTML = `<div class="card" style="margin-bottom:14px">
+    host.innerHTML = `<div class="card" style="margin-bottom:var(--card-gap)">
       <h3 style="margin:0 0 6px">Table setup</h3>
       <p class="hint" style="margin:0 0 8px">Name your table and define its columns (up to 12). Rows are edited in the list below — each row editor follows these columns.</p>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -7220,7 +7220,7 @@
         <button type="button" class="btn soft small" id="btn-dt-save-cols">Save columns</button>
       </div>
     </div>
-    <div class="card" style="margin-bottom:14px">
+    <div class="card" style="margin-bottom:var(--card-gap)">
       <h3 style="margin:0 0 6px">How it appears on your site</h3>
       <p class="hint" style="margin:0 0 8px">Pick a layout, then tell it which column plays which part. Anything left on “— none —” is simply skipped.</p>
       <div class="field"><label>Layout</label>
@@ -7237,7 +7237,7 @@
       </div>
       <button type="button" class="btn soft small" id="btn-dt-save-display">Save appearance</button>
     </div>
-    <div class="card" style="margin-bottom:14px">
+    <div class="card" style="margin-bottom:var(--card-gap)">
       <h3 style="margin:0 0 6px">Rows</h3>
       ${pending ? `<p class="hint" style="margin:0 0 8px"><strong>${pending} visitor submission${pending === 1 ? '' : 's'} waiting for approval</strong> — look for the rows marked “pending” below and hit Approve.</p>` : '<p class="hint" style="margin:0 0 8px">Rows are managed in the list below.</p>'}
       <button type="button" class="btn ghost small" id="btn-dt-clear">Delete all rows</button>
@@ -7372,7 +7372,7 @@
         </div>`
       )
       .join('');
-    host.innerHTML = `<div class="card" style="margin-bottom:14px">
+    host.innerHTML = `<div class="card" style="margin-bottom:var(--card-gap)">
       <h3 style="margin:0 0 6px">Menu categories</h3>
       <p class="hint" style="margin:0 0 8px">Categories group your menu items under headings (Starters, Mains…). Deleting a category keeps its items — they become uncategorized.</p>
       ${rows || '<p class="hint">No categories yet — add one below, or type a category name on an item.</p>'}
