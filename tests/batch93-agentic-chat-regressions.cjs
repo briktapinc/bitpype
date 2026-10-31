@@ -863,6 +863,7 @@ const ALL_DEFS = [...READS, ...WRITES].map((name) => ({
     assert.ok(agent.includes('is ALWAYS "question"'), 'information questions are never ambiguous');
     assert.ok(agent.includes('do not keep a clarification alive out of caution'), 'ready bar resists clarification traps');
     assert.ok(agent.includes('For BIG jobs the bar is lower, not higher'), 'big jobs are not held in clarification over taste details');
+    assert.ok(agent.includes('NEVER blocks a concrete edit'), 'unanswered goal questions never block a spelled-out edit');
     n += 8;
     const portal = fs.readFileSync(path.join(root, 'server', 'clientPortal.js'), 'utf8');
     assert.ok(portal.includes('siteChatPending'), 'pending store wired into the chat');

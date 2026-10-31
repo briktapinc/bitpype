@@ -504,6 +504,7 @@ function buildClassifierSystemPrompt(pending, hasImages) {
       '- "cancel" — the owner wants to drop the pending change and do nothing else.',
       'When a change is pending, a reply that answers the agent\'s questions or adds detail to that pending change is "clarify_answer". A message that clearly starts a DIFFERENT new change is "change" (it replaces the pending one). A side question while one is pending is "question".',
       'EXCEPTION: if the pending "original request" was itself a question or a comment rather than a change request, it is not a real pending change — judge this message on its own: a concrete change instruction is a fresh "change", a question is a "question".',
+      'READINESS WITH A PENDING OPEN: judge readiness against the most concrete instruction on the table, NOT against the pending questions. If the latest message — alone or with the earlier answers — contains a complete instruction (a named target plus the new value or change to make), ready=true, even if the pending clarification asked different questions that remain unanswered. An unanswered goal question ("what is the main goal?", "who is it for?") NEVER blocks a concrete edit the owner has spelled out.',
       '',
       'PENDING CHANGE awaiting clarification:',
       `Original request: "${String(pending.requestText || '').slice(0, 600)}"`
