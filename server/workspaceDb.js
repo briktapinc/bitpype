@@ -82,6 +82,13 @@ function openWorkspaceDb(workspaceId) {
     console.warn('[workspaceDb] designLearning.ensureTables:', e.message);
   }
   try {
+    // Batch 106: ai_usage.provider attribution column (+ one-time
+    // backfill on the open that first adds it).
+    require('../src/aiProvider').ensureAiUsageProvider(db);
+  } catch (e) {
+    console.warn('[workspaceDb] aiProvider.ensureAiUsageProvider:', e.message);
+  }
+  try {
     const leadEngine = require('../src/leadEngine');
     if (typeof leadEngine.ensureLeadColumns === 'function') leadEngine.ensureLeadColumns(db);
   } catch {

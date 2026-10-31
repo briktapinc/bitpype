@@ -20,7 +20,9 @@
  *  - Throws BUDGET_EXCEEDED when today's SUM(ai_usage.cost_usd) >=
  *    cost.daily_budget_usd (a budget <= 0 means unlimited).
  *  - Every call is logged to ai_usage with token counts + cost estimate
- *    (cost.per_1k_prompt default 0.0015, cost.per_1k_completion default 0.002).
+ *    (cost.per_1k_prompt default 0.0015, cost.per_1k_completion default 0.002)
+ *    and the serving provider, derived from the base URL actually used
+ *    (Batch 106 — see src/aiProvider.js).
  *  - aiConfigured(db) — true when an API key is set on that workspace db.
  *  - No key material is ever written to logs or error messages.
  */
@@ -186,12 +188,15 @@ async function chat({ task, messages, maxTokens = 2000, leadId = null, note = nu
   const per1kCompletion = parseFloat(getSetting('cost.per_1k_completion', '0.002', db)) || 0;
   const costUsd = (promptTokens / 1000) * per1kPrompt + (completionTokens / 1000) * per1kCompletion;
 
-  // Log every call. Note/note text never includes key material (callers must
-  // keep prompts free of secrets; see credential rules).
+  // Log every call, attributed to the provider that actually served
+  // it — derived from the base URL this call was sent to (Batch 106).
+  // Note/note text never includes key material (callers must keep
+  // prompts free of secrets; see credential rules).
+  const provider = require('./aiProvider').providerFromBaseUrl(baseUrl);
   db.prepare(
-    `INSERT INTO ai_usage (task, model, prompt_tokens, completion_tokens, cost_usd, lead_id, note)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(task, model, promptTokens, completionTokens, costUsd, leadId, note ? String(note).slice(0, 500) : null);
+    `INSERT INTO ai_usage (task, provider, model, prompt_tokens, completion_tokens, cost_usd, lead_id, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(task, provider, model, promptTokens, completionTokens, costUsd, leadId, note ? String(note).slice(0, 500) : null);
 
   let text = '';
   try {
@@ -201,7 +206,7 @@ async function chat({ task, messages, maxTokens = 2000, leadId = null, note = nu
     /* keep text empty */
   }
 
-  return { text: String(text), model, promptTokens, completionTokens, costUsd };
+  return { text: String(text), model, provider, promptTokens, completionTokens, costUsd };
 }
 
 module.exports = { chat, aiConfigured, setDb, getSetting };

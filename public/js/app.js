@@ -11316,10 +11316,18 @@ async function pageFinance(param, query) {
     const aiRes = await withLoadTimeout(api.financeAiByWorkspace(periodQ));
     const aiWs = (aiRes && aiRes.data) || null;
     if (aiWs && Array.isArray(aiWs.rows)) {
+      // Batch 106: each workspace row carries its provider split
+      // (muse / openai / …) as a hint line under the name.
+      const provLine = (r) => {
+        const parts = (r.byProvider || [])
+          .filter((p) => (p.cents || 0) > 0 || (p.calls || 0) > 0)
+          .map((p) => `${esc(p.key)} ${money(p.cents || 0)}`);
+        return parts.length ? `<br /><span class="hint">${parts.join(' · ')}</span>` : '';
+      };
       const rowHtml = aiWs.rows
         .map(
           (r) =>
-            `<tr><td>${esc(r.name || '')} <span class="hint">#${esc(r.workspaceId)}</span></td><td style="text-align:right">${esc(r.calls || 0)}</td><td style="text-align:right">${esc((r.tokens || 0).toLocaleString())}</td><td style="text-align:right">${money(r.cents || 0)}</td></tr>`
+            `<tr><td>${esc(r.name || '')} <span class="hint">#${esc(r.workspaceId)}</span>${provLine(r)}</td><td style="text-align:right">${esc(r.calls || 0)}</td><td style="text-align:right">${esc((r.tokens || 0).toLocaleString())}</td><td style="text-align:right">${money(r.cents || 0)}</td></tr>`
         )
         .join('');
       const t = aiWs.totals || {};
@@ -11333,6 +11341,32 @@ async function pageFinance(param, query) {
     }
   } catch {
     aiWsHtml = '';
+  }
+
+  // Batch 106 — AI spend by provider for THIS workspace, from the
+  // summary payload (byProvider + the provider × task breakdown).
+  let aiProvHtml = '';
+  {
+    const aiCat = cats.ai || {};
+    const provs = Array.isArray(aiCat.byProvider) ? aiCat.byProvider : [];
+    const provTasks = Array.isArray(aiCat.byProviderTask) ? aiCat.byProviderTask : [];
+    if (provs.length) {
+      const rowsHtml = provs
+        .map((p) => {
+          const tasks = provTasks
+            .filter((t) => t.provider === p.key)
+            .map((t) => `${esc(t.task)} ${money(t.cents || 0)}`)
+            .join(' · ');
+          return `<tr><td>${esc(p.key)}</td><td style="text-align:right">${esc(p.calls || 0)}</td><td style="text-align:right">${money(p.cents || 0)}</td><td class="hint">${tasks}</td></tr>`;
+        })
+        .join('');
+      aiProvHtml = `<div class="card">
+      <div class="panel-h"><h3>AI spend by provider</h3><span class="hint">estimated · this workspace, this period</span></div>
+      <table class="table"><thead><tr><th>Provider</th><th style="text-align:right">Calls</th><th style="text-align:right">Est. cost</th><th>By action</th></tr></thead>
+      <tbody>${rowsHtml}</tbody></table>
+      <p class="hint">The provider is recorded on every AI call as it happens — the Muse API, OpenAI, fal, and any other route the app used. Rows from before provider tracking were attributed from the model name only where that was unambiguous; the rest show as unknown.</p>
+    </div>`;
+    }
   }
 
   const catCard = (key) => {
@@ -11403,6 +11437,7 @@ async function pageFinance(param, query) {
     </div>
     <p class="hint" style="margin:-4px 0 14px">${esc(sum.aiNote || '')}</p>
     ${aiWsHtml}
+    ${aiProvHtml}
     <div class="card">
       <div class="panel-h"><h3>Spend over time</h3><span class="hint">${esc(series.granularity)} buckets</span></div>
       ${seriesHtml}

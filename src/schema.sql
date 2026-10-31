@@ -189,6 +189,7 @@ CREATE TABLE IF NOT EXISTS prompts (
 CREATE TABLE IF NOT EXISTS ai_usage (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   task TEXT NOT NULL,
+  provider TEXT NOT NULL DEFAULT 'unknown',
   model TEXT NOT NULL,
   prompt_tokens INTEGER DEFAULT 0,
   completion_tokens INTEGER DEFAULT 0,

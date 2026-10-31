@@ -588,6 +588,13 @@ async function migrate() {
       ensureColumnSqlite(db, table, 'totp_failed_attempts', 'INTEGER NOT NULL DEFAULT 0');
       ensureColumnSqlite(db, table, 'totp_locked_until', 'TEXT');
     }
+    // Batch 106: ai_usage.provider attribution (+ one-time backfill
+    // on the boot that first adds the column).
+    try {
+      require('../src/aiProvider').ensureAiUsageProvider(db);
+    } catch {
+      /* table may not exist on a bare schema */
+    }
     await require('./oauthTokenPolicy').backfill(query);
     return;
   }
@@ -614,6 +621,25 @@ async function migrate() {
     await ensureColumnMysql(conn, 'users', 'deleted_at', 'DATETIME NULL');
     // Batch 80: partner program account classification.
     await ensureColumnMysql(conn, 'users', 'account_type', "VARCHAR(20) NOT NULL DEFAULT 'standard'");
+    // Batch 106: ai_usage.provider attribution. Backfill runs ONLY
+    // when the column was just added (mirrors src/aiProvider's
+    // providerFromModel mapping; ambiguous models stay 'unknown').
+    try {
+      const [provRows] = await conn.query(
+        `SELECT COUNT(*) AS c FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_usage' AND COLUMN_NAME = 'provider'`
+      );
+      if (Number(provRows[0].c) === 0) {
+        await conn.query("ALTER TABLE `ai_usage` ADD COLUMN `provider` VARCHAR(40) NOT NULL DEFAULT 'unknown'");
+        await conn.query("UPDATE ai_usage SET provider = 'muse' WHERE LOWER(model) LIKE 'muse-%' OR LOWER(model) LIKE 'muse_%'");
+        await conn.query("UPDATE ai_usage SET provider = 'fal' WHERE LOWER(model) LIKE 'fal-ai/%' OR LOWER(model) LIKE 'fal-%'");
+        await conn.query(
+          "UPDATE ai_usage SET provider = 'openai' WHERE LOWER(model) LIKE 'gpt%' OR LOWER(model) LIKE 'dall-e%' OR LOWER(model) LIKE 'text-embedding-%' OR LOWER(model) LIKE 'text-davinci%' OR LOWER(model) LIKE 'text-moderation%' OR LOWER(model) LIKE 'whisper-%' OR LOWER(model) LIKE 'tts-%' OR LOWER(model) LIKE 'chatgpt-%' OR LOWER(model) LIKE 'codex-%' OR LOWER(model) REGEXP '^o[134](-|$)'"
+        );
+      }
+    } catch {
+      /* ai_usage may not exist on a bare schema */
+    }
     await conn.query(`
       CREATE TABLE IF NOT EXISTS platform_settings (
         \`key\` VARCHAR(120) NOT NULL PRIMARY KEY,

@@ -228,13 +228,24 @@ function todaySpendUsd(db) {
   }
 }
 
-function logUsage(db, { task, model, promptTokens, completionTokens, costUsd, leadId, note }) {
+// Batch 106: the provider that served a museAgent call is the host
+// its configured base URL points at (api.meta.ai → 'muse' today).
+function providerForConfig(config) {
+  try {
+    return require('../src/aiProvider').providerFromBaseUrl(config && config.baseUrl);
+  } catch {
+    return 'unknown';
+  }
+}
+
+function logUsage(db, { task, provider, model, promptTokens, completionTokens, costUsd, leadId, note }) {
   try {
     db.prepare(
-      `INSERT INTO ai_usage (task, model, prompt_tokens, completion_tokens, cost_usd, lead_id, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO ai_usage (task, provider, model, prompt_tokens, completion_tokens, cost_usd, lead_id, note)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       task || 'hands_off',
+      provider || 'unknown',
       model || '',
       promptTokens || 0,
       completionTokens || 0,
@@ -422,6 +433,7 @@ async function runJobLoop(workspaceId, job, { db, maxSteps = MAX_STEPS } = {}) {
     totalCost += costUsd;
     logUsage(db, {
       task: 'hands_off',
+      provider: providerForConfig(config),
       model: config.model,
       promptTokens,
       completionTokens,
@@ -709,6 +721,7 @@ async function classifyPortalChatIntent(
       const per1kCompletion = parseFloat(getDbSetting(use, 'cost.per_1k_completion', '0.002')) || 0;
       logUsage(use, {
         task: 'portal_agent',
+        provider: providerForConfig(config),
         model: config.model,
         promptTokens,
         completionTokens,
@@ -921,6 +934,7 @@ async function planPortalChange(
         const per1kCompletion = parseFloat(getDbSetting(use, 'cost.per_1k_completion', '0.002')) || 0;
         logUsage(use, {
           task: 'portal_agent',
+          provider: providerForConfig(config),
           model: config.model,
           promptTokens,
           completionTokens,
@@ -1264,6 +1278,7 @@ async function runPortalImproveLoop(
       totalCost += costUsd;
       logUsage(use, {
         task: 'portal_agent',
+        provider: providerForConfig(config),
         model: config.model,
         promptTokens,
         completionTokens,

@@ -173,6 +173,24 @@ function domainCollected(db, period) {
   return { cents: Number(row.cents) || 0, count: Number(row.n) || 0 };
 }
 
+/**
+ * Batch 106 — SQL expression for a row's provider. Workspace DBs
+ * gain ai_usage.provider via the open-time migration (and new DBs
+ * via the schema), but Finance must never break on a DB that has
+ * not been opened since the deploy: without the column, every row
+ * attributes to 'unknown', exactly what the column would hold for
+ * un-attributable rows.
+ */
+function aiProviderExpr(db) {
+  try {
+    const cols = db.prepare('PRAGMA table_info(ai_usage)').all().map((c) => c.name);
+    if (cols.includes('provider')) return "COALESCE(NULLIF(provider, ''), 'unknown')";
+  } catch {
+    /* fall through to the literal */
+  }
+  return "'unknown'";
+}
+
 function aiSpend(db, period) {
   const row = db
     .prepare(
@@ -197,6 +215,28 @@ function aiSpend(db, period) {
     )
     .all(period.from, period.to)
     .map((r) => ({ key: r.model, cents: Math.round(Number(r.usd) * 100), calls: Number(r.calls) || 0 }));
+  // Batch 106 — which API served the calls: totals per provider and
+  // the provider × task matrix, same {key, cents, calls} row shape.
+  const pExpr = aiProviderExpr(db);
+  const byProvider = db
+    .prepare(
+      `SELECT ${pExpr} AS provider, COALESCE(SUM(cost_usd), 0) AS usd, COUNT(*) AS calls
+         FROM ai_usage WHERE date(at) BETWEEN ? AND ? GROUP BY provider ORDER BY usd DESC`
+    )
+    .all(period.from, period.to)
+    .map((r) => ({ key: r.provider || 'unknown', cents: Math.round(Number(r.usd) * 100), calls: Number(r.calls) || 0 }));
+  const byProviderTask = db
+    .prepare(
+      `SELECT ${pExpr} AS provider, task, COALESCE(SUM(cost_usd), 0) AS usd, COUNT(*) AS calls
+         FROM ai_usage WHERE date(at) BETWEEN ? AND ? GROUP BY provider, task ORDER BY provider ASC, usd DESC`
+    )
+    .all(period.from, period.to)
+    .map((r) => ({
+      provider: r.provider || 'unknown',
+      task: r.task,
+      cents: Math.round(Number(r.usd) * 100),
+      calls: Number(r.calls) || 0,
+    }));
   return {
     usd: Number(row.usd) || 0,
     cents: Math.round((Number(row.usd) || 0) * 100),
@@ -205,6 +245,8 @@ function aiSpend(db, period) {
     completionTokens: Number(row.completion_tokens) || 0,
     byTask,
     byModel,
+    byProvider,
+    byProviderTask,
   };
 }
 
@@ -253,6 +295,8 @@ function summary(db, period) {
   categories.ai.estimated = true;
   categories.ai.byTask = ai.byTask;
   categories.ai.byModel = ai.byModel;
+  categories.ai.byProvider = ai.byProvider;
+  categories.ai.byProviderTask = ai.byProviderTask;
 
   const totalExpenditureCents = CATEGORIES.reduce((sum, c) => sum + categories[c].totalCents, 0);
   return {
@@ -511,8 +555,11 @@ function deleteExpense(db, id) {
 function aiUsageByWorkspace(period, workspaces, openDb) {
   const rows = [];
   const totals = { calls: 0, promptTokens: 0, completionTokens: 0, tokens: 0, usd: 0, cents: 0, estimated: true };
+  // Batch 106: per-workspace provider split + a cross-workspace
+  // provider rollup on the totals, same {key, cents, calls} shape.
+  const totalProviders = new Map();
   for (const ws of workspaces || []) {
-    let ai = { usd: 0, cents: 0, calls: 0, promptTokens: 0, completionTokens: 0 };
+    let ai = { usd: 0, cents: 0, calls: 0, promptTokens: 0, completionTokens: 0, byProvider: [] };
     try {
       const db = openDb(ws.id);
       if (db) ai = aiSpend(db, period);
@@ -520,6 +567,7 @@ function aiUsageByWorkspace(period, workspaces, openDb) {
       /* zero-usage row below */
     }
     const tokens = (Number(ai.promptTokens) || 0) + (Number(ai.completionTokens) || 0);
+    const byProvider = Array.isArray(ai.byProvider) ? ai.byProvider : [];
     rows.push({
       workspaceId: Number(ws.id),
       name: ws.name || '',
@@ -529,6 +577,7 @@ function aiUsageByWorkspace(period, workspaces, openDb) {
       tokens,
       usd: Number(ai.usd) || 0,
       cents: Number(ai.cents) || 0,
+      byProvider,
       estimated: true,
     });
     totals.calls += Number(ai.calls) || 0;
@@ -537,9 +586,16 @@ function aiUsageByWorkspace(period, workspaces, openDb) {
     totals.tokens += tokens;
     totals.usd += Number(ai.usd) || 0;
     totals.cents += Number(ai.cents) || 0;
+    for (const p of byProvider) {
+      const cur = totalProviders.get(p.key) || { key: p.key, cents: 0, calls: 0 };
+      cur.cents += Number(p.cents) || 0;
+      cur.calls += Number(p.calls) || 0;
+      totalProviders.set(p.key, cur);
+    }
   }
   rows.sort((a, b) => b.cents - a.cents || a.workspaceId - b.workspaceId);
   totals.usd = Math.round(totals.usd * 1e6) / 1e6;
+  totals.byProvider = [...totalProviders.values()].sort((a, b) => b.cents - a.cents || String(a.key).localeCompare(String(b.key)));
   return { period, rows, totals };
 }
 

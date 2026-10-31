@@ -1206,9 +1206,20 @@ async function generateBrandedAdImage(db, opts = {}) {
         ? `Client charge $${price.toFixed(2)} for branded ad on social_post #${post.id}`
         : `Premium included branded ad on social_post #${post.id}${opts.planId ? ` (plan=${opts.planId})` : ''}`;
     db.prepare(
-      `INSERT INTO ai_usage (task, model, prompt_tokens, completion_tokens, cost_usd, lead_id, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run('social_branded_image', result.model || 'gpt-image-2.5-sunburst', 0, 0, price, post.lead_id, note);
+      `INSERT INTO ai_usage (task, provider, model, prompt_tokens, completion_tokens, cost_usd, lead_id, note)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      'social_branded_image',
+      // Batch 106: the provider that served the underlying image
+      // call (threaded through generateImages' return).
+      result.provider || require('./aiProvider').providerFromModel(result.model),
+      result.model || 'gpt-image-2.5-sunburst',
+      0,
+      0,
+      price,
+      post.lead_id,
+      note
+    );
   } catch {
     /* logging optional */
   }

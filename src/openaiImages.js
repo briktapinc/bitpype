@@ -110,7 +110,7 @@ function normalizeQuality(raw, model) {
 
 /**
  * Generate n images from a text prompt. Writes PNG/JPEG files to disk.
- * @returns {Promise<{ model, prompt, size, quality, images: Array<{ path, mime, revised_prompt? }> }>}
+ * @returns {Promise<{ model, provider, prompt, size, quality, images: Array<{ path, mime, revised_prompt? }> }>}
  */
 async function generateImages(db, prompt, opts = {}) {
   const key = apiKey(db);
@@ -260,14 +260,18 @@ async function generateImages(db, prompt, opts = {}) {
 
   if (!images.length) throw fail('AI_EMPTY', 'Image provider returned no usable image data.');
 
+  // Batch 106: attribute to the provider that served the call —
+  // derived from the base URL actually used (api.openai.com today).
+  const provider = require('./aiProvider').providerFromBaseUrl(baseUrl);
   try {
     const usage = data.usage || {};
     const est = usage.output_tokens ? Number(usage.output_tokens) * 0.00004 : 0.02 * images.length;
     db.prepare(
-      `INSERT INTO ai_usage (task, model, prompt_tokens, completion_tokens, cost_usd, lead_id, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO ai_usage (task, provider, model, prompt_tokens, completion_tokens, cost_usd, lead_id, note)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       'image',
+      provider,
       model,
       Number(usage.input_tokens) || 0,
       Number(usage.output_tokens) || 0,
@@ -279,7 +283,7 @@ async function generateImages(db, prompt, opts = {}) {
     /* logging optional */
   }
 
-  return { model, prompt: text, size, quality: quality || null, images };
+  return { model, provider, prompt: text, size, quality: quality || null, images };
 }
 
 /** Read a generated file as a data URL (UI preview only — do not persist). */
