@@ -890,11 +890,15 @@ async function planPortalChange(
   // emission (steps with full args + verify + settled +
   // defaults), and the reasoning model spends heavily before
   // writing. Measured live (2026-10-31): the wedding-tastings
-  // plan burned 1200 AND 2400 tokens entirely on reasoning with
-  // an empty completion, then completed cleanly at 4800
-  // (2764 reasoning + ~300 output). A too-small ladder silently
-  // degrades every non-trivial change to unplanned.
-  for (const maxTokens of [2400, 4800]) {
+  // plan burned 1200 AND 2400 entirely on reasoning with an
+  // empty completion; at [2400, 4800] it landed only sometimes
+  // (3225 completion tokens on a short-history turn) and still
+  // truncated at 4800 when the turn carried a longer history —
+  // reasoning spend is stochastic and grows with context. The
+  // ladder is [4800, 8000]: ~2.5x headroom over the worst
+  // observed completion. A too-small ladder silently degrades
+  // every non-trivial change to unplanned.
+  for (const maxTokens of [4800, 8000]) {
     let data = null;
     let raw = '';
     let finishReason = '';
