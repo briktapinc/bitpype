@@ -493,12 +493,17 @@ function buildClassifierSystemPrompt(pending, hasImages) {
     '- "change" — the owner asks for a modification to the site.',
     '- "ambiguous" — the message could be a comment/question OR a change request; it is genuinely unclear whether they want anything done ("the blue looks bad", "the header feels empty").',
     '- "offtopic" — unrelated to their website, its content, or design (weather, news, trivia, jokes, other topics). Questions about what their site should SAY or how it should look are "question", never offtopic.',
+    '',
+    'PRIORITY RULES:',
+    '- A message phrased as a question seeking information about the site (what / why / which / how / when / is there / can you tell me, or ending in "?") is ALWAYS "question" — never "ambiguous", never "change" — unless it explicitly asks for something to be changed ("can you change…", "could you make…", "please add…"). Asking what the headline IS is a question; asking to change it is a change.',
+    '- "ambiguous" is ONLY for short statements of opinion or feeling about the site that neither ask a question nor request anything ("the blue looks bad", "the header feels empty", "not sure about the font"). If they asked something, it is a question; if they asked FOR something, it is a change.',
   ];
   if (pending) {
     lines.push(
       '- "clarify_answer" — a change is pending clarification (below) and this message answers those questions or adds detail to that pending change.',
       '- "cancel" — the owner wants to drop the pending change and do nothing else.',
-      'When a change is pending, most short replies are "clarify_answer". A message that clearly starts a DIFFERENT new change is "change" (it replaces the pending one). A side question while one is pending is "question".',
+      'When a change is pending, a reply that answers the agent\'s questions or adds detail to that pending change is "clarify_answer". A message that clearly starts a DIFFERENT new change is "change" (it replaces the pending one). A side question while one is pending is "question".',
+      'EXCEPTION: if the pending "original request" was itself a question or a comment rather than a change request, it is not a real pending change — judge this message on its own: a concrete change instruction is a fresh "change", a question is a "question".',
       '',
       'PENDING CHANGE awaiting clarification:',
       `Original request: "${String(pending.requestText || '').slice(0, 600)}"`
@@ -517,7 +522,7 @@ function buildClassifierSystemPrompt(pending, hasImages) {
   }
   lines.push(
     '',
-    'READY (only meaningful for intent "change" and "clarify_answer"): true only when the request — together with any pending request and earlier answers — pins down WHAT changes, WHERE, and TO WHAT, well enough to implement without guessing a key design decision. Vague directions ("make it pop", "improve the homepage", "make it more professional") are ready=false. A concrete edit ("change the headline to \'Fresh Bread Daily\'", "make the header dark blue") is ready=true.',
+    'READY (only meaningful for intent "change" and "clarify_answer"): true when a competent designer who can see the whole site could implement the request — together with any pending request and earlier answers — without guessing a decision that changes WHAT gets built. Remaining matters of taste the designer can decide (the exact shade, spacing, polish) do NOT block readiness. A concrete target plus a concrete new value (a replacement headline, a colour, a phone number, a specific instruction about a named element) is ALWAYS ready=true. ready=false is only for genuinely missing decisions — which page or section, what the new content should say, or which of several directions; vague directions with no specifics at all ("make it pop", "improve the homepage", "make it more professional") are ready=false. Once the owner has supplied the missing specifics in a follow-up, ready=true — do not keep a clarification alive out of caution.',
     '',
     'SIZE (judge only when ready=true, and judge the FINAL clarified request):',
     '- "small": a single spot, well-scoped — one text/copy edit, swapping one image, changing one link, a colour or style tweak on one element, one heading or button.',

@@ -638,6 +638,31 @@ const ALL_DEFS = [...READS, ...WRITES].map((name) => ({
     group('S(cancel) pending change dropped cleanly', n);
   }
 
+  // S(supersede) — a fresh specific change arriving while a
+  // clarification is pending replaces it: built from the fresh
+  // message alone, pending cleared.
+  {
+    let n = 0;
+    const lead = seedChatLead('S');
+    resetTurn();
+    classifyQueue = [{ intent: 'change', ready: false, size: 'small', fallback: false }];
+    await runChat(lead, { message: 'Improve the homepage' });
+    assert.ok(chatPending.getPending(realDb, lead), 'pending set');
+    resetTurn();
+    classifyQueue = [{ intent: 'change', ready: true, size: 'small', fallback: false }];
+    const res = await runChat(lead, { message: 'Change the headline to "Fresh Bread Daily"' });
+    assert.equal(res.mode, 'build');
+    assert.equal(loopCalls.length, 1);
+    assert.equal(
+      loopCalls[0].message,
+      'Change the headline to "Fresh Bread Daily"',
+      'fresh instruction stands on its own (not folded into the stale request)'
+    );
+    assert.equal(chatPending.getPending(realDb, lead), null, 'stale pending superseded + cleared');
+    n += 5;
+    group('S(supersede) fresh change replaces a pending clarification', n);
+  }
+
   // S(size-ii) — BIG specific job: NOT edited in chat; queued to
   // the design agent with spec + attachment refs + Tier-1 context.
   let bigJobId = null;
@@ -808,7 +833,10 @@ const ALL_DEFS = [...READS, ...WRITES].map((name) => ({
     assert.ok(agent.includes('classifyPortalChatIntent'), 'classifier ships');
     assert.ok(agent.includes('spans multiple sections or pages'), 'size rubric written into the classifier prompt');
     assert.ok(agent.includes('WHOLE-SITE CONTEXT'), 'Tier-1 map injected in the loop');
-    n += 5;
+    assert.ok(agent.includes('PRIORITY RULES'), 'classifier question-priority rules ship');
+    assert.ok(agent.includes('is ALWAYS "question"'), 'information questions are never ambiguous');
+    assert.ok(agent.includes('do not keep a clarification alive out of caution'), 'ready bar resists clarification traps');
+    n += 8;
     const portal = fs.readFileSync(path.join(root, 'server', 'clientPortal.js'), 'utf8');
     assert.ok(portal.includes('siteChatPending'), 'pending store wired into the chat');
     assert.ok(portal.includes('portal_site_chat'), 'chat-origin stamp wired');

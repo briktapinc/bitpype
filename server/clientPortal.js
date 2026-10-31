@@ -4423,7 +4423,7 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     lines.push(`Website: ${clip(site.name, 90) || 'Untitled'} (status ${clip(site.status, 20) || 'draft'})`);
     const theme = site.theme && typeof site.theme === 'object' ? site.theme : {};
     const themeBits = [];
-    for (const key of ['primaryColor', 'primary_color', 'secondaryColor', 'accentColor', 'backgroundColor', 'textColor', 'fontHeading', 'fontBody', 'font', 'logoUrl', 'logo']) {
+    for (const key of ['primary', 'secondary', 'bg', 'text', 'headingFont', 'font', 'brandName', 'logoMode', 'tone', 'primaryColor', 'primary_color', 'secondaryColor', 'accentColor', 'backgroundColor', 'textColor', 'fontHeading', 'fontBody', 'logoUrl', 'logo']) {
       if (theme[key] != null && String(theme[key]).trim() !== '') {
         themeBits.push(`${key}: ${clip(theme[key], 60)}`);
       }
@@ -4440,11 +4440,16 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
         if (!sec || typeof sec !== 'object') continue;
         const c = sec.content && typeof sec.content === 'object' ? sec.content : sec;
         const bits = [];
-        for (const key of ['heading', 'title', 'headline', 'subtitle', 'text', 'body', 'description']) {
+        for (const key of ['headline', 'heading', 'title', 'subheadline', 'subtitle', 'text', 'body', 'description']) {
           if (c[key] != null && typeof c[key] === 'string' && c[key].trim()) {
             bits.push(clip(c[key], 110));
             if (bits.length >= 2) break;
           }
+        }
+        // Freestyle sections carry their content as raw HTML —
+        // surface its text so the map reflects those pages too.
+        if (!bits.length && typeof c.html === 'string' && c.html.trim()) {
+          bits.push(clip(c.html, 150));
         }
         lines.push(`    · ${clip(sec.type || sec.kind || 'section', 30)}${bits.length ? `: ${bits.join(' — ')}` : ''}`);
       }
