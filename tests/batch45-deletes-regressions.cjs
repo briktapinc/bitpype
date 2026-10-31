@@ -601,7 +601,9 @@ async function testPurge() {
     assert.ok(websiteEngine.getWebsite(wdb, site.id));
   });
   await checkAsync('5c the exact name purges the archived site for good', async () => {
-    const out = domain.sitesPurgeSite(1, site.id, 'Purge Co');
+    // Batch 102 (SEC-19): sitesPurgeSite is async now — it tears down
+    // the site's Cloudflare footprint before destroying local rows.
+    const out = await domain.sitesPurgeSite(1, site.id, 'Purge Co');
     assert.equal(out.deleted, true);
     throwsCode(() => websiteEngine.getWebsite(wdb, site.id), 'SITE_NOT_FOUND');
   });
