@@ -836,6 +836,12 @@ router.post('/site/theme', requireClient, editLimit, async (req, res) => {
  * Batch 96: conversation history is NOT accepted from the client —
  * the pipeline loads the site's server-side transcript tail itself
  * (a history field in the body is ignored).
+ * Batch 97: the per-plan daily request cap is checked BEFORE the
+ * pipeline runs. A capped turn spends no model call, is never
+ * queued, and is answered with an honest limit reply (mode
+ * 'limit'); the turn is still recorded so the refusal is visible
+ * in the site's transcript. Gate errors fail OPEN (chat stays up;
+ * accounting resumes when the gate recovers).
  */
 router.post('/site/agent-chat', requireClient, agentChatLimit, async (req, res) => {
   try {
@@ -845,7 +851,32 @@ router.post('/site/agent-chat', requireClient, agentChatLimit, async (req, res) 
     ) {
       return res.status(403).json({ ok: false, error: 'FORBIDDEN', code: 'FORBIDDEN' });
     }
-    const data = await portal.runSiteAgentChat(req.client.workspace_id, req.client.lead_id, req.body || {});
+    let gate = null;
+    try {
+      gate = await portal.gateSiteChatRequest(req.client.workspace_id, req.client.lead_id, {
+        userType: req.client.userType,
+      });
+    } catch (gateErr) {
+      console.warn('[portal] chat daily-limit gate failed (failing open):', gateErr.message);
+    }
+    let data;
+    if (gate && !gate.allowed) {
+      data = {
+        mode: 'limit',
+        reply: portal.chatLimitReplyText(gate),
+        mutated: false,
+        published: false,
+        previewUrl: null,
+        pendingClarification: false,
+        pendingExpired: null,
+        chatUsage: { used: gate.used, limit: gate.limit },
+      };
+    } else {
+      data = await portal.runSiteAgentChat(req.client.workspace_id, req.client.lead_id, req.body || {});
+      if (gate && gate.limit != null) {
+        data.chatUsage = { used: gate.used, limit: gate.limit };
+      }
+    }
     // Batch 94 — save the completed turn into THIS site's thread
     // so the chat window can show its recent history on open.
     // Best-effort: a history write must never fail the chat.
@@ -879,6 +910,15 @@ router.get('/site/agent-chat/history', requireClient, async (req, res) => {
       return res.status(403).json({ ok: false, error: 'FORBIDDEN', code: 'FORBIDDEN' });
     }
     const data = await portal.getSiteChatHistory(req.client.workspace_id, req.client.lead_id);
+    // Batch 97 — today's usage rides along so the chat chrome can
+    // show "N of M chat requests today" on open. Best-effort: a
+    // usage lookup must never fail the history load.
+    try {
+      const usage = await portal.getSiteChatUsage(req.client.workspace_id, req.client.lead_id);
+      if (usage && usage.limit != null) data.chatUsage = { used: usage.used, limit: usage.limit };
+    } catch (usageErr) {
+      console.warn('[portal] chat usage lookup failed:', usageErr.message);
+    }
     ok(res, data);
   } catch (e) {
     fail(res, e, 500);

@@ -4391,6 +4391,9 @@ module.exports = {
   takeSiteChatUpdates,
   recordSiteChatTurn,
   getSiteChatHistory,
+  gateSiteChatRequest,
+  getSiteChatUsage,
+  chatLimitReplyText,
   uploadSiteChatImage,
   fetchSiteChatImage,
   listSiteChatImages,
@@ -5062,6 +5065,76 @@ function getSiteChatHistory(workspaceId, leadId) {
     messages: thread.listRecent(db, leadId),
     limit: thread.CHAT_HISTORY_LIMIT,
   }));
+}
+
+/**
+ * Batch 97 — the per-plan daily design-chat cap, enforced at the
+ * portal chat route BEFORE the pipeline runs (a refused request
+ * spends no model call, is never queued, and is not counted).
+ *
+ * The cap follows the workspace's plan (billing.workspacePlan →
+ * plans.chatRequestsPerDayFor; the value is admin-editable per
+ * plan in the Batch 57 Package contents editor, blank = null =
+ * unlimited). Counting is per site (lead) per calendar day —
+ * site-local where the site has a timezone, else UTC — via
+ * server/siteChatUsage.js.
+ *
+ * Who is gated: owner-tier portal sessions (owner + partner). A
+ * partner chatting on a client's site draws on THAT site's pool
+ * (counting keys on the lead). Staff/admin never enter through
+ * the client portal; a non-owner-tier session (renter) has no
+ * builder chat and passes through untouched, exactly as before.
+ */
+async function resolveSiteChatLimit(workspaceId) {
+  const billing = require('./billing');
+  const plans = require('./plans');
+  const planId = await billing.workspacePlan(workspaceId);
+  return { planId, planName: plans.getPlan(planId).name, limit: plans.chatRequestsPerDayFor(planId) };
+}
+
+async function gateSiteChatRequest(workspaceId, leadId, opts = {}) {
+  const portalTabs = require('./portalTabs');
+  if (!portalTabs.isOwnerTier(opts.userType)) {
+    return { allowed: true, exempt: true, used: null, limit: null, planId: null, planName: null, timezone: null, day: null };
+  }
+  const domain = require('./domain');
+  const chatUsage = require('./siteChatUsage');
+  const { planId, planName, limit } = await resolveSiteChatLimit(workspaceId);
+  const decision = domain.withDb(workspaceId, (db) =>
+    chatUsage.checkAndRecord(db, { leadId, limit })
+  );
+  return { ...decision, planId, planName };
+}
+
+/** Read-only usage view for the chat chrome ("7 of 20 today"). */
+async function getSiteChatUsage(workspaceId, leadId) {
+  const domain = require('./domain');
+  const chatUsage = require('./siteChatUsage');
+  const { planId, planName, limit } = await resolveSiteChatLimit(workspaceId);
+  return domain.withDb(workspaceId, (db) => {
+    const timezone = chatUsage.siteTimezone(db, leadId);
+    const day = chatUsage.dayKey(timezone);
+    return {
+      used: limit == null ? null : chatUsage.getDailyCount(db, leadId, day),
+      limit,
+      planId,
+      planName,
+      timezone: timezone || 'UTC',
+      day,
+    };
+  });
+}
+
+/** The plain, honest refusal for a capped turn (never fake-processed). */
+function chatLimitReplyText(gate) {
+  const tzLabel = gate.timezone ? gate.timezone : 'UTC';
+  return (
+    `You've used all ${gate.limit} of today's design chat requests for this site ` +
+    `(${gate.used} of ${gate.limit} on the ${gate.planName} plan). ` +
+    `The daily counter resets at midnight (${tzLabel}). ` +
+    `Nothing was changed by this message, and it doesn't count against tomorrow — ` +
+    `just send it again after the reset.`
+  );
 }
 
 /**

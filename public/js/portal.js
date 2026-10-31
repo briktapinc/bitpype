@@ -2032,6 +2032,22 @@
     el.classList.toggle('is-err', kind === 'err');
   }
 
+  // Batch 97: today's design-chat usage, shown in the chat header
+  // when the site's plan carries a daily cap ("7 of 20 chat
+  // requests today"). Unlimited plans carry no chatUsage payload
+  // and the line stays hidden.
+  function renderAgentChatUsage(usage) {
+    const el = document.getElementById('agent-chat-usage');
+    if (!el) return;
+    if (!usage || usage.limit == null || usage.used == null) {
+      el.hidden = true;
+      el.textContent = '';
+      return;
+    }
+    el.textContent = `${usage.used} of ${usage.limit} chat requests today`;
+    el.hidden = false;
+  }
+
   function appendAgentBubble(role, text, attachments) {
     const list = document.getElementById('agent-chat-messages');
     const empty = document.getElementById('agent-chat-empty');
@@ -2168,6 +2184,7 @@
         method: 'POST',
         body: JSON.stringify(body),
       });
+      if (data && data.chatUsage) renderAgentChatUsage(data.chatUsage);
       const reply = (data && data.reply) || 'Done — check the preview.';
       appendAgentBubble('assistant', reply);
       state.agentChatPending = [];
@@ -2256,6 +2273,7 @@
     state.agentChatHistoryLoaded = true;
     try {
       const data = await api('/site/agent-chat/history');
+      if (data && data.chatUsage) renderAgentChatUsage(data.chatUsage);
       const msgs = (data && data.messages) || [];
       if (!msgs.length || state.agentChatHistory.length) return;
       for (const m of msgs) {

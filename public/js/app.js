@@ -8204,6 +8204,11 @@ function pcPlanBlockHtml(p, cadenceOptions) {
       <input data-field="tagline" value="${esc(c.tagline || '')}" maxlength="140" />
     </div>
     <div>
+      <label>Design chat requests per day</label>
+      <input data-field="chatRequestsPerDay" type="number" min="1" step="1" inputmode="numeric" placeholder="Unlimited" value="${c.chatRequestsPerDay != null ? esc(String(c.chatRequestsPerDay)) : ''}" />
+      <p class="hint">How many “Improve with AI” chat requests each site on this plan can make per day (counted per site, on the site's own day). Blank = unlimited.</p>
+    </div>
+    <div>
       <label>Feature bullets</label>
       <div class="pc-features">${(c.features || []).map((f) => pcFeatureRowHtml(f)).join('')}</div>
       <button type="button" class="btn small" data-act="add-feature">Add feature</button>
@@ -8248,6 +8253,8 @@ function pcFillBlock(block, planState, useDefaults) {
   const src = useDefaults ? planState.defaults : planState.contents || planState.defaults;
   block.querySelector('[data-field="name"]').value = src.name || '';
   block.querySelector('[data-field="tagline"]').value = src.tagline || '';
+  const chatCapEl = block.querySelector('[data-field="chatRequestsPerDay"]');
+  if (chatCapEl) chatCapEl.value = src.chatRequestsPerDay != null ? String(src.chatRequestsPerDay) : '';
   const wrap = block.querySelector('.pc-features');
   wrap.innerHTML = (src.features || []).map((f) => pcFeatureRowHtml(f)).join('');
   const ent = src.entitlements || {};
@@ -8724,11 +8731,23 @@ async function renderAdminSettings(el, group) {
           const cb = block.querySelector(`[data-ent="${k}"]`);
           entitlements[k] = !!(cb && cb.checked);
         }
+        const chatCapRaw = (block.querySelector('[data-field="chatRequestsPerDay"]') || {}).value || '';
+        const chatCapTrim = String(chatCapRaw).trim();
+        let chatRequestsPerDay = null;
+        if (chatCapTrim !== '') {
+          chatRequestsPerDay = Number(chatCapTrim);
+          if (!Number.isInteger(chatRequestsPerDay) || chatRequestsPerDay < 1 || chatRequestsPerDay > 100000) {
+            msg.textContent = `${p.id}: design chat requests per day must be a whole number (1–100000), or blank for unlimited.`;
+            msg.className = 'msg error';
+            return;
+          }
+        }
         const candidate = {
           name: block.querySelector('[data-field="name"]').value.trim(),
           tagline: block.querySelector('[data-field="tagline"]').value.trim(),
           features,
           entitlements,
+          chatRequestsPerDay,
         };
         // Saving a plan exactly as its defaults clears the override.
         contents[p.id] = JSON.stringify(candidate) === JSON.stringify(p.defaults) ? null : candidate;

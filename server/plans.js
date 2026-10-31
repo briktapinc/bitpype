@@ -20,6 +20,7 @@ const PLANS = {
     tagline: 'Launch a site and edit it yourself.',
     priceLabel: 'Free',
     interval: null,
+    chatRequestsPerDay: 5,
     features: [
       'Free website',
       'Inline edits',
@@ -52,6 +53,7 @@ const PLANS = {
     tagline: 'Monthly support with credit-based social ads.',
     priceLabel: 'Monthly',
     interval: 'month',
+    chatRequestsPerDay: 20,
     features: [
       'Free website',
       'Inline edits',
@@ -86,6 +88,7 @@ const PLANS = {
     tagline: 'Monthly support with social images included.',
     priceLabel: 'Monthly',
     interval: 'month',
+    chatRequestsPerDay: 50,
     features: [
       'Free website',
       'Inline edits',
@@ -120,6 +123,7 @@ const PLANS = {
     tagline: 'All features included, plus a monthly support call.',
     priceLabel: 'Monthly',
     interval: 'month',
+    chatRequestsPerDay: 150,
     features: [
       'Free website',
       'Inline edits',
@@ -171,7 +175,8 @@ function normalizePlanId(raw) {
 /*                                                                     */
 /* The PLANS catalog above stays the code default. An admin can        */
 /* override a plan's name / tagline / feature bullets / entitlements   */
-/* from Admin → Settings → Billing → Package contents; the overrides   */
+/* / design-chat daily cap (Batch 97) from Admin → Settings →          */
+/* Billing → Package contents; the overrides   */
 /* live in platform settings (plans.contents_<plan>, one JSON row per   */
 /* plan) and are validated + owned by server/planContents.js, which    */
 /* pushes the parsed overrides into this module. Resolution is         */
@@ -197,6 +202,9 @@ function resolvePlan(id) {
   if (o.entitlements && typeof o.entitlements === 'object') {
     merged.entitlements = { ...o.entitlements };
   }
+  // Batch 97: present-in-override wins, including an explicit null
+  // (admin set the plan's design-chat cap to unlimited).
+  if ('chatRequestsPerDay' in o) merged.chatRequestsPerDay = o.chatRequestsPerDay;
   return merged;
 }
 
@@ -212,6 +220,20 @@ function getContentsOverrides() {
 
 function getPlan(planId) {
   return resolvePlan(normalizePlanId(planId));
+}
+
+/**
+ * Batch 97 — the plan's daily design-chat ("Improve with AI")
+ * request cap for one site, or null for unlimited. Ely's shipped
+ * defaults live in the catalog above (Free 5, Standard 20, Pro 50,
+ * Premium 150); admins can change or clear the cap per plan in
+ * Admin → Settings → Billing → Package contents, and the value
+ * follows the plan through the Batch 57 contents overrides.
+ * Anything that is not a positive whole number means unlimited.
+ */
+function chatRequestsPerDayFor(planId) {
+  const v = getPlan(planId).chatRequestsPerDay;
+  return Number.isInteger(v) && v > 0 ? v : null;
 }
 
 function listPlans() {
@@ -252,6 +274,7 @@ module.exports = {
   PLAN_RANK,
   normalizePlanId,
   getPlan,
+  chatRequestsPerDayFor,
   listPlans,
   isPaidPlan,
   maxPlan,

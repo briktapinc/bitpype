@@ -14,9 +14,14 @@
  *   plans.contents_pro  / plans.contents_premium
  * Absent or empty = the code default from server/plans.js (PLANS).
  * A stored object may carry any subset of {name, tagline, features,
- * entitlements}; each present field replaces the default wholesale
- * (see the merge note in plans.js). Plan ids, PLAN_RANK, interval and
- * prices are NOT editable here.
+ * entitlements, chatRequestsPerDay}; each present field replaces the
+ * default wholesale (see the merge note in plans.js). Plan ids,
+ * PLAN_RANK, interval and prices are NOT editable here.
+ *
+ * Batch 97: chatRequestsPerDay is the plan's daily design-chat cap
+ * (positive whole number, or null = unlimited). It rides the same
+ * override lifecycle as every other contents field, so the value
+ * Ely sets in the Package contents editor follows the plan.
  *
  * Resolution: plans.js keeps the parsed overrides in memory (the sync
  * getPlan/listPlans/publicPlan used across the app stay sync). This
@@ -47,7 +52,7 @@ const CONTENTS_KEYS = {
   [plans.PLAN_PREMIUM]: 'plans.contents_premium',
 };
 
-const CONTENT_FIELDS = ['name', 'tagline', 'features', 'entitlements'];
+const CONTENT_FIELDS = ['name', 'tagline', 'features', 'entitlements', 'chatRequestsPerDay'];
 
 /** Entitlement keys an override may set — derived from the code catalog
  *  so a key added to plans.js becomes editable automatically. */
@@ -167,6 +172,18 @@ function validatePlanContents(planIdInput, raw) {
     }
     out.entitlements = ordered;
   }
+  if ('chatRequestsPerDay' in value) {
+    const v = value.chatRequestsPerDay;
+    if (v === null) {
+      out.chatRequestsPerDay = null; // explicit unlimited
+    } else if (Number.isInteger(v) && v >= 1 && v <= 100000) {
+      out.chatRequestsPerDay = v;
+    } else {
+      throw invalid(
+        `${planId} chatRequestsPerDay must be a whole number of requests per day (1–100000), or null for unlimited.`
+      );
+    }
+  }
   return out;
 }
 
@@ -231,6 +248,7 @@ function defaultsFor(planId) {
     tagline: d.tagline,
     features: d.features.slice(),
     entitlements: { ...d.entitlements },
+    chatRequestsPerDay: d.chatRequestsPerDay != null ? d.chatRequestsPerDay : null,
   };
 }
 
@@ -241,6 +259,7 @@ function resolvedFor(planId) {
     tagline: p.tagline,
     features: p.features.slice(),
     entitlements: { ...p.entitlements },
+    chatRequestsPerDay: p.chatRequestsPerDay != null ? p.chatRequestsPerDay : null,
   };
 }
 
