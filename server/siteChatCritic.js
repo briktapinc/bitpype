@@ -150,10 +150,17 @@ function planSurfaces(plan) {
   };
 }
 
+function normSlug(s) {
+  return String(s || '').trim().replace(/^\//, '').replace(/\.html$/, '');
+}
+
 function scopedSlugs(plan) {
   const pages = plan && plan.scope && Array.isArray(plan.scope.pages) ? plan.scope.pages : [];
   if (!pages.length || pages.includes('all')) return null; // null = whole site in scope
-  return new Set(pages.map((s) => String(s)));
+  // Defensive normalization (plans persisted before the
+  // Batch 99 fix-2 validation normalization may carry
+  // URL-style "/slug" entries).
+  return new Set(pages.map(normSlug));
 }
 
 /**

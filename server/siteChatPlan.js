@@ -131,7 +131,14 @@ function validatePlan(raw, allowedTools) {
   }
   if (!verify.some((c) => c.kind === 'noCollateral')) verify.push({ kind: 'noCollateral' });
   const scopeRaw = raw.scope && typeof raw.scope === 'object' ? raw.scope : {};
-  const pages = cleanStringList(scopeRaw.pages, 30, 60);
+  // Slug normalization (Batch 99 fix 2): planners emit page
+  // references URL-style ("/wedding-cake-tastings") while the
+  // site's canonical slugs are bare ("wedding-cake-tastings").
+  // Normalize at validation so scope comparisons in the critic
+  // (and everywhere downstream) compare like with like.
+  const pages = cleanStringList(scopeRaw.pages, 30, 60).map((s) =>
+    s === 'all' ? s : s.replace(/^\//, '').replace(/\.html$/, '')
+  );
   const size = raw.size === 'big' ? 'big' : 'small';
   return {
     intent: 'change',

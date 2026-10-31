@@ -235,6 +235,28 @@ const COLOUR_PLAN = {
     assert.ok(pBad.failures[0].includes('not found'), 'missing text fails plainly');
     n += 3;
 
+    // Slug normalization (live-proof find): planners emit
+    // URL-style scope pages ("/wedding-cake-tastings"); the
+    // canonical site slugs are bare. Validation normalizes,
+    // and the critic tolerates legacy slash scopes.
+    const slashPlan = chatPlan.validatePlan(
+      {
+        ...COLOUR_PLAN,
+        scope: { pages: ['/wedding-cake-tastings'], sections: null },
+        steps: [{ tool: 'pages.structure.update', args: { action: 'create', slug: 'wedding-cake-tastings' }, expect: 'page' }],
+        verify: [{ kind: 'presence', text: 'Tastings' }],
+      },
+      ALLOW
+    );
+    assert.deepEqual(slashPlan.scope.pages, ['wedding-cake-tastings'], 'validation strips the URL-style slash');
+    const legacySlashPlan = { ...slashPlan, scope: { pages: ['/wedding-cake-tastings'] } };
+    const pagesWithNew = [...pagesV1, { slug: 'wedding-cake-tastings', title: 'Tastings', sections: [] }];
+    mdb.prepare('UPDATE websites SET pages = ? WHERE lead_id = 7').run(JSON.stringify(pagesWithNew));
+    const fpNew = critic.siteFingerprint(mdb, 7);
+    const dSlash = critic.diffFingerprints(fp1, fpNew, legacySlashPlan);
+    assert.ok(!dSlash.violations.some((v) => v.includes('outside the plan')), 'a legacy slash scope still covers its page');
+    n += 2;
+
     // Mutation sanity: claimed change, identical fingerprint.
     const sanity = critic.runCritic({ plan, before: fp1, after: fp1, renderPageHtml: () => htmlDone, expectChange: true });
     assert.equal(sanity.verdict, 'fail');
