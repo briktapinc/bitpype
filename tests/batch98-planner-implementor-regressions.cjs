@@ -303,6 +303,13 @@ const GOOD_PLAN_JSON = JSON.stringify({
     assert.ok(out.plan, 'planner returns a validated plan');
     assert.equal(out.plan.steps[0].tool, 'theme.styleRule');
     n += 2;
+    // The planner's budget ladder is pinned at [2400, 4800] —
+    // measured live 2026-10-31: a non-trivial plan burned 1200
+    // AND 2400 entirely on reasoning (empty completion) before
+    // landing at 4800. A smaller first budget silently degrades
+    // real changes to unplanned.
+    assert.equal(f.requests[0].max_tokens, 2400, 'planner first attempt budget is 2400');
+    n++;
     const sys = f.requests[0].messages.filter((mm) => mm.role === 'system').map((mm) => String(mm.content)).join('\n');
     assert.ok(sys.includes('PLANNER'), 'planner prompt names the role');
     assert.ok(sys.includes('DEFAULTS DOCTRINE'), 'doctrine rides the planner prompt');

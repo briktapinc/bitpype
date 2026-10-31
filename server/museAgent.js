@@ -885,7 +885,16 @@ async function planPortalChange(
   planMessages.push(...convo);
 
   let plan = null;
-  for (const maxTokens of [1200, 2400]) {
+  // The planner's ladder is deliberately larger than the
+  // classifier's pinned [1200, 2400]: a plan is a much bigger
+  // emission (steps with full args + verify + settled +
+  // defaults), and the reasoning model spends heavily before
+  // writing. Measured live (2026-10-31): the wedding-tastings
+  // plan burned 1200 AND 2400 tokens entirely on reasoning with
+  // an empty completion, then completed cleanly at 4800
+  // (2764 reasoning + ~300 output). A too-small ladder silently
+  // degrades every non-trivial change to unplanned.
+  for (const maxTokens of [2400, 4800]) {
     let data = null;
     let raw = '';
     let finishReason = '';
