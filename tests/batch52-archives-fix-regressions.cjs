@@ -60,7 +60,10 @@ async function checkAsync(name, fn) {
 
 /* ---------------- 1. static undefined-callee scan ---------------- */
 
-const CLIENT_FILES = ['fonts.js', 'errorCopy.js', 'api.js', 'captcha.js', 'navGroups.js', 'app.js'];
+// Batch 111: + moduleIcons.js — the shared module-icon source both
+// shells load (consolidation step 2); the staff script census grows
+// by exactly this one intended file.
+const CLIENT_FILES = ['fonts.js', 'errorCopy.js', 'api.js', 'captcha.js', 'navGroups.js', 'moduleIcons.js', 'app.js'];
 
 function stripCommentsAndStrings(src) {
   let out = '';
