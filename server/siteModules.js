@@ -11329,7 +11329,12 @@ function createPublicBookingByToken(db, token, data = {}, opts = {}) {
   };
 }
 
-/** Portal summary for all modules. */
+/**
+ * Portal summary for all modules.
+ * @param {any} db
+ * @param {any} leadId
+ * @param {{ appUrl?: string, siteModules?: boolean }} [opts]
+ */
 function portalSummary(db, leadId, { appUrl, siteModules = false } = {}) {
   ensureTables(db);
   const pages = listSitePages(db, leadId);

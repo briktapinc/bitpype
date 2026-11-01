@@ -12,7 +12,7 @@ const crypto = require('node:crypto');
 const { REQUEST_TIMEOUT_MS, DENY_TOOLS } = require('./museAgentTools');
 
 function fail(code, message) {
-  const err = new Error(message);
+  const err = /** @type {Error & { code?: string }} */ (new Error(message));
   err.code = code;
   return err;
 }

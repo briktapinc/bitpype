@@ -133,8 +133,6 @@ module.exports = {
   refreshSocialFeed: portalModules.refreshSocialFeed,
   updateEstimateRequest: portalModules.updateEstimateRequest,
   updateBookingAppointment: portalModules.updateBookingAppointment,
-  deleteBookingAppointment: portalModules.deleteBookingAppointment,
-  deleteEstimateRequest: portalModules.deleteEstimateRequest,
   createBookingBlockAdmin: portalModules.createBookingBlockAdmin,
   deleteBookingBlockAdmin: portalModules.deleteBookingBlockAdmin,
   createClientMcpToken: portalModules.createClientMcpToken,

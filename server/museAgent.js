@@ -52,6 +52,11 @@ function deliveredOk(toolName, outcome) {
   return outcome.ok === true;
 }
 
+/**
+ * @param {any} workspaceId
+ * @param {any} job
+ * @param {{ db?: any, maxSteps?: number }} [opts]
+ */
 async function runJobLoop(workspaceId, job, { db, maxSteps = MAX_STEPS } = {}) {
   if (!job || job.id == null) throw fail('INVALID_JOB', 'design job required');
   const domain = require('./domain');
@@ -174,6 +179,7 @@ async function runJobLoop(workspaceId, job, { db, maxSteps = MAX_STEPS } = {}) {
     for (const tc of calls) {
       const wireName = String((tc.function && tc.function.name) || '').trim();
       const name = toolNames.get(wireName);
+      /** @type {Record<string, any>} */
       let args = {};
       try {
         args = JSON.parse((tc.function && tc.function.arguments) || '{}');
@@ -370,7 +376,10 @@ function normalizePortalHistory(history, userMessage, images, imagesMode = 'buil
 
 /**
  * Muse tool loop for portal Website chat (client-scoped MCP only).
- * @returns {{ ok, reply, steps, toolCalls, mutated, published, error?, costUsd, model }}
+ * @param {any} workspaceId
+ * @param {any} leadId
+ * @param {{ db?: any, message?: string, history?: any[], pageSlug?: string, images?: any[], mode?: string, clarifyAbout?: string, clarifyKind?: string, clarifySettled?: any[], clarifyPriorQa?: any, clarifyRound?: number, siteContext?: string, maxSteps?: number, plan?: any }} [opts]
+ * @returns {Promise<{ ok: any, reply: any, steps: any, toolCalls: any, mutated: any, published: any, error?: any, costUsd: any, model: any, mode?: any, attachments?: any, imagesSent?: any, imagesDropped?: any, stepResults?: any }>}
  */
 async function runPortalImproveLoop(
   workspaceId,
@@ -454,6 +463,7 @@ async function runPortalImproveLoop(
     stepResults[idx].error = ok ? null : String(errorText || 'tool failed').slice(0, 300);
   };
   const modelImages = (Array.isArray(images) ? images : []).filter((im) => im && im.dataUrl);
+  /** @type {Array<{ role: string, content: any, tool_calls?: any, tool_call_id?: string }>} */
   const messages = [
     {
       role: 'system',
@@ -629,6 +639,7 @@ async function runPortalImproveLoop(
     for (const tc of calls) {
       const wireName = String((tc.function && tc.function.name) || '').trim();
       const name = toolNames.get(wireName);
+      /** @type {Record<string, any>} */
       let args = {};
       try {
         args = JSON.parse((tc.function && tc.function.arguments) || '{}');

@@ -11,6 +11,9 @@ const chatPlanner = require('./siteChatPlanner');
 const { PORTAL_DESIGN_WRITE_TOOLS, PORTAL_DESIGN_TOOLS } = require('./museAgentTools');
 const { fail, getDbSetting, resolveMuseConfig, museConfigured, todaySpendUsd, providerForConfig, logUsage, chatCompletions } = require('./museAgentCore');
 
+/**
+ * @param {{ settled?: any, hasImages?: boolean, rework?: any }} [opts]
+ */
 function buildPlannerSystemPrompt({ settled, hasImages, rework } = {}) {
   const lines = [
     'You are the PLANNER in a four-role website design system (Planner → Implementor → Critic → Reviewer). You never edit anything yourself. You read the owner\'s request, the settled facts, and the whole-site context — which includes the site\'s CURRENT computed styles — and you emit ONE explicit plan as JSON. An implementor will execute exactly your steps, no more and no less, and a critic will then mechanically verify your verify checks against the rendered site.',
@@ -69,6 +72,11 @@ function buildPlannerSystemPrompt({ settled, hasImages, rework } = {}) {
  * discipline: the model reasons, so a truncated first attempt
  * retries once at the larger budget.
  */
+/**
+ * @param {any} workspaceId
+ * @param {any} leadId
+ * @param {{ db?: any, message?: string, specText?: string, history?: any[], settled?: any, siteContext?: string, images?: any[], rework?: any }} [opts]
+ */
 async function planPortalChange(
   workspaceId,
   leadId,
@@ -109,6 +117,7 @@ async function planPortalChange(
       : requestText,
   });
 
+  /** @type {Array<{ role: string, content: any }>} */
   const planMessages = [
     { role: 'system', content: buildPlannerSystemPrompt({ settled, hasImages: imgs.length > 0, rework }) },
   ];

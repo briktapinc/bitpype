@@ -245,7 +245,7 @@ async function ensureCustomer(user) {
  * Start Checkout for a paid plan.
  * @param {number} userId
  * @param {string} [planId] standard|pro|premium (default standard)
- * @param {{ successUrl?: string, cancelUrl?: string }} [opts]
+ * @param {{ successUrl?: string, cancelUrl?: string, forceCheckout?: boolean, metadata?: any }} [opts]
  */
 async function createCheckoutSession(userId, planId = PLAN_STANDARD, opts = {}) {
   const user = await getUserBilling(userId);

@@ -122,6 +122,11 @@ function buildClassifierSystemPrompt(pending, hasImages) {
  *   fallback } or
  * { error: 'muse_not_configured' | 'budget_exceeded' }.
  */
+/**
+ * @param {any} workspaceId
+ * @param {any} leadId
+ * @param {{ db?: any, message?: string, history?: any[], pending?: any, hasImages?: boolean, siteContext?: string }} [opts]
+ */
 async function classifyPortalChatIntent(
   workspaceId,
   leadId,

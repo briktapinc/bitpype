@@ -187,6 +187,10 @@ function rowToPlan(row) {
   };
 }
 
+/**
+ * @param {any} db
+ * @param {{ leadId?: any, plan?: any, jobId?: any }} [opts]
+ */
 function savePlan(db, { leadId, plan, jobId = null } = {}) {
   ensureTable(db);
   const info = db

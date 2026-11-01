@@ -61,6 +61,10 @@ const CHAT_HISTORY_LIMIT = 50;
  */
 const CHAT_CONTEXT_LIMIT = 10;
 
+/**
+ * @param {any} db
+ * @param {{ leadId?: any, content?: string, source?: any, jobId?: any, role?: string, delivered?: boolean }} [opts]
+ */
 function addMessage(db, { leadId, content, source = null, jobId = null, role = 'assistant', delivered = false } = {}) {
   ensureTable(db);
   const info = db

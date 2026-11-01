@@ -8,6 +8,11 @@
 
 
 
+/**
+ * @param {any} workspaceId
+ * @param {any} leadId
+ * @param {{ year?: number, month?: number, clientEmail?: string }} [opts]
+ */
 async function calendarPosts(workspaceId, leadId, { year, month, clientEmail } = {}) {
   const domain = require('./domain');
   const social = require('../src/socialMedia');

@@ -30,6 +30,7 @@ async function platformSmtpSettings() {
 /**
  * Send platform mail through the shared Bitpype HTML template.
  * Prefer structured fields (title, paragraphs, cta) when composing new emails.
+ * @param {{ to: any, subject: any, html?: any, text?: any, title?: any, paragraphs?: any, cta?: any, preheader?: any, footerNote?: any }} mail
  */
 async function sendPlatformMail({ to, subject, html, text, title, paragraphs, cta, preheader, footerNote }) {
   const settings = await platformSmtpSettings();

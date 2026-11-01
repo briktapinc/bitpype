@@ -120,6 +120,10 @@ function publicRow(row) {
   };
 }
 
+/**
+ * @param {any} db
+ * @param {{ workspaceId?: any, leadId?: any, websiteId?: any, buffer?: any, originalName?: any }} [opts]
+ */
 async function saveAttachment(db, { workspaceId, leadId, websiteId = null, buffer, originalName } = {}) {
   if (!Buffer.isBuffer(buffer) || !buffer.length) {
     throw coded('INVALID', 'Choose an image to attach.');
@@ -242,7 +246,11 @@ function loadForChat(db, { leadId, ids } = {}) {
   return rows;
 }
 
-/** Stamp the rows with the website + turn they were sent with. */
+/**
+ * Stamp the rows with the website + turn they were sent with.
+ * @param {any} db
+ * @param {{ leadId?: any, ids?: any[], websiteId?: any, messageRef?: any }} [opts]
+ */
 function linkToTurn(db, { leadId, ids, websiteId = null, messageRef = null } = {}) {
   if (!ids || !ids.length) return;
   ensureTable(db);
