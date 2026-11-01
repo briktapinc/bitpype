@@ -246,7 +246,7 @@ function loadUsageModule() {
     assert.ok(routeSrc.indexOf('gateSiteChatRequest') < routeSrc.indexOf('runSiteAgentChat(req.client'), 'gate runs BEFORE the pipeline');
     assert.ok(routeSrc.includes('getSiteChatUsage'), 'history carries the usage for the chrome');
     n += 4;
-    const portalSrc = fs.readFileSync(path.join(root, 'server', 'clientPortal.js'), 'utf8');
+    const portalSrc = require('./lib/monolithSource.cjs').clientPortalSource();
     assert.ok(portalSrc.includes('chatRequestsPerDayFor'), 'gate resolves the cap from the plan');
     assert.ok(portalSrc.includes('workspacePlan'), 'gate resolves the workspace plan');
     assert.ok(portalSrc.includes('isOwnerTier'), 'gate scopes to owner-tier sessions');

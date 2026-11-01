@@ -65,7 +65,7 @@ function group(name, n) {
 }
 
 function loadAgent(extraShim) {
-  let src = fs.readFileSync(path.join(root, 'server', 'museAgent.js'), 'utf8');
+  let src = require('./lib/monolithSource.cjs').museAgentSource();
   if (NEGATIVE === 'fence') {
     const shimmed = src.replace(
       'return PORTAL_READONLY_TOOLS.has(name);',
@@ -79,7 +79,7 @@ function loadAgent(extraShim) {
 }
 
 function loadPortalSliceSource() {
-  let src = fs.readFileSync(path.join(root, 'server', 'clientPortal.js'), 'utf8');
+  let src = require('./lib/monolithSource.cjs').clientPortalSource();
   if (NEGATIVE === 'gate') {
     const shimmed = src.replace('} else if (!ready) {', '} else if (!ready && false) { // B93 NEGATIVE SHIM');
     assert.notEqual(shimmed, src, 'gate shim must change the source');
@@ -853,7 +853,7 @@ const ALL_DEFS = [...READS, ...WRITES].map((name) => ({
   // ---------------------------------------------------------------
   {
     let n = 0;
-    const agent = fs.readFileSync(path.join(root, 'server', 'museAgent.js'), 'utf8');
+    const agent = require('./lib/monolithSource.cjs').museAgentSource();
     assert.ok(agent.includes('PORTAL_READONLY_TOOLS'), 'read-only allowlist ships');
     assert.ok(agent.includes('portalModeAllowsTool'), 'single fence seam ships');
     assert.ok(agent.includes('classifyPortalChatIntent'), 'classifier ships');
@@ -865,7 +865,7 @@ const ALL_DEFS = [...READS, ...WRITES].map((name) => ({
     assert.ok(agent.includes('For BIG jobs the bar is lower, not higher'), 'big jobs are not held in clarification over taste details');
     assert.ok(agent.includes('NEVER blocks a concrete edit'), 'unanswered goal questions never block a spelled-out edit');
     n += 8;
-    const portal = fs.readFileSync(path.join(root, 'server', 'clientPortal.js'), 'utf8');
+    const portal = require('./lib/monolithSource.cjs').clientPortalSource();
     assert.ok(portal.includes('siteChatPending'), 'pending store wired into the chat');
     assert.ok(portal.includes('portal_site_chat'), 'chat-origin stamp wired');
     assert.ok(portal.includes("'improvement'"), 'queue uses the improvement job type');

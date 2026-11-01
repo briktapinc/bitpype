@@ -67,7 +67,7 @@ function group(name, n) {
 }
 
 function loadPortalSliceSource() {
-  const src = fs.readFileSync(path.join(root, 'server', 'clientPortal.js'), 'utf8');
+  const src = require('./lib/monolithSource.cjs').clientPortalSource();
   const start = src.indexOf('async function runSiteAgentChat(');
   const end = src.indexOf('/**', start);
   assert.ok(start > 0 && end > start, 'slice bounds found');
@@ -555,7 +555,7 @@ const TEXT_PLAN = {
     const portalSrc = fs.readFileSync(path.join(root, 'public', 'js', 'portal.js'), 'utf8');
     const bridgeSrc = fs.readFileSync(path.join(root, 'public', 'js', 'preview-bridge.js'), 'utf8');
     const portalHtml = fs.readFileSync(path.join(root, 'public', 'portal.html'), 'utf8');
-    const portalServerSrc = fs.readFileSync(path.join(root, 'server', 'clientPortal.js'), 'utf8');
+    const portalServerSrc = require('./lib/monolithSource.cjs').clientPortalSource();
 
     // Tier-1 parser, unit-run from the real portal.js source.
     const pStart = portalSrc.indexOf('function parseAgentChatTextSwap(');

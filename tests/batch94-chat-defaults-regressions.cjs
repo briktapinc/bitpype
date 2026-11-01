@@ -65,11 +65,11 @@ function group(name, n) {
 }
 
 function loadAgentSource() {
-  return fs.readFileSync(path.join(root, 'server', 'museAgent.js'), 'utf8');
+  return require('./lib/monolithSource.cjs').museAgentSource();
 }
 
 function loadPortalSliceSource() {
-  const src = fs.readFileSync(path.join(root, 'server', 'clientPortal.js'), 'utf8');
+  const src = require('./lib/monolithSource.cjs').clientPortalSource();
   const start = src.indexOf('async function runSiteAgentChat(');
   const end = src.indexOf('/**', start);
   assert.ok(start > 0 && end > start, 'slice bounds found');
@@ -674,7 +674,7 @@ const ALL_DEFS = [...READS, ...WRITES].map((name) => ({
   // ---------------------------------------------------------------
   {
     let n = 0;
-    const agent = fs.readFileSync(path.join(root, 'server', 'museAgent.js'), 'utf8');
+    const agent = require('./lib/monolithSource.cjs').museAgentSource();
     assert.ok(agent.includes('CLASSIFIER_DOCTRINE_LINES'), 'classifier consumes the planner doctrine');
     assert.ok(agent.includes('TERSE REPLIES ARE ANSWERS'), 'terse-reply doctrine ships');
     assert.ok(agent.includes('new_ambiguity'), 'classifier emits new_ambiguity');
@@ -693,7 +693,7 @@ const ALL_DEFS = [...READS, ...WRITES].map((name) => ({
     assert.ok(mcpSrc.includes("name: 'theme.styleRule'"), 'style rule tool defined in the client registry');
     assert.ok(mcpSrc.includes('applyClientStyleRule'), 'style rule dispatch wired');
     n += 2;
-    const portal = fs.readFileSync(path.join(root, 'server', 'clientPortal.js'), 'utf8');
+    const portal = require('./lib/monolithSource.cjs').clientPortalSource();
     assert.ok(portal.includes('CONVERGENCE SEAM'), 'convergence seam ships in the router');
     assert.ok(portal.includes('mergeSettledFacts'), 'settled merge wired');
     assert.ok(portal.includes('clarifySettled'), 'settled facts reach the clarify loop');

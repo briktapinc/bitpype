@@ -349,7 +349,7 @@ function loadChatAtt() {
   // ---------------------------------------------------------------
   {
     let n = 0;
-    const agentSrc = fs.readFileSync(path.join(root, 'server', 'museAgent.js'), 'utf8');
+    const agentSrc = require('./lib/monolithSource.cjs').museAgentSource();
     const defs = ['site.editText', 'site.publish'].map((name) => ({
       name,
       description: name,
@@ -495,7 +495,7 @@ function loadChatAtt() {
   // ---------------------------------------------------------------
   {
     let n = 0;
-    const portalSrc = fs.readFileSync(path.join(root, 'server', 'clientPortal.js'), 'utf8');
+    const portalSrc = require('./lib/monolithSource.cjs').clientPortalSource();
     const start = portalSrc.indexOf('async function runSiteAgentChat(');
     const end = portalSrc.indexOf('/**', start);
     assert.ok(start > 0 && end > start, 'slice bounds found');

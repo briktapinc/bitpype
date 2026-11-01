@@ -100,4 +100,49 @@ check('S3.3 staff .card (styles.css) untouched by the portal fix', () => {
   assert.ok(m[1].includes('padding: 18px 20px'), 'staff card padding intact');
 });
 
+/* ---------------- Step 4 — monolith split ---------------- */
+
+const cpFacade = read('server/clientPortal.js');
+const maFacade = read('server/museAgent.js');
+const { clientPortalSource, museAgentSource } = require('./lib/monolithSource.cjs');
+
+check('S4.1 clientPortal.js is a thin facade over 9 focused modules', () => {
+  for (const m of ['portalAccounts', 'portalShared', 'portalSiteEdits', 'portalSocial', 'portalForms', 'portalModules', 'portalBilling', 'portalLeadScout', 'portalSiteChat'])
+    assert.ok(cpFacade.includes(`require('./${m}')`), `facade requires ${m}`);
+  assert.ok(cpFacade.split('\n').length < 250, `facade is thin (${cpFacade.split('\n').length} lines, was 5993)`);
+  const cp = require(path.join(root, 'server', 'clientPortal.js'));
+  assert.equal(Object.keys(cp).length, 138, 'facade exports the full original surface (138 names)');
+  const chat = require(path.join(root, 'server', 'portalSiteChat.js'));
+  assert.equal(cp.runSiteAgentChat, chat.runSiteAgentChat, 're-export identity: runSiteAgentChat');
+  const edits = require(path.join(root, 'server', 'portalSiteEdits.js'));
+  assert.equal(cp.applyClientTextEdits, edits.applyClientTextEdits, 're-export identity: applyClientTextEdits');
+});
+
+check('S4.2 museAgent.js keeps the loops; classifier/planner/tools/core split out', () => {
+  for (const m of ['museAgentTools', 'museAgentCore', 'museAgentClassifier', 'museAgentPlanner'])
+    assert.ok(maFacade.includes(`require('./${m}')`), `facade requires ${m}`);
+  assert.ok(maFacade.split('\n').length < 900, `museAgent shrunk (${maFacade.split('\n').length} lines, was 1519)`);
+  assert.ok(maFacade.includes('async function runPortalImproveLoop('), 'improve loop stays in museAgent.js');
+  assert.ok(maFacade.includes('async function runJobLoop('), 'job loop stays in museAgent.js');
+  const ma = require(path.join(root, 'server', 'museAgent.js'));
+  assert.equal(Object.keys(ma).length, 17, 'museAgent exports the full original surface (17 names)');
+  const clf = require(path.join(root, 'server', 'museAgentClassifier.js'));
+  assert.equal(ma.classifyPortalChatIntent, clf.classifyPortalChatIntent, 're-export identity: classifyPortalChatIntent');
+  const pln = require(path.join(root, 'server', 'museAgentPlanner.js'));
+  assert.equal(ma.planPortalChange, pln.planPortalChange, 're-export identity: planPortalChange');
+});
+
+check('S4.3 prompt/doctrine text lives verbatim in the new homes (spot pins)', () => {
+  const clf = read('server/museAgentClassifier.js');
+  const pln = read('server/museAgentPlanner.js');
+  assert.ok(clf.includes('function buildClassifierSystemPrompt('), 'classifier prompt builder moved');
+  assert.ok(pln.includes('function buildPlannerSystemPrompt('), 'planner prompt builder moved');
+  assert.ok(!maFacade.includes('function buildClassifierSystemPrompt('), 'no second copy left in museAgent.js');
+  assert.ok(!cpFacade.includes('async function runSiteAgentChat('), 'no chat implementation left in the facade');
+  const cps = clientPortalSource();
+  const mas = museAgentSource();
+  assert.ok(cps.includes('async function runSiteAgentChat('), 'reconstruction: chat pipeline present');
+  assert.ok(mas.includes('function buildPortalSystemPrompt('), 'reconstruction: portal prompt present');
+});
+
 console.log(`BATCH111 REGRESSION PASS — ${n} checks so far (grows per consolidation step)`);

@@ -88,11 +88,11 @@ function loadPendingModule() {
 }
 
 function loadAgentSource() {
-  return fs.readFileSync(path.join(root, 'server', 'museAgent.js'), 'utf8');
+  return require('./lib/monolithSource.cjs').museAgentSource();
 }
 
 function loadPortalSliceSource() {
-  const src = fs.readFileSync(path.join(root, 'server', 'clientPortal.js'), 'utf8');
+  const src = require('./lib/monolithSource.cjs').clientPortalSource();
   const start = src.indexOf('async function runSiteAgentChat(');
   const end = src.indexOf('/**', start);
   assert.ok(start > 0 && end > start, 'slice bounds found');
@@ -593,7 +593,7 @@ const ALL_DEFS = [...READS, ...WRITES].map((name) => ({
   // ---------------------------------------------------------------
   {
     let n = 0;
-    const portalSrc = fs.readFileSync(path.join(root, 'server', 'clientPortal.js'), 'utf8');
+    const portalSrc = require('./lib/monolithSource.cjs').clientPortalSource();
     assert.ok(portalSrc.includes('listContextTail'), 'pipeline loads the server transcript tail');
     assert.ok(portalSrc.includes('getPendingWithExpiry'), 'pipeline reads pending through the TTL sweep');
     assert.ok(portalSrc.includes('pendingExpired'), 'payload carries the expiry report');

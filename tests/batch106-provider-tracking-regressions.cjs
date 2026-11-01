@@ -198,7 +198,7 @@ if (NEGATIVE) {
       assert.ok(src.includes("providerFromBaseUrl(baseUrl)"), 'derived from the base URL the call used');
     });
     check('museAgent logUsage + all call sites record provider', () => {
-      const src = read('server/museAgent.js');
+      const src = require('./lib/monolithSource.cjs').museAgentSource();
       assert.ok(src.includes('INSERT INTO ai_usage (task, provider, model'), 'insert lists provider');
       const sites = src.match(/provider: providerForConfig\(config\)/g) || [];
       assert.equal(sites.length, 4, 'four logUsage call sites pass provider');

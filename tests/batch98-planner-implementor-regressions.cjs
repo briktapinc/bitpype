@@ -63,7 +63,7 @@ function group(name, n) {
 }
 
 function loadAgentSource() {
-  let src = fs.readFileSync(path.join(root, 'server', 'museAgent.js'), 'utf8');
+  let src = require('./lib/monolithSource.cjs').museAgentSource();
   if (NEGATIVE === 'sandbox') {
     const shimmed = src.replace(
       "if (mode === 'build') return PORTAL_DESIGN_TOOLS.has(name);",
@@ -76,7 +76,7 @@ function loadAgentSource() {
 }
 
 function loadPortalSliceSource() {
-  const src = fs.readFileSync(path.join(root, 'server', 'clientPortal.js'), 'utf8');
+  const src = require('./lib/monolithSource.cjs').clientPortalSource();
   const start = src.indexOf('async function runSiteAgentChat(');
   const end = src.indexOf('/**', start);
   assert.ok(start > 0 && end > start, 'slice bounds found');
@@ -405,7 +405,7 @@ const GOOD_PLAN_JSON = JSON.stringify({
     assert.ok(!offered3.includes('datatables.clear'), 'unplanned build still excludes bulk clear');
     n += 4;
     // Source pin: the dispatch-level NOT_IN_PLAN guard ships.
-    const agentSrc = fs.readFileSync(path.join(root, 'server', 'museAgent.js'), 'utf8');
+    const agentSrc = require('./lib/monolithSource.cjs').museAgentSource();
     assert.ok(agentSrc.includes('NOT_IN_PLAN'), 'dispatch plan guard ships in source');
     n++;
     group('Part 4 implementor sandbox (plan-scoped catalog, step tracking)', n);

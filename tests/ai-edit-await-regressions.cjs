@@ -1,7 +1,7 @@
 'use strict';
 const fs=require('fs'),vm=require('vm'),path=require('path'),assert=require('assert/strict');
 const root=path.join(__dirname,'..'),source=fs.readFileSync(path.join(root,'server/clientMcp.js'),'utf8');
-const portalSource=fs.readFileSync(path.join(root,'server/clientPortal.js'),'utf8');const start=portalSource.indexOf('async function applyClientTextEdits('),end=portalSource.indexOf('const LIST_ITEM_MAX',start);
+const portalSource=require('./lib/monolithSource.cjs').clientPortalSource();const start=portalSource.indexOf('async function applyClientTextEdits('),end=portalSource.indexOf('const LIST_ITEM_MAX',start);
 const rm={exports:{}};let writes=0;
 vm.runInNewContext(portalSource.slice(start,end)+';module.exports=applyClientTextEdits;', {module:rm,resolveClientSite:()=>({id:1,pages:[{html:'<h1>Fixture</h1>'}],theme:{}}),pagesSupportInlineEdit:()=>true,require:n=>n==='./domain'?{withDb:(_ws,fn)=>fn({prepare:()=>({get:()=>({id:7})})}),sitesSave:()=>{writes++}}:n==='../src/websiteEngine'?{}:require(n)});
 function load(edit){const m={exports:{}};vm.runInNewContext(source,{module:m,exports:m.exports,require:n=>n==='./domain'?{}:n==='./clientPortal'?{activeEmailForLead:async()=> 'fixture@example.invalid',applyClientTextEdits:edit,renderClientSite:()=>({html:'<span data-edit="html:0:1">Fixture headline</span><span data-edit="pending">Ignore</span>',pages:[]})}:n==='./billing'?{effectivePlan:async()=> 'premium'}:n==='./plans'?{getPlan:()=>({entitlements:{inlineEdits:true}})}:require(n)});return m.exports;}

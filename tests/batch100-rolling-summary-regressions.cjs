@@ -52,7 +52,7 @@ function group(name, n) {
 }
 
 function loadPortalSliceSource() {
-  let src = fs.readFileSync(path.join(root, 'server', 'clientPortal.js'), 'utf8');
+  let src = require('./lib/monolithSource.cjs').clientPortalSource();
   const start = src.indexOf('async function runSiteAgentChat(');
   const end = src.indexOf('/**', start);
   assert.ok(start > 0 && end > start, 'slice bounds found');
@@ -252,7 +252,7 @@ function loadPortalSliceSource() {
   // ---------------------------------------------------------------
   {
     let n = 0;
-    const cp = fs.readFileSync(path.join(root, 'server', 'clientPortal.js'), 'utf8');
+    const cp = require('./lib/monolithSource.cjs').clientPortalSource();
     const routes = fs.readFileSync(path.join(root, 'server', 'routes', 'portal.js'), 'utf8');
     const js = fs.readFileSync(path.join(root, 'public', 'js', 'portal.js'), 'utf8');
     assert.ok(cp.includes("require('./siteChatSummary')"), 'clientPortal uses the summary module');

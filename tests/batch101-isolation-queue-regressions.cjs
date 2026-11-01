@@ -56,7 +56,7 @@ function group(name, n) {
 }
 
 function loadPortalSliceSource() {
-  const src = fs.readFileSync(path.join(root, 'server', 'clientPortal.js'), 'utf8');
+  const src = require('./lib/monolithSource.cjs').clientPortalSource();
   const start = src.indexOf('async function runSiteAgentChat(');
   const end = src.indexOf('/**', start);
   assert.ok(start > 0 && end > start, 'slice bounds found');
@@ -339,7 +339,7 @@ const BIG_PLAN = {
   // ---------------------------------------------------------------
   {
     let n = 0;
-    const cp = fs.readFileSync(path.join(root, 'server', 'clientPortal.js'), 'utf8');
+    const cp = require('./lib/monolithSource.cjs').clientPortalSource();
     const dj = fs.readFileSync(path.join(root, 'src', 'designJobs.js'), 'utf8');
     const js = fs.readFileSync(path.join(root, 'public', 'js', 'portal.js'), 'utf8');
     const html = fs.readFileSync(path.join(root, 'public', 'portal.html'), 'utf8');

@@ -509,7 +509,7 @@ async function main() {
     assert.ok(embedJs.includes('CHART-SVG-BEGIN'), 'embed svg builders');
     const portalRoutes = fs.readFileSync(path.join(root, 'server/routes/portal.js'), 'utf8');
     assert.ok(portalRoutes.includes("['charts', 'charts']"), 'portal module subpath mapping');
-    const clientPortalSrc = fs.readFileSync(path.join(root, 'server/clientPortal.js'), 'utf8');
+    const clientPortalSrc = require('./lib/monolithSource.cjs').clientPortalSource();
     assert.ok(clientPortalSrc.includes("type === 'charts'"), 'portal facade branches');
   });
 
