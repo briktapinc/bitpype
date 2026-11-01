@@ -3,7 +3,8 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),os=require('nod
 const root=path.resolve(__dirname,'..'),temp=fs.mkdtempSync(path.join(os.tmpdir(),'bitpype-startup-'));
 let output='';
 const child=spawn(process.execPath,[path.join(root,'server.js')],{cwd:root,env:{
- PATH:process.env.PATH,HOME:process.env.HOME,NODE_ENV:'production',DB_DRIVER:'sqlite',
+ PATH:process.env.PATH,HOME:process.env.HOME,NODE_ENV:'production',DB_DRIVER:process.env.REGRESSION_DB_DRIVER||'sqlite',
+ ...(process.env.REGRESSION_DB_DRIVER==='mysql'?{MYSQL_HOST:process.env.MYSQL_HOST,MYSQL_PORT:process.env.MYSQL_PORT,MYSQL_USER:process.env.MYSQL_USER,MYSQL_PASSWORD:process.env.MYSQL_PASSWORD,MYSQL_DATABASE:process.env.MYSQL_DATABASE}:{}),
  SQLITE_PATH:path.join(temp,'auth.sqlite'),WORKSPACE_DATA_DIR:path.join(temp,'workspaces'),EXPORT_ROOT:path.join(temp,'exports'),
  SESSION_SECRET:'isolated-synthetic-session-secret-2026',APP_URL:'https://bitpype.com',CAPTCHA_OPTIONAL:'1',PORT:'31337',
  },stdio:['ignore','pipe','pipe']});

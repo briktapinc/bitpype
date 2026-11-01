@@ -62,7 +62,7 @@ const { spawn, spawnSync } = require('node:child_process');
 
 const root = path.resolve(__dirname, '..');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'bp-b67-'));
-process.env.DB_DRIVER = 'sqlite';
+process.env.DB_DRIVER = process.env.REGRESSION_DB_DRIVER || 'sqlite';
 process.env.SQLITE_PATH = path.join(temp, 'platform.sqlite');
 process.env.WORKSPACE_DATA_DIR = path.join(temp, 'workspaces');
 process.env.EXPORT_ROOT = path.join(temp, 'exports');

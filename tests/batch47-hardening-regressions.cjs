@@ -55,7 +55,7 @@ const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 
-process.env.DB_DRIVER = process.env.DB_DRIVER || 'sqlite';
+process.env.DB_DRIVER = process.env.REGRESSION_DB_DRIVER || process.env.DB_DRIVER || 'sqlite';
 process.env.EXPORT_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'bp-b47-exports-'));
 
 const root = path.resolve(__dirname, '..');

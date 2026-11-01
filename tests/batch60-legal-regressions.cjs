@@ -39,7 +39,7 @@ async function acheck(name, fn) {
 process.env.EXPORT_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'bp60-exports-'));
 // Batch 60 renewals (section D): server modules read DB env at require
 // time — point them at throwaway temp stores before anything loads them.
-process.env.DB_DRIVER = 'sqlite';
+process.env.DB_DRIVER = process.env.REGRESSION_DB_DRIVER || 'sqlite';
 process.env.SQLITE_PATH = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'bp60-server-')), 'server.db');
 process.env.WORKSPACE_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'bp60-ws-'));
 const engine = require(path.join(root, 'src/websiteEngine.js'));

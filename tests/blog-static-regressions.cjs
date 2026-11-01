@@ -20,7 +20,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-process.env.DB_DRIVER = process.env.DB_DRIVER || 'sqlite';
+process.env.DB_DRIVER = process.env.REGRESSION_DB_DRIVER || process.env.DB_DRIVER || 'sqlite';
 
 let DatabaseSync = null;
 try {

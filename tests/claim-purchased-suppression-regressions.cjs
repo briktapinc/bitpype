@@ -39,7 +39,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-process.env.DB_DRIVER = process.env.DB_DRIVER || 'sqlite';
+process.env.DB_DRIVER = process.env.REGRESSION_DB_DRIVER || process.env.DB_DRIVER || 'sqlite';
 process.env.APP_URL = 'https://bitpype.test';
 if (!process.env.SESSION_SECRET) process.env['SESSION_' + 'SECRET'] = ['claim', 'purchased', 'test', 'secret'].join('-');
 

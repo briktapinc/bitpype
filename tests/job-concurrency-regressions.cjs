@@ -1,7 +1,7 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path'),vm=require('node:vm'),{fork}=require('node:child_process');
 const temp=process.env.JOB_FIXTURE_DIR||fs.mkdtempSync(path.join(os.tmpdir(),'bitpype-job-'));
-if(!process.env.DB_DRIVER)process.env.DB_DRIVER='sqlite';
+if(!process.env.DB_DRIVER)process.env.DB_DRIVER=process.env.REGRESSION_DB_DRIVER||'sqlite';
 if(process.env.DB_DRIVER==='sqlite')process.env.SQLITE_PATH=path.join(temp,'auth.sqlite');
 const db=require('../server/db');
 const worker=process.argv[2]==='worker',crash=process.argv[3]==='crash';

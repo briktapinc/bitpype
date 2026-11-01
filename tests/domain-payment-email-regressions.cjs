@@ -42,7 +42,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-process.env.DB_DRIVER = process.env.DB_DRIVER || 'sqlite';
+process.env.DB_DRIVER = process.env.REGRESSION_DB_DRIVER || process.env.DB_DRIVER || 'sqlite';
 process.env.APP_URL = 'https://bitpype.test';
 
 const root = path.resolve(__dirname, '..');

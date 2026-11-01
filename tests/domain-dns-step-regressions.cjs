@@ -55,7 +55,7 @@ const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const path = require('node:path');
 
-process.env.DB_DRIVER = process.env.DB_DRIVER || 'sqlite';
+process.env.DB_DRIVER = process.env.REGRESSION_DB_DRIVER || process.env.DB_DRIVER || 'sqlite';
 
 const root = path.resolve(__dirname, '..');
 let Database;

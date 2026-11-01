@@ -26,7 +26,7 @@ const { execFileSync } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
 const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'bp-b103-'));
-process.env.DB_DRIVER = 'sqlite';
+process.env.DB_DRIVER = process.env.REGRESSION_DB_DRIVER || 'sqlite';
 process.env.SQLITE_PATH = path.join(temp, 'platform.sqlite');
 process.env.WORKSPACE_DATA_DIR = path.join(temp, 'workspaces');
 process.env.EXPORT_ROOT = path.join(temp, 'exports');

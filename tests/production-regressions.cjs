@@ -6797,7 +6797,7 @@ async function main() {
     ['-e', "try { require('./src/mcp.js'); console.log('MCP BOOT OK'); } catch (e) { console.log('MCP BOOT THREW: ' + e.message); } process.exit(0);"],
     {
       cwd: root,
-      env: { ...process.env, DB_DRIVER: 'sqlite', WS_DB_PATH: path.join(osR10.tmpdir(), `ws-mcp-boot-${Date.now()}.db`) },
+      env: { ...process.env, DB_DRIVER: process.env.REGRESSION_DB_DRIVER || 'sqlite', WS_DB_PATH: path.join(osR10.tmpdir(), `ws-mcp-boot-${Date.now()}.db`) },
       input: '',
       encoding: 'utf8',
       timeout: 30000,

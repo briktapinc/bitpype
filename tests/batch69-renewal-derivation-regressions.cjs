@@ -44,7 +44,7 @@ async function acheck(name, fn) {
 }
 
 process.env.EXPORT_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'bp69-exports-'));
-process.env.DB_DRIVER = 'sqlite';
+process.env.DB_DRIVER = process.env.REGRESSION_DB_DRIVER || 'sqlite';
 process.env.SQLITE_PATH = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'bp69-server-')), 'server.db');
 process.env.WORKSPACE_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'bp69-ws-'));
 

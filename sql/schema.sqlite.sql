@@ -233,32 +233,15 @@ CREATE TABLE IF NOT EXISTS campaign_messages (
   status TEXT NOT NULL DEFAULT 'queued',
   scheduled_at TEXT,
   sent_at TEXT,
-  error TEXT,
-  channel TEXT NOT NULL DEFAULT 'email',
-  to_phone TEXT,
-  media_url TEXT,
-  send_mode TEXT
+  error TEXT
 );
-
-CREATE TABLE IF NOT EXISTS site_screenshots (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  website_id INTEGER NOT NULL,
-  lead_id INTEGER,
-  design_job_id INTEGER,
-  version INTEGER NOT NULL DEFAULT 1,
-  is_current INTEGER NOT NULL DEFAULT 1,
-  page TEXT NOT NULL,
-  viewport TEXT NOT NULL,
-  kind TEXT NOT NULL DEFAULT 'capture',
-  storage_path TEXT NOT NULL,
-  public_url TEXT NOT NULL,
-  width INTEGER,
-  height INTEGER,
-  bytes INTEGER,
-  content_type TEXT,
-  captured_at TEXT NOT NULL DEFAULT (datetime('now')),
-  meta TEXT
-);
+-- Batch 112: this file is the PLATFORM schema (server/db.js migrate()).
+-- campaign_messages here intentionally matches sql/schema.sql exactly.
+-- The workspace-layer campaign_messages (channel/to_phone/media_url/
+-- send_mode) and site_screenshots live in the tenant schema
+-- (src/schema.sql + src/siteScreenshots.js ensureTables) — they were
+-- removed from this file after the platform-schema-parity suite caught
+-- them drifting from the MySQL platform definition.
 
 CREATE TABLE IF NOT EXISTS suppression_list (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
