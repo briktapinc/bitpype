@@ -635,7 +635,15 @@ async function staffLogin(jar) {
         ppage.evaluate(() => location.hash === '#/module-item')
       );
       await ppage.waitForFunction(() => location.hash === '#/module-item', { timeout: 10000, polling: 100 });
-      await ppage.click('#btn-module-item-back');
+      // Batch 112 de-flake (gate s8): was a bare click — the hash
+      // flips before the editor finishes binding its handlers, so a
+      // Back click in that window is dead and the 10s hash wait
+      // expires (s8 MySQL). Route it through this suite's own
+      // effect-verifying clickUntil, like New/Save above; the hard
+      // hash wait below stays as the confirmation.
+      await clickUntil(ppage, '#btn-module-item-back', () =>
+        ppage.evaluate(() => location.hash === '#/modules')
+      );
       await ppage.waitForFunction(() => location.hash === '#/modules', { timeout: 10000, polling: 100 });
       await ppage.waitForSelector('#sec-modules:not([hidden])', { timeout: 10000 });
       const hidden = await ppage.$eval('#sec-module-item', (e) => e.hasAttribute('hidden'));
