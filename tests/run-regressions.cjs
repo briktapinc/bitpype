@@ -110,6 +110,7 @@ const checks = [
   'batch109-gatewrap-regressions',
   'batch110-chat-widget-regressions',
   'batch111-consolidation-regressions',
+  'batch113-mobile-dropdown-tabs-regressions',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');

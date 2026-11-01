@@ -422,8 +422,21 @@ const EDITORLESS = new Set(['socialfeed', 'googlereviews', 'calltracking', 'memb
         n += 2;
       }
       // Billing credits (wrapped by Batch 107): fmtDate sentinel.
+      // Batch 113: at phone width the billing tab bar hands over to
+      // its dropdown — switch the way a phone user does. The pick
+      // clicks the same pill under the hood, so the panel swap (and
+      // everything asserted below) is unchanged.
       await goto('#/billing', () => !!document.querySelector('#billing-tabs'), 'billing');
-      await page.click('#billing-tabs [data-tab="credits"]');
+      if (
+        await page.evaluate(() => {
+          const s = document.querySelector('#view .tabs-select');
+          return !!s && getComputedStyle(s).display !== 'none';
+        })
+      ) {
+        await page.select('#view .tabs-select', 'credits');
+      } else {
+        await page.click('#billing-tabs [data-tab="credits"]');
+      }
       await page.waitForFunction(() => document.querySelector('#bill-panel-credits') && !document.querySelector('#bill-panel-credits').hidden, { timeout: 10000 });
       await noOverflow('billing credits @390');
       await dateCell('#bill-panel-credits', 'billing credits date @390');

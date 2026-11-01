@@ -2241,3 +2241,32 @@ details[open] > summary {
     min-width: 990px;
   }
 }
+
+/* ---------- Batch 113: tab bars become a dropdown on phones ----------
+   Ely's order 2026-11-01 (phone screenshot of Platform admin): the
+   pill tab bars wrap into a wall — Admin's 18 sections worst of
+   all — that eats half the phone screen before any content. At
+   <=700px (the shell's phone width, Ely's standing mobile-nav
+   breakpoint) an ENHANCED bar (.tabs-enhanced, set by enhanceTabs()
+   in app.js when it pairs the bar with a select) hands over to its
+   .tabs-select dropdown: one full-width control showing the
+   current section, content starts right below it. Above 700px the
+   select is display:none and the pill rows render exactly as
+   before; without JS no select exists and no bar is ever hidden.
+   The select itself inherits the shell's base select styling
+   (surface, border, radius, focus ring) — only the swap, the
+   touch height and the bar's own bottom spacing are set here. */
+.tabs-select {
+  display: none;
+}
+@media (max-width: 700px) {
+  .tabs.tabs-enhanced {
+    display: none;
+  }
+  .tabs-select {
+    display: block;
+    min-height: 48px;
+    margin-bottom: 16px;
+    font-weight: 600;
+  }
+}

@@ -174,6 +174,53 @@ function debounce(fn, ms) {
   };
 }
 
+/* Batch 113 — mobile tab dropdowns (Ely's order 2026-11-01, from his
+   phone screenshot of Platform admin): the pill tab bars wrap into a
+   wall that eats half the phone screen. enhanceTabs() pairs a tab
+   bar with a native <select> built from the bar's own buttons; at
+   phone width (<=700px, the shell's mobile-nav breakpoint) CSS
+   hides the enhanced bar and shows the select instead, and above
+   it the select stays display:none and the pills are untouched.
+   Picking an entry clicks the REAL button, so activation is
+   identical to tapping the pill — same hash routing, same local
+   pane switches, deep links and back/forward untouched. A
+   MutationObserver keeps the select's value synced to whichever
+   button is active, however the tab changed. The select is built
+   with createElement/textContent only (no new HTML sinks), and
+   without JS no select exists and no bar is ever hidden. */
+function enhanceTabs(tabsEl) {
+  if (!tabsEl || tabsEl.dataset.tabsEnhanced) return;
+  const buttons = $$('button[data-tab]', tabsEl);
+  if (buttons.length < 2) return;
+  tabsEl.dataset.tabsEnhanced = '1';
+  tabsEl.classList.add('tabs-enhanced');
+  const sel = document.createElement('select');
+  sel.className = 'tabs-select';
+  sel.setAttribute('aria-label', tabsEl.getAttribute('aria-label') || 'Section');
+  for (const b of buttons) {
+    const opt = document.createElement('option');
+    opt.value = b.dataset.tab;
+    opt.textContent = b.textContent.trim();
+    sel.appendChild(opt);
+  }
+  const sync = () => {
+    const active = tabsEl.querySelector('button.active, button[aria-selected="true"]');
+    if (active && sel.value !== active.dataset.tab) sel.value = active.dataset.tab;
+  };
+  sel.addEventListener('change', () => {
+    const b = $$('button[data-tab]', tabsEl).find((x) => x.dataset.tab === sel.value);
+    if (b) b.click();
+    sync();
+  });
+  new MutationObserver(sync).observe(tabsEl, {
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['class', 'aria-selected'],
+  });
+  tabsEl.after(sel);
+  sync();
+}
+
 function parseJson(v, fallback) {
   if (v == null || v === '') return fallback;
   if (typeof v === 'object') return v;
@@ -5049,6 +5096,7 @@ async function pageOutreach(param, query) {
     $$('#o-tabs button').forEach((x) => x.classList.toggle('active', x === b));
     loadTab();
   };
+  enhanceTabs($('#o-tabs'));
   delegate($('.page-actions', view), {
     process: async () => {
       const r = (await api.processQueue()).data;
@@ -6909,6 +6957,7 @@ async function pageSettings(param) {
     if (!b) return;
     window.location.hash = '#/settings/' + b.dataset.tab;
   };
+  enhanceTabs($('#settings-tabs'));
 
   // Batch 48: the mail provider select toggles which field group shows —
   // SMTP fields for Custom, token + account id for Cloudflare (native).
@@ -7225,6 +7274,7 @@ async function pageAdmin(param) {
     if (!b) return;
     window.location.hash = '#/admin/' + b.dataset.tab;
   };
+  enhanceTabs($('#admin-tabs'));
 
   const body = $('#admin-body');
   try {
@@ -9171,6 +9221,7 @@ async function pageBilling(param, query) {
     if (!b) return;
     window.location.hash = '#/billing/' + b.dataset.tab;
   };
+  enhanceTabs($('#billing-tabs'));
 
   const msg = $('#bill-msg');
   $$('[data-checkout-plan]').forEach((btn) => {
