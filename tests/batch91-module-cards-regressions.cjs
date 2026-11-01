@@ -15,9 +15,12 @@
  *       focus-visible + is-active states, "On site" live pill, count
  *       meta line; the old .module-tab treatment is gone.
  *   B — portal icon system: a curated inline-SVG family beside the
- *       catalog (MODULE_ICON_PATHS), one glyph per module type in
- *       BOTH apps' copies (byte-identical paths), generic fallback,
- *       charts + datatables included, no emoji / no external refs;
+ *       catalog (MODULE_ICON_PATHS), one glyph per module type,
+ *       generic fallback, charts + datatables included, no emoji /
+ *       no external refs. Batch 111: the map is single-sourced in
+ *       public/js/moduleIcons.js, loaded by BOTH shells before their
+ *       main scripts — B2 pins that shared-source wiring (the two
+ *       byte-identical per-file copies are gone);
  *       the Batch 29 effective-set filter and the click delegation
  *       are untouched.
  *   C — portal Insert-block picker: entries are mini cards in a 2-up
@@ -42,6 +45,8 @@ const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 const portalHtml = read('public/portal.html');
 const portalJs = read('public/js/portal.js');
 const appJs = read('public/js/app.js');
+const staffHtml = read('public/index.html');
+const moduleIconsJs = read('public/js/moduleIcons.js');
 const staffCss = read('public/styles.css');
 
 let n = 0;
@@ -112,28 +117,32 @@ const iconPathsOf = (src) => {
 
 check('B1 every portal module type has an icon; fallback exists', () => {
   const types = moduleTypesOf(portalJs);
-  const icons = iconPathsOf(portalJs);
+  const icons = iconPathsOf(moduleIconsJs);
   assert.equal(types.length, 22, 'portal catalog still 22 types');
   for (const t of types) assert.ok(icons[t] && icons[t].includes('<'), `${t} has a glyph`);
   assert.ok(icons.charts, 'charts has its own glyph');
   assert.ok(icons.datatables, 'datatables has its own glyph');
-  assert.ok(portalJs.includes('const MODULE_ICON_FALLBACK'), 'generic fallback defined');
+  assert.ok(moduleIconsJs.includes('const MODULE_ICON_FALLBACK'), 'generic fallback defined in the shared source');
   assert.ok(portalJs.includes('MODULE_ICON_PATHS[type] || MODULE_ICON_FALLBACK'), 'fallback wired into moduleIconSvg');
 });
 
-check('B2 staff app icon map covers the same types, byte-identical paths', () => {
+check('B2 both shells consume the ONE shared icon source (Batch 111)', () => {
   const types = moduleTypesOf(portalJs);
-  const pIcons = iconPathsOf(portalJs);
-  const aIcons = iconPathsOf(appJs);
-  for (const t of types) {
-    assert.ok(aIcons[t], `staff map has ${t}`);
-    assert.equal(aIcons[t], pIcons[t], `staff glyph for ${t} matches portal`);
-  }
-  assert.ok(appJs.includes('const MODULE_ICON_FALLBACK'), 'staff fallback defined');
+  const icons = iconPathsOf(moduleIconsJs);
+  for (const t of types) assert.ok(icons[t], `shared map has ${t}`);
+  assert.ok(!portalJs.includes('const MODULE_ICON_PATHS = {'), 'portal.js no longer carries its own copy');
+  assert.ok(!appJs.includes('const MODULE_ICON_PATHS = {'), 'app.js no longer carries its own copy');
+  assert.ok(!portalJs.includes('const MODULE_ICON_FALLBACK'), 'portal.js no longer defines the fallback');
+  assert.ok(!appJs.includes('const MODULE_ICON_FALLBACK'), 'app.js no longer defines the fallback');
+  const pIdx = portalHtml.indexOf('/js/moduleIcons.js');
+  const aIdx = staffHtml.indexOf('/js/moduleIcons.js');
+  assert.ok(pIdx > -1 && pIdx < portalHtml.indexOf('/js/portal.js'), 'portal.html loads moduleIcons.js before portal.js');
+  assert.ok(aIdx > -1 && aIdx < staffHtml.indexOf('/js/app.js'), 'index.html loads moduleIcons.js before app.js');
+  assert.ok(appJs.includes('MODULE_ICON_PATHS[type] || MODULE_ICON_FALLBACK'), 'staff fallback wiring intact');
 });
 
 check('B3 icon family is one stroke system, no emoji, no external refs', () => {
-  const m = portalJs.match(/const MODULE_ICON_PATHS = \{(.*?)\n  \};/s);
+  const m = moduleIconsJs.match(/const MODULE_ICON_PATHS = \{(.*?)\n\};/s);
   assert.ok(m);
   assert.ok([...m[1]].every((ch) => ch.charCodeAt(0) < 128), 'icon paths are pure ASCII (no emoji)');
   assert.ok(!m[1].includes('http'), 'no external references in icon paths');
