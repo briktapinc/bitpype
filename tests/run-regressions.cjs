@@ -77,7 +77,14 @@ async function resetMysqlDatabase(name){
    env={...process.env,DB_DRIVER:'sqlite',REGRESSION_DB_DRIVER:'sqlite'};
   }
   ran++;
-  const result=spawnSync(process.execPath,['--unhandled-rejections=strict',path.join(__dirname,name+'.cjs')],{
+  // MySQL pass only: preload the pool-release helper — a suite that
+  // opened the platform pool in-process would otherwise linger on
+  // its sockets after its assertions complete (see
+  // tests/lib/gatePoolRelease.cjs). SQLite mode is untouched.
+  const args=['--unhandled-rejections=strict'];
+  if(MYSQL_MODE)args.push('--require',path.join(__dirname,'lib','gatePoolRelease.cjs'));
+  args.push(path.join(__dirname,name+'.cjs'));
+  const result=spawnSync(process.execPath,args,{
    cwd:path.resolve(__dirname,'..'),env,stdio:'inherit',timeout:MYSQL_MODE?300000:180000
   });
   if(result.error||result.status!==0){

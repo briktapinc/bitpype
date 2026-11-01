@@ -1042,4 +1042,27 @@ function driver() {
   return DRIVER;
 }
 
-module.exports = { query, withConnection, migrate, ping, driver, sqlitePath, mysqlConfig };
+// Batch 112: deterministic shutdown for short-lived processes
+// (regression suites, one-off scripts). The MySQL pool's sockets
+// legitimately keep a server process alive forever; a test process
+// that opened the pool in-process must be able to release it so it
+// can exit on its own assertions. Long-running app code never calls
+// this. Safe to call when nothing was opened.
+async function close() {
+  if (mysqlPool) {
+    const pool = mysqlPool;
+    mysqlPool = null;
+    await pool.end();
+  }
+  if (sqliteDb) {
+    const db = sqliteDb;
+    sqliteDb = null;
+    try {
+      db.close();
+    } catch {
+      /* already closed */
+    }
+  }
+}
+
+module.exports = { query, withConnection, migrate, ping, driver, sqlitePath, mysqlConfig, close };
