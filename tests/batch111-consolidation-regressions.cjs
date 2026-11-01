@@ -75,4 +75,29 @@ check('S2.4 both shells load the shared file BEFORE their main script', () => {
   assert.ok(a > -1 && a < staffHtml.indexOf('/js/app.js'), 'staff order');
 });
 
+/* ---------------- Step 3 — the .card blocks ---------------- */
+
+const staffCss = read('public/styles.css');
+
+check('S3.1 census: exactly six bare-card blocks exist, all in portal.js module settings', () => {
+  const count = (portalJs.match(/class=\\"card\\"/g) || []).length + (portalJs.match(/class="card"/g) || []).length;
+  assert.equal(count, 6, 'six module-settings .card blocks');
+  assert.ok(!portalHtml.includes('class="card"'), 'no static .card markup in portal.html');
+});
+
+check('S3.2 the portal gains a #sec-modules-scoped .card rule in the .panel language', () => {
+  const idx = portalHtml.indexOf('#sec-modules .card {');
+  assert.ok(idx > -1, 'scoped rule exists');
+  const body = portalHtml.slice(idx, portalHtml.indexOf('}', idx));
+  for (const decl of ['background: var(--surface)', 'border: 1px solid var(--border)', 'border-radius: var(--radius)', 'padding: 18px 20px', 'var(--shadow)'])
+    assert.ok(body.includes(decl), `rule carries ${decl}`);
+  assert.equal((portalHtml.match(/\n    \.card \{/g) || []).length, 0, 'no UNSCOPED .card rule in the portal (leak guard)');
+});
+
+check('S3.3 staff .card (styles.css) untouched by the portal fix', () => {
+  const m = staffCss.match(/\.card,\n\.stat-card,\n\.panel \{([^}]*)\}/);
+  assert.ok(m, 'staff card group rule intact');
+  assert.ok(m[1].includes('padding: 18px 20px'), 'staff card padding intact');
+});
+
 console.log(`BATCH111 REGRESSION PASS — ${n} checks so far (grows per consolidation step)`);

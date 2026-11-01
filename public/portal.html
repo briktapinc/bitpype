@@ -1554,6 +1554,30 @@
       min-width: 0;
       overflow: hidden;
     }
+    /* Batch 111: the six JS-rendered module-settings blocks in
+       portal.js (Stripe payments, offers display, DataTables setup /
+       appearance / rows, menu categories) render a bare `card` class
+       that had NO rule in this stylesheet — they painted as plain
+       unstyled divs. Census: those six blocks are the ONLY elements
+       carrying the bare `card` token anywhere in the portal (the
+       staff app's .card lives in public/styles.css, which this page
+       never loads; client-site templates carry their own theme CSS).
+       The rule is additionally scoped to #sec-modules so it can
+       never leak into another portal surface. Treatment mirrors
+       .panel: --surface, 1px --border, --radius, the same shadow,
+       18px 20px padding so text never touches an edge. Sibling
+       separation stays the blocks' inline margin-bottom:
+       var(--card-gap) (Batch 108's 16px standard). */
+    #sec-modules .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.7) inset,
+        var(--shadow);
+      min-width: 0;
+    }
     /* Batch 107: a panel whose direct child is a bare table (Google
        Profile compare, Rentals history, SEO changes, Analytics) scrolls
        sideways instead of clipping the table at the panel edge. Inert
