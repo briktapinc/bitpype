@@ -22,20 +22,36 @@ const callRescueStub = {
   handleInboundSms: async () => ({ handled: false }),
   handleVoiceInput: async () => '<Response/>',
 };
+// Batch 111: clientPortal.js / museAgent.js are facades over split
+// modules; VM loads resolve those siblings through the same loader +
+// mocks (single-instance cache per top-level load, as Node would).
+const SPLIT_MODULES = new Set([
+  'portalAccounts', 'portalShared', 'portalSiteEdits', 'portalSocial', 'portalForms',
+  'portalModules', 'portalBilling', 'portalLeadScout', 'portalSiteChat',
+  'museAgentTools', 'museAgentCore', 'museAgentClassifier', 'museAgentPlanner',
+]);
 function load(file, mocks) {
-  const module = { exports: {} };
-  vm.runInNewContext(fs.readFileSync(path.join(root, file), 'utf8'), {
-    module, exports: module.exports, require: name => {
-      if (Object.hasOwn(mocks, name)) return mocks[name];
-      // Batch 54: route files require the shared error shaper; it is a
-      // dependency-free leaf, so VM loads get the real module.
-      if (name === '../apiErrors') return apiErrors;
-      if (name === '../callRescue' || name === './callRescue') return callRescueStub;
-      if (!name.startsWith('.')) return require(name);
-      throw new Error('Unexpected dependency: ' + name);
-    }, process: { env: {} }, console, Buffer, URL, Date, setTimeout, clearTimeout,
-  }, { filename: file });
-  return module.exports;
+  const cache = new Map();
+  const inner = (f) => {
+    if (cache.has(f)) return cache.get(f);
+    const module = { exports: {} };
+    cache.set(f, module.exports);
+    vm.runInNewContext(fs.readFileSync(path.join(root, f), 'utf8'), {
+      module, exports: module.exports, require: name => {
+        if (Object.hasOwn(mocks, name)) return mocks[name];
+        // Batch 54: route files require the shared error shaper; it is a
+        // dependency-free leaf, so VM loads get the real module.
+        if (name === '../apiErrors') return apiErrors;
+        if (name === '../callRescue' || name === './callRescue') return callRescueStub;
+        if (!name.startsWith('.')) return require(name);
+        if (SPLIT_MODULES.has(path.basename(name))) return inner('server/' + path.basename(name) + '.js');
+        throw new Error('Unexpected dependency: ' + name);
+      }, process: { env: {} }, console, Buffer, URL, Date, setTimeout, clearTimeout,
+    }, { filename: f });
+    cache.set(f, module.exports);
+    return module.exports;
+  };
+  return inner(file);
 }
 function capture(leadId, submissionId, payload) {
   const r = contacts.captureFromSubmission(db, { leadId, submissionId, formId: leadId, formName: 'Fixture', payload });
