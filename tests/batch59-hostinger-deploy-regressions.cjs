@@ -948,7 +948,12 @@ async function partC() {
 
   await checkAsync('resume honesty: provisioning with a lost purchase outcome fails PURCHASE_OUTCOME_UNKNOWN, never re-buys', async () => {
     const id = await insertDeployment({ status: 'provisioning', lead: 9003 });
-    await db.query("UPDATE deployments SET purchase_started_at = datetime('now', '-10 minutes') WHERE id = :id", { id });
+    await db.query(
+      'UPDATE deployments SET purchase_started_at = ' +
+        require('./lib/platformTestDb.cjs').minutesAgoExpr(db.driver(), 10) +
+        ' WHERE id = :id',
+      { id }
+    );
     const before = stubClient.purchases;
     await deploy.advanceDeployment(id);
     const row = await rowOf(id);

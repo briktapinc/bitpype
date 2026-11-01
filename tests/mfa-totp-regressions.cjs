@@ -109,15 +109,11 @@ async function probe(sql, ...params) {
   return rows[0];
 }
 
-function execSql(sql, ...params) {
-  const RawDb = require('better-sqlite3');
-  const db = new RawDb(process.env.SQLITE_PATH);
-  db.pragma('busy_timeout = 5000');
-  try {
-    return db.prepare(sql).run(...params);
-  } finally {
-    db.close();
-  }
+// Batch 112: dialect-aware, like probe() above (was: a direct
+// better-sqlite3 write to the platform SQLite file).
+async function execSql(sql, ...params) {
+  const pdb = require(path.join(root, 'server/db.js'));
+  return pdb.query(sql, params);
 }
 
 async function main() {
@@ -292,7 +288,7 @@ async function main() {
     row = await probe('SELECT totp_locked_until FROM users WHERE id = ?', ADMIN_ID);
     check('the lock is persisted on the account', !!row.totp_locked_until);
     // Simulate the cooldown elapsing.
-    execSql('UPDATE users SET totp_locked_until = NULL, totp_failed_attempts = 0 WHERE id = ?', ADMIN_ID);
+    await execSql('UPDATE users SET totp_locked_until = NULL, totp_failed_attempts = 0 WHERE id = ?', ADMIN_ID);
     res = await post(adminJar, '/api/v1/auth/mfa/verify', { code: totp.totp(adminSecret) });
     check('staff verify: correct code signs in after the cooldown', res.status === 200);
 
@@ -403,7 +399,7 @@ async function main() {
     // Hazard shape: a recovery code whose 8 hex chars contain exactly
     // 6 digits ('A1B234-56') must still verify — a "looks like a TOTP
     // code" gate on the recovery branch would reject it.
-    execSql(
+    await execSql(
       'UPDATE client_portal_users SET totp_recovery_hashes = ? WHERE id = ?',
       JSON.stringify([crypto.createHash('sha256').update('A1B23456').digest('hex')]),
       PORTAL_ID
