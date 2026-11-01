@@ -3279,40 +3279,6 @@ function formsDelete(workspaceId, { leadId, formId, id } = {}) {
   });
 }
 
-/** MCP / API: ensure contact/quote/appointment forms for a lead's site. */
-function formsEnsureForSite(workspaceId, { leadId, websiteId } = {}) {
-  return withDb(workspaceId, (db) => {
-    let lid = leadId != null ? Number(leadId) : null;
-    let pages = null;
-    if (websiteId != null) {
-      const site = websiteEngine().getWebsite(db, Number(websiteId));
-      if (!site) throw siteErr('NOT_FOUND', 'Website not found');
-      lid = lid || Number(site.lead_id);
-      pages = parseJsonField(site.pages, 'pages');
-    }
-    if (!lid) throw siteErr('INVALID_ID', 'leadId or websiteId required');
-    const result = require('./contactForms').ensureSiteForms(db, lid, {
-      workspaceId,
-      pages,
-      missingOnly: true,
-    });
-    try {
-      require('./siteModules').syncPublishedModules(db, lid);
-    } catch {
-      /* */
-    }
-    const siteRow = db.prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(lid);
-    if (siteRow) {
-      try {
-        materializeWebsiteExport(db, workspaceId, siteRow.id);
-      } catch {
-        /* */
-      }
-    }
-    return result;
-  });
-}
-
 /** MCP: attach / manage site modules (blog, ecommerce, courses, gallery, directory). */
 function modulesAttach(workspaceId, leadId, moduleType, opts = {}) {
   return withDb(workspaceId, (db) => {
@@ -3365,24 +3331,6 @@ function modulesAttach(workspaceId, leadId, moduleType, opts = {}) {
             ? 'Bookings mounted — ensure ≥1 published service (bookings.createService) and hours (bookings.setHours). Do not use a contact form for appointment pages with availability. Style .bitpype-module-embed.'
             : 'Module mount is bare — wrap in a themed card/section; or place via website.addBlock({cellIndex}). Style .bitpype-module-embed. INTENT: appointments with availability → bookings module (never a form).',
     });
-  });
-}
-
-function modulesDetach(workspaceId, leadId, moduleType) {
-  return withDb(workspaceId, (db) => {
-    const modules = require('./siteModules');
-    const result = modules.detachModule(db, Number(leadId), moduleType);
-    const siteRow = db
-      .prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
-      .get(Number(leadId));
-    if (siteRow) {
-      try {
-        materializeWebsiteExport(db, workspaceId, siteRow.id);
-      } catch {
-        /* */
-      }
-    }
-    return result;
   });
 }
 
@@ -6216,9 +6164,6 @@ function seoApply(workspaceId, websiteId, actor = 'staff') {
 function seoGscKey(websiteId) {
   return `seo.gsc.site.${Number(websiteId)}`;
 }
-function seoGetGscToken(workspaceId, websiteId) {
-  return withDb(workspaceId, (db) => ({ websiteId: Number(websiteId), gscToken: getSetting(db, seoGscKey(websiteId), '') || '' }));
-}
 function seoSetGscToken(workspaceId, websiteId, token) {
   return withDb(workspaceId, (db) => {
     const clean = String(token || '').trim().replace(/[^A-Za-z0-9_-]/g, '').slice(0, 200);
@@ -6276,7 +6221,6 @@ module.exports = {
   seoState,
   seoGenerate,
   seoApply,
-  seoGetGscToken,
   seoSetGscToken,
   rentalsScreen,
   rentalsList,
@@ -6424,7 +6368,6 @@ module.exports = {
   validatePages,
   sitesScreenshotsList,
   sitesScreenshotsCapture,
-  formsEnsureForSite,
   formsList,
   formsGet,
   formsCreate,
@@ -6432,7 +6375,6 @@ module.exports = {
   formsUpdate,
   formsDelete,
   modulesAttach,
-  modulesDetach,
   modulesSummary,
   materializeWebsiteExport,
   optimizeExportImages,
@@ -6503,7 +6445,6 @@ module.exports = {
   financeAiByWorkspace,
   runDiscoveryJobTick,
   runOutreachJobTick,
-  runImapPollTick: imapPoll,
   handsOffStatus: (workspaceId) => require('./handsOff').getStatus(workspaceId),
   handsOffRunNow: (workspaceId, opts) => require('./handsOff').runTick(workspaceId, opts || {}),
   handsOffDigestNow: (workspaceId, opts) => require('./handsOff').sendDigest(workspaceId, opts || {}),

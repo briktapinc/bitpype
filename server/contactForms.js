@@ -1514,24 +1514,6 @@ function ensureSiteForms(
   };
 }
 
-function unpublishForm(db, leadId, formId = null) {
-  ensureTables(db);
-  const row = formId != null ? getFormRowById(db, leadId, formId) : getFormRow(db, leadId);
-  if (!row) throw fail('NOT_FOUND', 'Form not found');
-  db.prepare(
-    `
-    UPDATE contact_forms SET published = 0, published_to_site = 0, status = 'draft',
-      updated_at = datetime('now') WHERE id = ?
-  `
-  ).run(row.id);
-  try {
-    syncSiteFormEmbeds(db, leadId);
-  } catch (e) {
-    console.warn('[contactForms] unpublish sync:', e.message);
-  }
-  return getFormById(db, leadId, row.id);
-}
-
 function appBaseUrl() {
   // Batch 56: resolve from the canonical public URL (stripeClient.appUrl);
   // the env read remains only as a fallback if the resolver cannot load.
@@ -1577,20 +1559,6 @@ function htmlHasFormToken(html, token) {
   const t = String(token || '').trim();
   if (!t) return false;
   return new RegExp(`${EMBED_TOKEN_ATTR}\\s*=\\s*["']${escapeRegExp(t)}["']`, 'i').test(String(html || ''));
-}
-
-function stripManagedEmbedsFromHtml(html) {
-  let s = String(html || '');
-  // Managed wrapper divs (with or without nested iframe / empty JS mounts)
-  s = s.replace(new RegExp(`<div\\b[^>]*\\b${MANAGED_ATTR}\\s*=\\s*["']?1["']?[^>]*>[\\s\\S]*?<\\/div>`, 'gi'), '');
-  s = s.replace(new RegExp(`<div\\b[^>]*\\b${MANAGED_ATTR}\\s*=\\s*["']?1["']?[^>]*\\/?>`, 'gi'), '');
-  // Orphaned bitpype form iframes (legacy)
-  s = s.replace(/<iframe\b[^>]*\/embed\/form\.html[^>]*>\s*<\/iframe>/gi, '');
-  s = s.replace(/<iframe\b[^>]*\/embed\/form\.html[^>]*\/>/gi, '');
-  s = s.replace(new RegExp(`<script\\b[^>]*\\b${SCRIPT_ATTR}\\b[^>]*>\\s*<\\/script>`, 'gi'), '');
-  s = s.replace(/<script\b[^>]*\/js\/form-embed\.js[^>]*>\s*<\/script>/gi, '');
-  // Keep empty form slots (image-column replacements) for the next inject pass.
-  return s;
 }
 
 /** Strip managed form embeds whose token is not in keepTokens (preserve placement). */
@@ -2567,12 +2535,6 @@ function listUnembeddedForms(db, leadId) {
   return out;
 }
 
-/** Legacy helper — now routes through syncSiteFormEmbeds. */
-function patchSiteContactForm(db, leadId, publicToken) {
-  void publicToken;
-  return syncSiteFormEmbeds(db, leadId);
-}
-
 function getPublicFormByToken(db, token) {
   ensureTables(db);
   const row = db
@@ -2979,7 +2941,6 @@ module.exports = {
   saveForm,
   deleteForm,
   publishForm,
-  unpublishForm,
   ensureSiteForms,
   getPublicFormByToken,
   acceptSubmission,
@@ -2994,8 +2955,6 @@ module.exports = {
   parseWorkspaceFromToken,
   syncSiteFormEmbeds,
   prepareSitePagesForExport,
-  patchSiteContactForm,
-  stripManagedEmbedsFromHtml,
   embedBlockHtml,
   ensureFormEmbedScript,
   listFormRows,

@@ -238,20 +238,6 @@ function setPlanStatus(db, id, status, { jobId } = {}) {
   return getPlan(db, id);
 }
 
-/** Replace a plan's object in place (replans keep the same row's lineage via review notes). */
-function replacePlan(db, id, plan) {
-  ensureTable(db);
-  db.prepare(
-    "UPDATE site_chat_plans SET plan_json = ?, size = ?, route = ?, updated_at = datetime('now') WHERE id = ?"
-  ).run(
-    JSON.stringify(plan || {}),
-    plan && plan.size ? plan.size : 'small',
-    plan && plan.route ? plan.route : 'in-chat',
-    Number(id)
-  );
-  return getPlan(db, id);
-}
-
 /** Batch 99 — persist critic + reviewer evidence on the plan row. */
 function setPlanReview(db, id, review) {
   ensureTable(db);
@@ -308,7 +294,6 @@ module.exports = {
   getPlan,
   latestPlan,
   setPlanStatus,
-  replacePlan,
   setPlanReview,
   renderPlanForJob,
 };

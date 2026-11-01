@@ -33,7 +33,9 @@ function locateTsc() {
 function main() {
   const tsc = locateTsc();
   if (!tsc) {
-    console.error('TYPECHECK FAIL: TypeScript compiler not found (node_modules/typescript nor vendor/typescript-5.9.3.tgz)');
+    console.error(
+      'TYPECHECK FAIL: TypeScript compiler not found (node_modules/typescript nor vendor/typescript-5.9.3.tgz)'
+    );
     process.exit(1);
   }
   let out = '';

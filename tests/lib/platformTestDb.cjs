@@ -26,9 +26,7 @@ async function setPlatformSetting(db, key, value) {
 // facade pins timezone 'Z'), so the expressions are equivalent.
 function minutesAgoExpr(driver, minutes) {
   const n = Math.max(0, Math.floor(Number(minutes) || 0));
-  return driver === 'mysql'
-    ? `DATE_SUB(UTC_TIMESTAMP(), INTERVAL ${n} MINUTE)`
-    : `datetime('now', '-${n} minutes')`;
+  return driver === 'mysql' ? `DATE_SUB(UTC_TIMESTAMP(), INTERVAL ${n} MINUTE)` : `datetime('now', '-${n} minutes')`;
 }
 
 // Column names of a platform table, in declaration order.
