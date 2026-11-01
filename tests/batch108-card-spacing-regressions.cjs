@@ -411,19 +411,31 @@ const MODULE_TYPES = [
         await expectStandard('social post list', '#post-list', ':scope > .post-card');
         await navTo('forms', '#forms-list', ':scope > .item-card');
         await expectStandard('forms item list', '#forms-list', ':scope > .item-card');
+        // Batch 112 de-flake: was sleep(700), then a DOM-count wait,
+        // then (s3 fix) an effect wait with a bare retry click — all
+        // raced the module's own async render. Proven mechanics
+        // (gate-container instrumentation, gate s3 + stress runs):
+        // the chrome render re-hides the results pane (portal.js
+        // updateModuleContentChrome sets results.hidden = true), so
+        // a click landing before that render completes is undone by
+        // it (pane display:none + hidden at measure time, 2 cards in
+        // DOM, 0 visible), and a retry click during the re-render
+        // hits a not-yet-clickable button. Sequence on real signals:
+        // (1) wait for the render to settle — submission cards in
+        // the DOM AND the default setup pane actually shown; (2)
+        // click; (3) wait on the exact signal MEASURE needs — pane
+        // shown AND >= 2 sized cards — with one effect-verified
+        // retry click on a demonstrably clickable button if the
+        // first click was still undone or swallowed.
+        await page.waitForFunction(
+          () => {
+            const setup = document.getElementById('forms-pane-setup');
+            if (!setup || setup.hidden || getComputedStyle(setup).display === 'none') return false;
+            return document.querySelectorAll('#form-submissions > .post-card').length >= 2;
+          },
+          { timeout: 20000, polling: 100 }
+        );
         await page.click('button[data-forms-pane="results"]');
-        // Batch 112 de-flake: was sleep(700), then a DOM-count wait.
-        // Both disagree with MEASURE: the cards can sit in the DOM
-        // while the results pane is still hidden — the module's own
-        // chrome render re-hides the pane (portal.js
-        // updateModuleContentChrome sets results.hidden = true), and
-        // when that render lands after this click it undoes the pane
-        // switch (gate s3, MySQL pass: pane display:none + hidden at
-        // measure time, 2 cards in DOM, count 0 visible; reproduced
-        // and instrumented in the gate container). Wait on the exact
-        // signal MEASURE needs — pane shown AND >= 2 sized cards —
-        // with one effect-verified retry click (the navTo toggle
-        // pattern) if the first click was undone or swallowed.
         const resultsReady = () => {
           const pane = document.getElementById('forms-pane-results');
           if (!pane || pane.hidden || getComputedStyle(pane).display === 'none') return false;
@@ -440,6 +452,7 @@ const MODULE_TYPES = [
           .then(() => true)
           .catch(() => false);
         if (!switched) {
+          await page.waitForSelector('button[data-forms-pane="results"]', { visible: true, timeout: 10000 });
           await page.click('button[data-forms-pane="results"]');
           await page.waitForFunction(resultsReady, { timeout: 20000, polling: 100 });
         }
