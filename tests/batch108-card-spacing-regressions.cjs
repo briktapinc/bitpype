@@ -339,11 +339,20 @@ const MODULE_TYPES = [
           const w = await page.evaluate(() => window.innerWidth);
           if (w <= 900) {
             await page.click('#portal-menu-btn');
-            // Batch 112 de-flake: these waits used to be swallowed
-            // (.catch(() => {})) — a sidebar that never opened turned
-            // into a misleading measurement failure downstream. Hard
-            // waits now: fail here, at the actual cause.
-            await page.waitForFunction(() => document.getElementById('portal-shell').classList.contains('nav-open'), { timeout: 10000 });
+            // Batch 112 de-flake: the swallowed (.catch(() => {}))
+            // waits are gone. The drawer-open wait follows the
+            // Batch 107 suite's proven pattern: a click landing
+            // mid-navigation can be swallowed, and since the button
+            // toggles, exactly one retry click is the cure — verified
+            // by the hard wait that follows, never assumed.
+            const opened = await page
+              .waitForFunction(() => document.getElementById('portal-shell').classList.contains('nav-open'), { timeout: 2500 })
+              .then(() => true)
+              .catch(() => false);
+            if (!opened) {
+              await page.click('#portal-menu-btn');
+              await page.waitForFunction(() => document.getElementById('portal-shell').classList.contains('nav-open'), { timeout: 10000 });
+            }
             await page.waitForFunction(() => document.getElementById('portal-sidebar').getBoundingClientRect().x >= -1, { timeout: 10000, polling: 100 });
           }
           await page.click('#nav-' + panel);

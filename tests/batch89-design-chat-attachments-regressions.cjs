@@ -497,7 +497,7 @@ function loadChatAtt() {
     let n = 0;
     const portalSrc = require('./lib/monolithSource.cjs').clientPortalSource();
     const start = portalSrc.indexOf('async function runSiteAgentChat(');
-    const end = portalSrc.indexOf('/**', start);
+    const end = portalSrc.indexOf('\n/**', start);
     assert.ok(start > 0 && end > start, 'slice bounds found');
     const realDb = domain.withDb(1, (db) => db);
     const savedC = await chatAtt.saveAttachment(realDb, {

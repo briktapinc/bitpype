@@ -94,7 +94,7 @@ function loadPortalSliceSource() {
     src = shimmed;
   }
   const start = src.indexOf('async function runSiteAgentChat(');
-  const end = src.indexOf('/**', start);
+  const end = src.indexOf('\n/**', start);
   assert.ok(start > 0 && end > start, 'slice bounds found');
   return src.slice(start, end);
 }

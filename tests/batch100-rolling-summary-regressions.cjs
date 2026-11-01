@@ -54,7 +54,7 @@ function group(name, n) {
 function loadPortalSliceSource() {
   let src = require('./lib/monolithSource.cjs').clientPortalSource();
   const start = src.indexOf('async function runSiteAgentChat(');
-  const end = src.indexOf('/**', start);
+  const end = src.indexOf('\n/**', start);
   assert.ok(start > 0 && end > start, 'slice bounds found');
   src = src.slice(start, end);
   if (NEGATIVE === 'summary') {

@@ -71,7 +71,7 @@ function loadAgentSource() {
 function loadPortalSliceSource() {
   const src = require('./lib/monolithSource.cjs').clientPortalSource();
   const start = src.indexOf('async function runSiteAgentChat(');
-  const end = src.indexOf('/**', start);
+  const end = src.indexOf('\n/**', start);
   assert.ok(start > 0 && end > start, 'slice bounds found');
   return src.slice(start, end);
 }
