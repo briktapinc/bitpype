@@ -136,6 +136,74 @@
       gap: var(--card-gap);
       align-items: stretch;
       min-height: min(72vh, 860px);
+      transition: grid-template-columns 0.22s ease;
+    }
+    /* Batch 110: the chat column wrapper is the grid item and the
+       positioning context for the side-collapse rail tab; the
+       panel itself fills the wrapper. */
+    .agent-chat-col {
+      position: relative;
+      min-width: 0;
+      display: flex;
+    }
+    .agent-chat-col .agent-chat {
+      flex: 1 1 auto;
+      width: 100%;
+      min-width: 0;
+    }
+    /* Batch 110: side-collapse rail tab. Expanded it straddles the
+       panel's right edge (half over the panel, half in the grid
+       gap — it never reaches the preview); collapsed it sits in
+       the slim rail column. One button, both states. */
+    .agent-chat-side-toggle {
+      position: absolute;
+      top: 50%;
+      right: -13px;
+      transform: translateY(-50%);
+      z-index: 6;
+      width: 26px;
+      height: 54px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--border-strong);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--accent-dark);
+      box-shadow: var(--shadow);
+      cursor: pointer;
+    }
+    .agent-chat-side-toggle:hover { background: var(--surface-2); }
+    .agent-chat-side-toggle:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .agent-chat-side-toggle svg {
+      width: 14px;
+      height: 14px;
+      flex: none;
+      transition: transform 0.2s ease;
+    }
+    /* Batch 110 collapsed (split layout): the panel leaves the
+       flow, the wrapper becomes a 30px rail, and the preview
+       column takes everything else. */
+    .website-workspace.is-chat-collapsed {
+      grid-template-columns: 30px minmax(0, 1fr);
+    }
+    .website-workspace.is-chat-collapsed .agent-chat {
+      display: none;
+    }
+    .website-workspace.is-chat-collapsed .agent-chat-side-toggle {
+      right: auto;
+      left: 2px;
+    }
+    .website-workspace.is-chat-collapsed .agent-chat-side-toggle svg {
+      transform: rotate(180deg);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .website-workspace { transition: none; }
+      .agent-chat-side-toggle svg { transition: none; }
     }
     .agent-chat {
       display: flex;
@@ -182,9 +250,16 @@
       cursor: pointer;
       text-decoration: underline;
     }
+    /* Batch 110: the message list is the widget's ONLY growing
+       region — it scrolls internally (fixed contract at every
+       width) so the widget height never changes as messages
+       accumulate; header/status stay on top, composer pinned
+       to the bottom by the flex column. */
     .agent-chat-messages {
       flex: 1;
-      overflow: auto;
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
       padding: 14px 14px 8px;
       display: flex;
       flex-direction: column;
@@ -369,14 +444,55 @@
         grid-template-columns: 1fr;
         min-height: 0;
       }
+      /* Batch 110: stacked layout keeps the fixed-height scroll
+         contract — the panel is capped and the message list
+         scrolls internally instead of growing the page. */
       .agent-chat {
-        max-height: none;
+        height: min(68vh, 620px);
+        max-height: min(68vh, 620px);
         min-height: 0;
       }
-      .agent-chat.is-collapsed .agent-chat-messages,
-      .agent-chat.is-collapsed .agent-chat-status,
-      .agent-chat.is-collapsed .agent-chat-compose {
+      /* Batch 110 stacked collapse: side-by-side is meaningless
+         here, so the same collapsed state folds the panel
+         vertically — messages, status and composer hide, the
+         header (and the rail tab) stay. */
+      .website-workspace.is-chat-collapsed {
+        grid-template-columns: 1fr;
+      }
+      .website-workspace.is-chat-collapsed .agent-chat {
+        display: flex;
+        height: auto;
+        max-height: none;
+      }
+      .website-workspace.is-chat-collapsed .agent-chat-messages,
+      .website-workspace.is-chat-collapsed .agent-chat-status,
+      .website-workspace.is-chat-collapsed .agent-chat-compose {
         display: none;
+      }
+      /* Fullscreen + stacked + collapsed: the fullscreen
+         height:100% rule must not stretch the folded panel. */
+      #sec-preview.is-edit-fullscreen .website-workspace.is-chat-collapsed .agent-chat {
+        height: auto;
+      }
+      /* Rail tab in stacked layout: a round button inside the
+         panel's top-right corner (an edge-straddling tab would
+         overflow the page horizontally at full width). Chevron
+         points up (fold up) expanded, down collapsed. */
+      .agent-chat-side-toggle {
+        top: 12px;
+        right: 8px;
+        transform: none;
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+      }
+      .website-workspace.is-chat-collapsed .agent-chat-side-toggle {
+        left: auto;
+        right: 8px;
+      }
+      .agent-chat-side-toggle svg { transform: rotate(90deg); }
+      .website-workspace.is-chat-collapsed .agent-chat-side-toggle svg {
+        transform: rotate(-90deg);
       }
       .agent-chat-toggle { display: inline-block; }
       .website-preview-col .preview-frame { min-height: 56vh; }
@@ -2644,6 +2760,7 @@
           <p class="msg" id="msg-theme"></p>
         </div>
         <div class="website-workspace" id="website-workspace">
+          <div class="agent-chat-col" id="agent-chat-col">
           <aside class="agent-chat" id="agent-chat" aria-label="Site improvement chat">
             <div class="agent-chat-head">
               <h3>Improve with AI</h3>
@@ -2667,6 +2784,8 @@
               </div>
             </form>
           </aside>
+          <button type="button" class="agent-chat-side-toggle" id="agent-chat-side-toggle" aria-expanded="true" aria-controls="agent-chat" aria-label="Collapse design chat panel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg></button>
+          </div>
           <div class="website-preview-col">
             <p class="msg" id="msg-publish"></p>
             <p class="msg" id="msg-edit"></p>

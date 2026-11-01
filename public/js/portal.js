@@ -66,6 +66,7 @@
     agentChatHistory: [],
     agentChatPending: [],
     agentChatHistoryLoaded: false,
+    agentChatCollapsed: false,
     agentChatServerIds: new Set(),
     // Batch 104: optimistic preview patches currently shown in
     // the preview iframe, keyed by patch id. A patch is a
@@ -2128,11 +2129,14 @@
     list.insertBefore(details, list.firstChild);
   }
 
-  function appendAgentBubble(role, text, attachments) {
+  function appendAgentBubble(role, text, attachments, follow) {
     const list = document.getElementById('agent-chat-messages');
     const empty = document.getElementById('agent-chat-empty');
     if (!list) return;
     if (empty) empty.remove();
+    // Batch 110: measured BEFORE the append — is the owner
+    // already reading at (or near) the newest message?
+    const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 96;
     const div = document.createElement('div');
     div.className = `agent-bubble ${role === 'user' ? 'user' : 'assistant'}`;
     if (text) {
@@ -2163,7 +2167,17 @@
       div.appendChild(imgs);
     }
     list.appendChild(div);
-    list.scrollTop = list.scrollHeight;
+    // Batch 110: the message list scrolls internally (fixed
+    // widget height). 'force' — the owner's own send and its
+    // direct reply — always lands on the newest message.
+    // 'gentle' (default — background poller write-backs) follows
+    // only when the owner is already near the bottom, so reading
+    // history is never yanked away. 'none' never scrolls (the
+    // bulk history render scrolls once at the end).
+    const mode = follow || 'gentle';
+    if (mode === 'force' || (mode === 'gentle' && nearBottom)) {
+      list.scrollTop = list.scrollHeight;
+    }
   }
 
   function renderAgentChatPending() {
@@ -2457,7 +2471,7 @@
     if ((!text && !pending.length) || state.agentChatBusy) return;
     state.agentChatBusy = true;
     syncAgentChatUi();
-    appendAgentBubble('user', text, pending);
+    appendAgentBubble('user', text, pending, 'force');
     setAgentChatStatus('Updating your site…', 'busy');
     // Batch 104 Tier 1: a quoted text swap is patched into the
     // preview the moment the message is sent. It is provisional
@@ -2503,7 +2517,7 @@
       }
       if (turnPatchId) dropAgentPatch(turnPatchId, { revert: true });
       const reply = (data && data.reply) || 'Done — check the preview.';
-      appendAgentBubble('assistant', reply);
+      appendAgentBubble('assistant', reply, null, 'force');
       state.agentChatPending = [];
       renderAgentChatPending();
       const historyText =
@@ -2555,7 +2569,7 @@
       // Batch 104: the turn never landed — the speculative
       // Tier-1 patch comes back off (the frame was not swapped).
       if (turnPatchId) dropAgentPatch(turnPatchId, { revert: true });
-      appendAgentBubble('assistant', errText(e));
+      appendAgentBubble('assistant', errText(e), null, 'force');
       setAgentChatStatus(errText(e), 'err');
     } finally {
       state.agentChatBusy = false;
@@ -2617,7 +2631,26 @@
         if (!m || !m.content) continue;
         if (m.id != null) state.agentChatServerIds.add(m.id);
         state.agentChatHistory.push({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content });
-        appendAgentBubble(m.role === 'user' ? 'user' : 'assistant', m.content);
+        appendAgentBubble(m.role === 'user' ? 'user' : 'assistant', m.content, null, 'none');
+      }
+      // Batch 110: the saved thread opens on its newest message.
+      // The chat is wired at boot, before the app is shown — a
+      // still-hidden list has no scroll height, so the snap is
+      // repeated the first time the list actually becomes
+      // visible, whenever that lands.
+      const listEl = document.getElementById('agent-chat-messages');
+      if (listEl) {
+        const snapToBottom = () => { listEl.scrollTop = listEl.scrollHeight; };
+        snapToBottom();
+        if (listEl.clientHeight === 0 && 'IntersectionObserver' in window) {
+          const io = new IntersectionObserver((entries) => {
+            if (entries.some((e) => e.isIntersecting)) {
+              snapToBottom();
+              io.disconnect();
+            }
+          });
+          io.observe(listEl);
+        }
       }
     } catch {
       /* history is best-effort; the chat itself must never break */
@@ -2657,13 +2690,45 @@
         }
       });
     }
-    if (toggle && panel) {
-      toggle.addEventListener('click', () => {
-        const collapsed = panel.classList.toggle('is-collapsed');
+    // Batch 110 collapse wiring — start
+    // ONE collapsed state for the chat panel, driven by both the
+    // side rail tab and the in-header text toggle, remembered
+    // per browser (localStorage). Split layout: the panel leaves
+    // the flow and the preview takes the full width. Stacked
+    // layout: the same state folds the panel vertically via the
+    // CSS media query.
+    const workspace = document.getElementById('website-workspace');
+    const sideToggle = document.getElementById('agent-chat-side-toggle');
+    const applyAgentChatCollapsed = (collapsed) => {
+      state.agentChatCollapsed = collapsed;
+      if (workspace) workspace.classList.toggle('is-chat-collapsed', collapsed);
+      if (sideToggle) {
+        sideToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        sideToggle.setAttribute('aria-label', collapsed ? 'Expand design chat panel' : 'Collapse design chat panel');
+      }
+      if (toggle) {
         toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
         toggle.textContent = collapsed ? 'Show chat' : 'Hide chat';
-      });
+      }
+      try {
+        localStorage.setItem('portal.agentChatCollapsed', collapsed ? '1' : '0');
+      } catch { /* storage unavailable — collapse just won't persist */ }
+    };
+    let savedCollapsed = false;
+    try {
+      savedCollapsed = localStorage.getItem('portal.agentChatCollapsed') === '1';
+    } catch { /* storage unavailable — default expanded */ }
+    applyAgentChatCollapsed(savedCollapsed);
+    if (!wireAgentChat._collapseWired) {
+      wireAgentChat._collapseWired = true;
+      if (sideToggle) {
+        sideToggle.addEventListener('click', () => applyAgentChatCollapsed(!state.agentChatCollapsed));
+      }
+      if (toggle) {
+        toggle.addEventListener('click', () => applyAgentChatCollapsed(!state.agentChatCollapsed));
+      }
     }
+    // Batch 110 collapse wiring — end
   }
 
   async function loadEditablePreview(fallbackUrl, opts = {}) {
