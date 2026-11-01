@@ -201,10 +201,6 @@
     .website-workspace.is-chat-collapsed .agent-chat-side-toggle svg {
       transform: rotate(180deg);
     }
-    @media (prefers-reduced-motion: reduce) {
-      .website-workspace { transition: none; }
-      .agent-chat-side-toggle svg { transition: none; }
-    }
     .agent-chat {
       display: flex;
       flex-direction: column;
@@ -339,6 +335,9 @@
     @media (prefers-reduced-motion: reduce) {
       .agent-chat-status.is-busy,
       .agent-chat-status.is-busy::before { animation: none; }
+      /* Batch 110: the collapse transition is decorative too. */
+      .website-workspace { transition: none; }
+      .agent-chat-side-toggle svg { transition: none; }
     }
     .agent-chat-compose {
       display: flex;
