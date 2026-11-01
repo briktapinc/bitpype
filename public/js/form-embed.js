@@ -145,14 +145,14 @@
         if (!pack.r.ok || !pack.j || !pack.j.ok) {
           throw new Error((pack.j && pack.j.error) || 'Form unavailable');
         }
-        return renderForm(el, pack.j.data, base, token);
+        return renderForm(el, pack.j.data, base, token, el.getAttribute('data-bitpype-source') || '');
       })
       .catch(function (e) {
         el.innerHTML = '<p class="bp-form-msg err">' + esc(e.message || 'Form unavailable') + '</p>';
       });
   }
 
-  async function renderForm(el, form, base, token) {
+  async function renderForm(el, form, base, token, source) {
     var title = form.title || 'Contact';
     var intro = form.intro || '';
     el.innerHTML =
@@ -290,7 +290,7 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'omit',
-          body: JSON.stringify({ values: values, captchaToken: captchaToken }),
+          body: JSON.stringify({ values: values, captchaToken: captchaToken, source: source || undefined }),
         });
         var out = await submit.json();
         if (!submit.ok || !out.ok) throw new Error((out && out.error) || 'Submit failed');

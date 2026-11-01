@@ -80,6 +80,12 @@ router.post('/:token/submit', submitLimit, captcha, async (req, res) => {
             )
           )
         : {});
+    // Batch 114: embeds on external sites (the WordPress connector)
+    // may attribute the submission to the page it came from. The
+    // value only labels the LeadScout event; it never steers routing.
+    const sourceLabel = String((req.body && req.body.source) || '')
+      .trim()
+      .slice(0, 120);
     const data = await domain.withDb(workspaceId, (db) =>
       contactForms.acceptSubmission(db, {
         token: req.params.token,
@@ -88,6 +94,7 @@ router.post('/:token/submit', submitLimit, captcha, async (req, res) => {
         planId,
         ip: clientIp(req),
         userAgent: req.get('user-agent'),
+        sourceLabel,
       })
     );
     res.json({ ok: true, data });

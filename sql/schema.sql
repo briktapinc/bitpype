@@ -487,4 +487,26 @@ CREATE TABLE IF NOT EXISTS job_runs (
   CONSTRAINT fk_runs_job FOREIGN KEY (job_id) REFERENCES scheduled_jobs(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS wp_site_links (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  workspace_id BIGINT UNSIGNED NOT NULL,
+  portal_user_id BIGINT UNSIGNED NULL,
+  token_hash CHAR(64) NOT NULL,
+  token_prefix VARCHAR(16) NOT NULL DEFAULT '',
+  status VARCHAR(20) NOT NULL DEFAULT 'minted',
+  site_url VARCHAR(500) NULL,
+  site_name VARCHAR(300) NULL,
+  admin_email VARCHAR(320) NULL,
+  site_key_hash CHAR(64) NULL,
+  site_key_prefix VARCHAR(16) NULL,
+  disconnect_reason VARCHAR(40) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  registered_at DATETIME NULL,
+  last_seen_at DATETIME NULL,
+  revoked_at DATETIME NULL,
+  UNIQUE KEY uq_wp_site_links_token (token_hash),
+  UNIQUE KEY uq_wp_site_links_key (site_key_hash),
+  KEY idx_wp_site_links_ws (workspace_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 SET FOREIGN_KEY_CHECKS = 1;

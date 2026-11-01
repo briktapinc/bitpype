@@ -155,6 +155,7 @@
     'rentals',
     'billing',
     'gbp',
+    'wordpress',
   ];
   // Batch 78: routed sub-pages that live under a nav tab (converted
   // from modal popups — pages, not popups). Not nav tabs themselves:
@@ -218,6 +219,8 @@
     cursor: 'mcp',
     soul: 'soul',
     'agent-soul': 'soul',
+    wordpress: 'wordpress',
+    wp: 'wordpress',
   };
 
   function resolvePortalPanel(raw) {
@@ -357,6 +360,7 @@
     }
     if (next === 'billing') loadBilling().catch(() => {});
     if (next === 'gbp' && typeof loadGbpPanel === 'function') loadGbpPanel().catch(() => {});
+    if (next === 'wordpress' && typeof loadWordpressPanel === 'function') loadWordpressPanel().catch(() => {});
 
     if (opts.updateHash !== false) {
       const want = panelHash(next);
@@ -4604,6 +4608,88 @@
     const doc = document.getElementById('soul-doc');
     if (doc) doc.innerHTML = data.html || '';
     soulLoaded = true;
+  }
+
+  // Batch 114 — WordPress panel. The server owns the registrations
+  // (server/wpPlugin.js); this loader only renders them. Every value
+  // reaches the DOM via textContent / createElement — no HTML string
+  // building — because site names and URLs are owner-supplied text.
+  const WP_STATUS_LABELS = {
+    minted: 'Waiting for install',
+    connected: 'Connected',
+    disconnected: 'Disconnected',
+    revoked: 'Revoked',
+  };
+  function wpFmtDate(v) {
+    if (!v) return '—';
+    return String(v).replace('T', ' ').slice(0, 16);
+  }
+  function wpCell(text) {
+    const td = document.createElement('td');
+    td.textContent = text == null || text === '' ? '—' : String(text);
+    return td;
+  }
+  function renderWpDownloads(downloads) {
+    const host = document.getElementById('wp-downloads');
+    if (!host) return;
+    host.replaceChildren();
+    if (!Array.isArray(downloads) || !downloads.length) {
+      const p = document.createElement('p');
+      p.className = 'hint';
+      p.style.margin = '0';
+      p.textContent = 'No downloads yet. Your first download will appear here, and so will the WordPress site it connects.';
+      host.appendChild(p);
+      return;
+    }
+    const table = document.createElement('table');
+    table.className = 'mcp-table';
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    for (const label of ['WordPress site', 'Status', 'Downloaded', 'Connected', '']) {
+      const th = document.createElement('th');
+      th.textContent = label;
+      headRow.appendChild(th);
+    }
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+    const tbody = document.createElement('tbody');
+    for (const d of downloads) {
+      const tr = document.createElement('tr');
+      tr.appendChild(wpCell(d.siteUrl || (d.status === 'minted' ? 'Not connected yet' : '')));
+      tr.appendChild(wpCell(WP_STATUS_LABELS[d.status] || d.status));
+      tr.appendChild(wpCell(wpFmtDate(d.createdAt)));
+      tr.appendChild(wpCell(wpFmtDate(d.registeredAt)));
+      const actionTd = document.createElement('td');
+      if (d.status !== 'revoked') {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn soft small';
+        btn.textContent = 'Revoke';
+        btn.addEventListener('click', () => revokeWpDownload(d.id).catch(() => {}));
+        actionTd.appendChild(btn);
+      }
+      tr.appendChild(actionTd);
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    const wrap = document.createElement('div');
+    wrap.className = 'mcp-table-wrap';
+    wrap.appendChild(table);
+    host.appendChild(wrap);
+  }
+  async function loadWordpressPanel() {
+    const data = await api('/wordpress');
+    renderWpDownloads(data.downloads || []);
+  }
+  async function revokeWpDownload(id) {
+    const msg = document.getElementById('msg-wordpress');
+    if (!window.confirm('Revoke this connection? That WordPress site will stop showing your BitPype forms right away.')) return;
+    const data = await api(`/wordpress/${encodeURIComponent(id)}/revoke`, { method: 'POST' });
+    renderWpDownloads(data.downloads || []);
+    if (msg) {
+      msg.className = 'msg ok';
+      msg.textContent = 'Connection revoked.';
+    }
   }
 
   const mcpEndpoint = () => `${window.location.origin}/mcp`;

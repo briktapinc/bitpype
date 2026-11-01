@@ -2552,6 +2552,7 @@
         <button type="button" role="tab" id="nav-analytics" data-panel="analytics" aria-controls="sec-analytics" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V11M10 20V5M16 20v-8M21 20H3"/></svg>Analytics</button>
         <button type="button" role="tab" id="nav-seo" data-panel="seo" aria-controls="sec-seo" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm0 0a7 7 0 0 1 0 14M4.5 9h13M4.5 15h13M11 4c-2 2.3-3 5-3 7s1 4.7 3 7m0-14c2 2.3 3 5 3 7s-1 4.7-3 7"/></svg>SEO</button>
         <button type="button" role="tab" id="nav-gbp" data-panel="gbp" aria-controls="sec-gbp" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-5.6-7-11a7 7 0 0 1 14 0c0 5.4-7 11-7 11zM12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/></svg>Google Profile</button>
+        <button type="button" role="tab" id="nav-wordpress" data-panel="wordpress" aria-controls="sec-wordpress" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18zM3.5 10.5h17M5 7.5c2 4.5 3.5 9 4.5 12M12 5l2.5 14L17 8.5M15.5 5.5c1.5 4 3 8.5 4 12.5"/></svg>WordPress</button>
         <button type="button" role="tab" id="nav-rentals" data-panel="rentals" aria-controls="sec-rentals" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6M9 11h.01M15 11h.01"/></svg>Rentals</button>
         <button type="button" role="tab" id="nav-billing" data-panel="billing" aria-controls="sec-billing" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18v10H3zM3 10h18M7 14h4"/></svg>Billing</button>
       </nav>
@@ -3254,6 +3255,38 @@
         <div id="gbp-host"><p class="hint">Loading your Google Profile…</p></div>
       </section>
 
+      <section class="block portal-panel" id="sec-wordpress" role="tabpanel" aria-labelledby="nav-wordpress" data-panel="wordpress" hidden>
+        <h2>WordPress — put BitPype on your existing website</h2>
+        <p class="lede">Already have a WordPress website? The free BitPype Connector plugin puts your BitPype forms on it. Submissions from your WordPress pages arrive here under LeadScout, marked with the page they came from.</p>
+        <div class="portal-cards">
+        <div class="panel">
+          <h3 style="margin:0 0 10px;font-size:1.05rem">Set it up</h3>
+          <ol style="margin:0 0 14px;padding-left:1.25rem;line-height:1.65">
+            <li><strong>Download the plugin.</strong> Every download is made just for you, with its own private connect code inside — like a registration link. One download connects one WordPress site.</li>
+            <li><strong>In WordPress:</strong> go to Plugins → Add New → Upload Plugin, choose the file you downloaded, then Install Now and Activate. The plugin connects itself to your BitPype account — there is nothing to copy or paste.</li>
+            <li><strong>Put a form on a page:</strong> edit any page, add the “BitPype Form” block, or paste a shortcode like <code>[bitpype_form id="3"]</code>. Your forms and their shortcodes are listed in WordPress under Settings → BitPype.</li>
+            <li><strong>Done.</strong> When a visitor submits, the contact appears here under LeadScout with your WordPress page address on it.</li>
+          </ol>
+          <a class="btn" id="btn-wp-download" href="/api/v1/portal/wordpress/download" download>Download the plugin</a>
+          <p class="hint" style="margin:10px 0 0">Free plugin — no license key. Downloading again gives you a fresh copy with a new connect code (handy for a second WordPress site, or if a copy was already used).</p>
+        </div>
+        <div class="panel">
+          <h3 style="margin:0 0 10px;font-size:1.05rem">Good to know</h3>
+          <ul style="margin:0;padding-left:1.25rem;line-height:1.65">
+            <li><strong>Deactivating</strong> the plugin disconnects the site (it shows as Disconnected below) and hides your forms. Reactivating reconnects the same site — no new download needed.</li>
+            <li><strong>Contacts stay put.</strong> Submissions and contacts you have already captured stay in your portal even if you disconnect or remove the plugin — they were saved here, not on your WordPress site.</li>
+            <li><strong>Deleting</strong> the plugin wipes its settings on WordPress, and that download cannot connect again. If you uninstall, remember to remove the <code>[bitpype_form]</code> shortcodes from your pages — they simply stop showing the form.</li>
+            <li><strong>Revoking</strong> a connection below cuts that site off right away: its forms stop appearing on the WordPress site.</li>
+          </ul>
+        </div>
+        </div>
+        <div class="panel">
+          <h3 style="margin:0 0 10px;font-size:1.05rem">Your downloads &amp; connected sites</h3>
+          <p class="msg" id="msg-wordpress" role="status"></p>
+          <div id="wp-downloads"><p class="hint" style="margin:0">Loading…</p></div>
+        </div>
+      </section>
+
       <section class="block portal-panel" id="sec-rentals" role="tabpanel" aria-labelledby="nav-rentals" data-panel="rentals" hidden>
         <h2>My rented site</h2>
         <p class="lede">If you rent a lead website from us, this is where you see it: the leads it sends you, what they cost, and anything due. This page is read-only — your rental is managed by the BitPype team.</p>
@@ -3296,6 +3329,6 @@
   <script src="/js/errorCopy.js?v=batch54-errors1"></script>
   <script src="/js/captcha.js"></script>
   <script src="/js/moduleIcons.js?v=batch111-icons1"></script>
-  <script src="/js/portal.js?v=batch105-shell1"></script>
+  <script src="/js/portal.js?v=batch114-wp1"></script>
 </body>
 </html>

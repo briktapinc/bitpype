@@ -452,6 +452,7 @@ const PORTAL_ROUTE_TABS = [
   ['/billing', 'billing'],
   ['/upsell-tips', 'billing'],
   ['/gbp', 'gbp'],
+  ['/wordpress', 'wordpress'],
 ];
 
 function tabForbidden(res, tab) {
@@ -581,6 +582,52 @@ router.get('/agent-soul/download', requireClient, async (req, res) => {
     res.send(doc.markdown);
   } catch (e) {
     fail(res, e, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Batch 114 — WordPress connector. The free plugin is downloaded HERE:
+// every click of the download route mints a NEW registration link and
+// renders a fresh zip whose plugin code carries that link (like a
+// registration link: it connects exactly one WordPress site to this
+// workspace, then it is spent). The list route feeds the panel's
+// downloads/registrations table; revoke kills a registration's site
+// credential at once (the plugin fails closed on its next call).
+// Access rides the Batch 29 tab guard: ['/wordpress' → 'wordpress'],
+// owner + partner factory sets; renters get TAB_FORBIDDEN.
+// (wpPlugin is required lazily, same pattern as agentSoul above.)
+// ---------------------------------------------------------------------------
+router.get('/wordpress', requireClient, async (req, res) => {
+  try {
+    const wpPlugin = require('../wpPlugin');
+    const downloads = await wpPlugin.listDownloads(req.client.workspace_id);
+    ok(res, { downloads });
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+
+router.get('/wordpress/download', requireClient, actionLimit, async (req, res) => {
+  try {
+    const wpPlugin = require('../wpPlugin');
+    const { token } = await wpPlugin.mintDownload(req.client.workspace_id, req.client.id);
+    const zip = wpPlugin.buildPluginZip({ token, appUrl: wpPlugin.appBaseUrl() });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="bitpype-connector.zip"');
+    res.send(zip);
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+
+router.post('/wordpress/:id/revoke', requireClient, actionLimit, async (req, res) => {
+  try {
+    const wpPlugin = require('../wpPlugin');
+    await wpPlugin.revokeDownload(req.client.workspace_id, req.params.id);
+    const downloads = await wpPlugin.listDownloads(req.client.workspace_id);
+    ok(res, { downloads });
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 500);
   }
 });
 

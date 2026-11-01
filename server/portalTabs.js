@@ -56,6 +56,10 @@ const PORTAL_TABS = [
   // gains it via PORTAL_TABS.slice(); renters stay on their factory
   // three (a tenant rents a site, not the business's Google profile).
   'gbp',
+  // Batch 114: the WordPress connector (their own external WP site,
+  // connected via the free plugin) — owner + partner factory default
+  // via PORTAL_TABS.slice(); renters stay on their factory three.
+  'wordpress',
 ];
 
 const TAB_LABELS = {
@@ -73,6 +77,7 @@ const TAB_LABELS = {
   rentals: 'Rentals',
   billing: 'Billing',
   gbp: 'Google Profile',
+  wordpress: 'WordPress',
 };
 
 const USER_TYPES = ['owner', 'renter', 'partner'];

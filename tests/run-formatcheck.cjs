@@ -26,6 +26,9 @@ const SCOPE = [
   'tests/lib/platformTestDb.cjs',
   'tests/lib/gatePoolRelease.cjs',
   'tests/platform-schema-parity-regressions.cjs',
+  'server/wpPlugin.js',
+  'server/routes/wordpressPublic.js',
+  'tests/batch114-wordpress-plugin-regressions.cjs',
   'tsconfig.checkjs.json',
 ];
 

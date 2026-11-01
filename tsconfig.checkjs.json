@@ -30,6 +30,8 @@
     "server/museAgentTools.js",
     "server/museAgentCore.js",
     "server/museAgentClassifier.js",
-    "server/museAgentPlanner.js"
+    "server/museAgentPlanner.js",
+    "server/wpPlugin.js",
+    "server/routes/wordpressPublic.js"
   ]
 }

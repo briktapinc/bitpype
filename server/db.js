@@ -529,6 +529,25 @@ async function migrate() {
         created_at TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_partner_earnings_user ON partner_earnings (partner_user_id, id DESC);
+      CREATE TABLE IF NOT EXISTS wp_site_links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workspace_id INTEGER NOT NULL,
+        portal_user_id INTEGER,
+        token_hash TEXT NOT NULL UNIQUE,
+        token_prefix TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'minted',
+        site_url TEXT,
+        site_name TEXT,
+        admin_email TEXT,
+        site_key_hash TEXT UNIQUE,
+        site_key_prefix TEXT,
+        disconnect_reason TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        registered_at TEXT,
+        last_seen_at TEXT,
+        revoked_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_wp_site_links_ws ON wp_site_links (workspace_id, id);
       CREATE TABLE IF NOT EXISTS partner_payouts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         partner_user_id INTEGER NOT NULL,
@@ -1024,6 +1043,29 @@ async function migrate() {
         created_by BIGINT UNSIGNED NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         KEY idx_mailing_list_sends_at (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS wp_site_links (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        workspace_id BIGINT UNSIGNED NOT NULL,
+        portal_user_id BIGINT UNSIGNED NULL,
+        token_hash CHAR(64) NOT NULL,
+        token_prefix VARCHAR(16) NOT NULL DEFAULT '',
+        status VARCHAR(20) NOT NULL DEFAULT 'minted',
+        site_url VARCHAR(500) NULL,
+        site_name VARCHAR(300) NULL,
+        admin_email VARCHAR(320) NULL,
+        site_key_hash CHAR(64) NULL,
+        site_key_prefix VARCHAR(16) NULL,
+        disconnect_reason VARCHAR(40) NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        registered_at DATETIME NULL,
+        last_seen_at DATETIME NULL,
+        revoked_at DATETIME NULL,
+        UNIQUE KEY uq_wp_site_links_token (token_hash),
+        UNIQUE KEY uq_wp_site_links_key (site_key_hash),
+        KEY idx_wp_site_links_ws (workspace_id, id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
   });

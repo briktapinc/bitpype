@@ -28,6 +28,7 @@ const inviteRoutes = require('./server/routes/invites');
 const socialPublicRoutes = require('./server/routes/socialPublic');
 const designPublicRoutes = require('./server/routes/designPublic');
 const formsPublicRoutes = require('./server/routes/formsPublic');
+const wordpressPublicRoutes = require('./server/routes/wordpressPublic');
 const modulesPublicRoutes = require('./server/routes/modulesPublic');
 const chatbotPublicRoutes = require('./server/routes/chatbotPublic');
 const outreachPublicRoutes = require('./server/routes/outreachPublic');
@@ -352,6 +353,10 @@ app.use(
   },
   formsPublicRoutes
 );
+// Batch 114 — WordPress connector plugin API. Server-to-server only:
+// callers are WordPress sites presenting the scoped site credential
+// derived at registration (never a workspace bearer token).
+app.use('/api/v1/wordpress', wordpressPublicRoutes);
 // Public site-module embed payload (blog/shop/courses/gallery/directory).
 // Customer sites load this cross-origin from CF Pages / custom domains.
 app.use(

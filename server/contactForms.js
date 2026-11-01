@@ -18,7 +18,7 @@ const FIELD_TYPES = ['text', 'email', 'tel', 'phone', 'textarea', 'select', 'dat
 const MANAGED_ATTR = 'data-bitpype-managed';
 const EMBED_TOKEN_ATTR = 'data-bitpype-form-embed';
 const SCRIPT_ATTR = 'data-bitpype-form-script';
-const FORM_SCRIPT_VER = 'form8';
+const FORM_SCRIPT_VER = 'form9';
 const HAND_ROLLED_FORM_WARNING =
   'Hand-rolled forms are not allowed — use the contact_form module, an existing form module, or create one with forms.create.';
 
@@ -2589,7 +2589,7 @@ function validateSubmission(fields, values) {
   return out;
 }
 
-async function acceptSubmission(db, { token, values, workspaceId, planId, ip, userAgent, clientEmail } = {}) {
+async function acceptSubmission(db, { token, values, workspaceId, planId, ip, userAgent, clientEmail, sourceLabel } = {}) {
   ensureTables(db);
   const form = db
     .prepare('SELECT * FROM contact_forms WHERE public_token = ? AND published = 1')
@@ -2654,7 +2654,10 @@ async function acceptSubmission(db, { token, values, workspaceId, planId, ip, us
       leadId: form.lead_id,
       formId: form.id,
       formName: form.title || form.name || 'Form',
-      pageSlug: form.target_page_slug || '',
+      // Batch 114: an embed on an external page (WordPress connector)
+      // attributes the event to that page's URL; hosted-site embeds
+      // keep the form's target page slug, unchanged.
+      pageSlug: String(sourceLabel || '').trim().slice(0, 120) || form.target_page_slug || '',
       submissionId,
       payload,
       encrypted: encrypt,

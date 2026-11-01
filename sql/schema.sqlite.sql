@@ -399,5 +399,25 @@ CREATE TABLE IF NOT EXISTS job_runs (
   finished_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS wp_site_links (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  workspace_id INTEGER NOT NULL,
+  portal_user_id INTEGER,
+  token_hash TEXT NOT NULL UNIQUE,
+  token_prefix TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'minted',
+  site_url TEXT,
+  site_name TEXT,
+  admin_email TEXT,
+  site_key_hash TEXT UNIQUE,
+  site_key_prefix TEXT,
+  disconnect_reason TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  registered_at TEXT,
+  last_seen_at TEXT,
+  revoked_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_wp_site_links_ws ON wp_site_links (workspace_id, id);
 CREATE INDEX IF NOT EXISTS idx_leads_ws ON leads(workspace_id, status);
 CREATE INDEX IF NOT EXISTS idx_jobs_due ON scheduled_jobs(enabled, next_run_at);
