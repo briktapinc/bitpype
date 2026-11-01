@@ -509,6 +509,7 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
         jobId = Number(created.id);
       }
       const row = db.prepare('SELECT brief FROM design_jobs WHERE id = ?').get(jobId);
+      /** @type {Record<string, any>} */
       let briefObj = {};
       try {
         briefObj = JSON.parse((row && row.brief) || '{}') || {};
@@ -767,7 +768,7 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
       let report = runCriticNow();
       let cycles = 0;
       while (report.verdict === 'fail' && turnPlan && cycles < 2) {
-        const attempt = await fetchPlan(turnSpecText || effectiveText, { failures: report.failures });
+        const attempt = await fetchPlan(turnSpecText, { failures: report.failures });
         if (!attempt || !attempt.plan) break;
         if (attempt.plan.size === 'big') {
           // A rework that outgrew the chat: adopt the new plan
@@ -785,7 +786,7 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
         turnPlan = attempt.plan;
         turnPlanId = attempt.planId;
         cycles += 1;
-        loop = await runLoop({ message: turnSpecText || effectiveText, mode: 'build', plan: turnPlan });
+        loop = await runLoop({ message: turnSpecText, mode: 'build', plan: turnPlan });
         if (loop && loop.error && !loop.mutated) break;
         if (loop && loop.mutated && !loop.published) {
           try {
@@ -811,7 +812,7 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
         // plan + critic findings — and the reply discloses it.
         const findingsText = (report.failures || []).map((f) => `- ${f}`).join('\n');
         const escSpec = [
-          turnSpecText || effectiveText,
+          turnSpecText,
           '',
           `AUTOMATED REVIEWER ESCALATION: the in-chat attempt did not pass verification after ${cycles} rework cycle(s). Critic findings:`,
           findingsText || '- the rendered site does not match the plan',
@@ -891,6 +892,7 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
   //   failed   — the build ran but verification says nothing
   //              (or not enough) changed; the client drops any
   //              speculative preview patch for this turn.
+  /** @type {{ v?: number, tier?: number, ops?: any[], jobId?: any, partial?: boolean, state?: string } | null} */
   let optimisticPatch = null;
   try {
     const chatPatch = require('./siteChatPatch');
@@ -1096,6 +1098,11 @@ function getSiteChatHistory(workspaceId, leadId) {
  * the classifier's output for the turn, which rides the result
  * payload's `settled` field when present; the deterministic
  * merge lives in server/siteChatSummary.js.
+ */
+/**
+ * @param {any} workspaceId
+ * @param {any} leadId
+ * @param {{ userText?: string, result?: any, ids?: any[] }} [opts]
  */
 function updateSiteChatSummary(workspaceId, leadId, { userText = '', result = {}, ids = [] } = {}) {
   const domain = require('./domain');

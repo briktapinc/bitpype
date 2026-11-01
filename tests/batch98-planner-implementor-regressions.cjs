@@ -78,7 +78,7 @@ function loadAgentSource() {
 function loadPortalSliceSource() {
   const src = require('./lib/monolithSource.cjs').clientPortalSource();
   const start = src.indexOf('async function runSiteAgentChat(');
-  const end = src.indexOf('/**', start);
+  const end = src.indexOf('\n/**', start);
   assert.ok(start > 0 && end > start, 'slice bounds found');
   return src.slice(start, end);
 }
@@ -578,6 +578,48 @@ const GOOD_PLAN_JSON = JSON.stringify({
       assert.equal(res.mode, 'build', 'turn still implements');
       assert.equal(res.planId, null);
       assert.equal(loopCalls[0].plan, undefined, 'loop ran unplanned');
+      n += 3;
+      planResult = { plan: chatPlan.validatePlan(JSON.parse(GOOD_PLAN_JSON), new Set(CATALOG.map((d) => d.name))) };
+    }
+    // (v) Batch 112 regression: an attachment turn with NO message
+    // text whose plan arrives only after the build block composes
+    // the spec leaves turnSpecText '' — the critic-fail rework and
+    // the reviewer escalation used to fall back to an undefined
+    // `effectiveText` there, throwing a ReferenceError that the
+    // reviewer catch swallowed (rework + escalation silently died).
+    // The spec the reviewer needs is the hoisted turnSpecText
+    // itself (assigned from effectiveSpec inside the build arm,
+    // which is out of scope at the reviewer). This scenario fails
+    // on the old code (planner is never re-called, no escalation).
+    {
+      const lead = seedLead('emptyspec');
+      reset();
+      const chatAtt = require(path.join(root, 'server', 'siteChatAttachments.js'));
+      const png = Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+        'base64'
+      );
+      const att = await chatAtt.saveAttachment(realDb, {
+        workspaceId: 1,
+        leadId: lead,
+        websiteId: fixtureSites[lead].id,
+        buffer: png,
+        originalName: 'idea.png',
+      });
+      const failPlanObj = JSON.parse(GOOD_PLAN_JSON);
+      failPlanObj.verify = [{ kind: 'computedStyle', selector: 'h3', property: 'color', equals: '#111111', where: 'light' }];
+      planResult = { plan: chatPlan.validatePlan(failPlanObj, new Set(CATALOG.map((d) => d.name))) };
+      classifyQueue = [{ intent: 'change', ready: true, size: 'small', settled: [], fallback: false }];
+      const res = await runChat(lead, { message: '', attachmentIds: [att.id] });
+      assert.ok(planCalls.length >= 2, `critic-fail rework re-plans on an empty-spec turn (planner calls: ${planCalls.length})`);
+      assert.ok(
+        planCalls[1].rework && Array.isArray(planCalls[1].rework.failures) && planCalls[1].rework.failures.length >= 1,
+        'rework planner receives the critic failures'
+      );
+      assert.ok(
+        res.review && res.review.verdict === 'escalated' && res.review.escalatedJobId,
+        'reviewer escalation queues a job after bounded rework'
+      );
       n += 3;
       planResult = { plan: chatPlan.validatePlan(JSON.parse(GOOD_PLAN_JSON), new Set(CATALOG.map((d) => d.name))) };
     }
