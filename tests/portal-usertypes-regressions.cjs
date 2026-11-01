@@ -93,27 +93,42 @@ async function main() {
   check('non-array slice falls back to factory slice', tabs.resolveTypeDefaults({ renter: { modules: 'faq' } }).modules.renter.join(',') === 'calltracking');
 
   // ---- pre-migration DB: old client_portal_users shape + a legacy user ----
-  const pre = new RawDb(process.env.SQLITE_PATH);
-  pre.exec(`CREATE TABLE client_portal_users (
+  // Batch 112: the fixture is built through the facade so the upgrade
+  // path is exercised on BOTH dialects (was: a hand-made SQLite file,
+  // which only ever tested the SQLite branch of migrate()).
+  const db = require(path.join(root, 'server/db.js'));
+  if (db.driver() === 'mysql') {
+    await db.query('DROP TABLE IF EXISTS client_portal_users');
+    await db.query(`CREATE TABLE client_portal_users (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, email VARCHAR(254) NOT NULL UNIQUE,
+      password_hash VARCHAR(255) NOT NULL, workspace_id BIGINT UNSIGNED NOT NULL, lead_id BIGINT UNSIGNED NOT NULL,
+      business_name VARCHAR(200) NOT NULL DEFAULT '', status VARCHAR(20) NOT NULL DEFAULT 'active',
+      last_login_at DATETIME NULL, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    await db.query(
+      'INSERT INTO client_portal_users (email, password_hash, workspace_id, lead_id, business_name, status) VALUES (:e, :h, 1, 501, :b, :s)',
+      { e: PORTAL_EMAIL, h: bcrypt.hashSync(PORTAL_PASSWORD, 12), b: 'QA Fixture Biz', s: 'active' }
+    );
+  } else {
+    const pre = new RawDb(process.env.SQLITE_PATH);
+    pre.exec(`CREATE TABLE client_portal_users (
     id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL, workspace_id INTEGER NOT NULL, lead_id INTEGER NOT NULL,
     business_name TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'active',
     last_login_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')));`);
-  pre
-    .prepare('INSERT INTO client_portal_users (email, password_hash, workspace_id, lead_id, business_name, status) VALUES (?,?,?,?,?,?)')
-    .run(PORTAL_EMAIL, bcrypt.hashSync(PORTAL_PASSWORD, 12), 1, 501, 'QA Fixture Biz', 'active');
-  pre.close();
+    pre
+      .prepare('INSERT INTO client_portal_users (email, password_hash, workspace_id, lead_id, business_name, status) VALUES (?,?,?,?,?,?)')
+      .run(PORTAL_EMAIL, bcrypt.hashSync(PORTAL_PASSWORD, 12), 1, 501, 'QA Fixture Biz', 'active');
+    pre.close();
+  }
 
-  const db = require(path.join(root, 'server/db.js'));
   await db.migrate();
 
-  const probe = new RawDb(process.env.SQLITE_PATH, { readonly: true });
-  const cols = probe.prepare('PRAGMA table_info(client_portal_users)').all().map((c) => c.name);
+  const cols = await require('./lib/platformTestDb.cjs').platformColumns(db, 'client_portal_users');
   check('migration adds user_type/nav_overrides/module_overrides', ['user_type', 'nav_overrides', 'module_overrides'].every((c) => cols.includes(c)));
-  const legacy = probe.prepare('SELECT user_type, nav_overrides, module_overrides FROM client_portal_users WHERE id = 1').get();
+  const legacy = (await db.query('SELECT user_type, nav_overrides, module_overrides FROM client_portal_users WHERE id = 1'))[0];
   check('migration backfills legacy user to owner, no overrides', legacy.user_type === 'owner' && legacy.nav_overrides === null && legacy.module_overrides === null);
-  probe.close();
 
   // ---- seed staff users + the plan-link row for the portal email ----
   const hash = (pw) => bcrypt.hashSync(pw, 12);

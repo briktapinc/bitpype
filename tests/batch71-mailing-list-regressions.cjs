@@ -79,8 +79,7 @@ async function partA() {
   const q = platformDb.query;
 
   await checkAsync('tables: mailing list tables exist at platform level after migrate', async () => {
-    const rows = await q("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'mailing_list%'");
-    const names = rows.map((r) => r.name).sort();
+    const names = await require('./lib/platformTestDb.cjs').platformTablesLike(platformDb, 'mailing_list%');
     assert.deepEqual(names, ['mailing_list_sends', 'mailing_list_subscribers']);
   });
 

@@ -750,7 +750,12 @@ async function partB() {
       assert.equal(stub.purchases, 2);
       // Age the deployment past the provisioning deadline; the ticker
       // must fail it honestly, VM id intact.
-      await db.query("UPDATE deployments SET created_at = datetime('now', '-26 minutes') WHERE id = :id", { id: depId });
+      await db.query(
+        'UPDATE deployments SET created_at = ' +
+          require('./lib/platformTestDb.cjs').minutesAgoExpr(db.driver(), 26) +
+          ' WHERE id = :id',
+        { id: depId }
+      );
       const failed = await waitFor('deployment fails with PROVISION_TIMEOUT', async () => {
         const r = await get(`/api/v1/admin/leads/${L3}/hostinger-deployment?workspaceId=1`);
         const b = await json(r);

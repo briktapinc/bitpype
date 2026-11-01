@@ -72,18 +72,23 @@ async function resetMysqlDatabase(name){
    await resetMysqlDatabase(dbName);
    env={...process.env,REGRESSION_DB_DRIVER:'mysql',DB_DRIVER:'mysql',
     MYSQL_HOST:GATE_MYSQL.host,MYSQL_PORT:String(GATE_MYSQL.port),
-    MYSQL_USER:GATE_MYSQL.user,MYSQL_PASSWORD:GATE_MYSQL.password,MYSQL_DATABASE:dbName};
+    MYSQL_USER:GATE_MYSQL.user,MYSQL_PASSWORD:GATE_MYSQL.password,MYSQL_DATABASE:dbName,
+    // Propagate the pool-release preload into every node process a
+    // suite spawns (seed children, fixture servers): a grandchild
+    // that opens the platform pool would otherwise never exit and
+    // hang its parent's spawnSync. The preload self-arms only under
+    // REGRESSION_DB_DRIVER=mysql and never releases while a process
+    // holds real work handles (a listening server included).
+    NODE_OPTIONS:((process.env.NODE_OPTIONS||'')+' --require '+path.join(__dirname,'lib','gatePoolRelease.cjs')).trim()};
   }else{
    env={...process.env,DB_DRIVER:'sqlite',REGRESSION_DB_DRIVER:'sqlite'};
   }
   ran++;
-  // MySQL pass only: preload the pool-release helper — a suite that
-  // opened the platform pool in-process would otherwise linger on
-  // its sockets after its assertions complete (see
-  // tests/lib/gatePoolRelease.cjs). SQLite mode is untouched.
-  const args=['--unhandled-rejections=strict'];
-  if(MYSQL_MODE)args.push('--require',path.join(__dirname,'lib','gatePoolRelease.cjs'));
-  args.push(path.join(__dirname,name+'.cjs'));
+  // MySQL pass only: the pool-release preload reaches suite
+  // processes (and their node children) via NODE_OPTIONS in the
+  // spawn env above — see tests/lib/gatePoolRelease.cjs. SQLite
+  // mode is untouched.
+  const args=['--unhandled-rejections=strict',path.join(__dirname,name+'.cjs')];
   const result=spawnSync(process.execPath,args,{
    cwd:path.resolve(__dirname,'..'),env,stdio:'inherit',timeout:MYSQL_MODE?300000:180000
   });

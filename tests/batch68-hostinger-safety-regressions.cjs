@@ -660,7 +660,12 @@ async function partC() {
         assert.ok(!row.error_code, 'no error stamped yet');
         assert.ok(row.purchase_started_at, 'purchase stamp present for the guard');
         // Past the 120s grace window, the guard converts it honestly.
-        await db.query("UPDATE deployments SET purchase_started_at = datetime('now', '-10 minutes') WHERE id = :id", { id });
+        await db.query(
+          'UPDATE deployments SET purchase_started_at = ' +
+            require('./lib/platformTestDb.cjs').minutesAgoExpr(db.driver(), 10) +
+            ' WHERE id = :id',
+          { id }
+        );
         await deploy.advanceDeployment(id);
         row = await rowOf(id);
         assert.equal(row.status, 'failed');

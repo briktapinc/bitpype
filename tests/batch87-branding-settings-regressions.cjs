@@ -385,7 +385,7 @@ async function partB() {
     await checkAsync('B10 corrupt stored values fall back to the defaults, never break rendering', async () => {
       // A hand-edited DB row (bypassing the choke point) can hold junk;
       // the cache layer must read it as unset.
-      await db.query("INSERT OR REPLACE INTO platform_settings (`key`, value) VALUES ('branding.logo_light', '/etc/passwd')");
+      await require('./lib/platformTestDb.cjs').setPlatformSetting(db, 'branding.logo_light', '/etc/passwd');
       const branding = require(path.join(root, 'server/branding.js'));
       await branding.refreshBranding();
       assert.equal(branding.customLogoPath('light'), '', 'corrupt value reads as unset');

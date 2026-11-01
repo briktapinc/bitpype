@@ -859,9 +859,7 @@ async function partC() {
     });
 
     await checkAsync('registration stays closed while partner applications work', async () => {
-      await platformDb.query(
-        "INSERT INTO platform_settings (key, value) VALUES ('registration.open', '0') ON CONFLICT(key) DO UPDATE SET value = '0'"
-      );
+      await require('./lib/platformTestDb.cjs').setPlatformSetting(platformDb, 'registration.open', '0');
       const res = await post(makeJar(), '/api/v1/auth/register', {
         name: 'Nope',
         email: 'nope80@example.invalid',

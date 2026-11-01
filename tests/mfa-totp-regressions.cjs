@@ -90,14 +90,23 @@ async function json(res) {
   }
 }
 
-function probe(sql, ...params) {
-  const RawDb = require('better-sqlite3');
-  const db = new RawDb(process.env.SQLITE_PATH, { readonly: true });
-  try {
-    return db.prepare(sql).get(...params);
-  } finally {
-    db.close();
+// Batch 112: dialect-aware probe. The platform rows live wherever
+// the facade points (temp SQLite file in the SQLite pass, a real
+// MySQL database in the MySQL pass) — a readonly better-sqlite3
+// handle on SQLITE_PATH only ever worked in one dialect.
+async function probe(sql, ...params) {
+  const pdb = require(path.join(root, 'server/db.js'));
+  const pragma = /pragma_table_info\('([a-z_]+)'\)/i.exec(sql);
+  if (pragma && pdb.driver() === 'mysql') {
+    const like = /name LIKE '([^']+)'/i.exec(sql)[1];
+    const rows = await pdb.query(
+      'SELECT COUNT(*) AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME LIKE :p',
+      { t: pragma[1], p: like }
+    );
+    return { c: Number(rows[0].c) };
   }
+  const rows = await pdb.query(sql, params);
+  return rows[0];
 }
 
 function execSql(sql, ...params) {
@@ -184,9 +193,9 @@ async function main() {
   const wdb = openWorkspaceDb(1);
   wdb.prepare('INSERT INTO leads (id, business_name, email, status) VALUES (501, ?, ?, ?)').run('MFA Fixture Biz', PORTAL_EMAIL, 'customer');
 
-  const migCols = probe("SELECT COUNT(*) AS c FROM pragma_table_info('users') WHERE name LIKE 'totp_%'");
+  const migCols = await probe("SELECT COUNT(*) AS c FROM pragma_table_info('users') WHERE name LIKE 'totp_%'");
   check('migration added the 6 MFA columns to users', migCols.c === 6);
-  const migColsP = probe("SELECT COUNT(*) AS c FROM pragma_table_info('client_portal_users') WHERE name LIKE 'totp_%'");
+  const migColsP = await probe("SELECT COUNT(*) AS c FROM pragma_table_info('client_portal_users') WHERE name LIKE 'totp_%'");
   check('migration added the 6 MFA columns to client_portal_users', migColsP.c === 6);
 
   // ------------------------------------------------------- boot
@@ -233,7 +242,7 @@ async function main() {
     body = await json(res);
     const adminSecret = body.data.secret;
     check('staff enroll start returns secret + QR data URL', /^[A-Z2-7]{32}$/.test(adminSecret) && String(body.data.qrDataUrl).startsWith('data:image/'));
-    let row = probe('SELECT totp_secret, totp_pending_secret, totp_enabled FROM users WHERE id = ?', ADMIN_ID);
+    let row = await probe('SELECT totp_secret, totp_pending_secret, totp_enabled FROM users WHERE id = ?', ADMIN_ID);
     check('pending secret is stored ENCRYPTED (enc:v1:)', String(row.totp_pending_secret).startsWith('enc:v1:'));
     check('pending secret is not the plaintext secret', row.totp_pending_secret !== adminSecret && !String(row.totp_pending_secret).includes(adminSecret));
     check('stored pending decrypts back to the secret', secretBox.decryptValue(row.totp_pending_secret) === adminSecret);
@@ -241,7 +250,7 @@ async function main() {
 
     res = await post(adminJar, '/api/v1/auth/mfa/enroll/confirm', { code: '000000' });
     check('staff enroll confirm: wrong code → 401', res.status === 401);
-    row = probe('SELECT totp_enabled FROM users WHERE id = ?', ADMIN_ID);
+    row = await probe('SELECT totp_enabled FROM users WHERE id = ?', ADMIN_ID);
     check('staff enroll confirm: wrong code does not enable MFA', Number(row.totp_enabled) === 0);
     res = await get(adminJar, '/api/v1/auth/me');
     check('staff enroll confirm: wrong code still leaves NO session', res.status === 401);
@@ -251,7 +260,7 @@ async function main() {
     check('staff enroll confirm: correct code signs in', res.status === 200 && body.data.user.email === ADMIN_EMAIL);
     const adminRecovery = body.data.recoveryCodes || [];
     check('staff enroll confirm returns 10 recovery codes, once', adminRecovery.length === 10);
-    row = probe('SELECT totp_secret, totp_pending_secret, totp_enabled, totp_recovery_hashes FROM users WHERE id = ?', ADMIN_ID);
+    row = await probe('SELECT totp_secret, totp_pending_secret, totp_enabled, totp_recovery_hashes FROM users WHERE id = ?', ADMIN_ID);
     check('confirmed secret stored encrypted, pending cleared', String(row.totp_secret).startsWith('enc:v1:') && row.totp_pending_secret === null);
     check('MFA enabled only after the confirming code', Number(row.totp_enabled) === 1);
     const storedHashes = JSON.parse(row.totp_recovery_hashes);
@@ -280,7 +289,7 @@ async function main() {
     res = await post(adminJar, '/api/v1/auth/mfa/verify', { code: totp.totp(adminSecret) });
     body = await json(res);
     check('staff verify: even the CORRECT code is refused while locked', res.status === 429 && body.code === 'MFA_LOCKED');
-    row = probe('SELECT totp_locked_until FROM users WHERE id = ?', ADMIN_ID);
+    row = await probe('SELECT totp_locked_until FROM users WHERE id = ?', ADMIN_ID);
     check('the lock is persisted on the account', !!row.totp_locked_until);
     // Simulate the cooldown elapsing.
     execSql('UPDATE users SET totp_locked_until = NULL, totp_failed_attempts = 0 WHERE id = ?', ADMIN_ID);
@@ -313,7 +322,7 @@ async function main() {
     check('non-super staff cannot reset MFA → 403', res.status === 403);
     res = await post(adminJar, `/api/v1/admin/users/${STAFF_ID}/mfa/reset`, {});
     check('super admin resets a staff member\u2019s MFA', res.status === 200);
-    row = probe('SELECT totp_secret, totp_enabled, totp_recovery_hashes FROM users WHERE id = ?', STAFF_ID);
+    row = await probe('SELECT totp_secret, totp_enabled, totp_recovery_hashes FROM users WHERE id = ?', STAFF_ID);
     check('reset clears secret + flag + recovery hashes', row.totp_secret === null && Number(row.totp_enabled) === 0 && row.totp_recovery_hashes === null);
     await post(staffJar, '/api/v1/auth/logout', {});
     res = await post(staffJar, '/api/v1/auth/login', { email: STAFF_EMAIL, password: STAFF_PASSWORD });
@@ -334,7 +343,7 @@ async function main() {
     body = await json(res);
     const portalSecret = body.data.secret;
     check('portal enroll start returns secret + QR', /^[A-Z2-7]{32}$/.test(portalSecret) && String(body.data.qrDataUrl).startsWith('data:image/'));
-    row = probe('SELECT totp_pending_secret, totp_enabled FROM client_portal_users WHERE id = ?', PORTAL_ID);
+    row = await probe('SELECT totp_pending_secret, totp_enabled FROM client_portal_users WHERE id = ?', PORTAL_ID);
     check('portal pending secret stored encrypted, MFA not yet on', String(row.totp_pending_secret).startsWith('enc:v1:') && Number(row.totp_enabled) === 0);
     res = await post(portalJar, '/api/v1/portal/mfa/enroll/confirm', { code: '000000' });
     check('portal enroll confirm: wrong code → 401', res.status === 401);

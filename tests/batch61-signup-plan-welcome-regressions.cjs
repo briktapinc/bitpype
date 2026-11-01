@@ -95,11 +95,8 @@ const platformDb = require(path.join(root, 'server/db.js'));
 const q = platformDb.query;
 
 async function setSetting(key, value) {
-  await q(
-    `INSERT INTO platform_settings (key, value) VALUES (:k, :v)
-     ON CONFLICT(key) DO UPDATE SET value = :v`,
-    { k: key, v: value }
-  );
+  // Batch 112: dialect-aware (was raw SQLite upsert through the facade).
+  await require('./lib/platformTestDb.cjs').setPlatformSetting(platformDb, key, value);
 }
 
 /* ==================================================================== */

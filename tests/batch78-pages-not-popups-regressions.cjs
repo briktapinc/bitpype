@@ -230,19 +230,31 @@ async function seed() {
     .run();
 
   // Portal users (post-migration columns: user_type, nav_overrides).
-  const RawDb = require('better-sqlite3');
-  const raw = new RawDb(process.env.SQLITE_PATH);
-  raw
-    .prepare(
-      'INSERT INTO client_portal_users (email, password_hash, workspace_id, lead_id, business_name, status, user_type, nav_overrides) VALUES (?,?,?,?,?,?,?,?)'
-    )
-    .run(PORTAL_EMAIL, hash(PORTAL_PW), 1, 501, 'Fixture Owner Biz', 'active', 'owner', null);
-  raw
-    .prepare(
-      'INSERT INTO client_portal_users (email, password_hash, workspace_id, lead_id, business_name, status, user_type, nav_overrides) VALUES (?,?,?,?,?,?,?,?)'
-    )
-    .run(DENIED_EMAIL, hash(DENIED_PW), 1, 501, 'Fixture Owner Biz', 'active', 'owner', '{"modules": false}');
-  raw.close();
+  // Batch 112: seeded through the facade so the MySQL gate pass seeds
+  // the same rows (was: a direct better-sqlite3 write to the platform
+  // file, which exists only in the SQLite pass).
+  if ((process.env.REGRESSION_DB_DRIVER || 'sqlite') === 'mysql') {
+    const pdb = require(path.join(root, 'server/db.js'));
+    await pdb.migrate();
+    const ins =
+      'INSERT INTO client_portal_users (email, password_hash, workspace_id, lead_id, business_name, status, user_type, nav_overrides) VALUES (:e, :h, 1, 501, :b, :s, :t, :n)';
+    await pdb.query(ins, { e: PORTAL_EMAIL, h: hash(PORTAL_PW), b: 'Fixture Owner Biz', s: 'active', t: 'owner', n: null });
+    await pdb.query(ins, { e: DENIED_EMAIL, h: hash(DENIED_PW), b: 'Fixture Owner Biz', s: 'active', t: 'owner', n: '{"modules": false}' });
+  } else {
+    const RawDb = require('better-sqlite3');
+    const raw = new RawDb(process.env.SQLITE_PATH);
+    raw
+      .prepare(
+        'INSERT INTO client_portal_users (email, password_hash, workspace_id, lead_id, business_name, status, user_type, nav_overrides) VALUES (?,?,?,?,?,?,?,?)'
+      )
+      .run(PORTAL_EMAIL, hash(PORTAL_PW), 1, 501, 'Fixture Owner Biz', 'active', 'owner', null);
+    raw
+      .prepare(
+        'INSERT INTO client_portal_users (email, password_hash, workspace_id, lead_id, business_name, status, user_type, nav_overrides) VALUES (?,?,?,?,?,?,?,?)'
+      )
+      .run(DENIED_EMAIL, hash(DENIED_PW), 1, 501, 'Fixture Owner Biz', 'active', 'owner', '{"modules": false}');
+    raw.close();
+  }
 
   // A published contact form with a phone field; its public submission
   // (Part B) mints the form submission + LeadScout contact fixtures.

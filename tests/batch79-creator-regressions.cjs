@@ -298,9 +298,7 @@ async function partB() {
     });
 
     await checkAsync('registration stays closed (live posture) while the form works', async () => {
-      await db.query(
-        "INSERT INTO platform_settings (key, value) VALUES ('registration.open', '0') ON CONFLICT(key) DO UPDATE SET value = '0'"
-      );
+      await require('./lib/platformTestDb.cjs').setPlatformSetting(db, 'registration.open', '0');
       const r = await post('/api/v1/auth/register', {
         name: 'Nope',
         email: 'nope@example.invalid',
