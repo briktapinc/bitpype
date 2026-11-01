@@ -397,7 +397,18 @@ async function partD(postJson) {
       await page.goto(`${BASE}/bp82-home`, { waitUntil: 'domcontentloaded' });
       await page.waitForSelector('[data-bp-member-nav-logout]', { timeout: 20000 });
       const before = logoutPosts();
+      // Batch 112 de-flake: await the logout POST's RESPONSE before
+      // asserting server state. The request event fires when the POST
+      // is sent; under CPU contention the server may not have deleted
+      // the session yet when the assertion below runs (the Batch 111
+      // deploy flake). The route deletes the row before responding,
+      // so a completed 200 response is the real signal.
+      const logoutResponse = page.waitForResponse(
+        (r) => r.request().method() === 'POST' && r.url().includes('/members/logout'),
+        { timeout: 20000 }
+      );
       await page.click('[data-bp-member-nav-logout] a, a[data-bp-member-nav-logout]');
+      assert.equal((await logoutResponse).status(), 200, 'nav logout POST completed');
       await page.waitForFunction(
         (k) => !localStorage.getItem(k),
         { timeout: 20000 },
@@ -432,7 +443,14 @@ async function partD(postJson) {
       await page.waitForSelector('[data-bp-member-logout]', { timeout: 20000 });
       await page.waitForSelector('[data-bp-member-nav-logout]', { timeout: 20000 });
       const before = logoutPosts();
+      // Batch 112 de-flake: same response-await as the nav-link flow —
+      // the session-deletion assertion must follow the completed POST.
+      const logoutResponse = page.waitForResponse(
+        (r) => r.request().method() === 'POST' && r.url().includes('/members/logout'),
+        { timeout: 20000 }
+      );
       await page.click('[data-bp-member-logout]');
+      assert.equal((await logoutResponse).status(), 200, 'members-page logout POST completed');
       await page.waitForFunction(
         (k) => !localStorage.getItem(k),
         { timeout: 20000 },

@@ -411,7 +411,7 @@ async function staffLogin(jar) {
       await page.goto(`${BASE}/app#/leads`, { waitUntil: 'domcontentloaded' });
       await page.waitForSelector('#l-body [data-act="open"][data-id="1"]', { timeout: 20000 });
       await page.click('#l-body [data-act="open"][data-id="1"]');
-      await page.waitForFunction(() => location.hash === '#/leads/1', { timeout: 10000 });
+      await page.waitForFunction(() => location.hash === '#/leads/1', { timeout: 10000, polling: 100 });
       await page.waitForFunction(
         (name) => document.querySelector('#ld-title') && document.querySelector('#ld-title').textContent.includes(name),
         { timeout: 20000 },
@@ -456,12 +456,19 @@ async function staffLogin(jar) {
       assert.ok(lr && lr.done, 'lead_record ticked via Confirm');
       assert.equal(lr.via, 'autorun', 'confirm ticks carry via=autorun');
       // Manual tick through the page → leadOnboardingSet.
+      // Batch 112 de-flake: await the tick's PUT response before
+      // asserting server persistence (was: a fixed 400ms sleep, which
+      // loses the race whenever the server is slow under load).
+      const tickResponse = page.waitForResponse(
+        (r) => r.request().method() === 'PUT' && r.url().includes('/onboarding/client_checklist'),
+        { timeout: 20000 }
+      );
       await page.click('#ld-onboarding [data-onb-key="client_checklist"]');
       await page.waitForFunction(
         () => document.querySelector('#ld-onboarding [data-onb-key="client_checklist"]').checked,
         { timeout: 10000 }
       );
-      await new Promise((r) => setTimeout(r, 400));
+      assert.equal((await tickResponse).status(), 200, 'manual tick PUT completed');
       const after2 = await json(await get(staffJar, '/api/v1/leads/1/onboarding'));
       const cc = after2.data.items.find((i) => i.key === 'client_checklist');
       assert.ok(cc && cc.done && cc.via === 'manual', 'manual tick persisted via the page call');
@@ -469,7 +476,21 @@ async function staffLogin(jar) {
 
     await checkAsync('C4 the lead page fits a phone (390px, no horizontal overflow)', async () => {
       await page.setViewport({ width: 390, height: 844 });
-      await new Promise((r) => setTimeout(r, 300));
+      // Batch 112 de-flake: measure only once the layout has settled —
+      // two consecutive identical scrollWidth samples after fonts are
+      // ready (was: a fixed 300ms sleep after the viewport change).
+      await page.evaluate(() => document.fonts.ready);
+      await page.waitForFunction(
+        () => {
+          const b = document.querySelector('#ld-body');
+          if (!b) return false;
+          const w = b.scrollWidth;
+          if (window.__b78w === w) return true;
+          window.__b78w = w;
+          return false;
+        },
+        { timeout: 20000, polling: 150 }
+      );
       const w = await page.evaluate(() => {
         const b = document.querySelector('#ld-body');
         return { scroll: b.scrollWidth, client: b.clientWidth };
@@ -480,7 +501,7 @@ async function staffLogin(jar) {
 
     await checkAsync('C5 Back to leads returns to the list', async () => {
       await page.click('[data-act="back"]');
-      await page.waitForFunction(() => location.hash === '#/leads', { timeout: 10000 });
+      await page.waitForFunction(() => location.hash === '#/leads', { timeout: 10000, polling: 100 });
       // Wait for the rows, not just the shell: a list render that
       // resolves late would otherwise paint over the NEXT page
       // (every page writes #view when its fetch lands).
@@ -495,7 +516,7 @@ async function staffLogin(jar) {
       );
       assert.equal(await page.$('.drawer'), null, 'no drawer on the submissions page');
       await page.click('#fs-back');
-      await page.waitForFunction(() => location.hash === '#/forms', { timeout: 10000 });
+      await page.waitForFunction(() => location.hash === '#/forms', { timeout: 10000, polling: 100 });
       await page.waitForFunction(
         () => document.querySelector('#view') && document.querySelector('#view').innerText.includes('Contact 78'),
         { timeout: 20000 }
@@ -519,7 +540,7 @@ async function staffLogin(jar) {
       }
       assert.equal(await page.$('.drawer'), null, 'no drawer on the contact page');
       await page.click('#lc-back');
-      await page.waitForFunction(() => location.hash === '#/leadscout', { timeout: 10000 });
+      await page.waitForFunction(() => location.hash === '#/leadscout', { timeout: 10000, polling: 100 });
       await page.waitForFunction(
         () => document.querySelector('#view') && document.querySelector('#view').innerText.includes('Casey Fixture'),
         { timeout: 20000 }
@@ -590,7 +611,7 @@ async function staffLogin(jar) {
       await clickUntil(ppage, '#btn-modules-new', () =>
         ppage.evaluate(() => location.hash === '#/module-item')
       );
-      await ppage.waitForFunction(() => location.hash === '#/module-item', { timeout: 10000 });
+      await ppage.waitForFunction(() => location.hash === '#/module-item', { timeout: 10000, polling: 100 });
       await ppage.waitForSelector('#sec-module-item:not([hidden])', { timeout: 10000 });
       assert.equal(await ppage.$('#modules-item-modal'), null, 'the old modal element is gone');
       await ppage.waitForSelector('#modules-fields [data-mod-field="quote"]', { timeout: 10000 });
@@ -599,7 +620,7 @@ async function staffLogin(jar) {
       await clickUntil(ppage, '#btn-modules-save', () =>
         ppage.evaluate(() => location.hash === '#/modules')
       );
-      await ppage.waitForFunction(() => location.hash === '#/modules', { timeout: 20000 });
+      await ppage.waitForFunction(() => location.hash === '#/modules', { timeout: 20000, polling: 100 });
       const list = await json(await get(portalJar, '/api/v1/portal/modules/testimonials'));
       const items = (list && list.data && list.data.items) || [];
       assert.ok(Array.isArray(items) && items.length >= 1, 'testimonials list answers');
@@ -613,9 +634,9 @@ async function staffLogin(jar) {
       await clickUntil(ppage, '#btn-modules-new', () =>
         ppage.evaluate(() => location.hash === '#/module-item')
       );
-      await ppage.waitForFunction(() => location.hash === '#/module-item', { timeout: 10000 });
+      await ppage.waitForFunction(() => location.hash === '#/module-item', { timeout: 10000, polling: 100 });
       await ppage.click('#btn-module-item-back');
-      await ppage.waitForFunction(() => location.hash === '#/modules', { timeout: 10000 });
+      await ppage.waitForFunction(() => location.hash === '#/modules', { timeout: 10000, polling: 100 });
       await ppage.waitForSelector('#sec-modules:not([hidden])', { timeout: 10000 });
       const hidden = await ppage.$eval('#sec-module-item', (e) => e.hasAttribute('hidden'));
       assert.ok(hidden, 'editor section hidden after Back');

@@ -124,7 +124,20 @@ const has = (hay, needle, label) => { assert.ok(hay.includes(needle), `${label} 
     const page = await browser.newPage();
     await page.setViewport({ width: w, height: 900 });
     await page.goto(`http://127.0.0.1:${port}/portal.html`, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await new Promise((r) => setTimeout(r, 500));
+    // Batch 112 de-flake: was a fixed 500ms sleep — measure only once
+    // fonts are in and the wrap height is stable across two samples.
+    await page.evaluate(() => document.fonts.ready);
+    await page.waitForFunction(
+      () => {
+        const wrap = document.querySelector('.gate-wrap');
+        if (!wrap) return false;
+        const h = Math.round(wrap.getBoundingClientRect().height * 10) / 10;
+        if (window.__b109h === h) return true;
+        window.__b109h = h;
+        return false;
+      },
+      { timeout: 20000, polling: 100 }
+    );
     const m = await page.evaluate(() => {
       const r = {};
       const wrap = document.querySelector('.gate-wrap');

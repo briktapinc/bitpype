@@ -640,6 +640,22 @@ const EDITORLESS = new Set(['socialfeed', 'googlereviews', 'calltracking', 'memb
         }
         await page.click('#nav-' + panel);
       };
+      // Batch 112 de-flake: the fixed 250/400ms sleeps before overflow
+      // measurements became a settle wait — fonts ready, then sample
+      // the document width until it stops moving (bounded ~1.2s).
+      const settleLayout = async () => {
+        await page.evaluate(async () => {
+          await document.fonts.ready;
+          const el = document.documentElement;
+          let last = -1;
+          for (let i = 0; i < 24; i++) {
+            const w = el.scrollWidth;
+            if (w === last) break;
+            last = w;
+            await new Promise((r) => setTimeout(r, 50));
+          }
+        });
+      };
       // The embed bar contract: the select stays inside its card; at
       // phone width it stacks full-width under its label.
       const embedBar = async (label, stacked) => {
@@ -698,7 +714,7 @@ const EDITORLESS = new Set(['socialfeed', 'googlereviews', 'calltracking', 'memb
           { timeout: 15000 },
           type
         ).catch(() => { throw new Error(`module detail did not render: ${type}`); });
-        await new Promise((r) => setTimeout(r, 250));
+        await settleLayout();
         await noOverflow(`portal module ${type} @390`);
         await embedBar(`portal module ${type} @390`, true);
         if (!EDITORLESS.has(type)) {
@@ -771,7 +787,7 @@ const EDITORLESS = new Set(['socialfeed', 'googlereviews', 'calltracking', 'memb
       await navTo('modules');
       await page.waitForSelector('#sec-modules:not([hidden])', { timeout: 10000 });
       await page.evaluate(() => document.querySelector('#modules-type-tabs [data-module-type="blog"]').click());
-      await new Promise((r) => setTimeout(r, 400));
+      await settleLayout();
       await noOverflow('portal module blog @700');
       await embedBar('portal module blog @700', true);
       await navTo('gbp');
@@ -783,7 +799,7 @@ const EDITORLESS = new Set(['socialfeed', 'googlereviews', 'calltracking', 'memb
       await navTo('modules');
       await page.waitForSelector('#sec-modules:not([hidden])', { timeout: 10000 });
       await page.evaluate(() => document.querySelector('#modules-type-tabs [data-module-type="blog"]').click());
-      await new Promise((r) => setTimeout(r, 400));
+      await settleLayout();
       await noOverflow('portal module blog @1440');
       {
         const b = await page.evaluate(() => {

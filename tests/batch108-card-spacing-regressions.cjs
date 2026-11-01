@@ -335,17 +335,32 @@ const MODULE_TYPES = [
         page.on('request', (r) => (r.url().startsWith(base) ? r.continue() : r.abort()));
         await page.goto(base + '/portal', { waitUntil: 'networkidle0', timeout: 30000 });
         await page.waitForSelector('#nav-website', { visible: true, timeout: 10000 });
-        const navTo = async (panel) => {
+        const navTo = async (panel, containerSel, itemSel) => {
           const w = await page.evaluate(() => window.innerWidth);
           if (w <= 900) {
             await page.click('#portal-menu-btn');
-            await page.waitForFunction(() => document.getElementById('portal-shell').classList.contains('nav-open'), { timeout: 5000 }).catch(() => {});
-            await page.waitForFunction(() => document.getElementById('portal-sidebar').getBoundingClientRect().x >= -1, { timeout: 5000 }).catch(() => {});
+            // Batch 112 de-flake: these waits used to be swallowed
+            // (.catch(() => {})) — a sidebar that never opened turned
+            // into a misleading measurement failure downstream. Hard
+            // waits now: fail here, at the actual cause.
+            await page.waitForFunction(() => document.getElementById('portal-shell').classList.contains('nav-open'), { timeout: 10000 });
+            await page.waitForFunction(() => document.getElementById('portal-sidebar').getBoundingClientRect().x >= -1, { timeout: 10000, polling: 100 });
           }
           await page.click('#nav-' + panel);
-          await new Promise((r) => setTimeout(r, 700));
+          // Batch 112 de-flake: was a fixed 700ms sleep — wait until
+          // the panel's measured container actually holds cards.
+          if (containerSel) {
+            await page.waitForFunction(
+              (c, i) => {
+                const el = document.querySelector(c);
+                return !!el && el.querySelectorAll(i).length >= 2;
+              },
+              { timeout: 20000, polling: 100 },
+              containerSel,
+              itemSel
+            );
+          }
         };
-        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         const expectStandard = async (label, c, i) => {
           const res = await page.evaluate(MEASURE, c, i);
           assert.ok(!res.error, `${label} @${width}: container present`);
@@ -356,36 +371,39 @@ const MODULE_TYPES = [
           }
         };
 
-        await navTo('analytics');
+        await navTo('analytics', '#sec-analytics .portal-cards', ':scope > .panel');
         await expectStandard('portal-cards analytics', '#sec-analytics .portal-cards', ':scope > .panel');
-        await navTo('referrals');
+        await navTo('referrals', '#sec-referrals .portal-cards', ':scope > .panel');
         await expectStandard('portal-cards referrals', '#sec-referrals .portal-cards', ':scope > .panel');
         await expectStandard('referral stat cards', '#sec-referrals .panel .row', ':scope > .stat-card');
         await expectStandard('referrals cards->panel stack', '#sec-referrals', ':scope > .portal-cards, :scope > .panel');
-        await navTo('billing');
+        await navTo('billing', '#sec-billing .portal-cards', ':scope > .panel');
         await expectStandard('portal-cards billing', '#sec-billing .portal-cards', ':scope > .panel');
         await expectStandard('plan grid', '#bill-plan-grid', ':scope > .plan-card');
-        await navTo('seo');
+        await navTo('seo', '#seo-host', ':scope > .panel');
         await expectStandard('seo panel stack (was 0px)', '#seo-host', ':scope > .panel');
-        await navTo('gbp');
+        await navTo('gbp', '#gbp-host', ':scope > .panel');
         await expectStandard('gbp panel stack (was 0px)', '#gbp-host', ':scope > .panel');
-        await navTo('rentals');
+        await navTo('rentals', '#rentals-host', ':scope > .panel');
         await expectStandard('rentals panel stack (was 0px)', '#rentals-host', ':scope > .panel');
-        await navTo('changes');
+        await navTo('changes', '#sec-changes', ':scope > .panel');
         await expectStandard('changes panel stack', '#sec-changes', ':scope > .panel');
-        await navTo('social');
+        await navTo('social', '#sec-social', ':scope > .panel');
         await expectStandard('social panel stack', '#sec-social', ':scope > .panel');
         await expectStandard('social post list', '#post-list', ':scope > .post-card');
-        await navTo('forms');
-        await page.waitForSelector('#forms-list .item-card', { timeout: 8000 }).catch(() => {});
+        await navTo('forms', '#forms-list', ':scope > .item-card');
         await expectStandard('forms item list', '#forms-list', ':scope > .item-card');
         await page.click('button[data-forms-pane="results"]');
-        await sleep(700);
+        // Batch 112 de-flake: was sleep(700) — wait for the results
+        // cards to render.
+        await page.waitForFunction(
+          () => document.querySelectorAll('#form-submissions > .post-card').length >= 2,
+          { timeout: 20000, polling: 100 }
+        );
         await expectStandard('form submission cards (were 8px)', '#form-submissions', ':scope > .post-card');
-        await navTo('leadscout');
+        await navTo('leadscout', '.leadscout-layout', ':scope > .panel');
         await expectStandard('leadscout layout panels', '.leadscout-layout', ':scope > .panel');
-        await navTo('modules');
-        await page.waitForSelector('#modules-type-tabs .module-card', { timeout: 8000 }).catch(() => {});
+        await navTo('modules', '#modules-type-tabs', ':scope > .module-card');
         await expectStandard('module card grid (Batch 91)', '#modules-type-tabs', ':scope > .module-card');
         await expectStandard('modules item list', '#modules-items', ':scope > .item-card');
         await page.evaluate(() => {
@@ -393,16 +411,22 @@ const MODULE_TYPES = [
           const dt = cards.find((c) => /Data Tables/i.test(c.textContent));
           if (dt) dt.click();
         });
-        await sleep(900);
+        // Batch 112 de-flake: was sleep(900) — wait for the settings
+        // panel's cards to render.
+        await page.waitForFunction(
+          () => document.querySelectorAll('#modules-datatables-panel > .card').length >= 2,
+          { timeout: 20000, polling: 100 }
+        );
         await expectStandard('datatables settings card stack', '#modules-datatables-panel', ':scope > .card');
-        await navTo('mcp');
+        await navTo('mcp', '#mcp-app', ':scope > .panel');
         await page.evaluate(() => {
           const up = document.getElementById('mcp-upgrade');
           const app2 = document.getElementById('mcp-app');
           if (up) up.hidden = true;
           if (app2) app2.hidden = false;
         });
-        await sleep(200);
+        // (Batch 112: the fixed sleep after this synchronous DOM
+        // write is gone — page.evaluate applies it before returning.)
         await expectStandard('mcp panel stack', '#mcp-app', ':scope > .panel');
         await navTo('website');
         await page.evaluate(() => {
@@ -414,7 +438,8 @@ const MODULE_TYPES = [
             `<div class="structure-block-group"><p class="hint" style="margin:0 0 8px">Design modules — Layout</p>${btn('Columns')}${btn('Spacer')}</div>`;
           document.getElementById('structure-module-modal').hidden = false;
         });
-        await sleep(300);
+        // (Batch 112: fixed sleep after the synchronous innerHTML
+        // write removed — the write lands before evaluate returns.)
         await expectStandard('picker block-group cards (were 10px)', '.structure-block-group', ':scope > button');
         await page.close();
       }
