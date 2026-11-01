@@ -1,3 +1,4 @@
+// @ts-check
 'use strict';
 
 /**
@@ -379,7 +380,7 @@ function normalizePortalHistory(history, userMessage, images, imagesMode = 'buil
  * @param {any} workspaceId
  * @param {any} leadId
  * @param {{ db?: any, message?: string, history?: any[], pageSlug?: string, images?: any[], mode?: string, clarifyAbout?: string, clarifyKind?: string, clarifySettled?: any[], clarifyPriorQa?: any, clarifyRound?: number, siteContext?: string, maxSteps?: number, plan?: any }} [opts]
- * @returns {Promise<{ ok: any, reply: any, steps: any, toolCalls: any, mutated: any, published: any, error?: any, costUsd: any, model: any, mode?: any, attachments?: any, imagesSent?: any, imagesDropped?: any, stepResults?: any }>}
+ * @returns {Promise<{ ok: any, reply: any, steps: any, toolCalls: any, mutated: any, published: any, error?: any, costUsd: any, model: any, mode?: any, attachments?: any, imagesSent?: any, imagesDropped?: any, stepResults?: any, planComplete?: any, planViolations?: any }>}
  */
 async function runPortalImproveLoop(
   workspaceId,
