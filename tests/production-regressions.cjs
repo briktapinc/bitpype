@@ -4190,7 +4190,7 @@ async function main() {
   const formEmbedSrc25 = fs.readFileSync(path.join(root, 'public/js/form-embed.js'), 'utf8');
   const contactFormsSrc25 = fs.readFileSync(path.join(root, 'server/contactForms.js'), 'utf8');
   check('batch25 render: form schema carries the opt-in block naming the business; renderer draws it unchecked', () => {
-    assert.ok(contactFormsSrc25.includes("FORM_SCRIPT_VER = 'form8'"), 'form embed cache-bust bumped');
+    assert.ok(contactFormsSrc25.includes("FORM_SCRIPT_VER = 'form9'"), 'form embed cache-bust bumped');
     assert.ok(pubForm25.sms_optin, 'sms_optin block present when the form collects a phone');
     assert.equal(pubForm25.sms_optin.consent_key, 'sms_optin_consent');
     assert.equal(pubForm25.sms_optin.phone_field_key, 'phone');
