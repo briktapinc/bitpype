@@ -43,6 +43,7 @@ COPY src ./src
 COPY sql ./sql
 COPY public ./public
 COPY scripts ./scripts
+COPY integrations ./integrations
 
 ENV NODE_ENV=production
 ENV DB_DRIVER=mysql

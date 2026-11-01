@@ -127,6 +127,11 @@ function unzipStore(buf) {
     assert.ok(!wp.includes('createWorkspaceToken'), 'wpPlugin never mints workspace tokens');
     n += 1;
 
+    // The production image must carry the plugin sources (the
+    // download endpoint reads them at request time).
+    const dockerfile = read('Dockerfile');
+    has(dockerfile, 'COPY integrations ./integrations', 'Dockerfile copies the plugin sources into the image');
+
     // Portal panel: nav, section, instructions, honest lifecycle copy.
     const portalHtml = read('public/portal.html');
     has(portalHtml, 'id="nav-wordpress" data-panel="wordpress"', 'wordpress nav button');
