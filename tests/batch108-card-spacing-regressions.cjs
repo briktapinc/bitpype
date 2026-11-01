@@ -358,11 +358,20 @@ const MODULE_TYPES = [
           await page.click('#nav-' + panel);
           // Batch 112 de-flake: was a fixed 700ms sleep — wait until
           // the panel's measured container actually holds cards.
+          // The predicate mirrors MEASURE's own filter (sized +
+          // displayed): a DOM-count wait can pass on cards inside a
+          // still-hidden pane while MEASURE finds none (gate s3).
           if (containerSel) {
             await page.waitForFunction(
               (c, i) => {
                 const el = document.querySelector(c);
-                return !!el && el.querySelectorAll(i).length >= 2;
+                if (!el) return false;
+                const vis = [...el.querySelectorAll(i)].filter((e) => {
+                  const r = e.getBoundingClientRect();
+                  const cs = getComputedStyle(e);
+                  return r.width > 0 && r.height > 0 && cs.display !== 'none' && cs.visibility !== 'hidden';
+                });
+                return vis.length >= 2;
               },
               { timeout: 20000, polling: 100 },
               containerSel,
@@ -403,12 +412,37 @@ const MODULE_TYPES = [
         await navTo('forms', '#forms-list', ':scope > .item-card');
         await expectStandard('forms item list', '#forms-list', ':scope > .item-card');
         await page.click('button[data-forms-pane="results"]');
-        // Batch 112 de-flake: was sleep(700) — wait for the results
-        // cards to render.
-        await page.waitForFunction(
-          () => document.querySelectorAll('#form-submissions > .post-card').length >= 2,
-          { timeout: 20000, polling: 100 }
-        );
+        // Batch 112 de-flake: was sleep(700), then a DOM-count wait.
+        // Both disagree with MEASURE: the cards can sit in the DOM
+        // while the results pane is still hidden — the module's own
+        // chrome render re-hides the pane (portal.js
+        // updateModuleContentChrome sets results.hidden = true), and
+        // when that render lands after this click it undoes the pane
+        // switch (gate s3, MySQL pass: pane display:none + hidden at
+        // measure time, 2 cards in DOM, count 0 visible; reproduced
+        // and instrumented in the gate container). Wait on the exact
+        // signal MEASURE needs — pane shown AND >= 2 sized cards —
+        // with one effect-verified retry click (the navTo toggle
+        // pattern) if the first click was undone or swallowed.
+        const resultsReady = () => {
+          const pane = document.getElementById('forms-pane-results');
+          if (!pane || pane.hidden || getComputedStyle(pane).display === 'none') return false;
+          const cards = [...document.querySelectorAll('#form-submissions > .post-card')];
+          if (cards.length < 2) return false;
+          return cards.slice(0, 2).every((c) => {
+            const r = c.getBoundingClientRect();
+            const cs = getComputedStyle(c);
+            return r.width > 0 && r.height > 0 && cs.display !== 'none' && cs.visibility !== 'hidden';
+          });
+        };
+        const switched = await page
+          .waitForFunction(resultsReady, { timeout: 2500, polling: 100 })
+          .then(() => true)
+          .catch(() => false);
+        if (!switched) {
+          await page.click('button[data-forms-pane="results"]');
+          await page.waitForFunction(resultsReady, { timeout: 20000, polling: 100 });
+        }
         await expectStandard('form submission cards (were 8px)', '#form-submissions', ':scope > .post-card');
         await navTo('leadscout', '.leadscout-layout', ':scope > .panel');
         await expectStandard('leadscout layout panels', '.leadscout-layout', ':scope > .panel');
@@ -421,9 +455,15 @@ const MODULE_TYPES = [
           if (dt) dt.click();
         });
         // Batch 112 de-flake: was sleep(900) — wait for the settings
-        // panel's cards to render.
+        // panel's cards to render, with MEASURE's own sized/visible
+        // predicate (a DOM count can pass on hidden cards — gate s3).
         await page.waitForFunction(
-          () => document.querySelectorAll('#modules-datatables-panel > .card').length >= 2,
+          () =>
+            [...document.querySelectorAll('#modules-datatables-panel > .card')].filter((e) => {
+              const r = e.getBoundingClientRect();
+              const cs = getComputedStyle(e);
+              return r.width > 0 && r.height > 0 && cs.display !== 'none' && cs.visibility !== 'hidden';
+            }).length >= 2,
           { timeout: 20000, polling: 100 }
         );
         await expectStandard('datatables settings card stack', '#modules-datatables-panel', ':scope > .card');
