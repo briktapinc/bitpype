@@ -10,6 +10,7 @@
   <link rel="icon" href="/brand/favicon.ico" sizes="any" />
   <link rel="icon" type="image/png" href="/brand/favicon.png" />
   <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/css/tokens.css?v=batch111-tokens1" />
   <style>
     /* Client portal — restyled 2026 to the Bitpype app design system (same
        tokens and component language as public/styles.css). Selector contract
@@ -21,32 +22,10 @@
        widget theme — cream/paper surfaces, ink text, teal primary,
        coral/gold/plum accents, Fraunces display + Figtree body. */
     :root {
-      --bg: #f7f1e8;
-      --surface: #fffaf4;
-      --surface-2: #f3eadf;
-      --ink: #1c140f;
-      --text: #1c140f;
-      --muted: #5c5148;
-      --border: #e7dbc4;
-      --border-strong: #d3bf9d;
-      --accent: #0e7a68;
-      --accent-dark: #0a5c4f;
-      --accent-soft: #e5f6f2;
-      --danger: #b3372a;
-      --danger-dark: #8f2a1f;
-      --danger-soft: #ffe8e2;
-      --ok: #0e7a68;
-      --ok-soft: #e5f6f2;
-      --warn: #8a5f04;
-      --warn-soft: #fff3d2;
-      --info: #6d4ea3;
-      --info-soft: #ece4f7;
-      --sidebar: #1c140f;
-      --sidebar-w: 240px;
-      --sidebar-text: #fffaf4;
-      --sidebar-muted: #b3a08c;
-      --shadow: 0 1px 2px rgba(80, 40, 20, 0.05), 0 8px 18px rgba(80, 40, 20, 0.06);
-      --shadow-lg: 0 24px 60px rgba(28, 20, 15, 0.25), 0 4px 16px rgba(80, 40, 20, 0.08);
+      /* Batch 111: the shared tokens (colours, surfaces, shadows,
+         fonts) live in ONE canonical layer — /css/tokens.css,
+         loaded before this stylesheet. Only portal-specific tokens
+         stay here. */
       --radius: 26px;
       /* Batch 108: THE portal card gap — one uniform standard. Every
          grid, flex stack, or sibling margin that separates two cards
@@ -55,13 +34,8 @@
       --card-gap: 16px;
       color-scheme: light;
       /* Legacy portal aliases (portal.js inline styles use these names). */
-      --paper: var(--surface);
       --cream: var(--surface-2);
       --line: var(--border);
-      --teal: var(--accent);
-      --coral: #ef5d45;
-      --plum: #6d4ea3;
-      --gold: #f0b429;
       --err: var(--danger);
       --mut: var(--muted);
       --glow: rgba(14, 122, 104, 0.14);
@@ -71,14 +45,7 @@
     body {
       margin: 0;
       min-height: 100vh;
-      font-family:
-        Figtree,
-        'Segoe UI',
-        -apple-system,
-        BlinkMacSystemFont,
-        'Helvetica Neue',
-        Arial,
-        sans-serif;
+      font-family: var(--font-body);
       background: var(--bg);
       color: var(--text);
       font-size: 14px;
@@ -221,7 +188,7 @@
     }
     .agent-chat-head h3 {
       margin: 0;
-      font-family: Fraunces, Georgia, serif;
+      font-family: var(--font-display);
       font-size: 1rem;
       font-weight: 700;
       letter-spacing: -0.02em;
@@ -502,7 +469,7 @@
       gap: 10px;
       text-decoration: none;
       color: var(--ink);
-      font-family: Fraunces, Georgia, serif;
+      font-family: var(--font-display);
       font-weight: 700;
       font-size: 1.25rem;
       letter-spacing: -0.02em;
@@ -518,7 +485,7 @@
       color: #8a3b28;
     }
     .brand {
-      font-family: Fraunces, Georgia, serif;
+      font-family: var(--font-display);
       font-size: clamp(2.4rem, 5vw, 3.6rem);
       font-weight: 720;
       letter-spacing: -0.035em;
@@ -914,7 +881,7 @@
     }
     section.block.portal-panel[hidden] { display: none !important; }
     section.block h2 {
-      font-family: Fraunces, Georgia, serif;
+      font-family: var(--font-display);
       font-weight: 720;
       font-size: 26px;
       margin: 0 0 6px;
@@ -1074,7 +1041,7 @@
     }
     .modal h2 {
       margin: 0 0 6px;
-      font-family: Fraunces, Georgia, serif;
+      font-family: var(--font-display);
       font-weight: 700;
       font-size: 20px;
       letter-spacing: -0.02em;
@@ -2394,7 +2361,7 @@
        generous padding, never text on an edge. */
     .soul-doc { padding: 30px 34px; }
     .soul-doc h1 {
-      font-family: Fraunces, Georgia, serif;
+      font-family: var(--font-display);
       font-size: 1.65rem;
       line-height: 1.2;
       margin: 0 0 14px;
@@ -2483,7 +2450,7 @@
       background: var(--surface);
       box-shadow: var(--shadow);
     }
-    #sec-referrals .stat-card .n { font-family: Fraunces, Georgia, serif; font-weight: 700; letter-spacing: -0.03em; font-size: 1.6rem; line-height: 1.1; }
+    #sec-referrals .stat-card .n { font-family: var(--font-display); font-weight: 700; letter-spacing: -0.03em; font-size: 1.6rem; line-height: 1.1; }
     #sec-referrals .stat-card .l { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--coral); margin-top: 4px; }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation: none !important; transition: none !important; }

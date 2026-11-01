@@ -1,0 +1,47 @@
+/* Batch 111 (consolidation step 5): THE shared design-token layer
+   for the BitPype app — the warm /how-derived theme (cream + paper
+   surfaces, ink text, teal primary, coral/gold/plum accents,
+   Fraunces display + Figtree body). Loaded FIRST by both shells
+   (portal.html, index.html, sms-policy.html); each shell keeps
+   only its shell-specific tokens locally (--radius differs:
+   portal 26px vs staff 14px + staff --radius-lg 26px; --cream
+   computes differently per shell; the portal keeps --card-gap,
+   its 16px card standard from Batch 108). Values below are the
+   exact pre-consolidation values from both shells' :root blocks
+   (verified identical) — single-sourcing, not a redesign. */
+:root {
+  --bg: #f7f1e8;
+  --surface: #fffaf4;
+  --surface-2: #f3eadf;
+  --ink: #1c140f;
+  --text: #1c140f;
+  --muted: #5c5148;
+  --border: #e7dbc4;
+  --border-strong: #d3bf9d;
+  --accent: #0e7a68;
+  --accent-dark: #0a5c4f;
+  --accent-soft: #e5f6f2;
+  --danger: #b3372a;
+  --danger-dark: #8f2a1f;
+  --danger-soft: #ffe8e2;
+  --ok: #0e7a68;
+  --ok-soft: #e5f6f2;
+  --warn: #8a5f04;
+  --warn-soft: #fff3d2;
+  --info: #6d4ea3;
+  --info-soft: #ece4f7;
+  --gold: #f0b429;
+  --coral: #ef5d45;
+  --plum: #6d4ea3;
+  --sidebar: #1c140f;
+  --sidebar-text: #fffaf4;
+  --sidebar-muted: #b3a08c;
+  --sidebar-w: 240px;
+  --shadow: 0 1px 2px rgba(80, 40, 20, 0.05), 0 8px 18px rgba(80, 40, 20, 0.06);
+  --shadow-lg: 0 24px 60px rgba(28, 20, 15, 0.25), 0 4px 16px rgba(80, 40, 20, 0.08);
+  /* Legacy alias names both shells resolve identically. */
+  --paper: var(--surface);
+  --teal: var(--accent);
+  --font-body: Figtree, 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+  --font-display: Fraunces, Georgia, serif;
+}

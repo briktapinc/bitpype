@@ -10,41 +10,13 @@
 :root {
   /* Warm theme — token values carried from the /how widget tour
      (public/how.html): cream/paper surfaces, ink text, teal primary,
-     coral/gold/plum as the secondary/status accent rotation. */
-  --bg: #f7f1e8;
-  --surface: #fffaf4;
-  --surface-2: #f3eadf;
-  --ink: #1c140f;
-  --text: #1c140f;
-  --muted: #5c5148;
-  --border: #e7dbc4;
-  --border-strong: #d3bf9d;
-  --accent: #0e7a68;
-  --accent-dark: #0a5c4f;
-  --accent-soft: #e5f6f2;
-  --danger: #b3372a;
-  --danger-dark: #8f2a1f;
-  --danger-soft: #ffe8e2;
-  --ok: #0e7a68;
-  --ok-soft: #e5f6f2;
-  --warn: #8a5f04;
-  --warn-soft: #fff3d2;
-  --info: #6d4ea3;
-  --info-soft: #ece4f7;
-  --sidebar: #1c140f;
-  --sidebar-text: #fffaf4;
-  --sidebar-muted: #b3a08c;
-  --teal: #0e7a68;
-  --coral: #ef5d45;
-  --gold: #f0b429;
-  --plum: #6d4ea3;
-  --paper: #fffaf4;
+     coral/gold/plum as the secondary/status accent rotation.
+     Batch 111: the shared tokens live in ONE canonical layer —
+     /css/tokens.css, loaded before this stylesheet; only
+     staff-specific tokens stay here. */
   --cream: #f7f1e8;
-  --shadow: 0 1px 2px rgba(80, 40, 20, 0.05), 0 8px 18px rgba(80, 40, 20, 0.06);
-  --shadow-lg: 0 24px 60px rgba(28, 20, 15, 0.25), 0 4px 16px rgba(80, 40, 20, 0.08);
   --radius: 14px;
   --radius-lg: 26px;
-  --sidebar-w: 240px;
   color-scheme: light;
 }
 
@@ -57,14 +29,7 @@ body {
 }
 body {
   margin: 0;
-  font-family:
-    Figtree,
-    'Segoe UI',
-    -apple-system,
-    BlinkMacSystemFont,
-    'Helvetica Neue',
-    Arial,
-    sans-serif;
+  font-family: var(--font-body);
   background: var(--bg);
   color: var(--text);
   font-size: 14px;
@@ -156,7 +121,7 @@ a {
   flex: 1;
 }
 .brand-name {
-  font-family: Fraunces, Georgia, serif;
+  font-family: var(--font-display);
   font-weight: 700;
   font-size: 15px;
   letter-spacing: -0.02em;
@@ -382,7 +347,7 @@ a {
 .page-head h1,
 .page-head h2 {
   margin: 0;
-  font-family: Fraunces, Georgia, serif;
+  font-family: var(--font-display);
   font-size: 26px;
   letter-spacing: -0.03em;
   line-height: 1.15;
@@ -484,7 +449,7 @@ a {
 .card h3,
 .panel h3 {
   margin: 0 0 8px;
-  font-family: Fraunces, Georgia, serif;
+  font-family: var(--font-display);
   font-size: 16px;
   letter-spacing: -0.02em;
 }
@@ -507,7 +472,7 @@ a {
   letter-spacing: 0.08em;
 }
 .stat-card .stat-value {
-  font-family: Fraunces, Georgia, serif;
+  font-family: var(--font-display);
   font-size: 30px;
   font-weight: 730;
   letter-spacing: -0.04em;
@@ -1524,7 +1489,7 @@ details[open] > summary {
 }
 .modal h2 {
   margin: 0 0 10px;
-  font-family: Fraunces, Georgia, serif;
+  font-family: var(--font-display);
   letter-spacing: -0.02em;
   font-size: 20px;
 }
@@ -1989,7 +1954,7 @@ details[open] > summary {
 }
 .settings-main section h2 {
   margin: 0 0 4px;
-  font-family: Fraunces, Georgia, serif;
+  font-family: var(--font-display);
   font-size: 18px;
   letter-spacing: -0.02em;
 }
@@ -2062,7 +2027,7 @@ details[open] > summary {
 }
 .auth-card h1 {
   margin: 0;
-  font-family: Fraunces, Georgia, serif;
+  font-family: var(--font-display);
   font-size: 24px;
   letter-spacing: -0.03em;
 }
@@ -2147,7 +2112,7 @@ details[open] > summary {
 }
 .plan-card-h h3 {
   margin: 0;
-  font-family: Fraunces, Georgia, serif;
+  font-family: var(--font-display);
   font-size: 1.15rem;
 }
 .plan-price {

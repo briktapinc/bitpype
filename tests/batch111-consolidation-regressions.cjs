@@ -145,4 +145,62 @@ check('S4.3 prompt/doctrine text lives verbatim in the new homes (spot pins)', (
   assert.ok(mas.includes('function buildPortalSystemPrompt('), 'reconstruction: portal prompt present');
 });
 
+/* ---------------- Step 5 — design tokens ---------------- */
+
+const tokensCss = read('public/css/tokens.css');
+const rootVarsOf = (text) => {
+  const m = text.match(/:root\s*\{(.*?)\n\s*\}/s);
+  const out = {};
+  for (const line of m[1].split('\n')) {
+    const mm = line.match(/^\s*(--[\w-]+)\s*:\s*(.+?);?\s*$/);
+    if (mm) out[mm[1]] = mm[2].replace(/;$/, '').trim();
+  }
+  return out;
+};
+const SHARED_TOKENS = ['--bg', '--surface', '--surface-2', '--ink', '--text', '--muted', '--border', '--border-strong', '--accent', '--accent-dark', '--accent-soft', '--danger', '--danger-dark', '--danger-soft', '--ok', '--ok-soft', '--warn', '--warn-soft', '--info', '--info-soft', '--gold', '--coral', '--plum', '--sidebar', '--sidebar-text', '--sidebar-muted', '--sidebar-w', '--shadow', '--shadow-lg', '--paper', '--teal'];
+
+check('S5.1 tokens.css is the one canonical layer with the current values', () => {
+  const tv = rootVarsOf(tokensCss);
+  for (const t of SHARED_TOKENS) assert.ok(tv[t], `tokens.css defines ${t}`);
+  assert.equal(tv['--surface'], '#fffaf4');
+  assert.equal(tv['--bg'], '#f7f1e8');
+  assert.equal(tv['--accent'], '#0e7a68');
+  assert.equal(tv['--gold'], '#f0b429');
+  assert.equal(tv['--paper'], 'var(--surface)');
+  assert.equal(tv['--teal'], 'var(--accent)');
+  assert.ok(tv['--font-body'].startsWith("Figtree, 'Segoe UI'"), 'font-body stack is the current stack');
+  assert.equal(tv['--font-display'], 'Fraunces, Georgia, serif');
+});
+
+check('S5.2 neither shell redefines a shared token locally (single source)', () => {
+  const pv = rootVarsOf(portalHtml);
+  const sv = rootVarsOf(staffCss);
+  for (const t of SHARED_TOKENS) {
+    assert.ok(!(t in pv), `portal :root no longer defines ${t}`);
+    assert.ok(!(t in sv), `staff :root no longer defines ${t}`);
+  }
+});
+
+check('S5.3 shell-specific tokens stay local at their current values', () => {
+  const pv = rootVarsOf(portalHtml);
+  const sv = rootVarsOf(staffCss);
+  assert.equal(pv['--radius'], '26px', 'portal radius unchanged');
+  assert.equal(pv['--card-gap'], '16px', 'Batch 108 card standard unchanged');
+  assert.equal(pv['--cream'], 'var(--surface-2)', 'portal cream alias unchanged');
+  assert.equal(sv['--radius'], '14px', 'staff radius unchanged');
+  assert.equal(sv['--radius-lg'], '26px', 'staff radius-lg unchanged');
+  assert.equal(sv['--cream'], '#f7f1e8', 'staff cream unchanged');
+});
+
+check('S5.4 all styles.css consumers load tokens.css first; fonts consume tokens', () => {
+  assert.ok(portalHtml.indexOf('/css/tokens.css') > -1 && portalHtml.indexOf('/css/tokens.css') < portalHtml.indexOf('<style>'), 'portal loads tokens before its styles');
+  assert.ok(staffHtml.indexOf('/css/tokens.css') > -1 && staffHtml.indexOf('/css/tokens.css') < staffHtml.indexOf('/styles.css'), 'staff loads tokens before styles.css');
+  const sms = read('public/sms-policy.html');
+  assert.ok(sms.indexOf('/css/tokens.css') > -1 && sms.indexOf('/css/tokens.css') < sms.indexOf('/styles.css'), 'sms-policy loads tokens before styles.css');
+  assert.ok(portalHtml.includes('font-family: var(--font-body)'), 'portal body consumes --font-body');
+  assert.ok(staffCss.includes('font-family: var(--font-body)'), 'staff body consumes --font-body');
+  assert.ok(!portalHtml.includes('font-family: Fraunces, Georgia, serif;'), 'no Fraunces literal left in portal');
+  assert.ok(!staffCss.includes('font-family: Fraunces, Georgia, serif;'), 'no Fraunces literal left in staff css');
+});
+
 console.log(`BATCH111 REGRESSION PASS — ${n} checks so far (grows per consolidation step)`);
