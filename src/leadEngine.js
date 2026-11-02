@@ -955,6 +955,11 @@ function deleteLead(db, id) {
     // they carry a plain lead_id with no FK, so drop them explicitly
     // (module delete also sweeps them via modulePurgeSteps).
     drop('charts');
+    // Batch 118: newsletter rows are lead_id-keyed too (module delete
+    // sweeps them via modulePurgeSteps as well).
+    drop('newsletter_sends');
+    drop('newsletter_subscribers');
+    drop('newsletter_configs');
     drop('lead_onboarding_items');
     drop('ai_usage');
     drop('design_learning_events');
@@ -1406,6 +1411,8 @@ const MERGE_MOVE_TABLES = [
   'membership_tiers',
   'member_subscriptions',
   'call_logs',
+  'newsletter_subscribers',
+  'newsletter_sends',
 ];
 
 const MERGE_DEDUPE_TABLES = {
@@ -1421,6 +1428,8 @@ const MERGE_DEDUPE_TABLES = {
   social_accounts: ['platform', 'account_id'],
   // A member email is unique per lead — on merge the keeper's account wins.
   site_members: ['email'],
+  // A newsletter email is unique per lead too — keeper's row wins.
+  newsletter_subscribers: ['email'],
 };
 
 const MERGE_SINGLETON_TABLES = [
@@ -1435,6 +1444,7 @@ const MERGE_SINGLETON_TABLES = [
   'members_configs',
   'membership_stripe_keys',
   'shop_stripe_keys',
+  'newsletter_configs',
 ];
 
 function leadTableExists(db, table) {

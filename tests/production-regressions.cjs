@@ -265,7 +265,7 @@ async function main() {
     '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
   });
   sm12.ensureTables(db);
-  assert.equal(Object.keys(sm12.MODULE_META).length, 22, 'module catalog has 22 types');
+  assert.equal(Object.keys(sm12.MODULE_META).length, 23, 'module catalog has 23 types (Batch 118: newsletter is the 23rd)');
   for (const t of ['offers', 'menu', 'careers', 'video']) assert(sm12.MODULE_META[t], 'meta for ' + t);
   check('batch12 catalog: module types incl. offers/menu/careers/video', () => {});
 
@@ -374,7 +374,7 @@ async function main() {
   assert.equal(pubVideo.items.length, 1, 'only published videos surface');
   assert.equal(pubVideo.items[0].embed_url, 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ');
   const summary12 = sm12.portalSummary(db, 201);
-  assert.equal(summary12.modules.length, 22, 'portal summary lists all 22 module types');
+  assert.equal(summary12.modules.length, 23, 'portal summary lists all 23 module types');
   check('batch12 public payloads: token surface filters expired/inactive/draft; portal summary = 18 types', () => {});
 
   // Attach injects nav pages; detach removes them.
@@ -1076,7 +1076,7 @@ async function main() {
   sm16.ensureTables(db);
   assert(sm16.MODULE_META.members, 'meta for members');
   assert.equal(sm16.MODULE_META.members.label, 'Membership');
-  assert.equal(sm16.MODULE_TYPES.length, 22, 'members was the 18th module type; calltracking the 19th; googlereviews the 20th; datatables the 21st; charts the 22nd');
+  assert.equal(sm16.MODULE_TYPES.length, 23, 'members was the 18th module type; calltracking the 19th; googlereviews the 20th; datatables the 21st; charts the 22nd; newsletter the 23rd');
   assert.equal(sm16.MODULE_TYPES.includes('members'), true);
   check('batch16 catalog: members registered as the 18th module type', () => {});
 
@@ -1338,8 +1338,8 @@ async function main() {
     stripe: StubStripe17,
   });
   sm17.ensureTables(db);
-  assert.equal(sm17.MODULE_TYPES.length, 22, 'catalog still 22 types');
-  assert.equal(sm17.MODULE_SCRIPT_VER, 'mod23', 'script version: batch 20 mod13, batch 21 mod14, batch 25 mod15, batch 25c mod16, batch 25c-fix mod17, batch 30 mod18, batch 31 mod19, batch 32 mod20');
+  assert.equal(sm17.MODULE_TYPES.length, 23, 'catalog still 23 types');
+  assert.equal(sm17.MODULE_SCRIPT_VER, 'mod24', 'script version: batch 20 mod13, batch 21 mod14, batch 25 mod15, batch 25c mod16, batch 25c-fix mod17, batch 30 mod18, batch 31 mod19, batch 32 mod20');
   const cfg17Default = sm17.getMembersConfig(db, 1701);
   assert.equal(cfg17Default.access_level, 'any_member', 'Part 1 default preserved: any member');
   assert.equal(cfg17Default.access_tier_id, null);
@@ -2030,7 +2030,7 @@ async function main() {
 
   check('batch21 module registered + embed script version bumped', () => {
     assert.ok(sm21.MODULE_TYPES.includes('calltracking'));
-    assert.equal(sm21.MODULE_SCRIPT_VER, 'mod23', 'batch 21 mod14, batch 25 mod15, batch 25c mod16, batch 25c-fix mod17, batch 30 mod18, batch 31 mod19, batch 32 mod20');
+    assert.equal(sm21.MODULE_SCRIPT_VER, 'mod24', 'batch 21 mod14, batch 25 mod15, batch 25c mod16, batch 25c-fix mod17, batch 30 mod18, batch 31 mod19, batch 32 mod20');
     assert.equal(sm21.MODULE_META.calltracking.label, 'Call Tracking');
   });
 
@@ -4315,7 +4315,7 @@ async function main() {
   const embFaq25 = sm25.attachModule(db, 2501, 'faq', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
   const pubFaq25 = sm25.getPublicModuleByToken(db, embFaq25.public_token);
   check('batch25 modules: bookings + estimate payloads carry the opt-in block; other modules do not', () => {
-    assert.equal(sm25.MODULE_SCRIPT_VER, 'mod23', 'batch 25 bumped mod15; batch 25c bumped mod16; batch 25c-fix bumped mod17; batch 30 bumped mod18; batch 31 bumped mod19, batch 32 bumped mod20');
+    assert.equal(sm25.MODULE_SCRIPT_VER, 'mod24', 'batch 25 bumped mod15; batch 25c bumped mod16; batch 25c-fix bumped mod17; batch 30 bumped mod18; batch 31 bumped mod19, batch 32 bumped mod20');
     assert.equal(pubBook25.sms_optin && pubBook25.sms_optin.label, 'Text me updates & offers from Fixture Texts R Us');
     assert.equal(pubEst25.sms_optin && pubEst25.sms_optin.consent_key, 'sms_optin_consent');
     assert.equal(pubFaq25.sms_optin, undefined, 'modules without a phone form get no block');
@@ -4664,7 +4664,7 @@ async function main() {
   await portal25c.saveCallTrackingConfig(1, 2512, { phone: '+16105550100' }, 'split2@example.invalid');
   const embedSrc25c = fs.readFileSync(path.join(root, 'public/js/module-embed.js'), 'utf8');
   check('batch25c site rendering: button displays and dials the Twilio tracking number; the client number is forward-to only', () => {
-    assert.equal(sm25c.MODULE_SCRIPT_VER, 'mod23');
+    assert.equal(sm25c.MODULE_SCRIPT_VER, 'mod24');
     const pubFull = sm25c.publicCallTrackingPayload(db, 2511);
     assert.equal(pubFull.configured, true);
     assert.equal(pubFull.display_number, '+16105550199', 'button number = the Twilio tracking number (text + tel target)');

@@ -153,6 +153,7 @@ const MODULE_CARD_TINTS = {
   testimonials: ' tint-people',
   careers: ' tint-people',
   members: ' tint-people',
+  newsletter: ' tint-people',
   events: ' tint-schedule',
   bookings: ' tint-schedule',
   chatbot: ' tint-assist',

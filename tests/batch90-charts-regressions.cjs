@@ -499,8 +499,8 @@ async function main() {
   // ── 11. Source pins ────────────────────────────────────────────
   check('11a wiring pins across modules, portal, routes, embed, version', () => {
     assert.ok(sm.MODULE_TYPES.includes('charts'), 'module type registered');
-    assert.equal(sm.MODULE_TYPES.length, 22, 'charts is the 22nd module type');
-    assert.equal(sm.MODULE_SCRIPT_VER, 'mod23', 'Batch 90 bumps the embed script version');
+    assert.equal(sm.MODULE_TYPES.length, 23, 'Batch 118: newsletter is the 23rd module type (charts was the 22nd)');
+    assert.equal(sm.MODULE_SCRIPT_VER, 'mod24', 'Batch 90 bumps the embed script version');
     const portalJs = fs.readFileSync(path.join(root, 'public/js/portal.js'), 'utf8');
     assert.ok(portalJs.includes("{ type: 'charts', label: 'Charts' }"), 'portal module list entry');
     assert.ok(portalJs.includes("type === 'charts'"), 'portal charts handling');

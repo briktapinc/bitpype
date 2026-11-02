@@ -197,6 +197,30 @@ async function notifyOwnerOfMemberSignup(workspaceId, memberId) {
   });
 }
 
+/** Batch 118: a visitor subscribed to the site's newsletter. */
+async function notifyOwnerOfNewsletterSignup(workspaceId, subscriberId) {
+  return dispatch(workspaceId, (db) => {
+    let row = null;
+    try {
+      row = db.prepare('SELECT * FROM newsletter_subscribers WHERE id = ?').get(Number(subscriberId));
+    } catch {
+      return null;
+    }
+    if (!row) return null;
+    const paragraphs = [
+      'A visitor subscribed to your newsletter from your website.',
+      line('Name', row.name),
+      line('Email', row.email),
+    ].filter(Boolean);
+    return {
+      leadId: Number(row.lead_id),
+      subject: 'New newsletter subscriber from your website',
+      paragraphs,
+      cta: portalCta('View your subscribers in your portal'),
+    };
+  });
+}
+
 /** A member's paid membership was created (membership Stripe webhook). */
 async function notifyOwnerOfMembership(workspaceId, subscriptionId) {
   return dispatch(workspaceId, (db) => {
@@ -255,4 +279,5 @@ module.exports = {
   notifyOwnerOfMemberSignup,
   notifyOwnerOfMembership,
   notifyOwnerOfShopOrder,
+  notifyOwnerOfNewsletterSignup,
 };

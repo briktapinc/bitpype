@@ -40,6 +40,7 @@ const creatorRoutes = require('./server/routes/creator');
 const partnerRoutes = require('./server/routes/partner');
 const partnersRoutes = require('./server/routes/partners');
 const mailingListPublicRoutes = require('./server/routes/mailingListPublic');
+const newsletterPublicRoutes = require('./server/routes/newsletterPublic');
 // Batch 59: public install-script callback + bundle download.
 const hostingerCallbackRoutes = require('./server/routes/hostingerCallback');
 const { rateLimit: rateLimitFactory } = require('./server/rateLimit');
@@ -415,6 +416,7 @@ app.use('/api/v1/partners', partnersRoutes);
 // Batch 71: public unsubscribe link for the Admin mailing list
 // (HMAC token, no session — flips one subscriber, nothing else exposed).
 app.use('/api/v1/mailing-list', mailingListPublicRoutes);
+app.use('/api/v1/newsletter', newsletterPublicRoutes);
 // Batch 59: Hostinger one-click deploy — a customer VM's install
 // script phones home here and downloads its source bundle here
 // (per-deployment token auth inside the router; no session/workspace).

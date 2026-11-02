@@ -31,7 +31,7 @@
  *       roomy), display-only exactly as the chips were; the shared
  *       .chip styles other staff surfaces use are untouched, and the
  *       installs table + delete flow are unchanged.
- *   E — no-behavior-change guards: module catalog still 22 types on
+ *   E — no-behavior-change guards: module catalog still 23 types on
  *       server + portal; attach/detach/purge controls intact.
  *
  * Run via tests/run-regressions.cjs (DB_DRIVER=sqlite).
@@ -118,7 +118,7 @@ const iconPathsOf = (src) => {
 check('B1 every portal module type has an icon; fallback exists', () => {
   const types = moduleTypesOf(portalJs);
   const icons = iconPathsOf(moduleIconsJs);
-  assert.equal(types.length, 22, 'portal catalog still 22 types');
+  assert.equal(types.length, 23, 'portal catalog still 23 types');
   for (const t of types) assert.ok(icons[t] && icons[t].includes('<'), `${t} has a glyph`);
   assert.ok(icons.charts, 'charts has its own glyph');
   assert.ok(icons.datatables, 'datatables has its own glyph');
@@ -247,9 +247,9 @@ check('D3 shared chip styles and staff delete flow untouched', () => {
 
 check('E1 module catalog unchanged on server and portal', () => {
   const sm = require(path.join(root, 'server/siteModules.js'));
-  assert.equal(sm.MODULE_TYPES.length, 22, 'server catalog still 22 types');
+  assert.equal(sm.MODULE_TYPES.length, 23, 'server catalog still 23 types');
   assert.ok(sm.MODULE_TYPES.includes('charts') && sm.MODULE_TYPES.includes('datatables'), 'charts + datatables still present');
-  assert.equal(moduleTypesOf(portalJs).length, 22, 'portal catalog still 22 types');
+  assert.equal(moduleTypesOf(portalJs).length, 23, 'portal catalog still 23 types');
 });
 
 check('E2 attach / detach / purge controls intact in the portal panel', () => {

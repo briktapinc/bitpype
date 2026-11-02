@@ -100,6 +100,23 @@ function ensureTables(db) {
   } catch {
     /* race / exists */
   }
+  // Batch 118: Newsletter signups reference their subscriber row the
+  // same way (one capture event per subscriber, deduped by the index).
+  try {
+    const cols = db
+      .prepare('PRAGMA table_info(leadscout_events)')
+      .all()
+      .map((c) => String(c.name || ''));
+    if (!cols.includes('newsletter_subscriber_id')) {
+      db.exec('ALTER TABLE leadscout_events ADD COLUMN newsletter_subscriber_id INTEGER');
+    }
+    db.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_leadscout_newsletter_unique
+       ON leadscout_events(newsletter_subscriber_id) WHERE newsletter_subscriber_id IS NOT NULL`
+    );
+  } catch {
+    /* race / exists */
+  }
   // SMS opt-in state (Batch 25): the consent record lives on the contact
   // itself — sms_opted_in + the consent timestamp + the source are the
   // business's proof of consent. sms_opted_out_at is written by any
@@ -580,6 +597,76 @@ function captureFromCall(db, { leadId, call } = {}) {
 }
 
 /**
+ * Batch 118 — a Newsletter signup becomes a LeadScout contact, sourced
+ * to the signup, exactly like the other capture kinds: deduped by the
+ * contact upsert (email) and by the per-subscriber event index, so a
+ * repeat signup never duplicates the contact or the event.
+ */
+function captureFromNewsletter(db, { leadId, subscriber } = {}) {
+  ensureTables(db);
+  try {
+    if (!subscriber || !subscriber.id) throw fail('VALIDATION', 'newsletter subscriber required');
+    const fields = {
+      name: subscriber.name || '',
+      email: subscriber.email || '',
+      phone: '',
+    };
+    if (!fields.email) {
+      return { skipped: true, reason: 'no_identity' };
+    }
+    const contact = upsertContact(db, fields);
+    const existing = db
+      .prepare('SELECT id FROM leadscout_events WHERE newsletter_subscriber_id = ?')
+      .get(Number(subscriber.id));
+    if (existing) return { contact, eventId: existing.id, deduped: true };
+    const stamp = rentalStamp(db, leadId);
+    const info = db
+      .prepare(
+        `
+      INSERT INTO leadscout_events
+        (contact_id, lead_id, kind, source_label, page_slug, newsletter_subscriber_id, payload_json,
+         website_id, tenant_lead_id, rental_id)
+      VALUES (?, ?, 'newsletter', ?, ?, ?, ?, ?, ?, ?)
+    `
+      )
+      .run(
+        contact.id,
+        leadId != null ? Number(leadId) : null,
+        'Newsletter signup',
+        '',
+        Number(subscriber.id),
+        JSON.stringify({
+          email: subscriber.email || '',
+          name: subscriber.name || '',
+          source: subscriber.source || 'embed',
+        }).slice(0, 8000),
+        stamp.websiteId,
+        stamp.tenantLeadId,
+        stamp.rentalId
+      );
+    const eventId = Number(info.lastInsertRowid);
+    if (stamp.rentalId) {
+      rentalCharge(db, {
+        ownerLeadId: leadId,
+        sourceKind: 'capture',
+        eventId,
+        contactLabel: fields.name || fields.email || '',
+      });
+    }
+    return { contact, eventId };
+  } catch (e) {
+    recordFailure(db, {
+      kind: 'newsletter',
+      leadId,
+      refId: subscriber && subscriber.id,
+      error: e.message || String(e),
+      payload: { subscriber },
+    });
+    return { error: e.message || String(e) };
+  }
+}
+
+/**
  * Record an SMS opt-in on the LeadScout contact (Batch 25).
  *
  * Phone-keyed upsert (same dedupe as every other capture): a repeat
@@ -928,6 +1015,11 @@ function retryOpenFailures(db, { leadId = null } = {}) {
         leadId: row.lead_id,
         call: payload.call,
       });
+    } else if (row.kind === 'newsletter' && payload) {
+      result = captureFromNewsletter(db, {
+        leadId: row.lead_id,
+        subscriber: payload.subscriber,
+      });
     }
     db.prepare(
       `
@@ -955,6 +1047,7 @@ module.exports = {
   captureFromBooking,
   captureFromEstimate,
   captureFromCall,
+  captureFromNewsletter,
   recordSmsOptIn,
   markSmsConfirmResult,
   listContacts,

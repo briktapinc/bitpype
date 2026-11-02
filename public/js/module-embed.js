@@ -401,6 +401,24 @@
       '.bitpype-module-embed .bp-chart-grid{stroke:var(--bp-mod-line);stroke-width:1;}',
       '.bitpype-module-embed .bp-chart-axis{stroke:var(--bp-mod-line);stroke-width:1.5;}',
       '.bitpype-module-embed .bp-mod-dt-form-title{margin:0 0 1rem;font-size:1.12rem;}',
+      // Newsletter (Batch 118) — the signup card reuses the booking
+      // form's field styling (the form also carries .bp-mod-book); these
+      // rules add the card shell, heading and blurb.
+      '.bitpype-module-embed .bp-mod-news-card{',
+      'padding:clamp(1.4rem,3vw,2rem);border-radius:1.4rem;',
+      'border:1px solid var(--bp-mod-line);',
+      'background:',
+      'linear-gradient(135deg,color-mix(in srgb,var(--bp-mod-accent) 10%,var(--bp-mod-paper)),var(--bp-mod-paper) 55%),',
+      'var(--bp-mod-paper);',
+      'box-shadow:0 18px 44px color-mix(in srgb,var(--bp-mod-ink) 7%,transparent);',
+      'max-width:640px;',
+      '}',
+      '.bitpype-module-embed .bp-mod-news-heading{',
+      'margin:0;font-size:1.35rem;letter-spacing:-0.02em;line-height:1.2;',
+      'font-family:var(--ws-heading-font,inherit);',
+      '}',
+      '.bitpype-module-embed .bp-mod-news-blurb{margin:0.65rem 0 0;color:var(--bp-mod-muted);line-height:1.6;}',
+      '.bitpype-module-embed .bp-mod-news-form{margin-top:1.1rem;}',
     ].join('');
     var style = document.createElement('style');
     style.id = STYLE_ID;
@@ -1101,6 +1119,12 @@
       // Batch 90: handled before the generic empty check — the payload
       // carries computed charts (items stays empty by design).
       renderCharts(el, data, html);
+      return;
+    }
+    if (type === 'newsletter') {
+      // Batch 118: the signup block renders even with zero subscribers
+      // (items stays empty by design — the list itself never ships).
+      renderNewsletter(el, data);
       return;
     }
     if (type === 'careers' && !items.length) {
@@ -2043,6 +2067,148 @@
     return items ? '<ul class="bp-mod-chart-legend">' + items + '</ul>' : '';
   }
   /* CHART-SVG-END */
+
+  // Batch 118 — Newsletter signup block. Built with DOM APIs only (no
+  // innerHTML): the SEC-13 sink census pins the client surfaces, and a
+  // form needs no markup strings anyway. The form carries .bp-mod-book
+  // so its fields/buttons reuse the booking form's styling in the
+  // site's own design tokens.
+  function renderNewsletter(el, data) {
+    var cfg = data.newsletter || {};
+    var token = el.getAttribute(TOKEN_ATTR) || '';
+    var base = apiBase(el);
+    el.textContent = '';
+    if (shouldShowTitle(el)) {
+      var title = document.createElement('h2');
+      title.className = 'bp-mod-title';
+      title.textContent = data.title || 'Newsletter';
+      el.appendChild(title);
+    }
+    var card = document.createElement('div');
+    card.className = 'bp-mod-news-card';
+    var heading = document.createElement('h3');
+    heading.className = 'bp-mod-news-heading';
+    heading.textContent = cfg.heading || 'Join our newsletter';
+    card.appendChild(heading);
+    if (cfg.blurb) {
+      var blurb = document.createElement('p');
+      blurb.className = 'bp-mod-news-blurb';
+      blurb.textContent = cfg.blurb;
+      card.appendChild(blurb);
+    }
+    var form = document.createElement('form');
+    form.className = 'bp-mod-book bp-mod-news-form';
+    form.setAttribute('data-bp-newsletter', '1');
+
+    var nameRow = document.createElement('div');
+    nameRow.className = 'bp-mod-book-row';
+    var nameLabel = document.createElement('label');
+    nameLabel.textContent = 'Name (optional)';
+    var nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.name = 'name';
+    nameInput.autocomplete = 'name';
+    nameLabel.appendChild(nameInput);
+    nameRow.appendChild(nameLabel);
+    form.appendChild(nameRow);
+
+    var emailRow = document.createElement('div');
+    emailRow.className = 'bp-mod-book-row';
+    var emailLabel = document.createElement('label');
+    emailLabel.textContent = 'Email';
+    var emailInput = document.createElement('input');
+    emailInput.type = 'email';
+    emailInput.name = 'email';
+    emailInput.required = true;
+    emailInput.autocomplete = 'email';
+    emailLabel.appendChild(emailInput);
+    emailRow.appendChild(emailLabel);
+    form.appendChild(emailRow);
+
+    var captchaBox = document.createElement('div');
+    captchaBox.setAttribute('data-bp-captcha', '');
+    form.appendChild(captchaBox);
+
+    var msg = document.createElement('p');
+    msg.className = 'bp-mod-book-msg';
+    msg.setAttribute('data-nl-msg', '');
+    form.appendChild(msg);
+
+    var submitBtn = document.createElement('button');
+    submitBtn.type = 'submit';
+    submitBtn.className = 'bp-mod-btn';
+    submitBtn.textContent = cfg.button_label || 'Subscribe';
+    form.appendChild(submitBtn);
+
+    card.appendChild(form);
+    el.appendChild(card);
+
+    var captcha = {
+      enabled: false,
+      getToken: async function () {
+        return '';
+      },
+      reset: function () {},
+    };
+    (async function () {
+      try {
+        if (base) await loadScript(base + '/js/captcha.js?v=mod5');
+        if (window.ScoutCaptcha && captchaBox) {
+          captcha = await window.ScoutCaptcha.mount(captchaBox, { apiBase: base });
+        }
+      } catch (e) {
+        /* captcha optional when disabled server-side */
+      }
+    })();
+
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var name = nameInput.value.trim();
+      var email = emailInput.value.trim();
+      if (!email) {
+        msg.textContent = 'Please enter your email address.';
+        msg.className = 'bp-mod-book-msg err';
+        return;
+      }
+      submitBtn.disabled = true;
+      msg.textContent = 'Signing you up…';
+      msg.className = 'bp-mod-book-msg';
+      (async function () {
+        try {
+          var captchaToken = await captcha.getToken();
+          var r = await fetch((base || '') + '/api/v1/modules/public/' + encodeURIComponent(token) + '/newsletter/subscribe', {
+            method: 'POST',
+            credentials: 'omit',
+            headers: jsonHeaders(),
+            body: JSON.stringify({ name: name, email: email, captchaToken: captchaToken }),
+          });
+          var j = await r.json();
+          if (!r.ok || !j || !j.ok) throw new Error((j && j.error) || 'Could not sign you up');
+          card.textContent = '';
+          var done = document.createElement('div');
+          var kicker = document.createElement('p');
+          kicker.className = 'bp-mod-empty-kicker';
+          kicker.textContent = "You're in";
+          var doneTitle = document.createElement('p');
+          doneTitle.className = 'bp-mod-empty-title';
+          doneTitle.textContent = (j.data && j.data.message) || 'Thanks — your signup was received.';
+          var doneText = document.createElement('p');
+          doneText.className = 'bp-mod-empty-text';
+          doneText.textContent = 'Watch your inbox for the next issue.';
+          done.appendChild(kicker);
+          done.appendChild(doneTitle);
+          done.appendChild(doneText);
+          card.appendChild(done);
+        } catch (e) {
+          msg.textContent = (e.message || 'Could not sign you up') + ' — please try again.';
+          msg.className = 'bp-mod-book-msg err';
+          if (captcha.reset) captcha.reset();
+        } finally {
+          submitBtn.disabled = false;
+        }
+      })();
+    });
+  }
 
   function renderCharts(el, data, prefixHtml) {
     var payload = data.charts || {};

@@ -102,4 +102,64 @@ async function assertMailjetSenderActive(settings) {
   return { email: sender.Email, status, id: sender.ID };
 }
 
-module.exports = { assertMailjetSenderActive };
+/* ------------------------------------------------------------------ */
+/* Batch 118 — per-address sender authentication (client newsletters)  */
+/*                                                                     */
+/* The newsletter module lets a site owner set their own From         */
+/* address. Whether that address may actually send is decided HERE    */
+/* for Mailjet-backed installs: the address is authenticated when an  */
+/* Active sender entry on the configured API key covers it — the      */
+/* exact address, a wildcard entry for its domain (*@domain), a       */
+/* whole-domain sender entry, or any validated address on the same    */
+/* domain. A check that cannot be completed (network/API failure,     */
+/* non-Mailjet host) answers FALSE: callers fall back to the platform  */
+/* sender with the owner's address as Reply-To rather than pretend.   */
+/* ------------------------------------------------------------------ */
+
+function isMailjetSettings(settings) {
+  if (String((settings && settings['mail.provider']) || '').trim().toLowerCase() === 'cloudflare') {
+    return false;
+  }
+  return String((settings && settings['smtp.host']) || '').toLowerCase().includes('mailjet.com');
+}
+
+/** Pure matcher over Mailjet sender entries (exported for tests). */
+function matchSenderEntry(entries, email) {
+  const target = String(email || '').trim().toLowerCase();
+  if (!target || !target.includes('@')) return false;
+  const domain = target.slice(target.indexOf('@') + 1);
+  for (const s of Array.isArray(entries) ? entries : []) {
+    if (String(s && s.Status ? s.Status : '').toLowerCase() !== 'active') continue;
+    const entry = String((s && s.Email) || '').trim().toLowerCase();
+    if (!entry) continue;
+    if (entry === target) return true;
+    if (entry === `*@${domain}`) return true;
+    if (entry === domain) return true;
+    if (entry.endsWith(`@${domain}`)) return true;
+  }
+  return false;
+}
+
+async function fetchMailjetSenders(settings) {
+  const apiKey = settings && settings['smtp.user'];
+  const apiSecret = settings && settings['smtp.pass'];
+  if (!apiKey || !apiSecret) return null;
+  const resp = await mailjetGet('/v3/REST/sender?Limit=100', apiKey, apiSecret);
+  if (!resp || resp.status !== 200 || !resp.body || !Array.isArray(resp.body.Data)) return null;
+  return resp.body.Data;
+}
+
+/** True only when a Mailjet sender entry provably covers `email`. */
+async function senderIsAuthenticated(settings, email) {
+  if (!isMailjetSettings(settings)) return false;
+  try {
+    const entries = await fetchMailjetSenders(settings);
+    if (!entries) return false;
+    return matchSenderEntry(entries, email);
+  } catch (e) {
+    console.warn('[mailjetSender] sender auth check failed:', e.message);
+    return false;
+  }
+}
+
+module.exports = { assertMailjetSenderActive, isMailjetSettings, matchSenderEntry, fetchMailjetSenders, senderIsAuthenticated };

@@ -67,9 +67,9 @@ const MODULE_TYPES = [
   'blog', 'ecommerce', 'courses', 'gallery', 'directory', 'faq',
   'testimonials', 'team', 'events', 'bookings', 'chatbot', 'offers',
   'menu', 'careers', 'video', 'estimate', 'socialfeed',
-  'googlereviews', 'calltracking', 'members', 'datatables', 'charts',
+  'googlereviews', 'calltracking', 'members', 'datatables', 'charts', 'newsletter',
 ];
-const EDITORLESS = new Set(['socialfeed', 'googlereviews', 'calltracking', 'members']);
+const EDITORLESS = new Set(['socialfeed', 'googlereviews', 'calltracking', 'members', 'newsletter']);
 
 (async () => {
   const stylesCss = fs.readFileSync(path.join(root, 'public', 'styles.css'), 'utf8');
@@ -515,6 +515,17 @@ const EDITORLESS = new Set(['socialfeed', 'googlereviews', 'calltracking', 'memb
         };
       if (type === 'charts')
         data.charts = { datatable_columns: [{ key: 'name', type: 'text' }, { key: 'sales', type: 'currency' }] };
+      if (type === 'newsletter')
+        data.newsletter = {
+          config: { heading: 'The B107 Letter', blurb: '', button_label: 'Subscribe', from_name: '', from_email: '' },
+          counts: { active: 1, unsubscribed: 0, total: 1 },
+          from: { state: 'default', fromEmail: 'hello@bitpype.test', fromName: 'BitPype', replyTo: null, note: '' },
+          sends: [],
+          subscribers: [
+            { id: 1, email: 'sub@fixture.invalid', name: 'Sub One', source: 'embed', status: 'active', created_at: '2026-10-30 10:00:00' },
+          ],
+          business_name: 'ZZ B107 Bakery',
+        };
       return data;
     };
 
@@ -706,7 +717,7 @@ const EDITORLESS = new Set(['socialfeed', 'googlereviews', 'calltracking', 'memb
       await page.goto(base + '/portal#/modules');
       await page.waitForSelector('#app:not(.hidden)', { timeout: 15000 });
       await page.waitForSelector('#sec-modules:not([hidden])', { timeout: 15000 });
-      await page.waitForFunction(() => document.querySelectorAll('#modules-type-tabs [data-module-type]').length === 22, { timeout: 15000 });
+      await page.waitForFunction(() => document.querySelectorAll('#modules-type-tabs [data-module-type]').length === 23, { timeout: 15000 });
       await page.waitForFunction(() => !!document.querySelector('#modules-items .item-card'), { timeout: 15000 });
 
       // EVERY module type: detail view + (where one exists) the editor.

@@ -30,9 +30,15 @@ async function platformSmtpSettings() {
 /**
  * Send platform mail through the shared Bitpype HTML template.
  * Prefer structured fields (title, paragraphs, cta) when composing new emails.
- * @param {{ to: any, subject: any, html?: any, text?: any, title?: any, paragraphs?: any, cta?: any, preheader?: any, footerNote?: any }} mail
+ * Batch 118: `from` ({ email, name }) + `replyTo` carry a per-message
+ * sender identity (client newsletters whose owner From is authenticated
+ * for the platform's sending account). Omitted → the configured
+ * platform From, exactly as before. Callers must resolve the effective
+ * From honestly (see server/newsletter.js resolveFrom) — the mailer
+ * only transports what it is given.
+ * @param {{ to: any, subject: any, html?: any, text?: any, title?: any, paragraphs?: any, cta?: any, preheader?: any, footerNote?: any, from?: { email: string, name?: string }, replyTo?: string }} mail
  */
-async function sendPlatformMail({ to, subject, html, text, title, paragraphs, cta, preheader, footerNote }) {
+async function sendPlatformMail({ to, subject, html, text, title, paragraphs, cta, preheader, footerNote, from, replyTo }) {
   const settings = await platformSmtpSettings();
   const { getProvider } = require('../src/email');
   const provider = getProvider(settings, null);
@@ -67,12 +73,15 @@ async function sendPlatformMail({ to, subject, html, text, title, paragraphs, ct
           footerNote,
         });
 
+  const fromEmail = from && from.email ? String(from.email).trim() : '';
   const result = await provider.send({
     to,
     subject,
     html: payload.html,
     text: payload.text,
     skipBrand: true,
+    ...(fromEmail ? { fromEmail, fromName: from && from.name != null ? String(from.name) : undefined } : {}),
+    ...(replyTo ? { replyTo: String(replyTo).trim() } : {}),
   });
   console.log(
     '[mailer] sent',
@@ -80,6 +89,8 @@ async function sendPlatformMail({ to, subject, html, text, title, paragraphs, ct
       to,
       subject,
       provider: provider.name,
+      ...(fromEmail ? { from: fromEmail } : {}),
+      ...(replyTo ? { replyTo: String(replyTo).trim() } : {}),
       smtpResponse: result && result.response,
       messageId: result && result.messageId,
     })

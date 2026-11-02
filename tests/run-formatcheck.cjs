@@ -35,6 +35,9 @@ const SCOPE = [
   'server/wpDesign.js',
   'server/wpDesignChat.js',
   'tests/batch117-wp-design-regressions.cjs',
+  'server/newsletter.js',
+  'server/routes/newsletterPublic.js',
+  'tests/batch118-newsletter-regressions.cjs',
   'tsconfig.checkjs.json',
 ];
 

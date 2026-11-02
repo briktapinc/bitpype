@@ -533,6 +533,8 @@ module.exports = {
   applyUnsubscribe,
   substitute,
   htmlToText,
+  cleanSubject,
+  cleanBody,
   renderNewsletter,
   previewNewsletter,
   sendNewsletter,

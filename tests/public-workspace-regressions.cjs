@@ -25,6 +25,7 @@ function build(file,known=true){
  '../billing':{workspacePlan:async()=> 'free'},'../appUrls':{socialReturnPath:()=>'/app#/social'},
  '../contactForms':{parseWorkspaceFromToken:t=>Number(String(t).split('_')[0]),getPublicFormByToken:()=>({}),acceptSubmission:async()=>({})},
  '../chatbot':{getPublicConfigByToken:()=>({embed:{lead_id:2},settings:{}}),startOrGetSession:()=>({}),publicSession:()=>({}),postVisitorMessage:()=>({}),getSessionHistory:()=>({}),captureLead:()=>({})},
+ '../newsletter':{subscribeByToken:()=>({added:false,subscriberId:null,message:'fixture'})},
  '../captcha':{requireCaptcha:()=>((_q,_s,n)=>n()),getCaptchaConfig:async()=>({}),clientIp:()=> 'fixture'},
  '../rateLimit':{rateLimit:opts=>{rates.push(opts);return (_q,_s,n)=>n()}},};
  load(file,mocks,{SESSION_SECRET:'synthetic-secret-for-tests'});

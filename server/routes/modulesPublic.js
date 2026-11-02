@@ -331,6 +331,29 @@ router.post('/:token/members/signup', memberLimit, captcha, async (req, res) => 
   }
 });
 
+/**
+ * Batch 118 — Newsletter signup. The response is deliberately
+ * state-blind (new / duplicate / previously-unsubscribed all read the
+ * same) so the endpoint cannot probe who is on a client's list; only a
+ * genuinely new subscriber captures into LeadScout and emails the
+ * owner (inside subscribeByToken / the notify below).
+ */
+router.post('/:token/newsletter/subscribe', bookLimit, captcha, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    const body = req.body || {};
+    const data = domain.withDb(workspaceId, (db) =>
+      require('../newsletter').subscribeByToken(db, req.params.token, body)
+    );
+    res.json({ ok: true, data: { message: data.message, workspaceId } });
+    if (data.added) {
+      fireOwnerNotify('notifyOwnerOfNewsletterSignup', workspaceId, data.subscriberId);
+    }
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 /** Member login — returns a session token the embed keeps in localStorage. */
 router.post('/:token/members/login', memberLimit, captcha, async (req, res) => {
   try {

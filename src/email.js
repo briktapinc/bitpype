@@ -138,7 +138,7 @@ function validateMailSettings(settings) {
 }
 
 /** Build a multipart/alternative MIME message. Handles dot-stuffing. */
-function buildMime({ fromName, fromEmail, to, subject, html, text }) {
+function buildMime({ fromName, fromEmail, to, subject, html, text, replyTo }) {
   const boundary = 'ws_' + crypto.randomBytes(12).toString('hex');
   const date = new Date().toUTCString();
   const msgId = `<${crypto.randomBytes(16).toString('hex')}@${fromEmail.split('@')[1] || 'localhost'}>`;
@@ -149,6 +149,7 @@ function buildMime({ fromName, fromEmail, to, subject, html, text }) {
   const lines = [
     `From: ${from}`,
     `To: ${to}`,
+    ...(replyTo ? [`Reply-To: ${String(replyTo).replace(/[\r\n]+/g, ' ').trim()}`] : []),
     `Subject: ${encodeSubject(subject || '')}`,
     `Date: ${date}`,
     `Message-ID: ${msgId}`,
@@ -358,7 +359,7 @@ class SmtpProvider {
     this.name = 'smtp';
   }
 
-  async send({ to, subject, html, text, title, cta, ctaLabel, preheader, footerNote, skipBrand }) {
+  async send({ to, subject, html, text, title, cta, ctaLabel, preheader, footerNote, skipBrand, fromEmail, fromName, replyTo }) {
     if (!isValidEmail(to)) throw new Error(`Invalid recipient email: ${to}`);
     let outHtml = html;
     let outText = text;
@@ -376,19 +377,25 @@ class SmtpProvider {
       outHtml = branded.html;
       outText = branded.text;
     }
+    // Batch 118: a per-message From (client newsletter with an
+    // authenticated sender domain) overrides the configured identity;
+    // anything else keeps the configured From exactly as before.
+    const effFromEmail = fromEmail && isValidEmail(String(fromEmail).trim()) ? String(fromEmail).trim() : this.cfg.fromEmail;
+    const effFromName = fromEmail ? (fromName != null ? String(fromName) : this.cfg.fromName) : this.cfg.fromName;
     const data = buildMime({
-      fromName: this.cfg.fromName,
-      fromEmail: this.cfg.fromEmail,
+      fromName: effFromName,
+      fromEmail: effFromEmail,
       to: to.trim(),
       subject,
       html: outHtml,
       text: outText,
+      replyTo: replyTo && isValidEmail(String(replyTo).trim()) ? String(replyTo).trim() : undefined,
     });
     const msgIdMatch = /Message-ID:\s*(<[^>]+>)/i.exec(data);
     const client = new SmtpClient(this.cfg);
     try {
       await client.connect();
-      const response = await client.sendMail({ fromEmail: this.cfg.fromEmail, to: to.trim(), data });
+      const response = await client.sendMail({ fromEmail: effFromEmail, to: to.trim(), data });
       return {
         ok: true,
         provider: 'smtp',
@@ -470,7 +477,7 @@ class CloudflareProvider {
     this.name = 'cloudflare';
   }
 
-  async send({ to, subject, html, text, title, cta, ctaLabel, preheader, footerNote, skipBrand }) {
+  async send({ to, subject, html, text, title, cta, ctaLabel, preheader, footerNote, skipBrand, fromEmail, fromName, replyTo }) {
     if (!isValidEmail(to)) throw new Error(`Invalid recipient email: ${to}`);
     let outHtml = html;
     let outText = text;
@@ -488,16 +495,21 @@ class CloudflareProvider {
       outHtml = branded.html;
       outText = branded.text;
     }
+    // Batch 118: per-message From override (see SmtpProvider).
+    const effFromEmail = fromEmail && isValidEmail(String(fromEmail).trim()) ? String(fromEmail).trim() : this.fromEmail;
+    const effFromName = fromEmail ? (fromName != null ? String(fromName) : this.fromName) : this.fromName;
+    const effReplyTo = replyTo && isValidEmail(String(replyTo).trim()) ? String(replyTo).trim() : null;
     const recipient = to.trim();
     const body = {
       to: recipient,
-      from: this.fromName ? { email: this.fromEmail, name: this.fromName } : this.fromEmail,
+      from: effFromName ? { email: effFromEmail, name: effFromName } : effFromEmail,
+      ...(effReplyTo ? { reply_to: effReplyTo } : {}),
       subject,
       html: outHtml,
       text: outText,
       // Mirror the one-click unsubscribe headers the SMTP MIME carries.
       headers: {
-        'List-Unsubscribe': `<mailto:${this.fromEmail}?subject=unsubscribe>`,
+        'List-Unsubscribe': `<mailto:${effFromEmail}?subject=unsubscribe>`,
         'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
       },
     };

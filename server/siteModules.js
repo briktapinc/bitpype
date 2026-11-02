@@ -39,13 +39,14 @@ const MODULE_TYPES = [
   'googlereviews',
   'datatables',
   'charts',
+  'newsletter',
 ];
 const MANAGED_ATTR = 'data-bitpype-module';
 const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod23';
+const MODULE_SCRIPT_VER = 'mod24';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -78,6 +79,7 @@ const MODULE_META = {
   googlereviews: { label: 'Google Reviews', defaultTitle: 'Google Reviews', defaultSlug: 'reviews' },
   datatables: { label: 'Data Tables', defaultTitle: 'Data Table', defaultSlug: 'data-table' },
   charts: { label: 'Charts', defaultTitle: 'Charts', defaultSlug: 'charts' },
+  newsletter: { label: 'Newsletter', defaultTitle: 'Newsletter', defaultSlug: 'newsletter' },
 };
 
 const BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'];
@@ -153,6 +155,12 @@ function escapeAttr(s) {
 function ensureTables(db) {
   try {
     require('./chatbot').ensureTables(db);
+  } catch {
+    /* optional */
+  }
+  try {
+    // Batch 118: newsletter_* tables are owned by server/newsletter.js.
+    require('./newsletter').ensureTables(db);
   } catch {
     /* optional */
   }
@@ -1627,6 +1635,12 @@ function modulePurgeSteps(leadId, type) {
       return [byLead('datatable_rows', 'data table rows'), byLead('datatable_configs', 'data table settings')];
     case 'charts':
       return [byLead('charts', 'charts')];
+    case 'newsletter':
+      return [
+        byLead('newsletter_sends', 'newsletter issues sent'),
+        byLead('newsletter_subscribers', 'newsletter subscribers'),
+        byLead('newsletter_configs', 'newsletter settings'),
+      ];
     default:
       return [];
   }
@@ -1674,6 +1688,10 @@ function deleteModule(db, leadId, moduleType) {
   if (type === 'estimate') {
     const ids = db.prepare('SELECT id FROM estimate_requests WHERE lead_id = ?').all(lid);
     for (const r of ids) deleteLeadScoutEventsByRef(db, 'estimate_request_id', r.id);
+  }
+  if (type === 'newsletter') {
+    const ids = db.prepare('SELECT id FROM newsletter_subscribers WHERE lead_id = ?').all(lid);
+    for (const r of ids) deleteLeadScoutEventsByRef(db, 'newsletter_subscriber_id', r.id);
   }
   const purged = {};
   let purgedTotal = 0;
@@ -5666,7 +5684,7 @@ function updateEstimateRequestStatus(db, leadId, id, status) {
  * table/columns are owned by portalContacts and may not exist yet on a
  * bare DB, so absence is a no-op, never an error. */
 function deleteLeadScoutEventsByRef(db, column, refId) {
-  const allowed = ['submission_id', 'booking_id', 'estimate_request_id', 'call_log_id'];
+  const allowed = ['submission_id', 'booking_id', 'estimate_request_id', 'call_log_id', 'newsletter_subscriber_id'];
   if (!allowed.includes(column)) return 0;
   const t = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'leadscout_events'").get();
   if (!t) return 0;
@@ -11053,6 +11071,15 @@ function moduleItemCount(db, leadId, type) {
     // including visitor submissions still pending approval.
     return countDataTableRows(db, leadId);
   }
+  if (type === 'newsletter') {
+    // The tab badge counts the subscribers who will actually receive
+    // an issue (active only — unsubscribed addresses are never mailed).
+    ensureTables(db);
+    const row = db
+      .prepare("SELECT COUNT(*) AS c FROM newsletter_subscribers WHERE lead_id = ? AND status = 'active'")
+      .get(Number(leadId));
+    return Number(row && row.c) || 0;
+  }
   if (type === 'charts') {
     // The tab badge counts the chart definitions on the site.
     ensureTables(db);
@@ -11107,6 +11134,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
   let calltracking = null;
   let datatable = null;
   let charts = null;
+  let newsletter = null;
   let total_published = null;
   if (type === 'blog') {
     items = listBlogPosts(db, leadId, { includeDrafts: false }).map((p) => ({
@@ -11167,6 +11195,11 @@ function getPublicModuleByToken(db, token, opts = {}) {
       sort_order: r.sort_order,
     }));
     datatable = publicDataTablePayload(db, leadId);
+  } else if (type === 'newsletter') {
+    // Signup-block copy only — subscribers, From settings and send
+    // history never leave the server through the public payload.
+    newsletter = require('./newsletter').publicConfig(db, leadId);
+    items = [];
   } else if (type === 'charts') {
     // Computed chart data only — table-bound charts aggregate the
     // table's PUBLISHED rows server-side (see computeChartData); the
@@ -11242,6 +11275,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
   if (calltracking) out.calltracking = calltracking;
   if (datatable) out.datatable = datatable;
   if (charts) out.charts = charts;
+  if (newsletter) out.newsletter = newsletter;
   return out;
 }
 

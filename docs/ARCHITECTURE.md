@@ -48,7 +48,7 @@ for the 29 shared tokens. `--radius` and `--cream` deliberately
 differ per shell and stay local — do not unify them.
 
 **Icons.** `public/js/moduleIcons.js` is the single source of the
-22-glyph module icon map.
+23-glyph module icon map.
 
 ## How the gate works
 

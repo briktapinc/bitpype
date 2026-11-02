@@ -5165,10 +5165,11 @@
     { type: 'members', label: 'Membership' },
     { type: 'datatables', label: 'Data Tables' },
     { type: 'charts', label: 'Charts' },
+    { type: 'newsletter', label: 'Newsletter' },
   ];
   const MODULE_NAV_GROUPS = [
     { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed', 'googlereviews', 'datatables', 'charts'] },
-    { id: 'people', label: 'People', types: ['team', 'testimonials', 'careers', 'members'] },
+    { id: 'people', label: 'People', types: ['team', 'testimonials', 'careers', 'members', 'newsletter'] },
     { id: 'schedule', label: 'Schedule', types: ['events', 'bookings'] },
     { id: 'assist', label: 'Assist', types: ['chatbot', 'calltracking'] },
   ];
@@ -5230,6 +5231,7 @@
     members: { singular: 'member', plural: 'members', newBtn: 'New member', kicker: 'Member' },
     datatables: { singular: 'row', plural: 'rows', newBtn: 'New row', kicker: 'Table row' },
     charts: { singular: 'chart', plural: 'charts', newBtn: 'New chart', kicker: 'Chart' },
+    newsletter: { singular: 'subscriber', plural: 'subscribers', newBtn: 'Add subscriber', kicker: 'Subscriber' },
   };
   const BOOKING_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const MODULE_STORAGE_KEY = 'bp-portal-module';
@@ -5304,6 +5306,12 @@
     if (type === 'members') {
       // Members join from the public site — no item editor; the Members
       // pane carries the gating settings and the member list.
+      return [];
+    }
+    if (type === 'newsletter') {
+      // Batch 118: subscribers join from the public site — no item
+      // editor; the Newsletter pane carries the list, compose and the
+      // From settings.
       return [];
     }
     if (type === 'datatables') {
@@ -5612,6 +5620,7 @@
     const grPane = document.getElementById('modules-pane-googlereviews');
     const ctPane = document.getElementById('modules-pane-calltracking');
     const membersPane = document.getElementById('modules-pane-members');
+    const nlPane = document.getElementById('modules-pane-newsletter');
     const results = document.getElementById('modules-pane-results');
     const bookingPanel = document.getElementById('modules-booking-panel');
     const isBookings = moduleState.current === 'bookings';
@@ -5621,7 +5630,8 @@
     const isGoogleReviews = moduleState.current === 'googlereviews';
     const isCallTracking = moduleState.current === 'calltracking';
     const isMembers = moduleState.current === 'members';
-    const showTabs = isBookings || isChatbot || isEstimate || isSocialfeed || isGoogleReviews || isCallTracking || isMembers;
+    const isNewsletter = moduleState.current === 'newsletter';
+    const showTabs = isBookings || isChatbot || isEstimate || isSocialfeed || isGoogleReviews || isCallTracking || isMembers || isNewsletter;
     if (isBookings) {
       const allowed = new Set(['content', 'hours', 'appointments']);
       if (!allowed.has(moduleState.pane)) moduleState.pane = 'content';
@@ -5643,6 +5653,9 @@
     } else if (isMembers) {
       // Membership has no item list either — its only pane is Members.
       moduleState.pane = 'members';
+    } else if (isNewsletter) {
+      // Newsletter has no item list either — its only pane is Newsletter.
+      moduleState.pane = 'newsletter';
     } else {
       moduleState.pane = 'content';
     }
@@ -5663,7 +5676,9 @@
                 ? 'Call Tracking sections'
                 : isMembers
                   ? 'Membership sections'
-                  : 'Bookings sections'
+                  : isNewsletter
+                    ? 'Newsletter sections'
+                    : 'Bookings sections'
       );
       tabs.querySelectorAll('[data-modules-pane]').forEach((btn) => {
         const pane = btn.getAttribute('data-modules-pane');
@@ -5681,7 +5696,8 @@
             (isGoogleReviews && forAttr === 'googlereviews') ||
             (isCallTracking && forAttr === 'calltracking') ||
             (isMembers && forAttr === 'members') ||
-            (forAttr === 'both' && showTabs && !isSocialfeed && !isGoogleReviews && !isCallTracking && !isMembers)
+            (isNewsletter && forAttr === 'newsletter') ||
+            (forAttr === 'both' && showTabs && !isSocialfeed && !isGoogleReviews && !isCallTracking && !isMembers && !isNewsletter)
           : visible;
         btn.hidden = !showBtn;
         if (pane === 'content' && showBtn) {
@@ -5705,6 +5721,7 @@
     if (grPane) grPane.hidden = !(isGoogleReviews && moduleState.pane === 'reviews');
     if (ctPane) ctPane.hidden = !(isCallTracking && moduleState.pane === 'calls');
     if (membersPane) membersPane.hidden = !(isMembers && moduleState.pane === 'members');
+    if (nlPane) nlPane.hidden = !(isNewsletter && moduleState.pane === 'newsletter');
     if (results) results.hidden = true;
     if (bookingPanel) bookingPanel.hidden = true;
     if (isChatbot && moduleState.pane === 'settings') renderChatbotSettingsPanel();
@@ -5747,6 +5764,8 @@
                 ? 'One table of your data — prices, listings, schedules, anything — shown on your site as a table, card wall, results list or simple list. Visitors can submit rows if you turn submissions on.'
               : moduleState.current === 'charts'
                 ? 'Charts drawn from your Data Table or from numbers you type in — bar, line, pie and more. A chart bound to the table updates itself whenever the table changes.'
+              : moduleState.current === 'newsletter'
+                ? 'Your newsletter — subscribers join from the signup block on your site. Compose an issue, preview it, then send it to everyone on the list.'
               : `Manage ${copy.plural} for your ${(meta && meta.label) || 'module'}.`;
     }
     const newBtn = document.getElementById('btn-modules-new');
@@ -5778,6 +5797,7 @@
       members: 'members',
       datatables: 'data-table',
       charts: 'charts',
+      newsletter: 'newsletter',
     };
     let want = selected || defaults[moduleState.current] || 'home';
     const opts = Array.isArray(pages) && pages.length ? pages : [{ slug: want, title: want }];
@@ -6454,6 +6474,430 @@
       <div id="modules-googlereviews-preview">${previewHtml}</div>`;
   }
 
+  // Batch 118 — Newsletter panel. Built with DOM APIs only (no
+  // innerHTML): the SEC-13 sink census pins these client surfaces, and
+  // the Batch 117 WordPress panel set the same precedent. Compose
+  // drafts + the preview token live on moduleState so a re-render
+  // (e.g. after saving settings) never loses the owner's writing; any
+  // draft edit after a preview marks the preview stale and disables
+  // Send until a fresh preview — the server gate enforces the same.
+  function renderNewsletterAdminPanel() {
+    const host = document.getElementById('modules-newsletter-panel');
+    if (!host) return;
+    if (moduleState.current !== 'newsletter') {
+      host.textContent = '';
+      return;
+    }
+    const data = moduleState.newsletter || {};
+    const cfg = data.config || {};
+    const counts = data.counts || { active: 0, unsubscribed: 0, total: 0 };
+    const from = data.from || {};
+    const sends = Array.isArray(data.sends) ? data.sends : [];
+    if (!Array.isArray(moduleState.nlSubscribers)) {
+      moduleState.nlSubscribers = Array.isArray(data.subscribers) ? data.subscribers : [];
+    }
+    const subscribers = moduleState.nlSubscribers;
+    const draft = moduleState.nlDraft || { subject: '', body: '' };
+    const preview = moduleState.nlPreview || null;
+
+    const nlEl = (tag, cls, text) => {
+      const n = document.createElement(tag);
+      if (cls) n.className = cls;
+      if (text != null) n.textContent = String(text);
+      return n;
+    };
+    const nlField = (labelText, input, hintText) => {
+      const wrap = nlEl('div', 'field');
+      wrap.appendChild(nlEl('label', null, labelText));
+      wrap.appendChild(input);
+      if (hintText) wrap.appendChild(nlEl('p', 'hint', hintText));
+      return wrap;
+    };
+    const nlText = (id, value, placeholder) => {
+      const i = document.createElement('input');
+      i.type = 'text';
+      i.id = id;
+      i.value = value || '';
+      if (placeholder) i.placeholder = placeholder;
+      i.autocomplete = 'off';
+      i.spellcheck = false;
+      return i;
+    };
+    const whenLabel = (v) => {
+      const t = Date.parse(String(v || '').replace(' ', 'T') + (String(v || '').includes('T') ? '' : 'Z'));
+      return Number.isFinite(t) ? new Date(t).toLocaleString() : '';
+    };
+    const fromLabel = (f) => {
+      if (!f || !f.fromEmail) return '(not configured)';
+      return f.fromName ? `${f.fromName} <${f.fromEmail}>` : f.fromEmail;
+    };
+    const refresh = async () => {
+      moduleState.nlSubscribers = null;
+      moduleState.nlOffset = 0;
+      await loadModuleItems();
+    };
+
+    host.textContent = '';
+    host.appendChild(nlEl('h3', null, 'Newsletter'));
+    host.appendChild(
+      nlEl(
+        'p',
+        'hint',
+        'Subscribers join from the signup block on your site. Every issue carries an unsubscribe link, and an unsubscribed address is never mailed or quietly re-added.'
+      )
+    );
+
+    /* ---- Signup block + sender settings ---- */
+    const headingInput = nlText('nl-heading', cfg.heading, 'Join our newsletter');
+    const blurbInput = document.createElement('textarea');
+    blurbInput.id = 'nl-blurb';
+    blurbInput.rows = 2;
+    blurbInput.value = cfg.blurb || '';
+    const buttonInput = nlText('nl-button-label', cfg.button_label, 'Subscribe');
+    const fromNameInput = nlText('nl-from-name', cfg.from_name, 'e.g. Berks Roll-Off Co.');
+    const fromEmailInput = nlText('nl-from-email', cfg.from_email, 'e.g. news@yourbusiness.com');
+    host.appendChild(nlField('Signup block heading', headingInput));
+    host.appendChild(nlField('Signup block text', blurbInput));
+    host.appendChild(nlField('Button label', buttonInput));
+    host.appendChild(nlField('From name', fromNameInput, 'The name subscribers see in their inbox. Fully yours to set.'));
+    host.appendChild(
+      nlField(
+        'From email',
+        fromEmailInput,
+        'The address issues come from — when your domain is verified for sending. Until then, issues send from BitPype’s address with replies going to yours.'
+      )
+    );
+    const fromBox = nlEl('div');
+    const fromLine = nlEl('p');
+    fromLine.appendChild(nlEl('strong', null, 'Issues will send from: '));
+    fromLine.appendChild(document.createTextNode(fromLabel(from)));
+    fromBox.appendChild(fromLine);
+    if (from.replyTo) {
+      const rt = nlEl('p');
+      rt.appendChild(nlEl('strong', null, 'Replies go to: '));
+      rt.appendChild(document.createTextNode(from.replyTo));
+      fromBox.appendChild(rt);
+    }
+    if (from.note) fromBox.appendChild(nlEl('p', 'hint', from.note));
+    host.appendChild(fromBox);
+    const saveBtn = nlEl('button', 'btn soft small', 'Save newsletter settings');
+    saveBtn.type = 'button';
+    saveBtn.addEventListener('click', async () => {
+      moduleMsg('Saving newsletter settings…', true);
+      try {
+        await api('/modules/newsletter/config', {
+          method: 'PUT',
+          body: JSON.stringify({
+            heading: headingInput.value,
+            blurb: blurbInput.value,
+            button_label: buttonInput.value,
+            from_name: fromNameInput.value,
+            from_email: fromEmailInput.value,
+          }),
+        });
+        moduleMsg('Newsletter settings saved.', true);
+        await refresh();
+      } catch (e) {
+        moduleMsg(errText(e), false);
+      }
+    });
+    const saveRow = nlEl('div', 'row');
+    saveRow.style.gap = '6px';
+    saveRow.appendChild(saveBtn);
+    host.appendChild(saveRow);
+
+    /* ---- Compose ---- */
+    const composeH = nlEl('h3', null, 'Write an issue');
+    composeH.style.marginTop = '18px';
+    host.appendChild(composeH);
+    const subjectInput = nlText('nl-subject', draft.subject, 'Subject line');
+    const bodyInput = document.createElement('textarea');
+    bodyInput.id = 'nl-body';
+    bodyInput.rows = 10;
+    bodyInput.value = draft.body || '';
+    host.appendChild(nlField('Subject', subjectInput));
+    host.appendChild(
+      nlField(
+        'Body',
+        bodyInput,
+        'Basic HTML is welcome (scripts are removed). Placeholders: {{name}}, {{email}}, {{unsubscribe_url}} — each subscriber gets their own unsubscribe link in the footer.'
+      )
+    );
+    const recipLine = nlEl('p', 'hint', `${counts.active} active subscriber${counts.active === 1 ? '' : 's'} will receive the next issue.`);
+    host.appendChild(recipLine);
+
+    const previewBox = nlEl('div');
+    previewBox.id = 'nl-preview-box';
+    const previewNote = nlEl('p', 'hint', '');
+    const sendBtn = nlEl('button', 'btn small', 'Send issue');
+    sendBtn.type = 'button';
+    sendBtn.disabled = true;
+    const showPreview = () => {
+      previewBox.textContent = '';
+      if (!preview) {
+        sendBtn.disabled = true;
+        return;
+      }
+      const head = nlEl(
+        'p',
+        'hint',
+        `Preview — as ${preview.sampleEmail || 'a subscriber'} would see it. Sending will email ${preview.recipientCount} subscriber(s) from ${fromLabel(preview.from)}.`
+      );
+      previewBox.appendChild(head);
+      const frame = document.createElement('iframe');
+      frame.setAttribute('sandbox', '');
+      frame.style.width = '100%';
+      frame.style.height = '260px';
+      frame.style.border = '1px solid var(--line,#e6e0d8)';
+      frame.style.background = '#fff';
+      frame.srcdoc = preview.renderedHtml || '';
+      previewBox.appendChild(frame);
+      sendBtn.disabled = false;
+    };
+    const markStale = () => {
+      moduleState.nlDraft = { subject: subjectInput.value, body: bodyInput.value };
+      if (preview) {
+        sendBtn.disabled = true;
+        previewNote.textContent = 'The draft changed since the preview — preview again before sending.';
+      }
+    };
+    subjectInput.addEventListener('input', markStale);
+    bodyInput.addEventListener('input', markStale);
+
+    const previewBtn = nlEl('button', 'btn soft small', 'Preview issue');
+    previewBtn.type = 'button';
+    previewBtn.addEventListener('click', async () => {
+      moduleMsg('Rendering preview…', true);
+      try {
+        const r = await api('/modules/newsletter/preview', {
+          method: 'POST',
+          body: JSON.stringify({ subject: subjectInput.value, bodyHtml: bodyInput.value }),
+        });
+        moduleState.nlPreview = {
+          token: r.previewToken,
+          recipientCount: r.recipientCount,
+          from: r.from || {},
+          renderedHtml: (r.rendered && r.rendered.html) || '',
+          sampleEmail: (r.sampleSubscriber && r.sampleSubscriber.email) || '',
+        };
+        previewNote.textContent = '';
+        moduleMsg('Preview ready — check it below, then send.', true);
+        showPreview();
+      } catch (e) {
+        moduleMsg(errText(e), false);
+      }
+    });
+    sendBtn.addEventListener('click', async () => {
+      const p = moduleState.nlPreview;
+      if (!p) return;
+      if (
+        !window.confirm(
+          `Send this issue to ${p.recipientCount} subscriber(s)? It will go out from ${fromLabel(p.from)} and cannot be unsent.`
+        )
+      )
+        return;
+      moduleMsg('Sending issue…', true);
+      try {
+        const r = await api('/modules/newsletter/send', {
+          method: 'POST',
+          body: JSON.stringify({
+            subject: subjectInput.value,
+            bodyHtml: bodyInput.value,
+            previewToken: p.token,
+            confirmCount: p.recipientCount,
+          }),
+        });
+        moduleState.nlPreview = null;
+        if (r && r.failed > 0) {
+          moduleMsg(`Issue sent to ${r.sent} of ${r.recipients} subscribers — ${r.failed} failed. See Sent issues below.`, false);
+        } else {
+          moduleMsg(`Issue sent to ${r ? r.sent : 0} subscriber(s).`, true);
+        }
+        await refresh();
+      } catch (e) {
+        moduleMsg(errText(e), false);
+      }
+    });
+    const composeRow = nlEl('div', 'row');
+    composeRow.style.gap = '6px';
+    composeRow.appendChild(previewBtn);
+    composeRow.appendChild(sendBtn);
+    host.appendChild(composeRow);
+    host.appendChild(previewNote);
+    host.appendChild(previewBox);
+    showPreview();
+
+    /* ---- Subscribers ---- */
+    const subsH = nlEl('h3', null, 'Subscribers');
+    subsH.style.marginTop = '18px';
+    host.appendChild(subsH);
+    host.appendChild(
+      nlEl('p', 'hint', `${counts.active} subscribed · ${counts.unsubscribed} unsubscribed · ${counts.total} total`)
+    );
+    const addEmail = nlText('nl-sub-email', '', 'subscriber@example.com');
+    const addName = nlText('nl-sub-name', '', 'Name (optional)');
+    const addBtn = nlEl('button', 'btn soft small', 'Add subscriber');
+    addBtn.type = 'button';
+    addBtn.addEventListener('click', async () => {
+      moduleMsg('Adding subscriber…', true);
+      try {
+        const r = await api('/modules/newsletter/subscribers', {
+          method: 'POST',
+          body: JSON.stringify({ email: addEmail.value, name: addName.value }),
+        });
+        if (r && r.blocked) {
+          moduleMsg('That address unsubscribed before — it has not been re-added. Use Resubscribe in the list if they asked to come back.', false);
+        } else if (r && r.duplicate) {
+          moduleMsg('That address is already subscribed.', true);
+        } else {
+          moduleMsg('Subscriber added.', true);
+        }
+        await refresh();
+      } catch (e) {
+        moduleMsg(errText(e), false);
+      }
+    });
+    const addRow = nlEl('div', 'row');
+    addRow.style.gap = '6px';
+    addRow.appendChild(addEmail);
+    addRow.appendChild(addName);
+    addRow.appendChild(addBtn);
+    host.appendChild(addRow);
+
+    if (!subscribers.length) {
+      host.appendChild(nlEl('p', 'hint', 'No subscribers yet — they will appear here as visitors sign up on your site.'));
+    } else {
+      const table = nlEl('table');
+      const thead = nlEl('thead');
+      const htr = nlEl('tr');
+      for (const h of ['Email', 'Name', 'Source', 'Subscribed', 'Status', '']) {
+        htr.appendChild(nlEl('th', null, h));
+      }
+      thead.appendChild(htr);
+      table.appendChild(thead);
+      const tbody = nlEl('tbody');
+      for (const s of subscribers) {
+        const tr = nlEl('tr');
+        tr.appendChild(nlEl('td', null, s.email || ''));
+        tr.appendChild(nlEl('td', null, s.name || ''));
+        tr.appendChild(nlEl('td', null, s.source === 'portal' ? 'Added by you' : 'Website signup'));
+        tr.appendChild(nlEl('td', null, whenLabel(s.created_at)));
+        tr.appendChild(nlEl('td', null, s.status === 'unsubscribed' ? 'Unsubscribed' : 'Subscribed'));
+        const actions = nlEl('td');
+        const toggle = nlEl('button', 'btn ghost small', s.status === 'unsubscribed' ? 'Resubscribe' : 'Unsubscribe');
+        toggle.type = 'button';
+        toggle.addEventListener('click', async () => {
+          try {
+            await api(`/modules/newsletter/subscribers/${encodeURIComponent(s.id)}/status`, {
+              method: 'POST',
+              body: JSON.stringify({ status: s.status === 'unsubscribed' ? 'active' : 'unsubscribed' }),
+            });
+            moduleMsg(s.status === 'unsubscribed' ? 'Subscriber resubscribed.' : 'Subscriber unsubscribed.', true);
+            await refresh();
+          } catch (e) {
+            moduleMsg(errText(e), false);
+          }
+        });
+        const remove = nlEl('button', 'btn ghost small', 'Remove');
+        remove.type = 'button';
+        remove.addEventListener('click', async () => {
+          if (!window.confirm(`Remove ${s.email} from the list entirely?`)) return;
+          try {
+            await api(`/modules/newsletter/subscribers/${encodeURIComponent(s.id)}`, { method: 'DELETE' });
+            moduleMsg('Subscriber removed.', true);
+            await refresh();
+          } catch (e) {
+            moduleMsg(errText(e), false);
+          }
+        });
+        actions.appendChild(toggle);
+        actions.appendChild(document.createTextNode(' '));
+        actions.appendChild(remove);
+        tr.appendChild(actions);
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
+      const scroll = nlEl('div');
+      scroll.style.overflowX = 'auto';
+      scroll.appendChild(table);
+      host.appendChild(scroll);
+      if (counts.total > 50) {
+        const off = moduleState.nlOffset || 0;
+        const pager = nlEl('div', 'pagination');
+        pager.style.marginTop = '8px';
+        const prev = nlEl('button', 'btn small', '← Newer');
+        prev.type = 'button';
+        prev.disabled = off <= 0;
+        prev.addEventListener('click', async () => {
+          const nextOff = Math.max(0, off - 50);
+          try {
+            const r = await api(`/modules/newsletter/subscribers?limit=50&offset=${nextOff}`);
+            moduleState.nlSubscribers = Array.isArray(r.subscribers) ? r.subscribers : [];
+            moduleState.nlOffset = nextOff;
+            renderNewsletterAdminPanel();
+          } catch (e) {
+            moduleMsg(errText(e), false);
+          }
+        });
+        const next = nlEl('button', 'btn small', 'Older →');
+        next.type = 'button';
+        next.disabled = off + subscribers.length >= counts.total;
+        next.addEventListener('click', async () => {
+          const nextOff = off + 50;
+          try {
+            const r = await api(`/modules/newsletter/subscribers?limit=50&offset=${nextOff}`);
+            moduleState.nlSubscribers = Array.isArray(r.subscribers) ? r.subscribers : [];
+            moduleState.nlOffset = nextOff;
+            renderNewsletterAdminPanel();
+          } catch (e) {
+            moduleMsg(errText(e), false);
+          }
+        });
+        pager.appendChild(prev);
+        pager.appendChild(
+          nlEl('span', 'hint', ` ${off + 1}–${off + subscribers.length} of ${counts.total} `)
+        );
+        pager.appendChild(next);
+        host.appendChild(pager);
+      }
+    }
+
+    /* ---- Sent issues ---- */
+    const sendsH = nlEl('h3', null, 'Sent issues');
+    sendsH.style.marginTop = '18px';
+    host.appendChild(sendsH);
+    if (!sends.length) {
+      host.appendChild(nlEl('p', 'hint', 'No issues sent yet.'));
+    } else {
+      const table = nlEl('table');
+      const thead = nlEl('thead');
+      const htr = nlEl('tr');
+      for (const h of ['Date', 'Subject', 'Recipients', 'Sent', 'Failed', 'From']) {
+        htr.appendChild(nlEl('th', null, h));
+      }
+      thead.appendChild(htr);
+      table.appendChild(thead);
+      const tbody = nlEl('tbody');
+      for (const s of sends) {
+        const tr = nlEl('tr');
+        tr.appendChild(nlEl('td', null, whenLabel(s.created_at)));
+        tr.appendChild(nlEl('td', null, s.subject || ''));
+        tr.appendChild(nlEl('td', null, String(s.recipient_count != null ? s.recipient_count : '')));
+        tr.appendChild(nlEl('td', null, String(s.sent_count != null ? s.sent_count : '')));
+        tr.appendChild(nlEl('td', null, String(s.failed_count != null ? s.failed_count : '')));
+        tr.appendChild(
+          nlEl('td', null, s.from_name ? `${s.from_name} <${s.from_email || ''}>` : s.from_email || '')
+        );
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
+      const scroll = nlEl('div');
+      scroll.style.overflowX = 'auto';
+      scroll.appendChild(table);
+      host.appendChild(scroll);
+    }
+  }
+
   function renderCallTrackingAdminPanel() {
     const host = document.getElementById('modules-calltracking-panel');
     if (!host) return;
@@ -7088,6 +7532,7 @@
     moduleState.estimate = data.estimate || null;
     moduleState.socialfeed = data.socialfeed || null;
     moduleState.googlereviews = data.googlereviews || null;
+    moduleState.newsletter = data.newsletter || null;
     moduleState.calltracking = data.calltracking || null;
     moduleState.members = data.members || null;
     moduleState.shop = data.shop || null;
@@ -7109,6 +7554,7 @@
     renderEstimateAdminPanel();
     renderSocialFeedAdminPanel();
     renderGoogleReviewsAdminPanel();
+    renderNewsletterAdminPanel();
     renderCallTrackingAdminPanel();
     renderMembersAdminPanel();
     renderMenuCategoriesPanel();

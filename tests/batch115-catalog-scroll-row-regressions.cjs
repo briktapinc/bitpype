@@ -119,7 +119,7 @@ function group(name, n) {
 
     // Cache-busts so clients pick up the new app.js/styles.css.
     has(indexHtml, '/styles.css?v=batch115-catalog1', 'styles.css cache-bust bumped');
-    has(indexHtml, '/js/app.js?v=batch116-ext1', 'app.js cache-bust bumped');
+    has(indexHtml, '/js/app.js?v=batch118-newsletter1', 'app.js cache-bust bumped');
 
     // The other two catalog surfaces: deliberately unchanged
     // (flagged for Ely in the batch report, not silently diverged).
@@ -198,6 +198,7 @@ function group(name, n) {
     ['googlereviews', 'Google Reviews'],
     ['datatables', 'Data Tables'],
     ['charts', 'Charts'],
+    ['newsletter', 'Newsletter'],
   ];
   app.get('/api/v1/admin-area/modules', (_q, r) =>
     r.json({
@@ -288,7 +289,7 @@ function group(name, n) {
     for (const w of [1440, 980, 390]) {
       await page.setViewport({ width: w, height: 1000 });
       await page.goto(base + '/app#/modules', { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await WF(page, () => document.querySelectorAll('.modcat-card').length === 22, `catalog renders @${w}`);
+      await WF(page, () => document.querySelectorAll('.modcat-card').length === 23, `catalog renders @${w}`);
       await page.evaluate(() => document.fonts.ready);
       // Batch 112 stability idiom: measure the REST state only once
       // it is well-defined — scroll reset to 0 and the first card's
@@ -314,7 +315,7 @@ function group(name, n) {
         `catalog at settled rest @${w}`
       );
       let m = await page.evaluate(measure);
-      ok(m.count === 22, `@${w}: all 22 catalog cards rendered`);
+      ok(m.count === 23, `@${w}: all 23 catalog cards rendered`);
       ok(m.display === 'flex' && m.overflowX === 'auto', `@${w}: row is a native horizontal scroller`);
       const top0 = m.rects[0].top;
       ok(
@@ -360,10 +361,10 @@ function group(name, n) {
       );
       m = await page.evaluate(measure);
       const last = m.rects[m.rects.length - 1];
-      ok(/Charts/.test(m.lastName), `@${w}: last card is Charts`);
+      ok(/Newsletter/.test(m.lastName), `@${w}: last card is Newsletter`);
       ok(
         last.right <= m.gridRect.right + 1 && last.left >= m.gridRect.left - 1,
-        `@${w}: Charts fully inside the row at max scroll (not cut)`
+        `@${w}: Newsletter fully inside the row at max scroll (not cut)`
       );
       // Keyboard: focus the row, ArrowRight scrolls it.
       await page.evaluate(() => {

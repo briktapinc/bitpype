@@ -507,6 +507,7 @@ const PORTAL_MODULE_SUBPATHS = [
   ['ecommerce', 'ecommerce'],
   ['datatables', 'datatables'],
   ['charts', 'charts'],
+  ['newsletter', 'newsletter'],
 ];
 
 function moduleForbidden(res, moduleKey) {
@@ -1828,6 +1829,145 @@ router.put('/modules/socialfeed/config', requireClient, actionLimit, async (req,
 router.post('/modules/socialfeed/refresh', requireClient, actionLimit, async (req, res) => {
   try {
     ok(res, await portal.refreshSocialFeed(req.client.workspace_id, req.client.lead_id, req.client.email));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+// Newsletter (Batch 118) — before the generic /modules/:type routes.
+// The engine is server/newsletter.js (lazy-required like the WordPress
+// design engine in Batch 117, so the clientPortal facade's export
+// surface is untouched); every route passes the same paid-plan module
+// gate the generic module routes enforce internally.
+async function newsletterGate(req) {
+  await require('../portalModules').requireSiteModules(req.client.workspace_id, req.client.email);
+}
+
+router.get('/modules/newsletter/panel', requireClient, actionLimit, async (req, res) => {
+  try {
+    await newsletterGate(req);
+    ok(res, await require('../newsletter').panelData(req.client.workspace_id, req.client.lead_id));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.get('/modules/newsletter/subscribers', requireClient, actionLimit, async (req, res) => {
+  try {
+    await newsletterGate(req);
+    const nl = require('../newsletter');
+    const data = require('../domain').withDb(req.client.workspace_id, (db) => ({
+      subscribers: nl.listSubscribers(db, req.client.lead_id, {
+        limit: req.query.limit,
+        offset: req.query.offset,
+        status: req.query.status,
+      }),
+      counts: nl.countSubscribers(db, req.client.lead_id),
+    }));
+    ok(res, data);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.put('/modules/newsletter/config', requireClient, actionLimit, async (req, res) => {
+  try {
+    await newsletterGate(req);
+    const nl = require('../newsletter');
+    const config = require('../domain').withDb(req.client.workspace_id, (db) =>
+      nl.saveConfig(db, req.client.lead_id, req.body || {})
+    );
+    ok(res, { config, from: await nl.resolveFrom(req.client.workspace_id, req.client.lead_id, { config }) });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/modules/newsletter/subscribers', requireClient, actionLimit, async (req, res) => {
+  try {
+    await newsletterGate(req);
+    const nl = require('../newsletter');
+    const b = req.body || {};
+    const data = require('../domain').withDb(req.client.workspace_id, (db) => {
+      const result = nl.addSubscriber(db, req.client.lead_id, {
+        email: b.email,
+        name: b.name,
+        source: 'portal',
+      });
+      if (result.added) {
+        try {
+          require('../portalContacts').captureFromNewsletter(db, {
+            leadId: req.client.lead_id,
+            subscriber: result.subscriber,
+          });
+        } catch (err) {
+          console.warn('[portal newsletter] LeadScout capture failed:', err && err.message);
+        }
+      }
+      return result;
+    });
+    ok(res, data);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/modules/newsletter/subscribers/:id/status', requireClient, actionLimit, async (req, res) => {
+  try {
+    await newsletterGate(req);
+    const nl = require('../newsletter');
+    const data = require('../domain').withDb(req.client.workspace_id, (db) =>
+      nl.setSubscriberStatus(db, req.client.lead_id, req.params.id, (req.body || {}).status)
+    );
+    ok(res, data);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.delete('/modules/newsletter/subscribers/:id', requireClient, actionLimit, async (req, res) => {
+  try {
+    await newsletterGate(req);
+    const nl = require('../newsletter');
+    const data = require('../domain').withDb(req.client.workspace_id, (db) =>
+      nl.removeSubscriber(db, req.client.lead_id, req.params.id)
+    );
+    ok(res, data);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/modules/newsletter/preview', requireClient, actionLimit, async (req, res) => {
+  try {
+    await newsletterGate(req);
+    const b = req.body || {};
+    ok(
+      res,
+      await require('../newsletter').previewIssue(req.client.workspace_id, req.client.lead_id, {
+        subject: b.subject,
+        bodyHtml: b.bodyHtml,
+      })
+    );
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/modules/newsletter/send', requireClient, actionLimit, async (req, res) => {
+  try {
+    await newsletterGate(req);
+    const b = req.body || {};
+    ok(
+      res,
+      await require('../newsletter').sendIssue(req.client.workspace_id, req.client.lead_id, {
+        subject: b.subject,
+        bodyHtml: b.bodyHtml,
+        previewToken: b.previewToken,
+        confirmCount: b.confirmCount,
+        createdBy: req.client.email,
+      })
+    );
   } catch (e) {
     fail(res, e);
   }

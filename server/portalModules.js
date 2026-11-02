@@ -63,6 +63,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     let shop = null;
     let datatable = null;
     let charts = null;
+    let newsletter = null;
     if (type === 'blog') {
       // Batch 45: server-side paging when the caller asks for a page
       // (portal blog tab); no limit = the historical full list.
@@ -246,6 +247,25 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
         datatable_columns: mod.datatable.columns,
       };
     }
+    else if (type === 'newsletter') {
+      // Batch 118: automatic module — no items to manage. The panel
+      // carries the config, counts, the resolved effective From (the
+      // portal shows exactly what a send will use), recent sends and
+      // the first page of subscribers; the dedicated /modules/
+      // newsletter/* routes serve paging and every write.
+      items = [];
+      const nl = require('./newsletter');
+      const cfg = nl.getConfig(db, Number(leadId));
+      const leadRow = db.prepare('SELECT business_name FROM leads WHERE id = ?').get(Number(leadId));
+      newsletter = {
+        config: cfg,
+        counts: nl.countSubscribers(db, Number(leadId)),
+        from: await nl.resolveFrom(workspaceId, Number(leadId), { config: cfg }),
+        sends: nl.listSends(db, Number(leadId), { limit: 20 }),
+        subscribers: nl.listSubscribers(db, Number(leadId), { limit: 50, offset: 0 }),
+        business_name: (leadRow && leadRow.business_name) || '',
+      };
+    }
     else if (type === 'chatbot') {
       const chat = require('./chatbot');
       const summary = chat.portalChatbotSummary(db, Number(leadId));
@@ -276,6 +296,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     if (shop) out.shop = shop;
     if (datatable) out.datatable = datatable;
     if (charts) out.charts = charts;
+    if (newsletter) out.newsletter = newsletter;
     return out;
   });
 }
@@ -317,6 +338,11 @@ async function createModuleItem(workspaceId, leadId, moduleType, body, clientEma
     else if (type === 'calltracking')
       throw Object.assign(
         new Error('Call Tracking is automatic — calls land here on their own. Use the Calls tab to set your phone number.'),
+        { code: 'VALIDATION', status: 400 }
+      );
+    else if (type === 'newsletter')
+      throw Object.assign(
+        new Error('Newsletter subscribers join from your website’s signup block — use the Newsletter tab to add one by hand.'),
         { code: 'VALIDATION', status: 400 }
       );
     else if (type === 'members')
@@ -366,6 +392,11 @@ async function updateModuleItem(workspaceId, leadId, moduleType, id, body, clien
         new Error('Call Tracking is automatic — use the Calls tab to set your phone number.'),
         { code: 'VALIDATION', status: 400 }
       );
+    else if (type === 'newsletter')
+      throw Object.assign(
+        new Error('Newsletter subscribers are managed in the Newsletter tab — there are no items to edit here.'),
+        { code: 'VALIDATION', status: 400 }
+      );
     else if (type === 'members') {
       // The only member "edit" from the portal is a status change
       // (approve / disable / reactivate) — enforced by setSiteMemberStatus.
@@ -409,6 +440,11 @@ async function deleteModuleItem(workspaceId, leadId, moduleType, id, clientEmail
     if (type === 'calltracking')
       throw Object.assign(
         new Error('Call Tracking is automatic — there are no items to delete.'),
+        { code: 'VALIDATION', status: 400 }
+      );
+    if (type === 'newsletter')
+      throw Object.assign(
+        new Error('Newsletter subscribers are managed in the Newsletter tab — there are no items to delete here.'),
         { code: 'VALIDATION', status: 400 }
       );
     if (type === 'members') return modules.deleteSiteMember(db, Number(leadId), id);
@@ -1260,6 +1296,7 @@ async function createClientMcpToken(workspaceId, leadId, clientEmail, opts = {})
 
 
 module.exports = {
+  requireSiteModules,
   listSiteModules,
   listModuleItems,
   createModuleItem,

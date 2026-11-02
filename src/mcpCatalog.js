@@ -999,6 +999,7 @@ const tools = [
             'googlereviews',
             'datatables',
             'charts',
+            'newsletter',
           ],
         },
         moduleType: {
@@ -1025,6 +1026,7 @@ const tools = [
             'googlereviews',
             'datatables',
             'charts',
+            'newsletter',
           ],
         },
         title: { type: 'string' },
