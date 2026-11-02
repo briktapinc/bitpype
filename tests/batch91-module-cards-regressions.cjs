@@ -217,13 +217,22 @@ check('D1 staff catalog renders icon cards, not chips', () => {
   assert.ok(!body.includes('<div class="chips">${catalog'), 'old chips row gone from the Modules page');
 });
 
-check('D2 staff catalog grid is 6 across with step-downs', () => {
+check('D2 staff catalog is ONE horizontally scrollable row (Batch 115)', () => {
+  // Batch 115 (Ely's order 2026-11-01, from his screenshot): the
+  // wrapped 6/4/3/2 grid this check used to pin is gone BY HIS
+  // DIRECT INSTRUCTION — the catalog is a single flex row with
+  // native horizontal scroll at every width, uniform fixed-width
+  // cards, and the Batch 108 16px gap standard.
   const m = staffCss.match(/\.modcat-grid \{([^}]*)\}/);
   assert.ok(m, 'modcat-grid rule exists');
-  assert.ok(m[1].includes('grid-template-columns: repeat(6, minmax(0, 1fr))'), '6 across on the wide staff view');
-  assert.ok(staffCss.includes('.modcat-card'), 'card styles');
+  assert.ok(m[1].includes('display: flex'), 'catalog is a flex row');
+  assert.ok(m[1].includes('flex-wrap: nowrap'), 'row never wraps');
+  assert.ok(m[1].includes('overflow-x: auto'), 'row scrolls horizontally');
+  assert.ok(m[1].includes('gap: 16px'), 'uniform 16px gap (Batch 108 card standard)');
+  assert.ok(!/\.modcat-grid\s*\{[^}]*grid-template-columns/.test(staffCss), 'no modcat grid columns remain at any breakpoint');
+  const card = staffCss.match(/\.modcat-card \{([^}]*)\}/);
+  assert.ok(card && card[1].includes('flex: 0 0 171px'), 'cards uniform fixed width (the measured 1440 grid width), never shrink');
   assert.ok(staffCss.includes('.modcat-icon'), 'icon chip styles');
-  assert.ok(staffCss.includes('repeat(4, minmax(0, 1fr))') && staffCss.includes('repeat(3, minmax(0, 1fr))') && staffCss.includes('repeat(2, minmax(0, 1fr))'), 'step-downs present');
 });
 
 check('D3 shared chip styles and staff delete flow untouched', () => {

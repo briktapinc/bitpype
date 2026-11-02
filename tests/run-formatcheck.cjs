@@ -29,6 +29,7 @@ const SCOPE = [
   'server/wpPlugin.js',
   'server/routes/wordpressPublic.js',
   'tests/batch114-wordpress-plugin-regressions.cjs',
+  'tests/batch115-catalog-scroll-row-regressions.cjs',
   'tsconfig.checkjs.json',
 ];
 

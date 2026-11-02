@@ -10182,7 +10182,7 @@ async function pageModules() {
     <div class="page-head"><div><h1>Modules</h1><p class="lede">Platform modules and where they are installed. Attach or detach modules per site from the Design flow or MCP.</p></div>
     <div class="page-actions"><button class="btn danger" data-act="clear-all" ${installs.length ? '' : 'disabled'}>Clear all…</button> <button class="btn" data-act="refresh">Refresh</button></div></div>
     <div class="card"><div class="panel-h"><h3>Catalog</h3></div>
-      <div class="modcat-grid">${catalog
+      <div class="modcat-grid" tabindex="0" role="region" aria-label="Module catalog">${catalog
         .map(
           (c) =>
             `<div class="modcat-card"><span class="modcat-icon${moduleCardTint(c.type)}" aria-hidden="true">${moduleIconSvg(c.type)}</span><span class="modcat-name">${esc(c.label)}</span><span class="modcat-meta">${esc(counts[c.type] || 0)} installed</span></div>`

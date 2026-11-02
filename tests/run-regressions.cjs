@@ -112,6 +112,7 @@ const checks = [
   'batch111-consolidation-regressions',
   'batch113-mobile-dropdown-tabs-regressions',
   'batch114-wordpress-plugin-regressions',
+  'batch115-catalog-scroll-row-regressions',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');
