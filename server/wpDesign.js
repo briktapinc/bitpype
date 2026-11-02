@@ -434,6 +434,9 @@ async function saveChat(workspaceId, linkId, { transcript, summary, pending }) {
  * count-first/refuse-without-counting semantics, per-site pool.
  * Day boundary uses the WP site's own timezone when the census
  * reported a valid one, else UTC (the Batch 97 fallback rule).
+ *
+ * @param {number} linkId
+ * @param {{ limit?: number | null, timezone?: string | null }} [options]
  */
 async function checkAndRecordUsage(linkId, { limit, timezone } = {}) {
   const tz = chatUsage.isValidTimezone(timezone) ? timezone : null;
@@ -456,6 +459,10 @@ async function checkAndRecordUsage(linkId, { limit, timezone } = {}) {
   return { allowed: true, used: used + 1, limit, day, timezone: tz };
 }
 
+/**
+ * @param {number} linkId
+ * @param {{ limit?: number | null, timezone?: string | null }} [options]
+ */
 async function getUsage(linkId, { limit, timezone } = {}) {
   const tz = chatUsage.isValidTimezone(timezone) ? timezone : null;
   const day = chatUsage.dayKey(tz);
@@ -478,6 +485,11 @@ async function getUsage(linkId, { limit, timezone } = {}) {
 // Portal state view
 // ------------------------------------------------------------------
 
+/**
+ * @param {number} workspaceId
+ * @param {number} linkId
+ * @param {{ limit?: number | null }} [options]
+ */
 async function designStateForPortal(workspaceId, linkId, { limit } = {}) {
   const link = await wpPlugin.findById(workspaceId, linkId);
   if (!link) throw fail('NOT_FOUND', 'That WordPress connection was not found', 404);
