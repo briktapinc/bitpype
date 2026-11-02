@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       BitPype Connector
  * Plugin URI:        https://bitpype.com
- * Description:       Connect this WordPress site to your BitPype account and put your BitPype forms on any page. Submissions land in your BitPype portal (LeadScout). Free plugin — no license key; this copy connected itself with the one-time registration code it was downloaded with.
- * Version:           1.0.0
+ * Description:       Connect this WordPress site to your BitPype account and put your BitPype forms on any page. Submissions land in your BitPype portal (LeadScout). Version 2 adds design editing: the portal design chat can propose changes to your site's global look and BitPype sections — nothing applies until you approve it. Free plugin — no license key; this copy connected itself with the one-time registration code it was downloaded with.
+ * Version:           2.0.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            BitPype
@@ -16,12 +16,13 @@ if (! defined('ABSPATH')) {
 	exit;
 }
 
-define('BITPYPE_CONNECTOR_VERSION', '1.0.0');
+define('BITPYPE_CONNECTOR_VERSION', '2.0.0');
 define('BITPYPE_CONNECTOR_FILE', __FILE__);
 
 require_once __DIR__ . '/bitpype-config.php';
 require_once __DIR__ . '/includes/api.php';
 require_once __DIR__ . '/includes/render.php';
+require_once __DIR__ . '/includes/design.php';
 require_once __DIR__ . '/includes/admin.php';
 
 /**
@@ -40,6 +41,12 @@ require_once __DIR__ . '/includes/admin.php';
 function bitpype_connector_activate() {
 	if ('' !== bitpype_connector_site_key()) {
 		bitpype_connector_ping('active');
+		if (function_exists('bitpype_connector_design_sync')) {
+			bitpype_connector_design_sync();
+		}
+		if (function_exists('bitpype_connector_push_census')) {
+			bitpype_connector_push_census();
+		}
 		return;
 	}
 	if ('spent' === (string) get_option('bitpype_link_state', '')) {

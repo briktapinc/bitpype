@@ -9789,4 +9789,290 @@
       }
     }
   })();
+
+  // Batch 117 — WordPress design chat panel. Renders per connected
+  // registration: the chat (transcript + composer), staged proposals
+  // with Preview / Approve / Reject, and applied changes with Undo.
+  // Approve-first is the product rule: this UI never applies
+  // anything itself — approving only marks the proposal; the plugin
+  // applies it on the site and reports back. All DOM is built with
+  // createElement + textContent (owner-supplied site names, chat
+  // text and proposal summaries are never markup here).
+  const wpDesignState = { loaded: false, loading: false, sites: new Map() };
+  const WP_PROPOSAL_LABELS = {
+    staged: 'Waiting for your decision',
+    approved: 'Approved — applies when your site next checks in',
+    apply_failed: 'Your site could not apply this — approve again to retry, or reject it',
+    applied: 'Applied',
+    rejected: 'Rejected',
+    superseded: 'Replaced by a newer proposal',
+    undo_requested: 'Undo requested — completes when your site next checks in',
+    undone: 'Undone',
+  };
+  function wpEl(tag, className, text) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (text != null) el.textContent = String(text);
+    return el;
+  }
+  function wpDesignMsg(text, isErr) {
+    const msg = document.getElementById('msg-wp-design');
+    if (!msg) return;
+    msg.className = isErr ? 'msg err' : 'msg ok';
+    msg.textContent = text || '';
+  }
+  function renderWpDesignSite(host, site) {
+    const card = wpEl('div');
+    card.style.borderTop = '1px solid var(--line, #ddd)';
+    card.style.paddingTop = '14px';
+    card.style.marginTop = '14px';
+    const title = wpEl('h4', null, site.siteName || site.siteUrl || 'WordPress site');
+    title.style.margin = '0 0 4px';
+    title.style.fontSize = '1rem';
+    card.appendChild(title);
+    const meta = wpEl(
+      'p',
+      'hint',
+      site.census
+        ? `${site.siteUrl || ''} · WordPress ${site.census.wpVersion || '?'} · Theme: ${(site.census.theme && site.census.theme.name) || 'unknown'} · ${site.census.pageCount} pages`
+        : 'Waiting for the site to send its map — open Settings → BitPype once in WordPress admin.'
+    );
+    meta.style.margin = '0 0 10px';
+    card.appendChild(meta);
+
+    // Chat transcript (most recent 50, server-trimmed).
+    const log = wpEl('div');
+    log.style.maxHeight = '320px';
+    log.style.overflowY = 'auto';
+    log.style.display = 'flex';
+    log.style.flexDirection = 'column';
+    log.style.gap = '8px';
+    log.style.margin = '0 0 10px';
+    const messages = (site.chat && site.chat.messages) || [];
+    if (!messages.length) {
+      log.appendChild(wpEl('p', 'hint', 'No design conversation yet. Ask for a change — for example, “make my primary color deep green” or “add a hero section for spring bookings”.'));
+    }
+    for (const m of messages) {
+      const row = wpEl('div');
+      row.style.alignSelf = m.role === 'user' ? 'flex-end' : 'flex-start';
+      row.style.maxWidth = '88%';
+      row.style.padding = '8px 12px';
+      row.style.borderRadius = '12px';
+      row.style.whiteSpace = 'pre-wrap';
+      row.style.background = m.role === 'user' ? 'var(--accent-soft, #eef4ff)' : 'var(--panel-2, #f6f3ec)';
+      row.textContent = String(m.text || '');
+      log.appendChild(row);
+    }
+    card.appendChild(log);
+    log.scrollTop = log.scrollHeight;
+
+    // Composer.
+    const form = wpEl('form');
+    form.style.display = 'flex';
+    form.style.gap = '8px';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'Ask about the site, or describe a design change…';
+    input.style.flex = '1';
+    input.maxLength = 4000;
+    const send = wpEl('button', 'btn', 'Send');
+    send.type = 'submit';
+    form.appendChild(input);
+    form.appendChild(send);
+    form.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      send.disabled = true;
+      sendWpDesignChat(site.id, text)
+        .catch(() => {})
+        .finally(() => {
+          send.disabled = false;
+        });
+    });
+    card.appendChild(form);
+    if (site.usage && site.usage.limit != null) {
+      const u = wpEl('p', 'hint', `${site.usage.used || 0} of ${site.usage.limit} design chat requests used today for this site.`);
+      u.style.margin = '6px 0 0';
+      card.appendChild(u);
+    }
+
+    // Proposals + history.
+    const proposals = site.proposals || [];
+    if (proposals.length) {
+      const h = wpEl('h4', null, 'Design proposals');
+      h.style.margin = '16px 0 8px';
+      h.style.fontSize = '1rem';
+      card.appendChild(h);
+      for (const p of proposals) {
+        const item = wpEl('div');
+        item.style.padding = '10px 0';
+        item.style.borderTop = '1px dashed var(--line, #ddd)';
+        const head = wpEl('p', null, `${p.summary || 'Design change'} — ${WP_PROPOSAL_LABELS[p.status] || p.status}`);
+        head.style.margin = '0 0 4px';
+        item.appendChild(head);
+        if (Array.isArray(p.changes) && p.changes.length) {
+          const ul = wpEl('ul');
+          ul.style.margin = '0 0 6px';
+          ul.style.paddingLeft = '1.25rem';
+          for (const c of p.changes) ul.appendChild(wpEl('li', null, c));
+          item.appendChild(ul);
+        }
+        if (p.verify && p.verify.checked) {
+          item.appendChild(
+            wpEl('p', 'hint', p.verify.ok ? 'Checked in a staged preview before you were asked.' : `Preview check: ${(p.verify.notes || []).join(' ')}`)
+          );
+        }
+        if (p.error) item.appendChild(wpEl('p', 'hint', `Problem: ${p.error}`));
+        const actions = wpEl('div');
+        actions.style.display = 'flex';
+        actions.style.gap = '8px';
+        actions.style.flexWrap = 'wrap';
+        if (p.status === 'staged' || p.status === 'apply_failed') {
+          const previewBtn = wpEl('button', 'btn soft small', 'Preview');
+          previewBtn.type = 'button';
+          previewBtn.addEventListener('click', () => openWpDesignPreview(site.id, p.id).catch(() => {}));
+          actions.appendChild(previewBtn);
+          const approveBtn = wpEl('button', 'btn small', 'Approve');
+          approveBtn.type = 'button';
+          approveBtn.addEventListener('click', () => decideWpDesignProposal(site.id, p.id, 'approve').catch(() => {}));
+          actions.appendChild(approveBtn);
+          const rejectBtn = wpEl('button', 'btn soft small', 'Reject');
+          rejectBtn.type = 'button';
+          rejectBtn.addEventListener('click', () => decideWpDesignProposal(site.id, p.id, 'reject').catch(() => {}));
+          actions.appendChild(rejectBtn);
+        }
+        if (p.status === 'approved') {
+          const rejectBtn = wpEl('button', 'btn soft small', 'Reject');
+          rejectBtn.type = 'button';
+          rejectBtn.addEventListener('click', () => decideWpDesignProposal(site.id, p.id, 'reject').catch(() => {}));
+          actions.appendChild(rejectBtn);
+        }
+        if (p.status === 'applied') {
+          const undoBtn = wpEl('button', 'btn soft small', 'Undo this change');
+          undoBtn.type = 'button';
+          undoBtn.addEventListener('click', () => decideWpDesignProposal(site.id, p.id, 'undo').catch(() => {}));
+          actions.appendChild(undoBtn);
+        }
+        if (actions.childNodes.length) item.appendChild(actions);
+        card.appendChild(item);
+      }
+    }
+    host.appendChild(card);
+  }
+  function renderWpDesignPanel(downloads, sitesById) {
+    const host = document.getElementById('wp-design-host');
+    if (!host) return;
+    host.replaceChildren();
+    const connected = (downloads || []).filter((d) => d.status === 'connected');
+    if (!connected.length) {
+      host.appendChild(wpEl('p', 'hint', 'Connect a WordPress site first — design chat appears here once a site is connected with the current plugin.'));
+      return;
+    }
+    for (const d of connected) {
+      const site = sitesById.get(Number(d.id));
+      if (d.designCapable && site) {
+        renderWpDesignSite(host, site);
+      } else {
+        const card = wpEl('div');
+        card.style.borderTop = '1px solid var(--line, #ddd)';
+        card.style.paddingTop = '14px';
+        card.style.marginTop = '14px';
+        const title = wpEl('h4', null, d.siteName || d.siteUrl || 'WordPress site');
+        title.style.margin = '0 0 4px';
+        title.style.fontSize = '1rem';
+        card.appendChild(title);
+        card.appendChild(
+          wpEl(
+            'p',
+            'hint',
+            'Update available: this site is running the earlier plugin, which supports forms only. Design editing needs the new version — download a fresh copy above (it carries a new connect code) and install it in WordPress. Your forms keep working either way.'
+          )
+        );
+        host.appendChild(card);
+      }
+    }
+  }
+  async function loadWpDesignPanel() {
+    if (wpDesignState.loading) return;
+    wpDesignState.loading = true;
+    try {
+      const data = await api('/wordpress');
+      const downloads = data.downloads || [];
+      const sitesById = new Map();
+      for (const d of downloads) {
+        if (d.status === 'connected' && d.designCapable) {
+          try {
+            const state = await api(`/wordpress/${encodeURIComponent(d.id)}/design`);
+            sitesById.set(Number(d.id), state);
+          } catch {
+            /* one site's failure must not hide the others */
+          }
+        }
+      }
+      renderWpDesignPanel(downloads, sitesById);
+      wpDesignState.loaded = true;
+    } catch {
+      const host = document.getElementById('wp-design-host');
+      if (host) {
+        host.replaceChildren();
+        host.appendChild(wpEl('p', 'hint', 'Could not load design chat just now — reopen this tab to try again.'));
+      }
+    } finally {
+      wpDesignState.loading = false;
+    }
+  }
+  async function sendWpDesignChat(linkId, text) {
+    wpDesignMsg('');
+    try {
+      const data = await api(`/wordpress/${encodeURIComponent(linkId)}/design/chat`, {
+        method: 'POST',
+        body: JSON.stringify({ message: text }),
+      });
+      if (data && data.error) wpDesignMsg(data.reply || 'The AI could not answer just now.', true);
+      await loadWpDesignPanel();
+    } catch (e) {
+      wpDesignMsg(errText(e), true);
+      await loadWpDesignPanel().catch(() => {});
+    }
+  }
+  async function decideWpDesignProposal(linkId, proposalId, decision) {
+    wpDesignMsg('');
+    try {
+      await api(`/wordpress/${encodeURIComponent(linkId)}/design/proposals/${encodeURIComponent(proposalId)}/${decision}`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      wpDesignMsg(
+        decision === 'approve'
+          ? 'Approved. It will be applied the next time your WordPress site checks in — opening Settings → BitPype in WordPress hurries it along.'
+          : decision === 'undo'
+            ? 'Undo requested. It completes the next time your WordPress site checks in.'
+            : 'Proposal rejected and discarded.'
+      );
+      await loadWpDesignPanel();
+    } catch (e) {
+      wpDesignMsg(errText(e), true);
+    }
+  }
+  async function openWpDesignPreview(linkId, proposalId) {
+    try {
+      const data = await api(`/wordpress/${encodeURIComponent(linkId)}/design/proposals/${encodeURIComponent(proposalId)}/preview`);
+      if (data && data.url) window.open(data.url, '_blank', 'noopener');
+      else wpDesignMsg('No preview address is available for that proposal.', true);
+    } catch (e) {
+      wpDesignMsg(errText(e), true);
+    }
+  }
+  // Load when the WordPress panel becomes visible (any entry path:
+  // nav click, hash routing, deep link).
+  const wpDesignObserver = new MutationObserver(() => {
+    const sec = document.getElementById('sec-wordpress');
+    if (sec && !sec.hidden) loadWpDesignPanel().catch(() => {});
+  });
+  const wpSecEl = document.getElementById('sec-wordpress');
+  if (wpSecEl) wpDesignObserver.observe(wpSecEl, { attributes: true, attributeFilter: ['hidden'] });
+  const wpNavEl = document.getElementById('nav-wordpress');
+  if (wpNavEl) wpNavEl.addEventListener('click', () => loadWpDesignPanel().catch(() => {}));
 })();

@@ -140,7 +140,7 @@ function unzipStore(buf) {
     has(portalHtml, 'like a registration link', 'instructions explain the per-download code');
     has(portalHtml, 'Contacts stay put', 'panel states captured contacts remain after removal');
     has(portalHtml, 'remove the <code>[bitpype_form]</code> shortcodes', 'panel carries the uninstall shortcode line');
-    has(portalHtml, '/js/portal.js?v=batch114-wp1', 'portal.js cache-busted for Batch 114');
+    has(portalHtml, '/js/portal.js?v=batch117-wpdesign1', 'portal.js cache-busted (Batch 117 rotation)');
     const portalJs = read('public/js/portal.js');
     has(portalJs, "'wordpress',", 'portal.js panel list includes wordpress');
     has(portalJs, 'loadWordpressPanel', 'portal.js has the wordpress loader');
@@ -266,6 +266,10 @@ function unzipStore(buf) {
         'site_key_hash',
         'site_key_prefix',
         'disconnect_reason',
+        'plugin_version',
+        'plugin_caps',
+        'census_json',
+        'census_at',
         'created_at',
         'registered_at',
         'last_seen_at',

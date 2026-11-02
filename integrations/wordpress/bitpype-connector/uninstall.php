@@ -44,6 +44,11 @@ foreach (array(
 	'bitpype_status_checked_at',
 	'bitpype_forms_cache',
 	'bitpype_forms_cached_at',
+	'bitpype_design_state',
+	'bitpype_design_snapshots',
+	'bitpype_design_log',
+	'bitpype_design_synced_at',
+	'bitpype_census_sent_at',
 ) as $bitpype_option) {
 	delete_option($bitpype_option);
 }

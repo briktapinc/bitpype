@@ -31,6 +31,10 @@ const SCOPE = [
   'tests/batch114-wordpress-plugin-regressions.cjs',
   'tests/batch115-catalog-scroll-row-regressions.cjs',
   'tests/batch116-external-website-kind-regressions.cjs',
+  'server/wpDesignOps.js',
+  'server/wpDesign.js',
+  'server/wpDesignChat.js',
+  'tests/batch117-wp-design-regressions.cjs',
   'tsconfig.checkjs.json',
 ];
 

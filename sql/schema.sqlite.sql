@@ -412,6 +412,10 @@ CREATE TABLE IF NOT EXISTS wp_site_links (
   site_key_hash TEXT UNIQUE,
   site_key_prefix TEXT,
   disconnect_reason TEXT,
+  plugin_version TEXT,
+  plugin_caps TEXT,
+  census_json TEXT,
+  census_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   registered_at TEXT,
   last_seen_at TEXT,
@@ -419,5 +423,46 @@ CREATE TABLE IF NOT EXISTS wp_site_links (
 );
 
 CREATE INDEX IF NOT EXISTS idx_wp_site_links_ws ON wp_site_links (workspace_id, id);
+
+-- Batch 117 — WordPress design editing v1 (see sql/schema.sql).
+CREATE TABLE IF NOT EXISTS wp_design_proposals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  link_id INTEGER NOT NULL,
+  workspace_id INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'staged',
+  ops_json TEXT NOT NULL,
+  tokens_json TEXT,
+  zones_json TEXT,
+  css_text TEXT,
+  summary TEXT,
+  verify_json TEXT,
+  preview_token_hash TEXT,
+  preview_expires_at TEXT,
+  snapshot_version INTEGER,
+  error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  decided_at TEXT,
+  applied_at TEXT,
+  undone_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_wp_proposals_link ON wp_design_proposals (link_id, id);
+CREATE INDEX IF NOT EXISTS idx_wp_proposals_ws ON wp_design_proposals (workspace_id, id);
+
+CREATE TABLE IF NOT EXISTS wp_design_chats (
+  link_id INTEGER NOT NULL PRIMARY KEY,
+  workspace_id INTEGER NOT NULL,
+  transcript_json TEXT,
+  summary TEXT,
+  pending_json TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS wp_design_chat_usage (
+  link_id INTEGER NOT NULL,
+  day TEXT NOT NULL,
+  requests INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (link_id, day)
+);
 CREATE INDEX IF NOT EXISTS idx_leads_ws ON leads(workspace_id, status);
 CREATE INDEX IF NOT EXISTS idx_jobs_due ON scheduled_jobs(enabled, next_run_at);

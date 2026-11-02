@@ -500,6 +500,10 @@ CREATE TABLE IF NOT EXISTS wp_site_links (
   site_key_hash CHAR(64) NULL,
   site_key_prefix VARCHAR(16) NULL,
   disconnect_reason VARCHAR(40) NULL,
+  plugin_version VARCHAR(32) NULL,
+  plugin_caps TEXT NULL,
+  census_json TEXT NULL,
+  census_at DATETIME NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   registered_at DATETIME NULL,
   last_seen_at DATETIME NULL,
@@ -507,6 +511,52 @@ CREATE TABLE IF NOT EXISTS wp_site_links (
   UNIQUE KEY uq_wp_site_links_token (token_hash),
   UNIQUE KEY uq_wp_site_links_key (site_key_hash),
   KEY idx_wp_site_links_ws (workspace_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Batch 117 — WordPress design editing v1. Proposals are staged by
+-- the design chat (approve-first: nothing applies until the owner
+-- approves AND the plugin applies it and reports back). The chat
+-- tables keep the per-registration transcript/summary and the
+-- per-registration daily cap counter (Batch 97 caps, keyed by
+-- registration instead of lead).
+CREATE TABLE IF NOT EXISTS wp_design_proposals (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  link_id BIGINT UNSIGNED NOT NULL,
+  workspace_id BIGINT UNSIGNED NOT NULL,
+  status VARCHAR(24) NOT NULL DEFAULT 'staged',
+  ops_json TEXT NOT NULL,
+  tokens_json TEXT NULL,
+  zones_json TEXT NULL,
+  css_text TEXT NULL,
+  summary VARCHAR(500) NULL,
+  verify_json TEXT NULL,
+  preview_token_hash CHAR(64) NULL,
+  preview_expires_at DATETIME NULL,
+  snapshot_version INT NULL,
+  error TEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  decided_at DATETIME NULL,
+  applied_at DATETIME NULL,
+  undone_at DATETIME NULL,
+  KEY idx_wp_proposals_link (link_id, id),
+  KEY idx_wp_proposals_ws (workspace_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS wp_design_chats (
+  link_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+  workspace_id BIGINT UNSIGNED NOT NULL,
+  transcript_json TEXT NULL,
+  summary TEXT NULL,
+  pending_json TEXT NULL,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS wp_design_chat_usage (
+  link_id BIGINT UNSIGNED NOT NULL,
+  day VARCHAR(10) NOT NULL,
+  requests INT NOT NULL DEFAULT 0,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (link_id, day)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 SET FOREIGN_KEY_CHECKS = 1;

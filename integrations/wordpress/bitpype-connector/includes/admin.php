@@ -77,6 +77,8 @@ function bitpype_connector_admin_init() {
 			bitpype_connector_ping('active');
 		} elseif ('register' === $action && '' === bitpype_connector_site_key()) {
 			bitpype_connector_register();
+		} elseif ('design_sync' === $action && '' !== bitpype_connector_site_key()) {
+			bitpype_connector_design_sync();
 		}
 	}
 	$screen = get_current_screen();
@@ -91,6 +93,13 @@ function bitpype_connector_admin_init() {
 	}
 	bitpype_connector_ping('status');
 	bitpype_connector_fetch_forms();
+	// Batch 117: keep the design chat's site map fresh and pick up
+	// any owner-approved design work while the owner is here.
+	bitpype_connector_design_sync();
+	$census_sent = (int) get_option('bitpype_census_sent_at', 0);
+	if (time() - $census_sent > 300) {
+		bitpype_connector_push_census();
+	}
 }
 add_action('admin_init', 'bitpype_connector_admin_init');
 
@@ -138,6 +147,41 @@ function bitpype_connector_render_settings() {
 			echo '</tbody></table>';
 			echo '<p>' . esc_html__('You can also add a form with the “BitPype Form” block in the page editor.', 'bitpype-connector') . '</p>';
 		}
+	}
+
+	if ('connected' === $status) {
+		$design = bitpype_design_state();
+		echo '<h2>' . esc_html__('Design with BitPype', 'bitpype-connector') . '</h2>';
+		echo '<p>' . esc_html__('In your BitPype portal (WordPress tab) you can chat about this site\'s design. The chat can only propose changes — to your site\'s overall look (colors, fonts) and to BitPype sections — and nothing is applied until you preview and approve it there. Before a change is applied, the plugin saves a snapshot, and you can undo it from the portal.', 'bitpype-connector') . '</p>';
+		echo '<p>' . esc_html__('Current BitPype design state: version ', 'bitpype-connector') . (int) $design['version']
+			. ' · ' . count($design['tokens']) . esc_html__(' look settings', 'bitpype-connector')
+			. ' · ' . count($design['zones']) . esc_html__(' BitPype sections.', 'bitpype-connector') . '</p>';
+		if (! empty($design['zones'])) {
+			echo '<table class="widefat striped" style="max-width:720px"><thead><tr><th>'
+				. esc_html__('Section', 'bitpype-connector') . '</th><th>'
+				. esc_html__('Shortcode — paste into any page or post', 'bitpype-connector')
+				. '</th></tr></thead><tbody>';
+			foreach ($design['zones'] as $zone_id => $zone) {
+				$label = (isset($zone['type']) ? (string) $zone['type'] : 'section')
+					. (! empty($zone['fields']['headline']) ? ': ' . (string) $zone['fields']['headline'] : '');
+				echo '<tr><td>' . esc_html($label) . '</td><td><code>[bitpype_zone id="' . esc_attr((string) $zone_id) . '"]</code></td></tr>';
+			}
+			echo '</tbody></table>';
+		}
+		$design_log = get_option('bitpype_design_log', array());
+		if (is_array($design_log) && ! empty($design_log)) {
+			echo '<h3>' . esc_html__('Recent design activity', 'bitpype-connector') . '</h3><ul style="margin:0;padding-left:1.25rem">';
+			foreach (array_reverse(array_slice($design_log, -8)) as $entry) {
+				echo '<li>' . esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), (int) $entry['at']))
+					. ' — ' . esc_html((string) $entry['summary']) . '</li>';
+			}
+			echo '</ul>';
+		}
+		echo '<form method="post" style="margin-top:12px">';
+		wp_nonce_field('bitpype_connector_admin');
+		echo '<input type="hidden" name="bitpype_action" value="design_sync" />';
+		echo '<button type="submit" class="button">Check for approved design changes now</button>';
+		echo '</form>';
 	}
 
 	echo '<form method="post" style="margin-top:24px">';

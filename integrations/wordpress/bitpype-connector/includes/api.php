@@ -2,13 +2,17 @@
 /**
  * BitPype Connector — API client + connection state.
  *
- * The plugin talks to the BitPype app in exactly three ways:
+ * The plugin talks to the BitPype app in these ways:
  *   1. Registration (once per downloaded copy): the registration code
  *      from bitpype-config.php is spent to bind this site and receive
  *      a scoped site credential.
- *   2. Heartbeats with that credential (status / lifecycle signals).
+ *   2. Heartbeats with that credential (status / lifecycle signals),
+ *      which also carry the version + capability handshake.
  *   3. Fetching the workspace's form list (ids, names, public embed
  *      tokens) so forms can be placed on pages.
+ *   4. Design sync (v2, includes/design.php): pushing the site
+ *      census, pulling owner-approved design proposals, and
+ *      reporting what was applied or undone.
  * Form submissions never pass through this plugin: visitors' browsers
  * post to BitPype's public form endpoints via form-embed.js, exactly
  * like forms on BitPype-hosted sites.
@@ -47,6 +51,29 @@ function bitpype_connector_registration_token() {
  */
 function bitpype_connector_site_key() {
 	return trim((string) get_option('bitpype_site_key', ''));
+}
+
+/**
+ * What this plugin build can do (Batch 117 capability handshake —
+ * reported on register + ping so the portal knows which features
+ * this install supports: v1 reported nothing and stays forms-only).
+ *
+ * @return string[]
+ */
+function bitpype_connector_capabilities() {
+	return array('forms', 'design1');
+}
+
+/**
+ * Version + capabilities, merged into register/ping payloads.
+ *
+ * @return array{plugin_version:string,capabilities:string[]}
+ */
+function bitpype_connector_plugin_info() {
+	return array(
+		'plugin_version' => BITPYPE_CONNECTOR_VERSION,
+		'capabilities'   => bitpype_connector_capabilities(),
+	);
 }
 
 /**
@@ -125,12 +152,15 @@ function bitpype_connector_register() {
 	$result = bitpype_connector_request(
 		'POST',
 		'/register',
-		array(
-			'token'       => bitpype_connector_registration_token(),
-			'site_url'    => home_url(),
-			'site_name'   => get_bloginfo('name'),
-			'admin_email' => get_bloginfo('admin_email'),
-			'wp_version'  => get_bloginfo('version'),
+		array_merge(
+			array(
+				'token'       => bitpype_connector_registration_token(),
+				'site_url'    => home_url(),
+				'site_name'   => get_bloginfo('name'),
+				'admin_email' => get_bloginfo('admin_email'),
+				'wp_version'  => get_bloginfo('version'),
+			),
+			bitpype_connector_plugin_info()
 		),
 		false
 	);
@@ -140,6 +170,12 @@ function bitpype_connector_register() {
 		update_option('bitpype_connector_status', 'connected');
 		update_option('bitpype_status_checked_at', time());
 		bitpype_connector_fetch_forms();
+		if (function_exists('bitpype_connector_push_census')) {
+			bitpype_connector_push_census();
+		}
+		if (function_exists('bitpype_connector_design_sync')) {
+			bitpype_connector_design_sync();
+		}
 	} elseif ('TOKEN_SPENT' === $result['error_code']) {
 		update_option('bitpype_link_state', 'spent');
 		update_option('bitpype_connector_status', 'spent');
@@ -159,7 +195,12 @@ function bitpype_connector_register() {
  * @return array The request result.
  */
 function bitpype_connector_ping($state) {
-	$result = bitpype_connector_request('POST', '/ping', array('state' => $state), true);
+	$result = bitpype_connector_request(
+		'POST',
+		'/ping',
+		array_merge(array('state' => $state), bitpype_connector_plugin_info()),
+		true
+	);
 	update_option('bitpype_status_checked_at', time());
 	if ('SITE_REVOKED' === $result['error_code'] || 410 === $result['code']) {
 		update_option('bitpype_connector_status', 'revoked');

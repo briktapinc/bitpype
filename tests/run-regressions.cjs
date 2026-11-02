@@ -114,6 +114,7 @@ const checks = [
   'batch114-wordpress-plugin-regressions',
   'batch115-catalog-scroll-row-regressions',
   'batch116-external-website-kind-regressions',
+  'batch117-wp-design-regressions',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');

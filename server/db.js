@@ -576,6 +576,15 @@ async function migrate() {
     ensureColumnSqlite(db, 'client_portal_users', 'user_type', "TEXT NOT NULL DEFAULT 'owner'");
     ensureColumnSqlite(db, 'client_portal_users', 'nav_overrides', 'TEXT');
     ensureColumnSqlite(db, 'client_portal_users', 'module_overrides', 'TEXT');
+    // Batch 117: WP plugin version/capabilities + latest design census.
+    try {
+      ensureColumnSqlite(db, 'wp_site_links', 'plugin_version', 'TEXT');
+      ensureColumnSqlite(db, 'wp_site_links', 'plugin_caps', 'TEXT');
+      ensureColumnSqlite(db, 'wp_site_links', 'census_json', 'TEXT');
+      ensureColumnSqlite(db, 'wp_site_links', 'census_at', 'TEXT');
+    } catch {
+      /* table may not exist on a bare schema */
+    }
     try {
       db.exec(
         `UPDATE client_portal_users SET user_type = 'owner'
@@ -932,6 +941,10 @@ async function migrate() {
     // Batch 29: portal user types + per-user nav overrides (existing
     // tables only — the CREATE above covers fresh installs). The column
     // default backfills every existing portal user to 'owner'.
+    await ensureColumnMysql(conn, 'wp_site_links', 'plugin_version', 'VARCHAR(32) NULL');
+    await ensureColumnMysql(conn, 'wp_site_links', 'plugin_caps', 'TEXT NULL');
+    await ensureColumnMysql(conn, 'wp_site_links', 'census_json', 'TEXT NULL');
+    await ensureColumnMysql(conn, 'wp_site_links', 'census_at', 'DATETIME NULL');
     await ensureColumnMysql(conn, 'client_portal_users', 'user_type', "VARCHAR(20) NOT NULL DEFAULT 'owner'");
     await ensureColumnMysql(conn, 'client_portal_users', 'nav_overrides', 'TEXT NULL');
     await ensureColumnMysql(conn, 'client_portal_users', 'module_overrides', 'TEXT NULL');

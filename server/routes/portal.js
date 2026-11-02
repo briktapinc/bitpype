@@ -631,6 +631,85 @@ router.post('/wordpress/:id/revoke', requireClient, actionLimit, async (req, res
   }
 });
 
+// ---------------------------------------------------------------------------
+// Batch 117 — WordPress design editing (plugin v2). State, chat and
+// proposal decisions for ONE registration, always resolved through
+// the caller's workspace (wpPlugin.findById is workspace-scoped, so
+// another workspace's registration is a 404 here, never data).
+// Approve-first: these routes stage/decide only — the plugin
+// applies and reports back on its own sync cycle.
+// ---------------------------------------------------------------------------
+router.get('/wordpress/:id/design', requireClient, async (req, res) => {
+  try {
+    const wpDesign = require('../wpDesign');
+    const billing = require('../billing');
+    const plans = require('../plans');
+    const planId = await billing.workspacePlan(req.client.workspace_id);
+    const state = await wpDesign.designStateForPortal(req.client.workspace_id, req.params.id, {
+      limit: plans.chatRequestsPerDayFor(planId),
+    });
+    ok(res, state);
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 500);
+  }
+});
+
+router.post('/wordpress/:id/design/chat', requireClient, actionLimit, async (req, res) => {
+  try {
+    const wpDesignChat = require('../wpDesignChat');
+    const data = await wpDesignChat.runWpDesignChat(req.client.workspace_id, req.params.id, req.body || {}, {
+      userType: req.client.userType != null ? req.client.userType : req.client.user_type,
+    });
+    ok(res, data);
+  } catch (e) {
+    const status = e.code === 'NOT_FOUND' ? 404 : e.code === 'UPDATE_REQUIRED' || e.code === 'INVALID' ? 409 : e.code === 'EMPTY' || e.code === 'TOO_LONG' ? 400 : 500;
+    fail(res, e, status);
+  }
+});
+
+router.post('/wordpress/:id/design/proposals/:pid/approve', requireClient, actionLimit, async (req, res) => {
+  try {
+    const wpDesign = require('../wpDesign');
+    const p = await wpDesign.decideProposal(req.client.workspace_id, req.params.id, req.params.pid, 'approve');
+    ok(res, { proposal: wpDesign.proposalView(p) });
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.code === 'INVALID' ? 409 : 500);
+  }
+});
+
+router.post('/wordpress/:id/design/proposals/:pid/reject', requireClient, actionLimit, async (req, res) => {
+  try {
+    const wpDesign = require('../wpDesign');
+    const p = await wpDesign.decideProposal(req.client.workspace_id, req.params.id, req.params.pid, 'reject');
+    ok(res, { proposal: wpDesign.proposalView(p) });
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.code === 'INVALID' ? 409 : 500);
+  }
+});
+
+router.post('/wordpress/:id/design/proposals/:pid/undo', requireClient, actionLimit, async (req, res) => {
+  try {
+    const wpDesign = require('../wpDesign');
+    const p = await wpDesign.decideProposal(req.client.workspace_id, req.params.id, req.params.pid, 'undo');
+    ok(res, { proposal: wpDesign.proposalView(p) });
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.code === 'INVALID' ? 409 : 500);
+  }
+});
+
+router.get('/wordpress/:id/design/proposals/:pid/preview', requireClient, async (req, res) => {
+  try {
+    const wpPlugin = require('../wpPlugin');
+    const wpDesign = require('../wpDesign');
+    const link = await wpPlugin.findById(req.client.workspace_id, req.params.id);
+    if (!link) return fail(res, Object.assign(new Error('That WordPress connection was not found'), { code: 'NOT_FOUND' }), 404);
+    const data = await wpDesign.mintPreview(link, req.params.pid);
+    ok(res, data);
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.code === 'INVALID' ? 409 : 500);
+  }
+});
+
 router.get('/calendar', requireClient, async (req, res) => {
   try {
     const data = await portal.calendarPosts(req.client.workspace_id, req.client.lead_id, {

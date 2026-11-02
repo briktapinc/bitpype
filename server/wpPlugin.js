@@ -128,6 +128,39 @@ async function findById(workspaceId, id) {
   return rows && rows[0] ? rows[0] : null;
 }
 
+/** Plugin capabilities a row has reported (Batch 117). */
+function capsOf(row) {
+  const raw = row && row.plugin_caps ? String(row.plugin_caps) : '';
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed.map((c) => String(c)).slice(0, 12);
+  } catch {
+    /* fall through to comma split */
+  }
+  return raw
+    .split(',')
+    .map((c) => c.trim())
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+/**
+ * Batch 117 — design editing needs plugin v2. A registration is
+ * design-capable when the plugin reported the 'design1' capability
+ * (or a >= 2.0.0 version — the capability is authoritative, the
+ * version is the fallback for early v2 builds). A v1 plugin (or a
+ * registration that has never reported) is forms-only, and the
+ * portal shows it as "update available" instead of failing.
+ */
+function designCapable(row) {
+  if (!row) return false;
+  if (capsOf(row).includes('design1')) return true;
+  const v = String(row.plugin_version || '');
+  const m = v.match(/^(\d+)\.(\d+)\.(\d+)/);
+  return !!m && Number(m[1]) >= 2;
+}
+
 function publicView(row, downloaderEmail) {
   return {
     id: Number(row.id),
@@ -137,6 +170,10 @@ function publicView(row, downloaderEmail) {
     siteName: row.site_name || null,
     adminEmail: row.admin_email || null,
     disconnectReason: row.disconnect_reason || null,
+    pluginVersion: row.plugin_version || null,
+    pluginCaps: capsOf(row),
+    designCapable: designCapable(row),
+    censusAt: row.census_at || null,
     downloadedBy: downloaderEmail || null,
     createdAt: row.created_at || null,
     registeredAt: row.registered_at || null,
@@ -216,11 +253,13 @@ async function registerSite(input = {}) {
   const siteUrl = normalizeSiteUrl(input.siteUrl);
   const siteName = clampText(input.siteName, 300);
   const adminEmail = clampText(input.adminEmail, 320);
+  const pluginInfo = sanitizePluginInfo(input);
   const siteKey = newSecret(SITE_KEY_PREFIX);
   await db.query(
     `UPDATE wp_site_links
         SET status = 'connected', site_url = :url, site_name = :name, admin_email = :email,
             site_key_hash = :khash, site_key_prefix = :kprefix, disconnect_reason = NULL,
+            plugin_version = :pver, plugin_caps = :pcaps,
             registered_at = UTC_TIMESTAMP(), last_seen_at = UTC_TIMESTAMP()
       WHERE id = :id AND status = 'minted'`,
     {
@@ -229,6 +268,8 @@ async function registerSite(input = {}) {
       email: adminEmail || null,
       khash: sha256hex(siteKey),
       kprefix: siteKey.slice(0, 12),
+      pver: pluginInfo.version,
+      pcaps: pluginInfo.capsJson,
       id: Number(row.id),
     }
   );
@@ -244,6 +285,47 @@ async function registerSite(input = {}) {
     );
   }
   return { linkId: Number(row.id), workspaceId: Number(row.workspace_id), siteKey, siteUrl };
+}
+
+/**
+ * Batch 117 — the capability handshake. The plugin reports its
+ * version + capability set on register and on every ping; the
+ * platform stores the latest report on the registration row. Both
+ * fields are strictly sanitized (short version string, short list
+ * of short capability slugs) — they are display/gating data only.
+ */
+function sanitizePluginInfo(input = {}) {
+  const versionRaw = String(input.pluginVersion || input.plugin_version || '').trim();
+  const version = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]{0,20})?$/.test(versionRaw) ? versionRaw : null;
+  let caps = input.capabilities || input.caps || null;
+  if (typeof caps === 'string') caps = caps.split(',');
+  const clean = [];
+  if (Array.isArray(caps)) {
+    for (const c of caps) {
+      const s = String(c || '')
+        .trim()
+        .toLowerCase()
+        .slice(0, 24);
+      if (/^[a-z0-9][a-z0-9-]*$/.test(s) && !clean.includes(s)) clean.push(s);
+      if (clean.length >= 12) break;
+    }
+  }
+  return { version, caps: clean, capsJson: clean.length ? JSON.stringify(clean) : null };
+}
+
+/** Record a ping/register capability report on the row (no-op when empty). */
+async function notePluginInfo(row, input = {}) {
+  const info = sanitizePluginInfo(input);
+  if (!info.version && !info.capsJson) return;
+  await db.query(
+    `UPDATE wp_site_links
+        SET plugin_version = COALESCE(:pver, plugin_version),
+            plugin_caps = COALESCE(:pcaps, plugin_caps)
+      WHERE id = :id`,
+    { pver: info.version, pcaps: info.capsJson, id: Number(row.id) }
+  );
+  if (info.version) row.plugin_version = info.version;
+  if (info.capsJson) row.plugin_caps = info.capsJson;
 }
 
 // ------------------------------------------------------------------
@@ -514,5 +596,10 @@ module.exports = {
   buildPluginZip,
   zipStore,
   crc32,
+  findById,
+  capsOf,
+  designCapable,
+  sanitizePluginInfo,
+  notePluginInfo,
   _internals: { sha256hex, normalizeSiteUrl, TOKEN_RE, SITE_KEY_RE },
 };

@@ -20,6 +20,7 @@
 
 const express = require('express');
 const wpPlugin = require('../wpPlugin');
+const wpDesign = require('../wpDesign');
 const { rateLimit } = require('../rateLimit');
 const apiErrors = require('../apiErrors');
 
@@ -69,6 +70,8 @@ router.post('/register', registerLimit, async (req, res) => {
       siteUrl: body.site_url || body.siteUrl,
       siteName: body.site_name || body.siteName,
       adminEmail: body.admin_email || body.adminEmail,
+      pluginVersion: body.plugin_version || body.pluginVersion,
+      capabilities: body.capabilities || body.caps,
     });
     res.json({
       ok: true,
@@ -103,6 +106,9 @@ router.post('/ping', siteLimit, requireSiteKey, async (req, res) => {
     if (!['active', 'status', 'deactivated', 'uninstalled'].includes(state)) {
       return res.status(400).json({ ok: false, error: 'Unknown ping state', code: 'INVALID' });
     }
+    // Batch 117: every ping doubles as the capability handshake —
+    // a plugin updated in place reports its new version/caps here.
+    await wpPlugin.notePluginInfo(req.wpSite, req.body || {});
     const data = await wpPlugin.pingSite(req.wpSite, state);
     res.json({ ok: true, data });
   } catch (e) {
@@ -114,6 +120,79 @@ router.post('/disconnect', siteLimit, requireSiteKey, async (req, res) => {
   try {
     const data = await wpPlugin.disconnectSite(req.wpSite, req.body && req.body.reason);
     res.json({ ok: true, data });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Batch 117 — design editing (plugin v2, capability 'design1').
+// Same fail-closed posture as /forms: a revoked site is refused by
+// requireSiteKey (410), a disconnected one gets 409 here, and a
+// plugin that never reported the design capability gets 409
+// UPDATE_REQUIRED — it should update, not improvise.
+// ---------------------------------------------------------------------------
+
+async function requireDesignSite(req, res, next) {
+  try {
+    req.wpSite = await wpPlugin.requireSite(siteKeyFromReq(req));
+  } catch (e) {
+    return fail(res, e);
+  }
+  if (req.wpSite.status !== 'connected') {
+    return res.status(409).json({
+      ok: false,
+      error: 'This site is not currently connected',
+      code: 'SITE_DISCONNECTED',
+      status: req.wpSite.status,
+    });
+  }
+  if (!wpPlugin.designCapable(req.wpSite)) {
+    return res.status(409).json({
+      ok: false,
+      error: 'This plugin version does not support design editing',
+      code: 'UPDATE_REQUIRED',
+    });
+  }
+  return next();
+}
+
+router.post('/design/census', siteLimit, requireDesignSite, async (req, res) => {
+  try {
+    await wpPlugin.notePluginInfo(req.wpSite, req.body || {});
+    const census = await wpDesign.storeCensus(req.wpSite, (req.body && req.body.census) || req.body || {});
+    await wpPlugin.pingSite(req.wpSite, 'status');
+    res.json({ ok: true, data: { stored: true, pages: census.pages.length } });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.get('/design/sync', siteLimit, requireDesignSite, async (req, res) => {
+  try {
+    const data = await wpDesign.syncForSite(req.wpSite);
+    res.json({ ok: true, data });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/design/report', siteLimit, requireDesignSite, async (req, res) => {
+  try {
+    const results = await wpDesign.reportFromSite(req.wpSite, (req.body && req.body.results) || []);
+    res.json({ ok: true, data: { results } });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.get('/design/preview', siteLimit, requireDesignSite, async (req, res) => {
+  try {
+    const staged = await wpDesign.validatePreview(req.wpSite, req.query.token);
+    if (!staged) {
+      return res.status(404).json({ ok: false, error: 'No staged preview for that token', code: 'NO_PREVIEW' });
+    }
+    res.json({ ok: true, data: staged });
   } catch (e) {
     fail(res, e);
   }
