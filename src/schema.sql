@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS leads (
   email TEXT,
   email_norm TEXT DEFAULT '', -- normalizeEmail(email): trim+lowercase; one-email-one-lead key
   website TEXT,
+  website_kind TEXT DEFAULT 'bitpype', -- Batch 116: 'bitpype' (default — the lead's website story is a BitPype build) | 'external' (their live site lives outside BitPype; `website` holds its URL)
+  website_platform TEXT,               -- Batch 116: 'wordpress' | 'other' — only meaningful when website_kind='external', else NULL
   address TEXT,
   city TEXT,
   state TEXT,

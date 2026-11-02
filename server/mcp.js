@@ -1510,6 +1510,17 @@ function toolDefs({ clientScoped = false } = {}) {
           city: { type: 'string' },
           category: { type: 'string' },
           website: { type: 'string' },
+          website_kind: {
+            type: 'string',
+            enum: ['bitpype', 'external'],
+            description:
+              "Batch 116: 'bitpype' (default) = the website is a BitPype build; 'external' = their live site lives outside BitPype — then `website` must be its valid URL.",
+          },
+          website_platform: {
+            type: 'string',
+            enum: ['wordpress', 'other'],
+            description: "Batch 116: where an external site lives; only with website_kind='external' (default 'other').",
+          },
           status: { type: 'string' },
           notes: { type: 'string' },
         },
@@ -1519,7 +1530,15 @@ function toolDefs({ clientScoped = false } = {}) {
     {
       name: 'lead.update',
       description: 'Update a lead.',
-      inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'integer' },
+          website_kind: { type: 'string', enum: ['bitpype', 'external'] },
+          website_platform: { type: 'string', enum: ['wordpress', 'other'] },
+        },
+        required: ['id'],
+      },
     },
     {
       name: 'lead.delete',

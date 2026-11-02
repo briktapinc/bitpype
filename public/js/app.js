@@ -1718,7 +1718,7 @@ async function pageLeads(param, query) {
         .map(
           (l) => `<tr>
       <td><input type="checkbox" class="row-check" data-id="${l.id}" ${leadsState.selected.has(l.id) ? 'checked' : ''} aria-label="Select lead" /></td>
-      <td><button class="link-btn" data-act="open" data-id="${l.id}">${esc(l.business_name)}</button>${l.qualified ? ' <span class="badge ok">qualified</span>' : ''}<div class="hint">${esc(l.email || '')}</div></td>
+      <td><button class="link-btn" data-act="open" data-id="${l.id}">${esc(l.business_name)}</button>${l.qualified ? ' <span class="badge ok">qualified</span>' : ''}${l.website_kind === 'external' ? ` <span class="badge">${esc(l.website_platform === 'wordpress' ? 'WordPress' : 'External')} · external</span>` : ''}<div class="hint">${esc(l.email || '')}${l.website_kind === 'external' && l.website ? ` · <a href="${esc(l.website)}" target="_blank" rel="noopener">${esc(l.website)}</a>` : ''}</div></td>
       <td>${esc(l.lead_group || '—')}</td>
       <td>${esc(l.category || '—')}</td>
       <td>${
@@ -1940,6 +1940,17 @@ function openAddLeadModal() {
         <div class="field"><label>City</label><input name="city" /></div>
         <div class="field"><label>State</label><input name="state" /></div>
       </div>
+      <div class="row">
+        <div class="field"><label>Website home</label><select name="website_kind">
+          <option value="bitpype">BitPype site</option>
+          <option value="external">External site (already live elsewhere)</option>
+        </select></div>
+        <div class="field"><label>External platform</label><select name="website_platform">
+          <option value="wordpress">WordPress</option>
+          <option value="other">Other</option>
+        </select></div>
+      </div>
+      <p class="hint">External site: the Website above must be their live site URL — it is managed outside BitPype, and the build flow stays off for this lead until its home is switched back to BitPype.</p>
       <div class="field"><label>Tags (comma separated)</label><input name="tags" /></div>
       <div class="field"><label>Notes</label><textarea name="notes" style="min-height:60px"></textarea></div>
       <div class="msg" id="al-msg"></div></form>`,
@@ -2738,6 +2749,26 @@ async function pageLeadDetail(id, query) {
         (lead.tags || []).includes('landing-software') ||
         (lead.tags || []).includes('software-interest'));
 
+    // Batch 116: the Website section reflects the lead's website home.
+    // An external lead shows its live external site; if it ALSO has a
+    // BitPype site, both facts show (the kind flag never unlinks a
+    // site). The build affordance appears only for BitPype-home leads.
+    const isExternalLead = lead.website_kind === 'external';
+    const extSiteHtml = isExternalLead
+      ? `<p><span class="badge">External site · ${esc(lead.website_platform === 'wordpress' ? 'WordPress' : 'Other')}</span>
+           ${lead.website ? `<a href="${esc(lead.website)}" target="_blank" rel="noopener">${esc(lead.website)}</a>` : ''}</p>
+         <p class="hint">Managed outside BitPype — BitPype does not build over it.${lead.website_platform === 'wordpress' ? ' WordPress sites connect through the free BitPype plugin: the client downloads it in their portal, under WordPress.' : ''}</p>`
+      : '';
+    const bitpypeSiteHtml = site
+      ? `<p><a href="#/websites/${site.id}">${esc(site.name)}</a> ${statusBadge(site.status)}</p>
+           <div class="inline" style="margin-top:8px">
+             <button class="btn small" data-act="postcard">Postcard / QR</button>
+           </div>
+           <div id="ld-claim-kit" class="hint" style="margin-top:8px"></div>`
+      : isExternalLead
+        ? ''
+        : `<p class="hint">No website yet.</p><button class="btn small" data-act="gen">Build template site</button>`;
+
     dr.title.textContent = lead.business_name || 'Lead #' + id;
     dr.body.innerHTML = `
       <div class="inline lead-actions">
@@ -2765,6 +2796,17 @@ async function pageLeadDetail(id, query) {
             <div class="field"><label>Website</label><input name="website" value="${esc(lead.website || '')}" /></div>
             <div class="field"><label>City</label><input name="city" value="${esc(lead.city || '')}" /></div>
           </div>
+          <div class="row">
+            <div class="field"><label>Website home</label><select name="website_kind" id="ld-kind">
+              <option value="bitpype" ${lead.website_kind !== 'external' ? 'selected' : ''}>BitPype site</option>
+              <option value="external" ${lead.website_kind === 'external' ? 'selected' : ''}>External site</option>
+            </select></div>
+            <div class="field"><label>External platform</label><select name="website_platform" id="ld-platform">
+              <option value="wordpress" ${lead.website_platform === 'wordpress' ? 'selected' : ''}>WordPress</option>
+              <option value="other" ${lead.website_platform !== 'wordpress' ? 'selected' : ''}>Other</option>
+            </select></div>
+          </div>
+          ${lead.website_kind === 'external' ? '<p class="hint">External: the Website above is their live site URL, managed outside BitPype.</p>' : ''}
           <div class="field"><label>Notes</label><textarea name="notes" style="min-height:60px">${esc(lead.notes || '')}</textarea></div>
           <div class="inline"><button class="btn primary small" type="submit">Save changes</button><span class="msg" id="ld-msg"></span></div>
         </form>
@@ -2783,15 +2825,7 @@ async function pageLeadDetail(id, query) {
           .join('')}
       </section>
       <section><h3>Website</h3>
-        ${
-          site
-            ? `<p><a href="#/websites/${site.id}">${esc(site.name)}</a> ${statusBadge(site.status)}</p>
-           <div class="inline" style="margin-top:8px">
-             <button class="btn small" data-act="postcard">Postcard / QR</button>
-           </div>
-           <div id="ld-claim-kit" class="hint" style="margin-top:8px"></div>`
-            : `<p class="hint">No website yet.</p><button class="btn small" data-act="gen">Build template site</button>`
-        }
+        ${extSiteHtml}${bitpypeSiteHtml}
       </section>
       <section><h3>Onboarding checklist</h3>
         <div id="ld-onboarding"><p class="hint">Loading…</p></div>
@@ -2839,6 +2873,19 @@ async function pageLeadDetail(id, query) {
     loadLeadGbp(dr, id);
     loadLeadOnboarding(dr, id);
     if (isSoftwareLead) loadLeadHostinger(dr, id);
+
+    // Batch 116: the platform picker only applies to external leads
+    // (FormData skips disabled fields; the server also forces the
+    // platform to NULL whenever the kind is BitPype).
+    const kindSel = $('#ld-kind', dr.el);
+    const platSel = $('#ld-platform', dr.el);
+    if (kindSel && platSel) {
+      const syncPlat = () => {
+        platSel.disabled = kindSel.value !== 'external';
+      };
+      kindSel.addEventListener('change', syncPlat);
+      syncPlat();
+    }
 
     guardSubmit($('#ld-form', dr.el), async (e) => {
       e.preventDefault();
@@ -3148,13 +3195,32 @@ async function pageWebsites(param) {
       <h3>Build a website for a lead</h3>
       <div class="row end">
         <div class="field" style="flex:2"><label class="lbl">Lead</label><div id="w-lead"></div></div>
-        <div class="field" style="max-width:200px"><label class="lbl" for="w-shape">Site shape</label>
-          <select id="w-shape"><option value="multipage">Multi-page</option><option value="landing">Landing page</option></select></div>
+        <div class="field" style="max-width:230px"><label class="lbl" for="w-kind">Website home</label>
+          <select id="w-kind"><option value="bitpype">BitPype site</option><option value="external">External site</option></select></div>
       </div>
-      <div class="inline">
-        <button class="btn primary" data-act="assign">Assign to design agent</button>
-        <button class="btn" data-act="template">Build template site</button>
-        <span class="msg" id="w-msg"></span>
+      <div id="w-bitpype-pane">
+        <div class="row end">
+          <div class="field" style="max-width:200px"><label class="lbl" for="w-shape">Site shape</label>
+            <select id="w-shape"><option value="multipage">Multi-page</option><option value="landing">Landing page</option></select></div>
+        </div>
+        <div class="inline">
+          <button class="btn primary" data-act="assign">Assign to design agent</button>
+          <button class="btn" data-act="template">Build template site</button>
+          <span class="msg" id="w-msg"></span>
+        </div>
+        <p class="hint" id="w-switch-hint" hidden>This lead is marked as an external site, so the builders stay off it. <button type="button" class="link-btn" data-act="kind-save">Switch it to a BitPype site</button> to build here — its external URL stays on the lead's record.</p>
+      </div>
+      <div id="w-external-pane" hidden>
+        <div class="row end">
+          <div class="field" style="flex:2"><label class="lbl" for="w-ext-url">External site URL</label><input id="w-ext-url" type="url" placeholder="https://example.com" /></div>
+          <div class="field" style="max-width:200px"><label class="lbl" for="w-ext-platform">Platform</label>
+            <select id="w-ext-platform"><option value="wordpress">WordPress</option><option value="other">Other</option></select></div>
+        </div>
+        <div class="inline">
+          <button class="btn primary" data-act="ext-save">Save external site</button>
+          <span class="msg" id="w-ext-msg"></span>
+        </div>
+        <p class="hint" id="w-ext-note"></p>
       </div>
     </div>
     <div class="toolbar">
@@ -3166,7 +3232,70 @@ async function pageWebsites(param) {
     </table></div>
     <div class="pagination" id="w-pager"></div>`;
 
-  const picker = mountLeadPicker($('#w-lead'));
+  // Batch 116 — the build card follows the selected lead's website
+  // home. External leads get the external pane (URL + platform + save)
+  // instead of the builders; the builders stay disarmed until an
+  // external lead is deliberately switched back to a BitPype home.
+  let cardLead = null;
+  const sitesCountByLead = new Map();
+
+  function refreshExtNote() {
+    const note = $('#w-ext-note');
+    if (!note) return;
+    const platformSel = $('#w-ext-platform');
+    const platform = platformSel ? platformSel.value : 'other';
+    let text =
+      'This website is managed outside BitPype. Saving marks the lead external — the design agent and the template builder stay off it.';
+    if (platform === 'wordpress') {
+      text +=
+        ' WordPress sites connect through the free BitPype plugin: the client downloads it in their portal, under WordPress.';
+    }
+    const n = cardLead ? sitesCountByLead.get(Number(cardLead.id)) || 0 : 0;
+    if (n > 0) {
+      text +=
+        ' Heads up: this lead also has a BitPype site on record — marking it external does not delete or unlink it; both stay on record.';
+    }
+    note.textContent = text;
+  }
+
+  function applyKindPanes(kind) {
+    const bp = $('#w-bitpype-pane');
+    const ext = $('#w-external-pane');
+    if (!bp || !ext) return;
+    const stored = cardLead && cardLead.website_kind === 'external' ? 'external' : 'bitpype';
+    const isExt = kind === 'external';
+    bp.hidden = isExt;
+    ext.hidden = !isExt;
+    if (isExt) {
+      $('#w-ext-url').value = (cardLead && cardLead.website) || '';
+      $('#w-ext-platform').value =
+        cardLead && cardLead.website_platform === 'wordpress' ? 'wordpress' : 'other';
+      setMsg($('#w-ext-msg'), '');
+      refreshExtNote();
+    } else {
+      const blocked = !!cardLead && stored === 'external';
+      const hint = $('#w-switch-hint');
+      if (hint) hint.hidden = !blocked;
+      const assignBtn = view.querySelector('[data-act="assign"]');
+      const tplBtn = view.querySelector('[data-act="template"]');
+      if (assignBtn) assignBtn.disabled = blocked;
+      if (tplBtn) tplBtn.disabled = blocked;
+    }
+  }
+
+  function syncKindCard(lead) {
+    cardLead = lead || null;
+    const kindSel = $('#w-kind');
+    if (!kindSel) return;
+    kindSel.disabled = !cardLead;
+    kindSel.value = cardLead && cardLead.website_kind === 'external' ? 'external' : 'bitpype';
+    applyKindPanes(kindSel.value);
+  }
+
+  const picker = mountLeadPicker($('#w-lead'), { onChange: (lead) => syncKindCard(lead) });
+  syncKindCard(null);
+  $('#w-kind').addEventListener('change', (e) => applyKindPanes(e.target.value));
+  $('#w-ext-platform').addEventListener('change', () => refreshExtNote());
 
   const sitesGate = latestGate();
   async function load() {
@@ -3184,6 +3313,14 @@ async function pageWebsites(param) {
     if (!mine() || !body) return;
     const d = r.data || {};
     const sites = asList(d, ['sites', 'rows']);
+    // Batch 116: per-lead BitPype-site counts feed the build card's
+    // external-pane conflict note.
+    sitesCountByLead.clear();
+    for (const s of sites) {
+      const k = Number(s.lead_id);
+      if (k) sitesCountByLead.set(k, (sitesCountByLead.get(k) || 0) + 1);
+    }
+    if (cardLead && cardLead.website_kind === 'external') refreshExtNote();
     body.innerHTML =
       sites
         .map(
@@ -3235,10 +3372,69 @@ The site will be soft-deleted: it disappears from public view and the Websites l
         toast(errText(e), 'err');
       }
     },
+    'ext-save': async () => {
+      const lead = picker.get();
+      if (!lead) {
+        setMsg($('#w-ext-msg'), 'Select a lead first.', 'err');
+        return;
+      }
+      const url = $('#w-ext-url').value.trim();
+      const platform = $('#w-ext-platform').value;
+      setMsg($('#w-ext-msg'), 'Saving…');
+      try {
+        const r = await api.patchLead(lead.id, {
+          website_kind: 'external',
+          website_platform: platform,
+          website: url,
+        });
+        const updated = (r && r.data && r.data.lead) || {
+          ...lead,
+          website_kind: 'external',
+          website_platform: platform,
+          website: url,
+        };
+        if (typeof picker.set === 'function') picker.set(updated);
+        cardLead = updated;
+        syncKindCard(updated);
+        setMsg($('#w-ext-msg'), "Saved — this lead's website home is external.", 'ok');
+        toast('External website saved', 'ok');
+      } catch (e) {
+        setMsg($('#w-ext-msg'), errText(e), 'err');
+      }
+    },
+    'kind-save': async () => {
+      const lead = picker.get();
+      if (!lead) return;
+      try {
+        const r = await api.patchLead(lead.id, { website_kind: 'bitpype' });
+        const updated = (r && r.data && r.data.lead) || {
+          ...lead,
+          website_kind: 'bitpype',
+          website_platform: null,
+        };
+        if (typeof picker.set === 'function') picker.set(updated);
+        cardLead = updated;
+        syncKindCard(updated);
+        setMsg($('#w-msg'), "Switched — this lead's website home is BitPype now.", 'ok');
+        toast('Lead switched to a BitPype site', 'ok');
+      } catch (e) {
+        setMsg($('#w-msg'), errText(e), 'err');
+      }
+    },
     assign: async () => {
       const lead = picker.get();
       if (!lead) {
         setMsg($('#w-msg'), 'Select a lead first.', 'err');
+        return;
+      }
+      // Batch 116: never run a builder over an external-home lead.
+      const kindSource = cardLead && Number(cardLead.id) === Number(lead.id) ? cardLead : lead;
+      if (kindSource.website_kind === 'external') {
+        setMsg(
+          $('#w-msg'),
+          "This lead's website is external — switch its home to BitPype to build here.",
+          'err'
+        );
         return;
       }
       setMsg($('#w-msg'), 'Assigning to the agent…');
@@ -3250,6 +3446,16 @@ The site will be soft-deleted: it disappears from public view and the Websites l
       const lead = picker.get();
       if (!lead) {
         setMsg($('#w-msg'), 'Select a lead first.', 'err');
+        return;
+      }
+      // Batch 116: never run a builder over an external-home lead.
+      const kindSource = cardLead && Number(cardLead.id) === Number(lead.id) ? cardLead : lead;
+      if (kindSource.website_kind === 'external') {
+        setMsg(
+          $('#w-msg'),
+          "This lead's website is external — switch its home to BitPype to build here.",
+          'err'
+        );
         return;
       }
       if (!window.confirm('Build a local template site? This replaces an agent delivery for that lead.')) return;

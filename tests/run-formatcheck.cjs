@@ -30,6 +30,7 @@ const SCOPE = [
   'server/routes/wordpressPublic.js',
   'tests/batch114-wordpress-plugin-regressions.cjs',
   'tests/batch115-catalog-scroll-row-regressions.cjs',
+  'tests/batch116-external-website-kind-regressions.cjs',
   'tsconfig.checkjs.json',
 ];
 

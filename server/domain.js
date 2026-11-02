@@ -138,6 +138,14 @@ function leadsList(workspaceId, filters = {}) {
           }
         })(),
         qualified: Boolean(r.qualified),
+        // Batch 116: same read-normalization as leadEngine.rowToLead —
+        // this list does its own SQL and may hit a workspace DB whose
+        // leads table predates the kind columns.
+        website_kind: r.website_kind === 'external' ? 'external' : 'bitpype',
+        website_platform:
+          r.website_kind === 'external' && (r.website_platform === 'wordpress' || r.website_platform === 'other')
+            ? r.website_platform
+            : null,
       }));
     return { leads: rows, rows, total, page, pageSize };
   });

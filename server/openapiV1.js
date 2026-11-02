@@ -137,6 +137,8 @@ function buildOpenApi() {
                     city: { type: 'string' },
                     category: { type: 'string' },
                     website: { type: 'string' },
+                    website_kind: { type: 'string', enum: ['bitpype', 'external'] },
+                    website_platform: { type: 'string', enum: ['wordpress', 'other'] },
                     status: { type: 'string' },
                     notes: { type: 'string' },
                   },

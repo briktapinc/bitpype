@@ -55,6 +55,17 @@ const STRONG_CATEGORIES = [
 
 const CLAIM_CLASSES = ['VERIFIED', 'AI_COPY', 'OWNER_PROVIDED', 'UNKNOWN'];
 
+// Batch 116 — a lead's website home. 'bitpype' (the default) means the
+// website story is a BitPype build (the `websites` table + the build
+// flow), exactly as before this batch. 'external' means their live site
+// lives OUTSIDE BitPype: the existing `website` column then holds that
+// site's URL and `website_platform` says where it lives. The kind flag
+// never creates, deletes or unlinks a BitPype site — a lead can carry
+// both facts (a BitPype site AND an external site); the flag only says
+// which one is the lead's primary website home.
+const WEBSITE_KINDS = ['bitpype', 'external'];
+const WEBSITE_PLATFORMS = ['wordpress', 'other'];
+
 const LEAD_STATUSES = [
   'new',
   'researching',
@@ -239,6 +250,21 @@ function ensureLeadColumns(db) {
   if (!cols.length) return;
   if (!cols.some((c) => c.name === 'lead_group')) {
     db.exec('ALTER TABLE leads ADD COLUMN lead_group TEXT');
+  }
+  // Batch 116: website_kind / website_platform (see WEBSITE_KINDS).
+  if (!cols.some((c) => c.name === 'website_kind')) {
+    try {
+      db.exec("ALTER TABLE leads ADD COLUMN website_kind TEXT NOT NULL DEFAULT 'bitpype'");
+    } catch {
+      /* ignore */
+    }
+  }
+  if (!cols.some((c) => c.name === 'website_platform')) {
+    try {
+      db.exec('ALTER TABLE leads ADD COLUMN website_platform TEXT');
+    } catch {
+      /* ignore */
+    }
   }
   // email_norm backs the one-email-one-lead rule (see normalizeEmail):
   // every lead write maintains it, and a partial unique index over the
@@ -483,6 +509,14 @@ function rowToLead(row) {
     social_links: fromJson(row.social_links, []),
     tags: fromJson(row.tags, []),
     qualified: Boolean(row.qualified),
+    // Batch 116: normalize on read so rows written before the columns
+    // existed (or by any other path) always expose a sane kind pair.
+    website_kind: row.website_kind === 'external' ? 'external' : 'bitpype',
+    website_platform:
+      row.website_kind === 'external' &&
+      (row.website_platform === 'wordpress' || row.website_platform === 'other')
+        ? row.website_platform
+        : null,
   };
 }
 
@@ -525,6 +559,37 @@ function findLeadByEmail(db, email, excludeIds) {
 /* CRUD                                                                */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Batch 116 — resolve + validate the website-kind fields from RAW input
+ * (normalizeToLead intentionally stays provider-shaped, so the kind is
+ * read from `data` itself; updateLead passes the merged row, whose
+ * rowToLead output always carries a kind, so partial updates preserve
+ * it). `lead` is the normalized lead (for the website URL check).
+ * Rules: kind defaults to 'bitpype'; 'external' REQUIRES a valid
+ * http(s) website URL and a platform ('wordpress' | 'other', default
+ * 'other'); 'bitpype' always stores platform NULL.
+ */
+function normalizeWebsiteKind(data, lead) {
+  const rawKind = data.website_kind == null ? null : String(data.website_kind).trim().toLowerCase();
+  if (rawKind != null && rawKind !== '' && !WEBSITE_KINDS.includes(rawKind)) {
+    throw validationError(`invalid website_kind: ${data.website_kind}`);
+  }
+  const kind = rawKind ? rawKind : 'bitpype';
+  let platform = null;
+  if (kind === 'external') {
+    const rawPlatform =
+      data.website_platform == null ? null : String(data.website_platform).trim().toLowerCase();
+    if (rawPlatform != null && rawPlatform !== '' && !WEBSITE_PLATFORMS.includes(rawPlatform)) {
+      throw validationError(`invalid website_platform: ${data.website_platform}`);
+    }
+    platform = rawPlatform ? rawPlatform : 'other';
+    if (!lead.website || !isValidUrl(lead.website)) {
+      throw validationError('a valid website URL is required for an external website');
+    }
+  }
+  return { website_kind: kind, website_platform: platform };
+}
+
 /** Validate + normalize lead input. Throws VALIDATION_ERROR. */
 function validateLeadInput(data) {
   const lead = normalizeToLead(data || {});
@@ -550,6 +615,11 @@ function validateLeadInput(data) {
   if (data.tags !== undefined && !Array.isArray(data.tags)) {
     throw validationError('tags must be an array');
   }
+  // Batch 116: website kind/platform ride along on the normalized lead
+  // so createLead/updateLead persist them with the rest of the row.
+  const kindFields = normalizeWebsiteKind(data || {}, lead);
+  lead.website_kind = kindFields.website_kind;
+  lead.website_platform = kindFields.website_platform;
   return lead;
 }
 
@@ -573,12 +643,12 @@ function createLead(db, data) {
 
   const stmt = db.prepare(`
     INSERT INTO leads
-      (business_name, category, phone, email, email_norm, website, address, city, state,
+      (business_name, category, phone, email, email_norm, website, website_kind, website_platform, address, city, state,
        postal_code, country, latitude, longitude, rating, review_count,
        description, hours, services, social_links, source, source_ref,
        status, tags, lead_group, notes)
     VALUES
-      (@business_name, @category, @phone, @email, @email_norm, @website, @address, @city, @state,
+      (@business_name, @category, @phone, @email, @email_norm, @website, @website_kind, @website_platform, @address, @city, @state,
        @postal_code, @country, @latitude, @longitude, @rating, @review_count,
        @description, @hours, @services, @social_links, @source, @source_ref,
        @status, @tags, @lead_group, @notes)
@@ -593,6 +663,8 @@ function createLead(db, data) {
       phone: null,
       email: null,
       website: null,
+      website_kind: 'bitpype',
+      website_platform: null,
       address: null,
       city: null,
       state: null,
@@ -668,7 +740,8 @@ function updateLead(db, id, obj) {
         `
     UPDATE leads SET
       business_name=@business_name, category=@category, phone=@phone,
-      email=@email, email_norm=@email_norm, website=@website, address=@address, city=@city,
+      email=@email, email_norm=@email_norm, website=@website, website_kind=@website_kind,
+      website_platform=@website_platform, address=@address, city=@city,
       state=@state, postal_code=@postal_code, country=@country,
       latitude=@latitude, longitude=@longitude, rating=@rating,
       review_count=@review_count, description=@description,
@@ -686,6 +759,8 @@ function updateLead(db, id, obj) {
         phone: null,
         email: null,
         website: null,
+        website_kind: 'bitpype',
+        website_platform: null,
         address: null,
         city: null,
         state: null,
