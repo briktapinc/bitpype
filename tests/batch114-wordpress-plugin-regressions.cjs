@@ -403,6 +403,14 @@ function unzipStore(buf) {
     view = await viewOf();
     assert.equal(view.status, 'disconnected', 'a status ping never reconnects a disconnected site');
     n += 1;
+    // Deactivate-then-delete (the normal WP flow): the uninstall
+    // signal still updates the recorded reason without resurrecting
+    // the connection — via the ping path here…
+    await wpPlugin.pingSite(siteRow, 'uninstalled');
+    view = await viewOf();
+    assert.equal(view.status, 'disconnected', 'uninstall after deactivation keeps the site disconnected');
+    assert.equal(view.disconnectReason, 'uninstalled', 'uninstall reason recorded over the deactivation');
+    n += 2;
     await wpPlugin.pingSite(siteRow, 'active');
     view = await viewOf();
     assert.equal(view.status, 'connected', 'reactivation reconnects the SAME registration');
@@ -432,6 +440,20 @@ function unzipStore(buf) {
       'a fresh download registers a second site independently'
     );
     n += 1;
+    // …and the uninstall-reason rule via the disconnect path, on
+    // the second registration: deactivated by ping first, then the
+    // uninstall goodbye records the stronger reason.
+    const siteRow2 = await wpPlugin.requireSite(reg2.siteKey);
+    await wpPlugin.pingSite(siteRow2, 'deactivated');
+    await wpPlugin.disconnectSite(siteRow2, 'uninstalled');
+    const view2 = (await wpPlugin.listDownloads(1)).find((d) => d.id === reg2.linkId);
+    assert.equal(view2.status, 'disconnected', 'second site stays disconnected through its uninstall goodbye');
+    assert.equal(
+      view2.disconnectReason,
+      'uninstalled',
+      'disconnect endpoint records the uninstall reason over a deactivation'
+    );
+    n += 2;
     let revokedLinkErr = null;
     try {
       await wpPlugin.registerSite({

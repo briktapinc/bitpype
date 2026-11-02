@@ -302,6 +302,16 @@ async function pingSite(row, state) {
       );
       row.status = 'disconnected';
       row.disconnect_reason = s;
+    } else if (s === 'uninstalled' && row.status === 'disconnected' && row.disconnect_reason !== 'uninstalled') {
+      // Deactivate-then-delete is the normal WP flow: the later
+      // uninstall signal still lands so the portal can tell a
+      // removed plugin (credential wiped — gone for good) from a
+      // merely deactivated one (reactivation would reconnect it).
+      await db.query(
+        `UPDATE wp_site_links SET disconnect_reason = 'uninstalled', last_seen_at = UTC_TIMESTAMP() WHERE id = :id`,
+        { id: Number(row.id) }
+      );
+      row.disconnect_reason = 'uninstalled';
     }
   } else {
     if (row.status === 'disconnected') {
@@ -330,6 +340,14 @@ async function disconnectSite(row, reason) {
     );
     row.status = 'disconnected';
     row.disconnect_reason = r;
+  } else if (r === 'uninstalled' && row.status === 'disconnected' && row.disconnect_reason !== 'uninstalled') {
+    // Same rule as pingSite: an uninstall signal is recorded even
+    // when a deactivation landed first (the WP delete flow).
+    await db.query(
+      `UPDATE wp_site_links SET disconnect_reason = 'uninstalled', last_seen_at = UTC_TIMESTAMP() WHERE id = :id`,
+      { id: Number(row.id) }
+    );
+    row.disconnect_reason = 'uninstalled';
   }
   return { status: row.status };
 }
