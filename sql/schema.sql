@@ -513,12 +513,6 @@ CREATE TABLE IF NOT EXISTS wp_site_links (
   KEY idx_wp_site_links_ws (workspace_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Batch 117 — WordPress design editing v1. Proposals are staged by
--- the design chat (approve-first: nothing applies until the owner
--- approves AND the plugin applies it and reports back). The chat
--- tables keep the per-registration transcript/summary and the
--- per-registration daily cap counter (Batch 97 caps, keyed by
--- registration instead of lead).
 CREATE TABLE IF NOT EXISTS wp_design_proposals (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   link_id BIGINT UNSIGNED NOT NULL,
