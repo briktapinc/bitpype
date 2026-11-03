@@ -35,6 +35,8 @@ function loadPlatformDefaultsFile() {
 const PLATFORM_SECRET_KEYS = [
   'ai.api_key',
   'muse.model_api_key',
+  // Batch 123: the OpenRouter provider profile key.
+  'openrouter.api_key',
   'smtp.pass',
   // Batch 48: Cloudflare Email Sending token for the native mail provider.
   'mail.cf_token',
@@ -239,6 +241,18 @@ const PLATFORM_SETTING_DEFS = [
     default: 'https://api.meta.ai/v1',
   },
   { key: 'muse.model_default', group: 'keys', label: 'Meta Muse default model', default: 'muse-spark-1.3' },
+  // Batch 123: OpenRouter (https://openrouter.ai — OpenAI-compatible
+  // aggregator) as the third routed AI provider profile. The key is
+  // pasted by the admin here; until then the profile is unconfigured
+  // and routing treats it like any other keyless profile.
+  { key: 'openrouter.api_key', group: 'keys', label: 'OpenRouter API key', default: '', secret: true },
+  {
+    key: 'openrouter.base_url',
+    group: 'keys',
+    label: 'OpenRouter API base URL',
+    default: 'https://openrouter.ai/api/v1',
+  },
+  { key: 'openrouter.model', group: 'keys', label: 'OpenRouter default model', default: 'openai/gpt-4o-mini' },
   { key: 'providers.tavily.api_key', group: 'keys', label: 'Tavily API key', default: '', secret: true },
   { key: 'pexels.api_key', group: 'keys', label: 'Pexels API key', default: '', secret: true },
   { key: 'fal.api_key', group: 'keys', label: 'Fal API key', default: '', secret: true },
@@ -519,6 +533,7 @@ const WORKSPACE_SEED_KEYS = PLATFORM_SETTING_DEFS.filter(
     d.key.startsWith('sms.') ||
     d.key.startsWith('ai.') ||
     d.key.startsWith('muse.model_') ||
+    d.key.startsWith('openrouter.') ||
     d.key.startsWith('providers.') ||
     d.key === 'pexels.api_key' ||
     d.key === 'fal.api_key'
@@ -685,11 +700,11 @@ async function setPlatformSetting(key, value) {
       e.code = 'VALIDATION';
       throw e;
     };
-    if (key.endsWith('.primary') && v !== 'muse' && v !== 'openai') {
-      badRoute(`${key} must be 'muse' or 'openai'`);
+    if (key.endsWith('.primary') && v !== 'muse' && v !== 'openai' && v !== 'openrouter') {
+      badRoute(`${key} must be 'muse', 'openai' or 'openrouter'`);
     }
-    if (key.endsWith('.fallback') && v !== 'none' && v !== 'muse' && v !== 'openai') {
-      badRoute(`${key} must be 'none', 'muse' or 'openai'`);
+    if (key.endsWith('.fallback') && v !== 'none' && v !== 'muse' && v !== 'openai' && v !== 'openrouter') {
+      badRoute(`${key} must be 'none', 'muse', 'openai' or 'openrouter'`);
     }
     if ((key.endsWith('.model_primary') || key.endsWith('.model_fallback')) && (v.length > 120 || /[\r\n]/.test(v))) {
       badRoute(`${key} must be a single line of at most 120 characters (blank = the provider's default model)`);

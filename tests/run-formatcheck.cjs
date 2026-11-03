@@ -46,6 +46,7 @@ const SCOPE = [
   'tests/batch121-portal-password-set-regressions.cjs',
   'server/moduleShare.js',
   'tests/batch122-shared-module-layer-regressions.cjs',
+  'tests/batch123-openrouter-regressions.cjs',
   'tsconfig.checkjs.json',
 ];
 

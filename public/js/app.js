@@ -8621,6 +8621,9 @@ function captchaStatusHtml(st) {
 }
 
 // Batch 120 — Admin → API keys: the AI provider routing matrix.
+// Batch 123 — OpenRouter joins as the third selectable provider on
+// every row (its key/base URL/default model live in the keys form
+// below, like the other profiles).
 // One row per function: primary provider, fallback provider, and an
 // optional model override per slot (blank = that provider's default
 // model). Failover is automatic on provider-side failures (401/403
@@ -8636,7 +8639,15 @@ function aiRoutingPanelHtml(state) {
     </div>`;
   }
   const provName = (slug) =>
-    slug === 'muse' ? 'Meta Muse' : slug === 'openai' ? 'OpenAI' : slug === 'fal' ? 'fal.ai' : slug;
+    slug === 'muse'
+      ? 'Meta Muse'
+      : slug === 'openai'
+        ? 'OpenAI'
+        : slug === 'openrouter'
+          ? 'OpenRouter'
+          : slug === 'fal'
+            ? 'fal.ai'
+            : slug;
   const profLine = (p) =>
     p
       ? `${p.configured ? 'configured' : '<strong>not configured</strong>'}${p.baseHost ? ` · ${esc(p.baseHost)}` : ''}${p.defaultModel ? ` · default model ${esc(p.defaultModel)}` : ''}`
@@ -8649,7 +8660,7 @@ function aiRoutingPanelHtml(state) {
     }
   };
   const provOptions = (sel, allowNone) =>
-    `${allowNone ? `<option value="none" ${sel === 'none' ? 'selected' : ''}>None</option>` : ''}<option value="muse" ${sel === 'muse' ? 'selected' : ''}>Meta Muse</option><option value="openai" ${sel === 'openai' ? 'selected' : ''}>OpenAI</option>`;
+    `${allowNone ? `<option value="none" ${sel === 'none' ? 'selected' : ''}>None</option>` : ''}<option value="muse" ${sel === 'muse' ? 'selected' : ''}>Meta Muse</option><option value="openai" ${sel === 'openai' ? 'selected' : ''}>OpenAI</option><option value="openrouter" ${sel === 'openrouter' ? 'selected' : ''}>OpenRouter</option>`;
   const rowHtml = (fn) => {
     if (fn.kind === 'info') {
       return `<div style="padding:12px 0;border-top:1px solid var(--line, #e4e1ea)">
@@ -8692,7 +8703,7 @@ function aiRoutingPanelHtml(state) {
     <div class="panel-h"><h3>AI provider routing — which API does what</h3></div>
     <div class="panel-b" style="padding-bottom:0">
       <p class="hint">Pick the provider for each function. If the primary fails on the provider's side (sign-in/billing errors, rate limits, server errors, timeouts), the call automatically retries once on the fallback — a request error (HTTP 400) never fails over, it surfaces. Routing is platform-wide. Profiles resolve the platform key first, then a workspace's own stored key.</p>
-      <p class="hint" style="margin-top:6px">Meta Muse: ${profLine(state.profiles && state.profiles.muse)}<br/>OpenAI: ${profLine(state.profiles && state.profiles.openai)}<br/>fal.ai: ${profLine(state.profiles && state.profiles.fal)}</p>
+      <p class="hint" style="margin-top:6px">Meta Muse: ${profLine(state.profiles && state.profiles.muse)}<br/>OpenAI: ${profLine(state.profiles && state.profiles.openai)}<br/>OpenRouter: ${profLine(state.profiles && state.profiles.openrouter)}<br/>fal.ai: ${profLine(state.profiles && state.profiles.fal)}</p>
       ${state.lastFailover ? `<p class="hint" style="margin-top:6px">Most recent failover anywhere: ${esc(provName(state.lastFailover.from))} → ${esc(provName(state.lastFailover.to))} (${esc(state.lastFailover.fnKey)}) · ${esc(state.lastFailover.reason)} · ${esc(fmtTime(state.lastFailover.at))}</p>` : ''}
     </div>
     <div class="panel-b">

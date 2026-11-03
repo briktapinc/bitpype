@@ -212,8 +212,38 @@ async function resolveOpenAiConfig(db) {
   return { apiKey, baseUrl, model };
 }
 
+/**
+ * Batch 123 — the OpenRouter profile (openrouter.* trio), resolved
+ * platform-first with the workspace fallback — the same layering the
+ * other two profiles use. OpenRouter is an OpenAI-compatible
+ * aggregator, so the routed transport below serves it unchanged.
+ */
+async function resolveOpenRouterConfig(db) {
+  let apiKey = '';
+  let baseUrl = 'https://openrouter.ai/api/v1';
+  let model = 'openai/gpt-4o-mini';
+  try {
+    apiKey = String((await platform.getPlatformSetting('openrouter.api_key', '')) || '').trim();
+    baseUrl = String((await platform.getPlatformSetting('openrouter.base_url', baseUrl)) || baseUrl).trim();
+    model = String((await platform.getPlatformSetting('openrouter.model', model)) || model).trim();
+  } catch {
+    /* platform DB unavailable — fall through to workspace */
+  }
+  if (!apiKey && db) {
+    apiKey = String(getDbSetting(db, 'openrouter.api_key', '') || '').trim();
+    const b = String(getDbSetting(db, 'openrouter.base_url', '') || '').trim();
+    const m = String(getDbSetting(db, 'openrouter.model', '') || '').trim();
+    if (b) baseUrl = b;
+    if (m) model = m;
+  }
+  baseUrl = baseUrl.replace(/\/+$/, '');
+  return { apiKey, baseUrl, model };
+}
+
 async function resolveProfileConfig(provider, db) {
-  return provider === 'openai' ? resolveOpenAiConfig(db) : resolveMuseConfig(db);
+  if (provider === 'openai') return resolveOpenAiConfig(db);
+  if (provider === 'openrouter') return resolveOpenRouterConfig(db);
+  return resolveMuseConfig(db);
 }
 
 /**
@@ -264,6 +294,7 @@ async function chatCompletionsRouted(ctx, body) {
   const configured = {
     muse: false,
     openai: false,
+    openrouter: false,
   };
   const primaryCfg = { provider: ctx.provider, apiKey: ctx.apiKey, baseUrl: ctx.baseUrl, model: ctx.model };
   configured[ctx.provider] = museConfigured(primaryCfg);
@@ -340,6 +371,7 @@ function withFailoverNote(ctx, note) {
 module.exports = {
   resolveMuseConfig,
   resolveOpenAiConfig,
+  resolveOpenRouterConfig,
   resolveAgentConfig,
   museConfigured,
   fail,

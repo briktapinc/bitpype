@@ -30,6 +30,9 @@
  *    once on the function's fallback provider; a 400-class error
  *    surfaces without failing over. AI_NOT_CONFIGURED now means no
  *    routed provider for the function has a key.
+ *  - Batch 123: OpenRouter is a third routable profile (openrouter.*
+ *    trio, platform-first like Muse). It keeps its own default model
+ *    — legacy per-task ai.model.* names are OpenAI-profile-only.
  *  - aiConfigured(db) — true when an API key is set on that workspace db.
  *  - No key material is ever written to logs or error messages.
  */
@@ -138,10 +141,12 @@ async function chat({ task, messages, maxTokens = 2000, leadId = null, note = nu
       model: legacyModel,
     },
     muse: await resolveMuseProfile(db),
+    openrouter: await resolveOpenRouterProfile(db),
   };
   const configured = {
     muse: !!(profiles.muse.apiKey && String(profiles.muse.apiKey).trim()),
     openai: !!(profiles.openai.apiKey && String(profiles.openai.apiKey).trim()),
+    openrouter: !!(profiles.openrouter.apiKey && String(profiles.openrouter.apiKey).trim()),
   };
   const attempts = aiRouting.orderAttempts(fnKey, route, configured).map((a) => ({
     ...a,
@@ -303,6 +308,37 @@ async function resolveMuseProfile(db) {
     apiKey = String(getSetting('muse.model_api_key', '', db) || '').trim();
     const b = String(getSetting('muse.model_base_url', '', db) || '').trim();
     const m = String(getSetting('muse.model_default', '', db) || '').trim();
+    if (b) baseUrl = b;
+    if (m) model = m;
+  }
+  return { apiKey, baseUrl: baseUrl.replace(/\/+$/, ''), model };
+}
+
+/**
+ * Batch 123 — the OpenRouter profile (openrouter.* trio) for the
+ * task stack, resolved platform-first with the workspace fallback —
+ * the same layering as the Muse profile above. Unlike the OpenAI
+ * profile it carries its OWN default model (OpenRouter slugs are
+ * namespaced, e.g. openai/gpt-4o-mini), so a per-slot route model
+ * override or the profile default serves; the legacy per-task
+ * ai.model.* names never leak onto the OpenRouter wire.
+ */
+async function resolveOpenRouterProfile(db) {
+  let apiKey = '';
+  let baseUrl = 'https://openrouter.ai/api/v1';
+  let model = 'openai/gpt-4o-mini';
+  try {
+    const platform = require('../server/platform');
+    apiKey = String((await platform.getPlatformSetting('openrouter.api_key', '')) || '').trim();
+    baseUrl = String((await platform.getPlatformSetting('openrouter.base_url', baseUrl)) || baseUrl).trim() || baseUrl;
+    model = String((await platform.getPlatformSetting('openrouter.model', model)) || model).trim() || model;
+  } catch {
+    /* platform DB unavailable — fall through to workspace */
+  }
+  if (!apiKey && db) {
+    apiKey = String(getSetting('openrouter.api_key', '', db) || '').trim();
+    const b = String(getSetting('openrouter.base_url', '', db) || '').trim();
+    const m = String(getSetting('openrouter.model', '', db) || '').trim();
     if (b) baseUrl = b;
     if (m) model = m;
   }

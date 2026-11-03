@@ -119,7 +119,7 @@ function group(name, n) {
 
     // Cache-busts so clients pick up the new app.js/styles.css.
     has(indexHtml, '/styles.css?v=batch115-catalog1', 'styles.css cache-bust bumped');
-    has(indexHtml, '/js/app.js?v=batch120-airouting1', 'app.js cache-bust bumped');
+    has(indexHtml, '/js/app.js?v=batch123-openrouter1', 'app.js cache-bust bumped');
 
     // The other two catalog surfaces: deliberately unchanged
     // (flagged for Ely in the batch report, not silently diverged).

@@ -7,19 +7,27 @@
  * option built so he can SELECT WHICH API DOES WHAT — per function,
  * not one global switch).
  *
- * Two provider profiles exist today, both OpenAI-compatible
- * chat/completions endpoints, and both keep their legacy settings as
- * storage (no secret migration, keys are never rendered anywhere):
- *   - 'muse'   → muse.model_api_key / muse.model_base_url /
- *                muse.model_default (default https://api.meta.ai/v1,
- *                model muse-spark-1.3)
- *   - 'openai' → ai.api_key / ai.base_url / ai.model.default
- *                (default https://api.openai.com/v1, gpt-4o-mini)
+ * Provider profiles are OpenAI-compatible chat/completions
+ * endpoints, and all keep their settings trios as storage (no secret
+ * migration, keys are never rendered anywhere):
+ *   - 'muse'       → muse.model_api_key / muse.model_base_url /
+ *                    muse.model_default (default
+ *                    https://api.meta.ai/v1, model muse-spark-1.3)
+ *   - 'openai'     → ai.api_key / ai.base_url / ai.model.default
+ *                    (default https://api.openai.com/v1, gpt-4o-mini)
+ *   - 'openrouter' → openrouter.api_key / openrouter.base_url /
+ *                    openrouter.model (Batch 123 — the OpenRouter
+ *                    aggregator as a third selectable provider on
+ *                    every routed function; default
+ *                    https://openrouter.ai/api/v1, model
+ *                    openai/gpt-4o-mini). Until an admin pastes a
+ *                    key the profile is simply "not configured" and
+ *                    behaves exactly like any other keyless profile.
  *
  * Routing is stored as PLATFORM settings (platform-level scope for
  * v1; workspace overrides are future work):
- *   ai.route.<function>.primary        'muse' | 'openai'
- *   ai.route.<function>.fallback       'none' | 'muse' | 'openai'
+ *   ai.route.<function>.primary        'muse' | 'openai' | 'openrouter'
+ *   ai.route.<function>.fallback       'none' | 'muse' | 'openai' | 'openrouter'
  *   ai.route.<function>.model_primary  '' = the provider's default
  *   ai.route.<function>.model_fallback '' = the provider's default
  *
@@ -52,6 +60,7 @@
 const PROVIDERS = {
   muse: { slug: 'muse', label: 'Meta Muse' },
   openai: { slug: 'openai', label: 'OpenAI' },
+  openrouter: { slug: 'openrouter', label: 'OpenRouter' },
 };
 
 /** @type {Array<{ key: string, label: string, kind: 'agent'|'task', defaultPrimary: string, defaultFallback: string }>} */
@@ -221,7 +230,7 @@ function classifyError(err) {
 }
 
 function validProvider(v) {
-  return v === 'muse' || v === 'openai' ? v : null;
+  return v === 'muse' || v === 'openai' || v === 'openrouter' ? v : null;
 }
 
 /**
@@ -313,13 +322,16 @@ function orderAttempts(fnKey, route, configured) {
  */
 async function adminState() {
   const platform = require('./platform');
-  const [museKey, museBase, museModel, aiKey, aiBase, aiModel, falKey] = await Promise.all([
+  const [museKey, museBase, museModel, aiKey, aiBase, aiModel, orKey, orBase, orModel, falKey] = await Promise.all([
     platform.getPlatformSetting('muse.model_api_key', ''),
     platform.getPlatformSetting('muse.model_base_url', 'https://api.meta.ai/v1'),
     platform.getPlatformSetting('muse.model_default', 'muse-spark-1.3'),
     platform.getPlatformSetting('ai.api_key', ''),
     platform.getPlatformSetting('ai.base_url', 'https://api.openai.com/v1'),
     platform.getPlatformSetting('ai.model.default', 'gpt-4o-mini'),
+    platform.getPlatformSetting('openrouter.api_key', ''),
+    platform.getPlatformSetting('openrouter.base_url', 'https://openrouter.ai/api/v1'),
+    platform.getPlatformSetting('openrouter.model', 'openai/gpt-4o-mini'),
     platform.getPlatformSetting('fal.api_key', ''),
   ]);
   const hostOf = (u) => {
@@ -341,6 +353,12 @@ async function adminState() {
       configured: !!String(aiKey || '').trim(),
       baseHost: hostOf(aiBase),
       defaultModel: String(aiModel || ''),
+    },
+    openrouter: {
+      label: 'OpenRouter',
+      configured: !!String(orKey || '').trim(),
+      baseHost: hostOf(orBase),
+      defaultModel: String(orModel || ''),
     },
     fal: {
       label: 'fal.ai',
@@ -399,13 +417,17 @@ function validateRoutesPayload(routes) {
     const r = row && typeof row === 'object' ? row : {};
     const primary = validProvider(String(r.primary || '').trim());
     if (!primary) {
-      const e = /** @type {Error & { code?: string }} */ (new Error(`${fnKey}: primary must be muse or openai`));
+      const e = /** @type {Error & { code?: string }} */ (
+        new Error(`${fnKey}: primary must be muse, openai or openrouter`)
+      );
       e.code = 'VALIDATION';
       throw e;
     }
     let fallback = String(r.fallback == null ? 'none' : r.fallback).trim();
     if (fallback !== 'none' && !validProvider(fallback)) {
-      const e = /** @type {Error & { code?: string }} */ (new Error(`${fnKey}: fallback must be none, muse or openai`));
+      const e = /** @type {Error & { code?: string }} */ (
+        new Error(`${fnKey}: fallback must be none, muse, openai or openrouter`)
+      );
       e.code = 'VALIDATION';
       throw e;
     }

@@ -22,6 +22,8 @@ const SECRET_KEYS = [
   // Platform-def secrets (Batch 24b): settable via the validated path,
   // masked on read like every other SECRET_KEYS member.
   'muse.model_api_key',
+  // Batch 123: the OpenRouter profile key — same treatment.
+  'openrouter.api_key',
   'captcha.secret_key',
   'stripe.secret_key',
   'stripe.webhook_secret',
@@ -293,6 +295,10 @@ const SETTABLE_KEYS = [
   'muse.model_api_key',
   'muse.model_base_url',
   'muse.model_default',
+  // Batch 123: the OpenRouter provider profile trio.
+  'openrouter.api_key',
+  'openrouter.base_url',
+  'openrouter.model',
   'providers.tavily.api_key',
   'pexels.api_key',
   'fal.api_key',
@@ -423,10 +429,14 @@ function validateSetting(key, raw) {
     const slot = key.slice('ai.route.'.length).split('.').pop();
     const v = value.trim();
     if (slot === 'primary') {
-      return v === 'muse' || v === 'openai' ? { ok: true, value: v } : fail('must be muse or openai');
+      return v === 'muse' || v === 'openai' || v === 'openrouter'
+        ? { ok: true, value: v }
+        : fail('must be muse, openai or openrouter');
     }
     if (slot === 'fallback') {
-      return v === 'muse' || v === 'openai' || v === 'none' ? { ok: true, value: v } : fail('must be muse, openai or none');
+      return v === 'muse' || v === 'openai' || v === 'openrouter' || v === 'none'
+        ? { ok: true, value: v }
+        : fail('must be muse, openai, openrouter or none');
     }
     if (slot === 'model_primary' || slot === 'model_fallback') {
       if (v.length > 120 || /[\r\n]/.test(v)) return fail('model override must be a single line of at most 120 characters');
@@ -834,6 +844,7 @@ function validateSetting(key, raw) {
     case 'hostinger.api_token':
     case 'ai.api_key':
     case 'muse.model_api_key':
+    case 'openrouter.api_key':
     case 'providers.tavily.api_key':
     case 'pexels.api_key':
     case 'fal.api_key':
@@ -870,9 +881,11 @@ function validateSetting(key, raw) {
       return { ok: true, value: v };
     }
     case 'muse.model_base_url':
+    case 'openrouter.base_url':
       if (!isHttpUrl(value)) return fail('must be an http(s) URL');
       return { ok: true, value: value.trim() };
     case 'muse.model_default':
+    case 'openrouter.model':
       if (value.length > 200) return fail('must be 200 chars or fewer');
       if (value.trim() === '') return fail('default model may not be empty');
       return { ok: true, value: value.trim() };
