@@ -570,7 +570,7 @@ function clearRefsForConsumer(db, leadId, consumerType, consumerId) {
 function listSharedRefs(db, leadId, filter = {}) {
   ensureTables(db);
   let sql = 'SELECT * FROM module_shared_refs WHERE lead_id = ?';
-  const args = [Number(leadId)];
+  const args = /** @type {any[]} */ ([Number(leadId)]);
   if (filter.consumer_type || filter.consumerType) {
     sql += ' AND consumer_type = ?';
     args.push(
