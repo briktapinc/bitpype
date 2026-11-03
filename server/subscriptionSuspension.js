@@ -130,7 +130,10 @@ function ensureSiteSuspensionTable(db) {
 /* ---------------------------- helpers ----------------------------- */
 
 function nowIso(deps = {}) {
-  return new Date(deps.now ? deps.now() : Date.now()).toISOString();
+  // SQL datetime format (UTC), NOT full ISO: MySQL DATETIME rejects
+  // '2026-11-03T02:53:25.949Z' under strict mode (Batch 119 gate, MySQL leg).
+  // Matches the codebase convention (billing.js, lifecycleComms.js, ...).
+  return new Date(deps.now ? deps.now() : Date.now()).toISOString().slice(0, 19).replace('T', ' ');
 }
 
 function parseTime(value) {
