@@ -5392,9 +5392,10 @@
     { type: 'newsletter', label: 'Newsletter' },
     { type: 'categories', label: 'Categories' },
     { type: 'photocapture', label: 'Photo Capture' },
+    { type: 'qrcode', label: 'QR Code' },
   ];
   const MODULE_NAV_GROUPS = [
-    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed', 'googlereviews', 'datatables', 'charts', 'categories', 'photocapture'] },
+    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed', 'googlereviews', 'datatables', 'charts', 'categories', 'photocapture', 'qrcode'] },
     { id: 'people', label: 'People', types: ['team', 'testimonials', 'careers', 'members', 'newsletter'] },
     { id: 'schedule', label: 'Schedule', types: ['events', 'bookings'] },
     { id: 'assist', label: 'Assist', types: ['chatbot', 'calltracking'] },
@@ -5460,6 +5461,7 @@
     newsletter: { singular: 'subscriber', plural: 'subscribers', newBtn: 'Add subscriber', kicker: 'Subscriber' },
     categories: { singular: 'category', plural: 'categories', newBtn: 'New category', kicker: 'Category' },
     photocapture: { singular: 'photo', plural: 'photos', newBtn: 'New photo', kicker: 'Photo submission' },
+    qrcode: { singular: 'QR code', plural: 'QR codes', newBtn: 'New QR code', kicker: 'QR code' },
   };
   const BOOKING_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const MODULE_STORAGE_KEY = 'bp-portal-module';
@@ -5875,6 +5877,70 @@
         },
         { key: 'sort_order', label: 'Sort order' },
         { key: 'status', label: 'Status', kind: 'select', options: ['active', 'inactive'] },
+      ];
+    }
+    if (type === 'qrcode') {
+      // Batch 126: target pickers are built from the REAL site structure
+      // (the list response's qrcode.targets — the site's actual pages and
+      // its attached module landings), never free text. Only the fields
+      // for the chosen target kind are used; the server validates.
+      const qrTargets = (moduleState.qrcode && moduleState.qrcode.targets) || { pages: [], modules: [] };
+      return [
+        { key: 'name', label: 'Name', required: true, placeholder: 'e.g. Book a visit (table tent)' },
+        {
+          key: 'target_kind',
+          label: 'What the code opens',
+          kind: 'select',
+          options: [
+            { value: 'page', label: 'A page on this site' },
+            { value: 'module', label: "Another module's page (bookings, menu, reviews…)" },
+            { value: 'url', label: 'A web address (URL)' },
+            { value: 'tel', label: 'A phone number (tap to call)' },
+            { value: 'email', label: 'An email address' },
+            { value: 'wifi', label: 'The WiFi network (guests join on scan)' },
+          ],
+          hint: 'Page and module codes are stored as references — if the page is renamed later, the printed code still lands in the right place.',
+        },
+        {
+          key: 'target_page',
+          label: 'Page (for “A page on this site”)',
+          kind: 'select',
+          options: (qrTargets.pages || []).map((p) => ({ value: p.slug, label: `${p.title || p.slug} (/${p.slug})` })),
+        },
+        {
+          key: 'target_module',
+          label: 'Module page (for “Another module’s page”)',
+          kind: 'select',
+          options: (qrTargets.modules || []).map((m) => ({
+            value: m.type,
+            label: `${m.label} (/${m.slug})${m.active ? '' : ' — not live yet'}`,
+          })),
+        },
+        { key: 'target_value', label: 'URL / phone / email (for those kinds)', placeholder: 'https://… · +1 555 123 4567 · hello@example.com' },
+        { key: 'wifi_ssid', label: 'WiFi network name (SSID)' },
+        {
+          key: 'wifi_password',
+          label: 'WiFi password',
+          hint: 'Stored as your own site config and only ever rendered inside the generated code image. Leave blank when editing to keep the current password.',
+        },
+        { key: 'wifi_auth', label: 'WiFi security', kind: 'select', options: ['WPA', 'WEP', 'nopass'] },
+        { key: 'wifi_hidden', label: 'Hidden network', kind: 'select', options: [{ value: '0', label: 'No' }, { value: '1', label: 'Yes' }] },
+        { key: 'size', label: 'Image size (px, for print)', placeholder: '512' },
+        { key: 'fg_color', label: 'Code colour (#rrggbb)', placeholder: '#111111' },
+        { key: 'bg_color', label: 'Background colour (#rrggbb)', placeholder: '#ffffff' },
+        {
+          key: 'ec_level',
+          label: 'Error correction (higher = survives damage/print wear)',
+          kind: 'select',
+          options: [
+            { value: 'L', label: 'L — low (~7%)' },
+            { value: 'M', label: 'M — medium (~15%)' },
+            { value: 'Q', label: 'Q — quartile (~25%)' },
+            { value: 'H', label: 'H — high (~30%)' },
+          ],
+        },
+        { key: 'sort_order', label: 'Sort order' },
+        { key: 'status', label: 'Status', kind: 'select', options: ['draft', 'published'] },
       ];
     }
     // directory fallback
@@ -6381,6 +6447,14 @@
       if (it.code) bits.push(`<span>Code: ${esc(it.code)}</span>`);
       if (it.expires_at) bits.push(`<span>Expires ${esc(it.expires_at)}</span>`);
     }
+    if (type === 'qrcode') {
+      const kindLabel = { page: 'Site page', module: 'Module page', url: 'Web address', tel: 'Phone', email: 'Email', wifi: 'WiFi' }[it.target_kind] || it.target_kind;
+      bits.push(`<span>${esc(kindLabel)}</span>`);
+      if (it.resolved_url) bits.push(`<span>${esc(it.resolved_url)}</span>`);
+      else if (it.target_kind === 'wifi') bits.push(`<span>${esc(it.wifi_ssid || '')}</span>`);
+      else if (it.payload) bits.push(`<span>${esc(it.payload)}</span>`);
+      else bits.push('<span class="status-pill draft">Target unavailable</span>');
+    }
     if (type === 'menu') {
       if (it.category_name) bits.push(`<span>${esc(it.category_name)}</span>`);
       if (it.price_text) bits.push(`<span>${esc(it.price_text)}</span>`);
@@ -6465,6 +6539,7 @@
         </div>
         <div class="item-card-actions">
           ${type === 'datatables' && it.status === 'pending' ? `<button type="button" class="btn soft small" data-dt-approve="${it.id}">Approve</button>` : ''}
+          ${type === 'qrcode' && it.payload ? `<a class="btn soft small" href="/api/v1/portal/modules/qrcode/${it.id}/download?format=png">PNG</a><a class="btn soft small" href="/api/v1/portal/modules/qrcode/${it.id}/download?format=svg">SVG</a>` : ''}
           <button type="button" class="btn soft small" data-module-edit="${it.id}">Edit</button>
         </div>
       </article>`;
@@ -8280,6 +8355,7 @@
     moduleState.datatable = data.datatable || null;
     moduleState.charts = data.charts || null;
     moduleState.taxonomy = data.taxonomy || null;
+    moduleState.qrcode = data.qrcode || null;
     moduleState.categories = Array.isArray(data.categories) ? data.categories : [];
     if (type === 'bookings') {
       const booking = moduleState.booking || {};
@@ -8304,6 +8380,7 @@
     renderDatatablesPanel();
     renderOffersDisplayPanel();
     renderCategoriesScopesPanel();
+    renderQrCodePanel();
     renderShopPaymentsPanel();
     syncModulesPaneTabs();
   }
@@ -8525,6 +8602,65 @@
           moduleState.taxonomy.scopes = saved;
           moduleMsg('Categories page settings saved.', true);
           renderCategoriesScopesPanel();
+        } catch (e) {
+          moduleMsg(errText(e), false);
+        }
+      };
+    }
+  }
+
+  function renderQrCodePanel() {
+    const host = document.getElementById('modules-qrcode-panel');
+    if (!host) return;
+    if (moduleState.current !== 'qrcode') {
+      host.innerHTML = '';
+      host.hidden = true;
+      return;
+    }
+    host.hidden = false;
+    const qr = moduleState.qrcode || {};
+    const display = qr.display || {};
+    const items = moduleState.items || [];
+    const published = items.filter((it) => it.status === 'published');
+    const chosen = display.qrcode_id != null ? Number(display.qrcode_id) : null;
+    const previews = items
+      .filter((it) => it.image_data_url)
+      .map(
+        (it) => `<figure style="margin:0;text-align:center">
+          <img src="${esc(it.image_data_url)}" alt="${esc(it.name || 'QR code')}" style="width:132px;height:132px;border:1px solid var(--line,#e7e2d9);border-radius:10px;background:#fff" />
+          <figcaption class="hint" style="margin-top:4px">${esc(it.name || '')}</figcaption>
+        </figure>`
+      )
+      .join('');
+    host.innerHTML = `<div class="card" style="margin-bottom:var(--card-gap)">
+      <h3 style="margin:0 0 6px">On your site</h3>
+      <p class="hint" style="margin:0 0 8px">The QR Code module shows ONE code on your site. Pick a published code and an optional caption (like “Scan to book”). Codes are generated fresh from their target every time they are shown, so renaming a page never breaks a printed code.</p>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-top:4px">
+        <label class="hint" for="qrcode-display-select" style="margin:0">Show</label>
+        <select id="qrcode-display-select" style="width:auto">
+          <option value="">— Nothing yet —</option>
+          ${published.map((it) => `<option value="${it.id}"${chosen === Number(it.id) ? ' selected' : ''}>${esc(it.name || `#${it.id}`)}</option>`).join('')}
+        </select>
+        <input id="qrcode-display-caption" type="text" maxlength="160" placeholder="Caption, e.g. Scan to book" value="${esc(display.caption || '')}" style="flex:1;min-width:180px" />
+        <button type="button" class="btn soft small" id="btn-qrcode-display-save">Save</button>
+      </div>
+      ${previews ? `<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:14px">${previews}</div>` : ''}
+    </div>`;
+    const saveBtn = document.getElementById('btn-qrcode-display-save');
+    if (saveBtn) {
+      saveBtn.onclick = async () => {
+        const sel = document.getElementById('qrcode-display-select');
+        const cap = document.getElementById('qrcode-display-caption');
+        const qrcodeId = sel && sel.value ? Number(sel.value) : null;
+        try {
+          const res = await api('/modules/qrcode/display', {
+            method: 'PUT',
+            body: JSON.stringify({ qrcode_id: qrcodeId, caption: cap ? cap.value : '' }),
+          });
+          if (!moduleState.qrcode) moduleState.qrcode = {};
+          moduleState.qrcode.display = (res && res.settings) || { qrcode_id: qrcodeId, caption: cap ? cap.value : '' };
+          moduleMsg('QR code display saved.', true);
+          renderQrCodePanel();
         } catch (e) {
           moduleMsg(errText(e), false);
         }

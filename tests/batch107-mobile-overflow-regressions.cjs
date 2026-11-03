@@ -124,8 +124,8 @@ const EDITORLESS = new Set(['socialfeed', 'googlereviews', 'calltracking', 'memb
     // Batch 107 line shifts (multiset proven identical pre-regen).
     const { census } = require(path.join(root, 'scripts', 'xss-census.cjs'));
     const cz = census();
-    assert.equal(cz.summary.total, 412, 'SEC-13 census total unchanged'); n += 1;
-    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 306, 'SEC-13 safe classes unchanged'); n += 1;
+    assert.equal(cz.summary.total, 416, 'SEC-13 census total unchanged'); n += 1;
+    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 308, 'SEC-13 safe classes unchanged'); n += 1;
     const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
     const BASELINE = new Set(require(path.join(root, 'tests', 'batch103-xss-baseline.json')));
     assert.deepEqual([...reviewed].filter((x) => !BASELINE.has(x)), [], 'no new RAW/IDENT sinks vs baseline'); n += 1;
@@ -717,7 +717,7 @@ const EDITORLESS = new Set(['socialfeed', 'googlereviews', 'calltracking', 'memb
       await page.goto(base + '/portal#/modules');
       await page.waitForSelector('#app:not(.hidden)', { timeout: 15000 });
       await page.waitForSelector('#sec-modules:not([hidden])', { timeout: 15000 });
-      await page.waitForFunction(() => document.querySelectorAll('#modules-type-tabs [data-module-type]').length === 23, { timeout: 15000 });
+      await page.waitForFunction(() => document.querySelectorAll('#modules-type-tabs [data-module-type]').length === 24, { timeout: 15000 });
       await page.waitForFunction(() => !!document.querySelector('#modules-items .item-card'), { timeout: 15000 });
 
       // EVERY module type: detail view + (where one exists) the editor.

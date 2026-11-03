@@ -124,6 +124,8 @@ module.exports = {
   applySeoTool: portalModules.applySeoTool,
   saveOffersDisplaySettings: portalModules.saveOffersDisplaySettings,
   saveCategoriesDisplaySettings: portalModules.saveCategoriesDisplaySettings,
+  saveQrCodeDisplaySettings: portalModules.saveQrCodeDisplaySettings,
+  downloadQrCode: portalModules.downloadQrCode,
   saveMembersConfig: portalModules.saveMembersConfig,
   saveMembershipKeys: portalModules.saveMembershipKeys,
   clearMembershipKeys: portalModules.clearMembershipKeys,

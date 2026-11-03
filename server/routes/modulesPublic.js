@@ -117,6 +117,36 @@ router.get('/:token', readLimit, async (req, res) => {
   }
 });
 
+/**
+ * QR Code public image (Batch 126): the rendered code behind the QR
+ * module's own token. Resolution is serve-time (renamed pages follow,
+ * vanished targets 404), and the id always resolves inside the token's
+ * lead — a foreign code id is a 404, never another site's code.
+ */
+router.get('/:token/qrcode/:file', readLimit, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    // The id/format parse is lenient here on purpose: resolution (and
+    // its NOT_FOUND for unparseable, foreign, draft or dormant codes)
+    // belongs to the service, after the workspace gate — the same
+    // shape as the /:token/page/:slug route below.
+    const m = /^(\d+)\.(png|svg)$/.exec(String(req.params.file || ''));
+    const resolved = domain.withDb(workspaceId, (db) =>
+      siteModules.resolvePublicQrCode(db, req.params.token, m ? Number(m[1]) : 0)
+    );
+    const rendered = await siteModules.renderQrCodeImage(resolved.payload, resolved.code, {
+      format: m ? m[2] : 'png',
+    });
+    if (typeof res.setHeader === 'function') {
+      res.setHeader('Content-Type', rendered.contentType);
+      res.setHeader('Cache-Control', 'public, max-age=300');
+    }
+    res.send(rendered.body);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 /** Available time slots for the bookings module (calendar day + service). */
 router.get('/:token/slots', readLimit, async (req, res) => {
   try {

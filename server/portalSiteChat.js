@@ -212,6 +212,22 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
       /* photo capture census is best-effort */
     }
     try {
+      // Batch 126 — QR codes: stored codes point at pages or other
+      // modules' landings and are shared-layer content themselves.
+      const qrCodes = require('./siteModules').listQrCodes(db, leadId);
+      if (qrCodes.length) {
+        const shown = qrCodes
+          .slice(0, 8)
+          .map((c) => `"${clip(c.name, 40)}" → ${c.target_kind}:${clip(c.target_ref || c.wifi_ssid || '', 40)} (${c.status})`)
+          .join('; ');
+        lines.push(
+          `QR codes: ${qrCodes.length} stored — ${shown}. Create more with qrcode.create (targets: any site page, another module's landing such as bookings/menu/googlereviews/newsletter, a URL, tel, email, or WiFi). The QR Code module displays one chosen code on the site; codes also flow through the shared layer.`
+        );
+      }
+    } catch {
+      /* QR census is best-effort */
+    }
+    try {
       const dt = db.prepare('SELECT title, columns_json FROM datatable_configs WHERE lead_id = ?').get(Number(leadId));
       if (dt) {
         let cols = '';

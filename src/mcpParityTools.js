@@ -3251,6 +3251,7 @@ function createParityTools(ctx) {
     ...moduleCrud('careers', { list: 'listCareersPostings', create: 'createCareersPosting', update: 'updateCareersPosting', delete: 'deleteCareersPosting' }),
     ...moduleCrud('video', { list: 'listVideoItems', create: 'createVideoItem', update: 'updateVideoItem', delete: 'deleteVideoItem' }),
     ...moduleCrud('events', { list: 'listEvents', create: 'createEvent', update: 'updateEvent', delete: 'deleteEvent' }),
+    ...moduleCrud('qrcode', { list: 'listQrCodes', create: 'createQrCode', update: 'updateQrCode', delete: 'deleteQrCode' }),
 
     // Batch 122 — shared module layer parity: the local MCP server
     // delegates to server/moduleShare exactly like the hosted

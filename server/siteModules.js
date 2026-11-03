@@ -4,7 +4,7 @@
  * Site content modules (Blog, Ecommerce, Courses, Gallery, Directory,
  * FAQ, Testimonials, Team, Events, Bookings, Chatbot, Offers, Menu,
  * Careers, Video, Instant Estimate, Social Feed, Call Tracking,
- * Membership, Google Reviews, Data Tables).
+ * Membership, Google Reviews, Data Tables, Charts, Newsletter, QR Code).
  * Workspace SQLite tables per lead; in-page JS embeds (legacy iframe URL kept);
  * portal + MCP CRUD.
  * Gated by plan entitlement `siteModules` (Standard + Premium).
@@ -15,6 +15,7 @@
  */
 
 const crypto = require('crypto');
+const QRCode = require('qrcode');
 
 const MODULE_TYPES = [
   'blog',
@@ -42,13 +43,14 @@ const MODULE_TYPES = [
   'newsletter',
   'categories',
   'photocapture',
+  'qrcode',
 ];
 const MANAGED_ATTR = 'data-bitpype-module';
 const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod28';
+const MODULE_SCRIPT_VER = 'mod29';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -84,6 +86,7 @@ const MODULE_META = {
   newsletter: { label: 'Newsletter', defaultTitle: 'Newsletter', defaultSlug: 'newsletter' },
   categories: { label: 'Categories', defaultTitle: 'Categories', defaultSlug: 'categories' },
   photocapture: { label: 'Photo Capture', defaultTitle: 'Photo Capture', defaultSlug: 'photo-capture' },
+  qrcode: { label: 'QR Code', defaultTitle: 'Scan Me', defaultSlug: 'qr-code' },
 };
 
 const BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'];
@@ -561,6 +564,33 @@ function ensureTables(db) {
       config_json TEXT NOT NULL DEFAULT '{}',
       data_json TEXT NOT NULL DEFAULT '',
       style_json TEXT NOT NULL DEFAULT '{}',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- QR Code module (Batch 126): stored codes whose page/module targets
+    -- are REFERENCES (a page slug / a module type), resolved against the
+    -- CURRENT site structure at render time — a renamed page never strands
+    -- a printed code. Literal targets (url/tel/email) keep their value in
+    -- target_ref; WiFi keeps structured fields (the password is owner
+    -- config, rendered only inside the generated code image).
+    CREATE TABLE IF NOT EXISTS module_qrcodes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER NOT NULL,
+      name TEXT NOT NULL DEFAULT '',
+      target_kind TEXT NOT NULL DEFAULT 'page',
+      target_ref TEXT NOT NULL DEFAULT '',
+      target_title TEXT NOT NULL DEFAULT '',
+      wifi_ssid TEXT NOT NULL DEFAULT '',
+      wifi_auth TEXT NOT NULL DEFAULT 'WPA',
+      wifi_password TEXT NOT NULL DEFAULT '',
+      wifi_hidden INTEGER NOT NULL DEFAULT 0,
+      size INTEGER NOT NULL DEFAULT 512,
+      fg_color TEXT NOT NULL DEFAULT '#111111',
+      bg_color TEXT NOT NULL DEFAULT '#ffffff',
+      ec_level TEXT NOT NULL DEFAULT 'M',
+      status TEXT NOT NULL DEFAULT 'draft',
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -1064,6 +1094,12 @@ function parseEmbedSettings(row) {
   if (row && row.module_type === 'offers') out.layout = normalizeOffersLayout(raw.layout);
   // Categories-only display setting (Batch 124): the scopes shown.
   if (row && row.module_type === 'categories') out.scopes = normalizeCategoryScopes(raw.scopes);
+  // QR Code-only display settings (Batch 126): which stored code the
+  // module instance shows, plus its caption/CTA line.
+  if (row && row.module_type === 'qrcode') {
+    out.qrcode_id = raw.qrcode_id != null && Number(raw.qrcode_id) > 0 ? Number(raw.qrcode_id) : null;
+    out.caption = String(raw.caption || '').slice(0, 160);
+  }
   return out;
 }
 
@@ -1090,6 +1126,18 @@ function writeEmbedSettings(db, embedId, settings = {}) {
   if (row && row.module_type === 'categories') {
     next.scopes =
       settings.scopes !== undefined ? normalizeCategoryScopes(settings.scopes) : cur.scopes || [];
+  }
+  if (row && row.module_type === 'qrcode') {
+    next.qrcode_id =
+      settings.qrcode_id !== undefined
+        ? settings.qrcode_id == null || !(Number(settings.qrcode_id) > 0)
+          ? null
+          : Number(settings.qrcode_id)
+        : cur.qrcode_id != null
+          ? cur.qrcode_id
+          : null;
+    next.caption =
+      settings.caption !== undefined ? String(settings.caption || '').slice(0, 160) : cur.caption || '';
   }
   db.prepare(
     `
@@ -1697,6 +1745,8 @@ function modulePurgeSteps(leadId, type) {
       ];
     case 'offers':
       return [byLead('offers', 'offers')];
+    case 'qrcode':
+      return [byLead('module_qrcodes', 'QR codes')];
     case 'menu':
       return [byLead('menu_items', 'menu items'), byLead('menu_categories', 'menu categories')];
     case 'careers':
@@ -5056,6 +5106,453 @@ function deleteOffer(db, leadId, id) {
   db.prepare('DELETE FROM offers WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
   clearItemCategories(db, leadId, 'offers', row.id);
   return { deleted: true, id: row.id };
+}
+
+/* ── QR Code (Batch 126) ──
+ * Stored codes generated server-side with the `qrcode` package (the same
+ * package/pattern as the TOTP enrollment codes and claimKit stickers —
+ * no external QR APIs). Page/module targets are stored as REFERENCES and
+ * resolved against the current site structure on every render, so a
+ * renamed page or a re-slugged module landing never strands a printed
+ * code; a target that has vanished resolves to an empty payload and the
+ * surfaces render dormant-empty. v1 encodes targets directly — no
+ * redirect/short-link layer and no scan analytics. */
+
+const QR_TARGET_KINDS = ['page', 'module', 'url', 'tel', 'email', 'wifi'];
+const QR_EC_LEVELS = ['L', 'M', 'Q', 'H'];
+const QR_WIFI_AUTHS = ['WPA', 'WEP', 'nopass'];
+
+function normalizeQrHex(value, fallback) {
+  const v = String(value || '').trim();
+  return /^#[0-9a-fA-F]{6}$/.test(v) ? v.toLowerCase() : fallback;
+}
+
+function normalizeQrSize(value, fallback = 512) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(2048, Math.max(128, n));
+}
+
+/** Best-effort site palette accent for QR color defaults. */
+function sitePaletteAccent(db, leadId) {
+  try {
+    const site = db
+      .prepare('SELECT theme FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+      .get(Number(leadId));
+    if (!site || !site.theme) return '';
+    const theme = typeof site.theme === 'string' ? JSON.parse(site.theme) : site.theme;
+    const candidates = [
+      theme && theme.colors && theme.colors.primary,
+      theme && theme.colors && theme.colors.accent,
+      theme && theme.palette && theme.palette.primary,
+      theme && theme.primary,
+      theme && theme.accent,
+    ];
+    for (const c of candidates) {
+      const hex = normalizeQrHex(c, '');
+      if (hex) return hex;
+    }
+  } catch {
+    /* palette is a default, never a blocker */
+  }
+  return '';
+}
+
+/** The site's public origin (custom domain wins, else the preview URL). */
+function siteBaseUrl(db, leadId) {
+  let site = null;
+  try {
+    site = db
+      .prepare('SELECT custom_domain, preview_url FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+      .get(Number(leadId));
+  } catch {
+    return '';
+  }
+  if (!site) return '';
+  const domain = String(site.custom_domain || '').trim();
+  if (domain) return (/^https?:\/\//i.test(domain) ? domain : `https://${domain}`).replace(/\/+$/, '');
+  return String(site.preview_url || '')
+    .trim()
+    .replace(/\/+$/, '');
+}
+
+function sitePageUrl(db, leadId, code) {
+  const pages = listSitePages(db, leadId);
+  const want = normalizeSlug(code.target_ref);
+  let page = pages.find((p) => p.slug === want);
+  if (!page && code.target_title) {
+    // Printed-code insurance: the slug is a page's only platform
+    // identity, so a slug rename would strand every stored reference
+    // (module embeds carry the same property). When the exact slug is
+    // gone, fall back to the page's title snapshot — a rename that
+    // keeps the page's title still resolves; an ambiguous match or a
+    // renamed title resolves dormant rather than pointing at the
+    // wrong page.
+    const titled = pages.filter((p) => p.title && p.title === code.target_title);
+    if (titled.length === 1) page = titled[0];
+  }
+  if (!page) return '';
+  const base = siteBaseUrl(db, leadId);
+  if (!base) return '';
+  if (!page.slug || page.slug === 'index' || page.slug === 'home') return `${base}/`;
+  return `${base}/${page.slug}`;
+}
+
+function moduleLandingUrl(db, leadId, moduleType) {
+  const type = String(moduleType || '');
+  if (!MODULE_TYPES.includes(type) || type === 'qrcode') return '';
+  const embed = getEmbedRow(db, leadId, type);
+  if (!embed || !moduleEmbedActive(embed)) return '';
+  const base = siteBaseUrl(db, leadId);
+  if (!base) return '';
+  const slug = embed.target_page_slug || MODULE_META[type].defaultSlug || '';
+  if (!slug) return `${base}/`;
+  return `${base}/${slug}`;
+}
+
+/** Pages + attached module landings a code may point at (picker data). */
+function listQrCodeTargets(db, leadId) {
+  ensureTables(db);
+  const modules = [];
+  for (const type of MODULE_TYPES) {
+    if (type === 'qrcode') continue;
+    const embed = getEmbedRow(db, leadId, type);
+    if (!embed) continue;
+    modules.push({
+      type,
+      label: MODULE_META[type].label,
+      slug: embed.target_page_slug || MODULE_META[type].defaultSlug || '',
+      active: moduleEmbedActive(embed),
+    });
+  }
+  return { pages: listSitePages(db, leadId), modules };
+}
+
+function escapeWifiField(value) {
+  return String(value == null ? '' : value).replace(/([\\;,":])/g, '\\$1');
+}
+
+/** The exact string a code encodes, resolved fresh from current state. */
+function buildQrPayload(db, leadId, code) {
+  if (!code) return '';
+  const kind = String(code.target_kind || '');
+  if (kind === 'page') return sitePageUrl(db, leadId, code);
+  if (kind === 'module') return moduleLandingUrl(db, leadId, code.target_ref);
+  if (kind === 'url') return String(code.target_ref || '');
+  if (kind === 'tel') return code.target_ref ? `tel:${code.target_ref}` : '';
+  if (kind === 'email') return code.target_ref ? `mailto:${code.target_ref}` : '';
+  if (kind === 'wifi') {
+    const ssid = String(code.wifi_ssid || '');
+    if (!ssid) return '';
+    const auth = QR_WIFI_AUTHS.includes(code.wifi_auth) ? code.wifi_auth : 'WPA';
+    const parts = [`T:${auth}`, `S:${escapeWifiField(ssid)}`];
+    if (auth !== 'nopass') parts.push(`P:${escapeWifiField(code.wifi_password || '')}`);
+    if (Number(code.wifi_hidden)) parts.push('H:true');
+    return `WIFI:${parts.join(';')};;`;
+  }
+  return '';
+}
+
+/**
+ * Full resolution for one stored code: the payload plus, for web targets,
+ * the URL a scanner lands on, and — once the QR Code module itself is
+ * attached (it owns the public token) — the public image route other
+ * surfaces (shared layer, newsletter, flyers) can pull the code through.
+ */
+function resolveQrCode(db, leadId, code) {
+  ensureTables(db);
+  const payload = buildQrPayload(db, leadId, code);
+  const target_url = ['page', 'module', 'url'].includes(code.target_kind) ? payload : '';
+  let image_url = '';
+  if (payload) {
+    const embed = getEmbedRow(db, leadId, 'qrcode');
+    if (embed && embed.public_token) {
+      image_url = `${appBaseUrl()}/api/v1/modules/public/${embed.public_token}/qrcode/${code.id}.png`;
+    }
+  }
+  return { payload, target_url, image_url };
+}
+
+async function renderQrCodeImage(payload, code, { format = 'png', width } = {}) {
+  const opts = {
+    errorCorrectionLevel: QR_EC_LEVELS.includes(code.ec_level) ? code.ec_level : 'M',
+    margin: 1,
+    width: normalizeQrSize(width != null ? width : code.size),
+    color: {
+      dark: normalizeQrHex(code.fg_color, '#111111'),
+      light: normalizeQrHex(code.bg_color, '#ffffff'),
+    },
+  };
+  if (format === 'svg') {
+    return { body: await QRCode.toString(String(payload), { ...opts, type: 'svg' }), contentType: 'image/svg+xml' };
+  }
+  return { body: await QRCode.toBuffer(String(payload), { ...opts, type: 'png' }), contentType: 'image/png' };
+}
+
+/** Small inline preview for portal lists (data URL; '' when dormant). */
+async function qrCodePreviewDataUrl(db, leadId, code, width = 200) {
+  const { payload } = resolveQrCode(db, leadId, code);
+  if (!payload) return '';
+  const { body } = await renderQrCodeImage(payload, code, { format: 'png', width });
+  return `data:image/png;base64,${Buffer.from(body).toString('base64')}`;
+}
+
+function qrCodeRowView(row) {
+  if (!row) return null;
+  const kind = String(row.target_kind || '');
+  return {
+    ...row,
+    wifi_hidden: Number(row.wifi_hidden) ? 1 : 0,
+    target_page: kind === 'page' ? row.target_ref : '',
+    target_module: kind === 'module' ? row.target_ref : '',
+    target_value: ['url', 'tel', 'email'].includes(kind) ? row.target_ref : '',
+  };
+}
+
+function normalizeQrCodeInput(db, leadId, data = {}, existing = null) {
+  const kind = String(data.target_kind || (existing && existing.target_kind) || 'page')
+    .trim()
+    .toLowerCase();
+  if (!QR_TARGET_KINDS.includes(kind)) {
+    throw fail('VALIDATION', `target_kind must be one of: ${QR_TARGET_KINDS.join(', ')}`);
+  }
+  const keepRef = existing && existing.target_kind === kind ? existing.target_ref : '';
+  let target_ref = '';
+  let target_title = '';
+  let wifi_ssid = '';
+  let wifi_auth = 'WPA';
+  let wifi_password = '';
+  let wifi_hidden = 0;
+  if (kind === 'page') {
+    const raw = data.target_page != null ? data.target_page : data.target_ref != null ? data.target_ref : keepRef;
+    const page = listSitePages(db, leadId).find((p) => p.slug === normalizeSlug(raw));
+    if (!page) throw fail('VALIDATION', `That page is not part of this site: ${String(raw || '')}`);
+    target_ref = page.slug;
+    target_title = page.title || '';
+  } else if (kind === 'module') {
+    const raw = String(data.target_module != null ? data.target_module : data.target_ref != null ? data.target_ref : keepRef || '')
+      .trim()
+      .toLowerCase();
+    if (!MODULE_TYPES.includes(raw) || raw === 'qrcode') {
+      throw fail('VALIDATION', `Unknown module target: ${raw}`);
+    }
+    if (!getEmbedRow(db, leadId, raw)) {
+      throw fail('VALIDATION', `The ${MODULE_META[raw].label} module is not added to this site yet`);
+    }
+    target_ref = raw;
+  } else if (kind === 'url') {
+    const raw = String(data.target_value != null ? data.target_value : data.target_ref != null ? data.target_ref : keepRef || '').trim();
+    let parsed = null;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      parsed = null;
+    }
+    if (!parsed || !/^https?:$/.test(parsed.protocol)) {
+      throw fail('VALIDATION', 'Enter a full URL starting with https://');
+    }
+    target_ref = raw;
+  } else if (kind === 'tel') {
+    const raw = String(data.target_value != null ? data.target_value : data.target_ref != null ? data.target_ref : keepRef || '');
+    const stripped = raw.replace(/[^\d+]/g, '');
+    const normalized = (stripped.startsWith('+') ? '+' : '') + stripped.replace(/\+/g, '');
+    if (!/^\+?\d{5,20}$/.test(normalized)) throw fail('VALIDATION', 'Enter a valid phone number');
+    target_ref = normalized;
+  } else if (kind === 'email') {
+    const raw = String(data.target_value != null ? data.target_value : data.target_ref != null ? data.target_ref : keepRef || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(raw)) throw fail('VALIDATION', 'Enter a valid email address');
+    target_ref = raw;
+  } else if (kind === 'wifi') {
+    wifi_ssid = String(data.wifi_ssid != null ? data.wifi_ssid : existing ? existing.wifi_ssid : '').trim();
+    if (!wifi_ssid) throw fail('VALIDATION', 'WiFi network name (SSID) is required');
+    wifi_auth = QR_WIFI_AUTHS.includes(data.wifi_auth) ? data.wifi_auth : existing ? existing.wifi_auth : 'WPA';
+    if (!QR_WIFI_AUTHS.includes(wifi_auth)) wifi_auth = 'WPA';
+    // A blank password on update keeps the stored one: list responses
+    // never carry the password back to the browser, so the editor's
+    // empty field means "unchanged", not "cleared".
+    wifi_password =
+      data.wifi_password != null && String(data.wifi_password) !== ''
+        ? String(data.wifi_password)
+        : existing
+          ? existing.wifi_password
+          : '';
+    const hiddenRaw = data.wifi_hidden != null ? data.wifi_hidden : existing ? existing.wifi_hidden : 0;
+    wifi_hidden = hiddenRaw === true || hiddenRaw === 1 || hiddenRaw === '1' || hiddenRaw === 'true' ? 1 : 0;
+  }
+  return { target_kind: kind, target_ref, target_title, wifi_ssid, wifi_auth, wifi_password, wifi_hidden };
+}
+
+function listQrCodes(db, leadId, { includeDrafts = true } = {}) {
+  ensureTables(db);
+  const rows = db
+    .prepare('SELECT * FROM module_qrcodes WHERE lead_id = ? ORDER BY sort_order ASC, id ASC')
+    .all(Number(leadId));
+  return rows.filter((r) => includeDrafts || r.status === 'published').map(qrCodeRowView);
+}
+
+function getQrCode(db, leadId, id) {
+  ensureTables(db);
+  const row = db
+    .prepare('SELECT * FROM module_qrcodes WHERE id = ? AND lead_id = ?')
+    .get(Number(id), Number(leadId));
+  return qrCodeRowView(row || null);
+}
+
+function createQrCode(db, leadId, data = {}) {
+  ensureTables(db);
+  const name = String(data.name || data.title || '').trim();
+  if (!name) throw fail('VALIDATION', 'QR code name is required');
+  const target = normalizeQrCodeInput(db, leadId, data, null);
+  const accent = sitePaletteAccent(db, leadId);
+  const info = db
+    .prepare(
+      `INSERT INTO module_qrcodes
+        (lead_id, name, target_kind, target_ref, target_title, wifi_ssid, wifi_auth, wifi_password, wifi_hidden,
+         size, fg_color, bg_color, ec_level, status, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      Number(leadId),
+      name.slice(0, 120),
+      target.target_kind,
+      target.target_ref,
+      target.target_title,
+      target.wifi_ssid,
+      target.wifi_auth,
+      target.wifi_password,
+      target.wifi_hidden,
+      normalizeQrSize(data.size),
+      normalizeQrHex(data.fg_color, accent || '#111111'),
+      normalizeQrHex(data.bg_color, '#ffffff'),
+      QR_EC_LEVELS.includes(data.ec_level) ? data.ec_level : 'M',
+      data.status === 'published' ? 'published' : 'draft',
+      Number(data.sort_order) || 0
+    );
+  return getQrCode(db, leadId, info.lastInsertRowid);
+}
+
+function updateQrCode(db, leadId, id, data = {}) {
+  ensureTables(db);
+  const existing = db
+    .prepare('SELECT * FROM module_qrcodes WHERE id = ? AND lead_id = ?')
+    .get(Number(id), Number(leadId));
+  if (!existing) throw fail('NOT_FOUND', 'QR code not found', 404);
+  const targetTouched =
+    data.target_kind != null ||
+    data.target_ref != null ||
+    data.target_page != null ||
+    data.target_module != null ||
+    data.target_value != null ||
+    data.wifi_ssid != null ||
+    data.wifi_auth != null ||
+    data.wifi_password != null ||
+    data.wifi_hidden != null;
+  const target = targetTouched ? normalizeQrCodeInput(db, leadId, data, existing) : existing;
+  const name = data.name != null || data.title != null ? String(data.name || data.title || '').trim() : existing.name;
+  if (!name) throw fail('VALIDATION', 'QR code name is required');
+  db.prepare(
+    `UPDATE module_qrcodes SET
+       name = ?, target_kind = ?, target_ref = ?, target_title = ?, wifi_ssid = ?, wifi_auth = ?, wifi_password = ?,
+       wifi_hidden = ?, size = ?, fg_color = ?, bg_color = ?, ec_level = ?, status = ?, sort_order = ?,
+       updated_at = datetime('now')
+     WHERE id = ? AND lead_id = ?`
+  ).run(
+    name.slice(0, 120),
+    target.target_kind,
+    target.target_ref,
+    target.target_title != null ? target.target_title : existing.target_title || '',
+    target.wifi_ssid,
+    target.wifi_auth,
+    target.wifi_password,
+    Number(target.wifi_hidden) ? 1 : 0,
+    normalizeQrSize(data.size != null ? data.size : existing.size, existing.size),
+    normalizeQrHex(data.fg_color, existing.fg_color),
+    normalizeQrHex(data.bg_color, existing.bg_color),
+    QR_EC_LEVELS.includes(data.ec_level) ? data.ec_level : existing.ec_level,
+    data.status === 'published' || data.status === 'draft' ? data.status : existing.status,
+    data.sort_order != null ? Number(data.sort_order) || 0 : existing.sort_order,
+    existing.id,
+    Number(leadId)
+  );
+  return getQrCode(db, leadId, existing.id);
+}
+
+function deleteQrCode(db, leadId, id) {
+  ensureTables(db);
+  const row = getQrCode(db, leadId, id);
+  if (!row) throw fail('NOT_FOUND', 'QR code not found', 404);
+  db.prepare('DELETE FROM module_qrcodes WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
+  return { deleted: true, id: row.id };
+}
+
+/** Which stored code the site module displays + its caption (embed settings). */
+function getQrCodeDisplay(db, leadId) {
+  ensureTables(db);
+  const row = getEmbedRow(db, leadId, 'qrcode');
+  if (!row) return { qrcode_id: null, caption: '' };
+  const settings = parseEmbedSettings(row);
+  return { qrcode_id: settings.qrcode_id != null ? settings.qrcode_id : null, caption: settings.caption || '' };
+}
+
+function updateQrCodeDisplay(db, leadId, data = {}, { workspaceId } = {}) {
+  ensureTables(db);
+  const row = ensureEmbed(db, leadId, 'qrcode', { workspaceId });
+  let qrcodeId = data.qrcode_id != null ? Number(data.qrcode_id) || null : undefined;
+  if (qrcodeId) {
+    const code = getQrCode(db, leadId, qrcodeId);
+    if (!code) throw fail('VALIDATION', 'That QR code does not belong to this site');
+  }
+  const next = writeEmbedSettings(db, row.id, {
+    ...parseEmbedSettings(row),
+    ...(qrcodeId !== undefined ? { qrcode_id: qrcodeId } : {}),
+    ...(data.caption != null ? { caption: String(data.caption || '').slice(0, 160) } : {}),
+  });
+  return { qrcode_id: next.qrcode_id != null ? next.qrcode_id : null, caption: next.caption || '' };
+}
+
+/**
+ * The public payload block for the QR Code module: the ONE chosen code,
+ * resolved at serve time. Dormant (null) when nothing is chosen, the
+ * chosen code is unpublished, or its target has vanished — the embed
+ * renders nothing, never a broken image.
+ */
+function publicQrCodePayload(db, leadId, embedRow) {
+  const settings = parseEmbedSettings(embedRow);
+  if (!settings.qrcode_id) return null;
+  const code = getQrCode(db, leadId, settings.qrcode_id);
+  if (!code || code.status !== 'published') return null;
+  const resolved = resolveQrCode(db, leadId, code);
+  if (!resolved.payload) return null;
+  return {
+    id: code.id,
+    name: code.name,
+    caption: settings.caption || '',
+    payload: resolved.payload,
+    target_url: resolved.target_url,
+    image_url: resolved.image_url,
+    svg_url: resolved.image_url ? resolved.image_url.replace(/\.png$/, '.svg') : '',
+  };
+}
+
+/**
+ * Token + id → the published code behind the public image route. The id
+ * is always resolved inside the token's own lead (strict isolation).
+ */
+function resolvePublicQrCode(db, token, id) {
+  ensureTables(db);
+  const row = db
+    .prepare('SELECT * FROM site_module_embeds WHERE public_token = ?')
+    .get(String(token || ''));
+  if (!row || row.module_type !== 'qrcode' || !moduleEmbedActive(row)) {
+    throw fail('NOT_FOUND', 'QR code not found', 404);
+  }
+  assertSiteNotArchived(db, row.lead_id);
+  assertSiteNotSuspended(db, row.lead_id);
+  const code = getQrCode(db, row.lead_id, id);
+  if (!code || code.status !== 'published') throw fail('NOT_FOUND', 'QR code not found', 404);
+  const resolved = resolveQrCode(db, row.lead_id, code);
+  if (!resolved.payload) throw fail('NOT_FOUND', 'QR code not found', 404);
+  return { leadId: row.lead_id, code, payload: resolved.payload };
 }
 
 /* ── Menu / Price List (categories + items) ── */
@@ -11622,6 +12119,7 @@ function moduleItemCount(db, leadId, type) {
     }
   }
   if (type === 'offers') return listOffers(db, leadId).length;
+  if (type === 'qrcode') return listQrCodes(db, leadId).length;
   if (type === 'menu') return listMenuItems(db, leadId).length;
   if (type === 'careers') return listCareersPostings(db, leadId).length;
   if (type === 'video') return listVideoItems(db, leadId).length;
@@ -11747,6 +12245,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
   let newsletter = null;
   let categoryScopes = null;
   let photocapture = null;
+  let qrcode = null;
   let total_published = null;
   if (type === 'blog') {
     items = listBlogPosts(db, leadId, { includeDrafts: false }).map((p) => ({
@@ -11834,6 +12333,11 @@ function getPublicModuleByToken(db, token, opts = {}) {
     // public payload never carries raw rows.
     charts = publicChartsPayload(db, leadId);
     items = [];
+  } else if (type === 'qrcode') {
+    // The one chosen code, resolved at serve time; dormant-empty (no
+    // block, no items) when its target has vanished.
+    qrcode = publicQrCodePayload(db, leadId, row);
+    items = qrcode ? [qrcode] : [];
   } else if (type === 'chatbot') {
     try {
       const chat = require('./chatbot');
@@ -11906,6 +12410,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
   if (newsletter) out.newsletter = newsletter;
   if (categoryScopes) out.category_scopes = categoryScopes;
   if (photocapture) out.photocapture = photocapture;
+  if (qrcode) out.qrcode = qrcode;
   return out;
 }
 
@@ -12150,6 +12655,20 @@ module.exports = {
   updateOffer,
   deleteOffer,
   isOfferExpired,
+  listQrCodes,
+  getQrCode,
+  createQrCode,
+  updateQrCode,
+  deleteQrCode,
+  listQrCodeTargets,
+  buildQrPayload,
+  resolveQrCode,
+  renderQrCodeImage,
+  qrCodePreviewDataUrl,
+  getQrCodeDisplay,
+  updateQrCodeDisplay,
+  publicQrCodePayload,
+  resolvePublicQrCode,
   listMenuCategories,
   getMenuCategory,
   createMenuCategory,

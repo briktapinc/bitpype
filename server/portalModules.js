@@ -66,6 +66,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     let newsletter = null;
     let taxonomy = null;
     let photocapture = null;
+    let qrcode = null;
     if (type === 'blog') {
       // Batch 45: server-side paging when the caller asks for a page
       // (portal blog tab); no limit = the historical full list.
@@ -281,6 +282,33 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
         albums: modules.listAlbums(db, Number(leadId), { withImages: false }),
       };
     }
+    else if (type === 'qrcode') {
+      // Batch 126: items carry their live resolution (payload + web
+      // target) and a real preview rendered by the same generator the
+      // public image route uses; the panel block carries the target
+      // picker data (real pages + attached module landings) and the
+      // on-site display choice.
+      const codes = modules.listQrCodes(db, Number(leadId));
+      items = await Promise.all(
+        codes.map(async (c) => {
+          const resolved = modules.resolveQrCode(db, Number(leadId), c);
+          return {
+            ...c,
+            payload: resolved.payload,
+            resolved_url: resolved.target_url,
+            image_data_url: await modules.qrCodePreviewDataUrl(db, Number(leadId), c),
+            // The WiFi password never rides a list response — the editor
+            // shows it only as "unchanged" state; see updateModuleItem.
+            wifi_password: undefined,
+            has_wifi_password: c.target_kind === 'wifi' && !!c.wifi_password,
+          };
+        })
+      );
+      qrcode = {
+        targets: modules.listQrCodeTargets(db, Number(leadId)),
+        display: modules.getQrCodeDisplay(db, Number(leadId)),
+      };
+    }
     else if (type === 'chatbot') {
       const chat = require('./chatbot');
       const summary = chat.portalChatbotSummary(db, Number(leadId));
@@ -321,6 +349,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     if (newsletter) out.newsletter = newsletter;
     if (taxonomy) out.taxonomy = taxonomy;
     if (photocapture) out.photocapture = photocapture;
+    if (qrcode) out.qrcode = qrcode;
     return out;
   });
 }
@@ -355,6 +384,11 @@ async function createModuleItem(workspaceId, leadId, moduleType, body, clientEma
       });
     else if (type === 'charts') item = modules.createChart(db, Number(leadId), body || {});
     else if (type === 'categories') item = require('./categories').createCategory(db, Number(leadId), body || {});
+    else if (type === 'qrcode')
+      item = {
+        ...modules.createQrCode(db, Number(leadId), body || {}),
+        wifi_password: undefined,
+      };
     else if (type === 'socialfeed')
       throw Object.assign(new Error('Social Feed updates itself from your social posts — there are no items to add.'), {
         code: 'VALIDATION',
@@ -413,6 +447,11 @@ async function updateModuleItem(workspaceId, leadId, moduleType, id, body, clien
     else if (type === 'datatables') item = modules.updateDataTableRow(db, Number(leadId), id, body || {});
     else if (type === 'charts') item = modules.updateChart(db, Number(leadId), id, body || {});
     else if (type === 'categories') item = require('./categories').updateCategory(db, Number(leadId), id, body || {});
+    else if (type === 'qrcode')
+      item = {
+        ...modules.updateQrCode(db, Number(leadId), id, body || {}),
+        wifi_password: undefined,
+      };
     else if (type === 'socialfeed')
       throw Object.assign(new Error('Social Feed updates itself from your social posts — there are no items to edit.'), {
         code: 'VALIDATION',
@@ -469,6 +508,7 @@ async function deleteModuleItem(workspaceId, leadId, moduleType, id, clientEmail
     if (type === 'datatables') return modules.deleteDataTableRow(db, Number(leadId), id);
     if (type === 'charts') return modules.deleteChart(db, Number(leadId), id);
     if (type === 'categories') return require('./categories').deleteCategory(db, Number(leadId), id);
+    if (type === 'qrcode') return modules.deleteQrCode(db, Number(leadId), id);
     if (type === 'socialfeed')
       throw Object.assign(new Error('Social Feed updates itself from your social posts — there are no items to delete.'), {
         code: 'VALIDATION',
@@ -853,6 +893,52 @@ async function saveCategoriesDisplaySettings(workspaceId, leadId, body, clientEm
       workspaceId: Number(workspaceId),
     }),
   }));
+}
+
+/** QR Code on-site display choice (Batch 126): which code + caption. */
+async function saveQrCodeDisplaySettings(workspaceId, leadId, body, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => ({
+    settings: modules.updateQrCodeDisplay(db, Number(leadId), body || {}, {
+      workspaceId: Number(workspaceId),
+    }),
+  }));
+}
+
+/**
+ * Print-size download of one stored code (Batch 126). Resolution runs
+ * through the same resolver as the site render — a vanished target is a
+ * 404 here too, never a stale image.
+ */
+async function downloadQrCode(workspaceId, leadId, id, format, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  const fmt = String(format || 'png').toLowerCase() === 'svg' ? 'svg' : 'png';
+  return domain.withDb(workspaceId, async (db) => {
+    const code = modules.getQrCode(db, Number(leadId), id);
+    if (!code) throw Object.assign(new Error('QR code not found'), { code: 'NOT_FOUND', status: 404 });
+    const { payload } = modules.resolveQrCode(db, Number(leadId), code);
+    if (!payload) {
+      throw Object.assign(new Error('This code’s target is no longer available on the site'), {
+        code: 'NOT_FOUND',
+        status: 404,
+      });
+    }
+    const rendered = await modules.renderQrCodeImage(payload, code, { format: fmt });
+    const safeName = String(code.name || 'qr-code')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60);
+    return {
+      body: rendered.body,
+      contentType: rendered.contentType,
+      filename: `${safeName || 'qr-code'}.${fmt}`,
+    };
+  });
 }
 
 async function saveMembersConfig(workspaceId, leadId, body, clientEmail) {
@@ -1426,6 +1512,8 @@ module.exports = {
   setSeoGscToken,
   saveOffersDisplaySettings,
   saveCategoriesDisplaySettings,
+  saveQrCodeDisplaySettings,
+  downloadQrCode,
   saveMembersConfig,
   saveMembershipKeys,
   clearMembershipKeys,

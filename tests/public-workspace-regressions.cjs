@@ -22,6 +22,7 @@ function build(file,known=true){
   createMembershipCheckoutByToken:()=>({ok:true}),joinFreeTierByToken:()=>({ok:true}),
   createPublicDataTableSubmissionByToken:()=>({ok:true,row:{id:1,status:'pending'},mode:'moderated'}),
   createPublicPhotoSubmissionByToken:()=>({embed:{lead_id:2},submission:{id:1},message:'fixture'}),
+  resolvePublicQrCode:()=>({leadId:2,code:{},payload:'fixture'}),renderQrCodeImage:async()=>({body:Buffer.from('fixture'),contentType:'image/png'}),
  },'../portalSiteEdits':{applyModuleAssetUpload:async()=>({src:'images/fixture.webp',publicUrl:'images/fixture.webp'})},'../../src/socialMedia':{},'../workspaceExists':{assertWorkspaceExists:guard},
  '../billing':{workspacePlan:async()=> 'free'},'../appUrls':{socialReturnPath:()=>'/app#/social'},
  '../contactForms':{parseWorkspaceFromToken:t=>Number(String(t).split('_')[0]),getPublicFormByToken:()=>({}),acceptSubmission:async()=>({})},

@@ -46,7 +46,7 @@ const iconPathsOf = (src) => {
 
 check('S2.1 shared icon file carries all 25 glyphs + the fallback', () => {
   const icons = iconPathsOf(iconsJs);
-  assert.equal(Object.keys(icons).length, 25, '25 module glyphs');
+  assert.equal(Object.keys(icons).length, 26, '26 module glyphs (Batch 126 finisher: +qrcode)');
   for (const [t, g] of Object.entries(icons)) assert.ok(g.includes('<'), `${t} glyph present`);
   assert.ok(iconsJs.includes("const MODULE_ICON_FALLBACK = '<rect x=\"4\" y=\"4\""), 'fallback defined once, in the shared file');
 });
@@ -79,9 +79,9 @@ check('S2.4 both shells load the shared file BEFORE their main script', () => {
 
 const staffCss = read('public/styles.css');
 
-check('S3.1 census: exactly seven bare-card blocks exist, all in portal.js module settings', () => {
+check('S3.1 census: exactly eight bare-card blocks exist, all in portal.js module settings', () => {
   const count = (portalJs.match(/class=\\"card\\"/g) || []).length + (portalJs.match(/class="card"/g) || []).length;
-  assert.equal(count, 7, 'seven module-settings .card blocks (Batch 124: the Categories display-scopes panel is the seventh)');
+  assert.equal(count, 8, 'eight module-settings .card blocks (Batch 124: Categories display-scopes panel; Batch 126 finisher: QR display panel is the eighth)');
   assert.ok(!portalHtml.includes('class="card"'), 'no static .card markup in portal.html');
 });
 
@@ -111,7 +111,7 @@ check('S4.1 clientPortal.js is a thin facade over 9 focused modules', () => {
     assert.ok(cpFacade.includes(`require('./${m}')`), `facade requires ${m}`);
   assert.ok(cpFacade.split('\n').length < 250, `facade is thin (${cpFacade.split('\n').length} lines, was 5993)`);
   const cp = require(path.join(root, 'server', 'clientPortal.js'));
-  assert.equal(Object.keys(cp).length, 143, 'facade exports the full surface (143 names; Batch 124 added saveCategoriesDisplaySettings; Batch 125 added the photo capture writes)');
+  assert.equal(Object.keys(cp).length, 145, 'facade exports the full surface (145 names; Batch 124 added saveCategoriesDisplaySettings; Batch 125 added the photo capture writes)');
   const chat = require(path.join(root, 'server', 'portalSiteChat.js'));
   assert.equal(cp.runSiteAgentChat, chat.runSiteAgentChat, 're-export identity: runSiteAgentChat');
   const edits = require(path.join(root, 'server', 'portalSiteEdits.js'));

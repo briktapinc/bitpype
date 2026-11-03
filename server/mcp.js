@@ -1285,6 +1285,69 @@ function clientToolDefs() {
       inputSchema: schema({ id: ID, leadId: ID }, ['id']),
     },
     {
+      name: 'qrcode.list',
+      description:
+        'List the stored QR codes for a lead, each with its live resolved target (page/module targets resolve against the CURRENT site structure). Batch 126. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, includeDrafts: { type: 'boolean' } }),
+    },
+    {
+      name: 'qrcode.create',
+      description:
+        'Create a QR code. target_kind: page (target_page = a site page slug), module (target_module = another module type whose landing the code opens — e.g. bookings, menu, googlereviews, newsletter; the module must be added to the site), url / tel / email (target_value = the literal value), wifi (wifi_ssid, wifi_auth WPA|WEP|nopass, wifi_password, wifi_hidden). Style: size, fg_color, bg_color (#rrggbb), ec_level L|M|Q|H, status draft|published. Page/module targets are stored as references and stay correct when pages are renamed. Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          name: STR,
+          target_kind: STR,
+          target_page: STR,
+          target_module: STR,
+          target_value: STR,
+          target_ref: STR,
+          wifi_ssid: STR,
+          wifi_auth: STR,
+          wifi_password: STR,
+          wifi_hidden: { type: 'boolean' },
+          size: NUM,
+          fg_color: STR,
+          bg_color: STR,
+          ec_level: STR,
+          status: STR,
+        },
+        ['name']
+      ),
+    },
+    {
+      name: 'qrcode.update',
+      description: 'Update a QR code by id (same fields as qrcode.create). Standard/Premium.',
+      inputSchema: schema(
+        {
+          id: ID,
+          leadId: ID,
+          name: STR,
+          target_kind: STR,
+          target_page: STR,
+          target_module: STR,
+          target_value: STR,
+          target_ref: STR,
+          wifi_ssid: STR,
+          wifi_auth: STR,
+          wifi_password: STR,
+          wifi_hidden: { type: 'boolean' },
+          size: NUM,
+          fg_color: STR,
+          bg_color: STR,
+          ec_level: STR,
+          status: STR,
+        },
+        ['id']
+      ),
+    },
+    {
+      name: 'qrcode.delete',
+      description: 'Delete a QR code by id. Standard/Premium.',
+      inputSchema: schema({ id: ID, leadId: ID }, ['id']),
+    },
+    {
       name: 'shared.sources',
       description:
         "Batch 122 shared module layer: list every module type for a lead with its kind (provider / non-provider + reason), the count of published shared items and sample items. Modules are INTERDEPENDENT: content flows between them through this layer — use it before composing anything that reuses another module's content. Standard/Premium.",
@@ -3183,6 +3246,11 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'events.create',
     'events.update',
     'events.delete',
+    // Batch 126: QR code tools ride the same siteModules entitlement.
+    'qrcode.list',
+    'qrcode.create',
+    'qrcode.update',
+    'qrcode.delete',
     // Batch 122: shared module layer tools ride the same siteModules
     // entitlement as the module families they connect.
     'shared.sources',
@@ -4272,6 +4340,44 @@ async function callClientTool(ws, name, a, ctx = {}) {
     return domain.withDb(ws, (db) => ({
       plan: planId,
       ...modules.deleteEvent(db, leadId || Number(ctx.leadId), id),
+    }));
+  }
+
+  // ---- QR codes (Batch 126) ----
+  if (name === 'qrcode.list') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      qrcodes: modules
+        .listQrCodes(db, leadId, { includeDrafts: a.includeDrafts !== false })
+        .map((c) => ({ ...c, ...modules.resolveQrCode(db, leadId, c), wifi_password: undefined })),
+    }));
+  }
+  if (name === 'qrcode.create') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      qrcode: { ...modules.createQrCode(db, leadId, a), wifi_password: undefined },
+    }));
+  }
+  if (name === 'qrcode.update') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      qrcode: { ...modules.updateQrCode(db, leadId || Number(ctx.leadId), id, a), wifi_password: undefined },
+    }));
+  }
+  if (name === 'qrcode.delete') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      ...modules.deleteQrCode(db, leadId || Number(ctx.leadId), id),
     }));
   }
 

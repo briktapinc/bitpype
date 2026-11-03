@@ -2649,6 +2649,81 @@ const tools = [
     },
   },
   {
+    name: 'qrcode.list',
+    description:
+      'List stored QR codes with their live resolved targets — page/module targets resolve against the CURRENT site structure (Batch 126, Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: { leadId: { type: 'integer', minimum: 1 }, includeDrafts: { type: 'boolean' } },
+    },
+  },
+  {
+    name: 'qrcode.create',
+    description:
+      'Create a QR code: name + target_kind page (target_page = site page slug) | module (target_module = an added module type, e.g. bookings/menu/googlereviews/newsletter) | url/tel/email (target_value) | wifi (wifi_ssid, wifi_auth, wifi_password, wifi_hidden). Style: size, fg_color, bg_color, ec_level, status (Batch 126, Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        name: { type: 'string' },
+        target_kind: { type: 'string', enum: ['page', 'module', 'url', 'tel', 'email', 'wifi'] },
+        target_page: { type: 'string' },
+        target_module: { type: 'string' },
+        target_value: { type: 'string' },
+        target_ref: { type: 'string' },
+        wifi_ssid: { type: 'string' },
+        wifi_auth: { type: 'string', enum: ['WPA', 'WEP', 'nopass'] },
+        wifi_password: { type: 'string' },
+        wifi_hidden: { type: 'boolean' },
+        size: { type: 'number' },
+        fg_color: { type: 'string' },
+        bg_color: { type: 'string' },
+        ec_level: { type: 'string', enum: ['L', 'M', 'Q', 'H'] },
+        status: { type: 'string', enum: ['draft', 'published'] },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'qrcode.update',
+    description: 'Update a QR code by id — same fields as qrcode.create (Batch 126, Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', minimum: 1 },
+        leadId: { type: 'integer', minimum: 1 },
+        name: { type: 'string' },
+        target_kind: { type: 'string', enum: ['page', 'module', 'url', 'tel', 'email', 'wifi'] },
+        target_page: { type: 'string' },
+        target_module: { type: 'string' },
+        target_value: { type: 'string' },
+        target_ref: { type: 'string' },
+        wifi_ssid: { type: 'string' },
+        wifi_auth: { type: 'string', enum: ['WPA', 'WEP', 'nopass'] },
+        wifi_password: { type: 'string' },
+        wifi_hidden: { type: 'boolean' },
+        size: { type: 'number' },
+        fg_color: { type: 'string' },
+        bg_color: { type: 'string' },
+        ec_level: { type: 'string', enum: ['L', 'M', 'Q', 'H'] },
+        status: { type: 'string', enum: ['draft', 'published'] },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'qrcode.delete',
+    description: 'Delete a QR code by id (Batch 126, Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', minimum: 1 },
+        leadId: { type: 'integer', minimum: 1 },
+      },
+      required: ['id'],
+    },
+  },
+  {
     name: 'shared.sources',
     description:
       "Batch 122 shared module layer: list every module type for a lead with its kind (provider / non-provider + reason), the count of published shared items and sample items. Modules are INTERDEPENDENT: content flows between them through this layer — use it before composing anything that reuses another module's content.",

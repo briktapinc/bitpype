@@ -587,6 +587,7 @@ const PORTAL_MODULE_SUBPATHS = [
   ['datatables', 'datatables'],
   ['charts', 'charts'],
   ['newsletter', 'newsletter'],
+  ['qrcode', 'qrcode'],
 ];
 
 function moduleForbidden(res, moduleKey) {
@@ -1987,6 +1988,41 @@ router.put('/modules/categories/scopes', requireClient, actionLimit, async (req,
   }
 });
 
+// QR Code display choice + print downloads (Batch 126) — before the
+// generic /modules/:type routes, which would otherwise read "qrcode"
+// item ids loosely.
+router.put('/modules/qrcode/display', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.saveQrCodeDisplaySettings(
+        req.client.workspace_id,
+        req.client.lead_id,
+        req.body || {},
+        req.client.email
+      )
+    );
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.get('/modules/qrcode/:id/download', requireClient, actionLimit, async (req, res) => {
+  try {
+    const file = await portal.downloadQrCode(
+      req.client.workspace_id,
+      req.client.lead_id,
+      req.params.id,
+      req.query.format,
+      req.client.email
+    );
+    res.setHeader('Content-Type', file.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.send(file.body);
+  } catch (e) {
+    fail(res, e, e && e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
 // Data Tables config + clear (Batch 88) — before the generic
 // /modules/:type routes so 'datatables' is never parsed as an id.
 router.put('/modules/datatables/config', requireClient, actionLimit, async (req, res) => {

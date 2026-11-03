@@ -427,6 +427,30 @@ const SHARE_REGISTRY = {
       );
     },
   },
+  qrcode: {
+    // Batch 126: stored QR codes are content other surfaces pull in —
+    // title = code name, image_url = the code's public image route (via
+    // the QR module's own token), link_url = the resolved target for
+    // web targets; the payload rides in description/meta. Codes whose
+    // target has vanished resolve empty and stay out (resolveQrCode).
+    kind: 'provider',
+    read(db, leadId) {
+      return modules
+        .listQrCodes(db, leadId, { includeDrafts: false })
+        .map((c) => {
+          const resolved = modules.resolveQrCode(db, leadId, c);
+          if (!resolved.payload) return null;
+          return item('qrcode', c, {
+            title: c.name,
+            description: resolved.payload,
+            image_url: resolved.image_url,
+            link_url: resolved.target_url,
+            meta: { target_kind: c.target_kind, target_ref: c.target_ref },
+          });
+        })
+        .filter(Boolean);
+    },
+  },
 };
 
 /* ------------------------------------------------------------------ */

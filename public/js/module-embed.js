@@ -331,6 +331,12 @@
       '.bitpype-module-embed .bp-mod-gr-attrib{margin:0;color:var(--bp-mod-muted);font-size:0.84rem;}',
       '.bitpype-module-embed .bp-mod-gr-attrib a{color:var(--bp-mod-accent);font-weight:700;text-decoration:none;}',
       '.bitpype-module-embed .bp-mod-gr-attrib a:hover{text-decoration:underline;}',
+      // QR Code
+      '.bitpype-module-embed .bp-mod-qrcode{display:flex;flex-direction:column;align-items:center;gap:0.9rem;text-align:center;}',
+      '.bitpype-module-embed .bp-mod-qr-img{width:min(280px,72vw);height:auto;aspect-ratio:1;border-radius:0.9rem;background:#fff;}',
+      '.bitpype-module-embed .bp-mod-qr-caption{margin:0;font-weight:700;font-size:1.05rem;line-height:1.4;color:var(--bp-mod-ink,#1c1917);}',
+      '.bitpype-module-embed .bp-mod-qr-caption a{color:var(--bp-mod-accent);text-decoration:none;}',
+      '.bitpype-module-embed .bp-mod-qr-caption a:hover{text-decoration:underline;}',
       // Call Tracking
       '.bitpype-module-embed .bp-mod-calltracking{display:flex;}',
       '.bitpype-module-embed .bp-mod-call{display:inline-flex;flex-direction:column;gap:0.15rem;border:1.5px solid var(--bp-mod-accent);border-radius:1rem;padding:0.9rem 1.3rem;background:var(--bp-mod-paper);text-decoration:none;}',
@@ -513,6 +519,11 @@
     if (type === 'categories') {
       // No public empty state for Categories — a taxonomy with no
       // published categories renders nothing (dormant-empty).
+      return { kicker: '', title: '', text: '' };
+    }
+    if (type === 'qrcode') {
+      // No public empty state for QR Code — an unchosen or vanished
+      // target renders nothing (never a broken image).
       return { kicker: '', title: '', text: '' };
     }
     if (type === 'video') {
@@ -1115,6 +1126,25 @@
     return html;
   }
 
+  function qrCodeHtml(qr) {
+    // The image is server-rendered from the payload resolved at serve
+    // time (the payload's own public route); the caption optionally
+    // links to the same target the code encodes.
+    var html = '<figure class="bp-mod-qrcode" style="margin:0">';
+    html += '<img class="bp-mod-qr-img" src="' + esc(qr.image_url) + '" alt="' + esc(qr.name || 'QR code') + '" loading="lazy" />';
+    if (qr.caption) {
+      html += '<figcaption class="bp-mod-qr-caption">';
+      if (qr.target_url) {
+        html += '<a href="' + esc(qr.target_url) + '">' + esc(qr.caption) + '</a>';
+      } else {
+        html += esc(qr.caption);
+      }
+      html += '</figcaption>';
+    }
+    html += '</figure>';
+    return html;
+  }
+
   function wireVideoFacades(root) {
     var btns = root.querySelectorAll('[data-bp-video-embed]');
     for (var i = 0; i < btns.length; i++) {
@@ -1226,6 +1256,18 @@
         return;
       }
       el.innerHTML = html + googleReviewsHtml(grData, items);
+      return;
+    }
+    if (type === 'qrcode') {
+      // One chosen code, resolved server-side at serve time; a code
+      // whose target vanished arrives as no block at all and renders
+      // nothing — never a broken image.
+      var qrData = data.qrcode;
+      if (!qrData || !qrData.image_url) {
+        el.innerHTML = '';
+        return;
+      }
+      el.innerHTML = html + qrCodeHtml(qrData);
       return;
     }
     if (!items.length) {
