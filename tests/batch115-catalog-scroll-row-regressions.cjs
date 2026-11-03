@@ -362,10 +362,10 @@ function group(name, n) {
       );
       m = await page.evaluate(measure);
       const last = m.rects[m.rects.length - 1];
-      ok(/Newsletter/.test(m.lastName), `@${w}: last card is Newsletter`);
+      ok(/Categories/.test(m.lastName), `@${w}: last card is Categories`);
       ok(
         last.right <= m.gridRect.right + 1 && last.left >= m.gridRect.left - 1,
-        `@${w}: Newsletter fully inside the row at max scroll (not cut)`
+        `@${w}: Categories fully inside the row at max scroll (not cut)`
       );
       // Keyboard: focus the row, ArrowRight scrolls it.
       await page.evaluate(() => {
