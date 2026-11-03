@@ -4,7 +4,7 @@
  *
  * What this pins:
  *   Part 1 — source pins: `categories` is the 24th MODULE_TYPE with
- *     catalog metadata, MODULE_SCRIPT_VER mod26, a moduleShare
+ *     catalog metadata, MODULE_SCRIPT_VER mod27, a moduleShare
  *     registry provider entry (parity at 24), the categories service
  *     module, taxonomy tables, MCP + catalog + parity + agent tool
  *     surfaces, portal editor wiring (picker + Categories pane +
@@ -111,7 +111,7 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     }
     assert.ok(smSrc.includes("categories: { label: 'Categories'"), 'MODULE_META carries the Categories label');
     n++;
-    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod26'"), 'MODULE_SCRIPT_VER bumped to mod26');
+    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod27'"), 'MODULE_SCRIPT_VER bumped to mod27');
     n++;
 
     const shareSrc = read('server/moduleShare.js');
@@ -157,8 +157,8 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     }
     assert.equal(
       (mcpSrc.match(/category_ids: CATIDS/g) || []).length,
-      10,
-      'category_ids rides all five consumers (create + update)'
+      11,
+      'category_ids rides all five consumers (create + update) + photocapture moderation (Batch 125 finisher)'
     );
     n++;
 
@@ -180,7 +180,10 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     n += 3;
     const portalHtml = read('public/portal.html');
     assert.ok(portalHtml.includes('id="modules-categories-scopes-panel"'), 'scopes panel mount exists');
-    assert.ok(portalHtml.includes('portal.js?v=batch124-categories1'), 'portal.js cache-bust rotated');
+    assert.ok(
+      portalHtml.includes('portal.js?v=batch125-photocapture1'),
+      'portal.js cache-bust rotated (Batch 124 rotated it; Batch 125 rotated again)'
+    );
     n += 2;
     const routesSrc = read('server/routes/portal.js');
     assert.ok(routesSrc.includes("'/modules/categories/scopes'"), 'portal scopes route registered');

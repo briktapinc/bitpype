@@ -1435,8 +1435,8 @@ function clientToolDefs() {
     {
       name: 'photocapture.moderateSubmission',
       description:
-        'Approve or reject one Photo Capture submission (status pending|approved|rejected). Approving publishes the photo to the shared layer and, when enabled, the public grid; rejecting hides it everywhere. Re-approving a rejected photo is allowed. Standard/Premium.',
-      inputSchema: schema({ leadId: ID, id: ID, status: STR }, ['leadId', 'id', 'status']),
+        'Approve or reject one Photo Capture submission (status pending|approved|rejected). Approving publishes the photo to the shared layer and, when enabled, the public grid; rejecting hides it everywhere. Re-approving a rejected photo is allowed. Optionally pass category_ids (shared-taxonomy categories in the photocapture scope) to replace the photo’s category set in the same call. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, id: ID, status: STR, category_ids: CATIDS }, ['leadId', 'id', 'status']),
     },
     {
       name: 'photocapture.addToGallery',
@@ -4351,7 +4351,7 @@ async function callClientTool(ws, name, a, ctx = {}) {
     if (!leadId) throw new Error('leadId is required');
     return domain.withDb(ws, (db) => ({
       plan: planId,
-      submission: modules.updatePhotoSubmissionStatus(db, leadId, id, a.status),
+      submission: modules.updatePhotoSubmissionStatus(db, leadId, id, a.status, a),
     }));
   }
   if (name === 'photocapture.addToGallery') {

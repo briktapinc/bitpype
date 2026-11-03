@@ -44,7 +44,7 @@ const iconPathsOf = (src) => {
   return Object.fromEntries([...m[1].matchAll(/(\w+): '([^']*)'/g)].map((x) => [x[1], x[2]]));
 };
 
-check('S2.1 shared icon file carries all 24 glyphs + the fallback', () => {
+check('S2.1 shared icon file carries all 25 glyphs + the fallback', () => {
   const icons = iconPathsOf(iconsJs);
   assert.equal(Object.keys(icons).length, 25, '25 module glyphs');
   for (const [t, g] of Object.entries(icons)) assert.ok(g.includes('<'), `${t} glyph present`);

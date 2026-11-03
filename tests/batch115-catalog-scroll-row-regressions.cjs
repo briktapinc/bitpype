@@ -37,7 +37,7 @@
  * Part 2 — real Chromium, stub API, staff app at 1440/980/390:
  *   exactly one row (shared top, equal heights), uniform 171px
  *   widths, uniform 16px gaps, scrollWidth > clientWidth, the
- *   last card (Charts) fully reachable at max scroll, the first
+ *   last card (Photo Capture) fully reachable at max scroll, the first
  *   card fully visible at rest, keyboard scrolling works, no
  *   page-level horizontal overflow, the installs table below the
  *   catalog still renders, zero page errors.
@@ -290,7 +290,7 @@ function group(name, n) {
     for (const w of [1440, 980, 390]) {
       await page.setViewport({ width: w, height: 1000 });
       await page.goto(base + '/app#/modules', { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await WF(page, () => document.querySelectorAll('.modcat-card').length === 24, `catalog renders @${w}`);
+      await WF(page, () => document.querySelectorAll('.modcat-card').length === 25, `catalog renders @${w}`);
       await page.evaluate(() => document.fonts.ready);
       // Batch 112 stability idiom: measure the REST state only once
       // it is well-defined — scroll reset to 0 and the first card's
@@ -316,7 +316,7 @@ function group(name, n) {
         `catalog at settled rest @${w}`
       );
       let m = await page.evaluate(measure);
-      ok(m.count === 24, `@${w}: all 24 catalog cards rendered`);
+      ok(m.count === 25, `@${w}: all 25 catalog cards rendered`);
       ok(m.display === 'flex' && m.overflowX === 'auto', `@${w}: row is a native horizontal scroller`);
       const top0 = m.rects[0].top;
       ok(
@@ -362,7 +362,7 @@ function group(name, n) {
       );
       m = await page.evaluate(measure);
       const last = m.rects[m.rects.length - 1];
-      ok(/Categories/.test(m.lastName), `@${w}: last card is Categories`);
+      ok(/Photo Capture/.test(m.lastName), `@${w}: last card is Photo Capture`);
       ok(
         last.right <= m.gridRect.right + 1 && last.left >= m.gridRect.left - 1,
         `@${w}: Categories fully inside the row at max scroll (not cut)`

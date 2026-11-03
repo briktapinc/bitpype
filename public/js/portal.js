@@ -6990,6 +6990,49 @@
       if (s.message) body.appendChild(pcEl('p', null, s.message));
       const when = whenLabel(s.created_at);
       if (when) body.appendChild(pcEl('p', 'hint', `Sent ${when}`));
+      // Batch 125 finisher: the shared-taxonomy picker — this lead's
+      // photocapture-scope categories from the shared Categories
+      // module, saved through the same moderation write the design
+      // agent uses (category_ids on the submission PUT). No
+      // photocapture categories → no picker, inbox unchanged.
+      const pcCats = (moduleState.allCategories || []).filter((c) => c && c.scope === 'photocapture');
+      if (pcCats.length) {
+        const catWrap = pcEl('div', 'field');
+        catWrap.style.marginTop = '8px';
+        catWrap.appendChild(pcEl('label', null, 'Categories'));
+        const boxes = [];
+        for (const c of pcCats) {
+          const lab = pcEl('label', null);
+          lab.style.display = 'block';
+          const box = document.createElement('input');
+          box.type = 'checkbox';
+          box.checked = (Array.isArray(s.category_ids) ? s.category_ids : []).map(Number).includes(Number(c.id));
+          box.dataset.catId = String(c.id);
+          lab.appendChild(box);
+          lab.appendChild(document.createTextNode(` ${c.name || ''}`));
+          catWrap.appendChild(lab);
+          boxes.push(box);
+        }
+        const saveCats = pcEl('button', 'btn soft small', 'Save categories');
+        saveCats.type = 'button';
+        saveCats.addEventListener('click', async () => {
+          moduleMsg('Saving categories…', true);
+          try {
+            await api(`/modules/photocapture/submissions/${encodeURIComponent(s.id)}`, {
+              method: 'PUT',
+              body: JSON.stringify({
+                category_ids: boxes.filter((b) => b.checked).map((b) => Number(b.dataset.catId)),
+              }),
+            });
+            moduleMsg('Categories saved.', true);
+            await refresh();
+          } catch (e) {
+            moduleMsg(errText(e), false);
+          }
+        });
+        catWrap.appendChild(saveCats);
+        body.appendChild(catWrap);
+      }
       const actions = pcEl('div', 'row');
       actions.style.gap = '6px';
       actions.style.flexWrap = 'wrap';

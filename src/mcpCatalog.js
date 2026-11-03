@@ -2890,13 +2890,19 @@ const tools = [
   {
     name: 'photocapture.moderateSubmission',
     description:
-      'Approve or reject one Photo Capture submission (status pending|approved|rejected). Approving publishes the photo to the shared layer and, when enabled, the public grid; rejecting hides it everywhere. Re-approving a rejected photo is allowed.',
+      'Approve or reject one Photo Capture submission (status pending|approved|rejected). Approving publishes the photo to the shared layer and, when enabled, the public grid; rejecting hides it everywhere. Re-approving a rejected photo is allowed. Optionally pass category_ids (shared-taxonomy categories in the photocapture scope) to replace the photo’s category set in the same call.',
     schema: {
       type: 'object',
       properties: {
         leadId: { type: 'integer', minimum: 1 },
         id: { type: 'integer', minimum: 1 },
         status: { type: 'string' },
+        category_ids: {
+          type: 'array',
+          items: { type: 'integer', minimum: 1 },
+          description:
+            'Batch 124: ids of shared-taxonomy categories in this module\'s own scope to assign the item to — replaces the item\'s full category set; omit to leave assignments untouched. Manage the taxonomy with the categories.* tools.',
+        },
       },
       required: ['leadId', 'id', 'status'],
     },

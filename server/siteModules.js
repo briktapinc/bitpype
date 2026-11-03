@@ -48,7 +48,7 @@ const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod26';
+const MODULE_SCRIPT_VER = 'mod27';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -6210,7 +6210,9 @@ function getPhotoSubmission(db, leadId, id) {
   const row = db
     .prepare('SELECT * FROM photocapture_submissions WHERE lead_id = ? AND id = ?')
     .get(Number(leadId), Number(id));
-  return withPhotoSubmissionShape(row || null);
+  // Batch 125 finisher: submissions carry their shared-taxonomy
+  // assignments like every other consuming module's items.
+  return decorateItemCategories(db, leadId, 'photocapture', withPhotoSubmissionShape(row || null));
 }
 
 function listPhotoSubmissions(db, leadId, { status = null, limit = 100, offset = 0 } = {}) {
@@ -6225,7 +6227,8 @@ function listPhotoSubmissions(db, leadId, { status = null, limit = 100, offset =
   }
   sql += ' ORDER BY id DESC LIMIT ? OFFSET ?';
   params.push(lim, off);
-  return db.prepare(sql).all(...params).map(withPhotoSubmissionShape);
+  const rows = db.prepare(sql).all(...params).map(withPhotoSubmissionShape);
+  return decorateItemsCategories(db, leadId, 'photocapture', rows);
 }
 
 function countPhotoSubmissions(db, leadId) {
@@ -6241,17 +6244,31 @@ function countPhotoSubmissions(db, leadId) {
   return counts;
 }
 
-function updatePhotoSubmissionStatus(db, leadId, id, status) {
+function updatePhotoSubmissionStatus(db, leadId, id, status, data = {}) {
   ensureTables(db);
-  const next = normalizePhotoStatus(status, '__none__');
-  if (next === '__none__') {
-    throw fail('VALIDATION', `status must be one of: ${PHOTOCAPTURE_STATUSES.join(', ')}`);
-  }
   const existing = getPhotoSubmission(db, leadId, id);
   if (!existing) throw fail('NOT_FOUND', 'Photo submission not found', 404);
-  db.prepare(
-    "UPDATE photocapture_submissions SET status = ?, updated_at = datetime('now') WHERE lead_id = ? AND id = ?"
-  ).run(next, Number(leadId), Number(id));
+  // Batch 125 finisher — the Batch 124 write pattern, ridden on the
+  // moderation write (Photo Capture's only owner-side item write):
+  // category_ids present = replace the submission's category set;
+  // absent = assignments untouched. The pre-flight runs BEFORE any
+  // mutation so a bad id fails the whole write. A null status with
+  // category_ids is a categories-only save (the portal inbox picker);
+  // with neither, the historical status validation still fires.
+  const hasCats = !!data && data.category_ids !== undefined;
+  if (hasCats) assertItemCategories(db, leadId, 'photocapture', data);
+  if (status != null) {
+    const next = normalizePhotoStatus(status, '__none__');
+    if (next === '__none__') {
+      throw fail('VALIDATION', `status must be one of: ${PHOTOCAPTURE_STATUSES.join(', ')}`);
+    }
+    db.prepare(
+      "UPDATE photocapture_submissions SET status = ?, updated_at = datetime('now') WHERE lead_id = ? AND id = ?"
+    ).run(next, Number(leadId), Number(id));
+  } else if (!hasCats) {
+    throw fail('VALIDATION', `status must be one of: ${PHOTOCAPTURE_STATUSES.join(', ')}`);
+  }
+  if (hasCats) applyItemCategories(db, leadId, 'photocapture', existing.id, data);
   return getPhotoSubmission(db, leadId, id);
 }
 
@@ -6266,6 +6283,9 @@ function deletePhotoSubmission(db, leadId, id) {
     Number(leadId),
     Number(id)
   );
+  // Batch 125 finisher: the submission's taxonomy assignments go with
+  // it (the categories and every other item stay) — never blocks.
+  clearItemCategories(db, leadId, 'photocapture', existing.id);
   return { deleted: true, id: existing.id };
 }
 

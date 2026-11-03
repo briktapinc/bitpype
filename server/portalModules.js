@@ -1110,8 +1110,19 @@ async function updatePhotoSubmission(workspaceId, leadId, id, body, clientEmail)
   const modules = require('./siteModules');
   await requireSiteModules(workspaceId, clientEmail);
   return domain.withDb(workspaceId, (db) => {
-    if (body && body.status != null) {
-      return { submission: modules.updatePhotoSubmissionStatus(db, Number(leadId), id, body.status) };
+    if (body && (body.status != null || body.category_ids !== undefined)) {
+      // Batch 125 finisher: category_ids rides the moderation write —
+      // the inbox picker saves categories with or without a status
+      // change in the same call.
+      return {
+        submission: modules.updatePhotoSubmissionStatus(
+          db,
+          Number(leadId),
+          id,
+          body.status != null ? body.status : null,
+          body
+        ),
+      };
     }
     return { submission: modules.getPhotoSubmission(db, Number(leadId), id) };
   });

@@ -107,9 +107,9 @@ let db;
     const sm = require(path.join(root, 'server/siteModules.js'));
 
     assert.ok(sm.MODULE_TYPES.includes('photocapture'), 'photocapture is a module type');
-    assert.equal(sm.MODULE_TYPES.length, 24, '24 module types');
+    assert.equal(sm.MODULE_TYPES.length, 25, '25 module types (Batch 124 categories + Batch 125 photocapture)');
     assert.equal(sm.MODULE_META.photocapture.label, 'Photo Capture');
-    assert.equal(sm.MODULE_SCRIPT_VER, 'mod26', 'embed script version bumped for the capture renderer');
+    assert.equal(sm.MODULE_SCRIPT_VER, 'mod27', 'embed script version bumped for the capture renderer');
     n += 4;
 
     // The Batch 122 parity pin, extended: registry ⇔ MODULE_TYPES.
@@ -123,7 +123,7 @@ let db;
     assert.equal(entry.kind, 'provider', 'photocapture is a shared-layer provider');
     assert.equal(typeof entry.read, 'function', 'photocapture provider has a reader');
     const providers = sm.MODULE_TYPES.filter((t) => share.SHARE_REGISTRY[t].kind === 'provider');
-    assert.equal(providers.length, 17, '17 providers after photocapture');
+    assert.equal(providers.length, 18, '18 providers after categories (Batch 124) + photocapture');
     n += 3;
 
     for (const fn of [
@@ -535,6 +535,141 @@ let db;
     assert.equal(cross.ok, false, 'cross-lead moderation through the agent surface fails');
     n++;
     group('Part 2b agent tools via MCP dispatch', n);
+  }
+
+  {
+    let n = 0;
+    // Batch 125 finisher — the Categories wire (Batch 124's service,
+    // scope 'photocapture'): submissions are assignable in EVERY
+    // moderation state, carry category_ids on the module's own reads,
+    // take category_ids on the moderation write (pre-flighted), and
+    // resolve through itemsForCategory only once approved.
+    const cats = require(path.join(root, 'server/categories.js'));
+    const mcp = require(path.join(root, 'server/mcp.js'));
+    const catA = cats.createCategory(db, LEAD_A, {
+      scope: 'photocapture',
+      name: 'Before & After',
+      status: 'published',
+    });
+    const catEvents = cats.createCategory(db, LEAD_A, { scope: 'events', name: 'Not Photos', status: 'published' });
+    const sub4 = sm.createPhotoSubmission(db, LEAD_A, {
+      name: 'Sam Taxonomy',
+      email: 'sam@example.com',
+      image_url: 'https://img.example/sam.jpg',
+      image_src: 'images/module-sam.jpg',
+    });
+    assert.equal(sub4.status, 'pending');
+    n++;
+
+    // Assign while PENDING — the ITEM_READERS entry makes pending
+    // submissions valid targets (provider fallback would refuse them).
+    const asg = cats.assignItem(db, LEAD_A, {
+      consumer_type: 'photocapture',
+      item_id: sub4.id,
+      category_id: catA.id,
+    });
+    assert.equal(asg.assigned, true, 'pending photo submission is assignable');
+    const listed = sm.listPhotoSubmissions(db, LEAD_A, {}).find((s) => s.id === sub4.id);
+    assert.deepEqual(listed.category_ids, [catA.id], 'list rows carry category_ids');
+    assert.deepEqual(sm.getPhotoSubmission(db, LEAD_A, sub4.id).category_ids, [catA.id], 'get carries category_ids');
+    n += 3;
+
+    // Cross-scope + phantom assignments refused.
+    assert.throws(
+      () => cats.assignItem(db, LEAD_A, { consumer_type: 'photocapture', item_id: sub4.id, category_id: catEvents.id }),
+      (e) => e.code === 'VALIDATION',
+      'an events-scope category cannot organize a photo'
+    );
+    assert.throws(
+      () => cats.assignItem(db, LEAD_A, { consumer_type: 'photocapture', item_id: 999999, category_id: catA.id }),
+      (e) => e.code === 'VALIDATION',
+      'phantom submission refused'
+    );
+    assert.throws(
+      () => cats.assignItem(db, LEAD_B, { consumer_type: 'photocapture', item_id: sub4.id, category_id: catA.id }),
+      (e) => e.code === 'VALIDATION',
+      'cross-lead assignment refused'
+    );
+    n += 3;
+
+    // A bad category id on the moderation write fails BEFORE the
+    // status mutation (pre-flight), leaving the submission untouched.
+    assert.throws(
+      () => sm.updatePhotoSubmissionStatus(db, LEAD_A, sub4.id, 'approved', { category_ids: [987654] }),
+      (e) => e.code === 'VALIDATION',
+      'bogus category id refused on the moderation write'
+    );
+    assert.equal(sm.getPhotoSubmission(db, LEAD_A, sub4.id).status, 'pending', 'failed write changed nothing');
+    n += 2;
+
+    // Categories-only save (null status — the portal inbox picker):
+    // replaces the set, leaves the status alone.
+    const cleared = sm.updatePhotoSubmissionStatus(db, LEAD_A, sub4.id, null, { category_ids: [] });
+    assert.equal(cleared.status, 'pending', 'categories-only save does not touch status');
+    assert.deepEqual(cleared.category_ids, [], 'categories-only save replaces the set');
+    n += 2;
+
+    // Approve WITH categories in one call → the category view
+    // resolves the photo; reject → it leaves the category view
+    // (published-only resolution), assignments themselves survive.
+    const approved = sm.updatePhotoSubmissionStatus(db, LEAD_A, sub4.id, 'approved', { category_ids: [catA.id] });
+    assert.equal(approved.status, 'approved');
+    assert.deepEqual(approved.category_ids, [catA.id]);
+    let catItems = cats.itemsForCategory(db, LEAD_A, catA);
+    assert.equal(catItems.length, 1, 'approved + categorized photo resolves through its category');
+    assert.equal(catItems[0].source_type, 'photocapture');
+    assert.equal(Number(catItems[0].source_id), sub4.id);
+    n += 4;
+    sm.updatePhotoSubmissionStatus(db, LEAD_A, sub4.id, 'rejected');
+    catItems = cats.itemsForCategory(db, LEAD_A, catA);
+    assert.equal(catItems.length, 0, 'rejected photo leaves the category view');
+    assert.deepEqual(
+      cats.listItemCategoryIds(db, LEAD_A, 'photocapture', sub4.id),
+      [catA.id],
+      'the assignment itself survives moderation'
+    );
+    n += 2;
+
+    // The agent surface drives the same wire: categories.assign via
+    // MCP dispatch + category_ids on photocapture.moderateSubmission.
+    sm.updatePhotoSubmissionStatus(db, LEAD_A, sub4.id, 'approved', { category_ids: [] });
+    const agAsg = await mcp.callTool(
+      WS_ID,
+      'categories.assign',
+      { leadId: LEAD_A, category_id: catA.id, consumer_type: 'photocapture', item_id: sub4.id },
+      {}
+    );
+    assert.equal(agAsg.ok, true, 'categories.assign dispatches for a photocapture item');
+    const agMod = await mcp.callTool(
+      WS_ID,
+      'photocapture.moderateSubmission',
+      { leadId: LEAD_A, id: sub4.id, status: 'approved', category_ids: [] },
+      {}
+    );
+    assert.equal(agMod.ok, true, 'moderateSubmission with category_ids dispatches');
+    assert.deepEqual(agMod.data.submission.category_ids, [], 'agent write replaced the set');
+    n += 3;
+
+    // Deleting the category removes assignments, never the photo;
+    // deleting the photo clears its assignments.
+    cats.assignItem(db, LEAD_A, { consumer_type: 'photocapture', item_id: sub4.id, category_id: catA.id });
+    cats.deleteCategory(db, LEAD_A, catA.id);
+    assert.deepEqual(
+      cats.listItemCategoryIds(db, LEAD_A, 'photocapture', sub4.id),
+      [],
+      'category delete sweeps assignments'
+    );
+    assert.ok(sm.getPhotoSubmission(db, LEAD_A, sub4.id), 'the photo itself survives its category');
+    const catB = cats.createCategory(db, LEAD_A, { scope: 'photocapture', name: 'Second', status: 'published' });
+    cats.assignItem(db, LEAD_A, { consumer_type: 'photocapture', item_id: sub4.id, category_id: catB.id });
+    sm.deletePhotoSubmission(db, LEAD_A, sub4.id);
+    assert.deepEqual(
+      cats.listItemCategoryIds(db, LEAD_A, 'photocapture', sub4.id),
+      [],
+      'photo delete clears its assignments'
+    );
+    n += 3;
+    group('Part 2c categories wire (finisher)', n);
   }
 
   /* ================================================================== */

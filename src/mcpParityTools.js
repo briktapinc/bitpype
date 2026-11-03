@@ -3378,7 +3378,7 @@ function createParityTools(ctx) {
       const id = requireId(args.id, 'id');
       return {
         ok: true,
-        data: { submission: siteModules().updatePhotoSubmissionStatus(db, leadId, id, args.status) },
+        data: { submission: siteModules().updatePhotoSubmissionStatus(db, leadId, id, args.status, args) },
       };
     }),
     'photocapture.addToGallery': parityEntry('photocapture.addToGallery', (args) => {

@@ -330,6 +330,11 @@ const ITEM_READERS = {
   careers: (db, lid) => modules.listCareersPostings(db, lid, { includeInactive: true }),
   video: (db, lid) => modules.listVideoItems(db, lid, { includeDrafts: true }),
   categories: (db, lid) => listCategories(db, lid, { includeDrafts: true }),
+  // Batch 125 finisher: photo submissions are stable rows in every
+  // moderation state — a photo may be categorized while it is still
+  // pending (resolution stays dormant until it is approved, exactly
+  // like a draft item of any other consumer).
+  photocapture: (db, lid) => modules.listPhotoSubmissions(db, lid, { limit: 500 }),
 };
 
 function itemExists(db, lid, consumerType, itemId) {

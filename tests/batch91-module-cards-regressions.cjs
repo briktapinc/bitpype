@@ -31,7 +31,7 @@
  *       roomy), display-only exactly as the chips were; the shared
  *       .chip styles other staff surfaces use are untouched, and the
  *       installs table + delete flow are unchanged.
- *   E — no-behavior-change guards: module catalog still 24 types on
+ *   E — no-behavior-change guards: module catalog still 25 types on
  *       server + portal; attach/detach/purge controls intact.
  *
  * Run via tests/run-regressions.cjs (DB_DRIVER=sqlite).
