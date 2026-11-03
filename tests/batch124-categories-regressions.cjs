@@ -616,6 +616,35 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     group("Part 2f menu's private system untouched", n);
   }
 
+  // ---- 2g: lead deletion sweeps the taxonomy (no orphans) ----
+  {
+    let n = 0;
+    const LEAD_C = 12403;
+    db.prepare('INSERT INTO leads (id, business_name, email, status) VALUES (?, ?, ?, ?)').run(
+      LEAD_C,
+      'B124 Gamma Doomed',
+      'gamma124@example.invalid',
+      'customer'
+    );
+    const gCat = cats.createCategory(db, LEAD_C, { scope: 'events', name: 'Doomed Shelf', status: 'published' });
+    const gEv = sm.createEvent(db, LEAD_C, { title: 'Doomed Event', starts_at: ymd(5), status: 'published' });
+    cats.assignItem(db, LEAD_C, { consumerType: 'events', itemId: gEv.id, categoryId: gCat.id });
+    require(path.join(root, 'src/leadEngine.js')).deleteLead(db, LEAD_C);
+    assert.equal(db.prepare('SELECT COUNT(*) AS c FROM leads WHERE id = ?').get(LEAD_C).c, 0, 'lead deleted');
+    assert.equal(
+      db.prepare('SELECT COUNT(*) AS c FROM module_categories WHERE lead_id = ?').get(LEAD_C).c,
+      0,
+      'lead deletion sweeps its categories'
+    );
+    assert.equal(
+      db.prepare('SELECT COUNT(*) AS c FROM module_category_assignments WHERE lead_id = ?').get(LEAD_C).c,
+      0,
+      'lead deletion sweeps its assignments'
+    );
+    n += 3;
+    group('Part 2g lead deletion sweeps the taxonomy', n);
+  }
+
   /* ================================================================== */
   /* Part 3 — HTTP over the real server                                  */
   /* ================================================================== */

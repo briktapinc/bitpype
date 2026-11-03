@@ -942,6 +942,10 @@ function deleteLead(db, id) {
     drop('site_member_sessions');
     drop('site_members');
     drop('site_module_embeds');
+    // Batch 124: the shared taxonomy is lead-scoped too — assignments
+    // first (they reference categories), then the categories.
+    drop('module_category_assignments');
+    drop('module_categories');
     // Batch 89: design-chat image attachments belong to the lead's
     // conversation; their rows drop here and the files are unlinked
     // after the transaction (paths collected before the tx below).
