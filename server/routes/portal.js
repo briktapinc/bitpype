@@ -436,6 +436,74 @@ router.post('/mfa/disable', requireClient, actionLimit, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Batch 121 — portal set-password flow. Most portal accounts are
+// provisioned with a random, never-disclosed password hash (sign-in is
+// by magic link), so the password confirm above is a dead end for
+// them. These routes email a one-time link that SETS a password (no
+// password is ever emailed). Mounted with the core session routes for
+// the same reason as MFA: every signed-in client can reach the
+// signed-in request, and the signed-out pair must work pre-session.
+// ---------------------------------------------------------------------------
+const portalPassword = require('../portalPassword');
+
+router.post('/password-set/request', requireClient, actionLimit, async (req, res) => {
+  try {
+    await portalPassword.requestForUser(req.client.id);
+    await recordAuthEventSafe({
+      surface: 'portal',
+      event: 'password_set_requested',
+      email: req.client.email || null,
+      userId: req.client.id,
+      workspaceId: req.client.workspace_id || null,
+      ip: req.ip,
+      detail: 'signed-in',
+    });
+    ok(res, { requested: true });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/password-set/request-by-email', accessLimit, captcha, async (req, res) => {
+  try {
+    const email = (req.body && req.body.email) || '';
+    const result = await portalPassword.requestByEmail(email);
+    // Audit internally only — the response stays generic either way.
+    await recordAuthEventSafe({
+      surface: 'portal',
+      event: 'password_set_requested',
+      email: email || null,
+      userId: result && result.userId ? result.userId : null,
+      ip: req.ip,
+      detail: 'signed-out',
+    });
+    ok(res, { requested: true });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/password-set/confirm', loginLimit, async (req, res) => {
+  try {
+    const { token, password } = req.body || {};
+    const result = await portalPassword.confirmPasswordSet(token, password, {
+      keepSessionId: req.sessionID || null,
+    });
+    await recordAuthEventSafe({
+      surface: 'portal',
+      event: 'password_set_completed',
+      email: result.email || null,
+      userId: result.userId,
+      workspaceId: result.workspaceId || null,
+      ip: req.ip,
+    });
+    ok(res, { passwordSet: true });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Batch 29 — per-user tab enforcement. Mounted AFTER the core session
 // routes above (/access, /login, /magic-login, /logout, /me — those stay
 // reachable by every signed-in user) and BEFORE every panel route below,

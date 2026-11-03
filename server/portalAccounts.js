@@ -695,6 +695,7 @@ function loadLeadContext(workspaceId, leadId) {
 module.exports = {
   normalizeEmail,
   generatePassword,
+  allowAccessEmail,
   findById,
   findByEmail,
   activeEmailForLead,

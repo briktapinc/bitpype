@@ -2514,7 +2514,31 @@
           <div id="captcha-login" class="field"></div>
           <button class="btn" type="submit" id="btn-login">Enter portal</button>
           <p class="hint">No password yet? Use Request access for a sign-in link.</p>
+          <p class="hint"><a href="#" id="link-setpw">Set or reset your password</a></p>
           <p class="msg" id="msg-login"></p>
+        </form>
+        <form id="form-setpw-request" class="hidden">
+          <div class="field">
+            <label for="setpw-email">Email</label>
+            <input id="setpw-email" name="email" type="email" autocomplete="email" required placeholder="you@business.com" />
+          </div>
+          <div id="captcha-setpw" class="field"></div>
+          <button class="btn" type="submit" id="btn-setpw-request">Email me a set-password link</button>
+          <p class="hint">We’ll email you a one-time link to set a new password. <a href="#" id="link-setpw-back">Back to log in</a></p>
+          <p class="msg" id="msg-setpw-request"></p>
+        </form>
+        <form id="form-setpw" class="hidden">
+          <div class="field">
+            <label for="setpw-password">New password</label>
+            <input id="setpw-password" name="password" type="password" autocomplete="new-password" required />
+          </div>
+          <div class="field">
+            <label for="setpw-confirm">Type it again</label>
+            <input id="setpw-confirm" name="confirm" type="password" autocomplete="new-password" required />
+          </div>
+          <button class="btn" type="submit" id="btn-setpw">Set my password</button>
+          <p class="hint">At least 8 characters. This link can only be used once.</p>
+          <p class="msg" id="msg-setpw"></p>
         </form>
         <form id="form-mfa" class="hidden">
           <div class="field">

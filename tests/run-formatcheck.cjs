@@ -42,6 +42,8 @@ const SCOPE = [
   'tests/batch119-suspension-regressions.cjs',
   'server/aiRouting.js',
   'tests/batch120-ai-routing-regressions.cjs',
+  'server/portalPassword.js',
+  'tests/batch121-portal-password-set-regressions.cjs',
   'tsconfig.checkjs.json',
 ];
 

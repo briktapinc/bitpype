@@ -6,11 +6,14 @@
   const formAccess = document.getElementById('form-access');
   const formLogin = document.getElementById('form-login');
   const formMfa = document.getElementById('form-mfa');
+  const formSetpwRequest = document.getElementById('form-setpw-request');
+  const formSetpw = document.getElementById('form-setpw');
   const tabAccess = document.getElementById('tab-access');
   const tabLogin = document.getElementById('tab-login');
 
   let captchaAccess = { enabled: false, getToken: async () => '', reset: () => {} };
   let captchaLogin = { enabled: false, getToken: async () => '', reset: () => {} };
+  let captchaSetpw = { enabled: false, getToken: async () => '', reset: () => {} };
   let upsellTipEpoch = 0;
   let upsellTipTimer = null;
   let upsellTipReturnFocus = null;
@@ -476,6 +479,8 @@
     formAccess.classList.toggle('hidden', !access);
     formLogin.classList.toggle('hidden', access);
     if (formMfa) formMfa.classList.add('hidden');
+    if (formSetpwRequest) formSetpwRequest.classList.add('hidden');
+    if (formSetpw) formSetpw.classList.add('hidden');
   }
 
   tabAccess.onclick = () => setTab('access');
@@ -490,6 +495,11 @@
     }
     try {
       captchaLogin = await window.ScoutCaptcha.mount(document.getElementById('captcha-login'));
+    } catch (e) {
+      console.warn(e);
+    }
+    try {
+      captchaSetpw = await window.ScoutCaptcha.mount(document.getElementById('captcha-setpw'));
     } catch (e) {
       console.warn(e);
     }
@@ -573,6 +583,150 @@
       btn.disabled = false;
     }
   };
+
+  // Batch 121 — set / reset password. Portal accounts are usually
+  // provisioned with a random password nobody knows (sign-in is by
+  // emailed link), so a real password is created through an emailed
+  // one-time link: the signed-out form asks for one, and the emailed
+  // /portal?setpw=<token> link opens the set form (see boot).
+  let pendingSetpwToken = '';
+
+  function showSetpwRequest() {
+    showGate();
+    setTab('login');
+    if (formLogin) formLogin.classList.add('hidden');
+    if (formSetpwRequest) formSetpwRequest.classList.remove('hidden');
+    const input = document.getElementById('setpw-email');
+    if (input) input.focus();
+  }
+
+  function showSetpwForm() {
+    showGate();
+    if (formAccess) formAccess.classList.add('hidden');
+    if (formLogin) formLogin.classList.add('hidden');
+    if (formMfa) formMfa.classList.add('hidden');
+    if (formSetpwRequest) formSetpwRequest.classList.add('hidden');
+    if (formSetpw) formSetpw.classList.remove('hidden');
+    const input = document.getElementById('setpw-password');
+    if (input) input.focus();
+  }
+
+  function setpwConfirmError(e) {
+    const code = e && e.code;
+    if (code === 'TOKEN_EXPIRED')
+      return 'That set-password link expired — links last 1 hour. Request a fresh one from the log-in screen.';
+    if (code === 'TOKEN_USED' || code === 'INVALID_TOKEN')
+      return 'That set-password link is no longer valid. Request a fresh one from the log-in screen.';
+    if (code === 'WEAK_PASSWORD') return 'Use at least 8 characters.';
+    return errText(e);
+  }
+
+  const linkSetpw = document.getElementById('link-setpw');
+  if (linkSetpw) {
+    linkSetpw.onclick = (ev) => {
+      ev.preventDefault();
+      showSetpwRequest();
+    };
+  }
+  const linkSetpwBack = document.getElementById('link-setpw-back');
+  if (linkSetpwBack) {
+    linkSetpwBack.onclick = (ev) => {
+      ev.preventDefault();
+      showGate();
+      setTab('login');
+    };
+  }
+
+  if (formSetpwRequest) {
+    formSetpwRequest.onsubmit = async (ev) => {
+      ev.preventDefault();
+      const msg = document.getElementById('msg-setpw-request');
+      const btn = document.getElementById('btn-setpw-request');
+      msg.className = 'msg';
+      msg.textContent = 'Sending…';
+      btn.disabled = true;
+      try {
+        const captchaToken = await captchaSetpw.getToken();
+        await api('/password-set/request-by-email', {
+          method: 'POST',
+          body: JSON.stringify({
+            email: document.getElementById('setpw-email').value.trim(),
+            captchaToken,
+          }),
+        });
+        msg.className = 'msg ok';
+        msg.textContent =
+          'If that email matches an account, a link to set a new password is on its way. It expires in 1 hour and can only be used once.';
+        try {
+          captchaSetpw.reset && captchaSetpw.reset();
+        } catch {
+          /* */
+        }
+      } catch (e) {
+        msg.className = 'msg err';
+        msg.textContent = errText(e);
+        try {
+          captchaSetpw.reset && captchaSetpw.reset();
+        } catch {
+          /* */
+        }
+      } finally {
+        btn.disabled = false;
+      }
+    };
+  }
+
+  if (formSetpw) {
+    formSetpw.onsubmit = async (ev) => {
+      ev.preventDefault();
+      const msg = document.getElementById('msg-setpw');
+      const btn = document.getElementById('btn-setpw');
+      const pw = document.getElementById('setpw-password').value;
+      const confirm = document.getElementById('setpw-confirm').value;
+      if (pw.length < 8) {
+        msg.className = 'msg err';
+        msg.textContent = 'Use at least 8 characters.';
+        return;
+      }
+      if (pw !== confirm) {
+        msg.className = 'msg err';
+        msg.textContent = 'The two passwords do not match.';
+        return;
+      }
+      msg.className = 'msg';
+      msg.textContent = 'Saving…';
+      btn.disabled = true;
+      try {
+        await api('/password-set/confirm', {
+          method: 'POST',
+          body: JSON.stringify({ token: pendingSetpwToken, password: pw }),
+        });
+        pendingSetpwToken = '';
+        document.getElementById('setpw-password').value = '';
+        document.getElementById('setpw-confirm').value = '';
+        msg.className = 'msg ok';
+        msg.textContent = 'Password set.';
+        // If this browser still holds a portal session, walk straight
+        // back in; otherwise land on the log-in form with the news.
+        try {
+          await loadDashboard();
+        } catch {
+          showPortalLogin();
+          setTab('login');
+          const loginMsg = document.getElementById('msg-login');
+          if (loginMsg) {
+            loginMsg.className = 'msg ok';
+            loginMsg.textContent = 'Password set — sign in with your new password.';
+          }
+        }
+      } catch (e) {
+        msg.className = 'msg err';
+        msg.textContent = setpwConfirmError(e);
+      } finally {
+        btn.disabled = false;
+      }
+    };
+  }
 
   // Batch 40 — portal second-factor step (opt-in TOTP). Shown after a
   // correct password or magic link when the account has MFA enabled;
@@ -685,6 +839,41 @@
     }
   }
 
+  // Batch 121: the password confirm on this section is a dead end for
+  // magic-link users (their account password is random and unknown).
+  // A failed confirm now points at the remedy, and the remedy — an
+  // emailed set-password link — sits right under the button.
+  const MFA_PASSWORD_HINT =
+    "That password didn't match. If you sign in with email links, you may not have a password yet — use the link below to set one.";
+  function mfaPwError(e) {
+    return e && e.code === 'INVALID_CREDENTIALS' ? MFA_PASSWORD_HINT : errText(e);
+  }
+  function wireMfaSetpwLink() {
+    const link = document.getElementById('mfa-sec-setpw');
+    if (!link) return;
+    link.onclick = async (ev) => {
+      ev.preventDefault();
+      const msg = document.getElementById('mfa-sec-setpw-msg');
+      if (msg) {
+        msg.className = 'msg';
+        msg.textContent = 'Sending…';
+      }
+      try {
+        await api('/password-set/request', { method: 'POST', body: '{}' });
+        if (msg) {
+          msg.className = 'msg ok';
+          msg.textContent =
+            'A link to set your password is on its way to your account email. Set it, then come back here.';
+        }
+      } catch (e) {
+        if (msg) {
+          msg.className = 'msg err';
+          msg.textContent = errText(e);
+        }
+      }
+    };
+  }
+
   function renderMfaSecurity(enabled, recoveryCodes) {
     if (!securityBody) return;
     if (recoveryCodes && recoveryCodes.length) {
@@ -702,7 +891,10 @@
         <div class="field"><label for="mfa-sec-password">Password</label><input id="mfa-sec-password" type="password" autocomplete="current-password" /></div>
         <div class="field"><label for="mfa-sec-code">Authenticator or recovery code</label><input id="mfa-sec-code" type="text" autocomplete="one-time-code" placeholder="123456 or XXXX-XXXX" /></div>
         <button type="button" class="btn" id="mfa-sec-disable">Turn off two-factor authentication</button>
-        <p class="msg" id="mfa-sec-msg"></p>`;
+        <p class="msg" id="mfa-sec-msg"></p>
+        <p class="hint"><a href="#" id="mfa-sec-setpw">Don't know your password? Email me a link to set one.</a></p>
+        <p class="msg" id="mfa-sec-setpw-msg"></p>`;
+      wireMfaSetpwLink();
       document.getElementById('mfa-sec-disable').onclick = async () => {
         const msg = document.getElementById('mfa-sec-msg');
         msg.className = 'msg';
@@ -718,7 +910,7 @@
           renderMfaSecurity(false);
         } catch (e) {
           msg.className = 'msg err';
-          msg.textContent = errText(e);
+          msg.textContent = mfaPwError(e);
         }
       };
       return;
@@ -728,7 +920,10 @@
       <div class="field"><label for="mfa-sec-password">Confirm your password to set it up</label><input id="mfa-sec-password" type="password" autocomplete="current-password" /></div>
       <button type="button" class="btn" id="mfa-sec-start">Set up two-factor authentication</button>
       <p class="msg" id="mfa-sec-msg"></p>
+      <p class="hint"><a href="#" id="mfa-sec-setpw">Don't know your password? Email me a link to set one.</a></p>
+      <p class="msg" id="mfa-sec-setpw-msg"></p>
       <div id="mfa-sec-enroll"></div>`;
+    wireMfaSetpwLink();
     document.getElementById('mfa-sec-start').onclick = async () => {
       const msg = document.getElementById('mfa-sec-msg');
       msg.className = 'msg';
@@ -763,7 +958,7 @@
         };
       } catch (e) {
         msg.className = 'msg err';
-        msg.textContent = errText(e);
+        msg.textContent = mfaPwError(e);
       }
     };
   }
@@ -10178,6 +10373,35 @@
     }
   }
 
+  // Batch 121: an emailed set-password link lands here. The token is
+  // kept in pendingSetpwToken for the form submit and stripped from
+  // the address bar immediately; the set form drives what happens
+  // next (it does NOT sign anyone in by itself).
+  async function trySetPasswordLink() {
+    let token = '';
+    try {
+      token = new URLSearchParams(window.location.search).get('setpw') || '';
+    } catch {
+      /* ignore */
+    }
+    if (!token) return false;
+    pendingSetpwToken = token;
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.delete('setpw');
+      window.history.replaceState({}, '', u.pathname + u.search + u.hash);
+    } catch {
+      /* ignore */
+    }
+    showSetpwForm();
+    const msg = document.getElementById('msg-setpw');
+    if (msg) {
+      msg.className = 'msg';
+      msg.textContent = 'Choose a password for your portal account.';
+    }
+    return true;
+  }
+
   async function tryMagicLogin() {
     let magic = '';
     try {
@@ -10246,6 +10470,8 @@
     wireAgentChat();
     await mountCaptchas();
     try {
+      const usedSetpw = await trySetPasswordLink();
+      if (usedSetpw) return;
       const usedMagic = await tryMagicLogin();
       if (usedMagic === 'mfa') return;
       if (usedMagic) {

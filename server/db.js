@@ -383,6 +383,14 @@ async function migrate() {
         used_at TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
+      CREATE TABLE IF NOT EXISTS client_portal_password_tokens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        portal_user_id INTEGER NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        expires_at TEXT NOT NULL,
+        used_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
       CREATE TABLE IF NOT EXISTS credit_balances (
         workspace_id INTEGER NOT NULL PRIMARY KEY,
         balance INTEGER NOT NULL DEFAULT 0,
@@ -861,6 +869,18 @@ async function migrate() {
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uq_cpl_hash (token_hash),
         KEY idx_cpl_user (portal_user_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS client_portal_password_tokens (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        portal_user_id BIGINT UNSIGNED NOT NULL,
+        token_hash CHAR(64) NOT NULL,
+        expires_at DATETIME NOT NULL,
+        used_at DATETIME NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_cpp_hash (token_hash),
+        KEY idx_cpp_user (portal_user_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
     await conn.query(`
