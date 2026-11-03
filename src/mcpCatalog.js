@@ -2550,6 +2550,11 @@ const tools = [
         location: { type: 'string' },
         image_url: { type: 'string' },
         ticket_url: { type: 'string' },
+        gallery_album_id: {
+          type: 'integer',
+          minimum: 0,
+          description: 'Batch 122: optional gallery album linked through the shared layer — its photos render on the event page.',
+        },
         status: { type: 'string', enum: ['draft', 'published'] },
       },
       required: ['title'],
@@ -2571,9 +2576,89 @@ const tools = [
         location: { type: 'string' },
         image_url: { type: 'string' },
         ticket_url: { type: 'string' },
+        gallery_album_id: {
+          type: 'integer',
+          minimum: 0,
+          description: "Batch 122: gallery album linked through the shared layer — its photos render on the event page. 0 clears the link. Prefer shared.link for the general mechanism.",
+        },
         status: { type: 'string', enum: ['draft', 'published'] },
       },
       required: ['id'],
+    },
+  },
+  {
+    name: 'shared.sources',
+    description:
+      "Batch 122 shared module layer: list every module type for a lead with its kind (provider / non-provider + reason), the count of published shared items and sample items. Modules are INTERDEPENDENT: content flows between them through this layer — use it before composing anything that reuses another module's content.",
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+      },
+      required: ['leadId'],
+    },
+  },
+  {
+    name: 'shared.items',
+    description:
+      'List the published shared items of one source module type for a lead (uniform shape: title, description, image_url, link_url, date, meta). Published items only; strictly this lead.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        source: {
+          type: 'string',
+          description: 'Provider module type, e.g. gallery, events, offers, blog, socialfeed, menu, testimonials, faq.',
+        },
+        limit: { type: 'integer', minimum: 1 },
+      },
+      required: ['leadId', 'source'],
+    },
+  },
+  {
+    name: 'shared.refs',
+    description: 'List the cross-module links (shared refs) in place for a lead, optionally filtered by consumer_type / consumer_id / provider_type.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        consumer_type: { type: 'string' },
+        consumer_id: { type: 'integer', minimum: 1 },
+        provider_type: { type: 'string' },
+      },
+      required: ['leadId'],
+    },
+  },
+  {
+    name: 'shared.link',
+    description:
+      "Create or replace a cross-module link through the shared layer. The one wired consumer today: an event showing a gallery album's photos — consumer_type 'events', consumer_id = event id, provider_type 'gallery', provider_id = album id, role 'album' (set gallery_album_id on events.create/update for the shorthand). This is the SAME config the portal edits — no back door.",
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        consumer_type: { type: 'string' },
+        consumer_id: { type: 'integer', minimum: 1 },
+        provider_type: { type: 'string' },
+        provider_id: { type: 'integer', minimum: 1 },
+        role: { type: 'string' },
+      },
+      required: ['leadId', 'consumer_type', 'consumer_id', 'provider_type', 'provider_id'],
+    },
+  },
+  {
+    name: 'shared.unlink',
+    description: 'Remove a cross-module link (same keys as shared.link). Cleared links render as nothing — the consumer falls back to its standalone content.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        consumer_type: { type: 'string' },
+        consumer_id: { type: 'integer', minimum: 1 },
+        provider_type: { type: 'string' },
+        role: { type: 'string' },
+      },
+      required: ['leadId', 'consumer_type', 'consumer_id', 'provider_type'],
     },
   },
   {

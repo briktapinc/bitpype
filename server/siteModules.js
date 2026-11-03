@@ -46,7 +46,7 @@ const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod24';
+const MODULE_SCRIPT_VER = 'mod25';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -4613,27 +4613,51 @@ function deleteTeamMember(db, leadId, id) {
 
 /* ── Events ── */
 
+// Batch 122 — an event row carries its shared-layer gallery link as
+// the virtual field gallery_album_id (stored as a module_shared_refs
+// row, role 'album' — see server/moduleShare.js). Reads decorate it
+// dormant-safe: any failure reads as "no gallery linked", never an
+// error, so event reads can never break because of the shared layer.
+function decorateEventGallery(db, leadId, row) {
+  if (!row) return row;
+  try {
+    row.gallery_album_id = require('./moduleShare').eventGalleryAlbumId(db, leadId, row.id);
+  } catch {
+    row.gallery_album_id = null;
+  }
+  return row;
+}
+
 function listEvents(db, leadId, { includeDrafts = true } = {}) {
   ensureTables(db);
   let sql = 'SELECT * FROM events WHERE lead_id = ?';
   if (!includeDrafts) sql += " AND status = 'published'";
   sql += " ORDER BY CASE WHEN starts_at = '' THEN 1 ELSE 0 END, starts_at ASC, sort_order ASC, id DESC";
-  return db.prepare(sql).all(Number(leadId));
+  return db.prepare(sql).all(Number(leadId)).map((row) => decorateEventGallery(db, leadId, row));
 }
 
 function getEvent(db, leadId, idOrSlug) {
   ensureTables(db);
   const lid = Number(leadId);
+  let row;
   if (/^\d+$/.test(String(idOrSlug))) {
-    return db.prepare('SELECT * FROM events WHERE lead_id = ? AND id = ?').get(lid, Number(idOrSlug));
+    row = db.prepare('SELECT * FROM events WHERE lead_id = ? AND id = ?').get(lid, Number(idOrSlug));
+  } else {
+    row = db.prepare('SELECT * FROM events WHERE lead_id = ? AND slug = ?').get(lid, slugify(idOrSlug));
   }
-  return db.prepare('SELECT * FROM events WHERE lead_id = ? AND slug = ?').get(lid, slugify(idOrSlug));
+  return decorateEventGallery(db, leadId, row || null);
 }
 
 function createEvent(db, leadId, data = {}) {
   ensureTables(db);
   const title = String(data.title || data.name || '').trim();
   if (!title) throw fail('VALIDATION', 'title is required');
+  // Batch 122: validate the gallery link BEFORE the insert so a bad
+  // album id fails the whole create instead of half-applying.
+  const wantsGallery = data.gallery_album_id !== undefined;
+  if (wantsGallery && Number(data.gallery_album_id) > 0) {
+    require('./moduleShare').assertAlbumExists(db, leadId, Number(data.gallery_album_id));
+  }
   const status = String(data.status || 'draft').toLowerCase() === 'published' ? 'published' : 'draft';
   let slug = slugify(data.slug || title, 'event');
   const exists = db.prepare('SELECT id FROM events WHERE lead_id = ? AND slug = ?').get(Number(leadId), slug);
@@ -4659,6 +4683,9 @@ function createEvent(db, leadId, data = {}) {
       status,
       Number(data.sort_order) || 0
     );
+  if (wantsGallery) {
+    require('./moduleShare').applyEventGallery(db, leadId, Number(info.lastInsertRowid), data.gallery_album_id);
+  }
   return getEvent(db, leadId, info.lastInsertRowid);
 }
 
@@ -4666,6 +4693,11 @@ function updateEvent(db, leadId, id, data = {}) {
   ensureTables(db);
   const row = getEvent(db, leadId, id);
   if (!row) throw fail('NOT_FOUND', 'Event not found', 404);
+  // Batch 122: validate the gallery link before the update lands.
+  const wantsGallery = data.gallery_album_id !== undefined;
+  if (wantsGallery && Number(data.gallery_album_id) > 0) {
+    require('./moduleShare').assertAlbumExists(db, leadId, Number(data.gallery_album_id));
+  }
   const title =
     data.title != null || data.name != null
       ? String(data.title != null ? data.title : data.name)
@@ -4712,6 +4744,9 @@ function updateEvent(db, leadId, id, data = {}) {
     WHERE id=? AND lead_id=?
   `
   ).run(title, slug, description, starts, ends, location, image, ticket, status, sortOrder, row.id, Number(leadId));
+  if (wantsGallery) {
+    require('./moduleShare').applyEventGallery(db, leadId, row.id, data.gallery_album_id);
+  }
   return getEvent(db, leadId, row.id);
 }
 
@@ -4720,6 +4755,11 @@ function deleteEvent(db, leadId, id) {
   const row = getEvent(db, leadId, id);
   if (!row) throw fail('NOT_FOUND', 'Event not found', 404);
   db.prepare('DELETE FROM events WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
+  try {
+    require('./moduleShare').clearRefsForConsumer(db, leadId, 'events', row.id);
+  } catch {
+    /* shared refs are additive — never block a delete */
+  }
   return { deleted: true, id: row.id };
 }
 
@@ -11334,7 +11374,21 @@ function getPublicModuleItem(db, token, slugOrId, opts = {}) {
   else if (type === 'faq') item = getFaqItem(db, leadId, slugOrId);
   else if (type === 'testimonials') item = getTestimonial(db, leadId, slugOrId);
   else if (type === 'team') item = getTeamMember(db, leadId, slugOrId);
-  else if (type === 'events') item = getEvent(db, leadId, slugOrId);
+  else if (type === 'events') {
+    item = getEvent(db, leadId, slugOrId);
+    if (item) {
+      // Batch 122 — the event's shared gallery (moduleShare ref,
+      // role 'album') resolved at payload time: published album +
+      // photos ride along for the detail view; anything missing or
+      // unpublished resolves to nothing (dormant-empty discipline).
+      try {
+        const sharedGallery = require('./moduleShare').resolveEventGallery(db, leadId, item);
+        if (sharedGallery) item = { ...item, shared_gallery: sharedGallery };
+      } catch {
+        /* the shared layer can never break an event page */
+      }
+    }
+  }
   else if (type === 'bookings') item = getBookingService(db, leadId, slugOrId);
   else if (type === 'offers') {
     item = getOffer(db, leadId, slugOrId);

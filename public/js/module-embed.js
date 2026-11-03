@@ -3127,6 +3127,31 @@
           : '') +
         '</article>';
     } else if (type === 'events') {
+      // Batch 122 — shared gallery: the album this event is linked to
+      // through the shared module layer (moduleShare ref, role
+      // 'album'). The payload only carries shared_gallery when the
+      // album is published and has photos; anything else renders as
+      // nothing (dormant-empty discipline, never an error).
+      var evGal = '';
+      var sg = it.shared_gallery;
+      if (sg && sg.images && sg.images.length) {
+        evGal =
+          '<h2 style="margin:22px 0 10px">' +
+          esc(sg.album_title || 'Photos') +
+          '</h2><div class="bp-mod-gallery">';
+        for (var gi = 0; gi < sg.images.length; gi++) {
+          var gim = sg.images[gi];
+          evGal +=
+            '<a href="' +
+            esc(gim.image_url) +
+            '" target="_blank" rel="noopener" style="background-image:url(\'' +
+            esc(gim.image_url) +
+            '\')" title="' +
+            esc(gim.caption || '') +
+            '"></a>';
+        }
+        evGal += '</div>';
+      }
       html +=
         '<article class="bp-mod-detail">' +
         (it.image_url ? '<img class="bp-mod-hero" src="' + esc(it.image_url) + '" alt="" />' : '') +
@@ -3141,6 +3166,7 @@
         '<div class="bp-mod-content"><p>' +
         esc(it.description || '') +
         '</p></div>' +
+        evGal +
         (it.ticket_url
           ? '<p style="margin-top:16px"><a class="bp-mod-btn" href="' +
             esc(it.ticket_url) +

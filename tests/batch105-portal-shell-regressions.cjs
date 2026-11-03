@@ -125,7 +125,7 @@ const PANELS = [
     cssHas('.portal-cards {', 'card grid rule present');
     cssHas('#forms-list.item-list', 'forms list two-column rule present');
     cssHas('#modules-items.item-list', 'module items two-column rule present');
-    cssHas('/js/portal.js?v=batch121-portalpw1', 'portal.js cache-busted');
+    cssHas('/js/portal.js?v=batch122-sharedlayer1', 'portal.js cache-busted');
     group('Part 1 shell structure', n);
   }
 

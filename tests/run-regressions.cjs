@@ -119,6 +119,7 @@ const checks = [
   'batch119-suspension-regressions',
   'batch120-ai-routing-regressions',
   'batch121-portal-password-set-regressions',
+  'batch122-shared-module-layer-regressions',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');

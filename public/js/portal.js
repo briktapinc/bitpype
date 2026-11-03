@@ -5681,6 +5681,21 @@
         { key: 'ends_at', label: 'Ends (optional)' },
         { key: 'location', label: 'Location' },
         { key: 'image_url', label: 'Event photo', kind: 'image' },
+        {
+          // Batch 122: the shared-layer gallery link — the SAME ref
+          // the design agent sets via shared.link / gallery_album_id.
+          key: 'gallery_album_id',
+          label: 'Gallery album (shared)',
+          kind: 'select',
+          options: [
+            { value: '', label: 'No gallery' },
+            ...(moduleState.sharedAlbums || []).map((a) => ({
+              value: String(a.source_id),
+              label: a.title,
+            })),
+          ],
+          hint: "Pick one of your gallery albums and its photos show on this event's page — modules share content through the shared layer.",
+        },
         { key: 'ticket_url', label: 'Tickets / RSVP URL' },
         { key: 'description', label: 'Description', kind: 'textarea' },
         { key: 'status', label: 'Status', kind: 'select', options: ['draft', 'published'] },
@@ -6850,6 +6865,43 @@
     const recipLine = nlEl('p', 'hint', `${counts.active} active subscriber${counts.active === 1 ? '' : 's'} will receive the next issue.`);
     host.appendChild(recipLine);
 
+    /* Batch 122 — auto-content blocks from the shared module layer.
+       Resolved at preview and frozen into the send exactly as
+       previewed (the preview token covers the resolved content). A
+       block whose source has nothing to show is left out and noted
+       under the preview — never an error. */
+    const blockDefs = [
+      ['socialfeed', 'Latest social posts'],
+      ['events', 'Upcoming events'],
+      ['offers', 'Current offers'],
+    ];
+    const blockWrap = nlEl('div', 'field');
+    blockWrap.appendChild(nlEl('label', null, 'Auto-content blocks'));
+    const blockChecks = blockDefs.map(([src, label]) => {
+      const row = nlEl('label');
+      row.style.display = 'flex';
+      row.style.gap = '8px';
+      row.style.alignItems = 'center';
+      row.style.margin = '4px 0';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = src;
+      cb.checked = (moduleState.nlBlocks || []).includes(src);
+      row.appendChild(cb);
+      row.appendChild(document.createTextNode(label));
+      blockWrap.appendChild(row);
+      return cb;
+    });
+    blockWrap.appendChild(
+      nlEl(
+        'p',
+        'hint',
+        'Pulled from your other modules when you preview, and frozen into the send exactly as previewed. A block with nothing to show is left out and noted under the preview.'
+      )
+    );
+    host.appendChild(blockWrap);
+    const selectedBlocks = () => blockChecks.filter((cb) => cb.checked).map((cb) => ({ source: cb.value, limit: 5 }));
+
     const previewBox = nlEl('div');
     previewBox.id = 'nl-preview-box';
     const previewNote = nlEl('p', 'hint', '');
@@ -6887,6 +6939,12 @@
     };
     subjectInput.addEventListener('input', markStale);
     bodyInput.addEventListener('input', markStale);
+    blockChecks.forEach((cb) =>
+      cb.addEventListener('change', () => {
+        moduleState.nlBlocks = selectedBlocks().map((b) => b.source);
+        markStale();
+      })
+    );
 
     const previewBtn = nlEl('button', 'btn soft small', 'Preview issue');
     previewBtn.type = 'button';
@@ -6895,7 +6953,7 @@
       try {
         const r = await api('/modules/newsletter/preview', {
           method: 'POST',
-          body: JSON.stringify({ subject: subjectInput.value, bodyHtml: bodyInput.value }),
+          body: JSON.stringify({ subject: subjectInput.value, bodyHtml: bodyInput.value, blocks: selectedBlocks() }),
         });
         moduleState.nlPreview = {
           token: r.previewToken,
@@ -6904,7 +6962,7 @@
           renderedHtml: (r.rendered && r.rendered.html) || '',
           sampleEmail: (r.sampleSubscriber && r.sampleSubscriber.email) || '',
         };
-        previewNote.textContent = '';
+        previewNote.textContent = (r.blocks || []).map((b) => b.note).filter(Boolean).join(' ');
         moduleMsg('Preview ready — check it below, then send.', true);
         showPreview();
       } catch (e) {
@@ -6927,6 +6985,7 @@
           body: JSON.stringify({
             subject: subjectInput.value,
             bodyHtml: bodyInput.value,
+            blocks: selectedBlocks(),
             previewToken: p.token,
             confirmCount: p.recipientCount,
           }),
@@ -7525,9 +7584,15 @@
     }
     if (d.kind === 'select') {
       const opts = (d.options || [])
-        .map((o) => `<option value="${esc(o)}"${String(val) === o ? ' selected' : ''}>${esc(o)}</option>`)
+        .map((o) => {
+          // Batch 122: options may be {value, label} pairs (the event
+          // editor's gallery picker) as well as plain strings.
+          const ov = o && typeof o === 'object' ? String(o.value) : String(o);
+          const ol = o && typeof o === 'object' ? String(o.label != null ? o.label : o.value) : String(o);
+          return `<option value="${esc(ov)}"${String(val) === ov ? ' selected' : ''}>${esc(ol)}</option>`;
+        })
         .join('');
-      return `<div class="field"><label>${esc(d.label)}</label><select data-mod-field="${d.key}">${opts}</select></div>`;
+      return `<div class="field"><label>${esc(d.label)}</label><select data-mod-field="${d.key}">${opts}</select>${d.hint ? `<p class="hint">${esc(d.hint)}</p>` : ''}</div>`;
     }
     const req = d.required ? ' required' : '';
     return `<div class="field"><label>${esc(d.label)}</label><input data-mod-field="${d.key}" type="text" value="${esc(val)}" placeholder="${esc(d.placeholder || '')}"${req} /></div>`;
@@ -7732,6 +7797,17 @@
   async function loadModuleItems() {
     const type = moduleState.current;
     storeModuleType(type);
+    if (type === 'events') {
+      // Batch 122: the event editor's gallery picker reads the shared
+      // layer (this lead's published albums). Failure = no albums to
+      // offer, never a broken editor.
+      try {
+        const shared = await api('/modules/shared/items?source=gallery&limit=100');
+        moduleState.sharedAlbums = Array.isArray(shared.items) ? shared.items : [];
+      } catch {
+        moduleState.sharedAlbums = [];
+      }
+    }
     // Batch 45 — blog/members/calls fetch ONE server page at a time
     // (6/50/50) instead of the whole history.
     let qs = type === 'bookings' && moduleState.showArchivedAppointments ? '?includeArchived=1' : '';

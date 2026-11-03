@@ -2064,6 +2064,8 @@ router.post('/modules/newsletter/preview', requireClient, actionLimit, async (re
       await require('../newsletter').previewIssue(req.client.workspace_id, req.client.lead_id, {
         subject: b.subject,
         bodyHtml: b.bodyHtml,
+        // Batch 122: auto-content blocks from the shared module layer.
+        blocks: b.blocks,
       })
     );
   } catch (e) {
@@ -2080,11 +2082,90 @@ router.post('/modules/newsletter/send', requireClient, actionLimit, async (req, 
       await require('../newsletter').sendIssue(req.client.workspace_id, req.client.lead_id, {
         subject: b.subject,
         bodyHtml: b.bodyHtml,
+        blocks: b.blocks,
         previewToken: b.previewToken,
         confirmCount: b.confirmCount,
         createdBy: req.client.email,
       })
     );
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+// Shared module layer (Batch 122) — before the generic /modules/:type
+// routes. Sources + items feed the portal pickers (e.g. the event
+// editor's gallery album select); refs read/write the generalized
+// cross-module links. Everything is scoped to the client's own lead
+// by construction (domain.withDb on their workspace + their leadId).
+// The gate is the same paid-plan siteModules gate the other module
+// routes enforce (newsletterGate wraps requireSiteModules).
+router.get('/modules/shared/sources', requireClient, async (req, res) => {
+  try {
+    await newsletterGate(req);
+    const share = require('../moduleShare');
+    const data = require('../domain').withDb(req.client.workspace_id, (db) => ({
+      sources: share.listSharedSources(db, req.client.lead_id, { sample: 3 }),
+    }));
+    ok(res, data);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.get('/modules/shared/items', requireClient, async (req, res) => {
+  try {
+    await newsletterGate(req);
+    const share = require('../moduleShare');
+    const data = require('../domain').withDb(req.client.workspace_id, (db) => ({
+      items: share.listSharedItems(db, req.client.lead_id, String(req.query.source || ''), {
+        limit: req.query.limit,
+      }),
+    }));
+    ok(res, data);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.get('/modules/shared/refs', requireClient, async (req, res) => {
+  try {
+    await newsletterGate(req);
+    const share = require('../moduleShare');
+    const data = require('../domain').withDb(req.client.workspace_id, (db) => ({
+      refs: share.listSharedRefs(db, req.client.lead_id, {
+        consumer_type: req.query.consumer_type,
+        consumer_id: req.query.consumer_id,
+        provider_type: req.query.provider_type,
+      }),
+    }));
+    ok(res, data);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.put('/modules/shared/refs', requireClient, actionLimit, async (req, res) => {
+  try {
+    await newsletterGate(req);
+    const share = require('../moduleShare');
+    const data = require('../domain').withDb(req.client.workspace_id, (db) => ({
+      ref: share.setSharedRef(db, req.client.lead_id, req.body || {}),
+    }));
+    ok(res, data);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.delete('/modules/shared/refs', requireClient, actionLimit, async (req, res) => {
+  try {
+    await newsletterGate(req);
+    const share = require('../moduleShare');
+    const data = require('../domain').withDb(req.client.workspace_id, (db) =>
+      share.clearSharedRef(db, req.client.lead_id, req.body || {})
+    );
+    ok(res, data);
   } catch (e) {
     fail(res, e);
   }

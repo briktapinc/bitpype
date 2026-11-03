@@ -3252,6 +3252,45 @@ function createParityTools(ctx) {
     ...moduleCrud('video', { list: 'listVideoItems', create: 'createVideoItem', update: 'updateVideoItem', delete: 'deleteVideoItem' }),
     ...moduleCrud('events', { list: 'listEvents', create: 'createEvent', update: 'updateEvent', delete: 'deleteEvent' }),
 
+    // Batch 122 — shared module layer parity: the local MCP server
+    // delegates to server/moduleShare exactly like the hosted
+    // handlers (no plan gating locally, per this layer's contract).
+    'shared.sources': parityEntry('shared.sources', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return {
+        ok: true,
+        data: { sources: require('../server/moduleShare').listSharedSources(db, leadId, { sample: 3 }) },
+      };
+    }),
+    'shared.items': parityEntry('shared.items', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return {
+        ok: true,
+        data: { items: require('../server/moduleShare').listSharedItems(db, leadId, args.source, { limit: args.limit }) },
+      };
+    }),
+    'shared.refs': parityEntry('shared.refs', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return {
+        ok: true,
+        data: {
+          refs: require('../server/moduleShare').listSharedRefs(db, leadId, {
+            consumer_type: args.consumer_type,
+            consumer_id: args.consumer_id,
+            provider_type: args.provider_type,
+          }),
+        },
+      };
+    }),
+    'shared.link': parityEntry('shared.link', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: { ref: require('../server/moduleShare').setSharedRef(db, leadId, { ...args }) } };
+    }),
+    'shared.unlink': parityEntry('shared.unlink', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: require('../server/moduleShare').clearSharedRef(db, leadId, { ...args }) };
+    }),
+
     'courses.addLesson': parityEntry('courses.addLesson', (args) => {
       const leadId = requireId(args.leadId, 'leadId');
       const courseId = requireId(args.courseId, 'courseId');

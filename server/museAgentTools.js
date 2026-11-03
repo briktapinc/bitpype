@@ -30,6 +30,10 @@ const PORTAL_MUTATE_TOOLS = new Set([
   'site.publish',
   'site.canvasBlock',
   'website.addModule',
+  // Batch 122: shared-layer links change rendered pages (an event's
+  // gallery) — refresh the preview after them like other mutations.
+  'shared.link',
+  'shared.unlink',
 ]);
 
 /** Tools Muse must not call in Hands-off (destructive / meta / job control). */
@@ -102,6 +106,11 @@ const PORTAL_READONLY_TOOLS = new Set([
   'googlereviews.preview',
   'socialfeed.getConfig',
   'socialfeed.preview',
+  // Batch 122: the shared module layer's reads — first-class agent
+  // surface for composing across modules.
+  'shared.sources',
+  'shared.items',
+  'shared.refs',
   'social.accounts.list',
   'social.calendar',
   'social.posts.list',
@@ -151,6 +160,9 @@ const PORTAL_DESIGN_WRITE_TOOLS = new Set([
   'ecommerce.create', 'ecommerce.update', 'ecommerce.delete',
   'googlereviews.updateConfig', 'googlereviews.refresh',
   'socialfeed.updateConfig',
+  // Batch 122: cross-module links are design writes (same config the
+  // portal edits — no agent-only back door).
+  'shared.link', 'shared.unlink',
 ]);
 
 /** Everything build mode may touch: reads ∪ design/content writes. */

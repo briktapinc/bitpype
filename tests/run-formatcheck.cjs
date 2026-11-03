@@ -44,6 +44,8 @@ const SCOPE = [
   'tests/batch120-ai-routing-regressions.cjs',
   'server/portalPassword.js',
   'tests/batch121-portal-password-set-regressions.cjs',
+  'server/moduleShare.js',
+  'tests/batch122-shared-module-layer-regressions.cjs',
   'tsconfig.checkjs.json',
 ];
 

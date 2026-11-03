@@ -580,6 +580,57 @@ function leadBusinessName(db, leadId) {
 
 const previewTokens = new Map();
 
+/* Batch 122 — auto-content blocks from the shared module layer.
+ * The composer may attach blocks ({source, limit} — e.g. latest
+ * social posts, upcoming events, current offers). They resolve ONCE
+ * at preview: the resolved HTML joins the body before hashing and a
+ * frozen copy rides the preview token, so sendIssue replays exactly
+ * what was previewed and never re-resolves (Batch 118 discipline:
+ * the send is a frozen snapshot of the preview). */
+function normalizeBlocks(input) {
+  const raw = Array.isArray(input && input.blocks) ? input.blocks : [];
+  const out = [];
+  const seen = new Set();
+  for (const b of raw.slice(0, 6)) {
+    const source = String((b && b.source) || '')
+      .trim()
+      .toLowerCase();
+    if (!source || seen.has(source)) continue;
+    seen.add(source);
+    out.push({ source, limit: Math.max(1, Math.min(10, Number(b.limit) || 5)) });
+  }
+  return out;
+}
+
+function blocksKey(blocks) {
+  return blocks.map((b) => `${b.source}:${b.limit}`).join(',');
+}
+
+/** The body a send will actually use. With blocks, the ONLY source
+ *  is the frozen resolution stored on the preview token — a send
+ *  whose block selection differs from the preview's (or that asks
+ *  for blocks with no matching preview) cannot proceed. */
+function effectiveSendBody(input, rec) {
+  const base = ml.cleanBody(input.bodyHtml);
+  const blocks = normalizeBlocks(input);
+  if (!blocks.length) {
+    if (rec && rec.blocksKey) {
+      throw coded(
+        'PREVIEW_REQUIRED',
+        'Preview this exact newsletter before sending — the automatic content blocks changed since the last preview.'
+      );
+    }
+    return base;
+  }
+  if (!rec || rec.blocksKey !== blocksKey(blocks) || typeof rec.blocksHtml !== 'string') {
+    throw coded(
+      'PREVIEW_REQUIRED',
+      'Preview this exact newsletter before sending — the automatic content blocks changed since the last preview.'
+    );
+  }
+  return ml.cleanBody(base + rec.blocksHtml);
+}
+
 function previewHash(subject, bodyHtml, fromState) {
   return crypto
     .createHash('sha256')
@@ -596,16 +647,36 @@ function previewHash(subject, bodyHtml, fromState) {
  */
 async function previewIssue(workspaceId, leadId, input = {}, deps = {}) {
   const subject = ml.cleanSubject(input.subject);
-  const bodyHtml = ml.cleanBody(input.bodyHtml);
+  const blocks = normalizeBlocks(input);
   const fromState = await resolveFrom(workspaceId, leadId, deps);
-  const { sample, recipients, businessName } = domain().withDb(workspaceId, (db) => {
+  const { sample, recipients, businessName, blocksResolved } = domain().withDb(workspaceId, (db) => {
     const eligible = eligibleRecipients(db, leadId);
+    let blocksResolved = { html: '', report: [] };
+    if (blocks.length) {
+      try {
+        blocksResolved = require('./moduleShare').renderNewsletterBlocks(db, leadId, blocks);
+      } catch {
+        blocksResolved = {
+          html: '',
+          report: blocks.map((b) => ({
+            source: b.source,
+            included: false,
+            count: 0,
+            note: 'This content could not be loaded — the block was left out.',
+          })),
+        };
+      }
+    }
     return {
       sample: eligible[0] || null,
       recipients: eligible.length,
       businessName: leadBusinessName(db, leadId),
+      blocksResolved,
     };
   });
+  // The resolved block HTML is part of the body from here on: it is
+  // cleaned, rendered and hashed exactly like the composed body.
+  const bodyHtml = ml.cleanBody(ml.cleanBody(input.bodyHtml) + (blocksResolved.html || ''));
   const shown = sample || {
     id: 0,
     email: 'you@example.com',
@@ -621,6 +692,10 @@ async function previewIssue(workspaceId, leadId, input = {}, deps = {}) {
   previewTokens.set(token, {
     key: `${Number(workspaceId)}:${Number(leadId)}`,
     hash: previewHash(subject, bodyHtml, fromState),
+    // Batch 122: the frozen block resolution + selection key the
+    // send must match (see effectiveSendBody).
+    blocksHtml: blocksResolved.html || '',
+    blocksKey: blocksKey(blocks),
     at: Date.now(),
   });
   for (const [k, v] of previewTokens) if (Date.now() - v.at > PREVIEW_TTL_MS) previewTokens.delete(k);
@@ -630,6 +705,9 @@ async function previewIssue(workspaceId, leadId, input = {}, deps = {}) {
     sampleSubscriber: { email: shown.email, name: shown.name, real: !!sample },
     recipientCount: recipients,
     from: fromState,
+    // Batch 122: per-block honesty for the composer — what was
+    // included, and what was left out because the source was empty.
+    blocks: blocksResolved.report,
   };
 }
 
@@ -658,8 +736,11 @@ function consumePreview(token) {
  */
 async function sendIssue(workspaceId, leadId, input = {}, deps = {}) {
   const subject = ml.cleanSubject(input.subject);
-  const bodyHtml = ml.cleanBody(input.bodyHtml);
   const fromState = await resolveFrom(workspaceId, leadId, deps);
+  // Batch 122: with auto-content blocks, the body is rebuilt from
+  // the preview token's FROZEN resolution — never re-resolved here.
+  const rec = input.previewToken ? previewTokens.get(String(input.previewToken)) : undefined;
+  const bodyHtml = effectiveSendBody(input, rec);
   const previewToken = assertPreviewed(workspaceId, leadId, { ...input, subject, bodyHtml }, fromState);
   const snapshot = domain().withDb(workspaceId, (db) => ({
     eligible: eligibleRecipients(db, leadId),

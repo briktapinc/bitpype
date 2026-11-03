@@ -152,6 +152,34 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
       /* module inventory is best-effort */
     }
     try {
+      // Batch 122 — the shared module layer: which module content
+      // this business can draw on across modules, with live counts.
+      // The agent composes across modules through shared.items /
+      // shared.link (e.g. link a gallery album to an event so its
+      // photos show on the event page).
+      const share = require('./moduleShare');
+      const providers = share
+        .listSharedSources(db, leadId, { sample: 0 })
+        .filter((s) => s.kind === 'provider' && s.count > 0);
+      if (providers.length) {
+        lines.push(
+          `Shared content (modules are interdependent — content can be reused across modules via the shared layer; read items with shared.items, link with shared.link): ${providers
+            .map((s) => `${s.type} (${s.count} published)`)
+            .join(', ')}`
+        );
+      }
+      const refs = share.listSharedRefs(db, leadId, {});
+      if (refs.length) {
+        lines.push(
+          `Cross-module links in place: ${refs
+            .map((r) => `${r.consumer_type}#${r.consumer_id} ← ${r.provider_type}#${r.provider_id}${r.role ? ` (${r.role})` : ''}`)
+            .join('; ')}`
+        );
+      }
+    } catch {
+      /* shared-layer census is best-effort */
+    }
+    try {
       const dt = db.prepare('SELECT title, columns_json FROM datatable_configs WHERE lead_id = ?').get(Number(leadId));
       if (dt) {
         let cols = '';

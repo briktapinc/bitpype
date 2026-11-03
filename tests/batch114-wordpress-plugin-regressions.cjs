@@ -140,7 +140,7 @@ function unzipStore(buf) {
     has(portalHtml, 'like a registration link', 'instructions explain the per-download code');
     has(portalHtml, 'Contacts stay put', 'panel states captured contacts remain after removal');
     has(portalHtml, 'remove the <code>[bitpype_form]</code> shortcodes', 'panel carries the uninstall shortcode line');
-    has(portalHtml, '/js/portal.js?v=batch121-portalpw1', 'portal.js cache-busted (Batch 117 rotation)');
+    has(portalHtml, '/js/portal.js?v=batch122-sharedlayer1', 'portal.js cache-busted (Batch 117 rotation)');
     const portalJs = read('public/js/portal.js');
     has(portalJs, "'wordpress',", 'portal.js panel list includes wordpress');
     has(portalJs, 'loadWordpressPanel', 'portal.js has the wordpress loader');

@@ -1234,6 +1234,7 @@ function clientToolDefs() {
           location: STR,
           image_url: STR,
           ticket_url: STR,
+          gallery_album_id: NUM,
           status: STR,
         },
         ['title']
@@ -1254,6 +1255,7 @@ function clientToolDefs() {
           location: STR,
           image_url: STR,
           ticket_url: STR,
+          gallery_album_id: NUM,
           status: STR,
         },
         ['id']
@@ -1263,6 +1265,42 @@ function clientToolDefs() {
       name: 'events.delete',
       description: 'Delete an event by id. Standard/Premium.',
       inputSchema: schema({ id: ID, leadId: ID }, ['id']),
+    },
+    {
+      name: 'shared.sources',
+      description:
+        "Batch 122 shared module layer: list every module type for a lead with its kind (provider / non-provider + reason), the count of published shared items and sample items. Modules are INTERDEPENDENT: content flows between them through this layer — use it before composing anything that reuses another module's content. Standard/Premium.",
+      inputSchema: schema({ leadId: ID }, ['leadId']),
+    },
+    {
+      name: 'shared.items',
+      description:
+        'List the published shared items of one source module type for a lead (uniform shape: title, description, image_url, link_url, date, meta). Published items only; strictly this lead. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, source: STR, limit: NUM }, ['leadId', 'source']),
+    },
+    {
+      name: 'shared.refs',
+      description:
+        'List the cross-module links (shared refs) in place for a lead, optionally filtered by consumer_type / consumer_id / provider_type. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, consumer_type: STR, consumer_id: ID, provider_type: STR }, ['leadId']),
+    },
+    {
+      name: 'shared.link',
+      description:
+        "Create or replace a cross-module link through the shared layer. The one wired consumer today: an event showing a gallery album's photos — consumer_type 'events', consumer_id = event id, provider_type 'gallery', provider_id = album id, role 'album' (set gallery_album_id on events.create/update for the shorthand). This is the SAME config the portal edits — no back door. Standard/Premium.",
+      inputSchema: schema(
+        { leadId: ID, consumer_type: STR, consumer_id: ID, provider_type: STR, provider_id: ID, role: STR },
+        ['leadId', 'consumer_type', 'consumer_id', 'provider_type', 'provider_id']
+      ),
+    },
+    {
+      name: 'shared.unlink',
+      description:
+        'Remove a cross-module link (same keys as shared.link). Cleared links render as nothing — the consumer falls back to its standalone content. Standard/Premium.',
+      inputSchema: schema(
+        { leadId: ID, consumer_type: STR, consumer_id: ID, provider_type: STR, role: STR },
+        ['leadId', 'consumer_type', 'consumer_id', 'provider_type']
+      ),
     },
     {
       name: 'bookings.services',
@@ -3003,6 +3041,13 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'events.create',
     'events.update',
     'events.delete',
+    // Batch 122: shared module layer tools ride the same siteModules
+    // entitlement as the module families they connect.
+    'shared.sources',
+    'shared.items',
+    'shared.refs',
+    'shared.link',
+    'shared.unlink',
     'bookings.services',
     'bookings.createService',
     'bookings.updateService',
@@ -4070,6 +4115,52 @@ async function callClientTool(ws, name, a, ctx = {}) {
     return domain.withDb(ws, (db) => ({
       plan: planId,
       ...modules.deleteEvent(db, leadId || Number(ctx.leadId), id),
+    }));
+  }
+
+  // ---- Shared module layer (Batch 122) ----
+  if (name === 'shared.sources') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      sources: require('./moduleShare').listSharedSources(db, leadId, { sample: 3 }),
+    }));
+  }
+  if (name === 'shared.items') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      items: require('./moduleShare').listSharedItems(db, leadId, a.source, { limit: a.limit }),
+    }));
+  }
+  if (name === 'shared.refs') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      refs: require('./moduleShare').listSharedRefs(db, leadId, {
+        consumer_type: a.consumer_type,
+        consumer_id: a.consumer_id,
+        provider_type: a.provider_type,
+      }),
+    }));
+  }
+  if (name === 'shared.link') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      ref: require('./moduleShare').setSharedRef(db, leadId, a),
+    }));
+  }
+  if (name === 'shared.unlink') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      ...require('./moduleShare').clearSharedRef(db, leadId, a),
     }));
   }
 
