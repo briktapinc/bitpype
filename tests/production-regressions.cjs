@@ -22,6 +22,14 @@ const callRescueStub = {
   handleInboundSms: async () => ({ handled: false }),
   handleVoiceInput: async () => '<Response/>',
 };
+// Batch 121: routes/portal.js requires the set-password engine at
+// load time; VM loads get an inert stub — the engine itself is
+// pinned by the batch121 regression file.
+const portalPasswordStub = {
+  requestForUser: async () => ({ ok: true }),
+  requestByEmail: async () => ({ ok: true }),
+  confirmPasswordSet: async () => ({ ok: true }),
+};
 // Batch 111: clientPortal.js / museAgent.js are facades over split
 // modules; VM loads resolve those siblings through the same loader +
 // mocks (single-instance cache per top-level load, as Node would).
@@ -120,7 +128,7 @@ async function main() {
   load('server/routes/portal.js',{
     express:{Router:()=>portalRouter},'../clientPortal':{...portal,findById:async()=>({id:1,status:'active',workspace_id:1,lead_id:1})},
     '../captcha':{requireCaptcha:()=>((_req,_res,next)=>next())},'../rateLimit':{rateLimit:()=>((_req,_res,next)=>next())},'../portalTabs':portalTabs,
-    '../mfa':{isEnabled:async()=>false},'../apiErrors':apiErrors,
+    '../mfa':{isEnabled:async()=>false},'../apiErrors':apiErrors,'../portalPassword':portalPasswordStub,
   });
   async function callPortal(method,url,query={},params={}){
     const route=portalRoutes.find(x=>x.method===method&&x.route===url);assert(route,url);
@@ -242,7 +250,7 @@ async function main() {
   load('server/routes/portal.js', {
     express: { Router: () => portalRouter11 }, '../clientPortal': { ...portal11, findById: async () => ({ id: 7, status: 'active', workspace_id: 1, lead_id: 102 }) },
     '../captcha': { requireCaptcha: () => ((_req, _res, next) => next()) }, '../rateLimit': { rateLimit: () => ((_req, _res, next) => next()) }, '../portalTabs': portalTabs,
-    '../mfa': { isEnabled: async () => false }, '../apiErrors': apiErrors,
+    '../mfa': { isEnabled: async () => false }, '../apiErrors': apiErrors, '../portalPassword': portalPasswordStub,
   });
   async function callPortal11(method, url, body) {
     const route = portalRoutes11.find((x) => x.method === method && x.route === url); assert(route, url);
@@ -3507,7 +3515,7 @@ async function main() {
     },
     '../captcha': { requireCaptcha: () => (_req, _res, next) => next() },
     '../rateLimit': { rateLimit: () => (_req, _res, next) => next() },
-    '../mfa': { isEnabled: async () => false }, '../apiErrors': apiErrors,
+    '../mfa': { isEnabled: async () => false }, '../apiErrors': apiErrors, '../portalPassword': portalPasswordStub,
   });
   async function callPortal22(method, url, body = {}) {
     const route = portalRoutes22.find((x) => x.method === method && x.route === url);
