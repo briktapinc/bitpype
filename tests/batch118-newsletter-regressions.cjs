@@ -100,7 +100,7 @@ let db;
   {
     let n = 0;
     const sm = require(path.join(root, 'server/siteModules.js'));
-    assert.equal(sm.MODULE_TYPES.length, 23, 'catalog has 23 types');
+    assert.equal(sm.MODULE_TYPES.length, 24, 'catalog has 24 types');
     n++;
     assert.equal(sm.MODULE_TYPES[22], 'newsletter', 'newsletter is the 23rd type');
     n++;
@@ -160,7 +160,7 @@ let db;
     n++;
     assert.ok(portalHtml.includes('data-for="newsletter"'), 'portal.html has the newsletter pane tab');
     n++;
-    assert.ok(portalHtml.includes('/js/portal.js?v=batch122-sharedlayer2'), 'portal.js cache-busted for Batch 118');
+    assert.ok(portalHtml.includes('/js/portal.js?v=batch124-categories1'), 'portal.js cache-busted for Batch 118');
     n++;
     const embed = read('public/js/module-embed.js');
     assert.ok(embed.includes('function renderNewsletter('), 'public embed renders the newsletter block');
@@ -175,7 +175,7 @@ let db;
     n++;
 
     const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
-    assert.equal(census().summary.total, 407, 'SEC-13 census total unchanged at 407');
+    assert.equal(census().summary.total, 412, 'SEC-13 census total (Batch 124 added 5 reviewed sinks)');
     n++;
     group('Part 1 registry + source pins', n);
   }

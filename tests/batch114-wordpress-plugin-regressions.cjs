@@ -140,7 +140,7 @@ function unzipStore(buf) {
     has(portalHtml, 'like a registration link', 'instructions explain the per-download code');
     has(portalHtml, 'Contacts stay put', 'panel states captured contacts remain after removal');
     has(portalHtml, 'remove the <code>[bitpype_form]</code> shortcodes', 'panel carries the uninstall shortcode line');
-    has(portalHtml, '/js/portal.js?v=batch122-sharedlayer2', 'portal.js cache-busted (Batch 117 rotation)');
+    has(portalHtml, '/js/portal.js?v=batch124-categories1', 'portal.js cache-busted (Batch 117 rotation)');
     const portalJs = read('public/js/portal.js');
     has(portalJs, "'wordpress',", 'portal.js panel list includes wordpress');
     has(portalJs, 'loadWordpressPanel', 'portal.js has the wordpress loader');
@@ -217,7 +217,7 @@ function unzipStore(buf) {
     const cz = census();
     assert.deepEqual(
       cz.summary,
-      { total: 407, STATIC: 137, ESCAPED: 41, SAFE: 70, BUILDER: 54, IDENT: 35, RAW: 70 },
+      { total: 412, STATIC: 139, ESCAPED: 41, SAFE: 70, BUILDER: 56, IDENT: 35, RAW: 71 },
       'SEC-13 census summary unchanged'
     );
     n += 1;
@@ -225,7 +225,7 @@ function unzipStore(buf) {
     const sha = crypto.createHash('sha256').update(multiset.join('\n')).digest('hex');
     assert.equal(
       sha,
-      '8d62923b492a110b1945ee44faa5a737e5f59cac43bdd9f8c1e9869474bd0122',
+      '7efb880598e88b4f578a28d9ab9aa9a5ce07c1bc552d1513b9efa63e5576d25a',
       'SEC-13 sink multiset byte-identical'
     );
     n += 1;

@@ -26,6 +26,10 @@
  *   - the newsletter composer's auto-content blocks,
  *   - the design agent (site census + shared.* tools),
  *   - the portal pickers (shared sources/items API).
+ * Batch 124 adds the categories service (server/categories.js) on
+ * top of this layer: categories are a provider here, and a category's
+ * items resolve through listSharedItemsByCategory — the taxonomy is
+ * shared-layer data, not a silo of its own.
  * The agent uses the SAME config the portal edits — no back door.
  *
  * Discipline (Social Feed / Google Reviews precedents): published
@@ -382,6 +386,27 @@ const SHARE_REGISTRY = {
     reason:
       'A consumer and a capture point — the composer draws blocks from other modules through this layer; the signup block itself publishes no items.',
   },
+  categories: {
+    kind: 'provider',
+    // Batch 124 — the shared taxonomy itself is shareable content:
+    // a category is an item other modules can draw on (its title,
+    // image and how many published items it organizes). The reader
+    // lives in server/categories.js (the service that owns the
+    // tables); the lazy require keeps the load order acyclic.
+    read(db, leadId) {
+      return require('./categories')
+        .listCategories(db, leadId, { includeDrafts: false, counts: 'published' })
+        .map((c) =>
+          item('categories', c, {
+            title: c.name,
+            description: c.description,
+            image_url: c.image_url,
+            date: c.created_at,
+            meta: { slug: c.slug || '', scope: c.scope || '', item_count: c.item_count || 0 },
+          })
+        );
+    },
+  },
 };
 
 /* ------------------------------------------------------------------ */
@@ -417,6 +442,22 @@ function listSharedItems(db, leadId, sourceType, opts = {}) {
   }
   const limit = Math.max(1, Math.min(MAX_ITEMS, Number(opts.limit) || 20));
   return readProviderItems(db, leadId, type).slice(0, limit);
+}
+
+/** Batch 124 — items-by-category: the read the taxonomy's consumers
+ *  use. A category (by id or slug) resolves to the published uniform
+ *  items assigned to it, read through the category's OWN scope
+ *  provider — assignments are resolved by the categories service,
+ *  never by a second query path here. */
+function listSharedItemsByCategory(db, leadId, categoryRef, opts = {}) {
+  const cats = require('./categories');
+  const category = cats.getCategory(db, Number(leadId), categoryRef, {});
+  if (!category) throw fail('VALIDATION', `Unknown category: ${categoryRef}`);
+  const limit = Math.max(1, Math.min(MAX_ITEMS, Number(opts.limit) || 50));
+  return {
+    category,
+    items: cats.itemsForCategory(db, Number(leadId), category, { limit }),
+  };
 }
 
 /** Sources overview for pickers + the agent census: every module
@@ -763,6 +804,7 @@ module.exports = {
   ensureTables,
   listSharedSources,
   listSharedItems,
+  listSharedItemsByCategory,
   readProviderItems,
   setSharedRef,
   getSharedRef,

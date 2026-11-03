@@ -120,11 +120,11 @@ function group(name, n) {
     // (sha pinned), reviewed set == regenerated baseline exactly.
     const { census } = require(path.join(root, 'scripts', 'xss-census.cjs'));
     const cz = census();
-    assert.deepEqual(cz.summary, { total: 407, STATIC: 137, ESCAPED: 41, SAFE: 70, BUILDER: 54, IDENT: 35, RAW: 70 }, 'SEC-13 census summary unchanged');
+    assert.deepEqual(cz.summary, { total: 412, STATIC: 139, ESCAPED: 41, SAFE: 70, BUILDER: 56, IDENT: 35, RAW: 71 }, 'SEC-13 census summary unchanged');
     n += 1;
     const multi = cz.sinks.map((s) => `${s.file}|${s.kind}|${s.snippet}`).sort();
     const sha = crypto.createHash('sha256').update(multi.join('\n')).digest('hex');
-    assert.equal(sha, '8d62923b492a110b1945ee44faa5a737e5f59cac43bdd9f8c1e9869474bd0122', 'SEC-13 sink multiset byte-identical to Batch 112');
+    assert.equal(sha, '7efb880598e88b4f578a28d9ab9aa9a5ce07c1bc552d1513b9efa63e5576d25a', 'SEC-13 sink multiset byte-identical to Batch 112');
     n += 1;
     const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
     const BASELINE = new Set(require(path.join(root, 'tests', 'batch103-xss-baseline.json')));

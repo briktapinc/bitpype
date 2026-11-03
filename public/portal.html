@@ -2315,6 +2315,25 @@
     #sec-module-item {
       max-width: 760px;
     }
+    /* Batch 124: checkbox groups (category pickers + scope settings). */
+    .mod-check-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 18px;
+      padding: 4px 0 2px;
+    }
+    .mod-check {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-weight: 400;
+      cursor: pointer;
+      margin: 0;
+    }
+    .mod-check input {
+      width: auto;
+      margin: 0;
+    }
     .mod-image-row {
       display: grid;
       grid-template-columns: 96px minmax(0, 1fr);
@@ -3003,6 +3022,7 @@
                 <div id="modules-menu-cats-panel" hidden></div>
                 <div id="modules-datatables-panel" hidden></div>
                 <div id="modules-offers-display-panel" hidden></div>
+                <div id="modules-categories-scopes-panel" hidden></div>
                 <div id="modules-shop-payments-panel" hidden></div>
                 <div id="modules-items"></div>
                 <p class="msg" id="msg-modules"></p>
@@ -3365,7 +3385,7 @@
   <script src="/js/fonts.js?v=fonts1"></script>
   <script src="/js/errorCopy.js?v=batch54-errors1"></script>
   <script src="/js/captcha.js"></script>
-  <script src="/js/moduleIcons.js?v=batch118-icons1"></script>
-  <script src="/js/portal.js?v=batch122-sharedlayer2"></script>
+  <script src="/js/moduleIcons.js?v=batch124-icons1"></script>
+  <script src="/js/portal.js?v=batch124-categories1"></script>
 </body>
 </html>

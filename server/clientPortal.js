@@ -119,6 +119,7 @@ module.exports = {
   generateSeoTool: portalModules.generateSeoTool,
   applySeoTool: portalModules.applySeoTool,
   saveOffersDisplaySettings: portalModules.saveOffersDisplaySettings,
+  saveCategoriesDisplaySettings: portalModules.saveCategoriesDisplaySettings,
   saveMembersConfig: portalModules.saveMembersConfig,
   saveMembershipKeys: portalModules.saveMembershipKeys,
   clearMembershipKeys: portalModules.clearMembershipKeys,

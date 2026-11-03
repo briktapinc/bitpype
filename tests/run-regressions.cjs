@@ -121,6 +121,7 @@ const checks = [
   'batch121-portal-password-set-regressions',
   'batch122-shared-module-layer-regressions',
   'batch123-openrouter-regressions',
+  'batch124-categories-regressions',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');

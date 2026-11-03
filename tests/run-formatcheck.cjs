@@ -47,6 +47,8 @@ const SCOPE = [
   'server/moduleShare.js',
   'tests/batch122-shared-module-layer-regressions.cjs',
   'tests/batch123-openrouter-regressions.cjs',
+  'server/categories.js',
+  'tests/batch124-categories-regressions.cjs',
   'tsconfig.checkjs.json',
 ];
 

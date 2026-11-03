@@ -630,9 +630,9 @@ const TEXT_PLAN = {
     // "no new sinks" half of that claim.
     const { census } = require(path.join(root, 'scripts', 'xss-census.cjs'));
     const cz = census();
-    assert.equal(cz.summary.total, 407, 'SEC-13 census total unchanged by Batch 104'); n += 1;
-    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 302, 'SEC-13 safe classes unchanged'); n += 1;
-    assert.equal(cz.summary.RAW + cz.summary.IDENT, 105, 'SEC-13 reviewed set size unchanged'); n += 1;
+    assert.equal(cz.summary.total, 412, 'SEC-13 census total unchanged by Batch 104'); n += 1;
+    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 306, 'SEC-13 safe classes unchanged'); n += 1;
+    assert.equal(cz.summary.RAW + cz.summary.IDENT, 106, 'SEC-13 reviewed set size (Batch 124 added one reviewed RAW sink)'); n += 1;
 
     group('Part 4 client wiring + parser units', n);
   }

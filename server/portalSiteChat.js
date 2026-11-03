@@ -180,6 +180,22 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
       /* shared-layer census is best-effort */
     }
     try {
+      // Batch 124 — the shared taxonomy: categories are created FOR a
+      // module (their scope) and items are organized by assignment.
+      // The agent manages them with the categories.* tools (the same
+      // service the portal editors use).
+      const catSummary = require('./categories').categoriesSummary(db, leadId);
+      if (catSummary.length) {
+        lines.push(
+          `Categories (shared taxonomy — a category belongs to one module scope and organizes that module's items by assignment; create with categories.create, assign with categories.assign or category_ids on the module write tools): ${catSummary
+            .map((s) => `${s.scope} (${s.published} published / ${s.total} total, ${s.assigned_items} assignments)`)
+            .join(', ')}`
+        );
+      }
+    } catch {
+      /* categories census is best-effort */
+    }
+    try {
       const dt = db.prepare('SELECT title, columns_json FROM datatable_configs WHERE lead_id = ?').get(Number(leadId));
       if (dt) {
         let cols = '';

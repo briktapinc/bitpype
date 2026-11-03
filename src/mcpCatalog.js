@@ -1000,6 +1000,7 @@ const tools = [
             'datatables',
             'charts',
             'newsletter',
+            'categories',
           ],
         },
         moduleType: {
@@ -1027,6 +1028,7 @@ const tools = [
             'datatables',
             'charts',
             'newsletter',
+            'categories',
           ],
         },
         title: { type: 'string' },
@@ -1208,6 +1210,12 @@ const tools = [
         excerpt: { type: 'string', description: 'Card blurb; auto-derived from body when omitted' },
         cover_image: { type: 'string' },
         status: { type: 'string', enum: ['draft', 'published'] },
+        category_ids: {
+          type: 'array',
+          items: { type: 'integer', minimum: 1 },
+          description:
+            'Batch 124: ids of shared-taxonomy categories in this module\'s own scope to assign the item to — replaces the item\'s full category set; omit to leave assignments untouched. Manage the taxonomy with the categories.* tools.',
+        },
       },
       required: ['title'],
     },
@@ -1227,6 +1235,12 @@ const tools = [
         excerpt: { type: 'string' },
         cover_image: { type: 'string' },
         status: { type: 'string', enum: ['draft', 'published'] },
+        category_ids: {
+          type: 'array',
+          items: { type: 'integer', minimum: 1 },
+          description:
+            'Batch 124: ids of shared-taxonomy categories in this module\'s own scope to assign the item to — replaces the item\'s full category set; omit to leave assignments untouched. Manage the taxonomy with the categories.* tools.',
+        },
       },
       required: ['id'],
     },
@@ -1397,6 +1411,12 @@ const tools = [
         slug: { type: 'string' },
         description: { type: 'string' },
         status: { type: 'string', enum: ['draft', 'published'] },
+        category_ids: {
+          type: 'array',
+          items: { type: 'integer', minimum: 1 },
+          description:
+            'Batch 124: ids of shared-taxonomy categories in this module\'s own scope to assign the item to — replaces the item\'s full category set; omit to leave assignments untouched. Manage the taxonomy with the categories.* tools.',
+        },
         images: { type: 'array', items: { type: 'object' } },
       },
       required: ['title'],
@@ -1414,6 +1434,12 @@ const tools = [
         slug: { type: 'string' },
         description: { type: 'string' },
         status: { type: 'string', enum: ['draft', 'published'] },
+        category_ids: {
+          type: 'array',
+          items: { type: 'integer', minimum: 1 },
+          description:
+            'Batch 124: ids of shared-taxonomy categories in this module\'s own scope to assign the item to — replaces the item\'s full category set; omit to leave assignments untouched. Manage the taxonomy with the categories.* tools.',
+        },
       },
       required: ['id'],
     },
@@ -1469,6 +1495,12 @@ const tools = [
         website_url: { type: 'string' },
         image_url: { type: 'string' },
         status: { type: 'string', enum: ['draft', 'published'] },
+        category_ids: {
+          type: 'array',
+          items: { type: 'integer', minimum: 1 },
+          description:
+            'Batch 124: ids of shared-taxonomy categories in this module\'s own scope to assign the item to — replaces the item\'s full category set; omit to leave assignments untouched. Manage the taxonomy with the categories.* tools.',
+        },
       },
       required: ['name'],
     },
@@ -1489,6 +1521,12 @@ const tools = [
         website_url: { type: 'string' },
         image_url: { type: 'string' },
         status: { type: 'string', enum: ['draft', 'published'] },
+        category_ids: {
+          type: 'array',
+          items: { type: 'integer', minimum: 1 },
+          description:
+            'Batch 124: ids of shared-taxonomy categories in this module\'s own scope to assign the item to — replaces the item\'s full category set; omit to leave assignments untouched. Manage the taxonomy with the categories.* tools.',
+        },
       },
       required: ['id'],
     },
@@ -1688,6 +1726,12 @@ const tools = [
         expires_at: { type: 'string' },
         image_url: { type: 'string' },
         status: { type: 'string', enum: ['draft', 'published'] },
+        category_ids: {
+          type: 'array',
+          items: { type: 'integer', minimum: 1 },
+          description:
+            'Batch 124: ids of shared-taxonomy categories in this module\'s own scope to assign the item to — replaces the item\'s full category set; omit to leave assignments untouched. Manage the taxonomy with the categories.* tools.',
+        },
         sort_order: { type: 'number' },
       },
       required: ['title'],
@@ -1708,6 +1752,12 @@ const tools = [
         expires_at: { type: 'string' },
         image_url: { type: 'string' },
         status: { type: 'string', enum: ['draft', 'published'] },
+        category_ids: {
+          type: 'array',
+          items: { type: 'integer', minimum: 1 },
+          description:
+            'Batch 124: ids of shared-taxonomy categories in this module\'s own scope to assign the item to — replaces the item\'s full category set; omit to leave assignments untouched. Manage the taxonomy with the categories.* tools.',
+        },
         sort_order: { type: 'number' },
       },
       required: ['id'],
@@ -2556,6 +2606,12 @@ const tools = [
           description: 'Batch 122: optional gallery album linked through the shared layer — its photos render on the event page.',
         },
         status: { type: 'string', enum: ['draft', 'published'] },
+        category_ids: {
+          type: 'array',
+          items: { type: 'integer', minimum: 1 },
+          description:
+            'Batch 124: ids of shared-taxonomy categories in this module\'s own scope to assign the item to — replaces the item\'s full category set; omit to leave assignments untouched. Manage the taxonomy with the categories.* tools.',
+        },
       },
       required: ['title'],
     },
@@ -2582,6 +2638,12 @@ const tools = [
           description: "Batch 122: gallery album linked through the shared layer — its photos render on the event page. 0 clears the link. Prefer shared.link for the general mechanism.",
         },
         status: { type: 'string', enum: ['draft', 'published'] },
+        category_ids: {
+          type: 'array',
+          items: { type: 'integer', minimum: 1 },
+          description:
+            'Batch 124: ids of shared-taxonomy categories in this module\'s own scope to assign the item to — replaces the item\'s full category set; omit to leave assignments untouched. Manage the taxonomy with the categories.* tools.',
+        },
       },
       required: ['id'],
     },
@@ -2659,6 +2721,126 @@ const tools = [
         role: { type: 'string' },
       },
       required: ['leadId', 'consumer_type', 'consumer_id', 'provider_type'],
+    },
+  },
+  {
+    name: 'categories.list',
+    description:
+      'Batch 124 shared taxonomy: list this business’s categories (optionally for one scope — the module type a category belongs to), each with its assigned-item count. Categories organize OTHER modules’ items; create them per scope, then assign items with categories.assign or category_ids on the module write tools.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        scope: { type: 'string', description: 'Optional module type to list categories for, e.g. events, blog, gallery, offers, directory.' },
+        includeDrafts: { type: 'boolean' },
+      },
+      required: ['leadId'],
+    },
+  },
+  {
+    name: 'categories.create',
+    description:
+      'Create a category FOR one module type (scope, e.g. events or blog) in the shared taxonomy. Optional parent_id nests it under another category of the same scope. Slugs are unique per scope.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        scope: { type: 'string' },
+        name: { type: 'string' },
+        slug: { type: 'string' },
+        description: { type: 'string' },
+        image_url: { type: 'string' },
+        parent_id: { type: 'integer', minimum: 1 },
+        status: { type: 'string', enum: ['draft', 'published'] },
+        sort_order: { type: 'number' },
+      },
+      required: ['leadId', 'scope', 'name'],
+    },
+  },
+  {
+    name: 'categories.update',
+    description:
+      'Update a category by id (name, slug, description, image_url, parent_id, status, sort_order). Scope cannot change. Renaming or re-slugging never breaks assignments — they key on ids.',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', minimum: 1 },
+        leadId: { type: 'integer', minimum: 1 },
+        name: { type: 'string' },
+        slug: { type: 'string' },
+        description: { type: 'string' },
+        image_url: { type: 'string' },
+        parent_id: { type: 'integer', minimum: 1 },
+        status: { type: 'string', enum: ['draft', 'published'] },
+        sort_order: { type: 'number' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'categories.delete',
+    description:
+      'Delete a category by id. Its assignments are removed and its child categories move up to its parent — the items themselves are never deleted.',
+    schema: {
+      type: 'object',
+      properties: { id: { type: 'integer', minimum: 1 }, leadId: { type: 'integer', minimum: 1 } },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'categories.assign',
+    description:
+      'Assign one module item to a category of the item’s own module scope (consumer_type = the module type, item_id = the item id, category_id = the category id). The item must exist for this business; cross-scope and cross-business assignments are refused.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        category_id: { type: 'integer', minimum: 1 },
+        consumer_type: { type: 'string' },
+        item_id: { type: 'integer', minimum: 1 },
+      },
+      required: ['leadId', 'category_id', 'consumer_type', 'item_id'],
+    },
+  },
+  {
+    name: 'categories.unassign',
+    description: 'Remove one item’s assignment to a category (same keys as categories.assign).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        category_id: { type: 'integer', minimum: 1 },
+        consumer_type: { type: 'string' },
+        item_id: { type: 'integer', minimum: 1 },
+      },
+      required: ['leadId', 'category_id', 'consumer_type', 'item_id'],
+    },
+  },
+  {
+    name: 'categories.items',
+    description:
+      'The published items assigned to a category (by category_id), in the shared layer’s uniform shape — resolved through the category’s scope provider, so drafts and deleted items never appear.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        category_id: { type: 'integer', minimum: 1 },
+        limit: { type: 'number' },
+      },
+      required: ['leadId', 'category_id'],
+    },
+  },
+  {
+    name: 'categories.setScopes',
+    description:
+      'Set which scopes (module types) the Categories module index displays on the site; an empty list shows every scope that has published categories. This is the SAME embed setting the portal edits.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        scopes: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['leadId'],
     },
   },
   {

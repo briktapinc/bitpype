@@ -155,13 +155,13 @@ async function part1() {
     assert.ok(pb.includes('suspension,'), 'portal billing payload carries the episode');
   });
 
-  await test('xss census unchanged at 407 sinks', async () => {
+  await test('xss census at 412 sinks (Batch 124 reviewed additions)', async () => {
     const { execFileSync } = require('child_process');
     const out = execFileSync(process.execPath, [path.join(ROOT, 'scripts/xss-census.cjs')], {
       cwd: ROOT,
       encoding: 'utf8',
     });
-    assert.ok(/innerHTML sinks: 407/.test(out), out.split('\n')[0]);
+    assert.ok(/innerHTML sinks: 412/.test(out), out.split('\n')[0]);
   });
 
   await test('gate registration: allowlist + format scope carry batch119', async () => {

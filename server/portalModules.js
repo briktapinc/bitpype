@@ -64,6 +64,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     let datatable = null;
     let charts = null;
     let newsletter = null;
+    let taxonomy = null;
     if (type === 'blog') {
       // Batch 45: server-side paging when the caller asks for a page
       // (portal blog tab); no limit = the historical full list.
@@ -277,6 +278,13 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
         pages: modules.listSitePages(db, Number(leadId)),
         chatbot: summary,
       };
+    }
+    else if (type === 'categories') {
+      // Batch 124: the shared taxonomy — items are the categories
+      // themselves (every scope, drafts included, with assignment
+      // counts); the block carries the module's display-scope config.
+      items = require('./categories').listCategories(db, Number(leadId));
+      taxonomy = { scopes: modules.getCategoriesScopes(db, Number(leadId)) };
     } else throw Object.assign(new Error('Unknown module type'), { code: 'VALIDATION', status: 400 });
     const emb = modules.getEmbedRow(db, Number(leadId), type);
     const out = {
@@ -297,6 +305,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     if (datatable) out.datatable = datatable;
     if (charts) out.charts = charts;
     if (newsletter) out.newsletter = newsletter;
+    if (taxonomy) out.taxonomy = taxonomy;
     return out;
   });
 }
@@ -330,6 +339,7 @@ async function createModuleItem(workspaceId, leadId, moduleType, body, clientEma
         sort_order: body && body.sort_order,
       });
     else if (type === 'charts') item = modules.createChart(db, Number(leadId), body || {});
+    else if (type === 'categories') item = require('./categories').createCategory(db, Number(leadId), body || {});
     else if (type === 'socialfeed')
       throw Object.assign(new Error('Social Feed updates itself from your social posts — there are no items to add.'), {
         code: 'VALIDATION',
@@ -382,6 +392,7 @@ async function updateModuleItem(workspaceId, leadId, moduleType, id, body, clien
     else if (type === 'estimate') item = modules.updateEstimateOption(db, Number(leadId), id, body || {});
     else if (type === 'datatables') item = modules.updateDataTableRow(db, Number(leadId), id, body || {});
     else if (type === 'charts') item = modules.updateChart(db, Number(leadId), id, body || {});
+    else if (type === 'categories') item = require('./categories').updateCategory(db, Number(leadId), id, body || {});
     else if (type === 'socialfeed')
       throw Object.assign(new Error('Social Feed updates itself from your social posts — there are no items to edit.'), {
         code: 'VALIDATION',
@@ -432,6 +443,7 @@ async function deleteModuleItem(workspaceId, leadId, moduleType, id, clientEmail
     if (type === 'estimate') return modules.deleteEstimateOption(db, Number(leadId), id);
     if (type === 'datatables') return modules.deleteDataTableRow(db, Number(leadId), id);
     if (type === 'charts') return modules.deleteChart(db, Number(leadId), id);
+    if (type === 'categories') return require('./categories').deleteCategory(db, Number(leadId), id);
     if (type === 'socialfeed')
       throw Object.assign(new Error('Social Feed updates itself from your social posts — there are no items to delete.'), {
         code: 'VALIDATION',
@@ -796,6 +808,18 @@ async function saveOffersDisplaySettings(workspaceId, leadId, body, clientEmail)
   await requireSiteModules(workspaceId, clientEmail);
   return domain.withDb(workspaceId, (db) => ({
     settings: modules.updateOffersLayout(db, Number(leadId), (body || {}).layout, {
+      workspaceId: Number(workspaceId),
+    }),
+  }));
+}
+
+/** Batch 124: the Categories module's display scopes (embed settings). */
+async function saveCategoriesDisplaySettings(workspaceId, leadId, body, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => ({
+    settings: modules.updateCategoriesScopes(db, Number(leadId), (body || {}).scopes, {
       workspaceId: Number(workspaceId),
     }),
   }));
@@ -1319,6 +1343,7 @@ module.exports = {
   applySeoTool,
   setSeoGscToken,
   saveOffersDisplaySettings,
+  saveCategoriesDisplaySettings,
   saveMembersConfig,
   saveMembershipKeys,
   clearMembershipKeys,

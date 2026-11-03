@@ -134,7 +134,7 @@ function group(name, n) {
     const cz = census();
     assert.deepEqual(
       cz.summary,
-      { total: 407, STATIC: 137, ESCAPED: 41, SAFE: 70, BUILDER: 54, IDENT: 35, RAW: 70 },
+      { total: 412, STATIC: 139, ESCAPED: 41, SAFE: 70, BUILDER: 56, IDENT: 35, RAW: 71 },
       'SEC-13 census summary unchanged'
     );
     n += 1;
@@ -142,7 +142,7 @@ function group(name, n) {
     const sha = crypto.createHash('sha256').update(multi.join('\n')).digest('hex');
     assert.equal(
       sha,
-      '8d62923b492a110b1945ee44faa5a737e5f59cac43bdd9f8c1e9869474bd0122',
+      '7efb880598e88b4f578a28d9ab9aa9a5ce07c1bc552d1513b9efa63e5576d25a',
       'SEC-13 sink multiset byte-identical'
     );
     n += 1;
@@ -199,6 +199,7 @@ function group(name, n) {
     ['datatables', 'Data Tables'],
     ['charts', 'Charts'],
     ['newsletter', 'Newsletter'],
+    ['categories', 'Categories'],
   ];
   app.get('/api/v1/admin-area/modules', (_q, r) =>
     r.json({
@@ -289,7 +290,7 @@ function group(name, n) {
     for (const w of [1440, 980, 390]) {
       await page.setViewport({ width: w, height: 1000 });
       await page.goto(base + '/app#/modules', { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await WF(page, () => document.querySelectorAll('.modcat-card').length === 23, `catalog renders @${w}`);
+      await WF(page, () => document.querySelectorAll('.modcat-card').length === 24, `catalog renders @${w}`);
       await page.evaluate(() => document.fonts.ready);
       // Batch 112 stability idiom: measure the REST state only once
       // it is well-defined — scroll reset to 0 and the first card's
@@ -315,7 +316,7 @@ function group(name, n) {
         `catalog at settled rest @${w}`
       );
       let m = await page.evaluate(measure);
-      ok(m.count === 23, `@${w}: all 23 catalog cards rendered`);
+      ok(m.count === 24, `@${w}: all 24 catalog cards rendered`);
       ok(m.display === 'flex' && m.overflowX === 'auto', `@${w}: row is a native horizontal scroller`);
       const top0 = m.rects[0].top;
       ok(

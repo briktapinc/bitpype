@@ -1910,6 +1910,24 @@ router.put('/modules/offers/settings', requireClient, actionLimit, async (req, r
   }
 });
 
+// Categories display scopes (Batch 124) — before the generic
+// /modules/:type/:id routes, which would read "scopes" as an id.
+router.put('/modules/categories/scopes', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.saveCategoriesDisplaySettings(
+        req.client.workspace_id,
+        req.client.lead_id,
+        req.body || {},
+        req.client.email
+      )
+    );
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 // Data Tables config + clear (Batch 88) — before the generic
 // /modules/:type routes so 'datatables' is never parsed as an id.
 router.put('/modules/datatables/config', requireClient, actionLimit, async (req, res) => {
@@ -2566,6 +2584,7 @@ router.get('/modules/:type', requireClient, async (req, res) => {
         includeArchived,
         limit: req.query.limit,
         offset: req.query.offset,
+        scope: req.query.scope,
       })
     );
   } catch (e) {

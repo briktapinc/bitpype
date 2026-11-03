@@ -3291,6 +3291,60 @@ function createParityTools(ctx) {
       return { ok: true, data: require('../server/moduleShare').clearSharedRef(db, leadId, { ...args }) };
     }),
 
+    // Batch 124 — shared taxonomy parity: the local MCP server
+    // delegates to server/categories exactly like the hosted
+    // handlers (no plan gating locally, per this layer's contract).
+    'categories.list': parityEntry('categories.list', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return {
+        ok: true,
+        data: {
+          categories: require('../server/categories').listCategories(db, leadId, {
+            scope: args.scope || null,
+            includeDrafts: args.includeDrafts !== false,
+          }),
+        },
+      };
+    }),
+    'categories.create': parityEntry('categories.create', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: { category: require('../server/categories').createCategory(db, leadId, { ...args }) } };
+    }),
+    'categories.update': parityEntry('categories.update', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: { category: require('../server/categories').updateCategory(db, leadId, id, { ...args }) } };
+    }),
+    'categories.delete': parityEntry('categories.delete', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: require('../server/categories').deleteCategory(db, leadId, id) };
+    }),
+    'categories.assign': parityEntry('categories.assign', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: require('../server/categories').assignItem(db, leadId, { ...args }) };
+    }),
+    'categories.unassign': parityEntry('categories.unassign', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: require('../server/categories').unassignItem(db, leadId, { ...args }) };
+    }),
+    'categories.items': parityEntry('categories.items', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return {
+        ok: true,
+        data: require('../server/moduleShare').listSharedItemsByCategory(db, leadId, args.category_id, {
+          limit: args.limit,
+        }),
+      };
+    }),
+    'categories.setScopes': parityEntry('categories.setScopes', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return {
+        ok: true,
+        data: { settings: siteModules().updateCategoriesScopes(db, leadId, args.scopes || [], {}) },
+      };
+    }),
+
     'courses.addLesson': parityEntry('courses.addLesson', (args) => {
       const leadId = requireId(args.leadId, 'leadId');
       const courseId = requireId(args.courseId, 'courseId');

@@ -23,6 +23,12 @@ const PROTOCOL_VERSION = '2025-11-25';
 const ID = { type: 'integer', minimum: 1 };
 const STR = { type: 'string' };
 const NUM = { type: 'number' };
+const CATIDS = {
+  type: 'array',
+  items: { type: 'integer', minimum: 1 },
+  description:
+    'Batch 124: ids of shared-taxonomy categories in this module\'s own scope to assign the item to — replaces the item\'s full category set; omit to leave assignments untouched. Manage the taxonomy with the categories.* tools.',
+};
 function schema(properties = {}, required = []) {
   return required.length ? { type: 'object', properties, required } : { type: 'object', properties };
 }
@@ -70,7 +76,7 @@ function clientToolDefs() {
     {
       name: 'website.addModule',
       description:
-        'Attach a site module (blog|ecommerce|courses|gallery|directory|faq|testimonials|team|events|bookings|chatbot|offers|menu|careers|video|estimate|socialfeed|calltracking|members|googlereviews|datatables|charts|newsletter) into the live site template with an in-page JS mount (not an iframe). Standard/Premium siteModules. chatbot = sitewide floating bubble (chat-embed.js); visitor replies go through portal CLIENT MCP chatbot.* only — never admin design.*/lead.* or workspace ws_ tokens. INTENT: appointments with availability → bookings module (never a contact form); then bookings.createService (published) + bookings.setHours. Structured requests → forms.create purpose=…; general inquiries → contact form. Alias: modules.attach. Bookings: optional show_request_form. Offers: settings.layout = "cards" (default) or "horizontal" (banner rows). After attach, call site.publish. Non-bookings attach on appointment-intent pages returns a warning. STYLING: wrap mount; theme.customCss under .bitpype-module-embed.',
+        'Attach a site module (blog|ecommerce|courses|gallery|directory|faq|testimonials|team|events|bookings|chatbot|offers|menu|careers|video|estimate|socialfeed|calltracking|members|googlereviews|datatables|charts|newsletter|categories) into the live site template with an in-page JS mount (not an iframe). Standard/Premium siteModules. chatbot = sitewide floating bubble (chat-embed.js); visitor replies go through portal CLIENT MCP chatbot.* only — never admin design.*/lead.* or workspace ws_ tokens. INTENT: appointments with availability → bookings module (never a contact form); then bookings.createService (published) + bookings.setHours. Structured requests → forms.create purpose=…; general inquiries → contact form. Alias: modules.attach. Bookings: optional show_request_form. Offers: settings.layout = "cards" (default) or "horizontal" (banner rows). After attach, call site.publish. Non-bookings attach on appointment-intent pages returns a warning. STYLING: wrap mount; theme.customCss under .bitpype-module-embed.',
       inputSchema: schema({
         leadId: ID,
         module: {
@@ -99,6 +105,7 @@ function clientToolDefs() {
             'datatables',
             'charts',
             'newsletter',
+            'categories',
           ],
         },
         moduleType: {
@@ -127,6 +134,7 @@ function clientToolDefs() {
             'datatables',
             'charts',
             'newsletter',
+            'categories',
           ],
         },
         title: STR,
@@ -244,6 +252,7 @@ function clientToolDefs() {
           excerpt: STR,
           cover_image: STR,
           status: STR,
+          category_ids: CATIDS,
         },
         ['title']
       ),
@@ -261,6 +270,7 @@ function clientToolDefs() {
           excerpt: STR,
           cover_image: STR,
           status: STR,
+          category_ids: CATIDS,
         },
         ['id']
       ),
@@ -401,6 +411,7 @@ function clientToolDefs() {
           slug: STR,
           description: STR,
           status: STR,
+          category_ids: CATIDS,
           images: { type: 'array', items: { type: 'object' } },
         },
         ['title']
@@ -417,6 +428,7 @@ function clientToolDefs() {
           slug: STR,
           description: STR,
           status: STR,
+          category_ids: CATIDS,
         },
         ['id']
       ),
@@ -460,6 +472,7 @@ function clientToolDefs() {
           website_url: STR,
           image_url: STR,
           status: STR,
+          category_ids: CATIDS,
         },
         ['name']
       ),
@@ -479,6 +492,7 @@ function clientToolDefs() {
           website_url: STR,
           image_url: STR,
           status: STR,
+          category_ids: CATIDS,
         },
         ['id']
       ),
@@ -641,6 +655,7 @@ function clientToolDefs() {
           expires_at: STR,
           image_url: STR,
           status: STR,
+          category_ids: CATIDS,
           sort_order: NUM,
         },
         ['title']
@@ -660,6 +675,7 @@ function clientToolDefs() {
           expires_at: STR,
           image_url: STR,
           status: STR,
+          category_ids: CATIDS,
           sort_order: NUM,
         },
         ['id']
@@ -1236,6 +1252,7 @@ function clientToolDefs() {
           ticket_url: STR,
           gallery_album_id: NUM,
           status: STR,
+          category_ids: CATIDS,
         },
         ['title']
       ),
@@ -1257,6 +1274,7 @@ function clientToolDefs() {
           ticket_url: STR,
           gallery_album_id: NUM,
           status: STR,
+          category_ids: CATIDS,
         },
         ['id']
       ),
@@ -1301,6 +1319,89 @@ function clientToolDefs() {
         { leadId: ID, consumer_type: STR, consumer_id: ID, provider_type: STR, role: STR },
         ['leadId', 'consumer_type', 'consumer_id', 'provider_type']
       ),
+    },
+    {
+      name: 'categories.list',
+      description:
+        'Batch 124 shared taxonomy: list this business’s categories (optionally for one scope — the module type a category belongs to), each with its assigned-item count. Categories organize OTHER modules’ items; create them per scope, then assign items with categories.assign or category_ids on the module write tools. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, scope: STR, includeDrafts: { type: 'boolean' } }, ['leadId']),
+    },
+    {
+      name: 'categories.create',
+      description:
+        'Create a category FOR one module type (scope, e.g. events or blog) in the shared taxonomy. Optional parent_id nests it under another category of the same scope. Slugs are unique per scope. Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          scope: STR,
+          name: STR,
+          slug: STR,
+          description: STR,
+          image_url: STR,
+          parent_id: ID,
+          status: STR,
+          sort_order: NUM,
+        },
+        ['leadId', 'scope', 'name']
+      ),
+    },
+    {
+      name: 'categories.update',
+      description:
+        'Update a category by id (name, slug, description, image_url, parent_id, status, sort_order). Scope cannot change. Renaming or re-slugging never breaks assignments — they key on ids. Standard/Premium.',
+      inputSchema: schema(
+        {
+          id: ID,
+          leadId: ID,
+          name: STR,
+          slug: STR,
+          description: STR,
+          image_url: STR,
+          parent_id: ID,
+          status: STR,
+          sort_order: NUM,
+        },
+        ['id']
+      ),
+    },
+    {
+      name: 'categories.delete',
+      description:
+        'Delete a category by id. Its assignments are removed and its child categories move up to its parent — the items themselves are never deleted. Standard/Premium.',
+      inputSchema: schema({ id: ID, leadId: ID }, ['id']),
+    },
+    {
+      name: 'categories.assign',
+      description:
+        'Assign one module item to a category of the item’s own module scope (consumer_type = the module type, item_id = the item id, category_id = the category id). The item must exist for this business; cross-scope and cross-business assignments are refused. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, category_id: ID, consumer_type: STR, item_id: ID }, [
+        'leadId',
+        'category_id',
+        'consumer_type',
+        'item_id',
+      ]),
+    },
+    {
+      name: 'categories.unassign',
+      description: 'Remove one item’s assignment to a category (same keys as categories.assign). Standard/Premium.',
+      inputSchema: schema({ leadId: ID, category_id: ID, consumer_type: STR, item_id: ID }, [
+        'leadId',
+        'category_id',
+        'consumer_type',
+        'item_id',
+      ]),
+    },
+    {
+      name: 'categories.items',
+      description:
+        'The published items assigned to a category (by category_id), in the shared layer’s uniform shape — resolved through the category’s scope provider, so drafts and deleted items never appear. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, category_id: ID, limit: NUM }, ['leadId', 'category_id']),
+    },
+    {
+      name: 'categories.setScopes',
+      description:
+        'Set which scopes (module types) the Categories module index displays on the site; an empty list shows every scope that has published categories. This is the SAME embed setting the portal edits. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, scopes: { type: 'array', items: { type: 'string' } } }, ['leadId']),
     },
     {
       name: 'bookings.services',
@@ -3048,6 +3149,15 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'shared.refs',
     'shared.link',
     'shared.unlink',
+    // Batch 124: the shared taxonomy rides the same entitlement.
+    'categories.list',
+    'categories.create',
+    'categories.update',
+    'categories.delete',
+    'categories.assign',
+    'categories.unassign',
+    'categories.items',
+    'categories.setScopes',
     'bookings.services',
     'bookings.createService',
     'bookings.updateService',
@@ -4161,6 +4271,68 @@ async function callClientTool(ws, name, a, ctx = {}) {
     return domain.withDb(ws, (db) => ({
       plan: planId,
       ...require('./moduleShare').clearSharedRef(db, leadId, a),
+    }));
+  }
+
+  // ---- Shared taxonomy: categories (Batch 124) ----
+  if (name === 'categories.list') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      categories: require('./categories').listCategories(db, leadId, {
+        scope: a.scope || null,
+        includeDrafts: a.includeDrafts !== false,
+      }),
+    }));
+  }
+  if (name === 'categories.create') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({ plan: planId, category: require('./categories').createCategory(db, leadId, a) }));
+  }
+  if (name === 'categories.update') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      category: require('./categories').updateCategory(db, leadId || Number(ctx.leadId), id, a),
+    }));
+  }
+  if (name === 'categories.delete') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      ...require('./categories').deleteCategory(db, leadId || Number(ctx.leadId), id),
+    }));
+  }
+  if (name === 'categories.assign') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({ plan: planId, ...require('./categories').assignItem(db, leadId, a) }));
+  }
+  if (name === 'categories.unassign') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({ plan: planId, ...require('./categories').unassignItem(db, leadId, a) }));
+  }
+  if (name === 'categories.items') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      ...require('./moduleShare').listSharedItemsByCategory(db, leadId, a.category_id, { limit: a.limit }),
+    }));
+  }
+  if (name === 'categories.setScopes') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      settings: modules.updateCategoriesScopes(db, leadId, a.scopes || [], { workspaceId: ws }),
     }));
   }
 

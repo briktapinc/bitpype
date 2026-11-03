@@ -62,6 +62,10 @@
       '.bitpype-module-embed .bp-mod-grid{',
       'display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1.25rem;',
       '}',
+      '.bitpype-module-embed .bp-mod-cat-scope{',
+      'margin:1.6rem 0 0.9rem;font-size:1.15rem;',
+      '}',
+      '.bitpype-module-embed .bp-mod-cat-scope:first-of-type{margin-top:0;}',
       '.bitpype-module-embed .bp-mod-card{',
       'display:flex;flex-direction:column;border:1px solid var(--bp-mod-line);',
       'border-radius:1.25rem;overflow:hidden;',
@@ -499,6 +503,11 @@
       // configurations render nothing (never a placeholder).
       return { kicker: '', title: '', text: '' };
     }
+    if (type === 'categories') {
+      // No public empty state for Categories — a taxonomy with no
+      // published categories renders nothing (dormant-empty).
+      return { kicker: '', title: '', text: '' };
+    }
     if (type === 'video') {
       return { kicker: 'Videos', title: 'No videos yet', text: 'Videos will appear here when published.' };
     }
@@ -770,6 +779,55 @@
     }
     html += '</div>';
     return html;
+  }
+
+  // Batch 124: a Categories-index card — one published category with
+  // its image and the count of published items its view will show.
+  function categoryCardHtml(it) {
+    var key = it.slug || it.id;
+    var count = Number(it.item_count) || 0;
+    return (
+      '<article class="bp-mod-card">' +
+      coverHtml(itemHref(key), it.image_url, it.name) +
+      '<div class="bp-mod-body"><h2><a href="' +
+      esc(itemHref(key)) +
+      '">' +
+      esc(it.name) +
+      '</a></h2>' +
+      (it.description ? '<p class="bp-mod-desc">' + esc(String(it.description).slice(0, 140)) + '</p>' : '') +
+      '<p class="bp-mod-meta">' +
+      count +
+      ' item' +
+      (count === 1 ? '' : 's') +
+      '</p></div></article>'
+    );
+  }
+
+  // Batch 124: a card for one uniform shared-layer item (the shape
+  // server/moduleShare.js returns) on a category view — the title
+  // links to the item's own page whenever the payload carries one.
+  function sharedItemCardHtml(it) {
+    var titleHtml = it.link_url
+      ? '<a href="' + esc(it.link_url) + '">' + esc(it.title) + '</a>'
+      : esc(it.title);
+    return (
+      '<article class="bp-mod-card">' +
+      (it.image_url
+        ? it.link_url
+          ? '<a class="bp-mod-cover" href="' +
+            esc(it.link_url) +
+            '" style="background-image:url(\'' +
+            esc(it.image_url) +
+            '\')"></a>'
+          : '<div class="bp-mod-cover" style="background-image:url(\'' + esc(it.image_url) + '\')"></div>'
+        : '') +
+      '<div class="bp-mod-body"><h2>' +
+      titleHtml +
+      '</h2>' +
+      (it.date ? '<p class="bp-mod-meta">' + esc(dateLabel(it.date) || String(it.date).slice(0, 10)) + '</p>' : '') +
+      (it.description ? '<p class="bp-mod-desc">' + esc(String(it.description).slice(0, 140)) + '</p>' : '') +
+      '</div></article>'
+    );
   }
 
   function offerCardHtml(it) {
@@ -1137,6 +1195,12 @@
       el.innerHTML = '';
       return;
     }
+    if (type === 'categories' && !items.length) {
+      // A Categories block with no published categories renders
+      // nothing at all — dormant-empty, never a placeholder.
+      el.innerHTML = '';
+      return;
+    }
     if (type === 'googlereviews') {
       // Dormant states (no platform key, no Place ID, nothing fetched,
       // or no reviews passing the filter) render nothing at all — the
@@ -1234,6 +1298,40 @@
         html += socialCardHtml(items[si]);
       }
       html += '</div>';
+      el.innerHTML = html;
+      return;
+    }
+    if (type === 'categories') {
+      // Batch 124: the taxonomy index — published categories grouped
+      // by the module they belong to (their scope). Scope headings
+      // show only when more than one scope is on display; the order
+      // follows the payload's category_scopes when present.
+      var scopeOrder = [];
+      var scopeLabels = {};
+      (Array.isArray(data.category_scopes) ? data.category_scopes : []).forEach(function (s) {
+        if (s && s.scope && !scopeOrder.includes(s.scope)) {
+          scopeOrder.push(s.scope);
+          scopeLabels[s.scope] = s.label || s.scope;
+        }
+      });
+      items.forEach(function (c) {
+        if (c && c.scope && !scopeOrder.includes(c.scope)) scopeOrder.push(c.scope);
+        if (c && c.scope && !scopeLabels[c.scope]) scopeLabels[c.scope] = c.scope_label || c.scope;
+      });
+      scopeOrder.forEach(function (scope) {
+        var group = items.filter(function (c) {
+          return c && c.scope === scope;
+        });
+        if (!group.length) return;
+        if (scopeOrder.length > 1) {
+          html += '<h3 class="bp-mod-cat-scope">' + esc(scopeLabels[scope] || scope) + '</h3>';
+        }
+        html += '<div class="bp-mod-grid">';
+        group.forEach(function (c) {
+          html += categoryCardHtml(c);
+        });
+        html += '</div>';
+      });
       el.innerHTML = html;
       return;
     }
@@ -2984,6 +3082,31 @@
         (it.expires_at ? '<p class="bp-mod-meta" style="margin-top:10px">Expires ' + esc(it.expires_at) + '</p>' : '') +
         (it.terms ? '<p class="bp-mod-offer-terms" style="margin-top:8px">' + esc(it.terms) + '</p>' : '') +
         '</article>';
+      el.innerHTML = html;
+      return;
+    }
+    if (type === 'categories') {
+      // Batch 124: one category — its assigned items as uniform
+      // shared-layer cards linking to each item's own page.
+      var catItems = Array.isArray(data.category_items) ? data.category_items : [];
+      html +=
+        '<article class="bp-mod-detail">' +
+        (it.image_url ? '<img class="bp-mod-hero" src="' + esc(it.image_url) + '" alt="" />' : '') +
+        '<h1>' +
+        esc(it.name) +
+        '</h1>' +
+        (it.scope_label ? '<p class="bp-mod-meta">' + esc(it.scope_label) + '</p>' : '') +
+        (it.description ? '<div class="bp-mod-content"><p>' + esc(it.description) + '</p></div>' : '') +
+        '</article>';
+      if (catItems.length) {
+        html += '<div class="bp-mod-grid" style="margin-top:1.25rem">';
+        catItems.forEach(function (ci) {
+          html += sharedItemCardHtml(ci);
+        });
+        html += '</div>';
+      } else {
+        html += '<p class="bp-mod-meta" style="margin-top:1rem">Nothing published here yet.</p>';
+      }
       el.innerHTML = html;
       return;
     }

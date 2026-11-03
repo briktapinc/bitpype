@@ -5390,9 +5390,10 @@
     { type: 'datatables', label: 'Data Tables' },
     { type: 'charts', label: 'Charts' },
     { type: 'newsletter', label: 'Newsletter' },
+    { type: 'categories', label: 'Categories' },
   ];
   const MODULE_NAV_GROUPS = [
-    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed', 'googlereviews', 'datatables', 'charts'] },
+    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed', 'googlereviews', 'datatables', 'charts', 'categories'] },
     { id: 'people', label: 'People', types: ['team', 'testimonials', 'careers', 'members', 'newsletter'] },
     { id: 'schedule', label: 'Schedule', types: ['events', 'bookings'] },
     { id: 'assist', label: 'Assist', types: ['chatbot', 'calltracking'] },
@@ -5456,6 +5457,7 @@
     datatables: { singular: 'row', plural: 'rows', newBtn: 'New row', kicker: 'Table row' },
     charts: { singular: 'chart', plural: 'charts', newBtn: 'New chart', kicker: 'Chart' },
     newsletter: { singular: 'subscriber', plural: 'subscribers', newBtn: 'Add subscriber', kicker: 'Subscriber' },
+    categories: { singular: 'category', plural: 'categories', newBtn: 'New category', kicker: 'Category' },
   };
   const BOOKING_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const MODULE_STORAGE_KEY = 'bp-portal-module';
@@ -5493,6 +5495,11 @@
     embed: null,
     editingId: null,
     categories: [],
+    // Batch 124: the shared taxonomy (every category of every scope)
+    // feeding the item editors' category pickers, plus the Categories
+    // module's own display-scope block from the server.
+    allCategories: [],
+    taxonomy: null,
     showArchivedAppointments: false,
     members: null,
     memberSearch: '',
@@ -5512,7 +5519,37 @@
     el.textContent = text || '';
   }
 
+  // Batch 124: the shared-taxonomy picker shared by the wired item
+  // editors (blog, events, gallery albums, offers, directory). The
+  // options are THIS lead's categories of the editor's own scope,
+  // loaded by loadModuleItems into moduleState.allCategories — the
+  // same assignments the design agent writes via categories.assign.
+  // No categories in the scope → no picker rendered at all, so an
+  // unused taxonomy changes nothing in the editors.
+  function categoryPickerDef(scope) {
+    const cats = (moduleState.allCategories || []).filter((c) => c && c.scope === scope);
+    if (!cats.length) return null;
+    return {
+      key: 'category_ids',
+      label: 'Categories',
+      kind: 'checkboxes',
+      options: cats.map((c) => ({ value: String(c.id), label: c.name || '' })),
+      hint: 'Organize this item under the shared Categories taxonomy — ticked categories show it on their category pages.',
+    };
+  }
+
   function moduleFieldDefs(type) {
+    const defs = moduleFieldDefsBase(type);
+    // Batch 124: the wired consumers get the shared-taxonomy picker
+    // appended (present only when the scope has categories).
+    if (['blog', 'events', 'gallery', 'offers', 'directory'].includes(type)) {
+      const picker = categoryPickerDef(type);
+      if (picker) defs.push(picker);
+    }
+    return defs;
+  }
+
+  function moduleFieldDefsBase(type) {
     if (type === 'socialfeed') {
       // Automatic module — no item editor; the Feed pane carries the settings.
       return [];
@@ -5537,6 +5574,45 @@
       // editor; the Newsletter pane carries the list, compose and the
       // From settings.
       return [];
+    }
+    if (type === 'categories') {
+      // Batch 124: the shared-taxonomy editor. Scope is chosen at
+      // create and locked afterwards (the server refuses scope
+      // changes — assignments were made under it). Parent options are
+      // this lead's categories; the server enforces same-scope.
+      const scopeOptions = MODULE_TYPES.map((m) => ({ value: m.type, label: m.label }));
+      const editing = (moduleState.items || []).find(
+        (c) => c && String(c.id) === String(moduleState.editingId || '')
+      );
+      const parentOptions = [{ value: '', label: 'No parent (top level)' }].concat(
+        (moduleState.allCategories || [])
+          .filter(
+            (c) =>
+              c &&
+              String(c.id) !== String(moduleState.editingId || '') &&
+              (!editing || c.scope === editing.scope)
+          )
+          .map((c) => ({
+            value: String(c.id),
+            label: `${(MODULE_TYPES.find((m) => m.type === c.scope) || {}).label || c.scope} — ${c.name || ''}`,
+          }))
+      );
+      return [
+        { key: 'name', label: 'Category name', required: true },
+        {
+          key: 'scope',
+          label: 'Belongs to module',
+          kind: 'select',
+          options: scopeOptions,
+          hint: 'The module whose items this category organizes. Chosen when the category is created — it cannot change later.',
+        },
+        { key: 'slug', label: 'Slug' },
+        { key: 'description', label: 'Description', kind: 'textarea' },
+        { key: 'image_url', label: 'Image', kind: 'image' },
+        { key: 'parent_id', label: 'Parent category', kind: 'select', options: parentOptions },
+        { key: 'sort_order', label: 'Sort order' },
+        { key: 'status', label: 'Status', kind: 'select', options: ['draft', 'published'] },
+      ];
     }
     if (type === 'datatables') {
       // Batch 88: the row editor's fields ARE the table's columns —
@@ -6037,6 +6113,7 @@
       datatables: 'data-table',
       charts: 'charts',
       newsletter: 'newsletter',
+      categories: 'categories',
     };
     let want = selected || defaults[moduleState.current] || 'home';
     const opts = Array.isArray(pages) && pages.length ? pages : [{ slug: want, title: want }];
@@ -7599,6 +7676,20 @@
         .join('');
       return `<div class="field"><label>${esc(d.label)}</label><select data-mod-field="${d.key}">${opts}</select>${d.hint ? `<p class="hint">${esc(d.hint)}</p>` : ''}</div>`;
     }
+    if (d.kind === 'checkboxes') {
+      // Batch 124: multi-value picker (the item editors' category
+      // assignments). Values ride a distinct attribute so
+      // collectModuleFields can gather them into one array.
+      const chosen = Array.isArray(val) ? val.map((v) => String(v)) : [];
+      const boxes = (d.options || [])
+        .map((o) => {
+          const ov = o && typeof o === 'object' ? String(o.value) : String(o);
+          const ol = o && typeof o === 'object' ? String(o.label != null ? o.label : o.value) : String(o);
+          return `<label class="mod-check"><input type="checkbox" data-mod-field-multi="${d.key}" value="${esc(ov)}"${chosen.includes(ov) ? ' checked' : ''} /> ${esc(ol)}</label>`;
+        })
+        .join('');
+      return `<div class="field"><label>${esc(d.label)}</label><div class="mod-check-group">${boxes}</div>${d.hint ? `<p class="hint">${esc(d.hint)}</p>` : ''}</div>`;
+    }
     const req = d.required ? ' required' : '';
     return `<div class="field"><label>${esc(d.label)}</label><input data-mod-field="${d.key}" type="text" value="${esc(val)}" placeholder="${esc(d.placeholder || '')}"${req} /></div>`;
   }
@@ -7744,6 +7835,15 @@
       const key = el.getAttribute('data-mod-field');
       out[key] = el.value;
     });
+    // Batch 124: multi-value pickers (category assignments) gather
+    // their ticked boxes into one array of ids. A rendered group with
+    // nothing ticked yields [] — the server reads that as "clear the
+    // set" (key present = intent, the gallery_album_id discipline).
+    fields.querySelectorAll('[data-mod-field-multi]').forEach((el) => {
+      const key = el.getAttribute('data-mod-field-multi');
+      if (!Array.isArray(out[key])) out[key] = [];
+      if (el.checked) out[key].push(Number(el.value));
+    });
     if (moduleState.current === 'ecommerce' && out.price != null && out.price !== '') {
       out.price = Number(out.price);
     }
@@ -7813,6 +7913,17 @@
         moduleState.sharedAlbums = [];
       }
     }
+    if (['blog', 'events', 'gallery', 'offers', 'directory', 'categories'].includes(type)) {
+      // Batch 124: the category pickers read the shared taxonomy
+      // (this lead's categories, every scope). Failure = no picker,
+      // never a broken editor.
+      try {
+        const cats = await api('/modules/categories');
+        moduleState.allCategories = Array.isArray(cats.items) ? cats.items : [];
+      } catch {
+        moduleState.allCategories = [];
+      }
+    }
     // Batch 45 — blog/members/calls fetch ONE server page at a time
     // (6/50/50) instead of the whole history.
     let qs = type === 'bookings' && moduleState.showArchivedAppointments ? '?includeArchived=1' : '';
@@ -7843,6 +7954,7 @@
     moduleState.shop = data.shop || null;
     moduleState.datatable = data.datatable || null;
     moduleState.charts = data.charts || null;
+    moduleState.taxonomy = data.taxonomy || null;
     moduleState.categories = Array.isArray(data.categories) ? data.categories : [];
     if (type === 'bookings') {
       const booking = moduleState.booking || {};
@@ -7865,6 +7977,7 @@
     renderMenuCategoriesPanel();
     renderDatatablesPanel();
     renderOffersDisplayPanel();
+    renderCategoriesScopesPanel();
     renderShopPaymentsPanel();
     syncModulesPaneTabs();
   }
@@ -8034,6 +8147,58 @@
           moduleState.embed.settings.layout = saved;
           moduleMsg('Offer layout saved.', true);
           renderOffersDisplayPanel();
+        } catch (e) {
+          moduleMsg(errText(e), false);
+        }
+      };
+    }
+  }
+
+  // Batch 124: which scopes the Categories module index shows on the
+  // site. None ticked = every scope that has published categories.
+  // This writes the same embed setting categories.setScopes writes.
+  function renderCategoriesScopesPanel() {
+    const host = document.getElementById('modules-categories-scopes-panel');
+    if (!host) return;
+    if (moduleState.current !== 'categories') {
+      host.innerHTML = '';
+      host.hidden = true;
+      return;
+    }
+    host.hidden = false;
+    const chosen =
+      (moduleState.taxonomy && moduleState.taxonomy.scopes) ||
+      (moduleState.embed && moduleState.embed.settings && moduleState.embed.settings.scopes) ||
+      [];
+    const scopesWithCats = [...new Set((moduleState.allCategories || []).map((c) => c && c.scope).filter(Boolean))];
+    const boxes = MODULE_TYPES.filter((m) => m.type !== 'categories')
+      .map((m) => {
+        const has = scopesWithCats.includes(m.type);
+        return `<label class="mod-check"><input type="checkbox" data-cat-scope="${esc(m.type)}"${chosen.includes(m.type) ? ' checked' : ''} /> ${esc(m.label)}${has ? '' : ' <span class="hint">(no categories yet)</span>'}</label>`;
+      })
+      .join('');
+    host.innerHTML = `<div class="card" style="margin-bottom:var(--card-gap)">
+      <h3 style="margin:0 0 6px">What the Categories page shows</h3>
+      <p class="hint" style="margin:0 0 8px">Tick the modules whose categories appear on your site's Categories page. Leave everything unticked to show every module that has published categories.</p>
+      <div class="mod-check-group">${boxes}</div>
+      <div style="padding-top:8px"><button type="button" class="btn soft small" id="btn-categories-scopes-save">Save</button></div>
+    </div>`;
+    const saveBtn = document.getElementById('btn-categories-scopes-save');
+    if (saveBtn) {
+      saveBtn.onclick = async () => {
+        const scopes = Array.from(host.querySelectorAll('[data-cat-scope]'))
+          .filter((el) => el.checked)
+          .map((el) => el.getAttribute('data-cat-scope'));
+        try {
+          const res = await api('/modules/categories/scopes', {
+            method: 'PUT',
+            body: JSON.stringify({ scopes }),
+          });
+          const saved = (res && res.settings && res.settings.scopes) || scopes;
+          if (!moduleState.taxonomy) moduleState.taxonomy = {};
+          moduleState.taxonomy.scopes = saved;
+          moduleMsg('Categories page settings saved.', true);
+          renderCategoriesScopesPanel();
         } catch (e) {
           moduleMsg(errText(e), false);
         }

@@ -32,5 +32,6 @@ const MODULE_ICON_PATHS = {
   datatables: '<rect x="3.5" y="4" width="17" height="16" rx="1.6"/><path d="M3.5 9.4h17"/><path d="M3.5 14.7h17"/><path d="M9.2 4v16"/><path d="M14.8 4v16"/>',
   charts: '<path d="M4 4v16h16"/><rect x="7.2" y="12" width="2.9" height="8"/><rect x="11.6" y="8.5" width="2.9" height="11.5"/><rect x="16" y="14.5" width="2.9" height="5.5"/>',
   newsletter: '<rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="M3.8 7.2L12 13l8.2-5.8"/>',
+  categories: '<circle cx="6.5" cy="5.5" r="1.8"/><circle cx="17.5" cy="10" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/><path d="M6.5 7.3v9.2"/><path d="M6.5 10h9.2"/><path d="M6.5 16.5h9.2"/>',
 };
 const MODULE_ICON_FALLBACK = '<rect x="4" y="4" width="7" height="7" rx="1.6"/><rect x="13" y="4" width="7" height="7" rx="1.6"/><rect x="4" y="13" width="7" height="7" rx="1.6"/><rect x="13" y="13" width="7" height="7" rx="1.6"/>';

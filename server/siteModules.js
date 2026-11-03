@@ -40,13 +40,14 @@ const MODULE_TYPES = [
   'datatables',
   'charts',
   'newsletter',
+  'categories',
 ];
 const MANAGED_ATTR = 'data-bitpype-module';
 const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod25';
+const MODULE_SCRIPT_VER = 'mod26';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -80,6 +81,7 @@ const MODULE_META = {
   datatables: { label: 'Data Tables', defaultTitle: 'Data Table', defaultSlug: 'data-table' },
   charts: { label: 'Charts', defaultTitle: 'Charts', defaultSlug: 'charts' },
   newsletter: { label: 'Newsletter', defaultTitle: 'Newsletter', defaultSlug: 'newsletter' },
+  categories: { label: 'Categories', defaultTitle: 'Categories', defaultSlug: 'categories' },
 };
 
 const BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'];
@@ -991,6 +993,21 @@ function normalizeOffersLayout(value, fallback = 'cards') {
   return value === 'horizontal' ? 'horizontal' : fallback === 'horizontal' ? 'horizontal' : 'cards';
 }
 
+/** Batch 124: the Categories module's display config — which scopes
+ * (consuming module types) its index shows. Empty = every scope that
+ * has published categories. 'categories' itself is never a scope. */
+function normalizeCategoryScopes(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  for (const v of value) {
+    const s = String(v || '')
+      .trim()
+      .toLowerCase();
+    if (s && s !== 'categories' && MODULE_TYPES.includes(s) && !out.includes(s)) out.push(s);
+  }
+  return out;
+}
+
 function parseEmbedSettings(row) {
   let raw = {};
   if (row && row.settings_json) {
@@ -1011,6 +1028,8 @@ function parseEmbedSettings(row) {
   };
   // Offers-only display setting; other module types don't carry it.
   if (row && row.module_type === 'offers') out.layout = normalizeOffersLayout(raw.layout);
+  // Categories-only display setting (Batch 124): the scopes shown.
+  if (row && row.module_type === 'categories') out.scopes = normalizeCategoryScopes(raw.scopes);
   return out;
 }
 
@@ -1033,6 +1052,10 @@ function writeEmbedSettings(db, embedId, settings = {}) {
   if (row && row.module_type === 'offers') {
     next.layout =
       settings.layout !== undefined ? normalizeOffersLayout(settings.layout) : cur.layout || 'cards';
+  }
+  if (row && row.module_type === 'categories') {
+    next.scopes =
+      settings.scopes !== undefined ? normalizeCategoryScopes(settings.scopes) : cur.scopes || [];
   }
   db.prepare(
     `
@@ -1060,6 +1083,24 @@ function updateOffersLayout(db, leadId, layout, { workspaceId } = {}) {
     layout: normalizeOffersLayout(layout),
   });
   return { layout: next.layout || 'cards' };
+}
+
+/** Categories display scopes (embed settings, Batch 124). */
+function getCategoriesScopes(db, leadId) {
+  ensureTables(db);
+  const row = getEmbedRow(db, leadId, 'categories');
+  if (!row) return [];
+  return parseEmbedSettings(row).scopes || [];
+}
+
+function updateCategoriesScopes(db, leadId, scopes, { workspaceId } = {}) {
+  ensureTables(db);
+  const row = ensureEmbed(db, leadId, 'categories', { workspaceId });
+  const next = writeEmbedSettings(db, row.id, {
+    ...parseEmbedSettings(row),
+    scopes: normalizeCategoryScopes(scopes),
+  });
+  return { scopes: next.scopes || [] };
 }
 
 /**
@@ -1669,6 +1710,14 @@ function modulePurgeSteps(leadId, type) {
         byLead('newsletter_sends', 'newsletter issues sent'),
         byLead('newsletter_subscribers', 'newsletter subscribers'),
         byLead('newsletter_configs', 'newsletter settings'),
+      ];
+    case 'categories':
+      // Assignments first (they reference categories), then the
+      // taxonomy itself. The items the assignments pointed at belong
+      // to other modules and are never purged from here.
+      return [
+        byLead('module_category_assignments', 'category assignments'),
+        byLead('module_categories', 'categories'),
       ];
     default:
       return [];
@@ -3483,6 +3532,57 @@ function syncPublishedModules(db, leadId, opts = {}) {
   return syncSiteModuleEmbeds(db, leadId, opts);
 }
 
+/* ── Batch 124: shared-taxonomy wiring for item CRUD ──
+ * An item row of a consuming module carries its category assignments
+ * as the virtual field category_ids (stored as
+ * module_category_assignments rows — see server/categories.js). The
+ * portal editors, the MCP module tools and the design agent all read
+ * and write it through the same paths: list/get decorate it, create/
+ * update reconcile it when the key is present (absent = untouched),
+ * delete clears it. Every helper is dormant-safe — a failure in the
+ * categories layer reads as "no categories" and never breaks an
+ * item read. */
+function decorateItemCategories(db, leadId, type, row) {
+  if (!row) return row;
+  try {
+    row.category_ids = require('./categories').listItemCategoryIds(db, leadId, type, row.id);
+  } catch {
+    row.category_ids = [];
+  }
+  return row;
+}
+
+function decorateItemsCategories(db, leadId, type, rows) {
+  if (!Array.isArray(rows) || !rows.length) return rows;
+  try {
+    return require('./categories').decorateWithCategories(db, leadId, type, rows);
+  } catch {
+    for (const row of rows) row.category_ids = [];
+    return rows;
+  }
+}
+
+/** Pre-flight for a create/update carrying category_ids: every id
+ *  must be a category of THIS lead in the item's own scope — checked
+ *  BEFORE the write so a bad id fails the whole write. */
+function assertItemCategories(db, leadId, type, data) {
+  if (!data || data.category_ids === undefined) return false;
+  require('./categories').assertCategoryIds(db, leadId, type, data.category_ids);
+  return true;
+}
+
+function applyItemCategories(db, leadId, type, itemId, data) {
+  require('./categories').setItemCategories(db, leadId, type, itemId, data.category_ids);
+}
+
+function clearItemCategories(db, leadId, type, itemId) {
+  try {
+    require('./categories').clearAssignmentsForItem(db, leadId, type, itemId);
+  } catch {
+    /* assignments are additive — never block a delete */
+  }
+}
+
 /* ── Blog ── */
 
 function listBlogPosts(db, leadId, { includeDrafts = true, limit = null, offset = 0 } = {}) {
@@ -3497,7 +3597,7 @@ function listBlogPosts(db, leadId, { includeDrafts = true, limit = null, offset 
     sql += ' LIMIT ? OFFSET ?';
     params.push(Math.min(200, Math.max(1, Number(limit) || 50)), Math.max(0, Number(offset) || 0));
   }
-  return db.prepare(sql).all(...params);
+  return decorateItemsCategories(db, leadId, 'blog', db.prepare(sql).all(...params));
 }
 
 function countBlogPosts(db, leadId, { includeDrafts = true } = {}) {
@@ -3511,16 +3611,21 @@ function countBlogPosts(db, leadId, { includeDrafts = true } = {}) {
 function getBlogPost(db, leadId, idOrSlug) {
   ensureTables(db);
   const lid = Number(leadId);
+  let row;
   if (/^\d+$/.test(String(idOrSlug))) {
-    return db.prepare('SELECT * FROM blog_posts WHERE lead_id = ? AND id = ?').get(lid, Number(idOrSlug));
+    row = db.prepare('SELECT * FROM blog_posts WHERE lead_id = ? AND id = ?').get(lid, Number(idOrSlug));
+  } else {
+    row = db.prepare('SELECT * FROM blog_posts WHERE lead_id = ? AND slug = ?').get(lid, slugify(idOrSlug));
   }
-  return db.prepare('SELECT * FROM blog_posts WHERE lead_id = ? AND slug = ?').get(lid, slugify(idOrSlug));
+  return decorateItemCategories(db, leadId, 'blog', row || null);
 }
 
 function createBlogPost(db, leadId, data = {}) {
   ensureTables(db);
   const title = String(data.title || '').trim();
   if (!title) throw fail('VALIDATION', 'title is required');
+  // Batch 124: validate category assignments before the insert.
+  const wantsCats = assertItemCategories(db, leadId, 'blog', data);
   const slug = slugify(data.slug || title, 'post');
   const status = String(data.status || 'draft').toLowerCase() === 'published' ? 'published' : 'draft';
   const publishedAt = status === 'published' ? data.published_at || new Date().toISOString() : null;
@@ -3545,6 +3650,7 @@ function createBlogPost(db, leadId, data = {}) {
         status,
         publishedAt
       );
+    if (wantsCats) applyItemCategories(db, leadId, 'blog', Number(info.lastInsertRowid), data);
     return getBlogPost(db, leadId, info.lastInsertRowid);
   } catch (e) {
     if (String(e.message || '').includes('UNIQUE')) {
@@ -3558,6 +3664,8 @@ function updateBlogPost(db, leadId, id, data = {}) {
   ensureTables(db);
   const row = getBlogPost(db, leadId, id);
   if (!row) throw fail('NOT_FOUND', 'Blog post not found', 404);
+  // Batch 124: validate category assignments before the update lands.
+  const wantsCats = assertItemCategories(db, leadId, 'blog', data);
   const title = data.title != null ? String(data.title).trim().slice(0, 200) : row.title;
   const slug = data.slug != null ? slugify(data.slug, row.slug) : row.slug;
   const body =
@@ -3596,6 +3704,7 @@ function updateBlogPost(db, leadId, id, data = {}) {
     }
     throw e;
   }
+  if (wantsCats) applyItemCategories(db, leadId, 'blog', row.id, data);
   return getBlogPost(db, leadId, row.id);
 }
 
@@ -3604,6 +3713,7 @@ function deleteBlogPost(db, leadId, id) {
   const row = getBlogPost(db, leadId, id);
   if (!row) throw fail('NOT_FOUND', 'Blog post not found', 404);
   db.prepare('DELETE FROM blog_posts WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
+  clearItemCategories(db, leadId, 'blog', row.id);
   return { deleted: true, id: row.id };
 }
 
@@ -4106,8 +4216,13 @@ function listAlbums(db, leadId, { includeDrafts = true, withImages = true } = {}
   if (!includeDrafts) sql += " AND status = 'published'";
   sql += ' ORDER BY sort_order ASC, id DESC';
   const rows = db.prepare(sql).all(Number(leadId));
-  if (!withImages) return rows;
-  return rows.map((a) => ({ ...a, images: imagesForAlbum(db, a.id) }));
+  if (!withImages) return decorateItemsCategories(db, leadId, 'gallery', rows);
+  return decorateItemsCategories(
+    db,
+    leadId,
+    'gallery',
+    rows.map((a) => ({ ...a, images: imagesForAlbum(db, a.id) }))
+  );
 }
 
 function getAlbum(db, leadId, idOrSlug, { withImages = true } = {}) {
@@ -4121,13 +4236,15 @@ function getAlbum(db, leadId, idOrSlug, { withImages = true } = {}) {
   }
   if (!row) return null;
   if (withImages) row = { ...row, images: imagesForAlbum(db, row.id) };
-  return row;
+  return decorateItemCategories(db, leadId, 'gallery', row);
 }
 
 function createAlbum(db, leadId, data = {}) {
   ensureTables(db);
   const title = String(data.title || data.name || '').trim();
   if (!title) throw fail('VALIDATION', 'title is required');
+  // Batch 124: validate category assignments before the insert.
+  const wantsCats = assertItemCategories(db, leadId, 'gallery', data);
   const slug = slugify(data.slug || title, 'album');
   const status = String(data.status || 'draft').toLowerCase() === 'published' ? 'published' : 'draft';
   let album;
@@ -4161,6 +4278,7 @@ function createAlbum(db, leadId, data = {}) {
       sort_order: images[i].sort_order != null ? images[i].sort_order : i,
     });
   }
+  if (wantsCats) applyItemCategories(db, leadId, 'gallery', album.id, data);
   return getAlbum(db, leadId, album.id);
 }
 
@@ -4168,6 +4286,8 @@ function updateAlbum(db, leadId, id, data = {}) {
   ensureTables(db);
   const row = getAlbum(db, leadId, id, { withImages: false });
   if (!row) throw fail('NOT_FOUND', 'Album not found', 404);
+  // Batch 124: validate category assignments before the update lands.
+  const wantsCats = assertItemCategories(db, leadId, 'gallery', data);
   const title =
     data.title != null || data.name != null
       ? String(data.title != null ? data.title : data.name)
@@ -4192,6 +4312,7 @@ function updateAlbum(db, leadId, id, data = {}) {
     }
     throw e;
   }
+  if (wantsCats) applyItemCategories(db, leadId, 'gallery', row.id, data);
   return getAlbum(db, leadId, row.id);
 }
 
@@ -4201,6 +4322,7 @@ function deleteAlbum(db, leadId, id) {
   if (!row) throw fail('NOT_FOUND', 'Album not found', 404);
   db.prepare('DELETE FROM gallery_images WHERE album_id = ?').run(row.id);
   db.prepare('DELETE FROM gallery_albums WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
+  clearItemCategories(db, leadId, 'gallery', row.id);
   return { deleted: true, id: row.id };
 }
 
@@ -4243,18 +4365,23 @@ function listListings(db, leadId, { includeDrafts = true, category } = {}) {
     params.push(String(category));
   }
   sql += ' ORDER BY sort_order ASC, name ASC, id DESC';
-  return db.prepare(sql).all(...params);
+  return decorateItemsCategories(db, leadId, 'directory', db.prepare(sql).all(...params));
 }
 
 function getListing(db, leadId, id) {
   ensureTables(db);
-  return db.prepare('SELECT * FROM directory_listings WHERE lead_id = ? AND id = ?').get(Number(leadId), Number(id));
+  const row = db
+    .prepare('SELECT * FROM directory_listings WHERE lead_id = ? AND id = ?')
+    .get(Number(leadId), Number(id));
+  return decorateItemCategories(db, leadId, 'directory', row || null);
 }
 
 function createListing(db, leadId, data = {}) {
   ensureTables(db);
   const name = String(data.name || data.title || '').trim();
   if (!name) throw fail('VALIDATION', 'name is required');
+  // Batch 124: validate category assignments before the insert.
+  const wantsCats = assertItemCategories(db, leadId, 'directory', data);
   const status = String(data.status || 'draft').toLowerCase() === 'published' ? 'published' : 'draft';
   const info = db
     .prepare(
@@ -4276,6 +4403,7 @@ function createListing(db, leadId, data = {}) {
       status,
       Number(data.sort_order) || 0
     );
+  if (wantsCats) applyItemCategories(db, leadId, 'directory', Number(info.lastInsertRowid), data);
   return getListing(db, leadId, info.lastInsertRowid);
 }
 
@@ -4283,6 +4411,8 @@ function updateListing(db, leadId, id, data = {}) {
   ensureTables(db);
   const row = getListing(db, leadId, id);
   if (!row) throw fail('NOT_FOUND', 'Listing not found', 404);
+  // Batch 124: validate category assignments before the update lands.
+  const wantsCats = assertItemCategories(db, leadId, 'directory', data);
   const name =
     data.name != null || data.title != null
       ? String(data.name != null ? data.name : data.title)
@@ -4317,6 +4447,7 @@ function updateListing(db, leadId, id, data = {}) {
       updated_at=datetime('now') WHERE id=? AND lead_id=?
   `
   ).run(name, category, description, email, phone, website, image, status, sortOrder, row.id, Number(leadId));
+  if (wantsCats) applyItemCategories(db, leadId, 'directory', row.id, data);
   return getListing(db, leadId, row.id);
 }
 
@@ -4325,6 +4456,7 @@ function deleteListing(db, leadId, id) {
   const row = getListing(db, leadId, id);
   if (!row) throw fail('NOT_FOUND', 'Listing not found', 404);
   db.prepare('DELETE FROM directory_listings WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
+  clearItemCategories(db, leadId, 'directory', row.id);
   return { deleted: true, id: row.id };
 }
 
@@ -4633,7 +4765,10 @@ function listEvents(db, leadId, { includeDrafts = true } = {}) {
   let sql = 'SELECT * FROM events WHERE lead_id = ?';
   if (!includeDrafts) sql += " AND status = 'published'";
   sql += " ORDER BY CASE WHEN starts_at = '' THEN 1 ELSE 0 END, starts_at ASC, sort_order ASC, id DESC";
-  return db.prepare(sql).all(Number(leadId)).map((row) => decorateEventGallery(db, leadId, row));
+  return db
+    .prepare(sql)
+    .all(Number(leadId))
+    .map((row) => decorateItemCategories(db, leadId, 'events', decorateEventGallery(db, leadId, row)));
 }
 
 function getEvent(db, leadId, idOrSlug) {
@@ -4645,7 +4780,7 @@ function getEvent(db, leadId, idOrSlug) {
   } else {
     row = db.prepare('SELECT * FROM events WHERE lead_id = ? AND slug = ?').get(lid, slugify(idOrSlug));
   }
-  return decorateEventGallery(db, leadId, row || null);
+  return decorateItemCategories(db, leadId, 'events', decorateEventGallery(db, leadId, row || null));
 }
 
 function createEvent(db, leadId, data = {}) {
@@ -4658,6 +4793,8 @@ function createEvent(db, leadId, data = {}) {
   if (wantsGallery && Number(data.gallery_album_id) > 0) {
     require('./moduleShare').assertAlbumExists(db, leadId, Number(data.gallery_album_id));
   }
+  // Batch 124: same discipline for category assignments.
+  const wantsCats = assertItemCategories(db, leadId, 'events', data);
   const status = String(data.status || 'draft').toLowerCase() === 'published' ? 'published' : 'draft';
   let slug = slugify(data.slug || title, 'event');
   const exists = db.prepare('SELECT id FROM events WHERE lead_id = ? AND slug = ?').get(Number(leadId), slug);
@@ -4686,6 +4823,7 @@ function createEvent(db, leadId, data = {}) {
   if (wantsGallery) {
     require('./moduleShare').applyEventGallery(db, leadId, Number(info.lastInsertRowid), data.gallery_album_id);
   }
+  if (wantsCats) applyItemCategories(db, leadId, 'events', Number(info.lastInsertRowid), data);
   return getEvent(db, leadId, info.lastInsertRowid);
 }
 
@@ -4698,6 +4836,8 @@ function updateEvent(db, leadId, id, data = {}) {
   if (wantsGallery && Number(data.gallery_album_id) > 0) {
     require('./moduleShare').assertAlbumExists(db, leadId, Number(data.gallery_album_id));
   }
+  // Batch 124: same discipline for category assignments.
+  const wantsCats = assertItemCategories(db, leadId, 'events', data);
   const title =
     data.title != null || data.name != null
       ? String(data.title != null ? data.title : data.name)
@@ -4747,6 +4887,7 @@ function updateEvent(db, leadId, id, data = {}) {
   if (wantsGallery) {
     require('./moduleShare').applyEventGallery(db, leadId, row.id, data.gallery_album_id);
   }
+  if (wantsCats) applyItemCategories(db, leadId, 'events', row.id, data);
   return getEvent(db, leadId, row.id);
 }
 
@@ -4760,6 +4901,7 @@ function deleteEvent(db, leadId, id) {
   } catch {
     /* shared refs are additive — never block a delete */
   }
+  clearItemCategories(db, leadId, 'events', row.id);
   return { deleted: true, id: row.id };
 }
 
@@ -4794,19 +4936,22 @@ function listOffers(db, leadId, { includeDrafts = true } = {}) {
   sql += ' ORDER BY sort_order ASC, id DESC';
   const rows = db.prepare(sql).all(Number(leadId)).map(withOfferFlags);
   // Public lists never render expired offers; portal lists keep them (flagged).
-  return includeDrafts ? rows : rows.filter((r) => !r.expired);
+  const visible = includeDrafts ? rows : rows.filter((r) => !r.expired);
+  return decorateItemsCategories(db, leadId, 'offers', visible);
 }
 
 function getOffer(db, leadId, id) {
   ensureTables(db);
   const row = db.prepare('SELECT * FROM offers WHERE lead_id = ? AND id = ?').get(Number(leadId), Number(id));
-  return withOfferFlags(row);
+  return decorateItemCategories(db, leadId, 'offers', withOfferFlags(row));
 }
 
 function createOffer(db, leadId, data = {}) {
   ensureTables(db);
   const title = String(data.title || data.name || '').trim();
   if (!title) throw fail('VALIDATION', 'title is required');
+  // Batch 124: validate category assignments before the insert.
+  const wantsCats = assertItemCategories(db, leadId, 'offers', data);
   const status = String(data.status || 'draft').toLowerCase() === 'published' ? 'published' : 'draft';
   const info = db
     .prepare(
@@ -4826,6 +4971,7 @@ function createOffer(db, leadId, data = {}) {
       status,
       Number(data.sort_order) || 0
     );
+  if (wantsCats) applyItemCategories(db, leadId, 'offers', Number(info.lastInsertRowid), data);
   return getOffer(db, leadId, info.lastInsertRowid);
 }
 
@@ -4833,6 +4979,8 @@ function updateOffer(db, leadId, id, data = {}) {
   ensureTables(db);
   const row = getOffer(db, leadId, id);
   if (!row) throw fail('NOT_FOUND', 'Offer not found', 404);
+  // Batch 124: validate category assignments before the update lands.
+  const wantsCats = assertItemCategories(db, leadId, 'offers', data);
   const title = data.title != null || data.name != null ? String(data.title != null ? data.title : data.name).trim().slice(0, 200) : row.title;
   if (!title) throw fail('VALIDATION', 'title is required');
   const description = data.description != null ? String(data.description) : row.description;
@@ -4854,6 +5002,7 @@ function updateOffer(db, leadId, id, data = {}) {
     WHERE id=? AND lead_id=?
   `
   ).run(title, description, code, terms, expires, image, status, sortOrder, row.id, Number(leadId));
+  if (wantsCats) applyItemCategories(db, leadId, 'offers', row.id, data);
   return getOffer(db, leadId, row.id);
 }
 
@@ -4862,6 +5011,7 @@ function deleteOffer(db, leadId, id) {
   const row = getOffer(db, leadId, id);
   if (!row) throw fail('NOT_FOUND', 'Offer not found', 404);
   db.prepare('DELETE FROM offers WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
+  clearItemCategories(db, leadId, 'offers', row.id);
   return { deleted: true, id: row.id };
 }
 
@@ -11153,6 +11303,16 @@ function moduleItemCount(db, leadId, type) {
       .get(Number(leadId));
     return Number(row && row.c) || 0;
   }
+  if (type === 'categories') {
+    // The tab badge counts the taxonomy itself (every category of
+    // every scope, drafts included — the owner's organizing work).
+    try {
+      return require('./categories').listCategories(db, leadId).length;
+    } catch (e) {
+      console.warn('[siteModules] moduleItemCount categories:', e.message || e);
+      return 0;
+    }
+  }
   if (type === 'charts') {
     // The tab badge counts the chart definitions on the site.
     ensureTables(db);
@@ -11209,6 +11369,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
   let datatable = null;
   let charts = null;
   let newsletter = null;
+  let categoryScopes = null;
   let total_published = null;
   if (type === 'blog') {
     items = listBlogPosts(db, leadId, { includeDrafts: false }).map((p) => ({
@@ -11274,6 +11435,16 @@ function getPublicModuleByToken(db, token, opts = {}) {
     // history never leave the server through the public payload.
     newsletter = require('./newsletter').publicConfig(db, leadId);
     items = [];
+  } else if (type === 'categories') {
+    // Batch 124: the shared taxonomy's public index — published
+    // categories of the configured scopes (no config = every scope),
+    // each with the count of published items its view will show.
+    // Assignments and draft items never leave the server.
+    items = require('./categories').publicIndex(db, leadId, settings.scopes);
+    categoryScopes = [...new Set(items.map((c) => c.scope))].map((scope) => ({
+      scope,
+      label: MODULE_META[scope]?.label || scope,
+    }));
   } else if (type === 'charts') {
     // Computed chart data only — table-bound charts aggregate the
     // table's PUBLISHED rows server-side (see computeChartData); the
@@ -11350,6 +11521,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
   if (datatable) out.datatable = datatable;
   if (charts) out.charts = charts;
   if (newsletter) out.newsletter = newsletter;
+  if (categoryScopes) out.category_scopes = categoryScopes;
   return out;
 }
 
@@ -11359,6 +11531,7 @@ function getPublicModuleItem(db, token, slugOrId, opts = {}) {
   const type = payload.module_type;
   const leadId = payload.embed.lead_id;
   let item = null;
+  let categoryItems = null;
   if (type === 'blog') item = getBlogPost(db, leadId, slugOrId);
   else if (type === 'ecommerce') {
     item = getProduct(db, leadId, slugOrId);
@@ -11390,6 +11563,14 @@ function getPublicModuleItem(db, token, slugOrId, opts = {}) {
     }
   }
   else if (type === 'bookings') item = getBookingService(db, leadId, slugOrId);
+  else if (type === 'categories') {
+    // Batch 124: the "item" is one published category; its assigned
+    // items ride along as uniform shared-layer cards whose link_url
+    // points at each item's own page. Drafts never resolve.
+    const cats = require('./categories');
+    item = cats.getPublicCategory(db, leadId, slugOrId, payload.settings && payload.settings.scopes);
+    if (item) categoryItems = cats.publicCategoryItems(db, leadId, item);
+  }
   else if (type === 'offers') {
     item = getOffer(db, leadId, slugOrId);
     if (item && item.expired) item = null;
@@ -11401,7 +11582,9 @@ function getPublicModuleItem(db, token, slugOrId, opts = {}) {
   if (!item || (item.status && item.status !== 'published' && item.status !== 'active')) {
     throw fail('NOT_FOUND', 'Item not found', 404);
   }
-  return { ...payload, item };
+  const out = { ...payload, item };
+  if (categoryItems) out.category_items = categoryItems;
+  return out;
 }
 
 function getPublicBookingSlots(db, token, { date, serviceId, serviceSlug } = {}, opts = {}) {
@@ -11614,6 +11797,9 @@ module.exports = {
   getEstimateConfig,
   getOffersLayout,
   updateOffersLayout,
+  getCategoriesScopes,
+  updateCategoriesScopes,
+  normalizeCategoryScopes,
   normalizeOffersLayout,
   updateEstimateConfig,
   listEstimateOptions,
