@@ -553,14 +553,15 @@ CREATE TABLE IF NOT EXISTS wp_design_chat_usage (
   PRIMARY KEY (link_id, day)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Batch 119 — subscription suspension for failed payment (Ely's order
--- 2026-11-02: "If user fails to pay monthly subscription suspend
--- account and send them email every week with link and instructions
--- to renew"). One row per suspension episode of a billing user; the
--- status column carries the lifecycle (active → restored | terminated)
--- so the transitions stay auditable. The workspace link rows scope
--- the suspension for serve-time / write-time gates.
 CREATE TABLE IF NOT EXISTS subscription_suspensions (
+  -- Batch 119: subscription suspension for failed payment. One row per
+  -- suspension episode of a billing user; the status column carries the
+  -- lifecycle (active -> restored | terminated) so the transitions stay
+  -- auditable. The workspace link rows scope the suspension for
+  -- serve-time / write-time gates. NOTE: no leading -- comment block
+  -- above this CREATE: db.js migrate() splits this file on ';' and
+  -- drops chunks starting with '--', which would silently skip the
+  -- table (caught by the Batch 119 gate's parity leg).
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NOT NULL,
   subscription_id VARCHAR(120) NULL,
