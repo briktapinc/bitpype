@@ -329,7 +329,18 @@ function manageUrl(deps = {}) {
 function planNameFor(user) {
   try {
     const billing = require('./billing');
-    const p = plans.getPlan(billing.planOfUser(user));
+    let planId = billing.planOfUser(user);
+    // A suspended user's stored subscription_status has already flipped
+    // to 'unpaid', which makes planOfUser report Free — but this email
+    // is about the PAID plan they are failing to pay for. When a
+    // subscription is on file, prefer the plan recorded on the account.
+    if (String(planId) === 'free' && user && user.stripe_subscription_id) {
+      const stored = String(user.billing_plan || '')
+        .trim()
+        .toLowerCase();
+      if (stored && stored !== 'free') planId = stored;
+    }
+    const p = plans.getPlan(planId);
     return (p && p.name) || 'Bitpype';
   } catch {
     return 'Bitpype';

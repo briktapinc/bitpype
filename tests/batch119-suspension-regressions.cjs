@@ -282,6 +282,10 @@ async function part2() {
     const mail = sent.find((m) => m.to === A.email);
     assert.ok(mail, 'weekly email addressed to the account owner');
     assert.ok(/suspended/i.test(mail.subject), mail.subject);
+    assert.ok(
+      /Standard plan/.test(mail.subject),
+      `weekly email names the PAID plan even though the stored status already flipped to unpaid: ${mail.subject}`
+    );
     assert.ok(mail.text.includes('/portal?panel=billing'), 'renewal link present');
     assert.ok(/unavailable/i.test(mail.text), 'copy says the website is unavailable');
     assert.ok(
