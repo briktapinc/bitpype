@@ -40,6 +40,8 @@ const SCOPE = [
   'tests/batch118-newsletter-regressions.cjs',
   'server/subscriptionSuspension.js',
   'tests/batch119-suspension-regressions.cjs',
+  'server/aiRouting.js',
+  'tests/batch120-ai-routing-regressions.cjs',
   'tsconfig.checkjs.json',
 ];
 
