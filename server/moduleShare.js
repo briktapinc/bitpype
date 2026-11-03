@@ -407,6 +407,26 @@ const SHARE_REGISTRY = {
         );
     },
   },
+  photocapture: {
+    kind: 'provider',
+    // Batch 125: APPROVED visitor photos only. Moderation is the
+    // module's publication gate — pending and rejected submissions
+    // are private inbox records and never enter the shared layer,
+    // exactly like drafts never do for the other providers. The
+    // reader is the module's own list function (status filter), so
+    // there is no second query path that could drift out of sync.
+    read(db, leadId) {
+      return modules.listPhotoSubmissions(db, leadId, { status: 'approved', limit: MAX_ITEMS }).map((s) =>
+        item('photocapture', s, {
+          title: s.name || 'Customer photo',
+          description: s.message,
+          image_url: s.display_url || s.image_url,
+          date: s.created_at,
+          meta: { submission_id: s.id, status: s.status, in_gallery: !!s.gallery_image_id },
+        })
+      );
+    },
+  },
 };
 
 /* ------------------------------------------------------------------ */

@@ -100,7 +100,7 @@ let db;
   {
     let n = 0;
     const sm = require(path.join(root, 'server/siteModules.js'));
-    assert.equal(sm.MODULE_TYPES.length, 24, 'catalog has 24 types');
+    assert.equal(sm.MODULE_TYPES.length, 25, 'catalog has 25 types (Batch 124: categories 24th; Batch 125: photocapture the 25th)');
     n++;
     assert.equal(sm.MODULE_TYPES[22], 'newsletter', 'newsletter is the 23rd type');
     n++;

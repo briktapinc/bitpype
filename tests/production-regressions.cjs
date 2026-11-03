@@ -276,7 +276,7 @@ async function main() {
     '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
   });
   sm12.ensureTables(db);
-  assert.equal(Object.keys(sm12.MODULE_META).length, 24, 'module catalog has 24 types (Batch 118: newsletter is the 23rd; Batch 124: categories is the 24th)');
+  assert.equal(Object.keys(sm12.MODULE_META).length, 25, 'module catalog has 25 types (Batch 124: categories is the 24th; Batch 125: photocapture is the 25th)');
   for (const t of ['offers', 'menu', 'careers', 'video']) assert(sm12.MODULE_META[t], 'meta for ' + t);
   check('batch12 catalog: module types incl. offers/menu/careers/video', () => {});
 
@@ -1087,7 +1087,7 @@ async function main() {
   sm16.ensureTables(db);
   assert(sm16.MODULE_META.members, 'meta for members');
   assert.equal(sm16.MODULE_META.members.label, 'Membership');
-  assert.equal(sm16.MODULE_TYPES.length, 24, 'members was the 18th module type; calltracking the 19th; googlereviews the 20th; datatables the 21st; charts the 22nd; newsletter the 23rd; categories the 24th');
+  assert.equal(sm16.MODULE_TYPES.length, 25, 'members was the 18th module type; calltracking the 19th; googlereviews the 20th; datatables the 21st; charts the 22nd; newsletter the 23rd; categories the 24th; photocapture the 25th');
   assert.equal(sm16.MODULE_TYPES.includes('members'), true);
   check('batch16 catalog: members registered as the 18th module type', () => {});
 
@@ -1349,7 +1349,7 @@ async function main() {
     stripe: StubStripe17,
   });
   sm17.ensureTables(db);
-  assert.equal(sm17.MODULE_TYPES.length, 24, 'catalog still 24 types');
+  assert.equal(sm17.MODULE_TYPES.length, 25, 'catalog 25 types (Batch 125: photocapture is the 25th)');
   assert.equal(sm17.MODULE_SCRIPT_VER, 'mod26', 'script version: batch 20 mod13, batch 21 mod14, batch 25 mod15, batch 25c mod16, batch 25c-fix mod17, batch 30 mod18, batch 31 mod19, batch 32 mod20');
   const cfg17Default = sm17.getMembersConfig(db, 1701);
   assert.equal(cfg17Default.access_level, 'any_member', 'Part 1 default preserved: any member');

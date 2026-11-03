@@ -118,7 +118,7 @@ const iconPathsOf = (src) => {
 check('B1 every portal module type has an icon; fallback exists', () => {
   const types = moduleTypesOf(portalJs);
   const icons = iconPathsOf(moduleIconsJs);
-  assert.equal(types.length, 24, 'portal catalog still 24 types');
+  assert.equal(types.length, 25, 'portal catalog 25 types (Batch 124: categories; Batch 125: photocapture)');
   for (const t of types) assert.ok(icons[t] && icons[t].includes('<'), `${t} has a glyph`);
   assert.ok(icons.charts, 'charts has its own glyph');
   assert.ok(icons.datatables, 'datatables has its own glyph');
@@ -247,9 +247,9 @@ check('D3 shared chip styles and staff delete flow untouched', () => {
 
 check('E1 module catalog unchanged on server and portal', () => {
   const sm = require(path.join(root, 'server/siteModules.js'));
-  assert.equal(sm.MODULE_TYPES.length, 24, 'server catalog still 24 types');
+  assert.equal(sm.MODULE_TYPES.length, 25, 'server catalog 25 types (Batch 124: categories; Batch 125: photocapture added)');
   assert.ok(sm.MODULE_TYPES.includes('charts') && sm.MODULE_TYPES.includes('datatables'), 'charts + datatables still present');
-  assert.equal(moduleTypesOf(portalJs).length, 24, 'portal catalog still 24 types');
+  assert.equal(moduleTypesOf(portalJs).length, 25, 'portal catalog 25 types (Batch 125: photocapture added)');
 });
 
 check('E2 attach / detach / purge controls intact in the portal panel', () => {

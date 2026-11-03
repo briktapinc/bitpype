@@ -41,6 +41,7 @@ const MODULE_TYPES = [
   'charts',
   'newsletter',
   'categories',
+  'photocapture',
 ];
 const MANAGED_ATTR = 'data-bitpype-module';
 const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
@@ -82,6 +83,7 @@ const MODULE_META = {
   charts: { label: 'Charts', defaultTitle: 'Charts', defaultSlug: 'charts' },
   newsletter: { label: 'Newsletter', defaultTitle: 'Newsletter', defaultSlug: 'newsletter' },
   categories: { label: 'Categories', defaultTitle: 'Categories', defaultSlug: 'categories' },
+  photocapture: { label: 'Photo Capture', defaultTitle: 'Photo Capture', defaultSlug: 'photo-capture' },
 };
 
 const BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'];
@@ -463,6 +465,38 @@ function ensureTables(db) {
       estimate_cents INTEGER NOT NULL DEFAULT 0,
       display_mode TEXT NOT NULL DEFAULT 'exact',
       status TEXT NOT NULL DEFAULT 'new',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Batch 125: Photo Capture — one config row per lead plus the
+    -- moderated visitor submissions. Photos themselves are stored by
+    -- the shared module-asset pipeline (images/module-* in the site
+    -- export); image_src is that stored path, image_url the absolute
+    -- public URL when one was minted at upload time.
+    CREATE TABLE IF NOT EXISTS photocapture_configs (
+      lead_id INTEGER PRIMARY KEY,
+      heading TEXT NOT NULL DEFAULT 'Share your photo',
+      intro TEXT NOT NULL DEFAULT '',
+      submit_label TEXT NOT NULL DEFAULT 'Send photo',
+      success_message TEXT NOT NULL DEFAULT 'Thanks — your photo is in.',
+      show_approved INTEGER NOT NULL DEFAULT 0,
+      grid_limit INTEGER NOT NULL DEFAULT 12,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS photocapture_submissions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER NOT NULL,
+      name TEXT NOT NULL DEFAULT '',
+      email TEXT NOT NULL DEFAULT '',
+      phone TEXT NOT NULL DEFAULT '',
+      message TEXT NOT NULL DEFAULT '',
+      image_url TEXT NOT NULL DEFAULT '',
+      image_src TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      gallery_image_id INTEGER,
+      page_slug TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -1719,6 +1753,11 @@ function modulePurgeSteps(leadId, type) {
         byLead('module_category_assignments', 'category assignments'),
         byLead('module_categories', 'categories'),
       ];
+    case 'photocapture':
+      return [
+        byLead('photocapture_submissions', 'photo submissions'),
+        byLead('photocapture_configs', 'photo capture settings'),
+      ];
     default:
       return [];
   }
@@ -1770,6 +1809,10 @@ function deleteModule(db, leadId, moduleType) {
   if (type === 'newsletter') {
     const ids = db.prepare('SELECT id FROM newsletter_subscribers WHERE lead_id = ?').all(lid);
     for (const r of ids) deleteLeadScoutEventsByRef(db, 'newsletter_subscriber_id', r.id);
+  }
+  if (type === 'photocapture') {
+    const ids = db.prepare('SELECT id FROM photocapture_submissions WHERE lead_id = ?').all(lid);
+    for (const r of ids) deleteLeadScoutEventsByRef(db, 'photo_submission_id', r.id);
   }
   const purged = {};
   let purgedTotal = 0;
@@ -5904,7 +5947,14 @@ function updateEstimateRequestStatus(db, leadId, id, status) {
  * table/columns are owned by portalContacts and may not exist yet on a
  * bare DB, so absence is a no-op, never an error. */
 function deleteLeadScoutEventsByRef(db, column, refId) {
-  const allowed = ['submission_id', 'booking_id', 'estimate_request_id', 'call_log_id', 'newsletter_subscriber_id'];
+  const allowed = [
+    'submission_id',
+    'booking_id',
+    'estimate_request_id',
+    'call_log_id',
+    'newsletter_subscriber_id',
+    'photo_submission_id',
+  ];
   if (!allowed.includes(column)) return 0;
   const t = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'leadscout_events'").get();
   if (!t) return 0;
@@ -6006,6 +6056,303 @@ function createPublicEstimateRequestByToken(db, token, data = {}, opts = {}) {
     message: hidden
       ? 'Thanks — your request is in. We will review it and send your estimate shortly.'
       : 'Your estimate is ready — the business has your details and will confirm the final price.',
+  };
+}
+
+/* ── Photo Capture (Batch 125) ───────────────────────────────────────
+ * Visitors send the business a photo from the public site — device
+ * camera or file upload — with their name and a phone or email. The
+ * photo bytes land through the SAME module-asset pipeline every other
+ * module image uses (portalSiteEdits.applyModuleAssetUpload: content
+ * sniff, ~5MB cap, WebP optimization, site export folder); this
+ * section owns the config, the moderated submission inbox and every
+ * read the rest of the platform makes.
+ *
+ * Moderation is the whole point: a submission is `pending` until the
+ * owner approves it. Pending and rejected photos are NEVER public —
+ * the public payload and the Batch 122 shared layer both read
+ * approved rows only. The state machine is one-way-safe: any status
+ * can move to any other status (re-approving a rejected photo is
+ * allowed), and nothing outside this section decides visibility.
+ *
+ * Every submission also lands in LeadScout through
+ * portalContacts.captureFromPhoto — the same dedupe funnel form
+ * submissions, bookings, estimate requests and newsletter signups
+ * use — and an approved photo can be pushed into a gallery album
+ * through addGalleryImage, the gallery's own write function.
+ */
+
+const PHOTOCAPTURE_STATUSES = ['pending', 'approved', 'rejected'];
+const PHOTOCAPTURE_DEFAULT_HEADING = 'Share your photo';
+const PHOTOCAPTURE_DEFAULT_SUBMIT_LABEL = 'Send photo';
+const PHOTOCAPTURE_DEFAULT_SUCCESS = 'Thanks — your photo is in.';
+const PHOTOCAPTURE_GRID_MAX = 60;
+
+function normalizePhotoStatus(value, fallback = 'pending') {
+  const s = String(value || '')
+    .trim()
+    .toLowerCase();
+  return PHOTOCAPTURE_STATUSES.includes(s) ? s : fallback;
+}
+
+function getPhotoCaptureConfig(db, leadId) {
+  ensureTables(db);
+  const id = Number(leadId);
+  let row = db.prepare('SELECT * FROM photocapture_configs WHERE lead_id = ?').get(id);
+  if (!row) {
+    db.prepare(
+      `INSERT INTO photocapture_configs (lead_id, heading, submit_label, success_message)
+       VALUES (?, ?, ?, ?)`
+    ).run(id, PHOTOCAPTURE_DEFAULT_HEADING, PHOTOCAPTURE_DEFAULT_SUBMIT_LABEL, PHOTOCAPTURE_DEFAULT_SUCCESS);
+    row = db.prepare('SELECT * FROM photocapture_configs WHERE lead_id = ?').get(id);
+  }
+  return { ...row, show_approved: !!row.show_approved };
+}
+
+function updatePhotoCaptureConfig(db, leadId, data = {}) {
+  ensureTables(db);
+  const row = getPhotoCaptureConfig(db, leadId);
+  const heading =
+    data.heading != null ? String(data.heading).trim().slice(0, 200) || row.heading : row.heading;
+  const intro = data.intro != null ? String(data.intro).slice(0, 2000) : row.intro;
+  let submitLabel =
+    data.submit_label != null || data.submitLabel != null
+      ? String(data.submit_label != null ? data.submit_label : data.submitLabel)
+          .trim()
+          .slice(0, 80)
+      : row.submit_label;
+  if (!submitLabel) submitLabel = PHOTOCAPTURE_DEFAULT_SUBMIT_LABEL;
+  let successMessage =
+    data.success_message != null || data.successMessage != null
+      ? String(data.success_message != null ? data.success_message : data.successMessage)
+          .trim()
+          .slice(0, 300)
+      : row.success_message;
+  if (!successMessage) successMessage = PHOTOCAPTURE_DEFAULT_SUCCESS;
+  // The shaped config carries show_approved as a boolean; SQLite
+  // binds numbers only, so normalize back to 1/0 for the write.
+  let showApproved = row.show_approved ? 1 : 0;
+  if (data.show_approved != null || data.showApproved != null) {
+    const v = data.show_approved != null ? data.show_approved : data.showApproved;
+    showApproved = v === true || v === 1 || v === '1' || v === 'true' || v === 'on' ? 1 : 0;
+  }
+  let gridLimit = row.grid_limit;
+  if (data.grid_limit != null || data.gridLimit != null) {
+    gridLimit = Math.round(Number(data.grid_limit != null ? data.grid_limit : data.gridLimit));
+    if (!Number.isFinite(gridLimit) || gridLimit < 1) gridLimit = 1;
+    if (gridLimit > PHOTOCAPTURE_GRID_MAX) gridLimit = PHOTOCAPTURE_GRID_MAX;
+  }
+  db.prepare(
+    `
+    UPDATE photocapture_configs
+    SET heading = ?, intro = ?, submit_label = ?, success_message = ?,
+        show_approved = ?, grid_limit = ?, updated_at = datetime('now')
+    WHERE lead_id = ?
+  `
+  ).run(heading, intro, submitLabel, successMessage, showApproved, gridLimit, Number(leadId));
+  return getPhotoCaptureConfig(db, leadId);
+}
+
+function withPhotoSubmissionShape(row) {
+  if (!row) return row;
+  return {
+    ...row,
+    // The display URL is the absolute public URL minted at upload
+    // time; the stored site-relative src is the fallback (portal and
+    // embeds both run against the site's own origin there).
+    display_url: row.image_url || row.image_src || '',
+    in_gallery: !!row.gallery_image_id,
+  };
+}
+
+function createPhotoSubmission(db, leadId, data = {}) {
+  ensureTables(db);
+  const lid = Number(leadId);
+  const name = String(data.name || '').trim().slice(0, 200);
+  const email = String(data.email || '').trim().slice(0, 240);
+  const phone = String(data.phone || '').trim().slice(0, 60);
+  const message = String(data.message || '').trim().slice(0, 2000);
+  const imageUrl = String(data.image_url || data.imageUrl || '').trim().slice(0, 1000);
+  const imageSrc = String(data.image_src || data.imageSrc || '').trim().slice(0, 1000);
+  if (!imageUrl && !imageSrc) throw fail('VALIDATION', 'A photo is required');
+  if (!name) throw fail('VALIDATION', 'Your name is required');
+  if (!email && !phone) throw fail('VALIDATION', 'Please give an email address or a phone number');
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw fail('VALIDATION', 'Please enter a valid email address');
+  }
+  const info = db
+    .prepare(
+      `
+      INSERT INTO photocapture_submissions
+        (lead_id, name, email, phone, message, image_url, image_src, status, page_slug)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+    `
+    )
+    .run(lid, name, email, phone, message, imageUrl, imageSrc, String(data.page_slug || data.pageSlug || '').slice(0, 200));
+  const submission = getPhotoSubmission(db, lid, Number(info.lastInsertRowid));
+  // LeadScout funnel — the same capture pattern every other public
+  // capture uses; capture failures are recorded inside portalContacts
+  // and never fail the visitor's submission.
+  try {
+    require('./portalContacts').captureFromPhoto(db, {
+      leadId: lid,
+      submission,
+      pageSlug: submission.page_slug || '',
+    });
+  } catch (e) {
+    console.warn('[siteModules] captureFromPhoto:', e.message || e);
+  }
+  return submission;
+}
+
+function getPhotoSubmission(db, leadId, id) {
+  ensureTables(db);
+  const row = db
+    .prepare('SELECT * FROM photocapture_submissions WHERE lead_id = ? AND id = ?')
+    .get(Number(leadId), Number(id));
+  return withPhotoSubmissionShape(row || null);
+}
+
+function listPhotoSubmissions(db, leadId, { status = null, limit = 100, offset = 0 } = {}) {
+  ensureTables(db);
+  const lim = Math.min(Math.max(Math.round(Number(limit)) || 100, 1), 500);
+  const off = Math.max(Math.round(Number(offset)) || 0, 0);
+  let sql = 'SELECT * FROM photocapture_submissions WHERE lead_id = ?';
+  const params = [Number(leadId)];
+  if (status != null && String(status).trim() !== '') {
+    sql += ' AND status = ?';
+    params.push(normalizePhotoStatus(status, '__none__'));
+  }
+  sql += ' ORDER BY id DESC LIMIT ? OFFSET ?';
+  params.push(lim, off);
+  return db.prepare(sql).all(...params).map(withPhotoSubmissionShape);
+}
+
+function countPhotoSubmissions(db, leadId) {
+  ensureTables(db);
+  const rows = db
+    .prepare('SELECT status, COUNT(*) AS c FROM photocapture_submissions WHERE lead_id = ? GROUP BY status')
+    .all(Number(leadId));
+  const counts = { pending: 0, approved: 0, rejected: 0, total: 0 };
+  for (const r of rows) {
+    if (PHOTOCAPTURE_STATUSES.includes(r.status)) counts[r.status] = Number(r.c) || 0;
+    counts.total += Number(r.c) || 0;
+  }
+  return counts;
+}
+
+function updatePhotoSubmissionStatus(db, leadId, id, status) {
+  ensureTables(db);
+  const next = normalizePhotoStatus(status, '__none__');
+  if (next === '__none__') {
+    throw fail('VALIDATION', `status must be one of: ${PHOTOCAPTURE_STATUSES.join(', ')}`);
+  }
+  const existing = getPhotoSubmission(db, leadId, id);
+  if (!existing) throw fail('NOT_FOUND', 'Photo submission not found', 404);
+  db.prepare(
+    "UPDATE photocapture_submissions SET status = ?, updated_at = datetime('now') WHERE lead_id = ? AND id = ?"
+  ).run(next, Number(leadId), Number(id));
+  return getPhotoSubmission(db, leadId, id);
+}
+
+function deletePhotoSubmission(db, leadId, id) {
+  ensureTables(db);
+  const existing = getPhotoSubmission(db, leadId, id);
+  if (!existing) throw fail('NOT_FOUND', 'Photo submission not found', 404);
+  // The LeadScout event references the submission row — unlink it
+  // exactly like the estimate-request delete does (Batch 45).
+  deleteLeadScoutEventsByRef(db, 'photo_submission_id', existing.id);
+  db.prepare('DELETE FROM photocapture_submissions WHERE lead_id = ? AND id = ?').run(
+    Number(leadId),
+    Number(id)
+  );
+  return { deleted: true, id: existing.id };
+}
+
+/**
+ * Cross-module write, Batch 122 style: an APPROVED photo is copied
+ * into a gallery album through the gallery's own write function
+ * (addGalleryImage validates the album belongs to this lead), never
+ * by reaching into gallery tables from here. Idempotent per
+ * submission: a second push returns the row already created.
+ */
+function addPhotoSubmissionToGallery(db, leadId, submissionId, albumId) {
+  ensureTables(db);
+  const submission = getPhotoSubmission(db, leadId, submissionId);
+  if (!submission) throw fail('NOT_FOUND', 'Photo submission not found', 404);
+  if (submission.status !== 'approved') {
+    throw fail('VALIDATION', 'Only an approved photo can be added to the gallery');
+  }
+  const album = getAlbum(db, leadId, albumId);
+  if (!album) throw fail('NOT_FOUND', 'Gallery album not found', 404);
+  if (submission.gallery_image_id) {
+    const existing = db
+      .prepare('SELECT * FROM gallery_images WHERE id = ? AND album_id = ?')
+      .get(Number(submission.gallery_image_id), Number(album.id));
+    if (existing) return { submission, image: existing, already: true };
+  }
+  const image = addGalleryImage(db, leadId, album.id, {
+    image_url: submission.display_url,
+    caption: submission.message || submission.name || '',
+  });
+  db.prepare(
+    "UPDATE photocapture_submissions SET gallery_image_id = ?, updated_at = datetime('now') WHERE lead_id = ? AND id = ?"
+  ).run(Number(image.id), Number(leadId), Number(submission.id));
+  return { submission: getPhotoSubmission(db, leadId, submission.id), image, already: false };
+}
+
+/** Public-safe payload: config copy + (optionally) the approved grid.
+ * Pending/rejected submissions are never included, in any mode. */
+function photoCapturePublicPayload(db, leadId) {
+  ensureTables(db);
+  const config = getPhotoCaptureConfig(db, leadId);
+  const showApproved = !!config.show_approved;
+  const items = showApproved
+    ? listPhotoSubmissions(db, leadId, { status: 'approved', limit: config.grid_limit }).map((s) => ({
+        id: s.id,
+        image_url: s.display_url,
+        caption: s.message || '',
+        name: s.name || '',
+        created_at: s.created_at,
+      }))
+    : [];
+  return {
+    config: {
+      heading: config.heading,
+      intro: config.intro,
+      submit_label: config.submit_label,
+      success_message: config.success_message,
+      show_approved: showApproved,
+    },
+    items,
+  };
+}
+
+/**
+ * Public submit by embed token. The photo BYTES are stored by the
+ * caller through the module-asset pipeline first (async — image
+ * optimization cannot run inside this sync withDb section); `data`
+ * carries the stored { image_url, image_src } plus the visitor's
+ * fields. The response is deliberately state-blind: the visitor
+ * hears the same thanks regardless of moderation.
+ */
+function createPublicPhotoSubmissionByToken(db, token, data = {}, opts = {}) {
+  ensureTables(db);
+  const row = db
+    .prepare('SELECT * FROM site_module_embeds WHERE public_token = ?')
+    .get(String(token || ''));
+  if (!row || row.module_type !== 'photocapture') {
+    throw fail('NOT_FOUND', 'Photo Capture module not found', 404);
+  }
+  assertSiteNotArchived(db, row.lead_id);
+  assertSiteNotSuspended(db, row.lead_id);
+  assertMemberAccessForEmbed(db, row, opts);
+  const submission = createPhotoSubmission(db, row.lead_id, data);
+  const config = getPhotoCaptureConfig(db, row.lead_id);
+  return {
+    embed: publicEmbed(row),
+    submission: { id: submission.id },
+    message: config.success_message || PHOTOCAPTURE_DEFAULT_SUCCESS,
   };
 }
 
@@ -11313,6 +11660,15 @@ function moduleItemCount(db, leadId, type) {
       return 0;
     }
   }
+  if (type === 'photocapture') {
+    // Like estimate requests, the tab badge counts the moderation
+    // queue — submissions still waiting for a decision.
+    ensureTables(db);
+    const row = db
+      .prepare("SELECT COUNT(*) AS c FROM photocapture_submissions WHERE lead_id = ? AND status = 'pending'")
+      .get(Number(leadId));
+    return Number(row && row.c) || 0;
+  }
   if (type === 'charts') {
     // The tab badge counts the chart definitions on the site.
     ensureTables(db);
@@ -11370,6 +11726,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
   let charts = null;
   let newsletter = null;
   let categoryScopes = null;
+  let photocapture = null;
   let total_published = null;
   if (type === 'blog') {
     items = listBlogPosts(db, leadId, { includeDrafts: false }).map((p) => ({
@@ -11445,6 +11802,12 @@ function getPublicModuleByToken(db, token, opts = {}) {
       scope,
       label: MODULE_META[scope]?.label || scope,
     }));
+  } else if (type === 'photocapture') {
+    // Capture-form copy plus, only when the owner turned the public
+    // grid on, the APPROVED photos. Pending/rejected submissions and
+    // submitter contact details never leave the server here.
+    photocapture = photoCapturePublicPayload(db, leadId);
+    items = photocapture.items;
   } else if (type === 'charts') {
     // Computed chart data only — table-bound charts aggregate the
     // table's PUBLISHED rows server-side (see computeChartData); the
@@ -11522,6 +11885,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
   if (charts) out.charts = charts;
   if (newsletter) out.newsletter = newsletter;
   if (categoryScopes) out.category_scopes = categoryScopes;
+  if (photocapture) out.photocapture = photocapture;
   return out;
 }
 
@@ -11816,6 +12180,18 @@ module.exports = {
   deleteEstimateRequest,
   createEstimateRequest,
   createPublicEstimateRequestByToken,
+  PHOTOCAPTURE_STATUSES,
+  getPhotoCaptureConfig,
+  updatePhotoCaptureConfig,
+  createPhotoSubmission,
+  getPhotoSubmission,
+  listPhotoSubmissions,
+  countPhotoSubmissions,
+  updatePhotoSubmissionStatus,
+  deletePhotoSubmission,
+  addPhotoSubmissionToGallery,
+  photoCapturePublicPayload,
+  createPublicPhotoSubmissionByToken,
   SOCIALFEED_NETWORKS,
   SOCIALFEED_LAYOUTS,
   getSocialFeedConfig,

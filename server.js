@@ -138,9 +138,13 @@ app.use((req, res, next) => {
   const large = /^\/api\/v1\/(design|portal|websites|mcp|website-promo|admin)/i.test(req.path || '');
   const promo = /^\/api\/v1\/website-promo/i.test(req.path || '');
   const chatUpload = /^\/api\/v1\/portal\/site\/agent-chat\/attachments/i.test(req.path || '');
+  // Batch 125: a Photo Capture submission rides base64-in-JSON like the
+  // uploads above (~4/3 inflation) — the pipeline's own ~5 MB image cap
+  // would be unreachable under the 1 MB default.
+  const photoUpload = /^\/api\/v1\/modules\/public\/[^/]+\/photocapture\/?$/i.test(req.path || '');
   const analytics = req.path.startsWith('/api/v1/site-analytics/public/');
   return express.json({
-    limit: analytics ? '1kb' : chatUpload ? '15mb' : promo ? '12mb' : large ? '8mb' : process.env.JSON_BODY_LIMIT || '1mb',
+    limit: analytics ? '1kb' : chatUpload ? '15mb' : promo ? '12mb' : large || photoUpload ? '8mb' : process.env.JSON_BODY_LIMIT || '1mb',
   })(
     req,
     res,

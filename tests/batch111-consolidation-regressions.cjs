@@ -46,7 +46,7 @@ const iconPathsOf = (src) => {
 
 check('S2.1 shared icon file carries all 24 glyphs + the fallback', () => {
   const icons = iconPathsOf(iconsJs);
-  assert.equal(Object.keys(icons).length, 24, '24 module glyphs');
+  assert.equal(Object.keys(icons).length, 25, '25 module glyphs');
   for (const [t, g] of Object.entries(icons)) assert.ok(g.includes('<'), `${t} glyph present`);
   assert.ok(iconsJs.includes("const MODULE_ICON_FALLBACK = '<rect x=\"4\" y=\"4\""), 'fallback defined once, in the shared file');
 });
@@ -111,7 +111,7 @@ check('S4.1 clientPortal.js is a thin facade over 9 focused modules', () => {
     assert.ok(cpFacade.includes(`require('./${m}')`), `facade requires ${m}`);
   assert.ok(cpFacade.split('\n').length < 250, `facade is thin (${cpFacade.split('\n').length} lines, was 5993)`);
   const cp = require(path.join(root, 'server', 'clientPortal.js'));
-  assert.equal(Object.keys(cp).length, 139, 'facade exports the full surface (139 names; Batch 124 added saveCategoriesDisplaySettings)');
+  assert.equal(Object.keys(cp).length, 143, 'facade exports the full surface (143 names; Batch 124 added saveCategoriesDisplaySettings; Batch 125 added the photo capture writes)');
   const chat = require(path.join(root, 'server', 'portalSiteChat.js'));
   assert.equal(cp.runSiteAgentChat, chat.runSiteAgentChat, 're-export identity: runSiteAgentChat');
   const edits = require(path.join(root, 'server', 'portalSiteEdits.js'));

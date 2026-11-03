@@ -196,6 +196,22 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
       /* categories census is best-effort */
     }
     try {
+      // Batch 125 — Photo Capture: moderation queue + approved count.
+      // Approved photos are shared-layer content (source photocapture)
+      // and can be pushed into a gallery album from the portal inbox.
+      const attached = db
+        .prepare("SELECT 1 FROM site_module_embeds WHERE lead_id = ? AND module_type = 'photocapture'")
+        .get(Number(leadId));
+      if (attached) {
+        const counts = require('./siteModules').countPhotoSubmissions(db, leadId);
+        lines.push(
+          `Photo Capture: ${counts.pending} photo(s) awaiting moderation, ${counts.approved} approved, ${counts.rejected} rejected — moderate with photocapture.listSubmissions / photocapture.moderateSubmission; approved photos also appear via shared.items (source photocapture).`
+        );
+      }
+    } catch {
+      /* photo capture census is best-effort */
+    }
+    try {
       const dt = db.prepare('SELECT title, columns_json FROM datatable_configs WHERE lead_id = ?').get(Number(leadId));
       if (dt) {
         let cols = '';

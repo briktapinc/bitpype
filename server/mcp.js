@@ -1404,6 +1404,47 @@ function clientToolDefs() {
       inputSchema: schema({ leadId: ID, scopes: { type: 'array', items: { type: 'string' } } }, ['leadId']),
     },
     {
+      name: 'photocapture.getConfig',
+      description:
+        'Get the Photo Capture config for a lead (heading, intro, submit label, success message, show_approved public grid, grid_limit) plus submission counts by status. Standard/Premium.',
+      inputSchema: schema({ leadId: ID }, ['leadId']),
+    },
+    {
+      name: 'photocapture.listSubmissions',
+      description:
+        'List Photo Capture submissions for a lead (newest first), optionally filtered by status pending|approved|rejected. Pending/rejected photos are private inbox records — only approved ones are public (shared layer + optional grid). Standard/Premium.',
+      inputSchema: schema({ leadId: ID, status: STR, limit: NUM }, ['leadId']),
+    },
+    {
+      name: 'photocapture.updateConfig',
+      description:
+        'Update the Photo Capture config (heading, intro, submit_label, success_message, show_approved, grid_limit 1–60). Same config the portal edits. Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          heading: STR,
+          intro: STR,
+          submit_label: STR,
+          success_message: STR,
+          show_approved: { type: 'boolean' },
+          grid_limit: NUM,
+        },
+        ['leadId']
+      ),
+    },
+    {
+      name: 'photocapture.moderateSubmission',
+      description:
+        'Approve or reject one Photo Capture submission (status pending|approved|rejected). Approving publishes the photo to the shared layer and, when enabled, the public grid; rejecting hides it everywhere. Re-approving a rejected photo is allowed. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, id: ID, status: STR }, ['leadId', 'id', 'status']),
+    },
+    {
+      name: 'photocapture.addToGallery',
+      description:
+        "Copy an APPROVED Photo Capture submission into a gallery album through the gallery's own write path (a real gallery image row). The album must belong to the same lead. Standard/Premium.",
+      inputSchema: schema({ leadId: ID, id: ID, album_id: ID }, ['leadId', 'id', 'album_id']),
+    },
+    {
       name: 'bookings.services',
       description:
         'List bookable services (duration, buffer, price). includeDrafts defaults true. Standard/Premium siteModules.',
@@ -3158,6 +3199,12 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'categories.unassign',
     'categories.items',
     'categories.setScopes',
+    // Batch 125: Photo Capture rides the same entitlement.
+    'photocapture.getConfig',
+    'photocapture.listSubmissions',
+    'photocapture.updateConfig',
+    'photocapture.moderateSubmission',
+    'photocapture.addToGallery',
     'bookings.services',
     'bookings.createService',
     'bookings.updateService',
@@ -4271,6 +4318,50 @@ async function callClientTool(ws, name, a, ctx = {}) {
     return domain.withDb(ws, (db) => ({
       plan: planId,
       ...require('./moduleShare').clearSharedRef(db, leadId, a),
+    }));
+  }
+  if (name === 'photocapture.getConfig') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      config: modules.getPhotoCaptureConfig(db, leadId),
+      counts: modules.countPhotoSubmissions(db, leadId),
+    }));
+  }
+  if (name === 'photocapture.listSubmissions') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      submissions: modules.listPhotoSubmissions(db, leadId, { status: a.status || null, limit: a.limit || 50 }),
+    }));
+  }
+  if (name === 'photocapture.updateConfig') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      config: modules.updatePhotoCaptureConfig(db, leadId, a),
+    }));
+  }
+  if (name === 'photocapture.moderateSubmission') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      submission: modules.updatePhotoSubmissionStatus(db, leadId, id, a.status),
+    }));
+  }
+  if (name === 'photocapture.addToGallery') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    const albumId = need(a.album_id || a.albumId, 'album_id');
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      ...modules.addPhotoSubmissionToGallery(db, leadId, id, albumId),
     }));
   }
 

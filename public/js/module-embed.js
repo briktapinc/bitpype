@@ -205,6 +205,13 @@
       '.bitpype-module-embed .bp-mod-book-msg.err{color:#9b2c2c;}',
       '.bitpype-module-embed .bp-mod-captcha{margin:0.35rem 0 0.65rem;}',
       '.bitpype-module-embed .bp-mod-captcha iframe{display:block;}',
+      // Photo Capture (Batch 125): file picker + preview + approved grid.
+      '.bitpype-module-embed .bp-mod-photo-preview{display:none;margin:0.35rem 0 0.65rem;}',
+      '.bitpype-module-embed .bp-mod-photo-preview img{max-width:100%;max-height:260px;border-radius:0.85rem;display:block;}',
+      '.bitpype-module-embed .bp-mod-photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(180px,100%),1fr));gap:1rem;margin-top:1.1rem;}',
+      '.bitpype-module-embed .bp-mod-photo-cell{margin:0;}',
+      '.bitpype-module-embed .bp-mod-photo-cell img{width:100%;height:180px;object-fit:cover;border-radius:0.85rem;display:block;}',
+      '.bitpype-module-embed .bp-mod-photo-cell figcaption{margin-top:0.4rem;font-size:0.88rem;color:var(--bp-mod-muted);line-height:1.45;}',
       '@media (prefers-reduced-motion:reduce){',
       '.bitpype-module-embed .bp-mod-card{transition:none;}',
       '.bitpype-module-embed .bp-mod-card:hover{transform:none;}',
@@ -1183,6 +1190,14 @@
       // Batch 118: the signup block renders even with zero subscribers
       // (items stays empty by design — the list itself never ships).
       renderNewsletter(el, data);
+      return;
+    }
+    if (type === 'photocapture') {
+      // Batch 125: the capture form renders even with zero submissions;
+      // the approved-photos grid joins it only when the owner enabled
+      // it AND approved photos exist (payload items carry approved
+      // photos only — pending/rejected never ship).
+      renderPhotoCapture(el, data);
       return;
     }
     if (type === 'careers' && !items.length) {
@@ -2306,6 +2321,243 @@
         }
       })();
     });
+  }
+
+  // Batch 125 — Photo Capture. DOM APIs only, like the newsletter
+  // form (SEC-13 sink census). The file input carries
+  // capture="environment" so phones offer the camera first; the plain
+  // file picker is always there as the fallback. The photo rides to
+  // the server as a data URL and is stored by the platform's image
+  // pipeline; the response is state-blind (the same thanks whatever
+  // moderation decides), so the success copy comes from the server.
+  function renderPhotoCapture(el, data) {
+    var pc = data.photocapture || {};
+    var cfg = pc.config || {};
+    var token = el.getAttribute(TOKEN_ATTR) || '';
+    var base = apiBase(el);
+    el.textContent = '';
+    if (shouldShowTitle(el)) {
+      var title = document.createElement('h2');
+      title.className = 'bp-mod-title';
+      title.textContent = data.title || 'Photo Capture';
+      el.appendChild(title);
+    }
+    var card = document.createElement('div');
+    card.className = 'bp-mod-news-card';
+    var heading = document.createElement('h3');
+    heading.className = 'bp-mod-news-heading';
+    heading.textContent = cfg.heading || 'Share your photo';
+    card.appendChild(heading);
+    if (cfg.intro) {
+      var intro = document.createElement('p');
+      intro.className = 'bp-mod-news-blurb';
+      intro.textContent = cfg.intro;
+      card.appendChild(intro);
+    }
+    var form = document.createElement('form');
+    form.className = 'bp-mod-book bp-mod-photo-form';
+    form.setAttribute('data-bp-photocapture', '1');
+
+    function fieldRow(labelText, input, required) {
+      var row = document.createElement('div');
+      row.className = 'bp-mod-book-row';
+      var label = document.createElement('label');
+      label.textContent = labelText;
+      if (required) input.required = true;
+      label.appendChild(input);
+      row.appendChild(label);
+      return row;
+    }
+
+    var photoInput = document.createElement('input');
+    photoInput.type = 'file';
+    photoInput.name = 'photo';
+    photoInput.accept = 'image/*';
+    photoInput.setAttribute('capture', 'environment');
+    form.appendChild(fieldRow('Your photo', photoInput, true));
+    var preview = document.createElement('div');
+    preview.className = 'bp-mod-photo-preview';
+    var previewImg = document.createElement('img');
+    previewImg.alt = 'Your photo';
+    preview.appendChild(previewImg);
+    form.appendChild(preview);
+
+    var nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.name = 'name';
+    nameInput.autocomplete = 'name';
+    form.appendChild(fieldRow('Your name', nameInput, true));
+
+    var emailInput = document.createElement('input');
+    emailInput.type = 'email';
+    emailInput.name = 'email';
+    emailInput.autocomplete = 'email';
+    form.appendChild(fieldRow('Email', emailInput, false));
+
+    var phoneInput = document.createElement('input');
+    phoneInput.type = 'tel';
+    phoneInput.name = 'phone';
+    phoneInput.autocomplete = 'tel';
+    form.appendChild(fieldRow('Phone (email or phone — one is enough)', phoneInput, false));
+
+    var messageInput = document.createElement('textarea');
+    messageInput.name = 'message';
+    messageInput.rows = 3;
+    form.appendChild(fieldRow('Message (optional)', messageInput, false));
+
+    var captchaBox = document.createElement('div');
+    captchaBox.setAttribute('data-bp-captcha', '');
+    form.appendChild(captchaBox);
+
+    var msg = document.createElement('p');
+    msg.className = 'bp-mod-book-msg';
+    msg.setAttribute('data-pc-msg', '');
+    form.appendChild(msg);
+
+    var submitBtn = document.createElement('button');
+    submitBtn.type = 'submit';
+    submitBtn.className = 'bp-mod-btn';
+    submitBtn.textContent = cfg.submit_label || 'Send photo';
+    form.appendChild(submitBtn);
+
+    card.appendChild(form);
+    el.appendChild(card);
+
+    var photoDataUrl = '';
+    photoInput.addEventListener('change', function () {
+      var file = photoInput.files && photoInput.files[0];
+      photoDataUrl = '';
+      preview.style.display = 'none';
+      if (!file) return;
+      if (file.size > 5.5 * 1024 * 1024) {
+        msg.textContent = 'That photo is too large — please pick one under 5 MB.';
+        msg.className = 'bp-mod-book-msg err';
+        return;
+      }
+      var reader = new FileReader();
+      reader.onload = function () {
+        photoDataUrl = String(reader.result || '');
+        if (photoDataUrl) {
+          previewImg.src = photoDataUrl;
+          preview.style.display = 'block';
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+
+    var captcha = {
+      enabled: false,
+      getToken: async function () {
+        return '';
+      },
+      reset: function () {},
+    };
+    (async function () {
+      try {
+        if (base) await loadScript(base + '/js/captcha.js?v=mod5');
+        if (window.ScoutCaptcha && captchaBox) {
+          captcha = await window.ScoutCaptcha.mount(captchaBox, { apiBase: base });
+        }
+      } catch (e) {
+        /* captcha optional when disabled server-side */
+      }
+    })();
+
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var name = nameInput.value.trim();
+      var email = emailInput.value.trim();
+      var phone = phoneInput.value.trim();
+      var message = messageInput.value.trim();
+      if (!photoDataUrl) {
+        msg.textContent = 'Please take or choose a photo first.';
+        msg.className = 'bp-mod-book-msg err';
+        return;
+      }
+      if (!name) {
+        msg.textContent = 'Please add your name.';
+        msg.className = 'bp-mod-book-msg err';
+        return;
+      }
+      if (!email && !phone) {
+        msg.textContent = 'Please add an email address or a phone number.';
+        msg.className = 'bp-mod-book-msg err';
+        return;
+      }
+      submitBtn.disabled = true;
+      msg.textContent = 'Sending your photo…';
+      msg.className = 'bp-mod-book-msg';
+      (async function () {
+        try {
+          var captchaToken = await captcha.getToken();
+          var r = await fetch(
+            (base || '') +
+              '/api/v1/modules/public/' +
+              encodeURIComponent(token) +
+              '/photocapture?' +
+              pageQuery(),
+            {
+              method: 'POST',
+              credentials: 'omit',
+              headers: jsonHeaders(),
+              body: JSON.stringify({
+                name: name,
+                email: email,
+                phone: phone,
+                message: message,
+                image: photoDataUrl,
+                captchaToken: captchaToken,
+              }),
+            }
+          );
+          var j = await r.json();
+          if (!r.ok || !j || !j.ok) throw new Error((j && j.error) || 'Could not send your photo');
+          card.textContent = '';
+          var done = document.createElement('div');
+          var kicker = document.createElement('p');
+          kicker.className = 'bp-mod-empty-kicker';
+          kicker.textContent = 'Photo received';
+          var doneTitle = document.createElement('p');
+          doneTitle.className = 'bp-mod-empty-title';
+          doneTitle.textContent = (j.data && j.data.message) || 'Thanks — your photo is in.';
+          done.appendChild(kicker);
+          done.appendChild(doneTitle);
+          card.appendChild(done);
+        } catch (e) {
+          msg.textContent = (e.message || 'Could not send your photo') + ' — please try again.';
+          msg.className = 'bp-mod-book-msg err';
+          if (captcha.reset) captcha.reset();
+        } finally {
+          submitBtn.disabled = false;
+        }
+      })();
+    });
+
+    // Optional public grid of APPROVED photos (owner-enabled). Items
+    // arrive approved-only from the server; with the grid off or no
+    // approved photos yet, nothing renders here (dormant-empty).
+    var items = Array.isArray(pc.items) ? pc.items : [];
+    if (cfg.show_approved && items.length) {
+      var grid = document.createElement('div');
+      grid.className = 'bp-mod-photo-grid';
+      items.forEach(function (it) {
+        if (!it || !it.image_url) return;
+        var cell = document.createElement('figure');
+        cell.className = 'bp-mod-photo-cell';
+        var img = document.createElement('img');
+        img.src = String(it.image_url);
+        img.alt = it.caption || it.name || 'Customer photo';
+        img.loading = 'lazy';
+        cell.appendChild(img);
+        if (it.caption) {
+          var cap = document.createElement('figcaption');
+          cap.textContent = String(it.caption);
+          cell.appendChild(cap);
+        }
+        grid.appendChild(cell);
+      });
+      if (grid.childNodes.length) el.appendChild(grid);
+    }
   }
 
   function renderCharts(el, data, prefixHtml) {

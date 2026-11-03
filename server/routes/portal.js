@@ -1892,6 +1892,65 @@ router.delete('/modules/estimate/requests/:id', requireClient, actionLimit, asyn
   }
 });
 
+// Photo Capture (Batch 125) — config + moderation inbox writes,
+// before the generic /modules/:type routes so 'photocapture' is
+// never parsed as an item id.
+router.put('/modules/photocapture/config', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.savePhotoCaptureConfig(req.client.workspace_id, req.client.lead_id, req.body || {}, req.client.email)
+    );
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.put('/modules/photocapture/submissions/:id', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.updatePhotoSubmission(
+        req.client.workspace_id,
+        req.client.lead_id,
+        req.params.id,
+        req.body || {},
+        req.client.email
+      )
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
+router.delete('/modules/photocapture/submissions/:id', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.removePhotoSubmission(req.client.workspace_id, req.client.lead_id, req.params.id, req.client.email)
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
+router.post('/modules/photocapture/submissions/:id/gallery', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.addPhotoSubmissionToGallery(
+        req.client.workspace_id,
+        req.client.lead_id,
+        req.params.id,
+        req.body || {},
+        req.client.email
+      )
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
 // Offers display settings (list layout) — before the generic /modules/:type/:id
 // routes, which would otherwise read "settings" as an offer id.
 router.put('/modules/offers/settings', requireClient, actionLimit, async (req, res) => {

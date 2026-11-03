@@ -85,6 +85,10 @@ module.exports = {
   // portalModules.js
   deleteBookingAppointment: portalModules.deleteBookingAppointment,
   deleteEstimateRequest: portalModules.deleteEstimateRequest,
+  savePhotoCaptureConfig: portalModules.savePhotoCaptureConfig,
+  updatePhotoSubmission: portalModules.updatePhotoSubmission,
+  removePhotoSubmission: portalModules.removePhotoSubmission,
+  addPhotoSubmissionToGallery: portalModules.addPhotoSubmissionToGallery,
   listSiteModules: portalModules.listSiteModules,
   listModuleItems: portalModules.listModuleItems,
   createModuleItem: portalModules.createModuleItem,

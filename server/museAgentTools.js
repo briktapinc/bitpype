@@ -42,6 +42,10 @@ const PORTAL_MUTATE_TOOLS = new Set([
   'categories.assign',
   'categories.unassign',
   'categories.setScopes',
+  // Batch 125: approving a photo can change the rendered page (the
+  // module's approved-photos grid) — refresh the preview after it.
+  'photocapture.moderateSubmission',
+  'photocapture.addToGallery',
 ]);
 
 /** Tools Muse must not call in Hands-off (destructive / meta / job control). */
@@ -122,6 +126,9 @@ const PORTAL_READONLY_TOOLS = new Set([
   // Batch 124: the shared taxonomy's reads.
   'categories.list',
   'categories.items',
+  // Batch 125: Photo Capture inbox reads.
+  'photocapture.getConfig',
+  'photocapture.listSubmissions',
   'social.accounts.list',
   'social.calendar',
   'social.posts.list',
@@ -179,6 +186,9 @@ const PORTAL_DESIGN_WRITE_TOOLS = new Set([
   // service functions the portal uses.
   'categories.create', 'categories.update', 'categories.delete',
   'categories.assign', 'categories.unassign', 'categories.setScopes',
+  // Batch 125: Photo Capture config + moderation (same engine
+  // functions the portal inbox uses).
+  'photocapture.updateConfig', 'photocapture.moderateSubmission', 'photocapture.addToGallery',
 ]);
 
 /** Everything build mode may touch: reads ∪ design/content writes. */

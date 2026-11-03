@@ -717,7 +717,7 @@ const EDITORLESS = new Set(['socialfeed', 'googlereviews', 'calltracking', 'memb
       await page.goto(base + '/portal#/modules');
       await page.waitForSelector('#app:not(.hidden)', { timeout: 15000 });
       await page.waitForSelector('#sec-modules:not([hidden])', { timeout: 15000 });
-      await page.waitForFunction(() => document.querySelectorAll('#modules-type-tabs [data-module-type]').length === 23, { timeout: 15000 });
+      await page.waitForFunction(() => document.querySelectorAll('#modules-type-tabs [data-module-type]').length === 24, { timeout: 15000 });
       await page.waitForFunction(() => !!document.querySelector('#modules-items .item-card'), { timeout: 15000 });
 
       // EVERY module type: detail view + (where one exists) the editor.

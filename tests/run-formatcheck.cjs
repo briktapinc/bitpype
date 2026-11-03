@@ -49,6 +49,7 @@ const SCOPE = [
   'tests/batch123-openrouter-regressions.cjs',
   'server/categories.js',
   'tests/batch124-categories-regressions.cjs',
+  'tests/batch125-photocapture-regressions.cjs',
   'tsconfig.checkjs.json',
 ];
 

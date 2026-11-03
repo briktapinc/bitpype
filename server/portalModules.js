@@ -65,6 +65,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     let charts = null;
     let newsletter = null;
     let taxonomy = null;
+    let photocapture = null;
     if (type === 'blog') {
       // Batch 45: server-side paging when the caller asks for a page
       // (portal blog tab); no limit = the historical full list.
@@ -267,6 +268,19 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
         business_name: (leadRow && leadRow.business_name) || '',
       };
     }
+    else if (type === 'photocapture') {
+      // Batch 125: capture module — no owner-authored items. The panel
+      // carries the config, the moderation counts, the newest
+      // submissions and the gallery albums (for Add to gallery);
+      // writes ride the dedicated /modules/photocapture/* routes.
+      items = [];
+      photocapture = {
+        config: modules.getPhotoCaptureConfig(db, Number(leadId)),
+        counts: modules.countPhotoSubmissions(db, Number(leadId)),
+        submissions: modules.listPhotoSubmissions(db, Number(leadId), { limit: 100 }),
+        albums: modules.listAlbums(db, Number(leadId), { withImages: false }),
+      };
+    }
     else if (type === 'chatbot') {
       const chat = require('./chatbot');
       const summary = chat.portalChatbotSummary(db, Number(leadId));
@@ -306,6 +320,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     if (charts) out.charts = charts;
     if (newsletter) out.newsletter = newsletter;
     if (taxonomy) out.taxonomy = taxonomy;
+    if (photocapture) out.photocapture = photocapture;
     return out;
   });
 }
@@ -353,6 +368,11 @@ async function createModuleItem(workspaceId, leadId, moduleType, body, clientEma
     else if (type === 'newsletter')
       throw Object.assign(
         new Error('Newsletter subscribers join from your website’s signup block — use the Newsletter tab to add one by hand.'),
+        { code: 'VALIDATION', status: 400 }
+      );
+    else if (type === 'photocapture')
+      throw Object.assign(
+        new Error('Photos arrive from your website’s Photo Capture block — there is nothing to add by hand. Use the Photos tab to review them.'),
         { code: 'VALIDATION', status: 400 }
       );
     else if (type === 'members')
@@ -408,6 +428,11 @@ async function updateModuleItem(workspaceId, leadId, moduleType, id, body, clien
         new Error('Newsletter subscribers are managed in the Newsletter tab — there are no items to edit here.'),
         { code: 'VALIDATION', status: 400 }
       );
+    else if (type === 'photocapture')
+      throw Object.assign(
+        new Error('Photo submissions are moderated in the Photos tab — there are no items to edit here.'),
+        { code: 'VALIDATION', status: 400 }
+      );
     else if (type === 'members') {
       // The only member "edit" from the portal is a status change
       // (approve / disable / reactivate) — enforced by setSiteMemberStatus.
@@ -457,6 +482,11 @@ async function deleteModuleItem(workspaceId, leadId, moduleType, id, clientEmail
     if (type === 'newsletter')
       throw Object.assign(
         new Error('Newsletter subscribers are managed in the Newsletter tab — there are no items to delete here.'),
+        { code: 'VALIDATION', status: 400 }
+      );
+    if (type === 'photocapture')
+      throw Object.assign(
+        new Error('Photo submissions are managed in the Photos tab — delete them from there.'),
         { code: 'VALIDATION', status: 400 }
       );
     if (type === 'members') return modules.deleteSiteMember(db, Number(leadId), id);
@@ -1062,6 +1092,47 @@ async function deleteEstimateRequest(workspaceId, leadId, id, clientEmail) {
   return domain.withDb(workspaceId, (db) => modules.deleteEstimateRequest(db, Number(leadId), id));
 }
 
+/* ── Photo Capture (Batch 125) — the portal inbox's writes. Every one
+ * delegates to the siteModules engine functions, so the portal, the
+ * design agent and the MCP tools moderate through ONE code path. ── */
+
+async function savePhotoCaptureConfig(workspaceId, leadId, body, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => ({
+    config: modules.updatePhotoCaptureConfig(db, Number(leadId), body || {}),
+  }));
+}
+
+async function updatePhotoSubmission(workspaceId, leadId, id, body, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => {
+    if (body && body.status != null) {
+      return { submission: modules.updatePhotoSubmissionStatus(db, Number(leadId), id, body.status) };
+    }
+    return { submission: modules.getPhotoSubmission(db, Number(leadId), id) };
+  });
+}
+
+async function removePhotoSubmission(workspaceId, leadId, id, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => modules.deletePhotoSubmission(db, Number(leadId), id));
+}
+
+async function addPhotoSubmissionToGallery(workspaceId, leadId, id, body, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) =>
+    modules.addPhotoSubmissionToGallery(db, Number(leadId), id, body && (body.album_id || body.albumId))
+  );
+}
+
 async function updateBookingAppointment(workspaceId, leadId, id, body, clientEmail) {
   const domain = require('./domain');
   const modules = require('./siteModules');
@@ -1363,6 +1434,10 @@ module.exports = {
   saveBookingHours,
   deleteBookingAppointment,
   deleteEstimateRequest,
+  savePhotoCaptureConfig,
+  updatePhotoSubmission,
+  removePhotoSubmission,
+  addPhotoSubmissionToGallery,
   updateBookingAppointment,
   createBookingBlockAdmin,
   deleteBookingBlockAdmin,

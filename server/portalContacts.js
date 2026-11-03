@@ -117,6 +117,24 @@ function ensureTables(db) {
   } catch {
     /* race / exists */
   }
+  // Batch 125: Photo Capture submissions reference their submission
+  // row the same way (one capture event per submission, deduped by
+  // the index).
+  try {
+    const cols = db
+      .prepare('PRAGMA table_info(leadscout_events)')
+      .all()
+      .map((c) => String(c.name || ''));
+    if (!cols.includes('photo_submission_id')) {
+      db.exec('ALTER TABLE leadscout_events ADD COLUMN photo_submission_id INTEGER');
+    }
+    db.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_leadscout_photo_unique
+       ON leadscout_events(photo_submission_id) WHERE photo_submission_id IS NOT NULL`
+    );
+  } catch {
+    /* race / exists */
+  }
   // SMS opt-in state (Batch 25): the consent record lives on the contact
   // itself — sms_opted_in + the consent timestamp + the source are the
   // business's proof of consent. sms_opted_out_at is written by any
@@ -667,6 +685,83 @@ function captureFromNewsletter(db, { leadId, subscriber } = {}) {
 }
 
 /**
+ * Batch 125 — a Photo Capture submission becomes a LeadScout contact
+ * event, exactly like a form submission / booking / estimate request:
+ * one deduped contact per person (email or phone), one event per
+ * submission row (deduped by photo_submission_id), rental stamp +
+ * charge when the site is rented. The photo itself stays in the
+ * module's storage; the event payload carries the message and the
+ * stored image path so the contact timeline shows what came in.
+ */
+function captureFromPhoto(db, { leadId, submission, pageSlug } = {}) {
+  ensureTables(db);
+  try {
+    if (!submission || !submission.id) throw fail('VALIDATION', 'photo submission required');
+    const fields = {
+      name: submission.name || '',
+      email: submission.email || '',
+      phone: submission.phone || '',
+    };
+    if (!normEmail(fields.email) && !normPhone(fields.phone)) {
+      return { skipped: true, reason: 'no_identity' };
+    }
+    const contact = upsertContact(db, fields);
+    const existing = db
+      .prepare('SELECT id FROM leadscout_events WHERE photo_submission_id = ?')
+      .get(Number(submission.id));
+    if (existing) return { contact, eventId: existing.id, deduped: true };
+    const stamp = rentalStamp(db, leadId);
+    const info = db
+      .prepare(
+        `
+      INSERT INTO leadscout_events
+        (contact_id, lead_id, kind, source_label, page_slug, photo_submission_id, payload_json,
+         website_id, tenant_lead_id, rental_id)
+      VALUES (?, ?, 'photo', ?, ?, ?, ?, ?, ?, ?)
+    `
+      )
+      .run(
+        contact.id,
+        leadId != null ? Number(leadId) : null,
+        'Photo Capture',
+        pageSlug || submission.page_slug || '',
+        Number(submission.id),
+        JSON.stringify({
+          name: fields.name,
+          email: fields.email,
+          phone: fields.phone,
+          message: submission.message || '',
+          image_url: submission.image_url || '',
+          image_src: submission.image_src || '',
+          status: submission.status || 'pending',
+        }).slice(0, 8000),
+        stamp.websiteId,
+        stamp.tenantLeadId,
+        stamp.rentalId
+      );
+    const eventId = Number(info.lastInsertRowid);
+    if (stamp.rentalId) {
+      rentalCharge(db, {
+        ownerLeadId: leadId,
+        sourceKind: 'capture',
+        eventId,
+        contactLabel: fields.name || fields.email || fields.phone || '',
+      });
+    }
+    return { contact, eventId };
+  } catch (e) {
+    recordFailure(db, {
+      kind: 'photo',
+      leadId,
+      refId: submission && submission.id,
+      error: e.message || String(e),
+      payload: { submission, pageSlug },
+    });
+    return { error: e.message || String(e) };
+  }
+}
+
+/**
  * Record an SMS opt-in on the LeadScout contact (Batch 25).
  *
  * Phone-keyed upsert (same dedupe as every other capture): a repeat
@@ -877,6 +972,7 @@ function getContact(db, id, { leadId = null } = {}) {
     submissions: events.filter((e) => e.kind === 'submission'),
     estimates: events.filter((e) => e.kind === 'estimate'),
     calls: events.filter((e) => e.kind === 'call'),
+    photos: events.filter((e) => e.kind === 'photo'),
   };
 }
 
@@ -1020,6 +1116,12 @@ function retryOpenFailures(db, { leadId = null } = {}) {
         leadId: row.lead_id,
         subscriber: payload.subscriber,
       });
+    } else if (row.kind === 'photo' && payload) {
+      result = captureFromPhoto(db, {
+        leadId: row.lead_id,
+        submission: payload.submission,
+        pageSlug: payload.pageSlug,
+      });
     }
     db.prepare(
       `
@@ -1048,6 +1150,7 @@ module.exports = {
   captureFromEstimate,
   captureFromCall,
   captureFromNewsletter,
+  captureFromPhoto,
   recordSmsOptIn,
   markSmsConfirmResult,
   listContacts,

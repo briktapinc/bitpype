@@ -5391,9 +5391,10 @@
     { type: 'charts', label: 'Charts' },
     { type: 'newsletter', label: 'Newsletter' },
     { type: 'categories', label: 'Categories' },
+    { type: 'photocapture', label: 'Photo Capture' },
   ];
   const MODULE_NAV_GROUPS = [
-    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed', 'googlereviews', 'datatables', 'charts', 'categories'] },
+    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed', 'googlereviews', 'datatables', 'charts', 'categories', 'photocapture'] },
     { id: 'people', label: 'People', types: ['team', 'testimonials', 'careers', 'members', 'newsletter'] },
     { id: 'schedule', label: 'Schedule', types: ['events', 'bookings'] },
     { id: 'assist', label: 'Assist', types: ['chatbot', 'calltracking'] },
@@ -5458,6 +5459,7 @@
     charts: { singular: 'chart', plural: 'charts', newBtn: 'New chart', kicker: 'Chart' },
     newsletter: { singular: 'subscriber', plural: 'subscribers', newBtn: 'Add subscriber', kicker: 'Subscriber' },
     categories: { singular: 'category', plural: 'categories', newBtn: 'New category', kicker: 'Category' },
+    photocapture: { singular: 'photo', plural: 'photos', newBtn: 'New photo', kicker: 'Photo submission' },
   };
   const BOOKING_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const MODULE_STORAGE_KEY = 'bp-portal-module';
@@ -5936,6 +5938,7 @@
     const ctPane = document.getElementById('modules-pane-calltracking');
     const membersPane = document.getElementById('modules-pane-members');
     const nlPane = document.getElementById('modules-pane-newsletter');
+    const pcPane = document.getElementById('modules-pane-photocapture');
     const results = document.getElementById('modules-pane-results');
     const bookingPanel = document.getElementById('modules-booking-panel');
     const isBookings = moduleState.current === 'bookings';
@@ -5946,7 +5949,8 @@
     const isCallTracking = moduleState.current === 'calltracking';
     const isMembers = moduleState.current === 'members';
     const isNewsletter = moduleState.current === 'newsletter';
-    const showTabs = isBookings || isChatbot || isEstimate || isSocialfeed || isGoogleReviews || isCallTracking || isMembers || isNewsletter;
+    const isPhotoCapture = moduleState.current === 'photocapture';
+    const showTabs = isBookings || isChatbot || isEstimate || isSocialfeed || isGoogleReviews || isCallTracking || isMembers || isNewsletter || isPhotoCapture;
     if (isBookings) {
       const allowed = new Set(['content', 'hours', 'appointments']);
       if (!allowed.has(moduleState.pane)) moduleState.pane = 'content';
@@ -5971,6 +5975,10 @@
     } else if (isNewsletter) {
       // Newsletter has no item list either — its only pane is Newsletter.
       moduleState.pane = 'newsletter';
+    } else if (isPhotoCapture) {
+      // Photo Capture has no item list either — its only pane is Photos
+      // (config + the moderation inbox).
+      moduleState.pane = 'photocapture';
     } else {
       moduleState.pane = 'content';
     }
@@ -5993,7 +6001,9 @@
                   ? 'Membership sections'
                   : isNewsletter
                     ? 'Newsletter sections'
-                    : 'Bookings sections'
+                    : isPhotoCapture
+                      ? 'Photo Capture sections'
+                      : 'Bookings sections'
       );
       tabs.querySelectorAll('[data-modules-pane]').forEach((btn) => {
         const pane = btn.getAttribute('data-modules-pane');
@@ -6012,7 +6022,8 @@
             (isCallTracking && forAttr === 'calltracking') ||
             (isMembers && forAttr === 'members') ||
             (isNewsletter && forAttr === 'newsletter') ||
-            (forAttr === 'both' && showTabs && !isSocialfeed && !isGoogleReviews && !isCallTracking && !isMembers && !isNewsletter)
+            (isPhotoCapture && forAttr === 'photocapture') ||
+            (forAttr === 'both' && showTabs && !isSocialfeed && !isGoogleReviews && !isCallTracking && !isMembers && !isNewsletter && !isPhotoCapture)
           : visible;
         btn.hidden = !showBtn;
         if (pane === 'content' && showBtn) {
@@ -6037,6 +6048,7 @@
     if (ctPane) ctPane.hidden = !(isCallTracking && moduleState.pane === 'calls');
     if (membersPane) membersPane.hidden = !(isMembers && moduleState.pane === 'members');
     if (nlPane) nlPane.hidden = !(isNewsletter && moduleState.pane === 'newsletter');
+    if (pcPane) pcPane.hidden = !(isPhotoCapture && moduleState.pane === 'photocapture');
     if (results) results.hidden = true;
     if (bookingPanel) bookingPanel.hidden = true;
     if (isChatbot && moduleState.pane === 'settings') renderChatbotSettingsPanel();
@@ -6081,6 +6093,8 @@
                 ? 'Charts drawn from your Data Table or from numbers you type in — bar, line, pie and more. A chart bound to the table updates itself whenever the table changes.'
               : moduleState.current === 'newsletter'
                 ? 'Your newsletter — subscribers join from the signup block on your site. Compose an issue, preview it, then send it to everyone on the list.'
+              : moduleState.current === 'photocapture'
+                ? 'Visitors send you photos from your site — review them here. Nothing is shown publicly until you approve it, and approved photos can be added to a gallery album.'
               : `Manage ${copy.plural} for your ${(meta && meta.label) || 'module'}.`;
     }
     const newBtn = document.getElementById('btn-modules-new');
@@ -6788,6 +6802,273 @@
       </div>
       <h3 style="margin-top:18px">What your visitors will see</h3>
       <div id="modules-googlereviews-preview">${previewHtml}</div>`;
+  }
+
+  // Batch 125 — Photo Capture panel: capture-block settings plus the
+  // moderation inbox. DOM APIs only, like the newsletter panel.
+  // Submissions arrive from the public site; the owner approves or
+  // rejects each one, and an approved photo can be pushed into a
+  // gallery album (the server writes it through the gallery's own
+  // path). Pending/rejected photos are never public.
+  function renderPhotoCaptureAdminPanel() {
+    const host = document.getElementById('modules-photocapture-panel');
+    if (!host) return;
+    if (moduleState.current !== 'photocapture') {
+      host.textContent = '';
+      return;
+    }
+    const data = moduleState.photocapture || {};
+    const cfg = data.config || {};
+    const counts = data.counts || { pending: 0, approved: 0, rejected: 0, total: 0 };
+    const submissions = Array.isArray(data.submissions) ? data.submissions : [];
+    const albums = Array.isArray(data.albums) ? data.albums : [];
+    const filter = moduleState.pcFilter || 'all';
+
+    const pcEl = (tag, cls, text) => {
+      const n = document.createElement(tag);
+      if (cls) n.className = cls;
+      if (text != null) n.textContent = String(text);
+      return n;
+    };
+    const pcField = (labelText, input, hintText) => {
+      const wrap = pcEl('div', 'field');
+      wrap.appendChild(pcEl('label', null, labelText));
+      wrap.appendChild(input);
+      if (hintText) wrap.appendChild(pcEl('p', 'hint', hintText));
+      return wrap;
+    };
+    const pcText = (id, value, placeholder) => {
+      const i = document.createElement('input');
+      i.type = 'text';
+      i.id = id;
+      i.value = value || '';
+      if (placeholder) i.placeholder = placeholder;
+      i.autocomplete = 'off';
+      i.spellcheck = false;
+      return i;
+    };
+    const whenLabel = (v) => {
+      const t = Date.parse(String(v || '').replace(' ', 'T') + (String(v || '').includes('T') ? '' : 'Z'));
+      return Number.isFinite(t) ? new Date(t).toLocaleString() : '';
+    };
+    const refresh = async () => {
+      await loadModuleItems();
+    };
+
+    host.textContent = '';
+    host.appendChild(pcEl('h3', null, 'Photo Capture'));
+    host.appendChild(
+      pcEl(
+        'p',
+        'hint',
+        'Visitors take or upload a photo on your site and leave their name plus an email or phone. Every photo waits here for your decision — nothing is public until you approve it. Submitters also land in your contacts automatically.'
+      )
+    );
+
+    /* ---- Capture block settings ---- */
+    const headingInput = pcText('pc-heading', cfg.heading, 'Share your photo');
+    const introInput = document.createElement('textarea');
+    introInput.id = 'pc-intro';
+    introInput.rows = 2;
+    introInput.value = cfg.intro || '';
+    const submitInput = pcText('pc-submit-label', cfg.submit_label, 'Send photo');
+    const successInput = pcText('pc-success', cfg.success_message, 'Thanks — your photo is in.');
+    const showWrap = pcEl('div', 'field');
+    const showLabel = pcEl('label', null, 'Show approved photos on the page');
+    const showInput = document.createElement('input');
+    showInput.type = 'checkbox';
+    showInput.id = 'pc-show-approved';
+    showInput.checked = !!cfg.show_approved;
+    showLabel.appendChild(showInput);
+    showWrap.appendChild(showLabel);
+    showWrap.appendChild(
+      pcEl('p', 'hint', 'When on, approved photos also appear as a grid under the capture form on your site. Off by default.')
+    );
+    const limitInput = document.createElement('input');
+    limitInput.type = 'number';
+    limitInput.id = 'pc-grid-limit';
+    limitInput.min = '1';
+    limitInput.max = '60';
+    limitInput.value = cfg.grid_limit != null ? String(cfg.grid_limit) : '12';
+    host.appendChild(pcField('Block heading', headingInput));
+    host.appendChild(pcField('Block text', introInput));
+    host.appendChild(pcField('Button label', submitInput));
+    host.appendChild(pcField('Thank-you message', successInput, 'Shown to every visitor after they send a photo, whatever you later decide.'));
+    host.appendChild(showWrap);
+    host.appendChild(pcField('Photos in the public grid (max)', limitInput));
+    const saveBtn = pcEl('button', 'btn soft small', 'Save photo capture settings');
+    saveBtn.type = 'button';
+    saveBtn.addEventListener('click', async () => {
+      moduleMsg('Saving photo capture settings…', true);
+      try {
+        await api('/modules/photocapture/config', {
+          method: 'PUT',
+          body: JSON.stringify({
+            heading: headingInput.value,
+            intro: introInput.value,
+            submit_label: submitInput.value,
+            success_message: successInput.value,
+            show_approved: showInput.checked,
+            grid_limit: Number(limitInput.value) || 12,
+          }),
+        });
+        moduleMsg('Photo capture settings saved.', true);
+        await refresh();
+      } catch (e) {
+        moduleMsg(errText(e), false);
+      }
+    });
+    const saveRow = pcEl('div', 'row');
+    saveRow.style.gap = '6px';
+    saveRow.appendChild(saveBtn);
+    host.appendChild(saveRow);
+
+    /* ---- Moderation inbox ---- */
+    const inboxH = pcEl('h3', null, 'Submissions');
+    inboxH.style.marginTop = '18px';
+    host.appendChild(inboxH);
+    host.appendChild(
+      pcEl(
+        'p',
+        'hint',
+        `${counts.pending} waiting · ${counts.approved} approved · ${counts.rejected} rejected · ${counts.total} total`
+      )
+    );
+    const filterRow = pcEl('div', 'row');
+    filterRow.style.gap = '6px';
+    filterRow.style.flexWrap = 'wrap';
+    [
+      ['all', 'All'],
+      ['pending', 'Waiting'],
+      ['approved', 'Approved'],
+      ['rejected', 'Rejected'],
+    ].forEach(([key, label]) => {
+      const b = pcEl('button', `btn small${filter === key ? '' : ' soft'}`, label);
+      b.type = 'button';
+      b.addEventListener('click', () => {
+        moduleState.pcFilter = key;
+        renderPhotoCaptureAdminPanel();
+      });
+      filterRow.appendChild(b);
+    });
+    host.appendChild(filterRow);
+
+    const visible = submissions.filter((s) => filter === 'all' || s.status === filter);
+    if (!visible.length) {
+      host.appendChild(
+        pcEl('p', 'hint', submissions.length ? 'No submissions with this status.' : 'No photos yet — they will land here as visitors send them.')
+      );
+      return;
+    }
+    const list = pcEl('div');
+    list.style.display = 'flex';
+    list.style.flexDirection = 'column';
+    list.style.gap = '16px';
+    list.style.marginTop = '10px';
+    for (const s of visible) {
+      const card = pcEl('div', 'panel');
+      card.style.display = 'flex';
+      card.style.gap = '16px';
+      card.style.flexWrap = 'wrap';
+      const img = document.createElement('img');
+      img.src = s.display_url || s.image_url || '';
+      img.alt = s.message || s.name || 'Submitted photo';
+      img.style.width = '140px';
+      img.style.height = '140px';
+      img.style.objectFit = 'cover';
+      img.style.borderRadius = '10px';
+      card.appendChild(img);
+      const body = pcEl('div');
+      body.style.flex = '1 1 260px';
+      body.style.minWidth = '0';
+      const titleLine = pcEl('p');
+      titleLine.appendChild(pcEl('strong', null, s.name || 'Visitor'));
+      titleLine.appendChild(document.createTextNode(` — ${s.status}`));
+      body.appendChild(titleLine);
+      const contactBits = [s.email, s.phone].filter(Boolean).join(' · ');
+      if (contactBits) body.appendChild(pcEl('p', 'hint', contactBits));
+      if (s.message) body.appendChild(pcEl('p', null, s.message));
+      const when = whenLabel(s.created_at);
+      if (when) body.appendChild(pcEl('p', 'hint', `Sent ${when}`));
+      const actions = pcEl('div', 'row');
+      actions.style.gap = '6px';
+      actions.style.flexWrap = 'wrap';
+      actions.style.marginTop = '8px';
+      const moderate = async (status) => {
+        moduleMsg(`${status === 'approved' ? 'Approving' : 'Rejecting'} photo…`, true);
+        try {
+          await api(`/modules/photocapture/submissions/${encodeURIComponent(s.id)}`, {
+            method: 'PUT',
+            body: JSON.stringify({ status }),
+          });
+          moduleMsg(`Photo ${status}.`, true);
+          await refresh();
+        } catch (e) {
+          moduleMsg(errText(e), false);
+        }
+      };
+      if (s.status !== 'approved') {
+        const b = pcEl('button', 'btn small', 'Approve');
+        b.type = 'button';
+        b.addEventListener('click', () => moderate('approved'));
+        actions.appendChild(b);
+      }
+      if (s.status !== 'rejected') {
+        const b = pcEl('button', 'btn soft small', 'Reject');
+        b.type = 'button';
+        b.addEventListener('click', () => moderate('rejected'));
+        actions.appendChild(b);
+      }
+      if (s.status === 'approved') {
+        if (s.gallery_image_id) {
+          actions.appendChild(pcEl('span', 'hint', 'In your gallery ✓'));
+        } else if (albums.length) {
+          const sel = document.createElement('select');
+          for (const a of albums) {
+            const opt = document.createElement('option');
+            opt.value = String(a.id);
+            opt.textContent = a.title || `Album ${a.id}`;
+            sel.appendChild(opt);
+          }
+          actions.appendChild(sel);
+          const b = pcEl('button', 'btn soft small', 'Add to gallery');
+          b.type = 'button';
+          b.addEventListener('click', async () => {
+            moduleMsg('Adding photo to gallery…', true);
+            try {
+              await api(`/modules/photocapture/submissions/${encodeURIComponent(s.id)}/gallery`, {
+                method: 'POST',
+                body: JSON.stringify({ album_id: Number(sel.value) }),
+              });
+              moduleMsg('Photo added to the gallery.', true);
+              await refresh();
+            } catch (e) {
+              moduleMsg(errText(e), false);
+            }
+          });
+          actions.appendChild(b);
+        } else {
+          actions.appendChild(pcEl('span', 'hint', 'Create a gallery album to file this photo.'));
+        }
+      }
+      const del = pcEl('button', 'btn ghost small danger', 'Delete');
+      del.type = 'button';
+      del.addEventListener('click', async () => {
+        moduleMsg('Deleting photo…', true);
+        try {
+          await api(`/modules/photocapture/submissions/${encodeURIComponent(s.id)}`, { method: 'DELETE' });
+          moduleMsg('Photo deleted.', true);
+          await refresh();
+        } catch (e) {
+          moduleMsg(errText(e), false);
+        }
+      });
+      actions.appendChild(del);
+      body.appendChild(actions);
+      card.appendChild(body);
+      list.appendChild(card);
+    }
+    host.appendChild(list);
   }
 
   // Batch 118 — Newsletter panel. Built with DOM APIs only (no
@@ -7949,6 +8230,7 @@
     moduleState.socialfeed = data.socialfeed || null;
     moduleState.googlereviews = data.googlereviews || null;
     moduleState.newsletter = data.newsletter || null;
+    moduleState.photocapture = data.photocapture || null;
     moduleState.calltracking = data.calltracking || null;
     moduleState.members = data.members || null;
     moduleState.shop = data.shop || null;
@@ -7972,6 +8254,7 @@
     renderSocialFeedAdminPanel();
     renderGoogleReviewsAdminPanel();
     renderNewsletterAdminPanel();
+    renderPhotoCaptureAdminPanel();
     renderCallTrackingAdminPanel();
     renderMembersAdminPanel();
     renderMenuCategoriesPanel();

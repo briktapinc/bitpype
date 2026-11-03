@@ -174,6 +174,30 @@ async function notifyOwnerOfEstimateRequest(workspaceId, requestId) {
   });
 }
 
+/** Batch 125 — a visitor sent a photo through the Photo Capture module. */
+async function notifyOwnerOfPhotoSubmission(workspaceId, submissionId) {
+  return dispatch(workspaceId, (db) => {
+    const row = db
+      .prepare('SELECT * FROM photocapture_submissions WHERE id = ?')
+      .get(Number(submissionId));
+    if (!row) return null;
+    const paragraphs = [
+      'A visitor sent a photo through your website. It is waiting in your Photo Capture inbox — nothing is shown publicly until you approve it.',
+      line('Name', row.name),
+      line('Email', row.email),
+      line('Phone', row.phone),
+      line('Message', row.message),
+    ].filter(Boolean);
+    return {
+      leadId: Number(row.lead_id),
+      rentalRoutable: true,
+      subject: 'New photo submitted from your website',
+      paragraphs,
+      cta: portalCta('Review photo submissions in your portal'),
+    };
+  });
+}
+
 /** A visitor created a member account (members module signup). */
 async function notifyOwnerOfMemberSignup(workspaceId, memberId) {
   return dispatch(workspaceId, (db) => {
@@ -276,6 +300,7 @@ async function notifyOwnerOfShopOrder(workspaceId, orderId) {
 module.exports = {
   notifyOwnerOfBooking,
   notifyOwnerOfEstimateRequest,
+  notifyOwnerOfPhotoSubmission,
   notifyOwnerOfMemberSignup,
   notifyOwnerOfMembership,
   notifyOwnerOfShopOrder,

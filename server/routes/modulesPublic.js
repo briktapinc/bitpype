@@ -354,6 +354,77 @@ router.post('/:token/newsletter/subscribe', bookLimit, captcha, async (req, res)
   }
 });
 
+/**
+ * Batch 125 — Photo Capture submission. The photo arrives as a
+ * base64 data URL and is stored through the SAME module-asset
+ * pipeline the portal's image uploads use (content sniff, ~5 MB cap,
+ * optimization, site export folder) — never a parallel store. The
+ * pipeline call is async and opens its own db session, so the flow
+ * is: resolve the embed (gates: archived / suspended / member) →
+ * store the photo → record the submission (LeadScout capture rides
+ * inside createPhotoSubmission). The visitor's response is
+ * state-blind: the same thanks whatever moderation later decides.
+ */
+router.post('/:token/photocapture', bookLimit, captcha, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    const body = req.body || {};
+    const image = String(body.image || body.imageData || body.data || '');
+    if (!image.trim()) {
+      const err = new Error('Please choose a photo to send');
+      err.code = 'VALIDATION';
+      throw err;
+    }
+    const resolved = domain.withDb(workspaceId, (db) => {
+      const payload = siteModules.getPublicModuleByToken(db, req.params.token, gateOpts(req));
+      if (payload.module_type !== 'photocapture') {
+        const err = new Error('Photo Capture module not found');
+        err.code = 'NOT_FOUND';
+        err.status = 404;
+        throw err;
+      }
+      if (payload.locked) {
+        const err = new Error('Sign in to send a photo');
+        err.code = 'MEMBER_LOCKED';
+        err.status = 403;
+        throw err;
+      }
+      return { leadId: Number(payload.embed.lead_id) };
+    });
+    let stored;
+    try {
+      stored = await require('../portalSiteEdits').applyModuleAssetUpload(workspaceId, resolved.leadId, {
+        data: image,
+        mimeType: body.mimeType || body.mime_type || '',
+      });
+    } catch (e) {
+      const err = new Error(e.message || 'That photo could not be accepted');
+      err.code = 'VALIDATION';
+      throw err;
+    }
+    const data = domain.withDb(workspaceId, (db) =>
+      siteModules.createPublicPhotoSubmissionByToken(
+        db,
+        req.params.token,
+        {
+          name: body.name,
+          email: body.email,
+          phone: body.phone,
+          message: body.message,
+          image_url: stored.publicUrl || stored.src || '',
+          image_src: stored.src || '',
+          page_slug: body.pageSlug || body.page_slug || gateOpts(req).pageSlug || '',
+        },
+        gateOpts(req)
+      )
+    );
+    res.json({ ok: true, data: { message: data.message, workspaceId } });
+    fireOwnerNotify('notifyOwnerOfPhotoSubmission', workspaceId, data.submission && data.submission.id);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 /** Member login — returns a session token the embed keeps in localStorage. */
 router.post('/:token/members/login', memberLimit, captcha, async (req, res) => {
   try {

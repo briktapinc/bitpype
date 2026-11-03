@@ -2844,6 +2844,78 @@ const tools = [
     },
   },
   {
+    name: 'photocapture.getConfig',
+    description:
+      'Get the Photo Capture config for a lead (heading, intro, submit label, success message, show_approved public grid, grid_limit) plus submission counts by status.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+      },
+      required: ['leadId'],
+    },
+  },
+  {
+    name: 'photocapture.listSubmissions',
+    description:
+      'List Photo Capture submissions for a lead (newest first), optionally filtered by status pending|approved|rejected. Only approved photos are public.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        status: { type: 'string' },
+        limit: { type: 'integer', minimum: 1 },
+      },
+      required: ['leadId'],
+    },
+  },
+  {
+    name: 'photocapture.updateConfig',
+    description:
+      'Update the Photo Capture config (heading, intro, submit_label, success_message, show_approved, grid_limit 1–60). Same config the portal edits.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        heading: { type: 'string' },
+        intro: { type: 'string' },
+        submit_label: { type: 'string' },
+        success_message: { type: 'string' },
+        show_approved: { type: 'boolean' },
+        grid_limit: { type: 'integer', minimum: 1 },
+      },
+      required: ['leadId'],
+    },
+  },
+  {
+    name: 'photocapture.moderateSubmission',
+    description:
+      'Approve or reject one Photo Capture submission (status pending|approved|rejected). Approving publishes the photo to the shared layer and, when enabled, the public grid; rejecting hides it everywhere. Re-approving a rejected photo is allowed.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        id: { type: 'integer', minimum: 1 },
+        status: { type: 'string' },
+      },
+      required: ['leadId', 'id', 'status'],
+    },
+  },
+  {
+    name: 'photocapture.addToGallery',
+    description:
+      "Copy an APPROVED Photo Capture submission into a gallery album through the gallery's own write path (a real gallery image row). The album must belong to the same lead.",
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        id: { type: 'integer', minimum: 1 },
+        album_id: { type: 'integer', minimum: 1 },
+      },
+      required: ['leadId', 'id', 'album_id'],
+    },
+  },
+  {
     name: 'events.delete',
     description: 'Delete an event by id (Standard/Premium).',
     schema: {

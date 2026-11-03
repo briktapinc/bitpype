@@ -3345,6 +3345,49 @@ function createParityTools(ctx) {
       };
     }),
 
+    // Batch 125 — Photo Capture parity: delegates to the same
+    // siteModules engine functions as the hosted handlers.
+    'photocapture.getConfig': parityEntry('photocapture.getConfig', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return {
+        ok: true,
+        data: {
+          config: siteModules().getPhotoCaptureConfig(db, leadId),
+          counts: siteModules().countPhotoSubmissions(db, leadId),
+        },
+      };
+    }),
+    'photocapture.listSubmissions': parityEntry('photocapture.listSubmissions', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return {
+        ok: true,
+        data: {
+          submissions: siteModules().listPhotoSubmissions(db, leadId, {
+            status: args.status || null,
+            limit: args.limit || 50,
+          }),
+        },
+      };
+    }),
+    'photocapture.updateConfig': parityEntry('photocapture.updateConfig', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: { config: siteModules().updatePhotoCaptureConfig(db, leadId, { ...args }) } };
+    }),
+    'photocapture.moderateSubmission': parityEntry('photocapture.moderateSubmission', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return {
+        ok: true,
+        data: { submission: siteModules().updatePhotoSubmissionStatus(db, leadId, id, args.status) },
+      };
+    }),
+    'photocapture.addToGallery': parityEntry('photocapture.addToGallery', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      const albumId = requireId(args.album_id || args.albumId, 'album_id');
+      return { ok: true, data: siteModules().addPhotoSubmissionToGallery(db, leadId, id, albumId) };
+    }),
+
     'courses.addLesson': parityEntry('courses.addLesson', (args) => {
       const leadId = requireId(args.leadId, 'leadId');
       const courseId = requireId(args.courseId, 'courseId');
