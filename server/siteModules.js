@@ -1302,6 +1302,35 @@ function assertSiteNotArchived(db, leadId) {
   }
 }
 
+/**
+ * Batch 119: the public-surface twin of the serve-time 503 gate. A
+ * suspended account's site must not serve module content either —
+ * the same marker rows the /site-previews gate reads
+ * (subscription_site_suspensions, written/cleared by
+ * server/subscriptionSuspension.js). Called beside
+ * assertSiteNotArchived at the public token entry points only, so
+ * staff/portal management of a suspended client's modules is never
+ * blocked. The error stays generic — no suspension details leak to
+ * the site's visitors.
+ */
+function assertSiteNotSuspended(db, leadId) {
+  let marked = null;
+  try {
+    marked = db
+      .prepare(
+        `SELECT s.website_id FROM subscription_site_suspensions s
+           JOIN websites w ON w.id = s.website_id
+          WHERE w.lead_id = ? LIMIT 1`
+      )
+      .get(Number(leadId));
+  } catch {
+    return; // no marker table in this workspace — never suspended
+  }
+  if (marked) {
+    throw fail('SITE_UNAVAILABLE', 'This site is temporarily unavailable', 503);
+  }
+}
+
 function listEmbeds(db, leadId) {
   ensureTables(db);
   return db.prepare('SELECT * FROM site_module_embeds WHERE lead_id = ? ORDER BY module_type').all(Number(leadId));
@@ -3807,6 +3836,7 @@ async function createShopCheckoutByToken(db, token, { productId, returnUrl } = {
     throw fail('NOT_FOUND', 'Shop module not found', 404);
   }
   assertSiteNotArchived(db, row.lead_id);
+  assertSiteNotSuspended(db, row.lead_id);
   assertMemberAccessForEmbed(db, row, opts);
   const product = getProduct(db, row.lead_id, productId);
   if (!product || product.status !== 'published') {
@@ -5763,6 +5793,7 @@ function createPublicEstimateRequestByToken(db, token, data = {}, opts = {}) {
     throw fail('NOT_FOUND', 'Estimate module not found', 404);
   }
   assertSiteNotArchived(db, row.lead_id);
+  assertSiteNotSuspended(db, row.lead_id);
   assertMemberAccessForEmbed(db, row, opts);
   const request = createEstimateRequest(db, row.lead_id, data);
   const hidden = request.display_mode === 'hidden';
@@ -7039,6 +7070,7 @@ function createPublicDataTableSubmissionByToken(db, token, data = {}, opts = {})
     throw fail('NOT_FOUND', 'Data table not found', 404);
   }
   assertSiteNotArchived(db, row.lead_id);
+  assertSiteNotSuspended(db, row.lead_id);
   assertMemberAccessForEmbed(db, row, opts);
   const { row: created, mode } = createPublicDataTableSubmission(db, row.lead_id, data);
   return {
@@ -10081,6 +10113,7 @@ function membersEmbedByToken(db, token) {
   // Review fix: every public member flow funnels through here — an
   // archived site's membership surface closes with the site.
   assertSiteNotArchived(db, row.lead_id);
+  assertSiteNotSuspended(db, row.lead_id);
   return row;
 }
 
@@ -11114,6 +11147,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
   }
   // Review fix: no public module payload serves an archived site.
   assertSiteNotArchived(db, leadId);
+  assertSiteNotSuspended(db, leadId);
   // Membership: the members module itself is never gated; its payload
   // carries the caller's own member state for the public auth surface.
   if (type === 'members') return publicMembersPayload(db, row, opts);
@@ -11325,6 +11359,7 @@ function getPublicBookingSlots(db, token, { date, serviceId, serviceSlug } = {},
     throw fail('NOT_FOUND', 'Bookings module not found', 404);
   }
   assertSiteNotArchived(db, row.lead_id);
+  assertSiteNotSuspended(db, row.lead_id);
   assertMemberAccessForEmbed(db, row, opts);
   return {
     embed: publicEmbed(row),
@@ -11343,6 +11378,7 @@ function createPublicBookingByToken(db, token, data = {}, opts = {}) {
     throw fail('NOT_FOUND', 'Bookings module not found', 404);
   }
   assertSiteNotArchived(db, row.lead_id);
+  assertSiteNotSuspended(db, row.lead_id);
   assertMemberAccessForEmbed(db, row, opts);
   const appointment = createPublicBooking(db, row.lead_id, data);
   return {

@@ -1387,6 +1387,26 @@ async function dispatchWebhookEvent(event, deps = {}) {
 
   if (type.startsWith('customer.subscription.') && obj) {
     await syncSubscription(obj);
+    // Batch 119: suspension transitions (server/subscriptionSuspension.js).
+    // Status 'unpaid' means Stripe's automatic retries are exhausted —
+    // the account suspends (serve-time 503 on its sites, portal narrowed
+    // to billing, weekly renewal emails). A return to active/trialing
+    // (the customer fixed their card and the invoice settled) restores.
+    // Deleted terminates the episode and the Batch 37 termination path
+    // below owns the account from there. Best-effort, like every hook
+    // in this dispatcher: a suspension failure never fails the webhook.
+    try {
+      const suspension = require('./subscriptionSuspension');
+      if (type === 'customer.subscription.deleted') {
+        await suspension.terminateForSubscription(obj, deps);
+      } else if (String(obj.status || '') === 'unpaid') {
+        await suspension.suspendForSubscription(obj, deps);
+      } else if (String(obj.status || '') === 'active' || String(obj.status || '') === 'trialing') {
+        await suspension.restoreForSubscriptionEvent(obj, deps);
+      }
+    } catch (e) {
+      console.warn('[billing] suspension transition:', e.message);
+    }
     // Batch 37: the subscription has ENDED (a period-end cancellation
     // concluding, or dunning exhaustion) — the owner's website comes
     // offline now, not before. subscription.updated (which is how a
@@ -1458,6 +1478,14 @@ async function dispatchWebhookEvent(event, deps = {}) {
         console.warn('[billing] domain renewal reconcile (invoice.paid):', e.message);
       }
     }
+    // Batch 119: a settled invoice restores a suspended account —
+    // serve markers cleared, weekly emails stop. (The subscription's
+    // own return to 'active' lands on the same restore.) Best-effort.
+    try {
+      await require('./subscriptionSuspension').restoreForInvoice(obj, deps);
+    } catch (e) {
+      console.warn('[billing] suspension restore (invoice.paid):', e.message);
+    }
     // Batch 37: monthly renewal email — ONLY on a genuine subscription
     // cycle renewal whose payment row was newly inserted (the dedupe in
     // recordPaymentFromInvoice), never for the first payment, and never
@@ -1509,6 +1537,26 @@ async function dispatchWebhookEvent(event, deps = {}) {
       await require('./lifecycleComms').sendPaymentFailedEmail(obj, deps);
     } catch (e) {
       console.warn('[billing] payment failed email:', e.message);
+    }
+    // Batch 119: next_payment_attempt null means Stripe will NOT
+    // retry this invoice again — dunning is exhausted. If the
+    // subscription still exists in a failed state (past_due/unpaid),
+    // the account suspends now; the subscription.updated → 'unpaid'
+    // event lands on the same idempotent path as a backstop. When
+    // the Stripe account cancels on exhaustion instead, the sub is
+    // already 'canceled' here and the termination path owns it.
+    if (obj.next_payment_attempt == null && obj.subscription) {
+      try {
+        const stripe = await getStripe();
+        const subId = typeof obj.subscription === 'string' ? obj.subscription : obj.subscription.id;
+        const sub = await stripe.subscriptions.retrieve(subId);
+        const st = String((sub && sub.status) || '');
+        if (st === 'past_due' || st === 'unpaid') {
+          await require('./subscriptionSuspension').suspendForSubscription(sub, deps);
+        }
+      } catch (e) {
+        console.warn('[billing] suspension on final failure:', e.message);
+      }
     }
     return;
   }
@@ -1627,12 +1675,29 @@ async function billingSummary(userId, opts = {}) {
     const live = await getLiveSubscription(user);
     cancelAtPeriodEnd = !!(live && live.cancel_at_period_end);
   }
+  // Batch 119: an active suspension episode rides the summary so the
+  // staff shell can banner it and the Billing page can explain it.
+  let suspension = null;
+  try {
+    const row = await require('./subscriptionSuspension').getActiveSuspensionForUser(userId);
+    if (row) {
+      suspension = {
+        suspendedAt: row.suspended_at || null,
+        reason: row.reason || null,
+        subscriptionId: row.subscription_id || null,
+      };
+    }
+  } catch {
+    /* the summary must never fail on the suspension read */
+  }
   return {
     email: user.email,
     name: user.name,
     isSuperAdmin: Number(user.is_super_admin) === 1,
     subscriptionStatus: user.subscription_status || 'none',
     subscribed: isSubscribed(user),
+    suspended: !!suspension,
+    suspension,
     healthyPaid,
     pastDue: String(user.subscription_status || '') === 'past_due',
     productAccess,

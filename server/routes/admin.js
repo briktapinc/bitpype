@@ -681,6 +681,37 @@ router.post('/payments/:id/refund', async (req, res) => {
   }
 });
 
+// ---------- Batch 119: subscription suspensions ----------
+// Staff visibility into payment-failure suspensions (reason + date +
+// weekly-email count) and a manual unsuspend for support cases. The
+// manual path uses the same restore as a successful payment: markers
+// cleared, episode closed, audit row written.
+router.get('/suspensions', async (req, res) => {
+  try {
+    const suspension = require('../subscriptionSuspension');
+    ok(res, { suspensions: await suspension.listActiveSuspensions() });
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.post('/suspensions/:userId/unsuspend', async (req, res) => {
+  try {
+    const suspension = require('../subscriptionSuspension');
+    const result = await suspension.restoreForUser(Number(req.params.userId), {}, { via: 'admin_manual', force: true });
+    if (!result) {
+      return res.status(404).json({ ok: false, error: 'No active suspension for this account' });
+    }
+    await platform.audit(
+      req.session.userId,
+      'subscription.unsuspend',
+      `userId=${req.params.userId} suspensionId=${result.id}`
+    );
+    ok(res, { restored: true, suspensionId: result.id });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 // ---------- Upsell / Did you know tips ----------
 router.get('/upsell-tips', async (req, res) => {
   try {

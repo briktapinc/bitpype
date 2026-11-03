@@ -240,6 +240,52 @@ async function requireSubscription(req, res, next) {
   }
 }
 
+/**
+ * Batch 119: while a subscription-suspension episode is active, the
+ * suspended account's product-API WRITES stop (reads continue, and
+ * the billing/auth surfaces — mounted outside this chain — stay
+ * reachable so the owner can pay). Session users are blocked when
+ * their own account is suspended; any actor (session or workspace
+ * token) is blocked when the workspace they're acting in is under a
+ * suspension episode. Super admins are never blocked — staff must be
+ * able to work in a suspended workspace to help the customer.
+ */
+async function blockSuspendedWrites(req, res, next) {
+  try {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+    const suspension = require('./subscriptionSuspension');
+    const sessionUserId = req.session && req.session.userId;
+    if (sessionUserId) {
+      const user = req.sessionUser || (await loadSessionUser(sessionUserId));
+      if (user && Number(user.is_super_admin) === 1) return next();
+      if (user && (await suspension.userIsSuspended(user.id))) {
+        return res.status(403).json({
+          ok: false,
+          error: 'ACCOUNT_SUSPENDED',
+          code: 'ACCOUNT_SUSPENDED',
+          message: 'This account is suspended because a subscription payment failed. Renew the plan to restore write access.',
+        });
+      }
+    }
+    const workspaceId =
+      (req.auth && req.auth.workspaceId) || Number(req.headers['x-workspace-id'] || (req.session && req.session.workspaceId) || 0);
+    if (workspaceId) {
+      const wsSuspension = await suspension.getActiveSuspensionForWorkspace(workspaceId);
+      if (wsSuspension) {
+        return res.status(403).json({
+          ok: false,
+          error: 'ACCOUNT_SUSPENDED',
+          code: 'ACCOUNT_SUSPENDED',
+          message: 'This workspace is suspended because a subscription payment failed. Renew the plan to restore write access.',
+        });
+      }
+    }
+    return next();
+  } catch (e) {
+    return next(e);
+  }
+}
+
 module.exports = {
   requireAuth,
   requireWorkspace,
@@ -249,4 +295,5 @@ module.exports = {
   pinTokenLeadFilter,
   requireSuperAdmin,
   requireSubscription,
+  blockSuspendedWrites,
 };

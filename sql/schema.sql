@@ -553,4 +553,36 @@ CREATE TABLE IF NOT EXISTS wp_design_chat_usage (
   PRIMARY KEY (link_id, day)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Batch 119 — subscription suspension for failed payment (Ely's order
+-- 2026-11-02: "If user fails to pay monthly subscription suspend
+-- account and send them email every week with link and instructions
+-- to renew"). One row per suspension episode of a billing user; the
+-- status column carries the lifecycle (active → restored | terminated)
+-- so the transitions stay auditable. The workspace link rows scope
+-- the suspension for serve-time / write-time gates.
+CREATE TABLE IF NOT EXISTS subscription_suspensions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  subscription_id VARCHAR(120) NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'active',
+  reason VARCHAR(48) NOT NULL DEFAULT 'payment_failed_unpaid',
+  stripe_status VARCHAR(32) NULL,
+  suspended_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  restored_at DATETIME NULL,
+  terminated_at DATETIME NULL,
+  last_weekly_email_at DATETIME NULL,
+  weekly_email_count INT NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_suspensions_user_status (user_id, status),
+  KEY idx_suspensions_status (status, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS subscription_suspension_workspaces (
+  suspension_id BIGINT UNSIGNED NOT NULL,
+  workspace_id BIGINT UNSIGNED NOT NULL,
+  PRIMARY KEY (suspension_id, workspace_id),
+  KEY idx_suspension_ws (workspace_id, suspension_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 SET FOREIGN_KEY_CHECKS = 1;

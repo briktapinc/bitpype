@@ -219,6 +219,79 @@ function blockArchivedPreviews(req, res, next) {
   }
 }
 
+/**
+ * Batch 119: a SUSPENDED account's website produces an error — HTTP
+ * 503 with a generic page — at serve time (Ely's refinement,
+ * 2026-11-02: "Suspended account means website produces an error").
+ * Suspension never archives, unlinks or edits the site: the gate
+ * reads the workspace-layer marker table
+ * (subscription_site_suspensions, written by
+ * server/subscriptionSuspension.js when the episode opens and
+ * deleted when it closes), so restoration is instant and exact.
+ * Folder resolution mirrors blockArchivedPreviews above, including
+ * design-job folders linked to a suspended site. A workspace DB
+ * without the marker table (never suspended) passes unchanged.
+ */
+const SUSPENDED_PAGE_HTML =
+  '<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">' +
+  '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+  '<title>Service Temporarily Unavailable</title></head>' +
+  '<body><h1>503</h1><p>This site is temporarily unavailable. Please try again later.</p></body></html>';
+
+function sendSuspendedPreview(res) {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  return res.status(503).send(SUSPENDED_PAGE_HTML);
+}
+
+function siteIsSuspended(db, siteId) {
+  try {
+    const row = db
+      .prepare('SELECT website_id FROM subscription_site_suspensions WHERE website_id = ?')
+      .get(siteId);
+    return !!row;
+  } catch {
+    return false; // no marker table in this workspace — never suspended
+  }
+}
+
+function blockSuspendedPreviews(req, res, next) {
+  try {
+    const analysis = analyzePreviewPath(req.path);
+    // Malformed/traversal paths are failed closed by the archived
+    // gate mounted ahead of this one; pass them through to it.
+    if (analysis.malformed || analysis.traversal) return next();
+    for (const seg of analysis.segs) {
+      const target = resolveSiteFolderSegment(seg);
+      if (target) {
+        const db = require('./workspaceDb').openWorkspaceDb(target.workspaceId);
+        if (siteIsSuspended(db, target.siteId)) {
+          return sendSuspendedPreview(res);
+        }
+        continue;
+      }
+      const design = resolvePreviewDesign(seg);
+      if (design) {
+        const db = require('./workspaceDb').openWorkspaceDb(design.workspaceId);
+        let job = null;
+        try {
+          job = db.prepare('SELECT website_id FROM design_jobs WHERE id = ?').get(design.jobId);
+        } catch {
+          job = null;
+        }
+        if (job && job.website_id && siteIsSuspended(db, job.website_id)) {
+          return sendSuspendedPreview(res);
+        }
+        continue;
+      }
+    }
+    return next();
+  } catch {
+    return next();
+  }
+}
+
 function isolateStaticPreview(req, res, next) {
   // Enforced response policy also protects direct visits outside an iframe.
   res.setHeader(
@@ -233,6 +306,8 @@ module.exports = {
   rejectOpaqueAppRequests,
   isolateStaticPreview,
   blockArchivedPreviews,
+  blockSuspendedPreviews,
+  SUSPENDED_PAGE_HTML,
   resolvePreviewSite,
   resolvePreviewDesign,
   analyzePreviewPath,

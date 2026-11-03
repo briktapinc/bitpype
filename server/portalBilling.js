@@ -159,6 +159,27 @@ async function billingForClient(workspaceId, clientEmail) {
 
   const creditInfo = await require('./credits').summaryForWorkspace(workspaceId);
 
+  // Batch 119: an active suspension episode surfaces on the portal
+  // Billing payload — the one panel a suspended owner can still use.
+  // Resolution is by the client's own billing user only; a workspace
+  // covered by someone else's plan never shows their suspension.
+  let suspension = null;
+  if (selfBilling) {
+    try {
+      const ep = await require('./subscriptionSuspension').getActiveSuspensionForUser(selfBilling.id);
+      if (ep) {
+        suspension = {
+          suspended: true,
+          suspendedAt: ep.suspended_at || null,
+          reason: ep.reason || null,
+          selfServe: canSelfServe,
+        };
+      }
+    } catch {
+      suspension = null;
+    }
+  }
+
   // Entitlements: max(workspace owners, self). Display: self when self-serve, else workspace.
   const planId = await billing.effectivePlan(workspaceId, { email: clientEmail });
   const displayPlan = canSelfServe && selfBilling ? selfPlan : workspacePlanId;
@@ -188,11 +209,14 @@ async function billingForClient(workspaceId, clientEmail) {
     billingUserId: selfBilling ? selfBilling.id : null,
     selfPlan,
     amountLabel: await require('./platform').getPlatformSetting('billing.amount_label', 'Bitpype plans'),
-    notice: coveredByOthers
-      ? 'Your service is active under your Bitpype plan. Contact us to change billing.'
-      : cancelAtPeriodEnd
-        ? 'Cancellation scheduled — you keep access until the period ends, then move to Free.'
-        : null,
+    suspension,
+    notice: suspension
+      ? 'This account is suspended because a subscription payment failed, and your website is currently unavailable to visitors. Renew below to bring everything back — your site returns exactly as it was.'
+      : coveredByOthers
+        ? 'Your service is active under your Bitpype plan. Contact us to change billing.'
+        : cancelAtPeriodEnd
+          ? 'Cancellation scheduled — you keep access until the period ends, then move to Free.'
+          : null,
     credits: creditInfo,
   };
 }

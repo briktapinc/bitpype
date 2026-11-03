@@ -563,6 +563,8 @@ window.ScoutApi = (() => {
     gbpPushChangeSet: (leadId, id) => post('/gbp/leads/' + leadId + '/change-sets/' + id + '/push', {}),
     adminRefunds: (q) => get('/admin/refunds', q),
     adminRefundPayment: (id, body) => post('/admin/payments/' + id + '/refund', body || {}),
+    adminSuspensions: () => get('/admin/suspensions'),
+    adminUnsuspend: (userId) => post('/admin/suspensions/' + userId + '/unsuspend', {}),
     adminUpsellTips: () => get('/admin/upsell-tips'),
     adminUpsellTipCreate: (body) => post('/admin/upsell-tips', body),
     adminUpsellTipUpdate: (id, body) => patch('/admin/upsell-tips/' + id, body),

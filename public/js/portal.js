@@ -180,6 +180,28 @@
       }
     });
   }
+  // Batch 119: while the account is suspended, only the Billing nav
+  // item stays visible and a banner explains the state (the API
+  // enforces the same narrowing). Built with DOM APIs only.
+  function applyPortalSuspension() {
+    document.querySelectorAll('#portal-nav [data-panel]').forEach((btn) => {
+      if (btn.getAttribute('data-panel') !== 'billing') btn.hidden = true;
+    });
+    if (document.getElementById('portal-suspension-banner')) return;
+    const banner = document.createElement('div');
+    banner.id = 'portal-suspension-banner';
+    banner.className = 'alert danger';
+    const strong = document.createElement('strong');
+    strong.textContent = 'Account suspended — payment failed.';
+    banner.appendChild(strong);
+    banner.appendChild(
+      document.createTextNode(
+        ' Your website is unavailable to visitors until your plan is renewed. Renew on the Billing panel to restore everything, exactly as it was.'
+      )
+    );
+    const main = document.querySelector('main.portal-content');
+    if (main) main.prepend(banner);
+  }
   const PANEL_ALIASES = {
     website: 'website',
     preview: 'website',
@@ -304,6 +326,8 @@
       const fieldsEl = document.getElementById('modules-fields');
       if (!fieldsEl || !fieldsEl.children.length) next = 'modules';
     }
+    // Batch 119: a suspended account can only open the Billing panel.
+    if (state.suspension && next !== 'billing') next = 'billing';
     // Batch 40: switching tabs always closes the Security section.
     const secSecurityEl = document.getElementById('sec-security');
     if (secSecurityEl) secSecurityEl.hidden = true;
@@ -4487,8 +4511,10 @@
     const planId = String(b.plan || 'free');
     const status = String(b.subscriptionStatus || (planId === 'free' ? 'free' : 'none'));
     const planName = b.planName || planId.charAt(0).toUpperCase() + planId.slice(1);
-    pill.textContent =
-      status === 'trialing'
+    const isSuspended = !!(b.suspension && b.suspension.suspended);
+    pill.textContent = isSuspended
+      ? 'Suspended'
+      : status === 'trialing'
         ? 'Trialing'
         : status === 'past_due'
           ? 'Past due'
@@ -4497,7 +4523,10 @@
             : planId === 'free'
               ? 'Free'
               : status;
-    pill.className = 'status-pill' + (status === 'past_due' ? ' warn' : '') + (status === 'canceled' ? ' bad' : '');
+    pill.className =
+      'status-pill' +
+      (status === 'past_due' ? ' warn' : '') +
+      (status === 'canceled' || isSuspended ? ' bad' : '');
     const planEl = document.getElementById('bill-plan-name');
     if (planEl) planEl.textContent = planName + ' plan';
     state.planName = planName;
@@ -8201,6 +8230,9 @@
     portalVisibleTabs =
       me.client && Array.isArray(me.client.visibleTabs) ? me.client.visibleTabs.slice() : null;
     applyPortalVisibleTabs();
+    // Batch 119: narrow the shell to Billing while suspended.
+    state.suspension = me.suspension && me.suspension.suspended ? me.suspension : null;
+    if (state.suspension) applyPortalSuspension();
     showApp();
     const eager = [loadEditablePreview(me.previewUrl)];
     if (portalTabVisible('social')) {

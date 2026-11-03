@@ -466,3 +466,29 @@ CREATE TABLE IF NOT EXISTS wp_design_chat_usage (
 );
 CREATE INDEX IF NOT EXISTS idx_leads_ws ON leads(workspace_id, status);
 CREATE INDEX IF NOT EXISTS idx_jobs_due ON scheduled_jobs(enabled, next_run_at);
+
+-- Batch 119 — subscription suspension for failed payment (see sql/schema.sql).
+CREATE TABLE IF NOT EXISTS subscription_suspensions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  subscription_id TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  reason TEXT NOT NULL DEFAULT 'payment_failed_unpaid',
+  stripe_status TEXT,
+  suspended_at TEXT NOT NULL DEFAULT (datetime('now')),
+  restored_at TEXT,
+  terminated_at TEXT,
+  last_weekly_email_at TEXT,
+  weekly_email_count INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_suspensions_user_status ON subscription_suspensions (user_id, status);
+CREATE INDEX IF NOT EXISTS idx_suspensions_status ON subscription_suspensions (status, id);
+
+CREATE TABLE IF NOT EXISTS subscription_suspension_workspaces (
+  suspension_id INTEGER NOT NULL,
+  workspace_id INTEGER NOT NULL,
+  PRIMARY KEY (suspension_id, workspace_id)
+);
+CREATE INDEX IF NOT EXISTS idx_suspension_ws ON subscription_suspension_workspaces (workspace_id, suspension_id);

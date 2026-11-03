@@ -295,7 +295,7 @@ app.get('/api/v1/openapi.json', requireSuperAdmin, (_req, res) => {
   }
 });
 
-const { requireWorkspace, requireSubscription } = require('./server/middleware');
+const { requireWorkspace, requireSubscription, blockSuspendedWrites } = require('./server/middleware');
 
 // Public captcha config (site key only) for auth + client forms (also used cross-origin by form-embed.js).
 app.get('/api/v1/captcha/config', async (_req, res) => {
@@ -423,9 +423,9 @@ app.use('/api/v1/newsletter', newsletterPublicRoutes);
 app.use('/api/v1/hostinger-deploy', hostingerDeployLimit, hostingerCallbackRoutes);
 // Client portal routes are mounted earlier with portalSession (separate cookie).
 // Resolve workspace first, then paywall (workspace owner plan covers members).
-app.use('/api/v1/jobs', requireWorkspace, requireSubscription, jobsRoutes);
-app.use('/api/v1/mcp', requireWorkspace, requireSubscription, mcpAdminRoutes);
-app.use('/api/v1', requireWorkspace, requireSubscription, domainApi);
+app.use('/api/v1/jobs', requireWorkspace, blockSuspendedWrites, requireSubscription, jobsRoutes);
+app.use('/api/v1/mcp', requireWorkspace, blockSuspendedWrites, requireSubscription, mcpAdminRoutes);
+app.use('/api/v1', requireWorkspace, blockSuspendedWrites, requireSubscription, domainApi);
 
 async function mcpHandler(req, res) {
   try {
@@ -470,6 +470,29 @@ async function mcpHandler(req, res) {
         }
       }
     }
+
+    // Batch 119: a suspended workspace's MCP tool calls stop with
+    // the rest of the product API (the catalog carries no read/write
+    // annotations to split calls on, so tools/call is rejected as a
+    // whole). initialize / tools/list / notifications still work so
+    // clients can connect, and renewing in the portal restores calls
+    // the moment payment lands.
+    let workspaceSuspended = null;
+    try {
+      workspaceSuspended =
+        await require('./server/subscriptionSuspension').getActiveSuspensionForWorkspace(ws.workspace_id);
+    } catch {
+      workspaceSuspended = null;
+    }
+    const suspendedCallResponse = (item) => ({
+      jsonrpc: '2.0',
+      id: item && item.id !== undefined ? item.id : null,
+      error: {
+        code: 'ACCOUNT_SUSPENDED',
+        message:
+          'This account is suspended because a subscription payment failed. Renew the plan to restore access.',
+      },
+    });
 
     const mcpCtx = {
       tokenId: ws.token_id,
@@ -571,6 +594,12 @@ async function mcpHandler(req, res) {
           out.push(mcpRateLimitResponse(item));
           continue;
         }
+        if (workspaceSuspended && item && item.method === 'tools/call') {
+          const r = suspendedCallResponse(item);
+          await mcpAudit(item, r);
+          out.push(r);
+          continue;
+        }
         const r = await handleJsonRpc(ws.workspace_id, item, mcpCtx);
         await mcpAudit(item, r);
         if (r) out.push(r);
@@ -579,6 +608,11 @@ async function mcpHandler(req, res) {
     }
     if (await mcpRateLimited(body)) {
       return res.status(429).json({ ok: false, error: 'RATE_LIMITED', code: 'RATE_LIMITED' });
+    }
+    if (workspaceSuspended && body && body.method === 'tools/call') {
+      const r = suspendedCallResponse(body);
+      await mcpAudit(body, r);
+      return res.json(r);
     }
     const result = await handleJsonRpc(ws.workspace_id, body, mcpCtx);
     await mcpAudit(body, result);
@@ -1050,6 +1084,7 @@ app.use(express.static(path.join(__dirname, 'public'), { index: false }));
     '/site-previews',
     require('./server/previewSecurity').isolateStaticPreview,
     require('./server/previewSecurity').blockArchivedPreviews,
+    require('./server/previewSecurity').blockSuspendedPreviews,
     (req, res, next) => {
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
       res.setHeader('Access-Control-Allow-Origin', '*');
@@ -1066,7 +1101,11 @@ app.use(express.static(path.join(__dirname, 'public'), { index: false }));
   // 404.html with a TRUE 404 status — never the home page (soft 404).
   // Batch 64: the archive gate runs here too — a missing file inside an
   // archived site's folder must not leak the site's themed 404 page.
-  app.use('/site-previews', require('./server/previewSecurity').blockArchivedPreviews, (req, res, next) => {
+  app.use(
+    '/site-previews',
+    require('./server/previewSecurity').blockArchivedPreviews,
+    require('./server/previewSecurity').blockSuspendedPreviews,
+    (req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next();
     const seg = String(req.path || '').split('/').filter(Boolean)[0];
     if (!seg) return next();

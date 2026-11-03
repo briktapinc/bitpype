@@ -329,6 +329,16 @@ router.post('/logout', (req, res) => {
 
 router.get('/me', requireClient, async (req, res) => {
   try {
+    // Batch 119: the portal shell narrows itself to the Billing panel
+    // while the account is suspended — /me carries the state so the
+    // shell can render it without another round trip. Best-effort:
+    // /me must never fail on the suspension read.
+    let suspension = null;
+    try {
+      suspension = await require('../subscriptionSuspension').suspensionForPortalClient(req.client);
+    } catch {
+      suspension = null;
+    }
     const ctx = portal.loadLeadContext(req.client.workspace_id, req.client.lead_id);
     // Domain picker link (Batch 15): only while the site has no custom domain.
     let domainPickerUrl = null;
@@ -354,6 +364,7 @@ router.get('/me', requireClient, async (req, res) => {
       hasDesignJob: !!(ctx.designJob && ctx.designJob.id),
       idleMs: portalIdleMs(req),
       lastActiveAt: req.session.clientLastActiveAt || null,
+      suspension,
     });
   } catch (e) {
     fail(res, e, 500);
@@ -548,7 +559,45 @@ async function portalModuleGuard(req, res, next) {
   }
 }
 
-router.use(requireClient, portalTabGuard, portalModuleGuard);
+// ---------------------------------------------------------------------------
+// Batch 119 — suspension guard: while the account's subscription-
+// suspension episode is active, the portal narrows to the Billing
+// panel (renewal/payments) so the owner can always sign in and pay,
+// and every other panel API refuses with ACCOUNT_SUSPENDED. The core
+// session routes above (/me, /mfa, /logout, auth) stay reachable —
+// /me carries the suspension state the shell renders. Resolution is
+// strictly per client (server/subscriptionSuspension.js): a renter
+// covered by someone else's plan is never suspended by that plan.
+// ---------------------------------------------------------------------------
+async function portalSuspensionGuard(req, res, next) {
+  try {
+    const p = String(req.path || '');
+    if (p === '/billing' || p.startsWith('/billing/')) return next();
+    let suspensionModule;
+    try {
+      suspensionModule = require('../subscriptionSuspension');
+    } catch {
+      // Stubbed module harnesses (VM-loaded route tests) have no
+      // billing layer at all — nothing there can be suspended.
+      return next();
+    }
+    const suspension = await suspensionModule.suspensionForPortalClient(req.client);
+    if (!suspension || !suspension.suspended) return next();
+    return res.status(403).json({
+      ok: false,
+      code: 'ACCOUNT_SUSPENDED',
+      error:
+        'This account is suspended because a subscription payment failed. Your website is unavailable to visitors until the plan is renewed.',
+      panel: 'billing',
+      suspendedAt: suspension.suspendedAt || null,
+      selfServe: suspension.selfServe !== false,
+    });
+  } catch (e) {
+    return next(e);
+  }
+}
+
+router.use(requireClient, portalSuspensionGuard, portalTabGuard, portalModuleGuard);
 
 // ---------------------------------------------------------------------------
 // Batch 84 — Agent SOUL.md page. The document ships as ONE server-side

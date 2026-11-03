@@ -74,6 +74,7 @@ let requireSubscription = false;
 let userSubscribed = true;
 let productAccess = true;
 let subscriptionStatus = 'none';
+let accountSuspended = false;
 const LEAD_STATUSES = [
   'new',
   'researching',
@@ -1393,6 +1394,23 @@ function renderAuthMfa(challenge) {
 
 function updateBillingBanner() {  const el = document.getElementById('billing-banner');
   if (!el) return;
+  // Batch 119: suspension outranks past_due — built with DOM APIs so
+  // the banner adds no new innerHTML sink.
+  if (accountSuspended) {
+    el.classList.remove('hidden');
+    el.textContent = '';
+    const strong = document.createElement('strong');
+    strong.textContent = 'Account suspended — payment failed.';
+    el.appendChild(strong);
+    el.appendChild(
+      document.createTextNode(' Your websites are unavailable to visitors until the plan is renewed. ')
+    );
+    const link = document.createElement('a');
+    link.href = '#/billing';
+    link.textContent = 'Open Billing';
+    el.appendChild(link);
+    return;
+  }
   if (subscriptionStatus === 'past_due') {
     el.classList.remove('hidden');
     el.innerHTML = `<strong>Payment past due.</strong> Update your card to keep access.
@@ -8252,9 +8270,14 @@ async function renderAdminWorkspaces(el) {
 }
 
 async function renderAdminPayments(el) {
-  const [payRes, refRes] = await Promise.all([api.adminPayments(), api.adminRefunds()]);
+  const [payRes, refRes, susRes] = await Promise.all([
+    api.adminPayments(),
+    api.adminRefunds(),
+    api.adminSuspensions().catch(() => ({ data: { suspensions: [] } })),
+  ]);
   const payments = asList(payRes.data, ['payments']);
   const refunds = asList(refRes.data, ['refunds']);
+  const suspensions = asList(susRes.data, ['suspensions']);
   el.innerHTML = `
     <div class="panel">
       <div class="panel-h"><h3>Payments</h3></div>
@@ -8298,6 +8321,30 @@ async function renderAdminPayments(el) {
           }
         </tbody></table>
       </div>
+    </div>
+    <div class="panel" style="margin-top:1rem">
+      <div class="panel-h"><h3>Suspended accounts</h3></div>
+      <div class="panel-b">
+        <p class="muted">Accounts suspended after a failed subscription payment (Stripe retries exhausted). Their websites return an error to visitors and weekly renewal emails go out until they pay or cancel. Unsuspend only as a support action — the customer still owes the payment.</p>
+        <table><thead><tr><th>Suspended</th><th>Account</th><th>Reason</th><th>Stripe status</th><th>Weekly emails</th><th>Workspaces</th><th></th></tr></thead>
+        <tbody>
+          ${
+            suspensions
+              .map(
+                (s) => `<tr>
+            <td>${esc(fmtDate(s.suspended_at))}</td>
+            <td>${esc(s.user_email || s.user_id || '—')}</td>
+            <td>${esc(s.reason || '')}</td>
+            <td>${esc(s.stripe_status || '')}</td>
+            <td>${esc(String(s.weekly_email_count || 0))}</td>
+            <td>${esc((s.workspace_ids || []).join(', '))}</td>
+            <td><button class="btn ghost small" data-unsuspend="${s.user_id}">Unsuspend</button></td>
+          </tr>`
+              )
+              .join('') || '<tr><td colspan="7">No suspended accounts</td></tr>'
+          }
+        </tbody></table>
+      </div>
     </div>`;
   $$('[data-refund]').forEach(
     (b) =>
@@ -8306,6 +8353,19 @@ async function renderAdminPayments(el) {
         try {
           await api.adminRefundPayment(b.dataset.refund, {});
           toast('Refund created', 'ok');
+          pageAdmin('payments');
+        } catch (err) {
+          toast(errText(err), 'err');
+        }
+      })
+  );
+  $$('[data-unsuspend]').forEach(
+    (b) =>
+      (b.onclick = async () => {
+        if (!confirm('Unsuspend this account now? Their websites and access return immediately.')) return;
+        try {
+          await api.adminUnsuspend(b.dataset.unsuspend);
+          toast('Account unsuspended', 'ok');
           pageAdmin('payments');
         } catch (err) {
           toast(errText(err), 'err');
@@ -9484,6 +9544,7 @@ async function pageBilling(param, query) {
   if (summary.productAccess != null) productAccess = !!summary.productAccess;
   else productAccess = true;
   subscriptionStatus = summary.subscriptionStatus || subscriptionStatus;
+  accountSuspended = !!summary.suspended;
   updateBillingBanner();
 }
 

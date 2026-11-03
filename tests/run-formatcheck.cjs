@@ -38,6 +38,8 @@ const SCOPE = [
   'server/newsletter.js',
   'server/routes/newsletterPublic.js',
   'tests/batch118-newsletter-regressions.cjs',
+  'server/subscriptionSuspension.js',
+  'tests/batch119-suspension-regressions.cjs',
   'tsconfig.checkjs.json',
 ];
 

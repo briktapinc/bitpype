@@ -1011,6 +1011,15 @@ async function runSweep(deps = {}) {
     console.warn('[lifecycleComms] rental statements:', e && e.message);
     out.rentals = { error: (e && e.message) || String(e) };
   }
+  // Batch 119: weekly suspension renewal emails + episode self-healing
+  // (server/subscriptionSuspension.js). Same isolation contract as the
+  // sections above: a failure here never breaks the other sweeps.
+  try {
+    out.suspensions = await require('./subscriptionSuspension').runSuspensionSweep(deps);
+  } catch (e) {
+    console.warn('[lifecycleComms] suspension sweep:', e && e.message);
+    out.suspensions = { error: (e && e.message) || String(e) };
+  }
   return out;
 }
 
@@ -1084,6 +1093,7 @@ function startLifecycleTicker() {
 
 module.exports = {
   ensureCommsTables,
+  sendClaimed,
   formatMoney,
   formatDateLong,
   sendCancelConfirmation,
