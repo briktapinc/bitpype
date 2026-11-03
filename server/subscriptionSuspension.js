@@ -326,20 +326,29 @@ function manageUrl(deps = {}) {
   return `${String(raw || '').replace(/\/$/, '')}/portal?panel=billing`;
 }
 
-function planNameFor(user) {
+async function planNameFor(user, subscription) {
   try {
     const billing = require('./billing');
-    let planId = billing.planOfUser(user);
-    // A suspended user's stored subscription_status has already flipped
-    // to 'unpaid', which makes planOfUser report Free — but this email
-    // is about the PAID plan they are failing to pay for. When a
-    // subscription is on file, prefer the plan recorded on the account.
-    if (String(planId) === 'free' && user && user.stripe_subscription_id) {
-      const stored = String(user.billing_plan || '')
-        .trim()
-        .toLowerCase();
-      if (stored && stored !== 'free') planId = stored;
+    // This email is about the plan the customer is failing to pay for.
+    // planOfUser / billing_plan report Free once the stored status has
+    // flipped to unpaid (that is access semantics, by design), so
+    // resolve the tier from the price on the failed subscription,
+    // then from the price recorded on the account.
+    const priceId =
+      (subscription &&
+        subscription.items &&
+        subscription.items.data &&
+        subscription.items.data[0] &&
+        subscription.items.data[0].price &&
+        subscription.items.data[0].price.id) ||
+      (user && user.subscription_price_id) ||
+      null;
+    let planId = null;
+    if (priceId) {
+      const { planIdFromPriceId } = require('./stripeClient');
+      planId = await planIdFromPriceId(priceId);
     }
+    if (!planId || String(planId) === 'free') planId = billing.planOfUser(user);
     const p = plans.getPlan(planId);
     return (p && p.name) || 'Bitpype';
   } catch {
@@ -353,7 +362,7 @@ function planNameFor(user) {
  * the episode counter only advances after a confirmed send (a failed
  * send releases the claim inside sendClaimed and the sweep retries).
  */
-async function sendWeeklyRenewalEmail(suspension, user, deps = {}) {
+async function sendWeeklyRenewalEmail(suspension, user, deps = {}, subscription = null) {
   const q = deps.query || query;
   if (!suspension || !user || !String(user.email || '').trim()) {
     return { sent: false, reason: 'no_recipient' };
@@ -362,7 +371,7 @@ async function sendWeeklyRenewalEmail(suspension, user, deps = {}) {
     return { sent: false, reason: 'user_disabled' };
   }
   const index = Number(suspension.weekly_email_count || 0) + 1;
-  const name = planNameFor(user);
+  const name = await planNameFor(user, subscription);
   const first = index <= 1;
   const paragraphs = [
     first
@@ -513,7 +522,7 @@ async function suspendForSubscription(subscription, deps = {}) {
   // fails the caller (the claim releases and the sweep retries).
   let email = null;
   try {
-    email = await sendWeeklyRenewalEmail(suspension, user, deps);
+    email = await sendWeeklyRenewalEmail(suspension, user, deps, subscription);
   } catch (e) {
     console.warn('[suspension] first weekly email:', e.message);
   }

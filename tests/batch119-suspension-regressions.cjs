@@ -193,11 +193,19 @@ async function part2() {
     now: () => nowMs,
   };
 
+  // The weekly email names the plan resolved from the subscription's
+  // price (stripeClient.planIdFromPriceId reads platform settings).
+  await query(`DELETE FROM platform_settings WHERE \`key\` = 'stripe.price_id_standard'`);
+  await query(
+    `INSERT INTO platform_settings (\`key\`, value) VALUES ('stripe.price_id_standard', 'price_fake_standard')`
+  );
+
   async function makeAccount(email, subId) {
     const acct = await workspace.createUserWithWorkspace({ email, password: PW, name: email.split('@')[0] });
     await query(
       `UPDATE users SET stripe_customer_id = :cus, stripe_subscription_id = :sub,
-              subscription_status = 'active', billing_plan = 'standard' WHERE id = :id`,
+              subscription_status = 'active', billing_plan = 'standard',
+              subscription_price_id = 'price_fake_standard' WHERE id = :id`,
       { cus: `cus_${subId}`, sub: subId, id: acct.userId }
     );
     const db = openWorkspaceDb(acct.workspaceId);
@@ -224,6 +232,10 @@ async function part2() {
         customer: `cus_${a.subId}`,
         status,
         current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400,
+        // Real Stripe subscription payloads always carry items with
+        // the price — the plan resolution (and billing's own sync)
+        // reads the tier from here.
+        items: { data: [{ price: { id: 'price_fake_standard' } }] },
         metadata: { user_id: String(a.userId) },
         ...extra,
       },
