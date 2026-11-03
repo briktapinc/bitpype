@@ -21,7 +21,7 @@ const museAgentCore = require('./museAgentCore');
 const museAgentClassifier = require('./museAgentClassifier');
 const museAgentPlanner = require('./museAgentPlanner');
 const { MAX_STEPS, MAX_PORTAL_STEPS, PORTAL_MUTATE_TOOLS, DENY_TOOLS, PORTAL_READONLY_TOOLS, PORTAL_MODE_STEPS, portalModeAllowsTool } = museAgentTools;
-const { fail, getDbSetting, resolveMuseConfig, museConfigured, todaySpendUsd, providerForConfig, logUsage, mcpToolsToOpenAi, chatCompletions } = museAgentCore;
+const { fail, getDbSetting, resolveMuseConfig, resolveAgentConfig, museConfigured, todaySpendUsd, providerForConfig, logUsage, mcpToolsToOpenAi, chatCompletions, chatCompletionsRouted, servedProviderFor, servedModelFor, withFailoverNote } = museAgentCore;
 
 function buildSystemPrompt(job) {
   const brief =
@@ -67,7 +67,7 @@ async function runJobLoop(workspaceId, job, { db, maxSteps = MAX_STEPS } = {}) {
     return { ok: false, delivered: false, steps: 0, toolCalls: 0, error: 'automation_paused', costUsd: 0 };
   }
 
-  const config = await resolveMuseConfig(db);
+  const config = await resolveAgentConfig(db, 'hands_off');
   if (!museConfigured(config)) {
     return { ok: false, delivered: false, steps: 0, toolCalls: 0, error: 'muse_not_configured', costUsd: 0 };
   }
@@ -120,7 +120,7 @@ async function runJobLoop(workspaceId, job, { db, maxSteps = MAX_STEPS } = {}) {
     steps++;
     let data;
     try {
-      data = await chatCompletions(config, {
+      data = await chatCompletionsRouted(config, {
         model: config.model,
         messages,
         tools,
@@ -141,13 +141,13 @@ async function runJobLoop(workspaceId, job, { db, maxSteps = MAX_STEPS } = {}) {
     totalCost += costUsd;
     logUsage(db, {
       task: 'hands_off',
-      provider: providerForConfig(config),
-      model: config.model,
+      provider: servedProviderFor(config),
+      model: servedModelFor(config),
       promptTokens,
       completionTokens,
       costUsd,
       leadId: job.lead_id || null,
-      note: `muse job #${job.id} step ${steps}`,
+      note: withFailoverNote(config, `muse job #${job.id} step ${steps}`),
     });
 
     const choice = data.choices && data.choices[0];
@@ -398,7 +398,7 @@ async function runPortalImproveLoop(
   const stepCap =
     Number.isInteger(maxSteps) && maxSteps > 0 ? maxSteps : PORTAL_MODE_STEPS[runMode] || MAX_PORTAL_STEPS;
 
-  const config = await domain.withDb(workspaceId, async (d) => resolveMuseConfig(db || d));
+  const config = await domain.withDb(workspaceId, async (d) => resolveAgentConfig(db || d, 'design_chat'));
   if (!museConfigured(config)) {
     return {
       ok: false,
@@ -556,13 +556,13 @@ async function runPortalImproveLoop(
       totalCost += costUsd;
       logUsage(use, {
         task: 'portal_agent',
-        provider: providerForConfig(config),
-        model: config.model,
+        provider: servedProviderFor(config),
+        model: servedModelFor(config),
         promptTokens,
         completionTokens,
         costUsd,
         leadId: lid,
-        note: `portal muse step ${step}`,
+        note: withFailoverNote(config, `portal muse step ${step}`),
       });
     });
   };
@@ -579,7 +579,7 @@ async function runPortalImproveLoop(
     steps++;
     let data;
     try {
-      data = await chatCompletions(config, {
+      data = await chatCompletionsRouted(config, {
         model: config.model,
         messages,
         tools,
@@ -591,7 +591,7 @@ async function runPortalImproveLoop(
         visionDropped = true;
         stripImageParts();
         try {
-          data = await chatCompletions(config, {
+          data = await chatCompletionsRouted(config, {
             model: config.model,
             messages,
             tools,
@@ -780,6 +780,7 @@ async function runPortalImproveLoop(
 
 module.exports = {
   resolveMuseConfig: museAgentCore.resolveMuseConfig,
+  resolveAgentConfig: museAgentCore.resolveAgentConfig,
   museConfigured: museAgentCore.museConfigured,
   runJobLoop,
   runPortalImproveLoop,

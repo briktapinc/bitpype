@@ -84,7 +84,7 @@ async function syncJobs(workspaceId, enabled) {
 async function getStatus(workspaceId) {
   const domain = require('./domain');
   const cfg = domain.withDb(workspaceId, (db) => readCfg(db, domain));
-  const museCfg = await domain.withDb(workspaceId, (db) => museAgent.resolveMuseConfig(db));
+  const museCfg = await domain.withDb(workspaceId, (db) => museAgent.resolveAgentConfig(db, 'hands_off'));
   const jobList = await jobs.listJobs(workspaceId).catch(() => []);
   // Display-only resolutions so the Settings panel can show what blank
   // fields actually do (auto-picked template / digest fallback address).
@@ -495,9 +495,9 @@ async function runTick(workspaceId, { force = false } = {}) {
       return { skipped: true, reason: 'hands_off_disabled' };
     }
 
-    const museCfg = await domain.withDb(workspaceId, (db) => museAgent.resolveMuseConfig(db));
+    const museCfg = await domain.withDb(workspaceId, (db) => museAgent.resolveAgentConfig(db, 'hands_off'));
     if (!museAgent.museConfigured(museCfg)) {
-      log(workspaceId, 'Tick skipped: muse.model_api_key not configured');
+      log(workspaceId, 'Tick skipped: no AI provider configured for hands-off (see Admin → AI routing)');
       return { skipped: true, reason: 'muse_not_configured' };
     }
 

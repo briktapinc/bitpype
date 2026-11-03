@@ -56,6 +56,41 @@ const PLATFORM_SECRET_KEYS = [
   'hostinger.api_token',
 ];
 
+/**
+ * Batch 120: the AI routing matrix keys (ai.route.<function>.*),
+ * generated from the single registry in server/aiRouting.js so the
+ * settings catalog can never drift from the resolver. Group
+ * 'ai_routing' has no generic settings tab — the matrix panel in
+ * Admin → API keys owns these keys; they stay out of
+ * WORKSPACE_SEED_KEYS below (platform-level routing, v1).
+ */
+const AI_ROUTE_SETTING_DEFS = require('./aiRouting').ROUTABLE_FUNCTIONS.flatMap((fn) => [
+  {
+    key: `ai.route.${fn.key}.primary`,
+    group: 'ai_routing',
+    label: `AI route — ${fn.label}: primary provider`,
+    default: fn.defaultPrimary,
+  },
+  {
+    key: `ai.route.${fn.key}.fallback`,
+    group: 'ai_routing',
+    label: `AI route — ${fn.label}: fallback provider`,
+    default: fn.defaultFallback,
+  },
+  {
+    key: `ai.route.${fn.key}.model_primary`,
+    group: 'ai_routing',
+    label: `AI route — ${fn.label}: primary model override`,
+    default: '',
+  },
+  {
+    key: `ai.route.${fn.key}.model_fallback`,
+    group: 'ai_routing',
+    label: `AI route — ${fn.label}: fallback model override`,
+    default: '',
+  },
+]);
+
 /** Catalog of platform settings shown in the admin UI. */
 const PLATFORM_SETTING_DEFS = [
   // General
@@ -469,6 +504,10 @@ const PLATFORM_SETTING_DEFS = [
   { key: 'branding.logo_dark', group: 'branding', label: 'Logo for dark screens', default: '' },
   { key: 'branding.logo_light', group: 'branding', label: 'Logo for light screens', default: '' },
   { key: 'branding.tagline', group: 'branding', label: 'Tagline', default: 'Local business desk' },
+
+  // Batch 120: AI provider routing matrix (see AI_ROUTE_SETTING_DEFS
+  // above) — which API does what, per function, with failover.
+  ...AI_ROUTE_SETTING_DEFS,
 ];
 
 const WORKSPACE_SEED_KEYS = PLATFORM_SETTING_DEFS.filter(
@@ -501,7 +540,10 @@ const WORKSPACE_SEED_KEYS = PLATFORM_SETTING_DEFS.filter(
         'cf.preview_domain',
         'cf.project',
         'google.places_api_key',
-      ].includes(k)
+      ].includes(k) &&
+      // Batch 120: AI routing is platform-level (v1) — the matrix
+      // keys must never land in per-workspace storage.
+      !k.startsWith('ai.route.')
   );
 
 async function ensurePlatformTables() {
@@ -629,6 +671,28 @@ async function setPlatformSetting(key, value) {
       const e = new Error('branding.tagline must be a single line of at most 120 characters (blank = the default tagline)');
       e.code = 'VALIDATION';
       throw e;
+    }
+  }
+  // Batch 120: AI routing values are constrained at the choke point
+  // too — providers are a closed set, model overrides are short
+  // single lines. (The fallback ≠ primary invariant is enforced by
+  // the matrix endpoint's payload validation and, defensively, by
+  // the resolver normalizing an equal fallback to 'none' at read.)
+  if (key.startsWith('ai.route.')) {
+    v = v.trim();
+    const badRoute = (msg) => {
+      const e = new Error(msg);
+      e.code = 'VALIDATION';
+      throw e;
+    };
+    if (key.endsWith('.primary') && v !== 'muse' && v !== 'openai') {
+      badRoute(`${key} must be 'muse' or 'openai'`);
+    }
+    if (key.endsWith('.fallback') && v !== 'none' && v !== 'muse' && v !== 'openai') {
+      badRoute(`${key} must be 'none', 'muse' or 'openai'`);
+    }
+    if ((key.endsWith('.model_primary') || key.endsWith('.model_fallback')) && (v.length > 120 || /[\r\n]/.test(v))) {
+      badRoute(`${key} must be a single line of at most 120 characters (blank = the provider's default model)`);
     }
   }
   await query(

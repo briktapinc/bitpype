@@ -466,6 +466,40 @@ router.put('/settings/secret', async (req, res) => {
     fail(res, e);
   }
 });
+// ---------- AI provider routing (Batch 120) ----------
+// Which API does what: per-function primary/fallback + model
+// overrides, stored as the ai.route.* platform settings and resolved
+// by server/aiRouting.js for BOTH AI stacks. The GET never returns
+// key material — profiles report configured/not-configured, host and
+// default model only. The PUT validates the whole matrix, writes it
+// through the settings choke point, and audits the change.
+router.get('/settings/ai-routing', async (req, res) => {
+  try {
+    const aiRouting = require('../aiRouting');
+    ok(res, await aiRouting.adminState());
+  } catch (e) {
+    fail(res, e);
+  }
+});
+router.put('/settings/ai-routing', async (req, res) => {
+  try {
+    const aiRouting = require('../aiRouting');
+    const entries = aiRouting.validateRoutesPayload(req.body && req.body.routes);
+    await platform.setPlatformSettingsBatch(entries);
+    try {
+      await platform.savePlatformDefaultsSnapshot();
+    } catch (e) {
+      console.warn('[admin] defaults snapshot', e.message);
+    }
+    const summary = Object.entries(entries)
+      .map(([k, v]) => `${k.replace(/^ai\.route\./, '')}=${v || '(provider default)'}`)
+      .join('; ');
+    await platform.audit(req.session.userId, 'platform.ai_routing', summary.slice(0, 900));
+    ok(res, { updated: Object.keys(entries).length, state: await aiRouting.adminState() });
+  } catch (e) {
+    fail(res, e);
+  }
+});
 // ---------- Pricing control (Batch 24) ----------
 // Amounts in, Stripe Products/Prices managed: see server/pricingAdmin.js.
 router.get('/settings/pricing', async (req, res) => {

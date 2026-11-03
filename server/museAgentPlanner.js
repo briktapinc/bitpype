@@ -10,7 +10,7 @@
 
 const chatPlanner = require('./siteChatPlanner');
 const { PORTAL_DESIGN_WRITE_TOOLS, PORTAL_DESIGN_TOOLS } = require('./museAgentTools');
-const { fail, getDbSetting, resolveMuseConfig, museConfigured, todaySpendUsd, providerForConfig, logUsage, chatCompletions } = require('./museAgentCore');
+const { fail, getDbSetting, resolveAgentConfig, museConfigured, todaySpendUsd, servedProviderFor, servedModelFor, withFailoverNote, logUsage, chatCompletionsRouted } = require('./museAgentCore');
 
 /**
  * @param {{ settled?: any, hasImages?: boolean, rework?: any }} [opts]
@@ -86,7 +86,7 @@ async function planPortalChange(
   const domain = require('./domain');
   const chatPlan = require('./siteChatPlan');
   const lid = Number(leadId);
-  const config = await domain.withDb(workspaceId, async (d) => resolveMuseConfig(db || d));
+  const config = await domain.withDb(workspaceId, async (d) => resolveAgentConfig(db || d, 'design_chat'));
   if (!museConfigured(config)) return { error: 'muse_not_configured', plan: null };
   const { budget, spent } = domain.withDb(workspaceId, (d) => {
     const use = db || d;
@@ -149,7 +149,7 @@ async function planPortalChange(
     let raw = '';
     let finishReason = '';
     try {
-      data = await chatCompletions(config, {
+      data = await chatCompletionsRouted(config, {
         model: config.model,
         messages: planMessages,
         max_tokens: maxTokens,
@@ -167,13 +167,13 @@ async function planPortalChange(
         const per1kCompletion = parseFloat(getDbSetting(use, 'cost.per_1k_completion', '0.002')) || 0;
         logUsage(use, {
           task: 'portal_agent',
-          provider: providerForConfig(config),
-          model: config.model,
+          provider: servedProviderFor(config),
+          model: servedModelFor(config),
           promptTokens,
           completionTokens,
           costUsd: (promptTokens / 1000) * per1kPrompt + (completionTokens / 1000) * per1kCompletion,
           leadId: lid,
-          note: 'portal plan',
+          note: withFailoverNote(config, 'portal plan'),
         });
       });
     } catch {

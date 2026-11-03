@@ -118,7 +118,7 @@ function extractJson(text) {
 }
 
 async function callModel(config, db, { system, user, task, linkId }) {
-  const data = await core.chatCompletions(config, {
+  const data = await core.chatCompletionsRouted(config, {
     model: config.model,
     messages: [
       { role: 'system', content: system },
@@ -129,13 +129,13 @@ async function callModel(config, db, { system, user, task, linkId }) {
   const usage = (data && data.usage) || {};
   core.logUsage(db, {
     task,
-    provider: core.providerForConfig(config),
-    model: config.model,
+    provider: core.servedProviderFor(config),
+    model: core.servedModelFor(config),
     promptTokens: usage.prompt_tokens || 0,
     completionTokens: usage.completion_tokens || 0,
     costUsd: 0,
     leadId: null,
-    note: `wp-design-link-${linkId}`,
+    note: core.withFailoverNote(config, `wp-design-link-${linkId}`),
   });
   const content =
     data && data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : '';
@@ -300,10 +300,11 @@ async function runWpDesignChat(workspaceId, linkId, body = {}, opts = {}) {
     );
   }
 
-  // Model plumbing: same config resolution + spend plumbing as the
-  // BitPype-site chat (platform settings win, workspace fallback).
+  // Model plumbing: same routed config resolution + spend plumbing
+  // as the BitPype-site chat (platform settings win, workspace
+  // fallback; Batch 120 routes this function as wp_design_chat).
   const wdb = domain.withDb(workspaceId, (db) => db);
-  const config = await core.resolveMuseConfig(wdb);
+  const config = await core.resolveAgentConfig(wdb, 'wp_design_chat');
   if (!core.museConfigured(config)) {
     return { error: true, reply: MODEL_FAIL_TEXT };
   }

@@ -195,13 +195,18 @@ if (NEGATIVE) {
     check('src/ai.js INSERT records provider from the base URL used', () => {
       const src = read('src/ai.js');
       assert.ok(src.includes('INSERT INTO ai_usage (task, provider, model'), 'insert lists provider');
-      assert.ok(src.includes("providerFromBaseUrl(baseUrl)"), 'derived from the base URL the call used');
+      // Batch 120: with per-function routing + failover, the serving
+      // attempt's profile base URL is what counts.
+      assert.ok(src.includes('providerFromBaseUrl(served.profile.baseUrl)'), 'derived from the base URL of the attempt that served the call');
     });
     check('museAgent logUsage + all call sites record provider', () => {
       const src = require('./lib/monolithSource.cjs').museAgentSource();
       assert.ok(src.includes('INSERT INTO ai_usage (task, provider, model'), 'insert lists provider');
-      const sites = src.match(/provider: providerForConfig\(config\)/g) || [];
-      assert.equal(sites.length, 4, 'four logUsage call sites pass provider');
+      // Batch 120: call sites pass servedProviderFor(config) — the
+      // provider that ACTUALLY served the routed call (it falls back
+      // to providerForConfig when nothing has been served yet).
+      const sites = src.match(/provider: servedProviderFor\(config\)/g) || [];
+      assert.equal(sites.length, 4, 'four logUsage call sites pass the served provider');
       assert.ok(src.includes('providerFromBaseUrl(config && config.baseUrl)'), 'derived from the configured base URL');
     });
     check('openaiImages INSERT records provider and returns it', () => {

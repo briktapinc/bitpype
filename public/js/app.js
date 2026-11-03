@@ -8620,6 +8620,88 @@ function captchaStatusHtml(st) {
   return `<div class="panel"><div class="panel-b"><div class="msg ${cls}" role="status">${esc(text)}</div></div></div>`;
 }
 
+// Batch 120 — Admin → API keys: the AI provider routing matrix.
+// One row per function: primary provider, fallback provider, and an
+// optional model override per slot (blank = that provider's default
+// model). Failover is automatic on provider-side failures (401/403
+// incl. billing blocks, 429, 5xx, network/timeout) — never on a
+// 400-class request error. Cooldown + last-failover status ride the
+// state endpoint; keys themselves are never shown (configured / not
+// configured only), and the profile keys stay in the form below.
+function aiRoutingPanelHtml(state) {
+  if (!state) {
+    return `<div class="panel" style="margin-bottom:1rem">
+      <div class="panel-h"><h3>AI provider routing</h3></div>
+      <div class="panel-b"><p class="hint">Routing status could not be loaded — reload the page to try again.</p></div>
+    </div>`;
+  }
+  const provName = (slug) =>
+    slug === 'muse' ? 'Meta Muse' : slug === 'openai' ? 'OpenAI' : slug === 'fal' ? 'fal.ai' : slug;
+  const profLine = (p) =>
+    p
+      ? `${p.configured ? 'configured' : '<strong>not configured</strong>'}${p.baseHost ? ` · ${esc(p.baseHost)}` : ''}${p.defaultModel ? ` · default model ${esc(p.defaultModel)}` : ''}`
+      : 'unknown';
+  const fmtTime = (ts) => {
+    try {
+      return new Date(ts).toLocaleString();
+    } catch {
+      return '';
+    }
+  };
+  const provOptions = (sel, allowNone) =>
+    `${allowNone ? `<option value="none" ${sel === 'none' ? 'selected' : ''}>None</option>` : ''}<option value="muse" ${sel === 'muse' ? 'selected' : ''}>Meta Muse</option><option value="openai" ${sel === 'openai' ? 'selected' : ''}>OpenAI</option>`;
+  const rowHtml = (fn) => {
+    if (fn.kind === 'info') {
+      return `<div style="padding:12px 0;border-top:1px solid var(--line, #e4e1ea)">
+        <div style="font-weight:600">${esc(fn.label)}</div>
+        <p class="hint" style="margin:4px 0 0">Runs on <strong>${esc(provName(fn.fixedProvider))}</strong> — ${esc(fn.note || 'single provider today')}.</p>
+      </div>`;
+    }
+    const r = fn.route || {};
+    const statusBits = [];
+    for (const cd of fn.cooldowns || []) {
+      statusBits.push(
+        `${esc(provName(cd.provider))} cooling down until ${esc(fmtTime(cd.until))} (after ${esc(cd.reason)}) — calls go to the fallback`
+      );
+    }
+    if (fn.lastFailover) {
+      statusBits.push(
+        `Last failover: ${esc(provName(fn.lastFailover.from))} → ${esc(provName(fn.lastFailover.to))} · ${esc(fn.lastFailover.reason)} · ${esc(fmtTime(fn.lastFailover.at))}`
+      );
+    }
+    return `<div data-route-row="${esc(fn.key)}" style="padding:12px 0;border-top:1px solid var(--line, #e4e1ea)">
+      <div style="font-weight:600">${esc(fn.label)}</div>
+      ${statusBits.length ? `<p class="hint" style="margin:4px 0 0">${statusBits.join('<br/>')}</p>` : ''}
+      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px">
+        <label style="flex:1 1 150px">Primary provider
+          <select data-route-field="primary" style="width:100%">${provOptions(r.primary, false)}</select>
+        </label>
+        <label style="flex:1 1 150px">Fallback provider
+          <select data-route-field="fallback" style="width:100%">${provOptions(r.fallback, true)}</select>
+        </label>
+        <label style="flex:1 1 170px">Primary model override
+          <input data-route-field="modelPrimary" type="text" value="${esc(r.modelPrimary || '')}" placeholder="Provider default" style="width:100%" />
+        </label>
+        <label style="flex:1 1 170px">Fallback model override
+          <input data-route-field="modelFallback" type="text" value="${esc(r.modelFallback || '')}" placeholder="Provider default" style="width:100%" />
+        </label>
+      </div>
+    </div>`;
+  };
+  return `<div class="panel" style="margin-bottom:1rem">
+    <div class="panel-h"><h3>AI provider routing — which API does what</h3></div>
+    <div class="panel-b" style="padding-bottom:0">
+      <p class="hint">Pick the provider for each function. If the primary fails on the provider's side (sign-in/billing errors, rate limits, server errors, timeouts), the call automatically retries once on the fallback — a request error (HTTP 400) never fails over, it surfaces. Routing is platform-wide. Profiles resolve the platform key first, then a workspace's own stored key.</p>
+      <p class="hint" style="margin-top:6px">Meta Muse: ${profLine(state.profiles && state.profiles.muse)}<br/>OpenAI: ${profLine(state.profiles && state.profiles.openai)}<br/>fal.ai: ${profLine(state.profiles && state.profiles.fal)}</p>
+      ${state.lastFailover ? `<p class="hint" style="margin-top:6px">Most recent failover anywhere: ${esc(provName(state.lastFailover.from))} → ${esc(provName(state.lastFailover.to))} (${esc(state.lastFailover.fnKey)}) · ${esc(state.lastFailover.reason)} · ${esc(fmtTime(state.lastFailover.at))}</p>` : ''}
+    </div>
+    <div class="panel-b">
+      ${(state.functions || []).map(rowHtml).join('')}
+      <div class="row actions" style="margin-top:12px"><button class="btn" type="button" id="ai-routing-save">Save routing</button><span class="msg" id="ai-routing-msg"></span></div>
+    </div>
+  </div>`;
+}
+
 // Batch 87 — Admin → Settings → Branding: the two site-logo slots.
 // Each slot previews the logo currently in effect (the uploaded file,
 // or the built-in default), offers upload/replace (PNG, JPG, SVG or
@@ -8687,6 +8769,14 @@ async function renderAdminSettings(el, group) {
       brandingState = null; /* panel renders a could-not-load note; form still works */
     }
   }
+  let aiRoutingState = null;
+  if (group === 'keys') {
+    try {
+      aiRoutingState = (await api.adminAiRouting()).data;
+    } catch {
+      aiRoutingState = null; /* panel renders a could-not-load note; keys form still works */
+    }
+  }
   if (group === 'hostinger') {
     try {
       hostingerState = (await api.adminHostingerStatus()).data;
@@ -8729,6 +8819,7 @@ async function renderAdminSettings(el, group) {
     ${group === 'billing' ? planContentsPanelHtml(planContentsState) : ''}
     ${group === 'hostinger' ? hostingerPanelHtml(hostingerState) : ''}
     ${group === 'branding' ? brandingPanelHtml(brandingState) : ''}
+    ${group === 'keys' ? aiRoutingPanelHtml(aiRoutingState) : ''}
     <div class="panel">
       <div class="panel-h"><h3>${esc(title)}</h3></div>
       <div class="panel-b" style="padding-bottom:0">${webhookHint}</div>
@@ -8917,6 +9008,40 @@ async function renderAdminSettings(el, group) {
         };
       }
     }
+  }
+
+  // Batch 120 — AI routing matrix wiring: collect every row and save
+  // through the dedicated endpoint (server validates the payload).
+  const aiRoutingSaveBtn = $('#ai-routing-save');
+  if (aiRoutingSaveBtn) {
+    aiRoutingSaveBtn.onclick = async () => {
+      const msg = $('#ai-routing-msg');
+      const routes = {};
+      $$('[data-route-row]').forEach((row) => {
+        const get = (field) => {
+          const el = row.querySelector(`[data-route-field="${field}"]`);
+          return el ? String(el.value || '') : '';
+        };
+        routes[row.dataset.routeRow] = {
+          primary: get('primary'),
+          fallback: get('fallback'),
+          modelPrimary: get('modelPrimary'),
+          modelFallback: get('modelFallback'),
+        };
+      });
+      aiRoutingSaveBtn.disabled = true;
+      try {
+        await api.adminAiRoutingSave(routes);
+        toast('AI routing saved', 'ok');
+        await renderAdminSettings(el, group);
+      } catch (err) {
+        if (msg) {
+          msg.textContent = errText(err);
+          msg.className = 'msg error';
+        }
+        aiRoutingSaveBtn.disabled = false;
+      }
+    };
   }
 
   const pricingForm = $('#pricing-form');

@@ -533,6 +533,9 @@ window.ScoutApi = (() => {
     // Hostinger one-click deploys (Batch 59)
     adminHostingerStatus: () => get('/admin/settings/hostinger'),
     adminHostingerTest: () => post('/admin/settings/hostinger/test', {}),
+    // AI provider routing (Batch 120): which API does what, per function
+    adminAiRouting: () => get('/admin/settings/ai-routing'),
+    adminAiRoutingSave: (routes) => put('/admin/settings/ai-routing', { routes }),
     // Branding (Batch 87): site logos for dark/light screens + tagline
     adminBranding: () => get('/admin/settings/branding'),
     adminBrandingLogo: (variant, dataBase64) => post('/admin/settings/branding/logo', { variant, dataBase64 }),

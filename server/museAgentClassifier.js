@@ -9,7 +9,7 @@
  */
 
 const chatPlanner = require('./siteChatPlanner');
-const { getDbSetting, resolveMuseConfig, museConfigured, todaySpendUsd, providerForConfig, logUsage, chatCompletions } = require('./museAgentCore');
+const { getDbSetting, resolveAgentConfig, museConfigured, todaySpendUsd, servedProviderFor, servedModelFor, withFailoverNote, logUsage, chatCompletionsRouted } = require('./museAgentCore');
 
 const PORTAL_INTENTS = new Set(['question', 'change', 'offtopic', 'ambiguous', 'clarify_answer', 'cancel']);
 
@@ -135,7 +135,7 @@ async function classifyPortalChatIntent(
 ) {
   const domain = require('./domain');
   const lid = Number(leadId);
-  const config = await domain.withDb(workspaceId, async (d) => resolveMuseConfig(db || d));
+  const config = await domain.withDb(workspaceId, async (d) => resolveAgentConfig(db || d, 'design_chat'));
   if (!museConfigured(config)) return { error: 'muse_not_configured', intent: null };
   const { budget, spent } = domain.withDb(workspaceId, (d) => {
     const use = db || d;
@@ -185,7 +185,7 @@ async function classifyPortalChatIntent(
     data = null;
     parsed = null;
     try {
-      data = await chatCompletions(config, {
+      data = await chatCompletionsRouted(config, {
         model: config.model,
         messages: classifyMessages,
         max_tokens: maxTokens,
@@ -204,13 +204,13 @@ async function classifyPortalChatIntent(
       const per1kCompletion = parseFloat(getDbSetting(use, 'cost.per_1k_completion', '0.002')) || 0;
       logUsage(use, {
         task: 'portal_agent',
-        provider: providerForConfig(config),
-        model: config.model,
+        provider: servedProviderFor(config),
+        model: servedModelFor(config),
         promptTokens,
         completionTokens,
         costUsd: (promptTokens / 1000) * per1kPrompt + (completionTokens / 1000) * per1kCompletion,
         leadId: lid,
-        note: 'portal classify',
+        note: withFailoverNote(config, 'portal classify'),
       });
     });
   } catch {
