@@ -125,7 +125,11 @@ check('S4.2 museAgent.js keeps the loops; classifier/planner/tools/core split ou
   assert.ok(maFacade.includes('async function runPortalImproveLoop('), 'improve loop stays in museAgent.js');
   assert.ok(maFacade.includes('async function runJobLoop('), 'job loop stays in museAgent.js');
   const ma = require(path.join(root, 'server', 'museAgent.js'));
-  assert.equal(Object.keys(ma).length, 17, 'museAgent exports the full original surface (17 names)');
+  // Batch 120: the facade gained ONE export — resolveAgentConfig,
+  // the routed-config resolver the WP design chat + hands-off call.
+  assert.equal(Object.keys(ma).length, 18, 'museAgent exports the full original surface + resolveAgentConfig (18 names)');
+  const core = require(path.join(root, 'server', 'museAgentCore.js'));
+  assert.equal(ma.resolveAgentConfig, core.resolveAgentConfig, 're-export identity: resolveAgentConfig');
   const clf = require(path.join(root, 'server', 'museAgentClassifier.js'));
   assert.equal(ma.classifyPortalChatIntent, clf.classifyPortalChatIntent, 're-export identity: classifyPortalChatIntent');
   const pln = require(path.join(root, 'server', 'museAgentPlanner.js'));

@@ -355,6 +355,23 @@ function loadChatAtt() {
       description: name,
       inputSchema: { type: 'object', properties: {} },
     }));
+    // Batch 120: museAgentCore now requires './aiRouting' mid-file
+    // (survives monolith assembly). Single-provider stub mirroring
+    // the real classifyError semantics — the pre-120 fixture shape.
+    const aiRoutingStub = {
+      getRoute: async () => ({ primary: 'muse', fallback: 'none', modelPrimary: '', modelFallback: '' }),
+      orderAttempts: (_fn, route) => [{ provider: route.primary, via: 'primary', failoverNote: null }],
+      classifyError: (e) => {
+        const s = e && typeof e.status === 'number' ? e.status : null;
+        if (s == null) return { failover: true, cooldownMs: 0, reason: 'network/timeout' };
+        if (s === 401 || s === 403) return { failover: true, cooldownMs: 600000, reason: 'HTTP ' + s };
+        if (s === 429) return { failover: true, cooldownMs: 120000, reason: 'HTTP 429' };
+        if (s >= 500) return { failover: true, cooldownMs: 0, reason: 'HTTP ' + s };
+        return { failover: false, cooldownMs: 0, reason: 'HTTP ' + s };
+      },
+      noteFailover: () => {},
+      noteProviderFailure: () => {},
+    };
     function loopFixture(handler) {
       const requests = [];
       const db = {
@@ -385,7 +402,9 @@ function loadChatAtt() {
                     ? require(path.join(root, 'server', 'siteChatPlanner.js'))
                     : name === './portalCapabilities'
                       ? require(path.join(root, 'server', 'portalCapabilities.js'))
-                      : require(name),
+                      : name === './aiRouting'
+                        ? aiRoutingStub
+                        : require(name),
         fetch: async (_url, opts) => {
           const body = JSON.parse(opts.body);
           requests.push(body);
