@@ -29,6 +29,9 @@ const SPLIT_MODULES = new Set([
   'portalAccounts', 'portalShared', 'portalSiteEdits', 'portalSocial', 'portalForms',
   'portalModules', 'portalBilling', 'portalLeadScout', 'portalSiteChat',
   'museAgentTools', 'museAgentCore', 'museAgentClassifier', 'museAgentPlanner',
+  // Batch 120: museAgentCore requires the provider-routing registry;
+  // it only lazily requires ./platform (mocked at every load site).
+  'aiRouting',
 ]);
 function load(file, mocks) {
   const cache = new Map();

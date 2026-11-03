@@ -156,7 +156,28 @@ const SETTING_SEEDS = [
 // SECRET_KEYS, so they stay masked on read. Canonical list — port of
 // audit D3; Batch 24b extended it to cover every PLATFORM_SETTING_DEFS
 // key so no def'd setting can hard-fail validation again.
+// Batch 120: the AI routing matrix keys (ai.route.<function>.*),
+// generated from the single registry in server/aiRouting.js. The
+// Batch 24b invariant — every PLATFORM_SETTING_DEFS key is settable
+// with a working validator — covers these too (their defs live in
+// server/platform.js, generated from the same registry).
+// (Loaded defensively: two legacy suites eval this file's source in
+// a VM with no require global — settingsKeys stays dependency-free
+// there and the route keys simply do not exist in that sandbox,
+// whose checks never touch ai.route.*.)
+let AI_ROUTE_KEYS = [];
+try {
+  AI_ROUTE_KEYS = require('./aiRouting').ROUTABLE_FUNCTIONS.flatMap((fn) => [
+    `ai.route.${fn.key}.primary`,
+    `ai.route.${fn.key}.fallback`,
+    `ai.route.${fn.key}.model_primary`,
+    `ai.route.${fn.key}.model_fallback`,
+  ]);
+} catch {
+  AI_ROUTE_KEYS = [];
+}
 const SETTABLE_KEYS = [
+  ...AI_ROUTE_KEYS,
   'ai.base_url',
   'ai.model.default',
   'ai.model.research',
@@ -393,6 +414,26 @@ function validateSetting(key, raw) {
     return { ok: false, error: `Setting "${key}" is not writable via settings:set.` };
   }
   const fail = (why) => ({ ok: false, error: `Invalid value for ${key}: ${why}` });
+  // Batch 120: routing matrix values mirror aiRouting's own payload
+  // rules (primary/fallback are provider slugs; model overrides are
+  // a single line of at most 120 chars, empty = profile default).
+  // The fallback != primary cross-check stays with the matrix
+  // endpoint, which sees the whole row at once.
+  if (key.startsWith('ai.route.')) {
+    const slot = key.slice('ai.route.'.length).split('.').pop();
+    const v = value.trim();
+    if (slot === 'primary') {
+      return v === 'muse' || v === 'openai' ? { ok: true, value: v } : fail('must be muse or openai');
+    }
+    if (slot === 'fallback') {
+      return v === 'muse' || v === 'openai' || v === 'none' ? { ok: true, value: v } : fail('must be muse, openai or none');
+    }
+    if (slot === 'model_primary' || slot === 'model_fallback') {
+      if (v.length > 120 || /[\r\n]/.test(v)) return fail('model override must be a single line of at most 120 characters');
+      return { ok: true, value: v };
+    }
+    return fail('unknown ai.route slot');
+  }
   switch (key) {
     case 'ai.base_url':
       if (!isHttpUrl(value)) return fail('must be an http(s) URL');
