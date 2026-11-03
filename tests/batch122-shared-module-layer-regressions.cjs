@@ -180,6 +180,11 @@ const ymd = (offsetDays) => new Date(Date.now() + offsetDays * dayMs).toISOStrin
     n++;
     assert.ok(portalJs.includes('blocks: selectedBlocks()'), 'newsletter composer sends its block selection');
     n++;
+    assert.ok(
+      portalJs.includes('const current = moduleState.nlPreview || null;'),
+      'composer preview renders the in-session preview (showPreview reads current state, not the render-time const)'
+    );
+    n++;
     const embedJs = read('public/js/module-embed.js');
     assert.ok(embedJs.includes('shared_gallery'), 'embed renders the shared gallery on event detail');
     n++;

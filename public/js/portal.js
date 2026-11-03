@@ -6910,14 +6910,19 @@
     sendBtn.disabled = true;
     const showPreview = () => {
       previewBox.textContent = '';
-      if (!preview) {
+      /* Read the CURRENT preview at call time: the render-time
+         `preview` const is null on a fresh panel, so a preview created
+         by the Preview button in this session never rendered (the
+         panel had to be re-opened to see it). */
+      const current = moduleState.nlPreview || null;
+      if (!current) {
         sendBtn.disabled = true;
         return;
       }
       const head = nlEl(
         'p',
         'hint',
-        `Preview — as ${preview.sampleEmail || 'a subscriber'} would see it. Sending will email ${preview.recipientCount} subscriber(s) from ${fromLabel(preview.from)}.`
+        `Preview — as ${current.sampleEmail || 'a subscriber'} would see it. Sending will email ${current.recipientCount} subscriber(s) from ${fromLabel(current.from)}.`
       );
       previewBox.appendChild(head);
       const frame = document.createElement('iframe');
@@ -6926,7 +6931,7 @@
       frame.style.height = '260px';
       frame.style.border = '1px solid var(--line,#e6e0d8)';
       frame.style.background = '#fff';
-      frame.srcdoc = preview.renderedHtml || '';
+      frame.srcdoc = current.renderedHtml || '';
       previewBox.appendChild(frame);
       sendBtn.disabled = false;
     };
