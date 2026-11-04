@@ -369,13 +369,19 @@ router.post('/:token/photocapture', bookLimit, captcha, async (req, res) => {
   try {
     const workspaceId = await workspaceFromReq(req);
     const body = req.body || {};
-    const image = String(body.image || body.imageData || body.data || '');
-    if (!image.trim()) {
-      const err = new Error('Please choose a photo to send');
-      err.code = 'VALIDATION';
-      throw err;
-    }
-    const resolved = domain.withDb(workspaceId, (db) => {
+    // ONE tenant-db touch for the whole submission (the public
+    // routes' house shape — the workspace-guard regression suite
+    // pins exactly one): the async withDb callback resolves the
+    // embed, stores the photo through the module-asset pipeline
+    // (async — image optimization cannot run inside a sync db
+    // section), then records the submission on the same handle.
+    const data = await domain.withDb(workspaceId, async (db) => {
+      const image = String(body.image || body.imageData || body.data || '');
+      if (!image.trim()) {
+        const err = new Error('Please choose a photo to send');
+        err.code = 'VALIDATION';
+        throw err;
+      }
       const payload = siteModules.getPublicModuleByToken(db, req.params.token, gateOpts(req));
       if (payload.module_type !== 'photocapture') {
         const err = new Error('Photo Capture module not found');
@@ -389,21 +395,19 @@ router.post('/:token/photocapture', bookLimit, captcha, async (req, res) => {
         err.status = 403;
         throw err;
       }
-      return { leadId: Number(payload.embed.lead_id) };
-    });
-    let stored;
-    try {
-      stored = await require('../portalSiteEdits').applyModuleAssetUpload(workspaceId, resolved.leadId, {
-        data: image,
-        mimeType: body.mimeType || body.mime_type || '',
-      });
-    } catch (e) {
-      const err = new Error(e.message || 'That photo could not be accepted');
-      err.code = 'VALIDATION';
-      throw err;
-    }
-    const data = domain.withDb(workspaceId, (db) =>
-      siteModules.createPublicPhotoSubmissionByToken(
+      let stored;
+      try {
+        stored = await require('../portalSiteEdits').applyModuleAssetUpload(
+          workspaceId,
+          Number(payload.embed.lead_id),
+          { data: image, mimeType: body.mimeType || body.mime_type || '' }
+        );
+      } catch (e) {
+        const err = new Error(e.message || 'That photo could not be accepted');
+        err.code = 'VALIDATION';
+        throw err;
+      }
+      return siteModules.createPublicPhotoSubmissionByToken(
         db,
         req.params.token,
         {
@@ -416,8 +420,8 @@ router.post('/:token/photocapture', bookLimit, captcha, async (req, res) => {
           page_slug: body.pageSlug || body.page_slug || gateOpts(req).pageSlug || '',
         },
         gateOpts(req)
-      )
-    );
+      );
+    });
     res.json({ ok: true, data: { message: data.message, workspaceId } });
     fireOwnerNotify('notifyOwnerOfPhotoSubmission', workspaceId, data.submission && data.submission.id);
   } catch (e) {

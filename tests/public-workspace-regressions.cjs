@@ -17,11 +17,12 @@ function build(file,known=true){
  const domain=new Proxy({}, {get:(_t,name)=>(...args)=>{assert(checked,'domain touched before workspace validation: '+name);calls++;if(name==='withDb')return args[1]({});return {ok:true,leadId:2}}});
  const mocks={express:{Router:()=>router},'../domain':domain,'../siteModules':{
   parseWorkspaceFromToken:t=>Number(String(t).split('_')[0]),
-  getPublicModuleByToken:()=>({ok:true}),getPublicModuleItem:()=>({ok:true}),getPublicBookingSlots:()=>({slots:[]}),createPublicBookingByToken:()=>({ok:true}),createPublicEstimateRequestByToken:()=>({ok:true}),createShopCheckoutByToken:()=>({ok:true}),getShopOrderBySession:()=>({id:1,status:'paid',product_name:'fixture',amount_cents:100,currency:'USD'}),
+  getPublicModuleByToken:()=>({ok:true,module_type:'photocapture',embed:{lead_id:2},locked:false}),getPublicModuleItem:()=>({ok:true}),getPublicBookingSlots:()=>({slots:[]}),createPublicBookingByToken:()=>({ok:true}),createPublicEstimateRequestByToken:()=>({ok:true}),createShopCheckoutByToken:()=>({ok:true}),getShopOrderBySession:()=>({id:1,status:'paid',product_name:'fixture',amount_cents:100,currency:'USD'}),
   membersEmbedByToken:()=>({lead_id:2}),getMemberPageBody:()=>({ok:true}),publicMemberSignup:()=>({ok:true}),publicMemberLogin:()=>({ok:true}),publicMemberLogout:()=>({ok:true}),publicMemberForgot:()=>({embed:{lead_id:2},request:null}),publicMemberReset:()=>({ok:true}),buildMemberResetMail:()=>null,
   createMembershipCheckoutByToken:()=>({ok:true}),joinFreeTierByToken:()=>({ok:true}),
   createPublicDataTableSubmissionByToken:()=>({ok:true,row:{id:1,status:'pending'},mode:'moderated'}),
- },'../../src/socialMedia':{},'../workspaceExists':{assertWorkspaceExists:guard},
+  createPublicPhotoSubmissionByToken:()=>({embed:{lead_id:2},submission:{id:1},message:'fixture'}),
+ },'../portalSiteEdits':{applyModuleAssetUpload:async()=>({src:'images/fixture.webp',publicUrl:'images/fixture.webp'})},'../../src/socialMedia':{},'../workspaceExists':{assertWorkspaceExists:guard},
  '../billing':{workspacePlan:async()=> 'free'},'../appUrls':{socialReturnPath:()=>'/app#/social'},
  '../contactForms':{parseWorkspaceFromToken:t=>Number(String(t).split('_')[0]),getPublicFormByToken:()=>({}),acceptSubmission:async()=>({})},
  '../chatbot':{getPublicConfigByToken:()=>({embed:{lead_id:2},settings:{}}),startOrGetSession:()=>({}),publicSession:()=>({}),postVisitorMessage:()=>({}),getSessionHistory:()=>({}),captureLead:()=>({})},
@@ -37,7 +38,7 @@ async function invoke(b,route,req){
  return {status,body};
 }
 function request(file,id){
- const req={params:{token:`${id}_fixture`},query:{w:String(id),workspaceId:String(id),date:'2030-01-01',session:'fixture',session_id:'fixture'},body:{w:id,action:'approve',message:'fixture'},get:()=> 'fixture'};
+ const req={params:{token:`${id}_fixture`},query:{w:String(id),workspaceId:String(id),date:'2030-01-01',session:'fixture',session_id:'fixture'},body:{w:id,action:'approve',message:'fixture',image:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='},get:()=> 'fixture'};
  if(file.includes('social'))req.params.token='fixture';return req;
 }
 async function main(){
