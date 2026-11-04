@@ -95,25 +95,43 @@ let db;
     const smSrc = read('server/siteModules.js');
     assert.ok(smSrc.includes('function validatePhotoSubmissionFields'), 'the shared validator exists');
     assert.ok(smSrc.includes('validatePhotoSubmissionFields,'), 'the validator is exported for the route');
-    const create = smSrc.slice(smSrc.indexOf('function createPhotoSubmission'), smSrc.indexOf('function getPhotoSubmission'));
-    assert.ok(create.includes('validatePhotoSubmissionFields(data)'), 'createPhotoSubmission enforces the same validator');
+    const create = smSrc.slice(
+      smSrc.indexOf('function createPhotoSubmission'),
+      smSrc.indexOf('function getPhotoSubmission')
+    );
+    assert.ok(
+      create.includes('validatePhotoSubmissionFields(data)'),
+      'createPhotoSubmission enforces the same validator'
+    );
     n += 3;
 
-    const del = smSrc.slice(smSrc.indexOf('function deletePhotoSubmission'), smSrc.indexOf('function addPhotoSubmissionToGallery'));
+    const del = smSrc.slice(
+      smSrc.indexOf('function deletePhotoSubmission'),
+      smSrc.indexOf('function addPhotoSubmissionToGallery')
+    );
     assert.ok(del.includes('removeStoredPhotoFile'), 'the per-record delete removes the stored file');
     assert.ok(del.includes('gallery_image_id'), 'a gallery-pushed photo keeps its file on delete');
     const purge = smSrc.slice(smSrc.indexOf("if (type === 'photocapture') {"), smSrc.indexOf('const purged = {}'));
     assert.ok(purge.includes('removeStoredPhotoFile'), 'the module purge removes stored files too');
-    const helper = smSrc.slice(smSrc.indexOf('function removeStoredPhotoFile'), smSrc.indexOf('function deletePhotoSubmission'));
+    const helper = smSrc.slice(
+      smSrc.indexOf('function removeStoredPhotoFile'),
+      smSrc.indexOf('function deletePhotoSubmission')
+    );
     assert.ok(helper.includes('images\\/module-'), 'file removal is fenced to pipeline-minted module assets');
     n += 4;
 
     const edits = read('server/portalSiteEdits.js');
-    const upload = edits.slice(edits.indexOf('async function applyModuleAssetUpload'), edits.indexOf('async function generateClientSiteImage'));
+    const upload = edits.slice(
+      edits.indexOf('async function applyModuleAssetUpload'),
+      edits.indexOf('async function generateClientSiteImage')
+    );
     const emptyIdx = upload.indexOf('if (!buffer.length)');
     const largeIdx = upload.indexOf("code: 'TOO_LARGE'");
     assert.ok(emptyIdx > 0 && largeIdx > emptyIdx, 'the empty-decode check precedes the oversize check');
-    assert.ok(upload.slice(emptyIdx, largeIdx).includes("'Invalid image data'"), 'empty decode reads as invalid, not large');
+    assert.ok(
+      upload.slice(emptyIdx, largeIdx).includes("'Invalid image data'"),
+      'empty decode reads as invalid, not large'
+    );
     n += 2;
     group('Part 1 surface pins', n);
   }
@@ -219,7 +237,10 @@ let db;
     sm.updatePhotoSubmissionStatus(db, LEAD_A, sub2.id, 'approved');
     sm.addPhotoSubmissionToGallery(db, LEAD_A, sub2.id, album.id);
     sm.deletePhotoSubmission(db, LEAD_A, sub2.id);
-    assert.ok(fs.existsSync(path.join(imgDir, 'module-del2.png')), 'gallery-pushed photo file survives the submission delete');
+    assert.ok(
+      fs.existsSync(path.join(imgDir, 'module-del2.png')),
+      'gallery-pushed photo file survives the submission delete'
+    );
     n++;
 
     // External URLs and non-module assets are never touched.
@@ -299,7 +320,10 @@ let db;
       const corrupt = await post({ name: 'Http Four', email: 'http4@example.invalid', image: '###%%%^^^' });
       const corruptJ = await json(corrupt);
       assert.equal(corrupt.status, 400, 'corrupt payload refused');
-      assert.ok(/Invalid image data/i.test(String(corruptJ.error || '')), `corrupt payload message corrected (got: ${corruptJ.error})`);
+      assert.ok(
+        /Invalid image data/i.test(String(corruptJ.error || '')),
+        `corrupt payload message corrected (got: ${corruptJ.error})`
+      );
       assert.equal(moduleFiles().length, before, 'a corrupt payload stores NO file');
       n += 3;
 
@@ -324,9 +348,19 @@ let db;
   {
     let n = 0;
     const srcA = plant('module-purge1.png');
-    sm.createPhotoSubmission(db, LEAD_A, { name: 'Purge One', email: 'pg1@example.invalid', image_url: srcA, image_src: srcA });
+    sm.createPhotoSubmission(db, LEAD_A, {
+      name: 'Purge One',
+      email: 'pg1@example.invalid',
+      image_url: srcA,
+      image_src: srcA,
+    });
     const srcB = plant('module-purge2.png');
-    const subB = sm.createPhotoSubmission(db, LEAD_A, { name: 'Purge Two', email: 'pg2@example.invalid', image_url: srcB, image_src: srcB });
+    const subB = sm.createPhotoSubmission(db, LEAD_A, {
+      name: 'Purge Two',
+      email: 'pg2@example.invalid',
+      image_url: srcB,
+      image_src: srcB,
+    });
     sm.updatePhotoSubmissionStatus(db, LEAD_A, subB.id, 'approved');
     sm.addPhotoSubmissionToGallery(db, LEAD_A, subB.id, album.id);
     sm.deleteModule(db, LEAD_A, 'photocapture');
