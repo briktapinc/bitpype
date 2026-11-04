@@ -200,6 +200,7 @@ function group(name, n) {
     ['charts', 'Charts'],
     ['newsletter', 'Newsletter'],
     ['categories', 'Categories'],
+    ['photocapture', 'Photo Capture'],
   ];
   app.get('/api/v1/admin-area/modules', (_q, r) =>
     r.json({
