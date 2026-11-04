@@ -959,7 +959,14 @@ async function applyClientImageUpload(workspaceId, leadId, payload = {}) {
   } catch {
     throw Object.assign(new Error('Invalid image data'), { code: 'INVALID_IMAGE' });
   }
-  if (!buffer.length || buffer.length > PORTAL_IMAGE_MAX_BYTES) {
+  if (!buffer.length) {
+    // Batch 132: an undecodable payload (e.g. malformed base64 —
+    // Node's decoder is lenient and yields an empty buffer) is an
+    // INVALID image, not a large one; the conflated check told
+    // visitors their corrupt photo was "too large".
+    throw Object.assign(new Error('Invalid image data'), { code: 'INVALID_IMAGE' });
+  }
+  if (buffer.length > PORTAL_IMAGE_MAX_BYTES) {
     throw Object.assign(new Error('Image is too large (max ~5 MB after resize)'), { code: 'TOO_LARGE' });
   }
 
@@ -1163,7 +1170,14 @@ async function applyModuleAssetUpload(workspaceId, leadId, payload = {}) {
   } catch {
     throw Object.assign(new Error('Invalid image data'), { code: 'INVALID_IMAGE' });
   }
-  if (!buffer.length || buffer.length > PORTAL_IMAGE_MAX_BYTES) {
+  if (!buffer.length) {
+    // Batch 132: an undecodable payload (e.g. malformed base64 —
+    // Node's decoder is lenient and yields an empty buffer) is an
+    // INVALID image, not a large one; the conflated check told
+    // visitors their corrupt photo was "too large".
+    throw Object.assign(new Error('Invalid image data'), { code: 'INVALID_IMAGE' });
+  }
+  if (buffer.length > PORTAL_IMAGE_MAX_BYTES) {
     throw Object.assign(new Error('Image is too large (max ~5 MB after resize)'), { code: 'TOO_LARGE' });
   }
 

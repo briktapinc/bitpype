@@ -1861,8 +1861,16 @@ function deleteModule(db, leadId, moduleType) {
     for (const r of ids) deleteLeadScoutEventsByRef(db, 'newsletter_subscriber_id', r.id);
   }
   if (type === 'photocapture') {
-    const ids = db.prepare('SELECT id FROM photocapture_submissions WHERE lead_id = ?').all(lid);
-    for (const r of ids) deleteLeadScoutEventsByRef(db, 'photo_submission_id', r.id);
+    const rows = db
+      .prepare('SELECT id, image_src, gallery_image_id FROM photocapture_submissions WHERE lead_id = ?')
+      .all(lid);
+    for (const r of rows) deleteLeadScoutEventsByRef(db, 'photo_submission_id', r.id);
+    // Batch 132: purging the module removes the stored photo files
+    // too (same rule as the per-record delete — a photo pushed into
+    // a gallery keeps its file; that copy belongs to the gallery).
+    for (const r of rows) {
+      if (!r.gallery_image_id) removeStoredPhotoFile(db, lid, r.image_src);
+    }
   }
   const purged = {};
   let purgedTotal = 0;
@@ -6680,6 +6688,23 @@ function withPhotoSubmissionShape(row) {
   };
 }
 
+/** The visitor-field rules for a photo submission (name present,
+ *  email-or-phone present, email well-formed when given) — the ONE
+ *  source for the checks createPhotoSubmission enforces. The public
+ *  submit route runs this BEFORE it stores the uploaded photo
+ *  (Batch 132): validating only after storage left an orphaned file
+ *  in the site's export for every refused submission. */
+function validatePhotoSubmissionFields(data = {}) {
+  const name = String(data.name || '').trim();
+  const email = String(data.email || '').trim();
+  const phone = String(data.phone || '').trim();
+  if (!name) throw fail('VALIDATION', 'Your name is required');
+  if (!email && !phone) throw fail('VALIDATION', 'Please give an email address or a phone number');
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw fail('VALIDATION', 'Please enter a valid email address');
+  }
+}
+
 function createPhotoSubmission(db, leadId, data = {}) {
   ensureTables(db);
   const lid = Number(leadId);
@@ -6690,11 +6715,7 @@ function createPhotoSubmission(db, leadId, data = {}) {
   const imageUrl = String(data.image_url || data.imageUrl || '').trim().slice(0, 1000);
   const imageSrc = String(data.image_src || data.imageSrc || '').trim().slice(0, 1000);
   if (!imageUrl && !imageSrc) throw fail('VALIDATION', 'A photo is required');
-  if (!name) throw fail('VALIDATION', 'Your name is required');
-  if (!email && !phone) throw fail('VALIDATION', 'Please give an email address or a phone number');
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw fail('VALIDATION', 'Please enter a valid email address');
-  }
+  validatePhotoSubmissionFields(data);
   const info = db
     .prepare(
       `
@@ -6787,6 +6808,52 @@ function updatePhotoSubmissionStatus(db, leadId, id, status, data = {}) {
   return getPhotoSubmission(db, leadId, id);
 }
 
+/** Batch 132: best-effort removal of a deleted submission's stored
+ * photo file. Before this, deleting a submission removed the row but
+ * left the photo in the site's export, still served at its public
+ * URL — an owner's delete (e.g. of an inappropriate photo) did not
+ * actually take the photo down. Only pipeline-minted module assets
+ * (images/module-*) are ever touched — never an external URL or an
+ * owner's own asset — and only while the photo has NOT been pushed
+ * into a gallery: a pushed copy is the gallery's own image by then
+ * and its file must stay. Folder resolution mirrors the upload
+ * (applyModuleAssetUpload: resolveClientSite + resolveSiteExport
+ * Folder), with the assetValidation candidate folders as fallback.
+ * Any failure is swallowed: file cleanup never blocks the delete. */
+function removeStoredPhotoFile(db, leadId, imageSrc) {
+  try {
+    const rel = String(imageSrc || '').replace(/\\/g, '/');
+    if (!/^images\/module-[a-z0-9-]+\.(jpg|jpeg|png|webp|gif)$/i.test(rel)) return false;
+    const fs = require('fs');
+    const path = require('path');
+    const root = require('../src/openPreview').exportRoot();
+    const folders = [];
+    try {
+      const wsId = require('../src/assetValidation').workspaceIdFromDb(db);
+      const site = require('./portalShared').resolveClientSite(db, Number(leadId));
+      if (wsId && site) {
+        folders.push(require('./domain').resolveSiteExportFolder(wsId, site, db));
+        for (const f of require('../src/assetValidation').siteStorageFoldersForDb(db, site.id)) folders.push(f);
+      }
+    } catch {
+      /* candidates stay empty — nothing to unlink */
+    }
+    for (const folder of [...new Set(folders)]) {
+      if (!folder) continue;
+      const abs = path.resolve(path.join(root, folder, rel));
+      const back = path.relative(path.resolve(root), abs);
+      if (!back || back.startsWith('..') || path.isAbsolute(back)) continue;
+      if (fs.existsSync(abs)) {
+        fs.unlinkSync(abs);
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 function deletePhotoSubmission(db, leadId, id) {
   ensureTables(db);
   const existing = getPhotoSubmission(db, leadId, id);
@@ -6801,6 +6868,9 @@ function deletePhotoSubmission(db, leadId, id) {
   // Batch 125 finisher: the submission's taxonomy assignments go with
   // it (the categories and every other item stay) — never blocks.
   clearItemCategories(db, leadId, 'photocapture', existing.id);
+  // Batch 132: the stored photo file goes with the row (unless the
+  // photo was pushed into a gallery — that copy is the gallery's).
+  if (!existing.gallery_image_id) removeStoredPhotoFile(db, leadId, existing.image_src);
   return { deleted: true, id: existing.id };
 }
 
@@ -12740,6 +12810,7 @@ module.exports = {
   PHOTOCAPTURE_STATUSES,
   getPhotoCaptureConfig,
   updatePhotoCaptureConfig,
+  validatePhotoSubmissionFields,
   createPhotoSubmission,
   getPhotoSubmission,
   listPhotoSubmissions,

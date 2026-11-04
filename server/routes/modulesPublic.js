@@ -425,6 +425,14 @@ router.post('/:token/photocapture', bookLimit, captcha, async (req, res) => {
         err.status = 403;
         throw err;
       }
+      // Batch 132: validate the visitor's fields BEFORE the photo is
+      // stored. The pipeline writes the file first in the flow below,
+      // so validating only inside createPhotoSubmission (after
+      // storage) left an orphaned file in the site's export for
+      // every refused submission. The rules live in ONE place —
+      // siteModules.validatePhotoSubmissionFields, the same checks
+      // createPhotoSubmission enforces for its other callers.
+      siteModules.validatePhotoSubmissionFields(body);
       let stored;
       try {
         stored = await require('../portalSiteEdits').applyModuleAssetUpload(
