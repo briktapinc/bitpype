@@ -6632,6 +6632,11 @@
             <strong>${esc(a.customer_name)}</strong>
             <span class="hint"> · ${esc(a.service_name || '')} · ${esc(a.starts_at || '')}</span>
             <div class="hint">${esc(a.customer_email || a.customer_phone || '')} · ${esc(a.status)}${isArchived ? ' · archived' : ''}</div>
+            ${
+              Number(a.discount_amount_cents) > 0
+                ? `<div class="hint">${esc(a.discount_label || 'Online-booking discount')} · $${((Number(a.price_gross_cents) || 0) / 100).toFixed(2)} − $${((Number(a.discount_amount_cents) || 0) / 100).toFixed(2)} = $${((Number(a.price_net_cents) || 0) / 100).toFixed(2)}</div>`
+                : ''
+            }
           </div>
           <div class="row" style="gap:6px">
             ${!isArchived && a.status === 'pending' ? `<button type="button" class="btn soft small" data-appt-status="${a.id}" data-status="confirmed">Confirm</button>` : ''}
@@ -6663,6 +6668,32 @@
             <input type="number" id="booking-max-ahead" value="${esc(settings.max_days_ahead != null ? settings.max_days_ahead : 60)}" min="1" max="365" />
           </label>
           <button type="button" class="btn soft small" id="btn-booking-settings-save">Save settings</button>
+        </div>
+        <div class="modules-booking-actions" style="flex-wrap:wrap">
+          <strong style="width:100%">Online-booking discount</strong>
+          <p class="hint" style="width:100%;margin:0">When on, EVERYONE who books online gets this discount automatically — it is shown on your booking page and applied at checkout. Off means no discount is shown or given anywhere.</p>
+          <label class="hint">
+            Discount on
+            <input type="checkbox" id="booking-discount-enabled" ${settings.discount_enabled ? 'checked' : ''} />
+          </label>
+          <label class="hint">Type
+            <select id="booking-discount-kind">
+              <option value="percent" ${settings.discount_kind !== 'fixed' ? 'selected' : ''}>Percent off</option>
+              <option value="fixed" ${settings.discount_kind === 'fixed' ? 'selected' : ''}>Fixed amount off</option>
+            </select>
+          </label>
+          <label class="hint">Value <span class="hint">(percent 1–90, or dollars for fixed)</span>
+            <input type="number" id="booking-discount-value" step="any" min="0" value="${esc(
+              settings.discount_kind === 'fixed'
+                ? ((Number(settings.discount_value) || 0) / 100).toFixed(2)
+                : settings.discount_value != null
+                  ? settings.discount_value
+                  : 0
+            )}" />
+          </label>
+          <label class="hint">Label (optional)
+            <input type="text" id="booking-discount-label" maxlength="80" placeholder="e.g. New client special" value="${esc(settings.discount_label || '')}" />
+          </label>
         </div>`;
     }
     if (apptsHost) {
@@ -8957,6 +8988,11 @@
             <strong>${cents(o.amount_cents, o.currency)}</strong>
           </div>
           <p class="hint" style="margin:2px 0 0">${esc(o.customer_email || 'No buyer email yet')}${when ? ` · ${esc(when)}` : ''}</p>
+          ${
+            o.discount && Number(o.discount.discount_amount_cents) > 0
+              ? `<p class="hint" style="margin:2px 0 0">${esc(o.discount.label || 'Online-booking discount')} · ${cents(o.discount.gross_cents, o.currency)} − ${cents(o.discount.discount_amount_cents, o.currency)} = ${cents(o.amount_cents, o.currency)}</p>`
+              : ''
+          }
           ${lines || `<p class="hint" style="margin:2px 0 0">${esc(o.product_name || '')}</p>`}
         </div>`;
       })
@@ -11022,6 +11058,10 @@
         const auto = document.getElementById('booking-auto-confirm');
         const notice = document.getElementById('booking-min-notice');
         const ahead = document.getElementById('booking-max-ahead');
+        const discEnabled = document.getElementById('booking-discount-enabled');
+        const discKind = document.getElementById('booking-discount-kind');
+        const discValue = document.getElementById('booking-discount-value');
+        const discLabel = document.getElementById('booking-discount-label');
         moduleMsg('Saving settings…', true);
         try {
           await api('/modules/bookings/settings', {
@@ -11030,6 +11070,19 @@
               auto_confirm: !!(auto && auto.checked),
               min_notice_hours: notice ? Number(notice.value) : undefined,
               max_days_ahead: ahead ? Number(ahead.value) : undefined,
+              // Batch 136: fixed discounts are entered in dollars and
+              // stored as cents; percent is stored as whole points.
+              ...(discEnabled
+                ? {
+                    discount_enabled: !!discEnabled.checked,
+                    discount_kind: discKind ? discKind.value : 'percent',
+                    discount_value:
+                      discKind && discKind.value === 'fixed'
+                        ? Math.round((Number(discValue && discValue.value) || 0) * 100)
+                        : Math.round(Number(discValue && discValue.value) || 0),
+                    discount_label: discLabel ? discLabel.value : '',
+                  }
+                : {}),
             }),
           });
           moduleMsg('Settings saved.', true);

@@ -56,7 +56,11 @@ const SCRIPT_ATTR = 'data-bitpype-module-script';
 // like toggles, the visitor-token state fetch).
 // Batch 142: mod36 — the nav cart element ([data-bp-nav-cart]) and
 // the sitewide site_checkout payload stamp.
-const MODULE_SCRIPT_VER = 'mod37';
+// Batch 136: mod38 — the booking widget's discount banner + gross /
+// −discount / total summary (shipped after Batch 143's mod37 esc
+// hardening; the bump is +1 relative to the landed tip, per the
+// finisher convention).
+const MODULE_SCRIPT_VER = 'mod38';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -252,6 +256,11 @@ function ensureTables(db) {
       customer_email TEXT NOT NULL DEFAULT '',
       variant_id INTEGER,
       variant_label TEXT NOT NULL DEFAULT '',
+      gross_amount_cents INTEGER,
+      discount_amount_cents INTEGER NOT NULL DEFAULT 0,
+      discount_kind TEXT NOT NULL DEFAULT '',
+      discount_value INTEGER NOT NULL DEFAULT 0,
+      discount_label TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -748,6 +757,10 @@ function ensureTables(db) {
       min_notice_hours INTEGER NOT NULL DEFAULT 2,
       max_days_ahead INTEGER NOT NULL DEFAULT 60,
       auto_confirm INTEGER NOT NULL DEFAULT 0,
+      discount_enabled INTEGER NOT NULL DEFAULT 0,
+      discount_kind TEXT NOT NULL DEFAULT 'percent',
+      discount_value INTEGER NOT NULL DEFAULT 0,
+      discount_label TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -799,6 +812,12 @@ function ensureTables(db) {
       ends_at TEXT NOT NULL,
       notes TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'pending',
+      price_gross_cents INTEGER NOT NULL DEFAULT 0,
+      discount_label TEXT NOT NULL DEFAULT '',
+      discount_kind TEXT NOT NULL DEFAULT '',
+      discount_value INTEGER NOT NULL DEFAULT 0,
+      discount_amount_cents INTEGER NOT NULL DEFAULT 0,
+      price_net_cents INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -1130,6 +1149,36 @@ function ensureTables(db) {
     if (bookingCols.length && !bookingCols.includes('service_duration_snapshot')) {
       db.exec('ALTER TABLE bookings ADD COLUMN service_duration_snapshot INTEGER');
     }
+    // Batch 136: every online booking carries its price stamp —
+    // gross, the discount actually applied, and the net charged.
+    for (const [col, ddl] of [
+      ['price_gross_cents', 'ALTER TABLE bookings ADD COLUMN price_gross_cents INTEGER NOT NULL DEFAULT 0'],
+      ['discount_label', "ALTER TABLE bookings ADD COLUMN discount_label TEXT NOT NULL DEFAULT ''"],
+      ['discount_kind', "ALTER TABLE bookings ADD COLUMN discount_kind TEXT NOT NULL DEFAULT ''"],
+      ['discount_value', 'ALTER TABLE bookings ADD COLUMN discount_value INTEGER NOT NULL DEFAULT 0'],
+      [
+        'discount_amount_cents',
+        'ALTER TABLE bookings ADD COLUMN discount_amount_cents INTEGER NOT NULL DEFAULT 0',
+      ],
+      ['price_net_cents', 'ALTER TABLE bookings ADD COLUMN price_net_cents INTEGER NOT NULL DEFAULT 0'],
+    ]) {
+      if (bookingCols.length && !bookingCols.includes(col)) db.exec(ddl);
+    }
+    const bookingSettingCols = db
+      .prepare('PRAGMA table_info(booking_settings)')
+      .all()
+      .map((c) => String(c.name || ''));
+    for (const [col, ddl] of [
+      [
+        'discount_enabled',
+        'ALTER TABLE booking_settings ADD COLUMN discount_enabled INTEGER NOT NULL DEFAULT 0',
+      ],
+      ['discount_kind', "ALTER TABLE booking_settings ADD COLUMN discount_kind TEXT NOT NULL DEFAULT 'percent'"],
+      ['discount_value', 'ALTER TABLE booking_settings ADD COLUMN discount_value INTEGER NOT NULL DEFAULT 0'],
+      ['discount_label', "ALTER TABLE booking_settings ADD COLUMN discount_label TEXT NOT NULL DEFAULT ''"],
+    ]) {
+      if (bookingSettingCols.length && !bookingSettingCols.includes(col)) db.exec(ddl);
+    }
   } catch {
     /* race / exists */
   }
@@ -1140,6 +1189,21 @@ function ensureTables(db) {
       .map((c) => String(c.name || ''));
     if (orderCols.length && !orderCols.includes('stripe_key_source')) {
       db.exec("ALTER TABLE ecommerce_orders ADD COLUMN stripe_key_source TEXT NOT NULL DEFAULT ''");
+    }
+    // Batch 136: booking orders keep the same gross/discount/net
+    // stamp as the appointment (other surfaces leave discount 0 and
+    // gross = amount, filled at insert time).
+    for (const [col, ddl] of [
+      ['gross_amount_cents', 'ALTER TABLE ecommerce_orders ADD COLUMN gross_amount_cents INTEGER'],
+      [
+        'discount_amount_cents',
+        'ALTER TABLE ecommerce_orders ADD COLUMN discount_amount_cents INTEGER NOT NULL DEFAULT 0',
+      ],
+      ['discount_kind', "ALTER TABLE ecommerce_orders ADD COLUMN discount_kind TEXT NOT NULL DEFAULT ''"],
+      ['discount_value', 'ALTER TABLE ecommerce_orders ADD COLUMN discount_value INTEGER NOT NULL DEFAULT 0'],
+      ['discount_label', "ALTER TABLE ecommerce_orders ADD COLUMN discount_label TEXT NOT NULL DEFAULT ''"],
+    ]) {
+      if (orderCols.length && !orderCols.includes(col)) db.exec(ddl);
     }
     // Batch 128: gallery photos gain a price (0 = not for sale) so the
     // Checkout module can sell them; existing gallery_images tables
@@ -4216,7 +4280,19 @@ function listShopOrderItems(db, orderId) {
 /** An order row with its recorded line items attached as `items`. */
 function shopOrderWithItems(db, order) {
   if (!order) return order;
-  return { ...order, items: listShopOrderItems(db, order.id) };
+  // Batch 136: surface the booking discount stamp (null on every
+  // non-discount order — cart/membership orders never carry one).
+  const discount = publicDiscountStamp({
+    gross_cents: order.gross_amount_cents != null ? order.gross_amount_cents : order.amount_cents,
+    discount_amount_cents: order.discount_amount_cents,
+    net_cents: order.amount_cents,
+    currency: order.currency,
+    discount_kind: order.discount_kind,
+    discount_value: order.discount_value,
+    discount_label: order.discount_label,
+    discount_display: '',
+  });
+  return { ...order, items: listShopOrderItems(db, order.id), discount };
 }
 
 /** Orders for the portal / agent reads — each with its line items. */
@@ -4460,7 +4536,12 @@ function buildSellableLines(db, leadId, rawItems) {
  * the first line "+ N more" with product_id NULL (the lines are the
  * truth). Amount is the sum of the server-priced lines.
  */
-function insertShopOrderWithLines(db, leadId, lines, { keySource = '', currency = 'USD' } = {}) {
+function insertShopOrderWithLines(
+  db,
+  leadId,
+  lines,
+  { keySource = '', currency = 'USD', discount = null } = {}
+) {
   ensureTables(db);
   const ks =
     keySource === 'lead'
@@ -4471,6 +4552,23 @@ function insertShopOrderWithLines(db, leadId, lines, { keySource = '', currency 
           ? 'unified'
           : '';
   const total = lines.reduce((sum, l) => sum + (Number(l.line_total_cents) || 0), 0);
+  // Batch 136: a booking discount stamp rides ONLY on booking-surface
+  // orders (the caller passes it; cart/membership never do). The
+  // stamp's net must equal the charged total — a mismatch means the
+  // line and the stamp disagree, and the order must not be written.
+  let orderDiscount = null;
+  if (discount) {
+    if (Number(discount.net_cents) !== total) {
+      throw fail('VALIDATION', 'Discount stamp does not match the checkout total', 400);
+    }
+    orderDiscount = {
+      gross: Number(discount.gross_cents) || 0,
+      amount: Number(discount.discount_amount_cents) || 0,
+      kind: String(discount.discount_kind || ''),
+      value: Number(discount.discount_value) || 0,
+      label: String(discount.discount_label || ''),
+    };
+  }
   const first = lines[0] || {};
   // The order row's legacy product link stays meaningful for the
   // classic single-product shop order; mixed/multi orders read
@@ -4488,10 +4586,25 @@ function insertShopOrderWithLines(db, leadId, lines, { keySource = '', currency 
   const variantLabel = lines.length === 1 ? String(first.variant_label || '') : '';
   const info = db
     .prepare(
-      `INSERT INTO ecommerce_orders (lead_id, product_id, product_name, amount_cents, currency, status, stripe_key_source, variant_id, variant_label)
-       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)`
+      `INSERT INTO ecommerce_orders (lead_id, product_id, product_name, amount_cents, currency, status, stripe_key_source, variant_id, variant_label,
+        gross_amount_cents, discount_amount_cents, discount_kind, discount_value, discount_label)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(Number(leadId), productId, productName, total, String(currency || 'USD'), ks, variantId, variantLabel);
+    .run(
+      Number(leadId),
+      productId,
+      productName,
+      total,
+      String(currency || 'USD'),
+      ks,
+      variantId,
+      variantLabel,
+      orderDiscount ? orderDiscount.gross : null,
+      orderDiscount ? orderDiscount.amount : 0,
+      orderDiscount ? orderDiscount.kind : '',
+      orderDiscount ? orderDiscount.value : 0,
+      orderDiscount ? orderDiscount.label : ''
+    );
   const order = db.prepare('SELECT * FROM ecommerce_orders WHERE id = ?').get(info.lastInsertRowid);
   const ins = db.prepare(
     `INSERT INTO ecommerce_order_items
@@ -4712,7 +4825,7 @@ function applyTenantStripeEvent(db, event) {
  * LEAD's own shop Stripe configuration via shopStripe.resolveForLead
  * — never the platform's subscription Stripe.
  */
-async function checkoutShopLines(db, embedRow, lines, currency, returnUrl) {
+async function checkoutShopLines(db, embedRow, lines, currency, returnUrl, opts = {}) {
   const shopStripe = require('./shopStripe');
   // Per-lead keys win; the workspace keys are the fallback (Batch 19).
   const resolved = shopStripe.resolveForLead(db, embedRow.lead_id); // throws SHOP_STRIPE_NOT_CONFIGURED
@@ -4731,6 +4844,10 @@ async function checkoutShopLines(db, embedRow, lines, currency, returnUrl) {
   const order = insertShopOrderWithLines(db, embedRow.lead_id, lines, {
     keySource: resolved.source,
     currency,
+    // Batch 136: opts.bookingDiscount is set ONLY by the booking
+    // surface (Batch 129 pay-at-booking integration point); every
+    // other surface leaves it unset and is stamped with nothing.
+    discount: opts && opts.bookingDiscount ? opts.bookingDiscount : null,
   });
   // Batch 143 (full review): a pay-at-booking session previously
   // carried no expires_at, so it lived Stripe's default 24h while
@@ -4795,6 +4912,14 @@ async function checkoutShopLines(db, embedRow, lines, currency, returnUrl) {
         bitpype_lead_id: String(embedRow.lead_id),
         bitpype_purpose: 'shop',
         bitpype_key_source: resolved.source,
+        ...(opts && opts.bookingDiscount && Number(opts.bookingDiscount.discount_amount_cents) > 0
+          ? {
+              bitpype_discount_kind: String(opts.bookingDiscount.discount_kind || ''),
+              bitpype_discount_value: String(Number(opts.bookingDiscount.discount_value) || 0),
+              bitpype_discount_amount_cents: String(Number(opts.bookingDiscount.discount_amount_cents) || 0),
+              bitpype_gross_amount_cents: String(Number(opts.bookingDiscount.gross_cents) || 0),
+            }
+          : {}),
         ...(lines.length === 1 && lines[0].source_module === 'ecommerce'
           ? {
               bitpype_product_id: String(lines[0].product_id),
@@ -12826,7 +12951,163 @@ function getBookingSettings(db, leadId) {
     min_notice_hours: Number(row.min_notice_hours) || 0,
     max_days_ahead: Number(row.max_days_ahead) || 60,
     auto_confirm: !!row.auto_confirm,
+    // Batch 136: the owner-set ONLINE-BOOKING discount. Default OFF:
+    // no discount exists anywhere until the owner configures one.
+    discount_enabled: !!row.discount_enabled,
+    discount_kind: row.discount_kind === 'fixed' ? 'fixed' : 'percent',
+    discount_value: Number(row.discount_value) || 0,
+    discount_label: String(row.discount_label || ''),
+    discount: bookingDiscountConfigFromRow(row),
     updated_at: row.updated_at,
+  };
+}
+
+/* ── Batch 136: online-booking discount ─────────────────────────────
+ * The discount is a standing public fact about booking online, not
+ * a per-visitor judgment: the owner switches it on in the portal,
+ * every online booking gets it, and every surface (booking widget,
+ * checkout, chat) reads the SAME normalized config through here /
+ * the shared layer. The model and the browser never invent terms —
+ * display strings are templated from the stored config only. */
+
+function bookingDiscountTerms(kind, value, currency = 'USD') {
+  if (kind === 'fixed') return `${formatPrice(value, currency) || '$0.00'} off`;
+  return `${Number(value) || 0}% off`;
+}
+
+function bookingDiscountDisplay(config, currency = 'USD') {
+  if (!config || !config.enabled) return '';
+  const terms = bookingDiscountTerms(config.kind, config.value, currency);
+  const label = String(config.label || '').trim();
+  return label ? `${label} — ${terms} when you book online` : `Book online — ${terms} your appointment`;
+}
+
+/** Normalized discount config from a booking_settings row, or null
+ *  when the discount is OFF / unconfigured / stored-invalid. */
+function bookingDiscountConfigFromRow(row) {
+  if (!row || !row.discount_enabled) return null;
+  const kind = row.discount_kind === 'fixed' ? 'fixed' : 'percent';
+  const value = Number(row.discount_value);
+  if (!Number.isInteger(value)) return null;
+  if (kind === 'percent' && (value < 1 || value > 90)) return null;
+  if (kind === 'fixed' && value <= 0) return null;
+  const config = {
+    enabled: true,
+    kind,
+    value,
+    label: String(row.discount_label || '').trim().slice(0, 80),
+  };
+  config.terms = bookingDiscountTerms(kind, value);
+  config.display = bookingDiscountDisplay(config);
+  return config;
+}
+
+/** The lead's live booking-discount config (null = no discount). */
+function getBookingDiscountConfig(db, leadId) {
+  ensureTables(db);
+  const row = db.prepare('SELECT * FROM booking_settings WHERE lead_id = ?').get(Number(leadId));
+  return bookingDiscountConfigFromRow(row);
+}
+
+/**
+ * The price stamp for one online booking: gross in, discount
+ * computed SERVER-SIDE from the live config, net floored at 0.
+ * Rounding: percent discounts round to the nearest cent; a fixed
+ * discount larger than the price takes the whole price (net 0 —
+ * the booking then follows the free-booking path, no payment).
+ */
+function bookingPriceStamp(db, leadId, grossCents, currency = 'USD') {
+  const gross = Math.max(0, Math.round(Number(grossCents) || 0));
+  const config = gross > 0 ? getBookingDiscountConfig(db, leadId) : null;
+  let amount = 0;
+  if (config) {
+    amount =
+      config.kind === 'percent' ? Math.round((gross * config.value) / 100) : Math.min(gross, config.value);
+  }
+  amount = Math.max(0, Math.min(gross, amount));
+  return {
+    gross_cents: gross,
+    discount_amount_cents: amount,
+    net_cents: gross - amount,
+    currency: String(currency || 'USD').toUpperCase(),
+    discount_kind: amount > 0 && config ? config.kind : '',
+    discount_value: amount > 0 && config ? config.value : 0,
+    discount_label: amount > 0 && config ? config.label : '',
+    discount_display: amount > 0 && config ? bookingDiscountDisplay(config, currency) : '',
+  };
+}
+
+/** The stamp shape carried on API responses (booking + order). */
+function publicDiscountStamp(stamp) {
+  if (!stamp || !(Number(stamp.discount_amount_cents) > 0)) return null;
+  return {
+    gross_cents: Number(stamp.gross_cents) || 0,
+    discount_amount_cents: Number(stamp.discount_amount_cents) || 0,
+    net_cents: Number(stamp.net_cents) || 0,
+    currency: String(stamp.currency || 'USD').toUpperCase(),
+    kind: String(stamp.discount_kind || ''),
+    value: Number(stamp.discount_value) || 0,
+    label: String(stamp.discount_label || ''),
+    display: String(stamp.discount_display || ''),
+  };
+}
+
+/** The same stamp read back off a bookings row. */
+function bookingDiscountStampFromAppointment(appointment) {
+  if (!appointment) return null;
+  return publicDiscountStamp({
+    gross_cents: appointment.price_gross_cents,
+    discount_amount_cents: appointment.discount_amount_cents,
+    net_cents: appointment.price_net_cents,
+    currency: appointment.currency || 'USD',
+    discount_kind: appointment.discount_kind,
+    discount_value: appointment.discount_value,
+    discount_label: appointment.discount_label,
+    discount_display:
+      Number(appointment.discount_amount_cents) > 0
+        ? bookingDiscountDisplay(
+            {
+              enabled: true,
+              kind: appointment.discount_kind,
+              value: appointment.discount_value,
+              label: appointment.discount_label,
+            },
+            appointment.service_currency || appointment.currency || 'USD'
+          )
+        : '',
+  });
+}
+
+/**
+ * Batch 136 × Batch 129 INTEGRATION POINT: the shared checkout
+ * engine's booking line, discounted. Takes the line built by 129's
+ * lineForBookingService (gross unit price from the service row) and
+ * the appointment's server-computed stamp, and returns the line the
+ * engine must charge: unit + total at NET, with the full stamp in
+ * source_meta so the order line itself records gross/discount/net.
+ */
+function applyBookingDiscountToLine(line, stamp) {
+  if (!line || !stamp) return line;
+  let meta = {};
+  try {
+    meta = JSON.parse(line.source_meta || '{}');
+  } catch {
+    meta = {};
+  }
+  const net = Math.max(0, Number(stamp.net_cents) || 0);
+  return {
+    ...line,
+    unit_price_cents: net,
+    line_total_cents: net,
+    source_meta: JSON.stringify({
+      ...meta,
+      price_gross_cents: Number(stamp.gross_cents) || 0,
+      discount_kind: String(stamp.discount_kind || ''),
+      discount_value: Number(stamp.discount_value) || 0,
+      discount_amount_cents: Number(stamp.discount_amount_cents) || 0,
+      price_net_cents: net,
+      discount_label: String(stamp.discount_label || ''),
+    }),
   };
 }
 
@@ -12845,12 +13126,64 @@ function updateBookingSettings(db, leadId, data = {}) {
   if (!Number.isFinite(ahead) || ahead < 1) ahead = 1;
   if (ahead > 365) ahead = 365;
   const auto = data.auto_confirm != null ? (data.auto_confirm ? 1 : 0) : cur.auto_confirm;
+  // Batch 136: discount fields — validated, never clamped into a
+  // different deal than the owner typed. Kind/value/label are kept
+  // while the discount is off (so re-enabling restores the deal);
+  // switching it ON requires a complete, valid configuration.
+  const discountEnabled =
+    data.discount_enabled != null
+      ? data.discount_enabled === true || data.discount_enabled === 1 || data.discount_enabled === 'true'
+        ? 1
+        : 0
+      : cur.discount_enabled
+        ? 1
+        : 0;
+  const discountKindRaw =
+    data.discount_kind != null ? String(data.discount_kind).trim().toLowerCase() : cur.discount_kind || 'percent';
+  if (discountKindRaw !== 'percent' && discountKindRaw !== 'fixed') {
+    throw fail('VALIDATION', 'discount_kind must be percent or fixed');
+  }
+  const discountKind = discountKindRaw;
+  let discountValue;
+  if (data.discount_value_cents != null && discountKind === 'fixed') discountValue = Number(data.discount_value_cents);
+  else if (data.discount_value != null) discountValue = Number(data.discount_value);
+  else discountValue = Number(cur.discount_value) || 0;
+  if (!Number.isInteger(discountValue) || discountValue < 0) {
+    throw fail('VALIDATION', 'discount_value must be a whole number (percent points, or cents for a fixed discount)');
+  }
+  if (discountKind === 'percent' && discountValue > 90) {
+    throw fail('VALIDATION', 'A percent discount must be between 1 and 90');
+  }
+  if (discountEnabled) {
+    if (discountKind === 'percent' && discountValue < 1) {
+      throw fail('VALIDATION', 'Set a percent discount between 1 and 90 to switch the discount on');
+    }
+    if (discountKind === 'fixed' && discountValue < 1) {
+      throw fail('VALIDATION', 'Set a fixed discount amount above $0.00 to switch the discount on');
+    }
+  }
+  const discountLabel =
+    data.discount_label != null
+      ? String(data.discount_label).trim().slice(0, 80)
+      : String(cur.discount_label || '');
   db.prepare(
     `
     UPDATE booking_settings SET timezone=?, slot_interval_minutes=?, min_notice_hours=?,
-      max_days_ahead=?, auto_confirm=?, updated_at=datetime('now') WHERE lead_id=?
+      max_days_ahead=?, auto_confirm=?, discount_enabled=?, discount_kind=?, discount_value=?,
+      discount_label=?, updated_at=datetime('now') WHERE lead_id=?
   `
-  ).run(timezone, interval, notice, ahead, auto, Number(leadId));
+  ).run(
+    timezone,
+    interval,
+    notice,
+    ahead,
+    auto,
+    discountEnabled,
+    discountKind,
+    discountValue,
+    discountLabel,
+    Number(leadId)
+  );
   return getBookingSettings(db, leadId);
 }
 
@@ -13142,7 +13475,7 @@ function listAppointments(
   // Batch 129: reading appointments converges expired payment holds.
   releaseExpiredBookingHolds(db, leadId);
   let sql = `
-    SELECT b.*, COALESCE(NULLIF(b.service_name_snapshot, ''), s.name) AS service_name, COALESCE(b.service_duration_snapshot, s.duration_minutes) AS service_duration
+    SELECT b.*, COALESCE(NULLIF(b.service_name_snapshot, ''), s.name) AS service_name, COALESCE(b.service_duration_snapshot, s.duration_minutes) AS service_duration, COALESCE(s.currency, 'USD') AS service_currency
     FROM bookings b
     LEFT JOIN booking_services s ON s.id = b.service_id
     WHERE b.lead_id = ?
@@ -13175,7 +13508,7 @@ function getAppointment(db, leadId, id) {
   return db
     .prepare(
       `
-    SELECT b.*, COALESCE(NULLIF(b.service_name_snapshot, ''), s.name) AS service_name, COALESCE(b.service_duration_snapshot, s.duration_minutes) AS service_duration
+    SELECT b.*, COALESCE(NULLIF(b.service_name_snapshot, ''), s.name) AS service_name, COALESCE(b.service_duration_snapshot, s.duration_minutes) AS service_duration, COALESCE(s.currency, 'USD') AS service_currency
     FROM bookings b
     LEFT JOIN booking_services s ON s.id = b.service_id
     WHERE b.lead_id = ? AND b.id = ?
@@ -13436,14 +13769,22 @@ function createPublicBooking(db, leadId, data = {}, opts = {}) {
   // Batch 129: a payment hold stays 'pending' until the money lands —
   // auto_confirm applies at PAYMENT time (applyShopStripeEvent), not
   // at request time, so an unpaid hold can never read as confirmed.
+  // (The sole caller, createPublicBookingByToken, passes paymentHold
+  // only when the Batch 136 stamp's NET is > 0, so a $0-net booking
+  // never reaches this branch and follows the free-booking path.)
   const paymentHold = !!(opts && opts.paymentHold) && Number(service.price_cents) > 0;
   const status = paymentHold ? 'pending' : settings.auto_confirm ? 'confirmed' : 'pending';
+  // Batch 136: an ONLINE booking is stamped at creation with the
+  // price it will be charged at — gross, the live-config discount,
+  // net — computed here, server-side, never from the request body.
+  const stamp = bookingPriceStamp(db, leadId, Number(service.price_cents) || 0, service.currency || 'USD');
   const info = db
     .prepare(
       `
     INSERT INTO bookings
-      (lead_id, service_id, customer_name, customer_email, customer_phone, starts_at, ends_at, notes, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (lead_id, service_id, customer_name, customer_email, customer_phone, starts_at, ends_at, notes, status,
+       price_gross_cents, discount_label, discount_kind, discount_value, discount_amount_cents, price_net_cents)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `
     )
     .run(
@@ -13455,7 +13796,13 @@ function createPublicBooking(db, leadId, data = {}, opts = {}) {
       `${date}T${time}:00`,
       endsAt,
       String(data.notes || '').slice(0, 2000),
-      status
+      status,
+      stamp.gross_cents,
+      stamp.discount_label,
+      stamp.discount_kind,
+      stamp.discount_value,
+      stamp.discount_amount_cents,
+      stamp.net_cents
     );
   if (paymentHold) {
     const expiresAt = new Date(Date.now() + BOOKING_PAYMENT_HOLD_MINUTES * 60 * 1000).toISOString();
@@ -13776,6 +14123,10 @@ function getPublicModuleByToken(db, token, opts = {}) {
     booking = {
       settings: getBookingSettings(db, leadId),
       hours: listBookingHours(db, leadId),
+      // Batch 136: the public discount FACT — the templated display
+      // object when the owner has the online-booking discount ON,
+      // null when OFF/unconfigured (nothing shown, nothing promised).
+      discount: getBookingDiscountConfig(db, leadId),
     };
   } else if (type === 'offers') {
     // Published + unexpired only (listOffers filters expired for public lists).
@@ -14078,8 +14429,25 @@ async function createPublicBookingByToken(db, token, data = {}, opts = {}) {
   );
   const returnUrl = String(data.return_url || data.returnUrl || '').trim();
   const priced = !!(servicePreview && Number(servicePreview.price_cents) > 0);
+  // Batch 136 × 129: the amount actually charged is the stamp's NET.
+  // A priced service whose online-booking discount takes the net to
+  // $0 follows the free-booking path — no hold, no checkout session —
+  // exactly like a free service. The stamp is recomputed identically
+  // inside createPublicBooking for the appointment row itself.
+  const stampPreview = servicePreview
+    ? bookingPriceStamp(
+        db,
+        row.lead_id,
+        Number(servicePreview.price_cents) || 0,
+        servicePreview.currency || 'USD'
+      )
+    : null;
   const payNow =
-    priced && !!returnUrl && require('./shopStripe').isConfiguredForLead(db, row.lead_id);
+    priced &&
+    !!returnUrl &&
+    !!stampPreview &&
+    stampPreview.net_cents > 0 &&
+    require('./shopStripe').isConfiguredForLead(db, row.lead_id);
   const appointment = createPublicBooking(db, row.lead_id, data, { paymentHold: payNow });
   const result = {
     embed: publicEmbed(row),
@@ -14091,17 +14459,40 @@ async function createPublicBookingByToken(db, token, data = {}, opts = {}) {
       ends_at: appointment.ends_at,
       status: appointment.status,
       customer_name: appointment.customer_name,
+      // Batch 136: the booking's stamped price (gross/discount/net).
+      price_gross_cents: Number(appointment.price_gross_cents) || 0,
+      discount_amount_cents: Number(appointment.discount_amount_cents) || 0,
+      price_net_cents: Number(appointment.price_net_cents) || 0,
     },
+    discount: bookingDiscountStampFromAppointment(appointment),
     message:
       appointment.status === 'confirmed'
         ? 'Your appointment is confirmed.'
         : 'Request received — we will confirm your appointment soon.',
   };
   if (payNow) {
-    const line = lineForBookingService(servicePreview, appointment);
+    const grossLine = lineForBookingService(servicePreview, appointment);
+    // Batch 136 × 129 INTEGRATION POINT: the shared engine charges
+    // the DISCOUNTED line (unit + total at NET, the full stamp in the
+    // line's source_meta), and the appointment's stamp rides into
+    // checkoutShopLines as opts.bookingDiscount — the booking surface
+    // is the ONLY caller that ever sets it; cart and membership never
+    // do, so their orders are never stamped.
+    const stamp = {
+      gross_cents: Number(appointment.price_gross_cents) || 0,
+      discount_amount_cents: Number(appointment.discount_amount_cents) || 0,
+      net_cents: Number(appointment.price_net_cents) || 0,
+      currency: String(servicePreview.currency || 'USD').toUpperCase(),
+      discount_kind: String(appointment.discount_kind || ''),
+      discount_value: Number(appointment.discount_value) || 0,
+      discount_label: String(appointment.discount_label || ''),
+    };
+    const line = applyBookingDiscountToLine(grossLine, stamp);
     let checkout;
     try {
-      checkout = await checkoutShopLines(db, row, [line], line.currency, returnUrl);
+      checkout = await checkoutShopLines(db, row, [line], line.currency, returnUrl, {
+        bookingDiscount: stamp,
+      });
     } catch (e) {
       // The hold must not outlive a failed checkout start: release
       // the slot immediately and surface the checkout error.
@@ -14118,6 +14509,11 @@ async function createPublicBookingByToken(db, token, data = {}, opts = {}) {
       url: checkout.url,
       order_id: checkout.orderId,
       expires_at: appointment.payment_expires_at || null,
+      // Batch 136: the stamped figures ride the payment block — the
+      // gross, the discount actually applied, and the net charged.
+      gross_cents: stamp.gross_cents,
+      discount_amount_cents: stamp.discount_amount_cents,
+      net_cents: stamp.net_cents,
     };
     result.message = 'Almost done — complete your payment to confirm your appointment.';
   }
@@ -14528,6 +14924,12 @@ module.exports = {
   MODULE_SCRIPT_VER,
   getBookingSettings,
   updateBookingSettings,
+  getBookingDiscountConfig,
+  bookingDiscountDisplay,
+  bookingPriceStamp,
+  publicDiscountStamp,
+  bookingDiscountStampFromAppointment,
+  applyBookingDiscountToLine,
   listBookingHours,
   ensureDefaultBookingHours,
   setBookingHours,
@@ -14556,6 +14958,7 @@ module.exports = {
   createShopCheckoutByToken,
   createCartCheckoutByToken,
   buildSellableLines,
+  insertShopOrderWithLines,
   listShopOrders,
   listShopOrderItems,
   listShopOrdersWithItems,

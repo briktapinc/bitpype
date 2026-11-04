@@ -250,7 +250,7 @@ function part1() {
   const sm = require(path.join(root, 'server/siteModules.js'));
   assert.equal(
     sm.MODULE_SCRIPT_VER,
-    'mod37',
+    'mod38',
     'MODULE_SCRIPT_VER rotated mod35 → mod36 for the sitewide extension (142 itself took mod34 → mod35)'
   );
   n++;
@@ -258,8 +258,8 @@ function part1() {
   const cz = census();
   assert.deepEqual(
     cz.summary,
-    { total: 439, STATIC: 156, ESCAPED: 41, SAFE: 73, BUILDER: 58, IDENT: 35, RAW: 76 },
-    'SEC-13 census: 439 total (two cart-bar STATIC sinks removed, one nav-cart STATIC sink added; reviewed RAW/IDENT set unchanged)'
+    { total: 441, STATIC: 158, ESCAPED: 41, SAFE: 73, BUILDER: 58, IDENT: 35, RAW: 76 },
+    'SEC-13 census: 441 total (Batch 142 landed at 439 — two cart-bar STATIC sinks removed, one nav-cart STATIC sink added; Batch 136 finisher added +2 audited STATIC sinks in module-embed.js (the price-summary clear + the fully esc()-wrapped price-summary build), reviewed RAW/IDENT set unchanged, positions shifted by pure line movement)'
   );
   n++;
 

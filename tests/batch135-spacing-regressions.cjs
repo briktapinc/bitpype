@@ -196,7 +196,7 @@ function part1() {
       'book-row/news floor uses the token var'
     );
     assert.ok(embed.includes('.bp-mod-news-card{padding:var(--bp-space-card-pad,16px);}'), 'news-card unscoped floor');
-    assert.ok(read('server/siteModules.js').includes("const MODULE_SCRIPT_VER = 'mod37'"), 'MODULE_SCRIPT_VER mod36');
+    assert.ok(read('server/siteModules.js').includes("const MODULE_SCRIPT_VER = 'mod38'"), 'MODULE_SCRIPT_VER mod36');
     n += 1;
   });
   group('Part 1 pins', n);

@@ -120,7 +120,7 @@ function group(name, n) {
     // (sha pinned), reviewed set == regenerated baseline exactly.
     const { census } = require(path.join(root, 'scripts', 'xss-census.cjs'));
     const cz = census();
-    assert.deepEqual(cz.summary, { total: 439, STATIC: 156, ESCAPED: 41, SAFE: 73, BUILDER: 58, IDENT: 35, RAW: 76 }, 'SEC-13 census summary unchanged');
+    assert.deepEqual(cz.summary, { total: 441, STATIC: 158, ESCAPED: 41, SAFE: 73, BUILDER: 58, IDENT: 35, RAW: 76 }, 'SEC-13 census summary unchanged');
     n += 1;
     const multi = cz.sinks.map((s) => `${s.file}|${s.kind}|${s.snippet}`).sort();
     const sha = crypto.createHash('sha256').update(multi.join('\n')).digest('hex');

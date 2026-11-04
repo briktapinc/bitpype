@@ -142,7 +142,7 @@ const throws = (fn, pattern) => {
     assert.ok(smSrc.includes("comments: { label: 'Comments'"), 'MODULE_META carries the Comments label');
     n++;
     assert.ok(
-      smSrc.includes("const MODULE_SCRIPT_VER = 'mod37'"),
+      smSrc.includes("const MODULE_SCRIPT_VER = 'mod38'"),
       'MODULE_SCRIPT_VER bumped to mod35 (Batch 131); Batch 142 finisher rotation to mod36'
     );
     n++;
@@ -282,7 +282,7 @@ const throws = (fn, pattern) => {
     n++;
     assert.ok(portalHtml.includes('data-modules-pane="comments"'), 'portal.html carries the Comments tab button');
     n++;
-    assert.ok(portalHtml.includes('portal.js?v=batch131-comments1'), 'portal.js cache-bust rotated');
+    assert.ok(portalHtml.includes('portal.js?v=batch136-discount1'), 'portal.js cache-bust rotated');
     n++;
     group('Part 1 source pins', n);
   }

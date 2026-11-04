@@ -148,7 +148,7 @@ let db;
     n++;
     assert.equal(
       sm.MODULE_SCRIPT_VER,
-      'mod37',
+      'mod38',
       'embed script version bumped for the QR renderer (Batch 128 finisher rotation: mod30 + 1)'
     );
     n++;
@@ -179,7 +179,7 @@ let db;
     assert.ok(read('public/portal.html').includes('modules-qrcode-panel'), 'portal.html hosts the QR panel');
     n++;
     assert.ok(
-      read('public/portal.html').includes('/js/portal.js?v=batch131-comments1'),
+      read('public/portal.html').includes('/js/portal.js?v=batch136-discount1'),
       'portal.js cache-busted for Batch 126'
     );
     n++;

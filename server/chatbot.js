@@ -750,11 +750,29 @@ function getPublicConfigByToken(db, token) {
       agent_timeout_hint_sec: settings.agent_timeout_hint_sec,
     },
     allowed_actions: listAllowedActions(db, row.lead_id),
+    // Batch 136: the module-state booking pitch for this site's chat
+    // context (null when bookings are not live on the site).
+    booking_pitch: bookingPitchFor(db, row.lead_id),
     agent_path: {
       mode: 'portal_client_mcp',
       note: 'Visitor messages notify the client agent via portal MCP (chatbot.pending / chatbot.reply). No admin/workspace tools.',
     },
   };
+}
+
+/**
+ * Batch 136 — the bookings module's declared pitch, read through
+ * the ONE shared layer (moduleShare). Presence is MODULE STATE
+ * ONLY: bookings live → a pitch exists; discount on → the pitch
+ * carries the exact templated discount fact; discount off → pitch
+ * with discount: null. Nothing here inspects the conversation.
+ */
+function bookingPitchFor(db, leadId) {
+  try {
+    return require('./moduleShare').getBookingPitch(db, Number(leadId));
+  } catch {
+    return null;
+  }
 }
 
 function listAllowedActions(db, leadId) {
@@ -792,6 +810,22 @@ function listAllowedActions(db, leadId) {
       endpoint: `POST /api/v1/modules/public/${emb.public_token}/book`,
       capability: 'bookings',
     });
+    // Batch 136: the declared booking pitch rides the same action
+    // list the chat agent already consumes — proactively offer the
+    // booking route; include the discount line only when present.
+    const pitch = bookingPitchFor(db, leadId);
+    if (pitch) {
+      actions.push({
+        id: 'bookings.pitch',
+        label: 'Offer online booking',
+        via: 'shared_layer',
+        capability: 'bookings',
+        booking_path: pitch.booking_path,
+        pitch_text: pitch.pitch_text,
+        discount: pitch.discount,
+        guidance: pitch.guidance,
+      });
+    }
   }
   try {
     const forms = require('./contactForms');
@@ -1148,6 +1182,10 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
       knowledge,
       settings,
       business,
+      // Batch 136: the module-state booking pitch joins the context
+      // snapshot — a function of the site's modules, never of what
+      // the visitor has said in this conversation.
+      bookingPitch: bookingPitchFor(db, leadId),
       configured: aiConfigured(db),
       allowCapture: visitorStatedNeed(messages),
     };
@@ -1234,6 +1272,19 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
               'Business profile (you may share contact/identity when asked):',
               bizBlock,
               '',
+              // Batch 136: module-state booking pitch — an always-true
+              // fact about this site (like its hours), included purely
+              // because the bookings module is live. No visitor-signal
+              // judgment gates it; the discount line exists only when
+              // the owner has the discount on.
+              ...(snapshot.bookingPitch
+                ? [
+                    'Online booking (always true on this site):',
+                    snapshot.bookingPitch.pitch_text,
+                    snapshot.bookingPitch.guidance,
+                    '',
+                  ]
+                : []),
               'Conversation rules:',
               '- Greetings or vague hellos → action "chat": welcome them and ask what they need. NEVER open the form yet.',
               '- If their need is unclear → action "chat": ask one short clarifying question.',
@@ -1546,12 +1597,18 @@ function listPendingSessions(db, leadId, { limit = 10 } = {}) {
     .flatMap((s) => (s.messages || []).filter((m) => m.role === 'visitor').map((m) => m.body))
     .slice(-3)
     .join(' ');
+  const bookingPitch = bookingPitchFor(db, leadId);
   return {
     total: rows.length,
     sessions,
     knowledge: knowledgeSnippets(db, leadId, { query: latestVisitor }),
     allowed_actions: listAllowedActions(db, leadId),
-    hint: 'Reply with chatbot.reply (sessionId + message). Use knowledge snippets (query-ranked from uploaded docs). Escalate with chatbot.escalate when unsure. Module actions: use public bookings/forms endpoints listed in allowed_actions — never admin MCP tools.',
+    // Batch 136: module-state booking pitch — present whenever
+    // bookings are live on this site, whatever the visitor said.
+    booking_pitch: bookingPitch,
+    hint:
+      'Reply with chatbot.reply (sessionId + message). Use knowledge snippets (query-ranked from uploaded docs). Escalate with chatbot.escalate when unsure. Module actions: use public bookings/forms endpoints listed in allowed_actions — never admin MCP tools.' +
+      (bookingPitch ? ` Booking pitch: ${bookingPitch.pitch_text} ${bookingPitch.guidance}` : ''),
     boundary: 'portal_client_mcp_only',
   };
 }
@@ -1563,6 +1620,7 @@ function claimNextSession(db, leadId) {
     session,
     knowledge: pending.knowledge,
     allowed_actions: pending.allowed_actions,
+    booking_pitch: pending.booking_pitch || null,
     hint: pending.hint,
     boundary: 'portal_client_mcp_only',
   };
@@ -1695,6 +1753,7 @@ function portalChatbotSummary(db, leadId) {
     leads: listChatLeads(db, leadId, { limit: 20 }),
     escalations: listEscalations(db, leadId, { status: 'open', limit: 20 }),
     allowed_actions: listAllowedActions(db, leadId),
+    booking_pitch: bookingPitchFor(db, leadId),
     agent_boundary: {
       mode: 'portal_client_mcp_only',
       tools: [
@@ -1942,6 +2001,7 @@ module.exports = {
   knowledgeSnippets,
   getPublicConfigByToken,
   listAllowedActions,
+  bookingPitchFor,
   postVisitorMessage,
   getSessionHistory,
   captureLead,

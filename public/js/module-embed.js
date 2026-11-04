@@ -1870,6 +1870,12 @@
       '-' +
       String(maxDate.getDate()).padStart(2, '0');
     var html = prefixHtml || '';
+    // Batch 136: the online-booking discount is SHOWN, up front —
+    // the payload carries the templated fact only when it is ON.
+    var discountFact = data.booking && data.booking.discount ? data.booking.discount : null;
+    if (discountFact && discountFact.display) {
+      html += '<p class="bp-mod-book-discount" data-bp-discount-banner>' + esc(discountFact.display) + '</p>';
+    }
     html +=
       '<form class="bp-mod-book" data-bp-book="1">' +
       '<div class="bp-mod-book-row"><label for="bp-svc">Service</label><select id="bp-svc" name="service_id" required>';
@@ -1908,6 +1914,10 @@
         : '') +
       smsPolicyRow(data) +
       '<div class="bp-mod-book-row"><label for="bp-notes">Notes</label><textarea id="bp-notes" name="notes" rows="3"></textarea></div>' +
+      // Batch 136: gross / −discount / total, before anything is
+      // submitted or paid (filled by updatePriceSummary; the server
+      // recomputes the same figures at booking time).
+      '<div class="bp-mod-book-row" data-bp-price-summary hidden></div>' +
       '<div class="bp-mod-captcha" data-bp-captcha hidden></div>' +
       '<button type="submit" class="bp-mod-btn">Request appointment</button>' +
       '<p class="bp-mod-book-msg" data-bp-book-msg></p>' +
@@ -1951,6 +1961,41 @@
       if (!slotMsg) return;
       slotMsg.textContent = text || '';
       slotMsg.className = 'bp-mod-book-msg' + (kind ? ' ' + kind : '');
+    }
+
+    // Batch 136: the pre-checkout price summary. Display math mirrors
+    // the server stamp (percent rounds to the nearest cent; fixed is
+    // capped at the price) — display only; the server recomputes.
+    var priceSummary = form.querySelector('[data-bp-price-summary]');
+    function updatePriceSummary() {
+      if (!priceSummary) return;
+      var fact = data.booking && data.booking.discount ? data.booking.discount : null;
+      var svc = null;
+      var list = Array.isArray(data.items) ? data.items : [];
+      for (var i = 0; i < list.length; i++) {
+        if (String(list[i].id) === String(form.service_id.value)) svc = list[i];
+      }
+      var gross = svc ? Number(svc.price_cents) || 0 : 0;
+      if (!fact || gross <= 0) {
+        priceSummary.hidden = true;
+        priceSummary.innerHTML = '';
+        return;
+      }
+      var amount =
+        fact.kind === 'percent' ? Math.round((gross * (Number(fact.value) || 0)) / 100) : Math.min(gross, Number(fact.value) || 0);
+      var net = Math.max(0, gross - amount);
+      var cur = (svc && svc.currency) || 'USD';
+      priceSummary.innerHTML =
+        '<span>Price ' +
+        esc(cartMoney(gross, cur)) +
+        '</span> · <span>' +
+        esc(fact.label || 'Online-booking discount') +
+        ' −' +
+        esc(cartMoney(amount, cur)) +
+        '</span> · <strong>Total ' +
+        esc(cartMoney(net, cur)) +
+        '</strong>';
+      priceSummary.hidden = false;
     }
 
     function addDaysYmd(ymd, days) {
@@ -2055,6 +2100,7 @@
 
     form.addEventListener('change', function (ev) {
       if (ev.target && (ev.target.name === 'date' || ev.target.name === 'service_id')) loadSlots();
+      if (ev.target && ev.target.name === 'service_id') updatePriceSummary();
     });
     form.addEventListener('click', function (ev) {
       var btn = ev.target && ev.target.closest ? ev.target.closest('[data-starts]') : null;
@@ -2122,6 +2168,21 @@
             return;
           }
           var msg = (j.data && j.data.message) || 'Appointment requested.';
+          // Batch 136: the confirmation repeats the stamped figures
+          // (the server's stamp from the booking response, not a
+          // client recomputation).
+          var stamp = j.data && j.data.discount ? j.data.discount : null;
+          var stampHtml = stamp
+            ? '<p class="bp-mod-empty-text">' +
+              esc(stamp.label || 'Online-booking discount') +
+              ': ' +
+              esc(cartMoney(stamp.gross_cents, stamp.currency || 'USD')) +
+              ' − ' +
+              esc(cartMoney(stamp.discount_amount_cents, stamp.currency || 'USD')) +
+              ' = ' +
+              esc(cartMoney(stamp.net_cents, stamp.currency || 'USD')) +
+              '</p>'
+            : '';
           el.innerHTML =
             (shouldShowTitle(el) ? '<h2 class="bp-mod-title">' + esc(data.title || 'Bookings') + '</h2>' : '') +
             '<div class="bp-mod-empty-card"><p class="bp-mod-empty-kicker">Booked</p>' +
@@ -2130,7 +2191,9 @@
             '</p>' +
             '<p class="bp-mod-empty-text">' +
             esc((j.data.appointment && j.data.appointment.starts_at) || '') +
-            '</p></div>';
+            '</p>' +
+            stampHtml +
+            '</div>';
         } catch (e) {
           if (bookMsg) {
             bookMsg.textContent = e.message || 'Booking failed';
@@ -2142,6 +2205,7 @@
         }
       })();
     });
+    updatePriceSummary();
     loadSlots();
   }
 

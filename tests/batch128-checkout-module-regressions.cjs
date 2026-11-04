@@ -211,7 +211,7 @@ function load(file, mocks) {
     }
     assert.ok(smSrc.includes("checkout: { label: 'Checkout'"), 'MODULE_META carries the Checkout label');
     n++;
-    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod37'"), 'MODULE_SCRIPT_VER bumped to mod32');
+    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod38'"), 'MODULE_SCRIPT_VER bumped to mod32');
     n++;
     assert.ok(smSrc.includes('CREATE TABLE IF NOT EXISTS ecommerce_order_items'), 'order line-items table exists');
     n++;
@@ -281,7 +281,7 @@ function load(file, mocks) {
     n++;
     assert.ok(portalHtml.includes('id="modules-shop-orders-panel"'), 'portal.html hosts the shop orders panel');
     n++;
-    assert.ok(portalHtml.includes('portal.js?v=batch131-comments1'), 'portal.js cache-bust rotated');
+    assert.ok(portalHtml.includes('portal.js?v=batch136-discount1'), 'portal.js cache-bust rotated');
     n++;
     const portalRoutes = read('server/routes/portal.js');
     assert.ok(portalRoutes.includes("router.put('/modules/checkout/config'"), 'portal config route registered');

@@ -247,6 +247,20 @@ const SHARE_REGISTRY = {
     kind: 'provider',
     // Services only — appointments are private customer data and are
     // never shared through this layer.
+    //
+    // Batch 136 DECLARATION (not an item): the module-state booking
+    // pitch. Bookings DECLARES, through this layer, whether online
+    // booking is live for the lead and — separately — the owner's
+    // online-booking discount fact. Consumers (the site chatbot)
+    // read it via getBookingPitch / getSharedDeclaration; there is
+    // no bookings↔chatbot pairwise link, and presence is driven by
+    // MODULE STATE ONLY (embed live + a published service), never
+    // by anything a visitor says.
+    declarations: {
+      booking_pitch(db, leadId) {
+        return buildBookingPitch(db, leadId);
+      },
+    },
     read(db, leadId) {
       return modules.listBookingServices(db, leadId, { includeDrafts: false }).map((s) =>
         item('bookings', s, {
@@ -499,6 +513,67 @@ function readProviderItems(db, leadId, type) {
     console.warn(`[moduleShare] provider ${type} read failed:`, (e && e.message) || e);
     return [];
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Declarations — facts a module publishes about its own STATE (not   */
+/* items). Batch 136: bookings declares its booking pitch. A          */
+/* declaration read never throws into a consumer: inactive, missing   */
+/* or broken state reads as null (nothing shown, nothing promised).   */
+/* ------------------------------------------------------------------ */
+
+function getSharedDeclaration(db, leadId, providerType, name) {
+  const { entry } = registryEntry(providerType);
+  const fn = entry && entry.declarations && entry.declarations[String(name || '')];
+  if (typeof fn !== 'function') return null;
+  try {
+    return fn(db, Number(leadId)) || null;
+  } catch (e) {
+    console.warn(`[moduleShare] declaration ${providerType}.${name} failed:`, (e && e.message) || e);
+    return null;
+  }
+}
+
+/**
+ * The bookings module's declared pitch, or null when online booking
+ * is not live for this lead. ACTIVE follows the platform's own
+ * resolution (the same predicate the chatbot's allowed-actions use):
+ * a bookings embed that is published + enabled, with at least one
+ * published (bookable) service. The discount rides along ONLY when
+ * the owner has it ON — two independent booleans:
+ *   bookings inactive            → null (no pitch at all)
+ *   bookings active, discount off → pitch, discount: null
+ *   bookings active, discount on  → pitch with the exact templated
+ *                                   discount fact from the config
+ */
+function buildBookingPitch(db, leadId) {
+  const lid = Number(leadId);
+  const emb = modules.listEmbeds(db, lid).find((e) => e.module_type === 'bookings' && e.published && e.embed_enabled);
+  if (!emb) return null;
+  const services = modules.listBookingServices(db, lid, { includeDrafts: false });
+  if (!services.length) return null;
+  const slug = String(emb.target_page_slug || modules.MODULE_META.bookings.defaultSlug || 'book').replace(/^\/+/, '');
+  const bookingPath = `/${slug}`;
+  const discount = modules.getBookingDiscountConfig(db, lid);
+  const pitchLines = [`You can book an appointment online here: ${bookingPath}`];
+  if (discount) pitchLines.push(discount.display);
+  return {
+    active: true,
+    booking_path: bookingPath,
+    booking_page_slug: slug,
+    service_count: services.length,
+    discount,
+    pitch_text: pitchLines.join(' '),
+    guidance:
+      'Online booking is live on this site: proactively offer visitors the booking option and route them to the booking page. ' +
+      'When a discount fact is included, state it exactly as given — it is the owner’s standing public offer for booking online, ' +
+      'never a personal or exclusive deal, and never change or invent discount terms. When no discount fact is included, do not mention any discount.',
+  };
+}
+
+/** Convenience accessor for the bookings declaration. */
+function getBookingPitch(db, leadId) {
+  return getSharedDeclaration(db, leadId, 'bookings', 'booking_pitch');
 }
 
 function listSharedItems(db, leadId, sourceType, opts = {}) {
@@ -871,6 +946,8 @@ module.exports = {
   ensureTables,
   listSharedSources,
   listSharedItems,
+  getSharedDeclaration,
+  getBookingPitch,
   listSharedItemsByCategory,
   readProviderItems,
   setSharedRef,

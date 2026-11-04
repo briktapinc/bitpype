@@ -254,6 +254,19 @@ router.get('/:token/order-status', readLimit, async (req, res) => {
         productName: order.product_name,
         amountCents: order.amount_cents,
         currency: order.currency,
+        // Batch 136: the booking discount stamp, when this order has
+        // one (null everywhere else) — gross / −discount / net for
+        // the post-payment confirmation.
+        discount: siteModules.publicDiscountStamp({
+          gross_cents: order.gross_amount_cents != null ? order.gross_amount_cents : order.amount_cents,
+          discount_amount_cents: order.discount_amount_cents,
+          net_cents: order.amount_cents,
+          currency: order.currency,
+          discount_kind: order.discount_kind,
+          discount_value: order.discount_value,
+          discount_label: order.discount_label,
+          discount_display: '',
+        }),
         // Batch 128: the recorded lines ride along (name, variant,
         // source, photo, qty, line total) so the return/success
         // state can show exactly what was bought — a purchased
