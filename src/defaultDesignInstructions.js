@@ -110,7 +110,9 @@ IMAGES: uploadAsset assets/ should ship on Pages when published with the right w
 
 CSS: full rules in theme.customCss; inline <style> on home if preview looks unstyled. body{overflow-x:clip}. Favicon: set and verify in live <head>; don’t promise until seen. Mobile nav: see RESPONSIVE & USABILITY.
 
-Ignore noisy QA artifacts (stray "null", unparseable AI QA, data-URI registry complaints, template-conformity). Real QA: links, unique nav, one form, no overflow at 390px, photos visible.
+Ignore noisy QA artifacts (stray "null", unparseable AI QA, data-URI registry complaints, template-conformity). Real QA: links, unique nav, one form, no overflow at 390px, photos visible, spacing check green.
+
+SPACING (platform-enforced — Batch 135): every exported page carries the platform spacing guard (floors from tokens.css: section inset 28px / 22px ≤700px on the section element, container padding ≥20px, card padding ≥16px, card gap ≥16px), and website.qa runs a spacing geometry check at 390/980/1440 that FAILS with exact px measurements when text sits inside 16px of a viewport or card edge, sibling cards touch or gap under 16px, or the page overflows horizontally. A design is NOT done while the spacing check fails: after any design change run preview + website.qa, fix what the measurements name (raise padding/gaps — never fight the floor with !important flush rules or negative-margin bleeds; the check catches exactly those), and re-run until it passes. Screenshot review at 390 + 1440 is still required on top — the check proves the minimums, your eyes prove the design.
 
 FORMS (critical — modules only, never hand-rolled HTML): Always use a native module for forms. Prefer the contact_form section type for the main contact page. For additional/custom forms, call forms.create then place with a form or bitpype_form section ({ type: "bitpype_form", content: { formId } }) or website.addBlock (blockType form + formId). Never write raw <form>, <form action>, iframes, or form-embed script tags — website.edit / design.deliver / design.saveWebsite strip hand-rolled <form> tags and return a warning. One functional form/embed per page.
 
@@ -136,6 +138,7 @@ After every publish, check every page in a real render:
 [ ] Photos actually paint
 [ ] Only intended forms/modules
 [ ] No horizontal overflow at 390px; headlines not clipped
+[ ] Spacing QA passes at 390/980/1440 (text ≥16px from viewport + card edges; cards never closer than 16px) — fix the named measurements before calling it done
 [ ] Contact/booking flows live
 Re-publish until clean. Report what you checked. Expect several verify cycles.
 

@@ -59,6 +59,8 @@ const SCOPE = [
   'server/routes/paymentsWebhook.js',
   'tests/batch129-streamline-regressions.cjs',
   'tests/batch134-hunt-fixes-regressions.cjs',
+  'server/spacingQa.js',
+  'tests/batch135-spacing-regressions.cjs',
   'tsconfig.checkjs.json',
 ];
 

@@ -45,3 +45,21 @@
   --font-body: Figtree, 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
   --font-display: Fraunces, Georgia, serif;
 }
+
+/* Batch 135 — SPACING GUARANTEE: the platform-wide spacing floors for
+   EXPORTED CLIENT SITES. These six values are the ONLY place the floor
+   numbers live in the repo: the export engine's spacing guard
+   (src/websiteEngine.js) and the geometry QA check
+   (server/spacingQa.js) both PARSE this block at runtime — neither
+   hardcodes a copy. Ely's standing rules encoded here: text never
+   touches container edges (2026-10-15); section inset 28px desktop /
+   22px at ≤700px, on the section element itself; cards never touch —
+   one uniform gap, verified by measurement (2026-10-31). */
+:root {
+  --bp-space-section-inset: 28px;
+  --bp-space-section-inset-mobile: 22px;
+  --bp-space-container-inset: 20px;
+  --bp-space-card-pad: 16px;
+  --bp-space-card-gap: 16px;
+  --bp-space-text-inset: 16px;
+}

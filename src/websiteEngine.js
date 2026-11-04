@@ -487,7 +487,7 @@ function siteCss(t) {
   const minimal = `${root}\n*{box-sizing:border-box} img{max-width:100%;height:auto} .ws-edit{cursor:text}\n${brandLogoCss()}\n${subNav}\n${icons}`;
   const fontRules = themeFontRules();
   if (!theme.baseCss) {
-    return `${minimal}\n${theme.customCss || ''}\n${fontRules}`;
+    return `${minimal}\n${theme.customCss || ''}\n${fontRules}\n${spacingGuardCss()}`;
   }
   const base = `
 ${root}
@@ -586,7 +586,91 @@ ${icons}
   .nav-sub{position:static;display:none;box-shadow:none;border:0;margin:0;padding:0}
   section.block{padding:40px 0}
 }`;
-  return (theme.customCss ? `${base}\n${theme.customCss}` : base) + `\n${fontRules}`;
+  return (theme.customCss ? `${base}\n${theme.customCss}` : base) + `\n${fontRules}\n${spacingGuardCss()}`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Batch 135 — SPACING GUARANTEE (renderer floor).                     */
+/*                                                                     */
+/* Ely's standing rules (text never touches edges, 2026-10-15; cards   */
+/* never touch, 2026-10-31) kept regressing because every build        */
+/* re-authored its spacing from scratch and nothing measured the       */
+/* result. The floor moves the minimums into the platform:             */
+/*                                                                     */
+/* - The NUMBERS live only in public/css/tokens.css; server/           */
+/*   spacingQa.js parses them and both the guard below and the         */
+/*   geometry QA check consume the parsed values.                      */
+/* - spacingGuardCss() is appended by siteCss AFTER authored CSS in    */
+/*   every render path (docShell, injectThemeStyles, pageCombinedCss) */
+/*   so the section inset wins the cascade on platform structural      */
+/*   selectors — the exact mechanism of Ely's authored rule (28px      */
+/*   !important on the band, 22px ≤700px), now platform-enforced on    */
+/*   [data-ws-section-type] of ANY element type (the 2026-11-03 root   */
+/*   cause was an inset rule that selected only <section>). Nav and    */
+/*   footer bands are excluded: their chrome carries its own inset     */
+/*   system (.nav-inner / .footer-grid at 20px, above the QA floor),   */
+/*   and .ws-footer-chrome is excluded per the Nov 3 precedent.        */
+/*   Full-bleed hero MEDIA is untouched (the floor is padding; the     */
+/*   background still paints the full band) — hero TEXT gets inset.    */
+/* - spacingGuardScript() is the raise-only second layer for the       */
+/*   surfaces CSS cannot express a MINIMUM on without also capping     */
+/*   larger authored values: .container inline padding, .card         */
+/*   internal padding, grid gaps. It only ever RAISES a computed       */
+/*   value that sits below the floor; authored spacing at or above     */
+/*   the floor is byte-identical. The one thing neither layer can      */
+/*   rescue is authored !important below the floor — that is exactly   */
+/*   what the spacing QA check fails loudly with measurements.         */
+/* ------------------------------------------------------------------ */
+
+function spacingTokens() {
+  try {
+    return require('../server/spacingQa').spacingTokens();
+  } catch {
+    return null;
+  }
+}
+
+const SPACING_SECTION_SELECTOR =
+  '[data-ws-section-type]:not(.ws-footer-chrome):not([data-ws-section-type="nav"]):not([data-ws-section-type="footer"])';
+
+function spacingGuardCss() {
+  const t = spacingTokens();
+  if (!t) return '';
+  return [
+    '/* bitpype spacing guard (Batch 135) — platform minimums; values single-sourced in public/css/tokens.css */',
+    `:root{--bp-space-section-inset:${t.sectionInset}px;--bp-space-section-inset-mobile:${t.sectionInsetMobile}px;--bp-space-container-inset:${t.containerInset}px;--bp-space-card-pad:${t.cardPad}px;--bp-space-card-gap:${t.cardGap}px;--bp-space-text-inset:${t.textInset}px}`,
+    `${SPACING_SECTION_SELECTOR}{padding-left:var(--bp-space-section-inset)!important;padding-right:var(--bp-space-section-inset)!important}`,
+    `@media (max-width:700px){${SPACING_SECTION_SELECTOR}{padding-left:var(--bp-space-section-inset-mobile)!important;padding-right:var(--bp-space-section-inset-mobile)!important}}`,
+  ].join('\n');
+}
+
+function spacingGuardScript() {
+  const t = spacingTokens();
+  if (!t) return '';
+  const body =
+    '(function(){try{' +
+    `var C=${t.containerInset},P=${t.cardPad},G=${t.cardGap};` +
+    'function up(el,props,f){var cs=getComputedStyle(el);for(var i=0;i<props.length;i++){var v=parseFloat(cs[props[i]]);if(isNaN(v))v=0;if(v<f)el.style[props[i]]=f+"px";}}' +
+    'function gap(el){var cs=getComputedStyle(el);if(cs.display!=="grid")return;["columnGap","rowGap"].forEach(function(p){var v=parseFloat(cs[p]);if(isNaN(v))v=0;if(v<G)el.style[p]=G+"px";});}' +
+    'function run(){' +
+    'document.querySelectorAll(".container").forEach(function(el){up(el,["paddingLeft","paddingRight"],C);});' +
+    'document.querySelectorAll(".card,.review-card").forEach(function(el){up(el,["paddingTop","paddingRight","paddingBottom","paddingLeft"],P);});' +
+    'document.querySelectorAll(".grid,.cards-grid,.gallery-grid,.footer-grid,.contact-grid,.cols").forEach(gap);' +
+    '}' +
+    'if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",run);else run();' +
+    '}catch(e){}})();';
+  return `<script data-ws-spacing-guard="1">${body}</script>`;
+}
+
+/** Add the spacing-guard script to a full document that did not pass
+ * through docShell (the freeform full-document render path). */
+function injectSpacingGuardScript(docHtml) {
+  let doc = String(docHtml || '');
+  if (!doc.trim() || /data-ws-spacing-guard\s*=\s*["']1["']/.test(doc)) return doc;
+  const tag = spacingGuardScript();
+  if (!tag) return doc;
+  if (/<\/body>/i.test(doc)) return doc.replace(/<\/body>/i, `${tag}\n</body>`);
+  return `${doc}\n${tag}`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -3685,6 +3769,7 @@ ${body}
 ${themeJs}
 ${pageJsTagHtml}
 ${script || ''}
+${spacingGuardScript()}
 </body>
 </html>`;
 }
@@ -4427,7 +4512,7 @@ function renderPage(page, allPages, theme, opts) {
         doc = markFreeformDocument(doc, pageIndex);
         doc = wrapBodyWithPageRoot(doc, pageIndex);
       }
-      return finishPage(upsertFontLinks(appendHtmlTail(doc, scripts), t));
+      return finishPage(injectSpacingGuardScript(upsertFontLinks(appendHtmlTail(doc, scripts), t)));
     }
     let body = sanitizeHtml(freeHtml);
     body = applySitePartials(body, t, pageForRender);
@@ -6897,6 +6982,29 @@ async function qaSite(db, websiteId) {
     check('no-horizontal-overflow-390', false, 'Skipped (render failed).');
   }
 
+  // Batch 135: spacing geometry at 390/980/1440 (headless) — measured
+  // text-edge / card-text / card-gap / overflow against the platform
+  // floors (public/css/tokens.css). Best-effort like the overflow
+  // check: a missing browser skips, a measured violation FAILS with
+  // the exact px + selector so the design agent can fix and re-run.
+  if (renderOk) {
+    try {
+      const spacingQa = require('../server/spacingQa');
+      const sp = await spacingQa.assessSpacing(pages, theme, { renderPage });
+      check(
+        'spacing',
+        sp.pass,
+        sp.pass
+          ? `Spacing floors hold at 390/980/1440 across ${pages.length} page(s).`
+          : `Spacing violations: ${sp.detail}`
+      );
+    } catch (e) {
+      check('spacing', true, `Spacing check skipped (${e.message || e}).`);
+    }
+  } else {
+    check('spacing', false, 'Skipped (render failed).');
+  }
+
   // 11. optional AI QA pass
   if (ai.aiConfigured(db) && renderOk) {
     try {
@@ -7984,7 +8092,11 @@ module.exports = {
   pageMetaFields,
   applySitePartials,
   checkMobileOverflow,
+  spacingGuardCss,
+  spacingGuardScript,
+  injectSpacingGuardScript,
   // exposed for tests
+  _spacingTokens: spacingTokens,
   _cleanText: cleanText,
   _deterministicCopy: deterministicCopy,
   _cssDefinesClass: cssDefinesClass,
