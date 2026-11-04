@@ -16,7 +16,7 @@
  *   Part A — source pins: the fallback wiring (NOT_FOUND code check,
  *     list refetch, staticBlog excluded), the locked branch still
  *     ahead of item rendering, the error card intact, MODULE_SCRIPT_VER
- *     mod30 (Batch 127 finisher rotation), and the SEC-13 census at 421 total (Batch 126 finisher +4 audited QR sinks; Batch 127 finisher +5 audited variant-editor sinks) with the
+ *     mod31 (Batch 128 finisher rotation), and the SEC-13 census at 434 total (Batch 126 finisher +4 audited QR sinks; Batch 127 finisher +5 audited variant-editor sinks; Batch 128 finisher +13 safe-class checkout sinks) with the
  *     mountOne sink shifted by pure line movement (4227 -> 4252 on the Batch 130 tree; 4294 at Batch 126 landing; 4394 after the Batch 127 variant-picker insertions).
  *   Part B — HTTP contract on the real server: a foreign slug is a
  *     404 with code NOT_FOUND on every non-owning module; the owning
@@ -215,8 +215,8 @@ async function waitReady(child, output) {
     const sm = require(path.join(root, 'server/siteModules.js'));
     assert.equal(
       sm.MODULE_SCRIPT_VER,
-      'mod30',
-      'MODULE_SCRIPT_VER bumped for the fallback (Batch 127 finisher rotation)'
+      'mod31',
+      'MODULE_SCRIPT_VER bumped for the fallback (Batch 128 finisher rotation)'
     );
     n++;
     assert.ok(
@@ -233,8 +233,8 @@ async function waitReady(child, output) {
     const cz = census();
     assert.equal(
       cz.summary.total,
-      421,
-      'SEC-13 census total — the Batch 130 fix added no sinks; Batch 126 finisher added +4 audited QR sinks; Batch 127 finisher added +5 audited variant-editor sinks'
+      434,
+      'SEC-13 census total — the Batch 130 fix added no sinks; Batch 126 finisher added +4 audited QR sinks; Batch 127 finisher added +5 audited variant-editor sinks; Batch 128 finisher added +13 safe-class checkout sinks (reviewed set unchanged)'
     );
     n++;
     const meLines = cz.sinks
@@ -243,8 +243,8 @@ async function waitReady(child, output) {
       .sort((x, y) => x - y);
     assert.deepEqual(
       meLines,
-      [1266, 1278, 1282, 1286, 1576, 1737, 2640, 4301, 4394],
-      'module-embed reviewed sinks: Batch 130 set (shifted +42 by the Batch 126 QR embed block, then +8/+13/+100 by the Batch 127 finisher variant-picker insertions — pure line movement, snippet multiset byte-identical) plus one new audited QR RAW sink at 1266'
+      [1327, 1339, 1343, 1347, 1700, 1861, 2764, 4848, 4948],
+      'module-embed reviewed sinks: the same nine sinks as the Batch 130 set, at Batch 128 positions — shifted by the Batch 128 checkout embed blocks (pure line movement; the snippet sequence is unchanged except the album-detail sink, whose call gained the payload argument in Batch 128) plus the audited QR RAW sink'
     );
     n++;
     group('Part A source pins', n);

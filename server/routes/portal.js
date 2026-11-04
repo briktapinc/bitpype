@@ -2592,6 +2592,19 @@ router.post('/modules/ecommerce/payments/test', requireClient, actionLimit, asyn
   }
 });
 
+// Batch 128 — the Checkout module's own settings (success message).
+// Same placement rule: before the generic /modules/:type/:id routes.
+router.put('/modules/checkout/config', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.saveCheckoutConfig(req.client.workspace_id, req.client.lead_id, req.body || {}, req.client.email)
+    );
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 // Membership tiers (paid tiers create their Stripe Price on save).
 router.post('/modules/members/tiers', requireClient, actionLimit, async (req, res) => {
   try {

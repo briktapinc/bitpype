@@ -35,5 +35,6 @@ const MODULE_ICON_PATHS = {
   categories: '<circle cx="6.5" cy="5.5" r="1.8"/><circle cx="17.5" cy="10" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/><path d="M6.5 7.3v9.2"/><path d="M6.5 10h9.2"/><path d="M6.5 16.5h9.2"/>',
   photocapture: '<path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h1.2l1.8-2.5h7L17.3 7h1.2A1.5 1.5 0 0 1 20 8.5V18a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18z"/><circle cx="12" cy="13" r="3.4"/>',
   qrcode: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><path d="M13.5 13.5h3.2v3.2h-3.2z"/><path d="M17.3 17.3h3.2v3.2h-3.2z"/><path d="M13.5 20.5h3.2"/>',
+  checkout: '<rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M3.5 9.5h17"/><path d="M7 15.2l2.2 2.2 4-4.2"/>',
 };
 const MODULE_ICON_FALLBACK = '<rect x="4" y="4" width="7" height="7" rx="1.6"/><rect x="13" y="4" width="7" height="7" rx="1.6"/><rect x="4" y="13" width="7" height="7" rx="1.6"/><rect x="13" y="13" width="7" height="7" rx="1.6"/>';

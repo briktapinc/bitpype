@@ -76,7 +76,7 @@ function clientToolDefs() {
     {
       name: 'website.addModule',
       description:
-        'Attach a site module (blog|ecommerce|courses|gallery|directory|faq|testimonials|team|events|bookings|chatbot|offers|menu|careers|video|estimate|socialfeed|calltracking|members|googlereviews|datatables|charts|newsletter|categories) into the live site template with an in-page JS mount (not an iframe). Standard/Premium siteModules. chatbot = sitewide floating bubble (chat-embed.js); visitor replies go through portal CLIENT MCP chatbot.* only — never admin design.*/lead.* or workspace ws_ tokens. INTENT: appointments with availability → bookings module (never a contact form); then bookings.createService (published) + bookings.setHours. Structured requests → forms.create purpose=…; general inquiries → contact form. Alias: modules.attach. Bookings: optional show_request_form. Offers: settings.layout = "cards" (default) or "horizontal" (banner rows). After attach, call site.publish. Non-bookings attach on appointment-intent pages returns a warning. STYLING: wrap mount; theme.customCss under .bitpype-module-embed.',
+        'Attach a site module (blog|ecommerce|courses|gallery|directory|faq|testimonials|team|events|bookings|chatbot|offers|menu|careers|video|estimate|socialfeed|calltracking|members|googlereviews|datatables|charts|newsletter|categories|checkout) into the live site template with an in-page JS mount (not an iframe). Standard/Premium siteModules. chatbot = sitewide floating bubble (chat-embed.js); visitor replies go through portal CLIENT MCP chatbot.* only — never admin design.*/lead.* or workspace ws_ tokens. INTENT: appointments with availability → bookings module (never a contact form); then bookings.createService (published) + bookings.setHours. Structured requests → forms.create purpose=…; general inquiries → contact form. Alias: modules.attach. Bookings: optional show_request_form. Offers: settings.layout = "cards" (default) or "horizontal" (banner rows). After attach, call site.publish. Non-bookings attach on appointment-intent pages returns a warning. STYLING: wrap mount; theme.customCss under .bitpype-module-embed.',
       inputSchema: schema({
         leadId: ID,
         module: {
@@ -106,6 +106,7 @@ function clientToolDefs() {
             'charts',
             'newsletter',
             'categories',
+            'checkout',
           ],
         },
         moduleType: {
@@ -135,6 +136,7 @@ function clientToolDefs() {
             'charts',
             'newsletter',
             'categories',
+            'checkout',
           ],
         },
         title: STR,
@@ -445,13 +447,16 @@ function clientToolDefs() {
     },
     {
       name: 'gallery.addImage',
-      description: 'Add an image to a gallery album. Standard/Premium.',
+      description:
+        'Add an image to a gallery album. Batch 128: price_cents (or price in dollars) prices the photo — a priced photo in a PUBLISHED album is sellable through the Checkout module; omit or 0 for display-only. Standard/Premium.',
       inputSchema: schema(
         {
           albumId: ID,
           leadId: ID,
           image_url: STR,
           caption: STR,
+          price_cents: { type: 'integer' },
+          price: { type: 'number' },
           sort_order: { type: 'integer' },
         },
         ['albumId', 'image_url']
@@ -1514,6 +1519,22 @@ function clientToolDefs() {
       description:
         "Copy an APPROVED Photo Capture submission into a gallery album through the gallery's own write path (a real gallery image row). The album must belong to the same lead. Standard/Premium.",
       inputSchema: schema({ leadId: ID, id: ID, album_id: ID }, ['leadId', 'id', 'album_id']),
+      name: 'checkout.getConfig',
+      description:
+        'Batch 128 Checkout module: the module’s own settings (success message) plus the business’s payment state — whether shop Stripe is configured, its source (the business’s own keys vs the workspace keys) and its effective mode (test/live). The Stripe keys themselves are managed by the owner in Portal → Shop → Payments; checkout charges the lead’s OWN shop Stripe configuration. Standard/Premium.',
+      inputSchema: schema({ leadId: ID }, ['leadId']),
+    },
+    {
+      name: 'checkout.updateConfig',
+      description:
+        'Update the Checkout module’s settings (success_message — the thank-you copy shown after a paid checkout, max 300 chars). Payment keys are NOT set here; the owner manages those in Portal → Shop → Payments. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, success_message: STR }, ['leadId']),
+    },
+    {
+      name: 'checkout.listOrders',
+      description:
+        'The business’s shop orders WITH their line items (product or gallery photo, variant label, photo image_url, quantity, amounts), buyer email and status — the same read the owner’s portal shows. Read-only. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, limit: NUM }, ['leadId']),
     },
     {
       name: 'bookings.services',
@@ -3281,6 +3302,10 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'photocapture.updateConfig',
     'photocapture.moderateSubmission',
     'photocapture.addToGallery',
+    // Batch 128: the Checkout module rides the same entitlement.
+    'checkout.getConfig',
+    'checkout.updateConfig',
+    'checkout.listOrders',
     'bookings.services',
     'bookings.createService',
     'bookings.updateService',
@@ -4543,6 +4568,39 @@ async function callClientTool(ws, name, a, ctx = {}) {
     return domain.withDb(ws, (db) => ({
       plan: planId,
       settings: modules.updateCategoriesScopes(db, leadId, a.scopes || [], { workspaceId: ws }),
+    }));
+  }
+
+  // ---- Checkout module (Batch 128) ----
+  if (name === 'checkout.getConfig') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => {
+      const payments = modules.shopStripeStatus(db, leadId);
+      const workspaceConfigured = require('./shopStripe').isConfigured(db);
+      return {
+        plan: planId,
+        config: modules.getCheckoutConfig(db, leadId),
+        payments: {
+          lead: payments,
+          workspace_configured: workspaceConfigured,
+          effective_source: payments.connected ? 'lead' : workspaceConfigured ? 'workspace' : 'none',
+          effective_mode: require('./shopStripe').effectiveMode(db, leadId),
+        },
+      };
+    });
+  }
+  if (name === 'checkout.updateConfig') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({ plan: planId, config: modules.updateCheckoutConfig(db, leadId, a) }));
+  }
+  if (name === 'checkout.listOrders') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      orders: modules.listShopOrdersWithItems(db, leadId, { limit: a.limit || 50 }),
     }));
   }
 

@@ -134,21 +134,25 @@ let db;
 
     assert.equal(
       sm.MODULE_TYPES.length,
-      26,
-      'qrcode is the 26th module type (finisher rebase: categories 24th + photocapture 25th landed first)'
+      27,
+      'catalog at 27 types (qrcode is the 26th; Batch 128 checkout appended after it)'
     );
     n++;
-    assert.equal(sm.MODULE_TYPES[25], 'qrcode', 'qrcode registered last (append-only catalog)');
+    assert.equal(
+      sm.MODULE_TYPES[25],
+      'qrcode',
+      'qrcode is the 26th type (checkout appended after it, append-only catalog)'
+    );
     n++;
     assert.equal(sm.MODULE_META.qrcode.label, 'QR Code');
     n++;
     assert.equal(
       sm.MODULE_SCRIPT_VER,
-      'mod30',
-      'embed script version bumped for the QR renderer (Batch 127 finisher rotation: mod29 + 1)'
+      'mod31',
+      'embed script version bumped for the QR renderer (Batch 128 finisher rotation: mod30 + 1)'
     );
     n++;
-    // Registry parity at 26 + the qrcode classification.
+    // Registry parity at 27 + the qrcode classification.
     assert.deepEqual(
       Object.keys(share.SHARE_REGISTRY).sort(),
       [...sm.MODULE_TYPES].sort(),
@@ -175,7 +179,7 @@ let db;
     assert.ok(read('public/portal.html').includes('modules-qrcode-panel'), 'portal.html hosts the QR panel');
     n++;
     assert.ok(
-      read('public/portal.html').includes('/js/portal.js?v=batch127-variants1'),
+      read('public/portal.html').includes('/js/portal.js?v=batch128-checkout1'),
       'portal.js cache-busted for Batch 126'
     );
     n++;

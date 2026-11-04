@@ -56,6 +56,20 @@ function isConfigured(db) {
   return !!getCredentials(db).secretKey;
 }
 
+/**
+ * Batch 128 — the mode a secret key belongs to, from its prefix
+ * alone ('test' | 'live' | null). Mode honesty matters: a test-mode
+ * key can never take a real charge and a live key must never be
+ * presented as a sandbox, so statuses report the mode the saved key
+ * actually is — derived at read time, never a stored claim.
+ */
+function modeForSecret(secretKey) {
+  const k = String(secretKey || '');
+  if (/^(sk|rk)_test_/.test(k)) return 'test';
+  if (/^(sk|rk)_live_/.test(k)) return 'live';
+  return null;
+}
+
 function notConfigured(message) {
   const e = new Error(message);
   e.code = 'SHOP_STRIPE_NOT_CONFIGURED';
@@ -148,11 +162,16 @@ function getLeadClient(db, leadId) {
 function resolveForLead(db, leadId) {
   const lead = getLeadCredentials(db, leadId);
   if (lead.secretKey) {
-    return { source: 'lead', client: getLeadClient(db, leadId), publishableKey: lead.publishableKey };
+    return {
+      source: 'lead',
+      mode: modeForSecret(lead.secretKey),
+      client: getLeadClient(db, leadId),
+      publishableKey: lead.publishableKey,
+    };
   }
   const ws = getCredentials(db);
   if (ws.secretKey) {
-    return { source: 'workspace', client: getClient(db), publishableKey: ws.publishableKey };
+    return { source: 'workspace', mode: modeForSecret(ws.secretKey), client: getClient(db), publishableKey: ws.publishableKey };
   }
   throw notConfigured(
     'Stripe is not configured for this shop. Connect your own Stripe keys in the portal (Shop → Payments), or ask BitPype to save workspace keys (Settings → Shop payments).'
@@ -162,6 +181,20 @@ function resolveForLead(db, leadId) {
 /** Convenience: just the client resolveForLead would use. */
 function getClientForLead(db, leadId) {
   return resolveForLead(db, leadId).client;
+}
+
+/**
+ * Batch 128 — the mode checkout would actually run in for this lead
+ * right now (the same lead-first resolution as resolveForLead),
+ * without building a client or throwing: 'test' | 'live' | null
+ * when no layer has a secret key.
+ */
+function effectiveMode(db, leadId) {
+  const lead = getLeadCredentials(db, leadId);
+  if (lead.secretKey) return modeForSecret(lead.secretKey);
+  const ws = getCredentials(db);
+  if (ws.secretKey) return modeForSecret(ws.secretKey);
+  return null;
 }
 
 /**
@@ -245,7 +278,7 @@ async function testLeadConnection(db, leadId) {
   const client = getLeadClient(db, leadId); // throws SHOP_STRIPE_NOT_CONFIGURED
   const { secretKey } = getLeadCredentials(db, leadId);
   const account = await client.accounts.retrieve();
-  const testMode = /^(sk|rk)_test_/.test(secretKey);
+  const testMode = modeForSecret(secretKey) === 'test';
   return {
     ok: true,
     account_id: String(account.id || ''),
@@ -264,6 +297,8 @@ async function testLeadConnection(db, leadId) {
 module.exports = {
   getCredentials,
   isConfigured,
+  modeForSecret,
+  effectiveMode,
   getClient,
   constructEvent,
   getLeadCredentials,

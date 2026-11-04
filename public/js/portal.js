@@ -5393,9 +5393,10 @@
     { type: 'categories', label: 'Categories' },
     { type: 'photocapture', label: 'Photo Capture' },
     { type: 'qrcode', label: 'QR Code' },
+    { type: 'checkout', label: 'Checkout' },
   ];
   const MODULE_NAV_GROUPS = [
-    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed', 'googlereviews', 'datatables', 'charts', 'categories', 'photocapture', 'qrcode'] },
+    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'checkout', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed', 'googlereviews', 'datatables', 'charts', 'categories', 'photocapture', 'qrcode'] },
     { id: 'people', label: 'People', types: ['team', 'testimonials', 'careers', 'members', 'newsletter'] },
     { id: 'schedule', label: 'Schedule', types: ['events', 'bookings'] },
     { id: 'assist', label: 'Assist', types: ['chatbot', 'calltracking'] },
@@ -5462,6 +5463,7 @@
     categories: { singular: 'category', plural: 'categories', newBtn: 'New category', kicker: 'Category' },
     photocapture: { singular: 'photo', plural: 'photos', newBtn: 'New photo', kicker: 'Photo submission' },
     qrcode: { singular: 'QR code', plural: 'QR codes', newBtn: 'New QR code', kicker: 'QR code' },
+    checkout: { singular: 'order', plural: 'orders', newBtn: 'New order', kicker: 'Order' },
   };
   const BOOKING_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const MODULE_STORAGE_KEY = 'bp-portal-module';
@@ -5719,6 +5721,12 @@
         { key: 'description', label: 'Description', kind: 'textarea' },
         { key: 'status', label: 'Status', kind: 'select', options: ['draft', 'published'] },
         { key: 'image_url', label: 'First photo (optional)', kind: 'image' },
+        {
+          key: 'image_price',
+          label: 'First photo price (optional)',
+          placeholder: '25',
+          hint: 'Price the first photo to sell it: priced photos in a published album can be bought through your Checkout page. Leave blank for display only.',
+        },
       ];
     }
     if (type === 'faq') {
@@ -6161,6 +6169,8 @@
                 ? 'Your newsletter — subscribers join from the signup block on your site. Compose an issue, preview it, then send it to everyone on the list.'
               : moduleState.current === 'photocapture'
                 ? 'Visitors send you photos from your site — review them here. Nothing is shown publicly until you approve it, and approved photos can be added to a gallery album.'
+              : moduleState.current === 'checkout'
+                ? 'One checkout for everything you sell — shop products and priced gallery photos are charged here, through your own Stripe.'
               : `Manage ${copy.plural} for your ${(meta && meta.label) || 'module'}.`;
     }
     const newBtn = document.getElementById('btn-modules-new');
@@ -6512,6 +6522,17 @@
     const type = moduleState.current;
     const copy = moduleCopy(type);
     const headNewBtn = document.getElementById('btn-modules-new');
+    // Batch 128 — Checkout has no items of its own: it sells the
+    // other modules' sellables and its truth is the orders below.
+    if (type === 'checkout') {
+      box.classList.remove('item-list');
+      box.innerHTML = `<div class="modules-empty">
+        <strong>One checkout for everything you sell</strong>
+        <p class="hint">Attach Checkout to a page (a "Checkout" page works best). Your shop products and any gallery photos you price are added to one cart on your site and paid here, through your own Stripe. Orders land in the panels below.</p>
+      </div>`;
+      if (headNewBtn) headNewBtn.hidden = true;
+      return;
+    }
     if (!items.length) {
       box.classList.remove('item-list');
       box.innerHTML = `<div class="modules-empty">
@@ -8470,9 +8491,18 @@
       out.rating = Number(out.rating);
     }
     if (moduleState.current === 'gallery' && out.image_url && !moduleState.editingId) {
-      out.images = [{ image_url: out.image_url }];
+      // Batch 128: an optional price on the first photo makes it
+      // sellable through the Checkout module once the album is
+      // published (price flows to addGalleryImage as dollars).
+      out.images = [
+        {
+          image_url: out.image_url,
+          ...(out.image_price != null && out.image_price !== '' ? { price: Number(out.image_price) || 0 } : {}),
+        },
+      ];
       delete out.image_url;
     }
+    if (moduleState.current === 'gallery') delete out.image_price;
     if (moduleState.current === 'datatables') {
       // Batch 88: the editor fields are the table's columns — ship them
       // as one values object (the server validates types per column).
@@ -8562,6 +8592,7 @@
     moduleState.calltracking = data.calltracking || null;
     moduleState.members = data.members || null;
     moduleState.shop = data.shop || null;
+    moduleState.checkout = data.checkout || null;
     moduleState.datatable = data.datatable || null;
     moduleState.charts = data.charts || null;
     moduleState.taxonomy = data.taxonomy || null;
@@ -8592,7 +8623,127 @@
     renderCategoriesScopesPanel();
     renderQrCodePanel();
     renderShopPaymentsPanel();
+    renderShopOrdersPanel();
+    renderCheckoutPanel();
     syncModulesPaneTabs();
+  }
+
+  // Batch 128 — orders with line items, shared by the Shop pane and
+  // the Checkout pane. Each line shows the item's photo (the exact
+  // image recorded on the order), its variant label when it has one,
+  // and whether it is a shop product or a gallery photo.
+  function shopOrdersHtml(orders) {
+    const cents = (c, cur) => `${cur && cur !== 'USD' ? `${esc(cur)} ` : '$'}${((Number(c) || 0) / 100).toFixed(2)}`;
+    const list = Array.isArray(orders) ? orders : [];
+    if (!list.length) {
+      return '<p class="hint">No orders yet. When a customer checks out on your site, their order lands here — and we email you right away.</p>';
+    }
+    return list
+      .map((o) => {
+        const when = o.created_at ? new Date(String(o.created_at).replace(' ', 'T') + 'Z').toLocaleString() : '';
+        const lines = (Array.isArray(o.items) ? o.items : [])
+          .map((it) => {
+            const thumb = it.image_url
+              ? `<img src="${esc(it.image_url)}" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:6px" />`
+              : '<span style="display:inline-block;width:40px;height:40px;border-radius:6px;background:var(--paper-2,#eee)" aria-hidden="true"></span>';
+            const bits = [
+              it.source_module === 'gallery' ? 'Photo' : '',
+              it.variant_label || '',
+              `× ${Number(it.quantity) || 1}`,
+            ].filter(Boolean);
+            return `<div class="row" style="gap:8px;align-items:center;margin-top:6px">${thumb}<span style="flex:1">${esc(it.product_name || 'Item')}${bits.length ? ` <span class="hint">${esc(bits.join(' · '))}</span>` : ''}</span><span>${cents(it.line_total_cents, it.currency || o.currency)}</span></div>`;
+          })
+          .join('');
+        return `<div style="border-top:1px solid var(--line,#e5e0d5);padding:8px 0">
+          <div class="row" style="gap:8px;align-items:baseline;flex-wrap:wrap">
+            <strong>Order #${Number(o.id) || ''}</strong>
+            <span class="hint">${esc(o.status || '')}</span>
+            <span style="flex:1"></span>
+            <strong>${cents(o.amount_cents, o.currency)}</strong>
+          </div>
+          <p class="hint" style="margin:2px 0 0">${esc(o.customer_email || 'No buyer email yet')}${when ? ` · ${esc(when)}` : ''}</p>
+          ${lines || `<p class="hint" style="margin:2px 0 0">${esc(o.product_name || '')}</p>`}
+        </div>`;
+      })
+      .join('');
+  }
+
+  function renderShopOrdersPanel() {
+    const host = document.getElementById('modules-shop-orders-panel');
+    if (!host) return;
+    if (moduleState.current !== 'ecommerce') {
+      host.innerHTML = '';
+      host.hidden = true;
+      return;
+    }
+    host.hidden = false;
+    const shop = moduleState.shop || {};
+    host.innerHTML = `<div class="card" style="margin-bottom:var(--card-gap)">
+      <h3 style="margin:0 0 6px">Orders</h3>
+      ${shopOrdersHtml(shop.orders)}
+    </div>`;
+  }
+
+  function renderCheckoutPanel() {
+    const host = document.getElementById('modules-checkout-panel');
+    if (!host) return;
+    if (moduleState.current !== 'checkout') {
+      host.innerHTML = '';
+      host.hidden = true;
+      return;
+    }
+    host.hidden = false;
+    const co = moduleState.checkout || {};
+    const payments = co.payments || { connected: false };
+    const source = co.effective_source || (payments.connected ? 'lead' : co.workspace_configured ? 'workspace' : 'none');
+    const mode = co.effective_mode || null;
+    const stateHtml =
+      source === 'none'
+        ? '<p class="hint"><strong>Payments are not set up yet.</strong> Checkout is off until Stripe keys are saved in <strong>Shop → Payments</strong> — paste your own Stripe keys there; the money goes straight to your Stripe account, never through BitPype.</p>'
+        : `<p class="hint"><strong>Checkout is on${mode ? ` — ${mode === 'test' ? 'TEST mode' : 'LIVE mode'}` : ''}.</strong> ${
+            source === 'lead'
+              ? 'Charges run on the Stripe keys saved in Shop → Payments (your own account).'
+              : 'Charges currently run on the workspace Stripe keys; save your own keys in Shop → Payments to take payments into your own account.'
+          }${payments.connected && !payments.webhook_configured ? ' <strong>Your webhook signing secret is still missing</strong> — orders cannot be confirmed as paid until it is saved in Shop → Payments.' : ''}</p>`;
+    const config = co.config || {};
+    host.innerHTML = `<div class="card" style="margin-bottom:var(--card-gap)">
+      <h3 style="margin:0 0 6px">Checkout</h3>
+      ${stateHtml}
+      <div class="field"><label>Thank-you message <span class="hint">(shown on the checkout page after a successful payment)</span></label>
+        <input type="text" id="checkout-success-message" maxlength="300" placeholder="Thanks for your order!" value="${esc(config.success_message || '')}" /></div>
+      <div class="row" style="gap:6px;flex-wrap:wrap">
+        <button type="button" class="btn soft small" id="btn-checkout-config-save">Save checkout settings</button>
+      </div>
+      <p class="msg" id="msg-checkout-config"></p>
+    </div>
+    <div class="card" style="margin-bottom:var(--card-gap)">
+      <h3 style="margin:0 0 6px">Orders</h3>
+      ${shopOrdersHtml(co.orders)}
+    </div>`;
+    const saveBtn = document.getElementById('btn-checkout-config-save');
+    if (saveBtn) {
+      saveBtn.onclick = async () => {
+        const body = {
+          success_message: (document.getElementById('checkout-success-message') || {}).value || '',
+        };
+        try {
+          const res = await api('/modules/checkout/config', { method: 'PUT', body: JSON.stringify(body) });
+          if (!moduleState.checkout) moduleState.checkout = {};
+          moduleState.checkout.config = (res && res.config) || moduleState.checkout.config;
+          const el = document.getElementById('msg-checkout-config');
+          if (el) {
+            el.className = 'msg ok';
+            el.textContent = 'Checkout settings saved.';
+          }
+        } catch (e) {
+          const el = document.getElementById('msg-checkout-config');
+          if (el) {
+            el.className = 'msg err';
+            el.textContent = errText(e);
+          }
+        }
+      };
+    }
   }
 
   function renderShopPaymentsPanel() {

@@ -224,6 +224,39 @@
       '.bitpype-module-embed .bp-mod-card{transition:none;}',
       '.bitpype-module-embed .bp-mod-card:hover{transform:none;}',
       '}',
+      // Batch 128 — the shared cart bar + the Checkout module surface.
+      '.bitpype-module-embed .bp-mod-cartbar{',
+      'display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;',
+      'margin-top:1rem;padding:0.8rem 1rem;border:1px solid var(--bp-mod-line);border-radius:1rem;',
+      'background:color-mix(in srgb,var(--bp-mod-paper) 94%,var(--bp-mod-ink));font-weight:700;',
+      '}',
+      '.bitpype-module-embed .bp-mod-cartbar .bp-mod-btn{margin-top:0;}',
+      '.bitpype-module-embed .bp-mod-cartline{',
+      'display:flex;align-items:center;gap:0.8rem;padding:0.7rem 0;border-top:1px solid var(--bp-mod-line);flex-wrap:wrap;',
+      '}',
+      '.bitpype-module-embed .bp-mod-cart-thumb{width:52px;height:52px;object-fit:cover;border-radius:0.6rem;flex:none;display:block;}',
+      '.bitpype-module-embed .bp-mod-cart-thumb-empty{',
+      'background:linear-gradient(145deg,var(--bp-mod-secondary),var(--bp-mod-accent));opacity:0.35;',
+      '}',
+      '.bitpype-module-embed .bp-mod-cartline-main{flex:1;font-weight:600;min-width:8rem;}',
+      '.bitpype-module-embed .bp-mod-cartline-qty{display:inline-flex;align-items:center;gap:0.3rem;}',
+      '.bitpype-module-embed .bp-mod-qtybtn{',
+      'appearance:none;border:1.5px solid var(--bp-mod-line);background:transparent;color:var(--bp-mod-ink);',
+      'border-radius:999px;width:1.7rem;height:1.7rem;cursor:pointer;font:inherit;line-height:1;padding:0;',
+      'display:inline-flex;align-items:center;justify-content:center;',
+      '}',
+      '.bitpype-module-embed .bp-mod-cart-total{font-size:1.05rem;margin:1rem 0 0;}',
+      '.bitpype-module-embed .bp-mod-variant{display:inline-flex;align-items:center;gap:0.4rem;font-weight:600;margin:0 0.5rem 0.35rem 0;}',
+      '.bitpype-module-embed .bp-mod-variant select{',
+      'border:1px solid var(--bp-mod-line);border-radius:0.6rem;padding:0.35rem 0.5rem;font:inherit;',
+      'background:var(--bp-mod-paper);color:var(--bp-mod-ink);',
+      '}',
+      '.bitpype-module-embed .bp-mod-photo-sale{display:flex;align-items:center;gap:0.6rem;margin:0.6rem 0 0;flex-wrap:wrap;}',
+      '.bitpype-module-embed .bp-mod-photo-sale .bp-mod-btn{margin-top:0;}',
+      '.bitpype-module-embed .bp-mod-notice{',
+      'border:1px solid var(--bp-mod-line);border-radius:0.85rem;padding:0.7rem 0.9rem;margin:0 0 1rem;',
+      'background:color-mix(in srgb,var(--bp-mod-paper) 94%,var(--bp-mod-ink));',
+      '}',
       // Special Offers — Cards layout: contained grid (auto-fit collapses
       // empty tracks, cards cap at a sensible width and center, so a single
       // offer never strands at the left edge of a wide column).
@@ -781,7 +814,7 @@
     return slug.indexOf('.html') >= 0 ? slug : slug + '.html';
   }
 
-  function renderAlbumDetail(album, showBack) {
+  function renderAlbumDetail(album, showBack, data) {
     var html = '';
     if (showBack) html += '<a class="bp-mod-back" href="' + esc(listHref()) + '">← All albums</a>';
     html += '<div class="bp-mod-detail"><h1>' + esc(album.title) + '</h1>';
@@ -802,6 +835,34 @@
           '"></a>';
       }
       html += '</div>';
+      // Batch 128: priced photos are FOR SALE through the site's
+      // checkout (Ely: "I can SELL photos") — each priced photo gets
+      // its price + an Add to cart button under the gallery grid.
+      // Unpriced photos stay view-only; without a Checkout module
+      // attached nothing changes at all.
+      if (data && data.checkout_page) {
+        var priced = imgs.filter(function (im) {
+          return im.for_sale;
+        });
+        for (var j = 0; j < priced.length; j++) {
+          var p = priced[j];
+          html +=
+            '<p class="bp-mod-photo-sale">' +
+            (p.caption ? '<span>' + esc(p.caption) + '</span> ' : '') +
+            '<span class="bp-mod-price">' +
+            esc(p.price_label || '') +
+            '</span> ' +
+            '<button type="button" class="bp-mod-btn" data-bp-add-photo="' +
+            esc(p.id) +
+            '" data-bp-name="' +
+            esc(p.caption || album.title || 'Photo') +
+            '" data-bp-price="' +
+            (Number(p.price_cents) || 0) +
+            '" data-bp-image="' +
+            esc(p.image_url || '') +
+            '">Add to cart</button></p>';
+        }
+      }
     }
     html += '</div>';
     return html;
@@ -1283,7 +1344,7 @@
       return;
     }
     if (type === 'gallery' && items.length === 1 && items[0].images) {
-      el.innerHTML = html + renderAlbumDetail(items[0], false);
+      el.innerHTML = html + renderAlbumDetail(items[0], false, data);
       return;
     }
     if (type === 'faq') {
@@ -1420,13 +1481,76 @@
           (blogSet.show_excerpt && it.excerpt ? '<p class="bp-mod-excerpt">' + esc(it.excerpt) + '</p>' : '') +
           '</div></article>';
       } else if (type === 'ecommerce') {
-        // Batch 127: a product with variants is bought on its product
-        // page (options must be chosen first) — the card links there
-        // instead of selling a default combination sight unseen.
+        // Batch 127 + 128: with a Checkout module attached, a Stripe
+        // product joins the shared cart (one checkout per site); the
+        // button carries a DISPLAY snapshot (name/photo/price) for
+        // the cart UI — the server re-prices every line from the
+        // product row at checkout, always. A variant picker rides
+        // along when the product has variants (unavailable options
+        // disabled, the first available one preselected; a product
+        // whose variants are ALL unavailable cannot be added).
+        // Without a Checkout module, a variant product is bought on
+        // its product page (options must be chosen first) — the
+        // card links there instead of selling a default combination
+        // sight unseen.
+        var cartMode = !!(data.checkout_page && it.stripe_checkout);
+        var variantPicker = '';
+        var anyVariantAvailable = false;
+        if (cartMode && Array.isArray(it.variants) && it.variants.length) {
+          var seenAvailable = false;
+          variantPicker =
+            '<label class="bp-mod-variant">Option <select data-bp-variant-for="' +
+            esc(it.id) +
+            '">' +
+            it.variants
+              .map(function (v) {
+                var attrs = '';
+                if (!v.available) {
+                  attrs += ' disabled';
+                } else {
+                  anyVariantAvailable = true;
+                  if (!seenAvailable) {
+                    attrs += ' selected';
+                    seenAvailable = true;
+                  }
+                }
+                return (
+                  '<option value="' +
+                  esc(v.id) +
+                  '" data-label="' +
+                  esc(v.label || '') +
+                  '" data-price-cents="' +
+                  (Number(v.price_cents) || 0) +
+                  '"' +
+                  attrs +
+                  '>' +
+                  esc(v.label || '') +
+                  (v.price_label ? ' \u2014 ' + esc(v.price_label) : '') +
+                  '</option>'
+                );
+              })
+              .join('') +
+            '</select></label>';
+        }
         var buy = it.checkout_url
           ? '<a class="bp-mod-btn" href="' + esc(it.checkout_url) + '" target="_blank" rel="noopener">Buy</a>'
-          : it.has_variants
-            ? '<a class="bp-mod-btn ghost" href="' + esc(itemHref(key)) + '">View</a>'
+          : cartMode
+            ? variantPicker +
+              (Array.isArray(it.variants) && it.variants.length && !anyVariantAvailable
+                ? '<button type="button" class="bp-mod-btn" disabled>Unavailable</button>'
+                : '<button type="button" class="bp-mod-btn" data-bp-add="' +
+                  esc(it.id) +
+                  '" data-bp-name="' +
+                  esc(it.name || '') +
+                  '" data-bp-price="' +
+                  (Number(it.price_cents) || 0) +
+                  '" data-bp-currency="' +
+                  esc(it.currency || 'USD') +
+                  '" data-bp-image="' +
+                  esc(it.image_url || '') +
+                  '">Add to cart</button>')
+            : it.has_variants
+              ? '<a class="bp-mod-btn ghost" href="' + esc(itemHref(key)) + '">View</a>'
             : it.stripe_checkout
               ? '<button type="button" class="bp-mod-btn" data-bp-buy="' + esc(it.id) + '">Buy</button>'
               : '<a class="bp-mod-btn ghost" href="' + esc(itemHref(key)) + '">View</a>';
@@ -3503,11 +3627,24 @@
           ? '<p style="margin-top:16px"><a class="bp-mod-btn" href="' +
             esc(it.checkout_url) +
             '" target="_blank" rel="noopener">Buy now</a></p>'
-          : it.stripe_checkout
-            ? '<p style="margin-top:16px"><button type="button" class="bp-mod-btn" data-bp-buy="' +
+          : data.checkout_page && it.stripe_checkout
+            ? '<p style="margin-top:16px">' +
+              '<button type="button" class="bp-mod-btn" data-bp-add="' +
               esc(it.id) +
-              '">Buy now</button></p>'
-            : '') +
+              '" data-bp-name="' +
+              esc(it.name || '') +
+              '" data-bp-price="' +
+              (Number(it.price_cents) || 0) +
+              '" data-bp-currency="' +
+              esc(it.currency || 'USD') +
+              '" data-bp-image="' +
+              esc(it.image_url || '') +
+              '">Add to cart</button></p>'
+            : it.stripe_checkout
+              ? '<p style="margin-top:16px"><button type="button" class="bp-mod-btn" data-bp-buy="' +
+                esc(it.id) +
+                '">Buy now</button></p>'
+              : '') +
         '</article>';
     } else if (type === 'courses') {
       html +=
@@ -3538,7 +3675,7 @@
       }
       html += '</ul></article>';
     } else if (type === 'gallery') {
-      html += renderAlbumDetail(it, true);
+      html += renderAlbumDetail(it, true, data);
     } else if (type === 'directory') {
       html +=
         '<article class="bp-mod-detail">' +
@@ -3676,6 +3813,13 @@
     var priceEl = el.querySelector('[data-bp-variant-price]');
     var noteEl = el.querySelector('[data-bp-variant-note]');
     var btn = el.querySelector('[data-bp-buy]');
+    // Batch 128: on a Checkout-attached shop the purchase button is
+    // the cart's Add button instead of Buy \u2014 the axis selectors
+    // still own the selection, so the resolved variant is synced
+    // onto the Add button (the cart's click handler reads these
+    // attributes) and it disables for unavailable combinations,
+    // exactly like the Buy button.
+    var addBtn = el.querySelector('[data-bp-add]');
     function currentVariant() {
       var values = [];
       for (var i = 0; i < selects.length; i++) values.push(selects[i].value);
@@ -3697,6 +3841,10 @@
           btn.removeAttribute('data-bp-variant');
           btn.disabled = true;
         }
+        if (addBtn) {
+          addBtn.removeAttribute('data-bp-variant');
+          addBtn.disabled = true;
+        }
         return;
       }
       if (priceEl) priceEl.textContent = v.price_label || it.price_label || '';
@@ -3704,6 +3852,12 @@
         btn.setAttribute('data-bp-variant', String(v.id));
         btn.disabled = !v.available;
         btn.textContent = v.available ? 'Buy now' : 'Unavailable';
+      }
+      if (addBtn) {
+        addBtn.setAttribute('data-bp-variant', String(v.id));
+        addBtn.setAttribute('data-bp-variant-label', v.label || '');
+        addBtn.setAttribute('data-bp-variant-price', String(Number(v.price_cents) || 0));
+        addBtn.disabled = !v.available;
       }
       if (noteEl) {
         noteEl.hidden = !!v.available;
@@ -3809,6 +3963,399 @@
       }
     } catch (e) {
       /* ignore */
+    }
+  }
+
+  /* ── Batch 128 — the shared cart + the Checkout module surface ──
+   * One cart per site, owned by the lead's Checkout module and keyed
+   * by ITS public token: the Shop and Gallery embeds add to it, the
+   * Checkout embed reviews and charges it. Cart lines snapshot
+   * DISPLAY data (name/photo/price) for this UI only — the server
+   * re-prices every line from the source module's own rows when the
+   * session is created, so a tampered snapshot buys nothing. */
+
+  function cartStorageKey(checkoutToken) {
+    return 'bp-cart-' + String(checkoutToken || '');
+  }
+  function readCart(checkoutToken) {
+    try {
+      var raw = window.localStorage.getItem(cartStorageKey(checkoutToken));
+      var lines = raw ? JSON.parse(raw) : [];
+      return Array.isArray(lines) ? lines : [];
+    } catch (e) {
+      return [];
+    }
+  }
+  function writeCart(checkoutToken, lines) {
+    try {
+      window.localStorage.setItem(cartStorageKey(checkoutToken), JSON.stringify((lines || []).slice(0, 50)));
+    } catch (e) {
+      /* storage unavailable — the cart just won't persist */
+    }
+  }
+  function cartTotals(lines) {
+    var count = 0;
+    var total = 0;
+    var currency = 'USD';
+    (lines || []).forEach(function (l) {
+      count += Number(l.qty) || 0;
+      total += (Number(l.price_cents) || 0) * (Number(l.qty) || 0);
+      if (l.currency) currency = l.currency;
+    });
+    return { count: count, total: total, currency: currency };
+  }
+  function cartMoney(cents, currency) {
+    return (currency && currency !== 'USD' ? currency + ' ' : '$') + ((Number(cents) || 0) / 100).toFixed(2);
+  }
+  function cartThumb(url) {
+    // A photoless line gets a clean placeholder block — never a
+    // broken-image icon or a layout hole.
+    return url
+      ? '<img class="bp-mod-cart-thumb" src="' + esc(url) + '" alt="" />'
+      : '<span class="bp-mod-cart-thumb bp-mod-cart-thumb-empty" aria-hidden="true"></span>';
+  }
+  function addLineToCart(checkoutToken, line) {
+    var lines = readCart(checkoutToken);
+    var found = null;
+    lines.forEach(function (l) {
+      if (
+        l.source === line.source &&
+        Number(l.itemId) === Number(line.itemId) &&
+        (l.variantId || null) === (line.variantId || null)
+      )
+        found = l;
+    });
+    if (found) found.qty = Math.min(99, (Number(found.qty) || 1) + (Number(line.qty) || 1));
+    else lines.push(line);
+    writeCart(checkoutToken, lines);
+    return lines;
+  }
+
+  function renderCartBar(el, data) {
+    if (!data || !data.checkout_page || !data.checkout_token) return;
+    var bar = el.querySelector('.bp-mod-cartbar');
+    var lines = readCart(data.checkout_token);
+    if (!lines.length) {
+      if (bar) bar.remove();
+      return;
+    }
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.className = 'bp-mod-cartbar';
+      el.appendChild(bar);
+    }
+    var t = cartTotals(lines);
+    bar.innerHTML =
+      '<span>' +
+      t.count +
+      (t.count === 1 ? ' item' : ' items') +
+      ' — ' +
+      cartMoney(t.total, t.currency) +
+      '</span>' +
+      '<a class="bp-mod-btn" href="' +
+      esc(data.checkout_page) +
+      '">Go to checkout</a>';
+  }
+
+  function wireSellableAdds(el, data) {
+    if (!data || !data.checkout_page || !data.checkout_token) return;
+    el.querySelectorAll('[data-bp-add], [data-bp-add-photo]').forEach(function (btn) {
+      if (btn.dataset.bpWired) return;
+      btn.dataset.bpWired = '1';
+      var isPhoto = btn.hasAttribute('data-bp-add-photo');
+      // A photo already in the cart can't be added twice (sold ×1).
+      if (isPhoto) {
+        var existing = readCart(data.checkout_token).some(function (l) {
+          return l.source === 'gallery' && Number(l.itemId) === Number(btn.getAttribute('data-bp-add-photo'));
+        });
+        if (existing) {
+          btn.disabled = true;
+          btn.textContent = 'In your cart ✓';
+          return;
+        }
+      }
+      btn.addEventListener('click', function () {
+        var line = {
+          source: isPhoto ? 'gallery' : 'ecommerce',
+          itemId: Number(btn.getAttribute(isPhoto ? 'data-bp-add-photo' : 'data-bp-add')),
+          variantId: null,
+          variantLabel: '',
+          name: btn.getAttribute('data-bp-name') || 'Item',
+          image_url: btn.getAttribute('data-bp-image') || '',
+          price_cents: Number(btn.getAttribute('data-bp-price')) || 0,
+          currency: btn.getAttribute('data-bp-currency') || 'USD',
+          qty: 1,
+        };
+        // A variant picker rides beside the product's add button;
+        // its selection sets the line's variant identity + label.
+        var card = btn.closest('article') || btn.parentElement;
+        var sel = card ? card.querySelector('[data-bp-variant-for="' + line.itemId + '"]') : null;
+        if (!sel) sel = el.querySelector('[data-bp-variant-for="' + line.itemId + '"]');
+        if (sel && sel.selectedOptions && sel.selectedOptions[0]) {
+          var opt = sel.selectedOptions[0];
+          line.variantId = Number(opt.value) || null;
+          line.variantLabel = opt.getAttribute('data-label') || '';
+          if (opt.getAttribute('data-price-cents') != null)
+            line.price_cents = Number(opt.getAttribute('data-price-cents')) || line.price_cents;
+        }
+        // Product DETAIL pages choose variants with the Batch 127
+        // axis selectors (no flattened picker); wireVariantPicker
+        // keeps the resolved variant on the button itself.
+        if (!line.variantId && btn.getAttribute('data-bp-variant')) {
+          line.variantId = Number(btn.getAttribute('data-bp-variant')) || null;
+          line.variantLabel = btn.getAttribute('data-bp-variant-label') || '';
+          if (btn.getAttribute('data-bp-variant-price') != null)
+            line.price_cents = Number(btn.getAttribute('data-bp-variant-price')) || line.price_cents;
+        }
+        addLineToCart(data.checkout_token, line);
+        renderCartBar(el, data);
+        if (isPhoto) {
+          btn.disabled = true;
+          btn.textContent = 'In your cart ✓';
+        } else {
+          var label = btn.textContent;
+          btn.textContent = 'Added ✓';
+          setTimeout(function () {
+            btn.textContent = label;
+          }, 1200);
+        }
+      });
+    });
+  }
+
+  function renderCheckout(el, data, base, token) {
+    var co = data.checkout || {};
+    var configured = !!(co.cart && co.cart.configured);
+    var continueLinks =
+      (co.shop_page ? '<a class="bp-mod-btn ghost" href="' + esc(co.shop_page) + '">Continue shopping</a> ' : '') +
+      (co.gallery_page ? '<a class="bp-mod-btn ghost" href="' + esc(co.gallery_page) + '">Browse the gallery</a>' : '');
+
+    function reviewHtml() {
+      var lines = readCart(token);
+      if (!lines.length) {
+        return (
+          '<h2>Your cart is empty</h2><p>Add something from the shop or the gallery and it will show up here.</p><p>' +
+          continueLinks +
+          '</p>'
+        );
+      }
+      var t = cartTotals(lines);
+      var rows = lines
+        .map(function (l, i) {
+          return (
+            '<div class="bp-mod-cartline">' +
+            cartThumb(l.image_url) +
+            '<span class="bp-mod-cartline-main">' +
+            esc(l.name || 'Item') +
+            (l.variantLabel ? ' <span class="bp-mod-meta">' + esc(l.variantLabel) + '</span>' : '') +
+            (l.source === 'gallery' ? ' <span class="bp-mod-meta">Photo</span>' : '') +
+            '</span>' +
+            (l.source === 'gallery'
+              ? '<span class="bp-mod-cartline-qty">× 1</span>'
+              : '<span class="bp-mod-cartline-qty"><button type="button" class="bp-mod-qtybtn" data-bp-dec="' +
+                i +
+                '">−</button> ' +
+                (Number(l.qty) || 1) +
+                ' <button type="button" class="bp-mod-qtybtn" data-bp-inc="' +
+                i +
+                '">+</button></span>') +
+            '<span class="bp-mod-cartline-total">' +
+            cartMoney((Number(l.price_cents) || 0) * (Number(l.qty) || 1), l.currency) +
+            '</span>' +
+            '<button type="button" class="bp-mod-qtybtn" data-bp-remove="' +
+            i +
+            '" aria-label="Remove item">×</button></div>'
+          );
+        })
+        .join('');
+      return (
+        '<h2>Review your order</h2>' +
+        rows +
+        '<p class="bp-mod-cart-total">Total: <strong>' +
+        cartMoney(t.total, t.currency) +
+        '</strong></p>' +
+        (configured
+          ? '<p><button type="button" class="bp-mod-btn" data-bp-pay>Pay with card</button></p>'
+          : '<p class="bp-mod-err">This shop isn\'t set up to take payments yet — please check back soon.</p>') +
+        '<p class="bp-mod-book-msg" data-bp-checkout-msg></p>' +
+        '<p>' +
+        continueLinks +
+        '</p>'
+      );
+    }
+
+    function wireReview() {
+      el.querySelectorAll('[data-bp-inc]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var lines = readCart(token);
+          var l = lines[Number(b.getAttribute('data-bp-inc'))];
+          if (l) {
+            l.qty = Math.min(99, (Number(l.qty) || 1) + 1);
+            writeCart(token, lines);
+          }
+          draw();
+        });
+      });
+      el.querySelectorAll('[data-bp-dec]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var lines = readCart(token);
+          var l = lines[Number(b.getAttribute('data-bp-dec'))];
+          if (l) {
+            l.qty = Math.max(1, (Number(l.qty) || 1) - 1);
+            writeCart(token, lines);
+          }
+          draw();
+        });
+      });
+      el.querySelectorAll('[data-bp-remove]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var lines = readCart(token);
+          lines.splice(Number(b.getAttribute('data-bp-remove')), 1);
+          writeCart(token, lines);
+          draw();
+        });
+      });
+      var pay = el.querySelector('[data-bp-pay]');
+      if (pay) {
+        pay.addEventListener('click', function () {
+          var msg = el.querySelector('[data-bp-checkout-msg]');
+          var lines = readCart(token);
+          if (!lines.length) return;
+          pay.disabled = true;
+          pay.textContent = 'Opening secure checkout…';
+          var ret = new URL(window.location.href);
+          ret.searchParams.delete('order');
+          ret.searchParams.delete('session_id');
+          fetch((base || '') + '/api/v1/modules/public/' + encodeURIComponent(token) + '/checkout-cart', {
+            method: 'POST',
+            credentials: 'omit',
+            headers: jsonHeaders(),
+            body: JSON.stringify({
+              items: lines.map(function (l) {
+                return {
+                  source: l.source,
+                  itemId: l.itemId,
+                  quantity: l.qty,
+                  variantId: l.variantId || undefined,
+                };
+              }),
+              returnUrl: ret.toString(),
+            }),
+          })
+            .then(function (r) {
+              return r.json();
+            })
+            .then(function (j) {
+              if (!j || !j.ok || !j.data || !j.data.url) throw new Error((j && j.error) || 'Checkout failed');
+              window.location.href = j.data.url;
+            })
+            .catch(function (e) {
+              pay.disabled = false;
+              pay.textContent = 'Pay with card';
+              if (msg) msg.textContent = e.message || 'Checkout failed. Please try again.';
+            });
+        });
+      }
+    }
+
+    function draw() {
+      el.innerHTML = reviewHtml();
+      wireReview();
+    }
+
+    function successHtml(status) {
+      var items = status.items || [];
+      var rows = items
+        .map(function (it) {
+          return (
+            '<div class="bp-mod-cartline">' +
+            cartThumb(it.imageUrl) +
+            '<span class="bp-mod-cartline-main">' +
+            esc(it.name || 'Item') +
+            (it.variantLabel ? ' <span class="bp-mod-meta">' + esc(it.variantLabel) + '</span>' : '') +
+            '</span>' +
+            '<span class="bp-mod-cartline-qty">× ' +
+            (Number(it.quantity) || 1) +
+            '</span>' +
+            '<span class="bp-mod-cartline-total">' +
+            cartMoney(it.lineTotalCents, it.currency) +
+            '</span>' +
+            // Delivery for a purchased photo: the buyer gets the full
+            // photo right here — the download IS the delivery, and the
+            // order record names exactly which photo was sold.
+            (it.source === 'gallery' && it.imageUrl
+              ? '<a class="bp-mod-btn ghost" href="' + esc(it.imageUrl) + '" download>Download photo</a>'
+              : '') +
+            '</div>'
+          );
+        })
+        .join('');
+      return (
+        '<h2>' +
+        esc((co.config && co.config.success_message) || 'Thank you for your order!') +
+        '</h2>' +
+        '<p>Payment received — Stripe emailed your receipt.</p>' +
+        rows +
+        '<p>' +
+        continueLinks +
+        '</p>'
+      );
+    }
+
+    // Post-payment returns land back on this page (the Pay button's
+    // own page), carrying order=success|cancelled&session_id=…
+    var q = null;
+    try {
+      q = new URLSearchParams(window.location.search);
+    } catch (e) {
+      q = null;
+    }
+    var orderState = q && q.get('order');
+    var sid = q && q.get('session_id');
+    if (orderState === 'success' && sid) {
+      el.innerHTML = '<p class="bp-mod-loading">Confirming your payment…</p>';
+      fetch(
+        (base || '') +
+          '/api/v1/modules/public/' +
+          encodeURIComponent(token) +
+          '/order-status?session_id=' +
+          encodeURIComponent(sid),
+        { credentials: 'omit', headers: authHeaders() }
+      )
+        .then(function (r) {
+          return r.json();
+        })
+        .then(function (j) {
+          if (j && j.ok && j.data && j.data.status === 'paid') {
+            writeCart(token, []);
+            el.innerHTML = successHtml(j.data);
+          } else if (j && j.ok && j.data && (j.data.status === 'failed' || j.data.status === 'expired')) {
+            draw();
+            el.insertAdjacentHTML(
+              'afterbegin',
+              '<p class="bp-mod-err">That payment did not complete — your card was not charged. Your cart is saved below.</p>'
+            );
+          } else {
+            el.innerHTML =
+              '<h2>Payment is processing</h2><p>You will get an email receipt from Stripe once it settles.</p><p>' +
+              continueLinks +
+              '</p>';
+          }
+        })
+        .catch(function () {
+          el.innerHTML =
+            '<h2>Payment is processing</h2><p>You will get an email receipt from Stripe once it settles.</p><p>' +
+            continueLinks +
+            '</p>';
+        });
+      return;
+    }
+    draw();
+    if (orderState === 'cancelled') {
+      el.insertAdjacentHTML(
+        'afterbegin',
+        '<p class="bp-mod-notice">Checkout cancelled — your card was not charged. Your cart is saved below.</p>'
+      );
     }
   }
 
@@ -4359,8 +4906,15 @@
         return;
       }
       if (data.item) renderItem(el, data);
+      else if (data.module_type === 'checkout') renderCheckout(el, data, base, token);
       else renderList(el, data);
       if (data.module_type === 'ecommerce') wireShop(el, base, token);
+      // Batch 128: shop + gallery embeds feed the shared cart when a
+      // Checkout module is attached (payload carries its page+token).
+      if (data.module_type === 'ecommerce' || data.module_type === 'gallery') {
+        wireSellableAdds(el, data);
+        renderCartBar(el, data);
+      }
       wireMemberNavLogout();
     };
     var loadPayload = function (slug) {

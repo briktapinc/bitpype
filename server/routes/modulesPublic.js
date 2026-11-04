@@ -198,6 +198,34 @@ router.post('/:token/checkout', checkoutLimit, async (req, res) => {
   }
 });
 
+/**
+ * Batch 128 — cart checkout for the Checkout module: the token is the
+ * CHECKOUT module's; the lines ({source, itemId, quantity,
+ * variantId?}) are re-priced from the source modules' rows
+ * server-side and charged as one session on the lead's own shop
+ * Stripe configuration.
+ */
+router.post('/:token/checkout-cart', checkoutLimit, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    const body = req.body || {};
+    const data = await domain.withDb(workspaceId, (db) =>
+      siteModules.createCartCheckoutByToken(
+        db,
+        req.params.token,
+        {
+          items: body.items || body.lines || [],
+          returnUrl: body.returnUrl || body.return_url || '',
+        },
+        gateOpts(req)
+      )
+    );
+    res.json({ ok: true, data: { ...data, workspaceId } });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 /** Shop order status for the post-checkout return page (session id is the credential). */
 router.get('/:token/order-status', readLimit, async (req, res) => {
   try {
@@ -210,7 +238,12 @@ router.get('/:token/order-status', readLimit, async (req, res) => {
     }
     const data = domain.withDb(workspaceId, (db) => {
       const order = siteModules.getShopOrderBySession(db, sessionId);
-      if (!order) {
+      // Batch 128: the order must belong to the lead whose module
+      // token is asking. The session id stays the credential, but a
+      // session from another business's shop no longer resolves
+      // under this site's token — strict lead isolation on reads.
+      const embed = siteModules.getEmbedRowByToken(db, req.params.token);
+      if (!order || !embed || Number(order.lead_id) !== Number(embed.lead_id)) {
         const e = new Error('Order not found');
         e.code = 'NOT_FOUND';
         throw e;
@@ -221,6 +254,19 @@ router.get('/:token/order-status', readLimit, async (req, res) => {
         productName: order.product_name,
         amountCents: order.amount_cents,
         currency: order.currency,
+        // Batch 128: the recorded lines ride along (name, variant,
+        // source, photo, qty, line total) so the return/success
+        // state can show exactly what was bought — a purchased
+        // gallery photo's line is the buyer's download delivery.
+        items: siteModules.listShopOrderItems(db, order.id).map((it) => ({
+          name: it.product_name,
+          variantLabel: it.variant_label || '',
+          source: it.source_module || 'ecommerce',
+          imageUrl: it.image_url || '',
+          quantity: Number(it.quantity) || 1,
+          lineTotalCents: Number(it.line_total_cents) || 0,
+          currency: it.currency || order.currency,
+        })),
       };
     });
     res.json({ ok: true, data: { ...data, workspaceId } });

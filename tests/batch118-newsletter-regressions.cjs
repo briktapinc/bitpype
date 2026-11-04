@@ -102,8 +102,8 @@ let db;
     const sm = require(path.join(root, 'server/siteModules.js'));
     assert.equal(
       sm.MODULE_TYPES.length,
-      26,
-      'catalog has 26 types (Batch 124: categories 24th; Batch 125: photocapture 25th; Batch 126 finisher: qrcode the 26th)'
+      27,
+      'catalog has 27 types (Batch 124: categories 24th; Batch 125: photocapture 25th; Batch 126 finisher: qrcode the 26th; Batch 128: checkout the 27th)'
     );
     n++;
     assert.equal(sm.MODULE_TYPES[22], 'newsletter', 'newsletter is the 23rd type');
@@ -164,7 +164,7 @@ let db;
     n++;
     assert.ok(portalHtml.includes('data-for="newsletter"'), 'portal.html has the newsletter pane tab');
     n++;
-    assert.ok(portalHtml.includes('/js/portal.js?v=batch127-variants1'), 'portal.js cache-busted for Batch 118');
+    assert.ok(portalHtml.includes('/js/portal.js?v=batch128-checkout1'), 'portal.js cache-busted for Batch 118');
     n++;
     const embed = read('public/js/module-embed.js');
     assert.ok(embed.includes('function renderNewsletter('), 'public embed renders the newsletter block');
@@ -179,7 +179,11 @@ let db;
     n++;
 
     const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
-    assert.equal(census().summary.total, 421, 'SEC-13 census total (Batch 124 added 5 reviewed sinks)');
+    assert.equal(
+      census().summary.total,
+      434,
+      'SEC-13 census total (Batch 128 added 13 safe sinks; reviewed set unchanged)'
+    );
     n++;
     group('Part 1 registry + source pins', n);
   }

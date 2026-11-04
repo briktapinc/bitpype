@@ -171,7 +171,7 @@ function has(src, needle, label) {
     const cz = census();
     assert.deepEqual(
       cz.summary,
-      { total: 421, STATIC: 143, ESCAPED: 41, SAFE: 71, BUILDER: 56, IDENT: 35, RAW: 75 },
+      { total: 434, STATIC: 152, ESCAPED: 41, SAFE: 73, BUILDER: 58, IDENT: 35, RAW: 75 },
       'SEC-13 census summary unchanged'
     );
     n += 1;
@@ -179,7 +179,7 @@ function has(src, needle, label) {
     const sha = crypto.createHash('sha256').update(multiset.join('\n')).digest('hex');
     assert.equal(
       sha,
-      'fcff1b0c4e2359b3cc8c61893cec20f92067ed77cf6f7bbcf506510c9ffe6f28',
+      '0ef99e71810ada52eeecefade5a3521ac9886de653e7f648ad966303ca23f95f',
       'SEC-13 sink multiset byte-identical'
     );
     n += 1;

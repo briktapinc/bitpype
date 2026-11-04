@@ -3388,6 +3388,36 @@ function createParityTools(ctx) {
       const albumId = requireId(args.album_id || args.albumId, 'album_id');
       return { ok: true, data: siteModules().addPhotoSubmissionToGallery(db, leadId, id, albumId) };
     }),
+    // Batch 128 — Checkout module parity: same delegation to
+    // server/siteModules as the hosted handlers.
+    'checkout.getConfig': parityEntry('checkout.getConfig', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const payments = siteModules().shopStripeStatus(db, leadId);
+      const workspaceConfigured = require('../server/shopStripe').isConfigured(db);
+      return {
+        ok: true,
+        data: {
+          config: siteModules().getCheckoutConfig(db, leadId),
+          payments: {
+            lead: payments,
+            workspace_configured: workspaceConfigured,
+            effective_source: payments.connected ? 'lead' : workspaceConfigured ? 'workspace' : 'none',
+            effective_mode: require('../server/shopStripe').effectiveMode(db, leadId),
+          },
+        },
+      };
+    }),
+    'checkout.updateConfig': parityEntry('checkout.updateConfig', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: { config: siteModules().updateCheckoutConfig(db, leadId, { ...args }) } };
+    }),
+    'checkout.listOrders': parityEntry('checkout.listOrders', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return {
+        ok: true,
+        data: { orders: siteModules().listShopOrdersWithItems(db, leadId, { limit: args.limit || 50 }) },
+      };
+    }),
 
     'courses.addLesson': parityEntry('courses.addLesson', (args) => {
       const leadId = requireId(args.leadId, 'leadId');

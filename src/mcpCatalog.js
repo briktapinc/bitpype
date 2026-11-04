@@ -3014,6 +3014,44 @@ const tools = [
     },
   },
   {
+    name: 'checkout.getConfig',
+    description:
+      'Batch 128 Checkout module: the module’s own settings (success message) plus the business’s payment state — whether shop Stripe is configured, its source (the business’s own keys vs the workspace keys) and its effective mode (test/live). The Stripe keys themselves are managed by the owner in Portal → Shop → Payments; checkout charges the lead’s OWN shop Stripe configuration.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+      },
+      required: ['leadId'],
+    },
+  },
+  {
+    name: 'checkout.updateConfig',
+    description:
+      'Update the Checkout module’s settings (success_message — the thank-you copy shown after a paid checkout, max 300 chars). Payment keys are NOT set here; the owner manages those in Portal → Shop → Payments.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        success_message: { type: 'string' },
+      },
+      required: ['leadId'],
+    },
+  },
+  {
+    name: 'checkout.listOrders',
+    description:
+      'The business’s shop orders WITH their line items (product or gallery photo, variant label, photo image_url, quantity, amounts), buyer email and status — the same read the owner’s portal shows. Read-only.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        limit: { type: 'number' },
+      },
+      required: ['leadId'],
+    },
+  },
+  {
     name: 'events.delete',
     description: 'Delete an event by id (Standard/Premium).',
     schema: {

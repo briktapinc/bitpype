@@ -4,7 +4,7 @@
  *
  * What this pins:
  *   Part 1 — source pins: the three variant tables + order columns,
- *     MODULE_SCRIPT_VER mod30 (builder mod27 on the Batch 124 base; Batch 127 finisher rotation onto mod29 + 1), the variant engine exports, the
+ *     MODULE_SCRIPT_VER mod31 (Batch 127 landed mod30; Batch 128 finisher rotation +1), the variant engine exports, the
  *     storefront selector wiring (data-bp-axis / wireVariantPicker /
  *     data-bp-variant), the portal variant editor + collect hook, the
  *     MCP + catalog options/variants params, the public checkout
@@ -124,8 +124,8 @@ function makeJar() {
     assert.ok(smSrc.includes("orderCols.includes('variant_label')"), 'orders gain variant_label via guarded ALTER');
     n++;
     assert.ok(
-      smSrc.includes("const MODULE_SCRIPT_VER = 'mod30'"),
-      'MODULE_SCRIPT_VER bumped to mod30 (Batch 127 finisher rotation)'
+      smSrc.includes("const MODULE_SCRIPT_VER = 'mod31'"),
+      'MODULE_SCRIPT_VER bumped to mod31 (Batch 128 finisher rotation)'
     );
     n++;
     for (const fn of [
@@ -165,7 +165,7 @@ function makeJar() {
     n++;
     assert.ok(portalSrc.includes('out.options = readVariantGroupsFromDom()'), 'portal collect ships options/variants');
     n++;
-    assert.ok(read('public/portal.html').includes('/js/portal.js?v=batch127-variants1'), 'portal.js cache-busted');
+    assert.ok(read('public/portal.html').includes('/js/portal.js?v=batch128-checkout1'), 'portal.js cache-busted');
     n++;
 
     const mcpSrc = read('server/mcp.js');

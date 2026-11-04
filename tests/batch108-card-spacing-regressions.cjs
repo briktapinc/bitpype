@@ -106,7 +106,7 @@ const MODULE_TYPES = [
     has(portalHtml, '<div class="panel" style="margin-bottom:var(--card-gap)">', 'social accounts panel margin on token');
     // JS template card margins on the token.
     const flatJs = portalJs.split(String.fromCharCode(92)).join('');
-    assert.equal(flatJs.split('<div class="card" style="margin-bottom:var(--card-gap)"').length - 1, 8, 'all eight module settings .card blocks on token (Batch 124: Categories scopes panel; Batch 126 finisher: +1 QR display panel)'); n += 1;
+    assert.equal(flatJs.split('<div class="card" style="margin-bottom:var(--card-gap)"').length - 1, 11, 'all eleven module settings .card blocks on token (Batch 124: Categories scopes panel; Batch 126 finisher: +1 QR display panel; Batch 128: +3 shop orders + checkout panels)'); n += 1;
     has(flatJs, '<article class="post-card" style="margin-bottom:var(--card-gap)">', 'submission post-card margin on token');
     has(flatJs, '<div class="panel" style="margin-top:var(--card-gap)">', 'GBP draft panel margin on token');
     // Off-standard values are gone from the card surfaces.
@@ -116,7 +116,7 @@ const MODULE_TYPES = [
     // SEC-13 census untouched (portal.js edits are same-line value swaps).
     const { census } = require(path.join(root, 'scripts', 'xss-census.cjs'));
     const cz = census();
-    assert.equal(cz.summary.total, 421, 'SEC-13 census total unchanged'); n += 1;
+    assert.equal(cz.summary.total, 434, 'SEC-13 census total unchanged'); n += 1;
     const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
     const BASELINE = new Set(require(path.join(root, 'tests', 'batch103-xss-baseline.json')));
     assert.deepEqual([...reviewed].filter((x) => !BASELINE.has(x)), [], 'no new RAW/IDENT sinks vs baseline'); n += 1;

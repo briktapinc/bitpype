@@ -37,7 +37,7 @@
  * Part 2 — real Chromium, stub API, staff app at 1440/980/390:
  *   exactly one row (shared top, equal heights), uniform 171px
  *   widths, uniform 16px gaps, scrollWidth > clientWidth, the
- *   last card (QR Code) fully reachable at max scroll, the first
+ *   last card (Checkout) fully reachable at max scroll, the first
  *   card fully visible at rest, keyboard scrolling works, no
  *   page-level horizontal overflow, the installs table below the
  *   catalog still renders, zero page errors.
@@ -134,7 +134,7 @@ function group(name, n) {
     const cz = census();
     assert.deepEqual(
       cz.summary,
-      { total: 421, STATIC: 143, ESCAPED: 41, SAFE: 71, BUILDER: 56, IDENT: 35, RAW: 75 },
+      { total: 434, STATIC: 152, ESCAPED: 41, SAFE: 73, BUILDER: 58, IDENT: 35, RAW: 75 },
       'SEC-13 census summary unchanged'
     );
     n += 1;
@@ -142,7 +142,7 @@ function group(name, n) {
     const sha = crypto.createHash('sha256').update(multi.join('\n')).digest('hex');
     assert.equal(
       sha,
-      'fcff1b0c4e2359b3cc8c61893cec20f92067ed77cf6f7bbcf506510c9ffe6f28',
+      '0ef99e71810ada52eeecefade5a3521ac9886de653e7f648ad966303ca23f95f',
       'SEC-13 sink multiset byte-identical'
     );
     n += 1;
@@ -202,6 +202,7 @@ function group(name, n) {
     ['categories', 'Categories'],
     ['photocapture', 'Photo Capture'],
     ['qrcode', 'QR Code'],
+    ['checkout', 'Checkout'],
   ];
   app.get('/api/v1/admin-area/modules', (_q, r) =>
     r.json({
@@ -292,7 +293,7 @@ function group(name, n) {
     for (const w of [1440, 980, 390]) {
       await page.setViewport({ width: w, height: 1000 });
       await page.goto(base + '/app#/modules', { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await WF(page, () => document.querySelectorAll('.modcat-card').length === 26, `catalog renders @${w}`);
+      await WF(page, () => document.querySelectorAll('.modcat-card').length === 27, `catalog renders @${w}`);
       await page.evaluate(() => document.fonts.ready);
       // Batch 112 stability idiom: measure the REST state only once
       // it is well-defined — scroll reset to 0 and the first card's
@@ -318,7 +319,7 @@ function group(name, n) {
         `catalog at settled rest @${w}`
       );
       let m = await page.evaluate(measure);
-      ok(m.count === 26, `@${w}: all 26 catalog cards rendered`);
+      ok(m.count === 27, `@${w}: all 27 catalog cards rendered`);
       ok(m.display === 'flex' && m.overflowX === 'auto', `@${w}: row is a native horizontal scroller`);
       const top0 = m.rects[0].top;
       ok(
@@ -364,7 +365,7 @@ function group(name, n) {
       );
       m = await page.evaluate(measure);
       const last = m.rects[m.rects.length - 1];
-      ok(/QR Code/.test(m.lastName), `@${w}: last card is QR Code`);
+      ok(/Checkout/.test(m.lastName), `@${w}: last card is Checkout`);
       ok(
         last.right <= m.gridRect.right + 1 && last.left >= m.gridRect.left - 1,
         `@${w}: Categories fully inside the row at max scroll (not cut)`

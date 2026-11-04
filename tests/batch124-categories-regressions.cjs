@@ -4,7 +4,7 @@
  *
  * What this pins:
  *   Part 1 — source pins: `categories` is the 24th MODULE_TYPE with
- *     catalog metadata, MODULE_SCRIPT_VER mod30, a moduleShare
+ *     catalog metadata, MODULE_SCRIPT_VER mod31 (mod30 at Batch 124; Batch 128 finisher rotation), a moduleShare
  *     registry provider entry (parity at 24), the categories service
  *     module, taxonomy tables, MCP + catalog + parity + agent tool
  *     surfaces, portal editor wiring (picker + Categories pane +
@@ -52,6 +52,10 @@ process.env.SESSION_SECRET = ['batch124', 'regression', 'secret'].join('-');
 // pair for their spawned servers — this suite relied on ambient
 // captcha state instead, which the 125 gate leg no longer provides.
 process.env.CAPTCHA_OPTIONAL = '1';
+// Batch 128 finisher: the same boot also requires APP_URL in
+// production; prior gate legs provided it ambiently (the app
+// container's compose env), a bare gate container does not.
+process.env.APP_URL = 'https://bitpype.com';
 process.env.NODE_ENV = 'production';
 process.env.COOKIE_SECURE = 'false';
 process.env.MAIL_DRY_RUN = process.env.MAIL_DRY_RUN || 'true';
@@ -119,8 +123,8 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     assert.ok(smSrc.includes("categories: { label: 'Categories'"), 'MODULE_META carries the Categories label');
     n++;
     assert.ok(
-      smSrc.includes("const MODULE_SCRIPT_VER = 'mod30'"),
-      'MODULE_SCRIPT_VER bumped to mod30 (Batch 127 finisher rotation)'
+      smSrc.includes("const MODULE_SCRIPT_VER = 'mod31'"),
+      'MODULE_SCRIPT_VER bumped to mod31 (Batch 128 finisher rotation)'
     );
     n++;
 
@@ -191,7 +195,7 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     const portalHtml = read('public/portal.html');
     assert.ok(portalHtml.includes('id="modules-categories-scopes-panel"'), 'scopes panel mount exists');
     assert.ok(
-      portalHtml.includes('portal.js?v=batch127-variants1'),
+      portalHtml.includes('portal.js?v=batch128-checkout1'),
       'portal.js cache-bust rotated (Batch 124 rotated it; Batch 125 rotated again)'
     );
     n += 2;
@@ -268,15 +272,15 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     let n = 0;
     assert.equal(
       sm.MODULE_TYPES.length,
-      26,
-      'catalog at 26 types (Batch 125 added photocapture; Batch 126 finisher: qrcode)'
+      27,
+      'catalog at 27 types (Batch 125 added photocapture; Batch 126 finisher: qrcode; Batch 128: checkout)'
     );
     assert.equal(sm.MODULE_TYPES[23], 'categories', 'categories is the 24th type');
     n += 2;
     assert.deepEqual(
       Object.keys(share.SHARE_REGISTRY).sort(),
       [...sm.MODULE_TYPES].sort(),
-      'registry parity at 26 types'
+      'registry parity at 27 types'
     );
     n++;
 

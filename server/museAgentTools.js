@@ -46,6 +46,9 @@ const PORTAL_MUTATE_TOOLS = new Set([
   // module's approved-photos grid) — refresh the preview after it.
   'photocapture.moderateSubmission',
   'photocapture.addToGallery',
+  // Batch 128: the checkout success message renders on the checkout
+  // page — refresh the preview after changing it.
+  'checkout.updateConfig',
 ]);
 
 /** Tools Muse must not call in Hands-off (destructive / meta / job control). */
@@ -130,6 +133,9 @@ const PORTAL_READONLY_TOOLS = new Set([
   // Batch 125: Photo Capture inbox reads.
   'photocapture.getConfig',
   'photocapture.listSubmissions',
+  // Batch 128: checkout state + orders are reads.
+  'checkout.getConfig',
+  'checkout.listOrders',
   'social.accounts.list',
   'social.calendar',
   'social.posts.list',
@@ -191,6 +197,9 @@ const PORTAL_DESIGN_WRITE_TOOLS = new Set([
   // Batch 125: Photo Capture config + moderation (same engine
   // functions the portal inbox uses).
   'photocapture.updateConfig', 'photocapture.moderateSubmission', 'photocapture.addToGallery',
+  // Batch 128: the checkout module's one write — its success message
+  // (payment keys stay owner-only in the portal; no agent back door).
+  'checkout.updateConfig',
 ]);
 
 /** Everything build mode may touch: reads ∪ design/content writes. */

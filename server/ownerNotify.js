@@ -281,9 +281,27 @@ async function notifyOwnerOfShopOrder(workspaceId, orderId) {
   return dispatch(workspaceId, (db) => {
     const row = db.prepare('SELECT * FROM ecommerce_orders WHERE id = ?').get(Number(orderId));
     if (!row) return null;
+    // Batch 128: orders record line items (products, variants,
+    // gallery photos) — name them, so a paid photo order tells the
+    // owner exactly which photo + album was sold. Legacy orders
+    // without line rows keep the single Product line.
+    let itemLines = [];
+    try {
+      const items = db
+        .prepare('SELECT * FROM ecommerce_order_items WHERE order_id = ? ORDER BY id ASC')
+        .all(Number(orderId));
+      itemLines = items.map((it) => {
+        const qty = Number(it.quantity) || 1;
+        const variant = it.variant_label ? ` (${it.variant_label})` : '';
+        const kind = it.source_module === 'gallery' ? 'Photo — ' : '';
+        return `${kind}${qty} × ${it.product_name}${variant} — ${money(it.line_total_cents, it.currency || row.currency)}`;
+      });
+    } catch {
+      itemLines = [];
+    }
     const paragraphs = [
       'A customer just placed an order on your website.',
-      line('Product', row.product_name),
+      ...(itemLines.length ? ['Items:', ...itemLines] : [line('Product', row.product_name)]),
       line('Total', money(row.amount_cents, row.currency)),
       line('Customer email', row.customer_email),
       line('Order', `#${row.id}`),

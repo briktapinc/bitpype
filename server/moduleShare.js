@@ -394,6 +394,11 @@ const SHARE_REGISTRY = {
     reason:
       'A consumer and a capture point — the composer draws blocks from other modules through this layer; the signup block itself publishes no items.',
   },
+  checkout: {
+    kind: 'none',
+    reason:
+      'Transactional selling surface — it charges for other modules’ sellables (shop products, priced gallery photos) through the lead’s own Stripe, but publishes no content of its own; orders are private transaction records.',
+  },
   categories: {
     kind: 'provider',
     // Batch 124 — the shared taxonomy itself is shareable content:

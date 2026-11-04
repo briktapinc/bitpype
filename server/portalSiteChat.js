@@ -228,6 +228,29 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
       /* QR census is best-effort */
     }
     try {
+      // Batch 128 — the Checkout module: attached? payments
+      // configured (and in which mode)? how many orders so far? The
+      // agent reads config/orders with checkout.getConfig /
+      // checkout.listOrders and edits the success message with
+      // checkout.updateConfig. Stripe keys are the owner's to manage
+      // in Portal → Shop → Payments — never ask for them in chat.
+      const mods = require('./siteModules');
+      const coEmbed = mods.getEmbedRow(db, leadId, 'checkout');
+      if (coEmbed) {
+        const shopStripe = require('./shopStripe');
+        const configured = shopStripe.isConfiguredForLead(db, leadId);
+        const mode = shopStripe.effectiveMode(db, leadId);
+        const orderCount = mods.moduleItemCount(db, leadId, 'checkout');
+        lines.push(
+          `Checkout module: attached (${Number(coEmbed.published) ? 'published' : 'not published'}) — sells the shop's products and priced gallery photos in one cart; payments ${
+            configured ? `configured (${mode || 'unknown'} mode) via the business's shop Stripe` : 'NOT configured — the owner adds Stripe keys in Portal → Shop → Payments'
+          }; ${orderCount} order${orderCount === 1 ? '' : 's'} recorded.`
+        );
+      }
+    } catch {
+      /* checkout census is best-effort */
+    }
+    try {
       const dt = db.prepare('SELECT title, columns_json FROM datatable_configs WHERE lead_id = ?').get(Number(leadId));
       if (dt) {
         let cols = '';

@@ -61,6 +61,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     let calltracking = null;
     let members = null;
     let shop = null;
+    let checkout = null;
     let datatable = null;
     let charts = null;
     let newsletter = null;
@@ -93,6 +94,11 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
         payments,
         workspace_configured: workspaceConfigured,
         effective_source: payments.connected ? 'lead' : workspaceConfigured ? 'workspace' : 'none',
+        // Batch 128: the mode checkout would run in (test/live) and
+        // the owner's orders with their line items — the owner
+        // notification's "View orders in your portal" lands here.
+        effective_mode: shopStripe.effectiveMode(db, Number(leadId)),
+        orders: modules.listShopOrdersWithItems(db, Number(leadId), { limit: 50 }),
         webhook_path: `/api/v1/shop/webhook/${Number(workspaceId)}`,
       };
     } else if (type === 'courses') items = modules.listCourses(db, Number(leadId));
@@ -329,6 +335,25 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
       // counts); the block carries the module's display-scope config.
       items = require('./categories').listCategories(db, Number(leadId));
       taxonomy = { scopes: modules.getCategoriesScopes(db, Number(leadId)) };
+    }
+    else if (type === 'checkout') {
+      // Batch 128: the Checkout pane — the module's own settings, the
+      // lead's payment state (the same shopStripe status the Shop
+      // pane shows; keys are managed in Shop → Payments), and the
+      // orders with their line items (products, variants, photos).
+      const shopStripe = require('./shopStripe');
+      const payments = modules.shopStripeStatus(db, Number(leadId));
+      const workspaceConfigured = shopStripe.isConfigured(db);
+      items = [];
+      checkout = {
+        config: modules.getCheckoutConfig(db, Number(leadId)),
+        payments,
+        workspace_configured: workspaceConfigured,
+        effective_source: payments.connected ? 'lead' : workspaceConfigured ? 'workspace' : 'none',
+        effective_mode: shopStripe.effectiveMode(db, Number(leadId)),
+        webhook_path: `/api/v1/shop/webhook/${Number(workspaceId)}`,
+        orders: modules.listShopOrdersWithItems(db, Number(leadId), { limit: 50 }),
+      };
     } else throw Object.assign(new Error('Unknown module type'), { code: 'VALIDATION', status: 400 });
     const emb = modules.getEmbedRow(db, Number(leadId), type);
     const out = {
@@ -346,6 +371,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     if (calltracking) out.calltracking = calltracking;
     if (members) out.members = members;
     if (shop) out.shop = shop;
+    if (checkout) out.checkout = checkout;
     if (datatable) out.datatable = datatable;
     if (charts) out.charts = charts;
     if (newsletter) out.newsletter = newsletter;
@@ -974,6 +1000,17 @@ async function clearMembershipKeys(workspaceId, leadId, clientEmail) {
 
 /* Shop Part 2 (Batch 19): the owner's own Stripe keys for their shop. */
 
+/* Batch 128: the Checkout module's own settings (surface copy only —
+ * the money configuration stays in Shop → Payments). */
+async function saveCheckoutConfig(workspaceId, leadId, body, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => ({
+    config: modules.updateCheckoutConfig(db, Number(leadId), body || {}),
+  }));
+}
+
 async function saveShopKeys(workspaceId, leadId, body, clientEmail) {
   const domain = require('./domain');
   const modules = require('./siteModules');
@@ -1520,6 +1557,7 @@ module.exports = {
   saveMembershipKeys,
   clearMembershipKeys,
   saveShopKeys,
+  saveCheckoutConfig,
   clearShopKeys,
   testShopKeys,
   createMembershipTier,

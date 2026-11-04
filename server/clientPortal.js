@@ -130,6 +130,7 @@ module.exports = {
   saveMembershipKeys: portalModules.saveMembershipKeys,
   clearMembershipKeys: portalModules.clearMembershipKeys,
   saveShopKeys: portalModules.saveShopKeys,
+  saveCheckoutConfig: portalModules.saveCheckoutConfig,
   clearShopKeys: portalModules.clearShopKeys,
   testShopKeys: portalModules.testShopKeys,
   createMembershipTier: portalModules.createMembershipTier,
