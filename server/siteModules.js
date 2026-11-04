@@ -4532,11 +4532,19 @@ function setProductOptions(db, leadId, product, optionsInput, variantsInput) {
     return { options: [], variants: [], has_variants: false };
   }
   const overrides = normalizeVariantOverrides(variantsInput, groups);
-  // Snapshot the existing structure BEFORE touching it: variant
-  // prices/flags survive by combination (value strings), not by id.
+  // Snapshot the existing structure BEFORE touching it: a variant
+  // survives (same row, price, SKU, availability) while its
+  // combination of VALUES survives. Values are matched by name,
+  // then — when the group keeps the same number of values — by
+  // position, so axis renames, value renames and reorders all keep
+  // identity; a removed value takes its variants with it.
+  // (Finisher fix: the builder's first cut matched values and
+  // combinations by string only, so renaming a value silently
+  // rebuilt its variants at the base price and re-enabled
+  // unavailable ones; the live proof caught it.)
   const existingGroups = listProductOptions(db, lid, pid);
   const existingVariants = listProductVariants(db, lid, pid);
-  const existingByCombo = new Map(existingVariants.map((v) => [variantComboKey(v.values), v]));
+  const existingByCombo = new Map(existingVariants.map((v) => [(v.option_value_ids || []).join('-'), v]));
 
   // Groups match by position — renaming an axis keeps its variants.
   const axisValueIds = [];
@@ -4554,20 +4562,52 @@ function setProductOptions(db, leadId, product, optionsInput, variantsInput) {
     }
     const existingValues = existingGroups[gi] ? existingGroups[gi].values : [];
     const byValue = new Map(existingValues.map((v) => [v.value.toLowerCase(), v]));
-    const valueIds = g.values.map((value, vi) => {
-      const hit = byValue.get(value.toLowerCase());
-      if (hit) {
-        db.prepare(
+    const usedOldValues = new Set();
+    const valueIds = new Array(g.values.length).fill(0);
+    const updateValueRow = (rowId, value, vi) =>
+      db
+        .prepare(
           "UPDATE ecommerce_product_option_values SET value = ?, sort_order = ?, updated_at = datetime('now') WHERE id = ? AND lead_id = ?"
-        ).run(value, vi, hit.id, lid);
-        return hit.id;
+        )
+        .run(value, vi, rowId, lid);
+    // Pass 1: values match by name (case-insensitive) — an unchanged
+    // or merely reordered value keeps its row.
+    g.values.forEach((value, vi) => {
+      const hit = byValue.get(value.toLowerCase());
+      if (hit && !usedOldValues.has(hit.id)) {
+        updateValueRow(hit.id, value, vi);
+        usedOldValues.add(hit.id);
+        valueIds[vi] = hit.id;
       }
+    });
+    // Pass 2 (rename detection): when the group keeps the same
+    // number of values, an unmatched new value at the same position
+    // as an unmatched old value is that value RENAMED — update its
+    // row in place so its variants survive. When the count changed,
+    // a rename cannot be told apart from a remove+add, so unmatched
+    // values fall through as remove+add (the original behavior).
+    if (existingValues.length === g.values.length) {
+      g.values.forEach((value, vi) => {
+        if (valueIds[vi]) return;
+        const old = existingValues[vi];
+        if (old && !usedOldValues.has(old.id)) {
+          updateValueRow(old.id, value, vi);
+          usedOldValues.add(old.id);
+          valueIds[vi] = old.id;
+        }
+      });
+    }
+    // Pass 3: genuinely new values are inserted (BEFORE the deletes
+    // below, so a freed rowid can never be reused inside this
+    // reconcile and collide with a surviving combination).
+    g.values.forEach((value, vi) => {
+      if (valueIds[vi]) return;
       const info = db
         .prepare(
           'INSERT INTO ecommerce_product_option_values (lead_id, product_id, option_id, value, sort_order) VALUES (?, ?, ?, ?, ?)'
         )
         .run(lid, pid, groupRow.id, value, vi);
-      return Number(info.lastInsertRowid);
+      valueIds[vi] = Number(info.lastInsertRowid);
     });
     const keep = new Set(valueIds);
     for (const v of existingValues) {
@@ -4603,7 +4643,9 @@ function setProductOptions(db, leadId, product, optionsInput, variantsInput) {
     const values = combo.map((c) => c.value);
     const ids = combo.map((c) => c.id);
     const key = variantComboKey(values);
-    const prev = existingByCombo.get(key);
+    // Variants match by their value-id combination (overrides from
+    // the caller still key on the value strings).
+    const prev = existingByCombo.get(ids.join('-'));
     const ov = overrides.get(key);
     const priceCents =
       ov && ov.price_cents != null ? ov.price_cents : prev ? prev.price_cents : Number(product.price_cents) || 0;

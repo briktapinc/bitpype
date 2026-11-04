@@ -460,6 +460,83 @@ function makeJar() {
     group('Part 2c reconciliation semantics', n);
   }
 
+  // ---- 2c2: value rename + reorder keep variant identity ----
+  // (Finisher fix: the builder's first cut matched values and
+  // combinations by string, so renaming a value silently rebuilt
+  // its variants at the base price and re-enabled unavailable
+  // ones. The deployed live proof caught it; these checks pin the
+  // corrected semantics: values match by name, then — while the
+  // group size is unchanged — by position, and variants match by
+  // their value-id combination.)
+  {
+    let n = 0;
+    const fig = sm.createProduct(db, LEAD_A, {
+      name: 'Rename Fig',
+      price: 50,
+      status: 'published',
+      options: [
+        { name: 'Pot', values: ['Nursery', 'Eco'] },
+        { name: 'Size', values: ['Small', 'Large'] },
+      ],
+      variants: [{ values: { Pot: 'Eco', Size: 'Large' }, price_cents: 9100, sku: 'FIG-ECO-L', available: false }],
+    });
+    const before = Object.fromEntries(fig.variants.map((v) => [v.label, v]));
+    const renamedFig = sm.updateProduct(db, LEAD_A, fig.id, {
+      options: [
+        { name: 'Pot', values: ['Nursery', 'Eco Pot'] },
+        { name: 'Size', values: ['Small', 'Large'] },
+      ],
+    });
+    const ecoLarge2 = renamedFig.variants.find((v) => v.label === 'Eco Pot · Large');
+    assert.ok(ecoLarge2, 'renamed combination exists');
+    n++;
+    assert.equal(ecoLarge2.id, before['Eco · Large'].id, 'value rename keeps the variant row');
+    n++;
+    assert.equal(ecoLarge2.price_cents, 9100, 'value rename keeps the override price');
+    n++;
+    assert.equal(ecoLarge2.available, false, 'value rename keeps the availability flag');
+    n++;
+    assert.equal(ecoLarge2.sku, 'FIG-ECO-L', 'value rename keeps the SKU');
+    n++;
+    assert.equal(
+      renamedFig.variants.find((v) => v.label === 'Nursery · Small').id,
+      before['Nursery · Small'].id,
+      'untouched combinations keep their rows through a rename'
+    );
+    n++;
+    // Reorder: swapping the Size values must not move prices
+    // between combinations.
+    const reordered = sm.updateProduct(db, LEAD_A, fig.id, {
+      options: [
+        { name: 'Pot', values: ['Nursery', 'Eco Pot'] },
+        { name: 'Size', values: ['Large', 'Small'] },
+      ],
+    });
+    const ecoLarge3 = reordered.variants.find((v) => v.label === 'Eco Pot · Large');
+    assert.equal(ecoLarge3.id, before['Eco · Large'].id, 'value reorder keeps the variant row');
+    n++;
+    assert.equal(ecoLarge3.price_cents, 9100, 'value reorder keeps the price on its own combination');
+    n++;
+    // Rename + shrink in one update: the group size changed, so a
+    // rename cannot be told apart from remove+add — the removed
+    // value's variants go with it and the matrix is exactly the
+    // surviving combinations.
+    const shrunkFig = sm.updateProduct(db, LEAD_A, fig.id, {
+      options: [
+        { name: 'Pot', values: ['Nursery'] },
+        { name: 'Size', values: ['Large', 'Small'] },
+      ],
+    });
+    assert.equal(shrunkFig.variants.length, 2, 'shrunk matrix has only the surviving combinations');
+    n++;
+    assert.ok(
+      shrunkFig.variants.every((v) => v.values[0] === 'Nursery'),
+      'only Nursery combinations remain'
+    );
+    n++;
+    group('Part 2c2 value rename + reorder identity (finisher fix)', n);
+  }
+
   // ---- 2d: checkout carries the variant (stubbed shopStripe) ----
   {
     let n = 0;
