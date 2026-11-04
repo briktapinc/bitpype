@@ -136,6 +136,7 @@ const checks = [
   'batch142-checkout-nav-cart-regressions',
   'batch143-review-fixes-regressions',
   'batch136-booking-discount-regressions',
+  'batch137-chat-qualifying-questions-regressions',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');

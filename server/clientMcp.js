@@ -194,7 +194,7 @@ function portalToolDefs() {
     {
       name: 'chatbot.pending',
       description:
-        'CLIENT MCP ONLY (lead-scoped portal token). List open visitor chat sessions needing a reply, plus knowledge snippets and allowed_actions (public bookings/forms endpoints). Does NOT use admin design.* / lead.* tools. Standard/Premium chatbot entitlement.',
+        'CLIENT MCP ONLY (lead-scoped portal token). List open visitor chat sessions needing a reply, plus knowledge snippets and allowed_actions (public bookings/forms endpoints). When the business has qualifying questions ON, the payload carries `qualifying` (the owner’s own questions) and each session carries its `qualification` record — weave those questions in naturally and report state via chatbot.reply. Does NOT use admin design.* / lead.* tools. Standard/Premium chatbot entitlement.',
       inputSchema: schema({
         leadId: ID,
         limit: { type: 'integer', minimum: 1, maximum: 50 },
@@ -214,7 +214,7 @@ function portalToolDefs() {
     {
       name: 'chatbot.reply',
       description:
-        'CLIENT MCP ONLY. Post an agent reply to a visitor chat session (sessionId + message). Use knowledge from chatbot.knowledge.list / pending.snippets. When unsure, call chatbot.escalate instead of guessing.',
+        'CLIENT MCP ONLY. Post an agent reply to a visitor chat session (sessionId + message). Use knowledge from chatbot.knowledge.list / pending.snippets. When unsure, call chatbot.escalate instead of guessing. Optional `qualification`: state changes for the owner’s qualifying questions as [{index, status, answer}] (index into the session record’s snapshot; statuses asked | answered | answered_from_conversation | declined) — ask the owner’s questions exactly as written, never invent screening questions, and never block help or booking on an unanswered question.',
       inputSchema: schema({
         leadId: ID,
         sessionId: ID,
@@ -222,6 +222,17 @@ function portalToolDefs() {
         message: STR,
         text: STR,
         body: STR,
+        qualification: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              index: { type: 'integer', minimum: 0 },
+              status: { type: 'string' },
+              answer: STR,
+            },
+          },
+        },
       }),
     },
     {
@@ -795,6 +806,9 @@ async function dispatchPortalTool(ws, name, a, ctx = {}) {
           session: chat.publicSession(row, { withMessages: true, messages }),
           knowledge: chat.knowledgeSnippets(db, leadId),
           allowed_actions: chat.listAllowedActions(db, leadId),
+          // Batch 137: the owner's qualifying questions (the session
+          // itself carries its record via publicSession).
+          qualifying: chat.qualifyingFor(db, leadId),
           boundary: 'portal_client_mcp_only',
         };
       });
@@ -806,7 +820,10 @@ async function dispatchPortalTool(ws, name, a, ctx = {}) {
       if (!message) throw new Error('message is required');
       return domain.withDb(ws, (db) => ({
         plan: planId,
-        ...chat.agentReply(db, leadId, sid, message, null, { workspaceId: ws }),
+        ...chat.agentReply(db, leadId, sid, message, null, {
+          workspaceId: ws,
+          qualification: a.qualification != null ? a.qualification : undefined,
+        }),
       }));
     }
     if (name === 'chatbot.escalate') {

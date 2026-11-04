@@ -6254,6 +6254,56 @@
     updateModuleContentChrome();
   }
 
+  // Batch 137 — qualifying-question list editor (owner's own words;
+  // the array on moduleState mirrors the DOM inputs, which are the
+  // source of truth at save time).
+  function syncChatQualifyingFromDom() {
+    const inputs = document.querySelectorAll('#chat-qualifying-rows input[data-qual-q]');
+    if (inputs.length) moduleState.chatQualifying = Array.from(inputs).map((i) => i.value);
+  }
+
+  function renderChatQualifyingRows() {
+    const host = document.getElementById('chat-qualifying-rows');
+    if (!host) return;
+    const list = Array.isArray(moduleState.chatQualifying) ? moduleState.chatQualifying : [];
+    host.innerHTML = list.length
+      ? list
+          .map(
+            (q, i) => `
+        <div class="row" style="gap:6px;align-items:center;margin:6px 0;flex-wrap:nowrap">
+          <span class="hint" style="min-width:18px">${i + 1}.</span>
+          <input type="text" data-qual-q="${i}" maxlength="200" value="${esc(q)}" placeholder="Type your question exactly as the chat should ask it" style="flex:1" />
+          <button type="button" class="btn ghost small" data-qual-move="-1" data-qual-idx="${i}" ${i === 0 ? 'disabled' : ''} title="Move up">↑</button>
+          <button type="button" class="btn ghost small" data-qual-move="1" data-qual-idx="${i}" ${i === list.length - 1 ? 'disabled' : ''} title="Move down">↓</button>
+          <button type="button" class="btn ghost small" data-qual-del="${i}" title="Remove question">✕</button>
+        </div>`
+          )
+          .join('')
+      : '<p class="hint">No questions yet — add your first one below.</p>';
+    host.querySelectorAll('[data-qual-del]').forEach((btn) => {
+      btn.onclick = () => {
+        syncChatQualifyingFromDom();
+        moduleState.chatQualifying.splice(Number(btn.getAttribute('data-qual-del')), 1);
+        renderChatQualifyingRows();
+      };
+    });
+    host.querySelectorAll('[data-qual-move]').forEach((btn) => {
+      btn.onclick = () => {
+        syncChatQualifyingFromDom();
+        const idx = Number(btn.getAttribute('data-qual-idx'));
+        const to = idx + Number(btn.getAttribute('data-qual-move'));
+        const arr = moduleState.chatQualifying;
+        if (to < 0 || to >= arr.length) return;
+        const tmp = arr[idx];
+        arr[idx] = arr[to];
+        arr[to] = tmp;
+        renderChatQualifyingRows();
+      };
+    });
+    const addBtn = document.getElementById('btn-chat-qualifying-add');
+    if (addBtn) addBtn.disabled = list.length >= 6;
+  }
+
   function renderChatbotSettingsPanel() {
     const host = document.getElementById('modules-chat-settings-panel');
     if (!host) return;
@@ -6285,6 +6335,16 @@
         Suggest lead capture when agent is unsure / slow
       </label>
       <div class="field"><label>Wait hint (seconds)</label><input id="chat-set-timeout" type="number" min="15" max="600" value="${esc(s.agent_timeout_hint_sec != null ? s.agent_timeout_hint_sec : 90)}" /></div>
+      <h4 style="margin:18px 0 6px">Qualifying questions</h4>
+      <p class="hint">Write a few questions your chat should ask visitors to understand what they need. The chat asks YOUR questions word for word, woven into the conversation one at a time — never as a form — and the answers show up in the Inbox tab. A visitor can always skip a question, and skipping never blocks them from getting help or booking.</p>
+      <p class="hint"><em>Examples only, to adapt or ignore:</em> “Is this for your home or a rental property?” · “When are you hoping to have this done?” · “Is this a new problem, or has it happened before?”</p>
+      <label class="hint" style="display:flex;align-items:center;gap:8px;margin:8px 0">
+        <input type="checkbox" id="chat-set-qualifying-enabled" ${s.qualifying_enabled ? 'checked' : ''} />
+        Ask my qualifying questions in the chat
+      </label>
+      <div id="chat-qualifying-rows"></div>
+      <button type="button" class="btn soft small" id="btn-chat-qualifying-add">+ Add a question</button>
+      <p class="hint">Up to 6 questions, 200 characters each. Use the arrows to change the order — the chat works through them in this order.</p>
       <button type="button" class="btn" id="btn-chat-settings-save">Save chatbot settings</button>
       <p class="msg" id="msg-chat-settings"></p>`;
     const backBtn = document.getElementById('btn-chat-settings-back');
@@ -6294,10 +6354,32 @@
         syncModulesPaneTabs();
       };
     }
+    moduleState.chatQualifying = Array.isArray(s.qualifying_questions) ? s.qualifying_questions.slice(0, 6) : [];
+    renderChatQualifyingRows();
+    const qualAdd = document.getElementById('btn-chat-qualifying-add');
+    if (qualAdd) {
+      qualAdd.onclick = () => {
+        syncChatQualifyingFromDom();
+        if (moduleState.chatQualifying.length >= 6) return;
+        moduleState.chatQualifying.push('');
+        renderChatQualifyingRows();
+        const inputs = document.querySelectorAll('#chat-qualifying-rows input[data-qual-q]');
+        const last = inputs[inputs.length - 1];
+        if (last) last.focus();
+      };
+    }
     const btn = document.getElementById('btn-chat-settings-save');
     if (btn) {
       btn.onclick = async () => {
         const msg = document.getElementById('msg-chat-settings');
+        const qualInputs = Array.from(document.querySelectorAll('#chat-qualifying-rows input[data-qual-q]'));
+        if (qualInputs.some((i) => !i.value.trim())) {
+          if (msg) {
+            msg.className = 'msg err';
+            msg.textContent = 'A qualifying question is blank — fill it in or remove it before saving.';
+          }
+          return;
+        }
         try {
           const data = await api('/modules/chatbot/settings', {
             method: 'PUT',
@@ -6310,9 +6392,15 @@
               escalate_notify_portal: document.getElementById('chat-set-portal').checked,
               suggest_lead_capture: document.getElementById('chat-set-lead').checked,
               agent_timeout_hint_sec: Number(document.getElementById('chat-set-timeout').value) || 90,
+              qualifying_enabled: document.getElementById('chat-set-qualifying-enabled').checked,
+              qualifying_questions: qualInputs.map((i) => i.value.trim()),
             }),
           });
           moduleState.chatbot = Object.assign({}, moduleState.chatbot || {}, { settings: data.settings });
+          if (data.settings && Array.isArray(data.settings.qualifying_questions)) {
+            moduleState.chatQualifying = data.settings.qualifying_questions.slice(0, 6);
+            renderChatQualifyingRows();
+          }
           if (msg) {
             msg.className = 'msg ok';
             msg.textContent = 'Saved.';
@@ -6327,12 +6415,37 @@
     }
   }
 
+  // Batch 137 — compact Q&A block for a session's qualifying
+  // record (owner-facing; descriptive status words only).
+  function qualBlockHtml(q) {
+    if (!q || !Array.isArray(q.items) || !q.items.length) return '';
+    const labels = {
+      answered: 'Answered',
+      answered_from_conversation: 'Visitor mentioned it themselves',
+      asked: 'Asked — no answer yet',
+      declined: 'Visitor passed on this one',
+      pending: 'Not asked yet',
+    };
+    const rows = q.items
+      .map(
+        (it) => `
+      <div style="margin:4px 0">
+        <div><strong>Q:</strong> ${esc(it.question || '')}</div>
+        <div class="hint"><strong>A:</strong> ${esc(it.answer || '—')} · ${esc(labels[it.status] || it.status || '')}</div>
+      </div>`
+      )
+      .join('');
+    return `<div style="margin:6px 0;padding:8px 10px;border:1px solid var(--line,#e6e0d8);border-radius:8px">
+      <div class="hint" style="font-weight:600">Qualifying questions</div>${rows}</div>`;
+  }
+
   function renderChatbotInboxPanel() {
     const host = document.getElementById('modules-chat-inbox-panel');
     if (!host) return;
     const chat = moduleState.chatbot || {};
     const escalations = Array.isArray(chat.escalations) ? chat.escalations : [];
     const leads = Array.isArray(chat.leads) ? chat.leads : [];
+    const qualSessions = Array.isArray(chat.qualification_sessions) ? chat.qualification_sessions : [];
     const escHtml = escalations.length
       ? escalations
           .map(
@@ -6342,6 +6455,7 @@
             <strong>${esc(e.reason || 'escalation')}</strong>
             <div class="hint">${esc(errText(e))}</div>
             <div class="hint">${esc(e.created_at || '')}</div>
+            ${qualBlockHtml(e.qualification)}
           </div>
           <button type="button" class="btn soft small" data-chat-resolve="${e.id}">Resolve</button>
         </div>`
@@ -6357,11 +6471,23 @@
             <strong>${esc(l.name || 'Visitor')}</strong>
             <span class="hint"> · ${esc([l.email, l.phone].filter(Boolean).join(' · '))}</span>
             <div class="hint">${esc(l.message || '')}</div>
+            ${qualBlockHtml(l.qualification)}
           </div>
         </div>`
           )
           .join('')
       : '<p class="hint">No chatbot leads yet.</p>';
+    const qualHtml = qualSessions.length
+      ? qualSessions
+          .map(
+            (s) => `
+        <div style="padding:8px 0;border-bottom:1px solid var(--line,#e6e0d8)">
+          <div><strong>Chat #${esc(String(s.id))}</strong> <span class="hint">${esc(s.created_at || '')} · ${esc(s.status || '')}</span></div>
+          ${qualBlockHtml(s.qualification)}
+        </div>`
+          )
+          .join('')
+      : '';
     host.innerHTML = `
       <div class="row" style="justify-content:flex-start;margin-bottom:12px">
         <button type="button" class="btn ghost small" id="btn-chat-inbox-back">← Knowledge</button>
@@ -6371,7 +6497,8 @@
       <h4 style="margin:12px 0 6px">Open escalations (${esc(String(chat.open_escalations || escalations.length || 0))})</h4>
       ${escHtml}
       <h4 style="margin:16px 0 6px">Lead captures</h4>
-      ${leadHtml}`;
+      ${leadHtml}
+      ${qualSessions.length ? `<h4 style="margin:16px 0 6px">Qualifying answers</h4>${qualHtml}` : ''}`;
     const backBtn = document.getElementById('btn-chat-inbox-back');
     if (backBtn) {
       backBtn.onclick = () => {

@@ -30,7 +30,24 @@ const DEFAULT_SETTINGS = {
   agent_timeout_hint_sec: 90,
   /** When no live client MCP agent replies, ChatGPT answers as business CS from knowledge. */
   ai_fallback: true,
+  /**
+   * Batch 137 — owner-set qualifying questions. The owner writes
+   * their own questions in the portal; the chat weaves them into
+   * the conversation and records the answers on the session. Both
+   * fields ride settings_json (the ai_fallback extras store) — no
+   * parallel settings system. Default OFF; an empty list behaves
+   * as OFF even when the switch is on.
+   */
+  qualifying_enabled: false,
+  qualifying_questions: [],
 };
+
+/** Batch 137 — qualifying-question caps (validated on save). */
+const QUALIFYING_MAX_QUESTIONS = 6;
+const QUALIFYING_MAX_CHARS = 200;
+const QUALIFYING_ANSWER_MAX_CHARS = 2000;
+/** Recorded per-question states. Terminal states are sticky. */
+const QUALIFYING_TERMINAL_STATUSES = ['answered', 'answered_from_conversation', 'declined'];
 
 const AI_FALLBACK_DELAY_MS = 2000;
 /** Minimum visitor turns before we may open the contact form (greetings alone never count). */
@@ -368,6 +385,94 @@ function ensureTables(db) {
   } catch {
     /* race / exists */
   }
+  // Batch 137 — the per-session qualifying record (owner's questions
+  // snapshotted + per-question answer state) and its snapshot on a
+  // captured chat lead, for databases created before this batch.
+  try {
+    const sCols = db
+      .prepare('PRAGMA table_info(chatbot_sessions)')
+      .all()
+      .map((c) => String(c.name || ''));
+    if (sCols.length && !sCols.includes('qualification_json')) {
+      db.exec('ALTER TABLE chatbot_sessions ADD COLUMN qualification_json TEXT');
+    }
+    const lCols = db
+      .prepare('PRAGMA table_info(chatbot_leads)')
+      .all()
+      .map((c) => String(c.name || ''));
+    if (lCols.length && !lCols.includes('qualification_json')) {
+      db.exec('ALTER TABLE chatbot_leads ADD COLUMN qualification_json TEXT');
+    }
+  } catch {
+    /* race / exists */
+  }
+}
+
+/**
+ * Batch 137 — validate an owner-supplied qualifying-question list
+ * for SAVE. Refuses (never silently rewrites): non-array input,
+ * more than QUALIFYING_MAX_QUESTIONS entries, non-string entries,
+ * blank entries, entries over QUALIFYING_MAX_CHARS. Returns the
+ * trimmed questions in the owner's order — the exact strings the
+ * chat will ask, byte-for-byte.
+ */
+function normalizeQualifyingQuestions(input) {
+  if (!Array.isArray(input)) {
+    throw fail('VALIDATION', 'qualifying_questions must be a list of questions', 400);
+  }
+  if (input.length > QUALIFYING_MAX_QUESTIONS) {
+    throw fail('VALIDATION', `At most ${QUALIFYING_MAX_QUESTIONS} qualifying questions`, 400);
+  }
+  return input.map((q, i) => {
+    if (typeof q !== 'string') {
+      throw fail('VALIDATION', `Qualifying question ${i + 1} must be plain text`, 400);
+    }
+    const text = q.trim();
+    if (!text) {
+      throw fail('VALIDATION', `Qualifying question ${i + 1} is blank — remove it or write the question`, 400);
+    }
+    if (text.length > QUALIFYING_MAX_CHARS) {
+      throw fail(
+        'VALIDATION',
+        `Qualifying question ${i + 1} is over ${QUALIFYING_MAX_CHARS} characters`,
+        400
+      );
+    }
+    return text;
+  });
+}
+
+/** Lenient read-side sanitize (stored data was validated on save). */
+function sanitizeQualifyingQuestions(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((q) => typeof q === 'string')
+    .map((q) => q.trim().slice(0, QUALIFYING_MAX_CHARS))
+    .filter(Boolean)
+    .slice(0, QUALIFYING_MAX_QUESTIONS);
+}
+
+/**
+ * The effective qualifying config from a settings object: the
+ * feature is ACTIVE only when the switch is on AND the list is
+ * non-empty — on + empty behaves exactly as off, everywhere.
+ */
+function qualifyingFromSettings(settings) {
+  const s = settings || {};
+  const questions = sanitizeQualifyingQuestions(s.qualifying_questions);
+  const enabled = !!s.qualifying_enabled;
+  return { enabled, questions, active: enabled && questions.length > 0 };
+}
+
+/**
+ * Batch 137 — the chat-context reader, mirroring Batch 136's
+ * bookingPitchFor: returns the owner's questions when the feature
+ * is active for this lead, else null (no block anywhere).
+ */
+function qualifyingFor(db, leadId) {
+  const cfg = qualifyingFromSettings(getSettings(db, leadId));
+  if (!cfg.active) return null;
+  return { questions: cfg.questions.slice() };
 }
 
 function parseSettingsRow(row) {
@@ -394,6 +499,8 @@ function parseSettingsRow(row) {
     suggest_lead_capture: row.suggest_lead_capture == null ? true : !!row.suggest_lead_capture,
     agent_timeout_hint_sec: Number(row.agent_timeout_hint_sec) || 90,
     ai_fallback: extra.ai_fallback == null ? base.ai_fallback : !!extra.ai_fallback,
+    qualifying_enabled: extra.qualifying_enabled == null ? base.qualifying_enabled : !!extra.qualifying_enabled,
+    qualifying_questions: sanitizeQualifyingQuestions(extra.qualifying_questions),
   };
 }
 
@@ -420,8 +527,17 @@ function saveSettings(db, leadId, data = {}) {
         ? Math.min(600, Math.max(15, Number(data.agent_timeout_hint_sec) || 90))
         : cur.agent_timeout_hint_sec,
     ai_fallback: data.ai_fallback != null ? !!data.ai_fallback : cur.ai_fallback,
+    qualifying_enabled: data.qualifying_enabled != null ? !!data.qualifying_enabled : cur.qualifying_enabled,
+    qualifying_questions:
+      data.qualifying_questions != null
+        ? normalizeQualifyingQuestions(data.qualifying_questions)
+        : cur.qualifying_questions,
   };
-  const extras = { ai_fallback: next.ai_fallback };
+  const extras = {
+    ai_fallback: next.ai_fallback,
+    qualifying_enabled: next.qualifying_enabled,
+    qualifying_questions: next.qualifying_questions,
+  };
   db.prepare(
     `
     INSERT INTO chatbot_settings (
@@ -641,6 +757,10 @@ function publicSession(row, { withMessages = false, messages = null } = {}) {
     status: row.status,
     needs_agent: !!row.needs_agent,
     visitor,
+    // Batch 137: the session's qualifying record (owner's questions
+    // snapshotted + answer state), null when the feature never
+    // engaged for this session.
+    qualification: row.qualification_json ? parseQualificationRecord(row.qualification_json) : null,
     last_visitor_at: row.last_visitor_at,
     last_agent_at: row.last_agent_at,
     created_at: row.created_at,
@@ -648,6 +768,219 @@ function publicSession(row, { withMessages = false, messages = null } = {}) {
   };
   if (withMessages) out.messages = Array.isArray(messages) ? messages : [];
   return out;
+}
+
+/* ── Batch 137: qualifying-question records ────────────────────────
+ * One record per chat session, stored on chatbot_sessions as
+ * qualification_json:
+ *   { v: 1, questions: [owner texts, snapshotted],
+ *     items: [{ question, answer, status, updated_at }],
+ *     updated_at }
+ * The question TEXT is snapshotted when the record is created, so
+ * an owner editing the list later never rewrites a past session's
+ * history — and update indexes always refer to the snapshot.
+ * Statuses: pending → asked → answered | answered_from_conversation
+ * | declined. The three end states are terminal/sticky: a later
+ * "asked" report never erases an answer, and a declined question is
+ * never re-asked. Recording is model-REPORTED (the fallback's JSON
+ * or chatbot.reply's qualification param) but server-VALIDATED
+ * here: unknown indexes/statuses are skipped, never stored raw.
+ */
+
+const QUALIFYING_STATUS_ALIASES = {
+  asked: 'asked',
+  answered: 'answered',
+  answered_from_conversation: 'answered_from_conversation',
+  'answered-from-conversation': 'answered_from_conversation',
+  answered_from_convo: 'answered_from_conversation',
+  mentioned: 'answered_from_conversation',
+  declined: 'declined',
+  skipped: 'declined',
+  skipped_declined: 'declined',
+  'skipped-declined': 'declined',
+  passed: 'declined',
+};
+
+function normalizeQualifyingStatus(value) {
+  return QUALIFYING_STATUS_ALIASES[String(value || '').trim().toLowerCase()] || null;
+}
+
+function emptyQualificationRecord(questions) {
+  const now = new Date().toISOString();
+  const qs = sanitizeQualifyingQuestions(questions);
+  return {
+    v: 1,
+    questions: qs,
+    items: qs.map((q) => ({ question: q, answer: null, status: 'pending', updated_at: null })),
+    updated_at: now,
+  };
+}
+
+function parseQualificationRecord(raw) {
+  let obj = raw;
+  if (typeof raw === 'string') {
+    try {
+      obj = JSON.parse(raw || '');
+    } catch {
+      return null;
+    }
+  }
+  if (!obj || typeof obj !== 'object' || !Array.isArray(obj.items)) return null;
+  const items = obj.items
+    .filter((it) => it && typeof it.question === 'string' && it.question.trim())
+    .map((it) => ({
+      question: String(it.question).slice(0, QUALIFYING_MAX_CHARS),
+      answer: it.answer != null ? String(it.answer).slice(0, QUALIFYING_ANSWER_MAX_CHARS) : null,
+      status: normalizeQualifyingStatus(it.status) || 'pending',
+      updated_at: it.updated_at != null ? String(it.updated_at) : null,
+    }));
+  if (!items.length) return null;
+  return {
+    v: 1,
+    questions: items.map((it) => it.question),
+    items,
+    updated_at: obj.updated_at != null ? String(obj.updated_at) : null,
+  };
+}
+
+function getSessionQualification(db, sessionId) {
+  ensureTables(db);
+  const row = db
+    .prepare('SELECT qualification_json FROM chatbot_sessions WHERE id = ?')
+    .get(Number(sessionId));
+  return row ? parseQualificationRecord(row.qualification_json) : null;
+}
+
+function saveSessionQualification(db, sessionId, record) {
+  record.updated_at = new Date().toISOString();
+  db.prepare(
+    "UPDATE chatbot_sessions SET qualification_json = ?, updated_at = datetime('now') WHERE id = ?"
+  ).run(JSON.stringify(record), Number(sessionId));
+  return record;
+}
+
+/**
+ * Return the session's record, creating it from the CURRENT owner
+ * list when the feature is active and none exists yet. Returns
+ * null when the feature is off/empty and no record exists. Once
+ * created, the snapshot is frozen — later config edits never
+ * touch it.
+ */
+function ensureSessionQualification(db, leadId, sessionId) {
+  ensureTables(db);
+  const existing = getSessionQualification(db, sessionId);
+  if (existing) return existing;
+  const cfg = qualifyingFor(db, leadId);
+  if (!cfg) return null;
+  return saveSessionQualification(db, sessionId, emptyQualificationRecord(cfg.questions));
+}
+
+/**
+ * Apply model-reported state changes to a session's record.
+ * updates: [{ index, status, answer? }] — index into the
+ * SNAPSHOT list. Invalid entries are skipped (counted), never
+ * thrown: a bad report must not break the visitor's reply flow.
+ */
+function recordQualificationUpdates(db, leadId, sessionId, updates) {
+  ensureTables(db);
+  const session = getSessionById(db, leadId, sessionId);
+  if (!session) throw fail('NOT_FOUND', 'Session not found', 404);
+  const list = Array.isArray(updates) ? updates : [];
+  const record = ensureSessionQualification(db, leadId, session.id);
+  if (!record) return { record: null, applied: 0, skipped: list.length, reason: 'not_configured' };
+  let applied = 0;
+  let skipped = 0;
+  for (const u of list) {
+    let idx = u && u.index != null && Number.isInteger(Number(u.index)) ? Number(u.index) : -1;
+    // Fallback: an update that names the question TEXT (exact
+    // snapshot match) still lands on the right item.
+    if ((idx < 0 || !record.items[idx]) && u && typeof u.question === 'string') {
+      idx = record.items.findIndex((it) => it.question === u.question.trim());
+    }
+    const status = u ? normalizeQualifyingStatus(u.status) : null;
+    const item = idx >= 0 ? record.items[idx] : null;
+    if (!item || !status) {
+      skipped += 1;
+      continue;
+    }
+    const terminal = QUALIFYING_TERMINAL_STATUSES.includes(item.status);
+    if (terminal && status !== item.status) {
+      skipped += 1;
+      continue;
+    }
+    item.status = status;
+    if (u.answer != null && typeof u.answer === 'string') {
+      item.answer = u.answer.slice(0, QUALIFYING_ANSWER_MAX_CHARS) || null;
+    }
+    item.updated_at = new Date().toISOString();
+    applied += 1;
+  }
+  if (applied > 0) saveSessionQualification(db, session.id, record);
+  return { record, applied, skipped };
+}
+
+/** Owner-facing status words — descriptive only, never pass/fail. */
+const QUALIFYING_STATUS_LABELS = {
+  answered: 'Answered',
+  answered_from_conversation: 'Visitor mentioned it themselves',
+  asked: 'Asked — no answer yet',
+  declined: 'Visitor passed on this one',
+  pending: 'Not asked yet',
+};
+
+function qualificationSummaryLines(record) {
+  const rec = parseQualificationRecord(record);
+  if (!rec) return [];
+  const lines = [];
+  for (const it of rec.items) {
+    lines.push(`Q: ${it.question}`);
+    lines.push(
+      `A: ${it.answer ? it.answer : '—'} (${QUALIFYING_STATUS_LABELS[it.status] || it.status})`
+    );
+  }
+  return lines;
+}
+
+function qualificationSummaryText(record) {
+  const lines = qualificationSummaryLines(record);
+  return lines.length ? `Qualifying questions:\n${lines.join('\n')}` : '';
+}
+
+/**
+ * The fallback-prompt block for a session record. Questions are
+ * interpolated byte-for-byte from the snapshot; the block exists
+ * only when a record exists (feature active), so with the feature
+ * off the prompt is exactly what it was before this batch.
+ */
+function qualifyingPromptLines(record) {
+  const rec = parseQualificationRecord(record);
+  if (!rec) return [];
+  const state = (it) => {
+    switch (it.status) {
+      case 'answered':
+        return `already answered: "${it.answer || ''}" — do NOT ask it again`;
+      case 'answered_from_conversation':
+        return `the visitor already mentioned this themselves: "${it.answer || ''}" — do NOT ask it`;
+      case 'asked':
+        return 'asked — waiting for their answer';
+      case 'declined':
+        return 'the visitor passed on this one — do NOT ask it again';
+      default:
+        return 'not asked yet';
+    }
+  };
+  return [
+    'Qualifying questions from the business owner (ask them EXACTLY as written, word for word — never invent, add, or rephrase screening questions):',
+    ...rec.items.map((it, i) => `${i + 1}. "${it.question}" — ${state(it)}`),
+    'How to ask them:',
+    '- Weave them into the conversation naturally, ONE at a time, as it progresses — a conversation, never a form or an interrogation.',
+    "- If the visitor's own messages already answer a question, do not ask it — report it as answered_from_conversation with the answer you found.",
+    '- Never ask a question that is already answered, and never re-ask one the visitor passed on.',
+    '- If the visitor declines or deflects, drop it gracefully, report it as declined, and keep helping them.',
+    '- Answering is always optional: never block help, information, lead capture, or booking on any of these questions, and never tell the visitor they passed or failed anything — there is no pass or fail.',
+    '- In your JSON, also report state changes in a "qualification" array: [{"index":0,"status":"answered","answer":"..."}] — index is the question number above minus 1; statuses: asked, answered, answered_from_conversation, declined. Omit the array when nothing changed.',
+    '',
+  ];
 }
 
 function getSessionByToken(db, token) {
@@ -991,13 +1324,21 @@ function parseAiFallbackResponse(raw, opts = {}) {
     try {
       const obj = JSON.parse(jsonMatch[0]);
       if (obj && typeof obj === 'object') {
+        // Batch 137: the model's qualifying-question state reports
+        // ride the same JSON — raw here; recordQualificationUpdates
+        // validates them against the session snapshot at write time.
+        const qual = Array.isArray(obj.qualification) ? obj.qualification : null;
+        const withQual = (r) => {
+          if (qual) r.qualification = qual;
+          return r;
+        };
         const reply = String(obj.reply || obj.message || obj.answer || '').trim();
-        if (obj.action != null) return normalize(obj.action, reply);
+        if (obj.action != null) return withQual(normalize(obj.action, reply));
         // Legacy found:true|false
         const found =
           obj.found === true || obj.found === 'true' || obj.found === 1 || /^yes$/i.test(String(obj.found || ''));
-        if (found) return normalize('answer', reply);
-        return normalize(allowCapture ? 'capture' : 'chat', reply || (allowCapture ? thanks : ''));
+        if (found) return withQual(normalize('answer', reply));
+        return withQual(normalize(allowCapture ? 'capture' : 'chat', reply || (allowCapture ? thanks : '')));
       }
     } catch {
       /* fall through */
@@ -1174,6 +1515,10 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
     });
     const settings = getSettings(db, leadId);
     const business = loadBusinessSupportContext(db, leadId);
+    // Batch 137: the session's qualifying record — created from the
+    // owner's current list on first use (that creation snapshots
+    // the question texts); null when the feature is off/empty.
+    const qualification = ensureSessionQualification(db, leadId, sessionId);
     return {
       skip: false,
       messages,
@@ -1186,6 +1531,7 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
       // snapshot — a function of the site's modules, never of what
       // the visitor has said in this conversation.
       bookingPitch: bookingPitchFor(db, leadId),
+      qualification,
       configured: aiConfigured(db),
       allowCapture: visitorStatedNeed(messages),
     };
@@ -1285,6 +1631,14 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
                     '',
                   ]
                 : []),
+              // Batch 137: the owner's qualifying questions + this
+              // session's answer state. Conditional spread — with
+              // the feature off the prompt is byte-identical to
+              // before. (Post-rebase this block sits immediately
+              // AFTER Batch 136's booking-pitch block: site fact
+              // first, then the owner's questions; the two blocks
+              // are independent — neither gates the other.)
+              ...qualifyingPromptLines(snapshot.qualification),
               'Conversation rules:',
               '- Greetings or vague hellos → action "chat": welcome them and ask what they need. NEVER open the form yet.',
               '- If their need is unclear → action "chat": ask one short clarifying question.',
@@ -1335,7 +1689,26 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
 
   return domain.withDb(workspaceId, (db) => {
     if (!claimNeedsAgent(db, sessionId)) return { skipped: true, reason: 'race' };
-    return { ...applyFallbackAction(db, leadId, sessionId, parsed, bizName), via: 'chatgpt' };
+    const applied = { ...applyFallbackAction(db, leadId, sessionId, parsed, bizName), via: 'chatgpt' };
+    // Batch 137: persist the model's qualifying-question reports
+    // against the session snapshot. Recording never breaks (or
+    // gates) the reply that was just posted — capture and booking
+    // proceed exactly as before, answered questions or not.
+    if (Array.isArray(parsed.qualification) && parsed.qualification.length) {
+      try {
+        const rec = recordQualificationUpdates(db, leadId, sessionId, parsed.qualification);
+        applied.qualification = { applied: rec.applied, skipped: rec.skipped };
+      } catch (err) {
+        try {
+          process.stderr.write(
+            `[chatbot-ai] qualification record failed session=${sessionId}: ${err && err.message}\n`
+          );
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    return applied;
   });
 }
 
@@ -1383,11 +1756,16 @@ function captureLead(db, token, data = {}) {
   } catch {
     /* stamping must never break a capture */
   }
+  // Batch 137: the session's qualifying record rides the capture —
+  // a snapshot on the lead row itself, so the inbox lead entry (and
+  // the escalation + owner notification below) shows how this
+  // visitor answered the owner's questions.
+  const qualification = sessionId ? getSessionQualification(db, sessionId) : null;
   const info = db
     .prepare(
       `
-    INSERT INTO chatbot_leads (lead_id, session_id, name, email, phone, message, status, website_id, tenant_lead_id, rental_id)
-    VALUES (?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)
+    INSERT INTO chatbot_leads (lead_id, session_id, name, email, phone, message, status, website_id, tenant_lead_id, rental_id, qualification_json)
+    VALUES (?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, ?)
   `
     )
     .run(
@@ -1399,7 +1777,8 @@ function captureLead(db, token, data = {}) {
       message,
       rentalStamp.websiteId,
       rentalStamp.tenantLeadId,
-      rentalStamp.rentalId
+      rentalStamp.rentalId,
+      qualification ? JSON.stringify(qualification) : null
     );
   const chatbotLeadId = Number(info.lastInsertRowid);
   if (rentalStamp.rentalId) {
@@ -1429,7 +1808,14 @@ function captureLead(db, token, data = {}) {
     ).run(
       Number(leadId),
       sessionId,
-      `Lead capture: ${[name, email, phone].filter(Boolean).join(' · ')}\n${message}`.slice(0, 4000)
+      [
+        `Lead capture: ${[name, email, phone].filter(Boolean).join(' · ')}`,
+        message,
+        qualificationSummaryText(qualification),
+      ]
+        .filter(Boolean)
+        .join('\n')
+        .slice(0, 4000)
     );
   }
 
@@ -1476,6 +1862,10 @@ function captureLead(db, token, data = {}) {
       phone,
       visitorMessage: message,
       chatSummary,
+      // Batch 137: the qualification record + its plain-text
+      // summary ride the same notification payload.
+      qualification,
+      qualification_summary: qualificationSummaryText(qualification),
       business,
       escalateEmail: settings.escalate_email || '',
       // Site Rentals (Batch 26): while the site is rented, the chat
@@ -1522,9 +1912,16 @@ async function notifyOwnerOnChatLead(workspaceId, payload = {}) {
             `Contact: ${visitorBits || '(none)'}`,
             `What they need: ${need.slice(0, 800)}`,
             payload.chatSummary ? `Recent chat:\n${String(payload.chatSummary).slice(0, 1200)}` : '',
+            payload.qualification_summary ? String(payload.qualification_summary).slice(0, 1200) : '',
             'Please call or email them when you can — the chat bot told them a human would follow up.',
           ].filter(Boolean),
-          text: [`New chat lead for ${bizName}`, `Contact: ${visitorBits}`, `Need: ${need}`, payload.chatSummary || '']
+          text: [
+            `New chat lead for ${bizName}`,
+            `Contact: ${visitorBits}`,
+            `Need: ${need}`,
+            payload.chatSummary || '',
+            payload.qualification_summary || '',
+          ]
             .filter(Boolean)
             .join('\n\n'),
         });
@@ -1589,9 +1986,18 @@ function listPendingSessions(db, leadId, { limit = 10 } = {}) {
   `
     )
     .all(Number(leadId), lim);
+  // Batch 137: when the owner's qualifying questions are active,
+  // each pending session's record is ensured (first context build
+  // snapshots the questions) and rides its publicSession.
+  const qualifying = qualifyingFor(db, leadId);
   const sessions = rows.map((r) => {
-    const messages = listMessages(db, r.id, { limit: 40 });
-    return publicSession(r, { withMessages: true, messages });
+    let row = r;
+    if (qualifying) {
+      ensureSessionQualification(db, leadId, r.id);
+      row = db.prepare('SELECT * FROM chatbot_sessions WHERE id = ?').get(r.id) || r;
+    }
+    const messages = listMessages(db, row.id, { limit: 40 });
+    return publicSession(row, { withMessages: true, messages });
   });
   const latestVisitor = sessions
     .flatMap((s) => (s.messages || []).filter((m) => m.role === 'visitor').map((m) => m.body))
@@ -1606,9 +2012,15 @@ function listPendingSessions(db, leadId, { limit = 10 } = {}) {
     // Batch 136: module-state booking pitch — present whenever
     // bookings are live on this site, whatever the visitor said.
     booking_pitch: bookingPitch,
+    // Batch 137: the owner's qualifying questions for this lead
+    // (null when the feature is off or the list is empty).
+    qualifying,
     hint:
       'Reply with chatbot.reply (sessionId + message). Use knowledge snippets (query-ranked from uploaded docs). Escalate with chatbot.escalate when unsure. Module actions: use public bookings/forms endpoints listed in allowed_actions — never admin MCP tools.' +
-      (bookingPitch ? ` Booking pitch: ${bookingPitch.pitch_text} ${bookingPitch.guidance}` : ''),
+      (bookingPitch ? ` Booking pitch: ${bookingPitch.pitch_text} ${bookingPitch.guidance}` : '') +
+      (qualifying
+        ? " Qualifying questions are ON for this business: weave the owner's questions (each session's qualification record) into the conversation naturally, one at a time, EXACTLY as written — never invent or rephrase screening questions. If the visitor already answered one in their own words, don't ask it. Pass updates with chatbot.reply's qualification param ([{index, status, answer}] — statuses asked | answered | answered_from_conversation | declined). Never block help, lead capture, or booking on an unanswered question."
+        : ''),
     boundary: 'portal_client_mcp_only',
   };
 }
@@ -1621,6 +2033,7 @@ function claimNextSession(db, leadId) {
     knowledge: pending.knowledge,
     allowed_actions: pending.allowed_actions,
     booking_pitch: pending.booking_pitch || null,
+    qualifying: pending.qualifying || null,
     hint: pending.hint,
     boundary: 'portal_client_mcp_only',
   };
@@ -1640,11 +2053,32 @@ function agentReply(db, leadId, sessionId, message, meta = null, opts = {}) {
     WHERE id = ?
   `
   ).run(session.id);
-  return {
+  const out = {
     session: publicSession(getSessionById(db, leadId, session.id)),
     message: msg,
     boundary: 'portal_client_mcp_only',
   };
+  // Batch 137: the replying agent may report qualifying-question
+  // state changes with the reply (opts.qualification — validated
+  // and recorded against the session snapshot). Recording is
+  // best-effort: it never fails the reply itself.
+  if (opts && opts.qualification != null) {
+    try {
+      const rec = recordQualificationUpdates(
+        db,
+        leadId,
+        session.id,
+        Array.isArray(opts.qualification) ? opts.qualification : []
+      );
+      out.qualification = rec.record;
+      out.qualification_applied = rec.applied;
+      out.qualification_skipped = rec.skipped;
+      out.session = publicSession(getSessionById(db, leadId, session.id));
+    } catch {
+      out.qualification = null;
+    }
+  }
+  return out;
 }
 
 function escalateSession(db, leadId, { sessionId, message, reason } = {}) {
@@ -1690,6 +2124,9 @@ function escalateSession(db, leadId, { sessionId, message, reason } = {}) {
   return {
     escalation: db.prepare('SELECT * FROM chatbot_escalations WHERE id = ?').get(info.lastInsertRowid),
     suggest_lead_capture: getSettings(db, leadId).suggest_lead_capture,
+    // Batch 137: the session's qualifying record (if any) rides
+    // the escalation — the flow itself is unchanged.
+    qualification: session ? getSessionQualification(db, session.id) : null,
     boundary: 'portal_client_mcp_only',
   };
 }
@@ -1729,11 +2166,17 @@ function listChatLeads(db, leadId, { limit = 50 } = {}) {
   return db
     .prepare(
       `
-    SELECT id, session_id, name, email, phone, message, status, created_at
+    SELECT id, session_id, name, email, phone, message, status, created_at, qualification_json
     FROM chatbot_leads WHERE lead_id = ? ORDER BY id DESC LIMIT ?
   `
     )
-    .all(Number(leadId), lim);
+    .all(Number(leadId), lim)
+    .map((r) => {
+      const { qualification_json, ...rest } = r;
+      // Batch 137: the capture-time qualification snapshot, parsed
+      // for the portal inbox (the raw JSON column stays internal).
+      return { ...rest, qualification: parseQualificationRecord(qualification_json) };
+    });
 }
 
 function portalChatbotSummary(db, leadId) {
@@ -1751,7 +2194,24 @@ function portalChatbotSummary(db, leadId) {
       .prepare("SELECT COUNT(*) AS c FROM chatbot_escalations WHERE lead_id = ? AND status = 'open'")
       .get(Number(leadId)).c,
     leads: listChatLeads(db, leadId, { limit: 20 }),
-    escalations: listEscalations(db, leadId, { status: 'open', limit: 20 }),
+    // Batch 137: open escalations carry their session's qualifying
+    // record, and recent sessions that have one are listed so the
+    // inbox can show how each visitor answered.
+    escalations: listEscalations(db, leadId, { status: 'open', limit: 20 }).map((e) => ({
+      ...e,
+      qualification: e.session_id ? getSessionQualification(db, e.session_id) : null,
+    })),
+    qualification_sessions: db
+      .prepare(
+        `
+      SELECT * FROM chatbot_sessions
+      WHERE lead_id = ? AND qualification_json IS NOT NULL
+      ORDER BY id DESC LIMIT 20
+    `
+      )
+      .all(Number(leadId))
+      .map((r) => publicSession(r))
+      .filter((s) => s && s.qualification),
     allowed_actions: listAllowedActions(db, leadId),
     booking_pitch: bookingPitchFor(db, leadId),
     agent_boundary: {
@@ -2034,6 +2494,20 @@ module.exports = {
   scheduleAiFallbackReply,
   runAiFallbackReply,
   parseAiFallbackResponse,
+  QUALIFYING_MAX_QUESTIONS,
+  QUALIFYING_MAX_CHARS,
+  normalizeQualifyingQuestions,
+  sanitizeQualifyingQuestions,
+  qualifyingFromSettings,
+  qualifyingFor,
+  parseQualificationRecord,
+  getSessionQualification,
+  ensureSessionQualification,
+  recordQualificationUpdates,
+  qualificationSummaryLines,
+  qualificationSummaryText,
+  qualifyingPromptLines,
+  normalizeQualifyingStatus,
   isGreetingOnly,
   visitorStatedNeed,
   loadBusinessSupportContext,
