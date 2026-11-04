@@ -6706,7 +6706,14 @@ function publicQrCodePayload(db, leadId, embedRow) {
     id: code.id,
     name: code.name,
     caption: settings.caption || '',
-    payload: resolved.payload,
+    // Batch 134 (bug hunt): a WiFi code's resolved payload embeds the
+    // network password — it must never ride this anonymous payload
+    // (the Batch 126 contract: the password exists only inside the
+    // server-rendered code image). The embed renderer builds the
+    // block from image_url/name/caption alone, so wifi codes ship
+    // an empty payload here; other kinds keep theirs (a URL/tel/
+    // mailto payload is the public target itself).
+    payload: code.target_kind === 'wifi' ? '' : resolved.payload,
     target_url: resolved.target_url,
     image_url: resolved.image_url,
     svg_url: resolved.image_url ? resolved.image_url.replace(/\.png$/, '.svg') : '',

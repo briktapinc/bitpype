@@ -455,7 +455,13 @@ const SHARE_REGISTRY = {
           if (!resolved.payload) return null;
           return item('qrcode', c, {
             title: c.name,
-            description: resolved.payload,
+            // Batch 134 (bug hunt): a WiFi code's payload embeds the
+            // network password — shared items feed anonymous surfaces
+            // (categories) and subscriber email (newsletter blocks),
+            // so wifi codes describe themselves by network name only.
+            // The password lives solely in the rendered code image.
+            description:
+              c.target_kind === 'wifi' ? `WiFi network: ${c.wifi_ssid || c.name}` : resolved.payload,
             image_url: resolved.image_url,
             link_url: resolved.target_url,
             meta: { target_kind: c.target_kind, target_ref: c.target_ref },

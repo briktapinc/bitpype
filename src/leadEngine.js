@@ -964,6 +964,25 @@ function deleteLead(db, id) {
     drop('newsletter_sends');
     drop('newsletter_subscribers');
     drop('newsletter_configs');
+    // Batch 134 (bug hunt): the Batch 122/124–128 tables are lead_id-
+    // keyed with no FK to leads, and none were in this list — deleting
+    // a lead orphaned its whole shop (products, the variant tree,
+    // orders AND their line items, buyer emails included), its QR
+    // codes, photo submissions + config, checkout config, shared-layer
+    // refs, and the LeadScout events the window's captures wrote.
+    // Children first, mirroring modulePurgeSteps' order.
+    drop('ecommerce_order_items');
+    drop('ecommerce_product_variants');
+    drop('ecommerce_product_option_values');
+    drop('ecommerce_product_options');
+    drop('ecommerce_orders');
+    drop('ecommerce_products');
+    drop('module_qrcodes');
+    drop('photocapture_submissions');
+    drop('photocapture_configs');
+    drop('checkout_configs');
+    drop('module_shared_refs');
+    drop('leadscout_events');
     drop('lead_onboarding_items');
     drop('ai_usage');
     drop('design_learning_events');
@@ -1417,6 +1436,21 @@ const MERGE_MOVE_TABLES = [
   'call_logs',
   'newsletter_subscribers',
   'newsletter_sends',
+  // Batch 134 (bug hunt): the Batch 124–128 lead-scoped tables move
+  // with the lead — before this they stayed keyed to the dropped lead
+  // and were silently orphaned by every merge (a merged shop kept its
+  // products but lost every variant; orders moved without their line
+  // items). module_categories moves here too, but only after the
+  // (scope, slug) clash remap in reassignLeadDependents re-points
+  // assignments at the keeper's twin categories.
+  'module_qrcodes',
+  'photocapture_submissions',
+  'ecommerce_order_items',
+  'ecommerce_product_options',
+  'ecommerce_product_option_values',
+  'ecommerce_product_variants',
+  'module_categories',
+  'module_category_assignments',
 ];
 
 const MERGE_DEDUPE_TABLES = {
@@ -1434,6 +1468,9 @@ const MERGE_DEDUPE_TABLES = {
   site_members: ['email'],
   // A newsletter email is unique per lead too — keeper's row wins.
   newsletter_subscribers: ['email'],
+  // Batch 134: shared-layer refs are unique per (consumer, provider
+  // type, role) — the keeper's link for a slot wins on merge.
+  module_shared_refs: ['consumer_type', 'consumer_id', 'provider_type', 'role'],
 };
 
 const MERGE_SINGLETON_TABLES = [
@@ -1449,6 +1486,10 @@ const MERGE_SINGLETON_TABLES = [
   'membership_stripe_keys',
   'shop_stripe_keys',
   'newsletter_configs',
+  // Batch 134: per-lead module configs keyed by lead_id (PK) — one
+  // survives a merge, the keeper's.
+  'photocapture_configs',
+  'checkout_configs',
 ];
 
 function leadTableExists(db, table) {
@@ -1475,6 +1516,35 @@ function reassignLeadDependents(db, keepId, dropId) {
     if (dropSite) db.prepare('UPDATE websites SET lead_id = ? WHERE lead_id = ?').run(keepId, dropId);
   }
 
+  // Batch 134 (bug hunt): category (scope, slug) clash remap, BEFORE
+  // the plain moves. module_categories is UNIQUE(lead_id, scope,
+  // slug), so a dropped category whose twin the keeper already has
+  // cannot move — instead its assignments re-point at the keeper's
+  // twin (INSERT OR IGNORE: an item already in the twin keeps one
+  // row), its children reparent to the twin, and the dropped row
+  // goes. Non-clashing categories then move with MERGE_MOVE_TABLES.
+  if (leadTableExists(db, 'module_categories') && leadTableExists(db, 'module_category_assignments')) {
+    const dropCats = db.prepare('SELECT id, scope, slug FROM module_categories WHERE lead_id = ?').all(dropId);
+    for (const dc of dropCats) {
+      const twin = db
+        .prepare('SELECT id FROM module_categories WHERE lead_id = ? AND scope = ? AND slug = ?')
+        .get(keepId, dc.scope, dc.slug);
+      if (!twin) continue;
+      db.prepare('UPDATE module_categories SET parent_id = ? WHERE lead_id = ? AND parent_id = ?').run(
+        twin.id,
+        dropId,
+        dc.id
+      );
+      db.prepare(
+        `INSERT OR IGNORE INTO module_category_assignments (lead_id, consumer_type, item_id, category_id)
+         SELECT lead_id, consumer_type, item_id, ? FROM module_category_assignments
+         WHERE lead_id = ? AND category_id = ?`
+      ).run(twin.id, dropId, dc.id);
+      db.prepare('DELETE FROM module_category_assignments WHERE lead_id = ? AND category_id = ?').run(dropId, dc.id);
+      db.prepare('DELETE FROM module_categories WHERE id = ? AND lead_id = ?').run(dc.id, dropId);
+    }
+  }
+
   for (const table of MERGE_MOVE_TABLES) {
     if (!leadTableExists(db, table)) continue; // older tenant DBs predate some tables
     db.prepare(`UPDATE ${table} SET lead_id = ? WHERE lead_id = ?`).run(keepId, dropId);
@@ -1499,6 +1569,21 @@ function reassignLeadDependents(db, keepId, dropId) {
       `DELETE FROM ${table} WHERE lead_id = @drop AND EXISTS (SELECT 1 FROM ${table} WHERE lead_id = @keep)`
     ).run({ keep: keepId, drop: dropId });
     db.prepare(`UPDATE ${table} SET lead_id = ? WHERE lead_id = ?`).run(keepId, dropId);
+  }
+
+  // Batch 134 (bug hunt): variant-tree sweep. The dedupe above deletes
+  // the dropped lead's products whose slug the keeper already owns;
+  // the MOVE loop has already re-keyed their options/values/variants
+  // to the keeper, so rows pointing at a product that no longer
+  // exists are dead weight — remove exactly those (a surviving
+  // product's tree is untouched; its ids never change hands).
+  if (leadTableExists(db, 'ecommerce_products')) {
+    for (const table of ['ecommerce_product_variants', 'ecommerce_product_option_values', 'ecommerce_product_options']) {
+      if (!leadTableExists(db, table)) continue;
+      db.prepare(
+        `DELETE FROM ${table} WHERE lead_id = ? AND product_id NOT IN (SELECT id FROM ecommerce_products)`
+      ).run(keepId);
+    }
   }
 }
 
