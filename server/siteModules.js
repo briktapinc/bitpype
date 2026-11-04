@@ -5387,7 +5387,14 @@ function listQrCodes(db, leadId, { includeDrafts = true } = {}) {
   const rows = db
     .prepare('SELECT * FROM module_qrcodes WHERE lead_id = ? ORDER BY sort_order ASC, id ASC')
     .all(Number(leadId));
-  return rows.filter((r) => includeDrafts || r.status === 'published').map(qrCodeRowView);
+  // Batch 126 finisher: codes carry their shared-taxonomy assignments
+  // like every other consuming module's items (scope 'qrcode').
+  return decorateItemsCategories(
+    db,
+    leadId,
+    'qrcode',
+    rows.filter((r) => includeDrafts || r.status === 'published').map(qrCodeRowView)
+  );
 }
 
 function getQrCode(db, leadId, id) {
@@ -5395,13 +5402,15 @@ function getQrCode(db, leadId, id) {
   const row = db
     .prepare('SELECT * FROM module_qrcodes WHERE id = ? AND lead_id = ?')
     .get(Number(id), Number(leadId));
-  return qrCodeRowView(row || null);
+  return decorateItemCategories(db, leadId, 'qrcode', qrCodeRowView(row || null));
 }
 
 function createQrCode(db, leadId, data = {}) {
   ensureTables(db);
   const name = String(data.name || data.title || '').trim();
   if (!name) throw fail('VALIDATION', 'QR code name is required');
+  // Batch 126 finisher: validate category assignments before the insert.
+  const wantsCats = assertItemCategories(db, leadId, 'qrcode', data);
   const target = normalizeQrCodeInput(db, leadId, data, null);
   const accent = sitePaletteAccent(db, leadId);
   const info = db
@@ -5428,6 +5437,7 @@ function createQrCode(db, leadId, data = {}) {
       data.status === 'published' ? 'published' : 'draft',
       Number(data.sort_order) || 0
     );
+  if (wantsCats) applyItemCategories(db, leadId, 'qrcode', Number(info.lastInsertRowid), data);
   return getQrCode(db, leadId, info.lastInsertRowid);
 }
 
@@ -5437,6 +5447,10 @@ function updateQrCode(db, leadId, id, data = {}) {
     .prepare('SELECT * FROM module_qrcodes WHERE id = ? AND lead_id = ?')
     .get(Number(id), Number(leadId));
   if (!existing) throw fail('NOT_FOUND', 'QR code not found', 404);
+  // Batch 126 finisher: category_ids present = replace the code's
+  // category set; absent = assignments untouched. Pre-flighted before
+  // any mutation so a bad id fails the whole write.
+  const wantsCats = assertItemCategories(db, leadId, 'qrcode', data);
   const targetTouched =
     data.target_kind != null ||
     data.target_ref != null ||
@@ -5474,6 +5488,7 @@ function updateQrCode(db, leadId, id, data = {}) {
     existing.id,
     Number(leadId)
   );
+  if (wantsCats) applyItemCategories(db, leadId, 'qrcode', existing.id, data);
   return getQrCode(db, leadId, existing.id);
 }
 
@@ -5482,6 +5497,9 @@ function deleteQrCode(db, leadId, id) {
   const row = getQrCode(db, leadId, id);
   if (!row) throw fail('NOT_FOUND', 'QR code not found', 404);
   db.prepare('DELETE FROM module_qrcodes WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
+  // Batch 126 finisher: the code's taxonomy assignments go with it —
+  // never blocks the delete.
+  clearItemCategories(db, leadId, 'qrcode', row.id);
   return { deleted: true, id: row.id };
 }
 

@@ -1293,7 +1293,7 @@ function clientToolDefs() {
     {
       name: 'qrcode.create',
       description:
-        'Create a QR code. target_kind: page (target_page = a site page slug), module (target_module = another module type whose landing the code opens — e.g. bookings, menu, googlereviews, newsletter; the module must be added to the site), url / tel / email (target_value = the literal value), wifi (wifi_ssid, wifi_auth WPA|WEP|nopass, wifi_password, wifi_hidden). Style: size, fg_color, bg_color (#rrggbb), ec_level L|M|Q|H, status draft|published. Page/module targets are stored as references and stay correct when pages are renamed. Standard/Premium.',
+        'Create a QR code. target_kind: page (target_page = a site page slug), module (target_module = another module type whose landing the code opens — e.g. bookings, menu, googlereviews, newsletter; the module must be added to the site), url / tel / email (target_value = the literal value), wifi (wifi_ssid, wifi_auth WPA|WEP|nopass, wifi_password, wifi_hidden). Style: size, fg_color, bg_color (#rrggbb), ec_level L|M|Q|H, status draft|published. Page/module targets are stored as references and stay correct when pages are renamed. Optionally pass category_ids (shared-taxonomy categories in the qrcode scope) to assign the code in the same call. Standard/Premium.',
       inputSchema: schema(
         {
           leadId: ID,
@@ -1303,6 +1303,7 @@ function clientToolDefs() {
           target_module: STR,
           target_value: STR,
           target_ref: STR,
+          category_ids: CATIDS,
           wifi_ssid: STR,
           wifi_auth: STR,
           wifi_password: STR,
@@ -1318,7 +1319,8 @@ function clientToolDefs() {
     },
     {
       name: 'qrcode.update',
-      description: 'Update a QR code by id (same fields as qrcode.create). Standard/Premium.',
+      description:
+        'Update a QR code by id (same fields as qrcode.create). Passing category_ids replaces the code’s shared-taxonomy category set (qrcode scope); omitting it leaves assignments untouched. Standard/Premium.',
       inputSchema: schema(
         {
           id: ID,
@@ -1329,6 +1331,7 @@ function clientToolDefs() {
           target_module: STR,
           target_value: STR,
           target_ref: STR,
+          category_ids: CATIDS,
           wifi_ssid: STR,
           wifi_auth: STR,
           wifi_password: STR,

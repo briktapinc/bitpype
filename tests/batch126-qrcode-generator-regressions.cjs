@@ -6,10 +6,11 @@
  * with all other modules").
  *
  * What is pinned here:
- *   Part 1 — registration + surfaces: qrcode is the 24th MODULE_TYPES
- *     member with meta + icon glyph; the Batch 122 shared-layer
+ *   Part 1 — registration + surfaces: qrcode is the 26th MODULE_TYPES
+ *     member with meta + icon glyph (finisher rebase: categories and
+ *     photocapture landed first); the Batch 122 shared-layer
  *     registry classifies it as a PROVIDER (registry ⇔ MODULE_TYPES
- *     parity at 24); MODULE_SCRIPT_VER bumped for the new embed
+ *     parity at 26); MODULE_SCRIPT_VER bumped for the new embed
  *     renderer; portal lists/copy/nav/fields/panel, the embed renderer,
  *     and every agent surface (hosted MCP defs + plan gate + dispatch,
  *     design-agent tool fences, local catalog + parity CRUD) carry it.
@@ -28,6 +29,11 @@
  *     uniform items; agent dispatch through mcp.callTool; the portal
  *     service layer (enriched list with real previews, WiFi password
  *     never in a list response, print downloads).
+ *   Part 2f — categories wire (finisher): codes are assignable in the
+ *     shared taxonomy (scope 'qrcode') through every surface — engine
+ *     create/update with category_ids (pre-flighted), the generic
+ *     categories.assign service + MCP dispatch, the portal editor
+ *     picker — and resolve through itemsForCategory once published.
  *   Part 3 — HTTP over the real server: portal owner signs in, lists
  *     codes with targets, creates one through the generic module
  *     route, saves the on-site display choice, downloads PNG + SVG;
@@ -126,15 +132,23 @@ let db;
     const share = require(path.join(root, 'server/moduleShare.js'));
     const sm = require(path.join(root, 'server/siteModules.js'));
 
-    assert.equal(sm.MODULE_TYPES.length, 24, 'qrcode is the 24th module type');
+    assert.equal(
+      sm.MODULE_TYPES.length,
+      26,
+      'qrcode is the 26th module type (finisher rebase: categories 24th + photocapture 25th landed first)'
+    );
     n++;
-    assert.equal(sm.MODULE_TYPES[23], 'qrcode', 'qrcode registered last (append-only catalog)');
+    assert.equal(sm.MODULE_TYPES[25], 'qrcode', 'qrcode registered last (append-only catalog)');
     n++;
     assert.equal(sm.MODULE_META.qrcode.label, 'QR Code');
     n++;
-    assert.equal(sm.MODULE_SCRIPT_VER, 'mod26', 'embed script version bumped for the QR renderer');
+    assert.equal(
+      sm.MODULE_SCRIPT_VER,
+      'mod29',
+      'embed script version bumped for the QR renderer (finisher rotation: mod28 + 1)'
+    );
     n++;
-    // Registry parity at 24 + the qrcode classification.
+    // Registry parity at 26 + the qrcode classification.
     assert.deepEqual(
       Object.keys(share.SHARE_REGISTRY).sort(),
       [...sm.MODULE_TYPES].sort(),
@@ -675,6 +689,169 @@ let db;
     );
     n++;
     group('Part 2e agent dispatch + portal service layer', n);
+  }
+
+  // ---- 2f categories wire (finisher) ----
+  {
+    let n = 0;
+    const sm = require(path.join(root, 'server/siteModules.js'));
+    const cats = require(path.join(root, 'server/categories.js'));
+    const mcp = require(path.join(root, 'server/mcp.js'));
+
+    // The portal editor carries the shared-taxonomy picker for qrcode.
+    assert.ok(
+      read('public/js/portal.js').includes("'offers', 'directory', 'qrcode'].includes(type)"),
+      'portal item editor wires the category picker for qrcode'
+    );
+    n++;
+
+    const catQr = cats.createCategory(db, LEAD_A, { scope: 'qrcode', name: 'Print & Posters', status: 'published' });
+    const catQr2 = cats.createCategory(db, LEAD_A, { scope: 'qrcode', name: 'Counter Cards', status: 'published' });
+    const catEvents = cats.createCategory(db, LEAD_A, { scope: 'events', name: 'Not QR', status: 'published' });
+    assert.ok(catQr.id && catQr2.id && catEvents.id, 'categories created in qrcode + foreign scopes');
+    n++;
+
+    // Create WITH category_ids → the write lands the assignments and
+    // every read surface decorates them.
+    const wired = sm.createQrCode(db, LEAD_A, {
+      name: 'Wired code',
+      target_kind: 'url',
+      target_value: 'https://example.com/wired',
+      status: 'published',
+      category_ids: [catQr.id],
+    });
+    assert.deepEqual(wired.category_ids, [catQr.id], 'create returns the code with category_ids');
+    assert.deepEqual(sm.getQrCode(db, LEAD_A, wired.id).category_ids, [catQr.id], 'get carries category_ids');
+    assert.deepEqual(
+      sm.listQrCodes(db, LEAD_A).find((c) => c.id === wired.id).category_ids,
+      [catQr.id],
+      'list rows carry category_ids'
+    );
+    n += 3;
+
+    // Bad assignments fail the WHOLE create (pre-flight): bogus id and
+    // foreign-scope id both refuse, and no code is left behind.
+    const beforeCount = sm.listQrCodes(db, LEAD_A).length;
+    assert.throws(
+      () =>
+        sm.createQrCode(db, LEAD_A, {
+          name: 'Bogus cats',
+          target_kind: 'url',
+          target_value: 'https://example.com/bogus',
+          category_ids: [987654],
+        }),
+      (e) => e.code === 'VALIDATION',
+      'bogus category id refused on create'
+    );
+    assert.throws(
+      () =>
+        sm.createQrCode(db, LEAD_A, {
+          name: 'Wrong scope',
+          target_kind: 'url',
+          target_value: 'https://example.com/scope',
+          category_ids: [catEvents.id],
+        }),
+      (e) => e.code === 'VALIDATION',
+      'an events-scope category cannot organize a QR code'
+    );
+    assert.equal(sm.listQrCodes(db, LEAD_A).length, beforeCount, 'failed creates left nothing behind');
+    n += 3;
+
+    // Update semantics: absent = untouched, present = replace (incl.
+    // empty = clear), bogus = refused with the code unchanged.
+    const renamed = sm.updateQrCode(db, LEAD_A, wired.id, { name: 'Wired code II' });
+    assert.deepEqual(renamed.category_ids, [catQr.id], 'update without category_ids leaves assignments untouched');
+    const reset = sm.updateQrCode(db, LEAD_A, wired.id, { category_ids: [catQr2.id, catQr.id] });
+    assert.deepEqual(reset.category_ids, [catQr.id, catQr2.id], 'update with category_ids replaces the set');
+    assert.throws(
+      () => sm.updateQrCode(db, LEAD_A, wired.id, { name: 'Should not stick', category_ids: [987654] }),
+      (e) => e.code === 'VALIDATION',
+      'bogus category id refused on update'
+    );
+    const afterBad = sm.getQrCode(db, LEAD_A, wired.id);
+    assert.equal(afterBad.name, 'Wired code II', 'failed update changed nothing');
+    assert.deepEqual(afterBad.category_ids, [catQr.id, catQr2.id], 'failed update left the set intact');
+    const cleared = sm.updateQrCode(db, LEAD_A, wired.id, { category_ids: [] });
+    assert.deepEqual(cleared.category_ids, [], 'empty category_ids clears the set');
+    n += 5;
+
+    // The generic assignment service reaches codes (ITEM_READERS):
+    // a DRAFT code is assignable, but category resolution is
+    // published-only — the assignment survives, the view waits.
+    const draft = sm.createQrCode(db, LEAD_A, {
+      name: 'Draft wired',
+      target_kind: 'url',
+      target_value: 'https://example.com/draft',
+      status: 'draft',
+    });
+    const asg = cats.assignItem(db, LEAD_A, { consumer_type: 'qrcode', item_id: draft.id, category_id: catQr.id });
+    assert.equal(asg.assigned, true, 'draft QR code is assignable');
+    assert.equal(
+      cats.itemsForCategory(db, LEAD_A, catQr).length,
+      0,
+      'draft code does not resolve through its category'
+    );
+    assert.throws(
+      () => cats.assignItem(db, LEAD_A, { consumer_type: 'qrcode', item_id: 999999, category_id: catQr.id }),
+      (e) => e.code === 'VALIDATION',
+      'phantom code refused'
+    );
+    assert.throws(
+      () => cats.assignItem(db, LEAD_B, { consumer_type: 'qrcode', item_id: draft.id, category_id: catQr.id }),
+      (e) => e.code === 'VALIDATION',
+      'cross-lead assignment refused'
+    );
+    sm.updateQrCode(db, LEAD_A, draft.id, { status: 'published' });
+    const resolved = cats.itemsForCategory(db, LEAD_A, catQr);
+    assert.equal(resolved.length, 1, 'published + categorized code resolves through its category');
+    assert.equal(resolved[0].source_type, 'qrcode');
+    assert.equal(Number(resolved[0].source_id), draft.id);
+    n += 6;
+
+    // The agent surfaces drive the same wire: categories.assign via
+    // MCP dispatch, and category_ids riding qrcode.create.
+    const agAsg = await mcp.callTool(
+      WS_ID,
+      'categories.assign',
+      { leadId: LEAD_A, category_id: catQr2.id, consumer_type: 'qrcode', item_id: draft.id },
+      {}
+    );
+    assert.equal(agAsg.ok, true, 'categories.assign dispatches for a qrcode item');
+    const agCreated = await mcp.callTool(
+      WS_ID,
+      'qrcode.create',
+      {
+        leadId: LEAD_A,
+        name: 'Agent wired code',
+        target_kind: 'url',
+        target_value: 'https://example.com/agent-wired',
+        status: 'published',
+        category_ids: [catQr.id],
+      },
+      {}
+    );
+    assert.equal(agCreated.ok, true, 'qrcode.create with category_ids dispatches');
+    assert.deepEqual(agCreated.data.qrcode.category_ids, [catQr.id], 'agent create lands the assignment');
+    n += 3;
+
+    // Deleting the category sweeps assignments, never the code;
+    // deleting the code clears its assignments.
+    cats.deleteCategory(db, LEAD_A, catQr.id);
+    assert.deepEqual(
+      cats.listItemCategoryIds(db, LEAD_A, 'qrcode', draft.id),
+      [catQr2.id],
+      'category delete sweeps only its own assignments'
+    );
+    assert.ok(sm.getQrCode(db, LEAD_A, draft.id), 'the code itself survives its category');
+    cats.assignItem(db, LEAD_A, { consumer_type: 'qrcode', item_id: draft.id, category_id: catQr2.id });
+    sm.deleteQrCode(db, LEAD_A, draft.id);
+    assert.deepEqual(
+      cats.listItemCategoryIds(db, LEAD_A, 'qrcode', draft.id),
+      [],
+      'code delete clears its assignments'
+    );
+    n += 3;
+    group('Part 2f categories wire (finisher)', n);
   }
 
   /* ================================================================== */

@@ -107,9 +107,17 @@ let db;
     const sm = require(path.join(root, 'server/siteModules.js'));
 
     assert.ok(sm.MODULE_TYPES.includes('photocapture'), 'photocapture is a module type');
-    assert.equal(sm.MODULE_TYPES.length, 25, '25 module types (Batch 124 categories + Batch 125 photocapture)');
+    assert.equal(
+      sm.MODULE_TYPES.length,
+      26,
+      '26 module types (Batch 124 categories + Batch 125 photocapture + Batch 126 finisher qrcode)'
+    );
     assert.equal(sm.MODULE_META.photocapture.label, 'Photo Capture');
-    assert.equal(sm.MODULE_SCRIPT_VER, 'mod28', 'embed script version bumped for the capture renderer');
+    assert.equal(
+      sm.MODULE_SCRIPT_VER,
+      'mod29',
+      'embed script version bumped for the capture renderer (Batch 126 finisher rotation)'
+    );
     n += 4;
 
     // The Batch 122 parity pin, extended: registry ⇔ MODULE_TYPES.
@@ -123,7 +131,11 @@ let db;
     assert.equal(entry.kind, 'provider', 'photocapture is a shared-layer provider');
     assert.equal(typeof entry.read, 'function', 'photocapture provider has a reader');
     const providers = sm.MODULE_TYPES.filter((t) => share.SHARE_REGISTRY[t].kind === 'provider');
-    assert.equal(providers.length, 18, '18 providers after categories (Batch 124) + photocapture');
+    assert.equal(
+      providers.length,
+      19,
+      '19 providers after categories (Batch 124) + photocapture + qrcode (Batch 126 finisher)'
+    );
     n += 3;
 
     for (const fn of [

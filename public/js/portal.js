@@ -5546,7 +5546,7 @@
     const defs = moduleFieldDefsBase(type);
     // Batch 124: the wired consumers get the shared-taxonomy picker
     // appended (present only when the scope has categories).
-    if (['blog', 'events', 'gallery', 'offers', 'directory'].includes(type)) {
+    if (['blog', 'events', 'gallery', 'offers', 'directory', 'qrcode'].includes(type)) {
       const picker = categoryPickerDef(type);
       if (picker) defs.push(picker);
     }

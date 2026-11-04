@@ -2680,6 +2680,12 @@ const tools = [
         bg_color: { type: 'string' },
         ec_level: { type: 'string', enum: ['L', 'M', 'Q', 'H'] },
         status: { type: 'string', enum: ['draft', 'published'] },
+        category_ids: {
+          type: 'array',
+          items: { type: 'integer', minimum: 1 },
+          description:
+            'Batch 126 finisher: ids of shared-taxonomy categories in the qrcode scope to assign the code to — replaces the code\'s full category set; omit to leave assignments untouched. Manage the taxonomy with the categories.* tools.',
+        },
       },
       required: ['name'],
     },
@@ -2698,6 +2704,12 @@ const tools = [
         target_module: { type: 'string' },
         target_value: { type: 'string' },
         target_ref: { type: 'string' },
+        category_ids: {
+          type: 'array',
+          items: { type: 'integer', minimum: 1 },
+          description:
+            'Batch 126 finisher: ids of shared-taxonomy categories in the qrcode scope — replaces the code\'s full category set; omit to leave assignments untouched.',
+        },
         wifi_ssid: { type: 'string' },
         wifi_auth: { type: 'string', enum: ['WPA', 'WEP', 'nopass'] },
         wifi_password: { type: 'string' },

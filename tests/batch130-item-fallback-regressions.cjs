@@ -16,7 +16,7 @@
  *   Part A — source pins: the fallback wiring (NOT_FOUND code check,
  *     list refetch, staticBlog excluded), the locked branch still
  *     ahead of item rendering, the error card intact, MODULE_SCRIPT_VER
- *     mod28, and the SEC-13 census unchanged at 412 total with the
+ *     mod29 (Batch 126 finisher rotation), and the SEC-13 census at 416 total (+4 audited QR sinks) with the
  *     mountOne sink shifted by pure line movement (4227 -> 4252).
  *   Part B — HTTP contract on the real server: a foreign slug is a
  *     404 with code NOT_FOUND on every non-owning module; the owning
@@ -213,7 +213,11 @@ async function waitReady(child, output) {
     );
     n++;
     const sm = require(path.join(root, 'server/siteModules.js'));
-    assert.equal(sm.MODULE_SCRIPT_VER, 'mod28', 'MODULE_SCRIPT_VER bumped for the fallback');
+    assert.equal(
+      sm.MODULE_SCRIPT_VER,
+      'mod29',
+      'MODULE_SCRIPT_VER bumped for the fallback (Batch 126 finisher rotation)'
+    );
     n++;
     assert.ok(
       read('server/siteModules.js').includes("throw fail('NOT_FOUND', 'Item not found', 404);"),
@@ -227,7 +231,11 @@ async function waitReady(child, output) {
     n++;
     const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
     const cz = census();
-    assert.equal(cz.summary.total, 412, 'SEC-13 census total unchanged — the fix adds no sinks');
+    assert.equal(
+      cz.summary.total,
+      416,
+      'SEC-13 census total — the Batch 130 fix added no sinks; Batch 126 finisher added +4 audited QR sinks'
+    );
     n++;
     const meLines = cz.sinks
       .filter((s) => (s.kind === 'RAW' || s.kind === 'IDENT') && s.file === 'public/js/module-embed.js')
@@ -235,8 +243,8 @@ async function waitReady(child, output) {
       .sort((x, y) => x - y);
     assert.deepEqual(
       meLines,
-      [1228, 1232, 1236, 1521, 1682, 2585, 4159, 4252],
-      'module-embed reviewed sinks identical except the mountOne catch shifted 4227 -> 4252 (pure line movement)'
+      [1258, 1270, 1274, 1278, 1563, 1724, 2627, 4201, 4294],
+      'module-embed reviewed sinks: Batch 130 set shifted +42 by the Batch 126 QR embed block (pure line movement, snippets byte-identical) plus one new audited QR RAW sink at 1258'
     );
     n++;
     group('Part A source pins', n);

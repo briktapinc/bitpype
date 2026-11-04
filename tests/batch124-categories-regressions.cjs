@@ -4,7 +4,7 @@
  *
  * What this pins:
  *   Part 1 — source pins: `categories` is the 24th MODULE_TYPE with
- *     catalog metadata, MODULE_SCRIPT_VER mod28, a moduleShare
+ *     catalog metadata, MODULE_SCRIPT_VER mod29, a moduleShare
  *     registry provider entry (parity at 24), the categories service
  *     module, taxonomy tables, MCP + catalog + parity + agent tool
  *     surfaces, portal editor wiring (picker + Categories pane +
@@ -118,7 +118,10 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     }
     assert.ok(smSrc.includes("categories: { label: 'Categories'"), 'MODULE_META carries the Categories label');
     n++;
-    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod28'"), 'MODULE_SCRIPT_VER bumped to mod28');
+    assert.ok(
+      smSrc.includes("const MODULE_SCRIPT_VER = 'mod29'"),
+      'MODULE_SCRIPT_VER bumped to mod29 (Batch 126 finisher rotation)'
+    );
     n++;
 
     const shareSrc = read('server/moduleShare.js');
@@ -164,8 +167,8 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     }
     assert.equal(
       (mcpSrc.match(/category_ids: CATIDS/g) || []).length,
-      11,
-      'category_ids rides all five consumers (create + update) + photocapture moderation (Batch 125 finisher)'
+      13,
+      'category_ids rides all five consumers (create + update) + photocapture moderation (Batch 125 finisher) + qrcode create/update (Batch 126 finisher)'
     );
     n++;
 
@@ -188,7 +191,7 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     const portalHtml = read('public/portal.html');
     assert.ok(portalHtml.includes('id="modules-categories-scopes-panel"'), 'scopes panel mount exists');
     assert.ok(
-      portalHtml.includes('portal.js?v=batch125-photocapture1'),
+      portalHtml.includes('portal.js?v=batch126-qrcode1'),
       'portal.js cache-bust rotated (Batch 124 rotated it; Batch 125 rotated again)'
     );
     n += 2;
@@ -263,13 +266,17 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
   // ---- 2a: CRUD, slugs, nesting ----
   {
     let n = 0;
-    assert.equal(sm.MODULE_TYPES.length, 25, 'catalog at 25 types (Batch 125 added photocapture)');
+    assert.equal(
+      sm.MODULE_TYPES.length,
+      26,
+      'catalog at 26 types (Batch 125 added photocapture; Batch 126 finisher: qrcode)'
+    );
     assert.equal(sm.MODULE_TYPES[23], 'categories', 'categories is the 24th type');
     n += 2;
     assert.deepEqual(
       Object.keys(share.SHARE_REGISTRY).sort(),
       [...sm.MODULE_TYPES].sort(),
-      'registry parity at 25 types'
+      'registry parity at 26 types'
     );
     n++;
 

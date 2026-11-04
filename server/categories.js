@@ -335,6 +335,10 @@ const ITEM_READERS = {
   // pending (resolution stays dormant until it is approved, exactly
   // like a draft item of any other consumer).
   photocapture: (db, lid) => modules.listPhotoSubmissions(db, lid, { limit: 500 }),
+  // Batch 126 finisher: stored QR codes are stable rows in draft and
+  // published states alike — a code may be categorized before it is
+  // published (public resolution still only surfaces published codes).
+  qrcode: (db, lid) => modules.listQrCodes(db, lid),
 };
 
 function itemExists(db, lid, consumerType, itemId) {
