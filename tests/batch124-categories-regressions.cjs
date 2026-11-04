@@ -256,13 +256,13 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
   // ---- 2a: CRUD, slugs, nesting ----
   {
     let n = 0;
-    assert.equal(sm.MODULE_TYPES.length, 24, 'catalog at 24 types');
+    assert.equal(sm.MODULE_TYPES.length, 25, 'catalog at 25 types (Batch 125 added photocapture)');
     assert.equal(sm.MODULE_TYPES[23], 'categories', 'categories is the 24th type');
     n += 2;
     assert.deepEqual(
       Object.keys(share.SHARE_REGISTRY).sort(),
       [...sm.MODULE_TYPES].sort(),
-      'registry parity at 24 types'
+      'registry parity at 25 types'
     );
     n++;
 
