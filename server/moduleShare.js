@@ -454,6 +454,38 @@ const SHARE_REGISTRY = {
       );
     },
   },
+  pricing: {
+    kind: 'provider',
+    // Batch 139: the price book IS the shared shape of this module —
+    // the owner's published price list, with linked entries resolved
+    // live from their source records by the pricing service (never a
+    // second query path here). Consumers quote/display ONLY from
+    // this book: meta carries the resolved amount + the exact label
+    // the site shows, so a newsletter block, the chat and a category
+    // page can never quote a figure the price list doesn't carry.
+    read(db, leadId) {
+      return require('./pricing')
+        .getPriceBook(db, leadId)
+        .entries.map((e) =>
+          item('pricing', e, {
+            id: e.id,
+            title: e.name,
+            description: e.description,
+            date: '',
+            meta: {
+              origin: e.origin,
+              ref: e.origin === 'standalone' ? `pricing:${e.id}` : `${e.origin}:${e.linked_id}`,
+              display_mode: e.display_mode,
+              price_cents: e.price_cents,
+              currency: e.currency,
+              price_label: e.price_label,
+              unit_suffix: e.unit_suffix,
+              featured: e.featured,
+            },
+          })
+        );
+    },
+  },
   qrcode: {
     // Batch 126: stored QR codes are content other surfaces pull in —
     // title = code name, image_url = the code's public image route (via
@@ -600,6 +632,25 @@ function listSharedItemsByCategory(db, leadId, categoryRef, opts = {}) {
     category,
     items: cats.itemsForCategory(db, Number(leadId), category, { limit }),
   };
+}
+
+/**
+ * Batch 139 — THE PRICE BOOK, read through this layer. The canonical
+ * union of the owner's published pricing entries: standalone entries
+ * as stored, linked entries resolved LIVE from the booking-service /
+ * product records they point at (the same single stored numbers
+ * bookings and the checkout engine charge from). Consumers — the
+ * site embed, the site chat, the design agent — quote and display
+ * ONLY from here. Never throws into a consumer: a broken or empty
+ * book reads as an empty book (nothing quoted, nothing promised).
+ */
+function getPriceBook(db, leadId, opts = {}) {
+  try {
+    return require('./pricing').getPriceBook(db, Number(leadId), opts);
+  } catch (e) {
+    console.warn('[moduleShare] price book read failed:', (e && e.message) || e);
+    return { entries: [], count: 0 };
+  }
 }
 
 /** Sources overview for pickers + the agent census: every module
@@ -944,6 +995,7 @@ function renderNewsletterBlocks(db, leadId, blocks) {
 module.exports = {
   SHARE_REGISTRY,
   ensureTables,
+  getPriceBook,
   listSharedSources,
   listSharedItems,
   getSharedDeclaration,

@@ -985,6 +985,10 @@ function deleteLead(db, id) {
     // first (they reference categories), then the categories.
     drop('module_category_assignments');
     drop('module_categories');
+    // Batch 139: the price list is lead-scoped content. Linked
+    // entries hold no money state of their own — the prices live on
+    // the source records, which drop under their own modules.
+    drop('pricing_entries');
     // Batch 89: design-chat image attachments belong to the lead's
     // conversation; their rows drop here and the files are unlinked
     // after the transaction (paths collected before the tx below).
@@ -1617,6 +1621,9 @@ const MERGE_MOVE_TABLES = [
   // lead's GBP history when its lead row was deleted.
   'gbp_snapshots',
   'gbp_change_sets',
+  // Batch 139: price-list entries move with the lead — their ids and
+  // linked_id targets (services/products, also moving) stay valid.
+  'pricing_entries',
 ];
 
 const MERGE_DEDUPE_TABLES = {

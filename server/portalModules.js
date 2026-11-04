@@ -69,6 +69,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     let photocapture = null;
     let qrcode = null;
     let commentsPanel = null;
+    let pricing = null;
     if (type === 'blog') {
       // Batch 45: server-side paging when the caller asks for a page
       // (portal blog tab); no limit = the historical full list.
@@ -347,6 +348,19 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
       items = require('./categories').listCategories(db, Number(leadId));
       taxonomy = { scopes: modules.getCategoriesScopes(db, Number(leadId)) };
     }
+    else if (type === 'pricing') {
+      // Batch 139: the price list itself — entries RESOLVED (linked
+      // entries carry their source's current name + price, and a
+      // source_missing flag when the source was deleted), the
+      // linkable sellables for the editor's picker, and the resolved
+      // price book exactly as the site and chat will quote it.
+      const pricingSvc = require('./pricing');
+      items = pricingSvc.listPricingEntries(db, Number(leadId));
+      pricing = {
+        linkables: pricingSvc.listLinkables(db, Number(leadId)),
+        price_book: pricingSvc.getPriceBook(db, Number(leadId)),
+      };
+    }
     else if (type === 'checkout') {
       // Batch 128: the Checkout pane — the module's own settings, the
       // lead's payment state (the same shopStripe status the Shop
@@ -414,6 +428,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     if (photocapture) out.photocapture = photocapture;
     if (qrcode) out.qrcode = qrcode;
     if (commentsPanel) out.comments = commentsPanel;
+    if (pricing) out.pricing = pricing;
     return out;
   });
 }
@@ -448,6 +463,7 @@ async function createModuleItem(workspaceId, leadId, moduleType, body, clientEma
       });
     else if (type === 'charts') item = modules.createChart(db, Number(leadId), body || {});
     else if (type === 'categories') item = require('./categories').createCategory(db, Number(leadId), body || {});
+    else if (type === 'pricing') item = require('./pricing').createPricingEntry(db, Number(leadId), body || {});
     else if (type === 'qrcode')
       item = {
         ...modules.createQrCode(db, Number(leadId), body || {}),
@@ -516,6 +532,7 @@ async function updateModuleItem(workspaceId, leadId, moduleType, id, body, clien
     else if (type === 'datatables') item = modules.updateDataTableRow(db, Number(leadId), id, body || {});
     else if (type === 'charts') item = modules.updateChart(db, Number(leadId), id, body || {});
     else if (type === 'categories') item = require('./categories').updateCategory(db, Number(leadId), id, body || {});
+    else if (type === 'pricing') item = require('./pricing').updatePricingEntry(db, Number(leadId), id, body || {});
     else if (type === 'qrcode')
       item = {
         ...modules.updateQrCode(db, Number(leadId), id, body || {}),
@@ -582,6 +599,7 @@ async function deleteModuleItem(workspaceId, leadId, moduleType, id, clientEmail
     if (type === 'datatables') return modules.deleteDataTableRow(db, Number(leadId), id);
     if (type === 'charts') return modules.deleteChart(db, Number(leadId), id);
     if (type === 'categories') return require('./categories').deleteCategory(db, Number(leadId), id);
+    if (type === 'pricing') return require('./pricing').deletePricingEntry(db, Number(leadId), id);
     if (type === 'qrcode') return modules.deleteQrCode(db, Number(leadId), id);
     if (type === 'socialfeed')
       throw Object.assign(new Error('Social Feed updates itself from your social posts — there are no items to delete.'), {

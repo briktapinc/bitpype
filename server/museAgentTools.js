@@ -144,6 +144,10 @@ const PORTAL_READONLY_TOOLS = new Set([
   'comments.getConfig',
   'comments.list',
   'comments.targets',
+  // Batch 139: the price book is a read — the agent quotes prices
+  // only from it, never from memory of a product/service edit.
+  'pricing.list',
+  'pricing.getPriceBook',
   'social.accounts.list',
   'social.calendar',
   'social.posts.list',
@@ -211,6 +215,9 @@ const PORTAL_DESIGN_WRITE_TOOLS = new Set([
   // Batch 131: Comments config + moderation (same engine functions
   // the portal queue uses).
   'comments.updateConfig', 'comments.moderate', 'comments.reply',
+  // Batch 139: Pricing entries are design writes — the same service
+  // the portal pane uses, write-through included (no back door).
+  'pricing.create', 'pricing.update', 'pricing.delete',
 ]);
 
 /** Everything build mode may touch: reads ∪ design/content writes. */

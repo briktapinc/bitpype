@@ -3346,6 +3346,44 @@ function createParityTools(ctx) {
       };
     }),
 
+    // Batch 139 — Pricing parity: delegates to server/pricing
+    // exactly like the hosted handlers (no plan gating locally, per
+    // this layer's contract). Linked price writes go through to the
+    // source records here too — one write path, one price source.
+    'pricing.list': parityEntry('pricing.list', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return {
+        ok: true,
+        data: {
+          entries: require('../server/pricing').listPricingEntries(db, leadId, {
+            includeDrafts: args.includeDrafts !== false,
+          }),
+        },
+      };
+    }),
+    'pricing.create': parityEntry('pricing.create', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: { entry: require('../server/pricing').createPricingEntry(db, leadId, { ...args }) } };
+    }),
+    'pricing.update': parityEntry('pricing.update', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      const entry = require('../server/pricing').updatePricingEntry(db, leadId, id, { ...args });
+      return {
+        ok: true,
+        data: { entry, price_book: require('../server/pricing').getPriceBook(db, leadId) },
+      };
+    }),
+    'pricing.delete': parityEntry('pricing.delete', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: require('../server/pricing').deletePricingEntry(db, leadId, id) };
+    }),
+    'pricing.getPriceBook': parityEntry('pricing.getPriceBook', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: { price_book: require('../server/moduleShare').getPriceBook(db, leadId) } };
+    }),
+
     // Batch 125 — Photo Capture parity: delegates to the same
     // siteModules engine functions as the hosted handlers.
     'photocapture.getConfig': parityEntry('photocapture.getConfig', (args) => {

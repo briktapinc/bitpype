@@ -1199,11 +1199,22 @@ function getPublicConfigByToken(db, token) {
   } catch {
     smsPolicyBlock = null;
   }
+  // Batch 139: the price book rides the public config too, so the
+  // client agent answering through portal MCP quotes the same exact
+  // figures as the AI fallback — one book, every surface. Null when
+  // the owner has published no pricing entries.
+  let priceBookBlock = null;
+  try {
+    priceBookBlock = priceBookFor(db, row.lead_id);
+  } catch {
+    priceBookBlock = null;
+  }
   return {
     embed: modules.publicEmbed(row),
     module_type: 'chatbot',
     sms_optin: smsOptInBlock,
     sms_policy: smsPolicyBlock,
+    price_book: priceBookBlock,
     settings: {
       greeting: settings.greeting,
       bubble_label: settings.bubble_label,
@@ -1616,6 +1627,33 @@ function applyFallbackAction(db, leadId, sessionId, parsed, businessName) {
 }
 
 /**
+ * Batch 139 — the price-quote block for this lead, read through the
+ * shared layer's price book (the owner's published Pricing entries,
+ * linked prices resolved live from the source records). Returns
+ * { text, count } when the book is non-empty, else null — no book,
+ * no block, no prices quoted. The figures are the book's own labels,
+ * byte-for-byte; the model is told to quote them exactly and never
+ * net a discount itself (a Batch 136 booking discount, when on, is
+ * applied by the booking system and stated by its own pitch).
+ *
+ * SEAM (Batch 138): the voice agent is a second surface of THIS
+ * chatbot — its session context assembles from this same module, so
+ * the price block joins voice sessions through this reader too; no
+ * voice-side copy of the figures exists or may be built.
+ */
+function priceBookFor(db, leadId) {
+  try {
+    const book = require('./moduleShare').getPriceBook(db, Number(leadId));
+    if (!book || !Array.isArray(book.entries) || !book.entries.length) return null;
+    const text = require('./pricing').priceBookChatText(book);
+    if (!text) return null;
+    return { text, count: book.entries.length };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * ChatGPT (or heuristic) acts as business CS when no live client MCP agent has replied.
  * Brief chat to understand needs → warn → open contact form. Knowledge-only for facts.
  */
@@ -1655,6 +1693,10 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
       // the visitor has said in this conversation.
       bookingPitch: bookingPitchFor(db, leadId),
       qualification,
+      // Batch 139: the owner's price book joins the context snapshot
+      // — a fact about the business (like its hours), present only
+      // when the owner has published pricing entries.
+      priceBook: priceBookFor(db, leadId),
       configured: aiConfigured(db),
       allowCapture: visitorStatedNeed(messages),
     };
@@ -1762,6 +1804,11 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
               // first, then the owner's questions; the two blocks
               // are independent — neither gates the other.)
               ...qualifyingPromptLines(snapshot.qualification),
+              // Batch 139: the price book — templated exact figures
+              // from the owner's Pricing module. The model quotes
+              // ONLY these for prices; the header pins the discount
+              // rule (list prices; never net a discount itself).
+              ...(snapshot.priceBook ? [snapshot.priceBook.text, ''] : []),
               'Conversation rules:',
               '- Greetings or vague hellos → action "chat": welcome them and ask what they need. NEVER open the form yet.',
               '- If their need is unclear → action "chat": ask one short clarifying question.',
@@ -2606,6 +2653,7 @@ module.exports = {
   updateKnowledge,
   deleteKnowledge,
   knowledgeSnippets,
+  priceBookFor,
   getPublicConfigByToken,
   listAllowedActions,
   bookingPitchFor,

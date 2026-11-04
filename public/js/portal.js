@@ -6326,9 +6326,10 @@
     { type: 'qrcode', label: 'QR Code' },
     { type: 'checkout', label: 'Checkout' },
     { type: 'comments', label: 'Comments' },
+    { type: 'pricing', label: 'Pricing' },
   ];
   const MODULE_NAV_GROUPS = [
-    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'checkout', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed', 'googlereviews', 'datatables', 'charts', 'categories', 'photocapture', 'qrcode', 'comments'] },
+    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'checkout', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed', 'googlereviews', 'datatables', 'charts', 'categories', 'photocapture', 'qrcode', 'comments', 'pricing'] },
     { id: 'people', label: 'People', types: ['team', 'testimonials', 'careers', 'members', 'newsletter'] },
     { id: 'schedule', label: 'Schedule', types: ['events', 'bookings'] },
     { id: 'assist', label: 'Assist', types: ['chatbot', 'calltracking'] },
@@ -6397,6 +6398,7 @@
     qrcode: { singular: 'QR code', plural: 'QR codes', newBtn: 'New QR code', kicker: 'QR code' },
     checkout: { singular: 'order', plural: 'orders', newBtn: 'New order', kicker: 'Order' },
     comments: { singular: 'comment', plural: 'comments', newBtn: 'New comment', kicker: 'Comment' },
+    pricing: { singular: 'price entry', plural: 'price entries', newBtn: 'New price entry', kicker: 'Pricing' },
   };
   const BOOKING_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const MODULE_STORAGE_KEY = 'bp-portal-module';
@@ -6763,6 +6765,45 @@
         },
         { key: 'content_text', label: 'Notes / pasted text for the agent', kind: 'textarea' },
         { key: 'status', label: 'Status', kind: 'select', options: ['active', 'inactive'] },
+      ];
+    }
+    if (type === 'pricing') {
+      // Batch 139: the price-list editor. An entry is STANDALONE (its
+      // own price) or LINKED to a booking service / shop product —
+      // linked entries show the source's live name and price, and a
+      // price typed here writes through to that source record (the
+      // one number bookings and checkout charge). The link picker
+      // options ride the list response (moduleState.pricing).
+      const linkables = (moduleState.pricing && moduleState.pricing.linkables) || { bookings: [], ecommerce: [] };
+      const linkOptions = [{ value: '', label: 'Standalone — its own price' }]
+        .concat((linkables.bookings || []).map((s) => ({ value: `bookings:${s.id}`, label: `Booking service — ${s.name} (${s.price_label})` })))
+        .concat((linkables.ecommerce || []).map((p) => ({ value: `ecommerce:${p.id}`, label: `Shop product — ${p.name} (${p.price_label})${p.has_variants ? ' · priced per variant' : ''}` })));
+      return [
+        { key: 'name', label: 'Name', hint: 'Required for a standalone entry. For a linked entry the name comes from the service/product itself — rename it there and this list follows.' },
+        {
+          key: 'linked_ref',
+          label: 'Linked to',
+          kind: 'select',
+          options: linkOptions,
+          hint: 'Link this line to a service or product to show ITS price — set once here, charged from the same number everywhere. Standalone lines carry their own price.',
+        },
+        { key: 'price', label: 'Price (e.g. 80 or 29.99)', hint: 'On a linked entry this edits the service/product price itself. A product priced per variant cannot take one price here — the server will refuse and point you to its variants.' },
+        {
+          key: 'price_mode',
+          label: 'Show price as',
+          kind: 'select',
+          options: [
+            { value: 'fixed', label: 'Exact price' },
+            { value: 'from', label: 'From price ("From $…")' },
+            { value: 'text', label: 'Text instead of an amount' },
+          ],
+        },
+        { key: 'price_text', label: 'Text label', placeholder: 'Custom quote', hint: 'Used only when "Show price as" is Text.' },
+        { key: 'unit_suffix', label: 'Unit (optional)', placeholder: 'per visit, /mo, per hour…' },
+        { key: 'description', label: 'Description', kind: 'textarea' },
+        { key: 'featured', label: 'Featured', kind: 'select', options: ['No', 'Yes'], hint: 'Featured entries are highlighted on your Pricing page.' },
+        { key: 'sort_order', label: 'Sort order' },
+        { key: 'status', label: 'Status', kind: 'select', options: ['draft', 'published'] },
       ];
     }
     if (type === 'offers') {
@@ -7650,6 +7691,14 @@
       if (it.expired) bits.push('<span class="status-pill draft">Expired</span>');
       if (it.code) bits.push(`<span>Code: ${esc(it.code)}</span>`);
       if (it.expires_at) bits.push(`<span>Expires ${esc(it.expires_at)}</span>`);
+    }
+    if (type === 'pricing') {
+      if (it.price_label) bits.push(`<span>${esc(it.price_label)}${it.unit_suffix ? ' ' + esc(it.unit_suffix) : ''}</span>`);
+      if (it.origin === 'bookings') bits.push('<span>Linked: booking service</span>');
+      else if (it.origin === 'ecommerce') bits.push(`<span>Linked: shop product${it.has_variants ? ' (per variant)' : ''}</span>`);
+      else bits.push('<span>Standalone</span>');
+      if (it.source_missing) bits.push('<span class="status-pill draft">Source deleted — unlink or remove</span>');
+      if (it.featured) bits.push('<span>Featured</span>');
     }
     if (type === 'qrcode') {
       const kindLabel = { page: 'Site page', module: 'Module page', url: 'Web address', tel: 'Phone', email: 'Email', wifi: 'WiFi' }[it.target_kind] || it.target_kind;
@@ -9728,7 +9777,9 @@
     const src = item || (moduleState.current === 'chatbot' ? { status: 'active', kind: 'doc' } : { status: 'draft' });
     fields.innerHTML = defs.map((d) => renderModuleFieldHtml(d, src)).join('');
     if (
-      (moduleState.current === 'ecommerce' || moduleState.current === 'bookings') &&
+      (moduleState.current === 'ecommerce' ||
+        moduleState.current === 'bookings' ||
+        moduleState.current === 'pricing') &&
       item &&
       item.price_cents != null
     ) {
@@ -9736,6 +9787,12 @@
       if (priceInput) {
         priceInput.value = Number(item.price_cents) ? (Number(item.price_cents) / 100).toFixed(2) : '';
       }
+    }
+    if (moduleState.current === 'pricing' && item) {
+      // Batch 139: featured rides the API as a boolean; the editor
+      // select speaks Yes/No (the service accepts both).
+      const featSel = fields.querySelector('[data-mod-field="featured"]');
+      if (featSel) featSel.value = item.featured ? 'Yes' : 'No';
     }
     if (moduleState.current === 'ecommerce') {
       // Batch 127: the variant editor (option groups + the priced
@@ -9999,6 +10056,15 @@
         if (out.options.length) out.variants = readVariantMatrixFromDom();
       }
     }
+    if (moduleState.current === 'pricing') {
+      // Batch 139: an emptied price field means "no price change" —
+      // dropping the key keeps the server's absent-key discipline
+      // (a present-but-empty price would otherwise read as $0).
+      if (out.price != null && out.price !== '') out.price = Number(out.price);
+      else delete out.price;
+      if (out.sort_order != null && out.sort_order !== '') out.sort_order = Number(out.sort_order);
+      else delete out.sort_order;
+    }
     if (moduleState.current === 'bookings') {
       if (out.price != null && out.price !== '') out.price = Number(out.price);
       if (out.duration_minutes != null && out.duration_minutes !== '') {
@@ -10130,6 +10196,7 @@
     moduleState.charts = data.charts || null;
     moduleState.taxonomy = data.taxonomy || null;
     moduleState.qrcode = data.qrcode || null;
+    moduleState.pricing = data.pricing || null;
     moduleState.categories = Array.isArray(data.categories) ? data.categories : [];
     if (type === 'bookings') {
       const booking = moduleState.booking || {};

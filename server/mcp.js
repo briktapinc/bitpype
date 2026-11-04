@@ -76,7 +76,7 @@ function clientToolDefs() {
     {
       name: 'website.addModule',
       description:
-        'Attach a site module (blog|ecommerce|courses|gallery|directory|faq|testimonials|team|events|bookings|chatbot|offers|menu|careers|video|estimate|socialfeed|calltracking|members|googlereviews|datatables|charts|newsletter|categories|checkout) into the live site template with an in-page JS mount (not an iframe). Standard/Premium siteModules. chatbot = sitewide floating bubble (chat-embed.js); visitor replies go through portal CLIENT MCP chatbot.* only — never admin design.*/lead.* or workspace ws_ tokens. INTENT: appointments with availability → bookings module (never a contact form); then bookings.createService (published) + bookings.setHours. Structured requests → forms.create purpose=…; general inquiries → contact form. Alias: modules.attach. Bookings: optional show_request_form. Offers: settings.layout = "cards" (default) or "horizontal" (banner rows). After attach, call site.publish. Non-bookings attach on appointment-intent pages returns a warning. STYLING: wrap mount; theme.customCss under .bitpype-module-embed.',
+        'Attach a site module (blog|ecommerce|courses|gallery|directory|faq|testimonials|team|events|bookings|chatbot|offers|menu|careers|video|estimate|socialfeed|calltracking|members|googlereviews|datatables|charts|newsletter|categories|checkout|pricing) into the live site template with an in-page JS mount (not an iframe). Standard/Premium siteModules. chatbot = sitewide floating bubble (chat-embed.js); visitor replies go through portal CLIENT MCP chatbot.* only — never admin design.*/lead.* or workspace ws_ tokens. INTENT: appointments with availability → bookings module (never a contact form); then bookings.createService (published) + bookings.setHours. Structured requests → forms.create purpose=…; general inquiries → contact form. Alias: modules.attach. Bookings: optional show_request_form. Offers: settings.layout = "cards" (default) or "horizontal" (banner rows). After attach, call site.publish. Non-bookings attach on appointment-intent pages returns a warning. STYLING: wrap mount; theme.customCss under .bitpype-module-embed.',
       inputSchema: schema({
         leadId: ID,
         module: {
@@ -107,6 +107,7 @@ function clientToolDefs() {
             'newsletter',
             'categories',
             'checkout',
+            'pricing',
           ],
         },
         moduleType: {
@@ -137,6 +138,7 @@ function clientToolDefs() {
             'newsletter',
             'categories',
             'checkout',
+            'pricing',
           ],
         },
         title: STR,
@@ -1478,6 +1480,75 @@ function clientToolDefs() {
       description:
         'Set which scopes (module types) the Categories module index displays on the site; an empty list shows every scope that has published categories. This is the SAME embed setting the portal edits. Standard/Premium.',
       inputSchema: schema({ leadId: ID, scopes: { type: 'array', items: { type: 'string' } } }, ['leadId']),
+    },
+    {
+      name: 'pricing.list',
+      description:
+        'Batch 139 Pricing: list this business’s price-list entries, RESOLVED — a linked entry carries its booking service’s / product’s CURRENT name and price (resolution is live; there is no second stored price). Entries whose source was deleted are flagged source_missing. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, includeDrafts: { type: 'boolean' } }, ['leadId']),
+    },
+    {
+      name: 'pricing.create',
+      description:
+        'Create a pricing entry. STANDALONE: name + price_cents (or price in dollars), price_mode fixed|from|text (text shows price_text instead of an amount, e.g. "Custom quote"), optional unit_suffix ("per visit", "/mo"), description, featured, sort_order, status. LINKED: pass linked_type bookings|ecommerce + linked_id (or linked_ref "bookings:12") — the entry then shows the service/product’s live name and price and stores no copy; a price passed in the same call writes through to the source record. A product WITH variants cannot take a single price — its entry shows the variant range. Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          name: STR,
+          description: STR,
+          price_mode: STR,
+          price_cents: NUM,
+          price: NUM,
+          price_text: STR,
+          currency: STR,
+          unit_suffix: STR,
+          linked_type: STR,
+          linked_id: ID,
+          linked_ref: STR,
+          featured: { type: 'boolean' },
+          status: STR,
+          sort_order: NUM,
+        },
+        ['leadId']
+      ),
+    },
+    {
+      name: 'pricing.update',
+      description:
+        'Update a pricing entry by id (same fields as pricing.create). A price edit on a LINKED entry writes through to the source service/product record — the one number bookings and checkout charge — and is refused for a product with variants (price its variants in the Shop editor). Name/currency of a linked entry come from the source and cannot be set here. Pass linked_type "" (or linked_ref "") to unlink: the entry keeps the last live name and price as its own. Standard/Premium.',
+      inputSchema: schema(
+        {
+          id: ID,
+          leadId: ID,
+          name: STR,
+          description: STR,
+          price_mode: STR,
+          price_cents: NUM,
+          price: NUM,
+          price_text: STR,
+          currency: STR,
+          unit_suffix: STR,
+          linked_type: STR,
+          linked_id: ID,
+          linked_ref: STR,
+          featured: { type: 'boolean' },
+          status: STR,
+          sort_order: NUM,
+        },
+        ['id']
+      ),
+    },
+    {
+      name: 'pricing.delete',
+      description:
+        'Delete a pricing entry by id. Deleting an entry never touches the service/product it was linked to — only the price-list line goes. Standard/Premium.',
+      inputSchema: schema({ id: ID, leadId: ID }, ['id']),
+    },
+    {
+      name: 'pricing.getPriceBook',
+      description:
+        'Batch 139: the resolved PRICE BOOK for a lead — the published pricing entries with every price resolved (linked entries at their source’s current price). This is the ONE price source the site, the chat and every consumer quote from. Standard/Premium.',
+      inputSchema: schema({ leadId: ID }, ['leadId']),
     },
     {
       name: 'photocapture.getConfig',
@@ -3380,6 +3451,12 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'comments.moderate',
     'comments.reply',
     'comments.targets',
+    // Batch 139: Pricing rides the same entitlement.
+    'pricing.list',
+    'pricing.create',
+    'pricing.update',
+    'pricing.delete',
+    'pricing.getPriceBook',
     // Batch 125: Photo Capture rides the same entitlement.
     'photocapture.getConfig',
     'photocapture.listSubmissions',
@@ -4653,6 +4730,46 @@ async function callClientTool(ws, name, a, ctx = {}) {
       plan: planId,
       settings: modules.updateCategoriesScopes(db, leadId, a.scopes || [], { workspaceId: ws }),
     }));
+  }
+
+  // ---- Pricing module (Batch 139) ----
+  if (name === 'pricing.list') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      entries: require('./pricing').listPricingEntries(db, leadId, { includeDrafts: a.includeDrafts !== false }),
+    }));
+  }
+  if (name === 'pricing.create') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({ plan: planId, entry: require('./pricing').createPricingEntry(db, leadId, a) }));
+  }
+  if (name === 'pricing.update') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => {
+      const entry = require('./pricing').updatePricingEntry(db, leadId || Number(ctx.leadId), id, a);
+      // The resolved book rides along: after a write-through edit the
+      // caller sees the exact state every consumer will quote.
+      return { plan: planId, entry, price_book: require('./pricing').getPriceBook(db, leadId || Number(ctx.leadId)) };
+    });
+  }
+  if (name === 'pricing.delete') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      ...require('./pricing').deletePricingEntry(db, leadId || Number(ctx.leadId), id),
+    }));
+  }
+  if (name === 'pricing.getPriceBook') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({ plan: planId, price_book: require('./moduleShare').getPriceBook(db, leadId) }));
   }
 
   // ---- Checkout module (Batch 128) ----

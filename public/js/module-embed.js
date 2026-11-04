@@ -389,6 +389,19 @@
       '.bitpype-module-embed .bp-mod-gr-attrib{margin:0;color:var(--bp-mod-muted);font-size:0.84rem;}',
       '.bitpype-module-embed .bp-mod-gr-attrib a{color:var(--bp-mod-accent);font-weight:700;text-decoration:none;}',
       '.bitpype-module-embed .bp-mod-gr-attrib a:hover{text-decoration:underline;}',
+      // Pricing (Batch 139) — the price book as cards: name, the one
+      // resolved price (or its text label), unit and description.
+      // Featured entries carry the accent frame. Spacing follows the
+      // platform card standard (same gaps/padding as Offers tiers).
+      '.bitpype-module-embed .bp-mod-pricing{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:1.1rem;}',
+      '.bitpype-module-embed .bp-mod-price-card{border:1px solid var(--bp-mod-line);border-radius:1.1rem;background:var(--bp-mod-paper);padding:1.25rem 1.3rem 1.35rem;display:flex;flex-direction:column;gap:0.55rem;}',
+      '.bitpype-module-embed .bp-mod-price-card.is-featured{border:2px solid var(--bp-mod-accent);}',
+      '.bitpype-module-embed .bp-mod-price-badge{align-self:flex-start;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:var(--bp-mod-accent);border:1px solid currentColor;border-radius:999px;padding:0.12rem 0.6rem;}',
+      '.bitpype-module-embed .bp-mod-price-card h2{margin:0;font-size:1.15rem;line-height:1.3;font-family:var(--ws-heading-font,inherit);}',
+      '.bitpype-module-embed .bp-mod-price-value{font-size:1.65rem;font-weight:800;line-height:1.15;color:var(--bp-mod-ink,#1c1917);}',
+      '.bitpype-module-embed .bp-mod-price-unit{font-size:0.92rem;font-weight:600;color:var(--bp-mod-muted);margin-left:0.35rem;}',
+      '.bitpype-module-embed .bp-mod-price-card p{margin:0;color:var(--bp-mod-muted);font-size:0.95rem;line-height:1.55;}',
+      '.bitpype-module-embed .bp-mod-pricing-subtitle{margin:0 0 1.1rem;color:var(--bp-mod-muted);font-size:1rem;line-height:1.55;}',
       // QR Code
       '.bitpype-module-embed .bp-mod-qrcode{display:flex;flex-direction:column;align-items:center;gap:0.9rem;text-align:center;}',
       '.bitpype-module-embed .bp-mod-qr-img{width:min(280px,72vw);height:auto;aspect-ratio:1;border-radius:0.9rem;background:#fff;}',
@@ -1015,6 +1028,23 @@
     );
   }
 
+  // Batch 139: one price-book entry as a card. Every figure arrives
+  // resolved from the server (price_label is the exact string the
+  // price book carries — the renderer never formats money itself).
+  function pricingCardHtml(it) {
+    var html = '<article class="bp-mod-price-card' + (it.featured ? ' is-featured' : '') + '">';
+    if (it.featured) html += '<span class="bp-mod-price-badge">Featured</span>';
+    html += '<h2>' + esc(it.name) + '</h2>';
+    html +=
+      '<div class="bp-mod-price-value">' +
+      esc(it.price_label) +
+      (it.unit_suffix ? '<span class="bp-mod-price-unit">' + esc(it.unit_suffix) + '</span>' : '') +
+      '</div>';
+    if (it.description) html += '<p>' + esc(it.description) + '</p>';
+    html += '</article>';
+    return html;
+  }
+
   function offerCardHtml(it) {
     var key = it.slug || it.id;
     var html = '<article class="bp-mod-offer">';
@@ -1422,6 +1452,12 @@
       el.innerHTML = '';
       return;
     }
+    if (type === 'pricing' && !items.length) {
+      // A Pricing block with no published entries renders nothing
+      // at all — dormant-empty, never a placeholder price list.
+      el.innerHTML = '';
+      return;
+    }
     if (type === 'googlereviews') {
       // Dormant states (no platform key, no Place ID, nothing fetched,
       // or no reviews passing the filter) render nothing at all — the
@@ -1495,6 +1531,20 @@
         for (var oi = 0; oi < items.length; oi++) {
           html += offerCardHtml(items[oi]);
         }
+      }
+      html += '</div>';
+      el.innerHTML = html;
+      return;
+    }
+    if (type === 'pricing') {
+      // Batch 139: the price book as cards, in the owner's order.
+      var pricingSettings = embedSettings(data);
+      if (pricingSettings.subtitle) {
+        html += '<p class="bp-mod-pricing-subtitle">' + esc(pricingSettings.subtitle) + '</p>';
+      }
+      html += '<div class="bp-mod-pricing">';
+      for (var pi = 0; pi < items.length; pi++) {
+        html += pricingCardHtml(items[pi]);
       }
       html += '</div>';
       el.innerHTML = html;

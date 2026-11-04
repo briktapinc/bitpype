@@ -271,6 +271,22 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
       /* comments census is best-effort */
     }
     try {
+      // Batch 139 — Pricing: the price book. Prices set in the
+      // Pricing pane are the ONE source — the site's Pricing page,
+      // bookings, the checkout engine and the site chat all read
+      // the same numbers (linked entries resolve live from the
+      // service/product records; editing a linked price in the pane
+      // writes through to that record). Manage with pricing.* tools.
+      const summary = require('./pricing').pricingSummary(db, leadId);
+      if (summary.total) {
+        lines.push(
+          `Pricing: ${summary.total} price-list entr${summary.total === 1 ? 'y' : 'ies'} (${summary.published} published, ${summary.linked} linked to a service/product, ${summary.standalone} standalone${summary.source_missing ? `, ${summary.source_missing} whose source was deleted` : ''}) — the price book is the ONE price source for the site, bookings, checkout and chat${summary.sample.length ? `: ${summary.sample.join('; ')}` : ''}. Manage with pricing.create / pricing.update / pricing.delete; read the resolved book with pricing.getPriceBook.`
+        );
+      }
+    } catch {
+      /* pricing census is best-effort */
+    }
+    try {
       const dt = db.prepare('SELECT title, columns_json FROM datatable_configs WHERE lead_id = ?').get(Number(leadId));
       if (dt) {
         let cols = '';

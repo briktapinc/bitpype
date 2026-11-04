@@ -1001,6 +1001,7 @@ const tools = [
             'charts',
             'newsletter',
             'categories',
+            'pricing',
           ],
         },
         moduleType: {
@@ -1029,6 +1030,7 @@ const tools = [
             'charts',
             'newsletter',
             'categories',
+            'pricing',
           ],
         },
         title: { type: 'string' },
@@ -2738,6 +2740,92 @@ const tools = [
         leadId: { type: 'integer', minimum: 1 },
       },
       required: ['id'],
+    },
+  },
+  {
+    name: 'pricing.list',
+    description:
+      'Batch 139 Pricing: list this business’s price-list entries, RESOLVED — a linked entry carries its booking service’s / product’s CURRENT name and price (resolution is live; there is no second stored price). Entries whose source was deleted are flagged source_missing (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: { leadId: { type: 'integer', minimum: 1 }, includeDrafts: { type: 'boolean' } },
+      required: ['leadId'],
+    },
+  },
+  {
+    name: 'pricing.create',
+    description:
+      'Create a pricing entry. STANDALONE: name + price_cents (or price in dollars), price_mode fixed|from|text (text shows price_text instead of an amount, e.g. "Custom quote"), optional unit_suffix ("per visit", "/mo"), description, featured, sort_order, status. LINKED: linked_type bookings|ecommerce + linked_id (or linked_ref "bookings:12") — the entry shows the service/product’s live name and price and stores no copy; a price passed in the same call writes through to the source record. A product WITH variants cannot take a single price — its entry shows the variant range (Batch 139, Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        name: { type: 'string' },
+        description: { type: 'string' },
+        price_mode: { type: 'string', enum: ['fixed', 'from', 'text'] },
+        price_cents: { type: 'number' },
+        price: { type: 'number' },
+        price_text: { type: 'string' },
+        currency: { type: 'string' },
+        unit_suffix: { type: 'string' },
+        linked_type: { type: 'string', enum: ['bookings', 'ecommerce'] },
+        linked_id: { type: 'integer', minimum: 1 },
+        linked_ref: { type: 'string' },
+        featured: { type: 'boolean' },
+        status: { type: 'string', enum: ['draft', 'published'] },
+        sort_order: { type: 'number' },
+      },
+      required: ['leadId'],
+    },
+  },
+  {
+    name: 'pricing.update',
+    description:
+      'Update a pricing entry by id (same fields as pricing.create). A price edit on a LINKED entry writes through to the source service/product record — the one number bookings and checkout charge — and is refused for a product with variants. Pass linked_type "" (or linked_ref "") to unlink: the entry keeps the last live name and price as its own (Batch 139, Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', minimum: 1 },
+        leadId: { type: 'integer', minimum: 1 },
+        name: { type: 'string' },
+        description: { type: 'string' },
+        price_mode: { type: 'string', enum: ['fixed', 'from', 'text'] },
+        price_cents: { type: 'number' },
+        price: { type: 'number' },
+        price_text: { type: 'string' },
+        currency: { type: 'string' },
+        unit_suffix: { type: 'string' },
+        linked_type: { type: 'string' },
+        linked_id: { type: 'integer', minimum: 1 },
+        linked_ref: { type: 'string' },
+        featured: { type: 'boolean' },
+        status: { type: 'string', enum: ['draft', 'published'] },
+        sort_order: { type: 'number' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'pricing.delete',
+    description:
+      'Delete a pricing entry by id. Deleting an entry never touches the service/product it was linked to (Batch 139, Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', minimum: 1 },
+        leadId: { type: 'integer', minimum: 1 },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'pricing.getPriceBook',
+    description:
+      'Batch 139: the resolved PRICE BOOK for a lead — the published pricing entries with every price resolved (linked entries at their source’s current price). The ONE price source the site, the chat and every consumer quote from (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: { leadId: { type: 'integer', minimum: 1 } },
+      required: ['leadId'],
     },
   },
   {

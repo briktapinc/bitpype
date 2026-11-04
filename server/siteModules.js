@@ -46,6 +46,7 @@ const MODULE_TYPES = [
   'qrcode',
   'checkout',
   'comments',
+  'pricing',
 ];
 const MANAGED_ATTR = 'data-bitpype-module';
 const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
@@ -60,7 +61,10 @@ const SCRIPT_ATTR = 'data-bitpype-module-script';
 // −discount / total summary (shipped after Batch 143's mod37 esc
 // hardening; the bump is +1 relative to the landed tip, per the
 // finisher convention).
-const MODULE_SCRIPT_VER = 'mod38';
+// Batch 139: mod39 — the pricing embed renderer (renderPricing);
+// the bump is +1 relative to the landed tip, per the finisher
+// convention (the parked build's own pin predates the 131–149 chain).
+const MODULE_SCRIPT_VER = 'mod39';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -99,6 +103,7 @@ const MODULE_META = {
   qrcode: { label: 'QR Code', defaultTitle: 'Scan Me', defaultSlug: 'qr-code' },
   checkout: { label: 'Checkout', defaultTitle: 'Checkout', defaultSlug: 'checkout' },
   comments: { label: 'Comments', defaultTitle: 'Comments', defaultSlug: 'comments' },
+  pricing: { label: 'Pricing', defaultTitle: 'Pricing', defaultSlug: 'pricing' },
 };
 
 const BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'];
@@ -2094,6 +2099,12 @@ function modulePurgeSteps(leadId, type) {
         byLead('module_comments', 'comments'),
         byLead('comments_configs', 'comments settings'),
       ];
+    case 'pricing':
+      // Batch 139: the price-list entries themselves. Linked entries
+      // hold no money state — the prices they showed live on the
+      // source records (services/products), which belong to their
+      // own modules and are never purged from here.
+      return [byLead('pricing_entries', 'pricing entries')];
     default:
       return [];
   }
@@ -14217,6 +14228,16 @@ function moduleItemCount(db, leadId, type) {
       .get(Number(leadId));
     return Number(row && row.c) || 0;
   }
+  if (type === 'pricing') {
+    // The tab badge counts the owner's price-list entries (drafts
+    // included — the list they are building IS the work here).
+    try {
+      return require('./pricing').listPricingEntries(db, leadId).length;
+    } catch (e) {
+      console.warn('[siteModules] moduleItemCount pricing:', e.message || e);
+      return 0;
+    }
+  }
   if (type === 'charts') {
     // The tab badge counts the chart definitions on the site.
     ensureTables(db);
@@ -14327,6 +14348,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
   let photocapture = null;
   let qrcode = null;
   let checkout = null;
+  let pricing = null;
   let checkoutPage = null;
   let checkoutToken = null;
   let comments = null;
@@ -14468,6 +14490,12 @@ function getPublicModuleByToken(db, token, opts = {}) {
     // rejected comments and author emails never enter the payload.
     comments = require('./comments').publicPayload(db, leadId, row, opts);
     items = [];
+  } else if (type === 'pricing') {
+    // Batch 139: the price book, resolved at serve time — linked
+    // entries show their source's CURRENT name and price; entries
+    // whose source vanished are already dropped by the book.
+    pricing = require('./pricing').publicPricingPayload(db, leadId);
+    items = pricing.entries;
   } else if (type === 'chatbot') {
     try {
       const chat = require('./chatbot');
@@ -14543,6 +14571,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
   if (categoryScopes) out.category_scopes = categoryScopes;
   if (photocapture) out.photocapture = photocapture;
   if (qrcode) out.qrcode = qrcode;
+  if (pricing) out.pricing = pricing;
   if (checkout) out.checkout = checkout;
   if (checkoutPage) out.checkout_page = checkoutPage;
   if (checkoutToken) out.checkout_token = checkoutToken;

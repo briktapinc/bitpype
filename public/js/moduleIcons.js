@@ -37,5 +37,6 @@ const MODULE_ICON_PATHS = {
   qrcode: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><path d="M13.5 13.5h3.2v3.2h-3.2z"/><path d="M17.3 17.3h3.2v3.2h-3.2z"/><path d="M13.5 20.5h3.2"/>',
   checkout: '<rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M3.5 9.5h17"/><path d="M7 15.2l2.2 2.2 4-4.2"/>',
   comments: '<path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.5 0-3-.4-4.2-1.1L3 20l1.1-5.3A8.5 8.5 0 1 1 21 11.5z"/><path d="M8 10.5h8"/><path d="M8 14h5"/>',
+  pricing: '<path d="M3.8 3.8h7.4l9 9a1.6 1.6 0 0 1 0 2.3l-5.1 5.1a1.6 1.6 0 0 1-2.3 0l-9-9z"/><circle cx="8.2" cy="8.2" r="1.7"/>',
 };
 const MODULE_ICON_FALLBACK = '<rect x="4" y="4" width="7" height="7" rx="1.6"/><rect x="13" y="4" width="7" height="7" rx="1.6"/><rect x="4" y="13" width="7" height="7" rx="1.6"/><rect x="13" y="13" width="7" height="7" rx="1.6"/>';
