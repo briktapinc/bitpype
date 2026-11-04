@@ -50,6 +50,7 @@ const SCOPE = [
   'server/categories.js',
   'tests/batch124-categories-regressions.cjs',
   'tests/batch125-photocapture-regressions.cjs',
+  'tests/batch130-item-fallback-regressions.cjs',
   'tsconfig.checkjs.json',
 ];
 

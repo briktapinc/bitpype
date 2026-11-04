@@ -4,7 +4,7 @@
  *
  * What this pins:
  *   Part 1 — source pins: `categories` is the 24th MODULE_TYPE with
- *     catalog metadata, MODULE_SCRIPT_VER mod27, a moduleShare
+ *     catalog metadata, MODULE_SCRIPT_VER mod28, a moduleShare
  *     registry provider entry (parity at 24), the categories service
  *     module, taxonomy tables, MCP + catalog + parity + agent tool
  *     surfaces, portal editor wiring (picker + Categories pane +
@@ -118,7 +118,7 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     }
     assert.ok(smSrc.includes("categories: { label: 'Categories'"), 'MODULE_META carries the Categories label');
     n++;
-    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod27'"), 'MODULE_SCRIPT_VER bumped to mod27');
+    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod28'"), 'MODULE_SCRIPT_VER bumped to mod28');
     n++;
 
     const shareSrc = read('server/moduleShare.js');

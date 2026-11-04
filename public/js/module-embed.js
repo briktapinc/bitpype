@@ -4194,33 +4194,58 @@
     if (staticBlog && !item) return;
     if (!staticBlog) el.innerHTML = '<p class="bp-mod-loading">Loading…</p>';
     var base = apiBase(el);
-    var path =
-      (base || '') +
-      '/api/v1/modules/public/' +
-      encodeURIComponent(token) +
-      (item ? '?slug=' + encodeURIComponent(item) + '&' : '?') +
-      pageQuery();
-    fetch(path, { credentials: 'omit', headers: authHeaders() })
-      .then(function (r) {
+    var urlFor = function (slug) {
+      return (
+        (base || '') +
+        '/api/v1/modules/public/' +
+        encodeURIComponent(token) +
+        (slug ? '?slug=' + encodeURIComponent(slug) + '&' : '?') +
+        pageQuery()
+      );
+    };
+    var handlePayload = function (j) {
+      if (!j || !j.ok) throw new Error((j && j.error) || 'Failed to load');
+      var data = j.data;
+      if (data.locked) {
+        renderLocked(el, data);
+        return;
+      }
+      if (staticBlog) {
+        if (data.module_type === 'blog' && data.item && data.item.slug) {
+          location.replace(staticBlogPostUrl(data, data.item.slug));
+        }
+        return;
+      }
+      if (data.item) renderItem(el, data);
+      else renderList(el, data);
+      if (data.module_type === 'ecommerce') wireShop(el, base, token);
+      wireMemberNavLogout();
+    };
+    var loadPayload = function (slug) {
+      return fetch(urlFor(slug), { credentials: 'omit', headers: authHeaders() }).then(function (r) {
         return r.json();
-      })
+      });
+    };
+    loadPayload(item)
       .then(function (j) {
-        if (!j || !j.ok) throw new Error((j && j.error) || 'Failed to load');
-        var data = j.data;
-        if (data.locked) {
-          renderLocked(el, data);
-          return;
+        // Batch 130: ?bpItem= is a PAGE-level param shared by every
+        // embed on the page, so any embed is routinely handed a slug
+        // that belongs to another module (or a stale/bad link). When
+        // the item lookup answers NOT_FOUND, fall back to this
+        // module's own list payload and render that — the same
+        // never-dead-end rule the staticBlog snapshot follows above —
+        // instead of painting an "Item not found" error card into a
+        // module the visitor never asked to open an item in. A bad
+        // slug on the OWNING embed lands on its list the same way.
+        // Every other outcome keeps the original path: locked
+        // payloads arrive ok:true and render the wall in
+        // handlePayload; a NOT_FOUND on the list fetch itself (bad
+        // token, detached shop) and any network/5xx failure still
+        // throw into the error card below.
+        if (item && !staticBlog && j && !j.ok && j.code === 'NOT_FOUND') {
+          return loadPayload('').then(handlePayload);
         }
-        if (staticBlog) {
-          if (data.module_type === 'blog' && data.item && data.item.slug) {
-            location.replace(staticBlogPostUrl(data, data.item.slug));
-          }
-          return;
-        }
-        if (data.item) renderItem(el, data);
-        else renderList(el, data);
-        if (data.module_type === 'ecommerce') wireShop(el, base, token);
-        wireMemberNavLogout();
+        return handlePayload(j);
       })
       .catch(function (e) {
         if (staticBlog) return; // snapshot stays — never dead-end

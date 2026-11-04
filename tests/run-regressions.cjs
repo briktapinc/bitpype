@@ -123,6 +123,7 @@ const checks = [
   'batch123-openrouter-regressions',
   'batch124-categories-regressions',
   'batch125-photocapture-regressions',
+  'batch130-item-fallback-regressions',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');

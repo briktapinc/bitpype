@@ -109,7 +109,7 @@ let db;
     assert.ok(sm.MODULE_TYPES.includes('photocapture'), 'photocapture is a module type');
     assert.equal(sm.MODULE_TYPES.length, 25, '25 module types (Batch 124 categories + Batch 125 photocapture)');
     assert.equal(sm.MODULE_META.photocapture.label, 'Photo Capture');
-    assert.equal(sm.MODULE_SCRIPT_VER, 'mod27', 'embed script version bumped for the capture renderer');
+    assert.equal(sm.MODULE_SCRIPT_VER, 'mod28', 'embed script version bumped for the capture renderer');
     n += 4;
 
     // The Batch 122 parity pin, extended: registry ⇔ MODULE_TYPES.
