@@ -49,6 +49,14 @@ process.env.SQLITE_PATH = process.env.DB_PATH;
 });
 process.env.SESSION_SECRET = ['batch127', 'regression', 'secret'].join('-');
 process.env.COOKIE_SECURE = 'false';
+// Finisher fix: Part 3 boots the real server; under the gate
+// image's NODE_ENV=production the boot refuses to run without
+// Turnstile keys unless CAPTCHA_OPTIONAL=1, and requires APP_URL
+// (the sibling suites 125/126/132 set both lines; the builder's
+// local runs never exposed the gaps because NODE_ENV was unset
+// there and APP_URL with it).
+process.env.CAPTCHA_OPTIONAL = '1';
+process.env.APP_URL = 'https://bitpype.test';
 process.env.MAIL_DRY_RUN = process.env.MAIL_DRY_RUN || 'true';
 process.env.MAIL_PROVIDER = process.env.MAIL_PROVIDER || 'dry';
 process.env.STRIPE_TEST_MODE = process.env.STRIPE_TEST_MODE || 'true';
