@@ -62,8 +62,8 @@ process.env.SQLITE_PATH = process.env.DB_PATH;
   process.env[name.toUpperCase().replace(/\W/g, '_') + '_PATH'] = path.join(process.env.REGRESSION_TMPDIR, name);
 });
 process.env.DB_DRIVER = process.env.DB_DRIVER || 'sqlite';
-process.env.APP_SECRET = ['b129', 'app', 'secret', 'batch129fixture' ].join('-');
-process.env.SESSION_SECRET = ['b129', 'session', 'secret', 'batch129fixture' ].join('-');
+process.env.APP_SECRET = ['b129', 'app', 'secret', 'batch129fixture'].join('-');
+process.env.SESSION_SECRET = ['b129', 'session', 'secret', 'batch129fixture'].join('-');
 process.env.COOKIE_SECURE = 'false';
 // Finisher fix (AGENTS.md Batch 127 lesson): the real-server parts
 // boot under the gate image's NODE_ENV=production, which refuses to

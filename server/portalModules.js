@@ -351,16 +351,22 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
       // lead's payment state (the same shopStripe status the Shop
       // pane shows; keys are managed in Shop → Payments), and the
       // orders with their line items (products, variants, photos).
-      const shopStripe = require('./shopStripe');
+      // Batch 129 finisher: this branch's require was also named
+      // shopStripe (as in the ecommerce branch above) — legal JS,
+      // but the gate typecheck (TS2300) rejects the duplicate
+      // identifier in this @ts-check file, a condition Batch 128
+      // introduced and shipped around (its gate ran no typecheck
+      // step). Renamed locally; no behavior change.
+      const checkoutShopStripe = require('./shopStripe');
       const payments = modules.shopStripeStatus(db, Number(leadId));
-      const workspaceConfigured = shopStripe.isConfigured(db);
+      const workspaceConfigured = checkoutShopStripe.isConfigured(db);
       items = [];
       checkout = {
         config: modules.getCheckoutConfig(db, Number(leadId)),
         payments,
         workspace_configured: workspaceConfigured,
         effective_source: payments.connected ? 'lead' : workspaceConfigured ? 'workspace' : 'none',
-        effective_mode: shopStripe.effectiveMode(db, Number(leadId)),
+        effective_mode: checkoutShopStripe.effectiveMode(db, Number(leadId)),
         webhook_path: `/api/v1/shop/webhook/${Number(workspaceId)}`,
         // Batch 129 (additive): the ONE unified payments config
         // status + the canonical webhook URL.
