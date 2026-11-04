@@ -126,6 +126,11 @@ const shopWebhook = require('./server/routes/shopWebhook');
 app.use('/api/v1/shop/webhook', express.raw({ type: 'application/json' }), shopWebhook);
 const membershipWebhook = require('./server/routes/membershipWebhook');
 app.use('/api/v1/membership/webhook', express.raw({ type: 'application/json' }), membershipWebhook);
+// Batch 129: the canonical tenant-payments webhook. The shop and
+// membership mounts above are aliases of this same router (owners
+// configured those URLs in their Stripe dashboards pre-129).
+const paymentsWebhook = require('./server/routes/paymentsWebhook');
+app.use('/api/v1/payments/webhook', express.raw({ type: 'application/json' }), paymentsWebhook);
 
 // Smaller default JSON; design/portal/website payloads need more room.
 // website-promo gets 12mb: its brochure upload rides base64-in-JSON

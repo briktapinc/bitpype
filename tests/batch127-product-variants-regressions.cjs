@@ -4,7 +4,7 @@
  *
  * What this pins:
  *   Part 1 — source pins: the three variant tables + order columns,
- *     MODULE_SCRIPT_VER mod31 (Batch 127 landed mod30; Batch 128 finisher rotation +1), the variant engine exports, the
+ *     MODULE_SCRIPT_VER mod32 (Batch 127 landed mod30; Batch 128 finisher rotation +1), the variant engine exports, the
  *     storefront selector wiring (data-bp-axis / wireVariantPicker /
  *     data-bp-variant), the portal variant editor + collect hook, the
  *     MCP + catalog options/variants params, the public checkout
@@ -124,8 +124,8 @@ function makeJar() {
     assert.ok(smSrc.includes("orderCols.includes('variant_label')"), 'orders gain variant_label via guarded ALTER');
     n++;
     assert.ok(
-      smSrc.includes("const MODULE_SCRIPT_VER = 'mod31'"),
-      'MODULE_SCRIPT_VER bumped to mod31 (Batch 128 finisher rotation)'
+      smSrc.includes("const MODULE_SCRIPT_VER = 'mod32'"),
+      'MODULE_SCRIPT_VER bumped to mod32 (Batch 128 finisher rotation)'
     );
     n++;
     for (const fn of [

@@ -16,7 +16,7 @@
  *   Part A — source pins: the fallback wiring (NOT_FOUND code check,
  *     list refetch, staticBlog excluded), the locked branch still
  *     ahead of item rendering, the error card intact, MODULE_SCRIPT_VER
- *     mod31 (Batch 128 finisher rotation), and the SEC-13 census at 434 total (Batch 126 finisher +4 audited QR sinks; Batch 127 finisher +5 audited variant-editor sinks; Batch 128 finisher +13 safe-class checkout sinks) with the
+ *     mod32 (Batch 128 finisher rotation), and the SEC-13 census at 437 total (Batch 126 finisher +4 audited QR sinks; Batch 127 finisher +5 audited variant-editor sinks; Batch 128 finisher +13 safe-class checkout sinks) with the
  *     mountOne sink shifted by pure line movement (4227 -> 4252 on the Batch 130 tree; 4294 at Batch 126 landing; 4394 after the Batch 127 variant-picker insertions).
  *   Part B — HTTP contract on the real server: a foreign slug is a
  *     404 with code NOT_FOUND on every non-owning module; the owning
@@ -215,7 +215,7 @@ async function waitReady(child, output) {
     const sm = require(path.join(root, 'server/siteModules.js'));
     assert.equal(
       sm.MODULE_SCRIPT_VER,
-      'mod31',
+      'mod32',
       'MODULE_SCRIPT_VER bumped for the fallback (Batch 128 finisher rotation)'
     );
     n++;
@@ -233,7 +233,7 @@ async function waitReady(child, output) {
     const cz = census();
     assert.equal(
       cz.summary.total,
-      434,
+      437,
       'SEC-13 census total — the Batch 130 fix added no sinks; Batch 126 finisher added +4 audited QR sinks; Batch 127 finisher added +5 audited variant-editor sinks; Batch 128 finisher added +13 safe-class checkout sinks (reviewed set unchanged)'
     );
     n++;

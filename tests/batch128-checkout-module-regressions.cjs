@@ -16,7 +16,7 @@
  *
  * What this pins:
  *   Part 1 — source pins: `checkout` is the 25th MODULE_TYPE with
- *     catalog metadata, MODULE_SCRIPT_VER mod31, an explicit
+ *     catalog metadata, MODULE_SCRIPT_VER mod32, an explicit
  *     NON-provider moduleShare entry (parity at 25), the cart/order
  *     tables + functions, the public checkout-cart route + lead-
  *     scoped order-status, the portal panes + config route, the
@@ -160,6 +160,7 @@ const SPLIT_MODULES = new Set([
   'museAgentClassifier',
   'museAgentPlanner',
   'aiRouting',
+  'paymentsConfig', // Batch 129: the unified payments config joins the stubbed module graph
 ]);
 function load(file, mocks) {
   const cache = new Map();
@@ -210,7 +211,7 @@ function load(file, mocks) {
     }
     assert.ok(smSrc.includes("checkout: { label: 'Checkout'"), 'MODULE_META carries the Checkout label');
     n++;
-    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod31'"), 'MODULE_SCRIPT_VER bumped to mod31');
+    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod32'"), 'MODULE_SCRIPT_VER bumped to mod32');
     n++;
     assert.ok(smSrc.includes('CREATE TABLE IF NOT EXISTS ecommerce_order_items'), 'order line-items table exists');
     n++;
@@ -448,10 +449,19 @@ function load(file, mocks) {
     n++;
     assert.equal(sm.shopStripeStatus(db, LEAD_A).connected, false, 'a refused save writes nothing');
     n++;
-    // The membership key save — a different function with the same
-    // code shape — has NO such rule and stays untouched by it.
-    const mem = sm.saveMembershipStripeKeys(db, LEAD_A, { publishable_key: PK_TEST, secret_key: SK_LIVE });
-    assert.equal(mem.connected, true, 'membership key save unaffected by the shop mode rule');
+    // Batch 129 SUPERSEDES the Batch 128 expectation that used to
+    // live here ("membership key save unaffected by the shop mode
+    // rule"): the streamline made ONE payments config behind both
+    // surfaces, so the mode-mix refusal now applies to a membership
+    // save too — a test publishable key can never pair with a live
+    // secret in the unified config, whichever pane saved it.
+    assert.throws(
+      () => sm.saveMembershipStripeKeys(db, LEAD_A, { publishable_key: PK_TEST, secret_key: SK_LIVE }),
+      (e) => e.code === 'VALIDATION' && /same Stripe mode/.test(e.message),
+      'Batch 129: the unified config refuses a mixed-mode membership save'
+    );
+    n++;
+    assert.equal(sm.membershipStripeStatus(db, LEAD_A).connected, false, 'a refused membership save writes nothing');
     n++;
     const saved = sm.saveShopStripeKeys(db, LEAD_A, {
       publishable_key: PK_TEST,
@@ -773,7 +783,13 @@ function load(file, mocks) {
     const cartOrder = sm128.listShopOrdersWithItems(db, LEAD_D).find((o) => o.id === cart.orderId);
     assert.equal(cartOrder.status, 'pending', 'order starts pending');
     assert.equal(cartOrder.amount_cents, 9000, 'order total is the server-priced sum');
-    assert.equal(cartOrder.stripe_key_source, 'lead');
+    // Batch 129: keys saved through the portal save path now land in
+    // the ONE unified payments config, so the order truthfully
+    // records 'unified' (Batch 128 expected 'lead', when the save
+    // wrote the shop key store). The legacy 'lead' source still
+    // occurs for pre-129 rows that were never re-saved — Batch 129's
+    // own suite covers that fallback.
+    assert.equal(cartOrder.stripe_key_source, 'unified');
     assert.equal(cartOrder.items.length, 2, 'both lines recorded');
     const photoLine = cartOrder.items.find((it) => it.source_module === 'gallery');
     assert.equal(photoLine.image_url, 'https://img.example/delta-print.jpg', 'order line carries the photo itself');
@@ -817,7 +833,9 @@ function load(file, mocks) {
     );
     n++;
     const verified = ss128.constructEventForShop(db, completedBody, 'sig:' + WHSEC, JSON.parse(completedBody));
-    assert.equal(verified.source, 'lead', "verified against the lead's own webhook secret");
+    // Batch 129: the lead's keys live in the unified config now, so
+    // the verifying layer reports 'unified' (was 'lead' in 128).
+    assert.equal(verified.source, 'unified', "verified against the lead's own webhook secret");
     n++;
     const applied = sm128.applyShopStripeEvent(db, verified.event);
     assert.equal(applied.status, 'paid');

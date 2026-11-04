@@ -40,6 +40,11 @@ const SPLIT_MODULES = new Set([
   // Batch 120: museAgentCore requires the provider-routing registry;
   // it only lazily requires ./platform (mocked at every load site).
   'aiRouting',
+  'paymentsConfig', // Batch 129: the unified payments config joins the stubbed module graph
+  // Batch 129: paymentsConfig lazily requires ./siteModules (the cycle
+  // pattern); routing it through inner() returns the load's own root
+  // instance from the cache, exactly as Node would.
+  'siteModules',
 ]);
 function load(file, mocks) {
   const cache = new Map();
@@ -1309,6 +1314,9 @@ async function main() {
         if (stub17.failPrices) throw new Error('Stripe price boom (stub)');
         return { id: 'price_' + ++stub17.priceSeq };
       },
+      // Batch 129: the membership checkout verifies the tier's price
+      // exists on the resolved payments account before using it.
+      retrieve: async (id) => ({ id }),
     },
     subscriptions: {
       update: async (id, params) => {
@@ -1341,7 +1349,13 @@ async function main() {
     '../src/websiteEngine': require(path.join(root, 'src/websiteEngine.js')),
     './portalContacts': contacts,
     '../src/secretBox': box17,
-    './membershipStripe': { getClient: () => stubStripeClient17 },
+    // Batch 129: the membership checkout also calls
+    // ensureTierStripePrice (the tier-price account self-heal);
+    // forward it to the real module loaded just below.
+    './membershipStripe': {
+      getClient: () => stubStripeClient17,
+      ensureTierStripePrice: (...args) => ms17.ensureTierStripePrice(...args),
+    },
   });
   const ms17 = load('server/membershipStripe.js', {
     './siteModules': sm17,
@@ -1350,7 +1364,7 @@ async function main() {
   });
   sm17.ensureTables(db);
   assert.equal(sm17.MODULE_TYPES.length, 27, 'catalog 27 types (Batch 125: photocapture is the 25th; Batch 128: checkout is the 27th)');
-  assert.equal(sm17.MODULE_SCRIPT_VER, 'mod31', 'script version: batch 20 mod13, batch 21 mod14, batch 26 mod15, batch 25c mod16, batch 25c-fix mod17, batch 30 mod18, batch 31 mod19, batch 32 mod20');
+  assert.equal(sm17.MODULE_SCRIPT_VER, 'mod32', 'script version: batch 20 mod13, batch 21 mod14, batch 26 mod15, batch 25c mod16, batch 25c-fix mod17, batch 30 mod18, batch 31 mod19, batch 32 mod20');
   const cfg17Default = sm17.getMembersConfig(db, 1701);
   assert.equal(cfg17Default.access_level, 'any_member', 'Part 1 default preserved: any member');
   assert.equal(cfg17Default.access_tier_id, null);
@@ -1379,7 +1393,11 @@ async function main() {
   assert.equal(status1702.connected, true);
   assert.equal(status1702.secret_key_last4, 'p7dc');
   assert(!JSON.stringify(status1702).includes(SECRET17), 'status never carries the secret');
-  const rawKeyRow17 = db.prepare('SELECT * FROM membership_stripe_keys WHERE lead_id = 1702').get();
+  // Batch 129: the save now writes the ONE unified payments config
+  // (lead_payment_configs); the legacy membership key store is a
+  // read-only fallback. The at-rest encryption assertions are
+  // unchanged — the unified write path uses the same secretBox format.
+  const rawKeyRow17 = db.prepare('SELECT * FROM lead_payment_configs WHERE lead_id = 1702').get();
   assert(rawKeyRow17.secret_key_enc.startsWith('enc:v1:'), 'secret stored secretBox-encrypted');
   assert(!rawKeyRow17.secret_key_enc.includes(SECRET17), 'ciphertext contains no plaintext key');
   assert(!rawKeyRow17.webhook_secret_enc.includes('whsec_foreign_secret'), 'webhook secret encrypted too');
@@ -1875,7 +1893,10 @@ async function main() {
   assert.equal(savedStatus19.webhook_configured, true);
   assert(!JSON.stringify(savedStatus19).includes(LEAD_SK19), 'status never carries the secret');
   assert(!JSON.stringify(savedStatus19).includes(LEAD_WHSEC19), 'status never carries the webhook secret');
-  const rawShopRow19 = db.prepare('SELECT * FROM shop_stripe_keys WHERE lead_id = 1901').get();
+  // Batch 129: the save now writes the ONE unified payments config
+  // (lead_payment_configs); the legacy shop key store is a read-only
+  // fallback. The at-rest encryption assertions are unchanged.
+  const rawShopRow19 = db.prepare('SELECT * FROM lead_payment_configs WHERE lead_id = 1901').get();
   assert(rawShopRow19.secret_key_enc.startsWith('enc:v1:'), 'shop secret stored secretBox-encrypted');
   assert(!rawShopRow19.secret_key_enc.includes(LEAD_SK19), 'ciphertext contains no plaintext key');
   assert(!rawShopRow19.webhook_secret_enc.includes(LEAD_WHSEC19), 'webhook secret encrypted too');
@@ -1924,7 +1945,10 @@ async function main() {
   assert.equal(coLead19.mode, 'stripe');
   assert.equal(stub19.sessions.at(-1).secret, LEAD_SK19, 'checkout ran on the LEAD secret key');
   const orderLead19 = db.prepare('SELECT * FROM ecommerce_orders WHERE id = ?').get(coLead19.orderId);
-  assert.equal(orderLead19.stripe_key_source, 'lead', 'order records the lead key-set');
+  // Batch 129: keys saved through the portal save path land in the
+  // unified payments config, so the order records 'unified' (the
+  // 'lead' source remains for pre-129 legacy rows never re-saved).
+  assert.equal(orderLead19.stripe_key_source, 'unified', 'order records the lead key-set');
   const coWs19 = await sm19.createShopCheckoutByToken(db, emb19(1902).public_token, {
     productId: product19(1902).id,
     returnUrl: 'https://site.example/shop.html',
@@ -1948,7 +1972,8 @@ async function main() {
   };
   const rawEvt19 = Buffer.from(JSON.stringify(evtLead19));
   const verifiedLead19 = ss19.constructEventForShop(db, rawEvt19, 'sig:' + LEAD_WHSEC19, evtLead19);
-  assert.equal(verifiedLead19.source, 'lead', 'owner-signed event verifies against the LEAD secret');
+  // Batch 129: the verifying layer is the unified config ('unified').
+  assert.equal(verifiedLead19.source, 'unified', 'owner-signed event verifies against the LEAD secret');
   const applied19 = sm19.applyShopStripeEvent(db, verifiedLead19.event);
   assert.equal(applied19.status, 'paid');
   assert.equal(db.prepare('SELECT status FROM ecommerce_orders WHERE id = ?').get(coLead19.orderId).status, 'paid');
@@ -2041,7 +2066,7 @@ async function main() {
 
   check('batch21 module registered + embed script version bumped', () => {
     assert.ok(sm21.MODULE_TYPES.includes('calltracking'));
-    assert.equal(sm21.MODULE_SCRIPT_VER, 'mod31', 'batch 21 mod14, batch 26 mod15, batch 25c mod16, batch 25c-fix mod17, batch 30 mod18, batch 31 mod19, batch 32 mod20');
+    assert.equal(sm21.MODULE_SCRIPT_VER, 'mod32', 'batch 21 mod14, batch 26 mod15, batch 25c mod16, batch 25c-fix mod17, batch 30 mod18, batch 31 mod19, batch 32 mod20');
     assert.equal(sm21.MODULE_META.calltracking.label, 'Call Tracking');
   });
 
@@ -3170,13 +3195,21 @@ async function main() {
   });
 
   // Shop orders: owner email only on the pending → paid transition.
+  // Batch 129: shopWebhook.js is an alias — the route under test is
+  // the ONE payments webhook handler, loaded here with the unified
+  // paymentsConfig verification mocked the way shopStripe's
+  // constructEventForShop used to be.
   const shopHook21b = stubRouter21b();
-  load('server/routes/shopWebhook.js', {
+  const paymentsHookShop21b = load('server/routes/paymentsWebhook.js', {
     express: { Router: () => shopHook21b.router },
     '../domain': { withDb: (_ws, fn) => fn(db) },
     '../siteModules': sm21b,
     '../shopStripe': {
-      constructEventForShop: (_db, raw) => ({
+      constructEvent: (_db, raw) => JSON.parse(Buffer.isBuffer(raw) ? raw.toString('utf8') : String(raw)),
+    },
+    '../paymentsConfig': {
+      resolveLeadForEvent: () => 2186,
+      constructEventAny: (_db, _leadId, raw) => ({
         event: JSON.parse(Buffer.isBuffer(raw) ? raw.toString('utf8') : String(raw)),
         source: 'lead',
       }),
@@ -3185,6 +3218,7 @@ async function main() {
     '../ownerNotify': ownerNotify21b,
     '../apiErrors': apiErrors,
   });
+  load('server/routes/shopWebhook.js', { './paymentsWebhook': paymentsHookShop21b });
   const prodShop21b = sm21b.createProduct(db, 2186, { name: 'Widget', price_cents: 2500, status: 'published' });
   db.prepare(
     "INSERT INTO ecommerce_orders (lead_id, product_id, product_name, amount_cents, currency, status, stripe_session_id) VALUES (2186, ?, 'Widget', 2500, 'USD', 'pending', 'cs_test_21b')"
@@ -3227,20 +3261,28 @@ async function main() {
   });
 
   // Memberships: owner email only when checkout CREATES the subscription.
+  // Batch 129: membershipWebhook.js is an alias of the same unified
+  // handler; its verification is mocked through paymentsConfig.
   const memHook21b = stubRouter21b();
-  load('server/routes/membershipWebhook.js', {
+  const paymentsHookMem21b = load('server/routes/paymentsWebhook.js', {
     express: { Router: () => memHook21b.router },
     '../domain': { withDb: (_ws, fn) => fn(db) },
     '../siteModules': sm21b,
-    '../membershipStripe': {
+    '../shopStripe': {
+      constructEvent: (_db, raw) => JSON.parse(Buffer.isBuffer(raw) ? raw.toString('utf8') : String(raw)),
+    },
+    '../paymentsConfig': {
       resolveLeadForEvent: (_db, peek) => Number(peek.data.object.metadata.bitpype_lead_id),
-      constructEventForLead: (_db, _leadId, raw) =>
-        JSON.parse(Buffer.isBuffer(raw) ? raw.toString('utf8') : String(raw)),
+      constructEventAny: (_db, _leadId, raw) => ({
+        event: JSON.parse(Buffer.isBuffer(raw) ? raw.toString('utf8') : String(raw)),
+        source: 'membership',
+      }),
     },
     '../workspaceExists': { assertWorkspaceExists: async () => {} },
     '../ownerNotify': ownerNotify21b,
     '../apiErrors': apiErrors,
   });
+  load('server/routes/membershipWebhook.js', { './paymentsWebhook': paymentsHookMem21b });
   const tier21b = sm21b.insertMembershipTier(db, 2185, {
     name: 'Gold',
     description: '',
@@ -4326,7 +4368,7 @@ async function main() {
   const embFaq25 = sm25.attachModule(db, 2501, 'faq', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
   const pubFaq25 = sm25.getPublicModuleByToken(db, embFaq25.public_token);
   check('batch25 modules: bookings + estimate payloads carry the opt-in block; other modules do not', () => {
-    assert.equal(sm25.MODULE_SCRIPT_VER, 'mod31', 'batch 26 bumped mod15; batch 25c bumped mod16; batch 25c-fix bumped mod17; batch 30 bumped mod18; batch 31 bumped mod19, batch 32 bumped mod20');
+    assert.equal(sm25.MODULE_SCRIPT_VER, 'mod32', 'batch 26 bumped mod15; batch 25c bumped mod16; batch 25c-fix bumped mod17; batch 30 bumped mod18; batch 31 bumped mod19, batch 32 bumped mod20');
     assert.equal(pubBook25.sms_optin && pubBook25.sms_optin.label, 'Text me updates & offers from Fixture Texts R Us');
     assert.equal(pubEst25.sms_optin && pubEst25.sms_optin.consent_key, 'sms_optin_consent');
     assert.equal(pubFaq25.sms_optin, undefined, 'modules without a phone form get no block');
@@ -4675,7 +4717,7 @@ async function main() {
   await portal25c.saveCallTrackingConfig(1, 2512, { phone: '+16105550100' }, 'split2@example.invalid');
   const embedSrc25c = fs.readFileSync(path.join(root, 'public/js/module-embed.js'), 'utf8');
   check('batch25c site rendering: button displays and dials the Twilio tracking number; the client number is forward-to only', () => {
-    assert.equal(sm25c.MODULE_SCRIPT_VER, 'mod31');
+    assert.equal(sm25c.MODULE_SCRIPT_VER, 'mod32');
     const pubFull = sm25c.publicCallTrackingPayload(db, 2511);
     assert.equal(pubFull.configured, true);
     assert.equal(pubFull.display_number, '+16105550199', 'button number = the Twilio tracking number (text + tel target)');

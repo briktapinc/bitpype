@@ -1695,6 +1695,58 @@
   }
 
   function renderBookings(el, data, prefixHtml) {
+    // Batch 129 — post-payment return for pay-at-booking: the visitor
+    // lands back on this page with order=success&session_id=… after
+    // paying through the shared checkout engine. Confirm via the
+    // same lead-scoped order-status endpoint the shop uses; the
+    // appointment itself converges through the webhook.
+    var bq = null;
+    try {
+      bq = new URLSearchParams(window.location.search);
+    } catch (e) {
+      bq = null;
+    }
+    var bOrder = bq && bq.get('order');
+    var bSid = bq && bq.get('session_id');
+    if (bOrder === 'success' && bSid) {
+      var bToken = el.getAttribute(TOKEN_ATTR) || '';
+      var bBase = apiBase(el);
+      el.innerHTML = (prefixHtml || '') + '<p class="bp-mod-loading">Confirming your payment…</p>';
+      fetch(
+        (bBase || '') +
+          '/api/v1/modules/public/' +
+          encodeURIComponent(bToken) +
+          '/order-status?session_id=' +
+          encodeURIComponent(bSid),
+        { credentials: 'omit', headers: authHeaders() }
+      )
+        .then(function (r) {
+          return r.json();
+        })
+        .then(function (j) {
+          var paid = j && j.ok && j.data && j.data.status === 'paid';
+          el.innerHTML =
+            (prefixHtml || '') +
+            '<div class="bp-mod-empty-card"><p class="bp-mod-empty-kicker">Booked</p>' +
+            '<p class="bp-mod-empty-title">' +
+            (paid
+              ? 'Payment received — your appointment is booked.'
+              : 'Payment is processing — your appointment will be confirmed as soon as it settles.') +
+            '</p></div>';
+        })
+        .catch(function () {
+          el.innerHTML =
+            (prefixHtml || '') +
+            '<div class="bp-mod-empty-card"><p class="bp-mod-empty-kicker">Booked</p>' +
+            '<p class="bp-mod-empty-title">Payment is processing — your appointment will be confirmed as soon as it settles.</p></div>';
+        });
+      return;
+    }
+    if (bOrder === 'cancelled') {
+      prefixHtml =
+        (prefixHtml || '') +
+        '<p class="bp-mod-err">That payment did not complete — the time slot was released. Please pick a time and try again.</p>';
+    }
     var services = Array.isArray(data.items) ? data.items : [];
     if (!services.length) {
       el.innerHTML = (prefixHtml || '') + renderEmpty('bookings');
@@ -1943,6 +1995,8 @@
             notes: form.notes.value,
             sms_optin_consent: !!(smsConsent && smsConsent.checked),
             captchaToken: captchaToken,
+            // Batch 129: pay-at-booking returns to this page.
+            return_url: window.location.href.split('#')[0],
           };
           var r = await fetch((base || '') + '/api/v1/modules/public/' + encodeURIComponent(token) + '/book', {
             method: 'POST',
@@ -1952,6 +2006,14 @@
           });
           var j = await r.json();
           if (!r.ok || !j || !j.ok) throw new Error((j && j.error) || 'Booking failed');
+          // Batch 129: a priced booking on a payments-connected site
+          // answers with a checkout URL — hand the visitor to the
+          // shared checkout engine; payment settles the appointment.
+          if (j.data && j.data.payment && j.data.payment.url) {
+            if (bookMsg) bookMsg.textContent = 'Taking you to secure payment…';
+            window.location.href = j.data.payment.url;
+            return;
+          }
           var msg = (j.data && j.data.message) || 'Appointment requested.';
           el.innerHTML =
             (shouldShowTitle(el) ? '<h2 class="bp-mod-title">' + esc(data.title || 'Bookings') + '</h2>' : '') +

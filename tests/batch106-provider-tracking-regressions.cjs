@@ -381,8 +381,8 @@ if (NEGATIVE) {
     check('SEC-13 census unchanged by Batch 106 (totals + baseline)', () => {
       const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
       const cz = census();
-      assert.equal(cz.summary.total, 434, 'sink census total pinned');
-      assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 324, 'safe classes pinned');
+      assert.equal(cz.summary.total, 437, 'sink census total pinned');
+      assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 327, 'safe classes pinned');
       const reviewed = new Set(
         cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`)
       );

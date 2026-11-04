@@ -187,7 +187,7 @@ const CENSUS = {
     const cz = census();
     assert.deepEqual(
       cz.summary,
-      { total: 434, STATIC: 152, ESCAPED: 41, SAFE: 73, BUILDER: 58, IDENT: 35, RAW: 75 },
+      { total: 437, STATIC: 155, ESCAPED: 41, SAFE: 73, BUILDER: 58, IDENT: 35, RAW: 75 },
       'SEC-13 census summary unchanged'
     );
     n += 1;

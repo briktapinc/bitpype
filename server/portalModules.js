@@ -100,6 +100,11 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
         effective_mode: shopStripe.effectiveMode(db, Number(leadId)),
         orders: modules.listShopOrdersWithItems(db, Number(leadId), { limit: 50 }),
         webhook_path: `/api/v1/shop/webhook/${Number(workspaceId)}`,
+        // Batch 129 (additive): the ONE unified payments config
+        // status + the canonical webhook URL (the legacy path above
+        // remains an alias of the same pipeline).
+        payments_unified: require('./paymentsConfig').statusFor(db, Number(leadId), 'shop'),
+        webhook_path_unified: `/api/v1/payments/webhook/${Number(workspaceId)}`,
       };
     } else if (type === 'courses') items = modules.listCourses(db, Number(leadId));
     else if (type === 'gallery') items = modules.listAlbums(db, Number(leadId));
@@ -190,6 +195,11 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
         payments: modules.membershipStripeStatus(db, Number(leadId)),
         revenue: modules.membershipRevenueSummary(db, Number(leadId)),
         webhook_path: `/api/v1/membership/webhook/${Number(workspaceId)}`,
+        // Batch 129 (additive): the ONE unified payments config —
+        // the same config the Shop pane manages — plus the canonical
+        // webhook URL (the legacy path above remains an alias).
+        payments_unified: require('./paymentsConfig').statusFor(db, Number(leadId), 'membership'),
+        webhook_path_unified: `/api/v1/payments/webhook/${Number(workspaceId)}`,
       };
     }
     else if (type === 'datatables') {
@@ -352,6 +362,10 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
         effective_source: payments.connected ? 'lead' : workspaceConfigured ? 'workspace' : 'none',
         effective_mode: shopStripe.effectiveMode(db, Number(leadId)),
         webhook_path: `/api/v1/shop/webhook/${Number(workspaceId)}`,
+        // Batch 129 (additive): the ONE unified payments config
+        // status + the canonical webhook URL.
+        payments_unified: require('./paymentsConfig').statusFor(db, Number(leadId), 'shop'),
+        webhook_path_unified: `/api/v1/payments/webhook/${Number(workspaceId)}`,
         orders: modules.listShopOrdersWithItems(db, Number(leadId), { limit: 50 }),
       };
     } else throw Object.assign(new Error('Unknown module type'), { code: 'VALIDATION', status: 400 });

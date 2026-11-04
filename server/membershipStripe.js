@@ -5,10 +5,16 @@
  *
  * Mirrors server/shopStripe.js, but the credentials belong to the SITE
  * OWNER's own Stripe account and are scoped to their lead: owners save
- * them in the portal (Members → Payments), stored secretBox-encrypted
- * in membership_stripe_keys. Money flows directly between the member
- * and the site owner's Stripe account — the platform never holds it,
- * and the admin panel only ever READS payout state for oversight.
+ * them in the portal (Members → Payments). Money flows directly between
+ * the member and the site owner's Stripe account — the platform never
+ * holds it, and the admin panel only ever READS payout state for
+ * oversight.
+ *
+ * Batch 129: the credentials resolve through the ONE unified payments
+ * config (server/paymentsConfig.js) — the unified row first, the
+ * pre-129 membership_stripe_keys store as a read-only fallback. This
+ * module is the membership-purpose adapter: tier prices, subscription
+ * checkout support, origin-aware subscription cancel, payout reads.
  *
  * This module is the only Stripe-touching membership layer: the gate
  * and all entitlement reads run on local member_subscriptions rows.
@@ -17,7 +23,11 @@
 const crypto = require('crypto');
 const Stripe = require('stripe');
 const siteModules = require('./siteModules');
-const secretBox = require('../src/secretBox');
+// Batch 129: the credentials this adapter resolves come from the ONE
+// payments config (server/paymentsConfig.js) — the unified row
+// first, the pre-129 membership key store as fallback. Memberships
+// never resolve to the workspace account (unchanged Batch 17 rule).
+const paymentsConfig = require('./paymentsConfig');
 
 const clientCache = new Map(); // `${leadId}:${keyFingerprint}` -> Stripe client
 const payoutCache = new Map(); // leadId -> { at: epochMs, value }
@@ -30,22 +40,18 @@ function notConfigured(message) {
   return e;
 }
 
-/** Decrypted credentials for one lead (server-side only, never exported whole). */
+/** Decrypted credentials for one lead (server-side only, never exported whole).
+ *  Batch 129: the effective membership-purpose layer — unified config
+ *  first, membership legacy second. */
 function getCredentials(db, leadId) {
-  siteModules.ensureTables(db);
-  const row = siteModules.getMembershipStripeKeyRow(db, Number(leadId));
-  const dec = (v) => {
-    if (!v) return '';
-    try {
-      return String(secretBox.decryptValue(v) || '').trim();
-    } catch {
-      return '';
-    }
-  };
+  const layer = paymentsConfig
+    .layersFor(db, leadId, 'membership')
+    .find((l) => l.secretKey || l.publishableKey || l.webhookSecret);
+  if (!layer) return { publishableKey: '', secretKey: '', webhookSecret: '' };
   return {
-    publishableKey: row ? String(row.publishable_key || '').trim() : '',
-    secretKey: dec(row && row.secret_key_enc),
-    webhookSecret: dec(row && row.webhook_secret_enc),
+    publishableKey: layer.publishableKey || '',
+    secretKey: layer.secretKey || '',
+    webhookSecret: layer.webhookSecret || '',
   };
 }
 
@@ -68,14 +74,33 @@ function getClient(db, leadId) {
 }
 
 /**
- * Verify a webhook payload against ONE lead's webhook secret and
- * return the parsed event. Throws MEMBERSHIP_STRIPE_NOT_CONFIGURED
- * when the lead has no keys, or a Stripe signature error otherwise.
+ * Verify a webhook payload against ONE lead's membership-purpose
+ * webhook secrets and return the parsed event. Batch 129: tries the
+ * unified secret first, then the membership legacy secret — an event
+ * for a subscription created under the retired store still verifies.
+ * Throws MEMBERSHIP_STRIPE_NOT_CONFIGURED when the lead has no
+ * membership-purpose webhook secret, or a Stripe signature error
+ * otherwise.
  */
 function constructEventForLead(db, leadId, rawBody, signature) {
-  const { webhookSecret } = getCredentials(db, leadId);
-  if (!webhookSecret) throw notConfigured('Membership webhooks are not configured for this site.');
-  return getClient(db, leadId).webhooks.constructEvent(rawBody, signature, webhookSecret);
+  const candidates = paymentsConfig
+    .webhookCandidates(db, leadId, 'membership')
+    .filter((c) => c.source === 'unified' || c.source === 'membership');
+  if (!candidates.length) {
+    throw notConfigured('Membership webhooks are not configured for this site.');
+  }
+  let lastError = null;
+  for (const cand of candidates) {
+    try {
+      const client = cand.secretKey
+        ? paymentsConfig.clientForLayer(leadId, cand.source, cand.secretKey)
+        : getClient(db, leadId);
+      return client.webhooks.constructEvent(rawBody, signature, cand.webhookSecret);
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw lastError || new Error('Webhook signature verification failed');
 }
 
 /**
@@ -224,9 +249,41 @@ async function cancelMemberSubscription(db, leadId, memberId) {
   if (!sub.stripe_subscription_id) {
     return { subscription: siteModules.cancelLocalSubscription(db, sub.id), stripe_called: false };
   }
-  const stripe = getClient(db, id);
-  await stripe.subscriptions.update(sub.stripe_subscription_id, { cancel_at_period_end: true });
-  return { subscription: siteModules.markSubscriptionCanceling(db, sub.id), stripe_called: true };
+  // Batch 129 — origin-aware cancel. A subscription lives on the
+  // Stripe account that CREATED it; if the owner later unified the
+  // payments config onto a different account, cancelling through the
+  // currently-resolved client would 404 (or worse, act on the wrong
+  // account). Try the subscription's origin layer first (pre-129
+  // subscriptions have no recorded source and were created under the
+  // membership keys BY DEFINITION, so the membership legacy layer
+  // leads for them), then the other layer; only when every candidate
+  // fails does the first error surface.
+  const origin = String(sub.stripe_key_source || '');
+  const unifiedCreds = paymentsConfig.getUnifiedCredentials(db, id);
+  const legacyCreds = paymentsConfig.getMembershipLegacyCredentials(db, id);
+  const ordered =
+    origin === 'unified'
+      ? [
+          { source: 'unified', creds: unifiedCreds },
+          { source: 'membership', creds: legacyCreds },
+        ]
+      : [
+          { source: 'membership', creds: legacyCreds },
+          { source: 'unified', creds: unifiedCreds },
+        ];
+  const usable = ordered.filter((c) => c.creds && c.creds.secretKey);
+  if (!usable.length) throw notConfigured();
+  let firstError = null;
+  for (const cand of usable) {
+    try {
+      const stripe = paymentsConfig.clientForLayer(id, cand.source, cand.creds.secretKey);
+      await stripe.subscriptions.update(sub.stripe_subscription_id, { cancel_at_period_end: true });
+      return { subscription: siteModules.markSubscriptionCanceling(db, sub.id), stripe_called: true };
+    } catch (e) {
+      if (!firstError) firstError = e;
+    }
+  }
+  throw firstError;
 }
 
 function sumAmounts(list) {

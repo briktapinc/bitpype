@@ -55,6 +55,9 @@ const SCOPE = [
   'tests/batch126-qrcode-generator-regressions.cjs',
   'tests/batch127-product-variants-regressions.cjs',
   'tests/batch128-checkout-module-regressions.cjs',
+  'server/paymentsConfig.js',
+  'server/routes/paymentsWebhook.js',
+  'tests/batch129-streamline-regressions.cjs',
   'tsconfig.checkjs.json',
 ];
 

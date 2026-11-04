@@ -4,7 +4,7 @@
  *
  * What this pins:
  *   Part 1 — source pins: `categories` is the 24th MODULE_TYPE with
- *     catalog metadata, MODULE_SCRIPT_VER mod31 (mod30 at Batch 124; Batch 128 finisher rotation), a moduleShare
+ *     catalog metadata, MODULE_SCRIPT_VER mod32 (mod30 at Batch 124; Batch 128 finisher rotation), a moduleShare
  *     registry provider entry (parity at 24), the categories service
  *     module, taxonomy tables, MCP + catalog + parity + agent tool
  *     surfaces, portal editor wiring (picker + Categories pane +
@@ -123,8 +123,8 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     assert.ok(smSrc.includes("categories: { label: 'Categories'"), 'MODULE_META carries the Categories label');
     n++;
     assert.ok(
-      smSrc.includes("const MODULE_SCRIPT_VER = 'mod31'"),
-      'MODULE_SCRIPT_VER bumped to mod31 (Batch 128 finisher rotation)'
+      smSrc.includes("const MODULE_SCRIPT_VER = 'mod32'"),
+      'MODULE_SCRIPT_VER bumped to mod32 (Batch 128 finisher rotation)'
     );
     n++;
 

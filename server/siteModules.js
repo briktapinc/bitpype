@@ -51,7 +51,7 @@ const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod31';
+const MODULE_SCRIPT_VER = 'mod32';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -92,6 +92,11 @@ const MODULE_META = {
 };
 
 const BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'];
+/** Batch 129 (pay-at-booking): how long an unpaid booking holds its
+ *  slot while the visitor completes checkout. The hold behaves
+ *  exactly like a pending appointment for availability purposes
+ *  until it lapses (see releaseExpiredBookingHolds). */
+const BOOKING_PAYMENT_HOLD_MINUTES = 30;
 const DEFAULT_BOOKING_HOURS = [
   { weekday: 1, start_time: '09:00', end_time: '17:00' },
   { weekday: 2, start_time: '09:00', end_time: '17:00' },
@@ -891,6 +896,22 @@ function ensureTables(db) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- Batch 129 (streamline all): the ONE per-lead payments
+    -- configuration. Every selling surface (shop, checkout,
+    -- gallery photos, pay-at-booking, memberships) resolves its
+    -- Stripe keys through this row via server/paymentsConfig.js;
+    -- the two legacy key tables above remain only as read-only
+    -- fallback layers for pre-129 setups until their owners save
+    -- or disconnect through the unified path.
+    CREATE TABLE IF NOT EXISTS lead_payment_configs (
+      lead_id INTEGER PRIMARY KEY,
+      publishable_key TEXT NOT NULL DEFAULT '',
+      secret_key_enc TEXT NOT NULL DEFAULT '',
+      webhook_secret_enc TEXT NOT NULL DEFAULT '',
+      secret_key_last4 TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     -- Batch 128 (Checkout module): the line items of a shop order.
     -- One row per cart line, written by the cart checkout (the legacy
     -- single-product checkout writes exactly one). Product name, photo
@@ -1116,6 +1137,31 @@ function ensureTables(db) {
       .map((c) => String(c.name || ''));
     if (galleryCols.length && !galleryCols.includes('price_cents')) {
       db.exec('ALTER TABLE gallery_images ADD COLUMN price_cents INTEGER NOT NULL DEFAULT 0');
+    }
+    // Batch 129: bookings gain their payment link — pay-at-booking runs
+    // through the shared checkout engine (hold → paid / released, with
+    // the ecommerce_orders row that collected the money) — and member
+    // subscriptions record which payments-config layer created them,
+    // so lifecycle operations can act on the origin account first.
+    const bookingCols = db
+      .prepare('PRAGMA table_info(bookings)')
+      .all()
+      .map((c) => String(c.name || ''));
+    if (bookingCols.length && !bookingCols.includes('payment_state')) {
+      db.exec("ALTER TABLE bookings ADD COLUMN payment_state TEXT NOT NULL DEFAULT ''");
+    }
+    if (bookingCols.length && !bookingCols.includes('payment_expires_at')) {
+      db.exec('ALTER TABLE bookings ADD COLUMN payment_expires_at TEXT');
+    }
+    if (bookingCols.length && !bookingCols.includes('payment_order_id')) {
+      db.exec('ALTER TABLE bookings ADD COLUMN payment_order_id INTEGER');
+    }
+    const subCols = db
+      .prepare('PRAGMA table_info(member_subscriptions)')
+      .all()
+      .map((c) => String(c.name || ''));
+    if (subCols.length && !subCols.includes('stripe_key_source')) {
+      db.exec("ALTER TABLE member_subscriptions ADD COLUMN stripe_key_source TEXT NOT NULL DEFAULT ''");
     }
   } catch {
     /* race / exists */
@@ -4256,9 +4302,12 @@ function lineForGalleryImage(img) {
  *   - 'gallery' — gallery photos the owner priced (published album,
  *     price_cents > 0), sold one at a time; delivery is the photo
  *     download on the paid success state.
- * Everything else (memberships sell through their own Stripe path;
- * bookings/courses/offers carry no checkout-sellable price) is
- * refused with a plain reason — one purchase = one path.
+ * Everything else is refused with a plain reason. Batch 129 note:
+ * bookings are NOT a cart source by design — a cart line creates no
+ * appointment — but they are not unsold either: the booking flow
+ * itself sells through this same engine (lineForBookingService →
+ * checkoutShopLines), and memberships sell through the same unified
+ * payments config in subscription mode. One engine, several doors.
  * Mixed-source carts are allowed: every line here is charged
  * through the SAME lead-level shop Stripe configuration, so the
  * money lands in one place. Duplicate lines merge per
@@ -4351,7 +4400,14 @@ function buildSellableLines(db, leadId, rawItems) {
  */
 function insertShopOrderWithLines(db, leadId, lines, { keySource = '', currency = 'USD' } = {}) {
   ensureTables(db);
-  const ks = keySource === 'lead' ? 'lead' : keySource === 'workspace' ? 'workspace' : '';
+  const ks =
+    keySource === 'lead'
+      ? 'lead'
+      : keySource === 'workspace'
+        ? 'workspace'
+        : keySource === 'unified'
+          ? 'unified'
+          : '';
   const total = lines.reduce((sum, l) => sum + (Number(l.line_total_cents) || 0), 0);
   const first = lines[0] || {};
   // The order row's legacy product link stays meaningful for the
@@ -4423,6 +4479,48 @@ function listShopOrders(db, leadId, { limit = 50 } = {}) {
  * Idempotent: orders are matched by checkout session id and terminal
  * states are never downgraded. Returns { matched, orderId?, status? }.
  */
+/**
+ * Batch 129 — settle a booking payment hold from its order's fate.
+ * Called by applyShopStripeEvent on the paid / expired / failed
+ * transitions ONLY (never on payment_intent.payment_failed — a card
+ * retry inside the same session must not lose the slot). Every
+ * branch is guarded on payment_state = 'hold', so webhook replays
+ * and late events are no-ops once a hold has settled either way.
+ * outcome 'paid': payment_state 'paid'; the appointment confirms
+ * when the business auto-confirms (otherwise it stays 'pending' for
+ * the owner, now truthfully paid). outcome 'released': the hold is
+ * freed and the appointment cancelled.
+ */
+function applyBookingPaymentTransition(db, order, outcome) {
+  const items = listShopOrderItems(db, order.id).filter((l) => l.source_module === 'bookings');
+  for (const line of items) {
+    let meta = {};
+    try {
+      meta = JSON.parse(line.source_meta || '{}');
+    } catch {
+      meta = {};
+    }
+    const apptId = Number(meta.appointment_id);
+    if (!Number.isInteger(apptId) || apptId <= 0) continue;
+    const appt = db
+      .prepare('SELECT * FROM bookings WHERE id = ? AND lead_id = ?')
+      .get(apptId, Number(order.lead_id));
+    if (!appt || appt.payment_state !== 'hold') continue;
+    if (outcome === 'paid') {
+      const settings = getBookingSettings(db, order.lead_id);
+      const nextStatus =
+        appt.status === 'pending' && settings.auto_confirm ? 'confirmed' : appt.status;
+      db.prepare(
+        "UPDATE bookings SET payment_state = 'paid', payment_order_id = ?, status = ?, updated_at = datetime('now') WHERE id = ? AND lead_id = ?"
+      ).run(Number(order.id), nextStatus, apptId, Number(order.lead_id));
+    } else {
+      db.prepare(
+        "UPDATE bookings SET payment_state = 'released', status = 'cancelled', updated_at = datetime('now') WHERE id = ? AND lead_id = ?"
+      ).run(apptId, Number(order.lead_id));
+    }
+  }
+}
+
 function applyShopStripeEvent(db, event) {
   ensureTables(db);
   const type = String((event && event.type) || '');
@@ -4459,10 +4557,14 @@ function applyShopStripeEvent(db, event) {
         (obj.customer_details && obj.customer_details.email) || obj.customer_email || order.customer_email || ''
       ),
     });
+    // Batch 129: a paid order may be a booking's payment — settle its hold.
+    applyBookingPaymentTransition(db, order, 'paid');
     return { matched: true, orderId: order.id, status: 'paid' };
   }
   if (type === 'checkout.session.expired' || type === 'checkout.session.async_payment_failed') {
     updateShopOrder(db, order.id, { status: type.endsWith('expired') ? 'expired' : 'failed' });
+    // Batch 129: the checkout died — release any booking hold on it.
+    applyBookingPaymentTransition(db, order, 'released');
     return { matched: true, orderId: order.id, status: type.endsWith('expired') ? 'expired' : 'failed' };
   }
   if (type === 'payment_intent.payment_failed') {
@@ -4470,6 +4572,32 @@ function applyShopStripeEvent(db, event) {
     return { matched: true, orderId: order.id, status: 'failed' };
   }
   return { matched: true, orderId: order.id, status: order.status };
+}
+
+/**
+ * Batch 129 — the ONE tenant-event dispatcher behind the ONE
+ * payments webhook pipeline (server/routes/paymentsWebhook.js,
+ * mounted at /api/v1/payments/webhook AND at both legacy URLs).
+ * Membership events (a member checkout's metadata, or any
+ * subscription/invoice lifecycle type) go to the membership apply;
+ * everything else (checkout sessions, payment intents) goes to the
+ * shop/order apply — which also settles booking holds, since a
+ * booking payment IS a shop order. Disambiguating
+ * checkout.session.completed by its stamped metadata is what lets
+ * one pipeline serve every surface without per-module forks.
+ */
+function applyTenantStripeEvent(db, event) {
+  const type = String((event && event.type) || '');
+  const obj = (event && event.data && event.data.object) || {};
+  const meta = obj.metadata || {};
+  const isMembership =
+    !!meta.bitpype_member_id ||
+    type.startsWith('customer.subscription.') ||
+    type.startsWith('invoice.');
+  if (isMembership) {
+    return { pipeline: 'membership', ...applyMembershipStripeEvent(db, event) };
+  }
+  return { pipeline: 'shop', ...applyShopStripeEvent(db, event) };
 }
 
 /**
@@ -4525,9 +4653,16 @@ async function checkoutShopLines(db, embedRow, lines, currency, returnUrl) {
         },
       })),
       client_reference_id: String(order.id),
+      // Batch 129: every session through this core — shop Buy door,
+      // cart, photo, pay-at-booking — is stamped with the shared
+      // purpose + the payments-config layer that ran it, so one
+      // metadata/behavior change here is observable on every
+      // selling surface (the streamline invariant).
       metadata: {
         bitpype_order_id: String(order.id),
         bitpype_lead_id: String(embedRow.lead_id),
+        bitpype_purpose: 'shop',
+        bitpype_key_source: resolved.source,
         ...(lines.length === 1 && lines[0].source_module === 'ecommerce'
           ? {
               bitpype_product_id: String(lines[0].product_id),
@@ -4535,7 +4670,14 @@ async function checkoutShopLines(db, embedRow, lines, currency, returnUrl) {
             }
           : {}),
       },
-      payment_intent_data: { metadata: { bitpype_order_id: String(order.id) } },
+      payment_intent_data: {
+        metadata: {
+          bitpype_order_id: String(order.id),
+          bitpype_lead_id: String(embedRow.lead_id),
+          bitpype_purpose: 'shop',
+          bitpype_key_source: resolved.source,
+        },
+      },
       success_url: `${base}${sep}order=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${base}${sep}order=cancelled`,
     });
@@ -11467,75 +11609,53 @@ function getMembershipStripeKeyRow(db, leadId) {
   );
 }
 
-/**
- * Save the owner's Stripe keys for their site. Fields left blank keep
- * the stored value (the settings-UI convention); secret material is
- * stored secretBox-encrypted and is never returned — only a status.
- */
-function saveMembershipStripeKeys(db, leadId, data = {}) {
+/** Raw UNIFIED payments-config row (encrypted values). Batch 129:
+ *  internal: paymentsConfig + tests. */
+function getPaymentConfigRow(db, leadId) {
   ensureTables(db);
-  const id = Number(leadId);
-  const box = require('../src/secretBox');
-  const existing = getMembershipStripeKeyRow(db, id);
-  const keep = (next, prev) => {
-    const v = next == null ? '' : String(next).trim();
-    return v === '' ? prev || '' : v;
-  };
-  let secretPlain = '';
-  if (data.secret_key != null && String(data.secret_key).trim() !== '') {
-    secretPlain = String(data.secret_key).trim();
-    if (!/^(sk|rk)_(test|live)_/.test(secretPlain)) {
-      throw fail('VALIDATION', 'Secret key must be a Stripe secret or restricted key (sk_… or rk_…).', 400);
-    }
-  }
-  let publishable = keep(data.publishable_key, existing && existing.publishable_key);
-  if (publishable && !/^pk_(test|live)_/.test(publishable)) {
-    throw fail('VALIDATION', 'Publishable key must start with pk_test_ or pk_live_.', 400);
-  }
-  let webhookPlain = '';
-  if (data.webhook_secret != null && String(data.webhook_secret).trim() !== '') {
-    webhookPlain = String(data.webhook_secret).trim();
-    if (!/^whsec_/.test(webhookPlain)) {
-      throw fail('VALIDATION', 'Webhook signing secret must start with whsec_.', 400);
-    }
-  }
-  const secretEnc = secretPlain
-    ? box.encryptValue(secretPlain)
-    : existing
-      ? existing.secret_key_enc
-      : '';
-  const webhookEnc = webhookPlain
-    ? box.encryptValue(webhookPlain)
-    : existing
-      ? existing.webhook_secret_enc
-      : '';
-  const last4 = secretPlain ? secretPlain.slice(-4) : existing ? existing.secret_key_last4 || '' : '';
-  db.prepare(
-    `INSERT INTO membership_stripe_keys (lead_id, publishable_key, secret_key_enc, webhook_secret_enc, secret_key_last4, updated_at)
-     VALUES (?, ?, ?, ?, ?, datetime('now'))
-     ON CONFLICT(lead_id) DO UPDATE SET publishable_key = excluded.publishable_key,
-       secret_key_enc = excluded.secret_key_enc, webhook_secret_enc = excluded.webhook_secret_enc,
-       secret_key_last4 = excluded.secret_key_last4, updated_at = datetime('now')`
-  ).run(id, publishable || '', secretEnc || '', webhookEnc || '', last4 || '');
-  return membershipStripeStatus(db, id);
+  return (
+    db.prepare('SELECT * FROM lead_payment_configs WHERE lead_id = ?').get(Number(leadId)) || null
+  );
 }
 
-function clearMembershipStripeKeys(db, leadId) {
-  ensureTables(db);
-  db.prepare('DELETE FROM membership_stripe_keys WHERE lead_id = ?').run(Number(leadId));
+/**
+ * Save the owner's Stripe keys for their site.
+ *
+ * Batch 129: this is a FACADE over the one unified payments config
+ * (server/paymentsConfig.js saveCredentials, purpose 'membership') —
+ * the membership key store's write path is RETIRED. Fields left blank
+ * keep the stored value of the effective config; the Batch 128
+ * test/live mode-mix refusal now applies here too, because there is
+ * only one config left to keep honest.
+ */
+function saveMembershipStripeKeys(db, leadId, data = {}) {
+  require('./paymentsConfig').saveCredentials(db, leadId, data, 'membership');
   return membershipStripeStatus(db, leadId);
 }
 
-/** Owner-safe status: never carries secret or webhook values. */
+/** Batch 129: disconnect is ONE action for the ONE config — it
+ *  clears the unified row and both legacy key rows (see
+ *  paymentsConfig.clearCredentials). */
+function clearMembershipStripeKeys(db, leadId) {
+  require('./paymentsConfig').clearCredentials(db, leadId);
+  return membershipStripeStatus(db, leadId);
+}
+
+/** Owner-safe status: never carries secret or webhook values.
+ *  Batch 129: reads the EFFECTIVE membership-purpose layer (unified
+ *  config first, membership legacy second). `mode`, `source` and
+ *  `unified` are additive; every pre-129 field keeps its meaning. */
 function membershipStripeStatus(db, leadId) {
-  const row = getMembershipStripeKeyRow(db, leadId);
-  const connected = !!(row && row.secret_key_enc);
+  const s = require('./paymentsConfig').statusFor(db, leadId, 'membership');
   return {
-    connected,
-    publishable_key: row ? row.publishable_key || '' : '',
-    secret_key_last4: row ? row.secret_key_last4 || '' : '',
-    webhook_configured: !!(row && row.webhook_secret_enc),
-    updated_at: row ? row.updated_at || null : null,
+    connected: s.connected,
+    publishable_key: s.publishable_key,
+    secret_key_last4: s.secret_key_last4,
+    webhook_configured: s.webhook_configured,
+    updated_at: s.updated_at,
+    mode: s.mode,
+    source: s.source,
+    unified: s.unified,
   };
 }
 
@@ -11556,136 +11676,66 @@ function getShopStripeKeyRow(db, leadId) {
 }
 
 /**
- * Save the owner's Stripe keys for their shop. Fields left blank keep
- * the stored value (the settings-UI convention); secret material is
- * stored secretBox-encrypted and is never returned — only a status.
+ * Save the owner's Stripe keys for their shop.
+ *
+ * Batch 129: this is a FACADE over the one unified payments config
+ * (server/paymentsConfig.js saveCredentials, purpose 'shop') — the
+ * shop key store's write path is RETIRED. Fields left blank keep the
+ * stored value of the effective config (unified row, else the shop
+ * legacy row), so a first save after 129 migrates a working legacy
+ * setup instead of orphaning it. Format validation and the Batch 128
+ * test/live mode-mix refusal live in the one write path and run
+ * BEFORE any write: a refused save stores nothing.
  */
 function saveShopStripeKeys(db, leadId, data = {}) {
-  ensureTables(db);
-  const id = Number(leadId);
-  const box = require('../src/secretBox');
-  const existing = getShopStripeKeyRow(db, id);
-  const keep = (next, prev) => {
-    const v = next == null ? '' : String(next).trim();
-    return v === '' ? prev || '' : v;
-  };
-  let secretPlain = '';
-  if (data.secret_key != null && String(data.secret_key).trim() !== '') {
-    secretPlain = String(data.secret_key).trim();
-    if (!/^(sk|rk)_(test|live)_/.test(secretPlain)) {
-      throw fail('VALIDATION', 'Secret key must be a Stripe secret or restricted key (sk_… or rk_…).', 400);
-    }
-  }
-  let publishable = keep(data.publishable_key, existing && existing.publishable_key);
-  if (publishable && !/^pk_(test|live)_/.test(publishable)) {
-    throw fail('VALIDATION', 'Publishable key must start with pk_test_ or pk_live_.', 400);
-  }
-  let webhookPlain = '';
-  if (data.webhook_secret != null && String(data.webhook_secret).trim() !== '') {
-    webhookPlain = String(data.webhook_secret).trim();
-    if (!/^whsec_/.test(webhookPlain)) {
-      throw fail('VALIDATION', 'Webhook signing secret must start with whsec_.', 400);
-    }
-  }
-  // Batch 128: test/live mode must never MIX inside one shop's keys.
-  // The effective publishable + secret pair after this save must be
-  // the same mode (both test or both live) — a test secret behind a
-  // live publishable key (or the reverse) would silently mislead
-  // every status the portal shows. A side with no key yet constrains
-  // nothing.
-  const keyMode = (k) => {
-    const v = String(k || '');
-    if (/^(pk|sk|rk)_test_/.test(v)) return 'test';
-    if (/^(pk|sk|rk)_live_/.test(v)) return 'live';
-    return null;
-  };
-  const pkMode = keyMode(publishable);
-  let skMode = keyMode(secretPlain);
-  if (!skMode && existing && existing.secret_key_enc) {
-    try {
-      skMode = keyMode(box.decryptValue(existing.secret_key_enc));
-    } catch {
-      skMode = null;
-    }
-  }
-  if (pkMode && skMode && pkMode !== skMode) {
-    throw fail(
-      'VALIDATION',
-      'Publishable and secret keys must be from the same Stripe mode (both test or both live).',
-      400
-    );
-  }
-  const secretEnc = secretPlain
-    ? box.encryptValue(secretPlain)
-    : existing
-      ? existing.secret_key_enc
-      : '';
-  const webhookEnc = webhookPlain
-    ? box.encryptValue(webhookPlain)
-    : existing
-      ? existing.webhook_secret_enc
-      : '';
-  const last4 = secretPlain ? secretPlain.slice(-4) : existing ? existing.secret_key_last4 || '' : '';
-  db.prepare(
-    `INSERT INTO shop_stripe_keys (lead_id, publishable_key, secret_key_enc, webhook_secret_enc, secret_key_last4, updated_at)
-     VALUES (?, ?, ?, ?, ?, datetime('now'))
-     ON CONFLICT(lead_id) DO UPDATE SET publishable_key = excluded.publishable_key,
-       secret_key_enc = excluded.secret_key_enc, webhook_secret_enc = excluded.webhook_secret_enc,
-       secret_key_last4 = excluded.secret_key_last4, updated_at = datetime('now')`
-  ).run(id, publishable || '', secretEnc || '', webhookEnc || '', last4 || '');
-  return shopStripeStatus(db, id);
+  require('./paymentsConfig').saveCredentials(db, leadId, data, 'shop');
+  return shopStripeStatus(db, leadId);
 }
 
+/** Batch 129: disconnect is ONE action for the ONE config — it
+ *  clears the unified row and both legacy key rows (see
+ *  paymentsConfig.clearCredentials). */
 function clearShopStripeKeys(db, leadId) {
-  ensureTables(db);
-  db.prepare('DELETE FROM shop_stripe_keys WHERE lead_id = ?').run(Number(leadId));
+  require('./paymentsConfig').clearCredentials(db, leadId);
   return shopStripeStatus(db, leadId);
 }
 
 /** Owner-safe status: never carries secret or webhook values.
- *  Batch 128: `mode` reports which Stripe mode the SAVED secret key
- *  actually belongs to ('test' | 'live' | null) — derived from the
- *  decrypted key's prefix at read time (the shopStripe.modeForSecret
+ *  Batch 128: `mode` reports which Stripe mode the effective secret
+ *  key actually belongs to ('test' | 'live' | null) — derived from
+ *  the key's prefix at read time (the paymentsConfig.modeForSecret
  *  rule), never a stored claim, so the portal can say plainly
- *  whether this shop would take test or real charges. */
+ *  whether this shop would take test or real charges.
+ *  Batch 129: reads the EFFECTIVE shop-purpose LEAD layer (unified
+ *  config first, shop legacy second). `source` ('unified' | 'lead')
+ *  and `unified` are additive; every pre-129 field keeps its
+ *  meaning. The workspace fallback layer is NOT part of this status
+ *  (it is the operator's, reported separately as before). */
 function shopStripeStatus(db, leadId) {
-  const row = getShopStripeKeyRow(db, leadId);
-  const connected = !!(row && row.secret_key_enc);
-  let mode = null;
-  if (connected) {
-    try {
-      mode = require('./shopStripe').modeForSecret(require('../src/secretBox').decryptValue(row.secret_key_enc));
-    } catch {
-      mode = null;
-    }
-  }
+  const s = require('./paymentsConfig').statusFor(db, leadId, 'shop');
   return {
-    connected,
-    mode,
-    publishable_key: row ? row.publishable_key || '' : '',
-    secret_key_last4: row ? row.secret_key_last4 || '' : '',
-    webhook_configured: !!(row && row.webhook_secret_enc),
-    updated_at: row ? row.updated_at || null : null,
+    connected: s.connected,
+    mode: s.mode,
+    publishable_key: s.publishable_key,
+    secret_key_last4: s.secret_key_last4,
+    webhook_configured: s.webhook_configured,
+    updated_at: s.updated_at,
+    source: s.source,
+    unified: s.unified,
   };
 }
 
-/**
- * Per-site payment state for the admin Shop screen: every lead that
- * has the Shop module, whether it connected its OWN Stripe keys, and
- * the effective source its checkout would use right now ('lead' when
- * the owner connected keys, 'workspace' when only the workspace keys
- * exist, 'none' when checkout cannot run). Truthful by construction —
- * derived from the key rows, never from a saved flag.
- */
 function listShopPaymentSites(db, workspaceConfigured) {
   ensureTables(db);
   const rows = db
     .prepare(
       `SELECT e.lead_id AS lead_id, l.business_name AS lead_name,
-              CASE WHEN k.secret_key_enc IS NOT NULL AND k.secret_key_enc <> '' THEN 1 ELSE 0 END AS lead_connected
+              CASE WHEN (k.secret_key_enc IS NOT NULL AND k.secret_key_enc <> '')
+                        OR (u.secret_key_enc IS NOT NULL AND u.secret_key_enc <> '') THEN 1 ELSE 0 END AS lead_connected
        FROM site_module_embeds e
        LEFT JOIN leads l ON l.id = e.lead_id
        LEFT JOIN shop_stripe_keys k ON k.lead_id = e.lead_id
+       LEFT JOIN lead_payment_configs u ON u.lead_id = e.lead_id
        WHERE e.module_type = 'ecommerce'
        ORDER BY e.lead_id ASC`
     )
@@ -11850,6 +11900,10 @@ function shapeMemberSubscription(row) {
     interval: MEMBER_TIER_INTERVALS.includes(row.interval) ? row.interval : 'month',
     stripe_customer_id: row.stripe_customer_id || '',
     stripe_subscription_id: row.stripe_subscription_id || '',
+    // Batch 129: which payments-config layer created this
+    // subscription ('unified' | 'membership' | '' pre-129) — lifecycle
+    // operations act on the origin account first.
+    stripe_key_source: row.stripe_key_source || '',
     status: row.status || 'incomplete',
     cancel_at_period_end: Number(row.cancel_at_period_end) === 1,
     current_period_end: row.current_period_end || null,
@@ -11950,18 +12004,26 @@ function upsertMemberSubscription(db, fields) {
           : 0,
     current_period_end:
       fields.current_period_end !== undefined ? fields.current_period_end : existing ? existing.current_period_end : null,
+    // Batch 129: recorded once at creation from the checkout
+    // session's stamped metadata; lifecycle events never rewrite it.
+    stripe_key_source:
+      fields.stripe_key_source !== undefined
+        ? String(fields.stripe_key_source || '')
+        : existing
+          ? existing.stripe_key_source || ''
+          : '',
   };
   if (existing) {
     db.prepare(
       `UPDATE member_subscriptions
        SET lead_id = ?, member_id = ?, tier_id = ?, tier_name = ?, price_cents = ?, interval = ?,
            stripe_customer_id = ?, stripe_subscription_id = ?, status = ?, cancel_at_period_end = ?,
-           current_period_end = ?, updated_at = datetime('now')
+           current_period_end = ?, stripe_key_source = ?, updated_at = datetime('now')
        WHERE id = ?`
     ).run(
       merged.lead_id, merged.member_id, merged.tier_id, merged.tier_name, merged.price_cents, merged.interval,
       merged.stripe_customer_id, merged.stripe_subscription_id, merged.status, merged.cancel_at_period_end,
-      merged.current_period_end, existing.id
+      merged.current_period_end, merged.stripe_key_source, existing.id
     );
     return shapeMemberSubscription(db.prepare('SELECT * FROM member_subscriptions WHERE id = ?').get(existing.id));
   }
@@ -11969,13 +12031,13 @@ function upsertMemberSubscription(db, fields) {
     .prepare(
       `INSERT INTO member_subscriptions
        (lead_id, member_id, tier_id, tier_name, price_cents, interval, stripe_customer_id,
-        stripe_subscription_id, status, cancel_at_period_end, current_period_end)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        stripe_subscription_id, status, cancel_at_period_end, current_period_end, stripe_key_source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       merged.lead_id, merged.member_id, merged.tier_id, merged.tier_name, merged.price_cents, merged.interval,
       merged.stripe_customer_id, merged.stripe_subscription_id, merged.status, merged.cancel_at_period_end,
-      merged.current_period_end
+      merged.current_period_end, merged.stripe_key_source
     );
   return shapeMemberSubscription(db.prepare('SELECT * FROM member_subscriptions WHERE id = ?').get(info.lastInsertRowid));
 }
@@ -12113,6 +12175,9 @@ function applyMembershipStripeEvent(db, event) {
       interval: tier ? tier.interval : undefined,
       stripe_customer_id: String(obj.customer || ''),
       stripe_subscription_id: String(obj.subscription || ''),
+      // Batch 129: record the payments-config layer that created
+      // this subscription (stamped on the session at checkout).
+      ...(meta.bitpype_key_source ? { stripe_key_source: String(meta.bitpype_key_source) } : {}),
       // The money landed; the subscription.* events carry the
       // authoritative status + period and converge this row next.
       status: obj.payment_status === 'paid' ? 'active' : 'trialing',
@@ -12209,11 +12274,40 @@ async function createMembershipCheckoutByToken(db, token, { tierId, returnUrl } 
   if (!(tier.price_cents > 0)) {
     throw fail('VALIDATION', 'That plan is free — use Join instead of checkout.', 400);
   }
-  if (!tier.stripe_price_id) {
+  // Batch 129: memberships resolve through the ONE payments config
+  // (purpose 'membership': unified → membership legacy — never the
+  // workspace account). Not connected at all keeps the pre-129 409.
+  const paymentsConfig = require('./paymentsConfig');
+  const resolved = paymentsConfig.resolve(db, leadId, 'membership');
+  if (!resolved) {
     throw fail('MEMBERSHIP_STRIPE_NOT_CONFIGURED', 'Paid memberships are not set up for this site yet.', 409);
   }
   const membershipStripe = require('./membershipStripe');
-  const stripe = membershipStripe.getClient(db, leadId); // throws MEMBERSHIP_STRIPE_NOT_CONFIGURED
+  const stripe = membershipStripe.getClient(db, leadId); // the resolved layer's client
+  // Tier-price account safety: a tier's Stripe price lives on the
+  // account that created it. If the payments config now resolves to
+  // a DIFFERENT account (e.g. the owner unified onto the shop's
+  // account), the stored price id does not exist there — verify it
+  // and, when it is missing, re-ensure the tier's product+price on
+  // the resolved account instead of failing the join. Existing
+  // subscriptions are untouched either way: Stripe keeps billing
+  // them on the account that created them; only NEW joins use the
+  // new price.
+  let priceId = String(tier.stripe_price_id || '');
+  if (priceId) {
+    try {
+      await stripe.prices.retrieve(priceId);
+    } catch {
+      priceId = '';
+    }
+  }
+  if (!priceId) {
+    const ids = await membershipStripe.ensureTierStripePrice(db, leadId, tier);
+    priceId = String(ids.stripe_price_id || '');
+    db.prepare(
+      'UPDATE membership_tiers SET stripe_product_id = ?, stripe_price_id = ?, updated_at = datetime(\'now\') WHERE id = ? AND lead_id = ?'
+    ).run(String(ids.stripe_product_id || ''), priceId, Number(tier.id), Number(leadId));
+  }
   const base = String(returnUrl || '').split('#')[0];
   let parsed;
   try {
@@ -12225,16 +12319,22 @@ async function createMembershipCheckoutByToken(db, token, { tierId, returnUrl } 
     throw fail('VALIDATION', 'A valid return URL is required for checkout', 400);
   }
   const sep = base.includes('?') ? '&' : '?';
+  // Batch 129: the shared session stamps ride along — purpose +
+  // the config layer that ran the charge — on the session AND the
+  // subscription it creates, so the unified webhook attributes the
+  // subscription to its origin account.
   const metadata = {
     bitpype_lead_id: String(leadId),
     bitpype_member_id: String(member.id),
     bitpype_tier_id: String(tier.id),
+    bitpype_purpose: 'membership',
+    bitpype_key_source: resolved.source,
   };
   let session;
   try {
     session = await stripe.checkout.sessions.create({
       mode: 'subscription',
-      line_items: [{ quantity: 1, price: tier.stripe_price_id }],
+      line_items: [{ quantity: 1, price: priceId }],
       client_reference_id: String(member.id),
       customer_email: member.email,
       metadata,
@@ -12274,7 +12374,8 @@ function adminMembershipsLocal(db) {
       `SELECT l.id AS lead_id, l.business_name AS lead_name,
          (SELECT COUNT(*) FROM site_members m WHERE m.lead_id = l.id) AS members_count,
          (SELECT COUNT(*) FROM membership_tiers t WHERE t.lead_id = l.id) AS tiers_count,
-         (SELECT COUNT(*) FROM membership_stripe_keys k WHERE k.lead_id = l.id AND k.secret_key_enc <> '') AS keys_connected
+         (SELECT COUNT(*) FROM membership_stripe_keys k WHERE k.lead_id = l.id AND k.secret_key_enc <> '')
+           + (SELECT COUNT(*) FROM lead_payment_configs u WHERE u.lead_id = l.id AND u.secret_key_enc <> '' AND NOT EXISTS (SELECT 1 FROM membership_stripe_keys k2 WHERE k2.lead_id = l.id AND k2.secret_key_enc <> '')) AS keys_connected
        FROM leads l
        WHERE EXISTS (SELECT 1 FROM site_module_embeds e WHERE e.lead_id = l.id AND e.module_type = 'members')
           OR EXISTS (SELECT 1 FROM site_members m2 WHERE m2.lead_id = l.id)
@@ -12902,6 +13003,8 @@ function listAppointments(
   { status, from, to, limit = 200, includeArchived = false, archivedOnly = false } = {}
 ) {
   ensureTables(db);
+  // Batch 129: reading appointments converges expired payment holds.
+  releaseExpiredBookingHolds(db, leadId);
   let sql = `
     SELECT b.*, COALESCE(NULLIF(b.service_name_snapshot, ''), s.name) AS service_name, COALESCE(b.service_duration_snapshot, s.duration_minutes) AS service_duration
     FROM bookings b
@@ -12990,6 +13093,8 @@ function rangesOverlap(aStart, aEnd, bStart, bEnd) {
 
 function listAvailableSlots(db, leadId, { date, serviceId, serviceSlug } = {}) {
   ensureTables(db);
+  // Batch 129: an expired payment hold must never keep a slot busy.
+  releaseExpiredBookingHolds(db, leadId);
   ensureDefaultBookingHours(db, leadId);
   const settings = getBookingSettings(db, leadId);
   const day = parseYmd(date);
@@ -13105,8 +13210,62 @@ function listAvailableSlots(db, leadId, { date, serviceId, serviceSlug } = {}) {
   };
 }
 
-function createPublicBooking(db, leadId, data = {}) {
+/**
+ * Batch 129 — pay-at-booking hold lifecycle. A priced booking whose
+ * business has payments connected starts life as a HOLD: a real
+ * appointment row (status 'pending', payment_state 'hold') that
+ * blocks its slot exactly like any pending appointment, for
+ * BOOKING_PAYMENT_HOLD_MINUTES. Payment (via the shared shop
+ * webhook → applyShopStripeEvent) flips it to payment_state 'paid'
+ * (and 'confirmed' when the business auto-confirms); an expired or
+ * failed checkout releases it (payment_state 'released', status
+ * 'cancelled'). Holds that simply lapse are released LAZILY by this
+ * sweep — called on every availability read, every appointment
+ * list, and every new booking — so an abandoned checkout can never
+ * squat a slot past its window. The appointment stays the record of
+ * fulfillment; the ecommerce_orders row (bookings.payment_order_id)
+ * is the record of payment; they reference each other.
+ */
+function releaseExpiredBookingHolds(db, leadId) {
   ensureTables(db);
+  const nowIso = new Date().toISOString();
+  const info = db
+    .prepare(
+      `UPDATE bookings SET status = 'cancelled', payment_state = 'released', updated_at = datetime('now')
+       WHERE lead_id = ? AND payment_state = 'hold' AND payment_expires_at IS NOT NULL AND payment_expires_at <= ?`
+    )
+    .run(Number(leadId), nowIso);
+  return Number(info.changes) || 0;
+}
+
+/** The shared-engine line for one priced booking: the appointment IS
+ *  the item being sold (quantity 1, server-side price from the
+ *  service row — the client never names an amount). */
+function lineForBookingService(service, appointment) {
+  return {
+    source_module: 'bookings',
+    source_meta: JSON.stringify({
+      appointment_id: Number(appointment.id),
+      starts_at: String(appointment.starts_at || ''),
+      service_name: String(service.name || ''),
+    }),
+    product_id: Number(service.id),
+    product_name: String(service.name || 'Booking'),
+    variant_id: null,
+    variant_label: '',
+    image_url: String(service.image_url || ''),
+    unit_price_cents: Number(service.price_cents) || 0,
+    quantity: 1,
+    line_total_cents: Number(service.price_cents) || 0,
+    currency: String(service.currency || 'USD').toUpperCase(),
+    description: '',
+  };
+}
+
+function createPublicBooking(db, leadId, data = {}, opts = {}) {
+  ensureTables(db);
+  // Batch 129: a stale hold never blocks the slot this booking wants.
+  releaseExpiredBookingHolds(db, leadId);
   ensureDefaultBookingHours(db, leadId);
   const settings = getBookingSettings(db, leadId);
   const service = getBookingService(db, leadId, data.service_id || data.serviceId || data.service);
@@ -13138,7 +13297,11 @@ function createPublicBooking(db, leadId, data = {}) {
   const okSlot = (available.slots || []).some((s) => s.starts_at === `${date}T${time}:00` || s.label === time);
   if (!okSlot) throw fail('VALIDATION', 'That time slot is no longer available', 409);
 
-  const status = settings.auto_confirm ? 'confirmed' : 'pending';
+  // Batch 129: a payment hold stays 'pending' until the money lands —
+  // auto_confirm applies at PAYMENT time (applyShopStripeEvent), not
+  // at request time, so an unpaid hold can never read as confirmed.
+  const paymentHold = !!(opts && opts.paymentHold) && Number(service.price_cents) > 0;
+  const status = paymentHold ? 'pending' : settings.auto_confirm ? 'confirmed' : 'pending';
   const info = db
     .prepare(
       `
@@ -13158,6 +13321,12 @@ function createPublicBooking(db, leadId, data = {}) {
       String(data.notes || '').slice(0, 2000),
       status
     );
+  if (paymentHold) {
+    const expiresAt = new Date(Date.now() + BOOKING_PAYMENT_HOLD_MINUTES * 60 * 1000).toISOString();
+    db.prepare(
+      "UPDATE bookings SET payment_state = 'hold', payment_expires_at = ?, updated_at = datetime('now') WHERE id = ? AND lead_id = ?"
+    ).run(expiresAt, Number(info.lastInsertRowid), Number(leadId));
+  }
   const appt = getAppointment(db, leadId, info.lastInsertRowid);
   try {
     const portalContacts = require('./portalContacts');
@@ -13695,7 +13864,7 @@ function getPublicBookingSlots(db, token, { date, serviceId, serviceSlug } = {},
   };
 }
 
-function createPublicBookingByToken(db, token, data = {}, opts = {}) {
+async function createPublicBookingByToken(db, token, data = {}, opts = {}) {
   ensureTables(db);
   const row = db
     .prepare('SELECT * FROM site_module_embeds WHERE public_token = ? AND published = 1')
@@ -13706,8 +13875,24 @@ function createPublicBookingByToken(db, token, data = {}, opts = {}) {
   assertSiteNotArchived(db, row.lead_id);
   assertSiteNotSuspended(db, row.lead_id);
   assertMemberAccessForEmbed(db, row, opts);
-  const appointment = createPublicBooking(db, row.lead_id, data);
-  return {
+  // Batch 129 — pay-at-booking. A PRICED service sells through the
+  // shared checkout engine when (a) the business has payments
+  // connected through the unified config and (b) the embed supplied
+  // a return URL (the mod28 embed always does; an older cached embed
+  // keeps the pre-129 request flow rather than breaking). Free
+  // services, and priced services on sites without payments
+  // connected, keep today's flow byte-for-byte.
+  const servicePreview = getBookingService(
+    db,
+    row.lead_id,
+    data.service_id || data.serviceId || data.service
+  );
+  const returnUrl = String(data.return_url || data.returnUrl || '').trim();
+  const priced = !!(servicePreview && Number(servicePreview.price_cents) > 0);
+  const payNow =
+    priced && !!returnUrl && require('./shopStripe').isConfiguredForLead(db, row.lead_id);
+  const appointment = createPublicBooking(db, row.lead_id, data, { paymentHold: payNow });
+  const result = {
     embed: publicEmbed(row),
     appointment: {
       id: appointment.id,
@@ -13723,6 +13908,31 @@ function createPublicBookingByToken(db, token, data = {}, opts = {}) {
         ? 'Your appointment is confirmed.'
         : 'Request received — we will confirm your appointment soon.',
   };
+  if (payNow) {
+    const line = lineForBookingService(servicePreview, appointment);
+    let checkout;
+    try {
+      checkout = await checkoutShopLines(db, row, [line], line.currency, returnUrl);
+    } catch (e) {
+      // The hold must not outlive a failed checkout start: release
+      // the slot immediately and surface the checkout error.
+      db.prepare(
+        "UPDATE bookings SET status = 'cancelled', payment_state = 'released', updated_at = datetime('now') WHERE id = ? AND lead_id = ? AND payment_state = 'hold'"
+      ).run(Number(appointment.id), Number(row.lead_id));
+      throw e;
+    }
+    db.prepare(
+      "UPDATE bookings SET payment_order_id = ?, updated_at = datetime('now') WHERE id = ? AND lead_id = ?"
+    ).run(Number(checkout.orderId), Number(appointment.id), Number(row.lead_id));
+    result.payment = {
+      required: true,
+      url: checkout.url,
+      order_id: checkout.orderId,
+      expires_at: appointment.payment_expires_at || null,
+    };
+    result.message = 'Almost done — complete your payment to confirm your appointment.';
+  }
+  return result;
 }
 
 /**
@@ -14093,6 +14303,10 @@ module.exports = {
   accessSatisfies,
   gateWallFields,
   getMembershipStripeKeyRow,
+  getPaymentConfigRow,
+  releaseExpiredBookingHolds,
+  BOOKING_PAYMENT_HOLD_MINUTES,
+  applyTenantStripeEvent,
   saveMembershipStripeKeys,
   clearMembershipStripeKeys,
   membershipStripeStatus,

@@ -134,7 +134,7 @@ function group(name, n) {
     const cz = census();
     assert.deepEqual(
       cz.summary,
-      { total: 434, STATIC: 152, ESCAPED: 41, SAFE: 73, BUILDER: 58, IDENT: 35, RAW: 75 },
+      { total: 437, STATIC: 155, ESCAPED: 41, SAFE: 73, BUILDER: 58, IDENT: 35, RAW: 75 },
       'SEC-13 census summary unchanged'
     );
     n += 1;
@@ -142,7 +142,7 @@ function group(name, n) {
     const sha = crypto.createHash('sha256').update(multi.join('\n')).digest('hex');
     assert.equal(
       sha,
-      '0ef99e71810ada52eeecefade5a3521ac9886de653e7f648ad966303ca23f95f',
+      '05dd590c4eab59d3561ee9bc0e3d05510cd93e799190df1b50ad5e9352c8625b',
       'SEC-13 sink multiset byte-identical'
     );
     n += 1;

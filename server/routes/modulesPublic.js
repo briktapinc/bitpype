@@ -289,12 +289,16 @@ function fireRentalSettle(workspaceId) {
   }
 }
 
-/** Public appointment booking (creates pending or auto-confirmed appointment). */
+/** Public appointment booking (creates pending or auto-confirmed appointment).
+ *  Batch 129: createPublicBookingByToken is async — a priced booking on a
+ *  payments-connected site also creates its checkout session through the
+ *  shared engine — so the withDb callback is awaited (the /checkout
+ *  route's pattern). */
 router.post('/:token/book', bookLimit, captcha, async (req, res) => {
   try {
     const workspaceId = await workspaceFromReq(req);
     const body = req.body || {};
-    const data = domain.withDb(workspaceId, (db) =>
+    const data = await domain.withDb(workspaceId, async (db) =>
       siteModules.createPublicBookingByToken(db, req.params.token, body, gateOpts(req))
     );
     res.json({ ok: true, data: { ...data, workspaceId } });

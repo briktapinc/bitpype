@@ -11,11 +11,17 @@
  *
  * PER-LEAD keys (Batch 19, mirroring membershipStripe): the SITE
  * OWNER's own Stripe keys, saved by the owner in the portal
- * (Shop → Payments) and stored secretBox-encrypted in
- * shop_stripe_keys, scoped to their lead. Checkout PREFERS the lead's
- * keys and falls back to the workspace keys, so shops already running
- * on workspace keys are unaffected; every order records which
- * key-set ran it (ecommerce_orders.stripe_key_source).
+ * (Shop → Payments) and stored secretBox-encrypted, scoped to their
+ * lead. Checkout PREFERS the lead's keys and falls back to the
+ * workspace keys, so shops already running on workspace keys are
+ * unaffected; every order records which key-set ran it
+ * (ecommerce_orders.stripe_key_source).
+ *
+ * Batch 129: the lead layer is now the ONE unified payments config
+ * (server/paymentsConfig.js) — this module is the shop-purpose
+ * adapter over it. Resolution: unified config → pre-129 shop key
+ * store (read-only fallback) → workspace keys. Sources are
+ * 'unified' | 'lead' | 'workspace'.
  *
  * Money always flows directly between the customer and a Stripe
  * account the business controls — the platform never holds tenant
@@ -27,6 +33,10 @@ const crypto = require('crypto');
 const Stripe = require('stripe');
 const siteModules = require('./siteModules');
 const secretBox = require('../src/secretBox');
+// Batch 129: the lead-side layers (unified config → shop legacy) are
+// owned by server/paymentsConfig.js; this module is now the SHOP
+// purpose adapter over it, plus the workspace layer below.
+const paymentsConfig = require('./paymentsConfig');
 
 let cached = { key: null, client: null };
 const leadClientCache = new Map(); // `${leadId}:${keyFingerprint}` -> Stripe client
@@ -64,10 +74,8 @@ function isConfigured(db) {
  * actually is — derived at read time, never a stored claim.
  */
 function modeForSecret(secretKey) {
-  const k = String(secretKey || '');
-  if (/^(sk|rk)_test_/.test(k)) return 'test';
-  if (/^(sk|rk)_live_/.test(k)) return 'live';
-  return null;
+  // Batch 129: the canonical implementation lives in paymentsConfig.
+  return paymentsConfig.modeForSecret(secretKey);
 }
 
 function notConfigured(message) {
@@ -104,30 +112,31 @@ function constructEvent(db, rawBody, signature) {
   return getClient(db).webhooks.constructEvent(rawBody, signature, webhookSecret);
 }
 
-/* ── Per-lead keys (Batch 19) ── */
+/* ── Per-lead keys (Batch 19; unified by Batch 129) ── */
 
-/** Decrypted credentials for one lead (server-side only, never exported whole). */
+/**
+ * Decrypted credentials for one lead (server-side only, never
+ * exported whole). Batch 129: the effective LEAD layer for the shop
+ * purpose — the unified payments config first, the pre-129 shop key
+ * store as fallback.
+ */
 function getLeadCredentials(db, leadId) {
-  siteModules.ensureTables(db);
-  const row = siteModules.getShopStripeKeyRow(db, Number(leadId));
-  const dec = (v) => {
-    if (!v) return '';
-    try {
-      return String(secretBox.decryptValue(v) || '').trim();
-    } catch {
-      return '';
-    }
-  };
+  const layer = paymentsConfig
+    .layersFor(db, leadId, 'shop')
+    .find((l) => l.source !== 'workspace' && (l.secretKey || l.publishableKey || l.webhookSecret));
+  if (!layer) return { publishableKey: '', secretKey: '', webhookSecret: '' };
   return {
-    publishableKey: row ? String(row.publishable_key || '').trim() : '',
-    secretKey: dec(row && row.secret_key_enc),
-    webhookSecret: dec(row && row.webhook_secret_enc),
+    publishableKey: layer.publishableKey || '',
+    secretKey: layer.secretKey || '',
+    webhookSecret: layer.webhookSecret || '',
   };
 }
 
-/** True when this lead (site owner) has connected their own secret key. */
+/** True when this lead (site owner) has connected their own secret key on any lead layer. */
 function isLeadConnected(db, leadId) {
-  return !!getLeadCredentials(db, leadId).secretKey;
+  return paymentsConfig
+    .layersFor(db, leadId, 'shop')
+    .some((l) => l.source !== 'workspace' && !!l.secretKey);
 }
 
 /** True when checkout can run for this lead on either key layer. */
@@ -139,7 +148,7 @@ function clientForSecret(secretKey) {
   return new Stripe(secretKey, { timeout: 15000, maxNetworkRetries: 1 });
 }
 
-/** Stripe SDK client bound to the site owner's own secret key. */
+/** Stripe SDK client bound to the site owner's own (effective lead-layer) secret key. */
 function getLeadClient(db, leadId) {
   const { secretKey } = getLeadCredentials(db, leadId);
   if (!secretKey) throw notConfigured('This site has not connected its own Stripe account for its shop yet.');
@@ -154,28 +163,33 @@ function getLeadClient(db, leadId) {
 }
 
 /**
- * The ONE checkout resolution: the lead's own keys win, the workspace
- * keys are the fallback. Returns { source: 'lead'|'workspace',
+ * The ONE checkout resolution: the lead's own config wins (Batch 129:
+ * unified row first, shop legacy second), the workspace keys are the
+ * fallback. Returns { source: 'unified'|'lead'|'workspace', mode,
  * client, publishableKey }. Throws SHOP_STRIPE_NOT_CONFIGURED when
- * neither layer has a secret key.
+ * no layer has a secret key.
  */
 function resolveForLead(db, leadId) {
-  const lead = getLeadCredentials(db, leadId);
-  if (lead.secretKey) {
+  const layer = paymentsConfig.resolve(db, leadId, 'shop');
+  if (!layer) {
+    throw notConfigured(
+      'Stripe is not configured for this shop. Connect your own Stripe keys in the portal (Shop → Payments), or ask BitPype to save workspace keys (Settings → Shop payments).'
+    );
+  }
+  if (layer.source === 'workspace') {
     return {
-      source: 'lead',
-      mode: modeForSecret(lead.secretKey),
-      client: getLeadClient(db, leadId),
-      publishableKey: lead.publishableKey,
+      source: 'workspace',
+      mode: modeForSecret(layer.secretKey),
+      client: getClient(db),
+      publishableKey: layer.publishableKey,
     };
   }
-  const ws = getCredentials(db);
-  if (ws.secretKey) {
-    return { source: 'workspace', mode: modeForSecret(ws.secretKey), client: getClient(db), publishableKey: ws.publishableKey };
-  }
-  throw notConfigured(
-    'Stripe is not configured for this shop. Connect your own Stripe keys in the portal (Shop → Payments), or ask BitPype to save workspace keys (Settings → Shop payments).'
-  );
+  return {
+    source: layer.source,
+    mode: modeForSecret(layer.secretKey),
+    client: paymentsConfig.clientForLayer(leadId, layer.source, layer.secretKey),
+    publishableKey: layer.publishableKey,
+  };
 }
 
 /** Convenience: just the client resolveForLead would use. */
@@ -190,21 +204,33 @@ function getClientForLead(db, leadId) {
  * when no layer has a secret key.
  */
 function effectiveMode(db, leadId) {
-  const lead = getLeadCredentials(db, leadId);
-  if (lead.secretKey) return modeForSecret(lead.secretKey);
-  const ws = getCredentials(db);
-  if (ws.secretKey) return modeForSecret(ws.secretKey);
-  return null;
+  return paymentsConfig.effectiveMode(db, leadId, 'shop');
 }
 
 /**
- * Verify a webhook payload against ONE lead's webhook secret.
- * Throws SHOP_STRIPE_NOT_CONFIGURED when the lead has none saved.
+ * Verify a webhook payload against ONE lead's shop-purpose webhook
+ * secrets (Batch 129: unified first, then the shop legacy secret —
+ * an event for a purchase made under the retired store still
+ * verifies). Throws SHOP_STRIPE_NOT_CONFIGURED when the lead has no
+ * shop-purpose webhook secret saved.
  */
 function constructEventForLead(db, leadId, rawBody, signature) {
-  const { webhookSecret } = getLeadCredentials(db, leadId);
-  if (!webhookSecret) throw notConfigured('Shop webhooks are not configured for this site.');
-  return getLeadClient(db, leadId).webhooks.constructEvent(rawBody, signature, webhookSecret);
+  const candidates = paymentsConfig
+    .webhookCandidates(db, leadId, 'shop')
+    .filter((c) => c.source !== 'workspace');
+  if (!candidates.length) throw notConfigured('Shop webhooks are not configured for this site.');
+  let lastError = null;
+  for (const cand of candidates) {
+    try {
+      const client = cand.secretKey
+        ? paymentsConfig.clientForLayer(leadId, cand.source, cand.secretKey)
+        : getLeadClient(db, leadId);
+      return client.webhooks.constructEvent(rawBody, signature, cand.webhookSecret);
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw lastError || new Error('Webhook signature verification failed');
 }
 
 /**
@@ -245,21 +271,25 @@ function resolveLeadForEvent(db, eventLike) {
  * secret at all, or the last signature error when none verify.
  */
 function constructEventForShop(db, rawBody, signature, peek) {
-  const candidates = [];
-  const leadId = peek ? resolveLeadForEvent(db, peek) : null;
-  if (leadId && getLeadCredentials(db, leadId).webhookSecret) candidates.push('lead');
-  if (getCredentials(db).webhookSecret) candidates.push('workspace');
-  if (!candidates.length) {
+  const leadId = peek ? paymentsConfig.resolveLeadForEvent(db, peek) : null;
+  const candidates = leadId
+    ? paymentsConfig.webhookCandidates(db, leadId, 'shop')
+    : [{ source: 'workspace', webhookSecret: getCredentials(db).webhookSecret, secretKey: getCredentials(db).secretKey }];
+  const usable = candidates.filter((c) => c.webhookSecret);
+  if (!usable.length) {
     throw notConfigured('Stripe webhooks are not configured for this shop.');
   }
   let lastError = null;
-  for (const source of candidates) {
+  for (const cand of usable) {
     try {
-      const event =
-        source === 'lead'
-          ? constructEventForLead(db, leadId, rawBody, signature)
-          : constructEvent(db, rawBody, signature);
-      return { event, source };
+      const client =
+        cand.source === 'workspace'
+          ? getClient(db)
+          : cand.secretKey
+            ? paymentsConfig.clientForLayer(leadId, cand.source, cand.secretKey)
+            : getLeadClient(db, leadId);
+      const event = client.webhooks.constructEvent(rawBody, signature, cand.webhookSecret);
+      return { event, source: cand.source };
     } catch (e) {
       if (e && e.code === 'SHOP_STRIPE_NOT_CONFIGURED') throw e;
       lastError = e;
@@ -275,10 +305,15 @@ function constructEventForShop(db, rawBody, signature, peek) {
  * rejection; the portal wrapper maps it to a truthful failure.
  */
 async function testLeadConnection(db, leadId) {
-  const client = getLeadClient(db, leadId); // throws SHOP_STRIPE_NOT_CONFIGURED
-  const { secretKey } = getLeadCredentials(db, leadId);
+  // Batch 129: tests the RESOLVED lead layer (unified config first) —
+  // the account a charge would actually run on.
+  const resolved = paymentsConfig.resolve(db, leadId, 'shop');
+  if (!resolved || resolved.source === 'workspace') {
+    throw notConfigured('This site has not connected its own Stripe account for its shop yet.');
+  }
+  const client = paymentsConfig.clientForLayer(leadId, resolved.source, resolved.secretKey);
   const account = await client.accounts.retrieve();
-  const testMode = modeForSecret(secretKey) === 'test';
+  const testMode = modeForSecret(resolved.secretKey) === 'test';
   return {
     ok: true,
     account_id: String(account.id || ''),
@@ -286,6 +321,7 @@ async function testLeadConnection(db, leadId) {
     livemode: !testMode,
     charges_enabled: !!account.charges_enabled,
     payouts_enabled: !!account.payouts_enabled,
+    source: resolved.source,
     business_name: String(
       (account.business_profile && account.business_profile.name) ||
         (account.settings && account.settings.dashboard && account.settings.dashboard.display_name) ||
