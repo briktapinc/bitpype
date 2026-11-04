@@ -41,6 +41,16 @@
  *   Part 6 — capture ride-along + escalation + portal inbox data.
  *   Part 7 — POST-REBASE Batch 136 booking-pitch independence
  *     (explicit SKIP on this base — never a silent skip).
+ *
+ * Batch 140 amendment (2026-11-04): ON + empty STORED list no
+ * longer behaves as OFF — getSettings resolves the industry
+ * default questions (deterministic templates by category).
+ * Exactly two Part 2 expectations were superseded and are marked
+ * inline: (1) an unconfigured lead's getSettings now returns the
+ * effective five defaults (source industry_default) while its
+ * STORED list stays empty; (2) the ON + empty block now asserts
+ * the defaults are served, then switches the fixture lead back
+ * OFF so Parts 3–6 keep their OFF fixture unchanged.
  */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -239,9 +249,15 @@ function addMsg(sessionId, leadId, role, body) {
     let n = 0;
     const dflt = chat.getSettings(db, LEAD_OFF);
     assert.equal(dflt.qualifying_enabled, false, 'qualifying defaults OFF');
-    assert.deepEqual(dflt.qualifying_questions, [], 'qualifying list defaults empty');
+    // Batch 140 supersedes 'qualifying list defaults empty':
+    // getSettings returns the EFFECTIVE list (the five generic
+    // industry defaults — this fixture lead has no category),
+    // while the STORED list stays empty.
+    assert.equal(dflt.qualifying_questions_source, 'industry_default', 'Batch 140: unconfigured lead resolves to industry defaults');
+    assert.equal(dflt.qualifying_questions.length, 5, 'Batch 140: effective list is the five industry defaults');
+    assert.deepEqual(dflt.qualifying_questions_stored, [], 'Batch 140: stored list is still empty — resolution never rewrites storage');
     assert.equal(chat.qualifyingFor(db, LEAD_OFF), null, 'unconfigured lead: no qualifying context');
-    n += 3;
+    n += 5;
 
     // Questions saved while OFF persist but publish nothing.
     chat.saveSettings(db, LEAD_ON, { qualifying_questions: QUESTIONS });
@@ -328,16 +344,19 @@ function addMsg(sessionId, leadId, role, body) {
     );
     n += 6;
 
-    // ON + empty list = behaves exactly as OFF.
+    // Batch 140 SUPERSEDES the Batch 137 pin 'ON + empty list =
+    // behaves exactly as OFF': ON + empty STORED list now serves
+    // the industry defaults. The fixture lead is then switched
+    // back OFF so Parts 3–6 keep their OFF fixture unchanged.
     chat.saveSettings(db, LEAD_OFF, { qualifying_enabled: true, qualifying_questions: [] });
     assert.equal(chat.getSettings(db, LEAD_OFF).qualifying_enabled, true, 'the switch itself saves');
-    assert.equal(chat.qualifyingFor(db, LEAD_OFF), null, 'ON + empty list: no context (behaves as off)');
-    assert.equal(
-      chat.qualifyingFromSettings(chat.getSettings(db, LEAD_OFF)).active,
-      false,
-      'effective config: inactive'
-    );
-    n += 3;
+    const onEmpty = chat.qualifyingFor(db, LEAD_OFF);
+    assert.ok(onEmpty && onEmpty.questions.length === 5, 'Batch 140: ON + empty list serves the five industry defaults');
+    assert.equal(chat.getSettings(db, LEAD_OFF).qualifying_questions_source, 'industry_default', 'Batch 140: provenance is industry_default');
+    assert.equal(chat.qualifyingFromSettings(chat.getSettings(db, LEAD_OFF)).active, true, 'Batch 140: effective config is ACTIVE with defaults');
+    chat.saveSettings(db, LEAD_OFF, { qualifying_enabled: false });
+    assert.equal(chat.qualifyingFor(db, LEAD_OFF), null, 'switch back OFF: no context (later parts use this lead as the OFF fixture)');
+    n += 5;
     group('Part 2 config CRUD + validation', n);
   }
 

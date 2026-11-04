@@ -7362,6 +7362,7 @@
         <input type="checkbox" id="chat-set-qualifying-enabled" ${s.qualifying_enabled ? 'checked' : ''} />
         Ask my qualifying questions in the chat
       </label>
+      ${s.qualifying_questions_source === 'industry_default' ? `<p class="hint" id="chat-qualifying-provenance">Industry defaults for ${esc(s.qualifying_industry || 'your industry')} — these are the five questions your chat and voice agent will ask until you edit them.</p>` : ''}
       <div id="chat-qualifying-rows"></div>
       <button type="button" class="btn soft small" id="btn-chat-qualifying-add">+ Add a question</button>
       <p class="hint">Up to 6 questions, 200 characters each. Use the arrows to change the order — the chat works through them in this order.</p>
