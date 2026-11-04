@@ -78,10 +78,12 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
       blogTotal = modules.countBlogPosts(db, Number(leadId));
     }
     else if (type === 'ecommerce') {
-      items = modules.listProducts(db, Number(leadId)).map((p) => ({
-        ...p,
-        price_label: modules.formatPrice(p.price_cents, p.currency),
-      }));
+      // Batch 127: the editor needs each product's variant structure,
+      // and the list label is the honest variant-aware price.
+      items = modules.listProducts(db, Number(leadId)).map((p) => {
+        const shaped = modules.withProductVariants(db, Number(leadId), p);
+        return { ...shaped, price_label: modules.productPriceLabel(db, Number(leadId), p) };
+      });
       // Shop → Payments (Batch 19): the owner's own-Stripe status, the
       // workspace fallback state, and which source checkout would use.
       const shopStripe = require('./shopStripe');

@@ -53,6 +53,7 @@ const SCOPE = [
   'tests/batch130-item-fallback-regressions.cjs',
   'tests/batch132-photocapture-file-lifecycle-regressions.cjs',
   'tests/batch126-qrcode-generator-regressions.cjs',
+  'tests/batch127-product-variants-regressions.cjs',
   'tsconfig.checkjs.json',
 ];
 

@@ -164,7 +164,7 @@ let db;
     n++;
     assert.ok(portalHtml.includes('data-for="newsletter"'), 'portal.html has the newsletter pane tab');
     n++;
-    assert.ok(portalHtml.includes('/js/portal.js?v=batch126-qrcode1'), 'portal.js cache-busted for Batch 118');
+    assert.ok(portalHtml.includes('/js/portal.js?v=batch127-variants1'), 'portal.js cache-busted for Batch 118');
     n++;
     const embed = read('public/js/module-embed.js');
     assert.ok(embed.includes('function renderNewsletter('), 'public embed renders the newsletter block');
@@ -179,7 +179,7 @@ let db;
     n++;
 
     const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
-    assert.equal(census().summary.total, 416, 'SEC-13 census total (Batch 124 added 5 reviewed sinks)');
+    assert.equal(census().summary.total, 421, 'SEC-13 census total (Batch 124 added 5 reviewed sinks)');
     n++;
     group('Part 1 registry + source pins', n);
   }

@@ -162,7 +162,7 @@ const CENSUS = {
     has(portalHtml, 'id="wp-design-host"', 'portal has the design host');
     has(portalHtml, 'Nothing is ever applied without you', 'portal copy states approve-first');
     has(portalHtml, 'not included yet', 'portal copy is honest about page-content editing');
-    has(portalHtml, '/js/portal.js?v=batch126-qrcode1', 'portal.js cache-busted for Batch 117');
+    has(portalHtml, '/js/portal.js?v=batch127-variants1', 'portal.js cache-busted for Batch 117');
     const portalJs = read('public/js/portal.js');
     const designSlice = portalJs.slice(portalJs.indexOf('// Batch 117 — WordPress design chat panel'));
     assert.ok(designSlice.length > 1000, 'portal.js carries the design panel code');
@@ -187,7 +187,7 @@ const CENSUS = {
     const cz = census();
     assert.deepEqual(
       cz.summary,
-      { total: 416, STATIC: 141, ESCAPED: 41, SAFE: 70, BUILDER: 56, IDENT: 35, RAW: 73 },
+      { total: 421, STATIC: 143, ESCAPED: 41, SAFE: 71, BUILDER: 56, IDENT: 35, RAW: 75 },
       'SEC-13 census summary unchanged'
     );
     n += 1;

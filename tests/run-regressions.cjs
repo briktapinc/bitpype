@@ -126,6 +126,7 @@ const checks = [
   'batch130-item-fallback-regressions',
   'batch132-photocapture-file-lifecycle-regressions',
   'batch126-qrcode-generator-regressions',
+  'batch127-product-variants-regressions',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');

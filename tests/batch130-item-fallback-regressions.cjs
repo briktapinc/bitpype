@@ -16,7 +16,7 @@
  *   Part A — source pins: the fallback wiring (NOT_FOUND code check,
  *     list refetch, staticBlog excluded), the locked branch still
  *     ahead of item rendering, the error card intact, MODULE_SCRIPT_VER
- *     mod29 (Batch 126 finisher rotation), and the SEC-13 census at 416 total (+4 audited QR sinks) with the
+ *     mod30 (Batch 127 finisher rotation), and the SEC-13 census at 421 total (Batch 126 finisher +4 audited QR sinks; Batch 127 finisher +5 audited variant-editor sinks) with the
  *     mountOne sink shifted by pure line movement (4227 -> 4252).
  *   Part B — HTTP contract on the real server: a foreign slug is a
  *     404 with code NOT_FOUND on every non-owning module; the owning
@@ -215,8 +215,8 @@ async function waitReady(child, output) {
     const sm = require(path.join(root, 'server/siteModules.js'));
     assert.equal(
       sm.MODULE_SCRIPT_VER,
-      'mod29',
-      'MODULE_SCRIPT_VER bumped for the fallback (Batch 126 finisher rotation)'
+      'mod30',
+      'MODULE_SCRIPT_VER bumped for the fallback (Batch 127 finisher rotation)'
     );
     n++;
     assert.ok(
@@ -233,8 +233,8 @@ async function waitReady(child, output) {
     const cz = census();
     assert.equal(
       cz.summary.total,
-      416,
-      'SEC-13 census total — the Batch 130 fix added no sinks; Batch 126 finisher added +4 audited QR sinks'
+      421,
+      'SEC-13 census total — the Batch 130 fix added no sinks; Batch 126 finisher added +4 audited QR sinks; Batch 127 finisher added +5 audited variant-editor sinks'
     );
     n++;
     const meLines = cz.sinks

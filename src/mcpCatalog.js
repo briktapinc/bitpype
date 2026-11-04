@@ -1268,7 +1268,7 @@ const tools = [
   {
     name: 'ecommerce.create',
     description:
-      'Create a product with name, price/price_cents, description, image_url, checkout_url (external Stripe/buy link), status (Standard/Premium).',
+      'Create a product with name, price/price_cents, description, image_url, checkout_url (external Stripe/buy link), status. Variants: options (up to 2 groups [{name, values[]}]) builds the variant matrix; variants overrides price/sku/label/availability per combination. (Standard/Premium).',
     schema: {
       type: 'object',
       properties: {
@@ -1282,13 +1282,16 @@ const tools = [
         image_url: { type: 'string' },
         checkout_url: { type: 'string' },
         status: { type: 'string', enum: ['draft', 'published'] },
+        options: { type: 'array', items: { type: 'object' } },
+        variants: { type: 'array', items: { type: 'object' } },
       },
       required: ['name'],
     },
   },
   {
     name: 'ecommerce.update',
-    description: 'Update a product by id (Standard/Premium).',
+    description:
+      'Update a product by id. Variants: options present reconciles the whole option structure ([] removes all variants); variants alone overrides combinations against the existing options; omit both to leave variants unchanged. (Standard/Premium).',
     schema: {
       type: 'object',
       properties: {
@@ -1303,6 +1306,8 @@ const tools = [
         image_url: { type: 'string' },
         checkout_url: { type: 'string' },
         status: { type: 'string', enum: ['draft', 'published'] },
+        options: { type: 'array', items: { type: 'object' } },
+        variants: { type: 'array', items: { type: 'object' } },
       },
       required: ['id'],
     },

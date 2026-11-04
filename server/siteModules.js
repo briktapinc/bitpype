@@ -50,7 +50,7 @@ const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod29';
+const MODULE_SCRIPT_VER = 'mod30';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -230,8 +230,53 @@ function ensureTables(db) {
       stripe_payment_intent TEXT NOT NULL DEFAULT '',
       stripe_key_source TEXT NOT NULL DEFAULT '',
       customer_email TEXT NOT NULL DEFAULT '',
+      variant_id INTEGER,
+      variant_label TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    /* Batch 127 — product variants. Option groups are the axes a
+     * product is sold by (up to 2: "Pot", "Size"); each group owns
+     * ordered values; a variant is one combination of values and is
+     * the purchasable unit (own price, SKU, availability). Products
+     * with no option groups keep the single-price behavior they have
+     * always had — the variant tables simply stay empty for them. */
+    CREATE TABLE IF NOT EXISTS ecommerce_product_options (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS ecommerce_product_option_values (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      option_id INTEGER NOT NULL,
+      value TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS ecommerce_product_variants (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      combo_key TEXT NOT NULL,
+      option_value_ids TEXT NOT NULL DEFAULT '[]',
+      label_override TEXT NOT NULL DEFAULT '',
+      sku TEXT NOT NULL DEFAULT '',
+      price_cents INTEGER NOT NULL DEFAULT 0,
+      available INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(product_id, combo_key)
     );
 
     CREATE TABLE IF NOT EXISTS courses (
@@ -741,6 +786,10 @@ function ensureTables(db) {
     CREATE INDEX IF NOT EXISTS idx_ecom_products_lead ON ecommerce_products(lead_id);
     CREATE INDEX IF NOT EXISTS idx_ecom_orders_lead ON ecommerce_orders(lead_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_ecom_orders_session ON ecommerce_orders(stripe_session_id) WHERE stripe_session_id <> '';
+    CREATE INDEX IF NOT EXISTS idx_ecom_options_product ON ecommerce_product_options(product_id, sort_order, id);
+    CREATE INDEX IF NOT EXISTS idx_ecom_optvals_option ON ecommerce_product_option_values(option_id, sort_order, id);
+    CREATE INDEX IF NOT EXISTS idx_ecom_variants_product ON ecommerce_product_variants(product_id, sort_order, id);
+    CREATE INDEX IF NOT EXISTS idx_ecom_variants_lead ON ecommerce_product_variants(lead_id);
     CREATE INDEX IF NOT EXISTS idx_courses_lead ON courses(lead_id);
     CREATE INDEX IF NOT EXISTS idx_course_lessons_course ON course_lessons(course_id);
     CREATE INDEX IF NOT EXISTS idx_gallery_albums_lead ON gallery_albums(lead_id);
@@ -877,6 +926,18 @@ function ensureTables(db) {
       ON member_subscriptions(stripe_subscription_id) WHERE stripe_subscription_id <> '';
   `);
   try {
+    // Batch 127: orders learn which variant was bought (existing DBs
+    // predate the columns — the CREATE above only covers fresh ones).
+    const orderCols = db
+      .prepare('PRAGMA table_info(ecommerce_orders)')
+      .all()
+      .map((c) => String(c.name || ''));
+    if (orderCols.length && !orderCols.includes('variant_id')) {
+      db.exec('ALTER TABLE ecommerce_orders ADD COLUMN variant_id INTEGER');
+    }
+    if (orderCols.length && !orderCols.includes('variant_label')) {
+      db.exec("ALTER TABLE ecommerce_orders ADD COLUMN variant_label TEXT NOT NULL DEFAULT ''");
+    }
     const callCols = db
       .prepare('PRAGMA table_info(call_logs)')
       .all()
@@ -1710,8 +1771,16 @@ function modulePurgeSteps(leadId, type) {
       return [byLead('blog_posts', 'blog posts')];
     case 'ecommerce':
       // Orders stay (see header note); products + the shop's own
-      // payment-key config are the module's content/config.
-      return [byLead('ecommerce_products', 'products'), byLead('shop_stripe_keys', 'shop payment settings')];
+      // payment-key config are the module's content/config. Batch
+      // 127: the variant structure is product content — variants,
+      // then values, then groups, then the products themselves.
+      return [
+        byLead('ecommerce_product_variants', 'product variants'),
+        byLead('ecommerce_product_option_values', 'product option values'),
+        byLead('ecommerce_product_options', 'product options'),
+        byLead('ecommerce_products', 'products'),
+        byLead('shop_stripe_keys', 'shop payment settings'),
+      ];
     case 'courses':
       return [viaParent('course_lessons', 'course lessons', 'courses', 'course_id'), byLead('courses', 'courses')];
     case 'gallery':
@@ -3841,6 +3910,15 @@ function createProduct(db, leadId, data = {}) {
   ensureTables(db);
   const name = String(data.name || data.title || '').trim();
   if (!name) throw fail('VALIDATION', 'name is required');
+  // Batch 127: pre-flight the variant payload BEFORE the insert so a
+  // bad options/variants block fails the whole create with nothing
+  // stored (setProductOptions re-validates as it reconciles).
+  if (data.options !== undefined) {
+    const groups = normalizeVariantOptionsInput(data.options);
+    normalizeVariantOverrides(data.variants, groups);
+  } else if (data.variants !== undefined) {
+    throw fail('VALIDATION', 'variants need option groups — send options together with the variants', 400);
+  }
   const slug = slugify(data.slug || name, 'product');
   const priceCents =
     data.price_cents != null ? Math.round(Number(data.price_cents) || 0) : Math.round((Number(data.price) || 0) * 100);
@@ -3868,7 +3946,11 @@ function createProduct(db, leadId, data = {}) {
         status,
         Number(data.sort_order) || 0
       );
-    return getProduct(db, leadId, info.lastInsertRowid);
+    const created = getProduct(db, leadId, info.lastInsertRowid);
+    // Batch 127: variant structure rides the same write (pre-flighted
+    // above, so this reconcile cannot fail on validation).
+    reconcileProductVariantsFromInput(db, leadId, created, data);
+    return withProductVariants(db, leadId, created);
   } catch (e) {
     if (String(e.message || '').includes('UNIQUE')) {
       throw fail('CONFLICT', `Product slug already exists: ${slug}`, 409);
@@ -3881,6 +3963,20 @@ function updateProduct(db, leadId, id, data = {}) {
   ensureTables(db);
   const row = getProduct(db, leadId, id);
   if (!row) throw fail('NOT_FOUND', 'Product not found', 404);
+  // Batch 127: pre-flight the variant payload before the field update
+  // (a variants-only write validates against the existing axes).
+  if (data.options !== undefined) {
+    const groups = normalizeVariantOptionsInput(data.options);
+    normalizeVariantOverrides(data.variants, groups);
+  } else if (data.variants !== undefined) {
+    const existing = listProductOptions(db, leadId, row.id);
+    if (!existing.length)
+      throw fail('VALIDATION', 'variants need option groups — send options together with the variants', 400);
+    normalizeVariantOverrides(
+      data.variants,
+      existing.map((g) => ({ name: g.name, values: g.values.map((v) => v.value) }))
+    );
+  }
   const name =
     data.name != null || data.title != null
       ? String(data.name != null ? data.name : data.title)
@@ -3920,13 +4016,20 @@ function updateProduct(db, leadId, id, data = {}) {
     }
     throw e;
   }
-  return getProduct(db, leadId, row.id);
+  // Batch 127: reconcile the variant structure (key present = intent;
+  // both keys absent = the variants stay exactly as they were).
+  const updated = getProduct(db, leadId, row.id);
+  reconcileProductVariantsFromInput(db, leadId, updated, data);
+  return withProductVariants(db, leadId, updated);
 }
 
 function deleteProduct(db, leadId, id) {
   ensureTables(db);
   const row = getProduct(db, leadId, id);
   if (!row) throw fail('NOT_FOUND', 'Product not found', 404);
+  // Batch 127: the variant structure belongs to the product — it goes
+  // with it. (Historical orders keep their variant label snapshot.)
+  clearProductVariants(db, leadId, row.id);
   db.prepare('DELETE FROM ecommerce_products WHERE id = ? AND lead_id = ?').run(row.id, Number(leadId));
   return { deleted: true, id: row.id };
 }
@@ -3936,18 +4039,25 @@ function deleteProduct(db, leadId, id) {
 function insertShopOrder(db, leadId, product, opts = {}) {
   ensureTables(db);
   const keySource = opts && opts.keySource === 'lead' ? 'lead' : opts && opts.keySource === 'workspace' ? 'workspace' : '';
+  // Batch 127: a variant purchase prices from the VARIANT row and
+  // snapshots the variant's identity on the order (id + display
+  // label), so the order forever shows what was actually bought even
+  // if the product's options are later edited or removed.
+  const variant = opts && opts.variant ? opts.variant : null;
   const info = db
     .prepare(
-      `INSERT INTO ecommerce_orders (lead_id, product_id, product_name, amount_cents, currency, status, stripe_key_source)
-     VALUES (?, ?, ?, ?, ?, 'pending', ?)`
+      `INSERT INTO ecommerce_orders (lead_id, product_id, product_name, amount_cents, currency, status, stripe_key_source, variant_id, variant_label)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)`
     )
     .run(
       Number(leadId),
       Number(product.id),
       String(product.name || ''),
-      Number(product.price_cents) || 0,
+      variant ? Number(variant.price_cents) || 0 : Number(product.price_cents) || 0,
       String(product.currency || 'USD'),
-      keySource
+      keySource,
+      variant ? Number(variant.id) : null,
+      variant ? String(variant.label || '') : ''
     );
   return db.prepare('SELECT * FROM ecommerce_orders WHERE id = ?').get(info.lastInsertRowid);
 }
@@ -4037,7 +4147,7 @@ function applyShopStripeEvent(db, event) {
  * A product with a manual checkout_url keeps the legacy external-link
  * behavior and never touches Stripe.
  */
-async function createShopCheckoutByToken(db, token, { productId, returnUrl } = {}, opts = {}) {
+async function createShopCheckoutByToken(db, token, { productId, variantId, returnUrl } = {}, opts = {}) {
   ensureTables(db);
   const row = db.prepare('SELECT * FROM site_module_embeds WHERE public_token = ?').get(String(token || ''));
   // Review fix: a DETACHED shop (published=0 / embed_enabled=0) must not
@@ -4056,6 +4166,23 @@ async function createShopCheckoutByToken(db, token, { productId, returnUrl } = {
   if (product.checkout_url) {
     return { mode: 'external', url: product.checkout_url };
   }
+  // Batch 127: variants are the purchasable units. A product WITH
+  // variants requires a variant selection, resolved against THIS
+  // lead's rows and checked for availability — the price is read
+  // from the variant row server-side, never from the caller. A
+  // variant id sent for a variant-less product is a client error,
+  // not something to silently ignore.
+  const variantData = productVariantData(db, row.lead_id, product.id);
+  let variant = null;
+  if (variantData.has_variants) {
+    if (variantId == null || variantId === '')
+      throw fail('VALIDATION', 'Choose the product options before checkout', 400);
+    variant = variantData.variants.find((v) => v.id === Number(variantId)) || null;
+    if (!variant) throw fail('NOT_FOUND', 'That product option is no longer available', 404);
+    if (!variant.available) throw fail('VALIDATION', 'That product option is currently unavailable', 400);
+  } else if (variantId != null && variantId !== '') {
+    throw fail('VALIDATION', 'This product has no options to choose', 400);
+  }
   const shopStripe = require('./shopStripe');
   // Per-lead keys win; the workspace keys are the fallback (Batch 19).
   // Resolution happens BEFORE the order is written so a shop with no
@@ -4073,7 +4200,7 @@ async function createShopCheckoutByToken(db, token, { productId, returnUrl } = {
     throw fail('VALIDATION', 'A valid return URL is required for checkout', 400);
   }
   const sep = base.includes('?') ? '&' : '?';
-  const order = insertShopOrder(db, row.lead_id, product, { keySource: resolved.source });
+  const order = insertShopOrder(db, row.lead_id, product, { keySource: resolved.source, variant });
   let session;
   try {
     session = await stripe.checkout.sessions.create({
@@ -4083,9 +4210,11 @@ async function createShopCheckoutByToken(db, token, { productId, returnUrl } = {
           quantity: 1,
           price_data: {
             currency: String(product.currency || 'USD').toLowerCase(),
-            unit_amount: Number(product.price_cents) || 0,
+            unit_amount: variant ? Number(variant.price_cents) || 0 : Number(product.price_cents) || 0,
             product_data: {
-              name: String(product.name || 'Product'),
+              name: variant
+                ? `${String(product.name || 'Product')} — ${variant.label}`
+                : String(product.name || 'Product'),
               ...(product.description ? { description: String(product.description).slice(0, 500) } : {}),
               ...(product.image_url && /^https?:\/\//.test(product.image_url) ? { images: [product.image_url] } : {}),
             },
@@ -4097,6 +4226,7 @@ async function createShopCheckoutByToken(db, token, { productId, returnUrl } = {
         bitpype_order_id: String(order.id),
         bitpype_lead_id: String(row.lead_id),
         bitpype_product_id: String(product.id),
+        ...(variant ? { bitpype_variant_id: String(variant.id) } : {}),
       },
       payment_intent_data: { metadata: { bitpype_order_id: String(order.id) } },
       success_url: `${base}${sep}order=success&session_id={CHECKOUT_SESSION_ID}`,
@@ -4125,6 +4255,405 @@ function formatPrice(cents, currency = 'USD') {
   } catch {
     return `${currency || 'USD'} ${n.toFixed(2)}`;
   }
+}
+
+/* ── Batch 127: product variants ──
+ * A product may define up to two option groups (axes — "Pot",
+ * "Size"), each with ordered values. The cartesian product of the
+ * values is the variant matrix; each variant is a purchasable unit
+ * with its own price, optional SKU / label override, and an
+ * availability flag. Products without option groups have no variant
+ * rows at all and behave exactly as they always have (single price).
+ *
+ * ONE write path: the portal editor, the hosted MCP tools and the
+ * design agent all land in createProduct/updateProduct, which accept
+ *   options:  [{ name, values: [..] }]   — key present = the product's
+ *             whole option structure is reconciled to this; [] clears
+ *             it; absent = untouched (partial updates stay partial).
+ *   variants: [{ values: [..one per axis..] | { GroupName: value },
+ *             price_cents | price, sku, label, available }]
+ *             — per-combination overrides applied over the matrix;
+ *             combinations not mentioned keep their reconciled state
+ *             (existing price/flags, or the product base price for
+ *             brand-new combinations).
+ * Reconciliation preserves ids where it honestly can: groups match
+ * by position (renaming an axis keeps its variants), values match by
+ * string, variants match by combination. Orders snapshot the variant
+ * label, so later edits never rewrite what a buyer actually bought. */
+
+const MAX_OPTION_GROUPS = 2;
+const MAX_OPTION_VALUES = 12;
+const MAX_VARIANTS = 100;
+const VARIANT_COMBO_SEP = '\u0001';
+
+function variantComboKey(values) {
+  return (values || []).map((v) => String(v || '').trim().toLowerCase()).join(VARIANT_COMBO_SEP);
+}
+
+function coerceVariantBool(v, dflt) {
+  if (v == null) return dflt;
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'number') return v !== 0;
+  const s = String(v).trim().toLowerCase();
+  if (s === 'true' || s === '1' || s === 'yes') return true;
+  if (s === 'false' || s === '0' || s === 'no' || s === '') return false;
+  return dflt;
+}
+
+function listProductOptions(db, leadId, productId) {
+  ensureTables(db);
+  const lid = Number(leadId);
+  const pid = Number(productId);
+  const groups = db
+    .prepare(
+      'SELECT * FROM ecommerce_product_options WHERE lead_id = ? AND product_id = ? ORDER BY sort_order ASC, id ASC'
+    )
+    .all(lid, pid);
+  const values = db
+    .prepare(
+      'SELECT * FROM ecommerce_product_option_values WHERE lead_id = ? AND product_id = ? ORDER BY sort_order ASC, id ASC'
+    )
+    .all(lid, pid);
+  return groups.map((g) => ({
+    id: g.id,
+    name: g.name,
+    sort_order: g.sort_order,
+    values: values
+      .filter((v) => v.option_id === g.id)
+      .map((v) => ({ id: v.id, value: v.value, sort_order: v.sort_order })),
+  }));
+}
+
+function listProductVariants(db, leadId, productId) {
+  ensureTables(db);
+  const lid = Number(leadId);
+  const pid = Number(productId);
+  const groups = listProductOptions(db, lid, pid);
+  const valueById = new Map();
+  for (const g of groups) for (const v of g.values) valueById.set(v.id, v.value);
+  const rows = db
+    .prepare(
+      'SELECT * FROM ecommerce_product_variants WHERE lead_id = ? AND product_id = ? ORDER BY sort_order ASC, id ASC'
+    )
+    .all(lid, pid);
+  return rows.map((r) => {
+    let ids = [];
+    try {
+      const parsed = JSON.parse(r.option_value_ids || '[]');
+      if (Array.isArray(parsed)) ids = parsed.map((x) => Number(x) || 0);
+    } catch {
+      ids = [];
+    }
+    const values = ids.map((id) => valueById.get(id) || '');
+    return {
+      id: r.id,
+      product_id: pid,
+      option_value_ids: ids,
+      values,
+      label: String(r.label_override || '') || values.filter(Boolean).join(' · '),
+      label_override: String(r.label_override || ''),
+      sku: String(r.sku || ''),
+      price_cents: Number(r.price_cents) || 0,
+      available: !!r.available,
+      sort_order: r.sort_order,
+    };
+  });
+}
+
+function productVariantData(db, leadId, productId) {
+  const options = listProductOptions(db, leadId, productId);
+  const variants = listProductVariants(db, leadId, productId);
+  return { options, variants, has_variants: variants.length > 0 };
+}
+
+/** A product row plus its variant structure (options + variants). */
+function withProductVariants(db, leadId, product) {
+  if (!product) return product;
+  const data = productVariantData(db, leadId, product.id);
+  return { ...product, options: data.options, variants: data.variants, has_variants: data.has_variants };
+}
+
+function getProductVariant(db, leadId, variantId) {
+  ensureTables(db);
+  const row = db
+    .prepare('SELECT * FROM ecommerce_product_variants WHERE lead_id = ? AND id = ?')
+    .get(Number(leadId), Number(variantId));
+  if (!row) return null;
+  return listProductVariants(db, leadId, row.product_id).find((v) => v.id === row.id) || null;
+}
+
+/** The honest single price for a product: with variants, the lowest
+ *  price among AVAILABLE variants (the lowest overall when none are
+ *  available); without variants, the product's own price_cents. The
+ *  shared layer (Batch 122) and every price label use this rule. */
+function productDisplayPriceCents(db, leadId, product) {
+  if (!product) return 0;
+  const variants = listProductVariants(db, leadId, product.id);
+  if (!variants.length) return Number(product.price_cents) || 0;
+  const available = variants.filter((v) => v.available);
+  const pool = available.length ? available : variants;
+  return Math.min(...pool.map((v) => Number(v.price_cents) || 0));
+}
+
+function productPriceLabel(db, leadId, product) {
+  if (!product) return null;
+  const variants = listProductVariants(db, leadId, product.id);
+  if (!variants.length) return formatPrice(product.price_cents, product.currency);
+  const available = variants.filter((v) => v.available);
+  const pool = available.length ? available : variants;
+  const prices = pool.map((v) => Number(v.price_cents) || 0);
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const minLabel = formatPrice(min, product.currency);
+  if (min === max || !minLabel) return minLabel || formatPrice(max, product.currency);
+  return `From ${minLabel}`;
+}
+
+/** The storefront shape of a product: variant structure in the
+ *  public vocabulary (no SKUs — those are the merchant's own), plus
+ *  the honest price label. */
+function publicProductShape(db, leadId, product, stripeReady) {
+  const data = productVariantData(db, leadId, product.id);
+  return {
+    ...product,
+    options: data.options.map((g) => ({ name: g.name, values: g.values.map((v) => v.value) })),
+    variants: data.variants.map((v) => ({
+      id: v.id,
+      values: v.values,
+      label: v.label,
+      price_cents: v.price_cents,
+      price_label: formatPrice(v.price_cents, product.currency),
+      available: v.available,
+    })),
+    has_variants: data.has_variants,
+    price_from_cents: data.has_variants ? productDisplayPriceCents(db, leadId, product) : product.price_cents,
+    price_label: productPriceLabel(db, leadId, product),
+    stripe_checkout: !!stripeReady && !product.checkout_url,
+  };
+}
+
+function normalizeVariantOptionsInput(raw) {
+  if (raw == null) return [];
+  if (!Array.isArray(raw)) throw fail('VALIDATION', 'options must be an array of { name, values }', 400);
+  if (raw.length > MAX_OPTION_GROUPS)
+    throw fail('VALIDATION', `A product can have at most ${MAX_OPTION_GROUPS} option groups`, 400);
+  const seenNames = new Set();
+  const groups = raw.map((g) => {
+    const name = String((g && (g.name != null ? g.name : g.label)) || '')
+      .trim()
+      .slice(0, 60);
+    if (!name) throw fail('VALIDATION', 'Each option group needs a name (e.g. Pot, Size)', 400);
+    const nameKey = name.toLowerCase();
+    if (seenNames.has(nameKey)) throw fail('VALIDATION', `Duplicate option group: ${name}`, 400);
+    seenNames.add(nameKey);
+    const rawValues = g ? (g.values != null ? g.values : g.options) : null;
+    if (!Array.isArray(rawValues) || !rawValues.length)
+      throw fail('VALIDATION', `Option group "${name}" needs at least one value`, 400);
+    if (rawValues.length > MAX_OPTION_VALUES)
+      throw fail('VALIDATION', `Option group "${name}" can have at most ${MAX_OPTION_VALUES} values`, 400);
+    const seenValues = new Set();
+    const values = rawValues.map((v) => {
+      const value = String((v && typeof v === 'object' ? (v.value != null ? v.value : v.name) : v) || '')
+        .trim()
+        .slice(0, 80);
+      if (!value) throw fail('VALIDATION', `Option group "${name}" has an empty value`, 400);
+      const vk = value.toLowerCase();
+      if (seenValues.has(vk)) throw fail('VALIDATION', `Duplicate value "${value}" in option group "${name}"`, 400);
+      seenValues.add(vk);
+      return value;
+    });
+    return { name, values };
+  });
+  if (groups.length) {
+    const combos = groups.reduce((n, g) => n * g.values.length, 1);
+    if (combos > MAX_VARIANTS)
+      throw fail('VALIDATION', `Those options make ${combos} variants — the limit is ${MAX_VARIANTS}`, 400);
+  }
+  return groups;
+}
+
+function normalizeVariantOverrides(raw, groups) {
+  const map = new Map();
+  if (raw == null) return map;
+  if (!Array.isArray(raw)) throw fail('VALIDATION', 'variants must be an array', 400);
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') throw fail('VALIDATION', 'Each variant must be an object', 400);
+    let values = null;
+    if (Array.isArray(entry.values)) {
+      values = entry.values.map((v) => String(v != null ? v : '').trim());
+    } else if (entry.values && typeof entry.values === 'object') {
+      values = groups.map((g) => {
+        const hit = Object.entries(entry.values).find(([k]) => String(k).trim().toLowerCase() === g.name.toLowerCase());
+        return hit ? String(hit[1] != null ? hit[1] : '').trim() : '';
+      });
+    }
+    if (!values || values.length !== groups.length)
+      throw fail('VALIDATION', 'Each variant must name exactly one value per option group', 400);
+    values = values.map((v, i) => {
+      const canonical = groups[i].values.find((gv) => gv.toLowerCase() === v.toLowerCase());
+      if (!canonical) throw fail('VALIDATION', `"${v}" is not a value of option group "${groups[i].name}"`, 400);
+      return canonical;
+    });
+    const key = variantComboKey(values);
+    if (map.has(key)) throw fail('VALIDATION', `Duplicate variant combination: ${values.join(' / ')}`, 400);
+    let priceCents = null;
+    if (entry.price_cents != null) priceCents = Math.round(Number(entry.price_cents) || 0);
+    else if (entry.price != null) priceCents = Math.round((Number(entry.price) || 0) * 100);
+    if (priceCents != null && (priceCents < 0 || priceCents > 100000000))
+      throw fail('VALIDATION', `Variant price looks wrong for: ${values.join(' / ')}`, 400);
+    map.set(key, {
+      values,
+      price_cents: priceCents,
+      sku: entry.sku != null ? String(entry.sku).slice(0, 80) : null,
+      label: entry.label != null ? String(entry.label).slice(0, 120) : null,
+      available: entry.available == null ? null : coerceVariantBool(entry.available, true),
+    });
+  }
+  return map;
+}
+
+function clearProductVariants(db, leadId, productId) {
+  const lid = Number(leadId);
+  const pid = Number(productId);
+  db.prepare('DELETE FROM ecommerce_product_variants WHERE lead_id = ? AND product_id = ?').run(lid, pid);
+  db.prepare('DELETE FROM ecommerce_product_option_values WHERE lead_id = ? AND product_id = ?').run(lid, pid);
+  db.prepare('DELETE FROM ecommerce_product_options WHERE lead_id = ? AND product_id = ?').run(lid, pid);
+}
+
+/** Reconcile a product's whole variant structure to the given option
+ *  groups + per-combination overrides. Returns the fresh structure. */
+function setProductOptions(db, leadId, product, optionsInput, variantsInput) {
+  ensureTables(db);
+  const lid = Number(leadId);
+  const pid = Number(product.id);
+  const groups = normalizeVariantOptionsInput(optionsInput);
+  if (!groups.length) {
+    clearProductVariants(db, lid, pid);
+    return { options: [], variants: [], has_variants: false };
+  }
+  const overrides = normalizeVariantOverrides(variantsInput, groups);
+  // Snapshot the existing structure BEFORE touching it: variant
+  // prices/flags survive by combination (value strings), not by id.
+  const existingGroups = listProductOptions(db, lid, pid);
+  const existingVariants = listProductVariants(db, lid, pid);
+  const existingByCombo = new Map(existingVariants.map((v) => [variantComboKey(v.values), v]));
+
+  // Groups match by position — renaming an axis keeps its variants.
+  const axisValueIds = [];
+  groups.forEach((g, gi) => {
+    let groupRow = existingGroups[gi] || null;
+    if (groupRow) {
+      db.prepare(
+        "UPDATE ecommerce_product_options SET name = ?, sort_order = ?, updated_at = datetime('now') WHERE id = ? AND lead_id = ?"
+      ).run(g.name, gi, groupRow.id, lid);
+    } else {
+      const info = db
+        .prepare('INSERT INTO ecommerce_product_options (lead_id, product_id, name, sort_order) VALUES (?, ?, ?, ?)')
+        .run(lid, pid, g.name, gi);
+      groupRow = { id: Number(info.lastInsertRowid), values: [] };
+    }
+    const existingValues = existingGroups[gi] ? existingGroups[gi].values : [];
+    const byValue = new Map(existingValues.map((v) => [v.value.toLowerCase(), v]));
+    const valueIds = g.values.map((value, vi) => {
+      const hit = byValue.get(value.toLowerCase());
+      if (hit) {
+        db.prepare(
+          "UPDATE ecommerce_product_option_values SET value = ?, sort_order = ?, updated_at = datetime('now') WHERE id = ? AND lead_id = ?"
+        ).run(value, vi, hit.id, lid);
+        return hit.id;
+      }
+      const info = db
+        .prepare(
+          'INSERT INTO ecommerce_product_option_values (lead_id, product_id, option_id, value, sort_order) VALUES (?, ?, ?, ?, ?)'
+        )
+        .run(lid, pid, groupRow.id, value, vi);
+      return Number(info.lastInsertRowid);
+    });
+    const keep = new Set(valueIds);
+    for (const v of existingValues) {
+      if (!keep.has(v.id))
+        db.prepare('DELETE FROM ecommerce_product_option_values WHERE id = ? AND lead_id = ?').run(v.id, lid);
+    }
+    axisValueIds.push(valueIds);
+  });
+  for (let gi = groups.length; gi < existingGroups.length; gi++) {
+    db.prepare('DELETE FROM ecommerce_product_option_values WHERE option_id = ? AND lead_id = ?').run(
+      existingGroups[gi].id,
+      lid
+    );
+    db.prepare('DELETE FROM ecommerce_product_options WHERE id = ? AND lead_id = ?').run(existingGroups[gi].id, lid);
+  }
+
+  // The matrix: every combination of the axes' values, in axis order.
+  const combos = [];
+  const walk = (axis, acc) => {
+    if (axis === groups.length) {
+      combos.push(acc.slice());
+      return;
+    }
+    groups[axis].values.forEach((value, vi) => {
+      acc.push({ value, id: axisValueIds[axis][vi] });
+      walk(axis + 1, acc);
+      acc.pop();
+    });
+  };
+  walk(0, []);
+  const keepVariantIds = new Set();
+  combos.forEach((combo, ci) => {
+    const values = combo.map((c) => c.value);
+    const ids = combo.map((c) => c.id);
+    const key = variantComboKey(values);
+    const prev = existingByCombo.get(key);
+    const ov = overrides.get(key);
+    const priceCents =
+      ov && ov.price_cents != null ? ov.price_cents : prev ? prev.price_cents : Number(product.price_cents) || 0;
+    const sku = ov && ov.sku != null ? ov.sku : prev ? prev.sku : '';
+    const labelOverride = ov && ov.label != null ? ov.label : prev ? prev.label_override : '';
+    const available = ov && ov.available != null ? ov.available : prev ? prev.available : true;
+    if (prev) {
+      db.prepare(
+        `UPDATE ecommerce_product_variants SET combo_key = ?, option_value_ids = ?, label_override = ?, sku = ?,
+           price_cents = ?, available = ?, sort_order = ?, updated_at = datetime('now')
+         WHERE id = ? AND lead_id = ?`
+      ).run(ids.join('-'), JSON.stringify(ids), labelOverride, sku, priceCents, available ? 1 : 0, ci, prev.id, lid);
+      keepVariantIds.add(prev.id);
+    } else {
+      const info = db
+        .prepare(
+          `INSERT INTO ecommerce_product_variants
+             (lead_id, product_id, combo_key, option_value_ids, label_override, sku, price_cents, available, sort_order)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(lid, pid, ids.join('-'), JSON.stringify(ids), labelOverride, sku, priceCents, available ? 1 : 0, ci);
+      keepVariantIds.add(Number(info.lastInsertRowid));
+    }
+  });
+  for (const v of existingVariants) {
+    if (!keepVariantIds.has(v.id))
+      db.prepare('DELETE FROM ecommerce_product_variants WHERE id = ? AND lead_id = ?').run(v.id, lid);
+  }
+  return productVariantData(db, lid, pid);
+}
+
+/** The create/update discipline (same as category_ids): the options
+ *  key present = reconcile the whole structure; variants alone =
+ *  overrides against the existing axes; both absent = untouched. */
+function reconcileProductVariantsFromInput(db, leadId, product, data) {
+  if (!data || (data.options === undefined && data.variants === undefined)) return;
+  if (data.options !== undefined) {
+    setProductOptions(db, leadId, product, data.options, data.variants);
+    return;
+  }
+  const existing = listProductOptions(db, leadId, product.id);
+  if (!existing.length)
+    throw fail('VALIDATION', 'variants need option groups — send options together with the variants', 400);
+  setProductOptions(
+    db,
+    leadId,
+    product,
+    existing.map((g) => ({ name: g.name, values: g.values.map((v) => v.value) })),
+    data.variants
+  );
 }
 
 /* ── Courses ── */
@@ -12344,11 +12873,11 @@ function getPublicModuleByToken(db, token, opts = {}) {
     if (settings.post_limit != null) items = items.slice(0, settings.post_limit);
   } else if (type === 'ecommerce') {
     const stripeReady = require('./shopStripe').isConfiguredForLead(db, leadId);
-    items = listProducts(db, leadId, { includeDrafts: false }).map((p) => ({
-      ...p,
-      price_label: formatPrice(p.price_cents, p.currency),
-      stripe_checkout: stripeReady && !p.checkout_url,
-    }));
+    // Batch 127: products carry their variant structure + the honest
+    // (variant-aware) price label into the storefront payload.
+    items = listProducts(db, leadId, { includeDrafts: false }).map((p) =>
+      publicProductShape(db, leadId, p, stripeReady)
+    );
   } else if (type === 'courses') items = listCourses(db, leadId, { includeDrafts: false, withLessons: true });
   else if (type === 'gallery') items = listAlbums(db, leadId, { includeDrafts: false, withImages: true });
   else if (type === 'directory') items = listListings(db, leadId, { includeDrafts: false });
@@ -12513,11 +13042,7 @@ function getPublicModuleItem(db, token, slugOrId, opts = {}) {
   else if (type === 'ecommerce') {
     item = getProduct(db, leadId, slugOrId);
     if (item)
-      item = {
-        ...item,
-        price_label: formatPrice(item.price_cents, item.currency),
-        stripe_checkout: require('./shopStripe').isConfiguredForLead(db, leadId) && !item.checkout_url,
-      };
+      item = publicProductShape(db, leadId, item, require('./shopStripe').isConfiguredForLead(db, leadId));
   } else if (type === 'courses') item = getCourse(db, leadId, slugOrId);
   else if (type === 'gallery') item = getAlbum(db, leadId, slugOrId);
   else if (type === 'directory') item = getListing(db, leadId, slugOrId);
@@ -12696,6 +13221,15 @@ module.exports = {
   createProduct,
   updateProduct,
   deleteProduct,
+  listProductOptions,
+  listProductVariants,
+  getProductVariant,
+  setProductOptions,
+  productVariantData,
+  withProductVariants,
+  productDisplayPriceCents,
+  productPriceLabel,
+  publicProductShape,
   formatPrice,
   listCourses,
   getCourse,

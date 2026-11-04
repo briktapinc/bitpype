@@ -121,7 +121,15 @@ const SHARE_REGISTRY = {
           description: p.description,
           image_url: p.image_url,
           date: p.created_at,
-          meta: { slug: p.slug || '', price_cents: p.price_cents || 0, currency: p.currency || 'USD' },
+          // Batch 127: the shared layer stays product-level; the
+          // price is the honest display price — with variants, the
+          // lowest AVAILABLE variant price (productDisplayPriceCents),
+          // never a variant's sticker the buyer can't actually pay.
+          meta: {
+            slug: p.slug || '',
+            price_cents: modules.productDisplayPriceCents(db, leadId, p),
+            currency: p.currency || 'USD',
+          },
         })
       );
     },

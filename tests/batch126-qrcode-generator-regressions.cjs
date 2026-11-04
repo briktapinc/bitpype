@@ -144,8 +144,8 @@ let db;
     n++;
     assert.equal(
       sm.MODULE_SCRIPT_VER,
-      'mod29',
-      'embed script version bumped for the QR renderer (finisher rotation: mod28 + 1)'
+      'mod30',
+      'embed script version bumped for the QR renderer (Batch 127 finisher rotation: mod29 + 1)'
     );
     n++;
     // Registry parity at 26 + the qrcode classification.
@@ -175,7 +175,7 @@ let db;
     assert.ok(read('public/portal.html').includes('modules-qrcode-panel'), 'portal.html hosts the QR panel');
     n++;
     assert.ok(
-      read('public/portal.html').includes('/js/portal.js?v=batch126-qrcode1'),
+      read('public/portal.html').includes('/js/portal.js?v=batch127-variants1'),
       'portal.js cache-busted for Batch 126'
     );
     n++;

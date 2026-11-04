@@ -186,6 +186,7 @@ router.post('/:token/checkout', checkoutLimit, async (req, res) => {
         req.params.token,
         {
           productId: body.productId || body.product_id || body.id,
+          variantId: body.variantId || body.variant_id || undefined,
           returnUrl: body.returnUrl || body.return_url || '',
         },
         gateOpts(req)

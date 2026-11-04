@@ -8194,12 +8194,212 @@
         priceInput.value = Number(item.price_cents) ? (Number(item.price_cents) / 100).toFixed(2) : '';
       }
     }
+    if (moduleState.current === 'ecommerce') {
+      // Batch 127: the variant editor (option groups + the priced
+      // matrix) rides under the generic fields; its state is gathered
+      // by collectModuleFields into options/variants.
+      const vWrap = document.createElement('div');
+      vWrap.id = 'mod-variants-editor';
+      fields.appendChild(vWrap);
+      renderProductVariantEditor(item);
+    }
     wireModuleFieldUploads();
     moduleModalMsg('', true);
     // Batch 78: navigate to the editor page (was: unhide a modal).
     showPortalPanel('module-item');
     const first = fields.querySelector('input, textarea, select');
     if (first) first.focus();
+  }
+
+  // ── Batch 127: product variant editor ──
+  // Option groups (up to 2 axes) are edited as a name + a
+  // comma-separated values line (the order typed is the order shown).
+  // The matrix under them is generated from the axes; each row is one
+  // purchasable variant with its own price / SKU / label /
+  // availability. State lives in the DOM; collectModuleFields reads
+  // it back into the exact options/variants shape the server
+  // reconciles (one write path for portal, MCP and the design agent).
+  let variantMatrixCombos = [];
+
+  function variantComboKey(values) {
+    return (values || []).map((v) => String(v || '').trim().toLowerCase()).join('|');
+  }
+
+  function readVariantGroupsFromDom() {
+    const wrap = document.getElementById('mod-variants-editor');
+    if (!wrap) return [];
+    const groups = [];
+    wrap.querySelectorAll('[data-var-group]').forEach((gEl) => {
+      const nameEl = gEl.querySelector('[data-var-group-name]');
+      const valuesEl = gEl.querySelector('[data-var-group-values]');
+      const name = nameEl ? String(nameEl.value || '').trim() : '';
+      const values = valuesEl
+        ? String(valuesEl.value || '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
+      if (name || values.length) groups.push({ name, values });
+    });
+    return groups;
+  }
+
+  function readVariantMatrixFromDom() {
+    const wrap = document.getElementById('mod-variants-editor');
+    if (!wrap) return [];
+    const rows = [];
+    wrap.querySelectorAll('[data-var-row]').forEach((rEl) => {
+      const idx = Number(rEl.getAttribute('data-var-idx'));
+      const values = variantMatrixCombos[idx];
+      if (!values) return;
+      const out = { values: values.slice() };
+      const priceEl = rEl.querySelector('[data-var-price]');
+      if (priceEl && priceEl.value !== '') out.price = Number(priceEl.value);
+      const skuEl = rEl.querySelector('[data-var-sku]');
+      if (skuEl && skuEl.value) out.sku = skuEl.value;
+      const labelEl = rEl.querySelector('[data-var-label]');
+      if (labelEl && labelEl.value) out.label = labelEl.value;
+      const availEl = rEl.querySelector('[data-var-available]');
+      out.available = !!(availEl && availEl.checked);
+      rows.push(out);
+    });
+    return rows;
+  }
+
+  function renderVariantMatrix(seed) {
+    const wrap = document.getElementById('mod-variants-editor');
+    if (!wrap) return;
+    const box = wrap.querySelector('[data-var-matrix]');
+    if (!box) return;
+    // Unsaved row edits survive a regeneration (seed only on open).
+    const state = seed || {};
+    if (!seed) {
+      for (const row of readVariantMatrixFromDom()) state[variantComboKey(row.values)] = row;
+    }
+    const groups = readVariantGroupsFromDom().filter((g) => g.name && g.values.length);
+    variantMatrixCombos = [];
+    if (!groups.length) {
+      box.innerHTML = '';
+      return;
+    }
+    let combos = [[]];
+    for (const g of groups) {
+      const next = [];
+      for (const c of combos) for (const v of g.values) next.push([...c, v]);
+      combos = next;
+    }
+    if (combos.length > 100) {
+      box.innerHTML = `<p class="hint">Those options make ${combos.length} variants — the limit is 100. Trim a value or two.</p>`;
+      return;
+    }
+    variantMatrixCombos = combos;
+    const fields = document.getElementById('modules-fields');
+    const priceField = fields && fields.querySelector('[data-mod-field="price"]');
+    const baseDollars = priceField && priceField.value !== '' ? Number(priceField.value) : 0;
+    box.innerHTML =
+      '<div class="mod-var-matrix">' +
+      combos
+        .map((values, i) => {
+          const prev = state[variantComboKey(values)] || {};
+          const dollars =
+            prev.price != null
+              ? String(prev.price)
+              : prev.price_cents != null
+                ? (Number(prev.price_cents) / 100).toFixed(2)
+                : baseDollars
+                  ? baseDollars.toFixed(2)
+                  : '';
+          return `<div class="mod-var-row" data-var-row data-var-idx="${i}">
+        <span class="mod-var-combo">${esc(values.join(' · '))}</span>
+        <label>Price $<input data-var-price type="text" inputmode="decimal" value="${esc(dollars)}" /></label>
+        <label>SKU<input data-var-sku type="text" value="${esc(prev.sku || '')}" /></label>
+        <label>Label<input data-var-label type="text" placeholder="Optional" value="${esc(prev.label || '')}" /></label>
+        <label class="mod-check"><input type="checkbox" data-var-available ${prev.available === false ? '' : 'checked'} /> Available</label>
+      </div>`;
+        })
+        .join('') +
+      '</div>';
+  }
+
+  function variantGroupHtml(g) {
+    return `<div class="mod-var-group" data-var-group>
+      <div class="row" style="gap:6px">
+        <input data-var-group-name type="text" placeholder="Option name — e.g. Pot" value="${esc(g.name || '')}" style="flex:1" />
+        <button type="button" class="btn ghost small" data-var-group-up title="Move group up">↑</button>
+        <button type="button" class="btn ghost small" data-var-group-down title="Move group down">↓</button>
+        <button type="button" class="btn ghost small" data-var-group-remove>Remove</button>
+      </div>
+      <input data-var-group-values type="text" placeholder="Values, comma-separated — e.g. Nursery Pot, EcoPot" value="${esc((g.values || []).join(', '))}" />
+    </div>`;
+  }
+
+  function wireProductVariantEditor() {
+    const wrap = document.getElementById('mod-variants-editor');
+    if (!wrap) return;
+    const refreshChrome = () => {
+      const count = wrap.querySelectorAll('[data-var-group]').length;
+      const add = wrap.querySelector('[data-var-add-group]');
+      if (add) add.disabled = count >= 2;
+      const note = wrap.querySelector('[data-var-group-count]');
+      if (note) note.textContent = count ? `${count} of 2 option groups` : '';
+    };
+    wrap.oninput = (ev) => {
+      if (ev.target.closest('[data-var-group]')) renderVariantMatrix();
+    };
+    wrap.onclick = (ev) => {
+      const add = ev.target.closest('[data-var-add-group]');
+      if (add) {
+        const groupsEl = wrap.querySelector('[data-var-groups]');
+        if (groupsEl && wrap.querySelectorAll('[data-var-group]').length < 2) {
+          groupsEl.insertAdjacentHTML('beforeend', variantGroupHtml({ name: '', values: [] }));
+        }
+        refreshChrome();
+        return;
+      }
+      const groupEl = ev.target.closest('[data-var-group]');
+      if (!groupEl) return;
+      if (ev.target.closest('[data-var-group-remove]')) {
+        groupEl.remove();
+        renderVariantMatrix();
+        refreshChrome();
+      } else if (ev.target.closest('[data-var-group-up]')) {
+        const prev = groupEl.previousElementSibling;
+        if (prev) groupEl.parentNode.insertBefore(groupEl, prev);
+        renderVariantMatrix();
+      } else if (ev.target.closest('[data-var-group-down]')) {
+        const next = groupEl.nextElementSibling;
+        if (next) groupEl.parentNode.insertBefore(next, groupEl);
+        renderVariantMatrix();
+      }
+    };
+    refreshChrome();
+  }
+
+  function renderProductVariantEditor(item) {
+    const wrap = document.getElementById('mod-variants-editor');
+    if (!wrap) return;
+    const seedGroups = ((item && item.options) || []).map((g) => ({
+      name: g.name || '',
+      values: (g.values || []).map((v) => (v && typeof v === 'object' ? v.value : v)),
+    }));
+    const seed = {};
+    for (const v of (item && item.variants) || []) {
+      seed[variantComboKey(v.values || [])] = {
+        price_cents: v.price_cents,
+        sku: v.sku || '',
+        label: v.label_override || '',
+        available: v.available !== false,
+      };
+    }
+    wrap.innerHTML = `<div class="field mod-variants-field">
+      <label>Options &amp; variants</label>
+      <p class="hint">Options turn one product into priced variants — a plant in a Nursery Pot or an EcoPot, a Small or a Large. Buyers pick on the product page and each combination checks out at its own price. No option groups = a plain single-price product. Removing the groups removes the variants (orders already placed keep what was bought).</p>
+      <div data-var-groups>${seedGroups.map(variantGroupHtml).join('')}</div>
+      <div class="row" style="gap:6px;margin:6px 0"><button type="button" class="btn soft small" data-var-add-group>Add option group</button><span class="hint" data-var-group-count></span></div>
+      <div data-var-matrix></div>
+    </div>`;
+    wireProductVariantEditor();
+    renderVariantMatrix(seed);
   }
 
   async function fileToBase64Raw(file) {
@@ -8245,6 +8445,16 @@
     });
     if (moduleState.current === 'ecommerce' && out.price != null && out.price !== '') {
       out.price = Number(out.price);
+    }
+    if (moduleState.current === 'ecommerce') {
+      // Batch 127: the variant editor's full state is the truth on
+      // every portal save (no groups = a single-price product); API
+      // and agent writes keep the absent-key discipline server-side.
+      const vWrap = document.getElementById('mod-variants-editor');
+      if (vWrap) {
+        out.options = readVariantGroupsFromDom();
+        if (out.options.length) out.variants = readVariantMatrixFromDom();
+      }
     }
     if (moduleState.current === 'bookings') {
       if (out.price != null && out.price !== '') out.price = Number(out.price);

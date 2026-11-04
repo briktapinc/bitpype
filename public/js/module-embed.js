@@ -97,6 +97,14 @@
       '.bitpype-module-embed .bp-mod-view-all a{font-weight:700;color:var(--bp-mod-accent);text-decoration:none;}',
       '.bitpype-module-embed .bp-mod-desc{margin:0;font-size:0.95rem;flex:1;color:var(--bp-mod-muted);}',
       '.bitpype-module-embed .bp-mod-price{font-weight:700;color:var(--bp-mod-accent);margin:0;}',
+      '.bitpype-module-embed .bp-mod-variants{display:flex;flex-wrap:wrap;gap:0.75rem;margin:0.9rem 0 0.2rem;}',
+      '.bitpype-module-embed .bp-mod-variant-axis{display:flex;flex-direction:column;gap:0.3rem;font-size:0.85rem;font-weight:700;color:var(--bp-mod-muted);}',
+      '.bitpype-module-embed .bp-mod-variant-axis select{',
+      'font:inherit;font-weight:600;color:var(--bp-mod-ink);padding:0.5rem 0.7rem;border-radius:0.7rem;',
+      'border:1.5px solid var(--bp-mod-line);background:var(--bp-mod-paper);min-width:10rem;',
+      '}',
+      '.bitpype-module-embed .bp-mod-variant-note{color:var(--bp-mod-muted);font-size:0.9rem;margin:0.4rem 0 0;}',
+      '.bitpype-module-embed .bp-mod-btn[disabled]{opacity:0.55;cursor:not-allowed;filter:none;}',
       '.bitpype-module-embed .bp-mod-btn{',
       'appearance:none;border:0;border-radius:999px;background:var(--bp-mod-accent);color:#fff;',
       'font:inherit;font-weight:700;padding:0.6rem 1.1rem;cursor:pointer;text-decoration:none;',
@@ -1412,11 +1420,16 @@
           (blogSet.show_excerpt && it.excerpt ? '<p class="bp-mod-excerpt">' + esc(it.excerpt) + '</p>' : '') +
           '</div></article>';
       } else if (type === 'ecommerce') {
+        // Batch 127: a product with variants is bought on its product
+        // page (options must be chosen first) — the card links there
+        // instead of selling a default combination sight unseen.
         var buy = it.checkout_url
           ? '<a class="bp-mod-btn" href="' + esc(it.checkout_url) + '" target="_blank" rel="noopener">Buy</a>'
-          : it.stripe_checkout
-            ? '<button type="button" class="bp-mod-btn" data-bp-buy="' + esc(it.id) + '">Buy</button>'
-            : '<a class="bp-mod-btn ghost" href="' + esc(itemHref(key)) + '">View</a>';
+          : it.has_variants
+            ? '<a class="bp-mod-btn ghost" href="' + esc(itemHref(key)) + '">View</a>'
+            : it.stripe_checkout
+              ? '<button type="button" class="bp-mod-btn" data-bp-buy="' + esc(it.id) + '">Buy</button>'
+              : '<a class="bp-mod-btn ghost" href="' + esc(itemHref(key)) + '">View</a>';
         html +=
           '<article class="bp-mod-card">' +
           coverHtml(itemHref(key), it.image_url, it.name) +
@@ -3455,15 +3468,34 @@
         (it.body_html || '') +
         '</div></article>';
     } else if (type === 'ecommerce') {
+      // Batch 127: variant products render one selector per option
+      // axis; wireVariantPicker (below) keeps the price, the buy
+      // button's variant and its availability in sync with the pick.
+      var variantHtml = '';
+      if (it.has_variants && it.options && it.options.length) {
+        variantHtml = '<div class="bp-mod-variants">';
+        for (var ax = 0; ax < it.options.length; ax++) {
+          var axis = it.options[ax];
+          variantHtml +=
+            '<label class="bp-mod-variant-axis"><span>' + esc(axis.name) + '</span><select data-bp-axis="' + ax + '">';
+          for (var av = 0; av < (axis.values || []).length; av++) {
+            variantHtml +=
+              '<option value="' + esc(axis.values[av]) + '">' + esc(axis.values[av]) + '</option>';
+          }
+          variantHtml += '</select></label>';
+        }
+        variantHtml += '</div><p class="bp-mod-variant-note" data-bp-variant-note hidden></p>';
+      }
       html +=
         '<article class="bp-mod-detail">' +
         (it.image_url ? '<img class="bp-mod-hero" src="' + esc(it.image_url) + '" alt="" />' : '') +
         '<h1>' +
         esc(it.name) +
         '</h1>' +
-        '<p class="bp-mod-price">' +
+        '<p class="bp-mod-price" data-bp-variant-price>' +
         esc(it.price_label || '') +
         '</p>' +
+        variantHtml +
         '<div class="bp-mod-content"><p>' +
         esc(it.description || '') +
         '</p></div>' +
@@ -3629,6 +3661,68 @@
         '">Book this service</a></p></article>';
     }
     el.innerHTML = html;
+    // Batch 127: variant selectors on a product page get their live
+    // wiring after the detail HTML lands.
+    if (type === 'ecommerce' && it && it.has_variants) wireVariantPicker(el, it);
+  }
+
+  // Batch 127: keep a variant product's price, buy-button variant and
+  // availability in sync with the axis selectors. Every combination
+  // exists as a variant row; an unavailable combination disables the
+  // buy button rather than selling something the shop turned off.
+  function wireVariantPicker(el, it) {
+    var selects = el.querySelectorAll('[data-bp-axis]');
+    if (!selects.length) return;
+    var priceEl = el.querySelector('[data-bp-variant-price]');
+    var noteEl = el.querySelector('[data-bp-variant-note]');
+    var btn = el.querySelector('[data-bp-buy]');
+    function currentVariant() {
+      var values = [];
+      for (var i = 0; i < selects.length; i++) values.push(selects[i].value);
+      var variants = it.variants || [];
+      for (var j = 0; j < variants.length; j++) {
+        var v = variants[j];
+        var match = v.values && v.values.length === values.length;
+        for (var k = 0; match && k < values.length; k++) {
+          if (String(v.values[k]) !== values[k]) match = false;
+        }
+        if (match) return v;
+      }
+      return null;
+    }
+    function apply() {
+      var v = currentVariant();
+      if (!v) {
+        if (btn) {
+          btn.removeAttribute('data-bp-variant');
+          btn.disabled = true;
+        }
+        return;
+      }
+      if (priceEl) priceEl.textContent = v.price_label || it.price_label || '';
+      if (btn) {
+        btn.setAttribute('data-bp-variant', String(v.id));
+        btn.disabled = !v.available;
+        btn.textContent = v.available ? 'Buy now' : 'Unavailable';
+      }
+      if (noteEl) {
+        noteEl.hidden = !!v.available;
+        noteEl.textContent = v.available ? '' : 'This combination is currently unavailable.';
+      }
+    }
+    for (var s = 0; s < selects.length; s++) selects[s].addEventListener('change', apply);
+    var firstAvailable = null;
+    var firstAny = null;
+    var all = it.variants || [];
+    for (var m = 0; m < all.length; m++) {
+      if (!firstAny) firstAny = all[m];
+      if (!firstAvailable && all[m].available) firstAvailable = all[m];
+    }
+    var dflt = firstAvailable || firstAny;
+    if (dflt && dflt.values) {
+      for (var d = 0; d < selects.length && d < dflt.values.length; d++) selects[d].value = dflt.values[d];
+    }
+    apply();
   }
 
   function wireShop(el, base, token) {
@@ -3655,11 +3749,17 @@
       var ret = new URL(window.location.href);
       ret.searchParams.delete('order');
       ret.searchParams.delete('session_id');
+      // Batch 127: a variant product's buy button carries the chosen
+      // variant (set by wireVariantPicker); the server re-validates
+      // it and prices from the variant row, never from the page.
+      var payload = { productId: Number(productId), returnUrl: ret.toString() };
+      var variantId = btn.getAttribute('data-bp-variant');
+      if (variantId) payload.variantId = Number(variantId);
       fetch((base || '') + '/api/v1/modules/public/' + encodeURIComponent(token) + '/checkout', {
         method: 'POST',
         credentials: 'omit',
         headers: jsonHeaders(),
-        body: JSON.stringify({ productId: Number(productId), returnUrl: ret.toString() }),
+        body: JSON.stringify(payload),
       })
         .then(function (r) {
           return r.json();

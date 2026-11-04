@@ -288,7 +288,7 @@ function clientToolDefs() {
     {
       name: 'ecommerce.create',
       description:
-        'Create a product (name, price or price_cents, description, image_url, checkout_url, status). Standard/Premium.',
+        'Create a product (name, price or price_cents, description, image_url, checkout_url, status). Variants: pass options (up to 2 groups: [{name, values[]}]) to make the matrix of purchasable variants, plus variants overrides per combination ([{values[], price_cents|price, sku, label, available}]). Standard/Premium.',
       inputSchema: schema(
         {
           leadId: ID,
@@ -301,13 +301,16 @@ function clientToolDefs() {
           image_url: STR,
           checkout_url: STR,
           status: STR,
+          options: { type: 'array', items: { type: 'object' } },
+          variants: { type: 'array', items: { type: 'object' } },
         },
         ['name']
       ),
     },
     {
       name: 'ecommerce.update',
-      description: 'Update a product by id. Standard/Premium.',
+      description:
+        'Update a product by id. Variants: options present reconciles the whole option structure ([] removes all variants); variants alone overrides combinations against the existing options; omit both to leave variants unchanged. Standard/Premium.',
       inputSchema: schema(
         {
           id: ID,
@@ -321,6 +324,8 @@ function clientToolDefs() {
           image_url: STR,
           checkout_url: STR,
           status: STR,
+          options: { type: 'array', items: { type: 'object' } },
+          variants: { type: 'array', items: { type: 'object' } },
         },
         ['id']
       ),
@@ -3481,7 +3486,12 @@ async function callClientTool(ws, name, a, ctx = {}) {
       plan: planId,
       products: modules
         .listProducts(db, leadId, { includeDrafts: a.includeDrafts !== false })
-        .map((p) => ({ ...p, price_label: modules.formatPrice(p.price_cents, p.currency) })),
+        .map((p) => {
+          // Batch 127: products carry their variant structure; the
+          // label is the honest variant-aware price.
+          const shaped = modules.withProductVariants(db, leadId, p);
+          return { ...shaped, price_label: modules.productPriceLabel(db, leadId, p) };
+        }),
     }));
   }
   if (name === 'ecommerce.listOrders') {

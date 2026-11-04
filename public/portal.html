@@ -2316,6 +2316,52 @@
     #sec-module-item {
       max-width: 760px;
     }
+    /* Batch 127: the product variant editor (option groups + matrix). */
+    .mod-variants-field {
+      border-top: 1px solid var(--line, #e5e0d5);
+      margin-top: 14px;
+      padding-top: 14px;
+    }
+    .mod-var-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin: 8px 0;
+    }
+    .mod-var-matrix {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .mod-var-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 8px 14px;
+      padding: 10px 12px;
+      border: 1px solid var(--line, #e5e0d5);
+      border-radius: 10px;
+    }
+    .mod-var-combo {
+      font-weight: 700;
+      min-width: 130px;
+    }
+    .mod-var-row label {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .mod-var-row input[type='text'] {
+      width: 110px;
+    }
+    .mod-var-row label.mod-check {
+      flex-direction: row;
+      align-items: center;
+      font-size: 0.9rem;
+    }
     /* Batch 124: checkbox groups (category pickers + scope settings). */
     .mod-check-group {
       display: flex;
@@ -3392,6 +3438,6 @@
   <script src="/js/errorCopy.js?v=batch54-errors1"></script>
   <script src="/js/captcha.js"></script>
   <script src="/js/moduleIcons.js?v=batch126-icons1"></script>
-  <script src="/js/portal.js?v=batch126-qrcode1"></script>
+  <script src="/js/portal.js?v=batch127-variants1"></script>
 </body>
 </html>
