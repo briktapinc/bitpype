@@ -13,7 +13,12 @@ const closed=new Promise(resolve=>child.once('close',(code)=>resolve(code)));
 async function main(){
  try{
   let ready=false;
-  for(let n=0;n<100;n++){
+  // Batch 125 finisher: a fresh-MySQL boot on the gate host measures
+  // ~10-12s (full platform migrate before listen), which straddled the
+  // old 100-poll (~10s) window and flaked the MySQL leg while every
+  // assertion passed. 600 polls keeps a hard bound (~60s) with room
+  // for loaded-gate boots; no assertion is changed.
+  for(let n=0;n<600;n++){
    if(child.exitCode!=null)throw Error('Isolated app exited: '+output);
    try{const r=await fetch('http://127.0.0.1:31337/health',{signal:AbortSignal.timeout(500)});if(r.ok){ready=true;break}}catch{}
    await new Promise(r=>setTimeout(r,100));
