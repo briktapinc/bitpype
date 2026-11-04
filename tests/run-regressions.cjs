@@ -131,6 +131,7 @@ const checks = [
   'batch129-streamline-regressions',
   'batch134-hunt-fixes-regressions',
   'batch135-spacing-regressions',
+  'batch133-universal-detail-regressions',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');

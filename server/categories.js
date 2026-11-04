@@ -556,19 +556,22 @@ function itemsForCategory(db, leadId, category, { limit = 200 } = {}) {
     .slice(0, cap);
 }
 
-/** Where an item "lives" on the site: its own module page with the
- *  platform's ?bpItem= key (slug when the provider carries one). */
+/** Where an item "lives" on the site (Batch 133): the universal
+ *  detail page — /detail/<source_type>/<key> (slug when the provider
+ *  carries one). Before Batch 133 this was the item's module page
+ *  with the platform's ?bpItem= key; those links still WORK on list
+ *  pages (compat), but generated links now name the item's detail
+ *  page directly, with ONE typed target. Non-detail types keep the
+ *  provider's own link_url (the fallback). */
 function categoryItemLink(db, leadId, uniformItem) {
   const fallback = String((uniformItem && uniformItem.link_url) || '');
   try {
+    if (!uniformItem || !modules.DETAIL_TYPES.includes(uniformItem.source_type)) return fallback;
     const embed = modules.getEmbedRow(db, Number(leadId), uniformItem.source_type);
     if (!embed) return fallback;
-    const meta = modules.MODULE_META[uniformItem.source_type] || {};
-    const page = String(embed.target_page_slug || meta.defaultSlug || '').replace(/^\/+/, '');
-    if (!page) return fallback;
     const key = (uniformItem.meta && uniformItem.meta.slug) || uniformItem.source_id;
     if (key == null || key === '') return fallback;
-    return `/${page}?bpItem=${encodeURIComponent(String(key))}`;
+    return `/detail/${uniformItem.source_type}/${encodeURIComponent(String(key))}`;
   } catch {
     return fallback;
   }

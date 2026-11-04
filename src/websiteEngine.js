@@ -4294,7 +4294,12 @@ function buildRobotsTxt(opts) {
  * and nothing falls back to the home page.
  */
 function buildRedirects(pages) {
-  const lines = [];
+  // Batch 133: the universal detail page — every /detail/<type>/<key>
+  // URL rewrites (200, URL preserved) to the one exported detail.html,
+  // which reads its ONE typed target out of the path. Cloudflare Pages
+  // serves real files first, so authored pages and the static blog
+  // post pages are never shadowed by the splat.
+  const lines = ['/detail/* /detail.html 200'];
   for (const p of Array.isArray(pages) ? pages : []) {
     if (!p || isHomePage(p, pages)) continue;
     const legacy = legacyPageFileName(p.slug);
@@ -4346,6 +4351,85 @@ function build404Page(pages, theme, opts) {
     /* chrome is best-effort */
   }
   return doc;
+}
+
+/* ------------------------------------------------------------------ */
+/* Universal detail page (Batch 133)                                   */
+/*                                                                     */
+/* Every export ships ONE detail.html: a themed shell (site chrome     */
+/* like the 404 page) carrying a detail root + a JSON config mapping   */
+/* each detail-capable module type to its public embed token and its   */
+/* list page. Cloudflare Pages rewrites /detail/<type>/<key> to this   */
+/* file (see buildRedirects); module-embed.js reads the ONE typed      */
+/* target out of the path, resolves it through the public item API,    */
+/* and renders that type's detail layout into the root. The shell is   */
+/* noindex (it is an empty template at rest); the client sets the      */
+/* real title/meta/canonical from the item at render. Static/SEO       */
+/* generation of detail pages is deliberately NOT v1.                  */
+/* ------------------------------------------------------------------ */
+function buildDetailPage(pages, theme, opts) {
+  const home = homePage(pages) || (Array.isArray(pages) ? pages[0] : null);
+  const t = normalizeTheme(theme);
+  const bizName =
+    (opts && opts.businessName) || t.brandName || (home && home.title) || 'This business';
+  const seo = seoContextFromOpts(opts || {});
+  const detail = (seo && seo.detail) || (opts && opts.detail) || null;
+  let appBase = '';
+  try {
+    appBase = String(require('../server/stripeClient').appUrl() || '').replace(/\/$/, '');
+  } catch {
+    appBase = '';
+  }
+  const config = { api: appBase, types: (detail && detail.types) || {} };
+  const configJson = JSON.stringify(config).replace(/</g, '\\u003c');
+  const body = `<main class="bp-detail-main" style="max-width:1100px;margin:0 auto;padding:clamp(1.75rem,4vw,3.25rem) clamp(1.1rem,3.5vw,2rem) clamp(3.5rem,8vw,5.5rem);box-sizing:border-box">
+<div class="bitpype-module-embed" data-bitpype-detail-root="1"${appBase ? ` data-bitpype-api="${esc(appBase)}"` : ''}><p class="bp-mod-loading">Loading…</p></div>
+</main>
+<script type="application/json" id="bp-detail-config">${configJson}</script>`;
+  let script = '';
+  try {
+    script = require('../server/siteModules').moduleScriptTag(appBase);
+  } catch {
+    script = '';
+  }
+  let doc = docShell({
+    title: `Details — ${bizName}`,
+    body,
+    theme: t,
+    script,
+    description: 'Item details.',
+    noindex: true,
+  });
+  try {
+    const withChrome = applySitePartials(body, t, home || {});
+    if (withChrome && withChrome !== body) {
+      doc = docShell({
+        title: `Details — ${bizName}`,
+        body: withChrome,
+        theme: t,
+        script,
+        description: 'Item details.',
+        noindex: true,
+      });
+    }
+  } catch {
+    /* chrome is best-effort */
+  }
+  return doc;
+}
+
+/** Stamp exported pages as detail-enabled so module-embed.js points
+ *  list/card item links at /detail/<type>/<key> instead of the legacy
+ *  ?bpItem= pattern. Only writeStaticPages output carries the meta —
+ *  in-app module surfaces (portal, standalone viewer) never see it and
+ *  keep the legacy links. */
+function injectDetailMeta(html) {
+  const s = String(html || '');
+  if (!s || s.includes('name="bitpype-detail"')) return s;
+  if (/<head[^>]*>/i.test(s)) {
+    return s.replace(/<head[^>]*>/i, (m) => `${m}\n<meta name="bitpype-detail" content="1">`);
+  }
+  return s;
 }
 
 /**
@@ -7402,6 +7486,8 @@ function writeStaticPages(pages, theme, outDir, opts) {
     // Batch 32 (C6): server-render the blog card snapshot into any blog
     // mount on this page (real post URLs in the raw HTML).
     if (blogCtx) pageHtml = injectStaticBlogSnapshot(pageHtml, blogCtx, baseUrlForBlog);
+    // Batch 133: exported pages are detail-enabled (see injectDetailMeta).
+    pageHtml = injectDetailMeta(pageHtml);
     // Final guard: sanitize/render must leave managed embed loaders intact.
     pageHtml = ensureManagedEmbedScripts(pageHtml);
     const embedAssert = assertManagedEmbedScripts(pageHtml, `export ${file}`);
@@ -7474,6 +7560,13 @@ function writeStaticPages(pages, theme, outDir, opts) {
     if (!written.includes('robots.txt')) written.push('robots.txt');
   } catch (e) {
     console.warn('[websiteEngine] robots.txt emit:', e.message || e);
+  }
+  // Batch 133: every export ships the universal detail page shell.
+  try {
+    fs.writeFileSync(path.join(outDir, 'detail.html'), buildDetailPage(pages, theme, opts || {}), 'utf8');
+    if (!written.includes('detail.html')) written.push('detail.html');
+  } catch (e) {
+    console.warn('[websiteEngine] detail.html emit:', e.message || e);
   }
   try {
     fs.writeFileSync(
@@ -7636,7 +7729,7 @@ function collapsePagesDevDeploymentHost(url) {
  * over every derived base and applies to this export only.
  */
 function buildSeoExportContext(db, websiteId, opts = {}) {
-  const ctx = { baseUrl: '', business: null, moduleFaqItems: [], gscToken: '', siteUpdatedAt: '', blog: null };
+  const ctx = { baseUrl: '', business: null, moduleFaqItems: [], gscToken: '', siteUpdatedAt: '', blog: null, detail: null };
   try {
     const site = getWebsite(db, websiteId);
     ctx.siteUpdatedAt = site.updated_at || '';
@@ -7832,6 +7925,16 @@ function buildSeoExportContext(db, websiteId, opts = {}) {
       } catch {
         /* blog context is additive — never break an export over it */
       }
+      // Batch 133: the universal detail page's context — for every
+      // detail-capable module type on this lead, the public embed
+      // token the exported detail.html resolves items through and the
+      // page its list lives on. Additive like the blog context.
+      try {
+        const mods = require('../server/siteModules');
+        if (typeof mods.detailExportContext === 'function') ctx.detail = mods.detailExportContext(db, lead.id);
+      } catch {
+        /* detail context is additive — never break an export over it */
+      }
     }
     try {
       const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(`seo.gsc.site.${websiteId}`);
@@ -8018,6 +8121,8 @@ module.exports = {
   buildRobotsTxt,
   buildRedirects,
   build404Page,
+  buildDetailPage,
+  injectDetailMeta,
   // Static blog (Batch 32)
   normalizeBlogPost,
   blogPostPath,

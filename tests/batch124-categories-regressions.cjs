@@ -123,7 +123,7 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     assert.ok(smSrc.includes("categories: { label: 'Categories'"), 'MODULE_META carries the Categories label');
     n++;
     assert.ok(
-      smSrc.includes("const MODULE_SCRIPT_VER = 'mod33'"),
+      smSrc.includes("const MODULE_SCRIPT_VER = 'mod34'"),
       'MODULE_SCRIPT_VER bumped to mod32 (Batch 128 finisher rotation)'
     );
     n++;

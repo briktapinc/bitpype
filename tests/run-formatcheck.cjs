@@ -61,6 +61,7 @@ const SCOPE = [
   'tests/batch134-hunt-fixes-regressions.cjs',
   'server/spacingQa.js',
   'tests/batch135-spacing-regressions.cjs',
+  'tests/batch133-universal-detail-regressions.cjs',
   'tsconfig.checkjs.json',
 ];
 

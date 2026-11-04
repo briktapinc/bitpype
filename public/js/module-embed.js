@@ -787,6 +787,59 @@
     return u.pathname + '?' + u.searchParams.toString() + u.hash;
   }
 
+  /* ── Batch 133 — universal detail page links ──
+   * On exported sites (writeStaticPages stamps a bitpype-detail meta
+   * into every page), list/card item links point at the item's detail
+   * page — /detail/<type>/<key>, ONE typed target — instead of the
+   * page-level ?bpItem= pattern. In-app surfaces (portal, standalone
+   * viewer) carry no meta and keep the legacy links byte-for-byte.
+   * Blog is the one exception on exported sites too: its static post
+   * pages (Batch 32) ARE its detail pages, and the legacy link is
+   * what resolves to them. activeDetailType is set synchronously by
+   * renderList/renderItem before any card HTML is built. */
+  var DETAIL_TYPES = [
+    'blog',
+    'ecommerce',
+    'courses',
+    'gallery',
+    'directory',
+    'faq',
+    'testimonials',
+    'team',
+    'events',
+    'bookings',
+    'categories',
+    'offers',
+    'menu',
+    'careers',
+    'video',
+  ];
+  var activeDetailType = '';
+
+  function detailEnabled() {
+    try {
+      return !!document.querySelector('meta[name="bitpype-detail"]');
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function detailHref(type, key) {
+    return '/detail/' + encodeURIComponent(type) + '/' + encodeURIComponent(String(key));
+  }
+
+  function cardHref(key) {
+    if (
+      activeDetailType &&
+      activeDetailType !== 'blog' &&
+      DETAIL_TYPES.indexOf(activeDetailType) >= 0 &&
+      detailEnabled()
+    ) {
+      return detailHref(activeDetailType, key);
+    }
+    return itemHref(key);
+  }
+
   function shouldShowTitle(el) {
     if (el.getAttribute('data-bitpype-show-title') === '1') return true;
     if (el.getAttribute('data-bitpype-hide-title') === '1') return false;
@@ -886,9 +939,9 @@
     var count = Number(it.item_count) || 0;
     return (
       '<article class="bp-mod-card">' +
-      coverHtml(itemHref(key), it.image_url, it.name) +
+      coverHtml(cardHref(key), it.image_url, it.name) +
       '<div class="bp-mod-body"><h2><a href="' +
-      esc(itemHref(key)) +
+      esc(cardHref(key)) +
       '">' +
       esc(it.name) +
       '</a></h2>' +
@@ -933,10 +986,10 @@
     var html = '<article class="bp-mod-offer">';
     if (it.image_url) {
       html +=
-        '<a href="' + esc(itemHref(key)) + '"><img src="' + esc(it.image_url) + '" alt="' + esc(it.title) + '" loading="lazy"></a>';
+        '<a href="' + esc(cardHref(key)) + '"><img src="' + esc(it.image_url) + '" alt="' + esc(it.title) + '" loading="lazy"></a>';
     }
     html += '<div class="bp-mod-offer-body">';
-    html += '<h2><a href="' + esc(itemHref(key)) + '">' + esc(it.title) + '</a></h2>';
+    html += '<h2><a href="' + esc(cardHref(key)) + '">' + esc(it.title) + '</a></h2>';
     if (it.description) html += '<p>' + esc(it.description) + '</p>';
     if (it.code) html += '<span class="bp-mod-offer-code">' + esc(it.code) + '</span>';
     if (it.terms) html += '<p class="bp-mod-offer-terms">' + esc(it.terms) + '</p>';
@@ -953,7 +1006,7 @@
     if (it.image_url) {
       html +=
         '<a class="bp-mod-offer-row-img" href="' +
-        esc(itemHref(key)) +
+        esc(cardHref(key)) +
         '"><img src="' +
         esc(it.image_url) +
         '" alt="' +
@@ -961,7 +1014,7 @@
         '" loading="lazy"></a>';
     }
     html += '<div class="bp-mod-offer-row-body">';
-    html += '<h2><a href="' + esc(itemHref(key)) + '">' + esc(it.title) + '</a></h2>';
+    html += '<h2><a href="' + esc(cardHref(key)) + '">' + esc(it.title) + '</a></h2>';
     if (it.description) html += '<p>' + esc(it.description) + '</p>';
     if (it.terms) html += '<p class="bp-mod-offer-terms">' + esc(it.terms) + '</p>';
     html += '</div>';
@@ -1063,7 +1116,7 @@
     var key = it.slug || it.id;
     var meta = [it.employment_type, it.location].filter(Boolean).join(' · ');
     var html = '<article class="bp-mod-job">';
-    html += '<h2><a href="' + esc(itemHref(key)) + '">' + esc(it.title) + '</a></h2>';
+    html += '<h2><a href="' + esc(cardHref(key)) + '">' + esc(it.title) + '</a></h2>';
     if (meta) html += '<p class="bp-mod-job-meta">' + esc(meta) + '</p>';
     if (it.description) {
       html +=
@@ -1088,7 +1141,7 @@
     if (thumb) html += '<img src="' + esc(thumb) + '" alt="" loading="lazy">';
     html += '<span class="bp-mod-video-play" aria-hidden="true">▶</span>';
     html += '</button>';
-    html += '<h2><a href="' + esc(itemHref(key)) + '">' + esc(it.title) + '</a></h2>';
+    html += '<h2><a href="' + esc(cardHref(key)) + '">' + esc(it.title) + '</a></h2>';
     if (it.description) html += '<p>' + esc(it.description) + '</p>';
     html += '</div>';
     return html;
@@ -1244,6 +1297,7 @@
 
   function renderList(el, data) {
     var type = data.module_type;
+    activeDetailType = type || '';
     var items = Array.isArray(data.items) ? data.items : [];
     var html = '';
     if (shouldShowTitle(el)) {
@@ -1480,9 +1534,9 @@
         var blogSet = embedSettings(data);
         html +=
           '<article class="bp-mod-card">' +
-          coverHtml(itemHref(key), it.cover_image, it.title) +
+          coverHtml(cardHref(key), it.cover_image, it.title) +
           '<div class="bp-mod-body"><h2><a href="' +
-          esc(itemHref(key)) +
+          esc(cardHref(key)) +
           '">' +
           esc(it.title) +
           '</a></h2>' +
@@ -1561,15 +1615,15 @@
                   esc(it.image_url || '') +
                   '">Add to cart</button>')
             : it.has_variants
-              ? '<a class="bp-mod-btn ghost" href="' + esc(itemHref(key)) + '">View</a>'
+              ? '<a class="bp-mod-btn ghost" href="' + esc(cardHref(key)) + '">View</a>'
             : it.stripe_checkout
               ? '<button type="button" class="bp-mod-btn" data-bp-buy="' + esc(it.id) + '">Buy</button>'
-              : '<a class="bp-mod-btn ghost" href="' + esc(itemHref(key)) + '">View</a>';
+              : '<a class="bp-mod-btn ghost" href="' + esc(cardHref(key)) + '">View</a>';
         html +=
           '<article class="bp-mod-card">' +
-          coverHtml(itemHref(key), it.image_url, it.name) +
+          coverHtml(cardHref(key), it.image_url, it.name) +
           '<div class="bp-mod-body"><h2><a href="' +
-          esc(itemHref(key)) +
+          esc(cardHref(key)) +
           '">' +
           esc(it.name) +
           '</a></h2>' +
@@ -1583,9 +1637,9 @@
         var n = (it.lessons || []).length;
         html +=
           '<article class="bp-mod-card">' +
-          coverHtml(itemHref(key), it.cover_image, it.title) +
+          coverHtml(cardHref(key), it.cover_image, it.title) +
           '<div class="bp-mod-body"><h2><a href="' +
-          esc(itemHref(key)) +
+          esc(cardHref(key)) +
           '">' +
           esc(it.title) +
           '</a></h2>' +
@@ -1598,16 +1652,16 @@
           esc((it.description || '').slice(0, 140)) +
           '</p>' +
           '<a class="bp-mod-btn ghost" href="' +
-          esc(itemHref(key)) +
+          esc(cardHref(key)) +
           '">View course</a></div></article>';
       } else if (type === 'gallery') {
         var cover = (it.images && it.images[0] && it.images[0].image_url) || '';
         var count = (it.images || []).length;
         html +=
           '<article class="bp-mod-card">' +
-          coverHtml(itemHref(key), cover, it.title) +
+          coverHtml(cardHref(key), cover, it.title) +
           '<div class="bp-mod-body"><h2><a href="' +
-          esc(itemHref(key)) +
+          esc(cardHref(key)) +
           '">' +
           esc(it.title) +
           '</a></h2>' +
@@ -1658,9 +1712,9 @@
       } else if (type === 'team') {
         html +=
           '<article class="bp-mod-card">' +
-          coverHtml(itemHref(key), it.image_url, it.name) +
+          coverHtml(cardHref(key), it.image_url, it.name) +
           '<div class="bp-mod-body"><h2><a href="' +
-          esc(itemHref(key)) +
+          esc(cardHref(key)) +
           '">' +
           esc(it.name) +
           '</a></h2>' +
@@ -1671,9 +1725,9 @@
       } else if (type === 'events') {
         html +=
           '<article class="bp-mod-card">' +
-          coverHtml(itemHref(key), it.image_url, it.title) +
+          coverHtml(cardHref(key), it.image_url, it.title) +
           '<div class="bp-mod-body"><h2><a href="' +
-          esc(itemHref(key)) +
+          esc(cardHref(key)) +
           '">' +
           esc(it.title) +
           '</a></h2>' +
@@ -3572,6 +3626,7 @@
 
   function renderItem(el, data) {
     var type = data.module_type;
+    activeDetailType = type || '';
     var it = data.item;
     var html = '<a class="bp-mod-back" href="' + esc(listHref()) + '">← Back</a>';
     if (type === 'offers') {
@@ -5115,6 +5170,254 @@
     }
   }
 
+  /* ── Batch 133 — universal detail page ──
+   * The exported detail.html carries ONE detail root + a JSON config
+   * (type → public embed token + list page). The URL names exactly
+   * ONE typed target — /detail/<type>/<key> — so the Batch 130
+   * cross-embed ?bpItem= ambiguity cannot occur here: resolution goes
+   * through the type's own public item path, published-only and
+   * lead-scoped, and anything draft/foreign/missing lands on a proper
+   * full-page not-found state (site chrome + link back to the list),
+   * never an error card inside another page. Rendering reuses
+   * renderItem wholesale — the same per-type detail layouts (variant
+   * selectors, event shared gallery, album view, …) the list pages
+   * have always used. */
+
+  function parseDetailPath() {
+    var m = /^\/detail\/([a-z]+)\/([^/]+)\/?$/.exec(location.pathname || '');
+    if (!m) return null;
+    try {
+      return { type: m[1], key: decodeURIComponent(m[2]) };
+    } catch (e) {
+      return { type: m[1], key: m[2] };
+    }
+  }
+
+  function detailConfig() {
+    try {
+      var node = document.getElementById('bp-detail-config');
+      if (node) return JSON.parse(node.textContent || '{}') || {};
+    } catch (e) {
+      /* fall through */
+    }
+    return {};
+  }
+
+  function renderDetailNotFound(root, listPath) {
+    root.innerHTML =
+      '<article class="bp-mod-detail"><h1>Item not found</h1>' +
+      '<p class="bp-mod-desc">This item is not available. It may have been removed, or the link may be out of date.</p>' +
+      '<p style="margin-top:16px"><a class="bp-mod-btn" href="' +
+      esc(listPath || '/') +
+      '">Back to the list</a></p></article>';
+    document.title = 'Item not found';
+  }
+
+  function setMetaTag(selector, attr, name, value) {
+    if (!value) return;
+    var node = document.head.querySelector(selector);
+    if (!node) {
+      node = document.createElement('meta');
+      node.setAttribute(attr, name);
+      document.head.appendChild(node);
+    }
+    node.setAttribute('content', value);
+  }
+
+  function detailApplyMeta(data) {
+    var it = (data && data.item) || {};
+    var title = it.title || it.name || it.question || '';
+    if (!title) return;
+    document.title = String(title);
+    var desc = String(it.excerpt || it.description || it.bio || it.quote || '')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 300);
+    var img = it.cover_image || it.image_url || '';
+    setMetaTag('meta[name="description"]', 'name', 'description', desc);
+    setMetaTag('meta[property="og:title"]', 'property', 'og:title', String(title));
+    setMetaTag('meta[property="og:description"]', 'property', 'og:description', desc);
+    setMetaTag('meta[property="og:image"]', 'property', 'og:image', img);
+    try {
+      var canon = document.head.querySelector('link[rel="canonical"]');
+      if (!canon) {
+        canon = document.createElement('link');
+        canon.setAttribute('rel', 'canonical');
+        document.head.appendChild(canon);
+      }
+      canon.setAttribute('href', location.origin + location.pathname);
+    } catch (e) {
+      /* canonical is best-effort */
+    }
+  }
+
+  /* ══ BATCH 133 CHECKOUT WIRE POINT ══════════════════════════════
+   * The detail page does NOT build a second cart. When the site has
+   * the Batch 128 Checkout module attached, the item payload carries
+   * checkout_token + checkout_page (128's getPublicModule* fields)
+   * and the detail page's sell action feeds 128's cart: the SAME
+   * localStorage key ('bp-cart-' + checkout token), the SAME generic
+   * line shape 128's wireSellableAdds emits ({source, itemId,
+   * variantId, variantLabel, name, image_url, price_cents, currency,
+   * qty}), the SAME merge rule (source + itemId + variantId, qty cap
+   * 99, 50-line cap). The server re-prices every line at session
+   * creation, so the display snapshot here buys nothing by itself.
+   * WIRED by the Batch 133 finisher (post-129 rebase): detailAddToCart
+   * delegates to 128's addLineToCart directly (same file, above).
+   * Without Checkout attached, none of this runs: the legacy single
+   * Buy path (wireShop) applies exactly as before. */
+  function detailAddToCart(checkoutToken, line) {
+    // Batch 133 finisher wiring (post-129 rebase): the stub body is
+    // gone — this delegates to Batch 128's real cart functions above
+    // (readCart/writeCart/addLineToCart, same file): same storage
+    // key, same merge rule, same caps, one cart implementation.
+    return addLineToCart(checkoutToken, line);
+  }
+
+  function wireDetailCheckout(root, data) {
+    var btn = root.querySelector('[data-bp-buy]');
+    var it = data.item || {};
+    if (!btn) return; // checkout_url products keep their own link
+    btn.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      var line = {
+        source: 'ecommerce',
+        itemId: Number(it.id),
+        variantId: null,
+        variantLabel: '',
+        name: it.name || 'Item',
+        image_url: it.image_url || '',
+        price_cents: Number(it.price_from_cents != null ? it.price_from_cents : it.price_cents) || 0,
+        currency: it.currency || 'USD',
+        qty: 1,
+      };
+      // The Batch 127 axis selectors keep the resolved variant on the
+      // buy button (data-bp-variant); price + label come from the
+      // payload's own variant rows, never from the DOM.
+      var variantId = btn.getAttribute('data-bp-variant');
+      if (variantId) {
+        line.variantId = Number(variantId) || null;
+        var variants = Array.isArray(it.variants) ? it.variants : [];
+        for (var i = 0; i < variants.length; i++) {
+          if (Number(variants[i].id) === line.variantId) {
+            line.variantLabel = variants[i].label || '';
+            if (variants[i].price_cents != null) line.price_cents = Number(variants[i].price_cents) || 0;
+            break;
+          }
+        }
+      }
+      var lines = detailAddToCart(data.checkout_token, line);
+      var count = 0;
+      lines.forEach(function (l) {
+        count += Number(l.qty) || 0;
+      });
+      var bar = root.querySelector('.bp-mod-cartbar');
+      if (!bar) {
+        bar = document.createElement('div');
+        bar.className = 'bp-mod-cartbar';
+        root.appendChild(bar);
+      }
+      bar.innerHTML =
+        '<span>' +
+        count +
+        (count === 1 ? ' item' : ' items') +
+        ' in your cart</span>' +
+        '<a class="bp-mod-btn" href="' +
+        esc(data.checkout_page) +
+        '">Go to checkout</a>';
+      var label = btn.textContent;
+      btn.textContent = 'Added ✓';
+      setTimeout(function () {
+        btn.textContent = label;
+      }, 1200);
+    });
+  }
+
+  /* Batch 133 wire point (gallery): priced-photo adds on the album
+   * detail view plug in here. Batch 128's gallery payload is what
+   * marks a photo sellable (price_cents + data-bp-add-photo buttons
+   * in renderAlbumDetail). WIRED by the finisher at the post-129
+   * rebase: delegates to 128's wireSellableAdds itself (a photo
+   * already in the cart cannot be added twice). */
+  function detailPhotoSellableHook(root, data) {
+    // Batch 133 finisher wiring: Batch 128's own wireSellableAdds
+    // binds the album detail's [data-bp-add-photo] buttons (priced
+    // photos, sold x1, already-in-cart state) to the shared cart —
+    // the exact code path the gallery list uses, no second copy.
+    if (data && data.checkout_token && data.checkout_page) wireSellableAdds(root, data);
+  }
+
+  function mountDetail() {
+    var root = document.querySelector('[data-bitpype-detail-root]');
+    if (!root) return;
+    ensureStyles();
+    polishHost(root);
+    root.classList.add('bitpype-module-inpage');
+    var target = parseDetailPath();
+    var cfg = detailConfig();
+    var entry = target && cfg.types ? cfg.types[target.type] : null;
+    var listPath = entry && entry.page ? '/' + entry.page : '/';
+    if (!target || DETAIL_TYPES.indexOf(target.type) < 0 || !entry || !entry.token) {
+      renderDetailNotFound(root, listPath);
+      return;
+    }
+    var base = apiBase(root) || cfg.api || '';
+    var url =
+      (base || '') +
+      '/api/v1/modules/public/' +
+      encodeURIComponent(entry.token) +
+      '?slug=' +
+      encodeURIComponent(target.key) +
+      '&' +
+      pageQuery();
+    fetch(url, { credentials: 'omit', headers: authHeaders() })
+      .then(function (r) {
+        return r.json();
+      })
+      .then(function (j) {
+        if (!j || !j.ok) {
+          if (j && j.code === 'NOT_FOUND') {
+            renderDetailNotFound(root, listPath);
+            return;
+          }
+          throw new Error((j && j.error) || 'Failed to load');
+        }
+        var data = j.data;
+        if (data.locked) {
+          renderLocked(root, data);
+          return;
+        }
+        if (!data.item) {
+          renderDetailNotFound(root, listPath);
+          return;
+        }
+        renderItem(root, data);
+        // renderItem's back link (and the bookings CTA) point at the
+        // current page by construction; on the detail page they must
+        // land on the type's list page.
+        var legacy = listHref();
+        var anchors = root.querySelectorAll('a[href]');
+        for (var i = 0; i < anchors.length; i++) {
+          if (anchors[i].getAttribute('href') === legacy) anchors[i].setAttribute('href', listPath);
+        }
+        detailApplyMeta(data);
+        if (data.module_type === 'ecommerce') {
+          if (data.checkout_token && data.checkout_page) wireDetailCheckout(root, data);
+          else wireShop(root, base, entry.token);
+        }
+        detailPhotoSellableHook(root, data);
+        wireMemberNavLogout();
+        // Batch 131 mount point: the comments block attaches to item
+        // detail pages HERE — inside the detail root, after the
+        // rendered article, keyed by (data.module_type, item slug/id)
+        // through the shared layer. Note only in v1; no 131 code.
+      })
+      .catch(function (e) {
+        root.innerHTML = '<p class="bp-mod-err">' + esc(e.message || 'Failed to load module') + '</p>';
+      });
+  }
+
   function mountAll() {
     var nodes = document.querySelectorAll('[data-bitpype-module][data-bitpype-module-token]');
     for (var i = 0; i < nodes.length; i++) mountOne(nodes[i]);
@@ -5125,6 +5428,7 @@
   function boot() {
     ensureStyles();
     mountAll();
+    mountDetail();
     wireMemberNavLogout();
   }
 

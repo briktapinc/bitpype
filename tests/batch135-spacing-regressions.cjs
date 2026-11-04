@@ -35,7 +35,7 @@
  *         390 instead of overflowing the page (Berks proof case);
  *     (g) module internals: bp-mod-book-row + bp-mod-news-card carry
  *         an internal-padding floor in module-embed.js (MODULE_SCRIPT_VER
- *         rotated to mod33 for the embed change).
+ *         rotated to mod34 for the embed change).
  */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -196,7 +196,7 @@ function part1() {
       'book-row/news floor uses the token var'
     );
     assert.ok(embed.includes('.bp-mod-news-card{padding:var(--bp-space-card-pad,16px);}'), 'news-card unscoped floor');
-    assert.ok(read('server/siteModules.js').includes("const MODULE_SCRIPT_VER = 'mod33'"), 'MODULE_SCRIPT_VER mod33');
+    assert.ok(read('server/siteModules.js').includes("const MODULE_SCRIPT_VER = 'mod34'"), 'MODULE_SCRIPT_VER mod34');
     n += 1;
   });
   group('Part 1 pins', n);

@@ -51,7 +51,7 @@ const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod33';
+const MODULE_SCRIPT_VER = 'mod34';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -2055,6 +2055,66 @@ function deleteModule(db, leadId, moduleType) {
   db.prepare('DELETE FROM site_module_embeds WHERE id = ?').run(embed.id);
   const sync = syncSiteModuleEmbeds(db, lid);
   return { deleted: true, module_type: type, lead_id: lid, purged, purged_total: purgedTotal, sync };
+}
+
+/* ------------------------------------------------------------------ */
+/* Batch 133 — UNIVERSAL DETAIL PAGE.                                  */
+/*                                                                     */
+/* One generic detail page (/detail/<type>/<key>, exported as         */
+/* detail.html) serves EVERY module item: the page is handed an item  */
+/* through the public item path and renders that type's detail        */
+/* layout — it never cares which module served it (Ely, 2026-11-04:   */
+/* "a checkout page that takes whatever module is served to it as     */
+/* the detail page"). DETAIL_TYPES = exactly the types               */
+/* getPublicModuleItem can resolve an item for. Every other type      */
+/* (registry non-providers and interactive/config modules alike)      */
+/* lands on the detail page's not-found state, never an error card    */
+/* inside another page — the Batch 130 ?bpItem= ambiguity is          */
+/* structurally impossible here because the URL carries ONE typed     */
+/* target.                                                            */
+/* ------------------------------------------------------------------ */
+const DETAIL_TYPES = [
+  'blog',
+  'ecommerce',
+  'courses',
+  'gallery',
+  'directory',
+  'faq',
+  'testimonials',
+  'team',
+  'events',
+  'bookings',
+  'categories',
+  'offers',
+  'menu',
+  'careers',
+  'video',
+];
+
+/**
+ * The export-time detail context for one lead's site: for every
+ * detail-capable module type with a live (published, enabled) embed,
+ * the public token the detail page resolves through and the page the
+ * type's list lives on (the detail page's back link). Tokens are the
+ * same public embed tokens every mount on the site already carries.
+ */
+function detailExportContext(db, leadId) {
+  const types = {};
+  const lid = Number(leadId);
+  if (!Number.isInteger(lid) || lid <= 0) return { types };
+  for (const type of DETAIL_TYPES) {
+    try {
+      const row = getEmbedRow(db, lid, type);
+      if (!moduleEmbedActive(row)) continue;
+      types[type] = {
+        token: String(row.public_token || ''),
+        page: String(row.target_page_slug || (MODULE_META[type] && MODULE_META[type].defaultSlug) || '').replace(/^\/+/, ''),
+      };
+    } catch {
+      /* a type without an embed row simply has no detail surface */
+    }
+  }
+  return { types };
 }
 
 function moduleScriptTag(appUrl) {
@@ -14390,4 +14450,6 @@ module.exports = {
   getShopOrderBySession,
   portalSummary,
   embedBlockHtml,
+  DETAIL_TYPES,
+  detailExportContext,
 };
