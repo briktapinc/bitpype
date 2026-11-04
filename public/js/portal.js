@@ -7283,6 +7283,12 @@
     const chat = moduleState.chatbot || {};
     const s = chat.settings || {};
     const boundary = chat.agent_boundary || {};
+    // Batch 138: voice agent controls (list mirrors chatbot.REALTIME_VOICES).
+    const voiceNames = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse', 'marin', 'cedar'];
+    const voiceOptions = voiceNames
+      .map((v) => `<option value="${v}"${(s.voice_name || 'marin') === v ? ' selected' : ''}>${v}</option>`)
+      .join('');
+    const hasVoiceImg = !!s.voice_bubble_image;
     host.innerHTML = `
       <div class="row" style="justify-content:flex-start;margin-bottom:12px">
         <button type="button" class="btn ghost small" id="btn-chat-settings-back">← Knowledge</button>
@@ -7318,6 +7324,27 @@
       <div id="chat-qualifying-rows"></div>
       <button type="button" class="btn soft small" id="btn-chat-qualifying-add">+ Add a question</button>
       <p class="hint">Up to 6 questions, 200 characters each. Use the arrows to change the order — the chat works through them in this order.</p>
+      <h4 style="margin:18px 0 6px">AI voice agent</h4>
+      <p class="hint">Visitors can talk instead of typing — same knowledge and lead capture as this chat, powered by OpenAI Realtime. Every voice conversation is saved to the Inbox as a transcript. No audio is recorded.</p>
+      <label class="hint" style="display:flex;align-items:center;gap:8px;margin:8px 0">
+        <input type="checkbox" id="chat-set-voice-enabled" ${s.voice_enabled ? 'checked' : ''} />
+        Show the voice bubble on my site
+      </label>
+      <div class="field"><label>Voice</label>
+        <select id="chat-set-voice-name">${voiceOptions}</select>
+      </div>
+      <div class="field"><label>Bubble image (optional — shown on the voice bubble)</label>
+        <div class="row" style="justify-content:flex-start;gap:10px;align-items:center;flex-wrap:wrap">
+          ${
+            hasVoiceImg
+              ? '<img src="/api/v1/portal/modules/chatbot/voice-image" alt="Voice bubble" style="width:52px;height:52px;border-radius:50%;object-fit:cover;border:1px solid var(--line,#e6e0d8)" />'
+              : '<span class="hint">No image — the bubble shows a microphone icon.</span>'
+          }
+          <input type="file" id="chat-voice-image-file" accept="image/png,image/jpeg,image/webp,image/gif" />
+          ${hasVoiceImg ? '<button type="button" class="btn soft small" id="btn-chat-voice-image-remove">Remove</button>' : ''}
+        </div>
+        <p class="msg" id="msg-chat-voice-image"></p>
+      </div>
       <button type="button" class="btn" id="btn-chat-settings-save">Save chatbot settings</button>
       <p class="msg" id="msg-chat-settings"></p>`;
     const backBtn = document.getElementById('btn-chat-settings-back');
@@ -7367,6 +7394,8 @@
               agent_timeout_hint_sec: Number(document.getElementById('chat-set-timeout').value) || 90,
               qualifying_enabled: document.getElementById('chat-set-qualifying-enabled').checked,
               qualifying_questions: qualInputs.map((i) => i.value.trim()),
+              voice_enabled: document.getElementById('chat-set-voice-enabled').checked,
+              voice_name: document.getElementById('chat-set-voice-name').value,
             }),
           });
           moduleState.chatbot = Object.assign({}, moduleState.chatbot || {}, { settings: data.settings });
@@ -7378,6 +7407,51 @@
             msg.className = 'msg ok';
             msg.textContent = 'Saved.';
           }
+        } catch (e) {
+          if (msg) {
+            msg.className = 'msg err';
+            msg.textContent = errText(e);
+          }
+        }
+      };
+    }
+    // Batch 138: bubble image upload/remove (validated server-side —
+    // PNG/JPG/WebP/GIF by magic bytes, 10 MB cap, no SVG).
+    const imgFile = document.getElementById('chat-voice-image-file');
+    if (imgFile) {
+      imgFile.onchange = async () => {
+        const msg = document.getElementById('msg-chat-voice-image');
+        const file = imgFile.files && imgFile.files[0];
+        if (!file) return;
+        try {
+          const prepared = await fileToBase64Raw(file);
+          const data = await api('/modules/chatbot/voice-image', {
+            method: 'POST',
+            body: JSON.stringify(prepared),
+          });
+          moduleState.chatbot = Object.assign({}, moduleState.chatbot || {}, { settings: data.settings });
+          renderChatbotSettingsPanel();
+          const done = document.getElementById('msg-chat-voice-image');
+          if (done) {
+            done.className = 'msg ok';
+            done.textContent = 'Bubble image saved.';
+          }
+        } catch (e) {
+          if (msg) {
+            msg.className = 'msg err';
+            msg.textContent = errText(e);
+          }
+        }
+      };
+    }
+    const imgRemove = document.getElementById('btn-chat-voice-image-remove');
+    if (imgRemove) {
+      imgRemove.onclick = async () => {
+        const msg = document.getElementById('msg-chat-voice-image');
+        try {
+          const data = await api('/modules/chatbot/voice-image', { method: 'DELETE' });
+          moduleState.chatbot = Object.assign({}, moduleState.chatbot || {}, { settings: data.settings });
+          renderChatbotSettingsPanel();
         } catch (e) {
           if (msg) {
             msg.className = 'msg err';
@@ -7461,6 +7535,38 @@
           )
           .join('')
       : '';
+    // Batch 138: voice conversations live in the same inbox — full
+    // transcripts are saved on each session; duration + how the call
+    // ended ride along here.
+    const voiceSessions =
+      chat.voice && Array.isArray(chat.voice.recent_sessions) ? chat.voice.recent_sessions : [];
+    const voiceHtml = voiceSessions.length
+      ? voiceSessions
+          .map((vs) => {
+            const v = vs.voice || {};
+            const dur =
+              v.duration_sec != null
+                ? `${Math.floor(Number(v.duration_sec) / 60)}:${String(Number(v.duration_sec) % 60).padStart(2, '0')}`
+                : '—';
+            const ended =
+              v.close_state === 'capped'
+                ? 'hit the time limit'
+                : v.close_state === 'abrupt'
+                  ? 'ended abruptly'
+                  : v.close_state === 'clean'
+                    ? 'ended'
+                    : 'in progress';
+            return `
+        <div class="row" style="padding:8px 0;border-bottom:1px solid var(--line,#e6e0d8)">
+          <div>
+            <strong>🎙 Voice conversation</strong>
+            <span class="hint"> · ${esc(dur)} · ${esc(ended)}</span>
+            <div class="hint">${esc(vs.created_at || '')} · transcript saved on the session</div>
+          </div>
+        </div>`;
+          })
+          .join('')
+      : '<p class="hint">No voice conversations yet.</p>';
     host.innerHTML = `
       <div class="row" style="justify-content:flex-start;margin-bottom:12px">
         <button type="button" class="btn ghost small" id="btn-chat-inbox-back">← Knowledge</button>
@@ -7471,7 +7577,9 @@
       ${escHtml}
       <h4 style="margin:16px 0 6px">Lead captures</h4>
       ${leadHtml}
-      ${qualSessions.length ? `<h4 style="margin:16px 0 6px">Qualifying answers</h4>${qualHtml}` : ''}`;
+      ${qualSessions.length ? `<h4 style="margin:16px 0 6px">Qualifying answers</h4>${qualHtml}` : ''}
+      <h4 style="margin:16px 0 6px">Voice conversations</h4>
+      ${voiceHtml}`;
     const backBtn = document.getElementById('btn-chat-inbox-back');
     if (backBtn) {
       backBtn.onclick = () => {

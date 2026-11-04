@@ -4446,7 +4446,7 @@ async function main() {
   const moduleEmbedSrc25 = fs.readFileSync(path.join(root, 'public/js/module-embed.js'), 'utf8');
   const modulesRouteSrc25 = fs.readFileSync(path.join(root, 'server/routes/modulesPublic.js'), 'utf8');
   check('batch25 wiring: chatbot config + embeds carry the consent pair end to end', () => {
-    assert.ok(chatbotSrc25.includes("CHAT_SCRIPT_VER = 'chat7'"), 'chat embed cache-bust bumped');
+    assert.ok(chatbotSrc25.includes("CHAT_SCRIPT_VER = 'chat8'"), 'chat embed cache-bust bumped');
     assert.ok(chatbotSrc25.includes('sms_optin: smsOptInBlock'), 'chat public config carries the block');
     assert.ok(chatbotRouteSrc25.includes('sms_optin_consent') && chatbotRouteSrc25.includes('handleSmsOptInForWorkspace'), 'chat lead route fires the opt-in');
     assert.ok(chatEmbedSrc25.includes('bp-chat-lead-sms-optin') && chatEmbedSrc25.includes('sms_optin_consent'), 'chat embed renders + submits the consent');

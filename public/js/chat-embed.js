@@ -84,8 +84,27 @@
       '.bp-chat-lead .bp-chat-lead-submit{background:' + color + ';color:#fff;font-weight:600;}',
       '.bp-chat-lead .bp-chat-lead-cancel{background:#eee;}',
       '.bp-chat-status{font-size:12px;color:#666;padding:0 14px 8px;background:#f6f7f8;flex-shrink:0;}',
+      // Batch 138: voice bubble + panel.
+      '.bp-chat-voice-bubble{position:fixed;z-index:2147483000;right:18px;bottom:84px;width:56px;height:56px;',
+      'border:0;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;overflow:hidden;',
+      'background:' + color + ';color:#fff;box-shadow:0 10px 28px rgba(0,0,0,.22);padding:0;}',
+      '.bp-chat-voice-bubble svg{width:26px;height:26px;fill:currentColor;}',
+      '.bp-chat-voice-bubble img{width:100%;height:100%;object-fit:cover;display:block;}',
+      '.bp-chat-voice-bubble.is-live{animation:bp-voice-pulse 1.6s ease-in-out infinite;}',
+      '@keyframes bp-voice-pulse{0%,100%{box-shadow:0 10px 28px rgba(0,0,0,.22);}50%{box-shadow:0 0 0 10px rgba(0,0,0,.08),0 10px 28px rgba(0,0,0,.22);}}',
+      '.bp-voice-panel{position:fixed;z-index:2147483001;right:18px;bottom:84px;width:min(380px,calc(100vw - 24px));',
+      'height:min(440px,calc(100vh - 120px));display:flex;flex-direction:column;border-radius:16px;overflow:hidden;',
+      'background:#fff;color:#1a1a1a;box-shadow:0 18px 50px rgba(0,0,0,.28);border:1px solid rgba(0,0,0,.08);}',
+      '.bp-voice-panel[hidden]{display:none!important;}',
+      '.bp-voice-head{padding:14px 16px;background:' + color + ';color:#fff;display:flex;align-items:center;justify-content:space-between;gap:8px;}',
+      '.bp-voice-head strong{font-size:15px;}',
+      '.bp-voice-head button{appearance:none;border:0;background:transparent;color:inherit;font-size:20px;cursor:pointer;line-height:1;}',
+      '.bp-voice-status{padding:10px 14px;font-size:13px;color:#444;background:#f6f7f8;border-bottom:1px solid rgba(0,0,0,.06);display:flex;justify-content:space-between;gap:8px;flex-shrink:0;}',
+      '.bp-voice-log{flex:1;overflow:auto;padding:14px;background:#f6f7f8;display:flex;flex-direction:column;gap:10px;}',
+      '.bp-voice-foot{padding:10px;border-top:1px solid rgba(0,0,0,.08);background:#fff;display:flex;justify-content:center;flex-shrink:0;}',
+      '.bp-voice-end{appearance:none;border:0;border-radius:999px;padding:10px 20px;background:#c0392b;color:#fff;font:inherit;font-weight:600;cursor:pointer;}',
       '@media (max-width:480px){.bp-chat-panel{right:8px;left:8px;width:auto;bottom:78px;height:min(70vh,560px);}',
-      '.bp-chat-bubble{right:12px;bottom:12px;}}',
+      '.bp-chat-bubble{right:12px;bottom:12px}.bp-chat-voice-bubble{right:12px;bottom:76px}.bp-voice-panel{right:8px;left:8px;width:auto;bottom:78px}}',
     ].join('');
     if (existing) {
       existing.textContent = css;
@@ -99,6 +118,10 @@
 
   function iconSvg() {
     return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm2 4v2h12V8H6zm0 4v2h8v-2H6z"/></svg>';
+  }
+
+  function micSvg() {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3zm7-3a7 7 0 0 1-14 0H3a9 9 0 0 0 8 8.94V23h2v-3.06A9 9 0 0 0 21 12h-2z"/></svg>';
   }
 
   function mount(el) {
@@ -161,6 +184,406 @@
     // Keep mount node empty; attach UI to body so position:fixed works in transformed parents.
     document.body.appendChild(bubble);
     document.body.appendChild(panel);
+
+    /* ── Batch 138: AI voice agent (OpenAI Realtime over WebRTC) ──
+     * The bubble renders only when the public config advertises voice.
+     * Click → microphone permission → server mints an ephemeral
+     * Realtime credential (the platform key never reaches this page)
+     * → direct WebRTC to OpenAI. Both sides' transcripts are relayed
+     * to the server so the conversation is saved with the text chats.
+     * NO audio is recorded or stored — transcript text only.
+     * Any failure lands the visitor in the regular text chat. */
+    var voiceBubble = document.createElement('button');
+    voiceBubble.type = 'button';
+    voiceBubble.className = 'bp-chat-voice-bubble';
+    voiceBubble.setAttribute('aria-label', 'Talk to us');
+    voiceBubble.hidden = true;
+    voiceBubble.innerHTML = micSvg();
+
+    var voicePanel = document.createElement('div');
+    voicePanel.className = 'bp-voice-panel';
+    voicePanel.hidden = true;
+    voicePanel.innerHTML = [
+      '<div class="bp-voice-head"><strong>Voice</strong><button type="button" class="bp-voice-close" aria-label="Close">×</button></div>',
+      '<div class="bp-voice-status"><span class="bp-voice-state">Ready</span><span class="bp-voice-timer"></span></div>',
+      '<div class="bp-voice-log" role="log" aria-live="polite"></div>',
+      '<div class="bp-voice-foot"><button type="button" class="bp-voice-end">End call</button></div>',
+    ].join('');
+    document.body.appendChild(voiceBubble);
+    document.body.appendChild(voicePanel);
+
+    var voiceStateEl = voicePanel.querySelector('.bp-voice-state');
+    var voiceTimerEl = voicePanel.querySelector('.bp-voice-timer');
+    var voiceLogEl = voicePanel.querySelector('.bp-voice-log');
+
+    var voice = {
+      cfg: null,
+      active: false,
+      connected: false,
+      pc: null,
+      dc: null,
+      stream: null,
+      audioEl: null,
+      sessionId: null,
+      relaySecret: null,
+      startedAt: 0,
+      maxSec: 600,
+      pending: [],
+      capTimer: null,
+      tickTimer: null,
+      flushTimer: null,
+      ending: false,
+    };
+
+    function setVoiceState(text) {
+      if (voiceStateEl) voiceStateEl.textContent = text || '';
+    }
+
+    function voiceApi(path, body, keepalive) {
+      var url =
+        (state.base || '') + '/api/v1/chat/public/' + encodeURIComponent(state.token) + path;
+      return fetch(url, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+        keepalive: !!keepalive,
+      }).then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok || (j && j.ok === false)) {
+            throw new Error((j && j.error) || 'HTTP ' + r.status);
+          }
+          return j.data || j;
+        });
+      });
+    }
+
+    function appendVoiceCaption(role, text) {
+      if (!text) return;
+      var div = document.createElement('div');
+      div.className = 'bp-chat-msg ' + (role === 'visitor' ? 'visitor' : 'agent');
+      div.textContent = text;
+      voiceLogEl.appendChild(div);
+      voiceLogEl.scrollTop = voiceLogEl.scrollHeight;
+    }
+
+    function queueTranscript(role, body, itemId) {
+      if (!body) return;
+      voice.pending.push({
+        role: role,
+        body: body,
+        item_id: itemId || '',
+        at_ms: voice.startedAt ? Date.now() - voice.startedAt : 0,
+      });
+      appendVoiceCaption(role, body);
+    }
+
+    function flushTranscript(final, close, useBeacon) {
+      if (!voice.sessionId || !voice.relaySecret) return Promise.resolve();
+      var items = voice.pending.splice(0, voice.pending.length);
+      if (!items.length && !final) return Promise.resolve();
+      var payload = {
+        relay_secret: voice.relaySecret,
+        items: items,
+        final: !!final,
+        close: close || undefined,
+        connected: voice.connected,
+      };
+      var path = '/voice/session/' + encodeURIComponent(String(voice.sessionId)) + '/transcript';
+      if (useBeacon && navigator.sendBeacon) {
+        try {
+          var url = (state.base || '') + '/api/v1/chat/public/' + encodeURIComponent(state.token) + path;
+          navigator.sendBeacon(url, new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+          return Promise.resolve();
+        } catch (e) {
+          /* fall through to fetch */
+        }
+      }
+      return voiceApi(path, payload, !!final).catch(function () {
+        // A failed batch is re-queued once so a transient drop does not
+        // silently lose part of the saved conversation.
+        if (!final && items.length) voice.pending = items.concat(voice.pending);
+      });
+    }
+
+    function stopVoiceTimers() {
+      if (voice.capTimer) clearTimeout(voice.capTimer);
+      if (voice.tickTimer) clearInterval(voice.tickTimer);
+      if (voice.flushTimer) clearInterval(voice.flushTimer);
+      voice.capTimer = voice.tickTimer = voice.flushTimer = null;
+    }
+
+    function teardownVoiceTransport() {
+      stopVoiceTimers();
+      try {
+        if (voice.dc) voice.dc.close();
+      } catch (e) {}
+      try {
+        if (voice.pc) voice.pc.close();
+      } catch (e) {}
+      if (voice.stream) {
+        voice.stream.getTracks().forEach(function (t) {
+          try {
+            t.stop();
+          } catch (e) {}
+        });
+      }
+      if (voice.audioEl) {
+        try {
+          voice.audioEl.srcObject = null;
+        } catch (e) {}
+      }
+      voice.dc = null;
+      voice.pc = null;
+      voice.stream = null;
+      voice.connected = false;
+    }
+
+    function endVoice(closeReason) {
+      if (!voice.active || voice.ending) return;
+      voice.ending = true;
+      var wasConnected = voice.connected;
+      // Final flush BEFORE teardown so the saved transcript is complete.
+      flushTranscript(true, closeReason || 'hangup').finally(function () {
+        teardownVoiceTransport();
+        voice.active = false;
+        voice.ending = false;
+        voice.sessionId = null;
+        voice.relaySecret = null;
+        voiceBubble.classList.remove('is-live');
+        voicePanel.hidden = true;
+        if (closeReason === 'cap') {
+          openPanel();
+          setStatus('Voice reached its time limit — you can keep chatting here by text.');
+        } else if (closeReason === 'error' && !wasConnected) {
+          openPanel();
+          setStatus('Voice could not connect — you can chat here by text instead.');
+        }
+      });
+    }
+
+    function failVoice(line) {
+      // One plain line, then the text chat — never a dead end.
+      if (voice.sessionId) {
+        endVoice('error');
+      } else {
+        teardownVoiceTransport();
+        voice.active = false;
+        voicePanel.hidden = true;
+        voiceBubble.classList.remove('is-live');
+      }
+      openPanel();
+      setStatus(line);
+    }
+
+    function relayToolCall(ev) {
+      var done = function (output) {
+        try {
+          voice.dc.send(
+            JSON.stringify({
+              type: 'conversation.item.create',
+              item: { type: 'function_call_output', call_id: ev.call_id, output: JSON.stringify(output) },
+            })
+          );
+          voice.dc.send(JSON.stringify({ type: 'response.create' }));
+        } catch (e) {
+          /* channel gone — the conversation record still has the transcript */
+        }
+      };
+      voiceApi('/voice/session/' + encodeURIComponent(String(voice.sessionId)) + '/tool', {
+        relay_secret: voice.relaySecret,
+        name: ev.name,
+        arguments: ev.arguments || '{}',
+      }).then(
+        function (data) {
+          done((data && data.result) || { ok: true });
+        },
+        function () {
+          done({ ok: false, error: 'unavailable' });
+        }
+      );
+    }
+
+    function onVoiceEvent(ev) {
+      var msg;
+      try {
+        msg = JSON.parse(ev.data);
+      } catch (e) {
+        return;
+      }
+      if (!msg || !msg.type) return;
+      if (msg.type === 'input_audio_buffer.speech_started') {
+        setVoiceState('Listening…');
+      } else if (msg.type === 'response.output_audio.delta') {
+        setVoiceState('Speaking…');
+      } else if (msg.type === 'response.done') {
+        setVoiceState('Listening…');
+      } else if (msg.type === 'conversation.item.input_audio_transcription.completed') {
+        queueTranscript('visitor', String(msg.transcript || ''), msg.item_id);
+        flushTranscript(false);
+      } else if (msg.type === 'response.output_audio_transcript.done') {
+        queueTranscript('agent', String(msg.transcript || ''), msg.item_id);
+        flushTranscript(false);
+      } else if (msg.type === 'response.function_call_arguments.done') {
+        relayToolCall(msg);
+      } else if (msg.type === 'error') {
+        failVoice('Voice hit a problem — you can chat here by text instead.');
+      }
+    }
+
+    function startVoiceTimers() {
+      stopVoiceTimers();
+      voice.tickTimer = setInterval(function () {
+        var elapsed = Math.floor((Date.now() - voice.startedAt) / 1000);
+        var mm = Math.floor(elapsed / 60);
+        var ss = String(elapsed % 60);
+        if (ss.length < 2) ss = '0' + ss;
+        var capMm = Math.floor(voice.maxSec / 60);
+        var capSs = String(voice.maxSec % 60);
+        if (capSs.length < 2) capSs = '0' + capSs;
+        voiceTimerEl.textContent = mm + ':' + ss + ' / ' + capMm + ':' + capSs;
+      }, 1000);
+      voice.flushTimer = setInterval(function () {
+        flushTranscript(false);
+      }, 5000);
+      voice.capTimer = setTimeout(function () {
+        endVoice('cap');
+      }, voice.maxSec * 1000);
+    }
+
+    function startVoice() {
+      if (!voice.cfg || !voice.cfg.enabled || voice.active) return;
+      if (
+        !navigator.mediaDevices ||
+        !navigator.mediaDevices.getUserMedia ||
+        typeof RTCPeerConnection === 'undefined'
+      ) {
+        openPanel();
+        setStatus('Voice is not supported in this browser — you can chat here by text.');
+        return;
+      }
+      voice.active = true;
+      voice.ending = false;
+      closePanel();
+      voicePanel.hidden = false;
+      voiceLogEl.innerHTML = '';
+      voiceTimerEl.textContent = '';
+      setVoiceState('Asking for microphone access…');
+      navigator.mediaDevices
+        .getUserMedia({ audio: true })
+        .then(function (stream) {
+          voice.stream = stream;
+          setVoiceState('Connecting…');
+          return voiceApi('/voice/session', {});
+        })
+        .then(function (data) {
+          voice.sessionId = data.session && data.session.id;
+          voice.relaySecret = data.relay_secret;
+          voice.maxSec = Number(data.max_duration_sec) || 600;
+          if (!voice.sessionId || !voice.relaySecret || !data.ephemeral || !data.ephemeral.value) {
+            throw new Error('Voice session was not created');
+          }
+          var pc = new RTCPeerConnection();
+          voice.pc = pc;
+          voice.stream.getTracks().forEach(function (track) {
+            pc.addTrack(track, voice.stream);
+          });
+          var audioEl = document.createElement('audio');
+          audioEl.autoplay = true;
+          voice.audioEl = audioEl;
+          pc.ontrack = function (e) {
+            if (e.streams && e.streams[0]) audioEl.srcObject = e.streams[0];
+          };
+          var dc = pc.createDataChannel('oai-events');
+          voice.dc = dc;
+          dc.onmessage = onVoiceEvent;
+          dc.onopen = function () {
+            voice.connected = true;
+            voice.startedAt = Date.now();
+            voiceBubble.classList.add('is-live');
+            setVoiceState('Listening…');
+            startVoiceTimers();
+            // Ask the agent to greet first, like the text chat greeting.
+            try {
+              dc.send(JSON.stringify({ type: 'response.create' }));
+            } catch (e) {}
+          };
+          dc.onclose = function () {
+            if (voice.active && !voice.ending) endVoice('hangup');
+          };
+          return pc
+            .createOffer()
+            .then(function (offer) {
+              return pc.setLocalDescription(offer).then(function () {
+                return offer;
+              });
+            })
+            .then(function (offer) {
+              return fetch(data.calls_url || 'https://api.openai.com/v1/realtime/calls', {
+                method: 'POST',
+                body: offer.sdp,
+                headers: {
+                  Authorization: 'Bearer ' + data.ephemeral.value,
+                  'Content-Type': 'application/sdp',
+                },
+              });
+            })
+            .then(function (resp) {
+              if (!resp.ok) throw new Error('Voice connect failed');
+              return resp.text();
+            })
+            .then(function (sdp) {
+              return pc.setRemoteDescription({ type: 'answer', sdp: sdp });
+            });
+        })
+        .catch(function () {
+          if (voice.sessionId) {
+            endVoice('error');
+          } else {
+            teardownVoiceTransport();
+            voice.active = false;
+            voicePanel.hidden = true;
+            openPanel();
+            setStatus('Voice could not start — check microphone access, or chat here by text.');
+          }
+        });
+    }
+
+    function setupVoice(cfg) {
+      if (!cfg || !cfg.enabled) return;
+      voice.cfg = cfg;
+      voice.maxSec = Number(cfg.max_duration_sec) || 600;
+      if (cfg.bubble_image_url) {
+        var img = document.createElement('img');
+        img.alt = '';
+        img.src = (state.base || '') + cfg.bubble_image_url;
+        voiceBubble.innerHTML = '';
+        voiceBubble.appendChild(img);
+      }
+      voiceBubble.hidden = false;
+    }
+
+    voiceBubble.addEventListener('click', function () {
+      if (voice.active) {
+        voicePanel.hidden = !voicePanel.hidden;
+        return;
+      }
+      startVoice();
+    });
+    voicePanel.querySelector('.bp-voice-close').addEventListener('click', function () {
+      endVoice('hangup');
+    });
+    voicePanel.querySelector('.bp-voice-end').addEventListener('click', function () {
+      endVoice('hangup');
+    });
+    window.addEventListener('beforeunload', function () {
+      // Browser going away mid-call: flush what we have (non-final) —
+      // the saved session then honestly reads as ended abruptly
+      // rather than pretending the conversation completed.
+      if (voice.active && voice.sessionId) flushTranscript(false, undefined, true);
+    });
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden && voice.active) flushTranscript(false);
+    });
 
     var msgsEl = panel.querySelector('.bp-chat-msgs');
     var statusEl = panel.querySelector('.bp-chat-status');
@@ -442,7 +865,12 @@
           bubble.style.left = '18px';
           panel.style.right = 'auto';
           panel.style.left = '18px';
+          voiceBubble.style.right = 'auto';
+          voiceBubble.style.left = '18px';
+          voicePanel.style.right = 'auto';
+          voicePanel.style.left = '18px';
         }
+        setupVoice(data && data.voice);
       })
       .catch(function () {
         ensureStyles('');

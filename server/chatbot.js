@@ -14,7 +14,7 @@ const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 
-const CHAT_SCRIPT_VER = 'chat7';
+const CHAT_SCRIPT_VER = 'chat8';
 const CHAT_ATTR = 'data-bitpype-chat';
 const CHAT_TOKEN_ATTR = 'data-bitpype-chat-token';
 const CHAT_SCRIPT_ATTR = 'data-bitpype-chat-script';
@@ -40,6 +40,15 @@ const DEFAULT_SETTINGS = {
    */
   qualifying_enabled: false,
   qualifying_questions: [],
+  /**
+   * Batch 138 — AI voice agent (OpenAI Realtime). Voice rides the
+   * chatbot entitlement; all three fields live in settings_json extras
+   * so no new columns are needed. voice_bubble_image holds the stored
+   * relative path of the owner's bubble image ('' = default mic glyph).
+   */
+  voice_enabled: false,
+  voice_name: 'marin',
+  voice_bubble_image: '',
 };
 
 /** Batch 137 — qualifying-question caps (validated on save). */
@@ -48,6 +57,15 @@ const QUALIFYING_MAX_CHARS = 200;
 const QUALIFYING_ANSWER_MAX_CHARS = 2000;
 /** Recorded per-question states. Terminal states are sticky. */
 const QUALIFYING_TERMINAL_STATUSES = ['answered', 'answered_from_conversation', 'declined'];
+
+/**
+ * Batch 138 — OpenAI Realtime built-in voices (developers.openai.com
+ * Realtime API reference, checked 2026-11-04): alloy, ash, ballad,
+ * coral, echo, sage, shimmer, verse, marin, cedar. OpenAI recommends
+ * marin and cedar for best quality. The portal voice picker and the
+ * Realtime session config both draw from this one list.
+ */
+const REALTIME_VOICES = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse', 'marin', 'cedar'];
 
 const AI_FALLBACK_DELAY_MS = 2000;
 /** Minimum visitor turns before we may open the contact form (greetings alone never count). */
@@ -207,6 +225,24 @@ function loadBusinessSupportContext(db, leadId) {
     website: String(website || '').slice(0, 300),
     services,
     text: lines.join('\n'),
+  };
+}
+
+/**
+ * THE shared assistant-context assembly (Batch 138 seam). Every
+ * surface that speaks for the business — the text AI fallback today,
+ * the Batch 138 voice agent's Realtime instructions, and (after their
+ * rebases) Batch 136's booking pitch + Batch 137's qualifying
+ * questions, which compose ON TOP of these blocks — reads the business
+ * profile, knowledge excerpts and settings from here, never from
+ * ad-hoc re-reads, so all channels brief the model identically.
+ */
+function buildAssistantContext(db, leadId, { query = '' } = {}) {
+  ensureTables(db);
+  return {
+    business: loadBusinessSupportContext(db, leadId),
+    knowledge: knowledgeSnippets(db, leadId, { query: String(query || ''), limit: 12, maxChars: 8000 }),
+    settings: getSettings(db, leadId),
   };
 }
 
@@ -406,6 +442,35 @@ function ensureTables(db) {
   } catch {
     /* race / exists */
   }
+  // Batch 138 — voice sessions share the text-chat session store.
+  // channel distinguishes them; the voice_* columns carry the Realtime
+  // session lifecycle (relay-secret hash only — the secret itself is
+  // never stored), timing and close state for the portal inbox.
+  try {
+    const cols = db
+      .prepare('PRAGMA table_info(chatbot_sessions)')
+      .all()
+      .map((c) => String(c.name || ''));
+    const voiceCols = [
+      ['channel', "TEXT NOT NULL DEFAULT 'text'"],
+      ['voice_state', 'TEXT'],
+      ['voice_started_at', 'TEXT'],
+      ['voice_ended_at', 'TEXT'],
+      ['voice_duration_sec', 'INTEGER'],
+      ['voice_close_state', 'TEXT'],
+      ['voice_relay_hash', 'TEXT'],
+      ['voice_openai_session_id', 'TEXT'],
+      ['voice_model', 'TEXT'],
+      ['voice_voice_name', 'TEXT'],
+    ];
+    for (const [col, def] of voiceCols) {
+      if (cols.length && !cols.includes(col)) {
+        db.exec(`ALTER TABLE chatbot_sessions ADD COLUMN ${col} ${def}`);
+      }
+    }
+  } catch {
+    /* race / exists */
+  }
 }
 
 /**
@@ -501,6 +566,11 @@ function parseSettingsRow(row) {
     ai_fallback: extra.ai_fallback == null ? base.ai_fallback : !!extra.ai_fallback,
     qualifying_enabled: extra.qualifying_enabled == null ? base.qualifying_enabled : !!extra.qualifying_enabled,
     qualifying_questions: sanitizeQualifyingQuestions(extra.qualifying_questions),
+    voice_enabled: extra.voice_enabled == null ? base.voice_enabled : !!extra.voice_enabled,
+    voice_name: REALTIME_VOICES.includes(String(extra.voice_name || ''))
+      ? String(extra.voice_name)
+      : base.voice_name,
+    voice_bubble_image: String(extra.voice_bubble_image || ''),
   };
 }
 
@@ -532,11 +602,39 @@ function saveSettings(db, leadId, data = {}) {
       data.qualifying_questions != null
         ? normalizeQualifyingQuestions(data.qualifying_questions)
         : cur.qualifying_questions,
+    voice_enabled: data.voice_enabled != null ? !!data.voice_enabled : cur.voice_enabled,
+    voice_name:
+      data.voice_name != null
+        ? REALTIME_VOICES.includes(String(data.voice_name))
+          ? String(data.voice_name)
+          : (() => {
+              throw fail('VALIDATION', `voice_name must be one of: ${REALTIME_VOICES.join(', ')}`, 400);
+            })()
+        : cur.voice_name,
+    // voice_bubble_image is written ONLY by the upload/remove path in
+    // chatbotVoice.js (it validates + stores the file first); a plain
+    // settings save always preserves the current value.
+    voice_bubble_image: cur.voice_bubble_image,
   };
+  // Preserve settings_json extras this build does not own (Batch 136
+  // booking-pitch + Batch 137 qualifying-questions keys land here after
+  // the rebase) — a chatbot settings save must never wipe a sibling
+  // feature's extras.
+  let prevExtras = {};
+  try {
+    const row = db.prepare('SELECT settings_json FROM chatbot_settings WHERE lead_id = ?').get(Number(leadId));
+    prevExtras = JSON.parse((row && row.settings_json) || '{}') || {};
+  } catch {
+    prevExtras = {};
+  }
   const extras = {
+    ...prevExtras,
     ai_fallback: next.ai_fallback,
     qualifying_enabled: next.qualifying_enabled,
     qualifying_questions: next.qualifying_questions,
+    voice_enabled: next.voice_enabled,
+    voice_name: next.voice_name,
+    voice_bubble_image: next.voice_bubble_image,
   };
   db.prepare(
     `
@@ -761,11 +859,13 @@ function publicSession(row, { withMessages = false, messages = null } = {}) {
     // snapshotted + answer state), null when the feature never
     // engaged for this session.
     qualification: row.qualification_json ? parseQualificationRecord(row.qualification_json) : null,
+    channel: row.channel || 'text',
     last_visitor_at: row.last_visitor_at,
     last_agent_at: row.last_agent_at,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
+  if ((row.channel || 'text') === 'voice') out.voice = publicVoiceBlock(row);
   if (withMessages) out.messages = Array.isArray(messages) ? messages : [];
   return out;
 }
@@ -981,6 +1081,36 @@ function qualifyingPromptLines(record) {
     '- In your JSON, also report state changes in a "qualification" array: [{"index":0,"status":"answered","answer":"..."}] — index is the question number above minus 1; statuses: asked, answered, answered_from_conversation, declined. Omit the array when nothing changed.',
     '',
   ];
+}
+
+/**
+ * Batch 138 — the owner-facing voice block on a session. Never exposes
+ * the relay-secret hash or the OpenAI session id. A voice session with
+ * no recorded end long after it started reads as 'abrupt' (the browser
+ * died mid-call) rather than pretending the conversation completed —
+ * whatever transcript was relayed before the drop stays on the record.
+ */
+const VOICE_STALE_AFTER_MS = 65 * 60 * 1000; // OpenAI caps sessions at 60 min.
+function publicVoiceBlock(row) {
+  let closeState = row.voice_close_state || null;
+  if (!closeState) {
+    if (row.voice_ended_at) closeState = 'clean';
+    else if (row.voice_started_at) {
+      const started = Date.parse(String(row.voice_started_at).replace(' ', 'T') + 'Z');
+      closeState = Number.isFinite(started) && Date.now() - started > VOICE_STALE_AFTER_MS ? 'abrupt' : 'open';
+    } else {
+      closeState = 'open';
+    }
+  }
+  return {
+    state: row.voice_state || null,
+    started_at: row.voice_started_at || null,
+    ended_at: row.voice_ended_at || null,
+    duration_sec: row.voice_duration_sec != null ? Number(row.voice_duration_sec) : null,
+    close_state: closeState,
+    model: row.voice_model || null,
+    voice: row.voice_voice_name || null,
+  };
 }
 
 function getSessionByToken(db, token) {
@@ -1508,16 +1638,9 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
       .map((m) => m.body)
       .slice(-8);
     const latestVisitor = visitorTexts[visitorTexts.length - 1] || '';
-    const knowledge = knowledgeSnippets(db, leadId, {
+    const { knowledge, settings, business } = buildAssistantContext(db, leadId, {
       query: visitorTexts.join(' '),
-      limit: 12,
-      maxChars: 8000,
     });
-    const settings = getSettings(db, leadId);
-    const business = loadBusinessSupportContext(db, leadId);
-    // Batch 137: the session's qualifying record — created from the
-    // owner's current list on first use (that creation snapshots
-    // the question texts); null when the feature is off/empty.
     const qualification = ensureSessionQualification(db, leadId, sessionId);
     return {
       skip: false,
@@ -2179,6 +2302,26 @@ function listChatLeads(db, leadId, { limit = 50 } = {}) {
     });
 }
 
+/** Batch 138 — voice block for the portal chatbot admin + inbox. */
+function voiceSummary(db, leadId) {
+  const s = getSettings(db, leadId);
+  const recent = db
+    .prepare(
+      "SELECT * FROM chatbot_sessions WHERE lead_id = ? AND channel = 'voice' ORDER BY id DESC LIMIT 10"
+    )
+    .all(Number(leadId))
+    .map((r) => {
+      const p = publicSession(r);
+      return { id: p.id, created_at: p.created_at, status: p.status, voice: p.voice };
+    });
+  return {
+    enabled: !!s.voice_enabled,
+    voice_name: s.voice_name,
+    has_bubble_image: !!s.voice_bubble_image,
+    recent_sessions: recent,
+  };
+}
+
 function portalChatbotSummary(db, leadId) {
   ensureTables(db);
   const modules = require('./siteModules');
@@ -2212,6 +2355,7 @@ function portalChatbotSummary(db, leadId) {
       .all(Number(leadId))
       .map((r) => publicSession(r))
       .filter((s) => s && s.qualification),
+    voice: voiceSummary(db, leadId),
     allowed_actions: listAllowedActions(db, leadId),
     booking_pitch: bookingPitchFor(db, leadId),
     agent_boundary: {
@@ -2447,6 +2591,8 @@ async function storeKnowledgeUploads(workspaceId, leadId, body = {}) {
 
 module.exports = {
   CHAT_SCRIPT_VER,
+  REALTIME_VOICES,
+  buildAssistantContext,
   CHAT_ATTR,
   CHAT_TOKEN_ATTR,
   CHAT_SCRIPT_ATTR,
@@ -2488,6 +2634,7 @@ module.exports = {
   KNOWLEDGE_MAX_BYTES,
   notifyClientAgent,
   listMessages,
+  addMessage,
   getSessionById,
   getSessionByToken,
   startOrGetSession,

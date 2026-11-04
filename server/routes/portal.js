@@ -1889,6 +1889,38 @@ router.put('/modules/chatbot/settings', requireClient, actionLimit, async (req, 
   }
 });
 
+/* Batch 138 — voice bubble image (owner upload for the voice bubble) */
+router.post('/modules/chatbot/voice-image', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.saveChatbotVoiceImage(req.client.workspace_id, req.client.lead_id, req.body || {}, req.client.email)
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'TOO_LARGE' ? 413 : 400);
+  }
+});
+
+router.delete('/modules/chatbot/voice-image', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(res, await portal.removeChatbotVoiceImage(req.client.workspace_id, req.client.lead_id, req.client.email));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.get('/modules/chatbot/voice-image', requireClient, async (req, res) => {
+  try {
+    const img = await portal.getChatbotVoiceImage(req.client.workspace_id, req.client.lead_id, req.client.email);
+    if (!img) return res.status(404).json({ ok: false, error: 'No voice bubble image' });
+    res.setHeader('Content-Type', img.mime);
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    res.send(img.buffer);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 router.post('/modules/chatbot/knowledge/upload', requireClient, actionLimit, async (req, res) => {
   try {
     ok(
