@@ -37,7 +37,7 @@
  * Part 2 — real Chromium, stub API, staff app at 1440/980/390:
  *   exactly one row (shared top, equal heights), uniform 171px
  *   widths, uniform 16px gaps, scrollWidth > clientWidth, the
- *   last card (Photo Capture) fully reachable at max scroll, the first
+ *   last card (QR Code) fully reachable at max scroll, the first
  *   card fully visible at rest, keyboard scrolling works, no
  *   page-level horizontal overflow, the installs table below the
  *   catalog still renders, zero page errors.
@@ -201,6 +201,7 @@ function group(name, n) {
     ['newsletter', 'Newsletter'],
     ['categories', 'Categories'],
     ['photocapture', 'Photo Capture'],
+    ['qrcode', 'QR Code'],
   ];
   app.get('/api/v1/admin-area/modules', (_q, r) =>
     r.json({
@@ -363,7 +364,7 @@ function group(name, n) {
       );
       m = await page.evaluate(measure);
       const last = m.rects[m.rects.length - 1];
-      ok(/Photo Capture/.test(m.lastName), `@${w}: last card is Photo Capture`);
+      ok(/QR Code/.test(m.lastName), `@${w}: last card is QR Code`);
       ok(
         last.right <= m.gridRect.right + 1 && last.left >= m.gridRect.left - 1,
         `@${w}: Categories fully inside the row at max scroll (not cut)`
