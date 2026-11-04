@@ -115,7 +115,10 @@ function makeJar() {
     n++;
     assert.ok(smSrc.includes("orderCols.includes('variant_label')"), 'orders gain variant_label via guarded ALTER');
     n++;
-    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod30'"), 'MODULE_SCRIPT_VER bumped to mod30 (Batch 127 finisher rotation)');
+    assert.ok(
+      smSrc.includes("const MODULE_SCRIPT_VER = 'mod30'"),
+      'MODULE_SCRIPT_VER bumped to mod30 (Batch 127 finisher rotation)'
+    );
     n++;
     for (const fn of [
       'function setProductOptions',

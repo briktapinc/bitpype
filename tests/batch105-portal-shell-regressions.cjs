@@ -148,7 +148,7 @@ const PANELS = [
     const { census } = require(path.join(root, 'scripts', 'xss-census.cjs'));
     const cz = census();
     assert.equal(cz.summary.total, 421, 'SEC-13 census total unchanged by Batch 105'); n += 1;
-    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 308, 'SEC-13 safe classes unchanged'); n += 1;
+    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 311, 'SEC-13 safe classes unchanged'); n += 1;
     const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
     const BASELINE = new Set(require(path.join(root, 'tests', 'batch103-xss-baseline.json')));
     assert.deepEqual([...reviewed].filter((x) => !BASELINE.has(x)), [], 'no new RAW/IDENT sinks'); n += 1;

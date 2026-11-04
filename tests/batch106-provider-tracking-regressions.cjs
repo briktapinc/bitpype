@@ -382,11 +382,11 @@ if (NEGATIVE) {
       const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
       const cz = census();
       assert.equal(cz.summary.total, 421, 'sink census total pinned');
-      assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 308, 'safe classes pinned');
+      assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 311, 'safe classes pinned');
       const reviewed = new Set(
         cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`)
       );
-      assert.equal(reviewed.size, 108, 'reviewed set size pinned');
+      assert.equal(reviewed.size, 110, 'reviewed set size pinned');
       const BASELINE = new Set(require(path.join(root, 'tests/batch103-xss-baseline.json')));
       assert.deepEqual([...reviewed].filter((x) => !BASELINE.has(x)), [], 'no new raw sinks');
       assert.deepEqual([...BASELINE].filter((x) => !reviewed.has(x)), [], 'baseline matches the reviewed set');

@@ -632,7 +632,7 @@ const TEXT_PLAN = {
     const cz = census();
     assert.equal(cz.summary.total, 421, 'SEC-13 census total unchanged by Batch 104'); n += 1;
     assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 311, 'SEC-13 safe classes unchanged'); n += 1;
-    assert.equal(cz.summary.RAW + cz.summary.IDENT, 108, 'SEC-13 reviewed set size (Batch 124 added one reviewed RAW sink)'); n += 1;
+    assert.equal(cz.summary.RAW + cz.summary.IDENT, 110, 'SEC-13 reviewed set size (Batch 124 added one reviewed RAW sink; Batch 127 finisher added two reviewed variant-editor RAW sinks)'); n += 1;
 
     group('Part 4 client wiring + parser units', n);
   }

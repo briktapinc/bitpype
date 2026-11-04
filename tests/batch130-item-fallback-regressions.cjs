@@ -17,7 +17,7 @@
  *     list refetch, staticBlog excluded), the locked branch still
  *     ahead of item rendering, the error card intact, MODULE_SCRIPT_VER
  *     mod30 (Batch 127 finisher rotation), and the SEC-13 census at 421 total (Batch 126 finisher +4 audited QR sinks; Batch 127 finisher +5 audited variant-editor sinks) with the
- *     mountOne sink shifted by pure line movement (4227 -> 4252).
+ *     mountOne sink shifted by pure line movement (4227 -> 4252 on the Batch 130 tree; 4294 at Batch 126 landing; 4394 after the Batch 127 variant-picker insertions).
  *   Part B — HTTP contract on the real server: a foreign slug is a
  *     404 with code NOT_FOUND on every non-owning module; the owning
  *     module resolves its item; a gated page answers slug AND list
@@ -243,8 +243,8 @@ async function waitReady(child, output) {
       .sort((x, y) => x - y);
     assert.deepEqual(
       meLines,
-      [1258, 1270, 1274, 1278, 1563, 1724, 2627, 4201, 4294],
-      'module-embed reviewed sinks: Batch 130 set shifted +42 by the Batch 126 QR embed block (pure line movement, snippets byte-identical) plus one new audited QR RAW sink at 1258'
+      [1266, 1278, 1282, 1286, 1576, 1737, 2640, 4301, 4394],
+      'module-embed reviewed sinks: Batch 130 set (shifted +42 by the Batch 126 QR embed block, then +8/+13/+100 by the Batch 127 finisher variant-picker insertions — pure line movement, snippet multiset byte-identical) plus one new audited QR RAW sink at 1266'
     );
     n++;
     group('Part A source pins', n);
