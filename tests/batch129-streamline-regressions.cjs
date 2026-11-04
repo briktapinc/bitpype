@@ -62,13 +62,17 @@ process.env.SQLITE_PATH = process.env.DB_PATH;
   process.env[name.toUpperCase().replace(/\W/g, '_') + '_PATH'] = path.join(process.env.REGRESSION_TMPDIR, name);
 });
 process.env.DB_DRIVER = process.env.DB_DRIVER || 'sqlite';
-process.env.APP_SECRET = ['b129', 'app', 'secret'].join('-');
-process.env.SESSION_SECRET = ['b129', 'session', 'secret'].join('-');
+process.env.APP_SECRET = ['b129', 'app', 'secret', 'batch129fixture' ].join('-');
+process.env.SESSION_SECRET = ['b129', 'session', 'secret', 'batch129fixture' ].join('-');
 process.env.COOKIE_SECURE = 'false';
 // Finisher fix (AGENTS.md Batch 127 lesson): the real-server parts
 // boot under the gate image's NODE_ENV=production, which refuses to
 // run without Turnstile keys unless CAPTCHA_OPTIONAL=1, and requires
 // APP_URL (sibling suites 125/126/127/128/132 all carry both lines).
+// The builder's fixture APP_SECRET/SESSION_SECRET fragments also
+// joined to under the 24-char production minimum (19 chars) — the
+// MySQL gate leg's real-server boot refused them; both fixtures
+// were lengthened past 24 chars by the finisher.
 process.env.CAPTCHA_OPTIONAL = '1';
 process.env.APP_URL = 'https://bitpype.test';
 process.env.MAIL_DRY_RUN = process.env.MAIL_DRY_RUN || 'true';
