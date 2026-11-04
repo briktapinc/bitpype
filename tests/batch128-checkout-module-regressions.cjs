@@ -211,7 +211,7 @@ function load(file, mocks) {
     }
     assert.ok(smSrc.includes("checkout: { label: 'Checkout'"), 'MODULE_META carries the Checkout label');
     n++;
-    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod34'"), 'MODULE_SCRIPT_VER bumped to mod32');
+    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod35'"), 'MODULE_SCRIPT_VER bumped to mod32');
     n++;
     assert.ok(smSrc.includes('CREATE TABLE IF NOT EXISTS ecommerce_order_items'), 'order line-items table exists');
     n++;
@@ -281,7 +281,7 @@ function load(file, mocks) {
     n++;
     assert.ok(portalHtml.includes('id="modules-shop-orders-panel"'), 'portal.html hosts the shop orders panel');
     n++;
-    assert.ok(portalHtml.includes('portal.js?v=batch128-checkout1'), 'portal.js cache-bust rotated');
+    assert.ok(portalHtml.includes('portal.js?v=batch131-comments1'), 'portal.js cache-bust rotated');
     n++;
     const portalRoutes = read('server/routes/portal.js');
     assert.ok(portalRoutes.includes("router.put('/modules/checkout/config'"), 'portal config route registered');
@@ -402,13 +402,13 @@ function load(file, mocks) {
 
   {
     let n = 0;
-    assert.equal(sm.MODULE_TYPES.length, 27, 'catalog at 27 types');
+    assert.equal(sm.MODULE_TYPES.length, 28, 'catalog at 28 types (Batch 131: comments appended)');
     assert.equal(sm.MODULE_TYPES[26], 'checkout', 'checkout is the 27th type');
     n += 2;
     assert.deepEqual(
       Object.keys(share.SHARE_REGISTRY).sort(),
       [...sm.MODULE_TYPES].sort(),
-      'moduleShare registry parity at 27 types'
+      'moduleShare registry parity at 28 types'
     );
     n++;
     assert.equal(share.SHARE_REGISTRY.checkout.kind, 'none', 'checkout is a deliberate non-provider');

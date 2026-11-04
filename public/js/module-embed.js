@@ -488,6 +488,28 @@
       '}',
       '.bitpype-module-embed .bp-mod-news-blurb{margin:0.65rem 0 0;color:var(--bp-mod-muted);line-height:1.6;}',
       '.bitpype-module-embed .bp-mod-news-form{margin-top:1.1rem;}',
+      // Comments (Batch 131) — thread list, like buttons, owner badge.
+      // Comment bodies are plain text (white-space:pre-wrap does the
+      // line breaks); nothing renders them as HTML.
+      '.bitpype-module-embed .bp-mod-comments{max-width:720px;}',
+      '.bitpype-module-embed .bp-mod-comments-head{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin:0 0 0.4rem;}',
+      '.bitpype-module-embed .bp-mod-comments-list{margin:0.6rem 0 0;display:flex;flex-direction:column;gap:1.1rem;}',
+      '.bitpype-module-embed .bp-mod-comment{border-top:1px solid var(--bp-mod-line);padding-top:0.9rem;}',
+      '.bitpype-module-embed .bp-mod-comment-meta{display:flex;align-items:baseline;flex-wrap:wrap;gap:0.5rem;margin:0;}',
+      '.bitpype-module-embed .bp-mod-comment-author{font-weight:700;}',
+      '.bitpype-module-embed .bp-mod-owner-badge{font-size:0.72rem;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--bp-mod-accent);border:1px solid var(--bp-mod-accent);border-radius:999px;padding:0.05rem 0.5rem;}',
+      '.bitpype-module-embed .bp-mod-comment-date{color:var(--bp-mod-muted);font-size:0.85rem;}',
+      '.bitpype-module-embed .bp-mod-comment-body{margin:0.35rem 0 0;white-space:pre-wrap;overflow-wrap:break-word;line-height:1.6;}',
+      '.bitpype-module-embed .bp-mod-comment-actions{display:flex;align-items:center;gap:0.9rem;margin-top:0.45rem;}',
+      '.bitpype-module-embed .bp-mod-replies{margin:0.8rem 0 0 1.1rem;padding-left:0.9rem;border-left:2px solid var(--bp-mod-line);display:flex;flex-direction:column;gap:0.9rem;}',
+      '.bitpype-module-embed .bp-mod-replies .bp-mod-comment{border-top:none;padding-top:0;}',
+      '.bitpype-module-embed .bp-mod-like-btn{display:inline-flex;align-items:center;gap:0.35rem;background:none;border:1px solid var(--bp-mod-line);border-radius:999px;padding:0.2rem 0.7rem;font:inherit;font-size:0.88rem;color:var(--bp-mod-muted);cursor:pointer;}',
+      '.bitpype-module-embed .bp-mod-like-btn:hover{border-color:var(--bp-mod-accent);color:var(--bp-mod-accent);}',
+      '.bitpype-module-embed .bp-mod-like-btn.liked{border-color:var(--bp-mod-accent);color:var(--bp-mod-accent);font-weight:700;}',
+      '.bitpype-module-embed .bp-mod-like-btn .bp-mod-like-heart{font-size:0.95rem;line-height:1;}',
+      '.bitpype-module-embed .bp-mod-reply-btn{background:none;border:none;padding:0;font:inherit;font-size:0.88rem;color:var(--bp-mod-accent);cursor:pointer;font-weight:600;}',
+      '.bitpype-module-embed .bp-mod-comment-form{margin-top:1.2rem;}',
+      '.bitpype-module-embed .bp-mod-reply-form{margin-top:0.7rem;}',
     ].join('');
     var style = document.createElement('style');
     style.id = STYLE_ID;
@@ -1362,6 +1384,14 @@
       // it AND approved photos exist (payload items carry approved
       // photos only — pending/rejected never ship).
       renderPhotoCapture(el, data);
+      return;
+    }
+    if (type === 'comments') {
+      // Batch 131: the comments block — in page mode the thread rides
+      // this payload; in item mode the thread arrives with the item
+      // payload (renderItem). No thread here = dormant, renders
+      // nothing (a block with comments off is equally silent).
+      renderComments(el, data);
       return;
     }
     if (type === 'careers' && !items.length) {
@@ -2866,6 +2896,377 @@
     }
   }
 
+  /* ── Comments (Batch 131) ──────────────────────────────────────
+   * One block, two bindings (server config target_mode): 'page' —
+   * the thread belongs to the page itself (guestbook-style); 'item'
+   * — the thread belongs to the item the page is showing (a blog
+   * post, product, event, album…), resolved server-side through the
+   * shared module layer, so the like count painted here is THE
+   * item's count from the one likes store.
+   *
+   * Everything a visitor wrote is rendered with textContent only —
+   * comment bodies are plain text end to end, never HTML.
+   *
+   * Visitor identity for likes is a first-party random token kept in
+   * localStorage ('bp_visitor_token'); only its hash ever reaches
+   * the server's store. It is minted lazily — on the first like or
+   * comment — so a read-only visit stores nothing. */
+  var VISITOR_TOKEN_KEY = 'bp_visitor_token';
+
+  function peekVisitorToken() {
+    try {
+      return window.localStorage.getItem(VISITOR_TOKEN_KEY) || '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function visitorToken() {
+    var existing = peekVisitorToken();
+    if (existing) return existing;
+    var token = '';
+    try {
+      var bytes = new Uint8Array(16);
+      if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(bytes);
+      else for (var i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
+      token = Array.prototype.map
+        .call(bytes, function (b) {
+          return ('0' + b.toString(16)).slice(-2);
+        })
+        .join('');
+      window.localStorage.setItem(VISITOR_TOKEN_KEY, token);
+    } catch (e) {
+      /* storage unavailable — likes still count under the server-side fallback bucket */
+    }
+    return token;
+  }
+
+  function renderComments(el, data) {
+    var block = data.comments || {};
+    var cfg = block.config || {};
+    var thread = block.thread || null;
+    var token = el.getAttribute(TOKEN_ATTR) || '';
+    var base = apiBase(el);
+    el.textContent = '';
+    if (!cfg.comments_enabled || !thread || !thread.target) return; // dormant
+    var target = thread.target;
+
+    var wrap = document.createElement('div');
+    wrap.className = 'bp-mod-comments';
+    el.appendChild(wrap);
+
+    var head = document.createElement('div');
+    head.className = 'bp-mod-comments-head';
+    var heading = document.createElement('h3');
+    heading.className = 'bp-mod-news-heading';
+    heading.textContent = cfg.heading || data.title || 'Comments';
+    head.appendChild(heading);
+    wrap.appendChild(head);
+
+    var captcha = {
+      enabled: false,
+      getToken: async function () {
+        return '';
+      },
+      reset: function () {},
+    };
+
+    function likeButton(targetType, targetId, count) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'bp-mod-like-btn';
+      btn.setAttribute('data-bp-like-type', String(targetType));
+      btn.setAttribute('data-bp-like-id', String(targetId));
+      var heart = document.createElement('span');
+      heart.className = 'bp-mod-like-heart';
+      heart.textContent = '♥';
+      var num = document.createElement('span');
+      num.className = 'bp-mod-like-count';
+      num.textContent = String(count || 0);
+      btn.appendChild(heart);
+      btn.appendChild(num);
+      btn.setAttribute('aria-label', 'Like');
+      btn.addEventListener('click', function () {
+        btn.disabled = true;
+        (async function () {
+          try {
+            var r = await fetch(
+              (base || '') + '/api/v1/modules/public/' + encodeURIComponent(token) + '/comments/like?' + pageQuery(),
+              {
+                method: 'POST',
+                credentials: 'omit',
+                headers: jsonHeaders(),
+                body: JSON.stringify({
+                  target_type: targetType,
+                  target_id: targetId,
+                  visitor_token: visitorToken(),
+                }),
+              }
+            );
+            var j = await r.json();
+            if (!r.ok || !j || !j.ok) throw new Error((j && j.error) || 'Could not save your like');
+            num.textContent = String(j.data.count || 0);
+            btn.classList.toggle('liked', !!j.data.liked);
+          } catch (e) {
+            /* a failed like leaves the painted state untouched */
+          } finally {
+            btn.disabled = false;
+          }
+        })();
+      });
+      return btn;
+    }
+
+    // The item's own like — the count from the one shared store.
+    if (cfg.allow_likes && cfg.allow_item_like) {
+      head.appendChild(likeButton(target.target_type, target.target_id, thread.like_count));
+    }
+
+    var list = document.createElement('div');
+    list.className = 'bp-mod-comments-list';
+    wrap.appendChild(list);
+
+    function commentForm(parentId) {
+      var form = document.createElement('form');
+      form.className = 'bp-mod-book bp-mod-comment-form';
+      if (parentId != null) form.classList.add('bp-mod-reply-form');
+      function fieldRow(labelText, input, required) {
+        var row = document.createElement('div');
+        row.className = 'bp-mod-book-row';
+        var label = document.createElement('label');
+        label.textContent = labelText;
+        if (required) input.required = true;
+        label.appendChild(input);
+        row.appendChild(label);
+        return row;
+      }
+      var nameInput = document.createElement('input');
+      nameInput.type = 'text';
+      nameInput.name = 'name';
+      nameInput.autocomplete = 'name';
+      nameInput.maxLength = 80;
+      form.appendChild(fieldRow('Your name', nameInput, true));
+      var emailInput = document.createElement('input');
+      emailInput.type = 'email';
+      emailInput.name = 'email';
+      emailInput.autocomplete = 'email';
+      emailInput.maxLength = 240;
+      form.appendChild(fieldRow('Email (never shown publicly)', emailInput, true));
+      var bodyInput = document.createElement('textarea');
+      bodyInput.name = 'body';
+      bodyInput.rows = parentId != null ? 2 : 3;
+      bodyInput.maxLength = 2000;
+      form.appendChild(fieldRow(parentId != null ? 'Your reply' : 'Your comment', bodyInput, true));
+      var captchaBox = null;
+      if (parentId == null) {
+        captchaBox = document.createElement('div');
+        captchaBox.setAttribute('data-bp-captcha', '');
+        form.appendChild(captchaBox);
+      }
+      var msg = document.createElement('p');
+      msg.className = 'bp-mod-book-msg';
+      form.appendChild(msg);
+      var submitBtn = document.createElement('button');
+      submitBtn.type = 'submit';
+      submitBtn.className = 'bp-mod-btn';
+      submitBtn.textContent = parentId != null ? 'Reply' : 'Post comment';
+      form.appendChild(submitBtn);
+      if (captchaBox) {
+        (async function () {
+          try {
+            if (base) await loadScript(base + '/js/captcha.js?v=mod5');
+            if (window.ScoutCaptcha && captchaBox) {
+              captcha = await window.ScoutCaptcha.mount(captchaBox, { apiBase: base });
+            }
+          } catch (e) {
+            /* captcha optional when disabled server-side */
+          }
+        })();
+      }
+      form.addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        var name = nameInput.value.trim();
+        var email = emailInput.value.trim();
+        var body = bodyInput.value.trim();
+        if (!name || !email || !body) {
+          msg.textContent = 'Please add your name, email and a comment.';
+          msg.className = 'bp-mod-book-msg err';
+          return;
+        }
+        submitBtn.disabled = true;
+        msg.textContent = 'Posting…';
+        msg.className = 'bp-mod-book-msg';
+        (async function () {
+          try {
+            var captchaToken = await captcha.getToken();
+            var r = await fetch(
+              (base || '') + '/api/v1/modules/public/' + encodeURIComponent(token) + '/comments?' + pageQuery(),
+              {
+                method: 'POST',
+                credentials: 'omit',
+                headers: jsonHeaders(),
+                body: JSON.stringify({
+                  target_type: target.target_type,
+                  target_id: target.target_id,
+                  parent_id: parentId,
+                  name: name,
+                  email: email,
+                  body: body,
+                  // Detail-surface posts (the holder carries the
+                  // marker from mountDetailComments) post against the
+                  // detail item's own target, not the block binding.
+                  detail: el.getAttribute('data-bp-detail-comments') === '1' ? 1 : undefined,
+                  visitor_token: visitorToken(),
+                  captchaToken: captchaToken,
+                }),
+              }
+            );
+            var j = await r.json();
+            if (!r.ok || !j || !j.ok) throw new Error((j && j.error) || 'Could not post your comment');
+            if (captcha.reset) captcha.reset();
+            if (j.data && j.data.thread) {
+              // Published immediately — re-render on the server's
+              // refreshed thread (counts included).
+              renderComments(el, {
+                module_type: 'comments',
+                title: data.title,
+                comments: { config: cfg, thread: j.data.thread },
+              });
+            } else {
+              // Held for moderation: the form stays in place showing
+              // the note (the comment is invisible until approved).
+              bodyInput.value = '';
+              msg.textContent = (j.data && j.data.message) || 'Thanks — your comment is awaiting approval.';
+              msg.className = 'bp-mod-book-msg ok';
+            }
+          } catch (e) {
+            msg.textContent = (e.message || 'Could not post your comment') + ' — please try again.';
+            msg.className = 'bp-mod-book-msg err';
+            if (captcha.reset) captcha.reset();
+          } finally {
+            submitBtn.disabled = false;
+          }
+        })();
+      });
+      return form;
+    }
+
+    function paintComment(c) {
+      var art = document.createElement('article');
+      art.className = 'bp-mod-comment';
+      art.setAttribute('data-bp-comment-id', String(c.id));
+      var meta = document.createElement('p');
+      meta.className = 'bp-mod-comment-meta';
+      var author = document.createElement('span');
+      author.className = 'bp-mod-comment-author';
+      author.textContent = c.author_name || 'Anonymous';
+      meta.appendChild(author);
+      if (c.is_owner) {
+        var badge = document.createElement('span');
+        badge.className = 'bp-mod-owner-badge';
+        badge.textContent = 'Owner';
+        meta.appendChild(badge);
+      }
+      if (c.created_at) {
+        var date = document.createElement('span');
+        date.className = 'bp-mod-comment-date';
+        date.textContent = dateLabel(c.created_at);
+        meta.appendChild(date);
+      }
+      art.appendChild(meta);
+      var body = document.createElement('p');
+      body.className = 'bp-mod-comment-body';
+      body.textContent = c.body || '';
+      art.appendChild(body);
+      var actions = document.createElement('div');
+      actions.className = 'bp-mod-comment-actions';
+      if (cfg.allow_likes) actions.appendChild(likeButton('comment', c.id, c.like_count));
+      var replySlot = document.createElement('div');
+      if (cfg.comments_enabled) {
+        var replyBtn = document.createElement('button');
+        replyBtn.type = 'button';
+        replyBtn.className = 'bp-mod-reply-btn';
+        replyBtn.textContent = 'Reply';
+        replyBtn.addEventListener('click', function () {
+          if (replySlot.firstChild) {
+            replySlot.textContent = '';
+            replyBtn.textContent = 'Reply';
+            return;
+          }
+          var form = commentForm(c.id);
+          replySlot.appendChild(form);
+          replyBtn.textContent = 'Cancel';
+        });
+        actions.appendChild(replyBtn);
+      }
+      art.appendChild(actions);
+      art.appendChild(replySlot);
+      var replies = Array.isArray(c.replies) ? c.replies : [];
+      if (replies.length) {
+        var box = document.createElement('div');
+        box.className = 'bp-mod-replies';
+        replies.forEach(function (r) {
+          box.appendChild(paintComment(r));
+        });
+        art.appendChild(box);
+      }
+      return art;
+    }
+
+    var comments = Array.isArray(thread.comments) ? thread.comments : [];
+    comments.forEach(function (c) {
+      list.appendChild(paintComment(c));
+    });
+    if (!comments.length) {
+      var empty = document.createElement('p');
+      empty.className = 'bp-mod-meta';
+      empty.textContent = 'No comments yet — be the first to share your thoughts.';
+      list.appendChild(empty);
+    }
+
+    if (cfg.comments_enabled) wrap.appendChild(commentForm(null));
+
+    // Paint the caller's own pressed like-buttons (counts already
+    // ride the payload; this only marks state).
+    var mine = peekVisitorToken();
+    if (mine && cfg.allow_likes) {
+      var ids = [];
+      wrap.querySelectorAll('[data-bp-comment-id]').forEach(function (node) {
+        ids.push(node.getAttribute('data-bp-comment-id'));
+      });
+      (async function () {
+        try {
+          var u =
+            (base || '') +
+            '/api/v1/modules/public/' +
+            encodeURIComponent(token) +
+            '/comments/state?' +
+            pageQuery() +
+            '&target_type=' +
+            encodeURIComponent(target.target_type) +
+            '&target_id=' +
+            encodeURIComponent(target.target_id) +
+            '&comments=' +
+            encodeURIComponent(ids.join(',')) +
+            '&v=' +
+            encodeURIComponent(mine);
+          var r = await fetch(u, { credentials: 'omit', headers: authHeaders() });
+          var j = await r.json();
+          if (!j || !j.ok) return;
+          var likedIds = (j.data && j.data.liked_comment_ids) || [];
+          wrap.querySelectorAll('.bp-mod-like-btn').forEach(function (btn) {
+            var t = btn.getAttribute('data-bp-like-type');
+            var id = btn.getAttribute('data-bp-like-id');
+            if (t === 'comment' && likedIds.indexOf(Number(id)) >= 0) btn.classList.add('liked');
+            if (t !== 'comment' && j.data.item_liked) btn.classList.add('liked');
+          });
+        } catch (e) {
+          /* state is cosmetic — counts are already correct */
+        }
+      })();
+    }
+  }
+
   function renderCharts(el, data, prefixHtml) {
     var payload = data.charts || {};
     var charts = Array.isArray(payload.charts) ? payload.charts : [];
@@ -3628,6 +4029,13 @@
     var type = data.module_type;
     activeDetailType = type || '';
     var it = data.item;
+    if (type === 'comments') {
+      // Batch 131: the item payload IS the thread context
+      // (data.comments.thread for the resolved target). The block
+      // sits under the item's own detail view — no Back link here.
+      renderComments(el, data);
+      return;
+    }
     var html = '<a class="bp-mod-back" href="' + esc(listHref()) + '">← Back</a>';
     if (type === 'offers') {
       html +=
@@ -5348,6 +5756,29 @@
     if (data && data.checkout_token && data.checkout_page) wireSellableAdds(root, data);
   }
 
+  /* Batch 131 finisher — the detail page's comments block. The
+   * holder is a fresh embed element carrying the COMMENTS module's
+   * token (posts/likes/state all ride the comments routes) plus the
+   * detail marker renderComments forwards as detail=1, so a post
+   * lands on this item's own target. No detail_comments in the item
+   * payload (no Comments module, comments off, unresolvable target)
+   * = no block, silently. */
+  function mountDetailComments(root, data, base) {
+    var ctx = data && data.detail_comments;
+    if (!ctx || !ctx.thread || !ctx.token) return;
+    var holder = document.createElement('div');
+    holder.className = 'bitpype-module-embed';
+    holder.setAttribute(TOKEN_ATTR, ctx.token);
+    holder.setAttribute('data-bp-detail-comments', '1');
+    if (base) holder.setAttribute('data-bitpype-api', base);
+    root.appendChild(holder);
+    renderComments(holder, {
+      module_type: 'comments',
+      title: (ctx.config && ctx.config.heading) || 'Comments',
+      comments: ctx,
+    });
+  }
+
   function mountDetail() {
     var root = document.querySelector('[data-bitpype-detail-root]');
     if (!root) return;
@@ -5411,7 +5842,11 @@
         // Batch 131 mount point: the comments block attaches to item
         // detail pages HERE — inside the detail root, after the
         // rendered article, keyed by (data.module_type, item slug/id)
-        // through the shared layer. Note only in v1; no 131 code.
+        // through the shared layer. WIRED by the Batch 131 finisher:
+        // the thread rides the item payload as detail_comments (the
+        // server attached it because this site has an active
+        // Comments module); renderComments does the rest.
+        mountDetailComments(root, data, base);
       })
       .catch(function (e) {
         root.innerHTML = '<p class="bp-mod-err">' + esc(e.message || 'Failed to load module') + '</p>';

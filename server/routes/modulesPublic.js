@@ -518,6 +518,107 @@ router.post('/:token/photocapture', bookLimit, captcha, async (req, res) => {
   }
 });
 
+/**
+ * Batch 131 — Comments: post a comment (or reply) on the item/page a
+ * Comments block is bound to. Same discipline as Photo Capture: the
+ * per-IP limiter + captcha ride the route, the service runs the
+ * embed's gates through the one public payload path, and the response
+ * is state-blind beyond the caller's own comment (its moderation
+ * status drives the embed's "awaiting approval" note). LeadScout
+ * capture rides inside the service; the owner notification fires
+ * after the response, fire-and-forget.
+ */
+router.post('/:token/comments', bookLimit, captcha, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    const body = req.body || {};
+    const data = domain.withDb(workspaceId, (db) =>
+      require('../comments').createPublicComment(
+        db,
+        req.params.token,
+        {
+          target_type: body.target_type || body.targetType,
+          target_id: body.target_id || body.targetId,
+          parent_id: body.parent_id || body.parentId,
+          name: body.name,
+          email: body.email,
+          body: body.body,
+          detail: body.detail,
+          visitor_token: body.visitor_token || body.visitorToken,
+        },
+        gateOpts(req)
+      )
+    );
+    res.json({
+      ok: true,
+      data: { message: data.message, status: data.status, comment: data.comment, thread: data.thread, workspaceId },
+    });
+    fireOwnerNotify('notifyOwnerOfComment', workspaceId, data.comment && data.comment.id);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+/**
+ * Batch 131 — Likes: toggle the caller's like on an item or a
+ * comment. No captcha (a toggle behind a captcha is unusable); the
+ * per-IP limiter plus the service's per-visitor uniqueness carry the
+ * abuse weight. The response count is the server's own — clients
+ * never compute counts.
+ */
+router.post('/:token/comments/like', bookLimit, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    const body = req.body || {};
+    const data = domain.withDb(workspaceId, (db) =>
+      require('../comments').togglePublicLike(
+        db,
+        req.params.token,
+        {
+          target_type: body.target_type || body.targetType,
+          target_id: body.target_id || body.targetId,
+          visitor_token: body.visitor_token || body.visitorToken,
+        },
+        gateOpts(req)
+      )
+    );
+    res.json({ ok: true, data: { ...data, workspaceId } });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+/**
+ * Batch 131 — the caller's own like state for a thread (which buttons
+ * render pressed). Counts never travel here; they ride the payload.
+ */
+router.get('/:token/comments/state', readLimit, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    const q = req.query || {};
+    const commentIds = String(q.comments || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const data = domain.withDb(workspaceId, (db) =>
+      require('../comments').publicLikeState(
+        db,
+        req.params.token,
+        {
+          target_type: q.target_type || q.targetType,
+          target_id: q.target_id || q.targetId,
+          visitor_token: q.v || q.visitor_token || '',
+          comment_ids: commentIds,
+        },
+        gateOpts(req)
+      )
+    );
+    res.json({ ok: true, data: { ...data, workspaceId } });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 /** Member login — returns a session token the embed keeps in localStorage. */
 router.post('/:token/members/login', memberLimit, captcha, async (req, res) => {
   try {

@@ -49,6 +49,10 @@ const PORTAL_MUTATE_TOOLS = new Set([
   // Batch 128: the checkout success message renders on the checkout
   // page — refresh the preview after changing it.
   'checkout.updateConfig',
+  // Batch 131: approving a comment or posting an owner reply changes
+  // the rendered page (the item's thread) — refresh the preview.
+  'comments.moderate',
+  'comments.reply',
 ]);
 
 /** Tools Muse must not call in Hands-off (destructive / meta / job control). */
@@ -136,6 +140,10 @@ const PORTAL_READONLY_TOOLS = new Set([
   // Batch 128: checkout state + orders are reads.
   'checkout.getConfig',
   'checkout.listOrders',
+  // Batch 131: Comments moderation reads.
+  'comments.getConfig',
+  'comments.list',
+  'comments.targets',
   'social.accounts.list',
   'social.calendar',
   'social.posts.list',
@@ -200,6 +208,9 @@ const PORTAL_DESIGN_WRITE_TOOLS = new Set([
   // Batch 128: the checkout module's one write — its success message
   // (payment keys stay owner-only in the portal; no agent back door).
   'checkout.updateConfig',
+  // Batch 131: Comments config + moderation (same engine functions
+  // the portal queue uses).
+  'comments.updateConfig', 'comments.moderate', 'comments.reply',
 ]);
 
 /** Everything build mode may touch: reads ∪ design/content writes. */

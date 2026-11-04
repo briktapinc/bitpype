@@ -315,6 +315,37 @@ async function notifyOwnerOfShopOrder(workspaceId, orderId) {
   });
 }
 
+/** Batch 131 — a visitor left a comment through the Comments module.
+ *  The copy follows the comment's moderation state: held comments
+ *  tell the owner it is waiting in the queue; auto-published ones say
+ *  it is live. The body rides along (plain text, trimmed) so the
+ *  owner can judge it from the inbox. */
+async function notifyOwnerOfComment(workspaceId, commentId) {
+  return dispatch(workspaceId, (db) => {
+    const row = db
+      .prepare('SELECT * FROM module_comments WHERE id = ?')
+      .get(Number(commentId));
+    if (!row) return null;
+    const held = row.status === 'pending';
+    const paragraphs = [
+      held
+        ? 'A visitor left a comment on your website. It is waiting in your Comments queue — nothing is shown publicly until you approve it.'
+        : 'A visitor left a comment on your website and it is live now. You can hide it any time from your Comments queue.',
+      line('Name', row.author_name),
+      line('Email', row.author_email),
+      line('On', row.target_type === 'page' ? `the ${row.target_id} page` : `${row.target_type} #${row.target_id}`),
+      line('Comment', String(row.body || '').slice(0, 500)),
+    ].filter(Boolean);
+    return {
+      leadId: Number(row.lead_id),
+      rentalRoutable: true,
+      subject: held ? 'New comment awaiting approval on your website' : 'New comment on your website',
+      paragraphs,
+      cta: portalCta('Review comments in your portal'),
+    };
+  });
+}
+
 module.exports = {
   notifyOwnerOfBooking,
   notifyOwnerOfEstimateRequest,
@@ -323,4 +354,5 @@ module.exports = {
   notifyOwnerOfMembership,
   notifyOwnerOfShopOrder,
   notifyOwnerOfNewsletterSignup,
+  notifyOwnerOfComment,
 };

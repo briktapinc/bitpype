@@ -135,6 +135,23 @@ function ensureTables(db) {
   } catch {
     /* race / exists */
   }
+  // Batch 131: Comments reference their module_comments row the same
+  // way (one capture event per comment, deduped by the index).
+  try {
+    const cols = db
+      .prepare('PRAGMA table_info(leadscout_events)')
+      .all()
+      .map((c) => String(c.name || ''));
+    if (!cols.includes('comment_id')) {
+      db.exec('ALTER TABLE leadscout_events ADD COLUMN comment_id INTEGER');
+    }
+    db.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_leadscout_comment_unique
+       ON leadscout_events(comment_id) WHERE comment_id IS NOT NULL`
+    );
+  } catch {
+    /* race / exists */
+  }
   // SMS opt-in state (Batch 25): the consent record lives on the contact
   // itself — sms_opted_in + the consent timestamp + the source are the
   // business's proof of consent. sms_opted_out_at is written by any
@@ -685,6 +702,83 @@ function captureFromNewsletter(db, { leadId, subscriber } = {}) {
 }
 
 /**
+ * Batch 131 — a visitor comment becomes a LeadScout contact event,
+ * exactly like a form submission / booking / photo: one deduped
+ * contact per person (email — comments always collect one), one
+ * event per comment row (deduped by comment_id), rental stamp +
+ * charge when the site is rented. The comment itself stays in the
+ * Comments module's storage; the event payload carries the target it
+ * was left on and a body excerpt so the contact timeline shows what
+ * came in. Liking captures NOTHING — a like carries no identity.
+ */
+function captureFromComment(db, { leadId, comment, pageSlug } = {}) {
+  ensureTables(db);
+  try {
+    if (!comment || !comment.id) throw fail('VALIDATION', 'comment required');
+    const fields = {
+      name: comment.author_name || '',
+      email: comment.author_email || '',
+      phone: '',
+    };
+    if (!normEmail(fields.email)) {
+      return { skipped: true, reason: 'no_identity' };
+    }
+    const contact = upsertContact(db, fields);
+    const existing = db
+      .prepare('SELECT id FROM leadscout_events WHERE comment_id = ?')
+      .get(Number(comment.id));
+    if (existing) return { contact, eventId: existing.id, deduped: true };
+    const stamp = rentalStamp(db, leadId);
+    const info = db
+      .prepare(
+        `
+      INSERT INTO leadscout_events
+        (contact_id, lead_id, kind, source_label, page_slug, comment_id, payload_json,
+         website_id, tenant_lead_id, rental_id)
+      VALUES (?, ?, 'comment', ?, ?, ?, ?, ?, ?, ?)
+    `
+      )
+      .run(
+        contact.id,
+        leadId != null ? Number(leadId) : null,
+        'Comment',
+        pageSlug || comment.page_slug || '',
+        Number(comment.id),
+        JSON.stringify({
+          name: fields.name,
+          email: fields.email,
+          target_type: comment.target_type || '',
+          target_id: comment.target_id != null ? String(comment.target_id) : '',
+          body: String(comment.body || '').slice(0, 1000),
+          status: comment.status || 'pending',
+        }).slice(0, 8000),
+        stamp.websiteId,
+        stamp.tenantLeadId,
+        stamp.rentalId
+      );
+    const eventId = Number(info.lastInsertRowid);
+    if (stamp.rentalId) {
+      rentalCharge(db, {
+        ownerLeadId: leadId,
+        sourceKind: 'capture',
+        eventId,
+        contactLabel: fields.name || fields.email || '',
+      });
+    }
+    return { contact, eventId };
+  } catch (e) {
+    recordFailure(db, {
+      kind: 'comment',
+      leadId,
+      refId: comment && comment.id,
+      error: e.message || String(e),
+      payload: { comment, pageSlug },
+    });
+    return { error: e.message || String(e) };
+  }
+}
+
+/**
  * Batch 125 — a Photo Capture submission becomes a LeadScout contact
  * event, exactly like a form submission / booking / estimate request:
  * one deduped contact per person (email or phone), one event per
@@ -973,6 +1067,7 @@ function getContact(db, id, { leadId = null } = {}) {
     estimates: events.filter((e) => e.kind === 'estimate'),
     calls: events.filter((e) => e.kind === 'call'),
     photos: events.filter((e) => e.kind === 'photo'),
+    comments: events.filter((e) => e.kind === 'comment'),
   };
 }
 
@@ -1122,6 +1217,12 @@ function retryOpenFailures(db, { leadId = null } = {}) {
         submission: payload.submission,
         pageSlug: payload.pageSlug,
       });
+    } else if (row.kind === 'comment' && payload) {
+      result = captureFromComment(db, {
+        leadId: row.lead_id,
+        comment: payload.comment,
+        pageSlug: payload.pageSlug,
+      });
     }
     db.prepare(
       `
@@ -1151,6 +1252,7 @@ module.exports = {
   captureFromCall,
   captureFromNewsletter,
   captureFromPhoto,
+  captureFromComment,
   recordSmsOptIn,
   markSmsConfirmResult,
   listContacts,

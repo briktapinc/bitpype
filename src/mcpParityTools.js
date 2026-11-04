@@ -3419,6 +3419,51 @@ function createParityTools(ctx) {
       };
     }),
 
+    // Batch 131 — comments + likes parity: the local MCP server
+    // delegates to server/comments exactly like the hosted handlers.
+    'comments.getConfig': parityEntry('comments.getConfig', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: { config: require('../server/comments').getCommentsConfig(db, leadId) } };
+    }),
+    'comments.updateConfig': parityEntry('comments.updateConfig', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: { config: require('../server/comments').updateCommentsConfig(db, leadId, { ...args }) } };
+    }),
+    'comments.list': parityEntry('comments.list', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return {
+        ok: true,
+        data: {
+          comments: require('../server/comments').listCommentsForOwner(db, leadId, {
+            status: args.status || null,
+            target_type: args.target_type || null,
+            target_id: args.target_id != null ? args.target_id : null,
+            limit: args.limit,
+          }),
+          counts: require('../server/comments').countComments(db, leadId),
+        },
+      };
+    }),
+    'comments.moderate': parityEntry('comments.moderate', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      const svc = require('../server/comments');
+      const action = String(args.action || '').toLowerCase();
+      if (action === 'delete') return { ok: true, data: svc.deleteComment(db, leadId, id) };
+      if (action === 'approve') return { ok: true, data: { comment: svc.setCommentStatus(db, leadId, id, 'published') } };
+      if (action === 'reject') return { ok: true, data: { comment: svc.setCommentStatus(db, leadId, id, 'rejected') } };
+      throw new Error('action must be one of: approve, reject, delete');
+    }),
+    'comments.reply': parityEntry('comments.reply', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const parentId = requireId(args.parent_id, 'parent_id');
+      return { ok: true, data: { comment: require('../server/comments').replyAsOwner(db, leadId, parentId, { ...args }) } };
+    }),
+    'comments.targets': parityEntry('comments.targets', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: { targets: require('../server/comments').listCommentTargets(db, leadId) } };
+    }),
+
     'courses.addLesson': parityEntry('courses.addLesson', (args) => {
       const leadId = requireId(args.leadId, 'leadId');
       const courseId = requireId(args.courseId, 'courseId');

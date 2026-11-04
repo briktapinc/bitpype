@@ -68,6 +68,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     let taxonomy = null;
     let photocapture = null;
     let qrcode = null;
+    let commentsPanel = null;
     if (type === 'blog') {
       // Batch 45: server-side paging when the caller asks for a page
       // (portal blog tab); no limit = the historical full list.
@@ -374,6 +375,20 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
         webhook_path_unified: `/api/v1/payments/webhook/${Number(workspaceId)}`,
         orders: modules.listShopOrdersWithItems(db, Number(leadId), { limit: 50 }),
       };
+    } else if (type === 'comments') {
+      // Batch 131: engagement module — no owner-authored items. The
+      // panel carries the config, the moderation counts, the newest
+      // comments (all statuses — this is the moderation queue) and
+      // the target roll-up; writes ride the dedicated
+      // /modules/comments/* routes.
+      items = [];
+      const svc = require('./comments');
+      commentsPanel = {
+        config: svc.getCommentsConfig(db, Number(leadId)),
+        counts: svc.countComments(db, Number(leadId)),
+        comments: svc.listCommentsForOwner(db, Number(leadId), { limit: 200 }),
+        targets: svc.listCommentTargets(db, Number(leadId)),
+      };
     } else throw Object.assign(new Error('Unknown module type'), { code: 'VALIDATION', status: 400 });
     const emb = modules.getEmbedRow(db, Number(leadId), type);
     const out = {
@@ -398,6 +413,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     if (taxonomy) out.taxonomy = taxonomy;
     if (photocapture) out.photocapture = photocapture;
     if (qrcode) out.qrcode = qrcode;
+    if (commentsPanel) out.comments = commentsPanel;
     return out;
   });
 }
@@ -455,6 +471,11 @@ async function createModuleItem(workspaceId, leadId, moduleType, body, clientEma
     else if (type === 'photocapture')
       throw Object.assign(
         new Error('Photos arrive from your website’s Photo Capture block — there is nothing to add by hand. Use the Photos tab to review them.'),
+        { code: 'VALIDATION', status: 400 }
+      );
+    else if (type === 'comments')
+      throw Object.assign(
+        new Error('Comments arrive from your website’s Comments block — there is nothing to add by hand. Use the Comments tab to moderate them.'),
         { code: 'VALIDATION', status: 400 }
       );
     else if (type === 'members')
@@ -520,6 +541,11 @@ async function updateModuleItem(workspaceId, leadId, moduleType, id, body, clien
         new Error('Photo submissions are moderated in the Photos tab — there are no items to edit here.'),
         { code: 'VALIDATION', status: 400 }
       );
+    else if (type === 'comments')
+      throw Object.assign(
+        new Error('Comments are moderated in the Comments tab — there are no items to edit here.'),
+        { code: 'VALIDATION', status: 400 }
+      );
     else if (type === 'members') {
       // The only member "edit" from the portal is a status change
       // (approve / disable / reactivate) — enforced by setSiteMemberStatus.
@@ -575,6 +601,11 @@ async function deleteModuleItem(workspaceId, leadId, moduleType, id, clientEmail
     if (type === 'photocapture')
       throw Object.assign(
         new Error('Photo submissions are managed in the Photos tab — delete them from there.'),
+        { code: 'VALIDATION', status: 400 }
+      );
+    if (type === 'comments')
+      throw Object.assign(
+        new Error('Comments are managed in the Comments tab — delete them from there.'),
         { code: 'VALIDATION', status: 400 }
       );
     if (type === 'members') return modules.deleteSiteMember(db, Number(leadId), id);
@@ -1289,6 +1320,48 @@ async function addPhotoSubmissionToGallery(workspaceId, leadId, id, body, client
   );
 }
 
+/* ── Comments (Batch 131) — the moderation queue's writes. Every one
+ * delegates to the server/comments.js engine functions, so the
+ * portal, the design agent and the MCP tools moderate through ONE
+ * code path. ── */
+
+async function saveCommentsConfig(workspaceId, leadId, body, clientEmail) {
+  const domain = require('./domain');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => ({
+    config: require('./comments').updateCommentsConfig(db, Number(leadId), body || {}),
+  }));
+}
+
+async function moderateComment(workspaceId, leadId, id, body, clientEmail) {
+  const domain = require('./domain');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => {
+    const svc = require('./comments');
+    const data = body || {};
+    if (data.status != null) {
+      return { comment: svc.setCommentStatus(db, Number(leadId), id, data.status) };
+    }
+    const current = svc.getCommentForOwner(db, Number(leadId), id);
+    if (!current) throw Object.assign(new Error('Comment not found'), { code: 'NOT_FOUND', status: 404 });
+    return { comment: current };
+  });
+}
+
+async function removeComment(workspaceId, leadId, id, clientEmail) {
+  const domain = require('./domain');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => require('./comments').deleteComment(db, Number(leadId), id));
+}
+
+async function replyToComment(workspaceId, leadId, id, body, clientEmail) {
+  const domain = require('./domain');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => ({
+    comment: require('./comments').replyAsOwner(db, Number(leadId), id, body || {}),
+  }));
+}
+
 async function updateBookingAppointment(workspaceId, leadId, id, body, clientEmail) {
   const domain = require('./domain');
   const modules = require('./siteModules');
@@ -1597,6 +1670,10 @@ module.exports = {
   updatePhotoSubmission,
   removePhotoSubmission,
   addPhotoSubmissionToGallery,
+  saveCommentsConfig,
+  moderateComment,
+  removeComment,
+  replyToComment,
   updateBookingAppointment,
   createBookingBlockAdmin,
   deleteBookingBlockAdmin,

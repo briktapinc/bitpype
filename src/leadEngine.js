@@ -982,6 +982,13 @@ function deleteLead(db, id) {
     drop('photocapture_configs');
     drop('checkout_configs');
     drop('module_shared_refs');
+    // Batch 131 finisher: the comments tables are lead_id-keyed with
+    // no FK too (the Batch 134 lesson — a window table left off this
+    // list is orphaned by every delete). Likes first (they reference
+    // comments and items), then comments, then the config.
+    drop('module_likes');
+    drop('module_comments');
+    drop('comments_configs');
     drop('leadscout_events');
     drop('lead_onboarding_items');
     drop('ai_usage');
@@ -1451,6 +1458,10 @@ const MERGE_MOVE_TABLES = [
   'ecommerce_product_variants',
   'module_categories',
   'module_category_assignments',
+  // Batch 131 finisher: comments move with the lead (their
+  // leadscout_events already move above, and the comment_id refs on
+  // those events stay valid — comment row ids never change hands).
+  'module_comments',
 ];
 
 const MERGE_DEDUPE_TABLES = {
@@ -1471,6 +1482,9 @@ const MERGE_DEDUPE_TABLES = {
   // Batch 134: shared-layer refs are unique per (consumer, provider
   // type, role) — the keeper's link for a slot wins on merge.
   module_shared_refs: ['consumer_type', 'consumer_id', 'provider_type', 'role'],
+  // Batch 131 finisher: likes are unique per (target, visitor) — on
+  // merge the keeper's like for a target+visitor wins, the rest move.
+  module_likes: ['target_type', 'target_id', 'visitor_key'],
 };
 
 const MERGE_SINGLETON_TABLES = [
@@ -1490,6 +1504,8 @@ const MERGE_SINGLETON_TABLES = [
   // survives a merge, the keeper's.
   'photocapture_configs',
   'checkout_configs',
+  // Batch 131 finisher: the comments config is the same shape (PK).
+  'comments_configs',
 ];
 
 function leadTableExists(db, table) {

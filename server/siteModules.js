@@ -45,13 +45,16 @@ const MODULE_TYPES = [
   'photocapture',
   'qrcode',
   'checkout',
+  'comments',
 ];
 const MANAGED_ATTR = 'data-bitpype-module';
 const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
 const EMBED_TOKEN_ATTR = 'data-bitpype-module-token';
 const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
-const MODULE_SCRIPT_VER = 'mod34';
+// Batch 131: mod35 — the comments embed renderer (renderComments,
+// like toggles, the visitor-token state fetch).
+const MODULE_SCRIPT_VER = 'mod35';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -89,6 +92,7 @@ const MODULE_META = {
   photocapture: { label: 'Photo Capture', defaultTitle: 'Photo Capture', defaultSlug: 'photo-capture' },
   qrcode: { label: 'QR Code', defaultTitle: 'Scan Me', defaultSlug: 'qr-code' },
   checkout: { label: 'Checkout', defaultTitle: 'Checkout', defaultSlug: 'checkout' },
+  comments: { label: 'Comments', defaultTitle: 'Comments', defaultSlug: 'comments' },
 };
 
 const BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'];
@@ -175,6 +179,13 @@ function ensureTables(db) {
   try {
     // Batch 118: newsletter_* tables are owned by server/newsletter.js.
     require('./newsletter').ensureTables(db);
+  } catch {
+    /* optional */
+  }
+  try {
+    // Batch 131: comments_* / module_comments / module_likes tables
+    // are owned by server/comments.js.
+    require('./comments').ensureTables(db);
   } catch {
     /* optional */
   }
@@ -1978,6 +1989,16 @@ function modulePurgeSteps(leadId, type) {
       // transaction records — they stay, per the Batch 51 precedent
       // for ecommerce_orders (see the header note above).
       return [byLead('checkout_configs', 'checkout settings')];
+    case 'comments':
+      // Likes first (they reference comments and items), then the
+      // comments themselves, then the settings. The items the
+      // comments were attached to belong to other modules and are
+      // never purged from here.
+      return [
+        byLead('module_likes', 'likes'),
+        byLead('module_comments', 'comments'),
+        byLead('comments_configs', 'comments settings'),
+      ];
     default:
       return [];
   }
@@ -2041,6 +2062,10 @@ function deleteModule(db, leadId, moduleType) {
     for (const r of rows) {
       if (!r.gallery_image_id) removeStoredPhotoFile(db, lid, r.image_src);
     }
+  }
+  if (type === 'comments') {
+    const ids = db.prepare('SELECT id FROM module_comments WHERE lead_id = ?').all(lid);
+    for (const r of ids) deleteLeadScoutEventsByRef(db, 'comment_id', r.id);
   }
   const purged = {};
   let purgedTotal = 0;
@@ -7722,6 +7747,8 @@ function deleteLeadScoutEventsByRef(db, column, refId) {
     'call_log_id',
     'newsletter_subscriber_id',
     'photo_submission_id',
+    // Batch 131: comment captures ref their comment row.
+    'comment_id',
   ];
   if (!allowed.includes(column)) return 0;
   const t = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'leadscout_events'").get();
@@ -13597,6 +13624,15 @@ function moduleItemCount(db, leadId, type) {
     const row = db.prepare('SELECT COUNT(*) AS c FROM ecommerce_orders WHERE lead_id = ?').get(Number(leadId));
     return Number(row && row.c) || 0;
   }
+  if (type === 'comments') {
+    // Like Photo Capture, the tab badge counts the moderation
+    // queue — comments still waiting for a decision.
+    ensureTables(db);
+    const row = db
+      .prepare("SELECT COUNT(*) AS c FROM module_comments WHERE lead_id = ? AND status = 'pending'")
+      .get(Number(leadId));
+    return Number(row && row.c) || 0;
+  }
   if (type === 'charts') {
     // The tab badge counts the chart definitions on the site.
     ensureTables(db);
@@ -13661,6 +13697,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
   let checkout = null;
   let checkoutPage = null;
   let checkoutToken = null;
+  let comments = null;
   let total_published = null;
   // Batch 128: when a Checkout module is attached and active, the
   // selling modules' payloads name its page + token — their embeds
@@ -13786,6 +13823,13 @@ function getPublicModuleByToken(db, token, opts = {}) {
     // block, no items) when its target has vanished.
     qrcode = publicQrCodePayload(db, leadId, row);
     items = qrcode ? [qrcode] : [];
+  } else if (type === 'comments') {
+    // Batch 131: the comments block — config plus, in page mode, the
+    // page's published thread. Item-mode threads resolve in
+    // getPublicModuleItem (the item key only exists there). Pending /
+    // rejected comments and author emails never enter the payload.
+    comments = require('./comments').publicPayload(db, leadId, row, opts);
+    items = [];
   } else if (type === 'chatbot') {
     try {
       const chat = require('./chatbot');
@@ -13862,6 +13906,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
   if (checkout) out.checkout = checkout;
   if (checkoutPage) out.checkout_page = checkoutPage;
   if (checkoutToken) out.checkout_token = checkoutToken;
+  if (comments) out.comments = comments;
   return out;
 }
 
@@ -13924,6 +13969,16 @@ function getPublicModuleItem(db, token, slugOrId, opts = {}) {
   else if (type === 'offers') {
     item = getOffer(db, leadId, slugOrId);
     if (item && item.expired) item = null;
+  } else if (type === 'comments') {
+    // Batch 131: the "item" is the comment thread for the item the
+    // page is showing, resolved under the embed's configured target
+    // type through the shared layer. A key that doesn't resolve is
+    // NOT an error — the block stays dormant (the Batch 130 rule: a
+    // neighboring module never paints an error for an item that
+    // isn't its own), so the base payload returns untouched.
+    const ctx = require('./comments').publicItemContext(db, leadId, payload.embed, slugOrId);
+    if (!ctx) return payload;
+    return { ...payload, item: { comments_target: ctx.target }, comments: ctx };
   } else if (type === 'menu') item = getMenuItem(db, leadId, slugOrId);
   else if (type === 'careers') {
     item = getCareersPosting(db, leadId, slugOrId);
@@ -13934,6 +13989,24 @@ function getPublicModuleItem(db, token, slugOrId, opts = {}) {
   }
   const out = { ...payload, item };
   if (categoryItems) out.category_items = categoryItems;
+  // Batch 131 finisher (Batch 133 detail wiring): when the site has
+  // an active Comments module, the item's comment thread rides the
+  // item payload as detail_comments — the universal detail page
+  // renders it under the article through the 133 mount point, keyed
+  // by this item's own (type, key) through the shared layer. No
+  // comments module (or comments off / unresolvable target) = the
+  // field simply stays absent; in-app item views ignore it.
+  if (type !== 'comments') {
+    try {
+      const cRow = getEmbedRow(db, leadId, 'comments');
+      if (cRow && moduleEmbedActive(cRow)) {
+        const ctx = require('./comments').publicDetailContext(db, leadId, type, slugOrId);
+        if (ctx) out.detail_comments = { ...ctx, token: cRow.public_token };
+      }
+    } catch {
+      /* the comments layer can never break an item page */
+    }
+  }
   return out;
 }
 

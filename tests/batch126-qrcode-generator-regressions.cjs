@@ -134,8 +134,8 @@ let db;
 
     assert.equal(
       sm.MODULE_TYPES.length,
-      27,
-      'catalog at 27 types (qrcode is the 26th; Batch 128 checkout appended after it)'
+      28,
+      'catalog at 28 types (qrcode is the 26th; Batch 128 checkout appended after it; Batch 131 comments appended last)'
     );
     n++;
     assert.equal(
@@ -148,7 +148,7 @@ let db;
     n++;
     assert.equal(
       sm.MODULE_SCRIPT_VER,
-      'mod34',
+      'mod35',
       'embed script version bumped for the QR renderer (Batch 128 finisher rotation: mod30 + 1)'
     );
     n++;
@@ -179,7 +179,7 @@ let db;
     assert.ok(read('public/portal.html').includes('modules-qrcode-panel'), 'portal.html hosts the QR panel');
     n++;
     assert.ok(
-      read('public/portal.html').includes('/js/portal.js?v=batch128-checkout1'),
+      read('public/portal.html').includes('/js/portal.js?v=batch131-comments1'),
       'portal.js cache-busted for Batch 126'
     );
     n++;

@@ -102,7 +102,7 @@ function partA() {
   });
   check('A: sitewide loader pass + carrier cleanup pinned; script version bumped', () => {
     const sm = require(path.join(root, 'server/siteModules.js'));
-    assert.equal(sm.MODULE_SCRIPT_VER, 'mod34', 'Batch 82 bumps the embed script version');
+    assert.equal(sm.MODULE_SCRIPT_VER, 'mod35', 'Batch 82 bumps the embed script version');
     const src = fs.readFileSync(path.join(root, 'server/siteModules.js'), 'utf8');
     assert.ok(src.includes("const membersActive = embeds.some((e) => e.module_type === 'members');"), 'members-active detection');
     assert.ok(src.includes('bitpype_member_nav_managed: 1'), 'carrier section flag written');

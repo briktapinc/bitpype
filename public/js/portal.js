@@ -5394,9 +5394,10 @@
     { type: 'photocapture', label: 'Photo Capture' },
     { type: 'qrcode', label: 'QR Code' },
     { type: 'checkout', label: 'Checkout' },
+    { type: 'comments', label: 'Comments' },
   ];
   const MODULE_NAV_GROUPS = [
-    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'checkout', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed', 'googlereviews', 'datatables', 'charts', 'categories', 'photocapture', 'qrcode'] },
+    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'checkout', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed', 'googlereviews', 'datatables', 'charts', 'categories', 'photocapture', 'qrcode', 'comments'] },
     { id: 'people', label: 'People', types: ['team', 'testimonials', 'careers', 'members', 'newsletter'] },
     { id: 'schedule', label: 'Schedule', types: ['events', 'bookings'] },
     { id: 'assist', label: 'Assist', types: ['chatbot', 'calltracking'] },
@@ -5464,6 +5465,7 @@
     photocapture: { singular: 'photo', plural: 'photos', newBtn: 'New photo', kicker: 'Photo submission' },
     qrcode: { singular: 'QR code', plural: 'QR codes', newBtn: 'New QR code', kicker: 'QR code' },
     checkout: { singular: 'order', plural: 'orders', newBtn: 'New order', kicker: 'Order' },
+    comments: { singular: 'comment', plural: 'comments', newBtn: 'New comment', kicker: 'Comment' },
   };
   const BOOKING_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const MODULE_STORAGE_KEY = 'bp-portal-module';
@@ -6013,6 +6015,7 @@
     const membersPane = document.getElementById('modules-pane-members');
     const nlPane = document.getElementById('modules-pane-newsletter');
     const pcPane = document.getElementById('modules-pane-photocapture');
+    const cmPane = document.getElementById('modules-pane-comments');
     const results = document.getElementById('modules-pane-results');
     const bookingPanel = document.getElementById('modules-booking-panel');
     const isBookings = moduleState.current === 'bookings';
@@ -6024,7 +6027,8 @@
     const isMembers = moduleState.current === 'members';
     const isNewsletter = moduleState.current === 'newsletter';
     const isPhotoCapture = moduleState.current === 'photocapture';
-    const showTabs = isBookings || isChatbot || isEstimate || isSocialfeed || isGoogleReviews || isCallTracking || isMembers || isNewsletter || isPhotoCapture;
+    const isComments = moduleState.current === 'comments';
+    const showTabs = isBookings || isChatbot || isEstimate || isSocialfeed || isGoogleReviews || isCallTracking || isMembers || isNewsletter || isPhotoCapture || isComments;
     if (isBookings) {
       const allowed = new Set(['content', 'hours', 'appointments']);
       if (!allowed.has(moduleState.pane)) moduleState.pane = 'content';
@@ -6053,6 +6057,10 @@
       // Photo Capture has no item list either — its only pane is Photos
       // (config + the moderation inbox).
       moduleState.pane = 'photocapture';
+    } else if (isComments) {
+      // Comments has no item list either — its only pane is Comments
+      // (settings + the moderation queue).
+      moduleState.pane = 'comments';
     } else {
       moduleState.pane = 'content';
     }
@@ -6077,6 +6085,8 @@
                     ? 'Newsletter sections'
                     : isPhotoCapture
                       ? 'Photo Capture sections'
+                    : isComments
+                      ? 'Comments sections'
                       : 'Bookings sections'
       );
       tabs.querySelectorAll('[data-modules-pane]').forEach((btn) => {
@@ -6097,7 +6107,8 @@
             (isMembers && forAttr === 'members') ||
             (isNewsletter && forAttr === 'newsletter') ||
             (isPhotoCapture && forAttr === 'photocapture') ||
-            (forAttr === 'both' && showTabs && !isSocialfeed && !isGoogleReviews && !isCallTracking && !isMembers && !isNewsletter && !isPhotoCapture)
+            (isComments && forAttr === 'comments') ||
+            (forAttr === 'both' && showTabs && !isSocialfeed && !isGoogleReviews && !isCallTracking && !isMembers && !isNewsletter && !isPhotoCapture && !isComments)
           : visible;
         btn.hidden = !showBtn;
         if (pane === 'content' && showBtn) {
@@ -6123,6 +6134,7 @@
     if (membersPane) membersPane.hidden = !(isMembers && moduleState.pane === 'members');
     if (nlPane) nlPane.hidden = !(isNewsletter && moduleState.pane === 'newsletter');
     if (pcPane) pcPane.hidden = !(isPhotoCapture && moduleState.pane === 'photocapture');
+    if (cmPane) cmPane.hidden = !(isComments && moduleState.pane === 'comments');
     if (results) results.hidden = true;
     if (bookingPanel) bookingPanel.hidden = true;
     if (isChatbot && moduleState.pane === 'settings') renderChatbotSettingsPanel();
@@ -6171,6 +6183,8 @@
                 ? 'Visitors send you photos from your site — review them here. Nothing is shown publicly until you approve it, and approved photos can be added to a gallery album.'
               : moduleState.current === 'checkout'
                 ? 'One checkout for everything you sell — shop products and priced gallery photos are charged here, through your own Stripe.'
+              : moduleState.current === 'comments'
+                ? 'Comments and likes on your posts, products and pages — review them here. Nothing is shown publicly until you approve it (unless you turn moderation off).'
               : `Manage ${copy.plural} for your ${(meta && meta.label) || 'module'}.`;
     }
     const newBtn = document.getElementById('btn-modules-new');
@@ -7217,6 +7231,303 @@
   // (e.g. after saving settings) never loses the owner's writing; any
   // draft edit after a preview marks the preview stale and disables
   // Send until a fresh preview — the server gate enforces the same.
+  function renderCommentsAdminPanel() {
+    const host = document.getElementById('modules-comments-panel');
+    if (!host) return;
+    if (moduleState.current !== 'comments') {
+      host.textContent = '';
+      return;
+    }
+    const data = moduleState.comments || {};
+    const cfg = data.config || {};
+    const counts = data.counts || { pending: 0, published: 0, rejected: 0, total: 0 };
+    const comments = Array.isArray(data.comments) ? data.comments : [];
+    const targets = Array.isArray(data.targets) ? data.targets : [];
+    const filter = moduleState.cmFilter || 'pending';
+
+    const cmEl = (tag, cls, text) => {
+      const n = document.createElement(tag);
+      if (cls) n.className = cls;
+      if (text != null) n.textContent = String(text);
+      return n;
+    };
+    const cmField = (labelText, input, hintText) => {
+      const wrap = cmEl('div', 'field');
+      wrap.appendChild(cmEl('label', null, labelText));
+      wrap.appendChild(input);
+      if (hintText) wrap.appendChild(cmEl('p', 'hint', hintText));
+      return wrap;
+    };
+    const cmCheck = (id, labelText, checked, hintText) => {
+      const wrap = cmEl('div', 'field');
+      const label = cmEl('label', null, labelText);
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.id = id;
+      input.checked = !!checked;
+      label.appendChild(input);
+      wrap.appendChild(label);
+      if (hintText) wrap.appendChild(cmEl('p', 'hint', hintText));
+      return { wrap, input };
+    };
+    const cmSelect = (id, value, options) => {
+      const sel = document.createElement('select');
+      sel.id = id;
+      options.forEach(([v, label]) => {
+        const o = document.createElement('option');
+        o.value = v;
+        o.textContent = label;
+        if (v === value) o.selected = true;
+        sel.appendChild(o);
+      });
+      return sel;
+    };
+    const whenLabel = (v) => {
+      const t = Date.parse(String(v || '').replace(' ', 'T') + (String(v || '').includes('T') ? '' : 'Z'));
+      return Number.isFinite(t) ? new Date(t).toLocaleString() : '';
+    };
+    const refresh = async () => {
+      await loadModuleItems();
+    };
+
+    host.textContent = '';
+    host.appendChild(cmEl('h3', null, 'Comments'));
+    host.appendChild(
+      cmEl(
+        'p',
+        'hint',
+        'Visitors comment on — and like — your posts, products, events, albums and pages. Commenters also land in your contacts automatically; likes are anonymous and never capture anyone.'
+      )
+    );
+
+    /* ---- Settings ---- */
+    const moderationSel = cmSelect('cm-moderation', cfg.moderation === 'auto' ? 'auto' : 'held', [
+      ['held', 'Hold every comment for approval (recommended)'],
+      ['auto', 'Publish comments immediately'],
+    ]);
+    host.appendChild(
+      cmField('Moderation', moderationSel, 'Held comments are invisible on your site until you approve them below. Comments with lots of links are held either way.')
+    );
+    const modeSel = cmSelect('cm-target-mode', cfg.target_mode === 'item' ? 'item' : 'page', [
+      ['page', 'One thread for the page the block sits on (guestbook style)'],
+      ['item', 'A thread under each item the page shows (post, product, event…)'],
+    ]);
+    host.appendChild(cmField('What the block attaches to', modeSel));
+    const targetTypeSel = cmSelect('cm-target-type', cfg.target_type || 'blog', [
+      ['blog', 'Blog posts'],
+      ['ecommerce', 'Shop products'],
+      ['events', 'Events'],
+      ['gallery', 'Gallery albums'],
+      ['offers', 'Special offers'],
+      ['video', 'Videos'],
+      ['courses', 'Courses'],
+      ['directory', 'Directory listings'],
+    ]);
+    host.appendChild(
+      cmField('Item type (for item mode)', targetTypeSel, 'In item mode the block must sit on pages of this module — it picks up whichever item the visitor opened.')
+    );
+    const headingInput = document.createElement('input');
+    headingInput.type = 'text';
+    headingInput.id = 'cm-heading';
+    headingInput.value = cfg.heading || 'Comments';
+    headingInput.autocomplete = 'off';
+    host.appendChild(cmField('Block heading', headingInput));
+    const enabled = cmCheck('cm-enabled', 'Comments turned on', cfg.comments_enabled !== false, 'Off hides the block everywhere and refuses new comments.');
+    host.appendChild(enabled.wrap);
+    const likes = cmCheck('cm-allow-likes', 'Allow likes', cfg.allow_likes !== false, 'Visitors can like comments and (below) the item itself. Liking is anonymous — one like per visitor.');
+    host.appendChild(likes.wrap);
+    const itemLike = cmCheck('cm-allow-item-like', 'Show the like button for the item itself', cfg.allow_item_like !== false, 'The heart at the top of the block, next to the heading — its count is the item’s like count everywhere.');
+    host.appendChild(itemLike.wrap);
+    const saveBtn = cmEl('button', 'btn soft small', 'Save comment settings');
+    saveBtn.type = 'button';
+    saveBtn.addEventListener('click', async () => {
+      moduleMsg('Saving comment settings…', true);
+      try {
+        await api('/modules/comments/config', {
+          method: 'PUT',
+          body: JSON.stringify({
+            moderation: moderationSel.value,
+            target_mode: modeSel.value,
+            target_type: targetTypeSel.value,
+            heading: headingInput.value,
+            comments_enabled: enabled.input.checked,
+            allow_likes: likes.input.checked,
+            allow_item_like: itemLike.input.checked,
+          }),
+        });
+        moduleMsg('Comment settings saved.', true);
+        await refresh();
+      } catch (e) {
+        moduleMsg(errText(e), false);
+      }
+    });
+    const saveRow = cmEl('div', 'row');
+    saveRow.style.gap = '6px';
+    saveRow.appendChild(saveBtn);
+    host.appendChild(saveRow);
+
+    /* ---- Targets roll-up ---- */
+    if (targets.length) {
+      const tH = cmEl('h3', null, 'Where the conversation is');
+      tH.style.marginTop = '18px';
+      host.appendChild(tH);
+      targets.slice(0, 12).forEach((t) => {
+        const line = cmEl(
+          'p',
+          'hint',
+          `${t.title || `${t.target_type} #${t.target_id}`} — ${t.comments} comment(s)${t.pending ? `, ${t.pending} waiting` : ''}, ${t.likes} like(s)`
+        );
+        host.appendChild(line);
+      });
+    }
+
+    /* ---- Moderation queue ---- */
+    const qH = cmEl('h3', null, 'Moderation queue');
+    qH.style.marginTop = '18px';
+    host.appendChild(qH);
+    host.appendChild(
+      cmEl('p', 'hint', `${counts.pending} waiting · ${counts.published} published · ${counts.rejected} rejected · ${counts.total} total`)
+    );
+    const filterRow = cmEl('div', 'row');
+    filterRow.style.gap = '6px';
+    filterRow.style.flexWrap = 'wrap';
+    [
+      ['pending', 'Waiting'],
+      ['all', 'All'],
+      ['published', 'Published'],
+      ['rejected', 'Rejected'],
+    ].forEach(([key, label]) => {
+      const b = cmEl('button', `btn small${filter === key ? '' : ' soft'}`, label);
+      b.type = 'button';
+      b.addEventListener('click', () => {
+        moduleState.cmFilter = key;
+        renderCommentsAdminPanel();
+      });
+      filterRow.appendChild(b);
+    });
+    if (counts.pending > 0) {
+      const bulk = cmEl('button', 'btn small soft', `Approve all waiting (${counts.pending})`);
+      bulk.type = 'button';
+      bulk.addEventListener('click', async () => {
+        bulk.disabled = true;
+        try {
+          for (const c of comments.filter((x) => x.status === 'pending')) {
+            await api(`/modules/comments/${encodeURIComponent(c.id)}`, {
+              method: 'PUT',
+              body: JSON.stringify({ status: 'published' }),
+            });
+          }
+          moduleMsg('All waiting comments approved.', true);
+          await refresh();
+        } catch (e) {
+          moduleMsg(errText(e), false);
+          bulk.disabled = false;
+        }
+      });
+      filterRow.appendChild(bulk);
+    }
+    host.appendChild(filterRow);
+
+    const visible = comments.filter((c) => filter === 'all' || c.status === filter);
+    if (!visible.length) {
+      host.appendChild(
+        cmEl('p', 'hint', comments.length ? 'No comments with this status.' : 'No comments yet — they will land here as visitors write them.')
+      );
+    }
+    const targetLabel = (c) => {
+      const hit = targets.find((t) => t.target_type === c.target_type && String(t.target_id) === String(c.target_id));
+      if (hit && hit.title) return hit.title;
+      return c.target_type === 'page' ? `Page: ${c.target_id}` : `${c.target_type} #${c.target_id}`;
+    };
+    visible.forEach((c) => {
+      const card = cmEl('div', 'card');
+      card.style.marginTop = '10px';
+      card.style.padding = '12px';
+      const meta = cmEl(
+        'p',
+        'hint',
+        `${c.is_owner ? 'Owner reply · ' : ''}${c.author_name || 'Anonymous'}${c.author_email ? ` <${c.author_email}>` : ''} · on ${targetLabel(c)} · ${whenLabel(c.created_at)} · ♥ ${c.like_count || 0} · ${c.status}`
+      );
+      card.appendChild(meta);
+      const body = cmEl('p', null, c.body || '');
+      body.style.whiteSpace = 'pre-wrap';
+      card.appendChild(body);
+      const row = cmEl('div', 'row');
+      row.style.gap = '6px';
+      row.style.flexWrap = 'wrap';
+      const act = async (fn, okText) => {
+        try {
+          await fn();
+          moduleMsg(okText, true);
+          await refresh();
+        } catch (e) {
+          moduleMsg(errText(e), false);
+        }
+      };
+      if (c.status !== 'published') {
+        const b = cmEl('button', 'btn small', 'Approve');
+        b.type = 'button';
+        b.addEventListener('click', () =>
+          act(
+            () => api(`/modules/comments/${encodeURIComponent(c.id)}`, { method: 'PUT', body: JSON.stringify({ status: 'published' }) }),
+            'Comment approved — it is live on the site.'
+          )
+        );
+        row.appendChild(b);
+      }
+      if (c.status !== 'rejected') {
+        const b = cmEl('button', 'btn small soft', 'Reject');
+        b.type = 'button';
+        b.addEventListener('click', () =>
+          act(
+            () => api(`/modules/comments/${encodeURIComponent(c.id)}`, { method: 'PUT', body: JSON.stringify({ status: 'rejected' }) }),
+            'Comment rejected — it will not be shown.'
+          )
+        );
+        row.appendChild(b);
+      }
+      const replyBox = cmEl('div', null);
+      const replyBtn = cmEl('button', 'btn small soft', 'Reply as owner');
+      replyBtn.type = 'button';
+      replyBtn.addEventListener('click', () => {
+        if (replyBox.firstChild) {
+          replyBox.textContent = '';
+          return;
+        }
+        const ta = document.createElement('textarea');
+        ta.rows = 3;
+        ta.maxLength = 2000;
+        ta.placeholder = 'Your reply — published immediately, badged as the owner.';
+        const send = cmEl('button', 'btn small', 'Post reply');
+        send.type = 'button';
+        send.addEventListener('click', () =>
+          act(async () => {
+            if (!ta.value.trim()) throw new Error('Write a reply first.');
+            await api(`/modules/comments/${encodeURIComponent(c.id)}/reply`, {
+              method: 'POST',
+              body: JSON.stringify({ body: ta.value }),
+            });
+          }, 'Reply posted.')
+        );
+        replyBox.appendChild(ta);
+        replyBox.appendChild(send);
+      });
+      row.appendChild(replyBtn);
+      const del = cmEl('button', 'btn small soft', 'Delete');
+      del.type = 'button';
+      del.addEventListener('click', () =>
+        act(
+          () => api(`/modules/comments/${encodeURIComponent(c.id)}`, { method: 'DELETE' }),
+          'Comment deleted.'
+        )
+      );
+      row.appendChild(del);
+      card.appendChild(row);
+      card.appendChild(replyBox);
+      host.appendChild(card);
+    });
+  }
+
   function renderNewsletterAdminPanel() {
     const host = document.getElementById('modules-newsletter-panel');
     if (!host) return;
@@ -8589,6 +8900,7 @@
     moduleState.googlereviews = data.googlereviews || null;
     moduleState.newsletter = data.newsletter || null;
     moduleState.photocapture = data.photocapture || null;
+    moduleState.comments = data.comments || null;
     moduleState.calltracking = data.calltracking || null;
     moduleState.members = data.members || null;
     moduleState.shop = data.shop || null;
@@ -8615,6 +8927,7 @@
     renderGoogleReviewsAdminPanel();
     renderNewsletterAdminPanel();
     renderPhotoCaptureAdminPanel();
+    renderCommentsAdminPanel();
     renderCallTrackingAdminPanel();
     renderMembersAdminPanel();
     renderMenuCategoriesPanel();

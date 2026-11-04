@@ -43,7 +43,7 @@ function updatedLabel(now) {
 
 /** Modules whose presence changes the site's legal pages. */
 const MODULE_CLAUSES = ['calltracking', 'ecommerce', 'members', 'bookings', 'estimate',
-  'chatbot', 'googlereviews', 'socialfeed', 'video', 'courses', 'newsletter', 'photocapture'];
+  'chatbot', 'googlereviews', 'socialfeed', 'video', 'courses', 'newsletter', 'photocapture', 'comments'];
 
 /**
  * Build the legal context for one site export.
@@ -157,6 +157,10 @@ function termsHtml(ctx, now) {
     parts.push(`<h2>Newsletter</h2>`);
     parts.push(`<p>If you subscribe to this site's newsletter, the business collects your <strong>email address</strong> (and your name, if you give it) to send you its newsletter issues. Every issue carries an unsubscribe link, and unsubscribing stops future issues — the business keeps a record of the unsubscription so the address is not added back by accident. Subscribing does not create a contract or an obligation for the business to provide services.</p>`);
   }
+  if (m.has('comments')) {
+    parts.push(`<h2>Comments and likes</h2>`);
+    parts.push(`<p>If you leave a comment on this site, the business collects your <strong>name</strong>, <strong>email address</strong> and the <strong>comment itself</strong>. Your name and comment may be shown publicly once approved; your email address is never displayed. Comments are moderated — sending one does not guarantee it will be published, and the business may remove comments at any time. Only post content you have the right to share. If you tap a like button, the site stores an anonymous visitor token (kept in your browser) so your like is counted once; it is not linked to your name or email.</p>`);
+  }
   if (m.has('photocapture')) {
     parts.push(`<h2>Photos you send us</h2>`);
     parts.push(`<p>If you send a photo through this site, the business collects the <strong>photo</strong> together with your <strong>name</strong> and an <strong>email address or phone number</strong> (and any message you add) so it can review the photo and follow up with you. Photos are reviewed before anything is shown publicly — sending a photo does not guarantee it will be displayed. Only send photos you have the right to share.</p>`);
@@ -202,6 +206,7 @@ function privacyHtml(ctx, now) {
   if (m.has('members')) collects.push(`<strong>Member accounts:</strong> if you create a member account, your name, email address, and a hashed password are stored so you can sign in, together with your membership status.`);
   if (m.has('ecommerce')) collects.push(`<strong>Orders:</strong> if you buy through this site's shop, the business receives your order details. <strong>Card payments are processed by Stripe</strong> through the business's own Stripe account — your full card number goes to Stripe, not to the business or this website.`);
   if (m.has('newsletter')) collects.push(`<strong>Newsletter:</strong> if you subscribe, your email address (and your name, if you give it) is stored so the business can send you its newsletter. Every issue includes an unsubscribe link; unsubscribing stops future issues and the unsubscription is recorded so the address is not re-added by accident.`);
+  if (m.has('comments')) collects.push(`<strong>Comments and likes:</strong> if you leave a comment, your name, email address and comment are stored so the business can moderate and display it; your name and comment may be shown publicly, your email address never is. Likes store only an anonymous hashed visitor token — no name or email.`);
   if (m.has('photocapture')) collects.push(`<strong>Photos you send:</strong> if you send a photo through this site, the photo is stored together with your name, an email address or phone number, and any message you add, so the business can review it and follow up with you. Photos are reviewed before anything is shown publicly.`);
   if (collects.length) {
     parts.push(`<h2>What this site collects</h2><ul>${collects.map((c) => `<li>${c}</li>`).join('')}</ul>`);
@@ -234,7 +239,7 @@ function privacyHtml(ctx, now) {
 
   parts.push(`<h2>Who receives the information</h2>`);
   const receivers = [`the business that runs this site`];
-  if (ctx.hasForms || m.has('bookings') || m.has('estimate') || m.has('chatbot') || m.has('members') || m.has('newsletter') || m.has('photocapture')) receivers.push(`the website platform provider (BitPype), which stores submissions and account data on the business's behalf`);
+  if (ctx.hasForms || m.has('bookings') || m.has('estimate') || m.has('chatbot') || m.has('members') || m.has('newsletter') || m.has('photocapture') || m.has('comments')) receivers.push(`the website platform provider (BitPype), which stores submissions and account data on the business's behalf`);
   if (m.has('calltracking')) receivers.push(`Twilio, which carries, records, and transcribes calls and voicemail`);
   if (m.has('ecommerce') || m.has('members')) receivers.push(`Stripe, which processes payments for the business`);
   if (m.has('chatbot')) receivers.push(`an AI provider, which generates chat replies from the business's information`);

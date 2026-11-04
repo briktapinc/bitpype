@@ -102,8 +102,8 @@ let db;
     const sm = require(path.join(root, 'server/siteModules.js'));
     assert.equal(
       sm.MODULE_TYPES.length,
-      27,
-      'catalog has 27 types (Batch 124: categories 24th; Batch 125: photocapture 25th; Batch 126 finisher: qrcode the 26th; Batch 128: checkout the 27th)'
+      28,
+      'catalog has 28 types (Batch 124: categories 24th; Batch 125: photocapture 25th; Batch 126 finisher: qrcode the 26th; Batch 128: checkout the 27th; Batch 131: comments the 28th)'
     );
     n++;
     assert.equal(sm.MODULE_TYPES[22], 'newsletter', 'newsletter is the 23rd type');
@@ -164,7 +164,7 @@ let db;
     n++;
     assert.ok(portalHtml.includes('data-for="newsletter"'), 'portal.html has the newsletter pane tab');
     n++;
-    assert.ok(portalHtml.includes('/js/portal.js?v=batch128-checkout1'), 'portal.js cache-busted for Batch 118');
+    assert.ok(portalHtml.includes('/js/portal.js?v=batch131-comments1'), 'portal.js cache-busted for Batch 118');
     n++;
     const embed = read('public/js/module-embed.js');
     assert.ok(embed.includes('function renderNewsletter('), 'public embed renders the newsletter block');

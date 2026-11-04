@@ -29,6 +29,7 @@ function build(file,known=true){
  '../contactForms':{parseWorkspaceFromToken:t=>Number(String(t).split('_')[0]),getPublicFormByToken:()=>({}),acceptSubmission:async()=>({})},
  '../chatbot':{getPublicConfigByToken:()=>({embed:{lead_id:2},settings:{}}),startOrGetSession:()=>({}),publicSession:()=>({}),postVisitorMessage:()=>({}),getSessionHistory:()=>({}),captureLead:()=>({})},
  '../newsletter':{subscribeByToken:()=>({added:false,subscriberId:null,message:'fixture'})},
+ '../comments':{createPublicComment:()=>({message:'fixture',status:'pending',comment:{id:1},thread:null}),togglePublicLike:()=>({liked:true,count:1,target_type:'page',target_id:'fixture'}),publicLikeState:()=>({item_liked:false,liked_comment_ids:[]})},
  '../captcha':{requireCaptcha:()=>((_q,_s,n)=>n()),getCaptchaConfig:async()=>({}),clientIp:()=> 'fixture'},
  '../rateLimit':{rateLimit:opts=>{rates.push(opts);return (_q,_s,n)=>n()}},};
  load(file,mocks,{SESSION_SECRET:'synthetic-secret-for-tests'});

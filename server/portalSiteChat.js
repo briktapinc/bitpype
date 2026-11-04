@@ -249,6 +249,26 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
       }
     } catch {
       /* checkout census is best-effort */
+
+    }
+    try {
+      // Batch 131 — Comments: moderation queue + binding. Comments
+      // attach to other modules' items through the shared layer
+      // (target = shared source_type + source_id, or a page slug);
+      // likes live in the same store.
+      const attached = db
+        .prepare("SELECT 1 FROM site_module_embeds WHERE lead_id = ? AND module_type = 'comments'")
+        .get(Number(leadId));
+      if (attached) {
+        const svc = require('./comments');
+        const cfg = svc.getCommentsConfig(db, leadId);
+        const counts = svc.countComments(db, leadId);
+        lines.push(
+          `Comments: ${counts.pending} awaiting moderation, ${counts.published} published, ${counts.rejected} rejected — moderation ${cfg.moderation_held ? 'held (default: comments wait for approval)' : 'auto-publish'}, likes ${cfg.allow_likes ? 'on' : 'off'}, block bound in ${cfg.target_mode} mode${cfg.target_mode === 'item' ? ` to ${cfg.target_type} items` : ' to its page'}; moderate with comments.list / comments.moderate / comments.reply, configure with comments.updateConfig.`
+        );
+      }
+    } catch {
+      /* comments census is best-effort */
     }
     try {
       const dt = db.prepare('SELECT title, columns_json FROM datatable_configs WHERE lead_id = ?').get(Number(leadId));

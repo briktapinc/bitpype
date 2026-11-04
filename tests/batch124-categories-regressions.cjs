@@ -123,7 +123,7 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     assert.ok(smSrc.includes("categories: { label: 'Categories'"), 'MODULE_META carries the Categories label');
     n++;
     assert.ok(
-      smSrc.includes("const MODULE_SCRIPT_VER = 'mod34'"),
+      smSrc.includes("const MODULE_SCRIPT_VER = 'mod35'"),
       'MODULE_SCRIPT_VER bumped to mod32 (Batch 128 finisher rotation)'
     );
     n++;
@@ -195,7 +195,7 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     const portalHtml = read('public/portal.html');
     assert.ok(portalHtml.includes('id="modules-categories-scopes-panel"'), 'scopes panel mount exists');
     assert.ok(
-      portalHtml.includes('portal.js?v=batch128-checkout1'),
+      portalHtml.includes('portal.js?v=batch131-comments1'),
       'portal.js cache-bust rotated (Batch 124 rotated it; Batch 125 rotated again)'
     );
     n += 2;
@@ -272,15 +272,15 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     let n = 0;
     assert.equal(
       sm.MODULE_TYPES.length,
-      27,
-      'catalog at 27 types (Batch 125 added photocapture; Batch 126 finisher: qrcode; Batch 128: checkout)'
+      28,
+      'catalog at 28 types (Batch 125 added photocapture; Batch 126 finisher: qrcode; Batch 128: checkout; Batch 131: comments)'
     );
     assert.equal(sm.MODULE_TYPES[23], 'categories', 'categories is the 24th type');
     n += 2;
     assert.deepEqual(
       Object.keys(share.SHARE_REGISTRY).sort(),
       [...sm.MODULE_TYPES].sort(),
-      'registry parity at 27 types'
+      'registry parity at 28 types'
     );
     n++;
 

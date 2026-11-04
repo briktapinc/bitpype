@@ -162,7 +162,11 @@ const CENSUS = {
     has(portalHtml, 'id="wp-design-host"', 'portal has the design host');
     has(portalHtml, 'Nothing is ever applied without you', 'portal copy states approve-first');
     has(portalHtml, 'not included yet', 'portal copy is honest about page-content editing');
-    has(portalHtml, '/js/portal.js?v=batch128-checkout1', 'portal.js cache-busted for Batch 117');
+    has(
+      portalHtml,
+      '/js/portal.js?v=batch131-comments1',
+      'portal.js cache-busted for Batch 117 (string follows the newest rotation — Batch 131)'
+    );
     const portalJs = read('public/js/portal.js');
     const designSlice = portalJs.slice(portalJs.indexOf('// Batch 117 — WordPress design chat panel'));
     assert.ok(designSlice.length > 1000, 'portal.js carries the design panel code');

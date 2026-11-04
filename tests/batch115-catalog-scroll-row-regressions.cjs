@@ -203,6 +203,7 @@ function group(name, n) {
     ['photocapture', 'Photo Capture'],
     ['qrcode', 'QR Code'],
     ['checkout', 'Checkout'],
+    ['comments', 'Comments'],
   ];
   app.get('/api/v1/admin-area/modules', (_q, r) =>
     r.json({
@@ -293,7 +294,7 @@ function group(name, n) {
     for (const w of [1440, 980, 390]) {
       await page.setViewport({ width: w, height: 1000 });
       await page.goto(base + '/app#/modules', { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await WF(page, () => document.querySelectorAll('.modcat-card').length === 27, `catalog renders @${w}`);
+      await WF(page, () => document.querySelectorAll('.modcat-card').length === 28, `catalog renders @${w}`);
       await page.evaluate(() => document.fonts.ready);
       // Batch 112 stability idiom: measure the REST state only once
       // it is well-defined — scroll reset to 0 and the first card's
@@ -319,7 +320,7 @@ function group(name, n) {
         `catalog at settled rest @${w}`
       );
       let m = await page.evaluate(measure);
-      ok(m.count === 27, `@${w}: all 27 catalog cards rendered`);
+      ok(m.count === 28, `@${w}: all 28 catalog cards rendered`);
       ok(m.display === 'flex' && m.overflowX === 'auto', `@${w}: row is a native horizontal scroller`);
       const top0 = m.rects[0].top;
       ok(
@@ -365,7 +366,7 @@ function group(name, n) {
       );
       m = await page.evaluate(measure);
       const last = m.rects[m.rects.length - 1];
-      ok(/Checkout/.test(m.lastName), `@${w}: last card is Checkout`);
+      ok(/Comments/.test(m.lastName), `@${w}: last card is Comments (Batch 131 tail; was Checkout in Batch 128)`);
       ok(
         last.right <= m.gridRect.right + 1 && last.left >= m.gridRect.left - 1,
         `@${w}: Categories fully inside the row at max scroll (not cut)`

@@ -469,6 +469,11 @@ const SHARE_REGISTRY = {
         .filter(Boolean);
     },
   },
+  comments: {
+    kind: 'none',
+    reason:
+      "Engagement layer, not shelf content — comments and likes attach to other modules' items through this layer (server/comments.js validates every target via the provider readers above); a comment itself is never a shareable content item.",
+  },
 };
 
 /* ------------------------------------------------------------------ */

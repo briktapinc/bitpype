@@ -124,7 +124,7 @@ function makeJar() {
     assert.ok(smSrc.includes("orderCols.includes('variant_label')"), 'orders gain variant_label via guarded ALTER');
     n++;
     assert.ok(
-      smSrc.includes("const MODULE_SCRIPT_VER = 'mod34'"),
+      smSrc.includes("const MODULE_SCRIPT_VER = 'mod35'"),
       'MODULE_SCRIPT_VER bumped to mod32 (Batch 128 finisher rotation)'
     );
     n++;
@@ -165,7 +165,7 @@ function makeJar() {
     n++;
     assert.ok(portalSrc.includes('out.options = readVariantGroupsFromDom()'), 'portal collect ships options/variants');
     n++;
-    assert.ok(read('public/portal.html').includes('/js/portal.js?v=batch128-checkout1'), 'portal.js cache-busted');
+    assert.ok(read('public/portal.html').includes('/js/portal.js?v=batch131-comments1'), 'portal.js cache-busted');
     n++;
 
     const mcpSrc = read('server/mcp.js');

@@ -124,6 +124,7 @@ const checks = [
   'batch124-categories-regressions',
   'batch125-photocapture-regressions',
   'batch130-item-fallback-regressions',
+  'batch131-comments-regressions',
   'batch132-photocapture-file-lifecycle-regressions',
   'batch126-qrcode-generator-regressions',
   'batch127-product-variants-regressions',

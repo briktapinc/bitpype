@@ -109,13 +109,13 @@ let db;
     assert.ok(sm.MODULE_TYPES.includes('photocapture'), 'photocapture is a module type');
     assert.equal(
       sm.MODULE_TYPES.length,
-      27,
-      '27 module types (Batch 124 categories + Batch 125 photocapture + Batch 126 finisher qrcode + Batch 128 checkout)'
+      28,
+      '28 module types (Batch 124 categories + Batch 125 photocapture + Batch 126 finisher qrcode + Batch 128 checkout + Batch 131 comments)'
     );
     assert.equal(sm.MODULE_META.photocapture.label, 'Photo Capture');
     assert.equal(
       sm.MODULE_SCRIPT_VER,
-      'mod34',
+      'mod35',
       'embed script version bumped for the capture renderer (Batch 127 finisher rotation)'
     );
     n += 4;

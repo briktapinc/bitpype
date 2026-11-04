@@ -1907,11 +1907,42 @@ router.put('/modules/photocapture/config', requireClient, actionLimit, async (re
   }
 });
 
+// Comments (Batch 131) — config + moderation queue writes, before
+// the generic /modules/:type routes so 'comments' is never parsed
+// as an item id.
+router.put('/modules/comments/config', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.saveCommentsConfig(req.client.workspace_id, req.client.lead_id, req.body || {}, req.client.email)
+    );
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 router.put('/modules/photocapture/submissions/:id', requireClient, actionLimit, async (req, res) => {
   try {
     ok(
       res,
       await portal.updatePhotoSubmission(
+        req.client.workspace_id,
+        req.client.lead_id,
+        req.params.id,
+        req.body || {},
+        req.client.email
+      )
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
+router.put('/modules/comments/:id', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.moderateComment(
         req.client.workspace_id,
         req.client.lead_id,
         req.params.id,
@@ -1935,11 +1966,36 @@ router.delete('/modules/photocapture/submissions/:id', requireClient, actionLimi
   }
 });
 
+router.delete('/modules/comments/:id', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(res, await portal.removeComment(req.client.workspace_id, req.client.lead_id, req.params.id, req.client.email));
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
 router.post('/modules/photocapture/submissions/:id/gallery', requireClient, actionLimit, async (req, res) => {
   try {
     ok(
       res,
       await portal.addPhotoSubmissionToGallery(
+        req.client.workspace_id,
+        req.client.lead_id,
+        req.params.id,
+        req.body || {},
+        req.client.email
+      )
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
+router.post('/modules/comments/:id/reply', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.replyToComment(
         req.client.workspace_id,
         req.client.lead_id,
         req.params.id,

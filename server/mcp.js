@@ -1537,6 +1537,54 @@ function clientToolDefs() {
       inputSchema: schema({ leadId: ID, limit: NUM }, ['leadId']),
     },
     {
+      name: 'comments.getConfig',
+      description:
+        'Batch 131 Comments module: read the comments settings for a lead — moderation (held = every comment waits for approval, the default; auto = publish immediately), allow_likes, allow_item_like, comments_enabled, and the block binding (target_mode item|page + target_type: which module’s items the block comments on). Standard/Premium.',
+      inputSchema: schema({ leadId: ID }, ['leadId']),
+    },
+    {
+      name: 'comments.updateConfig',
+      description:
+        'Update the Comments settings (same config the portal edits — moderation, allow_likes, allow_item_like, comments_enabled, target_mode, target_type, heading). To place comment threads under items, attach the module with website.addModule(comments), set target_mode "item" and target_type to the item module (e.g. blog, ecommerce, events, gallery, offers, video), and put the comments block on that module’s pages. Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          moderation: STR,
+          allow_likes: { type: 'boolean' },
+          allow_item_like: { type: 'boolean' },
+          comments_enabled: { type: 'boolean' },
+          target_mode: STR,
+          target_type: STR,
+          heading: STR,
+        },
+        ['leadId']
+      ),
+    },
+    {
+      name: 'comments.list',
+      description:
+        'List comments for moderation (newest first): filter by status (pending|published|rejected) and/or one target (target_type + target_id — the shared-layer source identity). Includes author emails — owner surface only; the public site never sees them. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, status: STR, target_type: STR, target_id: STR, limit: NUM }, ['leadId']),
+    },
+    {
+      name: 'comments.moderate',
+      description:
+        'Moderate one comment by id: action "approve" (publish), "reject" (hide — never renders again unless approved), or "delete" (removes the comment and its likes; its replies re-parent upward). Standard/Premium.',
+      inputSchema: schema({ leadId: ID, id: ID, action: STR }, ['leadId', 'id', 'action']),
+    },
+    {
+      name: 'comments.reply',
+      description:
+        'Reply to a comment as the business owner (published immediately, badged as the owner on the site). parent_id is the comment being answered — replies thread one level under the top-level comment. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, parent_id: ID, body: STR, author_name: STR }, ['leadId', 'parent_id', 'body']),
+    },
+    {
+      name: 'comments.targets',
+      description:
+        'The roll-up of what carries engagement for a lead: every target (shared-layer type + id, or page slug) with its comment count, pending count and like count — targets resolve their titles through the shared layer. Standard/Premium.',
+      inputSchema: schema({ leadId: ID }, ['leadId']),
+    },
+    {
       name: 'bookings.services',
       description:
         'List bookable services (duration, buffer, price). includeDrafts defaults true. Standard/Premium siteModules.',
@@ -3296,6 +3344,13 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'categories.unassign',
     'categories.items',
     'categories.setScopes',
+    // Batch 131: comments + likes ride the same entitlement.
+    'comments.getConfig',
+    'comments.updateConfig',
+    'comments.list',
+    'comments.moderate',
+    'comments.reply',
+    'comments.targets',
     // Batch 125: Photo Capture rides the same entitlement.
     'photocapture.getConfig',
     'photocapture.listSubmissions',
@@ -4602,6 +4657,62 @@ async function callClientTool(ws, name, a, ctx = {}) {
       plan: planId,
       orders: modules.listShopOrdersWithItems(db, leadId, { limit: a.limit || 50 }),
     }));
+  }
+
+  // ---- Comments + likes (Batch 131) ----
+  if (name === 'comments.getConfig') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({ plan: planId, config: require('./comments').getCommentsConfig(db, leadId) }));
+  }
+  if (name === 'comments.updateConfig') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      config: require('./comments').updateCommentsConfig(db, leadId, a),
+    }));
+  }
+  if (name === 'comments.list') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      comments: require('./comments').listCommentsForOwner(db, leadId, {
+        status: a.status || null,
+        target_type: a.target_type || null,
+        target_id: a.target_id != null ? a.target_id : null,
+        limit: a.limit,
+      }),
+      counts: require('./comments').countComments(db, leadId),
+    }));
+  }
+  if (name === 'comments.moderate') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId) throw new Error('leadId is required');
+    const action = String(a.action || '').toLowerCase();
+    return domain.withDb(ws, (db) => {
+      const svc = require('./comments');
+      if (action === 'delete') return { plan: planId, ...svc.deleteComment(db, leadId, id) };
+      if (action === 'approve') return { plan: planId, comment: svc.setCommentStatus(db, leadId, id, 'published') };
+      if (action === 'reject') return { plan: planId, comment: svc.setCommentStatus(db, leadId, id, 'rejected') };
+      throw new Error('action must be one of: approve, reject, delete');
+    });
+  }
+  if (name === 'comments.reply') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    const parentId = need(a.parent_id, 'parent_id');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      comment: require('./comments').replyAsOwner(db, leadId, parentId, a),
+    }));
+  }
+  if (name === 'comments.targets') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({ plan: planId, targets: require('./comments').listCommentTargets(db, leadId) }));
   }
 
   if (name === 'bookings.services') {

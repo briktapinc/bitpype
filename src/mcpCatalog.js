@@ -3061,6 +3061,99 @@ const tools = [
     },
   },
   {
+    name: 'comments.getConfig',
+    description:
+      'Batch 131 Comments module: read the comments settings for a lead — moderation (held = every comment waits for approval, the default; auto = publish immediately), allow_likes, allow_item_like, comments_enabled, and the block binding (target_mode item|page + target_type: which module’s items the block comments on).',
+    schema: {
+      type: 'object',
+      properties: { leadId: { type: 'integer', minimum: 1 } },
+      required: ['leadId'],
+    },
+  },
+  {
+    name: 'comments.updateConfig',
+    description:
+      'Update the Comments settings (same config the portal edits — moderation, allow_likes, allow_item_like, comments_enabled, target_mode, target_type, heading). To place comment threads under items, attach the module with website.addModule(comments), set target_mode "item" and target_type to the item module (e.g. blog, ecommerce, events, gallery, offers, video), and put the comments block on that module’s pages.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        moderation: { type: 'string', enum: ['held', 'auto'] },
+        allow_likes: { type: 'boolean' },
+        allow_item_like: { type: 'boolean' },
+        comments_enabled: { type: 'boolean' },
+        target_mode: { type: 'string', enum: ['item', 'page'] },
+        target_type: { type: 'string' },
+        heading: { type: 'string' },
+      },
+      required: ['leadId'],
+    },
+  },
+  {
+    name: 'comments.list',
+    description:
+      'List comments for moderation (newest first): filter by status (pending|published|rejected) and/or one target (target_type + target_id — the shared-layer source identity). Includes author emails — owner surface only; the public site never sees them.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        status: { type: 'string', enum: ['pending', 'published', 'rejected'] },
+        target_type: { type: 'string' },
+        target_id: { type: 'string' },
+        limit: { type: 'number' },
+      },
+      required: ['leadId'],
+    },
+  },
+  {
+    name: 'comments.moderate',
+    description:
+      'Moderate one comment by id: action "approve" (publish), "reject" (hide — never renders again unless approved), or "delete" (removes the comment and its likes; its replies re-parent upward).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        id: { type: 'integer', minimum: 1 },
+        action: { type: 'string', enum: ['approve', 'reject', 'delete'] },
+      },
+      required: ['leadId', 'id', 'action'],
+    },
+  },
+  {
+    name: 'comments.reply',
+    description:
+      'Reply to a comment as the business owner (published immediately, badged as the owner on the site). parent_id is the comment being answered — replies thread one level under the top-level comment.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        parent_id: { type: 'integer', minimum: 1 },
+        body: { type: 'string' },
+        author_name: { type: 'string' },
+      },
+      required: ['leadId', 'parent_id', 'body'],
+    },
+  },
+  {
+    name: 'comments.targets',
+    description:
+      'The roll-up of what carries engagement for a lead: every target (shared-layer type + id, or page slug) with its comment count, pending count and like count — targets resolve their titles through the shared layer.',
+    schema: {
+      type: 'object',
+      properties: { leadId: { type: 'integer', minimum: 1 } },
+      required: ['leadId'],
+    },
+  },
+  {
+    name: 'events.delete',
+    description: 'Delete an event by id (Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: { id: { type: 'integer', minimum: 1 }, leadId: { type: 'integer', minimum: 1 } },
+      required: ['id'],
+    },
+  },
+  {
     name: 'bookings.services',
     description:
       'List bookable services with duration/price (Standard/Premium). True calendar booking — not the appointment request form.',
