@@ -46,6 +46,13 @@ process.env.SQLITE_PATH = process.env.DB_PATH;
   process.env[name.toUpperCase().replace(/\W/g, '_') + '_PATH'] = path.join(process.env.REGRESSION_TMPDIR, name);
 });
 process.env.SESSION_SECRET = ['batch124', 'regression', 'secret'].join('-');
+// Batch 125 finisher: Part 3 spawns a production-mode fixture server
+// (the gate image sets NODE_ENV=production); without this flag its
+// boot exits on the Turnstile assert. Suites 120/121/123 set the same
+// pair for their spawned servers — this suite relied on ambient
+// captcha state instead, which the 125 gate leg no longer provides.
+process.env.CAPTCHA_OPTIONAL = '1';
+process.env.NODE_ENV = 'production';
 process.env.COOKIE_SECURE = 'false';
 process.env.MAIL_DRY_RUN = process.env.MAIL_DRY_RUN || 'true';
 process.env.MAIL_PROVIDER = process.env.MAIL_PROVIDER || 'dry';
