@@ -132,7 +132,7 @@ async function seed() {
   });
 
   // Gated lead: members on, the shop page gated, one secret post.
-  sm.ensureEmbed(db, GATED_LEAD, 'members', { workspaceId: WS_ID });
+  const membersEmb = sm.ensureEmbed(db, GATED_LEAD, 'members', { workspaceId: WS_ID });
   const gatedBlogEmb = sm.ensureEmbed(db, GATED_LEAD, 'blog', { workspaceId: WS_ID });
   sm.createBlogPost(db, GATED_LEAD, {
     title: 'Secret Fixture Post',
@@ -141,7 +141,7 @@ async function seed() {
   });
   sm.updateMembersConfig(db, GATED_LEAD, { gate_mode: 'selected', gated_pages: ['shop'] });
 
-  for (const emb of [shopEmb, catsEmb, blogEmb, gatedBlogEmb]) {
+  for (const emb of [shopEmb, catsEmb, blogEmb, membersEmb, gatedBlogEmb]) {
     db.prepare('UPDATE site_module_embeds SET published = 1 WHERE id = ?').run(emb.id);
   }
   T.shop = shopEmb.public_token;
