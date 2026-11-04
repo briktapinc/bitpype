@@ -58,6 +58,7 @@ const SCOPE = [
   'server/paymentsConfig.js',
   'server/routes/paymentsWebhook.js',
   'tests/batch129-streamline-regressions.cjs',
+  'tests/batch134-hunt-fixes-regressions.cjs',
   'tsconfig.checkjs.json',
 ];
 

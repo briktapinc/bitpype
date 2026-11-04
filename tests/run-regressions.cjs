@@ -129,6 +129,7 @@ const checks = [
   'batch127-product-variants-regressions',
   'batch128-checkout-module-regressions',
   'batch129-streamline-regressions',
+  'batch134-hunt-fixes-regressions',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');
