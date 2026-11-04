@@ -215,7 +215,7 @@ async function waitReady(child, output) {
     const sm = require(path.join(root, 'server/siteModules.js'));
     assert.equal(
       sm.MODULE_SCRIPT_VER,
-      'mod32',
+      'mod33',
       'MODULE_SCRIPT_VER bumped for the fallback (Batch 128 finisher rotation)'
     );
     n++;
@@ -243,8 +243,8 @@ async function waitReady(child, output) {
       .sort((x, y) => x - y);
     assert.deepEqual(
       meLines,
-      [1327, 1339, 1343, 1347, 1752, 1913, 2826, 4910, 5010],
-      'module-embed reviewed sinks: the same nine sinks as the Batch 130 set, at Batch 128 positions — shifted by the Batch 128 checkout embed blocks (pure line movement; the snippet sequence is unchanged except the album-detail sink, whose call gained the payload argument in Batch 128) plus the audited QR RAW sink; Batch 129 finisher: five positions shifted again (+52/+52/+62/+62/+62) by the Batch 129 pay-at-booking embed blocks — pure line movement, proven by the census multiset diff (RAW/IDENT multiset byte-identical, exactly +3 STATIC sinks added)'
+      [1338, 1350, 1354, 1358, 1763, 1924, 2837, 4921, 5021],
+      'module-embed reviewed sinks: the same nine sinks as the Batch 130 set, at Batch 128 positions — shifted by the Batch 128 checkout embed blocks (pure line movement; the snippet sequence is unchanged except the album-detail sink, whose call gained the payload argument in Batch 128) plus the audited QR RAW sink; Batch 129 finisher: five positions shifted again (+52/+52/+62/+62/+62) by the Batch 129 pay-at-booking embed blocks — pure line movement, proven by the census multiset diff (RAW/IDENT multiset byte-identical, exactly +3 STATIC sinks added); Batch 135 finisher: all nine positions shifted +11 by the Batch 135 module-internal spacing floor CSS block in module-embed.js — pure line movement, census multiset unchanged (total still 437)'
     );
     n++;
     group('Part A source pins', n);

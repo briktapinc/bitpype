@@ -25,7 +25,13 @@
  *   - card-text:  text inside a .card sits < --bp-space-card-pad from
  *                 the card's padding-box edge;
  *   - card-gap:   sibling cards in one parent touch or sit
- *                 < --bp-space-card-gap apart.
+ *                 < --bp-space-card-gap apart;
+ *   - section-pad: a [data-ws-section-type] band — nav/footer chrome
+ *                 INCLUDED (finisher scope: the 2026-11-04 audit found
+ *                 chrome outside the spacing system on every export
+ *                 site, 288 of 459 section entries at 0px) — whose
+ *                 computed horizontal padding sits below the section
+ *                 inset floor for the viewport width.
  * Browser unavailable -> throws err.code 'PUPPETEER_MISSING' (or the
  * launch error) so qaSite can record the established skip-pass, the
  * same contract as checkMobileOverflow.
@@ -121,6 +127,22 @@ function measureSpacingInPage(floors) {
   if (scrollW - vw > 1) {
     violations.push({ kind: 'overflow', selector: 'document', px: round1(scrollW - vw) });
   }
+
+  var secFloor = vw <= 700 ? floors.sectionInsetMobile : floors.sectionInset;
+  var seenSec = {};
+  document.querySelectorAll('[data-ws-section-type]').forEach(function (sec) {
+    if (!visible(sec)) return;
+    if (sec.getAttribute('data-bp-spacing') === 'off') return;
+    var cs = getComputedStyle(sec);
+    var minPad = Math.min(parseFloat(cs.paddingLeft) || 0, parseFloat(cs.paddingRight) || 0);
+    if (minPad < secFloor - EPS) {
+      var sk = 's|' + describe(sec);
+      if (!seenSec[sk]) {
+        seenSec[sk] = 1;
+        violations.push({ kind: 'section-pad', selector: describe(sec), px: round1(Math.max(0, minPad)) });
+      }
+    }
+  });
 
   var seenEdge = {};
   var seenCard = {};
@@ -311,6 +333,8 @@ async function assessSpacing(pages, theme, opts = {}) {
           textInset: floors.textInset,
           cardPad: floors.cardPad,
           cardGap: floors.cardGap,
+          sectionInset: floors.sectionInset,
+          sectionInsetMobile: floors.sectionInsetMobile,
         });
         for (const v of res.violations || []) {
           violations.push({ page: slug, width, ...v });

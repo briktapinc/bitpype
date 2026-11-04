@@ -425,7 +425,7 @@ async function main() {
     const portalRoutes = fs.readFileSync(path.join(root, 'server/routes/portal.js'), 'utf8');
     assert.ok(portalRoutes.includes("'/modules/datatables/config'"), 'portal config route');
     assert.ok(portalRoutes.includes("'/modules/datatables/clear'"), 'portal clear route');
-    assert.equal(sm.MODULE_SCRIPT_VER, 'mod32', 'Batch 87 bumps the embed script version');
+    assert.equal(sm.MODULE_SCRIPT_VER, 'mod33', 'Batch 87 bumps the embed script version');
     assert.ok(sm.MODULE_TYPES.includes('datatables'), 'module type registered');
   });
 

@@ -606,10 +606,20 @@ ${icons}
 /*   selectors — the exact mechanism of Ely's authored rule (28px      */
 /*   !important on the band, 22px ≤700px), now platform-enforced on    */
 /*   [data-ws-section-type] of ANY element type (the 2026-11-03 root   */
-/*   cause was an inset rule that selected only <section>). Nav and    */
-/*   footer bands are excluded: their chrome carries its own inset     */
-/*   system (.nav-inner / .footer-grid at 20px, above the QA floor),   */
-/*   and .ws-footer-chrome is excluded per the Nov 3 precedent.        */
+/*   cause was an inset rule that selected only <section>).            */
+/*   FINISHER SCOPE (2026-11-04 spacing audit, 655 violations): nav    */
+/*   and footer chrome are INSIDE the floor — the original build       */
+/*   excluded them and the audit proved that exclusion was the single  */
+/*   biggest violation class (288 of 459 section entries at 0px on     */
+/*   every export-pipeline site). The selector keeps (0,2,0)           */
+/*   specificity via the [data-bp-spacing="off"] opt-out :not, so it   */
+/*   beats the authored single-attribute !important zero rules the     */
+/*   audit found on real sites; anything stronger is exactly what the  */
+/*   QA section-pad measurement fails loudly. Wide tables get a        */
+/*   platform treatment too: the guard wraps each table in a           */
+/*   .bp-table-scroll overflow-x container (script layer) so a wide    */
+/*   table scrolls inside its band at 390 instead of overflowing the   */
+/*   page (Berks price tables, +101px before this batch).              */
 /*   Full-bleed hero MEDIA is untouched (the floor is padding; the     */
 /*   background still paints the full band) — hero TEXT gets inset.    */
 /* - spacingGuardScript() is the raise-only second layer for the       */
@@ -630,8 +640,7 @@ function spacingTokens() {
   }
 }
 
-const SPACING_SECTION_SELECTOR =
-  '[data-ws-section-type]:not(.ws-footer-chrome):not([data-ws-section-type="nav"]):not([data-ws-section-type="footer"])';
+const SPACING_SECTION_SELECTOR = '[data-ws-section-type]:not([data-bp-spacing="off"])';
 
 function spacingGuardCss() {
   const t = spacingTokens();
@@ -641,6 +650,9 @@ function spacingGuardCss() {
     `:root{--bp-space-section-inset:${t.sectionInset}px;--bp-space-section-inset-mobile:${t.sectionInsetMobile}px;--bp-space-container-inset:${t.containerInset}px;--bp-space-card-pad:${t.cardPad}px;--bp-space-card-gap:${t.cardGap}px;--bp-space-text-inset:${t.textInset}px}`,
     `${SPACING_SECTION_SELECTOR}{padding-left:var(--bp-space-section-inset)!important;padding-right:var(--bp-space-section-inset)!important}`,
     `@media (max-width:700px){${SPACING_SECTION_SELECTOR}{padding-left:var(--bp-space-section-inset-mobile)!important;padding-right:var(--bp-space-section-inset-mobile)!important}}`,
+    'table{max-width:100%}',
+    '.bp-table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}',
+    '.bp-table-scroll>table{width:max-content!important;max-width:none!important;min-width:100%}',
   ].join('\n');
 }
 
@@ -652,10 +664,12 @@ function spacingGuardScript() {
     `var C=${t.containerInset},P=${t.cardPad},G=${t.cardGap};` +
     'function up(el,props,f){var cs=getComputedStyle(el);for(var i=0;i<props.length;i++){var v=parseFloat(cs[props[i]]);if(isNaN(v))v=0;if(v<f)el.style[props[i]]=f+"px";}}' +
     'function gap(el){var cs=getComputedStyle(el);if(cs.display!=="grid")return;["columnGap","rowGap"].forEach(function(p){var v=parseFloat(cs[p]);if(isNaN(v))v=0;if(v<G)el.style[p]=G+"px";});}' +
+    'function wrapTables(){document.querySelectorAll("table").forEach(function(tbl){if(tbl.closest(".bp-table-scroll"))return;var p=tbl.parentElement;if(!p)return;var w=document.createElement("div");w.className="bp-table-scroll";p.insertBefore(w,tbl);w.appendChild(tbl);});}' +
     'function run(){' +
-    'document.querySelectorAll(".container").forEach(function(el){up(el,["paddingLeft","paddingRight"],C);});' +
+    'document.querySelectorAll(".container,.nav-inner,.footer-grid").forEach(function(el){up(el,["paddingLeft","paddingRight"],C);});' +
     'document.querySelectorAll(".card,.review-card").forEach(function(el){up(el,["paddingTop","paddingRight","paddingBottom","paddingLeft"],P);});' +
     'document.querySelectorAll(".grid,.cards-grid,.gallery-grid,.footer-grid,.contact-grid,.cols").forEach(gap);' +
+    'wrapTables();' +
     '}' +
     'if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",run);else run();' +
     '}catch(e){}})();';

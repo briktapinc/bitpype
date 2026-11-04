@@ -27,6 +27,15 @@
  *     with measurements in the detail. Skipped locally when the
  *     sandbox Node cannot load the Node-22 better-sqlite3 build; the
  *     in-image gate runs it for real.
+ *   Part 4 — FINISHER SCOPE (2026-11-04 audit, 655 violations):
+ *     (e) nav/footer CHROME is inside the floor: authored single-attr
+ *         !important zero rules on chrome bands are beaten by the
+ *         guard, and the QA section-pad measurement covers chrome;
+ *     (f) wide tables scroll inside a .bp-table-scroll wrapper at
+ *         390 instead of overflowing the page (Berks proof case);
+ *     (g) module internals: bp-mod-book-row + bp-mod-news-card carry
+ *         an internal-padding floor in module-embed.js (MODULE_SCRIPT_VER
+ *         rotated to mod33 for the embed change).
  */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -158,6 +167,36 @@ function part1() {
   check('doctrine: soul + default instructions carry the not-done-while-failing rule', () => {
     assert.ok(read('server/agent-soul.md').includes('A design is NOT done while the spacing check fails'));
     assert.ok(read('src/defaultDesignInstructions.js').includes('SPACING (platform-enforced'));
+    n += 1;
+  });
+  check('finisher: guard selector covers chrome (no nav/footer exclusion); table treatment ships in guard css', () => {
+    const src = read('src/websiteEngine.js');
+    assert.ok(!src.includes('ws-footer-chrome):not'), 'chrome class exclusion gone');
+    assert.ok(!src.includes('not([data-ws-section-type='), 'nav type exclusion gone');
+    assert.ok(src.includes('SPACING_SECTION_SELECTOR'), 'selector constant present');
+    assert.ok(
+      /SPACING_SECTION_SELECTOR =\s*'\[data-ws-section-type\]/.test(src),
+      'selector starts with the bare section attribute'
+    );
+    assert.ok(src.includes('.bp-table-scroll{overflow-x:auto'), 'table scroll wrapper css');
+    assert.ok(src.includes('wrapTables()'), 'guard script wraps tables');
+    n += 1;
+  });
+  check('finisher: spacingQa measures section-pad (chrome included)', () => {
+    const src = read('server/spacingQa.js');
+    assert.ok(src.includes("kind: 'section-pad'"), 'section-pad violation kind');
+    assert.ok(src.includes('sectionInsetMobile'), 'mobile floor wired');
+    n += 1;
+  });
+  check('finisher: module internals carry the padding floor; embed version rotated', () => {
+    const embed = read('public/js/module-embed.js');
+    assert.ok(embed.includes('bp-mod-book-row'), 'book row present');
+    assert.ok(
+      embed.includes('padding-left:var(--bp-space-card-pad,16px);padding-right:var(--bp-space-card-pad,16px);'),
+      'book-row/news floor uses the token var'
+    );
+    assert.ok(embed.includes('.bp-mod-news-card{padding:var(--bp-space-card-pad,16px);}'), 'news-card unscoped floor');
+    assert.ok(read('server/siteModules.js').includes("const MODULE_SCRIPT_VER = 'mod33'"), 'MODULE_SCRIPT_VER mod33');
     n += 1;
   });
   group('Part 1 pins', n);
@@ -320,6 +359,105 @@ async function part2() {
       const bleed = cQa.violations.filter((v) => v.kind === 'text-edge' && v.width === 1440);
       assert.ok(bleed.length >= 1, `bleed caught at 1440: ${JSON.stringify(cQa.violations).slice(0, 300)}`);
       assert.ok(bleed.every((v) => v.px < 16));
+      n += 1;
+    });
+
+    // (e) finisher: chrome bands are inside the floor — authored
+    // single-attribute !important zero rules on nav/footer (the exact
+    // pattern the audit found on Victoria) are beaten by the guard,
+    // and QA's section-pad measurement covers the chrome bands.
+    const ePages = [
+      {
+        slug: 'index',
+        title: 'Home',
+        sections: [
+          { type: 'nav', content: { html: '<div class="fx-chrome"><span>Fixture Brand</span></div>' } },
+          HERO,
+          TEXT,
+          { type: 'footer', content: { html: '<div class="fx-chrome"><p>Fixture footer copy.</p></div>' } },
+        ],
+      },
+    ];
+    const eTheme = {
+      baseCss: true,
+      customCss: [
+        '[data-ws-section-type="nav"]{padding-left:0!important;padding-right:0!important}',
+        '[data-ws-section-type="footer"]{padding-left:0!important;padding-right:0!important}',
+      ].join('\n'),
+    };
+    const eHtml = engine.renderPage(ePages[0], ePages, eTheme);
+    const eProbe = (w) =>
+      probe(browser, eHtml, w, () => {
+        const nav = document.querySelector('[data-ws-section-type="nav"]');
+        const foot = document.querySelector('[data-ws-section-type="footer"]');
+        return {
+          navPad: nav && getComputedStyle(nav).paddingLeft,
+          footPad: foot && getComputedStyle(foot).paddingLeft,
+        };
+      });
+    const eWide = await eProbe(1440);
+    await acheck(
+      '(e) chrome floor at 1440: nav + footer wrappers at 28px despite authored !important zeros',
+      async () => {
+        assert.equal(eWide.navPad, '28px', `nav pad ${eWide.navPad}`);
+        assert.equal(eWide.footPad, '28px', `footer pad ${eWide.footPad}`);
+        n += 1;
+      }
+    );
+    const eNarrow = await eProbe(390);
+    await acheck('(e) chrome floor at 390: nav + footer wrappers at 22px', async () => {
+      assert.equal(eNarrow.navPad, '22px', `nav pad ${eNarrow.navPad}`);
+      assert.equal(eNarrow.footPad, '22px', `footer pad ${eNarrow.footPad}`);
+      n += 1;
+    });
+    const eQa = await spacingQa.assessSpacing(ePages, eTheme, { renderPage: engine.renderPage });
+    await acheck('(e) QA passes the chrome fixture (section-pad covers chrome, guard rescues it)', async () => {
+      assert.equal(eQa.pass, true, JSON.stringify(eQa.violations).slice(0, 300));
+      n += 1;
+    });
+
+    // (f) finisher: a wide table scrolls inside its band at 390 —
+    // the Berks price-table pattern (100%-wide table, nowrap cells,
+    // zero-padding container) must not overflow the page.
+    const wideCells = Array.from(
+      { length: 8 },
+      (_, i) => `<th style="white-space:nowrap;padding:10px 18px">Column Heading ${i + 1}</th>`
+    ).join('');
+    const wideRow = Array.from(
+      { length: 8 },
+      (_, i) => `<td style="white-space:nowrap;padding:10px 18px">Cell value ${i + 1} long</td>`
+    ).join('');
+    const fPages = [
+      {
+        slug: 'index',
+        title: 'Home',
+        sections: [
+          HERO,
+          {
+            type: 'html',
+            content: {
+              html: `<div class="fx-tbl"><table class="fx-wide"><thead><tr>${wideCells}</tr></thead><tbody><tr>${wideRow}</tr></tbody></table></div>`,
+            },
+          },
+        ],
+      },
+    ];
+    const fHtml = engine.renderPage(fPages[0], fPages, {});
+    const fProbe = await probe(browser, fHtml, 390, () => {
+      const doc = document.documentElement;
+      return {
+        overflow: Math.max(doc.scrollWidth, document.body.scrollWidth) - doc.clientWidth,
+        wrapped: !!document.querySelector('.bp-table-scroll > table.fx-wide'),
+      };
+    });
+    await acheck('(f) wide table wrapped in .bp-table-scroll; zero page overflow at 390', async () => {
+      assert.equal(fProbe.wrapped, true, 'table wrapped by guard script');
+      assert.ok(fProbe.overflow <= 0, `overflow ${fProbe.overflow}`);
+      n += 1;
+    });
+    const fQa = await spacingQa.assessSpacing(fPages, {}, { renderPage: engine.renderPage });
+    await acheck('(f) QA passes the wide-table fixture at all widths', async () => {
+      assert.equal(fQa.pass, true, JSON.stringify(fQa.violations).slice(0, 300));
       n += 1;
     });
 

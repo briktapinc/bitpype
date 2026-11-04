@@ -184,7 +184,12 @@
       '.bitpype-module-embed .bp-mod-book{',
       'display:grid;gap:1.1rem;max-width:640px;',
       '}',
-      '.bitpype-module-embed .bp-mod-book-row{display:grid;gap:0.45rem;}',
+      '.bitpype-module-embed .bp-mod-book-row{',
+      'display:grid;gap:0.45rem;',
+      // Batch 135 finisher: internal-padding floor — the audit found
+      // booking rows shipping flush (0px) on live sites.
+      'padding-left:var(--bp-space-card-pad,16px);padding-right:var(--bp-space-card-pad,16px);',
+      '}',
       '.bitpype-module-embed .bp-mod-book label{font-weight:700;font-size:0.92rem;}',
       '.bitpype-module-embed .bp-mod-book input,',
       '.bitpype-module-embed .bp-mod-book select,',
@@ -459,6 +464,12 @@
       '.bitpype-module-embed .bp-chart-grid{stroke:var(--bp-mod-line);stroke-width:1;}',
       '.bitpype-module-embed .bp-chart-axis{stroke:var(--bp-mod-line);stroke-width:1.5;}',
       '.bitpype-module-embed .bp-mod-dt-form-title{margin:0 0 1rem;font-size:1.12rem;}',
+      // Batch 135 finisher: unscoped internal-padding floor for the
+      // newsletter card — server-rendered / non-embed mounts do not sit
+      // under .bitpype-module-embed, and the audit found the card at
+      // 0px there. The scoped card rule below (higher specificity)
+      // still wins wherever it applies.
+      '.bp-mod-news-card{padding:var(--bp-space-card-pad,16px);}',
       // Newsletter (Batch 118) — the signup card reuses the booking
       // form's field styling (the form also carries .bp-mod-book); these
       // rules add the card shell, heading and blurb.
