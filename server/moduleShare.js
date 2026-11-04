@@ -460,8 +460,7 @@ const SHARE_REGISTRY = {
             // (categories) and subscriber email (newsletter blocks),
             // so wifi codes describe themselves by network name only.
             // The password lives solely in the rendered code image.
-            description:
-              c.target_kind === 'wifi' ? `WiFi network: ${c.wifi_ssid || c.name}` : resolved.payload,
+            description: c.target_kind === 'wifi' ? `WiFi network: ${c.wifi_ssid || c.name}` : resolved.payload,
             image_url: resolved.image_url,
             link_url: resolved.target_url,
             meta: { target_kind: c.target_kind, target_ref: c.target_ref },
