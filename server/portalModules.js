@@ -602,6 +602,54 @@ async function saveChatbotSettings(workspaceId, leadId, body, clientEmail) {
   });
 }
 
+/* Batch 138 — voice bubble image: same entitlement gate as every
+ * other chatbot admin write; validation/storage live in chatbotVoice
+ * (magic-byte sniff, 10 MB cap, no SVG — the attachments precedent). */
+async function assertChatbotEntitled(workspaceId, clientEmail) {
+  const billing = require('./billing');
+  const { getPlan } = require('./plans');
+  const planId = await billing.effectivePlan(workspaceId, { email: clientEmail });
+  if (!getPlan(planId).entitlements.chatbot) {
+    throw Object.assign(new Error('Chatbot requires a paid plan (Standard, Pro, or Premium).'), {
+      code: 'PLAN_REQUIRED',
+      status: 403,
+    });
+  }
+}
+
+async function saveChatbotVoiceImage(workspaceId, leadId, body, clientEmail) {
+  const domain = require('./domain');
+  await requireSiteModules(workspaceId, clientEmail);
+  await assertChatbotEntitled(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => {
+    const voice = require('./chatbotVoice');
+    const out = voice.saveVoiceBubbleImage(workspaceId, db, Number(leadId), body || {});
+    const chat = require('./chatbot');
+    return { ...out, settings: chat.getSettings(db, Number(leadId)) };
+  });
+}
+
+async function removeChatbotVoiceImage(workspaceId, leadId, clientEmail) {
+  const domain = require('./domain');
+  await requireSiteModules(workspaceId, clientEmail);
+  await assertChatbotEntitled(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => {
+    const voice = require('./chatbotVoice');
+    const out = voice.removeVoiceBubbleImage(db, Number(leadId));
+    const chat = require('./chatbot');
+    return { ...out, settings: chat.getSettings(db, Number(leadId)) };
+  });
+}
+
+async function getChatbotVoiceImage(workspaceId, leadId, clientEmail) {
+  const domain = require('./domain');
+  await requireSiteModules(workspaceId, clientEmail);
+  return domain.withDb(workspaceId, (db) => {
+    const voice = require('./chatbotVoice');
+    return voice.readVoiceBubbleImage(db, Number(leadId));
+  });
+}
+
 async function uploadChatbotKnowledge(workspaceId, leadId, body, clientEmail) {
   const domain = require('./domain');
   const billing = require('./billing');
@@ -1535,6 +1583,9 @@ module.exports = {
   deleteModuleItem,
   getChatbotAdmin,
   saveChatbotSettings,
+  saveChatbotVoiceImage,
+  removeChatbotVoiceImage,
+  getChatbotVoiceImage,
   uploadChatbotKnowledge,
   resolveChatbotEscalation,
   getBookingAdmin,

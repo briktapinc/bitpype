@@ -8,6 +8,7 @@
 const express = require('express');
 const domain = require('../domain');
 const chatbot = require('../chatbot');
+const chatbotVoice = require('../chatbotVoice');
 const siteModules = require('../siteModules');
 const { rateLimit } = require('../rateLimit');
 const { assertWorkspaceExists } = require('../workspaceExists');
@@ -50,7 +51,87 @@ router.get('/:token', readLimit, async (req, res) => {
   try {
     const workspaceId = await workspaceFromReq(req);
     const data = domain.withDb(workspaceId, (db) => chatbot.getPublicConfigByToken(db, req.params.token));
+    // Batch 138: voice is advertised only when it would actually mint
+    // (owner enabled + plan entitled + OpenAI key configured).
+    const voice = await domain.withDb(workspaceId, (db) =>
+      chatbotVoice.publicVoiceAdvertisement(workspaceId, db, req.params.token)
+    );
+    res.json({ ok: true, data: { ...data, voice, workspaceId } });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+/* ── Batch 138: AI voice agent (OpenAI Realtime) ─────────────────── */
+
+router.post('/:token/voice/session', writeLimit, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    const body = req.body || {};
+    const data = await domain.withDb(workspaceId, (db) =>
+      chatbotVoice.mintVoiceSession(workspaceId, db, req.params.token, { visitor: body.visitor || null })
+    );
     res.json({ ok: true, data: { ...data, workspaceId } });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/:token/voice/session/:id/tool', writeLimit, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    const body = req.body || {};
+    const out = domain.withDb(workspaceId, (db) =>
+      chatbotVoice.relayVoiceToolCall(db, req.params.token, Number(req.params.id), body.relay_secret, {
+        name: body.name,
+        args: body.arguments != null ? body.arguments : body.args,
+      })
+    );
+    res.json({ ok: true, data: { result: out.result, workspaceId } });
+    // Mirror the text /lead route: owner notification is fire-and-forget.
+    if (out.notify) {
+      chatbot.notifyOwnerOnChatLead(workspaceId, out.notify).catch((err) => {
+        console.warn('[chatbotPublic] voice lead notify failed:', err && err.message ? err.message : err);
+      });
+    }
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/:token/voice/session/:id/transcript', writeLimit, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    const body = req.body || {};
+    const data = domain.withDb(workspaceId, (db) =>
+      chatbotVoice.appendVoiceTranscript(db, req.params.token, Number(req.params.id), body.relay_secret, {
+        items: body.items,
+        final: !!body.final,
+        close: body.close,
+        connected: body.connected,
+      })
+    );
+    res.json({ ok: true, data: { ...data, workspaceId } });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.get('/:token/voice-image', readLimit, async (req, res) => {
+  try {
+    const workspaceId = await workspaceFromReq(req);
+    const img = domain.withDb(workspaceId, (db) => {
+      const cfg = chatbot.getPublicConfigByToken(db, req.params.token);
+      return chatbotVoice.readVoiceBubbleImage(db, cfg.embed.lead_id);
+    });
+    if (!img) {
+      const err = new Error('No voice bubble image');
+      err.code = 'NOT_FOUND';
+      throw err;
+    }
+    res.setHeader('Content-Type', img.mime);
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.send(img.buffer);
   } catch (e) {
     fail(res, e);
   }
