@@ -400,13 +400,14 @@ async function json(res) {
     });
     assert.ok(written.files.includes('item.html'), 'export ships item.html (the detail shell)');
     n++;
+    const monsteraKey = monstera.slug || String(monstera.id);
     assert.ok(
-      Array.isArray(detailCtx.types.ecommerce.items) && detailCtx.types.ecommerce.items.includes(monstera.slug),
+      Array.isArray(detailCtx.types.ecommerce.items) && detailCtx.types.ecommerce.items.includes(monsteraKey),
       'detail context enumerates published item keys for per-item shells'
     );
     n++;
     assert.ok(
-      written.files.includes(`detail/ecommerce/${monstera.slug}.html`),
+      written.files.includes(`detail/ecommerce/${monsteraKey}.html`),
       'export ships a real shell file for the published product (rewrite-independent)'
     );
     n++;
