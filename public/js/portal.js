@@ -10944,16 +10944,30 @@
         closeLayout();
         return;
       }
-      // Resume a session kept alive by a Modules-tab Edit trip.
+      // Resume a session kept alive by a Modules-tab Edit trip — but
+      // only if the saved page still matches the session's base;
+      // anything else (design chat, structure saves) reopens fresh
+      // rather than resurrecting a stale model.
       if (state.layout && !state.layout.freeform) {
-        state.layoutOpen = true;
-        syncLayoutUi();
-        renderLayoutBar();
-        await renderLayoutCanvas();
+        try {
+          const fresh = await api(`/site/layout?slug=${encodeURIComponent(state.layout.slug)}`);
+          if (fresh && JSON.stringify(fresh.sections || []) === JSON.stringify(state.layout.saved)) {
+            state.layoutOpen = true;
+            syncLayoutUi();
+            renderLayoutBar();
+            await renderLayoutCanvas();
+            return;
+          }
+        } catch {
+          /* fall through to a fresh open */
+        }
+        const slug = state.layout.slug;
+        state.layout = null;
+        await openLayout(slug);
         return;
       }
       if (state.layout) state.layout = null;
-      await openLayout(state.layout && state.layout.slug);
+      await openLayout();
     };
   }
 

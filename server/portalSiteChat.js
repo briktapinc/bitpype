@@ -1810,6 +1810,7 @@ function getClientLayoutEditor(workspaceId, leadId, slug) {
       sections: hasSections ? target.sections : [],
       descriptors: hasSections ? target.sections.map((s, i) => structure.describeEditorSection(s, i, resolve)) : [],
       tokens,
+      fences: structure.LAYOUT_DUPLICATE_FENCE,
       palette: {
         content: structure.LAYOUT_CONTENT_TYPES,
         modules: paletteModules,
@@ -1977,8 +1978,11 @@ function applyClientLayoutSave(workspaceId, leadId, body = {}) {
         }
       }
       // Knob floors are re-checked server-side (never trust the client).
+      // Background: hex and named colours are legitimate model values
+      // (older design payloads carry both); only injection-shaped
+      // values are refused — the knob itself only ever writes hex.
       const bg = section.content && section.content.backgroundColor;
-      if (bg != null && String(bg).trim() && !/^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.test(String(bg).trim())) {
+      if (bg != null && /[;{}<>]|url\s*\(|expression\s*\(|javascript:/i.test(String(bg))) {
         throw Object.assign(new Error(`Section ${i + 1} has an invalid background colour.`), {
           code: 'INVALID_COLOR',
         });

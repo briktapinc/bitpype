@@ -73,6 +73,8 @@ const SCOPE = [
   'server/stripeShapes.js',
   'tests/batch145-external-review-fixes-regressions.cjs',
   'tests/batch146-logo-ground-regressions.cjs',
+  'public/js/layout-bridge.js',
+  'tests/batch147-section-editor-regressions.cjs',
   'tsconfig.checkjs.json',
 ];
 
