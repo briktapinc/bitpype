@@ -2122,7 +2122,23 @@ function sitesSave(workspaceId, id, args = {}) {
     let pages = validatePages(parseJsonField(args.pages, 'pages'));
     pages = engine.normalizePagesNavLinks(pages);
     try {
-      pages = require('../src/siteStructure').syncFreeformNavOrder(pages);
+      // Batch 149: run the pre-save nav sync with the SAME module
+      // context the post-save module sync will use. Without it this
+      // pass rebuilt the chrome without the managed module markers,
+      // the post-save sync rebuilt them back, and saveSite's per-page
+      // updatedAt stamp saw a "change" on every save — stored pages
+      // never reached a fixed point.
+      let navOpts;
+      try {
+        const existingSite = engine.getWebsite(db, siteId);
+        if (existingSite && existingSite.lead_id) {
+          const ctx = require('./siteModules').moduleNavContext(db, existingSite.lead_id, pages);
+          navOpts = { activeModules: ctx.navItems, footerExcludeSlugs: ctx.footerExcludeSlugs };
+        }
+      } catch {
+        /* optional */
+      }
+      pages = require('../src/siteStructure').syncFreeformNavOrder(pages, navOpts);
     } catch {
       /* optional */
     }

@@ -1844,14 +1844,15 @@ function sanitizeAgentPages(db, leadId, pages, opts = {}) {
   };
 }
 
+/**
+ * Batch 149: delegate to the ONE canonical managed-script ensure
+ * (src/managedScripts.ensureManagedScript) -- the per-family
+ * strip/append copies were not idempotent (see managedScripts.js).
+ */
 function ensureFormEmbedScript(html, appUrl) {
   const tag = formScriptTag(appUrl);
   if (!tag) return String(html || '');
-  let s = String(html || '');
-  s = s.replace(new RegExp(`<script\\b[^>]*\\b${SCRIPT_ATTR}\\b[^>]*>\\s*<\\/script>`, 'gi'), '');
-  s = s.replace(/<script\b[^>]*\/js\/form-embed\.js[^>]*>\s*<\/script>/gi, '');
-  if (/<\/body>/i.test(s)) return s.replace(/<\/body>/i, `${tag}\n</body>`);
-  return `${s}\n${tag}`;
+  return require('../src/managedScripts').ensureManagedScript(html, 'form-embed.js', tag);
 }
 
 function normalizeSlug(slug) {

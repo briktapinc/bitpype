@@ -2476,14 +2476,15 @@ function describeWouldInject(embed, appUrl) {
   };
 }
 
+/**
+ * Batch 149: delegate to the ONE canonical managed-script ensure
+ * (src/managedScripts.ensureManagedScript) -- the per-family
+ * strip/append copies were not idempotent (see managedScripts.js).
+ */
 function ensureModuleEmbedScript(html, appUrl) {
   const tag = moduleScriptTag(appUrl);
   if (!tag) return String(html || '');
-  let s = String(html || '');
-  s = s.replace(new RegExp(`<script\\b[^>]*\\b${SCRIPT_ATTR}\\b[^>]*>\\s*<\\/script>`, 'gi'), '');
-  s = s.replace(/<script\b[^>]*\/js\/module-embed\.js[^>]*>\s*<\/script>/gi, '');
-  if (/<\/body>/i.test(s)) return s.replace(/<\/body>/i, `${tag}\n</body>`);
-  return `${s}\n${tag}`;
+  return require('../src/managedScripts').ensureManagedScript(html, 'module-embed.js', tag);
 }
 
 function isBareModulePage(html) {
@@ -3350,8 +3351,18 @@ function rebuildFreeformPrimaryNav(html, navLinks, pages, opts = {}) {
   };
 
   const newPageChunk = links.map(chunkForLink).join(sep);
-  const starts = pageAnchors.map((a) => a.start).concat(managedRanges.map((r) => r.start));
-  const ends = pageAnchors.map((a) => a.end).concat(managedRanges.map((r) => r.end));
+  // Batch 149: the chunk regenerates each item WITH its <li> shell, so
+  // the replaced span must cover the shells too. The pre-149 span ran
+  // from the first anchor's start to the last anchor's end, leaving the
+  // first item's <li> and the last item's </li> outside the span --
+  // they survived every rebuild and nested one more empty <li> per save.
+  const itemRange = (r) => {
+    if (!useLi) return r;
+    const li = liWrapping(src, container, r);
+    return li ? { start: li.start, end: li.end } : r;
+  };
+  const starts = pageAnchors.map((a) => itemRange(a).start).concat(managedRanges.map((r) => itemRange(r).start));
+  const ends = pageAnchors.map((a) => itemRange(a).end).concat(managedRanges.map((r) => itemRange(r).end));
   const removeStart = Math.min(...starts);
   const removeEnd = Math.max(...ends);
   const out = src.slice(0, removeStart) + newPageChunk + src.slice(removeEnd);
@@ -3577,6 +3588,60 @@ function pageHasAuthoredContent(page) {
   return text !== title;
 }
 
+/**
+ * The module context a nav/footer rebuild needs: which module links
+ * are active (navItems) and which module-shell pages stay out of the
+ * footer (footerExcludeSlugs). Applies the reveal/hide page-field
+ * mutations exactly as syncSiteModuleEmbeds always has.
+ * Batch 149: extracted so domain.sitesSave can run its pre-save nav
+ * sync with the SAME context. Without it that pass rebuilt the chrome
+ * without the managed module markers, the post-save sync rebuilt them
+ * back, and saveSite's per-page updatedAt stamp saw a "change" on
+ * every save — stored pages never reached a fixed point.
+ */
+function moduleNavContext(db, leadId, pages, { embeds: embedsArg, revealSlugs } = {}) {
+  const embeds = Array.isArray(embedsArg) ? embedsArg : listEmbeds(db, leadId).filter(moduleEmbedActive);
+  const reveal = new Set(
+    (Array.isArray(revealSlugs) ? revealSlugs : []).map((s) => normalizeSlug(s)).filter(Boolean)
+  );
+  const navItems = moduleNavItems(embeds);
+  const activeSlugs = new Set(navItems.map((it) => normalizeSlug(it.slug)));
+  const moduleDefaultSlugs = new Set(
+    Object.values(MODULE_META)
+      // Drop empty defaultSlugs BEFORE normalizing: '' normalizes to 'index',
+      // which would otherwise treat the home page as a module-default page.
+      .map((m) => String(m.defaultSlug || '').trim())
+      .filter(Boolean)
+      .map((s) => normalizeSlug(s))
+  );
+  // Detached / disabled module pages stay in the site but leave the menu.
+  // attachModule passes revealSlugs so re-attach restores menu presence without
+  // undoing a client hide while the module is still active.
+  const footerExcludeSlugs = [];
+  const navRevealed = [];
+  for (const page of pages) {
+    const slug = normalizeSlug(page && page.slug);
+    if (!moduleDefaultSlugs.has(slug)) continue;
+    if (reveal.has(slug)) {
+      delete page.navVisible;
+      delete page.nav_visible;
+      delete page.hiddenInNav;
+      delete page.hidden_in_nav;
+      navRevealed.push(slug);
+    } else if (!activeSlugs.has(slug) && pageIsModuleShell(page)) {
+      page.navVisible = false;
+      // Hidden module shells leave the footer too — buildFooterLinks otherwise
+      // lists every page, including navVisible:false ones like FAQ (by design).
+      // Only true shells are excluded: pageIsModuleShell cannot judge
+      // sections-based pages (it reads page.html only), so a sections page
+      // carrying real authored copy — e.g. a hand-written FAQ page at the faq
+      // slug — keeps its footer place.
+      if (!pageHasAuthoredContent(page)) footerExcludeSlugs.push(slug);
+    }
+  }
+  return { navItems, footerExcludeSlugs, navRevealed };
+}
+
 function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
   ensureTables(db);
   const site = db
@@ -3799,12 +3864,9 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
       sitewideTag = `<script src="${escapeAttr(String(base).replace(/\/$/, ''))}/js/module-embed.js" defer ${SCRIPT_ATTR}="1"></script>`;
     }
     if (!sitewideTag) sitewideTag = moduleScriptTag(base);
-    const ensureSitewideScript = (html) => {
-      let s = String(html || '');
-      s = s.replace(new RegExp(`<script\\b[^>]*\\b${SCRIPT_ATTR}\\b[^>]*>\\s*<\\/script>`, 'gi'), '');
-      s = s.replace(/<script\b[^>]*\/js\/module-embed\.js[^>]*>\s*<\/script>/gi, '');
-      return `${s}\n${sitewideTag}`;
-    };
+    const ensureSitewideScript = (html) =>
+      // Batch 149: canonical managed-script ensure (fixed point).
+      require('../src/managedScripts').ensureManagedScript(html, 'module-embed.js', sitewideTag);
     for (const page of pages) {
       if (pageUsesSections(page)) {
         let placed = false;
@@ -3841,41 +3903,10 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
   // Section-type nav is rebuilt from the pages array at render time (one link per
   // page). Inserting another <a> there would duplicate it. Freeform HTML bakes the
   // menu into each page — module pages participate via pages[] + syncFreeformNavOrder.
-  const navItems = moduleNavItems(embeds);
-  const activeSlugs = new Set(navItems.map((it) => normalizeSlug(it.slug)));
-  const moduleDefaultSlugs = new Set(
-    Object.values(MODULE_META)
-      // Drop empty defaultSlugs BEFORE normalizing: '' normalizes to 'index',
-      // which would otherwise treat the home page as a module-default page.
-      .map((m) => String(m.defaultSlug || '').trim())
-      .filter(Boolean)
-      .map((s) => normalizeSlug(s))
-  );
-  // Detached / disabled module pages stay in the site but leave the menu.
-  // attachModule passes revealSlugs so re-attach restores menu presence without
-  // undoing a client hide while the module is still active.
-  const footerExcludeSlugs = [];
-  const navRevealed = [];
-  for (const page of pages) {
-    const slug = normalizeSlug(page && page.slug);
-    if (!moduleDefaultSlugs.has(slug)) continue;
-    if (reveal.has(slug)) {
-      delete page.navVisible;
-      delete page.nav_visible;
-      delete page.hiddenInNav;
-      delete page.hidden_in_nav;
-      navRevealed.push(slug);
-    } else if (!activeSlugs.has(slug) && pageIsModuleShell(page)) {
-      page.navVisible = false;
-      // Hidden module shells leave the footer too — buildFooterLinks otherwise
-      // lists every page, including navVisible:false ones like FAQ (by design).
-      // Only true shells are excluded: pageIsModuleShell cannot judge
-      // sections-based pages (it reads page.html only), so a sections page
-      // carrying real authored copy — e.g. a hand-written FAQ page at the faq
-      // slug — keeps its footer place.
-      if (!pageHasAuthoredContent(page)) footerExcludeSlugs.push(slug);
-    }
-  }
+  const { navItems, footerExcludeSlugs, navRevealed } = moduleNavContext(db, leadId, pages, {
+    embeds,
+    revealSlugs,
+  });
 
   let navInserted = 0;
   for (const page of pages) {
@@ -14834,6 +14865,7 @@ module.exports = {
   writeEmbedSettings,
   maybeProvisionBookingsCompanionForm,
   syncSiteModuleEmbeds,
+  moduleNavContext,
   syncPublishedModules,
   rebuildFreeformPrimaryNav,
   rebuildFreeformFooterLinks,

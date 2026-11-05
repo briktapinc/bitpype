@@ -2278,14 +2278,15 @@ function stripChatEmbedsFromHtml(html, { keepToken } = {}) {
   return s;
 }
 
+/**
+ * Batch 149: delegate to the ONE canonical managed-script ensure
+ * (src/managedScripts.ensureManagedScript) -- the per-family
+ * strip/append copies were not idempotent (see managedScripts.js).
+ */
 function ensureChatEmbedScript(html, appUrl) {
   const tag = chatScriptTag(appUrl);
   if (!tag) return String(html || '');
-  let s = String(html || '');
-  s = s.replace(new RegExp(`<script\\b[^>]*\\b${CHAT_SCRIPT_ATTR}\\b[^>]*>\\s*<\\/script>`, 'gi'), '');
-  s = s.replace(/<script\b[^>]*\/js\/chat-embed\.js[^>]*>\s*<\/script>/gi, '');
-  if (/<\/body>/i.test(s)) return s.replace(/<\/body>/i, `${tag}\n</body>`);
-  return `${s}\n${tag}`;
+  return require('../src/managedScripts').ensureManagedScript(html, 'chat-embed.js', tag);
 }
 
 function injectChatOnPageHtml(html, block, appUrl) {
