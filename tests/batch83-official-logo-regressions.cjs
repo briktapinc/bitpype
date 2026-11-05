@@ -51,8 +51,7 @@ process.env.APP_URL = 'https://bitpype.test';
 process.env.CAPTCHA_OPTIONAL = '1';
 process.env.NODE_ENV = 'production';
 process.env['SESSION_' + 'SECRET'] = ['batch83', 'test', 'session', 'secret'].join('-');
-process.env.SETTINGS_ENCRYPTION_KEY =
-  process.env.SETTINGS_ENCRYPTION_KEY || Buffer.alloc(32, 13).toString('base64');
+process.env.SETTINGS_ENCRYPTION_KEY = process.env.SETTINGS_ENCRYPTION_KEY || Buffer.alloc(32, 13).toString('base64');
 delete process.env.BITPYPE_EMAIL_LOGO_URL;
 
 const PORT = 31483;
@@ -132,11 +131,14 @@ function partB() {
     assert.ok(!html.includes('>BP</span>'), 'BP text tile gone from the shell brand');
   });
 
-  check('B2 staff auth screens use the white lockup (dark gate — Ely 2026-10-30 screenshot ruling; no BP tile span left in app.js)', () => {
-    const appJs = read('public/js/app.js');
-    assert.ok(appJs.includes('/brand/logo-white.png'), 'auth brand uses logo-white.png');
-    assert.ok(!appJs.includes('>BP</span>'), 'no BP tile span remains');
-  });
+  check(
+    'B2 staff auth screens use the white lockup (dark gate — Ely 2026-10-30 screenshot ruling; no BP tile span left in app.js)',
+    () => {
+      const appJs = read('public/js/app.js');
+      assert.ok(appJs.includes('/brand/logo-white.png'), 'auth brand uses logo-white.png');
+      assert.ok(!appJs.includes('>BP</span>'), 'no BP tile span remains');
+    }
+  );
 
   check('B3 portal lockups match their surfaces (Batch 105 shell)', () => {
     const portal = read('public/portal.html');
@@ -144,14 +146,27 @@ function partB() {
     // moved into the DARK sidenav (white lockup, per the rule);
     // the login gate stays a light surface (black lockup).
     assert.ok(count(portal, '/brand/logo-black.png') >= 1, 'portal gate (light surface) uses the black lockup');
-    assert.ok(portal.includes('<img class="portal-brand-logo" src="/brand/logo-white.png"'), 'portal sidebar brand (dark surface) uses the white lockup');
+    assert.ok(
+      portal.includes('<img class="portal-brand-logo" src="/brand/logo-white.png"'),
+      'portal sidebar brand (dark surface) uses the white lockup'
+    );
     assert.ok(portal.includes('/brand/favicon.ico'), 'portal favicon updated');
   });
 
-  check('B4 marketing pages: black lockup header, new favicon, og:image on the dark card', () => {
+  check('B4 marketing pages: header lockup follows its ground, new favicon, og:image on the dark card', () => {
+    /* Batch 146 rendered-ground audit: every MARKETING header band
+       is DARK (.nav / --sidebar grounds) except authorize.html,
+       whose brand line sits on the light page — so the dark-band
+       pages carry the white lockup and authorize keeps the black
+       one. (The shared pages' light footers also carry the black
+       lockup; per-surface ground pins live in the batch146 suite.) */
     for (const rel of MARKETING) {
       const html = read(rel);
-      assert.ok(html.includes('/brand/logo-black.png'), `${rel} header uses logo-black.png`);
+      if (rel === 'public/authorize.html') {
+        assert.ok(html.includes('/brand/logo-black.png'), `${rel} light brand line uses logo-black.png`);
+      } else {
+        assert.ok(html.includes('/brand/logo-white.png'), `${rel} dark header uses logo-white.png`);
+      }
       assert.ok(html.includes('/brand/favicon.ico'), `${rel} favicon updated`);
       if (html.includes('og:image')) {
         assert.ok(html.includes('/brand/og-image.png'), `${rel} og:image uses og-image.png`);
@@ -159,10 +174,10 @@ function partB() {
     }
   });
 
-  check('B5 legal + SMS policy pages use the black lockup on their light brand line', () => {
+  check('B5 legal + SMS policy pages use the white lockup on their dark nav band (Batch 146)', () => {
     for (const rel of LEGAL) {
       const html = read(rel);
-      assert.ok(html.includes('/brand/logo-black.png'), `${rel} uses logo-black.png`);
+      assert.ok(html.includes('/brand/logo-white.png'), `${rel} dark .legal-nav uses logo-white.png`);
     }
   });
 
@@ -176,7 +191,12 @@ function partB() {
   });
 
   check('B7 transactional flow pages carry the black lockup in their brand line', () => {
-    for (const rel of ['public/claim.html', 'public/domain-picker.html', 'public/domain-success.html', 'public/member-reset.html']) {
+    for (const rel of [
+      'public/claim.html',
+      'public/domain-picker.html',
+      'public/domain-success.html',
+      'public/member-reset.html',
+    ]) {
       const html = read(rel);
       assert.ok(html.includes('/brand/logo-black.png'), `${rel} brand line uses logo-black.png`);
     }
@@ -270,8 +290,8 @@ async function partC() {
         ['/landing', 'logo-black.png'],
         ['/solo', 'logo-black.png'],
         ['/onboarding', 'logo-black.png'],
-        ['/legal/terms.html', 'logo-black.png'],
-        ['/sms-policy', 'logo-black.png'],
+        ['/legal/terms.html', 'logo-white.png'],
+        ['/sms-policy', 'logo-white.png'],
       ];
       for (const [p, needle] of pages) {
         const r = await fetch(BASE + p, { redirect: 'follow' });
@@ -286,7 +306,10 @@ async function partC() {
       const tpl = require(path.join(root, 'src/emailTemplate.js'));
       assert.equal(tpl.LOGO_URL, 'https://bitpype.test/brand/logo-email.png');
       const { html } = tpl.renderBrandedEmail({ title: 'Batch 83 proof', paragraphs: ['Hello from the fixture.'] });
-      assert.ok(html.includes('src="https://bitpype.test/brand/logo-email.png"'), 'email header img is the new lockup, absolute');
+      assert.ok(
+        html.includes('src="https://bitpype.test/brand/logo-email.png"'),
+        'email header img is the new lockup, absolute'
+      );
       assert.ok(!html.includes('bitpype-mark'), 'no old mark in email HTML');
     });
   } finally {

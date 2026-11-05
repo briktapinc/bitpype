@@ -35,8 +35,10 @@
  *      text resolves through --sidebar-text.
  *   G3 both auth screens render the WHITE lockup, never the black.
  *   G4 wordmark-white vs gate ground contrast >= 4.5:1 (computed).
- *   G5 light surfaces still select the BLACK lockup (Ely's rule,
- *      other side): marketing header + branding defaults.
+ *   G5 the ground rule holds off the gate too (Batch 146 ground
+ *      audit correction): the marketing header band is DARK, so it
+ *      takes the white lockup; the light marketing footer keeps the
+ *      black lockup; branding defaults unchanged.
  *   G6 form controls are dark-scoped: the .auth-card remap makes the
  *      field ground dark, text light, muted >= 4.5:1 on the ground,
  *      and defines legible gate link/error tones.
@@ -173,20 +175,33 @@ check('G4 wordmark white vs gate ground contrast >= 4.5:1, computed from the tok
   assert.ok(textRatio >= 4.5, `card text ${text} on the ground is ${textRatio.toFixed(2)}:1 (>= 4.5:1)`);
 });
 
-check("G5 light surfaces still select the BLACK lockup (the other side of Ely's rule)", () => {
-  const home = read('public/home.html');
-  assert.ok(home.includes('/brand/logo-black.png'), 'marketing header (home.html) uses logo-black.png');
-  assert.ok(!home.includes('/brand/logo-white.png'), 'home.html never uses the white lockup');
-  const branding = read('server/branding.js');
-  assert.ok(
-    branding.includes("logoDarkUrl: '/brand/logo-white.png'"),
-    'branding default for dark screens is the white lockup'
-  );
-  assert.ok(
-    branding.includes("logoLightUrl: '/brand/logo-black.png'"),
-    'branding default for light screens is the black lockup'
-  );
-});
+check(
+  'G5 off-gate surfaces follow the ground rule (Batch 146: dark marketing nav -> white, light footer -> black)',
+  () => {
+    const home = read('public/home.html');
+    /* Batch 146's rendered-ground audit corrected this check's original
+     assumption: home.html's header band (.nav) is a DARK ground
+     (rgba(28,20,15,0.97)), so its lockup is the white one; the
+     footer sits on the cream body ground and keeps the black one.
+     Full per-surface ground pins live in the batch146 suite. */
+    const header = home.slice(home.indexOf('<header class="nav">'), home.indexOf('</header>'));
+    assert.ok(
+      header.includes('/brand/logo-white.png'),
+      'marketing header (dark .nav ground, home.html) uses logo-white.png'
+    );
+    const footer = home.slice(home.indexOf('<footer>'), home.indexOf('</footer>'));
+    assert.ok(footer.includes('/brand/logo-black.png'), 'marketing footer (light body ground) keeps logo-black.png');
+    const branding = read('server/branding.js');
+    assert.ok(
+      branding.includes("logoDarkUrl: '/brand/logo-white.png'"),
+      'branding default for dark screens is the white lockup'
+    );
+    assert.ok(
+      branding.includes("logoLightUrl: '/brand/logo-black.png'"),
+      'branding default for light screens is the black lockup'
+    );
+  }
+);
 
 check('G6 gate form controls are dark-scoped via the .auth-card token remap', () => {
   const ground = hexOf(tokens['--sidebar'], '--sidebar');

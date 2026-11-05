@@ -49,8 +49,7 @@ process.env.APP_URL = 'https://bitpype.test';
 process.env.CAPTCHA_OPTIONAL = '1';
 process.env.NODE_ENV = 'production';
 process.env['SESSION_' + 'SECRET'] = ['batch86', 'test', 'session', 'secret'].join('-');
-process.env.SETTINGS_ENCRYPTION_KEY =
-  process.env.SETTINGS_ENCRYPTION_KEY || Buffer.alloc(32, 13).toString('base64');
+process.env.SETTINGS_ENCRYPTION_KEY = process.env.SETTINGS_ENCRYPTION_KEY || Buffer.alloc(32, 13).toString('base64');
 delete process.env.BITPYPE_EMAIL_LOGO_URL;
 
 const PORT = 31486;
@@ -73,20 +72,15 @@ const count = (s, sub) => String(s).split(sub).length - 1;
    (public/portal.html left this list in Batch 105: the portal took
    the staff app's shell, so its brand now sits on the DARK sidenav —
    white lockup there, black lockup kept on the light login gate.
-   Pinned per-surface in B1b below.) */
+   Pinned per-surface in B1b below.)
+   (Batch 146: the marketing pages left this list — Batch 86 judged
+   them by their cream page BODY, but their header chrome is a DARK
+   band (.nav / .legal-nav), so the header lockup is the white one:
+   the seven shared pages are pinned in B2b, website-promo + the
+   legal/sms pages in B2c, how.html in B2c too. The full
+   rendered-ground audit lives in the batch146 suite.) */
 const LIGHT_ONLY = [
-  'public/home.html',
-  'public/landing.html',
-  'public/how-it-works.html',
-  'public/creator.html',
-  'public/partner.html',
-  'public/thankyou.html',
-  'public/work-with-us.html',
   'public/authorize.html',
-  'public/website-promo.html',
-  'public/legal/terms.html',
-  'public/legal/privacy.html',
-  'public/sms-policy.html',
   'public/claim.html',
   'public/domain-picker.html',
   'public/domain-success.html',
@@ -96,8 +90,29 @@ const LIGHT_ONLY = [
      2026-10-30 screenshot ruling puts the gate on the DARK ground —
      the auth brands use the white lockup (pinned in batch87 A7). */
 ];
-/* Light header + DARK footer band — both lockups, each on its ground. */
-const BOTH = ['public/how.html', 'public/solo.html', 'public/onboarding.html'];
+/* Light header + DARK footer band — both lockups, each on its ground.
+   (Batch 146: how.html left this list — its header sits in the dark
+   .nav band of a dark page, so it is white-lockup only, B2c.) */
+const BOTH = ['public/solo.html', 'public/onboarding.html'];
+/* Batch 146 — DARK header band + light body/footer: white lockup in
+   the header, black lockup in the footer. */
+const DARK_NAV_LIGHT_FOOTER = [
+  'public/home.html',
+  'public/landing.html',
+  'public/how-it-works.html',
+  'public/creator.html',
+  'public/partner.html',
+  'public/thankyou.html',
+  'public/work-with-us.html',
+];
+/* Batch 146 — dark-ground chrome only: white lockup, never black. */
+const DARK_ONLY = [
+  'public/how.html',
+  'public/website-promo.html',
+  'public/legal/terms.html',
+  'public/legal/privacy.html',
+  'public/sms-policy.html',
+];
 /* Every chrome file that carried the Batch 83 mark-icon workaround. */
 const CHROME = [...LIGHT_ONLY, ...BOTH, 'public/index.html', 'public/styles.css', 'src/emailTemplate.js'];
 
@@ -109,7 +124,10 @@ function partA() {
   check('A1 renamed masters are in the repo at 450x120 and differ', () => {
     const white = fs.readFileSync(path.join(root, 'public/brand/logo-white.png'));
     const black = fs.readFileSync(path.join(root, 'public/brand/logo-black.png'));
-    for (const [name, buf] of [['logo-white.png', white], ['logo-black.png', black]]) {
+    for (const [name, buf] of [
+      ['logo-white.png', white],
+      ['logo-black.png', black],
+    ]) {
       assert.deepEqual([...buf.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47], `${name} is a PNG`);
       assert.equal(buf.readUInt32BE(16), 450, `${name} width 450`);
       assert.equal(buf.readUInt32BE(20), 120, `${name} height 120`);
@@ -146,8 +164,15 @@ function partB() {
   check('B1b portal (Batch 105 shell): black on the light gate, white only as the dark-sidenav brand', () => {
     const src = read('public/portal.html');
     assert.ok(src.includes('/brand/logo-black.png'), 'portal gate uses logo-black.png');
-    assert.ok(src.includes('<img class="portal-brand-logo" src="/brand/logo-white.png"'), 'portal sidenav brand uses logo-white.png');
-    assert.equal(count(src, '/brand/logo-white.png'), 1, 'the white lockup appears exactly once in the portal (the dark sidenav brand)');
+    assert.ok(
+      src.includes('<img class="portal-brand-logo" src="/brand/logo-white.png"'),
+      'portal sidenav brand uses logo-white.png'
+    );
+    assert.equal(
+      count(src, '/brand/logo-white.png'),
+      1,
+      'the white lockup appears exactly once in the portal (the dark sidenav brand)'
+    );
   });
 
   check('B2 mixed pages put black on light headers, white on dark footers', () => {
@@ -155,6 +180,22 @@ function partB() {
       const src = read(rel);
       assert.ok(src.includes('/brand/logo-black.png'), `${rel} header uses logo-black.png`);
       assert.ok(src.includes('/brand/logo-white.png'), `${rel} dark footer uses logo-white.png`);
+    }
+  });
+
+  check('B2b Batch 146: marketing pages put the white lockup in the dark nav header, black in the light footer', () => {
+    for (const rel of DARK_NAV_LIGHT_FOOTER) {
+      const src = read(rel);
+      assert.ok(src.includes('/brand/logo-white.png'), `${rel} dark nav header uses logo-white.png`);
+      assert.ok(src.includes('/brand/logo-black.png'), `${rel} light footer uses logo-black.png`);
+    }
+  });
+
+  check('B2c Batch 146: dark-chrome-only pages carry the white lockup and never the black', () => {
+    for (const rel of DARK_ONLY) {
+      const src = read(rel);
+      assert.ok(src.includes('/brand/logo-white.png'), `${rel} uses logo-white.png`);
+      assert.ok(!src.includes('/brand/logo-black.png'), `${rel} must not use the black lockup`);
     }
   });
 
@@ -233,7 +274,7 @@ async function partC() {
         ['/app', 'logo-white.png'],
         ['/portal', 'logo-black.png'],
         ['/solo', 'logo-black.png'],
-        ['/legal/terms.html', 'logo-black.png'],
+        ['/legal/terms.html', 'logo-white.png'],
       ];
       for (const [p, needle] of pages) {
         const r = await fetch(BASE + p, { redirect: 'follow' });
@@ -248,7 +289,10 @@ async function partC() {
       const tpl = require(path.join(root, 'src/emailTemplate.js'));
       assert.equal(tpl.LOGO_URL, 'https://bitpype.test/brand/logo-email.png');
       const { html } = tpl.renderBrandedEmail({ title: 'Batch 86 proof', paragraphs: ['Hello from the fixture.'] });
-      assert.ok(html.includes('src="https://bitpype.test/brand/logo-email.png"'), 'email header img is the lockup, absolute');
+      assert.ok(
+        html.includes('src="https://bitpype.test/brand/logo-email.png"'),
+        'email header img is the lockup, absolute'
+      );
       assert.ok(html.includes('width="180" height="48"'), 'email header img at the corrected aspect');
     });
   } finally {
