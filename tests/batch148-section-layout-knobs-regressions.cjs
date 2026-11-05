@@ -145,7 +145,13 @@ let WS_ID;
     );
     n += 5;
     const st = read('src/siteStructure.js');
-    for (const fn of ['getSectionWidth', 'setSectionWidth', 'getSectionHideOnMobile', 'setSectionHideOnMobile', 'validateSectionLayoutKnobs']) {
+    for (const fn of [
+      'getSectionWidth',
+      'setSectionWidth',
+      'getSectionHideOnMobile',
+      'setSectionHideOnMobile',
+      'validateSectionLayoutKnobs',
+    ]) {
       assert.ok(st.includes(`function ${fn}`), `siteStructure has ${fn}`);
       n++;
     }
@@ -162,7 +168,10 @@ let WS_ID;
     assert.ok(bridge.includes('bp-layout-dim'), 'bridge dims mobile-hidden sections');
     n += 2;
     const portalHtml = read('public/portal.html');
-    assert.ok(portalHtml.includes('.layout-seg-btn') && portalHtml.includes('.layout-switch-row'), 'portal styles the new knobs');
+    assert.ok(
+      portalHtml.includes('.layout-seg-btn') && portalHtml.includes('.layout-switch-row'),
+      'portal styles the new knobs'
+    );
     n++;
     const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
     assert.equal(census().summary.total, 442, 'SEC-13 census total unchanged by Batch 148');
@@ -197,13 +206,25 @@ let WS_ID;
     assert.equal(JSON.stringify(s), before, 'set+unset returns the section to its exact original shape');
     n += 7;
     // Illegal values refused with codes.
-    assert.throws(() => structure.setSectionWidth(sec(), 'wide'), (e) => e.code === 'INVALID_WIDTH');
-    assert.throws(() => structure.setSectionWidth(sec(), '100%'), (e) => e.code === 'INVALID_WIDTH');
-    assert.throws(() => structure.setSectionHideOnMobile(sec(), 'yes'), (e) => e.code === 'INVALID_HIDE_ON_MOBILE');
+    assert.throws(
+      () => structure.setSectionWidth(sec(), 'wide'),
+      (e) => e.code === 'INVALID_WIDTH'
+    );
+    assert.throws(
+      () => structure.setSectionWidth(sec(), '100%'),
+      (e) => e.code === 'INVALID_WIDTH'
+    );
+    assert.throws(
+      () => structure.setSectionHideOnMobile(sec(), 'yes'),
+      (e) => e.code === 'INVALID_HIDE_ON_MOBILE'
+    );
     n += 3;
     // Chrome refused at OP level, both knobs.
     for (const type of ['nav', 'footer']) {
-      assert.throws(() => structure.setSectionWidth({ type, content: {} }, 'full'), (e) => e.code === 'CHROME_KNOB');
+      assert.throws(
+        () => structure.setSectionWidth({ type, content: {} }, 'full'),
+        (e) => e.code === 'CHROME_KNOB'
+      );
       assert.throws(
         () => structure.setSectionHideOnMobile({ type, content: {} }, true),
         (e) => e.code === 'CHROME_KNOB'
@@ -221,7 +242,11 @@ let WS_ID;
     n += 2;
     // Save-validation matrix.
     const clean = [sec(), Object.assign(sec(), { width: 'full' }), Object.assign(sec(), { hideOnMobile: true })];
-    assert.deepEqual(structure.validateSectionLayoutKnobs(clean, () => null), [], 'legal knobs validate clean');
+    assert.deepEqual(
+      structure.validateSectionLayoutKnobs(clean, () => null),
+      [],
+      'legal knobs validate clean'
+    );
     n++;
     const codes = (list, resolver) => structure.validateSectionLayoutKnobs(list, resolver).map((p) => p.code);
     assert.ok(codes([Object.assign(sec(), { width: 'wide' })], () => null).includes('INVALID_WIDTH'));
@@ -241,7 +266,11 @@ let WS_ID;
       [true, true, 'contained', false],
       'content section reports both knobs at defaults'
     );
-    const dKnob = structure.describeEditorSection(Object.assign(sec(), { width: 'full', hideOnMobile: true }), 2, () => null);
+    const dKnob = structure.describeEditorSection(
+      Object.assign(sec(), { width: 'full', hideOnMobile: true }),
+      2,
+      () => null
+    );
     assert.deepEqual([dKnob.width, dKnob.hideOnMobile], ['full', true], 'descriptor reports set knobs');
     const dChat = structure.describeEditorSection({ type: 'site_module', content: {} }, 3, () => 'chatbot');
     assert.deepEqual([dChat.canWidth, dChat.canHideMobile], [false, true], 'chatbot: no width, hide allowed');
@@ -255,8 +284,16 @@ let WS_ID;
   {
     let n = 0;
     const pages = goldenPages();
-    assert.equal(sha256(engine.renderPage(pages[0], pages, GOLDEN_THEME)), GOLDEN.renderPageHome, 'home render byte-identical');
-    assert.equal(sha256(engine.renderPage(pages[1], pages, GOLDEN_THEME)), GOLDEN.renderPageAbout, 'about render byte-identical');
+    assert.equal(
+      sha256(engine.renderPage(pages[0], pages, GOLDEN_THEME)),
+      GOLDEN.renderPageHome,
+      'home render byte-identical'
+    );
+    assert.equal(
+      sha256(engine.renderPage(pages[1], pages, GOLDEN_THEME)),
+      GOLDEN.renderPageAbout,
+      'about render byte-identical'
+    );
     assert.equal(
       sha256(engine.renderPage(pages[0], pages, GOLDEN_THEME, { preview: true })),
       GOLDEN.renderPageHomePreview,
@@ -278,7 +315,11 @@ let WS_ID;
     structure.setSectionHideOnMobile(pages2[0].sections[2], true);
     structure.setSectionWidth(pages2[0].sections[2], 'contained');
     structure.setSectionHideOnMobile(pages2[0].sections[2], false);
-    assert.equal(sha256(engine.renderPage(pages2[0], pages2, GOLDEN_THEME)), GOLDEN.renderPageHome, 'set+unset renders golden again');
+    assert.equal(
+      sha256(engine.renderPage(pages2[0], pages2, GOLDEN_THEME)),
+      GOLDEN.renderPageHome,
+      'set+unset renders golden again'
+    );
     n++;
     group('Part 3 — byte-identical default', n);
   }
@@ -292,7 +333,11 @@ let WS_ID;
     structure.setSectionWidth(pages[0].sections[3], 'full'); // services
     structure.setSectionHideOnMobile(pages[0].sections[4], true); // cta
     const home = engine.renderPage(pages[0], pages, GOLDEN_THEME);
-    assert.ok(/data-ws-section-type="services"[^>]*class="[^"]*bp-sec-full/.test(home) || /class="[^"]*bp-sec-full[^"]*"[^>]*data-ws-section-type="services"/.test(home), 'full-width section root carries bp-sec-full');
+    assert.ok(
+      /data-ws-section-type="services"[^>]*class="[^"]*bp-sec-full/.test(home) ||
+        /class="[^"]*bp-sec-full[^"]*"[^>]*data-ws-section-type="services"/.test(home),
+      'full-width section root carries bp-sec-full'
+    );
     assert.ok(/bp-sec-nomobile/.test(home), 'mobile-hidden section root carries bp-sec-nomobile');
     const block = /<style data-bp-section-layout="1">([^<]*)<\/style>/.exec(home);
     assert.ok(block, 'rule block emitted when knobs are set');
@@ -308,7 +353,10 @@ let WS_ID;
     assert.equal(sha256(about), GOLDEN.renderPageAbout, 'sibling page stays byte-identical');
     n += 2;
     // Width alone emits only the width rule; hide alone only the hide rule.
-    assert.equal(engine.sectionLayoutCss([{ sections: [{ width: 'full' }] }]), '.bp-sec-full>.container{max-width:none}');
+    assert.equal(
+      engine.sectionLayoutCss([{ sections: [{ width: 'full' }] }]),
+      '.bp-sec-full>.container{max-width:none}'
+    );
     assert.equal(
       engine.sectionLayoutCss([{ sections: [{ hideOnMobile: true }] }]),
       '@media (max-width:700px){.bp-sec-nomobile{display:none!important}}'
@@ -402,8 +450,16 @@ let WS_ID;
     // Descriptors through the real editor API carry the knob flags.
     const ed = portal.getClientLayoutEditor(WS_ID, LEAD_A, '/');
     const [dNav, , dText, dFooter] = ed.descriptors;
-    assert.deepEqual([dNav.canWidth, dNav.canHideMobile, dFooter.canWidth, dFooter.canHideMobile], [false, false, false, false], 'editor API fences chrome knobs');
-    assert.deepEqual([dText.canWidth, dText.canHideMobile, dText.width, dText.hideOnMobile], [true, true, 'contained', false], 'editor API reports knob defaults');
+    assert.deepEqual(
+      [dNav.canWidth, dNav.canHideMobile, dFooter.canWidth, dFooter.canHideMobile],
+      [false, false, false, false],
+      'editor API fences chrome knobs'
+    );
+    assert.deepEqual(
+      [dText.canWidth, dText.canHideMobile, dText.width, dText.hideOnMobile],
+      [true, true, 'contained', false],
+      'editor API reports knob defaults'
+    );
     n += 2;
 
     // Round-trip: set both knobs on the text section, save, re-read.
@@ -444,7 +500,9 @@ let WS_ID;
     navWide[0] = Object.assign({}, navWide[0], { width: 'full' });
     expectCode(navWide, 'CHROME_KNOB');
     const footerHidden = fresh();
-    footerHidden[footerHidden.length - 1] = Object.assign({}, footerHidden[footerHidden.length - 1], { hideOnMobile: true });
+    footerHidden[footerHidden.length - 1] = Object.assign({}, footerHidden[footerHidden.length - 1], {
+      hideOnMobile: true,
+    });
     expectCode(footerHidden, 'CHROME_KNOB');
     const badWidth = fresh();
     badWidth[2] = Object.assign({}, badWidth[2], { width: 'wide' });
@@ -483,7 +541,9 @@ let WS_ID;
     const canvas = engine.renderPageAt(pages, theme148, { layoutEditor: true, preview: true, pageSlug: '/' });
     assert.ok(canvas.includes('GhostHeading148'), 'mobile-hidden section still renders in the canvas');
     assert.ok(
-      /@media \(max-width:700px\)\{\[data-bp-layout-section\]\.bp-sec-nomobile\{display:block!important\}\}/.test(canvas),
+      /@media \(max-width:700px\)\{\[data-bp-layout-section\]\.bp-sec-nomobile\{display:block!important\}\}/.test(
+        canvas
+      ),
       'canvas ships the keep-visible override for mobile-hidden sections'
     );
     assert.ok(canvas.includes('.bp-layout-dim{opacity:.55}'), 'canvas ships the dim style');
@@ -533,7 +593,11 @@ let WS_ID;
         { type: 'footer', content: {} },
       ]);
       const wideQa = await assess(widePages, baseTheme);
-      assert.equal(wideQa.pass, true, `full-width band passes spacing QA: ${JSON.stringify(wideQa.violations).slice(0, 300)}`);
+      assert.equal(
+        wideQa.pass,
+        true,
+        `full-width band passes spacing QA: ${JSON.stringify(wideQa.violations).slice(0, 300)}`
+      );
       n++;
 
       // (b) Bleed text inside a full-width band still fails text-edge.
