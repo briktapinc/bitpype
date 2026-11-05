@@ -2003,6 +2003,16 @@ function applyClientLayoutSave(workspaceId, leadId, body = {}) {
       }
     });
 
+    // Batch 148: width + hide-on-mobile knobs get the same re-check —
+    // page chrome can never carry them, non-band modules never widen,
+    // and only the canonical stored values ('full' / true) are legal.
+    const knobProblems = structure.validateSectionLayoutKnobs(sections, (section) =>
+      layoutModuleTypeForSection(section, byToken)
+    );
+    if (knobProblems.length) {
+      throw Object.assign(new Error(knobProblems[0].message), { code: knobProblems[0].code });
+    }
+
     const pages = JSON.parse(JSON.stringify(site.pages));
     const nextPage = Object.assign({}, pages[pageIndex], { sections: JSON.parse(JSON.stringify(sections)) });
     if (typeof nextPage.html === 'string') delete nextPage.html;
