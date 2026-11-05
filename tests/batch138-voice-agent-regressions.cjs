@@ -440,6 +440,13 @@ function makeJar() {
       n++;
       assert.equal(sentBody.session.audio.input.transcription.model, 'gpt-4o-transcribe', 'input transcription on (visitor transcript)');
       n++;
+      // Finisher fix (live proof, 2026-11-05): the GA client_secrets
+      // endpoint rejects a pcm format without a sample rate — HTTP 400
+      // missing_required_parameter session.audio.input.format.rate.
+      assert.equal(sentBody.session.audio.input.format.rate, 24000, 'input pcm format carries the required sample rate');
+      n++;
+      assert.equal(sentBody.session.audio.output.format.rate, 24000, 'output pcm format carries the sample rate');
+      n++;
       assert.deepEqual(
         sentBody.session.tools.map((t) => t.name).sort(),
         ['capture_lead', 'escalate_to_team', 'record_qualification_answer'],
