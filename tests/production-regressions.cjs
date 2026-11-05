@@ -43,6 +43,13 @@ const SPLIT_MODULES = new Set([
   // Batch 143: portalAccounts requires ./rateLimitStore (the portal
   // access-email throttle moved to the durable Batch 55 store).
   'rateLimitStore',
+  // Batch 145 (F17): the shared Stripe invoice-shape helper joins the
+  // graph — a dependency-free leaf required by paymentsConfig et al.
+  'stripeShapes',
+  // Batch 145 (F14): siteModules' availability math lazily requires
+  // ./siteChatUsage for its IANA timezone validator — also a
+  // dependency-free leaf.
+  'siteChatUsage',
   'paymentsConfig', // Batch 129: the unified payments config joins the stubbed module graph
   // Batch 129: paymentsConfig lazily requires ./siteModules (the cycle
   // pattern); routing it through inner() returns the load's own root
@@ -2318,7 +2325,7 @@ async function main() {
   let planVar21 = 'standard';
   const purchaseCalls21 = [];
   const domain21 = load('server/domain.js', {
-    './workspaceDb': { openWorkspaceDb: () => db },
+    './workspaceDb': { openWorkspaceDb: () => db, acquireWorkspaceDb: () => db, releaseWorkspaceDb: () => {}, leaseCount: () => 1 },
     './billing': { effectivePlan: async () => planVar21 },
     './twilioClient': {
       searchNumbers: async () => ({ configured: false, numbers: [] }),
@@ -3605,7 +3612,7 @@ async function main() {
   });
 
   const domain22 = load('server/domain.js', {
-    './workspaceDb': { openWorkspaceDb: () => db },
+    './workspaceDb': { openWorkspaceDb: () => db, acquireWorkspaceDb: () => db, releaseWorkspaceDb: () => {}, leaseCount: () => 1 },
     './seoTool': seo22,
   });
   canned22 = JSON.stringify({
@@ -4562,7 +4569,7 @@ async function main() {
       module: mod, exports: mod.exports,
       require: (name) => {
         if (name === './platform') return { getPlatformSetting: async (k) => platformSettings[k] || '' };
-        if (name === './workspaceDb') return { openWorkspaceDb: () => wsDb };
+        if (name === './workspaceDb') return { openWorkspaceDb: () => wsDb, acquireWorkspaceDb: () => wsDb, releaseWorkspaceDb: () => {}, leaseCount: () => 1 };
         if (name === '../src/sms') return smsVm25b;
         if (!name.startsWith('.')) return require(name);
         throw new Error('Unexpected dependency: ' + name);
@@ -5724,7 +5731,7 @@ async function main() {
   let poolConfigured26d = true;
   let voiceUrlFailSid26d = '';
   const domain26d = load('server/domain.js', {
-    './workspaceDb': { openWorkspaceDb: () => db },
+    './workspaceDb': { openWorkspaceDb: () => db, acquireWorkspaceDb: () => db, releaseWorkspaceDb: () => {}, leaseCount: () => 1 },
     './billing': { effectivePlan: async () => 'standard' },
     './twilioClient': {
       searchNumbers: async () => ({ configured: false, numbers: [] }),
@@ -5997,7 +6004,7 @@ async function main() {
     assert.ok(fs.existsSync(path.join(exportDir27, 'sentinel.txt')), 'export folder untouched');
   });
   const domain27 = load('server/domain.js', {
-    './workspaceDb': { openWorkspaceDb: () => db },
+    './workspaceDb': { openWorkspaceDb: () => db, acquireWorkspaceDb: () => db, releaseWorkspaceDb: () => {}, leaseCount: () => 1 },
     '../src/paginate': require(path.join(root, 'src/paginate.js')),
     '../src/websiteEngine': eng27,
     '../src/secretBox': require(path.join(root, 'src/secretBox.js')),
@@ -6322,7 +6329,7 @@ async function main() {
       workspaceSeedFromPlatform: async () => ({ 'ai.api_key': 'r3-ai-plaintext', 'app.name': 'Fixture Co' }),
     },
     './workspace': { createUserWithWorkspace: async () => ({}), slugify: (s) => String(s) },
-    './workspaceDb': { openWorkspaceDb: () => dbAdminR3 },
+    './workspaceDb': { openWorkspaceDb: () => dbAdminR3, acquireWorkspaceDb: () => dbAdminR3, releaseWorkspaceDb: () => {}, leaseCount: () => 1 },
     '../src/secretBox': boxR3,
   });
   await adminR3.pushDefaultsToWorkspaces({ force: true, keys: ['ai.api_key', 'app.name'] });
@@ -6729,7 +6736,7 @@ async function main() {
   dbPrevR9.exec('CREATE TABLE websites (id INTEGER PRIMARY KEY, archived_at TEXT)');
   dbPrevR9.prepare('INSERT INTO websites (id, archived_at) VALUES (5, NULL)').run();
   dbPrevR9.prepare("INSERT INTO websites (id, archived_at) VALUES (6, '2026-10-27 00:00:00')").run();
-  const prevSecR9 = load('server/previewSecurity.js', { './workspaceDb': { openWorkspaceDb: () => dbPrevR9 } });
+  const prevSecR9 = load('server/previewSecurity.js', { './workspaceDb': { openWorkspaceDb: () => dbPrevR9, acquireWorkspaceDb: () => dbPrevR9, releaseWorkspaceDb: () => {}, leaseCount: () => 1 } });
   const runGateR9 = (p) => {
     const out = { status: null, body: null, nexted: false };
     prevSecR9.blockArchivedPreviews(

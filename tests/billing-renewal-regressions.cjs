@@ -247,6 +247,9 @@ const billing = load('server/billing.js', {
   './db': { query: fakeQuery, driver: () => 'sqlite' },
   './platform': { getPlatformSetting: async (k, fb) => fb || '' },
   './plans': require(path.join(root, 'server/plans.js')),
+  // Batch 145 (F17): billing.js gained the shared invoice-shape
+  // helper — a pure module, loaded for real like ./plans.
+  './stripeShapes': require(path.join(root, 'server/stripeShapes.js')),
   './stripeClient': {
     getStripe: async () => stripeStub,
     getPriceIdForPlan: async (plan) => 'price_' + plan,

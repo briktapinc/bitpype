@@ -246,6 +246,9 @@ function loadComms() {
     './db': api(),
     './platform': platformStub,
     './plans': require(path.join(ROOT, 'server/plans.js')),
+    // Batch 145 (F17): lifecycleComms gained the shared invoice-shape
+    // helper — a pure module, loaded for real like ./plans.
+    './stripeShapes': require(path.join(ROOT, 'server/stripeShapes.js')),
     './mailer': mailerStub,
     './stripeClient': stripeClientStub,
     './workspaceDb': wsDbStub,
@@ -604,6 +607,9 @@ const claims = () => platformDb.prepare('SELECT ref_key, kind FROM lifecycle_com
       './db': api(),
       './platform': platformStub,
       './plans': require(path.join(ROOT, 'server/plans.js')),
+      // Batch 145 (F17): billing gained the shared invoice-shape
+      // helper — a pure module, loaded for real like ./plans.
+      './stripeShapes': require(path.join(ROOT, 'server/stripeShapes.js')),
       './stripeClient': stripeClientStub,
       './credits': {},
       './appUrls': { staffUrl: (p) => 'https://bitpype.com' + (p || '') },
