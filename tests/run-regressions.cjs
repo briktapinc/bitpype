@@ -139,6 +139,7 @@ const checks = [
   'batch136-booking-discount-regressions',
   'batch137-chat-qualifying-questions-regressions',
   'batch144-auth-gate-dark-regressions',
+  'batch146-logo-ground-regressions',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');

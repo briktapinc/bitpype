@@ -72,6 +72,7 @@ const SCOPE = [
   'server/browserGuard.js',
   'server/stripeShapes.js',
   'tests/batch145-external-review-fixes-regressions.cjs',
+  'tests/batch146-logo-ground-regressions.cjs',
   'tsconfig.checkjs.json',
 ];
 
