@@ -228,7 +228,7 @@ let db = null;
     assert.ok(smSrc.includes('function releaseExpiredBookingHolds'), 'the lazy hold sweep exists');
     assert.ok(smSrc.includes("bitpype_purpose: 'shop'"), 'shop sessions carry the shared purpose stamp');
     assert.ok(smSrc.includes("bitpype_purpose: 'membership'"), 'membership sessions carry the shared purpose stamp');
-    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod36'"), 'MODULE_SCRIPT_VER bumped to mod32');
+    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod37'"), 'MODULE_SCRIPT_VER bumped to mod32');
     n += 12;
 
     const ssSrc = read('server/shopStripe.js');

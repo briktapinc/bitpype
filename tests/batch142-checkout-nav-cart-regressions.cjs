@@ -250,7 +250,7 @@ function part1() {
   const sm = require(path.join(root, 'server/siteModules.js'));
   assert.equal(
     sm.MODULE_SCRIPT_VER,
-    'mod36',
+    'mod37',
     'MODULE_SCRIPT_VER rotated mod35 → mod36 for the sitewide extension (142 itself took mod34 → mod35)'
   );
   n++;

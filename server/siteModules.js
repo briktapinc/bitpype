@@ -56,7 +56,7 @@ const SCRIPT_ATTR = 'data-bitpype-module-script';
 // like toggles, the visitor-token state fetch).
 // Batch 142: mod36 — the nav cart element ([data-bp-nav-cart]) and
 // the sitewide site_checkout payload stamp.
-const MODULE_SCRIPT_VER = 'mod36';
+const MODULE_SCRIPT_VER = 'mod37';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },

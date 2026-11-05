@@ -14,7 +14,7 @@ const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 
-const CHAT_SCRIPT_VER = 'chat6';
+const CHAT_SCRIPT_VER = 'chat7';
 const CHAT_ATTR = 'data-bitpype-chat';
 const CHAT_TOKEN_ATTR = 'data-bitpype-chat-token';
 const CHAT_SCRIPT_ATTR = 'data-bitpype-chat-script';

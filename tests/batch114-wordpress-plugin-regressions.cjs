@@ -241,7 +241,7 @@ function unzipStore(buf) {
     const formsPublic = read('server/routes/formsPublic.js');
     has(formsPublic, 'sourceLabel', 'public submit route accepts the attribution label');
     const contactForms = read('server/contactForms.js');
-    has(contactForms, "const FORM_SCRIPT_VER = 'form9'", 'embed script version bumped for the attribution change');
+    has(contactForms, "const FORM_SCRIPT_VER = 'form10'", 'embed script version bumped for the attribution change');
 
     group('Part 1 — source pins + census + php lint', n);
   }

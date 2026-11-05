@@ -1364,7 +1364,7 @@ async function main() {
   });
   sm17.ensureTables(db);
   assert.equal(sm17.MODULE_TYPES.length, 28, 'catalog 28 types (Batch 125: photocapture is the 25th; Batch 128: checkout is the 27th; Batch 131: comments is the 28th)');
-  assert.equal(sm17.MODULE_SCRIPT_VER, 'mod36', 'script version: batch 20 mod13, batch 21 mod14, batch 26 mod15, batch 25c mod16, batch 25c-fix mod17, batch 30 mod18, batch 31 mod19, batch 32 mod20');
+  assert.equal(sm17.MODULE_SCRIPT_VER, 'mod37', 'script version: batch 20 mod13, batch 21 mod14, batch 26 mod15, batch 25c mod16, batch 25c-fix mod17, batch 30 mod18, batch 31 mod19, batch 32 mod20');
   const cfg17Default = sm17.getMembersConfig(db, 1701);
   assert.equal(cfg17Default.access_level, 'any_member', 'Part 1 default preserved: any member');
   assert.equal(cfg17Default.access_tier_id, null);
@@ -2066,7 +2066,7 @@ async function main() {
 
   check('batch21 module registered + embed script version bumped', () => {
     assert.ok(sm21.MODULE_TYPES.includes('calltracking'));
-    assert.equal(sm21.MODULE_SCRIPT_VER, 'mod36', 'batch 21 mod14, batch 26 mod15, batch 25c mod16, batch 25c-fix mod17, batch 30 mod18, batch 31 mod19, batch 32 mod20');
+    assert.equal(sm21.MODULE_SCRIPT_VER, 'mod37', 'batch 21 mod14, batch 26 mod15, batch 25c mod16, batch 25c-fix mod17, batch 30 mod18, batch 31 mod19, batch 32 mod20');
     assert.equal(sm21.MODULE_META.calltracking.label, 'Call Tracking');
   });
 
@@ -4243,7 +4243,7 @@ async function main() {
   const formEmbedSrc25 = fs.readFileSync(path.join(root, 'public/js/form-embed.js'), 'utf8');
   const contactFormsSrc25 = fs.readFileSync(path.join(root, 'server/contactForms.js'), 'utf8');
   check('batch25 render: form schema carries the opt-in block naming the business; renderer draws it unchecked', () => {
-    assert.ok(contactFormsSrc25.includes("FORM_SCRIPT_VER = 'form9'"), 'form embed cache-bust bumped');
+    assert.ok(contactFormsSrc25.includes("FORM_SCRIPT_VER = 'form10'"), 'form embed cache-bust bumped');
     assert.ok(pubForm25.sms_optin, 'sms_optin block present when the form collects a phone');
     assert.equal(pubForm25.sms_optin.consent_key, 'sms_optin_consent');
     assert.equal(pubForm25.sms_optin.phone_field_key, 'phone');
@@ -4368,7 +4368,7 @@ async function main() {
   const embFaq25 = sm25.attachModule(db, 2501, 'faq', { workspaceId: 1, appUrl: 'https://example.test' }).embed;
   const pubFaq25 = sm25.getPublicModuleByToken(db, embFaq25.public_token);
   check('batch25 modules: bookings + estimate payloads carry the opt-in block; other modules do not', () => {
-    assert.equal(sm25.MODULE_SCRIPT_VER, 'mod36', 'batch 26 bumped mod15; batch 25c bumped mod16; batch 25c-fix bumped mod17; batch 30 bumped mod18; batch 31 bumped mod19, batch 32 bumped mod20');
+    assert.equal(sm25.MODULE_SCRIPT_VER, 'mod37', 'batch 26 bumped mod15; batch 25c bumped mod16; batch 25c-fix bumped mod17; batch 30 bumped mod18; batch 31 bumped mod19, batch 32 bumped mod20');
     assert.equal(pubBook25.sms_optin && pubBook25.sms_optin.label, 'Text me updates & offers from Fixture Texts R Us');
     assert.equal(pubEst25.sms_optin && pubEst25.sms_optin.consent_key, 'sms_optin_consent');
     assert.equal(pubFaq25.sms_optin, undefined, 'modules without a phone form get no block');
@@ -4434,7 +4434,7 @@ async function main() {
   const moduleEmbedSrc25 = fs.readFileSync(path.join(root, 'public/js/module-embed.js'), 'utf8');
   const modulesRouteSrc25 = fs.readFileSync(path.join(root, 'server/routes/modulesPublic.js'), 'utf8');
   check('batch25 wiring: chatbot config + embeds carry the consent pair end to end', () => {
-    assert.ok(chatbotSrc25.includes("CHAT_SCRIPT_VER = 'chat6'"), 'chat embed cache-bust bumped');
+    assert.ok(chatbotSrc25.includes("CHAT_SCRIPT_VER = 'chat7'"), 'chat embed cache-bust bumped');
     assert.ok(chatbotSrc25.includes('sms_optin: smsOptInBlock'), 'chat public config carries the block');
     assert.ok(chatbotRouteSrc25.includes('sms_optin_consent') && chatbotRouteSrc25.includes('handleSmsOptInForWorkspace'), 'chat lead route fires the opt-in');
     assert.ok(chatEmbedSrc25.includes('bp-chat-lead-sms-optin') && chatEmbedSrc25.includes('sms_optin_consent'), 'chat embed renders + submits the consent');
@@ -4717,7 +4717,7 @@ async function main() {
   await portal25c.saveCallTrackingConfig(1, 2512, { phone: '+16105550100' }, 'split2@example.invalid');
   const embedSrc25c = fs.readFileSync(path.join(root, 'public/js/module-embed.js'), 'utf8');
   check('batch25c site rendering: button displays and dials the Twilio tracking number; the client number is forward-to only', () => {
-    assert.equal(sm25c.MODULE_SCRIPT_VER, 'mod36');
+    assert.equal(sm25c.MODULE_SCRIPT_VER, 'mod37');
     const pubFull = sm25c.publicCallTrackingPayload(db, 2511);
     assert.equal(pubFull.configured, true);
     assert.equal(pubFull.display_number, '+16105550199', 'button number = the Twilio tracking number (text + tel target)');

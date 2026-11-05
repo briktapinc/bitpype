@@ -18,7 +18,7 @@ const FIELD_TYPES = ['text', 'email', 'tel', 'phone', 'textarea', 'select', 'dat
 const MANAGED_ATTR = 'data-bitpype-managed';
 const EMBED_TOKEN_ATTR = 'data-bitpype-form-embed';
 const SCRIPT_ATTR = 'data-bitpype-form-script';
-const FORM_SCRIPT_VER = 'form9';
+const FORM_SCRIPT_VER = 'form10';
 const HAND_ROLLED_FORM_WARNING =
   'Hand-rolled forms are not allowed — use the contact_form module, an existing form module, or create one with forms.create.';
 

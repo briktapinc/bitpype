@@ -148,7 +148,7 @@ let db;
     n++;
     assert.equal(
       sm.MODULE_SCRIPT_VER,
-      'mod36',
+      'mod37',
       'embed script version bumped for the QR renderer (Batch 128 finisher rotation: mod30 + 1)'
     );
     n++;
