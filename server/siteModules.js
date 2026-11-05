@@ -2112,7 +2112,7 @@ function detailExportContext(db, leadId) {
       // platform's Pages deployments, real files always serve.
       const items = [];
       try {
-        const payload = getPublicModuleByToken(db, lid, row.public_token, {});
+        const payload = getPublicModuleByToken(db, row.public_token, {});
         if (payload && !payload.locked && Array.isArray(payload.items)) {
           const seen = new Set();
           for (const it of payload.items) {
