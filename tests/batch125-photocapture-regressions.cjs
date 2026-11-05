@@ -115,7 +115,7 @@ let db;
     assert.equal(sm.MODULE_META.photocapture.label, 'Photo Capture');
     assert.equal(
       sm.MODULE_SCRIPT_VER,
-      'mod38',
+      'mod39',
       'embed script version bumped for the capture renderer (Batch 127 finisher rotation)'
     );
     n += 4;

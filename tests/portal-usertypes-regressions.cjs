@@ -217,7 +217,7 @@ async function main() {
     check('/me owner: all 15 tabs', me.client.visibleTabs.length === 15);
     check('/me owner: all 29 modules', me.client.visibleModules.length === 29);
     let mods = (await json(await get(portalJar, '/api/v1/portal/modules'))).data;
-    check('owner module list = 28', Array.isArray(mods.modules) && mods.modules.length === 28);
+    check('owner module list = 29', Array.isArray(mods.modules) && mods.modules.length === 29);
     const userId = me.client.id;
 
     // ---- admin surface ----
