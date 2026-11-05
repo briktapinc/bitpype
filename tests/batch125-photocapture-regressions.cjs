@@ -133,8 +133,8 @@ let db;
     const providers = sm.MODULE_TYPES.filter((t) => share.SHARE_REGISTRY[t].kind === 'provider');
     assert.equal(
       providers.length,
-      19,
-      '19 providers after categories (Batch 124) + photocapture + qrcode (Batch 126 finisher)'
+      20,
+      '20 providers after categories (Batch 124) + photocapture + qrcode (Batch 126 finisher) + pricing (Batch 139)'
     );
     n += 3;
 
