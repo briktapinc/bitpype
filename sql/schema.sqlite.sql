@@ -316,7 +316,7 @@ CREATE TABLE IF NOT EXISTS credit_ledger (
   ref_id TEXT,
   stripe_checkout_session_id TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(stripe_checkout_session_id)
+  UNIQUE(workspace_id, stripe_checkout_session_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_credit_ledger_ws ON credit_ledger(workspace_id, id DESC);

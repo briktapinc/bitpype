@@ -407,7 +407,7 @@ async function migrate() {
         ref_id TEXT,
         stripe_checkout_session_id TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        UNIQUE(stripe_checkout_session_id)
+        UNIQUE(workspace_id, stripe_checkout_session_id)
       );
       CREATE INDEX IF NOT EXISTS idx_credit_ledger_ws ON credit_ledger(workspace_id, id DESC);
       CREATE TABLE IF NOT EXISTS portal_referrals (
@@ -439,7 +439,9 @@ async function migrate() {
       CREATE TABLE IF NOT EXISTS stripe_events (
         event_id TEXT NOT NULL PRIMARY KEY,
         type TEXT NOT NULL DEFAULT '',
-        processed_at TEXT NOT NULL DEFAULT (datetime('now'))
+        processed_at TEXT NOT NULL DEFAULT (datetime('now')),
+        claimed_at TEXT,
+        completed_at TEXT
       );
       CREATE TABLE IF NOT EXISTS signup_plan_choices (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -633,6 +635,65 @@ async function migrate() {
       require('../src/aiProvider').ensureAiUsageProvider(db);
     } catch {
       /* table may not exist on a bare schema */
+    }
+    // Batch 145 (external review F12): stripe_events claim lease —
+    // claimed_at / completed_at distinguish "claimed, maybe crashed"
+    // from "processed" so a stale claim is reclaimable.
+    try {
+      ensureColumnSqlite(db, 'stripe_events', 'claimed_at', 'TEXT');
+      ensureColumnSqlite(db, 'stripe_events', 'completed_at', 'TEXT');
+    } catch {
+      /* table may not exist on a bare schema */
+    }
+    // Batch 145 (external review F04): credit idempotency is
+    // workspace-scoped. An existing table carries the old GLOBAL
+    // UNIQUE(stripe_checkout_session_id) as a table-level autoindex,
+    // which SQLite cannot drop — rebuild the table with the
+    // composite constraint. Existing rows cannot violate the new
+    // constraint (the old one was strictly stronger), so the copy
+    // is lossless.
+    try {
+      const idxList = db.prepare('PRAGMA index_list(credit_ledger)').all();
+      let needsRebuild = false;
+      for (const ix of idxList) {
+        if (!ix.unique) continue;
+        const cols = db
+          .prepare(`PRAGMA index_info("${String(ix.name).replace(/"/g, '""')}")`)
+          .all()
+          .map((c) => c.name);
+        if (cols.length === 1 && cols[0] === 'stripe_checkout_session_id') needsRebuild = true;
+      }
+      if (needsRebuild) {
+        db.exec(`
+          BEGIN;
+          CREATE TABLE credit_ledger_b145 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            workspace_id INTEGER NOT NULL,
+            user_id INTEGER,
+            delta INTEGER NOT NULL,
+            balance_after INTEGER NOT NULL,
+            reason TEXT NOT NULL DEFAULT '',
+            ref_type TEXT,
+            ref_id TEXT,
+            stripe_checkout_session_id TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(workspace_id, stripe_checkout_session_id)
+          );
+          INSERT INTO credit_ledger_b145 (id, workspace_id, user_id, delta, balance_after, reason, ref_type, ref_id, stripe_checkout_session_id, created_at)
+            SELECT id, workspace_id, user_id, delta, balance_after, reason, ref_type, ref_id, stripe_checkout_session_id, created_at FROM credit_ledger;
+          DROP TABLE credit_ledger;
+          ALTER TABLE credit_ledger_b145 RENAME TO credit_ledger;
+          CREATE INDEX IF NOT EXISTS idx_credit_ledger_ws ON credit_ledger(workspace_id, id DESC);
+          COMMIT;
+        `);
+      }
+    } catch {
+      /* a failed rebuild leaves the old table untouched (BEGIN/COMMIT) */
+      try {
+        db.exec('ROLLBACK');
+      } catch {
+        /* no transaction open */
+      }
     }
     await require('./oauthTokenPolicy').backfill(query);
     return;
@@ -904,7 +965,7 @@ async function migrate() {
         ref_id VARCHAR(80) NULL,
         stripe_checkout_session_id VARCHAR(120) NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE KEY uq_credit_ledger_session (stripe_checkout_session_id),
+        UNIQUE KEY uq_credit_ledger_session (workspace_id, stripe_checkout_session_id),
         KEY idx_credit_ledger_ws (workspace_id, id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
@@ -941,6 +1002,8 @@ async function migrate() {
         event_id VARCHAR(120) NOT NULL PRIMARY KEY,
         type VARCHAR(80) NOT NULL DEFAULT '',
         processed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        claimed_at DATETIME NULL,
+        completed_at DATETIME NULL,
         KEY idx_stripe_events_type (type)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
@@ -1105,6 +1168,30 @@ async function migrate() {
         KEY idx_wp_site_links_ws (workspace_id, id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
+    // Batch 145 (external review F12): stripe_events claim lease.
+    await ensureColumnMysql(conn, 'stripe_events', 'claimed_at', 'DATETIME NULL');
+    await ensureColumnMysql(conn, 'stripe_events', 'completed_at', 'DATETIME NULL');
+    // Batch 145 (external review F04): credit idempotency becomes
+    // workspace-scoped — swap the single-column unique key for the
+    // composite (workspace_id, stripe_checkout_session_id). Existing
+    // rows cannot violate the composite key (the old key was
+    // strictly stronger), so the swap is lossless.
+    try {
+      const [idxCols] = await conn.query(
+        `SELECT COLUMN_NAME FROM information_schema.STATISTICS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'credit_ledger'
+            AND INDEX_NAME = 'uq_credit_ledger_session'
+          ORDER BY SEQ_IN_INDEX`
+      );
+      if (idxCols.length === 1 && idxCols[0].COLUMN_NAME === 'stripe_checkout_session_id') {
+        await conn.query(
+          'ALTER TABLE credit_ledger DROP INDEX uq_credit_ledger_session, ' +
+            'ADD UNIQUE KEY uq_credit_ledger_session (workspace_id, stripe_checkout_session_id)'
+        );
+      }
+    } catch {
+      /* index already composite or table absent — fresh CREATEs cover both */
+    }
   });
   await require('./oauthTokenPolicy').backfill(query);
 }

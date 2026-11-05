@@ -118,10 +118,14 @@ async function generatePostBrandedImage(workspaceId, leadId, postId, clientEmail
   const imageCost = included ? 0 : cfg.perImage;
   let spendResult = null;
   if (imageCost > 0) {
+    // Batch 145 (external review F03): per-call unique idempotency
+    // key — a fresh generation is a new purchase, never a retry of
+    // the first generation for this post.
     spendResult = await creditMod.spend(workspaceId, imageCost, {
       reason: 'social_branded_image',
       refType: 'social_post',
       refId: String(postId),
+      idempotencyKey: `gen:social_branded_image:${require('crypto').randomUUID()}`,
     });
   }
   try {
@@ -143,12 +147,16 @@ async function generatePostBrandedImage(workspaceId, leadId, postId, clientEmail
       credits_balance: spendResult ? spendResult.balance : await creditMod.getBalance(workspaceId),
     };
   } catch (e) {
-    if (imageCost > 0) {
+    // Batch 145 (external review F05): refund only a spend that
+    // actually debited, keyed refund:<spend key> so a repeat failure
+    // can never re-grant.
+    if (imageCost > 0 && spendResult && !spendResult.duplicate && spendResult.idempotencyKey) {
       try {
         await creditMod.grant(workspaceId, imageCost, {
           reason: 'refund_failed_image',
           refType: 'social_post',
           refId: String(postId),
+          idempotencyKey: `refund:${spendResult.idempotencyKey}`,
         });
       } catch (re) {
         console.warn('[credits] refund after failed image:', re.message);

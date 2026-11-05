@@ -97,23 +97,33 @@ async function applyDelta(
       ? String(idempotencyKey).trim()
       : null;
 
+  // Batch 145 (external review F04): idempotency is WORKSPACE-scoped.
+  // The pre-check must only ever see this workspace's own rows — the
+  // old global lookup returned another workspace's balance_after to
+  // an unrelated customer whose derived key happened to collide.
   if (sessionKey) {
     const existing = await query(
-      'SELECT id, balance_after FROM credit_ledger WHERE stripe_checkout_session_id = :sid LIMIT 1',
-      { sid: sessionKey }
+      'SELECT id, balance_after FROM credit_ledger WHERE workspace_id = :wid AND stripe_checkout_session_id = :sid LIMIT 1',
+      { wid, sid: sessionKey }
     );
     if (existing[0]) {
       return {
         balance: Number(existing[0].balance_after) || 0,
         ledgerId: existing[0].id,
         duplicate: true,
+        idempotencyKey: sessionKey,
       };
     }
   }
 
   return withConnection(async (conn) => {
     if (driver() === 'sqlite') {
-      await conn.query('BEGIN IMMEDIATE');
+      // Batch 145 (external review F15): the depth-counted
+      // beginTransaction() — the old raw conn.query('BEGIN
+      // IMMEDIATE') bypassed the counter, so commit() no-opped and
+      // the transaction stayed open (next op failed, exit rolled
+      // the "successful" grant back).
+      await conn.beginTransaction();
     } else {
       await conn.beginTransaction();
     }
@@ -175,6 +185,7 @@ async function applyDelta(
           balance: next,
           ledgerId: info[0] && info[0].insertId,
           duplicate: false,
+          idempotencyKey: sessionKey,
         };
       }
 
@@ -202,6 +213,7 @@ async function applyDelta(
         balance: next,
         ledgerId: result.insertId,
         duplicate: false,
+        idempotencyKey: sessionKey,
       };
     } catch (e) {
       try {
@@ -211,15 +223,19 @@ async function applyDelta(
       }
       if (e.code === 'ER_DUP_ENTRY' || /unique|duplicate/i.test(String(e.message || ''))) {
         if (sessionKey) {
+          // Batch 145 (F04): workspace-scoped here too — a composite
+          // (workspace_id, key) conflict is the only duplicate this
+          // caller may legitimately observe.
           const existing = await query(
-            'SELECT id, balance_after FROM credit_ledger WHERE stripe_checkout_session_id = :sid LIMIT 1',
-            { sid: sessionKey }
+            'SELECT id, balance_after FROM credit_ledger WHERE workspace_id = :wid AND stripe_checkout_session_id = :sid LIMIT 1',
+            { wid, sid: sessionKey }
           );
           if (existing[0]) {
             return {
               balance: Number(existing[0].balance_after) || 0,
               ledgerId: existing[0].id,
               duplicate: true,
+              idempotencyKey: sessionKey,
             };
           }
         }

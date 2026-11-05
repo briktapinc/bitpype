@@ -392,7 +392,7 @@ CREATE TABLE IF NOT EXISTS credit_ledger (
   ref_id VARCHAR(80) NULL,
   stripe_checkout_session_id VARCHAR(120) NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_credit_ledger_session (stripe_checkout_session_id),
+  UNIQUE KEY uq_credit_ledger_session (workspace_id, stripe_checkout_session_id),
   KEY idx_credit_ledger_ws (workspace_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -427,6 +427,8 @@ CREATE TABLE IF NOT EXISTS stripe_events (
   event_id VARCHAR(120) NOT NULL PRIMARY KEY,
   type VARCHAR(80) NOT NULL DEFAULT '',
   processed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  claimed_at DATETIME NULL,
+  completed_at DATETIME NULL,
   KEY idx_stripe_events_type (type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

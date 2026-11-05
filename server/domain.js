@@ -5063,11 +5063,14 @@ async function socialGenerateMonth(workspaceId, body) {
   const contentCost = cfg.perContent;
   let spendResult = null;
   if (contentCost > 0) {
+    // Batch 145 (external review F03): per-call unique idempotency
+    // key — each content generation is a new purchase.
     spendResult = await creditMod.spend(workspaceId, contentCost, {
       reason: 'social_content',
       refType: 'social_generate',
       refId: body && body.leadId != null ? String(body.leadId) : null,
       userId: body && body.userId != null ? body.userId : null,
+      idempotencyKey: `gen:social_content:${require('crypto').randomUUID()}`,
     });
   }
   try {
@@ -5078,12 +5081,15 @@ async function socialGenerateMonth(workspaceId, body) {
       credits_balance: spendResult ? spendResult.balance : await creditMod.getBalance(workspaceId),
     };
   } catch (e) {
-    if (contentCost > 0) {
+    // Batch 145 (external review F05): refund only a spend that
+    // actually debited, keyed refund:<spend key>.
+    if (contentCost > 0 && spendResult && !spendResult.duplicate && spendResult.idempotencyKey) {
       try {
         await creditMod.grant(workspaceId, contentCost, {
           reason: 'refund_failed_content',
           refType: 'social_generate',
           refId: body && body.leadId != null ? String(body.leadId) : null,
+          idempotencyKey: `refund:${spendResult.idempotencyKey}`,
         });
       } catch (re) {
         console.warn('[credits] refund after failed staff content:', re.message);

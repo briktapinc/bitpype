@@ -1272,10 +1272,15 @@ async function generateClientSiteImage(workspaceId, leadId, payload = {}, client
 
   let spendResult = null;
   if (imageCost > 0) {
+    // Batch 145 (external review F03): every generation is a NEW
+    // purchase — it gets a per-call unique idempotency key, never
+    // the derived reason+ref key (which made every repeat generation
+    // for this lead a permanent "duplicate" that was never charged).
     spendResult = await creditMod.spend(workspaceId, imageCost, {
       reason: 'portal_site_image',
       refType: 'website',
       refId: String(leadId),
+      idempotencyKey: `gen:portal_site_image:${require('crypto').randomUUID()}`,
     });
   }
 
@@ -1325,12 +1330,17 @@ async function generateClientSiteImage(workspaceId, leadId, payload = {}, client
       plan: planId,
     };
   } catch (e) {
-    if (imageCost > 0) {
+    // Batch 145 (external review F05): refund ONLY a spend that
+    // actually debited, keyed to that spend — a duplicate spend
+    // debited nothing, and an unkeyed grant minted fresh credits on
+    // every repeated failure.
+    if (imageCost > 0 && spendResult && !spendResult.duplicate && spendResult.idempotencyKey) {
       try {
         await creditMod.grant(workspaceId, imageCost, {
           reason: 'refund_failed_portal_site_image',
           refType: 'website',
           refId: String(leadId),
+          idempotencyKey: `refund:${spendResult.idempotencyKey}`,
         });
       } catch (re) {
         console.warn('[credits] refund after failed portal site image:', re.message);
