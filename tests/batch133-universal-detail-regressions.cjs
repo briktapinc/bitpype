@@ -146,20 +146,20 @@ async function json(res) {
     assert.ok(engineSrc.includes('function buildDetailPage(pages, theme, opts)'), 'export builds the detail page');
     n++;
     assert.ok(
-      engineSrc.includes("'/detail/* /detail 200'") ||
-        engineSrc.includes('`/detail/* /detail 200`') ||
-        engineSrc.includes("'/detail/* /detail 200'"),
+      engineSrc.includes("'/detail/* /item 200'") ||
+        engineSrc.includes('`/detail/* /item 200`') ||
+        engineSrc.includes("'/detail/* /item 200'"),
       'redirects carry the detail rewrite'
     );
     n++;
     assert.ok(
-      engineSrc.includes("'/detail/* /detail 200'") || engineSrc.includes('/detail/* /detail 200'),
+      engineSrc.includes("'/detail/* /item 200'") || engineSrc.includes('/detail/* /item 200'),
       'detail rewrite line present'
     );
     n++;
     assert.ok(engineSrc.includes('function injectDetailMeta(html)'), 'export stamps detail-enabled pages');
     n++;
-    assert.ok(engineSrc.includes("path.join(outDir, 'detail.html')"), 'export writes detail.html');
+    assert.ok(engineSrc.includes("path.join(outDir, 'item.html')"), 'export writes item.html (the detail shell)');
     n++;
     assert.ok(
       engineSrc.includes('mods.detailExportContext(db, lead.id)'),
@@ -398,9 +398,9 @@ async function json(res) {
       },
       siteUpdatedAt: '2026-11-04T00:00:00.000Z',
     });
-    assert.ok(written.files.includes('detail.html'), 'export ships detail.html');
+    assert.ok(written.files.includes('item.html'), 'export ships item.html (the detail shell)');
     n++;
-    const detailHtml = fs.readFileSync(path.join(outDir, 'detail.html'), 'utf8');
+    const detailHtml = fs.readFileSync(path.join(outDir, 'item.html'), 'utf8');
     assert.ok(detailHtml.includes('data-bitpype-detail-root="1"'), 'detail.html carries the detail root');
     n++;
     assert.ok(detailHtml.includes(shopToken), 'detail.html config carries the shop token');
@@ -414,7 +414,7 @@ async function json(res) {
     n++;
     const redirects = fs.readFileSync(path.join(outDir, '_redirects'), 'utf8');
     assert.ok(
-      redirects.includes('/detail/* /detail 200'),
+      redirects.includes('/detail/* /item 200'),
       '_redirects rewrites detail URLs to the detail page (extensionless target)'
     );
     n++;

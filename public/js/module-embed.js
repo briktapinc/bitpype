@@ -5171,7 +5171,7 @@
   }
 
   /* ── Batch 133 — universal detail page ──
-   * The exported detail.html carries ONE detail root + a JSON config
+   * The exported item.html (detail shell) carries ONE detail root + a JSON config
    * (type → public embed token + list page). The URL names exactly
    * ONE typed target — /detail/<type>/<key> — so the Batch 130
    * cross-embed ?bpItem= ambiguity cannot occur here: resolution goes

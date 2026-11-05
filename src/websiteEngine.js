@@ -4297,14 +4297,15 @@ function buildRedirects(pages) {
   // Batch 133: the universal detail page — every /detail/<type>/<key>
   // URL rewrites (200, URL preserved) to the one exported detail
   // page, which reads its ONE typed target out of the path. The
-  // target is the EXTENSIONLESS /detail: Pages canonicalizes
-  // /detail.html -> /detail with a 308 and rewrites do not chain
-  // through redirects (Batch 133 finisher: the .html target 404'd
-  // every detail URL on the first live preview while /detail itself
-  // served 200). Cloudflare Pages serves real files first, so
-  // authored pages and the static blog post pages are never
-  // shadowed by the splat.
-  const lines = ['/detail/* /detail 200'];
+  // target is the shell's own file OUTSIDE the splat tree
+  // (item.html, served at /item): both in-tree targets were
+  // silently ignored by Pages on the first live previews
+  // (Batch 133 finisher) — /detail.html canonicalizes to /detail
+  // with a 308 that rewrites do not chain through, and a target
+  // under the source prefix reads as a rewrite loop. Cloudflare
+  // Pages serves real files first, so authored pages and the
+  // static blog post pages are never shadowed by the splat.
+  const lines = ['/detail/* /item 200'];
   for (const p of Array.isArray(pages) ? pages : []) {
     if (!p || isHomePage(p, pages)) continue;
     const legacy = legacyPageFileName(p.slug);
@@ -4361,7 +4362,7 @@ function build404Page(pages, theme, opts) {
 /* ------------------------------------------------------------------ */
 /* Universal detail page (Batch 133)                                   */
 /*                                                                     */
-/* Every export ships ONE detail.html: a themed shell (site chrome     */
+/* Every export ships ONE item.html: a themed shell (site chrome     */
 /* like the 404 page) carrying a detail root + a JSON config mapping   */
 /* each detail-capable module type to its public embed token and its   */
 /* list page. Cloudflare Pages rewrites /detail/<type>/<key> to this   */
@@ -7568,10 +7569,10 @@ function writeStaticPages(pages, theme, outDir, opts) {
   }
   // Batch 133: every export ships the universal detail page shell.
   try {
-    fs.writeFileSync(path.join(outDir, 'detail.html'), buildDetailPage(pages, theme, opts || {}), 'utf8');
-    if (!written.includes('detail.html')) written.push('detail.html');
+    fs.writeFileSync(path.join(outDir, 'item.html'), buildDetailPage(pages, theme, opts || {}), 'utf8');
+    if (!written.includes('item.html')) written.push('item.html');
   } catch (e) {
-    console.warn('[websiteEngine] detail.html emit:', e.message || e);
+    console.warn('[websiteEngine] item.html emit:', e.message || e);
   }
   try {
     fs.writeFileSync(
@@ -7932,7 +7933,7 @@ function buildSeoExportContext(db, websiteId, opts = {}) {
       }
       // Batch 133: the universal detail page's context — for every
       // detail-capable module type on this lead, the public embed
-      // token the exported detail.html resolves items through and the
+      // token the exported item.html (detail shell) resolves items through and the
       // page its list lives on. Additive like the blog context.
       try {
         const mods = require('../server/siteModules');

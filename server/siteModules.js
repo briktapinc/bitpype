@@ -2061,7 +2061,7 @@ function deleteModule(db, leadId, moduleType) {
 /* Batch 133 — UNIVERSAL DETAIL PAGE.                                  */
 /*                                                                     */
 /* One generic detail page (/detail/<type>/<key>, exported as         */
-/* detail.html) serves EVERY module item: the page is handed an item  */
+/* item.html) serves EVERY module item: the page is handed an item    */
 /* through the public item path and renders that type's detail        */
 /* layout — it never cares which module served it (Ely, 2026-11-04:   */
 /* "a checkout page that takes whatever module is served to it as     */
