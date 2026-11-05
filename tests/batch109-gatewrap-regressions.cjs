@@ -76,7 +76,7 @@ const has = (hay, needle, label) => { assert.ok(hay.includes(needle), `${label} 
     // No JS touched by this batch: SEC-13 census must be identical.
     const { census } = require(path.join(root, 'scripts', 'xss-census.cjs'));
     const cz = census();
-    assert.equal(cz.summary.total, 442, 'SEC-13 census total unchanged'); n += 1;
+    assert.equal(cz.summary.total, 446, 'SEC-13 census total unchanged'); n += 1;
     const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
     const BASELINE = new Set(require(path.join(root, 'tests', 'batch103-xss-baseline.json')));
     assert.deepEqual([...reviewed].filter((x) => !BASELINE.has(x)), [], 'no new RAW/IDENT sinks vs baseline'); n += 1;

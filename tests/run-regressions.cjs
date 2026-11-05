@@ -143,6 +143,7 @@ const checks = [
   'batch147-section-editor-regressions',
   'batch148-section-layout-knobs-regressions',
   'batch149-save-idempotency-regressions',
+  'batch138-voice-agent-regressions',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');

@@ -265,23 +265,28 @@ function bookingPitchBlock(db, leadId) {
 /**
  * BATCH 137 SEAM — owner qualifying questions. Batch 137 stores the
  * owner's own questions on the chatbot settings (settings_json extras,
- * surfaced by getSettings). When present and enabled, they are
- * composed here VERBATIM — the voice agent asks the owner's words,
- * never invented screening questions — and answers come back through
- * the record_qualification_answer tool. On the pre-137 base there are
- * no such keys and this returns ''.
+ * surfaced by getSettings) and gates them through
+ * chatbot.qualifyingFor — the SAME reader the text chat composes
+ * with: the feature speaks only when the owner enabled it AND the
+ * list is non-empty. When active, the questions are composed here
+ * VERBATIM — the voice agent asks the owner's words, never invented
+ * screening questions — and answers come back through the
+ * record_qualification_answer tool.
+ *
+ * Finisher rebase note (Batch 149 tip): the parked build read the
+ * settings leniently (questions present = on). The landed 137 gate
+ * wins — voice must never ask questions the owner switched off —
+ * so this block composes through qualifyingFor exactly like text.
  */
-function qualifyingQuestionsBlock(settings) {
-  const s = settings || {};
-  if (s.qualifying_enabled === false || s.qualifying_questions_enabled === false) return '';
-  const raw = s.qualifying_questions || s.qualification_questions || null;
-  if (!Array.isArray(raw) || !raw.length) return '';
-  const questions = raw
-    .map((q) => (typeof q === 'string' ? q : q && (q.question || q.text) ? String(q.question || q.text) : ''))
-    .map((q) => q.trim())
-    .filter(Boolean)
-    .slice(0, 8);
-  if (!questions.length) return '';
+function qualifyingQuestionsBlock(db, leadId) {
+  let cfg = null;
+  try {
+    cfg = typeof chatbot.qualifyingFor === 'function' ? chatbot.qualifyingFor(db, Number(leadId)) : null;
+  } catch {
+    cfg = null;
+  }
+  if (!cfg || !Array.isArray(cfg.questions) || !cfg.questions.length) return '';
+  const questions = cfg.questions.slice(0, 6);
   return [
     'Qualifying questions from the business owner — weave these into the conversation naturally, one at a time, only when relevant; skip any the visitor already answered; never let them block help or booking:',
     ...questions.map((q, i) => `${i + 1}. ${q}`),
@@ -309,7 +314,7 @@ function buildVoiceInstructions(db, leadId) {
   ];
   const pitch = bookingPitchBlock(db, leadId);
   if (pitch) blocks.push(pitch);
-  const qualifying = qualifyingQuestionsBlock(ctx.settings);
+  const qualifying = qualifyingQuestionsBlock(db, leadId);
   if (qualifying) blocks.push(qualifying);
   blocks.push(
     [
@@ -517,20 +522,33 @@ function getVoiceSessionForRelay(db, token, sessionId, relaySecret) {
 /* ── Tool relay ───────────────────────────────────────────────────── */
 
 /**
- * BATCH 137 SEAM — qualification answers. When Batch 137's structured
- * recorder exists on chatbot (recordQualificationAnswer), the answer
- * lands there (question text snapshotted on the session, shown in the
- * portal inbox). On the pre-137 base the answer is preserved as a
+ * BATCH 137 SEAM — qualification answers. When the feature is active
+ * for this lead, the answer lands in Batch 137's structured record
+ * (chatbot.recordQualificationUpdates — question text matched against
+ * the session's snapshot, shown in the portal inbox exactly like a
+ * text-chat answer). Either way the answer is ALSO preserved as a
  * system transcript note with the question + answer in meta, so the
- * owner still sees exactly how the visitor qualified.
+ * saved voice conversation itself shows how the visitor qualified.
+ *
+ * Finisher rebase note (Batch 149 tip): the parked build probed for
+ * a hypothetical chatbot.recordQualificationAnswer that the landed
+ * 137 never shipped; the real recorder is recordQualificationUpdates.
  */
 function recordQualificationAnswer(db, leadId, sessionRow, { question, answer } = {}) {
   const q = String(question || '').trim().slice(0, 500);
   const ans = String(answer || '').trim().slice(0, 2000);
   if (!q || !ans) return { ok: false, error: 'question and answer are required' };
-  if (typeof chatbot.recordQualificationAnswer === 'function') {
-    chatbot.recordQualificationAnswer(db, Number(leadId), sessionRow.id, { question: q, answer: ans });
-    return { ok: true, recorded: true };
+  let structured = false;
+  try {
+    const cfg = typeof chatbot.qualifyingFor === 'function' ? chatbot.qualifyingFor(db, Number(leadId)) : null;
+    if (cfg && typeof chatbot.recordQualificationUpdates === 'function') {
+      const rec = chatbot.recordQualificationUpdates(db, Number(leadId), sessionRow.id, [
+        { question: q, status: 'answered', answer: ans },
+      ]);
+      structured = !!(rec && rec.applied > 0);
+    }
+  } catch {
+    structured = false;
   }
   chatbot.addMessage(db, sessionRow.id, Number(leadId), 'system', `Qualifying question — ${q}\nAnswer: ${ans}`, {
     source: 'voice',
@@ -538,7 +556,7 @@ function recordQualificationAnswer(db, leadId, sessionRow, { question, answer } 
     question: q,
     answer: ans,
   });
-  return { ok: true, recorded: true, via: 'transcript_note' };
+  return { ok: true, recorded: true, structured };
 }
 
 /**

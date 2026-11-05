@@ -286,6 +286,7 @@ function makeJar() {
     {
       const row = dbA.prepare('SELECT settings_json FROM chatbot_settings WHERE lead_id = ?').get(LEAD_A);
       const extras = JSON.parse(row.settings_json || '{}');
+      extras.qualifying_enabled = true;
       extras.qualifying_questions = ['What size is your piano?'];
       dbA
         .prepare("UPDATE chatbot_settings SET settings_json = ? WHERE lead_id = ?")

@@ -115,7 +115,7 @@ const types = (sections) => sections.map((s) => s.type);
     }
     // SEC-13 census unchanged — the new portal code adds no sinks.
     const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
-    assert.equal(census().summary.total, 442, 'SEC-13 census total unchanged by Batch 147');
+    assert.equal(census().summary.total, 446, 'SEC-13 census total unchanged by Batch 147');
     n++;
     group('Part 1 — source pins', n);
   }

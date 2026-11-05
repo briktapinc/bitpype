@@ -28,6 +28,7 @@ function build(file,known=true){
  '../billing':{workspacePlan:async()=> 'free'},'../appUrls':{socialReturnPath:()=>'/app#/social'},
  '../contactForms':{parseWorkspaceFromToken:t=>Number(String(t).split('_')[0]),getPublicFormByToken:()=>({}),acceptSubmission:async()=>({})},
  '../chatbot':{getPublicConfigByToken:()=>({embed:{lead_id:2},settings:{}}),startOrGetSession:()=>({}),publicSession:()=>({}),postVisitorMessage:()=>({}),getSessionHistory:()=>({}),captureLead:()=>({})},
+ '../chatbotVoice':{publicVoiceAdvertisement:async()=>({enabled:false}),mintVoiceSession:async()=>({}),relayVoiceToolCall:()=>({result:{ok:true}}),appendVoiceTranscript:()=>({}),readVoiceBubbleImage:()=>({mime:'image/png',buffer:Buffer.from('fixture')})},
  '../newsletter':{subscribeByToken:()=>({added:false,subscriberId:null,message:'fixture'})},
  '../comments':{createPublicComment:()=>({message:'fixture',status:'pending',comment:{id:1},thread:null}),togglePublicLike:()=>({liked:true,count:1,target_type:'page',target_id:'fixture'}),publicLikeState:()=>({item_liked:false,liked_comment_ids:[]})},
  '../captcha':{requireCaptcha:()=>((_q,_s,n)=>n()),getCaptchaConfig:async()=>({}),clientIp:()=> 'fixture'},
@@ -36,7 +37,7 @@ function build(file,known=true){
  return {routes,rates,counts:()=>({calls,authCalls})};
 }
 async function invoke(b,route,req){
- let status=200,body;const res={status(n){status=n;return this},json(v){body=v;return this},send(v){body=v;return this},redirect(v){body=v;return this}};
+ let status=200,body;const res={status(n){status=n;return this},json(v){body=v;return this},send(v){body=v;return this},redirect(v){body=v;return this},setHeader(){return this}};
  for(const h of route.handlers){let next=false;await h(req,res,()=>{next=true});if(!next)break}
  return {status,body};
 }
@@ -52,7 +53,12 @@ async function main(){
    for(const route of routes){
     const before=b.counts().calls;const r=await invoke(b,route,request(file,1));
     assert.equal(r.status,known?200:404,file+' '+route.m+' '+route.p);
-    assert.equal(b.counts().calls-before,known?1:0);
+    // Batch 138: the chatbot config route reads the config AND the voice
+    // advertisement — two withDb calls, both AFTER workspace validation
+    // (the invariant this suite guards is unchanged: unknown workspace
+    // still reaches domain zero times).
+    const expectedCalls=known?(file.endsWith('chatbotPublic.js')&&route.m==='get'&&route.p==='/:token'?2:1):0;
+    assert.equal(b.counts().calls-before,expectedCalls);
    }
    assert(b.rates.some(r=>r.windowMs===60000),'missing public read limiter');
   }

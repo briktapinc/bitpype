@@ -237,7 +237,10 @@ if (NEGATIVE) {
         const src = fs.readFileSync(f, 'utf8');
         for (const m of src.matchAll(/INSERT INTO ai_usage \(([^)]*)\)/g)) inserts.push([path.relative(root, f), m[1]]);
       }
-      assert.equal(inserts.length, 4, `expected exactly 4 insert sites, found ${inserts.length}`);
+      // Batch 138 finisher: 4 -> 5 — the voice agent's per-session
+      // metering insert in server/chatbotVoice.js (task 'chatbot.voice',
+      // provider 'openai', same column shape as every other site).
+      assert.equal(inserts.length, 5, `expected exactly 5 insert sites, found ${inserts.length}`);
       for (const [f, cols] of inserts) assert.ok(cols.includes('provider'), `${f} insert must list provider`);
     });
     n += 5;
@@ -381,12 +384,12 @@ if (NEGATIVE) {
     check('SEC-13 census unchanged by Batch 106 (totals + baseline)', () => {
       const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
       const cz = census();
-      assert.equal(cz.summary.total, 442, 'sink census total pinned');
-      assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 331, 'safe classes pinned (Batch 136 finisher: +2 audited STATIC sinks in module-embed.js — the booking price-summary clear + esc()-wrapped build; 328 -> 330, census 439 -> 441, RAW/IDENT unchanged; Batch 137 finisher: +1 audited SAFE sink in portal.js (qualifying-question rows render — numeric indices + esc()-wrapped question text), census 441 -> 442, SAFE 73 -> 74, reviewed RAW/IDENT content unchanged (12 portal.js positions shifted +127, pure line movement, snippet-verified))');
+      assert.equal(cz.summary.total, 446, 'sink census total pinned');
+      assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 333, 'safe classes pinned (Batch 136 finisher: +2 audited STATIC sinks in module-embed.js — the booking price-summary clear + esc()-wrapped build; 328 -> 330, census 439 -> 441, RAW/IDENT unchanged; Batch 137 finisher: +1 audited SAFE sink in portal.js (qualifying-question rows render — numeric indices + esc()-wrapped question text), census 441 -> 442, SAFE 73 -> 74, reviewed RAW/IDENT content unchanged (12 portal.js positions shifted +127, pure line movement, snippet-verified; Batch 138 finisher: census 442 -> 446 — +3 audited STATIC + 1 IDENT (micSvg(), a constant SVG string) in chat-embed.js for the voice panel, and one portal.js inbox sink reclassified SAFE -> RAW by the conservative classifier after gaining the ${voiceHtml} interpolation (audited: voiceHtml is composed only of esc()-wrapped values, duration arithmetic and fixed close-state words — no visitor-controlled string reaches it unescaped); RAW 76 -> 77, IDENT 35 -> 36, SAFE 74 -> 73, STATIC 158 -> 161, safe classes 331 -> 333; (file,kind,snippet) multiset diff vs the Batch 149 base = exactly these deltas plus pure line movement in portal.js/chat-embed.js; baseline regenerated)');
       const reviewed = new Set(
         cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`)
       );
-      assert.equal(reviewed.size, 111, 'reviewed set size pinned');
+      assert.equal(reviewed.size, 113, 'reviewed set size pinned (Batch 138 finisher: 111 -> 113 — the chat-embed micSvg IDENT + the reclassified portal inbox RAW; see the census narrative above)');
       const BASELINE = new Set(require(path.join(root, 'tests/batch103-xss-baseline.json')));
       assert.deepEqual([...reviewed].filter((x) => !BASELINE.has(x)), [], 'no new raw sinks');
       assert.deepEqual([...BASELINE].filter((x) => !reviewed.has(x)), [], 'baseline matches the reviewed set');

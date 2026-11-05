@@ -111,7 +111,7 @@ check('S4.1 clientPortal.js is a thin facade over 9 focused modules', () => {
     assert.ok(cpFacade.includes(`require('./${m}')`), `facade requires ${m}`);
   assert.ok(cpFacade.split('\n').length < 250, `facade is thin (${cpFacade.split('\n').length} lines, was 5993)`);
   const cp = require(path.join(root, 'server', 'clientPortal.js'));
-  assert.equal(Object.keys(cp).length, 153, 'facade exports the full surface (153 names; Batch 124 added saveCategoriesDisplaySettings; Batch 125 added the photo capture writes; Batch 128 added saveCheckoutConfig; Batch 131 added the four comments moderation fns; Batch 147 added the three layout-editor fns getClientLayoutEditor/buildClientLayoutSection/applyClientLayoutSave)');
+  assert.equal(Object.keys(cp).length, 156, 'facade exports the full surface (156 names; Batch 124 added saveCategoriesDisplaySettings; Batch 125 added the photo capture writes; Batch 128 added saveCheckoutConfig; Batch 131 added the four comments moderation fns; Batch 147 added the three layout-editor fns getClientLayoutEditor/buildClientLayoutSection/applyClientLayoutSave; Batch 138 finisher added the three chatbot voice-image fns saveChatbotVoiceImage/removeChatbotVoiceImage/getChatbotVoiceImage)');
   const chat = require(path.join(root, 'server', 'portalSiteChat.js'));
   assert.equal(cp.runSiteAgentChat, chat.runSiteAgentChat, 're-export identity: runSiteAgentChat');
   const edits = require(path.join(root, 'server', 'portalSiteEdits.js'));

@@ -6821,6 +6821,13 @@ async function main() {
     express: { Router: () => chatRouterR9 },
     '../domain': { withDb: (_ws, fn) => fn(db) },
     '../chatbot': chatRealR9,
+    // Batch 138: the public router also requires the voice module —
+    // load the real one against the real chatbot (its lazy deps fail
+    // soft by design, exactly as in production without a key).
+    '../chatbotVoice': load('server/chatbotVoice.js', {
+      './chatbot': chatRealR9,
+      './siteChatAttachments': {},
+    }),
     '../siteModules': smR9,
     '../rateLimit': { rateLimit: () => (_req, _res, next) => next && next() },
     '../workspaceExists': { assertWorkspaceExists: async () => {} },

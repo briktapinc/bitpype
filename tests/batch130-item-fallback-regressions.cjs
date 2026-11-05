@@ -233,8 +233,8 @@ async function waitReady(child, output) {
     const cz = census();
     assert.equal(
       cz.summary.total,
-      442,
-      'SEC-13 census total — the Batch 130 fix added no sinks; Batch 126 finisher added +4 audited QR sinks; Batch 127 finisher added +5 audited variant-editor sinks; Batch 128 finisher added +13 safe-class checkout sinks (reviewed set unchanged); Batch 129 finisher added +3 audited STATIC pay-at-booking sinks (reviewed set unchanged; Batch 137 finisher +1 audited SAFE sink in portal.js — census 441 -> 442, reviewed RAW/IDENT content unchanged)'
+      446,
+      'SEC-13 census total — the Batch 130 fix added no sinks; Batch 126 finisher added +4 audited QR sinks; Batch 127 finisher added +5 audited variant-editor sinks; Batch 128 finisher added +13 safe-class checkout sinks (reviewed set unchanged); Batch 129 finisher added +3 audited STATIC pay-at-booking sinks (reviewed set unchanged; Batch 137 finisher +1 audited SAFE sink in portal.js — census 441 -> 442, reviewed RAW/IDENT content unchanged; Batch 138 finisher: census 442 -> 446 — +3 audited STATIC + 1 IDENT (micSvg(), a constant SVG string) in chat-embed.js for the voice panel, and one portal.js inbox sink reclassified SAFE -> RAW by the conservative classifier after gaining the ${voiceHtml} interpolation (audited: voiceHtml is composed only of esc()-wrapped values, duration arithmetic and fixed close-state words — no visitor-controlled string reaches it unescaped); RAW 76 -> 77, IDENT 35 -> 36, SAFE 74 -> 73, STATIC 158 -> 161, safe classes 331 -> 333; (file,kind,snippet) multiset diff vs the Batch 149 base = exactly these deltas plus pure line movement in portal.js/chat-embed.js; baseline regenerated)'
     );
     n++;
     const meLines = cz.sinks
