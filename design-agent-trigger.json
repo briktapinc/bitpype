@@ -1,0 +1,11 @@
+{
+  "at": "2026-11-05T06:57:34.660Z",
+  "job_id": 1,
+  "session_id": null,
+  "lead_id": null,
+  "reason": "assigned",
+  "request_kind": null,
+  "status": "waiting_on_agent",
+  "message": "Design job #1 assigned (other): \"Claim Me\". Status waiting_on_agent — MCP agents: design.next or design.pending.",
+  "mcp_hint": "Call design.next or design.pending"
+}

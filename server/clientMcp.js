@@ -467,8 +467,11 @@ async function dispatchPortalTool(ws, name, a, ctx = {}) {
   const leadScoutTools = new Set(['leadscout.contacts.list', 'leadscout.contacts.get', 'leadscout.health']);
   // LeadScout can run workspace-wide without a pinned lead (ws_ tokens).
   // Client-scoped tokens still require / infer leadId for site-filtered lists.
+  // Batch 143: fonts.list joins the lead-free set — it is a static
+  // catalog (its branch below serves without a lead); the entry
+  // gate here previously made even that branch unreachable.
   let leadId = resolveLeadId(ctx, a.leadId);
-  if (!leadId && !leadScoutTools.has(name)) {
+  if (!leadId && !leadScoutTools.has(name) && name !== 'fonts.list') {
     throw new Error('leadId is required');
   }
   if (leadId) assertLeadScope(ctx, leadId);
