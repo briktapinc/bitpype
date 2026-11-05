@@ -229,13 +229,24 @@
       '.bitpype-module-embed .bp-mod-card{transition:none;}',
       '.bitpype-module-embed .bp-mod-card:hover{transform:none;}',
       '}',
-      // Batch 128 — the shared cart bar + the Checkout module surface.
-      '.bitpype-module-embed .bp-mod-cartbar{',
-      'display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;',
-      'margin-top:1rem;padding:0.8rem 1rem;border:1px solid var(--bp-mod-line);border-radius:1rem;',
-      'background:color-mix(in srgb,var(--bp-mod-paper) 94%,var(--bp-mod-ink));font-weight:700;',
+      // Batch 142 — the ONE cart element lives in the site nav/header
+      // chrome (Ely: "Checkout element should be at the top, better if
+      // it's in the nav"), replacing Batch 128's in-body .bp-mod-cartbar.
+      // The element is NOT inside a .bitpype-module-embed — it is
+      // appended into the page chrome — so these rules are deliberately
+      // UNSCOPED. Horizontal padding is 1rem (16px): the Batch 135
+      // spacing floor for its own text, never flush.
+      '.bp-nav-cart{',
+      'display:inline-flex;align-items:center;gap:0.45rem;margin-left:auto;flex:none;',
+      'padding:0.55rem 1rem;min-height:2.75rem;box-sizing:border-box;white-space:nowrap;',
+      'border:1px solid color-mix(in srgb,currentColor 22%,transparent);border-radius:999px;',
+      'font:inherit;font-size:0.95rem;font-weight:700;line-height:1.2;',
+      'color:inherit;text-decoration:none;background:transparent;cursor:pointer;',
       '}',
-      '.bitpype-module-embed .bp-mod-cartbar .bp-mod-btn{margin-top:0;}',
+      '.bp-nav-cart:hover{text-decoration:underline;}',
+      '@media (max-width:700px){',
+      '.bp-nav-cart{font-size:0.9rem;padding:0.5rem 1rem;}',
+      '}',
       '.bitpype-module-embed .bp-mod-cartline{',
       'display:flex;align-items:center;gap:0.8rem;padding:0.7rem 0;border-top:1px solid var(--bp-mod-line);flex-wrap:wrap;',
       '}',
@@ -4567,34 +4578,169 @@
     return lines;
   }
 
-  function renderCartBar(el, data) {
-    if (!data || !data.checkout_page || !data.checkout_token) return;
-    var bar = el.querySelector('.bp-mod-cartbar');
-    var lines = readCart(data.checkout_token);
-    if (!lines.length) {
-      if (bar) bar.remove();
-      return;
-    }
-    if (!bar) {
-      bar = document.createElement('div');
-      bar.className = 'bp-mod-cartbar';
-      el.appendChild(bar);
-    }
-    var t = cartTotals(lines);
-    bar.innerHTML =
-      '<span>' +
-      t.count +
-      (t.count === 1 ? ' item' : ' items') +
-      ' — ' +
-      cartMoney(t.total, t.currency) +
-      '</span>' +
-      '<a class="bp-mod-btn" href="' +
-      esc(data.checkout_page) +
-      '">Go to checkout</a>';
+  /* ── Batch 142 — the cart element moves INTO the site nav ──
+   * Ely (2026-11-04): "Checkout element should be at the top, better
+   * if it's in the nav." This replaces Batch 128's in-body cart bar
+   * (renderCartBar / .bp-mod-cartbar, removed): there is now exactly
+   * ONE cart element per page — a nav-level link [data-bp-nav-cart]
+   * showing the live count + total, pointing at the site's checkout
+   * page (the same target the old bar's "Go to checkout" used).
+   *
+   * GATING (checkout-applies-to-all): the element exists only when
+   * Checkout is attached and active for the lead. Two signals carry
+   * that one server truth (siteCheckoutPresence): the Batch 128
+   * selling signal (checkout_token + checkout_page, shop/gallery
+   * payloads) and, since the 142 extension, the sitewide stamp
+   * site_checkout on EVERY public payload — plain pages included.
+   * No signal → no element, no dead link; the Checkout page self-registers.
+   *
+   * EMPTY STATE (decided, pinned by the batch142 suite): the element
+   * is VISIBLE from the moment the signal arrives, showing the honest
+   * empty state "Cart · 0 items — $0.00". A nav element that pops in
+   * only after the first add would shift the header layout mid-shop
+   * and could not be discovered before buying; a permanent nav slot
+   * is what "element in the nav" means. (The old bar, by contrast,
+   * hid itself while empty.)
+   *
+   * CHROME DETECTION — sites render chrome two ways and both reduce
+   * to the same DOM shapes by the time this script runs:
+   *   (a) delivered nav SECTIONS — the renderer stamps
+   *       data-ws-section-type="nav" on the section root; freestyle
+   *       chrome wraps authored header HTML in .ws-nav-chrome, and
+   *       structured chrome renders <nav class="nav"><div
+   *       class="nav-inner">…;
+   *   (b) theme.partials headerHtml — raw header HTML prepended to
+   *       the body (nav sections are stripped when a partial header
+   *       exists), typically <header>…<nav>… and often carrying the
+   *       data-bitpype-mobile-nav hamburger container.
+   * findNavCartTarget() walks those shapes in priority order and
+   * returns a BAR container (e.g. .nav-inner / .bp-nav-bar), else
+   * the header/nav element itself. It NEVER returns a collapsible
+   * link panel (.bp-nav-panel, .nav-links, .nav-panel): at ≤700px
+   * those panels are display:none behind the hamburger (platform
+   * mobile CSS hides .nav-links anchors outright), and a cart
+   * hidden behind a hamburger defeats the order — the cart is
+   * appended as a sibling of the panel, inside the always-visible
+   * bar. Managed module nav links (data-bitpype-module-nav) are NOT
+   * used as an anchor and nothing here injects a second module-nav
+   * item: the cart is a distinct chrome element, appended once,
+   * deduped by its own attribute.
+   *
+   * NO-CHROME PAGES (e.g. Batch 133 detail shells on sites whose
+   * chrome is nav sections — Batch 141 adds chrome there later):
+   * findNavCartTarget() returns null and updateNavCart() simply
+   * does nothing — no error, no duplicate, no stray floating
+   * element. When chrome exists (partials sites already give the
+   * detail shell a header), the same code lands the cart in it. */
+  var NAV_CART_ATTR = 'data-bp-nav-cart';
+  var navCartState = null;
+
+  function isCollapsibleNavPanel(el) {
+    if (!el || !el.classList) return false;
+    return (
+      el.classList.contains('bp-nav-panel') ||
+      el.classList.contains('nav-links') ||
+      el.classList.contains('nav-panel')
+    );
   }
+
+  function navCartBarIn(root) {
+    if (!root || !root.querySelector) return null;
+    var sels = ['.nav-inner', '.bp-nav-bar', '.nav-bar', '.header-bar', '.header-inner', '.top-bar', '.topbar'];
+    for (var i = 0; i < sels.length; i++) {
+      var el = root.querySelector(sels[i]);
+      if (el && !isCollapsibleNavPanel(el)) return el;
+    }
+    return null;
+  }
+
+  function findNavCartTarget() {
+    var roots = [];
+    var seen = [];
+    function push(el) {
+      if (el && seen.indexOf(el) < 0) {
+        seen.push(el);
+        roots.push(el);
+      }
+    }
+    push(document.querySelector('[data-ws-section-type="nav"]'));
+    push(document.querySelector('.ws-nav-chrome'));
+    push(document.querySelector('[data-bitpype-mobile-nav]'));
+    var headers = document.querySelectorAll('header');
+    for (var h = 0; h < headers.length; h++) {
+      if (headers[h].classList && headers[h].classList.contains('hero')) continue;
+      push(headers[h]);
+      break;
+    }
+    var navs = document.querySelectorAll('nav');
+    for (var n = 0; n < navs.length; n++) {
+      if (!isCollapsibleNavPanel(navs[n])) {
+        push(navs[n]);
+        break;
+      }
+    }
+    for (var r = 0; r < roots.length; r++) {
+      var root = roots[r];
+      var bar = navCartBarIn(root);
+      if (bar) return bar;
+      if (root.tagName === 'HEADER' || root.tagName === 'NAV') return root;
+      // Wrapper chrome (nav section / .ws-nav-chrome / mobile-nav
+      // container): descend to its header/nav element, never into
+      // the collapsible panel inside it.
+      var inners = root.querySelectorAll('header, nav');
+      for (var k = 0; k < inners.length; k++) {
+        if (isCollapsibleNavPanel(inners[k])) continue;
+        var innerBar = navCartBarIn(inners[k]);
+        return innerBar || inners[k];
+      }
+    }
+    return null;
+  }
+
+  function registerNavCart(checkoutToken, checkoutPage) {
+    if (!checkoutToken || !checkoutPage) return;
+    // One cart per site: every signal on a real page names the SAME
+    // checkout embed; a conflicting second signal never replaces it
+    // and never creates a second element.
+    if (navCartState && navCartState.token !== String(checkoutToken)) return;
+    navCartState = { token: String(checkoutToken), page: String(checkoutPage) };
+    updateNavCart();
+  }
+
+  function updateNavCart() {
+    if (!navCartState) return;
+    var all = document.querySelectorAll('[' + NAV_CART_ATTR + ']');
+    for (var i = 1; i < all.length; i++) {
+      if (all[i].parentNode) all[i].parentNode.removeChild(all[i]);
+    }
+    var link = all[0] || null;
+    if (!link) {
+      var target = findNavCartTarget();
+      if (!target) return; // no recognizable nav — degrade silently
+      link = document.createElement('a');
+      link.setAttribute(NAV_CART_ATTR, '1');
+      link.className = 'bp-nav-cart';
+      target.appendChild(link);
+    }
+    var t = cartTotals(readCart(navCartState.token));
+    var summary = t.count + (t.count === 1 ? ' item' : ' items') + ' — ' + cartMoney(t.total, t.currency);
+    link.setAttribute('href', navCartState.page);
+    link.setAttribute('aria-label', 'Cart, ' + summary + '. Go to checkout.');
+    link.innerHTML =
+      '<span class="bp-nav-cart-label">Cart</span>' +
+      '<span class="bp-nav-cart-summary" data-bp-nav-cart-summary>' +
+      esc(summary) +
+      '</span>';
+  }
+
+
 
   function wireSellableAdds(el, data) {
     if (!data || !data.checkout_page || !data.checkout_token) return;
+    // Batch 142: the payload's checkout signal also registers the
+    // nav cart — this is one of the paths by which a page learns the
+    // site has Checkout attached.
+    registerNavCart(data.checkout_token, data.checkout_page);
     el.querySelectorAll('[data-bp-add], [data-bp-add-photo]').forEach(function (btn) {
       if (btn.dataset.bpWired) return;
       btn.dataset.bpWired = '1';
@@ -4644,7 +4790,7 @@
             line.price_cents = Number(btn.getAttribute('data-bp-variant-price')) || line.price_cents;
         }
         addLineToCart(data.checkout_token, line);
-        renderCartBar(el, data);
+        updateNavCart();
         if (isPhoto) {
           btn.disabled = true;
           btn.textContent = 'In your cart ✓';
@@ -4660,6 +4806,14 @@
   }
 
   function renderCheckout(el, data, base, token) {
+    // Batch 142: the Checkout module's own page registers the nav
+    // cart from its OWN embed token (the cart's storage key) + its
+    // target page slug — the checkout payload itself carries no
+    // checkout_token/checkout_page fields (those ride the selling
+    // modules' payloads and point back here).
+    var coSlug =
+      data.embed && data.embed.target_page_slug ? String(data.embed.target_page_slug).replace(/^\/+/, '') : 'checkout';
+    registerNavCart(token, '/' + coSlug);
     var co = data.checkout || {};
     var configured = !!(co.cart && co.cart.configured);
     var continueLinks =
@@ -4797,6 +4951,9 @@
     function draw() {
       el.innerHTML = reviewHtml();
       wireReview();
+      // Batch 142: qty +/- and remove on the review surface change
+      // the cart — the nav element reflects them live too.
+      updateNavCart();
     }
 
     function successHtml(status) {
@@ -5432,7 +5589,7 @@
       if (!j || !j.ok) throw new Error((j && j.error) || 'Failed to load');
       var data = j.data;
       if (data.locked) {
-        renderLocked(el, data);
+        registerNavCartFromPayload(data); renderLocked(el, data);
         return;
       }
       if (staticBlog) {
@@ -5441,6 +5598,11 @@
         }
         return;
       }
+      // Batch 142 (+ extension): ANY payload registers the nav cart
+      // — from the selling signal (shop/gallery lists + item
+      // payloads) or from the sitewide site_checkout stamp every
+      // payload for a checkout site now carries (plain pages too).
+      registerNavCartFromPayload(data);
       if (data.item) renderItem(el, data);
       else if (data.module_type === 'checkout') renderCheckout(el, data, base, token);
       else renderList(el, data);
@@ -5449,7 +5611,7 @@
       // Checkout module is attached (payload carries its page+token).
       if (data.module_type === 'ecommerce' || data.module_type === 'gallery') {
         wireSellableAdds(el, data);
-        renderCartBar(el, data);
+        updateNavCart();
       }
       wireMemberNavLogout();
     };
@@ -5715,25 +5877,14 @@
           }
         }
       }
-      var lines = detailAddToCart(data.checkout_token, line);
-      var count = 0;
-      lines.forEach(function (l) {
-        count += Number(l.qty) || 0;
-      });
-      var bar = root.querySelector('.bp-mod-cartbar');
-      if (!bar) {
-        bar = document.createElement('div');
-        bar.className = 'bp-mod-cartbar';
-        root.appendChild(bar);
-      }
-      bar.innerHTML =
-        '<span>' +
-        count +
-        (count === 1 ? ' item' : ' items') +
-        ' in your cart</span>' +
-        '<a class="bp-mod-btn" href="' +
-        esc(data.checkout_page) +
-        '">Go to checkout</a>';
+      detailAddToCart(data.checkout_token, line);
+      // Batch 142: the detail page feeds the ONE nav cart, exactly
+      // like the shop grid — no in-body bar on the detail root. On a
+      // detail shell without site chrome, updateNavCart() finds no
+      // nav target and does nothing; the button's "Added ✓" state
+      // below is the visitor's confirmation there.
+      registerNavCart(data.checkout_token, data.checkout_page);
+      updateNavCart();
       var label = btn.textContent;
       btn.textContent = 'Added ✓';
       setTimeout(function () {
@@ -5816,7 +5967,7 @@
         }
         var data = j.data;
         if (data.locked) {
-          renderLocked(root, data);
+          registerNavCartFromPayload(data); renderLocked(root, data);
           return;
         }
         if (!data.item) {
@@ -5833,6 +5984,11 @@
           if (anchors[i].getAttribute('href') === legacy) anchors[i].setAttribute('href', listPath);
         }
         detailApplyMeta(data);
+        // Batch 142 (+ extension): register the nav cart from the
+        // item payload (selling signal or the sitewide stamp). If
+        // this shell has no site chrome (nav-section sites — Batch
+        // 141's gap), registration is inert: no element, no error.
+        registerNavCartFromPayload(data);
         if (data.module_type === 'ecommerce') {
           if (data.checkout_token && data.checkout_page) wireDetailCheckout(root, data);
           else wireShop(root, base, entry.token);
@@ -5851,6 +6007,33 @@
       .catch(function (e) {
         root.innerHTML = '<p class="bp-mod-err">' + esc(e.message || 'Failed to load module') + '</p>';
       });
+  }
+
+  /* Batch 142 extension — register the nav cart from ANY payload.
+   * The selling signal (checkout_token + checkout_page) wins when a
+   * payload carries it; otherwise the sitewide stamp
+   * (data.site_checkout = { page, token }, stamped server-side on
+   * every public payload for a lead with Checkout attached+active)
+   * registers the same element — this is what puts the cart in the
+   * nav on plain content pages (home, About, a blog index) whose
+   * only embeds are non-selling modules. Both signals name the same
+   * checkout embed (one server resolver), so registerNavCart's
+   * one-cart dedupe sees identical values and exactly one element
+   * results however many payloads a page loads. The stamp's token
+   * is the cart storage key — the live count/total on a plain page
+   * read the SAME cart the shop page wrote. Defined here (after the
+   * detail mount) purely so the SEC-13 census line pins above never
+   * move; function declarations hoist, so the mount paths above can
+   * call it. Known edge, accepted: a page with NO module embeds at
+   * all never loads this script and still shows no cart. */
+  function registerNavCartFromPayload(data) {
+    if (!data) return;
+    if (data.checkout_token && data.checkout_page) {
+      registerNavCart(data.checkout_token, data.checkout_page);
+      return;
+    }
+    var sc = data.site_checkout;
+    if (sc && sc.token && sc.page) registerNavCart(sc.token, sc.page);
   }
 
   function mountAll() {

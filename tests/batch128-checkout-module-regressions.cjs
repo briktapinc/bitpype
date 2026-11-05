@@ -211,7 +211,7 @@ function load(file, mocks) {
     }
     assert.ok(smSrc.includes("checkout: { label: 'Checkout'"), 'MODULE_META carries the Checkout label');
     n++;
-    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod35'"), 'MODULE_SCRIPT_VER bumped to mod32');
+    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod36'"), 'MODULE_SCRIPT_VER bumped to mod32');
     n++;
     assert.ok(smSrc.includes('CREATE TABLE IF NOT EXISTS ecommerce_order_items'), 'order line-items table exists');
     n++;

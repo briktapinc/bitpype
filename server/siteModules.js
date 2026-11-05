@@ -54,7 +54,9 @@ const NAV_ATTR = 'data-bitpype-module-nav';
 const SCRIPT_ATTR = 'data-bitpype-module-script';
 // Batch 131: mod35 — the comments embed renderer (renderComments,
 // like toggles, the visitor-token state fetch).
-const MODULE_SCRIPT_VER = 'mod35';
+// Batch 142: mod36 — the nav cart element ([data-bp-nav-cart]) and
+// the sitewide site_checkout payload stamp.
+const MODULE_SCRIPT_VER = 'mod36';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -13652,6 +13654,42 @@ function moduleItemCount(db, leadId, type) {
 
 /* ── Public payload for embed ── */
 
+/**
+ * Batch 142 extension — the SITEWIDE checkout presence. When a
+ * Checkout module is attached AND active for the lead, every public
+ * embed payload for that lead carries `site_checkout` so the nav
+ * cart (module-embed.js) can register on ANY page that loads a
+ * module payload — the home page, an About page with a newsletter
+ * block, a blog index — not only on pages hosting a selling embed.
+ * This is the ONE source of "checkout is on for this site": the
+ * Batch 128 selling signal (checkout_token / checkout_page on the
+ * ecommerce/gallery payloads) is derived from this same resolver,
+ * never a parallel check. Detaching or deactivating Checkout makes
+ * this return null and the stamp vanishes from every payload at
+ * once, exactly as the selling signal already did.
+ *
+ * The stamp carries exactly two fields, both already public on the
+ * selling payloads today: `page` — the checkout page path (a link
+ * target rendered in the site nav) — and `token` — the Checkout
+ * embed's public_token, which module-embed.js needs because the
+ * cart's localStorage key is 'bp-cart-' + that token; without it a
+ * non-selling page could render a cart link but could not show the
+ * live count/total from the same cart. The public_token is a
+ * public embed identifier (it rides in the checkout page's own
+ * mount markup and in every selling payload); it grants nothing
+ * beyond the public payload reads and the server-re-priced cart
+ * checkout those payloads already expose. No keys, secrets or
+ * config ride in the stamp.
+ */
+function siteCheckoutPresence(db, leadId) {
+  const coEmbed = getEmbedRow(db, Number(leadId), 'checkout');
+  if (!coEmbed || !moduleEmbedActive(coEmbed)) return null;
+  return {
+    page: `/${String(coEmbed.target_page_slug || MODULE_META.checkout.defaultSlug).replace(/^\/+/, '')}`,
+    token: String(coEmbed.public_token || ''),
+  };
+}
+
 function getPublicModuleByToken(db, token, opts = {}) {
   ensureTables(db);
   const row = db
@@ -13672,13 +13710,25 @@ function getPublicModuleByToken(db, token, opts = {}) {
   assertSiteNotSuspended(db, leadId);
   // Membership: the members module itself is never gated; its payload
   // carries the caller's own member state for the public auth surface.
-  if (type === 'members') return publicMembersPayload(db, row, opts);
+  // Batch 142 extension: the sitewide checkout presence for this
+  // lead (null when Checkout is not attached/active) — stamped on
+  // every payload shape this function returns, below.
+  const siteCheckout = siteCheckoutPresence(db, leadId);
+  if (type === 'members') {
+    const membersPayload = publicMembersPayload(db, row, opts);
+    if (siteCheckout) membersPayload.site_checkout = siteCheckout;
+    return membersPayload;
+  }
   // Page gating: content on a gated page stays server-side until a valid
   // member session (or owner preview grant) accompanies the request. The
   // chatbot is a sitewide overlay, not page content — it is never gated.
   if (type !== 'chatbot') {
     const gate = memberGateCheck(db, leadId, opts.pageSlug || row.target_page_slug, opts);
-    if (gate.locked) return lockedModulePayload(row, gate);
+    if (gate.locked) {
+      const lockedPayload = lockedModulePayload(row, gate);
+      if (siteCheckout) lockedPayload.site_checkout = siteCheckout;
+      return lockedPayload;
+    }
   }
   const settings = parseEmbedSettings(row);
   let items = [];
@@ -13704,11 +13754,13 @@ function getPublicModuleByToken(db, token, opts = {}) {
   // then offer the shared cart (add-to-cart → the checkout page)
   // instead of any module-local buy path, so a site has ONE
   // checkout, never two competing ones.
+  // Batch 142 extension: the selling signal derives from the SAME
+  // sitewide presence resolved above — one source of truth for
+  // "checkout is on", so the two signals can never disagree.
   const resolveCheckoutLink = () => {
-    const coEmbed = getEmbedRow(db, leadId, 'checkout');
-    if (coEmbed && moduleEmbedActive(coEmbed)) {
-      checkoutPage = `/${String(coEmbed.target_page_slug || MODULE_META.checkout.defaultSlug).replace(/^\/+/, '')}`;
-      checkoutToken = String(coEmbed.public_token || '');
+    if (siteCheckout) {
+      checkoutPage = siteCheckout.page;
+      checkoutToken = siteCheckout.token;
     }
   };
   if (type === 'blog') {
@@ -13833,10 +13885,12 @@ function getPublicModuleByToken(db, token, opts = {}) {
   } else if (type === 'chatbot') {
     try {
       const chat = require('./chatbot');
-      return {
+      const chatPayload = {
         ...chat.getPublicConfigByToken(db, row.public_token),
         items: [],
       };
+      if (siteCheckout) chatPayload.site_checkout = siteCheckout;
+      return chatPayload;
     } catch (e) {
       throw fail('NOT_FOUND', e.message || 'Chatbot not found', 404);
     }
@@ -13907,6 +13961,11 @@ function getPublicModuleByToken(db, token, opts = {}) {
   if (checkoutPage) out.checkout_page = checkoutPage;
   if (checkoutToken) out.checkout_token = checkoutToken;
   if (comments) out.comments = comments;
+  // Batch 142 extension: EVERY payload for a checkout site carries
+  // the sitewide presence (selling payloads included — identical
+  // values to their checkout_token/checkout_page signal), so any
+  // module mount on any page can register the nav cart.
+  if (siteCheckout) out.site_checkout = siteCheckout;
   return out;
 }
 
@@ -14530,6 +14589,7 @@ module.exports = {
   createPublicBooking,
   getPublicModuleByToken,
   getPublicModuleItem,
+  siteCheckoutPresence,
   getPublicBookingSlots,
   createPublicBookingByToken,
   createShopCheckoutByToken,

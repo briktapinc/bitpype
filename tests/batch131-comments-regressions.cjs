@@ -141,7 +141,10 @@ const throws = (fn, pattern) => {
     }
     assert.ok(smSrc.includes("comments: { label: 'Comments'"), 'MODULE_META carries the Comments label');
     n++;
-    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod35'"), 'MODULE_SCRIPT_VER bumped to mod35');
+    assert.ok(
+      smSrc.includes("const MODULE_SCRIPT_VER = 'mod36'"),
+      'MODULE_SCRIPT_VER bumped to mod35 (Batch 131); Batch 142 finisher rotation to mod36'
+    );
     n++;
     assert.ok(smSrc.includes("type === 'comments'"), 'moduleItemCount has the comments branch');
     n++;

@@ -228,8 +228,8 @@ function group(name, n) {
   n = 0;
   const { census } = require('../scripts/xss-census.cjs');
   const cz = census();
-  assert.equal(cz.summary.total, 440, 'sink census total pinned');
-  assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 329, 'provably-safe classes pinned');
+  assert.equal(cz.summary.total, 439, 'sink census total pinned');
+  assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 328, 'provably-safe classes pinned');
   const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
   const BASELINE = new Set(require('./batch103-xss-baseline.json'));
   const newRaw = [...reviewed].filter((x) => !BASELINE.has(x));

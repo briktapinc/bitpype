@@ -6,7 +6,7 @@
  * What this pins:
  *   Part 1 — source pins: DETAIL_TYPES + detailExportContext in
  *     siteModules (MODULE_TYPES stays 28 — detail is a page surface,
- *     not a module type), MODULE_SCRIPT_VER mod34, the shared-layer
+ *     not a module type), MODULE_SCRIPT_VER mod36, the shared-layer
  *     link generator (categories.categoryItemLink) emitting
  *     /detail/<type>/<key>, the export side (buildDetailPage,
  *     injectDetailMeta, the /detail/* rewrite, detail.html emission,
@@ -26,7 +26,7 @@
  *   Part 3 — HTTP over the real server: the public item route serves
  *     the variant product for the detail page, 404s draft/foreign/
  *     missing with code NOT_FOUND, and module-embed.js serves at
- *     mod34 with the detail boot.
+ *     mod36 with the detail boot.
  */
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -84,10 +84,7 @@ async function json(res) {
     n++;
     assert.ok(smSrc.includes('function detailExportContext(db, leadId)'), 'detailExportContext exists');
     n++;
-    assert.ok(
-      smSrc.includes("const MODULE_SCRIPT_VER = 'mod35'"),
-      'MODULE_SCRIPT_VER bumped to mod34 (Batch 133); Batch 131 finisher rotation to mod35'
-    );
+    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod36'"), 'MODULE_SCRIPT_VER bumped to mod36');
     n++;
     const typesBlock = /const MODULE_TYPES = \[([\s\S]*?)\];/.exec(smSrc);
     assert.ok(typesBlock, 'MODULE_TYPES block found');
@@ -424,10 +421,7 @@ async function json(res) {
       'detail.html config maps type → token + list page'
     );
     n++;
-    assert.ok(
-      detailHtml.includes('module-embed.js?v=mod35'),
-      'detail.html loads the module embed script at mod35 (Batch 131 finisher rotation)'
-    );
+    assert.ok(detailHtml.includes('module-embed.js?v=mod36'), 'detail.html loads the module embed script at mod36');
     n++;
     const redirects = fs.readFileSync(path.join(outDir, '_redirects'), 'utf8');
     assert.ok(
@@ -508,7 +502,7 @@ async function json(res) {
         n++;
       }
 
-      const jsRes = await fetch(`${BASE}/js/module-embed.js?v=mod35`);
+      const jsRes = await fetch(`${BASE}/js/module-embed.js?v=mod36`);
       assert.equal(jsRes.status, 200, 'module-embed.js serves');
       n++;
       const jsText = await jsRes.text();

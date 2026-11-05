@@ -181,7 +181,7 @@ let db;
     const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
     assert.equal(
       census().summary.total,
-      440,
+      439,
       'SEC-13 census total (Batch 128 added 13 safe sinks; reviewed set unchanged)'
     );
     n++;

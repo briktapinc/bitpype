@@ -221,7 +221,7 @@ function unzipStore(buf) {
     const cz = census();
     assert.deepEqual(
       cz.summary,
-      { total: 440, STATIC: 157, ESCAPED: 41, SAFE: 73, BUILDER: 58, IDENT: 35, RAW: 76 },
+      { total: 439, STATIC: 156, ESCAPED: 41, SAFE: 73, BUILDER: 58, IDENT: 35, RAW: 76 },
       'SEC-13 census summary unchanged'
     );
     n += 1;
@@ -229,7 +229,7 @@ function unzipStore(buf) {
     const sha = crypto.createHash('sha256').update(multiset.join('\n')).digest('hex');
     assert.equal(
       sha,
-      'c58cc24df0ee9835a5c9ba1e5d9c234bec8b25a61f4d439a1d491ed213aebb46',
+      '2d6b8c61c82983fb56b7e83c3b6fd48b3d4b5410af964c80333a069d108a0275',
       'SEC-13 sink multiset byte-identical'
     );
     n += 1;
