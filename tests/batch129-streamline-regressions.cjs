@@ -219,7 +219,11 @@ let db = null;
       smSrc.includes('ALTER TABLE member_subscriptions ADD COLUMN stripe_key_source'),
       'subscriptions record their origin layer'
     );
-    assert.ok(smSrc.includes('BOOKING_PAYMENT_HOLD_MINUTES = 30'), 'the booking hold window is 30 minutes');
+    // Batch 145 (external review F07): the hold window is 60 minutes —
+    // Stripe's 30-minute minimum session lifetime makes a 30-minute
+    // hold unpinnable to its checkout session (the Batch 143 pin
+    // never engaged). Pin rotated for that real delta.
+    assert.ok(smSrc.includes('BOOKING_PAYMENT_HOLD_MINUTES = 60'), 'the booking hold window is 60 minutes');
     assert.ok(
       smSrc.includes('async function createPublicBookingByToken'),
       'the booking token flow is async (it creates a checkout session)'

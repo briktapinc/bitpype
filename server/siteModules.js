@@ -105,8 +105,15 @@ const BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'];
 /** Batch 129 (pay-at-booking): how long an unpaid booking holds its
  *  slot while the visitor completes checkout. The hold behaves
  *  exactly like a pending appointment for availability purposes
- *  until it lapses (see releaseExpiredBookingHolds). */
-const BOOKING_PAYMENT_HOLD_MINUTES = 30;
+ *  until it lapses (see releaseExpiredBookingHolds).
+ *  Batch 145 (external review F07): 30 → 60 minutes. Stripe Checkout
+ *  Sessions have a MINIMUM lifetime of 30 minutes, so a 30-minute
+ *  hold can never have its session pinned to the hold expiry (the
+ *  Batch 143 pin needed ≥31 minutes of hold remaining and therefore
+ *  never engaged — sessions lived the 24h default while holds died
+ *  at 30). At 60 minutes the session's expires_at is set to the hold
+ *  expiry unconditionally and the two die together. */
+const BOOKING_PAYMENT_HOLD_MINUTES = 60;
 const DEFAULT_BOOKING_HOURS = [
   { weekday: 1, start_time: '09:00', end_time: '17:00' },
   { weekday: 2, start_time: '09:00', end_time: '17:00' },
@@ -271,6 +278,19 @@ function ensureTables(db) {
      * the purchasable unit (own price, SKU, availability). Products
      * with no option groups keep the single-price behavior they have
      * always had — the variant tables simply stay empty for them. */
+    /* Batch 145 (external review F06): processed-event receipts for
+     * tenant shop webhook events. Stripe delivers at-least-once and
+     * unordered; the receipt makes a redelivery of an already-applied
+     * event id a strict no-op (the terminal-state guards below are
+     * the second line of defense). */
+    CREATE TABLE IF NOT EXISTS shop_processed_stripe_events (
+      event_id TEXT NOT NULL PRIMARY KEY,
+      type TEXT NOT NULL DEFAULT '',
+      order_id INTEGER,
+      status TEXT NOT NULL DEFAULT '',
+      processed_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS ecommerce_product_options (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       lead_id INTEGER NOT NULL,
@@ -4696,7 +4716,93 @@ function applyBookingPaymentTransition(db, order, outcome) {
   }
 }
 
+/**
+ * Batch 145 (external review F07 backstop): a booking payment that
+ * completes AFTER its hold was released must not sit silently paid.
+ * The appointment is flagged paid_unfulfilled (it stays cancelled —
+ * the slot may already belong to someone else), the order is flagged
+ * to match, and an automatic refund is attempted through the lead's
+ * payments config on a detached task (this dispatcher is
+ * synchronous; the webhook route's owner notifications use the same
+ * fire-and-forget discipline). If the refund lands, the order
+ * settles to 'refunded'; if the attempt fails, the flags alone
+ * persist for owner attention.
+ */
+function flagLatePaidBookingOrders(db, order) {
+  const items = listShopOrderItems(db, order.id).filter((l) => l.source_module === 'bookings');
+  let flagged = false;
+  for (const line of items) {
+    let meta = {};
+    try {
+      meta = JSON.parse(line.source_meta || '{}');
+    } catch {
+      meta = {};
+    }
+    const apptId = Number(meta.appointment_id);
+    if (!Number.isInteger(apptId) || apptId <= 0) continue;
+    const appt = db
+      .prepare('SELECT * FROM bookings WHERE id = ? AND lead_id = ?')
+      .get(apptId, Number(order.lead_id));
+    if (!appt || appt.payment_state !== 'released') continue;
+    db.prepare(
+      "UPDATE bookings SET payment_state = 'paid_unfulfilled', updated_at = datetime('now') WHERE id = ? AND lead_id = ?"
+    ).run(apptId, Number(order.lead_id));
+    flagged = true;
+  }
+  if (flagged) {
+    updateShopOrder(db, order.id, { status: 'paid_unfulfilled' });
+    attemptLatePaidBookingRefund(db, order.id).catch((e) =>
+      console.warn('[siteModules] late-paid booking refund attempt failed:', e && e.message)
+    );
+  }
+  return flagged;
+}
+
+async function attemptLatePaidBookingRefund(db, orderId) {
+  const resolved = require('./shopStripe').resolveForLead(db, dbOrderLeadId(db, orderId));
+  const stripe = resolved && resolved.client;
+  const fresh = db.prepare('SELECT * FROM ecommerce_orders WHERE id = ?').get(Number(orderId));
+  const pi = String((fresh && fresh.stripe_payment_intent) || '');
+  if (!stripe || !pi || !stripe.refunds || typeof stripe.refunds.create !== 'function') return;
+  await stripe.refunds.create({ payment_intent: pi });
+  const cur = db.prepare('SELECT status FROM ecommerce_orders WHERE id = ?').get(Number(orderId));
+  if (cur && cur.status === 'paid_unfulfilled') {
+    updateShopOrder(db, Number(orderId), { status: 'refunded' });
+  }
+}
+
+function dbOrderLeadId(db, orderId) {
+  const row = db.prepare('SELECT lead_id FROM ecommerce_orders WHERE id = ?').get(Number(orderId));
+  return row ? Number(row.lead_id) : 0;
+}
+
+/**
+ * Batch 145 (external review F06): processed-event receipt wrapper.
+ * The first delivery of an event id is applied by
+ * applyShopStripeEventInner and its outcome recorded; a redelivery
+ * of a recorded id is a strict no-op returning the recorded outcome.
+ */
 function applyShopStripeEvent(db, event) {
+  ensureTables(db);
+  const eventId = String((event && event.id) || '');
+  if (eventId) {
+    const receipt = db
+      .prepare('SELECT order_id, status FROM shop_processed_stripe_events WHERE event_id = ?')
+      .get(eventId);
+    if (receipt) {
+      return { matched: true, duplicate: true, orderId: receipt.order_id, status: receipt.status };
+    }
+  }
+  const result = applyShopStripeEventInner(db, event);
+  if (eventId && result && result.matched && result.orderId) {
+    db.prepare(
+      'INSERT OR IGNORE INTO shop_processed_stripe_events (event_id, type, order_id, status) VALUES (?, ?, ?, ?)'
+    ).run(eventId, String((event && event.type) || ''), Number(result.orderId), String(result.status || ''));
+  }
+  return result;
+}
+
+function applyShopStripeEventInner(db, event) {
   ensureTables(db);
   const type = String((event && event.type) || '');
   const obj = (event && event.data && event.data.object) || {};
@@ -4716,7 +4822,10 @@ function applyShopStripeEvent(db, event) {
     if (!refundedOrder) return { matched: false, reason: 'unknown payment intent' };
     const amount = Number(obj.amount) || 0;
     const refunded = Number(obj.amount_refunded) || 0;
-    if (amount > 0 && refunded >= amount && refundedOrder.status === 'paid') {
+    // Batch 145 (F07): a late-paid flagged order ('paid_unfulfilled')
+    // whose automatic refund lands settles to 'refunded' through
+    // this same event.
+    if (amount > 0 && refunded >= amount && (refundedOrder.status === 'paid' || refundedOrder.status === 'paid_unfulfilled')) {
       updateShopOrder(db, refundedOrder.id, { status: 'refunded' });
       return { matched: true, orderId: refundedOrder.id, status: 'refunded' };
     }
@@ -4734,7 +4843,25 @@ function applyShopStripeEvent(db, event) {
   } else {
     return { matched: false, reason: 'unhandled event type' };
   }
+  // Batch 145 (external review F06): terminal-state protection.
+  // 'refunded' is terminal for EVERY later event (a replayed
+  // completion used to resurrect the order to 'paid' and re-notify
+  // the owner); 'paid_unfulfilled' (the F07 late-payment flag) is
+  // terminal for everything except the refund that settles it
+  // (handled above); 'expired'/'failed' are terminal for a later
+  // completion — Stripe delivers unordered, so a dead session's
+  // completion must not fulfil after the fact.
+  if (order.status === 'refunded') return { matched: true, orderId: order.id, status: 'refunded' };
+  if (order.status === 'paid_unfulfilled') {
+    return { matched: true, orderId: order.id, status: 'paid_unfulfilled' };
+  }
   if (order.status === 'paid') return { matched: true, orderId: order.id, status: 'paid' };
+  if (
+    (order.status === 'expired' || order.status === 'failed') &&
+    (type === 'checkout.session.completed' || type === 'checkout.session.async_payment_succeeded')
+  ) {
+    return { matched: true, orderId: order.id, status: order.status };
+  }
   if (type === 'checkout.session.completed' || type === 'checkout.session.async_payment_succeeded') {
     // Review fix (mirrors the membership flow's payment_status gate):
     // checkout.session.completed also fires for async payment methods
@@ -4772,6 +4899,13 @@ function applyShopStripeEvent(db, event) {
     });
     // Batch 129: a paid order may be a booking's payment — settle its hold.
     applyBookingPaymentTransition(db, order, 'paid');
+    // Batch 145 (F07 backstop): if a booking on this order was no
+    // longer in hold state (its hold lapsed and released before the
+    // money landed), flag order + booking paid_unfulfilled and
+    // attempt the automatic refund — never leave it silently paid.
+    if (flagLatePaidBookingOrders(db, order)) {
+      return { matched: true, orderId: order.id, status: 'paid_unfulfilled', unfulfilled: true };
+    }
     return { matched: true, orderId: order.id, status: 'paid' };
   }
   if (type === 'checkout.session.expired' || type === 'checkout.session.async_payment_failed') {
@@ -4849,16 +4983,16 @@ async function checkoutShopLines(db, embedRow, lines, currency, returnUrl, opts 
     // other surface leaves it unset and is stamped with nothing.
     discount: opts && opts.bookingDiscount ? opts.bookingDiscount : null,
   });
-  // Batch 143 (full review): a pay-at-booking session previously
-  // carried no expires_at, so it lived Stripe's default 24h while
-  // the booking hold it pays for lapses at 30 minutes — a customer
-  // could pay hours after the hold was released, leaving a PAID
-  // order on a cancelled appointment and no refund path. Align the
-  // session's death with the hold's: expires_at = the earliest
-  // appointment hold expiry on the order. Stripe requires at least
-  // 30 minutes of session life, so when less than ~31 minutes of
-  // hold remain the field is omitted (the checkout still works; the
-  // lazy sweep + webhook ordering covers that short tail).
+  // Batch 143 (full review) introduced this pin; Batch 145
+  // (external review F07) makes it actually engage. The 143 version
+  // only set expires_at when ≥31 minutes of hold remained, but
+  // holds were exactly 30 minutes — the condition was false in
+  // 100% of real cases and sessions lived Stripe's 24h default
+  // while holds died at 30 minutes. Now: the hold is 60 minutes
+  // (BOOKING_PAYMENT_HOLD_MINUTES — Stripe's 30-minute session
+  // minimum makes a 30-minute hold unpinnable), and expires_at is
+  // set UNCONDITIONALLY to the earliest appointment hold expiry on
+  // the order, so the session and the hold die together.
   let sessionExpiresAt = null;
   for (const l of lines) {
     if (l.source_module !== 'bookings') continue;
@@ -4876,10 +5010,7 @@ async function checkoutShopLines(db, embedRow, lines, currency, returnUrl, opts 
     const t = appt && appt.payment_expires_at ? Date.parse(String(appt.payment_expires_at)) : NaN;
     if (Number.isFinite(t) && (sessionExpiresAt == null || t < sessionExpiresAt)) sessionExpiresAt = t;
   }
-  const expiresAtSec =
-    sessionExpiresAt != null && sessionExpiresAt - Date.now() >= 31 * 60 * 1000
-      ? Math.floor(sessionExpiresAt / 1000)
-      : null;
+  const expiresAtSec = sessionExpiresAt != null ? Math.floor(sessionExpiresAt / 1000) : null;
   let session;
   try {
     session = await stripe.checkout.sessions.create({
@@ -12477,7 +12608,11 @@ function applyMembershipStripeEvent(db, event) {
   }
 
   if (type === 'invoice.payment_failed' || type === 'invoice.paid') {
-    const stripeSubId = String(obj.subscription || '');
+    // Batch 145 (external review F17): modern invoice objects carry
+    // the subscription reference under
+    // parent.subscription_details.subscription — the old top-level
+    // read matched nothing and the event was dropped.
+    const stripeSubId = require('./stripeShapes').invoiceSubscriptionId(obj);
     const existing = stripeSubId ? getMemberSubscriptionByStripeId(db, stripeSubId) : null;
     if (!existing) return { matched: false, reason: 'unknown subscription' };
     if (type === 'invoice.payment_failed') {
@@ -12923,6 +13058,73 @@ function parseYmd(s) {
   return dt;
 }
 
+/* ── Batch 145 (external review F14): business-timezone math ──────
+ * Availability used to compute "today", the booking window and slot
+ * instants in SERVER-local time (UTC in production) while the
+ * business's configured timezone was stored but never consumed —
+ * every non-UTC business lost valid slots or was offered slots
+ * inside its notice window. These helpers resolve a wall-clock time
+ * in an IANA zone to an unambiguous UTC instant via Intl (the same
+ * approach as siteChatUsage.dayKey): format the instant in the zone,
+ * read the wall clock back, and the difference is the zone offset. */
+
+/** Zone offset (ms) at an instant: wallClockAsUTC − utc. */
+function zoneOffsetMs(timezone, utcMs) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(new Date(utcMs));
+  const get = (t) => Number(parts.find((p) => p.type === t).value);
+  const wallAsUtc = Date.UTC(
+    get('year'),
+    get('month') - 1,
+    get('day'),
+    get('hour') % 24,
+    get('minute'),
+    get('second')
+  );
+  return wallAsUtc - Math.floor(utcMs / 1000) * 1000;
+}
+
+/** UTC instant (ms) of a wall-clock time in `timezone`. */
+function zonedWallToUtcMs(timezone, year, month, day, minutesOfDay) {
+  const wallAsUtc = Date.UTC(year, month - 1, day, Math.floor(minutesOfDay / 60), minutesOfDay % 60, 0);
+  let utc = wallAsUtc - zoneOffsetMs(timezone, wallAsUtc);
+  // One refinement pass: the offset at the resolved instant can
+  // differ from the offset at the naive guess around DST transitions.
+  const refined = wallAsUtc - zoneOffsetMs(timezone, utc);
+  if (refined !== utc) utc = refined;
+  return utc;
+}
+
+/** { year, month, day } of an instant in `timezone`. */
+function ymdPartsInZone(timezone, utcMs) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date(utcMs));
+  const get = (t) => Number(parts.find((p) => p.type === t).value);
+  return { year: get('year'), month: get('month'), day: get('day') };
+}
+
+function ymdString({ year, month, day }) {
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/** Calendar arithmetic on a {year, month, day} (zone-free). */
+function addDaysYmd(parts, days) {
+  const dt = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + days));
+  return { year: dt.getUTCFullYear(), month: dt.getUTCMonth() + 1, day: dt.getUTCDate() };
+}
+
 function publicBookingService(row) {
   if (!row) return null;
   const priceLabel = formatPrice(row.price_cents, row.currency);
@@ -13116,6 +13318,12 @@ function updateBookingSettings(db, leadId, data = {}) {
   getBookingSettings(db, leadId);
   const cur = db.prepare('SELECT * FROM booking_settings WHERE lead_id = ?').get(Number(leadId));
   const timezone = data.timezone != null ? String(data.timezone).slice(0, 80) : cur.timezone;
+  // Batch 145 (external review F14): a saved timezone drives all
+  // availability math — refuse an unusable value outright (never
+  // clamp it into a different zone than the owner typed).
+  if (data.timezone != null && !require('./siteChatUsage').isValidTimezone(timezone)) {
+    throw fail('VALIDATION', 'timezone must be a valid IANA timezone (e.g. America/New_York)');
+  }
   let interval = data.slot_interval_minutes != null ? Number(data.slot_interval_minutes) : cur.slot_interval_minutes;
   if (!Number.isFinite(interval) || interval < 5) interval = 5;
   if (interval > 240) interval = 240;
@@ -13569,12 +13777,18 @@ function listAvailableSlots(db, leadId, { date, serviceId, serviceSlug } = {}) {
   const day = parseYmd(date);
   if (!day) throw fail('VALIDATION', 'date must be YYYY-MM-DD');
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const max = new Date(today);
-  max.setDate(max.getDate() + settings.max_days_ahead);
-  if (day < today) throw fail('VALIDATION', 'date is in the past');
-  if (day > max) throw fail('VALIDATION', `date is beyond the ${settings.max_days_ahead}-day booking window`);
+  // Batch 145 (F14): "today", the window and every slot instant are
+  // computed in the BUSINESS timezone (settings.timezone), never the
+  // server's. A stored value that isn't a usable IANA zone falls
+  // back to UTC for reads (saves refuse invalid values outright).
+  const tz = require('./siteChatUsage').isValidTimezone(settings.timezone) ? settings.timezone : 'UTC';
+  const requested = { year: day.getFullYear(), month: day.getMonth() + 1, day: day.getDate() };
+  const requestedYmd = ymdString(requested);
+  const todayYmd = ymdString(ymdPartsInZone(tz, Date.now()));
+  const maxYmd = ymdString(addDaysYmd(ymdPartsInZone(tz, Date.now()), settings.max_days_ahead));
+  if (requestedYmd < todayYmd) throw fail('VALIDATION', 'date is in the past');
+  if (requestedYmd > maxYmd)
+    throw fail('VALIDATION', `date is beyond the ${settings.max_days_ahead}-day booking window`);
 
   let service = null;
   if (serviceId != null) service = getBookingService(db, leadId, serviceId);
@@ -13587,11 +13801,13 @@ function listAvailableSlots(db, leadId, { date, serviceId, serviceSlug } = {}) {
     throw fail('VALIDATION', 'A published service is required (serviceId)');
   }
 
-  const weekday = day.getDay();
+  // Weekday of a calendar date is zone-independent (a property of
+  // the date itself) — computed on the UTC calendar to stay so.
+  const weekday = new Date(Date.UTC(requested.year, requested.month - 1, requested.day)).getUTCDay();
   const windows = listBookingHours(db, leadId).filter((h) => Number(h.weekday) === weekday);
   if (!windows.length) {
     return {
-      date: ymdFromDate(day),
+      date: requestedYmd,
       service: service,
       settings,
       slots: [],
@@ -13599,7 +13815,7 @@ function listAvailableSlots(db, leadId, { date, serviceId, serviceSlug } = {}) {
     };
   }
 
-  const ymd = ymdFromDate(day);
+  const ymd = requestedYmd;
   const blocks = listBookingBlocks(db, leadId, { from: ymd, to: ymd });
   const duration = Number(service.duration_minutes) || 30;
   const buffer = Number(service.buffer_minutes) || 0;
@@ -13622,14 +13838,12 @@ function listAvailableSlots(db, leadId, { date, serviceId, serviceSlug } = {}) {
       const endLabel = formatHm(t + duration);
       const startIso = `${ymd}T${startLabel}:00`;
       const endIso = `${ymd}T${endLabel}:00`;
-      const startMs = new Date(
-        day.getFullYear(),
-        day.getMonth(),
-        day.getDate(),
-        Math.floor(t / 60),
-        t % 60,
-        0
-      ).getTime();
+      // Batch 145 (F14): the slot label is a wall-clock time in the
+      // business zone — resolve it to its true UTC instant for the
+      // notice cutoff comparison. (starts_at strings keep the
+      // established wall-clock convention; the zone from
+      // booking_settings is what makes them unambiguous.)
+      const startMs = zonedWallToUtcMs(tz, requested.year, requested.month, requested.day, t);
       if (startMs < earliest) continue;
 
       let blocked = false;
@@ -14416,18 +14630,24 @@ async function createPublicBookingByToken(db, token, data = {}, opts = {}) {
   assertSiteNotSuspended(db, row.lead_id);
   assertMemberAccessForEmbed(db, row, opts);
   // Batch 129 — pay-at-booking. A PRICED service sells through the
-  // shared checkout engine when (a) the business has payments
-  // connected through the unified config and (b) the embed supplied
-  // a return URL (the mod28 embed always does; an older cached embed
-  // keeps the pre-129 request flow rather than breaking). Free
-  // services, and priced services on sites without payments
-  // connected, keep today's flow byte-for-byte.
+  // shared checkout engine when the business has payments connected
+  // through the unified config. Free services, and priced services
+  // on sites without payments connected, keep today's flow
+  // byte-for-byte.
+  // Batch 145 (external review F08): whether payment is required is
+  // decided SERVER-SIDE ONLY — the old condition also required a
+  // visitor-supplied return URL, so omitting that one field routed
+  // a priced, configured booking down the unpaid path (confirmed
+  // for free under auto_confirm). The return URL is now DERIVED
+  // from the site's own published origin + the embed's page; the
+  // client-supplied value is only a last-resort fallback for a site
+  // with no recorded origin, and a priced+configured booking with
+  // NO derivable URL fails closed instead of falling through free.
   const servicePreview = getBookingService(
     db,
     row.lead_id,
     data.service_id || data.serviceId || data.service
   );
-  const returnUrl = String(data.return_url || data.returnUrl || '').trim();
   const priced = !!(servicePreview && Number(servicePreview.price_cents) > 0);
   // Batch 136 × 129: the amount actually charged is the stamp's NET.
   // A priced service whose online-booking discount takes the net to
@@ -14442,12 +14662,28 @@ async function createPublicBookingByToken(db, token, data = {}, opts = {}) {
         servicePreview.currency || 'USD'
       )
     : null;
-  const payNow =
-    priced &&
-    !!returnUrl &&
-    !!stampPreview &&
-    stampPreview.net_cents > 0 &&
-    require('./shopStripe').isConfiguredForLead(db, row.lead_id);
+  const paymentsConfigured = require('./shopStripe').isConfiguredForLead(db, row.lead_id);
+  // Derived return URL: the site's own published origin (custom
+  // domain or preview URL), plus the page the embed lives on.
+  let returnUrl = '';
+  const siteOrigin = siteBaseUrl(db, row.lead_id);
+  if (siteOrigin) {
+    const slug = String(row.target_page_slug || '')
+      .trim()
+      .replace(/^\/+/, '');
+    returnUrl = slug && slug !== 'index' && slug !== 'home' ? `${siteOrigin}/${slug}` : `${siteOrigin}/`;
+  }
+  if (!returnUrl) {
+    returnUrl = String(data.return_url || data.returnUrl || '').trim();
+  }
+  const payNow = priced && !!stampPreview && stampPreview.net_cents > 0 && paymentsConfigured;
+  if (payNow && !returnUrl) {
+    throw fail(
+      'BOOKING_RETURN_URL_UNAVAILABLE',
+      'Online payment is required for this booking, but no return page could be determined for this site. Please contact the business to book.',
+      500
+    );
+  }
   const appointment = createPublicBooking(db, row.lead_id, data, { paymentHold: payNow });
   const result = {
     embed: publicEmbed(row),
