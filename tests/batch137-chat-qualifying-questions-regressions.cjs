@@ -174,7 +174,7 @@ function addMsg(sessionId, leadId, role, body) {
       'customer'
     );
   }
-  assert.equal(sm.MODULE_TYPES.length, 27, 'MODULE_TYPES unchanged — no new module type');
+  assert.equal(sm.MODULE_TYPES.length, 28, 'MODULE_TYPES unchanged — no new module type');
   assert.ok(!sm.MODULE_TYPES.includes('qualifying'), 'no qualifying module type exists');
 
   /* ================================================================== */
