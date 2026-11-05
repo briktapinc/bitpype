@@ -106,14 +106,23 @@ const BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'];
  *  slot while the visitor completes checkout. The hold behaves
  *  exactly like a pending appointment for availability purposes
  *  until it lapses (see releaseExpiredBookingHolds).
- *  Batch 145 (external review F07): 30 → 60 minutes. Stripe Checkout
- *  Sessions have a MINIMUM lifetime of 30 minutes, so a 30-minute
- *  hold can never have its session pinned to the hold expiry (the
- *  Batch 143 pin needed ≥31 minutes of hold remaining and therefore
- *  never engaged — sessions lived the 24h default while holds died
- *  at 30). At 60 minutes the session's expires_at is set to the hold
- *  expiry unconditionally and the two die together. */
-const BOOKING_PAYMENT_HOLD_MINUTES = 60;
+ *  Batch 145 (external review F07) — ELY'S RULING (2026-11-05): the
+ *  hold STAYS 30 minutes. (A 60-minute variant was built so the
+ *  checkout session could be pinned exactly to the hold expiry and
+ *  was reverted before deploy on his explicit decision.) Stripe
+ *  Checkout Sessions have a MINIMUM lifetime of 30 minutes and the
+ *  hold is created before the session, so a 30-minute hold can
+ *  never be pinned exactly; checkoutShopLines instead caps the
+ *  session at the earliest Stripe-permissible expiry (≈ the hold
+ *  expiry), and the refund backstop in applyBookingPaymentTransition
+ *  (paid_unfulfilled flag + auto-refund) is the guarantee for any
+ *  payment that lands after the hold is released. */
+const BOOKING_PAYMENT_HOLD_MINUTES = 30;
+/** Stripe Checkout Sessions cannot expire sooner than 30 minutes
+ *  after creation; SESSION_EXPIRY_MARGIN_MINUTES is the small clock
+ *  safety margin added on top of that floor (Batch 145, F07). */
+const STRIPE_SESSION_MIN_MINUTES = 30;
+const SESSION_EXPIRY_MARGIN_MINUTES = 1;
 const DEFAULT_BOOKING_HOURS = [
   { weekday: 1, start_time: '09:00', end_time: '17:00' },
   { weekday: 2, start_time: '09:00', end_time: '17:00' },
@@ -4983,17 +4992,25 @@ async function checkoutShopLines(db, embedRow, lines, currency, returnUrl, opts 
     // other surface leaves it unset and is stamped with nothing.
     discount: opts && opts.bookingDiscount ? opts.bookingDiscount : null,
   });
-  // Batch 143 (full review) introduced this pin; Batch 145
-  // (external review F07) makes it actually engage. The 143 version
-  // only set expires_at when ≥31 minutes of hold remained, but
-  // holds were exactly 30 minutes — the condition was false in
-  // 100% of real cases and sessions lived Stripe's 24h default
-  // while holds died at 30 minutes. Now: the hold is 60 minutes
-  // (BOOKING_PAYMENT_HOLD_MINUTES — Stripe's 30-minute session
-  // minimum makes a 30-minute hold unpinnable), and expires_at is
-  // set UNCONDITIONALLY to the earliest appointment hold expiry on
-  // the order, so the session and the hold die together.
-  let sessionExpiresAt = null;
+  // Batch 145 (external review F07) — session expiry for booking
+  // lines. Batch 143's pin only set expires_at when ≥31 minutes of
+  // hold remained, but holds were exactly 30 minutes, so the
+  // condition was false in 100% of real cases and sessions lived
+  // Stripe's 24h default while holds died at 30 minutes. The hold
+  // STAYS 30 minutes per Ely's ruling (2026-11-05), and a
+  // 30-minute hold cannot be pinned exactly: Stripe sessions have
+  // a MINIMUM lifetime of 30 minutes from creation, and the hold
+  // is created before the session, so the hold expiry is always
+  // already inside that minimum. Instead the session is capped at
+  // the earliest Stripe-permissible value — the later of (the
+  // earliest hold expiry on the order + 1 minute) and (now +
+  // Stripe's 30-minute minimum + 1 minute of clock margin) —
+  // which lands ≈1 minute after the hold expiry in the normal
+  // flow and NEVER at the 24h default. Any payment that still
+  // lands after the hold is released is covered by the refund
+  // backstop in applyBookingPaymentTransition (paid_unfulfilled
+  // flag + detached auto-refund; no "new order" email).
+  let holdExpiresAt = null;
   for (const l of lines) {
     if (l.source_module !== 'bookings') continue;
     let meta = {};
@@ -5008,9 +5025,17 @@ async function checkoutShopLines(db, embedRow, lines, currency, returnUrl, opts 
       .prepare('SELECT payment_expires_at FROM bookings WHERE id = ? AND lead_id = ?')
       .get(apptId, Number(embedRow.lead_id));
     const t = appt && appt.payment_expires_at ? Date.parse(String(appt.payment_expires_at)) : NaN;
-    if (Number.isFinite(t) && (sessionExpiresAt == null || t < sessionExpiresAt)) sessionExpiresAt = t;
+    if (Number.isFinite(t) && (holdExpiresAt == null || t < holdExpiresAt)) holdExpiresAt = t;
   }
-  const expiresAtSec = sessionExpiresAt != null ? Math.floor(sessionExpiresAt / 1000) : null;
+  const expiresAtSec =
+    holdExpiresAt != null
+      ? Math.floor(
+          Math.max(
+            holdExpiresAt + SESSION_EXPIRY_MARGIN_MINUTES * 60 * 1000,
+            Date.now() + (STRIPE_SESSION_MIN_MINUTES + SESSION_EXPIRY_MARGIN_MINUTES) * 60 * 1000
+          ) / 1000
+        )
+      : null;
   let session;
   try {
     session = await stripe.checkout.sessions.create({

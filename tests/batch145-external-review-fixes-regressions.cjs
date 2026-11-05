@@ -29,10 +29,12 @@
  *             handler matches modern invoices, resolveLeadForEvent,
  *             partner attribution, suspension restore discrimination.
  *   Part 8  — shop/bookings: F08 server-side pay decision + derived
- *             return URL + fail-closed; F07 session expires_at equals
- *             the 60-minute hold expiry; late payment flags
- *             paid_unfulfilled and auto-refunds; F06 terminal guards
- *             + processed-event receipts.
+ *             return URL + fail-closed; F07 hold stays 30 minutes
+ *             (Ely's ruling) and the session expires_at is capped at
+ *             the earliest Stripe-permissible expiry (≈ the hold
+ *             expiry — never absent, never the 24h default); late
+ *             payment flags paid_unfulfilled and auto-refunds; F06
+ *             terminal guards + processed-event receipts.
  *   Part 9  — F14 booking availability in the business timezone
  *             (frozen clock): slot survival, zone-local "today",
  *             timezone save validation.
@@ -174,10 +176,14 @@ function loadWithGlobals(file, mocks, globals) {
     );
     n++;
     const smSrc = read('server/siteModules.js');
-    assert.ok(smSrc.includes('BOOKING_PAYMENT_HOLD_MINUTES = 60'), 'F07: booking hold is 60 minutes');
+    assert.ok(smSrc.includes('BOOKING_PAYMENT_HOLD_MINUTES = 30'), "F07: booking hold is 30 minutes (Ely's ruling)");
     assert.ok(!smSrc.includes('31 * 60 * 1000'), 'F07: the never-engaging >=31min expires_at gate is gone');
+    assert.ok(
+      smSrc.includes('STRIPE_SESSION_MIN_MINUTES') && smSrc.includes('SESSION_EXPIRY_MARGIN_MINUTES'),
+      'F07: the session expiry is floored at Stripe\u2019s minimum + margin (the earliest-permissible cap)'
+    );
     assert.ok(smSrc.includes('CREATE TABLE IF NOT EXISTS shop_processed_stripe_events'), 'F06: receipt table DDL');
-    n += 3;
+    n += 4;
     const creditsSrc = read('server/credits.js');
     assert.ok(!creditsSrc.includes("conn.query('BEGIN IMMEDIATE')"), 'F15: no raw BEGIN IMMEDIATE in credits');
     assert.ok(creditsSrc.includes('await conn.beginTransaction()'), 'F15: depth-counted beginTransaction used');
@@ -659,9 +665,12 @@ function loadWithGlobals(file, mocks, globals) {
         .prepare('INSERT INTO booking_hours (lead_id, weekday, start_time, end_time) VALUES (245, ?, ?, ?)')
         .run(weekday, '00:00', '23:30');
 
-      // F08 + F07(a): priced + configured, NO client return_url —
-      // the server derives the site origin and pins expires_at to
-      // the (60-minute) hold expiry.
+      // F08 + F07(a/b): priced + configured, NO client return_url —
+      // the server derives the site origin; the hold is 30 minutes
+      // (Ely's ruling) and the session's expires_at is capped at the
+      // earliest Stripe-permissible value (≈ the hold expiry +
+      // ~1 minute — present, ≥ Stripe's 30-minute minimum, and NOT
+      // the 24h default an absent expires_at would mean).
       const booking = await sm.createPublicBookingByToken(tdb, embed.public_token, {
         service_id: svc.id,
         starts_at: ymd + 'T10:00:00',
@@ -679,13 +688,21 @@ function loadWithGlobals(file, mocks, globals) {
       const appt = tdb.prepare('SELECT * FROM bookings WHERE id = ?').get(booking.appointment.id);
       assert.strictEqual(appt.payment_state, 'hold', 'booking sits in hold until payment lands');
       const holdMin = (Date.parse(appt.payment_expires_at) - Date.parse(appt.created_at)) / 60000;
-      assert.ok(holdMin > 59 && holdMin < 61, `F07: hold is 60 minutes (got ${holdMin.toFixed(1)})`);
-      assert.strictEqual(
-        params.expires_at,
-        Math.floor(Date.parse(appt.payment_expires_at) / 1000),
-        'F07: session expires_at is pinned to the hold expiry'
+      assert.ok(holdMin > 29 && holdMin < 31, `F07: hold is 30 minutes (got ${holdMin.toFixed(1)})`);
+      const holdExpirySec = Math.floor(Date.parse(appt.payment_expires_at) / 1000);
+      assert.ok(
+        Number.isInteger(params.expires_at),
+        'F07: session expires_at is set (an absent value would mean the 24h default)'
       );
-      n += 6;
+      assert.ok(
+        params.expires_at >= holdExpirySec,
+        `F07: session expires_at is not before the hold expiry (got ${holdExpirySec - params.expires_at}s early)`
+      );
+      assert.ok(
+        params.expires_at <= holdExpirySec + 120,
+        `F07: session expires_at lands within ~2 minutes after the hold expiry (got +${params.expires_at - holdExpirySec}s)`
+      );
+      n += 8;
 
       // F07(b): the hold lapses, THEN the payment completes — the
       // order is flagged paid_unfulfilled and auto-refunded, never
