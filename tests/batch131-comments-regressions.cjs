@@ -282,7 +282,7 @@ const throws = (fn, pattern) => {
     n++;
     assert.ok(portalHtml.includes('data-modules-pane="comments"'), 'portal.html carries the Comments tab button');
     n++;
-    assert.ok(portalHtml.includes('portal.js?v=batch136-discount1'), 'portal.js cache-bust rotated');
+    assert.ok(portalHtml.includes('portal.js?v=batch137-qualifying1'), 'portal.js cache-bust rotated');
     n++;
     group('Part 1 source pins', n);
   }

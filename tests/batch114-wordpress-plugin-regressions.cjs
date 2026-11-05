@@ -142,7 +142,7 @@ function unzipStore(buf) {
     has(portalHtml, 'remove the <code>[bitpype_form]</code> shortcodes', 'panel carries the uninstall shortcode line');
     has(
       portalHtml,
-      '/js/portal.js?v=batch136-discount1',
+      '/js/portal.js?v=batch137-qualifying1',
       'portal.js cache-busted (Batch 117 rotation; string follows the newest rotation — Batch 131)'
     );
     const portalJs = read('public/js/portal.js');
@@ -221,7 +221,7 @@ function unzipStore(buf) {
     const cz = census();
     assert.deepEqual(
       cz.summary,
-      { total: 441, STATIC: 158, ESCAPED: 41, SAFE: 73, BUILDER: 58, IDENT: 35, RAW: 76 },
+      { total: 442, STATIC: 158, ESCAPED: 41, SAFE: 74, BUILDER: 58, IDENT: 35, RAW: 76 },
       'SEC-13 census summary unchanged'
     );
     n += 1;
@@ -229,7 +229,7 @@ function unzipStore(buf) {
     const sha = crypto.createHash('sha256').update(multiset.join('\n')).digest('hex');
     assert.equal(
       sha,
-      'c09c29b3c88408cdbdd74ac78feee07852cb011253ec4f9925f6ea0c46b949cf',
+      '60eb830c5783e3a39ec987ba067b921a5c0bf68bd4b83d206b2cf984fc8e9be0',
       'SEC-13 sink multiset byte-identical (Batch 136 finisher: +2 audited STATIC sinks in module-embed.js; RAW/IDENT multiset unchanged)'
     );
     n += 1;

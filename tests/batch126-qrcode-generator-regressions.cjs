@@ -179,7 +179,7 @@ let db;
     assert.ok(read('public/portal.html').includes('modules-qrcode-panel'), 'portal.html hosts the QR panel');
     n++;
     assert.ok(
-      read('public/portal.html').includes('/js/portal.js?v=batch136-discount1'),
+      read('public/portal.html').includes('/js/portal.js?v=batch137-qualifying1'),
       'portal.js cache-busted for Batch 126'
     );
     n++;

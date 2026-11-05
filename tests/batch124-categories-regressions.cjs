@@ -195,7 +195,7 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     const portalHtml = read('public/portal.html');
     assert.ok(portalHtml.includes('id="modules-categories-scopes-panel"'), 'scopes panel mount exists');
     assert.ok(
-      portalHtml.includes('portal.js?v=batch136-discount1'),
+      portalHtml.includes('portal.js?v=batch137-qualifying1'),
       'portal.js cache-bust rotated (Batch 124 rotated it; Batch 125 rotated again)'
     );
     n += 2;

@@ -125,7 +125,7 @@ const PANELS = [
     cssHas('.portal-cards {', 'card grid rule present');
     cssHas('#forms-list.item-list', 'forms list two-column rule present');
     cssHas('#modules-items.item-list', 'module items two-column rule present');
-    cssHas('/js/portal.js?v=batch136-discount1', 'portal.js cache-busted');
+    cssHas('/js/portal.js?v=batch137-qualifying1', 'portal.js cache-busted');
     group('Part 1 shell structure', n);
   }
 
@@ -147,8 +147,8 @@ const PANELS = [
     // SEC-13: no new sink, no shifted sink — totals + baseline exact.
     const { census } = require(path.join(root, 'scripts', 'xss-census.cjs'));
     const cz = census();
-    assert.equal(cz.summary.total, 441, 'SEC-13 census total unchanged by Batch 105'); n += 1;
-    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 330, 'SEC-13 safe classes unchanged (Batch 136 finisher: +2 audited STATIC sinks in module-embed.js — the booking price-summary clear + esc()-wrapped build; 328 -> 330, census 439 -> 441, RAW/IDENT unchanged)'); n += 1;
+    assert.equal(cz.summary.total, 442, 'SEC-13 census total unchanged by Batch 105'); n += 1;
+    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 331, 'SEC-13 safe classes unchanged (Batch 136 finisher: +2 audited STATIC sinks in module-embed.js — the booking price-summary clear + esc()-wrapped build; 328 -> 330, census 439 -> 441, RAW/IDENT unchanged; Batch 137 finisher: +1 audited SAFE sink in portal.js (qualifying-question rows render — numeric indices + esc()-wrapped question text), census 441 -> 442, SAFE 73 -> 74, reviewed RAW/IDENT content unchanged (12 portal.js positions shifted +127, pure line movement, snippet-verified))'); n += 1;
     const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
     const BASELINE = new Set(require(path.join(root, 'tests', 'batch103-xss-baseline.json')));
     assert.deepEqual([...reviewed].filter((x) => !BASELINE.has(x)), [], 'no new RAW/IDENT sinks'); n += 1;
