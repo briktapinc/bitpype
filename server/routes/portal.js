@@ -427,7 +427,7 @@ router.post('/mfa/enroll/confirm', requireClient, actionLimit, async (req, res) 
 router.post('/mfa/disable', requireClient, actionLimit, async (req, res) => {
   try {
     await requirePortalPassword(req, req.client.id);
-    await mfa.verifyLoginCode('portal', req.client.id, (req.body || {}).code);
+    await mfa.verifyLoginCode('portal', req.client.id, (req.body || {}).code, { consumeStep: false });
     await mfa.clearMfa('portal', req.client.id);
     ok(res, { enabled: false });
   } catch (e) {

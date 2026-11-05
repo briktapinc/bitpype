@@ -20,7 +20,7 @@
  *     (the '[object Object]' lead).
  *   Part 4 — deleteLead / mergeLeads cascades cover EVERY lead_id
  *     table the fixture schema creates (inventory derived from the
- *     schema, keep-list = design_jobs only); the duplicate-email
+ *     schema, keep-list = design_jobs + domain_transactions); the duplicate-email
  *     newsletter merge no longer crashes; child rows
  *     (course_lessons / gallery_images) follow their parents.
  *   Part 5 — comments: like toggle refuses unusable visitor
@@ -421,10 +421,28 @@ function seedLeadEverywhere(db, id, tag) {
 {
   let n = 0;
   const leadEngine = require(path.join(root, 'src/leadEngine.js'));
-  // DELETE: every lead_id table empties (keep-list: design_jobs only).
+  // DELETE: every lead_id table empties except the two deliberate
+  // keeps — design_jobs (own lifecycle) and domain_transactions
+  // (financial history; Batch 45 doctrine).
   {
     const db = makeTenantDb();
     seedLeadEverywhere(db, 9101, 'del');
+    // Seed the two deliberate keeps explicitly so their survival is
+    // pinned, not merely unobserved. (Their tables are created by
+    // their own modules in production; the fixture creates them with
+    // the real DDL shapes.)
+    db.exec(`CREATE TABLE IF NOT EXISTS design_jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, title TEXT NOT NULL,
+      instructions TEXT NOT NULL, lead_id INTEGER, status TEXT NOT NULL DEFAULT 'waiting_on_agent')`);
+    db.exec(`CREATE TABLE IF NOT EXISTS domain_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, lead_id INTEGER NOT NULL, website_id INTEGER,
+      domain TEXT NOT NULL, plan_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending_payment')`);
+    db.prepare(
+      "INSERT INTO design_jobs (type, title, instructions, lead_id, status) VALUES ('website', 'Fixture job', 'Build it', ?, 'delivered')"
+    ).run(9101);
+    db.prepare("INSERT INTO domain_transactions (lead_id, domain, plan_id) VALUES (?, 'del.example', 'standard')").run(
+      9101
+    );
     const before = rowsForLead(db, 9101);
     assert.ok(
       Object.keys(before).length >= 25,
@@ -433,7 +451,11 @@ function seedLeadEverywhere(db, id, tag) {
     n++;
     leadEngine.deleteLead(db, 9101);
     const after = rowsForLead(db, 9101);
-    assert.deepEqual(after, {}, `deleteLead leaves no lead_id rows behind (left: ${JSON.stringify(after)})`);
+    assert.deepEqual(
+      after,
+      { design_jobs: 1, domain_transactions: 1 },
+      `deleteLead drops every lead_id table except the two keeps (left: ${JSON.stringify(after)})`
+    );
     n++;
     const lessons = db.prepare('SELECT COUNT(*) c FROM course_lessons').get().c;
     const images = db.prepare('SELECT COUNT(*) c FROM gallery_images').get().c;

@@ -105,6 +105,11 @@ async function setSetting(key, value) {
 
 async function partA() {
   await platformDb.migrate();
+  // Batch 143: registration now defaults CLOSED when unset (the old
+  // ON default was the review's registration bug). This suite tests
+  // signup flows, so it opens registration explicitly — the closed
+  // case is exercised in Part C by setting it back to '0'.
+  await setSetting('registration.open', '1');
   const signup = require(path.join(root, 'server/signup.js'));
   const workspace = require(path.join(root, 'server/workspace.js'));
 

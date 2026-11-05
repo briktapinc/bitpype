@@ -363,6 +363,9 @@ async function partC() {
   const bcrypt = require('bcryptjs');
   const platformDb = require(path.join(root, 'server/db.js'));
   await platformDb.migrate();
+  // Batch 143: registration defaults CLOSED when unset now; this
+  // suite's register-flow checks run with it explicitly open.
+  await require('./lib/platformTestDb.cjs').setPlatformSetting(platformDb, 'registration.open', '1');
   const workspace = require(path.join(root, 'server/workspace.js'));
   const domain = require(path.join(root, 'server/domain.js'));
   const { openWorkspaceDb } = require(path.join(root, 'server/workspaceDb.js'));

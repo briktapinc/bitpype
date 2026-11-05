@@ -190,9 +190,9 @@ async function main() {
   wdb.prepare('INSERT INTO leads (id, business_name, email, status) VALUES (501, ?, ?, ?)').run('MFA Fixture Biz', PORTAL_EMAIL, 'customer');
 
   const migCols = await probe("SELECT COUNT(*) AS c FROM pragma_table_info('users') WHERE name LIKE 'totp_%'");
-  check('migration added the 6 MFA columns to users', migCols.c === 6);
+  check('migration added the MFA columns to users (6 + Batch 143 totp_last_step replay guard)', migCols.c === 7);
   const migColsP = await probe("SELECT COUNT(*) AS c FROM pragma_table_info('client_portal_users') WHERE name LIKE 'totp_%'");
-  check('migration added the 6 MFA columns to client_portal_users', migColsP.c === 6);
+  check('migration added the MFA columns to client_portal_users (6 + Batch 143 totp_last_step)', migColsP.c === 7);
 
   // ------------------------------------------------------- boot
   const child = spawn(process.execPath, [path.join(root, 'server.js')], {

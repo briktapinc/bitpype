@@ -1036,7 +1036,8 @@ function deleteLead(db, id) {
     // encrypted Stripe key rows in shop_stripe_keys /
     // membership_stripe_keys / lead_payment_configs). The rule from
     // Batch 134 is now completed: EVERY lead_id-keyed tenant table is
-    // dropped here except design_jobs (deliberate, see header). The
+    // dropped here except design_jobs and domain_transactions
+    // (deliberate keeps — job lifecycle and financial history). The
     // batch143 suite derives the table inventory from the schema and
     // fails if a future table is added without a drop or a documented
     // keep. Children before parents where rows reference each other.
@@ -1115,7 +1116,8 @@ function deleteLead(db, id) {
     drop('site_chat_summaries');
     drop('site_chat_daily_usage');
     drop('site_screenshots');
-    drop('domain_transactions');
+    // domain_transactions deliberately KEPT: financial history
+    // survives lead deletion (Batch 45 doctrine, suite-pinned).
     drop('leadscout_capture_failures');
     drop('leadscout_events');
     drop('lead_onboarding_items');

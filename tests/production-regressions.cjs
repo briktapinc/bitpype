@@ -40,6 +40,9 @@ const SPLIT_MODULES = new Set([
   // Batch 120: museAgentCore requires the provider-routing registry;
   // it only lazily requires ./platform (mocked at every load site).
   'aiRouting',
+  // Batch 143: portalAccounts requires ./rateLimitStore (the portal
+  // access-email throttle moved to the durable Batch 55 store).
+  'rateLimitStore',
   'paymentsConfig', // Batch 129: the unified payments config joins the stubbed module graph
   // Batch 129: paymentsConfig lazily requires ./siteModules (the cycle
   // pattern); routing it through inner() returns the load's own root
@@ -3760,10 +3763,10 @@ async function main() {
   };
 
   const cfgDefault23 = await callAuth23('get', '/config');
-  check('batch23 config: registration defaults ON when the setting is unset', () => {
+  check('batch23 config: registration defaults OFF when the setting is unset (Batch 143: the ON default was the registration bug)', () => {
     assert.equal(cfgDefault23.status, 200);
     assert.equal(cfgDefault23.body.ok, true);
-    assert.equal(cfgDefault23.body.data.registrationOpen, true);
+    assert.equal(cfgDefault23.body.data.registrationOpen, false);
   });
 
   settings23.set('registration.open', '0');
@@ -3826,11 +3829,11 @@ async function main() {
 
   check('batch23 gates: endpoint gate, boot payload, tab gate and settings toggle are wired', () => {
     const authSrc23 = fs.readFileSync(path.join(root, 'server/routes/auth.js'), 'utf8');
-    assert.ok(authSrc23.includes("getPlatformSetting('registration.open', '1')"), 'register gate reads registration.open');
+    assert.ok(authSrc23.includes("getPlatformSetting('registration.open', '0')"), 'register gate reads registration.open');
     assert.ok(authSrc23.includes("error: 'REGISTRATION_DISABLED'"), 'disabled error present');
     assert.ok(authSrc23.includes("router.get('/config'"), 'public auth config route present');
     const platformSrc23 = fs.readFileSync(path.join(root, 'server/platform.js'), 'utf8');
-    assert.ok(/key: 'registration\.open'[\s\S]{0,200}?default: '1'/.test(platformSrc23), 'setting def defaults ON');
+    assert.ok(/key: 'registration\.open'[\s\S]{0,600}?default: '0'/.test(platformSrc23), 'setting def defaults OFF (Batch 143; window widened for the explanatory comment in the def)');
     const appSrc23 = fs.readFileSync(path.join(root, 'public/js/app.js'), 'utf8');
     assert.ok(appSrc23.includes('api.authConfig()'), 'auth screen loads the boot flag');
     assert.ok(

@@ -404,7 +404,12 @@ function loadChatAtt() {
                       ? require(path.join(root, 'server', 'portalCapabilities.js'))
                       : name === './aiRouting'
                         ? aiRoutingStub
-                        : require(name),
+                        : name === './urlSafety'
+                          ? // Batch 143: museAgentCore now requires
+                            // ./urlSafety (SSRF guard parity); stub
+                            // it — transport here is a fetch fixture.
+                            { assertAiBaseUrl: async () => {} }
+                          : require(name),
         fetch: async (_url, opts) => {
           const body = JSON.parse(opts.body);
           requests.push(body);

@@ -351,6 +351,9 @@ function partA3() {
 async function partB() {
   const pdb = require(path.join(root, 'server/db.js'));
   await pdb.migrate(); // platform schema, as server boot does
+  // Batch 143: registration defaults CLOSED when unset now; the
+  // register-validation checks below run with it explicitly open.
+  await require('./lib/platformTestDb.cjs').setPlatformSetting(pdb, 'registration.open', '1');
   const { openWorkspaceDb } = require(path.join(root, 'server/workspaceDb.js'));
   const domain = require(path.join(root, 'server/domain.js'));
   const stripeClient = require(path.join(root, 'server/stripeClient.js'));

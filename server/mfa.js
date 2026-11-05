@@ -155,7 +155,7 @@ async function recordSuccess(surface, id) {
  * ~1 in 4 recovery codes. A recovery match CONSUMES the code (its
  * hash is removed before this returns). Throws MFA_INVALID_CODE.
  */
-async function tryCode(surface, id, row, rawCode) {
+async function tryCode(surface, id, row, rawCode, opts = {}) {
   const code = String(rawCode || '').trim();
   if (!code) throw codedError('MFA_INVALID_CODE', 'Enter the code from your authenticator app.');
 
@@ -163,12 +163,17 @@ async function tryCode(surface, id, row, rawCode) {
   if (secret) {
     const step = totp.matchedStep(secret, code);
     if (step != null) {
-      // Batch 143 (full review): TOTP codes are single-use. The
-      // highest accepted step is persisted per account; a code at or
-      // below it is a replay and is refused (and counted as a failed
-      // attempt by the callers, like any bad code). The stamp is a
-      // conditional UPDATE so two concurrent verifies of the same
-      // code can't both win — the loser's UPDATE matches no row.
+      // Batch 143 (full review): TOTP codes are single-use AT LOGIN.
+      // The highest accepted step is persisted per account; a login
+      // code at or below it is a replay and is refused (and counted
+      // as a failed attempt by the callers, like any bad code). The
+      // stamp is a conditional UPDATE so two concurrent verifies of
+      // the same code can't both win — the loser's UPDATE matches no
+      // row. Enrollment confirmation passes consumeStep:false — it
+      // must not burn the step, or the owner's first login inside
+      // the same 30s window (confirm → sign in with the code still
+      // on screen) would be refused as a false replay.
+      if (opts.consumeStep === false) return { via: 'totp' };
       const table = tableFor(surface);
       const stamp = await query(
         `UPDATE ${table} SET totp_last_step = :s WHERE id = :id AND (totp_last_step IS NULL OR totp_last_step < :s)`,
@@ -232,7 +237,7 @@ async function confirmEnrollment(surface, id, rawCode) {
     throw codedError('MFA_NO_PENDING', 'Start the authenticator setup first.');
   }
   try {
-    await tryCode(surface, id, { ...row, totp_secret: row.totp_pending_secret, totp_recovery_hashes: null }, rawCode);
+    await tryCode(surface, id, { ...row, totp_secret: row.totp_pending_secret, totp_recovery_hashes: null }, rawCode, { consumeStep: false });
   } catch (e) {
     if (e.code === 'MFA_INVALID_CODE') await recordFailure(surface, id);
     throw e;
@@ -254,15 +259,20 @@ async function confirmEnrollment(surface, id, rawCode) {
  * Verify a code for an account with MFA enabled (the login second
  * factor, or the code half of portal self-disable). Accepts a TOTP
  * code or a recovery code. Throws MFA_INVALID_CODE / MFA_LOCKED.
+ * The login path consumes the TOTP step (single-use, Batch 143);
+ * the self-disable path passes consumeStep:false — it already runs
+ * inside an authenticated session behind a password check, and
+ * burning the step there would refuse a legitimate disable done in
+ * the same 30s window as the login that started the session.
  */
-async function verifyLoginCode(surface, id, rawCode) {
+async function verifyLoginCode(surface, id, rawCode, opts = {}) {
   await assertNotLocked(surface, id);
   const row = await readRow(surface, id);
   if (!row || Number(row.totp_enabled) !== 1 || !row.totp_secret) {
     throw codedError('MFA_NOT_ENABLED', 'Two-factor authentication is not enabled for this account.');
   }
   try {
-    const result = await tryCode(surface, id, row, rawCode);
+    const result = await tryCode(surface, id, row, rawCode, opts);
     await recordSuccess(surface, id);
     return result;
   } catch (e) {
