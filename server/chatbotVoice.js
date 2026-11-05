@@ -309,9 +309,19 @@ function buildVoiceInstructions(db, leadId) {
     `You are the voice assistant for ${bizName}, speaking with a visitor on their website. Speak naturally and briefly, as their website support — not a generic AI. Greet the visitor first and ask how you can help.`,
     'Business profile (you may share contact/identity when asked):',
     bizBlock,
-    'Knowledge excerpts — factual claims (services, pricing, policies, availability) ONLY from these excerpts and the business profile. Do not invent facts:',
+    'Knowledge excerpts — factual claims (services, pricing, policies, availability) ONLY from these excerpts, the site content excerpts below, and the business profile. Do not invent facts:',
     knowledgeBlock,
   ];
+  // Batch 151: the owner's selected module + page sources — the
+  // SAME digest text the text chat briefs from (one brain, one
+  // buildAssistantContext), including the Batch 139 price book when
+  // the Pricing source is on.
+  if (ctx.sources && ctx.sources.text) {
+    blocks.push(
+      'Site content excerpts — also from the business’s own modules and pages, labelled by source:',
+      ctx.sources.text
+    );
+  }
   const pitch = bookingPitchBlock(db, leadId);
   if (pitch) blocks.push(pitch);
   const qualifying = qualifyingQuestionsBlock(db, leadId);

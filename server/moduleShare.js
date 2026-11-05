@@ -128,6 +128,11 @@ const SHARE_REGISTRY = {
           meta: {
             slug: p.slug || '',
             price_cents: modules.productDisplayPriceCents(db, leadId, p),
+            // Batch 151: the formatted display label (the "From
+            // $58.00" figure buyers actually see) rides the shared
+            // item so text consumers — the assistant's shop digest
+            // first — quote the same figure as the storefront.
+            price_label: modules.productPriceLabel(db, leadId, p),
             currency: p.currency || 'USD',
           },
         })

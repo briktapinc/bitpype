@@ -55,6 +55,20 @@ const DEFAULT_SETTINGS = {
   voice_enabled: false,
   voice_name: 'marin',
   voice_bubble_image: '',
+  /**
+   * Batch 151 — owner-selected AI knowledge sources. The owner picks
+   * which MODULES, which PAGES and which KNOWLEDGE-BASE documents
+   * may provide answers (portal Chatbot → Settings → Knowledge
+   * sources). Stored as ONE settings_json extras object:
+   *   { groups: { modules, pages, knowledge },
+   *     modules: { <module type>: bool }, pages: { <slug>: bool },
+   *     knowledge: { <doc id>: bool } }
+   * Only explicit entries are stored; an ABSENT entry means ON, and
+   * a null/absent knowledge_sources (every legacy row) means
+   * everything ON — an owner who never opens the panel gets the KB
+   * behaviour they always had PLUS the module/page digests.
+   */
+  knowledge_sources: null,
 };
 
 /** Batch 137 — qualifying-question caps (validated on save). */
@@ -245,10 +259,33 @@ function loadBusinessSupportContext(db, leadId) {
  */
 function buildAssistantContext(db, leadId, { query = '' } = {}) {
   ensureTables(db);
+  const settings = getSettings(db, leadId);
+  // Batch 151: the owner's knowledge-source selection gates ALL
+  // three diets here — KB documents (per-doc toggles + group switch)
+  // and the module/page digests. A legacy/absent selection behaves
+  // all-ON. This object is the one brain: text chat and voice both
+  // read it, so both surfaces answer (and refuse) identically.
+  const resolver = knowledgeSourcesFromSettings(settings);
+  let kbIncludeIds = null;
+  if (!resolver.groupOn('knowledge')) {
+    kbIncludeIds = new Set();
+  } else {
+    kbIncludeIds = new Set(
+      listKnowledge(db, leadId)
+        .filter((d) => resolver.docOn(d.id))
+        .map((d) => Number(d.id))
+    );
+  }
   return {
     business: loadBusinessSupportContext(db, leadId),
-    knowledge: knowledgeSnippets(db, leadId, { query: String(query || ''), limit: 12, maxChars: 8000 }),
-    settings: getSettings(db, leadId),
+    knowledge: knowledgeSnippets(db, leadId, {
+      query: String(query || ''),
+      limit: 12,
+      maxChars: 8000,
+      includeIds: kbIncludeIds,
+    }),
+    settings,
+    sources: buildKnowledgeDigests(db, leadId, resolver, query),
   };
 }
 
@@ -1163,6 +1200,178 @@ function qualifyingFor(db, leadId) {
   return { questions: cfg.questions.slice() };
 }
 
+/* ------------------------------------------------------------------ */
+/* Batch 151 — AI knowledge sources (owner-selected).                  */
+/*                                                                     */
+/* The assistant's factual diet used to be the business profile +    */
+/* the chatbot's own KB only — module content (the shop's products,  */
+/* booking services, the price book…) was never read in, which is    */
+/* why Victoria's agent could not say what plants she sells. Now     */
+/* buildAssistantContext also composes BOUNDED, query-scored,        */
+/* source-labelled digests from the Batch 122 SHARED LAYER (never a  */
+/* per-module silo read), the site's own pages, and the KB — and     */
+/* the owner controls every source from Chatbot → Settings →         */
+/* Knowledge sources. Chat and voice read the SAME assembly          */
+/* (buildAssistantContext), so a toggle behaves identically on       */
+/* both surfaces.                                                      */
+/* ------------------------------------------------------------------ */
+
+/** Module types whose published content can brief the assistant.
+ *  Every entry is a shared-layer PROVIDER; the provider types NOT
+ *  listed are excluded deliberately:
+ *   - socialfeed / googlereviews — third-party text (other people's
+ *     posts and reviews, names included), transient and noisy;
+ *   - categories — taxonomy labels only; the items themselves
+ *     already arrive through their own scope provider;
+ *   - photocapture — visitor-submitted names/messages (visitor
+ *     content, even once approved);
+ *   - qrcode — payloads are URLs / WiFi identifiers, not answers
+ *     (and WiFi payload discipline from Batch 134). */
+const ANSWERABLE_MODULE_TYPES = [
+  'ecommerce',
+  'bookings',
+  'pricing',
+  'faq',
+  'menu',
+  'courses',
+  'events',
+  'offers',
+  'blog',
+  'gallery',
+  'testimonials',
+  'team',
+  'directory',
+  'careers',
+  'video',
+];
+
+/** Digest budget — every family is capped, so the composed context
+ *  stays bounded no matter how much content a site carries. The KB
+ *  keeps its existing discipline (12 docs / 8000 chars). */
+const SOURCE_ITEMS_PER_MODULE = 10;
+const SOURCE_MODULE_CHARS = 2400;
+const SOURCE_MODULES_TOTAL_CHARS = 9000;
+const SOURCE_PAGE_CHARS = 1500;
+const SOURCE_PAGES_MAX = 6;
+const SOURCE_PAGES_TOTAL_CHARS = 6000;
+
+const KNOWLEDGE_SOURCE_GROUPS = ['modules', 'pages', 'knowledge'];
+/** Page slugs that are pure transaction shells, never answer
+ *  content — excluded from page digests AND from the settings list. */
+const KNOWLEDGE_SHELL_SLUGS = new Set(['checkout', 'cart']);
+
+/** Lenient read-side sanitize (stored data was validated on save).
+ *  Returns null when nothing usable is stored — null means all-on. */
+function sanitizeKnowledgeSources(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const out = { groups: {}, modules: {}, pages: {}, knowledge: {} };
+  const groups = value.groups && typeof value.groups === 'object' ? value.groups : {};
+  for (const g of KNOWLEDGE_SOURCE_GROUPS) {
+    if (groups[g] != null) out.groups[g] = !!groups[g];
+  }
+  const mods = value.modules && typeof value.modules === 'object' ? value.modules : {};
+  for (const [k, v] of Object.entries(mods)) {
+    const t = String(k).trim().toLowerCase();
+    if (t && v != null) out.modules[t] = !!v;
+  }
+  const pages = value.pages && typeof value.pages === 'object' ? value.pages : {};
+  for (const [k, v] of Object.entries(pages)) {
+    const s = String(k).trim().toLowerCase().slice(0, 120);
+    if (s && v != null) out.pages[s] = !!v;
+  }
+  const docs = value.knowledge && typeof value.knowledge === 'object' ? value.knowledge : {};
+  for (const [k, v] of Object.entries(docs)) {
+    const id = Number(k);
+    if (Number.isInteger(id) && id > 0 && v != null) out.knowledge[String(id)] = !!v;
+  }
+  return out;
+}
+
+/**
+ * The effective source resolver for a settings object. Absent config
+ * (null — every legacy row) and absent entries both mean ON; only an
+ * explicit stored `false` (or a group switched off) removes a
+ * source. This is the ONE gate every digest/KB read goes through.
+ */
+function knowledgeSourcesFromSettings(settings) {
+  const cfg = sanitizeKnowledgeSources(settings && settings.knowledge_sources);
+  const groups = (cfg && cfg.groups) || {};
+  const modulesMap = (cfg && cfg.modules) || {};
+  const pagesMap = (cfg && cfg.pages) || {};
+  const docsMap = (cfg && cfg.knowledge) || {};
+  return {
+    config: cfg,
+    groupOn(group) {
+      return groups[group] !== false;
+    },
+    moduleOn(type) {
+      if (groups.modules === false) return false;
+      return modulesMap[String(type || '').trim().toLowerCase()] !== false;
+    },
+    pageOn(slug) {
+      if (groups.pages === false) return false;
+      return pagesMap[String(slug || '').trim().toLowerCase()] !== false;
+    },
+    docOn(id) {
+      if (groups.knowledge === false) return false;
+      return docsMap[String(Number(id))] !== false;
+    },
+  };
+}
+
+/**
+ * Save-side validation for knowledge_sources. Unknown MODULE TYPES
+ * are refused (the type list is static — a bad key can only be a
+ * client bug, and the settings row is left untouched). Page slugs /
+ * KB ids that no longer exist for this lead are dropped safely (a
+ * toggle for deleted content is meaningless), never corrupting the
+ * row. Sizes are capped so settings_json stays bounded.
+ */
+function normalizeKnowledgeSources(input, db, leadId) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw fail('VALIDATION', 'knowledge_sources must be an object', 400);
+  }
+  const modules = require('./siteModules');
+  const out = { groups: {}, modules: {}, pages: {}, knowledge: {} };
+  const groups = input.groups && typeof input.groups === 'object' ? input.groups : {};
+  for (const g of KNOWLEDGE_SOURCE_GROUPS) {
+    if (groups[g] != null) out.groups[g] = !!groups[g];
+  }
+  const mods = input.modules && typeof input.modules === 'object' ? input.modules : {};
+  for (const [k, v] of Object.entries(mods)) {
+    const t = String(k).trim().toLowerCase();
+    if (!modules.MODULE_TYPES.includes(t)) {
+      throw fail('VALIDATION', `Unknown module type in knowledge sources: ${k}`, 400);
+    }
+    if (v != null) out.modules[t] = !!v;
+  }
+  const pageSlugs = new Set(sitePages(db, leadId).map((p) => p.slug));
+  const pages = input.pages && typeof input.pages === 'object' ? input.pages : {};
+  for (const [k, v] of Object.entries(pages)) {
+    const s = String(k).trim().toLowerCase().slice(0, 120);
+    if (s && v != null && pageSlugs.has(s)) out.pages[s] = !!v;
+    if (Object.keys(out.pages).length >= 300) break;
+  }
+  let docIds = new Set();
+  try {
+    docIds = new Set(
+      db
+        .prepare('SELECT id FROM chatbot_knowledge WHERE lead_id = ?')
+        .all(Number(leadId))
+        .map((r) => Number(r.id))
+    );
+  } catch {
+    docIds = new Set();
+  }
+  const docs = input.knowledge && typeof input.knowledge === 'object' ? input.knowledge : {};
+  for (const [k, v] of Object.entries(docs)) {
+    const id = Number(k);
+    if (Number.isInteger(id) && id > 0 && v != null && docIds.has(id)) out.knowledge[String(id)] = !!v;
+    if (Object.keys(out.knowledge).length >= 1000) break;
+  }
+  return out;
+}
+
 function parseSettingsRow(row) {
   const base = { ...DEFAULT_SETTINGS };
   if (!row) return base;
@@ -1194,6 +1403,7 @@ function parseSettingsRow(row) {
       ? String(extra.voice_name)
       : base.voice_name,
     voice_bubble_image: String(extra.voice_bubble_image || ''),
+    knowledge_sources: sanitizeKnowledgeSources(extra.knowledge_sources),
   };
 }
 
@@ -1265,6 +1475,13 @@ function saveSettings(db, leadId, data = {}) {
     // chatbotVoice.js (it validates + stores the file first); a plain
     // settings save always preserves the current value.
     voice_bubble_image: cur.voice_bubble_image,
+    // Batch 151: the knowledge-source selection is replaced wholesale
+    // when the panel saves it (validated against this lead's real
+    // modules/pages/docs); an unrelated settings save preserves it.
+    knowledge_sources:
+      data.knowledge_sources != null
+        ? normalizeKnowledgeSources(data.knowledge_sources, db, leadId)
+        : cur.knowledge_sources,
   };
   // Preserve settings_json extras this build does not own (Batch 136
   // booking-pitch + Batch 137 qualifying-questions keys land here after
@@ -1285,6 +1502,7 @@ function saveSettings(db, leadId, data = {}) {
     voice_enabled: next.voice_enabled,
     voice_name: next.voice_name,
     voice_bubble_image: next.voice_bubble_image,
+    knowledge_sources: next.knowledge_sources,
   };
   db.prepare(
     `
@@ -1426,10 +1644,15 @@ function deleteKnowledge(db, leadId, id) {
   return { deleted: true, id: row.id };
 }
 
-/** Snippets for agent prompt (client MCP chatbot.knowledge / reply context). */
-function knowledgeSnippets(db, leadId, { limit = 12, maxChars = 6000, query = '' } = {}) {
+/** Snippets for agent prompt (client MCP chatbot.knowledge / reply context).
+ *  Batch 151: opts.includeIds (a Set of doc ids) restricts the diet
+ *  to the owner's selected KB documents — buildAssistantContext
+ *  passes the allowed set; other callers omit it and keep the
+ *  historical all-active-docs behaviour. */
+function knowledgeSnippets(db, leadId, { limit = 12, maxChars = 6000, query = '', includeIds = null } = {}) {
   const extract = require('./chatbotKnowledgeExtract');
-  const all = listKnowledge(db, leadId, { includeInactive: false });
+  let all = listKnowledge(db, leadId, { includeInactive: false });
+  if (includeIds) all = all.filter((it) => includeIds.has(Number(it.id)));
   const q = String(query || '').trim();
   let items = all.slice();
   if (q) {
@@ -1465,6 +1688,421 @@ function knowledgeSnippets(db, leadId, { limit = 12, maxChars = 6000, query = ''
     snippets: chunks,
     text: chunks.join('\n\n---\n\n'),
     supported_types: extract.SUPPORTED_LABEL,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Batch 151 — digests: shared-layer modules + site pages, composed  */
+/* into ONE labelled text block by buildAssistantContext.            */
+/* ------------------------------------------------------------------ */
+
+/** The lead's site pages (latest websites row), parsed. [] when the
+ *  lead has no site — page digests simply have nothing to read. */
+function sitePageRows(db, leadId) {
+  try {
+    const site = db.prepare('SELECT pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(Number(leadId));
+    if (!site || !site.pages) return [];
+    const pages = typeof site.pages === 'string' ? JSON.parse(site.pages || '[]') : site.pages;
+    return Array.isArray(pages) ? pages.filter((p) => p && typeof p === 'object') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Owner-facing page list (shell pages excluded — they can never be
+ *  answer sources, so they never get a toggle either). */
+function sitePages(db, leadId) {
+  return sitePageRows(db, leadId)
+    .map((p) => ({
+      slug: String(p.slug || '').trim().toLowerCase(),
+      title: String(p.title || p.slug || '').trim().slice(0, 120),
+    }))
+    .filter((p) => p.slug && !KNOWLEDGE_SHELL_SLUGS.has(p.slug));
+}
+
+function digestStripText(v, max = 400) {
+  return String(v == null ? '' : v)
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
+const SECTION_TEXT_SKIP_KEY =
+  /^(id|slug|type|layout|width|height|align|position|style|class|classname|target|rel|icon|image|img|src|href|url|key|file|file_path|public_token|form_token|module_type|token)$/i;
+
+function collectStrings(value, out, depth) {
+  if (depth > 6 || out.length > 220) return;
+  if (typeof value === 'string') {
+    const s = value.trim();
+    if (!s) return;
+    if (/^(https?:)?\/\//i.test(s) || s.startsWith('data:') || s.startsWith('#')) return;
+    if (/^#[0-9a-f]{3,8}$/i.test(s)) return;
+    if (!/\s/.test(s) && s.length > 80) return; // opaque id/token material
+    out.push(digestStripText(s, 500));
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const v of value) collectStrings(v, out, depth + 1);
+    return;
+  }
+  if (value && typeof value === 'object') {
+    for (const [k, v] of Object.entries(value)) {
+      if (SECTION_TEXT_SKIP_KEY.test(k) || /token/i.test(k) || /_url$/i.test(k)) continue;
+      if (k === 'html' && typeof v === 'string') {
+        const t = digestStripText(v, 4000);
+        if (t) out.push(t);
+        continue;
+      }
+      collectStrings(v, out, depth + 1);
+    }
+  }
+}
+
+/** Plain text of one page model: section content strings with tags
+ *  stripped. Chrome sections (nav/footer), module mounts (their
+ *  content arrives via the module digests) and the chat embed are
+ *  skipped; a freeform page.html is read the same way. */
+function pagePlainText(page) {
+  const chunks = [];
+  if (page && Array.isArray(page.sections)) {
+    for (const sec of page.sections) {
+      if (!sec || typeof sec !== 'object') continue;
+      const t = String(sec.type || '').toLowerCase();
+      if (t === 'nav' || t === 'footer' || t === 'site_module' || t === 'module') continue;
+      if (sec.content && sec.content.bitpype_chat_managed) continue;
+      collectStrings(sec.content || {}, chunks, 0);
+    }
+  }
+  if (page && typeof page.html === 'string') {
+    const t = digestStripText(page.html, 8000);
+    if (t) chunks.push(t);
+  }
+  return chunks.filter(Boolean).join('\n').slice(0, 20000);
+}
+
+/** Best-effort product → category names, resolved through the
+ *  categories service's own assignments (Batch 124) — failure
+ *  isolated: no categories simply means no category hints. */
+function productCategoryMap(db, leadId) {
+  const map = new Map();
+  try {
+    const cats = require('./categories').listCategories(db, Number(leadId), {
+      scope: 'ecommerce',
+      includeDrafts: false,
+    });
+    const share = require('./moduleShare');
+    for (const c of cats || []) {
+      let items = [];
+      try {
+        items = share.listSharedItemsByCategory(db, Number(leadId), c.id, { limit: 200 }).items || [];
+      } catch {
+        items = [];
+      }
+      for (const it of items) {
+        if (it.source_type !== 'ecommerce') continue;
+        const id = Number(it.source_id);
+        if (!map.has(id)) map.set(id, []);
+        map.get(id).push(String(c.name || '').trim());
+      }
+    }
+  } catch {
+    /* categories unavailable — digests carry names/prices/descriptions */
+  }
+  return map;
+}
+
+/** Digest scoring query: the visitor's words minus stopwords, fed
+ *  to the SAME scorer the KB uses (chatbotKnowledgeExtract
+ *  scoreText). Without this, "what type of plants do you sell"
+ *  ranks a delivery FAQ ("do you… of…") above the shop itself —
+ *  with it, the content terms (type / plants / sell) decide. An
+ *  all-stopword query yields '' → every score 0 → natural order. */
+const DIGEST_STOPWORDS = new Set([
+  'what', 'which', 'do', 'does', 'did', 'you', 'your', 'yours', 'of', 'the', 'a', 'an',
+  'is', 'are', 'was', 'were', 'can', 'could', 'i', 'me', 'my', 'we', 'our', 'it', 'its',
+  'in', 'on', 'for', 'to', 'and', 'or', 'at', 'by', 'with', 'have', 'has', 'how', 'much',
+  'many', 'there', 'here', 'please', 'tell', 'about', 'any',
+]);
+function digestScoringQuery(query) {
+  return String(query || '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 1 && !DIGEST_STOPWORDS.has(w))
+    .join(' ');
+}
+
+const MODULE_SOURCE_LABELS = {
+  ecommerce: 'From the shop',
+  bookings: 'From the booking services',
+  pricing: 'From the price list',
+  faq: 'From the frequently asked questions',
+  menu: 'From the menu',
+  courses: 'From the courses',
+  events: 'From the events',
+  offers: 'From the current offers',
+  blog: 'From the blog',
+  gallery: 'From the photo galleries',
+  testimonials: 'From customer testimonials',
+  team: 'From the team page',
+  directory: 'From the directory',
+  careers: 'From the careers page',
+  video: 'From the videos',
+};
+
+/** One digest line for one shared-layer item (uniform shape in,
+ *  attributed text out). */
+function moduleItemLine(type, it, catMap) {
+  const meta = it.meta || {};
+  const desc = it.description ? digestStripText(it.description, type === 'faq' ? 260 : 200) : '';
+  if (type === 'faq') return desc ? `Q: ${it.title}\nA: ${desc}` : `Q: ${it.title}`;
+  let line = String(it.title || '').trim();
+  if (type === 'ecommerce') {
+    const cats = catMap && catMap.get(Number(it.source_id));
+    if (cats && cats.length) line += ` (${cats.join(', ')})`;
+    const price = String(meta.price_label || '').trim();
+    if (price) line += ` — ${price}`;
+  } else if (type === 'bookings') {
+    const bits = [String(meta.price_label || '').trim(), meta.duration_minutes ? `${meta.duration_minutes} min` : '']
+      .filter(Boolean)
+      .join(' · ');
+    if (bits) line += ` — ${bits}`;
+  } else if (type === 'menu') {
+    if (meta.price_text) line += ` — ${meta.price_text}`;
+  } else if (type === 'events') {
+    if (it.date) line += ` — ${String(it.date).slice(0, 10)}`;
+    if (meta.location) line += ` (${meta.location})`;
+  } else if (type === 'gallery') {
+    const caps = (Array.isArray(meta.images) ? meta.images : [])
+      .map((im) => digestStripText((im && im.caption) || '', 80))
+      .filter(Boolean)
+      .slice(0, 5);
+    if (caps.length) line += ` — photos: ${caps.join('; ')}`;
+  } else if (type === 'testimonials') {
+    const who = [it.title, meta.author_company || ''].filter(Boolean).join(', ');
+    return desc ? `- “${desc}” — ${who}` : `- ${who}`;
+  } else if (type === 'team') {
+    if (meta.role_title) line += ` — ${meta.role_title}`;
+  } else if (type === 'careers') {
+    const bits = [meta.location || '', meta.employment_type || ''].filter(Boolean).join(' · ');
+    if (bits) line += ` — ${bits}`;
+  }
+  if (desc && type !== 'gallery') line += ` — ${desc}`;
+  return `- ${line}`;
+}
+
+/** Score + cap one module's items into a labelled block. */
+function moduleSourceBlock(db, leadId, type, query, catMap) {
+  const share = require('./moduleShare');
+  const items = share.readProviderItems(db, Number(leadId), type);
+  if (!items.length) return null;
+  const extract = require('./chatbotKnowledgeExtract');
+  const lines = items.map((it, idx) => {
+    const line = moduleItemLine(type, it, catMap);
+    return { line, idx, score: query ? extract.scoreText(line, query) : 0 };
+  });
+  lines.sort((a, b) => b.score - a.score || a.idx - b.idx);
+  const picked = [];
+  let used = 0;
+  for (const l of lines) {
+    if (picked.length >= SOURCE_ITEMS_PER_MODULE) break;
+    if (used + l.line.length > SOURCE_MODULE_CHARS && picked.length) break;
+    picked.push(l.line);
+    used += l.line.length + 1;
+  }
+  if (!picked.length) return null;
+  const label = MODULE_SOURCE_LABELS[type] || `From the ${type} module`;
+  return {
+    key: `module:${type}`,
+    label,
+    count: picked.length,
+    topScore: lines.length ? Math.max(...lines.map((l) => l.score)) : 0,
+    text: `${label}:\n${picked.join('\n')}`,
+  };
+}
+
+/** Score + cap the site's pages into labelled blocks. */
+function pageSourceBlocks(db, leadId, resolver, query) {
+  const extract = require('./chatbotKnowledgeExtract');
+  const rows = sitePageRows(db, leadId);
+  const candidates = [];
+  rows.forEach((page, idx) => {
+    const slug = String(page.slug || '').trim().toLowerCase();
+    if (!slug || KNOWLEDGE_SHELL_SLUGS.has(slug)) return;
+    if (!resolver.pageOn(slug)) return;
+    const text = pagePlainText(page);
+    if (!text) return;
+    const title = String(page.title || slug).trim().slice(0, 120);
+    candidates.push({
+      slug,
+      title,
+      idx,
+      text,
+      score: query ? extract.scoreText(`${title}\n${text}`, query) : 0,
+    });
+  });
+  candidates.sort((a, b) => b.score - a.score || a.idx - b.idx);
+  const blocks = [];
+  let total = 0;
+  for (const c of candidates) {
+    if (blocks.length >= SOURCE_PAGES_MAX) break;
+    const body = c.text.slice(0, SOURCE_PAGE_CHARS);
+    const text = `[Page: ${c.title} (/${c.slug})]\n${body}`;
+    if (total + text.length > SOURCE_PAGES_TOTAL_CHARS && blocks.length) break;
+    blocks.push({ key: `page:${c.slug}`, label: `From the ${c.title} page`, slug: c.slug, title: c.title, text });
+    total += text.length;
+  }
+  return blocks;
+}
+
+/**
+ * The Batch 151 digest assembly — called ONLY from
+ * buildAssistantContext, so text chat and voice brief identically.
+ * Returns the composed, source-labelled text plus the per-source
+ * inventory (also what the settings summary reports).
+ */
+function buildKnowledgeDigests(db, leadId, resolver, query = '') {
+  const q = digestScoringQuery(query);
+  const moduleBlocks = [];
+  const moduleCounts = [];
+  let includesPricing = false;
+  if (resolver.groupOn('modules')) {
+    let catMap = null;
+    for (const type of ANSWERABLE_MODULE_TYPES) {
+      if (!resolver.moduleOn(type)) continue;
+      if (type === 'pricing') {
+        // The price book rides its Batch 139 block VERBATIM (header
+        // discipline included) — the same figures, the same wording,
+        // now behind the owner's pricing toggle.
+        try {
+          const book = require('./moduleShare').getPriceBook(db, Number(leadId));
+          if (book && Array.isArray(book.entries) && book.entries.length) {
+            const text = require('./pricing').priceBookChatText(book);
+            if (text) {
+              moduleBlocks.push({
+                key: 'module:pricing',
+                label: 'From the price list',
+                count: book.entries.length,
+                topScore: q ? require('./chatbotKnowledgeExtract').scoreText(text, q) : 0,
+                text,
+              });
+              moduleCounts.push({ type, count: book.entries.length });
+              includesPricing = true;
+            }
+          }
+        } catch {
+          /* dormant — no book, no block */
+        }
+        continue;
+      }
+      if (type === 'ecommerce') catMap = productCategoryMap(db, leadId);
+      let block = null;
+      try {
+        block = moduleSourceBlock(db, leadId, type, q, catMap);
+      } catch {
+        block = null;
+      }
+      if (block) {
+        moduleBlocks.push(block);
+        moduleCounts.push({ type, count: block.count });
+      }
+    }
+  }
+  // With a visitor query, the best-matching source leads the digest
+  // (a "what plants" question puts the shop block first); with no
+  // query the canonical module order stands. Stable sort — ties keep
+  // the ANSWERABLE order.
+  if (q) moduleBlocks.sort((a, b) => (b.topScore || 0) - (a.topScore || 0));
+  // Module budget: whole blocks in order (a partial source is worse
+  // than an absent one); a single oversized first block is truncated
+  // to the cap rather than dropped.
+  const cappedModules = [];
+  let moduleTotal = 0;
+  for (const b of moduleBlocks) {
+    if (moduleTotal + b.text.length > SOURCE_MODULES_TOTAL_CHARS && cappedModules.length) break;
+    cappedModules.push(b);
+    moduleTotal += b.text.length + 2;
+  }
+  if (cappedModules.length === 1 && cappedModules[0].text.length > SOURCE_MODULES_TOTAL_CHARS) {
+    cappedModules[0] = { ...cappedModules[0], text: cappedModules[0].text.slice(0, SOURCE_MODULES_TOTAL_CHARS) };
+  }
+  let pageBlocks = [];
+  if (resolver.groupOn('pages')) {
+    try {
+      pageBlocks = pageSourceBlocks(db, leadId, resolver, q);
+    } catch {
+      pageBlocks = [];
+    }
+  }
+  const blocks = [...cappedModules, ...pageBlocks];
+  return {
+    text: blocks.map((b) => b.text).join('\n\n'),
+    blocks,
+    includesPricing,
+    modules: moduleCounts,
+    pages: pageBlocks.map((b) => ({ slug: b.slug, title: b.title })),
+  };
+}
+
+/**
+ * The owner's Knowledge-sources panel data: every selectable source
+ * with its live count and effective on/off state. Owner-facing only
+ * (portal summary) — never part of the public widget config.
+ */
+function knowledgeSourcesFor(db, leadId) {
+  const resolver = knowledgeSourcesFromSettings(getSettings(db, leadId));
+  const modules = require('./siteModules');
+  let embeds = [];
+  try {
+    embeds = modules.listEmbeds(db, Number(leadId));
+  } catch {
+    embeds = [];
+  }
+  const attached = new Set(embeds.map((e) => e.module_type));
+  const share = require('./moduleShare');
+  const moduleRows = [];
+  for (const type of ANSWERABLE_MODULE_TYPES) {
+    let count = 0;
+    try {
+      count =
+        type === 'pricing'
+          ? (share.getPriceBook(db, Number(leadId)).entries || []).length
+          : share.readProviderItems(db, Number(leadId), type).length;
+    } catch {
+      count = 0;
+    }
+    if (!attached.has(type) && count === 0) continue;
+    moduleRows.push({
+      type,
+      label: (modules.MODULE_META[type] && modules.MODULE_META[type].label) || type,
+      count,
+      enabled: resolver.moduleOn(type),
+    });
+  }
+  return {
+    config: resolver.config,
+    groups: {
+      modules: resolver.groupOn('modules'),
+      pages: resolver.groupOn('pages'),
+      knowledge: resolver.groupOn('knowledge'),
+    },
+    modules: moduleRows,
+    pages: sitePages(db, leadId).map((p) => ({ ...p, enabled: resolver.pageOn(p.slug) })),
+    knowledge: listKnowledge(db, leadId, { includeInactive: true }).map((d) => ({
+      id: d.id,
+      title: d.title,
+      kind: d.kind,
+      status: d.status,
+      enabled: resolver.docOn(d.id),
+    })),
   };
 }
 
@@ -2293,6 +2931,10 @@ function applyFallbackAction(db, leadId, sessionId, parsed, businessName) {
  */
 function priceBookFor(db, leadId) {
   try {
+    // Batch 151: the price list is one of the owner's knowledge
+    // sources — switching the Pricing source off removes the book
+    // from every surface at this one gate (default ON, as before).
+    if (!knowledgeSourcesFromSettings(getSettings(db, leadId)).moduleOn('pricing')) return null;
     const book = require('./moduleShare').getPriceBook(db, Number(leadId));
     if (!book || !Array.isArray(book.entries) || !book.entries.length) return null;
     const text = require('./pricing').priceBookChatText(book);
@@ -2326,7 +2968,7 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
       .map((m) => m.body)
       .slice(-8);
     const latestVisitor = visitorTexts[visitorTexts.length - 1] || '';
-    const { knowledge, settings, business } = buildAssistantContext(db, leadId, {
+    const { knowledge, settings, business, sources } = buildAssistantContext(db, leadId, {
       query: visitorTexts.join(' '),
     });
     const qualification = ensureSessionQualification(db, leadId, sessionId);
@@ -2338,6 +2980,7 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
       knowledge,
       settings,
       business,
+      sources,
       // Batch 136: the module-state booking pitch joins the context
       // snapshot — a function of the site's modules, never of what
       // the visitor has said in this conversation.
@@ -2458,12 +3101,25 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
               // from the owner's Pricing module. The model quotes
               // ONLY these for prices; the header pins the discount
               // rule (list prices; never net a discount itself).
-              ...(snapshot.priceBook ? [snapshot.priceBook.text, ''] : []),
+              // Batch 151: when the owner's source selection already
+              // carries the book inside the site-content excerpts
+              // below, the standalone block is skipped so the figures
+              // appear exactly once (the sources block IS this text,
+              // verbatim — see buildKnowledgeDigests).
+              ...(snapshot.priceBook && !(snapshot.sources && snapshot.sources.includesPricing)
+                ? [snapshot.priceBook.text, '']
+                : []),
+              // Batch 151: the owner's selected module + page
+              // sources, each block labelled with its origin so the
+              // model can attribute ("From the shop: ...").
+              ...(snapshot.sources && snapshot.sources.text
+                ? ['Site content excerpts (from the business’s own modules and pages):', snapshot.sources.text, '']
+                : []),
               'Conversation rules:',
               '- Greetings or vague hellos → action "chat": welcome them and ask what they need. NEVER open the form yet.',
               '- If their need is unclear → action "chat": ask one short clarifying question.',
               '- If knowledge clearly answers a factual question → action "answer" with a short reply.',
-              '- Factual claims (services, pricing, policies, availability) ONLY from knowledge excerpts. Do not invent.',
+              '- Factual claims (services, pricing, policies, availability) ONLY from the knowledge excerpts and site content excerpts above. Do not invent.',
               '- When you understand their need AND a human follow-up is the right next step → action "capture".',
               '- On capture, the reply MUST warn that a short contact form is about to appear (it overlays the chat) so they are not surprised, and explain the team will call/email them back.',
               allowCapture
@@ -3025,6 +3681,9 @@ function portalChatbotSummary(db, leadId) {
   const emb = modules.getEmbedRow(db, Number(leadId), 'chatbot');
   return {
     settings: getSettings(db, leadId),
+    // Batch 151: the Knowledge-sources panel data (owner-facing
+    // only — this summary never reaches the public widget config).
+    knowledge_sources: knowledgeSourcesFor(db, leadId),
     knowledge: listKnowledge(db, leadId, { includeInactive: true }),
     embed: emb ? modules.publicEmbed(emb) : null,
     pending_sessions: db
@@ -3304,6 +3963,10 @@ module.exports = {
   deleteKnowledge,
   knowledgeSnippets,
   priceBookFor,
+  knowledgeSourcesFor,
+  knowledgeSourcesFromSettings,
+  buildKnowledgeDigests,
+  ANSWERABLE_MODULE_TYPES,
   getPublicConfigByToken,
   listAllowedActions,
   bookingPitchFor,
