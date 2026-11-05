@@ -413,7 +413,10 @@ async function json(res) {
     assert.ok(detailHtml.includes('module-embed.js?v=mod34'), 'detail.html loads the module embed script at mod34');
     n++;
     const redirects = fs.readFileSync(path.join(outDir, '_redirects'), 'utf8');
-    assert.ok(redirects.includes('/detail/* /detail 200'), '_redirects rewrites detail URLs to the detail page (extensionless target)');
+    assert.ok(
+      redirects.includes('/detail/* /detail 200'),
+      '_redirects rewrites detail URLs to the detail page (extensionless target)'
+    );
     n++;
     const shopHtml = fs.readFileSync(path.join(outDir, 'shop.html'), 'utf8');
     assert.ok(shopHtml.includes('name="bitpype-detail"'), 'exported list pages are stamped detail-enabled');
