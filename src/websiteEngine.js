@@ -5976,6 +5976,10 @@ async function checkMobileOverflow(pages, theme, opts = {}) {
   try {
     const page = await browser.newPage();
     await page.setViewport({ width, height, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
+    // Batch 145 (external review F11): QA renders generated HTML in
+    // the same sandbox-disabled Chromium — intercept subresources
+    // and abort any that fail the public-URL guard.
+    await require('../server/browserGuard').guardBrowserPage(page);
     await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 30000 });
     const result = await page.evaluate(() => {
       const docEl = document.documentElement;

@@ -220,6 +220,12 @@ async function captureViewportPng(browser, url, viewport) {
       isMobile: viewport.name === 'mobile',
       hasTouch: viewport.name === 'mobile',
     });
+    // Batch 145 (external review F11): the URL is validated against
+    // the public-URL guard before navigation, and request
+    // interception aborts any redirect/subresource that fails it.
+    const { assertBrowserUrl, guardBrowserPage } = require('../server/browserGuard');
+    await assertBrowserUrl(url);
+    await guardBrowserPage(page);
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 90000 });
     await waitForAssets(page);
     await new Promise((r) => setTimeout(r, 400));
@@ -529,6 +535,14 @@ async function captureWebsiteScreenshots(db, websiteId, opts = {}) {
   if (!previewBase || !/^https?:\/\//i.test(previewBase)) {
     throw fail('NO_PREVIEW', 'Website has no live preview URL to capture. Publish a preview first.');
   }
+  // Batch 145 (external review F11): a caller-supplied previewUrl is
+  // validated against the SSRF guard before any browser launches —
+  // the prefix check alone let loopback/private targets through.
+  try {
+    await require('../server/browserGuard').assertBrowserUrl(previewBase);
+  } catch (e) {
+    throw fail(e.code || 'UNSAFE_URL', `Preview URL is not allowed: ${e.message}`);
+  }
 
   const pages = opts.pages || parsePages(site);
   const targets = resolveCapturePages(pages);
@@ -807,6 +821,9 @@ async function captureOneScreenshot(db, websiteId, opts = {}) {
         isMobile: viewport.name === 'mobile',
         hasTouch: viewport.name === 'mobile',
       });
+      // Batch 145 (F11): setContent documents still fetch remote
+      // subresources — intercept and abort non-public targets.
+      await require('../server/browserGuard').guardBrowserPage(pageObj);
       await pageObj.setContent(html, { waitUntil: 'networkidle0', timeout: 60000 });
       await waitForAssets(pageObj);
       const png = await pageObj.screenshot({ type: 'png', fullPage: false, captureBeyondViewport: false });

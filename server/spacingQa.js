@@ -317,6 +317,9 @@ async function assessSpacing(pages, theme, opts = {}) {
   const violations = [];
   try {
     const page = await browser.newPage();
+    // Batch 145 (external review F11): the spacing browser shares
+    // the setContent pattern — guard its subresource requests too.
+    await require('./browserGuard').guardBrowserPage(page);
     for (const p of list) {
       const html = renderPage(p, list, theme);
       const slug = String((p && p.slug) || 'page');
