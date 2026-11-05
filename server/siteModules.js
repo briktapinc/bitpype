@@ -14662,7 +14662,6 @@ async function createPublicBookingByToken(db, token, data = {}, opts = {}) {
         servicePreview.currency || 'USD'
       )
     : null;
-  const paymentsConfigured = require('./shopStripe').isConfiguredForLead(db, row.lead_id);
   // Derived return URL: the site's own published origin (custom
   // domain or preview URL), plus the page the embed lives on.
   let returnUrl = '';
@@ -14676,7 +14675,13 @@ async function createPublicBookingByToken(db, token, data = {}, opts = {}) {
   if (!returnUrl) {
     returnUrl = String(data.return_url || data.returnUrl || '').trim();
   }
-  const payNow = priced && !!stampPreview && stampPreview.net_cents > 0 && paymentsConfigured;
+  // The payments-config check short-circuits LAST: a free or
+  // zero-net booking never touches the payments layer at all.
+  const payNow =
+    priced &&
+    !!stampPreview &&
+    stampPreview.net_cents > 0 &&
+    require('./shopStripe').isConfiguredForLead(db, row.lead_id);
   if (payNow && !returnUrl) {
     throw fail(
       'BOOKING_RETURN_URL_UNAVAILABLE',
