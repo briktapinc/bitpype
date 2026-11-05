@@ -502,7 +502,7 @@ async function json(res) {
         n++;
       }
 
-      const jsRes = await fetch(`${BASE}/js/module-embed.js?v=mod38`);
+      const jsRes = await fetch(`${BASE}/js/module-embed.js?v=mod39`);
       assert.equal(jsRes.status, 200, 'module-embed.js serves');
       n++;
       const jsText = await jsRes.text();

@@ -360,7 +360,7 @@ const types = (sections) => sections.map((s) => s.type);
     n++;
     assert.equal(ed.palette.content.length, 15, 'palette offers the renderer-backed content types');
     assert.ok(!ed.palette.modules.some((m) => m.type === 'chatbot'), 'sitewide chatbot is not a placeable section');
-    assert.equal(ed.palette.modules.length, 27, 'palette = MODULE_TYPES minus the sitewide type');
+    assert.equal(ed.palette.modules.length, 28, 'palette = MODULE_TYPES minus the sitewide type (Batch 139 finisher rotation: pricing appended as the 29th type)');
     n += 3;
     assert.equal(ed.padding.floor, 22);
     n++;
