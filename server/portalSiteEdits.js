@@ -10,7 +10,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { resolvePreviewUrl, resolveExportPreviewBase, isPortalLockedPath, setContentPath, pagesSupportInlineEdit, pagesHaveFreeformHtml, parseJsonSafe, resolveClientSite } = require('./portalShared');
+const { resolvePreviewUrl, resolveExportPreviewBase, isPortalLockedPath, isSafeContentPath, setContentPath, pagesSupportInlineEdit, pagesHaveFreeformHtml, parseJsonSafe, resolveClientSite } = require('./portalShared');
 
 function renderClientSite(workspaceId, leadId, opts = {}) {
   const domain = require('./domain');
@@ -451,6 +451,14 @@ async function applyClientTextEdits(workspaceId, leadId, edits) {
       const path = m[3];
       if (isPortalLockedPath(path)) {
         skipped.push({ id, reason: 'locked' });
+        continue;
+      }
+      // Batch 145 (external review F01): prototype-pollution segments
+      // are refused per-edit (skipped, like locked paths) so one bad
+      // id can't fail the whole batch; setContentPath hard-throws as
+      // the second line of defense for direct callers.
+      if (!isSafeContentPath(path)) {
+        skipped.push({ id, reason: 'unsafe_path' });
         continue;
       }
       const page = pages[pi];

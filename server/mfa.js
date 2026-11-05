@@ -122,21 +122,31 @@ async function assertNotLocked(surface, id) {
 /** Count a failed code attempt; the MAX-th consecutive failure locks. */
 async function recordFailure(surface, id) {
   const table = tableFor(surface);
+  // Batch 145 (external review F13): the increment happens IN SQL —
+  // the old read/modify/write lost concurrent failures (two parallel
+  // bad codes left the counter at 1), diluting the lockout. The
+  // follow-up read only observes the atomically-incremented value.
+  await query(
+    `UPDATE ${table} SET totp_failed_attempts = COALESCE(totp_failed_attempts, 0) + 1 WHERE id = :id`,
+    { id: Number(id) }
+  );
   const row = await readRow(surface, id);
-  const attempts = (row ? Number(row.totp_failed_attempts) || 0 : 0) + 1;
+  const attempts = row ? Number(row.totp_failed_attempts) || 0 : 0;
   if (attempts >= MAX_FAILED_ATTEMPTS) {
-    await query(`UPDATE ${table} SET totp_failed_attempts = 0, totp_locked_until = :until WHERE id = :id`, {
-      until: toSqlDateTime(Date.now() + LOCK_MS),
-      id: Number(id),
-    });
+    // Reset + lock, guarded on the counter still being at/over the
+    // threshold so a racing recordSuccess isn't clobbered.
+    await query(
+      `UPDATE ${table} SET totp_failed_attempts = 0, totp_locked_until = :until WHERE id = :id AND totp_failed_attempts >= :max`,
+      {
+        until: toSqlDateTime(Date.now() + LOCK_MS),
+        id: Number(id),
+        max: MAX_FAILED_ATTEMPTS,
+      }
+    );
     throw codedError('MFA_LOCKED', 'Too many incorrect codes. Try again in a few minutes.', {
       lockedUntil: new Date(Date.now() + LOCK_MS).toISOString(),
     });
   }
-  await query(`UPDATE ${table} SET totp_failed_attempts = :n WHERE id = :id`, {
-    n: attempts,
-    id: Number(id),
-  });
 }
 
 async function recordSuccess(surface, id) {
@@ -198,10 +208,24 @@ async function tryCode(surface, id, row, rawCode, opts = {}) {
     if (idx >= 0) {
       hashes.splice(idx, 1);
       const table = tableFor(surface);
-      await query(`UPDATE ${table} SET totp_recovery_hashes = :h WHERE id = :id`, {
-        h: JSON.stringify(hashes),
-        id: Number(id),
-      });
+      // Batch 145 (external review F13): consumption is a
+      // compare-and-swap on the exact snapshot this request read —
+      // the same discipline as the TOTP step stamp above. Two
+      // concurrent requests presenting the same code both read the
+      // unused snapshot, but only the first UPDATE matches; the
+      // loser's snapshot is stale, matches no row, and the code is
+      // refused as already used.
+      const consumed = await query(
+        `UPDATE ${table} SET totp_recovery_hashes = :h WHERE id = :id AND totp_recovery_hashes = :old`,
+        {
+          h: JSON.stringify(hashes),
+          id: Number(id),
+          old: row.totp_recovery_hashes,
+        }
+      );
+      if (!(Number(consumed.affectedRows || consumed.changes || 0) > 0)) {
+        throw codedError('MFA_INVALID_CODE', 'That code has already been used.');
+      }
       return { via: 'recovery' };
     }
   }

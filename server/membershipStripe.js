@@ -28,6 +28,7 @@ const siteModules = require('./siteModules');
 // first, the pre-129 membership key store as fallback. Memberships
 // never resolve to the workspace account (unchanged Batch 17 rule).
 const paymentsConfig = require('./paymentsConfig');
+const { invoiceSubscriptionId } = require('./stripeShapes');
 
 const clientCache = new Map(); // `${leadId}:${keyFingerprint}` -> Stripe client
 const payoutCache = new Map(); // leadId -> { at: epochMs, value }
@@ -117,7 +118,11 @@ function resolveLeadForEvent(db, eventLike) {
   const meta = obj.metadata || {};
   const fromMeta = Number(meta.bitpype_lead_id);
   if (Number.isInteger(fromMeta) && fromMeta > 0) return fromMeta;
-  const subId = String(obj.subscription || (obj.object === 'subscription' ? obj.id : '') || '');
+  // Batch 145 (external review F17): shared invoice-shape helper
+  // (modern invoices nest the subscription under parent.*).
+  const subId = String(
+    invoiceSubscriptionId(obj) || (obj.object === 'subscription' ? obj.id : '') || ''
+  );
   if (subId) {
     const leadId = siteModules.findLeadByStripeSubscription(db, subId);
     if (leadId) return leadId;

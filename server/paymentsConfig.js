@@ -49,6 +49,7 @@
 
 const crypto = require('crypto');
 const Stripe = require('stripe');
+const { invoiceSubscriptionId } = require('./stripeShapes');
 
 // siteModules is required LAZILY (the codebase's cycle pattern):
 // siteModules' key functions delegate here, and this module reads
@@ -404,7 +405,12 @@ function resolveLeadForEvent(db, eventLike) {
     const order = sm().getShopOrderBySession(db, String(obj.id));
     if (order) return Number(order.lead_id);
   }
-  const subId = String(obj.subscription || (obj.object === 'subscription' ? obj.id : '') || '');
+  // Batch 145 (external review F17): invoice objects on modern
+  // Stripe API versions carry the subscription reference under
+  // parent.subscription_details — resolve through the shared helper.
+  const subId = String(
+    invoiceSubscriptionId(obj) || (obj.object === 'subscription' ? obj.id : '') || ''
+  );
   if (subId) {
     const leadId = sm().findLeadByStripeSubscription(db, subId);
     if (leadId) return leadId;

@@ -942,7 +942,11 @@ router.post('/site/edits', requireClient, editLimit, async (req, res) => {
       return res.status(403).json({ ok: false, error: 'FORBIDDEN', code: 'FORBIDDEN' });
     }
     const edits = (req.body && req.body.edits) || [];
-    const data = portal.applyClientTextEdits(req.client.workspace_id, req.client.lead_id, edits);
+    // Batch 145 (external review F02): applyClientTextEdits is async —
+    // without the await the route serialized the pending Promise as
+    // data:{} (false success on every call) and rejections escaped
+    // the catch as unhandled rejections.
+    const data = await portal.applyClientTextEdits(req.client.workspace_id, req.client.lead_id, edits);
     ok(res, data);
   } catch (e) {
     fail(res, e, 500);

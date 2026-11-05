@@ -50,6 +50,7 @@ const crypto = require('node:crypto');
 const { query } = require('./db');
 const platform = require('./platform');
 const plans = require('./plans');
+const { invoiceSubscriptionId, invoiceSubscriptionMetadata } = require('./stripeShapes');
 
 const DAY_MS = 86400000;
 const USER_COLS =
@@ -232,9 +233,11 @@ function emailable(user) {
  *  Mirrors billing.js's resolution order. */
 async function resolveUserId(q, obj) {
   if (!obj) return null;
-  const meta =
-    (obj.metadata && obj.metadata.user_id) ||
-    (obj.subscription_details && obj.subscription_details.metadata && obj.subscription_details.metadata.user_id);
+  // Batch 145 (external review F17): metadata + subscription
+  // reference resolve through the shared invoice-shape helpers
+  // (parent.subscription_details on modern API versions).
+  const subMeta = invoiceSubscriptionMetadata(obj);
+  const meta = (obj.metadata && obj.metadata.user_id) || (subMeta && subMeta.user_id);
   if (meta && Number(meta)) return Number(meta);
   if (obj.customer) {
     const rows = await q('SELECT id FROM users WHERE stripe_customer_id = :cid LIMIT 1', {
@@ -243,13 +246,7 @@ async function resolveUserId(q, obj) {
     if (rows[0]) return rows[0].id;
   }
   const subId =
-    typeof obj.subscription === 'string'
-      ? obj.subscription
-      : obj.subscription && obj.subscription.id
-        ? obj.subscription.id
-        : obj.id && String(obj.id).startsWith('sub_')
-          ? obj.id
-          : null;
+    invoiceSubscriptionId(obj) || (obj.id && String(obj.id).startsWith('sub_') ? obj.id : null);
   if (subId) {
     const rows = await q('SELECT id FROM users WHERE stripe_subscription_id = :sid LIMIT 1', { sid: subId });
     if (rows[0]) return rows[0].id;
@@ -463,12 +460,7 @@ async function sendFirstPaymentReceipt(invoice, opts = {}) {
   const userId = await resolveUserId(q, invoice);
   const user = userId ? await userById(q, userId) : null;
   if (!emailable(user)) return { sent: false, reason: 'no_billing_user' };
-  const subId =
-    typeof invoice.subscription === 'string'
-      ? invoice.subscription
-      : invoice.subscription && invoice.subscription.id
-        ? invoice.subscription.id
-        : null;
+  const subId = invoiceSubscriptionId(invoice) || null;
   // The domain flow already emailed this client its "Payment received
   // for <domain>" — a signup carrying a domain must never get two
   // payment emails for the same purchase.

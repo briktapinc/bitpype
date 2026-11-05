@@ -48,6 +48,7 @@
  */
 
 const { query, driver } = require('./db');
+const { invoiceSubscriptionId } = require('./stripeShapes');
 
 const DEFAULT_RATE_PERCENT = 30;
 const RATE_SETTING_KEY = 'partners.commission_percent';
@@ -781,7 +782,9 @@ function recurringBaseCents(invoice) {
 
 /** Resolve the workspace a paid invoice belongs to (see header). */
 async function attributeInvoiceWorkspace(invoice, payingUserId) {
-  const subscriptionId = invoice && invoice.subscription ? String(invoice.subscription) : '';
+  // Batch 145 (external review F17): modern invoices nest the
+  // subscription reference under parent.subscription_details.
+  const subscriptionId = invoice ? invoiceSubscriptionId(invoice) : '';
   if (subscriptionId) {
     try {
       const workspaceDb = require('./workspaceDb');

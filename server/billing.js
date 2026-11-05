@@ -24,6 +24,7 @@ const {
   appUrl,
 } = require('./stripeClient');
 const credits = require('./credits');
+const { invoiceSubscriptionId, invoiceSubscriptionMetadata } = require('./stripeShapes');
 const { staffUrl } = require('./appUrls');
 
 /** Includes past_due for grace access (banner + portal to update card). */
@@ -151,26 +152,102 @@ async function effectivePlan(workspaceId, opts = {}) {
   return best;
 }
 
-/** Claim Stripe event.id for idempotency. Returns false if already processed. */
+const STRIPE_EVENT_CLAIM_TTL_MS = 15 * 60 * 1000;
+
+function sqlDateTimeUtc(ms) {
+  return new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+}
+
+function parseStoredDateTime(value) {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value : null;
+  const d = new Date(String(value).replace(' ', 'T') + 'Z');
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+/**
+ * Claim Stripe event.id for idempotency. Returns false only when the
+ * event is genuinely already handled: a COMPLETED claim, or a live
+ * claim younger than the TTL. Batch 145 (external review F12): the
+ * old insert-only claim wedged an event forever when the process
+ * died between claim and dispatch — the row existed, so every
+ * redelivery read "duplicate" and the transition was never applied.
+ * A claim older than STRIPE_EVENT_CLAIM_TTL_MS with no completion
+ * mark is crash residue: it is reclaimed (CAS on the old claim
+ * stamp, so two concurrent redeliveries can't both win) and the
+ * event is reprocessed.
+ */
 async function claimStripeEvent(event) {
   if (!event || !event.id) return true;
   const id = String(event.id);
   const type = String(event.type || '');
+  const now = sqlDateTimeUtc(Date.now());
   try {
-    await query(`INSERT INTO stripe_events (event_id, type) VALUES (:id, :type)`, { id, type });
+    await query(`INSERT INTO stripe_events (event_id, type, claimed_at) VALUES (:id, :type, :now)`, {
+      id,
+      type,
+      now,
+    });
     return true;
   } catch (e) {
     const msg = String((e && e.message) || e);
     const code = e && (e.code || e.errno);
     if (
-      code === 'ER_DUP_ENTRY' ||
-      code === 'SQLITE_CONSTRAINT_UNIQUE' ||
-      code === 'SQLITE_CONSTRAINT' ||
-      /Duplicate entry|UNIQUE constraint/i.test(msg)
+      !(
+        code === 'ER_DUP_ENTRY' ||
+        code === 'SQLITE_CONSTRAINT_UNIQUE' ||
+        code === 'SQLITE_CONSTRAINT' ||
+        /Duplicate entry|UNIQUE constraint/i.test(msg)
+      )
     ) {
-      return false;
+      throw e;
     }
-    throw e;
+  }
+  let rows;
+  try {
+    rows = await query(
+      'SELECT claimed_at, completed_at, processed_at FROM stripe_events WHERE event_id = :id LIMIT 1',
+      { id }
+    );
+  } catch {
+    return false;
+  }
+  const row = rows && rows[0];
+  if (!row) return false;
+  if (row.completed_at) return false;
+  const claimedAt = parseStoredDateTime(row.claimed_at) || parseStoredDateTime(row.processed_at);
+  if (!claimedAt) return false;
+  if (Date.now() - claimedAt.getTime() < STRIPE_EVENT_CLAIM_TTL_MS) return false;
+  // Stale, uncompleted claim — reclaim it. The WHERE pins the exact
+  // claim stamp we read (COALESCE mirrors the fallback above), so a
+  // racing reclaim or a completion landing in between makes this
+  // update match nothing and the event stays a duplicate.
+  try {
+    const upd = await query(
+      `UPDATE stripe_events
+          SET claimed_at = :now, type = :type
+        WHERE event_id = :id
+          AND completed_at IS NULL
+          AND COALESCE(claimed_at, processed_at) = :oldStamp`,
+      { now, type, id, oldStamp: sqlDateTimeUtc(claimedAt.getTime()) }
+    );
+    return Number((upd && (upd.affectedRows ?? upd.changes)) || 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Mark a claimed event fully processed; completed claims are
+ *  permanent duplicates (never reclaimed). */
+async function markStripeEventComplete(eventId) {
+  if (!eventId) return;
+  try {
+    await query('UPDATE stripe_events SET completed_at = :now WHERE event_id = :id', {
+      now: sqlDateTimeUtc(Date.now()),
+      id: String(eventId),
+    });
+  } catch (e) {
+    console.warn('[billing] markStripeEventComplete:', e.message);
   }
 }
 
@@ -703,7 +780,7 @@ async function syncSubscription(subscription) {
   // genuinely new subscription carries a NEW id and takes over
   // through the existing NOT IN (active…) clause, unaffected.
   const trackedRows = await query(
-    'SELECT stripe_subscription_id, subscription_status FROM users WHERE id = :id LIMIT 1',
+    'SELECT stripe_subscription_id, subscription_status, current_period_end FROM users WHERE id = :id LIMIT 1',
     { id: uid }
   );
   const tracked = trackedRows[0];
@@ -725,8 +802,29 @@ async function syncSubscription(subscription) {
   }
 
   const { plan, priceId } = await resolvePlanFromSubscription(subscription);
-  const periodEnd = subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null;
-  const periodEndSql = periodEnd ? periodEnd.toISOString().slice(0, 19).replace('T', ' ') : null;
+  // Batch 145 (external review F16): modern Stripe API versions
+  // moved the period end off the subscription's top level onto its
+  // items — extract top-level ?? items.data[0] (the membership
+  // module's subscriptionPeriodEnd pattern). When BOTH are absent
+  // the value is unknown: KEEP the stored period end rather than
+  // writing null over a known one.
+  const periodRaw =
+    subscription.current_period_end ??
+    (subscription.items && Array.isArray(subscription.items.data) && subscription.items.data[0]
+      ? subscription.items.data[0].current_period_end
+      : undefined);
+  let periodEndSql;
+  if (periodRaw) {
+    periodEndSql = new Date(periodRaw * 1000).toISOString().slice(0, 19).replace('T', ' ');
+  } else if (tracked && tracked.current_period_end) {
+    const stored = tracked.current_period_end;
+    periodEndSql =
+      stored instanceof Date
+        ? stored.toISOString().slice(0, 19).replace('T', ' ')
+        : String(stored).slice(0, 19);
+  } else {
+    periodEndSql = null;
+  }
 
   const active = ACTIVE_STATUSES.has(String(subscription.status || ''));
   // Duplicate-completion guard (review fix): two checkout sessions can
@@ -814,13 +912,20 @@ async function resolveUserIdFromInvoice(invoice, q = query) {
     });
     if (rows[0]) return rows[0].id;
   }
-  if (invoice.subscription_details && invoice.subscription_details.metadata) {
-    const uid = Number(invoice.subscription_details.metadata.user_id) || null;
+  // Batch 145 (external review F17): modern invoices carry the
+  // subscription metadata under parent.subscription_details and the
+  // subscription reference at parent.subscription_details.subscription
+  // — resolve both through the shared shape helpers.
+  const subMeta = invoiceSubscriptionMetadata(invoice);
+  if (subMeta) {
+    const uid = Number(subMeta.user_id) || null;
     if (uid) return uid;
   }
-  if (invoice.subscription) {
-    const subId = typeof invoice.subscription === 'string' ? invoice.subscription : invoice.subscription.id;
-    const rows = await q('SELECT id FROM users WHERE stripe_subscription_id = :sid LIMIT 1', { sid: subId });
+  const invoiceSubId = invoiceSubscriptionId(invoice);
+  if (invoiceSubId) {
+    const rows = await q('SELECT id FROM users WHERE stripe_subscription_id = :sid LIMIT 1', {
+      sid: invoiceSubId,
+    });
     if (rows[0]) return rows[0].id;
   }
   return null;
@@ -1368,6 +1473,7 @@ async function handleWebhookEvent(event, deps = {}) {
 
   try {
     await dispatchWebhookEvent(event, deps);
+    await markStripeEventComplete(event && event.id);
     return { ok: true };
   } catch (e) {
     await releaseStripeEvent(event && event.id);
@@ -1491,9 +1597,10 @@ async function dispatchWebhookEvent(event, deps = {}) {
   if (type === 'invoice.paid' && obj) {
     const recorded = await recordPaymentFromInvoice(obj);
     let sub = null;
-    if (obj.subscription) {
+    const paidSubId = invoiceSubscriptionId(obj);
+    if (paidSubId) {
       const stripe = await getStripe();
-      const subId = typeof obj.subscription === 'string' ? obj.subscription : obj.subscription.id;
+      const subId = paidSubId;
       sub = await stripe.subscriptions.retrieve(subId);
       await syncSubscription(sub);
       // Batch 60: a paid invoice is the activation / renewal /
@@ -1555,9 +1662,10 @@ async function dispatchWebhookEvent(event, deps = {}) {
 
   if (type === 'invoice.payment_failed' && obj) {
     await recordPaymentFromInvoice(obj);
-    if (obj.subscription) {
+    const failedSubId = invoiceSubscriptionId(obj);
+    if (failedSubId) {
       const stripe = await getStripe();
-      const subId = typeof obj.subscription === 'string' ? obj.subscription : obj.subscription.id;
+      const subId = failedSubId;
       const sub = await stripe.subscriptions.retrieve(subId);
       await syncSubscription(sub);
     }
@@ -1576,10 +1684,10 @@ async function dispatchWebhookEvent(event, deps = {}) {
     // event lands on the same idempotent path as a backstop. When
     // the Stripe account cancels on exhaustion instead, the sub is
     // already 'canceled' here and the termination path owns it.
-    if (obj.next_payment_attempt == null && obj.subscription) {
+    if (obj.next_payment_attempt == null && failedSubId) {
       try {
         const stripe = await getStripe();
-        const subId = typeof obj.subscription === 'string' ? obj.subscription : obj.subscription.id;
+        const subId = failedSubId;
         const sub = await stripe.subscriptions.retrieve(subId);
         const st = String((sub && sub.status) || '');
         if (st === 'past_due' || st === 'unpaid') {
@@ -1879,6 +1987,7 @@ module.exports = {
   workspacePlan,
   effectivePlan,
   claimStripeEvent,
+  markStripeEventComplete,
   ensureCustomer,
   createCheckoutSession,
   createCreditsCheckoutSession,

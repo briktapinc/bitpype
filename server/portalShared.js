@@ -67,12 +67,38 @@ function isPortalLockedPath(path) {
   return PORTAL_LOCKED_PATH.test(String(path || ''));
 }
 
+/**
+ * Batch 145 (external review F01): path segments that must never be
+ * walked or written — following `__proto__` reaches Object.prototype
+ * itself, and `constructor`/`prototype` are the adjacent vectors.
+ * Compared against the RAW segment (before numeric conversion).
+ */
+const UNSAFE_CONTENT_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
+
+function isSafeContentPath(path) {
+  return String(path)
+    .split('.')
+    .every((seg) => !UNSAFE_CONTENT_SEGMENTS.has(seg));
+}
+
 function setContentPath(obj, path, value) {
   const parts = String(path).split('.');
+  for (const seg of parts) {
+    if (UNSAFE_CONTENT_SEGMENTS.has(seg)) {
+      throw Object.assign(new Error(`Unsafe content path segment: ${seg}`), {
+        code: 'UNSAFE_CONTENT_PATH',
+      });
+    }
+  }
   let cur = obj;
   for (let i = 0; i < parts.length - 1; i += 1) {
     const key = /^\d+$/.test(parts[i]) ? Number(parts[i]) : parts[i];
-    if (cur[key] == null || typeof cur[key] !== 'object') {
+    // Own-property walk only: a key that exists solely on the
+    // prototype chain (toString, hasOwnProperty, …) is shadowed with
+    // a fresh own container instead of traversed — inherited objects
+    // are never mutated through this setter.
+    const own = Object.prototype.hasOwnProperty.call(cur, key) ? cur[key] : undefined;
+    if (own == null || typeof own !== 'object') {
       cur[key] = /^\d+$/.test(parts[i + 1]) ? [] : {};
     }
     cur = cur[key];
@@ -180,6 +206,7 @@ module.exports = {
   resolvePreviewUrl,
   resolveExportPreviewBase,
   isPortalLockedPath,
+  isSafeContentPath,
   setContentPath,
   pagesHaveEditableSections,
   pagesSupportInlineEdit,
