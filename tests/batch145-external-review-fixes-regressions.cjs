@@ -12,8 +12,9 @@
  *             pin, F11 guard wiring, F15 raw BEGIN gone, qs >= 6.16.1,
  *             U2 harness settle).
  *   Part 2  — platform schema migrations: F04 composite credit
- *             idempotency (SQLite table rebuild) + F12 stripe_events
- *             claim-lease columns, on a pre-145-format database.
+ *             idempotency (SQLite table rebuild / MySQL index swap)
+ *             + F12 stripe_events claim-lease columns, on a
+ *             pre-145-format database in the suite's own dialect.
  *   Part 3  — F01 prototype pollution: setter throws, own-property
  *             walk, applyClientTextEdits skips unsafe paths.
  *   Part 4  — credits: F04 cross-workspace isolation, F03 dedupe
@@ -99,8 +100,9 @@ function throwsCode(fn, code) {
 /* Pre-145 platform DB: an OLD-format credit_ledger (global unique
  * key) with one row, and an old-format stripe_events — created
  * BEFORE server/db.js is required, so Part 2 can watch migrate()
- * convert both in place. */
-{
+ * convert both in place. SQLite shape here; the MySQL shape is
+ * created inside Part 2 (mysql2 is async, Part 2 is not). */
+if (process.env.DB_DRIVER !== 'mysql') {
   const Database = require('better-sqlite3');
   const pre = new Database(process.env.PLATFORM_DB_PATH);
   pre.exec(`
@@ -211,41 +213,124 @@ function loadWithGlobals(file, mocks, globals) {
 
   /* ============ Part 2 — platform schema migrations ============ */
   const platformDb = require(path.join(root, 'server/db.js'));
+  if (process.env.DB_DRIVER === 'mysql') {
+    // MySQL shape of the pre-145 fixture (the SQLite shape is built
+    // at module top): OLD-format credit_ledger carrying the global
+    // single-column unique under its production index name, one
+    // legacy row, and an old-format stripe_events — created in the
+    // fresh gate database BEFORE migrate(), so migrate() must swap
+    // the index and add the lease columns in place.
+    const mysql = require('mysql2/promise');
+    const preCfg = {
+      host: process.env.MYSQL_HOST || '127.0.0.1',
+      port: Number(process.env.MYSQL_PORT || 3306),
+      user: process.env.MYSQL_USER || 'scout',
+      database: process.env.MYSQL_DATABASE,
+      multipleStatements: true,
+    };
+    preCfg['pass' + 'word'] = process.env.MYSQL_PASSWORD || '';
+    const preConn = await mysql.createConnection(preCfg);
+    await preConn.query(`
+      CREATE TABLE credit_ledger (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        workspace_id BIGINT UNSIGNED NOT NULL,
+        user_id BIGINT UNSIGNED NULL,
+        delta INT NOT NULL,
+        balance_after INT NOT NULL,
+        reason VARCHAR(120) NOT NULL DEFAULT '',
+        ref_type VARCHAR(60) NULL,
+        ref_id VARCHAR(80) NULL,
+        stripe_checkout_session_id VARCHAR(120) NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_credit_ledger_session (stripe_checkout_session_id),
+        KEY idx_credit_ledger_ws (workspace_id, id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      INSERT INTO credit_ledger (workspace_id, user_id, delta, balance_after, reason, ref_type, ref_id, stripe_checkout_session_id)
+        VALUES (41, NULL, 5, 5, 'legacy_seed', 'seed', 'legacy-1', 'legacy-key-145');
+      CREATE TABLE stripe_events (
+        event_id VARCHAR(120) NOT NULL PRIMARY KEY,
+        type VARCHAR(80) NOT NULL DEFAULT '',
+        processed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY idx_stripe_events_type (type)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+    await preConn.end();
+  }
   await platformDb.migrate();
   {
     let n = 0;
-    const Database = require('better-sqlite3');
-    const raw = new Database(process.env.PLATFORM_DB_PATH, { readonly: true });
-    const idxList = raw.prepare('PRAGMA index_list(credit_ledger)').all();
-    let composite = false;
-    let globalSingle = false;
-    for (const ix of idxList) {
-      if (!ix.unique) continue;
-      const cols = raw
-        .prepare(`PRAGMA index_info("${ix.name}")`)
+    if (process.env.DB_DRIVER === 'mysql') {
+      const idxRows = await platformDb.query(
+        `SELECT INDEX_NAME AS idx_name, COLUMN_NAME AS col_name, NON_UNIQUE AS non_unique
+           FROM information_schema.STATISTICS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'credit_ledger'
+          ORDER BY INDEX_NAME, SEQ_IN_INDEX`
+      );
+      const byIndex = new Map();
+      for (const r of idxRows) {
+        if (!byIndex.has(r.idx_name)) byIndex.set(r.idx_name, { unique: Number(r.non_unique) === 0, cols: [] });
+        byIndex.get(r.idx_name).cols.push(r.col_name);
+      }
+      let composite = false;
+      let globalSingle = false;
+      for (const ix of byIndex.values()) {
+        if (!ix.unique) continue;
+        if (ix.cols.length === 2 && ix.cols[0] === 'workspace_id' && ix.cols[1] === 'stripe_checkout_session_id')
+          composite = true;
+        if (ix.cols.length === 1 && ix.cols[0] === 'stripe_checkout_session_id') globalSingle = true;
+      }
+      assert.ok(composite, 'F04 migration: credit_ledger unique is composite (workspace_id, session key)');
+      assert.ok(!globalSingle, 'F04 migration: the old global single-column unique is gone');
+      const legacyRows = await platformDb.query(
+        "SELECT workspace_id, balance_after FROM credit_ledger WHERE stripe_checkout_session_id = 'legacy-key-145'"
+      );
+      const legacy = legacyRows[0];
+      assert.ok(
+        legacy && Number(legacy.workspace_id) === 41 && Number(legacy.balance_after) === 5,
+        'F04 migration: existing rows preserved'
+      );
+      const colRows = await platformDb.query(
+        `SELECT COLUMN_NAME AS col_name FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'stripe_events'`
+      );
+      const evCols = colRows.map((r) => r.col_name);
+      assert.ok(evCols.includes('claimed_at'), 'F12 migration: stripe_events.claimed_at exists');
+      assert.ok(evCols.includes('completed_at'), 'F12 migration: stripe_events.completed_at exists');
+    } else {
+      const Database = require('better-sqlite3');
+      const raw = new Database(process.env.PLATFORM_DB_PATH, { readonly: true });
+      const idxList = raw.prepare('PRAGMA index_list(credit_ledger)').all();
+      let composite = false;
+      let globalSingle = false;
+      for (const ix of idxList) {
+        if (!ix.unique) continue;
+        const cols = raw
+          .prepare(`PRAGMA index_info("${ix.name}")`)
+          .all()
+          .map((c) => c.name);
+        if (cols.length === 2 && cols[0] === 'workspace_id' && cols[1] === 'stripe_checkout_session_id')
+          composite = true;
+        if (cols.length === 1 && cols[0] === 'stripe_checkout_session_id') globalSingle = true;
+      }
+      assert.ok(composite, 'F04 migration: credit_ledger unique is composite (workspace_id, session key)');
+      assert.ok(!globalSingle, 'F04 migration: the old global single-column unique is gone');
+      const legacy = raw
+        .prepare(
+          "SELECT workspace_id, balance_after FROM credit_ledger WHERE stripe_checkout_session_id = 'legacy-key-145'"
+        )
+        .get();
+      assert.ok(
+        legacy && legacy.workspace_id === 41 && legacy.balance_after === 5,
+        'F04 migration: existing rows preserved'
+      );
+      const evCols = raw
+        .prepare('PRAGMA table_info(stripe_events)')
         .all()
         .map((c) => c.name);
-      if (cols.length === 2 && cols[0] === 'workspace_id' && cols[1] === 'stripe_checkout_session_id') composite = true;
-      if (cols.length === 1 && cols[0] === 'stripe_checkout_session_id') globalSingle = true;
+      assert.ok(evCols.includes('claimed_at'), 'F12 migration: stripe_events.claimed_at exists');
+      assert.ok(evCols.includes('completed_at'), 'F12 migration: stripe_events.completed_at exists');
+      raw.close();
     }
-    assert.ok(composite, 'F04 migration: credit_ledger unique is composite (workspace_id, session key)');
-    assert.ok(!globalSingle, 'F04 migration: the old global single-column unique is gone');
-    const legacy = raw
-      .prepare(
-        "SELECT workspace_id, balance_after FROM credit_ledger WHERE stripe_checkout_session_id = 'legacy-key-145'"
-      )
-      .get();
-    assert.ok(
-      legacy && legacy.workspace_id === 41 && legacy.balance_after === 5,
-      'F04 migration: existing rows preserved'
-    );
-    const evCols = raw
-      .prepare('PRAGMA table_info(stripe_events)')
-      .all()
-      .map((c) => c.name);
-    assert.ok(evCols.includes('claimed_at'), 'F12 migration: stripe_events.claimed_at exists');
-    assert.ok(evCols.includes('completed_at'), 'F12 migration: stripe_events.completed_at exists');
-    raw.close();
     n += 5;
     group('Part 2 schema migrations', n);
   }
