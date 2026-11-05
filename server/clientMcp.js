@@ -514,6 +514,33 @@ async function dispatchPortalTool(ws, name, a, ctx = {}) {
     return { plan: planId, ...portal.leadScoutHealth(ws, leadId, { workspaceWide: !ctx.leadId && !leadId }) };
   }
 
+  // Batch 143 (full review): fonts.list is a STATIC catalog — it
+  // needs no lead. It sat below this gate, so every lead-free call
+  // threw 'leadId is required' and the workspace-token handler for
+  // the same tool (server/mcp.js) was unreachable behind this
+  // dispatch. Serve it before the gate.
+  if (name === 'fonts.list') {
+    const fonts = require('../public/js/fonts.js');
+    let list = Array.isArray(fonts.CATALOG) ? fonts.CATALOG.slice() : [];
+    const group = a.group != null ? String(a.group).trim() : '';
+    if (group) {
+      const g = group.toLowerCase();
+      list = list.filter((f) => String(f.group || '').toLowerCase() === g);
+    }
+    return {
+      plan: planId,
+      fonts: list.map((f) => ({
+        name: f.name,
+        group: f.group,
+        generic: f.generic,
+        stack: fonts.stackFor(f.name),
+      })),
+      groups: [...new Set((fonts.CATALOG || []).map((f) => f.group).filter(Boolean))],
+      count: list.length,
+      note: 'Free local catalog. Pass name to theme.set ({ font, headingFont }).',
+    };
+  }
+
   if (!leadId) throw new Error('leadId is required');
 
   if (name === 'site.get') {
@@ -631,28 +658,6 @@ async function dispatchPortalTool(ws, name, a, ctx = {}) {
     requireEnt('inlineEdits', 'Style rules are not on your plan.');
     const out = await portal.applyClientStyleRule(ws, leadId, a);
     return { plan: planId, ...out };
-  }
-
-  if (name === 'fonts.list') {
-    const fonts = require('../public/js/fonts.js');
-    let list = Array.isArray(fonts.CATALOG) ? fonts.CATALOG.slice() : [];
-    const group = a.group != null ? String(a.group).trim() : '';
-    if (group) {
-      const g = group.toLowerCase();
-      list = list.filter((f) => String(f.group || '').toLowerCase() === g);
-    }
-    return {
-      plan: planId,
-      fonts: list.map((f) => ({
-        name: f.name,
-        group: f.group,
-        generic: f.generic,
-        stack: fonts.stackFor(f.name),
-      })),
-      groups: [...new Set((fonts.CATALOG || []).map((f) => f.group).filter(Boolean))],
-      count: list.length,
-      note: 'Free local catalog. Pass name to theme.set ({ font, headingFont }).',
-    };
   }
 
   if (name === 'modules.attach') {

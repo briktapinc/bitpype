@@ -592,6 +592,41 @@ function normalizeWebsiteKind(data, lead) {
 
 /** Validate + normalize lead input. Throws VALIDATION_ERROR. */
 function validateLeadInput(data) {
+  // Batch 143 (full review): reject object/array values for string
+  // fields BEFORE normalizeToLead stringifies them — its s() helper
+  // String()s anything, so an MCP lead.create carrying
+  // business_name:{…} previously persisted a lead literally named
+  // '[object Object]'. Every write path (create, update, CSV
+  // import, discovery) funnels through here. tags / hours /
+  // services / social_links are the legitimate array fields and
+  // are not in this list.
+  const STRING_FIELDS = [
+    'business_name',
+    'name',
+    'category',
+    'phone',
+    'email',
+    'website',
+    'url',
+    'address',
+    'city',
+    'state',
+    'postal_code',
+    'zip',
+    'postalCode',
+    'country',
+    'description',
+    'source',
+    'source_ref',
+    'status',
+    'notes',
+  ];
+  for (const f of STRING_FIELDS) {
+    const v = data ? data[f] : undefined;
+    if (v !== null && typeof v === 'object') {
+      throw validationError(`${f} must be a string`);
+    }
+  }
   const lead = normalizeToLead(data || {});
   // One canonical casing per category across every write path (create,
   // update, CSV import and discovery all funnel through here).

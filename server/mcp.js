@@ -1519,6 +1519,16 @@ function clientToolDefs() {
       description:
         "Copy an APPROVED Photo Capture submission into a gallery album through the gallery's own write path (a real gallery image row). The album must belong to the same lead. Standard/Premium.",
       inputSchema: schema({ leadId: ID, id: ID, album_id: ID }, ['leadId', 'id', 'album_id']),
+    },
+    {
+      // Batch 143 (full review): this def was previously MERGED into
+      // the photocapture.addToGallery literal above — a duplicate
+      // `name:` key in one object, so addToGallery vanished from
+      // tools/list (and from the client-scoped token's allowlist)
+      // while checkout.getConfig carried its description + schema.
+      // Tool defs are plain object literals: a repeated key fails
+      // SILENTLY. The batch143 suite pins handler⇔def parity so the
+      // class cannot recur unnoticed.
       name: 'checkout.getConfig',
       description:
         'Batch 128 Checkout module: the module’s own settings (success message) plus the business’s payment state — whether shop Stripe is configured, its source (the business’s own keys vs the workspace keys) and its effective mode (test/live). The Stripe keys themselves are managed by the owner in Portal → Shop → Payments; checkout charges the lead’s OWN shop Stripe configuration. Standard/Premium.',
@@ -1851,11 +1861,30 @@ function toolDefs({ clientScoped = false } = {}) {
     },
     {
       name: 'lead.update',
-      description: 'Update a lead.',
+      description:
+        'Update a lead. Accepts the same fields as lead.create plus address/state/postal_code/country/description/rating/review_count/tags — all validated by the lead engine (unknown or mistyped values are rejected, never stringified).',
       inputSchema: {
         type: 'object',
         properties: {
           id: { type: 'integer' },
+          business_name: { type: 'string' },
+          email: { type: 'string' },
+          phone: { type: 'string' },
+          city: { type: 'string' },
+          category: { type: 'string' },
+          website: { type: 'string' },
+          address: { type: 'string' },
+          state: { type: 'string' },
+          postal_code: { type: 'string' },
+          country: { type: 'string' },
+          description: { type: 'string' },
+          latitude: { type: 'number' },
+          longitude: { type: 'number' },
+          rating: { type: 'number' },
+          review_count: { type: 'integer' },
+          status: { type: 'string' },
+          notes: { type: 'string' },
+          tags: { type: 'array', items: { type: 'string' } },
           website_kind: { type: 'string', enum: ['bitpype', 'external'] },
           website_platform: { type: 'string', enum: ['wordpress', 'other'] },
         },
