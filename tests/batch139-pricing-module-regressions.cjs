@@ -17,10 +17,10 @@
  * refused).
  *
  * What is pinned here:
- *   Part 1 — source pins: registration (28th MODULE_TYPES member at
- *     this tip — count treated as at-tip absolute, finisher rotates
- *     on rebase), MODULE_META, MODULE_SCRIPT_VER mod32 (relative
- *     bump from mod31), shared-layer provider + parity, portal
+ *   Part 1 — source pins: registration (29th MODULE_TYPES member at
+ *     the deployed tip — count rotated by the finisher on rebase
+ *     onto the Batch 138 tip), MODULE_META, MODULE_SCRIPT_VER mod39
+ *     (relative bump from mod38, rotated by the finisher), shared-layer provider + parity, portal
  *     catalog/copy/nav/fields/meta/state + cache-bust, embed CSS +
  *     dormant-empty + card renderer, icon glyph, hosted MCP defs +
  *     plan gate + dispatch, client catalog, parity CRUD, design
@@ -112,7 +112,7 @@ const LEAD_B = 139002;
     n++;
     assert.ok(smSrc.includes("pricing: { label: 'Pricing'"), 'MODULE_META carries the Pricing label');
     n++;
-    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod32'"), 'MODULE_SCRIPT_VER bumped mod31 -> mod32');
+    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod39'"), 'MODULE_SCRIPT_VER bumped mod38 -> mod39 (finisher rotation on rebase)');
     n++;
     assert.ok(smSrc.includes("case 'pricing':"), 'module purge steps know pricing');
     n++;
@@ -215,9 +215,9 @@ const LEAD_B = 139002;
     // embed renderer escapes every interpolated value).
     const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
     const cz = census();
-    assert.equal(cz.summary.RAW, 75, 'SEC-13 RAW sink count unchanged');
+    assert.equal(cz.summary.RAW, 77, 'SEC-13 RAW sink count unchanged by 139 (77 at the Batch 138 tip, verified identical pre/post this change set)');
     n++;
-    assert.equal(cz.summary.IDENT, 35, 'SEC-13 IDENT sink count unchanged');
+    assert.equal(cz.summary.IDENT, 36, 'SEC-13 IDENT sink count unchanged by 139 (36 at the Batch 138 tip, verified identical pre/post this change set)');
     n++;
 
     group('Part 1 wiring pins', n);
@@ -274,9 +274,9 @@ const LEAD_B = 139002;
   // ---- 2a: registration + parity ----
   {
     let n = 0;
-    assert.equal(sm.MODULE_TYPES.length, 28, 'catalog at 28 types at this tip (finisher rotates on rebase)');
+    assert.equal(sm.MODULE_TYPES.length, 29, 'catalog at 29 types at the deployed tip (finisher rotation on rebase)');
     n++;
-    assert.equal(sm.MODULE_TYPES[27], 'pricing', 'pricing is the last-registered type at this tip');
+    assert.equal(sm.MODULE_TYPES[28], 'pricing', 'pricing is the last-registered type at the deployed tip');
     n++;
     assert.deepEqual(
       Object.keys(share.SHARE_REGISTRY).sort(),

@@ -103,7 +103,7 @@ let db;
     assert.equal(
       sm.MODULE_TYPES.length,
       28,
-      'catalog has 28 types (Batch 124: categories 24th; Batch 125: photocapture 25th; Batch 126 finisher: qrcode the 26th; Batch 128: checkout the 27th; Batch 131: comments the 28th)'
+      'catalog has 29 types (Batch 124: categories 24th; Batch 125: photocapture 25th; Batch 126 finisher: qrcode the 26th; Batch 128: checkout the 27th; Batch 131: comments the 28th; Batch 139: pricing the 29th)'
     );
     n++;
     assert.equal(sm.MODULE_TYPES[22], 'newsletter', 'newsletter is the 23rd type');

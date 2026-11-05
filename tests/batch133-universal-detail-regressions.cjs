@@ -84,7 +84,7 @@ async function json(res) {
     n++;
     assert.ok(smSrc.includes('function detailExportContext(db, leadId)'), 'detailExportContext exists');
     n++;
-    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod38'"), 'MODULE_SCRIPT_VER bumped to mod36');
+    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod39'"), 'MODULE_SCRIPT_VER bumped to mod36');
     n++;
     const typesBlock = /const MODULE_TYPES = \[([\s\S]*?)\];/.exec(smSrc);
     assert.ok(typesBlock, 'MODULE_TYPES block found');

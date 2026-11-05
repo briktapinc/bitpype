@@ -108,7 +108,7 @@ function futureWeekdayStart() {
       'orders carry the discount stamp columns'
     );
     assert.ok(
-      smSrc.includes("const MODULE_SCRIPT_VER = 'mod38'"),
+      smSrc.includes("const MODULE_SCRIPT_VER = 'mod39'"),
       'MODULE_SCRIPT_VER bumped relatively (+1 from the landed tip: mod37 -> mod38, applied by the finisher at rebase)'
     );
     n += 7;

@@ -110,7 +110,7 @@ let db;
     assert.equal(
       sm.MODULE_TYPES.length,
       28,
-      '28 module types (Batch 124 categories + Batch 125 photocapture + Batch 126 finisher qrcode + Batch 128 checkout + Batch 131 comments)'
+      '29 module types (Batch 124 categories + Batch 125 photocapture + Batch 126 finisher qrcode + Batch 128 checkout + Batch 131 comments + Batch 139 pricing)'
     );
     assert.equal(sm.MODULE_META.photocapture.label, 'Photo Capture');
     assert.equal(

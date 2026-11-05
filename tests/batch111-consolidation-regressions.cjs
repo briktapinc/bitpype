@@ -46,7 +46,7 @@ const iconPathsOf = (src) => {
 
 check('S2.1 shared icon file carries all 28 glyphs + the fallback', () => {
   const icons = iconPathsOf(iconsJs);
-  assert.equal(Object.keys(icons).length, 28, '28 module glyphs (Batch 126 finisher: +qrcode; Batch 128: +checkout; Batch 131: +comments)');
+  assert.equal(Object.keys(icons).length, 29, '29 module glyphs (Batch 126 finisher: +qrcode; Batch 128: +checkout; Batch 131: +comments; Batch 139: +pricing)');
   for (const [t, g] of Object.entries(icons)) assert.ok(g.includes('<'), `${t} glyph present`);
   assert.ok(iconsJs.includes("const MODULE_ICON_FALLBACK = '<rect x=\"4\" y=\"4\""), 'fallback defined once, in the shared file');
 });

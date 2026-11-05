@@ -171,7 +171,7 @@ function has(src, needle, label) {
     const cz = census();
     assert.deepEqual(
       cz.summary,
-      { total: 446, STATIC: 161, ESCAPED: 41, SAFE: 73, BUILDER: 58, IDENT: 36, RAW: 77 },
+      { total: 448, STATIC: 162, ESCAPED: 41, SAFE: 73, BUILDER: 59, IDENT: 36, RAW: 77 },
       'SEC-13 census summary unchanged'
     );
     n += 1;

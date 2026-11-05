@@ -123,7 +123,7 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     assert.ok(smSrc.includes("categories: { label: 'Categories'"), 'MODULE_META carries the Categories label');
     n++;
     assert.ok(
-      smSrc.includes("const MODULE_SCRIPT_VER = 'mod38'"),
+      smSrc.includes("const MODULE_SCRIPT_VER = 'mod39'"),
       'MODULE_SCRIPT_VER bumped to mod32 (Batch 128 finisher rotation)'
     );
     n++;
@@ -273,14 +273,14 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     assert.equal(
       sm.MODULE_TYPES.length,
       28,
-      'catalog at 28 types (Batch 125 added photocapture; Batch 126 finisher: qrcode; Batch 128: checkout; Batch 131: comments)'
+      'catalog at 29 types (Batch 125 added photocapture; Batch 126 finisher: qrcode; Batch 128: checkout; Batch 131: comments; Batch 139: pricing)'
     );
     assert.equal(sm.MODULE_TYPES[23], 'categories', 'categories is the 24th type');
     n += 2;
     assert.deepEqual(
       Object.keys(share.SHARE_REGISTRY).sort(),
       [...sm.MODULE_TYPES].sort(),
-      'registry parity at 28 types'
+      'registry parity at 29 types'
     );
     n++;
 

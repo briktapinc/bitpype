@@ -124,7 +124,7 @@ function makeJar() {
     assert.ok(smSrc.includes("orderCols.includes('variant_label')"), 'orders gain variant_label via guarded ALTER');
     n++;
     assert.ok(
-      smSrc.includes("const MODULE_SCRIPT_VER = 'mod38'"),
+      smSrc.includes("const MODULE_SCRIPT_VER = 'mod39'"),
       'MODULE_SCRIPT_VER bumped to mod32 (Batch 128 finisher rotation)'
     );
     n++;
