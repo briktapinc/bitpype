@@ -166,8 +166,7 @@ async function resolveUserId(q, obj) {
     });
     if (rows[0]) return rows[0].id;
   }
-  const subId =
-    invoiceSubscriptionId(obj) || (obj.id && String(obj.id).startsWith('sub_') ? obj.id : null);
+  const subId = invoiceSubscriptionId(obj) || (obj.id && String(obj.id).startsWith('sub_') ? obj.id : null);
   if (subId) {
     const rows = await q('SELECT id FROM users WHERE stripe_subscription_id = :sid LIMIT 1', { sid: subId });
     if (rows[0]) return rows[0].id;

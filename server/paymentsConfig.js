@@ -408,9 +408,7 @@ function resolveLeadForEvent(db, eventLike) {
   // Batch 145 (external review F17): invoice objects on modern
   // Stripe API versions carry the subscription reference under
   // parent.subscription_details — resolve through the shared helper.
-  const subId = String(
-    invoiceSubscriptionId(obj) || (obj.object === 'subscription' ? obj.id : '') || ''
-  );
+  const subId = String(invoiceSubscriptionId(obj) || (obj.object === 'subscription' ? obj.id : '') || '');
   if (subId) {
     const leadId = sm().findLeadByStripeSubscription(db, subId);
     if (leadId) return leadId;
