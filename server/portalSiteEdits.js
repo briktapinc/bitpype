@@ -27,16 +27,50 @@ function renderClientSite(workspaceId, leadId, opts = {}) {
   });
   const editableWanted = opts.editable !== false;
   const canInlineEdit = editableWanted && pagesSupportInlineEdit(leadOk.pages);
-  const rendered = domain.sitesRenderHtml(workspaceId, leadOk.id, {
-    editable: canInlineEdit,
-    pageSlug: opts.pageSlug,
-    pageIndex: opts.pageIndex,
-  });
+  // Batch 147: layout-editor renders — the canvas shows the owner's
+  // UNSAVED section list for one page (opts.layoutSections) with the
+  // layout decorations, so every editor op re-renders the true model.
+  const layoutEditor = !!opts.layoutEditor;
+  let layoutPages = null;
+  if (layoutEditor) {
+    layoutPages = JSON.parse(JSON.stringify(leadOk.pages || []));
+    let target = null;
+    if (opts.pageSlug != null) {
+      target = layoutPages.find((p) => String(p && p.slug) === String(opts.pageSlug)) || null;
+    }
+    if (!target && Number.isInteger(opts.pageIndex)) target = layoutPages[opts.pageIndex] || null;
+    if (!target) target = layoutPages[0] || null;
+    if (target && Array.isArray(opts.layoutSections)) {
+      target.sections = JSON.parse(JSON.stringify(opts.layoutSections));
+      if (typeof target.html === 'string') delete target.html;
+    }
+  }
+  const rendered = domain.sitesRenderHtml(
+    workspaceId,
+    leadOk.id,
+    layoutEditor
+      ? {
+          editable: false,
+          layoutEditor: true,
+          pageSlug: opts.pageSlug,
+          pageIndex: opts.pageIndex,
+          pages: layoutPages,
+          theme: leadOk.theme && typeof leadOk.theme === 'object' ? leadOk.theme : {},
+        }
+      : {
+          editable: canInlineEdit,
+          pageSlug: opts.pageSlug,
+          pageIndex: opts.pageIndex,
+        }
+  );
   const previewUrl = resolvePreviewUrl(leadOk);
   const assetBase = resolveExportPreviewBase(workspaceId, leadOk);
   const engine = require('../src/websiteEngine');
   // srcdoc has no document URL — relative images/… need a preview base.
-  let html = canInlineEdit && assetBase ? engine.injectPreviewBaseHref(rendered.html, assetBase) : rendered.html;
+  let html =
+    (canInlineEdit || layoutEditor) && assetBase
+      ? engine.injectPreviewBaseHref(rendered.html, assetBase)
+      : rendered.html;
   // Membership preview bypass (Batch 16): the owner previews their own site
   // through this portal path, never the public gate. When gating is active,
   // mint a short-lived preview grant and hand it to module-embed.js, which

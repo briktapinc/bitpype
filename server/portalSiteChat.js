@@ -1695,6 +1695,362 @@ function applyClientStructureReorder(workspaceId, leadId, body = {}) {
 }
 
 
+/* ================================================================== */
+/* Batch 147 — native section (layout) editor.                         */
+/*                                                                     */
+/* The editor edits the page MODEL through the pure ops in             */
+/* src/siteStructure.js and saves through domain.sitesSave — the same  */
+/* path the design payload and the structure UI use — so editor saves  */
+/* and design saves share validation, version snapshots, QA gates and  */
+/* the staged-preview materialization, and can never diverge.          */
+/* ================================================================== */
+
+const LAYOUT_TOKEN_RE = /data-bitpype-module-token\s*=\s*["']([^"']+)["']/gi;
+
+/** Every module embed token a section references (mount field or html). */
+function layoutTokensInSection(section) {
+  const out = [];
+  if (!section || typeof section !== 'object') return out;
+  const c = section.content && typeof section.content === 'object' ? section.content : {};
+  if (typeof c.public_token === 'string' && c.public_token) out.push(c.public_token);
+  if (typeof c.html === 'string') {
+    for (const m of c.html.matchAll(LAYOUT_TOKEN_RE)) out.push(m[1]);
+  }
+  return out;
+}
+
+function layoutTokensInPages(pages) {
+  const set = new Set();
+  for (const page of Array.isArray(pages) ? pages : []) {
+    for (const section of page && Array.isArray(page.sections) ? page.sections : []) {
+      for (const t of layoutTokensInSection(section)) set.add(t);
+    }
+    if (page && typeof page.html === 'string') {
+      for (const m of page.html.matchAll(LAYOUT_TOKEN_RE)) set.add(m[1]);
+    }
+  }
+  return set;
+}
+
+/** Resolve the module type a section mounts ('' when it mounts none). */
+function layoutModuleTypeForSection(section, embedsByToken) {
+  if (!section || typeof section !== 'object') return '';
+  const c = section.content && typeof section.content === 'object' ? section.content : {};
+  const declared = String(c.module_type || c.moduleType || '').trim().toLowerCase();
+  if (section.type === 'site_module' && declared) return declared;
+  if (declared && section.type === 'html') return declared;
+  for (const token of layoutTokensInSection(section)) {
+    const row = embedsByToken.get(token);
+    if (row) return String(row.module_type || '').toLowerCase();
+  }
+  return declared && section.type === 'site_module' ? declared : '';
+}
+
+function layoutEmbedsByToken(db, leadId) {
+  const modules = require('./siteModules');
+  const embeds = modules.listEmbeds(db, Number(leadId));
+  const byToken = new Map();
+  for (const row of embeds) {
+    if (row && row.public_token) byToken.set(row.public_token, row);
+  }
+  return { embeds, byToken };
+}
+
+/**
+ * Everything the layout editor needs for one page: the raw section
+ * model, per-section descriptors (locks/fences/knobs), the ADD palette
+ * (content types + the same module summary the block picker uses) and
+ * the theme palette for the background knob.
+ */
+function getClientLayoutEditor(workspaceId, leadId, slug) {
+  const domain = require('./domain');
+  const structure = require('../src/siteStructure');
+  const modules = require('./siteModules');
+  return domain.withDb(workspaceId, (db) => {
+    const site = resolveClientSite(db, leadId);
+    if (!site || !Array.isArray(site.pages) || !site.pages.length) {
+      throw Object.assign(new Error('No website is available yet'), { code: 'NO_SITE' });
+    }
+    const { byToken } = layoutEmbedsByToken(db, leadId);
+    const resolve = (section) => layoutModuleTypeForSection(section, byToken);
+    const pageList = site.pages.map((p) => ({
+      slug: p && p.slug,
+      title: (p && p.title) || (p && p.slug) || 'Page',
+      freeform: !(p && Array.isArray(p.sections) && p.sections.length),
+    }));
+    let target = null;
+    if (slug != null && String(slug).trim()) {
+      target = site.pages.find((p) => String(p && p.slug) === String(slug)) || null;
+    }
+    if (!target) target = site.pages.find((p) => p && Array.isArray(p.sections) && p.sections.length) || site.pages[0];
+    const theme = site.theme && typeof site.theme === 'object' ? site.theme : {};
+    const engine = require('../src/websiteEngine');
+    const normalized = engine.normalizeTheme(theme);
+    const themePalette = require('../src/themePalette');
+    const { palette } = themePalette.extractPalette(site.pages, normalized);
+    const summary = modules.portalSummary(db, Number(leadId), { appUrl: appUrl(), siteModules: true });
+    const paletteModules = (summary.modules || [])
+      .filter((m) => !(modules.MODULE_META[m.type] || {}).sitewide)
+      .map((m) => ({
+        type: m.type,
+        label: m.label,
+        active: !!(m.embed && m.embed.published && m.embed.embed_enabled),
+        duplicateFence: structure.LAYOUT_DUPLICATE_FENCE[m.type] || null,
+      }));
+    const tokens = {};
+    for (const [token, row] of byToken) tokens[token] = String(row.module_type || '').toLowerCase();
+    const hasSections = !!(target && Array.isArray(target.sections) && target.sections.length);
+    return {
+      siteId: site.id,
+      name: site.name,
+      previewUrl: resolvePreviewUrl(site),
+      pages: pageList,
+      page: target ? { slug: target.slug, title: target.title || target.slug } : null,
+      freeform: !hasSections,
+      sections: hasSections ? target.sections : [],
+      descriptors: hasSections ? target.sections.map((s, i) => structure.describeEditorSection(s, i, resolve)) : [],
+      tokens,
+      palette: {
+        content: structure.LAYOUT_CONTENT_TYPES,
+        modules: paletteModules,
+      },
+      theme: {
+        primary: normalized.primary,
+        secondary: normalized.secondary,
+        bg: normalized.bg,
+        text: normalized.text,
+        palette,
+      },
+      padding: {
+        floor: structure.layoutPaddingFloorPx(),
+        max: structure.LAYOUT_PADDING_MAX_PX,
+        defaultPx: structure.LAYOUT_PADDING_DEFAULT_PX,
+      },
+    };
+  });
+}
+
+/**
+ * Build ONE new section for the ADD palette, through the exact
+ * structures the design/structure paths use: defaultSectionContent for
+ * content sections, ensureModuleTokenForInsert + insertModuleSection
+ * for module mounts. Returns the section object only — the editor
+ * inserts it into its working model; nothing is saved here.
+ */
+function buildClientLayoutSection(workspaceId, leadId, body = {}) {
+  const domain = require('./domain');
+  const structure = require('../src/siteStructure');
+  const modules = require('./siteModules');
+  const kind = String(body.kind || '').toLowerCase();
+  if (kind === 'content') {
+    const type = String(body.type || '').toLowerCase();
+    if (!structure.LAYOUT_CONTENT_TYPES.some((c) => c.type === type)) {
+      throw Object.assign(new Error(`Section type cannot be added: ${type || '(none)'}`), { code: 'INVALID' });
+    }
+    return { section: { type, content: structure.defaultSectionContent(type, {}) } };
+  }
+  if (kind === 'module') {
+    const moduleType = String(body.moduleType || body.module_type || '')
+      .trim()
+      .toLowerCase();
+    if (!modules.MODULE_TYPES.includes(moduleType)) {
+      throw Object.assign(new Error(`Unknown module type: ${moduleType}`), { code: 'INVALID' });
+    }
+    if ((modules.MODULE_META[moduleType] || {}).sitewide) {
+      throw Object.assign(
+        new Error('That module is a sitewide overlay — it is managed from the Modules tab, not placed as a section.'),
+        { code: 'INVALID' }
+      );
+    }
+    return domain.withDb(workspaceId, (db) => {
+      const site = resolveClientSite(db, leadId);
+      if (!site) throw Object.assign(new Error('No website is available yet'), { code: 'NO_SITE' });
+      const mod = ensureModuleTokenForInsert(db, workspaceId, leadId, moduleType);
+      const shell = [
+        {
+          slug: '/',
+          title: 'Shell',
+          sections: [
+            { type: 'nav', content: {} },
+            { type: 'footer', content: {} },
+          ],
+        },
+      ];
+      const result = structure.insertModuleSection(shell, 0, 0, {
+        module_type: moduleType,
+        public_token: mod.token,
+        api_base: mod.apiBase,
+        title: mod.title,
+      });
+      if (!result.changed) {
+        throw Object.assign(new Error('Cannot build that module section'), { code: 'INVALID' });
+      }
+      return { section: result.pages[0].sections[result.sectionIndex] };
+    });
+  }
+  throw Object.assign(new Error('kind must be content or module'), { code: 'INVALID' });
+}
+
+/**
+ * Save the editor's section list for ONE page through the platform's
+ * real update path. The submitted list is re-validated server-side
+ * (structural law, embed-token ownership, duplicate fences, knob
+ * floors) — the client is never trusted. Module semantics:
+ *   - a module section references its singleton embed; saving never
+ *     writes module settings or content rows;
+ *   - when a module's LAST mount leaves the site, its embed is
+ *     unpublished (detachModule's flags: published=0, embed_enabled=0)
+ *     BEFORE the save, so the module sync cannot resurrect the mount;
+ *     the module's data is preserved and it can be re-enabled from
+ *     the Modules tab at any time.
+ */
+function applyClientLayoutSave(workspaceId, leadId, body = {}) {
+  const domain = require('./domain');
+  const structure = require('../src/siteStructure');
+  const modules = require('./siteModules');
+  const slug = body.slug != null ? String(body.slug) : '';
+  const sections = body.sections;
+  if (!Array.isArray(sections)) {
+    throw Object.assign(new Error('sections must be a list'), { code: 'INVALID' });
+  }
+  if (sections.length > 150) {
+    throw Object.assign(new Error('Too many sections in one page'), { code: 'INVALID' });
+  }
+  if (Buffer.byteLength(JSON.stringify(sections), 'utf8') > 4_000_000) {
+    throw Object.assign(new Error('Section list is too large'), { code: 'INVALID' });
+  }
+  const problems = structure.validateEditorSections(sections);
+  if (problems.length) {
+    throw Object.assign(new Error(problems[0].message), { code: 'INVALID_STRUCTURE', problems });
+  }
+
+  const prepared = domain.withDb(workspaceId, (db) => {
+    const site = resolveClientSite(db, leadId);
+    if (!site || !Array.isArray(site.pages) || !site.pages.length) {
+      throw Object.assign(new Error('No website is available yet'), { code: 'NO_SITE' });
+    }
+    const pageIndex = site.pages.findIndex((p) => String(p && p.slug) === slug);
+    if (pageIndex < 0) {
+      throw Object.assign(new Error('Page not found'), { code: 'NOT_FOUND' });
+    }
+    const storedPage = site.pages[pageIndex];
+    if (!storedPage || !Array.isArray(storedPage.sections)) {
+      throw Object.assign(
+        new Error('This page is freeform HTML — the layout editor applies to section-based pages.'),
+        { code: 'FREEFORM_PAGE' }
+      );
+    }
+    const { embeds, byToken } = layoutEmbedsByToken(db, leadId);
+    const ownTokens = new Set(byToken.keys());
+    // Token ownership + duplicate fences + knob floors, per section.
+    const fenceCounts = {};
+    sections.forEach((section, i) => {
+      const moduleType = layoutModuleTypeForSection(section, byToken);
+      for (const token of layoutTokensInSection(section)) {
+        if (!ownTokens.has(token)) {
+          throw Object.assign(new Error(`Section ${i + 1} references a module embed that is not this site's.`), {
+            code: 'INVALID_TOKEN',
+          });
+        }
+      }
+      if (section.type === 'site_module') {
+        const declared = String(
+          (section.content && (section.content.module_type || section.content.moduleType)) || ''
+        ).toLowerCase();
+        if (!modules.MODULE_TYPES.includes(declared)) {
+          throw Object.assign(new Error(`Section ${i + 1} names an unknown module type.`), { code: 'INVALID' });
+        }
+        const token = section.content && section.content.public_token;
+        const row = token ? byToken.get(token) : null;
+        if (!row || String(row.module_type).toLowerCase() !== declared) {
+          throw Object.assign(new Error(`Section ${i + 1} does not match its module embed.`), {
+            code: 'INVALID_TOKEN',
+          });
+        }
+      }
+      if (moduleType && structure.LAYOUT_DUPLICATE_FENCE[moduleType]) {
+        fenceCounts[moduleType] = (fenceCounts[moduleType] || 0) + 1;
+        if (fenceCounts[moduleType] > 1) {
+          throw Object.assign(new Error(structure.LAYOUT_DUPLICATE_FENCE[moduleType]), {
+            code: 'FENCED_DUPLICATE',
+          });
+        }
+      }
+      // Knob floors are re-checked server-side (never trust the client).
+      const bg = section.content && section.content.backgroundColor;
+      if (bg != null && String(bg).trim() && !/^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.test(String(bg).trim())) {
+        throw Object.assign(new Error(`Section ${i + 1} has an invalid background colour.`), {
+          code: 'INVALID_COLOR',
+        });
+      }
+      for (const [prop, value] of structure.parseStyleDecls(
+        typeof section.style === 'string' ? section.style : ''
+      )) {
+        if (prop !== 'padding-top' && prop !== 'padding-bottom') continue;
+        const m = /^(\d+(?:\.\d+)?)px$/.exec(value);
+        if (m && Number(m[1]) < structure.layoutPaddingFloorPx()) {
+          throw Object.assign(
+            new Error(
+              `Section ${i + 1} padding (${value}) is under the ${structure.layoutPaddingFloorPx()}px spacing floor.`
+            ),
+            { code: 'PADDING_BELOW_FLOOR' }
+          );
+        }
+      }
+    });
+
+    const pages = JSON.parse(JSON.stringify(site.pages));
+    const nextPage = Object.assign({}, pages[pageIndex], { sections: JSON.parse(JSON.stringify(sections)) });
+    if (typeof nextPage.html === 'string') delete nextPage.html;
+    pages[pageIndex] = nextPage;
+
+    // Module mounts that left the site entirely: unpublish the embed
+    // BEFORE sitesSave runs its module sync, so the sync cannot
+    // resurrect a mount the owner deliberately removed. Data rows are
+    // never touched (mirrors detachModule's flags).
+    const beforeTokens = layoutTokensInPages(site.pages);
+    const afterTokens = layoutTokensInPages(pages);
+    const unpublish = [];
+    for (const row of embeds) {
+      if (!row || !row.public_token) continue;
+      if (!beforeTokens.has(row.public_token) || afterTokens.has(row.public_token)) continue;
+      if (!Number(row.published) && !(row.embed_enabled == null || Number(row.embed_enabled) !== 0)) continue;
+      unpublish.push(row);
+    }
+    for (const row of unpublish) {
+      db.prepare(
+        "UPDATE site_module_embeds SET published = 0, embed_enabled = 0, updated_at = datetime('now') WHERE id = ?"
+      ).run(row.id);
+    }
+    return {
+      siteId: site.id,
+      pages,
+      theme: site.theme && typeof site.theme === 'object' ? site.theme : {},
+      previewFallback: resolvePreviewUrl(site),
+      unpublished: unpublish.map((r) => String(r.module_type)),
+    };
+  });
+
+  const saved = domain.sitesSave(workspaceId, prepared.siteId, {
+    pages: prepared.pages,
+    theme: prepared.theme,
+    note: 'Client portal: layout editor',
+  });
+  syncDesignDeliverablePages(workspaceId, leadId, prepared.siteId, prepared.pages, prepared.theme);
+  const previewRow = domain.withDb(workspaceId, (db) =>
+    db.prepare(`SELECT preview_url, preview_path FROM websites WHERE id = ?`).get(prepared.siteId)
+  );
+  const summary = structure.summarizeStructure(prepared.pages);
+  return {
+    siteId: prepared.siteId,
+    version: saved.version,
+    previewUrl: resolvePreviewUrl(previewRow) || prepared.previewFallback,
+    menu: summary.menu,
+    pages: summary.pages,
+    unpublishedModules: prepared.unpublished,
+  };
+}
+
 module.exports = {
   uploadSiteChatImage,
   fetchSiteChatImage,
@@ -1710,4 +2066,8 @@ module.exports = {
   prepareCanvasBlock,
   getClientSiteStructure,
   applyClientStructureReorder,
+  // Batch 147 — native section (layout) editor.
+  getClientLayoutEditor,
+  buildClientLayoutSection,
+  applyClientLayoutSave,
 };

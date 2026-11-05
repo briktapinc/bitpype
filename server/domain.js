@@ -3383,6 +3383,8 @@ function sitesRenderHtml(workspaceId, id, args = {}) {
     const engine = websiteEngine();
     const opts = {
       editable: !!args.editable,
+      // Batch 147: layout-editor canvas renders (portal only).
+      layoutEditor: !!args.layoutEditor,
       preview: true,
       pageSlug: args.pageSlug,
       pageIndex: Number.isInteger(args.pageIndex)

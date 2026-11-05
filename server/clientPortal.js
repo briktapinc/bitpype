@@ -184,4 +184,8 @@ module.exports = {
   getClientSiteStructure: portalSiteChat.getClientSiteStructure,
   applyClientStructureReorder: portalSiteChat.applyClientStructureReorder,
   prepareCanvasBlock: portalSiteChat.prepareCanvasBlock,
+  // Batch 147 — native section (layout) editor.
+  getClientLayoutEditor: portalSiteChat.getClientLayoutEditor,
+  buildClientLayoutSection: portalSiteChat.buildClientLayoutSection,
+  applyClientLayoutSave: portalSiteChat.applyClientLayoutSave,
 };

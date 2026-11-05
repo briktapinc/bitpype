@@ -1070,6 +1070,102 @@ router.post('/site/structure', requireClient, editLimit, async (req, res) => {
 });
 
 /**
+ * Batch 147 — native section (layout) editor.
+ * GET: the page's section model + descriptors + ADD palette.
+ */
+router.get('/site/layout', requireClient, async (req, res) => {
+  try {
+    const data = portal.getClientLayoutEditor(
+      req.client.workspace_id,
+      req.client.lead_id,
+      req.query && req.query.slug
+    );
+    ok(res, data);
+  } catch (e) {
+    fail(res, e, e.code === 'NO_SITE' ? 400 : 500);
+  }
+});
+
+/** Build one ADD-palette section (content default or module mount). */
+router.post('/site/layout/section', requireClient, editLimit, async (req, res) => {
+  try {
+    if (
+      Number(req.session.clientLeadId) !== Number(req.client.lead_id) ||
+      Number(req.session.clientWorkspaceId) !== Number(req.client.workspace_id)
+    ) {
+      return res.status(403).json({ ok: false, error: 'FORBIDDEN', code: 'FORBIDDEN' });
+    }
+    const data = portal.buildClientLayoutSection(req.client.workspace_id, req.client.lead_id, req.body || {});
+    ok(res, data);
+  } catch (e) {
+    fail(res, e, e.code === 'INVALID' || e.code === 'NO_SITE' ? 400 : 500);
+  }
+});
+
+/**
+ * Render the editor canvas for an UNSAVED section list (the portal
+ * re-renders after every model op; nothing is persisted here).
+ * Body: { slug, sections }
+ */
+router.post('/site/layout/render', requireClient, editLimit, async (req, res) => {
+  try {
+    if (
+      Number(req.session.clientLeadId) !== Number(req.client.lead_id) ||
+      Number(req.session.clientWorkspaceId) !== Number(req.client.workspace_id)
+    ) {
+      return res.status(403).json({ ok: false, error: 'FORBIDDEN', code: 'FORBIDDEN' });
+    }
+    const body = req.body || {};
+    const data = portal.renderClientSite(req.client.workspace_id, req.client.lead_id, {
+      editable: false,
+      layoutEditor: true,
+      layoutSections: Array.isArray(body.sections) ? body.sections : undefined,
+      pageSlug: body.slug != null ? String(body.slug) : undefined,
+    });
+    ok(res, { html: data.html, previewUrl: data.previewUrl });
+  } catch (e) {
+    fail(res, e, e.code === 'NO_SITE' || e.code === 'NOT_FOUND' ? 400 : 500);
+  }
+});
+
+/**
+ * Save the editor's section list for one page through the platform's
+ * real update path (validation + QA + version snapshot + staged
+ * preview refresh all happen inside domain.sitesSave).
+ * Body: { slug, sections }
+ */
+router.post('/site/layout', requireClient, editLimit, async (req, res) => {
+  try {
+    if (
+      Number(req.session.clientLeadId) !== Number(req.client.lead_id) ||
+      Number(req.session.clientWorkspaceId) !== Number(req.client.workspace_id)
+    ) {
+      return res.status(403).json({ ok: false, error: 'FORBIDDEN', code: 'FORBIDDEN' });
+    }
+    const data = portal.applyClientLayoutSave(req.client.workspace_id, req.client.lead_id, req.body || {});
+    ok(res, data);
+  } catch (e) {
+    const code = e && e.code;
+    fail(
+      res,
+      e,
+      code === 'INVALID' ||
+        code === 'INVALID_STRUCTURE' ||
+        code === 'INVALID_TOKEN' ||
+        code === 'INVALID_COLOR' ||
+        code === 'PADDING_BELOW_FLOOR' ||
+        code === 'FENCED_DUPLICATE' ||
+        code === 'FREEFORM_PAGE' ||
+        code === 'NO_SITE'
+        ? 400
+        : code === 'NOT_FOUND'
+          ? 404
+          : 500
+    );
+  }
+});
+
+/**
  * Canvas pick: return HTML for a design module or widget to insert in edit mode.
  * Does not rewrite page placement (widgets stay inside design modules).
  * Body: { kind: 'layout'|'module'|'form', type?, cols?, formId? }
