@@ -381,8 +381,8 @@ if (NEGATIVE) {
     check('SEC-13 census unchanged by Batch 106 (totals + baseline)', () => {
       const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
       const cz = census();
-      assert.equal(cz.summary.total, 441, 'sink census total pinned');
-      assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 330, 'safe classes pinned (Batch 136 finisher: +2 audited STATIC sinks in module-embed.js — the booking price-summary clear + esc()-wrapped build; 328 -> 330, census 439 -> 441, RAW/IDENT unchanged)');
+      assert.equal(cz.summary.total, 442, 'sink census total pinned');
+      assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 331, 'safe classes pinned (Batch 136 finisher: +2 audited STATIC sinks in module-embed.js — the booking price-summary clear + esc()-wrapped build; 328 -> 330, census 439 -> 441, RAW/IDENT unchanged; Batch 137 finisher: +1 audited SAFE sink in portal.js (qualifying-question rows render — numeric indices + esc()-wrapped question text), census 441 -> 442, SAFE 73 -> 74, reviewed RAW/IDENT content unchanged (12 portal.js positions shifted +127, pure line movement, snippet-verified))');
       const reviewed = new Set(
         cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`)
       );

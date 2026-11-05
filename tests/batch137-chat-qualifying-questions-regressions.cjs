@@ -105,42 +105,93 @@ function addMsg(sessionId, leadId, role, body) {
   {
     let n = 0;
     // Config rides the EXISTING settings store (settings_json extras).
-    assert.ok(chatSrc.includes('qualifying_enabled: extra.qualifying_enabled'), 'settings read: qualifying switch from settings_json extras');
-    assert.ok(chatSrc.includes('normalizeQualifyingQuestions(data.qualifying_questions)'), 'settings write: questions validated on save');
-    assert.ok(chatSrc.includes('qualifying_questions: next.qualifying_questions'), 'settings write: questions persist into the same extras object');
+    assert.ok(
+      chatSrc.includes('qualifying_enabled: extra.qualifying_enabled'),
+      'settings read: qualifying switch from settings_json extras'
+    );
+    assert.ok(
+      chatSrc.includes('normalizeQualifyingQuestions(data.qualifying_questions)'),
+      'settings write: questions validated on save'
+    );
+    assert.ok(
+      chatSrc.includes('qualifying_questions: next.qualifying_questions'),
+      'settings write: questions persist into the same extras object'
+    );
     assert.ok(!/CREATE TABLE[^;]*qualifying/i.test(chatSrc), 'no new config table — no parallel settings system');
     n += 4;
 
     // Prompt injection is a conditional spread (off = prompt unchanged).
-    assert.ok(chatSrc.includes('...qualifyingPromptLines(snapshot.qualification)'), 'fallback prompt gains the block via conditional spread only');
-    const blockBody = chatSrc.slice(chatSrc.indexOf('function qualifyingPromptLines'), chatSrc.indexOf('function getSessionByToken'));
+    assert.ok(
+      chatSrc.includes('...qualifyingPromptLines(snapshot.qualification)'),
+      'fallback prompt gains the block via conditional spread only'
+    );
+    const blockBody = chatSrc.slice(
+      chatSrc.indexOf('function qualifyingPromptLines'),
+      chatSrc.indexOf('function getSessionByToken')
+    );
     assert.ok(blockBody.includes('EXACTLY as written, word for word'), 'prompt: owner questions are verbatim-only');
-    assert.ok(blockBody.includes('never invent, add, or rephrase screening questions'), 'prompt: the model never invents screening questions');
-    assert.ok(blockBody.includes('never block help, information, lead capture, or booking'), 'prompt: nothing is gated on an answer');
-    assert.ok(blockBody.includes('there is no pass or fail'), 'prompt: no pass/fail framing exists to leak visitor-side');
+    assert.ok(
+      blockBody.includes('never invent, add, or rephrase screening questions'),
+      'prompt: the model never invents screening questions'
+    );
+    assert.ok(
+      blockBody.includes('never block help, information, lead capture, or booking'),
+      'prompt: nothing is gated on an answer'
+    );
+    assert.ok(
+      blockBody.includes('there is no pass or fail'),
+      'prompt: no pass/fail framing exists to leak visitor-side'
+    );
     n += 5;
 
     // Recording layer never touches booking/capture gating.
-    const recBody = chatSrc.slice(chatSrc.indexOf('function recordQualificationUpdates'), chatSrc.indexOf('const QUALIFYING_STATUS_LABELS'));
-    assert.ok(!/booking|capture|visitorStatedNeed/i.test(recBody), 'the recording layer inspects no booking/capture state');
-    assert.ok(chatSrc.includes('const MIN_VISITOR_TURNS_BEFORE_CAPTURE = 2'), 'existing capture gating constant untouched');
+    const recBody = chatSrc.slice(
+      chatSrc.indexOf('function recordQualificationUpdates'),
+      chatSrc.indexOf('const QUALIFYING_STATUS_LABELS')
+    );
+    assert.ok(
+      !/booking|capture|visitorStatedNeed/i.test(recBody),
+      'the recording layer inspects no booking/capture state'
+    );
+    assert.ok(
+      chatSrc.includes('const MIN_VISITOR_TURNS_BEFORE_CAPTURE = 2'),
+      'existing capture gating constant untouched'
+    );
     n += 2;
 
     // Public config privacy: the owner's screening questions are
     // agent-side context, never public-token payload.
-    const pubBody = chatSrc.slice(chatSrc.indexOf('function getPublicConfigByToken'), chatSrc.indexOf('function listAllowedActions'));
+    const pubBody = chatSrc.slice(
+      chatSrc.indexOf('function getPublicConfigByToken'),
+      chatSrc.indexOf('function listAllowedActions')
+    );
     assert.ok(!pubBody.includes('qualifying'), 'getPublicConfigByToken carries no qualifying content');
     n++;
 
     const shareSrc = read('server/moduleShare.js');
-    assert.ok(shareSrc.includes("chatbot: {\n    kind: 'none',"), 'chatbot stays an explicit NON-provider (registry parity untouched)');
+    assert.ok(
+      shareSrc.includes("chatbot: {\n    kind: 'none',"),
+      'chatbot stays an explicit NON-provider (registry parity untouched)'
+    );
     const mcpSrc = read('server/clientMcp.js');
-    assert.ok(mcpSrc.includes('qualification: a.qualification'), 'client MCP chatbot.reply forwards qualification reports');
-    assert.ok(mcpSrc.includes('chat.qualifyingFor(db, leadId)'), 'client MCP chatbot.getSession carries the qualifying config');
+    assert.ok(
+      mcpSrc.includes('qualification: a.qualification'),
+      'client MCP chatbot.reply forwards qualification reports'
+    );
+    assert.ok(
+      mcpSrc.includes('chat.qualifyingFor(db, leadId)'),
+      'client MCP chatbot.getSession carries the qualifying config'
+    );
     const portalSrc = read('public/js/portal.js');
     assert.ok(portalSrc.includes('id="chat-set-qualifying-enabled"'), 'portal settings pane carries the on/off switch');
-    assert.ok(portalSrc.includes('id="chat-qualifying-rows"') && portalSrc.includes('id="btn-chat-qualifying-add"'), 'portal settings pane carries the question list editor');
-    assert.ok(portalSrc.includes('qualBlockHtml') && portalSrc.includes('qualification_sessions'), 'portal inbox renders Q&A blocks + the qualifying-answers list');
+    assert.ok(
+      portalSrc.includes('id="chat-qualifying-rows"') && portalSrc.includes('id="btn-chat-qualifying-add"'),
+      'portal settings pane carries the question list editor'
+    );
+    assert.ok(
+      portalSrc.includes('qualBlockHtml') && portalSrc.includes('qualification_sessions'),
+      'portal inbox renders Q&A blocks + the qualifying-answers list'
+    );
     n += 6;
     group('Part 1 source pins', n);
   }
@@ -190,7 +241,11 @@ function addMsg(sessionId, leadId, role, body) {
 
     // Questions saved while OFF persist but publish nothing.
     chat.saveSettings(db, LEAD_ON, { qualifying_questions: QUESTIONS });
-    assert.deepEqual(chat.getSettings(db, LEAD_ON).qualifying_questions, QUESTIONS, 'questions persist byte-for-byte, in owner order');
+    assert.deepEqual(
+      chat.getSettings(db, LEAD_ON).qualifying_questions,
+      QUESTIONS,
+      'questions persist byte-for-byte, in owner order'
+    );
     assert.equal(chat.qualifyingFor(db, LEAD_ON), null, 'switch OFF: context stays empty even with questions saved');
     n += 2;
 
@@ -208,7 +263,11 @@ function addMsg(sessionId, leadId, role, body) {
 
     // Edit + delete from the list.
     chat.saveSettings(db, LEAD_ON, { qualifying_questions: [Q1, 'Edited question — what town is the property in?'] });
-    assert.deepEqual(chat.qualifyingFor(db, LEAD_ON).questions, [Q1, 'Edited question — what town is the property in?'], 'edit + delete persist');
+    assert.deepEqual(
+      chat.qualifyingFor(db, LEAD_ON).questions,
+      [Q1, 'Edited question — what town is the property in?'],
+      'edit + delete persist'
+    );
     chat.saveSettings(db, LEAD_ON, { qualifying_questions: QUESTIONS });
     n++;
 
@@ -233,19 +292,47 @@ function addMsg(sessionId, leadId, role, body) {
     n += 2;
 
     // Validation refuses — never clamps or silently rewrites.
-    assert.throws(() => chat.saveSettings(db, LEAD_ON, { qualifying_questions: [...QUESTIONS, 'a', 'b', 'c', 'd'] }), /At most 6/, 'a 7th question is refused');
-    assert.throws(() => chat.saveSettings(db, LEAD_ON, { qualifying_questions: ['y'.repeat(201)] }), /over 200 characters/, 'a 201-char question is refused');
-    assert.throws(() => chat.saveSettings(db, LEAD_ON, { qualifying_questions: ['Real?', '   '] }), /blank/, 'a blank question is refused');
-    assert.throws(() => chat.saveSettings(db, LEAD_ON, { qualifying_questions: 'not a list' }), /must be a list/, 'a non-list is refused');
-    assert.throws(() => chat.saveSettings(db, LEAD_ON, { qualifying_questions: [42] }), /plain text/, 'a non-string question is refused');
-    assert.deepEqual(chat.qualifyingFor(db, LEAD_ON).questions, QUESTIONS, 'refused saves leave the stored list untouched');
+    assert.throws(
+      () => chat.saveSettings(db, LEAD_ON, { qualifying_questions: [...QUESTIONS, 'a', 'b', 'c', 'd'] }),
+      /At most 6/,
+      'a 7th question is refused'
+    );
+    assert.throws(
+      () => chat.saveSettings(db, LEAD_ON, { qualifying_questions: ['y'.repeat(201)] }),
+      /over 200 characters/,
+      'a 201-char question is refused'
+    );
+    assert.throws(
+      () => chat.saveSettings(db, LEAD_ON, { qualifying_questions: ['Real?', '   '] }),
+      /blank/,
+      'a blank question is refused'
+    );
+    assert.throws(
+      () => chat.saveSettings(db, LEAD_ON, { qualifying_questions: 'not a list' }),
+      /must be a list/,
+      'a non-list is refused'
+    );
+    assert.throws(
+      () => chat.saveSettings(db, LEAD_ON, { qualifying_questions: [42] }),
+      /plain text/,
+      'a non-string question is refused'
+    );
+    assert.deepEqual(
+      chat.qualifyingFor(db, LEAD_ON).questions,
+      QUESTIONS,
+      'refused saves leave the stored list untouched'
+    );
     n += 6;
 
     // ON + empty list = behaves exactly as OFF.
     chat.saveSettings(db, LEAD_OFF, { qualifying_enabled: true, qualifying_questions: [] });
     assert.equal(chat.getSettings(db, LEAD_OFF).qualifying_enabled, true, 'the switch itself saves');
     assert.equal(chat.qualifyingFor(db, LEAD_OFF), null, 'ON + empty list: no context (behaves as off)');
-    assert.equal(chat.qualifyingFromSettings(chat.getSettings(db, LEAD_OFF)).active, false, 'effective config: inactive');
+    assert.equal(
+      chat.qualifyingFromSettings(chat.getSettings(db, LEAD_OFF)).active,
+      false,
+      'effective config: inactive'
+    );
     n += 3;
     group('Part 2 config CRUD + validation', n);
   }
@@ -259,12 +346,19 @@ function addMsg(sessionId, leadId, role, body) {
     const sess = makeSession(LEAD_ON);
     addMsg(sess.id, LEAD_ON, 'visitor', 'Hi, my sink is leaking');
     const pending = chat.listPendingSessions(db, LEAD_ON);
-    assert.deepEqual(pending.qualifying, { questions: QUESTIONS }, 'pending context carries the owner questions byte-equal');
+    assert.deepEqual(
+      pending.qualifying,
+      { questions: QUESTIONS },
+      'pending context carries the owner questions byte-equal'
+    );
     assert.ok(pending.hint.includes('Qualifying questions are ON'), 'pending hint carries the weaving instruction');
     const sOn = pending.sessions.find((s) => s.id === sess.id);
     assert.ok(sOn && sOn.qualification, 'first context build snapshots a record onto the session');
     assert.deepEqual(sOn.qualification.questions, QUESTIONS, 'record snapshot = owner list at first build');
-    assert.ok(sOn.qualification.items.every((it) => it.status === 'pending' && it.answer === null), 'record starts all-pending');
+    assert.ok(
+      sOn.qualification.items.every((it) => it.status === 'pending' && it.answer === null),
+      'record starts all-pending'
+    );
     n += 5;
 
     // claimNext passes the same context through.
@@ -300,7 +394,10 @@ function addMsg(sessionId, leadId, role, body) {
     const i2 = lines.findIndex((l) => l.includes(`"${Q2}"`));
     const i3 = lines.findIndex((l) => l.includes(`"${Q3}"`));
     assert.ok(i1 >= 0 && i2 > i1 && i3 > i2, 'prompt block lists the questions byte-equal, in owner order');
-    assert.ok(lines.some((l) => l.includes('ONE at a time')), 'prompt carries the one-at-a-time weaving rule');
+    assert.ok(
+      lines.some((l) => l.includes('ONE at a time')),
+      'prompt carries the one-at-a-time weaving rule'
+    );
     n += 3;
     group('Part 3 context injection matrix', n);
   }
@@ -397,17 +494,32 @@ function addMsg(sessionId, leadId, role, body) {
     chat.saveSettings(db, LEAD_AGENT, { qualifying_enabled: true, qualifying_questions: QUESTIONS });
     const aSess = makeSession(LEAD_AGENT);
     addMsg(aSess.id, LEAD_AGENT, 'visitor', 'Do you service rentals?');
-    const rep1 = chat.agentReply(db, LEAD_AGENT, aSess.id, 'We do! Quick question — is this for your home or a rental property?', null, {
-      qualification: [{ index: 0, status: 'asked' }],
-    });
+    const rep1 = chat.agentReply(
+      db,
+      LEAD_AGENT,
+      aSess.id,
+      'We do! Quick question — is this for your home or a rental property?',
+      null,
+      {
+        qualification: [{ index: 0, status: 'asked' }],
+      }
+    );
     assert.equal(rep1.qualification_applied, 1, 'reply reports the asked state');
     addMsg(aSess.id, LEAD_AGENT, 'visitor', 'A rental property');
     const rep2 = chat.agentReply(db, LEAD_AGENT, aSess.id, 'Great, thanks.', null, {
       qualification: [{ index: 0, status: 'answered', answer: 'A rental property' }],
     });
     assert.equal(rep2.qualification_applied, 1);
-    assert.equal(rep2.session.qualification.items[0].answer, 'A rental property', 'the reply return carries the fresh record');
-    assert.equal(chat.getSessionQualification(db, aSess.id).items[0].status, 'answered', 'the answer is stored on the session');
+    assert.equal(
+      rep2.session.qualification.items[0].answer,
+      'A rental property',
+      'the reply return carries the fresh record'
+    );
+    assert.equal(
+      chat.getSessionQualification(db, aSess.id).items[0].status,
+      'answered',
+      'the answer is stored on the session'
+    );
     n += 4;
 
     // The fallback's JSON parser carries reports through untouched
@@ -417,7 +529,11 @@ function addMsg(sessionId, leadId, role, body) {
       { businessName: 'B137', allowCapture: false }
     );
     assert.equal(parsed.action, 'chat');
-    assert.deepEqual(parsed.qualification, [{ index: 0, status: 'asked' }], 'qualification array rides the parsed response');
+    assert.deepEqual(
+      parsed.qualification,
+      [{ index: 0, status: 'asked' }],
+      'qualification array rides the parsed response'
+    );
     const plain = chat.parseAiFallbackResponse(JSON.stringify({ action: 'chat', reply: 'Sure!' }), {
       businessName: 'B137',
       allowCapture: false,
@@ -447,7 +563,10 @@ function addMsg(sessionId, leadId, role, body) {
     const hRes = await chat.runAiFallbackReply(WS_ID, LEAD_ON, hSess.id);
     assert.equal(hRes.via, 'heuristic', 'unconfigured AI takes the heuristic path');
     const hRec = chat.getSessionQualification(db, hSess.id);
-    assert.ok(hRec && hRec.items.every((it) => it.status === 'pending'), 'heuristic path: record snapshotted, nothing invented');
+    assert.ok(
+      hRec && hRec.items.every((it) => it.status === 'pending'),
+      'heuristic path: record snapshotted, nothing invented'
+    );
     n += 2;
 
     // 5b — AI path: the prompt carries the owner's questions
@@ -480,7 +599,7 @@ function addMsg(sessionId, leadId, role, body) {
     // Turn 2: the prompt shows Q1 as asked; the visitor's answer
     // (and the volunteered timing for Q2) get recorded.
     addMsg(sess.id, LEAD_ON, 'visitor', 'It is for my home — and I really need it done this week');
-    db.prepare("UPDATE chatbot_sessions SET needs_agent = 1 WHERE id = ?").run(sess.id);
+    db.prepare('UPDATE chatbot_sessions SET needs_agent = 1 WHERE id = ?').run(sess.id);
     nextReply = JSON.stringify({
       action: 'chat',
       reply: 'Perfect, thank you — this week it is.',
@@ -509,7 +628,10 @@ function addMsg(sessionId, leadId, role, body) {
     assert.equal(r3.qualification, undefined, 'OFF: no qualification bookkeeping on the reply');
     const promptOff = prompts[2].messages[0].content;
     assert.ok(!promptOff.includes('Qualifying questions'), 'OFF: prompt has no qualifying block');
-    assert.ok(promptOff.includes('{"action":"chat"|"answer"|"capture","reply":"..."}'), 'OFF: original JSON contract intact');
+    assert.ok(
+      promptOff.includes('{"action":"chat"|"answer"|"capture","reply":"..."}'),
+      'OFF: original JSON contract intact'
+    );
     assert.equal(chat.getSessionQualification(db, offSess.id), null, 'OFF: no record created by the fallback');
     n += 5;
 
@@ -526,9 +648,15 @@ function addMsg(sessionId, leadId, role, body) {
     const r4 = await chat.runAiFallbackReply(WS_ID, LEAD_ON, cSess.id);
     assert.equal(r4.action, 'capture', 'capture proceeds with zero questions answered');
     const cMsgs = chat.listMessages(db, cSess.id, { limit: 20 });
-    assert.ok(cMsgs.some((m) => m.role === 'system' && m.meta && m.meta.open_lead_form), 'the lead form opened as before');
+    assert.ok(
+      cMsgs.some((m) => m.role === 'system' && m.meta && m.meta.open_lead_form),
+      'the lead form opened as before'
+    );
     const cRec = chat.getSessionQualification(db, cSess.id);
-    assert.ok(cRec && cRec.items.every((it) => it.status === 'pending'), 'record exists, all pending — nothing blocked on it');
+    assert.ok(
+      cRec && cRec.items.every((it) => it.status === 'pending'),
+      'record exists, all pending — nothing blocked on it'
+    );
     n += 3;
 
     ai.chat = realChat;
@@ -562,15 +690,23 @@ function addMsg(sessionId, leadId, role, body) {
     assert.ok(cap.lead && cap.lead.id > 0, 'the capture itself works as before');
     assert.equal(cap.lead.qualification, undefined, 'the visitor-facing capture response shape is unchanged');
     assert.ok(cap._notify.qualification_summary.includes(Q1), 'owner notify summary names the question');
-    assert.ok(cap._notify.qualification_summary.includes('A rental property'), 'owner notify summary carries the answer');
+    assert.ok(
+      cap._notify.qualification_summary.includes('A rental property'),
+      'owner notify summary carries the answer'
+    );
     assert.equal(cap._notify.qualification.items[0].status, 'answered', 'the record rides the notify payload');
     n += 5;
 
     const leadRow = db.prepare('SELECT qualification_json FROM chatbot_leads WHERE id = ?').get(cap.lead.id);
     const stored = chat.parseQualificationRecord(leadRow.qualification_json);
-    assert.ok(stored && stored.items[0].answer === 'A rental property', 'the record snapshot is stored on the chatbot_leads row');
+    assert.ok(
+      stored && stored.items[0].answer === 'A rental property',
+      'the record snapshot is stored on the chatbot_leads row'
+    );
     const escRow = db
-      .prepare("SELECT message FROM chatbot_escalations WHERE lead_id = ? AND reason = 'lead_capture' ORDER BY id DESC LIMIT 1")
+      .prepare(
+        "SELECT message FROM chatbot_escalations WHERE lead_id = ? AND reason = 'lead_capture' ORDER BY id DESC LIMIT 1"
+      )
       .get(LEAD_CAPTURE);
     assert.ok(escRow.message.includes('Qualifying questions:'), 'the lead-capture escalation text carries the summary');
     assert.ok(escRow.message.includes(Q2), 'the escalation summary lists unanswered questions too');
@@ -596,8 +732,14 @@ function addMsg(sessionId, leadId, role, body) {
     // owner looks — escalations, leads, and the session list.
     const summary = chat.portalChatbotSummary(db, LEAD_CAPTURE);
     const unsure = summary.escalations.find((e) => e.reason === 'unsure');
-    assert.ok(unsure && unsure.qualification && unsure.qualification.items[0].answer === 'A rental property', 'summary: escalation rows carry their session record');
-    assert.ok(summary.qualification_sessions.some((s) => s.id === sess.id), 'summary: the session appears in the qualifying-answers list');
+    assert.ok(
+      unsure && unsure.qualification && unsure.qualification.items[0].answer === 'A rental property',
+      'summary: escalation rows carry their session record'
+    );
+    assert.ok(
+      summary.qualification_sessions.some((s) => s.id === sess.id),
+      'summary: the session appears in the qualifying-answers list'
+    );
     assert.ok(summary.leads[0].qualification, 'summary: lead rows carry the capture snapshot');
     assert.equal(summary.settings.qualifying_enabled, true, 'summary: settings carry the feature state for the pane');
     n += 4;
@@ -634,7 +776,11 @@ function addMsg(sessionId, leadId, role, body) {
 
       chat.saveSettings(db, LEAD_ON, { qualifying_enabled: false });
       const offCtx = chat.listPendingSessions(db, LEAD_ON);
-      assert.equal(offCtx.booking_pitch.pitch_text, pitch.pitch_text, 'qualifying OFF: the pitch is unchanged — never conditioned on qualification');
+      assert.equal(
+        offCtx.booking_pitch.pitch_text,
+        pitch.pitch_text,
+        'qualifying OFF: the pitch is unchanged — never conditioned on qualification'
+      );
       assert.equal(offCtx.qualifying, null, 'qualifying OFF: only the qualifying block goes away');
       chat.saveSettings(db, LEAD_ON, { qualifying_enabled: true });
       n += 5;
@@ -658,7 +804,10 @@ function addMsg(sessionId, leadId, role, body) {
       const prompt = prompts[0].messages[0].content;
       const iPitch = prompt.indexOf('Online booking (always true on this site)');
       const iQual = prompt.indexOf('Qualifying questions from the business owner');
-      assert.ok(iPitch >= 0 && iQual > iPitch, 'prompt: booking pitch block precedes the qualifying block; both present');
+      assert.ok(
+        iPitch >= 0 && iQual > iPitch,
+        'prompt: booking pitch block precedes the qualifying block; both present'
+      );
       n++;
       group('Part 7 post-rebase 136 seam', n);
     }

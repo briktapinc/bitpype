@@ -233,8 +233,8 @@ async function waitReady(child, output) {
     const cz = census();
     assert.equal(
       cz.summary.total,
-      441,
-      'SEC-13 census total — the Batch 130 fix added no sinks; Batch 126 finisher added +4 audited QR sinks; Batch 127 finisher added +5 audited variant-editor sinks; Batch 128 finisher added +13 safe-class checkout sinks (reviewed set unchanged); Batch 129 finisher added +3 audited STATIC pay-at-booking sinks (reviewed set unchanged)'
+      442,
+      'SEC-13 census total — the Batch 130 fix added no sinks; Batch 126 finisher added +4 audited QR sinks; Batch 127 finisher added +5 audited variant-editor sinks; Batch 128 finisher added +13 safe-class checkout sinks (reviewed set unchanged); Batch 129 finisher added +3 audited STATIC pay-at-booking sinks (reviewed set unchanged; Batch 137 finisher +1 audited SAFE sink in portal.js — census 441 -> 442, reviewed RAW/IDENT content unchanged)'
     );
     n++;
     const meLines = cz.sinks

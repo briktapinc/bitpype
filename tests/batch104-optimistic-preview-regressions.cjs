@@ -630,8 +630,8 @@ const TEXT_PLAN = {
     // "no new sinks" half of that claim.
     const { census } = require(path.join(root, 'scripts', 'xss-census.cjs'));
     const cz = census();
-    assert.equal(cz.summary.total, 441, 'SEC-13 census total unchanged by Batch 104'); n += 1;
-    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 330, 'SEC-13 safe classes unchanged (Batch 136 finisher: +2 audited STATIC sinks in module-embed.js — the booking price-summary clear + esc()-wrapped build; 328 -> 330, census 439 -> 441, RAW/IDENT unchanged)'); n += 1;
+    assert.equal(cz.summary.total, 442, 'SEC-13 census total unchanged by Batch 104'); n += 1;
+    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 331, 'SEC-13 safe classes unchanged (Batch 136 finisher: +2 audited STATIC sinks in module-embed.js — the booking price-summary clear + esc()-wrapped build; 328 -> 330, census 439 -> 441, RAW/IDENT unchanged; Batch 137 finisher: +1 audited SAFE sink in portal.js (qualifying-question rows render — numeric indices + esc()-wrapped question text), census 441 -> 442, SAFE 73 -> 74, reviewed RAW/IDENT content unchanged (12 portal.js positions shifted +127, pure line movement, snippet-verified))'); n += 1;
     assert.equal(cz.summary.RAW + cz.summary.IDENT, 111, 'SEC-13 reviewed set size (Batch 124 added one reviewed RAW sink; Batch 127 finisher added two reviewed variant-editor RAW sinks)'); n += 1;
 
     group('Part 4 client wiring + parser units', n);

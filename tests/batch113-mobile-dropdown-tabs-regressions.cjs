@@ -120,11 +120,11 @@ function group(name, n) {
     // (sha pinned), reviewed set == regenerated baseline exactly.
     const { census } = require(path.join(root, 'scripts', 'xss-census.cjs'));
     const cz = census();
-    assert.deepEqual(cz.summary, { total: 441, STATIC: 158, ESCAPED: 41, SAFE: 73, BUILDER: 58, IDENT: 35, RAW: 76 }, 'SEC-13 census summary unchanged');
+    assert.deepEqual(cz.summary, { total: 442, STATIC: 158, ESCAPED: 41, SAFE: 74, BUILDER: 58, IDENT: 35, RAW: 76 }, 'SEC-13 census summary unchanged');
     n += 1;
     const multi = cz.sinks.map((s) => `${s.file}|${s.kind}|${s.snippet}`).sort();
     const sha = crypto.createHash('sha256').update(multi.join('\n')).digest('hex');
-    assert.equal(sha, 'c09c29b3c88408cdbdd74ac78feee07852cb011253ec4f9925f6ea0c46b949cf', 'SEC-13 sink multiset byte-identical (Batch 136 finisher: multiset gains exactly the +2 audited STATIC sinks in module-embed.js — booking price-summary clear + esc()-wrapped build; RAW/IDENT multiset unchanged)');
+    assert.equal(sha, '60eb830c5783e3a39ec987ba067b921a5c0bf68bd4b83d206b2cf984fc8e9be0', 'SEC-13 sink multiset byte-identical (Batch 136 finisher: multiset gains exactly the +2 audited STATIC sinks in module-embed.js — booking price-summary clear + esc()-wrapped build; RAW/IDENT multiset unchanged; Batch 137 finisher: +1 audited SAFE sink in portal.js (qualifying-question rows render — numeric indices + esc()-wrapped question text), census 441 -> 442, SAFE 73 -> 74, reviewed RAW/IDENT content unchanged (12 portal.js positions shifted +127, pure line movement, snippet-verified))');
     n += 1;
     const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
     const BASELINE = new Set(require(path.join(root, 'tests', 'batch103-xss-baseline.json')));
