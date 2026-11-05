@@ -4384,7 +4384,21 @@ function getSellableGalleryImage(db, leadId, imageId) {
   return row;
 }
 
-function lineForGalleryImage(img) {
+/** Batch 143 (full review): a gallery photo has no currency of its
+ *  own — it sells through the lead's shop, so it takes the shop's
+ *  currency, resolved the same way product lines get theirs: from
+ *  the lead's own product rows. The previous hardcoded 'USD' both
+ *  charged EUR shops' photos in dollars and made a same-shop mixed
+ *  cart (EUR product + photo) refuse as "mixes currencies". A lead
+ *  with no published products keeps the 'USD' default. */
+function shopCurrencyForLead(db, leadId) {
+  const row = db
+    .prepare("SELECT currency FROM ecommerce_products WHERE lead_id = ? AND status = 'published' ORDER BY id ASC LIMIT 1")
+    .get(Number(leadId));
+  return String((row && row.currency) || 'USD');
+}
+
+function lineForGalleryImage(img, currency) {
   const unit = Number(img.price_cents) || 0;
   return {
     source_module: 'gallery',
@@ -4397,7 +4411,7 @@ function lineForGalleryImage(img) {
     unit_price_cents: unit,
     quantity: 1,
     line_total_cents: unit,
-    currency: 'USD',
+    currency: String(currency || 'USD'),
     description: '',
   };
 }
@@ -4490,7 +4504,7 @@ function buildSellableLines(db, leadId, rawItems) {
       if (entry.variantId != null) {
         throw fail('VALIDATION', 'Photos do not have variants', 400);
       }
-      line = lineForGalleryImage(img);
+      line = lineForGalleryImage(img, shopCurrencyForLead(db, lid));
     } else {
       throw fail('VALIDATION', `Items from ${entry.source} cannot be checked out here`, 400);
     }
@@ -4637,6 +4651,28 @@ function applyShopStripeEvent(db, event) {
   ensureTables(db);
   const type = String((event && event.type) || '');
   const obj = (event && event.data && event.data.object) || {};
+  // Batch 143 (full review): tenant refunds were dropped entirely —
+  // a fully-refunded order kept reading 'paid' in the portal, and a
+  // refunded gallery photo stayed delivered. A FULL refund now marks
+  // the order 'refunded' (partial refunds leave the paid state; the
+  // order total no longer matches what the customer kept, but access
+  // decisions stay with the owner). Matched by payment intent, the
+  // reference every paid order records.
+  if (type === 'charge.refunded') {
+    const pi = String(obj.payment_intent || '');
+    if (!pi) return { matched: false, reason: 'no payment intent' };
+    const refundedOrder = db
+      .prepare('SELECT * FROM ecommerce_orders WHERE stripe_payment_intent = ? ORDER BY id DESC LIMIT 1')
+      .get(pi);
+    if (!refundedOrder) return { matched: false, reason: 'unknown payment intent' };
+    const amount = Number(obj.amount) || 0;
+    const refunded = Number(obj.amount_refunded) || 0;
+    if (amount > 0 && refunded >= amount && refundedOrder.status === 'paid') {
+      updateShopOrder(db, refundedOrder.id, { status: 'refunded' });
+      return { matched: true, orderId: refundedOrder.id, status: 'refunded' };
+    }
+    return { matched: true, orderId: refundedOrder.id, status: refundedOrder.status };
+  }
   let order = null;
   if (type.startsWith('checkout.session.')) {
     order = getShopOrderBySession(db, String(obj.id || ''));
@@ -4661,6 +4697,22 @@ function applyShopStripeEvent(db, event) {
     // paid / no_payment_required completes exactly as before.
     if (type === 'checkout.session.completed' && String(obj.payment_status || '') === 'unpaid') {
       return { matched: true, orderId: order.id, status: order.status };
+    }
+    // Batch 143 (full review): the event was matched by session id
+    // alone and never compared against the order — a session settling
+    // a DIFFERENT total or currency (a cheaper session under a
+    // rotated key, an async session settling short) fulfilled the
+    // order at its full recorded value. The order was priced
+    // server-side at creation; the settled money must equal it
+    // exactly, in the order's own currency, before anything is
+    // marked paid. A mismatch leaves the order pending (visible to
+    // the owner) rather than fulfilled or silently dropped.
+    if (obj.amount_total != null && Number(obj.amount_total) !== Number(order.amount_cents)) {
+      return { matched: true, orderId: order.id, status: order.status, reason: 'amount mismatch' };
+    }
+    const eventCurrency = String(obj.currency || '').toUpperCase();
+    if (eventCurrency && eventCurrency !== String(order.currency || '').toUpperCase()) {
+      return { matched: true, orderId: order.id, status: order.status, reason: 'currency mismatch' };
     }
     updateShopOrder(db, order.id, {
       status: 'paid',
@@ -4744,10 +4796,42 @@ async function checkoutShopLines(db, embedRow, lines, currency, returnUrl) {
     keySource: resolved.source,
     currency,
   });
+  // Batch 143 (full review): a pay-at-booking session previously
+  // carried no expires_at, so it lived Stripe's default 24h while
+  // the booking hold it pays for lapses at 30 minutes — a customer
+  // could pay hours after the hold was released, leaving a PAID
+  // order on a cancelled appointment and no refund path. Align the
+  // session's death with the hold's: expires_at = the earliest
+  // appointment hold expiry on the order. Stripe requires at least
+  // 30 minutes of session life, so when less than ~31 minutes of
+  // hold remain the field is omitted (the checkout still works; the
+  // lazy sweep + webhook ordering covers that short tail).
+  let sessionExpiresAt = null;
+  for (const l of lines) {
+    if (l.source_module !== 'bookings') continue;
+    let meta = {};
+    try {
+      meta = JSON.parse(l.source_meta || '{}');
+    } catch {
+      meta = {};
+    }
+    const apptId = Number(meta.appointment_id);
+    if (!Number.isInteger(apptId) || apptId <= 0) continue;
+    const appt = db
+      .prepare('SELECT payment_expires_at FROM bookings WHERE id = ? AND lead_id = ?')
+      .get(apptId, Number(embedRow.lead_id));
+    const t = appt && appt.payment_expires_at ? Date.parse(String(appt.payment_expires_at)) : NaN;
+    if (Number.isFinite(t) && (sessionExpiresAt == null || t < sessionExpiresAt)) sessionExpiresAt = t;
+  }
+  const expiresAtSec =
+    sessionExpiresAt != null && sessionExpiresAt - Date.now() >= 31 * 60 * 1000
+      ? Math.floor(sessionExpiresAt / 1000)
+      : null;
   let session;
   try {
     session = await stripe.checkout.sessions.create({
       mode: 'payment',
+      ...(expiresAtSec ? { expires_at: expiresAtSec } : {}),
       line_items: lines.map((l) => ({
         quantity: Number(l.quantity) || 1,
         price_data: {
@@ -4876,7 +4960,11 @@ async function createCartCheckoutByToken(db, token, { items, returnUrl } = {}, o
 /* ── Batch 128: Checkout module config + public payload ── */
 
 /** The Checkout module's own settings (surface copy only — the money
- *  configuration itself lives in Shop → Payments, shop_stripe_keys). */
+ *  configuration itself lives in the unified per-lead payments config,
+ *  lead_payment_configs, resolved via paymentsConfig; the legacy
+ *  shop_stripe_keys / membership_stripe_keys tables are read-only
+ *  fallbacks. Batch 143 comment correction — this said shop_stripe_keys
+ *  until now, which has been stale since the Batch 129 streamline. */
 function getCheckoutConfig(db, leadId) {
   ensureTables(db);
   const row = db.prepare('SELECT * FROM checkout_configs WHERE lead_id = ?').get(Number(leadId)) || null;
@@ -12094,6 +12182,19 @@ function upsertMemberSubscription(db, fields) {
       )
       .get(leadId, memberId, Number(fields.tier_id));
   }
+  // Batch 143 (full review): a Stripe subscription id whose row is
+  // 'canceled' is TERMINAL. customer.subscription.deleted is final
+  // at Stripe — that id can never bill or entitle again — but event
+  // delivery is not ordered, and without this guard a stale
+  // subscription.updated (status 'active') arriving after the
+  // deleted event resurrected the row and restored paid access with
+  // no payment. A genuinely new subscription arrives under a NEW
+  // Stripe id (a fresh checkout), so it is unaffected; local
+  // free-tier rows carry no Stripe id and are unaffected.
+  if (existing && fields.stripe_subscription_id && existing.status === 'canceled') {
+    const incoming = String(fields.status || existing.status);
+    if (incoming !== 'canceled') return shapeMemberSubscription(existing);
+  }
   const merged = {
     lead_id: leadId,
     member_id: memberId,
@@ -12299,9 +12400,22 @@ function applyMembershipStripeEvent(db, event) {
       // Batch 129: record the payments-config layer that created
       // this subscription (stamped on the session at checkout).
       ...(meta.bitpype_key_source ? { stripe_key_source: String(meta.bitpype_key_source) } : {}),
-      // The money landed; the subscription.* events carry the
-      // authoritative status + period and converge this row next.
-      status: obj.payment_status === 'paid' ? 'active' : 'trialing',
+      // The subscription.* events carry the authoritative status +
+      // period and converge this row next. Batch 143 (full review):
+      // 'unpaid' must NOT map to an entitled status — it did
+      // ('trialing', which memberAccessInfo counts as paid on a
+      // priced tier), so an async/unpaid membership checkout granted
+      // paid access with no money landed; the shop pipeline was
+      // fixed against this exact pattern and this door was missed.
+      // 'no_payment_required' is a genuine trial (entitled);
+      // 'unpaid' parks as 'incomplete' until a subscription/invoice
+      // event reports real money.
+      status:
+        obj.payment_status === 'paid'
+          ? 'active'
+          : obj.payment_status === 'no_payment_required'
+            ? 'trialing'
+            : 'incomplete',
     });
     return { matched: true, subscriptionId: sub.id, status: sub.status };
   }

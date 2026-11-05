@@ -165,7 +165,9 @@ sessionRouter.get('/oauth/pending', async (req, res) => {
       planError,
     });
   } catch (e) {
-    sendJson(res, 500, { ok: false, error: e.message });
+    // Batch 143: mask internals (Batch 54 discipline), keep the detail server-side.
+    console.error('[oauth/pending] failed:', e && e.message ? e.message : e);
+    sendJson(res, 500, { ok: false, error: 'INTERNAL' });
   }
 });
 

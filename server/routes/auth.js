@@ -111,7 +111,7 @@ async function authPayload(user, workspaceId, workspaces) {
 router.get('/config', async (_req, res, next) => {
   try {
     const platform = require('../platform');
-    const open = await platform.getPlatformSetting('registration.open', '1');
+    const open = await platform.getPlatformSetting('registration.open', '0');
     // Batch 87: the staff auth screen renders the Admin-configured
     // brand tagline (sync cache; default when unset). Guarded: stub
     // harnesses that load this router without the branding module
@@ -147,7 +147,7 @@ router.get('/plans', async (_req, res, next) => {
 router.post('/register', authLimit, captcha, async (req, res, next) => {
   try {
     const platform = require('../platform');
-    const open = await platform.getPlatformSetting('registration.open', '1');
+    const open = await platform.getPlatformSetting('registration.open', '0');
     if (open !== '1') {
       return res.status(403).json({ ok: false, error: 'REGISTRATION_DISABLED' });
     }

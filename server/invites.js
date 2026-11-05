@@ -83,7 +83,8 @@ async function acceptInvite(rawToken, userId) {
   if (!invite) throw Object.assign(new Error('INVITE_NOT_FOUND'), { code: 'INVITE_NOT_FOUND' });
   if (invite.accepted_at) throw Object.assign(new Error('INVITE_ALREADY_USED'), { code: 'INVITE_ALREADY_USED' });
   const exp = new Date(String(invite.expires_at).replace(' ', 'T') + 'Z');
-  if (Number.isFinite(exp.getTime()) && exp.getTime() < Date.now()) {
+  // Batch 143: expiry fails CLOSED (unparseable stored date = expired).
+  if (!Number.isFinite(exp.getTime()) || exp.getTime() < Date.now()) {
     throw Object.assign(new Error('INVITE_EXPIRED'), { code: 'INVITE_EXPIRED' });
   }
 
@@ -92,6 +93,19 @@ async function acceptInvite(rawToken, userId) {
   if (!user) throw Object.assign(new Error('AUTH_REQUIRED'), { code: 'AUTH_REQUIRED' });
   if (String(user.email).toLowerCase() !== String(invite.email).toLowerCase()) {
     throw Object.assign(new Error('Invite email does not match your account'), { code: 'EMAIL_MISMATCH' });
+  }
+
+  // Batch 143: claim the invite atomically before the membership
+  // writes — two concurrent accepts of the same invite both passed
+  // the accepted_at check before either stamped it.
+  const claim = await query(
+    driver() === 'sqlite'
+      ? "UPDATE workspace_invites SET accepted_at = datetime('now') WHERE id = :id AND accepted_at IS NULL"
+      : 'UPDATE workspace_invites SET accepted_at = CURRENT_TIMESTAMP WHERE id = :id AND accepted_at IS NULL',
+    { id: invite.id }
+  );
+  if (!(Number(claim.affectedRows || claim.changes || 0) > 0)) {
+    throw Object.assign(new Error('INVITE_ALREADY_USED'), { code: 'INVITE_ALREADY_USED' });
   }
 
   await query('DELETE FROM workspace_members WHERE workspace_id = :workspaceId AND user_id = :userId', {
@@ -103,12 +117,7 @@ async function acceptInvite(rawToken, userId) {
     userId: user.id,
     role: invite.role,
   });
-  await query(
-    driver() === 'sqlite'
-      ? "UPDATE workspace_invites SET accepted_at = datetime('now') WHERE id = :id"
-      : 'UPDATE workspace_invites SET accepted_at = CURRENT_TIMESTAMP WHERE id = :id',
-    { id: invite.id }
-  );
+  // (accepted_at was already stamped by the atomic claim above.)
 
   return { workspaceId: invite.workspace_id, role: invite.role };
 }

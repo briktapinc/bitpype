@@ -89,7 +89,7 @@ async function requestByEmail(email) {
   if (!e || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) {
     return { ok: true };
   }
-  if (!allowAccessEmail(e)) {
+  if (!(await allowAccessEmail(e))) {
     return { ok: true };
   }
   const user = await findByEmail(e);
@@ -115,7 +115,8 @@ async function confirmPasswordSet(rawToken, newPassword, { keepSessionId } = {})
   if (!row) throw Object.assign(new Error('INVALID_TOKEN'), { code: 'INVALID_TOKEN' });
   if (row.used_at) throw Object.assign(new Error('TOKEN_USED'), { code: 'TOKEN_USED' });
   const exp = new Date(String(row.expires_at).replace(' ', 'T') + 'Z');
-  if (Number.isFinite(exp.getTime()) && exp.getTime() < Date.now()) {
+  // Batch 143: expiry fails CLOSED (unparseable stored date = expired).
+  if (!Number.isFinite(exp.getTime()) || exp.getTime() < Date.now()) {
     throw Object.assign(new Error('TOKEN_EXPIRED'), { code: 'TOKEN_EXPIRED' });
   }
 
@@ -124,18 +125,25 @@ async function confirmPasswordSet(rawToken, newPassword, { keepSessionId } = {})
     throw Object.assign(new Error('INVALID_TOKEN'), { code: 'INVALID_TOKEN' });
   }
 
+  // Batch 143: claim the token atomically BEFORE the slow bcrypt
+  // hash — the same check-then-act race the staff reset had (two
+  // concurrent confirms both set a password). Loser sees TOKEN_USED.
+  const claim = await query(
+    driver() === 'sqlite'
+      ? "UPDATE client_portal_password_tokens SET used_at = datetime('now') WHERE id = :id AND used_at IS NULL"
+      : 'UPDATE client_portal_password_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = :id AND used_at IS NULL',
+    { id: row.id }
+  );
+  if (!(Number(claim.affectedRows || claim.changes || 0) > 0)) {
+    throw Object.assign(new Error('TOKEN_USED'), { code: 'TOKEN_USED' });
+  }
+
   const hash = await bcrypt.hash(String(newPassword), 12);
   const stamp =
     driver() === 'sqlite'
       ? "UPDATE client_portal_users SET password_hash = :hash, updated_at = datetime('now') WHERE id = :id"
       : 'UPDATE client_portal_users SET password_hash = :hash, updated_at = CURRENT_TIMESTAMP WHERE id = :id';
   await query(stamp, { hash, id: user.id });
-  await query(
-    driver() === 'sqlite'
-      ? "UPDATE client_portal_password_tokens SET used_at = datetime('now') WHERE id = :id"
-      : 'UPDATE client_portal_password_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = :id',
-    { id: row.id }
-  );
   // Single-use means the whole family dies: every other outstanding
   // set-password token for this user is deleted.
   await query('DELETE FROM client_portal_password_tokens WHERE portal_user_id = :uid AND id <> :id', {

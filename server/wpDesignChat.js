@@ -295,8 +295,13 @@ async function runWpDesignChat(workspaceId, linkId, body = {}, opts = {}) {
   };
 
   if (!census) {
+    // Batch 143: preserve any pending clarification — a turn that
+    // does not resolve the clarification must not clear it (the
+    // portal chat's invariant; persistTurn defaults pending to
+    // null, so non-clarification branches pass it through).
     return persistTurn(
-      "I can't see your WordPress site's map yet, so I can't plan changes safely. Open Settings → BitPype once in your WordPress admin — the plugin sends me the map — then ask me again."
+      "I can't see your WordPress site's map yet, so I can't plan changes safely. Open Settings → BitPype once in your WordPress admin — the plugin sends me the map — then ask me again.",
+      { nextPending: pending }
     );
   }
 
@@ -347,7 +352,12 @@ async function runWpDesignChat(workspaceId, linkId, body = {}, opts = {}) {
   if (plan.kind === 'question') {
     const answer = String(plan.answer || '').trim();
     if (!answer) return { error: true, reply: MODEL_FAIL_TEXT };
-    return persistTurn(answer);
+    // Batch 143: a side question mid-clarification is answered
+    // read-only and the pending clarification SURVIVES it (portal
+    // parity) — the old bare persistTurn(answer) wiped pending, so
+    // the owner's next message was planned as a fresh request and
+    // the settled clarification context was lost.
+    return persistTurn(answer, { nextPending: pending });
   }
   if (plan.kind === 'clarify') {
     if (!pending) {

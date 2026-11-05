@@ -29,7 +29,7 @@ async function overview() {
     workspaces: await one('SELECT COUNT(*) AS c FROM workspaces'),
     mcpTokens: await one('SELECT COUNT(*) AS c FROM workspace_tokens'),
     scheduledJobs: await one('SELECT COUNT(*) AS c FROM scheduled_jobs'),
-    registrationOpen: (await platform.getPlatformSetting('registration.open', '1')) === '1',
+    registrationOpen: (await platform.getPlatformSetting('registration.open', '0')) === '1',
     maintenanceMode: (await platform.getPlatformSetting('maintenance_mode', '0')) === '1',
   };
 }

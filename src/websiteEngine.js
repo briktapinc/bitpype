@@ -5747,7 +5747,10 @@ async function generateSite(db, leadId, opts = {}) {
 
   let copy;
   let aiUsed = false;
-  if (ai.aiConfigured()) {
+  // Batch 143: aiConfigured() requires the workspace db — the
+  // no-arg call always returned false, so this branch never ran
+  // and generation always fell back to deterministic copy.
+  if (ai.aiConfigured(db)) {
     try {
       copy = await aiCopy(db, lead, industry, facts);
       aiUsed = true;
@@ -7146,7 +7149,7 @@ async function qaSite(db, websiteId) {
       check('ai-qa', true, `AI QA skipped (${e.code || e.message}).`);
     }
   } else {
-    check('ai-qa', true, ai.aiConfigured() ? 'Skipped (render failed).' : 'Skipped (AI not configured).');
+    check('ai-qa', true, ai.aiConfigured(db) ? 'Skipped (render failed).' : 'Skipped (AI not configured).');
   }
 
   const pass = checks.every((c) => c.pass);

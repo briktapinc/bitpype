@@ -109,7 +109,14 @@ const PLATFORM_SETTING_DEFS = [
     key: 'registration.open',
     group: 'general',
     label: 'Open registration — Register tab & sign-ups',
-    default: '1',
+    // Batch 143 (full review): the default is CLOSED. Registration
+    // opens only when an operator explicitly sets this to '1' — the
+    // previous '1' default meant every fresh install, defaults
+    // restore, or missing row silently allowed public sign-ups,
+    // contradicting the standing closed-registration rule (live
+    // production carries an explicit '0' row, so this changes no
+    // live behaviour there).
+    default: '0',
   },
   { key: 'maintenance_mode', group: 'general', label: 'Maintenance mode (1/0)', default: '0' },
   {

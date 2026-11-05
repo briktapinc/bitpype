@@ -400,7 +400,13 @@ function verifyPkce(verifier, challenge) {
   const v = String(verifier || '');
   if (v.length < 43 || v.length > 128) return false;
   const computed = b64url(sha256(v));
-  return computed === String(challenge || '');
+  const expected = String(challenge || '');
+  // Batch 143: constant-time compare, like every other digest
+  // comparison in the codebase (the compared value is a SHA-256
+  // digest, so the practical risk was low — consistency closes it).
+  const a = Buffer.from(computed);
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 async function mintAccessToken(row) {

@@ -277,7 +277,11 @@ app.get('/health', async (_req, res) => {
       endpoints: ['/api/v1', '/mcp', '/health'],
     });
   } catch (e) {
-    res.status(503).json({ ok: false, error: e.message });
+    // Batch 143: never leak the raw DB error on an unauthenticated
+    // endpoint (Batch 54 masks 5xx behind INTERNAL + ref everywhere
+    // else; this handler predates that discipline).
+    console.error('[health] check failed:', e && e.message ? e.message : e);
+    res.status(503).json({ ok: false, error: 'INTERNAL' });
   }
 });
 

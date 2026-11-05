@@ -312,6 +312,17 @@ function visitorKeyFor(leadId, visitorToken) {
     .digest('hex');
 }
 
+/** Batch 143 (full review): the sentinel bucket above is right for
+ *  rate limiting comment POSTS, but it must never act as a like
+ *  identity — every tokenless/junk-token visitor shared ONE like, so
+ *  any of them could silently remove another's like (and the shared
+ *  state read showed them all the same pressed buttons). Likes
+ *  therefore require a usable token; the embed always mints one, so
+ *  only hand-rolled callers see the refusal. */
+function hasUsableVisitorToken(data = {}) {
+  return /^[A-Za-z0-9_-]{16,128}$/.test(String(data.visitor_token || data.visitorToken || ''));
+}
+
 /* ------------------------------------------------------------------ */
 /* Comments                                                            */
 /* ------------------------------------------------------------------ */
@@ -460,6 +471,13 @@ function replyAsOwner(db, leadId, parentId, data = {}) {
   const lid = Number(leadId);
   const parent = getCommentRow(db, lid, parentId);
   if (!parent) throw fail('NOT_FOUND', 'Comment not found', 404);
+  // Batch 143 (full review): a reply to a REJECTED comment was stored
+  // 'published' but could never render (publicThread only renders
+  // replies under a published parent) — an invisible, counted reply
+  // with no error anywhere. Pending parents stay allowed (the
+  // moderation-queue workflow: reply first, approve after); rejected
+  // is terminal, so refuse it like the visitor reply path does.
+  if (parent.status === 'rejected') throw fail('VALIDATION', 'That comment is no longer available');
   const body = String(data.body || '')
     .trim()
     .slice(0, COMMENT_BODY_MAX);
@@ -658,6 +676,7 @@ function toggleLike(db, leadId, data = {}) {
   const lid = Number(leadId);
   const config = getCommentsConfig(db, lid);
   if (!config.allow_likes) throw fail('VALIDATION', 'Likes are turned off for this site');
+  if (!hasUsableVisitorToken(data)) throw fail('VALIDATION', 'A valid visitor token is required to like');
   const visitorKey = visitorKeyFor(lid, data.visitor_token || data.visitorToken || '');
   const target = resolveLikeTarget(db, lid, data.target_type, data.target_id, visitorKey);
   if (target.target_type !== 'comment' && !config.allow_item_like) {
@@ -691,8 +710,11 @@ function toggleLike(db, leadId, data = {}) {
 function likeState(db, leadId, data = {}) {
   ensureTables(db);
   const lid = Number(leadId);
-  const visitorKey = visitorKeyFor(lid, data.visitor_token || data.visitorToken || '');
   const out = { item_liked: false, liked_comment_ids: [] };
+  // Batch 143: an unusable token has no like identity — report the
+  // empty state rather than the shared sentinel bucket's likes.
+  if (!hasUsableVisitorToken(data)) return out;
+  const visitorKey = visitorKeyFor(lid, data.visitor_token || data.visitorToken || '');
   if (data.target_type && data.target_id != null && String(data.target_id) !== '') {
     const t = resolveTarget(db, lid, data.target_type, data.target_id);
     const row = db

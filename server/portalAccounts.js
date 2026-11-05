@@ -37,19 +37,31 @@ function nowSql() {
   return new Date().toISOString().slice(0, 19).replace('T', ' ');
 }
 
-/** Per-email rate limit for requestAccess (in addition to IP limiter on the route). */
-const accessEmailHits = new Map(); // email -> { n, resetAt }
-function allowAccessEmail(email) {
+/** Per-email rate limit for requestAccess (in addition to IP limiter on the route).
+ *
+ * Batch 143 (full review): the counter now lives in the durable
+ * Batch 55 store (rateLimitStore) like every other limiter. It was
+ * the one throttle left on a per-process Map — the exact pre-55
+ * defect class — so any restart/redeploy handed every email a
+ * fresh 3/hour budget in front of magic-link issuance and portal
+ * set-password-by-email. The Map survives below ONLY as the
+ * store-outage fallback (with a warning), mirroring rateLimit.js.
+ * Semantics: 3 hits per sliding hour, same as the middleware. */
+const rateLimitStore = require('./rateLimitStore');
+const ACCESS_EMAIL_BUCKET = 'portal-access-email';
+const ACCESS_EMAIL_WINDOW_MS = 60 * 60 * 1000;
+const ACCESS_EMAIL_MAX = 3;
+const accessEmailHits = new Map(); // fallback only: email -> { n, resetAt }
+let accessEmailFallbackWarnedAt = 0;
+function allowAccessEmailMemory(email) {
   const key = String(email || '');
   const now = Date.now();
-  const windowMs = 60 * 60 * 1000;
-  const max = 3;
   let row = accessEmailHits.get(key);
   if (!row || now >= row.resetAt) {
-    row = { n: 0, resetAt: now + windowMs };
+    row = { n: 0, resetAt: now + ACCESS_EMAIL_WINDOW_MS };
     accessEmailHits.set(key, row);
   }
-  if (row.n >= max) return false;
+  if (row.n >= ACCESS_EMAIL_MAX) return false;
   row.n += 1;
   if (accessEmailHits.size > 5000) {
     for (const [k, v] of accessEmailHits) {
@@ -57,6 +69,22 @@ function allowAccessEmail(email) {
     }
   }
   return true;
+}
+async function allowAccessEmail(email) {
+  const key = String(email || '');
+  try {
+    const count = await rateLimitStore.recordHit(ACCESS_EMAIL_BUCKET, key, ACCESS_EMAIL_WINDOW_MS, Date.now());
+    return count <= ACCESS_EMAIL_MAX;
+  } catch (e) {
+    const now = Date.now();
+    if (now - accessEmailFallbackWarnedAt > 60 * 1000) {
+      accessEmailFallbackWarnedAt = now;
+      console.warn(
+        `[portalAccounts] access-email counter store unavailable (${e && e.message ? e.message : e}) — counted in-memory only`
+      );
+    }
+    return allowAccessEmailMemory(key);
+  }
 }
 
 async function findById(id) {
@@ -233,7 +261,7 @@ async function requestAccess(email) {
   }
 
   // Uniform ok for rate-limited / unknown / disabled / not entitled — no enumeration.
-  if (!allowAccessEmail(e)) {
+  if (!(await allowAccessEmail(e))) {
     return { ok: true };
   }
 
@@ -347,15 +375,22 @@ async function loginWithMagicToken(rawToken) {
     throw Object.assign(new Error('INVALID_CREDENTIALS'), { code: 'INVALID_CREDENTIALS' });
   }
   const exp = new Date(String(row.expires_at).replace(' ', 'T') + 'Z');
-  if (Number.isFinite(exp.getTime()) && exp.getTime() < Date.now()) {
+  // Batch 143: expiry fails CLOSED (unparseable stored date = expired).
+  if (!Number.isFinite(exp.getTime()) || exp.getTime() < Date.now()) {
     throw Object.assign(new Error('INVALID_CREDENTIALS'), { code: 'INVALID_CREDENTIALS' });
   }
-  await query(
+  // Batch 143: the single-use stamp is now the atomic claim — a
+  // concurrent second use of the same magic link loses the race and
+  // is refused with the same enumeration-uniform error.
+  const claim = await query(
     driver() === 'sqlite'
-      ? "UPDATE client_portal_login_tokens SET used_at = datetime('now') WHERE id = :id"
-      : 'UPDATE client_portal_login_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = :id',
+      ? "UPDATE client_portal_login_tokens SET used_at = datetime('now') WHERE id = :id AND used_at IS NULL"
+      : 'UPDATE client_portal_login_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = :id AND used_at IS NULL',
     { id: row.token_id }
   );
+  if (!(Number(claim.affectedRows || claim.changes || 0) > 0)) {
+    throw Object.assign(new Error('INVALID_CREDENTIALS'), { code: 'INVALID_CREDENTIALS' });
+  }
   const stamp =
     driver() === 'sqlite'
       ? "UPDATE client_portal_users SET last_login_at = datetime('now') WHERE id = :id"

@@ -4692,7 +4692,10 @@ function aiStatus(workspaceId) {
     try {
       const ai = require('../src/ai');
       if (typeof ai.setDb === 'function') ai.setDb(db);
-      return { configured: !!ai.aiConfigured(), model: getSetting(db, 'ai.model.default', '') };
+      // Batch 143: aiConfigured() REQUIRES the workspace db — the
+      // no-arg call always returned false, so this status reported
+      // "not configured" for every workspace regardless of its key.
+      return { configured: !!ai.aiConfigured(db), model: getSetting(db, 'ai.model.default', '') };
     } catch {
       return { configured: !!getSetting(db, 'ai.api_key'), model: getSetting(db, 'ai.model.default', '') };
     }

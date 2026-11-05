@@ -624,6 +624,8 @@ async function migrate() {
       ensureColumnSqlite(db, table, 'totp_recovery_hashes', 'TEXT');
       ensureColumnSqlite(db, table, 'totp_failed_attempts', 'INTEGER NOT NULL DEFAULT 0');
       ensureColumnSqlite(db, table, 'totp_locked_until', 'TEXT');
+      // Batch 143: highest accepted TOTP step (replay protection).
+      ensureColumnSqlite(db, table, 'totp_last_step', 'INTEGER');
     }
     // Batch 106: ai_usage.provider attribution (+ one-time backfill
     // on the boot that first adds the column).
@@ -989,6 +991,8 @@ async function migrate() {
       await ensureColumnMysql(conn, table, 'totp_recovery_hashes', 'TEXT NULL');
       await ensureColumnMysql(conn, table, 'totp_failed_attempts', 'INT NOT NULL DEFAULT 0');
       await ensureColumnMysql(conn, table, 'totp_locked_until', 'DATETIME NULL');
+      // Batch 143: highest accepted TOTP step (replay protection).
+      await ensureColumnMysql(conn, table, 'totp_last_step', 'BIGINT NULL');
     }
     await conn.query(`
       CREATE TABLE IF NOT EXISTS upsell_tips (

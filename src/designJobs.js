@@ -837,16 +837,47 @@ function pendingSignature(summary) {
 
 function claimNextAgentJob(db) {
   ensureTables(db);
-  const row = db
+  // Batch 143 (full review): the claim must be atomic — see
+  // claimJobRow. The old select-then-update let two claimers (the
+  // queue watcher and an MCP design.claim in another process)
+  // interleave and BOTH receive the same job. On a lost race, move
+  // on to the next waiting candidate instead of handing it out.
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const row = db
+      .prepare(
+        `SELECT id FROM design_jobs
+       WHERE status = 'waiting_on_agent'
+       ORDER BY created_at ASC, id ASC
+       LIMIT 1`
+      )
+      .get();
+    if (!row) return null;
+    if (claimJobRow(db, row.id)) return publicJob(db, getRow(db, row.id));
+  }
+  return null;
+}
+
+/**
+ * Atomically move one job waiting_on_agent → in_progress. The
+ * status predicate lives in the UPDATE's WHERE, so exactly one
+ * claimer wins; returns false when the job was already claimed (or
+ * is no longer waiting). The pickup side effects (brief-lesson
+ * refresh + activity log) run only for the winner.
+ */
+function claimJobRow(db, id) {
+  const info = db
     .prepare(
-      `SELECT * FROM design_jobs
-     WHERE status = 'waiting_on_agent'
-     ORDER BY created_at ASC, id ASC
-     LIMIT 1`
+      `UPDATE design_jobs SET status = 'in_progress', updated_at = datetime('now') WHERE id = ? AND status = 'waiting_on_agent'`
     )
-    .get();
-  if (!row) return null;
-  return getJob(db, row.id, { markInProgress: true });
+    .run(id);
+  if (Number(info.changes) !== 1) return false;
+  try {
+    require('./designLearning').refreshJobBriefLessons(db, id);
+  } catch {
+    /* learning optional */
+  }
+  logActivity(db, `Design job #${id} picked up by the agent.`);
+  return true;
 }
 
 function listJobs(db, { status, limit, page, pageSize, leadId } = {}) {
@@ -881,13 +912,10 @@ function listJobs(db, { status, limit, page, pageSize, leadId } = {}) {
 function getJob(db, id, { markInProgress = false } = {}) {
   const row = getRow(db, id);
   if (markInProgress && row.status === 'waiting_on_agent') {
-    db.prepare(`UPDATE design_jobs SET status = 'in_progress', updated_at = datetime('now') WHERE id = ?`).run(id);
-    try {
-      require('./designLearning').refreshJobBriefLessons(db, id);
-    } catch {
-      /* learning optional */
-    }
-    logActivity(db, `Design job #${id} picked up by the agent.`);
+    // Batch 143: claim through the same atomic conditional UPDATE
+    // as claimNextAgentJob — a bare UPDATE here re-claimed (and
+    // re-logged) a job another claimer had just taken.
+    claimJobRow(db, id);
     return publicJob(db, getRow(db, id));
   }
   return publicJob(db, row);

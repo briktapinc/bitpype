@@ -1164,8 +1164,42 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
   const thanks = leadCaptureThanksFor(bizName);
   const allowCapture = !!snapshot.allowCapture;
 
+  // Batch 143 (full review): the AI gate was aiConfigured() alone —
+  // the workspace's legacy ai.api_key. Since Batch 120 the send path
+  // (src/ai chat(), task 'qa') resolves the PER-FUNCTION route, and
+  // the Muse / OpenRouter profiles resolve platform-first: a site
+  // whose qa function routes to a platform-keyed provider has
+  // working AI even with no workspace key, and silently degraded to
+  // canned heuristic replies here. Ask the routing layer whether
+  // any routed 'qa' provider actually has a key before choosing the
+  // heuristic path. (The OpenAI task-stack profile's key IS the
+  // workspace ai.api_key — already known unset on this branch.)
+  let aiReady = !!snapshot.configured;
+  if (!aiReady) {
+    try {
+      aiReady = await domain.withDb(workspaceId, async (db) => {
+        const { getSetting } = require('../src/ai');
+        const platform = require('./platform');
+        const aiRouting = require('./aiRouting');
+        const [route, pMuse, pOr] = await Promise.all([
+          aiRouting.getRoute('qa'),
+          platform.getPlatformSetting('muse.model_api_key', ''),
+          platform.getPlatformSetting('openrouter.api_key', ''),
+        ]);
+        const configured = {
+          muse: !!String(pMuse || getSetting('muse.model_api_key', '', db) || '').trim(),
+          openai: false,
+          openrouter: !!String(pOr || getSetting('openrouter.api_key', '', db) || '').trim(),
+        };
+        return aiRouting.orderAttempts('qa', route, configured).some((a) => configured[a.provider]);
+      });
+    } catch {
+      aiReady = false;
+    }
+  }
+
   // AI off → light heuristic conversation (never jump straight to form on "hi").
-  if (!snapshot.configured) {
+  if (!aiReady) {
     const heur = heuristicSupportReply(snapshot.latestVisitor, bizName, snapshot.messages);
     return domain.withDb(workspaceId, (db) => {
       if (!claimNeedsAgent(db, sessionId)) return { skipped: true, reason: 'race' };

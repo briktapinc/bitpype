@@ -693,6 +693,37 @@ async function syncSubscription(subscription) {
   }
   if (!uid) return;
 
+  // Batch 143 (full review): terminal-state guard. Once the tracked
+  // subscription has been stored 'canceled' (customer.subscription.
+  // deleted is final at Stripe — that id can never bill again), a
+  // stale out-of-order event for the SAME subscription id carrying a
+  // live status must not resurrect the plan: the conditional UPDATE
+  // below deliberately allows a write when the incoming id equals
+  // the tracked id, which is exactly the stale event's shape. A
+  // genuinely new subscription carries a NEW id and takes over
+  // through the existing NOT IN (active…) clause, unaffected.
+  const trackedRows = await query(
+    'SELECT stripe_subscription_id, subscription_status FROM users WHERE id = :id LIMIT 1',
+    { id: uid }
+  );
+  const tracked = trackedRows[0];
+  if (
+    tracked &&
+    String(tracked.subscription_status || '') === 'canceled' &&
+    String(tracked.stripe_subscription_id || '') === String(subscription.id) &&
+    String(subscription.status || '') !== 'canceled'
+  ) {
+    console.warn(
+      '[billing] stale subscription event ignored for user',
+      uid,
+      '— subscription',
+      subscription.id,
+      'is canceled; incoming status',
+      subscription.status
+    );
+    return { stale: true };
+  }
+
   const { plan, priceId } = await resolvePlanFromSubscription(subscription);
   const periodEnd = subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null;
   const periodEndSql = periodEnd ? periodEnd.toISOString().slice(0, 19).replace('T', ' ') : null;

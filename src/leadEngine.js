@@ -804,8 +804,12 @@ function countLeadRefs(db, table, leadId, extraSql = '', extraParams = []) {
 
 /**
  * Batch 45 (B1) — pre-flight reference summary for the delete confirm:
- * exactly what a lead delete will touch, computed BEFORE anything is
- * deleted so the UI can show it and the caller can decide with open eyes.
+ * the headline dependents a lead delete will touch, computed BEFORE
+ * anything is deleted so the UI can show it and the caller can decide
+ * with open eyes. (Batch 143: the counts below are the confirm-dialog
+ * headline set, not the full drop list — deleteLead drops every
+ * lead_id-keyed tenant table except design_jobs, which keep their own
+ * lifecycle by design; designJobs is counted here so the UI can say so.)
  */
 function leadReferenceSummary(db, id) {
   const leadId = Number(id);
@@ -989,6 +993,95 @@ function deleteLead(db, id) {
     drop('module_likes');
     drop('module_comments');
     drop('comments_configs');
+    // Batch 143 (full review): the drop list above only ever grew by
+    // the tables each batch's own window exercised — the Batch 134
+    // suite seeded ~10 tables, so the pre-122 module families were
+    // never added and every delete orphaned them (a deleted lead kept
+    // its blog posts, bookings, chatbot history, call logs — and its
+    // encrypted Stripe key rows in shop_stripe_keys /
+    // membership_stripe_keys / lead_payment_configs). The rule from
+    // Batch 134 is now completed: EVERY lead_id-keyed tenant table is
+    // dropped here except design_jobs (deliberate, see header). The
+    // batch143 suite derives the table inventory from the schema and
+    // fails if a future table is added without a drop or a documented
+    // keep. Children before parents where rows reference each other.
+    drop('blog_posts');
+    drop('courses');
+    // course_lessons / gallery_images key on the parent row, not the
+    // lead — sweep the ones whose parent just went (same shape as the
+    // merge child sweep in reassignLeadDependents).
+    if (leadTableExists(db, 'course_lessons') && leadTableExists(db, 'courses')) {
+      db.prepare('DELETE FROM course_lessons WHERE course_id NOT IN (SELECT id FROM courses)').run();
+    }
+    drop('gallery_albums');
+    if (leadTableExists(db, 'gallery_images') && leadTableExists(db, 'gallery_albums')) {
+      db.prepare('DELETE FROM gallery_images WHERE album_id NOT IN (SELECT id FROM gallery_albums)').run();
+    }
+    drop('directory_listings');
+    drop('faq_items');
+    drop('testimonials');
+    drop('team_members');
+    drop('events');
+    drop('offers');
+    drop('menu_items');
+    drop('menu_categories');
+    drop('careers_postings');
+    drop('video_items');
+    drop('bookings');
+    drop('booking_blocks');
+    drop('booking_services');
+    drop('booking_hours');
+    drop('booking_settings');
+    drop('chatbot_messages');
+    drop('chatbot_sessions');
+    drop('chatbot_leads');
+    drop('chatbot_escalations');
+    drop('chatbot_knowledge');
+    drop('chatbot_settings');
+    drop('estimate_requests');
+    drop('estimate_options');
+    drop('estimate_configs');
+    drop('social_posts');
+    drop('social_weekly_batches');
+    drop('social_campaigns');
+    drop('social_accounts');
+    drop('socialfeed_cache');
+    drop('socialfeed_configs');
+    drop('googlereviews_cache');
+    drop('googlereviews_configs');
+    drop('datatable_rows');
+    drop('datatable_configs');
+    drop('call_rescue_messages');
+    drop('call_rescues');
+    drop('call_rescue_configs');
+    drop('call_logs');
+    drop('calls_billing');
+    drop('calltracking_rotation_numbers');
+    drop('calltracking_configs');
+    drop('member_subscriptions');
+    drop('membership_tiers');
+    drop('members_configs');
+    drop('site_member_reset_tokens');
+    drop('site_member_preview_grants');
+    drop('lead_payment_configs');
+    drop('membership_stripe_keys');
+    drop('shop_stripe_keys');
+    drop('seo_proposals');
+    drop('seo_history');
+    drop('change_requests');
+    drop('design_email_redesigns');
+    drop('campaign_messages');
+    drop('intent_scores');
+    drop('prospect_events');
+    drop('gbp_change_sets');
+    drop('gbp_snapshots');
+    drop('gbp_connections');
+    drop('site_chat_plans');
+    drop('site_chat_summaries');
+    drop('site_chat_daily_usage');
+    drop('site_screenshots');
+    drop('domain_transactions');
+    drop('leadscout_capture_failures');
     drop('leadscout_events');
     drop('lead_onboarding_items');
     drop('ai_usage');
@@ -1441,7 +1534,13 @@ const MERGE_MOVE_TABLES = [
   'membership_tiers',
   'member_subscriptions',
   'call_logs',
-  'newsletter_subscribers',
+  // Batch 143 (full review): newsletter_subscribers is deliberately
+  // NOT in this MOVE list — it is in MERGE_DEDUPE_TABLES (unique per
+  // (lead_id, email), keeper's row wins). Listing it in both made the
+  // MOVE loop re-key the dropped lead's rows first, so a subscriber
+  // email both leads had collected violated the UNIQUE index and the
+  // whole merge rolled back — the exact duplicate-email case merge
+  // exists for was unmergeable.
   'newsletter_sends',
   // Batch 134 (bug hunt): the Batch 124–128 lead-scoped tables move
   // with the lead — before this they stayed keyed to the dropped lead
@@ -1462,6 +1561,25 @@ const MERGE_MOVE_TABLES = [
   // leadscout_events already move above, and the comment_id refs on
   // those events stay valid — comment row ids never change hands).
   'module_comments',
+  // Batch 143 (full review): tables no treatment list mentioned, so a
+  // merge stranded them on the dropped lead (whose row is then
+  // deleted — permanent orphans; a merged site silently lost its
+  // Data Tables and Charts). Plain content/history rows move.
+  'datatable_rows',
+  'charts',
+  'site_chat_messages',
+  'site_chat_attachments',
+  'site_chat_plans',
+  'call_rescue_messages',
+  'call_rescues',
+  'change_requests',
+  'seo_history',
+  'seo_proposals',
+  // gbp_snapshots / gbp_change_sets carry FK ON DELETE CASCADE to
+  // leads, so without a move here the merge DESTROYED the dropped
+  // lead's GBP history when its lead row was deleted.
+  'gbp_snapshots',
+  'gbp_change_sets',
 ];
 
 const MERGE_DEDUPE_TABLES = {
@@ -1485,6 +1603,12 @@ const MERGE_DEDUPE_TABLES = {
   // Batch 131 finisher: likes are unique per (target, visitor) — on
   // merge the keeper's like for a target+visitor wins, the rest move.
   module_likes: ['target_type', 'target_id', 'visitor_key'],
+  // Batch 143 (full review): the remaining per-lead unique-keyed
+  // tables get the same keeper-wins treatment on their natural key.
+  calltracking_rotation_numbers: ['phone_number'],
+  calls_billing: ['month'],
+  site_chat_daily_usage: ['day'],
+  lead_onboarding_items: ['item_key'],
 };
 
 const MERGE_SINGLETON_TABLES = [
@@ -1506,6 +1630,18 @@ const MERGE_SINGLETON_TABLES = [
   'checkout_configs',
   // Batch 131 finisher: the comments config is the same shape (PK).
   'comments_configs',
+  // Batch 143 (full review): the remaining lead_id-PK singletons.
+  // lead_payment_configs is the security-relevant one — it holds the
+  // lead's encrypted Stripe secret/webhook keys (Batch 129) and was
+  // in NO treatment list, so a merge stranded live credentials on the
+  // deleted lead while the keeper silently fell back to another key
+  // layer. gbp_connections is UNIQUE(lead_id) — same one-row shape.
+  'datatable_configs',
+  'lead_payment_configs',
+  'site_chat_summaries',
+  'site_chat_pending',
+  'call_rescue_configs',
+  'gbp_connections',
 ];
 
 function leadTableExists(db, table) {
@@ -1600,6 +1736,20 @@ function reassignLeadDependents(db, keepId, dropId) {
         `DELETE FROM ${table} WHERE lead_id = ? AND product_id NOT IN (SELECT id FROM ecommerce_products)`
       ).run(keepId);
     }
+  }
+
+  // Batch 143 (full review): the same child-orphan shape the variant
+  // sweep handles exists for the other slug-deduped parents — the
+  // dedupe above deletes a dropped course/album whose slug the keeper
+  // already owns, and its lessons/images (keyed by parent id, no
+  // lead_id) pointed at the deleted parent forever. Sweep exactly the
+  // rows whose parent no longer exists; surviving parents' children
+  // are untouched (their ids never change hands).
+  if (leadTableExists(db, 'course_lessons') && leadTableExists(db, 'courses')) {
+    db.prepare('DELETE FROM course_lessons WHERE course_id NOT IN (SELECT id FROM courses)').run();
+  }
+  if (leadTableExists(db, 'gallery_images') && leadTableExists(db, 'gallery_albums')) {
+    db.prepare('DELETE FROM gallery_images WHERE album_id NOT IN (SELECT id FROM gallery_albums)').run();
   }
 }
 

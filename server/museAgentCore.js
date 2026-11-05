@@ -133,11 +133,32 @@ function mcpToolsToOpenAi(toolDefs) {
 }
 
 async function chatCompletions(config, body) {
-  const url = `${config.baseUrl}/chat/completions`;
+  // Batch 143 (full review): the SSRF / key-exfiltration guard the
+  // task stack (src/ai.js attemptFetch) has always run was missing
+  // here — this transport POSTed the routed profile's key to
+  // whatever base URL the profile resolved to, following redirects
+  // by default. Mirror it exactly: validate the base (https, public
+  // addresses) BEFORE the key leaves, and never follow redirects —
+  // the validated base is the only host the key may reach. A guard
+  // refusal throws the guard's own code with no HTTP status, which
+  // the routing layer (post-143 classifyError) correctly treats as
+  // a local configuration refusal, NOT a provider failure — no
+  // failover masks it.
+  const baseUrl = String(config.baseUrl || '');
+  if (!/^https?:\/\//i.test(baseUrl)) {
+    throw fail('INVALID_BASE_URL', 'The routed provider base URL must be an http(s) URL.');
+  }
+  try {
+    await require('./urlSafety').assertAiBaseUrl(baseUrl);
+  } catch (e) {
+    throw fail(e.code || 'UNSAFE_BASE_URL', e.message);
+  }
+  const url = `${baseUrl}/chat/completions`;
   let res;
   try {
     res = await fetch(url, {
       method: 'POST',
+      redirect: 'error',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${config.apiKey}`,

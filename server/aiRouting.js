@@ -208,21 +208,67 @@ function _resetRoutingState() {
 }
 
 /**
- * Classify a transport error for failover. Transports attach the
- * HTTP status to the error (`err.status`) whenever the provider
- * answered; a missing status means the request never got a response
- * (network error / timeout).
+ * Classify a transport error for failover — the Batch 120 doctrine:
+ * failover happens ONLY on provider-side failure. Transports attach
+ * the HTTP status to the error (`err.status`) whenever the provider
+ * answered: 401/403/402 (auth + billing blocks, 10-min cooldown),
+ * 429 (2-min cooldown), 408 and 5xx fail over; other 4xx are our
+ * request bug and surface. A status-less error is provider-side
+ * ONLY when it is a genuine transport failure (network code or
+ * uncoded); a status-less CODED error is a local refusal (e.g. the
+ * SSRF base-URL guard) and surfaces — Batch 143.
  * @param {any} err
  * @returns {{ failover: boolean, cooldownMs: number, reason: string }}
  */
+// Batch 143 (full review): errors OUR code throws deliberately
+// carry a string `code` and no HTTP status — the SSRF guard's
+// UNSAFE_BASE_URL / INVALID_BASE_URL refusals above all. Classifying
+// them as "network/timeout" both masked a blocked/unsafe provider
+// configuration and misreported the cause in ai_usage. Genuine
+// transport failures carry Node/undici network codes instead; those
+// (and uncoded no-status errors — the non-JSON-body case) stay
+// failover-eligible.
+const NETWORK_ERROR_CODES = new Set([
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ECONNABORTED',
+  'ETIMEDOUT',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'EPIPE',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_SOCKET',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT',
+  // The two transports' explicit network-failure wrappers: src/ai.js
+  // throws AI_NETWORK_ERROR and museAgentCore throws MUSE_NETWORK
+  // when fetch itself fails (no response was received). They are
+  // transport failures by construction, unlike every other coded
+  // status-less error, which is a local refusal.
+  'AI_NETWORK_ERROR',
+  'MUSE_NETWORK',
+]);
+
 function classifyError(err) {
   const status = err && typeof err.status === 'number' ? err.status : null;
   if (status != null) {
-    if (status === 401 || status === 403)
+    // Batch 143: 402 (payment required — the billing-exhaustion
+    // class Batch 120 fails over for at 401/403, and OpenRouter's
+    // out-of-credits response) and 408 (provider-side request
+    // timeout) are provider-side too; both previously died on the
+    // primary with no failover attempt.
+    if (status === 401 || status === 403 || status === 402)
       return { failover: true, cooldownMs: COOLDOWN_MS.auth, reason: `HTTP ${status}` };
     if (status === 429) return { failover: true, cooldownMs: COOLDOWN_MS.rate, reason: 'HTTP 429' };
-    if (status >= 500) return { failover: true, cooldownMs: 0, reason: `HTTP ${status}` };
+    if (status === 408 || status >= 500) return { failover: true, cooldownMs: 0, reason: `HTTP ${status}` };
     return { failover: false, cooldownMs: 0, reason: `HTTP ${status}` };
+  }
+  const code = err && typeof err.code === 'string' ? err.code : null;
+  if (code && !NETWORK_ERROR_CODES.has(code)) {
+    // A coded, status-less error is a local refusal/validation (the
+    // SSRF guard, a malformed configured URL, an abort we raised) —
+    // our configuration state, not a provider failure. Surface it.
+    return { failover: false, cooldownMs: 0, reason: code };
   }
   // No HTTP response: network error, timeout, or a non-JSON body from
   // a struggling provider — all provider-side, all failover-eligible.

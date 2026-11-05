@@ -30,6 +30,11 @@
  *                         correct one) is refused with MFA_LOCKED.
  *                         Persisted per account, so re-logging in
  *                         does not reset the throttle.
+ *   totp_last_step        (Batch 143) highest TOTP step ever
+ *                         accepted for the account; a code matching
+ *                         that step or an earlier one is a replay
+ *                         and is refused — TOTP codes are
+ *                         single-use, like the recovery codes.
  *
  * Secrets are encrypted with src/secretBox (AES-256-GCM when
  * SETTINGS_ENCRYPTION_KEY is configured, as in production) and are
@@ -73,7 +78,7 @@ async function readRow(surface, id) {
   const table = tableFor(surface);
   const rows = await query(
     `SELECT totp_secret, totp_pending_secret, totp_enabled, totp_recovery_hashes,
-            totp_failed_attempts, totp_locked_until
+            totp_failed_attempts, totp_locked_until, totp_last_step
      FROM ${table} WHERE id = :id LIMIT 1`,
     { id: Number(id) }
   );
@@ -155,7 +160,26 @@ async function tryCode(surface, id, row, rawCode) {
   if (!code) throw codedError('MFA_INVALID_CODE', 'Enter the code from your authenticator app.');
 
   const secret = decryptSecret(row.totp_secret || row.totp_pending_secret);
-  if (secret && totp.verify(secret, code) != null) return { via: 'totp' };
+  if (secret) {
+    const step = totp.matchedStep(secret, code);
+    if (step != null) {
+      // Batch 143 (full review): TOTP codes are single-use. The
+      // highest accepted step is persisted per account; a code at or
+      // below it is a replay and is refused (and counted as a failed
+      // attempt by the callers, like any bad code). The stamp is a
+      // conditional UPDATE so two concurrent verifies of the same
+      // code can't both win — the loser's UPDATE matches no row.
+      const table = tableFor(surface);
+      const stamp = await query(
+        `UPDATE ${table} SET totp_last_step = :s WHERE id = :id AND (totp_last_step IS NULL OR totp_last_step < :s)`,
+        { s: step, id: Number(id) }
+      );
+      if (!(Number(stamp.affectedRows || stamp.changes || 0) > 0)) {
+        throw codedError('MFA_INVALID_CODE', 'That code has already been used. Wait for a new code and try again.');
+      }
+      return { via: 'totp' };
+    }
+  }
 
   const hash = totp.hashRecoveryCode(code);
   if (hash && row.totp_recovery_hashes) {
@@ -253,7 +277,7 @@ async function clearMfa(surface, id) {
   await query(
     `UPDATE ${table}
      SET totp_secret = NULL, totp_pending_secret = NULL, totp_enabled = 0,
-         totp_recovery_hashes = NULL, totp_failed_attempts = 0, totp_locked_until = NULL
+         totp_recovery_hashes = NULL, totp_failed_attempts = 0, totp_locked_until = NULL, totp_last_step = NULL
      WHERE id = :id`,
     { id: Number(id) }
   );

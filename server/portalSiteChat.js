@@ -427,7 +427,7 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
   );
   if (cls && cls.error === 'muse_not_configured') {
     throw Object.assign(
-      new Error('AI site chat is not configured yet. Ask your BitPype admin to add the Muse Model API key.'),
+      new Error('AI site chat is not configured yet. Ask your BitPype admin to add an AI provider API key (Admin, API keys).'),
       { code: 'AI_NOT_CONFIGURED' }
     );
   }
@@ -815,7 +815,7 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
 
   if (loop && loop.error === 'muse_not_configured') {
     throw Object.assign(
-      new Error('AI site chat is not configured yet. Ask your BitPype admin to add the Muse Model API key.'),
+      new Error('AI site chat is not configured yet. Ask your BitPype admin to add an AI provider API key (Admin, API keys).'),
       { code: 'AI_NOT_CONFIGURED' }
     );
   }

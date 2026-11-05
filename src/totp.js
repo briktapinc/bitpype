@@ -121,6 +121,21 @@ function verify(secretBase32, rawCode, { at = Date.now(), window = 1, stepSecond
   return null;
 }
 
+/**
+ * Like verify(), but returns the ABSOLUTE step counter the code
+ * matched (counter + offset), or null. Batch 143: the MFA service
+ * persists the highest accepted step per account and refuses any
+ * code at or below it, which makes TOTP codes single-use inside
+ * their acceptance window (verify() alone accepts a code for as
+ * long as its step is within ±1 of the current one — up to ~90s —
+ * so an observed code could be replayed for a second login).
+ */
+function matchedStep(secretBase32, rawCode, { at = Date.now(), window = 1, stepSeconds = STEP_SECONDS } = {}) {
+  const offset = verify(secretBase32, rawCode, { at, window, stepSeconds });
+  if (offset == null) return null;
+  return counterFor(at, stepSeconds) + offset;
+}
+
 function otpauthUrl(secretBase32, account, issuer = ISSUER) {
   const label = encodeURIComponent(`${issuer}:${account}`);
   const params = new URLSearchParams({
@@ -171,6 +186,7 @@ module.exports = {
   hotp,
   totp,
   verify,
+  matchedStep,
   normalizeCode,
   otpauthUrl,
   generateRecoveryCodes,
