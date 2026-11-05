@@ -2015,14 +2015,39 @@ details[open] > summary {
   display: grid;
   place-items: center;
   padding: 1.5rem;
-  background: radial-gradient(120% 60% at 50% 0%, rgba(109, 78, 163, 0.12), transparent 60%), var(--bg);
+  /* Batch 144: the gate sits on the DARK ground — Ely's Batch 88
+     ruling ("gate on the DARK ground", white lockup) and his standing
+     logo rule (white lockup on dark backgrounds, black on light).
+     Same ground and warm radial language as the staff sidebar. The
+     Batch 143 review found the gate had drifted back to the cream
+     theme, leaving the white wordmark at ~1:1 contrast. */
+  background: radial-gradient(120% 60% at 50% 0%, rgba(239, 93, 69, 0.22), transparent 60%), var(--sidebar);
 }
 .auth-card {
+  /* Batch 144: dark-gate token remap. The shared component styles
+     (labels, inputs, tabs, hints, messages) resolve through these
+     tokens, so remapping them HERE skins the whole gate dark without
+     touching any other surface: --surface / --surface-2 become dark
+     field grounds, --text / --ink the sidebar's light text, --muted
+     its muted tan, and the borders warm browns that read on the dark
+     ground. --gate-link / --gate-error are lightened accent and error
+     tones for this ground — the dark-theme originals (--accent-dark
+     at 2.3:1, --danger at 3.0:1) are illegible on it. */
+  --surface: #2e2115;
+  --surface-2: #241a10;
+  --text: var(--sidebar-text);
+  --ink: var(--sidebar-text);
+  --muted: var(--sidebar-muted);
+  --border: #57462f;
+  --border-strong: #6b5844;
+  --gate-link: #57c7ae;
+  --gate-error: #ff8a75;
   width: min(420px, 100%);
   padding: 2.25rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--surface);
+  background: var(--sidebar);
+  color: var(--sidebar-text);
   box-shadow: var(--shadow-lg);
 }
 .auth-brand {
@@ -2079,6 +2104,25 @@ details[open] > summary {
 }
 .auth-card .terms-row input {
   margin-top: 3px;
+}
+/* Batch 144: gate-scoped legibility overrides on the dark ground —
+   link and message tones (see the token remap on .auth-card above)
+   plus placeholder contrast inside the dark fields. */
+.auth-card a,
+.auth-card .auth-links button {
+  color: var(--gate-link);
+}
+.auth-card .msg.ok {
+  color: var(--gate-link);
+}
+.auth-card .msg.err,
+.auth-card .msg.error,
+.auth-card .error {
+  color: var(--gate-error);
+}
+.auth-card input::placeholder,
+.auth-card textarea::placeholder {
+  color: var(--sidebar-muted);
 }
 .shell-banner {
   margin: 0;

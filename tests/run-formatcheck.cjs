@@ -68,6 +68,7 @@ const SCOPE = [
   'tests/batch143-review-fixes-regressions.cjs',
   'tests/batch136-booking-discount-regressions.cjs',
   'tests/batch137-chat-qualifying-questions-regressions.cjs',
+  'tests/batch144-auth-gate-dark-regressions.cjs',
   'tsconfig.checkjs.json',
 ];
 
