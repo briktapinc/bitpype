@@ -7357,6 +7357,81 @@
     if (addBtn) addBtn.disabled = list.length >= 6;
   }
 
+  // Batch 151 — Knowledge sources panel: three groups (Modules /
+  // Pages / Knowledge base) rendered from the portal summary's
+  // knowledge_sources list (owner-facing only; these toggles never
+  // reach the public widget config). Absent config = everything on.
+  function knowledgeSourcesHtml(ks) {
+    const data = ks && typeof ks === 'object' ? ks : { groups: {}, modules: [], pages: [], knowledge: [] };
+    const groups = data.groups || {};
+    const row = (attr, key, label, sub, enabled) => `
+      <label class="hint" style="display:flex;align-items:center;gap:8px;margin:4px 0 4px 22px">
+        <input type="checkbox" data-${attr}="${esc(key)}" ${enabled ? 'checked' : ''} />
+        <span>${esc(label)}${sub ? ` <span style="opacity:.75">${esc(sub)}</span>` : ''}</span>
+      </label>`;
+    const groupHead = (group, label) => `
+      <label class="hint" style="display:flex;align-items:center;gap:8px;margin:10px 0 2px;font-weight:600">
+        <input type="checkbox" data-ks-group="${group}" ${groups[group] !== false ? 'checked' : ''} />
+        ${label}
+      </label>`;
+    const mods = Array.isArray(data.modules) ? data.modules : [];
+    const pages = Array.isArray(data.pages) ? data.pages : [];
+    const docs = Array.isArray(data.knowledge) ? data.knowledge : [];
+    return `
+      ${groupHead('modules', 'Modules')}
+      ${mods.length ? mods.map((m) => row('ks-module', m.type, m.label || m.type, m.count ? `${m.count} item${m.count === 1 ? '' : 's'}` : 'no items yet', m.enabled !== false)).join('') : '<p class="hint" style="margin-left:22px">No answer modules on your site yet.</p>'}
+      ${groupHead('pages', 'Pages')}
+      ${pages.length ? pages.map((p) => row('ks-page', p.slug, p.title || p.slug, `/${p.slug}`, p.enabled !== false)).join('') : '<p class="hint" style="margin-left:22px">No pages yet.</p>'}
+      ${groupHead('knowledge', 'Knowledge base')}
+      ${docs.length ? docs.map((d) => row('ks-doc', String(d.id), d.title || 'Untitled', d.status && d.status !== 'active' ? d.status : '', d.enabled !== false)).join('') : '<p class="hint" style="margin-left:22px">No knowledge items yet — add them in the Knowledge tab.</p>'}`;
+  }
+
+  function collectKnowledgeSourcesFromDom() {
+    const groups = {};
+    document.querySelectorAll('#chat-knowledge-sources input[data-ks-group]').forEach((el) => {
+      groups[el.getAttribute('data-ks-group')] = el.checked;
+    });
+    const modulesMap = {};
+    document.querySelectorAll('#chat-knowledge-sources input[data-ks-module]').forEach((el) => {
+      modulesMap[el.getAttribute('data-ks-module')] = el.checked;
+    });
+    const pagesMap = {};
+    document.querySelectorAll('#chat-knowledge-sources input[data-ks-page]').forEach((el) => {
+      pagesMap[el.getAttribute('data-ks-page')] = el.checked;
+    });
+    const docsMap = {};
+    document.querySelectorAll('#chat-knowledge-sources input[data-ks-doc]').forEach((el) => {
+      docsMap[el.getAttribute('data-ks-doc')] = el.checked;
+    });
+    return { groups, modules: modulesMap, pages: pagesMap, knowledge: docsMap };
+  }
+
+  // After a save, re-derive the panel list's enabled flags from the
+  // settings the server returned (absent entry = on), so a re-render
+  // without a refetch still shows the saved state.
+  function applyKnowledgeSourcesConfig(config) {
+    const ks = moduleState.chatbot && moduleState.chatbot.knowledge_sources;
+    if (!ks) return;
+    const cfg = config && typeof config === 'object' ? config : null;
+    const groups = (cfg && cfg.groups) || {};
+    const on = (map, key, group) =>
+      groups[group] === false ? false : !map || map[key] == null ? true : !!map[key];
+    ks.groups = {
+      modules: groups.modules !== false,
+      pages: groups.pages !== false,
+      knowledge: groups.knowledge !== false,
+    };
+    (ks.modules || []).forEach((m) => {
+      m.enabled = on(cfg && cfg.modules, m.type, 'modules');
+    });
+    (ks.pages || []).forEach((p) => {
+      p.enabled = on(cfg && cfg.pages, p.slug, 'pages');
+    });
+    (ks.knowledge || []).forEach((d) => {
+      d.enabled = on(cfg && cfg.knowledge, String(d.id), 'knowledge');
+    });
+  }
+
   function renderChatbotSettingsPanel() {
     const host = document.getElementById('modules-chat-settings-panel');
     if (!host) return;
@@ -7405,6 +7480,9 @@
       <div id="chat-qualifying-rows"></div>
       <button type="button" class="btn soft small" id="btn-chat-qualifying-add">+ Add a question</button>
       <p class="hint">Up to 6 questions, 200 characters each. Use the arrows to change the order — the chat works through them in this order.</p>
+      <h4 style="margin:18px 0 6px">Knowledge sources</h4>
+      <p class="hint">Choose what your chat and voice assistant may answer from. Everything starts switched on — your modules, your pages and your knowledge items. Switch a source off and the assistant stops using it on BOTH the chat and the voice agent; switch a whole group off to pause that kind of source entirely.</p>
+      <div id="chat-knowledge-sources">${knowledgeSourcesHtml(chat.knowledge_sources)}</div>
       <h4 style="margin:18px 0 6px">AI voice agent</h4>
       <p class="hint">Visitors can talk instead of typing — same knowledge and lead capture as this chat, powered by OpenAI Realtime. Every voice conversation is saved to the Inbox as a transcript. No audio is recorded.</p>
       <label class="hint" style="display:flex;align-items:center;gap:8px;margin:8px 0">
@@ -7475,11 +7553,13 @@
               agent_timeout_hint_sec: Number(document.getElementById('chat-set-timeout').value) || 90,
               qualifying_enabled: document.getElementById('chat-set-qualifying-enabled').checked,
               qualifying_questions: qualInputs.map((i) => i.value.trim()),
+              knowledge_sources: collectKnowledgeSourcesFromDom(),
               voice_enabled: document.getElementById('chat-set-voice-enabled').checked,
               voice_name: document.getElementById('chat-set-voice-name').value,
             }),
           });
           moduleState.chatbot = Object.assign({}, moduleState.chatbot || {}, { settings: data.settings });
+          if (data.settings) applyKnowledgeSourcesConfig(data.settings.knowledge_sources);
           if (data.settings && Array.isArray(data.settings.qualifying_questions)) {
             moduleState.chatQualifying = data.settings.qualifying_questions.slice(0, 6);
             renderChatQualifyingRows();
