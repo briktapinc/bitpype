@@ -315,10 +315,6 @@ function asList(value, keys) {
   return [];
 }
 
-function dataOf(res) {
-  return res && res.data != null ? res.data : {};
-}
-
 /**
  * Shared list-loading treatment (Batch 2 gave Leads a timeout + Retry;
  * this is the same pattern for every staff list): race fetches against a
@@ -637,8 +633,28 @@ function mountLeadPicker(host, opts) {
   };
 }
 
+/** Batch 143 (full review): the live preview handle. mountPreview
+ * adds two window 'message' listeners per mount and its destroy()
+ * was never called by anyone — every visit to the website/designer
+ * screens leaked a pair of listeners that kept answering preview
+ * messages for dead iframes. One preview is live at a time: a new
+ * mount destroys the previous handle, and navigate() destroys it
+ * on route change. */
+let activePreviewHandle = null;
+function destroyActivePreview() {
+  if (activePreviewHandle) {
+    try {
+      activePreviewHandle.destroy();
+    } catch {
+      /* already gone */
+    }
+    activePreviewHandle = null;
+  }
+}
+
 /** Iframe preview with page select + desktop/mobile toggle. renderFn(slug) -> api envelope with data.html. */
 function mountPreview(host, renderFn, hooks) {
+  destroyActivePreview();
   host.innerHTML = `<div class="preview-toolbar">
     <select class="pv-page" aria-label="Preview page"><option value="">All pages</option></select>
     <div class="pv-actions">
@@ -731,7 +747,7 @@ function mountPreview(host, renderFn, hooks) {
   };
   window.addEventListener('message', onPreviewMsg);
   load();
-  return {
+  const handle = {
     reload: load,
     post(msg) {
       if (frame.contentWindow) frame.contentWindow.postMessage(msg, '*');
@@ -739,8 +755,11 @@ function mountPreview(host, renderFn, hooks) {
     destroy() {
       window.removeEventListener('message', onPreviewNav);
       window.removeEventListener('message', onPreviewMsg);
+      if (activePreviewHandle === handle) activePreviewHandle = null;
     },
   };
+  activePreviewHandle = handle;
+  return handle;
 }
 
 function mergePageInnerHtml(original, inner) {
@@ -4270,6 +4289,11 @@ async function pageDomains(param, query) {
   const purchases = asList((txnRes && txnRes.data) || {}, ['transactions', 'rows']);
   const txnDetail = (txnDetailRes && txnDetailRes.data) || null;
   const cf = (cfRes && cfRes.data) || {};
+  // Batch 143 (full review): a FAILED status fetch (cfRes null via
+  // the .catch above) is not "not configured" — the old code
+  // rendered the not-configured banner either way, sending the
+  // operator to re-enter credentials that were never the problem.
+  const cfLoadFailed = !cfRes;
   const linked = asList((linkedRes && linkedRes.data) || {}, ['domains', 'rows']);
   const sites = asList((sitesRes && sitesRes.data) || {}, ['websites', 'sites', 'rows']);
   const leads = dedupeById(asList((leadsRes && leadsRes.data) || {}, ['leads', 'rows']));
@@ -4394,7 +4418,7 @@ async function pageDomains(param, query) {
     </div>
     ${purchasesHtml}
     ${txnDetailHtml}
-    ${!cf.configured ? `<div class="card"><p class="error">Cloudflare is not configured. <a href="#/settings/cloudflare">Add token + Account ID in Settings</a> (permissions: Account · Registrar · Edit, Account · Cloudflare Pages · Edit).</p></div>` : ''}
+    ${cfLoadFailed ? `<div class="card"><p class="error">Could not load the Cloudflare status — check your connection and reload this page.</p></div>` : !cf.configured ? `<div class="card"><p class="error">Cloudflare is not configured. <a href="#/settings/cloudflare">Add token + Account ID in Settings</a> (permissions: Account · Registrar · Edit, Account · Cloudflare Pages · Edit).</p></div>` : ''}
     <div class="card">
       <h3>Search domains</h3>
       <form id="dom-search-form" class="row end">
@@ -7896,7 +7920,11 @@ async function renderAdminUsers(el) {
   );
   // Batch 29: client portal users (types + tab access) live below the
   // staff users panel on this same tab.
-  renderAdminPortalUsersPanel(el).catch(() => {});
+  // Batch 143: a failed panel load says so — the old bare catch left
+  // a silently missing panel that read as "no portal users".
+  renderAdminPortalUsersPanel(el).catch(() => {
+    el.insertAdjacentHTML('beforeend', '<div class="card"><p class="error">Could not load client portal users — reload this page to try again.</p></div>');
+  });
 }
 
 /* Batch 29 — client portal users: type (owner/renter) + per-tab nav
@@ -12337,6 +12365,7 @@ const PAGES = {
 };
 
 async function navigate() {
+  destroyActivePreview();
   closeNav();
   Array.from(overlays).forEach((o) => o.close());
   let { route, param, query } = parseHash();

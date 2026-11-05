@@ -89,7 +89,8 @@
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   async function api(path, opts = {}) {
@@ -1173,32 +1174,6 @@
       .join('');
   }
 
-  function rewriteHexInPreviewDoc(doc, fromHex, toHex) {
-    if (!doc || !fromHex || !toHex || fromHex === toHex) return;
-    const from = String(fromHex);
-    const to = String(toHex);
-    const re = () => new RegExp(from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-    const styles = doc.querySelectorAll('style');
-    styles.forEach((el) => {
-      const text = el.textContent;
-      if (!text || text.toLowerCase().indexOf(from.toLowerCase()) < 0) return;
-      el.textContent = text.replace(re(), to);
-    });
-    doc.querySelectorAll('[style]').forEach((el) => {
-      const s = el.getAttribute('style');
-      if (!s || s.toLowerCase().indexOf(from.toLowerCase()) < 0) return;
-      el.setAttribute('style', s.replace(re(), to));
-    });
-    // SVG fill/stroke attributes
-    doc.querySelectorAll('[fill],[stroke]').forEach((el) => {
-      ['fill', 'stroke'].forEach((attr) => {
-        const v = el.getAttribute(attr);
-        if (!v || v.toLowerCase().indexOf(from.toLowerCase()) < 0) return;
-        el.setAttribute(attr, v.replace(re(), to));
-      });
-    });
-  }
-
   function ensureCatalogStyles(doc) {
     const target = doc || document;
     if (!target.head || !window.WsFonts) return;
@@ -1208,25 +1183,6 @@
     link.rel = 'stylesheet';
     link.href = window.WsFonts.catalogHref();
     target.head.appendChild(link);
-  }
-
-  function ensureFrameFonts(doc, names) {
-    if (!doc || !doc.head || !window.WsFonts) return;
-    const add = (names || []).filter(Boolean);
-    if (!add.length) return;
-    let link = doc.querySelector('link[data-ws-fonts="1"]');
-    if (!link) {
-      link = doc.createElement('link');
-      link.rel = 'stylesheet';
-      link.setAttribute('data-ws-fonts', '1');
-      doc.head.appendChild(link);
-    }
-    const have = String(link.getAttribute('data-families') || '')
-      .split('|')
-      .filter(Boolean);
-    const all = [...new Set(have.concat(add))];
-    link.setAttribute('data-families', all.join('|'));
-    link.href = window.WsFonts.hrefFor(all);
   }
 
   function fillFontSelects() {
@@ -3558,7 +3514,9 @@
 
   function money(n) {
     const v = Number(n);
-    if (!Number.isFinite(v)) return '$1.00';
+    // Batch 143: a non-finite amount rendered as a literal '$1.00'
+    // — a fabricated price. Unknown amounts show a dash instead.
+    if (!Number.isFinite(v)) return '—';
     return `$${v.toFixed(2)}`;
   }
 
@@ -5527,6 +5485,20 @@
     el.textContent = text || '';
   }
 
+  // Batch 143 (full review): pager navigation for the server-paged
+  // module lists (blog / members / calls). The offset advances ONLY
+  // when the page load succeeds — the old handlers set the offset
+  // first and swallowed the load error (.catch(() => {})), leaving
+  // the stale list on screen under a pager claiming a new page.
+  function pagerLoad(key, nextOffset) {
+    const prev = moduleState[key] || 0;
+    moduleState[key] = nextOffset;
+    loadModuleItems().catch(() => {
+      moduleState[key] = prev;
+      moduleMsg('Could not load that page — please try again.');
+    });
+  }
+
   // Batch 124: the shared-taxonomy picker shared by the wired item
   // editors (blog, events, gallery albums, offers, directory). The
   // options are THIS lead's categories of the editor's own scope,
@@ -6611,8 +6583,8 @@
       box.appendChild(pager);
       const prev = pager.querySelector('[data-blog-prev]');
       const next = pager.querySelector('[data-blog-next]');
-      if (prev) prev.onclick = () => { moduleState.blogOffset = Math.max(0, off - 6); loadModuleItems().catch(() => {}); };
-      if (next) next.onclick = () => { moduleState.blogOffset = off + 6; loadModuleItems().catch(() => {}); };
+      if (prev) prev.onclick = () => pagerLoad('blogOffset', Math.max(0, off - 6));
+      if (next) next.onclick = () => pagerLoad('blogOffset', off + 6);
     }
   }
 
@@ -8093,8 +8065,8 @@
     // Batch 45 — calls pager wiring (server pages of 50).
     const cPrev = document.getElementById('calls-prev');
     const cNext = document.getElementById('calls-next');
-    if (cPrev) cPrev.onclick = () => { moduleState.callOffset = Math.max(0, (moduleState.callOffset || 0) - 50); loadModuleItems().catch(() => {}); };
-    if (cNext) cNext.onclick = () => { moduleState.callOffset = (moduleState.callOffset || 0) + 50; loadModuleItems().catch(() => {}); };
+    if (cPrev) cPrev.onclick = () => pagerLoad('callOffset', Math.max(0, (moduleState.callOffset || 0) - 50));
+    if (cNext) cNext.onclick = () => pagerLoad('callOffset', (moduleState.callOffset || 0) + 50);
   }
 
   function memberRowHtml(m, tiers) {
@@ -8333,8 +8305,8 @@
     // Batch 45 — members pager wiring (server pages of 50).
     const mPrev = document.getElementById('members-prev');
     const mNext = document.getElementById('members-next');
-    if (mPrev) mPrev.onclick = () => { moduleState.memberOffset = Math.max(0, (moduleState.memberOffset || 0) - 50); loadModuleItems().catch(() => {}); };
-    if (mNext) mNext.onclick = () => { moduleState.memberOffset = (moduleState.memberOffset || 0) + 50; loadModuleItems().catch(() => {}); };
+    if (mPrev) mPrev.onclick = () => pagerLoad('memberOffset', Math.max(0, (moduleState.memberOffset || 0) - 50));
+    if (mNext) mNext.onclick = () => pagerLoad('memberOffset', (moduleState.memberOffset || 0) + 50);
   }
 
   function moduleModalMsg(text, ok) {
@@ -8880,7 +8852,17 @@
     if (type === 'blog') qs = `?limit=6&offset=${moduleState.blogOffset || 0}`;
     if (type === 'members') qs = `?limit=50&offset=${moduleState.memberOffset || 0}`;
     if (type === 'calltracking') qs = `?limit=50&offset=${moduleState.callOffset || 0}`;
-    const data = await api(`/modules/${encodeURIComponent(type)}${qs}`);
+    // Batch 143: a failed list load must SAY so (moduleMsg) instead
+    // of leaving the previous list on screen as if current. The
+    // error still propagates — pagerLoad restores the offset on it,
+    // and action handlers keep their existing try/catch behavior.
+    let data;
+    try {
+      data = await api(`/modules/${encodeURIComponent(type)}${qs}`);
+    } catch (e) {
+      moduleMsg('Could not load this list — please try again.');
+      throw e;
+    }
     moduleState.items = Array.isArray(data.items) ? data.items : [];
     if (type === 'blog') {
       moduleState.blogTotal = data.total != null ? Number(data.total) : null;
@@ -11698,10 +11680,6 @@
         msg.textContent = errText(e);
       }
     };
-  }
-
-  async function startPortalCheckout(plan) {
-    return startPortalChangePlan(plan);
   }
 
   async function startPortalChangePlan(plan) {
