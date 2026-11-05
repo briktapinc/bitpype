@@ -625,7 +625,7 @@ function loadWithGlobals(file, mocks, globals) {
 
     // Partner attribution on a modern invoice (domain transaction).
     await platformDb.query(
-      "INSERT OR IGNORE INTO workspaces (id, name, slug) VALUES (2, 'Batch145 Partners', 'batch145-partners')"
+      "INSERT IGNORE INTO workspaces (id, name, slug) VALUES (2, 'Batch145 Partners', 'batch145-partners')"
     );
     const partners = require(path.join(root, 'server/partners.js'));
     const domainFlow = require(path.join(root, 'server/domainFlow.js'));
