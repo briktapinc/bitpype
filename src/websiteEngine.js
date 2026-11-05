@@ -4295,11 +4295,16 @@ function buildRobotsTxt(opts) {
  */
 function buildRedirects(pages) {
   // Batch 133: the universal detail page — every /detail/<type>/<key>
-  // URL rewrites (200, URL preserved) to the one exported detail.html,
-  // which reads its ONE typed target out of the path. Cloudflare Pages
-  // serves real files first, so authored pages and the static blog
-  // post pages are never shadowed by the splat.
-  const lines = ['/detail/* /detail.html 200'];
+  // URL rewrites (200, URL preserved) to the one exported detail
+  // page, which reads its ONE typed target out of the path. The
+  // target is the EXTENSIONLESS /detail: Pages canonicalizes
+  // /detail.html -> /detail with a 308 and rewrites do not chain
+  // through redirects (Batch 133 finisher: the .html target 404'd
+  // every detail URL on the first live preview while /detail itself
+  // served 200). Cloudflare Pages serves real files first, so
+  // authored pages and the static blog post pages are never
+  // shadowed by the splat.
+  const lines = ['/detail/* /detail 200'];
   for (const p of Array.isArray(pages) ? pages : []) {
     if (!p || isHomePage(p, pages)) continue;
     const legacy = legacyPageFileName(p.slug);

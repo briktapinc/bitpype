@@ -146,14 +146,14 @@ async function json(res) {
     assert.ok(engineSrc.includes('function buildDetailPage(pages, theme, opts)'), 'export builds the detail page');
     n++;
     assert.ok(
-      engineSrc.includes("'/detail/* /detail.html 200'") ||
-        engineSrc.includes('`/detail/* /detail.html 200`') ||
-        engineSrc.includes("'/detail/* /detail.html 200'"),
+      engineSrc.includes("'/detail/* /detail 200'") ||
+        engineSrc.includes('`/detail/* /detail 200`') ||
+        engineSrc.includes("'/detail/* /detail 200'"),
       'redirects carry the detail rewrite'
     );
     n++;
     assert.ok(
-      engineSrc.includes("'/detail/* /detail.html 200'") || engineSrc.includes('/detail/* /detail.html 200'),
+      engineSrc.includes("'/detail/* /detail 200'") || engineSrc.includes('/detail/* /detail 200'),
       'detail rewrite line present'
     );
     n++;
@@ -413,7 +413,7 @@ async function json(res) {
     assert.ok(detailHtml.includes('module-embed.js?v=mod34'), 'detail.html loads the module embed script at mod34');
     n++;
     const redirects = fs.readFileSync(path.join(outDir, '_redirects'), 'utf8');
-    assert.ok(redirects.includes('/detail/* /detail.html 200'), '_redirects rewrites detail URLs to detail.html');
+    assert.ok(redirects.includes('/detail/* /detail 200'), '_redirects rewrites detail URLs to the detail page (extensionless target)');
     n++;
     const shopHtml = fs.readFileSync(path.join(outDir, 'shop.html'), 'utf8');
     assert.ok(shopHtml.includes('name="bitpype-detail"'), 'exported list pages are stamped detail-enabled');
