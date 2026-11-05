@@ -550,6 +550,25 @@ function claimPageMeta(db, workspaceId, leadId) {
 function injectClaimPreviewIntoExport(exportDir, workspaceId, leadId) {
   const fs = require('fs');
   const path = require('path');
+  // All .html files under dir, recursively, as dir-relative paths.
+  const listHtmlFilesRecursive = (root) => {
+    const out = [];
+    const walk = (sub) => {
+      let entries;
+      try {
+        entries = fs.readdirSync(sub ? path.join(root, sub) : root, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const e of entries) {
+        const rel = sub ? path.join(sub, e.name) : e.name;
+        if (e.isDirectory()) walk(rel);
+        else if (e.isFile() && /\.html?$/i.test(e.name)) out.push(rel);
+      }
+    };
+    walk('');
+    return out;
+  };
   const dir = String(exportDir || '');
   if (!dir || !fs.existsSync(dir)) return { injected: 0 };
   const claimUrl = buildClaimUrl(workspaceId, leadId);
@@ -576,7 +595,10 @@ function injectClaimPreviewIntoExport(exportDir, workspaceId, leadId) {
   ].join('\n');
 
   let injected = 0;
-  const names = fs.readdirSync(dir).filter((n) => /\.html?$/i.test(n));
+  // Batch 143: recursive — Batch 133 detail shells live under
+  // detail/<type>/ and were silently skipped by the flat listing,
+  // shipping without the claim-preview injection.
+  const names = listHtmlFilesRecursive(dir);
   for (const name of names) {
     const full = path.join(dir, name);
     try {

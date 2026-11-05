@@ -3,6 +3,26 @@ const crypto = require('node:crypto');
 const fs = require('node:fs'),
   path = require('node:path');
 const invalid = (message) => Object.assign(new Error(message), { code: 'INVALID', status: 400 });
+/** All .html files under dir, recursively, as dir-relative paths
+ * (Batch 143 — detail shells live in subdirectories). */
+function listHtmlFilesRecursive(dir) {
+  const out = [];
+  const walk = (sub) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(sub ? path.join(dir, sub) : dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const rel = sub ? path.join(sub, e.name) : e.name;
+      if (e.isDirectory()) walk(rel);
+      else if (e.isFile() && /\.html?$/i.test(e.name)) out.push(rel);
+    }
+  };
+  walk('');
+  return out;
+}
 function googleIds(value) {
   const ids = Array.isArray(value) ? value : String(value || '').split(/[\s,]+/);
   const clean = [...new Set(ids.map((x) => String(x).trim().toUpperCase()).filter(Boolean))];
@@ -203,7 +223,10 @@ function inject(db, websiteId, dir) {
   if (base.protocol !== 'https:') throw invalid('Analytics requires an HTTPS app URL.');
   const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
   let n = 0;
-  for (const name of fs.readdirSync(dir).filter((x) => /\.html?$/i.test(x))) {
+  // Batch 143: recursive — Batch 133 detail shells live under
+  // detail/<type>/ and were silently skipped by the flat listing,
+  // shipping without analytics/cookie injection.
+  for (const name of listHtmlFilesRecursive(dir)) {
     const f = path.join(dir, name);
     let html = fs.readFileSync(f, 'utf8');
     html = html.replace(/\n?<!-- bitpype-analytics -->[\s\S]*?<!-- \/bitpype-analytics -->\n?/g, '');

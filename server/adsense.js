@@ -106,12 +106,34 @@ function applyToHtml(html, cfg) {
   return doc;
 }
 
+/** All .html files under dir, recursively, as dir-relative paths
+ * (Batch 143 — Batch 133 detail shells live in subdirectories and
+ * were silently skipped by the flat listing). */
+function listHtmlFilesRecursive(dir) {
+  const out = [];
+  const walk = (sub) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(sub ? path.join(dir, sub) : dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const rel = sub ? path.join(sub, e.name) : e.name;
+      if (e.isDirectory()) walk(rel);
+      else if (e.isFile() && /\.html?$/i.test(e.name)) out.push(rel);
+    }
+  };
+  walk('');
+  return out;
+}
+
 /** Apply a resolved config to every .html file in an export folder. */
 function applyToExportDir(dir, cfg) {
   if (!dir || !cfg) return 0;
   let names;
   try {
-    names = fs.readdirSync(dir).filter((x) => /\.html?$/i.test(x));
+    names = listHtmlFilesRecursive(dir);
   } catch (e) {
     console.warn('[adsense] applyToExportDir readdir:', e.message || e);
     return 0;

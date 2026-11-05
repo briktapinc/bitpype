@@ -20,14 +20,27 @@ function appBase() {
 
 function listHtmlFiles(dir) {
   if (!dir || !fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir).filter((n) => {
-    if (!/\.html?$/i.test(n)) return false;
+  // Batch 143 (full review): RECURSIVE — the Batch 133 item shells
+  // live at detail/<type>/<key>.html, one level down; the flat
+  // listing silently skipped them, so detail pages shipped without
+  // the cookie bar / preview chrome this module injects. Returns
+  // paths relative to dir (callers join as before).
+  const out = [];
+  const walk = (sub) => {
+    let entries;
     try {
-      return fs.statSync(path.join(dir, n)).isFile();
+      entries = fs.readdirSync(sub ? path.join(dir, sub) : dir, { withFileTypes: true });
     } catch {
-      return false;
+      return;
     }
-  });
+    for (const e of entries) {
+      const rel = sub ? path.join(sub, e.name) : e.name;
+      if (e.isDirectory()) walk(rel);
+      else if (e.isFile() && /\.html?$/i.test(e.name)) out.push(rel);
+    }
+  };
+  walk('');
+  return out;
 }
 
 function replaceOrAppendBeforeBody(html, markerStart, markerEnd, snippet) {

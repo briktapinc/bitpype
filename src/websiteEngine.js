@@ -2882,16 +2882,6 @@ function splitHtmlBody(html) {
 }
 
 /** Body inner HTML as used by multipage preview stacking (post-sanitize). */
-function freeformPreviewInner(pageHtml) {
-  const sanitized = sanitizeHtml(pageHtml);
-  if (looksLikeFullDocument(pageHtml) || looksLikeFullDocument(sanitized)) {
-    const split = splitHtmlBody(sanitized);
-    if (split) return split.body;
-    return sanitized.replace(/^[\s\S]*?<body[^>]*>/i, '').replace(/<\/body>[\s\S]*$/i, '');
-  }
-  return sanitized;
-}
-
 /**
  * Wrap non-empty text runs with <span class="ws-edit" data-edit="…">.
  * - Legacy page.html: html:pageIndex:nodeIndex
@@ -4365,8 +4355,12 @@ function build404Page(pages, theme, opts) {
 /* Every export ships ONE item.html: a themed shell (site chrome     */
 /* like the 404 page) carrying a detail root + a JSON config mapping   */
 /* each detail-capable module type to its public embed token and its   */
-/* list page. Cloudflare Pages rewrites /detail/<type>/<key> to this   */
-/* file (see buildRedirects); module-embed.js reads the ONE typed      */
+/* list page. writeStaticPages ALSO ships a real copy of this shell    */
+/* per published item at detail/<type>/<key>.html — the _redirects     */
+/* 200-rewrite for /detail/* does not fire on the platform's Pages      */
+/* deployments (Batch 133 finisher, verified live), so the rewrite     */
+/* line is only a fallback for post-export items on hosts that honor   */
+/* it. module-embed.js reads the ONE typed                             */
 /* target out of the path, resolves it through the public item API,    */
 /* and renders that type's detail layout into the root. The shell is   */
 /* noindex (it is an empty template at rest); the client sets the      */
@@ -4388,7 +4382,10 @@ function buildDetailPage(pages, theme, opts) {
   }
   const config = { api: appBase, types: (detail && detail.types) || {} };
   const configJson = JSON.stringify(config).replace(/</g, '\\u003c');
-  const body = `<main class="bp-detail-main" style="max-width:1100px;margin:0 auto;padding:clamp(1.75rem,4vw,3.25rem) clamp(1.1rem,3.5vw,2rem) clamp(3.5rem,8vw,5.5rem);box-sizing:border-box">
+  // Batch 143: horizontal padding floor is 22px (the Batch 135
+  // mobile section inset) — the old clamp(1.1rem,…) bottomed out at
+  // 17.6px on phones, below the platform floor.
+  const body = `<main class="bp-detail-main" style="max-width:1100px;margin:0 auto;padding:clamp(1.75rem,4vw,3.25rem) clamp(22px,3.5vw,2rem) clamp(3.5rem,8vw,5.5rem);box-sizing:border-box">
 <div class="bitpype-module-embed" data-bitpype-detail-root="1"${appBase ? ` data-bitpype-api="${esc(appBase)}"` : ''}><p class="bp-mod-loading">Loading…</p></div>
 </main>
 <script type="application/json" id="bp-detail-config">${configJson}</script>`;
@@ -4777,7 +4774,13 @@ function renderSite(pages, theme, opts) {
       doc = markFreeformDocument(doc, 0);
       doc = wrapBodyWithPageRoot(doc, 0);
     }
-    return upsertFontLinks(appendHtmlTail(doc, scripts), t);
+    // Batch 143 (full review): the Batch 135 spacing guarantee has
+    // two layers — the CSS floor (present here via injectThemeStyles
+    // → siteCss) and this raise-only JS guard (container/card
+    // padding + wide-table wrap). Every other full-document path
+    // injects it; this single-freeform path returned without it, so
+    // exactly the oldest freeform sites missed layer two.
+    return injectSpacingGuardScript(upsertFontLinks(appendHtmlTail(doc, scripts), t));
   }
   const headExtras = [];
   const body = pages
@@ -7586,6 +7589,16 @@ function writeStaticPages(pages, theme, outDir, opts) {
     for (const dtype of Object.keys(detailTypes)) {
       const keys = (detailTypes[dtype] && detailTypes[dtype].items) || [];
       for (const key of keys) {
+        // Batch 143 (full review): type/key become FILE PATH
+        // segments below. detailExportContext filters its own keys,
+        // but this exporter must not trust that — a key carrying a
+        // separator or dot-dot would write outside the detail tree
+        // (or outside the export). Skip + log anything that is not
+        // a single safe segment.
+        if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(dtype)) || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(key))) {
+          console.warn('[websiteEngine] detail shell skipped — unsafe type/key segment:', dtype, key);
+          continue;
+        }
         const rel = `detail/${dtype}/${key}.html`;
         const abs = path.join(outDir, 'detail', dtype, `${key}.html`);
         fs.mkdirSync(path.dirname(abs), { recursive: true });
@@ -7682,6 +7695,47 @@ function writeStaticPages(pages, theme, outDir, opts) {
     }
   } catch {
     /* optional */
+  }
+  // Batch 143 (full review): stale-export cleanup. Re-exports only
+  // ever WROTE files, never removed them — a deleted page, an
+  // unpublished item or a renamed slug stayed live in the output
+  // tree and got published forever. Remove exporter-owned files
+  // this run did not produce: top-level *.html, the detail/ tree,
+  // and the generated _redirects / sitemap.xml / robots.txt.
+  // NEVER touches images/ or assets/ (owner uploads live there and
+  // are re-listed above, not regenerated), nor any other top-level
+  // file type. Best-effort: a cleanup failure never fails the
+  // export.
+  try {
+    const keep = new Set(written);
+    for (const name of fs.readdirSync(outDir)) {
+      const abs = path.join(outDir, name);
+      let st;
+      try {
+        st = fs.statSync(abs);
+      } catch {
+        continue;
+      }
+      if (!st.isFile()) continue;
+      if (/\.html?$/i.test(name) || name === '_redirects' || name === 'sitemap.xml' || name === 'robots.txt') {
+        if (!keep.has(name)) fs.unlinkSync(abs);
+      }
+    }
+    const detailRoot = path.join(outDir, 'detail');
+    if (fs.existsSync(detailRoot)) {
+      for (const dtype of fs.readdirSync(detailRoot)) {
+        const typeDir = path.join(detailRoot, dtype);
+        if (!fs.statSync(typeDir).isDirectory()) continue;
+        for (const name of fs.readdirSync(typeDir)) {
+          const rel = `detail/${dtype}/${name}`;
+          if (/\.html?$/i.test(name) && !keep.has(rel)) fs.unlinkSync(path.join(typeDir, name));
+        }
+        if (fs.readdirSync(typeDir).length === 0) fs.rmdirSync(typeDir);
+      }
+      if (fs.readdirSync(detailRoot).length === 0) fs.rmdirSync(detailRoot);
+    }
+  } catch (e) {
+    console.warn('[websiteEngine] stale export cleanup:', e.message || e);
   }
   return { outDir, files: written };
 }
@@ -8176,7 +8230,6 @@ module.exports = {
   markFreeformTextNodes,
   markFreeformDocument,
   applyFreeformTextEdits,
-  freeformPreviewInner,
   writeStaticPages,
   copyDeliverableImages,
   imagesForWebsite,

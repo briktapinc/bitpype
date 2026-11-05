@@ -2154,7 +2154,12 @@ function detailExportContext(db, leadId) {
             }
           }
         }
-      } catch {
+      } catch (e) {
+        // Batch 143: was a silent catch — the Batch 133 fix-3
+        // failure mode (a broken payload read quietly shipping zero
+        // detail shells). The export continues, but the failure is
+        // on the record.
+        console.warn('[siteModules] detailExportContext items for', type, 'lead', lid, ':', e.message || e);
         /* items stay empty — the shell config still lists the type */
       }
       types[type] = {
@@ -2162,7 +2167,12 @@ function detailExportContext(db, leadId) {
         page: String(row.target_page_slug || (MODULE_META[type] && MODULE_META[type].defaultSlug) || '').replace(/^\/+/, ''),
         items,
       };
-    } catch {
+    } catch (e) {
+      // Batch 143: log it — "no embed row" is the expected empty
+      // case (getEmbedRow returns null, handled above without
+      // throwing); a THROW here is a real read failure and was
+      // previously indistinguishable from it.
+      console.warn('[siteModules] detailExportContext type', type, 'lead', lid, ':', e.message || e);
       /* a type without an embed row simply has no detail surface */
     }
   }
