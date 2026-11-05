@@ -142,7 +142,7 @@ function group(name, n) {
     const sha = crypto.createHash('sha256').update(multi.join('\n')).digest('hex');
     assert.equal(
       sha,
-      'a3fdd0d2828bda5f285652714975ba4010db4c1cc0eeadf2c89ddd071bc40040',
+      '83c84892e3272c05235609d95e97e8fda5c01708a89a37b4f7b25c868dc713c6',
       'SEC-13 sink multiset byte-identical (Batch 136 finisher: +2 audited STATIC sinks in module-embed.js; RAW/IDENT multiset unchanged)'
     );
     n += 1;
