@@ -254,7 +254,10 @@
       var target = entryFor(Number(d.index));
       if (target) {
         if (typeof d.background === 'string') target.el.style.backgroundColor = d.background;
-        if (d.paddingPx != null) {
+        if (d.paddingPx === '') {
+          target.el.style.paddingTop = '';
+          target.el.style.paddingBottom = '';
+        } else if (d.paddingPx != null) {
           target.el.style.paddingTop = Number(d.paddingPx) + 'px';
           target.el.style.paddingBottom = Number(d.paddingPx) + 'px';
         }

@@ -60,6 +60,10 @@
     selectedEditId: '',
     structureOpen: false,
     structureBusy: false,
+    // Batch 147 — native section (layout) editor session.
+    layoutOpen: false,
+    layoutBusy: false,
+    layout: null,
     structurePageIdx: 0,
     structureInsertAfter: 0,
     canvasPick: null,
@@ -1359,6 +1363,862 @@
     msg.textContent = text || '';
   }
 
+  /* ================================================================ */
+  /* Batch 147 — native section (layout) editor.                       */
+  /* The portal-side controller: it holds the page's section list as   */
+  /* the working model, mirrors the server ops in src/siteStructure.js */
+  /* for instant feedback, re-renders the canvas from the server after */
+  /* every op (the canvas is a render OF the model, never a fork of    */
+  /* it) and persists only on explicit Save via POST /site/layout —    */
+  /* the platform's real update path. All DOM below is built with      */
+  /* createElement/textContent (no HTML-string sinks).                 */
+  /* ================================================================ */
+
+  const LAYOUT_PINNED_TYPES = { nav: 1, hero: 1, banner: 1, footer: 1 };
+
+  function syncLayoutUi() {
+    const btn = document.getElementById('btn-layout');
+    const label = document.getElementById('btn-layout-label');
+    const bar = document.getElementById('layout-bar');
+    const can = !!state.siteEditable;
+    if (btn) {
+      if (can) btn.classList.remove('hidden');
+      else btn.classList.add('hidden');
+      btn.setAttribute('aria-pressed', state.layoutOpen && can ? 'true' : 'false');
+      btn.classList.toggle('ghost', !!(state.layoutOpen && can));
+      btn.classList.toggle('soft', !(state.layoutOpen && can));
+    }
+    if (label) label.textContent = state.layoutOpen && can ? 'Hide layout' : 'Layout';
+    if (bar) bar.hidden = !(can && state.layoutOpen && !state.editFullscreen);
+    const dirtyEl = document.getElementById('layout-dirty');
+    if (dirtyEl) dirtyEl.hidden = !(state.layout && state.layout.dirty);
+    const saveBtn = document.getElementById('btn-layout-save');
+    if (saveBtn) saveBtn.disabled = !(state.layout && state.layout.dirty) || !!state.layoutBusy;
+    const undoBtn = document.getElementById('btn-layout-undo');
+    if (undoBtn) undoBtn.disabled = !(state.layout && state.layout.undo.length) || !!state.layoutBusy;
+  }
+
+  function setLayoutMsg(text, kind) {
+    const msg = document.getElementById('msg-layout');
+    if (!msg) return;
+    msg.className = kind ? `msg ${kind}` : 'msg';
+    msg.textContent = text || '';
+  }
+
+  function layoutSession() {
+    return state.layout;
+  }
+
+  /** Resolve a section's editor flags from the working model. */
+  function layoutInfo(section) {
+    const L = layoutSession();
+    const type = String((section && section.type) || '').toLowerCase();
+    const c = section && section.content && typeof section.content === 'object' ? section.content : {};
+    let moduleType = String(c.module_type || c.moduleType || '').toLowerCase();
+    if (!moduleType && L) {
+      const token =
+        typeof c.public_token === 'string'
+          ? c.public_token
+          : typeof c.html === 'string'
+            ? (c.html.match(/data-bitpype-module-token\s*=\s*["']([^"']+)["']/) || [])[1] || ''
+            : '';
+      if (token && L.tokens[token]) moduleType = L.tokens[token];
+    }
+    const chrome = type === 'nav' || type === 'footer';
+    const fence = moduleType && L && L.fences ? L.fences[moduleType] : null;
+    let label = '';
+    if (moduleType) {
+      const meta =
+        L && L.palette ? (L.palette.modules || []).find((m) => m.type === moduleType) : null;
+      label = `Module: ${(meta && meta.label) || c.title || moduleType}`;
+    } else {
+      label =
+        c.title || c.heading || c.headline || c.brand || type.replace(/_/g, ' ').replace(/^./, (ch) => ch.toUpperCase());
+    }
+    return {
+      type,
+      moduleType: moduleType || '',
+      label: String(label || type || 'Section'),
+      chrome,
+      movable: !chrome && !LAYOUT_PINNED_TYPES[type],
+      canDuplicate: !chrome && !fence,
+      duplicateReason: chrome ? 'Page chrome exists once per page.' : fence || null,
+      canDelete: !chrome,
+    };
+  }
+
+  function layoutModelFlags(index) {
+    const L = layoutSession();
+    if (!L) return null;
+    return layoutInfo(L.model[index]);
+  }
+
+  function layoutMarkDirty() {
+    const L = layoutSession();
+    if (!L) return;
+    L.dirty = JSON.stringify(L.model) !== JSON.stringify(L.saved);
+    syncLayoutUi();
+  }
+
+  function layoutSnapshot() {
+    const L = layoutSession();
+    if (!L) return;
+    L.undo.push(JSON.stringify(L.model));
+    if (L.undo.length > 50) L.undo.shift();
+  }
+
+  async function openLayout(slug) {
+    if (!state.siteEditable || state.layoutBusy) return;
+    state.layoutBusy = true;
+    syncLayoutUi();
+    try {
+      const qs = slug ? `?slug=${encodeURIComponent(slug)}` : '';
+      const data = await api(`/site/layout${qs}`);
+      if (!data || !data.page) throw new Error('No page to edit yet.');
+      // Mutual exclusion with the other Website-tab modes.
+      if (state.editMode) setEditMode(false, { fullscreen: false });
+      state.structureOpen = false;
+      state.themeOpen = false;
+      syncStructureUi();
+      syncThemeUi();
+      state.layout = {
+        slug: data.page.slug,
+        pages: data.pages || [],
+        model: JSON.parse(JSON.stringify(data.sections || [])),
+        saved: JSON.parse(JSON.stringify(data.sections || [])),
+        palette: data.palette || { content: [], modules: [] },
+        theme: data.theme || {},
+        padding: data.padding || { floor: 22, max: 160, defaultPx: 56 },
+        tokens: data.tokens || {},
+        fences: data.fences || {},
+        freeform: !!data.freeform,
+        undo: [],
+        selected: -1,
+        dirty: false,
+        addAfter: null,
+        paletteOpen: false,
+      };
+      state.layoutOpen = true;
+      if (data.previewUrl) state.previewUrl = data.previewUrl;
+      setLayoutMsg(
+        data.freeform
+          ? 'This page is freeform HTML — the layout editor applies to section-based pages. Pick another page above.'
+          : '',
+        ''
+      );
+      renderLayoutBar();
+      await renderLayoutCanvas();
+    } catch (e) {
+      setLayoutMsg(errText(e), 'err');
+      state.layoutOpen = false;
+    } finally {
+      state.layoutBusy = false;
+      syncLayoutUi();
+    }
+  }
+
+  /** Close the editor UI. Returns false when the user cancels a
+   *  dirty-discard confirm. keepSession=true hides the bar but keeps
+   *  the working model (used when Edit routes to the Modules tab). */
+  function closeLayout(opts = {}) {
+    const L = layoutSession();
+    if (L && L.dirty && !opts.keepSession && !opts.force) {
+      if (!window.confirm('You have unsaved layout changes. Discard them?')) return false;
+    }
+    state.layoutOpen = false;
+    if (!opts.keepSession) state.layout = null;
+    syncLayoutUi();
+    if (!opts.keepSession && !opts.skipReload) loadEditablePreview(state.previewUrl).catch(() => {});
+    return true;
+  }
+
+  /** Guard for the other Website-tab modes: switching away with a
+   *  dirty layout session needs an explicit discard. */
+  function layoutBlocksModeSwitch() {
+    if (!state.layoutOpen) return false;
+    return !closeLayout();
+  }
+
+  async function renderLayoutCanvas() {
+    const L = layoutSession();
+    if (!L) return;
+    try {
+      const data = await api('/site/layout/render', {
+        method: 'POST',
+        body: JSON.stringify(
+          L.freeform ? { slug: L.slug } : { slug: L.slug, sections: L.model }
+        ),
+      });
+      setLayoutCanvasHtml(data && data.html ? data.html : '');
+    } catch (e) {
+      setLayoutMsg(errText(e), 'err');
+    }
+  }
+
+  function setLayoutCanvasHtml(html) {
+    const box = document.getElementById('preview-box');
+    if (!box) return;
+    while (box.firstChild) box.removeChild(box.firstChild);
+    const empty = document.createElement('div');
+    empty.className = 'preview-empty';
+    empty.id = 'preview-empty';
+    empty.textContent = 'No preview is available yet.';
+    empty.hidden = !!html;
+    box.appendChild(empty);
+    const frame = document.createElement('iframe');
+    frame.title = 'Website preview — layout editor';
+    frame.id = 'portal-preview-frame';
+    frame.setAttribute('sandbox', 'allow-scripts allow-forms');
+    frame.setAttribute('referrerpolicy', 'no-referrer');
+    frame.addEventListener('load', () => {
+      postLayoutConfig();
+      const L = layoutSession();
+      if (L && L.selected >= 0) postLayoutHighlight(L.selected);
+    });
+    box.appendChild(frame);
+    state.previewFrame = frame;
+    state.previewScroll = { x: 0, y: 0 };
+    frame.srcdoc = html || '<p style="font-family:sans-serif;padding:1rem">Empty preview.</p>';
+  }
+
+  function postLayoutConfig() {
+    const L = layoutSession();
+    const frame = state.previewFrame;
+    if (!L || !frame || !frame.contentWindow) return;
+    const sections = L.model.map((s, i) => {
+      const info = layoutInfo(s);
+      return {
+        index: i,
+        label: info.label,
+        movable: info.movable,
+        canDuplicate: info.canDuplicate,
+        canDelete: info.canDelete,
+        chrome: info.chrome,
+      };
+    });
+    try {
+      frame.contentWindow.postMessage({ source: 'bp-layout-host', action: 'config', sections }, '*');
+    } catch {
+      /* frame not ready */
+    }
+  }
+
+  function postLayoutHighlight(index) {
+    const frame = state.previewFrame;
+    if (!frame || !frame.contentWindow) return;
+    try {
+      frame.contentWindow.postMessage({ source: 'bp-layout-host', action: 'highlight', index }, '*');
+    } catch {
+      /* frame not ready */
+    }
+  }
+
+  function postLayoutStyle(index, style) {
+    const frame = state.previewFrame;
+    if (!frame || !frame.contentWindow) return;
+    try {
+      frame.contentWindow.postMessage(
+        { source: 'bp-layout-host', action: 'style', index, background: style.background, paddingPx: style.paddingPx },
+        '*'
+      );
+    } catch {
+      /* frame not ready */
+    }
+  }
+
+  function layoutEl(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+
+  function layoutSmallBtn(text, title, act, idx, disabled) {
+    const b = layoutEl('button', '', text);
+    b.type = 'button';
+    b.title = title;
+    b.setAttribute('data-layout-act', act);
+    b.setAttribute('data-layout-idx', String(idx));
+    b.disabled = !!disabled;
+    return b;
+  }
+
+  function renderLayoutBar() {
+    const L = layoutSession();
+    const tabsEl = document.getElementById('layout-page-tabs');
+    const railEl = document.getElementById('layout-rail');
+    if (!L || !tabsEl || !railEl) return;
+    while (tabsEl.firstChild) tabsEl.removeChild(tabsEl.firstChild);
+    for (const p of L.pages) {
+      const b = layoutEl('button', p.slug === L.slug ? 'active' : '', p.title || p.slug || 'Page');
+      b.type = 'button';
+      b.setAttribute('role', 'tab');
+      b.setAttribute('data-layout-page', String(p.slug || ''));
+      if (p.freeform) b.title = 'Freeform HTML page — layout editing applies to section pages';
+      tabsEl.appendChild(b);
+    }
+    renderLayoutRail();
+    renderLayoutSide();
+    renderLayoutPalette();
+    syncLayoutUi();
+  }
+
+  function renderLayoutRail() {
+    const L = layoutSession();
+    const railEl = document.getElementById('layout-rail');
+    if (!L || !railEl) return;
+    while (railEl.firstChild) railEl.removeChild(railEl.firstChild);
+    if (L.freeform) {
+      railEl.appendChild(layoutEl('p', 'hint', 'This page is freeform HTML — section layout editing does not apply.'));
+      return;
+    }
+    const movableIdx = [];
+    L.model.forEach((s, i) => {
+      if (layoutInfo(s).movable) movableIdx.push(i);
+    });
+    L.model.forEach((section, i) => {
+      const info = layoutInfo(section);
+      const row = layoutEl('div', `layout-row${i === L.selected ? ' selected' : ''}${info.chrome ? ' locked' : ''}`);
+      row.setAttribute('data-layout-row', String(i));
+      row.appendChild(layoutEl('span', 'layout-row-label', info.label));
+      row.appendChild(
+        layoutEl('span', 'layout-row-meta', info.chrome ? 'Locked' : info.moduleType ? 'Module' : info.type)
+      );
+      const btns = layoutEl('span', 'layout-row-btns');
+      const posInMovable = movableIdx.indexOf(i);
+      btns.appendChild(
+        layoutSmallBtn('↑', 'Move up', 'up', i, !info.movable || posInMovable <= 0)
+      );
+      btns.appendChild(
+        layoutSmallBtn('↓', 'Move down', 'down', i, !info.movable || posInMovable === movableIdx.length - 1)
+      );
+      btns.appendChild(layoutSmallBtn('⧉', info.duplicateReason || 'Duplicate section', 'duplicate', i, !info.canDuplicate));
+      btns.appendChild(layoutSmallBtn('✕', 'Delete section', 'delete', i, !info.canDelete));
+      btns.appendChild(layoutSmallBtn('Edit', 'Edit section', 'edit', i, false));
+      row.appendChild(btns);
+      railEl.appendChild(row);
+    });
+  }
+
+  function layoutSectionBackground(section) {
+    const c = section && section.content && typeof section.content === 'object' ? section.content : {};
+    for (const key of ['backgroundColor', 'background_color', 'bg', 'background']) {
+      const v = c[key];
+      if (typeof v === 'string' && /^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.test(v.trim())) return v.trim();
+    }
+    return '';
+  }
+
+  function layoutSectionPadding(section) {
+    const style = section && typeof section.style === 'string' ? section.style : '';
+    let top = null;
+    let bottom = null;
+    for (const part of style.split(';')) {
+      const idx = part.indexOf(':');
+      if (idx <= 0) continue;
+      const prop = part.slice(0, idx).trim().toLowerCase();
+      const m = /^(\d+(?:\.\d+)?)px$/.exec(part.slice(idx + 1).trim());
+      if (!m) continue;
+      if (prop === 'padding-top') top = Number(m[1]);
+      if (prop === 'padding-bottom') bottom = Number(m[1]);
+    }
+    if (top == null && bottom == null) return null;
+    return Math.round(Math.max(top || 0, bottom || 0));
+  }
+
+  function renderLayoutSide() {
+    const L = layoutSession();
+    const side = document.getElementById('layout-side');
+    const cols = document.getElementById('layout-cols');
+    if (!L || !side) return;
+    const i = L.selected;
+    const section = i >= 0 ? L.model[i] : null;
+    if (!section) {
+      side.hidden = true;
+      if (cols) cols.classList.remove('has-side');
+      return;
+    }
+    const info = layoutInfo(section);
+    side.hidden = false;
+    if (cols) cols.classList.add('has-side');
+    const title = document.getElementById('layout-side-title');
+    if (title) title.textContent = info.label;
+    const meta = document.getElementById('layout-side-meta');
+    if (meta) {
+      meta.textContent = info.chrome
+        ? 'Page chrome — position locked (always first/last).'
+        : info.moduleType
+          ? `Module section — settings live in the Modules tab; this block only places the module on the page.`
+          : `${info.type} section`;
+    }
+    const knobs = document.getElementById('layout-side-knobs');
+    if (knobs) {
+      while (knobs.firstChild) knobs.removeChild(knobs.firstChild);
+      if (!info.chrome) {
+        knobs.appendChild(layoutBackgroundKnob(i, section));
+        knobs.appendChild(layoutPaddingKnob(i, section));
+      }
+    }
+    const actions = document.getElementById('layout-side-actions');
+    if (actions) {
+      while (actions.firstChild) actions.removeChild(actions.firstChild);
+      const editBtn = layoutEl('button', '', info.moduleType ? 'Edit module settings' : 'Edit content');
+      editBtn.type = 'button';
+      editBtn.onclick = () => layoutAct('edit', i);
+      actions.appendChild(editBtn);
+      const dupBtn = layoutEl('button', '', 'Duplicate');
+      dupBtn.type = 'button';
+      dupBtn.disabled = !info.canDuplicate;
+      if (info.duplicateReason) dupBtn.title = info.duplicateReason;
+      dupBtn.onclick = () => layoutAct('duplicate', i);
+      actions.appendChild(dupBtn);
+      const delBtn = layoutEl('button', '', 'Delete');
+      delBtn.type = 'button';
+      delBtn.disabled = !info.canDelete;
+      delBtn.onclick = () => layoutAct('delete', i);
+      actions.appendChild(delBtn);
+      const addBtn = layoutEl('button', '', '+ Add below');
+      addBtn.type = 'button';
+      addBtn.onclick = () => layoutOpenPalette(i);
+      actions.appendChild(addBtn);
+    }
+    const note = document.getElementById('layout-side-note');
+    if (note) {
+      note.textContent = info.chrome
+        ? 'The menu and footer exist once per page — they cannot be moved, duplicated or removed here.'
+        : info.duplicateReason || '';
+    }
+  }
+
+  function layoutBackgroundKnob(index, section) {
+    const L = layoutSession();
+    const wrap = layoutEl('div', 'layout-knob');
+    wrap.appendChild(layoutEl('label', '', 'Background'));
+    const row = layoutEl('div', 'layout-swatches');
+    const current = layoutSectionBackground(section).toLowerCase();
+    const seen = new Set();
+    const addSwatch = (hex, name) => {
+      const norm = String(hex || '').toLowerCase();
+      if (!/^#(?:[0-9a-f]{6}|[0-9a-f]{3})$/.test(norm) || seen.has(norm)) return;
+      seen.add(norm);
+      const b = layoutEl('button', `layout-swatch${norm === current ? ' selected' : ''}`);
+      b.type = 'button';
+      b.title = name || norm;
+      b.style.backgroundColor = norm;
+      b.onclick = () => layoutSetBackground(index, norm);
+      row.appendChild(b);
+    };
+    const theme = (L && L.theme) || {};
+    addSwatch(theme.primary, 'Primary');
+    addSwatch(theme.secondary, 'Secondary');
+    addSwatch(theme.bg, 'Site background');
+    addSwatch(theme.text, 'Text colour');
+    const palette = Array.isArray(theme.palette) ? theme.palette : [];
+    for (const entry of palette) {
+      addSwatch(typeof entry === 'string' ? entry : entry && entry.hex, 'Site colour');
+    }
+    const none = layoutEl('button', 'layout-swatch layout-swatch-none', 'None');
+    none.type = 'button';
+    if (!current) none.classList.add('selected');
+    none.onclick = () => layoutSetBackground(index, '');
+    row.appendChild(none);
+    wrap.appendChild(row);
+    return wrap;
+  }
+
+  function layoutPaddingKnob(index, section) {
+    const L = layoutSession();
+    const pad = (L && L.padding) || { floor: 22, max: 160, defaultPx: 56 };
+    const wrap = layoutEl('div', 'layout-knob');
+    wrap.appendChild(layoutEl('label', '', 'Vertical padding'));
+    const row = layoutEl('div', 'layout-pad-row');
+    const current = layoutSectionPadding(section);
+    const range = document.createElement('input');
+    range.type = 'range';
+    range.min = String(pad.floor);
+    range.max = String(pad.max);
+    range.step = '2';
+    range.value = String(current != null ? current : pad.defaultPx);
+    range.setAttribute('aria-label', 'Vertical padding in pixels');
+    const num = document.createElement('input');
+    num.type = 'number';
+    num.min = String(pad.floor);
+    num.max = String(pad.max);
+    num.step = '2';
+    num.value = range.value;
+    num.setAttribute('aria-label', 'Vertical padding value (px)');
+    const apply = (v) => {
+      const px = Math.max(pad.floor, Math.min(pad.max, Math.round(Number(v) || pad.defaultPx)));
+      range.value = String(px);
+      num.value = String(px);
+      layoutSetPadding(index, px, true);
+    };
+    range.addEventListener('input', () => apply(range.value));
+    num.addEventListener('change', () => apply(num.value));
+    row.appendChild(range);
+    row.appendChild(num);
+    row.appendChild(layoutEl('span', 'hint', 'px'));
+    wrap.appendChild(row);
+    const foot = layoutEl('div', 'layout-pad-row');
+    const state = layoutEl(
+      'span',
+      'hint',
+      current != null ? `Custom — platform default is ${pad.defaultPx}px.` : `Site default (${pad.defaultPx}px) — drag to customise.`
+    );
+    foot.appendChild(state);
+    if (current != null) {
+      const reset = layoutEl('button', '', 'Reset');
+      reset.type = 'button';
+      reset.onclick = () => layoutSetPadding(index, null, false);
+      foot.appendChild(reset);
+    }
+    const floorNote = layoutEl('p', 'hint', `Minimum ${pad.floor}px — the platform spacing floor keeps text off the edges.`);
+    floorNote.style.margin = '6px 0 0';
+    wrap.appendChild(foot);
+    wrap.appendChild(floorNote);
+    return wrap;
+  }
+
+  function layoutSetBackground(index, hex) {
+    const L = layoutSession();
+    const section = L && L.model[index];
+    if (!section) return;
+    layoutSnapshot();
+    if (!section.content || typeof section.content !== 'object') section.content = {};
+    if (hex) section.content.backgroundColor = hex;
+    else delete section.content.backgroundColor;
+    layoutMarkDirty();
+    renderLayoutSide();
+    postLayoutStyle(index, { background: hex || '' });
+  }
+
+  function layoutSetPadding(index, px, live) {
+    const L = layoutSession();
+    const section = L && L.model[index];
+    if (!section) return;
+    const pad = L.padding || { floor: 22, max: 160 };
+    if (!live || L.padSnapIndex !== index) {
+      layoutSnapshot();
+      L.padSnapIndex = index;
+    }
+    const decls = [];
+    const raw = typeof section.style === 'string' ? section.style : '';
+    for (const part of raw.split(';')) {
+      const ix = part.indexOf(':');
+      if (ix <= 0) continue;
+      const prop = part.slice(0, ix).trim().toLowerCase();
+      const value = part.slice(ix + 1).trim();
+      if (!prop || !value) continue;
+      if (prop === 'padding-top' || prop === 'padding-bottom' || prop === 'padding') continue;
+      decls.push(`${prop}:${value}`);
+    }
+    if (px != null) {
+      const v = Math.max(pad.floor, Math.min(pad.max, Math.round(px)));
+      decls.push(`padding-top:${v}px`, `padding-bottom:${v}px`);
+    }
+    if (decls.length) section.style = decls.join(';');
+    else delete section.style;
+    layoutMarkDirty();
+    postLayoutStyle(index, { paddingPx: px == null ? '' : px });
+    if (!live) {
+      L.padSnapIndex = -1;
+      renderLayoutSide();
+    }
+  }
+
+  function layoutAfterStructural() {
+    layoutMarkDirty();
+    renderLayoutBar();
+    renderLayoutCanvas();
+  }
+
+  /** Client mirror of moveSectionToIndex (movable-slot rule). */
+  function layoutMoveClient(from, toIndex) {
+    const L = layoutSession();
+    if (!L) return false;
+    const model = L.model;
+    const flags = model.map((s) => layoutInfo(s).movable);
+    if (!flags[from]) return false;
+    const slots = [];
+    const movable = [];
+    model.forEach((s, i) => {
+      if (flags[i]) {
+        slots.push(i);
+        movable.push(s);
+      }
+    });
+    const fromSlot = slots.indexOf(from);
+    let toSlot = 0;
+    slots.forEach((slotIdx, k) => {
+      if (slotIdx <= toIndex) toSlot = k;
+    });
+    if (fromSlot < 0 || fromSlot === toSlot) return false;
+    layoutSnapshot();
+    const moved = movable.splice(fromSlot, 1)[0];
+    movable.splice(toSlot, 0, moved);
+    slots.forEach((slotIdx, k) => {
+      model[slotIdx] = movable[k];
+    });
+    L.selected = slots[toSlot];
+    layoutAfterStructural();
+    return true;
+  }
+
+  function layoutFreshenCopy(model, copy) {
+    const used = new Set();
+    model.forEach((s) => {
+      if (s && typeof s.id === 'string' && s.id) used.add(s.id);
+      const a = s && s.content && typeof s.content === 'object' ? s.content.anchorId : '';
+      if (typeof a === 'string' && a) used.add(a);
+    });
+    const fresh = (base) => {
+      const stem = String(base || 'section').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48) || 'section';
+      let candidate = `${stem}-copy`;
+      let n = 2;
+      while (used.has(candidate)) {
+        candidate = `${stem}-copy-${n}`;
+        n += 1;
+      }
+      used.add(candidate);
+      return candidate;
+    };
+    if (typeof copy.id === 'string' && copy.id) copy.id = fresh(copy.id);
+    if (copy.content && typeof copy.content.anchorId === 'string' && copy.content.anchorId) {
+      copy.content.anchorId = fresh(copy.content.anchorId);
+    }
+  }
+
+  function layoutAct(action, index) {
+    const L = layoutSession();
+    if (!L || L.freeform || state.layoutBusy) return;
+    const info = layoutModelFlags(index);
+    if (!info) return;
+    if (action === 'edit') {
+      layoutEditSection(index);
+      return;
+    }
+    if (action === 'up' || action === 'down') {
+      const slots = [];
+      L.model.forEach((s, i) => {
+        if (layoutInfo(s).movable) slots.push(i);
+      });
+      const pos = slots.indexOf(index);
+      const target = action === 'up' ? slots[pos - 1] : slots[pos + 1];
+      if (target != null) layoutMoveClient(index, target);
+      return;
+    }
+    if (action === 'duplicate') {
+      if (!info.canDuplicate) {
+        if (info.duplicateReason) setLayoutMsg(info.duplicateReason, 'err');
+        return;
+      }
+      layoutSnapshot();
+      const copy = JSON.parse(JSON.stringify(L.model[index]));
+      layoutFreshenCopy(L.model, copy);
+      L.model.splice(index + 1, 0, copy);
+      L.selected = index + 1;
+      layoutAfterStructural();
+      return;
+    }
+    if (action === 'delete') {
+      if (!info.canDelete) return;
+      layoutSnapshot();
+      L.model.splice(index, 1);
+      L.selected = Math.min(index, L.model.length - 1);
+      layoutAfterStructural();
+    }
+  }
+
+  function layoutSelect(index, fromCanvas) {
+    const L = layoutSession();
+    if (!L) return;
+    L.selected = index;
+    renderLayoutRail();
+    renderLayoutSide();
+    if (!fromCanvas && index >= 0) postLayoutHighlight(index);
+  }
+
+  function layoutUndo() {
+    const L = layoutSession();
+    if (!L || !L.undo.length) return;
+    const prev = L.undo.pop();
+    L.model = JSON.parse(prev);
+    if (L.selected >= L.model.length) L.selected = L.model.length - 1;
+    layoutMarkDirty();
+    renderLayoutBar();
+    renderLayoutCanvas();
+  }
+
+  async function layoutEditSection(index) {
+    const L = layoutSession();
+    const info = layoutModelFlags(index);
+    if (!L || !info) return;
+    if (info.moduleType) {
+      // Module sections edit in their EXISTING portal settings UI
+      // (the Modules tab) — the layout session (and any unsaved
+      // changes) stays loaded under the Website tab.
+      state.layoutOpen = false;
+      syncLayoutUi();
+      showPortalPanel('modules');
+      try {
+        await loadModules();
+        if (moduleState && Array.isArray(moduleState.summary ? moduleState.summary.modules : [])) {
+          moduleState.current = info.moduleType;
+          renderModuleTypeTabs();
+          await loadModuleItems();
+        }
+      } catch {
+        /* modules panel reports its own errors */
+      }
+      return;
+    }
+    // Content / HTML / chrome sections edit in the existing preview
+    // Edit mode, which works on the SAVED site — save first if dirty.
+    if (L.dirty) {
+      if (!window.confirm('Save your layout changes before editing content?')) return;
+      const okSave = await saveLayout();
+      if (!okSave) return;
+    }
+    closeLayout({ force: true, skipReload: true });
+    await loadEditablePreview(state.previewUrl);
+    setEditMode(true, { fullscreen: true });
+  }
+
+  async function saveLayout() {
+    const L = layoutSession();
+    if (!L || !L.dirty || state.layoutBusy) return false;
+    state.layoutBusy = true;
+    syncLayoutUi();
+    setLayoutMsg('Saving…', '');
+    try {
+      const data = await api('/site/layout', {
+        method: 'POST',
+        body: JSON.stringify({ slug: L.slug, sections: L.model }),
+      });
+      L.saved = JSON.parse(JSON.stringify(L.model));
+      L.undo = [];
+      L.dirty = false;
+      if (data.previewUrl) state.previewUrl = data.previewUrl;
+      if (data.menu || data.pages) state.structure = { menu: data.menu, pages: data.pages };
+      const un = Array.isArray(data.unpublishedModules) ? data.unpublishedModules : [];
+      setLayoutMsg(
+        un.length
+          ? `Layout saved — preview updated. That removed the last ${un.join(', ')} block on the site, so the module was unpublished; its data is kept and it can be switched back on in Modules.`
+          : 'Layout saved — preview updated.',
+        'ok'
+      );
+      renderLayoutBar();
+      await renderLayoutCanvas();
+      return true;
+    } catch (e) {
+      setLayoutMsg(errText(e), 'err');
+      return false;
+    } finally {
+      state.layoutBusy = false;
+      syncLayoutUi();
+    }
+  }
+
+  /* ---- ADD palette ------------------------------------------------- */
+  function layoutInsertIndex(afterIndex) {
+    const L = layoutSession();
+    const model = L.model;
+    let at = afterIndex == null ? model.length : afterIndex + 1;
+    const footerAt = model.findIndex((s) => String(s.type || '').toLowerCase() === 'footer');
+    if (footerAt >= 0 && at > footerAt) at = footerAt;
+    if (model[0] && String(model[0].type || '').toLowerCase() === 'nav' && at < 1) at = 1;
+    return Math.max(0, Math.min(at, model.length));
+  }
+
+  function layoutOpenPalette(afterIndex) {
+    const L = layoutSession();
+    if (!L || L.freeform) return;
+    L.addAfter = afterIndex == null ? null : afterIndex;
+    L.paletteOpen = true;
+    renderLayoutPalette();
+  }
+
+  function renderLayoutPalette() {
+    const L = layoutSession();
+    const wrap = document.getElementById('layout-palette');
+    const list = document.getElementById('layout-palette-list');
+    const title = document.getElementById('layout-palette-title');
+    if (!wrap || !list) return;
+    const open = !!(L && L.paletteOpen && !L.freeform);
+    wrap.hidden = !open;
+    if (!open) return;
+    if (title) {
+      const after =
+        L.addAfter != null && L.model[L.addAfter]
+          ? layoutInfo(L.model[L.addAfter]).label
+          : null;
+      title.textContent = after ? `Add a section below “${after}”` : 'Add a section (goes above the footer)';
+    }
+    while (list.firstChild) list.removeChild(list.firstChild);
+    const group = (name) => list.appendChild(layoutEl('p', 'layout-palette-group', name));
+    const grid = () => {
+      const g = layoutEl('div', 'layout-palette-grid');
+      list.appendChild(g);
+      return g;
+    };
+    group('Content sections');
+    const contentGrid = grid();
+    for (const c of (L.palette && L.palette.content) || []) {
+      const b = layoutEl('button', '', c.label);
+      b.type = 'button';
+      b.setAttribute('data-layout-pick', 'content');
+      b.setAttribute('data-layout-pick-type', c.type);
+      contentGrid.appendChild(b);
+    }
+    group('Site modules');
+    const modGrid = grid();
+    const presentFences = {};
+    L.model.forEach((s) => {
+      const info = layoutInfo(s);
+      if (info.moduleType && L.fences[info.moduleType]) presentFences[info.moduleType] = true;
+    });
+    for (const m of (L.palette && L.palette.modules) || []) {
+      const b = layoutEl('button', '', m.label);
+      b.type = 'button';
+      b.setAttribute('data-layout-pick', 'module');
+      b.setAttribute('data-layout-pick-type', m.type);
+      if (m.duplicateFence && presentFences[m.type]) {
+        b.disabled = true;
+        b.title = m.duplicateFence;
+      }
+      modGrid.appendChild(b);
+    }
+    if (!((L.palette && L.palette.modules) || []).length) {
+      modGrid.appendChild(layoutEl('p', 'hint', 'No modules available on this plan.'));
+    }
+  }
+
+  async function layoutPickSection(kind, type) {
+    const L = layoutSession();
+    if (!L || state.layoutBusy) return;
+    state.layoutBusy = true;
+    syncLayoutUi();
+    try {
+      const data = await api('/site/layout/section', {
+        method: 'POST',
+        body: JSON.stringify(kind === 'module' ? { kind, moduleType: type } : { kind, type }),
+      });
+      if (!data || !data.section) throw new Error('Could not build that section.');
+      layoutSnapshot();
+      const at = layoutInsertIndex(L.addAfter);
+      L.model.splice(at, 0, data.section);
+      L.selected = at;
+      L.paletteOpen = false;
+      layoutAfterStructural();
+      setLayoutMsg('Section added — Save to keep it.', '');
+    } catch (e) {
+      setLayoutMsg(errText(e), 'err');
+    } finally {
+      state.layoutBusy = false;
+      syncLayoutUi();
+    }
+  }
+
   function renderStructureLists() {
     const menuEl = document.getElementById('structure-menu');
     const tabsEl = document.getElementById('structure-page-tabs');
@@ -1903,6 +2763,7 @@
     if (on || state.themeOpen) ensureCatalogStyles(document);
     syncThemeUi();
     syncStructureUi();
+    syncLayoutUi();
 
     if (btn) {
       if (state.siteEditable) btn.classList.remove('hidden');
@@ -10035,6 +10896,7 @@
       // Done: leave edit mode + fullscreen; keep any unsaved edits in the bar
       setEditMode(false, { fullscreen: false });
     } else {
+      if (layoutBlocksModeSwitch()) return;
       setEditMode(true, { fullscreen: true });
     }
   };
@@ -10043,6 +10905,7 @@
   if (themeBtn) {
     themeBtn.onclick = () => {
       if (!state.siteEditable) return;
+      if (!state.themeOpen && layoutBlocksModeSwitch()) return;
       state.themeOpen = !state.themeOpen;
       if (state.themeOpen) {
         fillThemeForm(state.theme);
@@ -10062,6 +10925,7 @@
   if (structureBtn) {
     structureBtn.onclick = async () => {
       if (!state.siteEditable) return;
+      if (!state.structureOpen && layoutBlocksModeSwitch()) return;
       state.structureOpen = !state.structureOpen;
       syncStructureUi();
       if (state.structureOpen) {
@@ -10070,6 +10934,113 @@
       }
     };
   }
+
+  /* Batch 147 — layout editor bindings. */
+  const layoutBtn = document.getElementById('btn-layout');
+  if (layoutBtn) {
+    layoutBtn.onclick = async () => {
+      if (!state.siteEditable) return;
+      if (state.layoutOpen) {
+        closeLayout();
+        return;
+      }
+      // Resume a session kept alive by a Modules-tab Edit trip.
+      if (state.layout && !state.layout.freeform) {
+        state.layoutOpen = true;
+        syncLayoutUi();
+        renderLayoutBar();
+        await renderLayoutCanvas();
+        return;
+      }
+      if (state.layout) state.layout = null;
+      await openLayout(state.layout && state.layout.slug);
+    };
+  }
+
+  const layoutBarEl = document.getElementById('layout-bar');
+  if (layoutBarEl) {
+    layoutBarEl.addEventListener('click', async (ev) => {
+      const t = ev.target && ev.target.closest ? ev.target.closest('[data-layout-page],[data-layout-act],[data-layout-pick],[data-layout-row]') : null;
+      if (!t || !layoutBarEl.contains(t)) return;
+      if (t.hasAttribute('data-layout-page')) {
+        const slug = t.getAttribute('data-layout-page');
+        const L = layoutSession();
+        if (!L || slug === L.slug) return;
+        if (L.dirty && !window.confirm('You have unsaved layout changes on this page. Discard them and switch pages?')) return;
+        state.layout = null;
+        await openLayout(slug);
+        return;
+      }
+      if (t.hasAttribute('data-layout-pick')) {
+        if (t.disabled) return;
+        layoutPickSection(t.getAttribute('data-layout-pick'), t.getAttribute('data-layout-pick-type'));
+        return;
+      }
+      if (t.hasAttribute('data-layout-act')) {
+        if (t.disabled) return;
+        ev.stopPropagation();
+        layoutAct(t.getAttribute('data-layout-act'), Number(t.getAttribute('data-layout-idx')));
+        return;
+      }
+      if (t.hasAttribute('data-layout-row')) {
+        layoutSelect(Number(t.getAttribute('data-layout-row')), false);
+      }
+    });
+  }
+
+  const btnLayoutSave = document.getElementById('btn-layout-save');
+  if (btnLayoutSave) btnLayoutSave.onclick = () => saveLayout();
+  const btnLayoutUndo = document.getElementById('btn-layout-undo');
+  if (btnLayoutUndo) btnLayoutUndo.onclick = () => layoutUndo();
+  const btnLayoutAdd = document.getElementById('btn-layout-add');
+  if (btnLayoutAdd) {
+    btnLayoutAdd.onclick = () => {
+      const L = layoutSession();
+      if (!L) return;
+      if (L.paletteOpen) {
+        L.paletteOpen = false;
+        renderLayoutPalette();
+      } else {
+        layoutOpenPalette(L.selected >= 0 ? L.selected : null);
+      }
+    };
+  }
+  const btnLayoutClose = document.getElementById('btn-layout-close');
+  if (btnLayoutClose) btnLayoutClose.onclick = () => closeLayout();
+
+  // Canvas bridge messages (layout editor iframe -> portal).
+  window.addEventListener('message', (ev) => {
+    const d = ev.data;
+    if (!d || d.source !== 'bp-layout-bridge') return;
+    if (!state.layoutOpen || !layoutSession()) return;
+    const frame = state.previewFrame;
+    if (!frame || ev.source !== frame.contentWindow) return;
+    if (d.action === 'ready') {
+      postLayoutConfig();
+      return;
+    }
+    if (d.action === 'select') {
+      layoutSelect(Number(d.index), true);
+      return;
+    }
+    if (d.action === 'move') {
+      layoutMoveClient(Number(d.from), Number(d.toIndex));
+      return;
+    }
+    if (d.action === 'moveUp') layoutAct('up', Number(d.index));
+    else if (d.action === 'moveDown') layoutAct('down', Number(d.index));
+    else if (d.action === 'duplicate') layoutAct('duplicate', Number(d.index));
+    else if (d.action === 'delete') layoutAct('delete', Number(d.index));
+    else if (d.action === 'edit') layoutAct('edit', Number(d.index));
+  });
+
+  // Leaving the page with unsaved layout changes warns (standing rule).
+  window.addEventListener('beforeunload', (ev) => {
+    if (state.layoutOpen && state.layout && state.layout.dirty) {
+      ev.preventDefault();
+      ev.returnValue = '';
+    }
+  });
 
   const structureBar = document.getElementById('structure-bar');
   if (structureBar) {

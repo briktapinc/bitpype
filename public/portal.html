@@ -1118,6 +1118,157 @@
     }
     .structure-bar[hidden] { display: none !important; }
     .structure-bar-title { margin: 0 0 10px; font-size: 0.9rem; color: var(--ink); }
+    /* Batch 147 — layout editor bar (native section editor). */
+    .layout-bar {
+      margin: 0 0 14px;
+      padding: 16px 18px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #f8f1e3;
+    }
+    .layout-bar[hidden] { display: none !important; }
+    .layout-bar-title { margin: 0 0 10px; font-size: 0.9rem; color: var(--ink); }
+    .layout-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px 14px;
+      margin-bottom: 12px;
+    }
+    .layout-page-tabs { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 200px; }
+    .layout-page-tabs button {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 7px 14px;
+      font: inherit;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    .layout-page-tabs button.active { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+    .layout-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .layout-dirty {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--warn);
+      background: var(--warn-soft);
+      border-radius: 999px;
+      padding: 5px 12px;
+    }
+    .layout-cols { display: grid; grid-template-columns: 1fr; gap: 14px; }
+    .layout-cols.has-side { grid-template-columns: minmax(0, 1fr) 300px; }
+    @media (max-width: 900px) {
+      .layout-cols.has-side { grid-template-columns: 1fr; }
+    }
+    .layout-rail { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+    .layout-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface);
+      cursor: pointer;
+      text-align: left;
+      width: 100%;
+      font: inherit;
+    }
+    .layout-row:hover { border-color: var(--border-strong); }
+    .layout-row.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    .layout-row.locked { opacity: 0.75; cursor: default; }
+    .layout-row-label {
+      flex: 1;
+      font-size: 13px;
+      font-weight: 650;
+      color: var(--ink);
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .layout-row-meta { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .layout-row-btns { display: flex; gap: 6px; }
+    .layout-row-btns button, .layout-side-actions button {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      border-radius: 8px;
+      min-width: 34px;
+      height: 34px;
+      padding: 0 8px;
+      cursor: pointer;
+      font-size: 0.95rem;
+      line-height: 1;
+      color: var(--ink);
+    }
+    .layout-row-btns button:hover:not(:disabled), .layout-side-actions button:hover:not(:disabled) { background: #f8f1e3; }
+    .layout-row-btns button:disabled, .layout-side-actions button:disabled { opacity: 0.35; cursor: not-allowed; }
+    .layout-side {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface);
+      padding: 16px;
+      align-self: start;
+    }
+    .layout-side[hidden] { display: none !important; }
+    .layout-side h3 { margin: 0 0 4px; font-size: 1rem; color: var(--ink); }
+    .layout-side .hint { margin: 0 0 12px; }
+    .layout-knob { margin: 0 0 14px; }
+    .layout-knob label { display: block; font-size: 0.82rem; font-weight: 650; color: var(--ink); margin: 0 0 6px; }
+    .layout-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+    .layout-swatch {
+      appearance: none;
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      border: 2px solid var(--border);
+      cursor: pointer;
+      padding: 0;
+    }
+    .layout-swatch.selected { border-color: var(--ink); box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+    .layout-swatch-none {
+      width: auto;
+      padding: 0 12px;
+      font: inherit;
+      font-size: 0.8rem;
+      background: var(--surface);
+      color: var(--ink);
+    }
+    .layout-pad-row { display: flex; align-items: center; gap: 10px; }
+    .layout-pad-row input[type="range"] { flex: 1; }
+    .layout-pad-row input[type="number"] {
+      width: 76px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font: inherit;
+    }
+    .layout-side-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+    .layout-palette {
+      margin-top: 14px;
+      border-top: 1px dashed var(--border-strong);
+      padding-top: 12px;
+    }
+    .layout-palette[hidden] { display: none !important; }
+    .layout-palette-title { margin: 0 0 8px; font-size: 0.9rem; font-weight: 700; color: var(--ink); }
+    .layout-palette-group { margin: 0 0 6px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+    .layout-palette-grid { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+    .layout-palette-grid button {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--ink);
+      border-radius: 10px;
+      padding: 10px 14px;
+      font: inherit;
+      font-size: 0.88rem;
+      cursor: pointer;
+    }
+    .layout-palette-grid button:hover:not(:disabled) { border-color: var(--accent); }
+    .layout-palette-grid button:disabled { opacity: 0.45; cursor: not-allowed; }
     .structure-cols {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -2689,6 +2840,14 @@
               </svg>
               <span id="btn-structure-label">Order</span>
             </button>
+            <button type="button" class="btn soft edit-affordance hidden" id="btn-layout" aria-pressed="false" title="Layout editor — drag, duplicate, add or remove page sections">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="5" rx="1" />
+                <rect x="3" y="10" width="18" height="5" rx="1" />
+                <rect x="3" y="17" width="18" height="4" rx="1" />
+              </svg>
+              <span id="btn-layout-label">Layout</span>
+            </button>
             <button type="button" class="btn soft edit-affordance hidden" id="btn-theme-colors" aria-pressed="false" title="Change site theme colors">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M12 22a5 5 0 0 0 5-5c0-2-1-3-3-5.5C12.5 9 12 7.5 12 6c0 1.5-.5 3-2 5.5C8 14 7 15 7 17a5 5 0 0 0 5 5Z" />
@@ -2788,6 +2947,34 @@
             </div>
           </div>
           <p class="msg" id="msg-structure"></p>
+        </div>
+        <div class="layout-bar" id="layout-bar" hidden>
+          <p class="layout-bar-title"><strong>Layout editor</strong> — drag sections on the preview (or use the ↑ ↓ buttons). Duplicate, add, remove and restyle sections here; nothing is kept until you Save.</p>
+          <div class="layout-head">
+            <div class="layout-page-tabs" id="layout-page-tabs" role="tablist" aria-label="Pages"></div>
+            <div class="layout-actions">
+              <span class="layout-dirty" id="layout-dirty" hidden>Unsaved changes</span>
+              <button type="button" class="btn ghost small" id="btn-layout-undo" disabled>Undo</button>
+              <button type="button" class="btn ghost small" id="btn-layout-add">+ Add section</button>
+              <button type="button" class="btn small" id="btn-layout-save" disabled>Save layout</button>
+              <button type="button" class="btn ghost small" id="btn-layout-close">Close</button>
+            </div>
+          </div>
+          <div class="layout-cols" id="layout-cols">
+            <div class="layout-rail" id="layout-rail"></div>
+            <aside class="layout-side" id="layout-side" hidden aria-label="Section settings">
+              <h3 id="layout-side-title">Section</h3>
+              <p class="hint" id="layout-side-meta"></p>
+              <div id="layout-side-knobs"></div>
+              <div class="layout-side-actions" id="layout-side-actions"></div>
+              <p class="hint" id="layout-side-note"></p>
+            </aside>
+          </div>
+          <div class="layout-palette" id="layout-palette" hidden>
+            <p class="layout-palette-title" id="layout-palette-title">Add a section</p>
+            <div id="layout-palette-list"></div>
+          </div>
+          <p class="msg" id="msg-layout"></p>
         </div>
         <div class="theme-bar" id="theme-bar" hidden>
           <p class="theme-bar-title"><strong>Theme</strong> — brand colors and Google fonts. Changes update the preview live; Save keeps them on your site.</p>
