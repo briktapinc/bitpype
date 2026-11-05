@@ -400,6 +400,16 @@ async function json(res) {
     });
     assert.ok(written.files.includes('item.html'), 'export ships item.html (the detail shell)');
     n++;
+    assert.ok(
+      Array.isArray(detailCtx.types.ecommerce.items) && detailCtx.types.ecommerce.items.includes(monstera.slug),
+      'detail context enumerates published item keys for per-item shells'
+    );
+    n++;
+    assert.ok(
+      written.files.includes(`detail/ecommerce/${monstera.slug}.html`),
+      'export ships a real shell file for the published product (rewrite-independent)'
+    );
+    n++;
     const detailHtml = fs.readFileSync(path.join(outDir, 'item.html'), 'utf8');
     assert.ok(detailHtml.includes('data-bitpype-detail-root="1"'), 'detail.html carries the detail root');
     n++;

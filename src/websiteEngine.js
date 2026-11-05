@@ -7567,10 +7567,29 @@ function writeStaticPages(pages, theme, outDir, opts) {
   } catch (e) {
     console.warn('[websiteEngine] robots.txt emit:', e.message || e);
   }
-  // Batch 133: every export ships the universal detail page shell.
+  // Batch 133: every export ships the universal detail page shell,
+  // plus one real shell file per published item at
+  // detail/<type>/<key>.html (Batch 133 finisher: the /detail/*
+  // rewrite in _redirects does not fire on the platform's Pages
+  // deployments — three target variants were silently ignored on
+  // live previews — while real files serve at their extensionless
+  // URLs on every static host; the shell still resolves the item
+  // live through the public API, so content is never snapshotted).
   try {
-    fs.writeFileSync(path.join(outDir, 'item.html'), buildDetailPage(pages, theme, opts || {}), 'utf8');
+    const shellHtml = buildDetailPage(pages, theme, opts || {});
+    fs.writeFileSync(path.join(outDir, 'item.html'), shellHtml, 'utf8');
     if (!written.includes('item.html')) written.push('item.html');
+    const detailTypes = (seo && seo.detail && seo.detail.types) || {};
+    for (const dtype of Object.keys(detailTypes)) {
+      const keys = (detailTypes[dtype] && detailTypes[dtype].items) || [];
+      for (const key of keys) {
+        const rel = `detail/${dtype}/${key}.html`;
+        const abs = path.join(outDir, 'detail', dtype, `${key}.html`);
+        fs.mkdirSync(path.dirname(abs), { recursive: true });
+        fs.writeFileSync(abs, shellHtml, 'utf8');
+        if (!written.includes(rel)) written.push(rel);
+      }
+    }
   } catch (e) {
     console.warn('[websiteEngine] item.html emit:', e.message || e);
   }

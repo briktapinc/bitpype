@@ -2106,9 +2106,34 @@ function detailExportContext(db, leadId) {
     try {
       const row = getEmbedRow(db, lid, type);
       if (!moduleEmbedActive(row)) continue;
+      // Batch 133 finisher: also enumerate the type's published
+      // item keys (slug + id) so the exporter can ship a real shell
+      // file per item — the /detail/* rewrite does not fire on the
+      // platform's Pages deployments, real files always serve.
+      const items = [];
+      try {
+        const payload = getPublicModuleByToken(db, lid, row.public_token, {});
+        if (payload && !payload.locked && Array.isArray(payload.items)) {
+          const seen = new Set();
+          for (const it of payload.items) {
+            for (const k of [it && it.slug, it && it.id]) {
+              if (k == null || k === '') continue;
+              const key = String(k);
+              if (/[\/\\]/.test(key) || key === '.' || key === '..') continue;
+              if (!seen.has(key)) {
+                seen.add(key);
+                items.push(key);
+              }
+            }
+          }
+        }
+      } catch {
+        /* items stay empty — the shell config still lists the type */
+      }
       types[type] = {
         token: String(row.public_token || ''),
         page: String(row.target_page_slug || (MODULE_META[type] && MODULE_META[type].defaultSlug) || '').replace(/^\/+/, ''),
+        items,
       };
     } catch {
       /* a type without an embed row simply has no detail surface */
