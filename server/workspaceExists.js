@@ -35,6 +35,20 @@ async function workspaceExists(workspaceId) {
   return ok;
 }
 
+/**
+ * Batch 145 (external review F09): synchronous peek at the cached
+ * verdict — for callers that cannot await (the preview gates are
+ * sync middleware). Returns true/false when a fresh cache entry
+ * exists, undefined when nothing is known yet. Never queries.
+ */
+function workspaceExistsCached(workspaceId) {
+  const id = Number(workspaceId);
+  if (!Number.isInteger(id) || id <= 0) return false;
+  const hit = cache.get(id);
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.ok;
+  return undefined;
+}
+
 async function assertWorkspaceExists(workspaceId) {
   const ok = await workspaceExists(workspaceId);
   if (!ok) {
@@ -51,6 +65,7 @@ function clearWorkspaceExistsCache() {
 
 module.exports = {
   workspaceExists,
+  workspaceExistsCached,
   assertWorkspaceExists,
   clearWorkspaceExistsCache,
 };

@@ -16,6 +16,42 @@ const Database = require('better-sqlite3');
 const caches = new Map(); // workspaceId -> Database
 const CACHE_MAX = Math.min(500, Math.max(32, Number(process.env.WORKSPACE_DB_CACHE_MAX) || 128));
 
+/* Batch 145 (external review F10): handle leases. A caller doing
+ * async work across awaits (domain.withDb) acquires a lease on
+ * entry and releases it when done; eviction NEVER closes a handle
+ * with a non-zero lease count — the old unconditional LRU close
+ * killed in-flight operations mid-await ("The database connection
+ * is not open" after external side effects had already run). */
+const leases = new Map(); // workspaceId -> active lease count
+const readonlyHandles = new Set(); // workspaceIds cached from a {create:false} open
+
+function leaseCount(workspaceId) {
+  return leases.get(Number(workspaceId)) || 0;
+}
+
+function acquireWorkspaceDb(workspaceId, opts) {
+  const db = openWorkspaceDb(workspaceId, opts);
+  if (db) leases.set(Number(workspaceId), leaseCount(workspaceId) + 1);
+  return db;
+}
+
+function releaseWorkspaceDb(idOrDb) {
+  let id = Number(idOrDb);
+  if (!Number.isInteger(id) || id <= 0) {
+    id = null;
+    for (const [wid, db] of caches) {
+      if (db === idOrDb) {
+        id = wid;
+        break;
+      }
+    }
+    if (id == null) return;
+  }
+  const n = leaseCount(id) - 1;
+  if (n > 0) leases.set(id, n);
+  else leases.delete(id);
+}
+
 function dataRoot() {
   return process.env.WORKSPACE_DATA_DIR || path.join(__dirname, '..', 'data', 'workspaces');
 }
@@ -26,31 +62,73 @@ function dbPathFor(workspaceId) {
 
 function evictOldestHandle() {
   if (caches.size < CACHE_MAX) return;
-  const first = caches.keys().next().value;
-  if (first == null) return;
-  const db = caches.get(first);
-  caches.delete(first);
-  try {
-    if (db) db.close();
-  } catch {
-    /* ignore */
+  // Skip leased handles (F10): close the oldest IDLE handle; if
+  // every handle is leased, let the cache exceed the cap rather
+  // than break an in-flight operation.
+  for (const [wid, db] of caches) {
+    if (leaseCount(wid) > 0) continue;
+    caches.delete(wid);
+    readonlyHandles.delete(wid);
+    try {
+      if (db) db.close();
+    } catch {
+      /* ignore */
+    }
+    return;
   }
 }
 
-function openWorkspaceDb(workspaceId) {
+/**
+ * Open (or fetch) a workspace DB.
+ *
+ * opts.create === false (Batch 145, external review F09):
+ * NON-CREATING mode for public/read-only paths. Returns null when
+ * the tenant DB file does not already exist — no directory, no
+ * schema, no migrations, no seeds. A public read must never
+ * provision a tenant: before this mode existed, an unauthenticated
+ * preview URL with an invented ws-<id> minted a full tenant DB.
+ * When the file exists, the handle opens without the
+ * ensure/migration passes (read-only gates don't need them).
+ */
+function openWorkspaceDb(workspaceId, opts = {}) {
   const id = Number(workspaceId);
   if (!Number.isInteger(id) || id <= 0) throw new Error('Invalid workspaceId');
   if (caches.has(id)) {
-    // Refresh insertion order for simple LRU-ish eviction.
     const hit = caches.get(id);
-    caches.delete(id);
-    caches.set(id, hit);
-    return hit;
+    // A handle cached by a non-creating read is READ-ONLY: a caller
+    // asking for a normal (writable) open must never inherit it.
+    // Close and fall through to a full writable open.
+    if (!(opts && opts.create === false) && readonlyHandles.has(id)) {
+      caches.delete(id);
+      readonlyHandles.delete(id);
+      try {
+        hit.close();
+      } catch {
+        /* ignore */
+      }
+    } else {
+      // Refresh insertion order for simple LRU-ish eviction.
+      caches.delete(id);
+      caches.set(id, hit);
+      return hit;
+    }
   }
 
   evictOldestHandle();
 
   const file = dbPathFor(id);
+  if (opts && opts.create === false) {
+    if (!fs.existsSync(file)) return null;
+    let db;
+    try {
+      db = new Database(file, { readonly: true });
+      readonlyHandles.add(id);
+    } catch {
+      db = new Database(file);
+    }
+    caches.set(id, db);
+    return db;
+  }
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const firstRun = !fs.existsSync(file);
   const db = new Database(file);
@@ -196,6 +274,16 @@ function closeAll() {
     }
   }
   caches.clear();
+  leases.clear();
+  readonlyHandles.clear();
 }
 
-module.exports = { openWorkspaceDb, dbPathFor, dataRoot, closeAll };
+module.exports = {
+  openWorkspaceDb,
+  acquireWorkspaceDb,
+  releaseWorkspaceDb,
+  leaseCount,
+  dbPathFor,
+  dataRoot,
+  closeAll,
+};

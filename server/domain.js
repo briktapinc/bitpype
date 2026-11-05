@@ -14,10 +14,19 @@
 
 const path = require('path');
 const os = require('os');
-const { openWorkspaceDb } = require('./workspaceDb');
+const { openWorkspaceDb, acquireWorkspaceDb, releaseWorkspaceDb } = require('./workspaceDb');
 
+/**
+ * Run `fn` with the workspace's DB handle under a LEASE (Batch 145,
+ * external review F10): the lease is acquired on entry and released
+ * when fn's result settles — immediately for a plain value, on
+ * settle for a promise — so cache eviction can never close the
+ * handle out from under an in-flight operation. The return shape is
+ * preserved exactly (value in, value out; promise in, same promise
+ * out with a finally attached).
+ */
 function withDb(workspaceId, fn) {
-  const db = openWorkspaceDb(workspaceId);
+  const db = acquireWorkspaceDb(workspaceId);
   // Many engines read settings via ai.setDb
   try {
     const ai = require('../src/ai');
@@ -25,7 +34,18 @@ function withDb(workspaceId, fn) {
   } catch {
     /* ignore */
   }
-  return fn(db);
+  let result;
+  try {
+    result = fn(db);
+  } catch (e) {
+    releaseWorkspaceDb(workspaceId);
+    throw e;
+  }
+  if (result && typeof result.finally === 'function') {
+    return result.finally(() => releaseWorkspaceDb(workspaceId));
+  }
+  releaseWorkspaceDb(workspaceId);
+  return result;
 }
 
 function getSetting(db, key, fallback = '') {

@@ -162,6 +162,31 @@ function sendArchivedPreview(res) {
   return res.status(410).json({ ...SITE_ARCHIVED_BODY });
 }
 
+/**
+ * Batch 145 (external review F09): existence BEFORE opening. The
+ * gates used to call the creating openWorkspaceDb for any
+ * attacker-chosen ws-<id> — minting a full tenant DB (schema,
+ * migrations, seeds, ~0.88 MB on disk) per unauthenticated request,
+ * unbounded. Now: a workspace the central guard has already cached
+ * as nonexistent is never opened at all, and the open itself is the
+ * non-creating { create: false } mode, which returns null when the
+ * tenant DB file doesn't already exist. A null here means "nothing
+ * to gate" — the caller skips the segment and the downstream 404
+ * stands. Public reads never provision a tenant.
+ */
+function openTenantDbForGate(workspaceId) {
+  try {
+    if (require('./workspaceExists').workspaceExistsCached(workspaceId) === false) return null;
+  } catch {
+    /* the guard is an optimization — its absence never blocks the file check */
+  }
+  try {
+    return require('./workspaceDb').openWorkspaceDb(workspaceId, { create: false });
+  } catch {
+    return null;
+  }
+}
+
 function blockArchivedPreviews(req, res, next) {
   try {
     const analysis = analyzePreviewPath(req.path);
@@ -174,7 +199,16 @@ function blockArchivedPreviews(req, res, next) {
     for (const seg of analysis.segs) {
       const target = resolveSiteFolderSegment(seg);
       if (target) {
-        const db = require('./workspaceDb').openWorkspaceDb(target.workspaceId);
+        const db = openTenantDbForGate(target.workspaceId);
+        if (!db) {
+          // No tenant DB to consult — but a folder that exists on
+          // disk is still an orphaned export (M-1): gone, not
+          // public. No folder → fall through to the downstream 404.
+          if (previewFolderExists(seg)) {
+            return sendArchivedPreview(res);
+          }
+          continue;
+        }
         const row = db.prepare('SELECT archived_at FROM websites WHERE id = ?').get(target.siteId);
         if (row && row.archived_at) {
           return sendArchivedPreview(res);
@@ -189,7 +223,16 @@ function blockArchivedPreviews(req, res, next) {
       }
       const design = resolvePreviewDesign(seg);
       if (design) {
-        const db = require('./workspaceDb').openWorkspaceDb(design.workspaceId);
+        const db = openTenantDbForGate(design.workspaceId);
+        if (!db) {
+          // No tenant DB: nothing to resolve the job against. A real
+          // folder on disk is still an orphaned export (M-2) — gone;
+          // without one, fall through to the downstream 404.
+          if (previewFolderExists(seg)) {
+            return sendArchivedPreview(res);
+          }
+          continue;
+        }
         let job = null;
         try {
           job = db.prepare('SELECT website_id FROM design_jobs WHERE id = ?').get(design.jobId);
@@ -265,7 +308,8 @@ function blockSuspendedPreviews(req, res, next) {
     for (const seg of analysis.segs) {
       const target = resolveSiteFolderSegment(seg);
       if (target) {
-        const db = require('./workspaceDb').openWorkspaceDb(target.workspaceId);
+        const db = openTenantDbForGate(target.workspaceId);
+        if (!db) continue;
         if (siteIsSuspended(db, target.siteId)) {
           return sendSuspendedPreview(res);
         }
@@ -273,7 +317,8 @@ function blockSuspendedPreviews(req, res, next) {
       }
       const design = resolvePreviewDesign(seg);
       if (design) {
-        const db = require('./workspaceDb').openWorkspaceDb(design.workspaceId);
+        const db = openTenantDbForGate(design.workspaceId);
+        if (!db) continue;
         let job = null;
         try {
           job = db.prepare('SELECT website_id FROM design_jobs WHERE id = ?').get(design.jobId);
