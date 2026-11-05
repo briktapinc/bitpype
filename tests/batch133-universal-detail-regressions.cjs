@@ -5,7 +5,7 @@
  *
  * What this pins:
  *   Part 1 — source pins: DETAIL_TYPES + detailExportContext in
- *     siteModules (MODULE_TYPES stays 26 — detail is a page surface,
+ *     siteModules (MODULE_TYPES stays 27 — detail is a page surface,
  *     not a module type), MODULE_SCRIPT_VER mod34, the shared-layer
  *     link generator (categories.categoryItemLink) emitting
  *     /detail/<type>/<key>, the export side (buildDetailPage,
@@ -91,8 +91,8 @@ async function json(res) {
     n++;
     assert.equal(
       (typesBlock[1].match(/'/g) || []).length / 2,
-      26,
-      'MODULE_TYPES still 26 — detail is not a module type'
+      27,
+      'MODULE_TYPES still 27 — detail is not a module type (27 since Batch 128 checkout; 133 adds none)'
     );
     n++;
     for (const t of [
