@@ -557,7 +557,10 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     const view = sm.getPublicModuleItem(db, emb.public_token, seasonal.id);
     assert.equal(view.item.name, 'Seasonal Events');
     assert.equal(view.category_items.length, 1, 'category view lists the assigned published item');
-    assert.ok(String(view.category_items[0].link_url).includes('bpItem='), 'category items link to their own pages');
+    assert.ok(
+      String(view.category_items[0].link_url).startsWith('/detail/events/'),
+      'category items link to their own pages (Batch 133: the universal detail page; legacy ?bpItem= links still resolve on list pages)'
+    );
     n += 3;
     const draftCat = cats.createCategory(db, LEAD_A, { scope: 'events', name: 'Hidden Shelf', status: 'draft' });
     const index2 = sm.getPublicModuleByToken(db, emb.public_token);
