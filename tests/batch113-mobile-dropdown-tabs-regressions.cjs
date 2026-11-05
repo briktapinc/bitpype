@@ -124,7 +124,7 @@ function group(name, n) {
     n += 1;
     const multi = cz.sinks.map((s) => `${s.file}|${s.kind}|${s.snippet}`).sort();
     const sha = crypto.createHash('sha256').update(multi.join('\n')).digest('hex');
-    assert.equal(sha, '2d6b8c61c82983fb56b7e83c3b6fd48b3d4b5410af964c80333a069d108a0275', 'SEC-13 sink multiset byte-identical to Batch 112');
+    assert.equal(sha, 'c09c29b3c88408cdbdd74ac78feee07852cb011253ec4f9925f6ea0c46b949cf', 'SEC-13 sink multiset byte-identical (Batch 136 finisher: multiset gains exactly the +2 audited STATIC sinks in module-embed.js — booking price-summary clear + esc()-wrapped build; RAW/IDENT multiset unchanged)');
     n += 1;
     const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
     const BASELINE = new Set(require(path.join(root, 'tests', 'batch103-xss-baseline.json')));

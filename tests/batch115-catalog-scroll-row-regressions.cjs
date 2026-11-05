@@ -142,8 +142,8 @@ function group(name, n) {
     const sha = crypto.createHash('sha256').update(multi.join('\n')).digest('hex');
     assert.equal(
       sha,
-      '2d6b8c61c82983fb56b7e83c3b6fd48b3d4b5410af964c80333a069d108a0275',
-      'SEC-13 sink multiset byte-identical'
+      'c09c29b3c88408cdbdd74ac78feee07852cb011253ec4f9925f6ea0c46b949cf',
+      'SEC-13 sink multiset byte-identical (Batch 136 finisher: +2 audited STATIC sinks in module-embed.js; RAW/IDENT multiset unchanged)'
     );
     n += 1;
     group('Part 1 source pins + census', n);
