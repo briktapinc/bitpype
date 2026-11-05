@@ -382,7 +382,7 @@ if (NEGATIVE) {
       const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
       const cz = census();
       assert.equal(cz.summary.total, 441, 'sink census total pinned');
-      assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 328, 'safe classes pinned');
+      assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 330, 'safe classes pinned (Batch 136 finisher: +2 audited STATIC sinks in module-embed.js — the booking price-summary clear + esc()-wrapped build; 328 -> 330, census 439 -> 441, RAW/IDENT unchanged)');
       const reviewed = new Set(
         cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`)
       );
