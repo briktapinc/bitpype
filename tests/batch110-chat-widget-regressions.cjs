@@ -240,6 +240,28 @@ const has = (hay, needle, label) => { assert.ok(hay.includes(needle), `${label} 
       await page.waitForSelector('#sec-preview:not([hidden])', { timeout: 15000 });
       await page.waitForFunction(() => document.querySelectorAll('#agent-chat-messages .agent-bubble').length === 50, { timeout: 15000 });
 
+      // Batch 145 (U2 harness fix — test only, no product change):
+      // the geometry read below used to race a cold-cache webfont
+      // swap (portal.html loads Figtree/Fraunces from Google Fonts):
+      // the swap grows scrollHeight after the widget's synchronous
+      // snap, and the single immediate read with a 2px tolerance
+      // flaked. Await document.fonts.ready, then wait for the
+      // scroll geometry to settle (two identical consecutive
+      // scrollHeight reads), before measuring.
+      await page.evaluate(async () => {
+        if (document.fonts && document.fonts.ready) {
+          try { await document.fonts.ready; } catch { /* */ }
+        }
+      });
+      await page.waitForFunction(() => {
+        const list = document.getElementById('agent-chat-messages');
+        if (!list) return false;
+        const h = list.scrollHeight;
+        if (window.__b145SettleH === h) return true;
+        window.__b145SettleH = h;
+        return false;
+      }, { timeout: 10000, polling: 150 });
+
       // — History: 50 saved messages render into the scroll
       // region and the thread opens on the newest message.
       let g = await geom(page);
