@@ -1444,6 +1444,12 @@
       canDuplicate: !chrome && !fence,
       duplicateReason: chrome ? 'Page chrome exists once per page.' : fence || null,
       canDelete: !chrome,
+      // Batch 148 knobs — mirror of describeEditorSection's flags:
+      // chrome gets neither; the chatbot overlay never gets width.
+      canWidth: !chrome && moduleType !== 'chatbot',
+      canHideMobile: !chrome,
+      width: section && section.width === 'full' ? 'full' : 'contained',
+      hideOnMobile: !!(section && section.hideOnMobile === true),
     };
   }
 
@@ -1601,6 +1607,8 @@
         canDuplicate: info.canDuplicate,
         canDelete: info.canDelete,
         chrome: info.chrome,
+        width: info.width,
+        hideOnMobile: info.hideOnMobile,
       };
     });
     try {
@@ -1625,7 +1633,15 @@
     if (!frame || !frame.contentWindow) return;
     try {
       frame.contentWindow.postMessage(
-        { source: 'bp-layout-host', action: 'style', index, background: style.background, paddingPx: style.paddingPx },
+        {
+          source: 'bp-layout-host',
+          action: 'style',
+          index,
+          background: style.background,
+          paddingPx: style.paddingPx,
+          width: style.width,
+          hideOnMobile: style.hideOnMobile,
+        },
         '*'
       );
     } catch {
@@ -1764,6 +1780,8 @@
       if (!info.chrome) {
         knobs.appendChild(layoutBackgroundKnob(i, section));
         knobs.appendChild(layoutPaddingKnob(i, section));
+        if (info.canWidth) knobs.appendChild(layoutWidthKnob(i, section));
+        if (info.canHideMobile) knobs.appendChild(layoutHideMobileKnob(i, section));
       }
     }
     const actions = document.getElementById('layout-side-actions');
@@ -1931,6 +1949,93 @@
       L.padSnapIndex = -1;
       renderLayoutSide();
     }
+  }
+
+  /* Batch 148 — width knob: Contained / Full width segmented control.
+   * Full width stretches the section's band edge to edge; the platform
+   * spacing inset stays on the band, so text still never touches the
+   * screen edge. Stored as section.width='full'; contained stores
+   * nothing (the pre-148 default). */
+  function layoutWidthKnob(index, section) {
+    const info = layoutInfo(section);
+    const wrap = layoutEl('div', 'layout-knob');
+    wrap.appendChild(layoutEl('label', '', 'Width'));
+    const row = layoutEl('div', 'layout-seg');
+    for (const [mode, label] of [
+      ['contained', 'Contained'],
+      ['full', 'Full width'],
+    ]) {
+      const b = layoutEl('button', `layout-seg-btn${info.width === mode ? ' selected' : ''}`, label);
+      b.type = 'button';
+      b.setAttribute('aria-pressed', info.width === mode ? 'true' : 'false');
+      b.onclick = () => layoutSetWidth(index, mode);
+      row.appendChild(b);
+    }
+    wrap.appendChild(row);
+    const note = layoutEl(
+      'p',
+      'hint',
+      info.width === 'full'
+        ? 'Band spans the full screen width; the spacing inset still keeps text off the edges.'
+        : 'Band content sits in the centred column, like every section today.'
+    );
+    note.style.margin = '6px 0 0';
+    wrap.appendChild(note);
+    return wrap;
+  }
+
+  /* Batch 148 — hide-on-mobile switch. The section disappears at phone
+   * widths (≤700px) on the real site; in this canvas it stays visible,
+   * dimmed and badged, so it can never be lost track of. Stored as
+   * section.hideOnMobile=true; visible stores nothing. */
+  function layoutHideMobileKnob(index, section) {
+    const info = layoutInfo(section);
+    const wrap = layoutEl('div', 'layout-knob');
+    const row = layoutEl('div', 'layout-switch-row');
+    const label = layoutEl('label', '', 'Hide on mobile');
+    label.htmlFor = `layout-hide-mobile-${index}`;
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.id = `layout-hide-mobile-${index}`;
+    input.checked = !!info.hideOnMobile;
+    input.addEventListener('change', () => layoutSetHideMobile(index, input.checked));
+    row.appendChild(label);
+    row.appendChild(input);
+    wrap.appendChild(row);
+    const note = layoutEl(
+      'p',
+      'hint',
+      info.hideOnMobile
+        ? 'Hidden on phones (≤700px). It stays visible here, dimmed and badged.'
+        : 'Shown on every screen size.'
+    );
+    note.style.margin = '6px 0 0';
+    wrap.appendChild(note);
+    return wrap;
+  }
+
+  function layoutSetWidth(index, mode) {
+    const L = layoutSession();
+    const section = L && L.model[index];
+    if (!section) return;
+    layoutSnapshot();
+    if (mode === 'full') section.width = 'full';
+    else delete section.width;
+    layoutMarkDirty();
+    renderLayoutSide();
+    postLayoutStyle(index, { width: mode === 'full' ? 'full' : 'contained' });
+  }
+
+  function layoutSetHideMobile(index, hidden) {
+    const L = layoutSession();
+    const section = L && L.model[index];
+    if (!section) return;
+    layoutSnapshot();
+    if (hidden) section.hideOnMobile = true;
+    else delete section.hideOnMobile;
+    layoutMarkDirty();
+    renderLayoutSide();
+    postLayoutStyle(index, { hideOnMobile: !!hidden });
   }
 
   function layoutAfterStructural() {

@@ -1246,6 +1246,21 @@
       border-radius: 8px;
       font: inherit;
     }
+    .layout-seg { display: flex; gap: 8px; }
+    .layout-seg-btn {
+      flex: 1;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--ink);
+      font: inherit;
+      cursor: pointer;
+    }
+    .layout-seg-btn.selected { border-color: var(--ink); box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); font-weight: 650; }
+    .layout-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .layout-switch-row label { margin: 0; }
+    .layout-switch-row input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); cursor: pointer; }
     .layout-side-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
     .layout-palette {
       margin-top: 14px;

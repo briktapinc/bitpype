@@ -39,7 +39,33 @@
     for (var i = 0; i < nodes.length; i++) {
       var idx = Number(nodes[i].getAttribute('data-ws-section-index'));
       if (Number.isInteger(idx)) sections.push({ el: nodes[i], index: idx });
+      // Batch 148: a mobile-hidden section stays visible in the canvas
+      // (engine CSS overrides the hide rule here) but is dimmed, so the
+      // owner always knows it disappears on phones.
+      if (nodes[i].classList && nodes[i].classList.contains('bp-sec-nomobile')) {
+        nodes[i].classList.add('bp-layout-dim');
+      }
     }
+  }
+
+  /* The canvas document only carries the page's layout-knob rule block
+   * when a knob was already set at render time; if the owner flips a
+   * section to full-width live, mirror the one rule the renderer would
+   * emit so the canvas reflects it immediately. Canvas-only DOM — it is
+   * never saved or exported. */
+  function ensureCanvasKnobCss() {
+    if (document.querySelector('style[data-bp-layout-canvas]')) return;
+    var st = document.createElement('style');
+    st.setAttribute('data-bp-layout-canvas', '1');
+    st.textContent = '.bp-sec-full>.container{max-width:none}';
+    document.head.appendChild(st);
+  }
+
+  function makeChip(text) {
+    var chip = document.createElement('span');
+    chip.className = 'bp-layout-chip';
+    chip.textContent = text;
+    return chip;
   }
 
   function entryFor(index) {
@@ -85,6 +111,12 @@
     label.className = 'bp-lt-label';
     label.textContent = d.label || 'Section';
     bar.appendChild(label);
+    // Batch 148: knob badges — the owner sees a section's width mode and
+    // mobile visibility right on its toolbar, never as a surprise.
+    var isFull = d.width === 'full' || entry.el.classList.contains('bp-sec-full');
+    var isHiddenMobile = d.hideOnMobile === true || entry.el.classList.contains('bp-sec-nomobile');
+    if (isFull) bar.appendChild(makeChip('Full width'));
+    if (isHiddenMobile) bar.appendChild(makeChip('Hidden on mobile'));
     if (d.movable) {
       var handle = makeButton('⠿', 'Drag to reorder', 'noop', index, false);
       handle.className = 'bp-lt-handle';
@@ -260,6 +292,22 @@
         } else if (d.paddingPx != null) {
           target.el.style.paddingTop = Number(d.paddingPx) + 'px';
           target.el.style.paddingBottom = Number(d.paddingPx) + 'px';
+        }
+        // Batch 148: live knob reflection — classes drive both the
+        // canvas look (per-page layout CSS + canvas overrides) and the
+        // toolbar badges.
+        if (typeof d.width === 'string') {
+          if (d.width === 'full') {
+            ensureCanvasKnobCss();
+            target.el.classList.add('bp-sec-full');
+          } else target.el.classList.remove('bp-sec-full');
+        }
+        if (typeof d.hideOnMobile === 'boolean') {
+          target.el.classList.toggle('bp-sec-nomobile', d.hideOnMobile);
+          target.el.classList.toggle('bp-layout-dim', d.hideOnMobile);
+        }
+        if (typeof d.width === 'string' || typeof d.hideOnMobile === 'boolean') {
+          if (selected === Number(d.index)) showToolbar(selected);
         }
       }
     }
