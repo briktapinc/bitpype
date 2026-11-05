@@ -3024,8 +3024,38 @@ function previewScripts(opts) {
         .replace(/<\/script/gi, '<\\/script') +
       '</script>';
   if (o.editable) out += PREVIEW_EDIT_STYLE + PREVIEW_EDIT_SCRIPT;
+  // Batch 147: the portal layout editor's canvas. Same inlining pattern
+  // as preview-bridge.js; only ever set on portal renders (never on
+  // exports), so published sites carry no trace of the editor.
+  if (o.layoutEditor)
+    out +=
+      LAYOUT_EDIT_STYLE +
+      '<script>' +
+      fs
+        .readFileSync(path.join(__dirname, '../public/js/layout-bridge.js'), 'utf8')
+        .replace(/<\/script/gi, '<\\/script') +
+      '</script>';
   return out;
 }
+
+/* Batch 147 — canvas chrome for the layout editor: hover/selection
+   outlines on section roots + the floating per-section toolbar the
+   bridge builds. Scoped under [data-bp-layout-section] so it can
+   never restyle the site itself. */
+const LAYOUT_EDIT_STYLE = `<style>
+[data-bp-layout-section]{outline:2px solid transparent;outline-offset:-2px;transition:outline-color .12s ease}
+[data-bp-layout-section]:hover{outline-color:rgba(14,122,104,.55)}
+[data-bp-layout-section][data-bp-layout-selected="1"]{outline-color:#0e7a68}
+[data-bp-layout-section][data-bp-layout-drop="before"]{box-shadow:0 -4px 0 0 #0e7a68}
+[data-bp-layout-section][data-bp-layout-drop="after"]{box-shadow:0 4px 0 0 #0e7a68}
+.bp-layout-toolbar{position:absolute;z-index:2147483000;display:flex;gap:4px;align-items:center;background:#1c140f;color:#fffaf4;border-radius:10px;padding:6px 8px;box-shadow:0 8px 24px rgba(28,20,15,.35);font:500 13px/1.2 Figtree,'Segoe UI',Arial,sans-serif}
+.bp-layout-toolbar .bp-lt-label{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 4px;color:#f3eadf}
+.bp-layout-toolbar button{appearance:none;border:1px solid rgba(255,250,244,.25);background:rgba(255,250,244,.08);color:#fffaf4;border-radius:7px;min-width:30px;height:30px;padding:0 8px;cursor:pointer;font:inherit}
+.bp-layout-toolbar button:hover:not(:disabled){background:rgba(255,250,244,.2)}
+.bp-layout-toolbar button:disabled{opacity:.35;cursor:not-allowed}
+.bp-layout-toolbar .bp-lt-handle{cursor:grab;touch-action:none}
+.bp-layout-toolbar .bp-lt-handle:active{cursor:grabbing}
+</style>`;
 
 /**
  * Safe extra class tokens from agent section.className / content.class.
@@ -3097,6 +3127,8 @@ function decorateSectionRoot(html, section, content, edit) {
     if (edit && Number.isInteger(edit.page) && Number.isInteger(edit.section)) {
       if (!/\bdata-ws-page\s*=/.test(r)) r += ` data-ws-page="${Number(edit.page)}"`;
       if (!/\bdata-ws-section-index\s*=/.test(r)) r += ` data-ws-section-index="${Number(edit.section)}"`;
+      // Batch 147: layout-editor canvas marker (portal renders only).
+      if (edit.layout && !/\bdata-bp-layout-section\s*=/.test(r)) r += ' data-bp-layout-section="1"';
     }
     if (sid && !/\bid\s*=/.test(r)) r += ` id="${esc(sid)}"`;
     if (extra) {
@@ -3597,6 +3629,13 @@ function validateExportNavLinks(pages, outDir) {
     missing,
     checked,
   };
+}
+
+/** Batch 147: edit-shaped marker for layout-editor renders — carries
+ *  page/section indexes for root stamping but editing:false, so no
+ *  text-edit spans are ever emitted into the layout canvas. */
+function makeLayoutEdit(pageIndex, sectionIndex) {
+  return { page: pageIndex, section: sectionIndex, editing: false, fonts: null, layout: true };
 }
 
 function makeEdit(theme, pageIndex, sectionIndex, editable) {
@@ -4561,7 +4600,7 @@ function renderPage(page, allPages, theme, opts) {
   const preview = !!o.preview;
   const pages = Array.isArray(allPages) ? allPages : [page];
   const pageIndex = Math.max(0, pages.indexOf(page));
-  const scripts = previewScripts({ preview, editable });
+  const scripts = previewScripts({ preview, editable, layoutEditor: !!o.layoutEditor });
   // Modular sections win when present. Legacy freeform page.html only if no sections.
   let structure;
   try {
@@ -4677,7 +4716,7 @@ function renderPage(page, allPages, theme, opts) {
   const useSharedHeader = !!(t.partials && t.partials.headerHtml && !pageMeta.overrideChrome);
   let body = sections
     .map((s, si) => {
-      const edit = makeEdit(t, pageIndex, si, editable);
+      const edit = o.layoutEditor ? makeLayoutEdit(pageIndex, si) : makeEdit(t, pageIndex, si, editable);
       // Skip per-page nav when shared header partial is active.
       if (s.type === 'nav' && useSharedHeader) return '';
       if (s.type === 'footer' && t.partials && t.partials.footerHtml && !pageMeta.overrideChrome) return '';
@@ -4765,7 +4804,7 @@ function renderSite(pages, theme, opts) {
     navLinks = pages.map((p) => ({ label: p.title || p.slug, href: '#' + anchorId(p.slug) }));
   }
   const freeform = pages.some(pageHasHtml);
-  const scripts = previewScripts({ preview: true, editable });
+  const scripts = previewScripts({ preview: true, editable, layoutEditor: !!o.layoutEditor });
   // Single freeform full document: sanitize + inject theme CSS.
   if (pages.length === 1 && pageHasHtml(pages[0]) && looksLikeFullDocument(pages[0].html)) {
     let doc = injectThemeStyles(sanitizeHtml(pages[0].html), t);
@@ -4805,7 +4844,7 @@ function renderSite(pages, theme, opts) {
       }
       const sections = (Array.isArray(p.sections) ? p.sections : [])
         .map((s, si) => {
-          const edit = makeEdit(t, pi, si, editable);
+          const edit = o.layoutEditor ? makeLayoutEdit(pi, si) : makeEdit(t, pi, si, editable);
           if (s.type === 'nav') {
             return sectionToHtml({ type: 'nav', content: Object.assign({}, s.content, { links: navLinks }) }, t, edit);
           }
