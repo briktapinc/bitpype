@@ -2681,80 +2681,6 @@ function contentSectionHtml(opts = {}) {
   );
 }
 
-function injectContentSectionIntoHtml(pageHtml, sectionHtml, afterIndex) {
-  let html = ensurePageChromeStyle(String(pageHtml || ''));
-  const block = String(sectionHtml || contentSectionHtml());
-  // Dedupe by section type / heading label — author content wins.
-  const typeHint =
-    (block.match(/\bdata-ws-section-type\s*=\s*["']([^"']+)["']/i) || [])[1] ||
-    (block.match(/\bclass\s*=\s*["'][^"']*\b(cta|footer|contact|hero|faq)\b/i) || [])[1] ||
-    '';
-  const labelHint = anchorTextLabel((block.match(/<h[1-3]\b[^>]*>([\s\S]*?)<\/h[1-3]>/i) || [])[1] || '');
-  if (
-    typeHint &&
-    new RegExp(`data-ws-section-type\\s*=\\s*["']${typeHint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']`, 'i').test(
-      html
-    )
-  ) {
-    return html;
-  }
-  if (
-    labelHint &&
-    new RegExp(`>(?:\\s*)${labelHint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s*)<`, 'i').test(html)
-  ) {
-    return html;
-  }
-  if (!html.trim()) {
-    return `<main class="bp-mod-main page module-page">${block}</main>`;
-  }
-  if (!/<main\b/i.test(html)) {
-    return `${html}\n<main class="bp-mod-main page module-page">${block}</main>`;
-  }
-  return html.replace(/<main\b[^>]*>[\s\S]*?<\/main>/i, (mainBlock) => {
-    const openMatch = mainBlock.match(/^<main\b[^>]*>/i);
-    const open = withMainClass(openMatch ? openMatch[0] : '<main>', 'bp-mod-main');
-    const openLen = openMatch ? openMatch[0].length : 6;
-    const closeStart = mainBlock.lastIndexOf('</');
-    const inner = closeStart > 0 ? mainBlock.slice(openLen, closeStart) : '';
-    // Keep leading h1 (page title) out of the section list.
-    const titleMatch = inner.match(/^\s*<h1\b[^>]*>[\s\S]*?<\/h1>/i);
-    let rest = inner;
-    let titleHtml = '';
-    if (titleMatch) {
-      titleHtml = titleMatch[0];
-      rest = inner.slice(titleMatch[0].length);
-    }
-    const chunks = [];
-    const chunkRe = /<section\b[\s\S]*?<\/section>|<div\b[^>]*(?:bitpype-module|bp-mod)[^>]*>[\s\S]*?<\/div>/gi;
-    let cm;
-    let cursor = 0;
-    while ((cm = chunkRe.exec(rest))) {
-      if (cm.index > cursor) {
-        const gap = rest.slice(cursor, cm.index);
-        if (gap.trim()) chunks.push(gap);
-      }
-      chunks.push(cm[0]);
-      cursor = cm.index + cm[0].length;
-    }
-    if (cursor < rest.length) {
-      const tail = rest.slice(cursor);
-      if (tail.trim()) chunks.push(tail);
-    }
-    const at = Math.max(-1, Math.min(Number(afterIndex), chunks.length - 1));
-    const out = [];
-    if (!chunks.length || at < 0) {
-      if (at < 0) out.push(block);
-      out.push(...chunks);
-      if (at >= 0 && !chunks.length) out.push(block);
-    } else {
-      chunks.forEach((c, i) => {
-        out.push(c);
-        if (i === at) out.push(block);
-      });
-    }
-    return `${open}${titleHtml}${out.join('')}</main>`;
-  });
-}
 
 function fillShellMain(shellHtml, innerHtml) {
   let html = stripManagedNavLinks(stripManagedModuleEmbedsFromHtml(shellHtml));
@@ -5624,30 +5550,6 @@ function addLesson(db, leadId, courseId, data = {}) {
   return db.prepare('SELECT * FROM course_lessons WHERE id = ?').get(info.lastInsertRowid);
 }
 
-function updateLesson(db, leadId, lessonId, data = {}) {
-  ensureTables(db);
-  const lesson = db.prepare('SELECT * FROM course_lessons WHERE id = ?').get(Number(lessonId));
-  if (!lesson) throw fail('NOT_FOUND', 'Lesson not found', 404);
-  const course = getCourse(db, leadId, lesson.course_id, { withLessons: false });
-  if (!course) throw fail('NOT_FOUND', 'Course not found', 404);
-  const title = data.title != null ? String(data.title).trim().slice(0, 200) : lesson.title;
-  const body =
-    data.body_html != null || data.body != null
-      ? String(data.body_html != null ? data.body_html : data.body)
-      : lesson.body_html;
-  const url =
-    data.lesson_url != null || data.lessonUrl != null || data.url != null
-      ? String(data.lesson_url != null ? data.lesson_url : data.lessonUrl != null ? data.lessonUrl : data.url)
-      : lesson.lesson_url;
-  const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : lesson.sort_order;
-  db.prepare(
-    `
-    UPDATE course_lessons SET title=?, body_html=?, lesson_url=?, sort_order=?,
-      updated_at=datetime('now') WHERE id=?
-  `
-  ).run(title, body, url, sortOrder, lesson.id);
-  return db.prepare('SELECT * FROM course_lessons WHERE id = ?').get(lesson.id);
-}
 
 function deleteLesson(db, leadId, lessonId) {
   ensureTables(db);
@@ -12083,17 +11985,6 @@ function updateMembershipTierRow(db, leadId, tierId, fields, opts = {}) {
   return getMembershipTier(db, leadId, tierId);
 }
 
-function setMembershipTierActive(db, leadId, tierId, active) {
-  ensureTables(db);
-  const existing = getMembershipTier(db, leadId, tierId);
-  if (!existing) throw fail('NOT_FOUND', 'Tier not found', 404);
-  db.prepare("UPDATE membership_tiers SET active = ?, updated_at = datetime('now') WHERE id = ? AND lead_id = ?").run(
-    active ? 1 : 0,
-    Number(tierId),
-    Number(leadId)
-  );
-  return getMembershipTier(db, leadId, tierId);
-}
 
 function deleteMembershipTier(db, leadId, tierId) {
   ensureTables(db);
@@ -13587,56 +13478,6 @@ function createPublicBooking(db, leadId, data = {}, opts = {}) {
   return appt;
 }
 
-function createAppointment(db, leadId, data = {}) {
-  // Staff/portal create — may force a slot even if slightly outside public rules
-  ensureTables(db);
-  const service = getBookingService(db, leadId, data.service_id || data.serviceId || data.service);
-  if (!service) throw fail('VALIDATION', 'service_id is required');
-  const name = String(data.customer_name || data.name || '').trim();
-  if (!name) throw fail('VALIDATION', 'customer_name is required');
-  let startsAt = String(data.starts_at || data.start || '').trim();
-  if (!startsAt && data.date && data.time) {
-    startsAt = `${data.date}T${String(data.time).slice(0, 5)}:00`;
-  }
-  const m = startsAt.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
-  if (!m) throw fail('VALIDATION', 'starts_at must be YYYY-MM-DDTHH:MM');
-  const duration = Number(service.duration_minutes) || 30;
-  const endsAt = data.ends_at ? String(data.ends_at) : `${m[1]}T${formatHm(parseHm(m[2]) + duration)}:00`;
-  let status = String(data.status || 'confirmed').toLowerCase();
-  if (!BOOKING_STATUSES.includes(status)) status = 'confirmed';
-  const info = db
-    .prepare(
-      `
-    INSERT INTO bookings
-      (lead_id, service_id, customer_name, customer_email, customer_phone, starts_at, ends_at, notes, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `
-    )
-    .run(
-      Number(leadId),
-      service.id,
-      name.slice(0, 200),
-      String(data.customer_email || data.email || '').slice(0, 240),
-      String(data.customer_phone || data.phone || '').slice(0, 60),
-      `${m[1]}T${m[2]}:00`,
-      endsAt,
-      String(data.notes || '').slice(0, 2000),
-      status
-    );
-  const appt = getAppointment(db, leadId, info.lastInsertRowid);
-  try {
-    const portalContacts = require('./portalContacts');
-    portalContacts.captureFromBooking(db, {
-      leadId,
-      booking: appt,
-      serviceName: service.name,
-      pageSlug: '',
-    });
-  } catch (e) {
-    console.warn('[siteModules] LeadScout appointment capture failed:', e.message || e);
-  }
-  return appt;
-}
 
 function deleteAppointment(db, leadId, id) {
   ensureTables(db);
@@ -14341,7 +14182,6 @@ module.exports = {
   defaultClientPageInner,
   ensureClientPageChrome,
   contentSectionHtml,
-  injectContentSectionIntoHtml,
   withMainClass,
   embedBlockHtml,
   moduleScriptTag,
@@ -14382,7 +14222,6 @@ module.exports = {
   updateCourse,
   deleteCourse,
   addLesson,
-  updateLesson,
   deleteLesson,
   listAlbums,
   getAlbum,
@@ -14669,7 +14508,6 @@ module.exports = {
   validateMembershipTierInput,
   insertMembershipTier,
   updateMembershipTierRow,
-  setMembershipTierActive,
   deleteMembershipTier,
   shapeMemberSubscription,
   getMemberSubscriptionByStripeId,
@@ -14705,7 +14543,6 @@ module.exports = {
   listAppointments,
   moduleItemCount,
   getAppointment,
-  createAppointment,
   updateAppointmentStatus,
   setAppointmentArchived,
   deleteAppointment,

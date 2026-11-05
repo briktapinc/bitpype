@@ -1,3 +1,11 @@
+> **⚠ SUPERSEDED (Batch 143, 2026-11-05) — DO NOT FOLLOW THIS CHECKLIST.**
+> This document describes the one-off October 2026 audit port, including a
+> code-only tar backup step that predates tenant-data backups. Production
+> deploys run through the per-batch finisher scripts
+> (`~/workspace/website-scout/deploy-batchNNN-finish.sh`) with the
+> data-inclusive release backup (`make-release-backup.sh`) taken FIRST.
+> Kept for history only.
+
 # Deploy checklist — audit port (prepared 2026-10-23, NOT yet deployed)
 
 Repo state: `baseline` commit = production source exactly as pulled from

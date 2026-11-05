@@ -54,16 +54,4 @@ function shouldMergeIntoOpenJob(jobRow) {
   return !!jobRow && String(jobRow.status || '') === 'waiting_on_agent';
 }
 
-const STATE_LABELS = {
-  queued: 'queued for the design agent',
-  building: 'being built by the design agent',
-  in_review: 'back with the design agent after verification',
-  waiting_on_you: 'waiting on your answer',
-  delivered: 'delivered',
-};
-
-function stateLabel(state) {
-  return STATE_LABELS[state] || STATE_LABELS.queued;
-}
-
-module.exports = { jobChatState, shouldMergeIntoOpenJob, stateLabel, STATE_LABELS };
+module.exports = { jobChatState, shouldMergeIntoOpenJob };

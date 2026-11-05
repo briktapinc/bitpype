@@ -162,13 +162,11 @@ async function defaultLeadEmailUser(db, workspaceId, row) {
  */
 async function deriveDomainMode(db, workspaceId, row, deps = {}) {
   let payer = null;
+  // Batch 143: the deps hook is domainBillingUser only — the legacy
+  // boolean domainBillingUserSubscribed branch had no caller left
+  // (every caller resolves the payer object) and is removed.
   if (typeof deps.domainBillingUser === 'function') {
     payer = await deps.domainBillingUser(db, row);
-  } else if (typeof deps.domainBillingUserSubscribed === 'function') {
-    // Legacy boolean hook: a true answer proves a subscribed payer;
-    // false is ambiguous (no payer at all vs an unsubscribed payer),
-    // so only a true short-circuits here.
-    if (await deps.domainBillingUserSubscribed(db, row)) return 'auto';
   } else {
     payer = await defaultDomainBillingUser(db, row);
   }

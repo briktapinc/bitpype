@@ -319,15 +319,6 @@ async function getRoute(fnKey) {
   }
 }
 
-/** Synchronous default route (no settings read) — for contexts that
- * cannot await (kept for parity with getRoute's fallback path). */
-function defaultRoute(fnKey) {
-  const fn = FUNCTION_BY_KEY.get(fnKey);
-  return fn
-    ? { primary: fn.defaultPrimary, fallback: fn.defaultFallback, modelPrimary: '', modelFallback: '' }
-    : { primary: 'openai', fallback: 'none', modelPrimary: '', modelFallback: '' };
-}
-
 /**
  * Order the attempts for one call. Returns a list of
  * { provider, via: 'primary'|'fallback', failoverNote } — the note is
@@ -509,7 +500,6 @@ module.exports = {
   INFO_FUNCTIONS,
   TASK_TO_FUNCTION,
   getRoute,
-  defaultRoute,
   classifyError,
   noteProviderFailure,
   noteFailover,

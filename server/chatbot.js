@@ -696,11 +696,6 @@ function addMessage(db, sessionId, leadId, role, body, meta = null) {
   return publicMessage(db.prepare('SELECT * FROM chatbot_messages WHERE id = ?').get(info.lastInsertRowid));
 }
 
-function resolveEmbedForLead(db, leadId) {
-  const modules = require('./siteModules');
-  modules.ensureTables(db);
-  return modules.getEmbedRow(db, Number(leadId), 'chatbot');
-}
 
 function getPublicConfigByToken(db, token) {
   ensureTables(db);
@@ -1971,7 +1966,6 @@ module.exports = {
   storeKnowledgeUploads,
   KNOWLEDGE_MAX_BYTES,
   notifyClientAgent,
-  resolveEmbedForLead,
   listMessages,
   getSessionById,
   getSessionByToken,

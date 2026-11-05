@@ -36,10 +36,6 @@ async function getPublishableKey() {
 }
 
 /** @deprecated Prefer getPriceIdForPlan — kept for one-price legacy installs. */
-async function getPriceId() {
-  return getPriceIdForPlan(PLAN_STANDARD);
-}
-
 /**
  * Resolve Stripe Price ID for a paid plan.
  * Env: STRIPE_PRICE_ID_STANDARD / STRIPE_PRICE_ID_PRO / STRIPE_PRICE_ID_PREMIUM
@@ -173,7 +169,6 @@ module.exports = {
   getStripe,
   getWebhookSecret,
   getPublishableKey,
-  getPriceId,
   getPriceIdForPlan,
   getConfiguredPriceIds,
   planIdFromPriceId,

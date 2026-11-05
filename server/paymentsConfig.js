@@ -325,11 +325,6 @@ function clientForLayer(leadId, source, secretKey) {
 }
 
 /** Resolve + build the client that would run a charge for this purpose. Throws PAYMENTS_NOT_CONFIGURED. */
-function clientFor(db, leadId, purpose) {
-  const layer = resolve(db, leadId, purpose);
-  if (!layer) throw notConfigured('Payments are not configured for this site yet.');
-  return { ...layer, client: clientForLayer(leadId, layer.source, layer.secretKey) };
-}
 
 /**
  * Ordered webhook-verification candidates for a lead: the unified
@@ -444,7 +439,6 @@ module.exports = {
   saveCredentials,
   clearCredentials,
   clientForLayer,
-  clientFor,
   webhookCandidates,
   constructEventAny,
   resolveLeadForEvent,

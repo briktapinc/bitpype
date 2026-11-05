@@ -21,7 +21,7 @@ const museAgentCore = require('./museAgentCore');
 const museAgentClassifier = require('./museAgentClassifier');
 const museAgentPlanner = require('./museAgentPlanner');
 const { MAX_STEPS, MAX_PORTAL_STEPS, PORTAL_MUTATE_TOOLS, DENY_TOOLS, PORTAL_READONLY_TOOLS, PORTAL_MODE_STEPS, portalModeAllowsTool } = museAgentTools;
-const { fail, getDbSetting, resolveMuseConfig, resolveAgentConfig, museConfigured, todaySpendUsd, providerForConfig, logUsage, mcpToolsToOpenAi, chatCompletions, chatCompletionsRouted, servedProviderFor, servedModelFor, withFailoverNote } = museAgentCore;
+const { fail, getDbSetting, resolveMuseConfig, resolveAgentConfig, museConfigured, todaySpendUsd, providerForConfig, logUsage, mcpToolsToOpenAi, chatCompletionsRouted, servedProviderFor, servedModelFor, withFailoverNote } = museAgentCore;
 
 function buildSystemPrompt(job) {
   const brief =
