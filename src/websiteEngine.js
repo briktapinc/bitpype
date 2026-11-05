@@ -656,6 +656,36 @@ function spacingGuardCss() {
   ].join('\n');
 }
 
+/* Batch 148 — per-page layout-knob rules (section width / hide-on-
+   mobile; fields defined in src/siteStructure.js). Emitted as their
+   own <style data-bp-section-layout="1"> block ONLY when at least one
+   section on the page carries a knob, so a knob-free page renders
+   byte-identically to the pre-148 renderer. Full-width releases the
+   band's direct .container wrapper; the Batch 135 band inset lives on
+   the section element itself and is untouched, so text still never
+   reaches the screen edge. The release rule deliberately carries NO
+   !important: wrappers with their own inline max-width (e.g. a form's
+   640px container) keep it, and module internals keep theirs —
+   full-width governs the band, exactly like a real full-bleed band.
+   Hide-on-mobile uses the platform's 700px breakpoint (the same one
+   the spacing guard switches on). */
+function sectionLayoutCss(pages) {
+  let full = false;
+  let hidden = false;
+  for (const page of Array.isArray(pages) ? pages : []) {
+    for (const s of page && Array.isArray(page.sections) ? page.sections : []) {
+      if (!s || typeof s !== 'object') continue;
+      if (s.width === 'full') full = true;
+      if (s.hideOnMobile === true) hidden = true;
+    }
+  }
+  if (!full && !hidden) return '';
+  let css = '';
+  if (full) css += '.bp-sec-full>.container{max-width:none}';
+  if (hidden) css += '@media (max-width:700px){.bp-sec-nomobile{display:none!important}}';
+  return css;
+}
+
 function spacingGuardScript() {
   const t = spacingTokens();
   if (!t) return '';
@@ -3044,6 +3074,10 @@ function previewScripts(opts) {
    never restyle the site itself. */
 const LAYOUT_EDIT_STYLE = `<style>
 [data-bp-layout-section]{outline:2px solid transparent;outline-offset:-2px;transition:outline-color .12s ease}
+[data-bp-layout-section].bp-sec-nomobile{outline:2px dashed rgba(179,55,42,.65)}
+.bp-layout-dim{opacity:.55}
+.bp-layout-chip{display:inline-flex;align-items:center;background:rgba(240,180,41,.16);color:#f0b429;border:1px solid rgba(240,180,41,.45);border-radius:999px;padding:2px 8px;font-size:11px;font-weight:600;white-space:nowrap}
+@media (max-width:700px){[data-bp-layout-section].bp-sec-nomobile{display:block!important}}
 [data-bp-layout-section]:hover{outline-color:rgba(14,122,104,.55)}
 [data-bp-layout-section][data-bp-layout-selected="1"]{outline-color:#0e7a68}
 [data-bp-layout-section][data-bp-layout-drop="before"]{box-shadow:0 -4px 0 0 #0e7a68}
@@ -3116,7 +3150,12 @@ function decorateSectionRoot(html, section, content, edit) {
       .toLowerCase()
       .replace(/[^a-z0-9_-]/g, '')
       .slice(0, 40) || 'custom';
-  const extra = sectionExtraClass(section, content);
+  // Batch 148: layout-knob classes, stamped ONLY when a knob is set —
+  // a knob-free section's root is byte-identical to before.
+  const knobClasses = [];
+  if (section && section.width === 'full') knobClasses.push('bp-sec-full');
+  if (section && section.hideOnMobile === true) knobClasses.push('bp-sec-nomobile');
+  const extra = [sectionExtraClass(section, content), ...knobClasses].filter(Boolean).join(' ');
   const style = sectionInlineStyle(section, content);
   const sid = typeof section.id === 'string' ? section.id.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) : '';
   return out.replace(/^(\s*)<([a-zA-Z][\w-]*)(\s[^>]*)?>/, (m, ws, tag, rest) => {
@@ -3766,6 +3805,7 @@ function docShell({
   seoHead,
   gscToken,
   ogType,
+  sectionLayoutCss: pageSectionLayoutCss,
 }) {
   const t = normalizeTheme(theme);
   const themeJs = themeJsTag(t);
@@ -3803,7 +3843,7 @@ ${canon ? `<link rel="canonical" href="${esc(canon)}">` : ''}
 ${ogTags}
 ${seoHead || ''}
 ${fav}
-<style data-ws-theme="1">${siteCss(t)}</style>
+<style data-ws-theme="1">${siteCss(t)}</style>${pageSectionLayoutCss ? `\n<style data-bp-section-layout="1">${pageSectionLayoutCss}</style>` : ''}
 ${themeHead}
 ${pageHeadHtml}
 </head>
@@ -4745,6 +4785,8 @@ function renderPage(page, allPages, theme, opts) {
         pageJs: pageMeta.customJs,
         pageHead: pageMeta.customHead,
         ogType: pageMeta.ogType,
+        // Batch 148: per-page layout-knob rules ('' when no knob is set).
+        sectionLayoutCss: sectionLayoutCss([pageForRender]) || undefined,
       }),
       t
     )
@@ -4860,6 +4902,9 @@ function renderSite(pages, theme, opts) {
     body: freeform ? rewriteFileLinksToAnchors(body, pages) : body,
     theme: t,
     script: scripts,
+    // Batch 148: the stacked preview shows every page — the knob rule
+    // block is computed across all of them.
+    sectionLayoutCss: sectionLayoutCss(pages) || undefined,
   });
   if (headExtras.length) {
     const unique = [...new Set(headExtras)];
@@ -8228,6 +8273,7 @@ module.exports = {
   COMPONENT_TYPES,
   LAYOUT_SECTION_TYPES,
   sectionToHtml,
+  sectionLayoutCss,
   renderPage,
   renderPageAt,
   renderSite,
