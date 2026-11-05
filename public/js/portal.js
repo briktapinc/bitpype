@@ -1511,6 +1511,13 @@
     } catch (e) {
       setLayoutMsg(errText(e), 'err');
       state.layoutOpen = false;
+      // The bar is hidden on a failed open — surface the error on the
+      // always-visible preview message line as well.
+      const pubMsg = document.getElementById('msg-publish');
+      if (pubMsg) {
+        pubMsg.className = 'msg err';
+        pubMsg.textContent = `Layout editor: ${errText(e)}`;
+      }
     } finally {
       state.layoutBusy = false;
       syncLayoutUi();

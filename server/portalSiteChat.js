@@ -1743,7 +1743,7 @@ function layoutModuleTypeForSection(section, embedsByToken) {
     const row = embedsByToken.get(token);
     if (row) return String(row.module_type || '').toLowerCase();
   }
-  return declared && section.type === 'site_module' ? declared : '';
+  return '';
 }
 
 function layoutEmbedsByToken(db, leadId) {
