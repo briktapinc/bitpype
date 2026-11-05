@@ -72,6 +72,10 @@ const PLACES_JSON = {
 async function main() {
   const sm = load('server/siteModules.js', {
     '../src/pageContentScan': require(path.join(root, 'src/pageContentScan.js')),
+    // Batch 149: siteModules' managed-script ensures delegate to the
+    // shared canonical helper (same mock-map extension pattern as
+    // Batch 145's stripeShapes fix in account-link-regressions).
+    '../src/managedScripts': require(path.join(root, 'src/managedScripts.js')),
   });
   sm.ensureTables(db);
 

@@ -10,6 +10,7 @@ const db = new Database(':memory:');
 const contacts = require(path.join(root, 'server/portalContacts.js'));
 const portalTabs = require(path.join(root, 'server/portalTabs.js'));
 const apiErrors = require(path.join(root, 'server/apiErrors.js')); // Batch 54: route files require it; VM mocks hand them the real module
+const managedScripts = require(path.join(root, 'src/managedScripts.js')); // Batch 149: the managed-script ensures in siteModules/chatbot/contactForms delegate to this shared leaf; VM loads get the real module (same pattern as apiErrors)
 const results = [];
 function check(name, fn) { fn(); results.push(name); }
 // Batch 76: the missed-call rescue engine is required (lazily) by
@@ -68,6 +69,7 @@ function load(file, mocks) {
         // Batch 54: route files require the shared error shaper; it is a
         // dependency-free leaf, so VM loads get the real module.
         if (name === '../apiErrors') return apiErrors;
+        if (name === '../src/managedScripts') return managedScripts; // Batch 149 (see above)
         if (name === '../callRescue' || name === './callRescue') return callRescueStub;
         if (!name.startsWith('.')) return require(name);
         if (SPLIT_MODULES.has(path.basename(name))) return inner('server/' + path.basename(name) + '.js');
