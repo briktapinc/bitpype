@@ -91,8 +91,8 @@ async function json(res) {
     n++;
     assert.equal(
       (typesBlock[1].match(/'/g) || []).length / 2,
-      28,
-      'MODULE_TYPES still 28 — detail is not a module type (27 at Batch 128 checkout; Batch 131 comments is the 28th; 133 adds none)'
+      29,
+      'MODULE_TYPES at 29 — detail is not a module type (27 at Batch 128 checkout; Batch 131 comments is the 28th; Batch 139 pricing is the 29th; 133 adds none)'
     );
     n++;
     for (const t of [

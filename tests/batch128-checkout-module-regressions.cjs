@@ -281,7 +281,7 @@ function load(file, mocks) {
     n++;
     assert.ok(portalHtml.includes('id="modules-shop-orders-panel"'), 'portal.html hosts the shop orders panel');
     n++;
-    assert.ok(portalHtml.includes('portal.js?v=batch137-qualifying1'), 'portal.js cache-bust rotated');
+    assert.ok(portalHtml.includes('portal.js?v=batch139-pricing1'), 'portal.js cache-bust rotated');
     n++;
     const portalRoutes = read('server/routes/portal.js');
     assert.ok(portalRoutes.includes("router.put('/modules/checkout/config'"), 'portal config route registered');

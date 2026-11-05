@@ -142,7 +142,7 @@ function unzipStore(buf) {
     has(portalHtml, 'remove the <code>[bitpype_form]</code> shortcodes', 'panel carries the uninstall shortcode line');
     has(
       portalHtml,
-      '/js/portal.js?v=batch137-qualifying1',
+      '/js/portal.js?v=batch139-pricing1',
       'portal.js cache-busted (Batch 117 rotation; string follows the newest rotation — Batch 131)'
     );
     const portalJs = read('public/js/portal.js');

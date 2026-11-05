@@ -215,8 +215,8 @@ async function waitReady(child, output) {
     const sm = require(path.join(root, 'server/siteModules.js'));
     assert.equal(
       sm.MODULE_SCRIPT_VER,
-      'mod38',
-      'MODULE_SCRIPT_VER bumped for the fallback (Batch 128 finisher rotation)'
+      'mod39',
+      'MODULE_SCRIPT_VER bumped for the fallback (Batch 128 finisher rotation; Batch 139 finisher rotation to mod39)'
     );
     n++;
     assert.ok(
