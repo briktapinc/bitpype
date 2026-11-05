@@ -7923,7 +7923,13 @@ async function renderAdminUsers(el) {
   // Batch 143: a failed panel load says so — the old bare catch left
   // a silently missing panel that read as "no portal users".
   renderAdminPortalUsersPanel(el).catch(() => {
-    el.insertAdjacentHTML('beforeend', '<div class="card"><p class="error">Could not load client portal users — reload this page to try again.</p></div>');
+    const card = document.createElement('div');
+    card.className = 'card';
+    const p = document.createElement('p');
+    p.className = 'error';
+    p.textContent = 'Could not load client portal users — reload this page to try again.';
+    card.appendChild(p);
+    el.appendChild(card);
   });
 }
 
