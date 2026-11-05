@@ -1263,6 +1263,388 @@ function syncFreeformNavOrder(pages, opts = {}) {
   });
 }
 
+/* ================================================================== */
+/* Batch 147 — NATIVE SECTION EDITOR model ops.                        */
+/*                                                                     */
+/* The portal layout editor edits the page MODEL (the section list)    */
+/* — never exported HTML — through these pure ops plus the portal      */
+/* wrappers in server/portalSiteChat.js, and saves through the same    */
+/* domain.sitesSave path the design payload uses, so editor saves and  */
+/* design saves can never diverge.                                     */
+/*                                                                     */
+/* Structural law enforced here (mirrors the platform's own rules):    */
+/*   - nav is locked first, footer is locked last; neither moves,      */
+/*     duplicates or deletes (page chrome — one per page).             */
+/*   - hero/banner stay pinned in place (PINNED_SECTION_TYPES),        */
+/*     exactly as the adjacent-swap reorder has always treated them:   */
+/*     a move rearranges only the movable sections among the slots     */
+/*     the movable sections already occupy.                            */
+/*   - module sections duplicate their section/embed REFERENCE only:   */
+/*     site_module_embeds is UNIQUE(lead_id, module_type) and every    */
+/*     module's settings/content live in lead-scoped tables, so a      */
+/*     duplicate mount renders the same singleton module twice and     */
+/*     can never copy or corrupt the singleton row. Module types       */
+/*     whose mount must stay singular are fenced below with reasons.   */
+/* ================================================================== */
+
+/** Module types whose page mount must never be duplicated. */
+const LAYOUT_DUPLICATE_FENCE = {
+  chatbot: 'The chat widget is a sitewide overlay — one per site, not a page section you can stack.',
+  checkout: 'Checkout is the site’s single checkout surface — a second mount would render two live checkout forms sharing one cart.',
+};
+
+/** Section types the editor never duplicates or deletes (page chrome). */
+const LAYOUT_CHROME_TYPES = new Set(['nav', 'footer']);
+
+/** Content section types the ADD palette offers (renderer-backed, with
+ *  platform defaults via defaultSectionContent). */
+const LAYOUT_CONTENT_TYPES = [
+  { type: 'heading', label: 'Heading' },
+  { type: 'text', label: 'Text' },
+  { type: 'text_image', label: 'Text + image' },
+  { type: 'image', label: 'Image' },
+  { type: 'hero', label: 'Hero banner' },
+  { type: 'benefits', label: 'Benefits' },
+  { type: 'services', label: 'Services' },
+  { type: 'cards', label: 'Cards' },
+  { type: 'columns', label: 'Columns' },
+  { type: 'about', label: 'About' },
+  { type: 'gallery', label: 'Gallery' },
+  { type: 'reviews', label: 'Reviews' },
+  { type: 'faq', label: 'FAQ' },
+  { type: 'cta', label: 'Call to action' },
+  { type: 'html', label: 'Custom HTML' },
+];
+
+/** Vertical-padding floor for the layout knob: the tightest edge inset
+ *  the Batch 135 spacing guarantee promises anywhere (the mobile
+ *  section inset, parsed from the single-sourced tokens block in
+ *  public/css/tokens.css — never a hardcoded copy that can drift). */
+let _layoutPadFloorCache = null;
+function layoutPaddingFloorPx() {
+  if (_layoutPadFloorCache != null) return _layoutPadFloorCache;
+  let floor = 22;
+  try {
+    const fs = require('fs');
+    const css = fs.readFileSync(require('path').join(__dirname, '..', 'public', 'css', 'tokens.css'), 'utf8');
+    const m = /--bp-space-section-inset-mobile\s*:\s*(\d+(?:\.\d+)?)px/.exec(css);
+    if (m) floor = Number(m[1]);
+  } catch {
+    /* tokens unreadable — fall back to the Batch 135 mobile inset */
+  }
+  _layoutPadFloorCache = floor;
+  return floor;
+}
+const LAYOUT_PADDING_MAX_PX = 160;
+/** The renderer base (section.block padding) — what an unset knob means. */
+const LAYOUT_PADDING_DEFAULT_PX = 56;
+
+function layoutErr(code, message) {
+  return Object.assign(new Error(message), { code });
+}
+
+/** Parse a section's inline style string into ordered [prop, value] pairs. */
+function parseStyleDecls(style) {
+  const out = [];
+  if (typeof style !== 'string') return out;
+  for (const part of style.split(';')) {
+    const idx = part.indexOf(':');
+    if (idx <= 0) continue;
+    const prop = part.slice(0, idx).trim().toLowerCase();
+    const value = part.slice(idx + 1).trim();
+    if (prop && value) out.push([prop, value]);
+  }
+  return out;
+}
+
+function styleDeclsToString(decls) {
+  return decls.map(([p, v]) => `${p}:${v}`).join(';');
+}
+
+/** Current vertical padding (px) written on the section, or null when unset. */
+function getSectionPaddingPx(section) {
+  if (!section || typeof section !== 'object') return null;
+  const decls = parseStyleDecls(typeof section.style === 'string' ? section.style : '');
+  let top = null;
+  let bottom = null;
+  for (const [prop, value] of decls) {
+    const m = /^(\d+(?:\.\d+)?)px$/.exec(value);
+    if (!m) continue;
+    if (prop === 'padding-top') top = Number(m[1]);
+    if (prop === 'padding-bottom') bottom = Number(m[1]);
+  }
+  if (top == null && bottom == null) return null;
+  return Math.round(Math.max(top || 0, bottom || 0));
+}
+
+/**
+ * Write (or clear, with null) the section's vertical padding into the
+ * EXISTING section.style field. Sub-floor values are REFUSED, never
+ * silently clamped — the Batch 135 floor is platform law.
+ */
+function setSectionPaddingPx(section, px) {
+  if (!section || typeof section !== 'object') throw layoutErr('INVALID', 'Section is required.');
+  const rest = parseStyleDecls(typeof section.style === 'string' ? section.style : '').filter(
+    ([p]) => p !== 'padding-top' && p !== 'padding-bottom' && p !== 'padding'
+  );
+  if (px == null) {
+    if (rest.length) section.style = styleDeclsToString(rest);
+    else delete section.style;
+    return section;
+  }
+  const value = Math.round(Number(px));
+  if (!Number.isFinite(value)) throw layoutErr('INVALID_PADDING', 'Padding must be a number of pixels.');
+  const floor = layoutPaddingFloorPx();
+  if (value < floor) {
+    throw layoutErr(
+      'PADDING_BELOW_FLOOR',
+      `Vertical padding cannot go under ${floor}px — the platform spacing floor keeps text off the section edges.`
+    );
+  }
+  if (value > LAYOUT_PADDING_MAX_PX) {
+    throw layoutErr('PADDING_TOO_LARGE', `Vertical padding cannot exceed ${LAYOUT_PADDING_MAX_PX}px.`);
+  }
+  rest.push(['padding-top', `${value}px`], ['padding-bottom', `${value}px`]);
+  section.style = styleDeclsToString(rest);
+  return section;
+}
+
+const LAYOUT_HEX_RE = /^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/;
+
+/** Current background colour from the EXISTING content.backgroundColor field. */
+function getSectionBackground(section) {
+  const c = section && typeof section === 'object' ? section.content : null;
+  if (!c || typeof c !== 'object') return '';
+  for (const key of ['backgroundColor', 'background_color', 'bg', 'background']) {
+    const v = c[key];
+    if (typeof v === 'string' && LAYOUT_HEX_RE.test(v.trim())) return v.trim();
+  }
+  return '';
+}
+
+/** Write (or clear, with '') the section background into content.backgroundColor. */
+function setSectionBackground(section, hex) {
+  if (!section || typeof section !== 'object') throw layoutErr('INVALID', 'Section is required.');
+  if (!section.content || typeof section.content !== 'object') section.content = {};
+  const value = String(hex || '').trim();
+  if (!value) {
+    delete section.content.backgroundColor;
+    return section;
+  }
+  if (!LAYOUT_HEX_RE.test(value)) throw layoutErr('INVALID_COLOR', 'Background must be a hex colour like #1a56db.');
+  section.content.backgroundColor = value;
+  return section;
+}
+
+function sectionTypeOf(section) {
+  return String((section && section.type) || '').toLowerCase();
+}
+
+function isFooterSection(section) {
+  return sectionTypeOf(section) === 'footer';
+}
+
+/** A section is movable in the editor unless it is page chrome or a
+ *  platform-pinned type (nav/hero/banner) or the footer. */
+function isLayoutMovable(section) {
+  if (!section || typeof section !== 'object') return false;
+  const t = sectionTypeOf(section);
+  if (LAYOUT_CHROME_TYPES.has(t)) return false;
+  return !PINNED_SECTION_TYPES.has(t);
+}
+
+/**
+ * Drag-style move to an absolute index. Pinned/chrome sections keep
+ * their absolute slots; the movable sections are rearranged among the
+ * slots they already occupy (the movable-slot rule — the drag
+ * generalization of the adjacent-swap law in reorderSections, so the
+ * two UIs can never disagree about what may move where).
+ * Returns { sections, changed, reason? } — never mutates the input.
+ */
+function moveSectionToIndex(sections, fromIndex, toIndex) {
+  const list = Array.isArray(sections) ? sections.slice() : [];
+  const from = Number(fromIndex);
+  const to = Number(toIndex);
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || from >= list.length) {
+    return { sections: list, changed: false, reason: 'out_of_range' };
+  }
+  if (!isLayoutMovable(list[from])) return { sections: list, changed: false, reason: 'locked' };
+  const slots = [];
+  const movable = [];
+  list.forEach((s, i) => {
+    if (isLayoutMovable(s)) {
+      slots.push(i);
+      movable.push(s);
+    }
+  });
+  const fromSlot = slots.indexOf(from);
+  // Target is expressed as an absolute index; translate to the nearest
+  // movable slot at or before it (dropping "after the footer" lands on
+  // the last movable slot, never past the footer).
+  let toSlot = 0;
+  slots.forEach((slotIdx, k) => {
+    if (slotIdx <= to) toSlot = k;
+  });
+  if (fromSlot < 0 || fromSlot === toSlot) return { sections: list, changed: false, reason: 'no_move' };
+  const [moved] = movable.splice(fromSlot, 1);
+  movable.splice(toSlot, 0, moved);
+  slots.forEach((slotIdx, k) => {
+    list[slotIdx] = movable[k];
+  });
+  return { sections: list, changed: true };
+}
+
+/** Fresh identity for a duplicated section: the rendered element id
+ *  (section.id) and in-section anchors must not collide on the page. */
+function freshenSectionIdentity(pageSections, copy) {
+  const used = new Set();
+  for (const s of pageSections || []) {
+    if (s && typeof s.id === 'string' && s.id) used.add(s.id);
+    const anchor = s && s.content && typeof s.content.anchorId === 'string' ? s.content.anchorId : '';
+    if (anchor) used.add(anchor);
+  }
+  const freshen = (base) => {
+    const stem = String(base || 'section').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48) || 'section';
+    let candidate = `${stem}-copy`;
+    let n = 2;
+    while (used.has(candidate)) {
+      candidate = `${stem}-copy-${n}`;
+      n += 1;
+    }
+    used.add(candidate);
+    return candidate;
+  };
+  if (typeof copy.id === 'string' && copy.id) copy.id = freshen(copy.id);
+  if (copy.content && typeof copy.content === 'object' && typeof copy.content.anchorId === 'string' && copy.content.anchorId) {
+    copy.content.anchorId = freshen(copy.content.anchorId);
+  }
+  return copy;
+}
+
+/**
+ * Duplicate a section in place (copy lands directly after the source).
+ * Deep-copies the section object with a fresh identity. For module
+ * sections the copy keeps the same embed reference (public_token /
+ * module mount html) — the singleton embed row and the module's
+ * settings/content rows are never read or written here. Fenced:
+ * page chrome (nav/footer) and LAYOUT_DUPLICATE_FENCE module types.
+ * `moduleType` is the section's resolved module type, when any.
+ */
+function duplicateSectionAt(sections, index, moduleType) {
+  const list = Array.isArray(sections) ? sections.slice() : [];
+  const at = Number(index);
+  if (!Number.isInteger(at) || at < 0 || at >= list.length) {
+    return { sections: list, changed: false, reason: 'out_of_range' };
+  }
+  const source = list[at];
+  const t = sectionTypeOf(source);
+  if (LAYOUT_CHROME_TYPES.has(t)) {
+    return {
+      sections: list,
+      changed: false,
+      reason: 'chrome',
+      message: 'Page chrome (menu/footer) exists once per page and cannot be duplicated.',
+    };
+  }
+  const mt = String(moduleType || '').toLowerCase();
+  if (mt && LAYOUT_DUPLICATE_FENCE[mt]) {
+    return { sections: list, changed: false, reason: 'fenced_module', message: LAYOUT_DUPLICATE_FENCE[mt] };
+  }
+  const copy = JSON.parse(JSON.stringify(source));
+  freshenSectionIdentity(list, copy);
+  list.splice(at + 1, 0, copy);
+  return { sections: list, changed: true, sectionIndex: at + 1, section: copy };
+}
+
+/**
+ * Remove a section from the page model. Module DATA is never touched:
+ * removing a module section unpublishes that mount from the page (the
+ * portal save wrapper unpublishes the embed itself when a module's
+ * last mount leaves the site — mirrors detachModule's flags). Page
+ * chrome (nav/footer) cannot be removed.
+ */
+function removeSectionAt(sections, index) {
+  const list = Array.isArray(sections) ? sections.slice() : [];
+  const at = Number(index);
+  if (!Number.isInteger(at) || at < 0 || at >= list.length) {
+    return { sections: list, changed: false, reason: 'out_of_range' };
+  }
+  if (LAYOUT_CHROME_TYPES.has(sectionTypeOf(list[at]))) {
+    return {
+      sections: list,
+      changed: false,
+      reason: 'chrome',
+      message: 'Page chrome (menu/footer) cannot be removed from a page.',
+    };
+  }
+  const [removed] = list.splice(at, 1);
+  return { sections: list, changed: true, removed };
+}
+
+/**
+ * Structural law for an editor-submitted section list. Returns a list
+ * of { code, message } violations (empty = lawful). A page may legally
+ * have no nav or no footer; what is forbidden is a nav anywhere but
+ * first, more than one nav, a footer anywhere but last, or more than
+ * one footer.
+ */
+function validateEditorSections(sections) {
+  const problems = [];
+  if (!Array.isArray(sections)) {
+    return [{ code: 'NOT_A_LIST', message: 'Sections must be a list.' }];
+  }
+  const navAt = [];
+  const footerAt = [];
+  sections.forEach((s, i) => {
+    if (!s || typeof s !== 'object' || typeof s.type !== 'string' || !s.type) {
+      problems.push({ code: 'BAD_SECTION', message: `Section ${i + 1} is malformed.` });
+      return;
+    }
+    if (isNavSection(s)) navAt.push(i);
+    if (isFooterSection(s)) footerAt.push(i);
+  });
+  if (navAt.length > 1) problems.push({ code: 'NAV_DUPLICATE', message: 'A page has exactly one menu section.' });
+  if (navAt.length === 1 && navAt[0] !== 0) {
+    problems.push({ code: 'NAV_NOT_FIRST', message: 'The menu section must stay first.' });
+  }
+  if (footerAt.length > 1) {
+    problems.push({ code: 'FOOTER_DUPLICATE', message: 'A page has exactly one footer section.' });
+  }
+  if (footerAt.length === 1 && footerAt[0] !== sections.length - 1) {
+    problems.push({ code: 'FOOTER_NOT_LAST', message: 'The footer section must stay last.' });
+  }
+  return problems;
+}
+
+/**
+ * Per-section editor descriptor for one page. `resolveModuleType` is a
+ * caller-supplied (section) => moduleType|'' (the portal layer resolves
+ * mount tokens against the lead's embeds; pure callers may omit it).
+ */
+function describeEditorSection(section, index, resolveModuleType) {
+  const t = sectionTypeOf(section);
+  const moduleType =
+    typeof resolveModuleType === 'function' ? String(resolveModuleType(section) || '').toLowerCase() : '';
+  const chrome = LAYOUT_CHROME_TYPES.has(t);
+  const fence = moduleType ? LAYOUT_DUPLICATE_FENCE[moduleType] : null;
+  return {
+    index,
+    type: t,
+    moduleType: moduleType || null,
+    label: sectionLabel(section),
+    chrome,
+    movable: isLayoutMovable(section),
+    canDuplicate: !chrome && !fence,
+    duplicateReason: chrome
+      ? 'Page chrome exists once per page.'
+      : fence || null,
+    canDelete: !chrome,
+    canStyle: !chrome,
+    paddingPx: getSectionPaddingPx(section),
+    background: getSectionBackground(section),
+  };
+}
+
 module.exports = {
   PINNED_SECTION_TYPES,
   MAX_MENU_DEPTH,
@@ -1299,4 +1681,23 @@ module.exports = {
   buildFooterLinks,
   renderNavLinksHtml,
   moveItem,
+  // Batch 147 — native section editor ops.
+  LAYOUT_DUPLICATE_FENCE,
+  LAYOUT_CHROME_TYPES,
+  LAYOUT_CONTENT_TYPES,
+  LAYOUT_PADDING_MAX_PX,
+  LAYOUT_PADDING_DEFAULT_PX,
+  layoutPaddingFloorPx,
+  parseStyleDecls,
+  getSectionPaddingPx,
+  setSectionPaddingPx,
+  getSectionBackground,
+  setSectionBackground,
+  isLayoutMovable,
+  moveSectionToIndex,
+  duplicateSectionAt,
+  removeSectionAt,
+  validateEditorSections,
+  describeEditorSection,
+  freshenSectionIdentity,
 };
