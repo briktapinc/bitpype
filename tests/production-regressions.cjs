@@ -1104,7 +1104,7 @@ async function main() {
   sm16.ensureTables(db);
   assert(sm16.MODULE_META.members, 'meta for members');
   assert.equal(sm16.MODULE_META.members.label, 'Membership');
-  assert.equal(sm16.MODULE_TYPES.length, 28, 'members was the 18th module type; calltracking the 19th; googlereviews the 20th; datatables the 21st; charts the 22nd; newsletter the 23rd; categories the 24th; photocapture the 25th; checkout the 27th; comments the 28th');
+  assert.equal(sm16.MODULE_TYPES.length, 29, 'members was the 18th module type; calltracking the 19th; googlereviews the 20th; datatables the 21st; charts the 22nd; newsletter the 23rd; categories the 24th; photocapture the 25th; checkout the 27th; comments the 28th; pricing the 29th');
   assert.equal(sm16.MODULE_TYPES.includes('members'), true);
   check('batch16 catalog: members registered as the 18th module type', () => {});
 
@@ -1375,7 +1375,7 @@ async function main() {
     stripe: StubStripe17,
   });
   sm17.ensureTables(db);
-  assert.equal(sm17.MODULE_TYPES.length, 28, 'catalog 28 types (Batch 125: photocapture is the 25th; Batch 128: checkout is the 27th; Batch 131: comments is the 28th)');
+  assert.equal(sm17.MODULE_TYPES.length, 29, 'catalog 29 types (Batch 125: photocapture is the 25th; Batch 128: checkout is the 27th; Batch 131: comments is the 28th; Batch 139: pricing is the 29th)');
   assert.equal(sm17.MODULE_SCRIPT_VER, 'mod39', 'script version: batch 20 mod13, batch 21 mod14, batch 26 mod15, batch 25c mod16, batch 25c-fix mod17, batch 30 mod18, batch 31 mod19, batch 32 mod20');
   const cfg17Default = sm17.getMembersConfig(db, 1701);
   assert.equal(cfg17Default.access_level, 'any_member', 'Part 1 default preserved: any member');

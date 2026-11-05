@@ -102,7 +102,7 @@ let db;
     const sm = require(path.join(root, 'server/siteModules.js'));
     assert.equal(
       sm.MODULE_TYPES.length,
-      28,
+      29,
       'catalog has 29 types (Batch 124: categories 24th; Batch 125: photocapture 25th; Batch 126 finisher: qrcode the 26th; Batch 128: checkout the 27th; Batch 131: comments the 28th; Batch 139: pricing the 29th)'
     );
     n++;

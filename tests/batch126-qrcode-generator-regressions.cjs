@@ -134,7 +134,7 @@ let db;
 
     assert.equal(
       sm.MODULE_TYPES.length,
-      28,
+      29,
       'catalog at 29 types (qrcode is the 26th; Batch 128 checkout appended after it; Batch 131 comments appended after; Batch 139 pricing appended last)'
     );
     n++;

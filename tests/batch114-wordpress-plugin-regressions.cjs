@@ -229,8 +229,8 @@ function unzipStore(buf) {
     const sha = crypto.createHash('sha256').update(multiset.join('\n')).digest('hex');
     assert.equal(
       sha,
-      'a3fdd0d2828bda5f285652714975ba4010db4c1cc0eeadf2c89ddd071bc40040',
-      'SEC-13 sink multiset byte-identical (Batch 136 finisher: +2 audited STATIC sinks in module-embed.js; RAW/IDENT multiset unchanged)'
+      '83c84892e3272c05235609d95e97e8fda5c01708a89a37b4f7b25c868dc713c6',
+      'SEC-13 sink multiset byte-identical (Batch 136 finisher: +2 audited STATIC sinks in module-embed.js; RAW/IDENT multiset unchanged; Batch 139 finisher: +1 audited STATIC + 1 audited BUILDER sink in module-embed.js — pricing renderer; RAW/IDENT multiset unchanged)'
     );
     n += 1;
 

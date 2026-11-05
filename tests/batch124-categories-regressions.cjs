@@ -272,7 +272,7 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     let n = 0;
     assert.equal(
       sm.MODULE_TYPES.length,
-      28,
+      29,
       'catalog at 29 types (Batch 125 added photocapture; Batch 126 finisher: qrcode; Batch 128: checkout; Batch 131: comments; Batch 139: pricing)'
     );
     assert.equal(sm.MODULE_TYPES[23], 'categories', 'categories is the 24th type');
