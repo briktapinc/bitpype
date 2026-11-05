@@ -105,7 +105,10 @@ function throwsCode(fn, code) {
   n++;
   assert.ok(portal.includes("moduleMsg('Could not load this list"), 'loadModuleItems surfaces load failures');
   n++;
-  assert.ok(portal.includes("if (!Number.isFinite(v)) return '—';"), 'portal money() shows a dash for non-finite amounts');
+  assert.ok(
+    portal.includes("if (!Number.isFinite(v)) return '—';"),
+    'portal money() shows a dash for non-finite amounts'
+  );
   n++;
   assert.ok(app.includes('let activePreviewHandle = null;'), 'app tracks the active preview handle');
   n++;
@@ -144,19 +147,33 @@ function throwsCode(fn, code) {
   assert.ok(clientMcp.includes("name !== 'fonts.list'"), 'clientMcp entry gate exempts fonts.list');
   n++;
   const fontsIdx = clientMcp.indexOf("if (name === 'fonts.list')");
-  const gateIdx = clientMcp.indexOf("if (!leadId) throw new Error('leadId is required');\n\n  if (name === 'site.get')");
+  const gateIdx = clientMcp.indexOf(
+    "if (!leadId) throw new Error('leadId is required');\n\n  if (name === 'site.get')"
+  );
   assert.ok(fontsIdx > 0 && gateIdx > 0 && fontsIdx < gateIdx, 'fonts.list branch sits above the leadId gate');
   n++;
-  assert.equal(clientMcp.split("if (name === 'fonts.list')").length - 1, 1, 'exactly one fonts.list branch (no dead duplicate)');
+  assert.equal(
+    clientMcp.split("if (name === 'fonts.list')").length - 1,
+    1,
+    'exactly one fonts.list branch (no dead duplicate)'
+  );
   n++;
 
   const siteModules = read('server/siteModules.js');
-  for (const orphan of ['injectContentSectionIntoHtml', 'updateLesson', 'setMembershipTierActive', 'createAppointment']) {
+  for (const orphan of [
+    'injectContentSectionIntoHtml',
+    'updateLesson',
+    'setMembershipTierActive',
+    'createAppointment',
+  ]) {
     assert.ok(!siteModules.includes(orphan), `siteModules orphan ${orphan} removed`);
     n++;
   }
   const mcp = read('server/mcp.js');
-  assert.ok(mcp.includes("name: 'photocapture.addToGallery'") && mcp.includes("name: 'checkout.getConfig'"), 'addToGallery + checkout.getConfig defs both present');
+  assert.ok(
+    mcp.includes("name: 'photocapture.addToGallery'") && mcp.includes("name: 'checkout.getConfig'"),
+    'addToGallery + checkout.getConfig defs both present'
+  );
   n++;
   group('Part 1 source pins', n);
 }
@@ -167,19 +184,39 @@ function throwsCode(fn, code) {
   const aiRouting = require(path.join(root, 'server/aiRouting.js'));
   const coded = (code) => Object.assign(new Error('x'), { code });
   const statused = (status) => Object.assign(new Error('x'), { status });
-  assert.equal(aiRouting.classifyError(coded('UNSAFE_BASE_URL')).failover, false, 'SSRF guard refusal does not fail over');
+  assert.equal(
+    aiRouting.classifyError(coded('UNSAFE_BASE_URL')).failover,
+    false,
+    'SSRF guard refusal does not fail over'
+  );
   n++;
-  assert.equal(aiRouting.classifyError(coded('INVALID_BASE_URL')).failover, false, 'invalid base URL does not fail over');
+  assert.equal(
+    aiRouting.classifyError(coded('INVALID_BASE_URL')).failover,
+    false,
+    'invalid base URL does not fail over'
+  );
   n++;
-  assert.equal(aiRouting.classifyError(coded('UNSAFE_BASE_URL')).reason, 'UNSAFE_BASE_URL', 'refusal reason is the code, not network/timeout');
+  assert.equal(
+    aiRouting.classifyError(coded('UNSAFE_BASE_URL')).reason,
+    'UNSAFE_BASE_URL',
+    'refusal reason is the code, not network/timeout'
+  );
   n++;
-  assert.equal(aiRouting.classifyError(coded('AI_NETWORK_ERROR')).failover, true, 'task-stack network wrapper fails over');
+  assert.equal(
+    aiRouting.classifyError(coded('AI_NETWORK_ERROR')).failover,
+    true,
+    'task-stack network wrapper fails over'
+  );
   n++;
   assert.equal(aiRouting.classifyError(coded('MUSE_NETWORK')).failover, true, 'agent-stack network wrapper fails over');
   n++;
   assert.equal(aiRouting.classifyError(coded('ECONNRESET')).failover, true, 'raw network errno fails over');
   n++;
-  assert.equal(aiRouting.classifyError(new Error('plain')).failover, true, 'uncoded status-less error fails over (non-JSON body case)');
+  assert.equal(
+    aiRouting.classifyError(new Error('plain')).failover,
+    true,
+    'uncoded status-less error fails over (non-JSON body case)'
+  );
   n++;
   const c402 = aiRouting.classifyError(statused(402));
   assert.ok(c402.failover && c402.cooldownMs === 10 * 60 * 1000, '402 fails over with the auth-class cooldown');
@@ -254,7 +291,12 @@ function leadIdTables(db) {
     .prepare("SELECT name FROM sqlite_master WHERE type='table'")
     .all()
     .map((r) => r.name)
-    .filter((t) => db.prepare(`PRAGMA table_info(${t})`).all().some((c) => c.name === 'lead_id'));
+    .filter((t) =>
+      db
+        .prepare(`PRAGMA table_info(${t})`)
+        .all()
+        .some((c) => c.name === 'lead_id')
+    );
 }
 function rowsForLead(db, leadId) {
   const out = {};
@@ -306,25 +348,49 @@ function seedLeadEverywhere(db, id, tag) {
   const mc = sm.createMenuCategory(db, id, { name: tag + ' Mains' });
   sm.createMenuItem(db, id, { name: tag + ' Dish', category_id: mc.id, status: 'published' });
   sm.createCareersPosting(db, id, { title: tag + ' Job', active: 1 });
-  sm.createVideoItem(db, id, { title: tag + ' Vid', url: 'https://youtube.com/watch?v=abc12345678', status: 'published' });
+  sm.createVideoItem(db, id, {
+    title: tag + ' Vid',
+    url: 'https://youtube.com/watch?v=abc12345678',
+    status: 'published',
+  });
   sm.createProduct(db, id, { name: tag + ' Fern', slug: tag + '-fern', price_cents: 100, status: 'published' });
   sm.createBookingService(db, id, { name: tag + ' Cut', status: 'published' });
-  sm.createChart(db, id, { title: tag + ' Chart', source: 'manual', data: { labels: ['a'], series: [{ name: 's', values: [1] }] } });
+  sm.createChart(db, id, {
+    title: tag + ' Chart',
+    source: 'manual',
+    data: { labels: ['a'], series: [{ name: 's', values: [1] }] },
+  });
   sm.updateDataTableConfig(db, id, { title: tag + ' Table', columns: [{ key: 'name', label: 'Name', type: 'text' }] });
   sm.createDataTableRow(db, id, { values: { name: tag } });
   sm.updateCallTrackingConfig(db, id, { display_number: '+15551110000' });
   ins('INSERT INTO calltracking_rotation_numbers (lead_id, phone_number) VALUES (?, ?)', id, '+15551110001');
-  ins("INSERT INTO call_logs (lead_id, call_sid, from_number, to_number, status) VALUES (?, ?, '+1', '+2', 'completed')", id, 'CA' + tag + id);
-  ins("INSERT INTO calls_billing (lead_id, month, last_billed_threshold, overage_due_credits) VALUES (?, '2026-11', 0, 0)", id);
+  ins(
+    "INSERT INTO call_logs (lead_id, call_sid, from_number, to_number, status) VALUES (?, ?, '+1', '+2', 'completed')",
+    id,
+    'CA' + tag + id
+  );
+  ins(
+    "INSERT INTO calls_billing (lead_id, month, last_billed_threshold, overage_due_credits) VALUES (?, '2026-11', 0, 0)",
+    id
+  );
   ins('INSERT INTO lead_payment_configs (lead_id, publishable_key) VALUES (?, ?)', id, 'pk_test_' + tag);
   sm.getMembersConfig(db, id);
   ins('INSERT INTO membership_tiers (lead_id, name, price_cents) VALUES (?, ?, 0)', id, tag + ' Tier');
-  ins("INSERT INTO site_member_reset_tokens (lead_id, member_id, token_hash, expires_at) VALUES (?, 1, ?, datetime('now','+1 day'))", id, 'hash' + tag + id);
+  ins(
+    "INSERT INTO site_member_reset_tokens (lead_id, member_id, token_hash, expires_at) VALUES (?, 1, ?, datetime('now','+1 day'))",
+    id,
+    'hash' + tag + id
+  );
   sm.createEstimateOption(db, id, { label: tag + ' Opt' });
   sm.getEstimateConfig(db, id);
   sm.updatePhotoCaptureConfig(db, id, { heading: tag + ' photos' });
   sm.updateCheckoutConfig(db, id, { success_message: tag + ' thanks' });
-  sm.createQrCode(db, id, { name: tag + ' QR', target_kind: 'url', target_ref: 'https://example.invalid/', status: 'published' });
+  sm.createQrCode(db, id, {
+    name: tag + ' QR',
+    target_kind: 'url',
+    target_ref: 'https://example.invalid/',
+    status: 'published',
+  });
   cats.createCategory(db, id, { scope: 'blog', name: tag + ' Cat', status: 'published' });
   try {
     const nl = require(path.join(root, 'server/newsletter.js'));
@@ -332,7 +398,13 @@ function seedLeadEverywhere(db, id, tag) {
   } catch {
     /* newsletter tables optional in fixture */
   }
-  ins('INSERT INTO newsletter_subscribers (lead_id, email, name, status) VALUES (?, ?, ?, ?)', id, `sub-${tag}@example.invalid`, 'Sub', 'active');
+  ins(
+    'INSERT INTO newsletter_subscribers (lead_id, email, name, status) VALUES (?, ?, ?, ?)',
+    id,
+    `sub-${tag}@example.invalid`,
+    'Sub',
+    'active'
+  );
   comments.getCommentsConfig(db, id);
   ins(
     'INSERT INTO module_comments (lead_id, target_type, target_id, author_name, author_email, body, status) VALUES (?,?,?,?,?,?,?)',
@@ -354,7 +426,10 @@ function seedLeadEverywhere(db, id, tag) {
     const db = makeTenantDb();
     seedLeadEverywhere(db, 9101, 'del');
     const before = rowsForLead(db, 9101);
-    assert.ok(Object.keys(before).length >= 25, `fixture seeds a broad module surface (got ${Object.keys(before).length} tables)`);
+    assert.ok(
+      Object.keys(before).length >= 25,
+      `fixture seeds a broad module surface (got ${Object.keys(before).length} tables)`
+    );
     n++;
     leadEngine.deleteLead(db, 9101);
     const after = rowsForLead(db, 9101);
@@ -373,14 +448,28 @@ function seedLeadEverywhere(db, id, tag) {
     seedLeadEverywhere(db, 9102, 'keep');
     seedLeadEverywhere(db, 9103, 'drop');
     // The exact BUG-3 shape: BOTH leads subscribe the same email.
-    db.prepare('INSERT INTO newsletter_subscribers (lead_id, email, name, status) VALUES (?, ?, ?, ?)').run(9102, 'shared@example.invalid', 'A', 'active');
-    db.prepare('INSERT INTO newsletter_subscribers (lead_id, email, name, status) VALUES (?, ?, ?, ?)').run(9103, 'shared@example.invalid', 'B', 'active');
+    db.prepare('INSERT INTO newsletter_subscribers (lead_id, email, name, status) VALUES (?, ?, ?, ?)').run(
+      9102,
+      'shared@example.invalid',
+      'A',
+      'active'
+    );
+    db.prepare('INSERT INTO newsletter_subscribers (lead_id, email, name, status) VALUES (?, ?, ?, ?)').run(
+      9103,
+      'shared@example.invalid',
+      'B',
+      'active'
+    );
     const lessonsBefore = db.prepare('SELECT COUNT(*) c FROM course_lessons').get().c;
     leadEngine.mergeLeads(db, 9102, [9103]);
     const stranded = rowsForLead(db, 9103);
     assert.deepEqual(stranded, {}, `merge strands nothing on the dropped lead (left: ${JSON.stringify(stranded)})`);
     n++;
-    const shared = db.prepare("SELECT COUNT(*) c FROM newsletter_subscribers WHERE lead_id = 9102 AND email = 'shared@example.invalid'").get().c;
+    const shared = db
+      .prepare(
+        "SELECT COUNT(*) c FROM newsletter_subscribers WHERE lead_id = 9102 AND email = 'shared@example.invalid'"
+      )
+      .get().c;
     assert.equal(shared, 1, 'shared subscriber deduped to one row on the surviving lead');
     n++;
     const lessonsAfter = db.prepare('SELECT COUNT(*) c FROM course_lessons').get().c;
@@ -392,7 +481,9 @@ function seedLeadEverywhere(db, id, tag) {
     assert.equal(orphanLessons, 0, 'no lesson points at a deleted course');
     n++;
     const orphanImages = db
-      .prepare('SELECT COUNT(*) c FROM gallery_images gi LEFT JOIN gallery_albums ga ON ga.id = gi.album_id WHERE ga.id IS NULL')
+      .prepare(
+        'SELECT COUNT(*) c FROM gallery_images gi LEFT JOIN gallery_albums ga ON ga.id = gi.album_id WHERE ga.id IS NULL'
+      )
       .get().c;
     assert.equal(orphanImages, 0, 'no gallery image points at a deleted album');
     n++;
@@ -424,9 +515,16 @@ function seedLeadEverywhere(db, id, tag) {
     'VALIDATION'
   );
   n++;
-  throwsCode(() => comments.toggleLike(db, LEAD, { target_type: 'blog', target_id: post.id, visitor_token: '' }), 'VALIDATION');
+  throwsCode(
+    () => comments.toggleLike(db, LEAD, { target_type: 'blog', target_id: post.id, visitor_token: '' }),
+    'VALIDATION'
+  );
   n++;
-  const liked = comments.toggleLike(db, LEAD, { target_type: 'blog', target_id: post.id, visitor_token: 'bbbbbbbbbbbbbbbb' });
+  const liked = comments.toggleLike(db, LEAD, {
+    target_type: 'blog',
+    target_id: post.id,
+    visitor_token: 'bbbbbbbbbbbbbbbb',
+  });
   assert.equal(liked.liked, true, 'a well-formed token can like');
   n++;
   const state = comments.likeState(db, LEAD, { visitor_token: 'junk' });
@@ -459,7 +557,12 @@ function seedLeadEverywhere(db, id, tag) {
     type: 'checkout.session.completed',
     data: {
       object: {
-        metadata: { bitpype_lead_id: String(LEAD), bitpype_member_id: '777', bitpype_tier_id: String(tier.id), bitpype_key_source: 'unified' },
+        metadata: {
+          bitpype_lead_id: String(LEAD),
+          bitpype_member_id: '777',
+          bitpype_tier_id: String(tier.id),
+          bitpype_key_source: 'unified',
+        },
         customer: 'cus_fix',
         subscription: 'sub_unpaid',
         payment_status: 'unpaid',
@@ -491,7 +594,11 @@ function seedLeadEverywhere(db, id, tag) {
     status: 'active',
     price_cents: 2500,
   });
-  assert.equal(sm.getMemberSubscriptionByStripeId(db, 'sub_dead').status, 'canceled', 'stale active event cannot resurrect a canceled subscription');
+  assert.equal(
+    sm.getMemberSubscriptionByStripeId(db, 'sub_dead').status,
+    'canceled',
+    'stale active event cannot resurrect a canceled subscription'
+  );
   n++;
   // (c)+(d) shop webhook amount verification + full refund. The
   // order row shape mirrors the reviewers' repro (single-item
@@ -502,13 +609,35 @@ function seedLeadEverywhere(db, id, tag) {
   ).run(LEAD);
   sm.applyShopStripeEvent(db, {
     type: 'checkout.session.completed',
-    data: { object: { id: 'cs_fix', payment_intent: 'pi_fix', payment_status: 'paid', amount_total: 100, currency: 'jpy', customer_details: { email: 'b@x.invalid' } } },
+    data: {
+      object: {
+        id: 'cs_fix',
+        payment_intent: 'pi_fix',
+        payment_status: 'paid',
+        amount_total: 100,
+        currency: 'jpy',
+        customer_details: { email: 'b@x.invalid' },
+      },
+    },
   });
-  assert.notEqual(sm.getShopOrderBySession(db, 'cs_fix').status, 'paid', 'amount/currency mismatch does not fulfill the order');
+  assert.notEqual(
+    sm.getShopOrderBySession(db, 'cs_fix').status,
+    'paid',
+    'amount/currency mismatch does not fulfill the order'
+  );
   n++;
   sm.applyShopStripeEvent(db, {
     type: 'checkout.session.completed',
-    data: { object: { id: 'cs_fix', payment_intent: 'pi_fix', payment_status: 'paid', amount_total: 5800, currency: 'usd', customer_details: { email: 'b@x.invalid' } } },
+    data: {
+      object: {
+        id: 'cs_fix',
+        payment_intent: 'pi_fix',
+        payment_status: 'paid',
+        amount_total: 5800,
+        currency: 'usd',
+        customer_details: { email: 'b@x.invalid' },
+      },
+    },
   });
   assert.equal(sm.getShopOrderBySession(db, 'cs_fix').status, 'paid', 'matching amount + currency fulfills the order');
   n++;
@@ -516,7 +645,11 @@ function seedLeadEverywhere(db, id, tag) {
     type: 'charge.refunded',
     data: { object: { id: 'ch_fix', payment_intent: 'pi_fix', amount: 5800, amount_refunded: 5800, currency: 'usd' } },
   });
-  assert.equal(sm.getShopOrderBySession(db, 'cs_fix').status, 'refunded', 'full charge.refunded marks the order refunded');
+  assert.equal(
+    sm.getShopOrderBySession(db, 'cs_fix').status,
+    'refunded',
+    'full charge.refunded marks the order refunded'
+  );
   n++;
   group('Part 6 payments', n);
 }
@@ -552,14 +685,19 @@ function seedLeadEverywhere(db, id, tag) {
   assert.ok(addToGallery, 'photocapture.addToGallery is back in tools/list');
   n++;
   assert.ok(
-    addToGallery.inputSchema && addToGallery.inputSchema.properties && 'album_id' in addToGallery.inputSchema.properties,
+    addToGallery.inputSchema &&
+      addToGallery.inputSchema.properties &&
+      'album_id' in addToGallery.inputSchema.properties,
     'addToGallery carries its own schema (album_id)'
   );
   n++;
   const getConfig = defs.find((d) => d.name === 'checkout.getConfig');
   assert.ok(getConfig && getConfig !== addToGallery, 'checkout.getConfig is a separate def');
   n++;
-  assert.ok(!('album_id' in (getConfig.inputSchema.properties || {})), 'checkout.getConfig no longer carries the addToGallery schema');
+  assert.ok(
+    !('album_id' in (getConfig.inputSchema.properties || {})),
+    'checkout.getConfig no longer carries the addToGallery schema'
+  );
   n++;
   const clientNames = mcp.clientToolDefs().map((d) => d.name);
   assert.ok(clientNames.includes('photocapture.addToGallery'), 'client-scoped tokens regain addToGallery');
@@ -595,9 +733,15 @@ function seedLeadEverywhere(db, id, tag) {
     },
     siteUpdatedAt: '2026-11-05T00:00:00.000Z',
   });
-  assert.ok(fs.existsSync(path.join(outDir, 'detail', 'ecommerce', 'good-key.html')), 'shell written for the valid key');
+  assert.ok(
+    fs.existsSync(path.join(outDir, 'detail', 'ecommerce', 'good-key.html')),
+    'shell written for the valid key'
+  );
   n++;
-  assert.ok(!fs.existsSync(path.join(outDir, 'detail', 'ecommerce', 'gone-item.html')), 'stale detail shell removed on re-export');
+  assert.ok(
+    !fs.existsSync(path.join(outDir, 'detail', 'ecommerce', 'gone-item.html')),
+    'stale detail shell removed on re-export'
+  );
   n++;
   assert.ok(!fs.existsSync(path.join(outDir, 'old-page.html')), 'stale top-level page removed on re-export');
   n++;
@@ -655,6 +799,38 @@ function seedLeadEverywhere(db, id, tag) {
     const ran = await withJobLock(1, 999001, async () => 'ran');
     assert.equal(ran, 'ran', 'baseline lock acquires (creates the locks table)');
     n++;
+    if (process.env.DB_DRIVER === 'mysql') {
+      // MySQL installs take the GET_LOCK named-lock path — there is
+      // no job_execution_locks table and no cross-host wedge to
+      // reclaim (the lock dies with its connection). Pin the path's
+      // mutual exclusion instead: a second holder is refused while
+      // the first lock is held.
+      let release;
+      const held = withJobLock(
+        1,
+        999004,
+        () =>
+          new Promise((res) => {
+            release = res;
+          })
+      );
+      await new Promise((r) => setTimeout(r, 300));
+      let code2 = '';
+      try {
+        await withJobLock(1, 999004, async () => 'nope');
+      } catch (e) {
+        code2 = e.code || '';
+      }
+      assert.equal(code2, 'JOB_RUNNING', 'mysql named lock refuses a concurrent holder');
+      n++;
+      release('done');
+      assert.equal(await held, 'done', 'mysql named lock releases cleanly');
+      n++;
+      group('Part 11 job lock reclaim', n);
+      console.log(`\nbatch143-review-fixes-regressions: ALL ${groups.length} groups passed`);
+      for (const g of groups) console.log(`  - ${g}`);
+      return;
+    }
     const oldIso = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
     await query(
       'INSERT INTO job_execution_locks (workspace_id, job_id, owner, owner_pid, owner_host, claimed_at) VALUES (1, 999002, :owner, 999999, :host, :at)',
