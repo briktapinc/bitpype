@@ -1621,6 +1621,132 @@ function validateEditorSections(sections) {
  * caller-supplied (section) => moduleType|'' (the portal layer resolves
  * mount tokens against the lead's embeds; pure callers may omit it).
  */
+/* ------------------------------------------------------------------ */
+/* Batch 148 — section layout knobs: width mode + mobile visibility.   */
+/* The fields live ON THE SECTION object alongside `style`:            */
+/*   width        — the only stored value is 'full'; ABSENT means      */
+/*     contained (today's behaviour).                                  */
+/*   hideOnMobile — the only stored value is true; ABSENT means        */
+/*     visible.                                                        */
+/* Setters DELETE the field when a knob returns to its default, so a   */
+/* page whose sections carry neither field stores nothing new — which  */
+/* is what makes a knob-free page render byte-identically to the       */
+/* pre-148 renderer BY CONSTRUCTION (the renderer stamps no class and  */
+/* emits no rule block for absent fields). Nav/footer chrome can       */
+/* never carry either knob; module types that are not page bands       */
+/* (the sitewide chatbot overlay) never get the width knob.            */
+/* ------------------------------------------------------------------ */
+
+const LAYOUT_NON_BAND_MODULE_TYPES = new Set(['chatbot']);
+
+function layoutKnobError(code, message) {
+  const e = new Error(message);
+  e.code = code;
+  return e;
+}
+
+function getSectionWidth(section) {
+  return section && section.width === 'full' ? 'full' : 'contained';
+}
+
+function getSectionHideOnMobile(section) {
+  return !!(section && section.hideOnMobile === true);
+}
+
+function assertSectionKnobAllowed(section, knob, moduleType) {
+  if (section && LAYOUT_CHROME_TYPES.has(section.type)) {
+    throw layoutKnobError(
+      'CHROME_KNOB',
+      `The ${section.type} is page chrome — its ${knob === 'width' ? 'width' : 'mobile visibility'} is locked.`
+    );
+  }
+  if (knob === 'width' && moduleType && LAYOUT_NON_BAND_MODULE_TYPES.has(moduleType)) {
+    throw layoutKnobError(
+      'WIDTH_NOT_AVAILABLE',
+      `The ${moduleType} module is not a page band, so it has no width setting.`
+    );
+  }
+}
+
+/** Width knob op: 'full' stores the field; 'contained' clears it. */
+function setSectionWidth(section, mode, moduleType) {
+  if (!section || typeof section !== 'object') {
+    throw layoutKnobError('INVALID_SECTION', 'setSectionWidth needs a section object.');
+  }
+  assertSectionKnobAllowed(section, 'width', moduleType);
+  const m = mode == null ? '' : String(mode).trim().toLowerCase();
+  if (m === '' || m === 'contained') {
+    delete section.width;
+    return section;
+  }
+  if (m !== 'full') {
+    throw layoutKnobError(
+      'INVALID_WIDTH',
+      `Section width must be "full" or "contained" (got ${JSON.stringify(mode)}).`
+    );
+  }
+  section.width = 'full';
+  return section;
+}
+
+/** Hide-on-mobile op: true stores the field; false clears it. */
+function setSectionHideOnMobile(section, hidden) {
+  if (!section || typeof section !== 'object') {
+    throw layoutKnobError('INVALID_SECTION', 'setSectionHideOnMobile needs a section object.');
+  }
+  assertSectionKnobAllowed(section, 'hideOnMobile');
+  if (hidden === true) {
+    section.hideOnMobile = true;
+    return section;
+  }
+  if (hidden === false || hidden == null || hidden === '') {
+    delete section.hideOnMobile;
+    return section;
+  }
+  throw layoutKnobError('INVALID_HIDE_ON_MOBILE', 'Hide-on-mobile is a switch — pass true or false.');
+}
+
+/**
+ * Save-path validation for the Batch 148 knobs (the layout editor's
+ * save re-check, same discipline as the padding/background re-checks):
+ * returns a list of { code, message } problems — empty when clean. A
+ * hand-crafted save payload cannot hide the nav, widen an overlay, or
+ * store an illegal knob value.
+ */
+function validateSectionLayoutKnobs(sections, resolveModuleType) {
+  const problems = [];
+  if (!Array.isArray(sections)) return problems;
+  sections.forEach((section, index) => {
+    if (!section || typeof section !== 'object') return;
+    const where = `section ${index + 1} (${section.type || 'custom'})`;
+    if ('width' in section && section.width !== 'full') {
+      problems.push({ code: 'INVALID_WIDTH', message: `${where}: width must be "full" or absent (contained).` });
+    }
+    if ('hideOnMobile' in section && section.hideOnMobile !== true) {
+      problems.push({
+        code: 'INVALID_HIDE_ON_MOBILE',
+        message: `${where}: hideOnMobile must be true or absent (visible).`,
+      });
+    }
+    if (LAYOUT_CHROME_TYPES.has(section.type) && ('width' in section || 'hideOnMobile' in section)) {
+      problems.push({
+        code: 'CHROME_KNOB',
+        message: `${where}: page chrome cannot carry a width or hide-on-mobile setting.`,
+      });
+    }
+    if (section.width === 'full' && typeof resolveModuleType === 'function') {
+      const mt = resolveModuleType(section);
+      if (mt && LAYOUT_NON_BAND_MODULE_TYPES.has(mt)) {
+        problems.push({
+          code: 'WIDTH_NOT_AVAILABLE',
+          message: `${where}: the ${mt} module is not a page band and cannot be full-width.`,
+        });
+      }
+    }
+  });
+  return problems;
+}
+
 function describeEditorSection(section, index, resolveModuleType) {
   const t = sectionTypeOf(section);
   const moduleType =
@@ -1642,6 +1768,12 @@ function describeEditorSection(section, index, resolveModuleType) {
     canStyle: !chrome,
     paddingPx: getSectionPaddingPx(section),
     background: getSectionBackground(section),
+    // Batch 148 knobs: chrome gets neither; non-band module types
+    // (chatbot overlay) get hide-on-mobile but never width.
+    canWidth: !chrome && !(moduleType && LAYOUT_NON_BAND_MODULE_TYPES.has(moduleType)),
+    canHideMobile: !chrome,
+    width: getSectionWidth(section),
+    hideOnMobile: getSectionHideOnMobile(section),
   };
 }
 
@@ -1693,6 +1825,12 @@ module.exports = {
   setSectionPaddingPx,
   getSectionBackground,
   setSectionBackground,
+  getSectionWidth,
+  setSectionWidth,
+  getSectionHideOnMobile,
+  setSectionHideOnMobile,
+  validateSectionLayoutKnobs,
+  LAYOUT_NON_BAND_MODULE_TYPES,
   isLayoutMovable,
   moveSectionToIndex,
   duplicateSectionAt,
