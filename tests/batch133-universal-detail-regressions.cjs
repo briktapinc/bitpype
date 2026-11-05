@@ -42,7 +42,7 @@ process.env.SQLITE_PATH = process.env.DB_PATH;
 ['.env', 'app.db', 'data.db', 'leads.db', 'platform.db'].forEach((name) => {
   process.env[name.toUpperCase().replace(/\W/g, '_') + '_PATH'] = path.join(process.env.REGRESSION_TMPDIR, name);
 });
-process.env.SESSION_SECRET = ['b133', 'session', 'secret'].join('-');
+process.env.SESSION_SECRET = ['b133', 'regression', 'session', 'secret', 'for', 'tests'].join('-');
 process.env.COOKIE_SECURE = 'false';
 // Standard suite header (Batch 127 lesson): the real-server boot
 // refuses production mode without these two lines.
