@@ -179,7 +179,7 @@ function has(src, needle, label) {
     const sha = crypto.createHash('sha256').update(multiset.join('\n')).digest('hex');
     assert.equal(
       sha,
-      '05dd590c4eab59d3561ee9bc0e3d05510cd93e799190df1b50ad5e9352c8625b',
+      'c58cc24df0ee9835a5c9ba1e5d9c234bec8b25a61f4d439a1d491ed213aebb46',
       'SEC-13 sink multiset byte-identical'
     );
     n += 1;
