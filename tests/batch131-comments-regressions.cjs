@@ -351,7 +351,11 @@ const throws = (fn, pattern) => {
     let n = 0;
     assert.ok(sm.MODULE_TYPES.includes('comments'), 'MODULE_TYPES carries comments');
     n++;
-    assert.equal(sm.MODULE_TYPES.length, 29, 'comments is the 28th of 29 types on this tree (Batch 139 appended pricing)');
+    assert.equal(
+      sm.MODULE_TYPES.length,
+      29,
+      'comments is the 28th of 29 types on this tree (Batch 139 appended pricing)'
+    );
     n++;
     assert.equal(
       Object.keys(share.SHARE_REGISTRY).length,

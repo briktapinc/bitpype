@@ -421,7 +421,7 @@ async function json(res) {
       'detail.html config maps type → token + list page'
     );
     n++;
-    assert.ok(detailHtml.includes('module-embed.js?v=mod38'), 'detail.html loads the module embed script at mod36');
+    assert.ok(detailHtml.includes('module-embed.js?v=mod39'), 'detail.html loads the module embed script at the current MODULE_SCRIPT_VER (mod39 after the Batch 139 finisher rotation)');
     n++;
     const redirects = fs.readFileSync(path.join(outDir, '_redirects'), 'utf8');
     assert.ok(

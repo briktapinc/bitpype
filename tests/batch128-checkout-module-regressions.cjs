@@ -402,7 +402,11 @@ function load(file, mocks) {
 
   {
     let n = 0;
-    assert.equal(sm.MODULE_TYPES.length, 29, 'catalog at 29 types (Batch 131: comments appended; Batch 139: pricing appended)');
+    assert.equal(
+      sm.MODULE_TYPES.length,
+      29,
+      'catalog at 29 types (Batch 131: comments appended; Batch 139: pricing appended)'
+    );
     assert.equal(sm.MODULE_TYPES[26], 'checkout', 'checkout is the 27th type');
     n += 2;
     assert.deepEqual(
