@@ -4398,34 +4398,34 @@ function build404Page(pages, theme, opts) {
   const t = normalizeTheme(theme);
   const bizName =
     (opts && opts.businessName) || t.brandName || (home && home.title) || 'This business';
-  const body = `<main class="bp-404" style="max-width:760px;margin:0 auto;padding:64px 28px;text-align:center">
+  const main = `<main class="bp-404" style="max-width:760px;margin:0 auto;padding:64px 28px;text-align:center">
 <h1>Page not found</h1>
 <p>The page you are looking for is not here. It may have moved, or the link may be out of date.</p>
 <p><a href="/">Back to the home page</a></p>
 </main>`;
-  let doc = docShell({
+  // Batch 141: the FULL site chrome (siteChromeHtml — partials or the
+  // home page's nav/footer sections, the same assembly renderPage
+  // uses), so an unknown /detail/<type>/<slug> — and every other
+  // missing path — lands on a not-found page that looks like the
+  // site. The serving layers keep the TRUE 404 status; chrome never
+  // turns this into a soft-200.
+  let body = main;
+  try {
+    const chrome = siteChromeHtml(pages, t);
+    body = [chrome.header, main, chrome.footer].filter(Boolean).join('\n');
+    body = rewriteAnchorLinksToFiles(body, pages);
+  } catch {
+    /* chrome is best-effort */
+    body = main;
+  }
+  const doc = docShell({
     title: `Page not found — ${bizName}`,
     body,
     theme: t,
     description: 'The requested page could not be found.',
     noindex: true,
   });
-  // Reuse the site's own chrome (nav/footer partials) when present.
-  try {
-    const withChrome = applySitePartials(body, t, home || {});
-    if (withChrome && withChrome !== body) {
-      doc = docShell({
-        title: `Page not found — ${bizName}`,
-        body: withChrome,
-        theme: t,
-        description: 'The requested page could not be found.',
-        noindex: true,
-      });
-    }
-  } catch {
-    /* chrome is best-effort */
-  }
-  return doc;
+  return assertAndDedupeNavHtml(doc, 'build404Page');
 }
 
 /* ------------------------------------------------------------------ */
@@ -4445,6 +4445,23 @@ function build404Page(pages, theme, opts) {
 /* noindex (it is an empty template at rest); the client sets the      */
 /* real title/meta/canonical from the item at render. Static/SEO       */
 /* generation of detail pages is deliberately NOT v1.                  */
+/*                                                                     */
+/* Batch 141 — DETAIL POLISH: the shell now carries the site's FULL  */
+/* chrome (siteChromeHtml: partials, or the home page's nav/footer    */
+/* sections — the same assembly renderPage uses; Batch 133 only ever  */
+/* applied theme.partials, so nav-section sites shipped bare shells), */
+/* and each PER-ITEM shell bakes the item's primary photo (resolved   */
+/* at export by detailExportContext, the moduleShare uniform primary: */
+/* cover_image / image_url / album first image / video thumbnail) as  */
+/* the detail root's initial hero — the same .bp-mod-hero treatment   */
+/* renderItem renders at view time. The bake is the root's INITIAL    */
+/* content only: the client still resolves the item live and         */
+/* renderItem replaces the root wholesale, so a photo changed after   */
+/* export shows the exported photo until the next export, then the   */
+/* live one — content itself is never snapshotted. With chrome in    */
+/* place, Batch 142's nav cart lands in the shell's nav from the      */
+/* item payload exactly as on regular pages (no detail-specific cart  */
+/* code exists or is needed).                                         */
 /* ------------------------------------------------------------------ */
 function buildDetailPage(pages, theme, opts) {
   const home = homePage(pages) || (Array.isArray(pages) ? pages[0] : null);
@@ -4461,11 +4478,18 @@ function buildDetailPage(pages, theme, opts) {
   }
   const config = { api: appBase, types: (detail && detail.types) || {} };
   const configJson = JSON.stringify(config).replace(/</g, '\\u003c');
+  // Batch 141: the per-item photo bake (writeStaticPages passes the
+  // item's primary photo for detail/<type>/<key>.html shells; the
+  // generic item.html gets none — it serves items nobody exported).
+  const itemImage = opts && typeof opts.detailItemImage === 'string' ? opts.detailItemImage.trim() : '';
+  const heroHtml = itemImage
+    ? `<article class="bp-mod-detail"><img class="bp-mod-hero" src="${esc(itemImage)}" alt="" /></article>`
+    : '';
   // Batch 143: horizontal padding floor is 22px (the Batch 135
   // mobile section inset) — the old clamp(1.1rem,…) bottomed out at
   // 17.6px on phones, below the platform floor.
-  const body = `<main class="bp-detail-main" style="max-width:1100px;margin:0 auto;padding:clamp(1.75rem,4vw,3.25rem) clamp(22px,3.5vw,2rem) clamp(3.5rem,8vw,5.5rem);box-sizing:border-box">
-<div class="bitpype-module-embed" data-bitpype-detail-root="1"${appBase ? ` data-bitpype-api="${esc(appBase)}"` : ''}><p class="bp-mod-loading">Loading…</p></div>
+  const main = `<main class="bp-detail-main" style="max-width:1100px;margin:0 auto;padding:clamp(1.75rem,4vw,3.25rem) clamp(22px,3.5vw,2rem) clamp(3.5rem,8vw,5.5rem);box-sizing:border-box">
+<div class="bitpype-module-embed" data-bitpype-detail-root="1"${appBase ? ` data-bitpype-api="${esc(appBase)}"` : ''}>${heroHtml}<p class="bp-mod-loading">Loading…</p></div>
 </main>
 <script type="application/json" id="bp-detail-config">${configJson}</script>`;
   let script = '';
@@ -4474,7 +4498,16 @@ function buildDetailPage(pages, theme, opts) {
   } catch {
     script = '';
   }
-  let doc = docShell({
+  let body = main;
+  try {
+    const chrome = siteChromeHtml(pages, t);
+    body = [chrome.header, main, chrome.footer].filter(Boolean).join('\n');
+    body = rewriteAnchorLinksToFiles(body, pages);
+  } catch {
+    /* chrome is best-effort */
+    body = main;
+  }
+  const doc = docShell({
     title: `Details — ${bizName}`,
     body,
     theme: t,
@@ -4482,22 +4515,7 @@ function buildDetailPage(pages, theme, opts) {
     description: 'Item details.',
     noindex: true,
   });
-  try {
-    const withChrome = applySitePartials(body, t, home || {});
-    if (withChrome && withChrome !== body) {
-      doc = docShell({
-        title: `Details — ${bizName}`,
-        body: withChrome,
-        theme: t,
-        script,
-        description: 'Item details.',
-        noindex: true,
-      });
-    }
-  } catch {
-    /* chrome is best-effort */
-  }
-  return doc;
+  return assertAndDedupeNavHtml(doc, 'buildDetailPage');
 }
 
 /** Stamp exported pages as detail-enabled so module-embed.js points
@@ -4632,6 +4650,88 @@ function injectThemeJs(docHtml, theme) {
  * Render a single page as a full standalone HTML document.
  * Nav links point at the exported per-page filenames (unless opts.preview).
  */
+/**
+ * The nav links renderPage hands a page's nav section: the structured
+ * buildNavLinks list with duplicate route/label entries dropped.
+ * Extracted (Batch 141) so the synthetic documents that are not pages
+ * (detail shell, 404 page) render the site's nav with the SAME links
+ * through the same code — never a second nav-link path.
+ */
+function computeNavLinks(pages, preview) {
+  let navLinks;
+  try {
+    navLinks = require('./siteStructure').buildNavLinks(pages, { preview });
+  } catch {
+    navLinks = (Array.isArray(pages) ? pages : []).map((p) => ({
+      label: p.title || p.slug,
+      href: preview ? `#${anchorId(p.slug)}` : pageUrlPath(p.slug),
+    }));
+  }
+  // Structured nav links: drop duplicate route/label before rendering.
+  const seenR = new Set();
+  const seenL = new Set();
+  return (navLinks || []).filter((l) => {
+    const route = normalizeRoute(l && (l.slug || l.href));
+    const label = String((l && l.label) || '')
+      .trim()
+      .toLowerCase();
+    if (seenR.has(route) || (label && seenL.has(label))) return false;
+    seenR.add(route);
+    if (label) seenL.add(label);
+    return true;
+  });
+}
+
+/**
+ * Batch 141 — the site's header + footer chrome for the synthetic
+ * documents that are not pages (the universal detail shell and the
+ * themed 404 page), assembled EXACTLY as renderPage assembles a real
+ * page's chrome: theme.partials win when present (the same precedence
+ * renderPage and applySitePartials use — a partial header suppresses
+ * the nav section, a partial footer suppresses the footer section);
+ * otherwise the home page's own nav and footer sections, rendered
+ * through sectionToHtml with the same computed nav links. A page that
+ * opts out of chrome (chromeOverride) and a site with no chrome at
+ * all both yield empty strings — the document renders as it did
+ * before this batch. Returns { header, footer }.
+ */
+function siteChromeHtml(pages, theme) {
+  const out = { header: '', footer: '' };
+  const list = Array.isArray(pages) ? pages : [];
+  if (!list.length) return out;
+  const home = homePage(list) || list[0];
+  if (!home) return out;
+  const t = normalizeTheme(theme);
+  const meta = pageMetaFields(home);
+  if (meta.overrideChrome) return out;
+  const partials = t.partials || {};
+  if (partials.headerHtml && String(partials.headerHtml).trim()) out.header = String(partials.headerHtml).trim();
+  if (partials.footerHtml && String(partials.footerHtml).trim()) out.footer = String(partials.footerHtml).trim();
+  const sections = Array.isArray(home.sections) ? home.sections : [];
+  const pageIndex = Math.max(0, list.indexOf(home));
+  if (!out.header) {
+    const si = sections.findIndex((s) => s && s.type === 'nav');
+    if (si >= 0) {
+      const s = sections[si];
+      out.header = sectionToHtml(
+        { type: 'nav', content: Object.assign({}, s.content, { links: computeNavLinks(list, false) }) },
+        t,
+        makeEdit(t, pageIndex, si, false)
+      );
+    }
+  }
+  if (!out.footer) {
+    for (let si = sections.length - 1; si >= 0; si--) {
+      const s = sections[si];
+      if (s && s.type === 'footer') {
+        out.footer = sectionToHtml(s, t, makeEdit(t, pageIndex, si, false));
+        break;
+      }
+    }
+  }
+  return out;
+}
+
 function renderPage(page, allPages, theme, opts) {
   if (!page || typeof page !== 'object') throw err('INVALID_PAGE', 'Page must be an object.');
   const t = normalizeTheme(theme);
@@ -4729,30 +4829,7 @@ function renderPage(page, allPages, theme, opts) {
   }
   const sections = Array.isArray(pageForRender.sections) ? pageForRender.sections : null;
   if (!sections) throw err('INVALID_PAGE', 'Page needs sections or html.');
-  let navLinks;
-  try {
-    navLinks = (structure || require('./siteStructure')).buildNavLinks(pages, { preview });
-  } catch {
-    navLinks = pages.map((p) => ({
-      label: p.title || p.slug,
-      href: preview ? `#${anchorId(p.slug)}` : pageUrlPath(p.slug),
-    }));
-  }
-  // Structured nav links: drop duplicate route/label before rendering.
-  {
-    const seenR = new Set();
-    const seenL = new Set();
-    navLinks = (navLinks || []).filter((l) => {
-      const route = normalizeRoute(l && (l.slug || l.href));
-      const label = String((l && l.label) || '')
-        .trim()
-        .toLowerCase();
-      if (seenR.has(route) || (label && seenL.has(label))) return false;
-      seenR.add(route);
-      if (label) seenL.add(label);
-      return true;
-    });
-  }
+  const navLinks = computeNavLinks(pages, preview);
   const useSharedHeader = !!(t.partials && t.partials.headerHtml && !pageMeta.overrideChrome);
   let body = sections
     .map((s, si) => {
@@ -7674,6 +7751,10 @@ function writeStaticPages(pages, theme, outDir, opts) {
     fs.writeFileSync(path.join(outDir, 'item.html'), shellHtml, 'utf8');
     if (!written.includes('item.html')) written.push('item.html');
     const detailTypes = (seo && seo.detail && seo.detail.types) || {};
+    // Batch 141: per-item primary photos resolved at export by
+    // detailExportContext ({ [type]: { [key]: url } }) — each item's
+    // own shell bakes its photo as the detail root's initial hero.
+    const detailPhotos = (seo && seo.detail && seo.detail.photos) || {};
     for (const dtype of Object.keys(detailTypes)) {
       const keys = (detailTypes[dtype] && detailTypes[dtype].items) || [];
       for (const key of keys) {
@@ -7690,7 +7771,11 @@ function writeStaticPages(pages, theme, outDir, opts) {
         const rel = `detail/${dtype}/${key}.html`;
         const abs = path.join(outDir, 'detail', dtype, `${key}.html`);
         fs.mkdirSync(path.dirname(abs), { recursive: true });
-        fs.writeFileSync(abs, shellHtml, 'utf8');
+        const photo = detailPhotos[dtype] && detailPhotos[dtype][key];
+        const itemHtml = photo
+          ? buildDetailPage(pages, theme, Object.assign({}, opts || {}, { detailItemImage: String(photo) }))
+          : shellHtml;
+        fs.writeFileSync(abs, itemHtml, 'utf8');
         if (!written.includes(rel)) written.push(rel);
       }
     }
@@ -8293,6 +8378,7 @@ module.exports = {
   buildRedirects,
   build404Page,
   buildDetailPage,
+  siteChromeHtml,
   injectDetailMeta,
   // Static blog (Batch 32)
   normalizeBlogPost,
