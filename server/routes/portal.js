@@ -1200,7 +1200,14 @@ router.post('/site/theme', requireClient, editLimit, async (req, res) => {
     fail(
       res,
       e,
-      code === 'INVALID_COLOR' || code === 'EMPTY' || code === 'NO_SITE' || code === 'NOT_FOUND' ? 400 : 500
+      code === 'INVALID_COLOR' ||
+        code === 'EMPTY' ||
+        code === 'NO_SITE' ||
+        code === 'NOT_FOUND' ||
+        code === 'CODE_TOO_LARGE' ||
+        code === 'INVALID_CODE_FIELD'
+        ? 400
+        : 500
     );
   }
 });

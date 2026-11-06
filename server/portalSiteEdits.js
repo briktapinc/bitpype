@@ -115,6 +115,13 @@ function renderClientSite(workspaceId, leadId, opts = {}) {
       font: normalized.font,
       headingFont: normalized.headingFont || '',
       palette,
+      // Batch 152 — the owner's global code fields. customCss is the
+      // EDITABLE portion only: the managed chat-rules block is split
+      // out (styleRules.splitManagedBlock) so the portal textarea can
+      // never show or clobber it; the save path re-appends it.
+      customCss: require('./styleRules').splitManagedBlock(String(theme.customCss || '')).editable,
+      customJs: normalized.customJs || '',
+      customHead: normalized.customHead || '',
     },
     logo: {
       mode: logoMode,
@@ -126,6 +133,12 @@ function renderClientSite(workspaceId, leadId, opts = {}) {
 }
 
 const THEME_COLOR_KEYS = ['primary', 'secondary', 'bg', 'text'];
+
+// Batch 152 — portal code-field cap: 100,000 characters each for
+// customCss / customJs / customHead. The engine sanitizers silently
+// truncate at 200,000; the owner-facing path refuses earlier with a
+// clear error instead of silently cutting an owner's paste in half.
+const PORTAL_CODE_FIELD_MAX_CHARS = 100000;
 
 function normalizePortalHex(value) {
   let s = String(value == null ? '' : value).trim();
@@ -154,6 +167,7 @@ async function applyClientThemeColors(workspaceId, leadId, colors = {}) {
   const engine = require('../src/websiteEngine');
   const themePalette = require('../src/themePalette');
   const googleFonts = require('../public/js/fonts.js');
+  const styleRules = require('./styleRules');
   const patch = {};
   for (const key of THEME_COLOR_KEYS) {
     if (colors[key] == null || colors[key] === '') continue;
@@ -175,8 +189,36 @@ async function applyClientThemeColors(workspaceId, leadId, colors = {}) {
     elementPatch = colors.elementFonts;
   }
   const replacements = Array.isArray(colors.replacements) ? colors.replacements : [];
-  if (!Object.keys(patch).length && !elementPatch && !replacements.length) {
-    throw Object.assign(new Error('Provide at least one theme color, palette replacement, or font'), { code: 'EMPTY' });
+  // Batch 152 — owner global code fields. Each is optional; an absent
+  // field leaves the stored value untouched. Sanitization parity with
+  // the staff/MCP website.setTheme path comes from the canonical save
+  // (sitesSave → normalizeTheme → sanitizeCss/sanitizeJs/sanitizeHead)
+  // — no second pipeline here. The one portal-only guard is the size
+  // cap, refused BEFORE any write so the stored values stay intact.
+  const CODE_FIELDS = [
+    ['customCss', 'Custom CSS'],
+    ['customJs', 'Global script'],
+    ['customHead', 'Head code'],
+  ];
+  const codePatch = {};
+  for (const [key, label] of CODE_FIELDS) {
+    if (colors[key] == null) continue;
+    if (typeof colors[key] !== 'string') {
+      throw Object.assign(new Error(`${label} must be text`), { code: 'INVALID_CODE_FIELD' });
+    }
+    if (colors[key].length > PORTAL_CODE_FIELD_MAX_CHARS) {
+      throw Object.assign(
+        new Error(`${label} is too large — the limit is ${PORTAL_CODE_FIELD_MAX_CHARS.toLocaleString('en-US')} characters`),
+        { code: 'CODE_TOO_LARGE' }
+      );
+    }
+    codePatch[key] = colors[key];
+  }
+  if (!Object.keys(patch).length && !elementPatch && !replacements.length && !Object.keys(codePatch).length) {
+    throw Object.assign(
+      new Error('Provide at least one theme color, palette replacement, font, or code field'),
+      { code: 'EMPTY' }
+    );
   }
 
   const prepared = domain.withDb(workspaceId, (db) => {
@@ -204,6 +246,18 @@ async function applyClientThemeColors(workspaceId, leadId, colors = {}) {
       }
       theme.elementFonts = prev;
     }
+    // Batch 152 — apply the code fields BEFORE the hex-rewrite below,
+    // so a simultaneous color change rewrites hexes in the NEW CSS
+    // exactly as it does in stored CSS today. For customCss the
+    // managed chat-rules block is split off the STORED stylesheet and
+    // re-appended byte-for-byte after the owner's sanitized text —
+    // the owner can never clobber it from the textarea.
+    if (codePatch.customJs != null) theme.customJs = codePatch.customJs;
+    if (codePatch.customHead != null) theme.customHead = codePatch.customHead;
+    if (codePatch.customCss != null) {
+      const { managedBlock } = styleRules.splitManagedBlock(String(oldTheme.customCss || ''));
+      theme.customCss = styleRules.reattachManagedBlock(engine.sanitizeCss(codePatch.customCss), managedBlock);
+    }
     if (typeof theme.customCss === 'string' && theme.customCss && Object.keys(map).length) {
       theme.customCss = themePalette.rewriteHexMap(theme.customCss, map);
     }
@@ -226,6 +280,12 @@ async function applyClientThemeColors(workspaceId, leadId, colors = {}) {
         font: normalized.font,
         headingFont: normalized.headingFont || '',
         palette,
+        // Batch 152 — echo the code fields (post-sanitize, CSS in its
+        // editable form) so the portal can refresh its textareas from
+        // exactly what was stored.
+        customCss: styleRules.splitManagedBlock(String(normalized.customCss || '')).editable,
+        customJs: normalized.customJs || '',
+        customHead: normalized.customHead || '',
       },
       previewFallback: resolvePreviewUrl(site),
     };
@@ -235,7 +295,11 @@ async function applyClientThemeColors(workspaceId, leadId, colors = {}) {
     pages: prepared.pages,
     theme: prepared.theme,
     note:
-      colors.font || colors.headingFont || elementPatch ? 'Client portal theme fonts' : 'Client portal theme colors',
+      colors.font || colors.headingFont || elementPatch
+        ? 'Client portal theme fonts'
+        : Object.keys(codePatch).length && !Object.keys(patch).length
+          ? 'Client portal custom code'
+          : 'Client portal theme colors',
   });
 
   syncDesignDeliverablePages(workspaceId, leadId, prepared.siteId, prepared.pages, prepared.theme);
@@ -1455,6 +1519,7 @@ async function applyClientLogoUpload(workspaceId, leadId, payload = {}) {
 
 
 module.exports = {
+  PORTAL_CODE_FIELD_MAX_CHARS,
   renderClientSite,
   applyClientThemeColors,
   applyClientStyleRule,
