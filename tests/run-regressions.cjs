@@ -147,6 +147,7 @@ const checks = [
   'batch138-voice-agent-regressions',
   'batch139-pricing-module-regressions',
   'batch140-industry-default-questions-regressions',
+  'batch153-design-types-regressions',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');
