@@ -127,7 +127,11 @@ check('S4.2 museAgent.js keeps the loops; classifier/planner/tools/core split ou
   const ma = require(path.join(root, 'server', 'museAgent.js'));
   // Batch 120: the facade gained ONE export — resolveAgentConfig,
   // the routed-config resolver the WP design chat + hands-off call.
-  assert.equal(Object.keys(ma).length, 18, 'museAgent exports the full original surface + resolveAgentConfig (18 names)');
+  // Batch 153 follow-up: ONE more — buildSystemPrompt, exported so
+  // the design-types suite can pin the hands-off prompt's catalog
+  // resolution (the prompt builder pattern: its classifier/planner
+  // siblings were already exported).
+  assert.equal(Object.keys(ma).length, 19, 'museAgent exports the full original surface + resolveAgentConfig + buildSystemPrompt (19 names)');
   const core = require(path.join(root, 'server', 'museAgentCore.js'));
   assert.equal(ma.resolveAgentConfig, core.resolveAgentConfig, 're-export identity: resolveAgentConfig');
   const clf = require(path.join(root, 'server', 'museAgentClassifier.js'));

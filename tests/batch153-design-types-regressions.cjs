@@ -36,6 +36,20 @@
  *     write nothing; a job queued with the new type keeps it after
  *     the type is deleted; the generic settings save with '' →
  *     the seed returns; unauthenticated + non-super-admin refused.
+ *   Part 6 — the follow-up wiring (Ely approved): the three
+ *     direct-constant consumers now resolve through the catalog —
+ *     server/museAgent's hands-off prompt (in-process: edited
+ *     catalog → the prompt opens with the edit; seed → byte-equal
+ *     to the constant; a corrupt stored row → the constant via the
+ *     resolver's seed fallback), and the two src-side consumers via
+ *     designJobs.resolveDefaultWebsiteInstructions (platform store
+ *     → local settings → constant), exercised at the level each
+ *     allows: the Electron IPC handler invoked through a stub
+ *     ipcMain against a real local db, and src/mcp.js's
+ *     website.create driven through handleRequest against its own
+ *     WS_DB_PATH fixture db (the job it creates carries the
+ *     resolved instructions). For each: edited → the edit, seed →
+ *     the constant byte-for-byte, corrupt → the constant.
  *
  * B153_SKIP_HTTP=1 skips Part 5 locally; the gate runs everything.
  */
@@ -539,6 +553,148 @@ const words = (s) => String(s).split(/\s+/).filter(Boolean).length;
       await closed;
     }
     group('Part 5 HTTP admin + popup endpoints', n);
+  }
+
+  /* ================================================================== */
+  /* Part 6 — the follow-up wiring: the three direct-constant          */
+  /* consumers resolve through the catalog                             */
+  /* ================================================================== */
+  {
+    let n = 0;
+    const museAgent = require(path.join(root, 'server', 'museAgent.js'));
+    const serverDb = require(path.join(root, 'server', 'db.js'));
+    const designJobs = require(path.join(root, 'src', 'designJobs.js'));
+    const Database = require('better-sqlite3');
+    const CONSTANT = seeds.DEFAULT_WEBSITE_DESIGN_INSTRUCTIONS;
+    const EDIT_P = 'ZZ153 PLATFORM EDIT — the catalog website text from the platform store.';
+    const EDIT_L = 'ZZ153 LOCAL EDIT — the catalog website text from a local settings table.';
+    const editedCatalog = (text) =>
+      seeds.seedDesignTypes().map((t) => (t.type === 'website' ? { type: 'website', instructions: text } : t));
+    const promptJob = { id: 153, title: 'ZZ153 prompt fixture' };
+
+    // Source pins: the three consumers route through the catalog,
+    // and the shared src resolver exists + is exported.
+    const museSrc = read('server/museAgent.js');
+    assert.ok(museSrc.includes("require('./designTypes')"), 'museAgent requires the catalog resolver');
+    assert.ok(museSrc.includes('catalogWebsiteInstructions()'), 'the hands-off prompt opens via the catalog helper');
+    assert.equal(typeof museAgent.buildSystemPrompt, 'function', 'buildSystemPrompt is exported for this suite');
+    n++;
+    const jobsSrc = read('src/designJobs.js');
+    assert.ok(jobsSrc.includes('async function resolveDefaultWebsiteInstructions(db)'), 'the src resolver exists');
+    assert.equal(typeof designJobs.resolveDefaultWebsiteInstructions, 'function', '…and is exported');
+    const ipcSrc = read('src/ipc/design.js');
+    assert.ok(ipcSrc.includes('design.resolveDefaultWebsiteInstructions(db)'), 'the IPC handler resolves via the catalog');
+    assert.ok(!ipcSrc.includes('design.defaultWebsiteInstructions()'), 'the IPC handler no longer reads the constant directly');
+    n++;
+    const mcpSrc = read('src/mcp.js');
+    assert.ok(mcpSrc.includes('design.resolveDefaultWebsiteInstructions(db)'), 'website.create resolves via the catalog');
+    assert.ok(!mcpSrc.includes('design.defaultWebsiteInstructions()'), 'src/mcp.js no longer reads the constant directly');
+    n++;
+
+    /* --- consumer 1: server/museAgent.js (in-process) --- */
+    // Seed state (Part 5 left the store cleared): the prompt opens
+    // with the constant, byte-for-byte the pre-153 prompt head.
+    let prompt = museAgent.buildSystemPrompt(promptJob);
+    assert.ok(prompt.startsWith(CONSTANT), 'seed catalog → the hands-off prompt opens with the constant verbatim');
+    n++;
+    // Edited catalog → the prompt opens with the edit.
+    await designTypes.updateDesignTypes(editedCatalog(EDIT_P));
+    prompt = museAgent.buildSystemPrompt(promptJob);
+    assert.ok(prompt.startsWith(EDIT_P), 'edited catalog → the prompt opens with the Admin edit');
+    assert.ok(!prompt.startsWith(CONSTANT), '…and not with the constant');
+    n++;
+    // Corrupt stored row → the resolver falls back to the seed and
+    // the prompt is the constant again.
+    await serverDb.query("UPDATE platform_settings SET value = :v WHERE `key` = 'design.types'", { v: '{corrupt' });
+    assert.equal(await platform.getStoredPlatformSetting('design.types'), '{corrupt', 'the corrupt row landed');
+    const refreshed = await designTypes.refreshDesignTypes();
+    assert.equal(refreshed.seeded, true, 'a corrupt row resolves to the seed');
+    prompt = museAgent.buildSystemPrompt(promptJob);
+    assert.ok(prompt.startsWith(CONSTANT), 'corrupt catalog → the prompt opens with the constant');
+    await platform.setPlatformSetting('design.types', '');
+    n++;
+
+    /* --- shared fixture: a desktop-style local db --- */
+    const localDb = new Database(path.join(temp, 'b153-local.db'));
+    localDb.exec(read('src/schema.sql'));
+    const setLocal = (value) =>
+      localDb
+        .prepare(
+          `INSERT INTO settings (key, value) VALUES ('design.types', ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+        )
+        .run(value);
+    const clearLocal = () => localDb.prepare("DELETE FROM settings WHERE key = 'design.types'").run();
+
+    /* --- consumer 2: src/ipc/design.js (stub ipcMain, real db) --- */
+    const handlers = new Map();
+    require(path.join(root, 'src', 'ipc', 'design.js')).register(
+      { handle: (name, fn) => handlers.set(name, fn) },
+      localDb
+    );
+    const ipcDefaults = async () => {
+      const res = await handlers.get('design:defaultInstructions')({}, {});
+      assert.equal(res.ok, true, 'the IPC handler answers ok');
+      return res.website;
+    };
+    assert.equal(await ipcDefaults(), CONSTANT, 'IPC: no store anywhere → the constant');
+    n++;
+    setLocal(JSON.stringify(editedCatalog(EDIT_L)));
+    assert.equal(await ipcDefaults(), EDIT_L, 'IPC: a local settings catalog → its website entry');
+    n++;
+    await designTypes.updateDesignTypes(editedCatalog(EDIT_P));
+    assert.equal(await ipcDefaults(), EDIT_P, 'IPC: the platform store wins over the local one (Admin edits reach it)');
+    n++;
+    await serverDb.query("UPDATE platform_settings SET value = :v WHERE `key` = 'design.types'", { v: '{corrupt' });
+    assert.equal(await ipcDefaults(), CONSTANT, 'IPC: a corrupt platform catalog → the constant (the local row does not leak through)');
+    await platform.setPlatformSetting('design.types', '');
+    n++;
+    setLocal('{corrupt');
+    assert.equal(await ipcDefaults(), CONSTANT, 'IPC: a corrupt local catalog → the constant');
+    clearLocal();
+    n++;
+
+    /* --- consumer 3: src/mcp.js website.create (handleRequest) --- */
+    process.env.WS_DB_PATH = path.join(temp, 'b153-mcp.db');
+    const mcp = require(path.join(root, 'src', 'mcp.js'));
+    assert.equal(mcp.DB_PATH, process.env.WS_DB_PATH, 'the MCP fixture db is the one under test');
+    const mcpDb = new Database(process.env.WS_DB_PATH);
+    const leadId = Number(
+      mcpDb.prepare('INSERT INTO leads (business_name) VALUES (?)').run('ZZ153 MCP Fixture').lastInsertRowid
+    );
+    const setMcpLocal = (value) =>
+      mcpDb
+        .prepare(
+          `INSERT INTO settings (key, value) VALUES ('design.types', ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+        )
+        .run(value);
+    const createViaMcp = async () => {
+      const res = await mcp.handleRequest({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'website.create', arguments: { leadId } },
+      });
+      const payload = JSON.parse(res.result.content[0].text);
+      assert.equal(payload.ok, true, 'website.create succeeds: ' + JSON.stringify(payload).slice(0, 160));
+      return mcpDb.prepare('SELECT instructions FROM design_jobs WHERE id = ?').get(payload.data.jobId).instructions;
+    };
+    assert.equal(await createViaMcp(), CONSTANT, 'MCP: no store anywhere → the created job carries the constant');
+    n++;
+    setMcpLocal(JSON.stringify(editedCatalog(EDIT_L)));
+    assert.equal(await createViaMcp(), EDIT_L, 'MCP: a local settings catalog → the job carries its website entry');
+    n++;
+    await designTypes.updateDesignTypes(editedCatalog(EDIT_P));
+    assert.equal(await createViaMcp(), EDIT_P, 'MCP: the platform store wins (Admin edits reach auto-created jobs)');
+    await platform.setPlatformSetting('design.types', '');
+    n++;
+    setMcpLocal('{corrupt');
+    assert.equal(await createViaMcp(), CONSTANT, 'MCP: a corrupt local catalog → the job carries the constant');
+    mcpDb.prepare("DELETE FROM settings WHERE key = 'design.types'").run();
+    n++;
+
+    group('Part 6 consumer wiring (museAgent + IPC + src MCP)', n);
   }
 
   console.log(`BATCH153 REGRESSION PASS — ${groups.join('; ')}`);
