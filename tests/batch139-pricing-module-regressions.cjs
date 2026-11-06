@@ -215,7 +215,7 @@ const LEAD_B = 139002;
     // embed renderer escapes every interpolated value).
     const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
     const cz = census();
-    assert.equal(cz.summary.RAW, 77, 'SEC-13 RAW sink count unchanged by 139 (77 at the Batch 138 tip, verified identical pre/post this change set)');
+    assert.equal(cz.summary.RAW, 78, 'SEC-13 RAW sink count unchanged by 139 (77 at the Batch 138 tip, verified identical pre/post this change set; Batch 153 rotation: 77 -> 78 — the audited Design-agent editor panel-shell RAW in app.js, see batch103 narrative)');
     n++;
     assert.equal(cz.summary.IDENT, 36, 'SEC-13 IDENT sink count unchanged by 139 (36 at the Batch 138 tip, verified identical pre/post this change set)');
     n++;

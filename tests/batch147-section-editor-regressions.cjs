@@ -117,8 +117,8 @@ const types = (sections) => sections.map((s) => s.type);
     const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
     assert.equal(
       census().summary.total,
-      448,
-      'SEC-13 census total unchanged by Batch 147 (Batch 139 finisher rotation: +2 audited safe-class sinks, module-embed pricing renderer)'
+      450,
+      'SEC-13 census total unchanged by Batch 147 (Batch 139 finisher rotation: +2 audited safe-class sinks, module-embed pricing renderer; Batch 153: census 448 -> 450 — +1 BUILDER +1 RAW in app.js, both the Admin Design-agent editor (rows build — every interpolated value esc()-wrapped; panel shell classified RAW by the conservative classifier, audited: its interpolations are a fixed literal seed note and the numeric limits only, no staff- or visitor-controlled string reaches it unescaped); BUILDER 59 -> 60, RAW 77 -> 78, safe classes 335 -> 336; remaining app.js RAW/IDENT movement is pure line shift from the editor + popup insertions, (file,kind,snippet) multiset diff vs the Batch 139 base = exactly these two sinks; baseline regenerated)'
     );
     n++;
     group('Part 1 — source pins', n);

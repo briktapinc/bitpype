@@ -389,7 +389,7 @@ if (NEGATIVE) {
       const reviewed = new Set(
         cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`)
       );
-      assert.equal(reviewed.size, 113, 'reviewed set size pinned (Batch 138 finisher: 111 -> 113 — the chat-embed micSvg IDENT + the reclassified portal inbox RAW; see the census narrative above)');
+      assert.equal(reviewed.size, 114, 'reviewed set size pinned (Batch 138 finisher: 111 -> 113 — the chat-embed micSvg IDENT + the reclassified portal inbox RAW; Batch 153: 113 -> 114 — the audited Design-agent editor panel-shell RAW; see the census narrative above)');
       const BASELINE = new Set(require(path.join(root, 'tests/batch103-xss-baseline.json')));
       assert.deepEqual([...reviewed].filter((x) => !BASELINE.has(x)), [], 'no new raw sinks');
       assert.deepEqual([...BASELINE].filter((x) => !reviewed.has(x)), [], 'baseline matches the reviewed set');
