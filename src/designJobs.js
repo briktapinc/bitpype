@@ -9,7 +9,11 @@ const crypto = require('crypto');
 const path = require('path');
 const engine = require('./websiteEngine');
 const pexels = require('./pexels');
-const { DEFAULT_WEBSITE_DESIGN_INSTRUCTIONS, defaultWebsiteInstructions } = require('./defaultDesignInstructions');
+const {
+  DEFAULT_WEBSITE_DESIGN_INSTRUCTIONS,
+  defaultWebsiteInstructions,
+  websiteInstructionsFromDesignTypes,
+} = require('./defaultDesignInstructions');
 
 const SUGGESTED_TYPES = ['website', 'logo', 'social', 'flyer', 'brand', 'other'];
 const STATUSES = ['draft', 'waiting_on_agent', 'questions_pending', 'in_progress', 'delivered'];
@@ -1010,6 +1014,45 @@ function settingValue(db, key) {
   } catch {
     return '';
   }
+}
+
+/**
+ * Batch 153 follow-up — the catalog-aware website instructions for
+ * the src-side runtimes (the Electron IPC surface and the stdio/HTTP
+ * MCP server), whose callers hold this process's local db. Layered
+ * exactly like src/ai.js resolves the Muse profile:
+ *   1. the platform store (server/platform.getStoredPlatformSetting)
+ *      when this runtime can reach it — where these modules run
+ *      inside the hosted process this is THE catalog Admin edits,
+ *      so an Admin edit to the website entry reaches this surface;
+ *   2. this runtime's own settings table, key `design.types` —
+ *      the same key + semantics in the store this process owns;
+ *   3. the code constant, byte-identical to the pre-153 text.
+ * At each store a non-empty value DECIDES: a valid catalog yields
+ * its website entry (or the constant when the list has none); a
+ * corrupt value yields the constant. An absent/empty value — or
+ * the store being unreachable (the lazy require or the query
+ * throwing in a runtime without the platform DB) — falls through
+ * to the next layer. Never throws: job creation must not break on
+ * a catalog problem.
+ */
+async function resolveDefaultWebsiteInstructions(db) {
+  try {
+    const platform = require('../server/platform');
+    const stored = await platform.getStoredPlatformSetting('design.types');
+    if (stored && String(stored).trim()) {
+      const hit = websiteInstructionsFromDesignTypes(stored);
+      return hit != null ? hit : DEFAULT_WEBSITE_DESIGN_INSTRUCTIONS;
+    }
+  } catch {
+    /* platform store unreachable in this runtime — fall through */
+  }
+  const local = db ? settingValue(db, 'design.types') : '';
+  if (local.trim()) {
+    const hit = websiteInstructionsFromDesignTypes(local);
+    return hit != null ? hit : DEFAULT_WEBSITE_DESIGN_INSTRUCTIONS;
+  }
+  return DEFAULT_WEBSITE_DESIGN_INSTRUCTIONS;
 }
 
 /** Ensure a named outreach campaign exists and is active (processQueue only sends active). */
@@ -3113,6 +3156,7 @@ module.exports = {
   AGENT_QUEUE_STATUSES,
   DEFAULT_WEBSITE_DESIGN_INSTRUCTIONS,
   defaultWebsiteInstructions,
+  resolveDefaultWebsiteInstructions,
   ensureTables,
   createJob,
   updateJob,

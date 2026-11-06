@@ -381,6 +381,54 @@ function seedDesignTypes() {
   return DESIGN_TYPE_SEEDS.map((t) => ({ type: t.type, instructions: t.instructions }));
 }
 
+/**
+ * Batch 153 follow-up — read-path mirror of the catalog resolver
+ * for runtimes that cannot use server/designTypes.js (its sync
+ * cache is only primed inside the hosted server process). Given a
+ * stored `design.types` value (the JSON string, or an already
+ * parsed list), return the website entry's instructions, or null
+ * when the value carries no usable website entry — null means the
+ * caller falls back; it never guesses. Semantics mirror
+ * server/designTypes.js exactly: the list must validate AS A WHOLE
+ * (same caps, uniqueness and charset — a corrupt catalog resolves
+ * to null, so callers land on the code constant, byte-identical to
+ * the pre-153 text); a valid list's website entry wins with its
+ * instructions verbatim, even ''; a valid list with no website
+ * entry yields null (domain.designDefaultInstructions falls back
+ * the same way). Deliberate mirror, like settingsKeys ↔ the
+ * platform choke point: the stored form is canonical JSON written
+ * through the validated choke point, so the two cannot drift on
+ * real data.
+ */
+const DESIGN_TYPE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 _&+.'()/-]*$/;
+function websiteInstructionsFromDesignTypes(raw) {
+  let list = raw;
+  if (typeof raw === 'string') {
+    const t = raw.trim();
+    if (!t) return null;
+    try {
+      list = JSON.parse(t);
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(list) || !list.length || list.length > 50) return null;
+  const seen = new Set();
+  let found = null;
+  for (const item of list) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+    const type = String(item.type == null ? '' : item.type).trim();
+    if (!type || type.length > 40 || !DESIGN_TYPE_NAME_RE.test(type)) return null;
+    const key = type.toLowerCase();
+    if (seen.has(key)) return null;
+    seen.add(key);
+    const instructions = item.instructions == null ? '' : String(item.instructions);
+    if (instructions.length > 20000) return null;
+    if (key === 'website') found = instructions;
+  }
+  return found;
+}
+
 module.exports = {
   DEFAULT_WEBSITE_DESIGN_INSTRUCTIONS,
   defaultWebsiteInstructions,
@@ -391,4 +439,5 @@ module.exports = {
   DEFAULT_OTHER_DESIGN_INSTRUCTIONS,
   DESIGN_TYPE_SEEDS,
   seedDesignTypes,
+  websiteInstructionsFromDesignTypes,
 };

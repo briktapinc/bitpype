@@ -42,8 +42,12 @@ function register(ipcMain, db) {
   );
   ipcMain.handle(
     'design:defaultInstructions',
-    wrap(() => ({
-      website: design.defaultWebsiteInstructions(),
+    wrap(async () => ({
+      // Batch 153 follow-up: catalog-aware (platform store →
+      // this app's settings → the code constant), so Admin edits
+      // to the website entry reach this surface wherever the
+      // platform store is reachable.
+      website: await design.resolveDefaultWebsiteInstructions(db),
     }))
   );
   ipcMain.handle(

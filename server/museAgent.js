@@ -23,11 +23,31 @@ const museAgentPlanner = require('./museAgentPlanner');
 const { MAX_STEPS, MAX_PORTAL_STEPS, PORTAL_MUTATE_TOOLS, DENY_TOOLS, PORTAL_READONLY_TOOLS, PORTAL_MODE_STEPS, portalModeAllowsTool } = museAgentTools;
 const { fail, getDbSetting, resolveMuseConfig, resolveAgentConfig, museConfigured, todaySpendUsd, providerForConfig, logUsage, mcpToolsToOpenAi, chatCompletionsRouted, servedProviderFor, servedModelFor, withFailoverNote } = museAgentCore;
 
+/**
+ * Batch 153 follow-up: the hands-off prompt opens with the website
+ * instructions FROM THE CATALOG (Admin → Design agent), resolved
+ * exactly like domain.designDefaultInstructions — the stored
+ * list's website entry wins; anything else (a catalog without a
+ * website entry, a resolver failure) lands on the code constant,
+ * byte-identical to the pre-153 prompt. Lazy require, as in
+ * domain.js: designTypes requires platform at load time.
+ */
+function catalogWebsiteInstructions() {
+  try {
+    const entry = require('./designTypes')
+      .resolveDesignTypes()
+      .types.find((t) => t.type === 'website');
+    return entry ? entry.instructions : defaultWebsiteInstructions();
+  } catch {
+    return defaultWebsiteInstructions();
+  }
+}
+
 function buildSystemPrompt(job) {
   const brief =
     job && job.brief ? (typeof job.brief === 'string' ? job.brief : JSON.stringify(job.brief, null, 0)) : '';
   const parts = [
-    defaultWebsiteInstructions(),
+    catalogWebsiteInstructions(),
     '',
     '═══ HANDS-OFF SESSION ═══',
     'You are running unattended inside BitPype Hands-off. Use only the tools provided.',
@@ -782,6 +802,7 @@ module.exports = {
   resolveMuseConfig: museAgentCore.resolveMuseConfig,
   resolveAgentConfig: museAgentCore.resolveAgentConfig,
   museConfigured: museAgentCore.museConfigured,
+  buildSystemPrompt,
   runJobLoop,
   runPortalImproveLoop,
   classifyPortalChatIntent: museAgentClassifier.classifyPortalChatIntent,

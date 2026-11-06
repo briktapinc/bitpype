@@ -743,7 +743,7 @@ const TOOLS = {
       },
       required: ['leadId'],
     },
-    run(args) {
+    async run(args) {
       const leadId = requireId(args.leadId, 'leadId');
       const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(leadId);
       if (!lead) throw argError(`Lead ${leadId} not found.`);
@@ -760,7 +760,11 @@ const TOOLS = {
         leadId,
         site_shape: siteShape || effectiveShape,
         title: `${lead.business_name || 'Business'} website`,
-        instructions: design.defaultWebsiteInstructions(),
+        // Batch 153 follow-up: catalog-aware (platform store →
+        // this server's settings → the code constant), so Admin
+        // edits to the website entry reach auto-created jobs
+        // wherever the platform store is reachable.
+        instructions: await design.resolveDefaultWebsiteInstructions(db),
       });
       db.prepare('INSERT INTO lead_events (lead_id, type, detail) VALUES (?, ?, ?)').run(
         leadId,
