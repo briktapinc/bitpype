@@ -200,6 +200,42 @@ function spliceBlock(css, rules) {
 }
 
 /**
+ * Batch 152 — split theme.customCss into the owner-editable portion
+ * and the managed chat-rules block. The portal's Custom CSS field
+ * shows/saves ONLY `editable`; the managed block rides along
+ * untouched so an owner save can never clobber the design chat's
+ * style rules. `managedBlock` is the block's exact stored bytes
+ * (markers included), or '' when the stylesheet carries no block.
+ */
+function splitManagedBlock(css) {
+  const s = String(css || '');
+  const start = s.indexOf(BLOCK_START);
+  const end = s.indexOf(BLOCK_END);
+  if (start < 0 || end < 0 || end < start) return { editable: s, managedBlock: '' };
+  const { before, after } = extractBlock(s);
+  const head = before.replace(/\s+$/, '');
+  const tail = after.replace(/^\s+/, '');
+  const editable = !head ? tail : !tail ? head : `${head}\n${tail}`;
+  return { editable, managedBlock: s.slice(start, end + BLOCK_END.length) };
+}
+
+/**
+ * Batch 152 — inverse of splitManagedBlock: re-append the managed
+ * block, byte-for-byte, after the owner's edited CSS. Canonical
+ * form (editable trimmed of trailing whitespace + '\n' + block) is
+ * a fixed point: split(reattach(e, b)) returns the same editable
+ * and block, so repeated owner saves of unchanged CSS are
+ * byte-identical through the canonical save path (Batch 149).
+ */
+function reattachManagedBlock(editableCss, managedBlock) {
+  const block = String(managedBlock || '');
+  if (!block) return String(editableCss || '');
+  const editable = String(editableCss || '').replace(/\s+$/, '');
+  if (!editable) return block;
+  return `${editable}\n${block}`;
+}
+
+/**
  * Insert or replace one declaration. value === null removes it.
  * Returns the new customCss. Throws coded errors on bad input.
  */
@@ -251,5 +287,7 @@ module.exports = {
   parseStyleRules,
   listStyleRules,
   upsertStyleRule,
+  splitManagedBlock,
+  reattachManagedBlock,
   normalizeHex,
 };
