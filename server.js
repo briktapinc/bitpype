@@ -1210,6 +1210,12 @@ async function main() {
   await require('./server/planContents').refreshPlanContents().catch(() => {});
   console.log('[platform] plan contents resolver primed');
 
+  // Batch 153: prime the design-types resolver from the stored
+  // design.types catalog (Admin → Design agent) so the New design
+  // job popup's first fetch already serves the configured types.
+  await require('./server/designTypes').refreshDesignTypes().catch(() => {});
+  console.log('[platform] design types resolver primed');
+
   // Batch 87: prime the branding cache (Admin → Settings → Branding
   // logos + tagline) so first paint already serves configured values.
   await require('./server/branding').refreshBranding().catch(() => {});

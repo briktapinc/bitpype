@@ -1043,8 +1043,19 @@ async function designGenerateLogo(workspaceId, id, args = {}) {
 }
 function designDefaultInstructions() {
   const assets = require('../src/designAssets');
+  // Batch 153: the type catalog (Admin → Design agent, resolved by
+  // server/designTypes.js — stored list ?? code seed) rides along so
+  // the New design job popup can build its Type select and fill the
+  // Instructions box per type. `website` resolves from the catalog
+  // so the popup, this route, and MCP design.defaultInstructions
+  // (same function) all serve the one list; the designJobs constant
+  // remains the fallback if the catalog ever lacks a website entry.
+  const catalog = require('./designTypes').resolveDesignTypes();
+  const types = catalog.types.map((t) => ({ type: t.type, instructions: t.instructions }));
+  const websiteEntry = types.find((t) => t.type === 'website');
   return {
-    website: designJobs().defaultWebsiteInstructions(),
+    website: websiteEntry ? websiteEntry.instructions : designJobs().defaultWebsiteInstructions(),
+    types,
     assets: assets.listDesignAssets().map((a) => ({
       id: a.id,
       name: a.name,

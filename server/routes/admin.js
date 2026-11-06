@@ -579,6 +579,39 @@ router.put('/settings/plans-contents', async (req, res) => {
   }
 });
 
+// ---------- Design agent: design types (Batch 153) ----------
+// The design-type catalog (type + default instructions) behind the
+// New design job popup's Type select: stored as the design.types
+// platform setting and resolved by server/designTypes.js. The GET
+// returns the resolved list (the code seed until an admin saves);
+// the PUT replaces the whole list — validation is atomic, a
+// rejected save writes nothing.
+router.get('/settings/design-types', async (req, res) => {
+  try {
+    ok(res, await require('../designTypes').adminState());
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.put('/settings/design-types', async (req, res) => {
+  try {
+    const result = await require('../designTypes').updateDesignTypes(req.body && req.body.types);
+    try {
+      await platform.savePlatformDefaultsSnapshot();
+    } catch (e) {
+      console.warn('[admin] defaults snapshot', e.message);
+    }
+    await platform.audit(
+      req.session.userId,
+      'platform.design_types',
+      `types=${result.types.map((t) => t.type).join(',')}`.slice(0, 900)
+    );
+    ok(res, result);
+  } catch (e) {
+    fail(res, e, e.code === 'VALIDATION' ? 400 : 500);
+  }
+});
+
 // ---------- Batch 59: Hostinger one-click deploys ----------
 // Settings status + account ping for Admin → Settings → Hostinger.
 router.get('/settings/hostinger', async (req, res) => {

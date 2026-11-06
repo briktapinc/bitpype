@@ -251,6 +251,10 @@ const SETTABLE_KEYS = [
   'mcp.http_port',
   'providers.tavily.search_depth',
   'design.agent_notify',
+  // Batch 153: the design-type catalog — platform-level JSON list
+  // validated/canonicalized by server/designTypes.js (case below),
+  // identical to the platform write choke point.
+  'design.types',
   // Batch 102 (SEC-01): 'design.agent_trigger_command' and
   // 'design.agent_webhook_url' are deliberately NOT settable via the
   // settings API anymore. The trigger command was a workspace-token
@@ -600,6 +604,19 @@ function validateSetting(key, raw) {
         const planId = key.slice('plans.contents_'.length);
         const normalized = require('./planContents').validatePlanContents(planId, t);
         return { ok: true, value: JSON.stringify(normalized) };
+      } catch (e) {
+        return fail(e.message);
+      }
+    }
+    case 'design.types': {
+      // Batch 153: identical rule to the platform write choke point
+      // — the value is the design-type catalog JSON validated +
+      // canonicalized by server/designTypes.js; '' = no stored list
+      // (the code seed resolves). Lazy require mirrors planContents.
+      const t = value.trim();
+      if (t === '') return { ok: true, value: '' };
+      try {
+        return { ok: true, value: require('./designTypes').validateDesignTypesSetting(t) };
       } catch (e) {
         return fail(e.message);
       }

@@ -526,6 +526,20 @@ const PLATFORM_SETTING_DEFS = [
   { key: 'branding.logo_light', group: 'branding', label: 'Logo for light screens', default: '' },
   { key: 'branding.tagline', group: 'branding', label: 'Tagline', default: 'Local business desk' },
 
+  {
+    // Batch 153: the design agent's type catalog — one JSON list of
+    // {type, instructions} edited in Admin → Design agent (not the
+    // settings forms, like portal_access.type_defaults above).
+    // '' = the code seed in src/defaultDesignInstructions.js.
+    // Validated + canonicalized at the write choke point by
+    // server/designTypes.js; group 'design' keeps it out of
+    // WORKSPACE_SEED_KEYS (platform-level, like ai_routing).
+    key: 'design.types',
+    group: 'design',
+    label: 'Design types + instructions (JSON — edit via Admin → Design agent)',
+    default: '',
+  },
+
   // Batch 120: AI provider routing matrix (see AI_ROUTE_SETTING_DEFS
   // above) — which API does what, per function, with failover.
   ...AI_ROUTE_SETTING_DEFS,
@@ -717,6 +731,13 @@ async function setPlatformSetting(key, value) {
       badRoute(`${key} must be a single line of at most 120 characters (blank = the provider's default model)`);
     }
   }
+  // Batch 153: the design-type catalog is one JSON list — validate +
+  // canonicalize here so every write path (Admin → Design agent, the
+  // generic settings save, MCP/IPC facades) lands the same shape.
+  // Lazy require: designTypes requires this module at load time.
+  if (key === 'design.types') {
+    v = require('./designTypes').validateDesignTypesSetting(v);
+  }
   await query(
     `INSERT INTO platform_settings (\`key\`, value)
      VALUES (:key, :value)
@@ -740,6 +761,16 @@ async function setPlatformSetting(key, value) {
       require('./planContents').setContentsCacheForKey(key, v);
     } catch {
       /* resolver keeps the boot-primed overrides until the next boot */
+    }
+  }
+  if (key === 'design.types') {
+    // Batch 153: keep the sync design-types resolver
+    // (server/designTypes.js) in step with the save — lazy require:
+    // designTypes requires this module at load time.
+    try {
+      require('./designTypes').setDesignTypesCacheForKey(key, v);
+    } catch {
+      /* resolver keeps the boot-primed list until the next refresh */
     }
   }
   if (key.startsWith('branding.')) {
