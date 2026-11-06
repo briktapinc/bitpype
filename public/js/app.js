@@ -91,7 +91,9 @@ const LEAD_STATUSES = [
   'lost',
 ];
 const DESIGN_STATUSES = ['draft', 'waiting_on_agent', 'questions_pending', 'in_progress', 'delivered'];
-const DESIGN_TYPES = ['website', 'logo', 'social', 'flyer', 'brand', 'other'];
+// Batch 153: the design-type list is no longer hardcoded here — it
+// lives in Admin → Design agent (design.types platform setting) and
+// reaches the New design job popup via /design/default-instructions.
 const INTENT_EVENTS = [
   'email.opened',
   'email.clicked',
@@ -4875,26 +4877,57 @@ async function pageDesign(param) {
   });
 }
 
+/**
+ * Batch 153 — the New design job popup's fill rule, generalized from
+ * the old website-only behaviour: switching type replaces the
+ * Instructions box ONLY when it is empty or still holds the text the
+ * popup itself auto-filled for the previous type. Words the user
+ * typed are never overwritten. Pure on purpose — the batch153 suite
+ * evals this function straight out of this file.
+ */
+function designTypeFill(current, autoFilled, next) {
+  const cur = current == null ? '' : String(current);
+  const auto = autoFilled == null ? '' : String(autoFilled);
+  if (cur.trim() === '' || cur === auto) return next == null ? '' : String(next);
+  return cur;
+}
+
 async function openNewDesignModal() {
-  let defaults = '';
+  // Batch 153: types + per-type instructions come from the Admin →
+  // Design agent catalog (the default-instructions payload now
+  // carries `types`). Fallbacks keep the popup working if the fetch
+  // fails: the website entry alone, then a bare website type.
+  let typeList = [];
   try {
-    defaults = (await api.designDefaultInstructions()).data.website || '';
+    const data = (await api.designDefaultInstructions()).data || {};
+    if (Array.isArray(data.types) && data.types.length) typeList = data.types;
+    else if (data.website) typeList = [{ type: 'website', instructions: data.website }];
   } catch {
     /* optional */
   }
+  if (!typeList.length) typeList = [{ type: 'website', instructions: '' }];
+  const instructionsFor = (t) => {
+    const hit = typeList.find((x) => x.type === t);
+    return hit ? String(hit.instructions || '') : '';
+  };
+  const initialType = typeList.some((x) => x.type === 'website') ? 'website' : typeList[0].type;
+  let autoFilled = instructionsFor(initialType);
   const m = openModal({
     title: 'New design job',
     wide: true,
     body: `<div class="row">
-        <div class="field"><label>Type</label><select id="nd-type">${optionList(DESIGN_TYPES, 'website')}</select></div>
-        <div class="field" id="nd-shape-wrap"><label>Site shape</label><select id="nd-shape"><option value="multipage">Multi-page</option><option value="landing">Landing page</option></select></div>
+        <div class="field"><label>Type</label><select id="nd-type">${optionList(
+          typeList.map((x) => x.type),
+          initialType
+        )}</select></div>
+        <div class="field${initialType === 'website' ? '' : ' hidden'}" id="nd-shape-wrap"><label>Site shape</label><select id="nd-shape"><option value="multipage">Multi-page</option><option value="landing">Landing page</option></select></div>
       </div>
       <div class="field"><label>Title *</label><input id="nd-title" type="text" /></div>
       <div class="row">
         <div class="field" style="flex:2"><label>Lead (optional)</label><div id="nd-lead"></div></div>
         <div class="field"><label>Contact email (optional)</label><input id="nd-email" type="email" /></div>
       </div>
-      <div class="field"><label>Instructions *</label><textarea id="nd-instr" style="min-height:160px">${esc(defaults)}</textarea></div>
+      <div class="field"><label>Instructions *</label><textarea id="nd-instr" style="min-height:160px">${esc(autoFilled)}</textarea></div>
       <div class="msg" id="nd-msg"></div>`,
     buttons: [
       { label: 'Cancel' },
@@ -4929,9 +4962,14 @@ async function openNewDesignModal() {
   });
   const picker = mountLeadPicker($('#nd-lead', m.el));
   $('#nd-type', m.el).addEventListener('change', (e) => {
-    $('#nd-shape-wrap', m.el).classList.toggle('hidden', e.target.value !== 'website');
-    if (e.target.value !== 'website' && $('#nd-instr', m.el).value === defaults) $('#nd-instr', m.el).value = '';
-    else if (e.target.value === 'website' && !$('#nd-instr', m.el).value.trim()) $('#nd-instr', m.el).value = defaults;
+    const t = e.target.value;
+    $('#nd-shape-wrap', m.el).classList.toggle('hidden', t !== 'website');
+    const box = $('#nd-instr', m.el);
+    box.value = designTypeFill(box.value, autoFilled, instructionsFor(t));
+    // If the box now holds this type's catalog text, that text is
+    // the new auto-fill baseline; if the user's own words survived,
+    // the baseline stays stale so later switches keep sparing them.
+    if (box.value === instructionsFor(t)) autoFilled = box.value;
   });
 }
 
@@ -7499,6 +7537,7 @@ async function pageAdmin(param) {
     ['email', 'Email'],
     // SMS admin tab hidden until a send path exists (settings still accept sms.* keys).
     ['keys', 'API keys'],
+    ['design', 'Design agent'],
     ['gbp', 'Google Business'],
     ['billing', 'Stripe'],
     ['adsense', 'AdSense'],
@@ -7537,6 +7576,7 @@ async function pageAdmin(param) {
         else if (tab === 'workspaces') await renderAdminWorkspaces(body);
         else if (tab === 'payments') await renderAdminPayments(body);
         else if (tab === 'upsell') await renderAdminUpsellTips(body);
+        else if (tab === 'design') await renderAdminDesignTypes(body);
         else if (tab === 'adsense') await renderAdminAdsense(body);
         else if (tab === 'gbp') await renderAdminGbp(body);
         else if (tab === 'email' || tab === 'sms' || tab === 'keys' || tab === 'general' || tab === 'billing' || tab === 'landing' || tab === 'hostinger' || tab === 'branding')
@@ -9716,6 +9756,137 @@ async function pageBilling(param, query) {
   subscriptionStatus = summary.subscriptionStatus || subscriptionStatus;
   accountSuspended = !!summary.suspended;
   updateBillingBanner();
+}
+
+/* Batch 153 — Admin → Design agent: the design-type catalog. Each
+   type's instructions are what the New design job popup drops into
+   its Instructions box when the type is selected (staff can still
+   edit them per job). The whole list saves at once through
+   PUT /admin/settings/design-types; the server validates atomically
+   (server/designTypes.js) — a rejected save changes nothing.
+   Renaming or deleting a type never touches existing jobs: a job
+   keeps the type + instructions it was queued with. */
+async function renderAdminDesignTypes(el) {
+  const data = (await api.adminDesignTypes()).data || {};
+  const limits = data.limits || { maxTypes: 50, maxTypeNameChars: 40, maxInstructionsChars: 20000 };
+  const types = Array.isArray(data.types) ? data.types : [];
+
+  const rowHtml = (t) => `
+    <div data-dt-row style="border-top:1px solid var(--line,#e5e0d8);padding:14px 0">
+      <div class="row" style="gap:10px;align-items:flex-end;flex-wrap:wrap">
+        <div class="field" style="flex:0 1 280px;margin:0"><label>Type name</label>
+          <input type="text" data-dt-name value="${esc(t.type || '')}" maxlength="${limits.maxTypeNameChars}" placeholder="e.g. website" /></div>
+        <span class="hint" data-dt-count style="padding-bottom:9px"></span>
+        <span style="flex:1"></span>
+        <button type="button" class="btn ghost small" data-dt-del>Delete type</button>
+      </div>
+      <div class="field" style="margin-top:8px"><label>Instructions — pre-filled into the New design job popup for this type</label>
+        <textarea data-dt-instr rows="10" style="width:100%">${esc(t.instructions || '')}</textarea></div>
+    </div>`;
+
+  el.innerHTML = `
+    <div class="panel">
+      <div class="panel-h"><h3>Design types</h3></div>
+      <div class="panel-b">
+        <p class="hint">The types offered by the <strong>New design job</strong> popup on the Design page. Picking a type fills the job's Instructions with the text below — staff can still edit them per job before queuing. Changes apply to new jobs only: a queued job keeps the type and instructions it was created with, so renaming or deleting a type here never alters existing jobs.</p>
+        ${data.seeded ? '<p class="hint"><strong>Showing the built-in defaults.</strong> Nothing is stored yet — saving stores your edited list as the catalog.</p>' : ''}
+        <div class="msg" id="admin-dt-msg"></div>
+        <div id="admin-dt-rows">${types.map(rowHtml).join('') || '<p class="hint">No types yet — add one below.</p>'}</div>
+        <div class="row actions" style="margin-top:12px;gap:8px">
+          <button type="button" class="btn" id="admin-dt-add">Add type</button>
+          <button type="button" class="btn primary" id="admin-dt-save">Save design types</button>
+          <span class="hint">Up to ${limits.maxTypes} types · names up to ${limits.maxTypeNameChars} characters · instructions up to ${limits.maxInstructionsChars.toLocaleString()} characters each.</span>
+        </div>
+      </div>
+    </div>`;
+
+  const msg = $('#admin-dt-msg');
+  const flash = (text, ok) => {
+    if (!msg) return;
+    msg.textContent = text || '';
+    msg.className = ok ? 'msg ok' : text ? 'msg err' : 'msg';
+  };
+  const rowsHost = $('#admin-dt-rows');
+  const counts = () => {
+    $$('#admin-dt-rows [data-dt-row]').forEach((row) => {
+      const ta = row.querySelector('[data-dt-instr]');
+      const c = row.querySelector('[data-dt-count]');
+      if (ta && c) {
+        const len = ta.value.length;
+        c.textContent = `${len.toLocaleString()} / ${limits.maxInstructionsChars.toLocaleString()} characters`;
+        c.style.color = len > limits.maxInstructionsChars ? 'var(--danger,#b3261e)' : '';
+      }
+    });
+  };
+  counts();
+  if (rowsHost) {
+    rowsHost.addEventListener('input', counts);
+    rowsHost.addEventListener('click', (e) => {
+      const del = e.target.closest('[data-dt-del]');
+      if (!del) return;
+      const row = del.closest('[data-dt-row]');
+      const name = (row.querySelector('[data-dt-name]').value || '').trim();
+      if (name && !confirm(`Delete the "${name}" type? Existing jobs keep their type — only the popup stops offering it.`)) return;
+      row.remove();
+      counts();
+    });
+  }
+  const addBtn = $('#admin-dt-add');
+  if (addBtn) {
+    addBtn.onclick = () => {
+      if ($$('#admin-dt-rows [data-dt-row]').length >= limits.maxTypes) {
+        flash(`The catalog holds at most ${limits.maxTypes} types.`, false);
+        return;
+      }
+      const empty = rowsHost.querySelector('p.hint');
+      if (empty) empty.remove();
+      rowsHost.insertAdjacentHTML('beforeend', rowHtml({ type: '', instructions: '' }));
+      counts();
+      const nameInput = rowsHost.querySelector('[data-dt-row]:last-child [data-dt-name]');
+      if (nameInput) nameInput.focus();
+    };
+  }
+  const saveBtn = $('#admin-dt-save');
+  if (saveBtn) {
+    saveBtn.onclick = async () => {
+      const list = $$('#admin-dt-rows [data-dt-row]').map((row) => ({
+        type: row.querySelector('[data-dt-name]').value,
+        instructions: row.querySelector('[data-dt-instr]').value,
+      }));
+      // Fast local checks for the common mistakes; the server is
+      // authoritative and its message is shown verbatim on a 400.
+      const seen = new Set();
+      for (const item of list) {
+        const name = String(item.type || '').trim();
+        if (!name) {
+          flash('Every type needs a name — fill in or delete the blank row.', false);
+          return;
+        }
+        if (seen.has(name.toLowerCase())) {
+          flash(`Type "${name}" appears twice — names must be unique.`, false);
+          return;
+        }
+        seen.add(name.toLowerCase());
+        if (String(item.instructions || '').length > limits.maxInstructionsChars) {
+          flash(`Instructions for "${name}" exceed ${limits.maxInstructionsChars.toLocaleString()} characters.`, false);
+          return;
+        }
+      }
+      if (!list.length) {
+        flash('Keep at least one design type.', false);
+        return;
+      }
+      saveBtn.disabled = true;
+      try {
+        await api.adminDesignTypesUpdate(list);
+        toast('Design types saved', 'ok');
+        await renderAdminDesignTypes(el);
+      } catch (e) {
+        flash(errText(e), false);
+        saveBtn.disabled = false;
+      }
+    };
+  }
 }
 
 async function renderAdminUpsellTips(el) {

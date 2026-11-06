@@ -536,6 +536,10 @@ window.ScoutApi = (() => {
     // AI provider routing (Batch 120): which API does what, per function
     adminAiRouting: () => get('/admin/settings/ai-routing'),
     adminAiRoutingSave: (routes) => put('/admin/settings/ai-routing', { routes }),
+    // Design types (Batch 153): the design agent's type + instructions
+    // catalog behind the New design job popup's Type select
+    adminDesignTypes: () => get('/admin/settings/design-types'),
+    adminDesignTypesUpdate: (types) => put('/admin/settings/design-types', { types }),
     // Branding (Batch 87): site logos for dark/light screens + tagline
     adminBranding: () => get('/admin/settings/branding'),
     adminBrandingLogo: (variant, dataBase64) => post('/admin/settings/branding/logo', { variant, dataBase64 }),
