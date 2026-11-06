@@ -2223,14 +2223,40 @@ const DETAIL_TYPES = [
 ];
 
 /**
+ * Batch 141 — an item's primary photo for its per-item detail shell,
+ * resolved from the list-payload row the enumeration already holds,
+ * with the moduleShare uniform primary per type (the same photo the
+ * public API resolves for the item): blog/courses lead with their
+ * cover, an album's primary is its first image, a video's is its
+ * thumbnail; everything else leads with image_url. '' when the item
+ * has no photo — its shell then renders exactly as before.
+ */
+function detailItemPhoto(type, it) {
+  if (!it || typeof it !== 'object') return '';
+  let url = '';
+  if (type === 'blog' || type === 'courses') url = it.cover_image || it.image_url || '';
+  else if (type === 'gallery') {
+    const first = Array.isArray(it.images) ? it.images.find((im) => im && im.image_url) : null;
+    url = (first && first.image_url) || it.cover_image || it.image_url || '';
+  } else if (type === 'video') url = it.thumbnail_url || it.image_url || '';
+  else url = it.image_url || it.cover_image || '';
+  return String(url || '').trim();
+}
+
+/**
  * The export-time detail context for one lead's site: for every
  * detail-capable module type with a live (published, enabled) embed,
  * the public token the detail page resolves through and the page the
  * type's list lives on (the detail page's back link). Tokens are the
  * same public embed tokens every mount on the site already carries.
+ * Batch 141: also resolves each enumerated item's primary photo
+ * (photos: { [type]: { [key]: url } }) for the per-item shells —
+ * attached only when at least one photo exists, so an item-less
+ * context keeps its exact { types } shape.
  */
 function detailExportContext(db, leadId) {
   const types = {};
+  const photos = {};
   const lid = Number(leadId);
   if (!Number.isInteger(lid) || lid <= 0) return { types };
   for (const type of DETAIL_TYPES) {
@@ -2242,15 +2268,20 @@ function detailExportContext(db, leadId) {
       // file per item — the /detail/* rewrite does not fire on the
       // platform's Pages deployments, real files always serve.
       const items = [];
+      const typePhotos = {};
       try {
         const payload = getPublicModuleByToken(db, row.public_token, {});
         if (payload && !payload.locked && Array.isArray(payload.items)) {
           const seen = new Set();
           for (const it of payload.items) {
+            // Batch 141: the item's primary photo rides the same
+            // enumeration (no second payload read) for its shell.
+            const photo = detailItemPhoto(type, it);
             for (const k of [it && it.slug, it && it.id]) {
               if (k == null || k === '') continue;
               const key = String(k);
               if (/[\/\\]/.test(key) || key === '.' || key === '..') continue;
+              if (photo) typePhotos[key] = photo;
               if (!seen.has(key)) {
                 seen.add(key);
                 items.push(key);
@@ -2271,6 +2302,7 @@ function detailExportContext(db, leadId) {
         page: String(row.target_page_slug || (MODULE_META[type] && MODULE_META[type].defaultSlug) || '').replace(/^\/+/, ''),
         items,
       };
+      if (Object.keys(typePhotos).length) photos[type] = typePhotos;
     } catch (e) {
       // Batch 143: log it — "no embed row" is the expected empty
       // case (getEmbedRow returns null, handled above without
@@ -2280,7 +2312,9 @@ function detailExportContext(db, leadId) {
       /* a type without an embed row simply has no detail surface */
     }
   }
-  return { types };
+  const out = { types };
+  if (Object.keys(photos).length) out.photos = photos;
+  return out;
 }
 
 function moduleScriptTag(appUrl) {
