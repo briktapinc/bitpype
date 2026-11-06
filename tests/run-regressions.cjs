@@ -143,6 +143,7 @@ const checks = [
   'batch147-section-editor-regressions',
   'batch148-section-layout-knobs-regressions',
   'batch149-save-idempotency-regressions',
+  'batch152-global-css-script-regressions',
   'batch138-voice-agent-regressions',
   'batch139-pricing-module-regressions',
   'batch140-industry-default-questions-regressions',
