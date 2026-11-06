@@ -118,7 +118,9 @@ function makeSession(leadId) {
   return { id: Number(info.lastInsertRowid), token };
 }
 function addLead(id, { category = null, city = null, services = null } = {}) {
-  db.prepare('INSERT INTO leads (id, business_name, email, status, category, city, services) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+  db.prepare(
+    'INSERT INTO leads (id, business_name, email, status, category, city, services) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(
     id,
     `B140 Lead ${id}`,
     `lead${id}@example.invalid`,
@@ -142,9 +144,15 @@ function addLead(id, { category = null, city = null, services = null } = {}) {
     assert.ok(chatSrc.includes('function resolveQualifyingQuestions'), 'the single resolver exists');
     assert.ok(chatSrc.includes("source: 'industry_default'"), 'resolver reports industry_default provenance');
     assert.ok(chatSrc.includes("source: 'owner'"), 'resolver reports owner provenance');
-    assert.ok(chatSrc.includes('const resolved = resolveQualifyingQuestions(db, leadId, raw.qualifying_questions);'), 'getSettings resolves through the single resolver');
+    assert.ok(
+      chatSrc.includes('const resolved = resolveQualifyingQuestions(db, leadId, raw.qualifying_questions);'),
+      'getSettings resolves through the single resolver'
+    );
     assert.ok(chatSrc.includes('qualifying_questions_stored'), 'getSettings exposes the raw stored list separately');
-    assert.ok(chatSrc.includes('const cur = getRawSettings(db, leadId);'), 'saveSettings falls back to RAW stored settings (defaults can never be frozen in by a partial save)');
+    assert.ok(
+      chatSrc.includes('const cur = getRawSettings(db, leadId);'),
+      'saveSettings falls back to RAW stored settings (defaults can never be frozen in by a partial save)'
+    );
     // Batch 140 finisher (rebase onto the landed 138 tree): the span
     // starts at the templates DECLARATION, not the first mention —
     // the file docblock names the table, and Batch 138's voice
@@ -152,9 +160,20 @@ function addLead(id, { category = null, city = null, services = null } = {}) {
     // legitimately sit between that mention and the resolver. The
     // pin's intent is unchanged: no model call inside the resolver
     // span itself (templates table -> parseSettingsRow).
-    assert.ok(!/ai\.chat|generateQuestions|openai/i.test(chatSrc.slice(chatSrc.indexOf('const INDUSTRY_QUESTION_TEMPLATES'), chatSrc.indexOf('function parseSettingsRow'))), 'template resolution is deterministic — no model call anywhere in the resolver span');
+    assert.ok(
+      !/ai\.chat|generateQuestions|openai/i.test(
+        chatSrc.slice(
+          chatSrc.indexOf('const INDUSTRY_QUESTION_TEMPLATES'),
+          chatSrc.indexOf('function parseSettingsRow')
+        )
+      ),
+      'template resolution is deterministic — no model call anywhere in the resolver span'
+    );
     const portalSrc = read('public/js/portal.js');
-    assert.ok(portalSrc.includes('id="chat-qualifying-provenance"') && portalSrc.includes('Industry defaults for'), 'portal pane shows the industry-defaults provenance note');
+    assert.ok(
+      portalSrc.includes('id="chat-qualifying-provenance"') && portalSrc.includes('Industry defaults for'),
+      'portal pane shows the industry-defaults provenance note'
+    );
     n += 10;
     group('Part 1 source pins', n);
   }
@@ -210,13 +229,20 @@ function addLead(id, { category = null, city = null, services = null } = {}) {
     assert.notDeepEqual(flor.questions, dent.questions, 'florist != dental');
     for (const set of [plumb.questions, flor.questions, dent.questions]) {
       assert.equal(set.length, 5, 'exactly five per business');
-      assert.ok(set.every((q) => typeof q === 'string' && q.length > 0 && q.length <= 200), 'each question within the 200-char cap');
+      assert.ok(
+        set.every((q) => typeof q === 'string' && q.length > 0 && q.length <= 200),
+        'each question within the 200-char cap'
+      );
     }
     n += 6;
 
     // Deterministic: same profile in, same five out, every time.
     assert.deepEqual(chat.getIndustryDefaultQuestions(db, L_PLUMB).questions, PLUMBING, 'resolution is deterministic');
-    assert.deepEqual(chat.resolveQualifyingQuestions(db, L_PLUMB, []).questions, PLUMBING, 'resolver agrees with the defaults reader');
+    assert.deepEqual(
+      chat.resolveQualifyingQuestions(db, L_PLUMB, []).questions,
+      PLUMBING,
+      'resolver agrees with the defaults reader'
+    );
     n += 2;
     group('Part 2 three industries verbatim', n);
   }
@@ -229,7 +255,11 @@ function addLead(id, { category = null, city = null, services = null } = {}) {
     // Disabled (the default): no effective questions in any context.
     let s = chat.getSettings(db, L_PLUMB);
     assert.equal(s.qualifying_enabled, false, 'switch still defaults OFF');
-    assert.equal(s.qualifying_questions_source, 'industry_default', 'effective list is resolved even while off (the editor shows what WOULD be asked)');
+    assert.equal(
+      s.qualifying_questions_source,
+      'industry_default',
+      'effective list is resolved even while off (the editor shows what WOULD be asked)'
+    );
     assert.deepEqual(s.qualifying_questions, PLUMBING, 'off: effective list is the industry five');
     assert.equal(chat.qualifyingFor(db, L_PLUMB), null, 'disabled -> no qualifying context');
     const offSess = makeSession(L_PLUMB);
@@ -240,12 +270,27 @@ function addLead(id, { category = null, city = null, services = null } = {}) {
     // snapshot into the session record exactly like owner questions.
     chat.saveSettings(db, L_PLUMB, { qualifying_enabled: true });
     s = chat.getSettings(db, L_PLUMB);
-    assert.deepEqual(s.qualifying_questions_stored, [], 'stored list is still empty — resolution did not write storage');
-    assert.deepEqual(chat.qualifyingFor(db, L_PLUMB), { questions: PLUMBING }, 'enabled+empty: defaults appear in the assistant context');
+    assert.deepEqual(
+      s.qualifying_questions_stored,
+      [],
+      'stored list is still empty — resolution did not write storage'
+    );
+    assert.deepEqual(
+      chat.qualifyingFor(db, L_PLUMB),
+      { questions: PLUMBING },
+      'enabled+empty: defaults appear in the assistant context'
+    );
     const sess = makeSession(L_PLUMB);
     const rec = chat.ensureSessionQualification(db, L_PLUMB, sess.id);
-    assert.deepEqual(rec.questions, PLUMBING, 'enabled+empty: defaults snapshot into qualification_json at session start');
-    assert.ok(rec.items.every((it) => it.status === 'pending'), 'snapshot items start pending');
+    assert.deepEqual(
+      rec.questions,
+      PLUMBING,
+      'enabled+empty: defaults snapshot into qualification_json at session start'
+    );
+    assert.ok(
+      rec.items.every((it) => it.status === 'pending'),
+      'snapshot items start pending'
+    );
     n += 4;
 
     // Owner's custom list always wins, byte-for-byte.
@@ -253,7 +298,11 @@ function addLead(id, { category = null, city = null, services = null } = {}) {
     s = chat.getSettings(db, L_FROZEN);
     assert.equal(s.qualifying_questions_source, 'owner', 'saved list reports owner provenance');
     assert.deepEqual(s.qualifying_questions, CUSTOM, 'owner list wins byte-for-byte');
-    assert.deepEqual(chat.qualifyingFor(db, L_FROZEN).questions, CUSTOM, 'context serves the owner list, not the defaults');
+    assert.deepEqual(
+      chat.qualifyingFor(db, L_FROZEN).questions,
+      CUSTOM,
+      'context serves the owner list, not the defaults'
+    );
     n += 3;
 
     // Unsaved defaults track the category.
@@ -267,7 +316,11 @@ function addLead(id, { category = null, city = null, services = null } = {}) {
 
     // A saved owner list does NOT follow a category change.
     db.prepare('UPDATE leads SET category = ? WHERE id = ?').run('Dental Clinic', L_FROZEN);
-    assert.deepEqual(chat.getSettings(db, L_FROZEN).qualifying_questions, CUSTOM, 'saved owner list is frozen across category changes');
+    assert.deepEqual(
+      chat.getSettings(db, L_FROZEN).qualifying_questions,
+      CUSTOM,
+      'saved owner list is frozen across category changes'
+    );
     assert.equal(chat.getSettings(db, L_FROZEN).qualifying_questions_source, 'owner', 'provenance stays owner');
     n += 2;
 
@@ -291,10 +344,17 @@ function addLead(id, { category = null, city = null, services = null } = {}) {
     const svc = chat.getIndustryDefaultQuestions(db, L_SVC);
     assert.equal(svc.family, 'generic', 'no category -> generic family');
     assert.equal(svc.industry, 'General local services');
-    assert.equal(svc.questions[0], 'Which of our services can we help you with — Brake Repair, Oil Change — or something else?', 'services interpolate into Q1');
+    assert.equal(
+      svc.questions[0],
+      'Which of our services can we help you with — Brake Repair, Oil Change — or something else?',
+      'services interpolate into Q1'
+    );
     assert.equal(svc.questions[3], 'Are you in or near Reading, or somewhere else?', 'city interpolates into Q4');
     assert.equal(svc.questions.length, 5, 'generic set is also exactly five');
-    assert.ok(svc.questions.every((q) => q.length <= 200), 'personalized questions stay within cap');
+    assert.ok(
+      svc.questions.every((q) => q.length <= 200),
+      'personalized questions stay within cap'
+    );
     n += 6;
 
     // Uncategorized lead with nothing: uninterpolated fallbacks.
@@ -308,8 +368,15 @@ function addLead(id, { category = null, city = null, services = null } = {}) {
     // Interpolation that would overflow falls back, never truncates
     // a question mid-word and never exceeds the cap.
     const lng = chat.getIndustryDefaultQuestions(db, L_LONG);
-    assert.equal(lng.questions[0], 'What can we help you with today?', 'overflow interpolation falls back to the uninterpolated template');
-    assert.ok(lng.questions.every((q) => q.length <= 200), 'all questions still within cap');
+    assert.equal(
+      lng.questions[0],
+      'What can we help you with today?',
+      'overflow interpolation falls back to the uninterpolated template'
+    );
+    assert.ok(
+      lng.questions.every((q) => q.length <= 200),
+      'all questions still within cap'
+    );
     n += 2;
     group('Part 4 personalization + generic', n);
   }
@@ -331,10 +398,18 @@ function addLead(id, { category = null, city = null, services = null } = {}) {
       typeof chat.buildAssistantContext === 'function'
         ? chat.buildAssistantContext(db, L_PLUMB, { query: '' }).settings
         : chat.getSettings(db, L_PLUMB);
-    assert.deepEqual(viaCtx.qualifying_questions, PLUMBING, 'the settings object the voice seam consumes carries the resolver five');
+    assert.deepEqual(
+      viaCtx.qualifying_questions,
+      PLUMBING,
+      'the settings object the voice seam consumes carries the resolver five'
+    );
     assert.equal(viaCtx.qualifying_questions_source, 'industry_default', 'provenance rides the same object');
     const resolver = chat.resolveQualifyingQuestions(db, L_PLUMB, []);
-    assert.deepEqual(viaCtx.qualifying_questions, resolver.questions, 'voice-seam settings == resolver output, question for question');
+    assert.deepEqual(
+      viaCtx.qualifying_questions,
+      resolver.questions,
+      'voice-seam settings == resolver output, question for question'
+    );
     n += 3;
     group('Part 5 voice seam settings object', n);
   }

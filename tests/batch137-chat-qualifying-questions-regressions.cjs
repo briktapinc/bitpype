@@ -253,9 +253,17 @@ function addMsg(sessionId, leadId, role, body) {
     // getSettings returns the EFFECTIVE list (the five generic
     // industry defaults — this fixture lead has no category),
     // while the STORED list stays empty.
-    assert.equal(dflt.qualifying_questions_source, 'industry_default', 'Batch 140: unconfigured lead resolves to industry defaults');
+    assert.equal(
+      dflt.qualifying_questions_source,
+      'industry_default',
+      'Batch 140: unconfigured lead resolves to industry defaults'
+    );
     assert.equal(dflt.qualifying_questions.length, 5, 'Batch 140: effective list is the five industry defaults');
-    assert.deepEqual(dflt.qualifying_questions_stored, [], 'Batch 140: stored list is still empty — resolution never rewrites storage');
+    assert.deepEqual(
+      dflt.qualifying_questions_stored,
+      [],
+      'Batch 140: stored list is still empty — resolution never rewrites storage'
+    );
     assert.equal(chat.qualifyingFor(db, LEAD_OFF), null, 'unconfigured lead: no qualifying context');
     n += 5;
 
@@ -351,11 +359,26 @@ function addMsg(sessionId, leadId, role, body) {
     chat.saveSettings(db, LEAD_OFF, { qualifying_enabled: true, qualifying_questions: [] });
     assert.equal(chat.getSettings(db, LEAD_OFF).qualifying_enabled, true, 'the switch itself saves');
     const onEmpty = chat.qualifyingFor(db, LEAD_OFF);
-    assert.ok(onEmpty && onEmpty.questions.length === 5, 'Batch 140: ON + empty list serves the five industry defaults');
-    assert.equal(chat.getSettings(db, LEAD_OFF).qualifying_questions_source, 'industry_default', 'Batch 140: provenance is industry_default');
-    assert.equal(chat.qualifyingFromSettings(chat.getSettings(db, LEAD_OFF)).active, true, 'Batch 140: effective config is ACTIVE with defaults');
+    assert.ok(
+      onEmpty && onEmpty.questions.length === 5,
+      'Batch 140: ON + empty list serves the five industry defaults'
+    );
+    assert.equal(
+      chat.getSettings(db, LEAD_OFF).qualifying_questions_source,
+      'industry_default',
+      'Batch 140: provenance is industry_default'
+    );
+    assert.equal(
+      chat.qualifyingFromSettings(chat.getSettings(db, LEAD_OFF)).active,
+      true,
+      'Batch 140: effective config is ACTIVE with defaults'
+    );
     chat.saveSettings(db, LEAD_OFF, { qualifying_enabled: false });
-    assert.equal(chat.qualifyingFor(db, LEAD_OFF), null, 'switch back OFF: no context (later parts use this lead as the OFF fixture)');
+    assert.equal(
+      chat.qualifyingFor(db, LEAD_OFF),
+      null,
+      'switch back OFF: no context (later parts use this lead as the OFF fixture)'
+    );
     n += 5;
     group('Part 2 config CRUD + validation', n);
   }
