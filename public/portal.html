@@ -1554,6 +1554,28 @@
       color: var(--text);
     }
     .theme-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    /* Batch 152 — owner global code fields (Custom CSS / script / head). */
+    .theme-code { display: grid; gap: 14px; margin: 4px 0 14px; }
+    .theme-code textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 10px 12px;
+      border: 1px solid var(--border-strong);
+      border-radius: 10px;
+      background: var(--surface);
+      color: var(--text);
+      font-family: Consolas, 'Cascadia Mono', monospace;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      resize: vertical;
+    }
+    .theme-code textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(14, 122, 104, 0.18);
+    }
+    .theme-code .hint { margin: 0 0 6px; }
+    .theme-count { font-weight: 400; color: var(--muted); font-size: 0.78rem; }
     .theme-palette-wrap { margin: 4px 0 12px; }
     .theme-palette-label {
       margin: 0 0 4px;
@@ -2992,7 +3014,7 @@
           <p class="msg" id="msg-layout"></p>
         </div>
         <div class="theme-bar" id="theme-bar" hidden>
-          <p class="theme-bar-title"><strong>Theme</strong> — brand colors and Google fonts. Changes update the preview live; Save keeps them on your site.</p>
+          <p class="theme-bar-title"><strong>Theme</strong> — brand colors, Google fonts, and your own custom code. Changes update the preview live; Save keeps them on your site.</p>
           <div class="theme-fonts">
             <div class="theme-field">
               <label for="theme-font-body">Site font</label>
@@ -3037,6 +3059,23 @@
             <p class="theme-palette-label">Colors on your site</p>
             <p class="hint" style="margin:0 0 8px">Extra colors from your design (buttons, banners, accents). Change them here — they update live.</p>
             <div class="theme-palette" id="theme-palette"></div>
+          </div>
+          <div class="theme-code">
+            <div class="theme-field">
+              <label for="theme-custom-css">Custom CSS <span class="theme-count" id="theme-custom-css-count"></span></label>
+              <p class="hint">Your own styles, applied to every page of your site after the built-in styles.</p>
+              <textarea id="theme-custom-css" rows="8" spellcheck="false" placeholder=".my-class { color: #333; }"></textarea>
+            </div>
+            <div class="theme-field">
+              <label for="theme-custom-js">Global script <span class="theme-count" id="theme-custom-js-count"></span></label>
+              <p class="hint">JavaScript code only — no &lt;script&gt; tags. It runs at the end of every page.</p>
+              <textarea id="theme-custom-js" rows="6" spellcheck="false" placeholder="console.log('hello')"></textarea>
+            </div>
+            <div class="theme-field">
+              <label for="theme-custom-head">Head code <span class="theme-count" id="theme-custom-head-count"></span></label>
+              <p class="hint">Full snippets, pasted exactly as provided (including &lt;script&gt; tags) — for analytics and tracking pixels. Inserted in the &lt;head&gt; of every page.</p>
+              <textarea id="theme-custom-head" rows="6" spellcheck="false" placeholder="&lt;script&gt;&hellip;&lt;/script&gt;"></textarea>
+            </div>
           </div>
           <div class="theme-actions">
             <button type="button" class="btn small" id="btn-theme-save">Save theme</button>

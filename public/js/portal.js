@@ -51,8 +51,8 @@
     plan: 'free',
     themeOpen: false,
     themeSaving: false,
-    theme: { primary: '#1a56db', secondary: '#0e2a5c', bg: '#ffffff', text: '#1f2937', font: '', headingFont: '' },
-    themeSaved: { primary: '#1a56db', secondary: '#0e2a5c', bg: '#ffffff', text: '#1f2937', font: '', headingFont: '' },
+    theme: { primary: '#1a56db', secondary: '#0e2a5c', bg: '#ffffff', text: '#1f2937', font: '', headingFont: '', customCss: '', customJs: '', customHead: '' },
+    themeSaved: { primary: '#1a56db', secondary: '#0e2a5c', bg: '#ffffff', text: '#1f2937', font: '', headingFont: '', customCss: '', customJs: '', customHead: '' },
     /** Colors currently painted in the preview iframe (role + palette hexes). */
     themeLive: { primary: '#1a56db', secondary: '#0e2a5c', bg: '#ffffff', text: '#1f2937' },
     /** Extra colors from site CSS: [{ original, current, roles }] */
@@ -83,6 +83,9 @@
   };
 
   const THEME_KEYS = ['primary', 'secondary', 'bg', 'text'];
+  // Batch 152 — owner global code fields in the theme bar.
+  const CODE_FIELD_IDS = { customCss: 'theme-custom-css', customJs: 'theme-custom-js', customHead: 'theme-custom-head' };
+  const CODE_FIELD_MAX = 100000;
   const THEME_VAR = { primary: '--ws-primary', secondary: '--ws-secondary', bg: '--ws-bg', text: '--ws-text' };
 
   const LOCKED_EDIT_PATH =
@@ -1117,6 +1120,38 @@
     }
   }
 
+  // Batch 152 — the code textareas mirror state.theme; the save flow
+  // sends only fields whose text differs from the last saved values,
+  // so a colors-only save never rewrites the owner's code (and the
+  // server leaves absent fields untouched).
+  function syncCodeCounts() {
+    for (const [key, id] of Object.entries(CODE_FIELD_IDS)) {
+      const el = document.getElementById(id);
+      const count = document.getElementById(`${id}-count`);
+      if (count && el) count.textContent = `— ${el.value.length.toLocaleString('en-US')} / ${CODE_FIELD_MAX.toLocaleString('en-US')} characters`;
+    }
+  }
+
+  function fillCodeFields(theme) {
+    const t = theme || state.theme;
+    for (const [key, id] of Object.entries(CODE_FIELD_IDS)) {
+      const el = document.getElementById(id);
+      if (el) el.value = t[key] != null ? String(t[key]) : '';
+    }
+    syncCodeCounts();
+  }
+
+  function readCodeFields() {
+    const out = {};
+    for (const [key, id] of Object.entries(CODE_FIELD_IDS)) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      const saved = state.themeSaved[key] != null ? String(state.themeSaved[key]) : '';
+      if (el.value !== saved) out[key] = el.value;
+    }
+    return out;
+  }
+
   function setThemeFromServer(theme) {
     if (!theme || typeof theme !== 'object') return;
     const next = { ...state.theme };
@@ -1126,6 +1161,9 @@
     }
     if (theme.font) next.font = String(theme.font);
     if (theme.headingFont != null) next.headingFont = String(theme.headingFont || '');
+    if (theme.customCss != null) next.customCss = String(theme.customCss);
+    if (theme.customJs != null) next.customJs = String(theme.customJs);
+    if (theme.customHead != null) next.customHead = String(theme.customHead);
     state.theme = next;
     state.themeSaved = { ...next };
     state.themeLive = {
@@ -1149,6 +1187,7 @@
       })
       .filter(Boolean);
     fillThemeForm(next);
+    fillCodeFields(next);
     fillFontSelects();
     renderThemePalette();
   }
@@ -11503,6 +11542,11 @@
     paletteHost.addEventListener('change', onPaletteInputChange);
   }
 
+  for (const id of Object.values(CODE_FIELD_IDS)) {
+    const codeEl = document.getElementById(id);
+    if (codeEl) codeEl.addEventListener('input', syncCodeCounts);
+  }
+
   const btnThemeReset = document.getElementById('btn-theme-reset');
   if (btnThemeReset) {
     btnThemeReset.onclick = () => {
@@ -11510,6 +11554,7 @@
       state.theme = { ...state.themeSaved };
       state.themePalette = state.themePalette.map((p) => ({ ...p, current: p.original }));
       fillThemeForm(state.theme);
+      fillCodeFields(state.theme);
       fillFontSelects();
       renderThemePalette();
       const msg = document.getElementById('msg-theme');
@@ -11578,6 +11623,9 @@
       const replacements = state.themePalette
         .filter((p) => p.current && p.original && p.current !== p.original)
         .map((p) => ({ from: p.original, to: p.current }));
+      // Batch 152 — only code fields the owner actually edited ride
+      // along; absent fields leave the stored code untouched.
+      const codeFields = readCodeFields();
       // Also include role changes relative to saved (server builds map from old theme).
       state.themeSaving = true;
       syncThemeUi();
@@ -11588,12 +11636,12 @@
       try {
         const result = await api('/site/theme', {
           method: 'POST',
-          body: JSON.stringify({ ...colors, replacements }),
+          body: JSON.stringify({ ...colors, replacements, ...codeFields }),
         });
         if (result && result.theme) setThemeFromServer(result.theme);
         else {
-          state.theme = colors;
-          state.themeSaved = { ...colors };
+          state.theme = { ...state.theme, ...colors, ...codeFields };
+          state.themeSaved = { ...state.theme };
         }
         if (result && result.previewUrl) state.previewUrl = result.previewUrl;
         if (msg) {
@@ -11608,10 +11656,11 @@
           preserveFullscreen: state.editFullscreen,
         });
         if (msg) {
+          const savedText = Object.keys(codeFields).length ? 'Theme saved on your site.' : 'Colors saved on your site.';
           msg.className = 'msg ok';
-          msg.textContent = 'Colors saved on your site.';
+          msg.textContent = savedText;
           setTimeout(() => {
-            if (msg.textContent.indexOf('Colors saved') === 0) {
+            if (msg.textContent === savedText) {
               msg.className = 'msg';
               msg.textContent = '';
             }
