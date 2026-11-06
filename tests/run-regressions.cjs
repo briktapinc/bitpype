@@ -134,6 +134,7 @@ const checks = [
   'batch135-spacing-regressions',
   'batch133-universal-detail-regressions',
   'batch142-checkout-nav-cart-regressions',
+  'batch141-detail-polish-regressions',
   'batch143-review-fixes-regressions',
   'batch145-external-review-fixes-regressions',
   'batch136-booking-discount-regressions',
