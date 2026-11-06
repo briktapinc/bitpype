@@ -145,7 +145,14 @@ function addLead(id, { category = null, city = null, services = null } = {}) {
     assert.ok(chatSrc.includes('const resolved = resolveQualifyingQuestions(db, leadId, raw.qualifying_questions);'), 'getSettings resolves through the single resolver');
     assert.ok(chatSrc.includes('qualifying_questions_stored'), 'getSettings exposes the raw stored list separately');
     assert.ok(chatSrc.includes('const cur = getRawSettings(db, leadId);'), 'saveSettings falls back to RAW stored settings (defaults can never be frozen in by a partial save)');
-    assert.ok(!/ai\.chat|generateQuestions|openai/i.test(chatSrc.slice(chatSrc.indexOf('INDUSTRY_QUESTION_TEMPLATES'), chatSrc.indexOf('function parseSettingsRow'))), 'template resolution is deterministic — no model call anywhere in the resolver span');
+    // Batch 140 finisher (rebase onto the landed 138 tree): the span
+    // starts at the templates DECLARATION, not the first mention —
+    // the file docblock names the table, and Batch 138's voice
+    // constants (OpenAI Realtime voices, voice_openai_session_id)
+    // legitimately sit between that mention and the resolver. The
+    // pin's intent is unchanged: no model call inside the resolver
+    // span itself (templates table -> parseSettingsRow).
+    assert.ok(!/ai\.chat|generateQuestions|openai/i.test(chatSrc.slice(chatSrc.indexOf('const INDUSTRY_QUESTION_TEMPLATES'), chatSrc.indexOf('function parseSettingsRow'))), 'template resolution is deterministic — no model call anywhere in the resolver span');
     const portalSrc = read('public/js/portal.js');
     assert.ok(portalSrc.includes('id="chat-qualifying-provenance"') && portalSrc.includes('Industry defaults for'), 'portal pane shows the industry-defaults provenance note');
     n += 10;
