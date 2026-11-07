@@ -430,11 +430,15 @@ async function login(email, password) {
     if (user && !lockState.locked) {
       justLocked = (await loginLockout.recordFailure('portal', user.id)).justLocked;
     }
-    const err = Object.assign(new Error('INVALID_CREDENTIALS'), { code: 'INVALID_CREDENTIALS' });
     // Server-side-only markers for the route's SEC-21 event; the
     // client response is built from `code` alone and never sees them.
-    if (lockState.locked) err.detail = 'login_locked';
-    if (justLocked) err.justLocked = true;
+    // (Single Object.assign: the @ts-check scope rejects post-assign
+    // property writes on the Error & { code } intersection.)
+    const err = Object.assign(new Error('INVALID_CREDENTIALS'), {
+      code: 'INVALID_CREDENTIALS',
+      ...(lockState.locked ? { detail: 'login_locked' } : {}),
+      ...(justLocked ? { justLocked: true } : {}),
+    });
     throw err;
   }
   await loginLockout.recordSuccess('portal', user.id);
