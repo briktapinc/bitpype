@@ -808,6 +808,12 @@ async function modeOffContrast() {
       DB_DRIVER: process.env.DB_DRIVER,
       SQLITE_PATH: process.env.SQLITE_PATH,
       MYSQL_DATABASE: process.env.MYSQL_DATABASE,
+      // The --mysql runner exports the gate connection as MYSQL_*;
+      // forward it or the child defaults to 127.0.0.1:3306 and dies.
+      MYSQL_HOST: process.env.MYSQL_HOST,
+      MYSQL_PORT: process.env.MYSQL_PORT,
+      MYSQL_USER: process.env.MYSQL_USER,
+      MYSQL_PASSWORD: process.env.MYSQL_PASSWORD,
       WORKSPACE_DATA_DIR: process.env.WORKSPACE_DATA_DIR,
       EXPORT_ROOT: process.env.EXPORT_ROOT,
       SESSION_SECRET: process.env.SESSION_SECRET,
