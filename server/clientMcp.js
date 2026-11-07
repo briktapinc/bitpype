@@ -249,7 +249,7 @@ function portalToolDefs() {
     {
       name: 'chatbot.knowledge.list',
       description:
-        'CLIENT MCP ONLY. List knowledge links/docs the client added for chatbot answers (portal Modules → Chatbot → Knowledge). Optional query ranks by extracted file text. Supported uploads: PDF, Word, Excel, PowerPoint, images (OCR), text/Markdown/HTML.',
+        'CLIENT MCP ONLY. List knowledge links/docs the client added for chatbot answers (portal Modules → Chatbot → Knowledge). Only sources the owner left ON in Knowledge sources are returned — a switched-off doc is not an answer source here either. Optional query ranks by extracted file text. Supported uploads: PDF, Word, Excel, PowerPoint, images (OCR), text/Markdown/HTML.',
       inputSchema: schema({
         leadId: ID,
         includeInactive: { type: 'boolean' },
@@ -804,7 +804,10 @@ async function dispatchPortalTool(ws, name, a, ctx = {}) {
         return {
           plan: planId,
           session: chat.publicSession(row, { withMessages: true, messages }),
-          knowledge: chat.knowledgeSnippets(db, leadId),
+          // Batch 151 finisher (fence ruling): the agent's KB diet
+          // honours the owner's knowledge-source toggles — the same
+          // filtered path buildAssistantContext uses.
+          knowledge: chat.knowledgeSnippets(db, leadId, { includeIds: chat.knowledgeIncludeIds(db, leadId) }),
           allowed_actions: chat.listAllowedActions(db, leadId),
           // Batch 137: the owner's qualifying questions (the session
           // itself carries its record via publicSession).
@@ -837,12 +840,22 @@ async function dispatchPortalTool(ws, name, a, ctx = {}) {
       }));
     }
     if (name === 'chatbot.knowledge.list') {
-      return domain.withDb(ws, (db) => ({
-        plan: planId,
-        items: chat.listKnowledge(db, leadId, { includeInactive: !!a.includeInactive }),
-        snippets: chat.knowledgeSnippets(db, leadId, { query: a.query || '' }),
-        boundary: 'portal_client_mcp_only',
-      }));
+      return domain.withDb(ws, (db) => {
+        // Batch 151 finisher (fence ruling): BOTH the item list and
+        // the snippets honour the owner's knowledge-source toggles —
+        // a switched-off doc is not an answer source on this surface
+        // either. (The portal inbox preview keeps all-docs: the owner
+        // sees everything; the agent does not.)
+        const includeIds = chat.knowledgeIncludeIds(db, leadId);
+        return {
+          plan: planId,
+          items: chat
+            .listKnowledge(db, leadId, { includeInactive: !!a.includeInactive })
+            .filter((it) => includeIds.has(Number(it.id))),
+          snippets: chat.knowledgeSnippets(db, leadId, { query: a.query || '', includeIds }),
+          boundary: 'portal_client_mcp_only',
+        };
+      });
     }
     if (name === 'chatbot.knowledge.add') {
       return domain.withDb(ws, (db) => ({

@@ -34,6 +34,12 @@
  *     selectable source with live counts + effective state.
  *   Part 5 — caps: a 15-product shop digests to at most 10 product
  *     lines inside the per-source char cap.
+ *   Part 6 — finisher fence ruling: the client MCP agent surface
+ *     (chatbot.knowledge.list, items AND snippets) honours the same
+ *     toggles through chatbot.knowledgeIncludeIds — the ONE filtered
+ *     path buildAssistantContext uses — while listPendingSessions
+ *     (the portal inbox preview) deliberately keeps all-docs
+ *     behaviour: the owner sees everything, the agent does not.
  */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -482,6 +488,65 @@ const LEAD_C = 151003;
     assert.ok(ctxC.sources.text.length <= 9000 + 6000, 'total digest stays inside the combined budget');
     n++;
     group('part5 caps', n);
+  }
+
+  /* ================================================================== */
+  /* Part 6 — finisher fence ruling: clientMcp honours the toggles;   */
+  /* the portal inbox preview (listPendingSessions) keeps all-docs.   */
+  /* ================================================================== */
+  {
+    let n = 0;
+    const clientMcp = require(path.join(root, 'server/clientMcp.js'));
+    const cmSrc = read('server/clientMcp.js');
+    assert.ok(cmSrc.includes('knowledgeIncludeIds'), 'clientMcp routes its KB reads through the filtered path');
+    n++;
+    // The shared diet helper itself: all-on carries both docs.
+    let ids = chatbot.knowledgeIncludeIds(db, LEAD_A);
+    assert.ok(ids.has(Number(kbWater.id)) && ids.has(Number(kbReturns.id)), 'all-on → includeIds carries both docs');
+    n++;
+    save({ knowledge_sources: { groups: {}, modules: {}, pages: {}, knowledge: { [String(kbReturns.id)]: false } } });
+    ids = chatbot.knowledgeIncludeIds(db, LEAD_A);
+    assert.ok(ids.has(Number(kbWater.id)) && !ids.has(Number(kbReturns.id)), 'doc off → includeIds drops exactly that doc');
+    n++;
+    save({ knowledge_sources: { groups: { knowledge: false }, modules: {}, pages: {}, knowledge: {} } });
+    assert.equal(chatbot.knowledgeIncludeIds(db, LEAD_A).size, 0, 'KB group off → includeIds empty');
+    n++;
+    save({ knowledge_sources: { groups: {}, modules: {}, pages: {}, knowledge: { [String(kbReturns.id)]: false } } });
+    // The fence: the portal inbox preview keeps all-docs even with a
+    // doc toggled off — the owner sees everything.
+    const pending = chatbot.listPendingSessions(db, LEAD_A, { limit: 1 });
+    assert.ok(pending.knowledge.text.includes('Returns within 30 days'), 'inbox preview keeps all-docs with a doc off');
+    n++;
+    // The real client MCP dispatch, on a paid-plan fixture owner:
+    // knowledge.list honours the toggle in BOTH items and snippets.
+    await platformDb.query("UPDATE users SET subscription_status = 'active', billing_plan = 'standard' WHERE id = :id", {
+      id: a.userId,
+    });
+    const listedOff = await clientMcp.dispatchPortalTool(
+      WS_ID,
+      'chatbot.knowledge.list',
+      { leadId: LEAD_A },
+      { clientEmail: 'a151@example.invalid' }
+    );
+    assert.ok(
+      !listedOff.items.some((it) => Number(it.id) === Number(kbReturns.id)),
+      'clientMcp knowledge.list items exclude the OFF doc'
+    );
+    n++;
+    assert.ok(!listedOff.snippets.text.includes('Returns within 30 days'), 'clientMcp knowledge.list snippets exclude the OFF doc');
+    n++;
+    assert.ok(listedOff.items.some((it) => Number(it.id) === Number(kbWater.id)), 'clientMcp knowledge.list keeps the ON doc');
+    n++;
+    save({ knowledge_sources: { groups: {}, modules: {}, pages: {}, knowledge: {} } });
+    const listedOn = await clientMcp.dispatchPortalTool(
+      WS_ID,
+      'chatbot.knowledge.list',
+      { leadId: LEAD_A },
+      { clientEmail: 'a151@example.invalid' }
+    );
+    assert.ok(listedOn.items.some((it) => Number(it.id) === Number(kbReturns.id)), 'toggle back on → clientMcp sees the doc again');
+    n++;
+    group('part6 clientMcp fence', n);
   }
 
   console.log(`\nBATCH151 OK — ${groups.length} groups: ${groups.join(' · ')}`);

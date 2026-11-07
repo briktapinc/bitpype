@@ -266,16 +266,7 @@ function buildAssistantContext(db, leadId, { query = '' } = {}) {
   // all-ON. This object is the one brain: text chat and voice both
   // read it, so both surfaces answer (and refuse) identically.
   const resolver = knowledgeSourcesFromSettings(settings);
-  let kbIncludeIds = null;
-  if (!resolver.groupOn('knowledge')) {
-    kbIncludeIds = new Set();
-  } else {
-    kbIncludeIds = new Set(
-      listKnowledge(db, leadId)
-        .filter((d) => resolver.docOn(d.id))
-        .map((d) => Number(d.id))
-    );
-  }
+  const kbIncludeIds = knowledgeIncludeIdsFor(resolver, db, leadId);
   return {
     business: loadBusinessSupportContext(db, leadId),
     knowledge: knowledgeSnippets(db, leadId, {
@@ -1317,6 +1308,28 @@ function knowledgeSourcesFromSettings(settings) {
       return docsMap[String(Number(id))] !== false;
     },
   };
+}
+
+/**
+ * The KB doc-id diet for a resolver: the exact set buildAssistantContext
+ * feeds knowledgeSnippets. Batch 151 finisher (fence ruling): the
+ * client MCP agent surface (server/clientMcp.js) must honour the same
+ * toggles, so its KB reads go through knowledgeIncludeIds() below —
+ * ONE filtered path for every agent-facing knowledge read. The portal
+ * inbox preview (listPendingSessions) deliberately keeps the all-docs
+ * behaviour: the owner sees everything.
+ */
+function knowledgeIncludeIdsFor(resolver, db, leadId) {
+  if (!resolver.groupOn('knowledge')) return new Set();
+  return new Set(
+    listKnowledge(db, leadId)
+      .filter((d) => resolver.docOn(d.id))
+      .map((d) => Number(d.id))
+  );
+}
+
+function knowledgeIncludeIds(db, leadId) {
+  return knowledgeIncludeIdsFor(knowledgeSourcesFromSettings(getSettings(db, leadId)), db, leadId);
 }
 
 /**
@@ -3965,6 +3978,7 @@ module.exports = {
   priceBookFor,
   knowledgeSourcesFor,
   knowledgeSourcesFromSettings,
+  knowledgeIncludeIds,
   buildKnowledgeDigests,
   ANSWERABLE_MODULE_TYPES,
   getPublicConfigByToken,
