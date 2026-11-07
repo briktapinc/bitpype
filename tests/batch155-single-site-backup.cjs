@@ -830,10 +830,38 @@ async function modeOffContrast() {
   }
 }
 
+function portalButtonPins() {
+  console.log('batch155 part F: portal Download Backup button (spec §9 phase 4)');
+  const html = fs.readFileSync(path.join(root, 'public/portal.html'), 'utf8');
+  const js = fs.readFileSync(path.join(root, 'public/js/portal.js'), 'utf8');
+  const routes = fs.readFileSync(path.join(root, 'server/routes/portal.js'), 'utf8');
+  check(
+    'portal markup carries the backup bar, the Download Backup button and the §7 limitations copy',
+    html.includes('id="backup-bar"') &&
+      html.includes('id="btn-site-backup"') &&
+      html.includes('>Download Backup<') &&
+      html.includes('frozen at the moment you download it') &&
+      html.includes('your own host') &&
+      html.includes('never contacts BitPype')
+  );
+  check(
+    'portal JS wires the button to the standalone-backup endpoint as a blob download',
+    js.includes("getElementById('btn-site-backup')") &&
+      js.includes("fetch('/api/v1/portal/site/standalone-backup'") &&
+      js.includes('URL.createObjectURL(blob)')
+  );
+  check(
+    'backup bar visibility syncs with the site-editable state and hides at the gate',
+    js.includes("getElementById('backup-bar')") && js.includes('backupBar.hidden = !(can && !state.editFullscreen)') && js.includes('backupBar.hidden = true')
+  );
+  check('portal route for the download exists', routes.includes("router.post('/site/standalone-backup'"));
+}
+
 (async () => {
   try {
     const ctx = await main();
     await installerAndClone(ctx);
+    portalButtonPins();
     await modeOffContrast();
   } catch (e) {
     failures.push(`suite error: ${e && e.message ? e.message : e}`);

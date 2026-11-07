@@ -468,6 +468,8 @@
     state.structure = null;
     const themeBar = document.getElementById('theme-bar');
     if (themeBar) themeBar.hidden = true;
+    const backupBar = document.getElementById('backup-bar');
+    if (backupBar) backupBar.hidden = true;
     const structBar = document.getElementById('structure-bar');
     if (structBar) structBar.hidden = true;
     syncFullscreenButtons();
@@ -1375,6 +1377,10 @@
     }
     if (label) label.textContent = state.themeOpen && can ? 'Hide theme' : 'Theme';
     if (bar) bar.hidden = !(can && state.themeOpen && !state.editFullscreen);
+    // Batch 155: the standalone-backup bar rides the same site-editable
+    // sync as the theme bar (always offered, not tucked behind Theme).
+    const backupBar = document.getElementById('backup-bar');
+    if (backupBar) backupBar.hidden = !(can && !state.editFullscreen);
     const saveBtn = document.getElementById('btn-theme-save');
     if (saveBtn) saveBtn.disabled = !!state.themeSaving;
   }
@@ -11760,6 +11766,71 @@
 
   const btnPublishSite = document.getElementById('btn-publish-site');
   if (btnPublishSite) btnPublishSite.onclick = () => publishSitePreview();
+
+  // Batch 155: Download Backup — POST streams a .tar.gz attachment
+  // (the api() helper parses JSON, so this uses fetch directly, the
+  // same shape as the staff postcard/export-zip downloads).
+  const btnSiteBackup = document.getElementById('btn-site-backup');
+  if (btnSiteBackup) {
+    btnSiteBackup.onclick = async () => {
+      if (!state.siteEditable || btnSiteBackup.disabled) return;
+      const msg = document.getElementById('msg-backup');
+      btnSiteBackup.disabled = true;
+      if (msg) {
+        msg.className = 'msg';
+        msg.textContent = 'Preparing your backup — this can take a minute…';
+      }
+      try {
+        const res = await fetch('/api/v1/portal/site/standalone-backup', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          const detail = data && data.error;
+          const text =
+            (typeof detail === 'string' && detail) ||
+            (detail && typeof detail.message === 'string' && detail.message) ||
+            res.statusText ||
+            `Request failed (${res.status})`;
+          const err = new Error(text);
+          err.code = (data && typeof data.code === 'string' && data.code) || undefined;
+          err.status = res.status;
+          throw err;
+        }
+        const cd = res.headers.get('Content-Disposition') || '';
+        let filename = 'site-standalone-backup.tar.gz';
+        const m = /filename="([^"]+)"/i.exec(cd) || /filename=([^;]+)/i.exec(cd);
+        if (m && m[1]) filename = m[1].trim().replace(/^["']|["']$/g, '');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        try {
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          a.rel = 'noopener';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        } finally {
+          setTimeout(() => URL.revokeObjectURL(url), 2000);
+        }
+        if (msg) {
+          msg.className = 'msg ok';
+          msg.textContent = 'Backup downloaded. Keep it somewhere safe — it holds your whole site and its data.';
+        }
+      } catch (e) {
+        if (msg) {
+          msg.className = 'msg err';
+          msg.textContent = errText(e);
+        }
+      } finally {
+        btnSiteBackup.disabled = false;
+      }
+    };
+  }
 
   document.getElementById('btn-enter-fullscreen').onclick = () => {
     if (!state.siteEditable) return;
