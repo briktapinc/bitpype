@@ -28,6 +28,9 @@ const siteModules = require('./siteModules');
 // first, the pre-129 membership key store as fallback. Memberships
 // never resolve to the workspace account (unchanged Batch 17 rule).
 const paymentsConfig = require('./paymentsConfig');
+// Batch 154 (§9): deterministic Stripe idempotency keys on this
+// module's mutating calls (server/stripeIdempotency.js).
+const { stripeIdempotencyKey } = require('./stripeIdempotency');
 const { invoiceSubscriptionId } = require('./stripeShapes');
 
 const clientCache = new Map(); // `${leadId}:${keyFingerprint}` -> Stripe client
@@ -157,20 +160,42 @@ async function ensureTierStripePrice(db, leadId, tier) {
     }
   }
   if (!productId) {
-    const product = await stripe.products.create({
-      name: tier.name,
-      ...(tier.description ? { description: String(tier.description).slice(0, 500) } : {}),
-      metadata: { bitpype_lead_id: String(leadId), bitpype_tier_id: String(tier.id) },
-    });
+    const product = await stripe.products.create(
+      {
+        name: tier.name,
+        ...(tier.description ? { description: String(tier.description).slice(0, 500) } : {}),
+        metadata: { bitpype_lead_id: String(leadId), bitpype_tier_id: String(tier.id) },
+      },
+      // Batch 154: one product per (lead, tier) — keyed on the tier's
+      // own ids (tier.id is 0 for a not-yet-saved tier; the lead +
+      // name parts keep that case deterministic too).
+      {
+        idempotencyKey: stripeIdempotencyKey('membership-product-create', leadId, tier.id || 0, String(tier.name || '')),
+      }
+    );
     productId = String(product.id || '');
   }
-  const price = await stripe.prices.create({
-    product: productId,
-    currency: 'usd',
-    unit_amount: Number(tier.price_cents) || 0,
-    recurring: { interval: tier.interval === 'year' ? 'year' : 'month' },
-    metadata: { bitpype_lead_id: String(leadId), bitpype_tier_id: String(tier.id) },
-  });
+  const price = await stripe.prices.create(
+    {
+      product: productId,
+      currency: 'usd',
+      unit_amount: Number(tier.price_cents) || 0,
+      recurring: { interval: tier.interval === 'year' ? 'year' : 'month' },
+      metadata: { bitpype_lead_id: String(leadId), bitpype_tier_id: String(tier.id) },
+    },
+    // Batch 154: one price per (product, amount, interval) — a
+    // re-ensure after a lost response replays the original price,
+    // while a real amount/interval change mints a NEW price (the
+    // Stripe-immutable-price rule this function exists for).
+    {
+      idempotencyKey: stripeIdempotencyKey(
+        'membership-price-create',
+        productId,
+        Number(tier.price_cents) || 0,
+        tier.interval === 'year' ? 'year' : 'month'
+      ),
+    }
+  );
   return { stripe_product_id: productId, stripe_price_id: String(price.id || '') };
 }
 
@@ -282,7 +307,14 @@ async function cancelMemberSubscription(db, leadId, memberId) {
   for (const cand of usable) {
     try {
       const stripe = paymentsConfig.clientForLayer(id, cand.source, cand.creds.secretKey);
-      await stripe.subscriptions.update(sub.stripe_subscription_id, { cancel_at_period_end: true });
+      await stripe.subscriptions.update(
+        sub.stripe_subscription_id,
+        { cancel_at_period_end: true },
+        // Batch 154: keyed by subscription + the exact change.
+        {
+          idempotencyKey: stripeIdempotencyKey('subscription-update', sub.stripe_subscription_id, 'cancel_at_period_end=true'),
+        }
+      );
       return { subscription: siteModules.markSubscriptionCanceling(db, sub.id), stripe_called: true };
     } catch (e) {
       if (!firstError) firstError = e;

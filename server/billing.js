@@ -24,6 +24,9 @@ const {
   appUrl,
 } = require('./stripeClient');
 const credits = require('./credits');
+// Batch 154 (§9): deterministic Stripe idempotency keys (see
+// server/stripeIdempotency.js) on every mutating Stripe call below.
+const { stripeIdempotencyKey } = require('./stripeIdempotency');
 const { invoiceSubscriptionId, invoiceSubscriptionMetadata } = require('./stripeShapes');
 const { staffUrl } = require('./appUrls');
 
@@ -300,11 +303,16 @@ async function ensureCustomer(user) {
   }
 
   if (!existingId) {
-    const customer = await stripe.customers.create({
-      email: user.email,
-      name: user.name || undefined,
-      metadata: { user_id: String(user.id) },
-    });
+    const customer = await stripe.customers.create(
+      {
+        email: user.email,
+        name: user.name || undefined,
+        metadata: { user_id: String(user.id) },
+      },
+      // Batch 154: one Stripe customer per user — a retried create
+      // for the same user replays the original customer.
+      { idempotencyKey: stripeIdempotencyKey('customer-create', user.id) }
+    );
     existingId = customer.id;
   }
 
@@ -392,15 +400,30 @@ async function createCheckoutSession(userId, planId = PLAN_STANDARD, opts = {}) 
     Math.min(365, Number(await platform.getPlatformSetting('billing.trial_days', '0')) || 0)
   );
   if (trialDays > 0) params.subscription_data.trial_period_days = trialDays;
+  // Batch 154: deterministic key from the operation's business ids
+  // (user + plan + price + caller metadata, e.g. a domain
+  // transaction id) — the integration_identifier fallback retry
+  // below is the SAME operation and reuses the SAME key.
+  const checkoutKey = stripeIdempotencyKey(
+    'checkout-subscription',
+    user.id,
+    plan,
+    priceId,
+    trialDays,
+    JSON.stringify(params.metadata)
+  );
   let session;
   try {
-    session = await stripe.checkout.sessions.create({
-      ...params,
-      integration_identifier: integrationId(`sub-${plan}`),
-    });
+    session = await stripe.checkout.sessions.create(
+      {
+        ...params,
+        integration_identifier: integrationId(`sub-${plan}`),
+      },
+      { idempotencyKey: checkoutKey }
+    );
   } catch (e) {
     if (String(e.message || '').includes('integration_identifier')) {
-      session = await stripe.checkout.sessions.create(params);
+      session = await stripe.checkout.sessions.create(params, { idempotencyKey: checkoutKey });
     } else {
       throw e;
     }
@@ -414,10 +437,14 @@ async function createPortalSession(userId) {
     throw Object.assign(new Error('No Stripe customer yet — subscribe first'), { code: 'NO_CUSTOMER' });
   }
   const stripe = await getStripe();
-  const session = await stripe.billingPortal.sessions.create({
-    customer: user.stripe_customer_id,
-    return_url: staffUrl('billing'),
-  });
+  const session = await stripe.billingPortal.sessions.create(
+    {
+      customer: user.stripe_customer_id,
+      return_url: staffUrl('billing'),
+    },
+    // Batch 154: keyed by customer + destination.
+    { idempotencyKey: stripeIdempotencyKey('billing-portal', user.stripe_customer_id, 'staff-billing') }
+  );
   return { url: session.url };
 }
 
@@ -453,9 +480,20 @@ async function scheduleCancelAtPeriodEnd(userId) {
     throw Object.assign(new Error('No active subscription to cancel'), { code: 'NO_SUBSCRIPTION' });
   }
   const stripe = await getStripe();
-  const updated = await stripe.subscriptions.update(user.stripe_subscription_id, {
-    cancel_at_period_end: true,
-  });
+  const updated = await stripe.subscriptions.update(
+    user.stripe_subscription_id,
+    {
+      cancel_at_period_end: true,
+    },
+    // Batch 154: keyed by subscription + the exact change.
+    {
+      idempotencyKey: stripeIdempotencyKey(
+        'subscription-update',
+        user.stripe_subscription_id,
+        'cancel_at_period_end=true'
+      ),
+    }
+  );
   await syncSubscription(updated);
   // Batch 63: cancel confirmation email (deduped per subscription +
   // period inside lifecycleComms — the customer.subscription.updated
@@ -491,9 +529,19 @@ async function resumeSubscription(userId) {
     throw Object.assign(new Error('No active subscription to resume'), { code: 'NO_SUBSCRIPTION' });
   }
   const stripe = await getStripe();
-  const updated = await stripe.subscriptions.update(user.stripe_subscription_id, {
-    cancel_at_period_end: false,
-  });
+  const updated = await stripe.subscriptions.update(
+    user.stripe_subscription_id,
+    {
+      cancel_at_period_end: false,
+    },
+    {
+      idempotencyKey: stripeIdempotencyKey(
+        'subscription-update',
+        user.stripe_subscription_id,
+        'cancel_at_period_end=false'
+      ),
+    }
+  );
   await syncSubscription(updated);
   // Batch 63: if the user cancels again later in the same period, the
   // confirmation + T-3 reminder must fire again — clear their claims.
@@ -582,13 +630,24 @@ async function changeSubscriptionPlan(userId, planId, opts = {}) {
   const currentPrice = item.price && item.price.id;
   if (currentPrice === priceId) {
     if (sub.cancel_at_period_end) {
-      const resumed = await stripe.subscriptions.update(sub.id, {
-        cancel_at_period_end: false,
-        metadata: Object.assign({}, sub.metadata || {}, {
-          user_id: String(user.id),
-          plan,
-        }),
-      });
+      const resumed = await stripe.subscriptions.update(
+        sub.id,
+        {
+          cancel_at_period_end: false,
+          metadata: Object.assign({}, sub.metadata || {}, {
+            user_id: String(user.id),
+            plan,
+          }),
+        },
+        {
+          idempotencyKey: stripeIdempotencyKey(
+            'subscription-update',
+            sub.id,
+            'cancel_at_period_end=false',
+            `plan=${plan}`
+          ),
+        }
+      );
       await syncSubscription(resumed);
       return {
         action: 'resumed',
@@ -605,16 +664,24 @@ async function changeSubscriptionPlan(userId, planId, opts = {}) {
     };
   }
 
-  const updated = await stripe.subscriptions.update(sub.id, {
-    items: [{ id: item.id, price: priceId }],
-    // Prorate immediately so upgrades/downgrades settle on the next invoice.
-    proration_behavior: 'create_prorations',
-    cancel_at_period_end: false,
-    metadata: Object.assign({}, sub.metadata || {}, {
-      user_id: String(user.id),
-      plan,
-    }),
-  });
+  const updated = await stripe.subscriptions.update(
+    sub.id,
+    {
+      items: [{ id: item.id, price: priceId }],
+      // Prorate immediately so upgrades/downgrades settle on the next invoice.
+      proration_behavior: 'create_prorations',
+      cancel_at_period_end: false,
+      metadata: Object.assign({}, sub.metadata || {}, {
+        user_id: String(user.id),
+        plan,
+      }),
+    },
+    // Batch 154: keyed by subscription + item + target price — a
+    // later switch to a different price is a different operation.
+    {
+      idempotencyKey: stripeIdempotencyKey('subscription-plan-change', sub.id, item.id, priceId),
+    }
+  );
   await syncSubscription(updated);
   const fresh = await getUserBilling(userId);
   return {
@@ -719,15 +786,21 @@ async function createCreditsCheckoutSession(userId, workspaceId, opts = {}) {
     },
   };
 
+  // Batch 154: deterministic key from user + workspace + pack
+  // contents; the fallback retry reuses the SAME key.
+  const creditsKey = stripeIdempotencyKey('checkout-credits', user.id, wid, cfg.priceId, quantity, totalCredits);
   let session;
   try {
-    session = await stripe.checkout.sessions.create({
-      ...params,
-      integration_identifier: integrationId('credits-pack'),
-    });
+    session = await stripe.checkout.sessions.create(
+      {
+        ...params,
+        integration_identifier: integrationId('credits-pack'),
+      },
+      { idempotencyKey: creditsKey }
+    );
   } catch (e) {
     if (String(e.message || '').includes('integration_identifier')) {
-      session = await stripe.checkout.sessions.create(params);
+      session = await stripe.checkout.sessions.create(params, { idempotencyKey: creditsKey });
     } else {
       throw e;
     }
@@ -1499,12 +1572,25 @@ async function dispatchWebhookEvent(event, deps = {}) {
       if (userRef && !sub.metadata.user_id) {
         const meta = { user_id: String(userRef) };
         if (planMeta) meta.plan = String(planMeta);
-        await stripe.subscriptions.update(subId, { metadata: meta });
+        await stripe.subscriptions.update(
+          subId,
+          { metadata: meta },
+          // Batch 154: webhook redeliveries replay the same update.
+          {
+            idempotencyKey: stripeIdempotencyKey('subscription-metadata', subId, String(userRef), String(planMeta || '')),
+          }
+        );
         sub.metadata = Object.assign({}, sub.metadata, meta);
       } else if (planMeta && !sub.metadata.plan) {
-        await stripe.subscriptions.update(subId, {
-          metadata: Object.assign({}, sub.metadata || {}, { plan: String(planMeta) }),
-        });
+        await stripe.subscriptions.update(
+          subId,
+          {
+            metadata: Object.assign({}, sub.metadata || {}, { plan: String(planMeta) }),
+          },
+          {
+            idempotencyKey: stripeIdempotencyKey('subscription-metadata', subId, '', String(planMeta)),
+          }
+        );
         sub.metadata = Object.assign({}, sub.metadata, { plan: String(planMeta) });
       }
       await syncSubscription(sub);
@@ -1905,13 +1991,17 @@ async function adminRefundPayment(paymentId, { amountCents, reason } = {}) {
   };
   if (amountCents != null && Number(amountCents) > 0) params.amount = Number(amountCents);
 
+  // Batch 154: one refund operation per (payment, amount, reason) —
+  // a retried admin refund replays the original refund instead of
+  // refunding twice.
+  const refundKey = stripeIdempotencyKey('refund-admin', payment.id, params.amount != null ? params.amount : 'full', params.reason);
   let refund;
   if (payment.stripe_charge_id) {
     params.charge = payment.stripe_charge_id;
-    refund = await stripe.refunds.create(params);
+    refund = await stripe.refunds.create(params, { idempotencyKey: refundKey });
   } else {
     params.payment_intent = payment.stripe_payment_intent_id;
-    refund = await stripe.refunds.create(params);
+    refund = await stripe.refunds.create(params, { idempotencyKey: refundKey });
   }
 
   const charge = payment.stripe_charge_id
@@ -1940,10 +2030,16 @@ async function deleteAccount(userId, { immediate = true } = {}) {
   if (user.stripe_subscription_id) {
     try {
       const stripe = await getStripe();
-      await stripe.subscriptions.cancel(user.stripe_subscription_id, {
-        invoice_now: false,
-        prorate: !!immediate,
-      });
+      await stripe.subscriptions.cancel(
+        user.stripe_subscription_id,
+        {
+          invoice_now: false,
+          prorate: !!immediate,
+        },
+        {
+          idempotencyKey: stripeIdempotencyKey('subscription-cancel', user.stripe_subscription_id, `prorate=${!!immediate}`),
+        }
+      );
     } catch (e) {
       console.warn('[billing.deleteAccount] cancel sub:', e.message);
     }

@@ -245,10 +245,16 @@ async function openBillingPortal(workspaceId, clientEmail) {
     });
   }
   const stripe = await getStripe();
-  const session = await stripe.billingPortal.sessions.create({
-    customer: user.stripe_customer_id,
-    return_url: `${base()}/portal`,
-  });
+  const session = await stripe.billingPortal.sessions.create(
+    {
+      customer: user.stripe_customer_id,
+      return_url: `${base()}/portal`,
+    },
+    // Batch 154 (§9): deterministic idempotency key (customer + destination).
+    {
+      idempotencyKey: require('./stripeIdempotency').stripeIdempotencyKey('billing-portal', user.stripe_customer_id, 'portal'),
+    }
+  );
   return { url: session.url };
 }
 

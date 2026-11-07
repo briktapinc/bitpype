@@ -40,6 +40,9 @@
 
 const platform = require('./platform');
 const stripeClient = require('./stripeClient');
+// Batch 154 (§9): deterministic Stripe idempotency keys on this
+// module's mutating calls (server/stripeIdempotency.js).
+const { stripeIdempotencyKey } = require('./stripeIdempotency');
 const { PLAN_STANDARD, PLAN_PRO, PLAN_PREMIUM, PLANS, getPlan } = require('./plans');
 
 const MAX_AMOUNT_USD = 100000;
@@ -279,10 +282,14 @@ async function findOrCreateProduct(stripe, item, hintProductIds) {
   } catch {
     /* list is a fallback, never fatal */
   }
-  const created = await stripe.products.create({
-    name: item.productName,
-    metadata: { bitpype_key: item.lookupKey, bitpype_item: item.id },
-  });
+  const created = await stripe.products.create(
+    {
+      name: item.productName,
+      metadata: { bitpype_key: item.lookupKey, bitpype_item: item.id },
+    },
+    // Batch 154: one product per catalog lookup key.
+    { idempotencyKey: stripeIdempotencyKey('pricing-product-create', item.lookupKey) }
+  );
   return { productId: String((created && created.id) || ''), created: true };
 }
 
@@ -347,13 +354,26 @@ async function updatePricing(amounts) {
     if (!product.productId) throw stripeFailure(item, new Error('Stripe did not return a product id'));
     let price;
     try {
-      price = await stripe.prices.create({
-        product: product.productId,
-        currency: 'usd',
-        unit_amount: desired.get(item.id),
-        ...(item.interval ? { recurring: { interval: item.interval } } : {}),
-        metadata: { bitpype_key: item.lookupKey, bitpype_item: item.id },
-      });
+      price = await stripe.prices.create(
+        {
+          product: product.productId,
+          currency: 'usd',
+          unit_amount: desired.get(item.id),
+          ...(item.interval ? { recurring: { interval: item.interval } } : {}),
+          metadata: { bitpype_key: item.lookupKey, bitpype_item: item.id },
+        },
+        // Batch 154: one price per (product, amount, interval) — a
+        // retried save replays the minted price instead of minting
+        // a duplicate; a new amount is a new operation.
+        {
+          idempotencyKey: stripeIdempotencyKey(
+            'pricing-price-create',
+            product.productId,
+            desired.get(item.id),
+            item.interval || 'one_time'
+          ),
+        }
+      );
     } catch (e) {
       throw stripeFailure(item, e);
     }
@@ -406,7 +426,12 @@ async function updatePricing(amounts) {
     const newId = minted.get(item.id).newPriceId;
     if (oldId && oldId !== newId) {
       try {
-        await stripe.prices.update(oldId, { active: false });
+        await stripe.prices.update(
+          oldId,
+          { active: false },
+          // Batch 154: keyed by price + the deactivation itself.
+          { idempotencyKey: stripeIdempotencyKey('pricing-price-deactivate', oldId) }
+        );
       } catch (e) {
         warnings.push(
           `${displayName(item)}: new price saved, but the old price ${oldId} could not be deactivated (${e.message}). It stays active in Stripe but checkout no longer uses it; deactivate it in the Stripe dashboard if you want it retired.`

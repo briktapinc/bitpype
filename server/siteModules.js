@@ -16,6 +16,9 @@
 
 const crypto = require('crypto');
 const QRCode = require('qrcode');
+// Batch 154 (§9): deterministic Stripe idempotency keys on this
+// module's mutating Stripe calls (server/stripeIdempotency.js).
+const { stripeIdempotencyKey } = require('./stripeIdempotency');
 
 const MODULE_TYPES = [
   'blog',
@@ -4849,7 +4852,13 @@ async function attemptLatePaidBookingRefund(db, orderId) {
   const fresh = db.prepare('SELECT * FROM ecommerce_orders WHERE id = ?').get(Number(orderId));
   const pi = String((fresh && fresh.stripe_payment_intent) || '');
   if (!stripe || !pi || !stripe.refunds || typeof stripe.refunds.create !== 'function') return;
-  await stripe.refunds.create({ payment_intent: pi });
+  // Batch 154: the auto-refund is keyed by the ORDER — the detached
+  // retry (or a webhook redelivery re-flagging the order) replays
+  // the original refund instead of refunding the payment twice.
+  await stripe.refunds.create(
+    { payment_intent: pi },
+    { idempotencyKey: stripeIdempotencyKey('refund-late-paid-booking', Number(orderId), pi) }
+  );
   const cur = db.prepare('SELECT status FROM ecommerce_orders WHERE id = ?').get(Number(orderId));
   if (cur && cur.status === 'paid_unfulfilled') {
     updateShopOrder(db, Number(orderId), { status: 'refunded' });
@@ -5169,7 +5178,15 @@ async function checkoutShopLines(db, embedRow, lines, currency, returnUrl, opts 
       },
       success_url: `${base}${sep}order=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${base}${sep}order=cancelled`,
-    });
+    },
+      // Batch 154: keyed by the ORDER row created before the
+      // session — every selling surface funnels through this one
+      // core, so a retried checkout for the same order replays the
+      // original session instead of orphaning a duplicate.
+      {
+        idempotencyKey: stripeIdempotencyKey('checkout-shop', Number(order.id), Number(embedRow.lead_id)),
+      }
+    );
   } catch (e) {
     updateShopOrder(db, order.id, { status: 'failed' });
     const err = new Error(e && e.message ? `Stripe checkout failed: ${e.message}` : 'Stripe checkout failed');
@@ -12829,16 +12846,24 @@ async function createMembershipCheckoutByToken(db, token, { tierId, returnUrl } 
   };
   let session;
   try {
-    session = await stripe.checkout.sessions.create({
-      mode: 'subscription',
-      line_items: [{ quantity: 1, price: priceId }],
-      client_reference_id: String(member.id),
-      customer_email: member.email,
-      metadata,
-      subscription_data: { metadata },
-      success_url: `${base}${sep}membership=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${base}${sep}membership=cancelled`,
-    });
+    session = await stripe.checkout.sessions.create(
+      {
+        mode: 'subscription',
+        line_items: [{ quantity: 1, price: priceId }],
+        client_reference_id: String(member.id),
+        customer_email: member.email,
+        metadata,
+        subscription_data: { metadata },
+        success_url: `${base}${sep}membership=success&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${base}${sep}membership=cancelled`,
+      },
+      // Batch 154: keyed by lead + member + tier + price — a
+      // retried join replays the original session; a price change
+      // (new price id) is a different operation.
+      {
+        idempotencyKey: stripeIdempotencyKey('checkout-membership', Number(leadId), Number(member.id), Number(tier.id), priceId),
+      }
+    );
   } catch (e) {
     const err = new Error(e && e.message ? `Stripe checkout failed: ${e.message}` : 'Stripe checkout failed');
     err.code = 'MEMBERSHIP_CHECKOUT_FAILED';
