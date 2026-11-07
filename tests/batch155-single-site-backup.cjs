@@ -196,7 +196,7 @@ async function main() {
   // A workspace-owned (non-platform) setting that MUST survive the
   // seed copy — the positive control for the §6 key-drop filter.
   await platformDb.query(
-    `INSERT INTO workspace_settings (workspace_id, key, value) VALUES (:ws, 'custom.client_note', 'keep-me-155')`,
+    `INSERT INTO workspace_settings (workspace_id, \`key\`, \`value\`) VALUES (:ws, 'custom.client_note', 'keep-me-155')`,
     { ws: wsA }
   );
   const dbA = openWorkspaceDb(wsA);
