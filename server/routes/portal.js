@@ -1216,6 +1216,43 @@ router.post('/site/theme', requireClient, editLimit, async (req, res) => {
 });
 
 /**
+ * Batch 155: standalone site backup download. Streams a .tar.gz of
+ * the client's own site as a self-installing clone (the real app in
+ * single-site mode + their baked site + their data — see
+ * ~/website-scout/standalone-site-backup-spec.md). Scoped to the
+ * caller's workspace + lead by construction. Refused inside a
+ * single-site clone (a clone never mints backups of itself).
+ */
+router.post('/site/standalone-backup', requireClient, actionLimit, async (req, res) => {
+  try {
+    if (require('../singleSite').isSingleSite()) {
+      return res.status(404).json({ ok: false, error: 'NOT_FOUND', code: 'NOT_FOUND' });
+    }
+    if (
+      Number(req.session.clientLeadId) !== Number(req.client.lead_id) ||
+      Number(req.session.clientWorkspaceId) !== Number(req.client.workspace_id)
+    ) {
+      return res.status(403).json({ ok: false, error: 'FORBIDDEN', code: 'FORBIDDEN' });
+    }
+    const websiteId = require('../domain').withDb(req.client.workspace_id, (db) => {
+      const row = db
+        .prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id ASC LIMIT 1')
+        .get(req.client.lead_id);
+      return row ? Number(row.id) : null;
+    });
+    if (!websiteId) {
+      return res.status(404).json({ ok: false, error: 'NO_SITE', code: 'NO_SITE' });
+    }
+    await require('../standaloneBackup').sendBackupArchive(res, {
+      workspaceId: req.client.workspace_id,
+      websiteId,
+    });
+  } catch (e) {
+    if (!res.headersSent) fail(res, e, (e && e.status) || 500);
+  }
+});
+
+/**
  * Muse agent chat — describe a site improvement; agent edits via client tools and returns fresh preview HTML.
  * Body: { message: string, pageSlug?: string, attachmentIds?: number[] }
  * Batch 96: conversation history is NOT accepted from the client —

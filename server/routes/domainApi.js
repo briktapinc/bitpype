@@ -1008,6 +1008,21 @@ router.post('/websites/:id/preview', scopeWebsite, async (req, res) => {
     fail(res, e, e.code === 'PREVIEW_NOT_CONFIGURED' ? 400 : 500);
   }
 });
+// Batch 155: staff-side standalone backup download (same archive the
+// portal endpoint serves; the portal is the client-facing surface,
+// this covers staff/support generating one on a client's behalf).
+// Unreachable in single-site mode — the whole catch-all router is
+// unmounted there (server/singleSite.js census).
+router.post('/websites/:id/standalone-backup', scopeWebsite, async (req, res) => {
+  try {
+    await require('../standaloneBackup').sendBackupArchive(res, {
+      workspaceId: req.auth.workspaceId,
+      websiteId: Number(req.params.id),
+    });
+  } catch (e) {
+    if (!res.headersSent) fail(res, e, (e && e.status) || 500);
+  }
+});
 router.get('/websites/:id', scopeWebsite, (req, res) => {
   try {
     ok(res, { site: domain.sitesGet(req.auth.workspaceId, Number(req.params.id)) });
