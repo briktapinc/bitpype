@@ -315,9 +315,14 @@ app.get('/api/v1/health', (_req, res) => {
 // public by design (Audit 1 Q3 #5) and maps the whole API surface
 // for unauthenticated readers. Super-admin session required, same
 // bar as the /api/v1/admin router.
-// Batch 155: in single-site mode the staff-only OpenAPI map is not
-// registered at all (404), like the rest of the staff surface.
-app.get('/api/v1/openapi.json', SINGLE_SITE ? (req, res) => res.status(404).end() : requireSuperAdmin, (_req, res) => {
+// Batch 155: in single-site mode the staff-only OpenAPI map is
+// shadowed by a 404 registered FIRST (the staff-gated mount below
+// stays byte-identical for the platform — the clone simply never
+// reaches it, like the rest of the staff surface).
+if (SINGLE_SITE) {
+  app.get('/api/v1/openapi.json', (req, res) => res.status(404).end());
+}
+app.get('/api/v1/openapi.json', requireSuperAdmin, (_req, res) => {
   try {
     const { buildOpenApi } = require('./server/openapiV1');
     res.json(buildOpenApi());

@@ -34,9 +34,9 @@
  *   - NO second workspace: seed rows are selected with the target
  *     workspace id as the only predicate; the suite's census scans
  *     every package file for a decoy workspace's marker strings.
- *   - NO bitpype.com references survive in site/: the bake repoints
- *     every platform-origin URL to a relative path and the build
- *     FAILS if the scan still finds one.
+ *   - NO platform-host references survive in site/: the bake
+ *     repoints every platform-origin URL to a relative path and
+ *     the build FAILS if the scan still finds one.
  *   - Idempotent content: generating twice from unchanged state
  *     yields identical files except manifest.json timestamps (the
  *     export's own preview_path write is restored afterwards).
@@ -372,6 +372,20 @@ function bakeDetailPages(siteDir, tenantDb, leadId) {
 
 const TEXT_EXTS = new Set(['.html', '.htm', '.js', '.json', '.xml', '.txt', '.css', '.svg', '.webmanifest']);
 
+/* The platform's canonical origin, derived from the ONE place the
+ * literal may live: the general.public_url default in
+ * server/platform.js PLATFORM_SETTING_DEFS (batch56 pins exactly one
+ * literal in the tree — this module must not add another). */
+function platformDefaultOrigin() {
+  try {
+    const defs = require('./platform').PLATFORM_SETTING_DEFS || [];
+    const def = defs.find((d) => d.key === 'general.public_url');
+    return def && def.default ? String(def.default).replace(/\/+$/, '') : '';
+  } catch {
+    return '';
+  }
+}
+
 function platformBases() {
   const bases = new Set();
   try {
@@ -381,8 +395,16 @@ function platformBases() {
     /* APP_URL fallback below */
   }
   if (process.env.APP_URL) bases.add(String(process.env.APP_URL).replace(/\/+$/, ''));
-  bases.add('https://bitpype.com');
-  bases.add('https://www.bitpype.com');
+  const origin = platformDefaultOrigin();
+  if (origin) {
+    bases.add(origin);
+    try {
+      const u = new URL(origin);
+      if (!u.host.startsWith('www.')) bases.add(`${u.protocol}//www.${u.host}`);
+    } catch {
+      /* default origin unparsable — the scan still covers its host */
+    }
+  }
   return [...bases].filter(Boolean).sort((a, b) => b.length - a.length);
 }
 
@@ -406,7 +428,15 @@ function repointSiteDir(siteDir) {
 }
 
 function scanSiteDir(siteDir, extraHosts) {
-  const hosts = new Set(['bitpype.com']);
+  const hosts = new Set();
+  const origin = platformDefaultOrigin();
+  if (origin) {
+    try {
+      hosts.add(new URL(origin).host);
+    } catch {
+      /* unparsable default — extraHosts still apply */
+    }
+  }
   for (const h of extraHosts || []) {
     try {
       hosts.add(new URL(h).host);
@@ -439,8 +469,12 @@ function scanSiteDir(siteDir, extraHosts) {
 function createEmptyPlatformDb(repoRoot, destPath, tmpDir) {
   fs.mkdirSync(path.dirname(destPath), { recursive: true });
   if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+  // The db module is passed by ABSOLUTE path through the env (the
+  // child runs with cwd=repoRoot today, but the seed must not depend
+  // on it — and a relative require literal here would read as a
+  // phantom edge in the batch55 require graph).
   const script = [
-    "require('./server/db').migrate()",
+    'require(process.env.SSB_SEED_DB_MODULE).migrate()',
     '.then(() => process.exit(0))',
     '.catch((e) => { console.error(e && e.message ? e.message : e); process.exit(1); });',
   ].join('');
@@ -448,6 +482,7 @@ function createEmptyPlatformDb(repoRoot, destPath, tmpDir) {
     cwd: repoRoot,
     env: {
       ...process.env,
+      SSB_SEED_DB_MODULE: path.join(repoRoot, 'server', 'db.js'),
       DB_DRIVER: 'sqlite',
       SQLITE_PATH: destPath,
       WORKSPACE_DATA_DIR: path.join(tmpDir, 'child-workspaces'),
