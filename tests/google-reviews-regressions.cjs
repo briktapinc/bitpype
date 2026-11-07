@@ -76,6 +76,10 @@ async function main() {
     // shared canonical helper (same mock-map extension pattern as
     // Batch 145's stripeShapes fix in account-link-regressions).
     '../src/managedScripts': require(path.join(root, 'src/managedScripts.js')),
+    // Batch 154: siteModules' mutating Stripe calls carry deterministic
+    // idempotency keys via the shared helper (same mock-map extension
+    // pattern as the Batch 149 managedScripts entry above).
+    './stripeIdempotency': require(path.join(root, 'server/stripeIdempotency.js')),
   });
   sm.ensureTables(db);
 
