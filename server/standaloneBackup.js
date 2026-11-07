@@ -718,6 +718,18 @@ function featureFlags(tenantDb, leadId) {
 }
 
 function appGitSha(repoRoot) {
+  // Production trees are extracted from payload tars and carry no
+  // .git — the finisher stamps the tree's tip into BUILD_SHA before
+  // the image build, and the app's own env may carry it too. The git
+  // call remains for dev/sandbox trees. Anything else yields ''.
+  const fromEnv = String(process.env.APP_GIT_SHA || '').trim();
+  if (/^[0-9a-f]{7,40}$/i.test(fromEnv)) return fromEnv;
+  try {
+    const fromFile = fs.readFileSync(path.join(repoRoot, 'BUILD_SHA'), 'utf8').trim();
+    if (/^[0-9a-f]{7,40}$/i.test(fromFile)) return fromFile;
+  } catch {
+    /* no stamp — fall through to git */
+  }
   try {
     return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'ignore'] })
       .toString()
