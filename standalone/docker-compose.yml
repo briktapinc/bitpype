@@ -1,0 +1,42 @@
+# BitPype standalone site (Batch 155) — the clone stack.
+# Written to the install dir by install.sh; .env sits beside it.
+# The app is the real BitPype code booted with BITPYPE_SINGLE_SITE=1
+# over all-SQLite storage in ./data; Caddy terminates HTTPS with an
+# automatic Let's Encrypt certificate for SSB_DOMAIN and proxies
+# everything to the app (the app serves the baked site itself).
+services:
+  app:
+    build: ./app
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      BITPYPE_SINGLE_SITE: '1'
+      DB_DRIVER: sqlite
+      SQLITE_PATH: /data/platform.sqlite
+      WORKSPACE_DATA_DIR: /data/workspaces
+      EXPORT_ROOT: /data/exports
+      SINGLE_SITE_SITE_DIR: /site
+      PORT: '3000'
+    volumes:
+      - ./data:/data
+      - ./site:/site:ro
+    ports:
+      - '127.0.0.1:3000:3000'
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      SSB_DOMAIN: ${SSB_DOMAIN}
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+volumes:
+  caddy_data:
+  caddy_config:
