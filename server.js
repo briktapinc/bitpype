@@ -48,6 +48,14 @@ const hostingerDeployLimit = rateLimitFactory({ name: 'hostinger-deploy', window
 // Batch 59: deployment ticker (provisioning/install watchdog).
 const hostingerDeploy = require('./server/hostingerDeploy');
 const portalRoutes = require('./server/routes/portal');
+// Batch 155: single-site mode (standalone site backups — the clone
+// model). The flag is read in ONE place (server/singleSite.js); with
+// it OFF (default) every mount below is exactly as before.
+const singleSite = require('./server/singleSite');
+const SINGLE_SITE = singleSite.isSingleSite();
+if (SINGLE_SITE) {
+  console.log('[single-site] BITPYPE_SINGLE_SITE=1 — staff/admin surface not mounted; single-workspace clone mode');
+}
 const { publicRouter: mcpOAuthPublic, sessionRouter: mcpOAuthSession } = require('./server/routes/mcpOAuth');
 const mcpOAuth = require('./server/mcpOAuth');
 
@@ -120,8 +128,13 @@ app.use(
 );
 
 // Stripe webhooks need the raw body for signature verification — mount before JSON parser.
+// Batch 155: the PLATFORM billing webhook is not mounted on a
+// single-site clone (there is no platform billing there); the site's
+// own shop/membership/payments webhooks below stay mounted.
 const stripeWebhook = require('./server/routes/stripeWebhook');
-app.use('/api/v1/billing/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
+if (!SINGLE_SITE) {
+  app.use('/api/v1/billing/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
+}
 const shopWebhook = require('./server/routes/shopWebhook');
 app.use('/api/v1/shop/webhook', express.raw({ type: 'application/json' }), shopWebhook);
 const membershipWebhook = require('./server/routes/membershipWebhook');
@@ -239,9 +252,12 @@ app.locals.legacySessionNames = LEGACY_SESSION_NAMES;
 app.use('/api/v1/portal', portalSession, portalRoutes);
 
 // MCP OAuth consent uses the portal cookie (Claude → /authorize → client login).
-app.use(['/authorize', '/oauth'], portalSession);
-app.use(mcpOAuthPublic);
-app.use(mcpOAuthSession);
+// Batch 155: MCP OAuth is a staff/agent surface — absent on a clone.
+if (!SINGLE_SITE) {
+  app.use(['/authorize', '/oauth'], portalSession);
+  app.use(mcpOAuthPublic);
+  app.use(mcpOAuthSession);
+}
 
 // Staff session for the rest of the app (skip portal — already handled above).
 app.use((req, res, next) => {
@@ -299,7 +315,9 @@ app.get('/api/v1/health', (_req, res) => {
 // public by design (Audit 1 Q3 #5) and maps the whole API surface
 // for unauthenticated readers. Super-admin session required, same
 // bar as the /api/v1/admin router.
-app.get('/api/v1/openapi.json', requireSuperAdmin, (_req, res) => {
+// Batch 155: in single-site mode the staff-only OpenAPI map is not
+// registered at all (404), like the rest of the staff surface.
+app.get('/api/v1/openapi.json', SINGLE_SITE ? (req, res) => res.status(404).end() : requireSuperAdmin, (_req, res) => {
   try {
     const { buildOpenApi } = require('./server/openapiV1');
     res.json(buildOpenApi());
@@ -322,16 +340,25 @@ app.get('/api/v1/captcha/config', async (_req, res) => {
   }
 });
 
-app.use('/api/v1/auth', authRoutes);
-app.use('/api/v1/admin', adminRoutes);
-// Billing stays reachable without a paid plan (checkout / portal / delete).
-app.use('/api/v1/billing', billingRoutes);
-app.use('/api/v1/invites', inviteRoutes);
-// Google Business Profile manager (Batch 46): the router carries its
-// own OAuth callback (state-signed, pre-session) + staff-session stack.
-app.use('/api/v1/gbp', require('./server/routes/gbp'));
+// Batch 155: staff sign-in/registration, the admin surface, platform
+// billing, invites and the GBP manager are NOT mounted in single-site
+// mode — a clone has no staff and charges nobody for BitPype itself.
+if (!SINGLE_SITE) {
+  app.use('/api/v1/auth', authRoutes);
+  app.use('/api/v1/admin', adminRoutes);
+  // Billing stays reachable without a paid plan (checkout / portal / delete).
+  app.use('/api/v1/billing', billingRoutes);
+  app.use('/api/v1/invites', inviteRoutes);
+  // Google Business Profile manager (Batch 46): the router carries its
+  // own OAuth callback (state-signed, pre-session) + staff-session stack.
+  app.use('/api/v1/gbp', require('./server/routes/gbp'));
+}
 // Meta OAuth callback + client weekly approval (no session).
-app.use('/api/v1/social', socialPublicRoutes);
+// Batch 155: staff-driven social connection is platform-bound — not
+// mounted on a clone (stored feed data still renders via modules).
+if (!SINGLE_SITE) {
+  app.use('/api/v1/social', socialPublicRoutes);
+}
 app.use('/api/v1/site-analytics/public', require('./server/routes/siteAnalyticsPublic'));
 // Call Tracking (Batch 21): Twilio webhooks are public; the recording
 // playback proxy accepts the portal cookie OR the staff session, so for
@@ -352,7 +379,11 @@ app.use(
   callsRoutes
 );
 // Design client change-request / Q&A form (no session).
-app.use('/api/v1/design/public', designPublicRoutes);
+// Batch 155: feeds the staff design queue — absent on a clone (the
+// portal's own /changes surface stays, it is part of portalRoutes).
+if (!SINGLE_SITE) {
+  app.use('/api/v1/design/public', designPublicRoutes);
+}
 // Public contact form schema + submit (Turnstile).
 // Customer sites load form-embed.js cross-origin from CF Pages / custom domains.
 app.use(
@@ -402,43 +433,51 @@ app.use(
   },
   chatbotPublicRoutes
 );
+app.use('/api/v1/newsletter', newsletterPublicRoutes);
 // Public outreach interest / not-interested / claim APIs (HMAC token, no session).
 // CORS so Cloudflare Pages previews can call claim meta from claim-preview.js.
-app.use(
-  '/api/v1/outreach/public',
-  (req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    if (req.method === 'OPTIONS') return res.sendStatus(204);
-    return next();
-  },
-  outreachPublicRoutes
-);
-// Facebook-ad website promo lead form (Turnstile + lead create).
-app.use('/api/v1/website-promo', websitePromoRoutes);
-// Batch 58: /landing software-interest form (Turnstile + lead create in ws1).
-app.use('/api/v1/landing', landingRoutes);
-// Batch 79: /creator Solo application form (Turnstile + lead create in ws1).
-app.use('/api/v1/creator', creatorRoutes);
-// Batch 80: /partner application form (Turnstile + lead create in ws1)
-// and the signed-in partner's earnings/approvals API.
-app.use('/api/v1/partner', partnerRoutes);
-app.use('/api/v1/partners', partnersRoutes);
-// Batch 71: public unsubscribe link for the Admin mailing list
-// (HMAC token, no session — flips one subscriber, nothing else exposed).
-app.use('/api/v1/mailing-list', mailingListPublicRoutes);
-app.use('/api/v1/newsletter', newsletterPublicRoutes);
-// Batch 59: Hostinger one-click deploy — a customer VM's install
-// script phones home here and downloads its source bundle here
-// (per-deployment token auth inside the router; no session/workspace).
-app.use('/api/v1/hostinger-deploy', hostingerDeployLimit, hostingerCallbackRoutes);
-// Client portal routes are mounted earlier with portalSession (separate cookie).
-// Resolve workspace first, then paywall (workspace owner plan covers members).
-app.use('/api/v1/jobs', requireWorkspace, blockSuspendedWrites, requireSubscription, jobsRoutes);
-app.use('/api/v1/mcp', requireWorkspace, blockSuspendedWrites, requireSubscription, mcpAdminRoutes);
-app.use('/api/v1', requireWorkspace, blockSuspendedWrites, requireSubscription, domainApi);
+// Batch 155: staff outreach, the BitPype marketing lead forms
+// (website-promo / landing / creator), the partner program, the Admin
+// mailing list, the Solo deployer callbacks, the design-jobs API, the
+// MCP admin API and the whole staff REST API are platform surfaces —
+// none of them are mounted on a single-site clone. The client
+// newsletter unsubscribe above stays (it is the site's own list).
+if (!SINGLE_SITE) {
+  app.use(
+    '/api/v1/outreach/public',
+    (req, res, next) => {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      if (req.method === 'OPTIONS') return res.sendStatus(204);
+      return next();
+    },
+    outreachPublicRoutes
+  );
+  // Facebook-ad website promo lead form (Turnstile + lead create).
+  app.use('/api/v1/website-promo', websitePromoRoutes);
+  // Batch 58: /landing software-interest form (Turnstile + lead create in ws1).
+  app.use('/api/v1/landing', landingRoutes);
+  // Batch 79: /creator Solo application form (Turnstile + lead create in ws1).
+  app.use('/api/v1/creator', creatorRoutes);
+  // Batch 80: /partner application form (Turnstile + lead create in ws1)
+  // and the signed-in partner's earnings/approvals API.
+  app.use('/api/v1/partner', partnerRoutes);
+  app.use('/api/v1/partners', partnersRoutes);
+  // Batch 71: public unsubscribe link for the Admin mailing list
+  // (HMAC token, no session — flips one subscriber, nothing else exposed).
+  app.use('/api/v1/mailing-list', mailingListPublicRoutes);
+  // Batch 59: Hostinger one-click deploy — a customer VM's install
+  // script phones home here and downloads its source bundle here
+  // (per-deployment token auth inside the router; no session/workspace).
+  app.use('/api/v1/hostinger-deploy', hostingerDeployLimit, hostingerCallbackRoutes);
+  // Client portal routes are mounted earlier with portalSession (separate cookie).
+  // Resolve workspace first, then paywall (workspace owner plan covers members).
+  app.use('/api/v1/jobs', requireWorkspace, blockSuspendedWrites, requireSubscription, jobsRoutes);
+  app.use('/api/v1/mcp', requireWorkspace, blockSuspendedWrites, requireSubscription, mcpAdminRoutes);
+  app.use('/api/v1', requireWorkspace, blockSuspendedWrites, requireSubscription, domainApi);
+}
 
 async function mcpHandler(req, res) {
   try {
@@ -636,10 +675,14 @@ async function mcpHandler(req, res) {
   }
 }
 
-app.post('/mcp', mcpHandler);
-app.get('/mcp', mcpHandler);
-app.post('/ws', mcpHandler);
-app.get('/ws', mcpHandler);
+// Batch 155: the workspace-token MCP endpoint is a staff/agent
+// surface — not mounted on a single-site clone.
+if (!SINGLE_SITE) {
+  app.post('/mcp', mcpHandler);
+  app.get('/mcp', mcpHandler);
+  app.post('/ws', mcpHandler);
+  app.get('/ws', mcpHandler);
+}
 
 // Batch 87 — Admin-configured brand logos: when a custom logo is set
 // in Admin → Settings → Branding, the canonical brand URLs serve the
@@ -904,9 +947,18 @@ async function sendThankYouPage(res) {
   }
 }
 
+// Batch 155: on a single-site clone the staff SPA, the legal pages
+// and every BitPype marketing page answer 404 (see
+// server/singleSite.js DISABLED_PAGES); the root itself belongs to
+// the baked site (static mount further down).
+if (SINGLE_SITE) {
+  app.use(singleSite.disabledPageGate);
+}
+
 // Marketing home at `/`. Staff SPA lives at `/app` so public visitors never hit the desk UI.
 // Logged-in staff hitting `/` are sent to `/app` so existing bookmarks keep working.
-app.get('/', (req, res) => {
+app.get('/', (req, res, next) => {
+  if (SINGLE_SITE) return next();
   if (req.session && req.session.userId) {
     return res.redirect(302, '/app');
   }
@@ -1085,7 +1137,19 @@ app.use(
 );
 
 // Do not auto-serve public/index.html for `/` (that is the staff app).
-app.use(express.static(path.join(__dirname, 'public'), { index: false }));
+// Batch 155: in single-site mode the public/ dir is served through
+// the singleSite allowlist (portal shell + its scripts + embed
+// assets only) — the staff SPA's files are never handed out.
+const publicStatic = express.static(path.join(__dirname, 'public'), { index: false });
+if (SINGLE_SITE) {
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    if (!singleSite.isPublicAssetAllowed(req.path)) return next();
+    return publicStatic(req, res, next);
+  });
+} else {
+  app.use(publicStatic);
+}
 
 // Public static previews (APP_URL fallback when Cloudflare is unavailable).
 // Prefer CF Pages for public traffic; local path uses EXPORT_ROOT / openPreview.exportRoot().
@@ -1138,6 +1202,21 @@ app.use(express.static(path.join(__dirname, 'public'), { index: false }));
   });
 }
 
+// Batch 155: a single-site clone serves its baked site at the root
+// (SINGLE_SITE_SITE_DIR, set by the installer to the package's site/
+// folder). Mounted after every API + portal mount so /api, /portal
+// and /site-previews keep their meanings; anything the baked site
+// does not contain falls through to a plain 404.
+if (SINGLE_SITE) {
+  const bakedSiteDir = singleSite.siteDir();
+  if (bakedSiteDir) {
+    app.use(
+      express.static(bakedSiteDir, { index: ['index.html'], fallthrough: true, redirect: true, extensions: ['html'] })
+    );
+    console.log('[single-site] serving baked site from', bakedSiteDir);
+  }
+}
+
 app.get('*', (req, res, next) => {
   if (
     req.path.startsWith('/api') ||
@@ -1160,7 +1239,10 @@ app.get('*', (req, res, next) => {
     return next();
   }
   // Unknown browser paths → marketing home (APIs already handled above).
+  // Batch 155: a clone never falls back to the BitPype marketing home —
+  // unknown paths are honest 404s.
   if (req.accepts('html')) {
+    if (SINGLE_SITE) return next();
     return sendTemplatedPage(res, 'home.html');
   }
   return next();
@@ -1195,6 +1277,15 @@ async function main() {
 
   const platform = require('./server/platform');
   await platform.seedPlatformDefaults();
+  // Batch 155: single-site config collapse (owner keys from the
+  // installer's .env applied over the seeded defaults; also flips
+  // CAPTCHA_OPTIONAL for this process when no Turnstile keys exist —
+  // must run before captcha.assertProductionReady below).
+  if (SINGLE_SITE) {
+    await singleSite.applyBootDefaults().catch((e) => {
+      console.warn('[single-site] config collapse failed:', e.message);
+    });
+  }
   // Encrypt any platform secrets still stored as plaintext (audit M6 port).
   const mig = await platform.migratePlatformSecrets().catch(() => ({ migrated: 0 }));
   if (mig.migrated) console.log(`[platform] encrypted ${mig.migrated} plaintext secret(s) at rest`);
@@ -1230,7 +1321,8 @@ async function main() {
     60 * 60 * 1000
   );
 
-  if (process.env.BOOTSTRAP_EMAIL && process.env.BOOTSTRAP_PASSWORD) {
+  // Batch 155: no staff accounts are ever bootstrapped on a clone.
+  if (!SINGLE_SITE && process.env.BOOTSTRAP_EMAIL && process.env.BOOTSTRAP_PASSWORD) {
     const { findUserByEmail, createUserWithWorkspace } = require('./server/workspace');
     const admin = require('./server/admin');
     const existing = await findUserByEmail(process.env.BOOTSTRAP_EMAIL);
@@ -1253,42 +1345,50 @@ async function main() {
     }
   }
 
-  startScheduler({ intervalMs: Number(process.env.JOB_TICK_MS || 30000) });
-  // Batch 59: resume/watch Hostinger deployments left mid-flight.
-  try {
-    hostingerDeploy.startDeploymentTicker();
-  } catch (e) {
-    console.warn('[hostingerDeploy] ticker not started:', e.message);
-  }
-  // Batch 60: hourly domain-renewal reconcile (idempotent, PATCHes
-  // the registrar only on drift; first pass a few minutes after boot).
-  try {
-    require('./server/domainRenewals').startRenewalTicker();
-  } catch (e) {
-    console.warn('[domainRenewals] ticker not started:', e.message);
-  }
-  // Batch 63: hourly lifecycle comms sweep (pre-renewal reminders,
-  // domain lapse/flip notices, cancel reminders, rental statements —
-  // every send deduped in lifecycle_comms_sends).
-  try {
-    require('./server/lifecycleComms').startLifecycleTicker();
-  } catch (e) {
-    console.warn('[lifecycleComms] ticker not started:', e.message);
-  }
-  // Batch 76: Missed-Call Rescue sweep — 60s cadence drives the
-  // ~1-minute text-back SLA, voice-escalation windows, quiet-hours
-  // deferrals and the estimate follow-up sequence.
-  try {
-    require('./server/callRescue').startRescueTicker();
-  } catch (e) {
-    console.warn('[callRescue] ticker not started:', e.message);
-  }
-  try {
-    require('./server/imapPoller').startImapPoller({
-      intervalMs: Number(process.env.IMAP_POLL_MS || 120000),
-    });
-  } catch (e) {
-    console.warn('[imapPoller] not started:', e.message);
+  // Batch 155: a single-site clone runs NO background platform
+  // machinery — no job scheduler (the design queue / hands-off
+  // pipeline has no staff to serve), no deployer/domain/lifecycle/
+  // call-rescue tickers, no platform inbox poller.
+  if (SINGLE_SITE) {
+    console.log('[single-site] scheduler + platform tickers disabled');
+  } else {
+    startScheduler({ intervalMs: Number(process.env.JOB_TICK_MS || 30000) });
+    // Batch 59: resume/watch Hostinger deployments left mid-flight.
+    try {
+      hostingerDeploy.startDeploymentTicker();
+    } catch (e) {
+      console.warn('[hostingerDeploy] ticker not started:', e.message);
+    }
+    // Batch 60: hourly domain-renewal reconcile (idempotent, PATCHes
+    // the registrar only on drift; first pass a few minutes after boot).
+    try {
+      require('./server/domainRenewals').startRenewalTicker();
+    } catch (e) {
+      console.warn('[domainRenewals] ticker not started:', e.message);
+    }
+    // Batch 63: hourly lifecycle comms sweep (pre-renewal reminders,
+    // domain lapse/flip notices, cancel reminders, rental statements —
+    // every send deduped in lifecycle_comms_sends).
+    try {
+      require('./server/lifecycleComms').startLifecycleTicker();
+    } catch (e) {
+      console.warn('[lifecycleComms] ticker not started:', e.message);
+    }
+    // Batch 76: Missed-Call Rescue sweep — 60s cadence drives the
+    // ~1-minute text-back SLA, voice-escalation windows, quiet-hours
+    // deferrals and the estimate follow-up sequence.
+    try {
+      require('./server/callRescue').startRescueTicker();
+    } catch (e) {
+      console.warn('[callRescue] ticker not started:', e.message);
+    }
+    try {
+      require('./server/imapPoller').startImapPoller({
+        intervalMs: Number(process.env.IMAP_POLL_MS || 120000),
+      });
+    } catch (e) {
+      console.warn('[imapPoller] not started:', e.message);
+    }
   }
   app.listen(PORT, () => {
     console.log(`[website-scout-web] listening on :${PORT}`);

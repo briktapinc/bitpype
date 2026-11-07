@@ -44,6 +44,10 @@ COPY sql ./sql
 COPY public ./public
 COPY scripts ./scripts
 COPY integrations ./integrations
+# Batch 155: the standalone-backup installer's assets (install.sh,
+# uninstall.sh, compose, Caddyfile) — server/standaloneBackup.js
+# copies them into every generated package.
+COPY standalone ./standalone
 
 ENV NODE_ENV=production
 ENV DB_DRIVER=mysql
