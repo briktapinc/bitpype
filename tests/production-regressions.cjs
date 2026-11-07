@@ -11,6 +11,7 @@ const contacts = require(path.join(root, 'server/portalContacts.js'));
 const portalTabs = require(path.join(root, 'server/portalTabs.js'));
 const apiErrors = require(path.join(root, 'server/apiErrors.js')); // Batch 54: route files require it; VM mocks hand them the real module
 const managedScripts = require(path.join(root, 'src/managedScripts.js')); // Batch 149: the managed-script ensures in siteModules/chatbot/contactForms delegate to this shared leaf; VM loads get the real module (same pattern as apiErrors)
+const stripeIdempotency = require(path.join(root, 'server/stripeIdempotency.js')); // Batch 154: the deterministic Stripe idempotency helper is a dependency-free leaf (node:crypto only); VM loads get the real module (same pattern as apiErrors/managedScripts)
 const results = [];
 function check(name, fn) { fn(); results.push(name); }
 // Batch 76: the missed-call rescue engine is required (lazily) by
@@ -30,6 +31,19 @@ const portalPasswordStub = {
   requestForUser: async () => ({ ok: true }),
   requestByEmail: async () => ({ ok: true }),
   confirmPasswordSet: async () => ({ ok: true }),
+};
+// Batch 154: routes/auth.js + portalAccounts.js require the per-account
+// login-lockout engine (DB-backed); VM loads get an inert stub — the
+// engine itself is pinned against a real migrated DB by the batch154
+// regression file (Parts 5-7).
+const loginLockoutStub = {
+  SURFACES: { staff: 'users', portal: 'client_portal_users' },
+  MAX_FAILED_ATTEMPTS: 10,
+  LOCK_MS: 15 * 60 * 1000,
+  getState: async () => ({ locked: false, lockedUntil: null }),
+  isLocked: async () => false,
+  recordFailure: async () => ({ locked: false, justLocked: false }),
+  recordSuccess: async () => {},
 };
 // Batch 111: clientPortal.js / museAgent.js are facades over split
 // modules; VM loads resolve those siblings through the same loader +
@@ -70,6 +84,8 @@ function load(file, mocks) {
         // dependency-free leaf, so VM loads get the real module.
         if (name === '../apiErrors') return apiErrors;
         if (name === '../src/managedScripts') return managedScripts; // Batch 149 (see above)
+        if (name === './stripeIdempotency' || name === '../stripeIdempotency') return stripeIdempotency; // Batch 154 (see above)
+        if (name === './loginLockout' || name === '../loginLockout') return loginLockoutStub; // Batch 154 (see above)
         if (name === '../callRescue' || name === './callRescue') return callRescueStub;
         if (!name.startsWith('.')) return require(name);
         if (SPLIT_MODULES.has(path.basename(name))) return inner('server/' + path.basename(name) + '.js');

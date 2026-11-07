@@ -610,6 +610,10 @@ const claims = () => platformDb.prepare('SELECT ref_key, kind FROM lifecycle_com
       // Batch 145 (F17): billing gained the shared invoice-shape
       // helper — a pure module, loaded for real like ./plans.
       './stripeShapes': require(path.join(ROOT, 'server/stripeShapes.js')),
+      // Batch 154: billing's mutating Stripe calls carry deterministic
+      // idempotency keys via the shared helper — also a pure module,
+      // loaded for real like ./plans.
+      './stripeIdempotency': require(path.join(ROOT, 'server/stripeIdempotency.js')),
       './stripeClient': stripeClientStub,
       './credits': {},
       './appUrls': { staffUrl: (p) => 'https://bitpype.com' + (p || '') },
