@@ -151,6 +151,7 @@ const checks = [
   'batch140-industry-default-questions-regressions',
   'batch153-design-types-regressions',
   'batch151-knowledge-sources-regressions',
+  'batch155-single-site-backup',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');
