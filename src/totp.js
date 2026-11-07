@@ -149,10 +149,32 @@ function otpauthUrl(secretBase32, account, issuer = ISSUER) {
 }
 
 // ------------------------------------------------------------------
-// Recovery codes: 8 hex chars displayed XXXX-XXXX. Only the SHA-256
-// of the normalized code is ever stored (same one-way treatment as
-// workspace tokens in server/workspace.js hashToken).
+// Recovery codes: 16 hex chars (64-bit) displayed
+// XXXX-XXXX-XXXX-XXXX. Only the SHA-256 of the normalized code is
+// ever stored (same one-way treatment as workspace tokens in
+// server/workspace.js hashToken).
+//
+// Batch 154 (§9 — recovery-code entropy): codes were 8 hex chars
+// (crypto.randomBytes(4), ~32-bit) — too weak to leave on an
+// account's only fallback. New codes carry 64 bits each
+// (randomBytes(8)); the count (10) and the dash-grouped display
+// family are unchanged, so the codes stay human-typeable.
+//
+// MIGRATION: previously issued 8-hex codes STAY VALID until used
+// or regenerated — their hashes are indistinguishable from new
+// ones in storage, so hashRecoveryCode accepts both normalized
+// lengths (8 = legacy, 16 = current). Invalidating the legacy
+// codes outright would strand any account whose only fallback is
+// a written-down old code (its recovery path is a staff/admin
+// reset, and the super-admin has no admin above him), so the
+// legacy codes are grandfathered and every re-enrollment /
+// regeneration from this batch on issues only 64-bit codes. The
+// admin MFA reset (server/mfa.js clearMfa) still clears the
+// hashes wholesale when used.
 // ------------------------------------------------------------------
+
+const RECOVERY_CODE_HEX_LENGTH = 16;
+const LEGACY_RECOVERY_CODE_HEX_LENGTH = 8;
 
 function normalizeRecoveryCode(raw) {
   return String(raw || '')
@@ -163,15 +185,17 @@ function normalizeRecoveryCode(raw) {
 function generateRecoveryCodes(count = RECOVERY_CODE_COUNT) {
   const codes = [];
   for (let i = 0; i < count; i++) {
-    const hex = crypto.randomBytes(4).toString('hex').toUpperCase();
-    codes.push(`${hex.slice(0, 4)}-${hex.slice(4)}`);
+    const hex = crypto.randomBytes(8).toString('hex').toUpperCase();
+    codes.push(`${hex.slice(0, 4)}-${hex.slice(4, 8)}-${hex.slice(8, 12)}-${hex.slice(12)}`);
   }
   return codes;
 }
 
 function hashRecoveryCode(raw) {
   const normalized = normalizeRecoveryCode(raw);
-  if (normalized.length !== 8) return null;
+  if (normalized.length !== RECOVERY_CODE_HEX_LENGTH && normalized.length !== LEGACY_RECOVERY_CODE_HEX_LENGTH) {
+    return null;
+  }
   return crypto.createHash('sha256').update(normalized).digest('hex');
 }
 
@@ -180,6 +204,8 @@ module.exports = {
   DIGITS,
   ISSUER,
   RECOVERY_CODE_COUNT,
+  RECOVERY_CODE_HEX_LENGTH,
+  LEGACY_RECOVERY_CODE_HEX_LENGTH,
   base32Encode,
   base32Decode,
   generateSecret,

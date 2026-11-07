@@ -413,11 +413,31 @@ const DUMMY_PORTAL_HASH = bcrypt.hashSync('timing-pad-not-a-real-password', 12);
 async function login(email, password) {
   const e = normalizeEmail(email);
   const user = await findByEmail(e);
+  // Batch 154 (§9): per-account login lockout — same contract as
+  // the staff surface (server/routes/auth.js). The lock is checked
+  // before verification can complete the flow (a locked account
+  // never reaches the MFA challenge the route parks next), the
+  // compare still runs for timing parity, and the outward error is
+  // the SAME INVALID_CREDENTIALS as any bad password — the lock is
+  // visible only server-side (login_locked_until + SEC-21 events,
+  // which the portal route records from the thrown code).
+  const loginLockout = require('./loginLockout');
+  const lockState = user ? await loginLockout.getState('portal', user.id) : { locked: false };
   const hash = user && String(user.status) === 'active' ? user.password_hash : DUMMY_PORTAL_HASH;
   const ok = await bcrypt.compare(String(password || ''), hash);
-  if (!user || String(user.status) !== 'active' || !ok) {
-    throw Object.assign(new Error('INVALID_CREDENTIALS'), { code: 'INVALID_CREDENTIALS' });
+  if (!user || String(user.status) !== 'active' || !ok || lockState.locked) {
+    let justLocked = false;
+    if (user && !lockState.locked) {
+      justLocked = (await loginLockout.recordFailure('portal', user.id)).justLocked;
+    }
+    const err = Object.assign(new Error('INVALID_CREDENTIALS'), { code: 'INVALID_CREDENTIALS' });
+    // Server-side-only markers for the route's SEC-21 event; the
+    // client response is built from `code` alone and never sees them.
+    if (lockState.locked) err.detail = 'login_locked';
+    if (justLocked) err.justLocked = true;
+    throw err;
   }
+  await loginLockout.recordSuccess('portal', user.id);
   if (!user.workspace_id || !user.lead_id) {
     throw Object.assign(new Error('Portal account is not linked to a site yet'), {
       code: 'NOT_LINKED',

@@ -8,6 +8,7 @@ const { requireAuth } = require('../middleware');
 const { rateLimit } = require('../rateLimit');
 const { requireCaptcha } = require('../captcha');
 const mfa = require('../mfa');
+const loginLockout = require('../loginLockout');
 const apiErrors = require('../apiErrors');
 
 const router = express.Router();
@@ -260,19 +261,36 @@ router.post('/login', authLimit, captcha, async (req, res, next) => {
     const maintenance = await platform.getPlatformSetting('maintenance_mode', '0');
     const { email, password } = req.body || {};
     const user = await findUserByEmail(email);
+    // Batch 154 (§9): per-account login lockout. The lock is checked
+    // BEFORE password verification can complete the flow — a locked
+    // account gets no MFA challenge — but the outward response is
+    // the SAME generic 401 as a wrong password (and the compare
+    // below still runs, so timing doesn't leak the state either).
+    // The lock itself is visible only in the SEC-21 auth events.
+    const lockState = user ? await loginLockout.getState('staff', user.id) : { locked: false };
     const hash = user ? user.password_hash : DUMMY_PASSWORD_HASH;
     const ok = await bcrypt.compare(String(password || ''), hash);
-    if (!user || !ok) {
+    if (!user || !ok || lockState.locked) {
+      // Batch 154: a real account's failure feeds the lockout
+      // counter (a no-op while already locked, so locks never
+      // extend); the threshold failure raises the lockout event.
+      let justLocked = false;
+      if (user && !lockState.locked) {
+        justLocked = (await loginLockout.recordFailure('staff', user.id)).justLocked;
+      }
       // Batch 103 (SEC-21): failed staff logins leave an auth event.
       await recordAuthEventSafe({
         surface: 'staff',
-        event: 'login_failure',
+        event: justLocked ? 'login_lockout' : 'login_failure',
         email: email || null,
         userId: user ? user.id : null,
         ip: req.ip,
+        detail: lockState.locked ? 'login_locked' : undefined,
       });
       return res.status(401).json({ ok: false, error: 'INVALID_CREDENTIALS' });
     }
+    // Batch 154: a successful credential verify resets the counter.
+    await loginLockout.recordSuccess('staff', user.id);
     if (String(user.status || 'active') === 'disabled' || user.deleted_at) {
       return res.status(403).json({ ok: false, error: 'ACCOUNT_DISABLED' });
     }
@@ -323,6 +341,10 @@ async function finishStaffLogin(req, res, user) {
   delete req.session.mfaChallenge;
   delete req.session.portalMfaChallenge;
   req.session.userId = user.id;
+  // Batch 154 (§9): stamp the issuance time — the staff absolute
+  // session cap (server/middleware.js) measures from here, and
+  // this function is the ONLY place a login sets userId.
+  req.session.authIssuedAt = Date.now();
   req.session.workspaceId = workspaces[0] ? workspaces[0].id : null;
   await saveSession(req);
   // Batch 103 (SEC-21): a completed staff login (password + MFA).

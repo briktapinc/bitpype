@@ -628,6 +628,12 @@ async function migrate() {
       ensureColumnSqlite(db, table, 'totp_locked_until', 'TEXT');
       // Batch 143: highest accepted TOTP step (replay protection).
       ensureColumnSqlite(db, table, 'totp_last_step', 'INTEGER');
+      // Batch 154 (§9): per-account LOGIN lockout state on both login
+      // surfaces — consecutive password failures + lock expiry. Same
+      // shape/discipline as the MFA throttle columns above, but for
+      // the credential-verify path (server/loginLockout.js).
+      ensureColumnSqlite(db, table, 'login_failed_attempts', 'INTEGER NOT NULL DEFAULT 0');
+      ensureColumnSqlite(db, table, 'login_locked_until', 'TEXT');
     }
     // Batch 106: ai_usage.provider attribution (+ one-time backfill
     // on the boot that first adds the column).
@@ -1056,6 +1062,10 @@ async function migrate() {
       await ensureColumnMysql(conn, table, 'totp_locked_until', 'DATETIME NULL');
       // Batch 143: highest accepted TOTP step (replay protection).
       await ensureColumnMysql(conn, table, 'totp_last_step', 'BIGINT NULL');
+      // Batch 154 (§9): per-account LOGIN lockout state (see the
+      // sqlite block above; server/loginLockout.js).
+      await ensureColumnMysql(conn, table, 'login_failed_attempts', 'INT NOT NULL DEFAULT 0');
+      await ensureColumnMysql(conn, table, 'login_locked_until', 'DATETIME NULL');
     }
     await conn.query(`
       CREATE TABLE IF NOT EXISTS upsell_tips (

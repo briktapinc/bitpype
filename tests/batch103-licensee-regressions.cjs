@@ -137,9 +137,17 @@ function group(name, n) {
   assert.equal(mcpEvents.length, 1);
   assert.ok(read('server/routes/admin.js').includes("'/mcp-audit'"), 'Admin audit route exists');
   assert.ok(read('server/routes/admin.js').includes("'/auth-events'"), 'Admin auth-events route exists');
-  assert.ok(read('server/routes/auth.js').includes("event: 'login_failure'"), 'staff login failure hook');
+  // Batch 154 (§9): the failure hook now distinguishes the lockout
+  // engagement ('login_lockout') from an ordinary failure.
+  assert.ok(
+    read('server/routes/auth.js').includes("justLocked ? 'login_lockout' : 'login_failure'"),
+    'staff login failure hook'
+  );
   assert.ok(read('server/routes/auth.js').includes("'mfa_lockout'") && read('server/routes/auth.js').includes("'mfa_failure'"), 'MFA lockout/failure hook');
-  assert.ok(read('server/routes/portal.js').includes("event: 'login_failure'"), 'portal login failure hook');
+  assert.ok(
+    read('server/routes/portal.js').includes("e.justLocked ? 'login_lockout' : 'login_failure'"),
+    'portal login failure hook'
+  );
   assert.ok(read('server.js').includes("event: 'mcp_401'"), 'MCP 401 hook');
   n += 16;
   group('SEC-08/SEC-21 audit + auth events', n);

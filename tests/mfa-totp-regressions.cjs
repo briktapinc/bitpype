@@ -146,10 +146,20 @@ async function main() {
   const generated = totp.generateSecret();
   check('generated secret is 160-bit base32', /^[A-Z2-7]{32}$/.test(generated));
   const rc = totp.generateRecoveryCodes(10);
-  check('10 recovery codes, XXXX-XXXX shape', rc.length === 10 && rc.every((c) => /^[0-9A-F]{4}-[0-9A-F]{4}$/.test(c)));
+  // Batch 154 (§9): recovery codes are 64-bit now — XXXX-XXXX-XXXX-XXXX.
+  check(
+    '10 recovery codes, XXXX-XXXX-XXXX-XXXX shape',
+    rc.length === 10 && rc.every((c) => /^[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/.test(c))
+  );
   check(
     'recovery hash matches sha256 of the normalized code',
-    totp.hashRecoveryCode(rc[0]) === crypto.createHash('sha256').update(rc[0].replace('-', '')).digest('hex')
+    totp.hashRecoveryCode(rc[0]) === crypto.createHash('sha256').update(rc[0].replace(/-/g, '')).digest('hex')
+  );
+  // Batch 154 migration: a legacy 8-hex code still hashes (it stays
+  // valid until used/regenerated); other lengths do not.
+  check(
+    'legacy 8-hex recovery code still hashes; junk lengths do not',
+    typeof totp.hashRecoveryCode('ABCD-1234') === 'string' && totp.hashRecoveryCode('ABCD-1234-EF') === null
   );
 
   // ------------------------------------------------------- wiring
@@ -263,7 +273,7 @@ async function main() {
     check('recovery codes stored as hashes only', storedHashes.length === 10 && storedHashes.every((h) => /^[0-9a-f]{64}$/.test(h)) && !adminRecovery.some((c) => storedHashes.includes(c)));
     check(
       'stored hash equals sha256 of a recovery code',
-      storedHashes.includes(crypto.createHash('sha256').update(adminRecovery[0].replace('-', '')).digest('hex'))
+      storedHashes.includes(crypto.createHash('sha256').update(adminRecovery[0].replace(/-/g, '')).digest('hex'))
     );
     res = await get(adminJar, '/api/v1/auth/me');
     check('staff session works after enrollment', res.status === 200);

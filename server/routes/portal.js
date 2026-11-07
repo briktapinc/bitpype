@@ -252,12 +252,15 @@ router.post('/login', loginLimit, captcha, async (req, res) => {
   } catch (e) {
     // Batch 103 (SEC-21): failed portal logins too (bad credentials,
     // unknown email, disabled account — the thrown code is the detail).
+    // Batch 154 (§9): a lockout engagement is its own event (the
+    // thrown error carries server-side-only markers from
+    // portalAccounts.login; the client response never sees them).
     await recordAuthEventSafe({
       surface: 'portal',
-      event: 'login_failure',
+      event: e && e.justLocked ? 'login_lockout' : 'login_failure',
       email: (req.body || {}).email || null,
       ip: req.ip,
-      detail: (e && (e.code || e.message)) || 'login failed',
+      detail: (e && (e.detail || e.code || e.message)) || 'login failed',
     });
     fail(res, e);
   }

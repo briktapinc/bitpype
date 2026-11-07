@@ -7,10 +7,80 @@ async function loadSessionUser(userId) {
   return billing.getUserBilling(userId);
 }
 
+// ---------------------------------------------------------------------------
+// Batch 154 (§9) — STAFF absolute session lifetime cap.
+//
+// Staff cookie maxAge is 14 days and rolling (server.js): activity
+// alone kept a staff session alive indefinitely, so a stolen staff
+// cookie was a standing credential. A staff session now also dies
+// STAFF_ABSOLUTE_SESSION_MS after it was ISSUED (finishStaffLogin in
+// server/routes/auth.js stamps req.session.authIssuedAt at the one
+// place a login sets userId), however active it has been; the next
+// request gets the plain AUTH_REQUIRED 401 the SPA already treats
+// as signed-out, and the owner signs in again (password + MFA).
+// Sessions minted before this batch carry no stamp and are treated
+// as expired — one forced re-login at deploy, fail-closed rather
+// than grandfathering an unbounded session a fresh lifetime.
+// Portal client sessions are NOT capped here: they keep their
+// existing idle-timeout behaviour (server.js PORTAL_IDLE_MS).
+// Env override follows the PORTAL_IDLE_MS pattern (1h floor).
+const STAFF_ABSOLUTE_SESSION_MS = Math.max(
+  60 * 60 * 1000,
+  Number(process.env.STAFF_ABSOLUTE_SESSION_MS) || 12 * 60 * 60 * 1000
+);
+
+function staffSessionAbsoluteExpired(req) {
+  if (!req.session || !req.session.userId) return false;
+  const issued = Number(req.session.authIssuedAt) || 0;
+  if (!issued) return true;
+  return Date.now() - issued > STAFF_ABSOLUTE_SESSION_MS;
+}
+
+function destroySessionQuiet(req) {
+  try {
+    if (req.session && typeof req.session.destroy === 'function') {
+      req.session.destroy(() => {});
+    }
+  } catch {
+    /* best-effort */
+  }
+  if (req.session) {
+    delete req.session.userId;
+    delete req.session.workspaceId;
+  }
+}
+
+/**
+ * The staff-session absolute-cap check, shared by requireAuth and
+ * requireWorkspace (the two session-validation choke points).
+ * Returns true when the request has been refused (caller stops).
+ */
+function refuseIfStaffSessionExpired(req, res) {
+  if (!staffSessionAbsoluteExpired(req)) return false;
+  // SEC-21: best-effort audit line, mirroring routes/auth.js —
+  // the audit trail must never break authentication.
+  try {
+    require('./securityEvents')
+      .recordAuthEvent({
+        surface: 'staff',
+        event: 'session_absolute_expired',
+        userId: req.session.userId,
+        ip: req.ip,
+      })
+      .catch(() => {});
+  } catch {
+    /* audit is best-effort */
+  }
+  destroySessionQuiet(req);
+  res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+  return true;
+}
+
 function requireAuth(req, res, next) {
   if (!req.session || !req.session.userId) {
     return res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
   }
+  if (refuseIfStaffSessionExpired(req, res)) return;
   loadSessionUser(req.session.userId)
     .then((user) => {
       if (!user || String(user.status || 'active') === 'disabled' || user.deleted_at) {
@@ -44,6 +114,7 @@ async function requireWorkspace(req, res, next) {
     if (!req.session || !req.session.userId) {
       return res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
     }
+    if (refuseIfStaffSessionExpired(req, res)) return;
 
     const user = req.sessionUser || (await loadSessionUser(req.session.userId));
     if (!user || String(user.status || 'active') === 'disabled' || user.deleted_at) {
@@ -296,4 +367,7 @@ module.exports = {
   requireSuperAdmin,
   requireSubscription,
   blockSuspendedWrites,
+  // Batch 154: exported for the regression suite + startup logging.
+  STAFF_ABSOLUTE_SESSION_MS,
+  staffSessionAbsoluteExpired,
 };
