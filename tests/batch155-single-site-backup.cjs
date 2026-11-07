@@ -861,6 +861,11 @@ function portalButtonPins() {
     js.includes("getElementById('backup-bar')") && js.includes('backupBar.hidden = !(can && !state.editFullscreen)') && js.includes('backupBar.hidden = true')
   );
   check('portal route for the download exists', routes.includes("router.post('/site/standalone-backup'"));
+  const dockerfile = fs.readFileSync(path.join(root, 'Dockerfile'), 'utf8');
+  check(
+    'image build carries the BUILD_SHA provenance stamp (selective COPY — the manifest git sha depends on it)',
+    dockerfile.includes('COPY BUILD_SHA* ./')
+  );
 }
 
 (async () => {

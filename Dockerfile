@@ -38,6 +38,11 @@ COPY vendor ./vendor
 RUN npm ci --omit=dev --no-audit --fund=false
 
 COPY server.js ./
+# Batch 155: the finisher stamps the tree's git tip into BUILD_SHA
+# before the image build; the standalone-backup manifest records it
+# as the app provenance. Wildcard so git-less/dev trees without the
+# stamp still build.
+COPY BUILD_SHA* ./
 COPY server ./server
 COPY src ./src
 COPY sql ./sql
