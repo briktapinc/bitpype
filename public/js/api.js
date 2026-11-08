@@ -308,6 +308,70 @@ window.ScoutApi = (() => {
       }
       return { filename, bytes: blob.size };
     },
+    websiteBusinessCard: async (id) => {
+      const headers = {};
+      const ws = getWorkspaceId();
+      if (ws) headers['X-Workspace-Id'] = String(ws);
+      const res = await fetch(V + '/websites/' + id + '/business-card', {
+        method: 'GET',
+        credentials: 'include',
+        headers,
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw responseError(res, data);
+      }
+      const cd = res.headers.get('Content-Disposition') || '';
+      let filename = 'bitpype-businesscard.pdf';
+      const m = /filename="([^"]+)"/i.exec(cd) || /filename=([^;]+)/i.exec(cd);
+      if (m && m[1]) filename = m[1].trim().replace(/^["']|["']$/g, '');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      try {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } finally {
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+      }
+      return { filename, bytes: blob.size };
+    },
+    leadBusinessCard: async (leadId) => {
+      const headers = {};
+      const ws = getWorkspaceId();
+      if (ws) headers['X-Workspace-Id'] = String(ws);
+      const res = await fetch(V + '/leads/' + leadId + '/business-card', {
+        method: 'GET',
+        credentials: 'include',
+        headers,
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw responseError(res, data);
+      }
+      const cd = res.headers.get('Content-Disposition') || '';
+      let filename = 'bitpype-businesscard.pdf';
+      const m = /filename="([^"]+)"/i.exec(cd) || /filename=([^;]+)/i.exec(cd);
+      if (m && m[1]) filename = m[1].trim().replace(/^["']|["']$/g, '');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      try {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } finally {
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+      }
+      return { filename, bytes: blob.size };
+    },
     /** Download materialized site as application/zip (triggers browser save). */
     websiteExportZip: async (id) => {
       const headers = {};

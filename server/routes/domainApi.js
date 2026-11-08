@@ -1150,6 +1150,34 @@ router.get('/websites/:id/postcard', scopeWebsite, async (req, res) => {
     fail(res, e, 500);
   }
 });
+/** Business card PDF (3.5×2, Batch 157) — name, stored address, logo, one site QR. */
+router.get('/websites/:id/business-card', scopeWebsite, async (req, res) => {
+  try {
+    const card = await domain.sitesBusinessCard(req.auth.workspaceId, Number(req.params.id));
+    const safeName = String(card.filename || 'bitpype-businesscard.pdf').replace(/[^\w.\-]+/g, '_');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+    res.setHeader('Content-Length', String(card.pdf.length));
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(200).end(card.pdf);
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+/** Business card PDF by lead (Batch 157) — mirrors the website route. */
+router.get('/leads/:id/business-card', scopeLeadParam, async (req, res) => {
+  try {
+    const card = await domain.leadsBusinessCard(req.auth.workspaceId, Number(req.params.id));
+    const safeName = String(card.filename || 'bitpype-businesscard.pdf').replace(/[^\w.\-]+/g, '_');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+    res.setHeader('Content-Length', String(card.pdf.length));
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(200).end(card.pdf);
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
 router.post('/websites/:id/optimize-images', scopeWebsite, async (req, res) => {
   try {
     ok(res, await domain.sitesOptimizeImages(req.auth.workspaceId, Number(req.params.id), req.body || {}));

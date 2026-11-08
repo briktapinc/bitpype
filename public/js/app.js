@@ -2805,6 +2805,7 @@ async function pageLeadDetail(id, query) {
       ? `<p><a href="#/websites/${site.id}">${esc(site.name)}</a> ${statusBadge(site.status)}</p>
            <div class="inline" style="margin-top:8px">
              <button class="btn small" data-act="postcard">Postcard / QR</button>
+             <button class="btn small" data-act="business-card">Business card</button>
            </div>
            <div id="ld-claim-kit" class="hint" style="margin-top:8px"></div>`
       : isExternalLead
@@ -3034,6 +3035,14 @@ async function pageLeadDetail(id, query) {
         toast('Postcard downloaded', 'ok');
       } catch (e) {
         if (box) box.innerHTML = `<span class="error">${esc(errText(e))}</span>`;
+        toast(errText(e), 'err');
+      }
+    },
+    'business-card': async () => {
+      try {
+        const r = await api.leadBusinessCard(id);
+        toast(`Business card downloaded (${r.filename})`, 'ok');
+      } catch (e) {
         toast(errText(e), 'err');
       }
     },
@@ -3632,6 +3641,7 @@ async function pageWebsiteDetail(id) {
         <button class="btn" data-act="export">Export</button>
         <button class="btn" data-act="download-zip">Download ZIP</button>
         <button class="btn" data-act="postcard">Postcard / QR</button>
+        <button class="btn" data-act="business-card">Business card</button>
         <button class="btn" data-act="url">Preview URL</button>
         <button class="btn" data-act="photos">Add photos</button>
         <button class="btn" data-act="optimize">Optimize images</button>
@@ -4061,6 +4071,16 @@ async function pageWebsiteDetail(id) {
         if (box && !box.querySelector('img')) {
           box.innerHTML = `<span class="error">${esc(errText(e))}</span>`;
         }
+      }
+    },
+    'business-card': async () => {
+      out.textContent = 'Building business card…';
+      try {
+        const r = await api.websiteBusinessCard(id);
+        out.textContent = `Downloaded business card ${r.filename}${r.bytes != null ? ` (${r.bytes} bytes)` : ''}.`;
+        toast('Business card downloaded', 'ok');
+      } catch (e) {
+        out.textContent = `Business card failed: ${errText(e)}`;
       }
     },
     url: async () => {

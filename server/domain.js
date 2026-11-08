@@ -4273,6 +4273,32 @@ async function sitesPostcard(workspaceId, websiteId) {
 }
 
 /** Auth'd claim kit by lead (latest website when present). */
+// Batch 157: business card PDF for a website (claim kit Phase 8) —
+// mirrors sitesPostcard; the card needs only the site's lead.
+async function sitesBusinessCard(workspaceId, websiteId) {
+  const claimKit = require('../src/claimKit');
+  return withDb(workspaceId, async (db) => {
+    websiteEngine().ensureTables(db);
+    const site = siteRow(db, Number(websiteId));
+    const leadId = Number(site.lead_id);
+    if (!Number.isInteger(leadId) || leadId <= 0) {
+      throw Object.assign(new Error('Website has no lead'), { code: 'NO_LEAD' });
+    }
+    return claimKit.buildBusinessCard(db, workspaceId, {
+      leadId,
+      websiteId: Number(websiteId),
+    });
+  });
+}
+
+async function leadsBusinessCard(workspaceId, leadId) {
+  const claimKit = require('../src/claimKit');
+  return withDb(workspaceId, async (db) => {
+    websiteEngine().ensureTables(db);
+    return claimKit.buildBusinessCard(db, workspaceId, { leadId: Number(leadId) });
+  });
+}
+
 async function leadsClaimKit(workspaceId, leadId, opts = {}) {
   const claimKit = require('../src/claimKit');
   return withDb(workspaceId, async (db) => {
@@ -6610,6 +6636,8 @@ module.exports = {
   outreachClaimDecide,
   sitesClaimKit,
   sitesPostcard,
+  sitesBusinessCard,
+  leadsBusinessCard,
   leadsClaimKit,
   emailCompose,
   emailSend,

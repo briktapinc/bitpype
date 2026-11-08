@@ -320,6 +320,239 @@ function buildPostcardPdf({ businessName, pitch, siteUrl, claimUrl, siteQrPng, c
   });
 }
 
+/* ========================================================================
+ * Batch 157 — BUSINESS CARD (claim kit's second print piece; plan
+ * Phase 8). A standard 3.5×2in card: business name, the address exactly
+ * as stored on the lead record (omitted gracefully when absent — never
+ * invented), the site's stored logo image when one exists (a clean
+ * typeset name otherwise — no placeholder graphics), and ONE QR code to
+ * the view-site URL (default D8, the same URL the postcard's VIEW SITE
+ * QR encodes). The regression suite extracts the QR image embedded in
+ * the generated PDF and decodes it with a real decoder (jsQR) — the
+ * branded-sticker lesson: never ship an unverified code.
+ * ====================================================================== */
+
+/** Address lines for the card, from the lead record exactly as stored. */
+function businessCardAddressLines(lead) {
+  if (!lead) return [];
+  const street = String(lead.address || '').trim();
+  const city = String(lead.city || '').trim();
+  const state = String(lead.state || '').trim();
+  const zip = String(lead.postal_code || lead.zip || '').trim();
+  const lines = [];
+  if (street) lines.push(street);
+  const cityLine = [city, [state, zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  if (cityLine) lines.push(cityLine);
+  return lines;
+}
+
+function looksLikePngOrJpeg(buf) {
+  if (!buf || buf.length < 4) return false;
+  const png = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+  const jpeg = buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+  return png || jpeg;
+}
+
+/**
+ * Resolve the site's stored logo to an embeddable PNG/JPEG buffer, or
+ * null. Only local bytes are used: a data: URI from the theme, or the
+ * logo file inside the site's export folder. Remote http(s) logos are
+ * never fetched at print time; non-PNG/JPEG bytes (e.g. SVG) fall back
+ * to the typeset name.
+ */
+function readSiteLogoImage(workspaceId, site, theme) {
+  try {
+    if (!theme || theme.logoMode !== 'image') return null;
+    const logoUrl = String(theme.logoUrl || '').trim();
+    if (!logoUrl) return null;
+    if (logoUrl.startsWith('data:')) {
+      const m = logoUrl.match(/^data:image\/(?:png|jpe?g);base64,(.+)$/i);
+      if (!m) return null;
+      const buf = Buffer.from(m[1], 'base64');
+      return looksLikePngOrJpeg(buf) ? buf : null;
+    }
+    if (/^https?:\/\//i.test(logoUrl)) return null;
+    const rel = logoUrl.replace(/^\/+/, '');
+    if (!rel || rel.includes('..')) return null;
+    const fs = require('fs');
+    const path = require('path');
+    const { exportRoot } = require('./openPreview');
+    const root = exportRoot();
+    if (!root) return null;
+    const folders = [];
+    const pm = String((site && site.preview_path) || '').match(/website-scout-exports\/([^/]+)/i);
+    if (pm) folders.push(pm[1]);
+    const slug = site && site.export_slug ? String(site.export_slug) : '';
+    const nameSlug = slugify(site && site.name);
+    folders.push(`ws-${workspaceId}-site-${site.id}`);
+    if (nameSlug && nameSlug !== 'site') folders.push(`ws-${workspaceId}-site-${site.id}-${nameSlug}`);
+    if (slug) folders.push(slug);
+    for (const folder of folders) {
+      const full = path.resolve(root, folder, rel);
+      if (!full.startsWith(path.resolve(root) + path.sep)) continue;
+      try {
+        const buf = fs.readFileSync(full);
+        if (looksLikePngOrJpeg(buf)) return buf;
+      } catch {
+        /* try the next candidate folder */
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build business card PDF (3.5×2 in). Returns Buffer.
+ */
+function buildBusinessCardPdf({ businessName, addressLines, siteUrl, siteQrPng, logoPng }) {
+  return new Promise((resolve, reject) => {
+    const W = 252; // 3.5in
+    const H = 144; // 2in
+    const doc = new PDFDocument({
+      size: [W, H],
+      margin: 0,
+      info: {
+        Title: `Business card — ${businessName || 'website'}`,
+        Author: 'BitPype',
+      },
+    });
+    const chunks = [];
+    doc.on('data', (c) => chunks.push(c));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    // Soft wash background, postcard family.
+    doc.rect(0, 0, W, H).fill('#fbfdfc');
+    doc.save();
+    doc.path(`M 0 0 L ${W * 0.62} 0 L ${W * 0.42} ${H} L 0 ${H} Z`).fill('#eef4f1');
+    doc.restore();
+
+    const pad = 14;
+    const qrSize = 78;
+    const qrX = W - pad - qrSize;
+    const qrY = Math.round((H - qrSize) / 2) - 6;
+    const textWidth = qrX - pad - 10;
+
+    let y = pad + 2;
+    if (logoPng) {
+      try {
+        doc.image(logoPng, pad, y, { fit: [118, 34] });
+        y += 42;
+      } catch {
+        /* unembeddable bytes — typeset name below carries the card */
+      }
+    }
+    const name = String(businessName || 'Your business').slice(0, 60);
+    doc.fillColor('#1a2420').font('Helvetica-Bold').fontSize(13.5).text(name, pad, y, { width: textWidth, lineGap: 1 });
+    y += 24;
+    doc.fillColor('#3d4a44').font('Helvetica').fontSize(8.5);
+    for (const line of addressLines || []) {
+      doc.text(String(line).slice(0, 90), pad, y, { width: textWidth });
+      y += 12;
+    }
+
+    if (siteQrPng) {
+      doc.image(siteQrPng, qrX, qrY, { width: qrSize, height: qrSize });
+    }
+    doc
+      .fillColor('#5a6b64')
+      .font('Helvetica')
+      .fontSize(5.5)
+      .text(String(siteUrl || '').slice(0, 46), qrX - 6, qrY + qrSize + 3, { width: qrSize + 12, align: 'center' });
+
+    // Footer host label, mirroring the postcard (Batch 56 discipline).
+    let hostLabel = '';
+    try {
+      hostLabel = new URL(appBase()).hostname;
+    } catch {
+      hostLabel = '';
+    }
+    if (hostLabel) {
+      doc.fillColor('#7a8a83').font('Helvetica').fontSize(5.5).text(hostLabel, pad, H - 11, { width: textWidth });
+    }
+
+    doc.end();
+  });
+}
+
+/**
+ * Assemble the business card for a lead (optional websiteId).
+ * Mirrors buildClaimKit's site resolution; unlike the kit, the card
+ * needs only the site URL, never a claim link.
+ */
+async function buildBusinessCard(db, workspaceId, { leadId, websiteId } = {}) {
+  const lid = Number(leadId);
+  if (!Number.isInteger(lid) || lid <= 0) throw new Error('leadId is required');
+  let lead = null;
+  try {
+    lead = db
+      .prepare('SELECT id, business_name, email, status, city, state, address, postal_code, category FROM leads WHERE id = ?')
+      .get(lid);
+  } catch {
+    lead = db.prepare('SELECT id, business_name, email, status, city, category FROM leads WHERE id = ?').get(lid);
+  }
+  if (!lead) throw Object.assign(new Error('Lead not found'), { code: 'NOT_FOUND' });
+
+  // Column sets from richest to base: export_slug exists only on
+  // server-migrated DBs, theme on all of them — never lose the theme
+  // (it carries the logo) just because a newer column is absent.
+  const siteColSets = [
+    'id, lead_id, name, preview_url, preview_path, status, theme, export_slug',
+    'id, lead_id, name, preview_url, preview_path, status, theme',
+    'id, lead_id, name, preview_url, preview_path, status',
+  ];
+  const selectSite = (where, arg) => {
+    for (const cols of siteColSets) {
+      try {
+        return db.prepare(`SELECT ${cols} FROM websites WHERE ${where}`).get(arg);
+      } catch {
+        /* try the next, narrower column set */
+      }
+    }
+    return null;
+  };
+  let site = null;
+  const wid = websiteId != null ? Number(websiteId) : null;
+  if (Number.isInteger(wid) && wid > 0) {
+    site = selectSite('id = ?', wid);
+    if (!site) throw Object.assign(new Error('Website not found'), { code: 'NOT_FOUND' });
+    if (Number(site.lead_id) !== lid) {
+      throw Object.assign(new Error('Website does not belong to this lead'), { code: 'MISMATCH' });
+    }
+  } else {
+    site = selectSite('lead_id = ? ORDER BY id DESC LIMIT 1', lid);
+  }
+
+  const siteUrl = (site && (outreach.resolveWebsiteLink(db, lid) || site.preview_url)) || '';
+  if (!siteUrl) {
+    throw Object.assign(new Error('No site URL yet — preview or publish the site first.'), { code: 'NO_SITE_URL' });
+  }
+
+  const businessName = (site && site.name) || lead.business_name || 'Your business';
+  const addressLines = businessCardAddressLines(lead);
+  let theme = null;
+  try {
+    theme = site && site.theme ? JSON.parse(site.theme) : null;
+  } catch {
+    theme = null;
+  }
+  const logoPng = site ? readSiteLogoImage(workspaceId, site, theme) : null;
+  const siteQrPng = await qrPngBuffer(siteUrl, { width: 320 });
+  const pdf = await buildBusinessCardPdf({ businessName, addressLines, siteUrl, siteQrPng, logoPng });
+  return {
+    leadId: lid,
+    websiteId: site ? Number(site.id) : null,
+    businessName,
+    siteUrl,
+    addressLines,
+    hasLogo: !!logoPng,
+    pdf,
+    filename: `bitpype-businesscard-${slugify(businessName)}-${lid}.pdf`,
+  };
+}
+
 /**
  * Assemble claim kit for a lead (optional websiteId). Does not require automation.
  * @returns {Promise<object>}
@@ -698,6 +931,9 @@ module.exports = {
   qrPngBuffer,
   qrDataUrl,
   buildPostcardPdf,
+  businessCardAddressLines,
+  buildBusinessCardPdf,
+  buildBusinessCard,
   buildClaimKit,
   claimPageMeta,
   isIntentPositive,
