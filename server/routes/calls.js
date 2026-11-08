@@ -91,6 +91,11 @@ async function checkSignature(req) {
   // unset, the signature token resolves from this workspace's SMS
   // settings (Batch 25b credential fallback).
   const workspaceId = Number(req.params && req.params.workspaceId);
+  return checkSignatureFor(req, workspaceId);
+}
+
+async function checkSignatureFor(req, workspaceIdRaw) {
+  const workspaceId = Number(workspaceIdRaw);
   const { authToken } = await twilioClient.getCredentials(
     Number.isInteger(workspaceId) && workspaceId > 0 ? { workspaceId } : {}
   );
@@ -320,6 +325,121 @@ router.post('/rescue-voice/:workspaceId/:rescueId', rescueVoiceLimit, async (req
     console.warn('[calls] rescue voice failed:', e.message || e);
     return res.type('text/xml').send(HANGUP_TWIML);
   }
+});
+
+/* ------------------------------------------------------------------ */
+/* Lead calling (Batch 162) — outbound staff calls. The staff leg is   */
+/* the Twilio Voice app's URL (one app per account, workspace-        */
+/* agnostic: the browser passes workspaceId/leadId/ref/room as        */
+/* Device.connect params, which arrive as POST fields). The lead leg, */
+/* its status callback and the conference recording callback carry    */
+/* the workspace/lead in the path and our call ref in the query,      */
+/* exactly like the inbound routes above.                             */
+/* ------------------------------------------------------------------ */
+const outboundCalls = () => require('../outboundCalls'); // lazy accessor (Batch 162 finisher): VM-loading suites (production) stub relative requires — same fix as domainApi.js
+const softphoneLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 300, name: 'twilio-softphone' });
+const outboundLegLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 300, name: 'twilio-outbound-leg' });
+
+function outboundRef(req) {
+  return String((req.query && req.query.ref) || (req.body && req.body.ref) || '').trim();
+}
+
+router.post('/softphone', softphoneLimit, async (req, res) => {
+  const body = req.body || {};
+  const workspaceId = Number(body.workspaceId);
+  const leadId = Number(body.leadId);
+  const ref = String(body.ref || '').trim();
+  const room = String(body.room || '').trim();
+  if (
+    !Number.isInteger(workspaceId) ||
+    workspaceId <= 0 ||
+    !Number.isInteger(leadId) ||
+    leadId <= 0 ||
+    !ref ||
+    !room
+  ) {
+    return res.type('text/xml').send(HANGUP_TWIML);
+  }
+  const sig = await checkSignatureFor(req, workspaceId);
+  if (!sig.ok) return res.status(403).type('text/plain').send('Invalid Twilio signature');
+  if (!(await workspaceExists(workspaceId))) return res.type('text/xml').send(HANGUP_TWIML);
+  try {
+    const twiml = await domain.withDb(workspaceId, (db) => {
+      const row = modules.getCallLogBySid(db, ref);
+      if (
+        !row ||
+        row.direction !== 'outbound' ||
+        Number(row.lead_id) !== leadId ||
+        String(row.conference_name || '') !== room
+      ) {
+        return HANGUP_TWIML;
+      }
+      return outboundCalls().buildStaffLegTwiml({ room });
+    });
+    return res.type('text/xml').send(twiml);
+  } catch (e) {
+    console.warn('[calls] softphone twiml failed:', e.message || e);
+    return res.type('text/xml').send(HANGUP_TWIML);
+  }
+});
+
+router.post('/outbound-lead/:workspaceId/:leadId', outboundLegLimit, async (req, res) => {
+  const ids = parseIds(req);
+  const ref = outboundRef(req);
+  if (!ids || !ref) return res.type('text/xml').send(HANGUP_TWIML);
+  const sig = await checkSignature(req);
+  if (!sig.ok) return res.status(403).type('text/plain').send('Invalid Twilio signature');
+  if (!(await workspaceExists(ids.workspaceId))) return res.type('text/xml').send(HANGUP_TWIML);
+  try {
+    const twiml = await domain.withDb(ids.workspaceId, (db) => {
+      const row = modules.getCallLogBySid(db, ref);
+      if (!row || row.direction !== 'outbound' || Number(row.lead_id) !== ids.leadId) {
+        return HANGUP_TWIML;
+      }
+      return outboundCalls().buildLeadLegTwiml({
+        workspaceId: ids.workspaceId,
+        leadId: ids.leadId,
+        callRef: ref,
+        room: row.conference_name,
+        disclosure: outboundCalls().getDisclosure(db),
+        baseUrl: publicBaseUrl(req),
+      });
+    });
+    return res.type('text/xml').send(twiml);
+  } catch (e) {
+    console.warn('[calls] outbound lead twiml failed:', e.message || e);
+    return res.type('text/xml').send(HANGUP_TWIML);
+  }
+});
+
+router.post('/outbound-status/:workspaceId/:leadId', outboundLegLimit, async (req, res) => {
+  const ids = parseIds(req);
+  const ref = outboundRef(req);
+  if (!ids || !ref) return res.type('text/xml').send(EMPTY_TWIML);
+  const sig = await checkSignature(req);
+  if (!sig.ok) return res.status(403).type('text/plain').send('Invalid Twilio signature');
+  if (!(await workspaceExists(ids.workspaceId))) return res.type('text/xml').send(EMPTY_TWIML);
+  try {
+    await outboundCalls().handleLeadStatus(ids.workspaceId, ids.leadId, ref, req.body || {});
+  } catch (e) {
+    console.warn('[calls] outbound status failed:', e.message || e);
+  }
+  return res.type('text/xml').send(EMPTY_TWIML);
+});
+
+router.post('/outbound-recording/:workspaceId/:leadId', outboundLegLimit, async (req, res) => {
+  const ids = parseIds(req);
+  const ref = outboundRef(req);
+  if (!ids || !ref) return res.type('text/xml').send(EMPTY_TWIML);
+  const sig = await checkSignature(req);
+  if (!sig.ok) return res.status(403).type('text/plain').send('Invalid Twilio signature');
+  if (!(await workspaceExists(ids.workspaceId))) return res.type('text/xml').send(EMPTY_TWIML);
+  try {
+    await outboundCalls().handleRecording(ids.workspaceId, ids.leadId, ref, req.body || {});
+  } catch (e) {
+    console.warn('[calls] outbound recording failed:', e.message || e);
+  }
+  return res.type('text/xml').send(EMPTY_TWIML);
 });
 
 /**

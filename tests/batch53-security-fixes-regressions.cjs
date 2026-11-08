@@ -269,7 +269,7 @@ function partB() {
     assert(helper.includes("action || '') === 'delete'"), 'helper triggers only on the delete action');
   });
 
-  check('census pin: every DELETE in domainApi is owner/admin-gated (social accounts = deliberate member exception)', () => {
+  check('census pin: every DELETE in domainApi is owner/admin-gated (social accounts + Batch 162 contact notes = deliberate exceptions)', () => {
     // Slice each registration up to the next one; the middleware chain
     // always precedes the handler within the first few hundred chars.
     const starts = [...api.matchAll(/router\.delete\(\s*'([^']+)'/g)];
@@ -280,6 +280,15 @@ function partB() {
       const head = api.slice(m.index, next === -1 ? m.index + 1500 : next).slice(0, 400);
       if (routePath === '/social/accounts/:id') {
         assert(head.includes("requireRole('owner', 'admin', 'member')"), 'social accounts keeps its deliberate member-inclusive gate');
+      } else if (routePath === '/leads/:leadId/contact/notes/:noteId') {
+        // Batch 162 deliberate exception: note deletion is session-only
+        // and enforced per-record in the engine (author-or-manager:
+        // canManageNote in server/outboundCalls.js — owner/admin OR the
+        // note's own author), which is stricter than a blanket role
+        // gate; a requireRole('owner','admin') middleware would break
+        // the audited author path (batch162 E11/H-tests pin it).
+        assert(head.includes('sessionOnly'), 'contact notes DELETE stays session-only');
+        assert(head.includes('denyLeadScopedToken'), 'contact notes DELETE refuses lead-scoped tokens');
       } else {
         assert(
           head.includes("requireRole('owner', 'admin')"),

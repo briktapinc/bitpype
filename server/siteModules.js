@@ -799,6 +799,22 @@ function ensureTables(db) {
       PRIMARY KEY (lead_id, month)
     );
 
+    -- Lead calling (Batch 162): staff follow-up notes from the lead
+    -- Contact page. They live beside call_logs (same workspace store
+    -- the lead drawer/pipeline read) so one lead's calls + notes form
+    -- a single chronological follow-up timeline.
+    CREATE TABLE IF NOT EXISTS lead_contact_notes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER NOT NULL,
+      staff_user_id INTEGER,
+      staff_name TEXT NOT NULL DEFAULT '',
+      body TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_lead_contact_notes_lead ON lead_contact_notes(lead_id, id DESC);
+
     CREATE TABLE IF NOT EXISTS booking_settings (
       lead_id INTEGER PRIMARY KEY,
       timezone TEXT NOT NULL DEFAULT 'America/New_York',
@@ -1120,6 +1136,32 @@ function ensureTables(db) {
     }
     if (callCols.length && !callCols.includes('voicemail_notify_status')) {
       db.exec("ALTER TABLE call_logs ADD COLUMN voicemail_notify_status TEXT NOT NULL DEFAULT 'none'");
+    }
+    // Lead calling (Batch 162): outbound staff calls from the pipeline
+    // Contact page share this table with the inbound log — direction
+    // discriminates; staff identity, the Twilio lead-leg SID and the
+    // conference room ride along; a staff-corrected transcript keeps
+    // the Whisper original beside it.
+    if (callCols.length && !callCols.includes('direction')) {
+      db.exec("ALTER TABLE call_logs ADD COLUMN direction TEXT NOT NULL DEFAULT 'inbound'");
+    }
+    if (callCols.length && !callCols.includes('staff_user_id')) {
+      db.exec('ALTER TABLE call_logs ADD COLUMN staff_user_id INTEGER');
+    }
+    if (callCols.length && !callCols.includes('staff_name')) {
+      db.exec("ALTER TABLE call_logs ADD COLUMN staff_name TEXT NOT NULL DEFAULT ''");
+    }
+    if (callCols.length && !callCols.includes('provider_call_sid')) {
+      db.exec("ALTER TABLE call_logs ADD COLUMN provider_call_sid TEXT NOT NULL DEFAULT ''");
+    }
+    if (callCols.length && !callCols.includes('conference_name')) {
+      db.exec("ALTER TABLE call_logs ADD COLUMN conference_name TEXT NOT NULL DEFAULT ''");
+    }
+    if (callCols.length && !callCols.includes('transcript_original')) {
+      db.exec("ALTER TABLE call_logs ADD COLUMN transcript_original TEXT NOT NULL DEFAULT ''");
+    }
+    if (callCols.length && !callCols.includes('transcript_edited')) {
+      db.exec('ALTER TABLE call_logs ADD COLUMN transcript_edited INTEGER NOT NULL DEFAULT 0');
     }
     const ctCols = db
       .prepare('PRAGMA table_info(calltracking_configs)')
@@ -11265,6 +11307,170 @@ function isTerminalCallStatus(status) {
   return CALL_TERMINAL_STATUSES.includes(String(status || '').trim().toLowerCase());
 }
 
+/* ------------------------------------------------------------------ */
+/* Lead calling (Batch 162) — outbound staff calls + follow-up notes.  */
+/* Outbound rows share call_logs with the inbound log: direction is   */
+/* 'outbound', call_sid is OUR ref (outbound-<uuid>) so every         */
+/* existing sid-keyed helper (recording store, transcript, playback)  */
+/* works unchanged, and provider_call_sid carries the Twilio lead     */
+/* leg's real SID. Outbound status writes deliberately do NOT reuse   */
+/* upsertCallStatus: that path marks inbound calls "counted" toward   */
+/* the client's call-tracking allowance — a staff sales call must     */
+/* never consume it, and must never settle inbound billing, fire the  */
+/* owner notification, or open a missed-call rescue.                  */
+/* ------------------------------------------------------------------ */
+
+function createOutboundCall(db, leadId, { callRef, fromNumber, toNumber, staffUserId, staffName, room } = {}) {
+  ensureTables(db);
+  const ref = String(callRef || '').trim();
+  if (!ref) return null;
+  db.prepare(
+    `INSERT INTO call_logs (lead_id, call_sid, direction, from_number, to_number, status, staff_user_id, staff_name, conference_name)
+     VALUES (?, ?, 'outbound', ?, ?, 'initiated', ?, ?, ?)`
+  ).run(
+    Number(leadId),
+    ref,
+    String(fromNumber || '').slice(0, 40),
+    String(toNumber || '').slice(0, 40),
+    staffUserId != null ? Number(staffUserId) : null,
+    String(staffName || '').slice(0, 120),
+    String(room || '').slice(0, 120)
+  );
+  return getCallLogBySid(db, ref);
+}
+
+/** Claim the dial step exactly once: initiated → dialing. */
+function claimOutboundDial(db, callRef) {
+  ensureTables(db);
+  const r = db
+    .prepare(
+      `UPDATE call_logs SET status = 'dialing', updated_at = datetime('now')
+       WHERE call_sid = ? AND direction = 'outbound' AND status = 'initiated' AND provider_call_sid = ''`
+    )
+    .run(String(callRef || ''));
+  return Number(r.changes || 0) === 1;
+}
+
+function setOutboundProviderSid(db, callRef, providerSid) {
+  ensureTables(db);
+  db.prepare(
+    `UPDATE call_logs SET provider_call_sid = ?, status = 'ringing', updated_at = datetime('now')
+     WHERE call_sid = ? AND direction = 'outbound'`
+  ).run(String(providerSid || '').slice(0, 64), String(callRef || ''));
+  return getCallLogBySid(db, String(callRef || ''));
+}
+
+/** Outbound-only status merge (see the header note: no counting, no
+ * billing settlement, no notifications — those are inbound concepts). */
+function updateOutboundCallStatus(db, callRef, { status, durationSeconds } = {}) {
+  ensureTables(db);
+  const st = String(status || '').trim().toLowerCase();
+  const dur =
+    durationSeconds != null && durationSeconds !== '' && Number.isFinite(Number(durationSeconds))
+      ? Math.max(0, Math.round(Number(durationSeconds)))
+      : null;
+  db.prepare(
+    `UPDATE call_logs SET
+       status = CASE WHEN ? <> '' THEN ? ELSE status END,
+       duration_seconds = COALESCE(?, duration_seconds),
+       updated_at = datetime('now')
+     WHERE call_sid = ? AND direction = 'outbound'`
+  ).run(st, st, dur, String(callRef || ''));
+  return getCallLogBySid(db, String(callRef || ''));
+}
+
+function listOutboundCalls(db, leadId, { limit = CALL_LIST_CAP } = {}) {
+  ensureTables(db);
+  const lim = Math.min(CALL_LIST_CAP, Math.max(1, Number(limit) || CALL_LIST_CAP));
+  return db
+    .prepare(
+      `SELECT * FROM call_logs WHERE lead_id = ? AND direction = 'outbound' ORDER BY id DESC LIMIT ?`
+    )
+    .all(Number(leadId), lim);
+}
+
+/** Preserve the Whisper original the first time it exists (called
+ * after a transcription lands, and lazily before a staff edit). */
+function stampTranscriptOriginal(db, callSid) {
+  ensureTables(db);
+  db.prepare(
+    `UPDATE call_logs SET transcript_original = transcript
+     WHERE call_sid = ? AND transcript_original = '' AND transcript <> ''`
+  ).run(String(callSid || ''));
+  return getCallLogBySid(db, String(callSid || ''));
+}
+
+/** Staff correction of a transcript: the corrected text becomes the
+ * transcript, transcript_edited flips on, and the pre-edit (Whisper)
+ * text is preserved in transcript_original. */
+function editCallTranscript(db, callSid, text) {
+  ensureTables(db);
+  stampTranscriptOriginal(db, callSid);
+  db.prepare(
+    `UPDATE call_logs SET transcript = ?, transcript_edited = 1, updated_at = datetime('now')
+     WHERE call_sid = ?`
+  ).run(String(text || ''), String(callSid || ''));
+  return getCallLogBySid(db, String(callSid || ''));
+}
+
+/* ------------------------- follow-up notes ------------------------ */
+
+function addLeadContactNote(db, leadId, { staffUserId, staffName, body } = {}) {
+  ensureTables(db);
+  const text = String(body || '').trim();
+  if (!text) {
+    const e = new Error('A note needs some text.');
+    e.code = 'VALIDATION';
+    e.status = 400;
+    throw e;
+  }
+  const info = db
+    .prepare(
+      `INSERT INTO lead_contact_notes (lead_id, staff_user_id, staff_name, body) VALUES (?, ?, ?, ?)`
+    )
+    .run(
+      Number(leadId),
+      staffUserId != null ? Number(staffUserId) : null,
+      String(staffName || '').slice(0, 120),
+      text.slice(0, 10000)
+    );
+  return getLeadContactNote(db, Number(info.lastInsertRowid));
+}
+
+function getLeadContactNote(db, id) {
+  ensureTables(db);
+  return db.prepare('SELECT * FROM lead_contact_notes WHERE id = ?').get(Number(id)) || null;
+}
+
+function listLeadContactNotes(db, leadId, { limit = CALL_LIST_CAP } = {}) {
+  ensureTables(db);
+  const lim = Math.min(CALL_LIST_CAP, Math.max(1, Number(limit) || CALL_LIST_CAP));
+  return db
+    .prepare('SELECT * FROM lead_contact_notes WHERE lead_id = ? ORDER BY id DESC LIMIT ?')
+    .all(Number(leadId), lim);
+}
+
+function updateLeadContactNote(db, id, body) {
+  ensureTables(db);
+  const text = String(body || '').trim();
+  if (!text) {
+    const e = new Error('A note needs some text.');
+    e.code = 'VALIDATION';
+    e.status = 400;
+    throw e;
+  }
+  db.prepare(
+    `UPDATE lead_contact_notes SET body = ?, updated_at = datetime('now') WHERE id = ?`
+  ).run(text.slice(0, 10000), Number(id));
+  return getLeadContactNote(db, id);
+}
+
+function deleteLeadContactNote(db, id) {
+  ensureTables(db);
+  const r = db.prepare('DELETE FROM lead_contact_notes WHERE id = ?').run(Number(id));
+  return Number(r.changes || 0) === 1;
+}
+
 function listCalls(db, leadId, { limit = CALL_LIST_CAP, offset = 0 } = {}) {
   ensureTables(db);
   const lim = Math.min(CALL_LIST_CAP, Math.max(1, Number(limit) || CALL_LIST_CAP));
@@ -15248,6 +15454,18 @@ module.exports = {
   listCalls,
   listAllCalls,
   deleteCallLog,
+  createOutboundCall,
+  claimOutboundDial,
+  setOutboundProviderSid,
+  updateOutboundCallStatus,
+  listOutboundCalls,
+  stampTranscriptOriginal,
+  editCallTranscript,
+  addLeadContactNote,
+  getLeadContactNote,
+  listLeadContactNotes,
+  updateLeadContactNote,
+  deleteLeadContactNote,
   countBlogPosts,
   CALL_ALLOWANCE_BY_PLAN,
   CALL_COUNT_MIN_SECONDS,

@@ -508,6 +508,22 @@ window.ScoutApi = (() => {
     intentGet: (leadId) => get('/intent/' + leadId),
     intentRecord: (leadId, event, note) => post('/intent/' + leadId, { event, note }),
 
+    // ---- lead calling (Batch 162): the pipeline Contact page ----
+    contactGet: (leadId) => get('/leads/' + leadId + '/contact'),
+    contactToken: (leadId) => post('/leads/' + leadId + '/contact/token', {}),
+    contactStart: (leadId) => post('/leads/' + leadId + '/contact/start', {}),
+    contactDial: (leadId, callRef) =>
+      post('/leads/' + leadId + '/contact/' + encodeURIComponent(callRef) + '/dial', {}),
+    contactCall: (leadId, callRef) =>
+      get('/leads/' + leadId + '/contact/' + encodeURIComponent(callRef)),
+    contactTranscriptSave: (leadId, callRef, text) =>
+      put('/leads/' + leadId + '/contact/' + encodeURIComponent(callRef) + '/transcript', { text }),
+    contactNoteAdd: (leadId, body) => post('/leads/' + leadId + '/contact/notes', { body }),
+    contactNoteEdit: (leadId, noteId, body) =>
+      patch('/leads/' + leadId + '/contact/notes/' + noteId, { body }),
+    contactNoteDelete: (leadId, noteId) => del('/leads/' + leadId + '/contact/notes/' + noteId),
+    adminCallDisclosureSave: (text) => put('/admin-area/calls/disclosure', { text }),
+
     // ---- admin area (read-only workspace-wide views) ----
     adminForms: () => get('/admin-area/forms'),
     adminFormSubmissions: (id, q) => get('/admin-area/forms/' + id + '/submissions', q),

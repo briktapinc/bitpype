@@ -234,7 +234,7 @@ const OPENROUTER_KEY_2 = 'b123-openrouter-key-SECOND';
     assert.ok(appSrc.includes('state.profiles.openrouter'), 'admin matrix renders the OpenRouter profile line');
     n++;
     assert.ok(
-      read('public/index.html').includes('/js/app.js?v=batch123-openrouter1'),
+      read('public/index.html').includes('/js/app.js?v=batch162-leadcalling1'),
       'app.js cache-bust bumped for batch123'
     );
     n++;

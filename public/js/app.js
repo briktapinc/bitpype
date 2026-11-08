@@ -52,6 +52,7 @@ const ROUTE_LABELS = {
   social: 'Social',
   outreach: 'Outreach',
   pipeline: 'Pipeline',
+  contact: 'Lead contact',
   forms: 'Forms',
   leadscout: 'LeadScout',
   bookings: 'Bookings',
@@ -6746,7 +6747,8 @@ async function pagePipeline() {
             <div class="hint">${esc(l.category || '')}${l.email ? ' · ' + esc(l.email) : ''}</div>
             <div class="meta">${scorePill(l.score)}<span class="badge intent-${esc(String(l.intent_label || 'Cold').toLowerCase())}" title="Intent: engagement points from email opens, clicks and claim actions — Cold under 11, Warm 11–30, Interested 31–60, Hot 61+">${esc(l.intent_label || 'Cold')} ${esc(l.intent_score || 0)}</span></div>
             <div class="meta"><select data-status="${l.id}" aria-label="Status">${optionList(LEAD_STATUSES, l.status)}</select>
-              <button class="btn small" data-act="intent" data-id="${l.id}">Intent</button></div>
+              <button class="btn small" data-act="intent" data-id="${l.id}">Intent</button>
+              <button class="btn small" data-act="contact" data-id="${l.id}">Contact</button></div>
           </div>`
             )
             .join('') || '<div class="hint" style="padding:8px">Empty</div>'
@@ -6778,6 +6780,347 @@ async function pagePipeline() {
       window.location.hash = '#/leads/' + t.dataset.id;
     },
     intent: (t) => openIntentModal(Number(t.dataset.id), () => pagePipeline()),
+    contact: (t) => {
+      window.location.hash = '#/contact/' + t.dataset.id;
+    },
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Lead contact (Batch 162): call a lead from the pipeline — browser  */
+/* softphone over the workspace Twilio number, disclosure first,      */
+/* conference recording, Whisper transcript, follow-up notes, one     */
+/* chronological timeline.                                            */
+/* ------------------------------------------------------------------ */
+
+function loadTwilioSdk() {
+  if (window.Twilio && window.Twilio.Device) return Promise.resolve();
+  if (loadTwilioSdk._pending) return loadTwilioSdk._pending;
+  loadTwilioSdk._pending = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = '/js/twilio.min.js?v=1.15.1';
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('The phone library failed to load.'));
+    document.head.appendChild(s);
+  });
+  return loadTwilioSdk._pending;
+}
+
+const contactCallState = { device: null, timer: null, poll: null, ref: null, startedAt: 0 };
+function stopContactCallUi(disconnect) {
+  if (contactCallState.timer) clearInterval(contactCallState.timer);
+  if (contactCallState.poll) clearInterval(contactCallState.poll);
+  contactCallState.timer = null;
+  contactCallState.poll = null;
+  if (disconnect && contactCallState.device) {
+    try {
+      contactCallState.device.disconnectAll();
+    } catch {
+      /* already down */
+    }
+  }
+  contactCallState.device = null;
+  contactCallState.ref = null;
+}
+
+async function pageLeadContact(param) {
+  stopContactCallUi(true);
+  const leadId = Number(param);
+  if (!Number.isInteger(leadId) || leadId <= 0) {
+    view.innerHTML = '<div class="card error-card"><h2>Lead not found</h2><p>Open a lead from the pipeline.</p></div>';
+    return;
+  }
+  let data;
+  try {
+    data = (await withLoadTimeout(api.contactGet(leadId))).data;
+  } catch (e) {
+    view.innerHTML = loadErrorCardHtml(errText(e));
+    wirePageRetry(() => pageLeadContact(param));
+    return;
+  }
+  const lead = data.lead || {};
+  const wsId = api.getWorkspaceId();
+  const fmtWhen = (v) => {
+    const t = Date.parse(String(v || '').replace(' ', 'T') + (String(v || '').includes('T') ? '' : 'Z'));
+    return Number.isFinite(t) ? new Date(t).toLocaleString() : '—';
+  };
+  const fmtDur = (sec) => {
+    if (sec == null || sec === '') return '—';
+    const n = Math.max(0, Math.round(Number(sec) || 0));
+    return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, '0')}`;
+  };
+  const callBlocked = !data.hasPhone
+    ? 'No phone number on this lead — add one from the lead page before calling.'
+    : !data.twilioConfigured
+      ? 'Twilio is not connected for this workspace yet — add the credentials in Admin → SMS or Platform settings.'
+      : !data.callerId
+        ? 'No Twilio number to call from yet — set up call tracking for this business or add the workspace SMS number.'
+        : '';
+  const transcriptCalls = asList(data.calls).filter(
+    (c) => c.transcript || c.transcriptStatus === 'pending' || c.hasRecording
+  );
+  const timelineHtml =
+    asList(data.timeline)
+      .map((item) => {
+        if (item.kind === 'note') {
+          const n = item.note || {};
+          return `<div class="card" style="margin-bottom:10px">
+            <div class="hint">${esc(fmtWhen(n.createdAt))} · Note · ${esc(n.staffName || 'Staff')}</div>
+            <div style="white-space:pre-wrap;margin-top:4px">${esc(n.body)}</div>
+            <div style="margin-top:8px;display:flex;gap:8px">
+              <button class="btn small" data-act="note-edit" data-id="${esc(n.id)}">Edit</button>
+              <button class="btn small danger" data-act="note-del" data-id="${esc(n.id)}">Delete</button>
+            </div>
+            <div class="ct-note-edit" data-note-edit="${esc(n.id)}" hidden>
+              <textarea rows="3" style="width:100%;margin-top:8px">${esc(n.body)}</textarea>
+              <div style="margin-top:6px"><button class="btn small" data-act="note-save" data-id="${esc(n.id)}">Save note</button></div>
+            </div>
+          </div>`;
+        }
+        const c = item.call || {};
+        const player = c.hasRecording
+          ? `<audio controls preload="none" src="/api/v1/calls/recording-file/${esc(wsId)}/${esc(c.callRef)}" style="max-width:340px;width:100%;margin-top:6px"></audio>`
+          : '';
+        const transcript = c.transcript
+          ? `<div style="margin-top:6px"><strong>Transcript</strong>${c.transcriptEdited ? ' <span class="badge">edited</span>' : ''}<div style="white-space:pre-wrap">${esc(c.transcript)}</div></div>`
+          : `<div class="hint" style="margin-top:6px">Transcript: ${esc(c.transcriptStatus || 'none')}</div>`;
+        return `<div class="card" style="margin-bottom:10px">
+          <div class="hint">${esc(fmtWhen(c.createdAt))} · Call · ${esc(c.staffName || 'Staff')} · ${esc(c.from || '')} → ${esc(c.to || '')}</div>
+          <div style="margin-top:4px">Status: <strong>${esc(c.status || '')}</strong> · Duration: ${esc(fmtDur(c.durationSeconds))}</div>
+          ${player}${transcript}
+        </div>`;
+      })
+      .join('') || '<p class="hint">No calls or notes yet — the follow-up history starts with the first call or note.</p>';
+
+  view.innerHTML = `
+    <div class="page-head"><div><h1>${esc(lead.businessName || 'Lead')}</h1>
+      <p class="lede">Call this lead from your browser, with the conversation recorded, transcribed and saved here — plus follow-up notes, all in one timeline.</p></div>
+      <div class="page-actions"><button class="btn" data-act="back">← Pipeline</button>
+      <button class="btn" data-act="open-lead">Lead details</button></div></div>
+    <div class="card" style="margin-bottom:1rem">
+      <div class="grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
+        <div><div class="hint">Phone</div><strong>${esc(lead.phone || '—')}</strong></div>
+        <div><div class="hint">Contact</div><strong>${esc(lead.contactName || '—')}</strong></div>
+        <div><div class="hint">Email</div><strong>${esc(lead.email || '—')}</strong></div>
+        <div><div class="hint">City</div><strong>${esc(lead.city || '—')}${lead.state ? ', ' + esc(lead.state) : ''}</strong></div>
+        <div><div class="hint">Category</div><strong>${esc(lead.category || '—')}</strong></div>
+        <div><div class="hint">Status</div><strong>${esc(lead.status || '—')}</strong></div>
+        <div><div class="hint">Intent</div><strong>${data.intent ? esc(`${data.intent.label} · ${data.intent.score}`) : '—'}</strong></div>
+        <div><div class="hint">Score</div><strong>${lead.score != null ? esc(lead.score) : '—'}</strong></div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:1rem">
+      <h3 style="margin-top:0">Call</h3>
+      <p class="hint">Calls go out from <strong>${esc(data.callerId || '—')}</strong>${data.callerIdSource === 'calltracking' ? ' (this business’s tracking number)' : data.callerIdSource === 'sms' ? ' (the workspace SMS number)' : ''}. Before you are connected, the lead hears: “${esc(data.disclosure)}” Every call is recorded and transcribed.</p>
+      ${callBlocked ? `<p class="hint"><strong>${esc(callBlocked)}</strong></p>` : ''}
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button class="btn" id="ct-call-btn" ${callBlocked ? 'disabled' : ''}>📞 Call ${esc(lead.phone || '')}</button>
+        <span id="ct-call-status" class="hint"></span>
+        <span id="ct-call-timer" class="hint"></span>
+        <button class="btn danger" id="ct-hangup-btn" hidden>Hang up</button>
+      </div>
+      <p class="hint" id="ct-call-error" style="color:var(--danger,#b3261e)"></p>
+    </div>
+    <div class="card" style="margin-bottom:1rem">
+      <h3 style="margin-top:0">Transcription</h3>
+      ${
+        transcriptCalls.length
+          ? `<label class="field">Call<br /><select id="ct-call-select">${transcriptCalls
+              .map(
+                (c) =>
+                  `<option value="${esc(c.callRef)}">${esc(fmtWhen(c.createdAt))} · ${esc(c.status || '')} · ${esc(fmtDur(c.durationSeconds))}</option>`
+              )
+              .join('')}</select></label>
+            <textarea id="ct-transcript" rows="8" style="width:100%"></textarea>
+            <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+              <button class="btn small" data-act="transcript-save">Save corrections</button>
+              <span class="hint" id="ct-transcript-note"></span>
+            </div>
+            <div id="ct-original" style="margin-top:8px"></div>`
+          : '<p class="hint">No transcribed calls yet — after the first recorded call, its transcript appears here and can be corrected (the original is kept).</p>'
+      }
+    </div>
+    <div class="card" style="margin-bottom:1rem">
+      <h3 style="margin-top:0">Follow-up note</h3>
+      <textarea id="ct-note-body" rows="3" style="width:100%" placeholder="What happened, what's next, when to follow up…"></textarea>
+      <div style="margin-top:8px"><button class="btn small" data-act="note-add">Add note</button></div>
+    </div>
+    <h3>Follow-up timeline</h3>
+    <div id="ct-timeline">${timelineHtml}</div>`;
+
+  const statusEl = document.getElementById('ct-call-status');
+  const timerEl = document.getElementById('ct-call-timer');
+  const errorEl = document.getElementById('ct-call-error');
+  const callBtn = document.getElementById('ct-call-btn');
+  const hangupBtn = document.getElementById('ct-hangup-btn');
+  const setStatus = (t) => {
+    if (statusEl) statusEl.textContent = t;
+  };
+  const setError = (t) => {
+    if (errorEl) errorEl.textContent = t || '';
+  };
+
+  const transcriptByRef = new Map(transcriptCalls.map((c) => [c.callRef, c]));
+  const transcriptEl = document.getElementById('ct-transcript');
+  const selectEl = document.getElementById('ct-call-select');
+  const paintTranscript = () => {
+    if (!selectEl || !transcriptEl) return;
+    const c = transcriptByRef.get(selectEl.value);
+    transcriptEl.value = c ? c.transcript || '' : '';
+    const note = document.getElementById('ct-transcript-note');
+    if (note) {
+      note.textContent = c
+        ? c.transcript
+          ? c.transcriptEdited
+            ? 'Edited — the original Whisper transcript is kept below.'
+            : 'Whisper transcript — edit and save to correct it.'
+          : `Transcript status: ${c.transcriptStatus || 'none'}`
+        : '';
+    }
+    const orig = document.getElementById('ct-original');
+    if (orig) {
+      orig.innerHTML =
+        c && c.transcriptEdited && c.transcriptOriginal
+          ? `<details><summary>Original transcript (Whisper)</summary><div style="white-space:pre-wrap;margin-top:6px">${esc(c.transcriptOriginal)}</div></details>`
+          : '';
+    }
+  };
+  if (selectEl) {
+    selectEl.addEventListener('change', paintTranscript);
+    paintTranscript();
+  }
+
+  const endCallUi = (finalText) => {
+    stopContactCallUi(false);
+    contactCallState.device = null;
+    if (callBtn) callBtn.disabled = !!callBlocked;
+    if (hangupBtn) hangupBtn.hidden = true;
+    if (timerEl) timerEl.textContent = '';
+    setStatus(finalText || 'Call ended — refreshing the timeline…');
+    setTimeout(() => pageLeadContact(param), 1200);
+  };
+
+  if (hangupBtn) {
+    hangupBtn.addEventListener('click', () => {
+      stopContactCallUi(true);
+      endCallUi('Call ended.');
+    });
+  }
+  if (callBtn && !callBlocked) {
+    callBtn.addEventListener('click', async () => {
+      setError('');
+      callBtn.disabled = true;
+      setStatus('Preparing the call…');
+      try {
+        const started = (await api.contactStart(leadId)).data;
+        const minted = (await api.contactToken(leadId)).data;
+        if (!minted || !minted.configured || !minted.token) {
+          throw new Error('Twilio voice is not connected for this workspace yet.');
+        }
+        await loadTwilioSdk();
+        const device = new window.Twilio.Device();
+        contactCallState.device = device;
+        contactCallState.ref = started.callRef;
+        device.setup(minted.token, { debug: false });
+        device.on('error', (e) => {
+          setError((e && e.message) || 'The call connection hit a problem.');
+          endCallUi('Call failed.');
+        });
+        device.on('connect', async () => {
+          if (hangupBtn) hangupBtn.hidden = false;
+          contactCallState.startedAt = Date.now();
+          contactCallState.timer = setInterval(() => {
+            const s = Math.floor((Date.now() - contactCallState.startedAt) / 1000);
+            if (timerEl) timerEl.textContent = fmtDur(s);
+          }, 500);
+          setStatus('You are in the room — dialing the lead…');
+          try {
+            const dialed = (await api.contactDial(leadId, started.callRef)).data;
+            if (dialed && dialed.configured === false) {
+              setError('Twilio could not place the call — credentials look incomplete.');
+            } else {
+              setStatus('Ringing the lead… they hear the recording notice first.');
+            }
+          } catch (e) {
+            setError(errText(e));
+          }
+          contactCallState.poll = setInterval(async () => {
+            try {
+              const c = (await api.contactCall(leadId, started.callRef)).data;
+              if (!c) return;
+              if (c.status === 'in-progress') setStatus('On call — recording.');
+              else if (c.status === 'ringing' || c.status === 'dialing') setStatus('Ringing the lead…');
+              else if (['completed', 'failed', 'no-answer', 'busy', 'canceled'].includes(c.status)) {
+                endCallUi(`Call ${c.status}.`);
+              }
+            } catch {
+              /* polling is best-effort */
+            }
+          }, 3000);
+        });
+        device.on('disconnect', () => {
+          if (contactCallState.ref) endCallUi('Call ended.');
+        });
+        device.connect({
+          workspaceId: String(wsId || ''),
+          leadId: String(leadId),
+          ref: started.callRef,
+          room: started.room,
+        });
+      } catch (e) {
+        setError(errText(e));
+        setStatus('');
+        callBtn.disabled = false;
+        stopContactCallUi(true);
+      }
+    });
+  }
+
+  delegate(view, {
+    back: () => {
+      window.location.hash = '#/pipeline';
+    },
+    'open-lead': () => {
+      window.location.hash = '#/leads/' + leadId;
+    },
+    'transcript-save': async () => {
+      if (!selectEl || !transcriptEl) return;
+      await safeRun(null, async () => {
+        await api.contactTranscriptSave(leadId, selectEl.value, transcriptEl.value);
+        toast('Transcript saved', 'ok');
+        pageLeadContact(param);
+      });
+    },
+    'note-add': async () => {
+      const body = (document.getElementById('ct-note-body') || {}).value || '';
+      if (!String(body).trim()) return toast('Write the note first', 'err');
+      await safeRun(null, async () => {
+        await api.contactNoteAdd(leadId, body);
+        toast('Note added', 'ok');
+        pageLeadContact(param);
+      });
+    },
+    'note-edit': (t) => {
+      const host = view.querySelector(`[data-note-edit="${CSS.escape(String(t.dataset.id))}"]`);
+      if (host) host.hidden = !host.hidden;
+    },
+    'note-save': async (t) => {
+      const host = view.querySelector(`[data-note-edit="${CSS.escape(String(t.dataset.id))}"]`);
+      const body = host ? (host.querySelector('textarea') || {}).value || '' : '';
+      await safeRun(null, async () => {
+        await api.contactNoteEdit(leadId, Number(t.dataset.id), body);
+        toast('Note saved', 'ok');
+        pageLeadContact(param);
+      });
+    },
+    'note-del': async (t) => {
+      if (!window.confirm('Delete this note?')) return;
+      await safeRun(null, async () => {
+        await api.contactNoteDelete(leadId, Number(t.dataset.id));
+        toast('Note deleted', 'ok');
+        pageLeadContact(param);
+      });
+    },
   });
 }
 
@@ -11709,6 +12052,12 @@ async function pageCalls() {
       ${configured ? '' : '<p class="hint" style="margin-top:8px">Connect Twilio first — a number can only join the pool once it is verified on the account.</p>'}
     </div>
     ${bizStrip}
+    <div class="card" style="margin-bottom:1rem">
+      <h3 style="margin-top:0">Outbound call recording disclosure</h3>
+      <p class="hint">When staff call a lead from the pipeline Contact page, the lead hears this sentence before anyone is connected — and only then does the recording start (Pennsylvania is an all-party-consent state). Recording is always on for these calls; leave the text blank to restore the default.</p>
+      <textarea id="cl-disclosure" rows="2" style="width:100%">${esc(d.disclosure || '')}</textarea>
+      <div style="margin-top:8px"><button type="button" class="btn" id="cl-disclosure-save">Save disclosure</button></div>
+    </div>
     ${cfgCard}
     ${businessFilterBarHtml([...allRows, ...businesses], 'cl-biz')}
     <div class="card"><div class="table-wrap">${table(callRows(allRows))}</div>
@@ -11940,6 +12289,20 @@ async function pageCalls() {
     cfgBizSel.addEventListener('change', renderCfgForm);
     wireSelectSearch(document.getElementById('cl-cfg-search'), cfgBizSel);
     renderCfgForm();
+  }
+  const clDisclosureSave = document.getElementById('cl-disclosure-save');
+  if (clDisclosureSave) {
+    clDisclosureSave.addEventListener('click', async () => {
+      const text = (document.getElementById('cl-disclosure') || {}).value || '';
+      await safeRun(null, async () => {
+        const saved = (await api.adminCallDisclosureSave(text)).data;
+        toast(
+          saved && saved.isDefault ? 'Disclosure reset to the default' : 'Disclosure saved',
+          'ok'
+        );
+        pageCalls();
+      });
+    });
   }
   const clClear = document.getElementById('cl-clear-all');
   if (clClear) {
@@ -13124,6 +13487,7 @@ const PAGES = {
   social: pageSocial,
   outreach: pageOutreach,
   pipeline: pagePipeline,
+  contact: pageLeadContact,
   forms: pageForms,
   leadscout: pageLeadScout,
   bookings: pageBookings,

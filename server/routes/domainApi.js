@@ -1363,6 +1363,111 @@ router.post('/intent/:leadId', scopeLeadIdParam, (req, res) => {
     fail(res, e);
   }
 });
+/* Lead calling (Batch 162) — the pipeline Contact page. Session-only:
+ * placing calls spends money on the workspace's Twilio account, so no
+ * bearer token (lead-scoped or workspace) may use these routes. The
+ * workspace comes from requireWorkspace, so a staff user can only
+ * ever reach leads in a workspace they belong to. */
+const outboundCalls = () => require('../outboundCalls'); // lazy accessor (Batch 162 finisher): VM-loading suites (idempotency) stub relative requires — a top-level require here breaks them, same fix as Batch 161's assistant requires
+function staffActor(req) {
+  const u = req.sessionUser || {};
+  return {
+    userId: req.auth && req.auth.userId != null ? Number(req.auth.userId) : null,
+    role: (req.auth && req.auth.role) || '',
+    name: String(u.name || u.full_name || u.email || 'Staff'),
+  };
+}
+function sessionOnly(req, res, next) {
+  if (!req.auth || req.auth.via !== 'session') {
+    return res.status(403).json({ ok: false, error: { code: 'FORBIDDEN', message: 'Staff session required' } });
+  }
+  return next();
+}
+router.get('/leads/:leadId/contact', sessionOnly, denyLeadScopedToken, async (req, res) => {
+  try {
+    ok(res, await outboundCalls().getContactData(req.auth.workspaceId, Number(req.params.leadId)));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+router.post('/leads/:leadId/contact/token', sessionOnly, denyLeadScopedToken, async (req, res) => {
+  try {
+    ok(res, await outboundCalls().mintSoftphoneToken(req.auth.workspaceId, staffActor(req).userId));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+router.post('/leads/:leadId/contact/start', sessionOnly, denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, outboundCalls().startOutboundCall(req.auth.workspaceId, Number(req.params.leadId), staffActor(req)));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+router.post('/leads/:leadId/contact/:callRef/dial', sessionOnly, denyLeadScopedToken, async (req, res) => {
+  try {
+    ok(res, await outboundCalls().dialLeadLeg(req.auth.workspaceId, Number(req.params.leadId), req.params.callRef));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+router.get('/leads/:leadId/contact/:callRef', sessionOnly, denyLeadScopedToken, (req, res) => {
+  try {
+    const call = outboundCalls().getOutboundCall(req.auth.workspaceId, Number(req.params.leadId), req.params.callRef);
+    if (!call) return fail(res, Object.assign(new Error('Call not found'), { code: 'NOT_FOUND' }));
+    ok(res, call);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+router.put('/leads/:leadId/contact/:callRef/transcript', sessionOnly, denyLeadScopedToken, (req, res) => {
+  try {
+    ok(
+      res,
+      outboundCalls().saveTranscriptEdit(
+        req.auth.workspaceId,
+        Number(req.params.leadId),
+        req.params.callRef,
+        req.body && req.body.text
+      )
+    );
+  } catch (e) {
+    fail(res, e);
+  }
+});
+router.post('/leads/:leadId/contact/notes', sessionOnly, denyLeadScopedToken, (req, res) => {
+  try {
+    ok(res, outboundCalls().addNote(req.auth.workspaceId, Number(req.params.leadId), staffActor(req), req.body && req.body.body));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+router.patch('/leads/:leadId/contact/notes/:noteId', sessionOnly, denyLeadScopedToken, (req, res) => {
+  try {
+    ok(
+      res,
+      outboundCalls().editNote(
+        req.auth.workspaceId,
+        Number(req.params.leadId),
+        Number(req.params.noteId),
+        staffActor(req),
+        req.body && req.body.body
+      )
+    );
+  } catch (e) {
+    fail(res, e);
+  }
+});
+router.delete('/leads/:leadId/contact/notes/:noteId', sessionOnly, denyLeadScopedToken, (req, res) => {
+  try {
+    ok(
+      res,
+      outboundCalls().removeNote(req.auth.workspaceId, Number(req.params.leadId), Number(req.params.noteId), staffActor(req))
+    );
+  } catch (e) {
+    fail(res, e);
+  }
+});
 router.post('/email/compose', pinTokenLeadFilter, scopeBodyLead, (req, res) => {
   try {
     ok(
@@ -2008,6 +2113,22 @@ router.put(
       ok(res, await domain.adminSaveCallTrackingConfig(req.auth.workspaceId, req.body || {}));
     } catch (e) {
       fail(res, e, e.code === 'PLAN_REQUIRED' ? 402 : e.status || 400);
+    }
+  }
+);
+// Lead calling (Batch 162): the recording disclosure every outbound
+// lead call speaks before bridging/recording. Workspace-level,
+// owner/admin only; blank restores the default sentence. Recording
+// itself is always on for these calls — there is no off switch here.
+router.put(
+  '/admin-area/calls/disclosure',
+  requireRole('owner', 'admin'),
+  denyLeadScopedToken,
+  (req, res) => {
+    try {
+      ok(res, outboundCalls().setDisclosure(req.auth.workspaceId, req.body && req.body.text));
+    } catch (e) {
+      fail(res, e);
     }
   }
 );

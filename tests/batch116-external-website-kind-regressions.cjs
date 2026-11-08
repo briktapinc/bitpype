@@ -161,7 +161,7 @@ function has(src, needle, label) {
       has(app, needle, `app.js build card/detail/list: ${needle.slice(0, 50)}`);
       n += 1;
     }
-    has(read('public/index.html'), '/js/app.js?v=batch123-openrouter1', 'app.js cache-bust bumped');
+    has(read('public/index.html'), '/js/app.js?v=batch162-leadcalling1', 'app.js cache-bust bumped');
     n += 1;
 
     // SEC-13 census: Batch 124 moved the multiset deliberately —
@@ -173,7 +173,7 @@ function has(src, needle, label) {
       cz.summary,
       // Batch 161 rotation applied below the Batch 156 note.
       // Batch 156 rotation: census 450 -> 453 (+1 STATIC +1 ESCAPED +1 SAFE in app.js — the fingerprint surfaces), safe classes 336 -> 339, RAW 78 / IDENT 36 and the 114-entry reviewed set unchanged; baseline regenerated.
-      { total: 470, STATIC: 172, ESCAPED: 43, SAFE: 74, BUILDER: 62, IDENT: 38, RAW: 81 },
+      { total: 474, STATIC: 174, ESCAPED: 43, SAFE: 74, BUILDER: 63, IDENT: 38, RAW: 82 },
       'SEC-13 census summary unchanged'
     );
     n += 1;
@@ -181,7 +181,7 @@ function has(src, needle, label) {
     const sha = crypto.createHash('sha256').update(multiset.join('\n')).digest('hex');
     assert.equal(
       sha,
-      '8a63dbaf132211b73f42e8d7e79ec7b01c618d649174558f95e8df5af0924ef2',
+      '557e1b97b262c42ab177fc399fed0bf5ee743f23a81988a4ad053e5a4394e4b6',
       'SEC-13 sink multiset byte-identical (Batch 161 rotation: census 453 -> 470 (+17 audited Assistant-surface sinks in app.js/portal.js — escape-first markdown renderer + esc()-wrapped usage templates; pairwise (file,kind,snippet) multiset diff vs the landed 159 census = exactly these additions plus pure line shifts, incl. the portal.js Assistant block relocation ahead of the Batch 117 panel; safe classes 339 -> 351, RAW 78 -> 81, IDENT 36 -> 38, reviewed set 119 entries; baseline regenerated — see batch103 narrative. Prior: Batch 136 finisher: +2 audited STATIC sinks in module-embed.js; RAW/IDENT multiset unchanged; Batch 153: census 448 -> 450 — +1 BUILDER +1 RAW in app.js, both the Admin Design-agent editor (rows build — every interpolated value esc()-wrapped; panel shell classified RAW by the conservative classifier, audited: its interpolations are a fixed literal seed note and the numeric limits only, no staff- or visitor-controlled string reaches it unescaped); BUILDER 59 -> 60, RAW 77 -> 78, safe classes 335 -> 336; remaining app.js RAW/IDENT movement is pure line shift from the editor + popup insertions, (file,kind,snippet) multiset diff vs the Batch 139 base = exactly these two sinks; baseline regenerated)'
     );
     n += 1;

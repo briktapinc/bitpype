@@ -6069,7 +6069,16 @@ async function adminCallsOverview(workspaceId, opts = {}) {
         message: 'The Twilio number pool could not be loaded.',
       });
     }
-    return { calls, businesses, pickerBusinesses, pool, warnings };
+    // Batch 162: the outbound recording disclosure rides along so
+    // Admin → Calls can show and edit it (lazy require — the
+    // outbound engine requires this module at its top).
+    let disclosure = '';
+    try {
+      disclosure = require('./outboundCalls').getDisclosure(db);
+    } catch {
+      disclosure = '';
+    }
+    return { calls, businesses, pickerBusinesses, pool, warnings, disclosure };
   });
   // Per-business plan + this-month counters (addendum #3 display). The
   // plan resolves the same way other entitlements do — workspace plan,

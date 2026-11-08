@@ -193,7 +193,7 @@ const CENSUS = {
       cz.summary,
       // Batch 156 rotation: census 450 -> 453 (+1 STATIC +1 ESCAPED +1 SAFE in app.js — the fingerprint surfaces), safe classes 336 -> 339, RAW 78 / IDENT 36 and the 114-entry reviewed set unchanged; baseline regenerated.
       // Batch 161 rotation: census 453 -> 470 (+17 audited Assistant-surface sinks in app.js/portal.js — escape-first markdown renderer + esc()-wrapped usage templates; pairwise multiset-proven vs the 159 census — see batch103 narrative), safe classes 339 -> 351, RAW 81 / IDENT 38, reviewed set 119 entries; baseline regenerated.
-      { total: 470, STATIC: 172, ESCAPED: 43, SAFE: 74, BUILDER: 62, IDENT: 38, RAW: 81 },
+      { total: 474, STATIC: 174, ESCAPED: 43, SAFE: 74, BUILDER: 63, IDENT: 38, RAW: 82 },
       'SEC-13 census summary unchanged'
     );
     n += 1;
