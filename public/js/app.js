@@ -17,6 +17,7 @@ const ROUTES = [
   'dashboard',
   'leads',
   'websites',
+  'webinars',
   'fingerprints',
   'archives',
   'domains',
@@ -46,6 +47,7 @@ const ROUTE_LABELS = {
   dashboard: 'Dashboard',
   leads: 'Leads',
   websites: 'Websites',
+  webinars: 'Webinars',
   fingerprints: 'Site fingerprints',
   archives: 'Archives',
   design: 'Design',
@@ -3238,6 +3240,307 @@ async function pageArchives() {
     },
   });
   await load();
+}
+
+// Batch 163: Webinars — platform-level, super-admin only. Create a
+// webinar (title, when, YouTube link), get an access code + a
+// shareable public link; the public gate turns every registrant into
+// a LeadScout contact. The detail view carries the registrant list
+// and the live chat console (host replies, hide, status control).
+async function pageWebinars(param) {
+  if (!currentUserIsSuperAdmin) {
+    view.innerHTML =
+      '<div class="card error-card"><h2>Super admin only</h2><p>Webinars belong to the platform owner.</p></div>';
+    return;
+  }
+  if (param) return pageWebinarDetail(Number(param));
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Webinars</h1><p class="lede">Run a live webinar to promote the agency. Share the public link anywhere — visitors enter their name, email, phone and the webinar&rsquo;s access code to get in, and every registrant lands in LeadScout as a contact. The video is a YouTube embed; the room carries a live chat you host from the webinar&rsquo;s page here.</p></div></div>
+    <div class="card"><h3>New webinar</h3>
+      <form id="wb-create-form">
+        <div class="field"><label>Title</label><input name="title" required maxlength="300" placeholder="Grow your practice with a website that books for you" /></div>
+        <div class="field"><label>Description (shown on the gate page)</label><textarea name="description" rows="3" maxlength="8000"></textarea></div>
+        <div class="row">
+          <div class="field"><label>Starts (Eastern time)</label><input name="scheduledAt" type="datetime-local" /></div>
+          <div class="field"><label>YouTube link or video ID</label><input name="youtube" placeholder="https://www.youtube.com/watch?v=…" /></div>
+        </div>
+        <button class="btn" type="submit">Create webinar</button> <span class="hint" id="wb-create-result"></span>
+      </form>
+    </div>
+    <div class="card"><h3>Your webinars</h3><div id="wb-list"><p class="hint"><span class="load-spin" aria-hidden="true"></span> Loading…</p></div></div>`;
+
+  const renderList = async () => {
+    const host = $('#wb-list');
+    if (!host) return;
+    let rows = [];
+    try {
+      const r = await api.adminWebinars();
+      rows = (r.data && r.data.webinars) || [];
+    } catch (e) {
+      host.innerHTML = `<p class="hint">${esc(errText(e))}</p>`;
+      return;
+    }
+    if (!rows.length) {
+      host.innerHTML = '<p class="hint">No webinars yet — create your first one above.</p>';
+      return;
+    }
+    host.innerHTML = `<div class="table-wrap"><table>
+      <thead><tr><th>Webinar</th><th>Starts (ET)</th><th>Status</th><th>Code</th><th>Registered / joined</th><th></th></tr></thead>
+      <tbody>${rows
+        .map(
+          (w) => `<tr>
+          <td><a href="#/webinars/${esc(w.id)}">${esc(w.title)}</a><br /><span class="hint">${esc(w.sharePath || '')}</span></td>
+          <td>${esc(w.scheduledLabel || '—')}</td>
+          <td>${esc(w.status)}</td>
+          <td><code>${esc(w.accessCode)}</code></td>
+          <td>${esc(w.registrantCount)} / ${esc(w.joinedCount)}</td>
+          <td><a href="#/webinars/${esc(w.id)}">Open</a></td>
+        </tr>`
+        )
+        .join('')}</tbody></table></div>`;
+  };
+  $('#wb-create-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(ev.target);
+    const out = $('#wb-create-result');
+    try {
+      const r = await api.adminCreateWebinar({
+        title: fd.get('title'),
+        description: fd.get('description'),
+        scheduledAt: fd.get('scheduledAt'),
+        youtube: fd.get('youtube'),
+      });
+      const w = r.data && r.data.webinar;
+      toast('Webinar created', 'ok');
+      if (w && w.id) window.location.hash = `#/webinars/${w.id}`;
+      else await renderList();
+    } catch (e) {
+      if (out) out.textContent = errText(e);
+    }
+  });
+  await renderList();
+}
+
+async function pageWebinarDetail(id) {
+  if (!Number.isInteger(id) || id <= 0) {
+    view.innerHTML = '<div class="card error-card"><h2>Webinar not found</h2></div>';
+    return;
+  }
+  let w;
+  try {
+    const r = await api.adminWebinars();
+    w = ((r.data && r.data.webinars) || []).find((x) => Number(x.id) === id);
+  } catch (e) {
+    view.innerHTML = `<div class="card error-card"><h2>Webinars unavailable</h2><p>${esc(errText(e))}</p></div>`;
+    return;
+  }
+  if (!w) {
+    view.innerHTML = '<div class="card error-card"><h2>Webinar not found</h2></div>';
+    return;
+  }
+  // datetime-local value for the stored instant, in Eastern wall time.
+  const nyLocal = (() => {
+    if (!w.scheduledAt) return '';
+    const d = new Date(w.scheduledAt);
+    if (Number.isNaN(d.getTime())) return '';
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/New_York',
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).formatToParts(d);
+    const p = {};
+    for (const part of parts) p[part.type] = part.value;
+    return `${p.year}-${p.month}-${p.day}T${p.hour === '24' ? '00' : p.hour}:${p.minute}`;
+  })();
+
+  view.innerHTML = `
+    <div class="page-head"><div><h1>${esc(w.title)}</h1><p class="lede"><a href="#/webinars">&larr; All webinars</a> · Status: <strong>${esc(w.status)}</strong>${w.scheduledLabel ? ` · ${esc(w.scheduledLabel)}` : ''}</p></div></div>
+    <div class="card"><h3>Share it</h3>
+      <div class="row">
+        <div class="field"><label>Public link (the code is NOT in the link — visitors type it at the gate)</label>
+          <input id="wb-share" readonly value="${esc(w.shareUrl || w.sharePath || '')}" /></div>
+        <div class="field"><label>Access code</label>
+          <input id="wb-code" readonly value="${esc(w.accessCode)}" /></div>
+      </div>
+      <button class="btn" id="wb-copy" type="button">Copy link</button>
+      <button class="btn" id="wb-regen" type="button">Regenerate code</button>
+      <span class="hint">Regenerating stops the old code working immediately.</span>
+    </div>
+    <div class="card"><h3>Settings</h3>
+      <form id="wb-edit-form">
+        <div class="field"><label>Title</label><input name="title" required maxlength="300" value="${esc(w.title)}" /></div>
+        <div class="field"><label>Description</label><textarea name="description" rows="3" maxlength="8000">${esc(w.description || '')}</textarea></div>
+        <div class="row">
+          <div class="field"><label>Starts (Eastern time)</label><input name="scheduledAt" type="datetime-local" value="${esc(nyLocal)}" /></div>
+          <div class="field"><label>YouTube link or video ID</label><input name="youtube" value="${esc(w.youtubeId || '')}" /></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Status</label><select name="status">
+            <option value="scheduled" ${w.status === 'scheduled' ? 'selected' : ''}>Scheduled</option>
+            <option value="live" ${w.status === 'live' ? 'selected' : ''}>Live</option>
+            <option value="ended" ${w.status === 'ended' ? 'selected' : ''}>Ended</option>
+          </select></div>
+          <div class="field"><label>Chat</label><select name="chatOpen">
+            <option value="" ${w.chatOpen == null ? 'selected' : ''}>Automatic (open while live)</option>
+            <option value="open" ${w.chatOpen === true ? 'selected' : ''}>Forced open</option>
+            <option value="closed" ${w.chatOpen === false ? 'selected' : ''}>Forced closed</option>
+          </select></div>
+        </div>
+        <button class="btn" type="submit">Save changes</button>
+        <button class="btn" id="wb-delete" type="button">Delete webinar</button>
+        <span class="hint" id="wb-edit-result"></span>
+      </form>
+    </div>
+    <div class="card"><h3>Registrants (<span id="wb-reg-count">…</span>)</h3><div id="wb-regs"><p class="hint">Loading…</p></div></div>
+    <div class="card"><h3>Live chat console</h3>
+      <p class="hint">Visitors see this stream in the room. Your replies are badged as the host. Hide removes a message from the visitor view; it stays visible here, marked.</p>
+      <div id="wb-chat-log" style="display:flex;flex-direction:column;gap:8px;max-height:420px;overflow-y:auto"></div>
+      <form id="wb-chat-form" style="display:flex;gap:8px;margin-top:12px">
+        <input id="wb-chat-input" maxlength="2000" placeholder="Reply as host…" style="flex:1" autocomplete="off" />
+        <button class="btn" type="submit">Send</button>
+      </form>
+    </div>`;
+
+  $('#wb-copy').addEventListener('click', async () => {
+    const input = $('#wb-share');
+    try {
+      await navigator.clipboard.writeText(input.value);
+      toast('Link copied', 'ok');
+    } catch {
+      input.select();
+      document.execCommand('copy');
+    }
+  });
+  $('#wb-regen').addEventListener('click', async () => {
+    if (!window.confirm('Regenerate the access code? The old code stops working immediately.')) return;
+    try {
+      const r = await api.adminRegenWebinarCode(id);
+      $('#wb-code').value = (r.data && r.data.webinar && r.data.webinar.accessCode) || '';
+      toast('New code generated', 'ok');
+    } catch (e) {
+      toast(errText(e), 'err');
+    }
+  });
+  $('#wb-edit-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(ev.target);
+    const out = $('#wb-edit-result');
+    try {
+      await api.adminUpdateWebinar(id, {
+        title: fd.get('title'),
+        description: fd.get('description'),
+        scheduledAt: fd.get('scheduledAt'),
+        youtube: fd.get('youtube'),
+        status: fd.get('status'),
+        chatOpen: fd.get('chatOpen') === '' ? null : fd.get('chatOpen') === 'open',
+      });
+      toast('Saved', 'ok');
+      await pageWebinarDetail(id);
+    } catch (e) {
+      if (out) out.textContent = errText(e);
+    }
+  });
+  $('#wb-delete').addEventListener('click', async () => {
+    if (!window.confirm('Delete this webinar, its registrations and its chat history? This cannot be undone.')) return;
+    try {
+      await api.adminDeleteWebinar(id);
+      toast('Webinar deleted', 'ok');
+      window.location.hash = '#/webinars';
+    } catch (e) {
+      toast(errText(e), 'err');
+    }
+  });
+
+  // Registrants
+  try {
+    const r = await api.adminWebinarRegistrations(id);
+    const regs = (r.data && r.data.registrations) || [];
+    const count = $('#wb-reg-count');
+    if (count) count.textContent = String(regs.length);
+    const host = $('#wb-regs');
+    if (host) {
+      host.innerHTML = regs.length
+        ? `<div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Registered</th><th>Joined</th></tr></thead><tbody>${regs
+            .map(
+              (g) => `<tr><td>${esc(g.name)}</td><td>${esc(g.email)}</td><td>${esc(g.phone)}</td><td>${esc(g.registeredAt || '')}</td><td>${esc(g.joinedAt || '—')}</td></tr>`
+            )
+            .join('')}</tbody></table></div>`
+        : '<p class="hint">No registrants yet — share the link and the code.</p>';
+    }
+  } catch (e) {
+    const host = $('#wb-regs');
+    if (host) host.innerHTML = `<p class="hint">${esc(errText(e))}</p>`;
+  }
+
+  // Chat console — poll the persisted stream; stop when the page is gone.
+  const log = $('#wb-chat-log');
+  let lastSignature = '';
+  const renderMessages = (messages) => {
+    if (!log) return;
+    const signature = messages.map((m) => `${m.id}:${m.hidden ? 1 : 0}`).join(',');
+    if (signature === lastSignature) return;
+    lastSignature = signature;
+    log.innerHTML = messages.length
+      ? messages
+          .map(
+            (m) => `<div style="border:1px solid var(--border,#e7dbc4);border-radius:12px;padding:8px 12px;${m.hidden ? 'opacity:.55' : ''}">
+              <strong>${esc(m.authorName || 'Guest')}</strong>${m.isHost ? ' <span class="hint">[HOST]</span>' : ''}${m.hidden ? ' <span class="hint">(hidden from visitors)</span>' : ''}
+              <div>${esc(m.body)}</div>
+              <button class="btn" type="button" data-wb-hide="${esc(m.id)}" data-hidden="${m.hidden ? '1' : '0'}">${m.hidden ? 'Unhide' : 'Hide'}</button>
+            </div>`
+          )
+          .join('')
+      : '<p class="hint">No messages yet.</p>';
+    log.scrollTop = log.scrollHeight;
+  };
+  const poll = async () => {
+    if (!document.body.contains(log)) return false;
+    try {
+      const r = await api.adminWebinarMessages(id, {});
+      renderMessages((r.data && r.data.messages) || []);
+    } catch {
+      /* transient */
+    }
+    return true;
+  };
+  await poll();
+  const timer = setInterval(async () => {
+    if (!(await poll())) clearInterval(timer);
+  }, 2500);
+  if (log) {
+    log.addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('[data-wb-hide]');
+      if (!btn) return;
+      try {
+        await api.adminWebinarHideMessage(id, btn.getAttribute('data-wb-hide'), btn.getAttribute('data-hidden') !== '1');
+        lastSignature = '';
+        await poll();
+      } catch (e) {
+        toast(errText(e), 'err');
+      }
+    });
+  }
+  const chatForm = $('#wb-chat-form');
+  if (chatForm) {
+    chatForm.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const input = $('#wb-chat-input');
+      const body = (input.value || '').trim();
+      if (!body) return;
+      input.value = '';
+      try {
+        await api.adminWebinarPostMessage(id, body);
+        lastSignature = '';
+        await poll();
+      } catch (e) {
+        toast(errText(e), 'err');
+      }
+    });
+  }
 }
 
 // Batch 156: the platform fingerprint ledger + similarity report
@@ -13480,6 +13783,7 @@ const PAGES = {
   dashboard: pageDashboard,
   leads: pageLeads,
   websites: pageWebsites,
+  webinars: pageWebinars,
   fingerprints: pageFingerprints,
   archives: pageArchives,
   domains: pageDomains,
@@ -13580,7 +13884,7 @@ async function navigate() {
       '<div class="card error-card"><h2>Page not found</h2><p>Choose a page from the navigation.</p></div>';
     return;
   }
-  if ((route === 'admin' || route === 'mailing-list') && !currentUserIsSuperAdmin) {
+  if ((route === 'admin' || route === 'mailing-list' || route === 'webinars') && !currentUserIsSuperAdmin) {
     view.innerHTML =
       '<div class="card error-card"><h2>Super admin only</h2><p>Your account is not a platform administrator.</p></div>';
     return;

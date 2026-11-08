@@ -18,8 +18,8 @@
  * expands on navigation — the active item is never hidden.
  */
 // Batch 161: 'assistant' leads — Ely ordered the Assistant link
-// BEFORE Dashboard in the staff app too.
-const NAV_TOP_LEVEL = ['assistant', 'dashboard', 'leads', 'websites', 'fingerprints'];
+// BEFORE Dashboard in the staff app too. Batch 163: 'webinars' after websites.
+const NAV_TOP_LEVEL = ['assistant', 'dashboard', 'leads', 'websites', 'webinars', 'fingerprints'];
 
 const NAV_GROUPS = [
   { id: 'work', label: 'Work', items: ['archives', 'design', 'outreach', 'pipeline'] },

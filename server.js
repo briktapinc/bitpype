@@ -40,6 +40,8 @@ const creatorRoutes = require('./server/routes/creator');
 const partnerRoutes = require('./server/routes/partner');
 const partnersRoutes = require('./server/routes/partners');
 const mailingListPublicRoutes = require('./server/routes/mailingListPublic');
+// Batch 163: public webinar gate + room (signed gate cookie, no session).
+const webinarsPublicRoutes = require('./server/routes/webinarsPublic');
 const newsletterPublicRoutes = require('./server/routes/newsletterPublic');
 // Batch 59: public install-script callback + bundle download.
 const hostingerCallbackRoutes = require('./server/routes/hostingerCallback');
@@ -473,6 +475,9 @@ if (!SINGLE_SITE) {
   // Batch 71: public unsubscribe link for the Admin mailing list
   // (HMAC token, no session — flips one subscriber, nothing else exposed).
   app.use('/api/v1/mailing-list', mailingListPublicRoutes);
+  // Batch 163: webinars are a platform surface (staff-created, public
+  // gate) — never mounted on a single-site clone.
+  app.use(webinarsPublicRoutes);
   // Batch 59: Hostinger one-click deploy — a customer VM's install
   // script phones home here and downloads its source bundle here
   // (per-deployment token auth inside the router; no session/workspace).

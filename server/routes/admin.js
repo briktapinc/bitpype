@@ -1033,4 +1033,119 @@ router.post('/mailing-list/send', async (req, res) => {
   }
 });
 
+// ---------- Webinars (Batch 163) ----------
+// Platform-level, staff (super admin) only like everything else in
+// this router. Ely creates webinars here; the public side is the gate
+// + room in server/routes/webinarsPublic.js. Full rules in
+// server/webinars.js.
+const webinars = require('../webinars');
+
+function webinarPayload(w, req) {
+  if (!w) return w;
+  const origin = (() => {
+    try {
+      return new URL(require('../stripeClient').appUrl()).origin;
+    } catch {
+      return '';
+    }
+  })();
+  return { ...w, sharePath: webinars.sharePath(w), shareUrl: origin ? origin + webinars.sharePath(w) : webinars.sharePath(w), chatEffectivelyOpen: webinars.chatEffectivelyOpen(w) };
+}
+
+router.get('/webinars', async (req, res) => {
+  try {
+    const rows = await webinars.listWebinars();
+    ok(res, { webinars: rows.map((w) => webinarPayload(w, req)) });
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.post('/webinars', async (req, res) => {
+  try {
+    const w = await webinars.createWebinar(req.body || {}, req.session.userId);
+    await platform.audit(req.session.userId, 'webinar.create', `id=${w.id} slug=${w.slug} title=${JSON.stringify(w.title)}`);
+    ok(res, { webinar: webinarPayload(w, req) });
+  } catch (e) {
+    fail(res, e, e.code === 'VALIDATION' ? 400 : 500);
+  }
+});
+router.get('/webinars/:id', async (req, res) => {
+  try {
+    const w = await webinars.getWebinarById(req.params.id);
+    if (!w) return fail(res, Object.assign(new Error('Webinar not found'), { code: 'NOT_FOUND' }), 404);
+    ok(res, { webinar: webinarPayload(w, req) });
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.patch('/webinars/:id', async (req, res) => {
+  try {
+    const w = await webinars.updateWebinar(req.params.id, req.body || {});
+    await platform.audit(req.session.userId, 'webinar.update', `id=${w.id} status=${w.status}`);
+    ok(res, { webinar: webinarPayload(w, req) });
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.code === 'VALIDATION' ? 400 : 500);
+  }
+});
+router.delete('/webinars/:id', async (req, res) => {
+  try {
+    const result = await webinars.deleteWebinar(req.params.id);
+    await platform.audit(req.session.userId, 'webinar.delete', `id=${result.id} slug=${result.slug}`);
+    ok(res, result);
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 500);
+  }
+});
+router.post('/webinars/:id/regen-code', async (req, res) => {
+  try {
+    const w = await webinars.regenerateCode(req.params.id);
+    await platform.audit(req.session.userId, 'webinar.regen_code', `id=${w.id} slug=${w.slug}`);
+    ok(res, { webinar: webinarPayload(w, req) });
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 500);
+  }
+});
+router.get('/webinars/:id/registrations', async (req, res) => {
+  try {
+    const w = await webinars.getWebinarById(req.params.id);
+    if (!w) return fail(res, Object.assign(new Error('Webinar not found'), { code: 'NOT_FOUND' }), 404);
+    ok(res, { registrations: await webinars.listRegistrations(w.id) });
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.get('/webinars/:id/messages', async (req, res) => {
+  try {
+    const w = await webinars.getWebinarById(req.params.id);
+    if (!w) return fail(res, Object.assign(new Error('Webinar not found'), { code: 'NOT_FOUND' }), 404);
+    const messages = await webinars.listMessages(w.id, {
+      afterId: Number(req.query.after || 0),
+      includeHidden: true,
+      limit: Number(req.query.limit || 200),
+    });
+    ok(res, { messages, chatEffectivelyOpen: webinars.chatEffectivelyOpen(w), status: w.status });
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.post('/webinars/:id/messages', async (req, res) => {
+  try {
+    const w = await webinars.getWebinarById(req.params.id);
+    if (!w) return fail(res, Object.assign(new Error('Webinar not found'), { code: 'NOT_FOUND' }), 404);
+    const hostName = 'Host';
+    const message = await webinars.postMessage(w, { hostName, body: (req.body || {}).body });
+    ok(res, { message });
+  } catch (e) {
+    fail(res, e, e.code === 'VALIDATION' ? 400 : 500);
+  }
+});
+router.post('/webinars/:id/messages/:mid/hide', async (req, res) => {
+  try {
+    const message = await webinars.setMessageHidden(req.params.id, req.params.mid, !!(req.body || {}).hidden);
+    ok(res, { message });
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 500);
+  }
+});
+
 module.exports = router;

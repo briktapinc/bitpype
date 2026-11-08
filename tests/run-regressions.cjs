@@ -159,6 +159,7 @@ const checks = [
   'batch159-fingerprint-effective-brand',
   'batch161-assistant-chat-regressions',
   'batch162-lead-calling-regressions',
+  'batch163-webinars-regressions',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');

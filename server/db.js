@@ -522,6 +522,44 @@ async function migrate() {
         created_by INTEGER,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
+      CREATE TABLE IF NOT EXISTS webinars (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        slug TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        scheduled_at TEXT,
+        youtube_id TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'scheduled',
+        chat_open INTEGER,
+        access_code TEXT NOT NULL DEFAULT '',
+        created_by INTEGER,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE IF NOT EXISTS webinar_registrations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        webinar_id INTEGER NOT NULL,
+        name TEXT NOT NULL DEFAULT '',
+        email TEXT NOT NULL DEFAULT '',
+        email_norm TEXT NOT NULL DEFAULT '',
+        phone TEXT NOT NULL DEFAULT '',
+        contact_id INTEGER,
+        registered_at TEXT NOT NULL DEFAULT (datetime('now')),
+        joined_at TEXT,
+        UNIQUE (webinar_id, email_norm)
+      );
+      CREATE INDEX IF NOT EXISTS idx_webinar_regs ON webinar_registrations (webinar_id, id);
+      CREATE TABLE IF NOT EXISTS webinar_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        webinar_id INTEGER NOT NULL,
+        registration_id INTEGER,
+        author_name TEXT NOT NULL DEFAULT '',
+        is_host INTEGER NOT NULL DEFAULT 0,
+        body TEXT NOT NULL DEFAULT '',
+        hidden INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_webinar_msgs ON webinar_messages (webinar_id, id);
       CREATE TABLE IF NOT EXISTS partner_earnings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         partner_user_id INTEGER NOT NULL,
@@ -1153,6 +1191,51 @@ async function migrate() {
         created_by BIGINT UNSIGNED NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         KEY idx_mailing_list_sends_at (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS webinars (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        slug VARCHAR(160) NOT NULL,
+        title VARCHAR(300) NOT NULL DEFAULT '',
+        description MEDIUMTEXT NOT NULL,
+        scheduled_at DATETIME NULL,
+        youtube_id VARCHAR(20) NOT NULL DEFAULT '',
+        status VARCHAR(20) NOT NULL DEFAULT 'scheduled',
+        chat_open TINYINT NULL,
+        access_code VARCHAR(16) NOT NULL DEFAULT '',
+        created_by BIGINT UNSIGNED NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_webinars_slug (slug)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS webinar_registrations (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        webinar_id BIGINT UNSIGNED NOT NULL,
+        name VARCHAR(200) NOT NULL DEFAULT '',
+        email VARCHAR(254) NOT NULL DEFAULT '',
+        email_norm VARCHAR(254) NOT NULL DEFAULT '',
+        phone VARCHAR(60) NOT NULL DEFAULT '',
+        contact_id BIGINT UNSIGNED NULL,
+        registered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        joined_at DATETIME NULL,
+        UNIQUE KEY uq_webinar_reg (webinar_id, email_norm),
+        KEY idx_webinar_regs (webinar_id, id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS webinar_messages (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        webinar_id BIGINT UNSIGNED NOT NULL,
+        registration_id BIGINT UNSIGNED NULL,
+        author_name VARCHAR(200) NOT NULL DEFAULT '',
+        is_host TINYINT NOT NULL DEFAULT 0,
+        body TEXT NOT NULL,
+        hidden TINYINT NOT NULL DEFAULT 0,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY idx_webinar_msgs (webinar_id, id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
     await conn.query(`
