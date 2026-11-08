@@ -56,6 +56,7 @@ const INVENTORY = [
   ['dashboard', 'Dashboard'],
   ['leads', 'Leads'],
   ['websites', 'Websites'],
+  ['webinars', 'Webinars'], // Batch 163: webinars join the top level beside Websites (deliberate growth)
   ['fingerprints', 'Fingerprints'], // Batch 156: the fingerprint ledger joins the top level beside Websites
   ['archives', 'Archives'],
   ['domains', 'Domains'],
@@ -124,7 +125,7 @@ check('config: every inventory route appears exactly once across top-level + gro
 });
 
 check('config: top-level daily drivers + group labels/membership pinned', () => {
-  assert.deepEqual(NavGroups.NAV_TOP_LEVEL, ['dashboard', 'leads', 'websites', 'fingerprints']); // Batch 156: fingerprints top-level
+  assert.deepEqual(NavGroups.NAV_TOP_LEVEL, ['dashboard', 'leads', 'websites', 'webinars', 'fingerprints']); // Batch 156: fingerprints top-level; Batch 163: webinars top-level
   assert.deepEqual(
     NavGroups.NAV_GROUPS.map((g) => [g.id, g.label]),
     [

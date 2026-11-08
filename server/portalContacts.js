@@ -152,6 +152,24 @@ function ensureTables(db) {
   } catch {
     /* race / exists */
   }
+  // Batch 163: Webinar registrations reference their platform
+  // webinar_registrations row the same way (one capture event per
+  // registration, deduped by the index).
+  try {
+    const cols = db
+      .prepare('PRAGMA table_info(leadscout_events)')
+      .all()
+      .map((c) => String(c.name || ''));
+    if (!cols.includes('webinar_registration_id')) {
+      db.exec('ALTER TABLE leadscout_events ADD COLUMN webinar_registration_id INTEGER');
+    }
+    db.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_leadscout_webinar_unique
+       ON leadscout_events(webinar_registration_id) WHERE webinar_registration_id IS NOT NULL`
+    );
+  } catch {
+    /* race / exists */
+  }
   // SMS opt-in state (Batch 25): the consent record lives on the contact
   // itself — sms_opted_in + the consent timestamp + the source are the
   // business's proof of consent. sms_opted_out_at is written by any
@@ -1243,9 +1261,73 @@ function retryOpenFailures(db, { leadId = null } = {}) {
   return { tried: open.length, resolved, health: captureHealth(db, { leadId }) };
 }
 
+/**
+ * Batch 163 — a webinar registrant becomes a LeadScout contact event,
+ * exactly like a newsletter signup: one deduped contact per person
+ * (email/phone), one event per webinar registration (deduped by
+ * webinar_registration_id), source label "Webinar — <title>". The
+ * webinar lives at platform level, so there is no site lead — leadId
+ * is null and the rental stamp resolves empty.
+ */
+function captureFromWebinar(db, { registration, webinarTitle } = {}) {
+  ensureTables(db);
+  try {
+    if (!registration || !registration.id) throw fail('VALIDATION', 'webinar registration required');
+    const fields = {
+      name: registration.name || '',
+      email: registration.email || '',
+      phone: registration.phone || '',
+    };
+    if (!fields.email && !fields.phone) {
+      return { skipped: true, reason: 'no_identity' };
+    }
+    const contact = upsertContact(db, fields);
+    const existing = db
+      .prepare('SELECT id FROM leadscout_events WHERE webinar_registration_id = ?')
+      .get(Number(registration.id));
+    if (existing) return { contact, eventId: existing.id, deduped: true };
+    const stamp = rentalStamp(db, null);
+    const info = db
+      .prepare(
+        `
+      INSERT INTO leadscout_events
+        (contact_id, lead_id, kind, source_label, page_slug, webinar_registration_id, payload_json,
+         website_id, tenant_lead_id, rental_id)
+      VALUES (?, NULL, 'webinar', ?, ?, ?, ?, ?, ?, ?)
+    `
+      )
+      .run(
+        contact.id,
+        `Webinar — ${String(webinarTitle || 'Webinar').slice(0, 200)}`,
+        '',
+        Number(registration.id),
+        JSON.stringify({
+          email: registration.email || '',
+          name: registration.name || '',
+          phone: registration.phone || '',
+          source: 'webinar-gate',
+        }).slice(0, 8000),
+        stamp.websiteId,
+        stamp.tenantLeadId,
+        stamp.rentalId
+      );
+    return { contact, eventId: Number(info.lastInsertRowid) };
+  } catch (e) {
+    recordFailure(db, {
+      kind: 'webinar',
+      leadId: null,
+      refId: registration && registration.id,
+      error: e.message || String(e),
+      payload: { registration },
+    });
+    return { error: e.message || String(e) };
+  }
+}
+
 module.exports = {
   ensureTables,
   upsertContact,
+  captureFromWebinar,
   captureFromSubmission,
   captureFromBooking,
   captureFromEstimate,

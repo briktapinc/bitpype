@@ -17,7 +17,7 @@
  * is respected, EXCEPT the group containing the current route always
  * expands on navigation — the active item is never hidden.
  */
-const NAV_TOP_LEVEL = ['dashboard', 'leads', 'websites', 'fingerprints'];
+const NAV_TOP_LEVEL = ['dashboard', 'leads', 'websites', 'webinars', 'fingerprints'];
 
 const NAV_GROUPS = [
   { id: 'work', label: 'Work', items: ['archives', 'design', 'outreach', 'pipeline'] },

@@ -548,6 +548,16 @@ window.ScoutApi = (() => {
     // ---- Platform super admin ----
     adminOverview: () => get('/admin/overview'),
     // Mailing list + newsletter (Batch 71, super admin only)
+    adminWebinars: () => get('/admin/webinars'),
+    adminCreateWebinar: (body) => post('/admin/webinars', body),
+    adminUpdateWebinar: (id, body) => patch('/admin/webinars/' + id, body),
+    adminDeleteWebinar: (id) => del('/admin/webinars/' + id),
+    adminRegenWebinarCode: (id) => post('/admin/webinars/' + id + '/regen-code', {}),
+    adminWebinarRegistrations: (id) => get('/admin/webinars/' + id + '/registrations'),
+    adminWebinarMessages: (id, q) => get('/admin/webinars/' + id + '/messages', q),
+    adminWebinarPostMessage: (id, body) => post('/admin/webinars/' + id + '/messages', { body }),
+    adminWebinarHideMessage: (id, mid, hidden) =>
+      post('/admin/webinars/' + id + '/messages/' + mid + '/hide', { hidden }),
     adminMailingListSubscribers: (q) => get('/admin/mailing-list/subscribers', q),
     adminMailingListAdd: (body) => post('/admin/mailing-list/subscribers', body),
     adminMailingListImport: (text) => post('/admin/mailing-list/subscribers/import', { text }),
