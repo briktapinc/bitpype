@@ -217,6 +217,8 @@ window.ScoutApi = (() => {
     // ---- websites ----
     websites: (q) => get('/websites', q),
     websiteGet: (id) => get('/websites/' + id),
+    websiteFingerprint: (id) => get('/websites/' + id + '/fingerprint'),
+    fingerprintsLedger: () => get('/fingerprints'),
     websiteDelete: (id) => del('/websites/' + id),
     websitesArchived: () => get('/websites/archives'),
     websiteUnarchive: (id) => post('/websites/' + id + '/restore', {}),

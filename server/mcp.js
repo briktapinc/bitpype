@@ -2138,6 +2138,12 @@ function toolDefs({ clientScoped = false } = {}) {
       inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
     },
     {
+      name: 'website.fingerprint',
+      description:
+        "Get a website's site fingerprint (Batch 156, spec §4a): the layout half (homepage content-section sequence, page-slug set, nav pattern, hero composition) and brand half (font pairing, palette, logo treatment) computed from the stored model, plus its hash and every similarity pair it participates in. Pairs are report-mode only: flagged pairs are cross-client DOUBLE matches (layout matches AND branding close); same-client pairs are listed separately and never flagged. Consult this (and the staff fingerprint ledger) before finalising a new build's design so no two client sites look the same.",
+      inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    },
+    {
       name: 'website.checkLive',
       description:
         "Fetch the site's live preview URL and each page path under it; returns per-URL HTTP status so agents can verify a publish actually serves (200s) before reporting done. Errors NO_PREVIEW_URL when the site has no preview_url.",
@@ -5166,6 +5172,7 @@ async function callTool(workspaceId, name, args = {}, ctx = {}) {
 
     if (name === 'website.list') return { ok: true, data: domain.sitesList(ws, a) };
     if (name === 'website.get') return { ok: true, data: { site: domain.sitesGet(ws, a.id) } };
+    if (name === 'website.fingerprint') return { ok: true, data: await domain.siteFingerprintGet(ws, a.id) };
     if (name === 'website.checkLive') {
       const site = domain.sitesGet(ws, a.id);
       if (!site) return { ok: false, error: 'NOT_FOUND' };

@@ -16,6 +16,7 @@ const ROUTES = [
   'dashboard',
   'leads',
   'websites',
+  'fingerprints',
   'archives',
   'domains',
   'design',
@@ -43,6 +44,7 @@ const ROUTE_LABELS = {
   dashboard: 'Dashboard',
   leads: 'Leads',
   websites: 'Websites',
+  fingerprints: 'Site fingerprints',
   archives: 'Archives',
   design: 'Design',
   social: 'Social',
@@ -3226,6 +3228,77 @@ async function pageArchives() {
   await load();
 }
 
+// Batch 156: the platform fingerprint ledger + similarity report
+// (report mode only — a flagged pair is a double match: layout matches
+// AND branding is close; nothing is blocked on it).
+async function pageFingerprints() {
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Site fingerprints</h1><p class="lede">Every live site's fingerprint — layout half and brand half, computed from the stored model on read. Two sites are flagged only on a <strong>double match</strong>: identical homepage section sequence and page set <em>and</em> close branding (same font pairing, near palette). Pairs inside one client's workspace are listed separately and never flagged.</p></div></div>
+    <div id="fp-body"><p class="hint"><span class="load-spin" aria-hidden="true"></span> Loading ledger…</p></div>`;
+
+  let d;
+  try {
+    const r = await api.fingerprintsLedger();
+    d = r.data || {};
+  } catch (e) {
+    const b = $('#fp-body');
+    if (b)
+      b.innerHTML = `<div class="card error-card"><h2>Ledger unavailable</h2><p>${esc(errText(e))}</p><p class="hint">The ledger spans every client's sites, so it is restricted to platform admins.</p></div>`;
+    return;
+  }
+  const sites = asList(d, ['sites']);
+  const report = d.report || { flagged: [], sameClient: [], counts: {} };
+  const flagged = report.flagged || [];
+  const sameClient = report.sameClient || [];
+  const pairLineHtml = (p) =>
+    `<tr>
+      <td><a href="#/websites/${esc(p.a.websiteId)}">${esc(p.a.name || '#' + p.a.websiteId)}</a> <span class="shell-dim">(ws ${esc(p.a.workspaceId)})</span></td>
+      <td><a href="#/websites/${esc(p.b.websiteId)}">${esc(p.b.name || '#' + p.b.websiteId)}</a> <span class="shell-dim">(ws ${esc(p.b.workspaceId)})</span></td>
+      <td>fonts identical · primary ΔE ${esc(p.evidence && p.evidence.primaryDeltaE != null ? String(p.evidence.primaryDeltaE) : '—')}</td>
+    </tr>`;
+  const body = $('#fp-body');
+  if (!body) return;
+  body.innerHTML = `
+    <div class="card">
+      <h3>Ledger — ${esc(String(sites.length))} sites</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Site</th><th>Client</th><th>Fonts (heading + body)</th><th>Primary</th><th>Home sections</th><th>Fingerprint</th></tr></thead>
+        <tbody>
+          ${
+            sites
+              .map(
+                (s) => `<tr>
+            <td><a href="#/websites/${esc(s.websiteId)}">${esc(s.name || '#' + s.websiteId)}</a></td>
+            <td>${esc(s.businessName || '—')}</td>
+            <td>${esc(((s.brand || {}).fonts || {}).heading || '—')} + ${esc(((s.brand || {}).fonts || {}).body || '—')}</td>
+            <td>${esc(((s.brand || {}).palette || {}).primary || '—')}</td>
+            <td>${esc(((s.layout || {}).homeSections || []).join(' > ') || '—')}</td>
+            <td><code>${esc(s.hash || '—')}</code></td>
+          </tr>`
+              )
+              .join('') || '<tr><td colspan="6" class="empty">No sites yet.</td></tr>'
+          }
+        </tbody>
+      </table></div>
+    </div>
+    <div class="card">
+      <h3>Flagged pairs — cross-client double matches (${esc(String(flagged.length))})</h3>
+      ${
+        flagged.length
+          ? `<div class="table-wrap"><table><thead><tr><th>Site A</th><th>Site B</th><th>Evidence</th></tr></thead><tbody>${flagged.map(pairLineHtml).join('')}</tbody></table></div>`
+          : '<p class="hint">No double-matches — under the rule, every client\'s site is distinct from every other client\'s.</p>'
+      }
+    </div>
+    <div class="card">
+      <h3>Same-client pairs (${esc(String(sameClient.length))})</h3>
+      ${
+        sameClient.length
+          ? `<div class="table-wrap"><table><thead><tr><th>Site A</th><th>Site B</th><th>Evidence</th></tr></thead><tbody>${sameClient.map(pairLineHtml).join('')}</tbody></table></div>`
+          : '<p class="hint">No same-client double matches. A client\'s own sites may legitimately share layout and branding (locations, sister sites) — those are reported here, never flagged.</p>'
+      }
+    </div>`;
+}
+
 async function pageWebsites(param) {
   if (param) return pageWebsiteDetail(Number(param));
 
@@ -3267,8 +3340,8 @@ async function pageWebsites(param) {
       <select id="w-status"><option value="">All statuses</option>${optionList(['draft', 'qa_pending', 'approved', 'ready', 'published'], sitesState.status)}</select>
     </div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Name</th><th>Lead</th><th>Status</th><th>Origin</th><th>Updated</th><th></th></tr></thead>
-      <tbody id="w-body">${loadRowHtml(6, 'Loading websites…')}</tbody>
+      <thead><tr><th>Name</th><th>Lead</th><th>Status</th><th>Origin</th><th>Fingerprint</th><th>Updated</th><th></th></tr></thead>
+      <tbody id="w-body">${loadRowHtml(7, 'Loading websites…')}</tbody>
     </table></div>
     <div class="pagination" id="w-pager"></div>`;
 
@@ -3346,7 +3419,7 @@ async function pageWebsites(param) {
     } catch (e) {
       const b = $('#w-body');
       if (!mine() || !b) return;
-      b.innerHTML = loadErrorRowHtml(6, 'w-retry', errText(e));
+      b.innerHTML = loadErrorRowHtml(7, 'w-retry', errText(e));
       return;
     }
     const body = $('#w-body');
@@ -3367,10 +3440,10 @@ async function pageWebsites(param) {
           (s) => `<tr>
       <td><button class="link-btn" data-act="open" data-id="${s.id}">${esc(s.name)}</button></td>
       <td>${esc(s.business_name || '#' + s.lead_id)}</td>
-      <td>${statusBadge(s.status)}</td><td>${esc(s.origin || '—')}</td><td>${esc(fmtDate(s.updated_at))}</td>
+      <td>${statusBadge(s.status)}</td><td>${esc(s.origin || '—')}</td><td><code>${esc(s.fingerprint_hash || '—')}</code></td><td>${esc(fmtDate(s.updated_at))}</td>
       <td class="actions"><button type="button" class="btn small danger" data-act="delete" data-id="${s.id}" data-name="${esc(s.name)}">Archive</button></td></tr>`
         )
-        .join('') || '<tr><td colspan="6" class="empty">No websites yet. Build one for a lead above.</td></tr>';
+        .join('') || '<tr><td colspan="7" class="empty">No websites yet. Build one for a lead above.</td></tr>';
     pager($('#w-pager'), { page: d.page || 1, pages: d.pages || 1, total: d.total || sites.length }, (p) => {
       sitesState.page = p;
       load();
@@ -3385,7 +3458,7 @@ async function pageWebsites(param) {
   delegate(view, {
     'w-retry': () => {
       const b = $('#w-body');
-      if (b) b.innerHTML = loadRowHtml(6, 'Loading websites…');
+      if (b) b.innerHTML = loadRowHtml(7, 'Loading websites…');
       load();
     },
     open: (t) => {
@@ -3531,6 +3604,20 @@ async function pageWebsiteDetail(id) {
             </div>`;
   const cf = cfR ? cfR.data : null;
   let structPageIdx = 0;
+  // Batch 156: site fingerprint card (display-only; the halves + hash
+  // arrive on site.fingerprint from sitesGet, computed on read).
+  const fp = site.fingerprint || null;
+  const fpLayout = (fp && fp.layout) || {};
+  const fpBrand = (fp && fp.brand) || {};
+  const fpFonts = fpBrand.fonts || {};
+  const fpPalette = fpBrand.palette || {};
+  const fpLogo = fpBrand.logo || {};
+  const fingerprintHtml = fp
+    ? `<p class="hint" style="margin-bottom:6px">${esc(fp.summary || '')}</p>
+       <p class="hint">Hash <code>${esc(fp.hash || '—')}</code> · layout <code>${esc(fp.layoutHash || '—')}</code> · brand <code>${esc(fp.brandHash || '—')}</code></p>
+       <p class="hint">Home sections: ${esc((fpLayout.homeSections || []).join(' > ') || '—')}</p>
+       <p class="hint">Fonts: ${esc(fpFonts.heading || '—')} + ${esc(fpFonts.body || '—')} · Primary: ${esc(fpPalette.primary || '—')} · Logo: ${esc(fpLogo.mode || 'text')}</p>`
+    : '<p class="hint">Fingerprint unavailable for this site.</p>';
 
   view.innerHTML = `
     <div class="page-head">
@@ -3585,6 +3672,10 @@ async function pageWebsiteDetail(id) {
         <div class="card"><h3>Actions &amp; results</h3>
           <div id="wd-out" class="hint">Run QA, export, or publish to see results here.</div>
           ${cf && !cf.configured ? '<p class="hint">Cloudflare is not configured. <a href="#/settings/cloudflare">Add credentials in Settings</a> to publish.</p>' : ''}
+        </div>
+        <div class="card"><h3>Site fingerprint</h3>
+          ${fingerprintHtml}
+          <p class="hint" style="margin-top:6px"><a href="#/fingerprints">Open the fingerprint ledger</a> — every site's halves plus the cross-client similarity report (report mode only; nothing is blocked).</p>
         </div>
         <div class="card"><h3>Postcard &amp; claim QR</h3>
           <p class="hint">Printable 4×6 postcard with a site QR and a claim QR (Yes / No). Claim uses the same interest path as outreach links.</p>
@@ -12514,6 +12605,7 @@ const PAGES = {
   dashboard: pageDashboard,
   leads: pageLeads,
   websites: pageWebsites,
+  fingerprints: pageFingerprints,
   archives: pageArchives,
   domains: pageDomains,
   design: pageDesign,

@@ -9,7 +9,13 @@ const express = require('express');
 const domain = require('../domain');
 const idempotency = require('../idempotency');
 const partners = require('../partners');
-const { requireRole, requireTokenLeadScope, denyLeadScopedToken, pinTokenLeadFilter } = require('../middleware');
+const {
+  requireRole,
+  requireTokenLeadScope,
+  denyLeadScopedToken,
+  pinTokenLeadFilter,
+  requireSuperAdmin,
+} = require('../middleware');
 const apiErrors = require('../apiErrors');
 
 const router = express.Router();
@@ -1021,6 +1027,24 @@ router.post('/websites/:id/standalone-backup', scopeWebsite, async (req, res) =>
     });
   } catch (e) {
     if (!res.headersSent) fail(res, e, (e && e.status) || 500);
+  }
+});
+// Batch 156: site fingerprint — this site's two halves plus every
+// similarity pair it participates in (report mode; spec §4a).
+router.get('/websites/:id/fingerprint', scopeWebsite, async (req, res) => {
+  try {
+    ok(res, await domain.siteFingerprintGet(req.auth.workspaceId, Number(req.params.id)));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+// Batch 156: the platform-wide fingerprint ledger + similarity report.
+// Super-admin only: the ledger spans every client's sites by design.
+router.get('/fingerprints', requireSuperAdmin, async (req, res) => {
+  try {
+    ok(res, await domain.sitesFingerprintLedger());
+  } catch (e) {
+    fail(res, e);
   }
 });
 router.get('/websites/:id', scopeWebsite, (req, res) => {

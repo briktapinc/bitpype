@@ -15,6 +15,7 @@
 const path = require('path');
 const os = require('os');
 const { openWorkspaceDb, acquireWorkspaceDb, releaseWorkspaceDb } = require('./workspaceDb');
+const siteFingerprint = require('./siteFingerprint');
 
 /**
  * Run `fn` with the workspace's DB handle under a LEASE (Batch 145,
@@ -1438,12 +1439,33 @@ function sitesList(workspaceId, args = {}) {
     const rows = db
       .prepare(
         `SELECT w.id, w.lead_id, w.name, w.industry, w.status, w.origin, w.updated_at, w.archived_at,
+              w.theme, w.pages,
               l.business_name, l.category
        FROM websites w LEFT JOIN leads l ON l.id = w.lead_id
        ${where}
        ORDER BY w.updated_at DESC LIMIT ? OFFSET ?`
       )
       .all(...params, pageSize, offset);
+    // Batch 156: per-row fingerprint hash + summary for the staff list.
+    // Display-only, computed on read from the stored model (v1 keeps no
+    // cache, so a save shows on the next list call). The raw theme/pages
+    // blobs ride along only to be consumed here and are stripped before
+    // the rows leave — the list payload shape is otherwise unchanged.
+    for (const r of rows) {
+      try {
+        const fp = siteFingerprint.computeFingerprint({
+          theme: parseJsonField(r.theme, 'theme'),
+          pages: parseJsonField(r.pages, 'pages'),
+        });
+        r.fingerprint_hash = fp.hash;
+        r.fingerprint_summary = fp.summary;
+      } catch {
+        r.fingerprint_hash = null;
+        r.fingerprint_summary = null;
+      }
+      delete r.theme;
+      delete r.pages;
+    }
     return Object.assign({ sites: rows }, pageResult(rows, total, page, pageSize));
   });
 }
@@ -1527,9 +1549,127 @@ function sitesGet(workspaceId, id) {
     } catch {
       row.claim_popup = { state: 'unknown', reason: 'status unavailable' };
     }
+    // Batch 156: site fingerprint for the staff detail page (read-time,
+    // display-only, same pattern as claim_popup above). Computed from
+    // the stored model on every read — no cache in v1.
+    try {
+      row.fingerprint = siteFingerprint.computeFingerprint({ theme: row.theme, pages: row.pages });
+    } catch {
+      row.fingerprint = null;
+    }
     return row;
   });
 }
+/**
+ * Batch 156 — fingerprint ledger entries for EVERY workspace's live
+ * (non-archived) websites. Cross-workspace by design: the ledger is
+ * the platform's uniqueness baseline (spec §4a). A workspace whose
+ * tenant DB cannot be read is skipped, never fatal.
+ */
+async function fingerprintEntriesAllWorkspaces() {
+  const entries = [];
+  let wsRows = [];
+  try {
+    wsRows = await require('./db').query('SELECT id FROM workspaces ORDER BY id ASC');
+  } catch {
+    wsRows = [];
+  }
+  for (const w of wsRows) {
+    const workspaceId = Number(w.id);
+    try {
+      const sites = withDb(workspaceId, (db) => {
+        websiteEngine().ensureTables(db);
+        return db
+          .prepare(
+            `SELECT w.id, w.lead_id, w.name, w.theme, w.pages, l.business_name
+             FROM websites w LEFT JOIN leads l ON l.id = w.lead_id
+             WHERE w.archived_at IS NULL ORDER BY w.id ASC`
+          )
+          .all();
+      });
+      for (const s of sites) {
+        let fp = null;
+        try {
+          fp = siteFingerprint.computeFingerprint({
+            theme: parseJsonField(s.theme, 'theme'),
+            pages: parseJsonField(s.pages, 'pages'),
+          });
+        } catch {
+          fp = null;
+        }
+        if (!fp) continue;
+        entries.push({
+          workspaceId,
+          websiteId: Number(s.id),
+          leadId: s.lead_id != null ? Number(s.lead_id) : null,
+          name: s.name,
+          businessName: s.business_name || s.name,
+          fingerprint: fp,
+        });
+      }
+    } catch {
+      /* workspace without a readable tenant DB — skipped */
+    }
+  }
+  return entries;
+}
+
+/**
+ * Batch 156 — one site's fingerprint plus every similarity pair it
+ * participates in (flagged cross-client pairs and same-client pairs,
+ * reported separately; report mode only, nothing is blocked).
+ * Unknown id errors via siteRow's SITE_NOT_FOUND, like sitesGet.
+ */
+async function siteFingerprintGet(workspaceId, id) {
+  const siteId = Number(id);
+  const base = withDb(workspaceId, (db) => {
+    websiteEngine().ensureTables(db);
+    const row = siteRow(db, siteId);
+    return {
+      name: row.name,
+      fingerprint: siteFingerprint.computeFingerprint({ theme: row.theme, pages: row.pages }),
+    };
+  });
+  const entries = await fingerprintEntriesAllWorkspaces();
+  const report = siteFingerprint.similarityReport(entries);
+  const mine = (pairs) =>
+    pairs.filter(
+      (p) =>
+        (Number(p.a.workspaceId) === Number(workspaceId) && Number(p.a.websiteId) === siteId) ||
+        (Number(p.b.workspaceId) === Number(workspaceId) && Number(p.b.websiteId) === siteId)
+    );
+  return {
+    websiteId: siteId,
+    workspaceId: Number(workspaceId),
+    name: base.name,
+    fingerprint: base.fingerprint,
+    flaggedWith: mine(report.flagged),
+    sameClientWith: mine(report.sameClient),
+  };
+}
+
+/** Batch 156 — the platform fingerprint ledger + similarity report. */
+async function sitesFingerprintLedger() {
+  const entries = await fingerprintEntriesAllWorkspaces();
+  const report = siteFingerprint.similarityReport(entries);
+  return {
+    sites: entries.map((e) => ({
+      workspaceId: e.workspaceId,
+      websiteId: e.websiteId,
+      leadId: e.leadId,
+      name: e.name,
+      businessName: e.businessName,
+      hash: e.fingerprint.hash,
+      layoutHash: e.fingerprint.layoutHash,
+      brandHash: e.fingerprint.brandHash,
+      summary: e.fingerprint.summary,
+      layout: e.fingerprint.layout,
+      brand: e.fingerprint.brand,
+    })),
+    report,
+  };
+}
+
 /**
  * Batch 27 — delete is a SOFT delete (archive): the engine stamps
  * websites.archived_at and preserves everything (pages/versions, design
@@ -6404,6 +6544,8 @@ module.exports = {
   learningDistill,
   sitesList,
   sitesGet,
+  siteFingerprintGet,
+  sitesFingerprintLedger,
   sitesDelete,
   sitesRestoreSite,
   sitesPurgeSite,
