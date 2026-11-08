@@ -8292,6 +8292,8 @@
         <select id="googlereviews-min-rating">
           ${minOptions.map(([v, label]) => `<option value="${v}"${Number(cfg.min_rating || 0) === v ? ' selected' : ''}>${label}</option>`).join('')}
         </select></div>
+      <div class="field"><label><input type="checkbox" id="googlereviews-share-social"${cfg.share_to_social ? ' checked' : ''} /> Share new reviews to my social calendar</label>
+        <p class="hint">When on, new reviews at or above the minimum rating become draft posts on your social calendar — one per day, and nothing posts without your approval.</p></div>
       <div class="row" style="gap:6px">
         <button type="button" class="btn soft small" id="btn-googlereviews-config-save">Save review settings</button>
         <button type="button" class="btn ghost small" id="btn-googlereviews-refresh">Refresh reviews now</button>
@@ -12785,6 +12787,10 @@
           const n = document.getElementById(id);
           return n ? n.value : undefined;
         };
+        const chk = (id) => {
+          const n = document.getElementById(id);
+          return n ? !!n.checked : undefined;
+        };
         moduleMsg('Saving review settings…', true);
         try {
           const r = await api('/modules/googlereviews/config', {
@@ -12793,6 +12799,7 @@
               place_id: val('googlereviews-place-id'),
               max_reviews: Number(val('googlereviews-max-reviews')),
               min_rating: Number(val('googlereviews-min-rating')),
+              share_to_social: chk('googlereviews-share-social'),
             }),
           });
           if (r && r.preview) moduleState.googlereviews = r.preview;

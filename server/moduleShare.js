@@ -997,6 +997,144 @@ function renderNewsletterBlocks(db, leadId, blocks) {
   return { html: parts.join(''), report };
 }
 
+/* ========================================================================
+ * Batch 158 — GOOGLE REVIEWS → SOCIAL CALENDAR bridge (plan Phase 9;
+ * Ely's order 2026-11-07 "Build both now", default D9: approve-first
+ * drafts, no auto-publish in v1).
+ *
+ * Wiring follows the Batch 122 rule: the googlereviews module does NOT
+ * import the social calendar (or vice versa). siteModules stores a
+ * refreshed cache, then calls THIS layer; the layer reads the module's
+ * own config + RAW cache through the module's own readers and writes
+ * drafts through the calendar's own tables/conventions. No extra
+ * Places API calls — the cache is the only source.
+ *
+ * A review becomes a draft at most once, ever: the mapping persists in
+ * googlereviews_social_posts keyed on the review's stable identifier —
+ * the Places review name resource id when a future payload carries
+ * one, else a sha256 of author + publish_time + text (the fields the
+ * Batch 30 cached shape honestly stores).
+ * ====================================================================== */
+
+function googleReviewKey(review) {
+  if (review && review.name) return 'name:' + String(review.name);
+  const basis = [String((review && review.author) || ''), String((review && review.publish_time) || ''), String((review && review.text) || '')].join('\n');
+  return 'h:' + require('node:crypto').createHash('sha256').update(basis).digest('hex');
+}
+
+/** The draft caption: star row, the review text UNALTERED (module
+ * honesty rule), reviewer display name, Google attribution, and the
+ * place's Google Maps link when the payload carries one. Stored raw —
+ * the calendar renders captions escaped (portal esc() / batch
+ * escapeHtml), exactly like owner-written posts. */
+function googleReviewCaption(review, payload) {
+  const rating = Math.max(0, Math.min(5, Math.round(Number(review.rating) || 0)));
+  const lines = [];
+  if (rating > 0) lines.push('★'.repeat(rating));
+  if (review.text) lines.push(String(review.text));
+  const author = String(review.author || '').trim();
+  lines.push(author ? `— ${author} · Google review` : '— Google review');
+  const maps = payload && payload.google_maps_uri ? String(payload.google_maps_uri).trim() : '';
+  if (maps) lines.push(maps);
+  return lines.join('\n');
+}
+
+function shareGoogleReviewsToSocial(db, leadId) {
+  const id = Number(leadId);
+  if (!Number.isInteger(id) || id <= 0) return { created: 0, skipped: 0, reason: 'bad_lead' };
+  const config = modules.readGoogleReviewsConfig(db, id);
+  if (!config.share_to_social) return { created: 0, skipped: 0, reason: 'off' };
+  const cache = modules.readGoogleReviewsCache(db, id);
+  const payload = cache && cache.data;
+  if (!payload || !Array.isArray(payload.reviews)) return { created: 0, skipped: 0, reason: 'no_cache' };
+
+  const social = require('../src/socialMedia');
+  social.ensureTables(db);
+  db.exec(`CREATE TABLE IF NOT EXISTS googlereviews_social_posts (
+    lead_id INTEGER NOT NULL,
+    review_key TEXT NOT NULL,
+    social_post_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (lead_id, review_key)
+  )`);
+
+  const minRating = Number(config.min_rating) || 0;
+  const eligible = payload.reviews.filter((r) => r && (Number(r.rating) || 0) >= minRating);
+  const seen = new Set(
+    db
+      .prepare('SELECT review_key FROM googlereviews_social_posts WHERE lead_id = ?')
+      .all(id)
+      .map((r) => String(r.review_key))
+  );
+  const fresh = eligible.filter((r) => !seen.has(googleReviewKey(r)));
+  if (!fresh.length) return { created: 0, skipped: eligible.length, reason: 'no_new' };
+
+  let business = String(payload.name || '').trim();
+  try {
+    const lead = db.prepare('SELECT business_name FROM leads WHERE id = ?').get(id);
+    if (lead && lead.business_name) business = String(lead.business_name);
+  } catch {
+    /* the payload name is a fine fallback */
+  }
+
+  // The month's dedicated reviews campaign (calendar conventions:
+  // America/New_York, client approval required, posts at 14:00 UTC).
+  const now = new Date();
+  const ym = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+  const monthStart = `${ym}-01`;
+  const title = `${business || 'Business'} · Google reviews · ${ym}`;
+  let campaign = db
+    .prepare('SELECT * FROM social_campaigns WHERE lead_id = ? AND title = ? ORDER BY id DESC LIMIT 1')
+    .get(id, title);
+  if (!campaign) {
+    const info = db
+      .prepare(
+        `INSERT INTO social_campaigns (lead_id, title, month_start, status, brief, with_images, require_client_approval, client_email, timezone)
+         VALUES (?, ?, ?, 'active', ?, 0, 1, '', 'America/New_York')`
+      )
+      .run(id, title, monthStart, 'Google reviews shared to the calendar (Batch 158) — drafts need approval before anything posts.');
+    campaign = db.prepare('SELECT * FROM social_campaigns WHERE id = ?').get(Number(info.lastInsertRowid));
+  }
+  const maxDay = db.prepare('SELECT MAX(day_index) AS m FROM social_posts WHERE campaign_id = ?').get(campaign.id);
+  let dayIndex = (maxDay && maxDay.m) || 0;
+
+  // One review post per day: days already carrying a bridge post are
+  // taken; new drafts start tomorrow and step forward.
+  const usedDays = new Set();
+  for (const row of db
+    .prepare(
+      `SELECT p.scheduled_at AS at FROM googlereviews_social_posts m
+       JOIN social_posts p ON p.id = m.social_post_id WHERE m.lead_id = ?`
+    )
+    .all(id)) {
+    const d = String(row.at || '').slice(0, 10);
+    if (d) usedDays.add(d);
+  }
+  const dayMs = 24 * 60 * 60 * 1000;
+  let cursor = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) + dayMs;
+  const isoDay = (t) => new Date(t).toISOString().slice(0, 10);
+
+  const insertPost = db.prepare(
+    `INSERT INTO social_posts (campaign_id, lead_id, day_index, scheduled_at, caption, platforms, image_url, image_prompt, status)
+     VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, 'draft')`
+  );
+  const insertMap = db.prepare('INSERT INTO googlereviews_social_posts (lead_id, review_key, social_post_id) VALUES (?, ?, ?)');
+  const platforms = JSON.stringify(Array.isArray(social.PLATFORMS) && social.PLATFORMS.length ? social.PLATFORMS : ['facebook', 'instagram']);
+
+  let created = 0;
+  for (const review of fresh) {
+    while (usedDays.has(isoDay(cursor))) cursor += dayMs;
+    const scheduled = new Date(cursor + 14 * 60 * 60 * 1000).toISOString();
+    const caption = googleReviewCaption(review, payload).slice(0, 2200);
+    const info = insertPost.run(campaign.id, id, (dayIndex += 1), scheduled, caption, platforms);
+    insertMap.run(id, googleReviewKey(review), Number(info.lastInsertRowid));
+    usedDays.add(isoDay(cursor));
+    cursor += dayMs;
+    created += 1;
+  }
+  return { created, skipped: eligible.length - fresh.length, reason: 'ok' };
+}
+
 module.exports = {
   SHARE_REGISTRY,
   ensureTables,
@@ -1017,5 +1155,8 @@ module.exports = {
   eventGalleryAlbumId,
   resolveEventGallery,
   renderNewsletterBlocks,
+  shareGoogleReviewsToSocial,
+  googleReviewKey,
+  googleReviewCaption,
   EVENT_GALLERY_ROLE,
 };

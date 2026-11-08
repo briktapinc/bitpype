@@ -648,6 +648,18 @@ function ensureTables(db) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- Batch 158: reviews → social dedupe map. A review becomes a
+    -- social-calendar draft at most once, ever; review_key is the
+    -- Places review name resource id when the cached payload carries
+    -- one, else a sha256 of author+publish_time+text.
+    CREATE TABLE IF NOT EXISTS googlereviews_social_posts (
+      lead_id INTEGER NOT NULL,
+      review_key TEXT NOT NULL,
+      social_post_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (lead_id, review_key)
+    );
+
     CREATE TABLE IF NOT EXISTS datatable_configs (
       lead_id INTEGER PRIMARY KEY,
       title TEXT NOT NULL DEFAULT '',
@@ -1067,6 +1079,15 @@ function ensureTables(db) {
     }
     if (orderCols.length && !orderCols.includes('variant_label')) {
       db.exec("ALTER TABLE ecommerce_orders ADD COLUMN variant_label TEXT NOT NULL DEFAULT ''");
+    }
+    // Batch 158: per-site reviews → social calendar toggle (existing
+    // config rows predate the column).
+    const grCols = db
+      .prepare('PRAGMA table_info(googlereviews_configs)')
+      .all()
+      .map((c) => String(c.name || ''));
+    if (grCols.length && !grCols.includes('share_to_social')) {
+      db.exec('ALTER TABLE googlereviews_configs ADD COLUMN share_to_social INTEGER NOT NULL DEFAULT 0');
     }
     const callCols = db
       .prepare('PRAGMA table_info(call_logs)')
@@ -8997,6 +9018,7 @@ function readGoogleReviewsConfig(db, leadId) {
       place_id: '',
       max_reviews: GOOGLE_REVIEWS_DEFAULT_MAX,
       min_rating: 0,
+      share_to_social: 0,
       updated_at: null,
     };
   }
@@ -9005,6 +9027,7 @@ function readGoogleReviewsConfig(db, leadId) {
     place_id: String(row.place_id || '').trim(),
     max_reviews: clampGoogleReviewsMax(row.max_reviews),
     min_rating: normalizeGoogleMinRating(row.min_rating),
+    share_to_social: row.share_to_social ? 1 : 0,
   };
 }
 
@@ -9033,9 +9056,11 @@ function updateGoogleReviewsConfig(db, leadId, data = {}) {
     data.min_rating != null || data.minRating != null
       ? normalizeGoogleMinRating(data.min_rating != null ? data.min_rating : data.minRating, row.min_rating)
       : row.min_rating;
+  const shareRaw = data.share_to_social != null ? data.share_to_social : data.shareToSocial;
+  const shareToSocial = shareRaw != null ? (shareRaw === true || Number(shareRaw) === 1 ? 1 : 0) : row.share_to_social ? 1 : 0;
   db.prepare(
-    `UPDATE googlereviews_configs SET place_id = ?, max_reviews = ?, min_rating = ?, updated_at = datetime('now') WHERE lead_id = ?`
-  ).run(placeId, maxReviews, minRating, Number(leadId));
+    `UPDATE googlereviews_configs SET place_id = ?, max_reviews = ?, min_rating = ?, share_to_social = ?, updated_at = datetime('now') WHERE lead_id = ?`
+  ).run(placeId, maxReviews, minRating, shareToSocial, Number(leadId));
   return getGoogleReviewsConfig(db, leadId);
 }
 
@@ -9092,6 +9117,15 @@ function storeGoogleReviewsCache(db, leadId, payload) {
        payload_json = excluded.payload_json, fetched_at = excluded.fetched_at,
        last_error = '', updated_at = datetime('now')`
   ).run(Number(leadId), JSON.stringify(payload || {}));
+  // Batch 158: every cache store funnels through here (portal refresh,
+  // lazy refresh, Place-ID-save prefetch), so this is the one hook the
+  // reviews → social bridge needs. Through the Batch 122 shared layer,
+  // never a pairwise import; sharing must never break a refresh.
+  try {
+    require('./moduleShare').shareGoogleReviewsToSocial(db, Number(leadId));
+  } catch {
+    /* the bridge is best-effort — a refresh never fails because of it */
+  }
   return readGoogleReviewsCache(db, leadId);
 }
 
