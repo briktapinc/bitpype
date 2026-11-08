@@ -12,6 +12,7 @@ const portalTabs = require(path.join(root, 'server/portalTabs.js'));
 const apiErrors = require(path.join(root, 'server/apiErrors.js')); // Batch 54: route files require it; VM mocks hand them the real module
 const managedScripts = require(path.join(root, 'src/managedScripts.js')); // Batch 149: the managed-script ensures in siteModules/chatbot/contactForms delegate to this shared leaf; VM loads get the real module (same pattern as apiErrors)
 const stripeIdempotency = require(path.join(root, 'server/stripeIdempotency.js')); // Batch 154: the deterministic Stripe idempotency helper is a dependency-free leaf (node:crypto only); VM loads get the real module (same pattern as apiErrors/managedScripts)
+const siteFingerprint = require(path.join(root, 'server/siteFingerprint.js')); // Batch 156: the site-fingerprint module is a dependency-free leaf (node:crypto only); VM loads of domain.js get the real module (same pattern as stripeIdempotency)
 const results = [];
 function check(name, fn) { fn(); results.push(name); }
 // Batch 76: the missed-call rescue engine is required (lazily) by
@@ -85,6 +86,7 @@ function load(file, mocks) {
         if (name === '../apiErrors') return apiErrors;
         if (name === '../src/managedScripts') return managedScripts; // Batch 149 (see above)
         if (name === './stripeIdempotency' || name === '../stripeIdempotency') return stripeIdempotency; // Batch 154 (see above)
+        if (name === './siteFingerprint' || name === '../siteFingerprint') return siteFingerprint; // Batch 156 (see above)
         if (name === './loginLockout' || name === '../loginLockout') return loginLockoutStub; // Batch 154 (see above)
         if (name === '../callRescue' || name === './callRescue') return callRescueStub;
         if (!name.startsWith('.')) return require(name);

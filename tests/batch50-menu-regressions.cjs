@@ -56,6 +56,7 @@ const INVENTORY = [
   ['dashboard', 'Dashboard'],
   ['leads', 'Leads'],
   ['websites', 'Websites'],
+  ['fingerprints', 'Fingerprints'], // Batch 156: the fingerprint ledger joins the top level beside Websites
   ['archives', 'Archives'],
   ['domains', 'Domains'],
   ['design', 'Design'],
@@ -103,7 +104,7 @@ function sidebarAnchors() {
   return out;
 }
 
-check('inventory: all items (25 pre-Batch-50 + Finance + Batch 71 Mailing list + Batch 80 Partner earnings) survive with labels + routes unchanged', () => {
+check('inventory: all items (25 pre-Batch-50 + Finance + Batch 71 Mailing list + Batch 80 Partner earnings + Batch 156 Fingerprints) survive with labels + routes unchanged', () => {
   const anchors = sidebarAnchors();
   assert.equal(anchors.length, INVENTORY.length, `expected ${INVENTORY.length} sidebar anchors, got ${anchors.length}`);
   const byRoute = new Map(anchors.map((a) => [a.route, a]));
@@ -123,7 +124,7 @@ check('config: every inventory route appears exactly once across top-level + gro
 });
 
 check('config: top-level daily drivers + group labels/membership pinned', () => {
-  assert.deepEqual(NavGroups.NAV_TOP_LEVEL, ['dashboard', 'leads', 'websites']);
+  assert.deepEqual(NavGroups.NAV_TOP_LEVEL, ['dashboard', 'leads', 'websites', 'fingerprints']); // Batch 156: fingerprints top-level
   assert.deepEqual(
     NavGroups.NAV_GROUPS.map((g) => [g.id, g.label]),
     [
@@ -157,6 +158,7 @@ check('logic: navGroupForRoute maps grouped routes, null for top-level/unknown',
   assert.equal(NavGroups.navGroupForRoute('admin'), 'system');
   assert.equal(NavGroups.navGroupForRoute('dashboard'), null);
   assert.equal(NavGroups.navGroupForRoute('websites'), null);
+  assert.equal(NavGroups.navGroupForRoute('fingerprints'), null); // Batch 156: top-level, no group
   assert.equal(NavGroups.navGroupForRoute('nope'), null);
   assert.equal(NavGroups.navGroupForRoute(''), null);
 });
