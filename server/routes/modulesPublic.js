@@ -101,6 +101,244 @@ async function workspaceFromReq(req) {
   return workspaceId;
 }
 
+/* ------------------------------------------------------------------ */
+/* Batch 165 — Webinar module public API.                              */
+/*                                                                     */
+/* Webinar data lives in the platform store behind the async engine    */
+/* (server/webinars.js); these endpoints are the public transport      */
+/* for exported sites (the on-page card + the exported gate/room       */
+/* shells) and work in single-site clone mode too, since this router   */
+/* is mounted in both modes. The gate session is the engine's own      */
+/* signed payload — the same credential the platform gate sets as a    */
+/* cookie — carried here in localStorage + the                       */
+/* X-Bitpype-Webinar-Session header (the members-module transport      */
+/* pattern), because exported sites call this API cross-origin.        */
+/* ------------------------------------------------------------------ */
+
+const webinarsEngine = require('../webinars');
+const webinarGateLimit = require('./webinarsPublic').makeGateLimit('module');
+const webinarChatLimit = rateLimit({
+  name: 'webinar-module-chat',
+  windowMs: 60 * 1000,
+  max: 30,
+  keyFn: (req) => `mod:${req.params.token || ''}:${req.params.slug || ''}:${req.ip || ''}`,
+});
+
+function publicWebinarShape(w) {
+  return {
+    id: w.id,
+    slug: w.slug,
+    title: w.title,
+    description: w.description,
+    scheduled_at: w.scheduledAt,
+    scheduled_label: w.scheduledLabel,
+    youtube_id: w.youtubeId,
+    status: w.status,
+    chat_open: webinarsEngine.chatEffectivelyOpen(w),
+  };
+}
+
+/** Token -> the site's webinar scope (+ the webinar itself when the
+ * route carries a slug). Null when the embed is missing, not a
+ * webinar embed, detached/unpublished, or the slug is not this
+ * site's — one site's token never resolves another site's webinar. */
+async function resolveSiteWebinar(req) {
+  const token = String(req.params.token || '');
+  const workspaceId = siteModules.parseWorkspaceFromToken(token);
+  if (!workspaceId) return null;
+  const scope = await domain.withDb(workspaceId, (db) => {
+    siteModules.ensureTables(db);
+    const row = siteModules.getEmbedRowByToken(db, token);
+    if (!row || row.module_type !== 'webinar' || !siteModules.moduleEmbedActive(row)) return null;
+    return { workspaceId, leadId: Number(row.lead_id) };
+  });
+  if (!scope) return null;
+  if (req.params.slug) {
+    const webinar = await webinarsEngine.getSiteWebinarBySlug(scope.workspaceId, scope.leadId, req.params.slug);
+    if (!webinar) return null;
+    return { ...scope, webinar };
+  }
+  return scope;
+}
+
+/** Hydrate the gate session from the header/query credential —
+ * the engine verifies the signature + webinar binding; this only
+ * loads the registration row it names (same shape as the platform
+ * router's sessionFor). */
+async function webinarSessionFor(req, webinar) {
+  const raw = req.get('x-bitpype-webinar-session') || (req.query && req.query.t) || '';
+  const verified = webinarsEngine.verifyGateCookie(webinar.id, raw);
+  if (!verified) return null;
+  const rows = await require('../db').query(
+    'SELECT * FROM webinar_registrations WHERE id = :id AND webinar_id = :w',
+    { id: verified.registrationId, w: webinar.id }
+  );
+  if (!rows.length) return null;
+  const r = rows[0];
+  return {
+    id: Number(r.id),
+    webinarId: Number(r.webinar_id),
+    name: r.name || '',
+    email: r.email || '',
+    phone: r.phone || '',
+  };
+}
+
+router.get('/webinar/:token/list', readLimit, async (req, res) => {
+  try {
+    const scope = await resolveSiteWebinar(req);
+    if (!scope) return res.status(404).json({ ok: false, error: 'Webinar module not found' });
+    const list = await webinarsEngine.listWebinarsForSite(scope.workspaceId, scope.leadId);
+    return res.json({ ok: true, webinars: list.map(publicWebinarShape) });
+  } catch (e) {
+    return fail(res, e, 500);
+  }
+});
+
+router.get('/webinar/:token/:slug/state', readLimit, async (req, res) => {
+  try {
+    const ctx = await resolveSiteWebinar(req);
+    if (!ctx || !ctx.webinar) return res.status(404).json({ ok: false, error: 'Webinar not found' });
+    const session = await webinarSessionFor(req, ctx.webinar);
+    let messages = [];
+    if (session) {
+      await webinarsEngine.markJoined(session.id);
+      messages = await webinarsEngine.listMessages(ctx.webinar.id, { includeHidden: false });
+    }
+    return res.json({
+      ok: true,
+      webinar: publicWebinarShape(ctx.webinar),
+      registered: !!session,
+      attendee: session ? { name: session.name } : null,
+      messages,
+    });
+  } catch (e) {
+    return fail(res, e, 500);
+  }
+});
+
+router.post('/webinar/:token/:slug/register', webinarGateLimit, async (req, res) => {
+  try {
+    const ctx = await resolveSiteWebinar(req);
+    if (!ctx || !ctx.webinar) return res.status(404).json({ ok: false, error: 'Webinar not found' });
+    const body = req.body || {};
+    const registration = await webinarsEngine.registerWithCode(ctx.webinar, {
+      name: body.name,
+      email: body.email,
+      phone: body.phone,
+      code: body.code,
+    });
+    return res.json({
+      ok: true,
+      session: webinarsEngine.signGateCookie(ctx.webinar.id, registration.id),
+      webinar: publicWebinarShape(ctx.webinar),
+    });
+  } catch (e) {
+    if (e.code === 'INVALID_CODE') {
+      return res
+        .status(403)
+        .json({ ok: false, error: 'That code does not match this webinar — check it and try again' });
+    }
+    if (e.code === 'VALIDATION') return res.status(400).json({ ok: false, error: e.message });
+    return fail(res, e, 500);
+  }
+});
+
+router.get('/webinar/:token/:slug/messages', readLimit, async (req, res) => {
+  try {
+    const ctx = await resolveSiteWebinar(req);
+    if (!ctx || !ctx.webinar) return res.status(404).json({ ok: false, error: 'Webinar not found' });
+    const session = await webinarSessionFor(req, ctx.webinar);
+    if (!session) return res.status(401).json({ ok: false, error: 'Join through the gate first' });
+    const messages = await webinarsEngine.listMessages(ctx.webinar.id, {
+      afterId: Number(req.query.after || 0),
+      includeHidden: false,
+    });
+    return res.json({
+      ok: true,
+      messages,
+      chatOpen: webinarsEngine.chatEffectivelyOpen(ctx.webinar),
+      status: ctx.webinar.status,
+    });
+  } catch (e) {
+    return fail(res, e, 500);
+  }
+});
+
+router.get('/webinar/:token/:slug/chat/stream', async (req, res) => {
+  try {
+    const ctx = await resolveSiteWebinar(req);
+    if (!ctx || !ctx.webinar) return res.status(404).json({ ok: false, error: 'Webinar not found' });
+    const session = await webinarSessionFor(req, ctx.webinar);
+    if (!session) return res.status(401).json({ ok: false, error: 'Join through the gate first' });
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    // The app runs global compression, which buffers sub-threshold
+    // writes — SSE must flush explicitly or events stall.
+    const flush = () => {
+      if (typeof res.flush === 'function') {
+        try {
+          res.flush();
+        } catch {
+          /* closed */
+        }
+      }
+    };
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
+    const backlog = await webinarsEngine.listMessages(ctx.webinar.id, { includeHidden: false });
+    for (const m of backlog) {
+      res.write(`event: message\ndata: ${JSON.stringify(m)}\n\n`);
+    }
+    flush();
+    // Subscribe through a flushing proxy so live hub writes reach
+    // the visitor immediately (the engine writes to the raw res).
+    const flushingRes = {
+      write: (chunk) => {
+        const okWrite = res.write(chunk);
+        flush();
+        return okWrite;
+      },
+      on: (ev, fn) => res.on(ev, fn),
+    };
+    webinarsEngine.hubSubscribe(ctx.webinar.id, flushingRes);
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(': ping\n\n');
+        flush();
+      } catch {
+        /* closed */
+      }
+    }, 25000);
+    req.on('close', () => clearInterval(heartbeat));
+  } catch (e) {
+    return fail(res, e, 500);
+  }
+});
+
+router.post('/webinar/:token/:slug/messages', webinarChatLimit, async (req, res) => {
+  try {
+    const ctx = await resolveSiteWebinar(req);
+    if (!ctx || !ctx.webinar) return res.status(404).json({ ok: false, error: 'Webinar not found' });
+    const session = await webinarSessionFor(req, ctx.webinar);
+    if (!session) return res.status(401).json({ ok: false, error: 'Join through the gate first' });
+    if (!webinarsEngine.chatEffectivelyOpen(ctx.webinar)) {
+      return res.status(403).json({ ok: false, error: 'Chat is not open right now' });
+    }
+    const message = await webinarsEngine.postMessage(ctx.webinar, {
+      registration: session,
+      body: (req.body || {}).body,
+    });
+    return res.json({ ok: true, message });
+  } catch (e) {
+    if (e.code === 'VALIDATION') return res.status(400).json({ ok: false, error: e.message });
+    return fail(res, e, 500);
+  }
+});
+
 router.get('/:token', readLimit, async (req, res) => {
   try {
     const workspaceId = await workspaceFromReq(req);

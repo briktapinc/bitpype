@@ -380,6 +380,17 @@ const SHARE_REGISTRY = {
       );
     },
   },
+  webinar: {
+    // Batch 165: webinars live in the platform store behind the
+    // async webinar engine (server/webinars.js) — registrations and
+    // chat are private attendee data, and the shared-layer readers
+    // here are synchronous workspace-db readers. v1 shares nothing;
+    // the natural shared datum (next webinar title + schedule for
+    // chat/design contexts) needs an async consumer path first.
+    kind: 'none',
+    reason:
+      'Webinars live in the platform store behind the async webinar engine — registrations and chat are private attendee data, and this layer’s readers are synchronous workspace-db readers. Shares nothing in v1.',
+  },
   chatbot: {
     kind: 'none',
     reason:

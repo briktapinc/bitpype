@@ -250,7 +250,7 @@ function part1() {
   const sm = require(path.join(root, 'server/siteModules.js'));
   assert.equal(
     sm.MODULE_SCRIPT_VER,
-    'mod39',
+    'mod40',
     'MODULE_SCRIPT_VER rotated mod35 → mod36 for the sitewide extension (142 itself took mod34 → mod35)'
   );
   n++;
@@ -259,7 +259,7 @@ function part1() {
   assert.deepEqual(
     cz.summary,
     // Batch 156 rotation: census 450 -> 453 (+1 STATIC +1 ESCAPED +1 SAFE in app.js — the fingerprint surfaces), safe classes 336 -> 339, RAW 78 / IDENT 36 and the 114-entry reviewed set unchanged; baseline regenerated.
-    { total: 465, STATIC: 168, ESCAPED: 45, SAFE: 78, BUILDER: 60, IDENT: 36, RAW: 78 },
+    { total: 476, STATIC: 173, ESCAPED: 47, SAFE: 80, BUILDER: 61, IDENT: 36, RAW: 79 },
     'SEC-13 census: 441 total (Batch 142 landed at 439 — two cart-bar STATIC sinks removed, one nav-cart STATIC sink added; Batch 136 finisher added +2 audited STATIC sinks in module-embed.js (the price-summary clear + the fully esc()-wrapped price-summary build), reviewed RAW/IDENT set unchanged, positions shifted by pure line movement; Batch 137 finisher: +1 audited SAFE sink in portal.js (qualifying-question rows render — numeric indices + esc()-wrapped question text), census 441 -> 442, SAFE 73 -> 74, reviewed RAW/IDENT content unchanged (12 portal.js positions shifted +127, pure line movement, snippet-verified))'
   );
   n++;

@@ -6372,11 +6372,12 @@
     { type: 'checkout', label: 'Checkout' },
     { type: 'comments', label: 'Comments' },
     { type: 'pricing', label: 'Pricing' },
+    { type: 'webinar', label: 'Webinars' },
   ];
   const MODULE_NAV_GROUPS = [
     { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'checkout', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed', 'googlereviews', 'datatables', 'charts', 'categories', 'photocapture', 'qrcode', 'comments', 'pricing'] },
     { id: 'people', label: 'People', types: ['team', 'testimonials', 'careers', 'members', 'newsletter'] },
-    { id: 'schedule', label: 'Schedule', types: ['events', 'bookings'] },
+    { id: 'schedule', label: 'Schedule', types: ['events', 'bookings', 'webinar'] },
     { id: 'assist', label: 'Assist', types: ['chatbot', 'calltracking'] },
   ];
   // Batch 111 (consolidation): the Batch 91 icon family
@@ -6444,6 +6445,7 @@
     checkout: { singular: 'order', plural: 'orders', newBtn: 'New order', kicker: 'Order' },
     comments: { singular: 'comment', plural: 'comments', newBtn: 'New comment', kicker: 'Comment' },
     pricing: { singular: 'price entry', plural: 'price entries', newBtn: 'New price entry', kicker: 'Pricing' },
+    webinar: { singular: 'webinar', plural: 'webinars', newBtn: 'New webinar', kicker: 'Webinar' },
   };
   const BOOKING_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const MODULE_STORAGE_KEY = 'bp-portal-module';
@@ -7898,6 +7900,18 @@
       box.innerHTML = `<div class="modules-empty">
         <strong>One checkout for everything you sell</strong>
         <p class="hint">Attach Checkout to a page (a "Checkout" page works best). Your shop products and any gallery photos you price are added to one cart on your site and paid here, through your own Stripe. Orders land in the panels below.</p>
+      </div>`;
+      if (headNewBtn) headNewBtn.hidden = true;
+      return;
+    }
+    // Batch 165 — Webinars are managed entirely in the panel above
+    // (create/edit, access codes, registrants, host chat console);
+    // the generic item list/editor never applies to them.
+    if (type === 'webinar') {
+      box.classList.remove('item-list');
+      box.innerHTML = `<div class="modules-empty">
+        <strong>Run live webinars on your own site</strong>
+        <p class="hint">Create a webinar in the panel above, share its link, and visitors join with the access code. Registrations land in your contacts automatically, and you host the live chat from the webinar's console here. The Webinar block on your site shows your next webinar and links visitors to its gate.</p>
       </div>`;
       if (headNewBtn) headNewBtn.hidden = true;
       return;
@@ -10325,6 +10339,7 @@
     moduleState.taxonomy = data.taxonomy || null;
     moduleState.qrcode = data.qrcode || null;
     moduleState.pricing = data.pricing || null;
+    moduleState.webinar = data.webinar || null;
     moduleState.categories = Array.isArray(data.categories) ? data.categories : [];
     if (type === 'bookings') {
       const booking = moduleState.booking || {};
@@ -10351,6 +10366,7 @@
     renderOffersDisplayPanel();
     renderCategoriesScopesPanel();
     renderQrCodePanel();
+    renderWebinarPanel();
     renderShopPaymentsPanel();
     renderShopOrdersPanel();
     renderCheckoutPanel();
@@ -10701,6 +10717,387 @@
           moduleMsg(errText(e), false);
         }
       };
+    }
+  }
+
+  // Batch 165 — Webinar panel: the owner runs their site's webinars
+  // from here — create/edit, access code + share link, registrants,
+  // and the host chat console (reply as host, hide/unhide). Same
+  // engine as the platform webinars, scoped to this site.
+  function webinarNyInputValue(iso) {
+    if (!iso) return '';
+    const d = new Date(String(iso).replace(' ', 'T'));
+    if (Number.isNaN(d.getTime())) return '';
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).formatToParts(d);
+    const p = {};
+    for (const part of parts) p[part.type] = part.value;
+    return `${p.year}-${p.month}-${p.day}T${p.hour === '24' ? '00' : p.hour}:${p.minute}`;
+  }
+
+  function stopWebinarConsolePoll() {
+    if (moduleState.webinarPoll) {
+      clearInterval(moduleState.webinarPoll);
+      moduleState.webinarPoll = null;
+    }
+  }
+
+  function renderWebinarPanel() {
+    const host = document.getElementById('modules-webinar-panel');
+    if (!host) return;
+    if (moduleState.current !== 'webinar') {
+      host.innerHTML = '';
+      host.hidden = true;
+      moduleState.webinarEdit = null;
+      moduleState.webinarConsoleId = null;
+      moduleState.webinarRegsId = null;
+      stopWebinarConsolePoll();
+      return;
+    }
+    host.hidden = false;
+    const items = moduleState.items || [];
+    const embed = moduleState.embed || {};
+    const attached = !!(embed.published && embed.embed_enabled !== 0);
+    const editing = moduleState.webinarEdit;
+    const statusPill = (st) =>
+      st === 'live'
+        ? '<span class="status-pill" style="background:#c2261b;color:#fff">● LIVE</span>'
+        : st === 'ended'
+          ? '<span class="status-pill draft">Ended</span>'
+          : '<span class="status-pill">Scheduled</span>';
+    let editorHtml = '';
+    if (editing != null) {
+      const w =
+        editing === 'new'
+          ? { id: null, title: '', description: '', scheduledAt: null, youtubeId: '', status: 'scheduled', chatOpen: null }
+          : items.find((x) => Number(x.id) === Number(editing)) || { id: null, title: '', description: '', scheduledAt: null, youtubeId: '', status: 'scheduled', chatOpen: null };
+      editorHtml = `<div class="card" style="margin-bottom:var(--card-gap)">
+        <h3 style="margin:0 0 6px">${w.id ? 'Edit webinar' : 'New webinar'}</h3>
+        <p class="hint" style="margin:0 0 10px">Times are Eastern. Paste a YouTube link or video ID — only the ID is kept. Visitors join from your site's link with the access code.</p>
+        <label class="hint" for="wb-title" style="display:block;margin:0 0 4px">Title</label>
+        <input id="wb-title" type="text" maxlength="300" value="${esc(w.title || '')}" style="width:100%;margin-bottom:12px" />
+        <label class="hint" for="wb-desc" style="display:block;margin:0 0 4px">Description</label>
+        <textarea id="wb-desc" rows="3" maxlength="8000" style="width:100%;margin-bottom:12px">${esc(w.description || '')}</textarea>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+          <div style="flex:1;min-width:200px">
+            <label class="hint" for="wb-when" style="display:block;margin:0 0 4px">Scheduled time (Eastern)</label>
+            <input id="wb-when" type="datetime-local" value="${esc(webinarNyInputValue(w.scheduledAt))}" style="width:100%" />
+          </div>
+          <div style="flex:2;min-width:220px">
+            <label class="hint" for="wb-youtube" style="display:block;margin:0 0 4px">YouTube link or ID</label>
+            <input id="wb-youtube" type="text" value="${esc(w.youtubeId ? `https://www.youtube.com/watch?v=${w.youtubeId}` : '')}" placeholder="https://www.youtube.com/watch?v=…" style="width:100%" />
+          </div>
+        </div>
+        ${
+          w.id
+            ? `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+          <div>
+            <label class="hint" for="wb-status" style="display:block;margin:0 0 4px">Status</label>
+            <select id="wb-status" style="width:auto">
+              <option value="scheduled"${w.status === 'scheduled' ? ' selected' : ''}>Scheduled</option>
+              <option value="live"${w.status === 'live' ? ' selected' : ''}>Live</option>
+              <option value="ended"${w.status === 'ended' ? ' selected' : ''}>Ended</option>
+            </select>
+          </div>
+          <div>
+            <label class="hint" for="wb-chat" style="display:block;margin:0 0 4px">Chat</label>
+            <select id="wb-chat" style="width:auto">
+              <option value=""${w.chatOpen == null ? ' selected' : ''}>Auto — open while live</option>
+              <option value="1"${w.chatOpen === true ? ' selected' : ''}>Open</option>
+              <option value="0"${w.chatOpen === false ? ' selected' : ''}>Closed</option>
+            </select>
+          </div>
+        </div>`
+            : ''
+        }
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="btn" id="btn-wb-save">${w.id ? 'Save webinar' : 'Create webinar'}</button>
+          <button type="button" class="btn ghost" id="btn-wb-cancel">Cancel</button>
+        </div>
+      </div>`;
+    }
+    const cards = items
+      .map((w) => {
+        const isConsole = Number(moduleState.webinarConsoleId) === Number(w.id);
+        const isRegs = Number(moduleState.webinarRegsId) === Number(w.id);
+        return `<div class="card" style="margin-bottom:var(--card-gap)">
+        <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
+          <div style="flex:1;min-width:220px">
+            <h3 style="margin:0 0 4px">${esc(w.title || 'Webinar')}</h3>
+            <p class="hint" style="margin:0">${statusPill(w.status)} ${w.scheduledLabel ? `<span style="margin-left:8px">${esc(w.scheduledLabel)}</span>` : ''}</p>
+            <p class="hint" style="margin:6px 0 0">${Number(w.registrantCount || 0)} registered · ${Number(w.joinedCount || 0)} joined · ${Number(w.messageCount || 0)} chat messages</p>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px">
+          <span class="hint" style="margin:0">Access code</span>
+          <code style="font-size:16px;font-weight:800;letter-spacing:.12em">${esc(w.accessCode || '')}</code>
+          <button type="button" class="btn soft small" data-wb-copy="${esc(w.accessCode || '')}">Copy code</button>
+          <button type="button" class="btn soft small" data-wb-regen="${w.id}">Regenerate</button>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+          <span class="hint" style="margin:0">Share link</span>
+          ${
+            w.share_url
+              ? `<a href="${esc(w.share_url)}" target="_blank" rel="noopener" style="word-break:break-all">${esc(w.share_url)}</a>
+          <button type="button" class="btn soft small" data-wb-copy="${esc(w.share_url)}">Copy link</button>`
+              : '<span class="hint" style="margin:0">Publish your site to get its link.</span>'
+          }
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+          <button type="button" class="btn soft small" data-wb-console="${w.id}">${isConsole ? 'Close console' : 'Host console'}</button>
+          <button type="button" class="btn soft small" data-wb-regs="${w.id}">${isRegs ? 'Hide registrants' : 'Registrants'}</button>
+          <button type="button" class="btn soft small" data-wb-edit="${w.id}">Edit</button>
+          <button type="button" class="btn soft small" data-wb-delete="${w.id}">Delete</button>
+        </div>
+        ${isRegs ? '<div data-wb-regs-box style="margin-top:12px"><p class="hint">Loading registrants…</p></div>' : ''}
+        ${isConsole ? '<div data-wb-console-box style="margin-top:12px"><p class="hint">Loading chat…</p></div>' : ''}
+      </div>`;
+      })
+      .join('');
+    host.innerHTML = `
+      ${attached ? '' : '<div class="card" style="margin-bottom:var(--card-gap)"><p class="hint" style="margin:0">The Webinar module is not attached to your site yet — use the Attach button above so visitors can reach your webinars. You can still create webinars now.</p></div>'}
+      ${editorHtml}
+      ${
+        editing == null
+          ? `<div style="margin-bottom:var(--card-gap)"><button type="button" class="btn" id="btn-wb-new">New webinar</button></div>`
+          : ''
+      }
+      ${cards || (editing == null ? '<div class="card"><p class="hint" style="margin:0">No webinars yet. Create your first one — it appears on your site with its own registration gate and live chat.</p></div>' : '')}
+    `;
+    const copyText = async (text) => {
+      try {
+        await navigator.clipboard.writeText(text);
+        moduleMsg('Copied.', true);
+      } catch {
+        moduleMsg('Copy failed — select and copy it manually.', false);
+      }
+    };
+    host.querySelectorAll('[data-wb-copy]').forEach((b) => {
+      b.onclick = () => copyText(b.getAttribute('data-wb-copy') || '');
+    });
+    const newBtn = document.getElementById('btn-wb-new');
+    if (newBtn) {
+      newBtn.onclick = () => {
+        moduleState.webinarEdit = 'new';
+        renderWebinarPanel();
+      };
+    }
+    const cancelBtn = document.getElementById('btn-wb-cancel');
+    if (cancelBtn) {
+      cancelBtn.onclick = () => {
+        moduleState.webinarEdit = null;
+        renderWebinarPanel();
+      };
+    }
+    const saveBtn = document.getElementById('btn-wb-save');
+    if (saveBtn) {
+      saveBtn.onclick = async () => {
+        const editingId = moduleState.webinarEdit;
+        const body = {
+          title: (document.getElementById('wb-title') || {}).value || '',
+          description: (document.getElementById('wb-desc') || {}).value || '',
+          scheduledAt: (document.getElementById('wb-when') || {}).value || '',
+          youtube: (document.getElementById('wb-youtube') || {}).value || '',
+        };
+        if (editingId !== 'new') {
+          const st = document.getElementById('wb-status');
+          const ch = document.getElementById('wb-chat');
+          if (st) body.status = st.value;
+          if (ch) body.chatOpen = ch.value === '' ? null : ch.value === '1';
+        }
+        saveBtn.disabled = true;
+        try {
+          if (editingId === 'new') {
+            await api('/modules/webinar', { method: 'POST', body: JSON.stringify(body) });
+            moduleMsg('Webinar created — share its link and code.', true);
+          } else {
+            await api(`/modules/webinar/${encodeURIComponent(editingId)}`, {
+              method: 'PUT',
+              body: JSON.stringify(body),
+            });
+            moduleMsg('Webinar saved.', true);
+          }
+          moduleState.webinarEdit = null;
+          await loadModuleItems();
+        } catch (e) {
+          saveBtn.disabled = false;
+          moduleMsg(errText(e), false);
+        }
+      };
+    }
+    host.querySelectorAll('[data-wb-regen]').forEach((b) => {
+      b.onclick = async () => {
+        const id = b.getAttribute('data-wb-regen');
+        if (!window.confirm('Regenerate the access code? The old code stops working right away.')) return;
+        try {
+          await api(`/modules/webinar/${encodeURIComponent(id)}/regen-code`, { method: 'POST' });
+          moduleMsg('New access code generated.', true);
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg(errText(e), false);
+        }
+      };
+    });
+    host.querySelectorAll('[data-wb-edit]').forEach((b) => {
+      b.onclick = () => {
+        moduleState.webinarEdit = Number(b.getAttribute('data-wb-edit'));
+        renderWebinarPanel();
+      };
+    });
+    host.querySelectorAll('[data-wb-delete]').forEach((b) => {
+      b.onclick = async () => {
+        const id = b.getAttribute('data-wb-delete');
+        if (!window.confirm('Delete this webinar? Its registrations and chat history go with it.')) return;
+        try {
+          await api(`/modules/webinar/${encodeURIComponent(id)}`, { method: 'DELETE' });
+          moduleMsg('Webinar deleted.', true);
+          if (Number(moduleState.webinarConsoleId) === Number(id)) moduleState.webinarConsoleId = null;
+          if (Number(moduleState.webinarRegsId) === Number(id)) moduleState.webinarRegsId = null;
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg(errText(e), false);
+        }
+      };
+    });
+    host.querySelectorAll('[data-wb-regs]').forEach((b) => {
+      b.onclick = () => {
+        const id = Number(b.getAttribute('data-wb-regs'));
+        moduleState.webinarRegsId = Number(moduleState.webinarRegsId) === id ? null : id;
+        renderWebinarPanel();
+      };
+    });
+    host.querySelectorAll('[data-wb-console]').forEach((b) => {
+      b.onclick = () => {
+        const id = Number(b.getAttribute('data-wb-console'));
+        moduleState.webinarConsoleId = Number(moduleState.webinarConsoleId) === id ? null : id;
+        renderWebinarPanel();
+      };
+    });
+    if (moduleState.webinarRegsId != null) loadWebinarRegistrants(Number(moduleState.webinarRegsId));
+    if (moduleState.webinarConsoleId != null) loadWebinarConsole(Number(moduleState.webinarConsoleId), true);
+    else stopWebinarConsolePoll();
+  }
+
+  async function loadWebinarRegistrants(id) {
+    const box = document.querySelector('[data-wb-regs-box]');
+    if (!box) return;
+    try {
+      const data = await api(`/modules/webinar/${encodeURIComponent(id)}/registrations`);
+      const regs = (data && data.registrations) || [];
+      if (Number(moduleState.webinarRegsId) !== id) return;
+      box.innerHTML = regs.length
+        ? `<table style="width:100%;border-collapse:collapse">
+            <thead><tr><th style="text-align:left;padding:6px 8px">Name</th><th style="text-align:left;padding:6px 8px">Email</th><th style="text-align:left;padding:6px 8px">Phone</th><th style="text-align:left;padding:6px 8px">Joined</th></tr></thead>
+            <tbody>${regs
+              .map(
+                (r) => `<tr>
+              <td style="padding:6px 8px">${esc(r.name || '')}</td>
+              <td style="padding:6px 8px">${esc(r.email || '')}</td>
+              <td style="padding:6px 8px">${esc(r.phone || '')}</td>
+              <td style="padding:6px 8px">${r.joinedAt ? 'Yes' : '—'}</td>
+            </tr>`
+              )
+              .join('')}</tbody>
+          </table>`
+        : '<p class="hint" style="margin:0">No registrations yet — they appear here as visitors pass the gate, and each one is added to your contacts.</p>';
+    } catch (e) {
+      box.innerHTML = `<p class="hint" style="margin:0">${esc(errText(e))}</p>`;
+    }
+  }
+
+  function webinarConsoleMessagesHtml(messages) {
+    if (!messages.length) return '<p class="hint" style="margin:0">No messages yet.</p>';
+    return messages
+      .map(
+        (m) => `<div style="border:1px solid var(--line,#e7e2d9);border-radius:10px;padding:8px 12px;margin-bottom:8px;${m.hidden ? 'opacity:.55' : ''}">
+        <div style="font-weight:800;font-size:13px">${esc(m.authorName || 'Guest')}${m.isHost ? ' <span style="background:#f0b429;color:#4a3200;border-radius:6px;padding:1px 6px;font-size:11px">HOST</span>' : ''}${m.hidden ? ' <span class="hint">(hidden)</span>' : ''}</div>
+        <div style="font-size:15px;line-height:1.45">${esc(m.body || '')}</div>
+        <button type="button" class="btn soft small" data-wb-hide="${m.id}" data-hidden="${m.hidden ? '1' : '0'}" style="margin-top:6px">${m.hidden ? 'Unhide' : 'Hide'}</button>
+      </div>`
+      )
+      .join('');
+  }
+
+  function bindWebinarHideButtons(scope, id) {
+    scope.querySelectorAll('[data-wb-hide]').forEach((b) => {
+      b.onclick = async () => {
+        try {
+          await api(
+            `/modules/webinar/${encodeURIComponent(id)}/messages/${encodeURIComponent(b.getAttribute('data-wb-hide'))}/hide`,
+            { method: 'POST', body: JSON.stringify({ hidden: b.getAttribute('data-hidden') !== '1' }) }
+          );
+          loadWebinarConsole(id, false);
+        } catch (e) {
+          moduleMsg(errText(e), false);
+        }
+      };
+    });
+  }
+
+  async function loadWebinarConsole(id, startPoll) {
+    const box = document.querySelector('[data-wb-console-box]');
+    if (!box) return;
+    const render = (data) => {
+      const messages = (data && data.messages) || [];
+      box.innerHTML = `
+        <div data-wb-console-msgs>${webinarConsoleMessagesHtml(messages)}</div>
+        <form data-wb-reply style="display:flex;gap:8px;margin-top:10px">
+          <input type="text" maxlength="2000" placeholder="Reply as host…" autocomplete="off" style="flex:1" />
+          <button type="submit" class="btn soft">Send</button>
+        </form>`;
+      bindWebinarHideButtons(box, id);
+      const form = box.querySelector('[data-wb-reply]');
+      if (form) {
+        form.onsubmit = async (ev) => {
+          ev.preventDefault();
+          const input = form.querySelector('input');
+          const body = input ? input.value.trim() : '';
+          if (!body) return;
+          input.value = '';
+          try {
+            await api(`/modules/webinar/${encodeURIComponent(id)}/messages`, {
+              method: 'POST',
+              body: JSON.stringify({ body }),
+            });
+            loadWebinarConsole(id, false);
+          } catch (e) {
+            moduleMsg(errText(e), false);
+          }
+        };
+      }
+    };
+    try {
+      render(await api(`/modules/webinar/${encodeURIComponent(id)}/messages`));
+    } catch (e) {
+      box.innerHTML = `<p class="hint" style="margin:0">${esc(errText(e))}</p>`;
+      return;
+    }
+    if (startPoll) {
+      stopWebinarConsolePoll();
+      moduleState.webinarPoll = setInterval(async () => {
+        if (Number(moduleState.webinarConsoleId) !== id || moduleState.current !== 'webinar') {
+          stopWebinarConsolePoll();
+          return;
+        }
+        // Refresh ONLY the message list — the reply form (and any
+        // half-typed reply) is never rebuilt by the poll.
+        const msgsBox = document.querySelector('[data-wb-console-msgs]');
+        if (!msgsBox) return;
+        try {
+          const data = await api(`/modules/webinar/${encodeURIComponent(id)}/messages`);
+          msgsBox.innerHTML = webinarConsoleMessagesHtml((data && data.messages) || []);
+          bindWebinarHideButtons(msgsBox, id);
+        } catch {
+          /* transient — next tick retries */
+        }
+      }, 2500);
     }
   }
 

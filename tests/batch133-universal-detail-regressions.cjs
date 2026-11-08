@@ -84,15 +84,15 @@ async function json(res) {
     n++;
     assert.ok(smSrc.includes('function detailExportContext(db, leadId)'), 'detailExportContext exists');
     n++;
-    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod39'"), 'MODULE_SCRIPT_VER bumped to mod36');
+    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod40'"), 'MODULE_SCRIPT_VER bumped to mod36');
     n++;
     const typesBlock = /const MODULE_TYPES = \[([\s\S]*?)\];/.exec(smSrc);
     assert.ok(typesBlock, 'MODULE_TYPES block found');
     n++;
     assert.equal(
       (typesBlock[1].match(/'/g) || []).length / 2,
-      29,
-      'MODULE_TYPES at 29 — detail is not a module type (27 at Batch 128 checkout; Batch 131 comments is the 28th; Batch 139 pricing is the 29th; 133 adds none)'
+      30,
+      'MODULE_TYPES at 30 — detail is not a module type (27 at Batch 128 checkout; Batch 131 comments is the 28th; Batch 139 pricing is the 29th; 133 adds none)'
     );
     n++;
     for (const t of [
@@ -422,8 +422,8 @@ async function json(res) {
     );
     n++;
     assert.ok(
-      detailHtml.includes('module-embed.js?v=mod39'),
-      'detail.html loads the module embed script at the current MODULE_SCRIPT_VER (mod39 after the Batch 139 finisher rotation)'
+      detailHtml.includes('module-embed.js?v=mod40'),
+      'detail.html loads the module embed script at the current MODULE_SCRIPT_VER (mod40 after the Batch 139 finisher rotation)'
     );
     n++;
     const redirects = fs.readFileSync(path.join(outDir, '_redirects'), 'utf8');
@@ -505,7 +505,7 @@ async function json(res) {
         n++;
       }
 
-      const jsRes = await fetch(`${BASE}/js/module-embed.js?v=mod39`);
+      const jsRes = await fetch(`${BASE}/js/module-embed.js?v=mod40`);
       assert.equal(jsRes.status, 200, 'module-embed.js serves');
       n++;
       const jsText = await jsRes.text();

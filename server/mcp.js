@@ -1545,6 +1545,57 @@ function clientToolDefs() {
       inputSchema: schema({ id: ID, leadId: ID }, ['id']),
     },
     {
+      name: 'webinar.list',
+      description:
+        'Batch 165 Webinar module: list this site’s webinars (title, slug, status, schedule, YouTube ID, access code, registrant/joined/message counts). These are the SITE’s webinars — the platform’s own agency webinars are a separate staff-admin surface and are never returned here. Standard/Premium.',
+      inputSchema: schema({ leadId: ID }, ['leadId']),
+    },
+    {
+      name: 'webinar.create',
+      description:
+        'Create a webinar for this site: title (required), description, scheduledAt (a datetime-local value read as America/New_York wall time, or a full ISO instant), youtube (a YouTube link or video ID — only the ID is stored). The access code (7 unambiguous characters) is generated automatically and the slug is derived from the title. The webinar runs on the site’s own gate/room at /webinar/<slug>; registrants are captured into the site’s workspace contacts. Standard/Premium.',
+      inputSchema: schema(
+        { leadId: ID, title: STR, description: STR, scheduledAt: STR, youtube: STR },
+        ['leadId', 'title']
+      ),
+    },
+    {
+      name: 'webinar.update',
+      description:
+        'Update one of this site’s webinars by id (same fields as webinar.create, plus status scheduled|live|ended and chatOpen true|false|null — null returns chat to Auto, open exactly while live). Only the owning site’s webinars can be updated; any other id reads as not found. Standard/Premium.',
+      inputSchema: schema(
+        {
+          id: ID,
+          leadId: ID,
+          title: STR,
+          description: STR,
+          scheduledAt: STR,
+          youtube: STR,
+          status: STR,
+          chatOpen: { type: ['boolean', 'null'] },
+        },
+        ['id']
+      ),
+    },
+    {
+      name: 'webinar.delete',
+      description:
+        'Delete one of this site’s webinars by id, with its registrations and chat history. Standard/Premium.',
+      inputSchema: schema({ id: ID, leadId: ID }, ['id']),
+    },
+    {
+      name: 'webinar.regenCode',
+      description:
+        'Regenerate a webinar’s access code — the old code stops working immediately. Returns the webinar with its new code. Standard/Premium.',
+      inputSchema: schema({ id: ID, leadId: ID }, ['id']),
+    },
+    {
+      name: 'webinar.registrations',
+      description:
+        'List a webinar’s registrations (name, email, phone, registered/joined times) for this site. Standard/Premium.',
+      inputSchema: schema({ id: ID, leadId: ID }, ['id']),
+    },
+    {
       name: 'pricing.getPriceBook',
       description:
         'Batch 139: the resolved PRICE BOOK for a lead — the published pricing entries with every price resolved (linked entries at their source’s current price). This is the ONE price source the site, the chat and every consumer quote from. Standard/Premium.',
@@ -3463,6 +3514,13 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'pricing.update',
     'pricing.delete',
     'pricing.getPriceBook',
+    // Batch 165: the Webinar module rides the same entitlement.
+    'webinar.list',
+    'webinar.create',
+    'webinar.update',
+    'webinar.delete',
+    'webinar.regenCode',
+    'webinar.registrations',
     // Batch 125: Photo Capture rides the same entitlement.
     'photocapture.getConfig',
     'photocapture.listSubmissions',
@@ -4776,6 +4834,66 @@ async function callClientTool(ws, name, a, ctx = {}) {
     const leadId = resolveLeadId(ctx, a.leadId);
     if (!leadId) throw new Error('leadId is required');
     return domain.withDb(ws, (db) => ({ plan: planId, price_book: require('./moduleShare').getPriceBook(db, leadId) }));
+  }
+
+  // ---- Webinar module (Batch 165) ----
+  // The engine lives in the platform store (async); every call is
+  // scoped to (workspace, lead) so one site can never read or write
+  // another site's webinars — an out-of-scope id is a NOT_FOUND.
+  if (name === 'webinar.list') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return { plan: planId, webinars: await require('./webinars').listWebinarsForSite(ws, leadId) };
+  }
+  if (name === 'webinar.create') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    const websiteId = domain.withDb(ws, (db) => {
+      const row = db.prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id ASC LIMIT 1').get(leadId);
+      return row ? Number(row.id) : null;
+    });
+    const webinar = await require('./webinars').createWebinar(a, null, { workspaceId: ws, leadId, websiteId });
+    return { plan: planId, webinar };
+  }
+  if (name === 'webinar.update') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    const webinar = await require('./webinars').updateWebinar(id, a, {
+      workspaceId: ws,
+      leadId: leadId || Number(ctx.leadId),
+    });
+    return { plan: planId, webinar };
+  }
+  if (name === 'webinar.delete') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    const out = await require('./webinars').deleteWebinar(id, {
+      workspaceId: ws,
+      leadId: leadId || Number(ctx.leadId),
+    });
+    return { plan: planId, ...out };
+  }
+  if (name === 'webinar.regenCode') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    const webinar = await require('./webinars').regenerateCode(id, {
+      workspaceId: ws,
+      leadId: leadId || Number(ctx.leadId),
+    });
+    return { plan: planId, webinar };
+  }
+  if (name === 'webinar.registrations') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    const engine165 = require('./webinars');
+    const scope = { workspaceId: ws, leadId: leadId || Number(ctx.leadId) };
+    const webinar = await engine165.getWebinarById(id, scope);
+    if (!webinar) throw new Error('Webinar not found');
+    return { plan: planId, registrations: await engine165.listRegistrations(id) };
   }
 
   // ---- Checkout module (Batch 128) ----

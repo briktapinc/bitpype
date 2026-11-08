@@ -591,6 +591,7 @@ const PORTAL_MODULE_SUBPATHS = [
   ['charts', 'charts'],
   ['newsletter', 'newsletter'],
   ['qrcode', 'qrcode'],
+  ['webinar', 'webinar'],
 ];
 
 function moduleForbidden(res, moduleKey) {
@@ -2911,6 +2912,75 @@ router.post('/modules/members/:id/cancel-subscription', requireClient, actionLim
     ok(
       res,
       await portal.cancelMemberSubscription(req.client.workspace_id, req.client.lead_id, req.params.id, req.client.email)
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
+// Webinar module (Batch 165) — dedicated operations beyond the
+// generic item CRUD below (which handles create/update/delete/list
+// for type 'webinar'). Registered before the generic /modules/:type
+// routes so 'webinar' sub-paths are never parsed as item ids.
+router.post('/modules/webinar/:id/regen-code', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(res, await portal.regenWebinarCode(req.client.workspace_id, req.client.lead_id, req.params.id, req.client.email));
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
+router.get('/modules/webinar/:id/registrations', requireClient, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.listWebinarRegistrations(req.client.workspace_id, req.client.lead_id, req.params.id, req.client.email)
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
+router.get('/modules/webinar/:id/messages', requireClient, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.listWebinarMessages(req.client.workspace_id, req.client.lead_id, req.params.id, req.client.email)
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
+router.post('/modules/webinar/:id/messages', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.postWebinarHostMessage(
+        req.client.workspace_id,
+        req.client.lead_id,
+        req.params.id,
+        req.body || {},
+        req.client.email
+      )
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.code === 'VALIDATION' ? 400 : 400);
+  }
+});
+
+router.post('/modules/webinar/:id/messages/:messageId/hide', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.setWebinarMessageHidden(
+        req.client.workspace_id,
+        req.client.lead_id,
+        req.params.id,
+        req.params.messageId,
+        (req.body || {}).hidden !== false,
+        req.client.email
+      )
     );
   } catch (e) {
     fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);

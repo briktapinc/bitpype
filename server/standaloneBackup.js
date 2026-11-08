@@ -86,6 +86,7 @@ const EMBED_JS = [
   'fonts.js',
   'cookie-bar.js',
   'site-analytics.js',
+  'webinar-embed.js',
 ];
 
 /* Central-DB tables that NEVER travel, even when they carry a
@@ -590,6 +591,24 @@ async function buildSeedPlatformDb({ repoRoot, workspaceId, destPath, tmpDir }) 
       }
       counts[table] = inserted;
     }
+    // Batch 165: only the target site's MODULE webinars travel with
+    // a clone. Platform webinars (lead_id NULL) are the agency's own
+    // — for a workspace-1 backup they pass the workspace filter, so
+    // drop them here, with their registrations and messages (other
+    // workspaces' webinars never passed the filter at all).
+    try {
+      const before = seed.prepare('SELECT COUNT(*) AS c FROM webinars').get().c;
+      seed.exec('DELETE FROM webinars WHERE lead_id IS NULL');
+      seed.exec('DELETE FROM webinar_registrations WHERE webinar_id NOT IN (SELECT id FROM webinars)');
+      seed.exec('DELETE FROM webinar_messages WHERE webinar_id NOT IN (SELECT id FROM webinars)');
+      const after = seed.prepare('SELECT COUNT(*) AS c FROM webinars').get().c;
+      if (before !== after) counts.webinars_platform_dropped = before - after;
+      counts.webinars = after;
+      counts.webinar_registrations = seed.prepare('SELECT COUNT(*) AS c FROM webinar_registrations').get().c;
+      counts.webinar_messages = seed.prepare('SELECT COUNT(*) AS c FROM webinar_messages').get().c;
+    } catch {
+      /* webinar tables may not exist on an older source schema */
+    }
     seed.exec('COMMIT');
     try {
       const orphans = seed.prepare('PRAGMA foreign_key_check').all();
@@ -788,6 +807,42 @@ async function generateStandaloneBackup({ workspaceId, websiteId, workDir, repoR
   for (const name of EMBED_JS) {
     const src = path.join(root, 'public', 'js', name);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(jsDir, name));
+  }
+
+  /* Batch 165 — webinar gate/room shells for the baked site (the
+   * same per-webinar shells domain.materializeWebsiteExport writes;
+   * the list rides the engine's per-site settings cache). Additive:
+   * the clone's own app route serves the same pages server-side. */
+  try {
+    const sm = require('./siteModules');
+    const wrow = sm.getEmbedRow(tenantDb, leadId, 'webinar');
+    if (wrow && sm.moduleEmbedActive(wrow)) {
+      const cacheRow = tenantDb
+        .prepare('SELECT value FROM settings WHERE key = ?')
+        .get(`webinar_shells.${Number(siteId)}`);
+      let shells = [];
+      try {
+        shells = cacheRow ? JSON.parse(cacheRow.value || '[]') : [];
+      } catch {
+        shells = [];
+      }
+      const wPages = JSON.parse(site.pages || '[]');
+      const wTheme = JSON.parse(site.theme || '{}');
+      for (const sh of Array.isArray(shells) ? shells : []) {
+        const slug = String((sh && sh.slug) || '');
+        if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) continue;
+        const html = engine.buildWebinarPage(wPages, wTheme, {
+          token: wrow.public_token,
+          slug,
+          title: (sh && sh.title) || 'Webinar',
+        });
+        const wDir = path.join(siteDir, 'webinar');
+        fs.mkdirSync(wDir, { recursive: true });
+        fs.writeFileSync(path.join(wDir, `${slug}.html`), html, 'utf8');
+      }
+    }
+  } catch {
+    /* shells are additive — never fail a backup over them */
   }
 
   /* 2 — full detail-content bake, then repointing, then the scan

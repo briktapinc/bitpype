@@ -18,7 +18,7 @@
  *     feeds buildDetailPage AND build404Page; the per-item photo
  *     bake (opts.detailItemImage) and detailExportContext's photo
  *     resolution (detailItemPhoto, ctx.photos); MODULE_TYPES stays
- *     29 and MODULE_SCRIPT_VER stays mod39 (module-embed.js is NOT
+ *     29 and MODULE_SCRIPT_VER stays mod40 (module-embed.js is NOT
  *     touched — the cart is Batch 142's runtime, reused as-is).
  *   Part 2 — in-process: detailExportContext resolves per-item
  *     primary photos (product image_url, blog cover_image; a
@@ -133,10 +133,10 @@ function fixturePages() {
     n++;
     assert.ok(smSrc.includes('out.photos = photos'), 'detail context attaches photos');
     n++;
-    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod39'"), 'MODULE_SCRIPT_VER unchanged (mod39) — no embed change');
+    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod40'"), 'MODULE_SCRIPT_VER unchanged (mod40) — no embed change');
     n++;
     const typesBlock = /const MODULE_TYPES = \[([\s\S]*?)\];/.exec(smSrc);
-    assert.equal((typesBlock[1].match(/'/g) || []).length / 2, 29, 'MODULE_TYPES stays 29 — polish adds no module type');
+    assert.equal((typesBlock[1].match(/'/g) || []).length / 2, 30, 'MODULE_TYPES at 30 on this tree (Batch 165 appended webinar; polish itself added none) — polish adds no module type');
     n++;
 
     const embedSrc = read('public/js/module-embed.js');

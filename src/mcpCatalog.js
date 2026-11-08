@@ -1002,6 +1002,7 @@ const tools = [
             'newsletter',
             'categories',
             'pricing',
+            'webinar',
           ],
         },
         moduleType: {
@@ -1031,6 +1032,7 @@ const tools = [
             'newsletter',
             'categories',
             'pricing',
+            'webinar',
           ],
         },
         title: { type: 'string' },
@@ -2733,6 +2735,87 @@ const tools = [
   {
     name: 'qrcode.delete',
     description: 'Delete a QR code by id (Batch 126, Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', minimum: 1 },
+        leadId: { type: 'integer', minimum: 1 },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'webinar.list',
+    description:
+      'List the site’s webinars (Batch 165): title, slug, status, schedule, YouTube ID, access code, registrant/joined/message counts. Only the site’s own webinars — platform (agency) webinars are never returned here.',
+    schema: {
+      type: 'object',
+      properties: { leadId: { type: 'integer', minimum: 1 } },
+      required: ['leadId'],
+    },
+  },
+  {
+    name: 'webinar.create',
+    description:
+      'Create a webinar for the site: title (required), description, scheduledAt (datetime-local read as America/New_York wall time, or a full ISO instant), youtube (YouTube link or ID — only the ID is stored). The 7-character access code is generated automatically; registrants are captured into the site’s workspace contacts.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        title: { type: 'string' },
+        description: { type: 'string' },
+        scheduledAt: { type: 'string' },
+        youtube: { type: 'string' },
+      },
+      required: ['leadId', 'title'],
+    },
+  },
+  {
+    name: 'webinar.update',
+    description:
+      'Update one of the site’s webinars by id — same fields as webinar.create plus status (scheduled|live|ended) and chatOpen (true|false|null; null = Auto, open exactly while live). Another site’s id reads as not found.',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', minimum: 1 },
+        leadId: { type: 'integer', minimum: 1 },
+        title: { type: 'string' },
+        description: { type: 'string' },
+        scheduledAt: { type: 'string' },
+        youtube: { type: 'string' },
+        status: { type: 'string' },
+        chatOpen: { type: ['boolean', 'null'] },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'webinar.delete',
+    description: 'Delete one of the site’s webinars by id, with its registrations and chat history.',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', minimum: 1 },
+        leadId: { type: 'integer', minimum: 1 },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'webinar.regenCode',
+    description: 'Regenerate a webinar’s access code — the old code stops working immediately. Returns the webinar with its new code.',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', minimum: 1 },
+        leadId: { type: 'integer', minimum: 1 },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'webinar.registrations',
+    description: 'List a webinar’s registrations (name, email, phone, registered/joined times) for the site.',
     schema: {
       type: 'object',
       properties: {

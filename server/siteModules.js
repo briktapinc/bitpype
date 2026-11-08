@@ -50,6 +50,7 @@ const MODULE_TYPES = [
   'checkout',
   'comments',
   'pricing',
+  'webinar',
 ];
 const MANAGED_ATTR = 'data-bitpype-module';
 const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
@@ -67,7 +68,9 @@ const SCRIPT_ATTR = 'data-bitpype-module-script';
 // Batch 139: mod39 — the pricing embed renderer (renderPricing);
 // the bump is +1 relative to the landed tip, per the finisher
 // convention (the parked build's own pin predates the 131–149 chain).
-const MODULE_SCRIPT_VER = 'mod39';
+// Batch 165: mod40 — the webinar embed renderer (renderWebinar card;
+// the gate/room client loads from the same script family).
+const MODULE_SCRIPT_VER = 'mod40';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -107,6 +110,7 @@ const MODULE_META = {
   checkout: { label: 'Checkout', defaultTitle: 'Checkout', defaultSlug: 'checkout' },
   comments: { label: 'Comments', defaultTitle: 'Comments', defaultSlug: 'comments' },
   pricing: { label: 'Pricing', defaultTitle: 'Pricing', defaultSlug: 'pricing' },
+  webinar: { label: 'Webinars', defaultTitle: 'Webinars', defaultSlug: 'webinars' },
 };
 
 const BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'];
@@ -14331,6 +14335,13 @@ function moduleItemCount(db, leadId, type) {
       return 0;
     }
   }
+  if (type === 'webinar') {
+    // Batch 165: webinars live in the platform store behind the
+    // async engine — this synchronous count cannot read them. The
+    // portal's Webinar pane carries the real counts from the engine
+    // list; the tab badge stays 0 rather than lying.
+    return 0;
+  }
   if (type === 'charts') {
     // The tab badge counts the chart definitions on the site.
     ensureTables(db);
@@ -14442,6 +14453,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
   let qrcode = null;
   let checkout = null;
   let pricing = null;
+  let webinar = null;
   let checkoutPage = null;
   let checkoutToken = null;
   let comments = null;
@@ -14589,6 +14601,15 @@ function getPublicModuleByToken(db, token, opts = {}) {
     // whose source vanished are already dropped by the book.
     pricing = require('./pricing').publicPricingPayload(db, leadId);
     items = pricing.entries;
+  } else if (type === 'webinar') {
+    // Batch 165: webinar data lives in the platform store behind
+    // the async engine (server/webinars.js), which this synchronous
+    // payload cannot read — the payload carries the deferred marker
+    // and the embed renderer resolves the site's current/next
+    // webinar live from the webinar public API. items stays empty:
+    // nothing webinar-shaped is ever baked into a sync payload.
+    webinar = { deferred: true };
+    items = [];
   } else if (type === 'chatbot') {
     try {
       const chat = require('./chatbot');
@@ -14665,6 +14686,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
   if (photocapture) out.photocapture = photocapture;
   if (qrcode) out.qrcode = qrcode;
   if (pricing) out.pricing = pricing;
+  if (webinar) out.webinar = webinar;
   if (checkout) out.checkout = checkout;
   if (checkoutPage) out.checkout_page = checkoutPage;
   if (checkoutToken) out.checkout_token = checkoutToken;
@@ -15387,6 +15409,7 @@ module.exports = {
   updateCheckoutConfig,
   publicCheckoutPayload,
   getEmbedRowByToken,
+  moduleEmbedActive,
   getSellableGalleryImage,
   applyShopStripeEvent,
   getShopOrderBySession,

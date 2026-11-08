@@ -29,6 +29,15 @@
  * gate and the code is typed there. One code per webinar; regenerating
  * it invalidates the old one immediately. Gate attempts are
  * rate-limited in the route (server/routes/webinarsPublic.js).
+ *
+ * Batch 165 — the SAME engine also powers the per-site Webinar
+ * MODULE. A webinar row carries its scope: platform rows (above) are
+ * workspace 1 with lead_id/website_id NULL; module rows carry the
+ * owning site's workspace_id + lead_id + website_id. Every read/write
+ * below is scope-aware: platform surfaces only ever resolve platform
+ * rows, a site surface only ever resolves its own site's rows, and
+ * lead capture lands in the webinar's OWN workspace. One engine, two
+ * surfaces — no forked gate/chat logic.
  */
 
 const crypto = require('crypto');
@@ -171,10 +180,36 @@ function rowToWebinar(r) {
     status: r.status || 'scheduled',
     chatOpen: r.chat_open == null ? null : !!Number(r.chat_open),
     accessCode: r.access_code || '',
+    workspaceId: r.workspace_id == null ? 1 : Number(r.workspace_id),
+    leadId: r.lead_id == null ? null : Number(r.lead_id),
+    websiteId: r.website_id == null ? null : Number(r.website_id),
     createdBy: r.created_by == null ? null : Number(r.created_by),
     createdAt: r.created_at || null,
     updatedAt: r.updated_at || null,
   };
+}
+
+/* Batch 165 — scoping. Platform webinars are workspace 1 with no
+ * lead/website; module webinars belong to exactly one site. */
+const PLATFORM_SCOPE = { workspaceId: 1, leadId: null, websiteId: null };
+function normalizeScope(scope) {
+  if (!scope) return { ...PLATFORM_SCOPE };
+  return {
+    workspaceId: Number(scope.workspaceId) || 1,
+    leadId: scope.leadId == null ? null : Number(scope.leadId),
+    websiteId: scope.websiteId == null ? null : Number(scope.websiteId),
+  };
+}
+function isPlatformScope(scope) {
+  const s = normalizeScope(scope);
+  return s.leadId == null && s.websiteId == null;
+}
+function assertInScope(webinar, scope) {
+  if (!scope) return;
+  const s = normalizeScope(scope);
+  if (!webinar || webinar.workspaceId !== s.workspaceId || webinar.leadId !== s.leadId) {
+    throw notFound();
+  }
 }
 
 function chatEffectivelyOpen(w) {
@@ -183,29 +218,60 @@ function chatEffectivelyOpen(w) {
   return w.status === 'live';
 }
 
-async function getWebinarById(id) {
+async function getWebinarById(id, scope) {
   const rows = await query('SELECT * FROM webinars WHERE id = :id', { id: Number(id) });
-  return rowToWebinar(rows[0]);
+  const webinar = rowToWebinar(rows[0]);
+  if (webinar && scope) assertInScope(webinar, scope);
+  return webinar;
 }
 async function getWebinarBySlug(slug) {
   const rows = await query('SELECT * FROM webinars WHERE slug = :slug', { slug: String(slug || '') });
   return rowToWebinar(rows[0]);
 }
-
-async function listWebinars() {
+/** The platform (Batch 163) surface only ever serves platform rows. */
+async function getPlatformWebinarBySlug(slug) {
+  const rows = await query('SELECT * FROM webinars WHERE slug = :slug AND website_id IS NULL', {
+    slug: String(slug || ''),
+  });
+  return rowToWebinar(rows[0]);
+}
+/** A site surface only ever serves that site's own webinars. */
+async function getSiteWebinarBySlug(workspaceId, leadId, slug) {
   const rows = await query(
-    `SELECT w.*,
+    'SELECT * FROM webinars WHERE slug = :slug AND workspace_id = :ws AND lead_id = :lead',
+    { slug: String(slug || ''), ws: Number(workspaceId), lead: Number(leadId) }
+  );
+  return rowToWebinar(rows[0]);
+}
+
+const WEBINAR_LIST_SQL = `SELECT w.*,
        (SELECT COUNT(*) FROM webinar_registrations r WHERE r.webinar_id = w.id) AS reg_count,
        (SELECT COUNT(*) FROM webinar_registrations r WHERE r.webinar_id = w.id AND r.joined_at IS NOT NULL) AS joined_count,
        (SELECT COUNT(*) FROM webinar_messages m WHERE m.webinar_id = w.id) AS msg_count
-     FROM webinars w ORDER BY w.id DESC`
-  );
+     FROM webinars w`;
+
+function rowsToWebinarList(rows) {
   return rows.map((r) => ({
     ...rowToWebinar(r),
     registrantCount: Number(r.reg_count || 0),
     joinedCount: Number(r.joined_count || 0),
     messageCount: Number(r.msg_count || 0),
   }));
+}
+
+/** Platform (agency) webinars only — the Batch 163 admin list. */
+async function listWebinars() {
+  const rows = await query(`${WEBINAR_LIST_SQL} WHERE w.website_id IS NULL ORDER BY w.id DESC`);
+  return rowsToWebinarList(rows);
+}
+
+/** One site's webinars (Batch 165 module) — the portal owner's list. */
+async function listWebinarsForSite(workspaceId, leadId) {
+  const rows = await query(`${WEBINAR_LIST_SQL} WHERE w.workspace_id = :ws AND w.lead_id = :lead ORDER BY w.id DESC`, {
+    ws: Number(workspaceId),
+    lead: Number(leadId),
+  });
+  return rowsToWebinarList(rows);
 }
 
 async function uniqueSlug(title, excludeId) {
@@ -256,13 +322,14 @@ function cleanWebinarInput(body, { partial = false } = {}) {
   return out;
 }
 
-async function createWebinar(body, createdBy) {
+async function createWebinar(body, createdBy, scope) {
   const data = cleanWebinarInput(body || {});
+  const s = normalizeScope(scope);
   const slug = await uniqueSlug(data.title);
   const code = generateAccessCode();
   const res = await query(
-    `INSERT INTO webinars (slug, title, description, scheduled_at, youtube_id, status, chat_open, access_code, created_by)
-     VALUES (:slug, :title, :description, :scheduled_at, :youtube_id, 'scheduled', NULL, :access_code, :created_by)`,
+    `INSERT INTO webinars (slug, title, description, scheduled_at, youtube_id, status, chat_open, access_code, workspace_id, lead_id, website_id, created_by)
+     VALUES (:slug, :title, :description, :scheduled_at, :youtube_id, 'scheduled', NULL, :access_code, :workspace_id, :lead_id, :website_id, :created_by)`,
     {
       slug,
       title: data.title,
@@ -270,14 +337,19 @@ async function createWebinar(body, createdBy) {
       scheduled_at: data.scheduledAt || null,
       youtube_id: data.youtubeId || '',
       access_code: code,
+      workspace_id: s.workspaceId,
+      lead_id: s.leadId,
+      website_id: s.websiteId,
       created_by: createdBy == null ? null : Number(createdBy),
     }
   );
-  return getWebinarById(res.insertId);
+  const created = await getWebinarById(res.insertId);
+  await refreshShellCacheForSite(s);
+  return created;
 }
 
-async function updateWebinar(id, body) {
-  const existing = await getWebinarById(id);
+async function updateWebinar(id, body, scope) {
+  const existing = await getWebinarById(id, scope);
   if (!existing) throw notFound();
   const data = cleanWebinarInput(body || {}, { partial: true });
   const sets = [];
@@ -310,11 +382,17 @@ async function updateWebinar(id, body) {
     sets.push('updated_at = UTC_TIMESTAMP()');
     await query(`UPDATE webinars SET ${sets.join(', ')} WHERE id = :id`, params);
   }
-  return getWebinarById(existing.id);
+  const updated = await getWebinarById(existing.id);
+  await refreshShellCacheForSite({
+    workspaceId: existing.workspaceId,
+    leadId: existing.leadId,
+    websiteId: existing.websiteId,
+  });
+  return updated;
 }
 
-async function regenerateCode(id) {
-  const existing = await getWebinarById(id);
+async function regenerateCode(id, scope) {
+  const existing = await getWebinarById(id, scope);
   if (!existing) throw notFound();
   const code = generateAccessCode();
   await query('UPDATE webinars SET access_code = :code, updated_at = UTC_TIMESTAMP() WHERE id = :id', {
@@ -324,17 +402,116 @@ async function regenerateCode(id) {
   return getWebinarById(existing.id);
 }
 
-async function deleteWebinar(id) {
-  const existing = await getWebinarById(id);
+async function deleteWebinar(id, scope) {
+  const existing = await getWebinarById(id, scope);
   if (!existing) throw notFound();
   await query('DELETE FROM webinar_messages WHERE webinar_id = :id', { id: existing.id });
   await query('DELETE FROM webinar_registrations WHERE webinar_id = :id', { id: existing.id });
   await query('DELETE FROM webinars WHERE id = :id', { id: existing.id });
+  await refreshShellCacheForSite({
+    workspaceId: existing.workspaceId,
+    leadId: existing.leadId,
+    websiteId: existing.websiteId,
+  });
   return { deleted: true, id: existing.id, slug: existing.slug };
+}
+
+/**
+ * Batch 165 — module removal purge: every webinar belonging to one
+ * site (messages + registrations first), so deleting the Webinar
+ * module leaves no orphaned rows behind. Returns the count removed.
+ */
+async function deleteWebinarsForSite(workspaceId, leadId) {
+  const rows = await query('SELECT id FROM webinars WHERE workspace_id = :ws AND lead_id = :lead', {
+    ws: Number(workspaceId),
+    lead: Number(leadId),
+  });
+  for (const r of rows) {
+    await query('DELETE FROM webinar_messages WHERE webinar_id = :id', { id: Number(r.id) });
+    await query('DELETE FROM webinar_registrations WHERE webinar_id = :id', { id: Number(r.id) });
+    await query('DELETE FROM webinars WHERE id = :id', { id: Number(r.id) });
+  }
+  await refreshShellCacheForSite({ workspaceId: Number(workspaceId), leadId: Number(leadId), websiteId: null });
+  return { deleted: rows.length };
+}
+
+/**
+ * Batch 165 — single-site clone scope: the clone serves exactly one
+ * site, resolved from its seeded stores (the sole workspace + its
+ * first website row). Cached per process; a clone's site never
+ * changes underneath it.
+ */
+let cloneScopeCache = null;
+async function resolveCloneSiteScope() {
+  if (cloneScopeCache) return cloneScopeCache;
+  const rows = await query('SELECT id FROM workspaces ORDER BY id ASC LIMIT 1');
+  const workspaceId = rows.length ? Number(rows[0].id) : 1;
+  let leadId = null;
+  let websiteId = null;
+  try {
+    const { openWorkspaceDb } = require('./workspaceDb');
+    const wdb = openWorkspaceDb(workspaceId);
+    const site = wdb.prepare('SELECT id, lead_id FROM websites ORDER BY id ASC LIMIT 1').get();
+    if (site) {
+      websiteId = Number(site.id);
+      leadId = site.lead_id == null ? null : Number(site.lead_id);
+    }
+  } catch {
+    /* no tenant db yet — the clone has no site webinars */
+  }
+  cloneScopeCache = { workspaceId, leadId, websiteId };
+  return cloneScopeCache;
 }
 
 function sharePath(webinar) {
   return `/webinar/${webinar.slug}`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Export shell cache (Batch 165)                                      */
+/*                                                                     */
+/* domain.materializeWebsiteExport is synchronous and ships one real   */
+/* gate/room shell per site webinar at webinar/<slug>.html. Following  */
+/* the adsense pattern, the engine caches the site's shell list        */
+/* (slug + title — public data, no secrets) in the tenant settings     */
+/* table on every site-scoped write, so every sync re-materialization  */
+/* ships the same shells the async funnels would.                      */
+/* ------------------------------------------------------------------ */
+
+const shellCacheKey = (websiteId) => `webinar_shells.${Number(websiteId)}`;
+
+function writeShellCache(workspaceId, leadId, websiteId, list) {
+  try {
+    const { openWorkspaceDb } = require('./workspaceDb');
+    const wdb = openWorkspaceDb(Number(workspaceId) || 1);
+    let siteId = websiteId == null ? null : Number(websiteId);
+    if (!siteId) {
+      const row = wdb
+        .prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id ASC LIMIT 1')
+        .get(Number(leadId));
+      if (row) siteId = Number(row.id);
+    }
+    if (!siteId) return;
+    const value = JSON.stringify((list || []).map((w) => ({ slug: w.slug, title: w.title })));
+    wdb
+      .prepare(
+        'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+      )
+      .run(shellCacheKey(siteId), value);
+  } catch (e) {
+    console.warn('[webinars] shell cache write failed:', (e && e.message) || e);
+  }
+}
+
+async function refreshShellCacheForSite(scope) {
+  const s = normalizeScope(scope);
+  if (s.leadId == null) return; // platform webinars have no site shells
+  try {
+    const list = await listWebinarsForSite(s.workspaceId, s.leadId);
+    writeShellCache(s.workspaceId, s.leadId, s.websiteId, list);
+  } catch {
+    /* best-effort — a stale cache only delays shell updates */
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -371,15 +548,17 @@ async function listRegistrations(webinarId) {
 }
 
 /**
- * Capture the registrant into LeadScout (workspace 1 tenant DB) via
- * portalContacts. Best-effort by design (the capture functions record
- * their own failures); returns the contact id when known.
+ * Capture the registrant into LeadScout (the webinar's OWN workspace
+ * tenant DB) via portalContacts. Best-effort by design (the capture
+ * functions record their own failures); returns the contact id when
+ * known. Platform webinars pass workspace 1 (Batch 163 behaviour);
+ * module webinars capture into their site's workspace (Batch 165).
  */
-function captureRegistrantAsContact(registration, webinarTitle) {
+function captureRegistrantAsContact(registration, webinarTitle, workspaceId) {
   try {
     const { openWorkspaceDb } = require('./workspaceDb');
     const portalContacts = require('./portalContacts');
-    const wdb = openWorkspaceDb(1);
+    const wdb = openWorkspaceDb(Number(workspaceId) || 1);
     const result = portalContacts.captureFromWebinar(wdb, {
       registration: {
         id: registration.id,
@@ -428,15 +607,15 @@ async function registerWithCode(webinar, input) {
     reg = { ...reg, name, phone };
   } else {
     const res = await query(
-      `INSERT INTO webinar_registrations (webinar_id, name, email, email_norm, phone)
-       VALUES (:w, :name, :email, :email_norm, :phone)`,
-      { w: webinar.id, name, email, email_norm: email, phone }
+      `INSERT INTO webinar_registrations (webinar_id, workspace_id, name, email, email_norm, phone)
+       VALUES (:w, :ws, :name, :email, :email_norm, :phone)`,
+      { w: webinar.id, ws: webinar.workspaceId || 1, name, email, email_norm: email, phone }
     );
     reg = await getRegistration(webinar.id, email);
     if (!reg) reg = { id: Number(res.insertId), webinarId: webinar.id, name, email, phone, contactId: null };
   }
   if (!reg.contactId) {
-    const contactId = captureRegistrantAsContact(reg, webinar.title);
+    const contactId = captureRegistrantAsContact(reg, webinar.title, webinar.workspaceId);
     if (contactId) {
       await query('UPDATE webinar_registrations SET contact_id = :c WHERE id = :id', { c: contactId, id: reg.id });
       reg = { ...reg, contactId };
@@ -515,10 +694,11 @@ async function postMessage(webinar, { registration = null, hostName = null, body
   const isHost = !!hostName;
   const authorName = isHost ? String(hostName).slice(0, MAX_NAME) : registration.name;
   const res = await query(
-    `INSERT INTO webinar_messages (webinar_id, registration_id, author_name, is_host, body)
-     VALUES (:w, :r, :author, :host, :body)`,
+    `INSERT INTO webinar_messages (webinar_id, workspace_id, registration_id, author_name, is_host, body)
+     VALUES (:w, :ws, :r, :author, :host, :body)`,
     {
       w: webinar.id,
+      ws: webinar.workspaceId || 1,
       r: registration ? Number(registration.id) : null,
       author: authorName,
       host: isHost ? 1 : 0,
@@ -589,6 +769,9 @@ module.exports = {
   CODE_LENGTH,
   STATUSES,
   CHAT_BACKLOG,
+  PLATFORM_SCOPE,
+  normalizeScope,
+  isPlatformScope,
   generateAccessCode,
   slugify,
   normalizeEmail,
@@ -601,11 +784,16 @@ module.exports = {
   chatEffectivelyOpen,
   getWebinarById,
   getWebinarBySlug,
+  getPlatformWebinarBySlug,
+  getSiteWebinarBySlug,
   listWebinars,
+  listWebinarsForSite,
   createWebinar,
   updateWebinar,
   regenerateCode,
   deleteWebinar,
+  deleteWebinarsForSite,
+  resolveCloneSiteScope,
   sharePath,
   getRegistration,
   listRegistrations,

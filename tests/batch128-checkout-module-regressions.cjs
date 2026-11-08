@@ -211,7 +211,7 @@ function load(file, mocks) {
     }
     assert.ok(smSrc.includes("checkout: { label: 'Checkout'"), 'MODULE_META carries the Checkout label');
     n++;
-    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod39'"), 'MODULE_SCRIPT_VER bumped to mod32');
+    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod40'"), 'MODULE_SCRIPT_VER bumped to mod32');
     n++;
     assert.ok(smSrc.includes('CREATE TABLE IF NOT EXISTS ecommerce_order_items'), 'order line-items table exists');
     n++;
@@ -404,7 +404,7 @@ function load(file, mocks) {
     let n = 0;
     assert.equal(
       sm.MODULE_TYPES.length,
-      29,
+      30,
       'catalog at 29 types (Batch 131: comments appended; Batch 139: pricing appended)'
     );
     assert.equal(sm.MODULE_TYPES[26], 'checkout', 'checkout is the 27th type');

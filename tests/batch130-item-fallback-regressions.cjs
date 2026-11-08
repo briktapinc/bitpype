@@ -215,8 +215,8 @@ async function waitReady(child, output) {
     const sm = require(path.join(root, 'server/siteModules.js'));
     assert.equal(
       sm.MODULE_SCRIPT_VER,
-      'mod39',
-      'MODULE_SCRIPT_VER bumped for the fallback (Batch 128 finisher rotation; Batch 139 finisher rotation to mod39)'
+      'mod40',
+      'MODULE_SCRIPT_VER bumped for the fallback (Batch 128 finisher rotation; Batch 139 finisher rotation to mod40)'
     );
     n++;
     assert.ok(
@@ -233,7 +233,7 @@ async function waitReady(child, output) {
     const cz = census();
     assert.equal(
       cz.summary.total,
-      465,
+      476,
       'SEC-13 census total — the Batch 130 fix added no sinks; Batch 126 finisher added +4 audited QR sinks; Batch 127 finisher added +5 audited variant-editor sinks; Batch 128 finisher added +13 safe-class checkout sinks (reviewed set unchanged); Batch 129 finisher added +3 audited STATIC pay-at-booking sinks (reviewed set unchanged; Batch 137 finisher +1 audited SAFE sink in portal.js — census 441 -> 442, reviewed RAW/IDENT content unchanged; Batch 138 finisher: census 442 -> 446 — +3 audited STATIC + 1 IDENT (micSvg(), a constant SVG string) in chat-embed.js for the voice panel, and one portal.js inbox sink reclassified SAFE -> RAW by the conservative classifier after gaining the ${voiceHtml} interpolation (audited: voiceHtml is composed only of esc()-wrapped values, duration arithmetic and fixed close-state words — no visitor-controlled string reaches it unescaped); RAW 76 -> 77, IDENT 35 -> 36, SAFE 74 -> 73, STATIC 158 -> 161, safe classes 331 -> 333; (file,kind,snippet) multiset diff vs the Batch 149 base = exactly these deltas plus pure line movement in portal.js/chat-embed.js; baseline regenerated; Batch 139 finisher: census 446 -> 448 — +1 audited STATIC + 1 audited BUILDER sink in module-embed.js (pricing renderer), RAW/IDENT multiset unchanged, baseline regenerated; Batch 153: census 448 -> 450 — +1 BUILDER +1 RAW in app.js, both the Admin Design-agent editor (rows build — every interpolated value esc()-wrapped; panel shell classified RAW by the conservative classifier, audited: its interpolations are a fixed literal seed note and the numeric limits only, no staff- or visitor-controlled string reaches it unescaped); BUILDER 59 -> 60, RAW 77 -> 78, safe classes 335 -> 336; remaining app.js RAW/IDENT movement is pure line shift from the editor + popup insertions, (file,kind,snippet) multiset diff vs the Batch 139 base = exactly these two sinks; baseline regenerated; Batch 156 rotation: census 450 -> 453 (+1 STATIC +1 ESCAPED +1 SAFE in app.js — fingerprint surfaces), safe classes 336 -> 339, RAW/IDENT reviewed set unchanged; baseline regenerated; Batch 163 rotation: census 453 -> 465 (+12 audited safe-class sinks in app.js — Webinars surfaces), safe classes 339 -> 351, RAW/IDENT reviewed set unchanged)'
     );
     n++;
@@ -243,7 +243,7 @@ async function waitReady(child, output) {
       .sort((x, y) => x - y);
     assert.deepEqual(
       meLines,
-      [1470, 1482, 1486, 1490, 1909, 2115, 3419, 5657, 5762, 6124],
+      [1478, 1490, 1494, 1498, 1917, 2123, 3427, 5695, 5800, 6162],
       'module-embed reviewed sinks: the same nine sinks as the Batch 130 set plus one new reviewed RAW sink (the detail mount esc()-escaped error line, Batch 133), at Batch 128 positions — shifted by the Batch 128 checkout embed blocks (pure line movement; the snippet sequence is unchanged except the album-detail sink, whose call gained the payload argument in Batch 128) plus the audited QR RAW sink; Batch 129 finisher: five positions shifted again (+52/+52/+62/+62/+62) by the Batch 129 pay-at-booking embed blocks — pure line movement, proven by the census multiset diff (RAW/IDENT multiset byte-identical, exactly +3 STATIC sinks added); Batch 135 finisher: all nine positions shifted +11 by the Batch 135 module-internal spacing floor CSS block in module-embed.js — pure line movement, census multiset then unchanged (total 437); Batch 133 finisher: positions shifted +54/+55 by the detail helpers and the set grows to ten with the one new reviewed sink (total 440); Batch 131 finisher: all ten positions shifted again (+30 x6, +401, +408 x2, +435) by the comments renderer + detail-comments mount in module-embed.js — pure line movement, census total flat at 440 and the RAW/IDENT multiset byte-identical; Batch 142 finisher: rebased onto the post-131 tree — positions re-derived on the merged module-embed.js (nav-cart block added, in-body cart bar removed): all ten sink lines byte-identical to the post-131 set (pure line movement, verified line-by-line in the finisher census diff) and the census drops one STATIC sink (two in-body cart-bar innerHTML sinks removed, one nav-cart innerHTML sink added; total 440 -> 439, STATIC 157 -> 156, RAW/IDENT multiset otherwise unchanged); Batch 143 finisher: positions shifted +1/+2 by the esc() single-quote hardening in module-embed.js (one added line in esc at the top, one in chartEscText) — pure line movement, census total flat at 439 and the RAW/IDENT multiset byte-identical; Batch 136 finisher: five positions shifted (+45, +64 x4) by the booking-widget discount banner + price-summary block in module-embed.js — pure line movement, proven by the census multiset diff (RAW/IDENT multiset byte-identical), and the census gains exactly +2 audited STATIC sinks, both in module-embed.js (the price-summary innerHTML clear at the new 1981 and the fully esc()-wrapped price-summary build at the new 1988); total 439 -> 441, STATIC 156 -> 158'
     );
     n++;

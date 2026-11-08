@@ -742,6 +742,50 @@ function materializeWebsiteExport(db, workspaceId, siteId, opts = {}) {
     console.warn('[domain] claim preview inject:', e.message || e);
   }
 
+  // Batch 165: one real gate/room shell per webinar of the site at
+  // webinar/<slug>.html (Pages ignores _redirects 200-rewrites — the
+  // Batch 133 lesson). The shell list rides the per-site cache the
+  // webinar engine refreshes on every write (the adsense pattern —
+  // this function is synchronous); shells resolve everything live
+  // through the webinar public API, so nothing goes stale.
+  try {
+    const leadIdW = fresh && fresh.lead_id != null ? Number(fresh.lead_id) : 0;
+    if (Number.isInteger(leadIdW) && leadIdW > 0 && exported.dir) {
+      const mods165 = require('./siteModules');
+      const embedRow = mods165.getEmbedRow(db, leadIdW, 'webinar');
+      if (embedRow && mods165.moduleEmbedActive(embedRow)) {
+        const cacheRow = db
+          .prepare('SELECT value FROM settings WHERE key = ?')
+          .get(`webinar_shells.${Number(siteId)}`);
+        let shells = [];
+        try {
+          shells = cacheRow ? JSON.parse(cacheRow.value || '[]') : [];
+        } catch {
+          shells = [];
+        }
+        let writtenW = 0;
+        for (const sh of Array.isArray(shells) ? shells : []) {
+          const slug = String((sh && sh.slug) || '');
+          if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) continue;
+          const html = engine.buildWebinarPage(pages, theme, {
+            token: embedRow.public_token,
+            slug,
+            title: (sh && sh.title) || 'Webinar',
+          });
+          const dirW = require('path').join(exported.dir, 'webinar');
+          require('fs').mkdirSync(dirW, { recursive: true });
+          require('fs').writeFileSync(require('path').join(dirW, `${slug}.html`), html, 'utf8');
+          const rel = `webinar/${slug}.html`;
+          if (Array.isArray(exported.files) && !exported.files.includes(rel)) exported.files.push(rel);
+          writtenW++;
+        }
+        exported.webinarShells = writtenW;
+      }
+    }
+  } catch (e) {
+    console.warn('[domain] webinar shells:', e.message || e);
+  }
+
   // Google AdSense — Free-plan customer sites only, never paid plans.
   // Config is resolved by the async publish/export funnels (opts.adsense) or
   // reused from the per-site cache the last resolution wrote; applyToExportDir
@@ -5931,6 +5975,17 @@ function adminDeleteModuleInstall(workspaceId, leadId, moduleType) {
     modules.ensureTables(db);
     const lead = db.prepare('SELECT business_name FROM leads WHERE id = ?').get(Number(leadId));
     const out = modules.deleteModule(db, Number(leadId), String(moduleType || ''));
+    if (String(moduleType || '').toLowerCase() === 'webinar') {
+      // Batch 165: webinar content lives in the platform store
+      // behind the async engine, which this sync path cannot await.
+      // The embed is already gone, so the site's webinars are
+      // unreachable from this instant; the purge itself is fired
+      // here and logged on failure (the portal delete path awaits
+      // the same purge — see portalModules.deleteSiteModule).
+      require('./webinars')
+        .deleteWebinarsForSite(workspaceId, Number(leadId))
+        .catch((e) => console.warn('[domain] webinar purge after staff module delete:', e.message || e));
+    }
     try {
       db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
         'modules',

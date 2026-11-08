@@ -15,6 +15,13 @@
  * per IP + webinar (lockout family consistent with the platform's
  * login limits). Every rendered value is escaped; chat messages are
  * rendered client-side via textContent, never innerHTML.
+ *
+ * Batch 165 — the router is built by a factory over a webinar
+ * RESOLVER. The default export resolves platform webinars only
+ * (Batch 163 behaviour, unchanged). The `siteRouter` export resolves
+ * the single-site clone's OWN webinars (the Webinar module in clone
+ * mode) — same gate, same room, same engine, scoped to the clone's
+ * site, with a neutral brand line instead of BitPype's.
  */
 
 const express = require('express');
@@ -22,20 +29,22 @@ const webinars = require('../webinars');
 const { rateLimit } = require('../rateLimit');
 const apiErrors = require('../apiErrors');
 
-const router = express.Router();
-
-const gateLimit = rateLimit({
-  name: 'webinar-gate',
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  keyFn: (req) => `${req.params.slug || ''}:${req.ip || ''}`,
-});
-const chatLimit = rateLimit({
-  name: 'webinar-chat',
-  windowMs: 60 * 1000,
-  max: 30,
-  keyFn: (req) => `${req.params.slug || ''}:${req.ip || ''}`,
-});
+function makeGateLimit(prefix) {
+  return rateLimit({
+    name: 'webinar-gate',
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    keyFn: (req) => `${prefix}:${req.params.slug || ''}:${req.ip || ''}`,
+  });
+}
+function makeChatLimit(prefix) {
+  return rateLimit({
+    name: 'webinar-chat',
+    windowMs: 60 * 1000,
+    max: 30,
+    keyFn: (req) => `${prefix}:${req.params.slug || ''}:${req.ip || ''}`,
+  });
+}
 
 function esc(s) {
   return String(s == null ? '' : s)
@@ -108,13 +117,14 @@ const PAGE_CSS = `
   .notice { background:#fdf3d8; border:1px solid #ecd28a; border-radius:12px; padding:12px 14px; font-weight:600; }
 `;
 
-function pageShell(title, inner) {
+function pageShell(title, inner, brandLabel) {
+  const brand = brandLabel || 'BitPype Webinar';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${esc(title)} — BitPype Webinar</title>
+<title>${esc(title)} — ${esc(brand)}</title>
 <link rel="icon" href="/brand/favicon.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -123,14 +133,14 @@ function pageShell(title, inner) {
 </head>
 <body>
 <div class="wrap">
-  <div class="brand">BitPype Webinar</div>
+  <div class="brand">${esc(brand)}</div>
   ${inner}
 </div>
 </body>
 </html>`;
 }
 
-function gateHtml(webinar, error) {
+function gateHtml(webinar, error, brandLabel) {
   const when = webinar.scheduledLabel ? `<span class="when">${esc(webinar.scheduledLabel)}</span>` : '';
   const err = error ? `<div class="error">${esc(error)}</div>` : '';
   return pageShell(
@@ -153,11 +163,12 @@ function gateHtml(webinar, error) {
       <input id="f-code" name="code" autocomplete="off" required maxlength="16" style="text-transform:uppercase" />
       <button class="cta" type="submit">Join the webinar</button>
     </form>
-  </div>`
+  </div>`,
+    brandLabel
   );
 }
 
-function roomHtml(webinar, registration) {
+function roomHtml(webinar, registration, brandLabel) {
   const open = webinars.chatEffectivelyOpen(webinar);
   const embed = webinar.youtubeId
     ? `<div class="video-frame"><iframe src="https://www.youtube-nocookie.com/embed/${esc(webinar.youtubeId)}" title="${esc(webinar.title)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></div>`
@@ -265,140 +276,179 @@ function roomHtml(webinar, registration) {
     <div>${embed}</div>
     <div>${chatPanel}</div>
   </div>
-  ${script}`
+  ${script}`,
+    brandLabel
   );
 }
 
-function notFoundPage(res) {
+function notFoundPage(res, brandLabel) {
   res
     .status(404)
     .send(
       pageShell(
         'Webinar not found',
-        `<h1>Webinar not found</h1><p class="lede">That webinar link doesn't match a webinar. Check the link and try again.</p>`
+        `<h1>Webinar not found</h1><p class="lede">That webinar link doesn't match a webinar. Check the link and try again.</p>`,
+        brandLabel
       )
     );
 }
 
-router.get('/webinar/:slug', async (req, res) => {
-  try {
-    const webinar = await webinars.getWebinarBySlug(req.params.slug);
-    if (!webinar) return notFoundPage(res);
-    const session = await sessionFor(req, webinar);
-    if (!session) return res.send(gateHtml(webinar, null));
-    await webinars.markJoined(session.id);
-    return res.send(roomHtml(webinar, session));
-  } catch (e) {
-    return apiErrors.sendError(res, e, 500, { area: 'webinars-public', mask5xx: true });
-  }
-});
+/**
+ * Build the gate+room router over a webinar resolver.
+ * resolveWebinar(req) -> webinar row (engine shape) or null.
+ * opts: { brandLabel, limitPrefix }.
+ */
+function buildRouter(resolveWebinar, opts = {}) {
+  const brandLabel = opts.brandLabel || 'BitPype Webinar';
+  const gateLimit = makeGateLimit(opts.limitPrefix || 'platform');
+  const chatLimit = makeChatLimit(opts.limitPrefix || 'platform');
+  const router = express.Router();
 
-router.post('/webinar/:slug/enter', gateLimit, async (req, res) => {
-  try {
-    const webinar = await webinars.getWebinarBySlug(req.params.slug);
-    if (!webinar) return notFoundPage(res);
-    const body = req.body || {};
-    const registration = await webinars.registerWithCode(webinar, {
-      name: body.name,
-      email: body.email,
-      phone: body.phone,
-      code: body.code,
-    });
-    res.cookie(webinars.cookieName(webinar.id), webinars.signGateCookie(webinar.id, registration.id), {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: cookieSecure(),
-      path: '/webinar/',
-      maxAge: 30 * 24 * 60 * 60 * 1000,
-    });
-    return res.redirect(303, `/webinar/${encodeURIComponent(webinar.slug)}`);
-  } catch (e) {
-    if (e.code === 'VALIDATION' || e.code === 'INVALID_CODE') {
-      const webinar = await webinars.getWebinarBySlug(req.params.slug).catch(() => null);
-      if (!webinar) return notFoundPage(res);
-      return res.status(400).send(gateHtml(webinar, e.message));
+  async function requireRoomSession(req, res) {
+    const webinar = await resolveWebinar(req);
+    if (!webinar) {
+      res.status(404).json({ ok: false, error: 'Webinar not found' });
+      return null;
     }
-    return apiErrors.sendError(res, e, 500, { area: 'webinars-public', mask5xx: true });
+    const session = await sessionFor(req, webinar);
+    if (!session) {
+      res.status(401).json({ ok: false, error: 'Join through the gate first' });
+      return null;
+    }
+    return { webinar, session };
   }
-});
 
-async function requireRoomSession(req, res) {
-  const webinar = await webinars.getWebinarBySlug(req.params.slug);
-  if (!webinar) {
-    res.status(404).json({ ok: false, error: 'Webinar not found' });
-    return null;
-  }
-  const session = await sessionFor(req, webinar);
-  if (!session) {
-    res.status(401).json({ ok: false, error: 'Join through the gate first' });
-    return null;
-  }
-  return { webinar, session };
+  router.get('/webinar/:slug', async (req, res) => {
+    try {
+      const webinar = await resolveWebinar(req);
+      if (!webinar) return notFoundPage(res, brandLabel);
+      const session = await sessionFor(req, webinar);
+      if (!session) return res.send(gateHtml(webinar, null, brandLabel));
+      await webinars.markJoined(session.id);
+      return res.send(roomHtml(webinar, session, brandLabel));
+    } catch (e) {
+      return apiErrors.sendError(res, e, 500, { area: 'webinars-public', mask5xx: true });
+    }
+  });
+
+  router.post('/webinar/:slug/enter', gateLimit, async (req, res) => {
+    try {
+      const webinar = await resolveWebinar(req);
+      if (!webinar) return notFoundPage(res, brandLabel);
+      const body = req.body || {};
+      const registration = await webinars.registerWithCode(webinar, {
+        name: body.name,
+        email: body.email,
+        phone: body.phone,
+        code: body.code,
+      });
+      res.cookie(webinars.cookieName(webinar.id), webinars.signGateCookie(webinar.id, registration.id), {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: cookieSecure(),
+        path: '/webinar/',
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+      });
+      return res.redirect(303, `/webinar/${encodeURIComponent(webinar.slug)}`);
+    } catch (e) {
+      if (e.code === 'VALIDATION' || e.code === 'INVALID_CODE') {
+        const webinar = await resolveWebinar(req).catch(() => null);
+        if (!webinar) return notFoundPage(res, brandLabel);
+        return res.status(400).send(gateHtml(webinar, e.message, brandLabel));
+      }
+      return apiErrors.sendError(res, e, 500, { area: 'webinars-public', mask5xx: true });
+    }
+  });
+
+  router.get('/webinar/:slug/chat/messages', async (req, res) => {
+    try {
+      const ctx = await requireRoomSession(req, res);
+      if (!ctx) return;
+      const messages = await webinars.listMessages(ctx.webinar.id, {
+        afterId: Number(req.query.after || 0),
+        includeHidden: false,
+      });
+      return res.json({
+        ok: true,
+        messages,
+        chatOpen: webinars.chatEffectivelyOpen(ctx.webinar),
+        status: ctx.webinar.status,
+      });
+    } catch (e) {
+      return apiErrors.sendError(res, e, 500, { area: 'webinars-public', mask5xx: true });
+    }
+  });
+
+  router.get('/webinar/:slug/chat/stream', async (req, res) => {
+    try {
+      const ctx = await requireRoomSession(req, res);
+      if (!ctx) return;
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      });
+      const backlog = await webinars.listMessages(ctx.webinar.id, { includeHidden: false });
+      for (const m of backlog) {
+        res.write(`event: message\ndata: ${JSON.stringify(m)}\n\n`);
+      }
+      webinars.hubSubscribe(ctx.webinar.id, res);
+      const heartbeat = setInterval(() => {
+        try {
+          res.write(': ping\n\n');
+        } catch {
+          /* closed */
+        }
+      }, 25000);
+      req.on('close', () => clearInterval(heartbeat));
+    } catch (e) {
+      return apiErrors.sendError(res, e, 500, { area: 'webinars-public', mask5xx: true });
+    }
+  });
+
+  router.post('/webinar/:slug/chat', chatLimit, async (req, res) => {
+    try {
+      const ctx = await requireRoomSession(req, res);
+      if (!ctx) return;
+      if (!webinars.chatEffectivelyOpen(ctx.webinar)) {
+        return res.status(403).json({ ok: false, error: 'Chat is not open right now' });
+      }
+      const message = await webinars.postMessage(ctx.webinar, {
+        registration: ctx.session,
+        body: (req.body || {}).body,
+      });
+      return res.json({ ok: true, message });
+    } catch (e) {
+      if (e.code === 'VALIDATION') return res.status(400).json({ ok: false, error: e.message });
+      return apiErrors.sendError(res, e, 500, { area: 'webinars-public', mask5xx: true });
+    }
+  });
+
+  return router;
 }
 
-router.get('/webinar/:slug/chat/messages', async (req, res) => {
-  try {
-    const ctx = await requireRoomSession(req, res);
-    if (!ctx) return;
-    const messages = await webinars.listMessages(ctx.webinar.id, {
-      afterId: Number(req.query.after || 0),
-      includeHidden: false,
-    });
-    return res.json({
-      ok: true,
-      messages,
-      chatOpen: webinars.chatEffectivelyOpen(ctx.webinar),
-      status: ctx.webinar.status,
-    });
-  } catch (e) {
-    return apiErrors.sendError(res, e, 500, { area: 'webinars-public', mask5xx: true });
-  }
+/** Platform surface (Batch 163): platform webinars only. */
+const platformRouter = buildRouter((req) => webinars.getPlatformWebinarBySlug(req.params.slug), {
+  brandLabel: 'BitPype Webinar',
+  limitPrefix: 'platform',
 });
 
-router.get('/webinar/:slug/chat/stream', async (req, res) => {
-  try {
-    const ctx = await requireRoomSession(req, res);
-    if (!ctx) return;
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    });
-    const backlog = await webinars.listMessages(ctx.webinar.id, { includeHidden: false });
-    for (const m of backlog) {
-      res.write(`event: message\ndata: ${JSON.stringify(m)}\n\n`);
-    }
-    webinars.hubSubscribe(ctx.webinar.id, res);
-    const heartbeat = setInterval(() => {
-      try {
-        res.write(': ping\n\n');
-      } catch {
-        /* closed */
-      }
-    }, 25000);
-    req.on('close', () => clearInterval(heartbeat));
-  } catch (e) {
-    return apiErrors.sendError(res, e, 500, { area: 'webinars-public', mask5xx: true });
-  }
-});
+/**
+ * Clone surface (Batch 165): the single-site clone's OWN webinars,
+ * resolved from the clone's seeded scope. Mounted only in clone
+ * mode (server.js) — the platform mount above never runs there.
+ */
+const siteRouter = buildRouter(
+  async (req) => {
+    const scope = await webinars.resolveCloneSiteScope();
+    if (!scope || scope.leadId == null) return null;
+    return webinars.getSiteWebinarBySlug(scope.workspaceId, scope.leadId, req.params.slug);
+  },
+  { brandLabel: 'Webinar', limitPrefix: 'clone' }
+);
 
-router.post('/webinar/:slug/chat', chatLimit, async (req, res) => {
-  try {
-    const ctx = await requireRoomSession(req, res);
-    if (!ctx) return;
-    if (!webinars.chatEffectivelyOpen(ctx.webinar)) {
-      return res.status(403).json({ ok: false, error: 'Chat is not open right now' });
-    }
-    const message = await webinars.postMessage(ctx.webinar, {
-      registration: ctx.session,
-      body: (req.body || {}).body,
-    });
-    return res.json({ ok: true, message });
-  } catch (e) {
-    if (e.code === 'VALIDATION') return res.status(400).json({ ok: false, error: e.message });
-    return apiErrors.sendError(res, e, 500, { area: 'webinars-public', mask5xx: true });
-  }
-});
-
-module.exports = router;
+module.exports = platformRouter;
+module.exports.siteRouter = siteRouter;
+module.exports.buildRouter = buildRouter;
+module.exports.makeGateLimit = makeGateLimit;

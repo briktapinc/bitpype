@@ -417,9 +417,10 @@ app.use(
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     // Member-session + page-context + owner-preview headers (Membership gating).
+    // Batch 165: the webinar gate session header rides the same list.
     res.setHeader(
       'Access-Control-Allow-Headers',
-      'Content-Type, X-Bitpype-Member-Session, X-Bitpype-Page, X-Bitpype-Preview-Grant'
+      'Content-Type, X-Bitpype-Member-Session, X-Bitpype-Page, X-Bitpype-Preview-Grant, X-Bitpype-Webinar-Session'
     );
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     if (req.method === 'OPTIONS') return res.sendStatus(204);
@@ -427,6 +428,14 @@ app.use(
   },
   modulesPublicRoutes
 );
+// Batch 165: in single-site clone mode the Webinar module's gate +
+// room is public site functionality, so the clone serves its OWN
+// site's webinars at /webinar/<slug> via the site router (same
+// engine/pages as the platform mount, scoped to the clone's site).
+// The platform mount further down never runs on a clone.
+if (SINGLE_SITE) {
+  app.use(webinarsPublicRoutes.siteRouter);
+}
 // Public site chatbot (visitor bubble → portal client MCP agent; no admin tokens).
 app.use(
   '/api/v1/chat/public',
@@ -475,8 +484,10 @@ if (!SINGLE_SITE) {
   // Batch 71: public unsubscribe link for the Admin mailing list
   // (HMAC token, no session — flips one subscriber, nothing else exposed).
   app.use('/api/v1/mailing-list', mailingListPublicRoutes);
-  // Batch 163: webinars are a platform surface (staff-created, public
-  // gate) — never mounted on a single-site clone.
+  // Batch 163: platform webinars (staff-created, public gate). This
+  // platform router is never mounted on a single-site clone — a
+  // clone mounts the Batch 165 site router for its own webinars
+  // (see the SINGLE_SITE mount above).
   app.use(webinarsPublicRoutes);
   // Batch 59: Hostinger one-click deploy — a customer VM's install
   // script phones home here and downloads its source bundle here

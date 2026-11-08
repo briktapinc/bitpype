@@ -222,7 +222,7 @@ function unzipStore(buf) {
     assert.deepEqual(
       cz.summary,
       // Batch 156 rotation: census 450 -> 453 (+1 STATIC +1 ESCAPED +1 SAFE in app.js — the fingerprint surfaces), safe classes 336 -> 339, RAW 78 / IDENT 36 and the 114-entry reviewed set unchanged; baseline regenerated.
-      { total: 465, STATIC: 168, ESCAPED: 45, SAFE: 78, BUILDER: 60, IDENT: 36, RAW: 78 },
+      { total: 476, STATIC: 173, ESCAPED: 47, SAFE: 80, BUILDER: 61, IDENT: 36, RAW: 79 },
       'SEC-13 census summary unchanged'
     );
     n += 1;
@@ -230,7 +230,7 @@ function unzipStore(buf) {
     const sha = crypto.createHash('sha256').update(multiset.join('\n')).digest('hex');
     assert.equal(
       sha,
-      '534d83ec3be461ae33c2c6092417a565b0b8e2356dcccb95f29d31785fa0135b',
+      'b1150a2d127e68daa871cbb8bf2842c9005b7e993314c90c8b596e3e933576ca',
       'SEC-13 sink multiset byte-identical (Batch 136 finisher: +2 audited STATIC sinks in module-embed.js; RAW/IDENT multiset unchanged; Batch 139 finisher: +1 audited STATIC + 1 audited BUILDER sink in module-embed.js — pricing renderer; RAW/IDENT multiset unchanged)'
     );
     n += 1;

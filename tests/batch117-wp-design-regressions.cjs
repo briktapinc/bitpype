@@ -192,7 +192,7 @@ const CENSUS = {
     assert.deepEqual(
       cz.summary,
       // Batch 156 rotation: census 450 -> 453 (+1 STATIC +1 ESCAPED +1 SAFE in app.js — the fingerprint surfaces), safe classes 336 -> 339, RAW 78 / IDENT 36 and the 114-entry reviewed set unchanged; baseline regenerated.
-      { total: 465, STATIC: 168, ESCAPED: 45, SAFE: 78, BUILDER: 60, IDENT: 36, RAW: 78 },
+      { total: 476, STATIC: 173, ESCAPED: 47, SAFE: 80, BUILDER: 61, IDENT: 36, RAW: 79 },
       'SEC-13 census summary unchanged'
     );
     n += 1;

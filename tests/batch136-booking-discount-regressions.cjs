@@ -108,7 +108,7 @@ function futureWeekdayStart() {
       'orders carry the discount stamp columns'
     );
     assert.ok(
-      smSrc.includes("const MODULE_SCRIPT_VER = 'mod39'"),
+      smSrc.includes("const MODULE_SCRIPT_VER = 'mod40'"),
       'MODULE_SCRIPT_VER bumped relatively (+1 from the landed tip: mod37 -> mod38, applied by the finisher at rebase)'
     );
     n += 7;
@@ -223,7 +223,7 @@ function futureWeekdayStart() {
   }
   assert.equal(
     sm.MODULE_TYPES.length,
-    29,
+    30,
     'MODULE_TYPES: Batch 136 added none (28 on its landed tip: Batch 131 added comments after this suite was parked; Batch 139 finisher rotation: pricing is the 29th)'
   );
   assert.ok(!sm.MODULE_TYPES.includes('discount'), 'no discount module type exists');

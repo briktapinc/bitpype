@@ -4518,6 +4518,68 @@ function buildDetailPage(pages, theme, opts) {
   return assertAndDedupeNavHtml(doc, 'buildDetailPage');
 }
 
+/* ------------------------------------------------------------------ */
+/* Webinar gate/room shell (Batch 165)                                 */
+/*                                                                     */
+/* The Webinar module's public pages live under the site's own URL     */
+/* space at webinar/<slug> — the same real-file discipline as the      */
+/* detail shells (Pages ignores _redirects 200-rewrites, so the        */
+/* exporter ships one real shell per webinar of the site; see           */
+/* domain.materializeWebsiteExport). The shell is the site's themed     */
+/* chrome + a webinar root; webinar-embed.js boots the root and        */
+/* resolves EVERYTHING live through the webinar public API (gate,      */
+/* room, chat) — no webinar content is ever snapshotted into the       */
+/* export, so a code change, a status flip or a new message is live    */
+/* without a re-export. The shell is noindex like the detail shell.    */
+/* ------------------------------------------------------------------ */
+function buildWebinarPage(pages, theme, opts) {
+  const home = homePage(pages) || (Array.isArray(pages) ? pages[0] : null);
+  const t = normalizeTheme(theme);
+  const o = opts || {};
+  const bizName = o.businessName || t.brandName || (home && home.title) || 'This business';
+  let appBase = '';
+  try {
+    appBase = String((o.api || require('../server/stripeClient').appUrl() || '')).replace(/\/$/, '');
+  } catch {
+    appBase = '';
+  }
+  const token = String(o.token || '');
+  const slug = String(o.slug || '');
+  const title = String(o.title || 'Webinar');
+  // Batch 143 discipline (as on the detail shell): the horizontal
+  // padding floor never drops below the Batch 135 mobile inset.
+  const main = `<main class="bp-webinar-main" style="max-width:1100px;margin:0 auto;padding:clamp(1.75rem,4vw,3.25rem) clamp(22px,3.5vw,2rem) clamp(3.5rem,8vw,5.5rem);box-sizing:border-box">
+<div data-bitpype-webinar-root="1" data-token="${esc(token)}" data-slug="${esc(slug)}"${appBase ? ` data-bitpype-api="${esc(appBase)}"` : ''}><p class="bp-mod-loading">Loading…</p></div>
+</main>`;
+  let script = '';
+  try {
+    script = require('../server/siteModules').moduleScriptTag(appBase);
+  } catch {
+    script = '';
+  }
+  if (appBase) {
+    script += `\n<script src="${esc(appBase)}/js/webinar-embed.js?v=webinar1" data-bitpype-webinar-script="1" defer></script>`;
+  }
+  let body = main;
+  try {
+    const chrome = siteChromeHtml(pages, t);
+    body = [chrome.header, main, chrome.footer].filter(Boolean).join('\n');
+    body = rewriteAnchorLinksToFiles(body, pages);
+  } catch {
+    /* chrome is best-effort */
+    body = main;
+  }
+  const doc = docShell({
+    title: `${title} — ${bizName}`,
+    body,
+    theme: t,
+    script,
+    description: 'Webinar registration and live room.',
+    noindex: true,
+  });
+  return assertAndDedupeNavHtml(doc, 'buildWebinarPage');
+}
+
 /** Stamp exported pages as detail-enabled so module-embed.js points
  *  list/card item links at /detail/<type>/<key> instead of the legacy
  *  ?bpItem= pattern. Only writeStaticPages output carries the meta —
@@ -8378,6 +8440,7 @@ module.exports = {
   buildRedirects,
   build404Page,
   buildDetailPage,
+  buildWebinarPage,
   siteChromeHtml,
   injectDetailMeta,
   // Static blog (Batch 32)
