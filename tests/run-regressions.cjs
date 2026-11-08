@@ -153,6 +153,7 @@ const checks = [
   'batch151-knowledge-sources-regressions',
   'batch155-single-site-backup',
   'batch156-site-fingerprint',
+  'batch160-job-lock-atomic-claim',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');
