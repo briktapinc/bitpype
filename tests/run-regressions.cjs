@@ -156,6 +156,7 @@ const checks = [
   'batch160-job-lock-atomic-claim',
   'batch157-business-card-regressions',
   'batch158-reviews-social-regressions',
+  'batch159-fingerprint-effective-brand',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');
