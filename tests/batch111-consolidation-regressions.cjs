@@ -46,7 +46,7 @@ const iconPathsOf = (src) => {
 
 check('S2.1 shared icon file carries all 28 glyphs + the fallback', () => {
   const icons = iconPathsOf(iconsJs);
-  assert.equal(Object.keys(icons).length, 29, '29 module glyphs (Batch 126 finisher: +qrcode; Batch 128: +checkout; Batch 131: +comments; Batch 139: +pricing)');
+  assert.equal(Object.keys(icons).length, 30, '30 module glyphs (Batch 126 finisher: +qrcode; Batch 128: +checkout; Batch 131: +comments; Batch 139: +pricing; Batch 164: +custom_code)');
   for (const [t, g] of Object.entries(icons)) assert.ok(g.includes('<'), `${t} glyph present`);
   assert.ok(iconsJs.includes("const MODULE_ICON_FALLBACK = '<rect x=\"4\" y=\"4\""), 'fallback defined once, in the shared file');
 });
@@ -81,7 +81,7 @@ const staffCss = read('public/styles.css');
 
 check('S3.1 census: exactly eleven bare-card blocks exist, all in portal.js module settings', () => {
   const count = (portalJs.match(/class=\\"card\\"/g) || []).length + (portalJs.match(/class="card"/g) || []).length;
-  assert.equal(count, 11, 'eleven module-settings .card blocks (Batch 124: Categories display-scopes panel; Batch 126 finisher: QR display panel; Batch 128: shop orders + the two checkout panels)');
+  assert.equal(count, 13, 'thirteen module-settings .card blocks (Batch 124: Categories display-scopes panel; Batch 126 finisher: QR display panel; Batch 128: shop orders + the two checkout panels; Batch 164: +2 Custom Code panel cards — block list + code editor)');
   assert.ok(!portalHtml.includes('class="card"'), 'no static .card markup in portal.html');
 });
 

@@ -1002,6 +1002,7 @@ const tools = [
             'newsletter',
             'categories',
             'pricing',
+            'custom_code',
           ],
         },
         moduleType: {
@@ -1031,6 +1032,7 @@ const tools = [
             'newsletter',
             'categories',
             'pricing',
+            'custom_code',
           ],
         },
         title: { type: 'string' },
@@ -2733,6 +2735,59 @@ const tools = [
   {
     name: 'qrcode.delete',
     description: 'Delete a QR code by id (Batch 126, Standard/Premium).',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', minimum: 1 },
+        leadId: { type: 'integer', minimum: 1 },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'custom_code.list',
+    description:
+      'List the site’s Custom Code blocks (Batch 164): owner-authored HTML + JavaScript blocks, each with its own public token. Blocks render on the public site only while the custom_code module is attached; the owner places each block on a page from the portal Modules tab.',
+    schema: {
+      type: 'object',
+      properties: { leadId: { type: 'integer', minimum: 1 } },
+    },
+  },
+  {
+    name: 'custom_code.create',
+    description:
+      'Create a Custom Code block: label (owner-facing name), html (raw HTML, served verbatim on the owner’s site), js (JavaScript code only — the renderer wraps it; 100,000-character cap per field, refused before write). Owner-authored code on the owner’s own site (Batch 152 trust model).',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        label: { type: 'string' },
+        html: { type: 'string' },
+        js: { type: 'string' },
+        sort_order: { type: 'number' },
+      },
+      required: ['leadId'],
+    },
+  },
+  {
+    name: 'custom_code.update',
+    description: 'Update a Custom Code block by id — same fields as custom_code.create (Batch 164).',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', minimum: 1 },
+        leadId: { type: 'integer', minimum: 1 },
+        label: { type: 'string' },
+        html: { type: 'string' },
+        js: { type: 'string' },
+        sort_order: { type: 'number' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'custom_code.delete',
+    description: 'Delete a Custom Code block by id; its mounts are stripped from pages on the next module sync (Batch 164).',
     schema: {
       type: 'object',
       properties: {

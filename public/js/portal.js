@@ -6376,9 +6376,10 @@
     { type: 'checkout', label: 'Checkout' },
     { type: 'comments', label: 'Comments' },
     { type: 'pricing', label: 'Pricing' },
+    { type: 'custom_code', label: 'Custom Code' },
   ];
   const MODULE_NAV_GROUPS = [
-    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'checkout', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed', 'googlereviews', 'datatables', 'charts', 'categories', 'photocapture', 'qrcode', 'comments', 'pricing'] },
+    { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'checkout', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed', 'googlereviews', 'datatables', 'charts', 'categories', 'photocapture', 'qrcode', 'comments', 'pricing', 'custom_code'] },
     { id: 'people', label: 'People', types: ['team', 'testimonials', 'careers', 'members', 'newsletter'] },
     { id: 'schedule', label: 'Schedule', types: ['events', 'bookings'] },
     { id: 'assist', label: 'Assist', types: ['chatbot', 'calltracking'] },
@@ -6448,6 +6449,7 @@
     checkout: { singular: 'order', plural: 'orders', newBtn: 'New order', kicker: 'Order' },
     comments: { singular: 'comment', plural: 'comments', newBtn: 'New comment', kicker: 'Comment' },
     pricing: { singular: 'price entry', plural: 'price entries', newBtn: 'New price entry', kicker: 'Pricing' },
+    custom_code: { singular: 'code block', plural: 'code blocks', newBtn: 'New code block', kicker: 'Custom Code' },
   };
   const BOOKING_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const MODULE_STORAGE_KEY = 'bp-portal-module';
@@ -7780,6 +7782,7 @@
       const first = cols[0] && it[cols[0].key];
       return first ? String(first) : `#${it.id}`;
     }
+    if (type === 'custom_code') return it.label || 'Untitled block';
     if (type === 'faq') return it.question || `#${it.id}`;
     if (type === 'testimonials') return it.author_name || it.name || it.title || `#${it.id}`;
     if (type === 'team') return it.name || it.title || `#${it.id}`;
@@ -7895,6 +7898,18 @@
     const type = moduleState.current;
     const copy = moduleCopy(type);
     const headNewBtn = document.getElementById('btn-modules-new');
+    // Batch 164 — Custom Code is managed entirely in its panel
+    // above (blocks + code editor + page placement); the generic
+    // item list/editor never applies to raw code.
+    if (type === 'custom_code') {
+      box.classList.remove('item-list');
+      box.innerHTML = `<div class="modules-empty">
+        <strong>Your code, on your pages</strong>
+        <p class="hint">Each block in the panel above is your own HTML + JavaScript. Use a block's “Add to page” control to place it — it runs only on your public site, never here in the portal. Blocks show on the site while the Custom Code module is attached (use the Attach button above if it is not).</p>
+      </div>`;
+      if (headNewBtn) headNewBtn.hidden = true;
+      return;
+    }
     // Batch 128 — Checkout has no items of its own: it sells the
     // other modules' sellables and its truth is the orders below.
     if (type === 'checkout') {
@@ -10328,6 +10343,7 @@
     moduleState.charts = data.charts || null;
     moduleState.taxonomy = data.taxonomy || null;
     moduleState.qrcode = data.qrcode || null;
+    moduleState.custom_code = data.custom_code || null;
     moduleState.pricing = data.pricing || null;
     moduleState.categories = Array.isArray(data.categories) ? data.categories : [];
     if (type === 'bookings') {
@@ -10355,6 +10371,7 @@
     renderOffersDisplayPanel();
     renderCategoriesScopesPanel();
     renderQrCodePanel();
+    renderCustomCodePanel();
     renderShopPaymentsPanel();
     renderShopOrdersPanel();
     renderCheckoutPanel();
@@ -10765,6 +10782,176 @@
         }
       };
     }
+  }
+
+  // Batch 164 — Custom Code panel: the owner-only manager for
+  // HTML + JS blocks. Code is edited as plain text (monospace
+  // textareas — no fancy editor) and NEVER executes here in the
+  // portal; it runs only on the public site (live + preview).
+  function renderCustomCodePanel() {
+    const host = document.getElementById('modules-customcode-panel');
+    if (!host) return;
+    if (moduleState.current !== 'custom_code') {
+      host.innerHTML = '';
+      host.hidden = true;
+      moduleState.customCodeEdit = null;
+      return;
+    }
+    host.hidden = false;
+    const maxChars = (moduleState.custom_code && moduleState.custom_code.field_max_chars) || 100000;
+    const maxLabel = Number(maxChars).toLocaleString('en-US');
+    const blocks = moduleState.items || [];
+    const pages = moduleState.pages || [];
+    const embed = moduleState.embed || {};
+    const attached = !!(embed.published && embed.embed_enabled !== 0);
+    const editing = moduleState.customCodeEdit;
+    const fmtCount = (n) => `${Number(n || 0).toLocaleString('en-US')} / ${maxLabel} characters`;
+    const pageOptions = (selected) =>
+      pages
+        .map(
+          (p) =>
+            `<option value="${esc(p.slug || '')}"${selected === p.slug ? ' selected' : ''}>${esc(p.title || p.slug || 'Page')}</option>`
+        )
+        .join('');
+    if (editing != null) {
+      const block =
+        editing === 'new'
+          ? { id: null, label: '', html: '', js: '' }
+          : blocks.find((b) => Number(b.id) === Number(editing)) || { id: null, label: '', html: '', js: '' };
+      host.innerHTML = `<div class="card" style="margin-bottom:var(--card-gap)">
+        <h3 style="margin:0 0 6px">${block.id ? 'Edit code block' : 'New code block'}</h3>
+        <p class="hint" style="margin:0 0 10px">Your HTML appears on the page exactly as written, and your JavaScript runs when the page loads. Code runs only on your public site — never here in the portal.</p>
+        <label class="hint" for="cc-label" style="display:block;margin:0 0 4px">Label — so you can tell blocks apart</label>
+        <input id="cc-label" type="text" maxlength="120" value="${esc(block.label || '')}" placeholder="e.g. Booking widget" style="width:100%;margin-bottom:12px" />
+        <label class="hint" for="cc-html" style="display:block;margin:0 0 4px">HTML</label>
+        <textarea id="cc-html" rows="10" spellcheck="false" style="width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px">${esc(block.html || '')}</textarea>
+        <p class="hint" id="cc-html-count" style="margin:2px 0 12px">${fmtCount(String(block.html || '').length)}</p>
+        <label class="hint" for="cc-js" style="display:block;margin:0 0 4px">JavaScript — code only, no &lt;script&gt; tags. It runs inside a wrapper with <code>root</code> set to this block's element.</label>
+        <textarea id="cc-js" rows="10" spellcheck="false" style="width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px">${esc(block.js || '')}</textarea>
+        <p class="hint" id="cc-js-count" style="margin:2px 0 12px">${fmtCount(String(block.js || '').length)}</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="btn" id="btn-cc-save">${block.id ? 'Save block' : 'Create block'}</button>
+          <button type="button" class="btn ghost" id="btn-cc-cancel">Cancel</button>
+        </div>
+      </div>`;
+      const htmlTa = document.getElementById('cc-html');
+      const jsTa = document.getElementById('cc-js');
+      const wireCount = (ta, out) => {
+        if (!ta || !out) return;
+        ta.addEventListener('input', () => {
+          out.textContent = fmtCount(ta.value.length);
+        });
+      };
+      wireCount(htmlTa, document.getElementById('cc-html-count'));
+      wireCount(jsTa, document.getElementById('cc-js-count'));
+      const cancelBtn = document.getElementById('btn-cc-cancel');
+      if (cancelBtn) {
+        cancelBtn.onclick = () => {
+          moduleState.customCodeEdit = null;
+          renderCustomCodePanel();
+        };
+      }
+      const saveBtn = document.getElementById('btn-cc-save');
+      if (saveBtn) {
+        saveBtn.onclick = async () => {
+          const labelEl = document.getElementById('cc-label');
+          const payload = {
+            label: labelEl ? labelEl.value : '',
+            html: htmlTa ? htmlTa.value : '',
+            js: jsTa ? jsTa.value : '',
+          };
+          saveBtn.disabled = true;
+          try {
+            if (block.id) {
+              await api(`/modules/custom_code/${encodeURIComponent(block.id)}`, {
+                method: 'PUT',
+                body: JSON.stringify(payload),
+              });
+            } else {
+              await api('/modules/custom_code', { method: 'POST', body: JSON.stringify(payload) });
+            }
+            moduleState.customCodeEdit = null;
+            moduleMsg('Code block saved.', true);
+            await loadModuleItems();
+          } catch (e) {
+            saveBtn.disabled = false;
+            moduleMsg(errText(e), false);
+          }
+        };
+      }
+      return;
+    }
+    const rows = blocks
+      .map((b) => {
+        const when = b.updated_at ? new Date(String(b.updated_at).replace(' ', 'T') + 'Z').toLocaleDateString() : '';
+        return `<div style="border-top:1px solid var(--line,#e7e2d9);padding:10px 0">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <strong>${esc(b.label || 'Untitled block')}</strong>
+          <span class="hint">HTML ${Number(String(b.html || '').length).toLocaleString('en-US')} chars · JavaScript ${Number(String(b.js || '').length).toLocaleString('en-US')} chars${when ? ` · updated ${esc(when)}` : ''}</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+          <button type="button" class="btn soft small" data-cc-edit="${b.id}">Edit</button>
+          <label class="hint" style="margin:0" for="cc-page-${b.id}">Add to page</label>
+          <select id="cc-page-${b.id}" data-cc-page="${b.id}" style="width:auto">${pageOptions('index')}</select>
+          <button type="button" class="btn soft small" data-cc-place="${b.id}">Add to page</button>
+          <button type="button" class="btn ghost small" data-cc-del="${b.id}">Delete</button>
+        </div>
+      </div>`;
+      })
+      .join('');
+    host.innerHTML = `<div class="card" style="margin-bottom:var(--card-gap)">
+      <h3 style="margin:0 0 6px">Your code blocks</h3>
+      <p class="hint" style="margin:0 0 8px">Custom Code is your own HTML + JavaScript, placed on any page of your site — a booking widget, a calculator, a chat snippet, anything. Each block is separate: edit its code here, then add it to a page. It runs only on your public site, and one block's error can never break the rest of the page.</p>
+      ${attached ? '' : '<p class="hint" style="margin:0 0 8px"><strong>Not attached yet:</strong> attach the Custom Code module (button above) so your blocks can appear on the site.</p>'}
+      ${blocks.length ? rows : '<p class="hint" style="margin:8px 0">No code blocks yet — create your first one.</p>'}
+      <div style="margin-top:10px"><button type="button" class="btn soft" id="btn-cc-new">New code block</button></div>
+    </div>`;
+    const newBtn = document.getElementById('btn-cc-new');
+    if (newBtn) {
+      newBtn.onclick = () => {
+        moduleState.customCodeEdit = 'new';
+        renderCustomCodePanel();
+      };
+    }
+    host.querySelectorAll('[data-cc-edit]').forEach((btn) => {
+      btn.onclick = () => {
+        moduleState.customCodeEdit = Number(btn.getAttribute('data-cc-edit'));
+        renderCustomCodePanel();
+      };
+    });
+    host.querySelectorAll('[data-cc-del]').forEach((btn) => {
+      btn.onclick = async () => {
+        const id = btn.getAttribute('data-cc-del');
+        if (!window.confirm('Delete this code block? It will be removed from every page it is on.')) return;
+        btn.disabled = true;
+        try {
+          await api(`/modules/custom_code/${encodeURIComponent(id)}`, { method: 'DELETE' });
+          moduleMsg('Code block deleted.', true);
+          await loadModuleItems();
+        } catch (e) {
+          btn.disabled = false;
+          moduleMsg(errText(e), false);
+        }
+      };
+    });
+    host.querySelectorAll('[data-cc-place]').forEach((btn) => {
+      btn.onclick = async () => {
+        const id = btn.getAttribute('data-cc-place');
+        const sel = host.querySelector(`[data-cc-page="${id}"]`);
+        const slug = sel ? sel.value : 'index';
+        btn.disabled = true;
+        try {
+          await api(`/modules/custom_code/${encodeURIComponent(id)}/place`, {
+            method: 'POST',
+            body: JSON.stringify({ slug }),
+          });
+          moduleMsg('Block added to the page. Preview or publish your site to see it live.', true);
+        } catch (e) {
+          btn.disabled = false;
+          moduleMsg(errText(e), false);
+        }
+      };
+    });
   }
 
   function renderDatatablesPanel() {

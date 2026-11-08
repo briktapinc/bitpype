@@ -1473,6 +1473,16 @@ function ensureModuleTokenForInsert(db, workspaceId, leadId, moduleType) {
   if (!modules.MODULE_TYPES.includes(type)) {
     throw Object.assign(new Error(`Unknown module type: ${type}`), { code: 'INVALID' });
   }
+  // Batch 164: Custom Code blocks are placed individually by the
+  // owner from the Modules tab (each block has its own token) — the
+  // generic type-token insert would mount a dormant shell, so it is
+  // refused here for every caller, agent surfaces included.
+  if (type === 'custom_code') {
+    throw Object.assign(
+      new Error('Custom Code blocks are placed from the Modules tab — pick the block there to add it to a page.'),
+      { code: 'INVALID' }
+    );
+  }
   const meta = modules.MODULE_META[type];
   const base = appUrl();
   // Token only — do not attachModule/sync here (that strips managed embeds and
@@ -1769,6 +1779,29 @@ function layoutEmbedsByToken(db, leadId) {
   for (const row of embeds) {
     if (row && row.public_token) byToken.set(row.public_token, row);
   }
+  // Batch 164: Custom Code mounts carry per-BLOCK tokens. Register
+  // each block as a synthetic embed row so layout validation,
+  // duplicate fencing and section descriptors resolve the mount to
+  // the custom_code type. The synthetic rows live ONLY in byToken —
+  // applyClientLayoutSave's "last mount left" unpublish loop walks
+  // the real `embeds` list, so a block whose last mount is removed
+  // simply stops rendering (the block itself stays in the panel).
+  try {
+    const typeRow = embeds.find((e) => e && e.module_type === 'custom_code');
+    for (const block of modules.listCustomCodeBlocks(db, Number(leadId))) {
+      if (!block.public_token || byToken.has(block.public_token)) continue;
+      byToken.set(block.public_token, {
+        module_type: 'custom_code',
+        public_token: block.public_token,
+        title: block.label || 'Custom Code',
+        published: typeRow ? typeRow.published : 0,
+        embed_enabled: typeRow ? typeRow.embed_enabled : 0,
+        custom_code_block_id: block.id,
+      });
+    }
+  } catch {
+    /* blocks table is created by ensureTables on first module use */
+  }
   return { embeds, byToken };
 }
 
@@ -1807,6 +1840,12 @@ function getClientLayoutEditor(workspaceId, leadId, slug) {
     const summary = modules.portalSummary(db, Number(leadId), { appUrl: appUrl(), siteModules: true });
     const paletteModules = (summary.modules || [])
       .filter((m) => !(modules.MODULE_META[m.type] || {}).sitewide)
+      // Batch 164: Custom Code is excluded from the layout ADD
+      // palette — its generic entry would insert the TYPE token
+      // (a dormant shell). Owners place individual blocks from the
+      // Modules tab; blocks already placed still resolve, move,
+      // duplicate and take layout knobs like any module section.
+      .filter((m) => m.type !== 'custom_code')
       .map((m) => ({
         type: m.type,
         label: m.label,

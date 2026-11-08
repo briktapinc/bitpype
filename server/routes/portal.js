@@ -2347,6 +2347,26 @@ router.post('/modules/comments/:id/reply', requireClient, actionLimit, async (re
   }
 });
 
+// Custom Code placement (Batch 164) — place one block on a page.
+// Registered before the generic /modules/:type routes; the path is
+// specific (custom_code/:id/place) so nothing generic shadows it.
+router.post('/modules/custom_code/:id/place', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(
+      res,
+      await portal.placeCustomCodeBlock(
+        req.client.workspace_id,
+        req.client.lead_id,
+        req.params.id,
+        req.body || {},
+        req.client.email
+      )
+    );
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 // Offers display settings (list layout) — before the generic /modules/:type/:id
 // routes, which would otherwise read "settings" as an offer id.
 router.put('/modules/offers/settings', requireClient, actionLimit, async (req, res) => {

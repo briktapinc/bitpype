@@ -1359,6 +1359,48 @@
     }
   }
 
+  // Batch 164 — Custom Code. The block is owner-authored HTML + JS
+  // (Batch 152 trust model: an owner's own code on their own site,
+  // served verbatim). The HTML is set as-is; any <script> elements
+  // inside it are re-created so they execute (scripts assigned via
+  // innerHTML never run). The JS field runs inside a per-instance
+  // wrapper with `root` (= `el`) set to this block's element, so two
+  // blocks on one page never collide; a syntax or runtime error is
+  // caught per instance and can never take down other modules.
+  function renderCustomCode(el, data, prefixHtml) {
+    var cc = data.custom_code || null;
+    var ownerHtml = cc && cc.html != null ? String(cc.html) : '';
+    var ownerJs = cc && cc.js != null ? String(cc.js) : '';
+    if (!cc || (!ownerHtml.trim() && !ownerJs.trim())) {
+      // No block behind this mount (a type-token placement) or a
+      // block with no code yet: render nothing — no empty shell
+      // (the module convention).
+      el.innerHTML = '';
+      return;
+    }
+    el.setAttribute('data-bp-custom-code', String(cc.id == null ? '' : cc.id));
+    el.innerHTML = (prefixHtml || '') + ownerHtml;
+    var scripts = el.querySelectorAll('script');
+    for (var si = 0; si < scripts.length; si++) {
+      var oldScript = scripts[si];
+      var freshScript = document.createElement('script');
+      for (var ai = 0; ai < oldScript.attributes.length; ai++) {
+        freshScript.setAttribute(oldScript.attributes[ai].name, oldScript.attributes[ai].value);
+      }
+      freshScript.textContent = oldScript.textContent;
+      oldScript.parentNode.replaceChild(freshScript, oldScript);
+    }
+    if (ownerJs.trim()) {
+      try {
+        new Function('root', 'el', ownerJs)(el, el);
+      } catch (err) {
+        if (window.console && console.warn) {
+          console.warn('[custom-code] block ' + (cc.id || '') + ' failed:', err);
+        }
+      }
+    }
+  }
+
   function renderList(el, data) {
     var type = data.module_type;
     activeDetailType = type || '';
@@ -1366,6 +1408,13 @@
     var html = '';
     if (shouldShowTitle(el)) {
       html += '<h2 class="bp-mod-title">' + esc(data.title || type) + '</h2>';
+    }
+    if (type === 'custom_code') {
+      // Batch 164: owner-authored HTML + JS, handled before the
+      // generic empty check — the payload carries the block itself
+      // (data.custom_code), never items.
+      renderCustomCode(el, data, html);
+      return;
     }
     if (type === 'bookings') {
       renderBookings(el, data, html);

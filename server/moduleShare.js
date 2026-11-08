@@ -525,6 +525,18 @@ const SHARE_REGISTRY = {
     reason:
       "Engagement layer, not shelf content — comments and likes attach to other modules' items through this layer (server/comments.js validates every target via the provider readers above); a comment itself is never a shareable content item.",
   },
+  // Batch 164: a Custom Code block is owner-authored executable
+  // HTML + JS, placed by the owner at a chosen position on a page.
+  // It is code, not content: it publishes no items for other modules
+  // to consume and consumes none. OWNER-ONLY surface: the design
+  // agent may see that the module exists (registry + module lists)
+  // but must NEVER read, write, edit or place its code contents —
+  // no agent tool exposes them.
+  custom_code: {
+    kind: 'none',
+    reason:
+      'Custom Code blocks are owner-authored raw HTML + JavaScript — executable code on the owner’s own site, not shareable content items. Owner-only: the design agent must never write or edit their contents.',
+  },
 };
 
 /* ------------------------------------------------------------------ */

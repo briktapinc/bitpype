@@ -50,6 +50,7 @@ const MODULE_TYPES = [
   'checkout',
   'comments',
   'pricing',
+  'custom_code',
 ];
 const MANAGED_ATTR = 'data-bitpype-module';
 const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
@@ -67,7 +68,9 @@ const SCRIPT_ATTR = 'data-bitpype-module-script';
 // Batch 139: mod39 — the pricing embed renderer (renderPricing);
 // the bump is +1 relative to the landed tip, per the finisher
 // convention (the parked build's own pin predates the 131–149 chain).
-const MODULE_SCRIPT_VER = 'mod39';
+// Batch 164: mod40 — the Custom Code embed renderer
+// (renderCustomCode) joins module-embed.js.
+const MODULE_SCRIPT_VER = 'mod40';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -107,6 +110,10 @@ const MODULE_META = {
   checkout: { label: 'Checkout', defaultTitle: 'Checkout', defaultSlug: 'checkout' },
   comments: { label: 'Comments', defaultTitle: 'Comments', defaultSlug: 'comments' },
   pricing: { label: 'Pricing', defaultTitle: 'Pricing', defaultSlug: 'pricing' },
+  // Batch 164: owner-authored HTML + JS blocks. No nav page of its
+  // own — blocks are placed into existing pages by the owner (the
+  // type-level embed row only gates whether its blocks serve).
+  custom_code: { label: 'Custom Code', defaultTitle: 'Custom Code', defaultSlug: '', noNav: true },
 };
 
 const BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'];
@@ -233,6 +240,19 @@ function ensureTables(db) {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(lead_id, module_type)
+    );
+
+    CREATE TABLE IF NOT EXISTS module_custom_code_blocks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER NOT NULL,
+      label TEXT NOT NULL DEFAULT '',
+      html TEXT NOT NULL DEFAULT '',
+      js TEXT NOT NULL DEFAULT '',
+      public_token TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(public_token)
     );
 
     CREATE TABLE IF NOT EXISTS blog_posts (
@@ -1947,6 +1967,9 @@ function attachModule(db, leadId, moduleType, opts = {}) {
   // Sitewide overlays (chatbot) always sync every page — skip author-purpose short-circuit.
   const authorMode = opts.authorMode !== false; // default ON
   if (!metaFlags.sitewide && authorMode && purpose.served && opts.forceInject !== true) {
+    // Batch 164: even on the no-sync path, re-attach heals any
+    // Custom Code mounts a detached-period sync stripped.
+    if (type === 'custom_code') restoreCustomCodeMounts(db, leadId, appUrl);
     return {
       embed: publicEmbed(row, appUrl),
       sync: { synced: false, skipped: true, reason: purpose.reason },
@@ -1962,6 +1985,7 @@ function attachModule(db, leadId, moduleType, opts = {}) {
     appUrl,
     revealSlugs: metaFlags.noNav || metaFlags.sitewide ? [] : [slug],
   });
+  if (type === 'custom_code') restoreCustomCodeMounts(db, leadId, appUrl);
   return {
     embed: publicEmbed(row, appUrl),
     sync,
@@ -2171,6 +2195,10 @@ function modulePurgeSteps(leadId, type) {
       // source records (services/products), which belong to their
       // own modules and are never purged from here.
       return [byLead('pricing_entries', 'pricing entries')];
+    case 'custom_code':
+      // Batch 164: the owner-authored blocks themselves (their page
+      // mounts are stripped by the post-delete sync, token-driven).
+      return [byLead('module_custom_code_blocks', 'custom code blocks')];
     default:
       return [];
   }
@@ -2250,8 +2278,248 @@ function deleteModule(db, leadId, moduleType) {
     }
   }
   db.prepare('DELETE FROM site_module_embeds WHERE id = ?').run(embed.id);
+  // Batch 164: a deleted Custom Code module takes its placed
+  // sections with it (the blocks themselves are purged above).
+  if (type === 'custom_code') removeCustomCodeSections(db, lid, null);
   const sync = syncSiteModuleEmbeds(db, lid);
   return { deleted: true, module_type: type, lead_id: lid, purged, purged_total: purgedTotal, sync };
+}
+
+/* ------------------------------------------------------------------ */
+/* Batch 164 — CUSTOM CODE blocks.                                     */
+/*                                                                     */
+/* The placeable sibling of Batch 152's site-wide code fields: each   */
+/* block is one owner-authored HTML + JS pair, placed by the owner    */
+/* into any section of any page (a site_module / module mount whose   */
+/* token is the BLOCK's own public_token, not the type embed's).      */
+/* Blocks are the one module family with many instances per lead —    */
+/* site_module_embeds stays UNIQUE(lead_id, module_type); the type    */
+/* row only gates serving (published + embed_enabled), exactly the    */
+/* way detach/delete cascade over the blocks through the sync's       */
+/* active-token set.                                                  */
+/*                                                                     */
+/* Trust model = Batch 152: owner-authored code on the owner's own    */
+/* site, stored and served verbatim (no sanitisation that would       */
+/* break legitimate code). The design agent NEVER writes these —      */
+/* no agent surface exposes block create/update (see moduleShare).    */
+/* ------------------------------------------------------------------ */
+
+/** Per-field cap, identical to the Batch 152 portal code fields. */
+const CUSTOM_CODE_FIELD_MAX_CHARS = 100000;
+
+function customCodeRowView(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    lead_id: row.lead_id,
+    label: row.label || '',
+    html: row.html || '',
+    js: row.js || '',
+    public_token: row.public_token || '',
+    sort_order: row.sort_order == null ? 0 : Number(row.sort_order),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function assertCustomCodeField(fieldLabel, value) {
+  if (typeof value !== 'string') {
+    throw fail('INVALID_CODE_FIELD', `${fieldLabel} must be text`);
+  }
+  if (value.length > CUSTOM_CODE_FIELD_MAX_CHARS) {
+    throw fail(
+      'CODE_TOO_LARGE',
+      `${fieldLabel} is too large — the limit is ${CUSTOM_CODE_FIELD_MAX_CHARS.toLocaleString('en-US')} characters`
+    );
+  }
+  return value;
+}
+
+function listCustomCodeBlocks(db, leadId) {
+  ensureTables(db);
+  return db
+    .prepare('SELECT * FROM module_custom_code_blocks WHERE lead_id = ? ORDER BY sort_order ASC, id ASC')
+    .all(Number(leadId))
+    .map(customCodeRowView);
+}
+
+function getCustomCodeBlock(db, leadId, id) {
+  ensureTables(db);
+  const row = db
+    .prepare('SELECT * FROM module_custom_code_blocks WHERE id = ? AND lead_id = ?')
+    .get(Number(id), Number(leadId));
+  if (!row) throw fail('NOT_FOUND', 'Custom code block not found', 404);
+  return customCodeRowView(row);
+}
+
+function getCustomCodeBlockByToken(db, token) {
+  ensureTables(db);
+  const t = String(token || '').trim();
+  if (!t) return null;
+  const row = db.prepare('SELECT * FROM module_custom_code_blocks WHERE public_token = ?').get(t);
+  return row ? customCodeRowView(row) : null;
+}
+
+function createCustomCodeBlock(db, leadId, data = {}, { workspaceId } = {}) {
+  ensureTables(db);
+  const lid = Number(leadId);
+  // Validate BEFORE any write: an over-cap paste leaves storage
+  // untouched (the Batch 152 portal rule).
+  const html = data.html == null ? '' : assertCustomCodeField('HTML', data.html);
+  const js = data.js == null ? '' : assertCustomCodeField('JavaScript', data.js);
+  const label = data.label == null ? '' : String(data.label).slice(0, 120);
+  if (!workspaceId) throw fail('INVALID', 'workspaceId required to create a custom code block');
+  const token = makePublicToken(workspaceId);
+  const maxSort = db
+    .prepare('SELECT MAX(sort_order) AS m FROM module_custom_code_blocks WHERE lead_id = ?')
+    .get(lid);
+  const sortOrder =
+    data.sort_order != null && Number.isFinite(Number(data.sort_order))
+      ? Number(data.sort_order)
+      : (maxSort && maxSort.m != null ? Number(maxSort.m) : -1) + 1;
+  const info = db
+    .prepare(
+      `INSERT INTO module_custom_code_blocks (lead_id, label, html, js, public_token, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .run(lid, label, html, js, token, sortOrder);
+  return getCustomCodeBlock(db, lid, info.lastInsertRowid);
+}
+
+function updateCustomCodeBlock(db, leadId, id, data = {}) {
+  ensureTables(db);
+  const existing = getCustomCodeBlock(db, leadId, id);
+  // Validate the incoming fields BEFORE the write (cap rule above).
+  const html = data.html == null ? existing.html : assertCustomCodeField('HTML', data.html);
+  const js = data.js == null ? existing.js : assertCustomCodeField('JavaScript', data.js);
+  const label = data.label == null ? existing.label : String(data.label).slice(0, 120);
+  const sortOrder =
+    data.sort_order != null && Number.isFinite(Number(data.sort_order))
+      ? Number(data.sort_order)
+      : existing.sort_order;
+  db.prepare(
+    `UPDATE module_custom_code_blocks
+     SET label = ?, html = ?, js = ?, sort_order = ?, updated_at = datetime('now')
+     WHERE id = ? AND lead_id = ?`
+  ).run(label, html, js, sortOrder, existing.id, Number(leadId));
+  return getCustomCodeBlock(db, leadId, existing.id);
+}
+
+/**
+ * Remove placed Custom Code sections from the lead's site model —
+ * one block's (onlyToken set) or every block's (null). Used by the
+ * delete paths: a deleted block leaves no empty shell behind. (Its
+ * freeform-page embed divs are stripped by the module sync, like
+ * any inactive embed.)
+ */
+function removeCustomCodeSections(db, leadId, onlyToken) {
+  try {
+    const site = db
+      .prepare('SELECT id, pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+      .get(Number(leadId));
+    if (!site) return 0;
+    let pages;
+    try {
+      pages = JSON.parse(site.pages || '[]');
+    } catch {
+      return 0;
+    }
+    if (!Array.isArray(pages)) return 0;
+    let removed = 0;
+    for (const page of pages) {
+      if (!page || !Array.isArray(page.sections)) continue;
+      const before = page.sections.length;
+      page.sections = page.sections.filter((sec) => {
+        const c = sec && sec.content;
+        if (!c || c.module_type !== 'custom_code') return true;
+        if (onlyToken && String(c.public_token || '') !== String(onlyToken)) return true;
+        return false;
+      });
+      removed += before - page.sections.length;
+    }
+    if (removed) {
+      db.prepare("UPDATE websites SET pages = ?, updated_at = datetime('now') WHERE id = ?").run(
+        JSON.stringify(pages),
+        site.id
+      );
+    }
+    return removed;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Rebuild placed Custom Code mounts whose embed div was stripped
+ * by a module sync that ran while the type was detached. The
+ * section object keeps its block token, so the mount is rebuilt in
+ * place, byte-equal to what insertModuleSection writes. Mutates
+ * `pages` in place; returns how many mounts were healed. While the
+ * type is inactive this is never called — detach stays a real off
+ * switch, and re-attach brings the owner's placements back.
+ */
+function healCustomCodeMounts(db, leadId, pages, base) {
+  const blocksByToken = new Map(
+    listCustomCodeBlocks(db, leadId).map((b) => [String(b.public_token || ''), b])
+  );
+  let healed = 0;
+  for (const page of pages || []) {
+    if (!page || !Array.isArray(page.sections)) continue;
+    for (const sec of page.sections) {
+      const c = sec && sec.content;
+      if (!c || c.module_type !== 'custom_code' || !c.public_token) continue;
+      const block = blocksByToken.get(String(c.public_token));
+      if (!block) continue;
+      if (typeof c.html === 'string' && c.html.includes(String(c.public_token))) continue;
+      const token = String(block.public_token).replace(/"/g, '');
+      const embedDiv =
+        `<div class="bitpype-module-embed" data-bitpype-module="1" ` +
+        `data-bitpype-module-type="custom_code" ` +
+        `data-bitpype-module-token="${token}"` +
+        (base ? ` data-bitpype-api="${String(base).replace(/"/g, '')}"` : '') +
+        ` data-bitpype-hide-title="1"></div>`;
+      const title = String(c.title || block.label || 'Custom Code').replace(/</g, '&lt;');
+      c.html = `<section class="ws-page-section" data-ws-page-section="1"><h2>${title}</h2>${embedDiv}</section>`;
+      healed++;
+    }
+  }
+  return healed;
+}
+
+/** Standalone heal: load the lead's site, heal its mounts, persist. */
+function restoreCustomCodeMounts(db, leadId, appUrl) {
+  try {
+    const site = db
+      .prepare('SELECT id, pages FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+      .get(Number(leadId));
+    if (!site) return 0;
+    let pages;
+    try {
+      pages = JSON.parse(site.pages || '[]');
+    } catch {
+      return 0;
+    }
+    if (!Array.isArray(pages)) return 0;
+    const healed = healCustomCodeMounts(db, leadId, pages, appUrl || appBaseUrl());
+    if (healed) {
+      db.prepare("UPDATE websites SET pages = ?, updated_at = datetime('now') WHERE id = ?").run(
+        JSON.stringify(pages),
+        site.id
+      );
+    }
+    return healed;
+  } catch {
+    return 0;
+  }
+}
+
+function deleteCustomCodeBlock(db, leadId, id) {
+  ensureTables(db);
+  const existing = getCustomCodeBlock(db, leadId, id);
+  db.prepare('DELETE FROM module_custom_code_blocks WHERE id = ? AND lead_id = ?').run(existing.id, Number(leadId));
+  const removedSections = removeCustomCodeSections(db, Number(leadId), existing.public_token);
+  const sync = syncSiteModuleEmbeds(db, Number(leadId));
+  return { deleted: true, id: existing.id, removed_sections: removedSections, sync };
 }
 
 /* ------------------------------------------------------------------ */
@@ -3773,6 +4041,17 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
   const embeds = listEmbeds(db, leadId).filter(moduleEmbedActive);
   const membersActive = embeds.some((e) => e.module_type === 'members');
   const activeTokens = new Set(embeds.map((e) => String(e.public_token || '').trim()).filter(Boolean));
+  // Batch 164: Custom Code mounts carry per-BLOCK tokens, not the
+  // type embed's token. While the type embed is active, its blocks'
+  // tokens are active too — otherwise this sync would strip every
+  // placed block as an "inactive" embed. When the type is detached /
+  // deleted, the blocks' tokens drop out and their mounts strip
+  // like any other module's.
+  if (embeds.some((e) => e.module_type === 'custom_code')) {
+    for (const block of listCustomCodeBlocks(db, leadId)) {
+      if (block.public_token) activeTokens.add(String(block.public_token).trim());
+    }
+  }
   const reveal = new Set((Array.isArray(revealSlugs) ? revealSlugs : []).map((s) => normalizeSlug(s)).filter(Boolean));
 
   // Pass 1: strip only inactive embeds; leave placed widgets where they are.
@@ -3810,6 +4089,10 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
   for (const emb of embeds) {
     const metaEarly = MODULE_META[emb.module_type] || {};
     if (metaEarly.sitewide || emb.module_type === 'chatbot') continue;
+    // Batch 164: Custom Code is never auto-injected — the type has
+    // no page of its own; the owner places individual BLOCKS (each
+    // with its own token) from the Modules tab.
+    if (emb.module_type === 'custom_code') continue;
 
     const token = String(emb.public_token || '').trim();
     if (token && pagesHaveModuleToken(pages, token)) continue;
@@ -4055,6 +4338,15 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
     chatbotSync = require('./chatbot').syncChatbotSitewide(db, leadId, pages, { appUrl: base });
   } catch (e) {
     console.warn('[siteModules] chatbot sitewide sync:', e && e.message);
+  }
+
+  // Batch 164: heal Custom Code mounts (see healCustomCodeMounts).
+  if (embeds.some((e) => e.module_type === 'custom_code')) {
+    try {
+      healCustomCodeMounts(db, leadId, pages, base);
+    } catch (e) {
+      console.warn('[siteModules] custom_code mount restore:', e && e.message);
+    }
   }
 
   db.prepare("UPDATE websites SET pages = ?, updated_at = datetime('now') WHERE id = ?").run(
@@ -14537,6 +14829,14 @@ function moduleItemCount(db, leadId, type) {
       return 0;
     }
   }
+  if (type === 'custom_code') {
+    // The tab badge counts the owner's code blocks.
+    ensureTables(db);
+    const row = db
+      .prepare('SELECT COUNT(*) AS c FROM module_custom_code_blocks WHERE lead_id = ?')
+      .get(Number(leadId));
+    return Number(row && row.c) || 0;
+  }
   if (type === 'charts') {
     // The tab badge counts the chart definitions on the site.
     ensureTables(db);
@@ -14597,7 +14897,43 @@ function getPublicModuleByToken(db, token, opts = {}) {
   const row = db
     .prepare('SELECT * FROM site_module_embeds WHERE public_token = ? AND published = 1')
     .get(String(token || ''));
-  if (!row) throw fail('NOT_FOUND', 'Module not found', 404);
+  if (!row) {
+    // Batch 164: a Custom Code BLOCK token resolves its block — but
+    // only while the lead's custom_code type embed is published and
+    // enabled (detach/unpublish silences every block at once, the
+    // same cascade the page sync applies to their mounts).
+    const block = getCustomCodeBlockByToken(db, token);
+    if (block) {
+      const typeRow = getEmbedRow(db, block.lead_id, 'custom_code');
+      if (typeRow && moduleEmbedActive(typeRow)) {
+        assertSiteNotArchived(db, block.lead_id);
+        assertSiteNotSuspended(db, block.lead_id);
+        const gate = memberGateCheck(db, block.lead_id, opts.pageSlug || typeRow.target_page_slug, opts);
+        if (gate.locked) {
+          const lockedPayload = lockedModulePayload(typeRow, gate);
+          const sc = siteCheckoutPresence(db, block.lead_id);
+          if (sc) lockedPayload.site_checkout = sc;
+          return lockedPayload;
+        }
+        const payload = {
+          module_type: 'custom_code',
+          type: 'custom_code',
+          title: block.label || MODULE_META.custom_code.defaultTitle,
+          items: [],
+          custom_code: {
+            id: block.id,
+            label: block.label || '',
+            html: block.html || '',
+            js: block.js || '',
+          },
+        };
+        const sc = siteCheckoutPresence(db, block.lead_id);
+        if (sc) payload.site_checkout = sc;
+        return payload;
+      }
+    }
+    throw fail('NOT_FOUND', 'Module not found', 404);
+  }
   const leadId = row.lead_id;
   const type = row.module_type;
   // Review fix: the public shop payload stops serving when the shop is
@@ -14795,6 +15131,11 @@ function getPublicModuleByToken(db, token, opts = {}) {
     // whose source vanished are already dropped by the book.
     pricing = require('./pricing').publicPricingPayload(db, leadId);
     items = pricing.entries;
+  } else if (type === 'custom_code') {
+    // Batch 164: the TYPE token itself carries no block — blocks
+    // resolve through their own tokens above. A type-token mount
+    // renders dormant (custom_code: null), never an error.
+    items = [];
   } else if (type === 'chatbot') {
     try {
       const chat = require('./chatbot');
@@ -14816,6 +15157,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
     settings,
     items,
   };
+  if (type === 'custom_code') out.custom_code = null;
   // Batch 31 (C5): FAQ module payloads carry FAQPage JSON-LD built from
   // the same published items, so module FAQs are schema-visible; the
   // client embed injects it next to the rendered questions.
@@ -15288,6 +15630,16 @@ module.exports = {
   createQrCode,
   updateQrCode,
   deleteQrCode,
+  CUSTOM_CODE_FIELD_MAX_CHARS,
+  listCustomCodeBlocks,
+  getCustomCodeBlock,
+  getCustomCodeBlockByToken,
+  createCustomCodeBlock,
+  updateCustomCodeBlock,
+  deleteCustomCodeBlock,
+  healCustomCodeMounts,
+  restoreCustomCodeMounts,
+  removeCustomCodeSections,
   listQrCodeTargets,
   buildQrPayload,
   resolveQrCode,

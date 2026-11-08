@@ -3252,6 +3252,29 @@ function createParityTools(ctx) {
     ...moduleCrud('video', { list: 'listVideoItems', create: 'createVideoItem', update: 'updateVideoItem', delete: 'deleteVideoItem' }),
     ...moduleCrud('events', { list: 'listEvents', create: 'createEvent', update: 'updateEvent', delete: 'deleteEvent' }),
     ...moduleCrud('qrcode', { list: 'listQrCodes', create: 'createQrCode', update: 'updateQrCode', delete: 'deleteQrCode' }),
+    // Batch 164 — Custom Code blocks. Explicit entries (not the
+    // generic moduleCrud spread): create must inject this parity
+    // layer's workspaceId so each block mints its own public token.
+    // Staff MCP surface only — the design agent's tool allowlist
+    // deliberately never includes these names (owner-only code).
+    'custom_code.list': parityEntry('custom_code.list', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().listCustomCodeBlocks(db, leadId) };
+    }),
+    'custom_code.create': parityEntry('custom_code.create', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: siteModules().createCustomCodeBlock(db, leadId, { ...args }, { workspaceId }) };
+    }),
+    'custom_code.update': parityEntry('custom_code.update', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: siteModules().updateCustomCodeBlock(db, leadId, id, { ...args }) };
+    }),
+    'custom_code.delete': parityEntry('custom_code.delete', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: siteModules().deleteCustomCodeBlock(db, leadId, id) };
+    }),
 
     // Batch 122 — shared module layer parity: the local MCP server
     // delegates to server/moduleShare exactly like the hosted

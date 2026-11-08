@@ -107,7 +107,7 @@ check('A5 group headings span the grid; panel structure intact', () => {
 const moduleTypesOf = (src) => {
   const m = src.match(/const MODULE_TYPES = \[(.*?)\];/s);
   assert.ok(m, 'MODULE_TYPES found');
-  return [...m[1].matchAll(/type: '([a-z]+)'/g)].map((x) => x[1]);
+  return [...m[1].matchAll(/type: '([a-z_]+)'/g)].map((x) => x[1]);
 };
 const iconPathsOf = (src) => {
   const m = src.match(/const MODULE_ICON_PATHS = \{(.*?)\n\};/s) || src.match(/const MODULE_ICON_PATHS = \{(.*?)\n  \};/s);
@@ -118,7 +118,7 @@ const iconPathsOf = (src) => {
 check('B1 every portal module type has an icon; fallback exists', () => {
   const types = moduleTypesOf(portalJs);
   const icons = iconPathsOf(moduleIconsJs);
-  assert.equal(types.length, 29, 'portal catalog 29 types (Batch 124: categories; Batch 125: photocapture; Batch 128: checkout; Batch 131: comments; Batch 139: pricing)');
+  assert.equal(types.length, 30, 'portal catalog 30 types (Batch 124: categories; Batch 125: photocapture; Batch 128: checkout; Batch 131: comments; Batch 139: pricing; Batch 164: custom_code)');
   for (const t of types) assert.ok(icons[t] && icons[t].includes('<'), `${t} has a glyph`);
   assert.ok(icons.charts, 'charts has its own glyph');
   assert.ok(icons.datatables, 'datatables has its own glyph');
@@ -247,9 +247,9 @@ check('D3 shared chip styles and staff delete flow untouched', () => {
 
 check('E1 module catalog unchanged on server and portal', () => {
   const sm = require(path.join(root, 'server/siteModules.js'));
-  assert.equal(sm.MODULE_TYPES.length, 29, 'server catalog 29 types (Batch 124: categories; Batch 125: photocapture added; Batch 128: checkout; Batch 131: comments; Batch 139: pricing)');
+  assert.equal(sm.MODULE_TYPES.length, 30, 'server catalog 30 types (Batch 124: categories; Batch 125: photocapture added; Batch 128: checkout; Batch 131: comments; Batch 139: pricing; Batch 164: custom_code)');
   assert.ok(sm.MODULE_TYPES.includes('charts') && sm.MODULE_TYPES.includes('datatables'), 'charts + datatables still present');
-  assert.equal(moduleTypesOf(portalJs).length, 29, 'portal catalog 29 types (Batch 125: photocapture added; Batch 128: checkout; Batch 131: comments; Batch 139: pricing)');
+  assert.equal(moduleTypesOf(portalJs).length, 30, 'portal catalog 30 types (Batch 125: photocapture added; Batch 128: checkout; Batch 131: comments; Batch 139: pricing; Batch 164: custom_code)');
 });
 
 check('E2 attach / detach / purge controls intact in the portal panel', () => {

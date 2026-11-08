@@ -218,6 +218,12 @@ const PORTAL_DESIGN_WRITE_TOOLS = new Set([
   // Batch 139: Pricing entries are design writes — the same service
   // the portal pane uses, write-through included (no back door).
   'pricing.create', 'pricing.update', 'pricing.delete',
+  // Batch 164: Custom Code is deliberately ABSENT from both agent
+  // allowlists — no custom_code.* tool is ever offered to the
+  // design agent, in any mode. Its blocks are owner-authored
+  // executable code (owner-only surface): the agent can see the
+  // module exists via modules.list and the shared-layer registry,
+  // but must never read, write, edit or place its code contents.
 ]);
 
 /** Everything build mode may touch: reads ∪ design/content writes. */

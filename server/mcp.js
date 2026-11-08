@@ -1363,6 +1363,29 @@ function clientToolDefs() {
       inputSchema: schema({ id: ID, leadId: ID }, ['id']),
     },
     {
+      name: 'custom_code.list',
+      description:
+        'List the site’s Custom Code blocks (Batch 164): owner-authored HTML + JavaScript blocks, each with its own public token. Blocks render on the public site only while the custom_code module is attached (modules.attach); the owner places each block on a page from the portal Modules tab.',
+      inputSchema: schema({ leadId: ID }),
+    },
+    {
+      name: 'custom_code.create',
+      description:
+        'Create a Custom Code block: label (owner-facing name), html (raw HTML served verbatim on the owner’s site), js (JavaScript code only — the renderer wraps it; 100,000-character cap per field, refused before write). Owner-authored code on the owner’s own site (Batch 152 trust model).',
+      inputSchema: schema({ leadId: ID, label: STR, html: STR, js: STR, sort_order: NUM }, ['leadId']),
+    },
+    {
+      name: 'custom_code.update',
+      description: 'Update a Custom Code block by id (same fields as custom_code.create). Batch 164.',
+      inputSchema: schema({ id: ID, leadId: ID, label: STR, html: STR, js: STR, sort_order: NUM }, ['id']),
+    },
+    {
+      name: 'custom_code.delete',
+      description:
+        'Delete a Custom Code block by id; its mounts are stripped from pages on the next module sync. Batch 164.',
+      inputSchema: schema({ id: ID, leadId: ID }, ['id']),
+    },
+    {
       name: 'shared.sources',
       description:
         "Batch 122 shared module layer: list every module type for a lead with its kind (provider / non-provider + reason), the count of published shared items and sample items. Modules are INTERDEPENDENT: content flows between them through this layer — use it before composing anything that reuses another module's content. Standard/Premium.",
@@ -3434,6 +3457,13 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'qrcode.create',
     'qrcode.update',
     'qrcode.delete',
+    // Batch 164: Custom Code tools ride the same entitlement. These
+    // are staff-MCP tools; the design agent's allowlist never
+    // includes them (code contents are owner-only).
+    'custom_code.list',
+    'custom_code.create',
+    'custom_code.update',
+    'custom_code.delete',
     // Batch 122: shared module layer tools ride the same siteModules
     // entitlement as the module families they connect.
     'shared.sources',
@@ -4586,6 +4616,42 @@ async function callClientTool(ws, name, a, ctx = {}) {
     }));
   }
 
+  // ---- Custom Code blocks (Batch 164) ----
+  if (name === 'custom_code.list') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      custom_code: modules.listCustomCodeBlocks(db, leadId),
+    }));
+  }
+  if (name === 'custom_code.create') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      custom_code: modules.createCustomCodeBlock(db, leadId, a, { workspaceId: Number(ws) }),
+    }));
+  }
+  if (name === 'custom_code.update') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      custom_code: modules.updateCustomCodeBlock(db, leadId || Number(ctx.leadId), id, a),
+    }));
+  }
+  if (name === 'custom_code.delete') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    const id = need(a.id, 'id');
+    if (!leadId && !ctx.leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      ...modules.deleteCustomCodeBlock(db, leadId || Number(ctx.leadId), id),
+    }));
+  }
+
   // ---- Shared module layer (Batch 122) ----
   if (name === 'shared.sources') {
     const leadId = resolveLeadId(ctx, a.leadId);
@@ -4988,13 +5054,29 @@ async function callClientTool(ws, name, a, ctx = {}) {
   return undefined;
 }
 
+let _knownToolNames = null;
+function knownToolNames() {
+  if (!_knownToolNames) {
+    _knownToolNames = new Set(toolDefs().map((t) => t.name));
+  }
+  return _knownToolNames;
+}
+
 async function callTool(workspaceId, name, args = {}, ctx = {}) {
   const a = args || {};
   const ws = workspaceId;
   // Cursor / some clients expose tools as website_addSection; server defs use dots.
-  name = String(name || '')
-    .trim()
-    .replace(/_/g, '.');
+  const rawName = String(name || '').trim();
+  name = rawName.replace(/_/g, '.');
+  // Batch 164: a canonical tool name may itself contain an
+  // underscore (custom_code.* is the first family that does). When
+  // the untouched name is a real tool and the rewritten form is
+  // not, keep the original — the rewrite exists for clients that
+  // flatten dots, not to rename real tools.
+  if (name !== rawName) {
+    const known = knownToolNames();
+    if (known.has(rawName) && !known.has(name)) name = rawName;
+  }
 
   try {
     // Batch 103 (SEC-09): vendor design-agent token class. Enforced

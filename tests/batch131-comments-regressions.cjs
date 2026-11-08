@@ -142,7 +142,7 @@ const throws = (fn, pattern) => {
     assert.ok(smSrc.includes("comments: { label: 'Comments'"), 'MODULE_META carries the Comments label');
     n++;
     assert.ok(
-      smSrc.includes("const MODULE_SCRIPT_VER = 'mod39'"),
+      smSrc.includes("const MODULE_SCRIPT_VER = 'mod40'"),
       'MODULE_SCRIPT_VER bumped to mod35 (Batch 131); Batch 142 finisher rotation to mod36'
     );
     n++;
@@ -353,8 +353,8 @@ const throws = (fn, pattern) => {
     n++;
     assert.equal(
       sm.MODULE_TYPES.length,
-      29,
-      'comments is the 28th of 29 types on this tree (Batch 139 appended pricing)'
+      30,
+      'comments is the 28th of 30 types on this tree (Batch 139 appended pricing; Batch 164 appended custom_code)'
     );
     n++;
     assert.equal(

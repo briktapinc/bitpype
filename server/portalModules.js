@@ -68,6 +68,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     let taxonomy = null;
     let photocapture = null;
     let qrcode = null;
+    let customcode = null;
     let commentsPanel = null;
     let pricing = null;
     if (type === 'blog') {
@@ -361,6 +362,13 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
         price_book: pricingSvc.getPriceBook(db, Number(leadId)),
       };
     }
+    else if (type === 'custom_code') {
+      // Batch 164: items ARE the blocks (label + full code — the
+      // portal editor is the owner-only surface for code contents);
+      // the block carries the per-field cap for the editor's counts.
+      items = modules.listCustomCodeBlocks(db, Number(leadId));
+      customcode = { field_max_chars: modules.CUSTOM_CODE_FIELD_MAX_CHARS };
+    }
     else if (type === 'checkout') {
       // Batch 128: the Checkout pane — the module's own settings, the
       // lead's payment state (the same shopStripe status the Shop
@@ -427,6 +435,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     if (taxonomy) out.taxonomy = taxonomy;
     if (photocapture) out.photocapture = photocapture;
     if (qrcode) out.qrcode = qrcode;
+    if (customcode) out.custom_code = customcode;
     if (commentsPanel) out.comments = commentsPanel;
     if (pricing) out.pricing = pricing;
     return out;
@@ -469,6 +478,8 @@ async function createModuleItem(workspaceId, leadId, moduleType, body, clientEma
         ...modules.createQrCode(db, Number(leadId), body || {}),
         wifi_password: undefined,
       };
+    else if (type === 'custom_code')
+      item = modules.createCustomCodeBlock(db, Number(leadId), body || {}, { workspaceId });
     else if (type === 'socialfeed')
       throw Object.assign(new Error('Social Feed updates itself from your social posts — there are no items to add.'), {
         code: 'VALIDATION',
@@ -538,6 +549,7 @@ async function updateModuleItem(workspaceId, leadId, moduleType, id, body, clien
         ...modules.updateQrCode(db, Number(leadId), id, body || {}),
         wifi_password: undefined,
       };
+    else if (type === 'custom_code') item = modules.updateCustomCodeBlock(db, Number(leadId), id, body || {});
     else if (type === 'socialfeed')
       throw Object.assign(new Error('Social Feed updates itself from your social posts — there are no items to edit.'), {
         code: 'VALIDATION',
@@ -601,6 +613,7 @@ async function deleteModuleItem(workspaceId, leadId, moduleType, id, clientEmail
     if (type === 'categories') return require('./categories').deleteCategory(db, Number(leadId), id);
     if (type === 'pricing') return require('./pricing').deletePricingEntry(db, Number(leadId), id);
     if (type === 'qrcode') return modules.deleteQrCode(db, Number(leadId), id);
+    if (type === 'custom_code') return modules.deleteCustomCodeBlock(db, Number(leadId), id);
     if (type === 'socialfeed')
       throw Object.assign(new Error('Social Feed updates itself from your social posts — there are no items to delete.'), {
         code: 'VALIDATION',
@@ -633,6 +646,109 @@ async function deleteModuleItem(workspaceId, leadId, moduleType, id, clientEmail
     }
     throw Object.assign(new Error('Unknown module type'), { code: 'VALIDATION', status: 400 });
   });
+}
+
+/**
+ * Batch 164 — place a Custom Code block on one of the site's pages.
+ * Owner-only: reached solely through the client-authenticated portal
+ * route; no agent surface calls this (the design agent must never
+ * write or place code blocks). Inserts a normal module section
+ * carrying the BLOCK's own token through the canonical structure
+ * helper, then saves via the Batch 149 canonical path (sitesSave +
+ * design-deliverable sync) — the same discipline the layout editor
+ * and structure actions use. HTML (non-sections) pages get the
+ * embed div injected into the page HTML, mirroring insert-module.
+ */
+async function placeCustomCodeBlock(workspaceId, leadId, blockId, body, clientEmail) {
+  const domain = require('./domain');
+  const modules = require('./siteModules');
+  await requireSiteModules(workspaceId, clientEmail);
+  const structure = require('../src/siteStructure');
+  const { syncDesignDeliverablePages } = require('./portalSiteEdits');
+  const prepared = await domain.withDb(workspaceId, (db) => {
+    const block = modules.getCustomCodeBlock(db, Number(leadId), Number(blockId));
+    const { resolveClientSite } = require('./portalShared');
+    const site = resolveClientSite(db, Number(leadId));
+    if (!site) throw Object.assign(new Error('Site not found'), { code: 'NOT_FOUND', status: 404 });
+    const pages = Array.isArray(site.pages) ? site.pages : [];
+    const normalizeRoute = require('../src/websiteEngine').normalizeRoute;
+    const slug = body && body.slug ? normalizeRoute(body.slug) : 'index';
+    const pageIndex = pages.findIndex((p) => p && normalizeRoute(p.slug) === slug);
+    if (pageIndex < 0) throw Object.assign(new Error('Page not found'), { code: 'NOT_FOUND', status: 404 });
+    const page = pages[pageIndex];
+    const tokenMounted = (sections) =>
+      (Array.isArray(sections) ? sections : []).some(
+        (s) => s && s.content && String(s.content.public_token || '') === String(block.public_token)
+      );
+    const htmlMounted =
+      page && typeof page.html === 'string' && block.public_token
+        ? page.html.includes(String(block.public_token))
+        : false;
+    if (tokenMounted(page && page.sections) || htmlMounted) {
+      throw Object.assign(
+        new Error('This block is already on that page. Use Layout mode to move it or duplicate its section.'),
+        { code: 'VALIDATION', status: 400 }
+      );
+    }
+    let result;
+    if (page && Array.isArray(page.sections) && page.sections.length) {
+      let afterIndex =
+        body && Number.isInteger(body.afterIndex) ? Number(body.afterIndex) : null;
+      if (afterIndex == null) {
+        // Default: end of the page's content — after the last
+        // non-footer section, so the block never lands below the
+        // footer band.
+        afterIndex = -1;
+        for (let i = page.sections.length - 1; i >= 0; i--) {
+          if (page.sections[i] && page.sections[i].type !== 'footer') {
+            afterIndex = i;
+            break;
+          }
+        }
+      }
+      result = structure.insertModuleSection(pages, pageIndex, afterIndex, {
+        module_type: 'custom_code',
+        public_token: block.public_token,
+        api_base: appUrl(),
+        title: block.label || 'Custom Code',
+      });
+    } else if (page && typeof page.html === 'string' && page.html.trim()) {
+      const embed = modules.publicEmbed(
+        { module_type: 'custom_code', public_token: block.public_token },
+        appUrl()
+      );
+      const blockHtml = modules.embedBlockHtml(embed, appUrl());
+      const pagesCopy = JSON.parse(JSON.stringify(pages));
+      const p = pagesCopy[pageIndex];
+      p.html = modules.ensureModuleEmbedScript(modules.injectHtmlEmbed(p.html, blockHtml), appUrl());
+      result = { pages: pagesCopy, changed: true };
+    } else {
+      throw Object.assign(new Error('This page has no sections to insert into'), { code: 'NO_MOVE', status: 400 });
+    }
+    if (!result.changed) {
+      throw Object.assign(new Error('Cannot place the block on this page'), { code: 'NO_MOVE', status: 400 });
+    }
+    return {
+      siteId: site.id,
+      pages: result.pages,
+      theme: site.theme && typeof site.theme === 'object' ? site.theme : {},
+      block,
+      slug,
+    };
+  });
+  const saved = domain.sitesSave(workspaceId, prepared.siteId, {
+    pages: prepared.pages,
+    theme: prepared.theme,
+    note: 'Client portal: placed custom code block',
+  });
+  syncDesignDeliverablePages(workspaceId, Number(leadId), prepared.siteId, prepared.pages, prepared.theme);
+  return {
+    placed: true,
+    block_id: prepared.block.id,
+    slug: prepared.slug,
+    version: saved && saved.version,
+    preview_url: saved && saved.preview_url,
+  };
 }
 
 async function getChatbotAdmin(workspaceId, leadId, clientEmail) {
@@ -1755,6 +1871,7 @@ module.exports = {
   attachSiteModule,
   detachSiteModule,
   deleteSiteModule,
+  placeCustomCodeBlock,
   listClientMcpTokens,
   revokeClientMcpToken,
   createClientMcpToken,
