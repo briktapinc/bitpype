@@ -42,6 +42,60 @@ async function listSiteModules(workspaceId, leadId, clientEmail) {
   }));
 }
 
+/* Batch 165 — Webinar module scope helpers. Webinars live in the
+ * platform store (server/webinars.js) scoped by workspace + lead +
+ * website; the portal facade resolves the caller's site scope from
+ * the tenant db (their first website row) and never lets one site
+ * touch another's webinars. */
+function webinarSiteScope(workspaceId, db, leadId) {
+  let websiteId = null;
+  try {
+    const row = db
+      .prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id ASC LIMIT 1')
+      .get(Number(leadId));
+    if (row) websiteId = Number(row.id);
+  } catch {
+    /* no website yet — scope still pins workspace + lead */
+  }
+  return { workspaceId: Number(workspaceId), leadId: Number(leadId), websiteId };
+}
+
+async function webinarScopeFor(workspaceId, leadId) {
+  const domain = require('./domain');
+  return domain.withDb(workspaceId, (db) => webinarSiteScope(workspaceId, db, leadId));
+}
+
+/** The site's public base URL for webinar share links — the same
+ * view-site resolution the claim kit / business-card QR uses
+ * (published domain when set), else the site's preview URL. */
+function webinarShareBase(db, leadId) {
+  try {
+    const link = require('../src/outreach').resolveWebsiteLink(db, Number(leadId));
+    if (link) return String(link).replace(/\/+$/, '');
+  } catch {
+    /* fall through to the preview URL */
+  }
+  try {
+    const row = db
+      .prepare('SELECT preview_url FROM websites WHERE lead_id = ? ORDER BY id ASC LIMIT 1')
+      .get(Number(leadId));
+    if (row && row.preview_url) return String(row.preview_url).replace(/\/+$/, '');
+  } catch {
+    /* no site yet */
+  }
+  return '';
+}
+
+async function requireSiteWebinar(workspaceId, leadId, id) {
+  const wengine = require('./webinars');
+  const scope = await webinarScopeFor(workspaceId, leadId);
+  const webinar = await wengine.getWebinarById(id, scope);
+  if (!webinar) {
+    throw Object.assign(new Error('Webinar not found'), { code: 'NOT_FOUND', status: 404 });
+  }
+  return { wengine, scope, webinar };
+}
+
 async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opts = {}) {
   const domain = require('./domain');
   const modules = require('./siteModules');
@@ -71,6 +125,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     let customcode = null;
     let commentsPanel = null;
     let pricing = null;
+    let webinarPanel = null;
     if (type === 'blog') {
       // Batch 45: server-side paging when the caller asks for a page
       // (portal blog tab); no limit = the historical full list.
@@ -411,6 +466,17 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
         comments: svc.listCommentsForOwner(db, Number(leadId), { limit: 200 }),
         targets: svc.listCommentTargets(db, Number(leadId)),
       };
+    }
+    else if (type === 'webinar') {
+      // Batch 165: the site's webinars come from the platform-store
+      // engine (async) — items carry the engine shape + counts, each
+      // with its share link on the site's own URL; writes ride the
+      // generic item routes + the dedicated webinar routes below.
+      const wengine = require('./webinars');
+      const list = await wengine.listWebinarsForSite(workspaceId, Number(leadId));
+      const base = webinarShareBase(db, Number(leadId));
+      items = list.map((w) => ({ ...w, share_url: base ? `${base}/webinar/${w.slug}` : '' }));
+      webinarPanel = { share_base: base };
     } else throw Object.assign(new Error('Unknown module type'), { code: 'VALIDATION', status: 400 });
     const emb = modules.getEmbedRow(db, Number(leadId), type);
     const out = {
@@ -438,6 +504,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     if (customcode) out.custom_code = customcode;
     if (commentsPanel) out.comments = commentsPanel;
     if (pricing) out.pricing = pricing;
+    if (webinarPanel) out.webinar = webinarPanel;
     return out;
   });
 }
@@ -447,6 +514,13 @@ async function createModuleItem(workspaceId, leadId, moduleType, body, clientEma
   const modules = require('./siteModules');
   await requireSiteModules(workspaceId, clientEmail);
   const type = String(moduleType || '').toLowerCase();
+  if (type === 'webinar') {
+    // Batch 165: platform-store engine (async) — outside the sync
+    // tenant-db block, scoped to the caller's own site.
+    const scope = await webinarScopeFor(workspaceId, leadId);
+    const item = await require('./webinars').createWebinar(body || {}, null, scope);
+    return { item, module_type: type };
+  }
   return domain.withDb(workspaceId, (db) => {
     let item;
     if (type === 'blog') item = modules.createBlogPost(db, Number(leadId), body || {});
@@ -523,6 +597,13 @@ async function updateModuleItem(workspaceId, leadId, moduleType, id, body, clien
   const modules = require('./siteModules');
   await requireSiteModules(workspaceId, clientEmail);
   const type = String(moduleType || '').toLowerCase();
+  if (type === 'webinar') {
+    // Batch 165: engine update, scope-checked (another site's
+    // webinar id reads as NOT_FOUND).
+    const { wengine, scope } = await requireSiteWebinar(workspaceId, leadId, id);
+    const item = await wengine.updateWebinar(id, body || {}, scope);
+    return { item, module_type: type };
+  }
   return domain.withDb(workspaceId, (db) => {
     let item;
     if (type === 'blog') item = modules.updateBlogPost(db, Number(leadId), id, body || {});
@@ -592,6 +673,11 @@ async function deleteModuleItem(workspaceId, leadId, moduleType, id, clientEmail
   const modules = require('./siteModules');
   await requireSiteModules(workspaceId, clientEmail);
   const type = String(moduleType || '').toLowerCase();
+  if (type === 'webinar') {
+    // Batch 165: engine delete, scope-checked.
+    const { wengine, scope } = await requireSiteWebinar(workspaceId, leadId, id);
+    return wengine.deleteWebinar(id, scope);
+  }
   return domain.withDb(workspaceId, (db) => {
     if (type === 'blog') return modules.deleteBlogPost(db, Number(leadId), id);
     if (type === 'ecommerce') return modules.deleteProduct(db, Number(leadId), id);
@@ -749,6 +835,48 @@ async function placeCustomCodeBlock(workspaceId, leadId, blockId, body, clientEm
     version: saved && saved.version,
     preview_url: saved && saved.preview_url,
   };
+}
+
+/* Batch 165 — Webinar module dedicated portal operations (code
+ * regeneration, registrants, host chat console). Every one resolves
+ * the webinar through the caller's site scope first — another
+ * site's webinar id is a NOT_FOUND, never a leak. */
+
+async function regenWebinarCode(workspaceId, leadId, id, clientEmail) {
+  await requireSiteModules(workspaceId, clientEmail);
+  const { wengine, scope } = await requireSiteWebinar(workspaceId, leadId, id);
+  const item = await wengine.regenerateCode(id, scope);
+  return { item, module_type: 'webinar' };
+}
+
+async function listWebinarRegistrations(workspaceId, leadId, id, clientEmail) {
+  await requireSiteModules(workspaceId, clientEmail);
+  const { wengine } = await requireSiteWebinar(workspaceId, leadId, id);
+  return { registrations: await wengine.listRegistrations(id) };
+}
+
+async function listWebinarMessages(workspaceId, leadId, id, clientEmail) {
+  await requireSiteModules(workspaceId, clientEmail);
+  const { wengine, webinar } = await requireSiteWebinar(workspaceId, leadId, id);
+  return {
+    webinar,
+    chat_open: wengine.chatEffectivelyOpen(webinar),
+    messages: await wengine.listMessages(id, { includeHidden: true, limit: 200 }),
+  };
+}
+
+async function postWebinarHostMessage(workspaceId, leadId, id, body, clientEmail) {
+  await requireSiteModules(workspaceId, clientEmail);
+  const { wengine, webinar } = await requireSiteWebinar(workspaceId, leadId, id);
+  const message = await wengine.postMessage(webinar, { hostName: 'Host', body: (body || {}).body });
+  return { message };
+}
+
+async function setWebinarMessageHidden(workspaceId, leadId, id, messageId, hidden, clientEmail) {
+  await requireSiteModules(workspaceId, clientEmail);
+  const { wengine } = await requireSiteWebinar(workspaceId, leadId, id);
+  const message = await wengine.setMessageHidden(id, messageId, !!hidden);
+  return { message };
 }
 
 async function getChatbotAdmin(workspaceId, leadId, clientEmail) {
@@ -1719,6 +1847,12 @@ async function deleteSiteModule(workspaceId, leadId, moduleType, clientEmail) {
   const domain = require('./domain');
   const modules = require('./siteModules');
   await requireSiteModules(workspaceId, clientEmail);
+  if (String(moduleType || '').toLowerCase() === 'webinar') {
+    // Batch 165: the module's content lives in the platform store —
+    // deleting the module purges the site's webinars with it
+    // (detach, the non-destructive sibling, keeps them).
+    await require('./webinars').deleteWebinarsForSite(workspaceId, Number(leadId));
+  }
   const packed = domain.withDb(workspaceId, (db) => {
     const result = modules.deleteModule(db, Number(leadId), moduleType);
     const site = db.prepare('SELECT id FROM websites WHERE lead_id = ? AND archived_at IS NULL ORDER BY id DESC LIMIT 1').get(Number(leadId));
@@ -1808,6 +1942,11 @@ module.exports = {
   createModuleItem,
   updateModuleItem,
   deleteModuleItem,
+  regenWebinarCode,
+  listWebinarRegistrations,
+  listWebinarMessages,
+  postWebinarHostMessage,
+  setWebinarMessageHidden,
   getChatbotAdmin,
   saveChatbotSettings,
   saveChatbotVoiceImage,

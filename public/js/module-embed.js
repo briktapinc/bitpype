@@ -1507,6 +1507,14 @@
       el.innerHTML = '';
       return;
     }
+    if (type === 'webinar') {
+      // Batch 165: the payload is a deferred marker (webinar data
+      // lives behind the async engine) — the card resolves live
+      // through the webinar public API via webinar-embed.js, loaded
+      // on demand. No current/next webinar = dormant-empty.
+      renderWebinar(el, data, html);
+      return;
+    }
     if (type === 'googlereviews') {
       // Dormant states (no platform key, no Place ID, nothing fetched,
       // or no reviews passing the filter) render nothing at all — the
@@ -4199,6 +4207,36 @@
         }
       })();
     });
+  }
+
+  // Batch 165 — Webinar card: lazy-loads the webinar client (the
+  // gate/room runtime) and hands it this mount. The card renders the
+  // site's current/next webinar, or nothing when none is coming up.
+  function renderWebinar(el, data, titleHtml) {
+    var token = data && data.embed ? data.embed.public_token : '';
+    var base = apiBase(el);
+    if (!token) {
+      el.innerHTML = '';
+      return;
+    }
+    el.innerHTML = titleHtml || '';
+    var start = function () {
+      if (window.BitpypeWebinarEmbed && window.BitpypeWebinarEmbed.renderCard) {
+        window.BitpypeWebinarEmbed.renderCard(el, { api: base, token: token });
+      }
+    };
+    if (window.BitpypeWebinarEmbed) {
+      start();
+      return;
+    }
+    var s = document.createElement('script');
+    s.src = (base || '') + '/js/webinar-embed.js?v=webinar1';
+    s.async = true;
+    s.onload = start;
+    s.onerror = function () {
+      el.innerHTML = '';
+    };
+    document.head.appendChild(s);
   }
 
   function renderItem(el, data) {

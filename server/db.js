@@ -532,13 +532,18 @@ async function migrate() {
         status TEXT NOT NULL DEFAULT 'scheduled',
         chat_open INTEGER,
         access_code TEXT NOT NULL DEFAULT '',
+        workspace_id INTEGER NOT NULL DEFAULT 1,
+        lead_id INTEGER,
+        website_id INTEGER,
         created_by INTEGER,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
+      CREATE INDEX IF NOT EXISTS idx_webinars_site ON webinars (workspace_id, lead_id, id);
       CREATE TABLE IF NOT EXISTS webinar_registrations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         webinar_id INTEGER NOT NULL,
+        workspace_id INTEGER NOT NULL DEFAULT 1,
         name TEXT NOT NULL DEFAULT '',
         email TEXT NOT NULL DEFAULT '',
         email_norm TEXT NOT NULL DEFAULT '',
@@ -552,6 +557,7 @@ async function migrate() {
       CREATE TABLE IF NOT EXISTS webinar_messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         webinar_id INTEGER NOT NULL,
+        workspace_id INTEGER NOT NULL DEFAULT 1,
         registration_id INTEGER,
         author_name TEXT NOT NULL DEFAULT '',
         is_host INTEGER NOT NULL DEFAULT 0,
@@ -624,6 +630,19 @@ async function migrate() {
     ensureColumnSqlite(db, 'client_portal_users', 'user_type', "TEXT NOT NULL DEFAULT 'owner'");
     ensureColumnSqlite(db, 'client_portal_users', 'nav_overrides', 'TEXT');
     ensureColumnSqlite(db, 'client_portal_users', 'module_overrides', 'TEXT');
+    // Batch 165: webinar site scoping. Batch 163's tables predate the
+    // columns; existing rows backfill to the platform scope
+    // (workspace 1, no lead/website) via the column defaults.
+    try {
+      ensureColumnSqlite(db, 'webinars', 'workspace_id', 'INTEGER NOT NULL DEFAULT 1');
+      ensureColumnSqlite(db, 'webinars', 'lead_id', 'INTEGER');
+      ensureColumnSqlite(db, 'webinars', 'website_id', 'INTEGER');
+      ensureColumnSqlite(db, 'webinar_registrations', 'workspace_id', 'INTEGER NOT NULL DEFAULT 1');
+      ensureColumnSqlite(db, 'webinar_messages', 'workspace_id', 'INTEGER NOT NULL DEFAULT 1');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_webinars_site ON webinars (workspace_id, lead_id, id)');
+    } catch {
+      /* tables may not exist on a bare schema */
+    }
     // Batch 117: WP plugin version/capabilities + latest design census.
     try {
       ensureColumnSqlite(db, 'wp_site_links', 'plugin_version', 'TEXT');
@@ -1204,16 +1223,21 @@ async function migrate() {
         status VARCHAR(20) NOT NULL DEFAULT 'scheduled',
         chat_open TINYINT NULL,
         access_code VARCHAR(16) NOT NULL DEFAULT '',
+        workspace_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
+        lead_id BIGINT UNSIGNED NULL,
+        website_id BIGINT UNSIGNED NULL,
         created_by BIGINT UNSIGNED NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        UNIQUE KEY uq_webinars_slug (slug)
+        UNIQUE KEY uq_webinars_slug (slug),
+        KEY idx_webinars_site (workspace_id, lead_id, id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
     await conn.query(`
       CREATE TABLE IF NOT EXISTS webinar_registrations (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
         webinar_id BIGINT UNSIGNED NOT NULL,
+        workspace_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
         name VARCHAR(200) NOT NULL DEFAULT '',
         email VARCHAR(254) NOT NULL DEFAULT '',
         email_norm VARCHAR(254) NOT NULL DEFAULT '',
@@ -1229,6 +1253,7 @@ async function migrate() {
       CREATE TABLE IF NOT EXISTS webinar_messages (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
         webinar_id BIGINT UNSIGNED NOT NULL,
+        workspace_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
         registration_id BIGINT UNSIGNED NULL,
         author_name VARCHAR(200) NOT NULL DEFAULT '',
         is_host TINYINT NOT NULL DEFAULT 0,
@@ -1238,6 +1263,14 @@ async function migrate() {
         KEY idx_webinar_msgs (webinar_id, id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
+    // Batch 165: webinar site scoping for databases whose webinar
+    // tables were created by Batch 163 (defaults backfill the
+    // platform scope: workspace 1, no lead/website).
+    await ensureColumnMysql(conn, 'webinars', 'workspace_id', 'BIGINT UNSIGNED NOT NULL DEFAULT 1');
+    await ensureColumnMysql(conn, 'webinars', 'lead_id', 'BIGINT UNSIGNED NULL');
+    await ensureColumnMysql(conn, 'webinars', 'website_id', 'BIGINT UNSIGNED NULL');
+    await ensureColumnMysql(conn, 'webinar_registrations', 'workspace_id', 'BIGINT UNSIGNED NOT NULL DEFAULT 1');
+    await ensureColumnMysql(conn, 'webinar_messages', 'workspace_id', 'BIGINT UNSIGNED NOT NULL DEFAULT 1');
     await conn.query(`
       CREATE TABLE IF NOT EXISTS wp_site_links (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,

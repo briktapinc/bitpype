@@ -107,6 +107,12 @@ module.exports = {
   attachSiteModule: portalModules.attachSiteModule,
   detachSiteModule: portalModules.detachSiteModule,
   deleteSiteModule: portalModules.deleteSiteModule,
+  // Batch 165 — Webinar module owner console (portalModules.js)
+  regenWebinarCode: portalModules.regenWebinarCode,
+  listWebinarRegistrations: portalModules.listWebinarRegistrations,
+  listWebinarMessages: portalModules.listWebinarMessages,
+  postWebinarHostMessage: portalModules.postWebinarHostMessage,
+  setWebinarMessageHidden: portalModules.setWebinarMessageHidden,
   getChatbotAdmin: portalModules.getChatbotAdmin,
   saveChatbotSettings: portalModules.saveChatbotSettings,
   saveChatbotVoiceImage: portalModules.saveChatbotVoiceImage,

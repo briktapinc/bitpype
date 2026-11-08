@@ -3276,6 +3276,57 @@ function createParityTools(ctx) {
       return { ok: true, data: siteModules().deleteCustomCodeBlock(db, leadId, id) };
     }),
 
+    // Batch 165 — Webinar module. Explicit entries (not the generic
+    // moduleCrud spread): webinars live in the platform store behind
+    // the async engine, scoped by (workspaceId, leadId); the site's
+    // website id is resolved from this layer's workspace db at
+    // create time. Staff MCP surface only — the design agent's tool
+    // allowlist deliberately never includes these names.
+    'webinar.list': parityEntry('webinar.list', async (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: await require('../server/webinars').listWebinarsForSite(workspaceId, leadId) };
+    }),
+    'webinar.create': parityEntry('webinar.create', async (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      let websiteId = null;
+      try {
+        const row = db.prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id ASC LIMIT 1').get(leadId);
+        if (row) websiteId = Number(row.id);
+      } catch {
+        /* no website yet — the scope still pins workspace + lead */
+      }
+      return {
+        ok: true,
+        data: await require('../server/webinars').createWebinar({ ...args }, null, { workspaceId, leadId, websiteId }),
+      };
+    }),
+    'webinar.update': parityEntry('webinar.update', async (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return {
+        ok: true,
+        data: await require('../server/webinars').updateWebinar(id, { ...args }, { workspaceId, leadId }),
+      };
+    }),
+    'webinar.delete': parityEntry('webinar.delete', async (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: await require('../server/webinars').deleteWebinar(id, { workspaceId, leadId }) };
+    }),
+    'webinar.regenCode': parityEntry('webinar.regenCode', async (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: await require('../server/webinars').regenerateCode(id, { workspaceId, leadId }) };
+    }),
+    'webinar.registrations': parityEntry('webinar.registrations', async (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      const id = requireId(args.id, 'id');
+      const engine = require('../server/webinars');
+      const webinar = await engine.getWebinarById(id, { workspaceId, leadId });
+      if (!webinar) throw new Error('Webinar not found');
+      return { ok: true, data: await engine.listRegistrations(id) };
+    }),
+
     // Batch 122 — shared module layer parity: the local MCP server
     // delegates to server/moduleShare exactly like the hosted
     // handlers (no plan gating locally, per this layer's contract).
