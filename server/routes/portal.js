@@ -518,6 +518,7 @@ router.post('/password-set/confirm', loginLimit, async (req, res) => {
 const portalTabs = require('../portalTabs');
 
 const PORTAL_ROUTE_TABS = [
+  ['/assistant', 'assistant'],
   ['/site', 'website'],
   ['/changes', 'changes'],
   ['/forms', 'forms'],
@@ -1429,6 +1430,165 @@ router.get('/site/agent-chat/attachments/:id', requireClient, async (req, res) =
     return res.send(found.buffer);
   } catch (e) {
     return fail(res, e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Batch 161 — the Assistant chat (portal surface). Full-page chat
+// linked before the portal's home panel; conversations are owned by
+// THIS portal user, pinned to their session's workspace + lead like
+// every other chat route (the session-pin 403 pattern from
+// /site/agent-chat). Message posts stream over SSE. Usage is
+// metered per model call into ai_usage (see server/assistantChat.js)
+// and billed to the workspace separately at raw + margin.
+// Lazy accessor (house pattern — several suites VM-load this
+// file with a require stub map; a top-level relative require
+// here would resolve outside the routes directory there).
+const assistantChat = () => require('../assistantChat');
+
+function assistantPin(req, res) {
+  if (
+    Number(req.session.clientLeadId) !== Number(req.client.lead_id) ||
+    Number(req.session.clientWorkspaceId) !== Number(req.client.workspace_id)
+  ) {
+    res.status(403).json({ ok: false, error: 'FORBIDDEN', code: 'FORBIDDEN' });
+    return false;
+  }
+  return true;
+}
+
+router.get('/assistant/conversations', requireClient, async (req, res) => {
+  try {
+    if (!assistantPin(req, res)) return;
+    const data = require('../domain').withDb(req.client.workspace_id, (db) =>
+      assistantChat().listConversations(db, { surface: 'portal', actorId: req.client.id })
+    );
+    ok(res, data);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/assistant/conversations', requireClient, async (req, res) => {
+  try {
+    if (!assistantPin(req, res)) return;
+    const data = require('../domain').withDb(req.client.workspace_id, (db) =>
+      assistantChat().createConversation(db, {
+        surface: 'portal',
+        actorId: req.client.id,
+        leadId: req.client.lead_id,
+        title: (req.body && req.body.title) || '',
+      })
+    );
+    ok(res, data);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.get('/assistant/conversations/:id', requireClient, async (req, res) => {
+  try {
+    if (!assistantPin(req, res)) return;
+    const data = require('../domain').withDb(req.client.workspace_id, (db) => {
+      const conv = assistantChat().getConversation(db, {
+        surface: 'portal',
+        actorId: req.client.id,
+        id: Number(req.params.id),
+      });
+      if (!conv) return null;
+      return { conversation: conv, messages: assistantChat().listMessages(db, { conversationId: conv.id }) };
+    });
+    if (!data) return fail(res, Object.assign(new Error('Conversation not found'), { code: 'NOT_FOUND' }));
+    ok(res, data);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/assistant/conversations/:id/messages', requireClient, agentChatLimit, async (req, res) => {
+  if (!assistantPin(req, res)) return;
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  const send = (type, payload) => {
+    try {
+      res.write(`event: ${type}\ndata: ${JSON.stringify(payload || {})}\n\n`);
+    } catch {
+      /* client went away */
+    }
+  };
+  try {
+    const data = await assistantChat().runAssistantTurn({
+      workspaceId: req.client.workspace_id,
+      surface: 'portal',
+      actorId: req.client.id,
+      conversationId: Number(req.params.id),
+      message: (req.body && req.body.message) || '',
+      attachmentIds: (req.body && req.body.attachmentIds) || [],
+      onEvent: send,
+    });
+    send('done', data);
+  } catch (e) {
+    send('error', { error: e.message || 'Assistant failed', code: e.code || 'ERROR' });
+  } finally {
+    res.end();
+  }
+});
+
+router.post('/assistant/attachments', requireClient, chatUploadLimit, async (req, res) => {
+  try {
+    if (!assistantPin(req, res)) return;
+    const body = req.body || {};
+    const raw = String(body.data || '');
+    const b64 = raw.includes(',') ? raw.slice(raw.indexOf(',') + 1) : raw;
+    const buffer = Buffer.from(b64, 'base64');
+    const data = require('../domain').withDb(req.client.workspace_id, (db) =>
+      assistantChat().saveAttachment(db, {
+        workspaceId: req.client.workspace_id,
+        surface: 'portal',
+        actorId: req.client.id,
+        leadId: req.client.lead_id,
+        conversationId: body.conversationId != null ? Number(body.conversationId) : null,
+        buffer,
+        originalName: body.name || 'file',
+      })
+    );
+    ok(res, data);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.get('/assistant/attachments/:id', requireClient, async (req, res) => {
+  try {
+    if (!assistantPin(req, res)) return;
+    const found = require('../domain').withDb(req.client.workspace_id, (db) =>
+      assistantChat().readAttachment(db, { surface: 'portal', actorId: req.client.id, id: Number(req.params.id) })
+    );
+    if (!found) return fail(res, Object.assign(new Error('Attachment not found'), { code: 'NOT_FOUND' }));
+    res.setHeader('Content-Type', found.mime);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('Content-Disposition', `inline; filename="${found.fileName}"`);
+    return res.send(found.buffer);
+  } catch (e) {
+    return fail(res, e);
+  }
+});
+
+router.get('/assistant/usage', requireClient, async (req, res) => {
+  try {
+    if (!assistantPin(req, res)) return;
+    const month = String(req.query.month || assistantChat().monthKey()).slice(0, 7);
+    const data = require('../domain').withDb(req.client.workspace_id, (db) =>
+      assistantChat().usageSummary(db, { month, actorId: req.client.id })
+    );
+    ok(res, data);
+  } catch (e) {
+    fail(res, e);
   }
 });
 

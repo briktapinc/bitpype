@@ -152,6 +152,7 @@
   }
 
   const PORTAL_PANELS = [
+    'assistant',
     'website',
     'changes',
     'forms',
@@ -214,6 +215,8 @@
     if (main) main.prepend(banner);
   }
   const PANEL_ALIASES = {
+    assistant: 'assistant',
+    'ai-chat': 'assistant',
     website: 'website',
     preview: 'website',
     site: 'website',
@@ -379,6 +382,7 @@
     const wrap = document.querySelector('.wrap');
     if (wrap) wrap.classList.toggle('is-website-wide', next === 'website');
 
+    if (next === 'assistant' && typeof loadAssistant === 'function') loadAssistant().catch(() => {});
     if (next === 'mcp' && state.mcpPaid) refreshMcpTokens().catch(() => {});
     if (next === 'soul' && typeof loadAgentSoul === 'function') loadAgentSoul().catch(() => {});
     if (next === 'changes') loadChangesHistory().catch(() => {});
@@ -13514,6 +13518,360 @@
     }
   })();
 
+  // ------------------------------------------------------------------
+  // Batch 161 — the Assistant page. Full-page chat (conversations,
+  // streaming replies, attachments incl. camera) billed separately
+  // at raw API cost + margin — the usage line keeps the charge
+  // visible. Markdown rendering is escape-first: every character of
+  // model/user text passes esc() before any markup is applied, and
+  // the transforms below only ever wrap already-escaped text in
+  // fixed tags.
+  function assistantMd(text) {
+    const e = esc(String(text || ''));
+    const blocks = e.split(/```/);
+    const inline = (s) =>
+      s
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+        .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    const html = [];
+    blocks.forEach((block, i) => {
+      if (i % 2 === 1) {
+        html.push(`<pre><code>${block.replace(/^\w*\n/, '')}</code></pre>`);
+        return;
+      }
+      let list = null;
+      const flush = () => {
+        if (list) {
+          html.push(`</${list}>`);
+          list = null;
+        }
+      };
+      for (const line of block.split('\n')) {
+        const li = line.match(/^\s*[-•]\s+(.*)$/);
+        const oli = line.match(/^\s*\d+[.)]\s+(.*)$/);
+        const h = line.match(/^#{1,3}\s+(.*)$/);
+        if (li) {
+          if (list !== 'ul') {
+            flush();
+            html.push('<ul>');
+            list = 'ul';
+          }
+          html.push(`<li>${inline(li[1])}</li>`);
+        } else if (oli) {
+          if (list !== 'ol') {
+            flush();
+            html.push('<ol>');
+            list = 'ol';
+          }
+          html.push(`<li>${inline(oli[1])}</li>`);
+        } else {
+          flush();
+          if (h) html.push(`<p><strong>${inline(h[1])}</strong></p>`);
+          else if (line.trim()) html.push(`<p>${inline(line)}</p>`);
+        }
+      }
+      flush();
+    });
+    return html.join('');
+  }
+
+  state.assistant = { convs: [], activeId: null, pending: [], sending: false, loaded: false };
+
+  function assistantStatus(text) {
+    const el = document.getElementById('assistant-status');
+    if (el) el.textContent = text || '';
+  }
+
+  function renderAssistantConvs() {
+    const wrap = document.getElementById('assistant-convs');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    for (const c of state.assistant.convs) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'assistant-conv';
+      b.setAttribute('role', 'option');
+      b.setAttribute('aria-selected', c.id === state.assistant.activeId ? 'true' : 'false');
+      const t = document.createElement('span');
+      t.className = 'conv-title';
+      t.textContent = c.title || 'New conversation';
+      const l = document.createElement('span');
+      l.className = 'conv-last';
+      l.textContent = c.lastText || '';
+      b.appendChild(t);
+      b.appendChild(l);
+      b.addEventListener('click', () => openAssistantConversation(c.id).catch((e) => assistantStatus(errText(e))));
+      wrap.appendChild(b);
+    }
+  }
+
+  function assistantBubble(role, text, attachments) {
+    const list = document.getElementById('assistant-messages');
+    if (!list) return null;
+    const empty = document.getElementById('assistant-empty');
+    if (empty) empty.remove();
+    const div = document.createElement('div');
+    div.className = `agent-bubble ${role === 'user' ? 'user' : 'assistant'}`;
+    if (text) {
+      if (role === 'assistant') {
+        const body = document.createElement('div');
+        body.className = 'md-body';
+        body.innerHTML = assistantMd(text);
+        div.appendChild(body);
+      } else {
+        const span = document.createElement('span');
+        span.textContent = String(text);
+        div.appendChild(span);
+      }
+    }
+    const atts = Array.isArray(attachments) ? attachments : [];
+    for (const att of atts) {
+      if (!att) continue;
+      if (att.kind === 'image' && att.url) {
+        const img = document.createElement('img');
+        img.src = att.url;
+        img.alt = att.name || 'Attached image';
+        img.loading = 'lazy';
+        img.style.maxWidth = '220px';
+        img.style.borderRadius = '8px';
+        img.style.display = 'block';
+        img.style.marginTop = '6px';
+        div.appendChild(img);
+      } else {
+        const chip = document.createElement('span');
+        chip.className = 'agent-chat-chip';
+        chip.textContent = att.name || 'file';
+        chip.style.marginTop = '6px';
+        div.appendChild(chip);
+      }
+    }
+    list.appendChild(div);
+    list.scrollTop = list.scrollHeight;
+    return div;
+  }
+
+  function renderAssistantPending() {
+    const wrap = document.getElementById('assistant-pending');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    wrap.hidden = !state.assistant.pending.length;
+    state.assistant.pending.forEach((att, idx) => {
+      const chip = document.createElement('span');
+      chip.className = 'agent-chat-chip';
+      const name = document.createElement('span');
+      name.className = 'chip-name';
+      name.textContent = att.name || 'file';
+      const rm = document.createElement('button');
+      rm.type = 'button';
+      rm.className = 'chip-remove';
+      rm.setAttribute('aria-label', 'Remove attachment');
+      rm.textContent = '×';
+      rm.addEventListener('click', () => {
+        state.assistant.pending.splice(idx, 1);
+        renderAssistantPending();
+      });
+      chip.appendChild(name);
+      chip.appendChild(rm);
+      wrap.appendChild(chip);
+    });
+  }
+
+  async function refreshAssistantUsage() {
+    try {
+      const u = await api('/assistant/usage');
+      const el = document.getElementById('assistant-usage-line');
+      if (el && u) {
+        const billed = Number((u.portal && u.portal.billedUsd) || 0);
+        const rollup = u.rollup ? ` · status: ${u.rollup.status}` : '';
+        el.textContent = `AI assistant usage this month: $${billed.toFixed(2)} — billed separately from your plan on your next invoice${rollup}.`;
+      }
+    } catch {
+      /* the usage line is informational only */
+    }
+  }
+
+  async function loadAssistant() {
+    const convs = await api('/assistant/conversations');
+    state.assistant.convs = Array.isArray(convs) ? convs : [];
+    renderAssistantConvs();
+    refreshAssistantUsage();
+    if (state.assistant.activeId == null && state.assistant.convs.length) {
+      await openAssistantConversation(state.assistant.convs[0].id);
+    }
+    state.assistant.loaded = true;
+  }
+
+  async function openAssistantConversation(id) {
+    const data = await api(`/assistant/conversations/${Number(id)}`);
+    if (!data || !data.conversation) return;
+    state.assistant.activeId = data.conversation.id;
+    renderAssistantConvs();
+    const list = document.getElementById('assistant-messages');
+    if (list) list.innerHTML = '';
+    for (const m of data.messages || []) assistantBubble(m.role, m.content, m.attachments);
+    if (list && !(data.messages || []).length) {
+      list.innerHTML = '<p class="agent-chat-empty" id="assistant-empty">Say hello to your assistant.</p>';
+    }
+  }
+
+  async function newAssistantConversation() {
+    const conv = await api('/assistant/conversations', { method: 'POST', body: JSON.stringify({}) });
+    if (conv && conv.id) {
+      state.assistant.convs.unshift(conv);
+      state.assistant.activeId = conv.id;
+      renderAssistantConvs();
+      const list = document.getElementById('assistant-messages');
+      if (list) list.innerHTML = '<p class="agent-chat-empty" id="assistant-empty">Say hello to your assistant.</p>';
+    }
+  }
+
+  async function onAssistantFiles(fileList) {
+    const files = Array.from(fileList || []);
+    for (const file of files) {
+      if (state.assistant.pending.length >= 4) {
+        assistantStatus('Up to 4 attachments per message.');
+        break;
+      }
+      if (file.size > 50 * 1024 * 1024) {
+        assistantStatus('That file is over the 50 MB limit.');
+        continue;
+      }
+      assistantStatus('Attaching…');
+      try {
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error('Could not read that file.'));
+          reader.readAsDataURL(file);
+        });
+        const att = await api('/assistant/attachments', {
+          method: 'POST',
+          body: JSON.stringify({ data: dataUrl, name: file.name, conversationId: state.assistant.activeId }),
+        });
+        if (att && att.id) {
+          state.assistant.pending.push(att);
+          renderAssistantPending();
+          assistantStatus('');
+        }
+      } catch (e) {
+        assistantStatus(errText(e));
+      }
+    }
+  }
+
+  async function sendAssistantMessage() {
+    const input = document.getElementById('assistant-input');
+    const text = input ? input.value.trim() : '';
+    if (state.assistant.sending) return;
+    if (!text && !state.assistant.pending.length) return;
+    if (state.assistant.activeId == null) await newAssistantConversation();
+    const atts = state.assistant.pending.slice();
+    state.assistant.pending = [];
+    renderAssistantPending();
+    assistantBubble('user', text || '[Attachment]', atts);
+    if (input) input.value = '';
+    state.assistant.sending = true;
+    assistantStatus('Thinking…');
+    const live = assistantBubble('assistant', '', null);
+    const liveBody = live ? live.querySelector('.md-body') : null;
+    let acc = '';
+    try {
+      const res = await fetch(`/api/v1/portal/assistant/conversations/${Number(state.assistant.activeId)}/messages`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, attachmentIds: atts.map((a) => a.id) }),
+      });
+      if (!res.ok || !res.body) throw new Error(`Request failed (${res.status})`);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) >= 0) {
+          const rawEvent = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          const evMatch = rawEvent.match(/^event: (\w+)/m);
+          const dataMatch = rawEvent.match(/^data: (.*)$/m);
+          if (!evMatch || !dataMatch) continue;
+          let payload = {};
+          try {
+            payload = JSON.parse(dataMatch[1]);
+          } catch {
+            payload = {};
+          }
+          if (evMatch[1] === 'delta' && payload.text) {
+            acc += payload.text;
+            if (liveBody) liveBody.innerHTML = assistantMd(acc);
+            const list = document.getElementById('assistant-messages');
+            if (list) list.scrollTop = list.scrollHeight;
+          } else if (evMatch[1] === 'status') {
+            assistantStatus(payload.text || '');
+          } else if (evMatch[1] === 'error') {
+            throw new Error(payload.error || 'Assistant failed');
+          }
+        }
+      }
+      assistantStatus('');
+    } catch (e) {
+      if (liveBody && !acc) liveBody.textContent = errText(e);
+      assistantStatus(errText(e));
+    } finally {
+      state.assistant.sending = false;
+      try {
+        const convs = await api('/assistant/conversations');
+        state.assistant.convs = Array.isArray(convs) ? convs : state.assistant.convs;
+        renderAssistantConvs();
+      } catch {
+        /* list refresh is best-effort */
+      }
+      refreshAssistantUsage();
+    }
+  }
+
+  (function wireAssistant() {
+    const form = document.getElementById('assistant-form');
+    if (!form) return;
+    form.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      sendAssistantMessage().catch((e) => assistantStatus(errText(e)));
+    });
+    const input = document.getElementById('assistant-input');
+    if (input) {
+      input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' && !ev.shiftKey) {
+          ev.preventDefault();
+          sendAssistantMessage().catch((e) => assistantStatus(errText(e)));
+        }
+      });
+    }
+    const file = document.getElementById('assistant-file');
+    const cam = document.getElementById('assistant-camera-file');
+    const attachBtn = document.getElementById('assistant-attach');
+    const camBtn = document.getElementById('assistant-camera');
+    if (attachBtn && file) attachBtn.addEventListener('click', () => file.click());
+    if (camBtn && cam) camBtn.addEventListener('click', () => cam.click());
+    if (file) {
+      file.addEventListener('change', () => {
+        onAssistantFiles(file.files).catch((e) => assistantStatus(errText(e)));
+        file.value = '';
+      });
+    }
+    if (cam) {
+      cam.addEventListener('change', () => {
+        onAssistantFiles(cam.files).catch((e) => assistantStatus(errText(e)));
+        cam.value = '';
+      });
+    }
+    const newBtn = document.getElementById('assistant-new');
+    if (newBtn) newBtn.addEventListener('click', () => newAssistantConversation().catch((e) => assistantStatus(errText(e))));
+  })();
+
   // Batch 117 — WordPress design chat panel. Renders per connected
   // registration: the chat (transcript + composer), staged proposals
   // with Preview / Approve / Reject, and applied changes with Undo.
@@ -13799,4 +14157,5 @@
   if (wpSecEl) wpDesignObserver.observe(wpSecEl, { attributes: true, attributeFilter: ['hidden'] });
   const wpNavEl = document.getElementById('nav-wordpress');
   if (wpNavEl) wpNavEl.addEventListener('click', () => loadWpDesignPanel().catch(() => {}));
+
 })();

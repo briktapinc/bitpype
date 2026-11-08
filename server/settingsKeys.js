@@ -194,6 +194,12 @@ const SETTABLE_KEYS = [
   'cost.daily_budget_usd',
   'cost.per_1k_prompt',
   'cost.per_1k_completion',
+  // Batch 161: Assistant chat billing (margin / monthly cap /
+  // price table) — platform-level, written by the dedicated
+  // Admin endpoint; registered here for the Batch 24b invariant.
+  'ai.assistant.margin_pct',
+  'ai.assistant.monthly_cap_usd',
+  'ai.assistant.price_table',
   'cost.max_websites_per_day',
   'cost.max_outreach_per_day',
   'smtp.host',
@@ -447,6 +453,47 @@ function validateSetting(key, raw) {
       return { ok: true, value: v };
     }
     return fail('unknown ai.route slot');
+  }
+  // Batch 161: Assistant chat billing keys. Rules mirror
+  // assistantChat.validateAssistantSettings (margin 0..1000; cap
+  // empty = off or a positive amount; price table empty = the
+  // seeded defaults or a JSON object with a "default" entry whose
+  // rates are numbers 0..100). Kept dependency-free like the rest
+  // of this file (VM-evaluated by legacy suites).
+  if (key === 'ai.assistant.margin_pct') {
+    const v = value.trim();
+    if (v === '') return { ok: true, value: '' };
+    if (!isNum(v)) return fail('must be a number (percent)');
+    if (toNum(v) < 0 || toNum(v) > 1000) return fail('must be between 0 and 1000');
+    return { ok: true, value: v };
+  }
+  if (key === 'ai.assistant.monthly_cap_usd') {
+    const v = value.trim();
+    if (v === '') return { ok: true, value: '' };
+    if (!isNum(v)) return fail('must be a number (USD)');
+    if (toNum(v) <= 0) return fail('must be positive, or empty for no cap');
+    return { ok: true, value: v };
+  }
+  if (key === 'ai.assistant.price_table') {
+    const v = value.trim();
+    if (v === '') return { ok: true, value: '' };
+    let obj;
+    try {
+      obj = JSON.parse(v);
+    } catch {
+      return fail('must be valid JSON');
+    }
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return fail('must be a JSON object keyed by provider|model');
+    for (const [k, entry] of Object.entries(obj)) {
+      if (!entry || typeof entry !== 'object') return fail(`entry "${k}" must be an object`);
+      const p = Number(entry.promptPer1k);
+      const c = Number(entry.completionPer1k);
+      if (!Number.isFinite(p) || !Number.isFinite(c) || p < 0 || c < 0 || p > 100 || c > 100) {
+        return fail(`entry "${k}" needs promptPer1k / completionPer1k between 0 and 100`);
+      }
+    }
+    if (!obj.default) return fail('needs a "default" entry');
+    return { ok: true, value: v };
   }
   switch (key) {
     case 'ai.base_url':

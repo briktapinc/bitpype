@@ -35,6 +35,12 @@ const { MODULE_TYPES, MODULE_META } = require('./siteModules');
 
 // ---------------------------------------------------------------- tabs
 const PORTAL_TABS = [
+  // Batch 161: the Assistant chat — Ely ordered the link BEFORE the
+  // portal's home panel (Website), so 'assistant' leads the list.
+  // Owner + partner factory defaults gain it via PORTAL_TABS.slice();
+  // renters stay on their factory three (a general AI assistant with
+  // site tools is the operator's surface, like the SOUL page).
+  'assistant',
   'website',
   'changes',
   'forms',
@@ -63,6 +69,7 @@ const PORTAL_TABS = [
 ];
 
 const TAB_LABELS = {
+  assistant: 'Assistant',
   website: 'Website',
   changes: 'Changes',
   forms: 'Forms',

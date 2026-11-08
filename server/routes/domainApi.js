@@ -2312,4 +2312,187 @@ router.delete(
   }
 );
 
+// ---------------------------------------------------------------------------
+// Batch 161 — the Assistant chat (staff/admin surface). Session-only
+// (a lead-scoped MCP token never gets a general assistant); the
+// conversation's lead is chosen by the staff member and validated
+// inside their workspace, and tool execution is pinned to it. Staff
+// usage is metered as internal platform cost (surface 'admin',
+// margin 0, never billed) — see server/assistantChat.js.
+// Lazy accessors (house pattern — suites VM-load route files with
+// require stub maps; top-level relative requires here would
+// resolve outside the routes directory there). The rate limiters
+// are memoized behind middleware wrappers for the same reason.
+const assistantChat = () => require('../assistantChat');
+const assistantBilling = () => require('../assistantBilling');
+let _assistantMsgLimit = null;
+let _assistantUploadLimit = null;
+const assistantMsgLimit = (req, res, next) => {
+  if (!_assistantMsgLimit) _assistantMsgLimit = require('../rateLimit').rateLimit({ windowMs: 15 * 60 * 1000, max: 30 });
+  return _assistantMsgLimit(req, res, next);
+};
+const assistantUploadLimit = (req, res, next) => {
+  if (!_assistantUploadLimit) _assistantUploadLimit = require('../rateLimit').rateLimit({ windowMs: 15 * 60 * 1000, max: 40 });
+  return _assistantUploadLimit(req, res, next);
+};
+
+function assistantStaffOnly(req, res, next) {
+  if (!req.auth || req.auth.via !== 'session' || req.auth.userId == null) {
+    return res.status(403).json({ ok: false, error: 'FORBIDDEN', code: 'FORBIDDEN' });
+  }
+  return next();
+}
+
+function staffLeadCheck(db, workspaceId, leadId) {
+  if (leadId == null) return null;
+  const row = db.prepare('SELECT id FROM leads WHERE id = ?').get(Number(leadId));
+  if (!row) throw Object.assign(new Error('Lead not found in this workspace'), { code: 'NOT_FOUND' });
+  return Number(leadId);
+}
+
+router.get('/assistant/conversations', assistantStaffOnly, (req, res) => {
+  try {
+    const data = domain.withDb(req.auth.workspaceId, (db) =>
+      assistantChat().listConversations(db, { surface: 'admin', actorId: req.auth.userId })
+    );
+    ok(res, data);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/assistant/conversations', assistantStaffOnly, (req, res) => {
+  try {
+    const data = domain.withDb(req.auth.workspaceId, (db) =>
+      assistantChat().createConversation(db, {
+        surface: 'admin',
+        actorId: req.auth.userId,
+        leadId: staffLeadCheck(db, req.auth.workspaceId, (req.body && req.body.leadId) ?? null),
+        title: (req.body && req.body.title) || '',
+      })
+    );
+    ok(res, data);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.get('/assistant/conversations/:id', assistantStaffOnly, (req, res) => {
+  try {
+    const data = domain.withDb(req.auth.workspaceId, (db) => {
+      const conv = assistantChat().getConversation(db, {
+        surface: 'admin',
+        actorId: req.auth.userId,
+        id: Number(req.params.id),
+      });
+      if (!conv) return null;
+      return { conversation: conv, messages: assistantChat().listMessages(db, { conversationId: conv.id }) };
+    });
+    if (!data) return fail(res, Object.assign(new Error('Conversation not found'), { code: 'NOT_FOUND' }));
+    ok(res, data);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/assistant/conversations/:id/messages', assistantStaffOnly, assistantMsgLimit, async (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  const send = (type, payload) => {
+    try {
+      res.write(`event: ${type}\ndata: ${JSON.stringify(payload || {})}\n\n`);
+    } catch {
+      /* client went away */
+    }
+  };
+  try {
+    const data = await assistantChat().runAssistantTurn({
+      workspaceId: req.auth.workspaceId,
+      surface: 'admin',
+      actorId: req.auth.userId,
+      conversationId: Number(req.params.id),
+      message: (req.body && req.body.message) || '',
+      attachmentIds: (req.body && req.body.attachmentIds) || [],
+      onEvent: send,
+    });
+    send('done', data);
+  } catch (e) {
+    send('error', { error: e.message || 'Assistant failed', code: e.code || 'ERROR' });
+  } finally {
+    res.end();
+  }
+});
+
+router.post('/assistant/attachments', assistantStaffOnly, assistantUploadLimit, (req, res) => {
+  try {
+    const body = req.body || {};
+    const raw = String(body.data || '');
+    const b64 = raw.includes(',') ? raw.slice(raw.indexOf(',') + 1) : raw;
+    const buffer = Buffer.from(b64, 'base64');
+    const data = domain.withDb(req.auth.workspaceId, (db) =>
+      assistantChat().saveAttachment(db, {
+        workspaceId: req.auth.workspaceId,
+        surface: 'admin',
+        actorId: req.auth.userId,
+        leadId: staffLeadCheck(db, req.auth.workspaceId, body.leadId ?? null),
+        conversationId: body.conversationId != null ? Number(body.conversationId) : null,
+        buffer,
+        originalName: body.name || 'file',
+      })
+    );
+    ok(res, data);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.get('/assistant/attachments/:id', assistantStaffOnly, (req, res) => {
+  try {
+    const found = domain.withDb(req.auth.workspaceId, (db) =>
+      assistantChat().readAttachment(db, { surface: 'admin', actorId: req.auth.userId, id: Number(req.params.id) })
+    );
+    if (!found) return fail(res, Object.assign(new Error('Attachment not found'), { code: 'NOT_FOUND' }));
+    res.setHeader('Content-Type', found.mime);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('Content-Disposition', `inline; filename="${found.fileName}"`);
+    return res.send(found.buffer);
+  } catch (e) {
+    return fail(res, e);
+  }
+});
+
+router.get('/assistant/usage', assistantStaffOnly, (req, res) => {
+  try {
+    const month = String(req.query.month || assistantChat().monthKey()).slice(0, 7);
+    const data = domain.withDb(req.auth.workspaceId, (db) => assistantChat().usageSummary(db, { month }));
+    ok(res, data);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/assistant/usage/rollup', assistantStaffOnly, requireRole('owner', 'admin'), async (req, res) => {
+  try {
+    const month = String((req.body && req.body.month) || assistantChat().monthKey()).slice(0, 7);
+    const data = domain.withDb(req.auth.workspaceId, (db) => assistantBilling().computeRollup(db, month));
+    ok(res, data);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/assistant/usage/queue', assistantStaffOnly, requireRole('owner', 'admin'), async (req, res) => {
+  try {
+    const month = String((req.body && req.body.month) || assistantChat().monthKey()).slice(0, 7);
+    ok(res, await assistantBilling().queueRollupForInvoice(req.auth.workspaceId, month));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 module.exports = router;

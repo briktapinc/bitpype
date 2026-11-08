@@ -80,6 +80,17 @@ const ROUTABLE_FUNCTIONS = [
     defaultPrimary: 'muse',
     defaultFallback: 'openai',
   },
+  {
+    // Batch 161 — the Assistant chat (portal + staff). Agent-kind:
+    // same Muse primary / OpenAI fallback doctrine as the other
+    // conversational surfaces; usage is metered per call by
+    // server/assistantChat.js.
+    key: 'assistant_chat',
+    label: 'Assistant chat (portal + admin)',
+    kind: 'agent',
+    defaultPrimary: 'muse',
+    defaultFallback: 'openai',
+  },
   { key: 'research', label: 'Lead research', kind: 'task', defaultPrimary: 'openai', defaultFallback: 'none' },
   { key: 'scoring', label: 'Lead scoring', kind: 'task', defaultPrimary: 'openai', defaultFallback: 'none' },
   {

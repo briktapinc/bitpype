@@ -500,6 +500,54 @@ router.put('/settings/ai-routing', async (req, res) => {
     fail(res, e);
   }
 });
+// ---------- Assistant chat billing (Batch 161) ----------
+// Ely's knobs for the Assistant chat charge: the margin % (seeded
+// 20, his figure), the optional per-workspace monthly billed-usage
+// cap, and the per provider/model price table raw costs are
+// computed from. All platform settings — nothing hard-coded — and
+// every recorded ai_usage row keeps the margin that was applied to
+// it, so edits here only ever affect future calls.
+router.get('/settings/ai-assistant', async (req, res) => {
+  try {
+    const assistantChat = require('../assistantChat');
+    ok(res, await assistantChat.getAssistantSettings());
+  } catch (e) {
+    fail(res, e);
+  }
+});
+router.put('/settings/ai-assistant', async (req, res) => {
+  try {
+    const assistantChat = require('../assistantChat');
+    const entries = await assistantChat.validateAssistantSettings(req.body || {});
+    await platform.setPlatformSettingsBatch(entries);
+    try {
+      await platform.savePlatformDefaultsSnapshot();
+    } catch (e) {
+      console.warn('[admin] defaults snapshot', e.message);
+    }
+    await platform.audit(
+      req.session.userId,
+      'platform.ai_assistant_settings',
+      Object.entries(entries)
+        .map(([k, v]) => `${k}=${k === assistantChat.SETTING_PRICES ? '(price table)' : v}`)
+        .join('; ')
+        .slice(0, 900)
+    );
+    ok(res, { updated: Object.keys(entries).length, state: await assistantChat.getAssistantSettings() });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+router.get('/settings/ai-assistant/usage', async (req, res) => {
+  try {
+    const assistantChat = require('../assistantChat');
+    const assistantBilling = require('../assistantBilling');
+    const month = String(req.query.month || assistantChat.monthKey()).slice(0, 7);
+    ok(res, await assistantBilling.adminUsageOverview(month));
+  } catch (e) {
+    fail(res, e);
+  }
+});
 // ---------- Pricing control (Batch 24) ----------
 // Amounts in, Stripe Products/Prices managed: see server/pricingAdmin.js.
 router.get('/settings/pricing', async (req, res) => {

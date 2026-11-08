@@ -260,6 +260,16 @@ const PLATFORM_SETTING_DEFS = [
     default: 'https://openrouter.ai/api/v1',
   },
   { key: 'openrouter.model', group: 'keys', label: 'OpenRouter default model', default: 'openai/gpt-4o-mini' },
+  // Batch 161: Assistant chat billing — Ely's margin (seeded 20%,
+  // adjustable by him in Admin → API keys via the dedicated
+  // endpoint; these defs register the keys in the catalog so the
+  // choke-point writer accepts them), the per-workspace monthly
+  // soft cap ('' = off), and the editable per-provider/model price
+  // table every assistant usage row is priced from. Platform-level:
+  // never in WORKSPACE_SEED_KEYS.
+  { key: 'ai.assistant.margin_pct', group: 'keys', label: 'Assistant chat — billing margin %', default: '20' },
+  { key: 'ai.assistant.monthly_cap_usd', group: 'keys', label: 'Assistant chat — monthly cap per workspace (USD, blank = off)', default: '' },
+  { key: 'ai.assistant.price_table', group: 'keys', label: 'Assistant chat — price table (JSON, USD per 1k tokens)', default: '' },
   { key: 'providers.tavily.api_key', group: 'keys', label: 'Tavily API key', default: '', secret: true },
   { key: 'pexels.api_key', group: 'keys', label: 'Pexels API key', default: '', secret: true },
   { key: 'fal.api_key', group: 'keys', label: 'Fal API key', default: '', secret: true },

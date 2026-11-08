@@ -214,6 +214,55 @@ window.ScoutApi = (() => {
     learningClear: (what) => post('/design/learning/clear', { what }),
     learningDistill: (force) => post('/design/learning/distill', { force: !!force }),
 
+    // ---- assistant (Batch 161) ----
+    assistantConversations: () => get('/assistant/conversations'),
+    assistantCreateConversation: (body) => post('/assistant/conversations', body || {}),
+    assistantConversation: (id) => get('/assistant/conversations/' + id),
+    assistantUpload: (body) => post('/assistant/attachments', body),
+    assistantUsage: (month) => get('/assistant/usage', month ? { month } : undefined),
+    assistantRollup: (month) => post('/assistant/usage/rollup', { month }),
+    assistantQueueRollup: (month) => post('/assistant/usage/queue', { month }),
+    adminAiAssistant: () => get('/admin/settings/ai-assistant'),
+    adminAiAssistantSave: (body) => put('/admin/settings/ai-assistant', body),
+    adminAiAssistantUsage: (month) => get('/admin/settings/ai-assistant/usage', month ? { month } : undefined),
+    /** SSE stream for one assistant turn; onEvent(type, payload). */
+    assistantStream: async (conversationId, body, onEvent) => {
+      const headers = { 'Content-Type': 'application/json' };
+      const ws = getWorkspaceId();
+      if (ws) headers['X-Workspace-Id'] = String(ws);
+      const res = await fetch(V + '/assistant/conversations/' + Number(conversationId) + '/messages', {
+        method: 'POST',
+        credentials: 'include',
+        headers,
+        body: JSON.stringify(body || {}),
+      });
+      if (!res.ok || !res.body) throw new Error(`Request failed (${res.status})`);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) >= 0) {
+          const rawEvent = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          const evMatch = rawEvent.match(/^event: (\w+)/m);
+          const dataMatch = rawEvent.match(/^data: (.*)$/m);
+          if (!evMatch || !dataMatch) continue;
+          let payload = {};
+          try {
+            payload = JSON.parse(dataMatch[1]);
+          } catch {
+            payload = {};
+          }
+          if (typeof onEvent === 'function') onEvent(evMatch[1], payload);
+          if (evMatch[1] === 'error') throw new Error(payload.error || 'Assistant failed');
+        }
+      }
+    },
+
     // ---- websites ----
     websites: (q) => get('/websites', q),
     websiteGet: (id) => get('/websites/' + id),

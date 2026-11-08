@@ -53,6 +53,7 @@ const NavGroups = require(path.join(root, 'public/js/navGroups.js'));
    plus Batch 49's Finance (which joined the flat sidebar after Billing
    and now sits in the Money group). [route, label] — href is `#/<route>`. */
 const INVENTORY = [
+  ['assistant', 'Assistant'], // Batch 161: the Assistant link sits BEFORE Dashboard (Ely's order)
   ['dashboard', 'Dashboard'],
   ['leads', 'Leads'],
   ['websites', 'Websites'],
@@ -124,7 +125,7 @@ check('config: every inventory route appears exactly once across top-level + gro
 });
 
 check('config: top-level daily drivers + group labels/membership pinned', () => {
-  assert.deepEqual(NavGroups.NAV_TOP_LEVEL, ['dashboard', 'leads', 'websites', 'fingerprints']); // Batch 156: fingerprints top-level
+  assert.deepEqual(NavGroups.NAV_TOP_LEVEL, ['assistant', 'dashboard', 'leads', 'websites', 'fingerprints']); // Batch 156: fingerprints top-level; Batch 161: assistant first (before Dashboard)
   assert.deepEqual(
     NavGroups.NAV_GROUPS.map((g) => [g.id, g.label]),
     [
@@ -159,6 +160,7 @@ check('logic: navGroupForRoute maps grouped routes, null for top-level/unknown',
   assert.equal(NavGroups.navGroupForRoute('dashboard'), null);
   assert.equal(NavGroups.navGroupForRoute('websites'), null);
   assert.equal(NavGroups.navGroupForRoute('fingerprints'), null); // Batch 156: top-level, no group
+  assert.equal(NavGroups.navGroupForRoute('assistant'), null); // Batch 161: top-level, no group
   assert.equal(NavGroups.navGroupForRoute('nope'), null);
   assert.equal(NavGroups.navGroupForRoute(''), null);
 });

@@ -140,12 +140,12 @@ const OPENROUTER_KEY_2 = 'b123-openrouter-key-SECOND';
     n++;
     // Shipped defaults are Batch 120's — OpenRouter is an added
     // option, never a new default.
-    for (const fn of aiRouting.ROUTABLE_FUNCTIONS.slice(0, 3)) {
+    for (const fn of aiRouting.ROUTABLE_FUNCTIONS.slice(0, 4)) {
       assert.equal(fn.defaultPrimary, 'muse', `${fn.key} still defaults to muse primary`);
       assert.equal(fn.defaultFallback, 'openai', `${fn.key} still defaults to openai fallback`);
       n++;
     }
-    for (const fn of aiRouting.ROUTABLE_FUNCTIONS.slice(3)) {
+    for (const fn of aiRouting.ROUTABLE_FUNCTIONS.slice(4)) {
       assert.equal(fn.defaultPrimary, 'openai', `${fn.key} still defaults to openai primary`);
       assert.equal(fn.defaultFallback, 'none', `${fn.key} still defaults to no fallback`);
       n++;
@@ -893,7 +893,7 @@ const OPENROUTER_KEY_2 = 'b123-openrouter-key-SECOND';
       }
       n++;
       const state = JSON.parse(raw).data;
-      assert.equal(state.functions.length, 12, '10 routable rows + 2 informational rows');
+      assert.equal(state.functions.length, 13, '11 routable rows (Batch 161 assistant_chat) + 2 informational rows');
       assert.equal(state.profiles.openrouter.configured, true, 'openrouter profile reports configured');
       assert.equal(state.profiles.openrouter.baseHost, 'openrouter.ai', 'openrouter host shown');
       assert.equal(state.profiles.openrouter.defaultModel, 'openai/gpt-4o-mini', 'openrouter default model shown');

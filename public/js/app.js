@@ -13,6 +13,7 @@ const topTitle = document.getElementById('top-title');
 const toastHost = document.getElementById('toast-host');
 
 const ROUTES = [
+  'assistant',
   'dashboard',
   'leads',
   'websites',
@@ -41,6 +42,7 @@ const ROUTES = [
   'admin',
 ];
 const ROUTE_LABELS = {
+  assistant: 'Assistant',
   dashboard: 'Dashboard',
   leads: 'Leads',
   websites: 'Websites',
@@ -3240,6 +3242,403 @@ async function pageArchives() {
 // Batch 156: the platform fingerprint ledger + similarity report
 // (report mode only — a flagged pair is a double match: layout matches
 // AND branding is close; nothing is blocked on it).
+/* Batch 161 — the staff Assistant page. Same escape-first markdown
+ * renderer as the portal (model text is esc()'d before any markup
+ * transform; transforms only wrap escaped text in fixed tags). */
+function assistantMdHtml(text) {
+  const e = esc(String(text || ''));
+  const inline = (s) =>
+    s
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+      .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  const html = [];
+  e.split(/```/).forEach((block, i) => {
+    if (i % 2 === 1) {
+      html.push(`<pre><code>${block.replace(/^\w*\n/, '')}</code></pre>`);
+      return;
+    }
+    let list = null;
+    const flush = () => {
+      if (list) {
+        html.push(`</${list}>`);
+        list = null;
+      }
+    };
+    for (const line of block.split('\n')) {
+      const li = line.match(/^\s*[-•]\s+(.*)$/);
+      const oli = line.match(/^\s*\d+[.)]\s+(.*)$/);
+      const h = line.match(/^#{1,3}\s+(.*)$/);
+      if (li) {
+        if (list !== 'ul') {
+          flush();
+          html.push('<ul>');
+          list = 'ul';
+        }
+        html.push(`<li>${inline(li[1])}</li>`);
+      } else if (oli) {
+        if (list !== 'ol') {
+          flush();
+          html.push('<ol>');
+          list = 'ol';
+        }
+        html.push(`<li>${inline(oli[1])}</li>`);
+      } else {
+        flush();
+        if (h) html.push(`<p><strong>${inline(h[1])}</strong></p>`);
+        else if (line.trim()) html.push(`<p>${inline(line)}</p>`);
+      }
+    }
+    flush();
+  });
+  return html.join('');
+}
+
+const assistantUi = { convs: [], activeId: null, pending: [], sending: false, leadId: null };
+
+async function pageAssistant() {
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Assistant</h1><p class="lede">Chat with the AI assistant for this workspace — ask, draft, plan, or (with a site selected) ask for site changes. Attach files, photos and videos. Staff usage is metered as internal platform cost; client portal usage is billed to the client separately.</p></div></div>
+    <div class="card">
+      <div class="row end">
+        <div class="field" style="flex:2"><label class="lbl" for="asst-lead">Site context (optional)</label>
+          <select id="asst-lead"><option value="">No site — general chat</option></select></div>
+        <div class="field"><button class="btn primary" id="asst-new" type="button">New conversation</button></div>
+      </div>
+      <div class="row" style="align-items:flex-start; gap:16px">
+        <div id="asst-convs" style="flex:0 0 230px; display:flex; flex-direction:column; gap:8px; max-height:60vh; overflow-y:auto"></div>
+        <div style="flex:1; min-width:0; display:flex; flex-direction:column; height:60vh">
+          <div id="asst-messages" style="flex:1; min-height:0; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; border:1px solid var(--line, #e5e0d8); border-radius:12px"></div>
+          <div id="asst-pending" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px"></div>
+          <form id="asst-form" style="display:flex; gap:8px; align-items:flex-end; margin-top:10px">
+            <button class="btn" id="asst-attach" type="button">Attach</button>
+            <button class="btn" id="asst-camera" type="button">Camera</button>
+            <textarea id="asst-input" rows="2" placeholder="Message the assistant…" style="flex:1"></textarea>
+            <button class="btn primary" id="asst-send" type="submit">Send</button>
+            <input type="file" id="asst-file" multiple accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/quicktime,video/webm,application/pdf,.txt,.md,.csv,.json" hidden />
+            <input type="file" id="asst-camera-file" accept="image/*,video/*" capture="environment" hidden />
+          </form>
+          <p class="hint" id="asst-status" role="status"></p>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="panel-h"><h3>Assistant usage — this workspace</h3><span class="hint">portal usage is billed to the client at raw cost + margin; staff usage is internal cost, never billed</span></div>
+      <div id="asst-usage"><p class="hint">Loading…</p></div>
+    </div>`;
+
+  const $s = (id) => document.getElementById(id);
+  const status = (t) => {
+    const el = $s('asst-status');
+    if (el) el.textContent = t || '';
+  };
+  const bubble = (role, text, attachments) => {
+    const list = $s('asst-messages');
+    if (!list) return null;
+    const div = document.createElement('div');
+    div.className = role === 'user' ? 'asst-bubble user' : 'asst-bubble assistant';
+    div.style.cssText =
+      role === 'user'
+        ? 'align-self:flex-end; background:#1c140f; color:#fffaf4; padding:10px 12px; border-radius:14px; max-width:92%'
+        : 'align-self:flex-start; background:var(--surface-2, #f3efe8); padding:10px 12px; border-radius:14px; max-width:92%';
+    if (text) {
+      if (role === 'assistant') {
+        const body = document.createElement('div');
+        body.className = 'md-body';
+        body.innerHTML = assistantMdHtml(text);
+        div.appendChild(body);
+      } else {
+        const span = document.createElement('span');
+        span.textContent = String(text);
+        div.appendChild(span);
+      }
+    }
+    for (const att of Array.isArray(attachments) ? attachments : []) {
+      if (!att) continue;
+      if (att.kind === 'image' && att.url) {
+        const img = document.createElement('img');
+        img.src = att.url;
+        img.alt = att.name || 'Attached image';
+        img.style.cssText = 'max-width:220px; border-radius:8px; display:block; margin-top:6px';
+        div.appendChild(img);
+      } else {
+        const chip = document.createElement('span');
+        chip.className = 'chip';
+        chip.textContent = att.name || 'file';
+        div.appendChild(chip);
+      }
+    }
+    list.appendChild(div);
+    list.scrollTop = list.scrollHeight;
+    return div;
+  };
+  const renderConvs = () => {
+    const wrap = $s('asst-convs');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    for (const c of assistantUi.convs) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn' + (c.id === assistantUi.activeId ? ' primary' : '');
+      b.style.cssText = 'text-align:left; white-space:normal';
+      b.textContent = c.title || 'New conversation';
+      b.addEventListener('click', async () => {
+        try {
+          await openConv(c.id);
+        } catch (e) {
+          status(errText(e));
+        }
+      });
+      wrap.appendChild(b);
+    }
+  };
+  const renderPending = () => {
+    const wrap = $s('asst-pending');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    assistantUi.pending.forEach((att, idx) => {
+      const chip = document.createElement('span');
+      chip.className = 'chip';
+      chip.textContent = `${att.name || 'file'} ×`;
+      chip.style.cursor = 'pointer';
+      chip.addEventListener('click', () => {
+        assistantUi.pending.splice(idx, 1);
+        renderPending();
+      });
+      wrap.appendChild(chip);
+    });
+  };
+  const openConv = async (id) => {
+    const r = await api.assistantConversation(id);
+    const d = r.data || {};
+    if (!d.conversation) return;
+    assistantUi.activeId = d.conversation.id;
+    assistantUi.leadId = d.conversation.leadId;
+    renderConvs();
+    const list = $s('asst-messages');
+    if (list) list.innerHTML = '';
+    for (const m of d.messages || []) bubble(m.role, m.content, m.attachments);
+  };
+  const refreshUsage = async () => {
+    try {
+      const r = await api.assistantUsage();
+      const u = r.data || {};
+      const el = $s('asst-usage');
+      if (!el) return;
+      const rows = (u.byUser || [])
+        .map(
+          (x) =>
+            `<tr><td>${esc(x.surface === 'admin' ? 'Staff (internal)' : 'Client portal')}</td><td>${esc(String(x.actorId))}</td><td>${esc(String(x.calls))}</td><td>$${esc(Number(x.rawUsd || 0).toFixed(4))}</td><td>$${esc(Number(x.billedUsd || 0).toFixed(4))}</td></tr>`
+        )
+        .join('');
+      el.innerHTML = `
+        <p class="hint">Month ${esc(u.month || '')} — client raw $${esc(Number((u.portal || {}).rawUsd || 0).toFixed(4))} · client billed $${esc(Number((u.portal || {}).billedUsd || 0).toFixed(4))} · staff internal raw $${esc(Number((u.admin || {}).rawUsd || 0).toFixed(4))} · rollup: ${esc((u.rollup && u.rollup.status) || 'not computed')}</p>
+        ${rows ? `<div class="table-wrap"><table><thead><tr><th>Surface</th><th>User</th><th>Calls</th><th>Raw</th><th>Billed</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="hint">No assistant usage yet this month.</p>'}
+        <div class="row actions"><button class="btn" id="asst-rollup" type="button">Compute rollup</button><button class="btn" id="asst-queue" type="button">Queue on next invoice</button><span class="msg" id="asst-rollup-msg"></span></div>`;
+      const msg = (t) => {
+        const m = $s('asst-rollup-msg');
+        if (m) m.textContent = t;
+      };
+      const rb = $s('asst-rollup');
+      if (rb)
+        rb.onclick = async () => {
+          try {
+            const rr = await api.assistantRollup(u.month);
+            msg(`Rollup: billed $${Number((rr.data || {}).billedUsd || 0).toFixed(2)} (${(rr.data || {}).status || 'accrued'})`);
+            refreshUsage();
+          } catch (e) {
+            msg(errText(e));
+          }
+        };
+      const qb = $s('asst-queue');
+      if (qb)
+        qb.onclick = async () => {
+          try {
+            const rr = await api.assistantQueueRollup(u.month);
+            const d = rr.data || {};
+            msg(d.queued ? `Queued on the customer's next invoice (${d.stripeInvoiceItemId || 'item'})` : `Not queued: ${d.reason || d.status || 'see rollup note'}`);
+            refreshUsage();
+          } catch (e) {
+            msg(errText(e));
+          }
+        };
+    } catch (e) {
+      const el = $s('asst-usage');
+      if (el) el.innerHTML = `<p class="hint">${esc(errText(e))}</p>`;
+    }
+  };
+  const onFiles = async (fileList) => {
+    for (const file of Array.from(fileList || [])) {
+      if (assistantUi.pending.length >= 4) {
+        status('Up to 4 attachments per message.');
+        break;
+      }
+      if (file.size > 50 * 1024 * 1024) {
+        status('That file is over the 50 MB limit.');
+        continue;
+      }
+      status('Attaching…');
+      try {
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error('Could not read that file.'));
+          reader.readAsDataURL(file);
+        });
+        const r = await api.assistantUpload({
+          data: dataUrl,
+          name: file.name,
+          conversationId: assistantUi.activeId,
+          leadId: assistantUi.leadId,
+        });
+        if (r.data && r.data.id) {
+          assistantUi.pending.push(r.data);
+          renderPending();
+          status('');
+        }
+      } catch (e) {
+        status(errText(e));
+      }
+    }
+  };
+  const send = async () => {
+    const input = $s('asst-input');
+    const text = input ? input.value.trim() : '';
+    if (assistantUi.sending || (!text && !assistantUi.pending.length)) return;
+    if (assistantUi.activeId == null) {
+      const r = await api.assistantCreateConversation({ leadId: assistantUi.leadId });
+      if (r.data && r.data.id) {
+        assistantUi.convs.unshift(r.data);
+        assistantUi.activeId = r.data.id;
+        renderConvs();
+      }
+    }
+    const atts = assistantUi.pending.slice();
+    assistantUi.pending = [];
+    renderPending();
+    bubble('user', text || '[Attachment]', atts);
+    if (input) input.value = '';
+    assistantUi.sending = true;
+    status('Thinking…');
+    const live = bubble('assistant', '', null);
+    const liveBody = live ? live.querySelector('.md-body') : null;
+    let acc = '';
+    try {
+      await api.assistantStream(
+        assistantUi.activeId,
+        { message: text, attachmentIds: atts.map((a) => a.id) },
+        (type, payload) => {
+          if (type === 'delta' && payload.text) {
+            acc += payload.text;
+            if (liveBody) liveBody.innerHTML = assistantMdHtml(acc);
+            const list = $s('asst-messages');
+            if (list) list.scrollTop = list.scrollHeight;
+          } else if (type === 'status') {
+            status(payload.text || '');
+          }
+        }
+      );
+      status('');
+    } catch (e) {
+      if (liveBody && !acc) liveBody.textContent = errText(e);
+      status(errText(e));
+    } finally {
+      assistantUi.sending = false;
+      try {
+        const r = await api.assistantConversations();
+        assistantUi.convs = r.data || assistantUi.convs;
+        renderConvs();
+      } catch {
+        /* best-effort */
+      }
+      refreshUsage();
+    }
+  };
+
+  try {
+    const lr = await api.leads({ limit: 200 });
+    const leads = (lr.data && (lr.data.leads || lr.data)) || [];
+    const sel = $s('asst-lead');
+    if (sel && Array.isArray(leads)) {
+      for (const l of leads) {
+        const o = document.createElement('option');
+        o.value = String(l.id);
+        o.textContent = l.business_name || l.businessName || `Lead ${l.id}`;
+        sel.appendChild(o);
+      }
+    }
+  } catch {
+    /* the picker is optional */
+  }
+  const leadSel = $s('asst-lead');
+  if (leadSel) {
+    leadSel.addEventListener('change', () => {
+      assistantUi.leadId = leadSel.value ? Number(leadSel.value) : null;
+    });
+  }
+  const newBtn = $s('asst-new');
+  if (newBtn) {
+    newBtn.addEventListener('click', async () => {
+      try {
+        const r = await api.assistantCreateConversation({ leadId: assistantUi.leadId });
+        if (r.data && r.data.id) {
+          assistantUi.convs.unshift(r.data);
+          assistantUi.activeId = r.data.id;
+          renderConvs();
+          const list = $s('asst-messages');
+          if (list) list.innerHTML = '';
+        }
+      } catch (e) {
+        status(errText(e));
+      }
+    });
+  }
+  const form = $s('asst-form');
+  if (form) {
+    form.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      send().catch((e) => status(errText(e)));
+    });
+  }
+  const input = $s('asst-input');
+  if (input) {
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' && !ev.shiftKey) {
+        ev.preventDefault();
+        send().catch((e) => status(errText(e)));
+      }
+    });
+  }
+  const file = $s('asst-file');
+  const cam = $s('asst-camera-file');
+  const attachBtn = $s('asst-attach');
+  const camBtn = $s('asst-camera');
+  if (attachBtn && file) attachBtn.addEventListener('click', () => file.click());
+  if (camBtn && cam) camBtn.addEventListener('click', () => cam.click());
+  if (file) {
+    file.addEventListener('change', () => {
+      onFiles(file.files).catch((e) => status(errText(e)));
+      file.value = '';
+    });
+  }
+  if (cam) {
+    cam.addEventListener('change', () => {
+      onFiles(cam.files).catch((e) => status(errText(e)));
+      cam.value = '';
+    });
+  }
+  try {
+    const r = await api.assistantConversations();
+    assistantUi.convs = r.data || [];
+    renderConvs();
+    if (assistantUi.convs.length) await openConv(assistantUi.convs[0].id);
+  } catch (e) {
+    status(errText(e));
+  }
+  refreshUsage();
+}
+
 async function pageFingerprints() {
   view.innerHTML = `
     <div class="page-head"><div><h1>Site fingerprints</h1><p class="lede">Every live site's fingerprint — layout half and brand half, computed from the stored model on read. Two sites are flagged only on a <strong>double match</strong>: identical homepage section sequence and page set <em>and</em> close branding (same font pairing, near palette). Pairs inside one client's workspace are listed separately and never flagged.</p></div></div>
@@ -8898,6 +9297,34 @@ function aiRoutingPanelHtml(state) {
   </div>`;
 }
 
+/* Batch 161 — Assistant chat billing: Ely's margin (seeded 20%),
+ * the per-workspace monthly soft cap, and the editable price table
+ * every usage row is priced from. Changing the margin applies to
+ * FUTURE calls only — recorded rows keep the margin they were
+ * billed at. */
+function aiAssistantPanelHtml(state) {
+  if (!state) {
+    return `<div class="panel"><div class="panel-h"><h3>Assistant chat billing</h3></div><div class="panel-b"><p class="hint">Could not load assistant settings.</p></div></div>`;
+  }
+  const pt = JSON.stringify(state.priceTable || {}, null, 2);
+  return `<div class="panel">
+    <div class="panel-h"><h3>Assistant chat billing</h3><span class="hint">portal chat usage bills to the client at raw API cost + margin</span></div>
+    <div class="panel-b">
+      <div class="row">
+        <div class="field"><label class="lbl" for="ai-asst-margin">Margin %</label>
+          <input id="ai-asst-margin" type="number" min="0" max="1000" step="0.1" value="${esc(String(state.marginPct != null ? state.marginPct : 20))}" /></div>
+        <div class="field"><label class="lbl" for="ai-asst-cap">Monthly cap per workspace (USD, blank = off)</label>
+          <input id="ai-asst-cap" type="number" min="0" step="0.01" value="${esc(state.monthlyCapUsd != null ? String(state.monthlyCapUsd) : '')}" placeholder="off" /></div>
+      </div>
+      <div class="field"><label class="lbl" for="ai-asst-prices">Price table (JSON — USD per 1k tokens; keys: "provider|model", "model", "provider|*", "default")</label>
+        <textarea id="ai-asst-prices" rows="6" spellcheck="false">${esc(pt)}</textarea></div>
+      <p class="hint">Rates are looked up per call: exact provider|model first, then model, then provider default, then "default". Staff chat is metered at raw cost with no margin and is never billed. A monthly rollup queues the client's billed total as a separate line item on their next invoice.</p>
+      <div class="row actions"><button class="btn" type="button" id="ai-asst-save">Save assistant billing</button><span class="msg" id="ai-asst-msg"></span></div>
+      <div id="ai-asst-usage" style="margin-top:12px"><p class="hint">Loading this month's usage across workspaces…</p></div>
+    </div>
+  </div>`;
+}
+
 // Batch 87 — Admin → Settings → Branding: the two site-logo slots.
 // Each slot previews the logo currently in effect (the uploaded file,
 // or the built-in default), offers upload/replace (PNG, JPG, SVG or
@@ -8966,11 +9393,17 @@ async function renderAdminSettings(el, group) {
     }
   }
   let aiRoutingState = null;
+  let aiAssistantState = null;
   if (group === 'keys') {
     try {
       aiRoutingState = (await api.adminAiRouting()).data;
     } catch {
       aiRoutingState = null; /* panel renders a could-not-load note; keys form still works */
+    }
+    try {
+      aiAssistantState = (await api.adminAiAssistant()).data;
+    } catch {
+      aiAssistantState = null; /* panel renders a could-not-load note */
     }
   }
   if (group === 'hostinger') {
@@ -9016,6 +9449,7 @@ async function renderAdminSettings(el, group) {
     ${group === 'hostinger' ? hostingerPanelHtml(hostingerState) : ''}
     ${group === 'branding' ? brandingPanelHtml(brandingState) : ''}
     ${group === 'keys' ? aiRoutingPanelHtml(aiRoutingState) : ''}
+    ${group === 'keys' ? aiAssistantPanelHtml(aiAssistantState) : ''}
     <div class="panel">
       <div class="panel-h"><h3>${esc(title)}</h3></div>
       <div class="panel-b" style="padding-bottom:0">${webhookHint}</div>
@@ -9238,6 +9672,63 @@ async function renderAdminSettings(el, group) {
         aiRoutingSaveBtn.disabled = false;
       }
     };
+  }
+
+  // Batch 161 — Assistant billing wiring: save margin / cap / price
+  // table through the dedicated endpoint, then load the cross-
+  // workspace usage summary into the panel.
+  const aiAsstSaveBtn = $('#ai-asst-save');
+  if (aiAsstSaveBtn) {
+    aiAsstSaveBtn.onclick = async () => {
+      const msg = $('#ai-asst-msg');
+      const show = (t, cls) => {
+        if (msg) {
+          msg.textContent = t;
+          msg.className = `msg ${cls || ''}`;
+        }
+      };
+      let priceTable;
+      try {
+        priceTable = JSON.parse(($('#ai-asst-prices') || {}).value || '{}');
+      } catch {
+        show('Price table is not valid JSON.', 'error');
+        return;
+      }
+      aiAsstSaveBtn.disabled = true;
+      try {
+        await api.adminAiAssistantSave({
+          marginPct: ($('#ai-asst-margin') || {}).value,
+          monthlyCapUsd: ($('#ai-asst-cap') || {}).value,
+          priceTable,
+        });
+        show('Assistant billing saved — applies to new calls from now on.', 'ok');
+        toast('Assistant billing saved', 'ok');
+      } catch (err) {
+        show(errText(err), 'error');
+        aiAsstSaveBtn.disabled = false;
+      }
+    };
+    (async () => {
+      try {
+        const r = await api.adminAiAssistantUsage();
+        const d = r.data || {};
+        const el2 = $('#ai-asst-usage');
+        if (!el2) return;
+        const rows = (d.rows || [])
+          .map(
+            (w) =>
+              `<tr><td>${esc(String(w.workspaceId))}</td><td>$${esc(Number(w.portalRawUsd || 0).toFixed(4))}</td><td>$${esc(Number(w.portalBilledUsd || 0).toFixed(4))}</td><td>$${esc(Number(w.staffRawUsd || 0).toFixed(4))}</td><td>${esc((w.rollup && w.rollup.status) || '—')}</td></tr>`
+          )
+          .join('');
+        el2.innerHTML = `<p class="hint">Usage for ${esc(d.month || '')} — total client billed $${esc(Number((d.totals || {}).billedUsd || 0).toFixed(2))} · total staff internal $${esc(Number((d.totals || {}).staffRawUsd || 0).toFixed(2))}</p>${
+          rows
+            ? `<div class="table-wrap"><table><thead><tr><th>Workspace</th><th>Client raw</th><th>Client billed</th><th>Staff raw (internal)</th><th>Rollup</th></tr></thead><tbody>${rows}</tbody></table></div>`
+            : '<p class="hint">No assistant usage recorded yet.</p>'
+        }`;
+      } catch {
+        /* summary is best-effort */
+      }
+    })();
   }
 
   const pricingForm = $('#pricing-form');
@@ -12622,6 +13113,7 @@ async function pagePartnerEarnings() {
 }
 
 const PAGES = {
+  assistant: pageAssistant,
   dashboard: pageDashboard,
   leads: pageLeads,
   websites: pageWebsites,

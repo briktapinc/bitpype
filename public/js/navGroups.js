@@ -17,7 +17,9 @@
  * is respected, EXCEPT the group containing the current route always
  * expands on navigation — the active item is never hidden.
  */
-const NAV_TOP_LEVEL = ['dashboard', 'leads', 'websites', 'fingerprints'];
+// Batch 161: 'assistant' leads — Ely ordered the Assistant link
+// BEFORE Dashboard in the staff app too.
+const NAV_TOP_LEVEL = ['assistant', 'dashboard', 'leads', 'websites', 'fingerprints'];
 
 const NAV_GROUPS = [
   { id: 'work', label: 'Work', items: ['archives', 'design', 'outreach', 'pipeline'] },

@@ -111,7 +111,10 @@ const OPENAI_KEY = 'b120-openai-key-SECRET';
   {
     let n = 0;
     const aiRouting = require(path.join(root, 'server/aiRouting.js'));
-    assert.equal(aiRouting.ROUTABLE_FUNCTIONS.length, 10, '10 routable functions');
+    // Batch 161: +1 routable function — assistant_chat (the portal +
+    // admin Assistant chat), an agent row with the same muse-primary
+    // / openai-fallback defaults as the other agent rows.
+    assert.equal(aiRouting.ROUTABLE_FUNCTIONS.length, 11, '11 routable functions');
     n++;
     assert.deepEqual(
       aiRouting.ROUTABLE_FUNCTIONS.map((f) => f.key),
@@ -119,6 +122,7 @@ const OPENAI_KEY = 'b120-openai-key-SECRET';
         'design_chat',
         'wp_design_chat',
         'hands_off',
+        'assistant_chat',
         'research',
         'scoring',
         'generation',
@@ -130,12 +134,12 @@ const OPENAI_KEY = 'b120-openai-key-SECRET';
       'function rows in matrix order'
     );
     n++;
-    for (const fn of aiRouting.ROUTABLE_FUNCTIONS.slice(0, 3)) {
+    for (const fn of aiRouting.ROUTABLE_FUNCTIONS.slice(0, 4)) {
       assert.equal(fn.defaultPrimary, 'muse', `${fn.key} defaults to Meta Muse primary`);
       assert.equal(fn.defaultFallback, 'openai', `${fn.key} defaults to OpenAI fallback (the failover Ely ordered)`);
       n++;
     }
-    for (const fn of aiRouting.ROUTABLE_FUNCTIONS.slice(3)) {
+    for (const fn of aiRouting.ROUTABLE_FUNCTIONS.slice(4)) {
       assert.equal(fn.defaultPrimary, 'openai', `${fn.key} defaults to OpenAI primary (legacy behaviour)`);
       assert.equal(fn.defaultFallback, 'none', `${fn.key} defaults to no fallback`);
       n++;
@@ -166,7 +170,7 @@ const OPENAI_KEY = 'b120-openai-key-SECRET';
 
     const platform = require(path.join(root, 'server/platform.js'));
     const routeDefs = platform.PLATFORM_SETTING_DEFS.filter((d) => d.key.startsWith('ai.route.'));
-    assert.equal(routeDefs.length, 40, '40 ai.route.* setting defs (10 functions × 4)');
+    assert.equal(routeDefs.length, 44, '44 ai.route.* setting defs (11 functions × 4 — Batch 161 added assistant_chat)');
     n++;
     assert.ok(
       routeDefs.every((d) => d.group === 'ai_routing'),
@@ -815,7 +819,7 @@ const OPENAI_KEY = 'b120-openai-key-SECRET';
       assert.ok(!raw.includes(MUSE_KEY) && !raw.includes(OPENAI_KEY), 'no key material in the state response');
       n++;
       const state = JSON.parse(raw).data;
-      assert.equal(state.functions.length, 12, '10 routable rows + 2 informational rows');
+      assert.equal(state.functions.length, 13, '11 routable rows (Batch 161 assistant_chat) + 2 informational rows');
       const byKey = Object.fromEntries(state.functions.map((f) => [f.key, f]));
       assert.equal(byKey.design_chat.route.primary, 'muse', 'design_chat primary muse');
       assert.equal(byKey.design_chat.route.fallback, 'openai', 'design_chat fallback openai');
