@@ -7288,6 +7288,18 @@ function buildQrPayload(db, leadId, code) {
  */
 function resolveQrCode(db, leadId, code) {
   ensureTables(db);
+  /* Batch 168 (S3#3 follow-through): callers legitimately hand in
+   * the credential-free row VIEW (getQrCode/listQrCodes returns) —
+   * a WiFi payload built from the view would silently lose the
+   * network password and render a useless code. Resolution always
+   * works from the stored row; the view stays the only shape that
+   * ever leaves this module. */
+  if (code && code.id != null) {
+    const row = db
+      .prepare('SELECT * FROM module_qrcodes WHERE id = ? AND lead_id = ?')
+      .get(Number(code.id), Number(leadId));
+    if (row) code = row;
+  }
   const payload = buildQrPayload(db, leadId, code);
   const target_url = ['page', 'module', 'url'].includes(code.target_kind) ? payload : '';
   let image_url = '';

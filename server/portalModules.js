@@ -380,7 +380,10 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
             // The WiFi password never rides a list response — the editor
             // shows it only as "unchanged" state; see updateModuleItem.
             wifi_password: undefined,
-            has_wifi_password: c.target_kind === 'wifi' && !!c.wifi_password,
+            // c is the credential-free view (Batch 168 S3#3): it
+            // already carries has_wifi_password from the stored row —
+            // c.wifi_password itself is always undefined here.
+            has_wifi_password: c.has_wifi_password === true,
           };
         })
       );
