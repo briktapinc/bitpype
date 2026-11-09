@@ -567,6 +567,28 @@ async function part3(ctx) {
       n += 6;
     }
 
+    // Session-gate pins (Batch 165 finisher): the session-gated public
+    // routes refuse session-less and forged-session callers with 401.
+    // These semantics live HERE, not in the generic public-workspace
+    // harness, which drives routes session-less by design.
+    {
+      const noSessList = await fetch(`${BASE}${api}/messages`);
+      assert.equal(noSessList.status, 401, 'messages list without a gate session -> 401');
+      const noSessPost = await fetch(`${BASE}${api}/messages`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ body: 'no session' }),
+      });
+      assert.equal(noSessPost.status, 401, 'message post without a gate session -> 401');
+      const forged = await fetch(`${BASE}${api}/messages`, {
+        headers: { 'x-bitpype-webinar-session': 'forged.session' },
+      });
+      assert.equal(forged.status, 401, 'forged gate session -> 401');
+      const noSessStream = await fetch(`${BASE}${api}/chat/stream`);
+      assert.equal(noSessStream.status, 401, 'SSE stream without a gate session -> 401');
+      n += 4;
+    }
+
     // Session isolation: A's session means nothing on B's webinar.
     {
       // Part 2's purge test removed B's module install — re-attach

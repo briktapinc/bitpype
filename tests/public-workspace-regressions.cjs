@@ -32,9 +32,30 @@ function build(file,known=true){
  '../newsletter':{subscribeByToken:()=>({added:false,subscriberId:null,message:'fixture'})},
  '../comments':{createPublicComment:()=>({message:'fixture',status:'pending',comment:{id:1},thread:null}),togglePublicLike:()=>({liked:true,count:1,target_type:'page',target_id:'fixture'}),publicLikeState:()=>({item_liked:false,liked_comment_ids:[]})},
  '../captcha':{requireCaptcha:()=>((_q,_s,n)=>n()),getCaptchaConfig:async()=>({}),clientIp:()=> 'fixture'},
- '../rateLimit':{rateLimit:opts=>{rates.push(opts);return (_q,_s,n)=>n()}},};
+ '../rateLimit':{rateLimit:opts=>{rates.push(opts);return (_q,_s,n)=>n()}},
+ // Batch 165 finisher: modulesPublic now requires the webinar engine at
+ // load (mirrors the production-regressions stub map entries).
+ '../webinars':{},
+ './webinarsPublic':{makeGateLimit:()=>(_req,_res,next)=>next()},};
  load(file,mocks,{SESSION_SECRET:'synthetic-secret-for-tests'});
  return {routes,rates,counts:()=>({calls,authCalls})};
+}
+// Batch 165 finisher — coordinator-approved suite adaptation (2026-11-09).
+// The six webinar MODULE routes in modulesPublic (GET list / state /
+// messages / chat-stream, POST register / messages) are excluded from
+// this suite's generic route harness. They cannot satisfy its contract
+// and are not meant to: they are session-gated, so 401 without a gate
+// session is the CORRECT product behaviour (this harness drives every
+// route session-less and expects 200 for a known workspace / 400 for
+// malformed IDs); the SSE chat/stream route needs a real req/res pair;
+// and unknown embed/gate tokens resolve 404 by design (the Batch 163
+// platform-webinar semantics). Their auth/status behaviour is pinned by
+// tests/batch165-webinar-module-regressions.cjs (401 without/forged
+// session, 403 wrong code, cross-token 404, detached-token 404) and by
+// the Batch 165 live proof. Every other route in every file below stays
+// fully exercised — the exception is exactly these six routes.
+function harnessRoutes(file,routes){
+ return routes.filter(r=>r.p!=='/meta/callback'&&!(file.endsWith('modulesPublic.js')&&r.p.startsWith('/webinar/')));
 }
 async function invoke(b,route,req){
  let status=200,body;const res={status(n){status=n;return this},json(v){body=v;return this},send(v){body=v;return this},redirect(v){body=v;return this},setHeader(){return this}};
@@ -49,7 +70,7 @@ async function main(){
  for(const file of ['server/routes/modulesPublic.js','server/routes/designPublic.js','server/routes/socialPublic.js','server/routes/formsPublic.js','server/routes/chatbotPublic.js']){
   for(const known of [false,true]){
    const b=build(file,known);
-   const routes=b.routes.filter(r=>r.p!=='/meta/callback');
+   const routes=harnessRoutes(file,b.routes);
    for(const route of routes){
     const before=b.counts().calls;const r=await invoke(b,route,request(file,1));
     assert.equal(r.status,known?200:404,file+' '+route.m+' '+route.p);
@@ -63,10 +84,11 @@ async function main(){
    assert(b.rates.some(r=>r.windowMs===60000),'missing public read limiter');
   }
   results.push(file+': unknown workspace never reaches domain; valid workspace preserves routes');
-  const b=build(file,true);for(const route of b.routes.filter(r=>r.p!=='/meta/callback')){
+  const b=build(file,true);for(const route of harnessRoutes(file,b.routes)){
    for(const id of [0,-1,1.5,Infinity]){const r=await invoke(b,route,request(file,id));assert.equal(r.status,400);}
   }
   assert.equal(b.counts().calls,0);results.push(file+': malformed workspace IDs never reach domain');
+  if(file.endsWith('modulesPublic.js'))results.push(file+': six webinar module routes excluded from the generic harness (session-gated + SSE; pinned by the batch165 suite + live proof)');
  }
  for(const known of [false,true]){
   const b=build('server/routes/socialPublic.js',known);const route=b.routes.find(r=>r.p==='/meta/callback');
