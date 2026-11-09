@@ -279,9 +279,20 @@ function creditsFromSession(session, packAmount) {
     qty = Math.floor(Number(session.line_items.data[0].quantity) || 0);
   }
   if (qty < 1) qty = 1;
-  const recomputed = Math.max(1, packAmount) * qty;
-  // Prefer recomputed pack math; metadata is only a hint when quantity unknown.
-  if (meta.pack_amount != null || meta.quantity != null || qty > 0) return recomputed;
+  /* Batch 168 (external review F12): fulfill what was PURCHASED.
+   * The checkout wrote the pack size into the session metadata at
+   * purchase time; the previous code checked that field for
+   * presence but recomputed from the CURRENT admin pack config —
+   * changing the config between checkout and a webhook retry
+   * granted the wrong number of credits for an already-priced
+   * purchase. The snapshot wins; the live config is only a
+   * fallback for sessions that predate the snapshot fields, and
+   * an explicit metadata credit total wins when no pack math was
+   * recorded at all. */
+  const snapshotPack = Math.floor(Number(meta.pack_amount || 0) || 0);
+  const pack = snapshotPack > 0 ? snapshotPack : Math.max(1, Math.floor(Number(packAmount) || 0) || 1);
+  const recomputed = pack * qty;
+  if (snapshotPack > 0 || meta.quantity != null) return recomputed;
   return metaCredits > 0 ? metaCredits : recomputed;
 }
 
@@ -344,9 +355,30 @@ async function grantFromCheckoutSession(session) {
 
 /**
  * Claw back credits granted for a checkout session (refund / dispute).
- * Idempotent via stripe_checkout_session_id = refund:{refundId}.
+ * Idempotent via stripe_checkout_session_id = refund:{grantSession}:{refundId}.
+ *
+ * Batch 168 (external review F11): clawback is CUMULATIVE against
+ * the refunded fraction of the original charge. The pre-fix code
+ * deducted the FULL grant for every distinct refund id, so two
+ * partial refunds removed the pack twice. Callers pass the charge's
+ * cumulative amount_refunded + amount; the entitlement is
+ * grant × refunded/charge, and only the increment above what was
+ * already clawed for this grant is deducted. Without amounts the
+ * historical full-refund default applies — still bounded by the
+ * cumulative record, so a second call can never over-claw. When
+ * the balance cannot cover the increment (credits already spent),
+ * the shortfall is written to the ledger as a durable zero-delta
+ * marker row for reconciliation instead of vanishing into a log
+ * line (whether spent-credit debt is collected is Ely's policy
+ * call — the record is what was missing).
  */
-async function clawbackFromRefund({ checkoutSessionId, refundId, paymentIntentId } = {}) {
+async function clawbackFromRefund({
+  checkoutSessionId,
+  refundId,
+  paymentIntentId,
+  cumulativeRefundedCents,
+  chargeAmountCents,
+} = {}) {
   let grantRow = null;
   const grantKey = checkoutSessionId ? String(checkoutSessionId).trim() : null;
   if (grantKey) {
@@ -378,17 +410,63 @@ async function clawbackFromRefund({ checkoutSessionId, refundId, paymentIntentId
   }
   if (!grantRow) return { clawed: false, reason: 'no_grant' };
 
-  const amount = Math.floor(Number(grantRow.delta) || 0);
-  if (amount < 1) return { clawed: false, reason: 'zero' };
-  const rid = refundId ? String(refundId) : `clawback:${grantRow.stripe_checkout_session_id}`;
-  const result = await applyDelta(grantRow.workspace_id, -amount, {
-    userId: grantRow.user_id,
-    reason: 'stripe_refund',
-    refType: 'refund',
-    refId: rid,
-    stripeCheckoutSessionId: `refund:${rid}`,
-  });
-  return { clawed: !result.duplicate, ...result };
+  const grant = Math.floor(Number(grantRow.delta) || 0);
+  if (grant < 1) return { clawed: false, reason: 'zero' };
+  const grantSession = String(grantRow.stripe_checkout_session_id || '');
+  const rid = refundId ? String(refundId) : `clawback:${grantSession}`;
+  // What has already been clawed for THIS grant (negative rows only;
+  // the zero-delta shortfall markers below never count).
+  const priorRows = await query(
+    `SELECT COALESCE(SUM(-delta), 0) AS clawed FROM credit_ledger
+     WHERE workspace_id = :wid AND reason = 'stripe_refund' AND delta < 0
+       AND stripe_checkout_session_id LIKE :pat`,
+    { wid: grantRow.workspace_id, pat: `refund:${grantSession}:%` }
+  );
+  const prior = Math.floor(Number(priorRows[0] && priorRows[0].clawed) || 0);
+  let target = grant;
+  const chargeAmt = Math.floor(Number(chargeAmountCents) || 0);
+  const cumRef = Math.floor(Number(cumulativeRefundedCents) || 0);
+  if (chargeAmt > 0 && cumRef > 0) {
+    target = Math.floor((grant * Math.min(cumRef, chargeAmt)) / chargeAmt);
+  }
+  const increment = Math.max(0, Math.min(target, grant) - prior);
+  if (increment < 1) return { clawed: false, reason: 'entitlement_already_clawed', prior };
+  try {
+    const result = await applyDelta(grantRow.workspace_id, -increment, {
+      userId: grantRow.user_id,
+      reason: 'stripe_refund',
+      refType: 'refund',
+      refId: rid,
+      stripeCheckoutSessionId: `refund:${grantSession}:${rid}`,
+    });
+    return { clawed: !result.duplicate, ...result };
+  } catch (e) {
+    if (e && e.code === 'INSUFFICIENT_CREDITS') {
+      // Durable shortfall record (delta 0 — never counted as
+      // clawed, never satisfies applyDelta's idempotency pre-check
+      // for the real clawback key, so a later retry can still run).
+      try {
+        await query(
+          `INSERT INTO credit_ledger
+             (workspace_id, user_id, delta, balance_after, reason, ref_type, ref_id, stripe_checkout_session_id, created_at)
+           VALUES (:wid, :uid, 0, 0, 'stripe_refund_shortfall', 'refund', :rid, :sid, ${driver() === 'sqlite' ? "datetime('now')" : 'CURRENT_TIMESTAMP'})`,
+          {
+            wid: grantRow.workspace_id,
+            uid: grantRow.user_id != null ? Number(grantRow.user_id) : null,
+            rid,
+            sid: `refund-shortfall:${rid}`,
+          }
+        );
+      } catch (markerErr) {
+        console.warn('[credits] shortfall marker failed:', markerErr.message);
+      }
+      console.warn(
+        `[credits] refund clawback shortfall: workspace ${grantRow.workspace_id} grant ${grantSession} refund ${rid} wanted ${increment} — recorded for reconciliation`
+      );
+      return { clawed: false, reason: 'insufficient_balance_recorded', shortfall: increment };
+    }
+    throw e;
+  }
 }
 
 async function freezeWorkspaceCredits(workspaceId, reason = 'risk_freeze') {
@@ -432,6 +510,8 @@ module.exports = {
   applyDelta,
   grantFromCheckoutSession,
   clawbackFromRefund,
+  // Batch 168: exported for the regression suite (F12 snapshot pin).
+  creditsFromSession,
   freezeWorkspaceCredits,
   summaryForWorkspace,
   spendIdempotencyKey,

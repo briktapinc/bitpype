@@ -30,7 +30,7 @@ const siteModules = require('./siteModules');
 const paymentsConfig = require('./paymentsConfig');
 // Batch 154 (§9): deterministic Stripe idempotency keys on this
 // module's mutating calls (server/stripeIdempotency.js).
-const { stripeIdempotencyKey } = require('./stripeIdempotency');
+const { stripeIdempotencyKey, stripeAttemptKey } = require('./stripeIdempotency');
 const { invoiceSubscriptionId } = require('./stripeShapes');
 
 const clientCache = new Map(); // `${leadId}:${keyFingerprint}` -> Stripe client
@@ -312,7 +312,7 @@ async function cancelMemberSubscription(db, leadId, memberId) {
         { cancel_at_period_end: true },
         // Batch 154: keyed by subscription + the exact change.
         {
-          idempotencyKey: stripeIdempotencyKey('subscription-update', sub.stripe_subscription_id, 'cancel_at_period_end=true'),
+          idempotencyKey: stripeAttemptKey('subscription-update', sub.stripe_subscription_id, 'cancel_at_period_end=true'),
         }
       );
       return { subscription: siteModules.markSubscriptionCanceling(db, sub.id), stripe_called: true };

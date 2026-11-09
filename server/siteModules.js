@@ -18,7 +18,7 @@ const crypto = require('crypto');
 const QRCode = require('qrcode');
 // Batch 154 (§9): deterministic Stripe idempotency keys on this
 // module's mutating Stripe calls (server/stripeIdempotency.js).
-const { stripeIdempotencyKey } = require('./stripeIdempotency');
+const { stripeIdempotencyKey, stripeAttemptKey } = require('./stripeIdempotency');
 
 const MODULE_TYPES = [
   'blog',
@@ -12447,7 +12447,11 @@ function getMemberByEmail(db, leadId, email) {
   );
 }
 
-function signupMember(db, leadId, data = {}) {
+/* Batch 168 (external review F15): member signup/login/reset are
+ * async — bcrypt runs OFF the event loop (bcryptjs promise API).
+ * The sync calls blocked every tenant sharing the process for
+ * ~250ms per attempt at cost 12. */
+async function signupMember(db, leadId, data = {}) {
   ensureTables(db);
   const id = Number(leadId);
   const name = String(data.name || '')
@@ -12462,7 +12466,7 @@ function signupMember(db, leadId, data = {}) {
   }
   const cfg = readMembersConfig(db, id);
   const status = cfg.signup_mode === 'approval' ? 'pending' : 'active';
-  const hash = bcrypt.hashSync(password, 12);
+  const hash = await bcrypt.hash(password, 12);
   let info;
   try {
     info = db
@@ -12484,7 +12488,7 @@ function signupMember(db, leadId, data = {}) {
   return out;
 }
 
-function loginMember(db, leadId, data = {}) {
+async function loginMember(db, leadId, data = {}) {
   ensureTables(db);
   const id = Number(leadId);
   const email = normalizeMemberEmail(data.email);
@@ -12492,7 +12496,7 @@ function loginMember(db, leadId, data = {}) {
   const member = getMemberByEmail(db, id, email);
   if (!member) {
     try {
-      bcrypt.compareSync(password, MEMBER_DUMMY_HASH);
+      await bcrypt.compare(password, MEMBER_DUMMY_HASH);
     } catch {
       /* timing pad only */
     }
@@ -12500,7 +12504,7 @@ function loginMember(db, leadId, data = {}) {
   }
   let ok = false;
   try {
-    ok = bcrypt.compareSync(password, member.password_hash);
+    ok = await bcrypt.compare(password, member.password_hash);
   } catch {
     ok = false;
   }
@@ -12572,7 +12576,7 @@ function buildMemberResetMail(db, leadId, member, rawToken, appUrl) {
   };
 }
 
-function resetMemberPassword(db, leadId, rawToken, newPassword) {
+async function resetMemberPassword(db, leadId, rawToken, newPassword) {
   ensureTables(db);
   const password = assertMemberPassword(newPassword);
   const id = Number(leadId);
@@ -12586,7 +12590,7 @@ function resetMemberPassword(db, leadId, rawToken, newPassword) {
   if (!member) {
     throw fail('RESET_INVALID', 'This reset link is invalid or has expired. Please request a new one.', 400);
   }
-  const hash = bcrypt.hashSync(password, 12);
+  const hash = await bcrypt.hash(password, 12);
   db.prepare("UPDATE site_member_reset_tokens SET used_at = datetime('now') WHERE id = ?").run(row.id);
   db.prepare('UPDATE site_members SET password_hash = ? WHERE id = ?').run(hash, member.id);
   // A password reset ends every existing session for this member.
@@ -13464,7 +13468,7 @@ async function createMembershipCheckoutByToken(db, token, { tierId, returnUrl } 
       // retried join replays the original session; a price change
       // (new price id) is a different operation.
       {
-        idempotencyKey: stripeIdempotencyKey('checkout-membership', Number(leadId), Number(member.id), Number(tier.id), priceId),
+        idempotencyKey: stripeAttemptKey('checkout-membership', Number(leadId), Number(member.id), Number(tier.id), priceId),
       }
     );
   } catch (e) {
@@ -13538,12 +13542,12 @@ function membersEmbedByToken(db, token) {
   return row;
 }
 
-function publicMemberSignup(db, token, data = {}) {
+async function publicMemberSignup(db, token, data = {}) {
   const row = membersEmbedByToken(db, token);
   return signupMember(db, row.lead_id, data);
 }
 
-function publicMemberLogin(db, token, data = {}) {
+async function publicMemberLogin(db, token, data = {}) {
   const row = membersEmbedByToken(db, token);
   return loginMember(db, row.lead_id, data);
 }
@@ -13559,7 +13563,7 @@ function publicMemberForgot(db, token, email) {
   return { embed: publicEmbed(row), request: requestMemberReset(db, row.lead_id, email) };
 }
 
-function publicMemberReset(db, token, data = {}) {
+async function publicMemberReset(db, token, data = {}) {
   const row = membersEmbedByToken(db, token);
   return resetMemberPassword(db, row.lead_id, data.reset_token || data.resetToken || '', data.password);
 }

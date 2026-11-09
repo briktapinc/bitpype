@@ -45,4 +45,29 @@ function stripeIdempotencyKey(operation, ...parts) {
   return `bp154_${op}_${digest}`;
 }
 
-module.exports = { stripeIdempotencyKey };
+/**
+ * Batch 168 (external review F06): attempt-scoped keys for
+ * REPEATABLE intentional actions. The deterministic key above is
+ * right for find-or-create / convergent operations (create the
+ * customer, the product, the per-order checkout session, a metadata
+ * sync): the same operation retried IS the same operation. It is
+ * wrong for actions a user legitimately performs more than once
+ * against the same resource — cancel → resume → cancel, A→B→A plan
+ * changes, a second credit-pack purchase, a second same-amount
+ * refund: the deterministic key made Stripe replay the FIRST
+ * action's response, so the second action silently never happened
+ * while the UI reported success from the replayed payload.
+ *
+ * stripeAttemptKey keeps the business-id parts (correlation) and
+ * adds a per-INVOCATION attempt id. Each of these call sites makes
+ * exactly one Stripe call per invocation (no internal retry loop),
+ * and an HTTP-level retry is a new user action — so per-invocation
+ * uniqueness preserves real retry safety (a failed call changed
+ * nothing and the next click executes for real) while distinct
+ * actions always execute.
+ */
+function stripeAttemptKey(operation, ...parts) {
+  return stripeIdempotencyKey(operation, ...parts, `attempt:${crypto.randomUUID()}`);
+}
+
+module.exports = { stripeIdempotencyKey, stripeAttemptKey };

@@ -26,7 +26,7 @@ const {
 const credits = require('./credits');
 // Batch 154 (§9): deterministic Stripe idempotency keys (see
 // server/stripeIdempotency.js) on every mutating Stripe call below.
-const { stripeIdempotencyKey } = require('./stripeIdempotency');
+const { stripeIdempotencyKey, stripeAttemptKey } = require('./stripeIdempotency');
 const { invoiceSubscriptionId, invoiceSubscriptionMetadata } = require('./stripeShapes');
 const { staffUrl } = require('./appUrls');
 
@@ -404,7 +404,7 @@ async function createCheckoutSession(userId, planId = PLAN_STANDARD, opts = {}) 
   // (user + plan + price + caller metadata, e.g. a domain
   // transaction id) — the integration_identifier fallback retry
   // below is the SAME operation and reuses the SAME key.
-  const checkoutKey = stripeIdempotencyKey(
+  const checkoutKey = stripeAttemptKey(
     'checkout-subscription',
     user.id,
     plan,
@@ -487,7 +487,7 @@ async function scheduleCancelAtPeriodEnd(userId) {
     },
     // Batch 154: keyed by subscription + the exact change.
     {
-      idempotencyKey: stripeIdempotencyKey(
+      idempotencyKey: stripeAttemptKey(
         'subscription-update',
         user.stripe_subscription_id,
         'cancel_at_period_end=true'
@@ -535,7 +535,7 @@ async function resumeSubscription(userId) {
       cancel_at_period_end: false,
     },
     {
-      idempotencyKey: stripeIdempotencyKey(
+      idempotencyKey: stripeAttemptKey(
         'subscription-update',
         user.stripe_subscription_id,
         'cancel_at_period_end=false'
@@ -640,7 +640,7 @@ async function changeSubscriptionPlan(userId, planId, opts = {}) {
           }),
         },
         {
-          idempotencyKey: stripeIdempotencyKey(
+          idempotencyKey: stripeAttemptKey(
             'subscription-update',
             sub.id,
             'cancel_at_period_end=false',
@@ -679,7 +679,7 @@ async function changeSubscriptionPlan(userId, planId, opts = {}) {
     // Batch 154: keyed by subscription + item + target price — a
     // later switch to a different price is a different operation.
     {
-      idempotencyKey: stripeIdempotencyKey('subscription-plan-change', sub.id, item.id, priceId),
+      idempotencyKey: stripeAttemptKey('subscription-plan-change', sub.id, item.id, priceId),
     }
   );
   await syncSubscription(updated);
@@ -788,7 +788,7 @@ async function createCreditsCheckoutSession(userId, workspaceId, opts = {}) {
 
   // Batch 154: deterministic key from user + workspace + pack
   // contents; the fallback retry reuses the SAME key.
-  const creditsKey = stripeIdempotencyKey('checkout-credits', user.id, wid, cfg.priceId, quantity, totalCredits);
+  const creditsKey = stripeAttemptKey('checkout-credits', user.id, wid, cfg.priceId, quantity, totalCredits);
   let session;
   try {
     session = await stripe.checkout.sessions.create(
@@ -1502,6 +1502,10 @@ async function recordRefundFromCharge(charge, refund) {
         checkoutSessionId,
         refundId: refund.id,
         paymentIntentId: paymentRow && paymentRow.stripe_payment_intent_id,
+        // Batch 168 (F11): cumulative entitlement inputs — the
+        // charge object carries Stripe's cumulative refunded total.
+        cumulativeRefundedCents: charge && charge.amount_refunded,
+        chargeAmountCents: charge && charge.amount,
       });
     }
   } catch (e) {
@@ -2005,7 +2009,7 @@ async function adminRefundPayment(paymentId, { amountCents, reason } = {}) {
   // Batch 154: one refund operation per (payment, amount, reason) —
   // a retried admin refund replays the original refund instead of
   // refunding twice.
-  const refundKey = stripeIdempotencyKey('refund-admin', payment.id, params.amount != null ? params.amount : 'full', params.reason);
+  const refundKey = stripeAttemptKey('refund-admin', payment.id, params.amount != null ? params.amount : 'full', params.reason);
   let refund;
   if (payment.stripe_charge_id) {
     params.charge = payment.stripe_charge_id;
@@ -2048,7 +2052,7 @@ async function deleteAccount(userId, { immediate = true } = {}) {
           prorate: !!immediate,
         },
         {
-          idempotencyKey: stripeIdempotencyKey('subscription-cancel', user.stripe_subscription_id, `prorate=${!!immediate}`),
+          idempotencyKey: stripeAttemptKey('subscription-cancel', user.stripe_subscription_id, `prorate=${!!immediate}`),
         }
       );
     } catch (e) {

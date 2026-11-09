@@ -660,7 +660,7 @@ router.post('/:token/members/signup', memberLimit, captcha, async (req, res) => 
   try {
     const workspaceId = await workspaceFromReq(req);
     const body = req.body || {};
-    const data = domain.withDb(workspaceId, (db) => siteModules.publicMemberSignup(db, req.params.token, body));
+    const data = await domain.withDb(workspaceId, (db) => siteModules.publicMemberSignup(db, req.params.token, body));
     res.json({ ok: true, data: { ...data, workspaceId } });
     fireOwnerNotify('notifyOwnerOfMemberSignup', workspaceId, data && data.member && data.member.id);
   } catch (e) {
@@ -880,7 +880,7 @@ router.post('/:token/members/login', memberLimit, captcha, async (req, res) => {
   try {
     const workspaceId = await workspaceFromReq(req);
     const body = req.body || {};
-    const data = domain.withDb(workspaceId, (db) => siteModules.publicMemberLogin(db, req.params.token, body));
+    const data = await domain.withDb(workspaceId, (db) => siteModules.publicMemberLogin(db, req.params.token, body));
     res.json({ ok: true, data: { ...data, workspaceId } });
   } catch (e) {
     fail(res, e);
@@ -938,7 +938,7 @@ router.post('/:token/members/reset', memberLimit, captcha, async (req, res) => {
   try {
     const workspaceId = await workspaceFromReq(req);
     const body = req.body || {};
-    const data = domain.withDb(workspaceId, (db) => siteModules.publicMemberReset(db, req.params.token, body));
+    const data = await domain.withDb(workspaceId, (db) => siteModules.publicMemberReset(db, req.params.token, body));
     res.json({ ok: true, data: { ...data, workspaceId } });
   } catch (e) {
     fail(res, e);
