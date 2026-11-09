@@ -181,7 +181,7 @@ function unstubAi() {
     let n = 0;
     // No module type added; the widget is untouched (no chip
     // transport exists in BitPype's embed — bridges are text).
-    assert.equal(sm.MODULE_TYPES.length, 29, 'MODULE_TYPES unchanged on the Batch 162 base (finisher re-derives on the merged tree)');
+    assert.equal(sm.MODULE_TYPES.length, 31, 'MODULE_TYPES re-derived on the merged tree (finisher: 29 on the Batch 162 base -> 31 after 164 custom_code + 165 webinar; 167 adds none)');
     assert.ok(!sm.MODULE_TYPES.includes('chat_state'), 'no chat-state module type exists');
     assert.equal(chat.CHAT_SCRIPT_VER, 'chat8', 'widget script version untouched — no widget change in this port');
     n += 3;
