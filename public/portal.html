@@ -350,6 +350,24 @@
       .theme-card { flex-basis: 232px; }
       .themes-block { margin-top: 22px; }
     }
+    /* Batch 170: Assistant usage & costs tab. The usage display that
+       used to sit as one line above the chat renders here from the
+       same /assistant/usage payload. Rows use the shared card spacing
+       tokens; figures are tabular so columns line up. */
+    .assistant-usage-headline { margin: 0 0 6px; font-weight: 600; color: var(--ink); }
+    .assistant-usage-group { margin-top: 22px; }
+    .assistant-usage-group h3 {
+      margin: 0 0 10px; font-family: var(--font-display); font-size: 1.05rem; letter-spacing: -0.01em;
+    }
+    .assistant-usage-rows { display: flex; flex-direction: column; gap: var(--bp-space-card-gap); }
+    .assistant-usage-row {
+      display: flex; flex-wrap: wrap; gap: 6px var(--bp-space-card-gap); align-items: baseline;
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      box-shadow: var(--shadow); padding: var(--bp-space-card-pad);
+    }
+    .assistant-usage-row .usage-row-title { font-weight: 600; flex: 1 1 220px; overflow-wrap: anywhere; }
+    .assistant-usage-row .usage-row-meta { color: var(--muted); font-size: 0.85rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .assistant-usage-empty { color: var(--muted); margin: 6px 0 0; }
     .agent-chat-status {
       min-height: 1.2em;
       margin: 0 14px 6px;
@@ -2960,11 +2978,17 @@
         <div class="block-head">
           <div>
             <h2>Assistant</h2>
-            <p class="lede">Chat with your AI assistant — ask questions, plan, draft, or ask for changes to your website. You can attach files, photos and videos. Assistant usage is billed separately from your plan (see the usage line below).</p>
+            <p class="lede">Chat with your AI assistant — ask questions, plan, draft, or ask for changes to your website. You can attach files, photos and videos. Assistant usage is billed separately from your plan — see the Usage &amp; costs tab.</p>
           </div>
           <button type="button" class="btn soft" id="assistant-new">New conversation</button>
         </div>
-        <p class="hint" id="assistant-usage-line" style="margin:0 0 10px"></p>
+        <!-- Batch 170: Assistant panes — Chat (chat + Themes) and Usage & costs
+             (the usage display moved here from the line above the chat). -->
+        <div class="portal-pane-tabs" id="assistant-pane-tabs" role="tablist" aria-label="Assistant sections">
+          <button type="button" class="portal-pane-tab is-active" role="tab" data-assistant-pane="chat" aria-selected="true">Chat</button>
+          <button type="button" class="portal-pane-tab" role="tab" data-assistant-pane="usage" aria-selected="false">Usage &amp; costs</button>
+        </div>
+        <div id="assistant-pane-chat">
         <div class="assistant-layout">
           <div class="assistant-convs" id="assistant-convs" role="listbox" aria-label="Conversations"></div>
           <div class="assistant-main">
@@ -2994,6 +3018,14 @@
           </div>
           <div id="themes-catalog"></div>
           <p class="themes-status" id="themes-status" role="status"></p>
+        </div>
+        </div><!-- /assistant-pane-chat -->
+
+        <!-- Batch 170: Usage & costs pane — filled by renderAssistantUsage()
+             from GET /assistant/usage (same payload the old line used). -->
+        <div id="assistant-pane-usage" hidden>
+          <p class="assistant-usage-headline" id="assistant-usage-headline"></p>
+          <div id="assistant-usage-body"></div>
         </div>
 
         <!-- Batch 169: Build wizard popup. -->

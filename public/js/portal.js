@@ -14262,17 +14262,121 @@
     });
   }
 
+  // Batch 170 — the usage/cost display moved out of the chat pane into
+  // its own "Usage & costs" tab: same GET /assistant/usage payload and
+  // the same headline wording as the old line, plus the per-conversation
+  // and per-user rows the endpoint already returns. All DOM here is
+  // createElement + textContent — payload text (conversation titles)
+  // is never markup. Pane mechanics mirror setFormsPane.
+  let assistantPane = 'chat';
+
+  function setAssistantPane(pane) {
+    assistantPane = pane === 'usage' ? 'usage' : 'chat';
+    const chat = document.getElementById('assistant-pane-chat');
+    const usage = document.getElementById('assistant-pane-usage');
+    const tabs = document.getElementById('assistant-pane-tabs');
+    if (chat) chat.hidden = assistantPane !== 'chat';
+    if (usage) usage.hidden = assistantPane !== 'usage';
+    if (tabs) {
+      tabs.querySelectorAll('[data-assistant-pane]').forEach((btn) => {
+        const on = btn.getAttribute('data-assistant-pane') === assistantPane;
+        btn.classList.toggle('is-active', on);
+        btn.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+    }
+    if (assistantPane === 'usage') refreshAssistantUsage();
+  }
+
+  function usageMoney(v) {
+    return `$${(Number(v) || 0).toFixed(2)}`;
+  }
+
+  function usageRow(title, metaParts) {
+    const row = document.createElement('div');
+    row.className = 'assistant-usage-row';
+    const name = document.createElement('span');
+    name.className = 'usage-row-title';
+    name.textContent = title;
+    row.appendChild(name);
+    for (const part of metaParts) {
+      const meta = document.createElement('span');
+      meta.className = 'usage-row-meta';
+      meta.textContent = part;
+      row.appendChild(meta);
+    }
+    return row;
+  }
+
+  function usageGroup(heading, rows) {
+    const group = document.createElement('div');
+    group.className = 'assistant-usage-group';
+    const h = document.createElement('h3');
+    h.textContent = heading;
+    group.appendChild(h);
+    const list = document.createElement('div');
+    list.className = 'assistant-usage-rows';
+    for (const row of rows) list.appendChild(row);
+    group.appendChild(list);
+    return group;
+  }
+
+  function renderAssistantUsage(u) {
+    const headline = document.getElementById('assistant-usage-headline');
+    const body = document.getElementById('assistant-usage-body');
+    if (!headline || !body || !u) return;
+    const billed = Number((u.portal && u.portal.billedUsd) || 0);
+    const rollup = u.rollup ? ` · status: ${u.rollup.status}` : '';
+    headline.textContent = `AI assistant usage this month: $${billed.toFixed(2)} — billed separately from your plan on your next invoice${rollup}.`;
+    body.replaceChildren();
+    const convs = Array.isArray(u.byConversation) ? u.byConversation : [];
+    const users = Array.isArray(u.byUser) ? u.byUser : [];
+    if (!convs.length && !users.length) {
+      const empty = document.createElement('p');
+      empty.className = 'assistant-usage-empty';
+      empty.textContent = 'No assistant usage yet this month.';
+      body.appendChild(empty);
+      return;
+    }
+    if (convs.length) {
+      body.appendChild(
+        usageGroup(
+          'By conversation',
+          convs.map((c) =>
+            usageRow(c.title ? String(c.title) : 'Untitled conversation', [
+              `${Number(c.calls) || 0} calls`,
+              `raw ${usageMoney(c.rawUsd)}`,
+              `billed ${usageMoney(c.billedUsd)}`,
+            ])
+          )
+        )
+      );
+    }
+    if (users.length) {
+      body.appendChild(
+        usageGroup(
+          'By user',
+          users.map((r) => {
+            const who = r.surface === 'admin' ? 'Admin' : 'Portal';
+            const label = r.actorId != null ? `${who} · user ${Number(r.actorId) || 0}` : who;
+            const tokens = (Number(r.promptTokens) || 0) + (Number(r.completionTokens) || 0);
+            return usageRow(label, [
+              `${Number(r.calls) || 0} calls`,
+              `${tokens} tokens`,
+              `raw ${usageMoney(r.rawUsd)}`,
+              `billed ${usageMoney(r.billedUsd)}`,
+            ]);
+          })
+        )
+      );
+    }
+  }
+
   async function refreshAssistantUsage() {
     try {
       const u = await api('/assistant/usage');
-      const el = document.getElementById('assistant-usage-line');
-      if (el && u) {
-        const billed = Number((u.portal && u.portal.billedUsd) || 0);
-        const rollup = u.rollup ? ` · status: ${u.rollup.status}` : '';
-        el.textContent = `AI assistant usage this month: $${billed.toFixed(2)} — billed separately from your plan on your next invoice${rollup}.`;
-      }
+      if (u) renderAssistantUsage(u);
     } catch {
-      /* the usage line is informational only */
+      /* the usage display is informational only */
     }
   }
 
@@ -14454,6 +14558,15 @@
     }
     const newBtn = document.getElementById('assistant-new');
     if (newBtn) newBtn.addEventListener('click', () => newAssistantConversation().catch((e) => assistantStatus(errText(e))));
+    const assistantPaneTabs = document.getElementById('assistant-pane-tabs');
+    if (assistantPaneTabs) {
+      assistantPaneTabs.addEventListener('click', (ev) => {
+        const btn = ev.target.closest('[data-assistant-pane]');
+        if (!btn) return;
+        setAssistantPane(btn.getAttribute('data-assistant-pane'));
+      });
+      setAssistantPane('chat');
+    }
   })();
 
   // Batch 117 — WordPress design chat panel. Renders per connected
