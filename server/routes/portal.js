@@ -1593,6 +1593,76 @@ router.get('/assistant/usage', requireClient, async (req, res) => {
   }
 });
 
+// Batch 169 — Assistant page Themes section + Build wizard. The
+// catalog comes from the single server/themesRegistry.js; the
+// wizard's Build creates a REAL design job through the shared
+// designJobs.createJob flow (staged in the design queue like any
+// other job — nothing auto-publishes). Same session-pin discipline
+// as every other assistant route; everything runs inside the
+// client's own workspace db.
+const themesRegistry = () => require('../themesRegistry');
+
+router.get('/assistant/themes', requireClient, async (req, res) => {
+  try {
+    if (!assistantPin(req, res)) return;
+    ok(res, { categories: themesRegistry().publicCatalog() });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.get('/assistant/themes/leads', requireClient, async (req, res) => {
+  try {
+    if (!assistantPin(req, res)) return;
+    const q = String(req.query.q || '').trim().slice(0, 80);
+    const data = require('../domain').withDb(req.client.workspace_id, (db) => {
+      const rows = q
+        ? db
+            .prepare(
+              `SELECT id, business_name, category, city FROM leads
+                WHERE business_name LIKE ? ESCAPE '\\' ORDER BY business_name ASC LIMIT 25`
+            )
+            .all(`%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`)
+        : db
+            .prepare(
+              'SELECT id, business_name, category, city FROM leads ORDER BY business_name ASC LIMIT 25'
+            )
+            .all();
+      return { leads: rows };
+    });
+    ok(res, data);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/assistant/themes/build', requireClient, async (req, res) => {
+  try {
+    if (!assistantPin(req, res)) return;
+    const body = req.body || {};
+    const data = require('../domain').withDb(req.client.workspace_id, (db) =>
+      themesRegistry().buildWithTheme(db, {
+        themeId: body.themeId,
+        leadId: body.leadId,
+        newLead: body.newLead,
+        businessName: body.businessName,
+        siteShape: body.siteShape,
+        pagesWanted: body.pagesWanted,
+        brandNotes: body.brandNotes,
+      })
+    );
+    ok(res, {
+      jobId: data.job.id,
+      status: data.job.status,
+      leadId: data.leadId,
+      themeId: data.theme.id,
+      themeName: data.theme.name,
+    });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 /** Force rematerialize export + refresh public preview (Cloudflare Pages when configured). */
 router.post('/site/publish', requireClient, actionLimit, async (req, res) => {
   try {

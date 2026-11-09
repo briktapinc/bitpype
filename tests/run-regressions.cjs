@@ -164,6 +164,7 @@ const checks = [
   'batch165-webinar-module-regressions',
   'batch166-assistant-mobile-layout-regressions',
   'batch167-chat-redesign-regressions',
+  'batch169-themes-wizard-regressions',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');
