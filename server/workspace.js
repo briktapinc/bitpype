@@ -97,18 +97,21 @@ async function listWorkspacesForUser(userId) {
     `SELECT w.id, w.name, w.slug, m.role
      FROM workspace_members m
      JOIN workspaces w ON w.id = m.workspace_id
-     WHERE m.user_id = :userId
+     WHERE m.user_id = :userId AND COALESCE(m.billing_only, 0) = 0
      ORDER BY w.name`,
     { userId }
   );
 }
 
 async function getMembership(userId, workspaceId) {
+  // Batch 168 (external review F04): billing_only rows (portal
+  // billing linkage) are NOT staff membership — requireWorkspace's
+  // session gate reads through here, so they must not resolve.
   const rows = await query(
     `SELECT m.role, w.id, w.name, w.slug
      FROM workspace_members m
      JOIN workspaces w ON w.id = m.workspace_id
-     WHERE m.user_id = :userId AND m.workspace_id = :workspaceId
+     WHERE m.user_id = :userId AND m.workspace_id = :workspaceId AND COALESCE(m.billing_only, 0) = 0
      LIMIT 1`,
     { userId, workspaceId }
   );

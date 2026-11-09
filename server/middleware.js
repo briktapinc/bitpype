@@ -311,6 +311,11 @@ async function requireSubscription(req, res, next) {
           role: 'token',
           leadId,
           tokenId: ws.token_id,
+          // Batch 168 (F05 parity): carry the class here too — this
+          // fallback builds req.auth when requireWorkspace has not
+          // run first, and the class must never be dropped on any
+          // path that constructs the auth object.
+          tokenClass: ws.token_class || null,
         };
       }
     }
@@ -426,4 +431,8 @@ module.exports = {
   // Batch 168 (S1#2): the portal mirror.
   PORTAL_ABSOLUTE_SESSION_MS,
   portalSessionAbsoluteExpired,
+  // Batch 168 (F09): exported so hand-rolled session consumers
+  // (the call-recording proxy) apply the same account-status gate
+  // as requireAuth instead of inventing a weaker one.
+  loadSessionUser,
 };

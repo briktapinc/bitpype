@@ -103,10 +103,17 @@ async function ensureBillingUserForPortalClient(workspaceId, clientEmail, busine
     { ws, uid: Number(user.id) }
   );
   // Billing linkage only — never promote portal clients to owner/admin.
+  // Batch 168 (external review F04): the row is marked billing_only.
+  // It exists so billing-internal membership checks (credits
+  // checkout) pass for the portal client; staff auth
+  // (workspace.getMembership / listWorkspacesForUser) ignores
+  // billing_only rows, so this linkage can never authenticate as
+  // staff or read the workspace. A pre-existing REAL membership is
+  // left exactly as found.
   if (!members[0]) {
     await query(
-      `INSERT IGNORE INTO workspace_members (workspace_id, user_id, role)
-       VALUES (:ws, :uid, 'member')`,
+      `INSERT IGNORE INTO workspace_members (workspace_id, user_id, role, billing_only)
+       VALUES (:ws, :uid, 'member', 1)`,
       { ws, uid: Number(user.id) }
     );
   }

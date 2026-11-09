@@ -49,7 +49,11 @@ const { getMembership, findWorkspaceByToken } = require('../workspace');
 const sessionCaps = () => {
   try {
     const mw = require('../middleware');
-    return { staff: mw.staffSessionAbsoluteExpired, portal: mw.portalSessionAbsoluteExpired };
+    return {
+      staff: mw.staffSessionAbsoluteExpired,
+      portal: mw.portalSessionAbsoluteExpired,
+      loadUser: mw.loadSessionUser,
+    };
   } catch {
     return null;
   }
@@ -492,6 +496,16 @@ async function resolveRecordingCaller(req, workspaceId) {
   const capsForStaff = sessionCaps();
   if (staffSession && staffSession.userId && !(capsForStaff && capsForStaff.staff({ session: staffSession }))) {
     try {
+      // Batch 168 (external review F09): membership alone is not
+      // enough — requireAuth's account-status gate applies here
+      // too (a disabled/deleted staff account must not play
+      // recordings off the back of a long-lived session cookie).
+      if (capsForStaff && capsForStaff.loadUser) {
+        const u = await capsForStaff.loadUser(staffSession.userId);
+        if (!u || String(u.status || 'active') === 'disabled' || u.deleted_at) {
+          return null;
+        }
+      }
       const membership = await getMembership(staffSession.userId, workspaceId);
       if (membership) return { via: 'staff', leadId: null };
     } catch {

@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS workspace_members (
   workspace_id BIGINT UNSIGNED NOT NULL,
   user_id BIGINT UNSIGNED NOT NULL,
   role ENUM('owner','admin','member') NOT NULL DEFAULT 'member',
+  billing_only TINYINT(1) NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_member (workspace_id, user_id),
   KEY idx_member_user (user_id),

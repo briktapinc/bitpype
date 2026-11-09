@@ -81,7 +81,13 @@ function safeReturnPath(raw) {
 router.get('/oauth/callback', async (req, res) => {
   try {
     const { code, state, error } = req.query || {};
-    if (error) return res.status(400).send(`Google OAuth error: ${error}`);
+    if (error) {
+      // Batch 168 (external review F02): never reflect the query
+      // param — res.send(string) is text/html; a crafted callback
+      // link was a reflected XSS in this origin. Log + fixed line.
+      console.warn('[gbp oauth] provider error:', String(error));
+      return res.status(400).send('Google sign-in was not completed. You can close this tab and try again.');
+    }
     if (!code || !state) return res.status(400).send('Missing code or state');
     const st = gbp.verifyState(String(state));
     await assertWorkspaceExists(Number(st.w));

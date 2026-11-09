@@ -61,6 +61,21 @@ function sniffImageMime(buf) {
 function storageRoot() {
   return process.env.EXPORT_ROOT || path.join(process.cwd(), 'exports');
 }
+/* Batch 168 (external review F10): attachment files are PRIVATE —
+ * they used to be written under EXPORT_ROOT, which server.js mounts
+ * anonymously at /site-previews, so any leaked path was a permanent
+ * unauthenticated URL. New writes go to a private root on the
+ * workspaces volume (never statically mounted); reads resolve
+ * there first and fall back to the legacy exports location so
+ * pre-168 files keep working through the ownership-checked
+ * handlers (the /site-previews mount itself now denies these
+ * directory shapes outright). */
+function privateRoot() {
+  if (process.env.PRIVATE_FILES_ROOT) return process.env.PRIVATE_FILES_ROOT;
+  if (process.env.WORKSPACE_DATA_DIR) return path.join(process.env.WORKSPACE_DATA_DIR, 'private-attachments');
+  return path.join(process.cwd(), 'private-attachments');
+}
+
 
 function relDir(workspaceId, leadId) {
   return path.join('site-chat', `ws-${Number(workspaceId)}`, `lead-${Number(leadId)}`);
@@ -68,10 +83,19 @@ function relDir(workspaceId, leadId) {
 
 /** Resolve a stored relative path, refusing anything outside the storage root. */
 function absFromRel(rel) {
-  const root = path.resolve(storageRoot());
-  const abs = path.resolve(root, String(rel || ''));
-  if (abs !== root && !abs.startsWith(root + path.sep)) return null;
-  return abs;
+  const relStr = String(rel || '');
+  const resolveIn = (base) => {
+    const root = path.resolve(base);
+    const abs = path.resolve(root, relStr);
+    if (abs !== root && !abs.startsWith(root + path.sep)) return null;
+    return abs;
+  };
+  const priv = resolveIn(privateRoot());
+  if (!priv) return null;
+  if (fs.existsSync(priv)) return priv;
+  const legacy = resolveIn(storageRoot());
+  if (legacy && fs.existsSync(legacy)) return legacy;
+  return priv;
 }
 
 function ensureTable(db) {
@@ -328,4 +352,6 @@ module.exports = {
   buildModelImages,
   deleteFilesForRows,
   publicRow,
+  // Batch 168: exported for the regression suite (F10 storage pin).
+  absFromRel,
 };

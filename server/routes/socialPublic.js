@@ -27,7 +27,12 @@ router.get('/meta/callback', async (req, res) => {
   try {
     const { code, state, error, error_description: errDesc } = req.query || {};
     if (error) {
-      return res.status(400).send(`Meta OAuth error: ${error}${errDesc ? ` — ${errDesc}` : ''}`);
+      // Batch 168 (external review F02): NEVER reflect the query
+      // params — res.send(string) is served as text/html, so a
+      // crafted callback link was a reflected XSS in this origin.
+      // The provider detail is logged; the page gets a fixed line.
+      console.warn('[social oauth] provider error:', String(error), errDesc ? String(errDesc) : '');
+      return res.status(400).send('Meta sign-in was not completed. You can close this tab and try again.');
     }
     if (!code || !state) return res.status(400).send('Missing code or state');
 

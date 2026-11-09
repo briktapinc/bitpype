@@ -1196,6 +1196,16 @@ if (SINGLE_SITE) {
 // helmet defaults to same-origin which blocks <img> while curl still succeeds.
 {
   const { exportRoot } = require('./src/openPreview');
+  // Batch 168 (external review F10): the private attachment
+  // directory shapes (assistant + design-chat uploads) are NEVER
+  // served from this anonymous mount — pre-168 files still sit
+  // under the exports root until they age out, and the
+  // ownership-checked attachment handlers are the only read path.
+  app.use('/site-previews', (req, res, next) => {
+    const seg = String(req.path || '').split('/').filter(Boolean)[0];
+    if (seg === 'assistant-chat' || seg === 'site-chat') return res.status(404).send('Not found');
+    return next();
+  });
   app.use(
     '/site-previews',
     require('./server/previewSecurity').isolateStaticPreview,

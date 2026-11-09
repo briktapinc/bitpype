@@ -639,6 +639,10 @@ async function migrate() {
       ensureColumnSqlite(db, 'webinars', 'website_id', 'INTEGER');
       ensureColumnSqlite(db, 'webinar_registrations', 'workspace_id', 'INTEGER NOT NULL DEFAULT 1');
       ensureColumnSqlite(db, 'webinar_messages', 'workspace_id', 'INTEGER NOT NULL DEFAULT 1');
+      // Batch 168 (external review F04): portal-billing linkage rows
+      // in workspace_members are marked billing_only — billing code
+      // may see them, staff auth must not.
+      ensureColumnSqlite(db, 'workspace_members', 'billing_only', 'INTEGER NOT NULL DEFAULT 0');
       db.exec('CREATE INDEX IF NOT EXISTS idx_webinars_site ON webinars (workspace_id, lead_id, id)');
     } catch {
       /* tables may not exist on a bare schema */
@@ -1266,6 +1270,9 @@ async function migrate() {
     // Batch 165: webinar site scoping for databases whose webinar
     // tables were created by Batch 163 (defaults backfill the
     // platform scope: workspace 1, no lead/website).
+    // Batch 168 (external review F04): see the sqlite block —
+    // workspace_members.billing_only marks portal-billing linkage.
+    await ensureColumnMysql(conn, 'workspace_members', 'billing_only', 'TINYINT(1) NOT NULL DEFAULT 0');
     await ensureColumnMysql(conn, 'webinars', 'workspace_id', 'BIGINT UNSIGNED NOT NULL DEFAULT 1');
     await ensureColumnMysql(conn, 'webinars', 'lead_id', 'BIGINT UNSIGNED NULL');
     await ensureColumnMysql(conn, 'webinars', 'website_id', 'BIGINT UNSIGNED NULL');
