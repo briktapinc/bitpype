@@ -161,7 +161,7 @@ async function part1() {
       cwd: ROOT,
       encoding: 'utf8',
     });
-    assert.ok(/innerHTML sinks: 492/.test(out), out.split('\n')[0]);
+    assert.ok(/innerHTML sinks: 503/.test(out), out.split('\n')[0]);
   });
 
   await test('gate registration: allowlist + format scope carry batch119', async () => {

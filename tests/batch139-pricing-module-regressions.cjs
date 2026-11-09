@@ -112,7 +112,7 @@ const LEAD_B = 139002;
     n++;
     assert.ok(smSrc.includes("pricing: { label: 'Pricing'"), 'MODULE_META carries the Pricing label');
     n++;
-    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod40'"), 'MODULE_SCRIPT_VER bumped mod38 -> mod39 (finisher rotation on rebase; Batch 164 finisher: current value mod40)');
+    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod41'"), 'MODULE_SCRIPT_VER bumped mod38 -> mod39 (finisher rotation on rebase; Batch 164 finisher: current value mod40)');
     n++;
     assert.ok(smSrc.includes("case 'pricing':"), 'module purge steps know pricing');
     n++;
@@ -215,7 +215,7 @@ const LEAD_B = 139002;
     // embed renderer escapes every interpolated value).
     const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
     const cz = census();
-    assert.equal(cz.summary.RAW, 85, 'SEC-13 RAW sink count unchanged by 139 (Batch 164 rotation: 82 -> 85 — +3 audited Custom Code RAW sinks, pairwise-proven — see batch103 narrative); ( (77 at the Batch 138 tip, verified identical pre/post this change set; Batch 153 rotation: 77 -> 78 — the audited Design-agent editor panel-shell RAW in app.js; Batch 161 rotation: 78 -> 81 (Assistant surfaces); Batch 162 rotation: 81 -> 82 (the audited Contact-page RAW) — see batch103 narrative)');
+    assert.equal(cz.summary.RAW, 86, 'SEC-13 RAW sink count (Batch 165 rotation: 85 -> 86 — the one audited Webinar panel-shell RAW, pairwise-proven — see batch103 narrative); unchanged by 139 (Batch 164 rotation: 82 -> 85 — +3 audited Custom Code RAW sinks, pairwise-proven — see batch103 narrative); ( (77 at the Batch 138 tip, verified identical pre/post this change set; Batch 153 rotation: 77 -> 78 — the audited Design-agent editor panel-shell RAW in app.js; Batch 161 rotation: 78 -> 81 (Assistant surfaces); Batch 162 rotation: 81 -> 82 (the audited Contact-page RAW) — see batch103 narrative)');
     n++;
     assert.equal(cz.summary.IDENT, 38, 'SEC-13 IDENT sink count unchanged by 139 (36 at the Batch 138 tip, verified identical pre/post this change set; Batch 161 rotation: 36 -> 38 (Assistant surfaces); Batch 162 rotation: 38 unchanged — see batch103 narrative)');
     n++;
@@ -274,7 +274,7 @@ const LEAD_B = 139002;
   // ---- 2a: registration + parity ----
   {
     let n = 0;
-    assert.equal(sm.MODULE_TYPES.length, 30, 'catalog at 30 types at the deployed tip (finisher rotation on rebase; Batch 164: custom_code appended as the 30th)');
+    assert.equal(sm.MODULE_TYPES.length, 31, 'catalog at 30 types at the deployed tip (finisher rotation on rebase; Batch 164: custom_code appended as the 30th)');
     n++;
     assert.equal(sm.MODULE_TYPES[28], 'pricing', 'pricing is the 29th-registered type (Batch 164 appends custom_code after it)');
     n++;

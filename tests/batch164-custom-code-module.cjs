@@ -104,13 +104,13 @@ async function main() {
   {
     let n = 0;
     const sm = require(path.join(root, 'server/siteModules.js'));
-    assert.equal(sm.MODULE_TYPES.length, 30, 'MODULE_TYPES at 30 with custom_code');
+    assert.equal(sm.MODULE_TYPES.length, 31, 'MODULE_TYPES at 30 with custom_code');
     n++;
     assert.equal(sm.MODULE_TYPES[29], 'custom_code', 'custom_code appended last');
     n++;
     assert.equal(sm.MODULE_META.custom_code.label, 'Custom Code', 'portal label is Custom Code');
     n++;
-    assert.equal(sm.MODULE_SCRIPT_VER, 'mod40', 'embed script version bumped for renderCustomCode');
+    assert.equal(sm.MODULE_SCRIPT_VER, 'mod41', 'embed script version bumped for renderCustomCode');
     n++;
     const share = require(path.join(root, 'server/moduleShare.js'));
     assert.deepEqual(

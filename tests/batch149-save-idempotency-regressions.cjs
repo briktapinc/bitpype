@@ -173,7 +173,7 @@ async function main() {
     const chat = require(path.join(root, 'server/chatbot.js'));
     const structure = require(path.join(root, 'src/siteStructure.js'));
     const BASE = 'https://bitpype.com';
-    const modTag = `<script src="${BASE}/js/module-embed.js?v=mod40" defer data-bitpype-module-script="1"></script>`;
+    const modTag = `<script src="${BASE}/js/module-embed.js?v=mod41" defer data-bitpype-module-script="1"></script>`;
 
     // ensureModuleEmbedScript: clean blob.
     const blob = '<main><div class="bitpype-module-embed" data-bitpype-module-token="1_x"></div></main>';

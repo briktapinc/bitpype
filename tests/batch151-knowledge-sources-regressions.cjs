@@ -76,7 +76,7 @@ const LEAD_C = 151003;
   {
     let n = 0;
     const sm = require(path.join(root, 'server/siteModules.js'));
-    assert.equal(sm.MODULE_TYPES.length, 30, 'Batch 151 adds NO module type (29 stood at its tip; Batch 164: custom_code is the 30th)');
+    assert.equal(sm.MODULE_TYPES.length, 31, 'Batch 151 adds NO module type (29 stood at its tip; Batch 164: custom_code is the 30th)');
     n++;
     const botSrc = read('server/chatbot.js');
     assert.ok(botSrc.includes('knowledge_sources'), 'chatbot settings carry knowledge_sources');

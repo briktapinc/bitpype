@@ -133,10 +133,10 @@ function fixturePages() {
     n++;
     assert.ok(smSrc.includes('out.photos = photos'), 'detail context attaches photos');
     n++;
-    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod40'"), 'MODULE_SCRIPT_VER unchanged (mod39) — no embed change');
+    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod41'"), 'MODULE_SCRIPT_VER unchanged (mod39) — no embed change');
     n++;
     const typesBlock = /const MODULE_TYPES = \[([\s\S]*?)\];/.exec(smSrc);
-    assert.equal((typesBlock[1].match(/'/g) || []).length / 2, 30, 'MODULE_TYPES counted (Batch 141: stayed 29 at its tip — polish adds no module type; Batch 164: custom_code is the 30th)');
+    assert.equal((typesBlock[1].match(/'/g) || []).length / 2, 31, 'MODULE_TYPES counted (Batch 141: stayed 29 at its tip — polish adds no module type; Batch 164: custom_code is the 30th; Batch 165: webinar is the 31st)');
     n++;
 
     const embedSrc = read('public/js/module-embed.js');

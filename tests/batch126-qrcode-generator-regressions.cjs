@@ -134,7 +134,7 @@ let db;
 
     assert.equal(
       sm.MODULE_TYPES.length,
-      30,
+      31,
       'catalog at 30 types (qrcode is the 26th; Batch 128 checkout appended after it; Batch 131 comments appended after; Batch 139 pricing appended; Batch 164 custom_code appended last)'
     );
     n++;
@@ -148,7 +148,7 @@ let db;
     n++;
     assert.equal(
       sm.MODULE_SCRIPT_VER,
-      'mod40',
+      'mod41',
       'embed script version bumped for the QR renderer (Batch 128 finisher rotation: mod30 + 1)'
     );
     n++;

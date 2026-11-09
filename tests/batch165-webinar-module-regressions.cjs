@@ -77,8 +77,8 @@ function part1() {
   let n = 0;
   const sm = require(path.join(root, 'server', 'siteModules.js'));
   assert.ok(sm.MODULE_TYPES.includes('webinar'), 'webinar is a module type');
-  assert.equal(sm.MODULE_TYPES.length, 30, 'MODULE_TYPES 29 -> 30 on this tree');
-  assert.equal(sm.MODULE_SCRIPT_VER, 'mod40', 'MODULE_SCRIPT_VER bumped for the webinar renderer');
+  assert.equal(sm.MODULE_TYPES.length, 31, 'MODULE_TYPES 31 on the merged tree (Batch 164 custom_code + Batch 165 webinar on the 29-type base)');
+  assert.equal(sm.MODULE_SCRIPT_VER, 'mod41', 'MODULE_SCRIPT_VER re-derived at the 165 rebase: +1 over the landed 164 tip mod40');
   assert.equal(sm.MODULE_META.webinar.defaultSlug, 'webinars', 'webinar meta slug');
   assert.equal(sm.MODULE_META.webinar.label, 'Webinars', 'webinar meta label');
   n += 5;

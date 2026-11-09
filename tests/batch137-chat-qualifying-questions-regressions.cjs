@@ -237,7 +237,7 @@ function addMsg(sessionId, leadId, role, body) {
   }
   assert.equal(
     sm.MODULE_TYPES.length,
-    30,
+    31,
     'MODULE_TYPES: Batch 137 added none; Batch 139 appended pricing as the 29th (finisher rotation)'
   );
   assert.ok(!sm.MODULE_TYPES.includes('qualifying'), 'no qualifying module type exists');
