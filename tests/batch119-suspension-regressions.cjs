@@ -155,13 +155,13 @@ async function part1() {
     assert.ok(pb.includes('suspension,'), 'portal billing payload carries the episode');
   });
 
-  await test('xss census at 474 sinks (Batch 162: +4 audited Contact-page sinks in app.js, pairwise-proven vs the landed 161 census — see batch103 narrative; Batch 161: +17 audited Assistant-surface sinks, pairwise-proven — see batch103 narrative; prior: Batch 133 additions; Batch 136 finisher +2 audited STATIC; Batch 137 finisher +1 audited SAFE in portal.js; Batch 138 finisher +4; Batch 139 finisher +2 audited safe-class; Batch 153 +1 BUILDER +1 RAW audited Design-agent editor sinks in app.js; Batch 156 +3 audited safe-class fingerprint sinks in app.js — see batch103 narrative)', async () => {
+  await test('xss census at 486 sinks (Batch 162: +4 audited Contact-page sinks in app.js, pairwise-proven vs the landed 161 census — see batch103 narrative; Batch 161: +17 audited Assistant-surface sinks, pairwise-proven — see batch103 narrative; prior: Batch 133 additions; Batch 136 finisher +2 audited STATIC; Batch 137 finisher +1 audited SAFE in portal.js; Batch 138 finisher +4; Batch 139 finisher +2 audited safe-class; Batch 153 +1 BUILDER +1 RAW audited Design-agent editor sinks in app.js; Batch 156 +3 audited safe-class fingerprint sinks in app.js — see batch103 narrative)', async () => {
     const { execFileSync } = require('child_process');
     const out = execFileSync(process.execPath, [path.join(ROOT, 'scripts/xss-census.cjs')], {
       cwd: ROOT,
       encoding: 'utf8',
     });
-    assert.ok(/innerHTML sinks: 474/.test(out), out.split('\n')[0]);
+    assert.ok(/innerHTML sinks: 486/.test(out), out.split('\n')[0]);
   });
 
   await test('gate registration: allowlist + format scope carry batch119', async () => {
