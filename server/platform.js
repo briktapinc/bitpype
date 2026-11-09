@@ -270,6 +270,14 @@ const PLATFORM_SETTING_DEFS = [
   { key: 'ai.assistant.margin_pct', group: 'keys', label: 'Assistant chat — billing margin %', default: '20' },
   { key: 'ai.assistant.monthly_cap_usd', group: 'keys', label: 'Assistant chat — monthly cap per workspace (USD, blank = off)', default: '' },
   { key: 'ai.assistant.price_table', group: 'keys', label: 'Assistant chat — price table (JSON, USD per 1k tokens)', default: '' },
+  // Batch 167 (chat redesign port): the visitor chatbot's flow
+  // budgets — how many times a qualifying question may be re-asked
+  // before it is muted for the session, and how many consecutive
+  // unanswered visitor questions trigger the explicit person offer
+  // (fallback ladder). Platform-level behaviour knobs, read live by
+  // the fallback engine on every turn; defaults live here.
+  { key: 'chat.qual_reask_budget', group: 'integrations', label: 'Website chat — qualifying question re-ask budget', default: '1' },
+  { key: 'chat.fallback_handoff_at', group: 'integrations', label: 'Website chat — unanswered questions before offering a person', default: '3' },
   { key: 'providers.tavily.api_key', group: 'keys', label: 'Tavily API key', default: '', secret: true },
   { key: 'pexels.api_key', group: 'keys', label: 'Pexels API key', default: '', secret: true },
   { key: 'fal.api_key', group: 'keys', label: 'Fal API key', default: '', secret: true },

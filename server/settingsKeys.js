@@ -200,6 +200,8 @@ const SETTABLE_KEYS = [
   'ai.assistant.margin_pct',
   'ai.assistant.monthly_cap_usd',
   'ai.assistant.price_table',
+  'chat.qual_reask_budget',
+  'chat.fallback_handoff_at',
   'cost.max_websites_per_day',
   'cost.max_outreach_per_day',
   'smtp.host',
@@ -472,6 +474,22 @@ function validateSetting(key, raw) {
     if (v === '') return { ok: true, value: '' };
     if (!isNum(v)) return fail('must be a number (USD)');
     if (toNum(v) <= 0) return fail('must be positive, or empty for no cap');
+    return { ok: true, value: v };
+  }
+  // Batch 167: visitor-chat flow budgets (small whole numbers; the
+  // fallback engine clamps to the same ranges when reading).
+  if (key === 'chat.qual_reask_budget') {
+    const v = value.trim();
+    if (v === '') return { ok: true, value: '' };
+    if (!/^\d+$/.test(v)) return fail('must be a whole number');
+    if (Number(v) > 10) return fail('must be between 0 and 10');
+    return { ok: true, value: v };
+  }
+  if (key === 'chat.fallback_handoff_at') {
+    const v = value.trim();
+    if (v === '') return { ok: true, value: '' };
+    if (!/^\d+$/.test(v)) return fail('must be a whole number');
+    if (Number(v) < 1 || Number(v) > 10) return fail('must be between 1 and 10');
     return { ok: true, value: v };
   }
   if (key === 'ai.assistant.price_table') {

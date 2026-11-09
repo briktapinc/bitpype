@@ -476,6 +476,24 @@ function ensureTables(db) {
   } catch {
     /* race / exists */
   }
+  // Batch 167 (chat redesign port — YWL Rules A–K) — per-session chat
+  // state for the AI fallback engine: consecutive-miss streak,
+  // answered-turn count, price fact-check blocks, the visitor-handoff
+  // flag, the suppress flags the harness sets on a cancel, and the
+  // provisional honest outcome (Rule G). Additive JSON, same pattern
+  // as qualification_json; rows that predate the batch simply have
+  // no state and behave exactly as before.
+  try {
+    const cols = db
+      .prepare('PRAGMA table_info(chatbot_sessions)')
+      .all()
+      .map((c) => String(c.name || ''));
+    if (cols.length && !cols.includes('chat_state_json')) {
+      db.exec('ALTER TABLE chatbot_sessions ADD COLUMN chat_state_json TEXT');
+    }
+  } catch {
+    /* race / exists */
+  }
   // Batch 138 — voice sessions share the text-chat session store.
   // channel distinguishes them; the voice_* columns carry the Realtime
   // session lifecycle (relay-secret hash only — the secret itself is
@@ -2166,6 +2184,20 @@ function publicSession(row, { withMessages = false, messages = null } = {}) {
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
+  // Batch 167: the honest outcome + chat counters ride the session
+  // ONLY when a chat state exists (sessions the redesigned fallback
+  // engine has touched) — legacy and voice rows stay byte-identical.
+  const chatState = row.chat_state_json ? parseChatState(row.chat_state_json) : null;
+  if (chatState) {
+    out.outcome = chatState.outcome;
+    out.chat_state = {
+      answered_count: chatState.answered_count,
+      miss_streak: chatState.miss_streak,
+      miss_total: chatState.miss_total,
+      fact_check_blocks: chatState.fact_check_blocks,
+      handoff_requested: chatState.handoff_requested,
+    };
+  }
   if ((row.channel || 'text') === 'voice') out.voice = publicVoiceBlock(row);
   if (withMessages) out.messages = Array.isArray(messages) ? messages : [];
   return out;
@@ -2229,34 +2261,47 @@ function parseQualificationRecord(raw) {
   if (!obj || typeof obj !== 'object' || !Array.isArray(obj.items)) return null;
   const items = obj.items
     .filter((it) => it && typeof it.question === 'string' && it.question.trim())
-    .map((it) => ({
-      question: String(it.question).slice(0, QUALIFYING_MAX_CHARS),
-      answer: it.answer != null ? String(it.answer).slice(0, QUALIFYING_ANSWER_MAX_CHARS) : null,
-      status: normalizeQualifyingStatus(it.status) || 'pending',
-      updated_at: it.updated_at != null ? String(it.updated_at) : null,
-    }));
+    .map((it) => {
+      const item = {
+        question: String(it.question).slice(0, QUALIFYING_MAX_CHARS),
+        answer: it.answer != null ? String(it.answer).slice(0, QUALIFYING_ANSWER_MAX_CHARS) : null,
+        status: normalizeQualifyingStatus(it.status) || 'pending',
+        updated_at: it.updated_at != null ? String(it.updated_at) : null,
+      };
+      // Batch 167: re-ask bookkeeping rides the item ONLY when
+      // non-default, so records written before this batch (and fresh
+      // records) stay byte-identical to the Batch 137 shape.
+      const reasks = Number(it.reasks) || 0;
+      if (reasks > 0) item.reasks = reasks;
+      if (it.muted) item.muted = true;
+      return item;
+    });
   if (!items.length) return null;
-  return {
+  const record = {
     v: 1,
     questions: items.map((it) => it.question),
     items,
     updated_at: obj.updated_at != null ? String(obj.updated_at) : null,
   };
+  // Batch 167 (Rule C): qualification "starts" only after the first
+  // substantive answered turn. The flag rides the record only once
+  // true — absent means not started, exactly like pre-167 records.
+  if (obj.started) record.started = true;
+  return record;
 }
 
 function getSessionQualification(db, sessionId) {
   ensureTables(db);
-  const row = db
-    .prepare('SELECT qualification_json FROM chatbot_sessions WHERE id = ?')
-    .get(Number(sessionId));
+  const row = db.prepare('SELECT qualification_json FROM chatbot_sessions WHERE id = ?').get(Number(sessionId));
   return row ? parseQualificationRecord(row.qualification_json) : null;
 }
 
 function saveSessionQualification(db, sessionId, record) {
   record.updated_at = new Date().toISOString();
-  db.prepare(
-    "UPDATE chatbot_sessions SET qualification_json = ?, updated_at = datetime('now') WHERE id = ?"
-  ).run(JSON.stringify(record), Number(sessionId));
+  db.prepare("UPDATE chatbot_sessions SET qualification_json = ?, updated_at = datetime('now') WHERE id = ?").run(
+    JSON.stringify(record),
+    Number(sessionId)
+  );
   return record;
 }
 
@@ -2282,15 +2327,19 @@ function ensureSessionQualification(db, leadId, sessionId) {
  * SNAPSHOT list. Invalid entries are skipped (counted), never
  * thrown: a bad report must not break the visitor's reply flow.
  */
-function recordQualificationUpdates(db, leadId, sessionId, updates) {
+function recordQualificationUpdates(db, leadId, sessionId, updates, opts = {}) {
   ensureTables(db);
   const session = getSessionById(db, leadId, sessionId);
   if (!session) throw fail('NOT_FOUND', 'Session not found', 404);
   const list = Array.isArray(updates) ? updates : [];
   const record = ensureSessionQualification(db, leadId, session.id);
-  if (!record) return { record: null, applied: 0, skipped: list.length, reason: 'not_configured' };
+  if (!record) return { record: null, applied: 0, skipped: list.length, gated: 0, reason: 'not_configured' };
+  // Batch 167: the visitor cancelled the questions outright (harness)
+  // — nothing is recorded against them for the rest of the session.
+  if (opts.suppressQual) return { record, applied: 0, skipped: 0, gated: list.length };
   let applied = 0;
   let skipped = 0;
+  let gated = 0;
   for (const u of list) {
     let idx = u && u.index != null && Number.isInteger(Number(u.index)) ? Number(u.index) : -1;
     // Fallback: an update that names the question TEXT (exact
@@ -2309,6 +2358,52 @@ function recordQualificationUpdates(db, leadId, sessionId, updates) {
       skipped += 1;
       continue;
     }
+    // Batch 167 gates — AI-fallback path only (opts-gated, so
+    // human-agent reports via chatbot.reply and direct callers keep
+    // the exact Batch 137 semantics):
+    if (status === 'asked') {
+      // Rule C start gate: no question may be marked asked before
+      // qualification has started (first substantive answered turn;
+      // opts.startedThisTurn covers an answer+ask in the same reply).
+      if (opts.enforceStartGate && !record.started && !opts.startedThisTurn) {
+        gated += 1;
+        continue;
+      }
+      // Rule C re-ask budget: re-asking the waiting question counts
+      // against the platform-set budget; past it the item is muted
+      // and the prompt stops offering it as askable.
+      if (item.status === 'asked') {
+        const reasks = (Number(item.reasks) || 0) + 1;
+        item.reasks = reasks;
+        const budget =
+          Number.isInteger(opts.reaskBudget) && opts.reaskBudget >= 0
+            ? opts.reaskBudget
+            : CHAT_QUAL_REASK_BUDGET_DEFAULT;
+        if (reasks > budget) item.muted = true;
+      }
+    }
+    if (
+      (status === 'answered' || status === 'answered_from_conversation') &&
+      opts.guardMiscapture &&
+      opts.latestVisitorText
+    ) {
+      // Rule C anti-miscapture gate: a visitor QUESTION (or request)
+      // is never the answer to a pending question. The YWL failure
+      // stored "what do you do" as the visitor's website address.
+      // Blocked shapes: no answer text at all, the answer IS the
+      // visitor's question verbatim (normalised), or the answer is
+      // an echo of the question's own text. A genuine value embedded
+      // in a longer message is NOT equal to the message, so real
+      // answers still record.
+      const msgText = String(opts.latestVisitorText || '');
+      if (looksLikeQuestion(msgText) || looksLikeRequest(msgText)) {
+        const ans = chatNormText(u && typeof u.answer === 'string' ? u.answer : '');
+        if (!ans || ans === chatNormText(msgText) || ans === chatNormText(item.question)) {
+          gated += 1;
+          continue;
+        }
+      }
+    }
     item.status = status;
     if (u.answer != null && typeof u.answer === 'string') {
       item.answer = u.answer.slice(0, QUALIFYING_ANSWER_MAX_CHARS) || null;
@@ -2317,7 +2412,7 @@ function recordQualificationUpdates(db, leadId, sessionId, updates) {
     applied += 1;
   }
   if (applied > 0) saveSessionQualification(db, session.id, record);
-  return { record, applied, skipped };
+  return { record, applied, skipped, gated };
 }
 
 /** Owner-facing status words — descriptive only, never pass/fail. */
@@ -2363,6 +2458,13 @@ function qualifyingPromptLines(record) {
       case 'answered_from_conversation':
         return `the visitor already mentioned this themselves: "${it.answer || ''}" — do NOT ask it`;
       case 'asked':
+        // Batch 167: a question re-asked past its budget is muted —
+        // the prompt must stop offering it as askable, or the model
+        // keeps pumping it (YWL Rule C / E7).
+        if (it.muted)
+          return 'asked, then re-asked without an answer — do NOT ask it again this session; only record it if the visitor volunteers the answer';
+        if (Number(it.reasks) > 0)
+          return 'asked — waiting for their answer (already re-asked — if they dodge it again, let it go and report declined)';
         return 'asked — waiting for their answer';
       case 'declined':
         return 'the visitor passed on this one — do NOT ask it again';
@@ -2370,6 +2472,21 @@ function qualifyingPromptLines(record) {
         return 'not asked yet';
     }
   };
+  // Batch 167 (Rule C): qualification starts only after the first
+  // substantive ANSWERED turn. Before that the block is dormant —
+  // the questions are listed so volunteered answers can still be
+  // recognised, but the model is told plainly not to ask any of
+  // them yet. (The YWL failure mode: the agent interrogated the
+  // visitor before it had answered anything at all.)
+  if (!rec.started) {
+    return [
+      'Qualifying questions from the business owner (NOT STARTED — do not ask any of them yet):',
+      'These questions begin only after you have given this visitor a substantive answer of your own. Until then, just help them with what they asked. When they do start, ask them ONE at a time, exactly as written, woven naturally into the conversation — never as a list, never glued onto an unrelated reply.',
+      ...rec.items.map((it, i) => `${i + 1}. "${it.question}" — ${state(it)}`),
+      '- If the visitor volunteers an answer to one of these before they start, do not ask it — report it in your JSON "qualification" array as answered_from_conversation with the answer you found.',
+      '',
+    ];
+  }
   return [
     'Qualifying questions from the business owner (ask them EXACTLY as written, word for word — never invent, add, or rephrase screening questions):',
     ...rec.items.map((it, i) => `${i + 1}. "${it.question}" — ${state(it)}`),
@@ -2880,6 +2997,225 @@ function scheduleAiFallbackReply({ workspaceId, leadId, sessionId }) {
   _aiFallbackTimers.set(key, timer);
 }
 
+/* ================================================================== */
+/* Batch 167 — chat redesign port (YWL Rules A–K). BitPype's chat has */
+/* no deterministic flow engine: the routed model IS the brain, the   */
+/* only "flows" are the owner's qualifying questions (137/140), the   */
+/* lead-capture offer and the booking pitch fact. The port therefore  */
+/* lands as (a) a deterministic harness evaluated in the AI fallback  */
+/* turn before the model runs, (b) server-side gates on model-        */
+/* reported qualification state, (c) per-session chat state with a    */
+/* consecutive-miss ladder and honest outcomes, and (d) a price       */
+/* fact-check on answered replies. Voice shares buildAssistantContext */
+/* and is deliberately untouched (procedure parity out of scope).     */
+/* ================================================================== */
+
+// Sync fallbacks mirroring the platform setting defaults
+// (server/platform.js PLATFORM_SETTING_DEFS: chat.qual_reask_budget,
+// chat.fallback_handoff_at). Used only where the async platform read
+// is unavailable (sync agent-reply path) — the fallback turn itself
+// always reads the live settings.
+const CHAT_QUAL_REASK_BUDGET_DEFAULT = 1;
+const CHAT_FALLBACK_HANDOFF_AT_DEFAULT = 3;
+
+const CHAT_STATE_DEFAULTS = {
+  v: 1,
+  answered_count: 0,
+  miss_streak: 0,
+  miss_total: 0,
+  fact_check_blocks: 0,
+  had_ai_unavailable: false,
+  handoff_requested: false,
+  suppress_qual: false,
+  suppress_capture: false,
+  suppress_booking: false,
+  outcome: null,
+  updated_at: null,
+};
+
+function parseChatState(raw) {
+  let obj = raw;
+  if (typeof raw === 'string') {
+    try {
+      obj = JSON.parse(raw || '');
+    } catch {
+      return null;
+    }
+  }
+  if (!obj || typeof obj !== 'object') return null;
+  return {
+    v: 1,
+    answered_count: Number(obj.answered_count) || 0,
+    miss_streak: Number(obj.miss_streak) || 0,
+    miss_total: Number(obj.miss_total) || 0,
+    fact_check_blocks: Number(obj.fact_check_blocks) || 0,
+    had_ai_unavailable: !!obj.had_ai_unavailable,
+    handoff_requested: !!obj.handoff_requested,
+    suppress_qual: !!obj.suppress_qual,
+    suppress_capture: !!obj.suppress_capture,
+    suppress_booking: !!obj.suppress_booking,
+    outcome: obj.outcome != null ? String(obj.outcome) : null,
+    updated_at: obj.updated_at != null ? String(obj.updated_at) : null,
+  };
+}
+
+function getChatState(db, sessionId) {
+  ensureTables(db);
+  const row = db.prepare('SELECT chat_state_json FROM chatbot_sessions WHERE id = ?').get(Number(sessionId));
+  return row ? parseChatState(row.chat_state_json) : null;
+}
+
+function saveChatState(db, sessionId, state) {
+  const next = { ...CHAT_STATE_DEFAULTS, ...(state || {}), v: 1, updated_at: new Date().toISOString() };
+  db.prepare("UPDATE chatbot_sessions SET chat_state_json = ?, updated_at = datetime('now') WHERE id = ?").run(
+    JSON.stringify(next),
+    Number(sessionId)
+  );
+  return next;
+}
+
+/**
+ * Rule G — the honest session outcome, computed from the RESULTING
+ * STATE, never from a per-turn label: a captured lead resolves; an
+ * open escalation (or a visitor-requested handoff) escalates; a
+ * session where the AI actually answered something resolves; one
+ * with misses / AI outages and nothing achieved is unresolved;
+ * anything else is still open (or unresolved once closed).
+ * Vocabulary mirrors the YWL outcome set.
+ */
+function computeChatOutcome(db, session) {
+  if (!session) return 'open';
+  const sid = Number(session.id);
+  const lead = db.prepare('SELECT id FROM chatbot_leads WHERE session_id = ? LIMIT 1').get(sid);
+  if (lead) return 'resolved';
+  const esc = db
+    .prepare("SELECT id FROM chatbot_escalations WHERE session_id = ? AND status = 'open' LIMIT 1")
+    .get(sid);
+  if (esc) return 'escalated';
+  const state = parseChatState(session.chat_state_json);
+  if (state && state.handoff_requested) return 'escalated';
+  if (state && state.answered_count > 0) return 'resolved';
+  if (state && (state.miss_total > 0 || state.had_ai_unavailable)) return 'unresolved';
+  return session.status === 'open' ? 'open' : 'unresolved';
+}
+
+/** Recompute + persist the provisional outcome (and any mutation). */
+function updateChatState(db, leadId, sessionId, mutator) {
+  const session = getSessionById(db, leadId, sessionId);
+  if (!session) return null;
+  const state = parseChatState(session.chat_state_json) || { ...CHAT_STATE_DEFAULTS };
+  if (typeof mutator === 'function') mutator(state);
+  state.outcome = computeChatOutcome(db, { ...session, chat_state_json: JSON.stringify(state) });
+  return saveChatState(db, sessionId, state);
+}
+
+/** Rule C: the first substantive answered turn starts qualification. */
+function markQualificationStarted(db, leadId, sessionId) {
+  const record = getSessionQualification(db, sessionId);
+  if (!record || record.started) return record;
+  record.started = true;
+  return saveSessionQualification(db, sessionId, record);
+}
+
+/* ---- Harness predicates (Rule A) — ported semantics from the YWL
+ * chatflow harness: whole-message/phrase level, evaluated BEFORE the
+ * model sees the turn, and always disarmed when the reply reads as
+ * an answer to the pending question itself (Rule E6 guard). ---- */
+const CHAT_HARD_HUMAN_RE =
+  /\b(human|real person|real human|actual person|live person|live agent|speak to someone|talk to someone|talk to a person|speak to a person|talk to the team|speak to the team|talk to a human|speak to a human|a person please|someone real|real agent|customer service|representative)\b/i;
+const CHAT_FLOW_ABORT_RE =
+  /\b(don'?t want to|do not want to|not interested|no longer interested|no thanks|no thank you|changed my mind|forget (it|this)|never ?mind|stop (this|that|it)|cancel (this|that|it|the booking)?|quit|give up)\b/i;
+const CHAT_NO_ONLY_RE = /^\s*(no|nope|nah)\.?\s*$/i;
+const CHAT_DECLINE_RE =
+  /^\s*(no|nope|not really|rather not|rather not say|prefer not|don'?t want to|do not want to|none of your business|skip|pass|n\/a|na)\b/i;
+const CHAT_HEDGE_RE = /\b(not sure|don'?t know|dont know|no idea|haven'?t decided|undecided|maybe later)\b/i;
+const CHAT_REQUEST_OPENERS =
+  /^(write|tell|show|give|make|create|sing|say|list|explain|describe|find|get|play|read|draw|compose|recite)\b/i;
+const CHAT_REQUEST_NOUNS =
+  /\b(poem|joke|song|essay|haiku|riddle|recipe|story|rap|limerick|tongue twister|weather|news|capital of|meaning of life)\b/i;
+const CHAT_QUESTION_OPENERS =
+  /^(what|when|where|which|who|whom|whose|why|how|can|could|do|does|did|is|are|was|were|will|would|should|have|has)\b/i;
+
+function chatNormText(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function looksLikeQuestion(msg) {
+  const m = String(msg || '').trim();
+  if (!m) return false;
+  if (m.includes('?')) return true;
+  return CHAT_QUESTION_OPENERS.test(m);
+}
+
+function looksLikeRequest(msg) {
+  const m = String(msg || '').trim();
+  if (!m) return false;
+  if (CHAT_REQUEST_NOUNS.test(m)) return true;
+  return CHAT_REQUEST_OPENERS.test(m) && m.split(/\s+/).length >= 3;
+}
+
+function isChatDecline(msg) {
+  return CHAT_DECLINE_RE.test(String(msg || ''));
+}
+function isChatHedge(msg) {
+  return CHAT_HEDGE_RE.test(String(msg || ''));
+}
+
+/** Rule E6: a reply whose words appear inside the pending question's
+ * own text is an ANSWER to it, never a new intent or an abort. */
+function answerInQuestion(msg, qtext) {
+  const m = chatNormText(msg);
+  const q = chatNormText(qtext);
+  if (!m || m.length < 4 || !q) return false;
+  return (' ' + q + ' ').includes(' ' + m + ' ');
+}
+
+/** A substantive question/request — the unit the miss ladder counts. */
+function isSubstantiveQuestion(msg) {
+  const m = String(msg || '').trim();
+  if (!m || isGreetingOnly(m)) return false;
+  return looksLikeQuestion(m) || looksLikeRequest(m);
+}
+
+/* ---- Price grounding (Rule H / I4) — ported from the YWL brain:
+ * every $ amount in an answered reply must trace to the price book,
+ * a bookable price, or an amount stated in this turn's retrieved
+ * knowledge/site text (or a sum of up to three listed prices). ---- */
+function chatStatedAmounts(text) {
+  const out = [];
+  const re = /\$\s?(\d[\d,]*(?:\.\d{1,2})?)/g;
+  let m;
+  while ((m = re.exec(String(text || '')))) out.push(Number(m[1].replace(/,/g, '')));
+  return out;
+}
+
+function allowedChatAmounts(baseCents, texts) {
+  const base = [...new Set((baseCents || []).filter((n) => Number(n) > 0).map((n) => Math.round(Number(n))))];
+  const set = new Set(base);
+  set.add(0);
+  const uniq = [...new Set(base.map((c) => c / 100))].slice(0, 12);
+  for (let i = 0; i < uniq.length; i++)
+    for (let j = i; j < uniq.length; j++) {
+      set.add(Math.round((uniq[i] + uniq[j]) * 100));
+      for (let k = j; k < uniq.length; k++) set.add(Math.round((uniq[i] + uniq[j] + uniq[k]) * 100));
+    }
+  for (const t of texts || []) for (const n of chatStatedAmounts(t)) set.add(Math.round(n * 100));
+  return set;
+}
+
+function unverifiedChatAmounts(reply, allowedSet) {
+  return chatStatedAmounts(reply).filter((n) => !allowedSet.has(Math.round(n * 100)));
+}
+
+const CHAT_FACT_CHECK_UNKNOWN_REPLY =
+  "I don't have that price confirmed in the business's own material, so I don't want to guess at a figure. The team can give you the exact price — leave your details in the Details tab and they'll follow up, or ask me something else.";
+const CHAT_CAPTURE_SUPPRESSED_REPLY =
+  'Of course — happy to keep helping right here in the chat. What else would you like to know?';
+
 /** Atomically claim needs_agent so AI fallback and live agent cannot both reply. */
 function claimNeedsAgent(db, sessionId) {
   const info = db
@@ -3003,12 +3339,123 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
       // — a fact about the business (like its hours), present only
       // when the owner has published pricing entries.
       priceBook: priceBookFor(db, leadId),
+      // Batch 167: the session's chat state (miss ladder, handoff and
+      // suppress flags, counters) and the grounded price amounts for
+      // the Rule H fact-check — price book entries plus bookable
+      // prices (booking services + shop products), in cents.
+      chatState: parseChatState(session.chat_state_json),
+      priceAmounts: (() => {
+        try {
+          const pricing = require('./pricing');
+          const amounts = [];
+          const book = pricing.getPriceBook(db, leadId);
+          for (const e of book.entries || []) amounts.push(Number(e.price_cents) || 0);
+          const links = pricing.listLinkables(db, leadId);
+          for (const s of links.bookings || []) amounts.push(Number(s.price_cents) || 0);
+          for (const p of links.ecommerce || []) amounts.push(Number(p.price_cents) || 0);
+          return amounts;
+        } catch {
+          return [];
+        }
+      })(),
       configured: aiConfigured(db),
       allowCapture: visitorStatedNeed(messages),
     };
   });
 
   if (snapshot.skip) return { skipped: true, reason: snapshot.reason };
+
+  /* ---- Batch 167 harness layer (Rule A) --------------------------
+   * Evaluated on the visitor's latest message BEFORE the model runs
+   * — and before the AI-ready branch, so a human request or a cancel
+   * is honoured even when no AI provider is configured. Every check
+   * is disarmed when the reply reads as an answer to the pending
+   * qualifying question itself (Rule E6 guard). */
+  const chatState0 = snapshot.chatState || { ...CHAT_STATE_DEFAULTS };
+  const latestText = String(snapshot.latestVisitor || '');
+
+  // A visitor who already asked for a person is waiting for one —
+  // the AI stands down rather than jumping back in on every message.
+  // (A human agent's reply clears the flag — see agentReply.)
+  if (chatState0.handoff_requested) {
+    return { skipped: true, reason: 'handoff_pending' };
+  }
+
+  const qualRec0 = snapshot.qualification;
+  const askedIdx0 = qualRec0 ? qualRec0.items.findIndex((it) => it.status === 'asked') : -1;
+  const askedItem0 = askedIdx0 >= 0 ? qualRec0.items[askedIdx0] : null;
+  const answerLikely0 = !!askedItem0 && answerInQuestion(latestText, askedItem0.question);
+
+  // (i) Human request → abort whatever was in play + handoff path.
+  if (!answerLikely0 && CHAT_HARD_HUMAN_RE.test(latestText)) {
+    return domain.withDb(workspaceId, (db) => {
+      if (!claimNeedsAgent(db, sessionId)) return { skipped: true, reason: 'race' };
+      escalateSession(db, leadId, {
+        sessionId,
+        message: latestText,
+        reason: 'visitor_requested_human',
+      });
+      updateChatState(db, leadId, sessionId, (st) => {
+        st.handoff_requested = true;
+      });
+      return { posted: true, via: 'harness_handoff' };
+    });
+  }
+
+  // (ii) Cancel / stop / negation — only with something cancellable
+  // in play (a waiting question, an offered capture form, or the
+  // booking pitch the message names). Free-text conversation keeps
+  // phrase-level exits; a bare "no" counts only at a choice point.
+  const lastAgentMsg0 = [...(snapshot.messages || [])].reverse().find((m) => m.role === 'agent');
+  const captureOffered0 = !!(
+    lastAgentMsg0 &&
+    lastAgentMsg0.meta &&
+    (lastAgentMsg0.meta.action === 'capture' || lastAgentMsg0.meta.open_lead_form)
+  );
+  const bookingNamed0 = /\b(book|booking|appointment)\b/i.test(latestText) && !!snapshot.bookingPitch;
+  let cancelTarget0 = null;
+  if (
+    !answerLikely0 &&
+    (CHAT_FLOW_ABORT_RE.test(latestText) || (CHAT_NO_ONLY_RE.test(latestText) && (askedItem0 || captureOffered0)))
+  ) {
+    if (bookingNamed0) cancelTarget0 = { kind: 'booking', label: 'that booking' };
+    else if (askedItem0) cancelTarget0 = { kind: 'qual', label: 'those questions' };
+    else if (captureOffered0) cancelTarget0 = { kind: 'capture', label: 'asking for your details' };
+  }
+  if (cancelTarget0) {
+    return domain.withDb(workspaceId, (db) => {
+      if (!claimNeedsAgent(db, sessionId)) return { skipped: true, reason: 'race' };
+      if (cancelTarget0.kind === 'qual') {
+        try {
+          recordQualificationUpdates(db, leadId, sessionId, [{ index: askedIdx0, status: 'declined' }]);
+        } catch {
+          /* recording must never break the cancel confirmation */
+        }
+      }
+      updateChatState(db, leadId, sessionId, (st) => {
+        if (cancelTarget0.kind === 'qual') st.suppress_qual = true;
+        if (cancelTarget0.kind === 'capture') st.suppress_capture = true;
+        if (cancelTarget0.kind === 'booking') st.suppress_booking = true;
+      });
+      const msg = postChatFallback(
+        db,
+        leadId,
+        sessionId,
+        `No problem — I've cancelled ${cancelTarget0.label}. Happy to keep helping here if you'd like.`
+      );
+      return { posted: true, via: 'harness_cancel', action: 'chat', message: msg };
+    });
+  }
+
+  // Decline / hedge of the waiting question — recorded
+  // deterministically (the snapshot copy is updated too, so THIS
+  // turn's prompt already shows it declined) while the model keeps
+  // helping as normal. Declined is terminal: never re-asked.
+  let harnessDeclineIdx = -1;
+  if (askedItem0 && !answerLikely0 && (isChatDecline(latestText) || isChatHedge(latestText))) {
+    snapshot.qualification.items[askedIdx0] = { ...askedItem0, status: 'declined' };
+    harnessDeclineIdx = askedIdx0;
+  }
 
   const bizName = snapshot.business && snapshot.business.businessName;
   const thanks = leadCaptureThanksFor(bizName);
@@ -3057,6 +3504,24 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
     });
   }
 
+  // Batch 167: the flow budgets are platform settings (Admin →
+  // Settings), never hard-coded — read them live for this turn;
+  // the sync defaults apply only if the platform store is down.
+  const chat167 = { reaskBudget: CHAT_QUAL_REASK_BUDGET_DEFAULT, handoffAt: CHAT_FALLBACK_HANDOFF_AT_DEFAULT };
+  try {
+    const platform = require('./platform');
+    const [rb, ha] = await Promise.all([
+      platform.getPlatformSetting('chat.qual_reask_budget', ''),
+      platform.getPlatformSetting('chat.fallback_handoff_at', ''),
+    ]);
+    const rbn = Number.parseInt(String(rb || ''), 10);
+    if (Number.isInteger(rbn) && rbn >= 0 && rbn <= 10) chat167.reaskBudget = rbn;
+    const han = Number.parseInt(String(ha || ''), 10);
+    if (Number.isInteger(han) && han >= 1 && han <= 10) chat167.handoffAt = han;
+  } catch {
+    /* defaults stand */
+  }
+
   const historyLines = (snapshot.messages || [])
     .slice(-12)
     .map((m) => {
@@ -3070,6 +3535,7 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
     snapshot.knowledge && snapshot.knowledge.count > 0 ? snapshot.knowledge.text : '(no knowledge files uploaded yet)';
 
   let raw = '';
+  let chatMessagesRef = null; // Batch 167: kept for the fact-check regeneration.
   try {
     const result = await domain.withDb(workspaceId, async (db) =>
       chat({
@@ -3078,7 +3544,7 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
         leadId,
         note: `chatbot-fallback session=${sessionId}`,
         maxTokens: 450,
-        messages: [
+        messages: (chatMessagesRef = [
           {
             role: 'system',
             content: [
@@ -3094,7 +3560,7 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
               // because the bookings module is live. No visitor-signal
               // judgment gates it; the discount line exists only when
               // the owner has the discount on.
-              ...(snapshot.bookingPitch
+              ...(snapshot.bookingPitch && !chatState0.suppress_booking
                 ? [
                     'Online booking (always true on this site):',
                     snapshot.bookingPitch.pitch_text,
@@ -3109,7 +3575,7 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
               // AFTER Batch 136's booking-pitch block: site fact
               // first, then the owner's questions; the two blocks
               // are independent — neither gates the other.)
-              ...qualifyingPromptLines(snapshot.qualification),
+              ...(chatState0.suppress_qual ? [] : qualifyingPromptLines(snapshot.qualification)),
               // Batch 139: the price book — templated exact figures
               // from the owner's Pricing module. The model quotes
               // ONLY these for prices; the header pins the discount
@@ -3150,7 +3616,7 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
             role: 'user',
             content: `Conversation:\n${historyLines}\n\nLatest visitor message:\n${snapshot.latestVisitor}`,
           },
-        ],
+        ]),
       })
     );
     raw = result && result.text ? result.text : '';
@@ -3163,7 +3629,18 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
     const heur = heuristicSupportReply(snapshot.latestVisitor, bizName, snapshot.messages);
     return domain.withDb(workspaceId, (db) => {
       if (!claimNeedsAgent(db, sessionId)) return { skipped: true, reason: 'race' };
-      return { ...applyFallbackAction(db, leadId, sessionId, heur, bizName), via: 'ai_error' };
+      const appliedErr = { ...applyFallbackAction(db, leadId, sessionId, heur, bizName), via: 'ai_error' };
+      // Batch 167: a provider outage is recorded on the session
+      // state — it feeds the honest outcome (Rule G) exactly like
+      // the YWL had_ai_unavailable flag.
+      try {
+        updateChatState(db, leadId, sessionId, (st) => {
+          st.had_ai_unavailable = true;
+        });
+      } catch {
+        /* state must never break the reply */
+      }
+      return appliedErr;
     });
   }
 
@@ -3176,17 +3653,129 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
     parsed = { ...parsed, reply: thanks };
   }
 
+  /* Batch 167 (Rule H / I4) — price fact-check on answered replies.
+   * Every $ amount must trace to the grounded set; one regeneration
+   * with the constraint; a second violation downgrades the reply to
+   * an honest unknown and counts a fact-check block (which also
+   * feeds the miss ladder below, exactly as in the YWL brain). */
+  let factCheckBlocked = false;
+  if (parsed.action === 'answer' && chatMessagesRef) {
+    const allowed = allowedChatAmounts(snapshot.priceAmounts, [
+      snapshot.knowledge && snapshot.knowledge.text,
+      snapshot.sources && snapshot.sources.text,
+    ]);
+    if (unverifiedChatAmounts(parsed.reply, allowed).length) {
+      try {
+        const retry = await domain.withDb(workspaceId, async (db) =>
+          chat({
+            task: 'qa',
+            db,
+            leadId,
+            note: `chatbot-fallback-factcheck session=${sessionId}`,
+            maxTokens: 450,
+            messages: [
+              {
+                role: 'system',
+                content:
+                  chatMessagesRef[0].content +
+                  '\nIMPORTANT: only state prices that appear verbatim in the material above (price book, site content, knowledge excerpts). Do not state, estimate or total any other amount.',
+              },
+              chatMessagesRef[1],
+            ],
+          })
+        );
+        const p2 = parseAiFallbackResponse(retry && retry.text ? retry.text : '', {
+          businessName: bizName,
+          allowCapture,
+        });
+        if (p2.action === 'answer' && !unverifiedChatAmounts(p2.reply, allowed).length) {
+          parsed = p2;
+        }
+      } catch {
+        /* the downgrade below still applies */
+      }
+      if (unverifiedChatAmounts(parsed.reply, allowed).length) {
+        parsed = { ...parsed, reply: CHAT_FACT_CHECK_UNKNOWN_REPLY };
+        factCheckBlocked = true;
+      }
+    }
+  }
+
+  // Batch 167: a capture the visitor already cancelled stays cancelled.
+  if (parsed.action === 'capture' && chatState0.suppress_capture) {
+    parsed = { action: 'chat', reply: CHAT_CAPTURE_SUPPRESSED_REPLY };
+  }
+
+  /* Batch 167 turn classification (Rules C/F/G): an answered turn is
+   * a grounded 'answer' to a substantive message; a miss is a
+   * substantive question/request the model could only 'chat' back
+   * to (or a fact-check downgrade). The ladder fires when the
+   * consecutive-miss streak reaches the platform setting. */
+  const answeredTurn = parsed.action === 'answer' && !factCheckBlocked && !isGreetingOnly(latestText);
+  const isMiss = (parsed.action === 'chat' || factCheckBlocked) && isSubstantiveQuestion(latestText);
+  const newStreak = isMiss
+    ? chatState0.miss_streak + 1
+    : parsed.action === 'answer' || parsed.action === 'capture'
+      ? 0
+      : chatState0.miss_streak;
+  const ladderNow = isMiss && newStreak >= chat167.handoffAt && !chatState0.handoff_requested;
+
   return domain.withDb(workspaceId, (db) => {
     if (!claimNeedsAgent(db, sessionId)) return { skipped: true, reason: 'race' };
+    // Rule F: at the threshold the offer becomes an explicit person
+    // offer — BitPype's escalation path — instead of another guess
+    // or another capture ask.
+    if (ladderNow) {
+      escalateSession(db, leadId, {
+        sessionId,
+        message: latestText,
+        reason: 'repeated_unanswered',
+      });
+      updateChatState(db, leadId, sessionId, (st) => {
+        st.handoff_requested = true;
+        st.miss_streak = 0;
+        st.miss_total += 1;
+      });
+      return { posted: true, via: 'fallback_ladder' };
+    }
     const applied = { ...applyFallbackAction(db, leadId, sessionId, parsed, bizName), via: 'chatgpt' };
+    // Rule C: the first substantive answered turn starts
+    // qualification — marked BEFORE recording so an answer+ask in
+    // the same reply is recorded, not gated.
+    if (answeredTurn) {
+      try {
+        markQualificationStarted(db, leadId, sessionId);
+      } catch {
+        /* never breaks the reply */
+      }
+    }
+    // The harness decline is recorded before the model's own reports
+    // so a conflicting report this turn cannot resurrect the
+    // question (declined is terminal/sticky).
+    if (harnessDeclineIdx >= 0) {
+      try {
+        recordQualificationUpdates(db, leadId, sessionId, [{ index: harnessDeclineIdx, status: 'declined' }]);
+      } catch {
+        /* never breaks the reply */
+      }
+    }
     // Batch 137: persist the model's qualifying-question reports
     // against the session snapshot. Recording never breaks (or
     // gates) the reply that was just posted — capture and booking
     // proceed exactly as before, answered questions or not.
+    // Batch 167: the fallback path records through the Rule C gates
+    // (start gate, anti-miscapture, re-ask budget, suppression).
     if (Array.isArray(parsed.qualification) && parsed.qualification.length) {
       try {
-        const rec = recordQualificationUpdates(db, leadId, sessionId, parsed.qualification);
-        applied.qualification = { applied: rec.applied, skipped: rec.skipped };
+        const rec = recordQualificationUpdates(db, leadId, sessionId, parsed.qualification, {
+          reaskBudget: chat167.reaskBudget,
+          enforceStartGate: true,
+          startedThisTurn: answeredTurn,
+          guardMiscapture: true,
+          latestVisitorText: latestText,
+          suppressQual: chatState0.suppress_qual,
+        });
+        applied.qualification = { applied: rec.applied, skipped: rec.skipped, gated: rec.gated };
       } catch (err) {
         try {
           process.stderr.write(
@@ -3196,6 +3785,19 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
           /* ignore */
         }
       }
+    }
+    // Batch 167: counters + provisional honest outcome (Rules F/G).
+    try {
+      updateChatState(db, leadId, sessionId, (st) => {
+        if (answeredTurn) st.answered_count += 1;
+        st.miss_streak = newStreak;
+        if (isMiss) st.miss_total += 1;
+        if (factCheckBlocked) st.fact_check_blocks += 1;
+      });
+      const stNow = getChatState(db, sessionId);
+      if (stNow) applied.outcome = stNow.outcome;
+    } catch {
+      /* counters never break the reply */
     }
     return applied;
   });
@@ -3285,6 +3887,18 @@ function captureLead(db, token, data = {}) {
 
   if (sessionId) {
     addMessage(db, sessionId, leadId, 'system', 'Thanks — we received your contact details and will follow up.');
+  }
+
+  // Batch 167 (Rule G): a capture is the other chat "end" —
+  // recompute the stored provisional outcome now that the lead row
+  // exists (it reads back as 'resolved').
+  if (sessionId) {
+    try {
+      const sessRow = getSessionById(db, leadId, sessionId);
+      if (sessRow && sessRow.chat_state_json) updateChatState(db, leadId, sessionId, null);
+    } catch {
+      /* outcome bookkeeping never breaks a capture */
+    }
   }
 
   const settings = getSettings(db, leadId);
@@ -3542,6 +4156,19 @@ function agentReply(db, leadId, sessionId, message, meta = null, opts = {}) {
     WHERE id = ?
   `
   ).run(session.id);
+  // Batch 167: a human replying ends the visitor-requested handoff
+  // stand-down — the AI fallback may answer later questions again,
+  // and the miss streak resets (a person picked the conversation up).
+  if (session.chat_state_json) {
+    try {
+      updateChatState(db, leadId, session.id, (st) => {
+        st.handoff_requested = false;
+        st.miss_streak = 0;
+      });
+    } catch {
+      /* state must never break a human reply */
+    }
+  }
   const out = {
     session: publicSession(getSessionById(db, leadId, session.id)),
     message: msg,
@@ -3608,6 +4235,17 @@ function escalateSession(db, leadId, { sessionId, message, reason } = {}) {
       UPDATE chatbot_sessions SET needs_agent = 0, updated_at = datetime('now') WHERE id = ?
     `
     ).run(session.id);
+  }
+
+  // Batch 167 (Rule G): an escalation is one of the chat session's
+  // "ends" — recompute the stored provisional outcome now that the
+  // escalation row exists (it reads back as 'escalated').
+  if (session && session.chat_state_json) {
+    try {
+      updateChatState(db, leadId, session.id, null);
+    } catch {
+      /* outcome bookkeeping never breaks an escalation */
+    }
   }
 
   return {
@@ -3725,6 +4363,27 @@ function portalChatbotSummary(db, leadId) {
       .map((r) => publicSession(r))
       .filter((s) => s && s.qualification),
     voice: voiceSummary(db, leadId),
+    // Batch 167 (Rule G): honest outcome counts over recent sessions
+    // that carry chat state — computed from resulting state (lead
+    // rows, open escalations, counters), never from per-turn labels.
+    outcomes: (() => {
+      const counts = { resolved: 0, escalated: 0, unresolved: 0, open: 0 };
+      try {
+        const rows = db
+          .prepare(
+            `
+          SELECT * FROM chatbot_sessions
+          WHERE lead_id = ? AND chat_state_json IS NOT NULL
+          ORDER BY id DESC LIMIT 200
+        `
+          )
+          .all(Number(leadId));
+        for (const r of rows) counts[computeChatOutcome(db, r)] += 1;
+      } catch {
+        /* counts are advisory */
+      }
+      return counts;
+    })(),
     allowed_actions: listAllowedActions(db, leadId),
     booking_pitch: bookingPitchFor(db, leadId),
     agent_boundary: {
@@ -4035,6 +4694,23 @@ module.exports = {
   qualificationSummaryText,
   qualifyingPromptLines,
   normalizeQualifyingStatus,
+  // Batch 167: chat-redesign state + harness + grounding surface.
+  parseChatState,
+  getChatState,
+  computeChatOutcome,
+  markQualificationStarted,
+  chatNormText,
+  looksLikeQuestion,
+  looksLikeRequest,
+  isChatDecline,
+  isChatHedge,
+  answerInQuestion,
+  isSubstantiveQuestion,
+  chatStatedAmounts,
+  allowedChatAmounts,
+  unverifiedChatAmounts,
+  CHAT_QUAL_REASK_BUDGET_DEFAULT,
+  CHAT_FALLBACK_HANDOFF_AT_DEFAULT,
   isGreetingOnly,
   visitorStatedNeed,
   loadBusinessSupportContext,

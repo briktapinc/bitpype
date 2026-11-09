@@ -131,9 +131,17 @@ function addMsg(sessionId, leadId, role, body) {
     n += 4;
 
     // Prompt injection is a conditional spread (off = prompt unchanged).
+    // Batch 167 re-pin (deliberate): the spread is now also gated on
+    // the session's suppress_qual state (a visitor who cancelled the
+    // questions gets no block at all) — same conditional-spread
+    // discipline, one more condition.
     assert.ok(
-      chatSrc.includes('...qualifyingPromptLines(snapshot.qualification)'),
+      chatSrc.includes('qualifyingPromptLines(snapshot.qualification)'),
       'fallback prompt gains the block via conditional spread only'
+    );
+    assert.ok(
+      chatSrc.includes('chatState0.suppress_qual'),
+      'Batch 167: the spread is gated on the suppress flag'
     );
     const blockBody = chatSrc.slice(
       chatSrc.indexOf('function qualifyingPromptLines'),
@@ -155,14 +163,20 @@ function addMsg(sessionId, leadId, role, body) {
     n += 5;
 
     // Recording layer never touches booking/capture gating.
+    // Batch 167 re-pin (deliberate): the original word-level regex
+    // now matches the Rule C term "miscapture" (the anti-miscapture
+    // gate) — the invariant itself is unchanged and is now pinned
+    // precisely: the recording layer references no booking-pitch,
+    // capture-eligibility or capture-suppression state.
     const recBody = chatSrc.slice(
       chatSrc.indexOf('function recordQualificationUpdates'),
       chatSrc.indexOf('const QUALIFYING_STATUS_LABELS')
     );
     assert.ok(
-      !/booking|capture|visitorStatedNeed/i.test(recBody),
+      !/bookingPitch|visitorStatedNeed|allowCapture|suppress_capture|suppress_booking/.test(recBody),
       'the recording layer inspects no booking/capture state'
     );
+    assert.ok(recBody.includes('guardMiscapture'), 'Batch 167: the anti-miscapture gate lives in the recording layer');
     assert.ok(
       chatSrc.includes('const MIN_VISITOR_TURNS_BEFORE_CAPTURE = 2'),
       'existing capture gating constant untouched'
@@ -632,14 +646,27 @@ function addMsg(sessionId, leadId, role, body) {
     });
     const r1 = await chat.runAiFallbackReply(WS_ID, LEAD_ON, sess.id);
     assert.equal(r1.via, 'chatgpt');
-    assert.deepEqual(r1.qualification, { applied: 1, skipped: 0 }, 'the asked report was recorded');
+    // Batch 167 re-pin (deliberate — Rule C start gate): the model
+    // tried to ask Q1 on the very first turn, before it had answered
+    // anything substantive. Pre-167 that report recorded; now the
+    // server gates it (counted as `gated`, never stored as asked) —
+    // this is the YWL redesign's core fix, applied on Ely's order.
+    assert.deepEqual(
+      r1.qualification,
+      { applied: 0, skipped: 0, gated: 1 },
+      'Batch 167: an asked report before qualification starts is gated, not recorded'
+    );
     const prompt1 = prompts[0].messages[0].content;
     const p1 = prompt1.indexOf(`"${Q1}"`);
     const p2 = prompt1.indexOf(`"${Q2}"`);
     const p3 = prompt1.indexOf(`"${Q3}"`);
     assert.ok(p1 >= 0 && p2 > p1 && p3 > p2, 'prompt: questions byte-equal, in owner order');
     assert.ok(prompt1.includes('Qualifying questions from the business owner'), 'prompt: the block is present when ON');
-    assert.equal(chat.getSessionQualification(db, sess.id).items[0].status, 'asked');
+    const rec1 = chat.getSessionQualification(db, sess.id);
+    assert.ok(
+      rec1.items[0].status === 'pending' && !rec1.started,
+      'Batch 167: Q1 stays pending and qualification unstarted after turn 1'
+    );
     n += 5;
 
     // Turn 2: the prompt shows Q1 as asked; the visitor's answer
@@ -655,9 +682,18 @@ function addMsg(sessionId, leadId, role, body) {
       ],
     });
     const r2 = await chat.runAiFallbackReply(WS_ID, LEAD_ON, sess.id);
-    assert.deepEqual(r2.qualification, { applied: 2, skipped: 0 });
+    // Batch 167 re-pin (deliberate): the return now also carries the
+    // gated count (0 here — volunteered answers record even before
+    // qualification starts, by design).
+    assert.deepEqual(r2.qualification, { applied: 2, skipped: 0, gated: 0 });
     const prompt2 = prompts[1].messages[0].content;
-    assert.ok(prompt2.includes(`"${Q1}" — asked`), 'second-turn prompt shows the asked state (no re-ask from scratch)');
+    // Batch 167 re-pin (deliberate): Q1 was gated at turn 1, so the
+    // second-turn prompt shows it still pending inside the dormant
+    // (NOT STARTED) block — the pre-167 pin expected '— asked'.
+    assert.ok(
+      prompt2.includes('NOT STARTED') && prompt2.includes(`"${Q1}" — not asked yet`),
+      'Batch 167: second-turn prompt shows Q1 pending in the dormant block'
+    );
     const rec2 = chat.getSessionQualification(db, sess.id);
     assert.equal(rec2.items[0].answer, 'For my home');
     assert.equal(rec2.items[1].answer, 'This week');
