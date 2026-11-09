@@ -222,6 +222,10 @@ window.ScoutApi = (() => {
     assistantUsage: (month) => get('/assistant/usage', month ? { month } : undefined),
     assistantRollup: (month) => post('/assistant/usage/rollup', { month }),
     assistantQueueRollup: (month) => post('/assistant/usage/queue', { month }),
+    // ---- assistant themes (Batch 171: staff surface for Batch 169) ----
+    assistantThemes: () => get('/assistant/themes'),
+    assistantThemesLeads: (q) => get('/assistant/themes/leads', q ? { q } : undefined),
+    assistantThemesBuild: (body) => post('/assistant/themes/build', body),
     adminAiAssistant: () => get('/admin/settings/ai-assistant'),
     adminAiAssistantSave: (body) => put('/admin/settings/ai-assistant', body),
     adminAiAssistantUsage: (month) => get('/admin/settings/ai-assistant/usage', month ? { month } : undefined),

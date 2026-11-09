@@ -2616,4 +2616,95 @@ router.post('/assistant/usage/queue', assistantStaffOnly, requireRole('owner', '
   }
 });
 
+// ---------------------------------------------------------------------------
+// Batch 171 — Themes section + Build wizard on the STAFF Assistant
+// surface (Batch 169 shipped them portal-only; Ely asked for the
+// staff app too). Same single source (server/themesRegistry.js),
+// same wizard semantics and error contract as the portal routes in
+// server/routes/portal.js — only the auth + workspace resolution
+// differ, and both mirror the neighboring staff assistant handlers
+// exactly: assistantStaffOnly (session-only) and
+// domain.withDb(req.auth.workspaceId, ...) as in
+// GET /assistant/conversations and GET /assistant/usage above.
+const themesRegistry = () => require('../themesRegistry');
+
+/** The wizard's error contract, identical to the portal's: unknown
+ * lead 404, unknown theme / validation 400, duplicate lead email
+ * 409 (the lead engine's DUPLICATE_EMAIL carries err.status 409;
+ * this router's fail() would map the VALIDATION code to 422, so the
+ * build route maps its coded errors explicitly). */
+function themesBuildFail(res, e) {
+  const code = e && e.code;
+  if (code === 'NOT_FOUND') {
+    return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: e.message } });
+  }
+  if (code === 'DUPLICATE_EMAIL') {
+    return res
+      .status(409)
+      .json({ ok: false, error: { code: 'DUPLICATE_EMAIL', message: e.message, details: e.details } });
+  }
+  if (code === 'VALIDATION' || code === 'VALIDATION_ERROR') {
+    return res.status(400).json({ ok: false, error: { code, message: e.message } });
+  }
+  return fail(res, e);
+}
+
+router.get('/assistant/themes', assistantStaffOnly, (req, res) => {
+  try {
+    ok(res, { categories: themesRegistry().publicCatalog() });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.get('/assistant/themes/leads', assistantStaffOnly, (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim().slice(0, 80);
+    const data = domain.withDb(req.auth.workspaceId, (db) => {
+      const rows = q
+        ? db
+            .prepare(
+              `SELECT id, business_name, category, city FROM leads
+                WHERE business_name LIKE ? ESCAPE '\\' ORDER BY business_name ASC LIMIT 25`
+            )
+            .all(`%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`)
+        : db
+            .prepare(
+              'SELECT id, business_name, category, city FROM leads ORDER BY business_name ASC LIMIT 25'
+            )
+            .all();
+      return { leads: rows };
+    });
+    ok(res, data);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+router.post('/assistant/themes/build', assistantStaffOnly, (req, res) => {
+  try {
+    const body = req.body || {};
+    const data = domain.withDb(req.auth.workspaceId, (db) =>
+      themesRegistry().buildWithTheme(db, {
+        themeId: body.themeId,
+        leadId: body.leadId,
+        newLead: body.newLead,
+        businessName: body.businessName,
+        siteShape: body.siteShape,
+        pagesWanted: body.pagesWanted,
+        brandNotes: body.brandNotes,
+      })
+    );
+    ok(res, {
+      jobId: data.job.id,
+      status: data.job.status,
+      leadId: data.leadId,
+      themeId: data.theme.id,
+      themeName: data.theme.name,
+    });
+  } catch (e) {
+    themesBuildFail(res, e);
+  }
+});
+
 module.exports = router;

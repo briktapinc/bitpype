@@ -51,6 +51,7 @@ const ROUTE_LABELS = {
   fingerprints: 'Site fingerprints',
   archives: 'Archives',
   design: 'Design',
+  'design-new': 'New design job',
   social: 'Social',
   outreach: 'Outreach',
   pipeline: 'Pipeline',
@@ -3630,6 +3631,11 @@ async function pageAssistant() {
     <div class="card">
       <div class="panel-h"><h3>Assistant usage — this workspace</h3><span class="hint">portal usage is billed to the client at raw cost + margin; staff usage is internal cost, never billed</span></div>
       <div id="asst-usage"><p class="hint">Loading…</p></div>
+    </div>
+    <div class="card">
+      <div class="panel-h"><h3>Themes</h3><span class="hint">layout guides for new websites — Build this starts a staged design job in the queue; nothing publishes automatically</span></div>
+      <div id="asst-themes"><p class="hint">Loading themes…</p></div>
+      <p class="hint" id="asst-themes-status" role="status"></p>
     </div>`;
 
   const $s = (id) => document.getElementById(id);
@@ -3941,6 +3947,7 @@ async function pageAssistant() {
     status(errText(e));
   }
   refreshUsage();
+  mountStaffThemes();
 }
 
 async function pageFingerprints() {
@@ -5644,7 +5651,7 @@ async function pageDesign(param) {
     open: (t) => {
       window.location.hash = '#/design/' + t.dataset.id;
     },
-    new: () => openNewDesignModal(),
+    new: () => { window.location.hash = '#/design-new'; },
     delete: async (t) => {
       if (!window.confirm('Delete design job #' + t.dataset.id + '?')) return;
       await api.designDelete(Number(t.dataset.id));
@@ -5706,87 +5713,16 @@ function designTypeFill(current, autoFilled, next) {
   return cur;
 }
 
-async function openNewDesignModal() {
-  // Batch 153: types + per-type instructions come from the Admin →
-  // Design agent catalog (the default-instructions payload now
-  // carries `types`). Fallbacks keep the popup working if the fetch
-  // fails: the website entry alone, then a bare website type.
-  let typeList = [];
-  try {
-    const data = (await api.designDefaultInstructions()).data || {};
-    if (Array.isArray(data.types) && data.types.length) typeList = data.types;
-    else if (data.website) typeList = [{ type: 'website', instructions: data.website }];
-  } catch {
-    /* optional */
-  }
-  if (!typeList.length) typeList = [{ type: 'website', instructions: '' }];
-  const instructionsFor = (t) => {
-    const hit = typeList.find((x) => x.type === t);
-    return hit ? String(hit.instructions || '') : '';
-  };
-  const initialType = typeList.some((x) => x.type === 'website') ? 'website' : typeList[0].type;
-  let autoFilled = instructionsFor(initialType);
-  const m = openModal({
-    title: 'New design job',
-    wide: true,
-    body: `<div class="row">
-        <div class="field"><label>Type</label><select id="nd-type">${optionList(
-          typeList.map((x) => x.type),
-          initialType
-        )}</select></div>
-        <div class="field${initialType === 'website' ? '' : ' hidden'}" id="nd-shape-wrap"><label>Site shape</label><select id="nd-shape"><option value="multipage">Multi-page</option><option value="landing">Landing page</option></select></div>
-      </div>
-      <div class="field"><label>Title *</label><input id="nd-title" type="text" /></div>
-      <div class="row">
-        <div class="field" style="flex:2"><label>Lead (optional)</label><div id="nd-lead"></div></div>
-        <div class="field"><label>Contact email (optional)</label><input id="nd-email" type="email" /></div>
-      </div>
-      <div class="field"><label>Instructions *</label><textarea id="nd-instr" style="min-height:160px">${esc(autoFilled)}</textarea></div>
-      <div class="msg" id="nd-msg"></div>`,
-    buttons: [
-      { label: 'Cancel' },
-      {
-        label: 'Queue for agent',
-        cls: 'primary',
-        onClick: async (mm) => {
-          const type = $('#nd-type', mm.el).value;
-          const title = $('#nd-title', mm.el).value.trim();
-          const instructions = $('#nd-instr', mm.el).value.trim();
-          if (!title || !instructions) {
-            setMsg($('#nd-msg', mm.el), 'Title and instructions are required.', 'err');
-            return;
-          }
-          const lead = picker.get();
-          const r = await api.designCreate(
-            dropEmpty({
-              type,
-              title,
-              instructions,
-              leadId: lead ? lead.id : undefined,
-              contactEmail: $('#nd-email', mm.el).value.trim(),
-              site_shape: type === 'website' ? $('#nd-shape', mm.el).value : undefined,
-            })
-          );
-          toast(`Job #${r.data.job.id} queued`, 'ok');
-          mm.close();
-          window.location.hash = '#/design/' + r.data.job.id;
-        },
-      },
-    ],
-  });
-  const picker = mountLeadPicker($('#nd-lead', m.el));
-  $('#nd-type', m.el).addEventListener('change', (e) => {
-    const t = e.target.value;
-    $('#nd-shape-wrap', m.el).classList.toggle('hidden', t !== 'website');
-    const box = $('#nd-instr', m.el);
-    box.value = designTypeFill(box.value, autoFilled, instructionsFor(t));
-    // If the box now holds this type's catalog text, that text is
-    // the new auto-fill baseline; if the user's own words survived,
-    // the baseline stays stale so later switches keep sparing them.
-    if (box.value === instructionsFor(t)) autoFilled = box.value;
-  });
+/**
+ * Batch 171 — the New design job popup is GONE: creation is a
+ * dedicated page now (#/design-new, pageDesignNew below, carrying
+ * the popup's exact behaviour plus the theme picker). This name
+ * survives only as a redirect so any lingering caller lands on
+ * the one creation flow.
+ */
+function openNewDesignModal() {
+  window.location.hash = '#/design-new';
 }
-
 function reviewHtml(r) {
   if (!r) return '<p class="hint">No review yet. Run a review to get QA notes on the delivered site.</p>';
   const items = [];
@@ -13788,6 +13724,7 @@ const PAGES = {
   archives: pageArchives,
   domains: pageDomains,
   design: pageDesign,
+  'design-new': pageDesignNew,
   social: pageSocial,
   outreach: pageOutreach,
   pipeline: pagePipeline,
@@ -13866,7 +13803,7 @@ async function navigate() {
   updateBillingBanner();
 
   $$('.nav-links a').forEach((a) => {
-    const on = a.dataset.route === route;
+    const on = a.dataset.route === route || (route === 'design-new' && a.dataset.route === 'design');
     a.classList.toggle('active', on);
     if (on) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
@@ -14049,3 +13986,562 @@ initNavGroups();
     toast(errText(err), 'err');
   }
 })();
+
+/* =====================================================================
+ * Batch 171 — Themes on the staff surfaces + New Design Job page.
+ *
+ * Part 1: the Themes section + Build wizard under the staff
+ * Assistant chat (Batch 169 shipped them portal-only). The catalog,
+ * recipes and job creation all come from the one shared source
+ * (server/themesRegistry.js) via the staff assistant routes — the
+ * wizard creates a REAL design job in the normal queue, staged for
+ * review, never auto-published.
+ *
+ * Part 2: Design > New Design Job is a dedicated page
+ * (#/design-new, pageDesignNew) carrying the old popup's exact
+ * behaviour (Batch 153 type catalog, designTypeFill never-clobber,
+ * site shape for the website type, same create path) plus a theme
+ * picker whose recipe rides in the instructions as a delimited
+ * block.
+ *
+ * All DOM below is built with createElement + textContent — theme
+ * names, taglines and lead names are data, never markup (this file
+ * is a SEC-13 census file; Batch 171 adds ZERO new sinks).
+ * ===================================================================== */
+
+/* ---- Theme block helpers (pure; the batch171 suite evals these
+ * straight out of the file, like designTypeFill). The theme block
+ * is the ONLY part of the instructions the picker ever rewrites:
+ * picking a theme appends or replaces the block, "No theme"
+ * removes it, and hand-typed text outside the delimiters is never
+ * touched. ---- */
+const THEME_BLOCK_BEGIN = '--- THEME LAYOUT GUIDE (theme id: ';
+const THEME_BLOCK_END = '--- END THEME LAYOUT GUIDE ---';
+
+function themeBlockText(theme) {
+  if (!theme) return '';
+  return THEME_BLOCK_BEGIN + String(theme.id) + ') ---\n' + String(theme.recipe || '') + '\n' + THEME_BLOCK_END;
+}
+
+function splitThemeBlock(text) {
+  const src = text == null ? '' : String(text);
+  const begin = src.indexOf(THEME_BLOCK_BEGIN);
+  if (begin < 0) return { body: src, block: '' };
+  const endMark = src.indexOf(THEME_BLOCK_END, begin);
+  if (endMark < 0) return { body: src, block: '' };
+  const block = src.slice(begin, endMark + THEME_BLOCK_END.length);
+  const body = (src.slice(0, begin) + src.slice(endMark + THEME_BLOCK_END.length))
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/^\n+/, '')
+    .replace(/\n+$/, '');
+  return { body, block };
+}
+
+function applyThemeBlock(text, blockText) {
+  const body = splitThemeBlock(text).body;
+  if (!blockText) return body;
+  return body ? body + '\n\n' + blockText : blockText;
+}
+/* Batch 171 theme-block helpers end. */
+
+/* ---- Staff Assistant Themes section + wizard ---- */
+const staffThemesState = { catalog: null, themeById: new Map(), current: null, bizTouched: false };
+
+function stEl(tag, className, text) {
+  const el = document.createElement(tag);
+  if (className) el.className = className;
+  if (text != null) el.textContent = text;
+  return el;
+}
+
+function staffThemesStatus(text) {
+  const el = document.getElementById('asst-themes-status');
+  if (el) el.textContent = text || '';
+}
+
+async function mountStaffThemes() {
+  const host = document.getElementById('asst-themes');
+  if (!host) return;
+  if (!staffThemesState.catalog) {
+    try {
+      const r = await api.assistantThemes();
+      staffThemesState.catalog = (r.data && r.data.categories) || [];
+    } catch (e) {
+      host.textContent = '';
+      host.appendChild(stEl('p', 'hint', errText(e)));
+      return;
+    }
+  }
+  renderStaffThemes(host);
+}
+
+function renderStaffThemes(host) {
+  host.textContent = '';
+  staffThemesState.themeById = new Map();
+  const cats = staffThemesState.catalog || [];
+  if (!cats.length) {
+    host.appendChild(stEl('p', 'hint', 'No themes are available yet.'));
+    return;
+  }
+  for (const cat of cats) {
+    const wrap = stEl('div', 'staff-themes-category');
+    wrap.appendChild(stEl('h4', null, cat.label));
+    const row = stEl('div', 'staff-themes-row');
+    for (const theme of cat.themes || []) {
+      staffThemesState.themeById.set(theme.id, { ...theme, categoryLabel: cat.label });
+      row.appendChild(staffThemeCard(theme));
+    }
+    wrap.appendChild(row);
+    host.appendChild(wrap);
+  }
+}
+
+function staffThemeCard(theme) {
+  const card = stEl('article', 'staff-theme-card');
+  const img = document.createElement('img');
+  img.src = theme.thumbnail;
+  img.alt = `${theme.name} theme preview`;
+  img.loading = 'lazy';
+  card.appendChild(img);
+  const body = stEl('div', 'staff-theme-card-body');
+  body.appendChild(stEl('h4', null, theme.name));
+  body.appendChild(stEl('p', null, theme.tagline));
+  const btn = stEl('button', 'btn', 'Build this');
+  btn.type = 'button';
+  btn.addEventListener('click', () => openStaffThemeWizard(theme.id));
+  body.appendChild(btn);
+  card.appendChild(body);
+  return card;
+}
+
+async function loadStaffThemeLeads(m, q) {
+  const select = $('#stw-lead-select', m.el);
+  if (!select) return;
+  const keep = select.value;
+  try {
+    const r = await api.assistantThemesLeads(q || '');
+    const leads = (r.data && r.data.leads) || [];
+    select.textContent = '';
+    for (const lead of leads) {
+      const opt = document.createElement('option');
+      opt.value = String(lead.id);
+      opt.textContent = lead.city ? `${lead.business_name} — ${lead.city}` : String(lead.business_name || '');
+      opt.dataset.businessName = String(lead.business_name || '');
+      select.appendChild(opt);
+    }
+    if (keep && [...select.options].some((o) => o.value === keep)) select.value = keep;
+    syncStaffWizardBusinessName(m);
+  } catch (e) {
+    setMsg($('#stw-msg', m.el), errText(e), 'err');
+  }
+}
+
+function syncStaffWizardBusinessName(m) {
+  if (staffThemesState.bizTouched) return;
+  const select = $('#stw-lead-select', m.el);
+  const nameInput = $('#stw-business-name', m.el);
+  if (!select || !nameInput) return;
+  const opt = select.options[select.selectedIndex];
+  if (opt) nameInput.value = opt.dataset.businessName || '';
+}
+
+function openStaffThemeWizard(themeId) {
+  const theme = staffThemesState.themeById.get(themeId);
+  if (!theme) return;
+  staffThemesState.current = theme;
+  staffThemesState.bizTouched = false;
+  const m = openModal({
+    title: 'Build this theme',
+    wide: true,
+    body: `<div class="row">
+        <div class="field" style="flex:0 0 230px"><img id="stw-theme-img" alt="" style="width:100%;border-radius:8px;border:1px solid var(--line, #e5e0d8)" /></div>
+        <div class="field" style="flex:2"><label>Theme</label><div><b id="stw-theme-name"></b></div>
+          <p class="hint" id="stw-theme-meta"></p>
+          <p class="hint">A theme is a layout guide only — branding, wording and imagery come from the business details below. Building creates a design job in the queue, staged for review; nothing publishes automatically.</p></div>
+      </div>
+      <div class="field"><label>Business</label>
+        <label class="inline"><input type="radio" name="stw-mode" value="existing" checked /> Pick from leads</label>
+        <label class="inline"><input type="radio" name="stw-mode" value="new" /> Add a new lead</label></div>
+      <div id="stw-existing-fields">
+        <div class="field"><label>Search leads</label><input id="stw-lead-search" type="search" placeholder="Type to filter…" /></div>
+        <div class="field"><label>Lead</label><select id="stw-lead-select"></select></div>
+      </div>
+      <div id="stw-new-fields" hidden>
+        <div class="row">
+          <div class="field"><label>Business name *</label><input id="stw-new-name" type="text" /></div>
+          <div class="field"><label>Category</label><input id="stw-new-category" type="text" /></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Contact name</label><input id="stw-new-contact" type="text" /></div>
+          <div class="field"><label>Email</label><input id="stw-new-email" type="email" /></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Phone</label><input id="stw-new-phone" type="tel" /></div>
+          <div class="field"><label>City</label><input id="stw-new-city" type="text" /></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field" style="flex:2"><label>Business name for the site</label><input id="stw-business-name" type="text" /></div>
+        <div class="field"><label>Site shape</label><select id="stw-shape"><option value="multipage">Multi-page</option><option value="landing">Landing page</option></select></div>
+      </div>
+      <div class="field"><label>Pages wanted (optional)</label><input id="stw-pages" type="text" placeholder="Home, Services, About, Contact" /></div>
+      <div class="field"><label>Brand notes (optional)</label><textarea id="stw-brand" rows="3" placeholder="Colors, style, anything to include or avoid"></textarea></div>
+      <div class="msg" id="stw-msg"></div>`,
+    buttons: [
+      { label: 'Cancel' },
+      {
+        label: 'Build',
+        cls: 'primary',
+        onClick: async (mm) => {
+          await submitStaffThemeWizard(mm);
+        },
+      },
+    ],
+  });
+  const img = $('#stw-theme-img', m.el);
+  if (img) {
+    img.src = theme.thumbnail;
+    img.alt = `${theme.name} theme preview`;
+  }
+  const nameEl = $('#stw-theme-name', m.el);
+  if (nameEl) nameEl.textContent = theme.name;
+  const metaEl = $('#stw-theme-meta', m.el);
+  if (metaEl) {
+    const shapeLabel = theme.siteShape === 'landing' ? 'Single landing page' : 'Multi-page website';
+    metaEl.textContent = `${theme.categoryLabel} · Pages: ${(theme.pages || []).join(', ')} · ${shapeLabel}`;
+  }
+  const shape = $('#stw-shape', m.el);
+  if (shape) shape.value = theme.siteShape === 'landing' ? 'landing' : 'multipage';
+  const modeOf = () => {
+    const checked = m.el.querySelector('input[name="stw-mode"]:checked');
+    return checked ? checked.value : 'existing';
+  };
+  const applyMode = () => {
+    const mode = modeOf();
+    const existing = $('#stw-existing-fields', m.el);
+    const fresh = $('#stw-new-fields', m.el);
+    if (existing) existing.hidden = mode !== 'existing';
+    if (fresh) fresh.hidden = mode !== 'new';
+    if (mode === 'new' && !staffThemesState.bizTouched) {
+      const nameInput = $('#stw-business-name', m.el);
+      const newName = $('#stw-new-name', m.el);
+      if (nameInput && newName) nameInput.value = newName.value;
+    }
+  };
+  m.el.querySelectorAll('input[name="stw-mode"]').forEach((radio) => radio.addEventListener('change', applyMode));
+  const select = $('#stw-lead-select', m.el);
+  if (select) select.addEventListener('change', () => syncStaffWizardBusinessName(m));
+  const nameInput = $('#stw-business-name', m.el);
+  if (nameInput)
+    nameInput.addEventListener('input', () => {
+      staffThemesState.bizTouched = true;
+    });
+  const newName = $('#stw-new-name', m.el);
+  if (newName) {
+    newName.addEventListener('input', () => {
+      if (!staffThemesState.bizTouched) {
+        const target = $('#stw-business-name', m.el);
+        if (target) target.value = newName.value;
+      }
+    });
+  }
+  let searchTimer = null;
+  const search = $('#stw-lead-search', m.el);
+  if (search) {
+    search.addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => loadStaffThemeLeads(m, search.value).catch(() => {}), 250);
+    });
+  }
+  loadStaffThemeLeads(m, '').catch(() => {});
+}
+
+async function submitStaffThemeWizard(m) {
+  const theme = staffThemesState.current;
+  if (!theme) return;
+  const checked = m.el.querySelector('input[name="stw-mode"]:checked');
+  const mode = checked ? checked.value : 'existing';
+  const msg = (t, kind) => setMsg($('#stw-msg', m.el), t, kind);
+  const payload = {
+    themeId: theme.id,
+    businessName: $('#stw-business-name', m.el).value.trim(),
+    siteShape: $('#stw-shape', m.el).value,
+    pagesWanted: $('#stw-pages', m.el).value.trim(),
+    brandNotes: $('#stw-brand', m.el).value.trim(),
+  };
+  if (mode === 'existing') {
+    const select = $('#stw-lead-select', m.el);
+    const leadId = select ? Number(select.value) : 0;
+    if (!leadId) {
+      msg('Pick a business from the leads, or switch to "Add a new lead".', 'err');
+      return;
+    }
+    payload.leadId = leadId;
+  } else {
+    const businessName = $('#stw-new-name', m.el).value.trim();
+    if (!businessName) {
+      msg('Give the new business a name.', 'err');
+      return;
+    }
+    payload.newLead = {
+      businessName,
+      category: $('#stw-new-category', m.el).value.trim(),
+      city: $('#stw-new-city', m.el).value.trim(),
+      contactName: $('#stw-new-contact', m.el).value.trim(),
+      email: $('#stw-new-email', m.el).value.trim(),
+      phone: $('#stw-new-phone', m.el).value.trim(),
+    };
+    if (!payload.businessName) payload.businessName = businessName;
+  }
+  msg('Starting the build…', '');
+  try {
+    const r = await api.assistantThemesBuild(payload);
+    const data = r.data || {};
+    const done = `Build started — job #${data.jobId} (${data.themeName}) is in the design queue, staged for review.`;
+    msg(done, 'ok');
+    staffThemesStatus(done);
+    toast(`Job #${data.jobId} queued`, 'ok');
+    setTimeout(() => m.close(), 1800);
+  } catch (e) {
+    msg(errText(e), 'err');
+  }
+}
+
+/* ---- Part 2: New Design Job as its own page (#/design-new) ---- */
+async function pageDesignNew() {
+  // Batch 153 catalog fetch + fallbacks — identical to the old
+  // popup: types + per-type instructions from the Admin → Design
+  // agent catalog payload; website-only, then bare website.
+  let typeList = [];
+  try {
+    const data = (await api.designDefaultInstructions()).data || {};
+    if (Array.isArray(data.types) && data.types.length) typeList = data.types;
+    else if (data.website) typeList = [{ type: 'website', instructions: data.website }];
+  } catch {
+    /* optional */
+  }
+  if (!typeList.length) typeList = [{ type: 'website', instructions: '' }];
+  const instructionsFor = (t) => {
+    const hit = typeList.find((x) => x.type === t);
+    return hit ? String(hit.instructions || '') : '';
+  };
+  const initialType = typeList.some((x) => x.type === 'website') ? 'website' : typeList[0].type;
+  let autoFilled = instructionsFor(initialType);
+  let selectedTheme = null;
+
+  view.textContent = '';
+  const head = stEl('div', 'page-head');
+  const headText = stEl('div');
+  headText.appendChild(stEl('h1', null, 'New design job'));
+  headText.appendChild(
+    stEl(
+      'p',
+      'lede',
+      'Queue a job for the design agent. The type sets the standard instructions; picking a theme adds its layout guide to the brief.'
+    )
+  );
+  head.appendChild(headText);
+  const headActions = stEl('div', 'page-actions');
+  const back = stEl('a', 'btn', '← All design jobs');
+  back.href = '#/design';
+  headActions.appendChild(back);
+  head.appendChild(headActions);
+  view.appendChild(head);
+
+  const card = stEl('div', 'card');
+  view.appendChild(card);
+  const mkField = (labelText, id) => {
+    const f = stEl('div', 'field');
+    const l = stEl('label', 'lbl', labelText);
+    if (id) l.htmlFor = id;
+    f.appendChild(l);
+    return f;
+  };
+
+  const row1 = stEl('div', 'row');
+  const typeField = mkField('Type', 'dn-type');
+  const typeSel = document.createElement('select');
+  typeSel.id = 'dn-type';
+  for (const t of typeList) {
+    const opt = document.createElement('option');
+    opt.value = t.type;
+    opt.textContent = t.type;
+    typeSel.appendChild(opt);
+  }
+  typeSel.value = initialType;
+  typeField.appendChild(typeSel);
+  row1.appendChild(typeField);
+  const shapeWrap = mkField('Site shape', 'dn-shape');
+  shapeWrap.id = 'dn-shape-wrap';
+  if (initialType !== 'website') shapeWrap.classList.add('hidden');
+  const shapeSel = document.createElement('select');
+  shapeSel.id = 'dn-shape';
+  for (const [v, label] of [
+    ['multipage', 'Multi-page'],
+    ['landing', 'Landing page'],
+  ]) {
+    const opt = document.createElement('option');
+    opt.value = v;
+    opt.textContent = label;
+    shapeSel.appendChild(opt);
+  }
+  shapeWrap.appendChild(shapeSel);
+  row1.appendChild(shapeWrap);
+  card.appendChild(row1);
+
+  const titleField = mkField('Title *', 'dn-title');
+  const titleInput = document.createElement('input');
+  titleInput.id = 'dn-title';
+  titleInput.type = 'text';
+  titleField.appendChild(titleInput);
+  card.appendChild(titleField);
+
+  const row2 = stEl('div', 'row');
+  const leadField = mkField('Lead (optional)');
+  leadField.style.flex = '2';
+  const leadHost = stEl('div');
+  leadHost.id = 'dn-lead';
+  leadField.appendChild(leadHost);
+  row2.appendChild(leadField);
+  const emailField = mkField('Contact email (optional)', 'dn-email');
+  const emailInput = document.createElement('input');
+  emailInput.id = 'dn-email';
+  emailInput.type = 'email';
+  emailField.appendChild(emailInput);
+  row2.appendChild(emailField);
+  card.appendChild(row2);
+
+  const themeField = mkField('Theme (optional layout guide)');
+  const themesHost = stEl('div', 'dn-themes');
+  themesHost.id = 'dn-themes';
+  themeField.appendChild(themesHost);
+  const themeStateLine = stEl('p', 'hint', 'No theme — the job follows the type instructions only.');
+  themeField.appendChild(themeStateLine);
+  card.appendChild(themeField);
+
+  const instrField = mkField('Instructions *', 'dn-instr');
+  const box = document.createElement('textarea');
+  box.id = 'dn-instr';
+  box.style.minHeight = '160px';
+  box.value = autoFilled;
+  instrField.appendChild(box);
+  card.appendChild(instrField);
+
+  const msg = stEl('div', 'msg');
+  msg.id = 'dn-msg';
+  card.appendChild(msg);
+
+  const actionsRow = stEl('div', 'row actions');
+  const cancelBtn = stEl('button', 'btn', 'Cancel');
+  cancelBtn.type = 'button';
+  cancelBtn.addEventListener('click', () => {
+    window.location.hash = '#/design';
+  });
+  actionsRow.appendChild(cancelBtn);
+  const queueBtn = stEl('button', 'btn primary', 'Queue for agent');
+  queueBtn.type = 'button';
+  actionsRow.appendChild(queueBtn);
+  card.appendChild(actionsRow);
+
+  const picker = mountLeadPicker(leadHost);
+
+  // Type switching — the popup's exact rule, applied to the text
+  // OUTSIDE the theme block: designTypeFill swaps the body only
+  // when it is empty or still holds the auto-filled text, and the
+  // theme block (machine-owned, delimited) is re-attached verbatim.
+  typeSel.addEventListener('change', () => {
+    const t = typeSel.value;
+    shapeWrap.classList.toggle('hidden', t !== 'website');
+    const parts = splitThemeBlock(box.value);
+    const nextBody = designTypeFill(parts.body, autoFilled, instructionsFor(t));
+    if (nextBody === instructionsFor(t)) autoFilled = nextBody;
+    box.value = applyThemeBlock(nextBody, parts.block || null);
+  });
+
+  const themeButtons = new Map();
+  const paintThemeSelection = () => {
+    themeButtons.forEach((btn, key) => {
+      const on = (key === 'none' && !selectedTheme) || (selectedTheme && key === selectedTheme.id);
+      btn.classList.toggle('selected', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    themeStateLine.textContent = selectedTheme
+      ? `Theme: ${selectedTheme.name} (${selectedTheme.categoryLabel}) — its layout recipe sits in the instructions below, inside the theme block, and rides with the job exactly as a wizard-built one.`
+      : 'No theme — the job follows the type instructions only.';
+  };
+  const selectTheme = (theme) => {
+    selectedTheme = theme;
+    box.value = applyThemeBlock(box.value, theme ? themeBlockText(theme) : null);
+    paintThemeSelection();
+  };
+  const loadDnThemes = async () => {
+    try {
+      const r = await api.assistantThemes();
+      const cats = (r.data && r.data.categories) || [];
+      themesHost.textContent = '';
+      const noneRow = stEl('div', 'staff-themes-row');
+      const noneBtn = stEl('button', 'staff-theme-card dn-theme-card dn-theme-none');
+      noneBtn.type = 'button';
+      noneBtn.appendChild(stEl('span', 'dn-theme-none-label', 'No theme'));
+      themeButtons.set('none', noneBtn);
+      noneBtn.addEventListener('click', () => selectTheme(null));
+      noneRow.appendChild(noneBtn);
+      themesHost.appendChild(noneRow);
+      for (const cat of cats) {
+        const wrap = stEl('div', 'staff-themes-category');
+        wrap.appendChild(stEl('h4', null, cat.label));
+        const row = stEl('div', 'staff-themes-row');
+        for (const theme of cat.themes || []) {
+          const full = { ...theme, categoryLabel: cat.label };
+          const btn = stEl('button', 'staff-theme-card dn-theme-card');
+          btn.type = 'button';
+          const img = document.createElement('img');
+          img.src = theme.thumbnail;
+          img.alt = `${theme.name} theme preview`;
+          img.loading = 'lazy';
+          btn.appendChild(img);
+          btn.appendChild(stEl('span', 'dn-theme-name', theme.name));
+          themeButtons.set(theme.id, btn);
+          btn.addEventListener('click', () => selectTheme(full));
+          row.appendChild(btn);
+        }
+        wrap.appendChild(row);
+        themesHost.appendChild(wrap);
+      }
+      paintThemeSelection();
+    } catch {
+      themesHost.textContent = '';
+      themesHost.appendChild(
+        stEl('p', 'hint', 'Themes are unavailable right now — the job can still be queued without one.')
+      );
+    }
+  };
+  loadDnThemes().catch(() => {});
+
+  queueBtn.addEventListener('click', async () => {
+    const type = typeSel.value;
+    const title = titleInput.value.trim();
+    const instructions = box.value.trim();
+    if (!title || !instructions) {
+      setMsg(msg, 'Title and instructions are required.', 'err');
+      return;
+    }
+    try {
+      const lead = picker.get();
+      const r = await api.designCreate(
+        dropEmpty({
+          type,
+          title,
+          instructions,
+          leadId: lead ? lead.id : undefined,
+          contactEmail: emailInput.value.trim(),
+          site_shape: type === 'website' ? shapeSel.value : undefined,
+        })
+      );
+      toast(`Job #${r.data.job.id} queued`, 'ok');
+      window.location.hash = '#/design/' + r.data.job.id;
+    } catch (e) {
+      setMsg(msg, errText(e), 'err');
+    }
+  });
+}

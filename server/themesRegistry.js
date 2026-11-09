@@ -355,7 +355,11 @@ function categoryLabel(id) {
 
 /** Public shape for the portal: categories in registry order, each
  * with its themes (recipe summary included so the wizard can show
- * what a build will follow without a second round-trip). */
+ * what a build will follow without a second round-trip). Batch 171:
+ * each theme also carries its full `recipe` text — the staff New
+ * Design Job page inserts that exact text into the job instructions
+ * as its delimited theme block, so page-created jobs carry the same
+ * recipe markers as wizard-built ones. */
 function publicCatalog() {
   return CATEGORIES.map((c) => ({
     id: c.id,
@@ -368,6 +372,7 @@ function publicCatalog() {
       siteShape: t.siteShape,
       pages: t.pages.map((p) => p.name),
       modules: [...new Set(t.pages.flatMap((p) => p.modules || []))],
+      recipe: recipeText(t),
     })),
   })).filter((c) => c.themes.length > 0);
 }
