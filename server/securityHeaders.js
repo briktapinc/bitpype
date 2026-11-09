@@ -24,12 +24,15 @@
  *     it can never duplicate or clobber a header helmet (or a later
  *     route, e.g. the preview CSP in previewSecurity.js) sets.
  *
- * Permissions-Policy: the product uses no camera, microphone, geolocation
- * or Payment Request API anywhere (grepped public/js + renderer + src +
- * server), and Stripe runs as a hosted redirect — so those features are
- * disabled outright, along with USB and the motion sensors. Anything not
- * listed (autoplay, fullscreen, …) is deliberately left alone: exported
- * site previews embed third-party media and must not be collateral.
+ * Permissions-Policy: the product uses no camera, geolocation or
+ * Payment Request API anywhere, and Stripe runs as a hosted redirect —
+ * so those features are disabled outright, along with USB and the
+ * motion sensors. MICROPHONE is the exception since Batch 138's voice
+ * chat: disabled globally, allowed (self) only on documents that host
+ * the voice widget (Batch 168 / F16 — see PERMISSIONS_POLICY_VOICE).
+ * Anything not listed (autoplay, fullscreen, …) is deliberately left
+ * alone: exported site previews embed third-party media and must not
+ * be collateral.
  */
 
 function cspReportOnly() {
@@ -82,13 +85,41 @@ function helmetOptions() {
 const PERMISSIONS_POLICY =
   'camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=(), interest-cohort=()';
 
+/* Batch 168 (external review F16): the Batch 47 claim above that
+ * "the product uses no microphone anywhere" went stale when voice
+ * chat shipped (Batch 138) — chat-embed.js calls
+ * getUserMedia({audio:true}), and the global microphone=() denied
+ * it BEFORE the browser prompt on every app-served document
+ * (standalone clones, app-hosted previews, the embed viewer).
+ * Voice proofs ran on Cloudflare-served previews, whose headers
+ * we don't control, so nothing caught it. Documents that host the
+ * widget get microphone=(self); every other surface — staff,
+ * portal, admin, APIs — keeps the microphone disabled. */
+const PERMISSIONS_POLICY_VOICE = PERMISSIONS_POLICY.replace('microphone=()', 'microphone=(self)');
+
+function permissionsPolicyFor(req) {
+  const p = String((req && req.path) || '');
+  if (p.startsWith('/site-previews') || p === '/site-previews' || p.startsWith('/embed')) {
+    return PERMISSIONS_POLICY_VOICE;
+  }
+  try {
+    // A standalone clone's whole origin IS the customer's site —
+    // every baked page can host the widget.
+    if (require('./singleSite').isSingleSite()) return PERMISSIONS_POLICY_VOICE;
+  } catch {
+    /* platform mode */
+  }
+  return PERMISSIONS_POLICY;
+}
+
 const HSTS_VALUE = 'max-age=15552000; includeSubDomains';
 
 function securityHeaders() {
   return (req, res, next) => {
     // The one header helmet cannot send. Nothing else in the app sets it,
     // so it is set unconditionally (never duplicated: setHeader replaces).
-    res.setHeader('Permissions-Policy', PERMISSIONS_POLICY);
+    // Batch 168 (F16): scoped per request — see permissionsPolicyFor.
+    res.setHeader('Permissions-Policy', permissionsPolicyFor(req));
     // Baseline guarantees — fill only when absent so helmet's values (or a
     // route's own, e.g. the preview Referrer-Policy: no-referrer) always win.
     if (!res.getHeader('X-Content-Type-Options')) {
@@ -107,4 +138,13 @@ function securityHeaders() {
   };
 }
 
-module.exports = { helmetOptions, securityHeaders, PERMISSIONS_POLICY, HSTS_VALUE, cspReportOnly, cookieSecureHint };
+module.exports = {
+  helmetOptions,
+  securityHeaders,
+  PERMISSIONS_POLICY,
+  PERMISSIONS_POLICY_VOICE,
+  permissionsPolicyFor,
+  HSTS_VALUE,
+  cspReportOnly,
+  cookieSecureHint,
+};
