@@ -121,7 +121,7 @@ async function main() {
     n++;
 
     const navGroups = require(path.join(root, 'public/js/navGroups.js'));
-    assert.deepEqual(navGroups.NAV_TOP_LEVEL, ['assistant', 'dashboard', 'leads', 'websites', 'fingerprints'], 'NAV_TOP_LEVEL leads with assistant');
+    assert.deepEqual(navGroups.NAV_TOP_LEVEL, ['assistant', 'dashboard', 'leads', 'websites', 'webinars', 'fingerprints'], 'NAV_TOP_LEVEL leads with assistant (Batch 163 finisher: webinars added after websites — the assistant-first pin is unchanged)');
     assert.equal(navGroups.navGroupForRoute('assistant'), null, 'assistant is top-level (joins the same nav mechanics incl. the mobile dropdown)');
     n += 2;
 
