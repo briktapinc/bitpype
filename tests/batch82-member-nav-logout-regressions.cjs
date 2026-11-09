@@ -172,7 +172,7 @@ async function seed() {
   assert.ok(att && att.embed && att.embed.public_token, 'members attach returns a token');
   fixture.membersToken = siteModules.getEmbedRow(wdb, 1, 'members').public_token;
   siteModules.updateMembersConfig(wdb, 1, { gate_mode: 'selected', gated_pages: ['about'] });
-  const su = siteModules.signupMember(wdb, 1, { name: 'Pat Member', email: MEMBER_EMAIL, password: MEMBER_PASSWORD });
+  const su = await siteModules.signupMember(wdb, 1, { name: 'Pat Member', email: MEMBER_EMAIL, password: MEMBER_PASSWORD });
   assert.ok(su.session && su.session.token, 'fixture member signed up with a session');
   fixture.memberId = su.member.id;
 
@@ -209,7 +209,7 @@ function storedPages(leadId) {
   return JSON.parse(row.pages);
 }
 
-function partB() {
+async function partB() {
   const sm = fixture.siteModules;
   check('B: members site — loader guaranteed on EVERY page after sync', () => {
     const pages = storedPages(1);
@@ -246,8 +246,8 @@ function partB() {
       'carrier section removed after detach'
     );
   });
-  check('B: server-side logout (the shared implementation) kills the session', () => {
-    const li = sm.loginMember(fixture.wdb, 1, { email: MEMBER_EMAIL, password: MEMBER_PASSWORD });
+  await checkAsync('B: server-side logout (the shared implementation) kills the session', async () => {
+    const li = await sm.loginMember(fixture.wdb, 1, { email: MEMBER_EMAIL, password: MEMBER_PASSWORD });
     assert.ok(li.session && li.session.token, 'login mints a session');
     assert.equal(sm.getSessionMember(fixture.wdb, 1, li.session.token).email, MEMBER_EMAIL);
     sm.publicMemberLogout(fixture.wdb, fixture.membersToken, li.session.token);
@@ -476,7 +476,7 @@ async function partD(postJson) {
 (async () => {
   partA();
   await seed();
-  partB();
+  await partB();
 
   const child = spawn(process.execPath, [path.join(root, 'server.js')], {
     cwd: root,

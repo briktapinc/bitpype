@@ -1157,9 +1157,9 @@ async function main() {
   check('batch16 config: honest defaults, enum validation', () => {});
 
   // Signup + hashing at rest + session lifecycle.
-  assert.throws(() => sm16.signupMember(db, 1601, { name: 'A', email: 'a@b.co', password: 'short' }), (e) => e.code === 'VALIDATION', 'short password rejected server-side');
-  assert.throws(() => sm16.signupMember(db, 1601, { name: 'A', email: 'not-an-email', password: 'password123' }), (e) => e.code === 'VALIDATION');
-  const su16 = sm16.signupMember(db, 1601, { name: 'Pat Member', email: 'Pat@Example.com', password: 'password123' });
+  await assert.rejects(async () => sm16.signupMember(db, 1601, { name: 'A', email: 'a@b.co', password: 'short' }), (e) => e.code === 'VALIDATION', 'short password rejected server-side');
+  await assert.rejects(async () => sm16.signupMember(db, 1601, { name: 'A', email: 'not-an-email', password: 'password123' }), (e) => e.code === 'VALIDATION');
+  const su16 = await sm16.signupMember(db, 1601, { name: 'Pat Member', email: 'Pat@Example.com', password: 'password123' });
   assert.equal(su16.member.email, 'pat@example.com', 'email normalized');
   assert.equal(su16.member.status, 'active');
   assert(su16.session && su16.session.token, 'open signup starts a session');
@@ -1169,13 +1169,13 @@ async function main() {
   assert(stored16.password_hash.startsWith('$2'), 'bcrypt hash at rest (platform scheme)');
   const sessRow16 = db.prepare('SELECT * FROM site_member_sessions WHERE member_id = ? ORDER BY id DESC LIMIT 1').get(su16.member.id);
   assert(sessRow16 && sessRow16.token_hash !== su16.session.token && sessRow16.token_hash.length === 64, 'session token stored as sha256 hash only');
-  assert.throws(() => sm16.signupMember(db, 1601, { name: 'Pat Two', email: 'PAT@example.com', password: 'password123' }), (e) => e.code === 'EMAIL_TAKEN', 'duplicate email per lead rejected (case-insensitive)');
+  await assert.rejects(async () => sm16.signupMember(db, 1601, { name: 'Pat Two', email: 'PAT@example.com', password: 'password123' }), (e) => e.code === 'EMAIL_TAKEN', 'duplicate email per lead rejected (case-insensitive)');
   check('batch16 signup: validation, bcrypt at rest, session token hashed at rest, duplicate email rejected', () => {});
 
   // Login semantics: no enumeration, session resolution, lead scoping, logout.
-  assert.throws(() => sm16.loginMember(db, 1601, { email: 'pat@example.com', password: 'wrong-password' }), (e) => e.code === 'INVALID_CREDENTIALS');
-  assert.throws(() => sm16.loginMember(db, 1601, { email: 'ghost@example.com', password: 'password123' }), (e) => e.code === 'INVALID_CREDENTIALS', 'unknown email gives the same generic error');
-  const li16 = sm16.loginMember(db, 1601, { email: 'pat@example.com', password: 'password123' });
+  await assert.rejects(async () => sm16.loginMember(db, 1601, { email: 'pat@example.com', password: 'wrong-password' }), (e) => e.code === 'INVALID_CREDENTIALS');
+  await assert.rejects(async () => sm16.loginMember(db, 1601, { email: 'ghost@example.com', password: 'password123' }), (e) => e.code === 'INVALID_CREDENTIALS', 'unknown email gives the same generic error');
+  const li16 = await sm16.loginMember(db, 1601, { email: 'pat@example.com', password: 'password123' });
   assert(li16.session.token, 'login returns a session');
   assert.equal(sm16.getSessionMember(db, 1601, li16.session.token).email, 'pat@example.com');
   assert.equal(sm16.getSessionMember(db, 1602, li16.session.token), null, 'a session only ever resolves inside its own lead');
@@ -1185,22 +1185,22 @@ async function main() {
 
   // Approval flow: pending cannot log in until the owner approves.
   sm16.updateMembersConfig(db, 1601, { signup_mode: 'approval' });
-  const suPam = sm16.signupMember(db, 1601, { name: 'Pending Pam', email: 'pam@example.com', password: 'password123' });
+  const suPam = await sm16.signupMember(db, 1601, { name: 'Pending Pam', email: 'pam@example.com', password: 'password123' });
   assert.equal(suPam.pending, true);
   assert.equal(suPam.session, null, 'pending members get no session');
-  assert.throws(() => sm16.loginMember(db, 1601, { email: 'pam@example.com', password: 'password123' }), (e) => e.code === 'MEMBER_PENDING');
+  await assert.rejects(async () => sm16.loginMember(db, 1601, { email: 'pam@example.com', password: 'password123' }), (e) => e.code === 'MEMBER_PENDING');
   sm16.setSiteMemberStatus(db, 1601, suPam.member.id, 'active');
-  const liPam = sm16.loginMember(db, 1601, { email: 'pam@example.com', password: 'password123' });
+  const liPam = await sm16.loginMember(db, 1601, { email: 'pam@example.com', password: 'password123' });
   assert(liPam.session.token, 'approved member can log in');
   sm16.setSiteMemberStatus(db, 1601, suPam.member.id, 'disabled');
   assert.equal(sm16.getSessionMember(db, 1601, liPam.session.token), null, 'disabling a member kills their live sessions');
-  assert.throws(() => sm16.loginMember(db, 1601, { email: 'pam@example.com', password: 'password123' }), (e) => e.code === 'MEMBER_DISABLED');
+  await assert.rejects(async () => sm16.loginMember(db, 1601, { email: 'pam@example.com', password: 'password123' }), (e) => e.code === 'MEMBER_DISABLED');
   sm16.setSiteMemberStatus(db, 1601, suPam.member.id, 'active');
   sm16.updateMembersConfig(db, 1601, { signup_mode: 'open' });
   check('batch16 approval flow: pending blocked, approve unlocks, disable kills sessions + login', () => {});
 
   // Password reset: hashed single-use token, sessions invalidated, dry-run mail.
-  const liPreReset = sm16.loginMember(db, 1601, { email: 'pat@example.com', password: 'password123' });
+  const liPreReset = await sm16.loginMember(db, 1601, { email: 'pat@example.com', password: 'password123' });
   const rr16 = sm16.requestMemberReset(db, 1601, 'pat@example.com');
   assert(rr16 && rr16.resetToken, 'reset request issues a token');
   const mail16 = sm16.buildMemberResetMail(db, 1601, rr16.member, rr16.resetToken, 'https://example.test');
@@ -1210,17 +1210,17 @@ async function main() {
   const resetRow16 = db.prepare('SELECT * FROM site_member_reset_tokens WHERE member_id = ? ORDER BY id DESC LIMIT 1').get(su16.member.id);
   assert(resetRow16.token_hash !== rr16.resetToken && resetRow16.token_hash.length === 64, 'reset token hashed at rest');
   assert.equal(sm16.requestMemberReset(db, 1601, 'ghost@example.com'), null, 'unknown email composes nothing (route answers uniformly)');
-  assert.throws(() => sm16.resetMemberPassword(db, 1601, rr16.resetToken, 'short'), (e) => e.code === 'VALIDATION');
-  sm16.resetMemberPassword(db, 1601, rr16.resetToken, 'newpassword99');
+  await assert.rejects(async () => sm16.resetMemberPassword(db, 1601, rr16.resetToken, 'short'), (e) => e.code === 'VALIDATION');
+  await sm16.resetMemberPassword(db, 1601, rr16.resetToken, 'newpassword99');
   assert.equal(sm16.getSessionMember(db, 1601, liPreReset.session.token), null, 'a reset invalidates existing sessions');
-  assert.throws(() => sm16.resetMemberPassword(db, 1601, rr16.resetToken, 'anotherpass1'), (e) => e.code === 'RESET_INVALID', 'reset token is single-use');
-  assert.throws(() => sm16.loginMember(db, 1601, { email: 'pat@example.com', password: 'password123' }), (e) => e.code === 'INVALID_CREDENTIALS', 'old password is dead after reset');
-  const liPat = sm16.loginMember(db, 1601, { email: 'pat@example.com', password: 'newpassword99' });
+  await assert.rejects(async () => sm16.resetMemberPassword(db, 1601, rr16.resetToken, 'anotherpass1'), (e) => e.code === 'RESET_INVALID', 'reset token is single-use');
+  await assert.rejects(async () => sm16.loginMember(db, 1601, { email: 'pat@example.com', password: 'password123' }), (e) => e.code === 'INVALID_CREDENTIALS', 'old password is dead after reset');
+  const liPat = await sm16.loginMember(db, 1601, { email: 'pat@example.com', password: 'newpassword99' });
   assert(liPat.session.token, 'new password works');
   check('batch16 reset: hashed single-use token, sessions invalidated, dry-run mail composition', () => {});
 
   // A foreign lead's member — the cross-lead probe for every gate below.
-  const suForeign = sm16.signupMember(db, 1602, { name: 'Foreign Fran', email: 'fran@example.com', password: 'password123' });
+  const suForeign = await sm16.signupMember(db, 1602, { name: 'Foreign Fran', email: 'fran@example.com', password: 'password123' });
   assert(suForeign.session && suForeign.session.token);
 
   // Gating — selected mode on the about page.
@@ -1294,7 +1294,7 @@ async function main() {
   assert.equal(listed16.length, 1);
   assert.equal(listed16[0].email, 'pam@example.com');
   assert(!('password_hash' in listed16[0]), 'owner member list never carries password hashes');
-  const liPam2 = sm16.loginMember(db, 1601, { email: 'pam@example.com', password: 'password123' });
+  const liPam2 = await sm16.loginMember(db, 1601, { email: 'pam@example.com', password: 'password123' });
   sm16.deleteSiteMember(db, 1601, suPam.member.id);
   assert.equal(sm16.getSessionMember(db, 1601, liPam2.session.token), null, 'deleting a member ends their sessions');
   assert.equal(sm16.countSiteMembers(db, 1601).total, 1);
@@ -1475,8 +1475,8 @@ async function main() {
   check('batch17 tiers with keys: price minted on save, repricing mints anew, Stripe failure saves nothing', () => {});
 
   // Members + paid gate (any_paid).
-  const memberA17 = sm17.signupMember(db, 1701, { name: 'Payer Pat', email: 'payer@example.com', password: 'password123' });
-  const memberB17 = sm17.signupMember(db, 1701, { name: 'Free Fran', email: 'fran2@example.com', password: 'password123' });
+  const memberA17 = await sm17.signupMember(db, 1701, { name: 'Payer Pat', email: 'payer@example.com', password: 'password123' });
+  const memberB17 = await sm17.signupMember(db, 1701, { name: 'Free Fran', email: 'fran2@example.com', password: 'password123' });
   sm17.updateMembersConfig(db, 1701, { gate_mode: 'selected', gated_pages: ['about'], access_level: 'any_paid' });
   const lockedAnon17 = sm17.getPublicModuleByToken(db, embBlog17.public_token, { pageSlug: 'about' });
   assert.equal(lockedAnon17.locked, true);
@@ -1573,7 +1573,7 @@ async function main() {
   check('batch17 webhook apply: subscription activates, gate unlocks, duplicates converge', () => {});
 
   // Revenue estimate from local records (A: $30/mo; C: $120/yr → $10/mo).
-  const memberC17 = sm17.signupMember(db, 1701, { name: 'Yearly Yves', email: 'yves@example.com', password: 'password123' });
+  const memberC17 = await sm17.signupMember(db, 1701, { name: 'Yearly Yves', email: 'yves@example.com', password: 'password123' });
   sm17.upsertMemberSubscription(db, {
     lead_id: 1701, member_id: memberC17.member.id, tier_id: goldDraft.tier.id, tier_name: 'Gold',
     price_cents: 12000, interval: 'year', stripe_customer_id: 'cus_C17', stripe_subscription_id: 'sub_C17', status: 'active',
@@ -3327,11 +3327,13 @@ async function main() {
     interval: 'month',
     sort_order: 0,
   });
-  const member21b = sm21b.signupMember(db, 2185, {
-    name: 'Paying Pat',
-    email: 'patpay@example.invalid',
-    password: 'password123',
-  }).member;
+  const member21b = (
+    await sm21b.signupMember(db, 2185, {
+      name: 'Paying Pat',
+      email: 'patpay@example.invalid',
+      password: 'password123',
+    })
+  ).member;
   const memEvent21b = {
     type: 'checkout.session.completed',
     data: {

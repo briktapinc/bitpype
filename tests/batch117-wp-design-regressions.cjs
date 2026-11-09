@@ -564,6 +564,15 @@ const CENSUS = {
       return realFetch(url, opts);
     };
 
+    // Batch 168 (S5#5): the design-chat critic no longer fetches via
+    // the global fetch — it goes through urlSafety.fetchPublic
+    // (SSRF-guarded). The fixture's site is a fake host the guard
+    // would refuse, so the suite patches the module seam to delegate
+    // to the stubbed fetch above (restored in the finally below).
+    const urlSafety117 = require(path.join(root, 'server/urlSafety.js'));
+    const realFetchPublic117 = urlSafety117.fetchPublic;
+    urlSafety117.fetchPublic = (url, opts) => global.fetch(url, opts);
+
     try {
       // The workspace DB must exist for config/usage plumbing.
       const { openWorkspaceDb } = require('../server/workspaceDb');
@@ -642,10 +651,16 @@ const CENSUS = {
         'a failed turn stages nothing'
       );
       n += 1;
+      // Batch 168 (S5#4) DELIBERATE behaviour change: a failed turn
+      // now PERSISTS (the user message + the graceful failure reply)
+      // instead of vanishing — a thread that silently eats messages
+      // reads as data loss to the owner and leaves support nothing
+      // to diagnose. Nothing is STAGED (pinned above); only the
+      // transcript grows, by exactly those two entries.
       assert.equal(
         (await wpDesign.getChat(1, linkId)).transcript.length,
-        chatBeforeFail,
-        'a failed turn writes no transcript'
+        chatBeforeFail + 2,
+        'a failed turn persists its transcript entries (Batch 168 S5#4)'
       );
       n += 1;
 
@@ -663,6 +678,7 @@ const CENSUS = {
       n += 2;
     } finally {
       global.fetch = realFetch;
+      urlSafety117.fetchPublic = realFetchPublic117;
     }
     group('Part 3 — chat turns with a stubbed model', n);
   }

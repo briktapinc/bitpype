@@ -717,7 +717,7 @@ let db = null;
       active: true,
     });
     assert.equal(tierSave.stripe_state, 'connected', 'tier saved against the unified config');
-    const memberU = sm129.signupMember(db, L_UNI, {
+    const memberU = await sm129.signupMember(db, L_UNI, {
       name: 'Uni Member',
       email: 'uni@example.invalid',
       password: 'password123',
@@ -950,7 +950,7 @@ let db = null;
 
     // A pre-129 subscription: created under the membership keys, no
     // recorded origin ('' — membership by definition).
-    const memberL = sm129.signupMember(db, L_LEG, {
+    const memberL = await sm129.signupMember(db, L_LEG, {
       name: 'Legacy Member',
       email: 'legacy@example.invalid',
       password: 'password123',
@@ -1032,7 +1032,7 @@ let db = null;
     const legacyPriceId = 'price_129_legacyminted';
     registerFor(stub.pricesBySecret, SK_MOLD, legacyPriceId);
     db.prepare('UPDATE membership_tiers SET stripe_price_id = ? WHERE id = ?').run(legacyPriceId, tierHealSave.tier.id);
-    const memberL2 = sm129.signupMember(db, L_LEG, {
+    const memberL2 = await sm129.signupMember(db, L_LEG, {
       name: 'Heal Member',
       email: 'heal@example.invalid',
       password: 'password123',

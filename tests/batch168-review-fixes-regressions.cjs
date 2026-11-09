@@ -582,6 +582,46 @@ function group(name, n) {
     const again = await oauth.takeAuthCode(code);
     assert.equal(again, null, 'code is single-use');
     n += 5;
+    // F05 (external review harness, inverted): the REAL
+    // requireWorkspace must (a) propagate the token class onto
+    // req.auth and (b) refuse a vendor_design token's REST mutation
+    // while allowing its reads — the reviewer's repro reached
+    // leadsCreate on the pre-fix tree because the class was dropped.
+    await platformDb.query(
+      "INSERT INTO workspaces (id, name, slug) VALUES (7, 'Vendor Fixture WS', 'vendor-fixture-ws')"
+    );
+    const rawVendor = 'ws_vendor_b168_fixture_token';
+    await platformDb.query(
+      'INSERT INTO workspace_tokens (workspace_id, lead_id, token_hash, token_prefix, token_class) VALUES (7, NULL, ?, ?, ?)',
+      [hashToken(rawVendor), 'ws_vendor', 'vendor_design']
+    );
+    const mwReal = require(path.join(root, 'server/middleware.js'));
+    const runMw = (method, p) =>
+      new Promise((resolve) => {
+        const req = { headers: { authorization: `Bearer ${rawVendor}` }, method, path: p, session: null };
+        const res = {
+          statusCode: 200,
+          body: null,
+          status(c) {
+            this.statusCode = c;
+            return this;
+          },
+          json(b) {
+            this.body = b;
+            resolve({ req, res: this, nexted: false });
+            return this;
+          },
+        };
+        mwReal.requireWorkspace(req, res, () => resolve({ req, res, nexted: true }));
+      });
+    const denied = await runMw('POST', '/leads');
+    assert.equal(denied.nexted, false, 'vendor POST /leads never reaches the route');
+    assert.equal(denied.res.statusCode, 403, 'vendor POST /leads is refused');
+    assert.equal(denied.res.body && denied.res.body.code, 'VENDOR_TOKEN_FORBIDDEN', 'refusal carries the vendor code');
+    const allowed = await runMw('GET', '/leads');
+    assert.equal(allowed.nexted, true, 'vendor GET /leads is allowed through');
+    assert.equal(allowed.req.auth.tokenClass, 'vendor_design', 'the token class survives requireWorkspace onto req.auth');
+    n += 5;
     group('H session/oauth', n);
   }
 
@@ -685,6 +725,195 @@ function group(name, n) {
     );
     n += 2;
     group('J exporter prune pins', n);
+  }
+
+  // ---- K: external review F02 — OAuth callback reflection ----
+  {
+    let n = 0;
+    // The provider error params must never be reflected into the
+    // text/html response of a public callback (reflected XSS).
+    const social = read('server/routes/socialPublic.js');
+    assert.ok(!social.includes('Meta OAuth error: ${'), 'meta callback does not reflect the error param');
+    assert.ok(social.includes('Meta sign-in was not completed.'), 'meta callback answers with fixed copy');
+    const gbp = read('server/routes/gbp.js');
+    assert.ok(!gbp.includes('Google OAuth error: ${'), 'gbp callback does not reflect the error param');
+    assert.ok(gbp.includes('Google sign-in was not completed.'), 'gbp callback answers with fixed copy');
+    n += 4;
+    group('K oauth callback reflection (F02)', n);
+  }
+
+  // ---- L: external review F04 — billing identities are not staff ----
+  {
+    let n = 0;
+    const pb = read('server/portalBilling.js');
+    assert.ok(pb.includes("billing_only)\n") && pb.includes("'member', 1)"), 'portal billing linkage inserts a billing_only row');
+    assert.ok(!pb.includes("VALUES (:ws, :uid, 'member', CURRENT_TIMESTAMP)"), 'no plain member row is minted by billing');
+    const ws = read('server/workspace.js');
+    assert.ok(ws.includes('COALESCE(m.billing_only, 0) = 0'), 'membership lookups exclude billing-only rows');
+    const dbjs = read('server/db.js');
+    assert.ok(
+      dbjs.includes("ensureColumnSqlite(db, 'workspace_members', 'billing_only'") &&
+        dbjs.includes("ensureColumnMysql(conn, 'workspace_members', 'billing_only'"),
+      'platform migration adds billing_only (both dialects)'
+    );
+    const schemaSql = read('sql/schema.sql');
+    assert.ok(schemaSql.includes('billing_only'), 'fresh-install schema carries billing_only');
+    n += 5;
+    group('L billing-only membership (F04)', n);
+  }
+
+  // ---- M: external review F06 — attempt-scoped Stripe keys ----
+  {
+    let n = 0;
+    const idem = require(path.join(root, 'server/stripeIdempotency.js'));
+    const a1 = idem.stripeAttemptKey('subscription-update', 'sub_1', 'cancel_at_period_end=true');
+    const a2 = idem.stripeAttemptKey('subscription-update', 'sub_1', 'cancel_at_period_end=true');
+    assert.notEqual(a1, a2, 'two intentional cancels derive DIFFERENT keys (no replay collapse)');
+    const d1 = idem.stripeIdempotencyKey('customer-create', 42);
+    const d2 = idem.stripeIdempotencyKey('customer-create', 42);
+    assert.equal(d1, d2, 'find-or-create keys stay deterministic');
+    const billing = read('server/billing.js');
+    for (const op of ['checkout-subscription', 'subscription-plan-change', 'checkout-credits', 'refund-admin', 'subscription-cancel']) {
+      assert.ok(billing.includes(`stripeAttemptKey('${op}'`) || billing.includes(`stripeAttemptKey(\n`), `billing uses attempt keys (${op} site family)`);
+      n += 1;
+    }
+    assert.ok(billing.includes("stripeIdempotencyKey('customer-create'"), 'customer create keeps the deterministic key');
+    const ms = read('server/membershipStripe.js');
+    assert.ok(ms.includes("stripeAttemptKey('subscription-update'"), 'membership cancel uses an attempt key');
+    const sm = read('server/siteModules.js');
+    assert.ok(sm.includes("stripeAttemptKey('checkout-membership'"), 'membership checkout uses an attempt key');
+    assert.ok(sm.includes("stripeIdempotencyKey('checkout-shop'"), 'per-order shop checkout keeps its deterministic key');
+    n += 5;
+    group('M stripe attempt keys (F06)', n);
+  }
+
+  // ---- N: external review F10 — private attachment storage ----
+  {
+    let n = 0;
+    const tmpPriv = fs.mkdtempSync(path.join(os.tmpdir(), 'b168-priv-'));
+    const tmpExp = fs.mkdtempSync(path.join(os.tmpdir(), 'b168-exp-'));
+    const prevPriv = process.env.PRIVATE_FILES_ROOT;
+    const prevExp = process.env.EXPORT_ROOT;
+    process.env.PRIVATE_FILES_ROOT = tmpPriv;
+    process.env.EXPORT_ROOT = tmpExp;
+    try {
+      const ac = require(path.join(root, 'server/assistantChat.js'));
+      const rel = 'assistant-chat/ws-9/1700000000000-abcdef012345.bin';
+      // No file anywhere: a NEW write resolves under the private root.
+      const fresh = ac.absFromRel(rel);
+      assert.ok(fresh && fresh.startsWith(path.resolve(tmpPriv)), 'new attachment paths resolve under the private root');
+      // Legacy file (pre-168, exports root): still readable via fallback.
+      const legacyAbs = path.join(tmpExp, rel);
+      fs.mkdirSync(path.dirname(legacyAbs), { recursive: true });
+      fs.writeFileSync(legacyAbs, 'legacy');
+      assert.equal(ac.absFromRel(rel), legacyAbs, 'legacy exports file still resolves for the checked handlers');
+      // Private copy wins once migrated.
+      const privAbs = path.join(tmpPriv, rel);
+      fs.mkdirSync(path.dirname(privAbs), { recursive: true });
+      fs.writeFileSync(privAbs, 'private');
+      assert.equal(ac.absFromRel(rel), privAbs, 'private copy takes precedence');
+      // Traversal is refused.
+      assert.equal(ac.absFromRel('../outside.bin'), null, 'traversal outside the roots is refused');
+      n += 4;
+      const serverSrc = read('server.js');
+      assert.ok(serverSrc.includes("seg === 'assistant-chat' || seg === 'site-chat'"), 'the public preview mount denies the private directory shapes');
+      n += 1;
+    } finally {
+      if (prevPriv == null) delete process.env.PRIVATE_FILES_ROOT;
+      else process.env.PRIVATE_FILES_ROOT = prevPriv;
+      if (prevExp == null) delete process.env.EXPORT_ROOT;
+      else process.env.EXPORT_ROOT = prevExp;
+      fs.rmSync(tmpPriv, { recursive: true, force: true });
+      fs.rmSync(tmpExp, { recursive: true, force: true });
+    }
+    group('N private attachments (F10)', n);
+  }
+
+  // ---- O: external review F11/F12 — credits accounting ----
+  {
+    let n = 0;
+    const credits = require(path.join(root, 'server/credits.js'));
+    // F12: the purchase-time snapshot wins over today's config.
+    assert.equal(
+      credits.creditsFromSession({ metadata: { pack_amount: '50', quantity: '1' } }, 100),
+      50,
+      'fulfillment grants the purchased pack size, not the current config'
+    );
+    assert.equal(
+      credits.creditsFromSession({ metadata: { pack_amount: '50', quantity: '3' } }, 100),
+      150,
+      'snapshot pack size multiplies by the purchased quantity'
+    );
+    assert.equal(
+      credits.creditsFromSession({ metadata: { credits: '70' } }, 100),
+      70,
+      'an explicit purchased credit total is honoured when no pack math was recorded'
+    );
+    assert.equal(
+      credits.creditsFromSession({ metadata: {} }, 100),
+      100,
+      'legacy sessions without a snapshot fall back to the live config'
+    );
+    n += 4;
+    // F11: cumulative clawback wiring.
+    const creditsSrc = read('server/credits.js');
+    assert.ok(creditsSrc.includes('cumulativeRefundedCents'), 'clawback takes the cumulative refunded total');
+    assert.ok(creditsSrc.includes('stripe_refund_shortfall'), 'un-coverable clawbacks are recorded durably');
+    assert.ok(creditsSrc.includes('entitlement_already_clawed'), 'a second refund cannot re-claw the same entitlement');
+    const billingSrc = read('server/billing.js');
+    assert.ok(billingSrc.includes('cumulativeRefundedCents: charge && charge.amount_refunded'), 'the refund handler passes Stripe cumulative amounts');
+    n += 4;
+    group('O credits refund/fulfillment (F11/F12)', n);
+  }
+
+  // ---- P: external review F13/F14 — standalone package + webhook ----
+  {
+    let n = 0;
+    const dockerfile = read('Dockerfile');
+    assert.ok(dockerfile.includes('COPY Dockerfile ./'), 'the release image carries its own Dockerfile (F13)');
+    const sb = read('server/standaloneBackup.js');
+    assert.ok(sb.includes('APP_TREE_INCOMPLETE'), 'the generator fails closed on a missing app-tree asset');
+    const wh = read('server/routes/paymentsWebhook.js');
+    assert.ok(wh.includes("router.post('/',"), 'the bare webhook path exists for single-site clones (F14)');
+    assert.ok(wh.includes('isSingleSite()'), 'the bare path resolves only in single-site mode');
+    const install = read('standalone/install.sh');
+    for (const ev of ['invoice.paid', 'invoice.payment_failed', 'customer.subscription.deleted', 'checkout.session.async_payment_succeeded', 'payment_intent.payment_failed']) {
+      assert.ok(install.includes(ev), `installer subscribes to ${ev}`);
+      n += 1;
+    }
+    n += 4;
+    group('P standalone installable (F13/F14)', n);
+  }
+
+  // ---- Q: external review F15/F16 — event loop + permissions policy ----
+  {
+    let n = 0;
+    const sm = read('server/siteModules.js');
+    assert.ok(!sm.includes('bcrypt.compareSync(password'), 'member login no longer blocks on sync bcrypt (F15)');
+    assert.ok(!sm.includes('bcrypt.hashSync(password'), 'member signup/reset no longer block on sync bcrypt');
+    assert.ok(sm.includes('async function loginMember'), 'member login is async');
+    assert.ok(sm.includes('await bcrypt.compare(password, member.password_hash)'), 'member compare is awaited');
+    n += 4;
+    const sh = require(path.join(root, 'server/securityHeaders.js'));
+    assert.ok(sh.permissionsPolicyFor({ path: '/api/v1/leads' }).includes('microphone=()'), 'staff/API surfaces keep the microphone disabled (F16)');
+    assert.ok(sh.permissionsPolicyFor({ path: '/staff' }).includes('microphone=()'), 'staff pages keep the microphone disabled');
+    assert.ok(sh.permissionsPolicyFor({ path: '/site-previews/ws1/site/index.html' }).includes('microphone=(self)'), 'app-hosted site documents may use the microphone');
+    assert.ok(sh.permissionsPolicyFor({ path: '/embed/chat/abc' }).includes('microphone=(self)'), 'embed documents may use the microphone');
+    n += 4;
+    group('Q event loop + permissions (F15/F16)', n);
+  }
+
+  // ---- R: external review F09 — recording proxy session parity ----
+  {
+    let n = 0;
+    const mw = read('server/middleware.js');
+    assert.ok(mw.includes('loadSessionUser,'), 'middleware exports the session user loader');
+    const calls = read('server/routes/calls.js');
+    assert.ok(calls.includes('capsForStaff.loadUser'), 'the recording proxy loads the staff account');
+    assert.ok(calls.includes("String(u.status || 'active') === 'disabled'"), 'a disabled staff account cannot play recordings');
+    assert.ok(calls.includes('u.deleted_at'), 'a deleted staff account cannot play recordings');
+    n += 4;
+    group('R recording session parity (F09)', n);
   }
 
   console.log(`\nBatch 168 review-fixes regressions: ALL PASS — ${groups.join('; ')}`);
