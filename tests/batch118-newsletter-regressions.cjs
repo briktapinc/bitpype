@@ -102,8 +102,8 @@ let db;
     const sm = require(path.join(root, 'server/siteModules.js'));
     assert.equal(
       sm.MODULE_TYPES.length,
-      29,
-      'catalog has 29 types (Batch 124: categories 24th; Batch 125: photocapture 25th; Batch 126 finisher: qrcode the 26th; Batch 128: checkout the 27th; Batch 131: comments the 28th; Batch 139: pricing the 29th)'
+      30,
+      'catalog has 30 types (Batch 124: categories 24th; Batch 125: photocapture 25th; Batch 126 finisher: qrcode the 26th; Batch 128: checkout the 27th; Batch 131: comments the 28th; Batch 139: pricing the 29th; Batch 164: custom_code the 30th)'
     );
     n++;
     assert.equal(sm.MODULE_TYPES[22], 'newsletter', 'newsletter is the 23rd type');
@@ -181,7 +181,7 @@ let db;
     const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
     assert.equal(
       census().summary.total,
-      486, // Batch 162 rotation: census 470 -> 474 (+4 audited Contact-page sinks, pairwise-proven — see batch103 narrative); Batch 161 rotation: census 453 -> 470 (+17 audited Assistant-surface sinks, pairwise-proven — see batch103 narrative)
+      492, // Batch 164 rotation: census 486 -> 492 (+6 audited Custom Code sinks, pairwise-proven — see batch103 narrative); Batch 162 rotation: census 470 -> 474 (+4 audited Contact-page sinks, pairwise-proven — see batch103 narrative); Batch 161 rotation: census 453 -> 470 (+17 audited Assistant-surface sinks, pairwise-proven — see batch103 narrative)
       'SEC-13 census total (Batch 139 finisher: +2 audited safe-class sinks in module-embed.js — pricing renderer; Batch 128 added 13 safe sinks; reviewed set unchanged; Batch 137 finisher: +1 audited SAFE sink in portal.js (qualifying-question rows render — numeric indices + esc()-wrapped question text), census 441 -> 442, SAFE 73 -> 74, reviewed RAW/IDENT content unchanged (12 portal.js positions shifted +127, pure line movement, snippet-verified); Batch 153: census 448 -> 450 — +1 BUILDER +1 RAW in app.js, both the Admin Design-agent editor (rows build — every interpolated value esc()-wrapped; panel shell classified RAW by the conservative classifier, audited: its interpolations are a fixed literal seed note and the numeric limits only, no staff- or visitor-controlled string reaches it unescaped); BUILDER 59 -> 60, RAW 77 -> 78, safe classes 335 -> 336; remaining app.js RAW/IDENT movement is pure line shift from the editor + popup insertions, (file,kind,snippet) multiset diff vs the Batch 139 base = exactly these two sinks; baseline regenerated; Batch 156 rotation: census 450 -> 453 (+1 STATIC +1 ESCAPED +1 SAFE in app.js — fingerprint surfaces), safe classes 336 -> 339, RAW/IDENT reviewed set unchanged; baseline regenerated)'
     );
     n++;

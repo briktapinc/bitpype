@@ -106,7 +106,7 @@ const MODULE_TYPES = [
     has(portalHtml, '<div class="panel" style="margin-bottom:var(--card-gap)">', 'social accounts panel margin on token');
     // JS template card margins on the token.
     const flatJs = portalJs.split(String.fromCharCode(92)).join('');
-    assert.equal(flatJs.split('<div class="card" style="margin-bottom:var(--card-gap)"').length - 1, 11, 'all eleven module settings .card blocks on token (Batch 124: Categories scopes panel; Batch 126 finisher: +1 QR display panel; Batch 128: +3 shop orders + checkout panels)'); n += 1;
+    assert.equal(flatJs.split('<div class="card" style="margin-bottom:var(--card-gap)"').length - 1, 13, 'all thirteen module settings .card blocks on token (Batch 124: Categories scopes panel; Batch 126 finisher: +1 QR display panel; Batch 128: +3 shop orders + checkout panels; Batch 164: +2 Custom Code panel cards)'); n += 1;
     has(flatJs, '<article class="post-card" style="margin-bottom:var(--card-gap)">', 'submission post-card margin on token');
     has(flatJs, '<div class="panel" style="margin-top:var(--card-gap)">', 'GBP draft panel margin on token');
     // Off-standard values are gone from the card surfaces.
@@ -117,7 +117,7 @@ const MODULE_TYPES = [
     const { census } = require(path.join(root, 'scripts', 'xss-census.cjs'));
     const cz = census();
     // Batch 156 rotation: census 450 -> 453 (+1 STATIC +1 ESCAPED +1 SAFE in app.js — the fingerprint surfaces), safe classes 336 -> 339, RAW 78 / IDENT 36 and the 114-entry reviewed set unchanged; baseline regenerated. Batch 161 rotation: census 453 -> 470 (+17 audited Assistant-surface sinks in app.js/portal.js, pairwise multiset-proven vs the 159 census — see batch103 narrative), safe classes 339 -> 351, RAW 81 / IDENT 38, reviewed set 119 entries; baseline regenerated.
-    assert.equal(cz.summary.total, 486, 'SEC-13 census total unchanged (Batch 153 rotation: census 448 -> 450 — +1 BUILDER +1 RAW in app.js, both the Admin Design-agent editor (rows build — every interpolated value esc()-wrapped; panel shell classified RAW by the conservative classifier, audited: its interpolations are a fixed literal seed note and the numeric limits only, no staff- or visitor-controlled string reaches it unescaped); BUILDER 59 -> 60, RAW 77 -> 78, safe classes 335 -> 336; remaining app.js RAW/IDENT movement is pure line shift from the editor + popup insertions, (file,kind,snippet) multiset diff vs the Batch 139 base = exactly these two sinks; baseline regenerated)'); n += 1;
+    assert.equal(cz.summary.total, 492, 'SEC-13 census total unchanged (Batch 153 rotation: census 448 -> 450 — +1 BUILDER +1 RAW in app.js, both the Admin Design-agent editor (rows build — every interpolated value esc()-wrapped; panel shell classified RAW by the conservative classifier, audited: its interpolations are a fixed literal seed note and the numeric limits only, no staff- or visitor-controlled string reaches it unescaped); BUILDER 59 -> 60, RAW 77 -> 78, safe classes 335 -> 336; remaining app.js RAW/IDENT movement is pure line shift from the editor + popup insertions, (file,kind,snippet) multiset diff vs the Batch 139 base = exactly these two sinks; baseline regenerated)'); n += 1;
     const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
     const BASELINE = new Set(require(path.join(root, 'tests', 'batch103-xss-baseline.json')));
     assert.deepEqual([...reviewed].filter((x) => !BASELINE.has(x)), [], 'no new RAW/IDENT sinks vs baseline'); n += 1;
