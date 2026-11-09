@@ -269,12 +269,25 @@ say "Starting the stack (first run builds the app image — this can take a few 
 # ------------------------------------------------- Stripe webhook (best effort)
 if [ -n "${SSB_STRIPE_SECRET:-}" ] && command -v curl >/dev/null 2>&1; then
   say "Registering the Stripe webhook endpoint…"
+  # Batch 168 (external review F14): subscribe to the FULL set the
+  # unified payments handler consumes — shop checkout/PI events AND
+  # the membership subscription/invoice lifecycle. The bare URL is
+  # correct for a clone: the app resolves its sole workspace for
+  # the bare path in single-site mode.
   WEBHOOK_JSON="$(curl -s -u "${SSB_STRIPE_SECRET}:" \
     -d "url=https://${SSB_DOMAIN}/api/v1/payments/webhook" \
     -d "enabled_events[]=checkout.session.completed" \
     -d "enabled_events[]=checkout.session.expired" \
+    -d "enabled_events[]=checkout.session.async_payment_succeeded" \
+    -d "enabled_events[]=checkout.session.async_payment_failed" \
     -d "enabled_events[]=payment_intent.succeeded" \
+    -d "enabled_events[]=payment_intent.payment_failed" \
     -d "enabled_events[]=charge.refunded" \
+    -d "enabled_events[]=customer.subscription.created" \
+    -d "enabled_events[]=customer.subscription.updated" \
+    -d "enabled_events[]=customer.subscription.deleted" \
+    -d "enabled_events[]=invoice.paid" \
+    -d "enabled_events[]=invoice.payment_failed" \
     https://api.stripe.com/v1/webhook_endpoints || true)"
   WHSEC="$(printf '%s' "$WEBHOOK_JSON" | sed -n 's/.*"secret": *"\([^"]*\)".*/\1/p' | head -n 1)"
   if [ -n "$WHSEC" ]; then
@@ -282,7 +295,7 @@ if [ -n "${SSB_STRIPE_SECRET:-}" ] && command -v curl >/dev/null 2>&1; then
     say "Stripe webhook registered; its signing secret was appended to .env — restarting the app so it takes effect."
     (cd "$INSTALL_DIR" && docker compose up -d app)
   else
-    warn "Stripe did not return a webhook secret. Register it manually: Stripe Dashboard → Developers → Webhooks → Add endpoint https://${SSB_DOMAIN}/api/v1/payments/webhook (events: checkout.session.completed, checkout.session.expired, payment_intent.succeeded, charge.refunded), then put the signing secret in $ENV_FILE as SSB_STRIPE_WEBHOOK_SECRET and re-run this installer."
+    warn "Stripe did not return a webhook secret. Register it manually: Stripe Dashboard → Developers → Webhooks → Add endpoint https://${SSB_DOMAIN}/api/v1/payments/webhook (events: checkout.session.completed, checkout.session.expired, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed, payment_intent.succeeded, payment_intent.payment_failed, charge.refunded, customer.subscription.created, customer.subscription.updated, customer.subscription.deleted, invoice.paid, invoice.payment_failed), then put the signing secret in $ENV_FILE as SSB_STRIPE_WEBHOOK_SECRET and re-run this installer."
   fi
 fi
 

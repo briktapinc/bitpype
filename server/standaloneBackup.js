@@ -851,7 +851,15 @@ function copyAppTree(repoRoot, destDir) {
   };
   for (const rel of APP_TREE_PATHS) {
     const src = path.join(repoRoot, rel);
-    if (!fs.existsSync(src)) continue;
+    /* Batch 168 (external review F13): EVERY app-tree path is a
+     * required asset. The silent skip shipped production packages
+     * without a Dockerfile (the release image didn't carry its own,
+     * so the generator found nothing and said nothing) and the
+     * clone could not build. Fail before streaming an incomplete
+     * package — the same discipline copyInstallerAssets applies. */
+    if (!fs.existsSync(src)) {
+      throw fail('APP_TREE_INCOMPLETE', `required app-tree asset is missing from the tree: ${rel}`);
+    }
     const dest = path.join(destDir, rel);
     if (fs.statSync(src).isDirectory()) fs.cpSync(src, dest, { recursive: true, filter: skip });
     else fs.copyFileSync(src, dest);

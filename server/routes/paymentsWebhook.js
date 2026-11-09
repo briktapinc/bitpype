@@ -56,6 +56,33 @@ router.post('/:workspaceId', async (req, res) => {
   } catch {
     return res.status(404).json({ ok: false, error: 'Workspace not found' });
   }
+  return handlePaymentsWebhook(req, res, workspaceId);
+});
+
+/* Batch 168 (external review F14): the standalone installer
+ * registers the BARE path (no workspace id — a clone has exactly
+ * one workspace and its Stripe dashboard was pointed at the bare
+ * URL). In single-site mode the bare path resolves the clone's
+ * sole workspace and runs the same handler; on the platform the
+ * bare path stays a 404 (there is no default workspace, and
+ * guessing one would be a cross-tenant hole). Signature
+ * verification is unchanged — resolution only SELECTS the
+ * workspace whose secrets verify the event. */
+router.post('/', async (req, res) => {
+  try {
+    if (!require('../singleSite').isSingleSite()) {
+      return res.status(404).json({ ok: false, error: 'Workspace not found' });
+    }
+    const rows = await require('../db').query('SELECT id FROM workspaces ORDER BY id ASC LIMIT 1');
+    const workspaceId = rows && rows[0] ? Number(rows[0].id) : 0;
+    if (!workspaceId) return res.status(404).json({ ok: false, error: 'Workspace not found' });
+    return handlePaymentsWebhook(req, res, workspaceId);
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: 'Webhook resolver failed' });
+  }
+});
+
+async function handlePaymentsWebhook(req, res, workspaceId) {
   const rawBody = req.body;
   let peek = null;
   try {
@@ -170,6 +197,6 @@ router.post('/:workspaceId', async (req, res) => {
     console.error('[payments-webhook] apply failed', workspaceId, event && event.type, e && e.message);
     return res.status(500).json({ ok: false, error: 'Event handling failed' });
   }
-});
+}
 
 module.exports = router;

@@ -34,6 +34,10 @@ ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 COPY package.json package-lock.json ./
+# Batch 168 (external review F13): the standalone-backup generator
+# packages the app FROM the running image and requires the
+# Dockerfile as an asset — the image must carry its own.
+COPY Dockerfile ./
 COPY vendor ./vendor
 RUN npm ci --omit=dev --no-audit --fund=false
 
