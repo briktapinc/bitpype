@@ -215,9 +215,9 @@ const LEAD_B = 139002;
     // embed renderer escapes every interpolated value).
     const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
     const cz = census();
-    assert.equal(cz.summary.RAW, 78, 'SEC-13 RAW sink count unchanged by 139 (77 at the Batch 138 tip, verified identical pre/post this change set; Batch 153 rotation: 77 -> 78 — the audited Design-agent editor panel-shell RAW in app.js, see batch103 narrative)');
+    assert.equal(cz.summary.RAW, 82, 'SEC-13 RAW sink count unchanged by 139 (77 at the Batch 138 tip, verified identical pre/post this change set; Batch 153 rotation: 77 -> 78 — the audited Design-agent editor panel-shell RAW in app.js; Batch 161 rotation: 78 -> 81 (Assistant surfaces); Batch 162 rotation: 81 -> 82 (the audited Contact-page RAW) — see batch103 narrative)');
     n++;
-    assert.equal(cz.summary.IDENT, 36, 'SEC-13 IDENT sink count unchanged by 139 (36 at the Batch 138 tip, verified identical pre/post this change set)');
+    assert.equal(cz.summary.IDENT, 38, 'SEC-13 IDENT sink count unchanged by 139 (36 at the Batch 138 tip, verified identical pre/post this change set; Batch 161 rotation: 36 -> 38 (Assistant surfaces); Batch 162 rotation: 38 unchanged — see batch103 narrative)');
     n++;
 
     group('Part 1 wiring pins', n);

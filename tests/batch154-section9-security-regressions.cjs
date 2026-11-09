@@ -109,6 +109,7 @@ function group(name, n) {
       'server/membershipStripe.js': 3,
       'server/pricingAdmin.js': 3,
       'server/siteModules.js': 3,
+      'server/assistantBilling.js': 1,
     };
     let totalCalls = 0;
     for (const rel of files) {
@@ -129,7 +130,7 @@ function group(name, n) {
       );
       n++;
     }
-    assert.equal(totalCalls, 25, 'census total: 25 mutating Stripe call sites');
+    assert.equal(totalCalls, 26, 'census total: 26 mutating Stripe call sites (Batch 161 added server/assistantBilling.js: the assistant-usage invoiceItems.create, keyed stripeIdempotencyKey(assistant-usage) — audited, key present in the call)');
     n++;
     // Headline schemes pinned.
     const billing = read('server/billing.js');
