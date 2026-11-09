@@ -1030,7 +1030,11 @@ function renderNewsletterBlocks(db, leadId, blocks) {
 
 function googleReviewKey(review) {
   if (review && review.name) return 'name:' + String(review.name);
-  const basis = [String((review && review.author) || ''), String((review && review.publish_time) || ''), String((review && review.text) || '')].join('\n');
+  const basis = [
+    String((review && review.author) || ''),
+    String((review && review.publish_time) || ''),
+    String((review && review.text) || ''),
+  ].join('\n');
   return 'h:' + require('node:crypto').createHash('sha256').update(basis).digest('hex');
 }
 
@@ -1104,7 +1108,12 @@ function shareGoogleReviewsToSocial(db, leadId) {
         `INSERT INTO social_campaigns (lead_id, title, month_start, status, brief, with_images, require_client_approval, client_email, timezone)
          VALUES (?, ?, ?, 'active', ?, 0, 1, '', 'America/New_York')`
       )
-      .run(id, title, monthStart, 'Google reviews shared to the calendar (Batch 158) — drafts need approval before anything posts.');
+      .run(
+        id,
+        title,
+        monthStart,
+        'Google reviews shared to the calendar (Batch 158) — drafts need approval before anything posts.'
+      );
     campaign = db.prepare('SELECT * FROM social_campaigns WHERE id = ?').get(Number(info.lastInsertRowid));
   }
   const maxDay = db.prepare('SELECT MAX(day_index) AS m FROM social_posts WHERE campaign_id = ?').get(campaign.id);
@@ -1130,8 +1139,12 @@ function shareGoogleReviewsToSocial(db, leadId) {
     `INSERT INTO social_posts (campaign_id, lead_id, day_index, scheduled_at, caption, platforms, image_url, image_prompt, status)
      VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, 'draft')`
   );
-  const insertMap = db.prepare('INSERT INTO googlereviews_social_posts (lead_id, review_key, social_post_id) VALUES (?, ?, ?)');
-  const platforms = JSON.stringify(Array.isArray(social.PLATFORMS) && social.PLATFORMS.length ? social.PLATFORMS : ['facebook', 'instagram']);
+  const insertMap = db.prepare(
+    'INSERT INTO googlereviews_social_posts (lead_id, review_key, social_post_id) VALUES (?, ?, ?)'
+  );
+  const platforms = JSON.stringify(
+    Array.isArray(social.PLATFORMS) && social.PLATFORMS.length ? social.PLATFORMS : ['facebook', 'instagram']
+  );
 
   let created = 0;
   for (const review of fresh) {
