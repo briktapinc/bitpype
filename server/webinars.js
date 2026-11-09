@@ -5,7 +5,7 @@
  *
  * Ely's ask (2026-11-08): an admin page to create webinars, each with
  * an auto-generated access code and a shareable public link
- * (https://bitpype.com/webinar/<slug>). The public page is a GATE:
+ * (<public origin>/webinar/<slug>). The public page is a GATE:
  * full name + email + phone + the webinar code. Passing the gate
  *   1. registers the person for that webinar (webinar_registrations,
  *      deduped per webinar by normalized email),
