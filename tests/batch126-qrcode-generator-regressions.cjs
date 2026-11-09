@@ -366,8 +366,17 @@ let db;
       wifi_hidden: 1,
       status: 'published',
     });
+    // Batch 168 (S3#3): create/update/get return a credential-free
+    // view (wifi_password undefined + has_wifi_password) — payloads
+    // are built from the stored row, exactly as the public image
+    // route does.
+    assert.equal(codeWifi.wifi_password, undefined, 'create return never carries the WiFi password (Batch 168 S3#3)');
+    n++;
+    assert.equal(codeWifi.has_wifi_password, true, 'create return flags that a password is set');
+    n++;
+    const rawQrRow = (c) => db.prepare('SELECT * FROM module_qrcodes WHERE id = ?').get(c.id);
     assert.equal(
-      sm.buildQrPayload(db, LEAD_A, codeWifi),
+      sm.buildQrPayload(db, LEAD_A, rawQrRow(codeWifi)),
       'WIFI:T:WPA;S:Cafe\\;Net \\"5G\\";P:p\\\\ss\\,word\\:1;H:true;;',
       'WIFI payload escapes ; , " : and backslash (ZXing field rules)'
     );
@@ -429,7 +438,7 @@ let db;
     assert.equal(renamed.name, 'Guest WiFi (lobby)');
     n++;
     assert.ok(
-      sm.buildQrPayload(db, LEAD_A, renamed).includes('P:p\\\\ss'),
+      sm.buildQrPayload(db, LEAD_A, rawQrRow(renamed)).includes('P:p\\\\ss'),
       'blank password on update keeps the stored one'
     );
     n++;
@@ -445,7 +454,11 @@ let db;
     n++;
     assertPngEncodes(Buffer.from(png.body), payload, 'M');
     n++;
-    const wifiPayload = sm.buildQrPayload(db, LEAD_A, codeWifi);
+    const wifiPayload = sm.buildQrPayload(
+      db,
+      LEAD_A,
+      db.prepare('SELECT * FROM module_qrcodes WHERE id = ?').get(codeWifi.id)
+    );
     const wifiPng = await sm.renderQrCodeImage(wifiPayload, codeWifi, { format: 'png', width: 1024 });
     assertPngEncodes(Buffer.from(wifiPng.body), wifiPayload, 'M');
     n++;

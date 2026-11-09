@@ -45,6 +45,10 @@ process.env.EXPORT_ROOT = path.join(tmpRoot, 'exports');
 process.env.APP_URL = 'https://example.invalid';
 process.env.CAPTCHA_OPTIONAL = '1';
 process.env.NODE_ENV = 'production';
+// Batch 168: the production boot refuses to start without
+// SETTINGS_ENCRYPTION_KEY — synthetic fixture key, batch100 pattern.
+process.env.SETTINGS_ENCRYPTION_KEY =
+  process.env.SETTINGS_ENCRYPTION_KEY || Buffer.alloc(32, 23).toString('base64');
 process.env.SESSION_SECRET = ['batch161', 'regression', 'secret'].join('-');
 process.env.BOOTSTRAP_EMAIL = 'root161@example.invalid';
 process.env.BOOTSTRAP_PASSWORD = ['Root', '161', 'Pass'].join('-');

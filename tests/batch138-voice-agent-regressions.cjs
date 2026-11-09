@@ -62,6 +62,12 @@ process.env.SESSION_SECRET = ['batch138', 'regression', 'session', 'secret'].joi
 // production, and the spawned fixture server refuses to boot without
 // this pair.
 process.env.CAPTCHA_OPTIONAL = '1';
+// Batch 168 (S5#6/S7#1): the voice mint now runs the platform's
+// standard assertAiBaseUrl guard before sending the key, like every
+// other key transport — the fixture's stub AI server is a loopback
+// endpoint, which the guard admits only under the operator opt-in
+// for local model servers.
+process.env.ALLOW_LOCAL_AI = '1';
 process.env.APP_URL = 'https://bitpype.test';
 process.env.COOKIE_SECURE = 'false';
 process.env.MAIL_DRY_RUN = process.env.MAIL_DRY_RUN || 'true';
