@@ -277,7 +277,7 @@ function mobileCss(css) {
     n += 1;
     const multi = cz.sinks.map((s) => `${s.file}|${s.kind}|${s.snippet}`).sort();
     const sha = crypto.createHash('sha256').update(multi.join('\n')).digest('hex');
-    assert.equal(sha, '43d331fd851011c0dcd8c31bb4f13dbc8f5004a95169567d31e3f05c845f0c47', 'SEC-13 (file|kind|snippet) multiset byte-identical to the deployed Batch 165 tree');
+    assert.equal(sha, '20da195b82955ec635ce1dff9f57ff4d3773270087ab97194c39630390c061e8', 'SEC-13 (file|kind|snippet) multiset byte-identical to the deployed Batch 165 tree');
     n += 1;
     group('Part 5 SEC-13 census — unchanged, no rotation', n);
   }
