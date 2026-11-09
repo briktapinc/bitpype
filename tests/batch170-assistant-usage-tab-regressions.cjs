@@ -143,12 +143,16 @@ async function main() {
     const iWizard = sec.indexOf('id="theme-wizard-backdrop"');
     assert.ok(iTabs > 0 && iPaneChat > iTabs, 'chat pane follows the tab strip');
     assert.ok(iLayout > iPaneChat, 'chat layout inside the chat pane');
-    assert.ok(iThemes > iPaneChat, 'Batch 169 Themes block stays inside the chat pane');
-    assert.ok(iPaneUsage > iThemes, 'usage pane after the chat pane content');
-    assert.ok(iWizard > iPaneUsage, 'wizard modal stays at section level, after the panes');
+    // Batch 172 finisher adaptation (chain 170 -> 171 -> 172): Batch 172
+    // removed the portal Themes block + wizard (Themes is staff-only),
+    // so on the post-172 tree both anchors are absent and the pane
+    // order pin runs off the chat layout instead.
+    assert.ok(iThemes === -1, 'Batch 172: Themes block removed from the portal chat pane');
+    assert.ok(iPaneUsage > iLayout, 'usage pane after the chat pane content');
+    assert.ok(iWizard === -1, 'Batch 172: theme wizard modal removed from the portal page');
     n += 5;
 
-    const usagePane = sec.slice(iPaneUsage, iWizard);
+    const usagePane = sec.slice(iPaneUsage);
     assert.ok(/id="assistant-pane-usage" hidden>/.test(usagePane), 'usage pane starts hidden');
     assert.ok(usagePane.includes('id="assistant-usage-headline"'), 'headline container in usage pane');
     assert.ok(usagePane.includes('id="assistant-usage-body"'), 'body container in usage pane');

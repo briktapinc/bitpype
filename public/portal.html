@@ -300,56 +300,6 @@
       .assistant-composer { flex-wrap: wrap; }
       .assistant-composer textarea { order: -1; flex: 1 1 100%; min-height: 48px; }
     }
-    /* Batch 169: Themes section under the Assistant chat. One
-       horizontally scrollable row per category; cards never touch
-       (uniform --bp-space-card-gap), text never on a card edge
-       (--bp-space-card-pad). Spacing values come from tokens.css —
-       no local copies. */
-    .themes-block { margin-top: 28px; }
-    .themes-intro { margin: 0 0 6px; color: var(--muted); font-size: 0.92rem; max-width: 62ch; }
-    .themes-category { margin-top: 22px; }
-    .themes-category h3 {
-      margin: 0 0 10px; font-family: var(--font-display); font-size: 1.05rem; letter-spacing: -0.01em;
-    }
-    .themes-row {
-      display: flex; gap: var(--bp-space-card-gap); overflow-x: auto;
-      padding: 4px 2px 12px; scroll-snap-type: x proximity;
-    }
-    .theme-card {
-      flex: 0 0 264px; scroll-snap-align: start; display: flex; flex-direction: column;
-      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-      box-shadow: var(--shadow); overflow: hidden;
-    }
-    .theme-card img { display: block; width: 100%; height: auto; aspect-ratio: 8 / 5; object-fit: cover; }
-    .theme-card-body { padding: var(--bp-space-card-pad); display: flex; flex-direction: column; gap: 8px; flex: 1; }
-    .theme-card-body h4 { margin: 0; font-size: 0.98rem; }
-    .theme-card-body p { margin: 0; color: var(--muted); font-size: 0.85rem; flex: 1; }
-    .theme-card-body .btn { align-self: flex-start; }
-    .themes-status { min-height: 1.2em; font-size: 0.85rem; color: var(--muted); margin: 8px 0 0; }
-    .themes-status.is-error { color: var(--danger, #b3261e); }
-    /* Wizard popup fields (rides the shared .modal styles). */
-    .theme-wizard .field select,
-    .theme-wizard .field input[type="text"],
-    .theme-wizard .field input[type="email"],
-    .theme-wizard .field input[type="tel"] {
-      width: 100%; border: 1px solid var(--border-strong); border-radius: 10px;
-      padding: 9px 11px; font: inherit; background: #fff; color: var(--ink);
-    }
-    .theme-wizard textarea { min-height: 64px; }
-    .theme-wizard .wizard-theme { display: flex; gap: 12px; align-items: center; margin: 0 0 14px; }
-    .theme-wizard .wizard-theme img { width: 96px; height: auto; border-radius: 8px; border: 1px solid var(--border); }
-    .theme-wizard .wizard-theme .wizard-theme-name { font-weight: 700; }
-    .theme-wizard .wizard-theme .wizard-theme-meta { color: var(--muted); font-size: 0.82rem; }
-    .theme-wizard .radio-row { display: flex; gap: 16px; flex-wrap: wrap; margin: 0 0 12px; }
-    .theme-wizard .radio-row label { display: inline-flex; gap: 6px; align-items: center; font-weight: 500; font-size: 0.9rem; }
-    .theme-wizard .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
-    .theme-wizard .wizard-msg { min-height: 1.2em; font-size: 0.88rem; margin: 10px 0 0; }
-    .theme-wizard .wizard-msg.is-error { color: var(--danger, #b3261e); }
-    .theme-wizard .wizard-msg.is-ok { color: var(--accent-dark); }
-    @media (max-width: 700px) {
-      .theme-card { flex-basis: 232px; }
-      .themes-block { margin-top: 22px; }
-    }
     /* Batch 170: Assistant usage & costs tab. The usage display that
        used to sit as one line above the chat renders here from the
        same /assistant/usage payload. Rows use the shared card spacing
@@ -3008,17 +2958,6 @@
           </div>
         </div>
 
-        <!-- Batch 169: Themes — pick a layout guide, Build opens the wizard. -->
-        <div class="themes-block" id="themes-block">
-          <div class="block-head">
-            <div>
-              <h2>Start from a theme</h2>
-              <p class="themes-intro">Themes are layout guides — the pages, section order and features a build will follow. Your business name, colors and wording are set in the build, so your site still looks like yours. Pick one and choose Build this to start.</p>
-            </div>
-          </div>
-          <div id="themes-catalog"></div>
-          <p class="themes-status" id="themes-status" role="status"></p>
-        </div>
         </div><!-- /assistant-pane-chat -->
 
         <!-- Batch 170: Usage & costs pane — filled by renderAssistantUsage()
@@ -3028,81 +2967,6 @@
           <div id="assistant-usage-body"></div>
         </div>
 
-        <!-- Batch 169: Build wizard popup. -->
-        <div class="modal-backdrop" id="theme-wizard-backdrop" hidden>
-          <div class="modal theme-wizard" role="dialog" aria-modal="true" aria-labelledby="theme-wizard-title">
-            <h2 id="theme-wizard-title">Build this website</h2>
-            <p class="lede">We will start a design build for the business below using this theme as the layout guide. The build is staged for your review — nothing goes live on its own.</p>
-            <div class="wizard-theme">
-              <img id="tw-theme-img" alt="" />
-              <div>
-                <div class="wizard-theme-name" id="tw-theme-name"></div>
-                <div class="wizard-theme-meta" id="tw-theme-meta"></div>
-              </div>
-            </div>
-            <form id="theme-wizard-form">
-              <div class="radio-row" role="radiogroup" aria-label="Which business is this for?">
-                <label><input type="radio" name="tw-mode" value="existing" checked /> One of my leads</label>
-                <label><input type="radio" name="tw-mode" value="new" /> Add a new lead</label>
-              </div>
-              <div class="field" id="tw-existing-fields">
-                <label for="tw-lead-search">Business</label>
-                <input type="text" id="tw-lead-search" placeholder="Search your leads…" autocomplete="off" />
-                <select id="tw-lead-select" size="5" aria-label="Your leads"></select>
-              </div>
-              <div id="tw-new-fields" hidden>
-                <div class="field">
-                  <label for="tw-new-name">Business name</label>
-                  <input type="text" id="tw-new-name" maxlength="200" />
-                </div>
-                <div class="field">
-                  <label for="tw-new-category">Type of business</label>
-                  <input type="text" id="tw-new-category" maxlength="120" />
-                </div>
-                <div class="field">
-                  <label for="tw-new-city">City</label>
-                  <input type="text" id="tw-new-city" maxlength="120" />
-                </div>
-                <div class="field">
-                  <label for="tw-new-contact">Contact name (optional)</label>
-                  <input type="text" id="tw-new-contact" maxlength="160" />
-                </div>
-                <div class="field">
-                  <label for="tw-new-email">Email (optional)</label>
-                  <input type="email" id="tw-new-email" maxlength="200" />
-                </div>
-                <div class="field">
-                  <label for="tw-new-phone">Phone (optional)</label>
-                  <input type="tel" id="tw-new-phone" maxlength="60" />
-                </div>
-              </div>
-              <div class="field">
-                <label for="tw-business-name">Business name for the site</label>
-                <input type="text" id="tw-business-name" maxlength="200" />
-              </div>
-              <div class="field">
-                <label for="tw-shape">Site shape</label>
-                <select id="tw-shape">
-                  <option value="multipage">Multi-page website</option>
-                  <option value="landing">Single landing page</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="tw-pages">Pages wanted (optional)</label>
-                <textarea id="tw-pages" maxlength="600" placeholder="e.g. Home, Services, Gallery, Contact"></textarea>
-              </div>
-              <div class="field">
-                <label for="tw-brand">Brand notes (optional)</label>
-                <textarea id="tw-brand" maxlength="1500" placeholder="Colors, style, anything to include or avoid"></textarea>
-              </div>
-              <p class="wizard-msg" id="tw-msg" role="status"></p>
-              <div class="modal-actions">
-                <button type="button" class="btn soft" id="tw-cancel">Cancel</button>
-                <button type="submit" class="btn" id="tw-build">Build</button>
-              </div>
-            </form>
-          </div>
-        </div>
       </section>
 
       <section class="block portal-panel" id="sec-preview" role="tabpanel" aria-labelledby="nav-website" data-panel="website">

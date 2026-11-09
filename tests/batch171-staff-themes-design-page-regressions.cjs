@@ -437,10 +437,12 @@ async function main() {
     assert.ok(!batchBlock.includes('.innerHTML'), 'Batch 171 app.js block adds no innerHTML sink (createElement + textContent only)');
     n += 5;
 
-    // Portal surface untouched by this batch (removal is Batch 172).
+    // Portal surface: Batch 172 (later in this deploy chain) removed
+    // the portal themes; this finisher adaptation asserts the
+    // post-chain state (staff-only Themes).
     const portalRoutes = read('server/routes/portal.js');
-    assert.ok(portalRoutes.includes("router.get('/assistant/themes'"), 'portal themes routes still registered (not this batch\u2019s removal)');
-    assert.ok(read('public/js/portal.js').includes('// Batch 169'), 'portal.js Batch 169 block still present');
+    assert.ok(!portalRoutes.includes("router.get('/assistant/themes'"), 'Batch 172: portal themes routes removed (staff-only)');
+    assert.ok(!read('public/js/portal.js').includes('// Batch 169'), 'Batch 172: portal.js Batch 169 block removed');
     n += 2;
     group('Part 3 — UI pins, theme-block behaviour, census', n);
   }
