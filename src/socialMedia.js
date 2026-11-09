@@ -235,7 +235,7 @@ async function metaFetch(path, { method = 'GET', token, body, form } = {}) {
   }
   const u = new URL(url);
   if (token && !u.searchParams.has('access_token')) u.searchParams.set('access_token', token);
-  const res = await fetch(u.toString(), { method, headers, body: payload });
+  const res = await fetch(u.toString(), { method, headers, body: payload, signal: AbortSignal.timeout(30000) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.error) {
     const msg = (data.error && (data.error.message || data.error.error_user_msg)) || `Meta API ${res.status}`;

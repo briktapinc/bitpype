@@ -167,7 +167,11 @@ function requireAuth(req, res) {
     return false;
   }
   const got = extractBearer(req);
-  if (!got || got !== TOKEN) {
+  // Batch 168 (S2#9): constant-time compare (crypto is already
+  // imported) — the only `!==` on a bearer token left in the tree.
+  const gotBuf = Buffer.from(String(got || ''));
+  const wantBuf = Buffer.from(String(TOKEN));
+  if (!got || gotBuf.length !== wantBuf.length || !crypto.timingSafeEqual(gotBuf, wantBuf)) {
     unauthorized(res);
     return false;
   }

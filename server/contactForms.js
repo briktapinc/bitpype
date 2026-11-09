@@ -2543,6 +2543,14 @@ function getPublicFormByToken(db, token) {
     .get(String(token || ''));
   if (!row) throw fail('NOT_FOUND', 'Form not found');
   const form = publicForm(row, listFields(db, row.id));
+  /* Batch 168 (S3#2): publicForm is the OWNER shape — it carries
+   * notify_email (the owner's inbox, defaulting to their own email
+   * address), which the owner surfaces (portal form editor, staff
+   * admin) legitimately read. The anonymous token path must never
+   * hand it out: the public embed never reads it, and publishing a
+   * business's notification inbox invites spam/phishing at it.
+   * Strip it here, at the one anonymous entry point. */
+  delete form.notify_email;
   // SMS opt-in (Batch 25): when the form collects a phone number the
   // renderer adds the consent checkbox from this block. Lazy require —
   // the opt-in must never break the form itself.

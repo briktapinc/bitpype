@@ -64,7 +64,11 @@ function toMysqlDatetime(d) {
 }
 
 async function listJobs(workspaceId) {
-  return query(`SELECT * FROM scheduled_jobs WHERE workspace_id = :workspaceId ORDER BY id DESC`, { workspaceId });
+  // Batch 168 (S8#F6): bounded like the webinar lists — far above
+  // any real per-workspace job count.
+  return query(`SELECT * FROM scheduled_jobs WHERE workspace_id = :workspaceId ORDER BY id DESC LIMIT 1000`, {
+    workspaceId,
+  });
 }
 
 async function getJob(workspaceId, id) {

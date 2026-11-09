@@ -18,6 +18,23 @@ const tokenLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 60 });
 const consentLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 40 });
 const registerLimit = rateLimit({ windowMs: 60 * 60 * 1000, max: 30 });
 
+/* Batch 168 (S1#7): a pending authorization request parked in the
+ * session never expired — a consent completed hours/days after the
+ * /authorize hit (session still alive) minted a code for a request
+ * the client had long abandoned. The parked request now carries
+ * the same 10-minute TTL as the authorization code itself; readers
+ * go through pendingAlive(), which clears a stale entry. */
+const PENDING_TTL_MS = 10 * 60 * 1000;
+function pendingAlive(req) {
+  const pending = req.session && req.session.oauthPending;
+  if (!pending) return null;
+  if (!pending.pendingExpiresAt || Number(pending.pendingExpiresAt) <= Date.now()) {
+    delete req.session.oauthPending;
+    return null;
+  }
+  return pending;
+}
+
 function sendJson(res, status, body) {
   res.status(status).type('application/json').json(body);
 }
@@ -121,7 +138,7 @@ sessionRouter.get('/authorize', async (req, res) => {
         );
     }
 
-    req.session.oauthPending = validated.pending;
+    req.session.oauthPending = { ...validated.pending, pendingExpiresAt: Date.now() + PENDING_TTL_MS };
     await saveSession(req);
     return res.sendFile(path.join(__dirname, '..', '..', 'public', 'authorize.html'));
   } catch (e) {
@@ -132,7 +149,7 @@ sessionRouter.get('/authorize', async (req, res) => {
 
 sessionRouter.get('/oauth/pending', async (req, res) => {
   try {
-    const pending = req.session && req.session.oauthPending;
+    const pending = pendingAlive(req);
     if (!pending) {
       return sendJson(res, 400, { ok: false, error: 'NO_PENDING', message: 'No pending authorization request' });
     }
@@ -173,7 +190,7 @@ sessionRouter.get('/oauth/pending', async (req, res) => {
 
 sessionRouter.post('/oauth/consent', consentLimit, async (req, res) => {
   try {
-    const pending = req.session && req.session.oauthPending;
+    const pending = pendingAlive(req);
     if (!pending) {
       return sendJson(res, 400, { ok: false, error: 'NO_PENDING' });
     }

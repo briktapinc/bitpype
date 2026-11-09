@@ -914,6 +914,7 @@ function deleteLead(db, id) {
   const archivedWebsiteIds = [];
   let siteRows = [];
   let chatAttachmentRows = [];
+  let assistantAttachmentRows = [];
   const tx = db.transaction(() => {
     summary = leadReferenceSummary(db, id);
     // Batch 67: remember the site rows (name/preview path) before the
@@ -937,6 +938,25 @@ function deleteLead(db, id) {
       }
     } catch {
       chatAttachmentRows = [];
+    }
+    // Batch 168 (S8#F1): same for Assistant (Batch 161) attachments —
+    // rows keyed to this lead OR to a conversation of this lead (the
+    // conversation rows drop in the same transaction below).
+    try {
+      const asstTable = db
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'assistant_attachments'")
+        .get();
+      if (asstTable) {
+        assistantAttachmentRows = db
+          .prepare(
+            `SELECT stored_rel FROM assistant_attachments
+             WHERE lead_id = ?
+                OR conversation_id IN (SELECT id FROM assistant_conversations WHERE lead_id = ?)`
+          )
+          .all(id, id);
+      }
+    } catch {
+      assistantAttachmentRows = [];
     }
     // Archive-first for websites (soft delete via the website path).
     if (summary.websiteIds.length) {
@@ -1130,6 +1150,34 @@ function deleteLead(db, id) {
     drop('business_facts');
     drop('lead_scores');
     drop('lead_events');
+    // Batch 168 (S8#F1): the post-143 module families were in NO drop
+    // or merge list — the 143 suite's inventory came from the tables
+    // its own fixture seeded, so tables added by Batches 158/161/162/
+    // 164 fell outside it silently. Deleting a lead orphaned its
+    // Custom Code blocks (owner HTML/JS + a live public_token that
+    // stayed token-addressable), its lead-calling contact notes, its
+    // review→social dedupe rows, and its Assistant conversations /
+    // messages / attachments. All drop here; the batch168 suite
+    // derives its inventory from a FULLY-provisioned schema so the
+    // next new table cannot fall out the same way.
+    drop('module_custom_code_blocks');
+    drop('lead_contact_notes');
+    drop('googlereviews_social_posts');
+    // Assistant children first: attachments + messages key on the
+    // conversation, conversations key on the lead.
+    if (leadTableExists(db, 'assistant_attachments')) {
+      db.prepare(
+        `DELETE FROM assistant_attachments
+         WHERE lead_id = ?
+            OR conversation_id IN (SELECT id FROM assistant_conversations WHERE lead_id = ?)`
+      ).run(id, id);
+    }
+    drop('assistant_conversations');
+    if (leadTableExists(db, 'assistant_messages') && leadTableExists(db, 'assistant_conversations')) {
+      db.prepare(
+        'DELETE FROM assistant_messages WHERE conversation_id NOT IN (SELECT id FROM assistant_conversations)'
+      ).run();
+    }
     db.prepare('DELETE FROM leads WHERE id = ?').run(id);
   });
   tx();
@@ -1189,7 +1237,28 @@ function deleteLead(db, id) {
       /* best-effort */
     }
   }
-  return { ok: true, id, summary, archivedWebsiteIds, removedExportFolders, removedChatAttachments };
+  // Batch 168 (S8#F1): unlink the Assistant attachment files whose
+  // rows the transaction dropped (same best-effort discipline).
+  let removedAssistantAttachments = 0;
+  if (assistantAttachmentRows.length) {
+    try {
+      const asst = require('../server/assistantChat');
+      const before = assistantAttachmentRows.length;
+      asst.deleteAttachmentFilesForRows(assistantAttachmentRows);
+      removedAssistantAttachments = before;
+    } catch {
+      /* best-effort */
+    }
+  }
+  return {
+    ok: true,
+    id,
+    summary,
+    archivedWebsiteIds,
+    removedExportFolders,
+    removedChatAttachments,
+    removedAssistantAttachments,
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -1624,6 +1693,16 @@ const MERGE_MOVE_TABLES = [
   // Batch 139: price-list entries move with the lead — their ids and
   // linked_id targets (services/products, also moving) stay valid.
   'pricing_entries',
+  // Batch 168 (S8#F1): the post-143 families move too — Custom Code
+  // blocks (their global-unique public_tokens and row ids are
+  // untouched by a re-key), lead-calling contact notes, and the
+  // Assistant's conversations + attachments (messages key on the
+  // conversation id, which never changes hands, so they follow
+  // without a row of their own here).
+  'module_custom_code_blocks',
+  'lead_contact_notes',
+  'assistant_conversations',
+  'assistant_attachments',
 ];
 
 const MERGE_DEDUPE_TABLES = {
@@ -1653,6 +1732,9 @@ const MERGE_DEDUPE_TABLES = {
   calls_billing: ['month'],
   site_chat_daily_usage: ['day'],
   lead_onboarding_items: ['item_key'],
+  // Batch 168 (S8#F1): review→social dedupe rows are PK (lead_id,
+  // review_key) — on merge the keeper's row for a review wins.
+  googlereviews_social_posts: ['review_key'],
 };
 
 const MERGE_SINGLETON_TABLES = [

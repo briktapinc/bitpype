@@ -23,7 +23,12 @@ function catalogFromDefs() {
   return { catalog, groups, toolNames: catalog.map((t) => t.name) };
 }
 
-router.get('/status', async (req, res, next) => {
+/* Batch 168 (S2#8): /status was gated by requireWorkspace alone, so
+ * ANY workspace credential — a lead-scoped cl_ client token or a
+ * vendor_design token — could enumerate every workspace token's
+ * id/name/prefix/last-used plus the full tool catalog. Token
+ * administration is owner/admin work (same gate as POST /token). */
+router.get('/status', requireRole('owner', 'admin'), async (req, res, next) => {
   try {
     const tokens = await query(
       `SELECT id, name, token_prefix, last_used_at, created_at

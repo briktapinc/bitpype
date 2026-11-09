@@ -647,8 +647,19 @@ async function restoreForInvoice(invoice, deps = {}) {
   const userId = await resolveUserId(q, invoice);
   if (!userId) return null;
   const subId = invoiceSubscriptionId(invoice);
+  /* Batch 168 (S4#2, the Batch 143 §9.7 suspicion — confirmed with a
+   * repro): an invoice carrying NO subscription id (a manually
+   * created one-off invoice, billing_reason 'manual') restored ANY
+   * active episode, because restoreForUser's mismatch guard only
+   * fires when a subscriptionId is supplied. A suspension is an
+   * episode OF one subscription; only a payment FOR that
+   * subscription (or a staff manual unsuspend, which goes through
+   * restoreForUser directly with force) may close it. A sub-less
+   * invoice is not evidence the suspending subscription was paid —
+   * refuse it here, at the webhook-facing entry point. */
+  if (!subId) return null;
   return restoreForUser(userId, deps, {
-    ...(subId ? { subscriptionId: String(subId) } : {}),
+    subscriptionId: String(subId),
     via: 'invoice_paid',
   });
 }

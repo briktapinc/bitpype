@@ -77,10 +77,17 @@ async function getState(surface, id) {
   const row = await readRow(surface, id);
   if (!row) return { locked: false, lockedUntil: null };
   const locked = parseSqlDateTime(row.login_locked_until);
-  return {
-    locked: !!(locked && locked.getTime() > Date.now()),
-    lockedUntil: locked && locked.getTime() > Date.now() ? locked : null,
-  };
+  if (locked && locked.getTime() > Date.now()) return { locked: true, lockedUntil: locked };
+  // Batch 168 (S1#5): a NON-EMPTY but unparseable stored lock value
+  // (manual DB edit, a legacy zero/garbage date) previously read as
+  // "not locked" — fail OPEN on a security control. Fail closed with
+  // a fresh lock window instead (mirrors the Batch 143 discipline:
+  // an unreadable expiry is an active expiry, never an absent one).
+  const raw = row.login_locked_until;
+  if (raw != null && String(raw).trim() !== '') {
+    return { locked: true, lockedUntil: new Date(Date.now() + LOCK_MS) };
+  }
+  return { locked: false, lockedUntil: null };
 }
 
 async function isLocked(surface, id) {

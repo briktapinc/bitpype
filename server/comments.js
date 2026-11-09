@@ -918,7 +918,17 @@ function createPublicComment(db, token, data = {}, opts = {}) {
   // lead-scoped) — a foreign or draft target is refused there.
   const isDetail = data.detail === true || data.detail === 1 || data.detail === '1';
   if (isDetail) {
-    // targetType/targetId from the body stand as posted.
+    /* Batch 168 (S3#6): detail=1 skipped ALL binding checks — the
+     * type stood as posted, so a comment could be attached to any
+     * shared-layer type an item id resolved under (e.g. type
+     * 'pricing' with a pricing-entry id: stored, counted by the
+     * owner's roll-up, rendered nowhere). The detail page only ever
+     * serves DETAIL_TYPES, so the legal set is exactly that list;
+     * the item binding itself (exists, published, this lead) still
+     * runs inside createComment via the shared layer. */
+    if (!modules.DETAIL_TYPES.includes(targetType)) {
+      throw fail('VALIDATION', 'That item does not belong to this comments block');
+    }
   } else if (config.target_mode === 'page') {
     targetType = 'page';
     targetId = String(opts.pageSlug || row.target_page_slug || '').trim();

@@ -89,11 +89,20 @@ async function getState(surface, id) {
   const row = await readRow(surface, id);
   if (!row) return { exists: false, enabled: false, hasPending: false, lockedUntil: null };
   const locked = parseSqlDateTime(row.totp_locked_until);
+  // Batch 168 (S1#5): non-empty but unparseable stored lock → fail
+  // closed with a fresh window, same rule as loginLockout.getState.
+  const rawLock = row.totp_locked_until;
+  const lockActive =
+    locked && locked.getTime() > Date.now()
+      ? locked
+      : rawLock != null && String(rawLock).trim() !== '' && !locked
+        ? new Date(Date.now() + LOCK_MS)
+        : null;
   return {
     exists: true,
     enabled: Number(row.totp_enabled) === 1 && !!row.totp_secret,
     hasPending: !!row.totp_pending_secret,
-    lockedUntil: locked && locked.getTime() > Date.now() ? locked : null,
+    lockedUntil: lockActive,
   };
 }
 

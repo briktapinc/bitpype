@@ -176,6 +176,7 @@ class TwilioProvider {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: params.toString(),
+        signal: AbortSignal.timeout(30000),
       });
       const raw = await res.text();
       let data = {};
@@ -212,6 +213,7 @@ class TwilioProvider {
             'Content-Type': 'application/x-www-form-urlencoded',
           },
           body: params.toString(),
+          signal: AbortSignal.timeout(30000),
         });
         const raw2 = await res2.text();
         let data2 = {};

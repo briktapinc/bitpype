@@ -285,16 +285,23 @@ function rowsToWebinarList(rows) {
 
 /** Platform (agency) webinars only — the Batch 163 admin list. */
 async function listWebinars() {
-  const rows = await query(`${WEBINAR_LIST_SQL} WHERE w.website_id IS NULL ORDER BY w.id DESC`);
+  /* Batch 168 (S8#F6): bounded — these staff/owner lists were the
+   * only unbounded list queries left; the cap is far above any real
+   * catalogue and keeps a pathological table from handing the UI an
+   * unbounded payload. */
+  const rows = await query(`${WEBINAR_LIST_SQL} WHERE w.website_id IS NULL ORDER BY w.id DESC LIMIT 1000`);
   return rowsToWebinarList(rows);
 }
 
 /** One site's webinars (Batch 165 module) — the portal owner's list. */
 async function listWebinarsForSite(workspaceId, leadId) {
-  const rows = await query(`${WEBINAR_LIST_SQL} WHERE w.workspace_id = :ws AND w.lead_id = :lead ORDER BY w.id DESC`, {
-    ws: Number(workspaceId),
-    lead: Number(leadId),
-  });
+  const rows = await query(
+    `${WEBINAR_LIST_SQL} WHERE w.workspace_id = :ws AND w.lead_id = :lead ORDER BY w.id DESC LIMIT 1000`,
+    {
+      ws: Number(workspaceId),
+      lead: Number(leadId),
+    }
+  );
   return rowsToWebinarList(rows);
 }
 
@@ -618,7 +625,17 @@ async function registerWithCode(webinar, input) {
   if (!name) throw validation('Please enter your full name');
   if (!isValidEmail(email)) throw validation('Please enter a valid email address');
   if (!isValidPhone(phone)) throw validation('Please enter a valid phone number');
-  if (!code || code !== String(webinar.accessCode || '').toUpperCase()) {
+  /* Batch 168 (S7#7): constant-time compare for the access code —
+   * every other secret comparison in the codebase is timing-safe;
+   * the gate is rate-limited and the code is short, so this is
+   * consistency hardening rather than a live exploit fix. Hashing
+   * both sides first keeps timingSafeEqual length-safe. */
+  const codeDigest = crypto.createHash('sha256').update(code).digest();
+  const wantDigest = crypto
+    .createHash('sha256')
+    .update(String(webinar.accessCode || '').toUpperCase())
+    .digest();
+  if (!code || !crypto.timingSafeEqual(codeDigest, wantDigest)) {
     throw coded('INVALID_CODE', 'That code does not match this webinar — check it and try again');
   }
   let reg = await getRegistration(webinar.id, email);
@@ -684,17 +701,40 @@ async function listMessages(webinarId, { afterId = 0, includeHidden = false, lim
 }
 
 const hub = new Map(); // webinarId -> Set<res>
-function hubSubscribe(webinarId, res) {
+/* Batch 168 (S7#5): the hub was unbounded — every SSE subscription
+ * is a held socket + a Set entry, and the public stream routes have
+ * no rate limiter, so one actor could pin arbitrary sockets on a
+ * single webinar (and across webinars, on the process). Caps: 200
+ * concurrent viewers per webinar (far above a real room) and 5 per
+ * subscriber key (registration id when known, else client IP — a
+ * legitimate viewer holds ONE stream; reconnect churn cleans up on
+ * close). hubSubscribe returns false when full; the routes answer
+ * with an SSE error frame and end the stream. */
+const HUB_MAX_PER_WEBINAR = 200;
+const HUB_MAX_PER_KEY = 5;
+const hubKeys = new Map(); // res -> subscriber key
+function hubSubscribe(webinarId, res, opts = {}) {
   const key = Number(webinarId);
   if (!hub.has(key)) hub.set(key, new Set());
-  hub.get(key).add(res);
+  const set = hub.get(key);
+  if (set.size >= HUB_MAX_PER_WEBINAR) return false;
+  const subKey = String(opts.key || '');
+  if (subKey) {
+    let perKey = 0;
+    for (const other of set) if (hubKeys.get(other) === subKey) perKey++;
+    if (perKey >= HUB_MAX_PER_KEY) return false;
+    hubKeys.set(res, subKey);
+  }
+  set.add(res);
   res.on('close', () => {
-    const set = hub.get(key);
-    if (set) {
-      set.delete(res);
-      if (!set.size) hub.delete(key);
+    hubKeys.delete(res);
+    const s = hub.get(key);
+    if (s) {
+      s.delete(res);
+      if (!s.size) hub.delete(key);
     }
   });
+  return true;
 }
 function hubPublish(webinarId, message) {
   const set = hub.get(Number(webinarId));

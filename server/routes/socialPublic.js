@@ -59,7 +59,8 @@ router.get('/meta/callback', async (req, res) => {
     return res.redirect(dest);
   } catch (e) {
     console.error('[social oauth]', e);
-    return res.status(400).send(`Could not connect Meta: ${e.message}`);
+    // Batch 168 (S2#9): generic copy only — the raw message is logged above.
+    return res.status(400).send('Could not connect Meta. Please try again from the Social page.');
   }
 });
 

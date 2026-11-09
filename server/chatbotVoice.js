@@ -430,7 +430,50 @@ function buildRealtimeSessionConfig(db, leadId, settings) {
 async function mintVoiceSession(workspaceId, db, token, { visitor } = {}) {
   const a = await voiceAvailability(workspaceId, db, token);
   if (!a.ok) throw a.error;
+  /* Batch 168 (S7#1): the mint is UNAUTHENTICATED (the embed token
+   * is public — it is printed in every page of the site) and it
+   * spends the platform/workspace OpenAI key, yet it ran with NO
+   * budget gate at all — the text path refuses at
+   * cost.daily_budget_usd (default $10/day/workspace, src/ai.js).
+   * A workspace 50× over budget minted unlimited sessions. Enforce
+   * the same budget here, evaluated against RECORDED spend PLUS a
+   * reservation for every voice session minted today whose metering
+   * row has not landed yet (a client that never relays its
+   * transcript writes no ai_usage row, so recorded spend alone
+   * under-counts exactly the abusive case). Each open session
+   * reserves its capped worst case at the metering rate
+   * (VOICE_MAX_SESSION_SEC). The reservation is accounting only —
+   * endVoiceSession still writes the one real usage row. */
+  try {
+    const core = require('./museAgentCore');
+    const budget = parseFloat(core.getDbSetting(db, 'cost.daily_budget_usd', '10')) || 0;
+    if (budget > 0) {
+      chatbot.ensureTables(db);
+      const openToday = db
+        .prepare(
+          `SELECT COUNT(*) AS c FROM chatbot_sessions
+           WHERE channel = 'voice' AND date(created_at) = date('now') AND voice_ended_at IS NULL`
+        )
+        .get().c;
+      const reserved = Number(openToday || 0) * estimateVoiceCostUsd(VOICE_MAX_SESSION_SEC);
+      if (core.todaySpendUsd(db) + reserved >= budget) {
+        throw fail('BUDGET_EXCEEDED', "Today's AI budget for this workspace has been reached. Try again tomorrow.");
+      }
+    }
+  } catch (e) {
+    if (e && e.code === 'BUDGET_EXCEEDED') throw e;
+    /* budget plumbing must never take voice down with it */
+  }
   const { apiKey, baseUrl } = await resolveOpenAiConfig(db);
+  /* Batch 168 (S5#6): the platform key rides this request as a
+   * Bearer — run the same base-URL guard every other key transport
+   * runs (https + public resolution; a redirect would carry the key
+   * to an unvalidated target, so redirects are refused outright). */
+  try {
+    await require('./urlSafety').assertAiBaseUrl(baseUrl);
+  } catch {
+    throw fail('VOICE_UPSTREAM', 'Voice is unavailable right now — please use the text chat instead', 502);
+  }
   const sessionConfig = buildRealtimeSessionConfig(db, a.leadId, a.settings);
 
   chatbot.ensureTables(db);
@@ -459,6 +502,8 @@ async function mintVoiceSession(workspaceId, db, token, { visitor } = {}) {
   try {
     const resp = await fetch(`${baseUrl}${CLIENT_SECRETS_PATH}`, {
       method: 'POST',
+      redirect: 'error',
+      signal: AbortSignal.timeout(30000),
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',

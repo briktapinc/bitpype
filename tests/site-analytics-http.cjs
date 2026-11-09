@@ -8,7 +8,7 @@ function load(rel,stubs){const mod={exports:{}};vm.runInNewContext(fs.readFileSy
 const limits={rateLimit:()=>((_q,_s,next)=>next())};
 const publicRouter=load('server/routes/siteAnalyticsPublic.js',{'../domain':domain,'../workspaceExists':{assertWorkspaceExists:async ws=>{if(!databases.has(ws))throw Object.assign(new Error('Not found'),{code:'NOT_FOUND',status:404})}},'../rateLimit':limits,'../siteAnalytics':analytics});
 const privateRouter=load('server/routes/portal.js',{'../domain':domain,'../siteAnalytics':analytics,'../clientPortal':{findById:async id=>({id,status:'active',workspace_id:id===1?7:8,lead_id:10})},'../captcha':{requireCaptcha:()=>((_q,_s,next)=>next())},'../rateLimit':limits,'../portalTabs':require('../server/portalTabs'),'../mfa':{isEnabled:async()=>false},'../portalPassword':{requestForUser:async()=>({ok:true}),requestByEmail:async()=>({ok:true}),confirmPasswordSet:async()=>({ok:true})},'../apiErrors':require('../server/apiErrors')});
-const app=express();app.use(express.json({limit:'1kb'}));app.use((req,_res,next)=>{req.session=req.get('x-fixture-user')?{clientPortalId:Number(req.get('x-fixture-user')),clientLastActiveAt:Date.now()}:{};next()});app.use('/private',privateRouter);app.use('/public',publicRouter);
+const app=express();app.use(express.json({limit:'1kb'}));app.use((req,_res,next)=>{req.session=req.get('x-fixture-user')?{clientPortalId:Number(req.get('x-fixture-user')),clientLastActiveAt:Date.now(),clientIssuedAt:Date.now()}:{};next()});app.use('/private',privateRouter);app.use('/public',publicRouter);
 let server;let groups=0;
 (async()=>{try{
  server=http.createServer(app);await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;

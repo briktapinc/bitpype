@@ -384,11 +384,18 @@ async function createAuthorizationCode(pending, portalUser) {
     portalUserId: Number(portalUser.id),
     expiresAt: Date.now() + CODE_TTL_MS,
   };
+  /* Batch 168 (S1#6): store the SHA-256 HASH of the code, exactly
+   * like refresh tokens in this same module (storeRefresh) — the
+   * raw code was sitting in the platform DB, so a DB read alone
+   * could redeem a live code inside its TTL. Lookup/delete key on
+   * the hash (takeAuthCode). Codes minted before this change simply
+   * stop matching and expire within CODE_TTL_MS — the user retries
+   * the consent flow once. */
   await query(
     `REPLACE INTO mcp_oauth_auth_codes (code, payload_json, expires_at)
      VALUES (:code, :payload, :expiresAt)`,
     {
-      code,
+      code: hashToken(code),
       payload: JSON.stringify(row),
       expiresAt: row.expiresAt,
     }
@@ -453,16 +460,19 @@ async function storeRefresh(refreshRaw, meta) {
 async function takeAuthCode(code) {
   await ensureOAuthTables();
   const now = Date.now();
+  // Batch 168 (S1#6): rows are keyed by the code's hash (see
+  // createAuthorizationCode) — hash the presented code to find it.
+  const codeKey = hashToken(String(code || ''));
   const rows = await query('SELECT payload_json, expires_at FROM mcp_oauth_auth_codes WHERE code = :code LIMIT 1', {
-    code,
+    code: codeKey,
   });
   const row = rows && rows[0];
   if (!row) return null;
   if (Number(row.expires_at) <= now) {
-    await query('DELETE FROM mcp_oauth_auth_codes WHERE code = :code', { code });
+    await query('DELETE FROM mcp_oauth_auth_codes WHERE code = :code', { code: codeKey });
     return null;
   }
-  const del = await query('DELETE FROM mcp_oauth_auth_codes WHERE code = :code', { code });
+  const del = await query('DELETE FROM mcp_oauth_auth_codes WHERE code = :code', { code: codeKey });
   if (!affected(del)) return null;
   try {
     return JSON.parse(row.payload_json);
@@ -649,6 +659,7 @@ module.exports = {
   validateAuthorizeParams,
   registerClient,
   createAuthorizationCode,
+  takeAuthCode,
   handleTokenRequest,
   redirectUriAllowed,
   getClient,

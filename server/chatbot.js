@@ -2395,10 +2395,23 @@ function recordQualificationUpdates(db, leadId, sessionId, updates, opts = {}) {
       // an echo of the question's own text. A genuine value embedded
       // in a longer message is NOT equal to the message, so real
       // answers still record.
+      // Batch 168 (S7#3): a fourth shape slipped through — the model
+      // FABRICATED a plausible answer ('www.example.com') that
+      // appears nowhere in the visitor's message. An answer reported
+      // against a question-shaped message must be CONTAINED in that
+      // message (normalised): the visitor said it, or they didn't
+      // answer. Reformatting differences (case, punctuation,
+      // spacing) are normalised away by chatNormText; a value the
+      // visitor typed in any form still contains itself.
       const msgText = String(opts.latestVisitorText || '');
       if (looksLikeQuestion(msgText) || looksLikeRequest(msgText)) {
         const ans = chatNormText(u && typeof u.answer === 'string' ? u.answer : '');
-        if (!ans || ans === chatNormText(msgText) || ans === chatNormText(item.question)) {
+        if (
+          !ans ||
+          ans === chatNormText(msgText) ||
+          ans === chatNormText(item.question) ||
+          !chatNormText(msgText).includes(ans)
+        ) {
           gated += 1;
           continue;
         }
@@ -3187,9 +3200,24 @@ function isSubstantiveQuestion(msg) {
  * knowledge/site text (or a sum of up to three listed prices). ---- */
 function chatStatedAmounts(text) {
   const out = [];
-  const re = /\$\s?(\d[\d,]*(?:\.\d{1,2})?)/g;
-  let m;
-  while ((m = re.exec(String(text || '')))) out.push(Number(m[1].replace(/,/g, '')));
+  const src = String(text || '');
+  /* Batch 168 (S7#2b): the original grammar matched only "$<digit>"
+   * with at most ONE space — "$  999", "999 dollars", "USD 999" and
+   * "€999" all extracted nothing and sailed past the fact-check.
+   * Widened to the ways a model actually writes money: $ with any
+   * spacing, USD-prefixed, number + dollars/USD, and the €/£ symbols
+   * (extracted so they FAIL verification — the allowed set is built
+   * from the USD price book — rather than passing unseen). */
+  const patterns = [
+    /\$\s*(\d[\d,]*(?:\.\d{1,2})?)/g,
+    /\bUSD\s*(\d[\d,]*(?:\.\d{1,2})?)/gi,
+    /(\d[\d,]*(?:\.\d{1,2})?)\s*(?:dollars\b|USD\b)/gi,
+    /[€£]\s*(\d[\d,]*(?:\.\d{1,2})?)/g,
+  ];
+  for (const re of patterns) {
+    let m;
+    while ((m = re.exec(src))) out.push(Number(m[1].replace(/,/g, '')));
+  }
   return out;
 }
 
@@ -3657,9 +3685,16 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
    * Every $ amount must trace to the grounded set; one regeneration
    * with the constraint; a second violation downgrades the reply to
    * an honest unknown and counts a fact-check block (which also
-   * feeds the miss ladder below, exactly as in the YWL brain). */
+   * feeds the miss ladder below, exactly as in the YWL brain).
+   * Batch 168 (S7#2a): the check originally ran only for action
+   * 'answer' — the model could state any price it liked inside a
+   * 'chat' or 'capture' reply and it posted verbatim. The visitor
+   * reads the reply, not the action label, so the check now runs
+   * for every action. The regeneration/downgrade bookkeeping only
+   * ever rewrites `parsed` when a violation is found, so clean
+   * chat/capture replies pass through byte-identical. */
   let factCheckBlocked = false;
-  if (parsed.action === 'answer' && chatMessagesRef) {
+  if (chatMessagesRef) {
     const allowed = allowedChatAmounts(snapshot.priceAmounts, [
       snapshot.knowledge && snapshot.knowledge.text,
       snapshot.sources && snapshot.sources.text,
@@ -3688,7 +3723,9 @@ async function runAiFallbackReply(workspaceId, leadId, sessionId) {
           businessName: bizName,
           allowCapture,
         });
-        if (p2.action === 'answer' && !unverifiedChatAmounts(p2.reply, allowed).length) {
+        // Batch 168: a clean regeneration may be adopted whatever
+        // action it self-labels (the reply is what the visitor sees).
+        if (!unverifiedChatAmounts(p2.reply, allowed).length) {
           parsed = p2;
         }
       } catch {

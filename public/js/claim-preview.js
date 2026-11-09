@@ -37,7 +37,7 @@
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   /* Batch 36: persistence is for REAL answers only. persistDone() may be

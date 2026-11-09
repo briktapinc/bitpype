@@ -96,7 +96,9 @@ router.get('/oauth/callback', async (req, res) => {
     return res.redirect(safeReturnPath(result.returnTo));
   } catch (e) {
     console.error('[gbp oauth]', e);
-    return res.status(400).send(`Google connection failed: ${(e && e.message) || e}`);
+    // Batch 168 (S2#9): never echo the raw provider/internal message
+    // to the browser — it is logged above; the page gets a generic line.
+    return res.status(400).send('Google connection failed. Please try again from the Google Business page.');
   }
 });
 

@@ -608,6 +608,7 @@ class TavilySearchProvider {
         Authorization: `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30000),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');

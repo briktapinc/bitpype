@@ -148,7 +148,16 @@ const fmtDate = (s) =>
     // split a date mid-word (display only; storage is untouched).
     .replace(/-/g, '\u2011')
     .replace(/ /g, '\u00A0');
-const money = (n) => '$' + (Number.isFinite(Number(n)) ? Number(n).toFixed(2) : '0.00');
+/* Batch 168 (S6#F3): non-finite input rendered a FABRICATED
+ * '$0.00' — mirror the Batch 143 portal guard: unknown amounts
+ * show a dash, never an invented figure. */
+const money = (n) => (Number.isFinite(Number(n)) ? '$' + Number(n).toFixed(2) : '—');
+/* Batch 168 (S6#F3): 4-decimal USD for usage tables — same rule
+ * (a non-numeric API value rendered the literal text 'NaN'). */
+const usd4 = (v) => {
+  const n = Number(v || 0);
+  return Number.isFinite(n) ? n.toFixed(4) : '—';
+};
 const statusBadge = (s) => `<span class="badge status-${esc(s)}">${esc(pretty(s) || '—')}</span>`;
 
 /* Batch 111 (consolidation): the Batch 91 icon family
@@ -3739,11 +3748,11 @@ async function pageAssistant() {
       const rows = (u.byUser || [])
         .map(
           (x) =>
-            `<tr><td>${esc(x.surface === 'admin' ? 'Staff (internal)' : 'Client portal')}</td><td>${esc(String(x.actorId))}</td><td>${esc(String(x.calls))}</td><td>$${esc(Number(x.rawUsd || 0).toFixed(4))}</td><td>$${esc(Number(x.billedUsd || 0).toFixed(4))}</td></tr>`
+            `<tr><td>${esc(x.surface === 'admin' ? 'Staff (internal)' : 'Client portal')}</td><td>${esc(String(x.actorId))}</td><td>${esc(String(x.calls))}</td><td>$${esc(usd4(x.rawUsd || 0))}</td><td>$${esc(usd4(x.billedUsd || 0))}</td></tr>`
         )
         .join('');
       el.innerHTML = `
-        <p class="hint">Month ${esc(u.month || '')} — client raw $${esc(Number((u.portal || {}).rawUsd || 0).toFixed(4))} · client billed $${esc(Number((u.portal || {}).billedUsd || 0).toFixed(4))} · staff internal raw $${esc(Number((u.admin || {}).rawUsd || 0).toFixed(4))} · rollup: ${esc((u.rollup && u.rollup.status) || 'not computed')}</p>
+        <p class="hint">Month ${esc(u.month || '')} — client raw $${esc(usd4((u.portal || {}).rawUsd))} · client billed $${esc(usd4((u.portal || {}).billedUsd))} · staff internal raw $${esc(usd4((u.admin || {}).rawUsd))} · rollup: ${esc((u.rollup && u.rollup.status) || 'not computed')}</p>
         ${rows ? `<div class="table-wrap"><table><thead><tr><th>Surface</th><th>User</th><th>Calls</th><th>Raw</th><th>Billed</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="hint">No assistant usage yet this month.</p>'}
         <div class="row actions"><button class="btn" id="asst-rollup" type="button">Compute rollup</button><button class="btn" id="asst-queue" type="button">Queue on next invoice</button><span class="msg" id="asst-rollup-msg"></span></div>`;
       const msg = (t) => {
@@ -7045,7 +7054,7 @@ function loadTwilioSdk() {
   return loadTwilioSdk._pending;
 }
 
-const contactCallState = { device: null, timer: null, poll: null, ref: null, startedAt: 0 };
+const contactCallState = { device: null, timer: null, poll: null, ref: null, startedAt: 0, leadId: null };
 function stopContactCallUi(disconnect) {
   if (contactCallState.timer) clearInterval(contactCallState.timer);
   if (contactCallState.poll) clearInterval(contactCallState.poll);
@@ -7060,11 +7069,13 @@ function stopContactCallUi(disconnect) {
   }
   contactCallState.device = null;
   contactCallState.ref = null;
+  contactCallState.leadId = null;
 }
 
 async function pageLeadContact(param) {
   stopContactCallUi(true);
   const leadId = Number(param);
+  contactCallState.leadId = leadId;
   if (!Number.isInteger(leadId) || leadId <= 0) {
     view.innerHTML = '<div class="card error-card"><h2>Lead not found</h2><p>Open a lead from the pipeline.</p></div>';
     return;
@@ -7236,7 +7247,14 @@ async function pageLeadContact(param) {
     if (hangupBtn) hangupBtn.hidden = true;
     if (timerEl) timerEl.textContent = '';
     setStatus(finalText || 'Call ended — refreshing the timeline…');
-    setTimeout(() => pageLeadContact(param), 1200);
+    /* Batch 168 (S6#F1): the delayed timeline refresh must only
+     * fire while the user is STILL on this lead's contact page —
+     * before this it re-rendered the contact page over whatever
+     * the user had navigated to within the 1.2s window. */
+    setTimeout(() => {
+      const now = parseHash();
+      if (now.route === 'contact' && Number(now.param) === Number(param)) pageLeadContact(param);
+    }, 1200);
   };
 
   if (hangupBtn) {
@@ -10299,7 +10317,7 @@ async function renderAdminSettings(el, group) {
         const rows = (d.rows || [])
           .map(
             (w) =>
-              `<tr><td>${esc(String(w.workspaceId))}</td><td>$${esc(Number(w.portalRawUsd || 0).toFixed(4))}</td><td>$${esc(Number(w.portalBilledUsd || 0).toFixed(4))}</td><td>$${esc(Number(w.staffRawUsd || 0).toFixed(4))}</td><td>${esc((w.rollup && w.rollup.status) || '—')}</td></tr>`
+              `<tr><td>${esc(String(w.workspaceId))}</td><td>$${esc(usd4(w.portalRawUsd || 0))}</td><td>$${esc(usd4(w.portalBilledUsd || 0))}</td><td>$${esc(usd4(w.staffRawUsd || 0))}</td><td>${esc((w.rollup && w.rollup.status) || '—')}</td></tr>`
           )
           .join('');
         el2.innerHTML = `<p class="hint">Usage for ${esc(d.month || '')} — total client billed $${esc(Number((d.totals || {}).billedUsd || 0).toFixed(2))} · total staff internal $${esc(Number((d.totals || {}).staffRawUsd || 0).toFixed(2))}</p>${
@@ -11242,7 +11260,10 @@ async function renderAdminAudit(el) {
 /* ------------------------------------------------------------------ */
 
 function moneyCents(cents, currency) {
-  return `${(Number(cents || 0) / 100).toFixed(2)} ${String(currency || 'USD').toUpperCase()}`;
+  // Batch 168 (S6#F3): non-numeric cents rendered 'NaN USD' — dash instead.
+  const v = Number(cents || 0);
+  if (!Number.isFinite(v)) return '—';
+  return `${(v / 100).toFixed(2)} ${String(currency || 'USD').toUpperCase()}`;
 }
 
 // Batch 18: shared Business filter for the staff admin-area screens
@@ -13756,6 +13777,15 @@ async function navigate() {
   closeNav();
   Array.from(overlays).forEach((o) => o.close());
   let { route, param, query } = parseHash();
+  /* Batch 168 (S6#F1): navigating anywhere other than this lead's
+   * contact page tears the live call UI down (device disconnected,
+   * timers/poll cleared) — before this, leaving mid-call left the
+   * Twilio device connected and its poll writing into a destroyed
+   * view. Staying on the same contact page is left alone (the page
+   * re-entry stops/restarts cleanly itself). */
+  if (!(route === 'contact' && Number(param) === Number(contactCallState.leadId))) {
+    stopContactCallUi(true);
+  }
 
   if (!signedIn) {
     if (!PUBLIC_ROUTES.has(route)) return goToLogin();

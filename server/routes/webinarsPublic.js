@@ -393,7 +393,12 @@ function buildRouter(resolveWebinar, opts = {}) {
       for (const m of backlog) {
         res.write(`event: message\ndata: ${JSON.stringify(m)}\n\n`);
       }
-      webinars.hubSubscribe(ctx.webinar.id, res);
+      // Batch 168 (S7#5): hub caps — refuse past the per-webinar /
+      // per-registration limits with an SSE error frame + close.
+      if (!webinars.hubSubscribe(ctx.webinar.id, res, { key: `reg:${ctx.session.id}` })) {
+        res.write('event: error\ndata: {"error":"This webinar room is full — please try again shortly."}\n\n');
+        return res.end();
+      }
       const heartbeat = setInterval(() => {
         try {
           res.write(': ping\n\n');

@@ -13,6 +13,31 @@ const { requireCaptcha } = require('../captcha');
 const { rateLimit } = require('../rateLimit');
 const mfa = require('../mfa');
 const apiErrors = require('../apiErrors');
+/* Batch 168 (S1#2): portal ABSOLUTE session lifetime cap, mirroring
+ * the Batch 154 staff cap. Implemented LOCALLY (no new require):
+ * several regression suites VM-load this router with a stubbed
+ * relative-require map, and any new cross-file require breaks them.
+ * server/middleware.js carries the same constant + predicate for
+ * the other session gates (the call-recording proxy); the batch168
+ * suite pins both copies to the same default so they cannot drift
+ * silently. 30 days by default — portal clients are owners checking
+ * in occasionally, so the cap is deliberately longer than the staff
+ * 12h; env override PORTAL_ABSOLUTE_SESSION_MS, 24h floor. A
+ * session with no issuance stamp (minted before this batch) is
+ * expired — fail-closed, one forced re-login at deploy, exactly
+ * like the staff rollout. */
+const PORTAL_ABSOLUTE_SESSION_MS = Math.max(
+  24 * 60 * 60 * 1000,
+  // typeof-guarded: VM-loading suites evaluate this file in a
+  // sandbox with no `process` global.
+  (typeof process !== 'undefined' ? Number(process.env.PORTAL_ABSOLUTE_SESSION_MS) : 0) || 30 * 24 * 60 * 60 * 1000
+);
+function portalSessionAbsoluteExpired(session) {
+  if (!session || !session.clientPortalId) return false;
+  const issued = Number(session.clientIssuedAt) || 0;
+  if (!issued) return true;
+  return Date.now() - issued > PORTAL_ABSOLUTE_SESSION_MS;
+}
 
 const router = express.Router();
 
@@ -160,6 +185,18 @@ async function requireClient(req, res, next) {
       });
     }
 
+    // Batch 168 (S1#2): absolute cap — however active the session
+    // has been, it dies PORTAL_ABSOLUTE_SESSION_MS after issuance;
+    // an unstamped (pre-168) session is expired by definition.
+    if (portalSessionAbsoluteExpired(req.session)) {
+      await destroyPortalSession(req, res);
+      return res.status(401).json({
+        ok: false,
+        error: 'Your session has reached its maximum length. Please sign in again.',
+        code: 'SESSION_EXPIRED',
+      });
+    }
+
     const user = await portal.findById(id);
     if (!user || String(user.status) !== 'active') {
       await destroyPortalSession(req, res);
@@ -184,6 +221,11 @@ router.post('/access', accessLimit, captcha, async (req, res) => {
   }
 });
 
+/* Batch 168 (S1#2): establishPortalSession stamps clientIssuedAt —
+ * the issuance instant the absolute cap (top of this file) counts
+ * from. Every establishment path (password login, magic link,
+ * MFA completion) funnels through here, so the stamp is universal. */
+
 async function establishPortalSession(req, client) {
   await regenerateSession(req);
   // Portal cookie only (bitpype.portal.sid) — never touches staff bitpype.sid.
@@ -191,6 +233,7 @@ async function establishPortalSession(req, client) {
   req.session.clientWorkspaceId = client.workspaceId;
   req.session.clientLeadId = client.leadId;
   req.session.clientLastActiveAt = Date.now();
+  req.session.clientIssuedAt = Date.now();
   delete req.session.userId;
   delete req.session.workspaceId;
   delete req.session.portalMfaChallenge;
@@ -1296,7 +1339,33 @@ router.post('/site/agent-chat', requireClient, agentChatLimit, async (req, res) 
         chatUsage: { used: gate.used, limit: gate.limit },
       };
     } else {
-      data = await portal.runSiteAgentChat(req.client.workspace_id, req.client.lead_id, req.body || {});
+      /* Batch 168 (S5#4): a turn that THROWS (classifier/budget/
+       * improve-loop failure inside runSiteAgentChat) used to skip
+       * the history recording below entirely — the owner's message
+       * vanished from the saved thread, breaking the standing
+       * save-everything rule for chat exactly on the turns that
+       * went wrong. Record the user message + the same failure
+       * text the owner is about to see, then rethrow so the
+       * response is unchanged. Recording stays best-effort. */
+      try {
+        data = await portal.runSiteAgentChat(req.client.workspace_id, req.client.lead_id, req.body || {});
+      } catch (turnErr) {
+        try {
+          const body = req.body || {};
+          const userText =
+            String(body.message || '').trim() ||
+            (Array.isArray(body.attachmentIds) && body.attachmentIds.length ? '[Image attached]' : '');
+          if (userText) {
+            await portal.recordSiteChatTurn(req.client.workspace_id, req.client.lead_id, {
+              userText,
+              assistantText: String((turnErr && turnErr.message) || 'The AI could not complete that just now.'),
+            });
+          }
+        } catch (histErr) {
+          console.warn('[portal] chat failure-turn record failed:', histErr.message);
+        }
+        throw turnErr;
+      }
       if (gate && gate.limit != null) {
         data.chatUsage = { used: gate.used, limit: gate.limit };
       }

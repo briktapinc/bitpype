@@ -525,7 +525,7 @@ function isPlatformScopeSettingKey(key) {
   return SEED_DROP_SETTING_PREFIXES.some((p) => k.startsWith(p));
 }
 
-async function buildSeedPlatformDb({ repoRoot, workspaceId, destPath, tmpDir }) {
+async function buildSeedPlatformDb({ repoRoot, workspaceId, destPath, tmpDir, leadId }) {
   createEmptyPlatformDb(repoRoot, destPath, tmpDir);
   const Database = require('better-sqlite3');
   const seed = new Database(destPath);
@@ -557,6 +557,31 @@ async function buildSeedPlatformDb({ repoRoot, workspaceId, destPath, tmpDir }) 
           rows = await facade.query(
             'SELECT * FROM users WHERE id IN (SELECT user_id FROM workspace_members WHERE workspace_id = :ws)',
             { ws: workspaceId }
+          );
+          /* Batch 168 (S5#1): staff password hashes must not travel
+           * in a client-downloadable package — a hash arms offline
+           * cracking against accounts that also exist on the real
+           * platform. Portal login on a clone needs the CLIENT's own
+           * account (client_portal_users, lead-scoped below); staff
+           * access on a clone is (re)created by its operator. Blank
+           * the credential columns, keep the rows so memberships and
+           * created-by references stay intact. */
+          rows = rows.map((r) => ({
+            ...r,
+            password_hash: '',
+            totp_secret: null,
+            totp_recovery_hashes: null,
+          }));
+        } else if (table === 'client_portal_users' && leadId != null) {
+          /* Batch 168 (S5#1): the workspace filter alone shipped
+           * EVERY client's portal account — including bcrypt
+           * password hashes — in one client's backup. A standalone
+           * package is for ONE site: only the target lead's portal
+           * users travel (email uniqueness is global, so a second
+           * client's row could never even log in on the clone). */
+          rows = await facade.query(
+            'SELECT * FROM client_portal_users WHERE workspace_id = :ws AND lead_id = :lead',
+            { ws: workspaceId, lead: Number(leadId) }
           );
         } else if (cols.includes('workspace_id')) {
           rows = await facade.query(`SELECT * FROM ${table} WHERE workspace_id = :ws`, { ws: workspaceId });
@@ -646,6 +671,149 @@ async function copyTenantDb(workspaceId, destPath) {
   if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
   await tdb.backup(destPath);
   return destPath;
+}
+
+/* Batch 168 (S5#1): the tenant copy above is a VERBATIM backup of
+ * the whole workspace DB, but a backup is generated FOR ONE SITE and
+ * any portal client of that site can download it. In the agency's
+ * shared workspace the tenant DB holds EVERY client's leads, sites,
+ * orders, contacts and chat transcripts — shipping it whole hands
+ * one client every other client's business data. So the packaged
+ * copy (never the live DB) is scrubbed down to the target lead:
+ *
+ *   - every table carrying a lead_id column keeps only that lead's
+ *     rows;
+ *   - `leads` itself keeps only the target row;
+ *   - `websites` keeps only the target website's row (other sites of
+ *     the same lead are separate deliverables with their own backup);
+ *   - the settings table's `lead_id.<id>.*` namespaced keys (the
+ *     per-lead settings convention used by payments/chatbot/etc.)
+ *     keep only the target lead's keys;
+ *   - child rows that reference a deleted parent (embed rows, order
+ *     lines, messages…) are swept by the tables' own parent columns
+ *     (embed_id / order_id / conversation_id / form_id), iterated to
+ *     a fixpoint.
+ *
+ * A table with no lead column and no parent column (global pricing,
+ * module catalogs, design system rows) is shared reference data and
+ * travels as-is — the same judgement the platform seed makes for
+ * workspace-less tables. Returns per-table kept/total counts so the
+ * manifest records exactly what the scrub dropped. */
+function scrubTenantDbForLead(destPath, { leadId, websiteId }) {
+  const Database = require('better-sqlite3');
+  const db = new Database(destPath);
+  const counts = {};
+  try {
+    const tables = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+      .all()
+      .map((r) => r.name);
+    const colsOf = {};
+    for (const t of tables) {
+      colsOf[t] = db
+        .prepare(`PRAGMA table_info(${t})`)
+        .all()
+        .map((c) => c.name);
+    }
+    const count = (t) => {
+      try {
+        return db.prepare(`SELECT COUNT(*) AS c FROM ${t}`).get().c;
+      } catch {
+        return 0;
+      }
+    };
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec('BEGIN');
+    try {
+      const before = {};
+      for (const t of tables) before[t] = count(t);
+      // 1 — direct lead scoping.
+      for (const t of tables) {
+        if (t === 'leads') {
+          db.prepare('DELETE FROM leads WHERE id <> ?').run(Number(leadId));
+        } else if (t === 'websites') {
+          db.prepare('DELETE FROM websites WHERE id <> ?').run(Number(websiteId));
+        } else if (colsOf[t].includes('lead_id')) {
+          db.prepare(`DELETE FROM ${t} WHERE lead_id IS NULL OR lead_id <> ?`).run(Number(leadId));
+        }
+      }
+      // 2 — per-lead namespaced settings keys: `lead_id.<id>.<rest>`.
+      if (colsOf.settings && colsOf.settings.includes('key')) {
+        const rows = db.prepare("SELECT key FROM settings WHERE key LIKE 'lead_id.%'").all();
+        for (const r of rows) {
+          const m = /^lead_id\.(\d+)\./.exec(String(r.key || ''));
+          if (m && Number(m[1]) !== Number(leadId)) {
+            db.prepare('DELETE FROM settings WHERE key = ?').run(r.key);
+          }
+        }
+      }
+      // 3 — child sweeps to a fixpoint: a row whose parent column
+      // points at a parent row that no longer exists is an orphan of
+      // a deleted lead/site and goes too. Parent table names are the
+      // platform's stable conventions; a column only sweeps when its
+      // parent table exists in this DB.
+      const PARENT_COLS = [
+        ['embed_id', 'site_module_embeds'],
+        ['order_id', 'module_orders'],
+        ['conversation_id', 'site_chat_conversations'],
+        ['form_id', 'contact_forms'],
+        ['website_id', 'websites'],
+        ['webinar_id', 'webinars'],
+        ['product_id', 'module_products'],
+        ['tier_id', 'module_membership_tiers'],
+      ];
+      let changed = true;
+      let guard = 0;
+      while (changed && guard++ < 8) {
+        changed = false;
+        for (const t of tables) {
+          for (const [col, parent] of PARENT_COLS) {
+            if (!tables.includes(parent) || parent === t) continue;
+            if (!colsOf[t].includes(col)) continue;
+            const info = db
+              .prepare(
+                `DELETE FROM ${t} WHERE ${col} IS NOT NULL AND ${col} NOT IN (SELECT id FROM ${parent})`
+              )
+              .run();
+            if (info.changes > 0) changed = true;
+          }
+        }
+      }
+      // 4 — fail closed on residue: after scoping, no row anywhere
+      // may still name another lead. A table shape the scrub doesn't
+      // understand must stop the backup, not leak silently.
+      for (const t of tables) {
+        if (colsOf[t].includes('lead_id')) {
+          const stray = db
+            .prepare(`SELECT COUNT(*) AS c FROM ${t} WHERE lead_id IS NOT NULL AND lead_id <> ?`)
+            .get(Number(leadId)).c;
+          if (stray > 0) {
+            throw fail('SEED_FAILED', `tenant scrub left ${stray} foreign-lead row(s) in ${t}`);
+          }
+        }
+      }
+      for (const t of tables) {
+        const after = count(t);
+        if (before[t] !== after) counts[t] = { kept: after, dropped: before[t] - after };
+      }
+      db.exec('COMMIT');
+    } catch (e) {
+      try {
+        db.exec('ROLLBACK');
+      } catch {
+        /* nothing to roll back */
+      }
+      throw e;
+    }
+    try {
+      db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    } catch {
+      /* best-effort, like the seed */
+    }
+  } finally {
+    db.close();
+  }
+  return counts;
 }
 
 function copySiteExports({ tenantDb, websiteId, workspaceId, siteName, destDir }) {
@@ -864,8 +1032,17 @@ async function generateStandaloneBackup({ workspaceId, websiteId, workDir, repoR
     workspaceId: wsId,
     destPath: path.join(pkgDir, 'seed', 'platform.sqlite'),
     tmpDir: workDir,
+    leadId,
   });
   await copyTenantDb(wsId, path.join(pkgDir, 'seed', 'tenant.sqlite'));
+  /* Batch 168 (S5#1): the verbatim tenant copy carries the whole
+   * workspace — every other client's data included. Scrub the
+   * PACKAGED copy down to this site's lead before anything else
+   * reads it (the live tenant DB is never touched). */
+  const tenantScrub = scrubTenantDbForLead(path.join(pkgDir, 'seed', 'tenant.sqlite'), {
+    leadId,
+    websiteId: siteId,
+  });
   /* SQLite sidecars (-wal/-shm) are live-connection artifacts, not
    * package content — checkpoint the seeds closed and sweep any
    * sidecar out before the manifest walk hashes the tree. */
@@ -904,7 +1081,7 @@ async function generateStandaloneBackup({ workspaceId, websiteId, workDir, repoR
     source: { workspaceId: wsId, websiteId: siteId, leadId, siteName: site.name || '' },
     app: { gitSha: appGitSha(root), version },
     features: featureFlags(tenantDb, leadId),
-    seed: { platformTables: seedCounts, exportFolders },
+    seed: { platformTables: seedCounts, exportFolders, tenantScrub },
     bake: { detailPages: bake.baked, skipped: bake.skipped },
     files,
   };
@@ -960,6 +1137,7 @@ module.exports = {
   SEED_DROP_SETTING_KEYS,
   isPlatformScopeSettingKey,
   generateStandaloneBackup,
+  scrubTenantDbForLead,
   archivePackage,
   sendBackupArchive,
   renderDetailItemHtml,

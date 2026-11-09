@@ -41,6 +41,19 @@ const rescueVoiceLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 300, name: '
 const { appUrl } = require('../stripeClient');
 const clientPortal = require('../clientPortal');
 const { getMembership, findWorkspaceByToken } = require('../workspace');
+/* Batch 168 (S1#4 residual): LAZY accessor, same discipline as
+ * outboundCalls below — VM-loading suites stub this file's relative
+ * requires, and a top-level '../middleware' require breaks them.
+ * In production the sibling module always loads; the null fallback
+ * exists only so a stubbed harness keeps its pre-168 behaviour. */
+const sessionCaps = () => {
+  try {
+    const mw = require('../middleware');
+    return { staff: mw.staffSessionAbsoluteExpired, portal: mw.portalSessionAbsoluteExpired };
+  } catch {
+    return null;
+  }
+};
 
 const router = express.Router();
 
@@ -450,22 +463,34 @@ router.post('/outbound-recording/:workspaceId/:leadId', outboundLegLimit, async 
 async function resolveRecordingCaller(req, workspaceId) {
   const portalSession = req.portalSession || (req.session && req.session.clientPortalId ? req.session : null);
   if (portalSession && portalSession.clientPortalId) {
-    try {
-      const client = await clientPortal.findById(portalSession.clientPortalId);
-      if (
-        client &&
-        String(client.status) === 'active' &&
-        Number(client.workspace_id) === workspaceId &&
-        Number(client.lead_id) > 0
-      ) {
-        return { via: 'portal', leadId: Number(client.lead_id) };
+    /* Batch 168 (S1#4 residual): this proxy hand-rolls session auth,
+     * so the session LIFETIME rules requireClient enforces (30h idle
+     * + the Batch 168 absolute cap) and the staff absolute cap
+     * (Batch 154) must be applied here too — before this, a session
+     * the real gates had already expired still played recordings. */
+    const caps = sessionCaps();
+    const idleMs = Number(req.app && req.app.locals && req.app.locals.portalIdleMs) || 30 * 60 * 60 * 1000;
+    const lastActive = Number(portalSession.clientLastActiveAt) || 0;
+    const idleDead = lastActive > 0 && Date.now() - lastActive > idleMs;
+    if (!idleDead && !(caps && caps.portal(portalSession))) {
+      try {
+        const client = await clientPortal.findById(portalSession.clientPortalId);
+        if (
+          client &&
+          String(client.status) === 'active' &&
+          Number(client.workspace_id) === workspaceId &&
+          Number(client.lead_id) > 0
+        ) {
+          return { via: 'portal', leadId: Number(client.lead_id) };
+        }
+      } catch {
+        /* fall through to staff/token */
       }
-    } catch {
-      /* fall through to staff/token */
     }
   }
   const staffSession = req.staffSession || req.session;
-  if (staffSession && staffSession.userId) {
+  const capsForStaff = sessionCaps();
+  if (staffSession && staffSession.userId && !(capsForStaff && capsForStaff.staff({ session: staffSession }))) {
     try {
       const membership = await getMembership(staffSession.userId, workspaceId);
       if (membership) return { via: 'staff', leadId: null };

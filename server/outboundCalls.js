@@ -172,6 +172,7 @@ async function twilioApi(creds, path, form) {
     method: form ? 'POST' : 'GET',
     headers,
     body,
+    signal: AbortSignal.timeout(30000),
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {

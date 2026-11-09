@@ -5303,20 +5303,39 @@ function applyShopStripeEventInner(db, event) {
   // completion used to resurrect the order to 'paid' and re-notify
   // the owner); 'paid_unfulfilled' (the F07 late-payment flag) is
   // terminal for everything except the refund that settles it
-  // (handled above); 'expired'/'failed' are terminal for a later
-  // completion — Stripe delivers unordered, so a dead session's
-  // completion must not fulfil after the fact.
+  // (handled above); 'expired' is terminal for a later completion —
+  // Stripe delivers unordered, so a dead session's completion must
+  // not fulfil after the fact.
   if (order.status === 'refunded') return { matched: true, orderId: order.id, status: 'refunded' };
   if (order.status === 'paid_unfulfilled') {
     return { matched: true, orderId: order.id, status: 'paid_unfulfilled' };
   }
   if (order.status === 'paid') return { matched: true, orderId: order.id, status: 'paid' };
   if (
-    (order.status === 'expired' || order.status === 'failed') &&
+    order.status === 'expired' &&
     (type === 'checkout.session.completed' || type === 'checkout.session.async_payment_succeeded')
   ) {
     return { matched: true, orderId: order.id, status: order.status };
   }
+  /* Batch 168 (S4#1): 'failed' is deliberately NOT in the guard
+   * above. An order reaches 'failed' two ways: (a) checkout.session
+   * .async_payment_failed / session-create failure — the session is
+   * dead and can never complete, so a later completion event for it
+   * cannot occur; and (b) payment_intent.payment_failed — ONE card
+   * attempt inside a LIVE session failed, and Stripe keeps the
+   * session payable until it expires (~24h), so a retry in the same
+   * session succeeds and completes. The old guard parked case (b)
+   * forever: the paid completion returned early, the booking branch
+   * never ran, and the platform kept money it never fulfilled or
+   * flagged. It also contradicted this handler's own rule at the
+   * payment_failed branch (a PI failure must not settle, because a
+   * retry can still succeed). A 'failed' order therefore falls
+   * through to the completion branch below, which settles ONLY
+   * after the amount/currency verification — the same bar every
+   * pending order must clear — and booking orders still route
+   * through the F07 late-paid backstop (flagLatePaidBookingOrders),
+   * so a booking whose hold already lapsed lands paid_unfulfilled
+   * + auto-refund, never silently paid. */
   if (type === 'checkout.session.completed' || type === 'checkout.session.async_payment_succeeded') {
     // Review fix (mirrors the membership flow's payment_status gate):
     // checkout.session.completed also fires for async payment methods
@@ -7310,6 +7329,18 @@ function qrCodeRowView(row) {
   const kind = String(row.target_kind || '');
   return {
     ...row,
+    /* Batch 168 (S3#3): the raw WiFi password never rides a row view.
+     * Every list/get surface built on this view (portal lists, staff
+     * + parity MCP) was leaking the credential in plaintext — the
+     * surfaces that tried to strip it (portalModules, hosted MCP)
+     * each set wifi_password:undefined but left `payload` (the fully
+     * resolved WIFI:…;P:<password>;; string) and, on the parity
+     * surface, the raw field itself. The editor's contract is
+     * has_wifi_password + "leave blank to keep"; resolution for
+     * rendering goes through resolveQrCode / the public image route,
+     * which read the row directly and are unaffected. */
+    wifi_password: undefined,
+    has_wifi_password: kind === 'wifi' && !!row.wifi_password,
     wifi_hidden: Number(row.wifi_hidden) ? 1 : 0,
     target_page: kind === 'page' ? row.target_ref : '',
     target_module: kind === 'module' ? row.target_ref : '',
@@ -12356,10 +12387,32 @@ function lockedModulePayload(embedRow, gate) {
   };
 }
 
+/* Batch 168 (S3#1): the embed token is the caller's only credential
+ * on the public module API, and it names exactly one module on
+ * exactly one page — the embed row's target_page_slug. The gate must
+ * therefore be anchored to that row. Previously the READ path
+ * (getPublicModuleByToken) gated on the CLIENT-SUPPLIED page slug
+ * (opts.pageSlug from ?bpPage=) whenever one was present, so an
+ * anonymous caller could read a members-only module's full payload
+ * by naming any ungated page — the write path
+ * (assertMemberAccessForEmbed) already anchored correctly. The
+ * client slug now feeds the gate ONLY through the intersection rule:
+ * the most restrictive of (embed's own page, client-claimed page)
+ * decides, so a cross-page mount on a genuinely gated page still
+ * gates (the client claim can only ever ADD gating, never remove
+ * it). */
+function gatedSlugFor(db, leadId, embedRow, opts = {}) {
+  const own = normalizeSlug(embedRow ? embedRow.target_page_slug : '');
+  const claimed = normalizeSlug(opts.pageSlug || '');
+  if (!claimed || claimed === own) return own;
+  if (pageIsGated(db, leadId, claimed)) return claimed;
+  return own;
+}
+
 /** For write/action endpoints whose module lives on a gated page. */
 function assertMemberAccessForEmbed(db, embedRow, opts = {}) {
   if (!embedRow || embedRow.module_type === 'members') return;
-  const gate = memberGateCheck(db, embedRow.lead_id, embedRow.target_page_slug, opts);
+  const gate = memberGateCheck(db, embedRow.lead_id, gatedSlugFor(db, embedRow.lead_id, embedRow, opts), opts);
   if (gate.locked) {
     const err = fail(
       'MEMBER_LOCKED',
@@ -14921,7 +14974,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
       if (typeRow && moduleEmbedActive(typeRow)) {
         assertSiteNotArchived(db, block.lead_id);
         assertSiteNotSuspended(db, block.lead_id);
-        const gate = memberGateCheck(db, block.lead_id, opts.pageSlug || typeRow.target_page_slug, opts);
+        const gate = memberGateCheck(db, block.lead_id, gatedSlugFor(db, block.lead_id, typeRow, opts), opts);
         if (gate.locked) {
           const lockedPayload = lockedModulePayload(typeRow, gate);
           const sc = siteCheckoutPresence(db, block.lead_id);
@@ -14974,7 +15027,7 @@ function getPublicModuleByToken(db, token, opts = {}) {
   // member session (or owner preview grant) accompanies the request. The
   // chatbot is a sitewide overlay, not page content — it is never gated.
   if (type !== 'chatbot') {
-    const gate = memberGateCheck(db, leadId, opts.pageSlug || row.target_page_slug, opts);
+    const gate = memberGateCheck(db, leadId, gatedSlugFor(db, leadId, row, opts), opts);
     if (gate.locked) {
       const lockedPayload = lockedModulePayload(row, gate);
       if (siteCheckout) lockedPayload.site_checkout = siteCheckout;

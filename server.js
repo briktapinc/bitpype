@@ -70,6 +70,24 @@ if (IS_PROD) {
     console.error('[boot] SESSION_SECRET must be set to a strong value (≥24 chars) in production');
     process.exit(1);
   }
+  // Batch 168 (S1#3): SETTINGS_ENCRYPTION_KEY gets the same boot
+  // discipline. Without it, secretBox.encryptValue silently no-ops
+  // and every SECRET_KEYS value (Stripe/Twilio/OpenAI keys, SMTP
+  // passwords) is stored PLAINTEXT at rest — while the Settings UI
+  // still implied encryption. Verified set in production before
+  // this assert landed; a malformed key already throws inside
+  // secretBox.loadKey, so presence is the only new requirement.
+  // (Standalone clones get the key from the deployer template;
+  // single-site mode boots this same server.js, so it is covered.)
+  try {
+    if (!require('./src/secretBox').hasKey()) {
+      console.error('[boot] SETTINGS_ENCRYPTION_KEY must be set in production (secret settings would be stored in plaintext)');
+      process.exit(1);
+    }
+  } catch (e) {
+    console.error('[boot] SETTINGS_ENCRYPTION_KEY is invalid:', (e && e.message) || e);
+    process.exit(1);
+  }
   const appUrlRaw = String(process.env.APP_URL || '').trim();
   if (!appUrlRaw) {
     console.error('[boot] APP_URL must be set in production (e.g. https://bitpype.com)');

@@ -77,7 +77,7 @@ async function twilioFetch(creds, pathOrUrl, { method = 'GET', form } = {}) {
     headers['Content-Type'] = 'application/x-www-form-urlencoded';
     body = new URLSearchParams(form).toString();
   }
-  const res = await fetch(url, { method, headers, body });
+  const res = await fetch(url, { method, headers, body, signal: AbortSignal.timeout(30000) });
   return res;
 }
 
@@ -350,12 +350,24 @@ async function transcribeRecording(recordingUrl, opts = {}) {
     const media = await fetchRecordingMedia(recordingUrl, opts);
     if (!media.configured) return { ok: false, reason: 'no_twilio' };
     if (!media.ok) return { ok: false, reason: 'download_failed' };
+    /* Batch 168 (S5#6): the platform key rides this request as a
+     * Bearer — the base URL (an Admin-set platform setting) gets the
+     * same guard every other key transport runs: https + public
+     * resolution via assertAiBaseUrl, and no redirects (a redirect
+     * would carry the key to an unvalidated target). */
+    try {
+      await require('./urlSafety').assertAiBaseUrl(baseUrl);
+    } catch {
+      return { ok: false, reason: 'stt_failed' };
+    }
     const form = new FormData();
     form.append('file', new Blob([media.buffer], { type: media.contentType || 'audio/mpeg' }), 'recording.mp3');
     form.append('model', 'whisper-1');
     form.append('response_format', 'json');
     const res = await fetch(`${baseUrl.replace(/\/$/, '')}/audio/transcriptions`, {
       method: 'POST',
+      redirect: 'error',
+      signal: AbortSignal.timeout(300000),
       headers: { Authorization: `Bearer ${apiKey}` },
       body: form,
     });

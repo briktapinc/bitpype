@@ -164,6 +164,7 @@ const checks = [
   'batch165-webinar-module-regressions',
   'batch166-assistant-mobile-layout-regressions',
   'batch167-chat-redesign-regressions',
+  'batch168-review-fixes-regressions',
   'batch169-themes-wizard-regressions',
   'batch170-assistant-usage-tab-regressions',
   'batch171-staff-themes-design-page-regressions',

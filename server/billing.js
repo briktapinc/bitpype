@@ -1454,7 +1454,18 @@ async function recordRefundFromCharge(charge, refund) {
     throw e;
   }
   if (paymentId && paymentRow) {
-    const refundedCents = Number(refund.amount) || 0;
+    /* Batch 168 (S4#3): compare the CHARGE's cumulative refunded
+     * total, not this one refund's amount — a full refund delivered
+     * as several partials (3000 then 7000 against 10000) previously
+     * left the payment 'partially_refunded' forever, because each
+     * event was judged on its own slice. The charge object carries
+     * amount_refunded on both call paths (charge.refunded embeds it;
+     * refund.created re-fetches the charge). Fall back to the single
+     * refund's amount when the charge doesn't carry the field. The
+     * shop pipeline (siteModules.js charge.refunded) already
+     * compares this way. */
+    const refundedCents =
+      charge && charge.amount_refunded != null ? Number(charge.amount_refunded) || 0 : Number(refund.amount) || 0;
     const totalCents = Number(paymentRow.amount_cents) || 0;
     const status =
       totalCents > 0 && refundedCents > 0 && refundedCents < totalCents ? 'partially_refunded' : 'refunded';

@@ -7935,40 +7935,57 @@ function writeStaticPages(pages, theme, outDir, opts) {
   // ever WROTE files, never removed them — a deleted page, an
   // unpublished item or a renamed slug stayed live in the output
   // tree and got published forever. Remove exporter-owned files
-  // this run did not produce: top-level *.html, the detail/ tree,
-  // and the generated _redirects / sitemap.xml / robots.txt.
-  // NEVER touches images/ or assets/ (owner uploads live there and
-  // are re-listed above, not regenerated), nor any other top-level
-  // file type. Best-effort: a cleanup failure never fails the
-  // export.
+  // this run did not produce.
+  // Batch 168 (S5#2): the 143 sweep only looked at the export ROOT
+  // and the detail/ tree — nested pages (services/foo.html from a
+  // two-segment slug) and blog posts (blog/<slug>.html) were never
+  // pruned, so deleted content at those paths stayed live
+  // indefinitely through publish. The sweep is now a full recursive
+  // walk: every *.html anywhere in the tree must be in this run's
+  // written set, as must the generated _redirects / sitemap.xml /
+  // robots.txt at the root. NEVER touches images/ or assets/ (owner
+  // uploads live there and are re-listed above, not regenerated),
+  // nor any other file type anywhere. The webinar/ shells are
+  // excluded: domain.materializeWebsiteExport (re)writes and prunes
+  // them on every export (Batch 168) — they are live-resolved
+  // shells, not exporter output. Best-effort: a cleanup failure
+  // never fails the export.
   try {
     const keep = new Set(written);
-    for (const name of fs.readdirSync(outDir)) {
-      const abs = path.join(outDir, name);
-      let st;
-      try {
-        st = fs.statSync(abs);
-      } catch {
-        continue;
-      }
-      if (!st.isFile()) continue;
-      if (/\.html?$/i.test(name) || name === '_redirects' || name === 'sitemap.xml' || name === 'robots.txt') {
-        if (!keep.has(name)) fs.unlinkSync(abs);
-      }
-    }
-    const detailRoot = path.join(outDir, 'detail');
-    if (fs.existsSync(detailRoot)) {
-      for (const dtype of fs.readdirSync(detailRoot)) {
-        const typeDir = path.join(detailRoot, dtype);
-        if (!fs.statSync(typeDir).isDirectory()) continue;
-        for (const name of fs.readdirSync(typeDir)) {
-          const rel = `detail/${dtype}/${name}`;
-          if (/\.html?$/i.test(name) && !keep.has(rel)) fs.unlinkSync(path.join(typeDir, name));
+    const sweepDir = (dir, prefix) => {
+      for (const name of fs.readdirSync(dir)) {
+        // images/ + assets/ are owner uploads; webinar/ is owned by
+        // domain.materializeWebsiteExport's own write+prune step.
+        if (prefix === '' && (name === 'images' || name === 'assets' || name === 'webinar')) continue;
+        const abs = path.join(dir, name);
+        const rel = prefix ? `${prefix}/${name}` : name;
+        let st;
+        try {
+          st = fs.statSync(abs);
+        } catch {
+          continue;
         }
-        if (fs.readdirSync(typeDir).length === 0) fs.rmdirSync(typeDir);
+        if (st.isDirectory()) {
+          sweepDir(abs, rel);
+          try {
+            if (fs.readdirSync(abs).length === 0) fs.rmdirSync(abs);
+          } catch {
+            /* a directory that refuses to empty is not fatal */
+          }
+          continue;
+        }
+        if (!st.isFile()) continue;
+        if (/\.html?$/i.test(name)) {
+          if (!keep.has(rel)) fs.unlinkSync(abs);
+        } else if (
+          prefix === '' &&
+          (name === '_redirects' || name === 'sitemap.xml' || name === 'robots.txt')
+        ) {
+          if (!keep.has(name)) fs.unlinkSync(abs);
+        }
       }
-      if (fs.readdirSync(detailRoot).length === 0) fs.rmdirSync(detailRoot);
-    }
+    };
+    sweepDir(outDir, '');
   } catch (e) {
     console.warn('[websiteEngine] stale export cleanup:', e.message || e);
   }

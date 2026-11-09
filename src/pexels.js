@@ -145,11 +145,20 @@ function extFromUrlOrType(url, contentType) {
   return 'jpg';
 }
 
+/* Batch 168 (S5#7): downloads only ever serve REMOTE_IMAGE_HOST_RE
+ * URLs (Pexels/Unsplash CDNs) at entry, but redirects were followed
+ * to ANY host and the body was unbounded — a redirect to an internal
+ * address made this an SSRF fetch, and a hostile/looping body could
+ * exhaust memory. Redirect targets are now re-validated against the
+ * same allowlist on every hop, and the body is capped (image
+ * downloads downstream reject anything over ~10MB anyway). */
+const MAX_DOWNLOAD_BYTES = 12 * 1024 * 1024;
+
 function downloadBuffer(url, redirects = 0) {
   return new Promise((resolve, reject) => {
     const raw = String(url || '').trim();
-    if (!/^https:\/\//i.test(raw)) {
-      const e = new Error('Only https image URLs can be stored locally.');
+    if (!REMOTE_IMAGE_HOST_RE.test(raw)) {
+      const e = new Error('Only Pexels/Unsplash image URLs can be stored locally.');
       e.code = 'PEXELS_BAD_URL';
       return reject(e);
     }
@@ -178,7 +187,18 @@ function downloadBuffer(url, redirects = 0) {
           return;
         }
         const chunks = [];
-        res.on('data', (c) => chunks.push(c));
+        let size = 0;
+        res.on('data', (c) => {
+          size += c.length;
+          if (size > MAX_DOWNLOAD_BYTES) {
+            req.destroy();
+            const e = new Error('Image download exceeded the size limit.');
+            e.code = 'PEXELS_DOWNLOAD';
+            reject(e);
+            return;
+          }
+          chunks.push(c);
+        });
         res.on('end', () => {
           const buf = Buffer.concat(chunks);
           if (!buf.length) {

@@ -304,7 +304,12 @@ router.get('/webinar/:token/:slug/chat/stream', async (req, res) => {
       },
       on: (ev, fn) => res.on(ev, fn),
     };
-    webinarsEngine.hubSubscribe(ctx.webinar.id, flushingRes);
+    // Batch 168 (S7#5): hub caps, same rule as the platform room.
+    if (!webinarsEngine.hubSubscribe(ctx.webinar.id, flushingRes, { key: `reg:${session.id}` })) {
+      res.write('event: error\ndata: {"error":"This webinar room is full — please try again shortly."}\n\n');
+      flush();
+      return res.end();
+    }
     const heartbeat = setInterval(() => {
       try {
         res.write(': ping\n\n');

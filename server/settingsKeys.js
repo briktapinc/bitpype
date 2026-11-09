@@ -427,6 +427,15 @@ function isEmail(v) {
 
 // Returns {ok:true, value} with a normalized string, or {ok:false, error}.
 function validateSetting(key, raw) {
+  /* Batch 168 (S2#4): every seeded setting is a scalar string (the
+   * settings table is key/value TEXT). An object/array value used to
+   * be String()-coerced and STORED as "[object Object]" / "a,b" —
+   * silently corrupting the setting. Reject non-scalars here; this
+   * one validator serves the MCP, REST and parity settings paths.
+   * null/undefined keep their existing meaning (clear to ''). */
+  if (raw != null && typeof raw !== 'string' && typeof raw !== 'number' && typeof raw !== 'boolean') {
+    return { ok: false, error: `Invalid value for ${key}: expected a string value` };
+  }
   const value = raw == null ? '' : String(raw);
   if (!SETTABLE_KEYS.includes(key)) {
     return { ok: false, error: `Setting "${key}" is not writable via settings:set.` };

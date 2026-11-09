@@ -4644,7 +4644,19 @@ async function callClientTool(ws, name, a, ctx = {}) {
       plan: planId,
       qrcodes: modules
         .listQrCodes(db, leadId, { includeDrafts: a.includeDrafts !== false })
-        .map((c) => ({ ...c, ...modules.resolveQrCode(db, leadId, c), wifi_password: undefined })),
+        // Batch 168 (S3#3): a WiFi code's resolved payload embeds the
+        // network password — blank it for wifi codes (Batch 134 rule);
+        // the raw field is stripped by qrCodeRowView, but
+        // resolveQrCode would re-add the secret via `payload`.
+        .map((c) => {
+          const resolved = modules.resolveQrCode(db, leadId, c);
+          return {
+            ...c,
+            ...resolved,
+            payload: c.target_kind === 'wifi' ? '' : resolved.payload,
+            wifi_password: undefined,
+          };
+        }),
     }));
   }
   if (name === 'qrcode.create') {
@@ -5180,6 +5192,47 @@ function knownToolNames() {
   return _knownToolNames;
 }
 
+let _toolDefByName = null;
+function toolDefByName(name, ctx) {
+  const defs = ctx && ctx.leadId ? clientToolDefs() : toolDefs();
+  const hit = defs.find((t) => t.name === name);
+  if (hit) return hit;
+  if (!_toolDefByName) _toolDefByName = new Map(toolDefs().map((t) => [t.name, t]));
+  return _toolDefByName.get(name) || null;
+}
+
+/* Batch 168 (S2#4): dispatch-level argument type validation. Tool
+ * handlers coerce with String(...) at hundreds of sites, so an
+ * object/array sent for a scalar field used to be persisted as
+ * "[object Object]" / "a,b" across every entity family (blog title,
+ * product name, event fields, design names…) — the lead family was
+ * fixed in Batch 143, the rest never were. The declared inputSchema
+ * is the contract the client already saw: reject object/array values
+ * for properties declared string/integer/number/boolean (and scalar
+ * values for properties declared array/object) BEFORE the handler
+ * runs. Undeclared properties pass through untouched (several
+ * handlers accept more than their schema advertises), and scalar
+ * values are never coerced here — only the object/array-vs-scalar
+ * mismatch, the class that produced garbage, is refused. */
+function validateArgTypes(name, args, ctx) {
+  const def = toolDefByName(name, ctx);
+  const props = def && def.inputSchema && def.inputSchema.properties;
+  if (!props) return null;
+  for (const [key, value] of Object.entries(args || {})) {
+    if (value == null) continue;
+    const declared = props[key] && props[key].type;
+    if (!declared) continue;
+    const isObjectLike = typeof value === 'object';
+    if ((declared === 'string' || declared === 'integer' || declared === 'number' || declared === 'boolean') && isObjectLike) {
+      return `Argument "${key}" for ${name} must be a ${declared} — objects and arrays are not accepted here.`;
+    }
+    if ((declared === 'array' || declared === 'object') && !isObjectLike) {
+      return `Argument "${key}" for ${name} must be a ${declared}.`;
+    }
+  }
+  return null;
+}
+
 async function callTool(workspaceId, name, args = {}, ctx = {}) {
   const a = args || {};
   const ws = workspaceId;
@@ -5265,6 +5318,11 @@ async function callTool(workspaceId, name, args = {}, ctx = {}) {
       });
       if (gate) return { ok: true, data: gate };
     }
+
+    // Batch 168 (S2#4): declared-schema type gate — after the class
+    // gates above, before any handler runs (see validateArgTypes).
+    const typeError = validateArgTypes(name, a, ctx);
+    if (typeError) return { ok: false, error: 'VALIDATION', message: typeError };
 
     const clientOut = await callClientTool(ws, name, a, ctx);
     if (clientOut !== undefined) return { ok: true, data: clientOut };
@@ -5506,7 +5564,26 @@ async function callTool(workspaceId, name, args = {}, ctx = {}) {
       return { ok: true, data: domain.smsQueue(ws, a) };
     }
 
-    if (name === 'settings.get') return { ok: true, data: { settings: domain.settingsGetAll(ws) } };
+    if (name === 'settings.get') {
+      const settings = domain.settingsGetAll(ws);
+      /* Batch 168 (S2#2, Batch 143 §9 residual): Batch 62 stripped
+       * the domain-registrant PII block from the REST settings read
+       * for token callers but noted the MCP facade was unaffected —
+       * so every token class, vendor_design included, could read the
+       * registrant's full name, email, phone and street address
+       * (plus non-secret identifiers like smtp.user / cf.account_id /
+       * sms.account_sid) through settings.get. MCP callers are
+       * ALWAYS token callers (session users don't reach callTool),
+       * so strip the registrant block here unconditionally — the
+       * same keys REST strips. True secrets were already masked by
+       * settingsGetAll. */
+      if (settings && typeof settings === 'object') {
+        for (const k of Object.keys(settings)) {
+          if (k.startsWith('domain.registrant_')) delete settings[k];
+        }
+      }
+      return { ok: true, data: { settings } };
+    }
     if (name === 'settings.set') return { ok: true, data: domain.settingsSet(ws, a.key, a.value) };
     if (name === 'automation.pause') return { ok: true, data: domain.automationSet(ws, true) };
     if (name === 'automation.resume') return { ok: true, data: domain.automationSet(ws, false) };
@@ -5557,8 +5634,32 @@ async function callTool(workspaceId, name, args = {}, ctx = {}) {
 
     return { ok: false, error: `Unknown tool: ${name}` };
   } catch (e) {
-    return { ok: false, error: e.message || String(e) };
+    return { ok: false, error: mcpErrorMessage(e) };
   }
+}
+
+/* Batch 168 (S2#9): MCP error responses carried the raw exception
+ * message — including better-sqlite3/MySQL internals ("Too few
+ * parameter values…", table/column names, constraint text) — to any
+ * token caller. Authored tool errors (validation copy, NOT_FOUND,
+ * plan gates) are the API's contract and pass through untouched;
+ * anything carrying a DRIVER code (apiErrors.isDriverCode) or a
+ * driver-shaped message is logged server-side and answered with a
+ * generic line, mirroring the REST masking in apiErrors. */
+const MCP_DRIVER_MESSAGE =
+  /SQLITE_|ER_[A-Z][A-Z_]+|Too (few|many) parameter values|no such table|no such column|FOREIGN KEY constraint failed|UNIQUE constraint failed/i;
+function mcpErrorMessage(e) {
+  const msg = (e && e.message) || String(e);
+  try {
+    const { isDriverCode } = require('./apiErrors');
+    if ((e && isDriverCode(e.code)) || MCP_DRIVER_MESSAGE.test(msg)) {
+      console.error('[mcp] tool error (masked for caller):', msg);
+      return 'Internal error — the request could not be completed.';
+    }
+  } catch {
+    /* masking must never break the error path itself */
+  }
+  return msg;
 }
 
 async function handleJsonRpc(workspaceId, body, ctx = {}) {
@@ -5597,7 +5698,7 @@ async function handleJsonRpc(workspaceId, body, ctx = {}) {
     }
     return reply(null, { code: -32601, message: `Method not found: ${req.method}` });
   } catch (e) {
-    return reply(null, { code: -32000, message: e.message || String(e) });
+    return reply(null, { code: -32000, message: mcpErrorMessage(e) });
   }
 }
 

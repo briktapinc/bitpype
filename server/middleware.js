@@ -21,8 +21,9 @@ async function loadSessionUser(userId) {
 // Sessions minted before this batch carry no stamp and are treated
 // as expired — one forced re-login at deploy, fail-closed rather
 // than grandfathering an unbounded session a fresh lifetime.
-// Portal client sessions are NOT capped here: they keep their
-// existing idle-timeout behaviour (server.js PORTAL_IDLE_MS).
+// Portal client sessions are capped separately in
+// server/routes/portal.js (Batch 168 S1#2: PORTAL_ABSOLUTE_SESSION_MS,
+// 30d default) — they don't pass through the staff choke points.
 // Env override follows the PORTAL_IDLE_MS pattern (1h floor).
 const STAFF_ABSOLUTE_SESSION_MS = Math.max(
   60 * 60 * 1000,
@@ -34,6 +35,34 @@ function staffSessionAbsoluteExpired(req) {
   const issued = Number(req.session.authIssuedAt) || 0;
   if (!issued) return true;
   return Date.now() - issued > STAFF_ABSOLUTE_SESSION_MS;
+}
+
+// ---------------------------------------------------------------------------
+// Batch 168 (S1#2) — PORTAL absolute session lifetime cap, the mirror
+// of the staff cap above. This copy serves the gates that DO pass
+// through middleware consumers — chiefly the call-recording
+// playback proxy in routes/calls.js, which resolves portal/staff
+// sessions itself instead of passing requireClient/requireAuth.
+// routes/portal.js carries its OWN identical copy (it cannot take a
+// new cross-file require — VM-loading regression suites stub its
+// relative requires); the batch168 suite pins both copies to the
+// same default so they cannot drift silently. Portal sessions are
+// stamped clientIssuedAt by establishPortalSession
+// (routes/portal.js). 30 days by default: portal clients are owners
+// checking in occasionally, so the cap is deliberately longer than
+// the staff 12h. Env override, 24h floor. An unstamped (pre-168)
+// portal session is expired — fail-closed, one forced re-login at
+// deploy, exactly like the staff rollout.
+const PORTAL_ABSOLUTE_SESSION_MS = Math.max(
+  24 * 60 * 60 * 1000,
+  Number(process.env.PORTAL_ABSOLUTE_SESSION_MS) || 30 * 24 * 60 * 60 * 1000
+);
+
+function portalSessionAbsoluteExpired(session) {
+  if (!session || !session.clientPortalId) return false;
+  const issued = Number(session.clientIssuedAt) || 0;
+  if (!issued) return true;
+  return Date.now() - issued > PORTAL_ABSOLUTE_SESSION_MS;
 }
 
 function destroySessionQuiet(req) {
@@ -107,7 +136,25 @@ async function requireWorkspace(req, res, next) {
         role: 'token',
         leadId,
         tokenId: ws.token_id,
+        tokenClass: ws.token_class || null,
       };
+      /* Batch 168 (S2#1): the vendor_design token class was enforced
+       * only at MCP dispatch (server/mcp.js) — the same credential
+       * used over REST walked the full workspace surface, because
+       * requireWorkspace never propagated the class and several
+       * routes admit 'member'/'token' roles outright (domain
+       * registration = real spend included). Enforce the class at
+       * this choke point for every REST router mounted behind
+       * requireWorkspace; the policy itself lives with the MCP one
+       * (vendorTools.vendorRestAllowed). */
+      if (req.auth.tokenClass === 'vendor_design') {
+        const { vendorRestAllowed } = require('./vendorTools');
+        if (!vendorRestAllowed(req.method, req.path)) {
+          return res
+            .status(403)
+            .json({ ok: false, error: 'FORBIDDEN', code: 'VENDOR_TOKEN_FORBIDDEN' });
+        }
+      }
       return next();
     }
 
@@ -223,6 +270,12 @@ async function requireSuperAdmin(req, res, next) {
     if (!req.session || !req.session.userId) {
       return res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
     }
+    /* Batch 168 (S1#4): routes mounted behind requireSuperAdmin
+     * ALONE (GET /api/v1/openapi.json, the /fingerprints census)
+     * skipped the Batch 154 absolute staff cap that requireAuth
+     * enforces — the cap is a session property, not a route
+     * property, so enforce it here too. */
+    if (refuseIfStaffSessionExpired(req, res)) return;
     const { isSuperAdmin } = require('./admin');
     const ok = await isSuperAdmin(req.session.userId);
     if (!ok) return res.status(403).json({ ok: false, error: 'SUPER_ADMIN_REQUIRED' });
@@ -370,4 +423,7 @@ module.exports = {
   // Batch 154: exported for the regression suite + startup logging.
   STAFF_ABSOLUTE_SESSION_MS,
   staffSessionAbsoluteExpired,
+  // Batch 168 (S1#2): the portal mirror.
+  PORTAL_ABSOLUTE_SESSION_MS,
+  portalSessionAbsoluteExpired,
 };

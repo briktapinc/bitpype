@@ -100,8 +100,8 @@ const MAX_ITEMS = 200;
 const SHARE_REGISTRY = {
   blog: {
     kind: 'provider',
-    read(db, leadId) {
-      return modules.listBlogPosts(db, leadId, { includeDrafts: false, limit: MAX_ITEMS }).map((p) =>
+    read(db, leadId, opts = {}) {
+      return modules.listBlogPosts(db, leadId, { includeDrafts: !!opts.includeDrafts, limit: MAX_ITEMS }).map((p) =>
         item('blog', p, {
           title: p.title,
           description: p.excerpt || p.body_html,
@@ -114,8 +114,8 @@ const SHARE_REGISTRY = {
   },
   ecommerce: {
     kind: 'provider',
-    read(db, leadId) {
-      return modules.listProducts(db, leadId, { includeDrafts: false }).map((p) =>
+    read(db, leadId, opts = {}) {
+      return modules.listProducts(db, leadId, { includeDrafts: !!opts.includeDrafts }).map((p) =>
         item('ecommerce', p, {
           title: p.name,
           description: p.description,
@@ -141,8 +141,8 @@ const SHARE_REGISTRY = {
   },
   courses: {
     kind: 'provider',
-    read(db, leadId) {
-      return modules.listCourses(db, leadId, { includeDrafts: false, withLessons: false }).map((c) =>
+    read(db, leadId, opts = {}) {
+      return modules.listCourses(db, leadId, { includeDrafts: !!opts.includeDrafts, withLessons: false }).map((c) =>
         item('courses', c, {
           title: c.title,
           description: c.description,
@@ -158,8 +158,8 @@ const SHARE_REGISTRY = {
     // Albums are the addressable items — an album is what consumers
     // link to (e.g. an event's photo gallery); its photos ride along
     // in meta so a consumer can render them without a second read.
-    read(db, leadId) {
-      return modules.listAlbums(db, leadId, { includeDrafts: false, withImages: true }).map((a) => {
+    read(db, leadId, opts = {}) {
+      return modules.listAlbums(db, leadId, { includeDrafts: !!opts.includeDrafts, withImages: true }).map((a) => {
         const images = (Array.isArray(a.images) ? a.images : [])
           .filter((im) => im && im.image_url)
           .map((im) => ({ id: im.id, image_url: im.image_url, caption: im.caption || '' }));
@@ -175,8 +175,8 @@ const SHARE_REGISTRY = {
   },
   directory: {
     kind: 'provider',
-    read(db, leadId) {
-      return modules.listListings(db, leadId, { includeDrafts: false }).map((l) =>
+    read(db, leadId, opts = {}) {
+      return modules.listListings(db, leadId, { includeDrafts: !!opts.includeDrafts }).map((l) =>
         item('directory', l, {
           title: l.name,
           description: l.description,
@@ -190,8 +190,8 @@ const SHARE_REGISTRY = {
   },
   faq: {
     kind: 'provider',
-    read(db, leadId) {
-      return modules.listFaqItems(db, leadId, { includeDrafts: false }).map((f) =>
+    read(db, leadId, opts = {}) {
+      return modules.listFaqItems(db, leadId, { includeDrafts: !!opts.includeDrafts }).map((f) =>
         item('faq', f, {
           title: f.question,
           description: f.answer_html,
@@ -203,8 +203,8 @@ const SHARE_REGISTRY = {
   },
   testimonials: {
     kind: 'provider',
-    read(db, leadId) {
-      return modules.listTestimonials(db, leadId, { includeDrafts: false }).map((t) =>
+    read(db, leadId, opts = {}) {
+      return modules.listTestimonials(db, leadId, { includeDrafts: !!opts.includeDrafts }).map((t) =>
         item('testimonials', t, {
           title: t.author_name || 'Client',
           description: t.quote,
@@ -221,8 +221,8 @@ const SHARE_REGISTRY = {
   },
   team: {
     kind: 'provider',
-    read(db, leadId) {
-      return modules.listTeamMembers(db, leadId, { includeDrafts: false }).map((m) =>
+    read(db, leadId, opts = {}) {
+      return modules.listTeamMembers(db, leadId, { includeDrafts: !!opts.includeDrafts }).map((m) =>
         item('team', m, {
           title: m.name,
           description: m.bio,
@@ -235,8 +235,8 @@ const SHARE_REGISTRY = {
   },
   events: {
     kind: 'provider',
-    read(db, leadId) {
-      return modules.listEvents(db, leadId, { includeDrafts: false }).map((e) =>
+    read(db, leadId, opts = {}) {
+      return modules.listEvents(db, leadId, { includeDrafts: !!opts.includeDrafts }).map((e) =>
         item('events', e, {
           title: e.title,
           description: e.description,
@@ -562,12 +562,16 @@ function registryEntry(type) {
 }
 
 /** All items a provider shares for this lead. Never throws — a broken
- *  source reads as an empty source (dormant discipline). */
-function readProviderItems(db, leadId, type) {
+ *  source reads as an empty source (dormant discipline).
+ *  opts.includeDrafts (Batch 168): write-path EXISTENCE checks only —
+ *  most registry readers already honour it via their list function's
+ *  own flag; readers that ignore it simply stay published-only, which
+ *  keeps the check conservative (never looser than resolution). */
+function readProviderItems(db, leadId, type, opts = {}) {
   const { entry } = registryEntry(type);
   if (!entry || entry.kind !== 'provider') return [];
   try {
-    const items = entry.read(db, Number(leadId));
+    const items = entry.read(db, Number(leadId), opts);
     return (Array.isArray(items) ? items : []).slice(0, MAX_ITEMS);
   } catch (e) {
     console.warn(`[moduleShare] provider ${type} read failed:`, (e && e.message) || e);
@@ -772,6 +776,29 @@ function setSharedRef(db, leadId, ref = {}) {
     .toLowerCase()
     .slice(0, 40);
   const lid = Number(leadId);
+  // Batch 168 (S3#4): the CONSUMER side was never validated — a ref
+  // could be planted for a nonexistent item, a foreign lead's item,
+  // or a module type that holds no items at all (custom_code,
+  // chatbot), and would silently activate if autoincrement later
+  // reached that id. Mirror the provider-side discipline (and
+  // categories.assertAssignable): the consumer must be a provider-
+  // kind type (it has items) and the item must exist for THIS lead.
+  // Existence (not published-ness) is the bar — an owner may wire a
+  // draft item's gallery before publishing it; resolution stays
+  // published-only, so a draft consumer renders nothing.
+  const { entry: consumerEntry } = registryEntry(consumerType);
+  if (!consumerEntry || consumerEntry.kind !== 'provider') {
+    throw fail(
+      'VALIDATION',
+      `${consumerType} does not hold shareable items, so it cannot consume a shared ref${consumerEntry && consumerEntry.reason ? `: ${consumerEntry.reason}` : ''}`
+    );
+  }
+  const consumerExists = readProviderItems(db, lid, consumerType, { includeDrafts: true }).some(
+    (it) => Number(it.source_id) === consumerId
+  );
+  if (!consumerExists) {
+    throw fail('VALIDATION', `No ${consumerType} item #${consumerId} exists for this business`);
+  }
   // The provider item must exist among what the provider actually
   // shares for THIS lead (published items) — a ref can never point
   // at another lead's content or at a draft.

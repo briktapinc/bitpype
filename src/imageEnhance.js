@@ -76,6 +76,9 @@ async function falRun(key, modelId, input) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(input),
+    // Image generation legitimately runs long; bounded at 240s
+    // (Batch 168, S8#F5) instead of undici's ~300s default.
+    signal: AbortSignal.timeout(240000),
   });
   const text = await res.text();
   let data;

@@ -63,8 +63,13 @@ const ALLOW_PREFIXES = [
   'socialfeed.',
   'bookings.',
   'estimate.',
-  'rentals.',
   'site.',
+  /* Batch 168 (S2#3): 'rentals.' was in this allow list even though
+   * the file header and the rentals.* tool definitions both say
+   * renting is staff-driven and workspace-token-only — a vendor
+   * token could create an ACTIVE rental (rerouting a client's call
+   * forwarding and delivery, emailing the tenant), end it, and
+   * permanently delete it. Removed; rentals are not design work. */
 ];
 
 // Individual reads outside the allow prefixes.
@@ -90,6 +95,40 @@ const ALLOW_EXACT = new Set([
   'ai.usage',
 ]);
 
+/* Batch 168 (S2#1): the REST mirror of the class boundary. A
+ * vendor_design token is a DESIGN-ONLY credential: on REST it may
+ * read leads and read/update design + website content (the surfaces
+ * its allowed MCP tools map to — design.* / website.* / content
+ * modules) and nothing else. Enforcement must live at the REST edge
+ * because the REST route table grew its own role checks over time
+ * (several routes explicitly admit 'member'/'token' roles, which a
+ * workspace token satisfies) — without this guard a vendor token
+ * could register domains (real spend on the platform's Cloudflare
+ * payment method), run jobs, send mail and delete leads over REST
+ * while MCP refused the same calls. Deny-by-default: any method or
+ * path not matched here is refused. Matching is on the path AFTER
+ * the /api/v1 mount (req.path inside the mounted routers). */
+const VENDOR_REST_READ_PREFIXES = ['/leads', '/design', '/websites', '/activity'];
+const VENDOR_REST_WRITE_PREFIXES = ['/design', '/websites'];
+
+function vendorRestAllowed(method, rawPath) {
+  const m = String(method || 'GET').toUpperCase();
+  const p = String(rawPath || '').split('?')[0];
+  if (!p.startsWith('/')) return false;
+  if (m === 'GET' || m === 'HEAD') {
+    return VENDOR_REST_READ_PREFIXES.some((x) => p === x || p.startsWith(x + '/'));
+  }
+  if (m === 'POST' || m === 'PUT' || m === 'PATCH') {
+    // Destructive or money-moving design/website actions stay
+    // denied even inside the write prefixes (mirrors the MCP deny
+    // list: website.delete / design.delete are exact denies there).
+    if (/(^|\/)(delete|purge|restore|standalone-backup)(\/|$)/.test(p)) return false;
+    if (/\/websites\/generate(\/|$)/.test(p)) return false; // AI-spend generation run
+    return VENDOR_REST_WRITE_PREFIXES.some((x) => p === x || p.startsWith(x + '/'));
+  }
+  return false; // DELETE and anything exotic: never for this class
+}
+
 function vendorToolAllowed(name) {
   const n = String(name || '');
   if (!n) return false;
@@ -100,4 +139,4 @@ function vendorToolAllowed(name) {
   return false;
 }
 
-module.exports = { vendorToolAllowed, DENY_EXACT, DENY_PREFIXES, ALLOW_PREFIXES, ALLOW_EXACT };
+module.exports = { vendorToolAllowed, vendorRestAllowed, DENY_EXACT, DENY_PREFIXES, ALLOW_PREFIXES, ALLOW_EXACT };

@@ -370,7 +370,11 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
           const resolved = modules.resolveQrCode(db, Number(leadId), c);
           return {
             ...c,
-            payload: resolved.payload,
+            // Batch 168 (S3#3): the resolved payload of a WiFi code
+            // embeds the network password — it never rides this list
+            // response (the preview image below is the visual; the
+            // Batch 134 public-payload rule applies here too).
+            payload: c.target_kind === 'wifi' ? '' : resolved.payload,
             resolved_url: resolved.target_url,
             image_data_url: await modules.qrCodePreviewDataUrl(db, Number(leadId), c),
             // The WiFi password never rides a list response — the editor

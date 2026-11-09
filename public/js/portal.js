@@ -4522,6 +4522,8 @@
   }
 
   function formatWhen(iso) {
+    // Batch 168 (S6#F3): empty input rendered the bare text ' UTC'.
+    if (!iso) return '—';
     return (
       esc(
         String(iso || '')
@@ -8312,7 +8314,7 @@
       <p class="hint">${esc(data.message || 'Your Google reviews pull in automatically.')}</p>
       ${
         summary.rating != null
-          ? `<p><strong>${esc(summary.name || 'Your business')}</strong> — <span style="color:#f59e0b">${esc(stars(summary.rating))}</span> <strong>${esc(Number(summary.rating).toFixed(1))}</strong> from ${esc(summary.total || 0)} Google reviews${summary.fetched_at ? ` · last updated ${esc(whenLabel(summary.fetched_at))}` : ''}</p>`
+          ? `<p><strong>${esc(summary.name || 'Your business')}</strong> — <span style="color:#f59e0b">${esc(stars(summary.rating))}</span> <strong>${esc(Number.isFinite(Number(summary.rating)) ? Number(summary.rating).toFixed(1) : '—')}</strong> from ${esc(summary.total || 0)} Google reviews${summary.fetched_at ? ` · last updated ${esc(whenLabel(summary.fetched_at))}` : ''}</p>`
           : ''
       }
       ${summary.last_error && data.state !== 'no_key' ? `<p class="hint">Last check hit a problem: ${esc(summary.last_error)}</p>` : ''}
@@ -11110,7 +11112,13 @@
         // Refresh ONLY the message list — the reply form (and any
         // half-typed reply) is never rebuilt by the poll.
         const msgsBox = document.querySelector('[data-wb-console-msgs]');
-        if (!msgsBox) return;
+        // Batch 168 (S6#F2): the console DOM is gone (host went back
+        // to the webinars list inside the same panel) — STOP the
+        // poll instead of returning forever on a leaked interval.
+        if (!msgsBox) {
+          stopWebinarConsolePoll();
+          return;
+        }
         try {
           const data = await api(`/modules/webinar/${encodeURIComponent(id)}/messages`);
           msgsBox.innerHTML = webinarConsoleMessagesHtml((data && data.messages) || []);
@@ -14326,7 +14334,10 @@
     if (!headline || !body || !u) return;
     const billed = Number((u.portal && u.portal.billedUsd) || 0);
     const rollup = u.rollup ? ` · status: ${u.rollup.status}` : '';
-    headline.textContent = `AI assistant usage this month: $${billed.toFixed(2)} — billed separately from your plan on your next invoice${rollup}.`;
+    // Batch 168 (S6#F3), carried onto the Batch 170 tab renderer
+    // at the 168 rebase: a non-numeric billed value rendered '$NaN'.
+    const billedText = Number.isFinite(billed) ? billed.toFixed(2) : '—';
+    headline.textContent = `AI assistant usage this month: $${billedText} — billed separately from your plan on your next invoice${rollup}.`;
     body.replaceChildren();
     const convs = Array.isArray(u.byConversation) ? u.byConversation : [];
     const users = Array.isArray(u.byUser) ? u.byUser : [];
@@ -14381,14 +14392,30 @@
   }
 
   async function loadAssistant() {
-    const convs = await api('/assistant/conversations');
-    state.assistant.convs = Array.isArray(convs) ? convs : [];
-    renderAssistantConvs();
-    refreshAssistantUsage();
-    if (state.assistant.activeId == null && state.assistant.convs.length) {
-      await openAssistantConversation(state.assistant.convs[0].id);
+    /* Batch 168 (S6#F4): failures were swallowed by the caller's
+     * .catch(() => {}) — a failed conversations fetch left the
+     * panel silently empty, indistinguishable from "no chats yet".
+     * Mirror the module lists: show a could-not-load hint in the
+     * panel and leave `loaded` false so the next visit retries. */
+    try {
+      const convs = await api('/assistant/conversations');
+      state.assistant.convs = Array.isArray(convs) ? convs : [];
+      renderAssistantConvs();
+      refreshAssistantUsage();
+      if (state.assistant.activeId == null && state.assistant.convs.length) {
+        await openAssistantConversation(state.assistant.convs[0].id);
+      }
+      state.assistant.loaded = true;
+    } catch {
+      const wrap = document.getElementById('assistant-convs');
+      if (wrap) {
+        wrap.innerHTML = '';
+        const p = document.createElement('p');
+        p.className = 'hint';
+        p.textContent = 'Could not load your assistant chats — please try again.';
+        wrap.appendChild(p);
+      }
     }
-    state.assistant.loaded = true;
   }
 
   async function openAssistantConversation(id) {

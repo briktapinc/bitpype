@@ -3278,6 +3278,10 @@ const tools = [
     },
   },
   {
+    // Batch 168 (S2#7): this is the ONLY events.delete definition —
+    // a byte-identical second copy further down was silently dead
+    // (first-wins dedupe) and is removed; the batch168 suite pins
+    // raw-catalog name uniqueness so a duplicate cannot regrow.
     name: 'events.delete',
     description: 'Delete an event by id (Standard/Premium).',
     schema: {
@@ -3368,15 +3372,6 @@ const tools = [
       type: 'object',
       properties: { leadId: { type: 'integer', minimum: 1 } },
       required: ['leadId'],
-    },
-  },
-  {
-    name: 'events.delete',
-    description: 'Delete an event by id (Standard/Premium).',
-    schema: {
-      type: 'object',
-      properties: { id: { type: 'integer', minimum: 1 }, leadId: { type: 'integer', minimum: 1 } },
-      required: ['id'],
     },
   },
   {

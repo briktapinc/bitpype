@@ -209,6 +209,11 @@ async function start(db) {
   const script = path.resolve(__dirname, 'mcpHttp.js');
   const dbPath = db && typeof db.name === 'string' && db.name ? path.resolve(db.name) : '';
   const env = Object.assign({}, process.env, {
+    // Batch 168 (S2#6): mcpHttp refuses to start unless this is set
+    // (Batch 103 SEC-15) — the spawn must opt in explicitly or the
+    // remote-MCP start path exits instantly. Private-network/dev
+    // surface only; production MCP is the main app.
+    MCP_HTTP_ENABLED: '1',
     WS_DB_PATH: dbPath,
     WS_MCP_TOKEN: token,
     WS_MCP_PORT: String(port),

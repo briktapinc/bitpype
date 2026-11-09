@@ -143,10 +143,20 @@ async function callModel(config, db, { system, user, task, linkId }) {
 }
 
 async function fetchText(url, timeoutMs = 9000) {
-  const res = await fetch(url, {
+  /* Batch 168 (S5#5): this fetch used the global fetch with
+   * redirect:'follow' and an unbounded body on a URL taken from the
+   * link row's site_url — which normalizeSiteUrl accepts for ANY
+   * http/https origin, including localhost and private addresses.
+   * A connected "WordPress site" at an internal address turned the
+   * design-chat critic into an SSRF probe of the host network.
+   * Route it through the platform's guarded public fetch instead
+   * (public-address validation, DNS pinning, per-hop redirect
+   * revalidation, size cap — the siteIngest pattern). */
+  const { fetchPublic } = require('./urlSafety');
+  const res = await fetchPublic(url, {
     headers: { 'User-Agent': 'BitPype-Design-Verifier/1.0' },
-    signal: AbortSignal.timeout(timeoutMs),
-    redirect: 'follow',
+    timeoutMs,
+    maxBytes: 2 * 1024 * 1024,
   });
   return { status: res.status, text: await res.text() };
 }
@@ -294,6 +304,19 @@ async function runWpDesignChat(workspaceId, linkId, body = {}, opts = {}) {
     return { reply: assistantText, usage: { used: gate.used, limit: gate.limit } };
   };
 
+  /* Batch 168 (S5#4): model-failure turns used to return
+   * { error: true } WITHOUT persisting — the owner saw the failure
+   * text, but the saved transcript (the standing save-everything
+   * rule for chat) silently dropped the whole turn, user message
+   * included, so the next turn's context had a hole exactly where
+   * the conversation broke. Failures now persist like every other
+   * turn (pending clarification preserved), with the error flag
+   * kept on the return value for the client's styling. */
+  const failTurn = async () => {
+    const out = await persistTurn(MODEL_FAIL_TEXT, { nextPending: pending });
+    return { ...out, error: true };
+  };
+
   if (!census) {
     // Batch 143: preserve any pending clarification — a turn that
     // does not resolve the clarification must not clear it (the
@@ -311,7 +334,7 @@ async function runWpDesignChat(workspaceId, linkId, body = {}, opts = {}) {
   const wdb = domain.withDb(workspaceId, (db) => db);
   const config = await core.resolveAgentConfig(wdb, 'wp_design_chat');
   if (!core.museConfigured(config)) {
-    return { error: true, reply: MODEL_FAIL_TEXT };
+    return failTurn();
   }
 
   const tail = transcript
@@ -343,15 +366,15 @@ async function runWpDesignChat(workspaceId, linkId, body = {}, opts = {}) {
     });
     plan = extractJson(raw);
   } catch {
-    return { error: true, reply: MODEL_FAIL_TEXT };
+    return failTurn();
   }
   if (!plan || !['question', 'clarify', 'change'].includes(String(plan.kind || ''))) {
-    return { error: true, reply: MODEL_FAIL_TEXT };
+    return failTurn();
   }
 
   if (plan.kind === 'question') {
     const answer = String(plan.answer || '').trim();
-    if (!answer) return { error: true, reply: MODEL_FAIL_TEXT };
+    if (!answer) return failTurn();
     // Batch 143: a side question mid-clarification is answered
     // read-only and the pending clarification SURVIVES it (portal
     // parity) — the old bare persistTurn(answer) wiped pending, so
@@ -399,9 +422,9 @@ async function runWpDesignChat(workspaceId, linkId, body = {}, opts = {}) {
   try {
     impl = await implement('');
   } catch {
-    return { error: true, reply: MODEL_FAIL_TEXT };
+    return failTurn();
   }
-  if (!impl || !Array.isArray(impl.ops)) return { error: true, reply: MODEL_FAIL_TEXT };
+  if (!impl || !Array.isArray(impl.ops)) return failTurn();
 
   let result = ops.applyOpsLenient(design.tokens || {}, design.zones || {}, impl.ops);
   if (!result.applied.length) {

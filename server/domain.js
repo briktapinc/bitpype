@@ -254,6 +254,22 @@ async function leadsDelete(workspaceId, id) {
   // so the sweep targets exact rows and the result can report them.
   const portal = await portalAccountsForLead(workspaceId, leadId);
   const result = withDb(workspaceId, (db) => leadEngine().deleteLead(db, leadId));
+  // Batch 168 (S8#F2): the lead's platform-DB webinars (Batch 163/165)
+  // belong to the lead too — webinars + registrations (registrant
+  // name/email/phone) + messages. deleteWebinarsForSite was wired
+  // only into the module-delete paths, so deleting the LEAD orphaned
+  // them all, PII included. Sweep in the same operation; a failure
+  // is loud, exactly like the portal-account sweep below.
+  let webinarsRemoved = 0;
+  try {
+    const out = await require('./webinars').deleteWebinarsForSite(workspaceId, leadId);
+    webinarsRemoved = Number((out && out.deleted) || 0);
+  } catch (e) {
+    throw Object.assign(
+      new Error(`Lead ${leadId} was deleted, but removing its webinar(s) failed: ${(e && e.message) || e}`),
+      { code: 'WEBINAR_SWEEP_FAILED' }
+    );
+  }
   // The portal sweep runs in the same operation; a failure here is loud
   // (the caller sees it), never the silent dangling account of Batch 85's
   // bug report.
@@ -275,7 +291,7 @@ async function leadsDelete(workspaceId, id) {
       { code: 'PORTAL_SWEEP_FAILED' }
     );
   }
-  return { ...result, portalAccounts: portal.accounts || [], portalAccountsRemoved };
+  return { ...result, portalAccounts: portal.accounts || [], portalAccountsRemoved, webinarsRemoved };
 }
 /** Batch 45 (B1) — pre-flight reference counts for the lead-delete confirm.
  *  Batch 85: async — merges the platform-side portal accounts into the
@@ -285,6 +301,20 @@ async function leadsReferences(workspaceId, id) {
   const portal = await portalAccountsForLead(workspaceId, Number(id));
   summary.portalAccounts = portal.accounts;
   summary.portalLookupFailed = portal.failed;
+  // Batch 168 (S8#F2): the delete confirm must count the lead's
+  // platform webinars too — they are deleted with the lead (above),
+  // and the confirm previously understated the blast radius by
+  // omitting them (registrant PII included).
+  try {
+    const rows = await require('./db').query(
+      'SELECT COUNT(*) AS c FROM webinars WHERE workspace_id = :w AND lead_id = :l',
+      { w: Number(workspaceId), l: Number(id) }
+    );
+    summary.webinars = Number((rows && rows[0] && rows[0].c) || 0);
+  } catch (e) {
+    if (!isMissingTableError(e)) throw e;
+    summary.webinars = 0;
+  }
   return summary;
 }
 function leadsScore(workspaceId, id) {
@@ -715,6 +745,76 @@ function materializeWebsiteExport(db, workspaceId, siteId, opts = {}) {
   exported.versionId = versionRow ? Number(versionRow.id) : null;
   exported.versionNote = versionRow ? versionRow.note : null;
 
+  // Batch 165: one real gate/room shell per webinar of the site at
+  // webinar/<slug>.html (Pages ignores _redirects 200-rewrites — the
+  // Batch 133 lesson). The shell list rides the per-site cache the
+  // webinar engine refreshes on every write (the adsense pattern —
+  // this function is synchronous); shells resolve everything live
+  // through the webinar public API, so nothing goes stale.
+  // Batch 168 (S5#2 + S5#3): this block also PRUNES — a shell whose
+  // webinar was deleted (or whose module was detached) is removed;
+  // the engine's stale sweep cannot see webinar/ (these shells are
+  // not part of exportStatic's written set), so this path owns the
+  // pruning. And it runs HERE — before the cookie-bar, analytics and
+  // claim-popup injectors below, which all walk the tree
+  // recursively — so webinar shells receive the same injections as
+  // every other page (previously they were written after those
+  // injectors and shipped with none of them; only AdSense, which
+  // runs later still, reached them).
+  try {
+    const leadIdW = fresh && fresh.lead_id != null ? Number(fresh.lead_id) : 0;
+    if (Number.isInteger(leadIdW) && leadIdW > 0 && exported.dir) {
+      const fs165 = require('fs');
+      const path165 = require('path');
+      const dirW = path165.join(exported.dir, 'webinar');
+      const keepW = new Set();
+      const mods165 = require('./siteModules');
+      const embedRow = mods165.getEmbedRow(db, leadIdW, 'webinar');
+      if (embedRow && mods165.moduleEmbedActive(embedRow)) {
+        const cacheRow = db
+          .prepare('SELECT value FROM settings WHERE key = ?')
+          .get(`webinar_shells.${Number(siteId)}`);
+        let shells = [];
+        try {
+          shells = cacheRow ? JSON.parse(cacheRow.value || '[]') : [];
+        } catch {
+          shells = [];
+        }
+        let writtenW = 0;
+        for (const sh of Array.isArray(shells) ? shells : []) {
+          const slug = String((sh && sh.slug) || '');
+          if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) continue;
+          const html = engine.buildWebinarPage(pages, theme, {
+            token: embedRow.public_token,
+            slug,
+            title: (sh && sh.title) || 'Webinar',
+          });
+          fs165.mkdirSync(dirW, { recursive: true });
+          fs165.writeFileSync(path165.join(dirW, `${slug}.html`), html, 'utf8');
+          const rel = `webinar/${slug}.html`;
+          keepW.add(rel);
+          if (Array.isArray(exported.files) && !exported.files.includes(rel)) exported.files.push(rel);
+          writtenW++;
+        }
+        exported.webinarShells = writtenW;
+      }
+      try {
+        if (fs165.existsSync(dirW)) {
+          for (const name of fs165.readdirSync(dirW)) {
+            if (/\.html?$/i.test(name) && !keepW.has(`webinar/${name}`)) {
+              fs165.unlinkSync(path165.join(dirW, name));
+            }
+          }
+          if (fs165.readdirSync(dirW).length === 0) fs165.rmdirSync(dirW);
+        }
+      } catch (e) {
+        console.warn('[domain] webinar shell prune:', e.message || e);
+      }
+    }
+  } catch (e) {
+    console.warn('[domain] webinar shells:', e.message || e);
+  }
+
   // Cookie footer bar on every preview/publish export (now + going forward).
   try {
     if (exported.dir) {
@@ -740,50 +840,6 @@ function materializeWebsiteExport(db, workspaceId, siteId, opts = {}) {
     }
   } catch (e) {
     console.warn('[domain] claim preview inject:', e.message || e);
-  }
-
-  // Batch 165: one real gate/room shell per webinar of the site at
-  // webinar/<slug>.html (Pages ignores _redirects 200-rewrites — the
-  // Batch 133 lesson). The shell list rides the per-site cache the
-  // webinar engine refreshes on every write (the adsense pattern —
-  // this function is synchronous); shells resolve everything live
-  // through the webinar public API, so nothing goes stale.
-  try {
-    const leadIdW = fresh && fresh.lead_id != null ? Number(fresh.lead_id) : 0;
-    if (Number.isInteger(leadIdW) && leadIdW > 0 && exported.dir) {
-      const mods165 = require('./siteModules');
-      const embedRow = mods165.getEmbedRow(db, leadIdW, 'webinar');
-      if (embedRow && mods165.moduleEmbedActive(embedRow)) {
-        const cacheRow = db
-          .prepare('SELECT value FROM settings WHERE key = ?')
-          .get(`webinar_shells.${Number(siteId)}`);
-        let shells = [];
-        try {
-          shells = cacheRow ? JSON.parse(cacheRow.value || '[]') : [];
-        } catch {
-          shells = [];
-        }
-        let writtenW = 0;
-        for (const sh of Array.isArray(shells) ? shells : []) {
-          const slug = String((sh && sh.slug) || '');
-          if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) continue;
-          const html = engine.buildWebinarPage(pages, theme, {
-            token: embedRow.public_token,
-            slug,
-            title: (sh && sh.title) || 'Webinar',
-          });
-          const dirW = require('path').join(exported.dir, 'webinar');
-          require('fs').mkdirSync(dirW, { recursive: true });
-          require('fs').writeFileSync(require('path').join(dirW, `${slug}.html`), html, 'utf8');
-          const rel = `webinar/${slug}.html`;
-          if (Array.isArray(exported.files) && !exported.files.includes(rel)) exported.files.push(rel);
-          writtenW++;
-        }
-        exported.webinarShells = writtenW;
-      }
-    }
-  } catch (e) {
-    console.warn('[domain] webinar shells:', e.message || e);
   }
 
   // Google AdSense — Free-plan customer sites only, never paid plans.

@@ -28,12 +28,40 @@ const AUTHORED_CODE = /^[A-Z][A-Z0-9_]+$/;
 const GENERIC_MESSAGE = 'Something went wrong on our side.';
 const BAD_JSON_MESSAGE = 'The request body could not be read as JSON.';
 
+/* Batch 168 (S8#F3): DRIVER error codes also match the authored
+ * shape — SQLITE_CONSTRAINT_UNIQUE, ER_DUP_ENTRY, SQLITE_ERROR,
+ * ER_NO_SUCH_TABLE, Node errnos (ECONNREFUSED…) — and their raw
+ * messages name tables, columns, constraint values and file paths
+ * ("UNIQUE constraint failed: client_portal_users.email"). They are
+ * NOT authored copy: an error carrying one of these codes is an
+ * unexpected internal failure and must take the masking branch like
+ * any uncoded error, at any status. Authored app codes never use
+ * these prefixes (engines throw VALIDATION / NOT_FOUND / …). */
+const DRIVER_CODE_PREFIXES = ['SQLITE_', 'ER_', 'PROTOCOL_', 'EAI_'];
+const DRIVER_CODES = new Set([
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ETIMEDOUT',
+  'ENOTFOUND',
+  'EPIPE',
+  'ENOENT',
+  'EACCES',
+  'EPERM',
+  'EEXIST',
+]);
+
+function isDriverCode(code) {
+  if (typeof code !== 'string') return false;
+  if (DRIVER_CODES.has(code)) return true;
+  return DRIVER_CODE_PREFIXES.some((p) => code.startsWith(p));
+}
+
 function newErrorRef() {
   return 'err_' + crypto.randomBytes(4).toString('hex');
 }
 
 function isAuthoredCode(code) {
-  return typeof code === 'string' && AUTHORED_CODE.test(code) && code !== 'INTERNAL';
+  return typeof code === 'string' && AUTHORED_CODE.test(code) && code !== 'INTERNAL' && !isDriverCode(code);
 }
 
 function isBadJsonError(e) {
@@ -66,6 +94,15 @@ function shapeError(e, http, area, opts = {}) {
     return { status: 400, code: 'BAD_JSON', message: BAD_JSON_MESSAGE };
   }
   const code = e && typeof e.code === 'string' ? e.code : undefined;
+  if (isDriverCode(code)) {
+    // Batch 168 (S8#F3): a driver-coded error is unexpected wherever
+    // it lands — log it with a ref and answer generically, whatever
+    // status the caller mapped (the old flow passed the raw driver
+    // message through at 500 via the authored branch, and at 4xx
+    // via the legacy branch).
+    const ref = logError(area, e);
+    return { status, code: 'INTERNAL', message: GENERIC_MESSAGE, ref };
+  }
   if (opts.mask5xx && status >= 500) {
     const ref = logError(area, e);
     return { status, code: isAuthoredCode(code) ? code : 'INTERNAL', message: GENERIC_MESSAGE, ref };
@@ -102,6 +139,7 @@ function sendError(res, e, http, opts = {}) {
 module.exports = {
   newErrorRef,
   isAuthoredCode,
+  isDriverCode,
   isBadJsonError,
   logError,
   shapeError,

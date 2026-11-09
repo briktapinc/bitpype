@@ -373,6 +373,26 @@ function absFromRel(rel) {
   return abs;
 }
 
+/* Batch 168 (S8#F1): unlink the stored files for attachment rows
+ * whose DB rows are being dropped by a cascade the assistant module
+ * doesn't own (lead delete in src/leadEngine.js — the Batch 89
+ * site-chat pattern: rows collected before the transaction, files
+ * unlinked after it). Best-effort per file; absFromRel's traversal
+ * guard means a corrupt stored_rel can never unlink outside the
+ * storage root. */
+function deleteAttachmentFilesForRows(rows) {
+  for (const row of rows || []) {
+    if (!row || !row.stored_rel) continue;
+    const abs = absFromRel(row.stored_rel);
+    if (!abs) continue;
+    try {
+      fs.unlinkSync(abs);
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
 /** Content sniff: returns { kind, mime } or null when not allowed. */
 function sniffAttachment(buf, originalName) {
   const chatAtt = require('./siteChatAttachments');
@@ -988,6 +1008,7 @@ module.exports = {
   validateAssistantSettings,
   ensureTables,
   ensureUsageColumns,
+  deleteAttachmentFilesForRows,
   createConversation,
   getConversation,
   listConversations,
