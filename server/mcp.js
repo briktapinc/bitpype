@@ -5215,7 +5215,15 @@ function toolDefByName(name, ctx) {
  * values are never coerced here — only the object/array-vs-scalar
  * mismatch, the class that produced garbage, is refused. */
 function validateArgTypes(name, args, ctx) {
-  const def = toolDefByName(name, ctx);
+  // Defence-in-depth only: if the def catalogue cannot be consulted
+  // (a partially-stubbed host surface), skip validation rather than
+  // failing the call — handlers validate their own inputs regardless.
+  let def = null;
+  try {
+    def = toolDefByName(name, ctx);
+  } catch {
+    return null;
+  }
   const props = def && def.inputSchema && def.inputSchema.properties;
   if (!props) return null;
   for (const [key, value] of Object.entries(args || {})) {

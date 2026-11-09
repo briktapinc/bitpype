@@ -24,6 +24,12 @@ process.env.CAPTCHA_OPTIONAL = '1';
 process.env.APP_URL = 'https://bitpype.test';
 process.env.SESSION_SECRET = ['usertypes','fixture','secret'].join('-');
 process.env.NODE_ENV = 'production';
+// Batch 168: the production boot now refuses to start without
+// SETTINGS_ENCRYPTION_KEY (secret settings would persist in
+// plaintext) — the fixture supplies a synthetic one, same pattern
+// as batch100+.
+process.env.SETTINGS_ENCRYPTION_KEY =
+  process.env.SETTINGS_ENCRYPTION_KEY || Buffer.alloc(32, 23).toString('base64');
 
 const PORT = 31399;
 const BASE = `http://127.0.0.1:${PORT}`;

@@ -559,7 +559,7 @@ function group(name, n) {
     // relative requires). Both copies must keep the same default.
     assert.equal(mw.PORTAL_ABSOLUTE_SESSION_MS, 30 * 24 * 60 * 60 * 1000, 'middleware portal cap default is 30d');
     assert.ok(
-      read('server/routes/portal.js').includes('Number(process.env.PORTAL_ABSOLUTE_SESSION_MS) || 30 * 24 * 60 * 60 * 1000'),
+      read('server/routes/portal.js').includes("Number(process.env.PORTAL_ABSOLUTE_SESSION_MS) : 0) || 30 * 24 * 60 * 60 * 1000"),
       'portal.js local cap matches the middleware default'
     );
     assert.ok(read('server/routes/portal.js').includes('req.session.clientIssuedAt = Date.now();'), 'portal sessions are stamped at establishment');
