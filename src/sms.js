@@ -12,6 +12,13 @@
  */
 
 const crypto = require('node:crypto');
+// Batch 168: guarded timeout signal — some VM-sandboxed test hosts
+// lack the AbortSignal global; production Node always has it.
+const abortAfter = (ms) =>
+  typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+    ? AbortSignal.timeout(ms)
+    : undefined;
+
 
 const SMS_SETTING_KEYS = [
   'sms.enabled',
@@ -176,7 +183,7 @@ class TwilioProvider {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: params.toString(),
-        signal: AbortSignal.timeout(30000),
+        signal: abortAfter(30000),
       });
       const raw = await res.text();
       let data = {};
@@ -213,7 +220,7 @@ class TwilioProvider {
             'Content-Type': 'application/x-www-form-urlencoded',
           },
           body: params.toString(),
-          signal: AbortSignal.timeout(30000),
+          signal: abortAfter(30000),
         });
         const raw2 = await res2.text();
         let data2 = {};

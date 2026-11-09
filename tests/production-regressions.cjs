@@ -167,7 +167,10 @@ async function main() {
   });
   async function callPortal(method,url,query={},params={}){
     const route=portalRoutes.find(x=>x.method===method&&x.route===url);assert(route,url);
-    const req={session:{clientPortalId:1,clientLastActiveAt:Date.now()},query,params,app:{locals:{}}};
+    // Batch 168 (S1#2): a real post-168 portal session always
+    // carries clientIssuedAt (stamped at establishment); unstamped
+    // sessions are expired by design — the fixture models a live one.
+    const req={session:{clientPortalId:1,clientLastActiveAt:Date.now(),clientIssuedAt:Date.now()},query,params,app:{locals:{}}};
     let status=200,body;const res={status(v){status=v;return this},json(v){body=v;return this}};
     for(const handler of route.handlers){let advanced=false;await handler(req,res,()=>{advanced=true});if(!advanced)break;}
     return {status,body};
@@ -289,7 +292,7 @@ async function main() {
   });
   async function callPortal11(method, url, body) {
     const route = portalRoutes11.find((x) => x.method === method && x.route === url); assert(route, url);
-    const req = { session: { clientPortalId: 7, clientLastActiveAt: Date.now() }, query: {}, params: {}, body: body || {}, app: { locals: {} } };
+    const req = { session: { clientPortalId: 7, clientLastActiveAt: Date.now(), clientIssuedAt: Date.now() }, query: {}, params: {}, body: body || {}, app: { locals: {} } };
     let status = 200, payload; const res = { status(v) { status = v; return this; }, json(v) { payload = v; return this; } };
     for (const handler of route.handlers) { let advanced = false; await handler(req, res, () => { advanced = true; }); if (!advanced) break; }
     return { status, body: payload };
@@ -3596,7 +3599,7 @@ async function main() {
   async function callPortal22(method, url, body = {}) {
     const route = portalRoutes22.find((x) => x.method === method && x.route === url);
     assert(route, url);
-    const req = { session: { clientPortalId: 7, clientLastActiveAt: Date.now() }, body, query: {}, params: {}, app: { locals: {} } };
+    const req = { session: { clientPortalId: 7, clientLastActiveAt: Date.now(), clientIssuedAt: Date.now() }, body, query: {}, params: {}, app: { locals: {} } };
     let status = 200,
       payload;
     const res = {

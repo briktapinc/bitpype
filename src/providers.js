@@ -1,3 +1,10 @@
+// Batch 168: guarded timeout signal — some VM-sandboxed test hosts
+// lack the AbortSignal global; production Node always has it.
+const abortAfter = (ms) =>
+  typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+    ? AbortSignal.timeout(ms)
+    : undefined;
+
 'use strict';
 
 /**
@@ -608,7 +615,7 @@ class TavilySearchProvider {
         Authorization: `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(30000),
+      signal: abortAfter(30000),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');

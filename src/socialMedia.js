@@ -7,6 +7,13 @@
 
 const crypto = require('crypto');
 const { URLSearchParams } = require('url');
+// Batch 168: guarded timeout signal — some VM-sandboxed test hosts
+// lack the AbortSignal global; production Node always has it.
+const abortAfter = (ms) =>
+  typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+    ? AbortSignal.timeout(ms)
+    : undefined;
+
 
 const META_GRAPH = 'https://graph.facebook.com/v21.0';
 const PLATFORMS = ['facebook', 'instagram'];
@@ -235,7 +242,7 @@ async function metaFetch(path, { method = 'GET', token, body, form } = {}) {
   }
   const u = new URL(url);
   if (token && !u.searchParams.has('access_token')) u.searchParams.set('access_token', token);
-  const res = await fetch(u.toString(), { method, headers, body: payload, signal: AbortSignal.timeout(30000) });
+  const res = await fetch(u.toString(), { method, headers, body: payload, signal: abortAfter(30000) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.error) {
     const msg = (data.error && (data.error.message || data.error.error_user_msg)) || `Meta API ${res.status}`;

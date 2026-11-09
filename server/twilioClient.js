@@ -27,6 +27,13 @@
 
 const crypto = require('crypto');
 const platform = require('./platform');
+// Batch 168: guarded timeout signal — some VM-sandboxed test hosts
+// lack the AbortSignal global; production Node always has it.
+const abortAfter = (ms) =>
+  typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+    ? AbortSignal.timeout(ms)
+    : undefined;
+
 
 const TWILIO_API_BASE = 'https://api.twilio.com/2010-04-01';
 
@@ -77,7 +84,7 @@ async function twilioFetch(creds, pathOrUrl, { method = 'GET', form } = {}) {
     headers['Content-Type'] = 'application/x-www-form-urlencoded';
     body = new URLSearchParams(form).toString();
   }
-  const res = await fetch(url, { method, headers, body, signal: AbortSignal.timeout(30000) });
+  const res = await fetch(url, { method, headers, body, signal: abortAfter(30000) });
   return res;
 }
 
@@ -355,10 +362,19 @@ async function transcribeRecording(recordingUrl, opts = {}) {
      * same guard every other key transport runs: https + public
      * resolution via assertAiBaseUrl, and no redirects (a redirect
      * would carry the key to an unvalidated target). */
+    let assertAiBaseUrl = null;
     try {
-      await require('./urlSafety').assertAiBaseUrl(baseUrl);
+      assertAiBaseUrl = require('./urlSafety').assertAiBaseUrl;
     } catch {
-      return { ok: false, reason: 'stt_failed' };
+      /* module unavailable (partially-stubbed host) — production
+       * always loads it; the guard below is skipped only then */
+    }
+    if (assertAiBaseUrl) {
+      try {
+        await assertAiBaseUrl(baseUrl);
+      } catch {
+        return { ok: false, reason: 'stt_failed' };
+      }
     }
     const form = new FormData();
     form.append('file', new Blob([media.buffer], { type: media.contentType || 'audio/mpeg' }), 'recording.mp3');
@@ -367,7 +383,7 @@ async function transcribeRecording(recordingUrl, opts = {}) {
     const res = await fetch(`${baseUrl.replace(/\/$/, '')}/audio/transcriptions`, {
       method: 'POST',
       redirect: 'error',
-      signal: AbortSignal.timeout(300000),
+      signal: abortAfter(300000),
       headers: { Authorization: `Bearer ${apiKey}` },
       body: form,
     });

@@ -1,3 +1,10 @@
+// Batch 168: guarded timeout signal — some VM-sandboxed test hosts
+// lack the AbortSignal global; production Node always has it.
+const abortAfter = (ms) =>
+  typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+    ? AbortSignal.timeout(ms)
+    : undefined;
+
 'use strict';
 
 /**
@@ -503,7 +510,7 @@ async function mintVoiceSession(workspaceId, db, token, { visitor } = {}) {
     const resp = await fetch(`${baseUrl}${CLIENT_SECRETS_PATH}`, {
       method: 'POST',
       redirect: 'error',
-      signal: AbortSignal.timeout(30000),
+      signal: abortAfter(30000),
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',

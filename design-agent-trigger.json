@@ -1,11 +1,11 @@
 {
-  "at": "2026-11-05T23:21:56.330Z",
-  "job_id": 11,
-  "session_id": 11,
-  "lead_id": 13704,
-  "reason": "chatbot",
-  "request_kind": null,
+  "at": "2026-11-09T18:32:50.470Z",
+  "job_id": 2,
+  "session_id": null,
+  "lead_id": null,
+  "reason": "improvements",
+  "request_kind": "improvements",
   "status": "waiting_on_agent",
-  "message": "Chatbot lead captured for lead 13704 (session 11).",
-  "mcp_hint": "Client MCP only: chatbot.pending / chatbot.next / chatbot.reply / chatbot.escalate. Do not use admin design.* or lead.* tools."
+  "message": "Design job #2 is waiting_on_agent (client form improvements).",
+  "mcp_hint": "Call design.next or design.pending"
 }

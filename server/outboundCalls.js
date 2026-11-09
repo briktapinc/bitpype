@@ -45,6 +45,13 @@ const modules = require('./siteModules');
 const twilioClient = require('./twilioClient');
 const platform = require('./platform');
 const { appUrl } = require('./stripeClient');
+// Batch 168: guarded timeout signal — some VM-sandboxed test hosts
+// lack the AbortSignal global; production Node always has it.
+const abortAfter = (ms) =>
+  typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+    ? AbortSignal.timeout(ms)
+    : undefined;
+
 
 const DEFAULT_DISCLOSURE = 'This call may be recorded for quality and note-taking.';
 const DISCLOSURE_SETTING_KEY = 'calls.recording_disclosure';
@@ -172,7 +179,7 @@ async function twilioApi(creds, path, form) {
     method: form ? 'POST' : 'GET',
     headers,
     body,
-    signal: AbortSignal.timeout(30000),
+    signal: abortAfter(30000),
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {

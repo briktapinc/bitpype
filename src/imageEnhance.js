@@ -10,6 +10,13 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const http = require('http');
+// Batch 168: guarded timeout signal — some VM-sandboxed test hosts
+// lack the AbortSignal global; production Node always has it.
+const abortAfter = (ms) =>
+  typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+    ? AbortSignal.timeout(ms)
+    : undefined;
+
 
 const DEFAULT_MODEL = 'fal-ai/nano-banana-pro/edit';
 const MAX_IMAGES = 4;
@@ -78,7 +85,7 @@ async function falRun(key, modelId, input) {
     body: JSON.stringify(input),
     // Image generation legitimately runs long; bounded at 240s
     // (Batch 168, S8#F5) instead of undici's ~300s default.
-    signal: AbortSignal.timeout(240000),
+    signal: abortAfter(240000),
   });
   const text = await res.text();
   let data;
