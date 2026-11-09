@@ -271,7 +271,7 @@ function mobileCss(css) {
     const cz = census();
     assert.deepEqual(
       cz.summary,
-      { total: 503, STATIC: 186, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 38, RAW: 86 },
+      { total: 504, STATIC: 187, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 38, RAW: 86 },
       'SEC-13 census summary identical to the deployed Batch 165 tree (166 contributes zero sink movement — pairwise (file|kind|snippet) multiset diff vs the pristine 165 tree is empty)'
     );
     n += 1;

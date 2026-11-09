@@ -223,7 +223,7 @@ function unzipStore(buf) {
       cz.summary,
       // Batch 161 rotation applied below the Batch 156 note.
       // Batch 156 rotation: census 450 -> 453 (+1 STATIC +1 ESCAPED +1 SAFE in app.js — the fingerprint surfaces), safe classes 336 -> 339, RAW 78 / IDENT 36 and the 114-entry reviewed set unchanged; baseline regenerated.
-      { total: 503, STATIC: 186, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 38, RAW: 86 },
+      { total: 504, STATIC: 187, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 38, RAW: 86 },
       'SEC-13 census summary unchanged'
     );
     n += 1;
