@@ -158,15 +158,39 @@ function formatNyTime(iso) {
 /* Webinars                                                            */
 /* ------------------------------------------------------------------ */
 
+// Dual-dialect storage for scheduled_at: the MySQL column is
+// DATETIME (read back with dateStrings as 'YYYY-MM-DD HH:MM:SS')
+// and REJECTS a raw ISO 'T...Z' value on write (error 1292 ->
+// the create-500 the Batch 163 gate caught on the MySQL leg);
+// the sqlite column is TEXT and accepts either shape. Store the
+// SQL form in BOTH dialects (the codebase convention, cf.
+// billing.js/invites.js) and normalize back to ISO on read so
+// the API contract (scheduledAt is an ISO instant) is identical
+// on every dialect.
+function toSqlDateTime(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 19).replace('T', ' ');
+}
+function fromSqlDateTime(v) {
+  if (!v) return null;
+  if (v instanceof Date) return v.toISOString();
+  const s = String(v);
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) return s.replace(' ', 'T') + '.000Z';
+  return s;
+}
+
 function rowToWebinar(r) {
   if (!r) return null;
+  const scheduledAt = fromSqlDateTime(r.scheduled_at);
   return {
     id: Number(r.id),
     slug: r.slug,
     title: r.title || '',
     description: r.description || '',
-    scheduledAt: r.scheduled_at || null,
-    scheduledLabel: formatNyTime(r.scheduled_at),
+    scheduledAt,
+    scheduledLabel: formatNyTime(scheduledAt),
     youtubeId: r.youtube_id || '',
     status: r.status || 'scheduled',
     chatOpen: r.chat_open == null ? null : !!Number(r.chat_open),
@@ -267,7 +291,7 @@ async function createWebinar(body, createdBy) {
       slug,
       title: data.title,
       description: data.description || '',
-      scheduled_at: data.scheduledAt || null,
+      scheduled_at: toSqlDateTime(data.scheduledAt),
       youtube_id: data.youtubeId || '',
       access_code: code,
       created_by: createdBy == null ? null : Number(createdBy),
@@ -292,7 +316,7 @@ async function updateWebinar(id, body) {
   }
   if (data.scheduledAt !== undefined) {
     sets.push('scheduled_at = :scheduled_at');
-    params.scheduled_at = data.scheduledAt;
+    params.scheduled_at = toSqlDateTime(data.scheduledAt);
   }
   if (data.youtubeId !== undefined) {
     sets.push('youtube_id = :youtube_id');
