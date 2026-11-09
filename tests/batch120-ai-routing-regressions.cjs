@@ -36,7 +36,7 @@
  *     invalid PUTs are 400s, unauthenticated + non-super-admin
  *     sessions are refused.
  *   Part 6 — browser: the matrix renders in Admin → Settings → API
- *     keys at 1440/980/390 (10 editable rows + 2 informational rows,
+ *     keys at 1440/980/390 (11 editable rows + 2 informational rows (Batch 161 added assistant_chat; browser pin rotated by the Batch 163 finisher after the pristine-162 A/B proof),
  *     cooldown + last-failover status text, no horizontal overflow)
  *     and a save round-trip posts the edited row.
  *
@@ -1021,7 +1021,7 @@ const OPENAI_KEY = 'b120-openai-key-SECRET';
             overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
           };
         });
-        assert.equal(m.rowCount, 10, `10 editable rows @${w}`);
+        assert.equal(m.rowCount, 11, `11 editable rows @${w} (Batch 163 finisher fix: Batch 161 added the assistant_chat routable function — Part 1 pins were rotated to 11 by 161 but this browser rowCount pin was missed and the leg never ran in-image in the 161/162 gates; proven stale on the pristine 162 tree, which fails this assert identically)`);
         n++;
         assert.equal(m.dcPrimary, 'muse', `design_chat primary defaults to Meta Muse @${w}`);
         assert.equal(m.dcFallback, 'openai', `design_chat fallback defaults to OpenAI @${w}`);
@@ -1048,7 +1048,7 @@ const OPENAI_KEY = 'b120-openai-key-SECRET';
       assert.ok(savedRoutes, 'save posted to the routing endpoint');
       assert.equal(savedRoutes.design_chat.primary, 'openai', 'edited primary posted');
       assert.equal(typeof savedRoutes.design_chat.fallback, 'string', 'fallback field posted');
-      assert.equal(Object.keys(savedRoutes).length, 10, 'all 10 rows posted');
+      assert.equal(Object.keys(savedRoutes).length, 11, 'all 11 rows posted (Batch 161: assistant_chat is the 11th routable function)');
       n++;
     } finally {
       await browser.close();
