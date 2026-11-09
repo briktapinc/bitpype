@@ -2487,3 +2487,122 @@ button.dn-theme-none .dn-theme-none-label { font-size: 14px; font-weight: 600; c
   .staff-theme-card { flex-basis: 208px; width: 208px; }
   .staff-themes-row { gap: 12px; }
 }
+
+/* ---- Batch 173: theme card actions + View modal, the build
+ * page, and the Assistant two-column layout (Ely: "themes on the
+ * right and chat on the left", modelled on the design page's
+ * chat panel). The rail is sticky and full-height; the messages
+ * area keeps scrolling INSIDE it (Batch 161/166 rules untouched —
+ * the rail-context overrides below restack the chat column for
+ * the narrow rail, and the <=700px block restores the Batch 166
+ * mobile geometry verbatim inside the rail). ---- */
+.staff-theme-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.staff-theme-card-actions .btn { margin-top: 0; }
+.staff-theme-view-modal { position: relative; }
+.staff-theme-view-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--border, #e5e0d8);
+  background: var(--surface, #fff);
+  color: var(--ink);
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+}
+.staff-theme-view-scroll {
+  overflow-y: auto;
+  max-height: min(68vh, 680px);
+  border: 1px solid var(--border, #e5e0d8);
+  border-radius: 10px;
+  background: var(--surface-2, #f3efe8);
+}
+.staff-theme-view-scroll img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.asst-page {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+.asst-rail {
+  flex: 0 0 368px;
+  width: 368px;
+  position: sticky;
+  top: 72px;
+  height: calc(100vh - 96px);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+}
+.asst-rail .card { margin-bottom: 0; }
+.asst-chat-card {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.asst-chat-card .asst-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
+.asst-chat-card .asst-convs {
+  flex: 0 0 auto;
+  width: 100%;
+  max-height: 118px;
+}
+.asst-chat-card .asst-main {
+  flex: 1 1 auto;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+}
+.asst-usage-card {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  max-height: 36%;
+}
+.asst-content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.asst-content .card { margin-bottom: 0; }
+@media (max-width: 700px) {
+  .asst-page { flex-direction: column; }
+  .asst-rail {
+    position: static;
+    width: 100%;
+    height: auto;
+    flex: none;
+  }
+  .asst-chat-card { flex: none; }
+  .asst-chat-card .asst-convs { max-height: 180px; }
+  .asst-chat-card .asst-main {
+    flex: none;
+    width: 100%;
+    height: 58vh;
+  }
+  .asst-usage-card {
+    max-height: none;
+    overflow: visible;
+  }
+  .asst-content { width: 100%; }
+  .staff-theme-view-modal {
+    width: 100%;
+    max-height: 94vh;
+  }
+  .staff-theme-view-scroll { max-height: calc(94vh - 130px); }
+}

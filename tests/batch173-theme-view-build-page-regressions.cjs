@@ -1,0 +1,680 @@
+'use strict';
+/**
+ * Batch 173 — Theme View modal, Build-this page, Assistant two-column.
+ *
+ * Ely's orders (2026-11-09, three messages): (1) "Add view button
+ * which opens the image in a scrollable modal"; (2) "put build
+ * this in its own page"; (3) "make the assistant page like this —
+ * the themes on the right and chat on the left" (screenshot of the
+ * design page's narrow chat panel + wide content column).
+ *
+ * What this batch does (staff app only; portal files untouched —
+ * Batch 172 owns the portal Themes removal):
+ *  - Every staff theme card gains a View button beside Build this.
+ *    View opens the shared openModal with the theme's full-page
+ *    thumbnail inside .staff-theme-view-scroll (bounded height,
+ *    overflow-y:auto); X button, backdrop click and Esc all close.
+ *  - Build this navigates to #/themes-build/<themeId>
+ *    (pageThemeBuild) carrying the retired wizard's exact fields;
+ *    the submit is the wizard's own (submitStaffThemeBuild →
+ *    api.assistantThemesBuild, same endpoint + payload). Unknown
+ *    theme ids render a clean not-found state; no popup remains.
+ *  - pageAssistant becomes two columns: LEFT .asst-rail (sticky,
+ *    full-height) holds the chat card (context, conversations,
+ *    messages scrolling inside the rail, composer) with the usage
+ *    card tucked under it as a compact summary (same endpoint,
+ *    same rendering — placement only); RIGHT .asst-content holds
+ *    the Themes card. <=700px stacks single-column, chat first.
+ *    The template edit kept EXACT line parity (33 lines -> 33) so
+ *    no SEC-13 census sink line moved; the census is byte-
+ *    identical to the Batch 171 tree (proven in Part 1).
+ *
+ * Part 1 — source pins: card controls, modal construction, build
+ *   page routing + not-found + submit contract, two-column
+ *   template structure, CSS facts (scroll container, rail,
+ *   mobile stacking), census unchanged, portal wizard intact.
+ * Part 2 — HTTP over the real server: the page's exact payload
+ *   shape creates waiting_on_agent jobs (existing + new lead),
+ *   error contract unchanged.
+ * Part 3 — real Chromium, stub API: cards render with both
+ *   buttons; the modal opens with the right image, scrolls, and
+ *   closes all three ways; Build this navigates (no popup) and
+ *   the page submits a payload identical to the wizard contract
+ *   (captured at the stub); invalid theme -> not-found, no POST;
+ *   desktop two-column geometry; 390px stacking + no overflow.
+ *   B173_SKIP_BROWSER=1 skips Part 3 (local iteration only; the
+ *   gate runs it in-image).
+ */
+const assert = require('node:assert');
+const { spawn } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const root = path.resolve(__dirname, '..');
+const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'batch173-'));
+process.env.DB_DRIVER = process.env.REGRESSION_DB_DRIVER || 'sqlite';
+if (process.env.DB_DRIVER === 'sqlite') {
+  process.env.SQLITE_PATH = path.join(tmpRoot, 'platform.db');
+  process.env.PLATFORM_DB_PATH = path.join(tmpRoot, 'platform.db');
+}
+process.env.WORKSPACE_DATA_DIR = path.join(tmpRoot, 'workspaces');
+process.env.EXPORT_ROOT = path.join(tmpRoot, 'exports');
+process.env.APP_URL = 'https://example.invalid';
+process.env.CAPTCHA_OPTIONAL = '1';
+process.env.NODE_ENV = 'production';
+process.env.SESSION_SECRET = ['batch173', 'regression', 'secret'].join('-');
+process.env.BOOTSTRAP_EMAIL = 'root173@example.invalid';
+process.env.BOOTSTRAP_PASSWORD = ['Root', '173', 'Pass'].join('-');
+process.env.BOOTSTRAP_WORKSPACE = 'B173 Fixture';
+process.env.BOOTSTRAP_SUPER_ADMIN = '1';
+process.env.MAIL_DRY_RUN = 'true';
+process.env.STRIPE_SECRET_KEY = '';
+delete process.env.HTTPS_PROXY;
+delete process.env.HTTP_PROXY;
+delete process.env.https_proxy;
+delete process.env.http_proxy;
+
+const PORT = 3483;
+const BASE = `http://127.0.0.1:${PORT}`;
+const results = [];
+function group(name, count) {
+  results.push(`${name}: ${count} checks`);
+  console.log(`  ok ${name} (${count})`);
+}
+const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
+
+function makeJar() {
+  const cookies = new Map();
+  return {
+    async fetch(url, opts = {}) {
+      const headers = { 'x-forwarded-proto': 'https', ...(opts.headers || {}) };
+      if (cookies.size) headers.cookie = [...cookies.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
+      if (opts.body && !headers['content-type']) headers['content-type'] = 'application/json';
+      const res = await fetch(url, { ...opts, headers, redirect: 'manual' });
+      const set = typeof res.headers.getSetCookie === 'function' ? res.headers.getSetCookie() : [];
+      for (const c of set) {
+        const pair = String(c).split(';')[0];
+        const i = pair.indexOf('=');
+        if (i > 0) cookies.set(pair.slice(0, i).trim(), pair.slice(i + 1).trim());
+      }
+      return res;
+    },
+  };
+}
+async function json(res) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { raw: text };
+  }
+}
+
+async function main() {
+  /* ================================================================
+   * Part 1 — source pins.
+   * ================================================================ */
+  {
+    let n = 0;
+    const appJs = read('public/js/app.js');
+    const styles = read('public/styles.css');
+    const portalJs = read('public/js/portal.js');
+
+    // --- Theme card: both controls, correct wiring ---
+    const cardAt = appJs.indexOf('function staffThemeCard(theme) {');
+    assert.ok(cardAt > -1, 'staffThemeCard exists');
+    const card = appJs.slice(cardAt, appJs.indexOf('function openStaffThemeView', cardAt));
+    assert.ok(card.includes("stEl('div', 'staff-theme-card-actions')"), 'card groups its buttons in an actions row');
+    assert.ok(card.includes("stEl('button', 'btn', 'View')"), 'card renders a View button');
+    assert.ok(card.includes('openStaffThemeView(theme.id)'), 'View opens the theme view modal');
+    assert.ok(card.includes("stEl('button', 'btn', 'Build this')"), 'card renders a Build this button');
+    assert.ok(card.includes("'#/themes-build/' + encodeURIComponent(theme.id)"), 'Build this navigates to the build page route');
+    assert.ok(!card.includes('openStaffThemeWizard'), 'card no longer opens any wizard popup');
+    n += 7;
+
+    // --- View modal construction ---
+    const viewAt = appJs.indexOf('function openStaffThemeView(themeId) {');
+    assert.ok(viewAt > -1, 'openStaffThemeView exists');
+    const viewFn = appJs.slice(viewAt, appJs.indexOf('async function loadStaffThemeLeads', viewAt));
+    assert.ok(viewFn.includes('openModal({'), 'view uses the shared openModal (backdrop + Esc + actions Close)');
+    assert.ok(viewFn.includes("buttons: [{ label: 'Close' }]"), 'view modal carries a Close action');
+    assert.ok(viewFn.includes("'staff-theme-view-modal'"), 'view modal carries its sizing class');
+    assert.ok(viewFn.includes("setAttribute('aria-label', theme.name)"), 'view dialog is labelled by the theme name');
+    assert.ok(viewFn.includes("'staff-theme-view-close'"), 'view modal adds an X close button');
+    assert.ok(viewFn.includes("'staff-theme-view-scroll'"), 'view modal puts the image in the scroll container');
+    assert.ok(viewFn.includes('img.src = theme.thumbnail'), 'view modal shows the theme full thumbnail');
+    n += 7;
+
+    // --- Wizard popup retired on the staff side; page + shared submit in ---
+    assert.ok(!appJs.includes('openStaffThemeWizard'), 'staff wizard popup opener is gone');
+    assert.ok(!appJs.includes('submitStaffThemeWizard'), 'wizard-named submit is gone (renamed to the shared page submit)');
+    assert.ok(appJs.includes('async function pageThemeBuild(param)'), 'build page function exists');
+    assert.ok(appJs.includes("'themes-build': pageThemeBuild"), 'PAGES routes themes-build to pageThemeBuild');
+    assert.ok(appJs.includes("'themes-build': 'Build theme'"), 'ROUTE_LABELS names the build page');
+    assert.ok(appJs.includes("route === 'themes-build' && a.dataset.route === 'assistant'"), 'nav highlight maps themes-build onto Assistant');
+    const pageAt = appJs.indexOf('async function pageThemeBuild(param)');
+    const page = appJs.slice(pageAt, appJs.indexOf('function wireStaffThemeBuildForm', pageAt));
+    assert.ok(page.includes("'Theme not found'"), 'build page renders a not-found state for unknown themes');
+    assert.ok(page.includes("back.href = '#/assistant'"), 'build page offers a way back to the Assistant');
+    assert.ok(page.includes("id = 'stw-lead-select'") || page.includes("leadSelect.id = 'stw-lead-select'"), 'build page carries the lead select');
+    assert.ok(page.includes("fresh.id = 'stw-new-fields'"), 'build page carries the add-a-lead fields');
+    assert.ok(page.includes('wireStaffThemeBuildForm(card)'), 'build page wires the shared form behaviour');
+    n += 10;
+
+    // --- The submit is the wizard's contract, unchanged ---
+    const subAt = appJs.indexOf('async function submitStaffThemeBuild(root) {');
+    assert.ok(subAt > -1, 'shared submit exists');
+    const sub = appJs.slice(subAt, appJs.indexOf('/* ---- Part 2:', subAt));
+    for (const key of ['themeId: theme.id', 'businessName:', 'siteShape:', 'pagesWanted:', 'brandNotes:', 'payload.leadId = leadId', 'payload.newLead = {']) {
+      assert.ok(sub.includes(key), `submit payload carries ${key}`);
+    }
+    assert.ok(sub.includes('api.assistantThemesBuild(payload)'), 'submit posts through the same api method the wizard used');
+    assert.ok(sub.includes('staffThemesState.doneMessage = done'), 'submit leaves the confirmation for the Assistant status line');
+    assert.ok(sub.includes("window.location.hash = '#/assistant'"), 'submit returns to the Assistant page');
+    n += 10;
+
+    // --- Two-column Assistant template structure ---
+    const tplAt = appJs.indexOf('async function pageAssistant()');
+    const tpl = appJs.slice(tplAt, appJs.indexOf('`;', tplAt));
+    const iPage = tpl.indexOf('class="asst-page"');
+    const iRail = tpl.indexOf('class="asst-rail"');
+    const iChat = tpl.indexOf('class="card asst-chat-card"');
+    const iUsageCard = tpl.indexOf('class="card asst-usage-card"');
+    const iUsage = tpl.indexOf('id="asst-usage"');
+    const iContent = tpl.indexOf('class="asst-content"');
+    const iThemes = tpl.indexOf('id="asst-themes"');
+    assert.ok(iPage > -1 && iRail > iPage && iContent > iRail, 'template wraps rail + content in .asst-page');
+    assert.ok(iChat > iRail && iChat < iContent, 'chat card sits inside the left rail');
+    assert.ok(iUsageCard > iRail && iUsageCard < iContent && iUsage > iUsageCard, 'usage card tucks into the rail under the chat');
+    assert.ok(iThemes > iContent, 'themes mount sits in the right content column');
+    assert.ok(tpl.includes('class="asst-layout"') && tpl.includes('id="asst-messages"') && tpl.includes('id="asst-form"'), 'chat internals unchanged inside the rail');
+    n += 5;
+
+    // --- CSS facts ---
+    const scrollRule = styles.slice(styles.indexOf('.staff-theme-view-scroll {'));
+    assert.ok(/\.staff-theme-view-scroll \{[^}]*overflow-y:\s*auto/.test(styles), 'view scroll container scrolls vertically');
+    assert.ok(/\.staff-theme-view-scroll \{[^}]*max-height:/.test(styles), 'view scroll container is height-bounded');
+    assert.ok(/\.staff-theme-view-scroll img \{[^}]*width:\s*100%/.test(styles), 'view image renders at the modal content width');
+    assert.ok(/\.staff-theme-card-actions \{[^}]*display:\s*flex/.test(styles), 'card actions lay out as a row');
+    assert.ok(/\.asst-rail \{[^}]*position:\s*sticky/.test(styles), 'assistant rail is sticky');
+    assert.ok(/\.asst-rail \{[^}]*height:\s*calc\(100vh/.test(styles), 'assistant rail is full-height');
+    assert.ok(/\.asst-chat-card \.asst-main \{[^}]*min-height:\s*0/.test(styles), 'rail chat main can shrink so messages scroll inside');
+    const mob = styles.slice(styles.lastIndexOf('@media (max-width: 700px)'));
+    assert.ok(/\.asst-page \{[^}]*flex-direction:\s*column/.test(mob.slice(mob.indexOf('.asst-page'))), 'mobile: assistant stacks to one column');
+    assert.ok(/\.staff-theme-view-modal \{[^}]*width:\s*100%/.test(mob.slice(mob.indexOf('.staff-theme-view-modal'))), 'mobile: view modal goes near-full-screen');
+    n += 9;
+
+    // --- Census: byte-identical to the Batch 171 tree ---
+    const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
+    const cz = census();
+    assert.deepEqual(
+      cz.summary,
+      { total: 503, STATIC: 186, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 38, RAW: 86 },
+      'SEC-13 census summary unchanged by Batch 173 (zero new sinks; wizard popup removal touched no sink)'
+    );
+    const crypto = require('node:crypto');
+    const multi = cz.sinks.map((s) => `${s.file}|${s.kind}|${s.snippet}`).sort();
+    const sha = crypto.createHash('sha256').update(multi.join('\n')).digest('hex');
+    assert.equal(sha, '43d331fd851011c0dcd8c31bb4f13dbc8f5004a95169567d31e3f05c845f0c47', 'SEC-13 (file|kind|snippet) multiset byte-identical');
+    const base = new Set(require(path.join(root, 'tests/batch103-xss-baseline.json')));
+    const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
+    assert.deepEqual([...reviewed].filter((x) => !base.has(x)), [], 'no RAW/IDENT sink line moved (template line parity held)');
+    assert.deepEqual([...base].filter((x) => !reviewed.has(x)), [], 'no baseline sink unaccounted');
+    n += 4;
+
+    // --- Portal: Batch 172 (earlier in this deploy chain) removed the
+    // portal Themes surface entirely; finisher adaptation asserts the
+    // post-chain state. This batch itself touches no portal file. ---
+    assert.ok(!portalJs.includes('function openThemeWizard('), 'Batch 172: portal wizard popup removed (staff-only Themes)');
+    assert.ok(!portalJs.includes("api('/assistant/themes/build'"), 'Batch 172: portal build path removed with the portal surface');
+    n += 2;
+    group('Part 1 — source pins: card, modal, page, layout, census', n);
+  }
+
+  /* ================================================================
+   * Part 2 — HTTP over the real server: the page's payload shape.
+   * (Fixtures mirror batch171 Part 2.)
+   * ================================================================ */
+  {
+    let n = 0;
+    const { openWorkspaceDb } = require(path.join(root, 'server/workspaceDb.js'));
+    const wdb = openWorkspaceDb(1);
+    wdb.prepare('INSERT INTO leads (id, business_name, email, status) VALUES (501, ?, ?, ?)').run('Fixture Plants LLC', 'owner173@example.invalid', 'customer');
+    wdb.prepare('INSERT INTO leads (id, business_name, email, status) VALUES (777, ?, ?, ?)').run('Second Biz', 'second173@example.invalid', 'customer');
+    const db = require(path.join(root, 'server/db.js'));
+    await db.migrate();
+
+    const child = spawn(process.execPath, [path.join(root, 'server.js')], {
+      cwd: root,
+      env: { ...process.env, PORT: String(PORT) },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let output = '';
+    child.stdout.on('data', (b) => (output += b));
+    child.stderr.on('data', (b) => (output += b));
+    const closed = new Promise((resolve) => child.once('close', resolve));
+    try {
+      let ready = false;
+      for (let i = 0; i < 300 && !ready; i++) {
+        if (child.exitCode != null) throw new Error('server exited early: ' + output);
+        try {
+          const r = await fetch(`${BASE}/api/v1/health`, { signal: AbortSignal.timeout(500) });
+          if (r.ok) ready = true;
+        } catch {}
+        if (!ready) await new Promise((r) => setTimeout(r, 200));
+      }
+      assert(ready, 'server did not become ready: ' + output);
+
+      const post = (jar, p, body) => jar.fetch(BASE + p, { method: 'POST', body: JSON.stringify(body || {}) });
+      const totp = require(path.join(root, 'src/totp.js'));
+      const staffJar = makeJar();
+      let res = await post(staffJar, '/api/v1/auth/login', {
+        email: process.env.BOOTSTRAP_EMAIL,
+        password: ['Root', '173', 'Pass'].join('-'),
+      });
+      let loginBody = await json(res);
+      assert.equal(res.status, 200, `staff login 200 (got ${res.status})`);
+      if (loginBody.data && loginBody.data.mfaRequired && loginBody.data.mfaStage === 'enroll') {
+        const start = await json(await post(staffJar, '/api/v1/auth/mfa/enroll/start', {}));
+        await post(staffJar, '/api/v1/auth/mfa/enroll/confirm', { code: totp.totp(start.data.secret) });
+      }
+      n += 1;
+
+      // The exact payload the build page sends for an existing lead
+      // (same keys/values the retired wizard produced — Part 3
+      // captures the page's real POST and compares shape).
+      const pagePayload = {
+        themeId: 'services-summit',
+        businessName: 'Second Biz',
+        siteShape: 'multipage',
+        pagesWanted: 'Home, Services',
+        brandNotes: 'Warm oak and cream.',
+        leadId: 777,
+      };
+      const buildBody = await json(await post(staffJar, '/api/v1/assistant/themes/build', pagePayload));
+      assert.ok(buildBody.ok && buildBody.data && buildBody.data.jobId, 'page-shaped payload creates a job');
+      assert.equal(buildBody.data.status, 'waiting_on_agent', 'job staged waiting_on_agent');
+      const jobRow = wdb.prepare('SELECT * FROM design_jobs WHERE id = ?').get(buildBody.data.jobId);
+      assert.equal(jobRow.lead_id, 777, 'job attached to the picked lead');
+      assert.equal(jobRow.status, 'waiting_on_agent', 'job row staged');
+      assert.ok(jobRow.instructions.includes('theme id: services-summit'), 'job instructions carry the theme recipe (theme applied as the wizard applied it)');
+      n += 5;
+
+      // New-lead page payload.
+      const freshBody = await json(
+        await post(staffJar, '/api/v1/assistant/themes/build', {
+          themeId: 'store-northwind',
+          businessName: 'Page Test Bakery',
+          siteShape: 'multipage',
+          pagesWanted: '',
+          brandNotes: '',
+          newLead: { businessName: 'Page Test Bakery', category: '', city: 'Reading', contactName: '', email: 'bakery173@example.invalid', phone: '' },
+        })
+      );
+      assert.ok(freshBody.ok && freshBody.data.jobId && freshBody.data.leadId > 0, 'page-shaped new-lead payload creates lead + job');
+      n += 1;
+
+      // Error contract unchanged.
+      res = await post(staffJar, '/api/v1/assistant/themes/build', { themeId: 'no-such-theme', leadId: 501 });
+      assert.equal(res.status, 400, 'unknown theme -> 400 (the page never sends this; it renders not-found instead)');
+      n += 1;
+    } finally {
+      child.kill('SIGKILL');
+      await closed.catch(() => {});
+    }
+    group('Part 2 — HTTP: page payload creates staged jobs', n);
+  }
+
+  /* ================================================================
+   * Part 3 — real Chromium, stub API: the three features live.
+   * ================================================================ */
+  if (process.env.B173_SKIP_BROWSER === '1') {
+    console.log('  skip Part 3 browser (B173_SKIP_BROWSER=1 — local iteration only)');
+  } else {
+    let n = 0;
+    const puppeteer = require('puppeteer');
+    const http = require('node:http');
+    const express = require('express');
+    const registry = require(path.join(root, 'server/themesRegistry.js'));
+    const catalog = registry.publicCatalog();
+    const themeCount = catalog.reduce((a, c) => a + (c.themes || []).length, 0);
+
+    const captured = [];
+    const app = express();
+    app.use(express.json());
+    const ME = { ok: true, data: { user: { id: 1, email: 'fixture@example.invalid', isSuperAdmin: true }, workspaceId: 1, workspaces: [{ id: 1, name: 'Fixture', role: 'owner' }], isSuperAdmin: true, productAccess: true } };
+    app.get('/api/v1/auth/me', (_q, r) => r.json(ME));
+    app.get('/api/v1/captcha/config', (_q, r) => r.json({ ok: true, data: { enabled: false } }));
+    app.get('/api/v1/assistant/themes', (_q, r) => r.json({ ok: true, data: { categories: catalog } }));
+    app.get('/api/v1/assistant/themes/leads', (_q, r) =>
+      r.json({
+        ok: true,
+        data: {
+          leads: [
+            { id: 501, business_name: 'Fixture Plants LLC', category: 'Plants', city: 'Blandon' },
+            { id: 777, business_name: 'Second Biz', category: 'Retail', city: 'Reading' },
+          ],
+        },
+      })
+    );
+    app.post('/api/v1/assistant/themes/build', (req, r) => {
+      captured.push(req.body || {});
+      const theme = registry.getTheme(req.body && req.body.themeId);
+      r.json({
+        ok: true,
+        data: {
+          jobId: 4242,
+          status: 'waiting_on_agent',
+          leadId: (req.body && (req.body.leadId || 999)) || 999,
+          themeId: req.body && req.body.themeId,
+          themeName: theme ? theme.name : 'Unknown',
+        },
+      });
+    });
+    app.get('/api/v1/assistant/conversations', (_q, r) => r.json({ ok: true, data: [] }));
+    app.get('/api/v1/assistant/usage', (_q, r) =>
+      r.json({
+        ok: true,
+        data: {
+          month: '2026-11',
+          portal: { rawUsd: 1.5, billedUsd: 1.8 },
+          admin: { rawUsd: 2.25 },
+          byUser: [{ surface: 'admin', actorId: 1, calls: 3, rawUsd: 2.25, billedUsd: 0 }],
+          rollup: { status: 'accrued' },
+        },
+      })
+    );
+    app.get('/api/v1/leads', (_q, r) => r.json({ ok: true, data: { leads: [], total: 0 } }));
+    app.use('/api/v1', (req, res) => {
+      if (req.method !== 'GET') return res.status(500).json({ ok: false, error: 'No fixture writes allowed' });
+      res.json({ ok: true, data: {} });
+    });
+    app.get('/app', (_q, r) => r.sendFile(path.join(root, 'public', 'index.html')));
+    app.use(express.static(path.join(root, 'public'), { index: false }));
+
+    const server = http.createServer(app);
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const launchOpts = { headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] };
+    if (process.env.PUPPETEER_EXECUTABLE_PATH) launchOpts.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    else if (fs.existsSync('/usr/bin/chromium')) launchOpts.executablePath = '/usr/bin/chromium';
+    const browser = await puppeteer.launch(launchOpts);
+    try {
+      const page = await browser.newPage();
+      const errors = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      await page.setRequestInterception(true);
+      page.on('request', (r) => (r.url().startsWith(base) ? r.continue() : r.abort()));
+      const goto = async (hash, waitFn, label) => {
+        await page.goto(base + '/app' + hash, { waitUntil: 'load' });
+        await page.waitForFunction(waitFn, { timeout: 15000 }).catch(() => {
+          throw new Error(`screen did not render: ${label} (${hash}); pageerrors: ${errors.join(' | ')}`);
+        });
+      };
+
+      // ---- Desktop: assistant renders, two columns, cards complete ----
+      await page.setViewport({ width: 1440, height: 900 });
+      await goto('#/assistant', () => document.querySelectorAll('.staff-theme-card').length > 0, 'assistant themes');
+      const cardAudit = await page.evaluate(() => {
+        const cards = [...document.querySelectorAll('.staff-theme-card')];
+        return {
+          count: cards.length,
+          allHaveBoth: cards.every((c) => {
+            const labels = [...c.querySelectorAll('button')].map((b) => b.textContent.trim());
+            return labels.includes('View') && labels.includes('Build this');
+          }),
+        };
+      });
+      assert.equal(cardAudit.count, themeCount, `all ${themeCount} theme cards render`);
+      assert.ok(cardAudit.allHaveBoth, 'every theme card has both View and Build this');
+      n += 2;
+
+      const layout = await page.evaluate(() => {
+        const rail = document.querySelector('.asst-rail');
+        const content = document.querySelector('.asst-content');
+        const msgs = document.querySelector('#asst-messages');
+        const rb = rail.getBoundingClientRect();
+        const cb = content.getBoundingClientRect();
+        return {
+          railLeftOfContent: rb.right <= cb.left + 1,
+          railPosition: getComputedStyle(rail).position,
+          railContainsChat: !!rail.querySelector('#asst-form'),
+          railContainsUsage: !!rail.querySelector('#asst-usage'),
+          contentContainsThemes: !!content.querySelector('#asst-themes'),
+          messagesOverflowY: getComputedStyle(msgs).overflowY,
+          messagesFitRail: msgs.getBoundingClientRect().height <= rb.height,
+          usageText: (rail.querySelector('#asst-usage') || {}).textContent || '',
+        };
+      });
+      assert.ok(layout.railLeftOfContent, 'desktop: chat rail sits left of the themes column');
+      assert.equal(layout.railPosition, 'sticky', 'desktop: rail is sticky');
+      assert.ok(layout.railContainsChat && layout.railContainsUsage, 'desktop: rail holds chat + usage summary');
+      assert.ok(layout.contentContainsThemes, 'desktop: themes render in the right column');
+      assert.equal(layout.messagesOverflowY, 'auto', 'desktop: messages area is the internal-scroll element');
+      assert.ok(layout.messagesFitRail, 'desktop: messages area is bounded by the rail');
+      assert.ok(layout.usageText.includes('client billed'), 'desktop: usage summary renders in the rail');
+      n += 7;
+
+      // ---- View modal: open, correct image, scrolls, closes 3 ways ----
+      const firstTheme = await page.evaluate(() => {
+        const img = document.querySelector('.staff-theme-card > img');
+        return img ? img.getAttribute('src') : '';
+      });
+      const clickCardButton = (label) =>
+        page.evaluate((lbl) => {
+          const btn = [...document.querySelectorAll('.staff-theme-card button')].find((b) => b.textContent.trim() === lbl);
+          if (btn) btn.click();
+        }, label);
+      await clickCardButton('View');
+      await page.waitForFunction(() => !!document.querySelector('.staff-theme-view-modal'), { timeout: 8000 });
+      const modalAudit = await page.evaluate(() => {
+        const modal = document.querySelector('.staff-theme-view-modal');
+        const scroller = modal.querySelector('.staff-theme-view-scroll');
+        const img = scroller.querySelector('img');
+        return {
+          role: modal.getAttribute('role'),
+          ariaModal: modal.getAttribute('aria-modal'),
+          ariaLabel: modal.getAttribute('aria-label'),
+          imgSrc: img.getAttribute('src'),
+          overflowY: getComputedStyle(scroller).overflowY,
+          scrollable: scroller.scrollHeight > scroller.clientHeight + 10,
+          hasX: !!modal.querySelector('.staff-theme-view-close'),
+        };
+      });
+      assert.equal(modalAudit.role, 'dialog', 'view modal is a dialog');
+      assert.equal(modalAudit.ariaModal, 'true', 'view modal is modal');
+      assert.ok(modalAudit.ariaLabel && modalAudit.ariaLabel.length > 1, 'view modal is labelled by the theme name');
+      assert.equal(modalAudit.imgSrc, firstTheme, 'view modal shows the clicked theme thumbnail');
+      assert.equal(modalAudit.overflowY, 'auto', 'view modal scroll container scrolls vertically');
+      assert.ok(modalAudit.scrollable, 'view modal content is taller than the bounded container (scrollable)');
+      assert.ok(modalAudit.hasX, 'view modal has an X close button');
+      n += 7;
+      const scrolled = await page.evaluate(() => {
+        const scroller = document.querySelector('.staff-theme-view-scroll');
+        scroller.scrollTop = 160;
+        return scroller.scrollTop;
+      });
+      assert.ok(scrolled > 100, 'view modal image actually scrolls inside the container');
+      n += 1;
+      // Close 1: X.
+      await page.click('.staff-theme-view-close');
+      await page.waitForFunction(() => !document.querySelector('.staff-theme-view-modal'), { timeout: 8000 });
+      assert.ok(true, 'view modal closes via X');
+      n += 1;
+      // Close 2: Esc.
+      await clickCardButton('View');
+      await page.waitForFunction(() => !!document.querySelector('.staff-theme-view-modal'), { timeout: 8000 });
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !document.querySelector('.staff-theme-view-modal'), { timeout: 8000 });
+      assert.ok(true, 'view modal closes via Esc');
+      n += 1;
+      // Close 3: backdrop mousedown.
+      await clickCardButton('View');
+      await page.waitForFunction(() => !!document.querySelector('.staff-theme-view-modal'), { timeout: 8000 });
+      await page.mouse.click(8, 8);
+      await page.waitForFunction(() => !document.querySelector('.staff-theme-view-modal'), { timeout: 8000 });
+      assert.ok(true, 'view modal closes via backdrop click');
+      n += 1;
+
+      // ---- Build this: navigates to the page, NO popup ----
+      await page.evaluate(() => {
+        const cards = [...document.querySelectorAll('.staff-theme-card')];
+        const target = cards.find((c) => c.querySelector('h4') && c.querySelector('h4').textContent.includes('Summit'));
+        const btn = [...target.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Build this');
+        btn.click();
+      });
+      await page.waitForFunction(() => window.location.hash.startsWith('#/themes-build/'), { timeout: 8000 });
+      assert.ok((await page.evaluate(() => window.location.hash)).includes('services-summit'), 'Build this navigates to the theme build page');
+      assert.equal(await page.evaluate(() => document.querySelectorAll('.modal-backdrop').length), 0, 'no wizard popup opens');
+      n += 2;
+      await page.waitForFunction(
+        () => document.querySelector('#stw-lead-select') && document.querySelector('#stw-lead-select').options.length > 0,
+        { timeout: 10000 }
+      );
+      const pageAudit = await page.evaluate(() => ({
+        themeName: (document.querySelector('#stw-theme-name') || {}).textContent || '',
+        imgSrc: (document.querySelector('#stw-theme-img') || {}).getAttribute('src') || '',
+        hasNewFields: !!document.querySelector('#stw-new-fields'),
+        hasShape: !!document.querySelector('#stw-shape'),
+      }));
+      assert.ok(pageAudit.themeName.includes('Summit'), 'build page renders the clicked theme');
+      assert.ok(pageAudit.imgSrc.includes('/themes/services.png'), 'build page shows the theme thumbnail');
+      assert.ok(pageAudit.hasNewFields && pageAudit.hasShape, 'build page carries lead-add fields + site shape');
+      n += 3;
+
+      // Submit with an existing lead; capture the real POST.
+      await page.select('#stw-lead-select', '777');
+      await page.type('#stw-pages', 'Home, Services');
+      await page.type('#stw-brand', 'Warm oak and cream.');
+      const before = captured.length;
+      await page.evaluate(() => {
+        const btn = [...document.querySelectorAll('.staff-theme-build-card button')].find((b) => b.textContent.trim() === 'Build');
+        btn.click();
+      });
+      await page.waitForFunction(() => window.location.hash === '#/assistant', { timeout: 12000 });
+      assert.equal(captured.length, before + 1, 'build page posted exactly one build request');
+      const payload = captured[captured.length - 1];
+      assert.deepEqual(
+        Object.keys(payload).sort(),
+        ['brandNotes', 'businessName', 'leadId', 'pagesWanted', 'siteShape', 'themeId'],
+        'page payload keys match the wizard contract exactly'
+      );
+      assert.equal(payload.themeId, 'services-summit', 'payload theme id');
+      assert.equal(payload.leadId, 777, 'payload lead id (number, as the wizard sent)');
+      assert.equal(payload.businessName, 'Second Biz', 'payload business name synced from the lead');
+      assert.equal(payload.siteShape, 'multipage', 'payload site shape');
+      assert.equal(payload.pagesWanted, 'Home, Services', 'payload pages wanted');
+      assert.equal(payload.brandNotes, 'Warm oak and cream.', 'payload brand notes');
+      n += 8;
+      await page.waitForFunction(
+        () => (document.querySelector('#asst-themes-status') || {}).textContent.includes('job #4242'),
+        { timeout: 10000 }
+      );
+      assert.ok(true, 'assistant themes status line confirms the queued job (wizard behaviour)');
+      n += 1;
+
+      // New-lead path on a second theme.
+      await page.evaluate(() => {
+        window.location.hash = '#/themes-build/store-northwind';
+      });
+      await page.waitForFunction(() => !!document.querySelector('#stw-new-fields'), { timeout: 10000 });
+      await page.click('input[name="stw-mode"][value="new"]');
+      await page.type('#stw-new-name', 'Page Test Bakery');
+      await page.type('#stw-new-email', 'bakery173@example.invalid');
+      const before2 = captured.length;
+      await page.evaluate(() => {
+        const btn = [...document.querySelectorAll('.staff-theme-build-card button')].find((b) => b.textContent.trim() === 'Build');
+        btn.click();
+      });
+      await page.waitForFunction(() => window.location.hash === '#/assistant', { timeout: 12000 });
+      assert.equal(captured.length, before2 + 1, 'new-lead build posted exactly one request');
+      const payload2 = captured[captured.length - 1];
+      assert.ok(!('leadId' in payload2), 'new-lead payload carries no leadId');
+      assert.deepEqual(
+        Object.keys(payload2.newLead || {}).sort(),
+        ['businessName', 'category', 'city', 'contactName', 'email', 'phone'],
+        'newLead keys match the wizard contract exactly'
+      );
+      assert.equal(payload2.newLead.businessName, 'Page Test Bakery', 'newLead business name');
+      assert.equal(payload2.businessName, 'Page Test Bakery', 'payload business name falls back to the new lead name (wizard rule)');
+      n += 5;
+
+      // Invalid theme id: clean not-found, no POST.
+      const before3 = captured.length;
+      await page.evaluate(() => {
+        window.location.hash = '#/themes-build/no-such-theme';
+      });
+      await page.waitForFunction(() => document.body.textContent.includes('Theme not found'), { timeout: 10000 });
+      assert.equal(captured.length, before3, 'invalid theme creates no job');
+      assert.ok(
+        await page.evaluate(() => [...document.querySelectorAll('a')].some((a) => a.getAttribute('href') === '#/assistant')),
+        'not-found state offers a way back'
+      );
+      n += 2;
+
+      // ---- 390px: stacking, no overflow, modal + build nav usable ----
+      await page.setViewport({ width: 390, height: 844 });
+      await goto('#/assistant', () => document.querySelectorAll('.staff-theme-card').length > 0, 'assistant themes @390');
+      const mobile = await page.evaluate(() => {
+        const chat = document.querySelector('.asst-chat-card').getBoundingClientRect();
+        const themes = document.querySelector('#asst-themes').closest('.card').getBoundingClientRect();
+        return {
+          noOverflow: document.documentElement.scrollWidth <= window.innerWidth + 1,
+          chatFirst: chat.top < themes.top,
+        };
+      });
+      assert.ok(mobile.noOverflow, '390px: no horizontal overflow on the assistant page');
+      assert.ok(mobile.chatFirst, '390px: chat stacks before themes');
+      n += 2;
+      await clickCardButton('View');
+      await page.waitForFunction(() => !!document.querySelector('.staff-theme-view-modal'), { timeout: 8000 });
+      const mobileModal = await page.evaluate(() => {
+        const scroller = document.querySelector('.staff-theme-view-scroll');
+        return {
+          overflowY: getComputedStyle(scroller).overflowY,
+          noOverflow: document.documentElement.scrollWidth <= window.innerWidth + 1,
+        };
+      });
+      assert.equal(mobileModal.overflowY, 'auto', '390px: view modal container is the vertical scroller');
+      assert.ok(mobileModal.noOverflow, '390px: view modal causes no horizontal overflow');
+      n += 2;
+      // Scrollability proof at phone width: on a tall phone the
+      // directory shot happens to fit the bound whole, so shrink
+      // the viewport height (short-phone case) — the SAME image in
+      // the SAME container must now overflow and scroll.
+      await page.setViewport({ width: 390, height: 560 });
+      const mobileScroll = await page.evaluate(() => {
+        const scroller = document.querySelector('.staff-theme-view-scroll');
+        const overflows = scroller.scrollHeight > scroller.clientHeight + 10;
+        scroller.scrollTop = 120;
+        return { overflows, top: scroller.scrollTop };
+      });
+      assert.ok(mobileScroll.overflows && mobileScroll.top > 50, '390px: view modal image scrolls inside its container when it exceeds the bound');
+      n += 1;
+      await page.setViewport({ width: 390, height: 844 });
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !document.querySelector('.staff-theme-view-modal'), { timeout: 8000 });
+      await clickCardButton('Build this');
+      await page.waitForFunction(() => window.location.hash.startsWith('#/themes-build/'), { timeout: 8000 });
+      const mobileBuild = await page.evaluate(() => ({
+        noOverflow: document.documentElement.scrollWidth <= window.innerWidth + 1,
+        hash: window.location.hash,
+      }));
+      assert.ok(mobileBuild.noOverflow, '390px: build page has no horizontal overflow');
+      assert.ok(mobileBuild.hash.includes('/themes-build/'), '390px: Build this still navigates to the build page');
+      n += 2;
+    } finally {
+      await browser.close().catch(() => {});
+      server.close();
+    }
+    group('Part 3 — browser: modal, build page, two-column, 390px', n);
+  }
+
+  console.log(`\nbatch173 theme view + build page + two-column: ALL PASS\n${results.map((r) => '  - ' + r).join('\n')}`);
+}
+
+main().catch((e) => {
+  console.error('batch173 FAILED:', e && e.stack ? e.stack : e);
+  process.exit(1);
+});

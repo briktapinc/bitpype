@@ -337,11 +337,17 @@ async function main() {
     assert.ok(appJs.includes('id="asst-themes"'), 'staff Assistant page carries the Themes mount');
     assert.ok(appJs.includes('id="asst-themes-status"'), 'staff Assistant page carries the themes status line');
     assert.ok(appJs.includes('mountStaffThemes();'), 'pageAssistant mounts the staff Themes section');
-    assert.ok(appJs.includes('function openStaffThemeWizard('), 'staff wizard exists in app.js');
-    assert.ok(appJs.includes('function submitStaffThemeWizard('), 'staff wizard submit exists in app.js');
+    // Batch 173 adaptation (Ely's order): the staff wizard POPUP
+    // is retired — "Build this" is its own page now — so the two
+    // popup pins assert the replacement shape instead: the build
+    // page + the shared submit (the wizard's submit, reused
+    // verbatim), and the popup opener is gone from the staff app.
+    assert.ok(appJs.includes('async function pageThemeBuild('), 'staff theme build page exists in app.js (Batch 173)');
+    assert.ok(appJs.includes('async function submitStaffThemeBuild('), 'shared staff theme build submit exists in app.js (Batch 173)');
+    assert.ok(!appJs.includes('openStaffThemeWizard'), 'no staff surface opens the theme wizard popup (Batch 173)');
     assert.ok(appJs.includes("'Build this'"), 'staff theme cards render a Build this button');
     assert.ok(appJs.includes('staff-themes-row'), 'staff themes render in per-category rows');
-    n += 7;
+    n += 8;
 
     // Staff api client methods.
     assert.ok(apiJs.includes("assistantThemes: () => get('/assistant/themes')"), 'api client: catalog method');

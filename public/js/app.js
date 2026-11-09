@@ -51,7 +51,7 @@ const ROUTE_LABELS = {
   fingerprints: 'Site fingerprints',
   archives: 'Archives',
   design: 'Design',
-  'design-new': 'New design job',
+  'design-new': 'New design job', 'themes-build': 'Build theme',
   social: 'Social',
   outreach: 'Outreach',
   pipeline: 'Pipeline',
@@ -3605,38 +3605,38 @@ const assistantUi = { convs: [], activeId: null, pending: [], sending: false, le
 async function pageAssistant() {
   view.innerHTML = `
     <div class="page-head"><div><h1>Assistant</h1><p class="lede">Chat with the AI assistant for this workspace — ask, draft, plan, or (with a site selected) ask for site changes. Attach files, photos and videos. Staff usage is metered as internal platform cost; client portal usage is billed to the client separately.</p></div></div>
-    <div class="card">
-      <div class="row end">
-        <div class="field" style="flex:2"><label class="lbl" for="asst-lead">Site context (optional)</label>
-          <select id="asst-lead"><option value="">No site — general chat</option></select></div>
-        <div class="field"><button class="btn primary" id="asst-new" type="button">New conversation</button></div>
-      </div>
-      <div class="asst-layout">
-        <div class="asst-convs" id="asst-convs"></div>
-        <div class="asst-main">
-          <div class="asst-messages" id="asst-messages"></div>
-          <div class="asst-pending" id="asst-pending"></div>
-          <form class="asst-form" id="asst-form">
-            <button class="btn" id="asst-attach" type="button">Attach</button>
-            <button class="btn" id="asst-camera" type="button">Camera</button>
-            <textarea id="asst-input" rows="2" placeholder="Message the assistant…"></textarea>
-            <button class="btn primary" id="asst-send" type="submit">Send</button>
-            <input type="file" id="asst-file" multiple accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/quicktime,video/webm,application/pdf,.txt,.md,.csv,.json" hidden />
-            <input type="file" id="asst-camera-file" accept="image/*,video/*" capture="environment" hidden />
-          </form>
-          <p class="hint" id="asst-status" role="status"></p>
+    <div class="asst-page">
+      <div class="asst-rail">
+        <div class="card asst-chat-card">
+          <div class="row end">
+            <div class="field" style="flex:2"><label class="lbl" for="asst-lead">Site context (optional)</label>
+              <select id="asst-lead"><option value="">No site — general chat</option></select></div>
+            <div class="field"><button class="btn primary" id="asst-new" type="button">New conversation</button></div>
+          </div>
+          <div class="asst-layout">
+            <div class="asst-convs" id="asst-convs"></div>
+            <div class="asst-main">
+              <div class="asst-messages" id="asst-messages"></div>
+              <div class="asst-pending" id="asst-pending"></div>
+              <form class="asst-form" id="asst-form">
+                <button class="btn" id="asst-attach" type="button">Attach</button><button class="btn" id="asst-camera" type="button">Camera</button>
+                <textarea id="asst-input" rows="2" placeholder="Message the assistant…"></textarea>
+                <button class="btn primary" id="asst-send" type="submit">Send</button>
+                <input type="file" id="asst-file" multiple accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/quicktime,video/webm,application/pdf,.txt,.md,.csv,.json" hidden />
+                <input type="file" id="asst-camera-file" accept="image/*,video/*" capture="environment" hidden />
+              </form>
+              <p class="hint" id="asst-status" role="status"></p>
+            </div>
+          </div>
+        </div>
+        <div class="card asst-usage-card">
+          <div class="panel-h"><h3>Assistant usage — this workspace</h3><span class="hint">portal usage is billed to the client at raw cost + margin; staff usage is internal cost, never billed</span></div>
+          <div id="asst-usage"><p class="hint">Loading…</p></div>
         </div>
       </div>
-    </div>
-    <div class="card">
-      <div class="panel-h"><h3>Assistant usage — this workspace</h3><span class="hint">portal usage is billed to the client at raw cost + margin; staff usage is internal cost, never billed</span></div>
-      <div id="asst-usage"><p class="hint">Loading…</p></div>
-    </div>
-    <div class="card">
-      <div class="panel-h"><h3>Themes</h3><span class="hint">layout guides for new websites — Build this starts a staged design job in the queue; nothing publishes automatically</span></div>
-      <div id="asst-themes"><p class="hint">Loading themes…</p></div>
-      <p class="hint" id="asst-themes-status" role="status"></p>
-    </div>`;
+      <div class="asst-content"><div class="card">
+        <div class="panel-h"><h3>Themes</h3><span class="hint">layout guides for new websites — Build this starts a staged design job in the queue; nothing publishes automatically</span></div>
+        <div id="asst-themes"><p class="hint">Loading themes…</p></div><p class="hint" id="asst-themes-status" role="status"></p></div></div>`;
 
   const $s = (id) => document.getElementById(id);
   const status = (t) => {
@@ -13725,6 +13725,7 @@ const PAGES = {
   domains: pageDomains,
   design: pageDesign,
   'design-new': pageDesignNew,
+  'themes-build': pageThemeBuild,
   social: pageSocial,
   outreach: pageOutreach,
   pipeline: pagePipeline,
@@ -13803,7 +13804,10 @@ async function navigate() {
   updateBillingBanner();
 
   $$('.nav-links a').forEach((a) => {
-    const on = a.dataset.route === route || (route === 'design-new' && a.dataset.route === 'design');
+    const on =
+      a.dataset.route === route ||
+      (route === 'design-new' && a.dataset.route === 'design') ||
+      (route === 'themes-build' && a.dataset.route === 'assistant');
     a.classList.toggle('active', on);
     if (on) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
@@ -14007,6 +14011,17 @@ initNavGroups();
  * All DOM below is built with createElement + textContent — theme
  * names, taglines and lead names are data, never markup (this file
  * is a SEC-13 census file; Batch 171 adds ZERO new sinks).
+ *
+ * Batch 173 (Ely, 2026-11-09): every theme card gains a View
+ * button opening the full thumbnail in a scrollable modal, and
+ * "Build this" leaves the wizard popup for its own page
+ * (#/themes-build/<id>, pageThemeBuild) — the wizard's fields,
+ * endpoint and payload are reused verbatim (submitStaffThemeBuild
+ * is the wizard's submit); the portal wizard is untouched. The
+ * Assistant page itself becomes two columns (chat rail left,
+ * Themes right — see the styles.css Batch 173 block; the
+ * pageAssistant template edit kept exact line parity so no
+ * census sink line in this file moved).
  * ===================================================================== */
 
 /* ---- Theme block helpers (pure; the batch171 suite evals these
@@ -14044,8 +14059,8 @@ function applyThemeBlock(text, blockText) {
 }
 /* Batch 171 theme-block helpers end. */
 
-/* ---- Staff Assistant Themes section + wizard ---- */
-const staffThemesState = { catalog: null, themeById: new Map(), current: null, bizTouched: false };
+/* ---- Staff Assistant Themes section + cards ---- */
+const staffThemesState = { catalog: null, themeById: new Map(), current: null, bizTouched: false, doneMessage: '' };
 
 function stEl(tag, className, text) {
   const el = document.createElement(tag);
@@ -14094,6 +14109,10 @@ function renderStaffThemes(host) {
     wrap.appendChild(row);
     host.appendChild(wrap);
   }
+  if (staffThemesState.doneMessage) {
+    staffThemesStatus(staffThemesState.doneMessage);
+    staffThemesState.doneMessage = '';
+  }
 }
 
 function staffThemeCard(theme) {
@@ -14106,16 +14125,52 @@ function staffThemeCard(theme) {
   const body = stEl('div', 'staff-theme-card-body');
   body.appendChild(stEl('h4', null, theme.name));
   body.appendChild(stEl('p', null, theme.tagline));
+  const actions = stEl('div', 'staff-theme-card-actions');
+  const viewBtn = stEl('button', 'btn', 'View');
+  viewBtn.type = 'button';
+  viewBtn.addEventListener('click', () => openStaffThemeView(theme.id));
+  actions.appendChild(viewBtn);
   const btn = stEl('button', 'btn', 'Build this');
   btn.type = 'button';
-  btn.addEventListener('click', () => openStaffThemeWizard(theme.id));
-  body.appendChild(btn);
+  btn.addEventListener('click', () => {
+    window.location.hash = '#/themes-build/' + encodeURIComponent(theme.id);
+  });
+  actions.appendChild(btn);
+  body.appendChild(actions);
   card.appendChild(body);
   return card;
 }
 
-async function loadStaffThemeLeads(m, q) {
-  const select = $('#stw-lead-select', m.el);
+/* Batch 173 — View: the theme's full-page thumbnail in a modal
+ * (Ely: "Add view button which opens the image in a scrollable
+ * modal"). Built on the shared openModal, so backdrop click, Esc
+ * and the actions-row Close come with it; the X is added here.
+ * The image sits in .staff-theme-view-scroll — a bounded box with
+ * overflow-y:auto — so the tall screenshot scrolls INSIDE the
+ * modal instead of growing it. DOM is createElement/textContent
+ * only: the Batch 171 zero-new-sinks rule still holds. */
+function openStaffThemeView(themeId) {
+  const theme = staffThemesState.themeById.get(themeId);
+  if (!theme) return;
+  const m = openModal({ title: theme.name, wide: true, body: '', buttons: [{ label: 'Close' }] });
+  m.el.classList.add('staff-theme-view-modal');
+  m.el.setAttribute('aria-label', theme.name);
+  const closeBtn = stEl('button', 'staff-theme-view-close', '×');
+  closeBtn.type = 'button';
+  closeBtn.setAttribute('aria-label', 'Close preview');
+  closeBtn.addEventListener('click', () => m.close());
+  m.el.appendChild(closeBtn);
+  const scroller = stEl('div', 'staff-theme-view-scroll');
+  const img = document.createElement('img');
+  img.src = theme.thumbnail;
+  img.alt = `${theme.name} theme preview, full page`;
+  scroller.appendChild(img);
+  m.body.appendChild(scroller);
+  closeBtn.focus();
+}
+
+async function loadStaffThemeLeads(root, q) {
+  const select = $('#stw-lead-select', root);
   if (!select) return;
   const keep = select.value;
   try {
@@ -14130,147 +14185,282 @@ async function loadStaffThemeLeads(m, q) {
       select.appendChild(opt);
     }
     if (keep && [...select.options].some((o) => o.value === keep)) select.value = keep;
-    syncStaffWizardBusinessName(m);
+    syncStaffThemeBusinessName(root);
   } catch (e) {
-    setMsg($('#stw-msg', m.el), errText(e), 'err');
+    setMsg($('#stw-msg', root), errText(e), 'err');
   }
 }
 
-function syncStaffWizardBusinessName(m) {
+function syncStaffThemeBusinessName(root) {
   if (staffThemesState.bizTouched) return;
-  const select = $('#stw-lead-select', m.el);
-  const nameInput = $('#stw-business-name', m.el);
+  const select = $('#stw-lead-select', root);
+  const nameInput = $('#stw-business-name', root);
   if (!select || !nameInput) return;
   const opt = select.options[select.selectedIndex];
   if (opt) nameInput.value = opt.dataset.businessName || '';
 }
 
-function openStaffThemeWizard(themeId) {
-  const theme = staffThemesState.themeById.get(themeId);
-  if (!theme) return;
+function stwField(labelText, control) {
+  const f = stEl('div', 'field');
+  f.appendChild(stEl('label', null, labelText));
+  f.appendChild(control);
+  return f;
+}
+
+function stwInput(id, type, placeholder) {
+  const i = document.createElement('input');
+  i.id = id;
+  i.type = type || 'text';
+  if (placeholder) i.placeholder = placeholder;
+  return i;
+}
+
+/* Batch 173 — "Build this" is a PAGE now (#/themes-build/<id>),
+ * not the Batch 169/171 wizard popup (Ely: "put build this in its
+ * own page" — the same move Batch 171 made for New Design Job).
+ * The page carries exactly the wizard's fields and submits through
+ * submitStaffThemeBuild → api.assistantThemesBuild: the same
+ * endpoint and payload the wizard (and the portal wizard, which
+ * keeps its popup — portal files are untouched) use, so a
+ * page-built job is identical to a wizard-built one. An unknown
+ * theme id renders a clean not-found state with a way back;
+ * nothing is ever built against nothing. */
+async function pageThemeBuild(param) {
+  const themeId = param ? decodeURIComponent(String(param)) : '';
+  if (!staffThemesState.catalog) {
+    try {
+      const r = await api.assistantThemes();
+      staffThemesState.catalog = (r.data && r.data.categories) || [];
+    } catch {
+      staffThemesState.catalog = null;
+    }
+  }
+  let theme = null;
+  for (const cat of staffThemesState.catalog || []) {
+    for (const t of cat.themes || []) {
+      if (t.id === themeId) theme = { ...t, categoryLabel: cat.label };
+    }
+  }
+  view.textContent = '';
+  const head = stEl('div', 'page-head');
+  const headText = stEl('div');
+  headText.appendChild(stEl('h1', null, theme ? `Build — ${theme.name}` : 'Build this theme'));
+  headText.appendChild(
+    stEl(
+      'p',
+      'lede',
+      'A theme is a layout guide only — branding, wording and imagery come from the business details below. Building creates a design job in the queue, staged for review; nothing publishes automatically.'
+    )
+  );
+  head.appendChild(headText);
+  const headActions = stEl('div', 'page-actions');
+  const backTop = stEl('a', 'btn', '← Assistant themes');
+  backTop.href = '#/assistant';
+  headActions.appendChild(backTop);
+  head.appendChild(headActions);
+  view.appendChild(head);
+
+  if (!theme) {
+    const card = stEl('div', 'card error-card');
+    card.appendChild(stEl('h2', null, 'Theme not found'));
+    card.appendChild(stEl('p', null, 'That theme is not in the catalog — it may have been renamed or removed. No job was created.'));
+    const p = stEl('p');
+    const back = stEl('a', 'btn', '← Back to the Assistant themes');
+    back.href = '#/assistant';
+    p.appendChild(back);
+    card.appendChild(p);
+    view.appendChild(card);
+    return;
+  }
+
   staffThemesState.current = theme;
   staffThemesState.bizTouched = false;
-  const m = openModal({
-    title: 'Build this theme',
-    wide: true,
-    body: `<div class="row">
-        <div class="field" style="flex:0 0 230px"><img id="stw-theme-img" alt="" style="width:100%;border-radius:8px;border:1px solid var(--line, #e5e0d8)" /></div>
-        <div class="field" style="flex:2"><label>Theme</label><div><b id="stw-theme-name"></b></div>
-          <p class="hint" id="stw-theme-meta"></p>
-          <p class="hint">A theme is a layout guide only — branding, wording and imagery come from the business details below. Building creates a design job in the queue, staged for review; nothing publishes automatically.</p></div>
-      </div>
-      <div class="field"><label>Business</label>
-        <label class="inline"><input type="radio" name="stw-mode" value="existing" checked /> Pick from leads</label>
-        <label class="inline"><input type="radio" name="stw-mode" value="new" /> Add a new lead</label></div>
-      <div id="stw-existing-fields">
-        <div class="field"><label>Search leads</label><input id="stw-lead-search" type="search" placeholder="Type to filter…" /></div>
-        <div class="field"><label>Lead</label><select id="stw-lead-select"></select></div>
-      </div>
-      <div id="stw-new-fields" hidden>
-        <div class="row">
-          <div class="field"><label>Business name *</label><input id="stw-new-name" type="text" /></div>
-          <div class="field"><label>Category</label><input id="stw-new-category" type="text" /></div>
-        </div>
-        <div class="row">
-          <div class="field"><label>Contact name</label><input id="stw-new-contact" type="text" /></div>
-          <div class="field"><label>Email</label><input id="stw-new-email" type="email" /></div>
-        </div>
-        <div class="row">
-          <div class="field"><label>Phone</label><input id="stw-new-phone" type="tel" /></div>
-          <div class="field"><label>City</label><input id="stw-new-city" type="text" /></div>
-        </div>
-      </div>
-      <div class="row">
-        <div class="field" style="flex:2"><label>Business name for the site</label><input id="stw-business-name" type="text" /></div>
-        <div class="field"><label>Site shape</label><select id="stw-shape"><option value="multipage">Multi-page</option><option value="landing">Landing page</option></select></div>
-      </div>
-      <div class="field"><label>Pages wanted (optional)</label><input id="stw-pages" type="text" placeholder="Home, Services, About, Contact" /></div>
-      <div class="field"><label>Brand notes (optional)</label><textarea id="stw-brand" rows="3" placeholder="Colors, style, anything to include or avoid"></textarea></div>
-      <div class="msg" id="stw-msg"></div>`,
-    buttons: [
-      { label: 'Cancel' },
-      {
-        label: 'Build',
-        cls: 'primary',
-        onClick: async (mm) => {
-          await submitStaffThemeWizard(mm);
-        },
-      },
-    ],
+
+  const card = stEl('div', 'card staff-theme-build-card');
+  view.appendChild(card);
+
+  const topRow = stEl('div', 'row');
+  const imgField = stEl('div', 'field');
+  imgField.style.flex = '0 0 230px';
+  const img = document.createElement('img');
+  img.id = 'stw-theme-img';
+  img.src = theme.thumbnail;
+  img.alt = `${theme.name} theme preview`;
+  img.style.width = '100%';
+  img.style.borderRadius = '8px';
+  img.style.border = '1px solid var(--line, #e5e0d8)';
+  imgField.appendChild(img);
+  topRow.appendChild(imgField);
+  const themeField = stEl('div', 'field');
+  themeField.style.flex = '2';
+  themeField.appendChild(stEl('label', null, 'Theme'));
+  const nameWrap = stEl('div');
+  const nameB = stEl('b', null, theme.name);
+  nameB.id = 'stw-theme-name';
+  nameWrap.appendChild(nameB);
+  themeField.appendChild(nameWrap);
+  const shapeLabel = theme.siteShape === 'landing' ? 'Single landing page' : 'Multi-page website';
+  const meta = stEl('p', 'hint', `${theme.categoryLabel} · Pages: ${(theme.pages || []).join(', ')} · ${shapeLabel}`);
+  meta.id = 'stw-theme-meta';
+  themeField.appendChild(meta);
+  topRow.appendChild(themeField);
+  card.appendChild(topRow);
+
+  const modeField = stEl('div', 'field');
+  modeField.appendChild(stEl('label', null, 'Business'));
+  const mkMode = (value, label, checked) => {
+    const l = stEl('label', 'inline');
+    const r = document.createElement('input');
+    r.type = 'radio';
+    r.name = 'stw-mode';
+    r.value = value;
+    r.checked = !!checked;
+    l.appendChild(r);
+    l.appendChild(document.createTextNode(' ' + label));
+    return l;
+  };
+  modeField.appendChild(mkMode('existing', 'Pick from leads', true));
+  modeField.appendChild(mkMode('new', 'Add a new lead', false));
+  card.appendChild(modeField);
+
+  const existing = stEl('div');
+  existing.id = 'stw-existing-fields';
+  existing.appendChild(stwField('Search leads', stwInput('stw-lead-search', 'search', 'Type to filter…')));
+  const leadSelect = document.createElement('select');
+  leadSelect.id = 'stw-lead-select';
+  existing.appendChild(stwField('Lead', leadSelect));
+  card.appendChild(existing);
+
+  const fresh = stEl('div');
+  fresh.id = 'stw-new-fields';
+  fresh.hidden = true;
+  const newRow1 = stEl('div', 'row');
+  newRow1.appendChild(stwField('Business name *', stwInput('stw-new-name')));
+  newRow1.appendChild(stwField('Category', stwInput('stw-new-category')));
+  fresh.appendChild(newRow1);
+  const newRow2 = stEl('div', 'row');
+  newRow2.appendChild(stwField('Contact name', stwInput('stw-new-contact')));
+  newRow2.appendChild(stwField('Email', stwInput('stw-new-email', 'email')));
+  fresh.appendChild(newRow2);
+  const newRow3 = stEl('div', 'row');
+  newRow3.appendChild(stwField('Phone', stwInput('stw-new-phone', 'tel')));
+  newRow3.appendChild(stwField('City', stwInput('stw-new-city')));
+  fresh.appendChild(newRow3);
+  card.appendChild(fresh);
+
+  const bizRow = stEl('div', 'row');
+  const bizField = stwField('Business name for the site', stwInput('stw-business-name'));
+  bizField.style.flex = '2';
+  bizRow.appendChild(bizField);
+  const shapeSel = document.createElement('select');
+  shapeSel.id = 'stw-shape';
+  for (const [v, label] of [
+    ['multipage', 'Multi-page'],
+    ['landing', 'Landing page'],
+  ]) {
+    const opt = document.createElement('option');
+    opt.value = v;
+    opt.textContent = label;
+    shapeSel.appendChild(opt);
+  }
+  shapeSel.value = theme.siteShape === 'landing' ? 'landing' : 'multipage';
+  bizRow.appendChild(stwField('Site shape', shapeSel));
+  card.appendChild(bizRow);
+
+  card.appendChild(stwField('Pages wanted (optional)', stwInput('stw-pages', 'text', 'Home, Services, About, Contact')));
+  const brand = document.createElement('textarea');
+  brand.id = 'stw-brand';
+  brand.rows = 3;
+  brand.placeholder = 'Colors, style, anything to include or avoid';
+  card.appendChild(stwField('Brand notes (optional)', brand));
+  const msg = stEl('div', 'msg');
+  msg.id = 'stw-msg';
+  card.appendChild(msg);
+
+  const actionsRow = stEl('div', 'row actions');
+  const cancelBtn = stEl('button', 'btn', 'Cancel');
+  cancelBtn.type = 'button';
+  cancelBtn.addEventListener('click', () => {
+    window.location.hash = '#/assistant';
   });
-  const img = $('#stw-theme-img', m.el);
-  if (img) {
-    img.src = theme.thumbnail;
-    img.alt = `${theme.name} theme preview`;
-  }
-  const nameEl = $('#stw-theme-name', m.el);
-  if (nameEl) nameEl.textContent = theme.name;
-  const metaEl = $('#stw-theme-meta', m.el);
-  if (metaEl) {
-    const shapeLabel = theme.siteShape === 'landing' ? 'Single landing page' : 'Multi-page website';
-    metaEl.textContent = `${theme.categoryLabel} · Pages: ${(theme.pages || []).join(', ')} · ${shapeLabel}`;
-  }
-  const shape = $('#stw-shape', m.el);
-  if (shape) shape.value = theme.siteShape === 'landing' ? 'landing' : 'multipage';
+  actionsRow.appendChild(cancelBtn);
+  const buildBtn = stEl('button', 'btn primary', 'Build');
+  buildBtn.type = 'button';
+  buildBtn.addEventListener('click', () => {
+    submitStaffThemeBuild(card).catch(() => {});
+  });
+  actionsRow.appendChild(buildBtn);
+  card.appendChild(actionsRow);
+
+  wireStaffThemeBuildForm(card);
+}
+
+function wireStaffThemeBuildForm(root) {
   const modeOf = () => {
-    const checked = m.el.querySelector('input[name="stw-mode"]:checked');
+    const checked = root.querySelector('input[name="stw-mode"]:checked');
     return checked ? checked.value : 'existing';
   };
   const applyMode = () => {
     const mode = modeOf();
-    const existing = $('#stw-existing-fields', m.el);
-    const fresh = $('#stw-new-fields', m.el);
+    const existing = $('#stw-existing-fields', root);
+    const fresh = $('#stw-new-fields', root);
     if (existing) existing.hidden = mode !== 'existing';
     if (fresh) fresh.hidden = mode !== 'new';
     if (mode === 'new' && !staffThemesState.bizTouched) {
-      const nameInput = $('#stw-business-name', m.el);
-      const newName = $('#stw-new-name', m.el);
+      const nameInput = $('#stw-business-name', root);
+      const newName = $('#stw-new-name', root);
       if (nameInput && newName) nameInput.value = newName.value;
     }
   };
-  m.el.querySelectorAll('input[name="stw-mode"]').forEach((radio) => radio.addEventListener('change', applyMode));
-  const select = $('#stw-lead-select', m.el);
-  if (select) select.addEventListener('change', () => syncStaffWizardBusinessName(m));
-  const nameInput = $('#stw-business-name', m.el);
+  root.querySelectorAll('input[name="stw-mode"]').forEach((radio) => radio.addEventListener('change', applyMode));
+  const select = $('#stw-lead-select', root);
+  if (select) select.addEventListener('change', () => syncStaffThemeBusinessName(root));
+  const nameInput = $('#stw-business-name', root);
   if (nameInput)
     nameInput.addEventListener('input', () => {
       staffThemesState.bizTouched = true;
     });
-  const newName = $('#stw-new-name', m.el);
+  const newName = $('#stw-new-name', root);
   if (newName) {
     newName.addEventListener('input', () => {
       if (!staffThemesState.bizTouched) {
-        const target = $('#stw-business-name', m.el);
+        const target = $('#stw-business-name', root);
         if (target) target.value = newName.value;
       }
     });
   }
   let searchTimer = null;
-  const search = $('#stw-lead-search', m.el);
+  const search = $('#stw-lead-search', root);
   if (search) {
     search.addEventListener('input', () => {
       clearTimeout(searchTimer);
-      searchTimer = setTimeout(() => loadStaffThemeLeads(m, search.value).catch(() => {}), 250);
+      searchTimer = setTimeout(() => loadStaffThemeLeads(root, search.value).catch(() => {}), 250);
     });
   }
-  loadStaffThemeLeads(m, '').catch(() => {});
+  loadStaffThemeLeads(root, '').catch(() => {});
 }
 
-async function submitStaffThemeWizard(m) {
+/* The ONE staff theme-build submit — the wizard's exact payload
+ * contract (themeId / businessName / siteShape / pagesWanted /
+ * brandNotes + leadId XOR newLead{...}), posted to the same
+ * endpoint the wizard used. On success the confirmation rides
+ * back to the Assistant page's themes status line (doneMessage)
+ * exactly as the wizard left it there. */
+async function submitStaffThemeBuild(root) {
   const theme = staffThemesState.current;
   if (!theme) return;
-  const checked = m.el.querySelector('input[name="stw-mode"]:checked');
+  const checked = root.querySelector('input[name="stw-mode"]:checked');
   const mode = checked ? checked.value : 'existing';
-  const msg = (t, kind) => setMsg($('#stw-msg', m.el), t, kind);
+  const msg = (t, kind) => setMsg($('#stw-msg', root), t, kind);
   const payload = {
     themeId: theme.id,
-    businessName: $('#stw-business-name', m.el).value.trim(),
-    siteShape: $('#stw-shape', m.el).value,
-    pagesWanted: $('#stw-pages', m.el).value.trim(),
-    brandNotes: $('#stw-brand', m.el).value.trim(),
+    businessName: $('#stw-business-name', root).value.trim(),
+    siteShape: $('#stw-shape', root).value,
+    pagesWanted: $('#stw-pages', root).value.trim(),
+    brandNotes: $('#stw-brand', root).value.trim(),
   };
   if (mode === 'existing') {
-    const select = $('#stw-lead-select', m.el);
+    const select = $('#stw-lead-select', root);
     const leadId = select ? Number(select.value) : 0;
     if (!leadId) {
       msg('Pick a business from the leads, or switch to "Add a new lead".', 'err');
@@ -14278,18 +14468,18 @@ async function submitStaffThemeWizard(m) {
     }
     payload.leadId = leadId;
   } else {
-    const businessName = $('#stw-new-name', m.el).value.trim();
+    const businessName = $('#stw-new-name', root).value.trim();
     if (!businessName) {
       msg('Give the new business a name.', 'err');
       return;
     }
     payload.newLead = {
       businessName,
-      category: $('#stw-new-category', m.el).value.trim(),
-      city: $('#stw-new-city', m.el).value.trim(),
-      contactName: $('#stw-new-contact', m.el).value.trim(),
-      email: $('#stw-new-email', m.el).value.trim(),
-      phone: $('#stw-new-phone', m.el).value.trim(),
+      category: $('#stw-new-category', root).value.trim(),
+      city: $('#stw-new-city', root).value.trim(),
+      contactName: $('#stw-new-contact', root).value.trim(),
+      email: $('#stw-new-email', root).value.trim(),
+      phone: $('#stw-new-phone', root).value.trim(),
     };
     if (!payload.businessName) payload.businessName = businessName;
   }
@@ -14299,9 +14489,11 @@ async function submitStaffThemeWizard(m) {
     const data = r.data || {};
     const done = `Build started — job #${data.jobId} (${data.themeName}) is in the design queue, staged for review.`;
     msg(done, 'ok');
-    staffThemesStatus(done);
     toast(`Job #${data.jobId} queued`, 'ok');
-    setTimeout(() => m.close(), 1800);
+    staffThemesState.doneMessage = done;
+    setTimeout(() => {
+      window.location.hash = '#/assistant';
+    }, 1500);
   } catch (e) {
     msg(errText(e), 'err');
   }

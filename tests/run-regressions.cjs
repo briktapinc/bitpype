@@ -168,6 +168,7 @@ const checks = [
   'batch170-assistant-usage-tab-regressions',
   'batch171-staff-themes-design-page-regressions',
   'batch172-portal-themes-removal-regressions',
+  'batch173-theme-view-build-page-regressions',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');
