@@ -3610,15 +3610,15 @@ async function pageAssistant() {
           <select id="asst-lead"><option value="">No site — general chat</option></select></div>
         <div class="field"><button class="btn primary" id="asst-new" type="button">New conversation</button></div>
       </div>
-      <div class="row" style="align-items:flex-start; gap:16px">
-        <div id="asst-convs" style="flex:0 0 230px; display:flex; flex-direction:column; gap:8px; max-height:60vh; overflow-y:auto"></div>
-        <div style="flex:1; min-width:0; display:flex; flex-direction:column; height:60vh">
-          <div id="asst-messages" style="flex:1; min-height:0; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; border:1px solid var(--line, #e5e0d8); border-radius:12px"></div>
-          <div id="asst-pending" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px"></div>
-          <form id="asst-form" style="display:flex; gap:8px; align-items:flex-end; margin-top:10px">
+      <div class="asst-layout">
+        <div class="asst-convs" id="asst-convs"></div>
+        <div class="asst-main">
+          <div class="asst-messages" id="asst-messages"></div>
+          <div class="asst-pending" id="asst-pending"></div>
+          <form class="asst-form" id="asst-form">
             <button class="btn" id="asst-attach" type="button">Attach</button>
             <button class="btn" id="asst-camera" type="button">Camera</button>
-            <textarea id="asst-input" rows="2" placeholder="Message the assistant…" style="flex:1"></textarea>
+            <textarea id="asst-input" rows="2" placeholder="Message the assistant…"></textarea>
             <button class="btn primary" id="asst-send" type="submit">Send</button>
             <input type="file" id="asst-file" multiple accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/quicktime,video/webm,application/pdf,.txt,.md,.csv,.json" hidden />
             <input type="file" id="asst-camera-file" accept="image/*,video/*" capture="environment" hidden />

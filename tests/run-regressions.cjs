@@ -162,6 +162,7 @@ const checks = [
   'batch163-webinars-regressions',
   'batch164-custom-code-module',
   'batch165-webinar-module-regressions',
+  'batch166-assistant-mobile-layout-regressions',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');

@@ -293,6 +293,12 @@
       .assistant-layout { flex-direction: column; }
       .assistant-convs { flex: none; max-height: 180px; }
       .assistant-main { height: 58vh; }
+      /* Batch 166: the composer is a nowrap row (Attach / Camera /
+         textarea / Send) — at phone width the buttons left the
+         textarea a ~100px slot. Wrap it: the textarea takes its own
+         full-width row first, the buttons sit on the row below. */
+      .assistant-composer { flex-wrap: wrap; }
+      .assistant-composer textarea { order: -1; flex: 1 1 100%; min-height: 48px; }
     }
     .agent-chat-status {
       min-height: 1.2em;

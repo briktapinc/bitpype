@@ -118,7 +118,7 @@ function group(name, n) {
     has(body, 'installed</span>', 'installed-count meta unchanged');
 
     // Cache-busts so clients pick up the new app.js/styles.css.
-    has(indexHtml, '/styles.css?v=batch144-gate1', 'styles.css cache-bust bumped');
+    has(indexHtml, '/styles.css?v=batch166-asst1', 'styles.css cache-bust bumped');
     has(indexHtml, '/js/app.js?v=batch162-leadcalling1', 'app.js cache-bust bumped');
 
     // The other two catalog surfaces: deliberately unchanged
