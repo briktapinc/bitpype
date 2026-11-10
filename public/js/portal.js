@@ -3333,14 +3333,25 @@
   function appendAgentBubble(role, text, attachments, follow) {
     const list = document.getElementById('agent-chat-messages');
     const empty = document.getElementById('agent-chat-empty');
-    if (!list) return;
+    if (!list) return null;
     if (empty) empty.remove();
     // Batch 110: measured BEFORE the append — is the owner
     // already reading at (or near) the newest message?
     const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 96;
     const div = document.createElement('div');
     div.className = `agent-bubble ${role === 'user' ? 'user' : 'assistant'}`;
-    if (text) {
+    if (role === 'assistant') {
+      // Batch 174: assistant replies render through the SAME
+      // escape-first markdown renderer as the Assistant chat
+      // (assistantMd, this file) inside a .md-body — one rendering
+      // path for streamed and settled replies alike. The owner's
+      // own messages stay plain text, exactly as in the Assistant
+      // chat.
+      const body = document.createElement('div');
+      body.className = 'md-body';
+      body.innerHTML = assistantMd(text || '');
+      div.appendChild(body);
+    } else if (text) {
       const span = document.createElement('span');
       span.textContent = String(text);
       div.appendChild(span);
@@ -3348,12 +3359,16 @@
     // Batch 89: attached images render inline in the bubble; the <img>
     // src is the authorized attachment route (thumbnail), and clicking
     // opens the full image from the same route.
+    // Batch 174: non-image attachments render as name chips — the
+    // Assistant chat's treatment for files and videos.
     const atts = Array.isArray(attachments) ? attachments : [];
-    if (atts.length) {
+    const imgAtts = atts.filter(
+      (a) => a && a.url && (a.kind === 'image' || String(a.mime || '').startsWith('image/'))
+    );
+    if (imgAtts.length) {
       const imgs = document.createElement('div');
       imgs.className = 'bubble-imgs';
-      for (const att of atts) {
-        if (!att || !att.url) continue;
+      for (const att of imgAtts) {
         const a = document.createElement('a');
         a.href = att.url;
         a.target = '_blank';
@@ -3367,6 +3382,14 @@
       }
       div.appendChild(imgs);
     }
+    for (const att of atts) {
+      if (!att || imgAtts.includes(att)) continue;
+      const chip = document.createElement('span');
+      chip.className = 'agent-chat-chip';
+      chip.textContent = att.name || 'file';
+      chip.style.marginTop = '6px';
+      div.appendChild(chip);
+    }
     list.appendChild(div);
     // Batch 110: the message list scrolls internally (fixed
     // widget height). 'force' — the owner's own send and its
@@ -3379,6 +3402,10 @@
     if (mode === 'force' || (mode === 'gentle' && nearBottom)) {
       list.scrollTop = list.scrollHeight;
     }
+    // Batch 174: the caller (sendAgentChat) keeps the returned
+    // bubble as the live streaming target, the Assistant chat's
+    // sendAssistantMessage pattern.
+    return div;
   }
 
   function renderAgentChatPending() {
@@ -3389,12 +3416,9 @@
     state.agentChatPending.forEach((att, idx) => {
       const chip = document.createElement('span');
       chip.className = 'agent-chat-chip';
-      const img = document.createElement('img');
-      img.src = att.thumbUrl || att.url;
-      img.alt = '';
       const name = document.createElement('span');
       name.className = 'chip-name';
-      name.textContent = att.name || 'Image';
+      name.textContent = att.name || 'file';
       const rm = document.createElement('button');
       rm.type = 'button';
       rm.className = 'chip-remove';
@@ -3404,7 +3428,15 @@
         state.agentChatPending.splice(idx, 1);
         renderAgentChatPending();
       });
-      chip.appendChild(img);
+      // Batch 174: only images carry a thumbnail in the chip;
+      // files and videos are name chips — the Assistant chat's
+      // pending-row treatment (renderAssistantPending).
+      if (att.kind === 'image' || att.thumbUrl) {
+        const img = document.createElement('img');
+        img.src = att.thumbUrl || att.url;
+        img.alt = '';
+        chip.appendChild(img);
+      }
       chip.appendChild(name);
       chip.appendChild(rm);
       wrap.appendChild(chip);
@@ -3415,18 +3447,19 @@
     const files = Array.from(fileList || []);
     for (const file of files) {
       if (state.agentChatPending.length >= 4) {
-        setAgentChatStatus('Up to 4 images per message.', 'err');
+        setAgentChatStatus('Up to 4 attachments per message.', 'err');
         break;
       }
-      if (!/^image\/(png|jpe?g|webp|gif)$/i.test(file.type || '')) {
-        setAgentChatStatus('Images only — PNG, JPG, WebP or GIF.', 'err');
+      // Batch 174: like the Assistant chat's picker
+      // (onAssistantFiles), the client pre-checks only the overall
+      // ceiling — the server sniffs the real type and enforces
+      // the per-kind caps, refusing unsupported files with the
+      // Assistant chat's message.
+      if (file.size > 50 * 1024 * 1024) {
+        setAgentChatStatus('That file is over the 50 MB limit.', 'err');
         continue;
       }
-      if (file.size > 10 * 1024 * 1024) {
-        setAgentChatStatus('That image is over the 10 MB limit.', 'err');
-        continue;
-      }
-      setAgentChatStatus('Attaching image…', 'busy');
+      setAgentChatStatus('Attaching…', 'busy');
       try {
         const dataUrl = await new Promise((resolve, reject) => {
           const reader = new FileReader();
@@ -3666,6 +3699,58 @@
     syncAgentPatchUi();
   }
 
+  // Batch 174 — SSE transport for one design-chat turn: the same
+  // event protocol as the Assistant chat (status / delta / done /
+  // error over a fetch reader — sendAssistantMessage's loop, kept
+  // in the same shape). Resolves with the 'done' payload, which is
+  // the exact object the JSON route returned before 174, so all
+  // post-turn handling below is untouched by the transport swap.
+  async function streamAgentChatTurn(body, { onDelta, onStatus } = {}) {
+    const res = await fetch('/api/v1/portal/site/agent-chat/stream', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok || !res.body) throw new Error(`Request failed (${res.status})`);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let doneData = null;
+    let streamError = null;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) >= 0) {
+        const rawEvent = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const evMatch = rawEvent.match(/^event: (\w+)/m);
+        const dataMatch = rawEvent.match(/^data: (.*)$/m);
+        if (!evMatch || !dataMatch) continue;
+        let payload = {};
+        try {
+          payload = JSON.parse(dataMatch[1]);
+        } catch {
+          payload = {};
+        }
+        if (evMatch[1] === 'delta' && payload.text) {
+          if (onDelta) onDelta(payload.text);
+        } else if (evMatch[1] === 'status') {
+          if (onStatus) onStatus(payload.text || '');
+        } else if (evMatch[1] === 'error') {
+          streamError = new Error(payload.error || 'Design chat failed');
+        } else if (evMatch[1] === 'done') {
+          doneData = payload;
+        }
+      }
+    }
+    if (streamError) throw streamError;
+    if (!doneData) throw new Error('The chat connection closed early — please try again.');
+    return doneData;
+  }
+
   async function sendAgentChat(message) {
     const text = String(message || '').trim();
     const pending = state.agentChatPending.slice();
@@ -3684,6 +3769,11 @@
       turnPatchId = `t1-${Date.now()}`;
       trackAgentPatch({ id: turnPatchId, tier: 1, ops: [{ op: 'text', from: swap.from, to: swap.to }], jobId: null });
     }
+    // Batch 174: the live streaming bubble and its accumulated
+    // text live outside the try so the catch can settle the
+    // bubble the way the Assistant chat's catch does.
+    let liveBody = null;
+    let acc = '';
     try {
       // Batch 96: no history is sent — the server loads this
       // site's saved transcript itself; the local array is now
@@ -3691,9 +3781,22 @@
       const body = { message: text };
       if (pending.length) body.attachmentIds = pending.map((p) => p.id);
       if (state.previewPageSlug) body.pageSlug = state.previewPageSlug;
-      const data = await api('/site/agent-chat', {
-        method: 'POST',
-        body: JSON.stringify(body),
+      // Batch 174: stream the turn (streamAgentChatTurn above) —
+      // an empty assistant bubble appears up front and grows as
+      // 'delta' events arrive, through the same markdown renderer
+      // the Assistant chat streams with; 'status' events drive
+      // the status line. The resolved 'done' payload drives every
+      // step below, exactly as the JSON response used to.
+      const live = appendAgentBubble('assistant', '', null, 'force');
+      liveBody = live ? live.querySelector('.md-body') : null;
+      const data = await streamAgentChatTurn(body, {
+        onDelta: (chunk) => {
+          acc += chunk;
+          if (liveBody) liveBody.innerHTML = assistantMd(acc);
+          const list = document.getElementById('agent-chat-messages');
+          if (list) list.scrollTop = list.scrollHeight;
+        },
+        onStatus: (t) => setAgentChatStatus(t, 'busy'),
       });
       if (data && data.chatUsage) renderAgentChatUsage(data.chatUsage);
       if (data && data.queueStatus) renderAgentChatQueue([data.queueStatus]);
@@ -3718,12 +3821,19 @@
       }
       if (turnPatchId) dropAgentPatch(turnPatchId, { revert: true });
       const reply = (data && data.reply) || 'Done — check the preview.';
-      appendAgentBubble('assistant', reply, null, 'force');
+      // Batch 174: the 'done' payload's reply is authoritative —
+      // finalize the streamed bubble from it (the Assistant
+      // chat's pattern: the live bubble settles on the persisted
+      // reply).
+      if (liveBody) liveBody.innerHTML = assistantMd(reply);
       state.agentChatPending = [];
       renderAgentChatPending();
       const historyText =
-        text + pending.map((p) => `\n[Attached image: ${p.name || 'image'}]`).join('');
-      state.agentChatHistory.push({ role: 'user', content: historyText || '(image attached)' });
+        text +
+        pending
+          .map((p) => `\n[Attached ${p.kind === 'image' ? 'image' : 'file'}: ${p.name || 'file'}]`)
+          .join('');
+      state.agentChatHistory.push({ role: 'user', content: historyText || '(attachment)' });
       state.agentChatHistory.push({ role: 'assistant', content: reply });
       if (state.agentChatHistory.length > 20) {
         state.agentChatHistory = state.agentChatHistory.slice(-20);
@@ -3770,7 +3880,15 @@
       // Batch 104: the turn never landed — the speculative
       // Tier-1 patch comes back off (the frame was not swapped).
       if (turnPatchId) dropAgentPatch(turnPatchId, { revert: true });
-      appendAgentBubble('assistant', errText(e), null, 'force');
+      // Batch 174: settle the failed turn in the live bubble when
+      // nothing streamed (the Assistant chat's catch); a partial
+      // stream keeps what arrived and the error rides the status
+      // line. Only when no bubble exists do we append one.
+      if (liveBody && !acc) {
+        liveBody.textContent = errText(e);
+      } else if (!liveBody) {
+        appendAgentBubble('assistant', errText(e), null, 'force');
+      }
       setAgentChatStatus(errText(e), 'err');
     } finally {
       state.agentChatBusy = false;
@@ -3871,6 +3989,18 @@
     const fileInput = document.getElementById('agent-chat-file');
     if (fileInput) {
       fileInput.addEventListener('change', (ev) => {
+        onAgentChatFiles(ev.target.files);
+        ev.target.value = '';
+      });
+    }
+    // Batch 174: the Camera button opens the capture input, the
+    // Assistant composer's pattern (wireAssistantPage) — captured
+    // photos/videos land in the same pending list as picked files.
+    const cameraBtn = document.getElementById('agent-chat-camera');
+    const cameraInput = document.getElementById('agent-chat-camera-file');
+    if (cameraBtn && cameraInput) {
+      cameraBtn.addEventListener('click', () => cameraInput.click());
+      cameraInput.addEventListener('change', (ev) => {
         onAgentChatFiles(ev.target.files);
         ev.target.value = '';
       });

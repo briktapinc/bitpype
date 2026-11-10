@@ -3207,7 +3207,7 @@
           <aside class="agent-chat" id="agent-chat" aria-label="Site improvement chat">
             <div class="agent-chat-head">
               <h3>Improve with AI</h3>
-              <p>Describe a change — or attach an image for reference — and we’ll update the preview.</p>
+              <p>Describe a change — or attach a file for reference — and we’ll update the preview.</p>
               <p class="agent-chat-usage" id="agent-chat-usage" hidden></p>
               <p class="agent-chat-usage" id="agent-chat-queue" hidden></p>
               <button type="button" class="agent-chat-toggle" id="agent-chat-toggle" aria-expanded="true">Hide chat</button>
@@ -3221,8 +3221,10 @@
               <textarea id="agent-chat-input" maxlength="4000" rows="3" placeholder="What should we change?"></textarea>
               <div class="agent-chat-pending" id="agent-chat-pending" hidden></div>
               <div class="agent-chat-actions">
-                <label class="btn ghost small agent-chat-attach" for="agent-chat-file">Attach image</label>
-                <input type="file" id="agent-chat-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
+                <label class="btn ghost small agent-chat-attach" for="agent-chat-file">Attach</label>
+                <button type="button" class="btn ghost small" id="agent-chat-camera">Camera</button>
+                <input type="file" id="agent-chat-file" accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/quicktime,video/webm,application/pdf,.txt,.md,.csv,.json" multiple hidden />
+                <input type="file" id="agent-chat-camera-file" accept="image/*,video/*" capture="environment" hidden />
                 <button type="submit" class="btn small" id="agent-chat-send">Send</button>
               </div>
             </form>

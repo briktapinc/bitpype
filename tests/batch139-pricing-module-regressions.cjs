@@ -217,7 +217,7 @@ const LEAD_B = 139002;
     const cz = census();
     assert.equal(cz.summary.RAW, 86, 'SEC-13 RAW sink count (Batch 165 rotation: 85 -> 86 — the one audited Webinar panel-shell RAW, pairwise-proven — see batch103 narrative); unchanged by 139 (Batch 164 rotation: 82 -> 85 — +3 audited Custom Code RAW sinks, pairwise-proven — see batch103 narrative); ( (77 at the Batch 138 tip, verified identical pre/post this change set; Batch 153 rotation: 77 -> 78 — the audited Design-agent editor panel-shell RAW in app.js; Batch 161 rotation: 78 -> 81 (Assistant surfaces); Batch 162 rotation: 81 -> 82 (the audited Contact-page RAW) — see batch103 narrative)');
     n++;
-    assert.equal(cz.summary.IDENT, 38, 'SEC-13 IDENT sink count unchanged by 139 (36 at the Batch 138 tip, verified identical pre/post this change set; Batch 161 rotation: 36 -> 38 (Assistant surfaces); Batch 162 rotation: 38 unchanged — see batch103 narrative)');
+    assert.equal(cz.summary.IDENT, 41, 'SEC-13 IDENT sink count unchanged by 139 (36 at the Batch 138 tip, verified identical pre/post this change set; Batch 161 rotation: 36 -> 38 (Assistant surfaces); Batch 162 rotation: 38 unchanged — see batch103 narrative)');
     n++;
 
     group('Part 1 wiring pins', n);

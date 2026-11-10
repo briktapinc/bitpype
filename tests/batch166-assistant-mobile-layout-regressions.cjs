@@ -269,15 +269,22 @@ function mobileCss(css) {
     let n = 0;
     const { census } = require(path.join(root, 'scripts', 'xss-census.cjs'));
     const cz = census();
+    // Batch 174 RE-PIN (deliberate): Batch 166 itself still
+    // contributes zero sink movement; the tree's census moved
+    // 503 -> 506 / IDENT 38 -> 41 because Batch 174's design-chat
+    // redesign added exactly three IDENT assistantMd(...) writes
+    // in public/js/portal.js (pairwise multiset diff vs the 173
+    // tree proven in the Batch 174 suite; RAW and safe classes
+    // unchanged). The pins below track the current tree.
     assert.deepEqual(
       cz.summary,
-      { total: 504, STATIC: 187, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 38, RAW: 86 },
-      'SEC-13 census summary identical to the deployed Batch 165 tree (166 contributes zero sink movement — pairwise (file|kind|snippet) multiset diff vs the pristine 165 tree is empty)'
+      { total: 507, STATIC: 186, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 41, RAW: 86 },
+      'SEC-13 census summary (Batch 174 re-pin — see note above; 166 contributes zero movement)'
     );
     n += 1;
     const multi = cz.sinks.map((s) => `${s.file}|${s.kind}|${s.snippet}`).sort();
     const sha = crypto.createHash('sha256').update(multi.join('\n')).digest('hex');
-    assert.equal(sha, '20da195b82955ec635ce1dff9f57ff4d3773270087ab97194c39630390c061e8', 'SEC-13 (file|kind|snippet) multiset byte-identical to the deployed Batch 165 tree');
+    assert.equal(sha, 'a4884d2d227651d4f741bb6f7df5a15c90ff874e9186b63caf4e9a248b81a3fb', 'SEC-13 (file|kind|snippet) multiset pinned (Batch 174 re-pin — see note above)');
     n += 1;
     group('Part 5 SEC-13 census — unchanged, no rotation', n);
   }

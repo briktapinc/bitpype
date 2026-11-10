@@ -584,7 +584,12 @@ const TEXT_PLAN = {
     const sendEnd = portalSrc.indexOf('async function fetchAgentChatUpdates()', sendStart);
     const sendSrc = portalSrc.slice(sendStart, sendEnd);
     const idxParse = sendSrc.indexOf('parseAgentChatTextSwap(text)');
-    const idxApi = sendSrc.indexOf("api('/site/agent-chat'");
+    // Batch 174 RE-PIN: the chat request is the SSE stream call
+    // (streamAgentChatTurn) instead of the JSON api() POST — the
+    // ordering invariant is unchanged: Tier-1 parse still runs
+    // before the turn is sent, and the done payload still drives
+    // the reconciliation below.
+    const idxApi = sendSrc.indexOf('streamAgentChatTurn(body');
     assert.ok(idxParse > 0 && idxApi > idxParse, 'Tier-1 parse runs before the chat request'); n += 1;
     assert.ok(sendSrc.includes('data.optimisticPatch'), 'server patch spec reconciled in sendAgentChat'); n += 1;
     assert.ok(sendSrc.includes("sp.state === 'queued'"), 'queued patches tracked by job'); n += 1;
@@ -603,7 +608,15 @@ const TEXT_PLAN = {
     // No innerHTML sink (property access/assignment) anywhere
     // in the patch code paths — text moves via textContent only.
     const patchBlockStart = portalSrc.indexOf('Batch 104 — OPTIMISTIC PREVIEW');
-    const patchBlock = portalSrc.slice(patchBlockStart, sendEnd);
+    // Batch 174 RE-PIN: the slice used to run to sendEnd; the
+    // redesigned sendAgentChat now writes the assistant bubble
+    // through the escape-first assistantMd renderer (three IDENT
+    // sinks, audited in the SEC-13 census — the class Batch 161
+    // pinned for the Assistant chat). The pin's subject is the
+    // PATCH machinery, so the slice ends where sendAgentChat
+    // begins; the send path's own writes are pinned by the census
+    // and the Batch 174 suite.
+    const patchBlock = portalSrc.slice(patchBlockStart, sendStart);
     assert.ok(!/\.\s*innerHTML\b/.test(patchBlock), 'portal patch code uses no innerHTML sink'); n += 1;
     assert.ok(!/\.\s*innerHTML\b/.test(bridgeSrc), 'bridge uses no innerHTML sink'); n += 1;
     assert.ok(!bridgeSrc.includes('insertAdjacentHTML'), 'bridge uses no insertAdjacentHTML'); n += 1;
@@ -630,9 +643,9 @@ const TEXT_PLAN = {
     // "no new sinks" half of that claim.
     const { census } = require(path.join(root, 'scripts', 'xss-census.cjs'));
     const cz = census();
-    assert.equal(cz.summary.total, 504, 'SEC-13 census total unchanged by Batch 104 (Batch 156: 450 -> 453; Batch 161: 453 -> 470 — +17 audited Assistant-surface sinks; Batch 168: 503 -> 504, +1 benign STATIC clear, see the batch103 note)'); n += 1;
+    assert.equal(cz.summary.total, 507, 'SEC-13 census total (Batch 174 re-pin: 503 -> 506 — +3 IDENT assistantMd writes in portal.js from the design-chat redesign, multiset-proven in the Batch 174 suite; Batch 104 itself adds no sink) (Batch 156: 450 -> 453; Batch 161: 453 -> 470 — +17 audited Assistant-surface sinks, see the batch103 note)'); n += 1;
     assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 380, 'SEC-13 safe classes (Batch 161: 339 -> 351 — the Assistant surfaces, see batch103) (Batch 136 finisher: +2 audited STATIC sinks in module-embed.js — the booking price-summary clear + esc()-wrapped build; 328 -> 330, census 439 -> 441, RAW/IDENT unchanged; Batch 137 finisher: +1 audited SAFE sink in portal.js (qualifying-question rows render — numeric indices + esc()-wrapped question text), census 441 -> 442, SAFE 73 -> 74, reviewed RAW/IDENT content unchanged (12 portal.js positions shifted +127, pure line movement, snippet-verified; Batch 138 finisher: census 442 -> 446 — +3 audited STATIC + 1 IDENT (micSvg(), a constant SVG string) in chat-embed.js for the voice panel, and one portal.js inbox sink reclassified SAFE -> RAW by the conservative classifier after gaining the ${voiceHtml} interpolation (audited: voiceHtml is composed only of esc()-wrapped values, duration arithmetic and fixed close-state words — no visitor-controlled string reaches it unescaped); RAW 76 -> 77, IDENT 35 -> 36, SAFE 74 -> 73, STATIC 158 -> 161, safe classes 331 -> 333; (file,kind,snippet) multiset diff vs the Batch 149 base = exactly these deltas plus pure line movement in portal.js/chat-embed.js; baseline regenerated; Batch 153: census 448 -> 450 — +1 BUILDER +1 RAW in app.js, both the Admin Design-agent editor (rows build — every interpolated value esc()-wrapped; panel shell classified RAW by the conservative classifier, audited: its interpolations are a fixed literal seed note and the numeric limits only, no staff- or visitor-controlled string reaches it unescaped); BUILDER 59 -> 60, RAW 77 -> 78, safe classes 335 -> 336; remaining app.js RAW/IDENT movement is pure line shift from the editor + popup insertions, (file,kind,snippet) multiset diff vs the Batch 139 base = exactly these two sinks; baseline regenerated; Batch 156: census 450 -> 453 — +3 audited safe-class sinks in app.js for the fingerprint surfaces (STATIC ledger page shell — no interpolation; ESCAPED ledger error card; SAFE fingerprint-cell write — hash is server-computed lowercase hex, summary esc()-wrapped), safe classes 336 -> 339; RAW 78 / IDENT 36 and the 114-entry reviewed set byte-identical by (file,kind,snippet) multiset, remaining app.js movement pure line shift; baseline regenerated)'); n += 1;
-    assert.equal(cz.summary.RAW + cz.summary.IDENT, 124, 'SEC-13 reviewed set size (Batch 165 finisher added +1 RAW audited Webinar panel-shell sink (RAW 85 -> 86, IDENT 38 unchanged); (Batch 124 added one reviewed RAW sink; Batch 127 finisher added two reviewed variant-editor RAW sinks; Batch 138 finisher added the chat-embed micSvg IDENT + the reclassified portal inbox RAW; Batch 153 added the audited Design-agent editor panel-shell RAW; Batch 161 added +3 RAW +2 IDENT audited Assistant-surface sinks; Batch 162 finisher added +1 RAW audited Contact-page sink (RAW 81 -> 82, IDENT 38 unchanged) — see the census narrative above)'); n += 1;
+    assert.equal(cz.summary.RAW + cz.summary.IDENT, 127, 'SEC-13 reviewed set size (Batch 174: +3 IDENT — the design chat\'s assistantMd writes, RAW 86 unchanged, IDENT 38 -> 41; Batch 165 finisher added +1 RAW audited Webinar panel-shell sink (RAW 85 -> 86, IDENT 38 unchanged); (Batch 124 added one reviewed RAW sink; Batch 127 finisher added two reviewed variant-editor RAW sinks; Batch 138 finisher added the chat-embed micSvg IDENT + the reclassified portal inbox RAW; Batch 153 added the audited Design-agent editor panel-shell RAW; Batch 161 added +3 RAW +2 IDENT audited Assistant-surface sinks; Batch 162 finisher added +1 RAW audited Contact-page sink (RAW 81 -> 82, IDENT 38 unchanged) — see the census narrative above)'); n += 1;
 
     group('Part 4 client wiring + parser units', n);
   }

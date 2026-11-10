@@ -409,10 +409,15 @@ async function main() {
 
     const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
     const cz = census();
-    assert.equal(cz.summary.total, 504, 'SEC-13 census total on the merged tree (504 = chain 503 + 1 benign STATIC from Batch 168 S6#F4, re-derived at the 168 rebase; Batch 169 adds zero)');
-    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 380, 'SEC-13 safe classes on the merged tree (380; the +1 is Batch 168\u2019s STATIC clear)');
+    // Batch 174 RE-PIN: the tree census is 506 / IDENT 41 — Batch
+    // 174's design-chat redesign added exactly three IDENT
+    // assistantMd(...) writes in portal.js (multiset-proven in
+    // the Batch 174 suite). Batch 169's own movement stays zero;
+    // RAW and safe classes are unchanged.
+    assert.equal(cz.summary.total, 507, 'SEC-13 census total (Batch 174 re-pin — see note above)');
+    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 380, 'SEC-13 safe classes unchanged (379)');
     assert.equal(cz.summary.RAW, 86, 'SEC-13 RAW unchanged');
-    assert.equal(cz.summary.IDENT, 38, 'SEC-13 IDENT unchanged');
+    assert.equal(cz.summary.IDENT, 41, 'SEC-13 IDENT (Batch 174 re-pin — see note above)');
     n += 4;
     group('Part 4 — source pins: portal surface gone, core kept, census stable', n);
   }

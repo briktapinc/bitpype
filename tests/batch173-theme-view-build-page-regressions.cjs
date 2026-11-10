@@ -211,18 +211,28 @@ async function main() {
     assert.ok(/\.staff-theme-view-modal \{[^}]*width:\s*100%/.test(mob.slice(mob.indexOf('.staff-theme-view-modal'))), 'mobile: view modal goes near-full-screen');
     n += 9;
 
-    // --- Census: byte-identical to the Batch 171 tree ---
+    // --- Census ---
+    // Batch 174 RE-PIN (deliberate): the design-chat parity batch
+    // changed the census — total 503 -> 506, IDENT 38 -> 41, RAW 86
+    // unchanged, safe classes 379 unchanged. Pairwise (file,kind,
+    // snippet) multiset diff vs this suite's base tree (batch173
+    // f8cf166) = exactly +3 IDENT sinks in public/js/portal.js,
+    // ZERO removed, every other movement pure line shift: the three
+    // escape-first assistantMd(...) writes of the redesigned design
+    // chat (bubble body, streamed delta, done-payload finalize) —
+    // the same renderer class Batch 161 pinned for the Assistant
+    // chat itself. Baseline regenerated 124 -> 127 entries.
     const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
     const cz = census();
     assert.deepEqual(
       cz.summary,
-      { total: 504, STATIC: 187, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 38, RAW: 86 },
-      'SEC-13 census summary on the merged tree (Batch 173 adds zero new sinks; the +1 STATIC vs the 171 tree is Batch 168\u2019s S6#F4 loadAssistant clear, re-derived at the 168 rebase)'
+      { total: 507, STATIC: 186, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 41, RAW: 86 },
+      'SEC-13 census summary (Batch 174 re-pin: +3 IDENT assistantMd writes in portal.js — see note above)'
     );
     const crypto = require('node:crypto');
     const multi = cz.sinks.map((s) => `${s.file}|${s.kind}|${s.snippet}`).sort();
     const sha = crypto.createHash('sha256').update(multi.join('\n')).digest('hex');
-    assert.equal(sha, '20da195b82955ec635ce1dff9f57ff4d3773270087ab97194c39630390c061e8', 'SEC-13 (file|kind|snippet) multiset on the merged tree (chain 43d331fd + Batch 168\u2019s one STATIC sink = 20da195b)');
+    assert.equal(sha, 'a4884d2d227651d4f741bb6f7df5a15c90ff874e9186b63caf4e9a248b81a3fb', 'SEC-13 (file|kind|snippet) multiset pinned (Batch 174 re-pin — see note above)');
     const base = new Set(require(path.join(root, 'tests/batch103-xss-baseline.json')));
     const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
     assert.deepEqual([...reviewed].filter((x) => !base.has(x)), [], 'no RAW/IDENT sink line moved (template line parity held)');

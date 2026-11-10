@@ -19,8 +19,33 @@ const { renderClientSite, publishClientSitePreview, syncDesignDeliverablePages }
  * Body: { message, pageSlug?, attachmentIds? } — Batch 96: no
  * client history; the pipeline loads the site's saved transcript
  * tail itself (a history field in the body is ignored).
+ * Batch 174 — a fourth argument { onEvent } streams the turn the
+ * Assistant chat's way (server/assistantChat.js runAssistantTurn):
+ * 'status' events at pipeline stages and 'delta' events carrying
+ * the finished reply in word-sized chunks. Callers that pass no
+ * onEvent (the JSON route, every existing suite) see no change.
  */
-/** Batch 89 — design-chat image attachments (server/siteChatAttachments.js). */
+
+/**
+ * Batch 174 — emit a finished reply as 'delta' chunks, the exact
+ * chunking runAssistantTurn uses (word-sized pieces, flushed at
+ * ≥48 chars) so both chats stream identically.
+ */
+function streamReplyText(onEvent, text) {
+  const chunks = String(text || '').match(/\S+\s*/g) || [String(text || '')];
+  let acc = '';
+  for (const c of chunks) {
+    acc += c;
+    if (acc.length >= 48 || c === chunks[chunks.length - 1]) {
+      onEvent('delta', { text: acc });
+      acc = '';
+    }
+  }
+  if (acc) onEvent('delta', { text: acc });
+}
+
+/** Batch 89 — design-chat attachments (server/siteChatAttachments.js).
+ * Batch 174: all Assistant-chat kinds (images, video, PDF, text). */
 async function uploadSiteChatImage(workspaceId, leadId, payload = {}) {
   const domain = require('./domain');
   const chatAtt = require('./siteChatAttachments');
@@ -54,13 +79,24 @@ function listSiteChatImages(workspaceId, leadId, limit) {
   return domain.withDb(workspaceId, (db) => chatAtt.listAttachments(db, { leadId, limit }));
 }
 
-async function runSiteAgentChat(workspaceId, leadId, body = {}) {
+async function runSiteAgentChat(workspaceId, leadId, body = {}, opts = {}) {
   const museAgent = require('./museAgent');
   const domain = require('./domain');
   const chatAtt = require('./siteChatAttachments');
   const chatPending = require('./siteChatPending');
   const chatThread = require('./siteChatThread');
   const designJobs = require('../src/designJobs');
+  // Batch 174: optional Assistant-style event sink (see header).
+  const onEvent = opts && typeof opts.onEvent === 'function' ? opts.onEvent : null;
+  const emitStatus = (text) => {
+    if (onEvent) {
+      try {
+        onEvent('status', { text });
+      } catch {
+        /* a dead stream must never break the turn */
+      }
+    }
+  };
   const message = String((body && body.message) || '').trim();
   // Batch 89: a chat turn may carry image attachments (uploaded first via
   // uploadSiteChatImage). An image-only turn is valid; a turn with
@@ -345,18 +381,28 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     }
   });
 
-  // Stamp the turn linkage and prepare the model-bound image copies
-  // (downscaled data URLs) so the design loop can analyze the images.
+  // Stamp the turn linkage and prepare the model-bound attachment
+  // copies. Batch 174: prepared the Assistant chat's way
+  // (siteChatAttachments.buildTurnAttachments) — images become
+  // downscaled vision copies; text files are inlined and other
+  // kinds are described by metadata, both riding the model-facing
+  // message text via withAtt() below. The owner's raw message is
+  // untouched: transcripts, pending records and job instructions
+  // keep carrying exactly what the owner wrote.
   const turnRef = attachmentIds.length
     ? `turn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     : null;
   let modelImages = [];
+  let attachmentContext = '';
   if (attachmentRows.length) {
     domain.withDb(workspaceId, (db) =>
       chatAtt.linkToTurn(db, { leadId, ids: attachmentIds, websiteId: siteId, messageRef: turnRef })
     );
-    modelImages = await chatAtt.buildModelImages(attachmentRows);
+    const turnAtt = await chatAtt.buildTurnAttachments(attachmentRows);
+    modelImages = turnAtt.modelImages;
+    attachmentContext = [...turnAtt.texts, ...turnAtt.notes].filter(Boolean).join('\n\n');
   }
+  const withAtt = (t) => (attachmentContext ? `${String(t || '')}\n\n${attachmentContext}` : t);
 
   const pageSlug =
     body.pageSlug != null && String(body.pageSlug).trim() !== '' ? String(body.pageSlug).trim() : undefined;
@@ -431,10 +477,11 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
   // so a stale or tampered client can neither lose the thread
   // nor invent one.
   const serverHistory = domain.withDb(workspaceId, (db) => chatThread.listContextTail(db, leadId));
+  emitStatus('Reading your site…');
   const cls = await domain.withDb(workspaceId, async (db) =>
     museAgent.classifyPortalChatIntent(workspaceId, leadId, {
       db,
-      message,
+      message: withAtt(message),
       history: serverHistory,
       pending,
       hasImages: modelImages.length > 0,
@@ -497,11 +544,12 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
   const fetchPlan = async (specForPlan, rework) => {
     try {
       if (!museAgent || typeof museAgent.planPortalChange !== 'function') return null;
+      emitStatus('Planning the change…');
       const planned = await domain.withDb(workspaceId, async (db) =>
         museAgent.planPortalChange(workspaceId, leadId, {
           db,
-          message,
-          specText: specForPlan,
+          message: withAtt(message),
+          specText: withAtt(specForPlan),
           history: serverHistory,
           settled: settledNow,
           siteContext,
@@ -545,8 +593,17 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
   // single expression is the gate the batch93 suite negative-proofs.
   const isBig = !!(cls && cls.size === 'big');
 
-  const runLoop = async (loopOpts) =>
-    domain.withDb(workspaceId, async (db) =>
+  const runLoop = async (loopOpts) => {
+    // Batch 174: stage status, the design pipeline's analogue of
+    // the Assistant chat's per-tool status events.
+    emitStatus(
+      loopOpts && loopOpts.mode === 'build'
+        ? 'Updating your site…'
+        : loopOpts && loopOpts.mode === 'clarify'
+          ? 'Thinking…'
+          : 'Looking into that…'
+    );
+    return domain.withDb(workspaceId, async (db) =>
       museAgent.runPortalImproveLoop(workspaceId, leadId, {
         db,
         history: serverHistory,
@@ -554,8 +611,10 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
         images: modelImages,
         siteContext,
         ...loopOpts,
+        message: withAtt(loopOpts && loopOpts.message),
       })
     );
+  };
 
   // Queue a BIG change through the EXISTING design-job queue
   // (designJobs.createJob — the same queue the staff flow uses).
@@ -882,6 +941,7 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
   // is never reported as done).
   if (mode === 'build' && loop) {
     try {
+      emitStatus('Checking the result…');
       const siteCritic = require('./siteChatCritic');
       const chatPlanMod = require('./siteChatPlan');
       const renderForCritic = (slug) => {
@@ -1006,6 +1066,18 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}) {
     };
     if (reply) {
       reply += `\n\n— One bit of housekeeping: your earlier change request (“${expiredPending.requestText.slice(0, 90)}”) had been waiting over a week, so I let it go rather than act on a stale request. If you’d still like it, just tell me and we’ll start it fresh.`;
+    }
+  }
+
+  // Batch 174: stream the finished reply to a streaming caller
+  // (Assistant-chat chunking, streamReplyText above). The return
+  // payload below stays the authoritative copy the client
+  // finalizes the streamed bubble against.
+  if (onEvent && reply) {
+    try {
+      streamReplyText(onEvent, reply);
+    } catch {
+      /* a dead stream must never break the turn */
     }
   }
 

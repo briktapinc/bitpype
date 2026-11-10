@@ -106,7 +106,13 @@ const has = (hay, needle, label) => { assert.ok(hay.includes(needle), `${label} 
     // default for the poller, none for the bulk history render.
     has(js, 'const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 96;', 'near-bottom measured before append'); n += 1;
     has(js, "appendAgentBubble('user', text, pending, 'force');", 'own send forces follow'); n += 1;
-    has(js, "appendAgentBubble('assistant', reply, null, 'force');", 'direct reply forces follow'); n += 1;
+    // Batch 174 RE-PIN: the direct reply no longer appends a fresh
+    // bubble at response time — sendAgentChat creates the live
+    // assistant bubble up front (still 'force', so the reply still
+    // forces follow) and finalizes it from the done payload's
+    // reply through the shared markdown renderer.
+    has(js, "appendAgentBubble('assistant', '', null, 'force');", 'direct reply forces follow (live bubble, Batch 174)'); n += 1;
+    has(js, 'liveBody.innerHTML = assistantMd(reply);', 'reply finalizes the live bubble (Batch 174)'); n += 1;
     has(js, "appendAgentBubble(m.role === 'user' ? 'user' : 'assistant', m.content, null, 'none');", 'history render does not scroll per bubble'); n += 1;
     has(js, 'snapToBottom', 'history snap-to-bottom helper present'); n += 1;
     has(js, 'IntersectionObserver', 'history snap repeats when the hidden-at-boot list becomes visible'); n += 1;
@@ -163,6 +169,16 @@ const has = (hay, needle, label) => { assert.ok(hay.includes(needle), `${label} 
   app.post('/api/v1/portal/site/agent-chat', (_q, r) =>
     r.json({ ok: true, data: { reply: 'Done — I made that change.', mutated: false } })
   );
+  // Batch 174: the client streams now — the stub speaks the SSE
+  // protocol (status / delta / done) with the same reply text, so
+  // the scroll assertions below measure the same user outcome.
+  app.post('/api/v1/portal/site/agent-chat/stream', (_q, r) => {
+    r.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+    r.write('event: status\ndata: {"text":"Updating your site…"}\n\n');
+    r.write('event: delta\ndata: {"text":"Done — I made that change."}\n\n');
+    r.write('event: done\ndata: {"reply":"Done — I made that change.","mutated":false}\n\n');
+    r.end();
+  });
   app.use('/api/v1/portal', (_q, r) =>
     r.json({ ok: true, data: { plan: 'standard', plans: [], forms: [], modules: [], contacts: [], accounts: [], previewUrl: null } })
   );

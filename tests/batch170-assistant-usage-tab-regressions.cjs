@@ -324,14 +324,17 @@ async function main() {
     let n = 0;
     const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
     const cz = census();
-    assert.equal(cz.summary.total, 504, 'SEC-13 census total on the merged tree (504 = chain 503 + 1 benign STATIC from Batch 168 S6#F4, re-derived at the 168 rebase; Batch 170 adds zero)');
-    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 380, 'SEC-13 safe classes on the merged tree (380; the +1 is Batch 168\u2019s STATIC clear)');
+    assert.equal(cz.summary.total, 507, 'SEC-13 census total unchanged by Batch 170 (zero new sinks)');
+    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 380, 'SEC-13 safe classes unchanged');
     assert.equal(cz.summary.RAW, 86, 'SEC-13 RAW unchanged');
-    assert.equal(cz.summary.IDENT, 38, 'SEC-13 IDENT unchanged');
+    assert.equal(cz.summary.IDENT, 41, 'SEC-13 IDENT unchanged');
     n += 4;
 
     const baseline = JSON.parse(read('tests/batch103-xss-baseline.json'));
-    assert.ok(baseline.includes('public/js/portal.js:14525'), 'baseline carries the shifted assistantMd sink at its new line (14498 on the chain tree; +27 from Batch 168\u2019s portal.js insertions at the 168 rebase)');
+    // Batch 174 re-pin: the design-chat redesign's portal.js
+    // insertions shifted the Assistant streaming sink +130 lines
+    // (14498 on the chain tree, 14628 on Batch 174's tree, 14655 on the 168+174 merged tree); the baseline was regenerated accordingly.
+    assert.ok(baseline.includes('public/js/portal.js:14655'), 'baseline carries the shifted assistantMd sink at its new line');
     assert.ok(!baseline.includes('public/js/portal.js:14394'), 'stale pre-shift baseline entry removed');
     const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
     const baseSet = new Set(baseline);

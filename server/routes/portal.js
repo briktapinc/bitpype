@@ -1310,6 +1310,106 @@ router.post('/site/standalone-backup', requireClient, actionLimit, async (req, r
  * in the site's transcript. Gate errors fail OPEN (chat stays up;
  * accounting resumes when the gate recovers).
  */
+// Batch 174 — one design-chat turn, transport-agnostic: the
+// daily-cap gate (fail-open), the pipeline run (optionally
+// streamed via onEvent), then the Batch 94/100 bookkeeping
+// (transcript record + rolling summary) BOTH transports share,
+// so a turn is recorded exactly once whichever route carried it.
+// Behaviour is byte-for-byte the pre-174 JSON route's; the
+// streaming route below only changes how the turn is delivered.
+async function runSiteChatTurnForPortal(req, onEvent) {
+  let gate = null;
+  try {
+    gate = await portal.gateSiteChatRequest(req.client.workspace_id, req.client.lead_id, {
+      userType: req.client.userType,
+    });
+  } catch (gateErr) {
+    console.warn('[portal] chat daily-limit gate failed (failing open):', gateErr.message);
+  }
+  let data;
+  if (gate && !gate.allowed) {
+    data = {
+      mode: 'limit',
+      reply: portal.chatLimitReplyText(gate),
+      mutated: false,
+      published: false,
+      previewUrl: null,
+      pendingClarification: false,
+      pendingExpired: null,
+      chatUsage: { used: gate.used, limit: gate.limit },
+    };
+    // The Assistant chat's capped path emits its reply as one
+    // delta before done — the limit turn streams the same way.
+    if (onEvent) onEvent('delta', { text: data.reply });
+  } else {
+    /* Batch 168 (S5#4), ported into the shared helper at the
+     * Batch 174 rebase: a turn that THROWS (classifier/budget/
+     * improve-loop failure inside runSiteAgentChat) used to skip
+     * the history recording below entirely — the owner's message
+     * vanished from the saved thread, breaking the standing
+     * save-everything rule for chat exactly on the turns that
+     * went wrong. Record the user message + the same failure
+     * text the owner is about to see, then rethrow so the
+     * response is unchanged. Recording stays best-effort. */
+    try {
+      data = await portal.runSiteAgentChat(req.client.workspace_id, req.client.lead_id, req.body || {}, onEvent ? { onEvent } : {});
+    } catch (turnErr) {
+      try {
+        const body = req.body || {};
+        const userText =
+          String(body.message || '').trim() ||
+          (Array.isArray(body.attachmentIds) && body.attachmentIds.length ? '[Image attached]' : '');
+        if (userText) {
+          await portal.recordSiteChatTurn(req.client.workspace_id, req.client.lead_id, {
+            userText,
+            assistantText: String((turnErr && turnErr.message) || 'The AI could not complete that just now.'),
+          });
+        }
+      } catch (histErr) {
+        console.warn('[portal] chat failure-turn record failed:', histErr.message);
+      }
+      throw turnErr;
+    }
+    if (gate && gate.limit != null) {
+      data.chatUsage = { used: gate.used, limit: gate.limit };
+    }
+  }
+  // Batch 94 — save the completed turn into THIS site's thread
+  // so the chat window can show its recent history on open.
+  // Best-effort: a history write must never fail the chat.
+  let recordedIds = [];
+  let recordedUserText = '';
+  try {
+    const body = req.body || {};
+    const userText =
+      String(body.message || '').trim() ||
+      (Array.isArray(body.attachmentIds) && body.attachmentIds.length ? '[Image attached]' : '');
+    recordedUserText = userText;
+    const rec = await portal.recordSiteChatTurn(req.client.workspace_id, req.client.lead_id, {
+      userText,
+      assistantText: data && data.reply ? String(data.reply) : '',
+    });
+    recordedIds = (rec && rec.ids) || [];
+  } catch (histErr) {
+    console.warn('[portal] chat history record failed:', histErr.message);
+  }
+  // Batch 100 — fold the turn into this site's rolling
+  // summary (settled facts, changes applied, open items),
+  // citing the recorded message ids. Best-effort, same rule.
+  try {
+    if (data && data.mode !== 'limit') {
+      await portal.updateSiteChatSummary(req.client.workspace_id, req.client.lead_id, {
+        userText: recordedUserText,
+        result: data,
+        ids: recordedIds,
+      });
+    }
+  } catch (sumErr) {
+    console.warn('[portal] chat summary update failed:', sumErr.message);
+  }
+  return data;
+}
+
 router.post('/site/agent-chat', requireClient, agentChatLimit, async (req, res) => {
   try {
     if (
@@ -1318,94 +1418,47 @@ router.post('/site/agent-chat', requireClient, agentChatLimit, async (req, res) 
     ) {
       return res.status(403).json({ ok: false, error: 'FORBIDDEN', code: 'FORBIDDEN' });
     }
-    let gate = null;
-    try {
-      gate = await portal.gateSiteChatRequest(req.client.workspace_id, req.client.lead_id, {
-        userType: req.client.userType,
-      });
-    } catch (gateErr) {
-      console.warn('[portal] chat daily-limit gate failed (failing open):', gateErr.message);
-    }
-    let data;
-    if (gate && !gate.allowed) {
-      data = {
-        mode: 'limit',
-        reply: portal.chatLimitReplyText(gate),
-        mutated: false,
-        published: false,
-        previewUrl: null,
-        pendingClarification: false,
-        pendingExpired: null,
-        chatUsage: { used: gate.used, limit: gate.limit },
-      };
-    } else {
-      /* Batch 168 (S5#4): a turn that THROWS (classifier/budget/
-       * improve-loop failure inside runSiteAgentChat) used to skip
-       * the history recording below entirely — the owner's message
-       * vanished from the saved thread, breaking the standing
-       * save-everything rule for chat exactly on the turns that
-       * went wrong. Record the user message + the same failure
-       * text the owner is about to see, then rethrow so the
-       * response is unchanged. Recording stays best-effort. */
-      try {
-        data = await portal.runSiteAgentChat(req.client.workspace_id, req.client.lead_id, req.body || {});
-      } catch (turnErr) {
-        try {
-          const body = req.body || {};
-          const userText =
-            String(body.message || '').trim() ||
-            (Array.isArray(body.attachmentIds) && body.attachmentIds.length ? '[Image attached]' : '');
-          if (userText) {
-            await portal.recordSiteChatTurn(req.client.workspace_id, req.client.lead_id, {
-              userText,
-              assistantText: String((turnErr && turnErr.message) || 'The AI could not complete that just now.'),
-            });
-          }
-        } catch (histErr) {
-          console.warn('[portal] chat failure-turn record failed:', histErr.message);
-        }
-        throw turnErr;
-      }
-      if (gate && gate.limit != null) {
-        data.chatUsage = { used: gate.used, limit: gate.limit };
-      }
-    }
-    // Batch 94 — save the completed turn into THIS site's thread
-    // so the chat window can show its recent history on open.
-    // Best-effort: a history write must never fail the chat.
-    let recordedIds = [];
-    let recordedUserText = '';
-    try {
-      const body = req.body || {};
-      const userText =
-        String(body.message || '').trim() ||
-        (Array.isArray(body.attachmentIds) && body.attachmentIds.length ? '[Image attached]' : '');
-      recordedUserText = userText;
-      const rec = await portal.recordSiteChatTurn(req.client.workspace_id, req.client.lead_id, {
-        userText,
-        assistantText: data && data.reply ? String(data.reply) : '',
-      });
-      recordedIds = (rec && rec.ids) || [];
-    } catch (histErr) {
-      console.warn('[portal] chat history record failed:', histErr.message);
-    }
-    // Batch 100 — fold the turn into this site's rolling
-    // summary (settled facts, changes applied, open items),
-    // citing the recorded message ids. Best-effort, same rule.
-    try {
-      if (data && data.mode !== 'limit') {
-        await portal.updateSiteChatSummary(req.client.workspace_id, req.client.lead_id, {
-          userText: recordedUserText,
-          result: data,
-          ids: recordedIds,
-        });
-      }
-    } catch (sumErr) {
-      console.warn('[portal] chat summary update failed:', sumErr.message);
-    }
+    const data = await runSiteChatTurnForPortal(req, null);
     ok(res, data);
   } catch (e) {
     fail(res, e, 500);
+  }
+});
+
+// Batch 174 — the design chat streams like the Assistant chat:
+// POST the same body, read SSE 'status' (pipeline stage),
+// 'delta' (reply chunks) and a final 'done' carrying the exact
+// payload the JSON route returns (mode, preview html, optimistic
+// patch, queue status, usage) — the client finalizes the
+// streamed bubble and refreshes the preview from it. Errors
+// after the headers are 'error' events, the Assistant pattern.
+router.post('/site/agent-chat/stream', requireClient, agentChatLimit, async (req, res) => {
+  if (
+    Number(req.session.clientLeadId) !== Number(req.client.lead_id) ||
+    Number(req.session.clientWorkspaceId) !== Number(req.client.workspace_id)
+  ) {
+    return res.status(403).json({ ok: false, error: 'FORBIDDEN', code: 'FORBIDDEN' });
+  }
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  const send = (type, payload) => {
+    try {
+      res.write(`event: ${type}\ndata: ${JSON.stringify(payload || {})}\n\n`);
+    } catch {
+      /* client went away */
+    }
+  };
+  try {
+    const data = await runSiteChatTurnForPortal(req, send);
+    send('done', data);
+  } catch (e) {
+    send('error', { error: e.message || 'Design chat failed', code: e.code || 'ERROR' });
+  } finally {
+    res.end();
   }
 });
 
@@ -1455,11 +1508,14 @@ router.get('/site/agent-chat/updates', requireClient, async (req, res) => {
   }
 });
 
-// Batch 89 — design-chat image attachments. Upload is base64-in-JSON
-// (codebase convention), validated by magic bytes in clientPortal /
-// siteChatAttachments (PNG/JPG/WebP/GIF, ≤10 MB, no SVG). There is NO
-// public URL for an attachment: the fetch route re-checks the portal
-// session's lead on every request, and another lead's id answers 404.
+// Batch 89 — design-chat attachments. Upload is base64-in-JSON
+// (codebase convention), validated by content sniffing in
+// clientPortal / siteChatAttachments. Batch 174: the Assistant
+// chat's full kind set (images, MP4/MOV/WebM video, PDF, text
+// files) with its caps and refusal copy; SVG still refused. There
+// is NO public URL for an attachment: the fetch route re-checks
+// the portal session's lead on every request, and another lead's
+// id answers 404.
 router.post('/site/agent-chat/attachments', requireClient, chatUploadLimit, async (req, res) => {
   try {
     if (

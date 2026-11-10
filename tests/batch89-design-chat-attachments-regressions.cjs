@@ -233,7 +233,11 @@ function loadChatAtt() {
           originalName: 'evil.png',
         })
       ),
-      (e) => e.code === 'INVALID_IMAGE'
+      // Batch 174 RE-PIN: the refusal code is now INVALID_FILE —
+      // attachments validate through the Assistant chat's sniffer
+      // (assistantChat.sniffAttachment), whose coded refusal the
+      // design chat shares. The rejection itself is unchanged.
+      (e) => e.code === 'INVALID_FILE'
     );
     n++;
     // SVG rejected (script risk — excluded by design).
@@ -246,7 +250,7 @@ function loadChatAtt() {
           originalName: 'vector.svg',
         })
       ),
-      (e) => e.code === 'INVALID_IMAGE'
+      (e) => e.code === 'INVALID_FILE' // Batch 174 re-pin (see above)
     );
     n++;
     // Oversize rejected before sniffing matters (PNG magic + 10MB+1).
@@ -829,7 +833,7 @@ function loadChatAtt() {
         body: { data: 'data:image/png;base64,' + Buffer.from('definitely not an image').toString('base64'), name: 'fake.png' },
       });
       assert.equal(fake.status, 400);
-      assert.equal(fake.json.code, 'INVALID_IMAGE');
+      assert.equal(fake.json.code, 'INVALID_FILE'); // Batch 174 re-pin: shared Assistant-chat sniffer code
       const svg = await req('POST', '/api/v1/portal/site/agent-chat/attachments', {
         cookie: cookie1,
         body: {
@@ -840,7 +844,7 @@ function loadChatAtt() {
         },
       });
       assert.equal(svg.status, 400);
-      assert.equal(svg.json.code, 'INVALID_IMAGE');
+      assert.equal(svg.json.code, 'INVALID_FILE'); // Batch 174 re-pin: shared Assistant-chat sniffer code
       n += 4;
 
       // D7 agent-chat validation: image-only passes the message gate

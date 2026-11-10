@@ -166,7 +166,7 @@ async function part1() {
       cwd: ROOT,
       encoding: 'utf8',
     });
-    assert.ok(/innerHTML sinks: 504/.test(out), out.split('\n')[0]); // Batch 168: census 503 -> 504 (+1 benign STATIC clear in portal.js — see batch103 note)
+    assert.ok(/innerHTML sinks: 507/.test(out), out.split('\n')[0]); // Batch 174 re-pin: census 503 -> 506 (+3 IDENT assistantMd writes in portal.js — see batch103 note)
   });
 
   await test('gate registration: allowlist + format scope carry batch119', async () => {

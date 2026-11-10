@@ -29,6 +29,21 @@
  * portal logo upload in clientPortal.js). PNG/JPEG/WebP/GIF only — SVG is
  * refused (script risk). Decoded size cap 10 MB.
  *
+ * Batch 174 — attachment KINDS reach Assistant-chat parity (Ely
+ * 2026-11-09: "improve with AI chat should work exactly like the
+ * assistant chat"). The design chat now accepts the Assistant
+ * chat's full set — images, videos (MP4/MOV/WebM), PDFs and text
+ * files (TXT/MD/CSV/JSON) — validated by the Assistant chat's own
+ * sniffer (assistantChat.sniffAttachment, which itself reuses this
+ * module's image sniff) with the Assistant chat's caps per kind
+ * (image 10 MB, video 50 MB, file 10 MB) and its refusal messages.
+ * Storage, the lead-scoping predicate and the serving route are
+ * unchanged: kind is derived from the stored mime, so no schema
+ * change was needed. Images still go to the model as vision input
+ * (buildModelImages); text files are inlined and other kinds are
+ * described to the model by name/kind/size — the Assistant chat's
+ * exact treatment (buildTurnAttachments below).
+ *
  * Deletion: chat history itself is browser-held (never persisted), so
  * there is no server-side conversation to delete. Attachments follow the
  * lead: leadEngine.deleteLead drops the rows in its sweep and unlinks the
@@ -40,9 +55,26 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+// Batch 174: the Assistant chat's per-kind caps, verbatim.
+const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const TEXT_INLINE_CAP = 8000;
 const MAX_PER_MESSAGE = 4;
 const MODEL_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
 const MIME_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' };
+const VIDEO_MIME_EXT = { 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm' };
+
+/** Attachment kind from the stored mime (Batch 174 — no kind column needed). */
+function kindForMime(mime) {
+  const m = String(mime || '');
+  if (m.startsWith('image/')) return 'image';
+  if (m.startsWith('video/')) return 'video';
+  return 'file';
+}
+
+function capForKind(kind) {
+  return kind === 'video' ? MAX_VIDEO_BYTES : kind === 'image' ? MAX_IMAGE_BYTES : MAX_FILE_BYTES;
+}
 
 function coded(code, message) {
   return Object.assign(new Error(message), { code });
@@ -134,7 +166,8 @@ function publicRow(row) {
     id: row.id,
     leadId: row.lead_id,
     websiteId: row.website_id || null,
-    name: row.original_name || 'image',
+    name: row.original_name || 'file',
+    kind: kindForMime(row.mime),
     mime: row.mime,
     sizeBytes: row.size_bytes,
     messageRef: row.message_ref || null,
@@ -150,17 +183,33 @@ function publicRow(row) {
  */
 async function saveAttachment(db, { workspaceId, leadId, websiteId = null, buffer, originalName } = {}) {
   if (!Buffer.isBuffer(buffer) || !buffer.length) {
-    throw coded('INVALID', 'Choose an image to attach.');
+    throw coded('INVALID', 'Choose a file to attach.');
   }
-  if (buffer.length > MAX_IMAGE_BYTES) {
-    throw coded('TOO_LARGE', 'That image is too large — the limit is 10 MB.');
+  // Batch 174: the Assistant chat's sniffer + caps + refusal copy,
+  // verbatim — an unsupported type is refused the Assistant chat's
+  // way because it IS the Assistant chat's validation.
+  const sniff = require('./assistantChat').sniffAttachment(buffer, originalName);
+  if (!sniff) {
+    throw coded(
+      'INVALID_FILE',
+      'That file type is not supported. Attach images (PNG, JPG, WebP, GIF), videos (MP4, MOV, WebM), PDFs, or text files (TXT, MD, CSV, JSON).'
+    );
   }
-  const mime = sniffImageMime(buffer);
-  if (!mime) {
-    throw coded('INVALID_IMAGE', 'That file is not a supported image. Use a PNG, JPG, WebP or GIF.');
+  const cap = capForKind(sniff.kind);
+  if (buffer.length > cap) {
+    throw coded('TOO_LARGE', `That ${sniff.kind} is too large — the limit is ${Math.round(cap / (1024 * 1024))} MB.`);
   }
+  const mime = sniff.mime;
   ensureTable(db);
-  const ext = MIME_EXT[mime];
+  const displayName = sanitizeFileName(originalName);
+  const ext =
+    sniff.kind === 'image'
+      ? MIME_EXT[mime] || 'bin'
+      : sniff.kind === 'video'
+        ? VIDEO_MIME_EXT[mime] || 'bin'
+        : mime === 'application/pdf'
+          ? 'pdf'
+          : displayName.split('.').pop().toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) || 'txt';
   const base = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
   const storedName = `${base}.${ext}`;
   const dirRel = relDir(workspaceId, leadId);
@@ -170,19 +219,21 @@ async function saveAttachment(db, { workspaceId, leadId, websiteId = null, buffe
   fs.mkdirSync(dirAbs, { recursive: true });
   fs.writeFileSync(path.join(dirAbs, storedName), buffer);
 
-  // Thumbnail is best-effort: the chat renders the full image scaled by
-  // CSS when no thumb exists.
+  // Thumbnail is best-effort (images only): the chat renders the
+  // full image scaled by CSS when no thumb exists.
   let thumbRel = null;
-  try {
-    const sharp = require('sharp');
-    const thumbName = `${base}-thumb.jpg`;
-    await sharp(buffer)
-      .resize({ width: 360, height: 360, fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality: 72 })
-      .toFile(path.join(dirAbs, thumbName));
-    thumbRel = path.join(dirRel, thumbName);
-  } catch {
-    thumbRel = null;
+  if (sniff.kind === 'image') {
+    try {
+      const sharp = require('sharp');
+      const thumbName = `${base}-thumb.jpg`;
+      await sharp(buffer)
+        .resize({ width: 360, height: 360, fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 72 })
+        .toFile(path.join(dirAbs, thumbName));
+      thumbRel = path.join(dirRel, thumbName);
+    } catch {
+      thumbRel = null;
+    }
   }
 
   const info = db
@@ -252,7 +303,7 @@ function normalizeAttachmentIds(raw) {
     if (Number.isInteger(n) && n > 0 && !ids.includes(n)) ids.push(n);
   }
   if (ids.length > MAX_PER_MESSAGE) {
-    throw coded('TOO_MANY', `Up to ${MAX_PER_MESSAGE} images per message.`);
+    throw coded('TOO_MANY', `Up to ${MAX_PER_MESSAGE} attachments per message.`);
   }
   return ids;
 }
@@ -263,7 +314,7 @@ function loadForChat(db, { leadId, ids } = {}) {
   for (const id of ids || []) {
     const row = getAttachmentRow(db, leadId, id);
     if (!row) {
-      throw coded('INVALID', 'An attached image could not be found for this conversation.');
+      throw coded('INVALID', 'An attached file could not be found for this conversation.');
     }
     rows.push(row);
   }
@@ -319,6 +370,41 @@ async function buildModelImages(rows) {
   return out;
 }
 
+/**
+ * Batch 174 — a chat turn's attachments, prepared for the model
+ * exactly the way the Assistant chat prepares them
+ * (assistantChat.buildTurnAttachments): images become vision input
+ * (buildModelImages), text files are inlined (capped), and every
+ * other kind is described by name/kind/size — the runtime carries
+ * no ffmpeg and no PDF parser, so no frame or PDF text extraction
+ * is claimed anywhere, same as the Assistant chat.
+ */
+async function buildTurnAttachments(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const imageRows = list.filter((r) => kindForMime(r.mime) === 'image');
+  const modelImages = imageRows.length ? await buildModelImages(imageRows) : [];
+  const texts = [];
+  const notes = [];
+  for (const row of list) {
+    const kind = kindForMime(row.mime);
+    if (kind === 'image') continue;
+    const abs = absFromRel(row.stored_rel);
+    if (row.mime === 'text/plain' || row.mime === 'text/csv' || row.mime === 'application/json') {
+      try {
+        const text = fs.readFileSync(abs, 'utf8').slice(0, TEXT_INLINE_CAP);
+        texts.push(`--- attached file "${row.original_name}" ---\n${text}`);
+        continue;
+      } catch {
+        /* fall through to the metadata note */
+      }
+    }
+    notes.push(
+      `[Attached ${kind === 'video' ? 'video' : 'file'}: "${row.original_name}" (${row.mime}, ${Math.max(1, Math.round(Number(row.size_bytes) / 1024))} KB) — stored with this conversation. You cannot play or read its contents directly; work from the user's description and the file's name/metadata.]`
+    );
+  }
+  return { modelImages, texts, notes };
+}
+
 /** Best-effort file removal for rows about to be / just deleted (lead sweep). */
 function deleteFilesForRows(rows) {
   for (const row of rows || []) {
@@ -338,7 +424,12 @@ function deleteFilesForRows(rows) {
 
 module.exports = {
   MAX_IMAGE_BYTES,
+  MAX_VIDEO_BYTES,
+  MAX_FILE_BYTES,
+  TEXT_INLINE_CAP,
   MAX_PER_MESSAGE,
+  kindForMime,
+  capForKind,
   sniffImageMime,
   sanitizeFileName,
   ensureTable,
@@ -350,6 +441,7 @@ module.exports = {
   loadForChat,
   linkToTurn,
   buildModelImages,
+  buildTurnAttachments,
   deleteFilesForRows,
   publicRow,
   // Batch 168: exported for the regression suite (F10 storage pin).
