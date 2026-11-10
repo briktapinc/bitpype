@@ -129,12 +129,15 @@ async function main() {
     );
     n++;
     assert.equal(registry.CATEGORIES.length, 8, 'eight categories at launch');
-    assert.equal(registry.THEMES.length, 8, 'one theme per category at launch');
+    // Batch 175 pin update: the 20 staged themes were promoted into the
+    // registry (28 total), so the launch-era "one theme per category"
+    // pin is superseded — the launch theme now leads each category row.
+    assert.equal(registry.THEMES.length, 28, 'registry holds the 8 launch + 20 Batch 175 promoted themes');
     const catalog = registry.publicCatalog();
     assert.equal(catalog.length, 8, 'public catalog exposes all eight categories');
     assert.equal(catalog[0].label, 'Directory', 'first category is Directory');
     for (const cat of catalog) {
-      assert.equal(cat.themes.length, 1, `category ${cat.id} has its launch theme`);
+      assert.ok(cat.themes.length >= 1, `category ${cat.id} has its launch theme`);
       const t = cat.themes[0];
       assert.ok(t.id && t.name && t.tagline && t.thumbnail, `theme ${t.id} carries id/name/tagline/thumbnail`);
       assert.ok(Array.isArray(t.pages) && t.pages.length >= 3, `theme ${t.id} lists its pages`);

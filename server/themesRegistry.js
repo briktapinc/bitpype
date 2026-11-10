@@ -282,6 +282,543 @@ const THEMES = [
       },
     ],
   },
+  // Batch 175 — the 20 staged themes (daily theme duty, 2026-11-09/10)
+  // promoted into the live registry. Recipes transcribed from each
+  // theme's staged recipe.md; where a compact recipe named a module
+  // type in its section list (menu / courses / blog / bookings), the
+  // section recorded is the one the full recipes use for that content
+  // (cards / cta) and the module rides in the page's module list —
+  // the same shape as the launch eight above.
+  {
+    id: 'directory-v2',
+    category: 'directory',
+    name: 'Berks Auto Care Finder',
+    tagline: 'Dark charcoal + amber search-first directory of independent auto repair shops.',
+    thumbnail: '/themes/directory-v2.png',
+    siteShape: 'multipage',
+    heroStyle: 'Search-style hero band — headline over a two-field directory search bar (service + town) with amber category pills.',
+    pages: [
+      {
+        name: 'Home',
+        sections: ['nav', 'hero', 'services', 'columns', 'benefits', 'text', 'cta', 'footer'],
+        modules: ['directory', 'categories', 'newsletter'],
+      },
+      {
+        name: 'Listing Profile',
+        sections: ['nav', 'heading', 'text_image', 'reviews', 'faq', 'cta', 'footer'],
+        modules: ['directory', 'calltracking'],
+      },
+      {
+        name: 'Town',
+        sections: ['nav', 'heading', 'cards', 'cta', 'footer'],
+        modules: ['directory', 'categories'],
+      },
+    ],
+  },
+  {
+    id: 'directory-v3',
+    category: 'directory',
+    name: 'Keystone Home Pros Directory',
+    tagline: 'Light cream sidebar-layout directory of home contractors with featured-pro rows.',
+    thumbnail: '/themes/directory-v3.png',
+    siteShape: 'multipage',
+    heroStyle: 'Serif headline with trade pills and a dark-green estimate intro card; main list beside a trades-index sidebar.',
+    pages: [
+      {
+        name: 'Home',
+        sections: ['nav', 'hero', 'columns', 'services', 'cta', 'footer'],
+        modules: ['directory', 'categories', 'estimate', 'googlereviews'],
+      },
+      {
+        name: 'Pro Profile',
+        sections: ['nav', 'heading', 'text_image', 'reviews', 'faq', 'cta', 'footer'],
+        modules: ['directory', 'googlereviews'],
+      },
+      {
+        name: 'Trade',
+        sections: ['nav', 'heading', 'cards', 'text', 'cta', 'footer'],
+        modules: ['directory', 'categories', 'estimate'],
+      },
+    ],
+  },
+  {
+    id: 'directory-v4',
+    category: 'directory',
+    name: 'Oley Valley Electricians Directory',
+    tagline: 'Dark slate + amber search-first directory of electricians, by service and town.',
+    thumbnail: '/themes/directory-v4.png',
+    siteShape: 'multipage',
+    heroStyle: 'Search panel hero with service and town fields over a dark slate ground, amber accents, horizontal listing rows below.',
+    pages: [
+      {
+        name: 'Home',
+        sections: ['nav', 'hero', 'columns', 'cards', 'cta', 'footer'],
+        modules: ['directory', 'categories', 'estimate'],
+      },
+      {
+        name: 'Detail Pages',
+        sections: ['nav', 'heading', 'cards', 'cta', 'footer'],
+        modules: ['directory', 'categories', 'estimate'],
+      },
+    ],
+  },
+  {
+    id: 'store-v2',
+    category: 'store',
+    name: 'Fade & Supply Co.',
+    tagline: 'Black + off-white sharp editorial barber-supply store with a horizontal product row.',
+    thumbnail: '/themes/store-v2.png',
+    siteShape: 'multipage',
+    heroStyle: 'Full-black hero with an oversized serif headline and dual CTAs, announcement banner above the nav.',
+    pages: [
+      {
+        name: 'Home',
+        sections: ['banner', 'nav', 'hero', 'html', 'heading', 'cards', 'text_image', 'benefits', 'cta', 'footer'],
+        modules: ['categories', 'ecommerce', 'offers', 'newsletter'],
+      },
+      {
+        name: 'Shop',
+        sections: ['nav', 'banner', 'heading', 'cards', 'cta', 'footer'],
+        modules: ['ecommerce', 'categories'],
+      },
+      {
+        name: 'Product',
+        sections: ['nav', 'text_image', 'benefits', 'reviews', 'cta', 'footer'],
+        modules: ['ecommerce'],
+      },
+      {
+        name: 'Checkout',
+        sections: ['nav', 'heading', 'html', 'footer'],
+        modules: ['checkout'],
+      },
+    ],
+  },
+  {
+    id: 'store-v3',
+    category: 'store',
+    name: 'Perkiomen Garden Supply',
+    tagline: 'Light sage and cream garden store: seasonal hero panel, product grid, workshops strip.',
+    thumbnail: '/themes/store-v3.png',
+    siteShape: 'multipage',
+    heroStyle: 'Seasonal hero panel with badge and dual pill CTAs beside a seasonal image panel, announcement banner above.',
+    pages: [
+      {
+        name: 'Home',
+        sections: ['banner', 'nav', 'hero', 'heading', 'cards', 'heading', 'columns', 'cta', 'footer'],
+        modules: ['categories', 'ecommerce', 'events', 'newsletter'],
+      },
+      {
+        name: 'Shop',
+        sections: ['nav', 'banner', 'heading', 'cards', 'cta', 'footer'],
+        modules: ['ecommerce', 'categories'],
+      },
+      {
+        name: 'Product',
+        sections: ['nav', 'text_image', 'benefits', 'reviews', 'cta', 'footer'],
+        modules: ['ecommerce'],
+      },
+      {
+        name: 'Events',
+        sections: ['nav', 'heading', 'cards', 'faq', 'cta', 'footer'],
+        modules: ['events'],
+      },
+      {
+        name: 'Checkout',
+        sections: ['nav', 'heading', 'html', 'footer'],
+        modules: ['checkout'],
+      },
+    ],
+  },
+  {
+    id: 'store-v4',
+    category: 'store',
+    name: 'Reading Auto Care Store',
+    tagline: 'Light grey + red industrial auto-care store with a fitment finder in the hero.',
+    thumbnail: '/themes/store-v4.png',
+    siteShape: 'multipage',
+    heroStyle: 'Hero with a fitment-finder panel under an announcement bar; category tiles and a six-product grid below.',
+    pages: [
+      {
+        name: 'Home',
+        sections: ['nav', 'banner', 'hero', 'cards', 'columns', 'cta', 'footer'],
+        modules: ['ecommerce', 'categories', 'newsletter'],
+      },
+      {
+        name: 'Detail Pages',
+        sections: ['nav', 'heading', 'cards', 'cta', 'footer'],
+        modules: ['ecommerce', 'categories', 'checkout', 'newsletter'],
+      },
+    ],
+  },
+  {
+    id: 'services-v2',
+    category: 'services',
+    name: 'Schuylkill Flow Plumbing',
+    tagline: 'Deep navy + cyan plumbing site: estimate form in the hero and an emergency banner.',
+    thumbnail: '/themes/services-v2.png',
+    siteShape: 'multipage',
+    heroStyle: 'Left-aligned hero — headline and service points on the left, a white estimate-form card on the right, cyan emergency strip directly under.',
+    pages: [
+      {
+        name: 'Home',
+        sections: ['nav', 'hero', 'banner', 'heading', 'services', 'columns', 'text_image', 'faq', 'cta', 'footer'],
+        modules: ['estimate', 'calltracking', 'googlereviews', 'faq', 'bookings'],
+      },
+      {
+        name: 'Services',
+        sections: ['nav', 'heading', 'services', 'text', 'cta', 'footer'],
+        modules: [],
+      },
+      {
+        name: 'Book / Contact',
+        sections: ['nav', 'heading', 'html', 'faq', 'footer'],
+        modules: ['estimate', 'faq'],
+      },
+    ],
+  },
+  {
+    id: 'services-v3',
+    category: 'services',
+    name: 'Berks Ridge Roofing',
+    tagline: 'Warm cream + rust serif roofing site with an inspection-request card in the hero.',
+    thumbnail: '/themes/services-v3.png',
+    siteShape: 'multipage',
+    heroStyle: 'Split hero — serif headline on the left, an inspection-request card on the right, on warm cream with rust accents.',
+    pages: [
+      {
+        name: 'Home',
+        sections: ['nav', 'hero', 'services', 'columns', 'faq', 'cta', 'footer'],
+        modules: ['estimate', 'bookings', 'calltracking', 'faq'],
+      },
+      {
+        name: 'Detail Pages',
+        sections: ['nav', 'heading', 'cards', 'cta', 'footer'],
+        modules: ['estimate', 'bookings', 'calltracking', 'faq'],
+      },
+    ],
+  },
+  {
+    id: 'services-v4',
+    category: 'services',
+    name: 'Antietam Tree Care',
+    tagline: 'Deep green + cream centered-hero tree service with a six-service card grid.',
+    thumbnail: '/themes/services-v4.png',
+    siteShape: 'multipage',
+    heroStyle: 'Centered headline hero on deep green and cream, service-area split with town tags below.',
+    pages: [
+      {
+        name: 'Home',
+        sections: ['nav', 'hero', 'services', 'text_image', 'faq', 'cta', 'footer'],
+        modules: ['estimate', 'bookings', 'calltracking', 'faq', 'googlereviews'],
+      },
+      {
+        name: 'Detail Pages',
+        sections: ['nav', 'heading', 'cards', 'cta', 'footer'],
+        modules: ['estimate', 'bookings', 'calltracking', 'faq', 'googlereviews'],
+      },
+    ],
+  },
+  {
+    id: 'restaurant-v2',
+    category: 'restaurant',
+    name: 'Tulpehocken Table',
+    tagline: 'Warm cream + burgundy farm-to-table restaurant with a two-column seasonal menu.',
+    thumbnail: '/themes/restaurant-v2.png',
+    siteShape: 'multipage',
+    heroStyle: 'Centered serif hero on warm cream — overline, big headline, dual reservation and menu CTAs.',
+    pages: [
+      {
+        name: 'Home',
+        sections: ['nav', 'hero', 'heading', 'cards', 'text_image', 'cta', 'gallery', 'columns', 'html', 'footer'],
+        modules: ['menu', 'bookings', 'events', 'gallery', 'newsletter'],
+      },
+      {
+        name: 'Menu',
+        sections: ['nav', 'heading', 'cards', 'cta', 'footer'],
+        modules: ['menu'],
+      },
+      {
+        name: 'Catering & Private Events',
+        sections: ['nav', 'heading', 'text_image', 'gallery', 'faq', 'cta', 'footer'],
+        modules: ['events', 'bookings', 'gallery'],
+      },
+      {
+        name: 'Visit / Reserve',
+        sections: ['nav', 'heading', 'columns', 'html', 'footer'],
+        modules: ['newsletter', 'bookings'],
+      },
+    ],
+  },
+  {
+    id: 'restaurant-v3',
+    category: 'restaurant',
+    name: 'Penn Street Diner',
+    tagline: 'Retro cream diner with a teal and red masthead and a two-column menu.',
+    thumbnail: '/themes/restaurant-v3.png',
+    siteShape: 'multipage',
+    heroStyle: 'Centered masthead hero with a rule under it — retro diner wordmark, teal and red accents on cream.',
+    pages: [
+      {
+        name: 'Home',
+        sections: ['nav', 'hero', 'cards', 'columns', 'footer'],
+        modules: ['menu', 'bookings', 'socialfeed'],
+      },
+      {
+        name: 'Detail Pages',
+        sections: ['nav', 'heading', 'cards', 'cta', 'footer'],
+        modules: ['menu', 'bookings', 'socialfeed'],
+      },
+    ],
+  },
+  {
+    id: 'restaurant-v4',
+    category: 'restaurant',
+    name: 'Isla Reading Kitchen',
+    tagline: 'Dark-green tropical Puerto Rican kitchen with a coral and amber hero panel.',
+    thumbnail: '/themes/restaurant-v4.png',
+    siteShape: 'multipage',
+    heroStyle: 'Coral and amber hero panel on a dark-green tropical ground, dish grid and catering split below.',
+    pages: [
+      {
+        name: 'Home',
+        sections: ['nav', 'hero', 'cards', 'text_image', 'footer'],
+        modules: ['menu', 'bookings', 'gallery', 'socialfeed'],
+      },
+      {
+        name: 'Detail Pages',
+        sections: ['nav', 'heading', 'cards', 'cta', 'footer'],
+        modules: ['menu', 'bookings', 'gallery', 'socialfeed'],
+      },
+    ],
+  },
+  {
+    id: 'art-v2',
+    category: 'art',
+    name: 'Hawk Mountain Photography',
+    tagline: 'Minimal near-white gallery-first photography portfolio with generous whitespace.',
+    thumbnail: '/themes/art-v2.png',
+    siteShape: 'multipage',
+    heroStyle: 'Quiet left-aligned serif hero on near-white — kicker, headline and intro above a masonry-feel gallery grid.',
+    pages: [
+      {
+        name: 'Home',
+        sections: ['nav', 'hero', 'gallery', 'text_image', 'cards', 'banner', 'cta', 'footer'],
+        modules: ['gallery', 'photocapture'],
+      },
+      {
+        name: 'Portfolio',
+        sections: ['nav', 'heading', 'gallery', 'cta', 'footer'],
+        modules: ['gallery'],
+      },
+      {
+        name: 'Sessions',
+        sections: ['nav', 'heading', 'cards', 'faq', 'footer'],
+        modules: ['pricing', 'bookings'],
+      },
+      {
+        name: 'Contact',
+        sections: ['nav', 'heading', 'text', 'footer'],
+        modules: ['bookings'],
+      },
+    ],
+  },
+  {
+    id: 'art-v3',
+    category: 'art',
+    name: 'Colour & Coat Studio',
+    tagline: 'White minimal painter portfolio with a violet accent and a colour-swatch hero strip.',
+    thumbnail: '/themes/art-v3.png',
+    siteShape: 'multipage',
+    heroStyle: 'Colour-swatch hero strip on white with a violet accent; gallery grid organised by colour story below.',
+    pages: [
+      {
+        name: 'Home',
+        sections: ['nav', 'hero', 'gallery', 'services', 'about', 'cta', 'footer'],
+        modules: ['gallery', 'testimonials', 'bookings'],
+      },
+      {
+        name: 'Detail Pages',
+        sections: ['nav', 'heading', 'cards', 'cta', 'footer'],
+        modules: ['gallery', 'testimonials', 'bookings'],
+      },
+    ],
+  },
+  {
+    id: 'courses-v2',
+    category: 'courses',
+    name: 'Ledger Lab Academy',
+    tagline: 'Light indigo friendly academy for bookkeeping and tax-prep courses, search-first.',
+    thumbnail: '/themes/courses-v2.png',
+    siteShape: 'multipage',
+    heroStyle: 'Left-aligned split hero — pill label, headline and a course-search bar, with a learning-path mini card on the right.',
+    pages: [
+      {
+        name: 'Home',
+        sections: ['nav', 'hero', 'cards', 'columns', 'faq', 'html', 'cta', 'footer'],
+        modules: ['courses', 'faq', 'newsletter', 'members'],
+      },
+      {
+        name: 'Catalog',
+        sections: ['nav', 'heading', 'cards', 'faq', 'cta', 'footer'],
+        modules: ['courses', 'faq'],
+      },
+      {
+        name: 'Course Detail',
+        sections: ['nav', 'heading', 'text', 'cta', 'footer'],
+        modules: ['courses', 'pricing'],
+      },
+      {
+        name: 'Membership',
+        sections: ['nav', 'heading', 'cards', 'faq', 'footer'],
+        modules: ['pricing', 'members', 'faq'],
+      },
+    ],
+  },
+  {
+    id: 'courses-v3',
+    category: 'courses',
+    name: 'Keystone Coverage Academy',
+    tagline: 'Navy + gold professional academy with a stats panel and a course-row catalog.',
+    thumbnail: '/themes/courses-v3.png',
+    siteShape: 'multipage',
+    heroStyle: 'Navy hero with a gold stats panel; the catalog below is course rows, not cards.',
+    pages: [
+      {
+        name: 'Home',
+        sections: ['nav', 'hero', 'cards', 'columns', 'cta', 'footer'],
+        modules: ['courses', 'members', 'pricing', 'newsletter'],
+      },
+      {
+        name: 'Detail Pages',
+        sections: ['nav', 'heading', 'cards', 'cta', 'footer'],
+        modules: ['courses', 'members', 'pricing', 'newsletter'],
+      },
+    ],
+  },
+  {
+    id: 'events-v2',
+    category: 'events',
+    name: 'Blue Mountain Barn Events',
+    tagline: 'Rustic terracotta and cream barn venue with a date-check hero card.',
+    thumbnail: '/themes/events-v2.png',
+    siteShape: 'multipage',
+    heroStyle: 'Cream hero — headline and setting points beside a date-check card, terracotta rule and dark-brown header.',
+    pages: [
+      {
+        name: 'Home',
+        sections: ['nav', 'hero', 'heading', 'html', 'cards', 'gallery', 'columns', 'cta', 'footer'],
+        modules: ['events', 'bookings', 'gallery', 'menu', 'faq'],
+      },
+      {
+        name: 'Events',
+        sections: ['nav', 'heading', 'cards', 'cta', 'footer'],
+        modules: ['events'],
+      },
+      {
+        name: 'Spaces',
+        sections: ['nav', 'hero', 'cards', 'gallery', 'faq', 'cta', 'footer'],
+        modules: ['gallery', 'faq'],
+      },
+      {
+        name: 'Gallery',
+        sections: ['nav', 'heading', 'gallery', 'cta', 'footer'],
+        modules: ['gallery'],
+      },
+      {
+        name: 'Menus',
+        sections: ['nav', 'heading', 'text', 'cards', 'faq', 'cta', 'footer'],
+        modules: ['menu', 'faq'],
+      },
+      {
+        name: 'FAQ',
+        sections: ['nav', 'heading', 'faq', 'cta', 'footer'],
+        modules: ['faq'],
+      },
+      {
+        name: 'Booking / Check a Date',
+        sections: ['nav', 'heading', 'html', 'text', 'footer'],
+        modules: ['bookings'],
+      },
+    ],
+  },
+  {
+    id: 'events-v3',
+    category: 'events',
+    name: 'Schuylkill River Weddings',
+    tagline: 'Ivory elegant serif wedding venue.',
+    thumbnail: '/themes/events-v3.png',
+    siteShape: 'multipage',
+    heroStyle: 'Ivory elegant serif wedding venue: centred masthead nav, italic hero, 3 space cards, 4-step planning timeline, availability check band',
+    pages: [
+      {
+        name: 'Home',
+        sections: ['nav', 'hero', 'cards', 'columns', 'cta', 'footer'],
+        modules: ['events', 'bookings', 'gallery', 'testimonials'],
+      },
+      {
+        name: 'Detail Pages',
+        sections: ['nav', 'heading', 'cards', 'cta', 'footer'],
+        modules: ['events', 'bookings', 'gallery', 'testimonials'],
+      },
+    ],
+  },
+  {
+    id: 'blog-v2',
+    category: 'blog',
+    name: 'Berks Home Journal',
+    tagline: 'Classic newspaper magazine: masthead with red rules, featured story and rail.',
+    thumbnail: '/themes/blog-v2.png',
+    siteShape: 'multipage',
+    heroStyle: 'Newspaper masthead with red double rules; the featured story leads with a three-story side rail, no image hero.',
+    pages: [
+      {
+        name: 'Home',
+        sections: ['nav', 'heading', 'text_image', 'cards', 'columns', 'html', 'footer'],
+        modules: ['blog', 'categories', 'newsletter', 'socialfeed'],
+      },
+      {
+        name: 'Section / Topic',
+        sections: ['nav', 'heading', 'cards', 'html', 'footer'],
+        modules: ['blog', 'newsletter'],
+      },
+      {
+        name: 'Article',
+        sections: ['nav', 'heading', 'text', 'image', 'html', 'footer'],
+        modules: ['blog', 'comments', 'socialfeed', 'newsletter'],
+      },
+      {
+        name: 'Archive',
+        sections: ['nav', 'heading', 'cards', 'footer'],
+        modules: ['categories', 'blog'],
+      },
+      {
+        name: 'Subscribe',
+        sections: ['nav', 'heading', 'text', 'footer'],
+        modules: ['newsletter'],
+      },
+    ],
+  },
+  {
+    id: 'blog-v3',
+    category: 'blog',
+    name: 'Bright Smiles Berks Journal',
+    tagline: 'Clean light-blue dental magazine.',
+    thumbnail: '/themes/blog-v3.png',
+    siteShape: 'multipage',
+    heroStyle: 'Clean light-blue dental magazine: top strip, masthead, featured story + Most Read sidebar, 3-story grid, newsletter band',
+    pages: [
+      {
+        name: 'Home',
+        sections: ['nav', 'heading', 'cards', 'cta', 'footer'],
+        modules: ['blog', 'newsletter', 'categories', 'comments'],
+      },
+      {
+        name: 'Detail Pages',
+        sections: ['nav', 'heading', 'cards', 'cta', 'footer'],
+        modules: ['blog', 'newsletter', 'categories', 'comments'],
+      },
+    ],
+  },
 ];
 
 /** Section types a recipe may name: the layout content types plus
