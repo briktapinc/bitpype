@@ -2326,80 +2326,283 @@ details[open] > summary {
   }
 }
 
-/* ---------- Batch 166: staff Assistant page layout ----------
-   Batch 161 shipped this page with every layout rule as an inline
-   style on the app.js template, so no media query could ever reach
-   it: the conversation list kept a fixed 230px flex basis beside a
-   flex:1 main column (the wrap on .row never engages — a 0% basis
-   always "fits"), leaving the thread ~70-95px wide on a phone, and
-   the nowrap composer squeezed its textarea to a one-character
-   strip while Attach / Camera / Send spilled off the card and the
-   page panned sideways. The rules below are the SAME geometry the
-   inline styles declared, moved into classes (mirroring the portal
-   page's .assistant-* pattern) so the <=700px block can stack the
-   page into one full-width column: thread full width, composer
-   wrapped with the textarea on its own full-width row first,
-   buttons on the row below, nothing wider than the viewport. */
-.asst-layout {
-  display: flex;
-  gap: 16px;
-  align-items: flex-start;
+/* ---------- Batch 176: staff Assistant page — "one studio desk"
+   (Ely approved the ground-up reimagine, 2026-11-10). The Batch
+   166/173 rail layout is GONE: the page is a single top-to-bottom
+   workspace. Header band carries usage as headline stat tiles
+   (full table in the Full-breakdown modal); the chat is one
+   full-width console — conversation chips across its top bar,
+   thread in a centred 780px reading column scrolling inside the
+   console, composer as one docked pill bar; Themes is a
+   full-width gallery below (see the Batch 176 gallery block).
+   All ids and behaviours from Batches 161/166/173/174 are
+   unchanged — presentation only. */
+.asst-head {
+  align-items: flex-end;
 }
-.asst-convs {
-  flex: 0 0 230px;
+.asst-usage-strip {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+.asst-stat {
+  background: var(--surface, #fffaf4);
+  border: 1px solid var(--border, #e7dbc4);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 12px 18px;
+  min-width: 118px;
+}
+.asst-stat-k {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.asst-stat-v {
+  display: block;
+  font-family: var(--font-display, Georgia, serif);
+  font-size: 22px;
+  font-weight: 650;
+  margin-top: 2px;
+}
+.asst-stat-s {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+}
+.asst-usage-open {
+  align-self: center;
+}
+.asst-console {
+  background: var(--surface, #fffaf4);
+  border: 1px solid var(--border, #e7dbc4);
+  border-radius: var(--radius-lg, 26px);
+  box-shadow: var(--shadow);
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-height: 60vh;
-  overflow-y: auto;
 }
-.asst-main {
+.asst-console-bar {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border, #e7dbc4);
+  background: var(--surface-2, #f3eadf);
+  flex-wrap: wrap;
+}
+.asst-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
   flex: 1;
   min-width: 0;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+.asst-chips::-webkit-scrollbar {
+  display: none;
+}
+.asst-chip {
+  flex: 0 0 auto;
+  border: 1px solid var(--border-strong, #d3bf9d);
+  background: var(--surface, #fffaf4);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--ink);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.asst-chip.active {
+  background: var(--ink);
+  color: var(--surface, #fffaf4);
+  border-color: var(--ink);
+}
+.asst-chip.new {
+  border-style: dashed;
+  color: var(--accent-dark);
+}
+.asst-ctx {
   display: flex;
-  flex-direction: column;
-  height: 60vh;
+  gap: 8px;
+  align-items: center;
+}
+.asst-ctx .lbl {
+  margin: 0;
+}
+.asst-ctx select {
+  min-width: 200px;
 }
 .asst-messages {
-  flex: 1;
-  min-height: 0;
   overflow-y: auto;
-  padding: 14px;
+  padding: 28px 24px 12px;
+  height: 52vh;
+  min-height: 280px;
+}
+.asst-thread-col {
+  max-width: 780px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  border: 1px solid var(--line, #e5e0d8);
-  border-radius: 12px;
+  gap: 22px;
+}
+.asst-msg {
+  display: flex;
+  gap: 12px;
+}
+.asst-avatar {
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--accent, #0e7a68);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display, Georgia, serif);
+  font-weight: 650;
+  font-size: 16px;
+  margin-top: 2px;
+}
+.asst-msg-body {
+  flex: 1;
+  min-width: 0;
+}
+.asst-who {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.asst-msg.user {
+  justify-content: flex-end;
+}
+.asst-bubble.user {
+  background: var(--ink);
+  color: var(--surface, #fffaf4);
+  border-radius: 18px 18px 4px 18px;
+  padding: 12px 16px;
+  max-width: 85%;
+}
+.asst-attach-chip {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  background: var(--surface-2, #f3eadf);
+  border: 1px solid var(--border, #e7dbc4);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 8px;
+  color: var(--ink);
+}
+.asst-composer {
+  padding: 16px 20px 20px;
+}
+.asst-composer-col {
+  max-width: 780px;
+  margin: 0 auto;
 }
 .asst-pending {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 8px;
+}
+.asst-pending .asst-attach-chip {
+  margin-top: 0;
+  margin-bottom: 8px;
+  cursor: pointer;
 }
 .asst-form {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: flex-end;
-  margin-top: 10px;
+  background: var(--surface, #fffaf4);
+  border: 1.5px solid var(--border-strong, #d3bf9d);
+  border-radius: 20px;
+  padding: 10px;
+  box-shadow: var(--shadow);
 }
 .asst-form textarea {
   flex: 1;
   min-width: 0;
+  border: 0;
+  resize: none;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.45;
+  padding: 8px 6px;
+  background: transparent;
+  color: var(--ink);
+  outline: none;
   min-height: 44px;
 }
+.asst-icon-btn {
+  flex: 0 0 auto;
+  height: 40px;
+  border-radius: 12px;
+}
+.asst-send-btn {
+  flex: 0 0 auto;
+  height: 40px;
+  border-radius: 12px;
+  padding: 0 20px;
+}
+.asst-composer .hint {
+  margin: 10px 4px 0;
+}
 @media (max-width: 700px) {
-  .asst-layout {
-    flex-direction: column;
-  }
-  .asst-convs {
-    flex: none;
+  .asst-usage-strip {
     width: 100%;
-    max-height: 180px;
   }
-  .asst-main {
+  .asst-stat {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 10px 12px;
+  }
+  .asst-stat-v {
+    font-size: 19px;
+  }
+  .asst-stat-s {
+    display: none;
+  }
+  .asst-usage-open {
+    flex: 1 1 100%;
     width: 100%;
-    height: 58vh;
+  }
+  .asst-console {
+    border-radius: 20px;
+  }
+  .asst-console-bar {
+    padding: 12px 14px;
+  }
+  .asst-ctx {
+    width: 100%;
+  }
+  .asst-ctx select {
+    flex: 1;
+    min-width: 0;
+  }
+  .asst-messages {
+    padding: 20px 14px 8px;
+    height: 52vh;
+  }
+  .asst-composer {
+    padding: 12px 12px 16px;
   }
   .asst-form {
     flex-wrap: wrap;
@@ -2407,7 +2610,6 @@ details[open] > summary {
   .asst-form textarea {
     order: -1;
     flex: 1 1 100%;
-    min-height: 48px;
   }
 }
 
@@ -2488,14 +2690,9 @@ button.dn-theme-none .dn-theme-none-label { font-size: 14px; font-weight: 600; c
   .staff-themes-row { gap: 12px; }
 }
 
-/* ---- Batch 173: theme card actions + View modal, the build
- * page, and the Assistant two-column layout (Ely: "themes on the
- * right and chat on the left", modelled on the design page's
- * chat panel). The rail is sticky and full-height; the messages
- * area keeps scrolling INSIDE it (Batch 161/166 rules untouched —
- * the rail-context overrides below restack the chat column for
- * the narrow rail, and the <=700px block restores the Batch 166
- * mobile geometry verbatim inside the rail). ---- */
+/* ---- Batch 173: theme card actions + View modal and the build
+ * page (kept verbatim in Batch 176 — the modal still scrolls the
+ * full screenshot internally). ---- */
 .staff-theme-card-actions {
   display: flex;
   gap: 8px;
@@ -2530,76 +2727,129 @@ button.dn-theme-none .dn-theme-none-label { font-size: 14px; font-weight: 600; c
   width: 100%;
   height: auto;
 }
-.asst-page {
+
+/* ---- Batch 176: Assistant Themes gallery — full width below
+ * the console. Category pills filter a 3-column card grid in
+ * place (uniform 20px gaps, cards never touch); at <=700px the
+ * pills become a dropdown (Ely's standing rule) and the grid
+ * stacks to one column. Card rules are scoped to .asst-gallery
+ * so the Design New Job picker keeps its Batch 171 rows. ---- */
+.asst-gallery {
+  margin-top: 36px;
+}
+.asst-gallery-head {
   display: flex;
+  gap: 18px;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.asst-gallery-head h2 {
+  font-family: var(--font-display, Georgia, serif);
+  font-weight: 650;
+  font-size: 26px;
+  margin: 0 0 4px;
+}
+.asst-pills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.asst-pill {
+  border: 1px solid var(--border-strong, #d3bf9d);
+  background: var(--surface, #fffaf4);
+  border-radius: 999px;
+  padding: 8px 15px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--ink);
+}
+.asst-pill.active {
+  background: var(--accent, #0e7a68);
+  border-color: var(--accent, #0e7a68);
+  color: #fff;
+}
+.asst-cat-select {
+  display: none;
+  font: inherit;
+  font-size: 15px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong, #d3bf9d);
+  border-radius: 10px;
+  background: var(--surface, #fffaf4);
+  width: 100%;
+}
+.staff-themes-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 20px;
-  align-items: flex-start;
 }
-.asst-rail {
-  flex: 0 0 368px;
-  width: 368px;
-  position: sticky;
-  top: 72px;
-  height: calc(100vh - 96px);
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  min-height: 0;
+.asst-gallery .staff-theme-card {
+  flex: none;
+  width: auto;
+  border-radius: var(--radius-lg, 26px);
+  box-shadow: var(--shadow);
+  scroll-snap-align: none;
 }
-.asst-rail .card { margin-bottom: 0; }
-.asst-chat-card {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
+.staff-theme-frame {
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border, #e7dbc4);
+  background: var(--surface-2, #f3eadf);
 }
-.asst-chat-card .asst-layout {
-  flex: 1 1 auto;
-  min-height: 0;
-  flex-direction: column;
-}
-.asst-chat-card .asst-convs {
-  flex: 0 0 auto;
+.staff-theme-frame img {
   width: 100%;
-  max-height: 118px;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  display: block;
 }
-.asst-chat-card .asst-main {
-  flex: 1 1 auto;
+.asst-gallery .staff-theme-card-body {
+  padding: 18px 20px 20px;
+  gap: 8px;
+  flex: 1;
+}
+.asst-gallery .staff-theme-card-body h4 {
+  font-family: var(--font-display, Georgia, serif);
+  font-weight: 650;
+  font-size: 19px;
+}
+.asst-gallery .staff-theme-card-body p {
+  font-size: 13.5px;
+  flex: 1;
+}
+.staff-theme-tag {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  background: var(--info-soft, #ece4f7);
+  color: var(--plum, #6d4ea3);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+.asst-gallery .staff-theme-card-actions {
   width: 100%;
-  height: auto;
-  min-height: 0;
+  margin-top: 6px;
 }
-.asst-usage-card {
-  flex: 0 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  max-height: 36%;
+.asst-gallery .staff-theme-card-actions .btn {
+  flex: 1;
+  text-align: center;
 }
-.asst-content {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.asst-content .card { margin-bottom: 0; }
 @media (max-width: 700px) {
-  .asst-page { flex-direction: column; }
-  .asst-rail {
-    position: static;
-    width: 100%;
-    height: auto;
-    flex: none;
+  .asst-pills {
+    display: none;
   }
-  .asst-chat-card { flex: none; }
-  .asst-chat-card .asst-convs { max-height: 180px; }
-  .asst-chat-card .asst-main {
-    flex: none;
-    width: 100%;
-    height: 58vh;
+  .asst-cat-select {
+    display: block;
   }
-  .asst-usage-card {
-    max-height: none;
-    overflow: visible;
+  .staff-themes-grid {
+    grid-template-columns: 1fr;
   }
-  .asst-content { width: 100%; }
   .staff-theme-view-modal {
     width: 100%;
     max-height: 94vh;

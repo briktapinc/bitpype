@@ -3613,39 +3613,44 @@ const assistantUi = { convs: [], activeId: null, pending: [], sending: false, le
 
 async function pageAssistant() {
   view.innerHTML = `
-    <div class="page-head"><div><h1>Assistant</h1><p class="lede">Chat with the AI assistant for this workspace — ask, draft, plan, or (with a site selected) ask for site changes. Attach files, photos and videos. Staff usage is metered as internal platform cost; client portal usage is billed to the client separately.</p></div></div>
-    <div class="asst-page">
-      <div class="asst-rail">
-        <div class="card asst-chat-card">
-          <div class="row end">
-            <div class="field" style="flex:2"><label class="lbl" for="asst-lead">Site context (optional)</label>
-              <select id="asst-lead"><option value="">No site — general chat</option></select></div>
-            <div class="field"><button class="btn primary" id="asst-new" type="button">New conversation</button></div>
-          </div>
-          <div class="asst-layout">
-            <div class="asst-convs" id="asst-convs"></div>
-            <div class="asst-main">
-              <div class="asst-messages" id="asst-messages"></div>
-              <div class="asst-pending" id="asst-pending"></div>
-              <form class="asst-form" id="asst-form">
-                <button class="btn" id="asst-attach" type="button">Attach</button><button class="btn" id="asst-camera" type="button">Camera</button>
-                <textarea id="asst-input" rows="2" placeholder="Message the assistant…"></textarea>
-                <button class="btn primary" id="asst-send" type="submit">Send</button>
-                <input type="file" id="asst-file" multiple accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/quicktime,video/webm,application/pdf,.txt,.md,.csv,.json" hidden />
-                <input type="file" id="asst-camera-file" accept="image/*,video/*" capture="environment" hidden />
-              </form>
-              <p class="hint" id="asst-status" role="status"></p>
-            </div>
-          </div>
-        </div>
-        <div class="card asst-usage-card">
-          <div class="panel-h"><h3>Assistant usage — this workspace</h3><span class="hint">portal usage is billed to the client at raw cost + margin; staff usage is internal cost, never billed</span></div>
-          <div id="asst-usage"><p class="hint">Loading…</p></div>
+    <div class="page-head asst-head">
+      <div><h1>Assistant</h1><p class="lede">Chat with the AI assistant for this workspace — ask, draft, plan, or (with a site selected) ask for site changes. Attach files, photos and videos. Staff usage is metered as internal platform cost; client portal usage is billed to the client separately.</p></div>
+      <div class="asst-usage-strip" aria-label="Assistant usage this month">
+        <div class="asst-stat"><span class="asst-stat-k" id="asst-stat-calls-k">Calls</span><span class="asst-stat-v" id="asst-stat-calls">—</span><span class="asst-stat-s">all surfaces</span></div>
+        <div class="asst-stat"><span class="asst-stat-k">Raw cost</span><span class="asst-stat-v" id="asst-stat-raw">—</span><span class="asst-stat-s">staff = internal</span></div>
+        <div class="asst-stat"><span class="asst-stat-k">Billed out</span><span class="asst-stat-v" id="asst-stat-billed">—</span><span class="asst-stat-s">portal clients</span></div>
+        <button class="btn asst-usage-open" id="asst-usage-open" type="button">Full breakdown</button>
+      </div>
+    </div>
+    <section class="asst-console" aria-label="Assistant chat">
+      <div class="asst-console-bar">
+        <div class="asst-chips" id="asst-convs" role="tablist" aria-label="Conversations"></div>
+        <div class="asst-ctx"><label class="lbl" for="asst-lead">Site</label>
+          <select id="asst-lead"><option value="">No site — general chat</option></select></div>
+      </div>
+      <div class="asst-messages" id="asst-messages"><div class="asst-thread-col" id="asst-thread-col"></div></div>
+      <div class="asst-composer">
+        <div class="asst-composer-col">
+          <div class="asst-pending" id="asst-pending"></div>
+          <form class="asst-form" id="asst-form">
+            <button class="btn asst-icon-btn" id="asst-attach" type="button" title="Attach a file">Attach</button><button class="btn asst-icon-btn" id="asst-camera" type="button" title="Take a photo">Camera</button>
+            <textarea id="asst-input" rows="2" placeholder="Message the assistant… ask, draft, plan, or describe a site change"></textarea>
+            <button class="btn primary asst-send-btn" id="asst-send" type="submit">Send</button>
+            <input type="file" id="asst-file" multiple accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/quicktime,video/webm,application/pdf,.txt,.md,.csv,.json" hidden />
+            <input type="file" id="asst-camera-file" accept="image/*,video/*" capture="environment" hidden />
+          </form>
+          <p class="hint" id="asst-status" role="status"></p>
         </div>
       </div>
-      <div class="asst-content"><div class="card">
-        <div class="panel-h"><h3>Themes</h3><span class="hint">layout guides for new websites — Build this starts a staged design job in the queue; nothing publishes automatically</span></div>
-        <div id="asst-themes"><p class="hint">Loading themes…</p></div><p class="hint" id="asst-themes-status" role="status"></p></div></div>`;
+    </section>
+    <section class="asst-gallery" aria-label="Themes">
+      <div class="asst-gallery-head">
+        <div><h2>Start a build from a theme</h2><p class="hint">Layout guides for new websites — View shows the full page; Build this starts a staged design job in the queue and nothing publishes automatically.</p></div>
+        <div class="asst-pills" id="asst-pills" role="tablist" aria-label="Theme category"></div>
+        <select class="asst-cat-select" id="asst-cat-select" aria-label="Theme category"></select>
+      </div>
+      <div id="asst-themes"><p class="hint">Loading themes…</p></div><p class="hint" id="asst-themes-status" role="status"></p>
+    </section>`;
 
   const $s = (id) => document.getElementById(id);
   const status = (t) => {
@@ -3654,24 +3659,45 @@ async function pageAssistant() {
   };
   const bubble = (role, text, attachments) => {
     const list = $s('asst-messages');
-    if (!list) return null;
-    const div = document.createElement('div');
-    div.className = role === 'user' ? 'asst-bubble user' : 'asst-bubble assistant';
-    div.style.cssText =
-      role === 'user'
-        ? 'align-self:flex-end; background:#1c140f; color:#fffaf4; padding:10px 12px; border-radius:14px; max-width:92%'
-        : 'align-self:flex-start; background:var(--surface-2, #f3efe8); padding:10px 12px; border-radius:14px; max-width:92%';
+    const col = $s('asst-thread-col');
+    if (!list || !col) return null;
+    const row = document.createElement('div');
+    row.className = role === 'user' ? 'asst-msg user' : 'asst-msg assistant';
+    let host = row;
+    if (role === 'user') {
+      const b = document.createElement('div');
+      b.className = 'asst-bubble user';
+      row.appendChild(b);
+      host = b;
+    } else {
+      const av = document.createElement('div');
+      av.className = 'asst-avatar';
+      av.textContent = 'B';
+      row.appendChild(av);
+      const wrap = document.createElement('div');
+      wrap.className = 'asst-msg-body';
+      const who = document.createElement('div');
+      who.className = 'asst-who';
+      who.textContent = 'Assistant';
+      wrap.appendChild(who);
+      row.appendChild(wrap);
+      host = wrap;
+    }
     if (text) {
       if (role === 'assistant') {
         const body = document.createElement('div');
         body.className = 'md-body';
         body.innerHTML = assistantMdHtml(text);
-        div.appendChild(body);
+        host.appendChild(body);
       } else {
         const span = document.createElement('span');
         span.textContent = String(text);
-        div.appendChild(span);
+        host.appendChild(span);
       }
+    } else if (role === 'assistant') {
+      const body = document.createElement('div');
+      body.className = 'md-body';
+      host.appendChild(body);
     }
     for (const att of Array.isArray(attachments) ? attachments : []) {
       if (!att) continue;
@@ -3680,27 +3706,45 @@ async function pageAssistant() {
         img.src = att.url;
         img.alt = att.name || 'Attached image';
         img.style.cssText = 'max-width:220px; border-radius:8px; display:block; margin-top:6px';
-        div.appendChild(img);
+        host.appendChild(img);
       } else {
         const chip = document.createElement('span');
-        chip.className = 'chip';
+        chip.className = 'asst-attach-chip';
         chip.textContent = att.name || 'file';
-        div.appendChild(chip);
+        host.appendChild(chip);
       }
     }
-    list.appendChild(div);
+    col.appendChild(row);
     list.scrollTop = list.scrollHeight;
-    return div;
+    return row;
+  };
+  const startNewConv = async () => {
+    const r = await api.assistantCreateConversation({ leadId: assistantUi.leadId });
+    if (r.data && r.data.id) {
+      assistantUi.convs.unshift(r.data);
+      assistantUi.activeId = r.data.id;
+      renderConvs();
+      const col = $s('asst-thread-col');
+      if (col) col.innerHTML = '';
+    }
   };
   const renderConvs = () => {
     const wrap = $s('asst-convs');
     if (!wrap) return;
     wrap.innerHTML = '';
+    const nb = document.createElement('button');
+    nb.type = 'button';
+    nb.id = 'asst-new';
+    nb.className = 'asst-chip new';
+    nb.textContent = '+ New conversation';
+    nb.addEventListener('click', () => {
+      startNewConv().catch((e) => status(errText(e)));
+    });
+    wrap.appendChild(nb);
     for (const c of assistantUi.convs) {
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'btn' + (c.id === assistantUi.activeId ? ' primary' : '');
-      b.style.cssText = 'text-align:left; white-space:normal';
+      b.className = 'asst-chip' + (c.id === assistantUi.activeId ? ' active' : '');
       b.textContent = c.title || 'New conversation';
       b.addEventListener('click', async () => {
         try {
@@ -3718,7 +3762,7 @@ async function pageAssistant() {
     wrap.innerHTML = '';
     assistantUi.pending.forEach((att, idx) => {
       const chip = document.createElement('span');
-      chip.className = 'chip';
+      chip.className = 'asst-attach-chip';
       chip.textContent = `${att.name || 'file'} ×`;
       chip.style.cursor = 'pointer';
       chip.addEventListener('click', () => {
@@ -3735,14 +3779,31 @@ async function pageAssistant() {
     assistantUi.activeId = d.conversation.id;
     assistantUi.leadId = d.conversation.leadId;
     renderConvs();
-    const list = $s('asst-messages');
-    if (list) list.innerHTML = '';
+    const col = $s('asst-thread-col');
+    if (col) col.innerHTML = '';
     for (const m of d.messages || []) bubble(m.role, m.content, m.attachments);
   };
   const refreshUsage = async () => {
     try {
       const r = await api.assistantUsage();
       const u = r.data || {};
+      const byUser = u.byUser || [];
+      const callsTotal =
+        byUser.reduce((a, x) => a + (Number(x.calls) || 0), 0) ||
+        (Number((u.portal || {}).calls) || 0) + (Number((u.admin || {}).calls) || 0);
+      const rawTotal = (Number((u.portal || {}).rawUsd) || 0) + (Number((u.admin || {}).rawUsd) || 0);
+      const setTile = (id, v) => {
+        const t = $s(id);
+        if (t) t.textContent = v;
+      };
+      setTile('asst-stat-calls', String(callsTotal));
+      setTile('asst-stat-raw', `$${rawTotal.toFixed(2)}`);
+      setTile('asst-stat-billed', `$${(Number((u.portal || {}).billedUsd) || 0).toFixed(2)}`);
+      const ck = $s('asst-stat-calls-k');
+      if (ck && u.month) {
+        const mn = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(String(u.month).slice(5, 7)) - 1];
+        if (mn) ck.textContent = `Calls · ${mn}`;
+      }
       const el = $s('asst-usage');
       if (!el) return;
       const rows = (u.byUser || [])
@@ -3896,21 +3957,16 @@ async function pageAssistant() {
       assistantUi.leadId = leadSel.value ? Number(leadSel.value) : null;
     });
   }
-  const newBtn = $s('asst-new');
-  if (newBtn) {
-    newBtn.addEventListener('click', async () => {
-      try {
-        const r = await api.assistantCreateConversation({ leadId: assistantUi.leadId });
-        if (r.data && r.data.id) {
-          assistantUi.convs.unshift(r.data);
-          assistantUi.activeId = r.data.id;
-          renderConvs();
-          const list = $s('asst-messages');
-          if (list) list.innerHTML = '';
-        }
-      } catch (e) {
-        status(errText(e));
-      }
+  const usageOpen = $s('asst-usage-open');
+  if (usageOpen) {
+    usageOpen.addEventListener('click', () => {
+      openModal({
+        title: 'Assistant usage — this workspace',
+        wide: true,
+        body: '<p class="hint">Portal usage is billed to the client at raw cost + margin; staff usage is internal cost, never billed.</p><div id="asst-usage"><p class="hint">Loading…</p></div>',
+        buttons: [{ label: 'Close' }],
+      });
+      refreshUsage();
     });
   }
   const form = $s('asst-form');
@@ -14047,11 +14103,17 @@ initNavGroups();
  * "Build this" leaves the wizard popup for its own page
  * (#/themes-build/<id>, pageThemeBuild) — the wizard's fields,
  * endpoint and payload are reused verbatim (submitStaffThemeBuild
- * is the wizard's submit); the portal wizard is untouched. The
- * Assistant page itself becomes two columns (chat rail left,
- * Themes right — see the styles.css Batch 173 block; the
- * pageAssistant template edit kept exact line parity so no
- * census sink line in this file moved).
+ * is the wizard's submit); the portal wizard is untouched.
+ *
+ * Batch 176 (Ely approved the ground-up reimagine, 2026-11-10):
+ * the Assistant page's two-column rail layout is replaced by the
+ * "one studio desk" design — usage as header stat tiles with the
+ * full table in a modal, the chat as one full-width console
+ * (conversation chips, centred reading column, docked composer),
+ * and Themes as a full-width gallery: category pills (dropdown
+ * on mobile) filtering a 3-column card grid in place. Cards keep
+ * the View modal and the themes-build route; the catalog is
+ * still iterated from the registry response, never hardcoded.
  * ===================================================================== */
 
 /* ---- Theme block helpers (pure; the batch171 suite evals these
@@ -14090,7 +14152,7 @@ function applyThemeBlock(text, blockText) {
 /* Batch 171 theme-block helpers end. */
 
 /* ---- Staff Assistant Themes section + cards ---- */
-const staffThemesState = { catalog: null, themeById: new Map(), current: null, bizTouched: false, doneMessage: '' };
+const staffThemesState = { catalog: null, themeById: new Map(), current: null, bizTouched: false, doneMessage: '', filter: 'all' };
 
 function stEl(tag, className, text) {
   const el = document.createElement(tag);
@@ -14120,6 +14182,50 @@ async function mountStaffThemes() {
   renderStaffThemes(host);
 }
 
+function staffThemeCategoryKey(cat) {
+  return String((cat && (cat.id || cat.key || cat.label)) || '').trim();
+}
+
+function setStaffThemeFilter(key) {
+  staffThemesState.filter = key || 'all';
+  const host = document.getElementById('asst-themes');
+  if (host && staffThemesState.catalog) renderStaffThemes(host);
+}
+
+function renderStaffThemeFilters(cats) {
+  const pills = document.getElementById('asst-pills');
+  const sel = document.getElementById('asst-cat-select');
+  const active = staffThemesState.filter || 'all';
+  if (pills) {
+    pills.textContent = '';
+    const mk = (key, label) => {
+      const b = stEl('button', 'asst-pill' + (key === active ? ' active' : ''), label);
+      b.type = 'button';
+      b.dataset.cat = key;
+      b.addEventListener('click', () => setStaffThemeFilter(key));
+      pills.appendChild(b);
+    };
+    mk('all', 'All');
+    for (const cat of cats) mk(staffThemeCategoryKey(cat), cat.label);
+  }
+  if (sel) {
+    sel.textContent = '';
+    const mkOpt = (key, label) => {
+      const o = document.createElement('option');
+      o.value = key;
+      o.textContent = key === 'all' ? 'All categories' : label;
+      sel.appendChild(o);
+    };
+    mkOpt('all', 'All');
+    for (const cat of cats) mkOpt(staffThemeCategoryKey(cat), cat.label);
+    sel.value = active;
+    if (!sel.dataset.wired) {
+      sel.dataset.wired = '1';
+      sel.addEventListener('change', () => setStaffThemeFilter(sel.value));
+    }
+  }
+}
+
 function renderStaffThemes(host) {
   host.textContent = '';
   staffThemesState.themeById = new Map();
@@ -14128,17 +14234,21 @@ function renderStaffThemes(host) {
     host.appendChild(stEl('p', 'hint', 'No themes are available yet.'));
     return;
   }
+  renderStaffThemeFilters(cats);
+  const filter = staffThemesState.filter || 'all';
+  const grid = stEl('div', 'staff-themes-grid');
+  let shown = 0;
   for (const cat of cats) {
-    const wrap = stEl('div', 'staff-themes-category');
-    wrap.appendChild(stEl('h4', null, cat.label));
-    const row = stEl('div', 'staff-themes-row');
+    const key = staffThemeCategoryKey(cat);
     for (const theme of cat.themes || []) {
-      staffThemesState.themeById.set(theme.id, { ...theme, categoryLabel: cat.label });
-      row.appendChild(staffThemeCard(theme));
+      staffThemesState.themeById.set(theme.id, { ...theme, categoryLabel: cat.label, categoryKey: key });
+      if (filter !== 'all' && key !== filter) continue;
+      grid.appendChild(staffThemeCard({ ...theme, categoryLabel: cat.label }));
+      shown += 1;
     }
-    wrap.appendChild(row);
-    host.appendChild(wrap);
   }
+  if (!shown) grid.appendChild(stEl('p', 'hint', 'No themes in this category yet.'));
+  host.appendChild(grid);
   if (staffThemesState.doneMessage) {
     staffThemesStatus(staffThemesState.doneMessage);
     staffThemesState.doneMessage = '';
@@ -14147,20 +14257,23 @@ function renderStaffThemes(host) {
 
 function staffThemeCard(theme) {
   const card = stEl('article', 'staff-theme-card');
+  const frame = stEl('div', 'staff-theme-frame');
   const img = document.createElement('img');
   img.src = theme.thumbnail;
   img.alt = `${theme.name} theme preview`;
   img.loading = 'lazy';
-  card.appendChild(img);
+  frame.appendChild(img);
+  card.appendChild(frame);
   const body = stEl('div', 'staff-theme-card-body');
+  body.appendChild(stEl('span', 'staff-theme-tag', theme.categoryLabel || ''));
   body.appendChild(stEl('h4', null, theme.name));
-  body.appendChild(stEl('p', null, theme.tagline));
+  body.appendChild(stEl('p', null, theme.tagline || theme.recipe || ''));
   const actions = stEl('div', 'staff-theme-card-actions');
   const viewBtn = stEl('button', 'btn', 'View');
   viewBtn.type = 'button';
   viewBtn.addEventListener('click', () => openStaffThemeView(theme.id));
   actions.appendChild(viewBtn);
-  const btn = stEl('button', 'btn', 'Build this');
+  const btn = stEl('button', 'btn primary', 'Build this');
   btn.type = 'button';
   btn.addEventListener('click', () => {
     window.location.hash = '#/themes-build/' + encodeURIComponent(theme.id);
