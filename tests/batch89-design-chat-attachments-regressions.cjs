@@ -13,8 +13,9 @@
  *
  * WHAT'S PROVEN HERE:
  *   A. Engine (server/siteChatAttachments.js): upload happy path (file
- *      lands under EXPORT_ROOT/site-chat/ws-<ws>/lead-<lead>/ with a
- *      server-generated name, DB record correct, thumbnail generated),
+ *      lands under the private root — WORKSPACE_DATA_DIR/private-
+ *      attachments since Batch 168 F10 — at site-chat/ws-<ws>/lead-<lead>/
+ *      with a server-generated name, DB record correct, thumbnail generated),
  *      magic-byte validation matrix (fake image rejected, SVG rejected,
  *      oversize rejected, declared name sanitized), per-lead scoping,
  *      turn linkage, model-image building, and the lead-delete sweep
@@ -170,9 +171,14 @@ function loadChatAtt() {
     n += 6;
 
     // File landed under the workspace/lead folder, byte-identical.
+    // Batch 168 finisher re-pin (2026-11-09): F10 moved attachment
+    // WRITES to the private root (WORKSPACE_DATA_DIR/private-
+    // attachments); stored_rel is unchanged and reads fall back to
+    // the legacy exports location. The pre-168 pin asserted the old
+    // EXPORT_ROOT write location and could never pass post-F10.
     const rowA = domain.withDb(1, (db) => chatAtt.getAttachmentRow(db, A.leadId, saved.id));
     assert.ok(rowA, 'row readable by owning lead');
-    const abs = path.join(process.env.EXPORT_ROOT, rowA.stored_rel);
+    const abs = path.join(process.env.WORKSPACE_DATA_DIR, 'private-attachments', rowA.stored_rel);
     assert.ok(rowA.stored_rel.startsWith(path.join('site-chat', 'ws-1', `lead-${A.leadId}`)));
     assert.ok(fs.existsSync(abs), 'stored file exists');
     assert.ok(fs.readFileSync(abs).equals(pngBuf), 'stored bytes identical');
@@ -325,7 +331,8 @@ function loadChatAtt() {
       })
     );
     const rowD = domain.withDb(1, (db) => chatAtt.getAttachmentRow(db, D.leadId, saved.id));
-    const absD = path.join(process.env.EXPORT_ROOT, rowD.stored_rel);
+    // Batch 168 finisher re-pin: private write root (see group A note).
+    const absD = path.join(process.env.WORKSPACE_DATA_DIR, 'private-attachments', rowD.stored_rel);
     assert.ok(fs.existsSync(absD));
     n++;
     const leadEngine = require(path.join(root, 'src', 'leadEngine.js'));
