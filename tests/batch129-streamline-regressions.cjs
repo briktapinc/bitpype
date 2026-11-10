@@ -58,8 +58,7 @@ process.env.REGRESSION_TMPDIR = fs.mkdtempSync(path.join(os.tmpdir(), 'batch129-
 // refuse to boot in production without SETTINGS_ENCRYPTION_KEY;
 // this suite spawns the real server and relied on ambient env —
 // same synthetic fixture as oauth-token/isolated-startup.
-process.env.SETTINGS_ENCRYPTION_KEY =
-  process.env.SETTINGS_ENCRYPTION_KEY || Buffer.alloc(32, 23).toString('base64');
+process.env.SETTINGS_ENCRYPTION_KEY = process.env.SETTINGS_ENCRYPTION_KEY || Buffer.alloc(32, 23).toString('base64');
 process.env.PLATFORM_DB_PATH = path.join(process.env.REGRESSION_TMPDIR, 'platform.db');
 process.env.WORKSPACE_DATA_DIR = path.join(process.env.REGRESSION_TMPDIR, 'workspaces');
 process.env.DB_PATH = path.join(process.env.REGRESSION_TMPDIR, 'app.db');

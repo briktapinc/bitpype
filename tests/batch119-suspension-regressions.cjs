@@ -48,8 +48,7 @@ process.env.DB_DRIVER = DRIVER;
 // refuse to boot in production without SETTINGS_ENCRYPTION_KEY;
 // this suite spawns the real server and relied on ambient env —
 // same synthetic fixture as oauth-token/isolated-startup.
-process.env.SETTINGS_ENCRYPTION_KEY =
-  process.env.SETTINGS_ENCRYPTION_KEY || Buffer.alloc(32, 23).toString('base64');
+process.env.SETTINGS_ENCRYPTION_KEY = process.env.SETTINGS_ENCRYPTION_KEY || Buffer.alloc(32, 23).toString('base64');
 if (DRIVER === 'sqlite') process.env.SQLITE_PATH = path.join(TMP, 'platform.db');
 process.env.WORKSPACE_DATA_DIR = path.join(TMP, 'workspaces');
 process.env.EXPORT_ROOT = path.join(TMP, 'exports');

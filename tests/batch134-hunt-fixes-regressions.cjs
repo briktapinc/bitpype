@@ -98,7 +98,9 @@ let db;
     n += 2;
 
     const shareSrc = read('server/moduleShare.js');
-    const qrIdx = shareSrc.indexOf("kind: 'provider',\n    read(db, leadId) {\n      return modules\n        .listQrCodes");
+    const qrIdx = shareSrc.indexOf(
+      "kind: 'provider',\n    read(db, leadId) {\n      return modules\n        .listQrCodes"
+    );
     assert.ok(qrIdx > 0, 'moduleShare qrcode provider located');
     const qrBody = shareSrc.slice(qrIdx, qrIdx + 1400);
     assert.ok(qrBody.includes("c.target_kind === 'wifi'"), 'shared qrcode item special-cases wifi');
@@ -176,7 +178,12 @@ let db;
       .prepare("SELECT name FROM sqlite_master WHERE type='table'")
       .all()
       .map((r) => r.name)
-      .filter((t) => db.prepare(`PRAGMA table_info(${t})`).all().some((c) => c.name === 'lead_id'));
+      .filter((t) =>
+        db
+          .prepare(`PRAGMA table_info(${t})`)
+          .all()
+          .some((c) => c.name === 'lead_id')
+      );
   }
   function rowsFor(leadId) {
     const res = {};
@@ -358,7 +365,9 @@ let db;
       .map(
         (t) =>
           db
-            .prepare(`SELECT COUNT(*) c FROM ${t} WHERE lead_id = ? AND product_id NOT IN (SELECT id FROM ecommerce_products)`)
+            .prepare(
+              `SELECT COUNT(*) c FROM ${t} WHERE lead_id = ? AND product_id NOT IN (SELECT id FROM ecommerce_products)`
+            )
             .get(LEAD_KEEP).c
       )
       .reduce((x, y) => x + y, 0);
@@ -369,10 +378,26 @@ let db;
     assert.equal(keeperFernVars, 2, "keeper's own fern variants untouched");
     n += 2;
 
-    assert.equal(db.prepare('SELECT COUNT(*) c FROM ecommerce_orders WHERE lead_id = ?').get(LEAD_KEEP).c, 2, 'both orders under the keeper');
-    assert.equal(db.prepare('SELECT COUNT(*) c FROM ecommerce_order_items WHERE lead_id = ?').get(LEAD_KEEP).c, 2, 'order LINE ITEMS moved with their orders');
-    assert.equal(db.prepare('SELECT COUNT(*) c FROM module_qrcodes WHERE lead_id = ?').get(LEAD_KEEP).c, 2, 'both QR codes moved');
-    assert.equal(db.prepare('SELECT COUNT(*) c FROM photocapture_submissions WHERE lead_id = ?').get(LEAD_KEEP).c, 2, 'both photo submissions moved');
+    assert.equal(
+      db.prepare('SELECT COUNT(*) c FROM ecommerce_orders WHERE lead_id = ?').get(LEAD_KEEP).c,
+      2,
+      'both orders under the keeper'
+    );
+    assert.equal(
+      db.prepare('SELECT COUNT(*) c FROM ecommerce_order_items WHERE lead_id = ?').get(LEAD_KEEP).c,
+      2,
+      'order LINE ITEMS moved with their orders'
+    );
+    assert.equal(
+      db.prepare('SELECT COUNT(*) c FROM module_qrcodes WHERE lead_id = ?').get(LEAD_KEEP).c,
+      2,
+      'both QR codes moved'
+    );
+    assert.equal(
+      db.prepare('SELECT COUNT(*) c FROM photocapture_submissions WHERE lead_id = ?').get(LEAD_KEEP).c,
+      2,
+      'both photo submissions moved'
+    );
     n += 4;
 
     const keeperCats = db.prepare('SELECT * FROM module_categories WHERE lead_id = ?').all(LEAD_KEEP);
@@ -380,15 +405,23 @@ let db;
     assert.equal(plants.length, 1, 'category clash resolved to ONE keeper Plants category');
     assert.equal(plants[0].id, keepSeed.cat.id, "the keeper's own category row is the survivor");
     const soloAssign = db
-      .prepare('SELECT category_id FROM module_category_assignments WHERE lead_id = ? AND consumer_type = ? AND item_id = ?')
+      .prepare(
+        'SELECT category_id FROM module_category_assignments WHERE lead_id = ? AND consumer_type = ? AND item_id = ?'
+      )
       .get(LEAD_KEEP, 'ecommerce', solo.id);
-    assert.ok(soloAssign && soloAssign.category_id === keepSeed.cat.id, "dropped lead's assignment re-pointed at the keeper twin");
+    assert.ok(
+      soloAssign && soloAssign.category_id === keepSeed.cat.id,
+      "dropped lead's assignment re-pointed at the keeper twin"
+    );
     n += 3;
 
     const pcCfg = db.prepare('SELECT heading FROM photocapture_configs WHERE lead_id = ?').get(LEAD_KEEP);
     assert.ok(pcCfg && pcCfg.heading === 'Drop Nursery photos', 'photocapture config MOVED when the keeper had none');
     const coCfg = db.prepare('SELECT success_message FROM checkout_configs WHERE lead_id = ?').get(LEAD_KEEP);
-    assert.ok(coCfg && coCfg.success_message === 'Keeper Nursery thanks', "checkout config: keeper's own wins the singleton");
+    assert.ok(
+      coCfg && coCfg.success_message === 'Keeper Nursery thanks',
+      "checkout config: keeper's own wins the singleton"
+    );
     n += 2;
 
     const refs = db.prepare('SELECT * FROM module_shared_refs WHERE lead_id = ?').all(LEAD_KEEP);
@@ -451,7 +484,10 @@ let db;
       const data2 = JSON.parse(body2);
       const items = (data2.data || data2).category_items || [];
       assert.equal(items.length, 1, 'category view lists the wifi code');
-      assert.ok(String(items[0].description || '').includes('keepGuestNet'), 'category card describes the network by name');
+      assert.ok(
+        String(items[0].description || '').includes('keepGuestNet'),
+        'category card describes the network by name'
+      );
       n += 4;
 
       const res3 = await fetch(`${BASE}/api/v1/modules/public/${qrToken}/qrcode/${keepSeed.qr.id}.png`);
