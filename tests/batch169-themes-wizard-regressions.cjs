@@ -33,7 +33,8 @@
  * Part 4 — source pins [172, NEGATIVE]: no Themes block, wizard
  *   markup, themes JS or themes routes remain in the portal files;
  *   the assistant chat itself is untouched; the batch adds ZERO
- *   SEC-13 census sinks (census stays 503 / 379 safe).
+ *   SEC-13 census sinks (census 504 / 380 safe on the merged
+ *   tree after the Batch 168 rebase — the +1 STATIC is 168's).
  */
 const assert = require('node:assert');
 const { spawn } = require('node:child_process');
@@ -53,6 +54,12 @@ process.env.EXPORT_ROOT = path.join(tmpRoot, 'exports');
 process.env.APP_URL = 'https://example.invalid';
 process.env.CAPTCHA_OPTIONAL = '1';
 process.env.NODE_ENV = 'production';
+// Batch 168 rebase fixture: the server refuses to boot in
+// production without SETTINGS_ENCRYPTION_KEY (168's S1#3 boot
+// assert) — the spawned child inherits this synthetic key, the
+// same Buffer.alloc(32, 23) base64 fixture the other real-server
+// suites use. Not a real secret.
+process.env.SETTINGS_ENCRYPTION_KEY = process.env.SETTINGS_ENCRYPTION_KEY || Buffer.alloc(32, 23).toString('base64');
 process.env.SESSION_SECRET = ['batch169', 'regression', 'secret'].join('-');
 process.env.BOOTSTRAP_EMAIL = 'root169@example.invalid';
 process.env.BOOTSTRAP_PASSWORD = ['Root', '169', 'Pass'].join('-');
@@ -402,8 +409,8 @@ async function main() {
 
     const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
     const cz = census();
-    assert.equal(cz.summary.total, 503, 'SEC-13 census total unchanged after removal (503)');
-    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 379, 'SEC-13 safe classes unchanged (379)');
+    assert.equal(cz.summary.total, 504, 'SEC-13 census total on the merged tree (504 = chain 503 + 1 benign STATIC from Batch 168 S6#F4, re-derived at the 168 rebase; Batch 169 adds zero)');
+    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 380, 'SEC-13 safe classes on the merged tree (380; the +1 is Batch 168\u2019s STATIC clear)');
     assert.equal(cz.summary.RAW, 86, 'SEC-13 RAW unchanged');
     assert.equal(cz.summary.IDENT, 38, 'SEC-13 IDENT unchanged');
     n += 4;

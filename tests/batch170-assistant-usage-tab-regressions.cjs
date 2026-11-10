@@ -26,7 +26,8 @@
  *   conversation title rendered as TEXT (no innerHTML anywhere),
  *   pane switching toggles hidden + aria-selected, and a failed
  *   fetch stays silent like the old line.
- * Part 4 — census/pins: SEC-13 totals unchanged (503 / 379 safe /
+ * Part 4 — census/pins: SEC-13 totals unchanged by this batch
+ *   (504 / 380 safe on the merged tree after the Batch 168 rebase /
  *   RAW 86 / IDENT 38 — the new DOM is createElement + textContent
  *   only, zero new sinks of any class); the portal.js (kind,snippet)
  *   sink multiset is unchanged; the ONE baseline entry below the
@@ -323,14 +324,14 @@ async function main() {
     let n = 0;
     const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
     const cz = census();
-    assert.equal(cz.summary.total, 503, 'SEC-13 census total unchanged by Batch 170 (zero new sinks)');
-    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 379, 'SEC-13 safe classes unchanged');
+    assert.equal(cz.summary.total, 504, 'SEC-13 census total on the merged tree (504 = chain 503 + 1 benign STATIC from Batch 168 S6#F4, re-derived at the 168 rebase; Batch 170 adds zero)');
+    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 380, 'SEC-13 safe classes on the merged tree (380; the +1 is Batch 168\u2019s STATIC clear)');
     assert.equal(cz.summary.RAW, 86, 'SEC-13 RAW unchanged');
     assert.equal(cz.summary.IDENT, 38, 'SEC-13 IDENT unchanged');
     n += 4;
 
     const baseline = JSON.parse(read('tests/batch103-xss-baseline.json'));
-    assert.ok(baseline.includes('public/js/portal.js:14498'), 'baseline carries the shifted assistantMd sink at its new line');
+    assert.ok(baseline.includes('public/js/portal.js:14525'), 'baseline carries the shifted assistantMd sink at its new line (14498 on the chain tree; +27 from Batch 168\u2019s portal.js insertions at the 168 rebase)');
     assert.ok(!baseline.includes('public/js/portal.js:14394'), 'stale pre-shift baseline entry removed');
     const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
     const baseSet = new Set(baseline);

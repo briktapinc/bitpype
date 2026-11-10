@@ -63,6 +63,12 @@ process.env.EXPORT_ROOT = path.join(tmpRoot, 'exports');
 process.env.APP_URL = 'https://example.invalid';
 process.env.CAPTCHA_OPTIONAL = '1';
 process.env.NODE_ENV = 'production';
+// Batch 168 rebase fixture: the server refuses to boot in
+// production without SETTINGS_ENCRYPTION_KEY (168's S1#3 boot
+// assert) — the spawned child inherits this synthetic key, the
+// same Buffer.alloc(32, 23) base64 fixture the other real-server
+// suites use. Not a real secret.
+process.env.SETTINGS_ENCRYPTION_KEY = process.env.SETTINGS_ENCRYPTION_KEY || Buffer.alloc(32, 23).toString('base64');
 process.env.SESSION_SECRET = ['batch173', 'regression', 'secret'].join('-');
 process.env.BOOTSTRAP_EMAIL = 'root173@example.invalid';
 process.env.BOOTSTRAP_PASSWORD = ['Root', '173', 'Pass'].join('-');
@@ -210,13 +216,13 @@ async function main() {
     const cz = census();
     assert.deepEqual(
       cz.summary,
-      { total: 503, STATIC: 186, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 38, RAW: 86 },
-      'SEC-13 census summary unchanged by Batch 173 (zero new sinks; wizard popup removal touched no sink)'
+      { total: 504, STATIC: 187, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 38, RAW: 86 },
+      'SEC-13 census summary on the merged tree (Batch 173 adds zero new sinks; the +1 STATIC vs the 171 tree is Batch 168\u2019s S6#F4 loadAssistant clear, re-derived at the 168 rebase)'
     );
     const crypto = require('node:crypto');
     const multi = cz.sinks.map((s) => `${s.file}|${s.kind}|${s.snippet}`).sort();
     const sha = crypto.createHash('sha256').update(multi.join('\n')).digest('hex');
-    assert.equal(sha, '43d331fd851011c0dcd8c31bb4f13dbc8f5004a95169567d31e3f05c845f0c47', 'SEC-13 (file|kind|snippet) multiset byte-identical');
+    assert.equal(sha, '20da195b82955ec635ce1dff9f57ff4d3773270087ab97194c39630390c061e8', 'SEC-13 (file|kind|snippet) multiset on the merged tree (chain 43d331fd + Batch 168\u2019s one STATIC sink = 20da195b)');
     const base = new Set(require(path.join(root, 'tests/batch103-xss-baseline.json')));
     const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
     assert.deepEqual([...reviewed].filter((x) => !base.has(x)), [], 'no RAW/IDENT sink line moved (template line parity held)');
