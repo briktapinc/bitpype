@@ -57,6 +57,12 @@ process.env.CAPTCHA_OPTIONAL = '1';
 // container's compose env), a bare gate container does not.
 process.env.APP_URL = 'https://bitpype.com';
 process.env.NODE_ENV = 'production';
+// Batch 168 finisher fixture (2026-11-09): S1#3 made the server
+// refuse to boot in production without SETTINGS_ENCRYPTION_KEY;
+// this suite spawns the real server and relied on ambient env —
+// same synthetic fixture as oauth-token/isolated-startup.
+process.env.SETTINGS_ENCRYPTION_KEY =
+  process.env.SETTINGS_ENCRYPTION_KEY || Buffer.alloc(32, 23).toString('base64');
 process.env.COOKIE_SECURE = 'false';
 process.env.MAIL_DRY_RUN = process.env.MAIL_DRY_RUN || 'true';
 process.env.MAIL_PROVIDER = process.env.MAIL_PROVIDER || 'dry';

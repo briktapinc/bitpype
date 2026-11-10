@@ -237,13 +237,19 @@ let db;
       `INSERT INTO ecommerce_order_items (order_id, lead_id, product_id, product_name, quantity, unit_price_cents, line_total_cents, currency, source_module)
        VALUES (?, ?, ?, ?, 1, 4200, 4200, 'USD', 'ecommerce')`
     ).run(Number(order.lastInsertRowid), id, prod.id, `${name} Fern`);
-    share.setSharedRef(db, id, {
-      consumer_type: 'newsletter',
-      consumer_id: 1,
-      provider_type: 'ecommerce',
-      provider_id: prod.id,
-      role: 'feature',
-    });
+    // Batch 168 finisher re-pin (2026-11-09): Batch 168 hardened
+    // setSharedRef so NEW refs require a provider-kind consumer
+    // with an existing item — newsletter (kind 'none', no items)
+    // is now rejected at the write path, deliberately (pinned by
+    // the batch168 suite). This fixture models a PRE-168 existing
+    // ref — exactly the legacy row population the merge/delete
+    // sweeps below must handle — so it plants the row directly,
+    // byte-identical to what the old write path stored.
+    share.ensureTables(db);
+    db.prepare(
+      `INSERT INTO module_shared_refs (lead_id, consumer_type, consumer_id, provider_type, provider_id, role)
+       VALUES (?, 'newsletter', 1, 'ecommerce', ?, 'feature')`
+    ).run(id, prod.id);
     return { prod, qr, cat, sub };
   }
 
