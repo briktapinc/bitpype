@@ -45,6 +45,31 @@
  * NEGATIVE PROOF: B115_NEGATIVE=css serves styles.css with the
  * row's nowrap/overflow reverted to wrapping -> Part 2 goes RED.
  * B115_SKIP_BROWSER=1 skips Part 2 locally; the gate runs it.
+ *
+ * HARDENING (2026-11-10, Ely's order, after this suite flaked the
+ * Batch 174 gate six times): diagnosis in the gate environment —
+ * Chromium's keyboard smooth-scroll animation (~170ms, 0 -> ~40px)
+ * can FREEZE mid-flight in headless when the renderer stops
+ * producing frames. Proven by state dumps at the old failures:
+ * scrollLeft pinned at 9px for a full 20s settle wait while 100ms
+ * CDP polls ran (offset -7, the frozen tail of the PREVIOUS
+ * width's ArrowRight animation dragging the row off the test's
+ * one-shot scrollLeft=0 reset); a keydown recorded on the focused
+ * row, not prevented, producing zero scroll for 20s while the
+ * identical retry press scrolled normally; a rest assertion
+ * reading offset 0 (scrollLeft crept to 2). In every dump, once
+ * the animation completed the row sat at its true rest — first
+ * card offset exactly 2, the row padding — so the product was
+ * never at fault; the MEASUREMENT raced a stalled animation.
+ * The fix is in HOW the waits measure, never in WHAT they assert:
+ * scroll waits poll on requestAnimationFrame (evaluating on
+ * frames is what keeps the renderer producing them, so a stalled
+ * animation runs to completion), the rest wait re-asserts
+ * scrollLeft=0 until it sticks and requires the first-card
+ * offset identical across 3 consecutive frames, and the
+ * ArrowRight wait requires the key scroll to finish and come to
+ * rest instead of merely starting. All assertions, expected
+ * values and tolerances below are unchanged from Batch 115.
  */
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
@@ -260,6 +285,16 @@ function group(name, n) {
     page.waitForFunction(fn, { timeout: 20000, polling: 100 }).catch(() => {
       throw new Error(`wait timed out: ${label}`);
     });
+  // WFR — same contract as WF, but the predicate is evaluated on
+  // requestAnimationFrame. Used for every scroll-state wait (see
+  // the 2026-11-10 hardening note in the header): evaluating on
+  // frames keeps the headless renderer producing them, which is
+  // what lets a stalled scroll animation run to its settled state
+  // instead of freezing mid-flight for the whole wait.
+  const WFR = (page, fn, label) =>
+    page.waitForFunction(fn, { timeout: 20000, polling: 'raf' }).catch(() => {
+      throw new Error(`wait timed out: ${label}`);
+    });
 
   const measure = () => {
     const grid = document.querySelector('.modcat-grid');
@@ -297,26 +332,40 @@ function group(name, n) {
       await page.goto(base + '/app#/modules', { waitUntil: 'domcontentloaded', timeout: 30000 });
       await WF(page, () => document.querySelectorAll('.modcat-card').length === 28, `catalog renders @${w}`);
       await page.evaluate(() => document.fonts.ready);
-      // Batch 112 stability idiom: measure the REST state only once
-      // it is well-defined — scroll reset to 0 and the first card's
-      // offset stable across consecutive samples. (Diagnosis from
-      // the first gate run: scroll anchoring left scrollLeft=3px
-      // after the @980 navigation, shifting the first card 3px —
-      // the settled rest offset is exactly the 2px row padding at
-      // every width, probe-verified.)
+      // Measure the REST state only once it is well-defined. The
+      // settled rest offset is exactly the 2px row padding at every
+      // width (probe-verified, Batch 112/115 diagnosis). Hardened
+      // 2026-11-10 (see header): a leftover key-scroll animation
+      // from the previous width can be frozen mid-flight and drag
+      // scrollLeft off 0 AFTER a one-shot reset, so this wait
+      // re-asserts scrollLeft = 0 on every frame until it sticks,
+      // and requires the first-card offset identical across 3
+      // consecutive frames — the row is at rest only when its
+      // geometry has genuinely stopped moving.
       await page.evaluate(() => {
         document.querySelector('.modcat-grid').scrollLeft = 0;
       });
-      await WF(
+      await WFR(
         page,
         () => {
           const g = document.querySelector('.modcat-grid');
-          if (g.scrollLeft !== 0 || g.scrollWidth <= g.clientWidth) return false;
+          if (!g || g.scrollWidth <= g.clientWidth) return false;
+          if (g.scrollLeft !== 0) {
+            g.scrollLeft = 0;
+            window.__b115off = null;
+            window.__b115stable = 0;
+            return false;
+          }
           const c = document.querySelector('.modcat-card');
+          if (!c) return false;
           const off = c.getBoundingClientRect().left - g.getBoundingClientRect().left;
-          const stable = window.__b115off === off;
+          if (window.__b115off !== null && Math.abs(off - window.__b115off) < 0.01) {
+            window.__b115stable = (window.__b115stable || 0) + 1;
+          } else {
+            window.__b115stable = 0;
+          }
           window.__b115off = off;
-          return stable;
+          return window.__b115stable >= 3;
         },
         `catalog at settled rest @${w}`
       );
@@ -357,7 +406,7 @@ function group(name, n) {
         const g = document.querySelector('.modcat-grid');
         g.scrollLeft = g.scrollWidth;
       });
-      await WF(
+      await WFR(
         page,
         () => {
           const g = document.querySelector('.modcat-grid');
@@ -379,9 +428,31 @@ function group(name, n) {
         g.focus();
       });
       await page.keyboard.press('ArrowRight');
-      await WF(
+      // Hardened 2026-11-10 (see header): the key scroll is an
+      // animation (~170ms, 0 -> ~40px). Requiring only
+      // scrollLeft > 0 raced its first frame — and a frame-starved
+      // renderer could leave that frame unplayed for the whole
+      // wait. Require the scroll to have happened AND come to
+      // rest: a positive position identical across 3 consecutive
+      // frames. A row that cannot be keyboard-scrolled still
+      // times out here, exactly as before.
+      await WFR(
         page,
-        () => document.querySelector('.modcat-grid').scrollLeft > 0,
+        () => {
+          const g = document.querySelector('.modcat-grid');
+          if (!g || g.scrollLeft <= 0) {
+            window.__b115key = null;
+            window.__b115keyStable = 0;
+            return false;
+          }
+          if (window.__b115key === g.scrollLeft) {
+            window.__b115keyStable = (window.__b115keyStable || 0) + 1;
+          } else {
+            window.__b115keyStable = 0;
+          }
+          window.__b115key = g.scrollLeft;
+          return window.__b115keyStable >= 3;
+        },
         `ArrowRight scrolls the focused row @${w}`
       );
       n += 1;
