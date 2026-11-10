@@ -750,6 +750,7 @@ function buildSiteContext(db, leadId) {
  * Run one assistant turn. `onEvent(type, payload)` receives
  * 'status' (tool activity), 'delta' (reply chunks — SSE streaming
  * to the browser), 'done' and 'error' events.
+ * @param {{ workspaceId: any, surface: string, actorId: any, conversationId: any, message: any, attachmentIds?: any[], onEvent?: (type: string, payload: any) => void }} opts
  */
 async function runAssistantTurn({ workspaceId, surface, actorId, conversationId, message, attachmentIds = [], onEvent = () => {} }) {
   const domain = require('./domain');
@@ -930,6 +931,7 @@ async function runAssistantTurn({ workspaceId, surface, actorId, conversationId,
       for (const tc of calls) {
         const wireName = String((tc.function && tc.function.name) || '').trim();
         const name = toolNames.get(wireName);
+        /** @type {Record<string, any>} */
         let args = {};
         try {
           args = JSON.parse((tc.function && tc.function.arguments) || '{}');
