@@ -55,6 +55,12 @@ const { spawn } = require('node:child_process');
 
 const root = path.resolve(__dirname, '..');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'bp-b174-'));
+// Batch 168 finisher fixture (added at the 174 rebase, 2026-11-09):
+// S1#3 made the server refuse to boot in production without
+// SETTINGS_ENCRYPTION_KEY; this suite spawns the real server —
+// same synthetic fixture as oauth-token/isolated-startup.
+process.env.SETTINGS_ENCRYPTION_KEY =
+  process.env.SETTINGS_ENCRYPTION_KEY || Buffer.alloc(32, 23).toString('base64');
 process.env.DB_DRIVER = process.env.REGRESSION_DB_DRIVER || 'sqlite';
 process.env.SQLITE_PATH = path.join(temp, 'platform.sqlite');
 process.env.PLATFORM_DB_PATH = process.env.SQLITE_PATH;
@@ -153,8 +159,8 @@ const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
     const cz = census();
     assert.deepEqual(
       cz.summary,
-      { total: 507, STATIC: 186, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 41, RAW: 86 },
-      'census 503 -> 506 (Batch 174: +3 IDENT, RAW and safe classes unchanged)'
+      { total: 507, STATIC: 187, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 41, RAW: 86 },
+      'census on the merged 168+174 tree: 507 (Batch 174 adds +3 IDENT over the Batch 168 tree at 504; RAW unchanged; safe classes 380)'
     );
     const multi = cz.sinks.map((s) => `${s.file}|${s.kind}|${s.snippet}`).sort();
     const sha = crypto.createHash('sha256').update(multi.join('\n')).digest('hex');

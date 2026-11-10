@@ -278,7 +278,7 @@ function mobileCss(css) {
     // unchanged). The pins below track the current tree.
     assert.deepEqual(
       cz.summary,
-      { total: 507, STATIC: 186, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 41, RAW: 86 },
+      { total: 507, STATIC: 187, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 41, RAW: 86 },
       'SEC-13 census summary (Batch 174 re-pin — see note above; 166 contributes zero movement)'
     );
     n += 1;
