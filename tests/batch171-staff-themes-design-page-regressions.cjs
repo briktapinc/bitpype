@@ -352,8 +352,12 @@ async function main() {
     assert.ok(appJs.includes('async function submitStaffThemeBuild('), 'shared staff theme build submit exists in app.js (Batch 173)');
     assert.ok(!appJs.includes('openStaffThemeWizard'), 'no staff surface opens the theme wizard popup (Batch 173)');
     assert.ok(appJs.includes("'Build this'"), 'staff theme cards render a Build this button');
-    assert.ok(appJs.includes('staff-themes-row'), 'staff themes render in per-category rows');
-    n += 8;
+    assert.ok(appJs.includes('staff-themes-row'), 'Design New Job picker keeps its per-category theme rows');
+    // Batch 176: on the Assistant page itself the rows became the
+    // studio-desk gallery grid with a category pill/dropdown filter.
+    assert.ok(appJs.includes('staff-themes-grid'), 'Assistant themes render in the gallery grid (Batch 176)');
+    assert.ok(appJs.includes("stEl('span', 'staff-theme-tag'"), 'Assistant gallery cards carry the category tag (Batch 176)');
+    n += 10;
 
     // Staff api client methods.
     assert.ok(apiJs.includes("assistantThemes: () => get('/assistant/themes')"), 'api client: catalog method');
@@ -447,8 +451,8 @@ async function main() {
     // the Batch 174 suite). Batch 171's own movement stays zero;
     // RAW and safe classes are unchanged.
     assert.equal(cz.summary.total, 507, 'SEC-13 census total (Batch 174 re-pin — see note above)');
-    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 380, 'SEC-13 safe classes unchanged by Batch 171');
-    assert.equal(cz.summary.RAW, 86, 'SEC-13 RAW unchanged');
+    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 381, 'SEC-13 safe classes (Batch 176 re-pin: +1 STATIC from the pageAssistant shell reclassification — see batch103) unchanged by Batch 171');
+    assert.equal(cz.summary.RAW, 85, 'SEC-13 RAW (Batch 176 re-pin: pageAssistant shell RAW -> STATIC — see batch103)');
     assert.equal(cz.summary.IDENT, 41, 'SEC-13 IDENT (Batch 174 re-pin — see note above)');
     const batchBlock = appJs.slice(appJs.indexOf('Batch 171 — Themes on the staff surfaces'));
     assert.ok(!batchBlock.includes('.innerHTML'), 'Batch 171 app.js block adds no innerHTML sink (createElement + textContent only)');

@@ -418,8 +418,8 @@ async function main() {
     // the Batch 174 suite). Batch 169's own movement stays zero;
     // RAW and safe classes are unchanged.
     assert.equal(cz.summary.total, 507, 'SEC-13 census total (Batch 174 re-pin — see note above)');
-    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 380, 'SEC-13 safe classes unchanged (379)');
-    assert.equal(cz.summary.RAW, 86, 'SEC-13 RAW unchanged');
+    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 381, 'SEC-13 safe classes (Batch 176 re-pin: +1 STATIC from the pageAssistant shell reclassification — see batch103) unchanged (379)');
+    assert.equal(cz.summary.RAW, 85, 'SEC-13 RAW (Batch 176 re-pin: pageAssistant shell RAW -> STATIC — see batch103)');
     assert.equal(cz.summary.IDENT, 41, 'SEC-13 IDENT (Batch 174 re-pin — see note above)');
     n += 4;
     group('Part 4 — source pins: portal surface gone, core kept, census stable', n);

@@ -159,12 +159,12 @@ const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
     const cz = census();
     assert.deepEqual(
       cz.summary,
-      { total: 507, STATIC: 187, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 41, RAW: 86 },
+      { total: 507, STATIC: 188, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 41, RAW: 85 },
       'census on the merged 168+174 tree: 507 (Batch 174 adds +3 IDENT over the Batch 168 tree at 504; RAW unchanged; safe classes 380)'
     );
     const multi = cz.sinks.map((s) => `${s.file}|${s.kind}|${s.snippet}`).sort();
     const sha = crypto.createHash('sha256').update(multi.join('\n')).digest('hex');
-    assert.equal(sha, 'a4884d2d227651d4f741bb6f7df5a15c90ff874e9186b63caf4e9a248b81a3fb', 'census multiset pinned');
+    assert.equal(sha, 'fcd696c84245a0d56bc865051805924f8c1449eec2eb3a8f3e2b6ab9a7fdcd5e', 'census multiset pinned');
     const identSnippets = cz.sinks.filter((s) => s.file === 'public/js/portal.js' && s.kind === 'IDENT').map((s) => s.snippet);
     for (const snip of ["assistantMd(text || '')", 'assistantMd(acc)', 'assistantMd(reply)']) {
       assert.ok(identSnippets.includes(snip), `new IDENT sink present: ${snip}`);

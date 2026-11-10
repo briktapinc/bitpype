@@ -29,6 +29,19 @@
  *    no SEC-13 census sink line moved; the census is byte-
  *    identical to the Batch 171 tree (proven in Part 1).
  *
+ * Batch 176 UPDATE (Ely approved the ground-up reimagine,
+ * 2026-11-10): the two-column layout above is REPLACED by the
+ * "one studio desk" design — usage as header stat tiles with the
+ * full table (same endpoint, same rendering) in the Full-
+ * breakdown modal; the chat as one full-width console
+ * (conversation chip strip, centred reading column, docked
+ * composer); Themes as a full-width gallery whose category
+ * pills (dropdown at <=700px) filter a 3-column grid in place.
+ * The View modal, the build page and the submit contract are
+ * untouched; the layout pins in Parts 1/3 now assert the new
+ * structure. Census re-pinned for the single pageAssistant
+ * shell reclassification (RAW -> STATIC — see batch103).
+ *
  * Part 1 — source pins: card controls, modal construction, build
  *   page routing + not-found + submit contract, two-column
  *   template structure, CSS facts (scroll container, rail,
@@ -134,7 +147,7 @@ async function main() {
     assert.ok(card.includes("stEl('div', 'staff-theme-card-actions')"), 'card groups its buttons in an actions row');
     assert.ok(card.includes("stEl('button', 'btn', 'View')"), 'card renders a View button');
     assert.ok(card.includes('openStaffThemeView(theme.id)'), 'View opens the theme view modal');
-    assert.ok(card.includes("stEl('button', 'btn', 'Build this')"), 'card renders a Build this button');
+    assert.ok(card.includes("stEl('button', 'btn primary', 'Build this')"), 'card renders a Build this button');
     assert.ok(card.includes("'#/themes-build/' + encodeURIComponent(theme.id)"), 'Build this navigates to the build page route');
     assert.ok(!card.includes('openStaffThemeWizard'), 'card no longer opens any wizard popup');
     n += 7;
@@ -180,22 +193,22 @@ async function main() {
     assert.ok(sub.includes("window.location.hash = '#/assistant'"), 'submit returns to the Assistant page');
     n += 10;
 
-    // --- Two-column Assistant template structure ---
+    // --- Studio-desk Assistant template structure (Batch 176) ---
     const tplAt = appJs.indexOf('async function pageAssistant()');
     const tpl = appJs.slice(tplAt, appJs.indexOf('`;', tplAt));
-    const iPage = tpl.indexOf('class="asst-page"');
-    const iRail = tpl.indexOf('class="asst-rail"');
-    const iChat = tpl.indexOf('class="card asst-chat-card"');
-    const iUsageCard = tpl.indexOf('class="card asst-usage-card"');
-    const iUsage = tpl.indexOf('id="asst-usage"');
-    const iContent = tpl.indexOf('class="asst-content"');
+    const fnBody = appJs.slice(tplAt, appJs.indexOf('async function pageFingerprints()', tplAt));
+    const iStrip = tpl.indexOf('class="asst-usage-strip"');
+    const iConsole = tpl.indexOf('class="asst-console"');
+    const iGallery = tpl.indexOf('class="asst-gallery"');
     const iThemes = tpl.indexOf('id="asst-themes"');
-    assert.ok(iPage > -1 && iRail > iPage && iContent > iRail, 'template wraps rail + content in .asst-page');
-    assert.ok(iChat > iRail && iChat < iContent, 'chat card sits inside the left rail');
-    assert.ok(iUsageCard > iRail && iUsageCard < iContent && iUsage > iUsageCard, 'usage card tucks into the rail under the chat');
-    assert.ok(iThemes > iContent, 'themes mount sits in the right content column');
-    assert.ok(tpl.includes('class="asst-layout"') && tpl.includes('id="asst-messages"') && tpl.includes('id="asst-form"'), 'chat internals unchanged inside the rail');
-    n += 5;
+    assert.ok(iStrip > -1 && iConsole > iStrip && iGallery > iConsole, 'template stacks usage strip, console, gallery top to bottom');
+    assert.ok(tpl.includes('id="asst-stat-calls"') && tpl.includes('id="asst-stat-raw"') && tpl.includes('id="asst-stat-billed"'), 'header carries the three usage stat tiles');
+    assert.ok(tpl.includes('id="asst-usage-open"'), 'header carries the Full breakdown button');
+    assert.ok(fnBody.includes('<div id="asst-usage">'), 'full usage table renders into the breakdown modal body');
+    assert.ok(iThemes > iGallery, 'themes mount sits in the gallery below the console');
+    assert.ok(tpl.includes('class="asst-chips"') && tpl.includes('id="asst-messages"') && tpl.includes('id="asst-form"'), 'chat internals unchanged inside the console');
+    assert.ok(!tpl.includes('asst-rail') && !tpl.includes('asst-content'), 'the two-column rail layout is gone');
+    n += 7;
 
     // --- CSS facts ---
     const scrollRule = styles.slice(styles.indexOf('.staff-theme-view-scroll {'));
@@ -203,11 +216,11 @@ async function main() {
     assert.ok(/\.staff-theme-view-scroll \{[^}]*max-height:/.test(styles), 'view scroll container is height-bounded');
     assert.ok(/\.staff-theme-view-scroll img \{[^}]*width:\s*100%/.test(styles), 'view image renders at the modal content width');
     assert.ok(/\.staff-theme-card-actions \{[^}]*display:\s*flex/.test(styles), 'card actions lay out as a row');
-    assert.ok(/\.asst-rail \{[^}]*position:\s*sticky/.test(styles), 'assistant rail is sticky');
-    assert.ok(/\.asst-rail \{[^}]*height:\s*calc\(100vh/.test(styles), 'assistant rail is full-height');
-    assert.ok(/\.asst-chat-card \.asst-main \{[^}]*min-height:\s*0/.test(styles), 'rail chat main can shrink so messages scroll inside');
+    assert.ok(/\.staff-themes-grid \{[^}]*grid-template-columns:\s*repeat\(3, 1fr\)/.test(styles), 'themes grid is 3 columns on desktop');
+    assert.ok(/\.staff-themes-grid \{[^}]*gap:\s*20px/.test(styles), 'themes grid keeps the uniform 20px gap');
+    assert.ok(/\.asst-thread-col \{[^}]*max-width:\s*780px/.test(styles), 'thread reading column is 780px');
     const mob = styles.slice(styles.lastIndexOf('@media (max-width: 700px)'));
-    assert.ok(/\.asst-page \{[^}]*flex-direction:\s*column/.test(mob.slice(mob.indexOf('.asst-page'))), 'mobile: assistant stacks to one column');
+    assert.ok(/\.staff-themes-grid \{[^}]*grid-template-columns:\s*1fr/.test(mob.slice(mob.indexOf('.staff-themes-grid'))), 'mobile: themes grid stacks to one column');
     assert.ok(/\.staff-theme-view-modal \{[^}]*width:\s*100%/.test(mob.slice(mob.indexOf('.staff-theme-view-modal'))), 'mobile: view modal goes near-full-screen');
     n += 9;
 
@@ -226,16 +239,16 @@ async function main() {
     const cz = census();
     assert.deepEqual(
       cz.summary,
-      { total: 507, STATIC: 187, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 41, RAW: 86 },
+      { total: 507, STATIC: 188, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 41, RAW: 85 },
       'SEC-13 census summary (Batch 174 re-pin: +3 IDENT assistantMd writes in portal.js — see note above)'
     );
     const crypto = require('node:crypto');
     const multi = cz.sinks.map((s) => `${s.file}|${s.kind}|${s.snippet}`).sort();
     const sha = crypto.createHash('sha256').update(multi.join('\n')).digest('hex');
-    assert.equal(sha, 'a4884d2d227651d4f741bb6f7df5a15c90ff874e9186b63caf4e9a248b81a3fb', 'SEC-13 (file|kind|snippet) multiset pinned (Batch 174 re-pin — see note above)');
+    assert.equal(sha, 'fcd696c84245a0d56bc865051805924f8c1449eec2eb3a8f3e2b6ab9a7fdcd5e', 'SEC-13 (file|kind|snippet) multiset pinned (Batch 174 re-pin — see note above)');
     const base = new Set(require(path.join(root, 'tests/batch103-xss-baseline.json')));
     const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
-    assert.deepEqual([...reviewed].filter((x) => !base.has(x)), [], 'no RAW/IDENT sink line moved (template line parity held)');
+    assert.deepEqual([...reviewed].filter((x) => !base.has(x)), [], 'no unreviewed RAW/IDENT sink (Batch 176 baseline regenerated — see batch103)');
     assert.deepEqual([...base].filter((x) => !reviewed.has(x)), [], 'no baseline sink unaccounted');
     n += 4;
 
@@ -245,7 +258,7 @@ async function main() {
     assert.ok(!portalJs.includes('function openThemeWizard('), 'Batch 172: portal wizard popup removed (staff-only Themes)');
     assert.ok(!portalJs.includes("api('/assistant/themes/build'"), 'Batch 172: portal build path removed with the portal surface');
     n += 2;
-    group('Part 1 — source pins: card, modal, page, layout, census', n);
+    group('Part 1 — source pins: card, modal, page, studio-desk layout, census', n);
   }
 
   /* ================================================================
@@ -388,7 +401,27 @@ async function main() {
         },
       });
     });
-    app.get('/api/v1/assistant/conversations', (_q, r) => r.json({ ok: true, data: [] }));
+    app.get('/api/v1/assistant/conversations', (_q, r) =>
+      r.json({
+        ok: true,
+        data: [
+          { id: 11, title: 'Fixture chat one', leadId: null },
+          { id: 12, title: 'Fixture chat two', leadId: null },
+        ],
+      })
+    );
+    app.get('/api/v1/assistant/conversations/:id', (req, r) =>
+      r.json({
+        ok: true,
+        data: {
+          conversation: { id: Number(req.params.id), leadId: null },
+          messages: [
+            { role: 'user', content: 'Fixture question', attachments: [] },
+            { role: 'assistant', content: 'Fixture answer', attachments: [] },
+          ],
+        },
+      })
+    );
     app.get('/api/v1/assistant/usage', (_q, r) =>
       r.json({
         ok: true,
@@ -446,35 +479,88 @@ async function main() {
       assert.ok(cardAudit.allHaveBoth, 'every theme card has both View and Build this');
       n += 2;
 
+      await page.waitForFunction(() => (document.querySelector('#asst-stat-calls') || {}).textContent === '3', { timeout: 8000 });
       const layout = await page.evaluate(() => {
-        const rail = document.querySelector('.asst-rail');
-        const content = document.querySelector('.asst-content');
+        const consoleEl = document.querySelector('.asst-console');
+        const gallery = document.querySelector('.asst-gallery');
         const msgs = document.querySelector('#asst-messages');
-        const rb = rail.getBoundingClientRect();
-        const cb = content.getBoundingClientRect();
+        const col = document.querySelector('#asst-thread-col');
+        const chips = [...document.querySelectorAll('#asst-convs .asst-chip')];
+        const grid = document.querySelector('.staff-themes-grid');
         return {
-          railLeftOfContent: rb.right <= cb.left + 1,
-          railPosition: getComputedStyle(rail).position,
-          railContainsChat: !!rail.querySelector('#asst-form'),
-          railContainsUsage: !!rail.querySelector('#asst-usage'),
-          contentContainsThemes: !!content.querySelector('#asst-themes'),
+          consoleAboveGallery: consoleEl.getBoundingClientRect().bottom <= gallery.getBoundingClientRect().top + 1,
+          consoleContainsChat: !!consoleEl.querySelector('#asst-form') && !!consoleEl.querySelector('#asst-lead'),
+          galleryContainsThemes: !!gallery.querySelector('#asst-themes'),
           messagesOverflowY: getComputedStyle(msgs).overflowY,
-          messagesFitRail: msgs.getBoundingClientRect().height <= rb.height,
-          usageText: (rail.querySelector('#asst-usage') || {}).textContent || '',
+          threadColWidth: col.getBoundingClientRect().width,
+          chipCount: chips.length,
+          firstChipIsNew: chips.length > 0 && chips[0].id === 'asst-new',
+          chipTitles: chips.map((c) => c.textContent.trim()),
+          activeChip: (chips.find((c) => c.classList.contains('active')) || {}).textContent || '',
+          gridColumns: getComputedStyle(grid).gridTemplateColumns.split(' ').length,
+          tileCalls: (document.querySelector('#asst-stat-calls') || {}).textContent || '',
+          tileRaw: (document.querySelector('#asst-stat-raw') || {}).textContent || '',
+          tileBilled: (document.querySelector('#asst-stat-billed') || {}).textContent || '',
         };
       });
-      assert.ok(layout.railLeftOfContent, 'desktop: chat rail sits left of the themes column');
-      assert.equal(layout.railPosition, 'sticky', 'desktop: rail is sticky');
-      assert.ok(layout.railContainsChat && layout.railContainsUsage, 'desktop: rail holds chat + usage summary');
-      assert.ok(layout.contentContainsThemes, 'desktop: themes render in the right column');
+      assert.ok(layout.consoleAboveGallery, 'desktop: chat console sits above the themes gallery');
+      assert.ok(layout.consoleContainsChat, 'desktop: console holds the composer + site select');
+      assert.ok(layout.galleryContainsThemes, 'desktop: themes render in the gallery below');
       assert.equal(layout.messagesOverflowY, 'auto', 'desktop: messages area is the internal-scroll element');
-      assert.ok(layout.messagesFitRail, 'desktop: messages area is bounded by the rail');
-      assert.ok(layout.usageText.includes('client billed'), 'desktop: usage summary renders in the rail');
-      n += 7;
+      assert.ok(layout.threadColWidth <= 780 + 1, 'desktop: thread reading column is bounded at 780px');
+      assert.equal(layout.chipCount, 3, 'chip strip renders New + both fixture conversations');
+      assert.ok(layout.firstChipIsNew, 'chip strip leads with the New conversation chip');
+      assert.ok(layout.chipTitles.includes('Fixture chat one') && layout.chipTitles.includes('Fixture chat two'), 'chip strip renders conversation titles');
+      assert.ok(layout.activeChip.includes('Fixture chat one'), 'the opened conversation chip is active');
+      assert.equal(layout.gridColumns, 3, 'desktop: themes grid renders 3 columns');
+      assert.equal(layout.tileCalls, '3', 'usage tile: calls populate from the usage endpoint');
+      assert.equal(layout.tileRaw, '$3.75', 'usage tile: raw cost totals portal + staff');
+      assert.equal(layout.tileBilled, '$1.80', 'usage tile: billed out is the portal billed figure');
+      n += 13;
+
+      // ---- Full breakdown: the full usage table lives in a modal ----
+      await page.click('#asst-usage-open');
+      await page.waitForFunction(() => !!document.querySelector('#asst-usage'), { timeout: 8000 });
+      const breakdown = await page.evaluate(() => {
+        const el = document.querySelector('#asst-usage');
+        return {
+          text: el.textContent || '',
+          hasRollup: !!document.querySelector('#asst-rollup'),
+          hasQueue: !!document.querySelector('#asst-queue'),
+          inModal: !!el.closest('.modal-backdrop'),
+        };
+      });
+      assert.ok(breakdown.inModal, 'breakdown table renders inside a modal');
+      assert.ok(breakdown.text.includes('client billed'), 'breakdown keeps the summary line (client billed figure)');
+      assert.ok(breakdown.text.includes('Staff (internal)'), 'breakdown table keeps the surface x user rows');
+      assert.ok(breakdown.hasRollup && breakdown.hasQueue, 'breakdown keeps the rollup + queue actions');
+      n += 4;
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !document.querySelector('#asst-usage'), { timeout: 8000 });
+
+      // ---- Category filter: pills filter the grid in place ----
+      const storeCount = (catalog.find((c) => c.id === 'store') || { themes: [] }).themes.length;
+      await page.evaluate(() => {
+        const pill = [...document.querySelectorAll('#asst-pills .asst-pill')].find((p) => p.dataset.cat === 'store');
+        pill.click();
+      });
+      await page.waitForFunction((want) => document.querySelectorAll('.staff-theme-card').length === want, { timeout: 8000 }, storeCount);
+      assert.ok(true, 'category pill filters the grid to that category');
+      n += 1;
+      const selSync = await page.evaluate(() => document.querySelector('#asst-cat-select').value);
+      assert.equal(selSync, 'store', 'mobile dropdown stays in sync with the pill filter');
+      n += 1;
+      await page.evaluate(() => {
+        const pill = [...document.querySelectorAll('#asst-pills .asst-pill')].find((p) => p.dataset.cat === 'all');
+        pill.click();
+      });
+      await page.waitForFunction((want) => document.querySelectorAll('.staff-theme-card').length === want, { timeout: 8000 }, themeCount);
+      assert.ok(true, 'All pill restores the full grid');
+      n += 1;
 
       // ---- View modal: open, correct image, scrolls, closes 3 ways ----
       const firstTheme = await page.evaluate(() => {
-        const img = document.querySelector('.staff-theme-card > img');
+        const img = document.querySelector('.staff-theme-frame img');
         return img ? img.getAttribute('src') : '';
       });
       const clickCardButton = (label) =>
@@ -633,16 +719,23 @@ async function main() {
       await page.setViewport({ width: 390, height: 844 });
       await goto('#/assistant', () => document.querySelectorAll('.staff-theme-card').length > 0, 'assistant themes @390');
       const mobile = await page.evaluate(() => {
-        const chat = document.querySelector('.asst-chat-card').getBoundingClientRect();
-        const themes = document.querySelector('#asst-themes').closest('.card').getBoundingClientRect();
+        const chat = document.querySelector('.asst-console').getBoundingClientRect();
+        const themes = document.querySelector('.asst-gallery').getBoundingClientRect();
+        const pills = document.querySelector('#asst-pills');
+        const sel = document.querySelector('#asst-cat-select');
         return {
           noOverflow: document.documentElement.scrollWidth <= window.innerWidth + 1,
           chatFirst: chat.top < themes.top,
+          pillsHidden: getComputedStyle(pills).display === 'none',
+          selectShown: getComputedStyle(sel).display !== 'none',
+          gridOneCol: getComputedStyle(document.querySelector('.staff-themes-grid')).gridTemplateColumns.split(' ').length === 1,
         };
       });
       assert.ok(mobile.noOverflow, '390px: no horizontal overflow on the assistant page');
       assert.ok(mobile.chatFirst, '390px: chat stacks before themes');
-      n += 2;
+      assert.ok(mobile.pillsHidden && mobile.selectShown, '390px: category pills become the dropdown');
+      assert.ok(mobile.gridOneCol, '390px: themes grid is one column');
+      n += 4;
       await clickCardButton('View');
       await page.waitForFunction(() => !!document.querySelector('.staff-theme-view-modal'), { timeout: 8000 });
       const mobileModal = await page.evaluate(() => {
@@ -684,10 +777,10 @@ async function main() {
       await browser.close().catch(() => {});
       server.close();
     }
-    group('Part 3 — browser: modal, build page, two-column, 390px', n);
+    group('Part 3 — browser: modal, build page, studio desk, 390px', n);
   }
 
-  console.log(`\nbatch173 theme view + build page + two-column: ALL PASS\n${results.map((r) => '  - ' + r).join('\n')}`);
+  console.log(`\nbatch173 theme view + build page + studio desk: ALL PASS\n${results.map((r) => '  - ' + r).join('\n')}`);
 }
 
 main().catch((e) => {

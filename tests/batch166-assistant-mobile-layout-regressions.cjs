@@ -60,6 +60,21 @@
  *   sha byte-identical to the Batch 161 tree (the template edit
  *   changed no sink: classification and the 160-char snippet,
  *   which covers only the untouched lede, are unchanged).
+ *
+ * Batch 176 REWRITE of Parts 1/2/4 (Ely approved the ground-up
+ * Assistant reimagine, 2026-11-10): the rail layout this suite
+ * was written for is gone by design — the page is now "one
+ * studio desk" (usage stat tiles in the header + full table in
+ * a modal; one full-width chat console with a conversation chip
+ * strip, centred 780px reading column and docked composer;
+ * Themes as a filterable 3-column gallery). Parts 1/2 now pin
+ * the NEW structure and its mobile geometry (the 166 guarantees
+ * carry over: no fixed px widths crushing the thread at 390px,
+ * composer wraps with the textarea first, nothing overflows).
+ * Part 3 (portal) is untouched. Part 5 re-pinned: Batch 176's
+ * template edit reclassified exactly one sink (the pageAssistant
+ * shell, RAW -> STATIC — pairwise multiset proof in the batch103
+ * narrative); summary/sha below track the current tree.
  */
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
@@ -130,17 +145,29 @@ function mobileCss(css) {
     const tpl = appJs.slice(start, appJs.indexOf('`;', start));
 
     for (const hook of [
-      'class="asst-layout"',
-      'class="asst-convs" id="asst-convs"',
-      'class="asst-main"',
+      'class="page-head asst-head"',
+      'class="asst-usage-strip"',
+      'id="asst-stat-calls"',
+      'id="asst-stat-raw"',
+      'id="asst-stat-billed"',
+      'id="asst-usage-open"',
+      'class="asst-console"',
+      'class="asst-chips" id="asst-convs"',
       'class="asst-messages" id="asst-messages"',
+      'class="asst-thread-col" id="asst-thread-col"',
       'class="asst-pending" id="asst-pending"',
       'class="asst-form" id="asst-form"',
+      'class="asst-gallery"',
+      'class="asst-pills" id="asst-pills"',
+      'class="asst-cat-select" id="asst-cat-select"',
+      'id="asst-themes"',
     ]) {
       assert.ok(tpl.includes(hook), `template hook: ${hook}`);
       n += 1;
     }
-    // No inline layout styles remain on the six layout elements.
+    assert.ok(!tpl.includes('asst-rail') && !tpl.includes('asst-content') && !tpl.includes('asst-layout'), 'the Batch 173 rail layout is gone');
+    n += 1;
+    // No inline layout styles on the console elements.
     for (const id of ['asst-convs', 'asst-messages', 'asst-pending', 'asst-form', 'asst-input']) {
       const at = tpl.indexOf(`id="${id}"`);
       assert.ok(at > 0, `${id} still in template`);
@@ -148,16 +175,21 @@ function mobileCss(css) {
       assert.ok(!tag.includes('style='), `${id} carries no inline style (tag: ${tag})`);
       n += 1;
     }
-    assert.ok(!tpl.includes('flex:0 0 230px'), 'fixed 230px inline basis gone from the template');
-    n += 1;
     // Behaviour surface unchanged: same ids, same composer controls.
-    for (const id of ['asst-lead', 'asst-new', 'asst-attach', 'asst-camera', 'asst-input', 'asst-send', 'asst-file', 'asst-camera-file', 'asst-status', 'asst-usage']) {
+    // (asst-new is rendered by renderConvs as the first chip;
+    // asst-usage is the Full-breakdown modal body container.)
+    const fnBody = appJs.slice(start, appJs.indexOf('async function pageFingerprints()', start));
+    for (const id of ['asst-lead', 'asst-attach', 'asst-camera', 'asst-input', 'asst-send', 'asst-file', 'asst-camera-file', 'asst-status']) {
       assert.ok(tpl.includes(`id="${id}"`), `id preserved: ${id}`);
       n += 1;
     }
+    assert.ok(fnBody.includes("nb.id = 'asst-new'"), 'New conversation chip keeps the asst-new id');
+    n += 1;
+    assert.ok(fnBody.includes('<div id="asst-usage">'), 'usage table container lives in the breakdown modal body');
+    n += 1;
     assert.ok(tpl.includes('<textarea id="asst-input" rows="2"'), 'composer textarea keeps rows=2');
     n += 1;
-    group('Part 1 staff markup — class hooks, inline layout styles out', n);
+    group('Part 1 staff markup — studio-desk hooks, ids preserved', n);
   }
 
   // ---------------------------------------------------------------
@@ -166,59 +198,70 @@ function mobileCss(css) {
   {
     let n = 0;
     const desk = (sel) => ruleBody(stylesCss, sel);
-    const lay = desk('.asst-layout');
-    assert.match(lay, /display:\s*flex/, '.asst-layout is a flex row on desktop');
-    assert.match(lay, /gap:\s*16px/, '.asst-layout keeps the 16px gap');
-    assert.match(lay, /align-items:\s*flex-start/, '.asst-layout keeps flex-start alignment');
-    n += 3;
-    const convs = desk('.asst-convs');
-    assert.match(convs, /flex:\s*0 0 230px/, 'desktop conversation list keeps its 230px basis');
-    assert.match(convs, /max-height:\s*60vh/, 'desktop conversation list keeps 60vh cap');
+    const strip = desk('.asst-usage-strip');
+    assert.match(strip, /display:\s*flex/, 'usage strip is a flex row on desktop');
+    assert.match(strip, /gap:\s*12px/, 'usage tiles keep the 12px gap');
     n += 2;
-    const main = desk('.asst-main');
-    assert.match(main, /flex:\s*1/, '.asst-main grows on desktop');
-    assert.match(main, /min-width:\s*0/, '.asst-main keeps min-width:0');
-    assert.match(main, /height:\s*60vh/, '.asst-main keeps the 60vh height');
-    n += 3;
+    const stat = desk('.asst-stat');
+    assert.match(stat, /min-width:\s*118px/, 'stat tiles have a readable minimum width on desktop');
+    n += 1;
+    const console_ = desk('.asst-console');
+    assert.match(console_, /display:\s*flex/, 'console is a flex column');
+    assert.match(console_, /border-radius:\s*var\(--radius-lg/, 'console carries the large radius');
+    n += 2;
+    const chips = desk('.asst-chips');
+    assert.match(chips, /overflow-x:\s*auto/, 'conversation chips scroll sideways instead of wrapping the bar');
+    assert.match(chips, /flex:\s*1/, 'chip strip grows across the console bar');
+    n += 2;
     const msgs = desk('.asst-messages');
     assert.match(msgs, /overflow-y:\s*auto/, 'thread scrolls internally on desktop');
-    assert.match(msgs, /border-radius:\s*12px/, 'thread keeps its card radius');
+    assert.match(msgs, /height:\s*52vh/, 'thread keeps a viewport-bound height so the console stays one panel');
+    n += 2;
+    const col = desk('.asst-thread-col');
+    assert.match(col, /max-width:\s*780px/, 'thread reading column is 780px');
+    assert.match(col, /margin:\s*0 auto/, 'thread reading column is centred');
     n += 2;
     const form = desk('.asst-form');
-    assert.match(form, /display:\s*flex/, '.asst-form is a flex row on desktop');
-    assert.ok(!/flex-wrap:\s*wrap/.test(form), 'desktop composer does NOT wrap (layout unchanged above 700px)');
+    assert.match(form, /display:\s*flex/, 'composer dock is a flex row on desktop');
+    assert.match(form, /border-radius:\s*20px/, 'composer is the docked pill bar');
     n += 2;
     const ta = desk('.asst-form textarea');
     assert.match(ta, /flex:\s*1/, 'desktop textarea grows');
     assert.match(ta, /min-width:\s*0/, 'desktop textarea can shrink instead of overflowing');
     assert.match(ta, /min-height:\s*44px/, 'desktop textarea keeps a >=44px touch height');
     n += 3;
+    const grid = desk('.staff-themes-grid');
+    assert.match(grid, /grid-template-columns:\s*repeat\(3, 1fr\)/, 'themes grid is 3 columns on desktop');
+    assert.match(grid, /gap:\s*20px/, 'themes grid keeps the uniform 20px gap');
+    n += 2;
 
     const mob = mobileCss(stylesCss);
-    assert.match(ruleBody(mob, '.asst-layout'), /flex-direction:\s*column/, 'mobile: layout stacks to one column');
+    assert.match(ruleBody(mob, '.asst-stat'), /flex:\s*1 1 0/, 'mobile: usage tiles share the row');
     n += 1;
-    const mConvs = ruleBody(mob, '.asst-convs');
-    assert.match(mConvs, /flex:\s*none/, 'mobile: conversation list basis released');
-    assert.match(mConvs, /width:\s*100%/, 'mobile: conversation list is full width');
-    assert.ok(!/230px/.test(mConvs), 'mobile: no fixed 230px width on the conversation list');
-    n += 3;
-    assert.match(ruleBody(mob, '.asst-main'), /width:\s*100%/, 'mobile: main column is full width');
+    assert.match(ruleBody(mob, '.asst-usage-open'), /flex:\s*1 1 100%/, 'mobile: Full breakdown goes full-width under the tiles');
+    n += 1;
+    assert.match(ruleBody(mob, '.asst-ctx'), /width:\s*100%/, 'mobile: site select row is full width');
     n += 1;
     assert.match(ruleBody(mob, '.asst-form'), /flex-wrap:\s*wrap/, 'mobile: composer wraps');
     n += 1;
     const mTa = ruleBody(mob, '.asst-form textarea');
     assert.match(mTa, /order:\s*-1/, 'mobile: textarea takes the first (full-width) row');
     assert.match(mTa, /flex:\s*1 1 100%/, 'mobile: textarea spans the full composer width');
-    assert.match(mTa, /min-height:\s*48px/, 'mobile: textarea is at least 48px tall');
-    n += 3;
+    n += 2;
+    assert.match(ruleBody(mob, '.asst-pills'), /display:\s*none/, 'mobile: category pills hide (dropdown takes over)');
+    n += 1;
+    assert.match(ruleBody(mob, '.asst-cat-select'), /display:\s*block/, 'mobile: category dropdown shows');
+    n += 1;
+    assert.match(ruleBody(mob, '.staff-themes-grid'), /grid-template-columns:\s*1fr/, 'mobile: themes grid stacks to one column');
+    n += 1;
     // No fixed pixel width on ANY .asst-* rule inside the mobile blocks.
-    const pxWidths = [...mob.matchAll(/\.asst-[a-z]+\s*(?:textarea)?\s*\{[^}]*?width:\s*(\d+)px/g)].map((m) => m[1]);
+    const pxWidths = [...mob.matchAll(/\.asst-[a-z-]+\s*(?:textarea)?\s*\{[^}]*?width:\s*(\d+)px/g)].map((m) => m[1]);
     assert.deepEqual(pxWidths, [], `mobile .asst-* rules carry no fixed px widths (got ${pxWidths})`);
     n += 1;
 
-    assert.ok(indexHtml.includes('/styles.css?v=batch166-asst1'), 'styles.css cache-bust bumped for the fix');
+    assert.ok(indexHtml.includes('/styles.css?v=batch176-asst1'), 'styles.css cache-bust bumped for the redesign');
     n += 1;
-    group('Part 2 staff CSS — desktop geometry kept, <=700px stacks + wraps', n);
+    group('Part 2 staff CSS — studio-desk geometry, <=700px stacks + wraps', n);
   }
 
   // ---------------------------------------------------------------
@@ -247,19 +290,27 @@ function mobileCss(css) {
   }
 
   // ---------------------------------------------------------------
-  // Part 4 — pill-tab standard: N/A on this page, pinned
+  // Part 4 — pill-bar standard on the redesigned page
+  // (Batch 176: the themes category filter IS a pill bar, so
+  // Ely's standing rule applies in full — pills on desktop,
+  // a dropdown at <=700px. The chat has no tab bar.)
   // ---------------------------------------------------------------
   {
     let n = 0;
     const start = appJs.indexOf('async function pageAssistant()');
     const tpl = appJs.slice(start, appJs.indexOf('`;', start));
-    assert.ok(!tpl.includes('class="tabs'), 'staff Assistant page has no pill tab bar (mobile-dropdown standard N/A)');
+    assert.ok(tpl.includes('class="asst-pills" id="asst-pills"'), 'category pill bar present on desktop');
+    n += 1;
+    assert.ok(tpl.includes('class="asst-cat-select" id="asst-cat-select"'), 'category dropdown present for mobile');
+    n += 1;
+    const deskSel = ruleBody(stylesCss, '.asst-cat-select');
+    assert.match(deskSel, /display:\s*none/, 'category dropdown hidden on desktop');
     n += 1;
     const secStart = portalHtml.indexOf('id="sec-assistant"');
     const sec = portalHtml.slice(secStart, portalHtml.indexOf('<section', secStart + 10));
     assert.ok(!sec.includes('class="tabs'), 'portal Assistant panel has no pill tab bar (mobile-dropdown standard N/A)');
     n += 1;
-    group('Part 4 pill-tab check — none on either Assistant surface', n);
+    group('Part 4 pill-bar standard — pills + mobile dropdown on the gallery', n);
   }
 
   // ---------------------------------------------------------------
@@ -269,24 +320,24 @@ function mobileCss(css) {
     let n = 0;
     const { census } = require(path.join(root, 'scripts', 'xss-census.cjs'));
     const cz = census();
-    // Batch 174 RE-PIN (deliberate): Batch 166 itself still
-    // contributes zero sink movement; the tree's census moved
-    // 503 -> 506 / IDENT 38 -> 41 because Batch 174's design-chat
-    // redesign added exactly three IDENT assistantMd(...) writes
-    // in public/js/portal.js (pairwise multiset diff vs the 173
-    // tree proven in the Batch 174 suite; RAW and safe classes
-    // unchanged). The pins below track the current tree.
+    // Batch 176 RE-PIN (deliberate): the redesigned pageAssistant
+    // template reclassified exactly one sink — the page shell
+    // itself, RAW -> STATIC (fixed literal markup, no user-data
+    // interpolation; pairwise (file|kind|snippet) multiset diff
+    // vs the Batch 175 tree = that single sink, total unchanged
+    // at 507, safe classes 380 -> 381 — full narrative in the
+    // batch103 suite). The pins below track the current tree.
     assert.deepEqual(
       cz.summary,
-      { total: 507, STATIC: 187, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 41, RAW: 86 },
-      'SEC-13 census summary (Batch 174 re-pin — see note above; 166 contributes zero movement)'
+      { total: 507, STATIC: 188, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 41, RAW: 85 },
+      'SEC-13 census summary (Batch 176 re-pin — see note above)'
     );
     n += 1;
     const multi = cz.sinks.map((s) => `${s.file}|${s.kind}|${s.snippet}`).sort();
     const sha = crypto.createHash('sha256').update(multi.join('\n')).digest('hex');
-    assert.equal(sha, 'a4884d2d227651d4f741bb6f7df5a15c90ff874e9186b63caf4e9a248b81a3fb', 'SEC-13 (file|kind|snippet) multiset pinned (Batch 174 re-pin — see note above)');
+    assert.equal(sha, 'fcd696c84245a0d56bc865051805924f8c1449eec2eb3a8f3e2b6ab9a7fdcd5e', 'SEC-13 (file|kind|snippet) multiset pinned (Batch 176 re-pin — see note above)');
     n += 1;
-    group('Part 5 SEC-13 census — unchanged, no rotation', n);
+    group('Part 5 SEC-13 census — Batch 176 re-pin, one reclassification', n);
   }
 
   console.log(`BATCH166 REGRESSION PASS — ${groups.join('; ')}`);
