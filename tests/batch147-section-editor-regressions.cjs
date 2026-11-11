@@ -366,8 +366,8 @@ const types = (sections) => sections.map((s) => s.type);
     assert.ok(!ed.palette.modules.some((m) => m.type === 'chatbot'), 'sitewide chatbot is not a placeable section');
     assert.equal(
       ed.palette.modules.length,
-      29,
-      'palette = MODULE_TYPES minus the sitewide types (Batch 139 finisher rotation: pricing appended as the 29th type; Batch 164: custom_code is noNav but still palette-listed; Batch 165 finisher: webinar appended as the 31st type, palette 28 -> 29)'
+      30,
+      'palette = MODULE_TYPES minus the sitewide types (Batch 139 finisher rotation: pricing appended as the 29th type; Batch 164: custom_code is noNav but still palette-listed; Batch 165 finisher: webinar appended as the 31st type, palette 28 -> 29; Batch 178 finisher rotation: leads_router appended as the 32nd type, palette-listed like custom_code, palette 29 -> 30)'
     );
     n += 3;
     assert.equal(ed.padding.floor, 22);
