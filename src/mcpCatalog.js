@@ -2800,6 +2800,147 @@ const tools = [
     },
   },
   {
+    name: 'router_leads.list',
+    description:
+      'List the workspace’s Leads Router leads (Batch 178), newest first. Filters: review_state (candidate|published|rejected), status (new|claimed|stale|removed), request_kind, platform.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        review_state: { type: 'string' },
+        status: { type: 'string' },
+        request_kind: { type: 'string' },
+        platform: { type: 'string' },
+        limit: { type: 'integer', minimum: 1 },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'router_leads.get',
+    description: 'Get one Leads Router lead by id (Batch 178): poster as shown, source link(s), lead type, request kind, score, review/claim state.',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', minimum: 1 },
+        leadId: { type: 'integer', minimum: 1 },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'router_leads.publish',
+    description:
+      'Publish one found post as a Leads Router lead (Batch 178): platform + source_url + lead type required; posted_at is the POST time (freshness runs on it). Deduped by platform+post id, fallback poster+text; the same request cross-posted merges into one lead with both sources. publish=true skips the staff review queue; a removed lead never re-enters.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        platform: { type: 'string' },
+        post_id: { type: 'string' },
+        source_url: { type: 'string' },
+        source_context: { type: 'string' },
+        poster_name: { type: 'string' },
+        posted_at: { type: 'string' },
+        lead_type: { type: 'string' },
+        request_kind: { type: 'string' },
+        town: { type: 'string' },
+        area: { type: 'string' },
+        detail: { type: 'string' },
+        score: { type: 'string' },
+        score_reason: { type: 'string' },
+        publish: { type: 'boolean' },
+      },
+      required: ['platform', 'source_url'],
+    },
+  },
+  {
+    name: 'router_leads.remove',
+    description:
+      'Remove one Leads Router lead by id (Batch 178) — it leaves every feed and the dedupe key is kept so the same post never re-enters.',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', minimum: 1 },
+        leadId: { type: 'integer', minimum: 1 },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'router_follows.list',
+    description: 'List one business’s Leads Router follows (Batch 178): lead type + location + platforms + request kinds + status. Bookkeeping only — no charge.',
+    schema: {
+      type: 'object',
+      properties: { leadId: { type: 'integer', minimum: 1 } },
+      required: ['leadId'],
+    },
+  },
+  {
+    name: 'router_follows.set',
+    description:
+      'Create or update a Leads Router follow (Batch 178): lead type and location are select-or-type (a typed-new one is valid immediately, normalized for matching, as-typed label preserved, and generates its own sweep queries). platforms ["all"] or a specific set; a not-yet-live platform cannot be the only selection.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        lead_type: { type: 'string' },
+        location: { type: 'string' },
+        radius_miles: { type: 'integer', minimum: 1 },
+        platforms: { type: 'array', items: { type: 'string' } },
+        request_kinds: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['leadId', 'lead_type', 'location'],
+    },
+  },
+  {
+    name: 'router_sources.list',
+    description:
+      'List the Leads Router source registry (Batch 178): platform, location, query/group, lead-type coverage, access_state (member|public|no_access|planned), enabled. A platform is live only with an enabled member/public source.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        platform: { type: 'string' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'router_sources.update',
+    description: 'Update one Leads Router source registry row by id (Batch 178): name, location_label, query_text, lead_types, access_state, enabled.',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', minimum: 1 },
+        leadId: { type: 'integer', minimum: 1 },
+        name: { type: 'string' },
+        location_label: { type: 'string' },
+        query_text: { type: 'string' },
+        lead_types: { type: 'array', items: { type: 'string' } },
+        access_state: { type: 'string' },
+        enabled: { type: 'boolean' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'router_sweeps.run',
+    description:
+      'Record that a Leads Router sweep ran (Batch 178) — the check-in after a Muse hunt. platform is REQUIRED: facebook|x|linkedin|tiktok|instagram|all (ALL covers every live platform, never a planned one; coverage is stamped on the run). Returns the run + the follow-driven sweep queries in scope. Records a hunt; browses nothing.',
+    schema: {
+      type: 'object',
+      properties: {
+        leadId: { type: 'integer', minimum: 1 },
+        platform: { type: 'string' },
+        lead_type: { type: 'string' },
+        location: { type: 'string' },
+        run_by: { type: 'string' },
+      },
+      required: ['platform'],
+    },
+  },
+  {
     name: 'webinar.list',
     description:
       'List the site’s webinars (Batch 165): title, slug, status, schedule, YouTube ID, access code, registrant/joined/message counts. Only the site’s own webinars — platform (agency) webinars are never returned here.',

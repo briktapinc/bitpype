@@ -107,6 +107,10 @@ module.exports = {
   attachSiteModule: portalModules.attachSiteModule,
   detachSiteModule: portalModules.detachSiteModule,
   deleteSiteModule: portalModules.deleteSiteModule,
+  // Batch 178 — Leads Router owner operations (portalModules.js)
+  routerSetFollow: portalModules.routerSetFollow,
+  routerDeleteFollow: portalModules.routerDeleteFollow,
+  routerClaimLead: portalModules.routerClaimLead,
   // Batch 165 — Webinar module owner console (portalModules.js)
   regenWebinarCode: portalModules.regenWebinarCode,
   listWebinarRegistrations: portalModules.listWebinarRegistrations,

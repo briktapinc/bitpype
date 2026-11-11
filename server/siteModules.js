@@ -52,6 +52,7 @@ const MODULE_TYPES = [
   'pricing',
   'custom_code',
   'webinar',
+  'leads_router',
 ];
 const MANAGED_ATTR = 'data-bitpype-module';
 const EMBED_TYPE_ATTR = 'data-bitpype-module-type';
@@ -120,6 +121,18 @@ const MODULE_META = {
   // type-level embed row only gates whether its blocks serve).
   custom_code: { label: 'Custom Code', defaultTitle: 'Custom Code', defaultSlug: '', noNav: true },
   webinar: { label: 'Webinars', defaultTitle: 'Webinars', defaultSlug: 'webinars' },
+  // Batch 178: the Leads Router is a portal/staff module (like
+  // Custom Code, it has no public page of its own) — its surfaces
+  // are the portal feed + the staff Router page. The catalog entry
+  // carries the "Requires Muse" badge (spec §16): the hunt runs
+  // in the Muse app; feed/management work without it.
+  leads_router: {
+    label: 'Leads Router',
+    defaultTitle: 'Leads Router',
+    defaultSlug: '',
+    noNav: true,
+    requiresClaude: true,
+  },
 };
 
 const BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'];
@@ -229,6 +242,12 @@ function ensureTables(db) {
     // Batch 131: comments_* / module_comments / module_likes tables
     // are owned by server/comments.js.
     require('./comments').ensureTables(db);
+  } catch {
+    /* optional */
+  }
+  try {
+    // Batch 178: router_* tables are owned by server/leadsRouter.js.
+    require('./leadsRouter').ensureTables(db);
   } catch {
     /* optional */
   }
@@ -2205,6 +2224,12 @@ function modulePurgeSteps(leadId, type) {
       // Batch 164: the owner-authored blocks themselves (their page
       // mounts are stripped by the post-delete sync, token-driven).
       return [byLead('module_custom_code_blocks', 'custom code blocks')];
+    case 'leads_router':
+      // Batch 178: the lead's follows are its per-lead content. The
+      // workspace's router LEADS are not the lead's rows (they are
+      // the workspace feed) and are never purged from here; claims
+      // stay stamped in staff oversight history.
+      return [byLead('router_follows', 'router follows')];
     default:
       return [];
   }
@@ -4099,6 +4124,9 @@ function syncSiteModuleEmbeds(db, leadId, { appUrl, revealSlugs } = {}) {
     // no page of its own; the owner places individual BLOCKS (each
     // with its own token) from the Modules tab.
     if (emb.module_type === 'custom_code') continue;
+    // Batch 178: the Leads Router is never auto-injected either —
+    // portal/staff module, no public page or mount of its own.
+    if (emb.module_type === 'leads_router') continue;
 
     const token = String(emb.public_token || '').trim();
     if (token && pagesHaveModuleToken(pages, token)) continue;
@@ -14919,6 +14947,17 @@ function moduleItemCount(db, leadId, type) {
     // list; the tab badge stays 0 rather than lying.
     return 0;
   }
+  if (type === 'leads_router') {
+    // Batch 178: the tab badge counts the fresh published leads in
+    // this business's Router feed right now (its in-app "new leads"
+    // signal); the portal pane carries the full feed.
+    try {
+      return require('./leadsRouter').countFeedForLead(db, leadId);
+    } catch (e) {
+      console.warn('[siteModules] moduleItemCount leads_router:', e.message || e);
+      return 0;
+    }
+  }
   if (type === 'charts') {
     // The tab badge counts the chart definitions on the site.
     ensureTables(db);
@@ -15227,6 +15266,11 @@ function getPublicModuleByToken(db, token, opts = {}) {
     // webinar live from the webinar public API. items stays empty:
     // nothing webinar-shaped is ever baked into a sync payload.
     webinar = { deferred: true };
+    items = [];
+  } else if (type === 'leads_router') {
+    // Batch 178: portal/staff module — a type-token mount has no
+    // public rendering at all (the feed lives in the portal, behind
+    // the owner's login; poster data is never public). Dormant.
     items = [];
   } else if (type === 'chatbot') {
     try {

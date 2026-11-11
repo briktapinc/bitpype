@@ -161,7 +161,7 @@ function has(src, needle, label) {
       has(app, needle, `app.js build card/detail/list: ${needle.slice(0, 50)}`);
       n += 1;
     }
-    has(read('public/index.html'), '/js/app.js?v=batch162-leadcalling1', 'app.js cache-bust bumped');
+    has(read('public/index.html'), '/js/app.js?v=batch178-router1', 'app.js cache-bust bumped');
     n += 1;
 
     // SEC-13 census: Batch 124 moved the multiset deliberately —

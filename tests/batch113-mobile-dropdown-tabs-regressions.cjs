@@ -116,7 +116,7 @@ function group(name, n) {
 
     // Cache-busts so phones actually pick up the new app.js/styles.css.
     has(indexHtml, '/styles.css?v=batch176-asst1', 'styles.css cache-bust bumped');
-    has(indexHtml, '/js/app.js?v=batch162-leadcalling1', 'app.js cache-bust bumped');
+    has(indexHtml, '/js/app.js?v=batch178-router1', 'app.js cache-bust bumped');
 
     // SEC-13 census: totals + per-kind counts unchanged from
     // Batch 112, the (file|kind|snippet) multiset byte-identical

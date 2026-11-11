@@ -200,7 +200,7 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     const portalHtml = read('public/portal.html');
     assert.ok(portalHtml.includes('id="modules-categories-scopes-panel"'), 'scopes panel mount exists');
     assert.ok(
-      portalHtml.includes('portal.js?v=batch139-pricing1'),
+      portalHtml.includes('portal.js?v=batch178-router1'),
       'portal.js cache-bust rotated (Batch 124 rotated it; Batch 125 rotated again)'
     );
     n += 2;
@@ -277,7 +277,7 @@ const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().s
     let n = 0;
     assert.equal(
       sm.MODULE_TYPES.length,
-      31,
+      32,
       'catalog at 30 types (Batch 125 added photocapture; Batch 126 finisher: qrcode; Batch 128: checkout; Batch 131: comments; Batch 139: pricing; Batch 164: custom_code)'
     );
     assert.equal(sm.MODULE_TYPES[23], 'categories', 'categories is the 24th type');

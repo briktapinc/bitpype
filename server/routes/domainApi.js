@@ -2707,4 +2707,164 @@ router.post('/assistant/themes/build', assistantStaffOnly, (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Batch 178 — Leads Router (staff). The Router's staff surfaces: the
+// sweep review queue, the source registry, feed oversight, and the
+// sweep console. The console only RECORDS sweep runs (platform option
+// specific or ALL) — it never browses a social platform; the hunt
+// runs in the Muse app and checks in through these records (spec
+// §15). Ingestion rides the same engine path as the MCP family.
+// ---------------------------------------------------------------------------
+const routerEngine178 = () => require('../leadsRouter');
+const routerGuard = [denyLeadScopedToken];
+const routerWriteGuard = [requireRole('owner', 'admin'), denyLeadScopedToken];
+
+router.get('/admin-area/router/overview', ...routerGuard, (req, res) => {
+  try {
+    ok(
+      res,
+      domain.withDb(req.auth.workspaceId, (db) => {
+        const eng = routerEngine178();
+        return {
+          oversight: eng.oversight(db),
+          hunting: eng.huntingStatus(db),
+          activation: eng.activationChecklist(db),
+          settings: eng.getSettings(db),
+          platforms: eng.platformStates(db),
+        };
+      })
+    );
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.get('/admin-area/router/leads', ...routerGuard, (req, res) => {
+  try {
+    ok(
+      res,
+      domain.withDb(req.auth.workspaceId, (db) =>
+        routerEngine178().listLeads(db, {
+          review_state: req.query.review_state || null,
+          status: req.query.status || null,
+          request_kind: req.query.request_kind || null,
+          platform: req.query.platform || null,
+          limit: req.query.limit,
+        })
+      )
+    );
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.get('/admin-area/router/candidates', ...routerGuard, (req, res) => {
+  try {
+    ok(res, domain.withDb(req.auth.workspaceId, (db) => routerEngine178().listCandidates(db, { limit: req.query.limit })));
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.post('/admin-area/router/leads', ...routerWriteGuard, (req, res) => {
+  try {
+    ok(
+      res,
+      domain.withDb(req.auth.workspaceId, (db) =>
+        routerEngine178().publishLead(db, req.body || {}, { publish: !!(req.body && req.body.publish) })
+      )
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+router.post('/admin-area/router/leads/:id/review', ...routerWriteGuard, (req, res) => {
+  try {
+    ok(
+      res,
+      domain.withDb(req.auth.workspaceId, (db) =>
+        routerEngine178().reviewLead(db, Number(req.params.id), req.body || {})
+      )
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+router.post('/admin-area/router/leads/:id/remove', ...routerWriteGuard, (req, res) => {
+  try {
+    ok(res, domain.withDb(req.auth.workspaceId, (db) => routerEngine178().removeLead(db, Number(req.params.id))));
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+router.post('/admin-area/router/leads/:id/mark-stale', ...routerWriteGuard, (req, res) => {
+  try {
+    ok(res, domain.withDb(req.auth.workspaceId, (db) => routerEngine178().markStale(db)));
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.get('/admin-area/router/sources', ...routerGuard, (req, res) => {
+  try {
+    ok(
+      res,
+      domain.withDb(req.auth.workspaceId, (db) => routerEngine178().listSources(db, { platform: req.query.platform || null }))
+    );
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.put('/admin-area/router/sources/:id', ...routerWriteGuard, (req, res) => {
+  try {
+    ok(
+      res,
+      domain.withDb(req.auth.workspaceId, (db) => routerEngine178().updateSource(db, Number(req.params.id), req.body || {}))
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+router.get('/admin-area/router/sweeps', ...routerGuard, (req, res) => {
+  try {
+    ok(res, domain.withDb(req.auth.workspaceId, (db) => routerEngine178().listSweeps(db, { limit: req.query.limit })));
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.post('/admin-area/router/sweeps', ...routerWriteGuard, (req, res) => {
+  try {
+    ok(
+      res,
+      domain.withDb(req.auth.workspaceId, (db) =>
+        routerEngine178().recordSweep(db, { ...(req.body || {}), run_by: (req.body && req.body.run_by) || 'staff-console' })
+      )
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+router.put('/admin-area/router/settings', ...routerWriteGuard, (req, res) => {
+  try {
+    ok(res, domain.withDb(req.auth.workspaceId, (db) => routerEngine178().updateSettings(db, req.body || {})));
+  } catch (e) {
+    fail(res, e, 400);
+  }
+});
+router.get('/admin-area/router/follows/:leadId', ...routerGuard, (req, res) => {
+  try {
+    ok(res, domain.withDb(req.auth.workspaceId, (db) => routerEngine178().listFollows(db, Number(req.params.leadId))));
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.post('/admin-area/router/follows/:leadId', ...routerWriteGuard, (req, res) => {
+  try {
+    ok(
+      res,
+      domain.withDb(req.auth.workspaceId, (db) =>
+        routerEngine178().setFollow(db, Number(req.params.leadId), req.body || {})
+      )
+    );
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
 module.exports = router;

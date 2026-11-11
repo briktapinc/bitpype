@@ -66,6 +66,7 @@ const INVENTORY = [
   ['pipeline', 'Pipeline'],
   ['forms', 'Forms'],
   ['leadscout', 'LeadScout'],
+  ['router', 'Leads Router'], // Batch 178: the Leads Router joins Site tools beside LeadScout (deliberate growth)
   ['bookings', 'Bookings'],
   ['shop', 'Shop'],
   ['memberships', 'Memberships'],
@@ -106,7 +107,7 @@ function sidebarAnchors() {
   return out;
 }
 
-check('inventory: all items (25 pre-Batch-50 + Finance + Batch 71 Mailing list + Batch 80 Partner earnings + Batch 156 Fingerprints) survive with labels + routes unchanged', () => {
+check('inventory: all items (25 pre-Batch-50 + Finance + Batch 71 Mailing list + Batch 80 Partner earnings + Batch 156 Fingerprints + Batch 178 Leads Router) survive with labels + routes unchanged', () => {
   const anchors = sidebarAnchors();
   assert.equal(anchors.length, INVENTORY.length, `expected ${INVENTORY.length} sidebar anchors, got ${anchors.length}`);
   const byRoute = new Map(anchors.map((a) => [a.route, a]));
@@ -141,8 +142,8 @@ check('config: top-level daily drivers + group labels/membership pinned', () => 
   assert.deepEqual(byId['work'], ['archives', 'design', 'outreach', 'pipeline']);
   assert.deepEqual(byId['domains-calls'], ['domains', 'calls']);
   assert.deepEqual(byId['site-tools'], [
-    'forms', 'leadscout', 'bookings', 'shop', 'memberships', 'seo', 'rentals', 'modules', 'courses', 'social', 'analytics',
-  ]);
+    'forms', 'leadscout', 'router', 'bookings', 'shop', 'memberships', 'seo', 'rentals', 'modules', 'courses', 'social', 'analytics',
+  ]); // Batch 178: 'router' after 'leadscout'
   assert.deepEqual(byId['system'], ['jobs', 'mcp', 'settings', 'admin', 'mailing-list']);
 });
 

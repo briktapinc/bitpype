@@ -27,6 +27,7 @@ const ROUTES = [
   'pipeline',
   'forms',
   'leadscout',
+  'router',
   'bookings',
   'shop',
   'calls',
@@ -58,6 +59,7 @@ const ROUTE_LABELS = {
   contact: 'Lead contact',
   forms: 'Forms',
   leadscout: 'LeadScout',
+  router: 'Leads Router',
   bookings: 'Bookings',
   shop: 'Shop',
   memberships: 'Memberships',
@@ -12067,6 +12069,22 @@ async function pageModules() {
     view.querySelector('#md-body').innerHTML = installRows(applyBusinessFilter(installs, v), !!v);
   };
   renderInstalls('');
+  // Batch 178 — "Requires Muse" catalog badge (spec §16: on the
+  // listing, same visibility as price). DOM-only on purpose: the
+  // card template above is a census-pinned sink and stays untouched.
+  for (const c of catalog) {
+    if (!c.requires_claude) continue;
+    const card = [...view.querySelectorAll('.modcat-card')].find(
+      (el) => el.querySelector('.modcat-name') && el.querySelector('.modcat-name').textContent === c.label
+    );
+    if (!card) continue;
+    const badge = document.createElement('span');
+    badge.className = 'badge warn';
+    badge.textContent = 'Requires Muse';
+    const meta = card.querySelector('.modcat-meta');
+    if (meta) card.insertBefore(badge, meta);
+    else card.append(badge);
+  }
   view.querySelector('[data-act="refresh"]').onclick = () => pageModules();
   // Batch 66 — per-record module delete (embed + content purge; the
   // tbody persists across filter re-renders, one delegated listener).
@@ -13808,6 +13826,7 @@ const PAGES = {
   pipeline: pagePipeline,
   contact: pageLeadContact,
   forms: pageForms,
+  router: pageLeadsRouter,
   leadscout: pageLeadScout,
   bookings: pageBookings,
   shop: pageShop,
@@ -14879,4 +14898,481 @@ async function pageDesignNew() {
       setMsg(msg, errText(e), 'err');
     }
   });
+}
+
+/* ------------------------------------------------------------------ */
+/* Batch 178 — Leads Router staff page: sweep review queue, source   */
+/* registry editor, feed oversight, sweep console. Built with DOM    */
+/* calls only (no new innerHTML sinks — the census discipline); the  */
+/* tab bar rides enhanceTabs, so the pill→mobile-dropdown rule       */
+/* (Batch 113) applies exactly like every other staff page. The      */
+/* sweep console only RECORDS runs — it never browses a platform.    */
+/* ------------------------------------------------------------------ */
+function rtStaffEl(tag, cls, text) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  if (text != null) el.textContent = text;
+  return el;
+}
+
+async function pageLeadsRouter() {
+  view.replaceChildren();
+  const head = rtStaffEl('div', 'page-head');
+  const headL = rtStaffEl('div');
+  headL.append(rtStaffEl('h1', null, 'Leads Router'));
+  headL.append(
+    rtStaffEl(
+      'p',
+      'lede',
+      'Public “looking for…” posts, swept by Muse, reviewed here, and routed to the businesses who follow that lead type + location.'
+    )
+  );
+  head.append(headL);
+  view.append(head);
+  const loading = rtStaffEl('div', 'card', 'Loading the Router…');
+  view.append(loading);
+
+  let overview;
+  try {
+    overview = (await api.get('/admin-area/router/overview')).data || {};
+  } catch (e) {
+    loading.textContent = errText(e);
+    return;
+  }
+  loading.remove();
+
+  // Hunting status + activation (spec §16).
+  const hunting = overview.hunting || {};
+  const statusCard = rtStaffEl('div', 'card');
+  const sHead = rtStaffEl('div');
+  sHead.style.display = 'flex';
+  sHead.style.flexWrap = 'wrap';
+  sHead.style.gap = '8px';
+  sHead.style.alignItems = 'center';
+  const badge = rtStaffEl('span', 'badge warn', 'Requires Muse');
+  sHead.append(badge, rtStaffEl('strong', null, hunting.active ? 'Hunting active' : hunting.label || 'Hunting inactive — connect Muse to start finding leads'));
+  statusCard.append(sHead);
+  const ov = overview.oversight || {};
+  statusCard.append(
+    rtStaffEl(
+      'p',
+      'hint',
+      `${ov.candidates || 0} in the review queue · ${ov.published || 0} published · ${ov.claimed || 0} claimed · ${ov.removed || 0} removed · Last sweep: ${hunting.last_sweep_at || 'never'}`
+    )
+  );
+  view.append(statusCard);
+
+  const tabs = rtStaffEl('div', 'tabs');
+  tabs.setAttribute('role', 'tablist');
+  tabs.setAttribute('aria-label', 'Leads Router sections');
+  const panes = rtStaffEl('div');
+  const tabDefs = [
+    ['queue', 'Review queue'],
+    ['leads', 'Feed oversight'],
+    ['sources', 'Sources'],
+    ['sweeps', 'Sweep console'],
+    ['ingest', 'Add a lead'],
+    ['settings', 'Settings'],
+  ];
+  const paneByTab = {};
+  for (const [key, label] of tabDefs) {
+    const b = rtStaffEl('button', key === 'queue' ? 'active' : '', label);
+    b.type = 'button';
+    b.dataset.tab = key;
+    b.onclick = () => {
+      for (const x of tabs.querySelectorAll('button')) x.classList.toggle('active', x === b);
+      for (const [k, pane] of Object.entries(paneByTab)) pane.hidden = k !== key;
+    };
+    tabs.append(b);
+    const pane = rtStaffEl('div');
+    pane.hidden = key !== 'queue';
+    paneByTab[key] = pane;
+    panes.append(pane);
+  }
+  view.append(tabs, panes);
+  enhanceTabs(tabs);
+
+  routerRenderQueue(paneByTab.queue);
+  routerRenderOversight(paneByTab.leads, ov);
+  routerRenderSources(paneByTab.sources);
+  routerRenderSweeps(paneByTab.sweeps, overview.platforms || []);
+  routerRenderIngest(paneByTab.ingest);
+  routerRenderSettings(paneByTab.settings, overview.settings || {});
+}
+
+async function routerRenderQueue(pane) {
+  pane.replaceChildren(rtStaffEl('p', 'hint', 'Loading candidates…'));
+  let rows;
+  try {
+    rows = (await api.get('/admin-area/router/candidates')).data || [];
+  } catch (e) {
+    pane.replaceChildren(rtStaffEl('p', 'hint', errText(e)));
+    return;
+  }
+  pane.replaceChildren();
+  if (!rows.length) {
+    pane.append(rtStaffEl('p', 'hint', 'The queue is empty — nothing reaches a subscriber feed until a candidate is published here.'));
+    return;
+  }
+  const list = rtStaffEl('div');
+  list.style.display = 'grid';
+  list.style.gap = 'var(--card-gap)';
+  for (const lead of rows) {
+    const card = rtStaffEl('div', 'card');
+    card.append(
+      rtStaffEl(
+        'strong',
+        null,
+        `${lead.lead_type_label || lead.lead_type_key} · ${lead.platform_label || lead.platform} · ${String(lead.request_kind || '').replace(/_/g, ' ')}`
+      )
+    );
+    card.append(rtStaffEl('p', 'hint', `${lead.poster_name || 'Unknown poster'} · ${[lead.town, lead.area].filter(Boolean).join(' · ') || 'No location stated'} · Posted ${lead.posted_at || 'time unknown'}`));
+    if (lead.detail) card.append(rtStaffEl('p', null, lead.detail));
+    const link = document.createElement('a');
+    link.href = lead.source_url;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.textContent = 'Original post';
+    card.append(link);
+    const actions = rtStaffEl('div');
+    actions.style.display = 'flex';
+    actions.style.gap = '8px';
+    actions.style.marginTop = '10px';
+    const pub = rtStaffEl('button', 'btn', 'Publish to feeds');
+    pub.type = 'button';
+    pub.onclick = async () => {
+      pub.disabled = true;
+      try {
+        await api.post(`/admin-area/router/leads/${lead.id}/review`, { action: 'publish' });
+        toast('Lead published — matching follows now see it.', 'ok');
+        pageLeadsRouter();
+      } catch (e) {
+        toast(errText(e), 'err');
+        pub.disabled = false;
+      }
+    };
+    const rej = rtStaffEl('button', 'btn danger', 'Reject');
+    rej.type = 'button';
+    rej.onclick = async () => {
+      rej.disabled = true;
+      try {
+        await api.post(`/admin-area/router/leads/${lead.id}/review`, { action: 'reject' });
+        toast('Candidate rejected.', 'ok');
+        pageLeadsRouter();
+      } catch (e) {
+        toast(errText(e), 'err');
+        rej.disabled = false;
+      }
+    };
+    actions.append(pub, rej);
+    card.append(actions);
+    list.append(card);
+  }
+  pane.append(list);
+}
+
+async function routerRenderOversight(pane, ov) {
+  pane.replaceChildren(rtStaffEl('p', 'hint', 'Loading leads…'));
+  let rows;
+  try {
+    rows = (await api.get('/admin-area/router/leads', { limit: 200 })).data || [];
+  } catch (e) {
+    pane.replaceChildren(rtStaffEl('p', 'hint', errText(e)));
+    return;
+  }
+  pane.replaceChildren();
+  const prospects = (ov && ov.hiring_prospects) || [];
+  if (prospects.length) {
+    pane.append(rtStaffEl('h3', null, `Hiring prospects (${prospects.length}) — busy businesses, prime website clients; never auto-contacted`));
+    for (const p of prospects) {
+      pane.append(
+        rtStaffEl('p', 'hint', `${p.poster_name || 'Unknown'} · ${p.platform_label || p.platform} · ${[p.town, p.area].filter(Boolean).join(' · ')} · hiring: ${p.lead_type_label || p.lead_type_key}`)
+      );
+    }
+  }
+  const list = rtStaffEl('div');
+  list.style.display = 'grid';
+  list.style.gap = 'var(--card-gap)';
+  for (const lead of rows) {
+    const card = rtStaffEl('div', 'card');
+    card.append(
+      rtStaffEl(
+        'strong',
+        null,
+        `${lead.lead_type_label || lead.lead_type_key} — ${lead.effective_status || lead.status} (${lead.review_state})`
+      )
+    );
+    card.append(
+      rtStaffEl(
+        'p',
+        'hint',
+        `${lead.platform_label || lead.platform} · ${lead.poster_name || ''} · ${[lead.town, lead.area].filter(Boolean).join(' · ')}${lead.claimed_by_lead_id ? ` · claimed by lead #${lead.claimed_by_lead_id}` : ''}`
+      )
+    );
+    if (lead.status !== 'removed') {
+      const rm = rtStaffEl('button', 'btn danger', 'Remove from all feeds');
+      rm.type = 'button';
+      rm.onclick = async () => {
+        if (!window.confirm('Remove this lead from every feed? The dedupe key is kept — the same post can never re-enter.')) return;
+        rm.disabled = true;
+        try {
+          await api.post(`/admin-area/router/leads/${lead.id}/remove`, {});
+          toast('Lead removed.', 'ok');
+          pageLeadsRouter();
+        } catch (e) {
+          toast(errText(e), 'err');
+          rm.disabled = false;
+        }
+      };
+      card.append(rm);
+    }
+    list.append(card);
+  }
+  pane.append(list);
+}
+
+async function routerRenderSources(pane) {
+  pane.replaceChildren(rtStaffEl('p', 'hint', 'Loading sources…'));
+  let rows;
+  try {
+    rows = (await api.get('/admin-area/router/sources')).data || [];
+  } catch (e) {
+    pane.replaceChildren(rtStaffEl('p', 'hint', errText(e)));
+    return;
+  }
+  pane.replaceChildren();
+  pane.append(
+    rtStaffEl(
+      'p',
+      'hint',
+      'The source registry is data, not code: a platform is live only with an enabled member/public source. Planned platforms are coming soon — never selectable alone, never covered by ALL.'
+    )
+  );
+  const list = rtStaffEl('div');
+  list.style.display = 'grid';
+  list.style.gap = 'var(--card-gap)';
+  for (const s of rows) {
+    const card = rtStaffEl('div', 'card');
+    card.append(rtStaffEl('strong', null, `${s.platform_label || s.platform} — ${s.name}`));
+    card.append(
+      rtStaffEl('p', 'hint', `${s.location_label} · query “${s.query_text}” · access: ${s.access_state}${s.live ? ' · LIVE' : ''} · ${s.enabled ? 'enabled' : 'disabled'}`)
+    );
+    const sel = document.createElement('select');
+    for (const st of ['member', 'public', 'no_access', 'planned']) {
+      const o = document.createElement('option');
+      o.value = st;
+      o.textContent = st;
+      if (st === s.access_state) o.selected = true;
+      sel.append(o);
+    }
+    const save = rtStaffEl('button', 'btn small', 'Save access state');
+    save.type = 'button';
+    save.onclick = async () => {
+      save.disabled = true;
+      try {
+        await api.put(`/admin-area/router/sources/${s.id}`, { access_state: sel.value });
+        toast('Source updated.', 'ok');
+        pageLeadsRouter();
+      } catch (e) {
+        toast(errText(e), 'err');
+        save.disabled = false;
+      }
+    };
+    const row = rtStaffEl('div');
+    row.style.display = 'flex';
+    row.style.gap = '8px';
+    row.append(sel, save);
+    card.append(row);
+    list.append(card);
+  }
+  pane.append(list);
+}
+
+async function routerRenderSweeps(pane, platforms) {
+  pane.replaceChildren();
+  pane.append(
+    rtStaffEl(
+      'p',
+      'hint',
+      'Record a sweep that Muse ran. Pick one platform, or ALL to search wide (every live platform — never a planned one). This console records the run; it does not browse any platform.'
+    )
+  );
+  const form = rtStaffEl('div', 'card');
+  const sel = document.createElement('select');
+  sel.id = 'rt-sweep-platform';
+  for (const p of [...(platforms || []), { platform: 'all', label: 'ALL platforms', live: true }]) {
+    const o = document.createElement('option');
+    o.value = p.platform;
+    o.textContent = p.platform === 'all' ? 'ALL (search wide)' : `${p.label}${p.live ? '' : ' — not live yet'}`;
+    if (p.platform !== 'all' && !p.live) o.disabled = true;
+    sel.append(o);
+  }
+  const typeIn = document.createElement('input');
+  typeIn.placeholder = 'Lead type scope (optional)';
+  const locIn = document.createElement('input');
+  locIn.placeholder = 'Location scope (optional)';
+  const run = rtStaffEl('button', 'btn', 'Record sweep');
+  run.type = 'button';
+  const out = rtStaffEl('p', 'hint', '');
+  run.onclick = async () => {
+    run.disabled = true;
+    try {
+      const res = await api.post('/admin-area/router/sweeps', {
+        platform: sel.value,
+        lead_type: typeIn.value || undefined,
+        location: locIn.value || undefined,
+      });
+      const d = res.data || {};
+      out.textContent = `Recorded sweep #${d.sweep ? d.sweep.id : ''} covering ${(d.sweep ? d.sweep.platforms : []).join(', ') || 'no live platforms'} · ${(d.queries || []).length} follow-driven queries in scope.`;
+      routerRenderSweepHistory(pane);
+    } catch (e) {
+      toast(errText(e), 'err');
+      run.disabled = false;
+    }
+  };
+  const row = rtStaffEl('div');
+  row.style.display = 'flex';
+  row.style.flexWrap = 'wrap';
+  row.style.gap = '8px';
+  row.append(sel, typeIn, locIn, run);
+  form.append(row, out);
+  pane.append(form);
+  const hist = rtStaffEl('div');
+  hist.id = 'rt-sweep-history';
+  pane.append(hist);
+  routerRenderSweepHistory(pane);
+}
+
+async function routerRenderSweepHistory(pane) {
+  const hist = pane.querySelector('#rt-sweep-history');
+  if (!hist) return;
+  let rows;
+  try {
+    rows = (await api.get('/admin-area/router/sweeps')).data || [];
+  } catch {
+    return;
+  }
+  hist.replaceChildren(rtStaffEl('h3', null, 'Sweep history'));
+  if (!rows.length) hist.append(rtStaffEl('p', 'hint', 'No sweeps recorded yet — hunting is inactive until the first one.'));
+  for (const s of rows) {
+    hist.append(
+      rtStaffEl('p', 'hint', `#${s.id} · ${s.created_at} · ${s.platform_arg} → ${(s.platforms || []).join(', ') || 'none'} · by ${s.run_by || 'unknown'} · ${(s.queries || []).length} queries`)
+    );
+  }
+}
+
+function routerRenderIngest(pane) {
+  pane.replaceChildren();
+  pane.append(
+    rtStaffEl(
+      'p',
+      'hint',
+      'Add one found post by hand (staff entry of a Muse find). It lands in the review queue unless you publish it directly. A lead never exists without its original post link.'
+    )
+  );
+  const form = rtStaffEl('div', 'card');
+  form.style.display = 'grid';
+  form.style.gap = '10px';
+  const mk = (id, ph) => {
+    const i = document.createElement('input');
+    i.id = id;
+    i.placeholder = ph;
+    return i;
+  };
+  const plat = document.createElement('select');
+  plat.id = 'rt-ing-platform';
+  for (const p of ['facebook', 'x', 'linkedin', 'tiktok', 'instagram']) {
+    const o = document.createElement('option');
+    o.value = p;
+    o.textContent = p;
+    plat.append(o);
+  }
+  const url = mk('rt-ing-url', 'Source URL (required)');
+  const type = mk('rt-ing-type', 'Lead type (e.g. Roofer)');
+  const poster = mk('rt-ing-poster', 'Poster name as shown');
+  const town = mk('rt-ing-town', 'Town (as stated, never invented)');
+  const area = mk('rt-ing-area', 'Area / county');
+  const kind = document.createElement('select');
+  kind.id = 'rt-ing-kind';
+  for (const k of ['service_request', 'recommendation_request', 'hiring', 'wanted_item', 'other']) {
+    const o = document.createElement('option');
+    o.value = k;
+    o.textContent = k.replace(/_/g, ' ');
+    kind.append(o);
+  }
+  const detail = document.createElement('textarea');
+  detail.id = 'rt-ing-detail';
+  detail.placeholder = 'Detail — short summary + post excerpt';
+  const pubBox = document.createElement('input');
+  pubBox.type = 'checkbox';
+  pubBox.id = 'rt-ing-publish';
+  const pubLbl = rtStaffEl('label', null, ' Publish immediately (skip the queue)');
+  pubLbl.prepend(pubBox);
+  const save = rtStaffEl('button', 'btn', 'Add lead');
+  save.type = 'button';
+  save.onclick = async () => {
+    save.disabled = true;
+    try {
+      const res = await api.post('/admin-area/router/leads', {
+        platform: plat.value,
+        source_url: url.value || '',
+        lead_type: type.value || '',
+        poster_name: poster.value || '',
+        town: town.value || '',
+        area: area.value || '',
+        request_kind: kind.value,
+        detail: detail.value || '',
+        publish: pubBox.checked,
+      });
+      const d = res.data || {};
+      toast(d.created ? 'Lead added.' : 'That post is already a lead (dedupe) — nothing duplicated.', 'ok');
+      pageLeadsRouter();
+    } catch (e) {
+      toast(errText(e), 'err');
+      save.disabled = false;
+    }
+  };
+  form.append(plat, url, type, poster, town, area, kind, detail, pubLbl, save);
+  pane.append(form);
+}
+
+function routerRenderSettings(pane, settings) {
+  pane.replaceChildren();
+  pane.append(
+    rtStaffEl('p', 'hint', 'Freshness runs on the post time, not when a sweep found it. Windows are settings, not code.')
+  );
+  const form = rtStaffEl('div', 'card');
+  form.style.display = 'grid';
+  form.style.gap = '10px';
+  const mkNum = (id, val, label) => {
+    const wrap = rtStaffEl('label', null, `${label} `);
+    const i = document.createElement('input');
+    i.type = 'number';
+    i.id = id;
+    i.value = val;
+    i.min = '1';
+    wrap.append(i);
+    return wrap;
+  };
+  form.append(mkNum('rt-set-service', settings.stale_service_hours || 48, 'Stale after (service/product posts, hours)'));
+  form.append(mkNum('rt-set-hiring', settings.stale_hiring_hours || 168, 'Stale after (hiring posts, hours)'));
+  form.append(mkNum('rt-set-window', settings.hunting_window_hours || 72, 'Hunting counts as inactive after (hours without a sweep)'));
+  const save = rtStaffEl('button', 'btn', 'Save settings');
+  save.type = 'button';
+  save.onclick = async () => {
+    save.disabled = true;
+    try {
+      await api.put('/admin-area/router/settings', {
+        stale_service_hours: Number(document.getElementById('rt-set-service').value),
+        stale_hiring_hours: Number(document.getElementById('rt-set-hiring').value),
+        hunting_window_hours: Number(document.getElementById('rt-set-window').value),
+      });
+      toast('Router settings saved.', 'ok');
+    } catch (e) {
+      toast(errText(e), 'err');
+      save.disabled = false;
+    }
+  };
+  form.append(save);
+  pane.append(form);
 }

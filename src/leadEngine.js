@@ -1052,6 +1052,17 @@ function deleteLead(db, id) {
     drop('module_likes');
     drop('module_comments');
     drop('comments_configs');
+    // Batch 178: the deleted lead's Router follows go with it. Its
+    // CLAIMS are released, not dropped — router_leads are workspace
+    // feed rows (the poster is not this lead's data); an exclusive
+    // claim must not keep a lead out of every feed forever because
+    // the claimer was deleted.
+    drop('router_follows');
+    if (leadTableExists(db, 'router_leads')) {
+      db.prepare(
+        "UPDATE router_leads SET status = 'new', claimed_by_lead_id = NULL, claimed_at = NULL WHERE claimed_by_lead_id = ? AND status = 'claimed'"
+      ).run(id);
+    }
     // Batch 143 (full review): the drop list above only ever grew by
     // the tables each batch's own window exercised — the Batch 134
     // suite seeded ~10 tables, so the pre-122 module families were
@@ -1726,6 +1737,11 @@ const MERGE_DEDUPE_TABLES = {
   // Batch 131 finisher: likes are unique per (target, visitor) — on
   // merge the keeper's like for a target+visitor wins, the rest move.
   module_likes: ['target_type', 'target_id', 'visitor_key'],
+  // Batch 178: a Router follow is unique per (lead type, location) —
+  // on merge the keeper's follow for a type+location wins, the rest
+  // move. Router CLAIMS re-point in reassignLeadDependents
+  // (claimed_by_lead_id is not a plain lead_id column).
+  router_follows: ['lead_type_key', 'location_norm'],
   // Batch 143 (full review): the remaining per-lead unique-keyed
   // tables get the same keeper-wins treatment on their natural key.
   calltracking_rotation_numbers: ['phone_number'],
@@ -1821,6 +1837,13 @@ function reassignLeadDependents(db, keepId, dropId) {
       db.prepare('DELETE FROM module_category_assignments WHERE lead_id = ? AND category_id = ?').run(dropId, dc.id);
       db.prepare('DELETE FROM module_categories WHERE id = ? AND lead_id = ?').run(dc.id, dropId);
     }
+  }
+
+  // Batch 178: Router claims move to the keeper — an exclusive claim
+  // the dropped lead held stays claimed (by the keeper now), so the
+  // lead stays out of other feeds exactly as before the merge.
+  if (leadTableExists(db, 'router_leads')) {
+    db.prepare('UPDATE router_leads SET claimed_by_lead_id = ? WHERE claimed_by_lead_id = ?').run(keepId, dropId);
   }
 
   for (const table of MERGE_MOVE_TABLES) {

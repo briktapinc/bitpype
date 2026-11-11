@@ -6510,10 +6510,11 @@
     { type: 'pricing', label: 'Pricing' },
     { type: 'custom_code', label: 'Custom Code' },
     { type: 'webinar', label: 'Webinars' },
+    { type: 'leads_router', label: 'Leads Router' },
   ];
   const MODULE_NAV_GROUPS = [
     { id: 'content', label: 'Content', types: ['blog', 'ecommerce', 'checkout', 'gallery', 'courses', 'directory', 'faq', 'offers', 'menu', 'video', 'estimate', 'socialfeed', 'googlereviews', 'datatables', 'charts', 'categories', 'photocapture', 'qrcode', 'comments', 'pricing', 'custom_code'] },
-    { id: 'people', label: 'People', types: ['team', 'testimonials', 'careers', 'members', 'newsletter'] },
+    { id: 'people', label: 'People', types: ['team', 'testimonials', 'careers', 'members', 'newsletter', 'leads_router'] },
     { id: 'schedule', label: 'Schedule', types: ['events', 'bookings', 'webinar'] },
     { id: 'assist', label: 'Assist', types: ['chatbot', 'calltracking'] },
   ];
@@ -6584,6 +6585,7 @@
     pricing: { singular: 'price entry', plural: 'price entries', newBtn: 'New price entry', kicker: 'Pricing' },
     custom_code: { singular: 'code block', plural: 'code blocks', newBtn: 'New code block', kicker: 'Custom Code' },
     webinar: { singular: 'webinar', plural: 'webinars', newBtn: 'New webinar', kicker: 'Webinar' },
+    leads_router: { singular: 'lead', plural: 'leads', newBtn: 'New follow', kicker: 'Leads Router' },
   };
   const BOOKING_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const MODULE_STORAGE_KEY = 'bp-portal-module';
@@ -8064,6 +8066,25 @@
         <strong>Run live webinars on your own site</strong>
         <p class="hint">Create a webinar in the panel above, share its link, and visitors join with the access code. Registrations land in your contacts automatically, and you host the live chat from the webinar's console here. The Webinar block on your site shows your next webinar and links visitors to its gate.</p>
       </div>`;
+      if (headNewBtn) headNewBtn.hidden = true;
+      return;
+    }
+    // Batch 178 — the Leads Router is managed entirely in the panel
+    // above (feed, follows, claims); the generic item list/editor
+    // never applies. Built with DOM calls only (the Batch 131
+    // discipline — no new innerHTML sink).
+    if (type === 'leads_router') {
+      box.classList.remove('item-list');
+      const empty = document.createElement('div');
+      empty.className = 'modules-empty';
+      const strong = document.createElement('strong');
+      strong.textContent = 'Live leads, routed to you';
+      const hint = document.createElement('p');
+      hint.className = 'hint';
+      hint.textContent =
+        'Follow a lead type + location in the panel above. When Muse finds a matching public “looking for…” post, it lands in your feed here — click through to the original post to respond, or claim it and the poster lands in your contacts.';
+      empty.append(strong, hint);
+      box.replaceChildren(empty);
       if (headNewBtn) headNewBtn.hidden = true;
       return;
     }
@@ -10492,6 +10513,7 @@
     moduleState.custom_code = data.custom_code || null;
     moduleState.pricing = data.pricing || null;
     moduleState.webinar = data.webinar || null;
+    moduleState.leads_router = data.leads_router || null;
     moduleState.categories = Array.isArray(data.categories) ? data.categories : [];
     if (type === 'bookings') {
       const booking = moduleState.booking || {};
@@ -10520,6 +10542,7 @@
     renderQrCodePanel();
     renderCustomCodePanel();
     renderWebinarPanel();
+    renderRouterPanel();
     renderShopPaymentsPanel();
     renderShopOrdersPanel();
     renderCheckoutPanel();
@@ -15011,5 +15034,292 @@
   if (wpSecEl) wpDesignObserver.observe(wpSecEl, { attributes: true, attributeFilter: ['hidden'] });
   const wpNavEl = document.getElementById('nav-wordpress');
   if (wpNavEl) wpNavEl.addEventListener('click', () => loadWpDesignPanel().catch(() => {}));
+
+  // ------------------------------------------------------------------
+  // Batch 178 — Leads Router panel: feed + follow manager + claim.
+  // Built with DOM calls only (the Batch 131 discipline — no
+  // innerHTML anywhere in this panel, so poster text can never
+  // become markup). Data rides moduleState.leads_router (the
+  // listModuleItems panel block) + the dedicated router routes.
+  // ------------------------------------------------------------------
+  function rtEl(tag, cls, text) {
+    const el = document.createElement(tag);
+    if (cls) el.className = cls;
+    if (text != null) el.textContent = text;
+    return el;
+  }
+  function rtAge(lead) {
+    const h = lead.age_hours;
+    if (h == null) return 'just posted';
+    if (h < 1) return `${Math.max(1, Math.round(h * 60))}m ago`;
+    if (h < 48) return `${Math.round(h)}h ago`;
+    return `${Math.round(h / 24)}d ago`;
+  }
+  const RT_KINDS = [
+    ['service_request', 'Service request'],
+    ['recommendation_request', 'Recommendation'],
+    ['hiring', 'Hiring'],
+    ['wanted_item', 'Wanted item'],
+    ['other', 'Other'],
+  ];
+  function renderRouterPanel() {
+    const host = document.getElementById('modules-router-panel');
+    if (!host) return;
+    if (moduleState.current !== 'leads_router') {
+      host.hidden = true;
+      host.replaceChildren();
+      return;
+    }
+    const panel = moduleState.leads_router;
+    host.hidden = false;
+    host.replaceChildren();
+    if (!panel) {
+      const card = rtEl('div', 'card');
+      card.append(rtEl('p', 'hint', 'Loading your leads…'));
+      host.append(card);
+      return;
+    }
+    const wrap = rtEl('div');
+    wrap.style.display = 'grid';
+    wrap.style.gap = 'var(--card-gap)';
+
+    // --- Requires Muse: activation + hunting status (spec §16) ---
+    const act = (panel.activation || {});
+    const hunting = panel.hunting || act.hunting || {};
+    const statusCard = rtEl('div', 'card');
+    const head = rtEl('div');
+    head.style.display = 'flex';
+    head.style.flexWrap = 'wrap';
+    head.style.gap = '8px';
+    head.style.alignItems = 'center';
+    const badge = rtEl('span', 'chip', 'Requires Muse');
+    badge.style.fontWeight = '700';
+    const status = rtEl('strong', null, hunting.active ? 'Hunting active' : hunting.label || 'Hunting inactive — connect Muse to start finding leads');
+    head.append(badge, status);
+    statusCard.append(head);
+    statusCard.append(rtEl('p', 'hint', act.disclosure || ''));
+    const steps = rtEl('ol');
+    steps.style.margin = '8px 0 0';
+    steps.style.paddingLeft = '20px';
+    for (const s of act.steps || []) {
+      const li = rtEl('li', null, `${s.done ? '✓ ' : ''}${s.label}`);
+      steps.append(li);
+    }
+    statusCard.append(steps);
+    const lastLine = rtEl('p', 'hint', hunting.last_sweep_at ? `Last sweep: ${hunting.last_sweep_at}` : 'No sweep has run yet — follows below are waiting on Muse.');
+    lastLine.style.margin = '8px 0 0';
+    statusCard.append(lastLine);
+    wrap.append(statusCard);
+
+    // --- Follow manager (select-or-type) ---
+    const folCard = rtEl('div', 'card');
+    folCard.append(rtEl('h3', null, 'What you follow'));
+    folCard.firstChild.style.margin = '0 0 6px';
+    const follows = Array.isArray(panel.follows) ? panel.follows : [];
+    if (!follows.length) {
+      folCard.append(rtEl('p', 'hint', 'No follows yet — add one below and matching leads start landing in your feed.'));
+    }
+    const folList = rtEl('div');
+    folList.style.display = 'grid';
+    folList.style.gap = 'var(--card-gap)';
+    for (const f of follows) {
+      const row = rtEl('div', 'card');
+      const t = rtEl('strong', null, `${f.lead_type_label || f.lead_type_key} — ${f.location_label}`);
+      const meta = rtEl(
+        'p',
+        'hint',
+        `Platforms: ${f.platforms_all ? 'ALL' : (f.platforms || []).join(', ')}${f.request_kinds && f.request_kinds.length ? ` · Kinds: ${f.request_kinds.join(', ')}` : ' · All kinds'}${f.status === 'waiting_on_muse' ? ' · Waiting on Muse' : ''}`
+      );
+      meta.style.margin = '4px 0 8px';
+      const del = rtEl('button', 'btn soft', 'Stop following');
+      del.type = 'button';
+      del.onclick = async () => {
+        del.disabled = true;
+        try {
+          await api(`/modules/leads-router/follows/${encodeURIComponent(f.id)}`, { method: 'DELETE' });
+          moduleMsg('Follow removed.', true);
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg((e && e.message) || 'Could not remove that follow.', false);
+          del.disabled = false;
+        }
+      };
+      row.append(t, meta, del);
+      folList.append(row);
+    }
+    folCard.append(folList);
+
+    const form = rtEl('div');
+    form.style.display = 'grid';
+    form.style.gap = '10px';
+    form.style.marginTop = '12px';
+    const typeInput = document.createElement('input');
+    typeInput.id = 'rt-type';
+    typeInput.placeholder = 'Lead type — pick or type your own (e.g. Roofer)';
+    typeInput.setAttribute('list', 'rt-type-list');
+    const typeList = document.createElement('datalist');
+    typeList.id = 'rt-type-list';
+    for (const t of panel.known_types || []) {
+      const o = document.createElement('option');
+      o.value = t.label;
+      typeList.append(o);
+    }
+    const locInput = document.createElement('input');
+    locInput.id = 'rt-location';
+    locInput.placeholder = 'Location — pick or type your own (e.g. Reading)';
+    locInput.setAttribute('list', 'rt-loc-list');
+    const locList = document.createElement('datalist');
+    locList.id = 'rt-loc-list';
+    for (const l of panel.known_locations || []) {
+      const o = document.createElement('option');
+      o.value = l.label;
+      locList.append(o);
+    }
+    form.append(typeInput, typeList, locInput, locList);
+    const platRow = rtEl('div');
+    platRow.append(rtEl('strong', null, 'Platforms'));
+    const platBoxes = [];
+    const allBox = document.createElement('input');
+    allBox.type = 'checkbox';
+    allBox.checked = true;
+    const allLbl = rtEl('label', null, ' ALL (every live platform)');
+    allLbl.prepend(allBox);
+    platRow.append(allLbl);
+    for (const p of panel.platforms || []) {
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = p.platform;
+      cb.disabled = !p.live;
+      const lbl = rtEl('label', null, ` ${p.label}${p.live ? '' : ' (coming soon)'}`);
+      lbl.prepend(cb);
+      platRow.append(lbl);
+      platBoxes.push(cb);
+    }
+    form.append(platRow);
+    const kindRow = rtEl('div');
+    kindRow.append(rtEl('strong', null, 'Request kinds (none ticked = all)'));
+    const kindBoxes = [];
+    for (const [val, label] of RT_KINDS) {
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = val;
+      const lbl = rtEl('label', null, ` ${label}`);
+      lbl.prepend(cb);
+      kindRow.append(lbl);
+      kindBoxes.push(cb);
+    }
+    form.append(kindRow);
+    const saveBtn = rtEl('button', 'btn', 'Save follow');
+    saveBtn.type = 'button';
+    saveBtn.onclick = async () => {
+      const platforms = allBox.checked ? ['all'] : platBoxes.filter((b) => b.checked).map((b) => b.value);
+      const body = {
+        lead_type_label: typeInput.value || '',
+        location_label: locInput.value || '',
+        platforms: platforms.length ? platforms : ['all'],
+        request_kinds: kindBoxes.filter((b) => b.checked).map((b) => b.value),
+        notify: { in_app: true },
+      };
+      saveBtn.disabled = true;
+      try {
+        await api('/modules/leads-router/follows', { method: 'POST', body: JSON.stringify(body) });
+        moduleMsg('Follow saved — matching leads will land in your feed.', true);
+        await loadModuleItems();
+      } catch (e) {
+        moduleMsg((e && e.message) || 'Could not save that follow.', false);
+        saveBtn.disabled = false;
+      }
+    };
+    form.append(saveBtn);
+    folCard.append(form);
+    wrap.append(folCard);
+
+    // --- Feed ---
+    const feedCard = rtEl('div', 'card');
+    const feedHead = rtEl('h3', null, 'Your live leads');
+    feedHead.style.margin = '0 0 6px';
+    feedCard.append(feedHead);
+    feedCard.append(
+      rtEl('p', 'hint', hunting.last_sweep_at ? `Newest first · Last sweep ${hunting.last_sweep_at}` : 'Newest first · No sweep has run yet')
+    );
+    const feed = Array.isArray(panel.feed) ? panel.feed : [];
+    const list = rtEl('div');
+    list.className = 'router-feed';
+    list.style.display = 'grid';
+    list.style.gap = 'var(--card-gap)';
+    if (!feed.length) {
+      list.append(rtEl('p', 'hint', 'No matching leads yet. When a sweep finds a public post that matches one of your follows, it shows up here.'));
+    }
+    for (const lead of feed) {
+      list.append(routerLeadCard(lead));
+    }
+    feedCard.append(list);
+    wrap.append(feedCard);
+    host.append(wrap);
+  }
+
+  function routerLeadCard(lead) {
+    const card = rtEl('article', 'card router-lead-card');
+    const top = rtEl('div');
+    top.style.display = 'flex';
+    top.style.flexWrap = 'wrap';
+    top.style.gap = '8px';
+    top.style.alignItems = 'center';
+    top.append(rtEl('strong', null, rtAge(lead)));
+    top.append(rtEl('span', 'chip', lead.platform_label || lead.platform));
+    top.append(rtEl('span', 'chip', lead.lead_type_label || lead.lead_type_key));
+    top.append(rtEl('span', 'chip', String(lead.request_kind || '').replace(/_/g, ' ')));
+    if (lead.score) top.append(rtEl('span', 'chip', String(lead.score).toUpperCase()));
+    card.append(top);
+    const where = [lead.town, lead.area].filter(Boolean).join(' · ');
+    if (where) {
+      const w = rtEl('p', 'hint', where + (lead.poster_name ? ` · Posted by ${lead.poster_name}` : ''));
+      w.style.margin = '6px 0 0';
+      card.append(w);
+    }
+    if (lead.detail) {
+      const d = rtEl('p', null, lead.detail);
+      d.style.margin = '8px 0 0';
+      card.append(d);
+    }
+    const note = rtEl('p', 'hint', `Posted publicly on ${lead.platform_label || lead.platform} — respond on the original post`);
+    note.style.margin = '8px 0 0';
+    card.append(note);
+    const actions = rtEl('div');
+    actions.style.display = 'flex';
+    actions.style.flexWrap = 'wrap';
+    actions.style.gap = '8px';
+    actions.style.marginTop = '10px';
+    const sources = Array.isArray(lead.sources) && lead.sources.length ? lead.sources : [{ source_url: lead.source_url, platform: lead.platform }];
+    for (const s of sources) {
+      const a = document.createElement('a');
+      a.className = 'btn soft';
+      a.href = s.source_url || lead.source_url;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = `View post${sources.length > 1 ? ` (${s.platform})` : ''}`;
+      actions.append(a);
+    }
+    if (lead.claimed_by_me) {
+      actions.append(rtEl('span', 'chip', 'Claimed by you — in your contacts'));
+    } else {
+      const claim = rtEl('button', 'btn', 'Claim this lead');
+      claim.type = 'button';
+      claim.onclick = async () => {
+        claim.disabled = true;
+        try {
+          await api(`/modules/leads-router/claim/${encodeURIComponent(lead.id)}`, { method: 'POST', body: '{}' });
+          moduleMsg('Claimed — the poster is now in your contacts, and the lead has left other feeds.', true);
+          await loadModuleItems();
+        } catch (e) {
+          moduleMsg((e && e.message) || 'Could not claim that lead.', false);
+          claim.disabled = false;
+        }
+      };
+      actions.append(claim);
+    }
+    card.append(actions);
+    return card;
+  }
 
 })();

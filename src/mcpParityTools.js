@@ -3282,6 +3282,73 @@ function createParityTools(ctx) {
     // website id is resolved from this layer's workspace db at
     // create time. Staff MCP surface only — the design agent's tool
     // allowlist deliberately never includes these names.
+    // Batch 178 — Leads Router module. Explicit entries: the engine
+    // is workspace-scoped (router leads/sources/sweeps belong to the
+    // workspace feed; follows belong to a business Lead). The sweep
+    // entry only RECORDS a hunt — no platform is browsed from here.
+    'router_leads.list': parityEntry('router_leads.list', (args) => {
+      return {
+        ok: true,
+        data: require('../server/leadsRouter').listLeads(db, {
+          review_state: args.review_state || null,
+          status: args.status || null,
+          request_kind: args.request_kind || null,
+          platform: args.platform || null,
+          limit: args.limit,
+        }),
+      };
+    }),
+    'router_leads.get': parityEntry('router_leads.get', (args) => {
+      const id = requireId(args.id, 'id');
+      const lead = require('../server/leadsRouter').getLead(db, id);
+      if (!lead) throw new Error('Router lead not found');
+      return { ok: true, data: lead };
+    }),
+    'router_leads.publish': parityEntry('router_leads.publish', (args) => {
+      return { ok: true, data: require('../server/leadsRouter').publishLead(db, { ...args }, { publish: !!args.publish }) };
+    }),
+    'router_leads.remove': parityEntry('router_leads.remove', (args) => {
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: require('../server/leadsRouter').removeLead(db, id) };
+    }),
+    'router_follows.list': parityEntry('router_follows.list', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return { ok: true, data: require('../server/leadsRouter').listFollows(db, leadId) };
+    }),
+    'router_follows.set': parityEntry('router_follows.set', (args) => {
+      const leadId = requireId(args.leadId, 'leadId');
+      return {
+        ok: true,
+        data: require('../server/leadsRouter').setFollow(db, leadId, {
+          lead_type_label: args.lead_type,
+          location_label: args.location,
+          radius_miles: args.radius_miles,
+          platforms: args.platforms,
+          request_kinds: args.request_kinds,
+          notify: args.notify,
+        }),
+      };
+    }),
+    'router_sources.list': parityEntry('router_sources.list', (args) => {
+      return { ok: true, data: require('../server/leadsRouter').listSources(db, { platform: args.platform || null }) };
+    }),
+    'router_sources.update': parityEntry('router_sources.update', (args) => {
+      const id = requireId(args.id, 'id');
+      return { ok: true, data: require('../server/leadsRouter').updateSource(db, id, { ...args }) };
+    }),
+    'router_sweeps.run': parityEntry('router_sweeps.run', (args) => {
+      return {
+        ok: true,
+        data: require('../server/leadsRouter').recordSweep(db, {
+          platform: args.platform,
+          lead_type: args.lead_type,
+          location: args.location,
+          run_by: args.run_by || 'muse-mcp-local',
+          lead_id: args.leadId != null ? Number(args.leadId) : null,
+        }),
+      };
+    }),
+
     'webinar.list': parityEntry('webinar.list', async (args) => {
       const leadId = requireId(args.leadId, 'leadId');
       return { ok: true, data: await require('../server/webinars').listWebinarsForSite(workspaceId, leadId) };

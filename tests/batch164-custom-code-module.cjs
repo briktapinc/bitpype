@@ -104,7 +104,7 @@ async function main() {
   {
     let n = 0;
     const sm = require(path.join(root, 'server/siteModules.js'));
-    assert.equal(sm.MODULE_TYPES.length, 31, 'MODULE_TYPES at 30 with custom_code');
+    assert.equal(sm.MODULE_TYPES.length, 32, 'MODULE_TYPES at 30 with custom_code');
     n++;
     assert.equal(sm.MODULE_TYPES[29], 'custom_code', 'custom_code appended last');
     n++;

@@ -286,7 +286,7 @@ function load(file, mocks) {
     n++;
     assert.ok(portalHtml.includes('id="modules-shop-orders-panel"'), 'portal.html hosts the shop orders panel');
     n++;
-    assert.ok(portalHtml.includes('portal.js?v=batch139-pricing1'), 'portal.js cache-bust rotated');
+    assert.ok(portalHtml.includes('portal.js?v=batch178-router1'), 'portal.js cache-bust rotated');
     n++;
     const portalRoutes = read('server/routes/portal.js');
     assert.ok(portalRoutes.includes("router.put('/modules/checkout/config'"), 'portal config route registered');
@@ -409,7 +409,7 @@ function load(file, mocks) {
     let n = 0;
     assert.equal(
       sm.MODULE_TYPES.length,
-      31,
+      32,
       'catalog at 30 types (Batch 131: comments appended; Batch 139: pricing appended; Batch 164: custom_code appended)'
     );
     assert.equal(sm.MODULE_TYPES[26], 'checkout', 'checkout is the 27th type');

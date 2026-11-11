@@ -223,7 +223,7 @@ function futureWeekdayStart() {
   }
   assert.equal(
     sm.MODULE_TYPES.length,
-    31,
+    32,
     'MODULE_TYPES: Batch 136 added none (28 on its landed tip: Batch 131 added comments after this suite was parked; Batch 139 finisher rotation: pricing is the 29th)'
   );
   assert.ok(!sm.MODULE_TYPES.includes('discount'), 'no discount module type exists');

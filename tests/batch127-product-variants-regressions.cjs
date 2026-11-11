@@ -170,7 +170,7 @@ function makeJar() {
     n++;
     assert.ok(portalSrc.includes('out.options = readVariantGroupsFromDom()'), 'portal collect ships options/variants');
     n++;
-    assert.ok(read('public/portal.html').includes('/js/portal.js?v=batch139-pricing1'), 'portal.js cache-busted');
+    assert.ok(read('public/portal.html').includes('/js/portal.js?v=batch178-router1'), 'portal.js cache-busted');
     n++;
 
     const mcpSrc = read('server/mcp.js');

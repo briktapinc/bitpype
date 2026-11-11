@@ -164,7 +164,7 @@ const CENSUS = {
     has(portalHtml, 'not included yet', 'portal copy is honest about page-content editing');
     has(
       portalHtml,
-      '/js/portal.js?v=batch139-pricing1',
+      '/js/portal.js?v=batch178-router1',
       'portal.js cache-busted for Batch 117 (string follows the newest rotation — Batch 131)'
     );
     const portalJs = read('public/js/portal.js');

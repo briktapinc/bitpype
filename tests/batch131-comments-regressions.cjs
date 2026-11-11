@@ -282,7 +282,7 @@ const throws = (fn, pattern) => {
     n++;
     assert.ok(portalHtml.includes('data-modules-pane="comments"'), 'portal.html carries the Comments tab button');
     n++;
-    assert.ok(portalHtml.includes('portal.js?v=batch139-pricing1'), 'portal.js cache-bust rotated');
+    assert.ok(portalHtml.includes('portal.js?v=batch178-router1'), 'portal.js cache-bust rotated');
     n++;
     group('Part 1 source pins', n);
   }
@@ -353,7 +353,7 @@ const throws = (fn, pattern) => {
     n++;
     assert.equal(
       sm.MODULE_TYPES.length,
-      31,
+      32,
       'comments is the 28th of 30 types on this tree (Batch 139 appended pricing; Batch 164 appended custom_code)'
     );
     n++;

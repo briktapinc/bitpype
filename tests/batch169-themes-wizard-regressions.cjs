@@ -119,8 +119,8 @@ async function main() {
     assert.deepEqual(registry.validateThemes(), [], 'registry validates clean against the real section/module catalogs');
     n++;
     const { MODULE_TYPES } = require(path.join(root, 'server/siteModules.js'));
-    assert.equal(MODULE_TYPES.length, 31, 'MODULE_TYPES pin: still 31 (Batch 169 adds no module type)');
-    assert.equal(registry.allowedModuleTypes().size, 31, 'registry module allowlist is the real 31');
+    assert.equal(MODULE_TYPES.length, 32, 'MODULE_TYPES pin: still 31 (Batch 169 adds no module type) (Batch 178: leads_router the 32nd — pin rotated)');
+    assert.equal(registry.allowedModuleTypes().size, 32, 'registry module allowlist is the real 31 (Batch 178: 32 with leads_router — pin rotated)');
     n += 2;
     assert.deepEqual(
       [...registry.allowedSectionTypes()].sort(),

@@ -170,6 +170,24 @@ function ensureTables(db) {
   } catch {
     /* race / exists */
   }
+  // Batch 178: Leads Router claims reference their router_leads row
+  // the same way (one capture event per claimed router lead, deduped
+  // by the index) — see captureFromRouterClaim.
+  try {
+    const cols = db
+      .prepare('PRAGMA table_info(leadscout_events)')
+      .all()
+      .map((c) => String(c.name || ''));
+    if (!cols.includes('router_lead_id')) {
+      db.exec('ALTER TABLE leadscout_events ADD COLUMN router_lead_id INTEGER');
+    }
+    db.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_leadscout_router_unique
+       ON leadscout_events(router_lead_id) WHERE router_lead_id IS NOT NULL`
+    );
+  } catch {
+    /* race / exists */
+  }
   // SMS opt-in state (Batch 25): the consent record lives on the contact
   // itself — sms_opted_in + the consent timestamp + the source are the
   // business's proof of consent. sms_opted_out_at is written by any
@@ -1324,9 +1342,94 @@ function captureFromWebinar(db, { registration, webinarTitle } = {}) {
   }
 }
 
+/**
+ * Batch 178 — a claimed Leads Router lead becomes a LeadScout contact
+ * in the CLAIMING business's portal store (spec §7), stamped with
+ * router_lead_id + platform + source_url. Exactly one event per
+ * router lead (the partial UNIQUE index on router_lead_id), so a
+ * claim retry never duplicates the contact.
+ *
+ * Identity note (spec §9 — no enrichment): a poster is only ever a
+ * name as shown on the post. There is NO email or phone to dedupe
+ * on, and upsertContact rightly refuses identity-less contacts — so
+ * this capture keys identity to the router lead itself: the contact
+ * row is created name-only, and the router_lead_id event is the
+ * dedupe anchor. The payload carries exactly what the poster posted
+ * (name, platform, source link, lead type, town) and nothing more.
+ */
+function captureFromRouterClaim(db, { leadId, routerLead } = {}) {
+  ensureTables(db);
+  try {
+    if (!routerLead || !routerLead.id) throw fail('VALIDATION', 'router lead required');
+    if (leadId == null) throw fail('VALIDATION', 'claiming leadId required');
+    const existing = db
+      .prepare('SELECT id, contact_id FROM leadscout_events WHERE router_lead_id = ?')
+      .get(Number(routerLead.id));
+    if (existing) {
+      const contact = db.prepare('SELECT * FROM leadscout_contacts WHERE id = ?').get(existing.contact_id);
+      return { contact, eventId: existing.id, deduped: true };
+    }
+    const name = String(routerLead.poster_name || '').slice(0, 200);
+    const cInfo = db
+      .prepare('INSERT INTO leadscout_contacts (name, email, phone, email_norm, phone_norm) VALUES (?, \'\', \'\', \'\', \'\')')
+      .run(name);
+    const contact = db.prepare('SELECT * FROM leadscout_contacts WHERE id = ?').get(cInfo.lastInsertRowid);
+    const stamp = rentalStamp(db, leadId);
+    const info = db
+      .prepare(
+        `
+      INSERT INTO leadscout_events
+        (contact_id, lead_id, kind, source_label, page_slug, router_lead_id, payload_json,
+         website_id, tenant_lead_id, rental_id)
+      VALUES (?, ?, 'router_claim', ?, ?, ?, ?, ?, ?, ?)
+    `
+      )
+      .run(
+        contact.id,
+        Number(leadId),
+        'Leads Router',
+        '',
+        Number(routerLead.id),
+        JSON.stringify({
+          name,
+          platform: routerLead.platform || '',
+          source_url: routerLead.source_url || '',
+          source_context: routerLead.source_context || '',
+          lead_type: routerLead.lead_type_label || routerLead.lead_type_key || '',
+          request_kind: routerLead.request_kind || '',
+          town: routerLead.town || '',
+          area: routerLead.area || '',
+        }).slice(0, 8000),
+        stamp.websiteId,
+        stamp.tenantLeadId,
+        stamp.rentalId
+      );
+    const eventId = Number(info.lastInsertRowid);
+    if (stamp.rentalId) {
+      rentalCharge(db, {
+        ownerLeadId: leadId,
+        sourceKind: 'capture',
+        eventId,
+        contactLabel: name || routerLead.source_url || '',
+      });
+    }
+    return { contact, eventId };
+  } catch (e) {
+    recordFailure(db, {
+      kind: 'router_claim',
+      leadId,
+      refId: routerLead && routerLead.id,
+      error: e.message || String(e),
+      payload: { routerLead },
+    });
+    return { error: e.message || String(e) };
+  }
+}
+
 module.exports = {
   ensureTables,
   upsertContact,
+  captureFromRouterClaim,
   captureFromWebinar,
   captureFromSubmission,
   captureFromBooking,

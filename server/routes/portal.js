@@ -3292,6 +3292,35 @@ router.post('/modules/webinar/:id/messages/:messageId/hide', requireClient, acti
   }
 });
 
+// Leads Router module (Batch 178) — dedicated operations beyond the
+// generic item CRUD (the Router has no owner-authored items; its
+// writes are follows + claims). Registered before the generic
+// /modules/:type routes so 'leads-router' sub-paths are never parsed
+// as item ids. Every call is scoped to the caller's own lead.
+router.post('/modules/leads-router/follows', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(res, await portal.routerSetFollow(req.client.workspace_id, req.client.lead_id, req.body || {}, req.client.email));
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
+router.delete('/modules/leads-router/follows/:id', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(res, await portal.routerDeleteFollow(req.client.workspace_id, req.client.lead_id, req.params.id, req.client.email));
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 400);
+  }
+});
+
+router.post('/modules/leads-router/claim/:id', requireClient, actionLimit, async (req, res) => {
+  try {
+    ok(res, await portal.routerClaimLead(req.client.workspace_id, req.client.lead_id, req.params.id, req.client.email));
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.code === 'CONFLICT' ? 409 : 400);
+  }
+});
+
 router.get('/modules/:type', requireClient, async (req, res) => {
   try {
     const includeArchived =

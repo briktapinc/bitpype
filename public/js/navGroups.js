@@ -30,6 +30,7 @@ const NAV_GROUPS = [
     items: [
       'forms',
       'leadscout',
+      'router',
       'bookings',
       'shop',
       'memberships',

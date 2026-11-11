@@ -1568,6 +1568,107 @@ function clientToolDefs() {
       inputSchema: schema({ id: ID, leadId: ID }, ['id']),
     },
     {
+      name: 'router_leads.list',
+      description:
+        'Batch 178 Leads Router: list the workspace’s router leads (newest first). Filters: review_state (candidate|published|rejected), status (new|claimed|stale|removed), request_kind, platform. Router leads are pointers to public “looking for…” posts found by Muse sweeps — they enter only through router_leads.publish / the staff review queue. Standard/Premium.',
+      inputSchema: schema(
+        { leadId: ID, review_state: STR, status: STR, request_kind: STR, platform: STR, limit: ID },
+        []
+      ),
+    },
+    {
+      name: 'router_leads.get',
+      description:
+        'Batch 178 Leads Router: get one router lead by id (full record: poster as shown on the post, source link(s), lead type, request kind, score, review/claim state). Standard/Premium.',
+      inputSchema: schema({ id: ID, leadId: ID }, ['id']),
+    },
+    {
+      name: 'router_leads.publish',
+      description:
+        'Batch 178 Leads Router: publish one found post as a router lead. platform + source_url + a lead type are required; posted_at is the POST time (freshness runs on it). Dedupe is by platform+post id, falling back to poster+text — the same post published twice is ONE lead, and the same request cross-posted to a second platform merges into the one lead with both source links. publish=true skips the staff review queue (default: lands as a review candidate). A removed lead never re-enters. Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          platform: STR,
+          post_id: STR,
+          source_url: STR,
+          source_context: STR,
+          poster_name: STR,
+          posted_at: STR,
+          lead_type: STR,
+          request_kind: STR,
+          town: STR,
+          area: STR,
+          detail: STR,
+          score: STR,
+          score_reason: STR,
+          publish: { type: 'boolean' },
+        },
+        ['platform', 'source_url']
+      ),
+    },
+    {
+      name: 'router_leads.remove',
+      description:
+        'Batch 178 Leads Router: remove one router lead by id — it leaves every feed and its dedupe key is kept so the same post never re-enters. Standard/Premium.',
+      inputSchema: schema({ id: ID, leadId: ID }, ['id']),
+    },
+    {
+      name: 'router_follows.list',
+      description:
+        'Batch 178 Leads Router: list one business’s follows (lead type + location + platforms + request kinds + status). Follows are plan add-on bookkeeping records — no charge is ever made by these tools. Standard/Premium.',
+      inputSchema: schema({ leadId: ID }, ['leadId']),
+    },
+    {
+      name: 'router_follows.set',
+      description:
+        'Batch 178 Leads Router: create or update a follow for a business — lead type and location are SELECT-OR-TYPE (type a brand-new one and it is valid immediately, normalized for matching with the as-typed label preserved; a typed follow generates its own sweep queries). platforms: ["all"] (default) or a specific set — a platform that is not live yet cannot be the only selection. request_kinds empty = all kinds. Standard/Premium.',
+      inputSchema: schema(
+        {
+          leadId: ID,
+          lead_type: STR,
+          location: STR,
+          radius_miles: ID,
+          platforms: { type: 'array', items: { type: 'string' } },
+          request_kinds: { type: 'array', items: { type: 'string' } },
+        },
+        ['leadId', 'lead_type', 'location']
+      ),
+    },
+    {
+      name: 'router_sources.list',
+      description:
+        'Batch 178 Leads Router: list the source registry (platform, location, query/group, lead-type coverage, access_state member|public|no_access|planned, enabled). A platform is live only with an enabled member/public source. Standard/Premium.',
+      inputSchema: schema({ leadId: ID, platform: STR }, []),
+    },
+    {
+      name: 'router_sources.update',
+      description:
+        'Batch 178 Leads Router: update one source registry row by id (name, location_label, query_text, lead_types, access_state, enabled). Standard/Premium.',
+      inputSchema: schema(
+        {
+          id: ID,
+          leadId: ID,
+          name: STR,
+          location_label: STR,
+          query_text: STR,
+          lead_types: { type: 'array', items: { type: 'string' } },
+          access_state: STR,
+          enabled: { type: 'boolean' },
+        },
+        ['id']
+      ),
+    },
+    {
+      name: 'router_sweeps.run',
+      description:
+        'Batch 178 Leads Router: record that a sweep ran (the check-in Muse makes after hunting). platform is REQUIRED: facebook|x|linkedin|tiktok|instagram|all — a specific platform covers only that platform, ALL covers every LIVE platform (never a planned one) and stamps the coverage on the run. Returns the run plus the follow-driven sweep queries in scope. This records a hunt; it does not browse any platform. Standard/Premium.',
+      inputSchema: schema(
+        { leadId: ID, platform: STR, lead_type: STR, location: STR, run_by: STR },
+        ['platform']
+      ),
+    },
+    {
       name: 'webinar.list',
       description:
         'Batch 165 Webinar module: list this site’s webinars (title, slug, status, schedule, YouTube ID, access code, registrant/joined/message counts). These are the SITE’s webinars — the platform’s own agency webinars are a separate staff-admin surface and are never returned here. Standard/Premium.',
@@ -3551,6 +3652,16 @@ async function callClientTool(ws, name, a, ctx = {}) {
     'webinar.delete',
     'webinar.regenCode',
     'webinar.registrations',
+    // Batch 178: the Leads Router rides the same entitlement.
+    'router_leads.list',
+    'router_leads.get',
+    'router_leads.publish',
+    'router_leads.remove',
+    'router_follows.list',
+    'router_follows.set',
+    'router_sources.list',
+    'router_sources.update',
+    'router_sweeps.run',
     // Batch 125: Photo Capture rides the same entitlement.
     'photocapture.getConfig',
     'photocapture.listSubmissions',
@@ -4912,6 +5023,84 @@ async function callClientTool(ws, name, a, ctx = {}) {
     const leadId = resolveLeadId(ctx, a.leadId);
     if (!leadId) throw new Error('leadId is required');
     return domain.withDb(ws, (db) => ({ plan: planId, price_book: require('./moduleShare').getPriceBook(db, leadId) }));
+  }
+
+  // ---- Leads Router module (Batch 178) ----
+  // Workspace-scoped engine (sync, tenant db): router leads, sources
+  // and sweeps belong to the workspace feed; follows belong to a
+  // business Lead. The sweep tool only RECORDS a hunt — browsing
+  // happens in the Muse app, never here (spec §15).
+  if (name === 'router_leads.list') {
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      leads: require('./leadsRouter').listLeads(db, {
+        review_state: a.review_state || null,
+        status: a.status || null,
+        request_kind: a.request_kind || null,
+        platform: a.platform || null,
+        limit: a.limit,
+      }),
+    }));
+  }
+  if (name === 'router_leads.get') {
+    const id = need(a.id, 'id');
+    return domain.withDb(ws, (db) => {
+      const lead = require('./leadsRouter').getLead(db, id);
+      if (!lead) throw new Error('Router lead not found');
+      return { plan: planId, lead };
+    });
+  }
+  if (name === 'router_leads.publish') {
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      ...require('./leadsRouter').publishLead(db, a, { publish: !!a.publish }),
+    }));
+  }
+  if (name === 'router_leads.remove') {
+    const id = need(a.id, 'id');
+    return domain.withDb(ws, (db) => ({ plan: planId, ...require('./leadsRouter').removeLead(db, id) }));
+  }
+  if (name === 'router_follows.list') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({ plan: planId, follows: require('./leadsRouter').listFollows(db, leadId) }));
+  }
+  if (name === 'router_follows.set') {
+    const leadId = resolveLeadId(ctx, a.leadId);
+    if (!leadId) throw new Error('leadId is required');
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      ...require('./leadsRouter').setFollow(db, leadId, {
+        lead_type_label: a.lead_type,
+        location_label: a.location,
+        radius_miles: a.radius_miles,
+        platforms: a.platforms,
+        request_kinds: a.request_kinds,
+        notify: a.notify,
+      }),
+    }));
+  }
+  if (name === 'router_sources.list') {
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      sources: require('./leadsRouter').listSources(db, { platform: a.platform || null }),
+    }));
+  }
+  if (name === 'router_sources.update') {
+    const id = need(a.id, 'id');
+    return domain.withDb(ws, (db) => ({ plan: planId, source: require('./leadsRouter').updateSource(db, id, a) }));
+  }
+  if (name === 'router_sweeps.run') {
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      ...require('./leadsRouter').recordSweep(db, {
+        platform: a.platform,
+        lead_type: a.lead_type,
+        location: a.location,
+        run_by: a.run_by || 'muse-mcp',
+        lead_id: resolveLeadId(ctx, a.leadId) || null,
+      }),
+    }));
   }
 
   // ---- Webinar module (Batch 165) ----

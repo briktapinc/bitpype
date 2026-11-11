@@ -190,7 +190,7 @@ const LEAD_B = 139002;
     assert.ok(portalJs.includes('moduleState.pricing = data.pricing'), 'portal keeps pricing pane state');
     n++;
     const portalHtml = read('public/portal.html');
-    assert.ok(portalHtml.includes('portal.js?v=batch139-pricing1'), 'portal.js cache-bust rotated');
+    assert.ok(portalHtml.includes('portal.js?v=batch178-router1'), 'portal.js cache-bust rotated');
     n++;
 
     const embedSrc = read('public/js/module-embed.js');
@@ -274,7 +274,7 @@ const LEAD_B = 139002;
   // ---- 2a: registration + parity ----
   {
     let n = 0;
-    assert.equal(sm.MODULE_TYPES.length, 31, 'catalog at 30 types at the deployed tip (finisher rotation on rebase; Batch 164: custom_code appended as the 30th)');
+    assert.equal(sm.MODULE_TYPES.length, 32, 'catalog at 30 types at the deployed tip (finisher rotation on rebase; Batch 164: custom_code appended as the 30th)');
     n++;
     assert.equal(sm.MODULE_TYPES[28], 'pricing', 'pricing is the 29th-registered type (Batch 164 appends custom_code after it)');
     n++;

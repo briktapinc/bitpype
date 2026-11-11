@@ -76,6 +76,8 @@ const SCOPE = [
   'public/js/layout-bridge.js',
   'tests/batch147-section-editor-regressions.cjs',
   'tsconfig.checkjs.json',
+  'server/leadsRouter.js',
+  'tests/batch178-leads-router-regressions.cjs',
 ];
 
 function locatePrettier() {

@@ -40,5 +40,6 @@ const MODULE_ICON_PATHS = {
   pricing: '<path d="M3.8 3.8h7.4l9 9a1.6 1.6 0 0 1 0 2.3l-5.1 5.1a1.6 1.6 0 0 1-2.3 0l-9-9z"/><circle cx="8.2" cy="8.2" r="1.7"/>',
   custom_code: '<path d="M8.5 6.5L3.8 12l4.7 5.5"/><path d="M15.5 6.5l4.7 5.5-4.7 5.5"/><path d="M13.4 4.8l-2.8 14.4"/>',
   webinar: '<rect x="3" y="5" width="18" height="13" rx="2"/><path d="M10.3 9.1l4.6 2.4-4.6 2.4z"/>',
+  leads_router: '<circle cx="5.5" cy="12" r="2"/><circle cx="18.5" cy="5.5" r="2"/><circle cx="18.5" cy="18.5" r="2"/><path d="M7.3 10.8l9.4-4.1M7.3 13.2l9.4 4.1"/>',
 };
 const MODULE_ICON_FALLBACK = '<rect x="4" y="4" width="7" height="7" rx="1.6"/><rect x="13" y="4" width="7" height="7" rx="1.6"/><rect x="4" y="13" width="7" height="7" rx="1.6"/><rect x="13" y="13" width="7" height="7" rx="1.6"/>';

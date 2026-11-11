@@ -391,6 +391,28 @@ const SHARE_REGISTRY = {
     reason:
       'Webinars live in the platform store behind the async webinar engine — registrations and chat are private attendee data, and this layer’s readers are synchronous workspace-db readers. Shares nothing in v1.',
   },
+  leads_router: {
+    // Batch 178 DECLARATION (not items): the Leads Router publishes
+    // NO shareable content items — its leads are pointers to other
+    // people's public posts (poster name + source link), which are
+    // never content another module may render (spec §9). What it
+    // SHARES is aggregate demand: published-lead counts by lead
+    // type + area (spec §7 — e.g. a rented niche site showing "live
+    // demand near you" as a COUNT). It CONSUMES Lead records (a
+    // follow belongs to a Lead), the category list as a suggestion
+    // seed for its select-or-type fields, and LeadScout (a claim
+    // captures the poster into the claimer's contacts through
+    // portalContacts.captureFromRouterClaim — the layer's identity
+    // store, never a pairwise write).
+    kind: 'none',
+    reason:
+      'Router leads are pointers to public posts on other platforms (poster data), never renderable content items; the module shares aggregate demand counts only, via its declaration.',
+    declarations: {
+      router_demand(db) {
+        return { counts: require('./leadsRouter').demandCounts(db) };
+      },
+    },
+  },
   chatbot: {
     kind: 'none',
     reason:

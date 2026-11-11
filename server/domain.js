@@ -6000,6 +6000,10 @@ function adminModulesOverview(workspaceId) {
       type,
       label: meta.label,
       sitewide: !!meta.sitewide,
+      // Batch 178: the Leads Router's catalog entry carries the
+      // "Requires Muse" badge (spec §16) — the flag rides META so
+      // every catalog consumer shows it, same visibility as price.
+      requires_claude: !!meta.requiresClaude,
     }));
     const installs = db
       .prepare(

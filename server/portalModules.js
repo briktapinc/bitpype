@@ -126,6 +126,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     let commentsPanel = null;
     let pricing = null;
     let webinarPanel = null;
+    let routerPanel = null;
     if (type === 'blog') {
       // Batch 45: server-side paging when the caller asks for a page
       // (portal blog tab); no limit = the historical full list.
@@ -484,6 +485,25 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
       const base = webinarShareBase(db, Number(leadId));
       items = list.map((w) => ({ ...w, share_url: base ? `${base}/webinar/${w.slug}` : '' }));
       webinarPanel = { share_base: base };
+    }
+    else if (type === 'leads_router') {
+      // Batch 178: portal/staff module — no owner-authored items.
+      // The panel carries this business's feed (published leads its
+      // follows match), its follows, the Requires-Muse activation
+      // checklist + hunting status, and the select-or-type pickers'
+      // known types/locations. Writes ride the dedicated
+      // /modules/leads-router/* routes.
+      items = [];
+      const routerEngine = require('./leadsRouter');
+      routerPanel = {
+        feed: routerEngine.feedForLead(db, Number(leadId)),
+        follows: routerEngine.listFollows(db, Number(leadId)),
+        hunting: routerEngine.huntingStatus(db),
+        activation: routerEngine.activationChecklist(db),
+        known_types: routerEngine.knownTypes(db),
+        known_locations: routerEngine.knownLocations(db),
+        platforms: routerEngine.platformStates(db),
+      };
     } else throw Object.assign(new Error('Unknown module type'), { code: 'VALIDATION', status: 400 });
     const emb = modules.getEmbedRow(db, Number(leadId), type);
     const out = {
@@ -512,6 +532,7 @@ async function listModuleItems(workspaceId, leadId, moduleType, clientEmail, opt
     if (commentsPanel) out.comments = commentsPanel;
     if (pricing) out.pricing = pricing;
     if (webinarPanel) out.webinar = webinarPanel;
+    if (routerPanel) out.leads_router = routerPanel;
     return out;
   });
 }
@@ -584,6 +605,11 @@ async function createModuleItem(workspaceId, leadId, moduleType, body, clientEma
     else if (type === 'comments')
       throw Object.assign(
         new Error('Comments arrive from your website’s Comments block — there is nothing to add by hand. Use the Comments tab to moderate them.'),
+        { code: 'VALIDATION', status: 400 }
+      );
+    else if (type === 'leads_router')
+      throw Object.assign(
+        new Error('Leads arrive from the Leads Router hunt — there is nothing to add by hand. Use the Router panel to follow lead types and claim leads.'),
         { code: 'VALIDATION', status: 400 }
       );
     else if (type === 'members')
@@ -663,6 +689,11 @@ async function updateModuleItem(workspaceId, leadId, moduleType, id, body, clien
         new Error('Comments are moderated in the Comments tab — there are no items to edit here.'),
         { code: 'VALIDATION', status: 400 }
       );
+    else if (type === 'leads_router')
+      throw Object.assign(
+        new Error('Leads Router entries are managed in the Router panel — there are no items to edit here.'),
+        { code: 'VALIDATION', status: 400 }
+      );
     else if (type === 'members') {
       // The only member "edit" from the portal is a status change
       // (approve / disable / reactivate) — enforced by setSiteMemberStatus.
@@ -730,6 +761,11 @@ async function deleteModuleItem(workspaceId, leadId, moduleType, id, clientEmail
     if (type === 'comments')
       throw Object.assign(
         new Error('Comments are managed in the Comments tab — delete them from there.'),
+        { code: 'VALIDATION', status: 400 }
+      );
+    if (type === 'leads_router')
+      throw Object.assign(
+        new Error('Leads Router entries are managed in the Router panel — there are no items to delete here.'),
         { code: 'VALIDATION', status: 400 }
       );
     if (type === 'members') return modules.deleteSiteMember(db, Number(leadId), id);
@@ -1942,6 +1978,46 @@ async function createClientMcpToken(workspaceId, leadId, clientEmail, opts = {})
 }
 
 
+/* ------------------------------------------------------------------ */
+/* Batch 178 — Leads Router owner operations (portal). Every call is */
+/* scoped to the caller's own lead: follows and claims can only ever */
+/* touch req.client's business.                                       */
+/* ------------------------------------------------------------------ */
+
+async function routerSetFollow(workspaceId, leadId, body, clientEmail) {
+  await requireSiteModules(workspaceId, clientEmail);
+  const domain = require('./domain');
+  return domain.withDb(workspaceId, (db) => {
+    const out = require('./leadsRouter').setFollow(db, Number(leadId), body || {});
+    return { ...out, module_type: 'leads_router' };
+  });
+}
+
+async function routerDeleteFollow(workspaceId, leadId, followId, clientEmail) {
+  await requireSiteModules(workspaceId, clientEmail);
+  const domain = require('./domain');
+  return domain.withDb(workspaceId, (db) =>
+    require('./leadsRouter').deleteFollow(db, Number(leadId), Number(followId))
+  );
+}
+
+async function routerClaimLead(workspaceId, leadId, routerLeadId, clientEmail) {
+  await requireSiteModules(workspaceId, clientEmail);
+  const domain = require('./domain');
+  return domain.withDb(workspaceId, (db) => {
+    const out = require('./leadsRouter').claimLead(db, Number(leadId), Number(routerLeadId));
+    // The claim's LeadScout capture rides in the engine result; the
+    // portal response carries only the claim + a contact summary.
+    return {
+      lead: out.lead,
+      claimed: out.claimed,
+      already: !!out.already,
+      contact_id: out.contact && out.contact.contact ? Number(out.contact.contact.id) : null,
+      module_type: 'leads_router',
+    };
+  });
+}
+
 module.exports = {
   requireSiteModules,
   listSiteModules,
@@ -1949,6 +2025,9 @@ module.exports = {
   createModuleItem,
   updateModuleItem,
   deleteModuleItem,
+  routerSetFollow,
+  routerDeleteFollow,
+  routerClaimLead,
   regenWebinarCode,
   listWebinarRegistrations,
   listWebinarMessages,
