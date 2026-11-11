@@ -15140,7 +15140,7 @@
           moduleMsg('Follow removed.', true);
           await loadModuleItems();
         } catch (e) {
-          moduleMsg((e && e.message) || 'Could not remove that follow.', false);
+          moduleMsg(errText(e), false);
           del.disabled = false;
         }
       };
@@ -15226,7 +15226,7 @@
         moduleMsg('Follow saved — matching leads will land in your feed.', true);
         await loadModuleItems();
       } catch (e) {
-        moduleMsg((e && e.message) || 'Could not save that follow.', false);
+        moduleMsg(errText(e), false);
         saveBtn.disabled = false;
       }
     };
@@ -15312,7 +15312,7 @@
           moduleMsg('Claimed — the poster is now in your contacts, and the lead has left other feeds.', true);
           await loadModuleItems();
         } catch (e) {
-          moduleMsg((e && e.message) || 'Could not claim that lead.', false);
+          moduleMsg(errText(e), false);
           claim.disabled = false;
         }
       };
