@@ -68,7 +68,10 @@ const PROMOTED = [
   'art-v2', 'art-v3', 'courses-v2', 'courses-v3',
   'events-v2', 'events-v3', 'blog-v2', 'blog-v3',
 ];
-const CATEGORY_COUNTS = { directory: 4, store: 4, services: 4, restaurant: 4, art: 3, courses: 3, events: 3, blog: 3 };
+// Batch 179 pin update: counts rotated to the 94-theme catalog
+// (the 175-era per-category counts are superseded; this suite's own
+// PROMOTED set below still pins the 20 themes Batch 175 registered).
+const CATEGORY_COUNTS = { directory: 12, store: 12, services: 12, restaurant: 12, art: 12, courses: 12, events: 11, blog: 11 };
 
 function makeJar() {
   const cookies = new Map();
@@ -101,7 +104,7 @@ async function main() {
     let n = 0;
     assert.deepEqual(registry.validateThemes(), [], 'registry validates clean (sections + modules parity)');
     n++;
-    assert.equal(registry.THEMES.length, 28, 'registry holds all 28 themes');
+    assert.equal(registry.THEMES.length, 94, 'registry holds all 94 themes (28 after Batch 175, 94 after Batch 179)');
     n++;
     const catalog = registry.publicCatalog();
     assert.equal(catalog.length, 8, 'catalog exposes the 8 categories');
@@ -112,7 +115,7 @@ async function main() {
       total += cat.themes.length;
       n++;
     }
-    assert.equal(total, 28, 'catalog totals 28 themes');
+    assert.equal(total, 94, 'catalog totals 94 themes');
     n++;
     for (const id of PROMOTED) {
       const t = registry.getTheme(id);
@@ -129,7 +132,7 @@ async function main() {
       }
       n += 6;
     }
-    group('Part 1 — registry: 28 themes validate, promoted assets + recipes real', n);
+    group('Part 1 — registry: themes validate (94 after Batch 179), 175-promoted assets + recipes real', n);
   }
 
   /* Part 2 — HTTP over the real server. */
@@ -190,7 +193,7 @@ async function main() {
       assert.equal(cats.length, 8, 'themes route returns 8 categories');
       n++;
       const all = cats.flatMap((c) => c.themes || []);
-      assert.equal(all.length, 28, 'themes route returns all 28 themes');
+      assert.equal(all.length, 94, 'themes route returns all 94 themes');
       n++;
       for (const id of ['directory-v2', 'blog-v3', 'services-v4', 'restaurant-v3']) {
         assert.ok(all.some((t) => t.id === id), `themes route includes promoted ${id}`);
@@ -201,7 +204,7 @@ async function main() {
       assert.match(res.headers.get('content-type') || '', /image\/png/, 'promoted thumbnail is image/png');
       await res.arrayBuffer();
       n += 2;
-      group('Part 2 — HTTP: staff themes route returns 28, promoted thumbnail serves', n);
+      group('Part 2 — HTTP: staff themes route returns 94, promoted thumbnail serves', n);
     } finally {
       child.kill('SIGKILL');
       await closed;

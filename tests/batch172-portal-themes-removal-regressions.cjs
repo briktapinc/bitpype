@@ -101,7 +101,8 @@ function main() {
     const registry = require(registryPath);
     assert.deepEqual(registry.validateThemes(), [], 'shared registry still validates clean');
     // Batch 175 pin update: registry now holds 28 (8 launch + 20 promoted).
-    assert.equal(registry.THEMES.length, 28, 'registry still holds the launch themes (28 total after Batch 175)');
+    // Batch 179 pin update: registry now holds 94 (86 promoted in total).
+    assert.equal(registry.THEMES.length, 94, 'registry still holds the launch themes (94 total after Batch 179)');
     n += 3;
     for (const slug of ['directory', 'store', 'services', 'restaurant', 'art', 'courses', 'events', 'blog']) {
       const file = path.join(root, 'public/themes', `${slug}.png`);
