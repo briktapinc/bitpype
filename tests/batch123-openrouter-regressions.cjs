@@ -1147,7 +1147,11 @@ const OPENROUTER_KEY_2 = 'b123-openrouter-key-SECOND';
             overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
           };
         });
-        assert.equal(m.rowCount, 11, `11 editable rows @${w} (Batch 163 finisher fix: Batch 161 added the assistant_chat routable function — Part 1 pins were rotated to 11 by 161 but this browser rowCount pin was missed and the leg never ran in-image in the 161/162 gates; proven stale on the pristine 162 tree, which fails this assert identically)`);
+        assert.equal(
+          m.rowCount,
+          11,
+          `11 editable rows @${w} (Batch 163 finisher fix: Batch 161 added the assistant_chat routable function — Part 1 pins were rotated to 11 by 161 but this browser rowCount pin was missed and the leg never ran in-image in the 161/162 gates; proven stale on the pristine 162 tree, which fails this assert identically)`
+        );
         assert.ok(m.primaryHasOpenRouter, `primary select offers OpenRouter @${w}`);
         assert.ok(m.fallbackHasOpenRouter, `fallback select offers OpenRouter @${w}`);
         n++;
@@ -1174,7 +1178,11 @@ const OPENROUTER_KEY_2 = 'b123-openrouter-key-SECOND';
       await new Promise((r) => setTimeout(r, 1200));
       assert.ok(savedRoutes, 'save posted to the routing endpoint');
       assert.equal(savedRoutes.design_chat.fallback, 'openrouter', 'edited openrouter fallback posted');
-      assert.equal(Object.keys(savedRoutes).length, 11, 'all 11 rows posted (Batch 161: assistant_chat is the 11th routable function)');
+      assert.equal(
+        Object.keys(savedRoutes).length,
+        11,
+        'all 11 rows posted (Batch 161: assistant_chat is the 11th routable function)'
+      );
       n++;
     } finally {
       await browser.close();

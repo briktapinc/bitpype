@@ -139,10 +139,7 @@ function addMsg(sessionId, leadId, role, body) {
       chatSrc.includes('qualifyingPromptLines(snapshot.qualification)'),
       'fallback prompt gains the block via conditional spread only'
     );
-    assert.ok(
-      chatSrc.includes('chatState0.suppress_qual'),
-      'Batch 167: the spread is gated on the suppress flag'
-    );
+    assert.ok(chatSrc.includes('chatState0.suppress_qual'), 'Batch 167: the spread is gated on the suppress flag');
     const blockBody = chatSrc.slice(
       chatSrc.indexOf('function qualifyingPromptLines'),
       chatSrc.indexOf('function getSessionByToken')
