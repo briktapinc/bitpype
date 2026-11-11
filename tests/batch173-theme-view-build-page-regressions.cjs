@@ -42,6 +42,30 @@
  * structure. Census re-pinned for the single pageAssistant
  * shell reclassification (RAW -> STATIC — see batch103).
  *
+ * HARDENING (2026-11-10, Ely's order — the Batch 176 finisher
+ * flagged this step, and it then stopped the Batch 177 gate
+ * twice): the Full-breakdown step waited for the #asst-usage
+ * ELEMENT to exist, then asserted on its text in the next
+ * evaluate. But the modal is born with #asst-usage already
+ * present, holding only a "Loading…" placeholder (the
+ * openModal body in app.js), and refreshUsage() replaces its
+ * innerHTML only after the usage fetch resolves — so the old
+ * wait could release on the placeholder and the assertions
+ * raced the fetch. Proven in the gate environment with an
+ * in-page transition sampler: 53ms after the click,
+ * #asst-usage existed with text exactly "Loading…" while the
+ * populated summary landed later. On an idle box the fetch
+ * usually wins the race; in a full gate leg it intermittently
+ * loses (standalone history on the identical tree: 3 green /
+ * 1 red, the red on this very assertion). The product render
+ * is one atomic innerHTML swap and was never at fault; the
+ * WAIT measured the wrong state. The fix is in HOW the step
+ * waits, never in WHAT it asserts: it now waits for the
+ * POPULATED state — the summary line with the client billed
+ * figure AND both action buttons present, with the text
+ * identical across 2 consecutive rAF polls. All assertions,
+ * expected values and the 8s wait budget are unchanged.
+ *
  * Part 1 — source pins: card controls, modal construction, build
  *   page routing + not-found + submit contract, two-column
  *   template structure, CSS facts (scroll container, rail,
@@ -520,7 +544,35 @@ async function main() {
 
       // ---- Full breakdown: the full usage table lives in a modal ----
       await page.click('#asst-usage-open');
-      await page.waitForFunction(() => !!document.querySelector('#asst-usage'), { timeout: 8000 });
+      // HARDENED WAIT (see header): the modal is born holding a
+      // "Loading…" placeholder and refreshUsage() swaps in the
+      // populated breakdown asynchronously, so the existence of
+      // #asst-usage proves nothing. Wait for the POPULATED state:
+      // the summary line (client billed figure) AND both action
+      // buttons present, with the rendered text identical across
+      // 2 consecutive rAF polls. The swap is one atomic innerHTML
+      // assignment, so this is the finished render, never a
+      // partial state. Same 8s budget as the wait it replaces.
+      await page.waitForFunction(
+        () => {
+          const el = document.querySelector('#asst-usage');
+          const t = el ? el.textContent || '' : '';
+          const populated =
+            !!el && t.includes('client billed') && !!document.querySelector('#asst-rollup') && !!document.querySelector('#asst-queue');
+          if (!populated) {
+            window.__b173Bd = null;
+            window.__b173BdN = 0;
+            return false;
+          }
+          if (window.__b173Bd === t) window.__b173BdN += 1;
+          else {
+            window.__b173Bd = t;
+            window.__b173BdN = 1;
+          }
+          return window.__b173BdN >= 2;
+        },
+        { timeout: 8000, polling: 'raf' }
+      );
       const breakdown = await page.evaluate(() => {
         const el = document.querySelector('#asst-usage');
         return {
