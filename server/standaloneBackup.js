@@ -58,6 +58,13 @@ const { execFileSync } = require('child_process');
 
 const FORMAT_VERSION = 1;
 
+/* Batch 177: the demo portal account a package seed gains when the
+ * target lead has no portal account of its own (see the seed block
+ * in buildSeedPlatformDb). The .invalid domain makes the identity
+ * unmistakable and guarantees it can never be a real client's
+ * credential or collide with a deliverable mailbox. */
+const DEMO_PORTAL_EMAIL = 'demo-owner@standalone.invalid';
+
 /* The application tree, exactly as the production Dockerfile COPYs
  * it (plus standalone/, which the Dockerfile also carries so this
  * generator's installer assets exist inside the image). */
@@ -525,7 +532,7 @@ function isPlatformScopeSettingKey(key) {
   return SEED_DROP_SETTING_PREFIXES.some((p) => k.startsWith(p));
 }
 
-async function buildSeedPlatformDb({ repoRoot, workspaceId, destPath, tmpDir, leadId }) {
+async function buildSeedPlatformDb({ repoRoot, workspaceId, destPath, tmpDir, leadId, businessName }) {
   createEmptyPlatformDb(repoRoot, destPath, tmpDir);
   const Database = require('better-sqlite3');
   const seed = new Database(destPath);
@@ -579,10 +586,10 @@ async function buildSeedPlatformDb({ repoRoot, workspaceId, destPath, tmpDir, le
            * package is for ONE site: only the target lead's portal
            * users travel (email uniqueness is global, so a second
            * client's row could never even log in on the clone). */
-          rows = await facade.query(
-            'SELECT * FROM client_portal_users WHERE workspace_id = :ws AND lead_id = :lead',
-            { ws: workspaceId, lead: Number(leadId) }
-          );
+          rows = await facade.query('SELECT * FROM client_portal_users WHERE workspace_id = :ws AND lead_id = :lead', {
+            ws: workspaceId,
+            lead: Number(leadId),
+          });
         } else if (cols.includes('workspace_id')) {
           rows = await facade.query(`SELECT * FROM ${table} WHERE workspace_id = :ws`, { ws: workspaceId });
         } else {
@@ -634,6 +641,44 @@ async function buildSeedPlatformDb({ repoRoot, workspaceId, destPath, tmpDir, le
     } catch {
       /* webinar tables may not exist on an older source schema */
     }
+    /* Batch 177: if the target lead has NO portal account in the
+     * seed, the clone boots with zero portal accounts and the
+     * installer's "log in with the portal account from your BitPype
+     * site" summary strands the owner — exactly what the Victoria
+     * review install found (her lead never had an account). Ely's
+     * ruling: "In the case where no account exists create a demo
+     * account." So the seed gains a DEMO portal account for the
+     * target lead, shaped like a real one (active, owner, the lead's
+     * business name). Its password hash is bcrypt over a throwaway
+     * random value whose plaintext is discarded in this process and
+     * exists NOWHERE — not in the package, not in any log or
+     * manifest. The usable password is generated on the owner's own
+     * server at install time (standalone/set-demo-password.js, run
+     * by install.sh) and shown once in the installer's completion
+     * summary. A lead WITH an account is untouched: no demo row, and
+     * the census is exactly what it was before this batch. */
+    let demoPortalAccount = null;
+    const leadNum = Number(leadId);
+    if (Number.isInteger(leadNum) && leadNum > 0) {
+      const have = seed.prepare('SELECT COUNT(*) AS c FROM client_portal_users WHERE lead_id = ?').get(leadNum).c;
+      const clash = seed
+        .prepare('SELECT COUNT(*) AS c FROM client_portal_users WHERE email = ?')
+        .get(DEMO_PORTAL_EMAIL).c;
+      if (Number(have) === 0 && Number(clash) === 0) {
+        const bcrypt = require('bcryptjs');
+        const throwawayHash = bcrypt.hashSync(crypto.randomBytes(24).toString('hex'), 12);
+        seed
+          .prepare(
+            `INSERT INTO client_portal_users
+               (email, password_hash, workspace_id, lead_id, business_name, status, user_type)
+             VALUES (?, ?, ?, ?, ?, 'active', 'owner')`
+          )
+          .run(DEMO_PORTAL_EMAIL, throwawayHash, workspaceId, leadNum, businessName || '');
+        demoPortalAccount = DEMO_PORTAL_EMAIL;
+        counts.client_portal_users = (counts.client_portal_users || 0) + 1;
+      }
+    }
+    if (demoPortalAccount) counts._demo_portal_account = demoPortalAccount;
     seed.exec('COMMIT');
     try {
       const orphans = seed.prepare('PRAGMA foreign_key_check').all();
@@ -771,9 +816,7 @@ function scrubTenantDbForLead(destPath, { leadId, websiteId }) {
             if (!tables.includes(parent) || parent === t) continue;
             if (!colsOf[t].includes(col)) continue;
             const info = db
-              .prepare(
-                `DELETE FROM ${t} WHERE ${col} IS NOT NULL AND ${col} NOT IN (SELECT id FROM ${parent})`
-              )
+              .prepare(`DELETE FROM ${t} WHERE ${col} IS NOT NULL AND ${col} NOT IN (SELECT id FROM ${parent})`)
               .run();
             if (info.changes > 0) changed = true;
           }
@@ -1035,13 +1078,26 @@ async function generateStandaloneBackup({ workspaceId, websiteId, workDir, repoR
   }
 
   /* 3 — seeds + exports + app + installer. */
+  let leadBusinessName = site.name || '';
+  try {
+    const leadRow = tenantDb.prepare('SELECT business_name FROM leads WHERE id = ?').get(leadId);
+    if (leadRow && leadRow.business_name) leadBusinessName = leadRow.business_name;
+  } catch {
+    /* the site name already stands in for the business name */
+  }
   const seedCounts = await buildSeedPlatformDb({
     repoRoot: root,
     workspaceId: wsId,
     destPath: path.join(pkgDir, 'seed', 'platform.sqlite'),
     tmpDir: workDir,
     leadId,
+    businessName: leadBusinessName,
   });
+  /* Batch 177: lifted out of the table counts into its own manifest
+   * field — the email (or null) is all install.sh needs to print the
+   * right closing summary; it is not a secret. */
+  const demoPortalAccount = seedCounts._demo_portal_account || null;
+  delete seedCounts._demo_portal_account;
   await copyTenantDb(wsId, path.join(pkgDir, 'seed', 'tenant.sqlite'));
   /* Batch 168 (S5#1): the verbatim tenant copy carries the whole
    * workspace — every other client's data included. Scrub the
@@ -1089,7 +1145,7 @@ async function generateStandaloneBackup({ workspaceId, websiteId, workDir, repoR
     source: { workspaceId: wsId, websiteId: siteId, leadId, siteName: site.name || '' },
     app: { gitSha: appGitSha(root), version },
     features: featureFlags(tenantDb, leadId),
-    seed: { platformTables: seedCounts, exportFolders, tenantScrub },
+    seed: { platformTables: seedCounts, demoPortalAccount, exportFolders, tenantScrub },
     bake: { detailPages: bake.baked, skipped: bake.skipped },
     files,
   };
@@ -1139,6 +1195,7 @@ async function sendBackupArchive(res, { workspaceId, websiteId }) {
 
 module.exports = {
   FORMAT_VERSION,
+  DEMO_PORTAL_EMAIL,
   APP_TREE_PATHS,
   SEED_EXCLUDE,
   SEED_DROP_SETTING_PREFIXES,

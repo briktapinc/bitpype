@@ -25,6 +25,14 @@
 #                           seed layout, then stop BEFORE Docker
 #   SSB_FORCE=1             continue past soft preflight warnings
 #
+# Demo portal account (Batch 177): when the package's client had no
+# BitPype portal account, the seed carries a demo portal account
+# (its email is named in the manifest, seed.demoPortalAccount). Its
+# shipped password hash is unusable by design; on FIRST install this
+# script generates the account's one-time password on this server
+# (standalone/set-demo-password.js, inside the app container) and
+# prints it exactly once, in the completion summary at the end.
+#
 # Re-running the installer from a newer backup upgrades app + site
 # and PRESERVES the data directory (orders, bookings, submissions
 # taken on this install survive).
@@ -50,6 +58,10 @@ DATA_DIR="$INSTALL_DIR/data"
 
 WS_ID="$(sed -n 's/.*"workspaceId": \([0-9][0-9]*\).*/\1/p' "$PKG_DIR/manifest.json" | head -n 1)"
 [ -n "$WS_ID" ] || fail "manifest.json does not name a workspaceId — the package is damaged."
+
+# Batch 177: a demo portal account rides in the seed when the client
+# had no portal account of their own (null/absent on older packages).
+DEMO_EMAIL="$(sed -n 's/.*"demoPortalAccount": *"\([^"]*\)".*/\1/p' "$PKG_DIR/manifest.json" | head -n 1)"
 
 # ---------------------------------------------------------------- wizard
 ask() {
@@ -224,11 +236,21 @@ say "Wrote $ENV_FILE (mode 600; secrets are never printed)."
 # First install: lay the seed databases + export storage into the
 # data dir. Upgrade: the data dir is the site's live business data —
 # it is never overwritten; only app/ + site/ are replaced.
+FRESH_PLATFORM=0
 if [ ! -f "$DATA_DIR/platform.sqlite" ]; then
   cp "$PKG_DIR/seed/platform.sqlite" "$DATA_DIR/platform.sqlite"
+  FRESH_PLATFORM=1
   say "Seeded platform database."
 else
   say "Existing platform database kept (upgrade — seed not re-applied)."
+fi
+if [ "$FRESH_PLATFORM" = "1" ] && [ -n "$DEMO_EMAIL" ]; then
+  # The marker lives in the data dir: it survives until the demo
+  # password has actually been set (end of this install), so a
+  # failed attempt is retried by simply re-running the installer,
+  # and an upgrade never resets a password the owner already has.
+  touch "$DATA_DIR/.demo-password-pending"
+  say "This package's client has no portal account of their own, so the seed carries a demo portal account ($DEMO_EMAIL). Its one-time password is generated on this server and shown once, in the summary at the end of this install."
 fi
 if [ ! -f "$DATA_DIR/workspaces/$WS_ID/websitescout.db" ]; then
   mkdir -p "$DATA_DIR/workspaces/$WS_ID"
@@ -257,6 +279,9 @@ if [ "$DRY_RUN" = "1" ]; then
   say ""
   say "DRY RUN complete — preflight, checksums, wizard answers, .env and the seed layout are in place at $INSTALL_DIR."
   say "Stopped BEFORE Docker: no containers were started and nothing is serving yet."
+  if [ -n "$DEMO_EMAIL" ]; then
+    say "Demo portal account: $DEMO_EMAIL — its one-time password is generated and shown at the end of the real (non-dry-run) install."
+  fi
   exit 0
 fi
 
@@ -330,12 +355,38 @@ if [ -n "${SSB_OPENAI_KEY:-}" ]; then
   fi
 fi
 
+# ------------------------------------------- demo portal password (Batch 177)
+# Runs only while the first-install marker exists. The password is
+# generated inside the app container, captured into this shell
+# variable, and printed exactly once — in the summary below. It is
+# never written to .env, a log, or any file by this installer.
+DEMO_PASSWORD=""
+if [ -n "$DEMO_EMAIL" ] && [ -f "$DATA_DIR/.demo-password-pending" ]; then
+  say "Generating the demo portal account's one-time password…"
+  DEMO_PASSWORD="$((cd "$INSTALL_DIR" && docker compose exec -T app node /app/standalone/set-demo-password.js "$DEMO_EMAIL" 2>/dev/null) | tr -d '\r\n')"
+  if [ -n "$DEMO_PASSWORD" ]; then
+    rm -f "$DATA_DIR/.demo-password-pending"
+  else
+    warn "the demo portal password could not be set. Re-run this installer to try again, or set it manually and note the password it prints:  (cd $INSTALL_DIR && docker compose exec app node /app/standalone/set-demo-password.js $DEMO_EMAIL)"
+  fi
+fi
+
 # ------------------------------------------------------------------ summary
 say ""
 say "============================================================"
 say "Your site is installed."
 say "  Website:  https://${SSB_DOMAIN}/"
-say "  Portal:   https://${SSB_DOMAIN}/portal   (log in with the portal account from your BitPype site)"
+if [ -n "$DEMO_PASSWORD" ]; then
+  say "  Portal:   https://${SSB_DOMAIN}/portal"
+  say "            This client had no portal account, so a demo account was created:"
+  say "              Email:    $DEMO_EMAIL"
+  say "              Password: $DEMO_PASSWORD  (one-time — shown only here)"
+  say "            Log in with it and CHANGE the password right away."
+elif [ -n "$DEMO_EMAIL" ]; then
+  say "  Portal:   https://${SSB_DOMAIN}/portal   (demo account: $DEMO_EMAIL — log in with the one-time password shown when this site was first installed)"
+else
+  say "  Portal:   https://${SSB_DOMAIN}/portal   (log in with the portal account from your BitPype site)"
+fi
 say "  Data:     $DATA_DIR"
 say "  Back up your data with:  tar -czf site-data-backup.tgz -C $INSTALL_DIR data"
 say "  Uninstall: $INSTALL_DIR/uninstall.sh   (keeps $DATA_DIR unless --purge)"
