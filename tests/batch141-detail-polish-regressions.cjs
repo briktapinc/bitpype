@@ -136,7 +136,7 @@ function fixturePages() {
     assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod41'"), 'MODULE_SCRIPT_VER unchanged (mod39) — no embed change');
     n++;
     const typesBlock = /const MODULE_TYPES = \[([\s\S]*?)\];/.exec(smSrc);
-    assert.equal((typesBlock[1].match(/'/g) || []).length / 2, 31, 'MODULE_TYPES counted (Batch 141: stayed 29 at its tip — polish adds no module type; Batch 164: custom_code is the 30th; Batch 165: webinar is the 31st)');
+    assert.equal((typesBlock[1].match(/'/g) || []).length / 2, 32, 'MODULE_TYPES counted (Batch 141: stayed 29 at its tip — polish adds no module type; Batch 164: custom_code is the 30th; Batch 165: webinar is the 31st; Batch 178 finisher rotation: leads_router is the 32nd)');
     n++;
 
     const embedSrc = read('public/js/module-embed.js');

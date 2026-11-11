@@ -334,7 +334,11 @@ async function main() {
     // Batch 174 re-pin: the design-chat redesign's portal.js
     // insertions shifted the Assistant streaming sink +130 lines
     // (14498 on the chain tree, 14628 on Batch 174's tree, 14655 on the 168+174 merged tree); the baseline was regenerated accordingly.
-    assert.ok(baseline.includes('public/js/portal.js:14655'), 'baseline carries the shifted assistantMd sink at its new line');
+    // Batch 178 finisher re-pin: the Leads Router portal panel
+    // insertions shifted the same sink +23 lines (14655 -> 14678);
+    // census totals unchanged (507 / 381 / 85 / 41) and the
+    // regenerated baseline set equals the live census set exactly.
+    assert.ok(baseline.includes('public/js/portal.js:14678'), 'baseline carries the shifted assistantMd sink at its new line');
     assert.ok(!baseline.includes('public/js/portal.js:14394'), 'stale pre-shift baseline entry removed');
     const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
     const baseSet = new Set(baseline);
