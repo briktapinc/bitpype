@@ -338,7 +338,11 @@ async function main() {
     // insertions shifted the same sink +23 lines (14655 -> 14678);
     // census totals unchanged (507 / 381 / 85 / 41) and the
     // regenerated baseline set equals the live census set exactly.
-    assert.ok(baseline.includes('public/js/portal.js:14678'), 'baseline carries the shifted assistantMd sink at its new line');
+    // Batch 181 finisher re-pin: the shared detail-video portal
+    // editor fields shifted the same sink +13 lines (14678 -> 14691);
+    // census totals unchanged (508 / 382 / 85 / 41, multiset-proven)
+    // and the regenerated baseline set equals the live census set.
+    assert.ok(baseline.includes('public/js/portal.js:14691'), 'baseline carries the shifted assistantMd sink at its new line');
     assert.ok(!baseline.includes('public/js/portal.js:14394'), 'stale pre-shift baseline entry removed');
     const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
     const baseSet = new Set(baseline);
