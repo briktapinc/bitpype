@@ -231,6 +231,23 @@ router.get('/leads/facets', denyLeadScopedToken, (req, res) => {
     fail(res, e);
   }
 });
+// Batch 183 — Leads Explorer (map data for the staff leads page).
+// Same guards as facets; radius is validated here (3|5|10, default
+// 10) and the Places key never leaves the server (domain reads it
+// from platform settings; the payload is explorer data only).
+router.get('/leads/explorer', denyLeadScopedToken, async (req, res) => {
+  try {
+    const radius = [3, 5, 10].includes(Number(req.query.radius)) ? Number(req.query.radius) : 10;
+    const data = await domain.leadsExplorer(req.auth.workspaceId, {
+      area: req.query.area,
+      radius,
+      resolve: req.query.resolve,
+    });
+    ok(res, { ...data, dormant: Boolean(data && data.dormant) });
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
 router.get('/leads/:id', scopeLeadParam, (req, res) => {
   try {
     const data = domain.leadsGet(req.auth.workspaceId, Number(req.params.id));

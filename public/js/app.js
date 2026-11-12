@@ -1660,6 +1660,30 @@ const leadsState = {
   facets: { groups: [], categories: [], tags: [] },
 };
 
+/* Batch 183 — Leads Explorer: Leaflet 1.9.4 from the unpkg CDN with
+ * SRI hashes (the same lazy-load pattern as loadTwilioSdk). Loaded
+ * only in the LIVE state — the dormant panel never touches it. */
+function loadLeaflet() {
+  if (window.L) return Promise.resolve();
+  if (loadLeaflet._pending) return loadLeaflet._pending;
+  loadLeaflet._pending = new Promise((resolve, reject) => {
+    const css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    css.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
+    css.crossOrigin = '';
+    document.head.appendChild(css);
+    const s = document.createElement('script');
+    s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    s.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
+    s.crossOrigin = '';
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('The map library failed to load.'));
+    document.head.appendChild(s);
+  });
+  return loadLeaflet._pending;
+}
+
 async function pageLeads(param, query) {
   // Batch 78: #/leads/<id> is the full lead page (was a slide-over drawer).
   if (param) return pageLeadDetail(Number(param), query);
@@ -1677,6 +1701,7 @@ async function pageLeads(param, query) {
         <button class="btn" data-act="import">Import CSV</button>
       </div>
     </div>
+    <section class="explorer" id="l-explorer"><div class="explorer-loading">Loading the Leads Explorer…</div></section>
     <div class="chips" id="l-chips"></div>
     <div class="toolbar">
       <input id="l-q" type="search" class="grow" placeholder="Search name, city, category, email, group…" value="${esc(leadsState.q)}" />
@@ -1859,6 +1884,180 @@ async function pageLeads(param, query) {
     await load();
     loadFacets();
   }
+
+  /* ---- Batch 183: Leads Explorer (map over the leads table) ---- */
+  const explorerState = { area: '', radius: 10 };
+  let explorerMap = null;
+  const EXPLORER_BAND_LABELS = { hot: 'Hot', warm: 'Warm', cool: 'Cool', none: 'Unscored' };
+  const EXPLORER_WHY_WORDS = {
+    no_match: 'No confident match found',
+    error: 'Lookup failed — will retry',
+    not_located: 'Not located yet',
+    no_key: 'Waiting on the Google Places API key',
+  };
+
+  function explorerControlsHtml(data) {
+    const areaOpts = (data.areas || [])
+      .map(
+        (a) =>
+          `<option value="${esc(a.city)}" ${a.city === data.area ? 'selected' : ''}>${esc(a.city)} (${a.count})</option>`
+      )
+      .join('');
+    const radii = [3, 5, 10]
+      .map(
+        (r) =>
+          `<button type="button" class="explorer-radius ${Number(data.radius) === r ? 'active' : ''}" data-radius="${r}">${r} mi</button>`
+      )
+      .join('');
+    return `<div class="explorer-controls">
+      <label class="explorer-area-label">Area
+        <select id="lx-area">${areaOpts}</select>
+      </label>
+      <div class="explorer-radii" role="group" aria-label="Radius">${radii}</div>
+    </div>`;
+  }
+
+  function explorerPopupHtml(pin) {
+    const where = pin.address ? esc(pin.address) : esc(pin.city || '');
+    const rating =
+      pin.rating != null
+        ? `<div class="explorer-popup-line">Rated ${esc(pin.rating)}${pin.review_count != null ? ` · ${esc(pin.review_count)} reviews` : ''}</div>`
+        : '';
+    const reasons = (pin.reasons || []).length
+      ? `<ul class="explorer-popup-reasons">${pin.reasons
+          .map((r) => `<li>${esc(r.label)} <span class="hint">(+${esc(r.points)})</span></li>`)
+          .join('')}</ul>`
+      : '';
+    const phone = pin.phone ? `<div class="explorer-popup-line">${esc(pin.phone)}</div>` : '';
+    return `<div class="explorer-popup">
+      <a href="#/leads/${esc(pin.id)}"><strong>${esc(pin.business_name)}</strong></a>
+      <div class="explorer-popup-line">${esc(pin.category || 'Local business')}${where ? ` · ${where}` : ''}</div>
+      <div class="explorer-popup-line">${esc(pin.website_state)}</div>
+      <div class="explorer-popup-line">${scorePill(pin.score)} <span>${esc(EXPLORER_BAND_LABELS[pin.band] || '')}</span></div>
+      ${rating}${phone}${reasons}
+    </div>`;
+  }
+
+  async function loadExplorer() {
+    const section = $('#l-explorer');
+    if (!section) return;
+    let data;
+    try {
+      const r = await api.leadExplorer({ area: explorerState.area, radius: explorerState.radius });
+      data = r.data || {};
+    } catch (e) {
+      if ($('#l-explorer')) section.innerHTML = `<div class="explorer-error">Leads Explorer could not load: ${esc(errText(e))}</div>`;
+      return;
+    }
+    if (!$('#l-explorer')) return;
+    explorerState.area = data.area || explorerState.area;
+    const total = (data.summary && data.summary.total) || 0;
+    const byBand = (data.summary && data.summary.byBand) || { hot: 0, warm: 0, cool: 0, none: 0 };
+    const controls = explorerControlsHtml(data);
+    const unmappedHtml = (data.unmapped || []).length
+      ? `<details class="explorer-unmapped"><summary>Unmapped (${data.unmapped.length})</summary>
+          <ul>${data.unmapped
+            .map(
+              (u) =>
+                `<li><strong>${esc(u.business_name)}</strong> · ${esc(u.city || '')} — ${esc(EXPLORER_WHY_WORDS[u.why] || u.why)}</li>`
+            )
+            .join('')}</ul></details>`
+      : '';
+    const locateMore =
+      !data.dormant && (data.unmapped || []).length
+        ? '<button type="button" class="btn small" id="lx-more">Locate more</button>'
+        : '';
+
+    if (data.dormant) {
+      // Honest dormant state: no key → no map, no pins, no fake data.
+      if (explorerMap) {
+        try {
+          explorerMap.remove();
+        } catch {
+          /* already gone */
+        }
+        explorerMap = null;
+      }
+      section.innerHTML = `
+        <div class="explorer-head"><h2>Leads Explorer</h2></div>
+        ${controls}
+        <div class="explorer-dormant">
+          <p><strong>Location lookup is waiting on the Google Places API key</strong> (Admin → API keys). Until it is added, leads cannot be located, so nothing is pinned — no guessed locations.</p>
+          <p>${esc(total)} leads in ${esc(data.area || 'this area')} — all waiting to be located.</p>
+        </div>
+        ${unmappedHtml}`;
+    } else {
+      const summaryLine = `${esc((data.summary && data.summary.withinRadius) || 0)} mapped · Hot ${esc(byBand.hot)} · Warm ${esc(byBand.warm)} · Cool ${esc(byBand.cool)} · Unscored ${esc(byBand.none)} — within ${esc(data.radius)} miles of ${esc(data.area || '')}`;
+      section.innerHTML = `
+        <div class="explorer-head"><h2>Leads Explorer</h2>${locateMore}</div>
+        ${controls}
+        <div class="explorer-map" id="lx-map"></div>
+        <div class="explorer-legend">
+          <span><i class="explorer-dot explorer-pin-hot"></i>Hot</span>
+          <span><i class="explorer-dot explorer-pin-warm"></i>Warm</span>
+          <span><i class="explorer-dot explorer-pin-cool"></i>Cool</span>
+          <span><i class="explorer-dot explorer-pin-none"></i>Unscored</span>
+        </div>
+        <p class="explorer-summary">${summaryLine}</p>
+        ${unmappedHtml}`;
+      const mapEl = $('#lx-map');
+      if (data.centre && mapEl) {
+        try {
+          await loadLeaflet();
+        } catch {
+          /* fall through to the window.L guard */
+        }
+        if (!window.L) {
+          mapEl.innerHTML = '<p class="explorer-map-note">The map library could not be loaded — the counts above still reflect the real located leads.</p>';
+        } else if ($('#lx-map')) {
+          try {
+            if (explorerMap) {
+              explorerMap.remove();
+              explorerMap = null;
+            }
+            explorerMap = window.L.map('lx-map').setView(
+              [data.centre.lat, data.centre.lng],
+              Number(data.radius) === 3 ? 12 : Number(data.radius) === 5 ? 11 : 10
+            );
+            window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+              maxZoom: 19,
+              attribution: '&copy; OpenStreetMap contributors',
+            }).addTo(explorerMap);
+            (data.pins || []).forEach((pin) => {
+              const icon = window.L.divIcon({
+                className: 'explorer-pin-wrap',
+                html: `<span class="explorer-pin explorer-pin-${esc(pin.band)}"></span>`,
+                iconSize: [18, 18],
+                iconAnchor: [9, 9],
+              });
+              window.L.marker([pin.lat, pin.lng], { icon }).addTo(explorerMap).bindPopup(explorerPopupHtml(pin));
+            });
+          } catch {
+            mapEl.innerHTML = '<p class="explorer-map-note">The map could not be drawn — the counts above still reflect the real located leads.</p>';
+          }
+        }
+      } else if (mapEl) {
+        mapEl.innerHTML = '<p class="explorer-map-note">No located leads in this area yet — use “Locate more” to resolve the next batch.</p>';
+      }
+    }
+
+    const areaSel = $('#lx-area');
+    if (areaSel) {
+      areaSel.addEventListener('change', () => {
+        explorerState.area = areaSel.value;
+        loadExplorer();
+      });
+    }
+    $$('.explorer-radius', section).forEach((b) =>
+      b.addEventListener('click', () => {
+        explorerState.radius = Number(b.dataset.radius) || 10;
+        loadExplorer();
+      })
+    );
+    const more = $('#lx-more');
+    if (more) more.addEventListener('click', () => loadExplorer());
+  }
+  loadExplorer();
 
   delegate(view, {
     open: (t) => {

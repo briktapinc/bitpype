@@ -2489,6 +2489,434 @@ async function researchLead(db, id) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Leads Explorer (Batch 183)                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Batch 183 — Leads Explorer: a real-data map over the leads table.
+ *
+ * Leads carry latitude/longitude columns but nothing populates them,
+ * so locations are resolved lazily through Google Places Text Search
+ * (Places API (New)) and cached in lead_geo_cache. Honesty rules,
+ * mirroring src/gbp.js fetchPlacesState: no platform key = DORMANT
+ * (zero fetch calls, nothing written, never an error and never a
+ * guessed pin); a candidate is accepted ONLY when its name normalizes
+ * to the lead's business name (normalizeName) AND its locality matches
+ * the lead's city; an HTTP/network failure is status 'error'
+ * (retryable), never cached as 'no_match'.
+ */
+const PLACES_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
+const PLACES_TEXT_SEARCH_FIELD_MASK =
+  'places.id,places.displayName,places.formattedAddress,places.location,places.addressComponents';
+const EXPLORER_RESOLVE_CAP = 25;
+const EXPLORER_RADII = [3, 5, 10];
+
+/** Plain-language labels for score breakdown signals (spec section 16). */
+const SCORE_REASON_LABELS = {
+  no_website: 'No website',
+  many_reviews: '20+ reviews',
+  high_rating: 'Rated over 4.0',
+  public_email: 'Public email found',
+  phone: 'Phone listed',
+  active_business: 'Active business',
+  poor_website: 'Poor website',
+  strong_category: 'Strong category',
+};
+
+function ensureLeadGeoCache(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS lead_geo_cache (
+      lead_id INTEGER PRIMARY KEY,
+      place_id TEXT,
+      lat REAL,
+      lng REAL,
+      matched_name TEXT,
+      formatted_address TEXT,
+      status TEXT NOT NULL DEFAULT 'error' CHECK (status IN ('ok', 'no_match', 'error')),
+      at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`);
+}
+
+function validCoords(lat, lng) {
+  const la = Number(lat);
+  const ln = Number(lng);
+  return (
+    lat !== null &&
+    lat !== undefined &&
+    lat !== '' &&
+    lng !== null &&
+    lng !== undefined &&
+    lng !== '' &&
+    Number.isFinite(la) &&
+    Number.isFinite(ln) &&
+    la >= -90 &&
+    la <= 90 &&
+    ln >= -180 &&
+    ln <= 180
+  );
+}
+
+function writeGeoCache(db, leadId, row) {
+  db.prepare(
+    `INSERT INTO lead_geo_cache (lead_id, place_id, lat, lng, matched_name, formatted_address, status, at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(lead_id) DO UPDATE SET
+       place_id = excluded.place_id, lat = excluded.lat, lng = excluded.lng,
+       matched_name = excluded.matched_name, formatted_address = excluded.formatted_address,
+       status = excluded.status, at = excluded.at`
+  ).run(
+    leadId,
+    row.place_id || null,
+    row.lat != null ? row.lat : null,
+    row.lng != null ? row.lng : null,
+    row.matched_name || null,
+    row.formatted_address || null,
+    row.status
+  );
+}
+
+/**
+ * One Places Text Search call. The key travels ONLY in the
+ * X-Goog-Api-Key header (never the URL or body), like gbp.js.
+ * Returns { ok:true, places } or { ok:false, code, dormant? }.
+ */
+async function placesTextSearch(textQuery, { apiKey, fetchImpl } = {}) {
+  const key = String(apiKey || '').trim();
+  if (!key) {
+    return {
+      ok: false,
+      code: 'NO_KEY',
+      dormant: true,
+      message: 'Google Places API key is not configured — Leads Explorer is dormant.',
+    };
+  }
+  const doFetch = fetchImpl || (typeof fetch === 'function' ? fetch : null);
+  if (!doFetch) return { ok: false, code: 'PLACES_ERROR', message: 'No fetch implementation available' };
+  let res;
+  try {
+    res = await doFetch(PLACES_TEXT_SEARCH_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': key,
+        'X-Goog-FieldMask': PLACES_TEXT_SEARCH_FIELD_MASK,
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ textQuery }),
+    });
+  } catch (e) {
+    return { ok: false, code: 'PLACES_ERROR', message: `Could not reach Google Places: ${(e && e.message) || e}` };
+  }
+  let body = null;
+  try {
+    body = await res.json();
+  } catch {
+    body = null;
+  }
+  if (!res.ok) {
+    const gmsg = (body && body.error && (body.error.message || body.error.status)) || `HTTP ${res.status}`;
+    return { ok: false, code: 'PLACES_ERROR', message: `Google Places error (${gmsg})` };
+  }
+  return { ok: true, places: body && Array.isArray(body.places) ? body.places : [] };
+}
+
+function placeDisplayName(place) {
+  const dn = place && place.displayName;
+  if (!dn) return '';
+  return String(typeof dn === 'object' ? dn.text || '' : dn);
+}
+
+/** Locality from addressComponents (locality, then postal_town). */
+function placeLocality(place) {
+  const comps = place && Array.isArray(place.addressComponents) ? place.addressComponents : [];
+  for (const wanted of ['locality', 'postal_town']) {
+    const c = comps.find((x) => x && Array.isArray(x.types) && x.types.includes(wanted));
+    if (c) return String(c.longText || c.long_name || c.shortText || '').trim();
+  }
+  return '';
+}
+
+/**
+ * Acceptance rule: the candidate's name must normalize to the lead's
+ * business name AND its locality must match the lead's city (from
+ * addressComponents, falling back to the formatted address containing
+ * the city, case-insensitive). Anything else is not this business.
+ */
+function placeMatchesLead(place, lead) {
+  if (!place || !validCoords(place.location && place.location.latitude, place.location && place.location.longitude)) {
+    return false;
+  }
+  if (normalizeName(placeDisplayName(place)) !== normalizeName(lead.business_name)) return false;
+  const city = String(lead.city || '').trim();
+  if (!city) return true;
+  const locality = placeLocality(place);
+  if (locality) return locality.toLowerCase() === city.toLowerCase();
+  return String(place.formattedAddress || '')
+    .toLowerCase()
+    .includes(city.toLowerCase());
+}
+
+/**
+ * Resolve one lead's location. Order: stored lat/lng on the lead →
+ * lead_geo_cache 'ok' row → Places Text Search "name + address" (only
+ * when an address is stored) → "name + city + state". Accepted matches
+ * are cached AND written back onto leads.latitude/longitude. No key →
+ * { status:'dormant', code:'NO_KEY' } with zero fetch calls and no
+ * writes.
+ */
+async function resolveLeadLocation(db, lead, { apiKey, fetchImpl } = {}) {
+  ensureLeadGeoCache(db);
+  if (!lead || lead.id == null) return { status: 'error', code: 'NO_LEAD' };
+  if (validCoords(lead.latitude, lead.longitude)) {
+    return { status: 'ok', source: 'stored', lat: Number(lead.latitude), lng: Number(lead.longitude) };
+  }
+  const cache = db.prepare('SELECT * FROM lead_geo_cache WHERE lead_id = ?').get(lead.id);
+  if (cache && cache.status === 'ok' && validCoords(cache.lat, cache.lng)) {
+    db.prepare("UPDATE leads SET latitude = ?, longitude = ?, updated_at = datetime('now') WHERE id = ?").run(
+      cache.lat,
+      cache.lng,
+      lead.id
+    );
+    return { status: 'ok', source: 'cache', lat: Number(cache.lat), lng: Number(cache.lng), place_id: cache.place_id };
+  }
+  if (cache && cache.status === 'no_match') return { status: 'no_match', source: 'cache' };
+  const key = String(apiKey || '').trim();
+  if (!key) return { status: 'dormant', code: 'NO_KEY' };
+
+  const queries = [];
+  const address = String(lead.address || '').trim();
+  if (address) queries.push(`${lead.business_name} ${address}`);
+  const cityState = [lead.business_name, lead.city, lead.state]
+    .map((s) => String(s || '').trim())
+    .filter(Boolean)
+    .join(' ');
+  if (cityState && !queries.includes(cityState)) queries.push(cityState);
+
+  let sawError = false;
+  for (const q of queries) {
+    const r = await placesTextSearch(q, { apiKey: key, fetchImpl });
+    if (!r.ok) {
+      sawError = true;
+      continue;
+    }
+    const hit = r.places.find((p) => placeMatchesLead(p, lead));
+    if (hit) {
+      const lat = Number(hit.location.latitude);
+      const lng = Number(hit.location.longitude);
+      writeGeoCache(db, lead.id, {
+        place_id: hit.id || null,
+        lat,
+        lng,
+        matched_name: placeDisplayName(hit),
+        formatted_address: hit.formattedAddress || null,
+        status: 'ok',
+      });
+      db.prepare("UPDATE leads SET latitude = ?, longitude = ?, updated_at = datetime('now') WHERE id = ?").run(
+        lat,
+        lng,
+        lead.id
+      );
+      return { status: 'ok', source: 'places', lat, lng, place_id: hit.id || null };
+    }
+  }
+  if (sawError) {
+    // Retryable: recorded as 'error', never as a terminal no_match.
+    writeGeoCache(db, lead.id, { status: 'error' });
+    return { status: 'error', code: 'PLACES_ERROR' };
+  }
+  writeGeoCache(db, lead.id, { status: 'no_match' });
+  return { status: 'no_match', source: 'places' };
+}
+
+function explorerBand(score, thresholds) {
+  const n = Number(score) || 0;
+  if (n >= thresholds.hot) return 'hot';
+  if (n >= thresholds.qualified) return 'warm';
+  if (n > 0) return 'cool';
+  return 'none';
+}
+
+function haversineMiles(lat1, lng1, lat2, lng2) {
+  const R = 3958.8;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+function reasonLabel(key) {
+  if (SCORE_REASON_LABELS[key]) return SCORE_REASON_LABELS[key];
+  const pretty = String(key || '')
+    .replace(/_/g, ' ')
+    .trim();
+  return pretty ? pretty.charAt(0).toUpperCase() + pretty.slice(1) : String(key || '');
+}
+
+/**
+ * Reasons a lead scored what it scored: the LATEST lead_scores
+ * breakdown mapped to plain labels; with no breakdown row, ONLY real
+ * stored facts (no website / rating over 4.0 / 20+ reviews / phone),
+ * using the same labels and the spec section-16 points.
+ */
+function leadScoreReasons(db, lead) {
+  let row = null;
+  try {
+    row = db.prepare('SELECT breakdown FROM lead_scores WHERE lead_id = ? ORDER BY id DESC LIMIT 1').get(lead.id);
+  } catch {
+    row = null;
+  }
+  const breakdown = row ? fromJson(row.breakdown, null) : null;
+  if (breakdown && typeof breakdown === 'object' && !Array.isArray(breakdown)) {
+    return Object.entries(breakdown).map(([k, v]) => ({ label: reasonLabel(k), points: Number(v) || 0 }));
+  }
+  const reasons = [];
+  if (!String(lead.website || '').trim()) reasons.push({ label: SCORE_REASON_LABELS.no_website, points: SCORE_SIGNALS.no_website });
+  if (Number(lead.review_count) >= 20) {
+    reasons.push({ label: SCORE_REASON_LABELS.many_reviews, points: SCORE_SIGNALS.many_reviews });
+  }
+  if (typeof lead.rating === 'number' && lead.rating > 4) {
+    reasons.push({ label: SCORE_REASON_LABELS.high_rating, points: SCORE_SIGNALS.high_rating });
+  }
+  if (lead.phone) reasons.push({ label: SCORE_REASON_LABELS.phone, points: SCORE_SIGNALS.phone });
+  return reasons;
+}
+
+const EXPLORER_LEAD_COLUMNS =
+  'id, business_name, category, phone, website, address, city, state, latitude, longitude, rating, review_count, score';
+
+/**
+ * Everything the Leads Explorer renders for one workspace DB:
+ * areas (distinct lead cities + counts), the selected area's pins
+ * (leads with real coordinates within `radius` miles of the area
+ * centre — the centroid of ALL resolved pins in the area), band
+ * summary counts, and the honest unmapped list. Resolution is lazy
+ * and bounded: at most EXPLORER_RESOLVE_CAP not-yet-cached leads in
+ * the selected area per call, cache-first. No key → dormant:true,
+ * zero fetch calls, pins only from coordinates already stored.
+ */
+async function explorerData(db, opts = {}) {
+  ensureLeadColumns(db);
+  ensureLeadGeoCache(db);
+  const hot = Number(getSetting(db, 'score.threshold_hot', '70')) || 70;
+  const qualified = Number(getSetting(db, 'score.threshold_qualified', '50')) || 50;
+  const thresholds = { hot, qualified };
+  const radius = EXPLORER_RADII.includes(Number(opts.radius)) ? Number(opts.radius) : 10;
+  const apiKey = String(opts.apiKey || '').trim();
+  const dormant = !apiKey;
+
+  const allLeads = db.prepare(`SELECT ${EXPLORER_LEAD_COLUMNS} FROM leads ORDER BY id`).all();
+
+  // Areas: distinct non-empty cities with counts, biggest first.
+  const areaByKey = new Map();
+  for (const lead of allLeads) {
+    const city = String(lead.city || '').trim();
+    if (!city) continue;
+    const k = city.toLowerCase();
+    if (!areaByKey.has(k)) areaByKey.set(k, { city, count: 0 });
+    areaByKey.get(k).count += 1;
+  }
+  const areas = [...areaByKey.values()].sort((a, b) => b.count - a.count || a.city.localeCompare(b.city));
+
+  const wanted = String(opts.area || '').trim().toLowerCase();
+  const selected = areas.find((a) => a.city.toLowerCase() === wanted) || areas[0] || null;
+  const area = selected ? selected.city : null;
+  const inArea = (lead) => selected && String(lead.city || '').trim().toLowerCase() === selected.city.toLowerCase();
+  let areaLeads = allLeads.filter(inArea);
+
+  // Lazy, bounded resolution for the selected area only.
+  if (apiKey && opts.resolve !== '0' && areaLeads.length) {
+    const cacheByLead = new Map(db.prepare('SELECT * FROM lead_geo_cache').all().map((r) => [r.lead_id, r]));
+    const pending = areaLeads.filter((lead) => {
+      if (validCoords(lead.latitude, lead.longitude)) return false;
+      const c = cacheByLead.get(lead.id);
+      return !c || c.status === 'error';
+    });
+    for (const lead of pending.slice(0, EXPLORER_RESOLVE_CAP)) {
+      await resolveLeadLocation(db, lead, { apiKey, fetchImpl: opts.fetchImpl });
+    }
+    areaLeads = db.prepare(`SELECT ${EXPLORER_LEAD_COLUMNS} FROM leads ORDER BY id`).all().filter(inArea);
+  }
+
+  const cacheByLead = new Map(db.prepare('SELECT * FROM lead_geo_cache').all().map((r) => [r.lead_id, r]));
+  const located = areaLeads.filter((lead) => validCoords(lead.latitude, lead.longitude));
+  const centre = located.length
+    ? {
+        lat: located.reduce((s, l) => s + Number(l.latitude), 0) / located.length,
+        lng: located.reduce((s, l) => s + Number(l.longitude), 0) / located.length,
+      }
+    : null;
+
+  const pins = [];
+  const byBand = { hot: 0, warm: 0, cool: 0, none: 0 };
+  if (centre) {
+    for (const lead of located) {
+      const d = haversineMiles(centre.lat, centre.lng, Number(lead.latitude), Number(lead.longitude));
+      if (d > radius) continue;
+      const band = explorerBand(lead.score, thresholds);
+      byBand[band] += 1;
+      pins.push({
+        id: lead.id,
+        business_name: lead.business_name,
+        category: lead.category || null,
+        city: lead.city || null,
+        address: lead.address || null,
+        website_state: String(lead.website || '').trim() === '' ? 'No website' : 'Website present',
+        score: Number(lead.score) || 0,
+        band,
+        lat: Number(lead.latitude),
+        lng: Number(lead.longitude),
+        rating: lead.rating != null ? Number(lead.rating) : null,
+        review_count: lead.review_count != null ? Number(lead.review_count) : null,
+        phone: lead.phone || null,
+        reasons: leadScoreReasons(db, lead),
+      });
+    }
+  }
+
+  const unmapped = areaLeads
+    .filter((lead) => !validCoords(lead.latitude, lead.longitude))
+    .map((lead) => {
+      const c = cacheByLead.get(lead.id);
+      const why = dormant
+        ? 'no_key'
+        : c && c.status === 'no_match'
+          ? 'no_match'
+          : c && c.status === 'error'
+            ? 'error'
+            : 'not_located';
+      return {
+        id: lead.id,
+        business_name: lead.business_name,
+        city: lead.city || null,
+        score: Number(lead.score) || 0,
+        band: explorerBand(lead.score, thresholds),
+        why,
+      };
+    });
+
+  return {
+    areas,
+    area,
+    radius,
+    thresholds,
+    dormant,
+    centre,
+    pins,
+    unmapped,
+    summary: {
+      total: areaLeads.length,
+      mapped: located.length,
+      unmapped: unmapped.length,
+      withinRadius: pins.length,
+      byBand,
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ */
 
 module.exports = {
   // constants
@@ -2534,6 +2962,13 @@ module.exports = {
   // scoring / qualification
   scoreLead,
   qualifyLead,
+  // explorer (Batch 183)
+  ensureLeadGeoCache,
+  placesTextSearch,
+  resolveLeadLocation,
+  explorerData,
+  explorerBand,
+  haversineMiles,
   // facts / research
   addFact,
   getFacts,

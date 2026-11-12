@@ -179,6 +179,25 @@ function leadsList(workspaceId, filters = {}) {
 function leadsFacets(workspaceId) {
   return withDb(workspaceId, (db) => leadEngine().listLeadFacets(db));
 }
+/**
+ * Batch 183 — Leads Explorer data for the staff leads page. The
+ * Google Places key is read from PLATFORM settings here (the same
+ * google.places_api_key the Reviews module uses) and passed only
+ * into the engine's server-side resolver — it never reaches the
+ * client payload. No key → the engine answers dormant.
+ */
+async function leadsExplorer(workspaceId, params = {}) {
+  const platform = require('./platform');
+  const apiKey = String((await platform.getPlatformSetting('google.places_api_key', '')) || '').trim();
+  return withDb(workspaceId, (db) =>
+    leadEngine().explorerData(db, {
+      area: params.area,
+      radius: params.radius,
+      resolve: params.resolve,
+      apiKey,
+    })
+  );
+}
 function leadsGet(workspaceId, id) {
   return withDb(workspaceId, (db) => {
     const lead = leadEngine().getLead(db, id);
@@ -6686,6 +6705,7 @@ module.exports = {
   adminRemovePoolNumber,
   leadsList,
   leadsFacets,
+  leadsExplorer,
   leadsGet,
   leadsCreate,
   leadsUpdate,

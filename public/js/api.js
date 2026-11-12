@@ -137,6 +137,7 @@ window.ScoutApi = (() => {
     // ---- leads ----
     leads: (q) => get('/leads', q),
     leadFacets: () => get('/leads/facets'),
+    leadExplorer: (q) => get('/leads/explorer', q),
     leadGet: (id) => get('/leads/' + id),
     createLead: (body) => post('/leads', body),
     patchLead: (id, body) => patch('/leads/' + id, body),

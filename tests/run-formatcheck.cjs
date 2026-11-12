@@ -78,6 +78,7 @@ const SCOPE = [
   'tsconfig.checkjs.json',
   'server/leadsRouter.js',
   'tests/batch178-leads-router-regressions.cjs',
+  'tests/batch183-leads-explorer-regressions.cjs',
 ];
 
 function locatePrettier() {
