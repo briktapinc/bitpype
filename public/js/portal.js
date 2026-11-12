@@ -15294,7 +15294,16 @@
     for (const s of sources) {
       const a = document.createElement('a');
       a.className = 'btn soft';
-      a.href = s.source_url || lead.source_url;
+      // Batch 180 (H5): only http(s) source URLs become a live href —
+      // a stored javascript:/data: URL falls back to '#' (inert).
+      let safeSourceUrl = '#';
+      try {
+        const u = new URL(String(s.source_url || lead.source_url || ''));
+        if (u.protocol === 'http:' || u.protocol === 'https:') safeSourceUrl = u.href;
+      } catch {
+        /* not a URL at all — keep '#' */
+      }
+      a.href = safeSourceUrl;
       a.target = '_blank';
       a.rel = 'noopener';
       a.textContent = `View post${sources.length > 1 ? ` (${s.platform})` : ''}`;

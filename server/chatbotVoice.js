@@ -96,6 +96,17 @@ const EPHEMERAL_TTL_SEC = 120;
  * raise/lower this one constant to change it.
  */
 const VOICE_MAX_SESSION_SEC = 600;
+/**
+ * Batch 180 (external review H4): relay grace past the cap. The
+ * session clock starts at mint (server-side, voice_started_at) and
+ * the browser connects a few seconds later, so a client that hits
+ * the cap exactly still has to land its final transcript flush and
+ * close — relay service is refused only past cap + this grace.
+ * Metering never counts past VOICE_MAX_SESSION_SEC itself, so a
+ * session can never meter (or reserve-release) more than the
+ * reserved cap, whatever the client claims.
+ */
+const VOICE_RELAY_GRACE_SEC = 120;
 /** Input transcription model for the visitor-side transcript. */
 const TRANSCRIPTION_MODEL = 'gpt-4o-transcribe';
 
@@ -395,7 +406,23 @@ const VOICE_TOOLS = [
   },
 ];
 
-/** The GA session config baked into the client secret at mint time. */
+/**
+ * The GA session config baked into the client secret at mint time.
+ *
+ * Batch 180 (external review H4): the GA session shape documented in
+ * this module's header carries NO configurable max-duration field —
+ * OpenAI's only bound is its own 60-minute hard limit, and the
+ * client secret's expires_after governs only the connect window.
+ * The platform's 600s cap is therefore enforced SERVER-SIDE, where
+ * the code structure supports it: the session row's voice_started_at
+ * (stamped at mint) is the hard expiry — getVoiceSessionForRelay
+ * refuses all relay service past cap + VOICE_RELAY_GRACE_SEC, and
+ * endVoiceSession clamps the metered duration to the cap. A raw
+ * client that ignores the relay can keep its WebRTC media alive
+ * toward OpenAI's 60-minute limit, but it gets no tool execution,
+ * no transcript record and no budget release from this server past
+ * the cap.
+ */
 function buildRealtimeSessionConfig(db, leadId, settings) {
   return {
     type: 'realtime',
@@ -456,6 +483,22 @@ async function mintVoiceSession(workspaceId, db, token, { visitor } = {}) {
     const budget = parseFloat(core.getDbSetting(db, 'cost.daily_budget_usd', '10')) || 0;
     if (budget > 0) {
       chatbot.ensureTables(db);
+      /* Batch 180 (external review H4): sessions closed UNVERIFIED
+       * (client-claimed end, zero transcript evidence — see
+       * endVoiceSession) deliberately keep voice_ended_at NULL, so
+       * the count below keeps reserving for them. Their reservation
+       * is released only once the reserved window (the cap, from
+       * the server-stamped start) has fully elapsed: this sweep
+       * stamps their end at that point, with no usage row — the
+       * spend they could have caused is bounded by the relay cap,
+       * and the reservation has already covered the window. */
+      db.prepare(
+        `UPDATE chatbot_sessions
+         SET voice_ended_at = datetime('now')
+         WHERE channel = 'voice' AND voice_state = 'ended' AND voice_ended_at IS NULL
+           AND voice_started_at IS NOT NULL
+           AND voice_started_at <= datetime('now', '-${VOICE_MAX_SESSION_SEC} seconds')`
+      ).run();
       const openToday = db
         .prepare(
           `SELECT COUNT(*) AS c FROM chatbot_sessions
@@ -578,6 +621,16 @@ function getVoiceSessionForRelay(db, token, sessionId, relaySecret) {
   if (presented.length !== stored.length || !crypto.timingSafeEqual(presented, stored)) {
     throw fail('FORBIDDEN', 'Invalid voice session credential', 403);
   }
+  /* Batch 180 (external review H4): the server-side session cap.
+   * The 600s limit used to be client-advisory only (the browser's
+   * own timer), while the real Realtime session could run to
+   * OpenAI's 60-minute hard limit. The row's server-stamped start
+   * is now a hard expiry for everything this server mediates: past
+   * cap + grace, no tool calls execute and no transcript lands. */
+  const started = row.voice_started_at ? Date.parse(String(row.voice_started_at).replace(' ', 'T') + 'Z') : NaN;
+  if (Number.isFinite(started) && Date.now() - started > (VOICE_MAX_SESSION_SEC + VOICE_RELAY_GRACE_SEC) * 1000) {
+    throw fail('VOICE_SESSION_EXPIRED', 'This voice session has reached its time limit', 410);
+  }
   return { cfg, leadId, row };
 }
 
@@ -696,9 +749,24 @@ function recordVoiceUsage(db, row, durationSec) {
  * the metering row. Idempotent — a second end call changes nothing.
  * A session that never connected (connected === false or zero
  * duration) writes NO ai_usage row.
+ *
+ * Batch 180 (external review H4): voice_ended_at is the BUDGET
+ * RELEASE signal (the mint gate reserves the capped cost for every
+ * session with voice_ended_at IS NULL), and the only caller-supplied
+ * inputs here — the `connected` flag and the `close` reason — come
+ * from the very client the F08 reservation distrusts. A final relay
+ * carrying ZERO conversation evidence (no transcript items ever
+ * landed, in this batch or any earlier one) therefore does NOT
+ * stamp voice_ended_at and writes no usage row: the record still
+ * closes (state 'ended', abrupt — a clean close is not believed on
+ * the client's word alone), but the reservation keeps counting
+ * until the mint gate's sweep releases it once the reserved window
+ * has elapsed. Only an end backed by a real transcript record —
+ * also the only end that can write a usage row — releases the
+ * reservation immediately.
  */
 function endVoiceSession(db, row, { close = 'hangup', connected = true } = {}) {
-  if (row.voice_ended_at) {
+  if (row.voice_ended_at || row.voice_state === 'ended') {
     return {
       ended: true,
       already: true,
@@ -706,9 +774,37 @@ function endVoiceSession(db, row, { close = 'hangup', connected = true } = {}) {
       close_state: row.voice_close_state || 'clean',
     };
   }
+  let evidence = 0;
+  try {
+    evidence =
+      Number(db.prepare('SELECT COUNT(*) AS c FROM chatbot_messages WHERE session_id = ?').get(row.id).c) || 0;
+  } catch {
+    evidence = 0;
+  }
+  if (evidence === 0) {
+    const unverifiedCloseState = close === 'cap' ? 'capped' : 'abrupt';
+    db.prepare(
+      `
+      UPDATE chatbot_sessions
+      SET voice_state = 'ended', voice_duration_sec = 0, voice_close_state = ?,
+          updated_at = datetime('now')
+      WHERE id = ?
+    `
+    ).run(unverifiedCloseState, row.id);
+    return {
+      ended: true,
+      already: false,
+      duration_sec: 0,
+      close_state: unverifiedCloseState,
+      usage: null,
+      unverified: true,
+    };
+  }
   const started = row.voice_started_at ? Date.parse(String(row.voice_started_at).replace(' ', 'T') + 'Z') : NaN;
   let durationSec = Number.isFinite(started) ? Math.max(0, Math.round((Date.now() - started) / 1000)) : 0;
-  durationSec = Math.min(durationSec, VOICE_MAX_SESSION_SEC + 120);
+  // Batch 180: metering is clamped to the reserved cap itself — a
+  // session can never meter more than the reservation it released.
+  durationSec = Math.min(durationSec, VOICE_MAX_SESSION_SEC);
   const closeState = close === 'cap' ? 'capped' : close === 'error' ? 'abrupt' : 'clean';
   db.prepare(
     `
@@ -916,6 +1012,7 @@ function readVoiceBubbleImage(db, leadId) {
 module.exports = {
   REALTIME_MODEL,
   VOICE_MAX_SESSION_SEC,
+  VOICE_RELAY_GRACE_SEC,
   EPHEMERAL_TTL_SEC,
   TRANSCRIPTION_MODEL,
   VOICE_TOOLS,

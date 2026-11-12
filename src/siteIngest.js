@@ -380,9 +380,22 @@ function mergeFaq(...lists) {
   return out;
 }
 
+/* Batch 180 (M8): the tag-pair extractors below used unbounded lazy
+ * backreference patterns — on a page full of UNCLOSED opening tags
+ * each opening tag rescanned to end-of-string looking for its close,
+ * which is quadratic and stalls the event loop for minutes at the
+ * 800 KB fetch cap (audit repro: ~4.3 s for ONE pattern at 200 KB).
+ * The inner capture is now capped: the scan per opening tag is
+ * bounded by a constant, so worst case is linear in input size.
+ * The caps sit far above what each extractor can use — it keeps at
+ * most the first 120–200 chars of heading text, 160 of a list item,
+ * 60 of a CTA label — so normal pages extract identically; only a
+ * "pair" whose body exceeds the cap (thousands of chars of nested
+ * markup inside one heading/item, effectively never on real pages)
+ * is skipped instead of matched. */
 function extractHeadings(html) {
   const out = [];
-  const re = /<h([1-3])[^>]*>([\s\S]*?)<\/h\1>/gi;
+  const re = /<h([1-3])[^>]*>([\s\S]{0,2048}?)<\/h\1>/gi;
   let m;
   while ((m = re.exec(html)) && out.length < 40) {
     const t = stripToText(m[2]).slice(0, 120);
@@ -393,7 +406,7 @@ function extractHeadings(html) {
 
 function extractListItems(html) {
   const out = [];
-  const re = /<li\b[^>]*>([\s\S]*?)<\/li>/gi;
+  const re = /<li\b[^>]*>([\s\S]{0,4096}?)<\/li>/gi;
   let m;
   while ((m = re.exec(html)) && out.length < 60) {
     const t = stripToText(m[1]).slice(0, 160);
@@ -511,7 +524,7 @@ function extractImages(html, baseUrl) {
 
 function extractCtas(html, text) {
   const ctas = [];
-  const btnRe = /<(?:a|button)\b[^>]*>([\s\S]*?)<\/(?:a|button)>/gi;
+  const btnRe = /<(?:a|button)\b[^>]*>([\s\S]{0,2048}?)<\/(?:a|button)>/gi;
   let m;
   while ((m = btnRe.exec(html)) && ctas.length < 8) {
     const label = stripToText(m[1]).slice(0, 60);
@@ -766,7 +779,7 @@ async function fetchHtml(url) {
  */
 function extractSections(html, text) {
   const sections = [];
-  const headingRe = /<h([1-3])[^>]*>([\s\S]*?)<\/h\1>/gi;
+  const headingRe = /<h([1-3])[^>]*>([\s\S]{0,2048}?)<\/h\1>/gi;
   const matches = [];
   let m;
   while ((m = headingRe.exec(html))) {
@@ -820,7 +833,7 @@ function extractSections(html, text) {
 /** Pull FAQ Q&A from heading blocks even when they sit below long service lists. */
 function extractFaq(html) {
   const faq = [];
-  const headingRe = /<h([1-4])[^>]*>([\s\S]*?)<\/h\1>/gi;
+  const headingRe = /<h([1-4])[^>]*>([\s\S]{0,2048}?)<\/h\1>/gi;
   const matches = [];
   let m;
   while ((m = headingRe.exec(html))) {

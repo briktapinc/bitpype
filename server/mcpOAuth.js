@@ -15,8 +15,13 @@ const { hashToken } = require('./workspace');
 const portal = require('./clientPortal');
 
 const CODE_TTL_MS = 10 * 60 * 1000;
-const ACCESS_TTL_SEC = 90 * 24 * 60 * 60; // 90 days
-const REFRESH_TTL_MS = 180 * 24 * 60 * 60 * 1000;
+/* Batch 180 (M7): OAuth token lifetimes aligned to the Batch 168
+ * session policy — no credential minted from a portal session may
+ * outlive the 30-day absolute session cap. Was 90d access / 180d
+ * refresh, which let a stale session mint tokens that outlived the
+ * session policy entirely. */
+const ACCESS_TTL_SEC = 30 * 24 * 60 * 60; // 30 days (Batch 168 absolute cap)
+const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days (Batch 168 absolute cap)
 const CLIENT_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 
 const SCOPE = 'mcp';

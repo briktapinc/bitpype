@@ -142,7 +142,12 @@ function buildMime({ fromName, fromEmail, to, subject, html, text, replyTo }) {
   const boundary = 'ws_' + crypto.randomBytes(12).toString('hex');
   const date = new Date().toUTCString();
   const msgId = `<${crypto.randomBytes(16).toString('hex')}@${fromEmail.split('@')[1] || 'localhost'}>`;
-  const from = fromName ? `"${fromName.replace(/["\\]/g, '')}" <${fromEmail}>` : fromEmail;
+  // Batch 180 (L16): strip CRLF from the From display name as well as
+  // quotes/backslashes — a tenant business name must not be able to
+  // inject extra MIME headers through it (Reply-To below already does).
+  const from = fromName
+    ? `"${String(fromName).replace(/[\r\n]+/g, ' ').replace(/["\\]/g, '')}" <${fromEmail}>`
+    : fromEmail;
   const plain = text && text.trim() ? text : stripHtml(html || '');
   const htmlPart = html && html.trim() ? html : `<pre>${escapeHtml(plain)}</pre>`;
 
@@ -179,9 +184,13 @@ function buildMime({ fromName, fromEmail, to, subject, html, text, replyTo }) {
 }
 
 function encodeSubject(s) {
+  // Batch 180 (L16): CRLF-strip before anything else — the pure-ASCII
+  // fast path below returns the value verbatim, so an unstripped
+  // subject could inject arbitrary MIME headers.
+  const clean = String(s == null ? '' : s).replace(/[\r\n]+/g, ' ');
   // RFC 2047 for non-ASCII subjects.
-  if (/^[\x20-\x7e]*$/.test(s)) return s;
-  return '=?UTF-8?B?' + Buffer.from(s, 'utf8').toString('base64') + '?=';
+  if (/^[\x20-\x7e]*$/.test(clean)) return clean;
+  return '=?UTF-8?B?' + Buffer.from(clean, 'utf8').toString('base64') + '?=';
 }
 
 function stripHtml(html) {

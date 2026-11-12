@@ -1367,6 +1367,62 @@
   // wrapper with `root` (= `el`) set to this block's element, so two
   // blocks on one page never collide; a syntax or runtime error is
   // caught per instance and can never take down other modules.
+  /* Batch 180 (external review H3): is this mount the standalone
+   * /embed/module.html viewer? That document is served from the
+   * PLATFORM origin (under a sandboxed CSP — see server.js), where
+   * owner code must never execute with platform privileges. In-page
+   * mounts on the owner's own site keep the Batch 143/164 behaviour
+   * below verbatim: owner JS on the owner's origin is sanctioned. */
+  function inStandaloneViewer(el) {
+    try {
+      if (window.__BP_EMBED_VIEWER__) return true;
+    } catch (e) {
+      /* no window flag */
+    }
+    return !!(el && el.getAttribute && el.getAttribute('data-bitpype-standalone-viewer') === '1');
+  }
+
+  /* The viewer's Custom Code path: the owner's HTML + JS render
+   * inside a sandboxed iframe with NO allow-same-origin, so the
+   * code runs in an opaque origin — it cannot reach the platform
+   * document, its cookies, or its session APIs (its fetches arrive
+   * with Origin: null and are confined to the public token APIs by
+   * rejectOpaqueAppRequests). The JS field keeps its root/el
+   * contract, rooted at the block's own element inside the frame. */
+  function renderCustomCodeSandboxed(el, prefixHtml, ownerHtml, ownerJs) {
+    el.innerHTML = prefixHtml || '';
+    var frame = document.createElement('iframe');
+    frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups');
+    frame.setAttribute('title', 'Custom code');
+    frame.style.width = '100%';
+    frame.style.minHeight = '320px';
+    frame.style.border = '0';
+    frame.style.display = 'block';
+    var boot = '';
+    if (ownerJs.trim()) {
+      // The JS field rides as a plain inline script (root/el bound
+      // to the block's element, the same contract as the in-page
+      // wrapper) — deliberately NOT new Function: the viewer's CSP
+      // carries no 'unsafe-eval', and srcdoc inherits it. The
+      // <\/script escape keeps an owner script from closing the
+      // boot element early; inside JS strings/regexes it reads
+      // back as a plain slash.
+      boot =
+        '<script>(function(){var root=document.getElementById(\'bp-cc-root\');var el=root;try{\n' +
+        ownerJs.replace(/<\/script/gi, '<\\/script') +
+        '\n}catch(e){if(window.console&&console.warn)console.warn(\'[custom-code] failed:\',e);}})();</script>';
+    }
+    frame.srcdoc =
+      '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+      '<meta name="viewport" content="width=device-width, initial-scale=1"></head>' +
+      '<body style="margin:0"><div id="bp-cc-root">' +
+      ownerHtml +
+      '</div>' +
+      boot +
+      '</body></html>';
+    el.appendChild(frame);
+  }
+
   function renderCustomCode(el, data, prefixHtml) {
     var cc = data.custom_code || null;
     var ownerHtml = cc && cc.html != null ? String(cc.html) : '';
@@ -1379,6 +1435,10 @@
       return;
     }
     el.setAttribute('data-bp-custom-code', String(cc.id == null ? '' : cc.id));
+    if (inStandaloneViewer(el)) {
+      renderCustomCodeSandboxed(el, prefixHtml, ownerHtml, ownerJs);
+      return;
+    }
     el.innerHTML = (prefixHtml || '') + ownerHtml;
     var scripts = el.querySelectorAll('script');
     for (var si = 0; si < scripts.length; si++) {

@@ -324,8 +324,8 @@ async function main() {
     let n = 0;
     const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
     const cz = census();
-    assert.equal(cz.summary.total, 507, 'SEC-13 census total unchanged by Batch 170 (zero new sinks)');
-    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 381, 'SEC-13 safe classes unchanged (Batch 176 finisher re-pin: 380 -> 381 — audited Assistant page-head shell reclassification RAW -> STATIC in app.js, multiset-proven vs the Batch 175 base; see the batch104 note)');
+    assert.equal(cz.summary.total, 508, 'SEC-13 census total unchanged by Batch 170 (zero new sinks)');
+    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 382, 'SEC-13 safe classes unchanged (Batch 176 finisher re-pin: 380 -> 381 — audited Assistant page-head shell reclassification RAW -> STATIC in app.js, multiset-proven vs the Batch 175 base; see the batch104 note)');
     assert.equal(cz.summary.RAW, 85, 'SEC-13 RAW unchanged (Batch 176 finisher re-pin: 86 -> 85 — same audited reclassification)');
     assert.equal(cz.summary.IDENT, 41, 'SEC-13 IDENT unchanged');
     n += 4;

@@ -92,6 +92,15 @@ async function handlePaymentsWebhook(req, res, workspaceId) {
   }
   let event;
   let keySource = '';
+  // Batch 180 (C1): the lead whose secret ACTUALLY verified the
+  // signature. resolveLeadForEvent only SELECTS candidates from
+  // unverified payload values; the lead becomes verified only when
+  // one of ITS secrets checks out (constructEventAny reports it).
+  // The workspace-secret fallback verifies no lead (null) — it is
+  // the workspace owner's own key, which no tenant lead can sign
+  // with. The verified lead is threaded into applyTenantStripeEvent
+  // and every order/subscription transition is bound to it.
+  let verifiedLeadId = null;
   try {
     const verified = domain.withDb(workspaceId, (db) => {
       const leadId = peek ? paymentsConfig.resolveLeadForEvent(db, peek) : null;
@@ -107,10 +116,15 @@ async function handlePaymentsWebhook(req, res, workspaceId) {
       }
       // Shop-shaped with no resolvable lead: the workspace secret is
       // the last candidate (the long-standing shop behavior).
-      return { event: shopStripe.constructEvent(db, rawBody, req.headers['stripe-signature']), source: 'workspace' };
+      return {
+        event: shopStripe.constructEvent(db, rawBody, req.headers['stripe-signature']),
+        source: 'workspace',
+        leadId: null,
+      };
     });
     event = verified.event;
     keySource = verified.source;
+    verifiedLeadId = verified.leadId != null ? Number(verified.leadId) || null : null;
   } catch (e) {
     if (e && (e.code === 'PAYMENTS_NOT_CONFIGURED' || e.code === 'SHOP_STRIPE_NOT_CONFIGURED')) {
       return res.status(409).json({ ok: false, error: e.message, code: e.code });
@@ -155,8 +169,21 @@ async function handlePaymentsWebhook(req, res, workspaceId) {
     }
   }
   try {
-    const result = domain.withDb(workspaceId, (db) => siteModules.applyTenantStripeEvent(db, event));
+    const result = domain.withDb(workspaceId, (db) => siteModules.applyTenantStripeEvent(db, event, verifiedLeadId));
     const response = res.json({ ok: true, received: true, key_source: keySource, ...result });
+    // Batch 180 (L6): a dispute flagged an order — give the owner
+    // the same in-app/email signal a new paid order gets, through
+    // the existing owner-notify pattern.
+    if (result && result.pipeline === 'shop' && result.matched && result.dispute && result.orderId) {
+      try {
+        const ownerNotify = require('../ownerNotify');
+        ownerNotify
+          .notifyOwnerOfShopOrder(workspaceId, result.orderId)
+          .catch((e) => console.warn('[payments-webhook] dispute owner notify failed:', e && e.message));
+      } catch (e) {
+        console.warn('[payments-webhook] dispute owner notify failed:', e && e.message);
+      }
+    }
     if (
       result &&
       result.pipeline === 'shop' &&

@@ -203,6 +203,24 @@ if [ -z "$SETTINGS_KEY_VAL" ]; then
   SETTINGS_KEY_VAL="$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
 fi
 
+# Batch 180 (L17): every SSB_* answer is written into .env UNQUOTED
+# below, so a value carrying a newline would inject whole extra .env
+# lines (overriding keys written earlier), and a double quote would
+# corrupt the value as the env parser reads it. Strip CR/LF and
+# double quotes from every SSB_* value before it is written.
+for _ssb_var in SSB_DOMAIN SSB_ADMIN_EMAIL SSB_STRIPE_PUBLISHABLE SSB_STRIPE_SECRET \
+  SSB_STRIPE_WEBHOOK_SECRET SSB_OPENAI_KEY SSB_SMTP_HOST SSB_SMTP_PORT SSB_SMTP_SECURE \
+  SSB_SMTP_USER SSB_SMTP_PASS SSB_SMTP_FROM_EMAIL SSB_SMTP_FROM_NAME \
+  SSB_TURNSTILE_SITE_KEY SSB_TURNSTILE_SECRET SSB_GOOGLE_PLACES_KEY \
+  SSB_TWILIO_ACCOUNT_SID SSB_TWILIO_AUTH_TOKEN SSB_TWILIO_FROM_NUMBER; do
+  _ssb_val="${!_ssb_var:-}"
+  _ssb_val="${_ssb_val//$'\r'/}"
+  _ssb_val="${_ssb_val//$'\n'/}"
+  _ssb_val="${_ssb_val//\"/}"
+  printf -v "$_ssb_var" '%s' "$_ssb_val"
+done
+unset _ssb_var _ssb_val
+
 {
   printf 'BITPYPE_SINGLE_SITE=1\n'
   printf 'NODE_ENV=production\n'

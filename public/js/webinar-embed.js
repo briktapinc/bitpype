@@ -62,13 +62,43 @@
   }
 
   function apiUrl(api, token, slug, tail) {
-    return (
+    var url =
       (api || '') +
       '/api/v1/modules/public/webinar/' +
       encodeURIComponent(token) +
       (slug ? '/' + encodeURIComponent(slug) : '') +
-      (tail || '')
-    );
+      (tail || '');
+    /* Batch 180 (M4 follow-on): the webinar API now runs the same
+     * membership gate as the generic module payload; the gate keys
+     * off the page slug, which rides as a query param (the same
+     * preflight-free convention module-embed.js uses). */
+    try {
+      var p = String((window.location && window.location.pathname) || '').replace(/\/+$/, '');
+      var base = p.split('/').pop() || '';
+      var page = base.replace(/\.html?$/i, '') || 'index';
+      url += (url.indexOf('?') === -1 ? '?' : '&') + 'bpPage=' + encodeURIComponent(page);
+    } catch (e) {
+      /* location unavailable */
+    }
+    return url;
+  }
+
+  /* Batch 180 (M4 follow-on): forward the stored member session
+   * (same localStorage key family module-embed.js writes) so a
+   * signed-in member can pass the webinar membership gate. */
+  function storedMemberSession() {
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf('bp_member_session_') === 0) {
+          var v = localStorage.getItem(k);
+          if (v) return v;
+        }
+      }
+    } catch (e) {
+      /* storage unavailable */
+    }
+    return '';
   }
 
   function sessionKey(token, slug) {
@@ -176,8 +206,12 @@
     root.appendChild(wrap);
 
     function headers() {
+      var h = {};
       var s = getSession(token, slug);
-      return s ? { 'X-Bitpype-Webinar-Session': s } : {};
+      if (s) h['X-Bitpype-Webinar-Session'] = s;
+      var ms = storedMemberSession();
+      if (ms) h['X-Bitpype-Member-Session'] = ms;
+      return h;
     }
 
     function loadState() {
@@ -222,7 +256,7 @@
         btn.disabled = true;
         fetchJson(apiUrl(api, token, slug, '/register'), {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: Object.assign({ 'Content-Type': 'application/json' }, headers()),
           body: JSON.stringify({
             name: inputs.name.value,
             email: inputs.email.value,

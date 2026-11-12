@@ -41,14 +41,14 @@ function notDeletedClause(alias = 'u') {
 
 async function listUsers({ q = '', limit = 100 } = {}) {
   const lim = Math.min(500, Math.max(1, Number(limit) || 100));
-  const like = `%${String(q || '').trim()}%`;
+  const like = `%${String(q || '').trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`; // Batch 180 (L13): escape LIKE wildcards
   if (String(q || '').trim()) {
     return query(
       `SELECT u.id, u.email, u.name, u.is_super_admin, u.account_type, u.status, u.last_login_at, u.created_at, u.totp_enabled,
               (SELECT COUNT(*) FROM workspace_members m WHERE m.user_id = u.id) AS workspace_count
        FROM users u
        WHERE ${notDeletedClause('u')}
-         AND (u.email LIKE :like OR u.name LIKE :like)
+         AND (u.email LIKE :like ESCAPE '\\' OR u.name LIKE :like ESCAPE '\\')
        ORDER BY u.id DESC
        LIMIT ${lim}`,
       { like }
@@ -296,14 +296,14 @@ async function deleteUser(id, { actorUserId = null } = {}) {
 
 async function listWorkspaces({ q = '', limit = 100 } = {}) {
   const lim = Math.min(500, Math.max(1, Number(limit) || 100));
-  const like = `%${String(q || '').trim()}%`;
+  const like = `%${String(q || '').trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`; // Batch 180 (L13)
   if (String(q || '').trim()) {
     return query(
       `SELECT w.id, w.name, w.slug, w.created_at, w.updated_at,
               (SELECT COUNT(*) FROM workspace_members m WHERE m.workspace_id = w.id) AS member_count,
               (SELECT COUNT(*) FROM workspace_tokens t WHERE t.workspace_id = w.id) AS token_count
        FROM workspaces w
-       WHERE w.name LIKE :like OR w.slug LIKE :like
+       WHERE w.name LIKE :like ESCAPE '\\' OR w.slug LIKE :like ESCAPE '\\'
        ORDER BY w.id DESC
        LIMIT ${lim}`,
       { like }

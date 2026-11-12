@@ -263,13 +263,13 @@ async function main() {
     const cz = census();
     assert.deepEqual(
       cz.summary,
-      { total: 507, STATIC: 188, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 41, RAW: 85 },
+      { total: 508, STATIC: 189, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 41, RAW: 85 },
       'SEC-13 census summary (Batch 174 re-pin: +3 IDENT assistantMd writes in portal.js — see note above)'
     );
     const crypto = require('node:crypto');
     const multi = cz.sinks.map((s) => `${s.file}|${s.kind}|${s.snippet}`).sort();
     const sha = crypto.createHash('sha256').update(multi.join('\n')).digest('hex');
-    assert.equal(sha, 'fcd696c84245a0d56bc865051805924f8c1449eec2eb3a8f3e2b6ab9a7fdcd5e', 'SEC-13 (file|kind|snippet) multiset pinned (Batch 174 re-pin — see note above)');
+    assert.equal(sha, '1d7b8e71343b27ffdda46074a83b68e601d78239445d2f66a5aea73ffc1c355d', 'SEC-13 (file|kind|snippet) multiset pinned (Batch 174 re-pin — see note above)');
     const base = new Set(require(path.join(root, 'tests/batch103-xss-baseline.json')));
     const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
     assert.deepEqual([...reviewed].filter((x) => !base.has(x)), [], 'no unreviewed RAW/IDENT sink (Batch 176 baseline regenerated — see batch103)');

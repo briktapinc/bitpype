@@ -15,6 +15,7 @@ const http = require('http');
 const https = require('https');
 
 const openPreview = require('./openPreview');
+const { assertPublicUrl } = require('../server/urlSafety');
 
 const DESKTOP = { name: 'desktop', width: 1440, height: 900 };
 const MOBILE = { name: 'mobile', width: 390, height: 844 };
@@ -364,7 +365,14 @@ function publicRow(r) {
 /**
  * HEAD/GET the public URL; ready only when HTTP 200 + image/* content-type.
  */
-function checkUrlReady(url, opts = {}) {
+async function checkUrlReady(url, opts = {}) {
+  // Batch 180 (L14): same urlSafety gate as httpUrlHasBytes — this
+  // raw probe previously validated nothing beyond the scheme prefix.
+  try {
+    await assertPublicUrl(String(url || ''));
+  } catch {
+    return { ready: false, status: 0, contentType: null, error: 'url_blocked' };
+  }
   const timeoutMs = Number(opts.timeoutMs) || 12000;
   return new Promise((resolve) => {
     if (!url || !/^https?:\/\//i.test(url)) {

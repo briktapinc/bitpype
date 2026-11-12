@@ -571,9 +571,9 @@ async function listPortalUsers({ q = '', limit = 200 } = {}) {
   const rows = needle
     ? await query(
         `SELECT ${cols} FROM client_portal_users
-          WHERE email LIKE :like OR business_name LIKE :like
+          WHERE email LIKE :like ESCAPE '\\' OR business_name LIKE :like ESCAPE '\\'
           ORDER BY id DESC LIMIT ${lim}`,
-        { like: `%${needle}%` }
+        { like: `%${needle.replace(/[\\%_]/g, (c) => `\\${c}`)}%` } // Batch 180 (L13)
       )
     : await query(`SELECT ${cols} FROM client_portal_users ORDER BY id DESC LIMIT ${lim}`);
   const defaults = await portalTabs.loadConfiguredDefaults();

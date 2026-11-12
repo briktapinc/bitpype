@@ -322,6 +322,7 @@ function ensureTables(db) {
       stripe_session_id TEXT NOT NULL DEFAULT '',
       stripe_payment_intent TEXT NOT NULL DEFAULT '',
       stripe_key_source TEXT NOT NULL DEFAULT '',
+      dispute_status TEXT NOT NULL DEFAULT '',
       customer_email TEXT NOT NULL DEFAULT '',
       variant_id INTEGER,
       variant_label TEXT NOT NULL DEFAULT '',
@@ -1140,6 +1141,11 @@ function ensureTables(db) {
     }
     if (orderCols.length && !orderCols.includes('variant_label')) {
       db.exec("ALTER TABLE ecommerce_orders ADD COLUMN variant_label TEXT NOT NULL DEFAULT ''");
+    }
+    // Batch 180 (L6): chargeback flag for tenant orders (existing
+    // DBs predate the column — the CREATE above covers fresh ones).
+    if (orderCols.length && !orderCols.includes('dispute_status')) {
+      db.exec("ALTER TABLE ecommerce_orders ADD COLUMN dispute_status TEXT NOT NULL DEFAULT ''");
     }
     // Batch 158: per-site reviews → social calendar toggle (existing
     // config rows predate the column).
@@ -5265,7 +5271,7 @@ function dbOrderLeadId(db, orderId) {
  * applyShopStripeEventInner and its outcome recorded; a redelivery
  * of a recorded id is a strict no-op returning the recorded outcome.
  */
-function applyShopStripeEvent(db, event) {
+function applyShopStripeEvent(db, event, verifiedLeadId = null) {
   ensureTables(db);
   const eventId = String((event && event.id) || '');
   if (eventId) {
@@ -5276,7 +5282,7 @@ function applyShopStripeEvent(db, event) {
       return { matched: true, duplicate: true, orderId: receipt.order_id, status: receipt.status };
     }
   }
-  const result = applyShopStripeEventInner(db, event);
+  const result = applyShopStripeEventInner(db, event, verifiedLeadId);
   if (eventId && result && result.matched && result.orderId) {
     db.prepare(
       'INSERT OR IGNORE INTO shop_processed_stripe_events (event_id, type, order_id, status) VALUES (?, ?, ?, ?)'
@@ -5285,10 +5291,63 @@ function applyShopStripeEvent(db, event) {
   return result;
 }
 
-function applyShopStripeEventInner(db, event) {
+function applyShopStripeEventInner(db, event, verifiedLeadId = null) {
   ensureTables(db);
   const type = String((event && event.type) || '');
   const obj = (event && event.data && event.data.object) || {};
+  // Batch 180 (C1): the event was signature-verified against ONE
+  // lead's secret (threaded from the webhook route). An order that
+  // belongs to a DIFFERENT lead must never transition on it — the
+  // pre-fix dispatcher matched orders by session/PI alone, so an
+  // event signed with an attacker's own secret could settle a
+  // victim's order. Mismatch = logged no-op.
+  const leadMismatch = (order) => {
+    if (verifiedLeadId != null && Number(order.lead_id) !== Number(verifiedLeadId)) {
+      console.warn(
+        '[siteModules] tenant webhook lead mismatch: verified lead',
+        verifiedLeadId,
+        'order',
+        order.id,
+        'belongs to lead',
+        order.lead_id,
+        '— event ignored'
+      );
+      return true;
+    }
+    return false;
+  };
+  // Batch 180 (L6): chargebacks. A dispute object carries the
+  // payment intent every paid order records. 'created'/'updated'
+  // flag the order (status untouched — the dispute may be won);
+  // 'closed' records the outcome, and a LOST dispute settles a
+  // paid order to 'refunded' (Stripe has withdrawn the funds).
+  // The webhook route notifies the owner off the dispute field.
+  if (type.startsWith('charge.dispute.')) {
+    if (type !== 'charge.dispute.created' && type !== 'charge.dispute.updated' && type !== 'charge.dispute.closed') {
+      return { matched: false, reason: 'unhandled event type' };
+    }
+    const pi = String(obj.payment_intent || '');
+    if (!pi) return { matched: false, reason: 'no payment intent' };
+    const disputedOrder = db
+      .prepare('SELECT * FROM ecommerce_orders WHERE stripe_payment_intent = ? ORDER BY id DESC LIMIT 1')
+      .get(pi);
+    if (!disputedOrder) return { matched: false, reason: 'unknown payment intent' };
+    if (leadMismatch(disputedOrder)) return { matched: false, reason: 'lead mismatch' };
+    let flag = 'open';
+    let status = disputedOrder.status;
+    if (type === 'charge.dispute.closed') {
+      flag = String(obj.status || 'closed');
+      if (flag === 'lost' && disputedOrder.status === 'paid') {
+        updateShopOrder(db, disputedOrder.id, { status: 'refunded' });
+        status = 'refunded';
+      }
+    }
+    db.prepare("UPDATE ecommerce_orders SET dispute_status = ?, updated_at = datetime('now') WHERE id = ?").run(
+      flag,
+      disputedOrder.id
+    );
+    return { matched: true, orderId: disputedOrder.id, status, dispute: flag };
+  }
   // Batch 143 (full review): tenant refunds were dropped entirely —
   // a fully-refunded order kept reading 'paid' in the portal, and a
   // refunded gallery photo stayed delivered. A FULL refund now marks
@@ -5303,6 +5362,7 @@ function applyShopStripeEventInner(db, event) {
       .prepare('SELECT * FROM ecommerce_orders WHERE stripe_payment_intent = ? ORDER BY id DESC LIMIT 1')
       .get(pi);
     if (!refundedOrder) return { matched: false, reason: 'unknown payment intent' };
+    if (leadMismatch(refundedOrder)) return { matched: false, reason: 'lead mismatch' };
     const amount = Number(obj.amount) || 0;
     const refunded = Number(obj.amount_refunded) || 0;
     // Batch 145 (F07): a late-paid flagged order ('paid_unfulfilled')
@@ -5326,6 +5386,7 @@ function applyShopStripeEventInner(db, event) {
   } else {
     return { matched: false, reason: 'unhandled event type' };
   }
+  if (leadMismatch(order)) return { matched: false, reason: 'lead mismatch' };
   // Batch 145 (external review F06): terminal-state protection.
   // 'refunded' is terminal for EVERY later event (a replayed
   // completion used to resurrect the order to 'paid' and re-notify
@@ -5343,7 +5404,39 @@ function applyShopStripeEventInner(db, event) {
     order.status === 'expired' &&
     (type === 'checkout.session.completed' || type === 'checkout.session.async_payment_succeeded')
   ) {
-    return { matched: true, orderId: order.id, status: order.status };
+    // Batch 180 (L9): the guard above still refuses to FULFIL —
+    // the session is dead and any booking hold was released. But
+    // money that was already in flight can still land behind the
+    // expiry (async methods settling around session expiry), and
+    // the pre-fix guard swallowed it silently: no flag, no refund
+    // attempt, nobody notified. Route a VERIFIED late payment
+    // (same amount/currency bar as the completion branch) into
+    // the F07 paid_unfulfilled + auto-refund backstop instead:
+    // booking orders flag through flagLatePaidBookingOrders;
+    // any other order is flagged directly and refunded through
+    // the same per-order-keyed attempt.
+    if (type === 'checkout.session.completed' && String(obj.payment_status || '') === 'unpaid') {
+      return { matched: true, orderId: order.id, status: order.status };
+    }
+    if (obj.amount_total != null && Number(obj.amount_total) !== Number(order.amount_cents)) {
+      return { matched: true, orderId: order.id, status: order.status, reason: 'amount mismatch' };
+    }
+    const eventCurrency = String(obj.currency || '').toUpperCase();
+    if (eventCurrency && eventCurrency !== String(order.currency || '').toUpperCase()) {
+      return { matched: true, orderId: order.id, status: order.status, reason: 'currency mismatch' };
+    }
+    updateShopOrder(db, order.id, {
+      stripe_payment_intent: String(obj.payment_intent || order.stripe_payment_intent || ''),
+    });
+    const freshOrder = db.prepare('SELECT * FROM ecommerce_orders WHERE id = ?').get(order.id) || order;
+    if (flagLatePaidBookingOrders(db, freshOrder)) {
+      return { matched: true, orderId: order.id, status: 'paid_unfulfilled', unfulfilled: true };
+    }
+    updateShopOrder(db, order.id, { status: 'paid_unfulfilled' });
+    attemptLatePaidBookingRefund(db, order.id).catch((e) =>
+      console.warn('[siteModules] late-paid expired-order refund attempt failed:', e && e.message)
+    );
+    return { matched: true, orderId: order.id, status: 'paid_unfulfilled', unfulfilled: true };
   }
   /* Batch 168 (S4#1): 'failed' is deliberately NOT in the guard
    * above. An order reaches 'failed' two ways: (a) checkout.session
@@ -5435,7 +5528,7 @@ function applyShopStripeEventInner(db, event) {
  * checkout.session.completed by its stamped metadata is what lets
  * one pipeline serve every surface without per-module forks.
  */
-function applyTenantStripeEvent(db, event) {
+function applyTenantStripeEvent(db, event, verifiedLeadId = null) {
   const type = String((event && event.type) || '');
   const obj = (event && event.data && event.data.object) || {};
   const meta = obj.metadata || {};
@@ -5444,9 +5537,9 @@ function applyTenantStripeEvent(db, event) {
     type.startsWith('customer.subscription.') ||
     type.startsWith('invoice.');
   if (isMembership) {
-    return { pipeline: 'membership', ...applyMembershipStripeEvent(db, event) };
+    return { pipeline: 'membership', ...applyMembershipStripeEvent(db, event, verifiedLeadId) };
   }
-  return { pipeline: 'shop', ...applyShopStripeEvent(db, event) };
+  return { pipeline: 'shop', ...applyShopStripeEvent(db, event, verifiedLeadId) };
 }
 
 /**
@@ -13081,9 +13174,32 @@ function upsertMemberSubscription(db, fields) {
   const memberId = Number(fields.member_id);
   let existing = null;
   if (fields.stripe_subscription_id) {
+    // Batch 180 (C1): the Stripe-id lookup is LEAD-SCOPED. The
+    // pre-fix global lookup let an event carrying one lead's ids
+    // rewrite (and thereby steal/cancel) a row owned by another
+    // lead. A row with this Stripe id under a DIFFERENT lead is
+    // returned untouched — never rewritten, and never duplicated
+    // by an insert (the partial unique index would reject it).
     existing = db
-      .prepare('SELECT * FROM member_subscriptions WHERE stripe_subscription_id = ?')
-      .get(String(fields.stripe_subscription_id));
+      .prepare('SELECT * FROM member_subscriptions WHERE stripe_subscription_id = ? AND lead_id = ?')
+      .get(String(fields.stripe_subscription_id), leadId);
+    if (!existing) {
+      const clash = db
+        .prepare('SELECT * FROM member_subscriptions WHERE stripe_subscription_id = ?')
+        .get(String(fields.stripe_subscription_id));
+      if (clash) {
+        console.warn(
+          '[siteModules] member subscription lead mismatch: stripe sub',
+          String(fields.stripe_subscription_id),
+          'belongs to lead',
+          clash.lead_id,
+          'event claimed lead',
+          leadId,
+          '— row left untouched'
+        );
+        return shapeMemberSubscription(clash);
+      }
+    }
   }
   if (!existing && !fields.stripe_subscription_id && fields.tier_id != null) {
     existing = db
@@ -13286,17 +13402,34 @@ function subscriptionPeriodEnd(obj) {
   return undefined; // unknown — keep whatever we already stored
 }
 
-function applyMembershipStripeEvent(db, event) {
+function applyMembershipStripeEvent(db, event, verifiedLeadId = null) {
   ensureTables(db);
   const type = String((event && event.type) || '');
   const obj = (event && event.data && event.data.object) || {};
   const meta = obj.metadata || {};
+  // Batch 180 (C1): same binding as the shop pipeline — the
+  // claimed/existing lead must equal the lead whose secret
+  // verified this event, before ANY subscription transition.
+  const leadMismatch = (claimedLeadId) => {
+    if (verifiedLeadId != null && Number(claimedLeadId) !== Number(verifiedLeadId)) {
+      console.warn(
+        '[siteModules] membership webhook lead mismatch: verified lead',
+        verifiedLeadId,
+        'event targets lead',
+        claimedLeadId,
+        '— event ignored'
+      );
+      return true;
+    }
+    return false;
+  };
 
   if (type === 'checkout.session.completed') {
     const leadId = Number(meta.bitpype_lead_id);
     const memberId = Number(meta.bitpype_member_id);
     const tierId = Number(meta.bitpype_tier_id);
     if (!leadId || !memberId) return { matched: false, reason: 'no membership metadata' };
+    if (leadMismatch(leadId)) return { matched: false, reason: 'lead mismatch' };
     const tier = tierId ? getMembershipTier(db, leadId, tierId) : null;
     const sub = upsertMemberSubscription(db, {
       lead_id: leadId,
@@ -13334,9 +13467,34 @@ function applyMembershipStripeEvent(db, event) {
     const stripeSubId = String(obj.id || '');
     if (!stripeSubId) return { matched: false, reason: 'no subscription id' };
     const existing = getMemberSubscriptionByStripeId(db, stripeSubId);
-    const leadId = Number(meta.bitpype_lead_id) || (existing ? existing.lead_id : 0);
-    const memberId = Number(meta.bitpype_member_id) || (existing ? existing.member_id : 0);
+    let leadId = Number(meta.bitpype_lead_id) || (existing ? existing.lead_id : 0);
+    let memberId = Number(meta.bitpype_member_id) || (existing ? existing.member_id : 0);
     if (!leadId || !memberId) return { matched: false, reason: 'unknown subscription' };
+    if (existing && leadMismatch(existing.lead_id)) return { matched: false, reason: 'lead mismatch' };
+    if (!existing && leadMismatch(leadId)) return { matched: false, reason: 'lead mismatch' };
+    if (existing) {
+      // Batch 180 (C1): when a row already owns this Stripe
+      // subscription, the ROW's identity is authoritative — event
+      // metadata claiming a different lead/member for a known
+      // subscription is itself a mismatch, never a rewrite.
+      if (
+        (Number(meta.bitpype_lead_id) && Number(meta.bitpype_lead_id) !== Number(existing.lead_id)) ||
+        (Number(meta.bitpype_member_id) && Number(meta.bitpype_member_id) !== Number(existing.member_id))
+      ) {
+        console.warn(
+          '[siteModules] membership webhook identity mismatch: subscription',
+          stripeSubId,
+          'belongs to lead',
+          existing.lead_id,
+          'member',
+          existing.member_id,
+          '— event ignored'
+        );
+        return { matched: false, reason: 'lead mismatch' };
+      }
+      leadId = existing.lead_id;
+      memberId = existing.member_id;
+    }
     const tierId = Number(meta.bitpype_tier_id) || (existing ? existing.tier_id : null);
     const tier = tierId ? getMembershipTier(db, leadId, tierId) : null;
     const fields = {
@@ -13368,6 +13526,7 @@ function applyMembershipStripeEvent(db, event) {
     const stripeSubId = require('./stripeShapes').invoiceSubscriptionId(obj);
     const existing = stripeSubId ? getMemberSubscriptionByStripeId(db, stripeSubId) : null;
     if (!existing) return { matched: false, reason: 'unknown subscription' };
+    if (leadMismatch(existing.lead_id)) return { matched: false, reason: 'lead mismatch' };
     if (type === 'invoice.payment_failed') {
       if (existing.status === 'active' || existing.status === 'trialing') {
         const sub = upsertMemberSubscription(db, {

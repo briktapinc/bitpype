@@ -28,10 +28,17 @@
     data-bitpype-module="1"
     data-bitpype-module-token=""
     data-bitpype-show-title="1"
+    data-bitpype-standalone-viewer="1"
     id="app"
   ></div>
   <script>
     (function () {
+      // Batch 180 (H3): this viewer is served from the platform
+      // origin under a sandboxed CSP (see server.js EMBED_MODULE_CSP).
+      // The marker tells module-embed.js it is rendering in the
+      // standalone viewer, where Custom Code must be isolated in its
+      // own sandboxed iframe instead of executing in this document.
+      window.__BP_EMBED_VIEWER__ = true;
       var params = new URLSearchParams(location.search);
       var token = params.get('token') || '';
       var item = params.get('slug') || params.get('item') || '';
@@ -41,9 +48,14 @@
         el.setAttribute('data-bitpype-api', location.origin);
       }
       if (item && !new URLSearchParams(location.search).get('bpItem')) {
-        var u = new URL(location.href);
-        u.searchParams.set('bpItem', item);
-        history.replaceState(null, '', u.pathname + '?' + u.searchParams.toString());
+        try {
+          var u = new URL(location.href);
+          u.searchParams.set('bpItem', item);
+          history.replaceState(null, '', u.pathname + '?' + u.searchParams.toString());
+        } catch (e) {
+          /* sandboxed (opaque-origin) documents may refuse the
+             history API — the slug still rides the API query. */
+        }
       }
     })();
   </script>

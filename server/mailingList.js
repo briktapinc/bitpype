@@ -183,8 +183,8 @@ async function listSubscribers(args = {}) {
   const where = [];
   const params = {};
   if (search) {
-    where.push('(email LIKE :q OR name LIKE :q)');
-    params.q = `%${search}%`;
+    where.push("(email LIKE :q ESCAPE '\\' OR name LIKE :q ESCAPE '\\')");
+    params.q = `%${search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`; // Batch 180 (L13)
   }
   if (status) {
     where.push('status = :st');

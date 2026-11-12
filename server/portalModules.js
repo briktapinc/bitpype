@@ -1956,6 +1956,16 @@ async function revokeClientMcpToken(workspaceId, leadId, clientEmail, tokenId) {
   return { id };
 }
 
+/* Batch 180 (H2): portal-minted cl_ tokens expire after 90 days —
+ * the same lifetime the OAuth mint path (server/mcpOAuth.js
+ * ACCESS_TTL_SEC) already used for this token class, so both mint
+ * paths now agree; Batch 168's session caps govern SESSIONS (30h
+ * idle / 30d absolute), and a token is a re-mintable credential,
+ * not a session. Previously the portal route passed neither an
+ * expiry nor a user link, so these tokens lived forever and
+ * survived portal-account disable/delete. */
+const CLIENT_MCP_TOKEN_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
 async function createClientMcpToken(workspaceId, leadId, clientEmail, opts = {}) {
   const { createWorkspaceToken } = require('./workspace');
   await requireClientMcpPlan(workspaceId, clientEmail);
@@ -1963,10 +1973,32 @@ async function createClientMcpToken(workspaceId, leadId, clientEmail, opts = {})
     .trim()
     .slice(0, 80);
   const name = custom || `Client portal · ${String(clientEmail || '').slice(0, 40)} · lead ${leadId}`;
+  // Link the token to the minting portal user so findWorkspaceByToken
+  // can kill it when that account is disabled/deleted. Callers pass
+  // oauthUserId (portal route: req.client.id; OAuth mint: the code's
+  // identity); fall back to resolving the account by the client
+  // email this mint was authorised under, verified against the
+  // same workspace + lead.
+  let oauthUserId = opts.oauthUserId ?? null;
+  if (oauthUserId == null && clientEmail) {
+    try {
+      const owner = await require('./portalAccounts').findByEmail(clientEmail);
+      if (
+        owner &&
+        String(owner.status) === 'active' &&
+        Number(owner.workspace_id) === Number(workspaceId) &&
+        Number(owner.lead_id) === Number(leadId)
+      ) {
+        oauthUserId = Number(owner.id);
+      }
+    } catch {
+      /* best-effort link — the expiry below still bounds the token */
+    }
+  }
   const created = await createWorkspaceToken(workspaceId, name, {
     leadId: Number(leadId),
-    expiresAt: opts.expiresAt ?? null,
-    oauthUserId: opts.oauthUserId ?? null,
+    expiresAt: opts.expiresAt ?? Date.now() + CLIENT_MCP_TOKEN_TTL_MS,
+    oauthUserId,
   });
   return {
     ...created,

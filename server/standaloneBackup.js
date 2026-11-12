@@ -727,7 +727,9 @@ async function copyTenantDb(workspaceId, destPath) {
  * copy (never the live DB) is scrubbed down to the target lead:
  *
  *   - every table carrying a lead_id column keeps only that lead's
- *     rows;
+ *     rows, and the same for the alternate linkage columns
+ *     (claimed_by_lead_id / scope_lead_id — Batch 178 router tables,
+ *     Batch 180 M2);
  *   - `leads` itself keeps only the target row;
  *   - `websites` keeps only the target website's row (other sites of
  *     the same lead are separate deliverables with their own backup);
@@ -782,6 +784,24 @@ function scrubTenantDbForLead(destPath, { leadId, websiteId }) {
           db.prepare(`DELETE FROM ${t} WHERE lead_id IS NULL OR lead_id <> ?`).run(Number(leadId));
         }
       }
+      // 1b — Batch 180 (M2): alternate lead-linkage columns. Batch
+      // 178's router tables carry no `lead_id` column, so step 1 left
+      // them whole: `router_leads` links to a lead only through
+      // `claimed_by_lead_id` (an unclaimed row belongs to the shared
+      // demand pool, not to this tenant) and `router_sweeps` only
+      // through `scope_lead_id` (NULL = a workspace-wide sweep).
+      // Scope any table carrying one of these columns the same way.
+      // `router_leads.sweep_run_id` is deliberately NOT a parent
+      // sweep column below: a lead this tenant claimed legitimately
+      // came from a workspace-wide sweep, and the dangling sweep id
+      // alone carries no other tenant's data.
+      const ALT_LEAD_COLS = ['claimed_by_lead_id', 'scope_lead_id'];
+      for (const t of tables) {
+        for (const col of ALT_LEAD_COLS) {
+          if (!colsOf[t].includes(col)) continue;
+          db.prepare(`DELETE FROM ${t} WHERE ${col} IS NULL OR ${col} <> ?`).run(Number(leadId));
+        }
+      }
       // 2 — per-lead namespaced settings keys: `lead_id.<id>.<rest>`.
       if (colsOf.settings && colsOf.settings.includes('key')) {
         const rows = db.prepare("SELECT key FROM settings WHERE key LIKE 'lead_id.%'").all();
@@ -826,9 +846,10 @@ function scrubTenantDbForLead(destPath, { leadId, websiteId }) {
       // may still name another lead. A table shape the scrub doesn't
       // understand must stop the backup, not leak silently.
       for (const t of tables) {
-        if (colsOf[t].includes('lead_id')) {
+        for (const col of ['lead_id', ...ALT_LEAD_COLS]) {
+          if (!colsOf[t].includes(col)) continue;
           const stray = db
-            .prepare(`SELECT COUNT(*) AS c FROM ${t} WHERE lead_id IS NOT NULL AND lead_id <> ?`)
+            .prepare(`SELECT COUNT(*) AS c FROM ${t} WHERE ${col} IS NOT NULL AND ${col} <> ?`)
             .get(Number(leadId)).c;
           if (stray > 0) {
             throw fail('SEED_FAILED', `tenant scrub left ${stray} foreign-lead row(s) in ${t}`);

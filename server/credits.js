@@ -372,7 +372,45 @@ async function grantFromCheckoutSession(session) {
  * line (whether spent-credit debt is collected is Ely's policy
  * call — the record is what was missing).
  */
-async function clawbackFromRefund({
+/* Batch 180 (M6): the cumulative math below is read-modify-write
+ * (prior-clawed sum -> increment -> applyDelta). Two DISTINCT
+ * partial-refund events for one charge carry distinct event ids,
+ * so the platform event-claim does not serialize them, and both
+ * in-flight calls used to read the same prior and over-claw (130%
+ * of a grant in the concurrent repro). Serialize clawbacks per
+ * grant (session id, falling back to payment intent) behind a
+ * promise-chain mutex — the same in-process discipline as the
+ * sqlite mutex in db.js — so the prior sum is always re-read
+ * after the previous clawback for the grant has fully landed.
+ * Sequential math is unchanged. */
+const clawbackLocks = new Map();
+async function withClawbackLock(key, fn) {
+  const prior = clawbackLocks.get(key) || Promise.resolve();
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const tail = prior.then(() => gate);
+  clawbackLocks.set(key, tail);
+  await prior;
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (clawbackLocks.get(key) === tail) clawbackLocks.delete(key);
+  }
+}
+
+async function clawbackFromRefund(args = {}) {
+  const key = args.checkoutSessionId
+    ? `session:${String(args.checkoutSessionId)}`
+    : args.paymentIntentId
+      ? `pi:${String(args.paymentIntentId)}`
+      : 'global';
+  return withClawbackLock(key, () => clawbackFromRefundInner(args));
+}
+
+async function clawbackFromRefundInner({
   checkoutSessionId,
   refundId,
   paymentIntentId,

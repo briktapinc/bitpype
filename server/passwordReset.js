@@ -11,7 +11,71 @@ function hashToken(token) {
   return crypto.createHash('sha256').update(String(token)).digest('hex');
 }
 
+/* Batch 180 (L1): per-email throttle for the STAFF reset path,
+ * mirroring the portal side's allowAccessEmail (portalAccounts.js:
+ * 3 hits per sliding hour in the durable Batch 55 rateLimitStore,
+ * in-memory Map only as the store-outage fallback). Before this,
+ * requestReset had NO per-email bucket — only the route's per-IP
+ * limit + captcha — so rotating IPs could keep deleting a victim's
+ * outstanding reset token (each request below deletes it before
+ * issuing a new one) and flood their inbox indefinitely. The
+ * bucket is staff-specific ('staff-reset-email'), not shared with
+ * the portal bucket. */
+/* rateLimitStore is required lazily inside allowResetEmail: a
+ * store module that cannot load is just another store outage and
+ * lands in the same in-memory fallback (and strict VM module
+ * loaders in the regression suites keep working). */
+const RESET_EMAIL_BUCKET = 'staff-reset-email';
+const RESET_EMAIL_WINDOW_MS = 60 * 60 * 1000;
+const RESET_EMAIL_MAX = 3;
+const resetEmailHits = new Map(); // fallback only: email -> { n, resetAt }
+let resetEmailFallbackWarnedAt = 0;
+function allowResetEmailMemory(email) {
+  const key = String(email || '');
+  const now = Date.now();
+  let row = resetEmailHits.get(key);
+  if (!row || now >= row.resetAt) {
+    row = { n: 0, resetAt: now + RESET_EMAIL_WINDOW_MS };
+    resetEmailHits.set(key, row);
+  }
+  if (row.n >= RESET_EMAIL_MAX) return false;
+  row.n += 1;
+  if (resetEmailHits.size > 5000) {
+    for (const [k, v] of resetEmailHits) {
+      if (now >= v.resetAt) resetEmailHits.delete(k);
+    }
+  }
+  return true;
+}
+async function allowResetEmail(email) {
+  const key = String(email || '');
+  try {
+    const rateLimitStore = require('./rateLimitStore');
+    const count = await rateLimitStore.recordHit(RESET_EMAIL_BUCKET, key, RESET_EMAIL_WINDOW_MS, Date.now());
+    return count <= RESET_EMAIL_MAX;
+  } catch (e) {
+    const now = Date.now();
+    if (now - resetEmailFallbackWarnedAt > 60 * 1000) {
+      resetEmailFallbackWarnedAt = now;
+      console.warn(
+        `[passwordReset] reset-email counter store unavailable (${e && e.message ? e.message : e}) — counted in-memory only`
+      );
+    }
+    return allowResetEmailMemory(key);
+  }
+}
+
 async function requestReset(email) {
+  // Throttle BEFORE any token work, keyed on the normalized email —
+  // a throttled request must not delete the victim's live reset
+  // token or send mail, and answers identically to any other
+  // request (enumeration-uniform, like the portal side).
+  const cleanEmail = String(email || '')
+    .trim()
+    .toLowerCase();
+  if (cleanEmail && !(await allowResetEmail(cleanEmail))) {
+    return { ok: true };
+  }
   const user = await findUserByEmail(email);
   // Always return ok to avoid email enumeration
   if (!user || String(user.status) === 'disabled') {
@@ -109,4 +173,4 @@ async function confirmReset(rawToken, newPassword) {
   return { ok: true };
 }
 
-module.exports = { requestReset, confirmReset };
+module.exports = { requestReset, confirmReset, allowResetEmail };

@@ -223,7 +223,7 @@ function unzipStore(buf) {
       cz.summary,
       // Batch 161 rotation applied below the Batch 156 note.
       // Batch 156 rotation: census 450 -> 453 (+1 STATIC +1 ESCAPED +1 SAFE in app.js — the fingerprint surfaces), safe classes 336 -> 339, RAW 78 / IDENT 36 and the 114-entry reviewed set unchanged; baseline regenerated.
-      { total: 507, STATIC: 188, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 41, RAW: 85 },
+      { total: 508, STATIC: 189, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 41, RAW: 85 },
       'SEC-13 census summary unchanged'
     );
     n += 1;
@@ -231,7 +231,7 @@ function unzipStore(buf) {
     const sha = crypto.createHash('sha256').update(multiset.join('\n')).digest('hex');
     assert.equal(
       sha,
-      'fcd696c84245a0d56bc865051805924f8c1449eec2eb3a8f3e2b6ab9a7fdcd5e',
+      '1d7b8e71343b27ffdda46074a83b68e601d78239445d2f66a5aea73ffc1c355d',
       'SEC-13 sink multiset byte-identical (Batch 161 rotation: census 453 -> 470 (+17 audited Assistant-surface sinks in app.js/portal.js — escape-first markdown renderer + esc()-wrapped usage templates; pairwise (file,kind,snippet) multiset diff vs the landed 159 census = exactly these additions plus pure line shifts, incl. the portal.js Assistant block relocation ahead of the Batch 117 panel; safe classes 339 -> 351, RAW 78 -> 81, IDENT 36 -> 38, reviewed set 119 entries; baseline regenerated — see batch103 narrative. Prior: Batch 136 finisher: +2 audited STATIC sinks in module-embed.js; RAW/IDENT multiset unchanged; Batch 139 finisher: +1 audited STATIC + 1 audited BUILDER sink in module-embed.js — pricing renderer; RAW/IDENT multiset unchanged)'
     );
     n += 1;

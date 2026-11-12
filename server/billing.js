@@ -442,8 +442,11 @@ async function createPortalSession(userId) {
       customer: user.stripe_customer_id,
       return_url: staffUrl('billing'),
     },
-    // Batch 154: keyed by customer + destination.
-    { idempotencyKey: stripeIdempotencyKey('billing-portal', user.stripe_customer_id, 'staff-billing') }
+    // Batch 180 (L5): "Manage billing" is a REPEATABLE action —
+    // the deterministic Batch 154 key replayed the first session
+    // for 24h (a possibly-dead portal door). Per-attempt key, like
+    // the other F06 fixes.
+    { idempotencyKey: stripeAttemptKey('billing-portal', user.stripe_customer_id, 'staff-billing') }
   );
   return { url: session.url };
 }
@@ -1394,6 +1397,16 @@ async function recordRefundFromCharge(charge, refund) {
   if (!refund || !refund.id) return null;
   const existing = await query('SELECT id FROM refunds WHERE stripe_refund_id = :rid LIMIT 1', { rid: refund.id });
   if (existing[0]) return existing[0].id;
+  // Batch 180 (M5): a charge stub with neither an id nor a payment
+  // intent can never be linked to a payment — writing the refunds
+  // row anyway leaves it unlinked AND makes the later REAL
+  // charge.refunded webhook early-return on the duplicate refund
+  // id, permanently losing the status update + credits clawback.
+  // Skip the row; the real charge event will record it properly.
+  if (!charge || (!charge.id && !charge.payment_intent)) {
+    console.warn('[billing] refund not recorded — charge carries no id or payment intent', refund.id);
+    return null;
+  }
 
   let paymentId = null;
   let userId = null;
@@ -1964,12 +1977,12 @@ async function billingSummary(userId, opts = {}) {
 async function listPayments({ limit = 100, q = '' } = {}) {
   const lim = Math.min(500, Math.max(1, Number(limit) || 100));
   if (String(q || '').trim()) {
-    const like = `%${String(q).trim()}%`;
+    const like = `%${String(q).trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`; // Batch 180 (L13)
     return query(
       `SELECT p.*, u.email AS user_email
        FROM payments p
        LEFT JOIN users u ON u.id = p.user_id
-       WHERE u.email LIKE :like OR p.stripe_invoice_id LIKE :like OR p.stripe_charge_id LIKE :like
+       WHERE u.email LIKE :like ESCAPE '\\' OR p.stripe_invoice_id LIKE :like ESCAPE '\\' OR p.stripe_charge_id LIKE :like ESCAPE '\\'
        ORDER BY p.id DESC LIMIT ${lim}`,
       { like }
     );
@@ -2019,9 +2032,49 @@ async function adminRefundPayment(paymentId, { amountCents, reason } = {}) {
     refund = await stripe.refunds.create(params, { idempotencyKey: refundKey });
   }
 
-  const charge = payment.stripe_charge_id
-    ? await stripe.charges.retrieve(payment.stripe_charge_id)
-    : { id: null, currency: payment.currency, customer: null, refunds: { data: [refund] } };
+  // Batch 180 (M5): a payment-intent-only payment (every credits
+  // pack — its payments row carries stripe_charge_id NULL) must
+  // still record its refund LINKED, or the credits clawback never
+  // runs. Resolve the real charge through the payment intent
+  // (latest_charge); when Stripe lookup is unavailable, synthesize
+  // a stub that at minimum carries the payment_intent (the linkage
+  // recordRefundFromCharge finds the payment by), the charge
+  // amount, and the cumulative refunded total — never the pre-fix
+  // { id: null } stub that wrote an unlinked refunds row and
+  // poisoned the real charge.refunded webhook into early-return.
+  let charge = null;
+  if (payment.stripe_charge_id) {
+    charge = await stripe.charges.retrieve(payment.stripe_charge_id);
+  } else if (payment.stripe_payment_intent_id) {
+    try {
+      const pi = await stripe.paymentIntents.retrieve(payment.stripe_payment_intent_id);
+      const latestCharge = pi && (typeof pi.latest_charge === 'string' ? pi.latest_charge : pi.latest_charge && pi.latest_charge.id);
+      if (latestCharge) charge = await stripe.charges.retrieve(latestCharge);
+    } catch {
+      charge = null;
+    }
+    if (!charge) {
+      let priorRefunded = 0;
+      try {
+        const prior = await query(
+          'SELECT COALESCE(SUM(amount_cents), 0) AS total FROM refunds WHERE payment_id = :pid',
+          { pid: payment.id }
+        );
+        priorRefunded = Number(prior[0] && prior[0].total) || 0;
+      } catch {
+        priorRefunded = 0;
+      }
+      charge = {
+        id: null,
+        payment_intent: payment.stripe_payment_intent_id,
+        amount: Number(payment.amount_cents) || 0,
+        amount_refunded: priorRefunded + (Number(refund.amount) || 0),
+        currency: payment.currency,
+        customer: null,
+        refunds: { data: [refund] },
+      };
+    }
+  }
 
   await recordRefundFromCharge(
     Object.assign(charge, { id: payment.stripe_charge_id || charge.id, currency: payment.currency }),

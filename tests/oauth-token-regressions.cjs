@@ -29,7 +29,7 @@ function loadOAuth(){
  const identity=(await db.query('SELECT * FROM client_portal_users WHERE id=1'))[0];
  const code=await oauth.createAuthorizationCode(pending,identity);
  const tokens=await oauth.handleTokenRequest({grant_type:'authorization_code',client_id:pending.client_id,redirect_uri:pending.redirect_uri,code,code_verifier:verifier});
- assert.equal(tokens.expires_in,90*86400);let row=(await db.query('SELECT * FROM workspace_tokens WHERE token_hash=:hash',{hash:hash(tokens.access_token)}))[0];assert.equal(row.oauth_user_id,1);assert(row.expires_at>Date.now()+89*86400000);assert(await workspace.findWorkspaceByToken(tokens.access_token));groups++;
+ assert.equal(tokens.expires_in,30*86400); // Batch 180 (M7): OAuth lifetimes aligned to the Batch 168 30-day absolute caplet row=(await db.query('SELECT * FROM workspace_tokens WHERE token_hash=:hash',{hash:hash(tokens.access_token)}))[0];assert.equal(row.oauth_user_id,1);assert(row.expires_at>Date.now()+29*86400000);assert(await workspace.findWorkspaceByToken(tokens.access_token));groups++;
  const rotated=await oauth.handleTokenRequest({grant_type:'refresh_token',client_id:pending.client_id,refresh_token:tokens.refresh_token});assert.notEqual(rotated.refresh_token,tokens.refresh_token);assert.equal(await workspace.findWorkspaceByToken(tokens.access_token),null);assert(await workspace.findWorkspaceByToken(rotated.access_token));groups++;
  await assert.rejects(oauth.handleTokenRequest({grant_type:'refresh_token',client_id:pending.client_id,refresh_token:tokens.refresh_token}),e=>e.oauth==='invalid_grant');groups++;
  await db.query("UPDATE client_portal_users SET status='disabled' WHERE id=1");assert.equal(await workspace.findWorkspaceByToken(rotated.access_token),null);

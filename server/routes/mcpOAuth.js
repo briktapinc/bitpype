@@ -108,12 +108,50 @@ publicRouter.post('/token', tokenLimit, async (req, res) => {
   }
 });
 
+/* Batch 180 (M7): the consent surface must apply the SAME portal
+ * session lifetime rules requireClient enforces (Batch 168 S1#2) —
+ * 30h idle (app locals portalIdleMs, same fallback) + the 30-day
+ * absolute cap from issuance (unstamped = expired, fail-closed).
+ * Mirrored locally, exactly like routes/portal.js carries its own
+ * copy and middleware.js carries another (the batch168 suite pins
+ * the copies to the same defaults); before this, loadPortalUser
+ * checked account status only, so a session past both caps could
+ * still mint 90/180-day OAuth tokens here. */
+const PORTAL_ABSOLUTE_SESSION_MS = Math.max(
+  24 * 60 * 60 * 1000,
+  // typeof-guarded, same as routes/portal.js: VM-loading suites may
+  // evaluate this file in a sandbox with no `process` global.
+  (typeof process !== 'undefined' ? Number(process.env.PORTAL_ABSOLUTE_SESSION_MS) : 0) || 30 * 24 * 60 * 60 * 1000
+);
+function portalSessionExpired(req) {
+  const session = req.session;
+  if (!session || !session.clientPortalId) return false;
+  const idleMs = Number(req.app && req.app.locals && req.app.locals.portalIdleMs) || 30 * 60 * 60 * 1000;
+  const last = Number(session.clientLastActiveAt) || 0;
+  if (last > 0 && Date.now() - last > idleMs) return true;
+  const issued = Number(session.clientIssuedAt) || 0;
+  if (!issued) return true;
+  return Date.now() - issued > PORTAL_ABSOLUTE_SESSION_MS;
+}
+
 async function loadPortalUser(req) {
   const id = req.session && req.session.clientPortalId;
   if (!id) return null;
+  if (portalSessionExpired(req)) return null;
   const user = await portal.findById(id);
   if (!user || String(user.status) !== 'active') return null;
   return user;
+}
+
+/* Batch 180 (L2): a pending authorization request is bound to the
+ * portal user who was authenticated when it was parked. A request
+ * parked pre-authentication (or by a different user) can never be
+ * consented by whoever happens to be signed in later — the flow
+ * must be restarted from /authorize while signed in, which parks a
+ * freshly-bound request (portal sign-in itself regenerates the
+ * session, destroying any earlier park, as before). */
+function pendingBoundTo(pending, user) {
+  return !!(pending && user && pending.boundPortalUserId != null && Number(pending.boundPortalUserId) === Number(user.id));
 }
 
 sessionRouter.get('/authorize', async (req, res) => {
@@ -138,7 +176,16 @@ sessionRouter.get('/authorize', async (req, res) => {
         );
     }
 
-    req.session.oauthPending = { ...validated.pending, pendingExpiresAt: Date.now() + PENDING_TTL_MS };
+    // Batch 180 (L2): bind the parked request to the portal user
+    // authenticated RIGHT NOW (null when nobody is signed in — such
+    // a park is display-only and can never be consented; see
+    // pendingBoundTo and the consent gate below).
+    const parkingUser = await loadPortalUser(req);
+    req.session.oauthPending = {
+      ...validated.pending,
+      pendingExpiresAt: Date.now() + PENDING_TTL_MS,
+      boundPortalUserId: parkingUser ? Number(parkingUser.id) : null,
+    };
     await saveSession(req);
     return res.sendFile(path.join(__dirname, '..', '..', 'public', 'authorize.html'));
   } catch (e) {
@@ -154,6 +201,15 @@ sessionRouter.get('/oauth/pending', async (req, res) => {
       return sendJson(res, 400, { ok: false, error: 'NO_PENDING', message: 'No pending authorization request' });
     }
     const user = await loadPortalUser(req);
+    // Batch 180 (L2): an authenticated user who is NOT the user this
+    // request was parked for never even sees it as consentable —
+    // destroy the park (a signed-out visitor still sees it, so the
+    // sign-in panel can explain which app is asking).
+    if (user && !pendingBoundTo(pending, user)) {
+      delete req.session.oauthPending;
+      await saveSession(req);
+      return sendJson(res, 400, { ok: false, error: 'NO_PENDING', message: 'No pending authorization request' });
+    }
     let planOk = false;
     let planError = null;
     if (user) {
@@ -197,6 +253,18 @@ sessionRouter.post('/oauth/consent', consentLimit, async (req, res) => {
     const user = await loadPortalUser(req);
     if (!user) {
       return sendJson(res, 401, { ok: false, error: 'AUTH_REQUIRED', message: 'Sign in to the client portal first' });
+    }
+    // Batch 180 (L2): consent fixation — the parked request must
+    // have been parked for THIS user (see pendingBoundTo). A
+    // mismatched or pre-auth park is destroyed, never consented.
+    if (!pendingBoundTo(pending, user)) {
+      delete req.session.oauthPending;
+      await saveSession(req);
+      return sendJson(res, 403, {
+        ok: false,
+        error: 'PENDING_USER_MISMATCH',
+        message: 'This authorization request was not started for your account. Start again from the app while signed in.',
+      });
     }
 
     const approve = !!(

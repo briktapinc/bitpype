@@ -450,8 +450,8 @@ async function main() {
     // assistantMd(...) writes in portal.js (multiset-proven in
     // the Batch 174 suite). Batch 171's own movement stays zero;
     // RAW and safe classes are unchanged.
-    assert.equal(cz.summary.total, 507, 'SEC-13 census total (Batch 174 re-pin — see note above)');
-    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 381, 'SEC-13 safe classes (Batch 176 re-pin: +1 STATIC from the pageAssistant shell reclassification — see batch103) unchanged by Batch 171');
+    assert.equal(cz.summary.total, 508, 'SEC-13 census total (Batch 174 re-pin — see note above)');
+    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 382, 'SEC-13 safe classes (Batch 176 re-pin: +1 STATIC from the pageAssistant shell reclassification — see batch103) unchanged by Batch 171');
     assert.equal(cz.summary.RAW, 85, 'SEC-13 RAW (Batch 176 re-pin: pageAssistant shell RAW -> STATIC — see batch103)');
     assert.equal(cz.summary.IDENT, 41, 'SEC-13 IDENT (Batch 174 re-pin — see note above)');
     const batchBlock = appJs.slice(appJs.indexOf('Batch 171 — Themes on the staff surfaces'));

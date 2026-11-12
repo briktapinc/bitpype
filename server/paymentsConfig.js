@@ -375,7 +375,12 @@ function constructEventAny(db, leadId, rawBody, signature) {
         ? clientForLayer(leadId, cand.source, cand.secretKey)
         : clientForLayer(leadId, cand.source, candidates.find((c) => c.secretKey)?.secretKey || 'whsec_only');
       const event = client.webhooks.constructEvent(rawBody, signature, cand.webhookSecret);
-      return { event, source: cand.source };
+      // Batch 180 (C1): report WHICH lead's secret verified. The
+      // workspace layer is not a lead's secret (it is the workspace
+      // owner's fallback shop key), so it verifies no lead — the
+      // caller must not bind the event to the peek-resolved lead
+      // when the workspace layer is the one that matched.
+      return { event, source: cand.source, leadId: cand.source === 'workspace' ? null : Number(leadId) };
     } catch (e) {
       lastError = e;
     }

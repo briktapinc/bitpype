@@ -330,12 +330,51 @@ async function insertReversal({ credit, key, amountCents, note }) {
   }
 }
 
+/* Batch 180 (M6): reverseForRefund / reverseForDispute are
+ * read-modify-write (already-reversed sum -> insert the increment).
+ * Per-refund unique keys stop REPLAYS, not two distinct partial
+ * refunds delivered concurrently — both read the same already-sum
+ * and over-reversed (3900c against a 3000c credit in the repro).
+ * Serialize reversals per charge (falling back to invoice) behind
+ * a promise-chain mutex, same discipline as db.js's sqlite mutex;
+ * the already-sum is re-read inside the lock. Sequential math is
+ * unchanged. */
+const reversalLocks = new Map();
+async function withReversalLock(key, fn) {
+  const prior = reversalLocks.get(key) || Promise.resolve();
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const tail = prior.then(() => gate);
+  reversalLocks.set(key, tail);
+  await prior;
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (reversalLocks.get(key) === tail) reversalLocks.delete(key);
+  }
+}
+
+function reversalLockKey({ invoiceId, chargeId }) {
+  return chargeId ? `charge:${String(chargeId)}` : invoiceId ? `inv:${String(invoiceId)}` : 'global';
+}
+
+async function reverseForRefund(args = {}) {
+  return withReversalLock(reversalLockKey(args), () => reverseForRefundInner(args));
+}
+
+async function reverseForDispute(args = {}) {
+  return withReversalLock(reversalLockKey(args), () => reverseForDisputeInner(args));
+}
+
 /**
  * Reverse commission for a refund, proportionally to how much of the
  * charge has been refunded in total (charge.amount_refunded), capped
  * at the credit's unreversed remainder. Exactly once per refund id.
  */
-async function reverseForRefund({ refundId, invoiceId, chargeId, chargeAmountCents, amountRefundedCents }) {
+async function reverseForRefundInner({ refundId, invoiceId, chargeId, chargeAmountCents, amountRefundedCents }) {
   await ensurePartnerTables();
   let credit = invoiceId ? await creditEntryForInvoice(invoiceId) : null;
   if (!credit && chargeId) {
@@ -366,7 +405,7 @@ async function reverseForRefund({ refundId, invoiceId, chargeId, chargeAmountCen
 }
 
 /** Reverse the full remaining commission for a disputed charge. */
-async function reverseForDispute({ disputeId, chargeId, invoiceId }) {
+async function reverseForDisputeInner({ disputeId, chargeId, invoiceId }) {
   await ensurePartnerTables();
   let credit = invoiceId ? await creditEntryForInvoice(invoiceId) : null;
   if (!credit && chargeId) {
@@ -407,10 +446,26 @@ async function balanceCents(partnerUserId) {
  * Amount defaults to the full payable balance; must be > 0 and no
  * more than the balance.
  */
-async function recordPayout({ partnerUserId, amountCents = null, method = '', note = '', paidBy }) {
+/* Batch 180 (L8): the $500 threshold was display-only and the
+ * balance-read -> payout-insert sequence was non-transactional, so
+ * two concurrent recordPayout calls could both pass the balance
+ * check and double-pay. Enforce the threshold server-side and
+ * serialize payouts per partner behind the same promise-chain
+ * mutex discipline as the M6 reversal locks. */
+async function recordPayout(args) {
+  return withReversalLock(`payout:${Number(args && args.partnerUserId)}`, () => recordPayoutInner(args));
+}
+
+async function recordPayoutInner({ partnerUserId, amountCents = null, method = '', note = '', paidBy }) {
   await ensurePartnerTables();
   const partner = Number(partnerUserId);
   const balance = await balanceCents(partner);
+  if (balance < PAYOUT_THRESHOLD_CENTS) {
+    throw Object.assign(new Error('Partner balance has not reached the $500 payout threshold.'), {
+      code: 'VALIDATION',
+      status: 400,
+    });
+  }
   const amount = amountCents != null ? Math.round(Number(amountCents)) : balance;
   if (!Number.isFinite(amount) || amount <= 0) {
     throw Object.assign(new Error('Payout amount must be positive.'), { code: 'VALIDATION', status: 400 });

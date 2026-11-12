@@ -257,9 +257,11 @@ async function openBillingPortal(workspaceId, clientEmail) {
       customer: user.stripe_customer_id,
       return_url: `${base()}/portal`,
     },
-    // Batch 154 (§9): deterministic idempotency key (customer + destination).
+    // Batch 180 (L5): per-attempt key — "Manage billing" is a
+    // repeatable action and the deterministic Batch 154 key
+    // replayed the first (possibly dead) portal session for 24h.
     {
-      idempotencyKey: require('./stripeIdempotency').stripeIdempotencyKey('billing-portal', user.stripe_customer_id, 'portal'),
+      idempotencyKey: require('./stripeIdempotency').stripeAttemptKey('billing-portal', user.stripe_customer_id, 'portal'),
     }
   );
   return { url: session.url };

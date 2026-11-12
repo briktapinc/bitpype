@@ -120,8 +120,13 @@ function leadsList(workspaceId, filters = {}) {
     const where = [];
     const params = [];
     if (q) {
-      where.push('(business_name LIKE ? OR city LIKE ? OR category LIKE ? OR email LIKE ? OR lead_group LIKE ?)');
-      const like = `%${q}%`;
+      // Batch 180 (L13): escape LIKE wildcards in the search term,
+      // same pattern as server/routes/domainApi.js's theme lead
+      // search — an unescaped %/_ broadens matching beyond the term.
+      where.push(
+        "(business_name LIKE ? ESCAPE '\\' OR city LIKE ? ESCAPE '\\' OR category LIKE ? ESCAPE '\\' OR email LIKE ? ESCAPE '\\' OR lead_group LIKE ? ESCAPE '\\')"
+      );
+      const like = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
       params.push(like, like, like, like, like);
     }
     if (status) {
@@ -3262,7 +3267,12 @@ async function applyCropToSiteImage(workspaceId, siteId, imageUrl, cropOpts) {
   // staging folder or the legacy one — crop whichever actually holds it.
   let abs = null;
   for (const folder of require('../src/assetValidation').siteStorageFolders(workspaceId, siteId)) {
-    const candidate = path.join(openPreview.exportRoot(), folder, rel);
+    // Batch 180 (L15): containment, as in the sibling path readers —
+    // `rel` only had to carry an images//assets/ prefix, so a stored
+    // value like images/../../… resolved outside the site folder.
+    const base = path.resolve(openPreview.exportRoot(), folder);
+    const candidate = path.resolve(base, rel);
+    if (!candidate.startsWith(base + path.sep)) continue;
     if (fs.existsSync(candidate)) {
       abs = candidate;
       break;

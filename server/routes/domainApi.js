@@ -1468,7 +1468,7 @@ router.delete('/leads/:leadId/contact/notes/:noteId', sessionOnly, denyLeadScope
     fail(res, e);
   }
 });
-router.post('/email/compose', pinTokenLeadFilter, scopeBodyLead, (req, res) => {
+router.post('/email/compose', denyLeadScopedToken, pinTokenLeadFilter, scopeBodyLead, (req, res) => {
   try {
     ok(
       res,
@@ -1488,14 +1488,14 @@ router.post('/email/send', requireRole('owner', 'admin'), async (req, res) => {
     fail(res, e, e.code === 'SEND_FAILED' ? 502 : 400);
   }
 });
-router.post('/sms/queue', pinTokenLeadFilter, (req, res) => {
+router.post('/sms/queue', denyLeadScopedToken, pinTokenLeadFilter, (req, res) => {
   try {
     ok(res, domain.smsQueue(req.auth.workspaceId, req.body || {}));
   } catch (e) {
     fail(res, e);
   }
 });
-router.post('/email/draft', pinTokenLeadFilter, async (req, res) => {
+router.post('/email/draft', denyLeadScopedToken, pinTokenLeadFilter, async (req, res) => {
   try {
     ok(res, await domain.emailDraft(req.auth.workspaceId, req.body || {}));
   } catch (e) {

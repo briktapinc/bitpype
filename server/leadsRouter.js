@@ -814,6 +814,20 @@ function publishLead(db, input = {}, opts = {}) {
   const sourceUrl = String(input.source_url || input.sourceUrl || '').trim();
   if (!sourceUrl)
     throw fail('VALIDATION', 'source_url is required — a lead never exists without its original post link');
+  // Batch 180 (H5): source_url is rendered as a clickable href in the
+  // staff queue and subscriber feeds, so only http(s) post links may
+  // be stored — a javascript:/data: URL must never enter the pool
+  // (this is the ONLY ingest path that stores source_url, so this
+  // one check covers MCP, REST and the cross-platform merge below,
+  // whose sources_json entry is built from this same value).
+  let parsedUrl = null;
+  try {
+    parsedUrl = new URL(sourceUrl);
+  } catch {
+    parsedUrl = null;
+  }
+  if (!parsedUrl || (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:'))
+    throw fail('VALIDATION', 'source_url must be an http(s) link to the original post');
   const typeLabel = String(input.lead_type_label || input.lead_type || '')
     .trim()
     .slice(0, 120);
@@ -1090,6 +1104,19 @@ function claimLead(db, leadId, routerLeadId) {
     }
     throw fail('CONFLICT', 'This lead was already claimed by another business', 409);
   }
+  // Batch 180 (M1): a claim must satisfy the SAME predicate the feed
+  // applies (feedForLead above) — a follow match (type + town/area +
+  // live platform + request kind, via followMatchesLead) and
+  // freshness. Before this, claim checked only published/not-removed/
+  // unclaimed, so any entitled subscriber could enumerate sequential
+  // ids and exclusively claim leads never routed to them — unmatched
+  // types/towns/kinds and stale leads alike. (My own earlier claim
+  // already returned above, so the idempotent retry is unaffected.)
+  const follows = db.prepare('SELECT * FROM router_follows WHERE lead_id = ?').all(lid);
+  if (!follows.some((f) => followMatchesLead(db, f, row)))
+    throw fail('FORBIDDEN', 'This lead does not match any of your follows', 403);
+  if (withFreshness(db, row).effective_status === 'stale')
+    throw fail('VALIDATION', 'This lead is no longer fresh enough to claim');
   const info = db
     .prepare(
       "UPDATE router_leads SET status = 'claimed', claimed_by_lead_id = ?, claimed_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND claimed_by_lead_id IS NULL AND status != 'removed'"

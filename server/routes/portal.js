@@ -1445,7 +1445,35 @@ router.post('/site/agent-chat/stream', requireClient, agentChatLimit, async (req
     Connection: 'keep-alive',
     'X-Accel-Buffering': 'no',
   });
+  // Batch 180 (L21): heartbeat + disconnect handling, mirroring the
+  // webinar SSE pattern (routes/modulesPublic.js). A ': ping' every
+  // 25s keeps proxies from dropping the idle stream mid-turn; on
+  // client disconnect the heartbeat stops and send() becomes a
+  // no-op so nothing more is written to a dead socket. The shared
+  // turn pipeline exposes no abort hook, so a disconnected turn
+  // still finishes server-side — its bookkeeping (transcript +
+  // summary in runSiteChatTurnForPortal) is exactly the JSON
+  // route's, and the result is simply never delivered.
+  let clientGone = false;
+  const heartbeat = setInterval(() => {
+    if (clientGone) return;
+    try {
+      res.write(': ping\n\n');
+    } catch {
+      /* client went away */
+    }
+  }, 25000);
+  if (typeof heartbeat.unref === 'function') heartbeat.unref();
+  // NOTE: res 'close', not req 'close' — on a POST stream the
+  // request 'close' event fires as soon as the body is consumed
+  // (verified on this Node), which would mute the whole turn; the
+  // response 'close' is the real disconnect signal here.
+  res.on('close', () => {
+    clientGone = true;
+    clearInterval(heartbeat);
+  });
   const send = (type, payload) => {
+    if (clientGone) return;
     try {
       res.write(`event: ${type}\ndata: ${JSON.stringify(payload || {})}\n\n`);
     } catch {
@@ -1456,9 +1484,22 @@ router.post('/site/agent-chat/stream', requireClient, agentChatLimit, async (req
     const data = await runSiteChatTurnForPortal(req, send);
     send('done', data);
   } catch (e) {
-    send('error', { error: e.message || 'Design chat failed', code: e.code || 'ERROR' });
+    // Batch 180 (L20): shape the error through apiErrors — the same
+    // masking the JSON route's fail() applies — instead of sending
+    // raw e.message (driver/SQL internals) in the error event.
+    const shaped = apiErrors.shapeError(e, 500, 'portal');
+    const payload = { error: shaped.message || 'Design chat failed', code: shaped.code || 'ERROR' };
+    if (shaped.ref) payload.ref = shaped.ref;
+    send('error', payload);
   } finally {
-    res.end();
+    clearInterval(heartbeat);
+    if (!clientGone) {
+      try {
+        res.end();
+      } catch {
+        /* client went away */
+      }
+    }
   }
 });
 
@@ -3559,6 +3600,10 @@ router.post('/mcp/token', requireClient, actionLimit, async (req, res) => {
       res,
       await portal.createClientMcpToken(req.client.workspace_id, req.client.lead_id, req.client.email, {
         name: body.name,
+        // Batch 180 (H2): bind the token to the minting portal user —
+        // it dies when this account is disabled/deleted, and gets
+        // the default 90-day expiry in createClientMcpToken.
+        oauthUserId: req.client.id,
       })
     );
   } catch (e) {

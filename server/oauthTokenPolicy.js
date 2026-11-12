@@ -1,5 +1,7 @@
 'use strict';
-const ACCESS_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+/* Batch 180 (M7): aligned to the Batch 168 30-day absolute session
+ * cap (was 90 days) — see server/mcpOAuth.js. */
+const ACCESS_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 // Historical OAuth rows were minted with this fixed issuer label. Bind them using
 // refresh metadata first; a unique exact legacy issuer label is the fallback.
 async function backfill(query, { dryRun = false } = {}) {

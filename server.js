@@ -113,11 +113,33 @@ app.use(securityHeaders.securityHeaders());
 // app CSP's frame-ancestors 'self' would block that, so embeds widen it here.
 // (The X-Frame-Options removal is a no-op since Batch 47 disabled helmet's
 // frameguard; kept so a future helmet change can't silently re-break embeds.)
+/* Batch 180 (external review H3): the standalone module viewer is
+ * served from the PLATFORM origin, but it renders tenant modules —
+ * including Custom Code blocks whose owner JS is sanctioned only on
+ * the owner's own site origin (Batch 143 doctrine; in-page mounts on
+ * customer sites are untouched by this header). The old override
+ * replaced the app CSP with only `frame-ancestors *`, so tenant JS
+ * ran with full platform-origin privileges. The viewer document now
+ * carries the same sandbox treatment as site previews
+ * (previewSecurity.isolateStaticPreview): a CSP `sandbox` directive
+ * with NO allow-same-origin forces the document into an opaque
+ * origin — its scripts still run (module rendering, checkout
+ * redirects), but it holds no platform cookies/DOM, and its API
+ * calls arrive with Origin: null, which rejectOpaqueAppRequests
+ * already strips of credentials outside the public token APIs.
+ * module-embed.js additionally renders Custom Code inside its own
+ * sandboxed iframe in this viewer (defence in depth). */
+const EMBED_MODULE_CSP =
+  "sandbox allow-scripts allow-forms allow-popups allow-downloads allow-top-navigation-by-user-activation; default-src 'self' https: data: blob:; script-src 'self' https: 'unsafe-inline'; style-src 'self' https: 'unsafe-inline'; img-src 'self' https: data: blob:; font-src 'self' https: data:; media-src 'self' https: data: blob:; connect-src 'self' https:; frame-src 'self' https:; object-src 'none'; base-uri 'self'; form-action https:; frame-ancestors *";
 app.use('/embed', (req, res, next) => {
   res.removeHeader('X-Frame-Options');
   res.setHeader(
     'Content-Security-Policy',
-    req.path === '/captcha.html' ? require('./server/previewSecurity').CAPTCHA_CSP : 'frame-ancestors *'
+    req.path === '/captcha.html'
+      ? require('./server/previewSecurity').CAPTCHA_CSP
+      : req.path === '/module.html'
+        ? EMBED_MODULE_CSP
+        : 'frame-ancestors *'
   );
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   next();
@@ -1202,8 +1224,19 @@ if (SINGLE_SITE) {
   // under the exports root until they age out, and the
   // ownership-checked attachment handlers are the only read path.
   app.use('/site-previews', (req, res, next) => {
-    const seg = String(req.path || '').split('/').filter(Boolean)[0];
+    // Batch 180 (external review M3): decode BEFORE comparing.
+    // analyzePreviewPath decodes each segment until stable and
+    // re-splits decoded '/' parts (the Batch 67 H-1 treatment), so
+    // %61ssistant-chat, assistant-chat%2f… and sit%65-chat all
+    // resolve to the real private directory name; malformed
+    // encoding fails closed with the same 404.
+    const analysis = require('./server/previewSecurity').analyzePreviewPath(req.path);
+    if (analysis.malformed) return res.status(404).send('Not found');
+    const seg = analysis.segs[0];
     if (seg === 'assistant-chat' || seg === 'site-chat') return res.status(404).send('Not found');
+    if (analysis.segs.some((s) => s === 'assistant-chat' || s === 'site-chat')) {
+      return res.status(404).send('Not found');
+    }
     return next();
   });
   app.use(

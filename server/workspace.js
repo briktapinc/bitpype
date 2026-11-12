@@ -162,13 +162,15 @@ async function createWorkspaceToken(
     throw Object.assign(new Error(`Unknown token class: ${cleanTokenClass}`), { code: 'INVALID' });
   }
   const scopedLead = leadId != null && Number.isInteger(Number(leadId)) && Number(leadId) > 0 ? Number(leadId) : null;
+  // Batch 180 (H2): expiry and identity are validated independently —
+  // a lead-scoped token may carry either or both (portal-minted tokens
+  // now always carry both), but each present value must be valid, and
+  // either one still requires the lead scope it binds to.
   if (
     (expiresAt != null || oauthUserId != null) &&
     (!scopedLead ||
-      !Number.isSafeInteger(expiresAt) ||
-      expiresAt <= Date.now() ||
-      !Number.isSafeInteger(oauthUserId) ||
-      oauthUserId <= 0)
+      (expiresAt != null && (!Number.isSafeInteger(expiresAt) || expiresAt <= Date.now())) ||
+      (oauthUserId != null && (!Number.isSafeInteger(oauthUserId) || oauthUserId <= 0)))
   ) {
     throw Object.assign(new Error('Invalid OAuth token lifetime or identity'), { code: 'INVALID' });
   }
@@ -188,6 +190,20 @@ async function createWorkspaceToken(
 const tokenTouchAt = new Map(); // token_id -> last touch ms
 const TOKEN_TOUCH_MIN_MS = 5 * 60 * 1000;
 
+/* Batch 180 (H2): client (cl_) tokens get NO lifetime/account
+ * bypasses. A staff ws_ token may still carry NULL expiry and no
+ * portal identity, but a cl_ token must have a FINITE expiry AND be
+ * linked (oauth_user_id) to an ACTIVE portal user for its own
+ * workspace + lead — the second EXISTS clause below. Kind is keyed
+ * on the token PREFIX (cl_ vs ws_), not lead_id alone: ws_-prefixed
+ * service tokens can carry a lead_id and keep staff semantics.
+ * Legacy OAuth cl_ tokens are bound + dated by oauthTokenPolicy's
+ * migrate-time backfill; legacy PORTAL-minted cl_ tokens (never
+ * covered by that backfill) stored NULL in both columns and are
+ * now rejected outright rather than grandfathered forever — the
+ * owner re-mints from the portal, where new tokens are linked +
+ * expiring, and a disabled/deleted client's token dies with the
+ * account instead of surviving it. */
 async function findWorkspaceByToken(rawToken) {
   const tokenHash = hashToken(rawToken);
   const rows = await query(
@@ -199,6 +215,13 @@ async function findWorkspaceByToken(rawToken) {
        AND (t.oauth_user_id IS NULL OR EXISTS (
          SELECT 1 FROM client_portal_users u WHERE u.id = t.oauth_user_id
            AND u.workspace_id = t.workspace_id AND u.lead_id = t.lead_id AND u.status = 'active'
+       ))
+       AND (COALESCE(t.token_prefix, '') NOT LIKE 'cl_%' OR (
+         t.expires_at IS NOT NULL
+         AND EXISTS (
+           SELECT 1 FROM client_portal_users u WHERE u.id = t.oauth_user_id
+             AND u.workspace_id = t.workspace_id AND u.lead_id = t.lead_id AND u.status = 'active'
+         )
        ))
      LIMIT 1`,
     { tokenHash, now: Date.now() }

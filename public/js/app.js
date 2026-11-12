@@ -15029,7 +15029,16 @@ async function routerRenderQueue(pane) {
     card.append(rtStaffEl('p', 'hint', `${lead.poster_name || 'Unknown poster'} · ${[lead.town, lead.area].filter(Boolean).join(' · ') || 'No location stated'} · Posted ${lead.posted_at || 'time unknown'}`));
     if (lead.detail) card.append(rtStaffEl('p', null, lead.detail));
     const link = document.createElement('a');
-    link.href = lead.source_url;
+    // Batch 180 (H5): only http(s) source URLs become a live href —
+    // a stored javascript:/data: URL falls back to '#' (inert).
+    let safeSourceUrl = '#';
+    try {
+      const u = new URL(String(lead.source_url || ''));
+      if (u.protocol === 'http:' || u.protocol === 'https:') safeSourceUrl = u.href;
+    } catch {
+      /* not a URL at all — keep '#' */
+    }
+    link.href = safeSourceUrl;
     link.target = '_blank';
     link.rel = 'noopener';
     link.textContent = 'Original post';

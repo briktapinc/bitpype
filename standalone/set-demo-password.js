@@ -35,6 +35,18 @@ if (!email || !email.includes('@')) {
   process.exit(2);
 }
 
+// Batch 180 (I1): this helper must only ever reset the DEMO portal
+// account the generator seeds (server/standaloneBackup.js
+// DEMO_PORTAL_EMAIL) — never a real client's portal account, which
+// shares the same table. Refuse any other target outright, so a
+// future caller in a lower-privilege context cannot turn this into
+// an account-takeover primitive.
+const DEMO_PORTAL_EMAIL = 'demo-owner@standalone.invalid';
+if (email !== DEMO_PORTAL_EMAIL) {
+  console.error(`refusing: ${email} is not the demo portal account — nothing changed`);
+  process.exit(2);
+}
+
 const dbPath = process.env.SQLITE_PATH || '/data/platform.sqlite';
 if (!fs.existsSync(dbPath)) {
   console.error(`platform database not found at ${dbPath}`);

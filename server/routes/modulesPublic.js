@@ -44,6 +44,144 @@ function gateOpts(req) {
   };
 }
 
+/* Batch 180 (external review M4): the Batch 165 webinar public API
+ * resolved its embed by token but never ran the membership gate, so
+ * a webinar sitting on a members-gated page was anonymously
+ * reachable while the generic payload for the same token was
+ * locked. gatedSlugForEmbed mirrors siteModules' gatedSlugFor
+ * intersection rule (the embed's own page anchors the gate; a
+ * client-claimed page can only ADD gating, never remove it), using
+ * the same route normalization siteModules prefers. */
+function gatedSlugForEmbed(db, embedRow, opts) {
+  let normalizeRoute = null;
+  try {
+    normalizeRoute = require('../../src/websiteEngine').normalizeRoute;
+  } catch {
+    normalizeRoute = null;
+  }
+  const norm = (s) =>
+    typeof normalizeRoute === 'function'
+      ? normalizeRoute(s)
+      : String(s || '')
+          .trim()
+          .toLowerCase()
+          .replace(/^\/+|\/+$/g, '');
+  const own = norm(embedRow ? embedRow.target_page_slug : '');
+  const claimed = norm((opts && opts.pageSlug) || '');
+  if (!claimed || claimed === own) return own;
+  if (siteModules.pageIsGated(db, embedRow.lead_id, claimed)) return claimed;
+  return own;
+}
+
+/** The generic route's gate, verbatim: memberGateCheck over the
+ * gated slug with the request's gateOpts, refusing locked callers
+ * with the same MEMBER_LOCKED error the other gated writes throw. */
+function assertWebinarMemberGate(db, embedRow, req) {
+  const opts = gateOpts(req);
+  const gate = siteModules.memberGateCheck(db, embedRow.lead_id, gatedSlugForEmbed(db, embedRow, opts), opts);
+  if (gate.locked) {
+    const err = new Error(
+      gate.needs === 'subscription'
+        ? 'This needs a paid membership — please join a plan to continue.'
+        : 'This is members-only — please log in to continue.'
+    );
+    err.code = 'MEMBER_LOCKED';
+    err.status = 401;
+    err.gate = siteModules.gateWallFields(gate);
+    throw err;
+  }
+}
+
+/** Webinar route error shape: MEMBER_LOCKED answers 401 with the
+ * gate wall fields, exactly like the gated module writes below. */
+function failWebinar(res, e) {
+  if (e && e.code === 'MEMBER_LOCKED') {
+    return res.status(401).json({ ok: false, error: e.message, code: e.code, gate: e.gate || null });
+  }
+  return fail(res, e, 500);
+}
+
+/* Batch 180 (external review L7): shop / cart / membership checkout
+ * took the post-payment returnUrl from the client with only a
+ * protocol check in the engine, so a genuine Stripe session could
+ * send the buyer to any phishing origin afterwards. The booking
+ * flow's Batch 145 F08 fix set the pattern: the return URL is
+ * DERIVED from the site's own origin, never trusted from the
+ * client. Here the client value survives only when its origin is
+ * one this lead actually controls — the site's own origin(s)
+ * (custom_domain / preview_url on its website rows, plus its
+ * linked site_domains) or the platform origin (APP_URL, which is
+ * also the standalone viewer's and a single-site clone's origin).
+ * Anything else falls back to the derived site URL (embed page on
+ * the site's own origin, mirroring the booking derivation); with no
+ * derivable site origin it falls back to '' and the engine fails
+ * closed. Never throws — checkout error behaviour is unchanged. */
+function boundReturnUrl(db, token, raw) {
+  let embed = null;
+  try {
+    embed = siteModules.getEmbedRowByToken(db, String(token || ''));
+  } catch {
+    embed = null;
+  }
+  if (!embed) return '';
+  const leadId = Number(embed.lead_id);
+  const origins = new Set();
+  const addOrigin = (value) => {
+    const v = String(value || '').trim();
+    if (!v) return;
+    try {
+      const u = new URL(/^https?:\/\//i.test(v) ? v : `https://${v}`);
+      if (/^https?:$/.test(u.protocol)) origins.add(u.origin);
+    } catch {
+      /* unparseable configured value — not an allowed origin */
+    }
+  };
+  let siteBase = '';
+  try {
+    const sites = db.prepare('SELECT custom_domain, preview_url FROM websites WHERE lead_id = ?').all(leadId);
+    for (const s of sites) {
+      addOrigin(s.custom_domain);
+      addOrigin(s.preview_url);
+    }
+    const latest = db
+      .prepare('SELECT custom_domain, preview_url FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+      .get(leadId);
+    if (latest) {
+      const domain = String(latest.custom_domain || '').trim();
+      siteBase = domain
+        ? (/^https?:\/\//i.test(domain) ? domain : `https://${domain}`).replace(/\/+$/, '')
+        : String(latest.preview_url || '')
+            .trim()
+            .replace(/\/+$/, '');
+    }
+  } catch {
+    /* no websites table/rows — no site origin to allow or derive */
+  }
+  try {
+    const doms = db.prepare('SELECT domain_name, public_url FROM site_domains WHERE lead_id = ?').all(leadId);
+    for (const d of doms) {
+      addOrigin(d.domain_name);
+      addOrigin(d.public_url);
+    }
+  } catch {
+    /* site_domains not present in this workspace DB */
+  }
+  addOrigin(process.env.APP_URL || '');
+  const base = String(raw || '').split('#')[0];
+  let parsed = null;
+  try {
+    parsed = new URL(base);
+  } catch {
+    parsed = null;
+  }
+  if (parsed && /^https?:$/.test(parsed.protocol) && origins.has(parsed.origin)) return base;
+  if (!siteBase) return '';
+  const slug = String(embed.target_page_slug || '')
+    .trim()
+    .replace(/^\/+/, '');
+  return slug && slug !== 'index' && slug !== 'home' ? `${siteBase}/${slug}` : `${siteBase}/`;
+}
+
 /**
  * Batch 21b: email the site owner about a visitor-created record
  * (booking / estimate request / member signup). Fire-and-forget after
@@ -150,6 +288,11 @@ async function resolveSiteWebinar(req) {
     siteModules.ensureTables(db);
     const row = siteModules.getEmbedRowByToken(db, token);
     if (!row || row.module_type !== 'webinar' || !siteModules.moduleEmbedActive(row)) return null;
+    // Batch 180 (M4): every webinar route resolves through here, so
+    // the membership gate lives in this one place — list, state,
+    // register, messages and the chat stream all refuse locked
+    // callers before any webinar data moves.
+    assertWebinarMemberGate(db, row, req);
     return { workspaceId, leadId: Number(row.lead_id) };
   });
   if (!scope) return null;
@@ -191,7 +334,7 @@ router.get('/webinar/:token/list', readLimit, async (req, res) => {
     const list = await webinarsEngine.listWebinarsForSite(scope.workspaceId, scope.leadId);
     return res.json({ ok: true, webinars: list.map(publicWebinarShape) });
   } catch (e) {
-    return fail(res, e, 500);
+    return failWebinar(res, e);
   }
 });
 
@@ -213,7 +356,7 @@ router.get('/webinar/:token/:slug/state', readLimit, async (req, res) => {
       messages,
     });
   } catch (e) {
-    return fail(res, e, 500);
+    return failWebinar(res, e);
   }
 });
 
@@ -240,7 +383,7 @@ router.post('/webinar/:token/:slug/register', webinarGateLimit, async (req, res)
         .json({ ok: false, error: 'That code does not match this webinar — check it and try again' });
     }
     if (e.code === 'VALIDATION') return res.status(400).json({ ok: false, error: e.message });
-    return fail(res, e, 500);
+    return failWebinar(res, e);
   }
 });
 
@@ -261,7 +404,7 @@ router.get('/webinar/:token/:slug/messages', readLimit, async (req, res) => {
       status: ctx.webinar.status,
     });
   } catch (e) {
-    return fail(res, e, 500);
+    return failWebinar(res, e);
   }
 });
 
@@ -320,7 +463,7 @@ router.get('/webinar/:token/:slug/chat/stream', async (req, res) => {
     }, 25000);
     req.on('close', () => clearInterval(heartbeat));
   } catch (e) {
-    return fail(res, e, 500);
+    return failWebinar(res, e);
   }
 });
 
@@ -340,7 +483,7 @@ router.post('/webinar/:token/:slug/messages', webinarChatLimit, async (req, res)
     return res.json({ ok: true, message });
   } catch (e) {
     if (e.code === 'VALIDATION') return res.status(400).json({ ok: false, error: e.message });
-    return fail(res, e, 500);
+    return failWebinar(res, e);
   }
 });
 
@@ -430,7 +573,7 @@ router.post('/:token/checkout', checkoutLimit, async (req, res) => {
         {
           productId: body.productId || body.product_id || body.id,
           variantId: body.variantId || body.variant_id || undefined,
-          returnUrl: body.returnUrl || body.return_url || '',
+          returnUrl: boundReturnUrl(db, req.params.token, body.returnUrl || body.return_url || ''),
         },
         gateOpts(req)
       )
@@ -458,7 +601,7 @@ router.post('/:token/checkout-cart', checkoutLimit, async (req, res) => {
         req.params.token,
         {
           items: body.items || body.lines || [],
-          returnUrl: body.returnUrl || body.return_url || '',
+          returnUrl: boundReturnUrl(db, req.params.token, body.returnUrl || body.return_url || ''),
         },
         gateOpts(req)
       )
@@ -960,7 +1103,7 @@ router.post('/:token/members/checkout', checkoutLimit, async (req, res) => {
         req.params.token,
         {
           tierId: body.tierId || body.tier_id || body.id,
-          returnUrl: body.returnUrl || body.return_url || '',
+          returnUrl: boundReturnUrl(db, req.params.token, body.returnUrl || body.return_url || ''),
         },
         gateOpts(req)
       )

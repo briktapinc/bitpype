@@ -449,8 +449,8 @@ const TOOLS = {
       const where = [];
       const params = [];
       if (q) {
-        where.push('(business_name LIKE ? OR category LIKE ? OR city LIKE ? OR email LIKE ?)');
-        const like = `%${q}%`;
+        where.push("(business_name LIKE ? ESCAPE '\\' OR category LIKE ? ESCAPE '\\' OR city LIKE ? ESCAPE '\\' OR email LIKE ? ESCAPE '\\')");
+        const like = `%${String(q).replace(/[\\%_]/g, (c) => `\\${c}`)}%`; // Batch 180 (L13)
         params.push(like, like, like, like);
       }
       if (status) {

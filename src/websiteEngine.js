@@ -35,6 +35,7 @@ const googleFonts = require('../public/js/fonts.js');
 const siteIcons = require('./siteIcons');
 const seoSchema = require('./seoSchema');
 const siteLegal = require('./siteLegal');
+const { assertPublicUrl } = require('../server/urlSafety');
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                             */
@@ -207,6 +208,41 @@ function truncateHtmlSafely(html, maxLen) {
   return s.slice(0, cut);
 }
 
+/** Decode the character references a browser would decode inside an
+ * attribute value, for scheme-check purposes only (Batch 180, M9):
+ * numeric refs (semicolon optional, as browsers accept), plus the
+ * named refs that can hide a scheme separator or split a scheme name. */
+function decodeAttrEntitiesForCheck(value) {
+  return String(value || '')
+    .replace(/&#x([0-9a-fA-F]+);?/g, (_, h) => {
+      const c = parseInt(h, 16);
+      return Number.isFinite(c) && c > 0 && c < 0x110000 ? String.fromCodePoint(c) : '';
+    })
+    .replace(/&#(\d+);?/g, (_, n) => {
+      const c = Number(n);
+      return Number.isFinite(c) && c > 0 && c < 0x110000 ? String.fromCodePoint(c) : '';
+    })
+    .replace(/&Tab;?/gi, '\t')
+    .replace(/&NewLine;?/gi, '\n')
+    .replace(/&colon;?/gi, ':')
+    .replace(/&sol;?/gi, '/')
+    .replace(/&amp;?/gi, '&');
+}
+
+/** True when an href-like attribute value is safe to keep: relative /
+ * fragment / query URLs, or an http, https, mailto or tel scheme.
+ * The value is entity-decoded and stripped of the ASCII tab/newline
+ * characters the WHATWG URL parser removes before the scheme is read,
+ * so `java&#115;cript:`, `java&Tab;script:` and `java\nscript:` are
+ * judged as the `javascript:` URLs a browser would navigate to. */
+function urlAttrValueAllowed(rawValue) {
+  const decoded = decodeAttrEntitiesForCheck(rawValue).replace(/[\t\r\n]/g, '');
+  const v = decoded.replace(/^[\u0000-\u0020]+/, '');
+  const m = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(v);
+  if (!m) return true;
+  return /^(https?|mailto|tel)$/i.test(m[1]);
+}
+
 /**
  * Allow agent-authored markup without scripts or event handlers.
  * Safe <style> and https stylesheet/font <link> tags are kept so agents
@@ -251,8 +287,31 @@ function sanitizeHtml(html) {
   // Strip iframe/object/embed/base — form/module embeds are in-page JS mounts now.
   s = s.replace(/<\/?(iframe|object|embed|base)[\s\S]*?>/gi, '');
   s = s.replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+  // Batch 180 (M9): the whitespace-anchored strip above misses an
+  // event handler that follows the solidus in a tag the HTML parser
+  // recovers from, e.g. <svg/onload=alert(1)> — strip those too, on
+  // every element (svg/math included, which the tag passes above
+  // never exempted but the \s anchor implicitly did).
+  s = s.replace(/\/on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
   s = s.replace(/\s(href|src|action)\s*=\s*(['"])\s*javascript:[^'"]*\2/gi, ' $1="#"');
   s = s.replace(/\s(href|src|action)\s*=\s*javascript:[^\s>]*/gi, ' $1="#"');
+  // Batch 180 (M9): judge every href-like attribute — href, src,
+  // action, formaction and xlink:href, quoted or bare — by its
+  // decoded scheme and keep only http/https/mailto/tel (or relative)
+  // values. This closes the entity-encoded / tab-split scheme family
+  // and `data:text/html` hrefs the literal `javascript:` strips miss.
+  s = s.replace(
+    /(\s(?:href|src|action|formaction|xlink:href)\s*=\s*)("[^"]*"|'[^']*'|[^\s>]+)/gi,
+    (all, prefix, raw) => {
+      const quoted = raw[0] === '"' || raw[0] === "'";
+      const quote = quoted ? raw[0] : '"';
+      const value = quoted ? raw.slice(1, -1) : raw;
+      if (urlAttrValueAllowed(value)) return all;
+      const attr = /([a-z:-]+)\s*=\s*$/.exec(prefix);
+      const name = attr ? attr[1] : 'href';
+      return ` ${name}=${quote}#${quote}`;
+    }
+  );
   s = s.replace(/\u0000KEEP(\d+)\u0000/g, (_, i) => kept[Number(i)] || '');
   // Safety net: mounts without their loader (legacy strip / hand-edited HTML).
   return ensureManagedEmbedScripts(s);
@@ -6449,7 +6508,16 @@ const PLACEHOLDER_IMAGE_RE =
   /(?:via\.placeholder|placehold\.it|placekitten|picsum\.photos|dummyimage|lorempixel|placeholder\.com|lorem\.flickr|placehold\.co)/i;
 
 /** HEAD/GET probe: URL returns image/asset bytes (status 200 + content-length or body). */
-function httpUrlHasBytes(url, opts = {}) {
+async function httpUrlHasBytes(url, opts = {}) {
+  // Batch 180 (L14): this raw probe used to skip urlSafety entirely.
+  // Validate scheme/host the same way fetchPublic callers are
+  // validated (public http(s) only, no credentials, no private or
+  // local resolution) before the probe touches the network.
+  try {
+    await assertPublicUrl(String(url));
+  } catch {
+    return false;
+  }
   const timeoutMs = Math.max(2000, Number(opts.timeoutMs) || 8000);
   return new Promise((resolve) => {
     let settled = false;
