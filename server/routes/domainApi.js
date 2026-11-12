@@ -1637,11 +1637,11 @@ router.post('/cloudflare/publish', requireRole('owner', 'admin'), async (req, re
 });
 
 // Domains — Cloudflare Registrar search/purchase + Pages custom-domain link
-router.get('/domains', denyLeadScopedToken, (req, res) => {
+router.get('/domains', denyLeadScopedToken, async (req, res) => {
   try {
     ok(
       res,
-      domain.domainsList(req.auth.workspaceId, {
+      await domain.domainsList(req.auth.workspaceId, {
         websiteId: req.query.websiteId ? Number(req.query.websiteId) : undefined,
         leadId: req.query.leadId ? Number(req.query.leadId) : undefined,
         status: req.query.status || undefined,

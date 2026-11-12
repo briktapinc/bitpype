@@ -184,9 +184,13 @@ async function main() {
     assert.equal(r.dns.created, true);
     assert.equal(r.dns.target, TARGET);
     const posts = dnsPosts();
-    assert.equal(posts.length, 1, 'exactly one DNS create');
+    // Batch 182: an apex link now also provisions www — two creates
+    // (apex first, then the www host), both at the same target.
+    assert.equal(posts.length, 2, 'apex + www DNS creates (Batch 182)');
     assert.ok(posts[0].path.includes(`/zones/${ZONE_ID}/dns_records`), 'POST hits the zone records path: ' + posts[0].path);
     assert.deepEqual(posts[0].body, { type: 'CNAME', name: DOMAIN, content: TARGET, proxied: true, ttl: 1 });
+    assert.deepEqual(posts[1].body, { type: 'CNAME', name: `www.${DOMAIN}`, content: TARGET, proxied: true, ttl: 1 });
+    assert.equal(r.www && r.www.attached, true, 'www reported attached in the link result');
     const gets = httpCalls.filter((c) => c.method === 'GET' && c.path.includes('/dns_records'));
     assert.ok(gets.length >= 2, 'initial lookup + read-back confirmation GETs, got ' + gets.length);
     const row = db.prepare('SELECT * FROM site_domains WHERE domain_name = ?').get(DOMAIN);
@@ -198,7 +202,12 @@ async function main() {
 
   /* ---------- 2: idempotent when the correct CNAME exists ---------- */
   await checkAsync('link: correct CNAME already present → success, no POST, no DELETE', async () => {
-    resetHttp([{ id: 'rec1', type: 'CNAME', name: DOMAIN, content: TARGET, proxied: true, ttl: 1 }]);
+    // Batch 182: the www host record is seeded too — "already
+    // correct" now covers apex + www, so a re-link churns nothing.
+    resetHttp([
+      { id: 'rec1', type: 'CNAME', name: DOMAIN, content: TARGET, proxied: true, ttl: 1 },
+      { id: 'rec2', type: 'CNAME', name: `www.${DOMAIN}`, content: TARGET, proxied: true, ttl: 1 },
+    ]);
     const db = makeDb();
     const r = await cfDomains.linkDomainToWebsite(db, {
       domain: DOMAIN,
@@ -335,8 +344,10 @@ async function main() {
     const link = steps.find((s) => s.step === 'link');
     assert.ok(link && link.ok === true, 'link step ok: ' + JSON.stringify(steps));
     const posts = dnsPosts();
-    assert.equal(posts.length, 1, 'the link created the apex CNAME');
+    // Batch 182: apex (dns step) + www (link step) = two creates.
+    assert.equal(posts.length, 2, 'the flow created the apex CNAME plus the Batch 182 www CNAME');
     assert.deepEqual(posts[0].body, { type: 'CNAME', name: DOMAIN, content: TARGET, proxied: true, ttl: 1 });
+    assert.deepEqual(posts[1].body, { type: 'CNAME', name: `www.${DOMAIN}`, content: TARGET, proxied: true, ttl: 1 });
     assert.ok(sent.length >= 1, 'client live email sent');
     db.close();
   });

@@ -325,14 +325,29 @@ function mapSearchDomain(row) {
   const name = normalizeDomain(row.name || row.domain_name || row.domain);
   if (!name) return null;
   const pricing = row.pricing || {};
+  const registrationCost = pricing.registration_cost || pricing.registrationCost || row.registration_cost || null;
+  // Batch 182 (fix 4): an explicit availability flag + a first-year
+  // TOTAL. Cloudflare's registration_cost is the full first-year price
+  // for standard names; when the pricing payload carries separate fee
+  // components, they are added so the total is what the buyer pays.
+  const feeRaw = pricing.fee != null ? pricing.fee : pricing.icann_fee != null ? pricing.icann_fee : pricing.additional_cost;
+  const regNum =
+    registrationCost == null || registrationCost === '' ? NaN : Number(registrationCost);
+  const feeNum = feeRaw == null || feeRaw === '' ? 0 : Number(feeRaw);
+  const firstYearTotal = Number.isFinite(regNum)
+    ? Math.round((regNum + (Number.isFinite(feeNum) ? feeNum : 0)) * 100) / 100
+    : null;
   return {
     domain: name,
     registrable: !!row.registrable,
+    available: !!row.registrable,
     reason: row.reason || null,
     tier: row.tier || pricing.tier || null,
     currency: pricing.currency || row.currency || null,
-    registrationCost: pricing.registration_cost || pricing.registrationCost || row.registration_cost || null,
+    registrationCost,
     renewalCost: pricing.renewal_cost || pricing.renewalCost || row.renewal_cost || null,
+    firstYearTotal,
+    total: firstYearTotal,
   };
 }
 
@@ -381,7 +396,14 @@ async function checkDomains(db, names) {
   return { domains: list.map(mapSearchDomain).filter(Boolean) };
 }
 
-async function listOwnedDomains(db) {
+/**
+ * The DEPRECATED legacy registrar list (GET /registrar/domains).
+ * Batch 69 proved it returns EMPTY live while domains exist — it is
+ * kept ONLY as listRegistrations' last-resort fallback (whose callers
+ * treat a legacy-sourced answer as degraded, never as truth). Never
+ * expose it directly as an ownership answer (Batch 182, fix 1).
+ */
+async function listLegacyDomains(db) {
   const { token, accountId } = await creds(db);
   const resp = await apiRequest({
     method: 'GET',
@@ -400,6 +422,138 @@ async function listOwnedDomains(db) {
       }))
       .filter((d) => d.domain),
   };
+}
+
+/** Statuses that mean "this workspace owns / is acquiring this name". */
+const OWNED_STATUSES = ['linked', 'registered', 'registering', 'pending'];
+
+/**
+ * Batch 182 (fix 2) — cached registrar-fact refresh for the read
+ * paths (owned / list / status). When every live local row carries a
+ * renewal_checked_at younger than the TTL, the stored facts are
+ * served as-is and NO registrar call is made. Otherwise the
+ * registrations list is read ONCE and the observed facts (expiry,
+ * registrar auto_renew state, check stamp) are written back onto the
+ * matched site_domains rows, so every view (owned, list, admin,
+ * portal) reads the same populated record. Renewal MODE derivation
+ * stays with server/domainRenewals (billing-aware); this refresh
+ * only mirrors registrar facts. Best-effort: a registrar failure
+ * returns { refreshed:false, error } and stamps nothing, so the next
+ * read retries instead of caching a failure.
+ */
+const DOMAIN_FACTS_TTL_MIN = 15;
+async function refreshDomainFacts(db) {
+  ensureTables(db);
+  let rows;
+  try {
+    rows = db
+      .prepare(
+        `SELECT id, domain_name, renewal_checked_at FROM site_domains
+         WHERE status IN ('linked','registered','registering','pending')`
+      )
+      .all();
+  } catch {
+    return { refreshed: false, error: 'site_domains unavailable' };
+  }
+  if (!rows.length) return { refreshed: false, reason: 'no_domains' };
+  let stale = false;
+  try {
+    const fresh = db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM site_domains
+         WHERE status IN ('linked','registered','registering','pending')
+           AND renewal_checked_at IS NOT NULL
+           AND renewal_checked_at > datetime('now', ?)`
+      )
+      .get(`-${DOMAIN_FACTS_TTL_MIN} minutes`);
+    stale = !fresh || Number(fresh.c) < rows.length;
+  } catch {
+    stale = true;
+  }
+  if (!stale) return { refreshed: false, reason: 'fresh' };
+  let regs;
+  try {
+    regs = await listRegistrations(db);
+  } catch (e) {
+    return { refreshed: false, error: (e && e.message) || 'registrar list failed' };
+  }
+  if (!regs || regs.registrarError) {
+    return {
+      refreshed: false,
+      error: regs ? `registrations list degraded (legacy fallback): ${regs.registrarError}` : 'registrar list failed',
+    };
+  }
+  const regMap = new Map();
+  for (const d of regs.domains || []) regMap.set(String(d.domain || '').toLowerCase(), d);
+  let updated = 0;
+  for (const row of rows) {
+    const reg = regMap.get(String(row.domain_name || '').toLowerCase());
+    try {
+      db.prepare(
+        `UPDATE site_domains
+         SET expires_at = COALESCE(?, expires_at),
+             renewal_auto_renew = CASE WHEN ? IS NULL THEN renewal_auto_renew ELSE ? END,
+             renewal_checked_at = datetime('now')
+         WHERE id = ?`
+      ).run(
+        reg && reg.expiresAt ? reg.expiresAt : null,
+        reg && reg.autoRenew != null ? 1 : null,
+        reg && reg.autoRenew != null ? (reg.autoRenew ? 1 : 0) : null,
+        row.id
+      );
+      updated++;
+    } catch {
+      /* a single row write failure must not fail the read */
+    }
+  }
+  return { refreshed: true, updated, registrarDomains: regMap.size };
+}
+
+/**
+ * Batch 182 (fix 1) — domains.owned LIED BY OMISSION: it read the
+ * deprecated legacy registrar list (proven to answer empty while
+ * domains exist), so a customer who had just paid saw
+ * {"domains":[]} — their purchase appeared to vanish — while
+ * domains.list (the local records) showed the domain correctly.
+ *
+ * Owned is now scoped to THIS workspace's own ownership records
+ * (site_domains — the same source domains.list reads, so the two can
+ * never disagree), enriched with live registrar facts via
+ * refreshDomainFacts. Ownership NEVER comes from the raw account
+ * list: another workspace's domains live in another workspace's DB,
+ * so nothing can leak in either direction, even on a shared
+ * Cloudflare account.
+ */
+async function listOwnedDomains(db) {
+  ensureTables(db);
+  await creds(db); // NOT_CONFIGURED surfaces exactly as before
+  await refreshDomainFacts(db).catch(() => null);
+  const rows = db
+    .prepare(
+      `SELECT * FROM site_domains WHERE status IN ('linked','registered','registering','pending')
+       ORDER BY updated_at DESC, id DESC`
+    )
+    .all();
+  const seen = new Set();
+  const domains = [];
+  for (const row of rows) {
+    const name = normalizeDomain(row.domain_name);
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    domains.push({
+      domain: name,
+      status: row.status,
+      expiresAt: row.expires_at || null,
+      autoRenew: row.renewal_auto_renew != null ? !!row.renewal_auto_renew : null,
+      renewalMode: row.renewal_mode || null,
+      renewalAutoRenew: row.renewal_auto_renew != null ? !!row.renewal_auto_renew : null,
+      renewalCheckedAt: row.renewal_checked_at || null,
+      websiteId: row.website_id != null ? Number(row.website_id) : null,
+      leadId: row.lead_id != null ? Number(row.lead_id) : null,
+      source: row.source || null,
+    });
+  }
+  return { domains };
 }
 
 /**
@@ -456,7 +610,7 @@ async function listRegistrations(db) {
     }
     return { domains, source: 'registrations' };
   } catch (e) {
-    const legacy = await listOwnedDomains(db);
+    const legacy = await listLegacyDomains(db);
     return {
       domains: legacy.domains,
       source: 'legacy',
@@ -648,6 +802,26 @@ async function registerDomain(db, domainName, opts = {}) {
       JSON.stringify({ check: hit, workflow: result })
     );
 
+  // Batch 182 (fix 2): capture the expiry the registrar reports on
+  // the create workflow NOW, at registration completion — previously
+  // expires_at stayed NULL on the record until some later sweep
+  // happened to run, so the buyer could never see when their domain
+  // expires or confirm its renewal state. The renewal reconcile
+  // (server/domainRenewals, invoked by the server wrapper right
+  // after this returns) derives renewal_mode + enforces auto_renew
+  // from the same registrar data.
+  const regCtx = (result.context && result.context.registration) || null;
+  const workflowExpiresAt = (regCtx && regCtx.expires_at) || result.expires_at || null;
+  if (workflowExpiresAt) {
+    try {
+      db.prepare(
+        `UPDATE site_domains SET expires_at = ?, renewal_checked_at = datetime('now') WHERE id = ?`
+      ).run(String(workflowExpiresAt), row.lastInsertRowid);
+    } catch {
+      /* expiry capture is best-effort; the read-path refresh heals it */
+    }
+  }
+
   if (Number.isInteger(leadId) && leadId > 0) {
     try {
       const outreach = require('./outreach');
@@ -690,6 +864,7 @@ async function registerDomain(db, domainName, opts = {}) {
     price: hit.registrationCost || null,
     currency: hit.currency || null,
     years,
+    expiresAt: workflowExpiresAt || null,
     workflow: result,
   };
 }
@@ -725,7 +900,28 @@ async function registrationStatus(db, domainName) {
       local.id
     );
   }
-  return { domain, state, completed: !!result.completed, workflow: result };
+  // Batch 182 (fix 2): status used to return ONLY the workflow state,
+  // so a buyer could not see the domain's expiry or renewal state
+  // anywhere. On success, refresh the registrar facts onto the local
+  // record (cached — see refreshDomainFacts) and return them.
+  let after = local
+    ? db.prepare('SELECT * FROM site_domains WHERE id = ?').get(local.id)
+    : null;
+  if (state === 'succeeded') {
+    await refreshDomainFacts(db).catch(() => null);
+    if (local) after = db.prepare('SELECT * FROM site_domains WHERE id = ?').get(local.id);
+  }
+  return {
+    domain,
+    state,
+    completed: !!result.completed,
+    workflow: result,
+    status: after ? after.status : null,
+    expiresAt: after ? after.expires_at || null : null,
+    renewalMode: after ? after.renewal_mode || null : null,
+    renewalAutoRenew: after && after.renewal_auto_renew != null ? !!after.renewal_auto_renew : null,
+    renewalCheckedAt: after ? after.renewal_checked_at || null : null,
+  };
 }
 
 /**
@@ -1009,24 +1205,42 @@ function sameDnsTarget(content, expected) {
   );
 }
 
+/**
+ * Batch 182 (fix 3a): zone candidates for a name, longest first —
+ * the name itself, then each parent up to the registrable domain
+ * (last two labels). A zone is hosted under its registrable name, so
+ * looking up a subdomain (www.example.com) must WALK UP to
+ * example.com. The old lookup queried the full subdomain as the zone
+ * name, found nothing, and reported — wrongly — that no zone existed
+ * in the account at all.
+ */
+function zoneCandidates(domain) {
+  const labels = String(domain || '').split('.').filter(Boolean);
+  const out = [];
+  for (let i = 0; i + 2 <= labels.length; i++) out.push(labels.slice(i).join('.'));
+  return out;
+}
+
 async function findZoneId(token, accountId, domain) {
-  const resp = await apiRequest({
-    method: 'GET',
-    apiPath: `${API_BASE}/zones?name=${encodeURIComponent(domain)}&account.id=${encodeURIComponent(accountId)}`,
-    token,
-  });
-  if (resp.statusCode !== 200) {
-    throw fail('CF_ERROR', dnsCfError(resp, `Could not look up the DNS zone for ${domain}`));
+  const candidates = zoneCandidates(domain);
+  for (const candidate of candidates) {
+    const resp = await apiRequest({
+      method: 'GET',
+      apiPath: `${API_BASE}/zones?name=${encodeURIComponent(candidate)}&account.id=${encodeURIComponent(accountId)}`,
+      token,
+    });
+    if (resp.statusCode !== 200) {
+      throw fail('CF_ERROR', dnsCfError(resp, `Could not look up the DNS zone for ${candidate}`));
+    }
+    const list = Array.isArray(resp.json && resp.json.result) ? resp.json.result : [];
+    const zone = list.find((z) => z && String(z.name || '').toLowerCase() === candidate);
+    if (zone && zone.id) return zone.id;
   }
-  const list = Array.isArray(resp.json && resp.json.result) ? resp.json.result : [];
-  const zone = list.find((z) => z && String(z.name || '').toLowerCase() === domain) || list[0];
-  if (!zone || !zone.id) {
-    throw fail(
-      'ZONE_NOT_FOUND',
-      `No DNS zone for ${domain} was found in the connected Cloudflare account — the domain's DNS must be hosted on Cloudflare before BitPype can point it at the site. If the domain was just registered, wait a moment and retry.`
-    );
-  }
-  return zone.id;
+  const registrable = candidates.length ? candidates[candidates.length - 1] : domain;
+  throw fail(
+    'ZONE_NOT_FOUND',
+    `No DNS zone for ${registrable} was found in the connected Cloudflare account (the zone that ${domain} belongs to) — the domain's DNS must be hosted on this Cloudflare account before BitPype can point it at the site. If the domain was just registered, wait a moment and retry.`
+  );
 }
 
 async function listApexDnsRecords(token, zoneId, domain) {
@@ -1049,7 +1263,18 @@ async function listApexDnsRecords(token, zoneId, domain) {
 }
 
 async function ensurePagesDnsRecord(db, domainName, projectName) {
-  const domain = normalizeDomain(domainName);
+  return ensurePagesDnsRecordForName(db, domainName, projectName);
+}
+
+/**
+ * Batch 182 (fix 3b): the ensure, generalized to any record name in
+ * the domain's zone — the apex itself, or its www host. Same rules as
+ * the apex path (Batch 42): correct CNAME already there = success; a
+ * conflicting A/AAAA/CNAME fails naming the record; the created
+ * record is read back before success is reported.
+ */
+async function ensurePagesDnsRecordForName(db, recordName, projectName) {
+  const domain = normalizeDomain(recordName);
   const project = String(projectName || '')
     .trim()
     .toLowerCase();
@@ -1070,7 +1295,7 @@ async function ensurePagesDnsRecord(db, domainName, projectName) {
     if (conflict) {
       throw fail(
         'DNS_CONFLICT',
-        `${domain} already has a ${String(conflict.type || '').toUpperCase()} record at its root pointing to ${conflict.content} — BitPype will not overwrite or delete DNS it did not create. Change or remove that record in Cloudflare DNS for ${domain}, then retry.`
+        `${domain} already has a ${String(conflict.type || '').toUpperCase()} record pointing to ${conflict.content} — BitPype will not overwrite or delete DNS it did not create. Change or remove that record in Cloudflare DNS for ${domain}, then retry.`
       );
     }
     const resp = await apiRequest({
@@ -1096,7 +1321,7 @@ async function ensurePagesDnsRecord(db, domainName, projectName) {
       `The DNS record for ${domain} → ${target} could not be confirmed at Cloudflare. Retry in a moment; if it persists, check the DNS tab for ${domain} in the Cloudflare dashboard.`
     );
   }
-  return { zoneId, target, created };
+  return { zoneId, target, created, name: domain };
 }
 
 /**
@@ -1271,6 +1496,35 @@ async function linkDomainToWebsite(db, opts = {}) {
   // caller's flow fails honestly instead of reporting a dead site live.
   const dns = await ensurePagesDnsRecord(db, domain, project);
 
+  // Batch 182 (fix 3b): the apex was ALL a link ever set up — the www
+  // host silently never resolved (found live on berksjournal.com,
+  // 2026-11-11: apex live, www dead). An apex link now ALSO provisions
+  // www: attached to the same Pages project as a custom domain (www
+  // SERVES the site — the Pages custom-domain model; there is no
+  // redirect-rule precedent in this codebase to follow) plus its
+  // proxied CNAME. A www failure never un-links a working apex, but
+  // it is NEVER silent either: it is reported in the link result and
+  // the activity log, so it can be retried by re-linking.
+  let www = null;
+  if (domain.split('.').length === 2) {
+    const wwwName = `www.${domain}`;
+    try {
+      const wwwPages = await pagesAddDomain(db, project, wwwName);
+      const wwwDns = await ensurePagesDnsRecordForName(db, wwwName, project);
+      www = { name: wwwName, attached: true, serves: 'pages', pages: wwwPages, dns: wwwDns };
+    } catch (e) {
+      www = { name: wwwName, attached: false, error: (e && e.message) || String(e) };
+      try {
+        db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
+          'domains',
+          `www provisioning failed for ${wwwName} (apex ${domain} linked OK): ${www.error}`
+        );
+      } catch {
+        /* */
+      }
+    }
+  }
+
   db.prepare(
     `
     UPDATE websites SET custom_domain = ?, preview_url = ?, updated_at = datetime('now') WHERE id = ?
@@ -1312,6 +1566,7 @@ async function linkDomainToWebsite(db, opts = {}) {
     publicUrl,
     pages: attached,
     dns,
+    www,
   };
 }
 
@@ -1326,6 +1581,22 @@ async function unlinkDomain(db, opts = {}) {
       await pagesDeleteDomain(db, project, domain);
     } catch {
       /* best effort */
+    }
+    // Batch 182: symmetric www teardown (best effort) — detach the
+    // www host the link provisioned and remove its CNAME when it
+    // points at this site's project.
+    if (domain.split('.').length === 2) {
+      const wwwName = `www.${domain}`;
+      try {
+        await pagesDeleteDomain(db, project, wwwName);
+      } catch {
+        /* best effort */
+      }
+      try {
+        await removePagesDnsRecord(db, wwwName, project);
+      } catch {
+        /* best effort */
+      }
     }
   }
   if (row && row.website_id) {
@@ -1427,6 +1698,9 @@ module.exports = {
   searchDomains,
   checkDomains,
   listOwnedDomains,
+  refreshDomainFacts,
+  zoneCandidates,
+  ensurePagesDnsRecordForName,
   listRegistrations,
   setRegistrationAutoRenew,
   workflowSelfPath,

@@ -5093,21 +5093,74 @@ async function domainsOwned(workspaceId) {
   return withDb(workspaceId, (db) => require('../src/cfDomains').listOwnedDomains(db));
 }
 async function domainsRegister(workspaceId, body = {}) {
-  return withDb(workspaceId, (db) =>
-    require('../src/cfDomains').registerDomain(db, body.domain || body.domainName, {
+  return withDb(workspaceId, async (db) => {
+    const mod = require('../src/cfDomains');
+    const result = await mod.registerDomain(db, body.domain || body.domainName, {
       years: body.years,
       websiteId: body.websiteId,
       leadId: body.leadId,
-    })
-  );
+    });
+    // Batch 182 (fix 2): the moment a registration completes, derive
+    // + enforce its renewal state (subscribed → auto-renew ON, else
+    // manual/OFF) and stamp expiry/mode/checked-at onto the record —
+    // the buyer must be able to SEE expiry + renewal state right
+    // away, not after some later sweep. Best-effort: a reconcile
+    // failure never fails a completed purchase; the read-path
+    // refresh + hourly sweep heal it.
+    if (result && result.status === 'registered') {
+      try {
+        await require('./domainRenewals').reconcileWorkspace(db, workspaceId);
+        const row = db
+          .prepare('SELECT * FROM site_domains WHERE domain_name = ? ORDER BY id DESC LIMIT 1')
+          .get(result.domain);
+        if (row) {
+          result.expiresAt = row.expires_at || result.expiresAt || null;
+          result.renewalMode = row.renewal_mode || null;
+          result.renewalAutoRenew = row.renewal_auto_renew != null ? !!row.renewal_auto_renew : null;
+          result.renewalCheckedAt = row.renewal_checked_at || null;
+        }
+      } catch (e) {
+        console.warn('[domain] post-register renewal reconcile:', e.message || e);
+      }
+    }
+    return result;
+  });
 }
 async function domainsRegistrationStatus(workspaceId, domainName) {
-  return withDb(workspaceId, (db) => require('../src/cfDomains').registrationStatus(db, domainName));
+  return withDb(workspaceId, async (db) => {
+    const mod = require('../src/cfDomains');
+    const result = await mod.registrationStatus(db, domainName);
+    // Batch 182 (fix 2): a succeeded status check also derives the
+    // renewal mode (billing-aware) so the returned record carries
+    // the full picture — state, expiry, renewal mode + registrar
+    // auto_renew — not just the workflow state.
+    if (result && result.state === 'succeeded') {
+      try {
+        await require('./domainRenewals').reconcileWorkspace(db, workspaceId);
+        const row = db
+          .prepare('SELECT * FROM site_domains WHERE domain_name = ? ORDER BY id DESC LIMIT 1')
+          .get(result.domain);
+        if (row) {
+          result.expiresAt = row.expires_at || result.expiresAt || null;
+          result.renewalMode = row.renewal_mode || null;
+          result.renewalAutoRenew = row.renewal_auto_renew != null ? !!row.renewal_auto_renew : null;
+          result.renewalCheckedAt = row.renewal_checked_at || result.renewalCheckedAt || null;
+        }
+      } catch (e) {
+        console.warn('[domain] status renewal reconcile:', e.message || e);
+      }
+    }
+    return result;
+  });
 }
-function domainsList(workspaceId, opts = {}) {
-  return withDb(workspaceId, (db) => {
+async function domainsList(workspaceId, opts = {}) {
+  return withDb(workspaceId, async (db) => {
     const mod = require('../src/cfDomains');
     mod.ensureTables(db);
+    // Batch 182 (fix 2): list reads refresh the registrar facts onto
+    // the stored rows first (TTL-cached inside refreshDomainFacts —
+    // no registrar call while the facts are fresh).
+    await mod.refreshDomainFacts(db).catch(() => null);
     return { domains: mod.listLinked(db, opts) };
   });
 }

@@ -238,8 +238,12 @@ async function main() {
     assert.equal(dnsStep.ok, true, 'dns step ok');
     assert.ok(dnsStep.detail.includes('Pages reports the domain active'), 'dns detail names the witness: ' + dnsStep.detail);
     assert.ok(dnsStep.detail.includes('DNS record created'), 'dns detail says the record was created: ' + dnsStep.detail);
-    assert.equal(dnsPosts().length, 1, 'exactly one CNAME POST across dns + link (the link ensure no-ops)');
+    // Batch 182: the link step now also provisions www — the apex
+    // ensure still no-ops (created by the dns step), so the two POSTs
+    // are exactly apex (dns step) + www (link step).
+    assert.equal(dnsPosts().length, 2, 'apex CNAME from the dns step + www CNAME from the link (Batch 182)');
     assert.deepEqual(dnsPosts()[0].body, { type: 'CNAME', name: DOMAIN, content: TARGET, proxied: true, ttl: 1 });
+    assert.deepEqual(dnsPosts()[1].body, { type: 'CNAME', name: `www.${DOMAIN}`, content: TARGET, proxied: true, ttl: 1 });
     const row = db.prepare('SELECT * FROM site_domains WHERE domain_name = ?').get(DOMAIN);
     assert.ok(row && row.status === 'linked', 'site_domains linked after the dns step passed');
     assert.ok(sent.length >= 1, 'client live email sent');
@@ -299,7 +303,9 @@ async function main() {
     const dnsSteps = steps.filter((s) => s.step === 'dns');
     assert.equal(dnsSteps[dnsSteps.length - 1].ok, true, 'latest dns step ok on resume');
     assert.ok(dnsSteps[dnsSteps.length - 1].detail.includes('already in place'), 'resume sees the existing record: ' + dnsSteps[dnsSteps.length - 1].detail);
-    assert.equal(dnsPosts().length, 1, 'still exactly one CNAME POST across both runs — resume never re-creates');
+    // Batch 182: resume's link step creates the www CNAME exactly
+    // once; the apex record is never re-created.
+    assert.equal(dnsPosts().length, 2, 'apex (run 1 dns step) + www (resume link step) — neither is ever re-created');
     assert.equal(registerPosts().length, 0, 'registration never re-runs (skipped via site_domains state in both runs)');
     assert.ok(sent.length >= 1, 'live email sent only once the name resolves');
     const siteAfter = db.prepare('SELECT custom_domain FROM websites WHERE id = 1').get();

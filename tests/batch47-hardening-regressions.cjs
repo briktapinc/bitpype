@@ -531,8 +531,28 @@ function makeLinkDb(id) {
   return db;
 }
 
+// Batch 182: a link now also attaches the www host — the apex
+// assertions below are scoped to the apex name, and the www attach
+// is counted separately (its DNS read-back cannot confirm in this
+// stub, which is fine: www failure is reported, never fatal).
 const attachPosts = () =>
-  httpCalls.filter((c) => c.method === 'POST' && c.path.includes('/pages/projects/') && c.path.endsWith('/domains'));
+  httpCalls.filter(
+    (c) =>
+      c.method === 'POST' &&
+      c.path.includes('/pages/projects/') &&
+      c.path.endsWith('/domains') &&
+      c.body &&
+      c.body.name === LINK_DOMAIN
+  );
+const wwwAttachPosts = () =>
+  httpCalls.filter(
+    (c) =>
+      c.method === 'POST' &&
+      c.path.includes('/pages/projects/') &&
+      c.path.endsWith('/domains') &&
+      c.body &&
+      c.body.name === `www.${LINK_DOMAIN}`
+  );
 
 async function linkCase(mode, initialDomains) {
   httpCalls.length = 0;
@@ -566,6 +586,7 @@ async function pagesSuite() {
     const { result, error, site, linked } = await linkCase('ok', [{ name: LINK_DOMAIN, status: 'active' }]);
     assert.equal(error, null, `link must not throw: ${error && error.message}`);
     assert.equal(attachPosts().length, 0, 'no POST may be issued when the domain is already attached');
+    assert.equal(wwwAttachPosts().length, 1, 'Batch 182: the www host attach is still attempted');
     assert.equal(result.pages.preExisting, true, 'attach info must say it was pre-existing');
     assert.equal(site.custom_domain, LINK_DOMAIN);
     assert.equal(linked, 1);
@@ -575,6 +596,7 @@ async function pagesSuite() {
     const { result, error, site, linked } = await linkCase('already', []);
     assert.equal(error, null, `link must not throw: ${error && error.message}`);
     assert.equal(attachPosts().length, 1, 'exactly one attach POST was attempted');
+    assert.equal(wwwAttachPosts().length, 1, 'Batch 182: plus the www host attach');
     assert.equal(result.pages.preExisting, true);
     assert.equal(site.custom_domain, LINK_DOMAIN);
     assert.equal(linked, 1);
@@ -594,6 +616,7 @@ async function pagesSuite() {
     const { result, error, site, linked } = await linkCase('ok', []);
     assert.equal(error, null, `link must not throw: ${error && error.message}`);
     assert.equal(attachPosts().length, 1);
+    assert.equal(wwwAttachPosts().length, 1, 'Batch 182: fresh link also attaches the www host');
     assert.ok(!result.pages.preExisting, 'a fresh attach must not claim pre-existing');
     assert.equal(result.pages.status, 'pending');
     assert.equal(site.custom_domain, LINK_DOMAIN);

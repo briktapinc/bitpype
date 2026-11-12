@@ -5854,7 +5854,7 @@ async function callTool(workspaceId, name, args = {}, ctx = {}) {
     }
     if (name === 'domains.register') return { ok: true, data: await domain.domainsRegister(ws, a) };
     if (name === 'domains.status') return { ok: true, data: await domain.domainsRegistrationStatus(ws, a.domain) };
-    if (name === 'domains.list') return { ok: true, data: domain.domainsList(ws, a) };
+    if (name === 'domains.list') return { ok: true, data: await domain.domainsList(ws, a) };
     if (name === 'domains.owned') return { ok: true, data: await domain.domainsOwned(ws) };
     if (name === 'domains.link') return { ok: true, data: await domain.domainsLink(ws, a) };
     if (name === 'domains.unlink') return { ok: true, data: await domain.domainsUnlink(ws, a) };

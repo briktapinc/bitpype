@@ -912,6 +912,17 @@ async function completeTransaction(db, workspaceId, txnId, deps = {}) {
       return { detail: `Registered ${txn.domain} (${(r && r.price) || moneyText(txn.registrar_price_cents)}/yr)` };
     });
 
+    // Batch 182 (fix 2): registration completion derives + enforces
+    // the renewal state on the record immediately (expiry / mode /
+    // registrar auto_renew stamped) — the same treatment the
+    // tool/API register path gets, so the buyer sees expiry +
+    // renewal state from the start. Best-effort.
+    try {
+      await require('./domainRenewals').reconcileWorkspace(db, workspaceId);
+    } catch (e) {
+      console.warn('[domainFlow] post-register renewal reconcile:', e.message || e);
+    }
+
     // ---- Batch 43 dns step (begin) ----
     // Step 2 — DNS: point the name at the site, then verify it resolves.
     // The ensure is the Batch 42 one; linkDomainToWebsite keeps its own
