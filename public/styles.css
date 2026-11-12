@@ -2841,6 +2841,19 @@ button.dn-theme-none .dn-theme-none-label { font-size: 14px; font-weight: 600; c
   text-align: center;
 }
 @media (max-width: 700px) {
+  .explorer {
+    padding: 22px;
+  }
+  .explorer-map {
+    height: 300px;
+  }
+  .explorer-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 700px) {
   .asst-pills {
     display: none;
   }
@@ -3011,16 +3024,4 @@ button.dn-theme-none .dn-theme-none-label { font-size: 14px; font-weight: 600; c
 .explorer-popup-reasons {
   margin: 8px 0 0;
   padding-left: 18px;
-}
-@media (max-width: 700px) {
-  .explorer {
-    padding: 22px;
-  }
-  .explorer-map {
-    height: 300px;
-  }
-  .explorer-controls {
-    flex-direction: column;
-    align-items: stretch;
-  }
 }

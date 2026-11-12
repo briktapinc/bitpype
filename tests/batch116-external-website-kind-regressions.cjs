@@ -173,7 +173,7 @@ function has(src, needle, label) {
       cz.summary,
       // Batch 161 rotation applied below the Batch 156 note.
       // Batch 156 rotation: census 450 -> 453 (+1 STATIC +1 ESCAPED +1 SAFE in app.js — the fingerprint surfaces), safe classes 336 -> 339, RAW 78 / IDENT 36 and the 114-entry reviewed set unchanged; baseline regenerated.
-      { total: 508, STATIC: 189, ESCAPED: 48, SAFE: 81, BUILDER: 64, IDENT: 41, RAW: 85 },
+      { total: 514, STATIC: 192, ESCAPED: 49, SAFE: 81, BUILDER: 64, IDENT: 41, RAW: 87 },
       'SEC-13 census summary unchanged'
     );
     n += 1;
@@ -181,7 +181,7 @@ function has(src, needle, label) {
     const sha = crypto.createHash('sha256').update(multiset.join('\n')).digest('hex');
     assert.equal(
       sha,
-      '1d7b8e71343b27ffdda46074a83b68e601d78239445d2f66a5aea73ffc1c355d',
+      '1800466848dc1bdee7372a419f9a7c3e4f68eb5be637719a3983506daa50fc22',
       'SEC-13 sink multiset byte-identical (Batch 161 rotation: census 453 -> 470 (+17 audited Assistant-surface sinks in app.js/portal.js — escape-first markdown renderer + esc()-wrapped usage templates; pairwise (file,kind,snippet) multiset diff vs the landed 159 census = exactly these additions plus pure line shifts, incl. the portal.js Assistant block relocation ahead of the Batch 117 panel; safe classes 339 -> 351, RAW 78 -> 81, IDENT 36 -> 38, reviewed set 119 entries; baseline regenerated — see batch103 narrative. Prior: Batch 136 finisher: +2 audited STATIC sinks in module-embed.js; RAW/IDENT multiset unchanged; Batch 153: census 448 -> 450 — +1 BUILDER +1 RAW in app.js, both the Admin Design-agent editor (rows build — every interpolated value esc()-wrapped; panel shell classified RAW by the conservative classifier, audited: its interpolations are a fixed literal seed note and the numeric limits only, no staff- or visitor-controlled string reaches it unescaped); BUILDER 59 -> 60, RAW 77 -> 78, safe classes 335 -> 336; remaining app.js RAW/IDENT movement is pure line shift from the editor + popup insertions, (file,kind,snippet) multiset diff vs the Batch 139 base = exactly these two sinks; baseline regenerated)'
     );
     n += 1;

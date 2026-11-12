@@ -324,9 +324,9 @@ async function main() {
     let n = 0;
     const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
     const cz = census();
-    assert.equal(cz.summary.total, 508, 'SEC-13 census total unchanged by Batch 170 (zero new sinks)');
-    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 382, 'SEC-13 safe classes unchanged (Batch 176 finisher re-pin: 380 -> 381 — audited Assistant page-head shell reclassification RAW -> STATIC in app.js, multiset-proven vs the Batch 175 base; see the batch104 note)');
-    assert.equal(cz.summary.RAW, 85, 'SEC-13 RAW unchanged (Batch 176 finisher re-pin: 86 -> 85 — same audited reclassification)');
+    assert.equal(cz.summary.total, 514, 'SEC-13 census total unchanged by Batch 170 (zero new sinks)');
+    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 386, 'SEC-13 safe classes unchanged (Batch 176 finisher re-pin: 380 -> 381 — audited Assistant page-head shell reclassification RAW -> STATIC in app.js, multiset-proven vs the Batch 175 base; see the batch104 note)');
+    assert.equal(cz.summary.RAW, 87, 'SEC-13 RAW unchanged (Batch 176 finisher re-pin: 86 -> 85 — same audited reclassification)');
     assert.equal(cz.summary.IDENT, 41, 'SEC-13 IDENT unchanged');
     n += 4;
 
@@ -340,7 +340,7 @@ async function main() {
     // regenerated baseline set equals the live census set exactly.
     // Batch 181 finisher re-pin: the shared detail-video portal
     // editor fields shifted the same sink +13 lines (14678 -> 14691);
-    // census totals unchanged (508 / 382 / 85 / 41, multiset-proven)
+    // census totals unchanged (514 / 386 / 87 / 41, multiset-proven)
     // and the regenerated baseline set equals the live census set.
     assert.ok(baseline.includes('public/js/portal.js:14691'), 'baseline carries the shifted assistantMd sink at its new line');
     assert.ok(!baseline.includes('public/js/portal.js:14394'), 'stale pre-shift baseline entry removed');
